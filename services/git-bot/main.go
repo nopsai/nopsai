@@ -13,7 +13,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +22,7 @@ import (
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
 	"nopsai/pkg/proxyhttp"
+	"nopsai/services/git-bot/internal/checkrender"
 
 	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/google/go-github/v53/github"
@@ -39,33 +39,6 @@ type GitBotApp struct {
 	checkRunStates map[int64]*CheckRunState
 	stateLock      sync.Mutex
 	githubAppID    int64
-}
-
-// TaskStatusUpdate reflects the new granular status updates.
-type TaskStatusUpdate struct {
-	RunID      string    `json:"run_id"`
-	RepoOwner  string    `json:"repo_owner"`
-	RepoName   string    `json:"repo_name"`
-	CheckRunID int64     `json:"check_run_id"`
-	StepName   string    `json:"step_name"`
-	TaskName   string    `json:"task_name"`
-	TaskStatus string    `json:"task_status"`
-	TaskIndex  int       `json:"task_index"`
-	TotalTasks int       `json:"total_tasks"`
-	DependsOn  []string  `json:"depends_on"`
-	GitHubView string    `json:"github_view"`
-	StartedAt  time.Time `json:"started_at"`
-	FinishedAt time.Time `json:"finished_at"`
-}
-
-// CheckRunState now stores tasks nested within steps.
-type CheckRunState struct {
-	RunID              string
-	Steps              map[string]map[string]TaskStatusUpdate
-	StepOrder          []string
-	GitHubView         string
-	PipelineName       string
-	PipelineDefinition string
 }
 
 type RunStatusUpdate struct {
@@ -217,260 +190,6 @@ type FindSuiteCheckRunResponse struct {
 	HeadSHA            string `json:"head_sha"`
 	PullRequestHeadRef string `json:"pull_request_head_ref,omitempty"`
 	HeadBranch         string `json:"head_branch,omitempty"`
-}
-
-func (a *GitBotApp) renderMarkdownTree(state *CheckRunState) string {
-	var builder strings.Builder
-	allTasks := make(map[string]TaskStatusUpdate)
-
-	// Maps a task to the list of tasks that depend on it.
-	children := make(map[string][]string)
-	isChild := make(map[string]bool)
-
-	// Consolidate all tasks into a single map and initialize helper maps
-	for _, stepTasks := range state.Steps {
-		for taskName, task := range stepTasks {
-			allTasks[taskName] = task
-			children[taskName] = []string{}
-			isChild[taskName] = false
-		}
-	}
-
-	// Build the dependency graph
-	for taskName, task := range allTasks {
-		if len(task.DependsOn) > 0 {
-			isChild[taskName] = true
-			for _, depName := range task.DependsOn {
-				if _, ok := allTasks[depName]; ok {
-					children[depName] = append(children[depName], taskName)
-				}
-			}
-		}
-	}
-
-	// ** NEW **: Keep track of rendered tasks to avoid duplicates
-	renderedTasks := make(map[string]bool)
-
-	// A recursive function to render a task and its descendants
-	var renderNode func(taskName string, level int)
-	renderNode = func(taskName string, level int) {
-		// ** FIXED **: Check if the task has already been rendered
-		if renderedTasks[taskName] {
-			indentation := strings.Repeat("  ", level)
-			builder.WriteString(fmt.Sprintf("%s- `%s` *(already shown above)*\n", indentation, taskName))
-			return
-		}
-		renderedTasks[taskName] = true
-
-		task := allTasks[taskName]
-
-		icon := "⏳"
-		duration := ""
-		if !task.StartedAt.IsZero() && !task.FinishedAt.IsZero() {
-			duration = fmt.Sprintf(" (took %s)", task.FinishedAt.Sub(task.StartedAt).Round(time.Second))
-		}
-		switch {
-		case task.TaskStatus == "success":
-			icon = "✅"
-		case strings.Contains(strings.ToLower(task.TaskStatus), "failure (ignored)"):
-			icon = "⚠️"
-		case strings.Contains(strings.ToLower(task.TaskStatus), "fail"):
-			icon = "❌"
-		case task.TaskStatus == "skipped":
-			icon = "⚪️"
-		case task.TaskStatus == "not_found":
-			icon = "❓"
-		}
-
-		indentation := strings.Repeat("  ", level)
-		builder.WriteString(fmt.Sprintf("%s- %s **%s**: `%s` - %s%s\n", indentation, icon, task.StepName, task.TaskName, task.TaskStatus, duration))
-
-		// Sort children by their original task index for deterministic order
-		taskChildren := children[taskName]
-		sort.SliceStable(taskChildren, func(i, j int) bool {
-			return allTasks[taskChildren[i]].TaskIndex < allTasks[taskChildren[j]].TaskIndex
-		})
-
-		// Recursively render children
-		for _, childName := range taskChildren {
-			renderNode(childName, level+1)
-		}
-	}
-
-	// Find and render root nodes (tasks that are not children of any other task)
-	var rootTasks []string
-	for taskName := range allTasks {
-		if !isChild[taskName] {
-			rootTasks = append(rootTasks, taskName)
-		}
-	}
-
-	// Sort root tasks by their original task index for deterministic order
-	sort.SliceStable(rootTasks, func(i, j int) bool {
-		return allTasks[rootTasks[i]].TaskIndex < allTasks[rootTasks[j]].TaskIndex
-	})
-
-	for _, taskName := range rootTasks {
-		renderNode(taskName, 0)
-	}
-
-	return builder.String()
-}
-
-func (a *GitBotApp) renderMermaidGraph(state *CheckRunState) string {
-	var builder strings.Builder
-	builder.WriteString("```mermaid\n")
-	builder.WriteString("graph TD\n")
-
-	// Style Definitions
-	builder.WriteString("\n    %% --- Style Definitions ---\n")
-	builder.WriteString("    classDef success fill:#1a3021,stroke:#3fb950,color:#c9d1d9\n")
-	builder.WriteString("    classDef failure fill:#38191c,stroke:#f85149,color:#c9d1d9\n")
-	builder.WriteString("    classDef ignored fill:#34291a,stroke:#d29922,color:#c9d1d9\n")
-	builder.WriteString("    classDef pending fill:#242930,stroke:#6e7681,color:#c9d1d9\n")
-	builder.WriteString("    classDef skipped fill:#242930,stroke:#6e7681,color:#c9d1d9\n")
-	builder.WriteString("    linkStyle default stroke:#6e7681,stroke-width:1px\n")
-
-	var pipeline models.Pipeline
-	if err := yaml.Unmarshal([]byte(state.PipelineDefinition), &pipeline); err != nil {
-		log.Error().Err(err).Msg("Failed to unmarshal pipeline definition for Mermaid graph")
-		return "Error: Could not render dependency graph."
-	}
-
-	taskToNodeID := make(map[string]string)
-	stepStartNodes := make(map[string]string)
-	stepEndNodes := make(map[string]string)
-
-	// 1. Define all task nodes and invisible step boundary nodes
-	builder.WriteString("\n    %% --- Node Definitions ---\n")
-	nodeCounter := 0
-	for _, step := range pipeline.Steps {
-		stepName := step.GetName()
-		tasksInStep := state.Steps[stepName]
-
-		// Create invisible start and end nodes for each step to act as hubs
-		stepStartNodes[stepName] = fmt.Sprintf("S%d_start", nodeCounter)
-		stepEndNodes[stepName] = fmt.Sprintf("S%d_end", nodeCounter)
-		builder.WriteString(fmt.Sprintf("    %s(( )); style %s fill:none,stroke:none,width:0,height:0\n", stepStartNodes[stepName], stepStartNodes[stepName]))
-		builder.WriteString(fmt.Sprintf("    %s(( )); style %s fill:none,stroke:none,width:0,height:0\n", stepEndNodes[stepName], stepEndNodes[stepName]))
-
-		for taskName, task := range tasksInStep {
-			nodeID := fmt.Sprintf("T%d", nodeCounter)
-			taskToNodeID[taskName] = nodeID
-			nodeCounter++
-
-			var statusIcon, styleClass string
-			var duration string
-			if !task.StartedAt.IsZero() && !task.FinishedAt.IsZero() {
-				duration = fmt.Sprintf("<br/>%s", task.FinishedAt.Sub(task.StartedAt).Round(time.Second))
-			}
-
-			switch {
-			case task.TaskStatus == "success":
-				statusIcon, styleClass = "✅", "success"
-			case strings.Contains(task.TaskStatus, "failure (ignored)"):
-				statusIcon, styleClass = "⚠️", "ignored"
-			case strings.Contains(task.TaskStatus, "fail"):
-				statusIcon, styleClass = "❌", "failure"
-			case task.TaskStatus == "skipped", task.TaskStatus == "not_found":
-				statusIcon, styleClass = "⚪️", "skipped"
-			default:
-				statusIcon, styleClass = "⏳", "pending"
-			}
-
-			nodeText := fmt.Sprintf("%s %s:<br/>%s%s", statusIcon, task.StepName, task.TaskName, duration)
-			builder.WriteString(fmt.Sprintf("    %s(\"`%s`\"):::%s\n", nodeID, nodeText, styleClass))
-		}
-	}
-
-	// 2. Define all dependency links
-	builder.WriteString("\n    %% --- Link Definitions ---\n")
-	for _, step := range pipeline.Steps {
-		stepName := step.GetName()
-		tasksInStep := state.Steps[stepName]
-		internalDependencies := make(map[string]bool)
-
-		// 2a. Link internal tasks (tasks that depend on other tasks in the same step)
-		for taskName, task := range tasksInStep {
-			toNode := taskToNodeID[taskName]
-			if len(task.DependsOn) > 0 {
-				for _, depName := range task.DependsOn {
-					fromNode := taskToNodeID[depName]
-					builder.WriteString(fmt.Sprintf("    %s --> %s\n", fromNode, toNode))
-					internalDependencies[taskName] = true
-				}
-			}
-		}
-
-		// 2b. Link the step's invisible start node to all of its initial tasks
-		for taskName := range tasksInStep {
-			if !internalDependencies[taskName] {
-				builder.WriteString(fmt.Sprintf("    %s --> %s\n", stepStartNodes[stepName], taskToNodeID[taskName]))
-			}
-		}
-
-		// 2c. Link all of the step's terminal tasks to its invisible end node
-		allTaskDeps := make(map[string]bool)
-		for _, task := range tasksInStep {
-			for _, dep := range task.DependsOn {
-				allTaskDeps[dep] = true
-			}
-		}
-		for taskName := range tasksInStep {
-			if !allTaskDeps[taskName] {
-				builder.WriteString(fmt.Sprintf("    %s --> %s\n", taskToNodeID[taskName], stepEndNodes[stepName]))
-			}
-		}
-
-		// 2d. Link the invisible end node of dependency steps to the invisible start node of this step
-		if len(step.GetDependsOn()) > 0 {
-			for _, depStepName := range step.GetDependsOn() {
-				builder.WriteString(fmt.Sprintf("    %s --> %s\n", stepEndNodes[depStepName], stepStartNodes[stepName]))
-			}
-		}
-	}
-
-	builder.WriteString("```\n")
-	return builder.String()
-}
-
-// Renders a flat list of tasks, prefixed with their step name.
-func (a *GitBotApp) renderMarkdownFlatList(state *CheckRunState) string {
-	var builder strings.Builder
-	allTasks := []TaskStatusUpdate{}
-
-	for _, stepName := range state.StepOrder {
-		tasks := state.Steps[stepName]
-		for _, task := range tasks {
-			allTasks = append(allTasks, task)
-		}
-	}
-
-	// Sort all tasks globally by their index
-	sort.SliceStable(allTasks, func(i, j int) bool {
-		return allTasks[i].TaskIndex < allTasks[j].TaskIndex
-	})
-
-	for _, task := range allTasks {
-		icon := "⏳"
-		duration := ""
-		if !task.StartedAt.IsZero() && !task.FinishedAt.IsZero() {
-			duration = fmt.Sprintf(" (took %s)", task.FinishedAt.Sub(task.StartedAt).Round(time.Second))
-		}
-		if task.TaskStatus == "success" {
-			icon = "✅"
-		} else if strings.Contains(strings.ToLower(task.TaskStatus), "failure (ignored)") {
-			icon = "⚠️"
-		} else if strings.Contains(strings.ToLower(task.TaskStatus), "fail") {
-			icon = "❌"
-		} else if task.TaskStatus == "skipped" {
-			icon = "⚪️"
-		} else if task.TaskStatus == "not_found" {
-			icon = "❓"
-		}
-		builder.WriteString(fmt.Sprintf("- %s **%s**: `%s` - %s%s\n", icon, task.StepName, task.TaskName, task.TaskStatus, duration))
-	}
-	return builder.String()
 }
 
 func (a *GitBotApp) verifySignature(r *http.Request, body []byte) bool {
@@ -1484,15 +1203,7 @@ func (a *GitBotApp) handleTaskStatusUpdate(w http.ResponseWriter, r *http.Reques
 		state.GitHubView = update.GitHubView
 	}
 
-	var summary string
-	switch state.GitHubView {
-	case "mermaid":
-		summary = a.renderMermaidGraph(state)
-	case "tree":
-		summary = a.renderMarkdownTree(state)
-	default:
-		summary = a.renderMarkdownFlatList(state)
-	}
+	summary := checkrender.Render(state)
 
 	completedTasks := 0
 	totalTasks := 0
@@ -1569,14 +1280,7 @@ func (a *GitBotApp) handleRunStatusUpdate(w http.ResponseWriter, r *http.Request
 
 	summary := ""
 	if ok {
-		switch state.GitHubView {
-		case "mermaid":
-			summary = a.renderMermaidGraph(state)
-		case "tree":
-			summary = a.renderMarkdownTree(state)
-		default:
-			summary = a.renderMarkdownFlatList(state)
-		}
+		summary = checkrender.Render(state)
 	}
 	if update.Status == "failure" && update.Summary != "" {
 		summary = fmt.Sprintf("❌ **Pipeline Failed:**\n\n%s", update.Summary)

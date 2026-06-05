@@ -15,11 +15,28 @@ Responsibilities:
 - Stores and reads all durable state from Postgres.
 - Validates pipelines and resolves reusable `step:` includes.
 - Resolves required knowledge context, secrets, and variables before a run is dispatched.
-- Creates run records, task records, and log records.
-- Starts config sync from the Git-backed config repo.
-- Applies system GitOps runtime settings for runner install defaults, supported
-  runtime URLs, agent defaults, dispatcher routing, and mail notification
-  settings.
+- Creates run records, task records, and log records through run-service and
+  run-query boundaries that keep persistence, launch orchestration, and run
+  detail shaping out of HTTP handlers.
+- Builds runner install artifacts through a dedicated runner-install boundary,
+  while one-time bootstrap token storage remains on the application.
+- Uses a dedicated git-bot client boundary for GitHub repository reads, config
+  commits, check-run lifecycle operations, and run/task status updates.
+- Shares config-sync path normalization, repository identifier parsing,
+  pipeline-run group-structure parsing, binding-file validation/defaults,
+  config-repository request shaping, write-path validation, and
+  config-repository drift ownership/path, file-diffing, and group-structure
+  export rules through a dedicated internal config-sync package.
+- Starts Git-backed config repository sync through a dedicated
+  `config_sync_runner.go` runner/status boundary and a `config_sync.go`
+  apply boundary, with scope-entry parsing and delegated group synchronization
+  split into separate files.
+- Exports config repository desired state through separate drift, resource,
+  scope, knowledge, group-structure, access, embedded resource-access,
+  path-rule, and runtime/settings export boundaries.
+- Applies system GitOps runtime settings through shared system-config helpers
+  for runner install defaults, supported runtime URLs, agent defaults,
+  dispatcher routing, and mail notification settings.
 - Seeds predefined product roles and expands role grants into low-level AAA ACLs.
 - Talks to the dispatcher as a gRPC client.
 - Talks to `git-bot` over HTTP for GitHub checks and repository content access.
@@ -27,8 +44,44 @@ Responsibilities:
 Key files:
 
 - `services/nopsai/main.go`
+- `services/nopsai/auth_models.go`
+- `services/nopsai/http_middleware.go`
+- `services/nopsai/config_runtime.go`
+- `services/nopsai/config_sync_status.go`
+- `services/nopsai/pipeline_runtime.go`
+- `services/nopsai/run_helpers.go`
+- `services/nopsai/repository_branch_handlers.go`
 - `services/nopsai/routes.go`
 - `services/nopsai/run_handlers.go`
+- `services/nopsai/run_group_resolution.go`
+- `services/nopsai/run_failure_records.go`
+- `services/nopsai/run_lifecycle_handlers.go`
+- `services/nopsai/run_internal_handlers.go`
+- `services/nopsai/group_handlers.go`
+- `services/nopsai/config_sync_runner.go`
+- `services/nopsai/config_sync.go`
+- `services/nopsai/config_sync_scope_entries.go`
+- `services/nopsai/config_sync_groups.go`
+- `services/nopsai/config_repository_drift.go`
+- `services/nopsai/config_repository_paths.go`
+- `services/nopsai/config_repository_resource_export.go`
+- `services/nopsai/config_repository_scope_export.go`
+- `services/nopsai/config_repository_knowledge_export.go`
+- `services/nopsai/config_repository_group_export.go`
+- `services/nopsai/config_repository_access_export.go`
+- `services/nopsai/config_repository_resource_access.go`
+- `services/nopsai/config_repository_settings_export.go`
+- `services/nopsai/run_service.go`
+- `services/nopsai/run_launcher.go`
+- `services/nopsai/internal/configsync`
+- `services/nopsai/internal/gitbot`
+- `services/nopsai/internal/runs`
+- `services/nopsai/internal/runnerinstall`
+- `services/nopsai/internal/systemconfig`
+- `services/nopsai/system_handlers.go`
+- `services/nopsai/gitbot_client.go`
+- `services/nopsai/configsync_aliases.go`
+- `services/nopsai/runner_bootstrap_tokens.go`
 - `services/nopsai/pipeline_handlers.go`
 - `services/nopsai/knowledge_context.go`
 - `services/nopsai/knowledge_context_schema.go`
@@ -234,10 +287,29 @@ Responsibilities:
 - Injects effective pipeline + step + task knowledge context into LLM prompts.
 - Masks secrets before writing output into the shared history/log path.
 - Sends task status and final status back through the dispatcher.
+- Keeps logger construction, workspace directory listing, and dispatcher
+  reporting helpers outside the main execution loop.
+- Delegates runtime payload loading, dispatcher client auth/TLS setup,
+  execution runtime client setup, pipeline timeout cancellation, signal
+  handling, active-task tracking, and step session tracking/cleanup
+  orchestration to `internal/app`.
 
 Key files:
 
 - `services/agent/main.go`
+- `services/agent/agent_logging.go`
+- `services/agent/workspace_listing.go`
+- `services/agent/dispatcher_reports.go`
+- `services/agent/approval_checkpoint.go`
+- `services/agent/nopsai_client.go`
+- `services/agent/internal/app`
+- `services/agent/internal/scheduler`
+- `services/agent/internal/executor`
+- `services/agent/internal/dockerexec`
+- `services/agent/internal/kubernetesexec`
+- `services/agent/internal/resolver`
+- `services/agent/internal/approval`
+- `services/agent/internal/include`
 - `services/agent/llm.go`
 - `pkg/proto/agent.proto`
 
@@ -268,12 +340,14 @@ Responsibilities:
 - Reads repository files and directories from GitHub on behalf of `nopsai`.
 - Checks repository access and whether a branch has an open PR.
 - Creates, initializes, finds, and updates GitHub check runs.
-- Tracks step/task state for rich check-run rendering.
+- Tracks step/task state for rich check-run rendering, with summary rendering
+  delegated to an internal check-render package.
 - Creates child check runs for included pipelines.
 
 Key files:
 
 - `services/git-bot/main.go`
+- `services/git-bot/internal/checkrender`
 
 Inbound interfaces:
 

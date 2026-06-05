@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	runquery "nopsai/services/nopsai/internal/runs"
 )
 
 func TestHandleListRunsRejectsInvalidGroupID(t *testing.T) {
@@ -23,7 +25,7 @@ func TestHandleListRunsRejectsInvalidGroupID(t *testing.T) {
 func TestBuildListRunsQueryFiltersGroupDescendants(t *testing.T) {
 	groupID := 42
 
-	query, args := buildListRunsQuery(&groupID, false, "main", 50, 10)
+	query, args := runquery.BuildListRunsQuery(&groupID, false, "main", 50, 10)
 	normalized := normalizeSQLForTest(query)
 
 	for _, want := range []string{
@@ -50,7 +52,7 @@ func TestBuildListRunsQueryFiltersGroupDescendants(t *testing.T) {
 }
 
 func TestBuildListRunsQueryWithoutGroupKeepsFlatList(t *testing.T) {
-	query, args := buildListRunsQuery(nil, false, "", 300, 0)
+	query, args := runquery.BuildListRunsQuery(nil, false, "", 300, 0)
 	normalized := normalizeSQLForTest(query)
 
 	if strings.Contains(normalized, "WITH RECURSIVE selected_groups") {
@@ -68,7 +70,7 @@ func TestBuildListRunsQueryWithoutGroupKeepsFlatList(t *testing.T) {
 }
 
 func TestBuildListRunsQueryRootFiltersUngroupedRuns(t *testing.T) {
-	query, args := buildListRunsQuery(nil, true, "", 300, 0)
+	query, args := runquery.BuildListRunsQuery(nil, true, "", 300, 0)
 	normalized := normalizeSQLForTest(query)
 
 	for _, want := range []string{
@@ -91,15 +93,15 @@ func TestBuildListRunsQueryRootFiltersUngroupedRuns(t *testing.T) {
 }
 
 func TestRunGroupResolutionCandidatesPreferExplicitGroupPath(t *testing.T) {
-	got := runGroupResolutionCandidates(" platform/prod ", "payments/backend", map[string]string{
+	got := runquery.GroupResolutionCandidates(" platform/prod ", "payments/backend", map[string]string{
 		"repo_owner": "acme",
 		"repo_name":  "payments-api",
 	})
 
-	want := []runGroupResolutionCandidate{{
-		kind:     runGroupResolutionPath,
-		value:    "platform/prod",
-		required: true,
+	want := []runquery.GroupResolutionCandidate{{
+		Kind:     runquery.GroupResolutionPath,
+		Value:    "platform/prod",
+		Required: true,
 	}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("candidates = %#v, want %#v", got, want)
@@ -107,14 +109,14 @@ func TestRunGroupResolutionCandidatesPreferExplicitGroupPath(t *testing.T) {
 }
 
 func TestRunGroupResolutionCandidatesUsePipelinePathBeforeRepo(t *testing.T) {
-	got := runGroupResolutionCandidates("", "payments/backend", map[string]string{
+	got := runquery.GroupResolutionCandidates("", "payments/backend", map[string]string{
 		"repo_owner": "acme",
 		"repo_name":  "payments-api",
 	})
 
-	want := []runGroupResolutionCandidate{
-		{kind: runGroupResolutionPath, value: "payments/backend"},
-		{kind: runGroupResolutionRepo, value: "acme/payments-api"},
+	want := []runquery.GroupResolutionCandidate{
+		{Kind: runquery.GroupResolutionPath, Value: "payments/backend"},
+		{Kind: runquery.GroupResolutionRepo, Value: "acme/payments-api"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("candidates = %#v, want %#v", got, want)
@@ -122,12 +124,12 @@ func TestRunGroupResolutionCandidatesUsePipelinePathBeforeRepo(t *testing.T) {
 }
 
 func TestRunGroupResolutionCandidatesFallBackToRepoOnly(t *testing.T) {
-	got := runGroupResolutionCandidates("", "", map[string]string{
+	got := runquery.GroupResolutionCandidates("", "", map[string]string{
 		"repo_owner": "acme",
 		"repo_name":  "payments-api",
 	})
 
-	want := []runGroupResolutionCandidate{{kind: runGroupResolutionRepo, value: "acme/payments-api"}}
+	want := []runquery.GroupResolutionCandidate{{Kind: runquery.GroupResolutionRepo, Value: "acme/payments-api"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("candidates = %#v, want %#v", got, want)
 	}

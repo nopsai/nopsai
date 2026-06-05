@@ -1,4 +1,4 @@
-package main
+package resolver
 
 import (
 	"strings"
@@ -20,7 +20,7 @@ func TestBuildStepExecutionContextRedactsSecretsForPrompt(t *testing.T) {
 		},
 	}
 
-	context, missing := buildStepExecutionContext(
+	context, missing := BuildStepContext(
 		pipeline,
 		step,
 		[]string{"GIT_REPO_NAME=demo", "SCOPE=prod"},
@@ -31,7 +31,7 @@ func TestBuildStepExecutionContextRedactsSecretsForPrompt(t *testing.T) {
 		t.Fatalf("expected no missing secrets, got %v", missing)
 	}
 
-	promptVariables := context.promptVariables()
+	promptVariables := context.PromptVariables()
 	if got := promptVariables["STEP_SECRET"]; got != "[redacted]" {
 		t.Fatalf("promptVariables[STEP_SECRET] = %q, want [redacted]", got)
 	}
@@ -39,7 +39,7 @@ func TestBuildStepExecutionContextRedactsSecretsForPrompt(t *testing.T) {
 		t.Fatalf("promptVariables[API_TOKEN] = %q, want [redacted]", got)
 	}
 
-	runtimeDump := strings.Join(context.containerVariables(), "\n")
+	runtimeDump := strings.Join(context.ContainerVariables(), "\n")
 	for _, expected := range []string{
 		"GLOBAL_VAR=plain",
 		"API_TOKEN=pipeline-token",
@@ -55,11 +55,11 @@ func TestBuildStepExecutionContextRedactsSecretsForPrompt(t *testing.T) {
 }
 
 func TestBuildActionRequestMasksSensitiveHistoryAndDirectoryContent(t *testing.T) {
-	context := newTaskExecutionContext()
-	context.set("STEP_SECRET", "super-secret-value", taskRuntimeSourceSecret)
-	context.set("VISIBLE_VAR", "plain", taskRuntimeSourceTaskVariable)
+	context := NewExecutionContext()
+	context.SetValue("STEP_SECRET", "super-secret-value", true)
+	context.SetValue("VISIBLE_VAR", "plain", false)
 
-	req := context.buildActionRequest(
+	req := context.BuildActionRequest(
 		"deploy",
 		"token is super-secret-value",
 		map[string]string{"README.md": "secret: super-secret-value"},
@@ -85,23 +85,32 @@ func TestBuildActionRequestMasksSensitiveHistoryAndDirectoryContent(t *testing.T
 }
 
 func TestTaskExecutionContextTaskOverridesWin(t *testing.T) {
-	base := newTaskExecutionContext()
-	base.set("SHARED", "step", taskRuntimeSourceStepVariable)
-	base.set("SAFE_VALUE", "safe", taskRuntimeSourceStepVariable)
+	base := NewExecutionContext()
+	base.SetValue("SHARED", "step", false)
+	base.SetValue("SAFE_VALUE", "safe", false)
 
 	task := &models.Task{
 		Variables: map[string]string{
 			"SHARED": "task",
 		},
 	}
-	context := base.withTask(task)
+	context := base.WithTask(task)
 
-	runtimeDump := strings.Join(context.containerVariables(), "\n")
+	runtimeDump := strings.Join(context.ContainerVariables(), "\n")
 	if strings.Contains(runtimeDump, "SHARED=step") {
 		t.Fatalf("expected step value to be replaced, got %s", runtimeDump)
 	}
 	if !strings.Contains(runtimeDump, "SHARED=task") {
 		t.Fatalf("expected task override in runtime variables, got %s", runtimeDump)
+	}
+}
+
+func TestExecutionContextZeroValueCanBePopulated(t *testing.T) {
+	var context ExecutionContext
+	context.SetValue("SAFE_VALUE", "safe", false)
+
+	if got := context.PromptVariables()["SAFE_VALUE"]; got != "safe" {
+		t.Fatalf("prompt variable = %q, want safe", got)
 	}
 }
 
@@ -118,7 +127,7 @@ func TestBuildStepExecutionContextInjectsScopedRuntimeRefsByName(t *testing.T) {
 		},
 	}
 
-	context, missing := buildStepExecutionContext(
+	context, missing := BuildStepContext(
 		pipeline,
 		step,
 		nil,
@@ -129,7 +138,7 @@ func TestBuildStepExecutionContextInjectsScopedRuntimeRefsByName(t *testing.T) {
 		t.Fatalf("expected no missing secrets, got %v", missing)
 	}
 
-	runtimeDump := strings.Join(context.containerVariables(), "\n")
+	runtimeDump := strings.Join(context.ContainerVariables(), "\n")
 	for _, expected := range []string{
 		"TEST_ENV=from-dev",
 		"API_TOKEN=from-prod",

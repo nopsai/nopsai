@@ -13,6 +13,9 @@ import (
 
 	"nopsai/config"
 	"nopsai/pkg/models"
+	"nopsai/services/nopsai/internal/configsync"
+	"nopsai/services/nopsai/internal/runnerinstall"
+	"nopsai/services/nopsai/internal/systemconfig"
 )
 
 func boolPointer(value bool) *bool {
@@ -125,8 +128,7 @@ func TestNormalizeConfigPathForFolder(t *testing.T) {
 }
 
 func TestBuildSystemConfigResponseDoesNotExposeConfigRepoURL(t *testing.T) {
-	app := App{}
-	response := app.buildSystemConfigResponse(config.Config{})
+	response := systemconfig.BuildResponse(config.Config{}, "")
 
 	for _, key := range []string{"config_repo_url", "config_repo_configured", "config_sync_status"} {
 		if _, ok := response[key]; ok {
@@ -136,9 +138,8 @@ func TestBuildSystemConfigResponseDoesNotExposeConfigRepoURL(t *testing.T) {
 }
 
 func TestBuildRunnerComposeResponseUsesLiveSecretsAndAdaptsDispatcherAddress(t *testing.T) {
-	app := App{}
 	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/runner-compose?runner_id=runner-cloud-1&runner_scopes=prod&runner_capacity=3", nil)
-	resp, err := app.buildRunnerComposeResponse(config.Config{
+	resp, err := runnerinstall.BuildComposeResponse(config.Config{
 		AgentNopsaiAPIURL:       "http://nopsai:8080",
 		DispatcherAddress:       "dispatcher:9090",
 		DispatcherListenAddress: ":9090",
@@ -158,10 +159,10 @@ func TestBuildRunnerComposeResponseUsesLiveSecretsAndAdaptsDispatcherAddress(t *
 	if resp.DispatcherAddress != "nopsai.example.com:9090" {
 		t.Fatalf("dispatcher address = %q, want adapted request host", resp.DispatcherAddress)
 	}
-	if resp.NetworkMode != runnerNetworkModeHost {
+	if resp.NetworkMode != runnerinstall.NetworkModeHost {
 		t.Fatalf("network mode = %q, want host for adapted remote runner", resp.NetworkMode)
 	}
-	if resp.RunnerImage != defaultRunnerImage {
+	if resp.RunnerImage != runnerinstall.DefaultRunnerImage {
 		t.Fatalf("runner image = %q, want default", resp.RunnerImage)
 	}
 	for _, want := range []string{
@@ -194,7 +195,7 @@ func TestBuildRunnerComposeResponseUsesLiveSecretsAndAdaptsDispatcherAddress(t *
 func TestBuildRunnerBootstrapCommandResponseUsesOneTimeToken(t *testing.T) {
 	app := App{}
 	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/runner-bootstrap-command?runner_id=runner-cloud-1&runner_scopes=prod&runner_capacity=3", nil)
-	resp, err := app.buildRunnerBootstrapCommandResponse(config.Config{
+	resp, err := runnerinstall.BuildBootstrapCommandResponse(config.Config{
 		AgentNopsaiAPIURL:       "http://nopsai:8080",
 		DispatcherAddress:       "dispatcher:9090",
 		DispatcherListenAddress: ":9090",
@@ -205,17 +206,17 @@ func TestBuildRunnerBootstrapCommandResponseUsesOneTimeToken(t *testing.T) {
 		DispatcherTLSMode:       "mtls",
 		DispatcherTLSSecret:     "tls-secret",
 		DispatcherTLSServerName: "nopsai-dispatcher.example.com",
-	}, req)
+	}, req, app.createRunnerBootstrapToken)
 	if err != nil {
 		t.Fatalf("buildRunnerBootstrapCommandResponse() error = %v", err)
 	}
 	if strings.Contains(resp.BootstrapCommand, "service-secret") || strings.Contains(resp.BootstrapCommand, "tls-secret") {
 		t.Fatalf("bootstrap command should not expose long-lived secrets: %s", resp.BootstrapCommand)
 	}
-	if resp.NetworkMode != runnerNetworkModeHost {
+	if resp.NetworkMode != runnerinstall.NetworkModeHost {
 		t.Fatalf("network mode = %q, want host for adapted remote runner", resp.NetworkMode)
 	}
-	if resp.RunnerImage != defaultRunnerImage {
+	if resp.RunnerImage != runnerinstall.DefaultRunnerImage {
 		t.Fatalf("runner image = %q, want default", resp.RunnerImage)
 	}
 	const marker = "token="
@@ -248,10 +249,9 @@ func TestBuildRunnerBootstrapCommandResponseUsesOneTimeToken(t *testing.T) {
 }
 
 func TestBuildKubernetesRunnerManifestResponseIncludesRuntimeRBACAndPVCSettings(t *testing.T) {
-	app := App{}
 	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/kubernetes-runner-manifest?runner_id=k8s-runner-ams-1&runner_scopes=production,eu-west&runner_capacity=30&namespace=nopsai-runs&service_account=nopsai-runner&storage_class=fast-rwo", nil)
 	affinity := true
-	resp, err := app.buildKubernetesRunnerManifestResponse(config.Config{
+	resp, err := runnerinstall.BuildKubernetesManifestResponse(config.Config{
 		AgentNopsaiAPIURL:       "http://nopsai:8080",
 		DispatcherAddress:       "dispatcher:9090",
 		DispatcherListenAddress: ":9090",
@@ -312,7 +312,7 @@ func TestBuildKubernetesRunnerManifestResponseIncludesRuntimeRBACAndPVCSettings(
 func TestBuildKubernetesRunnerBootstrapCommandResponseUsesOneTimeManifestToken(t *testing.T) {
 	app := App{}
 	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/kubernetes-runner-bootstrap-command?runner_id=k8s-runner-ams-1&runner_scopes=production,eu-west&runner_capacity=30&namespace=nopsai-runs&service_account=nopsai-runner&storage_class=fast-rwo", nil)
-	resp, err := app.buildKubernetesRunnerBootstrapCommandResponse(config.Config{
+	resp, err := runnerinstall.BuildKubernetesBootstrapCommandResponse(config.Config{
 		AgentNopsaiAPIURL:       "http://nopsai:8080",
 		DispatcherAddress:       "dispatcher:9090",
 		DispatcherListenAddress: ":9090",
@@ -324,7 +324,7 @@ func TestBuildKubernetesRunnerBootstrapCommandResponseUsesOneTimeManifestToken(t
 		DispatcherTLSSecret:     "tls-secret",
 		DispatcherTLSServerName: "nopsai-dispatcher.example.com",
 		AgentImage:              "nopsai-agent:dev",
-	}, req)
+	}, req, app.createRunnerBootstrapToken)
 	if err != nil {
 		t.Fatalf("buildKubernetesRunnerBootstrapCommandResponse() error = %v", err)
 	}
@@ -364,7 +364,7 @@ func TestBuildKubernetesRunnerBootstrapCommandResponseUsesOneTimeManifestToken(t
 }
 
 func TestBuildConfigRepositoryInputDefaultsAndValidation(t *testing.T) {
-	input, err := buildConfigRepositoryInput(upsertConfigRepositoryRequest{
+	input, err := configsync.BuildRepositoryInput(configsync.RepositoryInputRequest{
 		RepoURL: " https://github.com/acme/configs.git ",
 	}, models.ConfigRepositoryScopeFolder, " team-1/ ", "user-1")
 	if err != nil {
@@ -386,14 +386,14 @@ func TestBuildConfigRepositoryInputDefaultsAndValidation(t *testing.T) {
 		t.Fatal("WriteEnabled = true, want false")
 	}
 
-	if _, err := buildConfigRepositoryInput(upsertConfigRepositoryRequest{
+	if _, err := configsync.BuildRepositoryInput(configsync.RepositoryInputRequest{
 		RepoURL:  "https://github.com/acme/configs.git",
 		BasePath: "../outside",
 	}, models.ConfigRepositoryScopeFolder, "team-1", "user-1"); err == nil {
 		t.Fatal("buildConfigRepositoryInput() accepted escaping base_path")
 	}
 
-	input, err = buildConfigRepositoryInput(upsertConfigRepositoryRequest{
+	input, err = configsync.BuildRepositoryInput(configsync.RepositoryInputRequest{
 		RepoURL:      "https://github.com/acme/configs.git",
 		WriteEnabled: boolPointer(true),
 	}, models.ConfigRepositoryScopeFolder, "team-1", "user-1")
@@ -404,7 +404,7 @@ func TestBuildConfigRepositoryInputDefaultsAndValidation(t *testing.T) {
 		t.Fatalf("write settings = (%v, %q), want (true, nopsai/ui-changes)", input.WriteEnabled, input.WriteBranch)
 	}
 
-	if _, err := buildConfigRepositoryInput(upsertConfigRepositoryRequest{
+	if _, err := configsync.BuildRepositoryInput(configsync.RepositoryInputRequest{
 		RepoURL:     "https://github.com/acme/configs.git",
 		WriteBranch: "bad branch",
 	}, models.ConfigRepositoryScopeFolder, "team-1", "user-1"); err == nil {
@@ -413,14 +413,14 @@ func TestBuildConfigRepositoryInputDefaultsAndValidation(t *testing.T) {
 }
 
 func TestCleanConfigRepositoryWritePath(t *testing.T) {
-	got, err := cleanConfigRepositoryWritePath("nopsai", "/pipelines/build.yaml")
+	got, err := configsync.CleanRepositoryWritePath("nopsai", "/pipelines/build.yaml")
 	if err != nil {
 		t.Fatalf("cleanConfigRepositoryWritePath() error = %v", err)
 	}
 	if got != "nopsai/pipelines/build.yaml" {
 		t.Fatalf("path = %q, want nopsai/pipelines/build.yaml", got)
 	}
-	if _, err := cleanConfigRepositoryWritePath("", "../outside.yaml"); err == nil {
+	if _, err := configsync.CleanRepositoryWritePath("", "../outside.yaml"); err == nil {
 		t.Fatal("cleanConfigRepositoryWritePath() accepted escaping path")
 	}
 }
@@ -778,7 +778,7 @@ apps:
 }
 
 func TestRepositoryFullNameFromURLUsesGitHubRepoRoot(t *testing.T) {
-	got, err := repositoryFullNameFromURL("https://github.com/acme/service-api/tree/main")
+	got, err := configsync.RepositoryFullNameFromURL("https://github.com/acme/service-api/tree/main")
 	if err != nil {
 		t.Fatalf("repositoryFullNameFromURL() error = %v", err)
 	}

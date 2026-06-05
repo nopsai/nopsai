@@ -26,6 +26,8 @@ import (
 	"nopsai/config"
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
+	"nopsai/services/nopsai/internal/configsync"
+	"nopsai/services/nopsai/internal/systemconfig"
 	"nopsai/services/nopsai/pkg/auth"
 )
 
@@ -276,7 +278,7 @@ func (a *App) handleBootstrapSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.ConfigRepository != nil && strings.TrimSpace(req.ConfigRepository.RepoURL) != "" {
-		input, err := buildConfigRepositoryInput(upsertConfigRepositoryRequest{
+		input, err := configsync.BuildRepositoryInput(configsync.RepositoryInputRequest{
 			RepoURL:  req.ConfigRepository.RepoURL,
 			Branch:   req.ConfigRepository.Branch,
 			BasePath: req.ConfigRepository.BasePath,
@@ -711,7 +713,7 @@ func (a *App) generateSetupSecrets() ([]string, bool, error) {
 	if len(updates) == 0 {
 		return nil, false, nil
 	}
-	if err := writeEnvFile(a.envFilePath, updates); err != nil {
+	if err := systemconfig.WriteEnvFile(a.envFilePath, updates); err != nil {
 		return nil, false, err
 	}
 
@@ -1349,8 +1351,8 @@ func setupPipelineRunStructure(profile string, repositoryGroups []setupRepositor
 				continue
 			}
 			child.Apps = append(child.Apps, pipelineRunStructureApp{
-				Name:               repositoryDisplayNameFromFullName(repo),
-				RepoURL:            canonicalRepositoryURL(repo),
+				Name:               configsync.RepositoryDisplayNameFromFullName(repo),
+				RepoURL:            configsync.CanonicalRepositoryURL(repo),
 				RepositoryFullName: repo,
 			})
 			child.Repos = append(child.Repos, repo)
@@ -1645,8 +1647,8 @@ func setupConfigRepositoryStructureYAML(repositoryGroups []setupRepositoryGroupI
 		}
 		builder.WriteString("  apps:\n")
 		for _, repo := range group.Repositories {
-			builder.WriteString(fmt.Sprintf("    - name: %s\n", repositoryDisplayNameFromFullName(repo)))
-			builder.WriteString(fmt.Sprintf("      repo_url: %s\n", canonicalRepositoryURL(repo)))
+			builder.WriteString(fmt.Sprintf("    - name: %s\n", configsync.RepositoryDisplayNameFromFullName(repo)))
+			builder.WriteString(fmt.Sprintf("      repo_url: %s\n", configsync.CanonicalRepositoryURL(repo)))
 		}
 	}
 	return builder.String()
