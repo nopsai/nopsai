@@ -21,7 +21,7 @@ services:
     entrypoint: 'true'
 
   backend-test:
-    image: golang:1.26.3
+    image: golang:1.26.4
     working_dir: /workspace
     command: go test ./...
     volumes:
