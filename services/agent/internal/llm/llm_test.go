@@ -1,4 +1,4 @@
-package agent
+package llm
 
 import (
 	"encoding/json"
@@ -475,7 +475,7 @@ func TestGetActionWithMCPFailsMissingCommitToolInsteadOfGitLogFallback(t *testin
 	if action != nil {
 		t.Fatalf("action = %#v, want nil on missing MCP permission", action)
 	}
-	if !isNonRetryableGoalResolutionError(err) {
+	if !IsNonRetryableGoalResolutionError(err) {
 		t.Fatalf("error = %v, want non-retryable goal resolution error", err)
 	}
 	answer := err.Error()
@@ -541,7 +541,7 @@ func TestGetActionWithMCPFailsMissingToolReturnAnswer(t *testing.T) {
 	if action != nil {
 		t.Fatalf("action = %#v, want nil on missing MCP permission", action)
 	}
-	if !isNonRetryableGoalResolutionError(err) {
+	if !IsNonRetryableGoalResolutionError(err) {
 		t.Fatalf("error = %v, want non-retryable goal resolution error", err)
 	}
 	for _, want := range []string{"unable to list the commits", "list_commits", "not available", "allowed MCP tools"} {

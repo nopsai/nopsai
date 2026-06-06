@@ -1,0 +1,499 @@
+package nopsai
+
+import (
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"strings"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"nopsai/pkg/httpapi"
+	"nopsai/services/nopsai/pkg/auth"
+)
+
+func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.db.Query(r.Context(), `
+		SELECT
+			u.id,
+			u.sub,
+			COALESCE(u.email, ''),
+			u.provider,
+			u.status,
+			u.last_login,
+			COALESCE((
+				SELECT json_agg(json_build_object('role', roles.role_name) ORDER BY roles.role_name)
+				FROM (
+					SELECT DISTINCT rb.role_name
+					FROM auth_role_bindings rb
+					WHERE rb.subject_type = 'user' AND rb.subject_id = u.id::text
+					UNION
+					SELECT DISTINCT ur.role AS role_name
+					FROM user_roles ur
+					WHERE ur.user_id = u.id
+				) roles
+			), '[]'::json) AS roles
+		FROM users u
+		WHERE u.provider <> $1
+		ORDER BY u.sub
+	`, auth.ProviderServiceAccount)
+	if err != nil {
+		http.Error(w, "failed to list users", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	var users []userSummary
+	for rows.Next() {
+		var u userSummary
+		var rolesJSON []byte
+		var lastLogin sql.NullTime
+		if err := rows.Scan(&u.ID, &u.Sub, &u.Email, &u.Provider, &u.Status, &lastLogin, &rolesJSON); err != nil {
+			http.Error(w, "failed to scan users", http.StatusInternalServerError)
+			return
+		}
+		if lastLogin.Valid {
+			t := lastLogin.Time
+			u.LastLogin = &t
+		}
+		if len(rolesJSON) > 0 {
+			_ = json.Unmarshal(rolesJSON, &u.Roles)
+		}
+		users = append(users, u)
+	}
+	_ = httpapi.WriteJSON(w, http.StatusOK, users)
+}
+
+func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req createUserRequest
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	req.Sub = strings.TrimSpace(req.Sub)
+	email, err := normalizeOptionalEmail(req.Email)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	req.Email = email
+	req.Role = strings.TrimSpace(req.Role)
+	if err := httpapi.ValidateRequired(
+		httpapi.RequiredString("sub", req.Sub),
+		httpapi.RequiredString("password", req.Password),
+	); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var excludeUserID *uuid.UUID
+	var existingUserID uuid.UUID
+	if err := a.db.QueryRow(r.Context(), `SELECT id FROM users WHERE sub = $1`, req.Sub).Scan(&existingUserID); err == nil {
+		excludeUserID = &existingUserID
+	} else if !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "failed to validate user", http.StatusInternalServerError)
+		return
+	}
+	if strings.EqualFold(req.Sub, defaultAdminSub) && req.Role != "" {
+		http.Error(w, "cannot modify default admin role assignments", http.StatusBadRequest)
+		return
+	}
+	inUse, err := a.userEmailInUse(r.Context(), req.Email, excludeUserID)
+	if err != nil {
+		http.Error(w, "failed to validate email", http.StatusInternalServerError)
+		return
+	}
+	if inUse {
+		http.Error(w, "email already in use", http.StatusConflict)
+		return
+	}
+
+	userID := uuid.New()
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		http.Error(w, "failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	hashed, err := auth.HashPassword(req.Password)
+	if err != nil {
+		http.Error(w, "failed to hash password", http.StatusInternalServerError)
+		return
+	}
+	err = tx.QueryRow(r.Context(), `
+		INSERT INTO users (id, sub, email, provider, password_hash, status, must_change_password)
+		VALUES ($1, $2, $3, 'local', $4, 'active', TRUE)
+		ON CONFLICT (sub) DO UPDATE SET email = EXCLUDED.email, password_hash = EXCLUDED.password_hash, status = 'active', must_change_password = TRUE
+		RETURNING id
+	`, userID, req.Sub, req.Email, hashed).Scan(&userID)
+	if err != nil {
+		http.Error(w, "failed to create user", http.StatusInternalServerError)
+		return
+	}
+
+	if req.Role != "" {
+		if _, err := tx.Exec(r.Context(), `
+			INSERT INTO auth_roles (name, description)
+			VALUES ($1, '')
+			ON CONFLICT (name) DO NOTHING
+		`, req.Role); err != nil {
+			http.Error(w, "failed to prepare role", http.StatusInternalServerError)
+			return
+		}
+		_, err = tx.Exec(r.Context(), `
+			INSERT INTO user_roles (user_id, role)
+			VALUES ($1, $2)
+			ON CONFLICT DO NOTHING
+		`, userID, req.Role)
+		if err != nil {
+			http.Error(w, "failed to assign role", http.StatusInternalServerError)
+			return
+		}
+		if _, err := tx.Exec(r.Context(), `
+			INSERT INTO auth_role_bindings (role_name, subject_type, subject_id)
+			VALUES ($1, 'user', $2)
+			ON CONFLICT (role_name, subject_type, subject_id) DO NOTHING
+		`, req.Role, userID.String()); err != nil {
+			http.Error(w, "failed to assign aaa role", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, "failed to save user", http.StatusInternalServerError)
+		return
+	}
+	a.handleListUsers(w, r)
+}
+
+func (a *App) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut && r.Method != http.MethodPatch {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	userIDRaw := strings.TrimSpace(r.PathValue("userID"))
+	if userIDRaw == "" {
+		http.Error(w, "userID is required", http.StatusBadRequest)
+		return
+	}
+	userID, err := uuid.Parse(userIDRaw)
+	if err != nil {
+		http.Error(w, "invalid userID", http.StatusBadRequest)
+		return
+	}
+	var req updateUserRequest
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	req.Email, err = normalizeOptionalEmail(req.Email)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	req.Status = strings.TrimSpace(strings.ToLower(req.Status))
+	req.Password = strings.TrimSpace(req.Password)
+
+	var currentSub, currentProvider string
+	err = a.db.QueryRow(r.Context(), `SELECT sub, provider FROM users WHERE id = $1`, userID).Scan(&currentSub, &currentProvider)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "user not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to load user", http.StatusInternalServerError)
+		return
+	}
+
+	if currentSub == defaultAdminSub && currentProvider == "local" && req.Status != "" && req.Status != "active" {
+		http.Error(w, "cannot disable default admin user", http.StatusBadRequest)
+		return
+	}
+	if req.Email != "" {
+		inUse, err := a.userEmailInUse(r.Context(), req.Email, &userID)
+		if err != nil {
+			http.Error(w, "failed to validate email", http.StatusInternalServerError)
+			return
+		}
+		if inUse {
+			http.Error(w, "email already in use", http.StatusConflict)
+			return
+		}
+	}
+
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		http.Error(w, "failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	setParts := []string{}
+	args := []interface{}{}
+	argIdx := 1
+
+	if req.Email != "" {
+		setParts = append(setParts, fmt.Sprintf("email = $%d", argIdx))
+		args = append(args, req.Email)
+		argIdx++
+	}
+
+	if req.Status != "" {
+		switch req.Status {
+		case "active", "disabled":
+			setParts = append(setParts, fmt.Sprintf("status = $%d", argIdx))
+			args = append(args, req.Status)
+			argIdx++
+		default:
+			http.Error(w, "invalid status", http.StatusBadRequest)
+			return
+		}
+	}
+
+	var hashedPassword string
+	if req.Password != "" {
+		if currentProvider != "local" {
+			http.Error(w, "password changes are unavailable for this account", http.StatusBadRequest)
+			return
+		}
+		hashedPassword, err = auth.HashPassword(req.Password)
+		if err != nil {
+			http.Error(w, "failed to hash password", http.StatusInternalServerError)
+			return
+		}
+		setParts = append(setParts, fmt.Sprintf("password_hash = $%d", argIdx))
+		args = append(args, hashedPassword)
+		argIdx++
+		setParts = append(setParts, fmt.Sprintf("must_change_password = $%d", argIdx))
+		args = append(args, true)
+		argIdx++
+	}
+
+	if len(setParts) == 0 {
+		http.Error(w, "no fields to update", http.StatusBadRequest)
+		return
+	}
+
+	args = append(args, userID)
+	query := fmt.Sprintf("UPDATE users SET %s WHERE id = $%d", strings.Join(setParts, ", "), argIdx)
+	if _, err := tx.Exec(r.Context(), query, args...); err != nil {
+		http.Error(w, "failed to update user", http.StatusInternalServerError)
+		return
+	}
+
+	if req.Password != "" {
+		if _, err := tx.Exec(r.Context(), `DELETE FROM refresh_tokens WHERE user_id = $1`, userID); err != nil {
+			http.Error(w, "failed to revoke refresh tokens", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, "failed to save user", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := strings.TrimSpace(r.PathValue("userID"))
+	if userID == "" {
+		http.Error(w, "userID is required", http.StatusBadRequest)
+		return
+	}
+	_, err := uuid.Parse(userID)
+	if err != nil {
+		http.Error(w, "invalid userID", http.StatusBadRequest)
+		return
+	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		http.Error(w, "failed to delete user", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	var sub, provider string
+	err = tx.QueryRow(r.Context(), `SELECT sub, provider FROM users WHERE id = $1`, userID).Scan(&sub, &provider)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			http.Error(w, "user not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to load user", http.StatusInternalServerError)
+		return
+	}
+	if sub == defaultAdminSub && provider == "local" {
+		http.Error(w, "cannot delete default admin user", http.StatusBadRequest)
+		return
+	}
+	if err := deleteUserAccessArtifacts(r.Context(), tx, userID); err != nil {
+		http.Error(w, "failed to delete user access", http.StatusInternalServerError)
+		return
+	}
+	tag, err := tx.Exec(r.Context(), `DELETE FROM users WHERE id = $1`, userID)
+	if err != nil {
+		http.Error(w, "failed to delete user", http.StatusInternalServerError)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		http.Error(w, "user not found", http.StatusNotFound)
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, "failed to delete user", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) handleAddUserRole(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req userRoleRequest
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	req.Role = strings.TrimSpace(req.Role)
+	req.UserID = strings.TrimSpace(req.UserID)
+	if err := httpapi.ValidateRequired(
+		httpapi.RequiredString("user_id", req.UserID),
+		httpapi.RequiredString("role", req.Role),
+	); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if _, err := uuid.Parse(req.UserID); err != nil {
+		http.Error(w, "invalid user_id", http.StatusBadRequest)
+		return
+	}
+	var sub, provider string
+	if err := a.db.QueryRow(r.Context(), `SELECT sub, provider FROM users WHERE id = $1`, req.UserID).Scan(&sub, &provider); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "user not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to load user", http.StatusInternalServerError)
+		return
+	}
+	if sub == defaultAdminSub && provider == "local" {
+		http.Error(w, "cannot modify default admin role assignments", http.StatusBadRequest)
+		return
+	}
+
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		http.Error(w, "failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	if _, err := tx.Exec(r.Context(), `
+		INSERT INTO auth_roles (name, description)
+		VALUES ($1, '')
+		ON CONFLICT (name) DO NOTHING
+	`, req.Role); err != nil {
+		http.Error(w, "failed to prepare role", http.StatusInternalServerError)
+		return
+	}
+	if _, err := tx.Exec(r.Context(), `
+			INSERT INTO user_roles (user_id, role)
+			VALUES ($1, $2)
+			ON CONFLICT DO NOTHING
+		`, req.UserID, req.Role); err != nil {
+		http.Error(w, "failed to assign role", http.StatusInternalServerError)
+		return
+	}
+	if _, err := tx.Exec(r.Context(), `
+		INSERT INTO auth_role_bindings (role_name, subject_type, subject_id)
+		VALUES ($1, 'user', $2)
+		ON CONFLICT (role_name, subject_type, subject_id) DO NOTHING
+	`, req.Role, req.UserID); err != nil {
+		http.Error(w, "failed to assign aaa role", http.StatusInternalServerError)
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, "failed to save role assignment", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (a *App) handleDeleteUserRole(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req userRoleRequest
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	req.Role = strings.TrimSpace(req.Role)
+	req.UserID = strings.TrimSpace(req.UserID)
+	if err := httpapi.ValidateRequired(
+		httpapi.RequiredString("user_id", req.UserID),
+		httpapi.RequiredString("role", req.Role),
+	); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var sub, provider string
+	if err := a.db.QueryRow(r.Context(), `SELECT sub, provider FROM users WHERE id = $1`, req.UserID).Scan(&sub, &provider); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "user not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to load user", http.StatusInternalServerError)
+		return
+	}
+	if sub == defaultAdminSub && provider == "local" {
+		http.Error(w, "cannot modify default admin role assignments", http.StatusBadRequest)
+		return
+	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		http.Error(w, "failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	authTag, err := tx.Exec(r.Context(), `
+		DELETE FROM auth_role_bindings
+		WHERE role_name = $1 AND subject_type = 'user' AND subject_id = $2
+	`, req.Role, req.UserID)
+	if err != nil {
+		http.Error(w, "failed to remove aaa role", http.StatusInternalServerError)
+		return
+	}
+	legacyTag, err := tx.Exec(r.Context(), `
+		DELETE FROM user_roles
+		WHERE user_id = $1 AND role = $2
+	`, req.UserID, req.Role)
+	if err != nil {
+		http.Error(w, "failed to remove role", http.StatusInternalServerError)
+		return
+	}
+	if authTag.RowsAffected() == 0 && legacyTag.RowsAffected() == 0 {
+		http.Error(w, "role assignment not found", http.StatusNotFound)
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		http.Error(w, "failed to save role removal", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

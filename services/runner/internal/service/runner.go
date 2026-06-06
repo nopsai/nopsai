@@ -1,4 +1,4 @@
-package main
+package service
 
 import (
 	"context"
@@ -10,23 +10,43 @@ import (
 	"sync/atomic"
 	"time"
 
-	"nopsai/config"
 	"nopsai/pkg/logforward"
 	"nopsai/pkg/proto"
 	"nopsai/pkg/serviceauth"
-	"nopsai/pkg/servicetls"
 
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
 
-type runner struct {
+const (
+	defaultAgentImage     = "nopsai-agent:latest"
+	defaultDispatcherAddr = "localhost:9090"
+	defaultRunnerID       = "runner"
+	dockerRuntimeName     = "docker"
+)
+
+type Runner interface {
+	ServeForever()
+}
+
+type RunnerOptions struct {
+	RunnerID         string
+	RunnerScopes     string
+	Capacity         int32
+	DispatcherAddr   string
+	DispatcherCreds  *serviceauth.Credentials
+	TransportCreds   credentials.TransportCredentials
+	Docker           *client.Client
+	DockerNetwork    string
+	DockerNetworkSet bool
+}
+
+type dockerRunner struct {
 	id              string
 	scopes          []string
 	capacity        int32
@@ -41,99 +61,41 @@ type runner struct {
 	stoppedRuns     map[string]struct{}
 }
 
-func main() {
-	configPath := os.Getenv("CONFIG_PATH")
-	if configPath == "" {
-		configPath = "config.yml"
-	}
-
-	cfg, err := config.LoadConfig(configPath)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to load config")
-	}
-
-	logLevel, err := zerolog.ParseLevel(cfg.LogLevel)
-	if err != nil {
-		logLevel = zerolog.InfoLevel
-	}
-	if cfg.LogFormat == "console" {
-		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
-	}
-	zerolog.SetGlobalLevel(logLevel)
-
-	dispatcherAddr := cfg.DispatcherAddress
-	if dispatcherAddr == "" {
-		dispatcherAddr = "localhost:9090"
-	}
-
-	runnerID := cfg.RunnerID
+func NewDockerRunner(options RunnerOptions) Runner {
+	runnerID := strings.TrimSpace(options.RunnerID)
 	if runnerID == "" {
-		if host, err := os.Hostname(); err == nil {
-			runnerID = host
-		} else {
-			runnerID = "runner"
-		}
+		runnerID = defaultRunnerID
 	}
-	dispatcherCreds, err := serviceauth.NewCredentials(serviceauth.Config{
-		SigningKey: cfg.EffectiveServiceJWTSigningKey(),
-		Issuer:     cfg.EffectiveServiceJWTIssuer(),
-		Audience:   cfg.EffectiveServiceJWTAudience(),
-		Role:       serviceauth.RoleRunner,
-		ServiceID:  cfg.EffectiveRunnerServiceID(),
-	})
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to configure dispatcher client authentication")
+	dispatcherAddr := strings.TrimSpace(options.DispatcherAddr)
+	if dispatcherAddr == "" {
+		dispatcherAddr = defaultDispatcherAddr
 	}
-	transportCreds, err := servicetls.ClientCredentials(servicetls.Config{
-		Mode:       cfg.EffectiveDispatcherTLSMode(),
-		Secret:     cfg.EffectiveDispatcherTLSSecret(),
-		Role:       serviceauth.RoleRunner,
-		ServiceID:  cfg.EffectiveRunnerServiceID(),
-		ServerName: cfg.EffectiveDispatcherTLSServerName(),
-	})
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to configure dispatcher transport security")
-	}
-
-	scopes := parseScopes(cfg.RunnerScopes)
-	capacity := int32(cfg.RunnerCapacity)
+	capacity := options.Capacity
 	if capacity <= 0 {
 		capacity = 1
 	}
 
-	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create docker client")
-	}
-	defer dockerClient.Close()
-
-	networkValue := strings.TrimSpace(cfg.DockerNetworkName)
-	networkSet := false
-	if envVal, ok := os.LookupEnv("DOCKER_NETWORK_NAME"); ok {
-		networkValue = envVal
-		networkSet = true
-	} else if networkValue != "" {
-		networkSet = true
-	}
-
-	r := &runner{
+	return &dockerRunner{
 		id:              runnerID,
-		scopes:          scopes,
+		scopes:          parseScopes(options.RunnerScopes),
 		capacity:        capacity,
 		dispatcherAddr:  dispatcherAddr,
-		dispatcherCreds: dispatcherCreds,
-		transportCreds:  transportCreds,
-		docker:          dockerClient,
-		dockerNetwork:   networkValue,
-		networkSet:      networkSet,
+		dispatcherCreds: options.DispatcherCreds,
+		transportCreds:  options.TransportCreds,
+		docker:          options.Docker,
+		dockerNetwork:   strings.TrimSpace(options.DockerNetwork),
+		networkSet:      options.DockerNetworkSet,
 		stoppedRuns:     make(map[string]struct{}),
 	}
+}
 
+func (r *dockerRunner) ServeForever() {
 	log.Info().
-		Str("runner_id", runnerID).
-		Str("dispatcher_addr", dispatcherAddr).
-		Strs("scopes", scopes).
-		Int("capacity", int(capacity)).
+		Str("runner_id", r.id).
+		Str("runtime", dockerRuntimeName).
+		Str("dispatcher_addr", r.dispatcherAddr).
+		Strs("scopes", r.scopes).
+		Int("capacity", int(r.capacity)).
 		Msg("runner starting")
 
 	for {
@@ -144,7 +106,7 @@ func main() {
 	}
 }
 
-func (r *runner) connectAndServe() error {
+func (r *dockerRunner) connectAndServe() error {
 	dialOptions := []grpc.DialOption{
 		grpc.WithTransportCredentials(r.transportCreds),
 		grpc.WithBlock(),
@@ -188,25 +150,16 @@ func (r *runner) connectAndServe() error {
 		}
 	}()
 
-	reg := &proto.RunnerRegistration{
-		RunnerId: r.id,
-		Scopes:   r.scopes,
-		Capacity: r.capacity,
+	sendCh <- &proto.RunnerMessage{
+		Message: &proto.RunnerMessage_Register{
+			Register: &proto.RunnerRegistration{
+				RunnerId: r.id,
+				Scopes:   r.scopes,
+				Capacity: r.capacity,
+				Metadata: r.registrationMetadata(),
+			},
+		},
 	}
-	metadata := map[string]string{"version": "v1"}
-	if host, err := os.Hostname(); err == nil {
-		if trimmed := strings.TrimSpace(host); trimmed != "" {
-			metadata["hostname"] = trimmed
-		}
-	}
-	if r.networkSet {
-		metadata["docker_network"] = r.dockerNetwork
-	}
-	if strings.TrimSpace(r.dispatcherAddr) != "" {
-		metadata["dispatcher_addr"] = r.dispatcherAddr
-	}
-	reg.Metadata = metadata
-	sendCh <- &proto.RunnerMessage{Message: &proto.RunnerMessage_Register{Register: reg}}
 
 	hbStop := make(chan struct{})
 	defer close(hbStop)
@@ -237,7 +190,24 @@ func (r *runner) connectAndServe() error {
 	}
 }
 
-func (r *runner) heartbeatLoop(sendCh chan<- *proto.RunnerMessage, stop <-chan struct{}) {
+func (r *dockerRunner) registrationMetadata() map[string]string {
+	metadata := map[string]string{
+		"version":         "v1",
+		"runtime":         dockerRuntimeName,
+		"dispatcher_addr": r.dispatcherAddr,
+	}
+	if host, err := os.Hostname(); err == nil {
+		if trimmed := strings.TrimSpace(host); trimmed != "" {
+			metadata["hostname"] = trimmed
+		}
+	}
+	if r.networkSet {
+		metadata["docker_network"] = r.dockerNetwork
+	}
+	return metadata
+}
+
+func (r *dockerRunner) heartbeatLoop(sendCh chan<- *proto.RunnerMessage, stop <-chan struct{}) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
@@ -258,7 +228,7 @@ func (r *runner) heartbeatLoop(sendCh chan<- *proto.RunnerMessage, stop <-chan s
 	}
 }
 
-func (r *runner) handleJob(ctx context.Context, dispatcher proto.DispatcherServiceClient, job *proto.JobRequest, sendCh chan<- *proto.RunnerMessage) {
+func (r *dockerRunner) handleJob(ctx context.Context, dispatcher proto.DispatcherServiceClient, job *proto.JobRequest, sendCh chan<- *proto.RunnerMessage) {
 	if job == nil {
 		return
 	}
@@ -272,7 +242,7 @@ func (r *runner) handleJob(ctx context.Context, dispatcher proto.DispatcherServi
 
 		agentImage := job.AgentImage
 		if strings.TrimSpace(agentImage) == "" {
-			agentImage = "nopsai-agent:latest"
+			agentImage = defaultAgentImage
 		}
 
 		runtimeVars := append([]string(nil), job.Env...)
@@ -366,7 +336,7 @@ func (r *runner) handleJob(ctx context.Context, dispatcher proto.DispatcherServi
 	}()
 }
 
-func (r *runner) monitorRunCancellation(ctx context.Context, dispatcher proto.DispatcherServiceClient, runID, containerID string) {
+func (r *dockerRunner) monitorRunCancellation(ctx context.Context, dispatcher proto.DispatcherServiceClient, runID, containerID string) {
 	if dispatcher == nil || strings.TrimSpace(runID) == "" || strings.TrimSpace(containerID) == "" {
 		return
 	}
@@ -399,7 +369,7 @@ func (r *runner) monitorRunCancellation(ctx context.Context, dispatcher proto.Di
 	}
 }
 
-func (r *runner) markRunStopRequested(runID string) bool {
+func (r *dockerRunner) markRunStopRequested(runID string) bool {
 	r.stopMu.Lock()
 	defer r.stopMu.Unlock()
 
@@ -410,14 +380,14 @@ func (r *runner) markRunStopRequested(runID string) bool {
 	return true
 }
 
-func (r *runner) clearRunStopRequested(runID string) {
+func (r *dockerRunner) clearRunStopRequested(runID string) {
 	r.stopMu.Lock()
 	defer r.stopMu.Unlock()
 
 	delete(r.stoppedRuns, runID)
 }
 
-func (r *runner) stopContainer(containerID string) {
+func (r *dockerRunner) stopContainer(containerID string) {
 	if r == nil || r.docker == nil || strings.TrimSpace(containerID) == "" {
 		return
 	}
@@ -431,7 +401,7 @@ func (r *runner) stopContainer(containerID string) {
 	}
 }
 
-func (r *runner) streamLogs(ctx context.Context, dispatcher proto.DispatcherServiceClient, job *proto.JobRequest, containerID string) {
+func (r *dockerRunner) streamLogs(ctx context.Context, dispatcher proto.DispatcherServiceClient, job *proto.JobRequest, containerID string) {
 	if dispatcher == nil {
 		log.Warn().Str("run_id", job.RunId).Msg("dispatcher client not available; skipping log forwarding")
 		return
@@ -463,7 +433,7 @@ func (r *runner) streamLogs(ctx context.Context, dispatcher proto.DispatcherServ
 	})
 }
 
-func (r *runner) flushLogs(ctx context.Context, dispatcher proto.DispatcherServiceClient, runID string, lines []string) {
+func (r *dockerRunner) flushLogs(ctx context.Context, dispatcher proto.DispatcherServiceClient, runID string, lines []string) {
 	if len(lines) == 0 {
 		return
 	}

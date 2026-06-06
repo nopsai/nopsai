@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"context"
+	"nopsai/services/git-bot/internal/checkrender"
 )
 
 func TestNormalizeGitHubBranchRef(t *testing.T) {
@@ -103,6 +104,83 @@ func TestHandleFetchFileUsesRepositoryProvider(t *testing.T) {
 	}
 }
 
+func TestHandleCreateCheckRunUsesChecksProvider(t *testing.T) {
+	checks := &fakeChecksProvider{nextID: 42}
+	app := &GitBotApp{
+		checkRunStates: make(map[int64]*checkrender.State),
+		checksProvider: checks,
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/checks/create", strings.NewReader(`{
+		"owner": "acme",
+		"repo": "widgets",
+		"ref": "abc123",
+		"pipeline_definition": "name: build\nsteps:\n  - name: test\n    script: go test ./...\n"
+	}`))
+	rec := httptest.NewRecorder()
+
+	app.handleCreateCheckRun(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if len(checks.created) != 1 {
+		t.Fatalf("created calls = %d, want 1", len(checks.created))
+	}
+	if got := checks.created[0].Name; got != "build" {
+		t.Fatalf("check name = %q, want build", got)
+	}
+	if len(checks.progressUpdates) != 1 {
+		t.Fatalf("progress calls = %d, want 1", len(checks.progressUpdates))
+	}
+	if checks.progressUpdates[0].Summary != "Pipeline is starting..." {
+		t.Fatalf("progress summary = %q, want startup summary", checks.progressUpdates[0].Summary)
+	}
+
+	var response CreateCheckRunResponse
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.CheckRunID != 42 {
+		t.Fatalf("check_run_id = %d, want 42", response.CheckRunID)
+	}
+}
+
+func TestHandleFindSuiteCheckRunUsesChecksProvider(t *testing.T) {
+	checks := &fakeChecksProvider{
+		listed: []checkRunSummary{
+			{ID: 10, Name: "other", HeadSHA: "abc123", HasCheckSuite: true, CheckSuiteID: 111},
+			{ID: 20, Name: "build", HeadSHA: "abc123", HeadBranch: "main", PullRequestHeadRef: "feature", HasCheckSuite: true, CheckSuiteID: 222},
+		},
+	}
+	app := &GitBotApp{
+		githubAppID:    999,
+		checksProvider: checks,
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/checks/find-suite-run", strings.NewReader(`{
+		"owner": "acme",
+		"repo": "widgets",
+		"suite_id": 222,
+		"commit_sha": "abc123"
+	}`))
+	rec := httptest.NewRecorder()
+
+	app.handleFindSuiteCheckRun(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var response FindSuiteCheckRunResponse
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.CheckRunID != 20 {
+		t.Fatalf("check_run_id = %d, want 20", response.CheckRunID)
+	}
+	if response.HeadBranch != "main" || response.PullRequestHeadRef != "feature" {
+		t.Fatalf("head refs = (%q, %q), want (main, feature)", response.HeadBranch, response.PullRequestHeadRef)
+	}
+}
+
 func testGitHubSignature(secret string, body []byte) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(body)
@@ -144,4 +222,31 @@ func (p fakeRepositoryProvider) ListInstalled(context.Context) ([]InstalledRepos
 
 func (p fakeRepositoryProvider) FetchPipeline(context.Context, PipelineContentRequest) (string, error) {
 	return "", nil
+}
+
+type fakeChecksProvider struct {
+	nextID          int64
+	created         []createQueuedCheckRunRequest
+	progressUpdates []checkRunProgressUpdate
+	conclusions     []checkRunConclusionUpdate
+	listed          []checkRunSummary
+}
+
+func (p *fakeChecksProvider) CreateQueued(_ context.Context, req createQueuedCheckRunRequest) (int64, error) {
+	p.created = append(p.created, req)
+	return p.nextID, nil
+}
+
+func (p *fakeChecksProvider) MarkInProgress(_ context.Context, update checkRunProgressUpdate) error {
+	p.progressUpdates = append(p.progressUpdates, update)
+	return nil
+}
+
+func (p *fakeChecksProvider) Conclude(_ context.Context, update checkRunConclusionUpdate) error {
+	p.conclusions = append(p.conclusions, update)
+	return nil
+}
+
+func (p *fakeChecksProvider) ListForRef(context.Context, string, string, string) ([]checkRunSummary, error) {
+	return p.listed, nil
 }

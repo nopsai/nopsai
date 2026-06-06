@@ -10,6 +10,7 @@ import (
 	"nopsai/pkg/proto"
 	"nopsai/pkg/serviceauth"
 	"nopsai/pkg/servicetls"
+	"nopsai/pkg/startupgates"
 	"nopsai/services/dispatcher/internal/service"
 
 	"github.com/rs/zerolog"
@@ -29,6 +30,9 @@ func Run() {
 	}
 
 	configureLogging(cfg)
+	if err := startupgates.ValidateDispatcher(cfg); err != nil {
+		log.Fatal().Err(err).Msg("dispatcher startup gates failed")
+	}
 
 	listenAddr := cfg.DispatcherListenAddress
 	if strings.TrimSpace(listenAddr) == "" {

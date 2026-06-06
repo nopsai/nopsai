@@ -6,14 +6,15 @@ import (
 	"time"
 
 	"nopsai/pkg/models"
+	"nopsai/services/nopsai/internal/mcpregistry"
 )
 
 func TestParseGitOpsMCPRegistryPlanFromSettingDirectory(t *testing.T) {
-	plan, err := parseGitOpsMCPRegistryPlan(
+	plan, err := mcpregistry.ParseGitOpsPlan(
 		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID},
-		gitOpsMCPDirectory{
-			root: "setting",
-			files: map[string]string{
+		mcpregistry.GitOpsDirectory{
+			Root: "setting",
+			Files: map[string]string{
 				"setting/system/mcp.yaml": `
 mcp_servers:
   github:
@@ -46,21 +47,21 @@ mcp_profiles:
 		},
 	)
 	if err != nil {
-		t.Fatalf("parseGitOpsMCPRegistryPlan() error = %v", err)
+		t.Fatalf("mcpregistry.ParseGitOpsPlan() error = %v", err)
 	}
 	if plan == nil {
 		t.Fatal("expected GitOps MCP registry plan")
 	}
-	if plan.sourcePath != "setting/system/mcp.yaml" {
-		t.Fatalf("sourcePath = %q", plan.sourcePath)
+	if plan.SourcePath != "setting/system/mcp.yaml" {
+		t.Fatalf("sourcePath = %q", plan.SourcePath)
 	}
-	if got := plan.servers["github"].AuthType; got != models.MCPAuthBearerToken {
+	if got := plan.Servers["github"].AuthType; got != models.MCPAuthBearerToken {
 		t.Fatalf("github auth type = %q, want bearer_token", got)
 	}
-	if got := plan.servers["github"].Headers["X-MCP-Toolsets"]; got != "default,actions" {
+	if got := plan.Servers["github"].Headers["X-MCP-Toolsets"]; got != "default,actions" {
 		t.Fatalf("github X-MCP-Toolsets header = %q, want default,actions", got)
 	}
-	profile := plan.profiles["github-pr-review"]
+	profile := plan.Profiles["github-pr-review"]
 	if !profile.Enabled {
 		t.Fatal("github-pr-review should be enabled")
 	}
@@ -73,11 +74,11 @@ mcp_profiles:
 }
 
 func TestParseGitOpsMCPRegistryPlanRejectsGroupScopedRepo(t *testing.T) {
-	_, err := parseGitOpsMCPRegistryPlan(
+	_, err := mcpregistry.ParseGitOpsPlan(
 		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"},
-		gitOpsMCPDirectory{
-			root: "setting",
-			files: map[string]string{
+		mcpregistry.GitOpsDirectory{
+			Root: "setting",
+			Files: map[string]string{
 				"setting/system/mcp.yaml": `
 mcp_servers:
   github:
@@ -95,7 +96,7 @@ mcp_servers:
 }
 
 func TestParseGitOpsMCPRegistryFileRejectsUnknownServer(t *testing.T) {
-	_, err := parseGitOpsMCPRegistryFile(`
+	_, err := mcpregistry.ParseGitOpsFile(`
 mcp_profiles:
   github-pr-review:
     enabled: true
@@ -109,7 +110,7 @@ mcp_profiles:
 }
 
 func TestParseGitOpsMCPRegistryFileRejectsWriteLikeTools(t *testing.T) {
-	_, err := parseGitOpsMCPRegistryFile(`
+	_, err := mcpregistry.ParseGitOpsFile(`
 mcp_servers:
   github:
     enabled: true
@@ -129,7 +130,7 @@ mcp_profiles:
 }
 
 func TestValidateMCPProfileDefinitionAllowsManuallyConfiguredTools(t *testing.T) {
-	err := validateMCPProfileDefinition(
+	err := mcpregistry.ValidateProfileDefinition(
 		models.MCPProfile{
 			Name:    "github-readonly",
 			Enabled: true,
@@ -154,12 +155,12 @@ func TestValidateMCPProfileDefinitionAllowsManuallyConfiguredTools(t *testing.T)
 		},
 	)
 	if err != nil {
-		t.Fatalf("validateMCPProfileDefinition() error = %v", err)
+		t.Fatalf("mcpregistry.ValidateProfileDefinition() error = %v", err)
 	}
 }
 
 func TestValidateMCPProfileDefinitionAllowsWildcardForReadonlyServer(t *testing.T) {
-	err := validateMCPProfileDefinition(
+	err := mcpregistry.ValidateProfileDefinition(
 		models.MCPProfile{
 			Name:    "github-readonly",
 			Enabled: true,
@@ -180,12 +181,12 @@ func TestValidateMCPProfileDefinitionAllowsWildcardForReadonlyServer(t *testing.
 		nil,
 	)
 	if err != nil {
-		t.Fatalf("validateMCPProfileDefinition() error = %v", err)
+		t.Fatalf("mcpregistry.ValidateProfileDefinition() error = %v", err)
 	}
 }
 
 func TestValidateMCPProfileDefinitionRejectsWildcardForNonReadonlyServer(t *testing.T) {
-	err := validateMCPProfileDefinition(
+	err := mcpregistry.ValidateProfileDefinition(
 		models.MCPProfile{
 			Name:    "github-all",
 			Enabled: true,
@@ -211,7 +212,7 @@ func TestValidateMCPProfileDefinitionRejectsWildcardForNonReadonlyServer(t *test
 }
 
 func TestSelectMCPToolsUsesDiscoveredMetadataAndManualFallbacks(t *testing.T) {
-	got := selectMCPTools("github", []models.MCPTool{
+	got := mcpregistry.SelectTools("github", []models.MCPTool{
 		{
 			ServerName:  "github",
 			Name:        "get_file_contents",
@@ -234,7 +235,7 @@ func TestSelectMCPToolsUsesDiscoveredMetadataAndManualFallbacks(t *testing.T) {
 }
 
 func TestSelectMCPToolsWildcardUsesAllDiscoveredTools(t *testing.T) {
-	got := selectMCPTools("github", []models.MCPTool{
+	got := mcpregistry.SelectTools("github", []models.MCPTool{
 		{ServerName: "github", Name: "issues_list", Description: "List issues", InputSchema: `{"type":"object"}`, LastSeenAt: nowForMCPTest()},
 		{ServerName: "github", Name: "repos_get", Description: "Get repository", InputSchema: `{"type":"object"}`, LastSeenAt: nowForMCPTest()},
 	}, []string{"*"})

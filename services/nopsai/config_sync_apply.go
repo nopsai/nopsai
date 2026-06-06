@@ -839,11 +839,11 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		details["llm_profiles_synced"] = len(llmProfilePlan.profiles)
 	}
 	if mcpRegistryPlan != nil {
-		if err := persistMCPRegistryToTx(ctx, tx, mcpRegistryPlan.servers, mcpRegistryPlan.profiles); err != nil {
-			return fmt.Errorf("failed to sync MCP registry from '%s': %w", mcpRegistryPlan.sourcePath, err)
+		if err := persistMCPRegistryToTx(ctx, tx, mcpRegistryPlan.Servers, mcpRegistryPlan.Profiles); err != nil {
+			return fmt.Errorf("failed to sync MCP registry from '%s': %w", mcpRegistryPlan.SourcePath, err)
 		}
-		details["mcp_servers_synced"] = len(mcpRegistryPlan.servers)
-		details["mcp_profiles_synced"] = len(mcpRegistryPlan.profiles)
+		details["mcp_servers_synced"] = len(mcpRegistryPlan.Servers)
+		details["mcp_profiles_synced"] = len(mcpRegistryPlan.Profiles)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -859,7 +859,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		a.setLLMProfiles(llmProfilePlan.defaultProfile, llmProfilePlan.profiles)
 	}
 	if mcpRegistryPlan != nil {
-		a.setMCPRegistry(mcpRegistryPlan.servers, mcpRegistryPlan.profiles)
+		a.setMCPRegistry(mcpRegistryPlan.Servers, mcpRegistryPlan.Profiles)
 	}
 	return nil
 }

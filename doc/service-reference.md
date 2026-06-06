@@ -13,6 +13,8 @@ Responsibilities:
 - Enforces optional enterprise startup gates for production deployments,
   surfacing unmet hardening requirements through the public setup preflight
   response before the full API starts.
+- Shares production startup-gate validation logic with other service binaries
+  through `pkg/startupgates`.
 - Uses shared HTTP server timeout defaults from `pkg/httpapi` for production
   request hardening.
 - Exposes REST endpoints for auth, runs, pipelines, steps, triggers, knowledge contexts, notifications, metrics, secrets, variables, groups, and system operations.
@@ -63,6 +65,13 @@ Responsibilities:
 - Exports config repository desired state through separate drift, resource,
   scope, knowledge, group-structure, access, embedded resource-access,
   path-rule, and runtime/settings export boundaries.
+- Keeps high-churn NopsAI product domains in focused file families for access
+  grants, config access, setup wizard, data management, MCP, auth/admin, and
+  schedules, preserving package-local behavior while reducing mixed handler,
+  persistence, validation, and worker responsibilities.
+- Keeps MCP registry validation, read-only tool policy, tool selection, and
+  GitOps parsing in `services/nopsai/internal/mcpregistry`; root MCP files keep
+  the `*App` HTTP, config, and persistence wiring.
 - Applies system GitOps runtime settings through shared system-config helpers
   for runner install defaults, supported runtime URLs, agent defaults,
   dispatcher routing, and mail notification settings.
@@ -79,6 +88,7 @@ Key files:
 - `services/nopsai/app_security.go`
 - `services/nopsai/bootstrap_schema.go`
 - `services/nopsai/enterprise_gates.go`
+- `pkg/startupgates`
 - `pkg/httpapi/server.go`
 - `services/nopsai/dispatcher_client.go`
 - `services/nopsai/gitbot_client.go`
@@ -123,6 +133,7 @@ Key files:
 - `services/nopsai/internal/runs`
 - `services/nopsai/internal/runnerinstall`
 - `services/nopsai/internal/systemconfig`
+- `services/nopsai/internal/mcpregistry`
 - `services/nopsai/system_handlers.go`
 - `services/nopsai/gitbot_client.go`
 - `services/nopsai/runner_bootstrap_tokens.go`
@@ -136,6 +147,17 @@ Key files:
 - `services/nopsai/secrets_variables_handlers.go`
 - `services/nopsai/github_integration.go`
 - `services/nopsai/auth_handlers.go`
+- `services/nopsai/auth_subjects.go`
+- `services/nopsai/auth_profile_handlers.go`
+- `services/nopsai/auth_bootstrap.go`
+- `services/nopsai/admin_user_handlers.go`
+- `services/nopsai/admin_role_handlers.go`
+- `services/nopsai/access_grants*.go`
+- `services/nopsai/config_access*.go`
+- `services/nopsai/setup_wizard*.go`
+- `services/nopsai/data_management*.go`
+- `services/nopsai/mcp*.go`
+- `services/nopsai/schedules*.go`
 
 Important subpackages:
 
@@ -182,6 +204,8 @@ Responsibilities:
 - Resolves users, groups, roles, resource ACLs, ownership, and inheritance from Postgres.
 - Writes authorization decision logs for denied decisions and sensitive allowed decisions.
 - Ensures the AAA schema and default internal roles exist at startup.
+- Fails closed in production gate mode when the database URL or shared internal
+  token are not production-ready.
 
 Key files:
 
@@ -237,6 +261,10 @@ Key files:
 - `services/dispatcher/internal/app`
 - `services/dispatcher/internal/service`
 - `services/dispatcher/internal/service/nopsai_client.go`
+- `services/dispatcher/internal/service/queue.go`
+- `services/dispatcher/internal/service/scheduling.go`
+- `services/dispatcher/internal/service/routing.go`
+- `services/dispatcher/internal/service/metadata.go`
 - `pkg/proto/dispatcher.proto`
 
 Inbound interfaces:
@@ -256,6 +284,8 @@ Notable behavior:
 - least-loaded eligible runner selection
 - best-effort affinity by trigger or run
 - manual dispatch pause/resume per runner
+- production startup gates for service JWT isolation, dispatcher TLS, and the
+  NopsAI callback URL
 
 ## `services/runner`
 
@@ -272,10 +302,17 @@ Responsibilities:
 - Starts the agent container with Docker socket access and the shared workspace volume.
 - Streams container logs back through the dispatcher.
 - Polls run status so a cancelled run stops the agent container quickly.
+- Fails closed in production gate mode when dispatcher address, service JWT, or
+  dispatcher TLS settings are not production-ready.
+- Uses a thin `cmd/runner` command entrypoint, with process bootstrap and Docker
+  client/auth/TLS wiring in `internal/app` and dispatcher stream/job execution
+  behavior in `internal/service`.
 
 Key files:
 
-- `services/runner/main.go`
+- `services/runner/cmd/runner/main.go`
+- `services/runner/internal/app/app.go`
+- `services/runner/internal/service/runner.go`
 
 Inbound interfaces:
 
@@ -304,6 +341,8 @@ Responsibilities:
 - Streams agent pod logs back through the dispatcher.
 - Polls run status so a cancelled run deletes the active agent pod quickly.
 - Passes namespace, service account, storage, affinity, and runtime pool settings to the agent.
+- Fails closed in production gate mode when dispatcher address, service JWT, or
+  dispatcher TLS settings are not production-ready.
 
 Key files:
 
@@ -337,6 +376,8 @@ Responsibilities:
 
 - Starts once per run with the resolved pipeline definition and runtime context encoded in OS variables.
 - Connects to the dispatcher for status reporting, pipeline fetches, child pipeline triggers, and cancellation polling.
+- Validates production dispatcher connectivity/auth/TLS environment before
+  starting a run.
 - Decodes secrets and variables already prepared by `nopsai`.
 - Decodes the run knowledge context snapshot prepared by `nopsai`.
 - Evaluates step conditions with the configured LLM provider.
@@ -352,11 +393,17 @@ Responsibilities:
   execution runtime client setup, pipeline timeout cancellation, signal
   handling, active-task tracking, and step session tracking/cleanup
   orchestration to `internal/app`.
+- Keeps LLM provider behavior and MCP tool-call action runtime in
+  `internal/llm`, with focused files for shared contracts, profiles, action
+  generation, condition prompts, Gemini, LM Studio, and response decoding.
+  The app pipeline runtime remains split into request DTOs, the run loop, and
+  request helpers.
 
 Key files:
 
 - `services/agent/cmd/agent/main.go`
 - `services/agent/app.go`
+- `services/agent/runtime_wiring.go`
 - `services/agent/agent_logging.go`
 - `services/agent/workspace_listing.go`
 - `services/agent/dispatcher_reports.go`
@@ -370,7 +417,8 @@ Key files:
 - `services/agent/internal/resolver`
 - `services/agent/internal/approval`
 - `services/agent/internal/include`
-- `services/agent/llm.go`
+- `services/agent/internal/llm`
+- `services/agent/internal/app/pipeline*.go`
 - `pkg/proto/agent.proto`
 
 Inbound interfaces:
@@ -404,6 +452,8 @@ Responsibilities:
   installation repository listing, and pipeline content fetches behind a
   GitHub repository provider boundary.
 - Creates, initializes, finds, and updates GitHub check runs.
+- Keeps check-run create/update/list operations behind a dedicated GitHub checks
+  provider boundary.
 - Tracks step/task state for rich check-run rendering, with summary rendering
   delegated to an internal check-render package.
 - Creates child check runs for included pipelines.
@@ -418,6 +468,7 @@ Key files:
 - `services/git-bot/internal/service`
 - `services/git-bot/internal/service/nopsai_forwarder.go`
 - `services/git-bot/internal/service/github_repository.go`
+- `services/git-bot/internal/service/github_checks.go`
 - `services/git-bot/internal/checkrender`
 
 Inbound interfaces:
@@ -447,6 +498,8 @@ Responsibilities:
 - Reusable step library
 - Lab for ad-hoc YAML execution and quick runs
 - System pages for config sync, data backups/cleanup, dispatcher status, runner controls, and access management
+- System feature modules for config, LLM profiles, MCP, dispatcher, and access
+  keep the route page focused on data loading and mutation orchestration.
 - Access-grant management for product roles and effective-permission inspection
 - Resource Access dialogs on pipelines, scopes, reusable steps, and knowledge contexts for use visibility and group/repository sharing
 - Profile page for email and password changes
@@ -455,6 +508,7 @@ Key files:
 
 - `services/ui/src/App.tsx`
 - `services/ui/src/pages/*.tsx`
+- `services/ui/src/features/system`
 - `services/ui/src/lib/api.ts`
 
 Inbound interfaces:
