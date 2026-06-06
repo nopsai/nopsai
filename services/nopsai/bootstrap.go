@@ -1,0 +1,124 @@
+package nopsai
+
+import (
+	"context"
+	"crypto/sha256"
+	"fmt"
+	"net/http"
+	"time"
+
+	"nopsai/config"
+	"nopsai/pkg/serviceauth"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"nopsai/services/nopsai/pkg/store"
+)
+
+type AppOptions struct {
+	Config               *config.Config
+	Database             *pgxpool.Pool
+	Dispatcher           DispatcherClient
+	ServiceAuthenticator *serviceauth.Authenticator
+	GitProvider          GitProvider
+	RunLauncher          RunLauncher
+	ConfigSyncStore      ConfigSyncStore
+	SecretCodec          SecretCodec
+	AAAClient            AAAClient
+	LocalAAAClient       AAAClient
+	ConfigPath           string
+	EnvFilePath          string
+}
+
+func NewApp(ctx context.Context, options AppOptions) (*App, error) {
+	if options.Config == nil {
+		return nil, fmt.Errorf("config is required")
+	}
+	if options.Database == nil {
+		return nil, fmt.Errorf("database pool is required")
+	}
+	if options.Dispatcher == nil {
+		return nil, fmt.Errorf("dispatcher client is required")
+	}
+	if options.ServiceAuthenticator == nil {
+		return nil, fmt.Errorf("service authenticator is required")
+	}
+
+	key := sha256.Sum256([]byte(options.Config.MasterKey))
+	security, err := newAppSecurityRuntime(ctx, options)
+	if err != nil {
+		return nil, err
+	}
+
+	app := &App{
+		db:           options.Database,
+		cfg:          options.Config,
+		dispatcher:   options.Dispatcher,
+		encKey:       key[:],
+		httpClient:   security.internalHTTP,
+		gitProvider:  security.gitProvider,
+		runLauncher:  options.RunLauncher,
+		configSync:   options.ConfigSyncStore,
+		secretCrypto: options.SecretCodec,
+		store:        store.NewPGStore(options.Database),
+		configPath:   options.ConfigPath,
+		envFilePath:  options.EnvFilePath,
+		authService:  security.authService,
+		serviceAuth:  options.ServiceAuthenticator,
+		aaaClient:    security.aaaClient,
+		aaaLocal:     security.localAAA,
+		authz:        security.authz,
+		auditLogger:  security.auditLogger,
+		configSyncStatus: ConfigSyncStatus{
+			Status:  "idle",
+			Message: "No configuration sync has been requested yet.",
+		},
+		idleTimeout: time.Duration(options.Config.IdleTimeoutMinutes) * time.Minute,
+	}
+	if app.runLauncher == nil {
+		app.runLauncher = appRunLauncher{app: app}
+	}
+	if app.configSync == nil {
+		app.configSync = appConfigSyncStore{app: app}
+	}
+	if app.secretCrypto == nil {
+		app.secretCrypto = aesGCMSecretCodec{key: key[:]}
+	}
+	if err := app.loadOrSeedLLMProfilesConfig(ctx); err != nil {
+		return nil, fmt.Errorf("load LLM profiles: %w", err)
+	}
+	if err := app.loadOrSeedMCPRegistryConfig(ctx); err != nil {
+		return nil, fmt.Errorf("load MCP registry: %w", err)
+	}
+	return app, nil
+}
+
+func ConnectDatabaseWithRetries(ctx context.Context, databaseURL string, attempts int, delay time.Duration) (*pgxpool.Pool, error) {
+	return connectDatabaseWithRetries(ctx, databaseURL, attempts, delay)
+}
+
+func RunSetupPreflightOnlyServer(cfg *config.Config, configPath, envFilePath string, db *pgxpool.Pool, dbErr error) {
+	runSetupPreflightOnlyServer(cfg, configPath, envFilePath, db, dbErr)
+}
+
+func EnsureDatabaseBootstrap(ctx context.Context, db *pgxpool.Pool) error {
+	return EnsureDatabaseBootstrapForConfig(ctx, db, nil)
+}
+
+func EnsureDatabaseBootstrapForConfig(ctx context.Context, db *pgxpool.Pool, cfg *config.Config) error {
+	for _, step := range databaseBootstrapSteps(cfg) {
+		if err := step.run(ctx, db); err != nil {
+			return fmt.Errorf("ensure %s: %w", step.name, err)
+		}
+	}
+	return nil
+}
+
+func (a *App) Handler() http.Handler {
+	return a.buildHTTPHandler()
+}
+
+func (a *App) StartBackgroundWorkers(ctx context.Context) {
+	go a.runScheduleWorker(ctx)
+	go a.runDataCleanupScheduleWorker(ctx)
+}

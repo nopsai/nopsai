@@ -1,7 +1,52 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { HashRouter, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { BranchIcon, IconMenu, IconX, RunIdIcon } from './app/icons';
+import {
+  KNOWLEDGE_CONTEXT_KIND_ORDER,
+  KNOWLEDGE_CONTEXTS_CHANGED_EVENT,
+  SETUP_REDIRECTED_KEY,
+  SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+  SIDEBAR_RECENT_PAGE_SIZE,
+  SIDEBAR_SCROLL_BUFFER,
+} from './app/constants';
+import { baseNavItems, baseSystemSubNav, titleMap } from './app/navigation';
+import {
+  buildGroupPath,
+  formatBranch,
+  formatBranchDisplay,
+  formatRepoLabel,
+  formatTriggerLabel,
+  getSidebarStatusTone,
+  getStatusDotClass,
+  isRunAppGroup,
+  normalizeRunStatus,
+  runGroupDisplayName,
+  runGroupMatchesRepository,
+  runGroupRepositoryURL,
+  runMatchesSearch,
+  summarizeStatus,
+  timeAgoShort,
+} from './app/runSidebarUtils';
+import type {
+  AuthSession,
+  CurrentUser,
+  KnowledgeContextTreeNode,
+  NavItem,
+  PipelineTreeNode,
+  RunDetail,
+  RunGroup,
+  RunListItem,
+  RunTabKey,
+  ScopeTreeNode,
+  SetupStatusSummary,
+  StepTreeNode,
+  Theme,
+  TriggerTreeNode,
+} from './app/types';
 import AppHelp from './components/AppHelp';
-import { buildApiUrl, clearSession, getStoredSession, setPasswordChangeRequired, type StoredSession } from './lib/api';
+import { buildApiUrl, clearSession, getStoredSession, setPasswordChangeRequired } from './lib/api';
 import { PIPELINE_DRAFTS_CHANGED_EVENT, getPipelineDraftStorageKey, loadPipelineDrafts } from './lib/pipelineDrafts';
 import { fetchResourceGroupPaths, insertGroupPath } from './lib/resourceGroups';
 import { STEP_DRAFTS_CHANGED_EVENT, getStepDraftStorageKey, loadStepDrafts } from './lib/stepDrafts';
@@ -20,99 +65,6 @@ const SystemPage = lazy(() => import('./pages/System'));
 const LoginPage = lazy(() => import('./pages/Login'));
 const ProfilePage = lazy(() => import('./pages/Profile'));
 
-type Theme = 'light' | 'dark';
-
-type NavItem = {
-  label: string;
-  path: string;
-  icon: ReactNode;
-};
-
-type PipelineTreeNode = {
-  id: string;
-  name: string;
-  fullPath: string;
-  children: PipelineTreeNode[];
-  pipelineIds: string[];
-};
-
-type TriggerTreeNode = {
-  id: string;
-  name: string;
-  fullPath: string;
-  children: TriggerTreeNode[];
-  triggerSlugs: string[];
-};
-
-type StepTreeNode = {
-  id: string;
-  name: string;
-  fullPath: string;
-  children: StepTreeNode[];
-  stepIds: string[];
-};
-
-type ScopeTreeNode = {
-  id: string;
-  name: string;
-  fullPath: string;
-  children: ScopeTreeNode[];
-  scopes: string[];
-};
-
-type KnowledgeContextTreeNode = {
-  id: string;
-  name: string;
-  fullPath: string;
-  children: KnowledgeContextTreeNode[];
-  knowledgeContextIds: string[];
-};
-
-type ResourceCapabilities = {
-  write?: boolean;
-  delete?: boolean;
-};
-
-type ReadCapabilities = {
-  read?: boolean;
-  write?: boolean;
-  delete?: boolean;
-};
-
-type SystemCapabilities = {
-  configRead?: boolean;
-  configWrite?: boolean;
-  llmProfilesRead?: boolean;
-  llmProfilesWrite?: boolean;
-  mcpRead?: boolean;
-  mcpWrite?: boolean;
-  configReposRead?: boolean;
-  configReposWrite?: boolean;
-  dispatcherRead?: boolean;
-  dispatcherWrite?: boolean;
-  access?: boolean;
-};
-
-type SetupStatusSummary = {
-  completed?: boolean;
-};
-
-type CurrentUser = {
-  sub: string;
-  email?: string;
-  roles?: string[];
-  capabilities?: {
-    pipelines?: ResourceCapabilities;
-    schedules?: ReadCapabilities;
-    steps?: ResourceCapabilities;
-    triggers?: ReadCapabilities;
-    external_triggers?: ReadCapabilities;
-    scopes?: ReadCapabilities;
-    knowledge_contexts?: ReadCapabilities;
-    system?: SystemCapabilities;
-  };
-};
-
 function normalizeScopeLabel(value: unknown): string {
   if (value == null) return '';
   const normalized = String(value)
@@ -120,138 +72,6 @@ function normalizeScopeLabel(value: unknown): string {
     .replace(/^\/+|\/+$/g, '');
   return normalized.toLowerCase() === 'default' ? '' : normalized;
 }
-
-type AuthSession = StoredSession;
-
-type RunGroup = {
-  id: number;
-  name: string;
-  kind?: 'group' | 'app' | string;
-  parent_id?: number | null;
-  description?: string;
-  repo_url?: string;
-  repository_full_name?: string;
-};
-
-type RunListItem = {
-  run_id: string;
-  pipeline_name: string;
-  pipeline_path?: string;
-  pipeline_version?: string;
-  pipeline_source?: string;
-  status: string;
-  git_commit_sha?: string;
-  git_repo_name?: string;
-  git_repo_owner?: string;
-  git_ref?: string;
-  git_target_ref?: string;
-  git_pusher_name?: string;
-  started_at?: string;
-  finished_at?: string;
-  duration?: string;
-  is_complete?: boolean;
-  parent_run_id?: string | null;
-  trigger_event_id?: string;
-};
-
-type RunDetail = {
-  run_info?: RunListItem;
-};
-
-type RunTabKey = 'main' | 'recent' | 'events';
-
-const baseNavItems: NavItem[] = [
-  {
-    label: 'Pipeline runs',
-    path: '/pipelineruns/main',
-    icon: <IconPlay />, 
-  },
-  {
-    label: 'Monitoring',
-    path: '/monitoring',
-    icon: <IconMonitoring />,
-  },
-  {
-    label: 'Pipelines',
-    path: '/pipelines',
-    icon: <IconFlow />, 
-  },
-  {
-    label: 'Schedules',
-    path: '/schedules',
-    icon: <IconCalendarSchedule />,
-  },
-  {
-    label: 'Triggers',
-    path: '/triggers',
-    icon: <IconBell />, 
-  },
-  {
-    label: 'External Triggers',
-    path: '/external-triggers',
-    icon: <IconZap />,
-  },
-  {
-    label: 'Scopes',
-    path: '/scopes',
-    icon: <IconScope />, 
-  },
-  {
-    label: 'Lab',
-    path: '/lab',
-    icon: <IconFlask />, 
-  },
-  {
-    label: 'Steps',
-    path: '/steps',
-    icon: <IconSteps />,
-  },
-  {
-    label: 'Knowledge Context',
-    path: '/knowledge-context',
-    icon: <IconKnowledge />,
-  },
-  {
-    label: 'System',
-    path: '/system/config',
-    icon: <IconCog />,
-  },
-];
-
-const baseSystemSubNav: NavItem[] = [
-  { label: 'Config', path: '/system/config', icon: <IconCog /> },
-  { label: 'Setup', path: '/system/setup', icon: <IconShield /> },
-  { label: 'LLM Profiles', path: '/system/llm-profiles', icon: <IconFlask /> },
-  { label: 'MCP', path: '/system/mcp', icon: <IconFlask /> },
-  { label: 'Data Management', path: '/system/data-management', icon: <IconDatabase /> },
-  { label: 'Dispatcher', path: '/system/dispatcher', icon: <IconDispatch /> },
-  { label: 'Access', path: '/system/access', icon: <IconShield /> },
-];
-
-const titleMap: Record<string, string> = {
-  pipelineruns: 'Pipeline runs',
-  monitoring: 'Monitoring',
-  pipelines: 'Pipelines',
-  schedules: 'Schedules',
-  triggers: 'Triggers',
-  'external-triggers': 'External Triggers',
-  scopes: 'Scopes',
-  lab: 'Lab',
-  steps: 'Steps',
-  'knowledge-context': 'Knowledge Context',
-  system: 'System',
-  profile: 'Profile',
-};
-
-const STATUS_PRIORITY = ['failure', 'rejected', 'failure (ignored)', 'cancelled', 'waiting_approval', 'running', 'pending', 'skipped', 'success'];
-const SIDEBAR_MIN_WIDTH = 260;
-const SIDEBAR_MAX_WIDTH = 520;
-const SIDEBAR_DEFAULT_WIDTH = 320;
-const SIDEBAR_RECENT_PAGE_SIZE = 200;
-const SIDEBAR_SCROLL_BUFFER = 200;
-const KNOWLEDGE_CONTEXT_KIND_ORDER = ['architecture', 'guardrail', 'policy', 'adr', 'guideline', 'runbook', 'reference', 'example'];
-const KNOWLEDGE_CONTEXTS_CHANGED_EVENT = 'nopsai-knowledge-contexts-changed';
-const SETUP_REDIRECTED_KEY = 'nopsai.setup.redirected';
 
 const getInitialTheme = (): Theme => {
   if (typeof window === 'undefined') return 'light';
@@ -2551,161 +2371,8 @@ function SidebarStatusIcon({ status, complete }: { status: string; complete?: bo
   );
 }
 
-function getSidebarStatusTone(status: string) {
-  const normalized = normalizeRunStatus(status, true);
-  if (normalized === 'success') return 'text-green-400';
-  if (normalized === 'failure' || normalized === 'failure (ignored)') return 'text-red-400';
-  if (normalized === 'rejected') return 'text-rose-400';
-  if (normalized === 'waiting_approval') return 'text-cyan-400';
-  if (normalized === 'running') return 'text-blue-400';
-  return 'text-slate-300';
-}
-
 function StatusDot({ status, complete }: { status: string; complete?: boolean }) {
   return <span className={`inline-block h-2.5 w-2.5 rounded-full ${getStatusDotClass(status, complete)}`} aria-hidden="true" />;
-}
-
-function getStatusDotClass(status: string | undefined, complete?: boolean) {
-  const normalized = normalizeRunStatus(status, complete);
-  if (normalized === 'success') return 'bg-emerald-400';
-  if (normalized === 'failure') return 'bg-red-500';
-  if (normalized === 'failure (ignored)') return 'bg-amber-500';
-  if (normalized === 'rejected') return 'bg-rose-500';
-  if (normalized === 'waiting_approval') return 'bg-cyan-400';
-  if (normalized === 'running') return 'bg-blue-400';
-  if (normalized === 'cancelled') return 'bg-orange-400';
-  if (normalized === 'skipped') return 'bg-slate-400';
-  return 'bg-gray-500';
-}
-
-function normalizeRunStatus(status: string | undefined, complete?: boolean): string {
-  const raw = (status || '').toLowerCase();
-  if (STATUS_PRIORITY.includes(raw)) return raw;
-  if (!complete && raw !== 'success' && raw !== 'failure' && raw !== 'cancelled' && raw !== 'skipped') return 'running';
-  return 'pending';
-}
-
-function runMatchesSearch(run: RunListItem, term: string): boolean {
-  if (!term) return true;
-  const haystack = [
-    run.pipeline_name,
-    run.pipeline_path,
-    run.git_repo_name,
-    run.git_repo_owner,
-    run.git_ref,
-    run.git_target_ref,
-    run.git_commit_sha,
-    run.git_pusher_name,
-    run.status,
-    run.trigger_event_id,
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-  return haystack.includes(term);
-}
-
-function formatBranch(ref?: string) {
-  if (!ref) return '';
-  return ref.replace(/^refs\/heads\//, '');
-}
-
-function formatBranchDisplay(source?: string, target?: string) {
-  const sourceBranch = formatBranch(source);
-  const targetBranch = formatBranch(target);
-  if (targetBranch && targetBranch !== '—') {
-    return `${sourceBranch} -> ${targetBranch}`;
-  }
-  return sourceBranch;
-}
-
-function formatRepoLabel(run: RunListItem) {
-  const owner = run.git_repo_owner || '';
-  const name = run.git_repo_name || '';
-  if (owner && name) return `${owner}/${name}`;
-  return name || owner || 'Repository';
-}
-
-function formatTriggerLabel(id?: string) {
-  if (!id) return { display: 'N/A', full: 'N/A' };
-  const full = String(id);
-  return { display: full, full };
-}
-
-function timeAgoShort(dateInput?: string) {
-  if (!dateInput) return '—';
-  const date = new Date(dateInput);
-  if (Number.isNaN(date.getTime())) return '—';
-  const diff = Date.now() - date.getTime();
-  const seconds = Math.floor(diff / 1000);
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 48) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
-function isRunAppGroup(group: Pick<RunGroup, 'kind' | 'name' | 'repo_url' | 'repository_full_name'>) {
-  return group.kind === 'app' || Boolean(group.repo_url || group.repository_full_name) || group.name.includes('/');
-}
-
-function runGroupDisplayName(group: Pick<RunGroup, 'kind' | 'name' | 'repo_url' | 'repository_full_name'>) {
-  if (!isRunAppGroup(group)) return group.name;
-  if (group.kind === 'app' && group.name && !group.name.includes('/')) return group.name;
-  const fullName = group.repository_full_name || group.name;
-  return fullName.split('/').filter(Boolean).pop() || group.name;
-}
-
-function runGroupRepositoryURL(group: Pick<RunGroup, 'name' | 'repo_url' | 'repository_full_name'>) {
-  const fullName = (group.repository_full_name || group.name).trim().replace(/^\/+|\/+$/g, '');
-  if (group.repo_url) return repositoryBrowserURL(group.repo_url, fullName);
-  return fullName.includes('/') ? `https://github.com/${fullName}` : '';
-}
-
-function repositoryBrowserURL(rawURL: string, fallbackFullName: string) {
-  const trimmed = rawURL.trim();
-  if (!trimmed) return fallbackFullName.includes('/') ? `https://github.com/${fallbackFullName}` : '';
-  if (trimmed.startsWith('git@github.com:')) {
-    const path = trimmed.slice('git@github.com:'.length).replace(/\.git$/, '').replace(/^\/+|\/+$/g, '');
-    return path ? `https://github.com/${path}` : '';
-  }
-  if (trimmed.startsWith('github.com/')) return `https://${trimmed.replace(/\.git$/, '')}`;
-  if (/^https?:\/\//i.test(trimmed)) return trimmed.replace(/\.git$/, '');
-  return fallbackFullName.includes('/') ? `https://github.com/${fallbackFullName}` : trimmed;
-}
-
-function runGroupMatchesRepository(group: RunGroup, repoName: string) {
-  const normalizedRepo = repoName.trim().replace(/^\/+|\/+$/g, '').toLowerCase();
-  if (!normalizedRepo) return false;
-  const fullName = (group.repository_full_name || '').trim().replace(/^\/+|\/+$/g, '').toLowerCase();
-  if (fullName && fullName === normalizedRepo) return true;
-  return group.name.trim().replace(/^\/+|\/+$/g, '').toLowerCase() === normalizedRepo;
-}
-
-function buildGroupPath(groupId: number | null, groups: RunGroup[]): RunGroup[] {
-  if (!groupId) return [];
-  const map = new Map<number, RunGroup>();
-  groups.forEach(group => map.set(group.id, group));
-  const path: RunGroup[] = [];
-  let current = map.get(groupId) || null;
-  const visited = new Set<number>();
-  while (current && !visited.has(current.id)) {
-    visited.add(current.id);
-    path.unshift(current);
-    const parentId = current.parent_id ?? null;
-    current = parentId ? map.get(parentId) || null : null;
-  }
-  return path;
-}
-
-function summarizeStatus(runs: RunListItem[]): string {
-  if (!runs.length) return 'pending';
-  const ranked = runs
-    .map(run => normalizeRunStatus(run.status, run.is_complete))
-    .sort((a, b) => STATUS_PRIORITY.indexOf(a) - STATUS_PRIORITY.indexOf(b));
-  return ranked[0] || 'pending';
 }
 
 function Header({
@@ -2832,193 +2499,6 @@ function Header({
         </div>
       </div>
     </header>
-  );
-}
-
-function IconX() {
-  return (
-    <svg className="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-    </svg>
-  );
-}
-
-function IconMenu() {
-  return (
-    <svg className="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16m-7 6h7" />
-    </svg>
-  );
-}
-
-function IconPlay() {
-  return (
-    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.752 11.168l-4.197-2.42A1 1 0 009 9.58v4.84a1 1 0 001.555.832l4.197-2.42a1 1 0 000-1.664z" />
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-    </svg>
-  );
-}
-
-function IconFlow() {
-  return (
-    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
-    </svg>
-  );
-}
-
-function IconMonitoring() {
-  return (
-    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" d="M4 19V5m0 14h16" />
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" d="M7 15l3-4 3 2 4-7" />
-      <circle cx="7" cy="15" r="1.25" strokeWidth="1.8" />
-      <circle cx="10" cy="11" r="1.25" strokeWidth="1.8" />
-      <circle cx="13" cy="13" r="1.25" strokeWidth="1.8" />
-      <circle cx="17" cy="6" r="1.25" strokeWidth="1.8" />
-    </svg>
-  );
-}
-
-function RunIdIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M4 7h4v10H4z" />
-      <path d="M12 7h8" />
-      <path d="M12 12h8" />
-      <path d="M12 17h8" />
-    </svg>
-  );
-}
-
-function BranchIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <line x1="6" y1="3" x2="6" y2="15" />
-      <circle cx="18" cy="6" r="3" />
-      <circle cx="6" cy="18" r="3" />
-      <path d="M18 9a9 9 0 01-9 9" />
-    </svg>
-  );
-}
-
-function IconBell() {
-  return (
-    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-    </svg>
-  );
-}
-
-function IconZap() {
-  return (
-    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 2L4 14h8l-1 8 9-12h-8l1-8z" />
-    </svg>
-  );
-}
-
-function IconCalendarSchedule() {
-  return (
-    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M7 3v3m10-3v3M4 9h16M5 5h14a1 1 0 011 1v13a2 2 0 01-2 2H6a2 2 0 01-2-2V6a1 1 0 011-1z" />
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M12 13v3l2 1" />
-    </svg>
-  );
-}
-
-function IconScope() {
-  return (
-    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <circle cx="12" cy="12" r="8" strokeWidth="1.8" />
-      <circle cx="12" cy="12" r="2" strokeWidth="1.8" />
-      <path strokeWidth="1.8" strokeLinecap="round" d="M12 3v3m0 12v3m9-9h-3M6 12H3" />
-      <path strokeWidth="1.8" strokeLinecap="round" d="M16.95 7.05l-2.12 2.12m-5.66 5.66-2.12 2.12" />
-      <path strokeWidth="1.8" strokeLinecap="round" d="M7.05 7.05l2.12 2.12m5.66 5.66 2.12 2.12" />
-    </svg>
-  );
-}
-
-function IconFlask() {
-  return (
-    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 2h4m-2 0v8m0 0H8m4 0h4m-6 4h4m-6 4h8M6 10h12" />
-    </svg>
-  );
-}
-
-function IconCog() {
-  return (
-    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0a1.724 1.724 0 002.573 1.02c.842-.488 1.91.27 1.662 1.2a1.724 1.724 0 001.091 2.062c.9.3.9 1.603 0 1.902a1.724 1.724 0 00-1.09 2.062c.247.93-.82 1.688-1.663 1.2a1.724 1.724 0 00-2.572 1.02c-.3.921-1.603.921-1.902 0a1.724 1.724 0 00-2.573-1.02c-.842.488-1.91-.27-1.662-1.2a1.724 1.724 0 00-1.091-2.062c-.9-.3-.9-1.603 0-1.902a1.724 1.724 0 001.09-2.062c-.247-.93.82-1.688 1.663-1.2a1.724 1.724 0 002.572-1.02z" />
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-    </svg>
-  );
-}
-
-function IconDatabase() {
-  return (
-    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <ellipse cx="12" cy="5" rx="7" ry="3" strokeWidth="1.8" />
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M5 5v6c0 1.7 3.1 3 7 3s7-1.3 7-3V5" />
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M5 11v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6" />
-    </svg>
-  );
-}
-
-function IconDispatch() {
-  return (
-    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" d="M3 12h7l-2 3m2-3-2-3m11 0h-7l2 3m-2 0 2 3" />
-      <circle cx="12" cy="12" r="9" strokeWidth="1.6" />
-    </svg>
-  );
-}
-
-function IconShield() {
-  return (
-    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" d="M12 3l8 4v5c0 4.5-3.2 8.3-8 9-4.8-.7-8-4.5-8-9V7z" />
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" d="M9 12l2 2 4-4" />
-    </svg>
-  );
-}
-
-function IconSteps() {
-  return (
-    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 2l8 4.5v11L12 22 4 17.5v-11L12 2z" />
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 22v-7.5" />
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 6.5l-8 4.5-8-4.5" />
-    </svg>
-  );
-}
-
-function IconKnowledge() {
-  return (
-    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" d="M4 5.5A2.5 2.5 0 016.5 3H20v16H6.5A2.5 2.5 0 014 16.5z" />
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.9" d="M8 7h8M8 11h8M8 15h5" />
-    </svg>
   );
 }
 

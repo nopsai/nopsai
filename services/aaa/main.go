@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"nopsai/config"
+	"nopsai/pkg/httpapi"
+	"nopsai/pkg/startupgates"
 	"nopsai/services/aaa/pkg/authz"
 	"nopsai/services/aaa/pkg/server"
 	"nopsai/services/aaa/pkg/store"
@@ -48,6 +50,9 @@ func main() {
 	if strings.TrimSpace(cfg.AAASharedToken) == "" {
 		cfg.AAASharedToken = defaultSharedInternalToken
 	}
+	if err := startupgates.ValidateAAA(cfg); err != nil {
+		log.Fatal().Err(err).Msg("aaa startup gates failed")
+	}
 
 	var dbpool *pgxpool.Pool
 	for attempt := 0; attempt < 5; attempt++ {
@@ -71,10 +76,7 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to ensure aaa schema")
 	}
 	evaluator := authz.NewEvaluator(backend)
-	httpServer := &http.Server{
-		Addr:    cfg.AAAAddr,
-		Handler: server.New(cfg.AAASharedToken, evaluator).Handler(),
-	}
+	httpServer := httpapi.NewServer(cfg.AAAAddr, server.New(cfg.AAASharedToken, evaluator).Handler())
 
 	log.Info().Str("addr", cfg.AAAAddr).Msg("aaa listening")
 	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {

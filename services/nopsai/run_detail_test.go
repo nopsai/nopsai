@@ -1,8 +1,10 @@
-package main
+package nopsai
 
 import (
 	"testing"
 	"time"
+
+	runquery "nopsai/services/nopsai/internal/runs"
 )
 
 func TestDeriveRunDetailStepStatusPrefersChildRunProgress(t *testing.T) {
@@ -13,7 +15,7 @@ func TestDeriveRunDetailStepStatusPrefersChildRunProgress(t *testing.T) {
 		{RunID: "child-1", ParentStepName: "included", Status: "running"},
 	}
 
-	got := deriveRunDetailStepStatus(tasks, childRuns)
+	got := runquery.DeriveRunDetailStepStatus(tasks, childRuns)
 	if got != "running" {
 		t.Fatalf("deriveRunDetailStepStatus() = %q, want %q", got, "running")
 	}
@@ -27,7 +29,7 @@ func TestDeriveRunDetailStepStatusUsesChildTerminalStateWhenPlaceholderLags(t *t
 		{RunID: "child-1", ParentStepName: "included", Status: "success", IsComplete: true},
 	}
 
-	got := deriveRunDetailStepStatus(tasks, childRuns)
+	got := runquery.DeriveRunDetailStepStatus(tasks, childRuns)
 	if got != "success" {
 		t.Fatalf("deriveRunDetailStepStatus() = %q, want %q", got, "success")
 	}
@@ -39,7 +41,7 @@ func TestDeriveRunDetailStepStatusPreservesCancellation(t *testing.T) {
 		{TaskID: "task-2", StepName: "deploy", TaskName: "release", Status: "cancelled"},
 	}
 
-	got := deriveRunDetailStepStatus(tasks, nil)
+	got := runquery.DeriveRunDetailStepStatus(tasks, nil)
 	if got != "cancelled" {
 		t.Fatalf("deriveRunDetailStepStatus() = %q, want %q", got, "cancelled")
 	}
@@ -51,21 +53,21 @@ func TestFinalizeRunDetailStepStatusMarksStaleRunningStepFailed(t *testing.T) {
 		{TaskID: "task-1", StepName: "deploy", TaskName: "release", Status: "running", StartedAt: start},
 	}
 
-	got := finalizeRunDetailStepStatus("running", tasks, "failure")
+	got := runquery.FinalizeRunDetailStepStatus("running", tasks, "failure")
 	if got != "failure" {
 		t.Fatalf("finalizeRunDetailStepStatus() = %q, want %q", got, "failure")
 	}
 }
 
 func TestFinalizeRunDetailStepStatusMarksPendingStepSkippedOnFailedRun(t *testing.T) {
-	got := finalizeRunDetailStepStatus("pending", nil, "failure")
+	got := runquery.FinalizeRunDetailStepStatus("pending", nil, "failure")
 	if got != "skipped" {
 		t.Fatalf("finalizeRunDetailStepStatus() = %q, want %q", got, "skipped")
 	}
 }
 
 func TestFinalizeRunDetailStepStatusPreservesTerminalStepStatus(t *testing.T) {
-	got := finalizeRunDetailStepStatus("failure (ignored)", nil, "success")
+	got := runquery.FinalizeRunDetailStepStatus("failure (ignored)", nil, "success")
 	if got != "failure (ignored)" {
 		t.Fatalf("finalizeRunDetailStepStatus() = %q, want %q", got, "failure (ignored)")
 	}
@@ -77,7 +79,7 @@ func TestFinalizeRunDetailStepStatusPreservesIgnoredFailureRunStatus(t *testing.
 		{TaskID: "task-1", StepName: "test", TaskName: "lint", Status: "running", StartedAt: start},
 	}
 
-	got := finalizeRunDetailStepStatus("running", tasks, "failure (ignored)")
+	got := runquery.FinalizeRunDetailStepStatus("running", tasks, "failure (ignored)")
 	if got != "failure (ignored)" {
 		t.Fatalf("finalizeRunDetailStepStatus() = %q, want %q", got, "failure (ignored)")
 	}
@@ -114,7 +116,7 @@ func TestBuildRunDetailETagChangesWhenTaskOrChildStatusChanges(t *testing.T) {
 		},
 	}
 
-	baseETag := buildRunDetailETag(run, baseChildRuns, baseTasks)
+	baseETag := runquery.BuildRunDetailETag(run, baseChildRuns, baseTasks)
 
 	taskUpdated := map[string][]TaskDetail{
 		"prepare": {
@@ -130,7 +132,7 @@ func TestBuildRunDetailETagChangesWhenTaskOrChildStatusChanges(t *testing.T) {
 			},
 		},
 	}
-	taskETag := buildRunDetailETag(run, baseChildRuns, taskUpdated)
+	taskETag := runquery.BuildRunDetailETag(run, baseChildRuns, taskUpdated)
 	if taskETag == baseETag {
 		t.Fatalf("expected task status change to alter ETag, but both were %q", taskETag)
 	}
@@ -143,7 +145,7 @@ func TestBuildRunDetailETagChangesWhenTaskOrChildStatusChanges(t *testing.T) {
 			StartedAt:      start,
 		},
 	}
-	childETag := buildRunDetailETag(run, childUpdated, baseTasks)
+	childETag := runquery.BuildRunDetailETag(run, childUpdated, baseTasks)
 	if childETag == baseETag {
 		t.Fatalf("expected child run status change to alter ETag, but both were %q", childETag)
 	}
