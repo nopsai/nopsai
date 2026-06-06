@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"context"
@@ -36,7 +36,7 @@ func normalizeGroupForWrite(group *Group) error {
 		if group.Name == "" {
 			return fmt.Errorf("group name is required")
 		}
-		if isReservedRootGroupName(group.Name) {
+		if configsync.IsReservedRootGroupName(group.Name) {
 			return fmt.Errorf("root is reserved and cannot be used as a group name")
 		}
 		group.RepoURL = ""
@@ -56,7 +56,7 @@ func normalizeGroupForWrite(group *Group) error {
 		if group.Name == "" {
 			group.Name = configsync.RepositoryDisplayNameFromFullName(fullName)
 		}
-		if _, err := normalizeStructureName(group.Name); err != nil {
+		if _, err := configsync.NormalizeStructureName(group.Name); err != nil {
 			return err
 		}
 		group.Description = ""

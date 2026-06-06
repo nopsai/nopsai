@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"context"
@@ -689,6 +689,47 @@ func ensureDefaultAdmin(ctx context.Context, db *pgxpool.Pool) error {
 		return err
 	}
 	return nil
+}
+
+func ensureNoDefaultAdminPassword(ctx context.Context, db *pgxpool.Pool) error {
+	state, err := defaultAdminPasswordState(ctx, db)
+	if err != nil {
+		return err
+	}
+	switch state {
+	case defaultAdminPasswordMissing:
+		return fmt.Errorf("production startup gates require a pre-provisioned administrator; refusing to seed default admin credentials")
+	case defaultAdminPasswordDefault:
+		return fmt.Errorf("production startup gates reject the default admin password; rotate admin@example.com before enabling production gates")
+	default:
+		return nil
+	}
+}
+
+type defaultAdminPasswordStatus string
+
+const (
+	defaultAdminPasswordReady   defaultAdminPasswordStatus = "ready"
+	defaultAdminPasswordMissing defaultAdminPasswordStatus = "missing"
+	defaultAdminPasswordDefault defaultAdminPasswordStatus = "default"
+)
+
+func defaultAdminPasswordState(ctx context.Context, db *pgxpool.Pool) (defaultAdminPasswordStatus, error) {
+	if db == nil {
+		return defaultAdminPasswordReady, nil
+	}
+	var passwordHash sql.NullString
+	err := db.QueryRow(ctx, `SELECT password_hash FROM users WHERE sub = $1`, defaultAdminSub).Scan(&passwordHash)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows), errors.Is(err, sql.ErrNoRows):
+		return defaultAdminPasswordMissing, nil
+	case err != nil:
+		return defaultAdminPasswordMissing, err
+	case passwordHash.Valid && passwordHash.String == defaultAdminPasswordHash:
+		return defaultAdminPasswordDefault, nil
+	default:
+		return defaultAdminPasswordReady, nil
+	}
 }
 
 func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {

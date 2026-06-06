@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"encoding/json"
@@ -45,4 +45,43 @@ func TestHandleEncryptSecretForGitOpsRequiresOnlyValue(t *testing.T) {
 	if decrypted != "super-secret" {
 		t.Fatalf("decrypted value = %q, want super-secret", decrypted)
 	}
+}
+
+func TestSecretCodecUsesInjectedCodec(t *testing.T) {
+	codec := &recordingSecretCodec{}
+	app := &App{secretCrypto: codec}
+
+	encrypted, err := app.encrypt("super-secret")
+	if err != nil {
+		t.Fatalf("encrypt() error = %v", err)
+	}
+	if encrypted != "encoded:super-secret" {
+		t.Fatalf("encrypted = %q, want injected codec output", encrypted)
+	}
+
+	decrypted, err := app.decrypt(encrypted)
+	if err != nil {
+		t.Fatalf("decrypt() error = %v", err)
+	}
+	if decrypted != "decoded:encoded:super-secret" {
+		t.Fatalf("decrypted = %q, want injected codec output", decrypted)
+	}
+	if codec.encryptCalls != 1 || codec.decryptCalls != 1 {
+		t.Fatalf("codec calls = encrypt %d decrypt %d, want 1/1", codec.encryptCalls, codec.decryptCalls)
+	}
+}
+
+type recordingSecretCodec struct {
+	encryptCalls int
+	decryptCalls int
+}
+
+func (c *recordingSecretCodec) Encrypt(text string) (string, error) {
+	c.encryptCalls++
+	return "encoded:" + text, nil
+}
+
+func (c *recordingSecretCodec) Decrypt(text string) (string, error) {
+	c.decryptCalls++
+	return "decoded:" + text, nil
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"nopsai/config"
+	"nopsai/pkg/httpapi"
 	"nopsai/services/aaa/pkg/authz"
 	"nopsai/services/aaa/pkg/server"
 	"nopsai/services/aaa/pkg/store"
@@ -71,10 +72,7 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to ensure aaa schema")
 	}
 	evaluator := authz.NewEvaluator(backend)
-	httpServer := &http.Server{
-		Addr:    cfg.AAAAddr,
-		Handler: server.New(cfg.AAASharedToken, evaluator).Handler(),
-	}
+	httpServer := httpapi.NewServer(cfg.AAAAddr, server.New(cfg.AAASharedToken, evaluator).Handler())
 
 	log.Info().Str("addr", cfg.AAAAddr).Msg("aaa listening")
 	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {

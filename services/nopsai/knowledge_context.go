@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"context"
@@ -22,6 +22,7 @@ import (
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
 	aaamodel "nopsai/services/aaa/pkg/model"
+	"nopsai/services/nopsai/internal/configsync"
 )
 
 const (
@@ -242,7 +243,7 @@ func parseKnowledgeContextGitOpsPath(rel string, binding models.ConfigRepository
 		if group == "" {
 			group = boundFolder
 		} else {
-			group, err = normalizeConfigPathForFolder(boundFolder, group)
+			group, err = configsync.NormalizePathForFolder(boundFolder, group)
 			if err != nil {
 				return "", "", "", err
 			}
@@ -435,7 +436,7 @@ func parseGitOpsKnowledgeContexts(files map[string]string, root string, binding 
 	contexts := make(map[string]storedKnowledgeContext)
 	for path, content := range files {
 		normalized := filepath.ToSlash(path)
-		rel, ok := relativeConfigPath(normalized, root)
+		rel, ok := configsync.RelativePath(normalized, root)
 		if !ok || rel == "" || strings.HasSuffix(rel, "/") || !isKnowledgeContextGitOpsFile(rel) {
 			continue
 		}
@@ -758,7 +759,7 @@ func (a *App) knowledgeContextUsage(ctx context.Context) map[string][]string {
 		if err := yaml.Unmarshal([]byte(definition), &pipeline); err != nil {
 			continue
 		}
-		pipelineID := buildPipelineIdentifier(path, name)
+		pipelineID := configsync.BuildPipelineIdentifier(path, name)
 		for _, ref := range collectPipelineKnowledgeContextRefs(pipeline) {
 			if strings.TrimSpace(ref.Ref.Ref) == "" {
 				continue

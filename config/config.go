@@ -76,6 +76,9 @@ type Config struct {
 	DatabaseURL string `yaml:"database_url" env:"DATABASE_URL"`
 	LogLevel    string `yaml:"log_level" env:"LOG_LEVEL"`
 	LogFormat   string `yaml:"log_format" env:"LOG_FORMAT"`
+	Environment string `yaml:"environment" env:"NOPSAI_ENVIRONMENT"`
+
+	RequireProductionGates bool `yaml:"require_production_gates" env:"NOPSAI_REQUIRE_PRODUCTION_GATES"`
 
 	MasterKey string `yaml:"master_key" env:"NOPSAI_MASTER_KEY"`
 
@@ -488,6 +491,25 @@ func (c Config) EffectiveServiceJWTSigningKey() string {
 		return key
 	}
 	return strings.TrimSpace(c.JWTSigningKey)
+}
+
+func (c Config) EffectiveEnvironment() string {
+	env := strings.ToLower(strings.TrimSpace(c.Environment))
+	switch env {
+	case "", "dev", "local":
+		return "development"
+	case "prod":
+		return "production"
+	default:
+		return env
+	}
+}
+
+func (c Config) RequiresProductionGates() bool {
+	if c.RequireProductionGates {
+		return true
+	}
+	return c.EffectiveEnvironment() == "production"
 }
 
 func (c Config) EffectiveServiceJWTIssuer() string {

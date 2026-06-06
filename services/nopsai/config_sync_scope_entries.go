@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"fmt"
@@ -169,7 +169,7 @@ func addScopeVariableConfigEntry(
 			return fmt.Errorf("invalid repository-scoped variable key '%s' in '%s'", trimmedKey, sourcePath)
 		}
 		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
-			normalizedRepoName, err := normalizeConfigPathForFolder(boundFolder, repoName)
+			normalizedRepoName, err := configsync.NormalizePathForFolder(boundFolder, repoName)
 			if err != nil {
 				return fmt.Errorf("invalid group-scoped repository variable key '%s' in '%s': %w", trimmedKey, sourcePath, err)
 			}
@@ -220,7 +220,7 @@ func (a *App) addScopeSecretConfigEntry(
 			return fmt.Errorf("invalid repository-scoped secret key '%s' in '%s'", trimmedKey, sourcePath)
 		}
 		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
-			normalizedRepoName, err := normalizeConfigPathForFolder(boundFolder, repoName)
+			normalizedRepoName, err := configsync.NormalizePathForFolder(boundFolder, repoName)
 			if err != nil {
 				return fmt.Errorf("invalid group-scoped repository secret key '%s' in '%s': %w", trimmedKey, sourcePath, err)
 			}
@@ -260,11 +260,11 @@ type storedTrigger struct {
 	sourcePath string
 }
 
-func configRepositoryBindingsFromPipelineRunStructure(structure map[string]*pipelineRunStructureNode, sourcePath string) (map[string]storedConfigRepository, error) {
+func configRepositoryBindingsFromPipelineRunStructure(structure map[string]*configsync.PipelineRunStructureNode, sourcePath string) (map[string]storedConfigRepository, error) {
 	result := map[string]storedConfigRepository{}
 
-	var walk func(path []string, node *pipelineRunStructureNode) error
-	walk = func(path []string, node *pipelineRunStructureNode) error {
+	var walk func(path []string, node *configsync.PipelineRunStructureNode) error
+	walk = func(path []string, node *configsync.PipelineRunStructureNode) error {
 		if node == nil {
 			return nil
 		}
@@ -273,11 +273,11 @@ func configRepositoryBindingsFromPipelineRunStructure(structure map[string]*pipe
 			if scopeID == "" {
 				return fmt.Errorf("config repository binding '%s' is missing a group path", sourcePath)
 			}
-			if _, err := cleanConfigPathSegments(scopeID, false); err != nil {
+			if _, err := configsync.CleanPathSegments(scopeID, false); err != nil {
 				return fmt.Errorf("invalid config repository binding '%s': %w", sourcePath, err)
 			}
 			file := *node.Config
-			if err := validateConfigRepositoryBindingFile(file, models.ConfigRepositoryScopeFolder, scopeID, sourcePath); err != nil {
+			if err := configsync.ValidateBindingFile(file, models.ConfigRepositoryScopeFolder, scopeID, sourcePath); err != nil {
 				return err
 			}
 			basePath, err := configsync.NormalizeRepositoryBasePathForRequest(file.BasePath)
@@ -288,7 +288,7 @@ func configRepositoryBindingsFromPipelineRunStructure(structure map[string]*pipe
 			if file.Enabled != nil {
 				enabled = *file.Enabled
 			}
-			writeEnabled, writeBranch := configRepositoryBindingWriteSettings(file)
+			writeEnabled, writeBranch := configsync.BindingWriteSettings(file)
 			branch := strings.TrimSpace(file.Branch)
 			if branch == "" {
 				branch = "main"
@@ -312,7 +312,7 @@ func configRepositoryBindingsFromPipelineRunStructure(structure map[string]*pipe
 		}
 
 		for childName, childNode := range node.Children {
-			childSegments, err := cleanConfigPathSegments(childName, false)
+			childSegments, err := configsync.CleanPathSegments(childName, false)
 			if err != nil {
 				return err
 			}
@@ -324,7 +324,7 @@ func configRepositoryBindingsFromPipelineRunStructure(structure map[string]*pipe
 	}
 
 	for name, node := range structure {
-		segments, err := cleanConfigPathSegments(name, false)
+		segments, err := configsync.CleanPathSegments(name, false)
 		if err != nil {
 			return nil, err
 		}

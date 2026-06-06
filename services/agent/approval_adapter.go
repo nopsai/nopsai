@@ -1,4 +1,4 @@
-package main
+package agent
 
 import "nopsai/services/agent/internal/approval"
 

@@ -1,7 +1,6 @@
-package main
+package service
 
 import (
-	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -10,10 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"path"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,24 +17,21 @@ import (
 	"nopsai/config"
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
-	"nopsai/pkg/proxyhttp"
 	"nopsai/services/git-bot/internal/checkrender"
 
-	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/google/go-github/v53/github"
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
 )
 
 type GitBotApp struct {
-	cfg            *config.Config
-	ghClient       *github.Client
-	httpClient     *http.Client
-	webhookSecret  string
-	checkRunStates map[int64]*CheckRunState
-	stateLock      sync.Mutex
-	githubAppID    int64
+	ghClient           *github.Client
+	webhookSecret      string
+	checkRunStates     map[int64]*checkrender.State
+	stateLock          sync.Mutex
+	githubAppID        int64
+	repositoryProvider repositoryProvider
+	webhookForwarder   nopsaiWebhookForwarder
 }
 
 type RunStatusUpdate struct {
@@ -192,6 +185,42 @@ type FindSuiteCheckRunResponse struct {
 	HeadBranch         string `json:"head_branch,omitempty"`
 }
 
+func NewGitBotApp(cfg *config.Config, ghClient *github.Client, httpClient *http.Client, githubAppID int64) *GitBotApp {
+	webhookSecret := ""
+	if cfg != nil {
+		webhookSecret = cfg.GitHubWebhookSecret
+	}
+	return &GitBotApp{
+		ghClient:           ghClient,
+		webhookSecret:      webhookSecret,
+		checkRunStates:     make(map[int64]*checkrender.State),
+		githubAppID:        githubAppID,
+		repositoryProvider: newGitHubRepositoryProvider(ghClient),
+		webhookForwarder:   newNopsaiWebhookForwarder(cfg, httpClient),
+	}
+}
+
+func (a *GitBotApp) Handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", handleHealthz)
+	mux.HandleFunc("/webhook", a.handleWebhook)
+	mux.HandleFunc("POST /v1/github/file", a.handleFetchFile)
+	mux.HandleFunc("POST /v1/github/contents", a.handleFetchDirectoryContents)
+	mux.HandleFunc("POST /v1/github/commit", a.handleCommitFiles)
+	mux.HandleFunc("POST /v1/github/repo/access", a.handleCheckRepoAccess)
+	mux.HandleFunc("POST /v1/github/branch/has-open-pr", a.handleCheckBranchHasOpenPR)
+	mux.HandleFunc("GET /v1/github/installation/repositories", a.handleListInstalledRepositories)
+	mux.HandleFunc("POST /v1/github/pipeline", a.handleFetchPipeline)
+	mux.HandleFunc("POST /v1/checks/create", a.handleCreateCheckRun)
+	mux.HandleFunc("POST /v1/checks/initialize", a.handleInitializeCheckRun)
+	mux.HandleFunc("POST /v1/checks/find-suite-run", a.handleFindSuiteCheckRun)
+	mux.HandleFunc("POST /v1/checks/cancel-stale", a.handleCancelStaleCheckRuns)
+	mux.HandleFunc("/v1/run/status", a.handleRunStatusUpdate)
+	mux.HandleFunc("/v1/task/status", a.handleTaskStatusUpdate)
+	mux.HandleFunc("/v1/checks/create-child", a.handleCreateChildCheckRun)
+	return mux
+}
+
 func (a *GitBotApp) verifySignature(r *http.Request, body []byte) bool {
 	signature := r.Header.Get("X-Hub-Signature-256")
 	if !strings.HasPrefix(signature, "sha256=") {
@@ -315,8 +344,8 @@ func (a *GitBotApp) initializeCheckRunState(checkRunID int64, owner, repo, pipel
 	a.stateLock.Lock()
 	defer a.stateLock.Unlock()
 
-	initialState := &CheckRunState{
-		Steps:              make(map[string]map[string]TaskStatusUpdate),
+	initialState := &checkrender.State{
+		Steps:              make(map[string]map[string]checkrender.TaskStatusUpdate),
 		StepOrder:          []string{},
 		GitHubView:         view,
 		PipelineName:       checkName,
@@ -338,10 +367,10 @@ func (a *GitBotApp) initializeCheckRunState(checkRunID int64, owner, repo, pipel
 	for _, step := range pipeline.Steps {
 		stepName := step.GetName()
 		initialState.StepOrder = append(initialState.StepOrder, stepName)
-		initialState.Steps[stepName] = make(map[string]TaskStatusUpdate)
+		initialState.Steps[stepName] = make(map[string]checkrender.TaskStatusUpdate)
 
 		if step.GetInclude() != "" {
-			initialState.Steps[stepName][stepName] = TaskStatusUpdate{
+			initialState.Steps[stepName][stepName] = checkrender.TaskStatusUpdate{
 				StepName:   stepName,
 				TaskName:   stepName,
 				TaskStatus: "pending",
@@ -357,7 +386,7 @@ func (a *GitBotApp) initializeCheckRunState(checkRunID int64, owner, repo, pipel
 
 		if tasks := step.GetTasks(); len(tasks) > 0 {
 			for _, task := range tasks {
-				initialState.Steps[stepName][task.Name] = TaskStatusUpdate{
+				initialState.Steps[stepName][task.Name] = checkrender.TaskStatusUpdate{
 					StepName:   stepName,
 					TaskName:   task.Name,
 					TaskStatus: "pending",
@@ -370,7 +399,7 @@ func (a *GitBotApp) initializeCheckRunState(checkRunID int64, owner, repo, pipel
 				taskIndex++
 			}
 		} else {
-			initialState.Steps[stepName][stepName] = TaskStatusUpdate{
+			initialState.Steps[stepName][stepName] = checkrender.TaskStatusUpdate{
 				StepName:   stepName,
 				TaskName:   stepName,
 				TaskStatus: "pending",
@@ -401,43 +430,7 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	forwardURL := fmt.Sprintf("%s/v1/git/events", a.cfg.GitBotNopsaiAPIURL)
-	req, err := http.NewRequest(http.MethodPost, forwardURL, bytes.NewReader(body))
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to create request to nopsai event endpoint")
-		http.Error(w, "Failed to forward event", http.StatusInternalServerError)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	for _, header := range []string{"X-GitHub-Event", "X-GitHub-Delivery", "X-GitHub-Enterprise-Host", "X-GitHub-Enterprise-Version"} {
-		if value := r.Header.Get(header); value != "" {
-			req.Header.Set(header, value)
-		}
-	}
-	req.Header.Set("X-Nopsai-Forwarded-By", "git-bot")
-
-	client := a.httpClient
-	if client == nil {
-		client = http.DefaultClient
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to forward event to nopsai")
-		http.Error(w, "Failed to forward event", http.StatusBadGateway)
-		return
-	}
-	defer resp.Body.Close()
-
-	for key, values := range resp.Header {
-		for _, value := range values {
-			w.Header().Add(key, value)
-		}
-	}
-	w.WriteHeader(resp.StatusCode)
-	if _, err := io.Copy(w, resp.Body); err != nil {
-		log.Error().Err(err).Msg("Failed to proxy response body")
-	}
+	a.webhookForwarder.ForwardWebhook(w, r, body)
 }
 
 func (a *GitBotApp) handleFetchFile(w http.ResponseWriter, r *http.Request) {
@@ -457,32 +450,10 @@ func (a *GitBotApp) handleFetchFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fileContent, _, _, err := a.ghClient.Repositories.GetContents(
-		context.Background(),
-		req.Owner,
-		req.Repo,
-		req.Path,
-		&github.RepositoryContentGetOptions{Ref: req.Ref},
-	)
+	content, err := a.repositoryProvider.FetchFile(r.Context(), req)
 	if err != nil {
-		var respErr *github.ErrorResponse
-		if errors.As(err, &respErr) && respErr.Response != nil && respErr.Response.StatusCode == http.StatusNotFound {
-			_ = httpapi.WriteJSONError(w, http.StatusNotFound, "file not found")
-			return
-		}
 		log.Error().Err(err).Str("owner", req.Owner).Str("repo", req.Repo).Str("path", req.Path).Msg("Failed to fetch repository file")
-		_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to fetch file")
-		return
-	}
-	if fileContent == nil {
-		_ = httpapi.WriteJSONError(w, http.StatusNotFound, "file not found")
-		return
-	}
-
-	content, err := fileContent.GetContent()
-	if err != nil {
-		log.Error().Err(err).Str("owner", req.Owner).Str("repo", req.Repo).Str("path", req.Path).Msg("Failed to decode repository file")
-		_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to decode file")
+		writeProviderError(w, err, "failed to fetch file")
 		return
 	}
 
@@ -505,16 +476,10 @@ func (a *GitBotApp) handleFetchDirectoryContents(w http.ResponseWriter, r *http.
 		return
 	}
 
-	files := make(map[string]string)
-
-	if err := a.collectRepositoryContents(context.Background(), req.Owner, req.Repo, strings.TrimPrefix(req.Path, "/"), req.Ref, files); err != nil {
-		var respErr *github.ErrorResponse
-		if errors.As(err, &respErr) && respErr.Response != nil && respErr.Response.StatusCode == http.StatusNotFound {
-			_ = httpapi.WriteJSONError(w, http.StatusNotFound, "path not found")
-			return
-		}
+	files, err := a.repositoryProvider.FetchDirectory(r.Context(), req)
+	if err != nil {
 		log.Error().Err(err).Str("owner", req.Owner).Str("repo", req.Repo).Str("path", req.Path).Msg("Failed to fetch repository contents")
-		_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to fetch repository contents")
+		writeProviderError(w, err, "failed to fetch repository contents")
 		return
 	}
 
@@ -736,40 +701,13 @@ func (a *GitBotApp) handleCheckRepoAccess(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	repo, resp, err := a.ghClient.Repositories.Get(context.Background(), req.Owner, req.Repo)
+	response, err := a.repositoryProvider.CheckAccess(r.Context(), req)
 	if err != nil {
-		var ghErr *github.ErrorResponse
-		if errors.As(err, &ghErr) && ghErr.Response != nil {
-			switch ghErr.Response.StatusCode {
-			case http.StatusNotFound:
-				_ = httpapi.WriteJSONError(w, http.StatusNotFound, "repository not found or Git Bot not installed")
-				return
-			case http.StatusForbidden:
-				_ = httpapi.WriteJSONError(w, http.StatusForbidden, "access to repository forbidden for Git Bot")
-				return
-			}
-		}
-		status := http.StatusInternalServerError
-		if resp != nil {
-			status = resp.StatusCode
-		}
-		message := "failed to verify repository access"
-		if ghErr != nil && ghErr.Message != "" {
-			message = fmt.Sprintf("%s: %s", message, ghErr.Message)
-		} else {
-			message = fmt.Sprintf("%s: %v", message, err)
-		}
-		log.Error().Err(err).Str("owner", req.Owner).Str("repo", req.Repo).Int("status", status).Msg("Failed to verify repository access")
-		_ = httpapi.WriteJSONError(w, status, message)
+		log.Error().Err(err).Str("owner", req.Owner).Str("repo", req.Repo).Msg("Failed to verify repository access")
+		writeProviderError(w, err, "failed to verify repository access")
 		return
 	}
-
-	defaultBranch := ""
-	if repo != nil && repo.DefaultBranch != nil {
-		defaultBranch = repo.GetDefaultBranch()
-	}
-
-	_ = httpapi.WriteJSON(w, http.StatusOK, RepositoryAccessResponse{Accessible: true, DefaultBranch: defaultBranch})
+	_ = httpapi.WriteJSON(w, http.StatusOK, response)
 }
 
 func (a *GitBotApp) handleCheckBranchHasOpenPR(w http.ResponseWriter, r *http.Request) {
@@ -788,110 +726,24 @@ func (a *GitBotApp) handleCheckBranchHasOpenPR(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	options := &github.PullRequestListOptions{
-		State: "open",
-		Head:  fmt.Sprintf("%s:%s", req.Owner, req.Branch),
-		ListOptions: github.ListOptions{
-			PerPage: 1,
-		},
-	}
-
-	prs, _, err := a.ghClient.PullRequests.List(context.Background(), req.Owner, req.Repo, options)
+	response, err := a.repositoryProvider.BranchHasOpenPR(r.Context(), req)
 	if err != nil {
 		log.Error().Err(err).Str("owner", req.Owner).Str("repo", req.Repo).Str("branch", req.Branch).Msg("Failed to check open pull requests for branch")
-		_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to check pull requests")
+		writeProviderError(w, err, "failed to check pull requests")
 		return
 	}
-
-	response := BranchPROpenResponse{HasOpenPR: len(prs) > 0}
 
 	if err := httpapi.WriteJSON(w, http.StatusOK, response); err != nil {
 		log.Error().Err(err).Msg("Failed to encode branch PR response")
 	}
 }
 
-func (a *GitBotApp) collectRepositoryContents(ctx context.Context, owner, repo, path, ref string, results map[string]string) error {
-	fileContent, dirContents, _, err := a.ghClient.Repositories.GetContents(
-		ctx,
-		owner,
-		repo,
-		path,
-		&github.RepositoryContentGetOptions{Ref: ref},
-	)
-	if err != nil {
-		return err
-	}
-
-	if fileContent != nil {
-		content, err := fileContent.GetContent()
-		if err != nil {
-			return err
-		}
-		results[fileContent.GetPath()] = content
-		return nil
-	}
-
-	for _, entry := range dirContents {
-		entryPath := entry.GetPath()
-
-		switch entry.GetType() {
-		case "dir":
-			if err := a.collectRepositoryContents(ctx, owner, repo, entryPath, ref, results); err != nil {
-				return err
-			}
-		case "file":
-			fileContent, _, _, err := a.ghClient.Repositories.GetContents(
-				ctx,
-				owner,
-				repo,
-				entryPath,
-				&github.RepositoryContentGetOptions{Ref: ref},
-			)
-			if err != nil {
-				return err
-			}
-			if fileContent == nil {
-				continue
-			}
-			content, err := fileContent.GetContent()
-			if err != nil {
-				return err
-			}
-			results[entryPath] = content
-		}
-	}
-
-	return nil
-}
-
 func (a *GitBotApp) handleListInstalledRepositories(w http.ResponseWriter, r *http.Request) {
-	var repositories []InstalledRepository
-	opts := &github.ListOptions{PerPage: 100}
-	for {
-		result, resp, err := a.ghClient.Apps.ListRepos(r.Context(), opts)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to list GitHub App installation repositories")
-			_ = httpapi.WriteJSONError(w, http.StatusBadGateway, "failed to list installation repositories")
-			return
-		}
-		for _, repo := range result.Repositories {
-			owner := ""
-			if repo.Owner != nil {
-				owner = repo.Owner.GetLogin()
-			}
-			repositories = append(repositories, InstalledRepository{
-				ID:            repo.GetID(),
-				FullName:      repo.GetFullName(),
-				Owner:         owner,
-				Name:          repo.GetName(),
-				Private:       repo.GetPrivate(),
-				DefaultBranch: repo.GetDefaultBranch(),
-			})
-		}
-		if resp == nil || resp.NextPage == 0 {
-			break
-		}
-		opts.Page = resp.NextPage
+	repositories, err := a.repositoryProvider.ListInstalled(r.Context())
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to list GitHub App installation repositories")
+		writeProviderError(w, err, "failed to list installation repositories")
+		return
 	}
 	_ = httpapi.WriteJSON(w, http.StatusOK, InstalledRepositoriesResponse{Repositories: repositories})
 }
@@ -912,47 +764,14 @@ func (a *GitBotApp) handleFetchPipeline(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var pipelineYAML []byte
-
-	if req.Source.Path != "" {
-		if strings.HasPrefix(req.Source.Path, "http://") || strings.HasPrefix(req.Source.Path, "https://") {
-			_ = httpapi.WriteJSONError(w, http.StatusBadRequest, "remote pipeline URLs are no longer supported")
-			return
-		}
-		fileContent, _, _, fetchErr := a.ghClient.Repositories.GetContents(
-			context.Background(),
-			req.Owner,
-			req.Repo,
-			req.Source.Path,
-			&github.RepositoryContentGetOptions{Ref: req.Ref},
-		)
-		if fetchErr != nil {
-			var respErr *github.ErrorResponse
-			if errors.As(fetchErr, &respErr) && respErr.Response != nil && respErr.Response.StatusCode == http.StatusNotFound {
-				_ = httpapi.WriteJSONError(w, http.StatusNotFound, "pipeline file not found")
-				return
-			}
-			log.Error().Err(fetchErr).Str("owner", req.Owner).Str("repo", req.Repo).Str("path", req.Source.Path).Msg("Failed to fetch pipeline file")
-			_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to fetch pipeline file")
-			return
-		}
-		if fileContent == nil {
-			_ = httpapi.WriteJSONError(w, http.StatusNotFound, "pipeline file not found")
-			return
-		}
-		content, decodeErr := fileContent.GetContent()
-		if decodeErr != nil {
-			log.Error().Err(decodeErr).Str("owner", req.Owner).Str("repo", req.Repo).Str("path", req.Source.Path).Msg("Failed to decode pipeline file content")
-			_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to decode pipeline file")
-			return
-		}
-		pipelineYAML = []byte(content)
-	} else {
-		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, "pipeline source must include a path")
+	content, err := a.repositoryProvider.FetchPipeline(r.Context(), req)
+	if err != nil {
+		log.Error().Err(err).Str("owner", req.Owner).Str("repo", req.Repo).Str("path", req.Source.Path).Msg("Failed to fetch pipeline file")
+		writeProviderError(w, err, "failed to fetch pipeline file")
 		return
 	}
 
-	_ = httpapi.WriteJSON(w, http.StatusOK, PipelineContentResponse{Content: string(pipelineYAML)})
+	_ = httpapi.WriteJSON(w, http.StatusOK, PipelineContentResponse{Content: content})
 }
 
 func (a *GitBotApp) handleCreateCheckRun(w http.ResponseWriter, r *http.Request) {
@@ -1136,7 +955,7 @@ func (a *GitBotApp) handleFindSuiteCheckRun(w http.ResponseWriter, r *http.Reque
 }
 
 func (a *GitBotApp) handleTaskStatusUpdate(w http.ResponseWriter, r *http.Request) {
-	var update TaskStatusUpdate
+	var update checkrender.TaskStatusUpdate
 	if err := httpapi.DecodeJSON(r, &update); err != nil {
 		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -1194,7 +1013,7 @@ func (a *GitBotApp) handleTaskStatusUpdate(w http.ResponseWriter, r *http.Reques
 		state.Steps[update.StepName][update.TaskName] = existingTask
 	} else {
 		if _, ok := state.Steps[update.StepName]; !ok {
-			state.Steps[update.StepName] = make(map[string]TaskStatusUpdate)
+			state.Steps[update.StepName] = make(map[string]checkrender.TaskStatusUpdate)
 		}
 		state.Steps[update.StepName][update.TaskName] = update
 	}
@@ -1352,103 +1171,4 @@ func (a *GitBotApp) concludeCheckRun(owner, repo string, checkRunID int64, concl
 func handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok"))
-}
-
-func main() {
-	configPath := os.Getenv("CONFIG_PATH")
-	if configPath == "" {
-		configPath = "config.yml"
-	}
-	cfg, err := config.LoadConfig(configPath)
-	if err != nil {
-		log.Fatal().Err(err).Msgf("Failed to load config from %s", configPath)
-	}
-
-	if cfg.GitHubPrivateKey != "" {
-		correctedKey := strings.ReplaceAll(cfg.GitHubPrivateKey, "\n", "\n")
-
-		// ** FIXED **: Ensure parent directory exists before writing the file.
-		if err := os.MkdirAll(filepath.Dir(cfg.GitHubPrivateKeyPath), 0700); err != nil {
-			log.Fatal().Err(err).Msgf("Failed to create directory for private key: %s", cfg.GitHubPrivateKeyPath)
-		}
-
-		log.Info().Msgf("Writing GITHUB_PRIVATE_KEY to file: %s", cfg.GitHubPrivateKeyPath)
-		err = os.WriteFile(cfg.GitHubPrivateKeyPath, []byte(correctedKey), 0600)
-		if err != nil {
-			log.Fatal().Err(err).Msgf("Failed to write private key to file: %s", cfg.GitHubPrivateKeyPath)
-		}
-	}
-	logLevel, err := zerolog.ParseLevel(cfg.LogLevel)
-	if err != nil {
-		log.Warn().Msgf("Invalid log level '%s', defaulting to 'info'", cfg.LogLevel)
-		logLevel = zerolog.InfoLevel
-	}
-	if cfg.LogFormat == "console" {
-		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
-	}
-	zerolog.SetGlobalLevel(logLevel)
-
-	appID, err := strconv.ParseInt(cfg.GitHubAppID, 10, 64)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Invalid GitHub App ID in configuration")
-	}
-	installationID, err := strconv.ParseInt(cfg.GitHubInstallID, 10, 64)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Invalid GitHub Installation ID in configuration")
-	}
-
-	if cfg.GitHubPrivateKeyPath == "" {
-		log.Fatal().Msg("github_private_key_path must be set in the configuration.")
-	}
-
-	log.Info().Msgf("Loading GitHub private key from file path: %s", cfg.GitHubPrivateKeyPath)
-	privateKeyBytes, err := os.ReadFile(cfg.GitHubPrivateKeyPath)
-	if err != nil {
-		log.Fatal().Err(err).Msgf("Failed to read private key from path: %s", cfg.GitHubPrivateKeyPath)
-	}
-
-	itr, err := ghinstallation.NewAppsTransport(http.DefaultTransport, appID, privateKeyBytes)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create GitHub App transport")
-	}
-
-	installationTransport := ghinstallation.NewFromAppsTransport(itr, installationID)
-	githubHTTPClient := &http.Client{
-		Transport: installationTransport,
-		Timeout:   15 * time.Second,
-	}
-	ghClient := github.NewClient(githubHTTPClient)
-	httpClient := proxyhttp.NewInternalAwareClient(10 * time.Second)
-
-	app := &GitBotApp{
-		cfg:            cfg,
-		ghClient:       ghClient,
-		httpClient:     httpClient,
-		webhookSecret:  cfg.GitHubWebhookSecret,
-		checkRunStates: make(map[int64]*CheckRunState),
-		githubAppID:    appID,
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", handleHealthz)
-	mux.HandleFunc("/webhook", app.handleWebhook)
-	mux.HandleFunc("POST /v1/github/file", app.handleFetchFile)
-	mux.HandleFunc("POST /v1/github/contents", app.handleFetchDirectoryContents)
-	mux.HandleFunc("POST /v1/github/commit", app.handleCommitFiles)
-	mux.HandleFunc("POST /v1/github/repo/access", app.handleCheckRepoAccess)
-	mux.HandleFunc("POST /v1/github/branch/has-open-pr", app.handleCheckBranchHasOpenPR)
-	mux.HandleFunc("GET /v1/github/installation/repositories", app.handleListInstalledRepositories)
-	mux.HandleFunc("POST /v1/github/pipeline", app.handleFetchPipeline)
-	mux.HandleFunc("POST /v1/checks/create", app.handleCreateCheckRun)
-	mux.HandleFunc("POST /v1/checks/initialize", app.handleInitializeCheckRun)
-	mux.HandleFunc("POST /v1/checks/find-suite-run", app.handleFindSuiteCheckRun)
-	mux.HandleFunc("POST /v1/checks/cancel-stale", app.handleCancelStaleCheckRuns)
-	mux.HandleFunc("/v1/run/status", app.handleRunStatusUpdate)
-	mux.HandleFunc("/v1/task/status", app.handleTaskStatusUpdate)
-	mux.HandleFunc("/v1/checks/create-child", app.handleCreateChildCheckRun)
-
-	log.Info().Msgf("Nopsai Git Bot server listening on %s", cfg.GitBotListenAddress)
-	if err := http.ListenAndServe(cfg.GitBotListenAddress, mux); err != nil {
-		log.Fatal().Err(err).Msg("Failed to start server")
-	}
 }

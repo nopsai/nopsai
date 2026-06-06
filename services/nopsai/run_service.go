@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"context"
@@ -290,7 +290,18 @@ func (s *runService) launchPipeline(
 		return
 	}
 
-	go s.app.launchAgent(runID.String(), parentRunID, parentRunnerID, pipeline, pipelineDef, timeoutDuration, gitContext, parentHistory, scope, overrides, "", nil)
+	go s.app.agentRunLauncher().LaunchAgent(context.Background(), AgentRunLaunchRequest{
+		RunID:              runID.String(),
+		ParentRunID:        parentRunID,
+		ParentRunnerID:     parentRunnerID,
+		Pipeline:           pipeline,
+		PipelineDefinition: pipelineDef,
+		Timeout:            timeoutDuration,
+		GitContext:         gitContext,
+		ParentHistory:      parentHistory,
+		Scope:              scope,
+		Overrides:          overrides,
+	})
 }
 
 func (s *runService) failRun(ctx context.Context, runID uuid.UUID, reason string, gitContext map[string]string) {

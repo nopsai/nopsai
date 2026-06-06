@@ -134,6 +134,33 @@ func TestEffectiveServiceJWTConfig(t *testing.T) {
 	}
 }
 
+func TestEffectiveEnvironmentAndProductionGates(t *testing.T) {
+	cfg := Config{}
+	if got := cfg.EffectiveEnvironment(); got != "development" {
+		t.Fatalf("EffectiveEnvironment() = %q, want development", got)
+	}
+	if cfg.RequiresProductionGates() {
+		t.Fatal("RequiresProductionGates() = true, want false for default environment")
+	}
+
+	cfg.Environment = " prod "
+	if got := cfg.EffectiveEnvironment(); got != "production" {
+		t.Fatalf("EffectiveEnvironment() = %q, want production", got)
+	}
+	if !cfg.RequiresProductionGates() {
+		t.Fatal("RequiresProductionGates() = false, want true for production")
+	}
+
+	cfg.Environment = "staging"
+	cfg.RequireProductionGates = true
+	if got := cfg.EffectiveEnvironment(); got != "staging" {
+		t.Fatalf("EffectiveEnvironment() = %q, want staging", got)
+	}
+	if !cfg.RequiresProductionGates() {
+		t.Fatal("RequiresProductionGates() = false, want true when explicitly required")
+	}
+}
+
 func TestNormalizeKubernetesRuntimeConfig(t *testing.T) {
 	affinity := false
 	cfg := NormalizeKubernetesConfig(KubernetesConfig{

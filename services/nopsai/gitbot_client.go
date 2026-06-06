@@ -1,8 +1,9 @@
-package main
+package nopsai
 
 import (
 	"context"
 	"database/sql"
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -13,59 +14,88 @@ import (
 	"nopsai/services/nopsai/internal/gitbot"
 )
 
-type suiteCheckRunResponse = gitbot.SuiteCheckRunResponse
-type gitBotCommitFile = gitbot.CommitFile
-type gitBotCommitFilesResponse = gitbot.CommitFilesResponse
+type SuiteCheckRunResponse = gitbot.SuiteCheckRunResponse
+type GitCommitFile = gitbot.CommitFile
+type GitCommitFilesResponse = gitbot.CommitFilesResponse
+type GitFinalStatusRequest = gitbot.FinalStatusRequest
+type GitTaskStatusRequest = gitbot.TaskStatusRequest
 
-func (a *App) gitBotClient() gitbot.Client {
+type GitProvider interface {
+	File(owner, repo, ref, path string, notFoundErr error) (string, error)
+	Directory(owner, repo, ref, path string) (map[string]string, error)
+	CommitFiles(owner, repo, baseRef, branch, message string, files []GitCommitFile) (GitCommitFilesResponse, error)
+	BranchHasOpenPullRequest(owner, repo, branch string) (bool, error)
+	EnsureRepoAccessible(owner, repo string) error
+	Pipeline(owner, repo, ref string, source models.PipelineSource, notFoundErr error) ([]byte, error)
+	FindSuiteCheckRun(owner, repo string, suiteID int64, commitSHA string) (*SuiteCheckRunResponse, error)
+	CreateCheckRun(owner, repo, ref string, pipelineDef []byte, pipelineSource string) (int64, error)
+	CreateChildCheckRun(owner, repo, ref, parentName, includeName string, pipelineDef []byte) (int64, error)
+	InitializeCheckRun(owner, repo string, checkRunID int64, pipelineDef []byte, pipelineName string) error
+	CancelStaleCheckRuns(owner, repo, beforeSHA string) error
+	NotifyFinalStatus(req GitFinalStatusRequest) error
+	NotifyTaskStatus(req GitTaskStatusRequest) error
+}
+
+func NewGitBotProvider(baseURL string, httpClient *http.Client) GitProvider {
 	return gitbot.Client{
-		BaseURL:    a.cfg.NopsaiGitBotAPIURL,
-		HTTPClient: a.httpClient,
+		BaseURL:    baseURL,
+		HTTPClient: httpClient,
 	}
 }
 
+func (a *App) gitClient() GitProvider {
+	if a.gitProvider != nil {
+		return a.gitProvider
+	}
+	baseURL := ""
+	if a.cfg != nil {
+		baseURL = a.cfg.NopsaiGitBotAPIURL
+	}
+	return NewGitBotProvider(baseURL, a.httpClient)
+}
+
 func (a *App) requestGitBotFile(owner, repo, ref, path string, notFoundErr error) (string, error) {
-	return a.gitBotClient().File(owner, repo, ref, path, notFoundErr)
+	return a.gitClient().File(owner, repo, ref, path, notFoundErr)
 }
 
 func (a *App) requestGitBotDirectory(owner, repo, ref, path string) (map[string]string, error) {
-	return a.gitBotClient().Directory(owner, repo, ref, path)
+	return a.gitClient().Directory(owner, repo, ref, path)
 }
 
-func (a *App) requestGitBotCommitFiles(owner, repo, baseRef, branch, message string, files []gitBotCommitFile) (gitBotCommitFilesResponse, error) {
-	return a.gitBotClient().CommitFiles(owner, repo, baseRef, branch, message, files)
+func (a *App) requestGitBotCommitFiles(owner, repo, baseRef, branch, message string, files []GitCommitFile) (GitCommitFilesResponse, error) {
+	return a.gitClient().CommitFiles(owner, repo, baseRef, branch, message, files)
 }
 
 func (a *App) branchHasOpenPullRequest(owner, repo, branch string) (bool, error) {
-	return a.gitBotClient().BranchHasOpenPullRequest(owner, repo, branch)
+	return a.gitClient().BranchHasOpenPullRequest(owner, repo, branch)
 }
 
 func (a *App) ensureConfigRepoAccessible(owner, repo string) error {
-	return a.gitBotClient().EnsureRepoAccessible(owner, repo)
+	return a.gitClient().EnsureRepoAccessible(owner, repo)
 }
 
 func (a *App) requestGitBotPipeline(owner, repo, ref string, source models.PipelineSource) ([]byte, error) {
-	return a.gitBotClient().Pipeline(owner, repo, ref, source, errPipelineNotFound)
+	return a.gitClient().Pipeline(owner, repo, ref, source, errPipelineNotFound)
 }
 
-func (a *App) findSuiteCheckRun(owner, repo string, suiteID int64, commitSHA string) (*suiteCheckRunResponse, error) {
-	return a.gitBotClient().FindSuiteCheckRun(owner, repo, suiteID, commitSHA)
+func (a *App) findSuiteCheckRun(owner, repo string, suiteID int64, commitSHA string) (*SuiteCheckRunResponse, error) {
+	return a.gitClient().FindSuiteCheckRun(owner, repo, suiteID, commitSHA)
 }
 
 func (a *App) createGitHubCheckRun(owner, repo, ref string, pipelineDef []byte, pipelineSource string) (int64, error) {
-	return a.gitBotClient().CreateCheckRun(owner, repo, ref, pipelineDef, pipelineSource)
+	return a.gitClient().CreateCheckRun(owner, repo, ref, pipelineDef, pipelineSource)
 }
 
 func (a *App) createChildGitHubCheckRun(owner, repo, ref, parentName, includeName string, pipelineDef []byte) (int64, error) {
-	return a.gitBotClient().CreateChildCheckRun(owner, repo, ref, parentName, includeName, pipelineDef)
+	return a.gitClient().CreateChildCheckRun(owner, repo, ref, parentName, includeName, pipelineDef)
 }
 
 func (a *App) initializeGitHubCheckRun(owner, repo string, checkRunID int64, pipelineDef []byte, pipelineName string) error {
-	return a.gitBotClient().InitializeCheckRun(owner, repo, checkRunID, pipelineDef, pipelineName)
+	return a.gitClient().InitializeCheckRun(owner, repo, checkRunID, pipelineDef, pipelineName)
 }
 
 func (a *App) cancelStaleCheckRuns(owner, repo, beforeSHA string) {
-	if err := a.gitBotClient().CancelStaleCheckRuns(owner, repo, beforeSHA); err != nil {
+	if err := a.gitClient().CancelStaleCheckRuns(owner, repo, beforeSHA); err != nil {
 		log.Error().Err(err).Msg("Failed to request stale check run cancellation")
 	}
 }
@@ -81,7 +111,7 @@ func (a *App) notifyGitBotOfFinalStatus(status, failedStep, failedTask, summary 
 		return
 	}
 
-	err := a.gitBotClient().NotifyFinalStatus(gitbot.FinalStatusRequest{
+	err := a.gitClient().NotifyFinalStatus(GitFinalStatusRequest{
 		Status:     status,
 		FailedStep: failedStep,
 		FailedTask: failedTask,
@@ -136,7 +166,7 @@ func (a *App) notifyGitBotOfTaskStatus(runID, stepName, taskName, taskStatus str
 		}
 	}
 
-	err = a.gitBotClient().NotifyTaskStatus(gitbot.TaskStatusRequest{
+	err = a.gitClient().NotifyTaskStatus(GitTaskStatusRequest{
 		RunID:      runID,
 		RepoOwner:  repoOwner.String,
 		RepoName:   repoName.String,
