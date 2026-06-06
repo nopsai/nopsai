@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"nopsai/config"
+	"nopsai/pkg/httpapi"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog/log"
@@ -206,7 +207,54 @@ func buildSetupPreflightResponse(ctx context.Context, cfg *config.Config, config
 		})
 	}
 
+	for _, check := range enterpriseStartupGateChecks(cfg) {
+		add(check)
+	}
+	for _, check := range enterpriseDatabaseGateChecks(ctx, cfg, db) {
+		add(check)
+	}
+
 	return resp
+}
+
+func enterpriseDatabaseGateChecks(ctx context.Context, cfg *config.Config, db *pgxpool.Pool) []setupPreflightCheck {
+	if cfg == nil || !cfg.RequiresProductionGates() || db == nil {
+		return nil
+	}
+	check := setupPreflightCheck{
+		ID:       "default_admin_password",
+		Label:    "Default admin password",
+		Status:   "success",
+		Required: false,
+		Message:  "Default administrator is not using the built-in password.",
+	}
+	status, err := defaultAdminPasswordState(ctx, db)
+	if err != nil {
+		check.Status = "error"
+		check.Required = true
+		check.Message = fmt.Sprintf("Default admin state could not be verified: %v", err)
+		return []setupPreflightCheck{check}
+	}
+	switch status {
+	case defaultAdminPasswordMissing:
+		check.Status = "error"
+		check.Required = true
+		check.Message = "Production startup gates require a pre-provisioned administrator; the built-in default admin will not be seeded."
+	case defaultAdminPasswordDefault:
+		check.Status = "error"
+		check.Required = true
+		check.Message = "Default administrator still uses the built-in password. Rotate admin@example.com before enabling production gates."
+	}
+	return []setupPreflightCheck{check}
+}
+
+func HasBlockingEnterpriseDatabaseGates(ctx context.Context, cfg *config.Config, db *pgxpool.Pool) bool {
+	for _, check := range enterpriseDatabaseGateChecks(ctx, cfg, db) {
+		if check.Required && check.Status == "error" {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *App) handleSetupPreflight(w http.ResponseWriter, r *http.Request) {
@@ -244,7 +292,7 @@ func runSetupPreflightOnlyServer(cfg *config.Config, configPath, envFilePath str
 	handler = requestIDMiddleware(handler)
 	handler = corsMiddleware(handler)
 
-	server := &http.Server{Addr: addr, Handler: handler}
+	server := httpapi.NewServer(addr, handler)
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	go func() {

@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"context"
@@ -14,6 +14,7 @@ import (
 
 	"nopsai/pkg/models"
 	"nopsai/services/aaa/pkg/model"
+	"nopsai/services/nopsai/internal/configsync"
 	"nopsai/services/nopsai/pkg/auth"
 )
 
@@ -340,7 +341,7 @@ func parseAccessSyncPlan(files map[string]string, accessDir string, binding mode
 	plan := newAccessSyncPlan()
 	for path, content := range files {
 		normalized := filepath.ToSlash(path)
-		rel, ok := relativeConfigPath(normalized, accessDir)
+		rel, ok := configsync.RelativePath(normalized, accessDir)
 		if !ok {
 			continue
 		}
@@ -960,7 +961,7 @@ func normalizeAccessGrantResourceIDForBinding(resourceType, resourceID string, b
 			return "", err
 		}
 		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
-			group, err = normalizeConfigPathForFolder(boundFolder, group)
+			group, err = configsync.NormalizePathForFolder(boundFolder, group)
 			if err != nil {
 				return "", err
 			}
@@ -981,13 +982,13 @@ func normalizeAccessGrantResourceIDForBinding(resourceType, resourceID string, b
 		}
 		var err error
 		if repoName != "" {
-			repoName, err = normalizeConfigPathForFolder(boundFolder, repoName)
+			repoName, err = configsync.NormalizePathForFolder(boundFolder, repoName)
 			if err != nil {
 				return "", err
 			}
 		}
 		if scope != "" {
-			scope, err = normalizeConfigPathForFolder(boundFolder, scope)
+			scope, err = configsync.NormalizePathForFolder(boundFolder, scope)
 			if err != nil {
 				return "", err
 			}
@@ -1000,7 +1001,7 @@ func normalizeAccessGrantResourceIDForBinding(resourceType, resourceID string, b
 	if isRootGrantResourceID(resourceID) {
 		return generalGrantID, nil
 	}
-	return normalizeConfigPathForFolder(boundFolder, resourceID)
+	return configsync.NormalizePathForFolder(boundFolder, resourceID)
 }
 
 func validateAccessPlanForBinding(plan accessSyncPlan, binding models.ConfigRepository) error {
@@ -1033,24 +1034,24 @@ func accessGrantResourceUnderBindingScope(resourceType, resourceID, boundFolder 
 		checked := false
 		if repoName != "" {
 			checked = true
-			if !configResourceUnderScope(repoName, boundFolder) {
+			if !configsync.ResourceUnderScope(repoName, boundFolder) {
 				return false
 			}
 		}
 		if scope != "" {
 			checked = true
-			if !configResourceUnderScope(scope, boundFolder) {
+			if !configsync.ResourceUnderScope(scope, boundFolder) {
 				return false
 			}
 		}
 		return checked
 	case grantResourceKnowledgeContext:
 		_, group, _, err := splitKnowledgeContextIdentifier(resourceID)
-		return err == nil && configResourceUnderScope(group, boundFolder)
+		return err == nil && configsync.ResourceUnderScope(group, boundFolder)
 	case grantResourcePlatform:
 		return false
 	default:
-		return configResourceUnderScope(resourceID, boundFolder)
+		return configsync.ResourceUnderScope(resourceID, boundFolder)
 	}
 }
 
@@ -1062,19 +1063,19 @@ func accessGrantResourceIntersectsAnyScope(resourceType, resourceID string, scop
 			if name == "" {
 				continue
 			}
-			if repoName != "" && configResourceUnderScope(repoName, scope) {
+			if repoName != "" && configsync.ResourceUnderScope(repoName, scope) {
 				return true
 			}
-			if secretScope != "" && configResourceUnderScope(secretScope, scope) {
+			if secretScope != "" && configsync.ResourceUnderScope(secretScope, scope) {
 				return true
 			}
 		case grantResourceKnowledgeContext:
 			_, group, _, err := splitKnowledgeContextIdentifier(resourceID)
-			if err == nil && configResourceUnderScope(group, scope) {
+			if err == nil && configsync.ResourceUnderScope(group, scope) {
 				return true
 			}
 		default:
-			if configResourceUnderScope(resourceID, scope) {
+			if configsync.ResourceUnderScope(resourceID, scope) {
 				return true
 			}
 		}
@@ -1757,10 +1758,10 @@ func ensureAccessGrantConfigWritable(ctx context.Context, tx pgx.Tx, binding mod
 	if err != nil {
 		return false, err
 	}
-	if canConfigRepositoryWriteOver(binding, existing, resourceScope) {
+	if configsync.CanRepositoryWriteOver(binding, existing, resourceScope) {
 		return true, nil
 	}
-	if configRepositoryShadowsCurrent(existing, binding, resourceScope) {
+	if configsync.RepositoryShadowsCurrent(existing, binding, resourceScope) {
 		return false, nil
 	}
 

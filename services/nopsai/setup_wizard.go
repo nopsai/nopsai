@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"archive/zip"
@@ -20,7 +20,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"google.golang.org/protobuf/types/known/emptypb"
 	"gopkg.in/yaml.v3"
 
 	"nopsai/config"
@@ -526,7 +525,7 @@ func (a *App) setupHealthChecks(ctx context.Context, counts setupCounts, globalR
 	} else {
 		statusCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
-		status, err := a.dispatcher.GetStatus(statusCtx, &emptypb.Empty{})
+		status, err := a.dispatcher.GetStatus(statusCtx)
 		if err != nil {
 			add("runner", "Runner health", "warning", "Dispatcher status is unavailable.", false)
 		} else if len(status.GetRunners()) == 0 {
@@ -1336,21 +1335,21 @@ func setupStarterTemplatesWithOptions(profile string, repositories []string, opt
 	return files
 }
 
-func setupPipelineRunStructure(profile string, repositoryGroups []setupRepositoryGroupInput, repositories []string) map[string]*pipelineRunStructureNode {
+func setupPipelineRunStructure(profile string, repositoryGroups []setupRepositoryGroupInput, repositories []string) map[string]*configsync.PipelineRunStructureNode {
 	root := setupAccessFolder(profile)
-	node := &pipelineRunStructureNode{
+	node := &configsync.PipelineRunStructureNode{
 		Description: "Starter workspace",
-		Children:    map[string]*pipelineRunStructureNode{},
+		Children:    map[string]*configsync.PipelineRunStructureNode{},
 	}
 	repositoryGroups = normalizeSetupRepositoryGroups(repositoryGroups, repositories)
 	for _, group := range repositoryGroups {
-		child := &pipelineRunStructureNode{Description: "Repository group " + group.Name, Children: map[string]*pipelineRunStructureNode{}}
+		child := &configsync.PipelineRunStructureNode{Description: "Repository group " + group.Name, Children: map[string]*configsync.PipelineRunStructureNode{}}
 		for _, repo := range group.Repositories {
 			parts := strings.Split(repo, "/")
 			if len(parts) != 2 {
 				continue
 			}
-			child.Apps = append(child.Apps, pipelineRunStructureApp{
+			child.Apps = append(child.Apps, configsync.PipelineRunStructureApp{
 				Name:               configsync.RepositoryDisplayNameFromFullName(repo),
 				RepoURL:            configsync.CanonicalRepositoryURL(repo),
 				RepositoryFullName: repo,
@@ -1359,7 +1358,7 @@ func setupPipelineRunStructure(profile string, repositoryGroups []setupRepositor
 		}
 		node.Children[group.Name] = child
 	}
-	return map[string]*pipelineRunStructureNode{root: node}
+	return map[string]*configsync.PipelineRunStructureNode{root: node}
 }
 
 func setupAccessFolder(profile string) string {

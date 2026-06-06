@@ -1,4 +1,4 @@
-package main
+package service
 
 import (
 	"context"
@@ -113,7 +113,7 @@ func TestRunnerJobFailureFinalizesRun(t *testing.T) {
 	defer server.Close()
 
 	d := newDispatcherServer(nil, server.URL, newTestDispatcherCredentials(t))
-	d.httpClient = server.Client()
+	d.nopsai.(*nopsaiHTTPClient).setHTTPClient(server.Client())
 	rc := &runnerConn{
 		connectionID:  "conn-failed",
 		id:            "runner-failed",
@@ -167,7 +167,7 @@ func TestSubmitJobRejectsTerminalRun(t *testing.T) {
 	defer server.Close()
 
 	d := newDispatcherServer(nil, server.URL, newTestDispatcherCredentials(t))
-	d.httpClient = server.Client()
+	d.nopsai.(*nopsaiHTTPClient).setHTTPClient(server.Client())
 
 	resp, err := d.SubmitJob(context.Background(), &proto.JobRequest{RunId: "run-cancelled"})
 	if err != nil {
@@ -212,7 +212,7 @@ func TestPumpQueueDropsCancelledRunAndDispatchesRunnableJob(t *testing.T) {
 	defer server.Close()
 
 	d := newDispatcherServer(nil, server.URL, newTestDispatcherCredentials(t))
-	d.httpClient = server.Client()
+	d.nopsai.(*nopsaiHTTPClient).setHTTPClient(server.Client())
 
 	rc := &runnerConn{
 		connectionID:  "conn-queue",
@@ -395,7 +395,7 @@ func TestSyncRoutingFromNopsaiUsesInternalEndpoint(t *testing.T) {
 	defer server.Close()
 
 	d := newDispatcherServer(nil, server.URL, newTestDispatcherCredentials(t))
-	d.httpClient = server.Client()
+	d.nopsai.(*nopsaiHTTPClient).setHTTPClient(server.Client())
 
 	if err := d.syncRoutingFromNopsai(context.Background()); err != nil {
 		t.Fatalf("syncRoutingFromNopsai() error = %v", err)
@@ -448,7 +448,7 @@ func TestPumpQueueDoesNotHoldDispatcherLockWhileFetchingRunStatus(t *testing.T) 
 	defer server.Close()
 
 	d := newDispatcherServer(nil, server.URL, newTestDispatcherCredentials(t))
-	d.httpClient = server.Client()
+	d.nopsai.(*nopsaiHTTPClient).setHTTPClient(server.Client())
 	d.queue = []*proto.JobRequest{{RunId: "run-blocked"}}
 
 	pumpDone := make(chan struct{})

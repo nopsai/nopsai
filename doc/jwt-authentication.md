@@ -11,9 +11,14 @@ These are intentionally separate. User/API JWTs protect the REST control plane. 
 Related source files:
 
 - `config/config.go`
+- `services/nopsai/cmd/nopsai/main.go`
+- `services/nopsai/internal/app`
 - `services/nopsai/pkg/auth/*.go`
-- `services/nopsai/main.go`
-- `services/dispatcher/main.go`
+- `services/nopsai/app.go`
+- `services/nopsai/bootstrap.go`
+- `services/nopsai/aaa_helpers.go`
+- `services/dispatcher/internal/app`
+- `services/dispatcher/internal/service`
 - `pkg/serviceauth/serviceauth.go`
 - `pkg/servicetls/servicetls.go`
 
@@ -42,7 +47,7 @@ Main API JWT settings:
 | `jwt_signing_key` | `JWT_SIGNING_KEY` | HS256 HMAC key for API access tokens |
 | `jwt_issuer` | `JWT_ISSUER` | Issuer required for API JWTs |
 | `jwt_audience` | `JWT_AUDIENCE` | Audience required for API JWTs when configured |
-| `jwt_expiry_minutes` | `JWT_EXPIRY_MINUTES` | Access-token TTL, defaulted to `60` in `services/nopsai/main.go` |
+| `jwt_expiry_minutes` | `JWT_EXPIRY_MINUTES` | Access-token TTL, defaulted to `60` in `services/nopsai/internal/app` |
 | `refresh_token_ttl_minutes` | `REFRESH_TOKEN_TTL_MINUTES` | Refresh-token lifetime; if `0`, login does not issue refresh tokens |
 | `idle_timeout_minutes` | `IDLE_TIMEOUT_MINUTES` | Optional in-memory idle timeout for presented access tokens |
 | `auth_provider_local_enabled` | `AUTH_PROVIDER_LOCAL_ENABLED` | Enables local username/password login |
@@ -254,7 +259,7 @@ Those endpoints require the service role `agent`.
 
 ## Dispatcher gRPC Service JWT
 
-Dispatcher gRPC auth lives in `pkg/serviceauth` and `services/dispatcher/main.go`. It uses the same service-token format as internal REST service calls.
+Dispatcher gRPC auth lives in `pkg/serviceauth` and `services/dispatcher/internal/service`, with process wiring in `services/dispatcher/internal/app`. It uses the same service-token format as internal REST service calls.
 
 Each client attaches gRPC metadata:
 

@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"context"
@@ -21,6 +21,7 @@ import (
 
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
+	"nopsai/services/nopsai/internal/configsync"
 )
 
 const notificationMailGitOpsPath = "system/mail.yaml"
@@ -105,7 +106,7 @@ func parseGitOpsMailSettingsPlan(binding models.ConfigRepository, directories ..
 		root := filepath.ToSlash(strings.Trim(directory.root, "/"))
 		for path, content := range directory.files {
 			normalized := filepath.ToSlash(path)
-			rel, ok := relativeConfigPath(normalized, root)
+			rel, ok := configsync.RelativePath(normalized, root)
 			if !ok || !isGitOpsMailSettingsRelativePath(rel) {
 				continue
 			}

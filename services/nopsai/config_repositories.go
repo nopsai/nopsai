@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"context"
@@ -209,14 +209,14 @@ func (a *App) handleWriteConfigRepositoryFiles(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	files := make([]gitBotCommitFile, 0, len(req.Files))
+	files := make([]GitCommitFile, 0, len(req.Files))
 	for _, file := range req.Files {
 		cleanPath, err := configsync.CleanRepositoryWritePath(repo.BasePath, file.Path)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		files = append(files, gitBotCommitFile{
+		files = append(files, GitCommitFile{
 			Path:    cleanPath,
 			Content: file.Content,
 			Delete:  file.Delete,

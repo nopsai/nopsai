@@ -1,11 +1,10 @@
-package main
+package service
 
 import (
 	"context"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -17,17 +16,10 @@ import (
 	"nopsai/pkg/logforward"
 	"nopsai/pkg/proto"
 	"nopsai/pkg/serviceauth"
-	"nopsai/pkg/servicetls"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -57,6 +49,20 @@ const (
 )
 
 var nameInvalidChars = regexp.MustCompile(`[^a-z0-9-]+`)
+
+type Runner interface {
+	ServeForever()
+}
+
+type RunnerOptions struct {
+	Config          *config.Config
+	RunnerID        string
+	DispatcherAddr  string
+	Capacity        int32
+	DispatcherCreds *serviceauth.Credentials
+	TransportCreds  credentials.TransportCredentials
+	Client          kubernetes.Interface
+}
 
 type kubernetesRunner struct {
 	id               string
@@ -88,87 +94,30 @@ type kubernetesRunner struct {
 	limits           config.RunnerLimits
 }
 
-func main() {
-	configPath := os.Getenv("CONFIG_PATH")
-	if configPath == "" {
-		configPath = "config.yml"
+func NewKubernetesRunner(options RunnerOptions) Runner {
+	cfg := options.Config
+	if cfg == nil {
+		cfg = &config.Config{}
 	}
-
-	cfg, err := config.LoadConfig(configPath)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to load config")
-	}
-
-	logLevel, err := zerolog.ParseLevel(cfg.LogLevel)
-	if err != nil {
-		logLevel = zerolog.InfoLevel
-	}
-	if cfg.LogFormat == "console" {
-		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
-	}
-	zerolog.SetGlobalLevel(logLevel)
-
-	dispatcherAddr := strings.TrimSpace(cfg.DispatcherAddress)
-	if dispatcherAddr == "" {
-		dispatcherAddr = "dispatcher:9090"
-	}
-	runnerID := strings.TrimSpace(cfg.RunnerID)
-	if runnerID == "" {
-		if host, err := os.Hostname(); err == nil {
-			runnerID = host
-		} else {
-			runnerID = "k8s-runner"
-		}
-	}
-	capacity := int32(cfg.RunnerCapacity)
-	if capacity <= 0 {
-		capacity = 1
-	}
-
-	dispatcherCreds, err := serviceauth.NewCredentials(serviceauth.Config{
-		SigningKey: cfg.EffectiveServiceJWTSigningKey(),
-		Issuer:     cfg.EffectiveServiceJWTIssuer(),
-		Audience:   cfg.EffectiveServiceJWTAudience(),
-		Role:       serviceauth.RoleRunner,
-		ServiceID:  cfg.EffectiveRunnerServiceID(),
-	})
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to configure dispatcher client authentication")
-	}
-	transportCreds, err := servicetls.ClientCredentials(servicetls.Config{
-		Mode:       cfg.EffectiveDispatcherTLSMode(),
-		Secret:     cfg.EffectiveDispatcherTLSSecret(),
-		Role:       serviceauth.RoleRunner,
-		ServiceID:  cfg.EffectiveRunnerServiceID(),
-		ServerName: cfg.EffectiveDispatcherTLSServerName(),
-	})
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to configure dispatcher transport security")
-	}
-
-	restConfig, err := kubernetesRESTConfig()
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to load kubernetes config")
-	}
-	clientset, err := kubernetes.NewForConfig(restConfig)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create kubernetes client")
-	}
-
 	kcfg := config.NormalizeKubernetesConfig(cfg.Kubernetes)
 	namespace := firstNonEmpty(kcfg.Namespace, readServiceAccountNamespace(), defaultRunnerNamespace)
 	workspaceSize := firstNonEmpty(kcfg.DefaultWorkspaceSize, defaultWorkspaceSize)
 	workspaceMode := firstNonEmpty(kcfg.WorkspaceVolumeMode, kubernetesWorkspaceVolumePVC)
 	runtimePoolsYAML := encodeRuntimePoolsYAML(cfg.RuntimePools)
 
-	r := &kubernetesRunner{
-		id:               runnerID,
+	capacity := options.Capacity
+	if capacity <= 0 {
+		capacity = 1
+	}
+
+	return &kubernetesRunner{
+		id:               firstNonEmpty(options.RunnerID, "k8s-runner"),
 		scopes:           parseScopes(cfg.RunnerScopes),
 		capacity:         capacity,
-		dispatcherAddr:   dispatcherAddr,
-		dispatcherCreds:  dispatcherCreds,
-		transportCreds:   transportCreds,
-		client:           clientset,
+		dispatcherAddr:   firstNonEmpty(options.DispatcherAddr, "dispatcher:9090"),
+		dispatcherCreds:  options.DispatcherCreds,
+		transportCreds:   options.TransportCreds,
+		client:           options.Client,
 		namespace:        namespace,
 		serviceAccount:   strings.TrimSpace(kcfg.ServiceAccount),
 		stoppedRuns:      make(map[string]struct{}),
@@ -188,14 +137,16 @@ func main() {
 		runtimePools:     config.NormalizeRuntimePools(cfg.RuntimePools),
 		limits:           cfg.Limits,
 	}
+}
 
+func (r *kubernetesRunner) ServeForever() {
 	log.Info().
-		Str("runner_id", runnerID).
+		Str("runner_id", r.id).
 		Str("runtime", kubernetesRuntimeName).
-		Str("namespace", namespace).
-		Str("dispatcher_addr", dispatcherAddr).
+		Str("namespace", r.namespace).
+		Str("dispatcher_addr", r.dispatcherAddr).
 		Strs("scopes", r.scopes).
-		Int("capacity", int(capacity)).
+		Int("capacity", int(r.capacity)).
 		Bool("affinity_enabled", r.affinityEnabled).
 		Msg("kubernetes runner starting")
 
@@ -205,19 +156,6 @@ func main() {
 			time.Sleep(3 * time.Second)
 		}
 	}
-}
-
-func kubernetesRESTConfig() (*rest.Config, error) {
-	if cfg, err := rest.InClusterConfig(); err == nil {
-		return cfg, nil
-	}
-	kubeconfig := strings.TrimSpace(os.Getenv("KUBECONFIG"))
-	if kubeconfig == "" {
-		if home, err := os.UserHomeDir(); err == nil {
-			kubeconfig = filepath.Join(home, ".kube", "config")
-		}
-	}
-	return clientcmd.BuildConfigFromFlags("", kubeconfig)
 }
 
 func (r *kubernetesRunner) connectAndServe() error {
@@ -441,184 +379,6 @@ func (r *kubernetesRunner) agentRuntimeVars(job *proto.JobRequest, workspacePVC 
 	return runtimeVars
 }
 
-func (r *kubernetesRunner) workspaceClaimName(podName string, job *proto.JobRequest) (string, error) {
-	if r.workspaceMode == kubernetesWorkspaceEmptyDir {
-		return "", fmt.Errorf("emptyDir workspace mode is not compatible with multi-pod pipeline execution")
-	}
-	if r.workspaceMode == kubernetesWorkspaceExistingPVC || r.existingPVC != "" {
-		claimName := strings.TrimSpace(r.existingPVC)
-		if claimName == "" {
-			claimName = strings.TrimSpace(job.SharedVolumeName)
-		}
-		claimName = kubernetesObjectName(claimName)
-		if claimName == "" {
-			return "", fmt.Errorf("existing workspace pvc is required")
-		}
-		return claimName, nil
-	}
-
-	podName = strings.TrimSpace(podName)
-	if podName == "" {
-		return "", fmt.Errorf("workspace pvc name is required")
-	}
-	return podName + "-workspace", nil
-}
-
-func (r *kubernetesRunner) workspaceVolumeSource(workspacePVC string, job *proto.JobRequest) (corev1.VolumeSource, error) {
-	if r.workspaceMode == kubernetesWorkspaceExistingPVC || r.existingPVC != "" {
-		return corev1.VolumeSource{
-			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: workspacePVC},
-		}, nil
-	}
-	if r.workspaceMode == kubernetesWorkspaceEmptyDir {
-		return corev1.VolumeSource{}, fmt.Errorf("emptyDir workspace mode is not compatible with multi-pod pipeline execution")
-	}
-
-	size, err := resource.ParseQuantity(r.workspaceSize)
-	if err != nil {
-		return corev1.VolumeSource{}, fmt.Errorf("parse workspace size: %w", err)
-	}
-	claimTemplate := &corev1.PersistentVolumeClaimTemplate{
-		ObjectMeta: metav1.ObjectMeta{
-			Labels: mergeMaps(r.podLabels, map[string]string{
-				"app.kubernetes.io/name":      "nopsai",
-				"app.kubernetes.io/component": "pipeline-workspace",
-				"nopsai.io/runner-id":         kubernetesLabelValue(r.id),
-				"nopsai.io/run-id":            kubernetesLabelValue(job.RunId),
-			}),
-		},
-		Spec: corev1.PersistentVolumeClaimSpec{
-			AccessModes: []corev1.PersistentVolumeAccessMode{r.workspaceAccess},
-			Resources: corev1.VolumeResourceRequirements{
-				Requests: corev1.ResourceList{corev1.ResourceStorage: size},
-			},
-		},
-	}
-	if r.storageClass != "" {
-		claimTemplate.Spec.StorageClassName = &r.storageClass
-	}
-	return corev1.VolumeSource{
-		Ephemeral: &corev1.EphemeralVolumeSource{VolumeClaimTemplate: claimTemplate},
-	}, nil
-}
-
-func (r *kubernetesRunner) createAgentPod(ctx context.Context, podName, image, workspacePVC string, env []string, job *proto.JobRequest) (*corev1.Pod, error) {
-	nodeSelector, resources, err := r.defaultPoolScheduling()
-	if err != nil {
-		return nil, err
-	}
-	workspaceVolumeSource, err := r.workspaceVolumeSource(workspacePVC, job)
-	if err != nil {
-		return nil, err
-	}
-	labels := mergeMaps(r.podLabels, map[string]string{
-		"app.kubernetes.io/name":      "nopsai",
-		"app.kubernetes.io/component": "pipeline-agent",
-		"nopsai.io/runner-id":         kubernetesLabelValue(r.id),
-		"nopsai.io/run-id":            kubernetesLabelValue(job.RunId),
-		"nopsai.io/pipeline":          kubernetesLabelValue(job.PipelineName),
-	})
-	agentEnv := upsertEnvVarSource(envVars(env), corev1.EnvVar{
-		Name: "KUBERNETES_NODE_NAME",
-		ValueFrom: &corev1.EnvVarSource{
-			FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"},
-		},
-	})
-
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        podName,
-			Namespace:   r.namespace,
-			Labels:      labels,
-			Annotations: cloneMap(r.podAnnotations),
-		},
-		Spec: corev1.PodSpec{
-			RestartPolicy:      corev1.RestartPolicyNever,
-			ServiceAccountName: r.serviceAccount,
-			NodeSelector:       nodeSelector,
-			Volumes: []corev1.Volume{{
-				Name:         "workspace",
-				VolumeSource: workspaceVolumeSource,
-			}},
-			Containers: []corev1.Container{{
-				Name:            kubernetesAgentContainerName,
-				Image:           image,
-				ImagePullPolicy: r.imagePullPolicy,
-				Env:             agentEnv,
-				VolumeMounts: []corev1.VolumeMount{{
-					Name:      "workspace",
-					MountPath: kubernetesWorkspaceMountPath,
-				}},
-				Resources: resources,
-			}},
-		},
-	}
-	created, err := r.client.CoreV1().Pods(r.namespace).Create(ctx, pod, metav1.CreateOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("create agent pod: %w", err)
-	}
-	return created, nil
-}
-
-func (r *kubernetesRunner) defaultPoolScheduling() (map[string]string, corev1.ResourceRequirements, error) {
-	resources := corev1.ResourceRequirements{}
-	if len(r.runtimePools) == 0 {
-		return nil, resources, nil
-	}
-	pool, ok := r.runtimePools[defaultRuntimePoolName]
-	if !ok {
-		return nil, resources, nil
-	}
-	requests, err := resourceList(pool.Resources.Requests)
-	if err != nil {
-		return nil, resources, err
-	}
-	limits, err := resourceList(pool.Resources.Limits)
-	if err != nil {
-		return nil, resources, err
-	}
-	resources.Requests = requests
-	resources.Limits = limits
-	return cloneMap(pool.NodeSelector), resources, nil
-}
-
-func resourceList(values map[string]string) (corev1.ResourceList, error) {
-	if len(values) == 0 {
-		return nil, nil
-	}
-	out := corev1.ResourceList{}
-	for name, value := range values {
-		qty, err := resource.ParseQuantity(value)
-		if err != nil {
-			return nil, fmt.Errorf("parse resource %s=%s: %w", name, value, err)
-		}
-		out[corev1.ResourceName(name)] = qty
-	}
-	return out, nil
-}
-
-func (r *kubernetesRunner) waitForPodCompletion(ctx context.Context, podName string) (corev1.PodPhase, error) {
-	waitCtx, cancel := context.WithTimeout(ctx, r.runTimeout)
-	defer cancel()
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-waitCtx.Done():
-			return "", fmt.Errorf("timed out waiting for agent pod %s", podName)
-		case <-ticker.C:
-			pod, err := r.client.CoreV1().Pods(r.namespace).Get(waitCtx, podName, metav1.GetOptions{})
-			if err != nil {
-				return "", err
-			}
-			switch pod.Status.Phase {
-			case corev1.PodSucceeded, corev1.PodFailed:
-				return pod.Status.Phase, nil
-			}
-		}
-	}
-}
-
 func (r *kubernetesRunner) streamPodLogs(ctx context.Context, dispatcher proto.DispatcherServiceClient, runID, podName string) {
 	if dispatcher == nil {
 		return
@@ -725,14 +485,6 @@ func (r *kubernetesRunner) monitorRunCancellation(ctx context.Context, dispatche
 				return
 			}
 		}
-	}
-}
-
-func (r *kubernetesRunner) deletePod(ctx context.Context, podName string) {
-	grace := int64(1)
-	err := r.client.CoreV1().Pods(r.namespace).Delete(ctx, podName, metav1.DeleteOptions{GracePeriodSeconds: &grace})
-	if err != nil && !apierrors.IsNotFound(err) {
-		log.Warn().Err(err).Str("pod", podName).Msg("failed to delete pod")
 	}
 }
 

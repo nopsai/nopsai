@@ -106,6 +106,22 @@ The login page shows suggested `.env` entries for missing required values. The
 wizard can generate later service secrets after login, but these hard
 pre-authentication values must exist before an authenticated workspace can open.
 
+Production startup gates:
+
+- Set `NOPSAI_ENVIRONMENT=production` or
+  `NOPSAI_REQUIRE_PRODUCTION_GATES=true` to make startup fail closed when
+  production-hardening requirements are not met.
+- Production gates require production-grade `NOPSAI_MASTER_KEY`,
+  `JWT_SIGNING_KEY`, `SERVICE_JWT_SIGNING_KEY`, and
+  `AAA_SHARED_INTERNAL_TOKEN` values.
+- `SERVICE_JWT_SIGNING_KEY` must be separate from `JWT_SIGNING_KEY` so browser
+  sessions and internal service tokens do not share one signing secret.
+- Dispatcher TLS/mTLS must remain enabled.
+- When a GitHub App is configured, `GITHUB_WEBHOOK_SECRET` must also be set to
+  a production-grade value.
+- The built-in `admin@example.com` account must not use the default password.
+  Production gate mode does not auto-seed default admin credentials.
+
 ## Generated Service Secrets
 
 When **Generate missing service secrets** is enabled, the wizard fills missing

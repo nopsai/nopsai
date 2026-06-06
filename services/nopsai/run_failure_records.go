@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"context"
@@ -8,11 +8,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
+
+	"nopsai/services/nopsai/internal/configsync"
 )
 
 func (a *App) recordMissingPipelineRun(identifier string, pipelineVersion string, pipelineDef []byte, gitContext map[string]string, scopeValue, pipelineSource, summary string) {
 	runID := uuid.New()
-	pathPart, namePart, _, err := splitPipelineIdentifier(identifier)
+	pathPart, namePart, _, err := configsync.SplitPipelineIdentifier(identifier)
 	if err != nil {
 		namePart = sanitizeInput(identifier)
 		pathPart = ""
@@ -96,7 +98,7 @@ func (a *App) recordAuthorizationDeniedPipelineRun(identifier string, pipelineVe
 		gitContext = map[string]string{}
 	}
 	runID := uuid.New()
-	pathPart, namePart, _, err := splitPipelineIdentifier(identifier)
+	pathPart, namePart, _, err := configsync.SplitPipelineIdentifier(identifier)
 	if err != nil {
 		namePart = sanitizeInput(identifier)
 		pathPart = ""

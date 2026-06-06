@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"net/http"
@@ -110,18 +110,18 @@ func TestNormalizeConfigPathForFolder(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := normalizeConfigPathForFolder(tt.boundFolder, tt.relPath)
+			got, err := configsync.NormalizePathForFolder(tt.boundFolder, tt.relPath)
 			if tt.wantErr {
 				if err == nil {
-					t.Fatalf("normalizeConfigPathForFolder() error = nil, want error")
+					t.Fatalf("configsync.NormalizePathForFolder() error = nil, want error")
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("normalizeConfigPathForFolder() error = %v", err)
+				t.Fatalf("configsync.NormalizePathForFolder() error = %v", err)
 			}
 			if got != tt.want {
-				t.Fatalf("normalizeConfigPathForFolder() = %q, want %q", got, tt.want)
+				t.Fatalf("configsync.NormalizePathForFolder() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -459,49 +459,49 @@ func TestParseConfigRepositoryBindingPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotScopeType, gotScopeID, err := parseConfigRepositoryBindingPath(tt.relPath)
+			gotScopeType, gotScopeID, err := configsync.ParseBindingPath(tt.relPath)
 			if tt.wantErr {
 				if err == nil {
-					t.Fatalf("parseConfigRepositoryBindingPath() error = nil, want error")
+					t.Fatalf("configsync.ParseBindingPath() error = nil, want error")
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("parseConfigRepositoryBindingPath() error = %v", err)
+				t.Fatalf("configsync.ParseBindingPath() error = %v", err)
 			}
 			if gotScopeType != tt.wantScopeType || gotScopeID != tt.wantScopeID {
-				t.Fatalf("parseConfigRepositoryBindingPath() = (%q, %q), want (%q, %q)", gotScopeType, gotScopeID, tt.wantScopeType, tt.wantScopeID)
+				t.Fatalf("configsync.ParseBindingPath() = (%q, %q), want (%q, %q)", gotScopeType, gotScopeID, tt.wantScopeType, tt.wantScopeID)
 			}
 		})
 	}
 }
 
 func TestNormalizePipelineRunStructureForFolder(t *testing.T) {
-	structure := map[string]*pipelineRunStructureNode{
+	structure := map[string]*configsync.PipelineRunStructureNode{
 		"dev": {
 			Description: "Development",
 			Repos:       []string{"acme/app"},
-			Children: map[string]*pipelineRunStructureNode{
+			Children: map[string]*configsync.PipelineRunStructureNode{
 				"services": {
 					Description: "Service workloads",
-					Children:    map[string]*pipelineRunStructureNode{},
+					Children:    map[string]*configsync.PipelineRunStructureNode{},
 				},
 			},
 		},
 		"team-1": {
 			Description: "Already scoped",
-			Children: map[string]*pipelineRunStructureNode{
+			Children: map[string]*configsync.PipelineRunStructureNode{
 				"platform": {
 					Description: "Platform",
-					Children:    map[string]*pipelineRunStructureNode{},
+					Children:    map[string]*configsync.PipelineRunStructureNode{},
 				},
 			},
 		},
 	}
 
-	got, err := normalizePipelineRunStructureForFolder("team-1", structure)
+	got, err := configsync.NormalizePipelineRunStructureForFolder("team-1", structure)
 	if err != nil {
-		t.Fatalf("normalizePipelineRunStructureForFolder() error = %v", err)
+		t.Fatalf("configsync.NormalizePipelineRunStructureForFolder() error = %v", err)
 	}
 	team, ok := got["team-1"]
 	if !ok {
@@ -527,19 +527,19 @@ func TestConfigRepositoryPrecedence(t *testing.T) {
 	childRepo := models.ConfigRepository{ID: 3, ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1/dev"}
 	otherRepo := models.ConfigRepository{ID: 4, ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-2"}
 
-	if !canConfigRepositoryWriteOver(parentRepo, systemRepo, "team-1/build") {
+	if !configsync.CanRepositoryWriteOver(parentRepo, systemRepo, "team-1/build") {
 		t.Fatal("group repo should be able to take over parent-managed global resources")
 	}
-	if !canConfigRepositoryWriteOver(childRepo, parentRepo, "team-1/dev/deploy") {
+	if !configsync.CanRepositoryWriteOver(childRepo, parentRepo, "team-1/dev/deploy") {
 		t.Fatal("child group repo should be able to take over parent group resources in its subtree")
 	}
-	if canConfigRepositoryWriteOver(parentRepo, childRepo, "team-1/dev/deploy") {
+	if configsync.CanRepositoryWriteOver(parentRepo, childRepo, "team-1/dev/deploy") {
 		t.Fatal("parent group repo should not take over child group resources")
 	}
-	if !configRepositoryShadowsCurrent(childRepo, parentRepo, "team-1/dev/deploy") {
+	if !configsync.RepositoryShadowsCurrent(childRepo, parentRepo, "team-1/dev/deploy") {
 		t.Fatal("child group repo should shadow parent group repo in its subtree")
 	}
-	if canConfigRepositoryWriteOver(otherRepo, parentRepo, "team-1/build") {
+	if configsync.CanRepositoryWriteOver(otherRepo, parentRepo, "team-1/build") {
 		t.Fatal("unrelated group repo should not take over another group")
 	}
 }
@@ -548,16 +548,16 @@ func TestConfigRepositoryAdoptsOnlyInScopeDatabaseResources(t *testing.T) {
 	systemRepo := models.ConfigRepository{ID: 1, ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID}
 	folderRepo := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"}
 
-	if !canConfigRepositoryAdoptUnmanagedResource(systemRepo, "platform/deploy") {
+	if !configsync.CanRepositoryAdoptUnmanagedResource(systemRepo, "platform/deploy") {
 		t.Fatal("system config repo should be able to adopt database resources")
 	}
-	if !canConfigRepositoryAdoptUnmanagedResource(folderRepo, "team-1/deploy") {
+	if !configsync.CanRepositoryAdoptUnmanagedResource(folderRepo, "team-1/deploy") {
 		t.Fatal("group config repo should be able to adopt database resources inside its group")
 	}
-	if !canConfigRepositoryAdoptUnmanagedResource(folderRepo, "team-1/dev/deploy") {
+	if !configsync.CanRepositoryAdoptUnmanagedResource(folderRepo, "team-1/dev/deploy") {
 		t.Fatal("group config repo should be able to adopt database resources inside child groups")
 	}
-	if canConfigRepositoryAdoptUnmanagedResource(folderRepo, "team-2/deploy") {
+	if configsync.CanRepositoryAdoptUnmanagedResource(folderRepo, "team-2/deploy") {
 		t.Fatal("group config repo should not adopt database resources outside its group")
 	}
 }
@@ -576,15 +576,15 @@ func TestEffectivePipelineRunStructureForSystemUsesConfigRepositoryGroups(t *tes
 			enabled:   true,
 		},
 	}
-	structure := map[string]*pipelineRunStructureNode{
+	structure := map[string]*configsync.PipelineRunStructureNode{
 		"team-1": {
 			Description: "Should not be applied from global structure",
 			Repos:       []string{"acme/team-1"},
-			Children: map[string]*pipelineRunStructureNode{
-				"dev": {Description: "Should not be created", Children: map[string]*pipelineRunStructureNode{}},
+			Children: map[string]*configsync.PipelineRunStructureNode{
+				"dev": {Description: "Should not be created", Children: map[string]*configsync.PipelineRunStructureNode{}},
 			},
 		},
-		"shared": {Description: "Should not be created", Children: map[string]*pipelineRunStructureNode{}},
+		"shared": {Description: "Should not be created", Children: map[string]*configsync.PipelineRunStructureNode{}},
 	}
 
 	got, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, structure, nil, []string{"team-1", "team-2/platform"})
@@ -619,12 +619,12 @@ func TestEffectivePipelineRunStructureForGroupFiltersNestedConfigRepositoryGroup
 			enabled:   true,
 		},
 	}
-	structure := map[string]*pipelineRunStructureNode{
+	structure := map[string]*configsync.PipelineRunStructureNode{
 		"team-1": {
 			Description: "Owned by team-1 repo",
-			Children: map[string]*pipelineRunStructureNode{
-				"dev":      {Description: "Owned by team-1 repo", Children: map[string]*pipelineRunStructureNode{}},
-				"platform": {Description: "Owned by nested repo", Children: map[string]*pipelineRunStructureNode{}},
+			Children: map[string]*configsync.PipelineRunStructureNode{
+				"dev":      {Description: "Owned by team-1 repo", Children: map[string]*configsync.PipelineRunStructureNode{}},
+				"platform": {Description: "Owned by nested repo", Children: map[string]*configsync.PipelineRunStructureNode{}},
 			},
 		},
 	}
@@ -661,14 +661,14 @@ func TestConfigRepositoryGroupStructureAppliesInsideDelegatedGroup(t *testing.T)
 			enabled:   true,
 		},
 	}
-	globalStructure := map[string]*pipelineRunStructureNode{
+	globalStructure := map[string]*configsync.PipelineRunStructureNode{
 		"team-1": {
 			Description: "Ignored from legacy pipelineruns structure",
 			Repos:       []string{"acme/ignored"},
-			Children:    map[string]*pipelineRunStructureNode{},
+			Children:    map[string]*configsync.PipelineRunStructureNode{},
 		},
 	}
-	groupStructure, ok, err := parseConfigRepositoryGroupPipelineRunStructure("groups/team-1/structure.yaml", `
+	groupStructure, ok, err := configsync.ParseConfigRepositoryGroupPipelineRunStructure("groups/team-1/structure.yaml", `
 description: Team 1 apps
 repos:
   - hosein-yousefii/test-app
@@ -677,7 +677,7 @@ dev:
     - hosein-yousefii/dev-app
 `)
 	if err != nil {
-		t.Fatalf("parseConfigRepositoryGroupPipelineRunStructure() error = %v", err)
+		t.Fatalf("configsync.ParseConfigRepositoryGroupPipelineRunStructure() error = %v", err)
 	}
 	if !ok {
 		t.Fatal("expected groups/team-1/structure.yaml to be treated as a group structure file")
@@ -707,7 +707,7 @@ dev:
 }
 
 func TestConfigRepositoryGroupStructureCollectsInlineConfig(t *testing.T) {
-	structure, ok, err := parseConfigRepositoryGroupPipelineRunStructure("groups/structure.yaml", `
+	structure, ok, err := configsync.ParseConfigRepositoryGroupPipelineRunStructure("groups/structure.yaml", `
 data-team:
   description: Owns data-team scoped configuration
   config:
@@ -719,7 +719,7 @@ data-team:
     write_branch: nopsai/data-team-ui
 `)
 	if err != nil {
-		t.Fatalf("parseConfigRepositoryGroupPipelineRunStructure() error = %v", err)
+		t.Fatalf("configsync.ParseConfigRepositoryGroupPipelineRunStructure() error = %v", err)
 	}
 	if !ok {
 		t.Fatal("expected groups/structure.yaml to be treated as a group structure file")
@@ -748,7 +748,7 @@ data-team:
 }
 
 func TestConfigRepositoryGroupStructureParsesAppsWithRepositoryURLs(t *testing.T) {
-	structure, ok, err := parseConfigRepositoryGroupPipelineRunStructure("groups/team-1/structure.yaml", `
+	structure, ok, err := configsync.ParseConfigRepositoryGroupPipelineRunStructure("groups/team-1/structure.yaml", `
 description: Team 1 apps
 apps:
   - name: api
@@ -757,7 +757,7 @@ apps:
     repo_url: git@github.com:acme/worker.git
 `)
 	if err != nil {
-		t.Fatalf("parseConfigRepositoryGroupPipelineRunStructure() error = %v", err)
+		t.Fatalf("configsync.ParseConfigRepositoryGroupPipelineRunStructure() error = %v", err)
 	}
 	if !ok {
 		t.Fatal("expected groups/team-1/structure.yaml to be treated as a group structure file")

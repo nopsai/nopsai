@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"bytes"
@@ -20,6 +20,7 @@ import (
 
 	"nopsai/pkg/models"
 	"nopsai/services/aaa/pkg/model"
+	"nopsai/services/nopsai/internal/configsync"
 )
 
 func findStepByName(steps []models.PipelineStep, name string) (models.PipelineStep, bool) {
@@ -406,14 +407,14 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 			checkRunIDStr = strconv.FormatInt(rerunCheckRun.GetID(), 10)
 		}
 
-		dbPath, dbName, extPart, parseErr := splitPipelineIdentifier(p.Path)
+		dbPath, dbName, extPart, parseErr := configsync.SplitPipelineIdentifier(p.Path)
 		if parseErr != nil {
 			log.Warn().Err(parseErr).Str("pipeline", p.Path).Msg("Skipping pipeline due to invalid identifier")
 			continue
 		}
 
 		callerID := repositoryFullName(owner, repo)
-		normalizedPipelineID := buildPipelineIdentifier(dbPath, dbName)
+		normalizedPipelineID := configsync.BuildPipelineIdentifier(dbPath, dbName)
 		authChecks := make([]ResourceUseAuthResult, 0, 2)
 		repoSource := repositoryPipelineSourceForIdentifier(dbPath, dbName, extPart)
 		preferRepositoryPipeline := !isDatabasePipelineSource(pipelineSource)
@@ -727,7 +728,7 @@ func (a *App) gitPipelineRunExistsForFailure(ctx context.Context, triggerEventID
 	if triggerEventID == "" {
 		return false
 	}
-	pathPart, namePart, _, err := splitPipelineIdentifier(identifier)
+	pathPart, namePart, _, err := configsync.SplitPipelineIdentifier(identifier)
 	if err != nil {
 		return false
 	}
@@ -970,7 +971,7 @@ func (a *App) pipelineExistsInDB(path, name string) (bool, error) {
 }
 
 func repositoryPipelineSourceForIdentifier(path, name, ext string) models.PipelineSource {
-	repoPath := buildPipelineFilePath(path, name, ext)
+	repoPath := configsync.BuildPipelineFilePath(path, name, ext)
 	if !strings.HasPrefix(repoPath, ".nopsai/") {
 		repoPath = ".nopsai/" + repoPath
 	}

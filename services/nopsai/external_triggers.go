@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"bytes"
@@ -22,6 +22,7 @@ import (
 
 	"nopsai/pkg/httpapi"
 	"nopsai/services/aaa/pkg/model"
+	"nopsai/services/nopsai/internal/configsync"
 	"nopsai/services/nopsai/pkg/routeauthz"
 )
 
@@ -654,7 +655,7 @@ func normalizeExternalTriggerPipelineReference(value string) (string, bool) {
 	if value == "" {
 		return "", false
 	}
-	pipeline, rootQualified, err := normalizePipelineIdentifierReference(value)
+	pipeline, rootQualified, err := configsync.NormalizePipelineIdentifierReference(value)
 	if err != nil {
 		return value, rootQualified
 	}
@@ -730,7 +731,7 @@ func normalizeObjectMap(value map[string]any) map[string]any {
 }
 
 func (a *App) validateExternalTriggerPipeline(ctx context.Context, pipeline string) error {
-	path, name, _, err := splitPipelineIdentifier(pipeline)
+	path, name, _, err := configsync.SplitPipelineIdentifier(pipeline)
 	if err != nil {
 		return err
 	}

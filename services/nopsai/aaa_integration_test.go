@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"context"
@@ -22,9 +22,11 @@ type mockAAACalls struct {
 }
 
 type stubAAAAuthorizer struct {
-	introspectFn func(context.Context, model.Subject) (*model.IntrospectResponse, error)
-	checkFn      func(context.Context, model.Subject, string, model.ResourceRef, map[string]any) (model.Decision, error)
-	filterFn     func(context.Context, model.Subject, string, []model.ResourceRef, map[string]any) ([]model.ResourceRef, error)
+	introspectFn  func(context.Context, model.Subject) (*model.IntrospectResponse, error)
+	checkFn       func(context.Context, model.Subject, string, model.ResourceRef, map[string]any) (model.Decision, error)
+	batchCheckFn  func(context.Context, model.Subject, []model.BatchCheckItem, map[string]any) ([]model.Decision, error)
+	filterFn      func(context.Context, model.Subject, string, []model.ResourceRef, map[string]any) ([]model.ResourceRef, error)
+	recordAuditFn func(context.Context, model.AuditRecordRequest) error
 }
 
 func (s stubAAAAuthorizer) Introspect(ctx context.Context, subject model.Subject) (*model.IntrospectResponse, error) {
@@ -41,11 +43,33 @@ func (s stubAAAAuthorizer) Check(ctx context.Context, subject model.Subject, act
 	return s.checkFn(ctx, subject, action, resource, requestContext)
 }
 
+func (s stubAAAAuthorizer) BatchCheck(ctx context.Context, subject model.Subject, checks []model.BatchCheckItem, requestContext map[string]any) ([]model.Decision, error) {
+	if s.batchCheckFn != nil {
+		return s.batchCheckFn(ctx, subject, checks, requestContext)
+	}
+	decisions := make([]model.Decision, 0, len(checks))
+	for _, check := range checks {
+		decision, err := s.Check(ctx, subject, check.Action, check.Resource, requestContext)
+		if err != nil {
+			return nil, err
+		}
+		decisions = append(decisions, decision)
+	}
+	return decisions, nil
+}
+
 func (s stubAAAAuthorizer) Filter(ctx context.Context, subject model.Subject, action string, resources []model.ResourceRef, requestContext map[string]any) ([]model.ResourceRef, error) {
 	if s.filterFn == nil {
 		return nil, fmt.Errorf("unexpected filter call")
 	}
 	return s.filterFn(ctx, subject, action, resources, requestContext)
+}
+
+func (s stubAAAAuthorizer) RecordAudit(ctx context.Context, req model.AuditRecordRequest) error {
+	if s.recordAuditFn == nil {
+		return fmt.Errorf("unexpected record audit call")
+	}
+	return s.recordAuditFn(ctx, req)
 }
 
 func TestAuthzMiddlewareDeniesNonAdminAdminEndpoint(t *testing.T) {
@@ -243,6 +267,89 @@ func TestAllowedResourceSetFallsBackToLocalEvaluator(t *testing.T) {
 	}
 	if _, ok := allowed[resourceKey(allowedPipeline)]; !ok {
 		t.Fatalf("allowed set = %#v, want %q", allowed, resourceKey(allowedPipeline))
+	}
+}
+
+func TestAAABatchCheckFallsBackToLocalEvaluator(t *testing.T) {
+	remoteCalls := 0
+	localCalls := 0
+	app := &App{
+		aaaClient: stubAAAAuthorizer{
+			batchCheckFn: func(context.Context, model.Subject, []model.BatchCheckItem, map[string]any) ([]model.Decision, error) {
+				remoteCalls++
+				return nil, errors.New("aaa unavailable")
+			},
+		},
+		aaaLocal: stubAAAAuthorizer{
+			batchCheckFn: func(_ context.Context, subject model.Subject, checks []model.BatchCheckItem, requestContext map[string]any) ([]model.Decision, error) {
+				localCalls++
+				if subject.Sub != "viewer" {
+					t.Fatalf("subject sub = %q, want viewer", subject.Sub)
+				}
+				if got := requestContext["request_id"]; got != "batch-1" {
+					t.Fatalf("request_id = %#v, want batch-1", got)
+				}
+				decisions := make([]model.Decision, 0, len(checks))
+				for range checks {
+					decisions = append(decisions, model.Decision{Allowed: true, Reason: "fallback"})
+				}
+				return decisions, nil
+			},
+		},
+	}
+
+	decisions, err := app.aaaBatchCheck(context.Background(), model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"}, []model.BatchCheckItem{{
+		Action:   "pipeline.read",
+		Resource: routeauthz.PipelineResource("team", "alpha"),
+	}}, map[string]any{"request_id": "batch-1"})
+	if err != nil {
+		t.Fatalf("aaaBatchCheck() error = %v", err)
+	}
+	if len(decisions) != 1 || !decisions[0].Allowed {
+		t.Fatalf("decisions = %#v, want one allowed decision", decisions)
+	}
+	if remoteCalls != 1 || localCalls != 1 {
+		t.Fatalf("remote/local batch calls = %d/%d, want 1/1", remoteCalls, localCalls)
+	}
+}
+
+func TestAAARecordAuditFallsBackToLocalEvaluator(t *testing.T) {
+	remoteCalls := 0
+	localCalls := 0
+	app := &App{
+		aaaClient: stubAAAAuthorizer{
+			recordAuditFn: func(context.Context, model.AuditRecordRequest) error {
+				remoteCalls++
+				return errors.New("aaa unavailable")
+			},
+		},
+		aaaLocal: stubAAAAuthorizer{
+			recordAuditFn: func(_ context.Context, req model.AuditRecordRequest) error {
+				localCalls++
+				if req.RequestID != "audit-1" {
+					t.Fatalf("request id = %q, want audit-1", req.RequestID)
+				}
+				if req.Action != "pipeline.execute" {
+					t.Fatalf("action = %q, want pipeline.execute", req.Action)
+				}
+				return nil
+			},
+		},
+	}
+
+	err := app.aaaRecordAudit(context.Background(), model.AuditRecordRequest{
+		RequestID: "audit-1",
+		Subject:   model.Subject{Type: model.SubjectTypeUser, ID: "viewer"},
+		Action:    "pipeline.execute",
+		Resource:  routeauthz.PipelineResource("team", "alpha"),
+		Allowed:   true,
+		Reason:    "manual_record",
+	})
+	if err != nil {
+		t.Fatalf("aaaRecordAudit() error = %v", err)
+	}
+	if remoteCalls != 1 || localCalls != 1 {
+		t.Fatalf("remote/local audit calls = %d/%d, want 1/1", remoteCalls, localCalls)
 	}
 }
 

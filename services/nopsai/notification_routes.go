@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"context"
@@ -19,6 +19,7 @@ import (
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
 	aaamodel "nopsai/services/aaa/pkg/model"
+	"nopsai/services/nopsai/internal/configsync"
 )
 
 const notificationGitOpsDirectory = "notifications"
@@ -470,7 +471,7 @@ func parseGitOpsNotificationRoutes(files map[string]string, notificationDir, bas
 	routes := map[string]storedNotificationRoute{}
 	notificationDir = filepath.ToSlash(strings.Trim(notificationDir, "/"))
 	basePath = filepath.ToSlash(strings.Trim(basePath, "/"))
-	rootRoutePath := configRepoJoinPath(basePath, "notifications.yaml")
+	rootRoutePath := configsync.RepoJoinPath(basePath, "notifications.yaml")
 
 	for rawPath, content := range files {
 		normalized := filepath.ToSlash(rawPath)
@@ -482,7 +483,7 @@ func parseGitOpsNotificationRoutes(files map[string]string, notificationDir, bas
 		if binding.ScopeType == models.ConfigRepositoryScopeFolder && normalized == rootRoutePath {
 			groupPath = boundFolder
 		} else {
-			rel, ok := relativeConfigPath(normalized, notificationDir)
+			rel, ok := configsync.RelativePath(normalized, notificationDir)
 			if !ok || rel == "" || strings.HasSuffix(rel, "/") || !isYAMLFile(rel) {
 				continue
 			}
@@ -499,7 +500,7 @@ func parseGitOpsNotificationRoutes(files map[string]string, notificationDir, bas
 					groupPath = boundFolder
 				default:
 					var err error
-					groupPath, err = normalizeConfigPathForFolder(boundFolder, routePath)
+					groupPath, err = configsync.NormalizePathForFolder(boundFolder, routePath)
 					if err != nil {
 						return nil, fmt.Errorf("invalid notification route path '%s': %w", normalized, err)
 					}
@@ -510,7 +511,7 @@ func parseGitOpsNotificationRoutes(files map[string]string, notificationDir, bas
 		if groupPath == "" {
 			return nil, fmt.Errorf("notification route '%s' must target a group path", normalized)
 		}
-		if binding.ScopeType == models.ConfigRepositoryScopeFolder && !configResourceUnderScope(groupPath, boundFolder) {
+		if binding.ScopeType == models.ConfigRepositoryScopeFolder && !configsync.ResourceUnderScope(groupPath, boundFolder) {
 			return nil, fmt.Errorf("notification route '%s' targets group '%s' outside bound group '%s'", normalized, groupPath, boundFolder)
 		}
 		definition, err := parseNotificationRouteDefinition(content, normalized)

@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"context"
@@ -18,7 +18,11 @@ import (
 	"nopsai/pkg/servicetls"
 )
 
-type agentLaunchRequest struct {
+type RunLauncher interface {
+	LaunchAgent(ctx context.Context, req AgentRunLaunchRequest)
+}
+
+type AgentRunLaunchRequest struct {
 	RunID              string
 	ParentRunID        string
 	ParentRunnerID     string
@@ -33,6 +37,10 @@ type agentLaunchRequest struct {
 	ResumeVariables    map[string]string
 }
 
+type appRunLauncher struct {
+	app *App
+}
+
 type agentLaunchPayload struct {
 	Job             *proto.JobRequest
 	InitialLogLines []string
@@ -43,21 +51,23 @@ type agentLaunchFailure struct {
 	notifyGit bool
 }
 
-func (a *App) launchAgent(runID string, parentRunID string, parentRunnerID string, pipeline models.Pipeline, pipelineDef []byte, timeout time.Duration, gitContext map[string]string, parentHistory string, scope string, overrides map[string]string, resumeCheckpointID string, resumeVariables map[string]string) {
-	ctx := context.Background()
-	req := agentLaunchRequest{
-		RunID:              runID,
-		ParentRunID:        parentRunID,
-		ParentRunnerID:     parentRunnerID,
-		Pipeline:           pipeline,
-		PipelineDefinition: pipelineDef,
-		Timeout:            timeout,
-		GitContext:         gitContext,
-		ParentHistory:      parentHistory,
-		Scope:              scope,
-		Overrides:          overrides,
-		ResumeCheckpointID: resumeCheckpointID,
-		ResumeVariables:    resumeVariables,
+func (a *App) agentRunLauncher() RunLauncher {
+	if a == nil || a.runLauncher == nil {
+		return appRunLauncher{app: a}
+	}
+	return a.runLauncher
+}
+
+func (l appRunLauncher) LaunchAgent(ctx context.Context, req AgentRunLaunchRequest) {
+	if l.app == nil {
+		return
+	}
+	l.app.launchAgent(ctx, req)
+}
+
+func (a *App) launchAgent(ctx context.Context, req AgentRunLaunchRequest) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
 	if !a.runCanBeDispatched(ctx, req.RunID) {
@@ -118,7 +128,7 @@ func (a *App) runCanBeDispatched(ctx context.Context, runID string) bool {
 	return true
 }
 
-func (a *App) buildAgentLaunchPayload(ctx context.Context, req agentLaunchRequest) (*agentLaunchPayload, *agentLaunchFailure) {
+func (a *App) buildAgentLaunchPayload(ctx context.Context, req AgentRunLaunchRequest) (*agentLaunchPayload, *agentLaunchFailure) {
 	cfg := a.getConfigSnapshot()
 
 	secrets, err := a.prepareSecretsForPipeline(req.RunID, req.Pipeline, req.GitContext, req.Scope)

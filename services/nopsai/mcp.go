@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"context"
@@ -17,6 +17,7 @@ import (
 	"nopsai/config"
 	"nopsai/pkg/mcpclient"
 	"nopsai/pkg/models"
+	"nopsai/services/nopsai/internal/configsync"
 	"nopsai/services/nopsai/pkg/validation"
 
 	"github.com/jackc/pgx/v5"
@@ -506,7 +507,7 @@ func parseGitOpsMCPRegistryPlan(binding models.ConfigRepository, directories ...
 		root := filepath.ToSlash(strings.Trim(directory.root, "/"))
 		for path, content := range directory.files {
 			normalized := filepath.ToSlash(path)
-			rel, ok := relativeConfigPath(normalized, root)
+			rel, ok := configsync.RelativePath(normalized, root)
 			if !ok || !isGitOpsMCPRegistryRelativePath(rel) {
 				continue
 			}
@@ -750,7 +751,7 @@ func validateMCPAllowedScopes(resourceType, name string, scopes []string) error 
 		if strings.TrimSpace(scope) == "" {
 			continue
 		}
-		if _, err := cleanConfigPathSegments(scope, false); err != nil {
+		if _, err := configsync.CleanPathSegments(scope, false); err != nil {
 			return fmt.Errorf("%s %q has invalid allowed scope %q: %w", resourceType, name, scope, err)
 		}
 	}
@@ -1303,7 +1304,7 @@ func (a *App) findMCPProfileReferences(profileName string) ([]string, error) {
 		if err := yaml.Unmarshal([]byte(definition), &pipeline); err != nil {
 			continue
 		}
-		refs = append(refs, collectExplicitMCPProfileReferences(&pipeline, profileName, "pipeline "+buildPipelineIdentifier(pathPart, namePart))...)
+		refs = append(refs, collectExplicitMCPProfileReferences(&pipeline, profileName, "pipeline "+configsync.BuildPipelineIdentifier(pathPart, namePart))...)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"context"
@@ -19,10 +19,24 @@ const ctxKeyAAASubject aaaContextKey = "aaa-subject"
 
 const aaaRetryBackoff = 10 * time.Second
 
-type aaaAuthorizer interface {
+type AAASubjectResolver interface {
 	Introspect(ctx context.Context, subject model.Subject) (*model.IntrospectResponse, error)
+}
+
+type AAAAuthorizationClient interface {
 	Check(ctx context.Context, subject model.Subject, action string, resource model.ResourceRef, requestContext map[string]any) (model.Decision, error)
+	BatchCheck(ctx context.Context, subject model.Subject, checks []model.BatchCheckItem, requestContext map[string]any) ([]model.Decision, error)
 	Filter(ctx context.Context, subject model.Subject, action string, resources []model.ResourceRef, requestContext map[string]any) ([]model.ResourceRef, error)
+}
+
+type AAAAuditRecorder interface {
+	RecordAudit(ctx context.Context, req model.AuditRecordRequest) error
+}
+
+type AAAClient interface {
+	AAASubjectResolver
+	AAAAuthorizationClient
+	AAAAuditRecorder
 }
 
 func isAuthenticatedOnlyPath(path string) bool {
@@ -145,7 +159,7 @@ func (a *App) markAAARemoteUnavailable() {
 	a.aaaRetryAfter = time.Now().Add(aaaRetryBackoff)
 }
 
-func (a *App) aaaFallback(op string, err error) (aaaAuthorizer, bool) {
+func (a *App) aaaFallback(op string, err error) (AAAClient, bool) {
 	if a == nil || a.aaaLocal == nil {
 		return nil, false
 	}
@@ -196,6 +210,30 @@ func (a *App) aaaCheck(ctx context.Context, subject model.Subject, action string
 	return model.Decision{}, fmt.Errorf("authorization unavailable")
 }
 
+func (a *App) aaaBatchCheck(ctx context.Context, subject model.Subject, checks []model.BatchCheckItem, requestContext map[string]any) ([]model.Decision, error) {
+	if a == nil {
+		return nil, fmt.Errorf("authorization unavailable")
+	}
+	if len(checks) == 0 {
+		return nil, nil
+	}
+	if a.shouldTryRemoteAAA() {
+		decisions, err := a.aaaClient.BatchCheck(ctx, subject, checks, requestContext)
+		if err == nil {
+			a.markAAARemoteHealthy()
+			return decisions, nil
+		}
+		if fallback, ok := a.aaaFallback("batch_check", err); ok {
+			return fallback.BatchCheck(ctx, subject, checks, requestContext)
+		}
+		return nil, err
+	}
+	if a.aaaLocal != nil {
+		return a.aaaLocal.BatchCheck(ctx, subject, checks, requestContext)
+	}
+	return nil, fmt.Errorf("authorization unavailable")
+}
+
 func (a *App) aaaFilter(ctx context.Context, subject model.Subject, action string, resources []model.ResourceRef, requestContext map[string]any) ([]model.ResourceRef, error) {
 	if a == nil {
 		return nil, fmt.Errorf("authorization unavailable")
@@ -215,6 +253,26 @@ func (a *App) aaaFilter(ctx context.Context, subject model.Subject, action strin
 		return a.aaaLocal.Filter(ctx, subject, action, resources, requestContext)
 	}
 	return nil, fmt.Errorf("authorization unavailable")
+}
+
+func (a *App) aaaRecordAudit(ctx context.Context, req model.AuditRecordRequest) error {
+	if a == nil {
+		return fmt.Errorf("authorization unavailable")
+	}
+	if a.shouldTryRemoteAAA() {
+		if err := a.aaaClient.RecordAudit(ctx, req); err == nil {
+			a.markAAARemoteHealthy()
+			return nil
+		} else if fallback, ok := a.aaaFallback("record_audit", err); ok {
+			return fallback.RecordAudit(ctx, req)
+		} else {
+			return err
+		}
+	}
+	if a.aaaLocal != nil {
+		return a.aaaLocal.RecordAudit(ctx, req)
+	}
+	return fmt.Errorf("authorization unavailable")
 }
 
 func (a *App) requireAAADecision(w http.ResponseWriter, r *http.Request, action string, resource model.ResourceRef) bool {
