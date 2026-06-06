@@ -9,6 +9,7 @@ import (
 	"nopsai/config"
 	"nopsai/pkg/serviceauth"
 	"nopsai/pkg/servicetls"
+	"nopsai/pkg/startupgates"
 	"nopsai/services/k8s-runner/internal/service"
 
 	"github.com/rs/zerolog"
@@ -30,6 +31,9 @@ func Run() {
 	}
 
 	configureLogging(cfg)
+	if err := startupgates.ValidateKubernetesRunner(cfg); err != nil {
+		log.Fatal().Err(err).Msg("kubernetes runner startup gates failed")
+	}
 
 	dispatcherAddr := strings.TrimSpace(cfg.DispatcherAddress)
 	if dispatcherAddr == "" {

@@ -7,6 +7,7 @@ import (
 
 	"nopsai/config"
 	"nopsai/pkg/models"
+	"nopsai/services/nopsai/internal/mcpregistry"
 )
 
 type configRepositoryLLMProfilesExportDocument struct {
@@ -85,7 +86,7 @@ func (a *App) exportConfigRepositoryMCPRegistry(ctx context.Context, repo models
 		exportProfiles[name] = profile
 	}
 
-	content, err := marshalConfigRepositoryYAML(mcpRegistryRequest{
+	content, err := marshalConfigRepositoryYAML(mcpregistry.RegistryRequest{
 		MCPServers:  exportServers,
 		MCPProfiles: exportProfiles,
 	})

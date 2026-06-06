@@ -42,6 +42,11 @@ services:
     container_name: nopsai-db
     image: postgres:15
     restart: always
+    depends_on:
+      ui-test:
+        condition: "service_completed_successfully"
+      backend-test:
+        condition: "service_completed_successfully"
     environment:
       POSTGRES_DB: nopsai_db
       POSTGRES_USER: nopsai_user

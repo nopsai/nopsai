@@ -7,10 +7,11 @@ leaving it as tribal knowledge.
 ## Startup Gates
 
 Set `NOPSAI_ENVIRONMENT=production` or
-`NOPSAI_REQUIRE_PRODUCTION_GATES=true` to make the NopsAI API fail closed when
-production hardening is incomplete.
+`NOPSAI_REQUIRE_PRODUCTION_GATES=true` to make service processes fail closed
+when production hardening is incomplete. Shared gate logic lives in
+`pkg/startupgates`.
 
-Production gates currently check:
+The NopsAI API production gates currently check:
 
 - `NOPSAI_MASTER_KEY` is present, long enough, and not a known placeholder.
 - `JWT_SIGNING_KEY` is present, long enough, and not a known placeholder.
@@ -26,6 +27,18 @@ Production gates currently check:
 Unmet production gates are returned through `/v1/setup/preflight`. If the full
 API cannot safely start, the process stays in setup preflight mode so operators
 can inspect readiness before login.
+
+Additional service binaries also call the shared startup gates directly:
+
+- `dispatcher` requires production-grade service JWT isolation, dispatcher
+  TLS, and a configured NopsAI callback URL.
+- `agent` requires dispatcher address, service identity, production-grade
+  service JWT signing, and dispatcher TLS when production gates are enabled.
+- `aaa` requires a database URL and production-grade shared internal token.
+- `git-bot` requires GitHub App identifiers, private key path, webhook secret,
+  and NopsAI callback URL.
+- `runner` and `k8s-runner` require dispatcher address, production-grade
+  service JWT isolation, and dispatcher TLS.
 
 ## HTTP Server Hardening
 

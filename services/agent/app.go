@@ -6,10 +6,10 @@ import (
 	"os"
 	"strings"
 
-	appconfig "nopsai/config"
 	"nopsai/pkg/models"
+	"nopsai/pkg/startupgates"
 	agentapp "nopsai/services/agent/internal/app"
-	"nopsai/services/agent/internal/resolver"
+	llmruntime "nopsai/services/agent/internal/llm"
 )
 
 const agentWorkspaceDir = models.DefaultPipelineWorkingDirectory
@@ -25,6 +25,10 @@ func Run() int {
 	}
 	if err != nil {
 		agentLog(runID, pipelineName).Error().Err(err).Msg(agentapp.LoadFailureLogMessage(err))
+		return 1
+	}
+	if err := startupgates.ValidateAgentEnv(os.Getenv); err != nil {
+		agentLog(runID, pipelineName).Error().Err(err).Msg("Agent startup gates failed")
 		return 1
 	}
 	triggerEventID := runtimeConfig.TriggerEventID
@@ -68,29 +72,18 @@ func Run() int {
 			Int("completed_tasks", len(checkpoint.CompletedTasks)).
 			Msg("Restored approval checkpoint")
 	}
-	pipelineLLMEnabled := models.PipelineLLMEnabled(&pipeline)
-
-	var llmRegistry *LLMProfileRegistry
-	if pipelineLLMEnabled {
-		llmRegistry, err = NewLLMProfileRegistryFromEnv(runScope)
-		if err != nil {
-			agentLog(runID, pipelineName).Error().Err(err).Msg("Invalid LLM profile configuration")
-			return 1
-		}
-	}
-	mcpRegistry, err := NewMCPProfileRegistryFromEnv(runScope)
+	runtimeAdapters, err := newAgentRuntimeAdapters(runScope, &pipeline)
 	if err != nil {
-		agentLog(runID, pipelineName).Error().Err(err).Msg("Invalid MCP registry configuration")
+		logAgentRuntimeWiringError(runID, pipelineName, err)
 		return 1
 	}
 
-	conn, dispatcher, err := agentapp.NewDispatcherClientFromEnv(os.Getenv)
+	dispatcherConn, err := connectAgentDispatcher(os.Getenv)
 	if err != nil {
 		agentLog(runID, pipelineName).Error().Err(err).Msg("Failed to configure dispatcher client")
 		return 1
 	}
-	defer conn.Close()
-	dispatcherClient = dispatcher
+	defer dispatcherConn.Close()
 
 	knowledgeSnapshots, err := loadRuntimeKnowledgeContexts()
 	if err != nil {
@@ -104,34 +97,7 @@ func Run() int {
 	}
 
 	agentLog(runID, pipeline.Name).Info().Str("trigger_event_id", triggerEventID).Str("working_directory", workingDirectory).Msg("Pipeline execution starting")
-	if pipelineLLMEnabled {
-		defaultLLMProfile, _ := llmRegistry.DefaultProfile()
-		startupLog := agentLog(runID, pipeline.Name).Info().
-			Str("llm_profile", llmRegistry.DefaultProfileName()).
-			Str("llm_provider", defaultLLMProfile.Provider)
-		switch defaultLLMProfile.Provider {
-		case appconfig.LLMProviderGemini:
-			startupLog.Str("llm_model", defaultLLMProfile.Model).Msg("Agent starting with embedded LLM profile registry")
-		case appconfig.LLMProviderLMStudio:
-			logEvent := startupLog.Str("lmstudio_base_url", defaultLLMProfile.BaseURL)
-			if strings.TrimSpace(defaultLLMProfile.Model) != "" {
-				logEvent = logEvent.Str("llm_model", defaultLLMProfile.Model)
-			} else {
-				logEvent = logEvent.Str("llm_model", "auto-discover")
-			}
-			if defaultLLMProfile.Reasoning != "" {
-				logEvent = logEvent.Str("lmstudio_reasoning", defaultLLMProfile.Reasoning)
-			}
-			if defaultLLMProfile.Thinking != nil {
-				logEvent = logEvent.Bool("lmstudio_thinking", *defaultLLMProfile.Thinking)
-			}
-			logEvent.Msg("Agent starting with embedded LLM profile registry")
-		default:
-			startupLog.Msg("Agent starting with embedded LLM profile registry")
-		}
-	} else {
-		agentLog(runID, pipeline.Name).Info().Msg("LLM is disabled for this pipeline; LLM profile registry will not be loaded")
-	}
+	logAgentRuntimeAdapters(runID, pipeline.Name, runtimeAdapters)
 
 	executionRuntime, err := agentapp.NewExecutionRuntime(runtimeConfig.RuntimeMode, sharedVolumeName, pipeline.AffinityEnabled, agentLog(runID, pipeline.Name))
 	if err != nil {
@@ -153,13 +119,6 @@ func Run() int {
 		GitRepoName:       os.Getenv("GIT_REPO_NAME"),
 	})
 
-	var conditionClientResolver resolver.ConditionClientResolver
-	if llmRegistry != nil {
-		conditionClientResolver = func(pipeline *models.Pipeline, step *models.PipelineStep, task *models.Task) (resolver.ConditionClient, string, error) {
-			return llmRegistry.ClientFor(pipeline, step, task)
-		}
-	}
-
 	result := agentapp.RunPipeline(agentapp.PipelineRunRequest{
 		RunID:                   runID,
 		PipelineName:            pipelineName,
@@ -174,15 +133,15 @@ func Run() int {
 		Secrets:                 secrets,
 		ResumeCheckpoint:        resumeSnapshot,
 		KnowledgeSnapshots:      knowledgeSnapshots,
-		PipelineLLMEnabled:      pipelineLLMEnabled,
+		PipelineLLMEnabled:      runtimeAdapters.PipelineLLMEnabled,
 		LLMTimeout:              llmTimeout,
 		StepRuntime:             stepRuntime,
-		ConditionClientResolver: conditionClientResolver,
-		ActionSessionResolver:   newAgentActionSessionResolver(llmRegistry, mcpRegistry),
+		ConditionClientResolver: runtimeAdapters.ConditionClientResolver,
+		ActionSessionResolver:   runtimeAdapters.ActionSessionResolver,
 		ApprovalPauser:          newAgentApprovalPauser(),
 		IncludeRunner:           newAgentChildPipelineIncludeRunner(),
 		DirectoryLister:         getDirectoryListing,
-		StopRetry:               isNonRetryableGoalResolutionError,
+		StopRetry:               llmruntime.IsNonRetryableGoalResolutionError,
 		Logger:                  agentLog,
 		StepLogger:              stepLog,
 		UpdateTaskStatus:        updateTaskStatus,

@@ -1,4 +1,4 @@
-package agent
+package llm
 
 import (
 	"context"
@@ -244,6 +244,13 @@ func (t *MCPTaskRuntime) Profiles() []string {
 		return nil
 	}
 	return append([]string(nil), t.profiles...)
+}
+
+func (t *MCPTaskRuntime) ToolCount() int {
+	if t == nil {
+		return 0
+	}
+	return len(t.tools)
 }
 
 func (t *MCPTaskRuntime) RequiresToolCall() bool {

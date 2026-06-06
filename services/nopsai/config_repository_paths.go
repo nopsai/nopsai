@@ -6,6 +6,7 @@ import (
 
 	"nopsai/pkg/models"
 	"nopsai/services/nopsai/internal/configsync"
+	"nopsai/services/nopsai/internal/mcpregistry"
 )
 
 const (
@@ -53,7 +54,7 @@ func isConfigRepositorySettingsDriftPath(rel string) bool {
 	return isGitOpsRuntimeSettingsRelativePath(rel) ||
 		isGitOpsMailSettingsRelativePath(rel) ||
 		isGitOpsLLMProfileRelativePath(rel) ||
-		isGitOpsMCPRegistryRelativePath(rel)
+		mcpregistry.IsGitOpsRelativePath(rel)
 }
 
 func configRepositoryDriftPathOptions() configsync.DriftPathOptions {

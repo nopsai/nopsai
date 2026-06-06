@@ -9,6 +9,7 @@ import (
 
 	"nopsai/config"
 	"nopsai/pkg/httpapi"
+	"nopsai/pkg/startupgates"
 	"nopsai/services/aaa/pkg/authz"
 	"nopsai/services/aaa/pkg/server"
 	"nopsai/services/aaa/pkg/store"
@@ -48,6 +49,9 @@ func main() {
 	}
 	if strings.TrimSpace(cfg.AAASharedToken) == "" {
 		cfg.AAASharedToken = defaultSharedInternalToken
+	}
+	if err := startupgates.ValidateAAA(cfg); err != nil {
+		log.Fatal().Err(err).Msg("aaa startup gates failed")
 	}
 
 	var dbpool *pgxpool.Pool
