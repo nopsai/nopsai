@@ -1,0 +1,138 @@
+package include
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/rs/zerolog"
+)
+
+type includeFinalization struct {
+	stepName      string
+	taskName      string
+	status        string
+	exitCode      int
+	llmDurationMs int64
+}
+
+func TestRunnerInvalidIncludeFinalizesFailure(t *testing.T) {
+	logger := zerolog.Nop()
+	var finalized []includeFinalization
+	result := NewRunner(Config{}).Run(context.Background(), Request{
+		Logger:        &logger,
+		StepName:      "include",
+		IncludeTarget: "bad-format",
+		LLMDurationMs: 12,
+		FinalizeTask: func(stepName, taskName, status string, exitCode int, llmDurationMs int64) {
+			finalized = append(finalized, includeFinalization{stepName, taskName, status, exitCode, llmDurationMs})
+		},
+	})
+
+	if !result.Handled || result.Success {
+		t.Fatalf("result = %#v, want handled failure", result)
+	}
+	if len(finalized) != 1 || finalized[0].status != "failure" || finalized[0].exitCode != 1 {
+		t.Fatalf("finalized = %#v, want failure/1", finalized)
+	}
+	if finalized[0].llmDurationMs != 12 {
+		t.Fatalf("llm duration = %d, want 12", finalized[0].llmDurationMs)
+	}
+}
+
+func TestRunnerNotFoundFinalizesNotFound(t *testing.T) {
+	logger := zerolog.Nop()
+	var finalized []includeFinalization
+	runner := NewRunner(Config{
+		FetchDefinition: func(context.Context, string) ([]byte, error) {
+			return nil, errors.New("nopsai api returned non-200 status 404: missing")
+		},
+		IsNotFound: func(err error) bool {
+			return strings.Contains(err.Error(), "non-200 status 404")
+		},
+	})
+
+	result := runner.Run(context.Background(), Request{
+		Logger:        &logger,
+		StepName:      "include",
+		IncludeTarget: "pipeline:missing-child",
+		FinalizeTask: func(stepName, taskName, status string, exitCode int, llmDurationMs int64) {
+			finalized = append(finalized, includeFinalization{stepName, taskName, status, exitCode, llmDurationMs})
+		},
+	})
+
+	if !result.Handled || result.Success {
+		t.Fatalf("result = %#v, want handled failure", result)
+	}
+	if len(finalized) != 1 || finalized[0].status != "not_found" || finalized[0].exitCode != 0 {
+		t.Fatalf("finalized = %#v, want not_found/0", finalized)
+	}
+}
+
+func TestRunnerSyncMonitorFinalizesAndMarksFailure(t *testing.T) {
+	logger := zerolog.Nop()
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var finalized []includeFinalization
+	markedFailed := false
+	var triggeredHistory string
+	var triggeredDef string
+	runner := NewRunner(Config{
+		FetchDefinition: func(_ context.Context, pipelineName string) ([]byte, error) {
+			if pipelineName != "release-child" {
+				t.Fatalf("pipelineName = %q, want release-child", pipelineName)
+			}
+			return []byte("name: release-child"), nil
+		},
+		TriggerPipeline: func(_ context.Context, parentRunID, parentPipelineName, parentStepName, pipelineIdentifier string, pipelineDef []byte, history string) (string, error) {
+			if parentRunID != "run-1" || parentPipelineName != "release" || parentStepName != "include" || pipelineIdentifier != "release-child" {
+				t.Fatalf("trigger args = %q/%q/%q/%q", parentRunID, parentPipelineName, parentStepName, pipelineIdentifier)
+			}
+			triggeredDef = string(pipelineDef)
+			triggeredHistory = history
+			return "child-run-1", nil
+		},
+		MonitorPipeline: func(_ context.Context, _ *zerolog.Logger, runID string) (string, error) {
+			if runID != "child-run-1" {
+				t.Fatalf("monitor run ID = %q, want child-run-1", runID)
+			}
+			return "failure", nil
+		},
+	})
+
+	result := runner.Run(context.Background(), Request{
+		Logger:             &logger,
+		ParentRunID:        "run-1",
+		ParentPipelineName: "release",
+		StepName:           "include",
+		IncludeTarget:      "pipeline:release-child",
+		History:            "- Goal: build",
+		Sync:               true,
+		LLMDurationMs:      34,
+		SyncWaitGroup:      &wg,
+		FinalizeTask: func(stepName, taskName, status string, exitCode int, llmDurationMs int64) {
+			mu.Lock()
+			defer mu.Unlock()
+			finalized = append(finalized, includeFinalization{stepName, taskName, status, exitCode, llmDurationMs})
+		},
+		MarkPipelineFailed: func() { markedFailed = true },
+	})
+	if !result.Handled || !result.Success {
+		t.Fatalf("result = %#v, want handled success while sync monitor runs", result)
+	}
+	wg.Wait()
+
+	if triggeredDef != "name: release-child" || triggeredHistory != "- Goal: build" {
+		t.Fatalf("triggered def/history = %q/%q", triggeredDef, triggeredHistory)
+	}
+	if !markedFailed {
+		t.Fatal("sync child failure did not mark pipeline failed")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(finalized) != 1 || finalized[0].status != "failure" || finalized[0].exitCode != 0 || finalized[0].llmDurationMs != 34 {
+		t.Fatalf("finalized = %#v, want child failure/0 with llm duration", finalized)
+	}
+}

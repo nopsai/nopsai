@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"context"
@@ -177,5 +177,31 @@ func TestSetupPreflightBlocksMissingRequiredConfig(t *testing.T) {
 	}
 	if requiredErrors < 3 {
 		t.Fatalf("required errors = %d, want database, master key, and JWT errors", requiredErrors)
+	}
+}
+
+func TestSetupPreflightBlocksProductionGateFailures(t *testing.T) {
+	resp := buildSetupPreflightResponse(context.Background(), &config.Config{
+		Environment:          "production",
+		DatabaseURL:          "postgres://db",
+		MasterKey:            "01234567890123456789012345678901",
+		JWTSigningKey:        "abcdefghijklmnopqrstuvwxyz123456",
+		ServiceJWTSigningKey: "",
+		AAASharedToken:       devDefaultAAAToken,
+		DispatcherTLSMode:    "disabled",
+	}, "config.yml", ".env", "preflight_only", nil, nil)
+
+	checks := checksByID(resp.Checks)
+	for _, id := range []string{
+		"service_jwt_isolated",
+		"aaa_shared_token_strength",
+		"dispatcher_transport_security",
+	} {
+		if checks[id].Status != "error" || !checks[id].Required {
+			t.Fatalf("%s check = %#v, want blocking production error", id, checks[id])
+		}
+	}
+	if resp.Ready || resp.CanLogin {
+		t.Fatalf("preflight ready = %v canLogin = %v, want both false", resp.Ready, resp.CanLogin)
 	}
 }

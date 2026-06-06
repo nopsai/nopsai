@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"context"
@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
-	"google.golang.org/protobuf/types/known/emptypb"
 
 	"nopsai/pkg/proto"
 	"nopsai/services/aaa/pkg/model"
@@ -89,7 +88,7 @@ func (a *App) fetchDispatcherStatus(ctx context.Context) (*proto.DispatcherStatu
 	}
 	statusCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	return a.dispatcher.GetStatus(statusCtx, &emptypb.Empty{})
+	return a.dispatcher.GetStatus(statusCtx)
 }
 
 func (a *App) allowedMonitoringActiveRunSet(r *http.Request, status *proto.DispatcherStatus) map[string]struct{} {

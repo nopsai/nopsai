@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"fmt"
@@ -8,6 +8,8 @@ import (
 
 	"nopsai/config"
 	"nopsai/pkg/models"
+	"nopsai/services/nopsai/internal/configsync"
+	"nopsai/services/nopsai/internal/systemconfig"
 
 	"gopkg.in/yaml.v3"
 )
@@ -53,7 +55,7 @@ func parseGitOpsRuntimeSettingsPlan(binding models.ConfigRepository, directories
 		root := filepath.ToSlash(strings.Trim(directory.root, "/"))
 		for path, content := range directory.files {
 			normalized := filepath.ToSlash(path)
-			rel, ok := relativeConfigPath(normalized, root)
+			rel, ok := configsync.RelativePath(normalized, root)
 			if !ok || !isGitOpsRuntimeSettingsRelativePath(rel) {
 				continue
 			}
@@ -114,7 +116,7 @@ func parseGitOpsRuntimeSettingsFile(content, sourcePath string) (*gitOpsRuntimeS
 		return nil, fmt.Errorf("runtime settings GitOps file '%s' has invalid runner_capacity", sourcePath)
 	}
 	if payload.Limits != nil {
-		if err := validateRunnerLimits(*payload.Limits); err != nil {
+		if err := systemconfig.ValidateRunnerLimits(*payload.Limits); err != nil {
 			return nil, fmt.Errorf("runtime settings GitOps file '%s' has invalid limits: %w", sourcePath, err)
 		}
 	}
@@ -136,7 +138,7 @@ func buildRuntimeSettingsGitOpsFile(cfg config.Config) runtimeSettingsGitOpsFile
 		AutoRemovalAgentContainer: boolPtr(cfg.AutoRemovalAgentContainer),
 		DefaultPipelineTimeout:    stringPtr(cfg.DefaultPipelineTimeout),
 		LLMAgentTimeout:           stringPtr(cfg.LLMAgentTimeout),
-		DispatcherRouting:         cloneDispatcherRouting(cfg.DispatcherRouting),
+		DispatcherRouting:         systemconfig.CloneDispatcherRouting(cfg.DispatcherRouting),
 		RunnerID:                  stringPtr(cfg.RunnerID),
 		RunnerScopes:              stringPtr(cfg.RunnerScopes),
 		RunnerCapacity:            intPtr(runnerCapacity),

@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"context"
@@ -6,28 +6,18 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"path"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
 	"nopsai/services/aaa/pkg/model"
+	"nopsai/services/nopsai/internal/configsync"
 	"nopsai/services/nopsai/pkg/auth"
 	configstore "nopsai/services/nopsai/pkg/store"
 
 	"github.com/rs/zerolog/log"
 )
-
-type upsertConfigRepositoryRequest struct {
-	RepoURL      string `json:"repo_url"`
-	Branch       string `json:"branch"`
-	BasePath     string `json:"base_path"`
-	Enabled      *bool  `json:"enabled"`
-	WriteEnabled *bool  `json:"write_enabled"`
-	WriteBranch  string `json:"write_branch"`
-}
 
 type writeConfigRepositoryFilesRequest struct {
 	Message string                      `json:"message"`
@@ -50,12 +40,12 @@ func (a *App) handleGetGlobalConfigRepository(w http.ResponseWriter, r *http.Req
 }
 
 func (a *App) handleUpsertGlobalConfigRepository(w http.ResponseWriter, r *http.Request) {
-	var req upsertConfigRepositoryRequest
+	var req configsync.RepositoryInputRequest
 	if err := httpapi.DecodeJSON(r, &req); err != nil {
 		http.Error(w, "Invalid request payload", http.StatusBadRequest)
 		return
 	}
-	input, err := buildConfigRepositoryInput(req, models.ConfigRepositoryScopeSystem, models.ConfigRepositorySystemGlobalID, actorIDFromRequest(r))
+	input, err := configsync.BuildRepositoryInput(req, models.ConfigRepositoryScopeSystem, models.ConfigRepositorySystemGlobalID, actorIDFromRequest(r))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -119,12 +109,12 @@ func (a *App) handleUpsertFolderConfigRepository(w http.ResponseWriter, r *http.
 		return
 	}
 
-	var req upsertConfigRepositoryRequest
+	var req configsync.RepositoryInputRequest
 	if err := httpapi.DecodeJSON(r, &req); err != nil {
 		http.Error(w, "Invalid request payload", http.StatusBadRequest)
 		return
 	}
-	input, err := buildConfigRepositoryInput(req, models.ConfigRepositoryScopeFolder, resource.ID, actorIDFromRequest(r))
+	input, err := configsync.BuildRepositoryInput(req, models.ConfigRepositoryScopeFolder, resource.ID, actorIDFromRequest(r))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -200,7 +190,7 @@ func (a *App) handleWriteConfigRepositoryFiles(w http.ResponseWriter, r *http.Re
 		http.Error(w, "config repository write_branch is required", http.StatusBadRequest)
 		return
 	}
-	if err := validateConfigRepositoryBranchName(writeBranch, "write_branch"); err != nil {
+	if err := configsync.ValidateBranchName(writeBranch, "write_branch"); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -219,21 +209,21 @@ func (a *App) handleWriteConfigRepositoryFiles(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	files := make([]gitBotCommitFile, 0, len(req.Files))
+	files := make([]GitCommitFile, 0, len(req.Files))
 	for _, file := range req.Files {
-		cleanPath, err := cleanConfigRepositoryWritePath(repo.BasePath, file.Path)
+		cleanPath, err := configsync.CleanRepositoryWritePath(repo.BasePath, file.Path)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		files = append(files, gitBotCommitFile{
+		files = append(files, GitCommitFile{
 			Path:    cleanPath,
 			Content: file.Content,
 			Delete:  file.Delete,
 		})
 	}
 
-	owner, name, err := parseGitHubRepoURL(repo.RepoURL)
+	owner, name, err := configsync.ParseGitHubRepoURL(repo.RepoURL)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -388,122 +378,6 @@ func (a *App) isFolderConfigRepositoryOwner(ctx context.Context, r *http.Request
 		return false, err
 	}
 	return false, nil
-}
-
-func buildConfigRepositoryInput(req upsertConfigRepositoryRequest, scopeType, scopeID, actor string) (models.ConfigRepositoryInput, error) {
-	scopeType = strings.TrimSpace(scopeType)
-	scopeID = strings.Trim(strings.TrimSpace(scopeID), "/")
-	if scopeType != models.ConfigRepositoryScopeFolder && scopeType != models.ConfigRepositoryScopeSystem {
-		return models.ConfigRepositoryInput{}, fmt.Errorf("scope_type must be folder or system")
-	}
-	if scopeID == "" {
-		return models.ConfigRepositoryInput{}, fmt.Errorf("scope_id is required")
-	}
-
-	repoURL := strings.TrimSpace(req.RepoURL)
-	if repoURL == "" {
-		return models.ConfigRepositoryInput{}, fmt.Errorf("repo_url is required")
-	}
-	branch := strings.TrimSpace(req.Branch)
-	if branch == "" {
-		branch = "main"
-	}
-	basePath, err := normalizeConfigRepositoryBasePathForRequest(req.BasePath)
-	if err != nil {
-		return models.ConfigRepositoryInput{}, err
-	}
-	enabled := true
-	if req.Enabled != nil {
-		enabled = *req.Enabled
-	}
-	writeEnabled := false
-	if req.WriteEnabled != nil {
-		writeEnabled = *req.WriteEnabled
-	}
-	writeBranch := strings.TrimSpace(req.WriteBranch)
-	if writeEnabled && writeBranch == "" {
-		writeBranch = "nopsai/ui-changes"
-	}
-	if writeBranch != "" {
-		if err := validateConfigRepositoryBranchName(writeBranch, "write_branch"); err != nil {
-			return models.ConfigRepositoryInput{}, err
-		}
-	}
-
-	return models.ConfigRepositoryInput{
-		ScopeType:    scopeType,
-		ScopeID:      scopeID,
-		RepoURL:      repoURL,
-		Branch:       branch,
-		BasePath:     basePath,
-		Enabled:      enabled,
-		WriteEnabled: writeEnabled,
-		WriteBranch:  writeBranch,
-		Actor:        actor,
-	}, nil
-}
-
-func validateConfigRepositoryBranchName(value, field string) error {
-	branch := strings.TrimSpace(value)
-	if branch == "" {
-		return fmt.Errorf("%s is required", field)
-	}
-	if strings.HasPrefix(branch, "/") || strings.HasSuffix(branch, "/") || strings.HasPrefix(branch, "refs/") {
-		return fmt.Errorf("%s must be a branch name, not a ref path", field)
-	}
-	if strings.HasSuffix(branch, ".") || branch == "@" {
-		return fmt.Errorf("%s is not a valid branch name", field)
-	}
-	invalidFragments := []string{"..", "//", "@{", "\\", ":", "?", "*", "[", "^", "~", " "}
-	for _, fragment := range invalidFragments {
-		if strings.Contains(branch, fragment) {
-			return fmt.Errorf("%s contains invalid branch characters", field)
-		}
-	}
-	for _, segment := range strings.Split(branch, "/") {
-		if segment == "" || strings.HasPrefix(segment, ".") || strings.HasSuffix(segment, ".lock") {
-			return fmt.Errorf("%s contains invalid branch path segments", field)
-		}
-	}
-	return nil
-}
-
-func normalizeConfigRepositoryBasePathForRequest(value string) (string, error) {
-	normalized := strings.TrimSpace(value)
-	normalized = strings.ReplaceAll(normalized, "\\", "/")
-	if filepath.IsAbs(normalized) {
-		return "", fmt.Errorf("base_path must be relative")
-	}
-	normalized = strings.Trim(normalized, "/")
-	if normalized == "." {
-		return "", nil
-	}
-	if normalized == "" {
-		return "", nil
-	}
-	for _, segment := range strings.Split(normalized, "/") {
-		if segment == "" || segment == "." || segment == ".." {
-			return "", fmt.Errorf("base_path contains invalid path segments")
-		}
-	}
-	return normalized, nil
-}
-
-func cleanConfigRepositoryWritePath(basePath, rawPath string) (string, error) {
-	normalized := strings.ReplaceAll(strings.TrimSpace(rawPath), "\\", "/")
-	normalized = strings.TrimPrefix(normalized, "/")
-	cleaned := path.Clean(normalized)
-	if cleaned == "." || cleaned == "" || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
-		return "", fmt.Errorf("invalid file path: %s", rawPath)
-	}
-	base, err := normalizeConfigRepositoryBasePathForRequest(basePath)
-	if err != nil {
-		return "", err
-	}
-	if base == "" {
-		return cleaned, nil
-	}
-	return base + "/" + cleaned, nil
 }
 
 func actorIDFromRequest(r *http.Request) string {

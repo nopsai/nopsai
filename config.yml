@@ -1,5 +1,7 @@
 log_level: "debug" # Options: "debug", "info", "warn", "error"
 log_format: "json" # Options: "console", "json"
+# environment: "development" # development, staging, production. production enforces enterprise startup gates.
+# require_production_gates: false # Set true outside production when staging should fail on production-hardening gaps.
 
 # database_url: "postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_db"
 # agent_image: "nopsai-agent:latest"
