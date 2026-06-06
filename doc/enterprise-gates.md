@@ -91,7 +91,7 @@ Service Dockerfiles that depend on the base image accept `BASE_IMAGE`, so CI can
 build from the local `nopsai-base:ci` image instead of pulling a published base.
 CI uses `golangci/golangci-lint-action@v7` and pins the `golangci-lint`
 binary to `v2.12.2`, which is built with a Go 1.26 toolchain and is compatible
-with the repository's `go 1.26.3` module target.
+with the repository's `go 1.26.4` module target.
 
 ## Current Baseline Decision
 
