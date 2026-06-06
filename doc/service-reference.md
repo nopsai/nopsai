@@ -10,6 +10,11 @@ Primary role:
 
 Responsibilities:
 
+- Enforces optional enterprise startup gates for production deployments,
+  surfacing unmet hardening requirements through the public setup preflight
+  response before the full API starts.
+- Uses shared HTTP server timeout defaults from `pkg/httpapi` for production
+  request hardening.
 - Exposes REST endpoints for auth, runs, pipelines, steps, triggers, knowledge contexts, notifications, metrics, secrets, variables, groups, and system operations.
 - Exposes product access-management endpoints for role grants and effective-permission inspection.
 - Stores and reads all durable state from Postgres.
@@ -20,17 +25,41 @@ Responsibilities:
   detail shaping out of HTTP handlers.
 - Builds runner install artifacts through a dedicated runner-install boundary,
   while one-time bootstrap token storage remains on the application.
-- Uses a dedicated git-bot client boundary for GitHub repository reads, config
-  commits, check-run lifecycle operations, and run/task status updates.
+- Uses a consumer-owned `GitProvider` boundary for GitHub repository reads,
+  config commits, branch PR status, check-run lifecycle operations, and
+  run/task status updates; the git-bot HTTP client is the first concrete
+  implementation wired during service bootstrap.
+- Uses a consumer-owned `DispatcherClient` boundary for job submission,
+  dispatcher status lookup, and runner dispatch controls; the generated gRPC
+  client is adapted during service bootstrap.
+- Uses a consumer-owned `RunLauncher` boundary for prepared agent-run launch
+  handoff, keeping run orchestration and approval resume flows independent of
+  concrete dispatcher/environment launch plumbing.
+- Uses a consumer-owned `ConfigSyncStore` boundary for config repository
+  listing, sync-status persistence, and config-sync apply/prune handoff.
+- Uses a consumer-owned `SecretCodec` boundary for secret encryption and
+  decryption; AES-256-GCM remains the default implementation wired during
+  service bootstrap.
+- Uses a consumer-owned `AAAClient` boundary for subject introspection,
+  authorization checks, batch checks, resource filtering, and audit decision
+  recording; the AAA HTTP client and in-process evaluator fallback are wired
+  during service bootstrap.
+- Builds auth, AAA, audit, internal HTTP, and default Git provider dependencies
+  through a focused security-runtime constructor instead of keeping that wiring
+  in the app assembly path.
 - Shares config-sync path normalization, repository identifier parsing,
   pipeline-run group-structure parsing, binding-file validation/defaults,
   config-repository request shaping, write-path validation, and
   config-repository drift ownership/path, file-diffing, and group-structure
   export rules through a dedicated internal config-sync package.
 - Starts Git-backed config repository sync through a dedicated
-  `config_sync_runner.go` runner/status boundary and a `config_sync.go`
-  apply boundary, with scope-entry parsing and delegated group synchronization
-  split into separate files.
+  `config_sync_runner.go` runner/status boundary, a shared
+  `config_repository_git_paths.go` directory-layout boundary, a
+  `config_sync_fetch.go` repository discovery boundary, a
+  `config_sync_parse.go` parse-plan boundary, a `config_sync.go` coordinator
+  boundary, and a `config_sync_apply.go` transactional apply/prune boundary,
+  with scope-entry parsing and delegated group synchronization split into
+  separate files.
 - Exports config repository desired state through separate drift, resource,
   scope, knowledge, group-structure, access, embedded resource-access,
   path-rule, and runtime/settings export boundaries.
@@ -43,7 +72,19 @@ Responsibilities:
 
 Key files:
 
-- `services/nopsai/main.go`
+- `services/nopsai/cmd/nopsai/main.go`
+- `services/nopsai/internal/app/app.go`
+- `services/nopsai/app.go`
+- `services/nopsai/bootstrap.go`
+- `services/nopsai/app_security.go`
+- `services/nopsai/bootstrap_schema.go`
+- `services/nopsai/enterprise_gates.go`
+- `pkg/httpapi/server.go`
+- `services/nopsai/dispatcher_client.go`
+- `services/nopsai/gitbot_client.go`
+- `services/nopsai/aaa_helpers.go`
+- `services/nopsai/config_sync_store.go`
+- `services/nopsai/secret_codec.go`
 - `services/nopsai/auth_models.go`
 - `services/nopsai/http_middleware.go`
 - `services/nopsai/config_runtime.go`
@@ -59,7 +100,11 @@ Key files:
 - `services/nopsai/run_internal_handlers.go`
 - `services/nopsai/group_handlers.go`
 - `services/nopsai/config_sync_runner.go`
+- `services/nopsai/config_repository_git_paths.go`
+- `services/nopsai/config_sync_fetch.go`
+- `services/nopsai/config_sync_parse.go`
 - `services/nopsai/config_sync.go`
+- `services/nopsai/config_sync_apply.go`
 - `services/nopsai/config_sync_scope_entries.go`
 - `services/nopsai/config_sync_groups.go`
 - `services/nopsai/config_repository_drift.go`
@@ -80,7 +125,6 @@ Key files:
 - `services/nopsai/internal/systemconfig`
 - `services/nopsai/system_handlers.go`
 - `services/nopsai/gitbot_client.go`
-- `services/nopsai/configsync_aliases.go`
 - `services/nopsai/runner_bootstrap_tokens.go`
 - `services/nopsai/pipeline_handlers.go`
 - `services/nopsai/knowledge_context.go`
@@ -160,7 +204,9 @@ Notable behavior:
 
 - `GET /healthz` is public for health checks.
 - All `/v1/authn/*`, `/v1/authz/*`, and `/v1/audit/*` endpoints require the shared internal token.
-- `nopsai` keeps an in-process evaluator fallback using the same store, so short AAA service outages do not have to stop authorization checks.
+- `nopsai` keeps an in-process evaluator fallback behind its `AAAClient`
+  boundary using the same store, so short AAA service outages do not have to
+  stop authorization checks.
 
 ## `services/dispatcher`
 
@@ -178,11 +224,19 @@ Responsibilities:
 - Queues jobs when no runner is available.
 - Requeues inflight jobs if a runner disconnects.
 - Exposes status and runner dispatch controls for the system UI.
-- Proxies agent-originated logs, task updates, final status, child pipeline triggers, and pipeline fetches back into `nopsai`.
+- Proxies agent-originated logs, task updates, final status, child pipeline
+  triggers, and pipeline fetches back into `nopsai` through a dedicated NopsAI
+  callback client boundary.
+- Uses a thin `cmd/dispatcher` command entrypoint, with process bootstrap and
+  service wiring in `internal/app` and the gRPC scheduling/control service in
+  `internal/service`.
 
 Key files:
 
-- `services/dispatcher/main.go`
+- `services/dispatcher/cmd/dispatcher/main.go`
+- `services/dispatcher/internal/app`
+- `services/dispatcher/internal/service`
+- `services/dispatcher/internal/service/nopsai_client.go`
 - `pkg/proto/dispatcher.proto`
 
 Inbound interfaces:
@@ -253,7 +307,12 @@ Responsibilities:
 
 Key files:
 
-- `services/k8s-runner/main.go`
+- `services/k8s-runner/cmd/k8s-runner/main.go`
+- `services/k8s-runner/internal/app/app.go`
+- `services/k8s-runner/internal/service/runner.go`
+- `services/k8s-runner/internal/service/workspace.go`
+- `services/k8s-runner/internal/service/pod.go`
+- `services/k8s-runner/internal/service/scheduling.go`
 - `container/Dockerfile.k8s-runner`
 - `doc/kubernetes-runner.md`
 
@@ -296,7 +355,8 @@ Responsibilities:
 
 Key files:
 
-- `services/agent/main.go`
+- `services/agent/cmd/agent/main.go`
+- `services/agent/app.go`
 - `services/agent/agent_logging.go`
 - `services/agent/workspace_listing.go`
 - `services/agent/dispatcher_reports.go`
@@ -336,17 +396,28 @@ Primary role:
 Responsibilities:
 
 - Validates GitHub webhook signatures.
-- Forwards webhook payloads to `nopsai`.
+- Forwards webhook payloads to `nopsai` through a narrow webhook-forwarder
+  boundary.
 - Reads repository files and directories from GitHub on behalf of `nopsai`.
 - Checks repository access and whether a branch has an open PR.
+- Keeps repository reads, repository access checks, branch PR checks,
+  installation repository listing, and pipeline content fetches behind a
+  GitHub repository provider boundary.
 - Creates, initializes, finds, and updates GitHub check runs.
 - Tracks step/task state for rich check-run rendering, with summary rendering
   delegated to an internal check-render package.
 - Creates child check runs for included pipelines.
+- Uses a thin `cmd/git-bot` command entrypoint, with process bootstrap and
+  GitHub App/client wiring in `internal/app` and GitHub/webhook/check-run HTTP
+  behavior in `internal/service`.
 
 Key files:
 
-- `services/git-bot/main.go`
+- `services/git-bot/cmd/git-bot/main.go`
+- `services/git-bot/internal/app`
+- `services/git-bot/internal/service`
+- `services/git-bot/internal/service/nopsai_forwarder.go`
+- `services/git-bot/internal/service/github_repository.go`
 - `services/git-bot/internal/checkrender`
 
 Inbound interfaces:

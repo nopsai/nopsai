@@ -1,28 +1,18 @@
-package main
+package service
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net"
-	"net/http"
-	"net/url"
-	"os"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"nopsai/config"
 	"nopsai/pkg/proto"
 	"nopsai/pkg/serviceauth"
-	"nopsai/pkg/servicetls"
 
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -55,9 +45,7 @@ type dispatcherServer struct {
 	triggerAssignments map[string]string
 	connSeq            uint64
 
-	nopsaiBase          string
-	httpClient          *http.Client
-	internalCredentials *serviceauth.Credentials
+	nopsai nopsaiClient
 }
 
 func newDispatcherServer(routing map[string][]string, nopsaiBase string, internalCredentials ...*serviceauth.Credentials) *dispatcherServer {
@@ -66,13 +54,15 @@ func newDispatcherServer(routing map[string][]string, nopsaiBase string, interna
 		credentials = internalCredentials[0]
 	}
 	return &dispatcherServer{
-		runners:             make(map[string]*runnerConn),
-		routing:             normalizeDispatcherRouting(routing),
-		triggerAssignments:  make(map[string]string),
-		nopsaiBase:          strings.TrimRight(strings.TrimSpace(nopsaiBase), "/"),
-		httpClient:          &http.Client{Timeout: 15 * time.Second},
-		internalCredentials: credentials,
+		runners:            make(map[string]*runnerConn),
+		routing:            normalizeDispatcherRouting(routing),
+		triggerAssignments: make(map[string]string),
+		nopsai:             newNopsaiHTTPClient(nopsaiBase, credentials),
 	}
+}
+
+func NewDispatcherServer(routing map[string][]string, nopsaiBase string, internalCredentials ...*serviceauth.Credentials) *dispatcherServer {
+	return newDispatcherServer(routing, nopsaiBase, internalCredentials...)
 }
 
 type dispatcherAuth struct {
@@ -109,6 +99,10 @@ func newDispatcherAuth(authenticator *serviceauth.Authenticator, expectedService
 	}
 }
 
+func NewDispatcherAuth(authenticator *serviceauth.Authenticator, expectedServiceIDs map[string]string) *dispatcherAuth {
+	return newDispatcherAuth(authenticator, expectedServiceIDs)
+}
+
 func roleSet(roles ...string) map[string]struct{} {
 	out := make(map[string]struct{}, len(roles))
 	for _, role := range roles {
@@ -121,12 +115,20 @@ func roleSet(roles ...string) map[string]struct{} {
 	return out
 }
 
+func (a *dispatcherAuth) UnaryInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+	return a.unaryInterceptor(ctx, req, info, handler)
+}
+
 func (a *dispatcherAuth) unaryInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 	claims, err := a.authenticate(ctx, info.FullMethod)
 	if err != nil {
 		return nil, err
 	}
 	return handler(serviceauth.WithClaims(ctx, claims), req)
+}
+
+func (a *dispatcherAuth) StreamInterceptor(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	return a.streamInterceptor(srv, stream, info, handler)
 }
 
 func (a *dispatcherAuth) streamInterceptor(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
@@ -182,22 +184,6 @@ type authenticatedServerStream struct {
 
 func (s *authenticatedServerStream) Context() context.Context {
 	return s.ctx
-}
-
-func (d *dispatcherServer) authorizeInternalRequest(ctx context.Context, req *http.Request) error {
-	if req == nil {
-		return fmt.Errorf("request is nil")
-	}
-	if d.internalCredentials == nil {
-		return fmt.Errorf("internal service credentials are not configured")
-	}
-
-	token, err := d.internalCredentials.MintToken(ctx)
-	if err != nil {
-		return fmt.Errorf("mint dispatcher token: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	return nil
 }
 
 func (d *dispatcherServer) nextConnectionID(base string) string {
@@ -455,32 +441,9 @@ func (d *dispatcherServer) IngestLogs(ctx context.Context, batch *proto.LogBatch
 	if batch == nil || strings.TrimSpace(batch.RunId) == "" {
 		return nil, status.Error(codes.InvalidArgument, "run_id is required")
 	}
-	if err := d.requireNopsaiBase(); err != nil {
+	if err := d.nopsai.IngestLogs(ctx, batch.RunId, batch.Lines); err != nil {
 		return nil, err
 	}
-
-	body, _ := json.Marshal(map[string][]string{"lines": batch.Lines})
-	target := fmt.Sprintf("%s/v1/runs/%s/logs/ingest", d.nopsaiBase, strings.TrimSpace(batch.RunId))
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "build log ingest request: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if err := d.authorizeInternalRequest(ctx, req); err != nil {
-		return nil, status.Errorf(codes.Internal, "authorize log ingest request: %v", err)
-	}
-
-	resp, err := d.httpClient.Do(req)
-	if err != nil {
-		return nil, status.Errorf(codes.Unavailable, "send log ingest: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, status.Errorf(codes.FailedPrecondition, "nopsai log ingest returned %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
 	return &emptypb.Empty{}, nil
 }
 
@@ -488,38 +451,9 @@ func (d *dispatcherServer) ReportTaskStatus(ctx context.Context, req *proto.Task
 	if req == nil || strings.TrimSpace(req.RunId) == "" || strings.TrimSpace(req.StepName) == "" || strings.TrimSpace(req.TaskName) == "" {
 		return nil, status.Error(codes.InvalidArgument, "run_id, step_name, and task_name are required")
 	}
-	if err := d.requireNopsaiBase(); err != nil {
+	if err := d.nopsai.ReportTaskStatus(ctx, req); err != nil {
 		return nil, err
 	}
-
-	payload := map[string]interface{}{
-		"status":          req.Status,
-		"exit_code":       req.ExitCode,
-		"llm_duration_ms": req.LlmDurationMs,
-	}
-	body, _ := json.Marshal(payload)
-
-	target := fmt.Sprintf("%s/v1/runs/%s/steps/%s/tasks/%s", d.nopsaiBase, strings.TrimSpace(req.RunId), url.PathEscape(req.StepName), url.PathEscape(req.TaskName))
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "build task status request: %v", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	if err := d.authorizeInternalRequest(ctx, httpReq); err != nil {
-		return nil, status.Errorf(codes.Internal, "authorize task status request: %v", err)
-	}
-
-	resp, err := d.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, status.Errorf(codes.Unavailable, "send task status: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, status.Errorf(codes.FailedPrecondition, "nopsai task status returned %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
 	return &emptypb.Empty{}, nil
 }
 
@@ -527,32 +461,9 @@ func (d *dispatcherServer) FinalizeRun(ctx context.Context, req *proto.FinalizeR
 	if req == nil || strings.TrimSpace(req.RunId) == "" {
 		return nil, status.Error(codes.InvalidArgument, "run_id is required")
 	}
-	if err := d.requireNopsaiBase(); err != nil {
+	if err := d.nopsai.FinalizeRun(ctx, req.RunId, req.Status, ""); err != nil {
 		return nil, err
 	}
-
-	body, _ := json.Marshal(map[string]string{"status": req.Status})
-	target := fmt.Sprintf("%s/v1/runs/%s/finalize", d.nopsaiBase, strings.TrimSpace(req.RunId))
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "build finalize request: %v", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	if err := d.authorizeInternalRequest(ctx, httpReq); err != nil {
-		return nil, status.Errorf(codes.Internal, "authorize finalize request: %v", err)
-	}
-
-	resp, err := d.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, status.Errorf(codes.Unavailable, "send finalize: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, status.Errorf(codes.FailedPrecondition, "nopsai finalize returned %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
 	return &emptypb.Empty{}, nil
 }
 
@@ -560,47 +471,10 @@ func (d *dispatcherServer) FetchPipeline(ctx context.Context, req *proto.FetchPi
 	if req == nil || strings.TrimSpace(req.PipelineName) == "" {
 		return nil, status.Error(codes.InvalidArgument, "pipeline_name is required")
 	}
-	if err := d.requireNopsaiBase(); err != nil {
+	body, err := d.nopsai.FetchPipeline(ctx, req)
+	if err != nil {
 		return nil, err
 	}
-
-	base := d.nopsaiBase
-	target := fmt.Sprintf("%s/v1/pipelines/%s", base, strings.TrimLeft(req.PipelineName, "/"))
-	parsed, err := url.Parse(target)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "parse pipeline url: %v", err)
-	}
-	q := parsed.Query()
-	if strings.TrimSpace(req.RepoOwner) != "" {
-		q.Set("repoOwner", req.RepoOwner)
-	}
-	if strings.TrimSpace(req.RepoName) != "" {
-		q.Set("repoName", req.RepoName)
-	}
-	if strings.TrimSpace(req.CommitSha) != "" {
-		q.Set("commitSHA", req.CommitSha)
-	}
-	parsed.RawQuery = q.Encode()
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "build pipeline request: %v", err)
-	}
-	if err := d.authorizeInternalRequest(ctx, httpReq); err != nil {
-		return nil, status.Errorf(codes.Internal, "authorize pipeline request: %v", err)
-	}
-
-	resp, err := d.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, status.Errorf(codes.Unavailable, "fetch pipeline: %v", err)
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, status.Errorf(codes.FailedPrecondition, "nopsai pipeline returned %d: %s", resp.StatusCode, string(body))
-	}
-
 	return &proto.FetchPipelineResponse{PipelineDefinition: body}, nil
 }
 
@@ -608,80 +482,7 @@ func (d *dispatcherServer) TriggerPipeline(ctx context.Context, req *proto.Trigg
 	if req == nil || len(req.PipelineDefinition) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "pipeline_definition is required")
 	}
-	if err := d.requireNopsaiBase(); err != nil {
-		return nil, err
-	}
-
-	target := fmt.Sprintf("%s/v1/run", d.nopsaiBase)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(req.PipelineDefinition))
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "build trigger request: %v", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/x-yaml")
-	if err := d.authorizeInternalRequest(ctx, httpReq); err != nil {
-		return nil, status.Errorf(codes.Internal, "authorize trigger request: %v", err)
-	}
-
-	if v := strings.TrimSpace(req.ParentRunId); v != "" {
-		httpReq.Header.Set("X-Nopsai-Parent-Run-ID", v)
-	}
-	if v := strings.TrimSpace(req.ParentRunnerId); v != "" {
-		httpReq.Header.Set("X-Nopsai-Parent-Runner-ID", v)
-	}
-	if v := strings.TrimSpace(req.ParentPipelineName); v != "" {
-		httpReq.Header.Set("X-Nopsai-Parent-Pipeline-Name", v)
-	}
-	if v := strings.TrimSpace(req.ParentStepName); v != "" {
-		httpReq.Header.Set("X-Nopsai-Parent-Step-Name", v)
-	}
-
-	if path := pipelinePath(strings.TrimSpace(req.PipelineIdentifier)); path != "" {
-		httpReq.Header.Set("X-Nopsai-Pipeline-Path", path)
-	}
-
-	if h := strings.TrimSpace(req.History); h != "" {
-		httpReq.Header.Set("X-Nopsai-Parent-History", base64.StdEncoding.EncodeToString([]byte(h)))
-	}
-
-	if scope := strings.TrimSpace(req.Scope); scope != "" {
-		httpReq.Header.Set("X-Nopsai-Scope", scope)
-	}
-
-	for key, value := range req.GitContext {
-		if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
-			continue
-		}
-		headerKey := gitHeaderKey(key)
-		httpReq.Header.Set(headerKey, value)
-	}
-
-	resp, err := d.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, status.Errorf(codes.Unavailable, "trigger pipeline: %v", err)
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusCreated {
-		return &proto.TriggerPipelineResponse{
-			Status: resp.Status,
-			Error:  fmt.Sprintf("nopsai trigger returned %d: %s", resp.StatusCode, string(body)),
-		}, nil
-	}
-
-	const prefix = "Pipeline run created successfully with ID: "
-	runID := strings.TrimSpace(strings.TrimPrefix(string(body), prefix))
-	if runID == "" {
-		return &proto.TriggerPipelineResponse{
-			Status: resp.Status,
-			Error:  fmt.Sprintf("unexpected response body: %s", string(body)),
-		}, nil
-	}
-
-	return &proto.TriggerPipelineResponse{
-		RunId:  runID,
-		Status: "created",
-	}, nil
+	return d.nopsai.TriggerPipeline(ctx, req)
 }
 
 func (d *dispatcherServer) GetRunStatus(ctx context.Context, req *proto.RunStatusRequest) (*proto.RunStatusResponse, error) {
@@ -764,45 +565,12 @@ func (d *dispatcherServer) reportRunnerJobFailure(runID, detail string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := d.postNopsaiJSON(ctx, fmt.Sprintf("/v1/runs/%s/logs/ingest", runID), map[string][]string{"lines": []string{reason}}, http.StatusNoContent); err != nil {
+	if err := d.nopsai.IngestLogs(ctx, runID, []string{reason}); err != nil {
 		log.Warn().Err(err).Str("run_id", runID).Msg("failed to record runner job failure log")
 	}
-	if err := d.postNopsaiJSON(ctx, fmt.Sprintf("/v1/runs/%s/finalize", runID), map[string]string{
-		"status":         "failure",
-		"failure_reason": reason,
-	}, http.StatusOK); err != nil {
+	if err := d.nopsai.FinalizeRun(ctx, runID, "failure", reason); err != nil {
 		log.Warn().Err(err).Str("run_id", runID).Msg("failed to finalize runner job failure")
 	}
-}
-
-func (d *dispatcherServer) postNopsaiJSON(ctx context.Context, path string, payload any, expectedStatus int) error {
-	if err := d.requireNopsaiBase(); err != nil {
-		return err
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("marshal nopsai request: %w", err)
-	}
-	target := strings.TrimRight(d.nopsaiBase, "/") + path
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("build nopsai request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	if err := d.authorizeInternalRequest(ctx, httpReq); err != nil {
-		return fmt.Errorf("authorize nopsai request: %w", err)
-	}
-
-	resp, err := d.httpClient.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("send nopsai request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != expectedStatus {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("nopsai %s returned %d: %s", path, resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
-	}
-	return nil
 }
 
 func (d *dispatcherServer) addRunner(rc *runnerConn) {
@@ -1349,11 +1117,8 @@ func (d *dispatcherServer) reapStaleRunners(interval, ttl time.Duration, stop <-
 	}
 }
 
-func (d *dispatcherServer) requireNopsaiBase() error {
-	if d.nopsaiBase == "" {
-		return status.Error(codes.FailedPrecondition, "nopsai api url is not configured on dispatcher")
-	}
-	return nil
+func (d *dispatcherServer) ReapStaleRunners(interval, ttl time.Duration, stop <-chan struct{}) {
+	d.reapStaleRunners(interval, ttl, stop)
 }
 
 func runStatusAllowsDispatch(statusText string) bool {
@@ -1366,72 +1131,15 @@ func runStatusAllowsDispatch(statusText string) bool {
 }
 
 func (d *dispatcherServer) fetchRunStatusValue(ctx context.Context, runID string) (string, error) {
-	if err := d.requireNopsaiBase(); err != nil {
-		return "", err
-	}
-
-	target := fmt.Sprintf("%s/v1/runs/%s/status", d.nopsaiBase, strings.TrimSpace(runID))
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
-	if err != nil {
-		return "", status.Errorf(codes.Internal, "build run status request: %v", err)
-	}
-	if err := d.authorizeInternalRequest(ctx, httpReq); err != nil {
-		return "", status.Errorf(codes.Internal, "authorize run status request: %v", err)
-	}
-
-	resp, err := d.httpClient.Do(httpReq)
-	if err != nil {
-		return "", status.Errorf(codes.Unavailable, "fetch run status: %v", err)
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return "", status.Errorf(codes.FailedPrecondition, "nopsai run status returned %d: %s", resp.StatusCode, string(body))
-	}
-
-	var statusResp map[string]string
-	if err := json.Unmarshal(body, &statusResp); err != nil {
-		return "", status.Errorf(codes.Internal, "decode run status response: %v", err)
-	}
-
-	return statusResp["status"], nil
-}
-
-type dispatcherRoutingResponse struct {
-	DispatcherRouting map[string][]string `json:"dispatcher_routing"`
+	return d.nopsai.RunStatus(ctx, runID)
 }
 
 func (d *dispatcherServer) syncRoutingFromNopsai(ctx context.Context) error {
-	if err := d.requireNopsaiBase(); err != nil {
+	routing, err := d.nopsai.DispatcherRouting(ctx)
+	if err != nil {
 		return err
 	}
-
-	target := d.nopsaiBase + "/v1/internal/dispatcher/routing"
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
-	if err != nil {
-		return status.Errorf(codes.Internal, "build dispatcher routing request: %v", err)
-	}
-	if err := d.authorizeInternalRequest(ctx, httpReq); err != nil {
-		return status.Errorf(codes.Internal, "authorize dispatcher routing request: %v", err)
-	}
-
-	resp, err := d.httpClient.Do(httpReq)
-	if err != nil {
-		return status.Errorf(codes.Unavailable, "fetch dispatcher routing: %v", err)
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return status.Errorf(codes.FailedPrecondition, "nopsai dispatcher routing returned %d: %s", resp.StatusCode, string(body))
-	}
-
-	var payload dispatcherRoutingResponse
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return status.Errorf(codes.Internal, "decode dispatcher routing response: %v", err)
-	}
-	d.updateRouting(payload.DispatcherRouting)
+	d.updateRouting(routing)
 	return nil
 }
 
@@ -1460,6 +1168,10 @@ func (d *dispatcherServer) syncRoutingLoop(interval time.Duration, stop <-chan s
 			syncOnce()
 		}
 	}
+}
+
+func (d *dispatcherServer) SyncRoutingLoop(interval time.Duration, stop <-chan struct{}) {
+	d.syncRoutingLoop(interval, stop)
 }
 
 func (d *dispatcherServer) prepareJobForRunner(job *proto.JobRequest, runner *runnerConn) *proto.JobRequest {
@@ -1565,113 +1277,4 @@ func (d *dispatcherServer) recordAssignment(runID, pipelineName, runnerID, scope
 			log.Warn().Err(err).Str("run_id", runID).Msg("failed to record runner assignment")
 		}
 	}(runID, msg)
-}
-
-func main() {
-	configPath := os.Getenv("CONFIG_PATH")
-	if configPath == "" {
-		configPath = "config.yml"
-	}
-
-	cfg, err := config.LoadConfig(configPath)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to load config")
-	}
-
-	logLevel, err := zerolog.ParseLevel(cfg.LogLevel)
-	if err != nil {
-		logLevel = zerolog.InfoLevel
-	}
-	if cfg.LogFormat == "console" {
-		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
-	}
-	zerolog.SetGlobalLevel(logLevel)
-
-	listenAddr := cfg.DispatcherListenAddress
-	if strings.TrimSpace(listenAddr) == "" {
-		listenAddr = ":9090"
-	}
-
-	nopsaiBase := strings.TrimSpace(cfg.AgentNopsaiAPIURL)
-	if nopsaiBase == "" {
-		log.Fatal().Msg("Agent Nopsai API URL (agent_nopsai_api_url) must be configured for dispatcher")
-	}
-
-	internalCredentials, err := serviceauth.NewCredentials(serviceauth.Config{
-		SigningKey: cfg.EffectiveServiceJWTSigningKey(),
-		Issuer:     cfg.EffectiveServiceJWTIssuer(),
-		Audience:   cfg.EffectiveServiceJWTAudience(),
-		Role:       serviceauth.RoleDispatcher,
-		ServiceID:  "dispatcher",
-	})
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to configure dispatcher internal HTTP authentication")
-	}
-	dispatcher := newDispatcherServer(cfg.DispatcherRouting, nopsaiBase, internalCredentials)
-	serviceAuthenticator, err := serviceauth.NewAuthenticator(serviceauth.Config{
-		SigningKey: cfg.EffectiveServiceJWTSigningKey(),
-		Issuer:     cfg.EffectiveServiceJWTIssuer(),
-		Audience:   cfg.EffectiveServiceJWTAudience(),
-	})
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to configure dispatcher service authentication")
-	}
-	dispatcherAuth := newDispatcherAuth(serviceAuthenticator, map[string]string{
-		serviceauth.RoleNopsai: cfg.EffectiveNopsaiServiceID(),
-		serviceauth.RoleRunner: cfg.EffectiveRunnerServiceID(),
-		serviceauth.RoleAgent:  cfg.EffectiveAgentServiceID(),
-	})
-
-	dispatcherTransportCreds, err := servicetls.ServerCredentials(servicetls.Config{
-		Mode:        cfg.EffectiveDispatcherTLSMode(),
-		Secret:      cfg.EffectiveDispatcherTLSSecret(),
-		ServerName:  cfg.EffectiveDispatcherTLSServerName(),
-		ServerNames: dispatcherTLSServerNames(cfg, listenAddr),
-	})
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to configure dispatcher transport security")
-	}
-
-	serverOptions := []grpc.ServerOption{
-		grpc.UnaryInterceptor(dispatcherAuth.unaryInterceptor),
-		grpc.StreamInterceptor(dispatcherAuth.streamInterceptor),
-	}
-	if dispatcherTransportCreds != nil {
-		serverOptions = append(serverOptions, grpc.Creds(dispatcherTransportCreds))
-	}
-	grpcServer := grpc.NewServer(serverOptions...)
-	proto.RegisterDispatcherServiceServer(grpcServer, dispatcher)
-
-	lis, err := net.Listen("tcp", listenAddr)
-	if err != nil {
-		log.Fatal().Err(err).Str("addr", listenAddr).Msg("failed to listen")
-	}
-
-	stop := make(chan struct{})
-	go dispatcher.reapStaleRunners(10*time.Second, 30*time.Second, stop)
-	go dispatcher.syncRoutingLoop(5*time.Second, stop)
-
-	log.Info().
-		Str("addr", listenAddr).
-		Str("tls_mode", servicetls.NormalizeMode(cfg.EffectiveDispatcherTLSMode())).
-		Msg("dispatcher listening")
-	if err := grpcServer.Serve(lis); err != nil {
-		close(stop)
-		log.Fatal().Err(err).Msg("dispatcher server failed")
-	}
-}
-
-func dispatcherTLSServerNames(cfg *config.Config, listenAddr string) []string {
-	names := []string{"dispatcher", "localhost", listenAddr}
-	if cfg != nil {
-		names = append(names,
-			cfg.EffectiveDispatcherTLSServerName(),
-			cfg.DispatcherAddress,
-			cfg.DispatcherListenAddress,
-		)
-	}
-	if hostname, err := os.Hostname(); err == nil {
-		names = append(names, hostname)
-	}
-	return names
 }

@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"context"
@@ -24,7 +24,7 @@ func configRepositoryOverrideScopes(ctx context.Context, tx pgx.Tx, binding mode
 		}
 		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
 			boundScope := strings.Trim(strings.TrimSpace(binding.ScopeID), "/")
-			if scope == boundScope || !configResourceUnderScope(scope, boundScope) {
+			if scope == boundScope || !configsync.ResourceUnderScope(scope, boundScope) {
 				return
 			}
 		}
@@ -70,10 +70,10 @@ func configRepositoryOverrideScopes(ctx context.Context, tx pgx.Tx, binding mode
 func effectivePipelineRunStructureForConfigSync(
 	binding models.ConfigRepository,
 	configRepositories map[string]storedConfigRepository,
-	pipelineRunStructure map[string]*pipelineRunStructureNode,
-	configRepositoryPipelineRunStructure map[string]*pipelineRunStructureNode,
+	pipelineRunStructure map[string]*configsync.PipelineRunStructureNode,
+	configRepositoryPipelineRunStructure map[string]*configsync.PipelineRunStructureNode,
 	overrideScopes []string,
-) (map[string]*pipelineRunStructureNode, error) {
+) (map[string]*configsync.PipelineRunStructureNode, error) {
 	effective, err := configRepositoryGroupStructure(binding, configRepositories)
 	if err != nil {
 		return nil, err
@@ -83,11 +83,11 @@ func effectivePipelineRunStructureForConfigSync(
 	if binding.ScopeType == models.ConfigRepositoryScopeSystem && containsGroupConfigRepository(configRepositories) {
 		structure = nil
 	} else {
-		structure = filterPipelineRunStructureByScopes(structure, configRepositoryStructureFilterScopes(binding, configRepositories, overrideScopes))
+		structure = configsync.FilterPipelineRunStructureByScopes(structure, configRepositoryStructureFilterScopes(binding, configRepositories, overrideScopes))
 	}
 
-	mergePipelineRunStructure(effective, structure)
-	mergePipelineRunStructure(effective, configRepositoryPipelineRunStructure)
+	configsync.MergePipelineRunStructure(effective, structure)
+	configsync.MergePipelineRunStructure(effective, configRepositoryPipelineRunStructure)
 	return effective, nil
 }
 
@@ -109,7 +109,7 @@ func configRepositoryStructureFilterScopes(binding models.ConfigRepository, conf
 		}
 		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
 			boundScope := strings.Trim(strings.TrimSpace(binding.ScopeID), "/")
-			if scope == boundScope || !configResourceUnderScope(scope, boundScope) {
+			if scope == boundScope || !configsync.ResourceUnderScope(scope, boundScope) {
 				return
 			}
 		}
@@ -132,14 +132,14 @@ func configRepositoryStructureFilterScopes(binding models.ConfigRepository, conf
 	return scopes
 }
 
-func configRepositoryGroupStructure(binding models.ConfigRepository, configRepositories map[string]storedConfigRepository) (map[string]*pipelineRunStructureNode, error) {
-	result := map[string]*pipelineRunStructureNode{}
+func configRepositoryGroupStructure(binding models.ConfigRepository, configRepositories map[string]storedConfigRepository) (map[string]*configsync.PipelineRunStructureNode, error) {
+	result := map[string]*configsync.PipelineRunStructureNode{}
 	addPath := func(path string) error {
-		segments, err := cleanConfigPathSegments(path, false)
+		segments, err := configsync.CleanPathSegments(path, false)
 		if err != nil {
 			return err
 		}
-		ensurePipelineRunStructurePath(result, segments)
+		configsync.EnsurePipelineRunStructurePath(result, segments)
 		return nil
 	}
 
@@ -179,12 +179,12 @@ func filterDelegatedConfigResources(
 	}
 
 	for key := range pipelines {
-		if configResourceUnderAnyScope(key, overrideScopes) {
+		if configsync.ResourceUnderAnyScope(key, overrideScopes) {
 			delete(pipelines, key)
 		}
 	}
 	for key := range steps {
-		if configResourceUnderAnyScope(key, overrideScopes) {
+		if configsync.ResourceUnderAnyScope(key, overrideScopes) {
 			delete(steps, key)
 		}
 	}
@@ -193,17 +193,17 @@ func filterDelegatedConfigResources(
 		if scope == "" {
 			scope = key
 		}
-		if configResourceUnderAnyScope(scope, overrideScopes) {
+		if configsync.ResourceUnderAnyScope(scope, overrideScopes) {
 			delete(schedules, key)
 		}
 	}
 	for key, trigger := range externalTriggers {
-		if configResourceUnderAnyScope(externalTriggerConfigScope(trigger.input), overrideScopes) {
+		if configsync.ResourceUnderAnyScope(externalTriggerConfigScope(trigger.input), overrideScopes) {
 			delete(externalTriggers, key)
 		}
 	}
 	for key, route := range notificationRoutes {
-		if configResourceUnderAnyScope(notificationRouteResourceScope(route), overrideScopes) {
+		if configsync.ResourceUnderAnyScope(notificationRouteResourceScope(route), overrideScopes) {
 			delete(notificationRoutes, key)
 		}
 	}
@@ -212,32 +212,32 @@ func filterDelegatedConfigResources(
 		if scope == "" {
 			scope = key
 		}
-		if configResourceUnderAnyScope(scope, overrideScopes) {
+		if configsync.ResourceUnderAnyScope(scope, overrideScopes) {
 			delete(knowledgeContexts, key)
 		}
 	}
 	for key := range generalScopeVars {
-		if configResourceUnderAnyScope(key.scopePath, overrideScopes) {
+		if configsync.ResourceUnderAnyScope(key.scopePath, overrideScopes) {
 			delete(generalScopeVars, key)
 		}
 	}
 	for key := range repoScopeVars {
-		if configResourceUnderAnyScope(key.repo, overrideScopes) || configResourceUnderAnyScope(key.scopePath, overrideScopes) {
+		if configsync.ResourceUnderAnyScope(key.repo, overrideScopes) || configsync.ResourceUnderAnyScope(key.scopePath, overrideScopes) {
 			delete(repoScopeVars, key)
 		}
 	}
 	for key := range generalScopeSecrets {
-		if configResourceUnderAnyScope(key.scopePath, overrideScopes) {
+		if configsync.ResourceUnderAnyScope(key.scopePath, overrideScopes) {
 			delete(generalScopeSecrets, key)
 		}
 	}
 	for key := range repoScopeSecrets {
-		if configResourceUnderAnyScope(key.repo, overrideScopes) || configResourceUnderAnyScope(key.scopePath, overrideScopes) {
+		if configsync.ResourceUnderAnyScope(key.repo, overrideScopes) || configsync.ResourceUnderAnyScope(key.scopePath, overrideScopes) {
 			delete(repoScopeSecrets, key)
 		}
 	}
 	for key := range triggers {
-		if configResourceUnderAnyScope(key, overrideScopes) {
+		if configsync.ResourceUnderAnyScope(key, overrideScopes) {
 			delete(triggers, key)
 		}
 	}
@@ -270,7 +270,7 @@ func ensureConfigResourceWritable(ctx context.Context, tx pgx.Tx, tableName, res
 		return false, err
 	}
 	if !managed {
-		if canConfigRepositoryAdoptUnmanagedResource(binding, resourceScope) {
+		if configsync.CanRepositoryAdoptUnmanagedResource(binding, resourceScope) {
 			return true, nil
 		}
 		return false, fmt.Errorf("%s %s is outside the config repository scope", resourceKind, resourceID)
@@ -286,10 +286,10 @@ func ensureConfigResourceWritable(ctx context.Context, tx pgx.Tx, tableName, res
 	if err != nil {
 		return false, err
 	}
-	if canConfigRepositoryWriteOver(binding, existing, resourceScope) {
+	if configsync.CanRepositoryWriteOver(binding, existing, resourceScope) {
 		return true, nil
 	}
-	if configRepositoryShadowsCurrent(existing, binding, resourceScope) {
+	if configsync.RepositoryShadowsCurrent(existing, binding, resourceScope) {
 		return false, nil
 	}
 
@@ -332,7 +332,7 @@ func loadExistingGroupRecords(ctx context.Context, tx pgx.Tx) (groupRecordSet, e
 		if err := rows.Scan(&record.ID, &record.Name, &record.Kind, &parentID, &description, &record.RepoURL, &record.RepositoryFullName); err != nil {
 			return groupRecordSet{}, err
 		}
-		key, err := normalizeStructureName(record.Name)
+		key, err := configsync.NormalizeStructureName(record.Name)
 		if err != nil {
 			return groupRecordSet{}, err
 		}
@@ -387,7 +387,7 @@ func parentPointersEqual(a, b *int) bool {
 	}
 }
 
-func normalizePipelineRunStructureApp(app pipelineRunStructureApp) (pipelineRunStructureApp, error) {
+func normalizePipelineRunStructureApp(app configsync.PipelineRunStructureApp) (configsync.PipelineRunStructureApp, error) {
 	repoURL := strings.TrimSpace(app.RepoURL)
 	fullName := strings.Trim(strings.TrimSpace(app.RepositoryFullName), "/")
 	var err error
@@ -397,7 +397,7 @@ func normalizePipelineRunStructureApp(app pipelineRunStructureApp) (pipelineRunS
 		}
 		fullName, err = configsync.RepositoryFullNameFromURL(repoURL)
 		if err != nil {
-			return pipelineRunStructureApp{}, err
+			return configsync.PipelineRunStructureApp{}, err
 		}
 	}
 	if repoURL == "" {
@@ -407,18 +407,18 @@ func normalizePipelineRunStructureApp(app pipelineRunStructureApp) (pipelineRunS
 	if name == "" || strings.EqualFold(name, repoURL) {
 		name = configsync.RepositoryDisplayNameFromFullName(fullName)
 	}
-	name, err = normalizeStructureName(name)
+	name, err = configsync.NormalizeStructureName(name)
 	if err != nil {
-		return pipelineRunStructureApp{}, err
+		return configsync.PipelineRunStructureApp{}, err
 	}
-	return pipelineRunStructureApp{
+	return configsync.PipelineRunStructureApp{
 		Name:               name,
 		RepoURL:            repoURL,
 		RepositoryFullName: fullName,
 	}, nil
 }
 
-func (a *App) syncPipelineRunGroups(ctx context.Context, tx pgx.Tx, structure map[string]*pipelineRunStructureNode, details map[string]int) error {
+func (a *App) syncPipelineRunGroups(ctx context.Context, tx pgx.Tx, structure map[string]*configsync.PipelineRunStructureNode, details map[string]int) error {
 	if len(structure) == 0 {
 		return nil
 	}
@@ -440,7 +440,7 @@ func (a *App) syncPipelineRunGroups(ctx context.Context, tx pgx.Tx, structure ma
 
 	var ensureFolder func(name string, parentID *int, description string) (int, error)
 	ensureFolder = func(name string, parentID *int, description string) (int, error) {
-		normalized, err := normalizeStructureName(name)
+		normalized, err := configsync.NormalizeStructureName(name)
 		if err != nil {
 			return 0, err
 		}
@@ -487,8 +487,8 @@ func (a *App) syncPipelineRunGroups(ctx context.Context, tx pgx.Tx, structure ma
 		return newID, nil
 	}
 
-	var ensureApp func(app pipelineRunStructureApp, parentID *int) (int, error)
-	ensureApp = func(app pipelineRunStructureApp, parentID *int) (int, error) {
+	var ensureApp func(app configsync.PipelineRunStructureApp, parentID *int) (int, error)
+	ensureApp = func(app configsync.PipelineRunStructureApp, parentID *int) (int, error) {
 		normalizedApp, err := normalizePipelineRunStructureApp(app)
 		if err != nil {
 			return 0, err
@@ -552,8 +552,8 @@ func (a *App) syncPipelineRunGroups(ctx context.Context, tx pgx.Tx, structure ma
 		return newID, nil
 	}
 
-	var applyNode func(name string, node *pipelineRunStructureNode, parentID *int) error
-	applyNode = func(name string, node *pipelineRunStructureNode, parentID *int) error {
+	var applyNode func(name string, node *configsync.PipelineRunStructureNode, parentID *int) error
+	applyNode = func(name string, node *configsync.PipelineRunStructureNode, parentID *int) error {
 		groupID, err := ensureFolder(name, parentID, node.Description)
 		if err != nil {
 			return err
@@ -561,7 +561,7 @@ func (a *App) syncPipelineRunGroups(ctx context.Context, tx pgx.Tx, structure ma
 		apps := node.Apps
 		if len(apps) == 0 {
 			for _, repoName := range node.Repos {
-				apps = append(apps, pipelineRunStructureApp{Name: repoName, RepoURL: repoName})
+				apps = append(apps, configsync.PipelineRunStructureApp{Name: repoName, RepoURL: repoName})
 			}
 		}
 		for _, app := range apps {
@@ -579,7 +579,7 @@ func (a *App) syncPipelineRunGroups(ctx context.Context, tx pgx.Tx, structure ma
 
 	for name, node := range structure {
 		if node == nil {
-			node = &pipelineRunStructureNode{Children: map[string]*pipelineRunStructureNode{}}
+			node = &configsync.PipelineRunStructureNode{Children: map[string]*configsync.PipelineRunStructureNode{}}
 		}
 		if err := applyNode(name, node, nil); err != nil {
 			return fmt.Errorf("failed to sync folder '%s': %w", name, err)

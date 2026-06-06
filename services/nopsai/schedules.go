@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"bytes"
@@ -24,6 +24,7 @@ import (
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
 	aaamodel "nopsai/services/aaa/pkg/model"
+	"nopsai/services/nopsai/internal/configsync"
 	"nopsai/services/nopsai/pkg/routeauthz"
 )
 
@@ -153,11 +154,11 @@ type scheduleResponse struct {
 }
 
 func (r scheduleRecord) identifier() string {
-	return buildPipelineIdentifier(r.Path, r.Name)
+	return configsync.BuildPipelineIdentifier(r.Path, r.Name)
 }
 
 func (r scheduleRecord) pipelineIdentifier() string {
-	return buildPipelineIdentifier(r.PipelinePath, r.PipelineName)
+	return configsync.BuildPipelineIdentifier(r.PipelinePath, r.PipelineName)
 }
 
 func (r scheduleRecord) resourceRef() aaamodel.ResourceRef {
@@ -221,7 +222,7 @@ func normalizeScheduleInput(req scheduleRequest) (scheduleInput, error) {
 	pipelinePath := strings.Trim(strings.TrimSpace(req.PipelinePath), "/")
 	pipelineName := strings.TrimSpace(req.PipelineName)
 	if pipelineID != "" {
-		parsedPath, parsedName, _, err := splitPipelineIdentifier(pipelineID)
+		parsedPath, parsedName, _, err := configsync.SplitPipelineIdentifier(pipelineID)
 		if err != nil {
 			return scheduleInput{}, fmt.Errorf("invalid pipeline: %w", err)
 		}
@@ -320,7 +321,7 @@ func parseGitOpsSchedules(files map[string]string, scheduleDir string, binding m
 	schedules := make(map[string]storedSchedule)
 	for path, content := range files {
 		normalized := filepath.ToSlash(path)
-		rel, ok := relativeConfigPath(normalized, scheduleDir)
+		rel, ok := configsync.RelativePath(normalized, scheduleDir)
 		if !ok {
 			continue
 		}
@@ -328,16 +329,16 @@ func parseGitOpsSchedules(files map[string]string, scheduleDir string, binding m
 			continue
 		}
 
-		schedulePath, fileBase, _, err := splitPipelineIdentifier(rel)
+		schedulePath, fileBase, _, err := configsync.SplitPipelineIdentifier(rel)
 		if err != nil {
 			return nil, fmt.Errorf("invalid schedule path '%s': %w", normalized, err)
 		}
 		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
-			targetID, err := normalizeConfigPathForFolder(boundFolder, rel)
+			targetID, err := configsync.NormalizePathForFolder(boundFolder, rel)
 			if err != nil {
 				return nil, fmt.Errorf("invalid group-scoped schedule path '%s': %w", normalized, err)
 			}
-			schedulePath, fileBase, _, err = splitPipelineIdentifier(targetID)
+			schedulePath, fileBase, _, err = configsync.SplitPipelineIdentifier(targetID)
 			if err != nil {
 				return nil, fmt.Errorf("invalid normalized schedule path '%s': %w", targetID, err)
 			}
@@ -361,7 +362,7 @@ func parseGitOpsSchedules(files map[string]string, scheduleDir string, binding m
 		if err != nil {
 			return nil, fmt.Errorf("invalid schedule '%s': %w", normalized, err)
 		}
-		key := buildPipelineIdentifier(input.Path, input.Name)
+		key := configsync.BuildPipelineIdentifier(input.Path, input.Name)
 		if _, exists := schedules[key]; exists {
 			return nil, fmt.Errorf("duplicate schedule '%s' detected in config repository", key)
 		}
@@ -375,34 +376,34 @@ func normalizeScheduleRuntimeRefsForFolder(boundFolder string, req *scheduleRequ
 		return nil
 	}
 	if strings.TrimSpace(req.Pipeline) != "" {
-		pipeline, rootQualified, err := normalizePipelineIdentifierReference(stripConfigResourcePrefix(req.Pipeline))
+		pipeline, rootQualified, err := configsync.NormalizePipelineIdentifierReference(configsync.StripResourcePrefix(req.Pipeline))
 		if err != nil {
-			pipeline, err = normalizeConfigPathForFolder(boundFolder, req.Pipeline)
+			pipeline, err = configsync.NormalizePathForFolder(boundFolder, req.Pipeline)
 			if err != nil {
 				return err
 			}
 		} else if !rootQualified {
-			pipeline, err = normalizeConfigPathForFolder(boundFolder, req.Pipeline)
+			pipeline, err = configsync.NormalizePathForFolder(boundFolder, req.Pipeline)
 			if err != nil {
 				return err
 			}
 		}
 		req.Pipeline = pipeline
 	} else if strings.TrimSpace(req.PipelinePath) != "" || strings.TrimSpace(req.PipelineName) != "" {
-		pipelineID := buildPipelineIdentifier(req.PipelinePath, req.PipelineName)
-		pipeline, rootQualified, err := normalizePipelineIdentifierReference(pipelineID)
+		pipelineID := configsync.BuildPipelineIdentifier(req.PipelinePath, req.PipelineName)
+		pipeline, rootQualified, err := configsync.NormalizePipelineIdentifierReference(pipelineID)
 		if err != nil {
-			pipeline, err = normalizeConfigPathForFolder(boundFolder, pipelineID)
+			pipeline, err = configsync.NormalizePathForFolder(boundFolder, pipelineID)
 			if err != nil {
 				return err
 			}
 		} else if !rootQualified {
-			pipeline, err = normalizeConfigPathForFolder(boundFolder, pipelineID)
+			pipeline, err = configsync.NormalizePathForFolder(boundFolder, pipelineID)
 			if err != nil {
 				return err
 			}
 		}
-		pipelinePath, pipelineName, _, err := splitPipelineIdentifier(pipeline)
+		pipelinePath, pipelineName, _, err := configsync.SplitPipelineIdentifier(pipeline)
 		if err != nil {
 			return err
 		}
@@ -413,7 +414,7 @@ func normalizeScheduleRuntimeRefsForFolder(boundFolder string, req *scheduleRequ
 		if _, rootOnly := stripRootPathPrefix(scope); rootOnly {
 			req.Scope = ""
 		} else {
-			normalized, err := normalizeConfigPathForFolder(boundFolder, scope)
+			normalized, err := configsync.NormalizePathForFolder(boundFolder, scope)
 			if err != nil {
 				return err
 			}
@@ -425,7 +426,7 @@ func normalizeScheduleRuntimeRefsForFolder(boundFolder string, req *scheduleRequ
 			req.RunGroupPath = rootGrantID
 			return nil
 		}
-		normalized, err := normalizeConfigPathForFolder(boundFolder, groupPath)
+		normalized, err := configsync.NormalizePathForFolder(boundFolder, groupPath)
 		if err != nil {
 			return err
 		}
@@ -606,7 +607,7 @@ func nextScheduleRunAt(cronExpression, timezone string, from time.Time) (time.Ti
 
 func (a *App) handleListSchedules(w http.ResponseWriter, r *http.Request) {
 	pipelineFilter := strings.TrimSpace(r.URL.Query().Get("pipeline"))
-	pathFilter, nameFilter, _, filterErr := splitPipelineIdentifier(pipelineFilter)
+	pathFilter, nameFilter, _, filterErr := configsync.SplitPipelineIdentifier(pipelineFilter)
 	if pipelineFilter != "" && filterErr != nil {
 		http.Error(w, filterErr.Error(), http.StatusBadRequest)
 		return
@@ -861,7 +862,7 @@ func (a *App) loadSchedulePipeline(ctx context.Context, pipelinePath, pipelineNa
 }
 
 func loadSchedulePipelineFromSync(ctx context.Context, runner queryRunner, input scheduleInput, pipelines map[string]storedPipeline) (models.Pipeline, error) {
-	pipelineID := buildPipelineIdentifier(input.PipelinePath, input.PipelineName)
+	pipelineID := configsync.BuildPipelineIdentifier(input.PipelinePath, input.PipelineName)
 	if stored, ok := pipelines[pipelineID]; ok {
 		var pipeline models.Pipeline
 		if err := yaml.Unmarshal([]byte(stored.definition), &pipeline); err != nil {
@@ -1206,14 +1207,14 @@ func resolveScheduleGrantResource(ctx context.Context, runner queryRunner, rawID
 			}
 			return accessGrantResource{}, err
 		}
-		identifier := buildPipelineIdentifier(path, name)
+		identifier := configsync.BuildPipelineIdentifier(path, name)
 		return accessGrantResource{Type: grantResourceSchedule, ID: identifier, Display: identifier}, nil
 	}
-	path, name, _, err := splitPipelineIdentifier(rawID)
+	path, name, _, err := configsync.SplitPipelineIdentifier(rawID)
 	if err != nil {
 		return accessGrantResource{}, err
 	}
-	identifier := buildPipelineIdentifier(path, name)
+	identifier := configsync.BuildPipelineIdentifier(path, name)
 	return accessGrantResource{Type: grantResourceSchedule, ID: identifier, Display: identifier}, nil
 }
 

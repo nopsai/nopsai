@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"context"
@@ -20,6 +20,7 @@ import (
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
 	"nopsai/services/aaa/pkg/model"
+	"nopsai/services/nopsai/internal/configsync"
 	runquery "nopsai/services/nopsai/internal/runs"
 	"nopsai/services/nopsai/pkg/routeauthz"
 )
@@ -268,7 +269,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if pipelineNameFromPath != "" {
-		pathPart, namePart, _, parseErr := splitPipelineIdentifier(pipelineNameFromPath)
+		pathPart, namePart, _, parseErr := configsync.SplitPipelineIdentifier(pipelineNameFromPath)
 		if parseErr != nil {
 			http.Error(w, parseErr.Error(), http.StatusBadRequest)
 			return

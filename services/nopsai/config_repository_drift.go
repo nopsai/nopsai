@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"bytes"
@@ -99,8 +99,22 @@ func (a *App) loadConfigRepositoryGitFiles(repo models.ConfigRepository) (map[st
 		return nil, err
 	}
 	result := map[string]string{}
-	for _, directory := range []string{"pipelines", "steps", "triggers", externalTriggersGitOpsDirectory, "schedules", "scopes", "knowledge", notificationGitOpsDirectory, "pipelineruns", "config-repositories", "access", "setting", "settings"} {
-		directoryPath := filepath.ToSlash(filepath.Join(strings.Trim(strings.TrimSpace(repo.BasePath), "/"), directory))
+	dirs := configRepositoryGitDirsForBasePath(repo.BasePath)
+	for _, directoryPath := range []string{
+		dirs.pipeline,
+		dirs.step,
+		dirs.trigger,
+		dirs.externalTrigger,
+		dirs.schedule,
+		dirs.scope,
+		dirs.knowledge,
+		dirs.notification,
+		dirs.pipelineRun,
+		dirs.configRepository,
+		dirs.access,
+		dirs.setting,
+		dirs.settings,
+	} {
 		files, err := a.requestGitBotDirectory(owner, name, repo.Branch, directoryPath)
 		if err != nil {
 			return nil, err
@@ -114,7 +128,7 @@ func (a *App) loadConfigRepositoryGitFiles(repo models.ConfigRepository) (map[st
 		}
 	}
 	if repo.ScopeType == models.ConfigRepositoryScopeFolder {
-		rootPath := filepath.ToSlash(filepath.Join(strings.Trim(strings.TrimSpace(repo.BasePath), "/"), "notifications.yaml"))
+		rootPath := configsync.RepoJoinPath(repo.BasePath, "notifications.yaml")
 		content, err := a.requestGitBotFile(owner, name, repo.Branch, rootPath, errNotificationGitOpsNotFound)
 		if err == nil {
 			if rel, ok := configRepositoryRelativeGitPath(repo.BasePath, rootPath); ok && isConfigRepositoryDriftPath(rel) {

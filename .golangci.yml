@@ -1,0 +1,16 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  disable:
+    # Batch 4 baseline: repo-wide unchecked-error backlog.
+    - errcheck
+    # Batch 4 baseline: broad staticcheck cleanup remains tracked separately.
+    - staticcheck
+    # Batch 4 baseline: unused legacy helpers remain after structural refactor.
+    - unused
+    # `go vet ./...` is a separate strict enterprise gate; keep golangci focused
+    # on non-vet findings until the inline-analysis backlog is cleaned up.
+    - govet

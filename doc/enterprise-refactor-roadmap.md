@@ -8,9 +8,39 @@ integrations, execution logic, and UI shells have clear ownership.
 
 This branch starts with behavior-preserving extraction:
 
-- `services/nopsai/main.go` now owns application state and process bootstrap:
-  config loading/defaulting, schema/bootstrap calls, service client wiring,
-  route registration, workers, and graceful shutdown.
+- `services/nopsai` is now an importable service package instead of the binary
+  package.
+- `services/nopsai/app.go` owns NopsAI application state and shared service DTO
+  aliases used across handlers.
+- `services/nopsai/bootstrap.go` owns the service construction boundary:
+  application dependency assembly, database bootstrap sequencing, setup
+  preflight delegation, handler handoff, and background worker startup.
+- `services/nopsai/app_security.go` owns auth service construction, RBAC
+  enforcer loading, AAA client/fallback construction, audit logger setup,
+  internal HTTP client creation, and the default git-bot provider wiring used
+  by NopsAI service bootstrap.
+- `services/nopsai/bootstrap_schema.go` owns database bootstrap step
+  registration so schema and seed additions have a single review point.
+- `services/nopsai/enterprise_gates.go` owns the Batch 4 enterprise startup
+  gate checks for production-grade secrets, service-token isolation, dispatcher
+  transport security, GitHub webhook signing readiness, and default-admin
+  password hardening.
+- `.github/workflows/enterprise-gates.yml` and `scripts/enterprise-gates.sh`
+  define the Batch 4 enterprise verification gates for tests, race tests, vet,
+  lint, security scanning, vulnerability scanning, and Docker build checks.
+- `pkg/httpapi/server.go` owns shared HTTP server timeout defaults used by the
+  NopsAI API, setup preflight mode, AAA, and git-bot servers.
+- `doc/package-ownership.md` documents the package ownership rules for
+  handlers, services, stores, domain/internal packages, DTOs, provider clients,
+  and command bootstrap.
+- `services/nopsai/cmd/nopsai/main.go` is the thin command entrypoint for the
+  NopsAI API binary.
+- `services/nopsai/internal/app` owns NopsAI API process bootstrap and runtime
+  wiring: config loading/defaulting, logging setup, env-file resolution,
+  setup-preflight mode selection, database connection retry policy, dispatcher
+  client auth/TLS setup, service-token authenticator setup, HTTP server
+  lifecycle, background worker context ownership, signal handling, and graceful
+  shutdown.
 - `services/nopsai/auth_models.go` owns auth, user, service-account, token, and
   role request/response DTOs used by the HTTP handlers.
 - `services/nopsai/http_middleware.go` owns CORS, request IDs, request logging,
@@ -27,8 +57,11 @@ This branch starts with behavior-preserving extraction:
   errors.
 - `services/nopsai/repository_branch_handlers.go` owns the repository branch
   listing endpoint.
-- `services/nopsai/run_launcher.go` owns agent launch preparation, runtime
-  environment construction, dispatcher submission, and launch failure handling.
+- `services/nopsai/run_launcher.go` defines the consumer-side `RunLauncher`
+  boundary and owns agent launch preparation, runtime environment construction,
+  dispatcher submission, and launch failure handling. Manual run, rerun, and
+  approval-resume orchestration hand off through the launcher interface instead
+  of calling concrete launch plumbing directly.
 - `services/nopsai/run_service.go` owns shared run orchestration concerns:
   initial manual-run and rerun record insertion, trigger-event normalization,
   run group resolution, resolved pipeline preparation, authorization snapshot
@@ -42,9 +75,22 @@ This branch starts with behavior-preserving extraction:
   repository file/directory reads, config commits, repository access checks,
   branch PR checks, pipeline fetches, check-run creation/initialization,
   stale-check cancellation, and run/task status notifications.
-- `services/nopsai/gitbot_client.go` adapts application state and database
-  lookups to the narrow git-bot client contract, keeping webhook orchestration
-  out of raw URL/JSON/response plumbing.
+- `services/nopsai/gitbot_client.go` defines the consumer-side `GitProvider`
+  boundary for repository reads, config commits, branch PR status, pipeline
+  fetches, check-run lifecycle operations, stale-check cancellation, and
+  run/task status notifications. The concrete git-bot HTTP provider is wired in
+  service bootstrap, keeping handlers and orchestration independent of raw
+  URL/JSON/response plumbing.
+- `services/nopsai/dispatcher_client.go` defines the consumer-side
+  `DispatcherClient` boundary for job submission, dispatcher status lookup, and
+  runner dispatch controls. The concrete generated gRPC client is adapted in
+  bootstrap, keeping handlers and run orchestration independent of generated
+  gRPC call plumbing.
+- `services/nopsai/aaa_helpers.go` defines the consumer-side `AAAClient`
+  boundary for subject introspection, single and batch authorization checks,
+  resource filtering, and audit decision recording. The concrete AAA HTTP
+  client and in-process evaluator fallback are wired in service bootstrap,
+  keeping handlers independent of HTTP/Postgres authorization plumbing.
 - `services/nopsai/internal/configsync` owns shared config-sync structure and
   ownership helpers: repository base-path normalization, relative path
   matching, folder-bound resource normalization, YAML identifier helpers,
@@ -54,12 +100,31 @@ This branch starts with behavior-preserving extraction:
   resource scope checks, config-repository drift path/ownership decisions,
   drift file diffing/content normalization, config-repository group-structure
   export shaping, and config-repository overwrite/adoption rules.
-- `services/nopsai/configsync_aliases.go` preserves the still-used legacy
-  package-main helper names while new and touched code depends on the explicit
-  internal package.
+- NopsAI config-sync callers now import `services/nopsai/internal/configsync`
+  directly; the temporary `services/nopsai/configsync_aliases.go` migration
+  shim has been removed.
+- `services/nopsai/config_repository_git_paths.go` owns shared GitOps
+  directory layout construction for config repository sync and drift loading.
+- `services/nopsai/config_sync_fetch.go` owns Git-backed config repository
+  discovery for sync: binding repository normalization, git-bot directory/file
+  reads, repository access checks, and the folder-scoped root notification
+  compatibility fetch behind a narrow reader interface.
+- `services/nopsai/config_sync_parse.go` owns Git-backed config repository
+  parse planning for sync: pipeline-run structures, nested config repository
+  bindings, access manifests plus embedded resource access, GitOps settings,
+  schedules, external triggers, notification routes, pipelines, reusable steps,
+  scope variables/secrets, and trigger manifests.
 - `services/nopsai/config_sync.go` owns the Git-backed config repository sync
-  apply workflow: repository fetch orchestration, manifest parsing, and
-  transactional apply/prune orchestration.
+  coordinator: sync-detail initialization, repository context creation, fetch
+  handoff, parse handoff, apply handoff, and completion logging.
+- `services/nopsai/config_sync_store.go` defines the consumer-side
+  `ConfigSyncStore` boundary for config repository listing, sync-status
+  updates, and apply/prune handoff, keeping config-sync coordination
+  independent of concrete Postgres/apply plumbing.
+- `services/nopsai/config_sync_apply.go` owns the Git-backed config repository
+  sync apply boundary: delegated-scope filtering, transactional upsert/prune,
+  access/settings/notification application, transaction commit, and
+  post-commit runtime/profile registry updates.
 - `services/nopsai/config_sync_runner.go` owns the HTTP trigger, global
   repository iteration, per-repository sync status updates, and aggregate sync
   status construction.
@@ -90,6 +155,10 @@ This branch starts with behavior-preserving extraction:
   and resource-use grant export.
 - `services/nopsai/config_repository_settings_export.go` owns config-repository
   LLM profile, MCP registry, runtime settings, and mail settings exports.
+- `services/nopsai/secret_codec.go` defines the consumer-side `SecretCodec`
+  boundary for secret encryption/decryption. AES-256-GCM remains the concrete
+  default wired during service bootstrap, while handlers, runtime preparation,
+  setup, and GitOps parsing use the boundary.
 - `services/nopsai/internal/runnerinstall` owns runner bootstrap artifact
   generation: Docker compose snippets, one-time Docker install scripts,
   Kubernetes runner manifests, Kubernetes install commands, dispatcher address
@@ -174,9 +243,68 @@ This branch starts with behavior-preserving extraction:
   parsing, startup failure log messages, dispatcher client auth/TLS setup,
   dispatcher request wrappers, execution runtime client setup, active-task
   tracking, pipeline timeout cancellation, termination signal handling, and
-  step session tracking/cleanup orchestration.
+  step session tracking/cleanup orchestration. It also owns the per-run pipeline
+  execution loop: runnable-task scheduling, approval pauses, child-pipeline
+  includes, inherited/resumed execution history, action retries, task/final
+  status reporting, and cancellation/timeout cleanup behind explicit runner
+  interfaces.
+- `services/agent/cmd/agent/main.go` is the thin command entrypoint for the
+  agent binary and delegates to the importable agent package.
+- `services/agent/app.go` now stays focused on concrete process wiring:
+  runtime config loading, approval checkpoint restore, LLM/MCP registry
+  construction, dispatcher client setup, knowledge snapshot loading, execution
+  runtime construction, and the `internal/app.RunPipeline` handoff.
 - `services/git-bot/internal/checkrender` owns GitHub check-run summary
   rendering for flat markdown lists, dependency trees, and Mermaid graphs.
+- Git-bot check-run state callers now use `internal/checkrender` directly; the
+  temporary `services/git-bot/checkrender_aliases.go` migration shim has been
+  removed.
+- `services/git-bot/cmd/git-bot/main.go` is the thin command entrypoint for the
+  GitHub App edge-service binary.
+- `services/git-bot/internal/app` owns git-bot process bootstrap and runtime
+  wiring: config loading, optional private-key file materialization, logging
+  setup, GitHub App transport creation, internal-aware HTTP client setup, and
+  HTTP server startup.
+- `services/git-bot/internal/service` owns the GitHub/webhook/check-run HTTP
+  service: webhook HMAC validation and forwarding, repository file/directory
+  reads, config commits, repository/branch checks, installation repository
+  listing, pipeline content reads, check-run lifecycle endpoints, child
+  check-run creation, route registration, and check-run state updates.
+- `services/git-bot/internal/service/nopsai_forwarder.go` owns webhook
+  forwarding to NopsAI behind a narrow forwarder interface.
+- `services/git-bot/internal/service/github_repository.go` owns the GitHub
+  repository provider boundary for file/directory reads, repository access
+  checks, branch PR checks, installation repository listing, and pipeline
+  content reads.
+- `services/dispatcher/cmd/dispatcher/main.go` is the thin command entrypoint
+  for the dispatcher binary.
+- `services/dispatcher/internal/app` owns dispatcher process bootstrap and
+  runtime wiring: config loading, logging setup, internal credentials,
+  service-token authentication, transport TLS, gRPC server registration,
+  listener startup, stale-runner reaping, and routing-sync workers.
+- `services/dispatcher/internal/service` owns the dispatcher gRPC scheduling
+  service: runner registration, queueing and assignment, runner dispatch
+  controls, route synchronization, NopsAI callback forwarding, run-status
+  checks, runner lifecycle cleanup, and service-token method authorization.
+- `services/dispatcher/internal/service/nopsai_client.go` owns the dispatcher
+  side NopsAI callback client for log ingest, task status, finalization,
+  pipeline fetch/trigger, run-status checks, and routing sync.
+- `services/k8s-runner/cmd/k8s-runner/main.go` is the thin command entrypoint
+  for the Kubernetes runner binary.
+- `services/k8s-runner/internal/app` owns Kubernetes runner process bootstrap
+  and runtime wiring: config loading, logging setup, runner identity/capacity
+  defaults, dispatcher client auth/TLS setup, Kubernetes REST config discovery,
+  Kubernetes client creation, and service handoff.
+- `services/k8s-runner/internal/service` owns the Kubernetes runner runtime:
+  dispatcher registration and heartbeat streaming, job acceptance, agent pod
+  creation, workspace volume selection, runtime environment propagation, pod log
+  forwarding, cancellation polling, cleanup, scheduling defaults, Kubernetes
+  name/label normalization, and runner metadata.
+- `services/k8s-runner/internal/service/workspace.go`,
+  `services/k8s-runner/internal/service/pod.go`, and
+  `services/k8s-runner/internal/service/scheduling.go` own workspace-volume
+  planning, agent-pod construction/lifecycle, and runtime-pool scheduling
+  defaults behind focused tests.
 
 The goal of this slice is lower coupling without changing API behavior, UI
 routes, permission decisions, or dispatcher semantics.
@@ -190,20 +318,24 @@ routes, permission decisions, or dispatcher semantics.
 - Keep Git provider, LLM, MCP, secrets, and runner concerns behind explicit
   interfaces before adding new providers or execution modes.
 
-## Recommended Next Slices
+## Completion Status
 
-1. Replace `services/nopsai/configsync_aliases.go` gradually with explicit
-   `internal/configsync` imports, then move the remaining
-   `config_sync.go` database application code behind narrower service
-   boundaries.
-2. Move the remaining per-task execution loop out of `services/agent/main.go`
-   once the callback seams for LLM, MCP, runtime execution, approvals, and
-   includes are small enough to wire cleanly.
-3. Introduce a higher-level Git provider interface above `internal/gitbot`,
-   with GitHub App behavior as the first implementation, then add webhook-token
-   and non-GitHub providers behind the same contract.
-4. Establish `services/agent/cmd/agent/main.go` once `package main` only wires
-   concrete LLM/MCP/dispatcher adapters and calls the internal application.
+The Batch 4 backend ownership items in this branch are complete and verified
+with `SKIP_DOCKER_BUILDS=1 scripts/enterprise-gates.sh` on 2026-06-06. The
+remaining items below are intentionally kept as Batch 5/product-scope backlog
+because they change broader service hardening or UI/module contracts.
+
+## Batch 5 Backlog
+
+1. Finish the git-bot provider split by moving check-run create/update/list
+   calls behind a dedicated GitHub checks provider.
+2. Continue tightening the dispatcher service split by peeling pure scheduling
+   and queue-assignment rules into smaller service files with focused tests.
+3. Continue tightening the agent runner boundary by moving root-package concrete
+   LLM/MCP, knowledge-context, dispatcher status, and NopsAI API callback wiring
+   behind explicit internal constructors.
+4. Apply startup-gate checks to dispatcher, agent, AAA, git-bot, runner, and
+   Kubernetes runner configuration surfaces.
 5. Split `services/ui/src/pages/System.tsx` into route-level system feature
    modules for config, setup, LLM profiles, MCP, dispatcher, access, and data
    management.

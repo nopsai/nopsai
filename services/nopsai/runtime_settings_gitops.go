@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 
 	"nopsai/config"
 	"nopsai/pkg/models"
+	"nopsai/services/nopsai/internal/configsync"
 	"nopsai/services/nopsai/internal/systemconfig"
 
 	"gopkg.in/yaml.v3"
@@ -54,7 +55,7 @@ func parseGitOpsRuntimeSettingsPlan(binding models.ConfigRepository, directories
 		root := filepath.ToSlash(strings.Trim(directory.root, "/"))
 		for path, content := range directory.files {
 			normalized := filepath.ToSlash(path)
-			rel, ok := relativeConfigPath(normalized, root)
+			rel, ok := configsync.RelativePath(normalized, root)
 			if !ok || !isGitOpsRuntimeSettingsRelativePath(rel) {
 				continue
 			}

@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"context"
@@ -42,8 +42,9 @@ func (a *App) syncAllConfigRepositories(ctx context.Context, started time.Time) 
 
 	enabled := true
 	syncedRepoIDs := map[int64]struct{}{}
+	syncStore := a.configSyncStore()
 	syncRepos := func(scopeType string) {
-		repos, err := a.store.ListConfigRepositories(ctx, models.ConfigRepositoryFilter{ScopeType: scopeType, Enabled: &enabled})
+		repos, err := syncStore.ListConfigRepositories(ctx, models.ConfigRepositoryFilter{ScopeType: scopeType, Enabled: &enabled})
 		if err != nil {
 			details["repositories_failed"]++
 			messages = append(messages, fmt.Sprintf("%s:*: %v", scopeType, err))
@@ -55,7 +56,7 @@ func (a *App) syncAllConfigRepositories(ctx context.Context, started time.Time) 
 			}
 			syncedRepoIDs[repo.ID] = struct{}{}
 			repoStartedAt := time.Now()
-			if err := a.store.UpdateConfigRepositorySyncStatus(ctx, repo.ID, "running", "Configuration synchronization started.", repo.LastSyncCommitSHA, &repoStartedAt, nil); err != nil {
+			if err := syncStore.UpdateConfigRepositorySyncStatus(ctx, repo.ID, "running", "Configuration synchronization started.", repo.LastSyncCommitSHA, &repoStartedAt, nil); err != nil {
 				details["repositories_failed"]++
 				messages = append(messages, fmt.Sprintf("%s:%s: %v", repo.ScopeType, repo.ScopeID, err))
 				continue
@@ -111,10 +112,11 @@ func (a *App) syncConfigRepository(ctx context.Context, repo models.ConfigReposi
 
 	details, commitSHA, syncErr := a.syncConfigurationFromGit(ctx, repo)
 	completedAt := time.Now()
+	syncStore := a.configSyncStore()
 	if syncErr != nil {
 		message := fmt.Sprintf("Configuration synchronization failed: %v", syncErr)
 		log.Error().Err(syncErr).Int64("config_repo_id", repo.ID).Msg("Configuration synchronization failed")
-		if err := a.store.UpdateConfigRepositorySyncStatus(ctx, repo.ID, "error", message, commitSHA, &started, &completedAt); err != nil {
+		if err := syncStore.UpdateConfigRepositorySyncStatus(ctx, repo.ID, "error", message, commitSHA, &started, &completedAt); err != nil {
 			log.Warn().Err(err).Int64("config_repo_id", repo.ID).Msg("Failed to update config repository sync status")
 		}
 		return ConfigSyncStatus{
@@ -126,7 +128,7 @@ func (a *App) syncConfigRepository(ctx context.Context, repo models.ConfigReposi
 	}
 
 	message := "Configuration synchronization completed successfully."
-	if err := a.store.UpdateConfigRepositorySyncStatus(ctx, repo.ID, "success", message, commitSHA, &started, &completedAt); err != nil {
+	if err := syncStore.UpdateConfigRepositorySyncStatus(ctx, repo.ID, "success", message, commitSHA, &started, &completedAt); err != nil {
 		log.Warn().Err(err).Int64("config_repo_id", repo.ID).Msg("Failed to update config repository sync status")
 	}
 	log.Info().Interface("details", details).Int64("config_repo_id", repo.ID).Msg("Configuration synchronization succeeded")
