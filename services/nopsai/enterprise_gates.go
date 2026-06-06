@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"nopsai/config"
+	"nopsai/pkg/startupgates"
 )
 
 const (
@@ -186,25 +187,7 @@ func enterpriseFailureCheckWithSuggestedValue(id, label, envName, suggestedValue
 }
 
 func productionSecretReady(value string) bool {
-	secret := strings.TrimSpace(value)
-	if len(secret) < minProductionSecretLength {
-		return false
-	}
-	lower := strings.ToLower(secret)
-	placeholders := []string{
-		"replace-me",
-		"changeme",
-		"change-me",
-		"dev-default",
-		"yoursecurepassword",
-		"password",
-	}
-	for _, placeholder := range placeholders {
-		if strings.Contains(lower, placeholder) {
-			return false
-		}
-	}
-	return secret != devDefaultAAAToken
+	return startupgates.ProductionSecretReady(value)
 }
 
 func githubAppConfigured(cfg *config.Config) bool {

@@ -11,6 +11,7 @@ import (
 	"nopsai/config"
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/proxyhttp"
+	"nopsai/pkg/startupgates"
 	"nopsai/services/git-bot/internal/service"
 
 	"github.com/bradleyfalzon/ghinstallation/v2"
@@ -29,8 +30,11 @@ func Run() {
 		log.Fatal().Err(err).Msgf("Failed to load config from %s", configPath)
 	}
 
-	writeGitHubPrivateKeyFile(cfg)
 	configureLogging(cfg)
+	if err := startupgates.ValidateGitBot(cfg); err != nil {
+		log.Fatal().Err(err).Msg("git-bot startup gates failed")
+	}
+	writeGitHubPrivateKeyFile(cfg)
 
 	appID, err := strconv.ParseInt(cfg.GitHubAppID, 10, 64)
 	if err != nil {

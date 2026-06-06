@@ -13,7 +13,6 @@ Start here when you want to understand the system from different angles:
 - [enterprise-gates.md](./enterprise-gates.md): Production startup gates, local/CI verification commands, Docker build checks, and integration coverage baseline.
 - [package-ownership.md](./package-ownership.md): Handler, service, store, domain, DTO, provider-client, and bootstrap ownership rules.
 - [decision-architecture.md](./decision-architecture.md): The main architectural decisions, why they exist, and the tradeoffs they introduce.
-- [enterprise-refactor-roadmap.md](./enterprise-refactor-roadmap.md): Incremental clean-code roadmap for Go services, agent execution, Git providers, and UI feature modules.
 - [access-control.md](./access-control.md): Current AAA service, product roles, access grants, route authorization, and audit behavior.
 - [jwt-authentication.md](./jwt-authentication.md): User/API JWTs, refresh tokens, internal REST service JWTs, and dispatcher gRPC service JWTs.
 - [knowledge-context.md](./knowledge-context.md): Project knowledge documents for LLM-backed pipeline steps, GitOps layout, runtime snapshots, and access checks.
@@ -35,4 +34,3 @@ Recommended reading order:
 5. `runtime-flows.md`
 6. `feature-reference.md`
 7. `decision-architecture.md`
-8. `enterprise-refactor-roadmap.md`

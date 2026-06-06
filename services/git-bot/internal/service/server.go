@@ -31,6 +31,7 @@ type GitBotApp struct {
 	stateLock          sync.Mutex
 	githubAppID        int64
 	repositoryProvider repositoryProvider
+	checksProvider     checksProvider
 	webhookForwarder   nopsaiWebhookForwarder
 }
 
@@ -196,6 +197,7 @@ func NewGitBotApp(cfg *config.Config, ghClient *github.Client, httpClient *http.
 		checkRunStates:     make(map[int64]*checkrender.State),
 		githubAppID:        githubAppID,
 		repositoryProvider: newGitHubRepositoryProvider(ghClient),
+		checksProvider:     newGitHubChecksProvider(ghClient),
 		webhookForwarder:   newNopsaiWebhookForwarder(cfg, httpClient),
 	}
 }
@@ -247,36 +249,37 @@ func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineDef, pipelineSource
 		checkName = fmt.Sprintf("%s-overridden", checkName)
 	}
 
-	opts := github.CreateCheckRunOptions{
-		Name:    checkName,
-		HeadSHA: ref,
-		Status:  github.String("queued"),
-	}
-	checkRun, _, err := a.ghClient.Checks.CreateCheckRun(context.Background(), owner, repo, opts)
+	checkRunID, err := a.checksProvider.CreateQueued(context.Background(), createQueuedCheckRunRequest{
+		Owner: owner,
+		Repo:  repo,
+		Ref:   ref,
+		Name:  checkName,
+	})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create check run")
 		return 0
 	}
 
 	// Use the centralized helper to initialize the state
-	if err := a.initializeCheckRunState(*checkRun.ID, owner, repo, pipelineDef, checkName); err != nil {
+	if err := a.initializeCheckRunState(checkRunID, owner, repo, pipelineDef, checkName); err != nil {
 		log.Error().Err(err).Msg("Failed to initialize check run state")
 		// Conclude the check run as a failure since we can't track it
-		a.concludeCheckRun(owner, repo, *checkRun.ID, "failure", "Failed to initialize internal tracking state for this pipeline.")
+		a.concludeCheckRun(owner, repo, checkRunID, "failure", "Failed to initialize internal tracking state for this pipeline.")
 		return 0
 	}
 
-	inProgressOpts := github.UpdateCheckRunOptions{
-		Name:   checkName,
-		Status: github.String("in_progress"),
-		Output: &github.CheckRunOutput{
-			Title:   github.String(checkName),
-			Summary: github.String("Pipeline is starting..."),
-		},
+	if err := a.checksProvider.MarkInProgress(context.Background(), checkRunProgressUpdate{
+		Owner:      owner,
+		Repo:       repo,
+		CheckRunID: checkRunID,
+		Name:       checkName,
+		Title:      checkName,
+		Summary:    "Pipeline is starting...",
+	}); err != nil {
+		log.Error().Err(err).Int64("check_run_id", checkRunID).Msg("Failed to mark check run in progress")
 	}
-	a.ghClient.Checks.UpdateCheckRun(context.Background(), owner, repo, *checkRun.ID, inProgressOpts)
 
-	return *checkRun.ID
+	return checkRunID
 }
 
 func (a *GitBotApp) handleCreateChildCheckRun(w http.ResponseWriter, r *http.Request) {
@@ -299,12 +302,12 @@ func (a *GitBotApp) handleCreateChildCheckRun(w http.ResponseWriter, r *http.Req
 
 	checkName := fmt.Sprintf("%s / Included: %s", req.ParentName, req.IncludeName)
 
-	opts := github.CreateCheckRunOptions{
-		Name:    checkName,
-		HeadSHA: req.Ref,
-		Status:  github.String("queued"),
-	}
-	checkRun, _, err := a.ghClient.Checks.CreateCheckRun(context.Background(), req.Owner, req.Repo, opts)
+	checkRunID, err := a.checksProvider.CreateQueued(context.Background(), createQueuedCheckRunRequest{
+		Owner: req.Owner,
+		Repo:  req.Repo,
+		Ref:   req.Ref,
+		Name:  checkName,
+	})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create child check run")
 		_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to create child check run")
@@ -312,20 +315,23 @@ func (a *GitBotApp) handleCreateChildCheckRun(w http.ResponseWriter, r *http.Req
 	}
 
 	// Use the centralized helper to initialize the state
-	if err := a.initializeCheckRunState(*checkRun.ID, req.Owner, req.Repo, req.PipelineDefinition, checkName); err != nil {
+	if err := a.initializeCheckRunState(checkRunID, req.Owner, req.Repo, req.PipelineDefinition, checkName); err != nil {
 		log.Error().Err(err).Msg("Failed to initialize state for child check run")
-		a.concludeCheckRun(req.Owner, req.Repo, *checkRun.ID, "failure", "Failed to initialize internal tracking state for this included pipeline.")
+		a.concludeCheckRun(req.Owner, req.Repo, checkRunID, "failure", "Failed to initialize internal tracking state for this included pipeline.")
 		_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to initialize internal state")
 		return
 	}
 
-	inProgressOpts := github.UpdateCheckRunOptions{
-		Name:   checkName,
-		Status: github.String("in_progress"),
+	if err := a.checksProvider.MarkInProgress(context.Background(), checkRunProgressUpdate{
+		Owner:      req.Owner,
+		Repo:       req.Repo,
+		CheckRunID: checkRunID,
+		Name:       checkName,
+	}); err != nil {
+		log.Error().Err(err).Int64("check_run_id", checkRunID).Msg("Failed to mark child check run in progress")
 	}
-	a.ghClient.Checks.UpdateCheckRun(context.Background(), req.Owner, req.Repo, *checkRun.ID, inProgressOpts)
 
-	_ = httpapi.WriteJSON(w, http.StatusOK, map[string]int64{"check_run_id": *checkRun.ID})
+	_ = httpapi.WriteJSON(w, http.StatusOK, map[string]int64{"check_run_id": checkRunID})
 }
 
 func (a *GitBotApp) initializeCheckRunState(checkRunID int64, owner, repo, pipelineDef, checkName string) error {
@@ -828,15 +834,14 @@ func (a *GitBotApp) handleInitializeCheckRun(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	opts := github.UpdateCheckRunOptions{
-		Name:   req.PipelineName,
-		Status: github.String("in_progress"),
-		Output: &github.CheckRunOutput{
-			Title:   github.String(req.PipelineName),
-			Summary: github.String("Pipeline is starting..."),
-		},
-	}
-	if _, _, err := a.ghClient.Checks.UpdateCheckRun(context.Background(), req.Owner, req.Repo, req.CheckRunID, opts); err != nil {
+	if err := a.checksProvider.MarkInProgress(context.Background(), checkRunProgressUpdate{
+		Owner:      req.Owner,
+		Repo:       req.Repo,
+		CheckRunID: req.CheckRunID,
+		Name:       req.PipelineName,
+		Title:      req.PipelineName,
+		Summary:    "Pipeline is starting...",
+	}); err != nil {
 		log.Error().Err(err).Int64("check_run_id", req.CheckRunID).Msg("Failed to mark check run in progress")
 		_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to update check run")
 		return
@@ -861,8 +866,7 @@ func (a *GitBotApp) handleCancelStaleCheckRuns(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	opts := &github.ListCheckRunsOptions{}
-	checkRuns, _, err := a.ghClient.Checks.ListCheckRunsForRef(context.Background(), req.Owner, req.Repo, req.BeforeSHA, opts)
+	checkRuns, err := a.checksProvider.ListForRef(context.Background(), req.Owner, req.Repo, req.BeforeSHA)
 	if err != nil {
 		log.Error().Err(err).Str("owner", req.Owner).Str("repo", req.Repo).Str("sha", req.BeforeSHA).Msg("Failed to list check runs for stale commit")
 		_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to list check runs")
@@ -870,25 +874,24 @@ func (a *GitBotApp) handleCancelStaleCheckRuns(w http.ResponseWriter, r *http.Re
 	}
 
 	cancelled := 0
-	for _, cr := range checkRuns.CheckRuns {
-		isOurApp := cr.GetApp() != nil && cr.GetApp().GetID() == a.githubAppID
-		isRunning := cr.GetStatus() == "queued" || cr.GetStatus() == "in_progress"
+	for _, cr := range checkRuns {
+		isOurApp := cr.HasApp && cr.AppID == a.githubAppID
+		isRunning := cr.Status == "queued" || cr.Status == "in_progress"
 		if !isOurApp || !isRunning {
 			continue
 		}
 
-		updateOpts := github.UpdateCheckRunOptions{
-			Name:        cr.GetName(),
-			Status:      github.String("completed"),
-			Conclusion:  github.String("cancelled"),
-			CompletedAt: &github.Timestamp{Time: time.Now()},
-			Output: &github.CheckRunOutput{
-				Title:   github.String(cr.GetName() + " - Cancelled"),
-				Summary: github.String("This run was cancelled because a new commit was pushed to the branch."),
-			},
-		}
-		if _, _, err := a.ghClient.Checks.UpdateCheckRun(context.Background(), req.Owner, req.Repo, cr.GetID(), updateOpts); err != nil {
-			log.Error().Err(err).Int64("check_run_id", cr.GetID()).Msg("Failed to cancel stale check run")
+		if err := a.checksProvider.Conclude(context.Background(), checkRunConclusionUpdate{
+			Owner:       req.Owner,
+			Repo:        req.Repo,
+			CheckRunID:  cr.ID,
+			Name:        cr.Name,
+			Conclusion:  "cancelled",
+			Title:       cr.Name + " - Cancelled",
+			Summary:     "This run was cancelled because a new commit was pushed to the branch.",
+			CompletedAt: time.Now(),
+		}); err != nil {
+			log.Error().Err(err).Int64("check_run_id", cr.ID).Msg("Failed to cancel stale check run")
 			continue
 		}
 		cancelled++
@@ -914,41 +917,38 @@ func (a *GitBotApp) handleFindSuiteCheckRun(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	runsResp, _, err := a.ghClient.Checks.ListCheckRunsForRef(context.Background(), req.Owner, req.Repo, req.CommitSHA, &github.ListCheckRunsOptions{})
+	checkRuns, err := a.checksProvider.ListForRef(context.Background(), req.Owner, req.Repo, req.CommitSHA)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to list check runs for commit")
 		_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to list check runs for commit")
 		return
 	}
-	if len(runsResp.CheckRuns) == 0 {
+	if len(checkRuns) == 0 {
 		_ = httpapi.WriteJSONError(w, http.StatusNotFound, "no check runs found for suite")
 		return
 	}
 
-	var target *github.CheckRun
-	for _, cr := range runsResp.CheckRuns {
-		if cr.CheckSuite != nil && cr.CheckSuite.ID != nil && *cr.CheckSuite.ID == req.SuiteID {
+	var target *checkRunSummary
+	for i := range checkRuns {
+		cr := &checkRuns[i]
+		if cr.HasCheckSuite && cr.CheckSuiteID == req.SuiteID {
 			target = cr
 			break
 		}
-		if cr.GetApp() != nil && cr.GetApp().GetID() == a.githubAppID {
+		if cr.HasApp && cr.AppID == a.githubAppID {
 			target = cr
 			break
 		}
 	}
 	if target == nil {
-		target = runsResp.CheckRuns[0]
+		target = &checkRuns[0]
 	}
 
 	response := FindSuiteCheckRunResponse{
-		CheckRunID: target.GetID(),
-		HeadSHA:    target.GetHeadSHA(),
-	}
-	if target.CheckSuite != nil && target.CheckSuite.HeadBranch != nil {
-		response.HeadBranch = target.CheckSuite.GetHeadBranch()
-	}
-	if len(target.PullRequests) > 0 && target.PullRequests[0] != nil && target.PullRequests[0].Head != nil && target.PullRequests[0].Head.Ref != nil {
-		response.PullRequestHeadRef = target.PullRequests[0].GetHead().GetRef()
+		CheckRunID:         target.ID,
+		HeadSHA:            target.HeadSHA,
+		HeadBranch:         target.HeadBranch,
+		PullRequestHeadRef: target.PullRequestHeadRef,
 	}
 
 	_ = httpapi.WriteJSON(w, http.StatusOK, response)
@@ -1041,16 +1041,14 @@ func (a *GitBotApp) handleTaskStatusUpdate(w http.ResponseWriter, r *http.Reques
 		newTitle = fmt.Sprintf("Running...(%s) (%d/%d tasks)", shortRunID, completedTasks, totalTasks)
 	}
 
-	opts := github.UpdateCheckRunOptions{
-		Name:   state.PipelineName,
-		Status: github.String("in_progress"),
-		Output: &github.CheckRunOutput{
-			Title:   github.String(newTitle),
-			Summary: github.String(summary),
-		},
-	}
-	_, _, err := a.ghClient.Checks.UpdateCheckRun(context.Background(), update.RepoOwner, update.RepoName, update.CheckRunID, opts)
-	if err != nil {
+	if err := a.checksProvider.MarkInProgress(context.Background(), checkRunProgressUpdate{
+		Owner:      update.RepoOwner,
+		Repo:       update.RepoName,
+		CheckRunID: update.CheckRunID,
+		Name:       state.PipelineName,
+		Title:      newTitle,
+		Summary:    summary,
+	}); err != nil {
 		log.Error().Err(err).Msg("Failed to update check run")
 	}
 
@@ -1122,18 +1120,16 @@ func (a *GitBotApp) concludeCheckRun(owner, repo string, checkRunID int64, concl
 	state, ok := a.checkRunStates[checkRunID]
 	if !ok {
 		log.Warn().Int64("check_run_id", checkRunID).Msg("State not found for check run, cannot conclude with final name.")
-		opts := github.UpdateCheckRunOptions{
+		if err := a.checksProvider.Conclude(context.Background(), checkRunConclusionUpdate{
+			Owner:       owner,
+			Repo:        repo,
+			CheckRunID:  checkRunID,
 			Name:        "Nopsai Pipeline",
-			Status:      github.String("completed"),
-			Conclusion:  github.String(conclusion),
-			CompletedAt: &github.Timestamp{Time: time.Now()},
-			Output: &github.CheckRunOutput{
-				Title:   github.String("Nopsai Pipeline - " + strings.Title(conclusion)),
-				Summary: github.String(summary),
-			},
-		}
-		_, _, err := a.ghClient.Checks.UpdateCheckRun(context.Background(), owner, repo, checkRunID, opts)
-		if err != nil {
+			Conclusion:  conclusion,
+			Title:       "Nopsai Pipeline - " + strings.Title(conclusion),
+			Summary:     summary,
+			CompletedAt: time.Now(),
+		}); err != nil {
 			log.Error().Err(err).Msg("Failed to conclude check run with fallback name")
 		}
 		return
@@ -1149,19 +1145,16 @@ func (a *GitBotApp) concludeCheckRun(owner, repo string, checkRunID int64, concl
 		finalTitle = fmt.Sprintf("%s (%s) - %s", state.PipelineName, shortRunID, strings.Title(conclusion))
 	}
 
-	opts := github.UpdateCheckRunOptions{
+	if err := a.checksProvider.Conclude(context.Background(), checkRunConclusionUpdate{
+		Owner:       owner,
+		Repo:        repo,
+		CheckRunID:  checkRunID,
 		Name:        finalName,
-		Status:      github.String("completed"),
-		Conclusion:  github.String(conclusion),
-		CompletedAt: &github.Timestamp{Time: time.Now()},
-		Output: &github.CheckRunOutput{
-			Title:   github.String(finalTitle),
-			Summary: github.String(summary),
-		},
-	}
-
-	_, _, err := a.ghClient.Checks.UpdateCheckRun(context.Background(), owner, repo, checkRunID, opts)
-	if err != nil {
+		Conclusion:  conclusion,
+		Title:       finalTitle,
+		Summary:     summary,
+		CompletedAt: time.Now(),
+	}); err != nil {
 		log.Error().Err(err).Msg("Failed to conclude check run")
 	}
 

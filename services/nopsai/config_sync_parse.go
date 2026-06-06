@@ -7,6 +7,7 @@ import (
 
 	"nopsai/pkg/models"
 	"nopsai/services/nopsai/internal/configsync"
+	"nopsai/services/nopsai/internal/mcpregistry"
 
 	"gopkg.in/yaml.v3"
 )
@@ -18,7 +19,7 @@ type configSyncPlan struct {
 	accessPlan                           accessSyncPlan
 	knowledgeContexts                    map[string]storedKnowledgeContext
 	llmProfilePlan                       *gitOpsLLMProfilePlan
-	mcpRegistryPlan                      *gitOpsMCPPlan
+	mcpRegistryPlan                      *mcpregistry.GitOpsPlan
 	runtimeSettingsPlan                  *gitOpsRuntimeSettingsPlan
 	mailSettingsPlan                     *gitOpsMailSettingsPlan
 	schedules                            map[string]storedSchedule
@@ -184,10 +185,10 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 	if err != nil {
 		return configSyncPlan{}, err
 	}
-	plan.mcpRegistryPlan, err = parseGitOpsMCPRegistryPlan(
+	plan.mcpRegistryPlan, err = mcpregistry.ParseGitOpsPlan(
 		binding,
-		gitOpsMCPDirectory{root: settingDir, files: files.setting},
-		gitOpsMCPDirectory{root: settingsDir, files: files.settings},
+		mcpregistry.GitOpsDirectory{Root: settingDir, Files: files.setting},
+		mcpregistry.GitOpsDirectory{Root: settingsDir, Files: files.settings},
 	)
 	if err != nil {
 		return configSyncPlan{}, err

@@ -6,16 +6,17 @@ import (
 
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
+	llmruntime "nopsai/services/agent/internal/llm"
 	"nopsai/services/agent/internal/resolver"
 )
 
 type agentActionSession struct {
-	client  *LLMClient
-	runtime *MCPTaskRuntime
+	client  *llmruntime.LLMClient
+	runtime *llmruntime.MCPTaskRuntime
 	profile string
 }
 
-func newAgentActionSessionResolver(llmRegistry *LLMProfileRegistry, mcpRegistry *MCPProfileRegistry) resolver.ActionSessionResolver {
+func newAgentActionSessionResolver(llmRegistry *llmruntime.LLMProfileRegistry, mcpRegistry *llmruntime.MCPProfileRegistry) resolver.ActionSessionResolver {
 	return func(pipeline *models.Pipeline, step *models.PipelineStep, task *models.Task) (resolver.ActionSession, error) {
 		if llmRegistry == nil {
 			return nil, resolver.NewActionSessionResolutionError(resolver.ActionSessionResolutionLLMProfile, fmt.Errorf("LLM profile registry is not initialized"))
@@ -58,7 +59,7 @@ func (s *agentActionSession) MCPToolCount() int {
 	if s == nil || s.runtime == nil {
 		return 0
 	}
-	return len(s.runtime.tools)
+	return s.runtime.ToolCount()
 }
 
 func (s *agentActionSession) RequiresMCPToolCall() bool {

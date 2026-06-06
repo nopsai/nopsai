@@ -1,4 +1,4 @@
-package agent
+package llm
 
 import (
 	"encoding/base64"
