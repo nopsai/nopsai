@@ -72,6 +72,14 @@ The script runs:
 Set `SKIP_DOCKER_BUILDS=1` when validating Go/lint/security gates without
 local Docker builds.
 
+`golangci-lint` must be built with the same Go major/minor version as the
+module target in `go.mod` or newer. If the local binary was built with an older
+Go toolchain, upgrade it before running the gates:
+
+```bash
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+```
+
 ## CI Gates
 
 `.github/workflows/enterprise-gates.yml` runs the same categories in CI:
@@ -81,6 +89,8 @@ local Docker builds.
 
 Service Dockerfiles that depend on the base image accept `BASE_IMAGE`, so CI can
 build from the local `nopsai-base:ci` image instead of pulling a published base.
+CI pins `golangci-lint` to `v2.12.2`, which is built with a Go 1.26 toolchain
+and is compatible with the repository's `go 1.26.3` module target.
 
 ## Current Baseline Decision
 
