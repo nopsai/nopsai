@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"nopsai/pkg/models"
+	"nopsai/services/nopsai/internal/configsync"
 )
 
 const externalTriggersGitOpsDirectory = "external-triggers"
@@ -35,7 +36,7 @@ func parseGitOpsExternalTriggers(files map[string]string, triggerDir string, bin
 	triggers := map[string]storedExternalTrigger{}
 	for path, content := range files {
 		normalized := filepath.ToSlash(path)
-		rel, ok := relativeConfigPath(normalized, triggerDir)
+		rel, ok := configsync.RelativePath(normalized, triggerDir)
 		if !ok {
 			continue
 		}
@@ -65,13 +66,13 @@ func parseGitOpsExternalTriggers(files map[string]string, triggerDir string, bin
 		}
 		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
 			if pipeline != "" && !pipelineRootQualified {
-				pipeline, err = normalizeConfigPathForFolder(boundFolder, pipeline)
+				pipeline, err = configsync.NormalizePathForFolder(boundFolder, pipeline)
 				if err != nil {
 					return nil, fmt.Errorf("invalid group-scoped external trigger pipeline '%s': %w", normalized, err)
 				}
 			}
 			if scope != "" {
-				scope, err = normalizeConfigPathForFolder(boundFolder, scope)
+				scope, err = configsync.NormalizePathForFolder(boundFolder, scope)
 				if err != nil {
 					return nil, fmt.Errorf("invalid group-scoped external trigger scope '%s': %w", normalized, err)
 				}
@@ -80,7 +81,7 @@ func parseGitOpsExternalTriggers(files map[string]string, triggerDir string, bin
 				if _, rootOnly := stripRootPathPrefix(runGroupPath); rootOnly {
 					runGroupPath = rootGrantID
 				} else {
-					runGroupPath, err = normalizeConfigPathForFolder(boundFolder, runGroupPath)
+					runGroupPath, err = configsync.NormalizePathForFolder(boundFolder, runGroupPath)
 					if err != nil {
 						return nil, fmt.Errorf("invalid group-scoped external trigger run_group_path '%s': %w", normalized, err)
 					}
@@ -122,7 +123,7 @@ func externalTriggerGitOpsID(explicitID, rel string, binding models.ConfigReposi
 		return "", fmt.Errorf("file path does not specify an external trigger id")
 	}
 	if binding.ScopeType == models.ConfigRepositoryScopeFolder {
-		normalized, err := normalizeConfigPathForFolder(boundFolder, rel)
+		normalized, err := configsync.NormalizePathForFolder(boundFolder, rel)
 		if err != nil {
 			return "", err
 		}

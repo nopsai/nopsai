@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"context"
@@ -544,7 +544,18 @@ func (a *App) handleApprovalDecision(w http.ResponseWriter, r *http.Request, app
 		}
 	}
 
-	go a.launchAgent(runID, record.ParentRunID, record.RunnerID, pipeline, record.PipelineDef, timeoutDuration, record.GitContext, "", record.Scope, nil, record.CheckpointID, record.Variables)
+	go a.agentRunLauncher().LaunchAgent(context.Background(), AgentRunLaunchRequest{
+		RunID:              runID,
+		ParentRunID:        record.ParentRunID,
+		ParentRunnerID:     record.RunnerID,
+		Pipeline:           pipeline,
+		PipelineDefinition: record.PipelineDef,
+		Timeout:            timeoutDuration,
+		GitContext:         record.GitContext,
+		Scope:              record.Scope,
+		ResumeCheckpointID: record.CheckpointID,
+		ResumeVariables:    record.Variables,
+	})
 	_ = httpapi.WriteJSON(w, http.StatusOK, map[string]string{"status": "approved", "run_status": "pending"})
 }
 

@@ -1,6 +1,10 @@
-package main
+package nopsai
 
-import "testing"
+import (
+	"testing"
+
+	"nopsai/services/nopsai/internal/configsync"
+)
 
 func TestNormalizeGroupForWriteRejectsReservedRootGroupName(t *testing.T) {
 	tests := []string{"root", " Root ", "/root/", "__general__"}
@@ -15,7 +19,7 @@ func TestNormalizeGroupForWriteRejectsReservedRootGroupName(t *testing.T) {
 func TestNormalizeStructureNameRejectsReservedRootGroupName(t *testing.T) {
 	tests := []string{"root", " Root ", "/root/", "__general__"}
 	for _, name := range tests {
-		if _, err := normalizeStructureName(name); err == nil {
+		if _, err := configsync.NormalizeStructureName(name); err == nil {
 			t.Fatalf("normalizeStructureName(%q) error = nil, want reserved root error", name)
 		}
 	}

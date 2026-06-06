@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"bytes"
@@ -17,6 +17,7 @@ import (
 
 	"nopsai/config"
 	"nopsai/pkg/models"
+	"nopsai/services/nopsai/internal/configsync"
 	"nopsai/services/nopsai/pkg/validation"
 
 	"github.com/jackc/pgx/v5"
@@ -285,10 +286,10 @@ func (a *App) findLLMProfileReferences(profileName string) ([]string, error) {
 		}
 		var pipeline models.Pipeline
 		if err := yaml.Unmarshal([]byte(definition), &pipeline); err != nil {
-			refs = append(refs, fmt.Sprintf("pipeline %s (unreadable YAML)", buildPipelineIdentifier(pathPart, namePart)))
+			refs = append(refs, fmt.Sprintf("pipeline %s (unreadable YAML)", configsync.BuildPipelineIdentifier(pathPart, namePart)))
 			continue
 		}
-		refs = append(refs, collectExplicitLLMProfileReferencesFromPipeline(&pipeline, profileName, "pipeline "+buildPipelineIdentifier(pathPart, namePart))...)
+		refs = append(refs, collectExplicitLLMProfileReferencesFromPipeline(&pipeline, profileName, "pipeline "+configsync.BuildPipelineIdentifier(pathPart, namePart))...)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -305,7 +306,7 @@ func (a *App) findLLMProfileReferences(profileName string) ([]string, error) {
 			return nil, err
 		}
 		var step models.PipelineStep
-		stepID := buildPipelineIdentifier(pathPart, namePart)
+		stepID := configsync.BuildPipelineIdentifier(pathPart, namePart)
 		if err := yaml.Unmarshal([]byte(definition), &step); err != nil {
 			refs = append(refs, fmt.Sprintf("step %s (unreadable YAML)", stepID))
 			continue
@@ -678,7 +679,7 @@ func parseGitOpsLLMProfilePlan(binding models.ConfigRepository, directories ...g
 		root := filepath.ToSlash(strings.Trim(directory.root, "/"))
 		for path, content := range directory.files {
 			normalized := filepath.ToSlash(path)
-			rel, ok := relativeConfigPath(normalized, root)
+			rel, ok := configsync.RelativePath(normalized, root)
 			if !ok || !isGitOpsLLMProfileRelativePath(rel) {
 				continue
 			}
@@ -766,7 +767,7 @@ func parseGitOpsLLMProfileFile(content, sourcePath string) (*gitOpsLLMProfilePla
 			if strings.TrimSpace(scope) == "" {
 				continue
 			}
-			if _, err := cleanConfigPathSegments(scope, false); err != nil {
+			if _, err := configsync.CleanPathSegments(scope, false); err != nil {
 				return nil, fmt.Errorf("invalid allowed scope %q for LLM profile %q in GitOps file '%s': %w", scope, name, sourcePath, err)
 			}
 		}

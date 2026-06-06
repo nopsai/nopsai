@@ -1,4 +1,4 @@
-package main
+package nopsai
 
 import (
 	"bytes"
@@ -17,6 +17,7 @@ import (
 
 	"nopsai/pkg/models"
 	"nopsai/services/aaa/pkg/model"
+	"nopsai/services/nopsai/internal/configsync"
 	"nopsai/services/nopsai/pkg/routeauthz"
 )
 
@@ -51,7 +52,7 @@ func (a *App) handleListPipelines(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		entries = append(entries, pipelineEntry{
-			identifier: buildPipelineIdentifier(path, name),
+			identifier: configsync.BuildPipelineIdentifier(path, name),
 			source:     source,
 			resource:   routeauthz.PipelineResource(path, name),
 		})
@@ -201,7 +202,7 @@ func (a *App) handleListTriggerOverrides(w http.ResponseWriter, r *http.Request)
 
 func (a *App) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
 	pipelineIdentifier := r.PathValue("pipelineName")
-	pathPart, namePart, extPart, err := splitPipelineIdentifier(pipelineIdentifier)
+	pathPart, namePart, extPart, err := configsync.SplitPipelineIdentifier(pipelineIdentifier)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -217,7 +218,7 @@ func (a *App) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
 			CallerID:     repoID,
 			Action:       "pipeline.use",
 			ResourceType: grantResourcePipeline,
-			ResourceID:   buildPipelineIdentifier(pathPart, namePart),
+			ResourceID:   configsync.BuildPipelineIdentifier(pathPart, namePart),
 			EventType:    "pipeline_fetch",
 			Repo:         repoID,
 		})
@@ -249,7 +250,7 @@ func (a *App) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
 		log.Info().Str("pipeline", pipelineIdentifier).Msg("Pipeline not in DB, attempting to fetch from repository as fallback")
 
 		fetchWithExtension := func(extension string) ([]byte, error) {
-			pipelinePath := buildPipelineFilePath(pathPart, namePart, extension)
+			pipelinePath := configsync.BuildPipelineFilePath(pathPart, namePart, extension)
 			if !strings.HasPrefix(pipelinePath, ".nopsai/") {
 				pipelinePath = ".nopsai/" + pipelinePath
 			}
@@ -382,7 +383,7 @@ func (a *App) handleCreateOrUpdatePipeline(w http.ResponseWriter, r *http.Reques
 		expectedName string
 	)
 	if identifier != "" {
-		pathPart, namePart, _, err := splitPipelineIdentifier(identifier)
+		pathPart, namePart, _, err := configsync.SplitPipelineIdentifier(identifier)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -466,7 +467,7 @@ func (a *App) handleCreateOrUpdatePipeline(w http.ResponseWriter, r *http.Reques
 
 func (a *App) handleDeletePipeline(w http.ResponseWriter, r *http.Request) {
 	pipelineIdentifier := r.PathValue("pipelineName")
-	pathPart, namePart, _, err := splitPipelineIdentifier(pipelineIdentifier)
+	pathPart, namePart, _, err := configsync.SplitPipelineIdentifier(pipelineIdentifier)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -492,7 +493,7 @@ func (a *App) resolveStepIncludes(pipeline *models.Pipeline) (*models.Pipeline, 
 
 		// Handle step include
 		includeIdentifier := strings.TrimPrefix(includeValue, "step:")
-		stepPath, includeName, _, err := splitStepIdentifier(includeIdentifier)
+		stepPath, includeName, _, err := configsync.SplitStepIdentifier(includeIdentifier)
 		if err != nil {
 			return nil, fmt.Errorf("invalid reusable step identifier '%s': %w", includeIdentifier, err)
 		}
@@ -585,7 +586,7 @@ func (a *App) handleListReusableSteps(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "Failed to process reusable steps", http.StatusInternalServerError)
 				return
 			}
-			identifier := buildStepIdentifier(path, name)
+			identifier := configsync.BuildStepIdentifier(path, name)
 			entries = append(entries, stepEntry{
 				item: stepListItem{
 					Identifier: identifier,
@@ -633,7 +634,7 @@ func (a *App) handleListReusableSteps(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to process reusable steps", http.StatusInternalServerError)
 			return
 		}
-		identifier := buildStepIdentifier(path, name)
+		identifier := configsync.BuildStepIdentifier(path, name)
 		entries = append(entries, stepEntry{
 			identifier: identifier,
 			resource:   routeauthz.StepResource(identifier),
@@ -685,7 +686,7 @@ func (a *App) handleGetStepRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) respondStepDefinition(w http.ResponseWriter, identifier string) {
-	pathPart, namePart, _, err := splitStepIdentifier(identifier)
+	pathPart, namePart, _, err := configsync.SplitStepIdentifier(identifier)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -705,13 +706,13 @@ func (a *App) respondStepDefinition(w http.ResponseWriter, identifier string) {
 }
 
 func (a *App) respondStepUsage(w http.ResponseWriter, identifier string) {
-	pathPart, namePart, _, err := splitStepIdentifier(identifier)
+	pathPart, namePart, _, err := configsync.SplitStepIdentifier(identifier)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	targetKey := buildStepIdentifier(pathPart, namePart)
+	targetKey := configsync.BuildStepIdentifier(pathPart, namePart)
 	ctx := context.Background()
 	rows, err := a.db.Query(ctx, "SELECT path, name, definition, COALESCE(source, 'database') FROM pipelines")
 	if err != nil {
@@ -744,13 +745,13 @@ func (a *App) respondStepUsage(w http.ResponseWriter, identifier string) {
 
 		var pipeline models.Pipeline
 		if err := yaml.Unmarshal([]byte(definition), &pipeline); err != nil {
-			log.Error().Err(err).Str("pipeline", buildPipelineIdentifier(pipelinePath, pipelineName)).Msg("Failed to parse pipeline definition for usage lookup")
+			log.Error().Err(err).Str("pipeline", configsync.BuildPipelineIdentifier(pipelinePath, pipelineName)).Msg("Failed to parse pipeline definition for usage lookup")
 			continue
 		}
 
 		if pipelineIncludesStep(&pipeline, targetKey, namePart) {
 			usage = append(usage, usageItem{
-				Identifier:  buildPipelineIdentifier(pipelinePath, pipelineName),
+				Identifier:  configsync.BuildPipelineIdentifier(pipelinePath, pipelineName),
 				Name:        pipelineName,
 				Path:        pipelinePath,
 				Source:      source,
@@ -838,7 +839,7 @@ func (a *App) handleCreateOrUpdateReusableStep(w http.ResponseWriter, r *http.Re
 		expectedName string
 	)
 	if identifier != "" {
-		pathPart, namePart, _, err := splitStepIdentifier(identifier)
+		pathPart, namePart, _, err := configsync.SplitStepIdentifier(identifier)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -885,7 +886,7 @@ func (a *App) handleCreateOrUpdateReusableStep(w http.ResponseWriter, r *http.Re
 	if lookupErr == pgx.ErrNoRows {
 		action = "step.create"
 	}
-	if !a.requireAAADecision(w, r, action, routeauthz.StepResource(buildStepIdentifier(dbPath, storedName))) {
+	if !a.requireAAADecision(w, r, action, routeauthz.StepResource(configsync.BuildStepIdentifier(dbPath, storedName))) {
 		return
 	}
 
@@ -907,7 +908,7 @@ func (a *App) handleCreateOrUpdateReusableStep(w http.ResponseWriter, r *http.Re
 
 func (a *App) handleDeleteReusableStep(w http.ResponseWriter, r *http.Request) {
 	identifier := r.PathValue("stepName")
-	pathPart, namePart, _, err := splitStepIdentifier(identifier)
+	pathPart, namePart, _, err := configsync.SplitStepIdentifier(identifier)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

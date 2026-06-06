@@ -1,0 +1,395 @@
+package resolver
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	"nopsai/pkg/models"
+	"nopsai/pkg/proto"
+
+	"github.com/rs/zerolog"
+)
+
+type ActionSession interface {
+	ProfileName() string
+	MCPEnabled() bool
+	MCPProfiles() []string
+	MCPToolCount() int
+	RequiresMCPToolCall() bool
+	SuccessfulMCPToolCalls() int
+	GetAction(context.Context, *proto.GetActionRequest) (*proto.Action, error)
+}
+
+type ActionSessionResolver func(*models.Pipeline, *models.PipelineStep, *models.Task) (ActionSession, error)
+type DirectoryLister func(*zerolog.Logger, string, []string, []string) map[string]string
+
+type ActionSessionResolutionStage string
+
+const (
+	ActionSessionResolutionLLMProfile ActionSessionResolutionStage = "llm_profile"
+	ActionSessionResolutionMCPProfile ActionSessionResolutionStage = "mcp_profile"
+)
+
+type ActionSessionResolutionError struct {
+	Stage ActionSessionResolutionStage
+	Err   error
+}
+
+func (e ActionSessionResolutionError) Error() string {
+	if e.Err == nil {
+		return "action session resolution failed"
+	}
+	return e.Err.Error()
+}
+
+func (e ActionSessionResolutionError) Unwrap() error {
+	return e.Err
+}
+
+func NewActionSessionResolutionError(stage ActionSessionResolutionStage, err error) error {
+	return ActionSessionResolutionError{Stage: stage, Err: err}
+}
+
+type ActionRequest struct {
+	Logger          *zerolog.Logger
+	Pipeline        *models.Pipeline
+	Step            *models.PipelineStep
+	Task            *models.Task
+	Context         ExecutionContext
+	History         string
+	ParentContext   context.Context
+	WorkspaceDir    string
+	IsRunStopping   func() bool
+	Secrets         map[string]string
+	KnowledgePrompt string
+	LLMTimeout      time.Duration
+	LLMEnabled      bool
+	SessionResolver ActionSessionResolver
+	DirectoryLister DirectoryLister
+	StopRetry       func(error) bool
+}
+
+type ActionResult struct {
+	Action           *proto.Action
+	ActionSummary    string
+	Goal             string
+	LLMDurationMs    int64
+	LLMDurationSet   bool
+	Failed           bool
+	FinalizeStatus   string
+	FinalizeExitCode int
+}
+
+type actionResolver interface {
+	Resolve(context.Context, ActionRequest) ActionResult
+}
+
+type TaskActionResolver struct {
+	script actionResolver
+	llm    actionResolver
+}
+
+func NewTaskActionResolver() TaskActionResolver {
+	return TaskActionResolver{
+		script: scriptActionResolver{},
+		llm:    llmBackedActionResolver{},
+	}
+}
+
+func (r TaskActionResolver) Resolve(ctx context.Context, req ActionRequest) ActionResult {
+	if req.Task != nil && strings.TrimSpace(req.Task.Script) != "" {
+		return r.script.Resolve(ctx, req)
+	}
+	return r.llm.Resolve(ctx, req)
+}
+
+type scriptActionResolver struct{}
+
+func (scriptActionResolver) Resolve(_ context.Context, req ActionRequest) ActionResult {
+	goal := taskGoal(req.Step, req.Task)
+	if req.Logger != nil {
+		if goal != "" {
+			req.Logger.Info().Msgf("Executing direct script for goal: %s", goal)
+		} else {
+			req.Logger.Info().Msg("Executing direct script")
+		}
+	}
+	script := ""
+	if req.Task != nil {
+		script = req.Task.Script
+	}
+	return ActionResult{
+		Action: &proto.Action{
+			Type:    "EXECUTE_COMMAND",
+			Payload: &proto.Action_CommandAction{CommandAction: &proto.CommandAction{Command: script}},
+		},
+		ActionSummary: script,
+		Goal:          goal,
+	}
+}
+
+type llmBackedActionResolver struct{}
+
+func (llmBackedActionResolver) Resolve(ctx context.Context, req ActionRequest) ActionResult {
+	goal := taskGoal(req.Step, req.Task)
+	if !req.LLMEnabled || req.SessionResolver == nil {
+		if req.Logger != nil {
+			req.Logger.Error().Msg("Cannot resolve goal because LLM is disabled for this pipeline")
+		}
+		return ActionResult{
+			Goal:             goal,
+			Failed:           true,
+			FinalizeStatus:   "failure",
+			FinalizeExitCode: 1,
+		}
+	}
+
+	if req.Logger != nil {
+		if goal != "" {
+			req.Logger.Info().Msgf("Resolving goal with LLM: %s", goal)
+		} else {
+			req.Logger.Info().Msg("Resolving goal with LLM")
+		}
+	}
+
+	directoryListing := collectActionDirectoryListing(req)
+	actionReq := req.Context.BuildActionRequest(goal, req.History, directoryListing, req.KnowledgePrompt, req.Secrets)
+
+	session, sessionErr := req.SessionResolver(req.Pipeline, req.Step, req.Task)
+	if sessionErr != nil {
+		logActionSessionResolutionError(req.Logger, sessionErr)
+		return ActionResult{Goal: goal, Failed: true}
+	}
+	if session == nil {
+		if req.Logger != nil {
+			req.Logger.Error().Msg("Failed to resolve action session for goal")
+		}
+		return ActionResult{Goal: goal, Failed: true}
+	}
+	if req.Logger != nil {
+		req.Logger.Info().Str("llm_profile", session.ProfileName()).Msg("Using LLM profile for goal")
+	}
+	logMCPSession(req.Logger, session)
+
+	actionParentCtx := req.ParentContext
+	if actionParentCtx == nil {
+		actionParentCtx = ctx
+	}
+	if actionParentCtx == nil {
+		actionParentCtx = context.Background()
+	}
+	llmTimeout := req.LLMTimeout
+	if llmTimeout <= 0 {
+		llmTimeout = 2 * time.Minute
+	}
+
+	var action *proto.Action
+	actionStart := time.Now()
+	err := withRetry(func() error {
+		attemptCtx, cancel := context.WithTimeout(actionParentCtx, llmTimeout)
+		defer cancel()
+		var callErr error
+		action, callErr = session.GetAction(attemptCtx, actionReq)
+		if callErr != nil {
+			return callErr
+		}
+		if session.RequiresMCPToolCall() && session.SuccessfulMCPToolCalls() == 0 {
+			action = nil
+			return fmt.Errorf("MCP tool call is required before executing a final action")
+		}
+		return nil
+	}, 3, time.Second, req.StopRetry)
+	llmDurationMs := time.Since(actionStart).Milliseconds()
+
+	if err != nil {
+		if req.runStopping() {
+			if req.Logger != nil {
+				req.Logger.Warn().Err(err).Msg("Goal resolution stopped because the run is cancelling")
+			}
+			return ActionResult{Goal: goal, LLMDurationMs: llmDurationMs, LLMDurationSet: true, Failed: true}
+		}
+		if req.StopRetry != nil && req.StopRetry(err) {
+			failureReason := req.Context.MaskText(err.Error(), req.Secrets)
+			if req.Logger != nil {
+				req.Logger.Error().Err(err).Msgf("Goal resolution failed: %s", failureReason)
+				if zerolog.GlobalLevel() <= zerolog.InfoLevel {
+					req.Logger.Info().Msgf(`status=failure action="Resolve goal" output="%s"`, failureReason)
+				}
+			}
+			return ActionResult{
+				Goal:             goal,
+				LLMDurationMs:    llmDurationMs,
+				LLMDurationSet:   true,
+				Failed:           true,
+				FinalizeStatus:   "failure",
+				FinalizeExitCode: 1,
+			}
+		}
+
+		if req.Logger != nil {
+			req.Logger.Warn().Err(err).Msg("GetAction failed after retries; attempting one final retry")
+		}
+		attemptCtx, cancel := context.WithTimeout(actionParentCtx, llmTimeout)
+		action, err = session.GetAction(attemptCtx, actionReq)
+		cancel()
+		if err == nil && session.RequiresMCPToolCall() && session.SuccessfulMCPToolCalls() == 0 {
+			action = nil
+			err = fmt.Errorf("MCP tool call is required before executing a final action")
+		}
+		llmDurationMs = time.Since(actionStart).Milliseconds()
+		if err != nil {
+			if req.Logger != nil {
+				req.Logger.Error().Err(err).Msg("Failed to get action from LLM. Shutting down")
+			}
+			return ActionResult{Goal: goal, LLMDurationMs: llmDurationMs, LLMDurationSet: true, Failed: true}
+		}
+	}
+
+	if req.runStopping() {
+		if req.Logger != nil {
+			req.Logger.Warn().Msg("Goal resolution finished after the run was cancelled; skipping action execution")
+		}
+		return ActionResult{Goal: goal, LLMDurationMs: llmDurationMs, LLMDurationSet: true, Failed: true}
+	}
+	if session.RequiresMCPToolCall() && req.Logger != nil {
+		req.Logger.Info().
+			Int("mcp_successful_tool_calls", session.SuccessfulMCPToolCalls()).
+			Msgf("MCP tool calls completed before final action (count=%d)", session.SuccessfulMCPToolCalls())
+	}
+
+	return ActionResult{
+		Action:         action,
+		ActionSummary:  actionSummary(action),
+		Goal:           goal,
+		LLMDurationMs:  llmDurationMs,
+		LLMDurationSet: true,
+	}
+}
+
+func collectActionDirectoryListing(req ActionRequest) map[string]string {
+	shareContent := true
+	if req.Pipeline != nil && req.Pipeline.LlmContentSharing != nil {
+		shareContent = *req.Pipeline.LlmContentSharing
+	}
+	if !shareContent {
+		if req.Logger != nil {
+			req.Logger.Debug().Msg("Content sharing is DISABLED for this pipeline. Skipping directory scan")
+		}
+		return map[string]string{}
+	}
+
+	if req.Logger != nil {
+		req.Logger.Debug().Msg("Content sharing is ENABLED for this pipeline. Scanning directory")
+	}
+	lister := req.DirectoryLister
+	if lister == nil {
+		return map[string]string{}
+	}
+	logger := req.Logger
+	if logger == nil {
+		nopLogger := zerolog.Nop()
+		logger = &nopLogger
+	}
+	var include, ignore []string
+	if req.Pipeline != nil {
+		include = req.Pipeline.LlmContentInclude
+		ignore = req.Pipeline.LlmContentIgnore
+	}
+	directoryListing := lister(logger, strings.TrimSpace(req.WorkspaceDir), include, ignore)
+	logDirectoryListingMetadata(req.Logger, directoryListing)
+	return directoryListing
+}
+
+func logDirectoryListingMetadata(logger *zerolog.Logger, directoryListing map[string]string) {
+	if logger == nil {
+		return
+	}
+	if len(directoryListing) == 0 {
+		logger.Debug().Msg("Sharing directory listing metadata with LLM (empty)")
+		return
+	}
+	fileNames := make([]string, 0, len(directoryListing))
+	for name := range directoryListing {
+		fileNames = append(fileNames, name)
+	}
+	sort.Strings(fileNames)
+	maxLoggedFiles := 5
+	if len(fileNames) < maxLoggedFiles {
+		maxLoggedFiles = len(fileNames)
+	}
+	evt := logger.Debug().
+		Int("directory_file_count", len(directoryListing)).
+		Strs("directory_file_sample", fileNames[:maxLoggedFiles])
+	if len(fileNames) > maxLoggedFiles {
+		evt = evt.Int("directory_file_remaining", len(fileNames)-maxLoggedFiles)
+	}
+	evt.Msg("Sharing directory listing metadata with LLM")
+}
+
+func logMCPSession(logger *zerolog.Logger, session ActionSession) {
+	if logger == nil || session == nil || !session.MCPEnabled() {
+		return
+	}
+	mcpProfiles := session.MCPProfiles()
+	logger.Info().
+		Strs("mcp_profiles", mcpProfiles).
+		Int("mcp_tool_count", session.MCPToolCount()).
+		Bool("mcp_requires_tool_call", session.RequiresMCPToolCall()).
+		Msgf("Using MCP profiles for goal (profiles=%s tools=%d require_tool_call=%t)", strings.Join(mcpProfiles, ","), session.MCPToolCount(), session.RequiresMCPToolCall())
+}
+
+func taskGoal(step *models.PipelineStep, task *models.Task) string {
+	if task != nil && strings.TrimSpace(task.Goal) != "" {
+		return strings.TrimSpace(task.Goal)
+	}
+	if step == nil {
+		return ""
+	}
+	return strings.TrimSpace(step.GetGoal())
+}
+
+func actionSummary(action *proto.Action) string {
+	if action == nil {
+		return ""
+	}
+	if cmd := action.GetCommandAction(); cmd != nil {
+		return cmd.Command
+	}
+	if file := action.GetFileAction(); file != nil {
+		return fmt.Sprintf("Write to %s", file.Path)
+	}
+	if ans := action.GetAnswerAction(); ans != nil {
+		return "Return answer"
+	}
+	return ""
+}
+
+func logActionSessionResolutionError(logger *zerolog.Logger, err error) {
+	if logger == nil {
+		return
+	}
+	var resolutionErr ActionSessionResolutionError
+	if !errors.As(err, &resolutionErr) {
+		logger.Error().Err(err).Msg("Failed to resolve action session for goal")
+		return
+	}
+	switch resolutionErr.Stage {
+	case ActionSessionResolutionLLMProfile:
+		logger.Error().Err(err).Msg("Failed to resolve LLM profile for goal")
+	case ActionSessionResolutionMCPProfile:
+		logger.Error().Err(err).Msg("Failed to resolve MCP profiles for goal")
+	default:
+		logger.Error().Err(err).Msg("Failed to resolve action session for goal")
+	}
+}
+
+func (req ActionRequest) runStopping() bool {
+	if req.IsRunStopping == nil {
+		return false
+	}
+	return req.IsRunStopping()
+}
