@@ -17,11 +17,40 @@ require_tool() {
   fi
 }
 
+require_golangci_lint_compatible() {
+  require_tool golangci-lint
+
+  local target_go lint_version lint_go target_major target_minor lint_major lint_minor
+  target_go="$(awk '$1 == "go" { print $2; exit }' go.mod)"
+  lint_version="$(golangci-lint version 2>/dev/null || true)"
+  lint_go="$(printf '%s\n' "$lint_version" | sed -nE 's/.*built with go([0-9]+)\.([0-9]+).*/\1.\2/p')"
+
+  if [[ -z "$target_go" || -z "$lint_go" ]]; then
+    return 0
+  fi
+
+  target_major="${target_go%%.*}"
+  target_minor="${target_go#*.}"
+  target_minor="${target_minor%%.*}"
+  lint_major="${lint_go%%.*}"
+  lint_minor="${lint_go#*.}"
+
+  if (( lint_major < target_major || (lint_major == target_major && lint_minor < target_minor) )); then
+    printf 'golangci-lint is too old for this repository.\n' >&2
+    printf '  target Go version: %s\n' "$target_go" >&2
+    printf '  %s\n' "$lint_version" >&2
+    printf 'Install a compatible linter, for example:\n' >&2
+    printf '  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2\n' >&2
+    printf 'or upgrade via your package manager, then ensure the new binary is first on PATH.\n' >&2
+    return 1
+  fi
+}
+
 run go test ./...
 run go test -race ./...
 run go vet ./...
 
-require_tool golangci-lint
+require_golangci_lint_compatible
 run golangci-lint run ./...
 
 require_tool gosec
