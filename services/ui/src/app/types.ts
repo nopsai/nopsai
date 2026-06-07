@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { StoredSession } from '../lib/api';
+import type { StoredSession } from '../lib/api.js';
 
 export type Theme = 'light' | 'dark';
 

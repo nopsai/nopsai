@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import yaml from 'js-yaml';
-import { buildApiUrl } from '../lib/api';
 import {
   STEP_DRAFTS_CHANGED_EVENT,
   deleteStepDraft,
@@ -13,53 +12,31 @@ import {
 import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups';
 import { applyEnterIndent, findParentBlock } from '../lib/lab';
 import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
-import { findLineNumberForKey, findLineNumberForTaskName, parseYamlWithLocation } from '../lib/yamlValidation';
 import ResourceAccessCard from '../components/ResourceAccessCard';
+import { fetchEditorAutocompleteMetadata } from '../features/editor/autocomplete';
+import {
+  checkStepPermission as checkStepPermissionRequest,
+  deleteStep,
+  fetchStepList,
+  fetchStepUsage,
+  fetchStepYaml,
+  saveStepYaml,
+  type StepListItem,
+  type StepUsageItem,
+} from '../features/steps/api';
+import {
+  STEP_DIRECTIVES,
+  STEP_NAME_PATTERN,
+  TASK_DIRECTIVES,
+  formatUpdatedAt,
+  normalizeRootPath,
+  normalizeSource,
+  splitIdentifier,
+  validateStepYaml,
+} from '../features/steps/model';
 
-const STEP_NAME_PATTERN = /^[a-zA-Z0-9_.-]+$/;
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
 const STEP_PERMISSION_PROBE_NAME = '__nopsai_permission_probe__';
-
-const STEP_DIRECTIVES = [
-  'name',
-  'description',
-  'include',
-  'sync',
-  'image',
-  'secrets',
-  'volumes',
-  'variables',
-  'knowledge_context',
-  'tasks',
-  'condition',
-  'goal',
-  'script',
-  'depends_on',
-  'ignore_failure',
-  'llm_output_sharing',
-  'artifacts',
-  'access',
-];
-
-const TASK_DIRECTIVES = [
-  'name',
-  'goal',
-  'script',
-  'depends_on',
-  'ignore_failure',
-  'llm_output_sharing',
-  'variables',
-  'knowledge_context',
-];
-
-const STEP_ALLOWED_KEYS = new Set(STEP_DIRECTIVES);
-const TASK_ALLOWED_KEYS = new Set(TASK_DIRECTIVES);
-
-type StepListItem = {
-  id: string;
-  source?: string;
-  updatedAt?: string;
-};
 
 type StepDetail = {
   id: string;
@@ -69,14 +46,6 @@ type StepDetail = {
   rawYaml: string;
   source?: string;
   updatedAt?: string;
-};
-
-type StepUsageItem = {
-  identifier: string;
-  name: string;
-  path: string;
-  source: string;
-  description?: string;
 };
 
 type FormModalState = {
@@ -109,272 +78,10 @@ type TreeNode = {
   stepIds: string[];
 };
 
-function normalizeRootPath(path: string) {
-  const parts = path.trim().replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
-  if (parts[0]?.toLowerCase() === 'root') parts.shift();
-  return parts.join('/');
-}
-
 type StepsPageProps = {
   draftScope: string;
   canDeleteSteps: boolean;
 };
-
-type ValidationError = {
-  message: string;
-  line?: number;
-  column?: number;
-};
-
-type ValidationResult = {
-  errors: ValidationError[];
-};
-
-function encodeId(id: string): string {
-  return id.split('/').map(encodeURIComponent).join('/');
-}
-
-function splitIdentifier(id: string): { name: string; path: string } {
-  const parts = id.split('/').filter(Boolean);
-  const name = decodeURIComponent(parts.pop() || '');
-  const path = parts.map(decodeURIComponent).join('/');
-  return { name, path };
-}
-
-function normalizeSource(raw: unknown): 'git' | 'database' | 'draft' {
-  const value = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
-  if (!value) return 'database';
-  if (value.includes('git')) return 'git';
-  if (value.includes('draft')) return 'draft';
-  if (value.includes('db') || value.includes('database')) return 'database';
-  return 'database';
-}
-
-function formatUpdatedAt(value?: string): string {
-  const raw = (value || '').trim();
-  if (!raw) return '—';
-  const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) return '—';
-  return date.toLocaleString();
-}
-
-function validateStepYaml(rawYaml: string, opts?: { expectedName?: string }): ValidationResult {
-  const trimmed = rawYaml.trim();
-  if (!trimmed) {
-    return { errors: [{ message: 'Step definition cannot be empty.', line: 1 }] };
-  }
-
-  const { parsed, error } = parseYamlWithLocation(rawYaml);
-  if (error) {
-    return { errors: [error] };
-  }
-
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return { errors: [{ message: 'Step YAML must define an object.', line: 1 }] };
-  }
-
-  const record = parsed as Record<string, unknown>;
-  const unknownKey = Object.keys(record).find(key => !STEP_ALLOWED_KEYS.has(key));
-  if (unknownKey) {
-    return {
-      errors: [
-        {
-          message: `Unknown step directive '${unknownKey}'.`,
-          line: findLineNumberForKey(rawYaml, unknownKey) ?? 1,
-        },
-      ],
-    };
-  }
-
-  const name = typeof record.name === 'string' ? record.name.trim() : '';
-  if (!name) {
-    return {
-      errors: [
-        {
-          message: "Step YAML must include a 'name' field.",
-          line: findLineNumberForKey(rawYaml, 'name') ?? 1,
-        },
-      ],
-    };
-  }
-
-  if (!STEP_NAME_PATTERN.test(name)) {
-    return {
-      errors: [
-        {
-          message: 'Step name can only contain letters, numbers, dots, underscores, and hyphens.',
-          line: findLineNumberForKey(rawYaml, 'name') ?? 1,
-        },
-      ],
-    };
-  }
-
-  const expectedName = (opts?.expectedName || '').trim();
-  if (expectedName && expectedName !== name) {
-    return {
-      errors: [
-        {
-          message: `Step name in YAML ('${name}') must match the identifier name ('${expectedName}').`,
-          line: findLineNumberForKey(rawYaml, 'name') ?? 1,
-        },
-      ],
-    };
-  }
-
-  const hasInclude = record.include != null;
-  const hasTasks = record.tasks != null;
-  const hasGoal = record.goal != null;
-  const hasScript = record.script != null;
-
-  const modeCount = [hasInclude, hasTasks, hasGoal, hasScript].filter(Boolean).length;
-  const lineForMode =
-    findLineNumberForKey(rawYaml, 'include') ??
-    findLineNumberForKey(rawYaml, 'tasks') ??
-    findLineNumberForKey(rawYaml, 'goal') ??
-    findLineNumberForKey(rawYaml, 'script') ??
-    1;
-
-  if (modeCount === 0) {
-    return {
-      errors: [{ message: "Step must define one of 'include', 'tasks', 'goal', or 'script'.", line: lineForMode }],
-    };
-  }
-  if (modeCount > 1) {
-    return {
-      errors: [{ message: "Step may only define one of 'include', 'tasks', 'goal', or 'script'.", line: lineForMode }],
-    };
-  }
-
-  if (hasInclude) {
-    const includeValue = typeof record.include === 'string' ? record.include.trim() : '';
-    if (!includeValue) {
-      return {
-        errors: [
-          {
-            message: "Include steps must provide a non-empty 'include' value.",
-            line: findLineNumberForKey(rawYaml, 'include') ?? 1,
-          },
-        ],
-      };
-    }
-    if (!includeValue.startsWith('step:')) {
-      return {
-        errors: [
-          {
-            message: "Include steps must reference a reusable step using the 'step:' prefix.",
-            line: findLineNumberForKey(rawYaml, 'include') ?? 1,
-          },
-        ],
-      };
-    }
-    return { errors: [] };
-  }
-
-  if (hasTasks) {
-    const tasks = Array.isArray(record.tasks) ? record.tasks : null;
-    const tasksLine = findLineNumberForKey(rawYaml, 'tasks') ?? 1;
-    if (!tasks || tasks.length === 0) {
-      return { errors: [{ message: "Step 'tasks' must be a non-empty list.", line: tasksLine }] };
-    }
-
-    const taskNames = new Map<string, string>();
-
-    for (let idx = 0; idx < tasks.length; idx += 1) {
-      const taskValue = tasks[idx];
-      if (!taskValue || typeof taskValue !== 'object' || Array.isArray(taskValue)) {
-        return { errors: [{ message: `Task #${idx + 1} must be an object.`, line: tasksLine }] };
-      }
-      const taskObj = taskValue as Record<string, unknown>;
-      const taskName = typeof taskObj.name === 'string' ? taskObj.name.trim() : '';
-      if (!taskName) {
-        return { errors: [{ message: `Task #${idx + 1} is missing the required 'name' field.`, line: tasksLine }] };
-      }
-      const nameKey = taskName.toLowerCase();
-      if (taskNames.has(nameKey)) {
-        return {
-          errors: [
-            {
-              message: `Duplicate task name '${taskName}' found. Task names must be unique within a step.`,
-              line: findLineNumberForTaskName(rawYaml, taskName) ?? tasksLine,
-            },
-          ],
-        };
-      }
-      taskNames.set(nameKey, taskName);
-
-      const invalidTaskKey = Object.keys(taskObj).find(key => !TASK_ALLOWED_KEYS.has(key));
-      if (invalidTaskKey) {
-        return {
-          errors: [
-            {
-              message: `Task '${taskName}' contains unknown directive '${invalidTaskKey}'.`,
-              line: findLineNumberForKey(rawYaml, invalidTaskKey) ?? findLineNumberForTaskName(rawYaml, taskName) ?? tasksLine,
-            },
-          ],
-        };
-      }
-
-      const taskGoal = typeof taskObj.goal === 'string' ? taskObj.goal.trim() : '';
-      const taskScript = typeof taskObj.script === 'string' ? taskObj.script.trim() : '';
-
-      if (taskGoal && taskScript) {
-        return { errors: [{ message: `Task '${taskName}' cannot define both 'goal' and 'script'.`, line: findLineNumberForTaskName(rawYaml, taskName) ?? tasksLine }] };
-      }
-      if (!taskGoal && !taskScript) {
-        return { errors: [{ message: `Task '${taskName}' must define either 'goal' or 'script'.`, line: findLineNumberForTaskName(rawYaml, taskName) ?? tasksLine }] };
-      }
-    }
-
-    for (const taskValue of tasks) {
-      const taskObj = taskValue as Record<string, unknown>;
-      const taskName = typeof taskObj.name === 'string' ? taskObj.name.trim() : '';
-      const deps = Array.isArray(taskObj.depends_on) ? taskObj.depends_on : [];
-      for (const dep of deps) {
-        const depKey = typeof dep === 'string' ? dep.trim().toLowerCase() : '';
-        if (!depKey) {
-          return {
-            errors: [
-              {
-                message: 'Task dependency names must be non-empty strings.',
-                line: findLineNumberForKey(rawYaml, 'depends_on') ?? findLineNumberForTaskName(rawYaml, taskName) ?? tasksLine,
-              },
-            ],
-          };
-        }
-        if (!taskNames.has(depKey)) {
-          return {
-            errors: [
-              {
-                message: `Task '${taskName || 'unknown'}' depends on undefined task '${String(dep)}'.`,
-                line: findLineNumberForTaskName(rawYaml, taskName) ?? tasksLine,
-              },
-            ],
-          };
-        }
-      }
-    }
-
-    return { errors: [] };
-  }
-
-  if (hasGoal) {
-    const goalValue = typeof record.goal === 'string' ? record.goal.trim() : '';
-    if (!goalValue) {
-      return { errors: [{ message: "Step 'goal' must be a non-empty string.", line: findLineNumberForKey(rawYaml, 'goal') ?? 1 }] };
-    }
-    return { errors: [] };
-  }
-
-  if (hasScript) {
-    const scriptValue = typeof record.script === 'string' ? record.script.trim() : '';
-    if (!scriptValue) {
-      return { errors: [{ message: "Step 'script' must be a non-empty string.", line: findLineNumberForKey(rawYaml, 'script') ?? 1 }] };
-    }
-    return { errors: [] };
-  }
-
-  return { errors: [] };
-}
 
 function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
   const navigate = useNavigate();
@@ -456,17 +163,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     return cleaned ? `${cleaned}/${STEP_PERMISSION_PROBE_NAME}` : STEP_PERMISSION_PROBE_NAME;
   };
 
-  const checkStepPermission = useCallback(async (action: string, resourceID: string) => {
-    const params = new URLSearchParams({
-      action,
-      resource_type: 'step',
-      resource_id: resourceID,
-    });
-    const response = await fetch(buildApiUrl(`/v1/access/effective-permissions?${params.toString()}`));
-    if (!response.ok) return false;
-    const payload = await response.json();
-    return Boolean(payload?.allowed);
-  }, []);
+  const checkStepPermission = useCallback((action: string, resourceID: string) => checkStepPermissionRequest(action, resourceID), []);
 
   const draftsById = useMemo(() => {
     const map = new Map<string, StepDraft>();
@@ -679,100 +376,10 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
       setAutocompleteMeta(prev => ({ ...prev, loading: true }));
 
       try {
-        const normalizeList = (payload: unknown) => {
-          if (!Array.isArray(payload)) return [];
-          return payload
-            .map((item: unknown) => {
-              if (typeof item === 'string') return item.trim();
-              if (item && typeof item === 'object') {
-                const record = item as Record<string, unknown>;
-                const name = typeof record.name === 'string' ? record.name : '';
-                return name.trim();
-              }
-              return '';
-            })
-            .filter(Boolean);
-        };
-
-        const normalizeScopeLabel = (entry: unknown) => {
-          const normalizeRawScope = (raw: string) => {
-            const normalized = raw.trim().replace(/^\/+|\/+$/g, '');
-            return normalized.toLowerCase() === 'default' ? '' : normalized;
-          };
-          if (entry == null) return '';
-          if (typeof entry === 'string') return normalizeRawScope(entry);
-          if (typeof entry === 'object') {
-            const record = entry as Record<string, unknown>;
-            const raw = record.scope ?? record.name ?? record.value;
-            if (typeof raw === 'string') return normalizeRawScope(raw);
-          }
-          return '';
-        };
-
-        const buildScopeList = (secretsPayload: unknown, variablesPayload: unknown): string[] => {
-          const scopes = new Set<string>();
-          scopes.add('');
-          if (Array.isArray(secretsPayload)) {
-            secretsPayload.forEach(entry => {
-              const label = normalizeScopeLabel(entry);
-              if (label !== null) scopes.add(label);
-            });
-          }
-          if (Array.isArray(variablesPayload)) {
-            variablesPayload.forEach(entry => {
-              const label = normalizeScopeLabel(entry);
-              if (label !== null) scopes.add(label);
-            });
-          }
-          return Array.from(scopes)
-            .map(scope => scope.replace(/^\/+|\/+$/g, ''))
-            .sort((a, b) => a.localeCompare(b));
-        };
-
-        const fetchScopedList = async (path: string, scope: string) => {
-          const suffix = scope ? `?scope=${encodeURIComponent(scope)}` : '';
-          const response = await fetch(buildApiUrl(`${path}${suffix}`));
-          if (!response.ok) return [];
-          const payload = await response.json();
-          return normalizeList(payload);
-        };
-
         const promise = (async () => {
-          const [secretsResp, variablesResp, stepsResp, secretScopesResp, variableScopesResp] = await Promise.all([
-            fetch(buildApiUrl('/v1/secrets')).then(r => (r.ok ? r.json() : [])),
-            fetch(buildApiUrl('/v1/variables')).then(r => (r.ok ? r.json() : [])),
-            fetch(buildApiUrl('/v1/steps')).then(r => (r.ok ? r.json() : [])),
-            fetch(buildApiUrl('/v1/secrets/scopes')).then(r => (r.ok ? r.json() : [])),
-            fetch(buildApiUrl('/v1/variables/scopes')).then(r => (r.ok ? r.json() : [])),
-          ]);
-
-          const scopeList = buildScopeList(secretScopesResp, variableScopesResp);
-
-          const [secretScopes, variableScopes] = await Promise.all([
-            Promise.all(
-              scopeList.map(async scope => ({
-                scope,
-                items: await fetchScopedList('/v1/secrets', scope),
-              }))
-            ),
-            Promise.all(
-              scopeList.map(async scope => ({
-                scope,
-                items: await fetchScopedList('/v1/variables', scope),
-              }))
-            ),
-          ]);
-
-          setAutocompleteMeta({
-            secrets: normalizeList(secretsResp),
-            variables: normalizeList(variablesResp),
-            reusableSteps: normalizeList(stepsResp),
-            secretScopes,
-            variableScopes,
-            fetchedAt: Date.now(),
-            loading: false,
-          });
-          autocompleteFetchRef.current.fetchedAt = Date.now();
+          const metadata = await fetchEditorAutocompleteMetadata();
+          setAutocompleteMeta(metadata);
+          autocompleteFetchRef.current.fetchedAt = metadata.fetchedAt;
         })();
 
         autocompleteFetchRef.current.loadingPromise = promise;
@@ -830,30 +437,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     }
     setListError(null);
     try {
-      const response = await fetch(buildApiUrl('/v1/steps?include_source=true'));
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Failed to load steps (${response.status})`);
-      }
-      const payload = await response.json();
-      const normalized: StepListItem[] = Array.isArray(payload)
-        ? payload
-            .map((item: unknown): StepListItem | null => {
-              if (typeof item === 'string') return { id: item.trim() };
-              if (item && typeof item === 'object') {
-                const record = item as Record<string, unknown>;
-                const id =
-                  typeof record.identifier === 'string' ? record.identifier : typeof record.id === 'string' ? record.id : '';
-                const source = typeof record.source === 'string' ? record.source : undefined;
-                const updatedAt = typeof record.updated_at === 'string' ? record.updated_at : undefined;
-                return id ? { id, source, updatedAt } : null;
-              }
-              return null;
-            })
-            .filter((item: StepListItem | null): item is StepListItem => Boolean(item))
-        : [];
-      normalized.sort((a, b) => a.id.localeCompare(b.id));
-      setServerSteps(normalized);
+      setServerSteps(await fetchStepList());
     } catch (error) {
       console.error('Failed to load steps', error);
       setListError(error instanceof Error ? error.message : 'Unable to load steps');
@@ -878,12 +462,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
           return;
         }
 
-        const response = await fetch(buildApiUrl(`/v1/steps/${encodeId(stepId)}`));
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(text || `Failed to fetch step (${response.status})`);
-        }
-        const rawYaml = await response.text();
+        const rawYaml = await fetchStepYaml(stepId);
         const parsed = parseStepYaml(rawYaml, stepId, normalizedSource, updatedAt);
         setDetail(parsed);
         setEditorValue(rawYaml);
@@ -903,32 +482,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     setUsageLoading(true);
     setUsageError(null);
     try {
-      const response = await fetch(buildApiUrl(`/v1/steps/${encodeId(stepId)}/usage`));
-      if (!response.ok) {
-        if (response.status === 404) {
-          setUsage([]);
-          return;
-        }
-        const text = await response.text();
-        throw new Error(text || `Failed to load usage (${response.status})`);
-      }
-      const payload = await response.json();
-      const list: StepUsageItem[] = Array.isArray(payload)
-        ? payload
-            .map((item: unknown): StepUsageItem | null => {
-              if (!item || typeof item !== 'object') return null;
-              const record = item as Record<string, unknown>;
-              const identifier = typeof record.identifier === 'string' ? record.identifier : '';
-              if (!identifier) return null;
-              const name = typeof record.name === 'string' ? record.name : '';
-              const path = typeof record.path === 'string' ? record.path : '';
-              const source = typeof record.source === 'string' ? record.source : 'database';
-              const description = typeof record.description === 'string' ? record.description : undefined;
-              return { identifier, name, path, source, description };
-            })
-            .filter((item: StepUsageItem | null): item is StepUsageItem => Boolean(item))
-        : [];
-      list.sort((a, b) => a.identifier.localeCompare(b.identifier));
+      const list = await fetchStepUsage(stepId);
       if (selectedIdRef.current === targetId) {
         setUsage(list);
       }
@@ -1284,15 +838,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     }
     setSaving(true);
     try {
-      const response = await fetch(buildApiUrl(`/v1/steps/${encodeId(detail.id)}`), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/x-yaml' },
-        body: editorValue,
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Failed to save step (${response.status})`);
-      }
+      await saveStepYaml(detail.id, editorValue);
       addToast('Step saved.', 'success');
       const wasDraft = normalizeSource(detail.source) === 'draft';
       if (wasDraft) {
@@ -1403,11 +949,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
         if (!canDeleteSteps) {
           throw new Error('You do not have permission to delete steps.');
         }
-        const response = await fetch(buildApiUrl(`/v1/steps/${encodeId(deleteModal.stepId)}`), { method: 'DELETE' });
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(text || `Failed to delete step (${response.status})`);
-        }
+        await deleteStep(deleteModal.stepId);
       }
       addToast('Step deleted.', 'success');
       setDeleteModal(null);

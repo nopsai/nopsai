@@ -1,10 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type UIEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import yaml from 'js-yaml';
-import { buildApiUrl } from '../lib/api';
 import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups';
 import { escapeRegExp, findLineNumberByRegex, findLineNumberForKey, parseYamlWithLocation } from '../lib/yamlValidation';
 import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
+import { EditorAutocompleteMenu } from '../features/editor/EditorAutocompleteMenu';
+import {
+  checkTriggerPermission as checkTriggerPermissionRequest,
+  deleteTrigger,
+  fetchTriggerAutocompleteResources,
+  fetchTriggerDetail,
+  fetchTriggerPipelineYaml,
+  fetchTriggerRuns,
+  fetchTriggers,
+  saveTrigger,
+} from '../features/triggers/api';
 
 const INITIAL_RECENT_RUNS = 5;
 const RUNS_PAGE_SIZE = 10;
@@ -248,34 +258,6 @@ function buildTriggerSummary(manifest: Record<string, unknown>): TriggerSummary 
   };
 }
 
-function parseTriggerOverrideList(payload: unknown): TriggerListItem[] {
-  if (!Array.isArray(payload)) return [];
-  const items: TriggerListItem[] = [];
-  payload.forEach(entry => {
-    if (entry == null) return;
-    if (typeof entry === 'string') {
-      const slug = entry.trim();
-      if (!slug) return;
-      items.push({ slug, source: 'database' });
-      return;
-    }
-    const record = asRecord(entry);
-    if (!record) return;
-    const slugRaw =
-      (typeof record.name === 'string' && record.name) ||
-      (typeof record.repository_name === 'string' && record.repository_name) ||
-      (typeof record.slug === 'string' && record.slug) ||
-      (typeof record.repo === 'string' && record.repo) ||
-      '';
-    const slug = String(slugRaw || '').trim();
-    if (!slug) return;
-    const source = typeof record.source === 'string' ? normalizeSource(record.source) : '';
-    items.push({ slug, source });
-  });
-  items.sort((a, b) => a.slug.localeCompare(b.slug, undefined, { sensitivity: 'base' }));
-  return items;
-}
-
 function buildPipelineIdentifierFromRun(run: TriggerRun): string {
   const name = run.pipeline_name || '';
   const path = run.pipeline_path || '';
@@ -395,15 +377,7 @@ function TriggersPage({
   };
 
   const checkTriggerPermission = useCallback(async (action: string, resourceID: string) => {
-    const params = new URLSearchParams({
-      action,
-      resource_type: 'trigger',
-      resource_id: resourceID,
-    });
-    const response = await fetch(buildApiUrl(`/v1/access/effective-permissions?${params.toString()}`));
-    if (!response.ok) return false;
-    const payload = await response.json();
-    return Boolean(payload?.allowed);
+    return checkTriggerPermissionRequest(action, resourceID);
   }, []);
 
   const encodeSlug = (slug: string) => slug.split('/').map(encodeURIComponent).join('/');
@@ -790,10 +764,7 @@ function TriggersPage({
         };
 
         const promise = (async () => {
-          const [pipelineResp, scopeResp] = await Promise.all([
-            fetch(buildApiUrl('/v1/pipelines?include_source=true')).then(r => (r.ok ? r.json() : [])),
-            fetch(buildApiUrl('/v1/variables/scopes')).then(r => (r.ok ? r.json() : [])),
-          ]);
+          const { pipelines: pipelineResp, scopes: scopeResp } = await fetchTriggerAutocompleteResources();
 
           const { list: pipelines, sourceIndex } = normalizePipelines(pipelineResp);
           pipelineSourceIndexRef.current = sourceIndex;
@@ -835,18 +806,17 @@ function TriggersPage({
     const promise = (async () => {
       const sourceKey = pipelineSourceIndexRef.current?.get(normalized) || 'local';
       let version = 'latest';
-	      try {
-	        const response = await fetch(buildApiUrl(`/v1/pipelines/${normalized.split('/').map(encodeURIComponent).join('/')}`));
-	        if (response.ok) {
-	          const rawYaml = await response.text();
-	          const parsed = asRecord(yaml.load(rawYaml) as unknown);
-	          const parsedVersion = typeof parsed?.version === 'string' ? parsed.version.trim() : '';
-	          if (parsedVersion) {
-	            version = parsedVersion;
-	          }
-	        }
-	      } catch (error) {
-	        console.warn('Failed to load pipeline meta', error);
+      try {
+        const rawYaml = await fetchTriggerPipelineYaml(normalized);
+        if (rawYaml) {
+          const parsed = asRecord(yaml.load(rawYaml) as unknown);
+          const parsedVersion = typeof parsed?.version === 'string' ? parsed.version.trim() : '';
+          if (parsedVersion) {
+            version = parsedVersion;
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to load pipeline meta', error);
       }
       pipelineMetaCacheRef.current.set(normalized, { version, sourceKey, sourceLabel: sourceLabel(sourceKey) });
       bumpPipelineMetaRevision(prev => prev + 1);
@@ -865,13 +835,7 @@ function TriggersPage({
     setListLoading(true);
     setListError(null);
     try {
-      const response = await fetch(buildApiUrl('/v1/overrides?include_source=true'));
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Failed to load triggers (${response.status})`);
-      }
-      const payload = await response.json();
-      setServerTriggers(parseTriggerOverrideList(payload));
+      setServerTriggers(await fetchTriggers());
     } catch (error) {
       console.error('Failed to load triggers', error);
       setListError(error instanceof Error ? error.message : 'Unable to load triggers');
@@ -886,19 +850,11 @@ function TriggersPage({
     setDetailLoading(true);
     setDetailError(null);
     try {
-      const { owner, repo } = splitSlug(slug);
-      const response = await fetch(buildApiUrl(`/v1/overrides/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`));
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Failed to load trigger (${response.status})`);
-      }
-      const rawYaml = await response.text();
-      const manifest = parseTriggerYaml(rawYaml);
-      const summary = buildTriggerSummary(manifest);
+      const loaded = await fetchTriggerDetail(slug, source);
       if (selectedSlugRef.current !== target) return;
-      setDetail({ slug, source, rawYaml, summary });
-      setLinkedPipelines(summary.pipelines);
-      setEditorValue(rawYaml);
+      setDetail(loaded);
+      setLinkedPipelines(loaded.summary.pipelines);
+      setEditorValue(loaded.rawYaml);
       setIsEditing(false);
     } catch (error) {
       console.error('Failed to load trigger', error);
@@ -952,13 +908,7 @@ function TriggersPage({
     try {
       const now = Date.now();
       if (!runsCacheRef.current.runs.length || now - runsCacheRef.current.fetchedAt > RUNS_CACHE_TTL) {
-        const response = await fetch(buildApiUrl('/v1/runs'));
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(text || `Failed to load runs (${response.status})`);
-        }
-        const payload = await response.json();
-        runsCacheRef.current = { runs: Array.isArray(payload) ? payload : [], fetchedAt: Date.now() };
+        runsCacheRef.current = { runs: await fetchTriggerRuns(), fetchedAt: Date.now() };
       }
 
       const { owner, repo } = splitSlug(slug);
@@ -1171,16 +1121,7 @@ function TriggersPage({
     }
     setSaving(true);
     try {
-      const { owner, repo } = splitSlug(detail.slug);
-      const response = await fetch(buildApiUrl(`/v1/overrides/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/x-yaml' },
-        body: editorValue,
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Failed to save trigger (${response.status})`);
-      }
+      await saveTrigger(detail.slug, editorValue);
       const manifest = parseTriggerYaml(editorValue);
       const summary = buildTriggerSummary(manifest);
       setDetail(prev => (prev ? { ...prev, rawYaml: editorValue, summary } : prev));
@@ -1223,15 +1164,7 @@ function TriggersPage({
     setCreateModal(prev => (prev ? { ...prev, pending: true, error: undefined } : prev));
     try {
       const yamlBody = createModal.yamlPreview;
-      const response = await fetch(buildApiUrl(`/v1/overrides/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/x-yaml' },
-        body: yamlBody,
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Failed to create trigger (${response.status})`);
-      }
+      await saveTrigger(`${owner}/${repo}`, yamlBody);
       setCreateModal(null);
       addToast('Trigger created.', 'success');
       await loadTriggers();
@@ -1271,15 +1204,7 @@ function TriggersPage({
 
     setCloneModal(prev => (prev ? { ...prev, pending: true, error: undefined } : prev));
     try {
-      const response = await fetch(buildApiUrl(`/v1/overrides/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/x-yaml' },
-        body: detail.rawYaml,
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Failed to clone trigger (${response.status})`);
-      }
+      await saveTrigger(`${owner}/${repo}`, detail.rawYaml);
       setCloneModal(null);
       addToast('Trigger cloned.', 'success');
       await loadTriggers();
@@ -1308,11 +1233,7 @@ function TriggersPage({
 
     setDeleteModal(prev => (prev ? { ...prev, pending: true, error: undefined } : prev));
     try {
-      const response = await fetch(buildApiUrl(`/v1/overrides/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`), { method: 'DELETE' });
-      if (!response.ok && response.status !== 204) {
-        const text = await response.text();
-        throw new Error(text || `Failed to delete trigger (${response.status})`);
-      }
+      await deleteTrigger(`${owner}/${repo}`);
       setDeleteModal(null);
       addToast('Trigger deleted.', 'success');
       await loadTriggers();
@@ -1896,48 +1817,14 @@ function TriggersPage({
                           </div>
                         )}
                       </div>
-                      {editorSuggestion && (
-                        <div
-                          className="pipeline-suggestion-overlay"
-                          style={{
-                            width: 340,
-                            maxWidth: 'calc(100% - 32px)',
-                            right: 16,
-                            bottom: 16,
-                            top: 'auto',
-                            left: 'auto',
-                          }}
-                        >
-                          <div className="scope-suggestion-panel">
-                            <div className="scope-suggestion-heading">
-                              <p className="scope-suggestion-kicker">Autocomplete</p>
-                              <p className="scope-suggestion-title">{editorSuggestion.title}</p>
-                              <p className="scope-suggestion-subtitle">
-                                Ctrl+Space • Enter to insert • Esc to close
-                                {autocompleteMeta.loading ? ' • Loading…' : ''}
-                              </p>
-                            </div>
-                            <div className="scope-suggestion-body">
-                              {editorSuggestion.items.length ? (
-                                <div className="scope-suggestion-list">
-                                  {editorSuggestion.items.map((item, idx) => (
-                                    <div
-                                      key={`sg-${item}-${idx}`}
-                                      className={`scope-suggestion-item ${idx === editorSuggestion.activeIndex ? 'scope-suggestion-item--active' : ''}`}
-                                    >
-                                      <button type="button" className="scope-suggestion-pill scope-suggestion-pill--action" onClick={() => applyEditorSuggestion(item)}>
-                                        {item}
-                                      </button>
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="scope-suggestion-empty">No suggestions available.</p>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      )}
+                      {editorSuggestion ? (
+                        <EditorAutocompleteMenu
+                          suggestion={editorSuggestion}
+                          loading={autocompleteMeta.loading}
+                          width={340}
+                          onSelect={applyEditorSuggestion}
+                        />
+                      ) : null}
                     </div>
                   )}
                 </div>

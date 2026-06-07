@@ -14,7 +14,7 @@ import {
   X,
 } from 'lucide-react';
 
-import { buildApiUrl } from '../lib/api';
+import { apiClient, buildApiUrl } from '../lib/api';
 import { fetchPipelineRunGroupPaths } from '../lib/resourceGroups';
 
 type AllowedCaller = {
@@ -208,7 +208,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
   const selectedManagedByGitOps = Boolean(selectedTrigger?.managed_by_config_repo);
 
   const fetchJson = useCallback(async <T,>(path: string, options?: RequestInit): Promise<T> => {
-    const response = await fetch(buildApiUrl(path), { cache: 'no-store', ...options });
+    const response = await apiClient.fetch(path, { cache: 'no-store', ...options });
     if (!response.ok) {
       const text = await response.text();
       throw new Error(text || `Request failed (${response.status})`);

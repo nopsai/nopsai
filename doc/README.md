@@ -11,6 +11,7 @@ Start here when you want to understand the system from different angles:
 - [feature-reference.md](./feature-reference.md): Functional capabilities exposed by the codebase and UI.
 - [first-install-wizard.md](./first-install-wizard.md): UI bootstrap flow for an empty database, starter profiles, secret generation, GitOps seeding, GitHub App guidance, repository groups, and production guardrails.
 - [enterprise-gates.md](./enterprise-gates.md): Production startup gates, local/CI verification commands, Docker build checks, and integration coverage baseline.
+- [enterprise-refactor-roadmap.md](./enterprise-refactor-roadmap.md): UI clean-code refactor status, ownership boundaries, and next enterprise-grade extraction targets.
 - [package-ownership.md](./package-ownership.md): Handler, service, store, domain, DTO, provider-client, and bootstrap ownership rules.
 - [decision-architecture.md](./decision-architecture.md): The main architectural decisions, why they exist, and the tradeoffs they introduce.
 - [access-control.md](./access-control.md): Current AAA service, product roles, access grants, route authorization, and audit behavior.

@@ -38,6 +38,13 @@ services:
       - ui-node-modules:/workspace/services/ui/node_modules
       - ui-dist:/workspace/services/ui/dist
 
+  ui-e2e:
+    image: mcr.microsoft.com/playwright:v1.60.0-noble
+    working_dir: /workspace/services/ui
+    command: sh -c "npm ci && npm run test:e2e"
+    volumes:
+      - .:/workspace
+
   db:
     container_name: nopsai-db
     image: postgres:15
@@ -46,6 +53,8 @@ services:
       ui-test:
         condition: "service_completed_successfully"
       backend-test:
+        condition: "service_completed_successfully"
+      ui-e2e:
         condition: "service_completed_successfully"
     environment:
       POSTGRES_DB: nopsai_db
@@ -87,6 +96,7 @@ services:
 
   aaa:
     container_name: nopsai-aaa
+    image: hoseindocker/nopsai-aaa
     build:
       context: .
       dockerfile: container/Dockerfile.aaa

@@ -1,83 +1,17 @@
 import { useEffect, useRef, useState, type ChangeEvent, type Dispatch, type FormEvent, type SetStateAction } from 'react';
 import { Mail, Plus, Save, Send, Trash2 } from 'lucide-react';
-
-type ConfigFormState = {
-  agent_image: string;
-  docker_network_name: string;
-  default_pipeline_timeout: string;
-  llm_agent_timeout: string;
-  auto_removal_agent_container: boolean;
-  agent_nopsai_api_url: string;
-  git_bot_nopsai_api_url: string;
-  nopsai_git_bot_api_url: string;
-  dispatcher_address: string;
-  dispatcher_routing: Record<string, string[]>;
-  runner_id: string;
-  runner_scopes: string;
-  runner_capacity: string;
-};
+import type {
+  ConfigFormState,
+  ConfigRepository,
+  ConfigRepositoryFormState,
+  NotificationMailSettingsFormState,
+  NotificationMailSettingsRecord,
+} from './config/model';
 
 type RoutingDraftRow = {
   localId: string;
   scope: string;
   runners: string;
-};
-
-type ConfigRepository = {
-  id: number;
-  scope_type: string;
-  scope_id: string;
-  repo_url: string;
-  branch: string;
-  base_path: string;
-  enabled: boolean;
-  write_enabled: boolean;
-  write_branch: string;
-  managed_by_config_repo?: boolean;
-  config_source_path?: string;
-  last_sync_status: string;
-  last_sync_message?: string;
-  last_sync_started_at?: string;
-  last_sync_completed_at?: string;
-  last_sync_commit_sha?: string;
-};
-
-type ConfigRepositoryFormState = {
-  repo_url: string;
-  branch: string;
-  base_path: string;
-  enabled: boolean;
-  write_enabled: boolean;
-  write_branch: string;
-};
-
-type NotificationMailSMTPSettings = {
-  host: string;
-  port: number;
-  start_tls: boolean;
-  username: string;
-  password_secret_ref: string;
-};
-
-type NotificationMailSettingsRecord = {
-  enabled: boolean;
-  from: string;
-  smtp: NotificationMailSMTPSettings;
-  source?: string;
-  config_source_path?: string;
-  managed_by_config_repo?: boolean;
-  updated_at?: string;
-};
-
-type NotificationMailSettingsFormState = {
-  enabled: boolean;
-  from: string;
-  smtp_host: string;
-  smtp_port: string;
-  smtp_start_tls: boolean;
-  smtp_username: string;
-  smtp_password_secret_ref: string;
-  test_to: string;
 };
 
 
