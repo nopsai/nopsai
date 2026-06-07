@@ -17,37 +17,43 @@ import {
 } from 'lucide-react';
 
 import ResourceAccessCard from '../components/ResourceAccessCard';
-import { buildApiUrl } from '../lib/api';
-import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups';
-
-type KnowledgeContextListItem = {
-  id: string;
-  uuid?: string;
-  kind: string;
-  group: string;
-  name: string;
-  description?: string;
-  visibility: string;
-  source: string;
-  updated_at?: string;
-  access?: string;
-  used_by_count?: number;
-  used_by?: string[];
-  config_source_path?: string;
-  config_source_commit_sha?: string;
-};
-
-type KnowledgeContextDetail = KnowledgeContextListItem & {
-  content: string;
-  managed_by_config_repo?: boolean;
-};
+import {
+  deleteKnowledgeContext,
+  fetchKnowledgeContext,
+  fetchKnowledgeContexts,
+  saveKnowledgeContext,
+} from '../features/knowledge-context/api';
+import {
+  KNOWLEDGE_CONTEXTS_CHANGED_EVENT,
+  buildKnowledgeID,
+  buildKnowledgeTree,
+  clearKnowledgeDraft,
+  countFolderDocs,
+  decodeKnowledgeRouteID,
+  deriveIdentityFromFolder,
+  emptyKnowledgeDraft,
+  encodeKnowledgeID,
+  findKnowledgeFolder,
+  isGitManagedDocument,
+  kindOrder,
+  loadKnowledgeDraft,
+  normalizeFolderPath,
+  normalizeKnowledgeSource,
+  parentFolder,
+  saveKnowledgeDraft,
+  splitKnowledgeContentForPreview,
+  splitKnowledgePath,
+  validateKnowledgeIdentity,
+  type KnowledgeContextDetail,
+  type KnowledgeContextListItem,
+  type KnowledgeFolderNode,
+} from '../features/knowledge-context/model';
+import { fetchResourceGroupPaths } from '../lib/resourceGroups';
 
 type KnowledgeContextPageProps = {
   canWriteKnowledge: boolean;
   canDeleteKnowledge: boolean;
 };
-
-const kindOrder = ['architecture', 'guardrail', 'policy', 'adr', 'guideline', 'runbook', 'reference', 'example'];
 
 type KnowledgeFormModalState = {
   mode: 'create' | 'clone';
@@ -71,181 +77,6 @@ type ToastMessage = {
   message: string;
   tone: 'success' | 'error' | 'info';
 };
-
-type KnowledgeFolderNode = {
-  id: string;
-  name: string;
-  fullPath: string;
-  children: KnowledgeFolderNode[];
-  docs: KnowledgeContextListItem[];
-};
-
-type KnowledgeDocumentParameters = Partial<Record<'name' | 'kind' | 'description', string>>;
-
-type KnowledgeDraftSnapshot = {
-  detail: KnowledgeContextDetail;
-  content: string;
-};
-
-const KNOWLEDGE_CONTEXTS_CHANGED_EVENT = 'nopsai-knowledge-contexts-changed';
-const knowledgeDraftStoragePrefix = 'nopsai.knowledge-context.draft.';
-
-const emptyDraft: KnowledgeContextDetail = {
-  id: 'architecture/team-1/new-document',
-  kind: 'architecture',
-  group: 'team-1',
-  name: 'new-document',
-  visibility: 'group',
-  source: 'database',
-  content: '',
-};
-
-function encodeKnowledgeID(id: string) {
-  return id.split('/').map(encodeURIComponent).join('/');
-}
-
-function buildKnowledgeID(kind: string, group: string, name: string) {
-  return [kind, group, name]
-    .map(part => part.trim().replace(/^\/+|\/+$/g, ''))
-    .filter(Boolean)
-    .join('/');
-}
-
-function knowledgeDraftStorageKey(id: string) {
-  return `${knowledgeDraftStoragePrefix}${id}`;
-}
-
-function saveKnowledgeDraft(snapshot: KnowledgeDraftSnapshot) {
-  if (typeof sessionStorage === 'undefined') return;
-  try {
-    sessionStorage.setItem(knowledgeDraftStorageKey(snapshot.detail.id), JSON.stringify(snapshot));
-  } catch {
-    // Best effort only; refs still cover the normal in-memory route transition.
-  }
-}
-
-function loadKnowledgeDraft(id: string): KnowledgeDraftSnapshot | null {
-  if (typeof sessionStorage === 'undefined') return null;
-  try {
-    const raw = sessionStorage.getItem(knowledgeDraftStorageKey(id));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<KnowledgeDraftSnapshot>;
-    if (!parsed?.detail || parsed.detail.id !== id || typeof parsed.content !== 'string') return null;
-    return parsed as KnowledgeDraftSnapshot;
-  } catch {
-    return null;
-  }
-}
-
-function clearKnowledgeDraft(id: string) {
-  if (typeof sessionStorage === 'undefined') return;
-  try {
-    sessionStorage.removeItem(knowledgeDraftStorageKey(id));
-  } catch {
-    // Ignore storage failures.
-  }
-}
-
-function splitKnowledgePath(id: string) {
-  const parts = id.split('/').filter(Boolean);
-  const name = parts.pop() || '';
-  return {
-    name,
-    folder: parts.join('/'),
-  };
-}
-
-function normalizeFolderPath(value: string) {
-  return value.trim().replace(/^\/+|\/+$/g, '').replace(/\/+/g, '/');
-}
-
-function parentFolder(path: string) {
-  const parts = normalizeFolderPath(path).split('/').filter(Boolean);
-  parts.pop();
-  return parts.join('/');
-}
-
-function buildKnowledgeTree(items: KnowledgeContextListItem[], groupPaths: string[]): KnowledgeFolderNode {
-  const root: KnowledgeFolderNode = { id: 'root', name: 'Knowledge Context', fullPath: '', children: [], docs: [] };
-  const nodes = new Map<string, KnowledgeFolderNode>([['', root]]);
-
-  const ensureNode = (fullPath: string) => {
-    const normalized = normalizeFolderPath(fullPath);
-    if (nodes.has(normalized)) return nodes.get(normalized)!;
-    const parentPath = parentFolder(normalized);
-    const parent = ensureNode(parentPath);
-    const name = normalized.split('/').filter(Boolean).pop() || 'root';
-    const node: KnowledgeFolderNode = { id: normalized || 'root', name, fullPath: normalized, children: [], docs: [] };
-    parent.children.push(node);
-    nodes.set(normalized, node);
-    return node;
-  };
-
-  kindOrder.forEach(kind => ensureNode(kind));
-  kindOrder.forEach(kind => {
-    groupPaths.forEach(groupPath => {
-      const normalizedGroup = normalizeFolderPath(groupPath);
-      if (!normalizedGroup) return;
-      insertGroupPath(root, `${kind}/${normalizedGroup}`, (id, name, fullPath) => {
-        const node: KnowledgeFolderNode = { id, name, fullPath, children: [], docs: [] };
-        nodes.set(fullPath, node);
-        return node;
-      });
-    });
-  });
-
-  for (const item of items) {
-    const { folder } = splitKnowledgePath(item.id);
-    ensureNode(folder).docs.push(item);
-  }
-
-  for (const node of nodes.values()) {
-    node.children.sort((a, b) => {
-      const ai = kindOrder.indexOf(a.name);
-      const bi = kindOrder.indexOf(b.name);
-      return (ai < 0 ? kindOrder.length : ai) - (bi < 0 ? kindOrder.length : bi) || a.name.localeCompare(b.name);
-    });
-    node.docs.sort((a, b) => a.name.localeCompare(b.name));
-  }
-
-  return root;
-}
-
-function findKnowledgeFolder(root: KnowledgeFolderNode, fullPath: string) {
-  const normalized = normalizeFolderPath(fullPath);
-  if (!normalized) return root;
-  const segments = normalized.split('/').filter(Boolean);
-  let current = root;
-  for (const segment of segments) {
-    const next = current.children.find(child => child.name === segment);
-    if (!next) return root;
-    current = next;
-  }
-  return current;
-}
-
-function countFolderDocs(node: KnowledgeFolderNode): number {
-  return node.docs.length + node.children.reduce((total, child) => total + countFolderDocs(child), 0);
-}
-
-function decodeRouteID(pathname: string) {
-  const prefix = '/knowledge-context/';
-  if (!pathname.startsWith(prefix)) return '';
-  return pathname
-    .slice(prefix.length)
-    .split('/')
-    .filter(Boolean)
-    .map(decodeURIComponent)
-    .join('/');
-}
-
-function sourceLabel(source: string) {
-  const value = source.toLowerCase();
-  if (value.includes('git')) return 'GitOps';
-  if (value.includes('repo')) return 'Repo';
-  if (value.includes('database')) return 'Database';
-  return 'UI';
-}
 
 function kindTitle(kind: string) {
   if (kind === 'adr') return 'ADR';
@@ -277,29 +108,6 @@ function kindIcon(kind: string): LucideIcon {
   }
 }
 
-function deriveIdentityFromFolder(activeFolder: string) {
-  const parts = normalizeFolderPath(activeFolder).split('/').filter(Boolean);
-  const first = parts[0] || '';
-  if (kindOrder.includes(first)) {
-    return {
-      kind: first,
-      group: parts.slice(1).join('/') || 'team-1',
-    };
-  }
-  return {
-    kind: 'architecture',
-    group: parts.join('/') || 'team-1',
-  };
-}
-
-function normalizeKnowledgeSource(source: string) {
-  const label = sourceLabel(source).toLowerCase();
-  if (label === 'gitops') return 'git';
-  if (label === 'repo') return 'repo';
-  if (label === 'database') return 'database';
-  return label || 'database';
-}
-
 function formatKnowledgeDate(value?: string) {
   if (!value) return '-';
   const parsed = new Date(value);
@@ -307,131 +115,10 @@ function formatKnowledgeDate(value?: string) {
   return parsed.toLocaleString();
 }
 
-function isGitManagedDocument(doc: Pick<KnowledgeContextListItem, 'source'> & { managed_by_config_repo?: boolean }) {
-  return Boolean(doc.managed_by_config_repo) || normalizeKnowledgeSource(doc.source) === 'git';
-}
-
-function splitKnowledgeContentForPreview(content: string): { content: string; parameters: KnowledgeDocumentParameters } {
-  const normalized = content.replace(/\r\n/g, '\n');
-  if (normalized.startsWith('---\n')) {
-    const end = normalized.indexOf('\n---', 4);
-    if (end >= 0) {
-      const bodyStart = end + (normalized[end + 4] === '\n' ? 5 : 4);
-      return {
-        content: normalized.slice(bodyStart),
-        parameters: parseKnowledgeParameterLines(normalized.slice(4, end)),
-      };
-    }
-  }
-
-  const contentLine = findTopLevelKnowledgeKey(normalized, 'content');
-  if (contentLine) {
-    const header = normalized.slice(0, contentLine.start);
-    const suffix = contentLine.text.slice('content:'.length).trim();
-    const rawBody = normalized.slice(contentLine.end);
-    return {
-      content: suffix && !suffix.startsWith('|') && !suffix.startsWith('>') ? unquoteYAMLScalar(suffix) : removeCommonIndent(rawBody),
-      parameters: parseKnowledgeParameterLines(header),
-    };
-  }
-
-  const leading = splitLeadingKnowledgeParameters(normalized);
-  if (leading) return leading;
-
-  return { content, parameters: {} };
-}
-
-function findTopLevelKnowledgeKey(content: string, key: string): { start: number; end: number; text: string } | null {
-  const lines = content.split('\n');
-  let offset = 0;
-  for (const line of lines) {
-    const text = line.replace(/\r$/, '');
-    if (text.startsWith(`${key}:`)) {
-      const next = offset + line.length + 1;
-      return { start: offset, end: Math.min(next, content.length), text };
-    }
-    offset += line.length + 1;
-  }
-  return null;
-}
-
-function splitLeadingKnowledgeParameters(content: string): { content: string; parameters: KnowledgeDocumentParameters } | null {
-  const firstLine = content.split('\n', 1)[0] || '';
-  if (!isKnowledgeParameterLine(firstLine)) return null;
-
-  const separator = content.indexOf('\n\n');
-  const header = separator >= 0 ? content.slice(0, separator) : content;
-  const body = separator >= 0 ? content.slice(separator + 2) : '';
-  const headerLines = header.split('\n');
-  if (headerLines.some(line => line.trim() && !line.startsWith(' ') && !line.startsWith('\t') && !isKnowledgeParameterLine(line))) {
-    return null;
-  }
-  return {
-    content: body,
-    parameters: parseKnowledgeParameterLines(header),
-  };
-}
-
-function isKnowledgeParameterLine(line: string) {
-  const key = line.split(':', 1)[0]?.trim();
-  return key === 'name' || key === 'kind' || key === 'description' || key === 'access';
-}
-
-function parseKnowledgeParameterLines(content: string): KnowledgeDocumentParameters {
-  const parameters: KnowledgeDocumentParameters = {};
-  for (const rawLine of content.split('\n')) {
-    if (!rawLine || rawLine.startsWith(' ') || rawLine.startsWith('\t')) continue;
-    const separator = rawLine.indexOf(':');
-    if (separator < 0) continue;
-    const key = rawLine.slice(0, separator).trim() as keyof KnowledgeDocumentParameters;
-    if (key !== 'name' && key !== 'kind' && key !== 'description') continue;
-    const value = unquoteYAMLScalar(rawLine.slice(separator + 1).trim());
-    if (value) parameters[key] = value;
-  }
-  return parameters;
-}
-
-function unquoteYAMLScalar(value: string) {
-  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-    return value.slice(1, -1);
-  }
-  return value;
-}
-
-function removeCommonIndent(content: string) {
-  const lines = content.split('\n');
-  const indents = lines
-    .filter(line => line.trim())
-    .map(line => {
-      const match = line.match(/^[ \t]*/);
-      return match ? match[0].length : 0;
-    });
-  const minIndent = indents.length ? Math.min(...indents) : 0;
-  return minIndent ? lines.map(line => line.slice(Math.min(minIndent, line.match(/^[ \t]*/)?.[0].length || 0))).join('\n') : content;
-}
-
-function validateKnowledgeIdentity(kind: string, group: string, name: string, existingItems: KnowledgeContextListItem[], currentID?: string) {
-  const normalizedKind = kind.trim();
-  const normalizedGroup = normalizeFolderPath(group);
-  const normalizedName = name.trim().replace(/\.(yaml|yml)$/i, '');
-  if (!kindOrder.includes(normalizedKind)) return 'Choose a supported kind.';
-  if (!normalizedGroup) return 'Group is required.';
-  if (normalizedGroup.split('/').some(part => !part || part === '.' || part === '..')) return 'Group contains invalid path segments.';
-  if (!normalizedName) return 'Document name is required.';
-  if (!/^[a-zA-Z0-9_.-]+$/.test(normalizedName)) return 'Document name can only contain letters, numbers, dots, underscores, and hyphens.';
-  const id = buildKnowledgeID(normalizedKind, normalizedGroup, normalizedName);
-  if (id !== currentID && existingItems.some(item => item.id === id)) return 'A knowledge context with that identifier already exists.';
-  return '';
-}
-
-function readError(response: Response, fallback: string) {
-  return response.text().then(text => text.trim() || fallback);
-}
-
 export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowledge }: KnowledgeContextPageProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const selectedID = decodeRouteID(location.pathname);
+  const selectedID = decodeKnowledgeRouteID(location.pathname);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const toastCounterRef = useRef(0);
   const editSessionOriginalRef = useRef<{ detail: KnowledgeContextDetail; content: string } | null>(null);
@@ -466,10 +153,7 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
     setListLoading(true);
     setListError(null);
     try {
-      const response = await fetch(buildApiUrl('/v1/knowledge-contexts'), { cache: 'no-store' });
-      if (!response.ok) throw new Error(await readError(response, `Unable to load knowledge contexts (${response.status})`));
-      const payload = await response.json();
-      setItems(Array.isArray(payload) ? payload : []);
+      setItems(await fetchKnowledgeContexts());
       window.dispatchEvent(new Event(KNOWLEDGE_CONTEXTS_CHANGED_EVENT));
     } catch (err) {
       setListError(err instanceof Error ? err.message : 'Unable to load knowledge contexts');
@@ -534,11 +218,7 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
     let cancelled = false;
     setDetailLoading(true);
     setDetailError(null);
-    fetch(buildApiUrl(`/v1/knowledge-contexts/${encodeKnowledgeID(selectedID)}`), { cache: 'no-store' })
-      .then(async response => {
-        if (!response.ok) throw new Error(await readError(response, `Unable to load document (${response.status})`));
-        return response.json();
-      })
+    fetchKnowledgeContext(selectedID)
       .then(payload => {
         if (cancelled) return;
         setDetail(payload);
@@ -666,7 +346,7 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
     const id = buildKnowledgeID(kind, group, name);
     const content = formModal.content || '';
     const draft: KnowledgeContextDetail = {
-      ...emptyDraft,
+      ...emptyKnowledgeDraft,
       id,
       kind,
       group,
@@ -728,19 +408,7 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
     setSaving(true);
     setDetailError(null);
     try {
-      const response = await fetch(buildApiUrl(`/v1/knowledge-contexts/${encodeKnowledgeID(detail.id)}`), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          kind: detail.kind,
-          group: detail.group,
-          name: detail.name,
-          description: detail.description || '',
-          content: editorValue,
-        }),
-      });
-      if (!response.ok) throw new Error(await readError(response, `Unable to save document (${response.status})`));
-      const payload = await response.json();
+      const payload = await saveKnowledgeContext(detail, editorValue);
       setDetail(payload);
       setEditorValue(payload.content || '');
       setDraftID(null);
@@ -791,8 +459,7 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
         pendingDraftRef.current = null;
         clearKnowledgeDraft(deleteModal.id);
       } else {
-        const response = await fetch(buildApiUrl(`/v1/knowledge-contexts/${encodeKnowledgeID(deleteModal.id)}`), { method: 'DELETE' });
-        if (!response.ok) throw new Error(await readError(response, `Unable to delete document (${response.status})`));
+        await deleteKnowledgeContext(deleteModal.id);
         await loadList();
       }
       setDeleteModal(null);

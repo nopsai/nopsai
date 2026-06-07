@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef } from 'react';
 import { Edit3, Plus, RefreshCw, Trash2, X } from 'lucide-react';
-import { buildApiUrl } from '../../lib/api';
-import { asRecord, normalizeStringArray, readOptionalString, readString } from './data';
+import { providerOptions, type LLMProfileFormState, type LLMProfileRecord } from './llm-profiles/model';
+import { useLLMProfiles } from './llm-profiles/useLLMProfiles';
 
 function PlusIcon() {
   return <Plus className="h-4 w-4" strokeWidth={2} aria-hidden="true" />;
@@ -19,84 +19,30 @@ function RefreshIcon() {
   return <RefreshCw className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />;
 }
 
-type LLMProfileRecord = {
-  name: string;
-  provider: string;
-  model: string;
-  base_url: string;
-  api_key_secret: string;
-  allowed_scopes: string[];
-  reasoning: string;
-  thinking?: boolean;
-  status: string;
-  validation?: string;
-  references?: string[];
-  allowed_in_scope?: boolean;
-  disabled_reason?: string;
-};
-
-type LLMProfilesPayload = {
-  default_profile: string;
-  profiles: LLMProfileRecord[];
-};
-
-type LLMProfileFormState = {
-  name: string;
-  provider: string;
-  model: string;
-  base_url: string;
-  api_key_secret: string;
-  allowed_scopes: string;
-  reasoning: string;
-  thinking: 'default' | 'true' | 'false';
-};
-
-type LLMProfilePanelMode = 'create' | 'edit' | 'delete';
-
-const emptyLLMProfileForm: LLMProfileFormState = {
-  name: '',
-  provider: 'gemini',
-  model: '',
-  base_url: '',
-  api_key_secret: 'GEMINI_API_KEY',
-  allowed_scopes: '',
-  reasoning: '',
-  thinking: 'default',
-};
-
 function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
-  const [payload, setPayload] = useState<LLMProfilesPayload>({ default_profile: 'standard', profiles: [] });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState<string | null>(null);
-  const [testResult, setTestResult] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState<string | null>(null);
-  const [form, setForm] = useState<LLMProfileFormState>(emptyLLMProfileForm);
-  const [deleteBlocker, setDeleteBlocker] = useState<{ name: string; references: string[]; migrateTo: string } | null>(null);
-  const [panelMode, setPanelMode] = useState<LLMProfilePanelMode | null>(null);
   const profilePanelRef = useRef<HTMLElement | null>(null);
-
-  const loadProfiles = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(buildApiUrl('/v1/system/llm-profiles'), { cache: 'no-store' });
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Failed to load LLM profiles (${response.status})`);
-      }
-      setPayload(normalizeLLMProfilesPayload(await response.json()));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load LLM profiles');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadProfiles();
-  }, [loadProfiles]);
+  const {
+    payload,
+    loading,
+    error,
+    saving,
+    testing,
+    testResult,
+    editingName,
+    form,
+    setForm,
+    deleteBlocker,
+    setDeleteBlocker,
+    panelMode,
+    setPanelMode,
+    loadProfiles,
+    startCreate,
+    startEdit,
+    saveProfile,
+    saveDefaultProfile,
+    deleteProfile,
+    testProfile,
+  } = useLLMProfiles({ canManage });
 
   useEffect(() => {
     if (!panelMode) return;
@@ -111,153 +57,6 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
     });
   }, [editingName, panelMode]);
 
-  const startCreate = () => {
-    setEditingName(null);
-    setForm(emptyLLMProfileForm);
-    setDeleteBlocker(null);
-    setTestResult(null);
-    setPanelMode('create');
-  };
-
-  const startEdit = (profile: LLMProfileRecord) => {
-    setEditingName(profile.name);
-    setForm({
-      name: profile.name,
-      provider: profile.provider || 'gemini',
-      model: profile.model || '',
-      base_url: profile.base_url || '',
-      api_key_secret: profile.api_key_secret || '',
-      allowed_scopes: (profile.allowed_scopes || []).join(', '),
-      reasoning: profile.reasoning || '',
-      thinking: profile.thinking === undefined ? 'default' : profile.thinking ? 'true' : 'false',
-    });
-    setDeleteBlocker(null);
-    setTestResult(null);
-    setPanelMode('edit');
-  };
-
-  const formToPayload = () => ({
-    name: form.name.trim(),
-    provider: form.provider.trim(),
-    model: form.model.trim(),
-    base_url: form.base_url.trim(),
-    api_key_secret: form.api_key_secret.trim(),
-    allowed_scopes: form.allowed_scopes.split(',').map(item => item.trim()).filter(Boolean),
-    reasoning: form.reasoning.trim(),
-    thinking: form.provider.trim() === 'lmstudio' && form.thinking !== 'default' ? form.thinking === 'true' : undefined,
-  });
-
-  const saveProfile = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!canManage) return;
-    const next = formToPayload();
-    if (!next.name) {
-      setError('Profile name is required.');
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    try {
-      const response = await fetch(buildApiUrl(`/v1/system/llm-profiles/${encodeURIComponent(next.name)}`), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(next),
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Failed to save LLM profile (${response.status})`);
-      }
-      setPayload(normalizeLLMProfilesPayload(await response.json()));
-      setEditingName(next.name);
-      setPanelMode('edit');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to save LLM profile');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const saveDefaultProfile = async (nextDefault: string) => {
-    if (!canManage || !nextDefault) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const response = await fetch(buildApiUrl('/v1/system/llm-profiles'), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          default_profile: nextDefault,
-          profiles: payload.profiles,
-        }),
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Failed to update default profile (${response.status})`);
-      }
-      setPayload(normalizeLLMProfilesPayload(await response.json()));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to update default profile');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const deleteProfile = async (name: string, opts?: { force?: boolean; migrateTo?: string }) => {
-    if (!canManage) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const params = new URLSearchParams();
-      if (opts?.force) params.set('force', 'true');
-      if (opts?.migrateTo) params.set('migrate_to', opts.migrateTo);
-      const suffix = params.toString() ? `?${params.toString()}` : '';
-      const response = await fetch(buildApiUrl(`/v1/system/llm-profiles/${encodeURIComponent(name)}${suffix}`), { method: 'DELETE' });
-      if (response.status === 409) {
-        const conflict = await response.json().catch(() => null);
-        const references = Array.isArray(conflict?.references) ? conflict.references.map((item: unknown) => String(item)) : [];
-        const fallback = payload.profiles.find(profile => profile.name !== name)?.name || '';
-        setDeleteBlocker({ name, references, migrateTo: fallback });
-        setPanelMode('delete');
-        return;
-      }
-      if (!response.ok && response.status !== 204) {
-        const text = await response.text();
-        throw new Error(text || `Failed to delete LLM profile (${response.status})`);
-      }
-      setDeleteBlocker(null);
-      if (editingName === name) {
-        setEditingName(null);
-        setForm(emptyLLMProfileForm);
-      }
-      setPanelMode(prev => (prev === 'delete' || editingName === name ? null : prev));
-      await loadProfiles();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to delete LLM profile');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const testProfile = async (name: string) => {
-    setTesting(name);
-    setTestResult(null);
-    setError(null);
-    try {
-      const response = await fetch(buildApiUrl(`/v1/system/llm-profiles/${encodeURIComponent(name)}/test`), { method: 'POST' });
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Profile test failed (${response.status})`);
-      }
-      const result = await response.json();
-      setTestResult(`${name}: ${readString(result?.reply) || 'ok'}`);
-    } catch (err) {
-      setTestResult(`${name}: ${err instanceof Error ? err.message : 'test failed'}`);
-    } finally {
-      setTesting(null);
-    }
-  };
-
-  const providerOptions = ['gemini', 'lmstudio'];
   const canDelete = (profile: LLMProfileRecord) => canManage && profile.name !== payload.default_profile;
   const migrationTargets = payload.profiles.filter(profile => profile.name !== deleteBlocker?.name).map(profile => profile.name);
   const showProfilePanel = panelMode !== null || deleteBlocker !== null;
@@ -490,41 +289,6 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
       </div>
     </div>
   );
-}
-
-
-function normalizeLLMProfilesPayload(value: unknown): LLMProfilesPayload {
-  const record = asRecord(value);
-  const profilesRaw = record && Array.isArray(record.profiles) ? record.profiles : [];
-  const profiles = profilesRaw
-    .map(item => {
-      const profile = asRecord(item);
-      if (!profile) return null;
-      const name = readString(profile.name).trim();
-      if (!name) return null;
-      return {
-        name,
-        provider: readString(profile.provider).trim(),
-        model: readString(profile.model).trim(),
-        base_url: readString(profile.base_url).trim(),
-        api_key_secret: readString(profile.api_key_secret).trim(),
-        allowed_scopes: normalizeStringArray(profile.allowed_scopes),
-        reasoning: readString(profile.reasoning).trim(),
-        thinking: typeof profile.thinking === 'boolean' ? profile.thinking : undefined,
-        status: readString(profile.status).trim() || 'unknown',
-        validation: readOptionalString(profile.validation),
-        references: normalizeStringArray(profile.references),
-        allowed_in_scope: typeof profile.allowed_in_scope === 'boolean' ? profile.allowed_in_scope : undefined,
-        disabled_reason: readOptionalString(profile.disabled_reason),
-      } satisfies LLMProfileRecord;
-    })
-    .filter(Boolean) as LLMProfileRecord[];
-
-  profiles.sort((a, b) => a.name.localeCompare(b.name));
-  return {
-    default_profile: readString(record?.default_profile).trim() || profiles[0]?.name || 'standard',
-    profiles,
-  };
 }
 
 

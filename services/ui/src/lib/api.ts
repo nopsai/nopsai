@@ -15,10 +15,6 @@ export type StoredSession = {
   mustChangePassword?: boolean;
 };
 
-type AuthFetchWindow = Window & typeof globalThis & {
-  __nopsaiAuthFetchInstalled?: boolean;
-};
-
 type AuthRefreshResponse = {
   access_token?: string;
   refresh_token?: string;
@@ -27,8 +23,16 @@ type AuthRefreshResponse = {
   must_change_password?: unknown;
 };
 
+type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+export type ApiRequestInit = RequestInit & {
+  auth?: boolean;
+  retryOnUnauthorized?: boolean;
+};
+
 export function getApiBaseUrl(): string {
-  const configuredBase = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/^['"]+|['"]+$/g, '');
+  const metaEnv = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env || {};
+  const configuredBase = (metaEnv.VITE_API_BASE_URL || '').trim().replace(/^['"]+|['"]+$/g, '');
   if (configuredBase) return configuredBase.replace(/\/+$/, '');
 
   if (typeof window !== 'undefined') {
@@ -117,19 +121,104 @@ export function clearSession() {
   dispatchAuthChanged();
 }
 
-export function installAuthInterceptor() {
-  if (typeof window === 'undefined') return;
-  const authWindow = window as AuthFetchWindow;
-  if (authWindow.__nopsaiAuthFetchInstalled) return;
-  authWindow.__nopsaiAuthFetchInstalled = true;
-  const originalFetch = window.fetch.bind(window);
-  let refreshPromise: Promise<StoredSession | null> | null = null;
+export class ApiClient {
+  private readonly fetchImpl: FetchLike;
+  private refreshPromise: Promise<StoredSession | null> | null = null;
 
-  const refreshSession = async (refreshToken?: string): Promise<StoredSession | null> => {
+  constructor(fetchImpl: FetchLike = (input, init) => fetch(input, init)) {
+    this.fetchImpl = fetchImpl;
+  }
+
+  async fetch(input: RequestInfo | URL | string, init: ApiRequestInit = {}): Promise<Response> {
+    const { auth = true, retryOnUnauthorized = true, ...requestInit } = init;
+    const url = this.resolveUrl(input);
+    const headers = this.buildHeaders(input, requestInit.headers);
+    const session = getStoredSession();
+    const authEligible = auth && this.shouldAttachAuth(input, url);
+
+    if (authEligible && session.accessToken && !headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${session.accessToken}`);
+    }
+
+    const sendRequest = (requestHeaders: Headers) =>
+      this.fetchImpl(url, {
+        ...this.copyRequestDefaults(input),
+        ...requestInit,
+        headers: requestHeaders,
+      });
+
+    let response = await sendRequest(headers);
+    if (!authEligible || !retryOnUnauthorized || response.status !== 401 || this.shouldBypassRefresh(url)) {
+      return response;
+    }
+
+    try {
+      const refreshed = await this.refreshSession(session.refreshToken || getStoredSession().refreshToken);
+      if (!refreshed?.accessToken) {
+        clearSession();
+        return response;
+      }
+      const retryHeaders = new Headers(headers);
+      retryHeaders.set('Authorization', `Bearer ${refreshed.accessToken}`);
+      response = await sendRequest(retryHeaders);
+      if (response.status === 401) {
+        clearSession();
+      }
+      return response;
+    } catch {
+      clearSession();
+      return response;
+    }
+  }
+
+  async json<T>(input: RequestInfo | URL | string, init: ApiRequestInit = {}): Promise<T> {
+    const response = await this.fetch(input, init);
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || `Request failed (${response.status})`);
+    }
+    if (response.status === 204) return undefined as T;
+    return response.json() as Promise<T>;
+  }
+
+  private resolveUrl(input: RequestInfo | URL | string): string {
+    if (this.isRequest(input)) return input.url;
+    const raw = input instanceof URL ? input.toString() : input;
+    if (/^https?:\/\//i.test(raw)) return raw;
+    return buildApiUrl(raw);
+  }
+
+  private buildHeaders(input: RequestInfo | URL | string, initHeaders?: HeadersInit): Headers {
+    const headers = this.isRequest(input) ? new Headers(input.headers) : new Headers();
+    new Headers(initHeaders || {}).forEach((value, key) => headers.set(key, value));
+    return headers;
+  }
+
+  private copyRequestDefaults(input: RequestInfo | URL | string): RequestInit {
+    if (!this.isRequest(input)) return {};
+    return {
+      method: input.method,
+      mode: input.mode,
+      credentials: input.credentials,
+      cache: input.cache,
+      redirect: input.redirect,
+      referrer: input.referrer,
+      referrerPolicy: input.referrerPolicy,
+      integrity: input.integrity,
+      keepalive: input.keepalive,
+      signal: input.signal,
+    };
+  }
+
+  private isRequest(input: RequestInfo | URL | string): input is Request {
+    return typeof Request !== 'undefined' && input instanceof Request;
+  }
+
+  private async refreshSession(refreshToken?: string): Promise<StoredSession | null> {
     if (!refreshToken) return null;
-    if (!refreshPromise) {
-      refreshPromise = (async () => {
-        const response = await originalFetch(buildApiUrl('/v1/auth/refresh'), {
+    if (!this.refreshPromise) {
+      this.refreshPromise = (async () => {
+        const response = await this.fetchImpl(buildApiUrl('/v1/auth/refresh'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ refresh_token: refreshToken }),
@@ -157,62 +246,37 @@ export function installAuthInterceptor() {
           throw err;
         })
         .finally(() => {
-          refreshPromise = null;
+          this.refreshPromise = null;
         });
     }
-    return refreshPromise;
-  };
+    return this.refreshPromise;
+  }
 
-  const shouldBypassRefresh = (url: string) =>
-    url.includes('/v1/auth/login') ||
-    url.includes('/v1/auth/refresh') ||
-    url.includes('/v1/auth/password');
+  private shouldBypassRefresh(url: string) {
+    return (
+      url.includes('/v1/auth/login') ||
+      url.includes('/v1/auth/refresh') ||
+      url.includes('/v1/auth/password')
+    );
+  }
 
-  window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const baseRequest = input instanceof Request ? input : new Request(input, init);
-    const url = baseRequest.url;
+  private shouldAttachAuth(input: RequestInfo | URL | string, url: string): boolean {
+    if (typeof input === 'string' && !/^https?:\/\//i.test(input)) return true;
+    if (url.startsWith('/')) return true;
+    const apiBase = getApiBaseUrl();
+    return Boolean(apiBase) && url.startsWith(`${apiBase}/`);
+  }
+}
 
-    const baseHeaders = init?.headers instanceof Headers ? new Headers(init.headers) : new Headers(init?.headers || {});
-    baseRequest.headers.forEach((value, key) => {
-      if (!baseHeaders.has(key)) baseHeaders.set(key, value);
-    });
+export const apiClient = new ApiClient();
 
-    const session = getStoredSession();
-    if (session.accessToken && !baseHeaders.has('Authorization')) {
-      baseHeaders.set('Authorization', `Bearer ${session.accessToken}`);
-    }
-
-    const finalInit: RequestInit = { ...init, headers: baseHeaders };
-    const sendRequest = (headers: Headers = baseHeaders) =>
-      originalFetch(new Request(baseRequest, { ...finalInit, headers }));
-
-    let response = await sendRequest();
-    if (response.status !== 401 || shouldBypassRefresh(url)) {
-      return response;
-    }
-
-    try {
-      const refreshed = await refreshSession(session.refreshToken || getStoredSession().refreshToken);
-      if (!refreshed?.accessToken) {
-        clearSession();
-        return response;
-      }
-      const retryHeaders = new Headers(baseHeaders);
-      retryHeaders.set('Authorization', `Bearer ${refreshed.accessToken}`);
-      response = await sendRequest(retryHeaders);
-      if (response.status === 401) {
-        clearSession();
-      }
-      return response;
-    } catch {
-      clearSession();
-      return response;
-    }
-  };
+export function apiFetch(input: RequestInfo | URL | string, init?: ApiRequestInit): Promise<Response> {
+  return apiClient.fetch(input, init);
 }
 
 export async function loginLocal(identifier: string, password: string) {
-  const response = await fetch(buildApiUrl('/v1/auth/login'), {
+  const response = await apiClient.fetch('/v1/auth/login', {
+    auth: false,
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ identifier, password }),
@@ -225,7 +289,7 @@ export async function loginLocal(identifier: string, password: string) {
 }
 
 export async function updateEmail(email: string): Promise<{ email: string }> {
-  const response = await fetch(buildApiUrl('/v1/auth/email'), {
+  const response = await apiClient.fetch('/v1/auth/email', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email }),
@@ -240,7 +304,7 @@ export async function updateEmail(email: string): Promise<{ email: string }> {
 }
 
 export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
-  const response = await fetch(buildApiUrl('/v1/auth/password'), {
+  const response = await apiClient.fetch('/v1/auth/password', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
@@ -268,7 +332,7 @@ export type CreatePersonalAccessTokenOptions = {
 };
 
 export async function listPersonalAccessTokens(): Promise<PersonalAccessToken[]> {
-  const response = await fetch(buildApiUrl('/v1/auth/personal-tokens'));
+  const response = await apiClient.fetch('/v1/auth/personal-tokens');
   if (!response.ok) {
     const text = await response.text();
     throw new Error(text || 'Failed to load personal tokens');
@@ -278,7 +342,7 @@ export async function listPersonalAccessTokens(): Promise<PersonalAccessToken[]>
 }
 
 export async function createPersonalAccessToken(name: string, options: CreatePersonalAccessTokenOptions): Promise<PersonalAccessToken> {
-  const response = await fetch(buildApiUrl('/v1/auth/personal-tokens'), {
+  const response = await apiClient.fetch('/v1/auth/personal-tokens', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -296,7 +360,7 @@ export async function createPersonalAccessToken(name: string, options: CreatePer
 }
 
 export async function revokePersonalAccessToken(tokenID: string): Promise<void> {
-  const response = await fetch(buildApiUrl(`/v1/auth/personal-tokens/${encodeURIComponent(tokenID)}`), {
+  const response = await apiClient.fetch(`/v1/auth/personal-tokens/${encodeURIComponent(tokenID)}`, {
     method: 'DELETE',
   });
   if (!response.ok) {

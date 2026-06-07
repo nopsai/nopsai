@@ -17,205 +17,36 @@ import {
   Trash2,
   Users,
 } from 'lucide-react';
-import { buildApiUrl } from '../lib/api';
-
-type SetupCheck = {
-  id: string;
-  label: string;
-  status: 'success' | 'warning' | 'error' | 'info' | string;
-  message?: string;
-  blocking: boolean;
-};
-
-type SetupCounts = {
-  users: number;
-  pipelines: number;
-  steps: number;
-  triggers: number;
-  groups: number;
-  access_grants: number;
-  llm_profiles: number;
-  mcp_servers: number;
-  mcp_profiles: number;
-  knowledge_contexts: number;
-  config_repositories: number;
-};
-
-type SetupStatus = {
-  completed: boolean;
-  completed_at?: string;
-  counts: SetupCounts;
-  checks: SetupCheck[];
-  github: {
-    webhook_url?: string;
-    git_bot_service_url?: string;
-    nopsai_api_url?: string;
-    required_events?: string[];
-    required_permissions?: Record<string, string>;
-  };
-  global_config_repo?: {
-    repo_url: string;
-    branch: string;
-    base_path?: string;
-    enabled: boolean;
-    last_sync_status?: string;
-    last_sync_message?: string;
-  };
-};
-
-type SetupTemplates = {
-  profile: string;
-  files: Record<string, string>;
-};
-
-type TemporaryCredential = {
-  sub: string;
-  email?: string;
-  temporary_password?: string;
-  role?: string;
-};
-
-type BootstrapResponse = {
-  status: SetupStatus;
-  details?: Record<string, number>;
-  generated_secrets?: string[];
-  requires_restart?: boolean;
-  temporary_credentials?: TemporaryCredential[];
-  messages?: string[];
-  warnings?: string[];
-};
-
-type RepositoryGroupDraft = {
-  id: string;
-  name: string;
-  repositoriesText: string;
-};
-
-type UserDraft = {
-  id: string;
-  email: string;
-  password: string;
-  role: 'owner' | 'developer' | 'viewer';
-  group: string;
-};
-
-type SetupStepID = 'readiness' | 'runtime' | 'gitops' | 'github' | 'repositories' | 'ai' | 'users' | 'review';
-type RuntimeImplementation = 'docker' | 'kubernetes';
-type GitHubPrivateKeyMode = 'path' | 'inline';
-
-type RuntimeDefaults = {
-  nopsaiAPIURL: string;
-  gitBotServiceURL: string;
-};
-
-type RuntimeEnvSection = {
-  title: string;
-  fileName: string;
-  lines: string[];
-};
-
-const WIZARD_STEPS: Array<{ id: SetupStepID; label: string; required: boolean }> = [
-  { id: 'readiness', label: 'Readiness', required: true },
-  { id: 'runtime', label: 'Runtime', required: true },
-  { id: 'gitops', label: 'GitOps', required: false },
-  { id: 'github', label: 'GitHub App', required: false },
-  { id: 'repositories', label: 'Groups', required: false },
-  { id: 'ai', label: 'AI', required: false },
-  { id: 'users', label: 'Users', required: false },
-  { id: 'review', label: 'Output', required: true },
-];
-
-const REVIEW_STEP_INDEX = WIZARD_STEPS.findIndex(step => step.id === 'review');
-const LLM_SKIP_WARNING = 'LLM profile setup was skipped. Pipelines with AI-enabled goal tasks may not work until an LLM profile is configured.';
-
-async function fetchJson(path: string, init?: RequestInit): Promise<unknown> {
-  const response = await fetch(buildApiUrl(path), init);
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `Request failed (${response.status})`);
-  }
-  return response.json();
-}
-
-function makeID(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function initialRepositoryGroups(): RepositoryGroupDraft[] {
-  return [
-    { id: makeID('group'), name: 'platform', repositoriesText: '' },
-    { id: makeID('group'), name: 'applications', repositoriesText: '' },
-  ];
-}
-
-function parseRepositories(value: string): string[] {
-  return Array.from(
-    new Set(
-      value
-        .split(/[\n,]+/)
-        .map(item => item.trim())
-        .filter(Boolean)
-    )
-  ).sort();
-}
-
-function normalizeGroupName(value: string): string {
-  return value.trim().replace(/^\/+|\/+$/g, '').replace(/[\\/\s]+/g, '-');
-}
-
-function statusClasses(status: string): string {
-  switch (status) {
-    case 'success':
-      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300';
-    case 'error':
-      return 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300';
-    case 'warning':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300';
-    default:
-      return 'border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300';
-  }
-}
+import { bootstrapSetup, downloadSetupTemplatesZip, fetchSetupStatus, fetchSetupTemplates } from './setup/api';
+import {
+  LLM_SKIP_WARNING,
+  REVIEW_STEP_INDEX,
+  WIZARD_STEPS,
+  defaultSecretName,
+  deriveGitBotBaseURL,
+  initialRepositoryGroups,
+  isLikelyPublicURL,
+  makeID,
+  normalizeGroupName,
+  parseRepositories,
+  runtimeDefaults,
+  secretPlaceholder,
+  statusClasses,
+  type BootstrapResponse,
+  type GitHubPrivateKeyMode,
+  type RepositoryGroupDraft,
+  type RuntimeEnvSection,
+  type RuntimeImplementation,
+  type SetupStatus,
+  type SetupTemplates,
+  type UserDraft,
+} from './setup/model';
 
 function statusIcon(status: string) {
   if (status === 'success') return <CheckCircle2 className="h-4 w-4" />;
   if (status === 'error') return <AlertTriangle className="h-4 w-4" />;
   if (status === 'warning') return <AlertTriangle className="h-4 w-4" />;
   return <Info className="h-4 w-4" />;
-}
-
-function deriveGitBotBaseURL(webhookURL?: string): string {
-  const value = (webhookURL || '').trim();
-  if (!value) return 'https://nopsai.example.com/git-bot';
-  return value.replace(/\/webhook\/?$/, '');
-}
-
-function defaultSecretName(provider: string): string {
-  return provider === 'gemini' ? 'GEMINI_API_KEY' : 'LLM_API_KEY';
-}
-
-function runtimeDefaults(runtime: RuntimeImplementation): RuntimeDefaults {
-  if (runtime === 'kubernetes') {
-    return {
-      nopsaiAPIURL: 'http://nopsai.nopsai.svc.cluster.local:8080',
-      gitBotServiceURL: 'http://nopsai-git-bot.nopsai.svc.cluster.local:8081',
-    };
-  }
-  return {
-    nopsaiAPIURL: 'http://nopsai:8080',
-    gitBotServiceURL: 'http://git-bot:8081',
-  };
-}
-
-function isLikelyPublicURL(value?: string): boolean {
-  const trimmed = (value || '').trim();
-  if (!trimmed) return false;
-  try {
-    const parsed = new URL(trimmed);
-    const host = parsed.hostname.toLowerCase();
-    return host !== 'localhost' && host !== '127.0.0.1' && host !== 'git-bot' && !host.endsWith('.svc.cluster.local');
-  } catch {
-    return false;
-  }
 }
 
 function generateBrowserSecret(bytes = 32): string {
@@ -241,10 +72,6 @@ function downloadTextFile(fileName: string, content: string, mimeType = 'text/pl
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
-}
-
-function secretPlaceholder(provided: boolean, fallback: string): string {
-  return provided ? '<provided in wizard; store as a secret value>' : fallback;
 }
 
 function StepIntro({ title, children, icon }: { title: string; children: ReactNode; icon: ReactNode }) {
@@ -365,7 +192,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
     setLoading(true);
     setError(null);
     try {
-      const payload = (await fetchJson('/v1/setup/status')) as SetupStatus;
+      const payload = await fetchSetupStatus();
       setStatus(payload);
       setNopsaiAPIURL(current => {
         const configured = (payload.github.nopsai_api_url || '').trim();
@@ -478,7 +305,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
     setError(null);
     try {
       const params = buildTemplateParams();
-      const payload = (await fetchJson(`/v1/setup/templates?${params.toString()}`)) as SetupTemplates;
+      const payload = await fetchSetupTemplates(params);
       setTemplates(payload);
       const paths = Object.keys(payload.files).sort();
       setSelectedTemplatePath(paths[0] || '');
@@ -494,12 +321,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
     setError(null);
     try {
       const params = buildTemplateParams();
-      const response = await fetch(buildApiUrl(`/v1/setup/templates.zip?${params.toString()}`));
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Download failed (${response.status})`);
-      }
-      const blob = await response.blob();
+      const blob = await downloadSetupTemplatesZip(params);
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
@@ -673,37 +495,33 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
     setError(null);
     setBootstrapResult(null);
     try {
-      const payload = (await fetchJson('/v1/setup/bootstrap', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          profile: 'team',
-          generate_secrets: generateServiceSecrets,
-          seed_starter_database: true,
-          seed_llm_profile: aiEnabled,
-          mcp_examples: aiEnabled && mcpExamples,
-          production_acknowledged: false,
-          sync_config_repository: Boolean(syncConfigRepository && repoURL.trim()),
-          config_repository: {
-            repo_url: repoURL.trim(),
-            branch: branch.trim() || 'main',
-            base_path: basePath.trim(),
-            enabled: true,
-          },
-          repository_groups: normalizedRepositoryGroups,
-          repositories,
-          llm_profile: {
-            name: 'standard',
-            provider: llmProvider.trim(),
-            model: llmModel.trim(),
-            base_url: llmProvider === 'gemini' ? '' : llmBaseURL.trim(),
-            api_key_secret: aiEnabled && (llmProvider === 'gemini' || llmAPIKey.trim()) ? llmSecretName : '',
-            api_key_value: aiEnabled ? llmAPIKey.trim() : '',
-            allowed_scopes: ['dev', 'prod'],
-          },
-          users: userPayload,
-        }),
-      })) as BootstrapResponse;
+      const payload = await bootstrapSetup({
+        profile: 'team',
+        generate_secrets: generateServiceSecrets,
+        seed_starter_database: true,
+        seed_llm_profile: aiEnabled,
+        mcp_examples: aiEnabled && mcpExamples,
+        production_acknowledged: false,
+        sync_config_repository: Boolean(syncConfigRepository && repoURL.trim()),
+        config_repository: {
+          repo_url: repoURL.trim(),
+          branch: branch.trim() || 'main',
+          base_path: basePath.trim(),
+          enabled: true,
+        },
+        repository_groups: normalizedRepositoryGroups,
+        repositories,
+        llm_profile: {
+          name: 'standard',
+          provider: llmProvider.trim(),
+          model: llmModel.trim(),
+          base_url: llmProvider === 'gemini' ? '' : llmBaseURL.trim(),
+          api_key_secret: aiEnabled && (llmProvider === 'gemini' || llmAPIKey.trim()) ? llmSecretName : '',
+          api_key_value: aiEnabled ? llmAPIKey.trim() : '',
+          allowed_scopes: ['dev', 'prod'],
+        },
+        users: userPayload,
+      });
       setBootstrapResult(payload);
       setStatus(payload.status);
       setLLMAPIKey('');

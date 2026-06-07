@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { buildApiUrl, loginLocal, persistSession } from '../lib/api';
+import { apiClient, loginLocal, persistSession } from '../lib/api';
 
 type SetupPreflightCheck = {
   id: string;
@@ -31,7 +31,7 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(buildApiUrl('/v1/setup/preflight'), { cache: 'no-store' })
+    apiClient.fetch('/v1/setup/preflight', { cache: 'no-store' })
       .then(async response => {
         if (response.status === 404) return null;
         const payload = (await response.json()) as SetupPreflight;
@@ -139,8 +139,11 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
         </div>
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div className="space-y-2">
-            <label className="block text-sm font-medium text-[var(--text-secondary)]">Email or username</label>
+            <label htmlFor="login-identifier" className="block text-sm font-medium text-[var(--text-secondary)]">
+              Email or username
+            </label>
             <input
+              id="login-identifier"
               value={identifier}
               onChange={e => setIdentifier(e.target.value)}
               className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)]"
@@ -149,8 +152,11 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
             />
           </div>
           <div className="space-y-2">
-            <label className="block text-sm font-medium text-[var(--text-secondary)]">Password</label>
+            <label htmlFor="login-password" className="block text-sm font-medium text-[var(--text-secondary)]">
+              Password
+            </label>
             <input
+              id="login-password"
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
@@ -164,7 +170,7 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
           <button
             type="submit"
             disabled={loading || loginBlocked}
-            className="w-full py-2 rounded-lg bg-[var(--border-accent)] text-white font-medium hover:opacity-90 disabled:opacity-60 transition"
+            className="w-full rounded-lg bg-indigo-700 py-2 font-medium text-white transition hover:bg-indigo-800 disabled:opacity-60 dark:bg-indigo-600 dark:hover:bg-indigo-500"
           >
             {loading ? 'Signing in...' : 'Sign in'}
           </button>

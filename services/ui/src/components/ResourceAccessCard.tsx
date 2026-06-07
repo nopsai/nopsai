@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, GitBranch, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
 
-import { buildApiUrl } from '../lib/api';
+import { apiClient } from '../lib/api';
 import { buildResourceGroupPaths, type ResourceGroup } from '../lib/resourceGroups';
 
 type AccessGrant = {
@@ -147,7 +147,7 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(buildApiUrl(`${endpoint}/access`), { cache: 'no-store' });
+      const response = await apiClient.fetch(`${endpoint}/access`, { cache: 'no-store' });
       if (!response.ok) {
         throw new Error(await readResponseError(response, `Access settings unavailable (${response.status})`));
       }
@@ -165,7 +165,7 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
   const loadGroups = useCallback(async () => {
     setGroupsLoading(true);
     try {
-      const response = await fetch(buildApiUrl('/v1/groups'), { cache: 'no-store' });
+      const response = await apiClient.fetch('/v1/groups', { cache: 'no-store' });
       if (!response.ok) {
         setGroups([]);
         return;
@@ -181,7 +181,7 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
   const loadServiceAccounts = useCallback(async () => {
     setServiceAccountsLoading(true);
     try {
-      const response = await fetch(buildApiUrl('/v1/admin/service-accounts'), { cache: 'no-store' });
+      const response = await apiClient.fetch('/v1/admin/service-accounts', { cache: 'no-store' });
       if (!response.ok) {
         setServiceAccounts([]);
         return;
@@ -212,7 +212,7 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
       setSaving(true);
       setError(null);
       try {
-        const response = await fetch(buildApiUrl(`${endpoint}/access`), {
+        const response = await apiClient.fetch(`${endpoint}/access`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ visibility }),
@@ -238,7 +238,7 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
     setSaving(true);
     setError(null);
     try {
-      const response = await fetch(buildApiUrl(`${endpoint}/grants`), {
+      const response = await apiClient.fetch(`${endpoint}/grants`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -266,7 +266,7 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
       setSaving(true);
       setError(null);
       try {
-        const response = await fetch(buildApiUrl(`${endpoint}/grants/${encodeURIComponent(grantID)}`), { method: 'DELETE' });
+        const response = await apiClient.fetch(`${endpoint}/grants/${encodeURIComponent(grantID)}`, { method: 'DELETE' });
         if (!response.ok) {
           throw new Error(await readResponseError(response, `Unable to remove access (${response.status})`));
         }

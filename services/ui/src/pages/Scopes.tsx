@@ -2,31 +2,43 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import yaml from 'js-yaml';
 import { Copy, KeyRound } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { buildApiUrl } from '../lib/api';
-import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups';
+import { fetchResourceGroupPaths } from '../lib/resourceGroups';
 import ResourceAccessCard from '../components/ResourceAccessCard';
+import {
+  checkScopePermission,
+  deleteScopedValue,
+  encryptSecretValue,
+  fetchScopeCatalogs,
+  fetchScopedItems,
+  fetchScopeUsageCatalogs,
+  fetchScopeUsagePipelineYaml,
+  fetchScopeUsageTriggerYaml,
+  fetchVariableValue as fetchVariableValueRequest,
+  saveScopedValue,
+  scopedResourcePath,
+} from '../features/scopes/api';
+import {
+  buildScopeTree,
+  decodeScopeFromRoute,
+  encodeScopeForRoute,
+  normalizeItemListPayload,
+  normalizeRepositorySlug,
+  normalizeScopeLabel,
+  normalizeSourceKey,
+  parseScopedIdentity,
+  sanitizeScopeSegments,
+  suggestCloneName,
+  type ItemMeta,
+  type ScopeEntry,
+  type ScopeTreeNode,
+  type SourceKey,
+} from '../features/scopes/model';
 
 const VARIABLE_NAME_PATTERN = /^[A-Za-z0-9_.-]+$/;
 const SECRET_NAME_PATTERN = /^[A-Za-z0-9_.-]+$/;
 const SAMPLE_SCOPE_VARIABLE = 'sample_variable';
 const SAMPLE_SCOPE_VALUE = 'Replace with your %SCOPE% scope value.';
 const SCOPE_PERMISSION_PROBE_NAME = '__nopsai_permission_probe__';
-
-type ScopeEntry = {
-  scope: string;
-  label: string;
-  folderPath: string;
-  description: string;
-  secretCountHint: number;
-};
-
-type SourceKey = 'git' | 'database' | 'draft' | 'local';
-
-type ItemMeta = {
-  source: SourceKey;
-  createdAt?: string;
-  updatedAt?: string;
-};
 
 type ScopeData = {
   variables: string[];
@@ -90,22 +102,6 @@ type DeleteModalState = {
   error?: string;
 };
 
-type ScopeTreeNode = {
-  id: string;
-  name: string;
-  fullPath: string;
-  children: ScopeTreeNode[];
-  scopes: string[];
-};
-
-type ScopedIdentity = {
-  repoOwner: string;
-  repoName: string;
-  repoSlug: string;
-  name: string;
-  fullName: string;
-};
-
 type PipelineMeta = {
   identifier: string;
   name: string;
@@ -123,16 +119,6 @@ type TriggerDescriptor = {
   branches: string[];
   tags: string[];
 };
-
-function normalizeSourceKey(raw: unknown): SourceKey {
-  const value = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
-  if (!value) return 'database';
-  if (value.includes('git')) return 'git';
-  if (value.includes('draft')) return 'draft';
-  if (value.includes('local')) return 'local';
-  if (value.includes('db') || value.includes('database')) return 'database';
-  return 'database';
-}
 
 function sourceLabel(source: SourceKey): string {
   switch (normalizeSourceKey(source)) {
@@ -169,46 +155,6 @@ function formatScopeDisplay(scopeLabel: string): string {
   return normalized ? `/${normalized}` : '/';
 }
 
-function parseScopedIdentity(fullName: string): ScopedIdentity {
-  const normalized = String(fullName || '').trim().replace(/^\/+|\/+$/g, '');
-  const parts = normalized.split('/').filter(Boolean);
-  if (parts.length === 3) {
-    const [repoOwner, repoName, name] = parts;
-    return {
-      repoOwner,
-      repoName,
-      repoSlug: `${repoOwner}/${repoName}`,
-      name,
-      fullName: `${repoOwner}/${repoName}/${name}`,
-    };
-  }
-  return {
-    repoOwner: '',
-    repoName: '',
-    repoSlug: '',
-    name: normalized,
-    fullName: normalized,
-  };
-}
-
-function normalizeRepositorySlug(raw: string): string {
-  const trimmed = String(raw || '').trim().replace(/^\/+|\/+$/g, '');
-  if (!trimmed) return '';
-  const parts = trimmed.split('/').filter(Boolean);
-  if (parts.length !== 2) return '';
-  const [owner, repo] = parts;
-  if (!owner || !repo || /\s/.test(owner) || /\s/.test(repo)) return '';
-  return `${owner}/${repo}`;
-}
-
-function sanitizeScopeSegments(raw: string): string[] {
-  if (!raw) return [];
-  return String(raw)
-    .split('/')
-    .map(part => part.trim().replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, ''))
-    .filter(Boolean);
-}
-
 function createInitialScopeData(): ScopeData {
   return {
     variables: [],
@@ -222,77 +168,12 @@ function createInitialScopeData(): ScopeData {
   };
 }
 
-function normalizeScopeLabel(value: unknown): string {
-  if (value == null) return '';
-  const normalized = String(value)
-    .trim()
-    .replace(/^\/+|\/+$/g, '');
-  return normalized.toLowerCase() === 'default' ? '' : normalized;
-}
-
-function encodeScopeForRoute(scope: string): string {
-  const normalized = normalizeScopeLabel(scope);
-  if (!normalized) return 'default';
-  return normalized
-    .split('/')
-    .filter(Boolean)
-    .map(encodeURIComponent)
-    .join('/');
-}
-
-function decodeScopeFromRoute(segments: string[]): string {
-  const decoded = segments
-    .filter(Boolean)
-    .map(segment => {
-      try {
-        return decodeURIComponent(segment);
-      } catch {
-        return segment;
-      }
-    })
-    .filter(Boolean);
-
-  if (decoded.length === 1 && decoded[0] === 'default') return '';
-  if (decoded[0] === 'default') return decoded.slice(1).join('/');
-  return decoded.join('/');
-}
-
 function parentFolder(path: string): string {
   const cleaned = normalizeScopeLabel(path);
   if (!cleaned) return '';
   const parts = cleaned.split('/').filter(Boolean);
   parts.pop();
   return parts.join('/');
-}
-
-function buildScopeTree(scopes: ScopeEntry[], groupPaths: string[] = []): ScopeTreeNode {
-  const root: ScopeTreeNode = { id: '__root__', name: 'All scopes', fullPath: '', children: [], scopes: [] };
-  groupPaths.forEach(path => {
-    insertGroupPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], scopes: [] }));
-  });
-  scopes.forEach(scope => {
-    const normalized = normalizeScopeLabel(scope.scope);
-    const parts = normalized.split('/').filter(Boolean);
-    if (!parts.length) {
-      root.scopes.push('');
-      return;
-    }
-    let current = root;
-    let pathSoFar = '';
-    parts.forEach(segment => {
-      pathSoFar = pathSoFar ? `${pathSoFar}/${segment}` : segment;
-      let child = current.children.find(node => node.name === segment);
-      if (!child) {
-        child = { id: pathSoFar, name: segment, fullPath: pathSoFar, children: [], scopes: [] };
-        current.children.push(child);
-        current.children.sort((a, b) => a.name.localeCompare(b.name));
-      }
-      current = child;
-    });
-    current.scopes.push(normalized);
-    current.scopes.sort((a, b) => a.localeCompare(b));
-  });
-  return root;
 }
 
 function getScopeTreeNode(root: ScopeTreeNode, path: string): ScopeTreeNode | null {
@@ -318,47 +199,6 @@ function countScopesRecursive(node: ScopeTreeNode): number {
 
 function isEditableSource(source: SourceKey): boolean {
   return normalizeSourceKey(source) !== 'git';
-}
-
-function normalizeItemListPayload(payload: unknown): { names: string[]; meta: Record<string, ItemMeta> } {
-  const names: string[] = [];
-  const meta: Record<string, ItemMeta> = {};
-  if (!Array.isArray(payload)) return { names, meta };
-
-  payload.forEach(item => {
-    if (typeof item === 'string') {
-      const name = item.trim();
-      if (!name || meta[name]) return;
-      meta[name] = { source: 'database' };
-      names.push(name);
-      return;
-    }
-    if (!item || typeof item !== 'object') return;
-    const record = item as Record<string, unknown>;
-    const name = typeof record.name === 'string' ? record.name.trim() : '';
-    if (!name || meta[name]) return;
-    const createdAt =
-      typeof record.created_at === 'string'
-        ? record.created_at
-        : typeof record.createdAt === 'string'
-          ? record.createdAt
-          : '';
-    const updatedAt =
-      typeof record.updated_at === 'string'
-        ? record.updated_at
-        : typeof record.updatedAt === 'string'
-          ? record.updatedAt
-          : '';
-    meta[name] = {
-      source: normalizeSourceKey(record.source),
-      createdAt: createdAt || undefined,
-      updatedAt: updatedAt || undefined,
-    };
-    names.push(name);
-  });
-
-  names.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-  return { names, meta };
 }
 
 type GroupedScopedItem = { full: string; display: string };
@@ -391,21 +231,6 @@ function groupScopedItems(items: string[]): GroupedScopedList {
     .sort((a, b) => a.repo.localeCompare(b.repo, undefined, { sensitivity: 'base' }));
 
   return { global, repositories };
-}
-
-function suggestCloneName(existing: string[], repoSlug: string, baseName: string): string {
-  const sanitizedBase = String(baseName || 'item')
-    .trim()
-    .replace(/[^A-Za-z0-9_.-]+/g, '-')
-    .replace(/^-+|-+$/g, '') || 'item';
-  const existingSet = new Set(existing.map(name => name.toLowerCase()));
-  const buildFull = (candidate: string) => (repoSlug ? `${repoSlug}/${candidate}` : candidate).toLowerCase();
-  let candidate = `${sanitizedBase}_copy`;
-  let counter = 2;
-  while (existingSet.has(buildFull(candidate))) {
-    candidate = `${sanitizedBase}_copy_${counter++}`;
-  }
-  return candidate;
 }
 
 async function runWithConcurrencyLimit(tasks: Array<() => Promise<void>>, limit = 4): Promise<void> {
@@ -718,15 +543,7 @@ function ScopesPage({
   };
 
   const checkAccessPermission = useCallback(async (action: string, resourceType: string, resourceID: string) => {
-    const params = new URLSearchParams({
-      action,
-      resource_type: resourceType,
-      resource_id: resourceID,
-    });
-    const response = await fetch(buildApiUrl(`/v1/access/effective-permissions?${params.toString()}`));
-    if (!response.ok) return false;
-    const payload = await response.json();
-    return Boolean(payload?.allowed);
+    return checkScopePermission(action, resourceType, resourceID);
   }, []);
 
   useEffect(() => {
@@ -753,13 +570,7 @@ function ScopesPage({
     setListLoading(true);
     setListError(null);
     try {
-      const [secretResp, variableResp] = await Promise.all([
-        fetch(buildApiUrl('/v1/secrets/scopes')),
-        fetch(buildApiUrl('/v1/variables/scopes')),
-      ]);
-
-      const secretJson = secretResp.ok ? await secretResp.json() : [];
-      const variableJson = variableResp.ok ? await variableResp.json() : [];
+      const { secrets: secretJson, variables: variableJson } = await fetchScopeCatalogs();
 
       const secretCounts = new Map<string, number>();
       if (Array.isArray(secretJson)) {
@@ -835,15 +646,7 @@ function ScopesPage({
 
     const promise = (async () => {
       try {
-        const path = scope
-          ? `/v1/variables?scope=${encodeURIComponent(scope)}&include_source=true`
-          : '/v1/variables?include_source=true';
-        const response = await fetch(buildApiUrl(path));
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(text || `Failed to load variables (${response.status})`);
-        }
-        const payload = await response.json();
+        const payload = await fetchScopedItems('variable', scope);
         const { names, meta } = normalizeItemListPayload(payload);
 
         setScopeDataByScope(prev => {
@@ -902,15 +705,7 @@ function ScopesPage({
 
     const promise = (async () => {
       try {
-        const path = scope
-          ? `/v1/secrets?scope=${encodeURIComponent(scope)}&include_source=true`
-          : '/v1/secrets?include_source=true';
-        const response = await fetch(buildApiUrl(path));
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(text || `Failed to load secrets (${response.status})`);
-        }
-        const payload = await response.json();
+        const payload = await fetchScopedItems('secret', scope);
         const { names, meta } = normalizeItemListPayload(payload);
 
         setScopeDataByScope(prev => {
@@ -956,9 +751,7 @@ function ScopesPage({
     setUsageLoading(true);
     setUsageError(null);
     try {
-      // Pipelines
-      const pipelinesResp = await fetch(buildApiUrl('/v1/pipelines?include_source=true'));
-      const pipelinesPayload = pipelinesResp.ok ? await pipelinesResp.json() : [];
+      const { pipelines: pipelinesPayload, triggers: trigPayload } = await fetchScopeUsageCatalogs();
       const { identifiers, seeds } = normalizePipelineList(pipelinesPayload);
 
       const variableIndex = new Map<string, Set<string>>();
@@ -968,13 +761,8 @@ function ScopesPage({
       const pipelineTasks = identifiers.map(identifier => {
         return async () => {
           try {
-            const encodedId = identifier
-              .split('/')
-              .map(segment => encodeURIComponent(segment))
-              .join('/');
-            const response = await fetch(buildApiUrl(`/v1/pipelines/${encodedId}`));
-            if (!response.ok) return;
-            const rawYaml = await response.text();
+            const rawYaml = await fetchScopeUsagePipelineYaml(identifier);
+            if (!rawYaml) return;
             const manifest = parseYamlSafe(rawYaml);
             const seed = seeds.get(identifier);
             metaMap.set(identifier, buildPipelineMeta(identifier, manifest, seed));
@@ -1003,9 +791,6 @@ function ScopesPage({
       setPipelineSecretIndex(secretIndex);
       setPipelineMetadata(metaMap);
 
-      // Triggers
-      const trigResp = await fetch(buildApiUrl('/v1/overrides?include_source=true'));
-      const trigPayload = trigResp.ok ? await trigResp.json() : [];
       const slugs = normalizeOverrideSlugs(trigPayload);
       const trigMap = new Map<string, TriggerDescriptor[]>();
 
@@ -1014,9 +799,8 @@ function ScopesPage({
           const [owner, name] = slug.split('/');
           if (!owner || !name) return;
           try {
-            const resp = await fetch(buildApiUrl(`/v1/overrides/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`));
-            if (!resp.ok) return;
-            const rawYaml = await resp.text();
+            const rawYaml = await fetchScopeUsageTriggerYaml(slug);
+            if (!rawYaml) return;
             const manifest = parseYamlSafe(rawYaml);
             const triggers = Array.isArray(manifest?.triggers) ? manifest.triggers : [];
             triggers.forEach((triggerValue: unknown) => {
@@ -1308,18 +1092,7 @@ function ScopesPage({
   const createSampleVariableForScope = async (scopeLabel: string) => {
     const normalized = normalizeScopeLabel(scopeLabel);
     const sampleValue = SAMPLE_SCOPE_VALUE.replace('%SCOPE%', normalized || 'default');
-    const urlBase = `/v1/variables/${encodeURIComponent(SAMPLE_SCOPE_VARIABLE)}`;
-    const url = normalized ? `${urlBase}?scope=${encodeURIComponent(normalized)}` : urlBase;
-
-    const response = await fetch(buildApiUrl(url), {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ value: sampleValue }),
-    });
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text || `Failed to create scope (${response.status})`);
-    }
+    await saveScopedValue(scopedResourcePath('variable', normalized, SAMPLE_SCOPE_VARIABLE), sampleValue, 'variable');
   };
 
   const submitScopeModal = async () => {
@@ -1397,24 +1170,7 @@ function ScopesPage({
 
     const promise = (async () => {
       try {
-        let urlBase = '';
-        if (identity.repoSlug) {
-          urlBase = `/v1/repositories/${encodeURIComponent(identity.repoOwner)}/${encodeURIComponent(identity.repoName)}/variables/${encodeURIComponent(identity.name)}`;
-        } else {
-          urlBase = `/v1/variables/${encodeURIComponent(identity.name)}`;
-        }
-        const url = scope ? `${urlBase}?scope=${encodeURIComponent(scope)}` : urlBase;
-        const response = await fetch(buildApiUrl(url));
-        if (response.status === 404) return '';
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(text || `Failed to load variable (${response.status})`);
-        }
-        const payload = await response.json();
-        if (payload && typeof payload === 'object' && (payload as Record<string, unknown>).value != null) {
-          return String((payload as Record<string, unknown>).value ?? '');
-        }
-        return '';
+        return await fetchVariableValueRequest(scopedResourcePath('variable', scope, identity.name, identity.repoSlug));
       } finally {
         variableValuePromiseRef.current.delete(cacheKey);
       }
@@ -1583,24 +1339,7 @@ function ScopesPage({
 
     setVariableModal(prev => (prev ? { ...prev, pending: true, error: undefined } : prev));
     try {
-      let urlBase = '';
-      if (finalRepoSlug) {
-        const [owner, repo] = finalRepoSlug.split('/');
-        urlBase = `/v1/repositories/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/variables/${encodeURIComponent(finalName)}`;
-      } else {
-        urlBase = `/v1/variables/${encodeURIComponent(finalName)}`;
-      }
-      const url = scope ? `${urlBase}?scope=${encodeURIComponent(scope)}` : urlBase;
-
-      const response = await fetch(buildApiUrl(url), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ value }),
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Failed to save variable (${response.status})`);
-      }
+      await saveScopedValue(scopedResourcePath('variable', scope, finalName, finalRepoSlug), value, 'variable');
 
       const fullName = finalRepoSlug ? `${finalRepoSlug}/${finalName}` : finalName;
       addToast(modal.mode === 'update' ? 'Variable updated.' : 'Variable created.', 'success');
@@ -1630,18 +1369,7 @@ function ScopesPage({
 
     setGitOpsEncryptModal(prev => (prev ? { ...prev, pending: true, error: undefined, encryptedValue: undefined } : prev));
     try {
-      const response = await fetch(buildApiUrl('/v1/secrets/encrypt'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ value }),
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Failed to encrypt secret (${response.status})`);
-      }
-      const payload = await response.json();
-      const encryptedValue = typeof payload?.encrypted_value === 'string' ? payload.encrypted_value : '';
-      if (!encryptedValue) throw new Error('Encryption response did not include a value.');
+      const encryptedValue = await encryptSecretValue(value);
       setGitOpsEncryptModal(prev => (prev ? { ...prev, encryptedValue, error: undefined } : prev));
     } catch (error) {
       console.error('Failed to encrypt secret for GitOps', error);
@@ -1717,24 +1445,7 @@ function ScopesPage({
 
     setSecretModal(prev => (prev ? { ...prev, pending: true, error: undefined } : prev));
     try {
-      let urlBase = '';
-      if (finalRepoSlug) {
-        const [owner, repo] = finalRepoSlug.split('/');
-        urlBase = `/v1/repositories/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/secrets/${encodeURIComponent(finalName)}`;
-      } else {
-        urlBase = `/v1/secrets/${encodeURIComponent(finalName)}`;
-      }
-      const url = scope ? `${urlBase}?scope=${encodeURIComponent(scope)}` : urlBase;
-
-      const response = await fetch(buildApiUrl(url), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ value }),
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Failed to save secret (${response.status})`);
-      }
+      await saveScopedValue(scopedResourcePath('secret', scope, finalName, finalRepoSlug), value, 'secret');
 
       const fullName = finalRepoSlug ? `${finalRepoSlug}/${finalName}` : finalName;
       addToast(modal.mode === 'update' ? 'Secret value updated.' : 'Secret created.', 'success');
@@ -1759,25 +1470,7 @@ function ScopesPage({
 
     setDeleteModal(prev => (prev ? { ...prev, pending: true, error: undefined } : prev));
     try {
-      let urlBase = '';
-      if (identity.repoSlug) {
-        if (modal.kind === 'variable') {
-          urlBase = `/v1/repositories/${encodeURIComponent(identity.repoOwner)}/${encodeURIComponent(identity.repoName)}/variables/${encodeURIComponent(identity.name)}`;
-        } else {
-          urlBase = `/v1/repositories/${encodeURIComponent(identity.repoOwner)}/${encodeURIComponent(identity.repoName)}/secrets/${encodeURIComponent(identity.name)}`;
-        }
-      } else if (modal.kind === 'variable') {
-        urlBase = `/v1/variables/${encodeURIComponent(identity.name)}`;
-      } else {
-        urlBase = `/v1/secrets/${encodeURIComponent(identity.name)}`;
-      }
-      const url = scope ? `${urlBase}?scope=${encodeURIComponent(scope)}` : urlBase;
-
-      const response = await fetch(buildApiUrl(url), { method: 'DELETE' });
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Failed to delete (${response.status})`);
-      }
+      await deleteScopedValue(scopedResourcePath(modal.kind, scope, identity.name, identity.repoSlug));
 
       if (modal.kind === 'variable') {
         await ensureScopeVariables(scope, true);

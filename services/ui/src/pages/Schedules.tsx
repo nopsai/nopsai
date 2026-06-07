@@ -17,157 +17,45 @@ import {
   X,
 } from 'lucide-react';
 
-import { buildApiUrl } from '../lib/api';
-import { fetchPipelineRunGroupPaths } from '../lib/resourceGroups';
-
-type PipelineListItem = {
-  id: string;
-  identifier?: string;
-  source?: string;
-};
-
-type ScheduleRunSummary = {
-  run_id: string;
-  status: string;
-  started_at?: string;
-  finished_at?: string;
-  duration?: string;
-};
-
-type PipelineSchedule = {
-  id: string;
-  path: string;
-  name: string;
-  identifier: string;
-  description?: string;
-  pipeline: string;
-  pipeline_path?: string;
-  pipeline_name?: string;
-  pipeline_version?: string;
-  schedule_kind?: string;
-  cron?: string;
-  cron_expression?: string;
-  run_at?: string;
-  timezone: string;
-  enabled: boolean;
-  scope?: string;
-  run_group_path?: string;
-  variables?: Record<string, string>;
-  next_run_at?: string;
-  last_run_at?: string;
-  last_run_id?: string;
-  last_status?: string;
-  latest_run?: ScheduleRunSummary;
-  source?: string;
-  visibility?: string;
-  managed_by_config_repo?: boolean;
-  config_source_path?: string;
-  created_at?: string;
-  updated_at?: string;
-};
-
-type CronMode = 'once' | 'minutes' | 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'yearly' | 'custom';
-
-type ScheduleFormState = {
-  name: string;
-  description: string;
-  pipeline: string;
-  cronMode: CronMode;
-  cronTime: string;
-  cronWeekday: string;
-  cronMonthday: string;
-  cronMonth: string;
-  cronMinute: string;
-  intervalValue: string;
-  cron_expression: string;
-  runAtDate: string;
-  runAtTime: string;
-  timezone: string;
-  enabled: boolean;
-  scope: string;
-  runGroupPath: string;
-  variablesText: string;
-};
-
-type CronFormFields = Pick<
-  ScheduleFormState,
-  'cronMode' | 'cronTime' | 'cronWeekday' | 'cronMonthday' | 'cronMonth' | 'cronMinute' | 'intervalValue' | 'cron_expression' | 'runAtDate' | 'runAtTime'
->;
-
-type ScheduleModalState = {
-  mode: 'create' | 'edit';
-  schedule?: PipelineSchedule;
-};
+import {
+  deleteSchedule as deleteScheduleRequest,
+  fetchScheduleMetadata,
+  fetchSchedules,
+  runSchedule,
+  saveSchedule,
+  setScheduleEnabled as setScheduleEnabledRequest,
+} from '../features/schedules/api';
+import {
+  MONTHDAY_VALUES,
+  MONTH_OPTIONS,
+  WEEKDAY_OPTIONS,
+  WEEKDAY_VALUES,
+  buildCronExpression,
+  createEmptyForm,
+  defaultRunGroupForPipeline,
+  effectiveScheduleRunGroupPath,
+  formFromSchedule,
+  friendlyCronLabel,
+  getTimezoneOptions,
+  normalizeCronList,
+  normalizeIdentifier,
+  normalizeScheduleKind,
+  normalizeScopeOption,
+  toggleCronListValue,
+  uniqueRunGroupOptions,
+  type CronFormFields,
+  type CronMode,
+  type PipelineSchedule,
+  type ScheduleFormState,
+  type ScheduleModalState,
+} from '../features/schedules/model';
 
 type SchedulesPageProps = {
   canWriteSchedules: boolean;
   canDeleteSchedules: boolean;
 };
 
-const DEFAULT_CRON = '0 2 * * *';
-const DEFAULT_CRON_TIME = '02:00';
-const DEFAULT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-const WEEKDAY_OPTIONS = [
-  { value: '1', label: 'Monday', short: 'Mon' },
-  { value: '2', label: 'Tuesday', short: 'Tue' },
-  { value: '3', label: 'Wednesday', short: 'Wed' },
-  { value: '4', label: 'Thursday', short: 'Thu' },
-  { value: '5', label: 'Friday', short: 'Fri' },
-  { value: '6', label: 'Saturday', short: 'Sat' },
-  { value: '0', label: 'Sunday', short: 'Sun' },
-];
-const MONTH_OPTIONS = [
-  { value: '1', label: 'January' },
-  { value: '2', label: 'February' },
-  { value: '3', label: 'March' },
-  { value: '4', label: 'April' },
-  { value: '5', label: 'May' },
-  { value: '6', label: 'June' },
-  { value: '7', label: 'July' },
-  { value: '8', label: 'August' },
-  { value: '9', label: 'September' },
-  { value: '10', label: 'October' },
-  { value: '11', label: 'November' },
-  { value: '12', label: 'December' },
-];
-const intlWithSupportedValues = Intl as typeof Intl & { supportedValuesOf?: (key: 'timeZone') => string[] };
-const TIMEZONE_OPTIONS =
-  typeof intlWithSupportedValues.supportedValuesOf === 'function'
-    ? intlWithSupportedValues.supportedValuesOf('timeZone')
-    : ['UTC', 'Europe/Amsterdam', 'Europe/London', 'America/New_York', 'America/Los_Angeles', 'Asia/Tokyo'];
-const WEEKDAY_VALUES = WEEKDAY_OPTIONS.map(option => option.value);
-const MONTHDAY_VALUES = Array.from({ length: 31 }, (_, index) => String(index + 1));
-
-function normalizeIdentifier(value: unknown): string {
-  if (!value) return '';
-  return String(value)
-    .trim()
-    .replace(/^\.nopsai\//i, '')
-    .replace(/^(pipelines|schedules)\//i, '')
-    .replace(/\.ya?ml$/i, '')
-    .replace(/\/+/g, '/')
-    .replace(/^\/+|\/+$/g, '');
-}
-
-function normalizeScopeOption(value: unknown): string {
-  const normalized = normalizeIdentifier(value);
-  return normalized.toLowerCase() === 'default' ? '' : normalized;
-}
-
-function uniqueRunGroupOptions(values: string[]): string[] {
-  return Array.from(new Set(['root', ...values.map(normalizeIdentifier).filter(Boolean)])).sort((a, b) => {
-    if (a === 'root') return -1;
-    if (b === 'root') return 1;
-    return a.localeCompare(b);
-  });
-}
-
-function splitIdentifier(identifier: string) {
-  const parts = normalizeIdentifier(identifier).split('/').filter(Boolean);
-  const name = parts.pop() || '';
-  const path = parts.join('/');
-  return { path, name };
-}
+const TIMEZONE_OPTIONS = getTimezoneOptions();
 
 function sourceLabel(source?: string) {
   const normalized = (source || '').trim().toLowerCase();
@@ -225,379 +113,11 @@ function formatGroupPath(path?: string) {
   return normalized === 'root' || !normalized ? 'Root' : normalized;
 }
 
-function effectiveScheduleRunGroupPath(schedule: PipelineSchedule) {
-  return normalizeIdentifier(schedule.run_group_path) || 'root';
-}
-
-function normalizeScheduleKind(kind?: string) {
-  const normalized = String(kind || '').trim().toLowerCase();
-  return normalized === 'once' || normalized === 'one_time' || normalized === 'one-time' ? 'once' : 'cron';
-}
-
-function stripCronTimezone(expression: string) {
-  return String(expression || '').trim().replace(/^(?:CRON_TZ|TZ)=\S+\s+/i, '').trim();
-}
-
-function parseCronParts(expression: string) {
-  const parts = stripCronTimezone(expression).split(/\s+/).filter(Boolean);
-  return parts.length === 5 ? parts : null;
-}
-
-function parseCronNumber(value: string, min: number, max: number) {
-  if (!/^\d+$/.test(value)) return null;
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < min || parsed > max) return null;
-  return parsed;
-}
-
-function parseCronNumberList(value: string, min: number, max: number) {
-  const parts = String(value || '').split(',').map(part => part.trim()).filter(Boolean);
-  if (!parts.length) return null;
-  const parsed = parts.map(part => parseCronNumber(part, min, max));
-  if (parsed.some(item => item === null)) return null;
-  return parsed as number[];
-}
-
-function normalizeCronList(raw: string, allowedValues: string[], fallback: string) {
-  const allowed = new Set(allowedValues);
-  const selected = String(raw || '')
-    .split(',')
-    .map(value => value.trim())
-    .filter(value => allowed.has(value));
-  const unique = allowedValues.filter(value => selected.includes(value));
-  return unique.length ? unique.join(',') : fallback;
-}
-
-function toggleCronListValue(raw: string, value: string, allowedValues: string[], fallback: string) {
-  const current = new Set(normalizeCronList(raw, allowedValues, fallback).split(','));
-  if (current.has(value)) current.delete(value);
-  else current.add(value);
-  const next = allowedValues.filter(item => current.has(item));
-  return next.length ? next.join(',') : fallback;
-}
-
-function padCronNumber(value: number) {
-  return String(value).padStart(2, '0');
-}
-
-function cronTime(hour: number, minute: number) {
-  return `${padCronNumber(hour)}:${padCronNumber(minute)}`;
-}
-
-function weekdayLabels(values: number[]) {
-  const labels = values.map(value => {
-    const normalized = String(value === 7 ? 0 : value);
-    return WEEKDAY_OPTIONS.find(option => option.value === normalized)?.short || normalized;
-  });
-  return labels.join(', ');
-}
-
-function defaultRunAtFields() {
-  const next = new Date(Date.now() + 60 * 60 * 1000);
-  next.setMinutes(0, 0, 0);
-  return {
-    date: `${next.getFullYear()}-${padCronNumber(next.getMonth() + 1)}-${padCronNumber(next.getDate())}`,
-    time: `${padCronNumber(next.getHours())}:00`,
-  };
-}
-
-function zonedDateTimeFields(value?: string, timeZone?: string) {
-  const fallback = defaultRunAtFields();
-  if (!value) return fallback;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return fallback;
-  const normalizedZone = (timeZone || '').trim();
-  try {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: normalizedZone || undefined,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).formatToParts(date);
-    const get = (type: string) => parts.find(part => part.type === type)?.value || '';
-    return {
-      date: `${get('year')}-${get('month')}-${get('day')}`,
-      time: `${get('hour')}:${get('minute')}`,
-    };
-  } catch {
-    return { date: value.slice(0, 10) || fallback.date, time: value.slice(11, 16) || fallback.time };
-  }
-}
-
-function buildRunAtValue(form: ScheduleFormState) {
-  const date = form.runAtDate.trim();
-  const time = form.runAtTime.trim();
-  if (!date || !time) return '';
-  return `${date}T${time}`;
-}
-
-function parseTimeParts(value: string) {
-  const match = /^(\d{1,2}):(\d{2})$/.exec(String(value || '').trim());
-  if (!match) return { hour: 2, minute: 0 };
-  const hour = Number(match[1]);
-  const minute = Number(match[2]);
-  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return { hour: 2, minute: 0 };
-  return { hour, minute };
-}
-
-function cronFormFields(cronMode: CronMode, expression: string, overrides: Partial<CronFormFields> = {}): CronFormFields {
-  const runAt = defaultRunAtFields();
-  return {
-    cronMode,
-    cronTime: DEFAULT_CRON_TIME,
-    cronWeekday: '1',
-    cronMonthday: '1',
-    cronMonth: '1',
-    cronMinute: '0',
-    intervalValue: '15',
-    cron_expression: expression || DEFAULT_CRON,
-    runAtDate: runAt.date,
-    runAtTime: runAt.time,
-    ...overrides,
-  };
-}
-
-function cronFormFromExpression(expression: string): CronFormFields {
-  const parts = parseCronParts(expression || DEFAULT_CRON);
-  if (!parts) {
-    return cronFormFields('custom', expression);
-  }
-
-  const [minutePart, hourPart, dayPart, monthPart, weekdayPart] = parts;
-  const intervalMinuteMatch = /^\*\/(\d+)$/.exec(minutePart);
-  const intervalHourMatch = /^\*\/(\d+)$/.exec(hourPart);
-  if (intervalMinuteMatch && hourPart === '*' && dayPart === '*' && monthPart === '*' && weekdayPart === '*') {
-    return cronFormFields('minutes', expression, { intervalValue: intervalMinuteMatch[1] });
-  }
-  const minute = parseCronNumber(minutePart, 0, 59);
-  const hour = parseCronNumber(hourPart, 0, 23);
-  if (minute !== null && intervalHourMatch && dayPart === '*' && monthPart === '*' && weekdayPart === '*') {
-    return cronFormFields('hourly', expression, { cronMinute: String(minute), intervalValue: intervalHourMatch[1] });
-  }
-  if (minute !== null && hour !== null && monthPart === '*') {
-    const time = cronTime(hour, minute);
-    if (dayPart === '*' && weekdayPart === '*') {
-      return cronFormFields('daily', expression, { cronTime: time, cronMinute: String(minute) });
-    }
-    if (dayPart === '*' && weekdayPart === '1-5') {
-      return cronFormFields('weekdays', expression, { cronTime: time, cronMinute: String(minute) });
-    }
-    const weekdays = parseCronNumberList(weekdayPart, 0, 7);
-    if (dayPart === '*' && weekdays !== null) {
-      return cronFormFields('weekly', expression, {
-        cronTime: time,
-        cronWeekday: weekdays.map(weekday => String(weekday === 7 ? 0 : weekday)).join(','),
-        cronMinute: String(minute),
-      });
-    }
-    const monthdays = parseCronNumberList(dayPart, 1, 31);
-    if (monthdays !== null && weekdayPart === '*') {
-      return cronFormFields('monthly', expression, {
-        cronTime: time,
-        cronMonthday: monthdays.join(','),
-        cronMinute: String(minute),
-      });
-    }
-  }
-  const month = parseCronNumber(monthPart, 1, 12);
-  const monthday = parseCronNumber(dayPart, 1, 31);
-  if (minute !== null && hour !== null && month !== null && monthday !== null && weekdayPart === '*') {
-    return cronFormFields('yearly', expression, {
-      cronTime: cronTime(hour, minute),
-      cronMonth: String(month),
-      cronMonthday: String(monthday),
-      cronMinute: String(minute),
-    });
-  }
-
-  const hourlyMinute = parseCronNumber(minutePart, 0, 59);
-  if (hourPart === '*' && dayPart === '*' && monthPart === '*' && weekdayPart === '*' && hourlyMinute !== null) {
-    return cronFormFields('hourly', expression, { cronMinute: String(hourlyMinute) });
-  }
-
-  return cronFormFields('custom', expression);
-}
-
-function buildCronExpression(form: ScheduleFormState) {
-  const { hour, minute } = parseTimeParts(form.cronTime);
-  const monthday = Math.min(31, Math.max(1, Number.parseInt(form.cronMonthday, 10) || 1));
-  const monthdays = normalizeCronList(form.cronMonthday, MONTHDAY_VALUES, '1');
-  const month = Math.min(12, Math.max(1, Number.parseInt(form.cronMonth, 10) || 1));
-  const hourlyMinute = Math.min(59, Math.max(0, Number.parseInt(form.cronMinute, 10) || 0));
-  const interval = Math.min(59, Math.max(1, Number.parseInt(form.intervalValue, 10) || 1));
-  const weekdays = normalizeCronList(form.cronWeekday, WEEKDAY_VALUES, '1');
-
-  switch (form.cronMode) {
-    case 'once':
-      return '';
-    case 'minutes':
-      return `*/${interval} * * * *`;
-    case 'daily':
-      return `${minute} ${hour} * * *`;
-    case 'weekdays':
-      return `${minute} ${hour} * * 1-5`;
-    case 'weekly':
-      return `${minute} ${hour} * * ${weekdays}`;
-    case 'monthly':
-      return `${minute} ${hour} ${monthdays} * *`;
-    case 'hourly':
-      return interval > 1 ? `${hourlyMinute} */${Math.min(23, interval)} * * *` : `${hourlyMinute} * * * *`;
-    case 'yearly':
-      return `${minute} ${hour} ${monthday} ${month} *`;
-    case 'custom':
-    default:
-      return form.cron_expression.trim();
-  }
-}
-
-function friendlyCronLabel(expression?: string) {
-  const parts = parseCronParts(expression || '');
-  if (!parts) return expression || '—';
-  const [minutePart, hourPart, dayPart, monthPart, weekdayPart] = parts;
-  const intervalMinuteMatch = /^\*\/(\d+)$/.exec(minutePart);
-  if (intervalMinuteMatch && hourPart === '*' && dayPart === '*' && monthPart === '*' && weekdayPart === '*') {
-    return `Every ${intervalMinuteMatch[1]} minutes`;
-  }
-  const minute = parseCronNumber(minutePart, 0, 59);
-  const hour = parseCronNumber(hourPart, 0, 23);
-  const intervalHourMatch = /^\*\/(\d+)$/.exec(hourPart);
-  if (minute !== null && intervalHourMatch && dayPart === '*' && monthPart === '*' && weekdayPart === '*') {
-    return `Every ${intervalHourMatch[1]} hours at :${padCronNumber(minute)}`;
-  }
-  if (minute !== null && hour !== null && monthPart === '*') {
-    const time = cronTime(hour, minute);
-    if (dayPart === '*' && weekdayPart === '*') return `Daily at ${time}`;
-    if (dayPart === '*' && weekdayPart === '1-5') return `Weekdays at ${time}`;
-    const weekdays = parseCronNumberList(weekdayPart, 0, 7);
-    if (dayPart === '*' && weekdays !== null) {
-      if (weekdays.length === 1) {
-        const normalizedWeekday = String(weekdays[0] === 7 ? 0 : weekdays[0]);
-        const label = WEEKDAY_OPTIONS.find(option => option.value === normalizedWeekday)?.label || 'Monday';
-        return `${label}s at ${time}`;
-      }
-      return `Weekly on ${weekdayLabels(weekdays)} at ${time}`;
-    }
-    const monthdays = parseCronNumberList(dayPart, 1, 31);
-    if (monthdays !== null && weekdayPart === '*') {
-      return monthdays.length === 1 ? `Monthly on day ${monthdays[0]} at ${time}` : `Monthly on days ${monthdays.join(', ')} at ${time}`;
-    }
-  }
-  const month = parseCronNumber(monthPart, 1, 12);
-  const monthday = parseCronNumber(dayPart, 1, 31);
-  if (minute !== null && hour !== null && month !== null && monthday !== null && weekdayPart === '*') {
-    const monthLabel = MONTH_OPTIONS.find(option => option.value === String(month))?.label || `month ${month}`;
-    return `Yearly on ${monthLabel} ${monthday} at ${cronTime(hour, minute)}`;
-  }
-  const hourlyMinute = parseCronNumber(minutePart, 0, 59);
-  if (hourPart === '*' && dayPart === '*' && monthPart === '*' && weekdayPart === '*' && hourlyMinute !== null) {
-    return `Hourly at :${padCronNumber(hourlyMinute)}`;
-  }
-  return expression || '—';
-}
-
 function friendlyScheduleLabel(schedule: PipelineSchedule) {
   if (normalizeScheduleKind(schedule.schedule_kind) === 'once') {
     return `Once at ${formatDateTime(schedule.run_at || schedule.next_run_at, schedule.timezone)}`;
   }
   return friendlyCronLabel(schedule.cron_expression || schedule.cron);
-}
-
-function variablesToText(variables?: Record<string, string>) {
-  if (!variables) return '';
-  return Object.entries(variables)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => `${key}=${value}`)
-    .join('\n');
-}
-
-function parseVariablesText(raw: string) {
-  const variables: Record<string, string> = {};
-  const invalidLines: number[] = [];
-  raw.split(/\r?\n/).forEach((line, index) => {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) return;
-    const equalsIndex = trimmed.indexOf('=');
-    if (equalsIndex <= 0) {
-      invalidLines.push(index + 1);
-      return;
-    }
-    const key = trimmed.slice(0, equalsIndex).trim();
-    const value = trimmed.slice(equalsIndex + 1);
-    if (!/^[A-Za-z0-9_.-]+$/.test(key)) {
-      invalidLines.push(index + 1);
-      return;
-    }
-    variables[key] = value;
-  });
-  if (invalidLines.length) {
-    throw new Error(`Invalid variable line${invalidLines.length === 1 ? '' : 's'}: ${invalidLines.join(', ')}`);
-  }
-  return variables;
-}
-
-function defaultRunGroupForPipeline(pipeline: string, runGroups: string[]) {
-  const parentPath = splitIdentifier(pipeline).path;
-  return parentPath && runGroups.includes(parentPath) ? parentPath : 'root';
-}
-
-function createEmptyForm(pipelineFilter: string, runGroups: string[] = []): ScheduleFormState {
-  const pipeline = normalizeIdentifier(pipelineFilter);
-  const cronFields = cronFormFromExpression(DEFAULT_CRON);
-  const runAt = defaultRunAtFields();
-  return {
-    name: '',
-    description: '',
-    pipeline,
-    ...cronFields,
-    cron_expression: DEFAULT_CRON,
-    runAtDate: runAt.date,
-    runAtTime: runAt.time,
-    timezone: DEFAULT_TIMEZONE,
-    enabled: true,
-    scope: '',
-    runGroupPath: defaultRunGroupForPipeline(pipeline, runGroups),
-    variablesText: '',
-  };
-}
-
-function formFromSchedule(schedule: PipelineSchedule): ScheduleFormState {
-  const cronExpression = schedule.cron_expression || schedule.cron || DEFAULT_CRON;
-  const scheduleKind = normalizeScheduleKind(schedule.schedule_kind);
-  const runAtFields = zonedDateTimeFields(schedule.run_at || schedule.next_run_at, schedule.timezone);
-  const cronFields =
-    scheduleKind === 'once'
-      ? cronFormFields('once', '', { runAtDate: runAtFields.date, runAtTime: runAtFields.time })
-      : cronFormFromExpression(cronExpression);
-  return {
-    name: schedule.name || '',
-    description: schedule.description || '',
-    pipeline: normalizeIdentifier(schedule.pipeline),
-    ...cronFields,
-    cron_expression: scheduleKind === 'once' ? '' : cronExpression,
-    runAtDate: runAtFields.date,
-    runAtTime: runAtFields.time,
-    timezone: schedule.timezone || 'UTC',
-    enabled: Boolean(schedule.enabled),
-    scope: schedule.scope || '',
-    runGroupPath: effectiveScheduleRunGroupPath(schedule),
-    variablesText: variablesToText(schedule.variables),
-  };
-}
-
-async function readResponseError(response: Response, fallback: string) {
-  const text = await response.text();
-  return text.trim() || fallback;
-}
-
-async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(buildApiUrl(path), { cache: 'no-store', ...init });
-  if (!response.ok) {
-    throw new Error(await readResponseError(response, `Request failed (${response.status})`));
-  }
-  return (await response.json()) as T;
 }
 
 export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }: SchedulesPageProps) {
@@ -624,9 +144,7 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
     setLoading(true);
     setError(null);
     try {
-      const query = pipelineFilter ? `?pipeline=${encodeURIComponent(pipelineFilter)}` : '';
-      const payload = await fetchJson<PipelineSchedule[]>(`/v1/schedules${query}`);
-      setSchedules(Array.isArray(payload) ? payload : []);
+      setSchedules(await fetchSchedules(pipelineFilter));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load schedules');
       setSchedules([]);
@@ -643,35 +161,11 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
     let cancelled = false;
     const loadMeta = async () => {
       try {
-        const [pipelinePayload, groupPayload, secretScopes, variableScopes] = await Promise.all([
-          fetchJson<PipelineListItem[] | string[]>('/v1/pipelines').catch(() => []),
-          fetchPipelineRunGroupPaths().catch(() => []),
-          fetchJson<Array<string | { scope?: string; name?: string }>>('/v1/secrets/scopes').catch(() => []),
-          fetchJson<Array<string | { scope?: string; name?: string }>>('/v1/variables/scopes').catch(() => []),
-        ]);
+        const metadata = await fetchScheduleMetadata();
         if (cancelled) return;
-        const pipelineIDs = Array.isArray(pipelinePayload)
-          ? pipelinePayload
-              .map(item => {
-                if (typeof item === 'string') return normalizeIdentifier(item);
-                return normalizeIdentifier(item.id || item.identifier);
-              })
-              .filter(Boolean)
-              .sort((a, b) => a.localeCompare(b))
-          : [];
-        const scopeSet = new Set<string>(['']);
-        const collectScope = (entry: string | { scope?: string; name?: string }) => {
-          if (typeof entry === 'string') {
-            scopeSet.add(normalizeIdentifier(entry));
-            return;
-          }
-          scopeSet.add(normalizeIdentifier(entry.scope || entry.name || ''));
-        };
-        secretScopes.forEach(collectScope);
-        variableScopes.forEach(collectScope);
-        setPipelines(pipelineIDs);
-        setGroups(groupPayload.map(normalizeIdentifier).filter(Boolean).sort((a, b) => a.localeCompare(b)));
-        setScopes(Array.from(scopeSet).map(normalizeScopeOption).sort((a, b) => a.localeCompare(b)));
+        setPipelines(metadata.pipelines);
+        setGroups(metadata.groups);
+        setScopes(metadata.scopes);
       } catch {
         if (!cancelled) {
           setPipelines([]);
@@ -782,31 +276,8 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
     setSaving(true);
     setFormError(null);
     try {
-      const pipeline = normalizeIdentifier(form.pipeline);
-      const { path: pipelinePath } = splitIdentifier(pipeline);
-      const scheduleKind = form.cronMode === 'once' ? 'once' : 'cron';
-      const payload = {
-        path: pipelinePath,
-        name: form.name.trim(),
-        description: form.description.trim(),
-        pipeline,
-        schedule_kind: scheduleKind,
-        cron_expression: scheduleKind === 'cron' ? buildCronExpression(form) : '',
-        run_at: scheduleKind === 'once' ? buildRunAtValue(form) : undefined,
-        timezone: form.timezone.trim() || 'UTC',
-        enabled: form.enabled,
-        scope: normalizeIdentifier(form.scope),
-        run_group_path: normalizeIdentifier(form.runGroupPath) || 'root',
-        variables: parseVariablesText(form.variablesText),
-      };
       const editingSchedule = modal.mode === 'edit' ? modal.schedule : undefined;
-      const path = editingSchedule ? `/v1/schedules/${encodeURIComponent(editingSchedule.id)}` : '/v1/schedules';
-      const method = editingSchedule ? 'PUT' : 'POST';
-      const updated = await fetchJson<PipelineSchedule>(path, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      const updated = await saveSchedule(form, editingSchedule);
       setSchedules(prev => {
         if (!editingSchedule) return [...prev, updated].sort((a, b) => a.identifier.localeCompare(b.identifier));
         return prev.map(item => (item.id === updated.id ? updated : item));
@@ -824,10 +295,7 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
       if (busyScheduleID) return;
       setBusyScheduleID(schedule.id);
       try {
-        const updated = await fetchJson<PipelineSchedule>(
-          `/v1/schedules/${encodeURIComponent(schedule.id)}/${enabled ? 'enable' : 'disable'}`,
-          { method: 'POST' }
-        );
+        const updated = await setScheduleEnabledRequest(schedule.id, enabled);
         setSchedules(prev => prev.map(item => (item.id === updated.id ? updated : item)));
       } catch (err) {
         alert(err instanceof Error ? err.message : 'Unable to update schedule');
@@ -843,7 +311,7 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
       if (busyScheduleID) return;
       setBusyScheduleID(schedule.id);
       try {
-        const result = await fetchJson<{ run_id?: string }>(`/v1/schedules/${encodeURIComponent(schedule.id)}/run`, { method: 'POST' });
+        const result = await runSchedule(schedule.id);
         await loadSchedules();
         if (result.run_id) {
           navigate(`/pipelineruns/recent?run=${encodeURIComponent(result.run_id)}`);
@@ -862,9 +330,7 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
       if (!window.confirm(`Delete schedule ${schedule.identifier}?`)) return;
       setBusyScheduleID(schedule.id);
       try {
-        await fetch(buildApiUrl(`/v1/schedules/${encodeURIComponent(schedule.id)}`), { method: 'DELETE' }).then(async response => {
-          if (!response.ok) throw new Error(await readResponseError(response, `Unable to delete schedule (${response.status})`));
-        });
+        await deleteScheduleRequest(schedule.id);
         setSchedules(prev => prev.filter(item => item.id !== schedule.id));
       } catch (err) {
         alert(err instanceof Error ? err.message : 'Unable to delete schedule');

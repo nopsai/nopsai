@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   CalendarClock,
   Database,
@@ -14,402 +13,54 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { buildApiUrl } from '../lib/api';
+import {
+  cleanupRuleLabel,
+  countLabels,
+  defaultScheduleForm,
+  formatBytes,
+  formatDate,
+  modeOptions,
+  sumCounts,
+  type BackupType,
+  type CleanupCounts,
+  type CleanupMode,
+  type CleanupTarget,
+  type ManualCleanupForm,
+  type ScheduleForm,
+} from './data-management/model';
+import { useDataManagement } from './data-management/useDataManagement';
 
-type CleanupTarget = 'runs' | 'logs';
-type CleanupMode = 'keep_last' | 'older_than_days' | 'all_terminal_runs' | 'all_logs';
-type BackupType = 'full' | 'runs' | 'logs';
-
-type DataBackup = {
-  id: string;
-  backup_type: BackupType | string;
-  status: string;
-  file_name?: string;
-  file_path?: string;
-  content_type?: string;
-  size_bytes?: number;
-  checksum_sha256?: string;
-  requested_by?: string;
-  error?: string;
-  created_at: string;
-  completed_at?: string;
-};
-
-type CleanupCounts = Record<string, number>;
-
-type CleanupPreview = {
-  plan: CleanupPlan;
-  counts: CleanupCounts;
-  total_rows: number;
-};
-
-type CleanupPlan = {
-  target: CleanupTarget;
-  mode: CleanupMode;
-  keep_last?: number;
-  older_than_days?: number;
-  backup_before_cleanup?: boolean;
-};
-
-type CleanupJob = {
-  id: string;
-  schedule_id?: string;
-  trigger_type: string;
-  status: string;
-  target: CleanupTarget | string;
-  mode: CleanupMode | string;
-  keep_last?: number;
-  older_than_days?: number;
-  backup_before_cleanup?: boolean;
-  backup_id?: string;
-  requested_by?: string;
-  preview_counts?: CleanupCounts;
-  deleted_counts?: CleanupCounts;
-  error?: string;
-  started_at: string;
-  completed_at?: string;
-  created_at: string;
-};
-
-type CleanupSchedule = {
-  id: string;
-  name: string;
-  description?: string;
-  enabled: boolean;
-  target: CleanupTarget | string;
-  mode: CleanupMode | string;
-  keep_last?: number;
-  older_than_days?: number;
-  backup_before_cleanup?: boolean;
-  cron_expression: string;
-  timezone: string;
-  next_run_at?: string;
-  last_run_at?: string;
-  last_job_id?: string;
-  last_status?: string;
-  last_deleted_counts?: CleanupCounts;
-  last_error?: string;
-  created_by?: string;
-  updated_by?: string;
-  created_at: string;
-  updated_at: string;
-};
-
-type ManualCleanupForm = {
-  target: CleanupTarget;
-  mode: CleanupMode;
-  keepLast: string;
-  olderThanDays: string;
-  backupBeforeCleanup: boolean;
-};
-
-type ScheduleForm = {
-  id: string;
-  name: string;
-  description: string;
-  enabled: boolean;
-  target: CleanupTarget;
-  mode: CleanupMode;
-  keepLast: string;
-  olderThanDays: string;
-  backupBeforeCleanup: boolean;
-  cronExpression: string;
-  timezone: string;
-};
-
-type Toast = {
-  message: string;
-  tone: 'success' | 'error' | 'info';
-};
-
-const defaultManualForm: ManualCleanupForm = {
-  target: 'runs',
-  mode: 'keep_last',
-  keepLast: '30',
-  olderThanDays: '30',
-  backupBeforeCleanup: false,
-};
-
-const defaultScheduleForm: ScheduleForm = {
-  id: '',
-  name: 'Weekly cleanup',
-  description: '',
-  enabled: true,
-  target: 'runs',
-  mode: 'keep_last',
-  keepLast: '30',
-  olderThanDays: '30',
-  backupBeforeCleanup: true,
-  cronExpression: '0 2 * * 0',
-  timezone: 'UTC',
-};
-
-const countLabels: Record<string, string> = {
-  pipeline_runs: 'Pipeline runs',
-  task_runs: 'Tasks',
-  step_runs: 'Steps',
-  pipeline_run_logs: 'Logs',
-  pipeline_run_checkpoints: 'Checkpoints',
-  pipeline_approvals: 'Approvals',
-  pipeline_run_knowledge_contexts: 'Knowledge snapshots',
-};
-
-function DataManagementPage({ canManage }: { canManage: boolean }) {
-  const [backups, setBackups] = useState<DataBackup[]>([]);
-  const [jobs, setJobs] = useState<CleanupJob[]>([]);
-  const [schedules, setSchedules] = useState<CleanupSchedule[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [backupType, setBackupType] = useState<BackupType>('full');
-  const [manualForm, setManualForm] = useState<ManualCleanupForm>(defaultManualForm);
-  const [scheduleForm, setScheduleForm] = useState<ScheduleForm>(defaultScheduleForm);
-  const [preview, setPreview] = useState<(CleanupPreview & { signature: string }) | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [toast, setToast] = useState<Toast | null>(null);
-
-  const manualSignature = useMemo(() => JSON.stringify(cleanupRequestFromManualForm(manualForm)), [manualForm]);
-  const previewReady = Boolean(preview && preview.signature === manualSignature);
-
-  const showToast = useCallback((message: string, tone: Toast['tone'] = 'info') => {
-    setToast({ message, tone });
-    window.setTimeout(() => setToast(null), 3600);
-  }, []);
-
-  const fetchJson = useCallback(async (path: string, init?: RequestInit): Promise<unknown> => {
-    const response = await fetch(buildApiUrl(path), init);
-    if (response.status === 204) return null;
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text || `Request failed (${response.status})`);
-    }
-    return response.json();
-  }, []);
-
-  const loadAll = useCallback(async (quiet = false) => {
-    if (!quiet) setLoading(true);
-    try {
-      const [backupPayload, jobPayload, schedulePayload] = await Promise.all([
-        fetchJson('/v1/system/data/backups'),
-        fetchJson('/v1/system/data/cleanup/jobs'),
-        fetchJson('/v1/system/data/cleanup/schedules'),
-      ]);
-      setBackups(Array.isArray(backupPayload) ? backupPayload as DataBackup[] : []);
-      setJobs(Array.isArray(jobPayload) ? jobPayload as CleanupJob[] : []);
-      setSchedules(Array.isArray(schedulePayload) ? schedulePayload as CleanupSchedule[] : []);
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Failed to load data management state', 'error');
-    } finally {
-      if (!quiet) setLoading(false);
-    }
-  }, [fetchJson, showToast]);
-
-  useEffect(() => {
-    void loadAll();
-  }, [loadAll]);
-
-  const createBackup = useCallback(async () => {
-    if (!canManage) return;
-    setBusy('backup-create');
-    try {
-      await fetchJson('/v1/system/data/backups', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ backup_type: backupType }),
-      });
-      showToast('Backup created.', 'success');
-      await loadAll(true);
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Failed to create backup', 'error');
-    } finally {
-      setBusy(null);
-    }
-  }, [backupType, canManage, fetchJson, loadAll, showToast]);
-
-  const downloadBackup = useCallback(async (backup: DataBackup) => {
-    setBusy(`backup-download-${backup.id}`);
-    try {
-      const response = await fetch(buildApiUrl(`/v1/system/data/backups/${encodeURIComponent(backup.id)}/download`));
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Download failed (${response.status})`);
-      }
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = backup.file_name || `nopsai-${backup.backup_type}-backup.jsonl.gz`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-      await loadAll(true);
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Failed to download backup', 'error');
-    } finally {
-      setBusy(null);
-    }
-  }, [loadAll, showToast]);
-
-  const deleteBackup = useCallback(async (backup: DataBackup) => {
-    if (!canManage) return;
-    if (!window.confirm(`Delete backup ${backup.file_name || backup.id}?`)) return;
-    setBusy(`backup-delete-${backup.id}`);
-    try {
-      await fetchJson(`/v1/system/data/backups/${encodeURIComponent(backup.id)}`, { method: 'DELETE' });
-      showToast('Backup deleted.', 'success');
-      await loadAll(true);
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Failed to delete backup', 'error');
-    } finally {
-      setBusy(null);
-    }
-  }, [canManage, fetchJson, loadAll, showToast]);
-
-  const previewCleanup = useCallback(async () => {
-    const request = cleanupRequestFromManualForm(manualForm);
-    setBusy('cleanup-preview');
-    try {
-      const payload = await fetchJson('/v1/system/data/cleanup/preview', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request),
-      }) as CleanupPreview;
-      setPreview({ ...payload, signature: JSON.stringify(request) });
-      showToast('Cleanup preview ready.', 'success');
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Failed to preview cleanup', 'error');
-    } finally {
-      setBusy(null);
-    }
-  }, [fetchJson, manualForm, showToast]);
-
-  const runCleanup = useCallback(async () => {
-    if (!canManage || !previewReady) return;
-    const totalRows = preview?.total_rows ?? sumCounts(preview?.counts);
-    if (totalRows > 0 && !window.confirm(`Run cleanup and delete ${totalRows.toLocaleString()} row(s)?`)) return;
-    setBusy('cleanup-run');
-    try {
-      await fetchJson('/v1/system/data/cleanup/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(cleanupRequestFromManualForm(manualForm)),
-      });
-      showToast('Cleanup completed.', 'success');
-      setPreview(null);
-      await loadAll(true);
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Failed to run cleanup', 'error');
-      await loadAll(true);
-    } finally {
-      setBusy(null);
-    }
-  }, [canManage, fetchJson, loadAll, manualForm, preview, previewReady, showToast]);
-
-  const saveSchedule = useCallback(async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!canManage) return;
-    const editing = Boolean(scheduleForm.id);
-    setBusy('schedule-save');
-    try {
-      const request = scheduleRequestFromForm(scheduleForm);
-      await fetchJson(
-        editing
-          ? `/v1/system/data/cleanup/schedules/${encodeURIComponent(scheduleForm.id)}`
-          : '/v1/system/data/cleanup/schedules',
-        {
-          method: editing ? 'PUT' : 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(request),
-        }
-      );
-      showToast(editing ? 'Schedule updated.' : 'Schedule created.', 'success');
-      setScheduleForm(defaultScheduleForm);
-      await loadAll(true);
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Failed to save schedule', 'error');
-    } finally {
-      setBusy(null);
-    }
-  }, [canManage, fetchJson, loadAll, scheduleForm, showToast]);
-
-  const editSchedule = useCallback((schedule: CleanupSchedule) => {
-    setScheduleForm({
-      id: schedule.id,
-      name: schedule.name || 'Weekly cleanup',
-      description: schedule.description || '',
-      enabled: Boolean(schedule.enabled),
-      target: schedule.target === 'logs' ? 'logs' : 'runs',
-      mode: normalizeModeForTarget(schedule.mode, schedule.target === 'logs' ? 'logs' : 'runs'),
-      keepLast: String(schedule.keep_last || 30),
-      olderThanDays: String(schedule.older_than_days || 30),
-      backupBeforeCleanup: Boolean(schedule.backup_before_cleanup),
-      cronExpression: schedule.cron_expression || '0 2 * * 0',
-      timezone: schedule.timezone || 'UTC',
-    });
-  }, []);
-
-  const deleteSchedule = useCallback(async (schedule: CleanupSchedule) => {
-    if (!canManage) return;
-    if (!window.confirm(`Delete cleanup schedule ${schedule.name}?`)) return;
-    setBusy(`schedule-delete-${schedule.id}`);
-    try {
-      await fetchJson(`/v1/system/data/cleanup/schedules/${encodeURIComponent(schedule.id)}`, { method: 'DELETE' });
-      showToast('Schedule deleted.', 'success');
-      if (scheduleForm.id === schedule.id) setScheduleForm(defaultScheduleForm);
-      await loadAll(true);
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Failed to delete schedule', 'error');
-    } finally {
-      setBusy(null);
-    }
-  }, [canManage, fetchJson, loadAll, scheduleForm.id, showToast]);
-
-  const setScheduleEnabled = useCallback(async (schedule: CleanupSchedule, enabled: boolean) => {
-    if (!canManage) return;
-    setBusy(`schedule-enabled-${schedule.id}`);
-    try {
-      const action = enabled ? 'enable' : 'disable';
-      await fetchJson(`/v1/system/data/cleanup/schedules/${encodeURIComponent(schedule.id)}/${action}`, { method: 'POST' });
-      showToast(enabled ? 'Schedule enabled.' : 'Schedule disabled.', 'success');
-      await loadAll(true);
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Failed to update schedule', 'error');
-    } finally {
-      setBusy(null);
-    }
-  }, [canManage, fetchJson, loadAll, showToast]);
-
-  const runScheduleNow = useCallback(async (schedule: CleanupSchedule) => {
-    if (!canManage) return;
-    if (!window.confirm(`Run cleanup schedule ${schedule.name} now?`)) return;
-    setBusy(`schedule-run-${schedule.id}`);
-    try {
-      await fetchJson(`/v1/system/data/cleanup/schedules/${encodeURIComponent(schedule.id)}/run`, { method: 'POST' });
-      showToast('Scheduled cleanup started.', 'success');
-      await loadAll(true);
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Failed to run schedule', 'error');
-      await loadAll(true);
-    } finally {
-      setBusy(null);
-    }
-  }, [canManage, fetchJson, loadAll, showToast]);
-
-  const updateManualTarget = (target: CleanupTarget) => {
-    setManualForm(prev => ({
-      ...prev,
-      target,
-      mode: target === 'logs' ? 'older_than_days' : 'keep_last',
-    }));
-    setPreview(null);
-  };
-
-  const updateScheduleTarget = (target: CleanupTarget) => {
-    setScheduleForm(prev => ({
-      ...prev,
-      target,
-      mode: target === 'logs' ? 'older_than_days' : 'keep_last',
-    }));
-  };
+function DataManagementPanel({ canManage }: { canManage: boolean }) {
+  const {
+    backups,
+    jobs,
+    schedules,
+    loading,
+    backupType,
+    setBackupType,
+    manualForm,
+    setManualForm,
+    scheduleForm,
+    setScheduleForm,
+    preview,
+    setPreview,
+    previewReady,
+    busy,
+    toast,
+    loadAll,
+    createBackup,
+    downloadBackup,
+    deleteBackup,
+    previewCleanup,
+    runCleanup,
+    saveSchedule,
+    editSchedule,
+    deleteSchedule,
+    setScheduleEnabled,
+    runScheduleNow,
+    updateManualTarget,
+    updateScheduleTarget,
+  } = useDataManagement({ canManage });
 
   return (
     <div id="system-data-management-section" className="space-y-6 pb-24">
@@ -790,93 +441,4 @@ function CountsInline({ counts }: { counts?: CleanupCounts }) {
   return <div className="mt-1 text-xs text-[var(--text-secondary)]">{entries.map(([key, value]) => `${countLabels[key] || key}: ${value.toLocaleString()}`).join(', ')}</div>;
 }
 
-function modeOptions(target: CleanupTarget): Array<{ value: CleanupMode; label: string }> {
-  if (target === 'logs') {
-    return [
-      { value: 'older_than_days', label: 'Older than days' },
-      { value: 'all_logs', label: 'All logs' },
-    ];
-  }
-  return [
-    { value: 'keep_last', label: 'Keep last N' },
-    { value: 'older_than_days', label: 'Older than days' },
-    { value: 'all_terminal_runs', label: 'All terminal runs' },
-  ];
-}
-
-function cleanupRequestFromManualForm(form: ManualCleanupForm) {
-  return {
-    target: form.target,
-    mode: form.mode,
-    keep_last: Number.parseInt(form.keepLast, 10) || 0,
-    older_than_days: Number.parseInt(form.olderThanDays, 10) || 0,
-    backup_before_cleanup: Boolean(form.backupBeforeCleanup),
-  };
-}
-
-function scheduleRequestFromForm(form: ScheduleForm) {
-  return {
-    name: form.name.trim(),
-    description: form.description.trim(),
-    enabled: Boolean(form.enabled),
-    target: form.target,
-    mode: form.mode,
-    keep_last: Number.parseInt(form.keepLast, 10) || 0,
-    older_than_days: Number.parseInt(form.olderThanDays, 10) || 0,
-    backup_before_cleanup: Boolean(form.backupBeforeCleanup),
-    cron_expression: form.cronExpression.trim(),
-    timezone: form.timezone.trim() || 'UTC',
-  };
-}
-
-function normalizeModeForTarget(mode: string, target: CleanupTarget): CleanupMode {
-  if (target === 'logs') {
-    return mode === 'all_logs' ? 'all_logs' : 'older_than_days';
-  }
-  if (mode === 'older_than_days' || mode === 'all_terminal_runs') return mode;
-  return 'keep_last';
-}
-
-function cleanupRuleLabel(rule: { target: string; mode: string; keep_last?: number; older_than_days?: number }) {
-  const target = rule.target === 'logs' ? 'Logs' : 'Runs';
-  switch (rule.mode) {
-    case 'keep_last':
-      return `${target}: keep last ${rule.keep_last || 0}`;
-    case 'older_than_days':
-      return `${target}: older than ${rule.older_than_days || 0} day(s)`;
-    case 'all_terminal_runs':
-      return 'Runs: all terminal';
-    case 'all_logs':
-      return 'Logs: all';
-    default:
-      return `${target}: ${rule.mode}`;
-  }
-}
-
-function sumCounts(counts?: CleanupCounts) {
-  return Object.values(counts || {}).reduce((sum, value) => sum + (Number.isFinite(value) ? value : 0), 0);
-}
-
-function formatDate(value?: string) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(date);
-}
-
-function formatBytes(bytes: number) {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '-';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let value = bytes;
-  let unitIndex = 0;
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-  return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
-}
-
-export default DataManagementPage;
+export default DataManagementPanel;

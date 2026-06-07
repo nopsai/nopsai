@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { createPortal } from 'react-dom';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import yaml from 'js-yaml';
-import { buildApiUrl } from '../lib/api';
+import { apiClient } from '../lib/api';
 import {
   DEFAULT_PIPELINE_NAME,
   applyEnterIndent,
@@ -328,7 +328,7 @@ function LabPage() {
       }
       setRunValidation(prev => ({ ...prev, loading: true, error: null }));
       try {
-        const response = await fetch(buildApiUrl('/v1/authz/resource-use/batch-check'), {
+        const response = await apiClient.fetch('/v1/authz/resource-use/batch-check', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ checks: resourceUseChecks }),
@@ -453,11 +453,11 @@ function LabPage() {
       const promise = (async () => {
         const scopeParam = scopeValue ? `?scope=${encodeURIComponent(scopeValue)}` : '';
         const [secretsResp, varsResp, stepsResp, llmProfilesResp, mcpProfilesResp] = await Promise.all([
-          fetch(buildApiUrl(`/v1/secrets${scopeParam}`)).then(r => (r.ok ? r.json() : [])),
-          fetch(buildApiUrl(`/v1/variables${scopeParam}`)).then(r => (r.ok ? r.json() : [])),
-          fetch(buildApiUrl('/v1/steps')).then(r => (r.ok ? r.json() : [])),
-          fetch(buildApiUrl(`/v1/system/llm-profiles${scopeParam}`)).then(r => (r.ok ? r.json() : null)),
-          fetch(buildApiUrl('/v1/system/mcp/profiles')).then(r => (r.ok ? r.json() : null)),
+          apiClient.fetch(`/v1/secrets${scopeParam}`).then(r => (r.ok ? r.json() : [])),
+          apiClient.fetch(`/v1/variables${scopeParam}`).then(r => (r.ok ? r.json() : [])),
+          apiClient.fetch('/v1/steps').then(r => (r.ok ? r.json() : [])),
+          apiClient.fetch(`/v1/system/llm-profiles${scopeParam}`).then(r => (r.ok ? r.json() : null)),
+          apiClient.fetch('/v1/system/mcp/profiles').then(r => (r.ok ? r.json() : null)),
         ]);
 
         setAutocompleteMeta({
@@ -492,7 +492,7 @@ function LabPage() {
     setPipelinesLoading(true);
     setPipelinesError(null);
     try {
-      const response = await fetch(buildApiUrl('/v1/pipelines?include_source=true'));
+      const response = await apiClient.fetch('/v1/pipelines?include_source=true');
       if (!response.ok) {
         const text = await response.text();
         throw new Error(text || `Failed to load pipelines (${response.status})`);
@@ -526,8 +526,8 @@ function LabPage() {
   const loadScopes = useCallback(async () => {
     try {
       const [secretResp, variableResp] = await Promise.all([
-        fetch(buildApiUrl('/v1/secrets/scopes')),
-        fetch(buildApiUrl('/v1/variables/scopes')),
+        apiClient.fetch('/v1/secrets/scopes'),
+        apiClient.fetch('/v1/variables/scopes'),
       ]);
 
       const secretJson = secretResp.ok ? await secretResp.json() : [];
@@ -970,7 +970,7 @@ function LabPage() {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (scopeValue) headers['X-Nopsai-Scope'] = scopeValue;
 
-      const response = await fetch(buildApiUrl('/v1/run'), {
+      const response = await apiClient.fetch('/v1/run', {
         method: 'POST',
         headers,
         body: JSON.stringify(payload),
@@ -1014,7 +1014,7 @@ function LabPage() {
           return true;
         }
 
-        const response = await fetch(buildApiUrl(`/v1/pipelines/${encodeId(nextId)}`));
+        const response = await apiClient.fetch(`/v1/pipelines/${encodeId(nextId)}`);
         if (!response.ok) {
           const text = await response.text();
           throw new Error(text || `Failed to load pipeline YAML (${response.status})`);

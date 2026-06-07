@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef } from 'react';
 import { Edit3, Plus, RefreshCw, Trash2, X } from 'lucide-react';
-import { buildApiUrl } from '../../lib/api';
-import { asRecord, normalizeStringArray, normalizeStringMap, readOptionalString, readString } from './data';
+import { useMCPRegistry } from './mcp/useMCPRegistry';
 
 function PlusIcon() {
   return <Plus className="h-4 w-4" strokeWidth={2} aria-hidden="true" />;
@@ -19,136 +18,40 @@ function RefreshIcon() {
   return <RefreshCw className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />;
 }
 
-type MCPToolRecord = {
-  server_name: string;
-  name: string;
-  description?: string;
-  input_schema?: string;
-  schema_hash?: string;
-  last_seen_at?: string;
-};
-
-type MCPServerRecord = {
-  name: string;
-  display_name: string;
-  enabled: boolean;
-  provider: string;
-  transport: string;
-  url: string;
-  auth_type: string;
-  auth_secret: string;
-  headers: Record<string, string>;
-  timeout: string;
-  allowed_scopes: string[];
-  last_test_status?: string;
-  last_test_message?: string;
-  last_tested_at?: string;
-  last_discovered_at?: string;
-  discovered_server_name?: string;
-  discovered_version?: string;
-  discovered_protocol?: string;
-  tools: MCPToolRecord[];
-};
-
-type MCPProfileServerRef = {
-  server: string;
-  tools: string[];
-};
-
-type MCPProfileRecord = {
-  name: string;
-  description: string;
-  enabled: boolean;
-  servers: MCPProfileServerRef[];
-  allowed_scopes: string[];
-};
-
-type MCPServerFormState = {
-  name: string;
-  display_name: string;
-  enabled: boolean;
-  provider: string;
-  transport: string;
-  url: string;
-  auth_type: string;
-  auth_secret: string;
-  headers_json: string;
-  timeout: string;
-  allowed_scopes: string;
-};
-
-type MCPProfileFormState = {
-  name: string;
-  description: string;
-  enabled: boolean;
-  selected_tools: Record<string, string[]>;
-  tool_text: Record<string, string>;
-  allowed_scopes: string;
-};
-
-type MCPPanelMode = 'server-create' | 'server-edit' | 'profile-create' | 'profile-edit';
-
-const emptyMCPServerForm: MCPServerFormState = {
-  name: '',
-  display_name: '',
-  enabled: true,
-  provider: '',
-  transport: 'streamable_http',
-  url: '',
-  auth_type: 'none',
-  auth_secret: '',
-  headers_json: '',
-  timeout: '30s',
-  allowed_scopes: '',
-};
-
-const emptyMCPProfileForm: MCPProfileFormState = {
-  name: '',
-  description: '',
-  enabled: true,
-  selected_tools: {},
-  tool_text: {},
-  allowed_scopes: '',
-};
-
 function MCPPanel({ canManage }: { canManage: boolean }) {
-  const [innerTab, setInnerTab] = useState<'servers' | 'profiles'>('servers');
-  const [servers, setServers] = useState<MCPServerRecord[]>([]);
-  const [profiles, setProfiles] = useState<MCPProfileRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [serverForm, setServerForm] = useState<MCPServerFormState>(emptyMCPServerForm);
-  const [profileForm, setProfileForm] = useState<MCPProfileFormState>(emptyMCPProfileForm);
-  const [editingServer, setEditingServer] = useState<string | null>(null);
-  const [editingProfile, setEditingProfile] = useState<string | null>(null);
-  const [panelMode, setPanelMode] = useState<MCPPanelMode | null>(null);
   const mcpPanelRef = useRef<HTMLElement | null>(null);
-
-  const loadMCP = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [serversResp, profilesResp] = await Promise.all([
-        fetch(buildApiUrl('/v1/system/mcp/servers'), { cache: 'no-store' }),
-        fetch(buildApiUrl('/v1/system/mcp/profiles'), { cache: 'no-store' }),
-      ]);
-      if (!serversResp.ok) throw new Error(await serversResp.text() || `Failed to load MCP servers (${serversResp.status})`);
-      if (!profilesResp.ok) throw new Error(await profilesResp.text() || `Failed to load MCP profiles (${profilesResp.status})`);
-      setServers(normalizeMCPServersPayload(await serversResp.json()));
-      setProfiles(normalizeMCPProfilesPayload(await profilesResp.json()));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load MCP registry');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadMCP();
-  }, [loadMCP]);
+  const {
+    innerTab,
+    setInnerTab,
+    servers,
+    profiles,
+    loading,
+    saving,
+    testing,
+    error,
+    message,
+    serverForm,
+    setServerForm,
+    profileForm,
+    setProfileForm,
+    editingServer,
+    editingProfile,
+    panelMode,
+    setPanelMode,
+    loadMCP,
+    startServerCreate,
+    startServerEdit,
+    saveServer,
+    deleteServer,
+    discoverServer,
+    startProfileCreate,
+    startProfileEdit,
+    toggleProfileTool,
+    setProfileServerTools,
+    saveProfile,
+    deleteProfile,
+    testProfile,
+  } = useMCPRegistry({ canManage });
 
   useEffect(() => {
     if (!panelMode) return;
@@ -162,245 +65,6 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
       focusTarget?.focus({ preventScroll: true });
     });
   }, [editingProfile, editingServer, innerTab, panelMode]);
-
-  const startServerCreate = () => {
-    setEditingServer(null);
-    setServerForm(emptyMCPServerForm);
-    setInnerTab('servers');
-    setPanelMode('server-create');
-  };
-
-  const startServerEdit = (server: MCPServerRecord) => {
-    setEditingServer(server.name);
-    setServerForm({
-      name: server.name,
-      display_name: server.display_name || '',
-      enabled: server.enabled,
-      provider: server.provider || '',
-      transport: server.transport || 'streamable_http',
-      url: server.url || '',
-      auth_type: server.auth_type || 'none',
-      auth_secret: server.auth_secret || '',
-      headers_json: formatHeadersJSON(server.headers),
-      timeout: server.timeout || '30s',
-      allowed_scopes: server.allowed_scopes.join(', '),
-    });
-    setInnerTab('servers');
-    setPanelMode('server-edit');
-  };
-
-  const saveServer = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!canManage) return;
-    const headers = parseHeadersJSON(serverForm.headers_json);
-    if (headers == null) {
-      setError('MCP server headers must be a JSON object with string keys and values.');
-      return;
-    }
-    const payload = {
-      name: serverForm.name.trim(),
-      display_name: serverForm.display_name.trim(),
-      enabled: serverForm.enabled,
-      provider: serverForm.provider.trim(),
-      transport: serverForm.transport.trim(),
-      url: serverForm.url.trim(),
-      auth_type: serverForm.auth_type.trim(),
-      auth_secret: serverForm.auth_secret.trim(),
-      headers,
-      timeout: serverForm.timeout.trim() || '30s',
-      allowed_scopes: splitCSV(serverForm.allowed_scopes),
-    };
-    if (!payload.name) {
-      setError('MCP server name is required.');
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    setMessage(null);
-    try {
-      const path = editingServer ? `/v1/system/mcp/servers/${encodeURIComponent(payload.name)}` : '/v1/system/mcp/servers';
-      const response = await fetch(buildApiUrl(path), {
-        method: editingServer ? 'PUT' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!response.ok) throw new Error(await response.text() || `Failed to save MCP server (${response.status})`);
-      setServers(normalizeMCPServersPayload(await response.json()));
-      setEditingServer(payload.name);
-      setPanelMode('server-edit');
-      setMessage(`Saved MCP server ${payload.name}.`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to save MCP server');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const deleteServer = async (name: string) => {
-    if (!canManage) return;
-    setSaving(true);
-    setError(null);
-    setMessage(null);
-    try {
-      const response = await fetch(buildApiUrl(`/v1/system/mcp/servers/${encodeURIComponent(name)}`), { method: 'DELETE' });
-      if (!response.ok && response.status !== 204) throw new Error(await response.text() || `Failed to delete MCP server (${response.status})`);
-      if (editingServer === name) {
-        setEditingServer(null);
-        setServerForm(emptyMCPServerForm);
-        setPanelMode(prev => prev === 'server-edit' ? null : prev);
-      }
-      await loadMCP();
-      setMessage(`Deleted MCP server ${name}.`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to delete MCP server');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const discoverServer = async (name: string) => {
-    setTesting(name);
-    setError(null);
-    setMessage(null);
-    try {
-      const response = await fetch(buildApiUrl(`/v1/system/mcp/servers/${encodeURIComponent(name)}/discover-tools`), { method: 'POST' });
-      if (!response.ok) throw new Error(await response.text() || `MCP discovery failed (${response.status})`);
-      await loadMCP();
-      setMessage(`Discovered tools for ${name}.`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to discover MCP tools');
-    } finally {
-      setTesting(null);
-    }
-  };
-
-  const startProfileCreate = () => {
-    setEditingProfile(null);
-    setProfileForm(emptyMCPProfileForm);
-    setInnerTab('profiles');
-    setPanelMode('profile-create');
-  };
-
-  const startProfileEdit = (profile: MCPProfileRecord) => {
-    const selectedTools: Record<string, string[]> = {};
-    const toolText: Record<string, string> = {};
-    profile.servers.forEach(ref => {
-      selectedTools[ref.server] = [...ref.tools];
-      toolText[ref.server] = ref.tools.join('\n');
-    });
-    setEditingProfile(profile.name);
-    setProfileForm({
-      name: profile.name,
-      description: profile.description || '',
-      enabled: profile.enabled,
-      selected_tools: selectedTools,
-      tool_text: toolText,
-      allowed_scopes: profile.allowed_scopes.join(', '),
-    });
-    setInnerTab('profiles');
-    setPanelMode('profile-edit');
-  };
-
-  const toggleProfileTool = (serverName: string, toolName: string) => {
-    setProfileForm(prev => {
-      const current = new Set(prev.selected_tools[serverName] || []);
-      if (current.has(toolName)) current.delete(toolName);
-      else current.add(toolName);
-      const next = { ...prev.selected_tools, [serverName]: Array.from(current).sort((a, b) => a.localeCompare(b)) };
-      if (next[serverName].length === 0) delete next[serverName];
-      const toolText = { ...prev.tool_text, [serverName]: (next[serverName] || []).join('\n') };
-      if (!next[serverName]) delete toolText[serverName];
-      return { ...prev, selected_tools: next, tool_text: toolText };
-    });
-  };
-
-  const setProfileServerTools = (serverName: string, value: string) => {
-    setProfileForm(prev => {
-      const tools = splitToolNames(value);
-      const next = { ...prev.selected_tools };
-      if (tools.length > 0) next[serverName] = tools;
-      else delete next[serverName];
-      return { ...prev, selected_tools: next, tool_text: { ...prev.tool_text, [serverName]: value } };
-    });
-  };
-
-  const saveProfile = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!canManage) return;
-    const refs = Object.entries(profileForm.selected_tools)
-      .filter(([, tools]) => tools.length > 0)
-      .map(([server, tools]) => ({ server, tools }));
-    const payload = {
-      name: profileForm.name.trim(),
-      description: profileForm.description.trim(),
-      enabled: profileForm.enabled,
-      servers: refs,
-      allowed_scopes: splitCSV(profileForm.allowed_scopes),
-    };
-    if (!payload.name) {
-      setError('MCP profile name is required.');
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    setMessage(null);
-    try {
-      const path = editingProfile ? `/v1/system/mcp/profiles/${encodeURIComponent(payload.name)}` : '/v1/system/mcp/profiles';
-      const response = await fetch(buildApiUrl(path), {
-        method: editingProfile ? 'PUT' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!response.ok) throw new Error(await response.text() || `Failed to save MCP profile (${response.status})`);
-      setProfiles(normalizeMCPProfilesPayload(await response.json()));
-      setEditingProfile(payload.name);
-      setPanelMode('profile-edit');
-      setMessage(`Saved MCP profile ${payload.name}.`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to save MCP profile');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const deleteProfile = async (name: string) => {
-    if (!canManage) return;
-    setSaving(true);
-    setError(null);
-    setMessage(null);
-    try {
-      const response = await fetch(buildApiUrl(`/v1/system/mcp/profiles/${encodeURIComponent(name)}`), { method: 'DELETE' });
-      if (!response.ok && response.status !== 204) throw new Error(await response.text() || `Failed to delete MCP profile (${response.status})`);
-      if (editingProfile === name) {
-        setEditingProfile(null);
-        setProfileForm(emptyMCPProfileForm);
-        setPanelMode(prev => prev === 'profile-edit' ? null : prev);
-      }
-      await loadMCP();
-      setMessage(`Deleted MCP profile ${name}.`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to delete MCP profile');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const testProfile = async (name: string) => {
-    setTesting(name);
-    setError(null);
-    setMessage(null);
-    try {
-      const response = await fetch(buildApiUrl(`/v1/system/mcp/profiles/${encodeURIComponent(name)}/test`), { method: 'POST' });
-      if (!response.ok) throw new Error(await response.text() || `MCP profile test failed (${response.status})`);
-      const result = await response.json();
-      const warnings = normalizeStringArray(asRecord(result)?.warnings);
-      setMessage(warnings.length ? `${name}: ${warnings.join('; ')}` : `${name}: ${readString(asRecord(result)?.message) || 'ok'}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to test MCP profile');
-    } finally {
-      setTesting(null);
-    }
-  };
 
   const showServerPanel = panelMode === 'server-create' || panelMode === 'server-edit';
   const showProfilePanel = panelMode === 'profile-create' || panelMode === 'profile-edit';
@@ -631,134 +295,6 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
       )}
     </div>
   );
-}
-
-
-function normalizeMCPServersPayload(value: unknown): MCPServerRecord[] {
-  const record = asRecord(value);
-  const serversRaw = record && Array.isArray(record.servers) ? record.servers : [];
-  const servers = serversRaw
-    .map(item => {
-      const server = asRecord(item);
-      if (!server) return null;
-      const name = readString(server.name).trim();
-      if (!name) return null;
-      return {
-        name,
-        display_name: readString(server.display_name).trim(),
-        enabled: typeof server.enabled === 'boolean' ? server.enabled : true,
-        provider: readString(server.provider).trim(),
-        transport: readString(server.transport).trim() || 'streamable_http',
-        url: readString(server.url).trim(),
-        auth_type: readString(server.auth_type).trim() || 'none',
-        auth_secret: readString(server.auth_secret).trim(),
-        headers: normalizeStringMap(server.headers),
-        timeout: readString(server.timeout).trim() || '30s',
-        allowed_scopes: normalizeStringArray(server.allowed_scopes),
-        last_test_status: readOptionalString(server.last_test_status),
-        last_test_message: readOptionalString(server.last_test_message),
-        last_tested_at: readOptionalString(server.last_tested_at),
-        last_discovered_at: readOptionalString(server.last_discovered_at),
-        discovered_server_name: readOptionalString(server.discovered_server_name),
-        discovered_version: readOptionalString(server.discovered_version),
-        discovered_protocol: readOptionalString(server.discovered_protocol),
-        tools: Array.isArray(server.tools) ? server.tools.map(normalizeMCPTool).filter((tool): tool is MCPToolRecord => Boolean(tool)) : [],
-      } satisfies MCPServerRecord;
-    })
-    .filter(Boolean) as MCPServerRecord[];
-  return servers.sort((a, b) => a.name.localeCompare(b.name));
-}
-
-function normalizeMCPTool(value: unknown): MCPToolRecord | null {
-  const record = asRecord(value);
-  if (!record) return null;
-  const name = readString(record.name).trim();
-  if (!name) return null;
-  return {
-    server_name: readString(record.server_name).trim(),
-    name,
-    description: readOptionalString(record.description),
-    input_schema: readOptionalString(record.input_schema),
-    schema_hash: readOptionalString(record.schema_hash),
-    last_seen_at: readOptionalString(record.last_seen_at),
-  };
-}
-
-function normalizeMCPProfilesPayload(value: unknown): MCPProfileRecord[] {
-  const record = asRecord(value);
-  const profilesRaw = record && Array.isArray(record.profiles) ? record.profiles : [];
-  const profiles = profilesRaw
-    .map(item => {
-      const profile = asRecord(item);
-      if (!profile) return null;
-      const name = readString(profile.name).trim();
-      if (!name) return null;
-      const refsRaw = Array.isArray(profile.servers) ? profile.servers : [];
-      const refs = refsRaw
-        .map(refItem => {
-          const ref = asRecord(refItem);
-          if (!ref) return null;
-          const server = readString(ref.server).trim();
-          if (!server) return null;
-          return { server, tools: normalizeStringArray(ref.tools) } satisfies MCPProfileServerRef;
-        })
-        .filter(Boolean) as MCPProfileServerRef[];
-      return {
-        name,
-        description: readString(profile.description).trim(),
-        enabled: typeof profile.enabled === 'boolean' ? profile.enabled : true,
-        servers: refs,
-        allowed_scopes: normalizeStringArray(profile.allowed_scopes),
-      } satisfies MCPProfileRecord;
-    })
-    .filter(Boolean) as MCPProfileRecord[];
-  return profiles.sort((a, b) => a.name.localeCompare(b.name));
-}
-
-function splitCSV(value: string): string[] {
-  return value
-    .split(',')
-    .map(item => item.trim())
-    .filter(Boolean);
-}
-
-function splitToolNames(value: string): string[] {
-  const seen = new Set<string>();
-  return value
-    .split(/[\n,]/)
-    .map(item => item.trim())
-    .filter(item => {
-      if (!item || seen.has(item)) return false;
-      seen.add(item);
-      return true;
-    })
-    .sort((a, b) => a.localeCompare(b));
-}
-
-function formatHeadersJSON(headers: Record<string, string>): string {
-  if (Object.keys(headers || {}).length === 0) return '';
-  return JSON.stringify(headers, null, 2);
-}
-
-function parseHeadersJSON(value: string): Record<string, string> | null {
-  const trimmed = value.trim();
-  if (!trimmed) return {};
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(trimmed);
-  } catch {
-    return null;
-  }
-  const record = asRecord(parsed);
-  if (!record || Array.isArray(parsed)) return null;
-  const headers: Record<string, string> = {};
-  for (const [key, headerValue] of Object.entries(record)) {
-    const headerName = key.trim();
-    if (!headerName) continue;
-    if (typeof headerValue !== 'string') return null;
-    headers[headerName] = headerValue.trim();
-  }
-  return headers;
 }
 
 

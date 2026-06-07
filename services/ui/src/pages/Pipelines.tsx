@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import yaml from 'js-yaml';
-import { buildApiUrl } from '../lib/api';
 import {
   PIPELINE_DRAFTS_CHANGED_EVENT,
   deletePipelineDraft,
@@ -11,90 +10,43 @@ import {
   upsertPipelineDraft,
 } from '../lib/pipelineDrafts';
 import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups';
-import { applyEnterIndent, findParentBlock, validatePipelineYamlStrict } from '../lib/lab';
-import { findLineNumberForKey, normalizeLineNumber, parseYamlWithLocation } from '../lib/yamlValidation';
+import { applyEnterIndent, findParentBlock } from '../lib/lab';
 import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
 import ResourceAccessCard from '../components/ResourceAccessCard';
-import { StepsGraph, type PipelineDefinition as RunPipelineDefinition, type StepDetail as RunStepDetail, type TaskDefinition as RunTaskDefinition, type TaskDetail as RunTaskDetail } from './PipelineRuns';
+import { StepsGraph } from './PipelineRuns';
+import { fetchEditorAutocompleteMetadata } from '../features/editor/autocomplete';
+import {
+  checkPipelinePermission as checkPipelinePermissionRequest,
+  deletePipeline,
+  fetchPipelineList,
+  fetchPipelineTriggers as fetchPipelineTriggersRequest,
+  fetchPipelineYaml,
+  fetchRecentPipelineRuns,
+  savePipelineYaml,
+  type PipelineRun,
+  type PipelineTrigger,
+} from '../features/pipelines/api';
+import {
+  PIPELINE_DIRECTIVES,
+  STEP_DIRECTIVES,
+  TASK_DIRECTIVES,
+  buildPipelineGraphData,
+  encodeId,
+  normalizePipelineSource as normalizeSource,
+  normalizeRootPath,
+  parsePipelineYaml,
+  splitIdentifier,
+  validatePipelineYaml,
+  type PipelineDetail,
+  type PipelineGraphData,
+  type PipelineListItem,
+} from '../features/pipelines/model';
 
 const MAX_RECENT_RUNS = 5;
 const MAX_VISIBLE_TRIGGER_CARDS = 5;
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
 
-const PIPELINE_DIRECTIVES = [
-  'name',
-  'version',
-  'description',
-  'container_image',
-  'working_directory',
-  'variables',
-  'steps',
-  'timeout',
-  'llm_enabled',
-  'llm_profile',
-  'mcp_profiles',
-  'runtime_pool',
-  'affinity_enabled',
-  'knowledge_context',
-  'llm_output_sharing',
-  'llm_content_sharing',
-  'llm_content_include',
-  'llm_content_ignore',
-  'display_options',
-];
-
-const STEP_DIRECTIVES = [
-  'name',
-  'include',
-  'sync',
-  'approval',
-  'image',
-  'secrets',
-  'volumes',
-  'variables',
-  'tasks',
-  'condition',
-  'goal',
-  'script',
-  'depends_on',
-  'ignore_failure',
-  'llm_profile',
-  'mcp_profiles',
-  'runtime_pool',
-  'knowledge_context',
-  'llm_output_sharing',
-];
-
-const TASK_DIRECTIVES = [
-  'name',
-  'goal',
-  'script',
-  'depends_on',
-  'ignore_failure',
-  'llm_profile',
-  'mcp_profiles',
-  'knowledge_context',
-  'llm_output_sharing',
-  'variables',
-];
-
 const PIPELINE_PERMISSION_PROBE_NAME = '__nopsai_permission_probe__';
-
-type PipelineListItem = { id: string; source?: string };
-type PipelineDetail = {
-  id: string;
-  name: string;
-  description: string;
-  version: string;
-  path: string;
-  rawYaml: string;
-  stepNames: string[];
-  variables: string[];
-  includedDependencies: string[];
-  dependencyEdges: { from: string; to: string }[];
-  containerImage?: string;
-  source?: string;
-};
 
 type FormModalState = {
   mode: 'create' | 'clone';
@@ -118,35 +70,6 @@ type ToastMessage = {
   tone: 'success' | 'error' | 'info';
 };
 
-type PipelineRun = {
-  run_id: string;
-  pipeline_name: string;
-  pipeline_path?: string;
-  status?: string;
-  trigger_event_id?: string;
-  git_repo_owner?: string;
-  git_repo_name?: string;
-  git_ref?: string;
-  duration?: string;
-  started_at?: string;
-};
-
-type PipelineTrigger = {
-  repoSlug: string;
-  source: string;
-  trigger: Record<string, unknown>;
-};
-
-type ValidationError = {
-  message: string;
-  line?: number;
-  column?: number;
-};
-
-type ValidationResult = {
-  errors: ValidationError[];
-};
-
 type TreeNode = {
   id: string;
   name: string;
@@ -154,12 +77,6 @@ type TreeNode = {
   children: TreeNode[];
   pipelineIds: string[];
 };
-
-function normalizeRootPath(path: string) {
-  const parts = path.trim().replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
-  if (parts[0]?.toLowerCase() === 'root') parts.shift();
-  return parts.join('/');
-}
 
 type PipelinesPageProps = {
   draftScope: string;
@@ -210,19 +127,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   });
   const editSessionOriginalYamlRef = useRef<string>('');
   const wasEditingRef = useRef(false);
-  const parsePipelineYamlRef = useRef<(raw: string, id: string, source?: string) => PipelineDetail>((raw, id, source) => ({
-    id,
-    name: id,
-    description: 'No description provided.',
-    version: 'latest',
-    path: '',
-    rawYaml: raw,
-    stepNames: [],
-    variables: [],
-    includedDependencies: [],
-    dependencyEdges: [],
-    source,
-  }));
+  const parsePipelineYamlRef = useRef(parsePipelineYaml);
 
   const [autocompleteMeta, setAutocompleteMeta] = useState<{
     secrets: string[];
@@ -246,54 +151,10 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     groupedSections?: Array<{ label: string; items: string[]; totalCount: number }>;
   }>(null);
 
-  const validatePipelineYaml = useCallback((rawYaml: string): ValidationResult => {
-    const trimmed = rawYaml.trim();
-    if (!trimmed) {
-      return { errors: [{ message: 'Pipeline definition cannot be empty.', line: 1 }] };
-    }
-
-    const { parsed, error: parseError } = parseYamlWithLocation(rawYaml);
-    if (parseError) {
-      return { errors: [parseError] };
-    }
-
-    const errors: ValidationError[] = [];
-    const strict = validatePipelineYamlStrict(rawYaml);
-    strict.errors.forEach(err => {
-      errors.push({
-        message: err.message,
-        line: normalizeLineNumber(err.line),
-      });
-    });
-
-    const pipelineObject = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
-    if (pipelineObject) {
-      const steps = Array.isArray(pipelineObject.steps) ? (pipelineObject.steps as Array<Record<string, unknown>>) : [];
-      if (steps.length > 0) {
-        const containerImage = typeof pipelineObject.container_image === 'string' ? pipelineObject.container_image.trim() : '';
-        const executableStepWithoutImage = steps.some(step => {
-          if (!step || typeof step !== 'object') return false;
-          const stepRecord = step as Record<string, unknown>;
-          if (stepRecord.approval !== undefined) return false;
-          const stepImage = typeof stepRecord.image === 'string' ? stepRecord.image.trim() : '';
-          return !stepImage;
-        });
-        if (!containerImage && executableStepWithoutImage) {
-          errors.push({
-            message: "'container_image' is required when steps do not specify their own image.",
-            line: findLineNumberForKey(rawYaml, 'container_image') ?? findLineNumberForKey(rawYaml, 'steps') ?? 1,
-          });
-        }
-      }
-    }
-
-    return { errors };
-  }, []);
-
   const validation = useMemo(() => {
     if (!isEditing) return { errors: [] };
     return validatePipelineYaml(editorValue);
-  }, [editorValue, isEditing, validatePipelineYaml]);
+  }, [editorValue, isEditing]);
 
   const validationErrorLines = useMemo(() => {
     const lines = new Set<number>();
@@ -303,160 +164,9 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     return lines;
   }, [validation.errors]);
 
-  const graphData = useMemo<{
-    steps: RunStepDetail[];
-    definition?: RunPipelineDefinition;
-    error: string | null;
-  }>(() => {
+  const graphData = useMemo<PipelineGraphData>(() => {
     const source = isEditing ? editorValue : detail?.rawYaml;
-    const base = { steps: [] as RunStepDetail[], definition: undefined as RunPipelineDefinition | undefined, error: null as string | null };
-    if (!source) return base;
-
-    const normalizeStringArray = (value: unknown) =>
-      Array.isArray(value) ? value.map(v => (typeof v === 'string' ? v.trim() : '')).filter(Boolean) : [];
-    const normalizeVariables = (value: unknown) => {
-      if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-      const entries: Record<string, string> = {};
-      Object.entries(value as Record<string, unknown>).forEach(([key, val]) => {
-        if (typeof val === 'string') entries[key] = val;
-      });
-      return Object.keys(entries).length ? entries : undefined;
-    };
-    const normalizeApproval = (value: unknown) => {
-      if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-      const record = value as Record<string, unknown>;
-      return {
-        type: typeof record.type === 'string' ? record.type : undefined,
-        groups: normalizeStringArray(record.groups),
-        allow_self_approval: typeof record.allow_self_approval === 'boolean' ? record.allow_self_approval : undefined,
-      };
-    };
-
-    type NormalizedStep = {
-      name: string;
-      description?: string;
-      depends_on: string[];
-      include?: string;
-      sync?: boolean;
-      approval?: ReturnType<typeof normalizeApproval>;
-      image?: string;
-      secrets?: string[];
-      volumes?: string[];
-      variables?: Record<string, string>;
-      ignore_failure?: boolean;
-      llm_output_sharing?: boolean;
-      goal?: string;
-      script?: string;
-      tasks: RunTaskDefinition[];
-    };
-
-    try {
-      const parsed = yaml.load(source) as unknown;
-      const parsedRecord = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
-      const rawSteps = Array.isArray(parsedRecord.steps) ? parsedRecord.steps : [];
-      const normalizedSteps = rawSteps
-        .map<NormalizedStep | null>((stepValue: unknown) => {
-          const step = stepValue && typeof stepValue === 'object' ? (stepValue as Record<string, unknown>) : null;
-          if (!step) return null;
-          const name = typeof step?.name === 'string' ? step.name.trim() : '';
-          if (!name) return null;
-
-          const taskDefs: RunTaskDefinition[] = Array.isArray(step?.tasks)
-            ? step.tasks
-                .map((taskValue: unknown) => {
-                  const task = taskValue && typeof taskValue === 'object' ? (taskValue as Record<string, unknown>) : null;
-                  if (!task) return null;
-                  const taskName = typeof task?.name === 'string' ? task.name.trim() : '';
-                  if (!taskName) return null;
-                  return {
-                    name: taskName,
-                    goal: typeof task?.goal === 'string' ? task.goal : undefined,
-                    script: typeof task?.script === 'string' ? task.script : undefined,
-                    depends_on: normalizeStringArray(task?.depends_on),
-                    ignore_failure: typeof task?.ignore_failure === 'boolean' ? task.ignore_failure : undefined,
-                    variables: normalizeVariables(task?.variables),
-                  } as RunTaskDefinition;
-                })
-                .filter((task): task is RunTaskDefinition => Boolean(task))
-            : [];
-
-          const normalizedStep: NormalizedStep = {
-            name,
-            description: typeof step?.description === 'string' ? step.description : undefined,
-            depends_on: normalizeStringArray(step?.depends_on),
-            include: typeof step?.include === 'string' ? step.include : undefined,
-            sync: typeof step?.sync === 'boolean' ? step.sync : undefined,
-            approval: normalizeApproval(step?.approval),
-            image: typeof step?.image === 'string' ? step.image : undefined,
-            secrets: normalizeStringArray(step?.secrets),
-            volumes: normalizeStringArray(step?.volumes),
-            variables: normalizeVariables(step?.variables),
-            ignore_failure: typeof step?.ignore_failure === 'boolean' ? step.ignore_failure : undefined,
-            llm_output_sharing: typeof step?.llm_output_sharing === 'boolean' ? step.llm_output_sharing : undefined,
-            goal: typeof step?.goal === 'string' ? step.goal : undefined,
-            script: typeof step?.script === 'string' ? step.script : undefined,
-            tasks: taskDefs,
-          };
-          return normalizedStep;
-        })
-        .filter((step): step is NormalizedStep => Boolean(step));
-
-      const definition: RunPipelineDefinition | undefined =
-        normalizedSteps.length > 0
-          ? {
-              name: typeof parsedRecord.name === 'string' ? parsedRecord.name : undefined,
-              description: typeof parsedRecord.description === 'string' ? parsedRecord.description : undefined,
-              version: typeof parsedRecord.version === 'string' ? parsedRecord.version : undefined,
-              steps: normalizedSteps.map(step => ({
-                name: step.name,
-                description: step.description,
-                depends_on: step.depends_on,
-                approval: step.approval,
-                tasks: step.tasks,
-                goal: step.goal,
-                script: step.script,
-              })),
-            }
-          : undefined;
-
-      const stepDetails: RunStepDetail[] = normalizedSteps.map(step => {
-        const taskDetails: RunTaskDetail[] = step.tasks.map((task, index) => ({
-          task_id: `def-${step.name}-${task.name || index}`,
-          step_name: step.name,
-          task_name: task.name,
-          status: 'pending',
-          exit_code: null,
-          started_at: undefined,
-          finished_at: undefined,
-          task_index: index,
-        }));
-
-        return {
-          name: step.name,
-          status: 'success',
-          depends_on: step.depends_on,
-          tasks: taskDetails,
-          configuration: {
-            include: step.include,
-            sync: step.sync,
-            approval: step.approval,
-            image: step.image,
-            secrets: step.secrets,
-            volumes: step.volumes,
-            variables: step.variables,
-            ignore_failure: step.ignore_failure,
-            llm_output_sharing: step.llm_output_sharing,
-            goal: step.goal,
-            script: step.script,
-            tasks: step.tasks,
-          },
-        };
-      });
-
-      return { steps: stepDetails, definition, error: null };
-    } catch (error) {
-      return { steps: [], definition: undefined, error: error instanceof Error ? error.message : 'Unable to parse YAML' };
-    }
+    return buildPipelineGraphData(source);
   }, [detail?.rawYaml, editorValue, isEditing]);
 
   useEffect(() => {
@@ -683,115 +393,13 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
 
       setAutocompleteMeta(prev => ({ ...prev, loading: true }));
       try {
-        const normalize = (payload: unknown): string[] => {
-          if (!Array.isArray(payload)) return [];
-          return payload
-            .map(item => {
-              if (typeof item === 'string') return item.trim();
-              if (item && typeof item === 'object') {
-                const { name } = item as Record<string, unknown>;
-                if (typeof name === 'string') return name.trim();
-              }
-              return '';
-            })
-            .filter(Boolean);
-        };
-
-        const normalizeLLMProfiles = (payload: unknown): string[] => {
-          const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null;
-          const profiles = record && Array.isArray(record.profiles) ? record.profiles : payload;
-          return normalize(profiles);
-        };
-        const normalizeMCPProfiles = (payload: unknown): string[] => {
-          const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null;
-          const profiles = record && Array.isArray(record.profiles) ? record.profiles : payload;
-          return normalize(profiles);
-        };
-
-        const normalizeScopeLabel = (entry: unknown) => {
-          const normalizeRawScope = (raw: string) => {
-            const normalized = raw.trim().replace(/^\/+|\/+$/g, '');
-            return normalized.toLowerCase() === 'default' ? '' : normalized;
-          };
-          if (entry == null) return '';
-          if (typeof entry === 'string') return normalizeRawScope(entry);
-          if (typeof entry === 'object') {
-            const record = entry as Record<string, unknown>;
-            const raw = record.scope ?? record.name ?? record.value;
-            if (typeof raw === 'string') return normalizeRawScope(raw);
-          }
-          return '';
-        };
-
-        const buildScopeList = (secretsPayload: unknown, variablesPayload: unknown): string[] => {
-          const scopes = new Set<string>();
-          scopes.add('');
-          if (Array.isArray(secretsPayload)) {
-            secretsPayload.forEach(entry => {
-              const label = normalizeScopeLabel(entry);
-              if (label !== null) scopes.add(label);
-            });
-          }
-          if (Array.isArray(variablesPayload)) {
-            variablesPayload.forEach(entry => {
-              const label = normalizeScopeLabel(entry);
-              if (label !== null) scopes.add(label);
-            });
-          }
-          return Array.from(scopes)
-            .map(scope => scope.replace(/^\/+|\/+$/g, ''))
-            .sort((a, b) => a.localeCompare(b));
-        };
-
-        const fetchScopedList = async (path: string, scope: string) => {
-          const suffix = scope ? `?scope=${encodeURIComponent(scope)}` : '';
-          const response = await fetch(buildApiUrl(`${path}${suffix}`));
-          if (!response.ok) return [];
-          const payload = await response.json();
-          return normalize(payload);
-        };
-
         const promise = (async () => {
-          const [secretsResp, varsResp, stepsResp, secretScopesResp, variableScopesResp, llmProfilesResp, mcpProfilesResp] = await Promise.all([
-            fetch(buildApiUrl('/v1/secrets')).then(r => (r.ok ? r.json() : [])),
-            fetch(buildApiUrl('/v1/variables')).then(r => (r.ok ? r.json() : [])),
-            fetch(buildApiUrl('/v1/steps')).then(r => (r.ok ? r.json() : [])),
-            fetch(buildApiUrl('/v1/secrets/scopes')).then(r => (r.ok ? r.json() : [])),
-            fetch(buildApiUrl('/v1/variables/scopes')).then(r => (r.ok ? r.json() : [])),
-            fetch(buildApiUrl('/v1/system/llm-profiles')).then(r => (r.ok ? r.json() : null)),
-            fetch(buildApiUrl('/v1/system/mcp/profiles')).then(r => (r.ok ? r.json() : null)),
-          ]);
-
-          const scopeList = buildScopeList(secretScopesResp, variableScopesResp);
-
-          const [secretScopes, variableScopes] = await Promise.all([
-            Promise.all(
-              scopeList.map(async scope => ({
-                scope,
-                items: await fetchScopedList('/v1/secrets', scope),
-              }))
-            ),
-            Promise.all(
-              scopeList.map(async scope => ({
-                scope,
-                items: await fetchScopedList('/v1/variables', scope),
-              }))
-            ),
-          ]);
-
-          setAutocompleteMeta({
-            secrets: normalize(secretsResp),
-            variables: normalize(varsResp),
-            llmProfiles: normalizeLLMProfiles(llmProfilesResp),
-            mcpProfiles: normalizeMCPProfiles(mcpProfilesResp),
-            reusableSteps: normalize(stepsResp),
-            secretScopes,
-            variableScopes,
-            fetchedAt: Date.now(),
-            loading: false,
+          const metadata = await fetchEditorAutocompleteMetadata({
+            includeLLMProfiles: true,
+            includeMCPProfiles: true,
           });
-
-          autocompleteFetchRef.current.fetchedAt = Date.now();
+          setAutocompleteMeta(metadata);
+          autocompleteFetchRef.current.fetchedAt = metadata.fetchedAt;
         })();
 
         autocompleteFetchRef.current.loadingPromise = promise;
@@ -814,50 +422,12 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     }, 3200);
   }, []);
 
-  const encodeId = (id: string) => id.split('/').map(encodeURIComponent).join('/');
-
-  const splitIdentifier = useCallback((id: string) => {
-    const parts = id.split('/').filter(Boolean);
-    const name = decodeURIComponent(parts.pop() || '');
-    const path = parts.map(decodeURIComponent).join('/');
-    return { name, path };
-  }, []);
-
   const buildPermissionProbeIdentifier = (folder: string) => {
     const cleaned = folder.trim().replace(/^\/+|\/+$/g, '');
     return cleaned ? `${cleaned}/${PIPELINE_PERMISSION_PROBE_NAME}` : PIPELINE_PERMISSION_PROBE_NAME;
   };
 
-  const checkPipelinePermission = useCallback(async (action: string, resourceID: string) => {
-    const params = new URLSearchParams({
-      action,
-      resource_type: 'pipeline',
-      resource_id: resourceID,
-    });
-    const response = await fetch(buildApiUrl(`/v1/access/effective-permissions?${params.toString()}`));
-    if (!response.ok) return false;
-    const payload = await response.json();
-    return Boolean(payload?.allowed);
-  }, []);
-
-  const normalizeSource = (source?: string) => {
-    const key = (source || '').trim().toLowerCase();
-    if (!key) return 'database';
-    if (key.includes('git')) return 'git';
-    if (key.includes('draft')) return 'draft';
-    if (key.includes('db')) return 'database';
-    return key;
-  };
-
-  const normalizePipelineIdentifier = (value: unknown) => {
-    if (!value) return '';
-    return String(value)
-      .trim()
-      .replace(/^\.nopsai\//, '')
-      .replace(/\.ya?ml$/i, '')
-      .replace(/\/+/g, '/')
-      .replace(/^\//, '');
-  };
+  const checkPipelinePermission = useCallback((action: string, resourceID: string) => checkPipelinePermissionRequest(action, resourceID), []);
 
   const formatRelativeTime = (value?: string) => {
     if (!value) return 'N/A';
@@ -924,61 +494,6 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     return scope || 'default';
   };
 
-  const parsePipelineYaml = useCallback((raw: string, id: string, source?: string): PipelineDetail => {
-    let parsed: Record<string, unknown> | null = null;
-    try {
-      parsed = yaml.load(raw) as Record<string, unknown>;
-    } catch (error) {
-      console.warn('Failed to parse pipeline YAML', error);
-    }
-
-    const safe = (value: unknown) => (typeof value === 'string' ? value : '');
-    const includedDeps: string[] = [];
-    const dependencyEdges: { from: string; to: string }[] = [];
-    const stepNames = Array.isArray(parsed?.steps)
-      ? (parsed?.steps as Array<Record<string, unknown>>)
-          .map(step => {
-            const stepName = safe(step?.name).trim();
-            const includeVal = safe(step?.include).trim();
-            if (includeVal) includedDeps.push(includeVal);
-            const deps = Array.isArray(step?.depends_on) ? (step?.depends_on as unknown[]) : [];
-            deps.forEach(dep => {
-              const from = safe(dep).trim();
-              if (from && stepName) {
-                dependencyEdges.push({ from, to: stepName });
-              }
-            });
-            return stepName;
-          })
-          .filter(Boolean)
-      : [];
-    const variables = Array.isArray(parsed?.variables)
-      ? (parsed?.variables as unknown[])
-          .map(item => (typeof item === 'string' ? item : ''))
-          .filter(Boolean)
-      : [];
-
-    const { name: fallbackName, path } = splitIdentifier(id);
-    return {
-      id,
-      name: safe(parsed?.name) || fallbackName,
-      description: safe(parsed?.description) || 'No description provided.',
-      version: safe(parsed?.version) || 'latest',
-      path,
-      rawYaml: raw,
-      stepNames,
-      variables,
-      includedDependencies: includedDeps,
-      dependencyEdges,
-      containerImage: safe((parsed as Record<string, unknown> | undefined)?.container_image ?? (parsed as Record<string, unknown> | undefined)?.containerImage),
-      source,
-    };
-  }, [splitIdentifier]);
-
-  useEffect(() => {
-    parsePipelineYamlRef.current = parsePipelineYaml;
-  }, [parsePipelineYaml]);
-
   const buildTemplateYaml = (name: string) => {
     return [
       `name: ${name}`,
@@ -1032,24 +547,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       setRunsLoading(true);
       setRunsError(null);
       try {
-        const response = await fetch(buildApiUrl('/v1/runs'));
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(text || `Failed to load runs (${response.status})`);
-        }
-        const payload = await response.json();
-        const runsPayload: PipelineRun[] = Array.isArray(payload) ? payload : [];
-        const { path, name } = splitIdentifier(pipelineId);
-        const normalizedName = name.toLowerCase();
-        const normalizedPath = (path || '').toLowerCase();
-        const filtered = runsPayload
-          .filter(run => (run?.pipeline_name || '').toLowerCase() === normalizedName && (run?.pipeline_path || '').toLowerCase() === normalizedPath)
-          .sort((a, b) => {
-            const aTime = new Date(a.started_at || '').getTime() || 0;
-            const bTime = new Date(b.started_at || '').getTime() || 0;
-            return bTime - aTime;
-          })
-          .slice(0, MAX_RECENT_RUNS);
+        const filtered = await fetchRecentPipelineRuns(pipelineId, MAX_RECENT_RUNS);
         if (selectedIdRef.current === targetId) {
           setRecentRuns(filtered);
         }
@@ -1065,71 +563,16 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
         }
       }
     },
-    [splitIdentifier]
+    []
   );
 
   const loadPipelineTriggers = useCallback(
     async (pipelineId: string) => {
       const targetId = pipelineId;
-      const normalizedTarget = normalizePipelineIdentifier(pipelineId);
-      if (!normalizedTarget) {
-        setTriggers([]);
-        return;
-      }
-
       setTriggersLoading(true);
       setTriggersError(null);
       try {
-        const listResponse = await fetch(buildApiUrl('/v1/overrides?include_source=true'));
-        if (!listResponse.ok) {
-          const text = await listResponse.text();
-          throw new Error(text || `Failed to load overrides (${listResponse.status})`);
-        }
-        const overridesPayload = await listResponse.json();
-        const overrides: unknown[] = Array.isArray(overridesPayload) ? overridesPayload : [];
-        const results: PipelineTrigger[] = [];
-
-        await Promise.all(
-          overrides.map(async entry => {
-            try {
-              const entryRecord = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : null;
-              const slugRaw =
-                typeof entry === 'string'
-                  ? entry
-                  : entryRecord?.name || entryRecord?.repository_name || entryRecord?.slug || entryRecord?.repo || '';
-              const repoSlug = String(slugRaw || '').trim();
-              if (!repoSlug || !repoSlug.includes('/')) return;
-              const [owner, repo] = repoSlug.split('/');
-              const overrideResponse = await fetch(
-                buildApiUrl(`/v1/overrides/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`)
-              );
-              if (!overrideResponse.ok) return;
-              const yamlText = await overrideResponse.text();
-              const manifest = yaml.load(yamlText) as Record<string, unknown>;
-              const triggerList = Array.isArray(manifest?.triggers) ? manifest?.triggers : [];
-              triggerList.forEach(item => {
-                const trigger = (item || {}) as Record<string, unknown>;
-                const pipelines = Array.isArray(trigger.pipelines) ? trigger.pipelines : [];
-                const matches = pipelines.some((value: unknown) => {
-                  const valueRecord = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
-                  const candidate = typeof value === 'string' ? value : valueRecord?.path;
-                  return normalizePipelineIdentifier(candidate) === normalizedTarget;
-                });
-                if (matches) {
-                  results.push({
-                    repoSlug,
-                    source: normalizeSource(typeof entryRecord?.source === 'string' ? entryRecord.source : 'database'),
-                    trigger,
-                  });
-                }
-              });
-            } catch (innerError) {
-              console.warn('Failed to parse overrides entry', innerError);
-            }
-          })
-        );
-
-        results.sort((a, b) => a.repoSlug.localeCompare(b.repoSlug));
+        const results = await fetchPipelineTriggersRequest(pipelineId);
         if (selectedIdRef.current === targetId) {
           setTriggers(results);
         }
@@ -1154,27 +597,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     }
     setListError(null);
     try {
-      const response = await fetch(buildApiUrl('/v1/pipelines?include_source=true'));
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Failed to load pipelines (${response.status})`);
-      }
-      const payload = await response.json();
-      const normalized: PipelineListItem[] = Array.isArray(payload)
-        ? payload
-            .map((item: unknown) => {
-              if (typeof item === 'string') return { id: item };
-              if (item && typeof item === 'object') {
-                const record = item as Record<string, unknown>;
-                const id = typeof record.id === 'string' ? record.id : typeof record.identifier === 'string' ? record.identifier : '';
-                return id ? { id, source: typeof record.source === 'string' ? record.source : undefined } : null;
-              }
-              return null;
-            })
-            .filter(Boolean) as PipelineListItem[]
-        : [];
-      normalized.sort((a, b) => a.id.localeCompare(b.id));
-      setServerPipelines(normalized);
+      setServerPipelines(await fetchPipelineList());
     } catch (error) {
       console.error('Failed to load pipelines', error);
       setListError(error instanceof Error ? error.message : 'Unable to load pipelines');
@@ -1199,12 +622,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
           return;
         }
 
-        const response = await fetch(buildApiUrl(`/v1/pipelines/${encodeId(pipelineId)}`));
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(text || `Failed to fetch pipeline (${response.status})`);
-        }
-        const rawYaml = await response.text();
+        const rawYaml = await fetchPipelineYaml(pipelineId);
         const parsed = parsePipelineYaml(rawYaml, pipelineId, normalizedSource);
         setDetail(parsed);
         setEditorValue(rawYaml);
@@ -1216,7 +634,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
         setDetailLoading(false);
       }
     },
-    [draftsById, parsePipelineYaml]
+    [draftsById]
   );
 
   const permissionFolder = selectedId ? splitIdentifier(selectedId).path : activeFolder;
@@ -1443,7 +861,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       ? filteredPipelines
       : filteredPipelines.filter(item => splitIdentifier(item.id).path === activeFolder);
     return [...list].sort((a, b) => a.id.localeCompare(b.id));
-  }, [activeFolder, filteredPipelines, searchTerm, splitIdentifier]);
+  }, [activeFolder, filteredPipelines, searchTerm]);
 
   const buildTree = useMemo(() => {
     const root: TreeNode = { id: '__root__', name: '', fullPath: '', children: [], pipelineIds: [] };
@@ -1558,15 +976,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     }
     setSaving(true);
     try {
-      const response = await fetch(buildApiUrl(`/v1/pipelines/${encodeId(detail.id)}`), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/x-yaml' },
-        body: editorValue,
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Failed to save pipeline (${response.status})`);
-      }
+      await savePipelineYaml(detail.id, editorValue);
       addToast('Pipeline saved.', 'success');
       const wasDraft = normalizeSource(detail.source) === 'draft';
       if (wasDraft) {
@@ -1671,11 +1081,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
         if (!canDeletePipelines) {
           throw new Error('You do not have permission to delete pipelines.');
         }
-        const response = await fetch(buildApiUrl(`/v1/pipelines/${encodeId(deleteModal.pipelineId)}`), { method: 'DELETE' });
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(text || `Failed to delete pipeline (${response.status})`);
-        }
+        await deletePipeline(deleteModal.pipelineId);
       }
       addToast('Pipeline deleted.', 'success');
       setDeleteModal(null);

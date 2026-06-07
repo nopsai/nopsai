@@ -3,13 +3,45 @@ import type { Dispatch, FormEvent, ReactNode, SetStateAction } from 'react';
 import { Link, NavLink, useParams, useSearchParams } from 'react-router-dom';
 import { Activity, Boxes, CalendarClock, FolderTree, GitBranch, PlayCircle, Plus, Timer, Trash2, Webhook } from 'lucide-react';
 import yaml from 'js-yaml';
-import { buildApiUrl } from '../lib/api';
 import { ConfigRepositoryDriftModal } from '../components/ConfigRepositoryDriftModal';
+import { fetchGroupConfigRepository, fetchRunLogs, requestPipelineRunsJson } from '../features/pipeline-runs/api';
+import type {
+  GraphLayout,
+  GraphLayoutNode,
+  GraphSize,
+  GraphStatus,
+  GraphStep,
+  GraphTask,
+  RunListItem,
+  TaskGraphLayout,
+} from '../features/pipeline-runs/contracts';
+import {
+  calculateGraphLayout,
+  deriveTaskGraphStatus,
+  getGraphStatusColor,
+  getGraphStatusLabel,
+  normalizeGraphStatus,
+} from '../features/pipeline-runs/graphLayout';
 import {
   buildConfigRepositoryWriteFiles,
   type ConfigRepositoryCommitResponse,
   type ConfigRepositoryDriftResponse,
 } from '../lib/configRepositoryDrift';
+import {
+  NOTIFICATION_EVENTS,
+  createEmptyNotificationRouteForm,
+  defaultNotificationRouteDefinition,
+  normalizeNotificationRouteRecord,
+  notificationRouteFormAddRoute,
+  notificationRouteFormFromDefinition,
+  notificationRouteFormRemoveSelectedRoute,
+  notificationRouteFormSelectRoute,
+  notificationRoutePayloadFromForm,
+} from '../features/pipeline-runs/notificationRoutes';
+import type {
+  NotificationRouteFormState,
+  NotificationRouteRecord,
+} from '../features/pipeline-runs/notificationRoutes';
 
 type TabKey = 'main' | 'recent' | 'events';
 
@@ -22,39 +54,6 @@ type Group = {
   repo_url?: string;
   repository_full_name?: string;
   last_run_at?: string;
-};
-
-type RunListItem = {
-  run_id: string;
-  pipeline_name: string;
-  pipeline_path?: string;
-  pipeline_version?: string;
-  pipeline_source?: string;
-  status: string;
-  git_commit_sha?: string;
-  git_repo_name?: string;
-  git_repo_owner?: string;
-  git_ref?: string;
-  git_target_ref?: string;
-  git_pusher_name?: string;
-  started_at?: string;
-  finished_at?: string;
-  duration?: string;
-  is_complete?: boolean;
-  parent_run_id?: string | null;
-  trigger_source?: string;
-  schedule_id?: string;
-  schedule_name?: string;
-  schedule_path?: string;
-  trigger_event_id?: string;
-  external_trigger_id?: string;
-  external_trigger_name?: string;
-  external_trigger_event_type?: string;
-  external_trigger_caller_type?: string;
-  external_trigger_caller_id?: string;
-  external_trigger_idempotency_key?: string;
-  parent_step_name?: string;
-  failure_reason?: string;
 };
 
 type ParentRunInfo = {
@@ -236,105 +235,6 @@ type ConfigRepositoryFormState = {
   write_branch: string;
 };
 
-type NotificationEventKey =
-  | 'failure'
-  | 'success'
-  | 'pending'
-  | 'running'
-  | 'waiting_approval'
-  | 'approval_requested'
-  | 'approval_approved'
-  | 'approval_rejected'
-  | 'cancelled'
-  | 'skipped';
-
-type NotificationRecipientSet = {
-  teams?: string[];
-  users?: string[];
-  groups?: string[];
-};
-
-type NotificationRouteRule = {
-  name: string;
-  enabled: boolean;
-  recipients: {
-    include?: NotificationRecipientSet;
-    exclude?: NotificationRecipientSet;
-  };
-  events: Record<NotificationEventKey, boolean>;
-  filters: {
-    pipelines?: NotificationPatternFilter;
-    repos?: NotificationPatternFilter;
-    branches?: NotificationPatternFilter;
-  };
-  delivery: {
-    channels?: string[];
-    throttle?: {
-      dedupe_window?: string;
-      max_per_run?: number;
-    };
-  };
-};
-
-type NotificationRouteDefinition = {
-  enabled: boolean;
-  recipients: {
-    include?: NotificationRecipientSet;
-    exclude?: NotificationRecipientSet;
-  };
-  events: Record<NotificationEventKey, boolean>;
-  filters: {
-    pipelines?: NotificationPatternFilter;
-    repos?: NotificationPatternFilter;
-    branches?: NotificationPatternFilter;
-  };
-  delivery: {
-    channels?: string[];
-    throttle?: {
-      dedupe_window?: string;
-      max_per_run?: number;
-    };
-  };
-  routes?: NotificationRouteRule[];
-};
-
-type NotificationPatternFilter = {
-  include?: string[];
-  exclude?: string[];
-};
-
-type NotificationRouteRecord = {
-  id?: number;
-  group_id?: number;
-  group_path?: string;
-  definition: NotificationRouteDefinition;
-  source?: string;
-  config_source_path?: string;
-  managed_by_config_repo?: boolean;
-  updated_at?: string;
-};
-
-type NotificationRouteFormState = {
-  routeName: string;
-  selectedRouteIndex: number;
-  routes: NotificationRouteRule[];
-  enabled: boolean;
-  includeSameGroup: boolean;
-  includeUsers: string;
-  includeGroups: string;
-  excludeUsers: string;
-  excludeGroups: string;
-  events: Record<NotificationEventKey, boolean>;
-  pipelineInclude: string;
-  pipelineExclude: string;
-  repoInclude: string;
-  repoExclude: string;
-  branchInclude: string;
-  branchExclude: string;
-  dedupeWindow: string;
-  maxPerRun: string;
-};
-
 type NewFolderPayload = {
   kind: 'group' | 'app';
   name: string;
@@ -358,19 +258,6 @@ const RECENT_FETCH_SIZE = 60;
 const RECENT_INITIAL_BATCH = 30;
 const RECENT_BATCH_SIZE = 20;
 
-const NOTIFICATION_EVENTS: { key: NotificationEventKey; label: string }[] = [
-  { key: 'failure', label: 'Failure' },
-  { key: 'success', label: 'Success' },
-  { key: 'pending', label: 'Pending' },
-  { key: 'running', label: 'Running' },
-  { key: 'waiting_approval', label: 'Waiting approval' },
-  { key: 'approval_requested', label: 'Approval requested' },
-  { key: 'approval_approved', label: 'Approval approved' },
-  { key: 'approval_rejected', label: 'Approval rejected' },
-  { key: 'cancelled', label: 'Cancelled' },
-  { key: 'skipped', label: 'Skipped' },
-];
-
 const emptyConfigRepositoryForm: ConfigRepositoryFormState = {
   repo_url: '',
   branch: 'main',
@@ -380,39 +267,7 @@ const emptyConfigRepositoryForm: ConfigRepositoryFormState = {
   write_branch: 'nopsai/ui-changes',
 };
 
-const defaultNotificationEventState = (): Record<NotificationEventKey, boolean> => ({
-  failure: true,
-  success: false,
-  pending: false,
-  running: false,
-  waiting_approval: true,
-  approval_requested: true,
-  approval_approved: false,
-  approval_rejected: true,
-  cancelled: true,
-  skipped: false,
-});
-
-const emptyNotificationRouteForm: NotificationRouteFormState = {
-  routeName: 'default',
-  selectedRouteIndex: 0,
-  routes: [defaultNotificationRouteRule('default')],
-  enabled: true,
-  includeSameGroup: true,
-  includeUsers: '',
-  includeGroups: '',
-  excludeUsers: '',
-  excludeGroups: '',
-  events: defaultNotificationEventState(),
-  pipelineInclude: '*',
-  pipelineExclude: '',
-  repoInclude: '*',
-  repoExclude: '',
-  branchInclude: '*',
-  branchExclude: '',
-  dedupeWindow: '10m',
-  maxPerRun: '5',
-};
+const emptyNotificationRouteForm = createEmptyNotificationRouteForm();
 
 const STATUS_META: Record<
   string,
@@ -673,20 +528,10 @@ function PipelineRunsPage() {
     [searchParams, setSearchParams]
   );
 
-  const fetchJson = useCallback(async <T,>(path: string, options?: RequestInit): Promise<T> => {
-    const response = await fetch(buildApiUrl(path), { cache: 'no-store', ...options });
-    if (!response.ok) {
-      const message = await response.text();
-      throw new Error(message || `Request failed: ${response.status}`);
-    }
-    const text = await response.text();
-    if (!text) return undefined as T;
-    try {
-      return JSON.parse(text) as T;
-    } catch {
-      return text as unknown as T;
-    }
-  }, []);
+  const fetchJson = useCallback(
+    async <T,>(path: string, options?: RequestInit): Promise<T> => requestPipelineRunsJson<T>(path, options),
+    []
+  );
 
   const checkAccessPermission = useCallback(async (action: string, resourceType: string, resourceID: string) => {
     const params = new URLSearchParams({
@@ -735,18 +580,13 @@ function PipelineRunsPage() {
         setConfigRepoError(null);
       }
       try {
-        const encodedFolder = encodeURIComponent(folderPath);
-        const response = await fetch(buildApiUrl(`/v1/groups/${encodedFolder}/config-repo`), { cache: 'no-store' });
-        if (response.status === 404) {
+        const payload = await fetchGroupConfigRepository(folderPath);
+        if (!payload) {
           setConfigRepo(null);
           setConfigRepoForm(emptyConfigRepositoryForm);
           return;
         }
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(text || `Unable to load config repository (${response.status})`);
-        }
-        const repo = normalizeConfigRepository(await response.json());
+        const repo = normalizeConfigRepository(payload);
         setConfigRepo(repo);
         setConfigRepoForm(repo ? {
           repo_url: repo.repo_url,
@@ -3560,39 +3400,6 @@ function RunDetailView({
   );
 }
 
-type GraphStatus = 'success' | 'failed' | 'running' | 'pending' | 'skipped' | 'cancelled';
-
-type GraphPoint = { x: number; y: number };
-type GraphSize = { width: number; height: number };
-type GraphLayoutNode<T> = GraphPoint & GraphSize & { data: T; level: number };
-type GraphLayoutEdge = { id: string; from: string; to: string; points: GraphPoint[]; status: GraphStatus };
-type GraphLayout<T> = { nodes: GraphLayoutNode<T>[]; edges: GraphLayoutEdge[]; width: number; height: number };
-
-type GraphTask = {
-  id: string;
-  name: string;
-  status: GraphStatus;
-  duration?: string;
-  dependsOn?: string[];
-};
-
-type GraphStep = {
-  id: string;
-  name: string;
-  status: GraphStatus;
-  duration?: string;
-  dependsOn?: string[];
-  tasks: GraphTask[];
-  includeLabel?: string;
-  childRun?: RunListItem | null;
-};
-
-type TaskGraphLayout = GraphLayout<GraphTask> & {
-  orientation: 'horizontal' | 'vertical';
-  taskCount: number;
-  dependencyCount: number;
-};
-
 const STEP_WIDTH_CLOSED = 190;
 const STEP_HEIGHT_CLOSED = 56;
 const TASK_MIN_WIDTH = 160;
@@ -3600,7 +3407,6 @@ const TASK_MAX_WIDTH = 280;
 const TASK_HEIGHT = 48;
 const H_GAP = 76;
 const V_GAP = 26;
-const PADDING = 32;
 const STEP_HEADER_HEIGHT = 44;
 const INNER_PADDING = 12;
 const MIN_GRAPH_SCALE = 0.4;
@@ -4187,24 +3993,6 @@ function TaskNodeRenderer({
   );
 }
 
-function getGraphStatusColor(status: GraphStatus) {
-  if (status === 'success') return '#10b981';
-  if (status === 'failed') return '#ef4444';
-  if (status === 'cancelled') return '#f97316';
-  if (status === 'running') return '#3b82f6';
-  return '#94a3b8';
-}
-
-function getGraphStatusLabel(status: GraphStatus) {
-  if (status === 'success') return 'Success';
-  if (status === 'failed') return 'Failed';
-  if (status === 'cancelled') return 'Cancelled';
-  if (status === 'running') return 'Running';
-  if (status === 'pending') return 'Pending';
-  if (status === 'skipped') return 'Skipped';
-  return status;
-}
-
 function getGraphStatusIconPath(status: GraphStatus) {
   if (status === 'success') return STATUS_META.success.icon;
   if (status === 'failed') return STATUS_META.failure.icon;
@@ -4267,45 +4055,6 @@ function calculateStepDurationFromTasks(tasks: TaskDetail[]): string | null {
   const duration = endMax - startMin;
   if (duration <= 0 || duration > MAX_ELAPSED_MS) return null;
   return humanizeDurationMs(duration);
-}
-
-function normalizeGraphStatus(status: string | undefined, complete?: boolean): GraphStatus {
-  const normalized = normalizeStatus(status, complete);
-  if (normalized === 'success') return 'success';
-  if (normalized === 'cancelled') return 'cancelled';
-  if (normalized === 'running') return 'running';
-  if (normalized === 'waiting_approval') return 'running';
-  if (normalized === 'skipped') return 'skipped';
-  if (normalized === 'pending') return 'pending';
-  return 'failed';
-}
-
-function deriveTaskGraphStatus(task: TaskDetail, stepStatus?: string): GraphStatus {
-  const base = normalizeGraphStatus(task.status, task.status === 'success');
-  const stepBase = stepStatus ? normalizeGraphStatus(stepStatus, stepStatus === 'success') : null;
-  const started = Boolean(task.started_at);
-  const finished = Boolean(task.finished_at);
-  const exitCode = task.exit_code;
-  const hasExitCode = typeof exitCode === 'number';
-
-  if (base === 'skipped') return 'skipped';
-  if (base === 'failed') return 'failed';
-  if (base === 'cancelled') return 'cancelled';
-
-  if (finished && hasExitCode) return exitCode === 0 ? 'success' : 'failed';
-
-  if (!finished && stepBase && stepBase !== 'pending' && stepBase !== 'running') {
-    return stepBase;
-  }
-
-  if (base === 'running') return 'running';
-  if (started && !finished) return 'running';
-
-  if (!started && !finished && base === 'success') {
-    return stepBase && stepBase !== 'pending' ? stepBase : 'pending';
-  }
-
-  return base === 'pending' && !started && !finished ? (stepBase || 'pending') : base;
 }
 
 type StatusGlyphVariant = 'default' | 'dot';
@@ -4383,199 +4132,6 @@ function GraphStatusGlyph({
       </svg>
     </g>
   );
-}
-
-function getRanks(items: { id: string; dependsOn?: string[] }[]) {
-  const ranks: Record<string, number> = {};
-  const visited = new Set<string>();
-
-  items.forEach(item => {
-    if (!item.dependsOn || item.dependsOn.length === 0) {
-      ranks[item.id] = 0;
-    }
-  });
-
-  const getRank = (id: string): number => {
-    if (ranks[id] !== undefined) return ranks[id];
-    if (visited.has(id)) return 0;
-    visited.add(id);
-
-    const item = items.find(i => i.id === id);
-    if (!item || !item.dependsOn?.length) {
-      ranks[id] = 0;
-      return 0;
-    }
-
-    let maxParentRank = -1;
-    item.dependsOn.forEach(parentId => {
-      maxParentRank = Math.max(maxParentRank, getRank(parentId));
-    });
-
-    ranks[id] = maxParentRank + 1;
-    return maxParentRank + 1;
-  };
-
-  items.forEach(item => getRank(item.id));
-  return ranks;
-}
-
-function deriveGraphEdgeStatus(source: GraphStatus, target: GraphStatus): GraphStatus {
-  if (source === 'failed' || target === 'failed') return 'failed';
-  if (source === 'cancelled' || target === 'cancelled') return 'cancelled';
-  if (source === 'running' || target === 'running') return 'running';
-  if (source === 'pending' || target === 'pending') return 'pending';
-  if (source === 'skipped' || target === 'skipped') return 'skipped';
-  return 'success';
-}
-
-function calculateGraphLayout<T extends { id: string; dependsOn?: string[]; status: GraphStatus }>(
-  items: T[],
-  getSize: (item: T) => GraphSize,
-  hGap: number,
-  vGap: number,
-  orientation: 'horizontal' | 'vertical' = 'horizontal'
-): GraphLayout<T> {
-  if (!items.length) {
-    return { nodes: [], edges: [], width: PADDING * 2, height: PADDING * 2 };
-  }
-
-  const ranks = getRanks(items);
-  const levels: T[][] = [];
-  items.forEach(item => {
-    const r = ranks[item.id] || 0;
-    if (!levels[r]) levels[r] = [];
-    levels[r].push(item);
-  });
-  levels.forEach(levelItems => {
-    if (!levelItems) return;
-    levelItems.sort((a, b) => a.id.localeCompare(b.id));
-  });
-
-  const nodes: GraphLayoutNode<T>[] = [];
-  const edges: GraphLayoutEdge[] = [];
-
-  let totalWidth = PADDING * 2;
-  let totalHeight = PADDING * 2;
-
-  if (orientation === 'horizontal') {
-    let currentX = PADDING;
-    const levelXs: number[] = [];
-    const levelMaxWidths: number[] = [];
-
-    levels.forEach((levelItems, lvlIdx) => {
-      levelXs[lvlIdx] = currentX;
-      const sizes = levelItems.map(getSize);
-      const maxWidth = Math.max(...sizes.map(s => s.width), 0);
-      levelMaxWidths[lvlIdx] = maxWidth;
-      currentX += maxWidth + hGap;
-    });
-
-    totalWidth = Math.max(PADDING * 2, currentX - hGap + PADDING);
-    const levelHeights = levels.map(levelItems => levelItems.reduce((acc, item) => acc + getSize(item).height + vGap, 0) - vGap);
-    const maxLevelHeight = Math.max(...levelHeights, 0);
-    totalHeight = Math.max(PADDING * 2, maxLevelHeight + PADDING * 2);
-
-    levels.forEach((levelItems, lvlIdx) => {
-      const x = levelXs[lvlIdx];
-      const maxWidth = levelMaxWidths[lvlIdx] || 0;
-      const levelH = levelHeights[lvlIdx];
-      let currentY = PADDING + (maxLevelHeight - levelH) / 2;
-
-      levelItems.forEach(item => {
-        const size = getSize(item);
-        nodes.push({
-          data: item,
-          level: lvlIdx,
-          x: x + (maxWidth - size.width) / 2,
-          y: currentY,
-          width: size.width,
-          height: size.height,
-        });
-        currentY += size.height + vGap;
-      });
-    });
-  } else {
-    let currentY = PADDING;
-    const levelYs: number[] = [];
-
-    levels.forEach((levelItems, lvlIdx) => {
-      levelYs[lvlIdx] = currentY;
-      const sizes = levelItems.map(getSize);
-      const maxHeight = Math.max(...sizes.map(s => s.height), 0);
-      currentY += maxHeight + vGap;
-    });
-
-    totalHeight = Math.max(PADDING * 2, currentY - vGap + PADDING);
-    const levelWidths = levels.map(levelItems => levelItems.reduce((acc, item) => acc + getSize(item).width + hGap, 0) - hGap);
-    const maxLevelWidth = Math.max(...levelWidths, 0);
-    totalWidth = Math.max(PADDING * 2, maxLevelWidth + PADDING * 2);
-
-    levels.forEach((levelItems, lvlIdx) => {
-      const y = levelYs[lvlIdx];
-      const levelW = levelWidths[lvlIdx];
-      let currentX = PADDING + (maxLevelWidth - levelW) / 2;
-
-      levelItems.forEach(item => {
-        const size = getSize(item);
-        nodes.push({
-          data: item,
-          level: lvlIdx,
-          x: currentX,
-          y,
-          width: size.width,
-          height: size.height,
-        });
-        currentX += size.width + hGap;
-      });
-    });
-  }
-
-  items.forEach(item => {
-    if (!item.dependsOn) return;
-    const targetNode = nodes.find(n => n.data.id === item.id);
-    if (!targetNode) return;
-
-    item.dependsOn.forEach(parentId => {
-      const sourceNode = nodes.find(n => n.data.id === parentId);
-      if (!sourceNode) return;
-      const start =
-        orientation === 'horizontal'
-          ? { x: sourceNode.x + sourceNode.width - 35, y: sourceNode.y + sourceNode.height / 2 }
-          : { x: sourceNode.x + sourceNode.width / 2, y: sourceNode.y + sourceNode.height - 2 };
-      const end =
-        orientation === 'horizontal'
-          ? { x: targetNode.x - 2, y: targetNode.y + targetNode.height / 2 }
-          : { x: targetNode.x + targetNode.width / 2, y: targetNode.y + 2 };
-      const controlDist =
-        orientation === 'horizontal'
-          ? Math.max(20, (end.x - start.x) * 0.38)
-          : Math.max(18, (end.y - start.y) * 0.45);
-      const points =
-        orientation === 'horizontal'
-          ? [
-              start,
-              { x: start.x + controlDist, y: start.y },
-              { x: end.x - controlDist, y: end.y },
-              end,
-            ]
-          : [
-              start,
-              { x: start.x, y: start.y + controlDist },
-              { x: end.x, y: end.y - controlDist },
-              end,
-            ];
-
-      edges.push({
-        id: `${parentId}-${item.id}`,
-        from: parentId,
-        to: item.id,
-        status: deriveGraphEdgeStatus(sourceNode.data.status, targetNode.data.status),
-        points,
-      });
-    });
-  });
-
-  return { nodes, edges, width: totalWidth, height: totalHeight };
 }
 
 function ViewToggle({ viewMode, onChange }: { viewMode: 'grid' | 'list'; onChange: (mode: 'grid' | 'list') => void }) {
@@ -4910,11 +4466,9 @@ function LogsModal({
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(buildApiUrl(`/v1/runs/${encodeURIComponent(runId)}/logs?since_line=${lastIdRef.current}`));
-        if (!response.ok) throw new Error(await response.text());
-        const payload = (await response.json()) as LogLine[] | null;
+        const payload = await fetchRunLogs<LogLine>(runId, lastIdRef.current);
         if (cancelled) return;
-        const list = Array.isArray(payload) ? payload : [];
+        const list = payload;
         if (list.length) {
           lastIdRef.current = list[list.length - 1].id;
           const enriched = list.map(line => ({ ...line, ...parseLogLine(line.line || '') }));
@@ -6839,288 +6393,6 @@ function NotificationPatternInputs({
       </label>
     </div>
   );
-}
-
-function defaultNotificationRouteDefinition(): NotificationRouteDefinition {
-  const route = defaultNotificationRouteRule('default');
-  return {
-    enabled: true,
-    recipients: route.recipients,
-    events: route.events,
-    filters: route.filters,
-    delivery: route.delivery,
-    routes: [route],
-  };
-}
-
-function defaultNotificationRouteRule(name: string): NotificationRouteRule {
-  return {
-    name,
-    enabled: true,
-    recipients: {
-      include: { teams: ['same_group'], users: [], groups: [] },
-      exclude: { users: [], groups: [] },
-    },
-    events: defaultNotificationEventState(),
-    filters: {
-      pipelines: { include: ['*'], exclude: [] },
-      repos: { include: ['*'], exclude: [] },
-      branches: { include: ['*'], exclude: [] },
-    },
-    delivery: {
-      channels: ['mail'],
-      throttle: {
-        dedupe_window: '10m',
-        max_per_run: 5,
-      },
-    },
-  };
-}
-
-function normalizeNotificationRouteRecord(payload: unknown): NotificationRouteRecord {
-  if (!payload || typeof payload !== 'object') {
-    return { definition: defaultNotificationRouteDefinition(), source: 'database', managed_by_config_repo: false };
-  }
-  const record = payload as Record<string, unknown>;
-  const id = typeof record.id === 'number' ? record.id : Number(record.id);
-  const groupID = typeof record.group_id === 'number' ? record.group_id : Number(record.group_id);
-  return {
-    id: Number.isFinite(id) && id > 0 ? id : undefined,
-    group_id: Number.isFinite(groupID) && groupID > 0 ? groupID : undefined,
-    group_path: typeof record.group_path === 'string' ? record.group_path : undefined,
-    definition: normalizeNotificationRouteDefinition(record.definition),
-    source: typeof record.source === 'string' ? record.source : 'database',
-    config_source_path: typeof record.config_source_path === 'string' ? record.config_source_path : undefined,
-    managed_by_config_repo: Boolean(record.managed_by_config_repo),
-    updated_at: typeof record.updated_at === 'string' ? record.updated_at : undefined,
-  };
-}
-
-function normalizeNotificationRouteDefinition(payload: unknown): NotificationRouteDefinition {
-  const fallback = defaultNotificationRouteDefinition();
-  if (!payload || typeof payload !== 'object') return fallback;
-  const record = payload as Record<string, unknown>;
-  const legacyRoute = normalizeNotificationRouteRule(record, 'default');
-  const rawRoutes = Array.isArray(record.routes) ? record.routes : [];
-  const routes = rawRoutes.length > 0
-    ? rawRoutes.map((item, index) => normalizeNotificationRouteRule(item, `route-${index + 1}`))
-    : [legacyRoute];
-  const first = routes[0] || legacyRoute;
-  return {
-    enabled: typeof record.enabled === 'boolean' ? record.enabled : fallback.enabled,
-    recipients: first.recipients,
-    events: first.events,
-    filters: first.filters,
-    delivery: first.delivery,
-    routes,
-  };
-}
-
-function normalizeNotificationRouteRule(payload: unknown, fallbackName: string): NotificationRouteRule {
-  const record = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {};
-  const rawRecipients = record.recipients && typeof record.recipients === 'object' ? record.recipients as Record<string, unknown> : {};
-  const rawEvents = record.events && typeof record.events === 'object' ? record.events as Record<string, unknown> : {};
-  const rawFilters = record.filters && typeof record.filters === 'object' ? record.filters as Record<string, unknown> : {};
-  const rawDelivery = record.delivery && typeof record.delivery === 'object' ? record.delivery as Record<string, unknown> : {};
-  const rawThrottle = rawDelivery.throttle && typeof rawDelivery.throttle === 'object' ? rawDelivery.throttle as Record<string, unknown> : {};
-  const events = defaultNotificationEventState();
-  NOTIFICATION_EVENTS.forEach(option => {
-    if (typeof rawEvents[option.key] === 'boolean') {
-      events[option.key] = rawEvents[option.key] as boolean;
-    }
-  });
-  const channels = normalizeStringArray(rawDelivery.channels);
-  return {
-    name: typeof record.name === 'string' && record.name.trim() ? record.name.trim() : fallbackName,
-    enabled: typeof record.enabled === 'boolean' ? record.enabled : true,
-    recipients: {
-      include: normalizeNotificationRecipientSet(rawRecipients.include),
-      exclude: normalizeNotificationRecipientSet(rawRecipients.exclude),
-    },
-    events,
-    filters: {
-      pipelines: normalizeNotificationPatternFilter(rawFilters.pipelines),
-      repos: normalizeNotificationPatternFilter(rawFilters.repos),
-      branches: normalizeNotificationPatternFilter(rawFilters.branches),
-    },
-    delivery: {
-      channels: channels.length > 0 ? channels : ['mail'],
-      throttle: {
-        dedupe_window: typeof rawThrottle.dedupe_window === 'string' && rawThrottle.dedupe_window.trim() ? rawThrottle.dedupe_window : '10m',
-        max_per_run: typeof rawThrottle.max_per_run === 'number' && rawThrottle.max_per_run > 0 ? rawThrottle.max_per_run : 5,
-      },
-    },
-  };
-}
-
-function normalizeNotificationRecipientSet(payload: unknown): NotificationRecipientSet {
-  if (!payload || typeof payload !== 'object') return {};
-  const record = payload as Record<string, unknown>;
-  return {
-    teams: normalizeStringArray(record.teams),
-    users: normalizeStringArray(record.users),
-    groups: normalizeStringArray(record.groups),
-  };
-}
-
-function normalizeNotificationPatternFilter(payload: unknown): NotificationPatternFilter {
-  if (!payload || typeof payload !== 'object') return { include: ['*'], exclude: [] };
-  const record = payload as Record<string, unknown>;
-  const include = normalizeStringArray(record.include);
-  return {
-    include: include.length > 0 ? include : ['*'],
-    exclude: normalizeStringArray(record.exclude),
-  };
-}
-
-function normalizeStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((item): item is string => typeof item === 'string').map(item => item.trim()).filter(Boolean);
-}
-
-function notificationRouteFormFromDefinition(definition: NotificationRouteDefinition): NotificationRouteFormState {
-  const routes = (definition.routes && definition.routes.length > 0 ? definition.routes : [normalizeNotificationRouteRule(definition, 'default')])
-    .map((route, index) => normalizeNotificationRouteRule(route, route.name || `route-${index + 1}`));
-  return notificationRouteFormFromRule(routes, 0);
-}
-
-function notificationRouteFormFromRule(routes: NotificationRouteRule[], selectedRouteIndex: number): NotificationRouteFormState {
-  const safeIndex = Math.min(Math.max(selectedRouteIndex, 0), Math.max(routes.length - 1, 0));
-  const route = routes[safeIndex] || defaultNotificationRouteRule('default');
-  const include = route.recipients.include || {};
-  const exclude = route.recipients.exclude || {};
-  const events = defaultNotificationEventState();
-  NOTIFICATION_EVENTS.forEach(option => {
-    events[option.key] = Boolean(route.events?.[option.key]);
-  });
-  return {
-    routeName: route.name || `route-${safeIndex + 1}`,
-    selectedRouteIndex: safeIndex,
-    routes,
-    enabled: route.enabled,
-    includeSameGroup: (include.teams || []).includes('same_group'),
-    includeUsers: notificationListToText(include.users),
-    includeGroups: notificationListToText(include.groups),
-    excludeUsers: notificationListToText(exclude.users),
-    excludeGroups: notificationListToText(exclude.groups),
-    events,
-    pipelineInclude: notificationListToText(route.filters.pipelines?.include || ['*']),
-    pipelineExclude: notificationListToText(route.filters.pipelines?.exclude),
-    repoInclude: notificationListToText(route.filters.repos?.include || ['*']),
-    repoExclude: notificationListToText(route.filters.repos?.exclude),
-    branchInclude: notificationListToText(route.filters.branches?.include || ['*']),
-    branchExclude: notificationListToText(route.filters.branches?.exclude),
-    dedupeWindow: route.delivery.throttle?.dedupe_window || '10m',
-    maxPerRun: String(route.delivery.throttle?.max_per_run || 5),
-  };
-}
-
-function notificationRoutePayloadFromForm(form: NotificationRouteFormState): NotificationRouteDefinition {
-  const committed = notificationRouteFormCommitCurrentRoute(form);
-  const routes = committed.routes.length > 0 ? committed.routes : [defaultNotificationRouteRule('default')];
-  const first = routes[0];
-  return {
-    enabled: routes.some(route => route.enabled),
-    recipients: first.recipients,
-    events: first.events,
-    filters: first.filters,
-    delivery: first.delivery,
-    routes,
-  };
-}
-
-function notificationRouteFormCommitCurrentRoute(form: NotificationRouteFormState): NotificationRouteFormState {
-  const routes = form.routes.length > 0 ? [...form.routes] : [defaultNotificationRouteRule('default')];
-  const safeIndex = Math.min(Math.max(form.selectedRouteIndex, 0), routes.length - 1);
-  routes[safeIndex] = notificationRouteRuleFromForm(form);
-  return { ...form, routes, selectedRouteIndex: safeIndex };
-}
-
-function notificationRouteRuleFromForm(form: NotificationRouteFormState): NotificationRouteRule {
-  const maxPerRun = Number.parseInt(form.maxPerRun, 10);
-  const events = defaultNotificationEventState();
-  NOTIFICATION_EVENTS.forEach(option => {
-    events[option.key] = Boolean(form.events[option.key]);
-  });
-  return {
-    name: form.routeName.trim() || `route-${form.selectedRouteIndex + 1}`,
-    enabled: form.enabled,
-    recipients: {
-      include: {
-        teams: form.includeSameGroup ? ['same_group'] : [],
-        users: notificationTextToList(form.includeUsers),
-        groups: notificationTextToList(form.includeGroups),
-      },
-      exclude: {
-        users: notificationTextToList(form.excludeUsers),
-        groups: notificationTextToList(form.excludeGroups),
-      },
-    },
-    events,
-    filters: {
-      pipelines: notificationPatternPayload(form.pipelineInclude, form.pipelineExclude),
-      repos: notificationPatternPayload(form.repoInclude, form.repoExclude),
-      branches: notificationPatternPayload(form.branchInclude, form.branchExclude),
-    },
-    delivery: {
-      channels: ['mail'],
-      throttle: {
-        dedupe_window: form.dedupeWindow.trim() || '10m',
-        max_per_run: Number.isFinite(maxPerRun) && maxPerRun > 0 ? maxPerRun : 5,
-      },
-    },
-  };
-}
-
-function notificationRouteFormSelectRoute(form: NotificationRouteFormState, index: number): NotificationRouteFormState {
-  const committed = notificationRouteFormCommitCurrentRoute(form);
-  return notificationRouteFormFromRule(committed.routes, index);
-}
-
-function notificationRouteFormAddRoute(form: NotificationRouteFormState): NotificationRouteFormState {
-  const committed = notificationRouteFormCommitCurrentRoute(form);
-  let nextNumber = committed.routes.length + 1;
-  const existingNames = new Set(committed.routes.map(route => route.name.toLowerCase()));
-  let name = `route-${nextNumber}`;
-  while (existingNames.has(name.toLowerCase())) {
-    nextNumber += 1;
-    name = `route-${nextNumber}`;
-  }
-  const routes = [...committed.routes, defaultNotificationRouteRule(name)];
-  return notificationRouteFormFromRule(routes, routes.length - 1);
-}
-
-function notificationRouteFormRemoveSelectedRoute(form: NotificationRouteFormState): NotificationRouteFormState {
-  const committed = notificationRouteFormCommitCurrentRoute(form);
-  if (committed.routes.length <= 1) return committed;
-  const routes = committed.routes.filter((_, index) => index !== committed.selectedRouteIndex);
-  return notificationRouteFormFromRule(routes, Math.min(committed.selectedRouteIndex, routes.length - 1));
-}
-
-function notificationPatternPayload(includeText: string, excludeText: string): NotificationPatternFilter {
-  const include = notificationTextToList(includeText);
-  return {
-    include: include.length > 0 ? include : ['*'],
-    exclude: notificationTextToList(excludeText),
-  };
-}
-
-function notificationListToText(values?: string[]) {
-  return (values || []).join('\n');
-}
-
-function notificationTextToList(value: string) {
-  const seen = new Set<string>();
-  return value
-    .split(/[,\n]/)
-    .map(item => item.trim())
-    .filter(Boolean)
-    .filter(item => {
-      const key = item.toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
 }
 
 function formatConfigRepoTimestamp(value?: string) {
