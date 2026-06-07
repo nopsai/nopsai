@@ -1,133 +1,44 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Copy, Edit3, Plus, RefreshCw, Search, Server, Trash2, X } from 'lucide-react';
-import { buildApiUrl } from '../../lib/api';
-import { asRecord, readOptionalString, readString } from './data';
-
-export const POLICY_TEMPLATE_ROLE = '__policy_template__';
-const DEFAULT_ADMIN_ROLE = 'nopsai-admin';
-const DEFAULT_ADMIN_POLICY_OBJ = '*:*';
-const DEFAULT_ADMIN_POLICY_ACT = '*';
-const ROOT_ACCESS_SCOPE = 'root';
-const BASIC_ROLE_VIEWER = 'viewer';
-const BASIC_ROLE_DEVELOPER = 'developer';
-const BASIC_ROLE_OWNER = 'owner';
-const BASIC_ROLE_ADMIN = 'admin';
-const PROTECTED_ACCESS_ROLES = new Set([DEFAULT_ADMIN_ROLE, BASIC_ROLE_VIEWER, BASIC_ROLE_DEVELOPER, BASIC_ROLE_OWNER, BASIC_ROLE_ADMIN]);
-const ACCESS_UI_BUILD_ID = 'access-protected-default-roles-2026-05-11';
-
-export type UserRole = {
-  role: string;
-};
-
-export type RolePermission = {
-  role: string;
-  name?: string;
-  obj: string;
-  act: string;
-};
-
-export type UserSummary = {
-  id: string;
-  sub: string;
-  email: string;
-  provider?: string;
-  status: string;
-  last_login?: string;
-  roles?: UserRole[];
-};
-
-export type ServiceAccountToken = {
-  id: string;
-  name: string;
-  token?: string;
-  token_suffix: string;
-  created_at: string;
-  expires_at?: string;
-  last_used_at?: string;
-};
-
-export type ServiceAccountSummary = {
-  id: string;
-  sub: string;
-  email: string;
-  provider?: string;
-  status: string;
-  token_count: number;
-  last_used_at?: string;
-  roles?: UserRole[];
-};
-
-export type AccessGrantRecord = {
-  id: string;
-  subjectType: string;
-  subjectID: string;
-  subjectDisplay?: string;
-  role: string;
-  resourceType: string;
-  resourceID: string;
-  inherit: boolean;
-  grantedBy?: string;
-  createdAt?: string;
-};
-
-export type EditableAccessGrant = {
-  localID: string;
-  id?: string;
-  role: string;
-  resourceType: string;
-  resourceID: string;
-  inherit: boolean;
-  grantedBy?: string;
-};
-
-export type BasicGrantInput = {
-  role: string;
-  resourceType: string;
-  resourceID: string;
-  inherit?: boolean;
-};
-
-export type RolePolicyDraft = {
-  name: string;
-  obj: string;
-  act: string;
-};
-
-export type RoleDefinition = {
-  id: string;
-  role: string;
-  policies: RolePermission[];
-};
-
-type ResourceGroup = {
-  id: number;
-  name: string;
-  parent_id?: number | null;
-};
-
-type ExternalTriggerSummary = {
-  id?: string;
-  name?: string;
-};
-
-export const policyKey = (input: { role: string; obj: string; act: string }) =>
-  `${(input.role || '').trim()}::${(input.obj || '').trim()}::${(input.act || '').trim()}`;
-
-const assignmentKey = (role: string) => (role || '').trim();
-
-export const policyName = (obj: string, act: string) => {
-  const trimmed = (obj || '').replace(/^\/+|\/+$/g, '').trim();
-  const leaf = trimmed.split('/').filter(Boolean).pop();
-  const base = leaf || trimmed || obj || 'policy';
-  const action = (act || '').trim() || 'ANY';
-  return `${base} • ${action}`;
-};
-
-export const policyLabel = (input: { name?: string; obj: string; act: string }) =>
-  (input.name && input.name.trim()) || policyName(input.obj, input.act);
-const isDefaultAdmin = (roleName: string) => roleName === DEFAULT_ADMIN_ROLE;
-export const isProtectedAccessRole = (roleName: string) => PROTECTED_ACCESS_ROLES.has((roleName || '').trim().toLowerCase());
-const isDefaultAdminUser = (user?: Pick<UserSummary, 'sub'> | null) => (user?.sub || '').trim().toLowerCase() === 'admin';
+import {
+  ACCESS_UI_BUILD_ID,
+  BASIC_ROLE_ADMIN,
+  BASIC_ROLE_DEVELOPER,
+  BASIC_ROLE_OWNER,
+  BASIC_ROLE_VIEWER,
+  DEFAULT_ADMIN_ROLE,
+  POLICY_TEMPLATE_ROLE,
+  ROOT_ACCESS_SCOPE,
+  accessGrantEditKey,
+  accessGrantMatchesServiceAccount,
+  accessGrantMatchesUser,
+  accessGrantResourceSummary,
+  accessGrantSortLabel,
+  accessGrantTargetKey,
+  assignmentKey,
+  basicAccessGrantDescription,
+  basicAccessGrantLabel,
+  editableAccessGrantFromRecord,
+  isBasicAccessGrant,
+  isDefaultAdminUser,
+  isProtectedAccessRole,
+  isRootAccessScopeID,
+  normalizeEditableBasicGrants,
+  policyKey,
+  policyLabel,
+} from './access/model';
+import type { AccessResourceCatalog, AccessResourceOption } from './access/resourceCatalog';
+import type {
+  AccessGrantRecord,
+  BasicGrantInput,
+  EditableAccessGrant,
+  RoleDefinition,
+  RolePermission,
+  RolePolicyDraft,
+  ServiceAccountSummary,
+  ServiceAccountToken,
+  UserSummary,
+} from './access/model';
 
 type AccessPresetID = 'viewer' | 'developer' | 'owner' | 'admin';
 
@@ -208,125 +119,6 @@ const accessPresetToneClass = (roleName: string) => {
   return presetID ? `access-chip--tone-${presetID}` : 'access-chip--muted';
 };
 
-const isRootAccessScopeID = (value?: string) => {
-  const normalized = String(value || '').trim().replace(/^\/+|\/+$/g, '').toLowerCase();
-  return normalized === 'root';
-};
-
-const normalizeBasicGrantResourceLabel = (grant: Pick<AccessGrantRecord, 'resourceType' | 'resourceID'>) => {
-  const resourceType = (grant.resourceType || '').trim();
-  const resourceID = (grant.resourceID || '').trim().replace(/^\/+|\/+$/g, '');
-  if (resourceType === 'platform') return 'Platform';
-  if (isRootAccessScopeID(resourceID)) return 'Root';
-  return `/${resourceID}`;
-};
-
-const basicAccessGrantLabel = (grant: Pick<AccessGrantRecord, 'role' | 'resourceType' | 'resourceID'>) =>
-  `${grant.role} • ${normalizeBasicGrantResourceLabel(grant)}`;
-
-const accessGrantResourceSummary = (grant: Pick<AccessGrantRecord, 'resourceType' | 'resourceID'>) => {
-  if ((grant.resourceType || '').trim() === 'platform') return 'Platform wide';
-  return normalizeBasicGrantResourceLabel(grant);
-};
-
-const basicAccessGrantDescription = (grant: Pick<AccessGrantRecord, 'role' | 'resourceType' | 'resourceID' | 'grantedBy'>) => {
-  const label = accessGrantResourceSummary(grant);
-  if ((grant.resourceType || '').trim() === 'platform') {
-    return 'This basic role gives platform-wide administrator access.';
-  }
-  if (label === 'Root') {
-    return `This ${grant.role} basic role applies to items that are not inside any group.`;
-  }
-  return `This ${grant.role} basic role applies to ${label} and anything nested below it.`;
-};
-
-const accessGrantSortLabel = (grant: AccessGrantRecord) => `${normalizeBasicGrantResourceLabel(grant)}::${grant.role}`;
-
-const normalizedAccessGrantResourceKey = (grant: Pick<AccessGrantRecord, 'resourceType' | 'resourceID'>) => {
-  const resourceType = (grant.resourceType || '').trim().toLowerCase();
-  const resourceID = (grant.resourceID || '').trim();
-  if (resourceType === 'folder') {
-    const folderID = resourceID.replace(/^\/+|\/+$/g, '');
-    if (isRootAccessScopeID(folderID)) {
-      return { resourceType, resourceID: ROOT_ACCESS_SCOPE };
-    }
-    return { resourceType, resourceID: folderID };
-  }
-  if (resourceType === 'platform') {
-    return { resourceType, resourceID: 'platform' };
-  }
-  return { resourceType, resourceID };
-};
-
-const accessGrantEditKey = (grant: Pick<AccessGrantRecord, 'role' | 'resourceType' | 'resourceID'>) =>
-  `${(grant.role || '').trim().toLowerCase()}::${accessGrantTargetKey(grant)}`;
-
-const accessGrantTargetKey = (grant: Pick<AccessGrantRecord, 'resourceType' | 'resourceID'>) => {
-  const { resourceType, resourceID } = normalizedAccessGrantResourceKey(grant);
-  return `${resourceType}::${resourceID}`;
-};
-
-const editableAccessGrantFromRecord = (grant: AccessGrantRecord): EditableAccessGrant => ({
-  localID: grant.id,
-  id: grant.id,
-  role: grant.role,
-  resourceType: grant.resourceType,
-  resourceID: grant.resourceID,
-  inherit: grant.inherit,
-  grantedBy: grant.grantedBy,
-});
-
-export const normalizeBasicGrantInputs = (entries: BasicGrantInput[]): BasicGrantInput[] =>
-  Array.from(
-    entries.reduce((map, entry) => {
-      const role = (entry.role || '').trim().toLowerCase();
-      const resourceType = (entry.resourceType || '').trim().toLowerCase();
-      const resourceID = (entry.resourceID || '').trim();
-      if (!role || !resourceType || !resourceID) return map;
-      const normalized = {
-        role,
-        resourceType,
-        resourceID: resourceType === 'folder' ? normalizedAccessGrantResourceKey({ resourceType, resourceID }).resourceID : resourceID,
-        inherit: entry.inherit,
-      };
-      map.set(accessGrantEditKey(normalized), normalized);
-      return map;
-    }, new Map<string, BasicGrantInput>())
-  ).map(([, entry]) => entry);
-
-const normalizeEditableBasicGrants = (entries: EditableAccessGrant[]): BasicGrantInput[] =>
-  normalizeBasicGrantInputs(
-    entries.map(entry => ({
-      role: entry.role,
-      resourceType: entry.resourceType,
-      resourceID: entry.resourceID,
-      inherit: entry.inherit,
-    }))
-  );
-
-const isBasicAccessGrant = (grant: AccessGrantRecord) => {
-  const role = (grant.role || '').trim().toLowerCase();
-  const resourceType = (grant.resourceType || '').trim();
-  return (
-    (resourceType === 'folder' || resourceType === 'platform') &&
-    (role === BASIC_ROLE_VIEWER || role === BASIC_ROLE_DEVELOPER || role === BASIC_ROLE_OWNER || role === BASIC_ROLE_ADMIN)
-  );
-};
-
-const accessGrantMatchesUser = (grant: AccessGrantRecord, user: UserSummary) => {
-  const subjectType = (grant.subjectType || '').trim();
-  const subjectID = (grant.subjectID || '').trim();
-  if (subjectType !== 'user' || !subjectID) return false;
-  return subjectID === user.id || subjectID === user.sub || subjectID === user.email;
-};
-
-const accessGrantMatchesServiceAccount = (grant: AccessGrantRecord, account: ServiceAccountSummary) => {
-  const subjectType = (grant.subjectType || '').trim();
-  const subjectID = (grant.subjectID || '').trim();
-  if (subjectType !== 'service_account' || !subjectID) return false;
-  return subjectID === account.sub || subjectID === account.id;
-};
-
 const matchesAccessSearch = (query: string, ...values: Array<string | undefined>) => {
   if (!query) return true;
   return values.some(value => (value || '').toLowerCase().includes(query));
@@ -362,47 +154,16 @@ const summarizeRoleCoverage = (policies: RolePermission[]) => {
   return labels.slice(0, 4);
 };
 
-export const normalizeAdminPolicies = (records: RolePermission[]): RolePermission[] => {
-  const deduped = records.filter((entry, idx, arr) => idx === arr.findIndex(other => policyKey(other) === policyKey(entry)));
-  const filtered = deduped.filter(
-    entry => !isDefaultAdmin(entry.role) || (entry.obj === DEFAULT_ADMIN_POLICY_OBJ && entry.act === DEFAULT_ADMIN_POLICY_ACT)
-  );
-  const hasCanonicalAdmin = filtered.some(
-    entry => isDefaultAdmin(entry.role) && entry.obj === DEFAULT_ADMIN_POLICY_OBJ && entry.act === DEFAULT_ADMIN_POLICY_ACT
-  );
-  if (!hasCanonicalAdmin) {
-    filtered.push({
-      role: DEFAULT_ADMIN_ROLE,
-      name: 'Admin all access',
-      obj: DEFAULT_ADMIN_POLICY_OBJ,
-      act: DEFAULT_ADMIN_POLICY_ACT,
-    });
-  }
-  return filtered;
-};
-
 type AAAEffect = 'allow' | 'deny';
 
-type AAAOption = {
-  value: string;
-  label: string;
-};
+type AAAOption = AccessResourceOption;
 
 type AAAOptionGroup = {
   label: string;
   options: AAAOption[];
 };
 
-type AAAResourceCatalog = {
-  folderOptions: AAAOption[];
-  pipelineOptions: AAAOption[];
-  scopeOptions: AAAOption[];
-  triggerOptions: AAAOption[];
-  externalTriggerOptions: AAAOption[];
-  repositoryOptions: AAAOption[];
-  secretScopeOptions: AAAOption[];
-  variableScopeOptions: AAAOption[];
-};
+type AAAResourceCatalog = AccessResourceCatalog;
 
 type AAAResourceTypeConfig = {
   value: string;
@@ -420,15 +181,6 @@ type AAANamedResourceDraft = {
   scope: string;
   name: string;
   hasScope: boolean;
-};
-
-type AAAScopeResponse = {
-  scope?: string | null;
-};
-
-type AAASecretScopeSummary = {
-  scope?: string | null;
-  secret_count?: number | null;
 };
 
 const AAA_CUSTOM_VALUE = '__custom__';
@@ -747,63 +499,12 @@ const buildAAAResourceSelector = (resourceType: string, resourceID: string, opts
 
 const flattenAAAOptionGroups = (groups: AAAOptionGroup[]) => groups.flatMap(group => group.options);
 
-const buildAAAGroupOptions = (groups: ResourceGroup[]): AAAOption[] => {
-  const byID = new Map(groups.map(group => [group.id, group]));
-
-  const buildPath = (group: ResourceGroup, trail = new Set<number>()): string => {
-    const name = (group.name || '').trim();
-    if (!name) return '';
-    if (trail.has(group.id)) return name;
-    const nextTrail = new Set(trail);
-    nextTrail.add(group.id);
-    const parentID = group.parent_id ?? null;
-    if (parentID == null) return name;
-    const parent = byID.get(parentID);
-    if (!parent) return name;
-    const parentPath = buildPath(parent, nextTrail);
-    return parentPath ? `${parentPath}/${name}` : name;
-  };
-
-  return dedupeAAAOptions(
-    groups
-      .map(group => {
-        const path = buildPath(group);
-        return path ? { value: path, label: `/${path}` } : null;
-      })
-      .filter(Boolean) as AAAOption[]
-  ).sort((a, b) => a.value.localeCompare(b.value));
-};
-
-const buildAAAStringOptions = (values: string[]) =>
-  dedupeAAAOptions(
-    values
-      .map(value => value.trim())
-      .filter(Boolean)
-      .map(value => ({ value, label: value }))
-  ).sort((a, b) => a.value.localeCompare(b.value));
-
 const normalizeAAAScopeOptionValue = (scope: string) => {
   const normalized = (scope || '').trim().replace(/^\/+|\/+$/g, '');
   return !normalized || normalized.toLowerCase() === 'default' ? AAA_DEFAULT_SCOPE_VALUE : normalized;
 };
 
 const denormalizeAAAScopeOptionValue = (value: string) => (value === AAA_DEFAULT_SCOPE_VALUE ? '' : (value || '').trim());
-
-const buildAAAScopeOptions = (values: string[]) =>
-  dedupeAAAOptions(
-    ['', ...values].map(value => {
-      const normalized = (value || '').trim().replace(/^\/+|\/+$/g, '');
-      const isDefault = !normalized || normalized.toLowerCase() === 'default';
-      return {
-        value: normalizeAAAScopeOptionValue(normalized),
-        label: isDefault ? 'Default scope' : normalized,
-      };
-    })
-  ).sort((a, b) => {
-    if (a.value === AAA_DEFAULT_SCOPE_VALUE) return -1;
-    if (b.value === AAA_DEFAULT_SCOPE_VALUE) return 1;
-    return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
-  });
 
 const parseAAANamedResourceID = (value: string): AAANamedResourceDraft => {
   const normalized = (value || '').trim();
@@ -1380,50 +1081,7 @@ function AAAPolicyRuleFields({
   );
 }
 
-function AccessPanel({
-  users,
-  loading,
-  error,
-  serviceAccounts,
-  serviceAccountsLoading,
-  serviceAccountsError,
-  accessGrants,
-  accessGrantsLoading,
-  accessGrantsError,
-  policies,
-  policiesLoading,
-  policiesError,
-  newUser,
-  newServiceAccount,
-  policyTemplates,
-  onChangeUser,
-  onCreateUser,
-  onChangeServiceAccount,
-  onCreateServiceAccount,
-  onReloadUsers,
-  onReloadServiceAccounts,
-  onCreatePermission,
-  newPermission,
-  onChangePermission,
-  onDeleteUser,
-  onDeleteServiceAccount,
-  onDeletePolicy,
-  onDeleteRoleDefinition,
-  onSaveRoleDefinition,
-  onEditPolicy,
-  onUpdateUserRoles,
-  onUpdateServiceAccountRoles,
-  onCreateAccessGrant,
-  onCreateServiceAccountAccessGrant,
-  onDeleteAccessGrant,
-  onReloadAccessGrants,
-  onReloadPolicies,
-  onUpdateUser,
-  onUpdateServiceAccount,
-  onLoadServiceAccountTokens,
-  onCreateServiceAccountToken,
-  onRevokeServiceAccountToken,
-}: {
+export type AccessPanelProps = {
   users: UserSummary[];
   loading: boolean;
   error: string | null;
@@ -1436,6 +1094,7 @@ function AccessPanel({
   policies: RolePermission[];
   policiesLoading: boolean;
   policiesError: string | null;
+  resourceCatalog: AccessResourceCatalog;
   newUser: { sub: string; email: string; password: string; roles: string[] };
   newServiceAccount: { sub: string; email: string; tokenName: string; roles: string[] };
   policyTemplates: RolePermission[];
@@ -1466,7 +1125,53 @@ function AccessPanel({
   onLoadServiceAccountTokens: (serviceAccountId: string) => Promise<ServiceAccountToken[]>;
   onCreateServiceAccountToken: (serviceAccountId: string, name: string) => Promise<ServiceAccountToken>;
   onRevokeServiceAccountToken: (serviceAccountId: string, tokenId: string) => Promise<void>;
-}) {
+};
+
+function AccessPanel({
+  users,
+  loading,
+  error,
+  serviceAccounts,
+  serviceAccountsLoading,
+  serviceAccountsError,
+  accessGrants,
+  accessGrantsLoading,
+  accessGrantsError,
+  policies,
+  policiesLoading,
+  policiesError,
+  resourceCatalog,
+  newUser,
+  newServiceAccount,
+  policyTemplates,
+  onChangeUser,
+  onCreateUser,
+  onChangeServiceAccount,
+  onCreateServiceAccount,
+  onReloadUsers,
+  onReloadServiceAccounts,
+  onCreatePermission,
+  newPermission,
+  onChangePermission,
+  onDeleteUser,
+  onDeleteServiceAccount,
+  onDeletePolicy,
+  onDeleteRoleDefinition,
+  onSaveRoleDefinition,
+  onEditPolicy,
+  onUpdateUserRoles,
+  onUpdateServiceAccountRoles,
+  onCreateAccessGrant,
+  onCreateServiceAccountAccessGrant,
+  onDeleteAccessGrant,
+  onReloadAccessGrants,
+  onReloadPolicies,
+  onUpdateUser,
+  onUpdateServiceAccount,
+  onLoadServiceAccountTokens,
+  onCreateServiceAccountToken,
+  onRevokeServiceAccountToken,
+}: AccessPanelProps) {
   const [accessMode, setAccessMode] = useState<'basic' | 'advanced'>('basic');
   const [activeSection, setActiveSection] = useState<'users' | 'service-accounts' | 'roles' | 'policies'>('users');
   const [showUserModal, setShowUserModal] = useState(false);
@@ -1522,16 +1227,6 @@ function AccessPanel({
   const [basicGrantEntries, setBasicGrantEntries] = useState<EditableAccessGrant[]>([]);
   const [basicGrantSaving, setBasicGrantSaving] = useState(false);
   const [basicGrantError, setBasicGrantError] = useState<string | null>(null);
-  const [resourceCatalog, setResourceCatalog] = useState<AAAResourceCatalog>({
-    folderOptions: [],
-    pipelineOptions: [],
-    scopeOptions: [],
-    triggerOptions: [],
-    externalTriggerOptions: [],
-    repositoryOptions: [],
-    secretScopeOptions: [],
-    variableScopeOptions: [],
-  });
   const policyOptions = useMemo(() => {
     const seen = new Set<string>();
     return policyTemplates
@@ -2129,90 +1824,6 @@ function AccessPanel({
     const draftKey = accessGrantEditKey(draftGrant);
     return basicGrantEntries.some(grant => accessGrantEditKey(grant) === draftKey);
   }, [basicGrantDraft, basicGrantEntries]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const readJson = async <T,>(path: string): Promise<T> => {
-      const response = await fetch(buildApiUrl(path));
-      if (!response.ok) {
-        throw new Error(`Request failed (${response.status})`);
-      }
-      return response.json() as Promise<T>;
-    };
-
-    void (async () => {
-      const [groupsResult, pipelinesResult, triggersResult, externalTriggersResult, secretScopesResult, variableScopesResult] = await Promise.allSettled([
-        readJson<ResourceGroup[]>('/v1/groups'),
-        readJson<string[]>('/v1/pipelines'),
-        readJson<string[]>('/v1/overrides'),
-        readJson<ExternalTriggerSummary[]>('/v1/external-triggers'),
-        readJson<AAASecretScopeSummary[]>('/v1/secrets/scopes'),
-        readJson<AAAScopeResponse[]>('/v1/variables/scopes'),
-      ]);
-
-      if (cancelled) return;
-
-      const groups = groupsResult.status === 'fulfilled' && Array.isArray(groupsResult.value) ? groupsResult.value : [];
-      const pipelines = pipelinesResult.status === 'fulfilled' && Array.isArray(pipelinesResult.value) ? pipelinesResult.value : [];
-      const triggers = triggersResult.status === 'fulfilled' && Array.isArray(triggersResult.value) ? triggersResult.value : [];
-      const externalTriggers =
-        externalTriggersResult.status === 'fulfilled' && Array.isArray(externalTriggersResult.value)
-          ? externalTriggersResult.value
-              .map(entry => {
-                const record = asRecord(entry);
-                return record ? readString(record.id || record.name).trim() : '';
-              })
-              .filter(Boolean)
-          : [];
-      const secretScopes =
-        secretScopesResult.status === 'fulfilled' && Array.isArray(secretScopesResult.value)
-          ? secretScopesResult.value.map(entry => (typeof entry?.scope === 'string' ? entry.scope : ''))
-          : [];
-      const variableScopes =
-        variableScopesResult.status === 'fulfilled' && Array.isArray(variableScopesResult.value)
-          ? variableScopesResult.value.map(entry => (typeof entry?.scope === 'string' ? entry.scope : ''))
-          : [];
-
-      if (groupsResult.status === 'rejected') {
-        console.error('Failed to load AAA groups', groupsResult.reason);
-      }
-      if (pipelinesResult.status === 'rejected') {
-        console.error('Failed to load AAA pipelines', pipelinesResult.reason);
-      }
-      if (triggersResult.status === 'rejected') {
-        console.error('Failed to load AAA triggers', triggersResult.reason);
-      }
-      if (externalTriggersResult.status === 'rejected') {
-        console.error('Failed to load AAA external triggers', externalTriggersResult.reason);
-      }
-      if (secretScopesResult.status === 'rejected') {
-        console.error('Failed to load AAA secret scopes', secretScopesResult.reason);
-      }
-      if (variableScopesResult.status === 'rejected') {
-        console.error('Failed to load AAA variable scopes', variableScopesResult.reason);
-      }
-
-      const folderOptions = buildAAAGroupOptions(groups);
-      const triggerOptions = buildAAAStringOptions(triggers);
-      const scopeOptions = buildAAAScopeOptions([...secretScopes, ...variableScopes]);
-      const scopeResourceOptions = buildAAAStringOptions([...secretScopes, ...variableScopes]);
-      setResourceCatalog({
-        folderOptions,
-        pipelineOptions: buildAAAStringOptions(pipelines),
-        scopeOptions: scopeResourceOptions,
-        triggerOptions,
-        externalTriggerOptions: buildAAAStringOptions(externalTriggers),
-        repositoryOptions: triggerOptions,
-        secretScopeOptions: scopeOptions,
-        variableScopeOptions: scopeOptions,
-      });
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     setNextAccessRole('');
@@ -4222,25 +3833,6 @@ function formatTimestamp(value?: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
   return date.toLocaleString();
-}
-
-export function normalizeAccessGrantRecord(value: unknown): AccessGrantRecord | null {
-  const record = asRecord(value);
-  if (!record) return null;
-  const id = readString(record.id);
-  if (!id) return null;
-  return {
-    id,
-    subjectType: readString(record.subject_type),
-    subjectID: readString(record.subject_id),
-    subjectDisplay: readOptionalString(record.subject_display),
-    role: readString(record.role),
-    resourceType: readString(record.resource_type),
-    resourceID: readString(record.resource_id),
-    inherit: Boolean(record.inherit),
-    grantedBy: readOptionalString(record.granted_by),
-    createdAt: readOptionalString(record.created_at),
-  };
 }
 
 export default AccessPanel;

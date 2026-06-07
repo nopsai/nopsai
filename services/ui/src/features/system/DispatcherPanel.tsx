@@ -1,14 +1,9 @@
 import { Link } from 'react-router-dom';
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Activity, Boxes, Clock3, Copy, GitBranch, PauseCircle, PlayCircle, Plus, RefreshCw, Route, Server } from 'lucide-react';
-import { buildApiUrl } from '../../lib/api';
-import { asRecord, normalizeStringArray, normalizeStringMap, readOptionalString, readString } from './data';
-
-type ConfigFormState = {
-  runner_id: string;
-  runner_scopes: string;
-  runner_capacity: string;
-};
+import type { ConfigFormState } from './config/model';
+import { getRunnerMeta, runnerActionKey, type DispatcherStatusState, type Runner } from './dispatcher/model';
+import { useRunnerDeploymentGuide } from './dispatcher/useRunnerDeploymentGuide';
 
 const STALE_THRESHOLD_MS = 30_000;
 const MAX_VISIBLE_ACTIVE_RUNS = 3;
@@ -21,75 +16,6 @@ function scrollRunnerDeploymentGuide() {
     document.getElementById(RUNNER_DEPLOYMENT_GUIDE_ID)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 }
-
-export type Runner = {
-  runnerId: string;
-  scopes: string[];
-  capacity: number;
-  activeJobs: number;
-  inflightJobs: number;
-  lastHeartbeatUnix: number;
-  allowDispatch: boolean;
-  metadata: Record<string, string>;
-};
-
-type RunnerActiveRun = {
-  runId: string;
-  pipeline: string;
-  parentStep?: string;
-  triggerId?: string;
-};
-
-type RunnerMeta = {
-  connectionId: string;
-  hostname: string;
-  network: string;
-  runtime: string;
-  namespace: string;
-  node: string;
-  serviceAccount: string;
-  activeRuns: RunnerActiveRun[];
-};
-
-type RunnerComposeTemplate = {
-  runnerId: string;
-  runnerScopes: string;
-  runnerCapacity: number;
-  dispatcherAddress: string;
-  networkMode: string;
-  runnerImage: string;
-  compose: string;
-  command: string;
-  bootstrapCommand: string;
-  expiresAt: string;
-  warnings: string[];
-};
-
-type KubernetesRunnerManifestTemplate = {
-  runnerId: string;
-  runnerScopes: string;
-  runnerCapacity: number;
-  namespace: string;
-  serviceAccount: string;
-  dispatcherAddress: string;
-  runnerImage: string;
-  manifest: string;
-  command: string;
-  bootstrapCommand: string;
-  expiresAt: string;
-  warnings: string[];
-};
-
-type RunnerInstallRuntime = 'docker' | 'kubernetes';
-
-export type DispatcherStatusState = {
-  queuedJobs: number;
-  runners: Runner[];
-  routing: Record<string, string[]>;
-  dispatcherError?: string;
-  fetchedAt: number;
-};
-
 
 function DispatcherPanel({
   loading,
@@ -202,118 +128,45 @@ function DispatcherPanel({
 }
 
 function RunnerDeploymentGuide({ canManageDispatcher, runnerDefaults }: { canManageDispatcher: boolean; runnerDefaults: ConfigFormState }) {
-  const [installRuntime, setInstallRuntime] = useState<RunnerInstallRuntime>('docker');
-  const [runnerId, setRunnerId] = useState(runnerDefaults.runner_id || 'runner-prod-1');
-  const [runnerScopes, setRunnerScopes] = useState(runnerDefaults.runner_scopes || 'prod');
-  const [runnerCapacity, setRunnerCapacity] = useState(runnerDefaults.runner_capacity || '2');
-  const [runnerNetworkMode, setRunnerNetworkMode] = useState('host');
-  const [runnerImage, setRunnerImage] = useState('hoseindocker/nopsai-runner:latest');
-  const [kubernetesNamespace, setKubernetesNamespace] = useState('nopsai-runs');
-  const [kubernetesServiceAccount, setKubernetesServiceAccount] = useState('nopsai-runner');
-  const [kubernetesRunnerImage, setKubernetesRunnerImage] = useState('hoseindocker/nopsai-k8s-runner:latest');
-  const [kubernetesStorageClass, setKubernetesStorageClass] = useState('');
-  const [kubernetesAffinityEnabled, setKubernetesAffinityEnabled] = useState(true);
-  const [scopeOptions, setScopeOptions] = useState<string[]>([]);
-  const [template, setTemplate] = useState<RunnerComposeTemplate | null>(null);
-  const [kubernetesTemplate, setKubernetesTemplate] = useState<KubernetesRunnerManifestTemplate | null>(null);
-  const [loadingTemplate, setLoadingTemplate] = useState(false);
-  const [loadingKubernetesTemplate, setLoadingKubernetesTemplate] = useState(false);
-  const [templateError, setTemplateError] = useState<string | null>(null);
-  const [kubernetesTemplateError, setKubernetesTemplateError] = useState<string | null>(null);
+  const {
+    installRuntime,
+    setInstallRuntime,
+    runnerId,
+    setRunnerId,
+    setRunnerScopes,
+    runnerCapacity,
+    setRunnerCapacity,
+    runnerNetworkMode,
+    setRunnerNetworkMode,
+    runnerImage,
+    setRunnerImage,
+    kubernetesNamespace,
+    setKubernetesNamespace,
+    kubernetesServiceAccount,
+    setKubernetesServiceAccount,
+    kubernetesRunnerImage,
+    setKubernetesRunnerImage,
+    kubernetesStorageClass,
+    setKubernetesStorageClass,
+    kubernetesAffinityEnabled,
+    setKubernetesAffinityEnabled,
+    template,
+    kubernetesTemplate,
+    loadingTemplate,
+    loadingKubernetesTemplate,
+    templateError,
+    setTemplateError,
+    kubernetesTemplateError,
+    setKubernetesTemplateError,
+    selectedRunnerScopes,
+    selectedRunnerScopeSet,
+    runnerScopeChoices,
+    toggleRunnerScope,
+    loadTemplate,
+    loadKubernetesTemplate,
+  } = useRunnerDeploymentGuide(canManageDispatcher, runnerDefaults);
   const [copied, setCopied] = useState(false);
   const [copiedKubernetes, setCopiedKubernetes] = useState(false);
-
-  useEffect(() => {
-    if (!canManageDispatcher) return;
-    let cancelled = false;
-    fetch(buildApiUrl('/v1/system/dispatcher/scopes'), { cache: 'no-store' })
-      .then(response => (response.ok ? response.json() : []))
-      .then(payload => {
-        if (cancelled) return;
-        setScopeOptions(normalizeRuntimeScopeOptions(payload));
-      })
-      .catch(() => {
-        if (!cancelled) setScopeOptions([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [canManageDispatcher]);
-
-  const selectedRunnerScopes = useMemo(() => splitCSV(runnerScopes), [runnerScopes]);
-  const selectedRunnerScopeSet = useMemo(() => new Set(selectedRunnerScopes), [selectedRunnerScopes]);
-  const runnerScopeChoices = useMemo(() => {
-    return sortRuntimeScopeOptions(Array.from(new Set([...scopeOptions, ...selectedRunnerScopes])));
-  }, [scopeOptions, selectedRunnerScopes]);
-
-  const toggleRunnerScope = (scope: string, checked: boolean) => {
-    const next = new Set(selectedRunnerScopes);
-    if (checked) {
-      next.add(scope);
-    } else {
-      next.delete(scope);
-    }
-    setRunnerScopes(sortRuntimeScopeOptions(Array.from(next)).join(','));
-  };
-
-  const loadTemplate = useCallback(async () => {
-    if (!canManageDispatcher) return;
-    const capacity = Number.parseInt(runnerCapacity, 10);
-    if (!Number.isFinite(capacity) || capacity <= 0) {
-      setTemplateError('Capacity must be a positive number.');
-      return;
-    }
-    const params = new URLSearchParams({
-      runner_id: runnerId.trim() || 'runner-prod-1',
-      runner_scopes: runnerScopes.trim(),
-      runner_capacity: String(capacity),
-      runner_network_mode: runnerNetworkMode,
-      runner_image: runnerImage.trim() || 'hoseindocker/nopsai-runner:latest',
-    });
-    setLoadingTemplate(true);
-    setTemplateError(null);
-    try {
-      const response = await fetch(buildApiUrl(`/v1/system/dispatcher/runner-bootstrap-command?${params.toString()}`), { cache: 'no-store' });
-      if (!response.ok) throw new Error(await response.text() || `Unable to generate runner install command (${response.status})`);
-      setTemplate(normalizeRunnerComposeTemplate(await response.json()));
-    } catch (error) {
-      setTemplate(null);
-      setTemplateError(error instanceof Error ? error.message : 'Unable to generate runner install command.');
-    } finally {
-      setLoadingTemplate(false);
-    }
-  }, [canManageDispatcher, runnerCapacity, runnerId, runnerImage, runnerNetworkMode, runnerScopes]);
-
-  const loadKubernetesTemplate = useCallback(async () => {
-    if (!canManageDispatcher) return;
-    const capacity = Number.parseInt(runnerCapacity, 10);
-    if (!Number.isFinite(capacity) || capacity <= 0) {
-      setKubernetesTemplateError('Capacity must be a positive number.');
-      return;
-    }
-    const params = new URLSearchParams({
-      runner_id: runnerId.trim() || 'k8s-runner-prod-1',
-      runner_scopes: runnerScopes.trim(),
-      runner_capacity: String(capacity),
-      namespace: kubernetesNamespace.trim() || 'nopsai-runs',
-      service_account: kubernetesServiceAccount.trim() || 'nopsai-runner',
-      runner_image: kubernetesRunnerImage.trim() || 'hoseindocker/nopsai-k8s-runner:latest',
-      affinity_enabled: String(kubernetesAffinityEnabled),
-    });
-    if (kubernetesStorageClass.trim()) params.set('storage_class', kubernetesStorageClass.trim());
-    setLoadingKubernetesTemplate(true);
-    setKubernetesTemplateError(null);
-    try {
-      const response = await fetch(buildApiUrl(`/v1/system/dispatcher/kubernetes-runner-bootstrap-command?${params.toString()}`), { cache: 'no-store' });
-      if (!response.ok) throw new Error(await response.text() || `Unable to generate Kubernetes install command (${response.status})`);
-      setKubernetesTemplate(normalizeKubernetesRunnerManifestTemplate(await response.json()));
-    } catch (error) {
-      setKubernetesTemplate(null);
-      setKubernetesTemplateError(error instanceof Error ? error.message : 'Unable to generate Kubernetes install command.');
-    } finally {
-      setLoadingKubernetesTemplate(false);
-    }
-  }, [canManageDispatcher, kubernetesAffinityEnabled, kubernetesNamespace, kubernetesRunnerImage, kubernetesServiceAccount, kubernetesStorageClass, runnerCapacity, runnerId, runnerScopes]);
 
   const handleCopyTemplate = async () => {
     if (!template?.bootstrapCommand) return;
@@ -803,198 +656,9 @@ function formatSince(nowMs: number, unixSeconds: number) {
 }
 
 
-export function normalizeDispatcherStatus(value: unknown): Omit<DispatcherStatusState, 'fetchedAt'> {
-  const record = asRecord(value);
-  const runnersRaw = record && Array.isArray(record.runners) ? record.runners : [];
-  const routingRaw = record ? (record.routing ?? record.routing_map) : null;
-
-  return {
-    queuedJobs: record ? normalizeNumber(record.queued_jobs ?? record.queuedJobs) : 0,
-    runners: runnersRaw.map(normalizeRunner).filter(runner => runner.runnerId),
-    routing: normalizeRouting(routingRaw),
-    dispatcherError: record ? readOptionalString(record.dispatcher_error ?? record.dispatcherError) : undefined,
-  };
-}
-
-function normalizeRunnerComposeTemplate(value: unknown): RunnerComposeTemplate {
-  const record = asRecord(value) || {};
-  return {
-    runnerId: readString(record.runner_id ?? record.runnerId),
-    runnerScopes: readString(record.runner_scopes ?? record.runnerScopes),
-    runnerCapacity: normalizeNumber(record.runner_capacity ?? record.runnerCapacity),
-    dispatcherAddress: readString(record.dispatcher_address ?? record.dispatcherAddress),
-    networkMode: readString(record.network_mode ?? record.networkMode),
-    runnerImage: readString(record.runner_image ?? record.runnerImage),
-    compose: readString(record.compose),
-    command: readString(record.command),
-    bootstrapCommand: readString(record.bootstrap_command ?? record.bootstrapCommand),
-    expiresAt: readString(record.expires_at ?? record.expiresAt),
-    warnings: normalizeStringArray(record.warnings),
-  };
-}
-
-function normalizeKubernetesRunnerManifestTemplate(value: unknown): KubernetesRunnerManifestTemplate {
-  const record = asRecord(value) || {};
-  return {
-    runnerId: readString(record.runner_id ?? record.runnerId),
-    runnerScopes: readString(record.runner_scopes ?? record.runnerScopes),
-    runnerCapacity: normalizeNumber(record.runner_capacity ?? record.runnerCapacity),
-    namespace: readString(record.namespace),
-    serviceAccount: readString(record.service_account ?? record.serviceAccount),
-    dispatcherAddress: readString(record.dispatcher_address ?? record.dispatcherAddress),
-    runnerImage: readString(record.runner_image ?? record.runnerImage),
-    manifest: readString(record.manifest),
-    command: readString(record.command),
-    bootstrapCommand: readString(record.bootstrap_command ?? record.bootstrapCommand),
-    expiresAt: readString(record.expires_at ?? record.expiresAt),
-    warnings: normalizeStringArray(record.warnings),
-  };
-}
-
-function normalizeRunner(value: unknown): Runner {
-  const record = asRecord(value) || {};
-  return {
-    runnerId: readString(record.runner_id ?? record.runnerId),
-    scopes: normalizeStringArray(record.scopes),
-    capacity: normalizeNumber(record.capacity),
-    activeJobs: normalizeNumber(record.active_jobs ?? record.activeJobs),
-    inflightJobs: normalizeNumber(record.inflight_jobs ?? record.inflightJobs),
-    lastHeartbeatUnix: normalizeNumber(record.last_heartbeat_unix ?? record.lastHeartbeatUnix),
-    metadata: normalizeStringMap(record.metadata),
-    allowDispatch: Boolean(record.allow_dispatch ?? record.allowDispatch),
-  };
-}
-
-export function getRunnerMeta(runner: Runner): RunnerMeta {
-  const meta = runner.metadata || {};
-  const runtime = readString(meta.runtime || meta.runner_runtime).toLowerCase();
-  return {
-    connectionId: readString(meta.connection_id || meta.instance_id),
-    hostname: readString(meta.hostname || meta.host || meta.runner_host),
-    network: readString(meta.docker_network || meta.docker_network_name || meta.docker_networkname),
-    runtime: runtime === 'k8s' ? 'kubernetes' : runtime || 'docker',
-    namespace: readString(meta.kubernetes_namespace || meta.namespace),
-    node: readString(meta.kubernetes_node || meta.node),
-    serviceAccount: readString(meta.kubernetes_service_account || meta.service_account),
-    activeRuns: parseActiveRuns(meta),
-  };
-}
-
-function parseActiveRuns(meta: Record<string, string>): RunnerActiveRun[] {
-  const raw = (meta && meta.active_runs) || '';
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map(item => {
-        const record = asRecord(item);
-        if (!record) return null;
-        const runId = readString(record.run_id);
-        if (!runId) return null;
-        return {
-          runId,
-          pipeline: readString(record.pipeline),
-          parentStep: readOptionalString(record.parent_step),
-          triggerId: readOptionalString(record.trigger_event_id),
-        } satisfies RunnerActiveRun;
-      })
-      .filter(Boolean) as RunnerActiveRun[];
-  } catch (error) {
-    console.warn('Failed to parse active_runs metadata', error);
-    return [];
-  }
-}
-
-export function runnerActionKey(runnerId: string, connectionId = '') {
-  const rid = (runnerId || '').trim();
-  const cid = (connectionId || '').trim();
-  if (!rid) return '';
-  return cid ? `${rid}::${cid}` : rid;
-}
-
 function isStale(nowMs: number, lastHeartbeatUnix: number) {
   if (!lastHeartbeatUnix) return true;
   return nowMs - lastHeartbeatUnix * 1000 > STALE_THRESHOLD_MS;
-}
-
-
-function normalizeListPayload(payload: unknown, keys: string[] = []): unknown[] | null {
-  let value = payload;
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (!trimmed || trimmed === 'null') return [];
-    if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
-      try {
-        value = JSON.parse(trimmed);
-      } catch {
-        return null;
-      }
-    }
-  }
-  if (value == null) return [];
-  if (Array.isArray(value)) return value;
-
-  const record = asRecord(value);
-  if (!record) return null;
-  for (const key of keys) {
-    if (!Object.prototype.hasOwnProperty.call(record, key)) continue;
-    const candidate = record[key];
-    if (candidate == null) return [];
-    if (Array.isArray(candidate)) return candidate;
-  }
-  return null;
-}
-
-
-function normalizeNumber(value: unknown): number {
-  const num = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(num) ? num : 0;
-}
-
-
-function splitCSV(value: string): string[] {
-  return value
-    .split(',')
-    .map(item => item.trim())
-    .filter(Boolean);
-}
-
-function normalizeRuntimeScopeOptions(value: unknown): string[] {
-  const items = normalizeListPayload(value, ['scopes']);
-  if (!items) return [];
-  const scopes = new Set<string>();
-  items.forEach(item => {
-    const record = asRecord(item);
-    const raw = record ? record.scope ?? record.name ?? record.value : item;
-    const scope = readString(raw).trim().replace(/^\/+|\/+$/g, '');
-    if (scope) scopes.add(scope);
-  });
-  return sortRuntimeScopeOptions(Array.from(scopes));
-}
-
-function sortRuntimeScopeOptions(scopes: string[]): string[] {
-  return scopes.map(scope => scope.trim()).filter(Boolean).sort((a, b) => {
-    if (a === 'default' && b !== 'default') return -1;
-    if (b === 'default' && a !== 'default') return 1;
-    return a.localeCompare(b);
-  });
-}
-
-
-function normalizeRouting(value: unknown): Record<string, string[]> {
-  const record = asRecord(value);
-  if (!record) return {};
-  const normalized: Record<string, string[]> = {};
-  Object.entries(record).forEach(([scope, runners]) => {
-    if (!scope) return;
-    if (Array.isArray(runners)) {
-      normalized[scope] = runners.map(item => String(item || '').trim()).filter(Boolean);
-    } else if (typeof runners === 'string') {
-      normalized[scope] = [runners.trim()].filter(Boolean);
-    }
-  });
-  return normalized;
 }
 
 

@@ -16,7 +16,7 @@ import {
   XCircle,
   Zap,
 } from 'lucide-react';
-import { buildApiUrl } from '../lib/api';
+import { apiClient } from '../lib/api';
 
 type Group = {
   id: number;
@@ -193,7 +193,7 @@ function MonitoringPage() {
   const [refreshedAt, setRefreshedAt] = useState<string>('');
 
   const fetchJson = useCallback(async <T,>(path: string): Promise<T> => {
-    const response = await fetch(buildApiUrl(path), { cache: 'no-store' });
+    const response = await apiClient.fetch(path, { cache: 'no-store' });
     if (!response.ok) {
       const text = await response.text();
       throw new Error(text ? `${text} (${response.status})` : `Request failed (${response.status})`);

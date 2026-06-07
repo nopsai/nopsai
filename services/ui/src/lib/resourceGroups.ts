@@ -1,4 +1,4 @@
-import { buildApiUrl } from './api';
+import { apiClient } from './api.js';
 
 export type ResourceGroup = {
   id: number;
@@ -17,14 +17,14 @@ export type TreeNodeLike<T> = {
 };
 
 export async function fetchResourceGroupPaths(): Promise<string[]> {
-  const response = await fetch(buildApiUrl('/v1/groups'));
+  const response = await apiClient.fetch('/v1/groups');
   if (!response.ok) return [];
   const payload = await response.json();
   return Array.isArray(payload) ? buildResourceGroupPaths(payload as ResourceGroup[]) : [];
 }
 
 export async function fetchPipelineRunGroupPaths(): Promise<string[]> {
-  const response = await fetch(buildApiUrl('/v1/groups'));
+  const response = await apiClient.fetch('/v1/groups');
   if (!response.ok) return [];
   const payload = await response.json();
   return Array.isArray(payload) ? buildPipelineRunGroupPaths(payload as ResourceGroup[]) : [];
