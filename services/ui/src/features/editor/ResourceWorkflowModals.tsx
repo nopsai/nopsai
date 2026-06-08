@@ -1,0 +1,241 @@
+import { useDialogFocus } from '../../components/useDialogFocus';
+
+export type ResourceFormModal = {
+  mode: 'create' | 'clone';
+  path: string;
+  name: string;
+  pending: boolean;
+  error?: string;
+};
+
+export type ResourceDeleteModal = {
+  resourceName: string;
+  pending: boolean;
+  error?: string;
+};
+
+type ResourceWorkflowModalsProps = {
+  resourceLabel: 'pipeline' | 'step';
+  formModal: ResourceFormModal | null;
+  formModalId: (mode: ResourceFormModal['mode']) => string;
+  pathPlaceholder: string;
+  namePlaceholder: string;
+  deleteModal: ResourceDeleteModal | null;
+  deleteModalId: string;
+  onChangeForm: (patch: Partial<Pick<ResourceFormModal, 'path' | 'name'>>) => void;
+  onCloseForm: () => void;
+  onSubmitForm: () => void;
+  onCloseDelete: () => void;
+  onConfirmDelete: () => void;
+};
+
+function ResourceFormDialog({
+  resourceLabel,
+  formModal,
+  modalId,
+  pathPlaceholder,
+  namePlaceholder,
+  onChangeForm,
+  onClose,
+  onSubmit,
+}: {
+  resourceLabel: ResourceWorkflowModalsProps['resourceLabel'];
+  formModal: ResourceFormModal;
+  modalId: string;
+  pathPlaceholder: string;
+  namePlaceholder: string;
+  onChangeForm: ResourceWorkflowModalsProps['onChangeForm'];
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  const dialogRef = useDialogFocus(onClose);
+  const resourceTitle = resourceLabel.charAt(0).toUpperCase() + resourceLabel.slice(1);
+  const pathInputId = `${resourceLabel}-workflow-path`;
+  const nameInputId = `${resourceLabel}-workflow-name`;
+  const titleId = `${modalId}-title`;
+  const errorId = `${modalId}-error`;
+
+  return (
+    <div id={modalId} className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
+      <div
+        ref={dialogRef}
+        className="pipelines-modal-card max-w-md w-full"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={formModal.error ? errorId : undefined}
+        tabIndex={-1}
+      >
+        <header className="pipelines-modal-header">
+          <div>
+            <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">
+              {formModal.mode === 'create' ? `New ${resourceLabel}` : `Clone ${resourceLabel}`}
+            </p>
+            <h3 id={titleId} className="text-lg font-semibold text-[var(--text-primary)]">
+              {formModal.mode === 'create' ? `Create ${resourceLabel}` : `Clone ${resourceLabel}`}
+            </h3>
+          </div>
+          <button type="button" className="glass-button-ghost" onClick={onClose}>
+            Close
+          </button>
+        </header>
+        <div className="pipelines-modal-body space-y-4">
+          <div>
+            <label htmlFor={pathInputId} className="block text-sm font-medium text-[var(--text-secondary)]">
+              {resourceTitle} Path
+            </label>
+            <input
+              id={pathInputId}
+              type="text"
+              className="pipelines-input w-full mt-1"
+              placeholder={pathPlaceholder}
+              value={formModal.path}
+              onChange={event => onChangeForm({ path: event.target.value })}
+              data-dialog-initial-focus
+            />
+            <p className="text-xs text-[var(--text-secondary)] mt-1">Optional group path. Leave blank for root.</p>
+          </div>
+          <div>
+            <label htmlFor={nameInputId} className="block text-sm font-medium text-[var(--text-secondary)]">
+              {resourceTitle} Name
+            </label>
+            <input
+              id={nameInputId}
+              type="text"
+              className="pipelines-input w-full mt-1"
+              placeholder={namePlaceholder}
+              value={formModal.name}
+              onChange={event => onChangeForm({ name: event.target.value })}
+            />
+          </div>
+          {formModal.error ? (
+            <p id={errorId} className="text-sm text-red-500" role="alert">
+              {formModal.error}
+            </p>
+          ) : null}
+        </div>
+        <div className="pipelines-modal-footer">
+          <div className="pipelines-modal-actions">
+            <button type="button" className="glass-button-ghost" onClick={onClose} disabled={formModal.pending}>
+              Cancel
+            </button>
+            <button type="button" className="glass-button-primary" onClick={onSubmit} disabled={formModal.pending}>
+              {formModal.pending ? 'Saving…' : formModal.mode === 'create' ? 'Create' : 'Clone'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ResourceDeleteDialog({
+  resourceLabel,
+  deleteModal,
+  modalId,
+  onClose,
+  onConfirm,
+}: {
+  resourceLabel: ResourceWorkflowModalsProps['resourceLabel'];
+  deleteModal: ResourceDeleteModal;
+  modalId: string;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const dialogRef = useDialogFocus(onClose);
+  const titleId = `${modalId}-title`;
+  const descriptionId = `${modalId}-description`;
+  const errorId = `${modalId}-error`;
+
+  return (
+    <div id={modalId} className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
+      <div
+        ref={dialogRef}
+        className="pipelines-modal-card max-w-md w-full"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={`${descriptionId}${deleteModal.error ? ` ${errorId}` : ''}`}
+        tabIndex={-1}
+      >
+        <header className="pipelines-modal-header">
+          <div>
+            <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">Delete {resourceLabel}</p>
+            <h3 id={titleId} className="text-lg font-semibold text-[var(--text-primary)]">
+              Remove {deleteModal.resourceName}?
+            </h3>
+          </div>
+          <button type="button" className="glass-button-ghost" onClick={onClose} disabled={deleteModal.pending}>
+            Close
+          </button>
+        </header>
+        <div className="pipelines-modal-body space-y-3">
+          <p id={descriptionId} className="text-sm text-[var(--text-secondary)]">This action cannot be undone.</p>
+          {deleteModal.error ? (
+            <p id={errorId} className="text-sm text-red-500" role="alert">
+              {deleteModal.error}
+            </p>
+          ) : null}
+        </div>
+        <div className="pipelines-modal-footer">
+          <div className="pipelines-modal-actions">
+            <button
+              type="button"
+              className="glass-button-ghost"
+              onClick={onClose}
+              disabled={deleteModal.pending}
+              data-dialog-initial-focus
+            >
+              Cancel
+            </button>
+            <button type="button" className="glass-button-danger" onClick={onConfirm} disabled={deleteModal.pending}>
+              {deleteModal.pending ? 'Deleting…' : 'Delete'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function ResourceWorkflowModals({
+  resourceLabel,
+  formModal,
+  formModalId,
+  pathPlaceholder,
+  namePlaceholder,
+  deleteModal,
+  deleteModalId,
+  onChangeForm,
+  onCloseForm,
+  onSubmitForm,
+  onCloseDelete,
+  onConfirmDelete,
+}: ResourceWorkflowModalsProps) {
+  return (
+    <>
+      {formModal ? (
+        <ResourceFormDialog
+          resourceLabel={resourceLabel}
+          formModal={formModal}
+          modalId={formModalId(formModal.mode)}
+          pathPlaceholder={pathPlaceholder}
+          namePlaceholder={namePlaceholder}
+          onChangeForm={onChangeForm}
+          onClose={onCloseForm}
+          onSubmit={onSubmitForm}
+        />
+      ) : null}
+
+      {deleteModal ? (
+        <ResourceDeleteDialog
+          resourceLabel={resourceLabel}
+          deleteModal={deleteModal}
+          modalId={deleteModalId}
+          onClose={onCloseDelete}
+          onConfirm={onConfirmDelete}
+        />
+      ) : null}
+    </>
+  );
+}

@@ -13,6 +13,8 @@
     "test:coverage": "npm run test:component",
     "test:e2e": "playwright test",
     "test:e2e:live": "playwright test --config playwright.live.config.ts",
+    "test:e2e:live:auth": "playwright test --config playwright.live.config.ts --grep \"authenticates and loads\"",
+    "test:e2e:live:mutation": "playwright test --config playwright.live.config.ts --grep \"round-trips a dedicated pipeline\"",
     "preview": "vite preview"
   },
   "dependencies": {

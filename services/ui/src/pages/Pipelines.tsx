@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import yaml from 'js-yaml';
 import {
   PIPELINE_DRAFTS_CHANGED_EVENT,
   deletePipelineDraft,
   getPipelineDraftStorageKey,
   loadPipelineDrafts,
-  type PipelineDraft,
   upsertPipelineDraft,
 } from '../lib/pipelineDrafts';
 import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups';
@@ -15,13 +13,17 @@ import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
 import ResourceAccessCard from '../components/ResourceAccessCard';
 import { StepsGraph } from './PipelineRuns';
 import { fetchEditorAutocompleteMetadata } from '../features/editor/autocomplete';
+import { EditorAutocompleteMenu } from '../features/editor/EditorAutocompleteMenu';
+import { ResourceWorkflowModals } from '../features/editor/ResourceWorkflowModals';
+import { useDraftCollection } from '../features/editor/useDraftCollection';
+import { useYamlResourceMutations } from '../features/editor/useYamlResourceMutations';
 import {
-  checkPipelinePermission as checkPipelinePermissionRequest,
-  deletePipeline,
   fetchPipelineList,
   fetchPipelineTriggers as fetchPipelineTriggersRequest,
   fetchPipelineYaml,
   fetchRecentPipelineRuns,
+  checkPipelinePermission,
+  deletePipeline,
   savePipelineYaml,
   type PipelineRun,
   type PipelineTrigger,
@@ -41,28 +43,11 @@ import {
   type PipelineGraphData,
   type PipelineListItem,
 } from '../features/pipelines/model';
+import { usePipelinePermissions } from '../features/pipelines/usePipelinePermissions';
 
 const MAX_RECENT_RUNS = 5;
 const MAX_VISIBLE_TRIGGER_CARDS = 5;
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
-
-const PIPELINE_PERMISSION_PROBE_NAME = '__nopsai_permission_probe__';
-
-type FormModalState = {
-  mode: 'create' | 'clone';
-  path: string;
-  name: string;
-  pending: boolean;
-  error?: string;
-  baseYaml?: string;
-};
-
-type DeleteModalState = {
-  pipelineId: string;
-  pipelineName: string;
-  pending: boolean;
-  error?: string;
-};
 
 type ToastMessage = {
   id: number;
@@ -83,12 +68,25 @@ type PipelinesPageProps = {
   canDeletePipelines: boolean;
 };
 
+function buildPipelineTemplateYaml(name: string) {
+  return [
+    `name: ${name}`,
+    'version: v1',
+    'description: Describe what this pipeline does.',
+    'container_image: alpine:3.20',
+    'variables: []',
+    'steps:',
+    '  - name: example',
+    '    goal: Say hello from this pipeline.',
+    '',
+  ].join('\n');
+}
+
 function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   const navigate = useNavigate();
   const location = useLocation();
 
   const [serverPipelines, setServerPipelines] = useState<PipelineListItem[]>([]);
-  const [draftPipelines, setDraftPipelines] = useState<PipelineDraft[]>([]);
   const [listLoading, setListLoading] = useState<boolean>(true);
   const [listError, setListError] = useState<string | null>(null);
   const [activeFolder, setActiveFolder] = useState('');
@@ -99,10 +97,6 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedIdRef = useRef<string | null>(null);
-  const [folderCreateAllowed, setFolderCreateAllowed] = useState(false);
-  const [selectedUpdateAllowed, setSelectedUpdateAllowed] = useState(false);
-  const [selectedExecuteAllowed, setSelectedExecuteAllowed] = useState(false);
-
   const [detail, setDetail] = useState<PipelineDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -116,7 +110,32 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
 
   const [isEditing, setIsEditing] = useState(false);
   const [editorValue, setEditorValue] = useState('');
-  const [saving, setSaving] = useState(false);
+  const {
+    permissionFolder,
+    canCreatePipelineHere,
+    canUpdateSelectedPipeline,
+    canExecuteSelectedPipeline,
+  } = usePipelinePermissions(selectedId, activeFolder);
+  const canUsePipelineDrafts = canCreatePipelineHere || canUpdateSelectedPipeline;
+  const {
+    drafts: draftPipelines,
+    draftsByID: draftsById,
+    removeDraft: removePipelineDraft,
+    upsertDraft: upsertPipelineDraftState,
+  } = useDraftCollection({
+    enabled: canUsePipelineDrafts,
+    scope: draftScope,
+    changedEvent: PIPELINE_DRAFTS_CHANGED_EVENT,
+    getStorageKey: getPipelineDraftStorageKey,
+    load: loadPipelineDrafts,
+    upsert: upsertPipelineDraft,
+    remove: deletePipelineDraft,
+    autosave: {
+      active: Boolean(detail && isEditing && normalizeSource(detail.source) === 'draft'),
+      id: detail?.id || '',
+      yaml: editorValue,
+    },
+  });
 
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const highlightContentRef = useRef<HTMLPreElement | null>(null);
@@ -175,15 +194,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     }
   }, [graphData.steps, selectedGraphStep]);
 
-  const [formModal, setFormModal] = useState<FormModalState | null>(null);
-  const [deleteModal, setDeleteModal] = useState<DeleteModalState | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
-
-  const draftsById = useMemo(() => {
-    const map = new Map<string, PipelineDraft>();
-    draftPipelines.forEach(draft => map.set(draft.id, draft));
-    return map;
-  }, [draftPipelines]);
 
   const syncEditorOverlays = useCallback((textarea: HTMLTextAreaElement | null) => {
     if (!textarea) return;
@@ -422,13 +433,6 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     }, 3200);
   }, []);
 
-  const buildPermissionProbeIdentifier = (folder: string) => {
-    const cleaned = folder.trim().replace(/^\/+|\/+$/g, '');
-    return cleaned ? `${cleaned}/${PIPELINE_PERMISSION_PROBE_NAME}` : PIPELINE_PERMISSION_PROBE_NAME;
-  };
-
-  const checkPipelinePermission = useCallback((action: string, resourceID: string) => checkPipelinePermissionRequest(action, resourceID), []);
-
   const formatRelativeTime = (value?: string) => {
     if (!value) return 'N/A';
     const timestamp = new Date(value).getTime();
@@ -492,39 +496,6 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   const formatTriggerScope = (trigger: Record<string, unknown>) => {
     const scope = typeof trigger.scope === 'string' ? trigger.scope.trim() : '';
     return scope || 'default';
-  };
-
-  const buildTemplateYaml = (name: string) => {
-    return [
-      `name: ${name}`,
-      'version: v1',
-      'description: Describe what this pipeline does.',
-      'container_image: alpine:3.20',
-      'variables: []',
-      'steps:',
-      '  - name: example',
-      '    goal: Say hello from this pipeline.',
-      '',
-    ].join('\n');
-  };
-
-  const updateYamlName = (raw: string, nextName: string) => {
-    try {
-      const parsed = yaml.load(raw) as Record<string, unknown> | undefined;
-      const updated = { ...(parsed || {}), name: nextName };
-      return yaml.dump(updated, { lineWidth: 120 });
-    } catch {
-      const replaced = raw.replace(/^name:\s*.+$/m, `name: ${nextName}`);
-      if (replaced !== raw) return replaced;
-      return `name: ${nextName}\n${raw}`;
-    }
-  };
-
-  const buildIdentifier = (path: string, name: string) => {
-    const cleanedName = name.trim();
-    const cleanedPath = normalizeRootPath(path);
-    if (!cleanedName) return '';
-    return cleanedPath ? `${cleanedPath}/${cleanedName}` : cleanedName;
   };
 
   const parentFolder = (path: string) => {
@@ -637,99 +608,6 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     [draftsById]
   );
 
-  const permissionFolder = selectedId ? splitIdentifier(selectedId).path : activeFolder;
-
-  useEffect(() => {
-    let cancelled = false;
-    setFolderCreateAllowed(false);
-    void checkPipelinePermission('pipeline.create', buildPermissionProbeIdentifier(permissionFolder))
-      .then(allowed => {
-        if (!cancelled) setFolderCreateAllowed(allowed);
-      })
-      .catch(() => {
-        if (!cancelled) setFolderCreateAllowed(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [checkPipelinePermission, permissionFolder]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!selectedId) {
-      setSelectedUpdateAllowed(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    setSelectedUpdateAllowed(false);
-    void checkPipelinePermission('pipeline.update', selectedId)
-      .then(allowed => {
-        if (!cancelled) setSelectedUpdateAllowed(allowed);
-      })
-      .catch(() => {
-        if (!cancelled) setSelectedUpdateAllowed(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [checkPipelinePermission, selectedId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!selectedId) {
-      setSelectedExecuteAllowed(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    setSelectedExecuteAllowed(false);
-    void checkPipelinePermission('pipeline.execute', selectedId)
-      .then(allowed => {
-        if (!cancelled) setSelectedExecuteAllowed(allowed);
-      })
-      .catch(() => {
-        if (!cancelled) setSelectedExecuteAllowed(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [checkPipelinePermission, selectedId]);
-
-  const canCreatePipelineHere = folderCreateAllowed;
-  const canUpdateSelectedPipeline = selectedUpdateAllowed;
-  const canUsePipelineDrafts = canCreatePipelineHere || canUpdateSelectedPipeline;
-
-  useEffect(() => {
-    if (!canUsePipelineDrafts || !draftScope) {
-      setDraftPipelines([]);
-      return;
-    }
-    setDraftPipelines(loadPipelineDrafts(draftScope));
-  }, [canUsePipelineDrafts, draftScope]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    if (!canUsePipelineDrafts || !draftScope) return;
-    const storageKey = getPipelineDraftStorageKey(draftScope);
-    const refreshDrafts = () => setDraftPipelines(loadPipelineDrafts(draftScope));
-    const onStorage = (event: StorageEvent) => {
-      if (event.key !== storageKey) return;
-      refreshDrafts();
-    };
-    window.addEventListener(PIPELINE_DRAFTS_CHANGED_EVENT, refreshDrafts);
-    window.addEventListener('storage', onStorage);
-    return () => {
-      window.removeEventListener(PIPELINE_DRAFTS_CHANGED_EVENT, refreshDrafts);
-      window.removeEventListener('storage', onStorage);
-    };
-  }, [canUsePipelineDrafts, draftScope]);
-
   const pipelines = useMemo(() => {
     const merged = new Map<string, PipelineListItem>();
     serverPipelines.forEach(item => merged.set(item.id, item));
@@ -812,17 +690,6 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   }, [editorValue, isEditing]);
 
   useEffect(() => {
-    if (!detail || !isEditing) return;
-    if (!canUsePipelineDrafts || !draftScope) return;
-    if (normalizeSource(detail.source) !== 'draft') return;
-    const draftId = detail.id;
-    const handle = window.setTimeout(() => {
-      setDraftPipelines(upsertPipelineDraft({ id: draftId, yaml: editorValue }, draftScope));
-    }, 800);
-    return () => window.clearTimeout(handle);
-  }, [canUsePipelineDrafts, detail, draftScope, editorValue, isEditing]);
-
-  useEffect(() => {
     if (!isEditing) return;
     const handler = (event: BeforeUnloadEvent) => {
       event.preventDefault();
@@ -902,11 +769,66 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     return current || buildTree;
   }, [activeFolder, buildTree]);
 
-  const handleSelect = (id: string) => {
+  const handleSelect = useCallback((id: string) => {
     selectedIdRef.current = id;
     setSelectedId(id);
     navigate(`/pipelines/${id.split('/').map(encodeURIComponent).join('/')}`);
-  };
+  }, [navigate]);
+
+  const handlePipelineSaved = useCallback((updated: PipelineDetail) => {
+    setDetail(updated);
+    setEditorValue(updated.rawYaml);
+    setIsEditing(false);
+  }, []);
+
+  const handlePipelineDeleted = useCallback(() => {
+    setSelectedId(null);
+    selectedIdRef.current = null;
+    navigate('/pipelines');
+  }, [navigate]);
+
+  const {
+    closeDeleteModal,
+    closeFormModal,
+    confirmDelete,
+    deleteModal,
+    formModal,
+    openCloneModal,
+    openCreateModal,
+    openDeleteModal,
+    save: handleSave,
+    saving,
+    submitFormModal,
+    updateFormModal,
+  } = useYamlResourceMutations({
+    resourceLabel: 'pipeline',
+    resources: pipelines,
+    detail,
+    editorValue,
+    validationErrorCount: validation.errors.length,
+    validationMessage: 'Resolve validation errors before saving.',
+    permissionFolder,
+    draftScope,
+    canCreate: canCreatePipelineHere,
+    canUpdate: canUpdateSelectedPipeline,
+    canDelete: canDeletePipelines,
+    canUseDrafts: canUsePipelineDrafts,
+    namePattern: /^[a-zA-Z0-9_.-]+$/,
+    normalizePath: normalizeRootPath,
+    normalizeSource,
+    checkCreatePermission: checkPipelinePermission,
+    persistYaml: savePipelineYaml,
+    deleteResource: deletePipeline,
+    upsertDraft: upsertPipelineDraftState,
+    removeDraft: removePipelineDraft,
+    parseSaved: parsePipelineYaml,
+    reloadResources: loadPipelines,
+    addToast,
+    onSelect: handleSelect,
+    onSaved: handlePipelineSaved,
+    onDeleted: handlePipelineDeleted,
+    buildTemplate: buildPipelineTemplateYaml,
+  });
 
   const handleBackToList = () => {
     setSelectedId(null);
@@ -950,151 +872,11 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       addToast('Save or discard edits before executing this pipeline.', 'info');
       return;
     }
-    if (!selectedExecuteAllowed) {
+    if (!canExecuteSelectedPipeline) {
       addToast('You do not have permission to execute this pipeline.', 'info');
       return;
     }
     navigate(`/lab?pipeline=${encodeURIComponent(detail.id)}`);
-  };
-
-  const handleSave = async () => {
-    if (!detail || !editorValue.trim()) return;
-    const detailSource = normalizeSource(detail.source);
-    const canPersistPipeline = detailSource === 'draft' ? canCreatePipelineHere : canUpdateSelectedPipeline;
-    if (!canPersistPipeline) {
-      addToast('You have read-only access to pipelines.', 'info');
-      return;
-    }
-    if (detailSource === 'git') {
-      addToast('Git-managed pipelines are read-only. Clone it to create an editable draft.', 'info');
-      return;
-    }
-    const validationResult = validatePipelineYaml(editorValue);
-    if (validationResult.errors.length) {
-      addToast('Resolve validation errors before saving.', 'error');
-      return;
-    }
-    setSaving(true);
-    try {
-      await savePipelineYaml(detail.id, editorValue);
-      addToast('Pipeline saved.', 'success');
-      const wasDraft = normalizeSource(detail.source) === 'draft';
-      if (wasDraft) {
-        setDraftPipelines(deletePipelineDraft(detail.id, draftScope));
-      }
-      const resolvedSource = wasDraft ? 'database' : pipelines.find(item => item.id === detail.id)?.source;
-      const updated = parsePipelineYaml(editorValue, detail.id, resolvedSource);
-      setDetail(updated);
-      setEditorValue(editorValue);
-      setIsEditing(false);
-      await loadPipelines({ quiet: true });
-    } catch (error) {
-      console.error('Save failed', error);
-      addToast(error instanceof Error ? error.message : 'Unable to save pipeline', 'error');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const openCreateModal = () => {
-    if (!canCreatePipelineHere) {
-      addToast('You have read-only access to pipelines.', 'info');
-      return;
-    }
-    setFormModal({ mode: 'create', path: permissionFolder, name: '', pending: false });
-  };
-  const openCloneModal = () => {
-    if (!canCreatePipelineHere) {
-      addToast('You have read-only access to pipelines.', 'info');
-      return;
-    }
-    if (!detail) {
-      addToast('Select a pipeline to clone.', 'info');
-      return;
-    }
-    const { path, name } = splitIdentifier(detail.id);
-    setFormModal({
-      mode: 'clone',
-      path,
-      name: `${name}-copy`,
-      pending: false,
-      baseYaml: detail.rawYaml,
-    });
-  };
-
-  const submitFormModal = async () => {
-    if (!formModal) return;
-    if (!canCreatePipelineHere || !draftScope) {
-      setFormModal(prev => prev ? { ...prev, error: 'You have read-only access to pipelines.' } : prev);
-      return;
-    }
-    const identifier = buildIdentifier(formModal.path, formModal.name);
-    if (!identifier) {
-      setFormModal(prev => prev ? { ...prev, error: 'Pipeline name is required.' } : prev);
-      return;
-    }
-    if (!/^[a-zA-Z0-9_.-]+$/.test(formModal.name.trim())) {
-      setFormModal(prev => prev ? { ...prev, error: 'Pipeline name can only contain letters, numbers, dots, underscores, and hyphens.' } : prev);
-      return;
-    }
-    if (pipelines.some(item => item.id === identifier)) {
-      setFormModal(prev => prev ? { ...prev, error: 'A pipeline with that identifier already exists.' } : prev);
-      return;
-    }
-    const allowed = await checkPipelinePermission('pipeline.create', identifier);
-    if (!allowed) {
-      setFormModal(prev => prev ? { ...prev, error: 'You do not have permission to create pipelines in this path.' } : prev);
-      return;
-    }
-    setFormModal(prev => prev ? { ...prev, pending: true, error: undefined } : prev);
-    try {
-      const yamlBody = formModal.mode === 'clone' && formModal.baseYaml
-        ? updateYamlName(formModal.baseYaml, formModal.name.trim())
-        : buildTemplateYaml(formModal.name.trim());
-      setDraftPipelines(upsertPipelineDraft({ id: identifier, yaml: yamlBody }, draftScope));
-      addToast(`Draft pipeline ${formModal.mode === 'create' ? 'created' : 'cloned'}.`, 'success');
-      setFormModal(null);
-      handleSelect(identifier);
-    } catch (error) {
-      console.error('Draft save failed', error);
-      setFormModal(prev => prev ? { ...prev, error: error instanceof Error ? error.message : 'Unable to create draft' } : prev);
-    } finally {
-      setFormModal(prev => prev ? { ...prev, pending: false } : prev);
-    }
-  };
-
-  const confirmDelete = async () => {
-    if (!deleteModal) return;
-    setDeleteModal(prev => prev ? { ...prev, pending: true, error: undefined } : prev);
-    try {
-      const source = pipelines.find(item => item.id === deleteModal.pipelineId)?.source;
-      const normalizedSource = normalizeSource(source);
-      if (normalizedSource === 'git') {
-        throw new Error('This pipeline is managed via Git. Clone it to customize instead of deleting.');
-      }
-      if (normalizedSource === 'draft') {
-        if (!canUsePipelineDrafts || !draftScope) {
-          throw new Error('You have read-only access to pipelines.');
-        }
-        setDraftPipelines(deletePipelineDraft(deleteModal.pipelineId, draftScope));
-      } else {
-        if (!canDeletePipelines) {
-          throw new Error('You do not have permission to delete pipelines.');
-        }
-        await deletePipeline(deleteModal.pipelineId);
-      }
-      addToast('Pipeline deleted.', 'success');
-      setDeleteModal(null);
-      setSelectedId(null);
-      selectedIdRef.current = null;
-      navigate('/pipelines');
-      await loadPipelines();
-    } catch (error) {
-      console.error('Delete failed', error);
-      setDeleteModal(prev => prev ? { ...prev, error: error instanceof Error ? error.message : 'Unable to delete pipeline' } : prev);
-    } finally {
-      setDeleteModal(prev => prev ? { ...prev, pending: false } : prev);
-    }
   };
 
   const renderPipelineCard = (pipeline: PipelineListItem) => {
@@ -1129,7 +911,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                 title={source === 'draft' ? 'Discard draft' : 'Delete pipeline'}
                 onClick={event => {
                   event.stopPropagation();
-                  setDeleteModal({ pipelineId: pipeline.id, pipelineName: name || pipeline.id, pending: false });
+                  openDeleteModal(pipeline.id, name || pipeline.id);
                 }}
                 aria-label={source === 'draft' ? 'Discard draft pipeline' : 'Delete pipeline'}
               >
@@ -1236,12 +1018,12 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     }
     const source = normalizeSource(detail.source);
     const isGitSource = source === 'git';
-    const executeDisabled = isEditing || source === 'draft' || !selectedExecuteAllowed;
+    const executeDisabled = isEditing || source === 'draft' || !canExecuteSelectedPipeline;
     const executeTitle = source === 'draft'
       ? 'Save the draft before executing'
       : isEditing
         ? 'Save or discard edits before executing'
-        : selectedExecuteAllowed
+        : canExecuteSelectedPipeline
           ? 'Execute in Lab'
           : 'You do not have permission to execute this pipeline';
     const editorLines = editorValue.split('\n');
@@ -1338,7 +1120,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                             setEditorSuggestion(null);
                             setEditorValue(resetYaml);
                             if (normalizeSource(detail.source) === 'draft' && draftScope) {
-                              setDraftPipelines(upsertPipelineDraft({ id: detail.id, yaml: resetYaml }, draftScope));
+                              upsertPipelineDraftState({ id: detail.id, yaml: resetYaml });
                             }
                             setIsEditing(false);
                           }}
@@ -1377,6 +1159,14 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                         <textarea
                           ref={editorRef}
                           id="pipeline-yaml-editor"
+                          aria-label="Pipeline YAML editor"
+                          aria-describedby="pipeline-validation-status"
+                          aria-invalid={validation.errors.length > 0}
+                          aria-autocomplete="list"
+                          aria-controls={editorSuggestion ? 'pipeline-editor-autocomplete' : undefined}
+                          aria-activedescendant={
+                            editorSuggestion ? `pipeline-editor-autocomplete-option-${editorSuggestion.activeIndex}` : undefined
+                          }
                           value={editorValue}
                           onChange={event => {
                             const next = event.target.value;
@@ -1390,32 +1180,57 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                           }}
                           onScroll={handleEditorScroll}
                           onKeyDown={event => {
-                          if (event.ctrlKey && event.code === 'Space') {
-                            event.preventDefault();
-                            const cursor = event.currentTarget.selectionStart || 0;
-                            if (editorSuggestion) {
-                              setEditorSuggestion(null);
+                            if (event.ctrlKey && event.code === 'Space') {
+                              event.preventDefault();
+                              const cursor = event.currentTarget.selectionStart || 0;
+                              if (editorSuggestion) {
+                                setEditorSuggestion(null);
                               } else {
                                 openEditorSuggestion(cursor, { force: true });
+                              }
+                              return;
                             }
-                            return;
-                          }
 
-                            if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey) {
+                            if (editorSuggestion && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
                               event.preventDefault();
-                              handleAutoIndentEnter();
+                              setEditorSuggestion(current => {
+                                if (!current || !current.items.length) return current;
+                                const direction = event.key === 'ArrowDown' ? 1 : -1;
+                                return {
+                                  ...current,
+                                  activeIndex: (current.activeIndex + direction + current.items.length) % current.items.length,
+                                };
+                              });
+                              return;
+                            }
+
+                            if (editorSuggestion && event.key === 'Enter' && !event.shiftKey && !event.ctrlKey) {
+                              event.preventDefault();
+                              const selectedSuggestion = editorSuggestion.items[editorSuggestion.activeIndex];
+                              if (selectedSuggestion) applyEditorSuggestion(selectedSuggestion);
                               return;
                             }
 
                             if (editorSuggestion && event.key === 'Escape') {
                               event.preventDefault();
                               setEditorSuggestion(null);
+                              return;
+                            }
+
+                            if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey) {
+                              event.preventDefault();
+                              handleAutoIndentEnter();
                             }
                           }}
                           spellCheck={false}
                         ></textarea>
                       </div>
-                      <div id="validation-status" className={`validation-box ${validation.errors.length ? '' : 'validation-box--success'}`}>
+                      <div
+                        id="pipeline-validation-status"
+                        className={`validation-box ${validation.errors.length ? '' : 'validation-box--success'}`}
+                        role="status"
+                        aria-live="polite"
+                      >
                         <div className="validation-box__header">{validation.errors.length ? 'Invalid' : 'Valid'}</div>
                         {validation.errors.length > 0 &&
                           validation.errors.slice(0, 3).map((err, idx) => (
@@ -1430,101 +1245,14 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                           </div>
                         )}
                       </div>
-                      {editorSuggestion && (
-                        <div
-                          className="pipeline-suggestion-overlay"
-                          style={{
-                            width: 320,
-                            maxWidth: 'calc(100% - 32px)',
-                            right: 16,
-                            bottom: 16,
-                            top: 'auto',
-                            left: 'auto',
-                          }}
-                        >
-                          <div className="scope-suggestion-panel">
-                            <div className="scope-suggestion-heading">
-                              <p className="scope-suggestion-kicker">Autocomplete</p>
-                              <p className="scope-suggestion-title">{editorSuggestion.title}</p>
-                              <p className="scope-suggestion-subtitle">
-                                Ctrl+Space • Enter to insert • Esc to close
-                                {autocompleteMeta.loading ? ' • Loading…' : ''}
-                              </p>
-                            </div>
-                            <div className="scope-suggestion-body">
-                              {editorSuggestion.items.length ? (
-                                <div className="scope-suggestion-list">
-                                  {editorSuggestion.groupedSections && editorSuggestion.groupedSections.length > 0 ? (
-                                    (() => {
-                                      let runningIndex = 0;
-                                      return editorSuggestion.groupedSections.map(section => {
-                                        const startIndex = runningIndex;
-                                        const pills = section.items.map((item, idx) => {
-                                          const globalIndex = startIndex + idx;
-                                          const isActive = editorSuggestion.activeIndex === globalIndex;
-                                          runningIndex += 1;
-                                          return (
-                                            <button
-                                              key={`${section.label}-${item}-${idx}`}
-                                              type="button"
-                                              className={`scope-suggestion-pill scope-suggestion-pill--action ${isActive ? 'scope-suggestion-pill--active' : ''}`}
-                                              onClick={() => applyEditorSuggestion(item)}
-                                            >
-                                              {item}
-                                            </button>
-                                          );
-                                        });
-                                        const remaining = Math.max(0, section.totalCount - section.items.length);
-                                        const hasActive =
-                                          editorSuggestion.activeIndex >= startIndex &&
-                                          editorSuggestion.activeIndex < startIndex + section.items.length;
-                                        return (
-                                          <article
-                                            key={`section-${section.label}`}
-                                            className={`scope-suggestion-item ${hasActive ? 'scope-suggestion-item--active' : ''}`}
-                                          >
-                                            <div className="scope-suggestion-scope">
-                                              <span className="scope-suggestion-scope-label">{section.label}</span>
-                                              <span className="scope-suggestion-scope-count">
-                                                {section.totalCount} {section.totalCount === 1 ? 'item' : 'items'}
-                                              </span>
-                                            </div>
-                                            <div className="scope-suggestion-variables">
-                                              {pills}
-                                              {remaining > 0 && (
-                                                <span className="scope-suggestion-pill scope-suggestion-pill--more">
-                                                  +{remaining} more
-                                                </span>
-                                              )}
-                                            </div>
-                                          </article>
-                                        );
-                                      });
-                                    })()
-                                  ) : (
-                                    editorSuggestion.items.map((item, idx) => (
-                                      <div
-                                        key={`sg-${item}-${idx}`}
-                                        className={`scope-suggestion-item ${idx === editorSuggestion.activeIndex ? 'scope-suggestion-item--active' : ''}`}
-                                      >
-                                        <button
-                                          type="button"
-                                          className="scope-suggestion-pill scope-suggestion-pill--action"
-                                          onClick={() => applyEditorSuggestion(item)}
-                                        >
-                                          {item}
-                                        </button>
-                                      </div>
-                                    ))
-                                  )}
-                                </div>
-                              ) : (
-                                <p className="scope-suggestion-empty">No suggestions available.</p>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      )}
+                      {editorSuggestion ? (
+                        <EditorAutocompleteMenu
+                          id="pipeline-editor-autocomplete"
+                          suggestion={editorSuggestion}
+                          loading={autocompleteMeta.loading}
+                          onSelect={applyEditorSuggestion}
+                        />
+                      ) : null}
                     </div>
                   )}
                 </div>
@@ -1812,88 +1540,28 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
         )}
       </div>
 
-      {formModal && (
-        <div
-          id={formModal.mode === 'create' ? 'pipelines-new-modal' : 'pipelines-clone-modal'}
-          className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show"
-        >
-          <div className="pipelines-modal-card max-w-md w-full">
-            <header className="pipelines-modal-header">
-              <div>
-                <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">
-                  {formModal.mode === 'create' ? 'New pipeline' : 'Clone pipeline'}
-                </p>
-                <h3 className="text-lg font-semibold text-[var(--text-primary)]">
-                  {formModal.mode === 'create' ? 'Create pipeline' : 'Clone pipeline'}
-                </h3>
-              </div>
-              <button className="glass-button-ghost" onClick={() => setFormModal(null)}>Close</button>
-            </header>
-            <div className="pipelines-modal-body space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-[var(--text-secondary)]">Pipeline Path</label>
-                <input
-                  type="text"
-                  className="pipelines-input w-full mt-1"
-                  placeholder="team/service"
-                  value={formModal.path}
-                  onChange={event => setFormModal(prev => prev ? { ...prev, path: event.target.value } : prev)}
-                />
-                <p className="text-xs text-[var(--text-secondary)] mt-1">Optional group path. Leave blank for root.</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-[var(--text-secondary)]">Pipeline Name</label>
-                <input
-                  type="text"
-                  className="pipelines-input w-full mt-1"
-                  placeholder="build-and-test"
-                  value={formModal.name}
-                  onChange={event => setFormModal(prev => prev ? { ...prev, name: event.target.value } : prev)}
-                />
-              </div>
-              {formModal.error && <p className="text-sm text-red-500">{formModal.error}</p>}
-            </div>
-            <div className="pipelines-modal-footer">
-              <div className="pipelines-modal-actions">
-                <button className="glass-button-ghost" onClick={() => setFormModal(null)} disabled={formModal.pending}>
-                  Cancel
-                </button>
-                <button className="glass-button-primary" onClick={submitFormModal} disabled={formModal.pending}>
-                  {formModal.pending ? 'Saving…' : formModal.mode === 'create' ? 'Create' : 'Clone'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {deleteModal && (
-        <div id="pipelines-delete-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
-          <div className="pipelines-modal-card max-w-md w-full">
-            <header className="pipelines-modal-header">
-              <div>
-                <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">Delete pipeline</p>
-                <h3 className="text-lg font-semibold text-[var(--text-primary)]">Remove {deleteModal.pipelineName}?</h3>
-              </div>
-              <button className="glass-button-ghost" onClick={() => setDeleteModal(null)} disabled={deleteModal.pending}>Close</button>
-            </header>
-            <div className="pipelines-modal-body space-y-3">
-              <p className="text-sm text-[var(--text-secondary)]">This action cannot be undone.</p>
-              {deleteModal.error && <p className="text-sm text-red-500">{deleteModal.error}</p>}
-            </div>
-            <div className="pipelines-modal-footer">
-              <div className="pipelines-modal-actions">
-                <button className="glass-button-ghost" onClick={() => setDeleteModal(null)} disabled={deleteModal.pending}>
-                  Cancel
-                </button>
-                <button className="glass-button-danger" onClick={confirmDelete} disabled={deleteModal.pending}>
-                  {deleteModal.pending ? 'Deleting…' : 'Delete'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <ResourceWorkflowModals
+        resourceLabel="pipeline"
+        formModal={formModal}
+        formModalId={mode => (mode === 'create' ? 'pipelines-new-modal' : 'pipelines-clone-modal')}
+        pathPlaceholder="team/service"
+        namePlaceholder="build-and-test"
+        deleteModal={
+          deleteModal
+            ? {
+                resourceName: deleteModal.resourceName,
+                pending: deleteModal.pending,
+                error: deleteModal.error,
+              }
+            : null
+        }
+        deleteModalId="pipelines-delete-modal"
+        onChangeForm={updateFormModal}
+        onCloseForm={closeFormModal}
+        onSubmitForm={() => void submitFormModal()}
+        onCloseDelete={closeDeleteModal}
+        onConfirmDelete={() => void confirmDelete()}
+      />
 
       {toasts.length > 0 && (
         <div className="fixed top-6 right-6 z-[100] w-full max-w-sm space-y-3">

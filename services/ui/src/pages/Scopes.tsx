@@ -4,6 +4,7 @@ import { Copy, KeyRound } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { fetchResourceGroupPaths } from '../lib/resourceGroups';
 import ResourceAccessCard from '../components/ResourceAccessCard';
+import { ScopeUsagePanel } from '../features/scopes/ScopeUsagePanel';
 import {
   checkScopePermission,
   deleteScopedValue,
@@ -17,6 +18,10 @@ import {
   saveScopedValue,
   scopedResourcePath,
 } from '../features/scopes/api';
+import {
+  buildNamedResourceID,
+  useScopePermissions,
+} from '../features/scopes/useScopePermissions';
 import {
   buildScopeTree,
   decodeScopeFromRoute,
@@ -38,8 +43,6 @@ const VARIABLE_NAME_PATTERN = /^[A-Za-z0-9_.-]+$/;
 const SECRET_NAME_PATTERN = /^[A-Za-z0-9_.-]+$/;
 const SAMPLE_SCOPE_VARIABLE = 'sample_variable';
 const SAMPLE_SCOPE_VALUE = 'Replace with your %SCOPE% scope value.';
-const SCOPE_PERMISSION_PROBE_NAME = '__nopsai_permission_probe__';
-
 type ScopeData = {
   variables: string[];
   variableMeta: Record<string, ItemMeta>;
@@ -140,14 +143,6 @@ function sourcePillClass(source: SourceKey): string {
   if (normalized === 'draft') return 'scope-variable-source-pill--draft';
   if (normalized === 'local') return 'scope-variable-source-pill--local';
   return 'scope-variable-source-pill--database';
-}
-
-function formatTimestamp(value?: string): string {
-  const raw = (value || '').trim();
-  if (!raw) return '—';
-  const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) return '—';
-  return date.toLocaleString();
 }
 
 function formatScopeDisplay(scopeLabel: string): string {
@@ -481,10 +476,6 @@ function ScopesPage({
   const [selectedScope, setSelectedScope] = useState<string | null>(null);
   const selectedScopeRef = useRef<string | null>(null);
   const preloadScopesRef = useRef<Set<string>>(new Set());
-  const [folderScopeCreateAllowed, setFolderScopeCreateAllowed] = useState(false);
-  const [selectedVariableWriteAllowed, setSelectedVariableWriteAllowed] = useState(false);
-  const [selectedSecretWriteAllowed, setSelectedSecretWriteAllowed] = useState(false);
-
   const [selectedVariable, setSelectedVariable] = useState<string | null>(null);
   const [selectedSecret, setSelectedSecret] = useState<string | null>(null);
   const selectVariable = useCallback((name: string | null) => {
@@ -527,23 +518,6 @@ function ScopesPage({
     window.setTimeout(() => {
       setToasts(prev => prev.filter(toast => toast.id !== id));
     }, 3200);
-  }, []);
-
-  const buildScopePermissionProbe = (folder: string) => {
-    const cleaned = normalizeScopeLabel(folder);
-    return cleaned ? `${cleaned}/${SCOPE_PERMISSION_PROBE_NAME}` : SCOPE_PERMISSION_PROBE_NAME;
-  };
-
-  const buildNamedResourceID = (repoName: string, scope: string, name: string) => {
-    const params = new URLSearchParams();
-    if (repoName.trim()) params.set('repo', repoName.trim());
-    if (normalizeScopeLabel(scope)) params.set('scope', normalizeScopeLabel(scope));
-    params.set('name', name.trim());
-    return params.toString();
-  };
-
-  const checkAccessPermission = useCallback(async (action: string, resourceType: string, resourceID: string) => {
-    return checkScopePermission(action, resourceType, resourceID);
   }, []);
 
   useEffect(() => {
@@ -939,58 +913,11 @@ function ScopesPage({
     void buildUsageIndexes();
   }, [buildUsageIndexes, selectedScope]);
 
-  useEffect(() => {
-    let cancelled = false;
-    setFolderScopeCreateAllowed(false);
-    void checkAccessPermission('scope.update', 'scope', buildScopePermissionProbe(activeFolder))
-      .then(allowed => {
-        if (!cancelled) setFolderScopeCreateAllowed(allowed);
-      })
-      .catch(() => {
-        if (!cancelled) setFolderScopeCreateAllowed(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeFolder, checkAccessPermission]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (selectedScope == null) {
-      setSelectedVariableWriteAllowed(false);
-      setSelectedSecretWriteAllowed(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const scope = normalizeScopeLabel(selectedScope);
-    setSelectedVariableWriteAllowed(false);
-    setSelectedSecretWriteAllowed(false);
-    void Promise.all([
-      checkAccessPermission('variable.write_value', 'variable', buildNamedResourceID('', scope, SCOPE_PERMISSION_PROBE_NAME)),
-      checkAccessPermission('secret.write_value', 'secret', buildNamedResourceID('', scope, SCOPE_PERMISSION_PROBE_NAME)),
-    ])
-      .then(([variableAllowed, secretAllowed]) => {
-        if (cancelled) return;
-        setSelectedVariableWriteAllowed(variableAllowed);
-        setSelectedSecretWriteAllowed(secretAllowed);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setSelectedVariableWriteAllowed(false);
-        setSelectedSecretWriteAllowed(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [checkAccessPermission, selectedScope]);
-
-  const canCreateScopeHere = folderScopeCreateAllowed;
-  const canWriteVariablesInSelectedScope = selectedVariableWriteAllowed;
-  const canWriteSecretsInSelectedScope = selectedSecretWriteAllowed;
+  const {
+    canCreateScopeHere,
+    canWriteVariablesInSelectedScope,
+    canWriteSecretsInSelectedScope,
+  } = useScopePermissions(activeFolder, selectedScope);
 
   const scopesByLabel = useMemo(() => {
     const map = new Map<string, ScopeEntry>();
@@ -1121,8 +1048,8 @@ function ScopesPage({
     }
 
     const [scopeAllowed, variableAllowed] = await Promise.all([
-      checkAccessPermission('scope.update', 'scope', normalizedLabel),
-      checkAccessPermission('variable.write_value', 'variable', buildNamedResourceID('', normalizedLabel, SAMPLE_SCOPE_VARIABLE)),
+      checkScopePermission('scope.update', 'scope', normalizedLabel),
+      checkScopePermission('variable.write_value', 'variable', buildNamedResourceID('', normalizedLabel, SAMPLE_SCOPE_VARIABLE)),
     ]);
     if (!scopeAllowed || !variableAllowed) {
       setScopeModal(prev => (prev ? { ...prev, error: 'You do not have permission to create scopes in this path.' } : prev));
@@ -1331,7 +1258,7 @@ function ScopesPage({
       modal.mode === 'update' && modal.originalName ? parseScopedIdentity(modal.originalName) : { ...parseScopedIdentity(nameInput), repoSlug };
     const finalRepoSlug = modal.mode === 'create' ? repoSlug : identity.repoSlug;
     const finalName = modal.mode === 'create' ? nameInput : identity.name;
-    const allowed = await checkAccessPermission('variable.write_value', 'variable', buildNamedResourceID(finalRepoSlug, scope, finalName));
+    const allowed = await checkScopePermission('variable.write_value', 'variable', buildNamedResourceID(finalRepoSlug, scope, finalName));
     if (!allowed) {
       setVariableModal(prev => (prev ? { ...prev, error: 'You do not have permission to save variables in this scope.' } : prev));
       return;
@@ -1437,7 +1364,7 @@ function ScopesPage({
       modal.mode === 'update' && modal.originalName ? parseScopedIdentity(modal.originalName) : { ...parseScopedIdentity(nameInput), repoSlug };
     const finalRepoSlug = modal.mode === 'create' ? repoSlug : identity.repoSlug;
     const finalName = modal.mode === 'create' ? nameInput : identity.name;
-    const allowed = await checkAccessPermission('secret.write_value', 'secret', buildNamedResourceID(finalRepoSlug, scope, finalName));
+    const allowed = await checkScopePermission('secret.write_value', 'secret', buildNamedResourceID(finalRepoSlug, scope, finalName));
     if (!allowed) {
       setSecretModal(prev => (prev ? { ...prev, error: 'You do not have permission to save secrets in this scope.' } : prev));
       return;
@@ -1834,76 +1761,6 @@ function ScopesPage({
     const relatedSecretPipelines = selectedSecret ? Array.from(pipelineSecretIndex.get(selectedSecret) || []) : [];
     const scopeTriggers = triggersByScope.get(scopeLabel) || [];
 
-    const renderPipelineCard = (identifier: string) => {
-      const meta = pipelineMetadata.get(identifier);
-      const title = meta?.name || identifier;
-      const pathDisplay = meta?.path ? `/${meta.path}` : '/';
-      const versionDisplay = meta?.version || 'latest';
-      const sourceDisplay = meta?.source || 'Config Repository';
-      const description = meta?.description || '';
-      const href = `#/pipelines/${identifier.split('/').map(encodeURIComponent).join('/')}`;
-      return (
-        <a key={`pipe-${identifier}`} className="scope-related-card" href={href}>
-          <div>
-            <h5 className="scope-related-card__title">{title}</h5>
-            <p className="scope-related-card__path">{pathDisplay}</p>
-            {description ? <p className="scope-related-card__description">{description}</p> : null}
-          </div>
-          <div className="scope-related-card__meta">
-            <div className="scope-related-card__meta-row">
-              <span className="scope-related-card__meta-label">version:</span>
-              <span className="scope-related-card__meta-value">{versionDisplay}</span>
-            </div>
-            <div className="scope-related-card__meta-row">
-              <span className="scope-related-card__meta-label">source:</span>
-              <span className="scope-related-card__meta-value">{sourceDisplay}</span>
-            </div>
-          </div>
-        </a>
-      );
-    };
-
-    const renderTriggerCard = (trigger: TriggerDescriptor) => {
-      const href = `#/triggers/${trigger.slug.split('/').map(encodeURIComponent).join('/')}`;
-      const pipelineCount = trigger.pipelines.length;
-      const pipelineSummary = pipelineCount ? `${pipelineCount} pipeline${pipelineCount === 1 ? '' : 's'}` : 'No pipelines linked';
-      const branches = trigger.branches.length ? trigger.branches.join(', ') : 'All branches';
-      const tags = trigger.tags.length ? trigger.tags.join(', ') : 'No tags';
-      const scopeDisplay = trigger.scope ? `/${trigger.scope}` : '/';
-      return (
-        <a key={`tr-${trigger.slug}-${trigger.scope}-${trigger.event}`} className="scope-related-card" href={href}>
-          <div>
-            <h5 className="scope-related-card__title">{trigger.slug}</h5>
-            <p className="scope-related-card__path">{scopeDisplay}</p>
-          </div>
-          <div className="scope-related-card__meta">
-            <div className="scope-related-card__meta-row">
-              <span className="scope-related-card__meta-label">event:</span>
-              <span className="scope-related-card__meta-value">{trigger.event}</span>
-            </div>
-            <div className="scope-related-card__meta-row">
-              <span className="scope-related-card__meta-label">pipelines:</span>
-              <span className="scope-related-card__meta-value">{pipelineSummary}</span>
-            </div>
-            <div className="scope-related-card__meta-row">
-              <span className="scope-related-card__meta-label">branches:</span>
-              <span className="scope-related-card__meta-value">{branches}</span>
-            </div>
-            <div className="scope-related-card__meta-row">
-              <span className="scope-related-card__meta-label">tags:</span>
-              <span className="scope-related-card__meta-value">{tags}</span>
-            </div>
-          </div>
-        </a>
-      );
-    };
-
-    const variablePipelinesEmpty = usageLoading ? 'Loading impact analysis…' : usageError || 'No pipelines declare this variable.';
-    const secretPipelinesEmpty = usageLoading ? 'Loading impact analysis…' : usageError || 'No pipelines declare this secret.';
-    const triggersEmpty = usageLoading ? 'Loading impact analysis…' : usageError || 'No triggers reference this scope.';
-
-
-
     const activeSelection = selectedVariable
       ? { type: 'variable' as const, name: selectedVariable, meta: variableMeta, pipelines: relatedVariablePipelines }
       : selectedSecret
@@ -1984,43 +1841,13 @@ function ScopesPage({
           </div>
 
           <div className="space-y-4">
-            <article className="glass-card p-5 rounded-2xl border border-[var(--border-primary)]">
-              <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-xl font-semibold text-[var(--text-primary)]">
-                        {activeSelection ? activeSelection.name : 'Select a variable or secret'}
-                      </p>
-                    </div>
-                  </div>
-              {activeSelection ? (
-                <dl className="grid grid-cols-2 gap-2 text-sm mt-3">
-                  <div>
-                    <dt className="text-[var(--text-secondary)]">Updated</dt>
-                    <dd className="font-medium">{formatTimestamp(activeSelection.meta?.updatedAt)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-[var(--text-secondary)]">Created</dt>
-                    <dd className="font-medium">{formatTimestamp(activeSelection.meta?.createdAt)}</dd>
-                  </div>
-                </dl>
-              ) : (
-                <p className="text-sm text-[var(--text-secondary)] mt-3">Pick a variable or secret to see details and usage.</p>
-              )}
-              <div className="scope-main-content mt-4">
-                <section>
-                  <h4>Related Pipelines</h4>
-                  <div className="scope-related-list" data-empty={activeSelection ? (activeSelection.type === 'variable' ? variablePipelinesEmpty : secretPipelinesEmpty) : 'Select an item'}>
-                    {!usageLoading && !usageError && activeSelection ? activeSelection.pipelines.map(renderPipelineCard) : null}
-                  </div>
-                </section>
-                <section>
-                  <h4>Related Triggers</h4>
-                  <div className="scope-related-list" data-empty={triggersEmpty}>
-                    {!usageLoading && !usageError ? scopeTriggers.map(renderTriggerCard) : null}
-                  </div>
-                </section>
-              </div>
-            </article>
+            <ScopeUsagePanel
+              selection={activeSelection}
+              pipelineMetadata={pipelineMetadata}
+              triggers={scopeTriggers}
+              loading={usageLoading}
+              error={usageError}
+            />
           </div>
         </div>
       </div>

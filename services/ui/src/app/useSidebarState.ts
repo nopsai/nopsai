@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type TouchEvent as ReactTouchEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type TouchEvent as ReactTouchEvent,
+} from 'react';
 import { SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from './constants';
 
 export function useSidebarState(pathname: string) {
@@ -39,6 +47,20 @@ export function useSidebarState(pathname: string) {
       event.preventDefault();
     },
     [width]
+  );
+
+  const resizeWithKeyboard = useCallback(
+    (event: ReactKeyboardEvent) => {
+      let nextWidth: number | null = null;
+      if (event.key === 'ArrowLeft') nextWidth = width - 16;
+      if (event.key === 'ArrowRight') nextWidth = width + 16;
+      if (event.key === 'Home') nextWidth = SIDEBAR_MIN_WIDTH;
+      if (event.key === 'End') nextWidth = SIDEBAR_MAX_WIDTH;
+      if (nextWidth === null) return;
+      event.preventDefault();
+      setWidth(clampSidebarWidth(nextWidth));
+    },
+    [clampSidebarWidth, width]
   );
 
   useEffect(() => {
@@ -85,6 +107,7 @@ export function useSidebarState(pathname: string) {
     isResizing,
     open,
     openSidebar,
+    resizeWithKeyboard,
     startResize,
     width,
   };

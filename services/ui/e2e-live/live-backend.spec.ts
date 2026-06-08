@@ -5,6 +5,14 @@ const password = process.env.NOPS_UI_LIVE_PASSWORD || '';
 const pipelineID = process.env.NOPS_UI_LIVE_PIPELINE_ID || '';
 const mutationEnabled = process.env.NOPS_UI_LIVE_MUTATION === 'true';
 
+if (process.env.CI && (!username || !password)) {
+  throw new Error('Live CI requires NOPS_UI_LIVE_USERNAME and NOPS_UI_LIVE_PASSWORD.');
+}
+
+if (process.env.CI && mutationEnabled && !pipelineID) {
+  throw new Error('Live mutation CI requires NOPS_UI_LIVE_PIPELINE_ID.');
+}
+
 async function login(page: Page) {
   await page.goto('/#/login');
   await page.getByLabel('Email or username').fill(username);
