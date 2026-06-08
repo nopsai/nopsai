@@ -44,6 +44,7 @@ import { usePipelineRunsSidebar } from './usePipelineRunsSidebar';
 import { getAppAccess } from '../auth/capabilities';
 import { PermissionGuard } from '../auth/permissionGuards';
 import { useAuth } from '../auth/AuthContext';
+import { buildLoginRedirectState, resolvePostLoginPath } from '../auth/authRedirect';
 import AppHelp from '../components/AppHelp';
 
 const PipelineRunsPage = lazy(() => import('../pages/PipelineRuns'));
@@ -133,15 +134,21 @@ function AppShell() {
   useEffect(() => {
     const isAuthenticated = Boolean(authSession.accessToken);
     if (!isAuthenticated && location.pathname !== '/login') {
-      navigate('/login', { replace: true });
+      navigate('/login', {
+        replace: true,
+        state: buildLoginRedirectState(location.pathname, location.search),
+      });
     }
     if (isAuthenticated && authSession.mustChangePassword && location.pathname !== '/profile') {
       navigate('/profile', { replace: true });
     }
     if (isAuthenticated && location.pathname === '/login') {
-      navigate(authSession.mustChangePassword ? '/profile' : '/pipelineruns/main', { replace: true });
+      navigate(
+        authSession.mustChangePassword ? '/profile' : resolvePostLoginPath(location.state),
+        { replace: true }
+      );
     }
-  }, [authSession.accessToken, authSession.mustChangePassword, location.pathname, navigate]);
+  }, [authSession.accessToken, authSession.mustChangePassword, location.pathname, location.search, location.state, navigate]);
 
   const handleLoginSuccess = useCallback(() => {
     refreshAuthSession();

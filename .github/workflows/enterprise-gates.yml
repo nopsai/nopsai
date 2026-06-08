@@ -16,9 +16,9 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Go test
-        run: go test ./...
+        run: scripts/test-backend.sh
       - name: Go race test
-        run: go test -race ./...
+        run: scripts/test-backend.sh -race
       - name: Go vet
         run: go vet ./...
       - name: golangci-lint
