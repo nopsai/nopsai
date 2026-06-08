@@ -23,7 +23,7 @@ services:
   backend-test:
     image: golang:1.26.4
     working_dir: /workspace
-    command: go test ./...
+    command: ./scripts/test-backend.sh
     volumes:
       - .:/workspace
       - go-mod-cache:/go/pkg/mod

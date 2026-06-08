@@ -19,18 +19,30 @@ import (
 )
 
 type pipelineNotificationContext struct {
-	RunID         string
-	PipelineName  string
-	PipelinePath  string
-	Status        string
-	GroupPath     string
-	RepoOwner     string
-	RepoName      string
-	GitRef        string
-	FailureReason string
-	TriggerSource string
-	RouteID       int64
-	Definition    notificationRouteDefinition
+	RunID                  string
+	PipelineName           string
+	PipelinePath           string
+	PipelineDefinitionYAML string
+	Status                 string
+	GroupID                int
+	GroupPath              string
+	RepoOwner              string
+	RepoName               string
+	RepoURL                string
+	GitRef                 string
+	GitCommitSHA           string
+	GitCommitURL           string
+	FailureReason          string
+	TriggerSource          string
+	StartedAt              time.Time
+	FinishedAt             time.Time
+	Duration               string
+	Steps                  []pipelineNotificationStep
+	LogExcerpt             []pipelineNotificationLogEntry
+	FailureStep            string
+	FailureTask            string
+	RouteID                int64
+	Definition             notificationRouteDefinition
 }
 
 func (a *App) dispatchPipelineRunNotification(runID, eventType string) {
@@ -65,8 +77,13 @@ func (a *App) deliverPipelineRunNotification(ctx context.Context, runID, eventTy
 		return nil
 	}
 
-	subject := pipelineNotificationSubject(notificationCtx, eventType)
-	body := pipelineNotificationBody(notificationCtx, eventType)
+	if err := a.enrichPipelineNotificationContext(ctx, &notificationCtx, eventType); err != nil {
+		log.Warn().Err(err).Str("run_id", runID).Msg("Pipeline notification enrichment was incomplete")
+	}
+	mailMessage, err := a.renderPipelineNotificationMail(notificationCtx, eventType)
+	if err != nil {
+		return err
+	}
 	for _, route := range notificationRouteRules(notificationCtx.Definition) {
 		if !route.Enabled || !route.Events[eventType] {
 			continue
@@ -82,7 +99,7 @@ func (a *App) deliverPipelineRunNotification(ctx context.Context, runID, eventTy
 			return err
 		}
 		for _, recipient := range recipients {
-			if err := a.deliverPipelineNotificationEmail(ctx, notificationCtx, route, eventType, recipient, mailSettings.notificationMailSettingsFile, subject, body); err != nil {
+			if err := a.deliverPipelineNotificationEmail(ctx, notificationCtx, route, eventType, recipient, mailSettings.notificationMailSettingsFile, mailMessage); err != nil {
 				log.Warn().Err(err).Str("run_id", runID).Str("event_type", eventType).Str("route", route.Name).Str("recipient", recipient).Msg("Failed to send pipeline notification mail")
 			}
 		}
@@ -92,38 +109,81 @@ func (a *App) deliverPipelineRunNotification(ctx context.Context, runID, eventTy
 
 func (a *App) loadPipelineNotificationContext(ctx context.Context, runID string) (pipelineNotificationContext, error) {
 	var out pipelineNotificationContext
-	var definitionRaw string
+	var startedAt, finishedAt sql.NullTime
 	err := a.db.QueryRow(ctx, `
 		SELECT pr.run_id::text,
 		       COALESCE(pr.pipeline_name, ''),
 		       COALESCE(NULLIF(pr.pipeline_path, ''), COALESCE(pr.pipeline_name, '')),
 		       COALESCE(pr.status, ''),
-		       COALESCE(g.name, ''),
+		       pr.group_id,
 		       COALESCE(pr.git_repo_owner, ''),
 		       COALESCE(pr.git_repo_name, ''),
+		       COALESCE(g.repo_url, ''),
 		       COALESCE(pr.git_ref, ''),
+		       COALESCE(pr.git_commit_sha, ''),
+		       COALESCE(pr.git_commit_url, ''),
 		       COALESCE(pr.failure_reason, ''),
 		       COALESCE(pr.trigger_source, ''),
-		       nr.id,
-		       nr.definition::text
+		       pr.started_at,
+		       pr.finished_at,
+		       COALESCE(pr.pipeline_definition, '')
 		FROM pipeline_runs pr
-		JOIN notification_routes nr ON nr.group_id = pr.group_id
 		LEFT JOIN groups g ON g.id = pr.group_id
 		WHERE pr.run_id = $1::uuid
+		  AND pr.group_id IS NOT NULL
 	`, runID).Scan(
 		&out.RunID,
 		&out.PipelineName,
 		&out.PipelinePath,
 		&out.Status,
-		&out.GroupPath,
+		&out.GroupID,
 		&out.RepoOwner,
 		&out.RepoName,
+		&out.RepoURL,
 		&out.GitRef,
+		&out.GitCommitSHA,
+		&out.GitCommitURL,
 		&out.FailureReason,
 		&out.TriggerSource,
-		&out.RouteID,
-		&definitionRaw,
+		&startedAt,
+		&finishedAt,
+		&out.PipelineDefinitionYAML,
 	)
+	if err != nil {
+		return pipelineNotificationContext{}, err
+	}
+	if startedAt.Valid {
+		out.StartedAt = startedAt.Time
+	}
+	if finishedAt.Valid {
+		out.FinishedAt = finishedAt.Time
+	}
+	if !out.StartedAt.IsZero() {
+		finished := out.FinishedAt
+		if finished.IsZero() {
+			finished = time.Now()
+		}
+		out.Duration = finished.Sub(out.StartedAt).Round(time.Second).String()
+	}
+
+	groupRecords, err := loadGroupPathRecords(ctx, a.db)
+	if err != nil {
+		return pipelineNotificationContext{}, err
+	}
+	var groupLineage []int
+	out.GroupPath, groupLineage, err = notificationGroupLineage(groupRecords, out.GroupID)
+	if err != nil {
+		return pipelineNotificationContext{}, err
+	}
+
+	var definitionRaw string
+	err = a.db.QueryRow(ctx, `
+		SELECT id, definition::text
+		FROM notification_routes
+		WHERE group_id = ANY($1::int[])
+		ORDER BY array_position($1::int[], group_id)
+		LIMIT 1
+	`, groupLineage).Scan(&out.RouteID, &definitionRaw)
 	if err != nil {
 		return pipelineNotificationContext{}, err
 	}
@@ -137,6 +197,33 @@ func (a *App) loadPipelineNotificationContext(ctx context.Context, runID string)
 	}
 	out.Definition = definition
 	return out, nil
+}
+
+func notificationGroupLineage(records map[int]groupPathRecord, groupID int) (string, []int, error) {
+	record, ok := records[groupID]
+	if !ok {
+		return "", nil, fmt.Errorf("notification group %d not found", groupID)
+	}
+
+	lineage := make([]int, 0, 4)
+	visited := make(map[int]struct{}, 4)
+	current := record
+	for {
+		if _, exists := visited[current.ID]; exists {
+			return "", nil, fmt.Errorf("notification group hierarchy contains a cycle at group %d", current.ID)
+		}
+		visited[current.ID] = struct{}{}
+		lineage = append(lineage, current.ID)
+		if current.ParentID == nil {
+			break
+		}
+		parent, exists := records[*current.ParentID]
+		if !exists {
+			return "", nil, fmt.Errorf("notification parent group %d not found", *current.ParentID)
+		}
+		current = parent
+	}
+	return record.Path, lineage, nil
 }
 
 func (a *App) resolveNotificationRecipients(ctx context.Context, recipients notificationRecipientsFile, groupPath string) ([]string, error) {
@@ -215,7 +302,7 @@ func (a *App) addNotificationGroupRecipients(ctx context.Context, recipients map
 	return rows.Err()
 }
 
-func (a *App) deliverPipelineNotificationEmail(ctx context.Context, notificationCtx pipelineNotificationContext, route notificationRouteRule, eventType, recipient string, settings notificationMailSettingsFile, subject, body string) error {
+func (a *App) deliverPipelineNotificationEmail(ctx context.Context, notificationCtx pipelineNotificationContext, route notificationRouteRule, eventType, recipient string, settings notificationMailSettingsFile, mailMessage notificationMailMessage) error {
 	if notificationDeliveryMaxReached(ctx, a, notificationCtx.RunID, "mail", recipient, route.Delivery.Throttle.MaxPerRun) {
 		return nil
 	}
@@ -233,7 +320,7 @@ func (a *App) deliverPipelineNotificationEmail(ctx context.Context, notification
 		}
 		return err
 	}
-	sendErr := sendNotificationMail(ctx, settings, []string{recipient}, subject, body)
+	sendErr := sendNotificationMailMessage(ctx, settings, []string{recipient}, mailMessage)
 	status := "sent"
 	errorMessage := ""
 	if sendErr != nil {
@@ -356,15 +443,23 @@ func notificationBranchLabel(ref string) string {
 }
 
 func pipelineNotificationSubject(notificationCtx pipelineNotificationContext, eventType string) string {
-	pipeline := firstNonEmptyString(notificationCtx.PipelinePath, notificationCtx.PipelineName, "pipeline")
-	return fmt.Sprintf("NopsAI pipeline %s: %s", notificationEventLabel(eventType), pipeline)
+	statusLabel, _, _, _ := pipelineNotificationPresentation(notificationCtx.Status, eventType)
+	subject := fmt.Sprintf("[%s] %s", statusLabel, pipelineNotificationDisplayName(notificationCtx))
+	if location := pipelineNotificationFailureLocationLabel(notificationCtx.FailureStep, notificationCtx.FailureTask); location != "" {
+		subject += " - " + location
+	}
+	progress := summarizePipelineNotificationProgress(notificationCtx.Steps)
+	if progress.Total > 0 {
+		subject += fmt.Sprintf(" (%d/%d steps passed)", progress.Passed, progress.Total)
+	}
+	return subject
 }
 
 func pipelineNotificationBody(notificationCtx pipelineNotificationContext, eventType string) string {
 	lines := []string{
 		fmt.Sprintf("Event: %s", notificationEventLabel(eventType)),
 		fmt.Sprintf("Run ID: %s", notificationCtx.RunID),
-		fmt.Sprintf("Pipeline: %s", firstNonEmptyString(notificationCtx.PipelinePath, notificationCtx.PipelineName, "-")),
+		fmt.Sprintf("Pipeline: %s", pipelineNotificationDisplayName(notificationCtx)),
 		fmt.Sprintf("Status: %s", notificationCtx.Status),
 		fmt.Sprintf("Group: %s", firstNonEmptyString(notificationCtx.GroupPath, "-")),
 	}

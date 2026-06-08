@@ -245,6 +245,20 @@ stores only SMTP host, port, sender, username, TLS mode, and
 `password_secret_ref`; the actual SMTP password must stay in the referenced
 environment variable or secret manager entry.
 
+Pipeline mail is sent as multipart HTML with a plain-text fallback. It includes
+the pipeline and run status, failed step/task, step and task progress, repository
+metadata, deep links, and a short redacted error excerpt. Configure
+`NOPSAI_PUBLIC_URL` with the browser-reachable NopsAI URL to enable **View run**
+links and the default `/brand/nopsai-logo-light.png` mail logo. Footer branding
+can be overridden with `NOPSAI_MAIL_LOGO_URL`, `NOPSAI_MAIL_WEBSITE_URL`,
+`NOPSAI_MAIL_SUPPORT_URL`, and `NOPSAI_MAIL_FOOTER_ADDRESS`. Use absolute
+`http` or `https` URLs; invalid or missing URLs are omitted rather than emitted
+as broken links.
+
+The **Send test** action uses a matching branded multipart message. It confirms
+the SMTP endpoint, TLS mode, authentication configuration, sender, recipient,
+environment, and generation time without including passwords or secret values.
+
 Group notification routing lives next to the group config repository controls.
 The global repo can define `notifications/groups/<group>.yaml`; a group repo can
 define `notifications.yaml` for its bound group. Each policy can contain one or
@@ -252,9 +266,11 @@ more named routes that select recipients (`same_group`, explicit users, groups,
 and excludes), event types such as
 `failure`, `success`, `pending`, `waiting_approval`, approval decisions, and
 `cancelled`, plus optional pipeline/repo/branch filters and mail delivery
-throttling. Schedules and external triggers can set `run_group_path` from the
-Pipeline Runs hierarchy when the runtime notification group should differ from
-the target pipeline's group.
+throttling. Policies apply to their group subtree; the closest policy in the
+run group's ancestry wins, so an application-specific policy overrides its
+parent group policy. Schedules and external triggers can set `run_group_path`
+from the Pipeline Runs hierarchy when the runtime notification group should
+differ from the target pipeline's group.
 
 Scope files keep variables and secrets in separate sections. Define every
 plaintext scoped variable under `variables:`; flat top-level variable entries are
@@ -432,15 +448,18 @@ test/                   Local operational and performance scripts
 Run backend tests:
 
 ```bash
-go test ./...
+scripts/test-backend.sh
 ```
 
 Run the same checks through Docker Compose:
 
 ```bash
-docker compose --profile test run --rm backend-test
-docker compose --profile test run --rm ui-test
+docker compose run --rm backend-test
+docker compose run --rm ui-test
 ```
+
+The backend test command excludes `services/ui` so an installed or concurrently
+updated `node_modules` tree cannot be mistaken for part of the Go module.
 
 Build and push the Kubernetes runner image:
 

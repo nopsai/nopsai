@@ -121,8 +121,9 @@ Pipeline schedules are first-class resources for time-based automation:
 
 Schedule resource grouping is organizational. A path such as `prod/scheduled`
 is a good way to present production automation, while `run_group_path` controls
-where scheduled runs appear in Pipeline Runs and which group notification route
-receives their events.
+where scheduled runs appear in Pipeline Runs and which notification policy
+lineage receives their events. The nearest policy on the run group or one of
+its ancestors wins.
 
 ## Knowledge Context
 
@@ -238,7 +239,11 @@ Pipeline notifications include:
   active/pending/approval, step, task, and notification delivery metrics
 - system-level mail settings under **System > Config** and
   `GET|PUT /v1/system/notifications/mail`
-- `POST /v1/system/notifications/mail/test` for validating SMTP delivery
+- `POST /v1/system/notifications/mail/test` for validating SMTP delivery with
+  a branded configuration summary and no credential values
+- multipart HTML and plain-text pipeline mail with glanceable status headers,
+  failed step/task details, step/task progress, repository/run links, optional
+  NopsAI footer branding, and bounded redacted error excerpts
 - group-level notification routing under
   `GET|PUT|DELETE /v1/groups/{group}/notifications`
 - GitOps support for global `notifications/groups/<group>.yaml` files and

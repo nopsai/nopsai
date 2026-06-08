@@ -1,6 +1,11 @@
 log_level: "debug" # Options: "debug", "info", "warn", "error"
 log_format: "json" # Options: "console", "json"
 # environment: "development" # development, staging, production. production enforces enterprise startup gates.
+# public_url: "https://ci.example.com" # Browser-reachable NopsAI URL used for notification run links and the default mail logo.
+# notification_mail_logo_url: "https://cdn.example.com/nopsai-logo.png" # Optional absolute HTTPS logo override.
+# notification_mail_website_url: "https://www.example.com" # Optional footer website; defaults to public_url.
+# notification_mail_support_url: "https://support.example.com" # Optional footer support link.
+# notification_mail_footer_address: "Example Corp, Street, City, Country" # Optional legal or office address.
 # require_production_gates: false # Set true outside production when staging should fail on production-hardening gaps.
 
 # database_url: "postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_db"

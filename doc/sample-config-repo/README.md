@@ -319,11 +319,12 @@ include direct users, groups, and the reserved `same_group` team. Exclusions are
 applied after includes. Event keys support failure, success, pending, running,
 waiting_approval, approval_requested, approval_approved, approval_rejected,
 cancelled, and skipped. Branch, pipeline, and repository filters use glob-style
-patterns, and delivery currently supports the `mail` channel. Schedules and
-external triggers can set `run_group_path` from the Pipeline Runs hierarchy
-when their run events should be routed to a notification group that differs
-from the target pipeline's group. The reserved `root` value always means the
-Pipeline Runs root, not a group named `root`.
+patterns, and delivery currently supports the `mail` channel. Policies apply to
+their group subtree, with the nearest policy in the run group's ancestry taking
+precedence. Schedules and external triggers can set `run_group_path` from the
+Pipeline Runs hierarchy when their run events should be routed to a notification
+group that differs from the target pipeline's group. The reserved `root` value
+always means the Pipeline Runs root, not a group named `root`.
 
 Nopsai reads every `.yaml` and `.yml` file under `access/`; file names such as
 `all.yaml` or `grants.yaml` are only examples, so teams can split manifests by

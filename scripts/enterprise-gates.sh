@@ -46,8 +46,8 @@ require_golangci_lint_compatible() {
   fi
 }
 
-run go test ./...
-run go test -race ./...
+run scripts/test-backend.sh
+run scripts/test-backend.sh -race
 run go vet ./...
 
 require_golangci_lint_compatible
