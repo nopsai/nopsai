@@ -21,6 +21,8 @@ export function BaseSidebarNavigation({
           <div key={item.path} className="space-y-1">
             <NavLink
               to={item.path}
+              aria-expanded={isSystemItem ? isSystemRoute || isActive : undefined}
+              aria-controls={isSystemItem && (isSystemRoute || isActive) ? 'system-subnavigation' : undefined}
               className={({ isActive: linkActive }) =>
                 `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors sidebar-link ${
                   linkActive || (isSystemItem && isSystemRoute)
@@ -33,7 +35,7 @@ export function BaseSidebarNavigation({
               <span className="truncate">{item.label}</span>
             </NavLink>
             {isSystemItem && (isSystemRoute || isActive) ? (
-              <div className="pl-9 space-y-1">
+              <div id="system-subnavigation" className="pl-9 space-y-1" aria-label="System sections">
                 {systemSubNav.map(sub => (
                   <NavLink
                     key={sub.path}

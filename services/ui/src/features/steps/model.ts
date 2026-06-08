@@ -1,3 +1,4 @@
+import yaml from 'js-yaml';
 import { findLineNumberForKey, findLineNumberForTaskName, parseYamlWithLocation } from '../../lib/yamlValidation.js';
 
 export const STEP_NAME_PATTERN = /^[a-zA-Z0-9_.-]+$/;
@@ -47,6 +48,16 @@ export type ValidationResult = {
   errors: ValidationError[];
 };
 
+export type StepDetail = {
+  id: string;
+  name: string;
+  path: string;
+  description: string;
+  rawYaml: string;
+  source?: string;
+  updatedAt?: string;
+};
+
 export function normalizeRootPath(path: string) {
   const parts = path.trim().replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
   if (parts[0]?.toLowerCase() === 'root') parts.shift();
@@ -71,6 +82,34 @@ export function normalizeSource(raw: unknown): 'git' | 'database' | 'draft' {
   if (value.includes('draft')) return 'draft';
   if (value.includes('db') || value.includes('database')) return 'database';
   return 'database';
+}
+
+export function parseStepYaml(
+  rawYaml: string,
+  id: string,
+  source?: string,
+  updatedAt?: string
+): StepDetail {
+  const safe = (value: unknown) => (typeof value === 'string' ? value : '');
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    const loaded = yaml.load(rawYaml) as unknown;
+    if (loaded && typeof loaded === 'object' && !Array.isArray(loaded)) {
+      parsed = loaded as Record<string, unknown>;
+    }
+  } catch (error) {
+    console.warn('Failed to parse step YAML for metadata', error);
+  }
+  const { name: fallbackName, path } = splitIdentifier(id);
+  return {
+    id,
+    name: safe(parsed?.name).trim() || fallbackName,
+    description: safe(parsed?.description) || 'No description provided.',
+    path,
+    rawYaml,
+    source,
+    updatedAt,
+  };
 }
 
 export function formatUpdatedAt(value?: string): string {

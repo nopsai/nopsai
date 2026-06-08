@@ -58,7 +58,10 @@ describe('SchedulesPage modal flows', () => {
     );
 
     await screen.findByText('Nightly deploy');
-    await userEvent.click(screen.getByRole('button', { name: 'New schedule' }));
+    const opener = screen.getByRole('button', { name: 'New schedule' });
+    await userEvent.click(opener);
+    expect(screen.getByRole('dialog', { name: 'New schedule' })).toBeVisible();
+    expect(screen.getByLabelText('Name')).toHaveFocus();
     await userEvent.type(screen.getByLabelText('Name'), 'Morning deploy');
     await userEvent.selectOptions(screen.getByLabelText('Pipeline'), 'platform/deploy');
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -68,6 +71,8 @@ describe('SchedulesPage modal flows', () => {
       name: 'Morning deploy',
       pipeline: 'platform/deploy',
     }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
   });
 
   it('deletes a schedule after confirmation', async () => {

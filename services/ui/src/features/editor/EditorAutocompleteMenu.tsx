@@ -6,11 +6,13 @@ export type EditorAutocompleteSuggestion = {
 };
 
 export function EditorAutocompleteMenu({
+  id = 'editor-autocomplete-listbox',
   suggestion,
   loading,
   width = 320,
   onSelect,
 }: {
+  id?: string;
   suggestion: EditorAutocompleteSuggestion;
   loading: boolean;
   width?: number;
@@ -20,6 +22,7 @@ export function EditorAutocompleteMenu({
   return (
     <div
       className="pipeline-suggestion-overlay"
+      id={id}
       style={{ width, maxWidth: 'calc(100% - 32px)', right: 16, bottom: 16, top: 'auto', left: 'auto' }}
       role="listbox"
       aria-label={`${suggestion.title} autocomplete`}
@@ -62,6 +65,7 @@ export function EditorAutocompleteMenu({
                                 key={`${section.label}-${item}-${index}`}
                                 type="button"
                                 role="option"
+                                id={`${id}-option-${globalIndex}`}
                                 aria-selected={suggestion.activeIndex === globalIndex}
                                 className={`scope-suggestion-pill scope-suggestion-pill--action ${
                                   suggestion.activeIndex === globalIndex ? 'scope-suggestion-pill--active' : ''
@@ -87,6 +91,7 @@ export function EditorAutocompleteMenu({
                       <button
                         type="button"
                         role="option"
+                        id={`${id}-option-${index}`}
                         aria-selected={index === suggestion.activeIndex}
                         className="scope-suggestion-pill scope-suggestion-pill--action"
                         onClick={() => onSelect(item)}

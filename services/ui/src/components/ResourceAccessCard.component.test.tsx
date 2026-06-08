@@ -27,8 +27,11 @@ describe('ResourceAccessCard', () => {
 
   it('loads access settings and submits an explicit repository grant', async () => {
     render(<ResourceAccessCard resourceType="pipeline" resourceID="platform/deploy" label="pipeline" />);
-    await userEvent.click(screen.getByRole('button', { name: 'Access' }));
+    const opener = screen.getByRole('button', { name: 'Access' });
+    await userEvent.click(opener);
 
+    expect(await screen.findByRole('dialog', { name: 'Who can use this pipeline?' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
     expect(await screen.findByRole('heading', { name: 'Who can use this pipeline?' })).toBeInTheDocument();
     const repositoryInput = screen.getByPlaceholderText('owner/repo');
     await userEvent.type(repositoryInput, 'acme/payments');
@@ -48,5 +51,9 @@ describe('ResourceAccessCard', () => {
         })
       );
     });
+
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
   });
 });

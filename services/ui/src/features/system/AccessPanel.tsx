@@ -2,32 +2,36 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import { Copy, Edit3, Plus, RefreshCw, Search, Server, Trash2, X } from 'lucide-react';
 import {
   ACCESS_UI_BUILD_ID,
-  BASIC_ROLE_ADMIN,
-  BASIC_ROLE_DEVELOPER,
-  BASIC_ROLE_OWNER,
-  BASIC_ROLE_VIEWER,
   DEFAULT_ADMIN_ROLE,
   POLICY_TEMPLATE_ROLE,
   ROOT_ACCESS_SCOPE,
-  accessGrantEditKey,
   accessGrantMatchesServiceAccount,
   accessGrantMatchesUser,
-  accessGrantResourceSummary,
   accessGrantSortLabel,
-  accessGrantTargetKey,
   assignmentKey,
-  basicAccessGrantDescription,
   basicAccessGrantLabel,
   editableAccessGrantFromRecord,
   isBasicAccessGrant,
   isDefaultAdminUser,
   isProtectedAccessRole,
-  isRootAccessScopeID,
   normalizeEditableBasicGrants,
   policyKey,
   policyLabel,
 } from './access/model';
-import type { AccessResourceCatalog, AccessResourceOption } from './access/resourceCatalog';
+import { BasicAccessGrantEditor } from './access/BasicAccessGrantEditor';
+import { AccessPolicyRuleFields } from './access/AccessPolicyRuleFields';
+import {
+  areBasicGrantEntriesDirty,
+  buildBasicGrantChangeSet,
+  stageBasicGrant,
+} from './access/basicGrantModel';
+import {
+  formatAccessActionSummary,
+  formatAccessResourceSummary,
+  parseAAAActionValue,
+  summarizeRoleCoverage,
+} from './access/policyRuleModel';
+import type { AccessResourceCatalog } from './access/resourceCatalog';
 import type {
   AccessGrantRecord,
   BasicGrantInput,
@@ -125,961 +129,6 @@ const matchesAccessSearch = (query: string, ...values: Array<string | undefined>
 };
 
 const formatAccessCount = (count: number, singular: string, plural = `${singular}s`) => `${count} ${count === 1 ? singular : plural}`;
-
-const formatAccessResourceSummary = (value: string) => {
-  const { resourceType, resourceID } = parseAAAResourceSelector(value);
-  if (!resourceType || resourceType === '*') return 'all resources';
-  const config = getAAAResourceTypeConfig(resourceType);
-  const label = (config?.label || resourceType).toLowerCase();
-  if (!resourceID || resourceID === '*') return `all ${label}`;
-  return `${label} ${resourceID}`;
-};
-
-const formatAccessActionSummary = (value: string) => {
-  const parsed = parseAAAActionValue(value);
-  const label = actionLabelFromAAAValue(parsed.action || value) || parsed.action || value || 'action';
-  return parsed.effect === 'deny' ? `deny ${label}` : label;
-};
-
-const summarizeRoleCoverage = (policies: RolePermission[]) => {
-  const labels = Array.from(
-    new Set(
-      policies.map(policy => {
-        const { resourceType } = parseAAAResourceSelector(policy.obj);
-        if (!resourceType || resourceType === '*') return 'All resources';
-        return getAAAResourceTypeConfig(resourceType)?.label || resourceType;
-      })
-    )
-  );
-  return labels.slice(0, 4);
-};
-
-type AAAEffect = 'allow' | 'deny';
-
-type AAAOption = AccessResourceOption;
-
-type AAAOptionGroup = {
-  label: string;
-  options: AAAOption[];
-};
-
-type AAAResourceCatalog = AccessResourceCatalog;
-
-type AAAResourceTypeConfig = {
-  value: string;
-  label: string;
-  targetLabel: string;
-  allowAll?: boolean;
-  allLabel?: string;
-  presets?: AAAOption[];
-  dynamicSource?: keyof AAAResourceCatalog;
-  customPlaceholder?: string;
-};
-
-type AAANamedResourceDraft = {
-  repoName: string;
-  scope: string;
-  name: string;
-  hasScope: boolean;
-};
-
-const AAA_CUSTOM_VALUE = '__custom__';
-const AAA_ANY_SCOPE_VALUE = '__any_scope__';
-const AAA_DEFAULT_SCOPE_VALUE = '__default_scope__';
-
-const AAA_RESOURCE_TYPE_CONFIGS: AAAResourceTypeConfig[] = [
-  {
-    value: '*',
-    label: 'All resources',
-    targetLabel: 'Scope',
-    allowAll: true,
-    allLabel: 'All resources',
-  },
-  {
-    value: 'iam',
-    label: 'IAM',
-    targetLabel: 'Area',
-    presets: [{ value: 'admin', label: 'Admin' }],
-    customPlaceholder: 'admin',
-  },
-  {
-    value: 'audit',
-    label: 'Audit',
-    targetLabel: 'Log',
-    presets: [{ value: 'authz', label: 'Authorization log' }],
-    customPlaceholder: 'authz',
-  },
-  {
-    value: 'system',
-    label: 'System',
-    targetLabel: 'Area',
-    presets: [
-      { value: 'config', label: 'Config' },
-      { value: 'config-sync', label: 'Config sync' },
-      { value: 'llm-profiles', label: 'LLM profiles' },
-      { value: 'mcp', label: 'MCP' },
-      { value: 'config-repos', label: 'Config repositories' },
-      { value: 'steps', label: 'Step catalog' },
-    ],
-    customPlaceholder: 'config',
-  },
-  {
-    value: 'dispatcher',
-    label: 'Dispatcher',
-    targetLabel: 'Area',
-    presets: [
-      { value: 'status', label: 'Status' },
-      { value: 'runners', label: 'Runners' },
-    ],
-    customPlaceholder: 'status',
-  },
-  {
-    value: 'folder',
-    label: 'Group',
-    targetLabel: 'Group',
-    allowAll: true,
-    allLabel: 'All groups',
-    dynamicSource: 'folderOptions',
-    customPlaceholder: 'team/platform',
-  },
-  {
-    value: 'pipeline',
-    label: 'Pipeline',
-    targetLabel: 'Pipeline',
-    allowAll: true,
-    allLabel: 'All pipelines',
-    dynamicSource: 'pipelineOptions',
-    customPlaceholder: 'team/build',
-  },
-  {
-    value: 'pipeline_run',
-    label: 'Pipeline run',
-    targetLabel: 'Run',
-    allowAll: true,
-    allLabel: 'All runs',
-    customPlaceholder: 'run-123',
-  },
-  {
-    value: 'scope',
-    label: 'Scope',
-    targetLabel: 'Scope',
-    allowAll: true,
-    allLabel: 'All scopes',
-    dynamicSource: 'scopeOptions',
-    customPlaceholder: 'prod',
-  },
-  {
-    value: 'trigger',
-    label: 'Trigger',
-    targetLabel: 'Repository',
-    allowAll: true,
-    allLabel: 'All triggers',
-    dynamicSource: 'triggerOptions',
-    customPlaceholder: 'owner/repo',
-  },
-  {
-    value: 'external_trigger',
-    label: 'External trigger',
-    targetLabel: 'External trigger',
-    allowAll: true,
-    allLabel: 'All external triggers',
-    dynamicSource: 'externalTriggerOptions',
-    customPlaceholder: 'deploy-prod',
-  },
-  {
-    value: 'repository',
-    label: 'Repository',
-    targetLabel: 'Repository',
-    allowAll: true,
-    allLabel: 'All repositories',
-    dynamicSource: 'repositoryOptions',
-    customPlaceholder: 'owner/repo',
-  },
-  {
-    value: 'secret',
-    label: 'Secret',
-    targetLabel: 'Scope',
-    allowAll: true,
-    allLabel: 'All secrets',
-    customPlaceholder: 'repo=owner/repo&scope=prod&name=TOKEN',
-  },
-  {
-    value: 'variable',
-    label: 'Variable',
-    targetLabel: 'Scope',
-    allowAll: true,
-    allLabel: 'All variables',
-    customPlaceholder: 'repo=owner/repo&scope=prod&name=TIMEOUT',
-  },
-];
-
-const AAA_ALL_ACTION_OPTION_GROUPS: AAAOptionGroup[] = [
-  {
-    label: 'Global',
-    options: [{ value: '*', label: 'All actions (*)' }],
-  },
-  {
-    label: 'Administration',
-    options: [
-      { value: 'iam.admin', label: 'admin' },
-      { value: 'audit.read', label: 'read' },
-    ],
-  },
-  {
-    label: 'System',
-    options: [
-      { value: 'system.read', label: 'read' },
-      { value: 'system.update', label: 'update' },
-    ],
-  },
-  {
-    label: 'Groups',
-    options: [
-      { value: 'folder.list', label: 'list' },
-      { value: 'folder.create', label: 'create' },
-      { value: 'folder.move', label: 'move' },
-      { value: 'folder.update', label: 'update' },
-      { value: 'folder.delete', label: 'delete' },
-      { value: 'config_repo.read', label: 'read config repo' },
-      { value: 'config_repo.manage', label: 'manage config repo' },
-      { value: 'config_repo.sync', label: 'sync config repo' },
-    ],
-  },
-  {
-    label: 'Pipelines',
-    options: [
-      { value: 'pipeline.list', label: 'list' },
-      { value: 'pipeline.read', label: 'read' },
-      { value: 'pipeline.create', label: 'create' },
-      { value: 'pipeline.update', label: 'update' },
-      { value: 'pipeline.delete', label: 'delete' },
-      { value: 'pipeline.execute', label: 'execute' },
-      { value: 'pipeline.use', label: 'use' },
-    ],
-  },
-  {
-    label: 'Pipeline Runs',
-    options: [
-      { value: 'pipeline_run.list', label: 'list' },
-      { value: 'pipeline_run.read', label: 'read' },
-      { value: 'pipeline_run.rerun', label: 'rerun' },
-      { value: 'pipeline_run.cancel', label: 'cancel' },
-      { value: 'pipeline_run.finalize', label: 'finalize' },
-      { value: 'pipeline_run.write_logs', label: 'write logs' },
-      { value: 'pipeline_run.task_update', label: 'update task' },
-      { value: 'pipeline_run.delete', label: 'delete' },
-    ],
-  },
-  {
-    label: 'Scopes',
-    options: [
-      { value: 'scope.read', label: 'read' },
-      { value: 'scope.use', label: 'use' },
-      { value: 'scope.update', label: 'update' },
-      { value: 'scope.delete', label: 'delete' },
-      { value: 'scope.manage_acl', label: 'manage ACL' },
-    ],
-  },
-  {
-    label: 'Triggers',
-    options: [
-      { value: 'trigger.read', label: 'read' },
-      { value: 'trigger.update', label: 'update' },
-      { value: 'trigger.delete', label: 'delete' },
-    ],
-  },
-  {
-    label: 'External Triggers',
-    options: [
-      { value: 'external_trigger.read', label: 'read' },
-      { value: 'external_trigger.create', label: 'create' },
-      { value: 'external_trigger.update', label: 'update' },
-      { value: 'external_trigger.invoke', label: 'invoke' },
-      { value: 'external_trigger.delete', label: 'delete' },
-      { value: 'external_trigger.manage_acl', label: 'manage ACL' },
-    ],
-  },
-  {
-    label: 'Secrets',
-    options: [
-      { value: 'secret.list_metadata', label: 'list metadata' },
-      { value: 'secret.read_value', label: 'read value' },
-      { value: 'secret.write_value', label: 'write value' },
-      { value: 'secret.delete', label: 'delete' },
-    ],
-  },
-  {
-    label: 'Variables',
-    options: [
-      { value: 'variable.list_metadata', label: 'list metadata' },
-      { value: 'variable.read_value', label: 'read value' },
-      { value: 'variable.write_value', label: 'write value' },
-      { value: 'variable.delete', label: 'delete' },
-    ],
-  },
-];
-
-const AAA_ACTION_OPTION_GROUPS_BY_SELECTOR: Record<string, AAAOptionGroup[]> = {
-  '*:*': AAA_ALL_ACTION_OPTION_GROUPS,
-  'iam:admin': [{ label: 'IAM actions', options: [{ value: 'iam.admin', label: 'admin' }] }],
-  'audit:authz': [{ label: 'Audit actions', options: [{ value: 'audit.read', label: 'read' }] }],
-  'system:config': [{ label: 'System actions', options: [{ value: 'system.read', label: 'read' }, { value: 'system.update', label: 'update' }] }],
-  'system:config-sync': [{ label: 'System actions', options: [{ value: 'system.read', label: 'read' }, { value: 'system.update', label: 'update' }] }],
-  'system:llm-profiles': [{ label: 'System actions', options: [{ value: 'system.read', label: 'read' }, { value: 'system.update', label: 'update' }] }],
-  'system:steps': [{ label: 'System actions', options: [{ value: 'system.read', label: 'read' }, { value: 'system.update', label: 'update' }] }],
-  'dispatcher:status': [{ label: 'Dispatcher actions', options: [{ value: 'system.read', label: 'read' }] }],
-  'dispatcher:runners': [{ label: 'Dispatcher actions', options: [{ value: 'system.update', label: 'update' }] }],
-  'repository:*': [{ label: 'Repository actions', options: [{ value: 'system.read', label: 'read' }] }],
-};
-
-const AAA_ACTION_OPTION_GROUPS_BY_RESOURCE_TYPE: Record<string, AAAOptionGroup[]> = {
-  '*': AAA_ALL_ACTION_OPTION_GROUPS,
-  folder: [{ label: 'Group actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Groups')?.options || [] }],
-  pipeline: [{ label: 'Pipeline actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Pipelines')?.options || [] }],
-  pipeline_run: [{ label: 'Pipeline run actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Pipeline Runs')?.options || [] }],
-  scope: [{ label: 'Scope actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Scopes')?.options || [] }],
-  trigger: [{ label: 'Trigger actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Triggers')?.options || [] }],
-  external_trigger: [{ label: 'External trigger actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'External Triggers')?.options || [] }],
-  secret: [{ label: 'Secret actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Secrets')?.options || [] }],
-  variable: [{ label: 'Variable actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Variables')?.options || [] }],
-  system: [{ label: 'System actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'System')?.options || [] }],
-  repository: [{ label: 'Repository actions', options: [{ value: 'system.read', label: 'read' }] }],
-  audit: [{ label: 'Audit actions', options: [{ value: 'audit.read', label: 'read' }] }],
-  iam: [{ label: 'IAM actions', options: [{ value: 'iam.admin', label: 'admin' }] }],
-};
-
-const getAAAResourceTypeConfig = (resourceType: string) =>
-  AAA_RESOURCE_TYPE_CONFIGS.find(config => config.value === resourceType);
-
-const dedupeAAAOptions = (options: AAAOption[]) => {
-  const seen = new Set<string>();
-  return options.filter(option => {
-    const value = option.value.trim();
-    if (!value || seen.has(value)) return false;
-    seen.add(value);
-    return true;
-  });
-};
-
-const hasAAAOptionValue = (groups: AAAOptionGroup[], value: string) => {
-  const normalized = (value || '').trim();
-  return groups.some(group => group.options.some(option => option.value === normalized));
-};
-
-const parseAAAResourceSelector = (value: string): { resourceType: string; resourceID: string } => {
-  const normalized = (value || '').trim();
-  if (!normalized) return { resourceType: '', resourceID: '' };
-  if (normalized === '*:*' || normalized === '*') return { resourceType: '*', resourceID: '*' };
-  const separatorIndex = normalized.indexOf(':');
-  const resourceType = separatorIndex >= 0 ? normalized.slice(0, separatorIndex) : normalized;
-  const resourceID = separatorIndex >= 0 ? normalized.slice(separatorIndex + 1) : '*';
-  return {
-    resourceType: (resourceType || '').trim(),
-    resourceID: separatorIndex >= 0 ? resourceID.trim() : '*',
-  };
-};
-
-const buildAAAResourceSelector = (resourceType: string, resourceID: string, opts?: { preserveEmpty?: boolean }) => {
-  const normalizedType = (resourceType || '').trim();
-  const normalizedID = (resourceID || '').trim();
-  if (!normalizedType) {
-    return normalizedID;
-  }
-  if (normalizedType === '*') {
-    return '*:*';
-  }
-  if (!normalizedID) {
-    return opts?.preserveEmpty ? `${normalizedType}:` : `${normalizedType}:*`;
-  }
-  if (normalizedID === '*') {
-    return `${normalizedType}:*`;
-  }
-  return `${normalizedType}:${normalizedID}`;
-};
-
-const flattenAAAOptionGroups = (groups: AAAOptionGroup[]) => groups.flatMap(group => group.options);
-
-const normalizeAAAScopeOptionValue = (scope: string) => {
-  const normalized = (scope || '').trim().replace(/^\/+|\/+$/g, '');
-  return !normalized || normalized.toLowerCase() === 'default' ? AAA_DEFAULT_SCOPE_VALUE : normalized;
-};
-
-const denormalizeAAAScopeOptionValue = (value: string) => (value === AAA_DEFAULT_SCOPE_VALUE ? '' : (value || '').trim());
-
-const parseAAANamedResourceID = (value: string): AAANamedResourceDraft => {
-  const normalized = (value || '').trim();
-  if (!normalized || normalized === '*') {
-    return {
-      repoName: '',
-      scope: '',
-      name: '',
-      hasScope: false,
-    };
-  }
-
-  const params = new URLSearchParams(normalized);
-  return {
-    repoName: (params.get('repo') || '').trim(),
-    scope: (params.get('scope') || '').trim(),
-    name: (params.get('name') || '').trim(),
-    hasScope: params.has('scope'),
-  };
-};
-
-const buildAAANamedResourceID = ({ repoName, scope, name, hasScope }: AAANamedResourceDraft) => {
-  const params = new URLSearchParams();
-  const normalizedRepoName = (repoName || '').trim();
-  const normalizedScope = (scope || '').trim();
-  if (normalizedRepoName) {
-    params.set('repo', normalizedRepoName);
-  }
-  if (hasScope) {
-    params.set('scope', normalizedScope);
-  }
-  const normalizedName = (name || '').trim();
-  if (normalizedName) {
-    params.set('name', normalizedName);
-  }
-  return params.toString() || '*';
-};
-
-const buildAAANamedResourceSelector = (resourceType: string, parts: AAANamedResourceDraft) =>
-  buildAAAResourceSelector(resourceType, buildAAANamedResourceID(parts));
-
-const buildAAAParentPathOptionGroups = (options: AAAOption[], labels: { root: string; parentPrefix: string }) => {
-  const groups = new Map<string, { sortKey: string; label: string; options: AAAOption[] }>();
-
-  options.forEach(option => {
-    const normalizedValue = option.value.trim();
-    if (!normalizedValue) return;
-
-    const lastSlash = normalizedValue.lastIndexOf('/');
-    const parentPath = lastSlash >= 0 ? normalizedValue.slice(0, lastSlash) : '';
-    const itemLabel = lastSlash >= 0 ? normalizedValue.slice(lastSlash + 1) : normalizedValue;
-    const groupKey = parentPath || '';
-    const groupLabel = parentPath ? `${labels.parentPrefix}${parentPath}` : labels.root;
-    const existing = groups.get(groupKey);
-
-    if (existing) {
-      existing.options.push({ value: normalizedValue, label: itemLabel || option.label || normalizedValue });
-      return;
-    }
-
-    groups.set(groupKey, {
-      sortKey: groupKey,
-      label: groupLabel,
-      options: [{ value: normalizedValue, label: itemLabel || option.label || normalizedValue }],
-    });
-  });
-
-  return Array.from(groups.values())
-    .sort((a, b) => {
-      if (!a.sortKey) return -1;
-      if (!b.sortKey) return 1;
-      return a.sortKey.localeCompare(b.sortKey);
-    })
-    .map(group => ({
-      label: group.label,
-      options: group.options.sort((a, b) => a.label.localeCompare(b.label)),
-    }));
-};
-
-const buildAAARepositoryOptionGroups = (options: AAAOption[], labels: { root: string; ownerPrefix: string }) => {
-  const groups = new Map<string, { sortKey: string; label: string; options: AAAOption[] }>();
-
-  options.forEach(option => {
-    const normalizedValue = option.value.trim();
-    if (!normalizedValue) return;
-
-    const separatorIndex = normalizedValue.indexOf('/');
-    const owner = separatorIndex >= 0 ? normalizedValue.slice(0, separatorIndex) : '';
-    const repoName = separatorIndex >= 0 ? normalizedValue.slice(separatorIndex + 1) : normalizedValue;
-    const groupKey = owner || '';
-    const groupLabel = owner ? `${labels.ownerPrefix}${owner}` : labels.root;
-    const existing = groups.get(groupKey);
-
-    if (existing) {
-      existing.options.push({ value: normalizedValue, label: repoName || option.label || normalizedValue });
-      return;
-    }
-
-    groups.set(groupKey, {
-      sortKey: groupKey,
-      label: groupLabel,
-      options: [{ value: normalizedValue, label: repoName || option.label || normalizedValue }],
-    });
-  });
-
-  return Array.from(groups.values())
-    .sort((a, b) => {
-      if (!a.sortKey) return -1;
-      if (!b.sortKey) return 1;
-      return a.sortKey.localeCompare(b.sortKey);
-    })
-    .map(group => ({
-      label: group.label,
-      options: group.options.sort((a, b) => a.label.localeCompare(b.label)),
-    }));
-};
-
-const buildAAAResourceTargetOptionGroups = (config: AAAResourceTypeConfig, catalog: AAAResourceCatalog) => {
-  const groups: AAAOptionGroup[] = [];
-  const scopeOptions: AAAOption[] = [];
-  if (config.allowAll) {
-    scopeOptions.push({ value: '*', label: config.allLabel || 'All' });
-  }
-  if (config.presets) {
-    scopeOptions.push(...config.presets);
-  }
-
-  const normalizedScopeOptions = dedupeAAAOptions(scopeOptions);
-  if (normalizedScopeOptions.length > 0) {
-    groups.push({
-      label: config.dynamicSource ? 'Scope' : 'Available targets',
-      options: normalizedScopeOptions,
-    });
-  }
-
-  if (config.dynamicSource) {
-    const dynamicOptions = dedupeAAAOptions(catalog[config.dynamicSource]);
-    switch (config.dynamicSource) {
-      case 'folderOptions':
-        groups.push(...buildAAAParentPathOptionGroups(dynamicOptions, { root: 'Top-level groups', parentPrefix: 'Inside /' }));
-        break;
-      case 'pipelineOptions':
-        groups.push(...buildAAAParentPathOptionGroups(dynamicOptions, { root: 'Top-level pipelines', parentPrefix: 'Group /' }));
-        break;
-      case 'scopeOptions':
-        groups.push(...buildAAAParentPathOptionGroups(dynamicOptions, { root: 'Top-level scopes', parentPrefix: 'Group /' }));
-        break;
-      case 'triggerOptions':
-        groups.push(...buildAAARepositoryOptionGroups(dynamicOptions, { root: 'Ungrouped triggers', ownerPrefix: 'Owner ' }));
-        break;
-      case 'externalTriggerOptions':
-        groups.push(...buildAAAParentPathOptionGroups(dynamicOptions, { root: 'External triggers', parentPrefix: 'Group /' }));
-        break;
-      case 'repositoryOptions':
-        groups.push(...buildAAARepositoryOptionGroups(dynamicOptions, { root: 'Ungrouped repositories', ownerPrefix: 'Owner ' }));
-        break;
-      default:
-        if (dynamicOptions.length > 0) {
-          groups.push({ label: 'Known targets', options: dynamicOptions });
-        }
-        break;
-    }
-  }
-
-  return groups;
-};
-
-const getAAAActionOptionGroups = (resourceSelector: string): AAAOptionGroup[] => {
-  const normalized = (resourceSelector || '').trim();
-  if (!normalized) return [];
-  if (AAA_ACTION_OPTION_GROUPS_BY_SELECTOR[normalized]) {
-    return AAA_ACTION_OPTION_GROUPS_BY_SELECTOR[normalized];
-  }
-  const { resourceType } = parseAAAResourceSelector(normalized);
-  return AAA_ACTION_OPTION_GROUPS_BY_RESOURCE_TYPE[resourceType] || [];
-};
-
-const actionLabelFromAAAValue = (value: string) => {
-  const trimmed = (value || '').trim();
-  if (!trimmed || trimmed === '*') return trimmed;
-  const actionPart = trimmed.includes('.') ? trimmed.slice(trimmed.lastIndexOf('.') + 1) : trimmed;
-  switch (actionPart) {
-    case 'list_metadata':
-      return 'list metadata';
-    case 'read_value':
-      return 'read value';
-    case 'write_value':
-      return 'write value';
-    case 'write_logs':
-      return 'write logs';
-    case 'task_update':
-      return 'update task';
-    default:
-      return actionPart.replace(/_/g, ' ');
-  }
-};
-
-const normalizeAAAActionForResource = (resourceSelector: string, actionValue: string, effect: AAAEffect) => {
-  const options = flattenAAAOptionGroups(getAAAActionOptionGroups(resourceSelector));
-  if (options.length === 0) return formatAAAActionValue(effect, actionValue);
-  const trimmed = (actionValue || '').trim();
-  if (trimmed && options.some(option => option.value === trimmed)) {
-    return formatAAAActionValue(effect, trimmed);
-  }
-  const currentLabel = actionLabelFromAAAValue(trimmed);
-  if (currentLabel) {
-    const matchingVerb = options.find(option => option.label === currentLabel);
-    if (matchingVerb) {
-      return formatAAAActionValue(effect, matchingVerb.value);
-    }
-  }
-  return formatAAAActionValue(effect, options[0].value);
-};
-
-const customAAAActionPlaceholder = (resourceSelector: string) => {
-  const options = flattenAAAOptionGroups(getAAAActionOptionGroups(resourceSelector));
-  if (options.length > 0) return options[0].value;
-  const { resourceType } = parseAAAResourceSelector(resourceSelector);
-  if (!resourceType || resourceType === '*') return 'pipeline.read';
-  return `${resourceType}.read`;
-};
-
-const parseAAAActionValue = (value: string): { effect: AAAEffect; action: string } => {
-  const trimmed = (value || '').trim();
-  if (!trimmed) return { effect: 'allow', action: '' };
-  if (trimmed.startsWith('deny ')) {
-    return {
-      effect: 'deny',
-      action: trimmed.slice('deny '.length).trim(),
-    };
-  }
-  return { effect: 'allow', action: trimmed };
-};
-
-const formatAAAActionValue = (effect: AAAEffect, action: string) => {
-  const trimmed = (action || '').trim();
-  if (!trimmed) return '';
-  return effect === 'deny' ? `deny ${trimmed}` : trimmed;
-};
-
-const selectValueForAAAOptions = (groups: AAAOptionGroup[], value: string) =>
-  hasAAAOptionValue(groups, value) ? (value || '').trim() : AAA_CUSTOM_VALUE;
-
-function AAAPolicyRuleFields({
-  policy,
-  onChange,
-  resourceCatalog,
-}: {
-  policy: { name: string; obj: string; act: string };
-  onChange: (next: { name: string; obj: string; act: string }) => void;
-  resourceCatalog: AAAResourceCatalog;
-}) {
-  const normalizedResource = (policy.obj || '').trim();
-  const parsedResource = parseAAAResourceSelector(normalizedResource);
-  const parsedAction = parseAAAActionValue(policy.act);
-  const resourceTypeConfig = getAAAResourceTypeConfig(parsedResource.resourceType);
-  const selectedResourceType = resourceTypeConfig ? resourceTypeConfig.value : AAA_CUSTOM_VALUE;
-  const isNamedScopedResourceType = resourceTypeConfig?.value === 'secret' || resourceTypeConfig?.value === 'variable';
-  const [forceCustomNamedScope, setForceCustomNamedScope] = useState(false);
-  const namedResourceParts = isNamedScopedResourceType ? parseAAANamedResourceID(parsedResource.resourceID) : { repoName: '', scope: '', name: '', hasScope: false };
-  const namedScopeOptions =
-    resourceTypeConfig?.value === 'secret'
-      ? resourceCatalog.secretScopeOptions
-      : resourceTypeConfig?.value === 'variable'
-        ? resourceCatalog.variableScopeOptions
-        : [];
-  const resourceTargetOptionGroups =
-    resourceTypeConfig && !isNamedScopedResourceType ? buildAAAResourceTargetOptionGroups(resourceTypeConfig, resourceCatalog) : [];
-  const resourceTargetOptions = flattenAAAOptionGroups(resourceTargetOptionGroups);
-  const selectedResourceTarget =
-    isNamedScopedResourceType
-      ? ''
-      : selectedResourceType === '*'
-      ? '*'
-      : selectedResourceType !== AAA_CUSTOM_VALUE && resourceTargetOptions.some(option => option.value === parsedResource.resourceID)
-      ? parsedResource.resourceID
-      : AAA_CUSTOM_VALUE;
-  const normalizedNamedScope = normalizeAAAScopeOptionValue(namedResourceParts.scope);
-  const derivedSelectedNamedScope =
-    !isNamedScopedResourceType
-      ? ''
-      : !namedResourceParts.hasScope
-        ? AAA_ANY_SCOPE_VALUE
-        : namedScopeOptions.some(option => option.value === normalizedNamedScope)
-          ? normalizedNamedScope
-          : AAA_CUSTOM_VALUE;
-  const selectedNamedScope = forceCustomNamedScope && isNamedScopedResourceType ? AAA_CUSTOM_VALUE : derivedSelectedNamedScope;
-  const allowCustomTarget = resourceTypeConfig?.value !== '*';
-  const selectedResourceTypeValue = resourceTypeConfig?.value || '';
-  const selectedNamedScopeValue = namedResourceParts.scope;
-  const selectedNamedScopeHasScope = namedResourceParts.hasScope;
-  const actionOptions = getAAAActionOptionGroups(normalizedResource);
-  const selectedAction = selectValueForAAAOptions(actionOptions, parsedAction.action);
-  const customResourceDraft =
-    selectedResourceType === AAA_CUSTOM_VALUE
-      ? normalizedResource
-      : normalizedResource.endsWith(':')
-        ? ''
-        : parsedResource.resourceID;
-  const customNamedScopeDraft = selectedNamedScope === AAA_CUSTOM_VALUE ? selectedNamedScopeValue : '';
-  const buildNamedResourceSelector = (next: Partial<AAANamedResourceDraft>) =>
-    buildAAANamedResourceSelector(selectedResourceTypeValue, {
-      repoName: '',
-      scope: 'scope' in next ? next.scope ?? '' : selectedNamedScopeValue,
-      name: '',
-      hasScope: 'hasScope' in next ? Boolean(next.hasScope) : selectedNamedScopeHasScope,
-    });
-  const hasNamedResourceItemFilter = isNamedScopedResourceType && Boolean(namedResourceParts.repoName || namedResourceParts.name);
-
-  useEffect(() => {
-    if (!isNamedScopedResourceType) {
-      const handle = window.setTimeout(() => setForceCustomNamedScope(false), 0);
-      return () => window.clearTimeout(handle);
-    }
-    return undefined;
-  }, [isNamedScopedResourceType]);
-
-  useEffect(() => {
-    if (!hasNamedResourceItemFilter || !resourceTypeConfig) return;
-    const nextObj = buildAAANamedResourceSelector(selectedResourceTypeValue, {
-      repoName: '',
-      scope: selectedNamedScopeValue,
-      name: '',
-      hasScope: selectedNamedScopeHasScope,
-    });
-    if (nextObj === normalizedResource) return;
-    onChange({
-      name: policy.name,
-      obj: nextObj,
-      act: normalizeAAAActionForResource(nextObj, parsedAction.action, parsedAction.effect),
-    });
-  }, [
-    hasNamedResourceItemFilter,
-    normalizedResource,
-    onChange,
-    parsedAction.action,
-    parsedAction.effect,
-    policy.name,
-    resourceTypeConfig,
-    selectedNamedScopeHasScope,
-    selectedNamedScopeValue,
-    selectedResourceTypeValue,
-  ]);
-
-  return (
-    <>
-      <label className="flex flex-col gap-1 text-sm">
-        <span>Policy label</span>
-        <input
-          className="pipelines-input"
-          value={policy.name}
-          onChange={e => onChange({ name: e.target.value, obj: policy.obj, act: policy.act })}
-          placeholder="Pipeline reader"
-          required
-        />
-      </label>
-      <div className="grid gap-3 md:grid-cols-[0.56fr_1fr]">
-        <label className="flex flex-col gap-1 text-sm">
-          <span>Resource type</span>
-          <select
-            className="pipelines-input"
-            value={selectedResourceType}
-            onChange={e => {
-              const nextType = e.target.value;
-              if (nextType === AAA_CUSTOM_VALUE) {
-                onChange({ name: policy.name, obj: normalizedResource, act: policy.act });
-                return;
-              }
-              const nextConfig = getAAAResourceTypeConfig(nextType);
-              const nextTarget = nextConfig?.allowAll ? '*' : nextConfig?.presets?.[0]?.value || '';
-              const nextObj = buildAAAResourceSelector(nextType, nextTarget, { preserveEmpty: nextTarget === '' });
-              onChange({
-                name: policy.name,
-                obj: nextObj,
-                act: normalizeAAAActionForResource(nextObj, parsedAction.action, parsedAction.effect),
-              });
-            }}
-          >
-            {AAA_RESOURCE_TYPE_CONFIGS.map(option => (
-              <option key={`resource-type-${option.value}`} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-            {selectedResourceType === AAA_CUSTOM_VALUE && (
-              <option value={AAA_CUSTOM_VALUE} disabled>
-                Unsupported selector
-              </option>
-            )}
-          </select>
-        </label>
-        {selectedResourceType === AAA_CUSTOM_VALUE ? (
-          <label className="flex flex-col gap-1 text-sm">
-            <span>Resource selector</span>
-            <input
-              className="pipelines-input"
-              value={normalizedResource}
-              onChange={e => onChange({ name: policy.name, obj: e.target.value, act: policy.act })}
-              placeholder="pipeline:team/build"
-              required
-            />
-          </label>
-        ) : isNamedScopedResourceType ? (
-          <div className="space-y-3">
-            <label className="flex flex-col gap-1 text-sm">
-              <span>{resourceTypeConfig?.targetLabel || 'Scope'}</span>
-              <select
-                className="pipelines-input"
-                value={selectedNamedScope}
-                onChange={e => {
-                  const value = e.target.value;
-                  if (!resourceTypeConfig) return;
-                  if (value === AAA_ANY_SCOPE_VALUE) {
-                    setForceCustomNamedScope(false);
-                    const nextObj = buildNamedResourceSelector({ hasScope: false, scope: '' });
-                    onChange({
-                      name: policy.name,
-                      obj: nextObj,
-                      act: normalizeAAAActionForResource(nextObj, parsedAction.action, parsedAction.effect),
-                    });
-                    return;
-                  }
-                  if (value === AAA_CUSTOM_VALUE) {
-                    setForceCustomNamedScope(true);
-                    return;
-                  }
-                  setForceCustomNamedScope(false);
-                  const nextObj = buildNamedResourceSelector({
-                    hasScope: true,
-                    scope: denormalizeAAAScopeOptionValue(value),
-                  });
-                  onChange({
-                    name: policy.name,
-                    obj: nextObj,
-                    act: normalizeAAAActionForResource(nextObj, parsedAction.action, parsedAction.effect),
-                  });
-                }}
-              >
-                <option value={AAA_ANY_SCOPE_VALUE}>Any scope</option>
-                {namedScopeOptions.map(option => (
-                  <option key={`resource-scope-${resourceTypeConfig?.value}-${option.value}`} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-                <option value={AAA_CUSTOM_VALUE}>Custom scope…</option>
-              </select>
-            </label>
-            {selectedNamedScope === AAA_CUSTOM_VALUE && (
-              <label className="flex flex-col gap-1 text-sm">
-                <span>Custom scope</span>
-                <input
-                  className="pipelines-input"
-                  value={customNamedScopeDraft}
-                  onChange={e =>
-                    onChange({
-                      name: policy.name,
-                      obj: buildNamedResourceSelector({
-                        hasScope: true,
-                        scope: e.target.value,
-                      }),
-                      act: policy.act,
-                    })
-                  }
-                  placeholder="prod"
-                />
-              </label>
-            )}
-          </div>
-        ) : (
-          <label className="flex flex-col gap-1 text-sm">
-            <span>{resourceTypeConfig?.targetLabel || 'Target'}</span>
-            <select
-              className="pipelines-input"
-              value={selectedResourceTarget}
-              onChange={e => {
-                const value = e.target.value;
-                if (!resourceTypeConfig) return;
-                if (value === AAA_CUSTOM_VALUE) {
-                  const nextObj = buildAAAResourceSelector(resourceTypeConfig.value, parsedResource.resourceID === '*' ? '' : parsedResource.resourceID, {
-                    preserveEmpty: true,
-                  });
-                  onChange({ name: policy.name, obj: nextObj, act: policy.act });
-                  return;
-                }
-                const nextObj = buildAAAResourceSelector(resourceTypeConfig.value, value);
-                onChange({
-                  name: policy.name,
-                  obj: nextObj,
-                  act: normalizeAAAActionForResource(nextObj, parsedAction.action, parsedAction.effect),
-                });
-              }}
-            >
-              {resourceTargetOptionGroups.map(group => (
-                <optgroup key={`resource-target-group-${resourceTypeConfig?.value}-${group.label}`} label={group.label}>
-                  {group.options.map(option => (
-                    <option key={`resource-target-${resourceTypeConfig?.value}-${option.value}`} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-              {allowCustomTarget && <option value={AAA_CUSTOM_VALUE}>Custom…</option>}
-            </select>
-            {allowCustomTarget && selectedResourceTarget === AAA_CUSTOM_VALUE && (
-              <input
-                className="pipelines-input"
-                value={customResourceDraft}
-                onChange={e =>
-                  onChange({
-                    name: policy.name,
-                    obj: buildAAAResourceSelector(resourceTypeConfig?.value || '', e.target.value, { preserveEmpty: true }),
-                    act: policy.act,
-                  })
-                }
-                placeholder={resourceTypeConfig?.customPlaceholder || 'team/build'}
-                required
-              />
-            )}
-          </label>
-        )}
-      </div>
-      <div className="grid gap-3 md:grid-cols-[0.42fr_1fr]">
-        <label className="flex flex-col gap-1 text-sm">
-          <span>Effect</span>
-          <select
-            className="pipelines-input"
-            value={parsedAction.effect}
-            onChange={e => onChange({ name: policy.name, obj: policy.obj, act: formatAAAActionValue(e.target.value as AAAEffect, parsedAction.action) })}
-          >
-            <option value="allow">Allow</option>
-            <option value="deny">Deny</option>
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span>Action</span>
-          <select
-            className="pipelines-input"
-            value={selectedAction}
-            onChange={e => {
-              const value = e.target.value;
-              if (value === AAA_CUSTOM_VALUE) {
-                onChange({
-                  name: policy.name,
-                  obj: policy.obj,
-                  act: formatAAAActionValue(parsedAction.effect, selectedAction === AAA_CUSTOM_VALUE ? parsedAction.action : ''),
-                });
-                return;
-              }
-              onChange({ name: policy.name, obj: policy.obj, act: formatAAAActionValue(parsedAction.effect, value) });
-            }}
-          >
-            {actionOptions.map(group => (
-              <optgroup key={`action-${group.label}`} label={group.label}>
-                {group.options.map(option => (
-                  <option key={`action-${group.label}-${option.value}`} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-            <option value={AAA_CUSTOM_VALUE}>Custom action…</option>
-          </select>
-          {selectedAction === AAA_CUSTOM_VALUE && (
-            <input
-              className="pipelines-input"
-              value={parsedAction.action}
-              onChange={e => onChange({ name: policy.name, obj: policy.obj, act: formatAAAActionValue(parsedAction.effect, e.target.value) })}
-              placeholder={customAAAActionPlaceholder(normalizedResource)}
-              required
-            />
-          )}
-        </label>
-      </div>
-    </>
-  );
-}
 
 export type AccessPanelProps = {
   users: UserSummary[];
@@ -1807,23 +856,10 @@ function AccessPanel({
     [basicServiceAccountGrantMap, selectedBasicServiceAccountSub]
   );
   const selectedBasicGrants = selectedBasicServiceAccount ? selectedBasicServiceAccountGrants : selectedBasicUserGrants;
-  const basicGrantDirty = useMemo(() => {
-    const originalKeys = new Set(selectedBasicGrants.map(grant => accessGrantEditKey(grant)));
-    const draftKeys = new Set(basicGrantEntries.map(grant => accessGrantEditKey(grant)));
-    if (originalKeys.size !== draftKeys.size) return true;
-    return Array.from(originalKeys).some(key => !draftKeys.has(key));
-  }, [basicGrantEntries, selectedBasicGrants]);
-  const basicGrantDraftDuplicate = useMemo(() => {
-    const role = basicGrantDraft.role.trim().toLowerCase();
-    if (!role) return false;
-    const draftGrant = {
-      role,
-      resourceType: role === BASIC_ROLE_ADMIN ? 'platform' : 'folder',
-      resourceID: role === BASIC_ROLE_ADMIN ? 'platform' : basicGrantDraft.scope || ROOT_ACCESS_SCOPE,
-    };
-    const draftKey = accessGrantEditKey(draftGrant);
-    return basicGrantEntries.some(grant => accessGrantEditKey(grant) === draftKey);
-  }, [basicGrantDraft, basicGrantEntries]);
+  const basicGrantDirty = useMemo(
+    () => areBasicGrantEntriesDirty(selectedBasicGrants, basicGrantEntries),
+    [basicGrantEntries, selectedBasicGrants]
+  );
 
   useEffect(() => {
     setNextAccessRole('');
@@ -1995,45 +1031,14 @@ function AccessPanel({
       return;
     }
 
-    const normalizedRole = basicGrantDraft.role.trim().toLowerCase();
-    if (!normalizedRole) {
-      setBasicGrantError('Choose an access level.');
-      return;
-    }
-
-    setBasicGrantError(null);
-    const nextGrant: EditableAccessGrant = {
-      localID: `draft-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      role: normalizedRole,
-      resourceType: normalizedRole === BASIC_ROLE_ADMIN ? 'platform' : 'folder',
-      resourceID: normalizedRole === BASIC_ROLE_ADMIN ? 'platform' : basicGrantDraft.scope || ROOT_ACCESS_SCOPE,
-      inherit: normalizedRole !== BASIC_ROLE_ADMIN,
-    };
-    const nextKey = accessGrantEditKey(nextGrant);
-    if (basicGrantEntries.some(grant => accessGrantEditKey(grant) === nextKey)) {
-      setBasicGrantError('This basic role is already listed.');
-      return;
-    }
-    const nextTargetKey = accessGrantTargetKey(nextGrant);
-    setBasicGrantEntries(prev => {
-      let replaced = false;
-      const nextEntries: EditableAccessGrant[] = [];
-      prev.forEach(grant => {
-        if (accessGrantTargetKey(grant) !== nextTargetKey) {
-          nextEntries.push(grant);
-          return;
-        }
-        if (replaced) return;
-        nextEntries.push({
-          ...nextGrant,
-          localID: grant.localID,
-          id: grant.id,
-          grantedBy: grant.grantedBy,
-        });
-        replaced = true;
-      });
-      return replaced ? nextEntries : [...prev, nextGrant];
-    });
+    const result = stageBasicGrant(
+      basicGrantEntries,
+      basicGrantDraft,
+      `draft-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+    setBasicGrantError(result.error);
+    if (result.error) return;
+    setBasicGrantEntries(result.entries);
     setBasicGrantDraft(prev => ({ ...prev, role: '' }));
   };
 
@@ -2059,13 +1064,7 @@ function AccessPanel({
       return;
     }
     if (!basicGrantDirty) return;
-    const normalizedDraftEntries = Array.from(
-      basicGrantEntries.reduce((entries, grant) => entries.set(accessGrantTargetKey(grant), grant), new Map<string, EditableAccessGrant>()).values()
-    );
-    const draftKeys = new Set(normalizedDraftEntries.map(grant => accessGrantEditKey(grant)));
-    const originalByKey = new Map(selectedBasicUserGrants.map(grant => [accessGrantEditKey(grant), grant]));
-    const grantsToDelete = selectedBasicUserGrants.filter(grant => !draftKeys.has(accessGrantEditKey(grant)));
-    const grantsToAdd = normalizedDraftEntries.filter(grant => !originalByKey.has(accessGrantEditKey(grant)));
+    const { grantsToDelete, grantsToAdd } = buildBasicGrantChangeSet(selectedBasicUserGrants, basicGrantEntries);
 
     setBasicGrantSaving(true);
     setBasicGrantError(null);
@@ -2096,13 +1095,10 @@ function AccessPanel({
       return;
     }
     if (!basicGrantDirty) return;
-    const normalizedDraftEntries = Array.from(
-      basicGrantEntries.reduce((entries, grant) => entries.set(accessGrantTargetKey(grant), grant), new Map<string, EditableAccessGrant>()).values()
+    const { grantsToDelete, grantsToAdd } = buildBasicGrantChangeSet(
+      selectedBasicServiceAccountGrants,
+      basicGrantEntries
     );
-    const draftKeys = new Set(normalizedDraftEntries.map(grant => accessGrantEditKey(grant)));
-    const originalByKey = new Map(selectedBasicServiceAccountGrants.map(grant => [accessGrantEditKey(grant), grant]));
-    const grantsToDelete = selectedBasicServiceAccountGrants.filter(grant => !draftKeys.has(accessGrantEditKey(grant)));
-    const grantsToAdd = normalizedDraftEntries.filter(grant => !originalByKey.has(accessGrantEditKey(grant)));
 
     setBasicGrantSaving(true);
     setBasicGrantError(null);
@@ -2284,84 +1280,18 @@ function AccessPanel({
             </div>
           </div>
         </div>
-        <div className="access-editor-section">
-          <div className="access-minimal-section__header">
-            <p className="text-sm font-medium text-[var(--text-primary)]">Basic roles</p>
-            <span className="text-[11px] text-[var(--text-secondary)]">{basicGrantEntries.length} listed</span>
-          </div>
-          <div className="access-editor-grid">
-            <label className="access-minimal-label">
-              <span>Access level</span>
-              <select
-                className="pipelines-input"
-                value={basicGrantDraft.role}
-                onChange={e => {
-                  const role = e.target.value;
-                  setBasicGrantDraft(prev => ({
-                    ...prev,
-                    role,
-                    scope: role === BASIC_ROLE_ADMIN ? prev.scope : prev.scope || ROOT_ACCESS_SCOPE,
-                  }));
-                }}
-              >
-                <option value="">Select role</option>
-                <option value={BASIC_ROLE_VIEWER}>Viewer</option>
-                <option value={BASIC_ROLE_DEVELOPER}>Developer</option>
-                <option value={BASIC_ROLE_OWNER}>Owner</option>
-                <option value={BASIC_ROLE_ADMIN}>Admin</option>
-              </select>
-            </label>
-            <label className="access-minimal-label">
-              <span>Group target</span>
-              <select
-                className="pipelines-input"
-                value={basicGrantDraft.role === BASIC_ROLE_ADMIN ? 'platform' : basicGrantDraft.scope}
-                onChange={e => setBasicGrantDraft(prev => ({ ...prev, scope: e.target.value }))}
-                disabled={basicGrantDraft.role === BASIC_ROLE_ADMIN}
-              >
-                {basicGrantDraft.role === BASIC_ROLE_ADMIN ? (
-                  <option value="platform">Platform wide</option>
-                ) : (
-                  basicGrantOptions.map(option => (
-                    <option key={`new-user-basic-${option.value}`} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))
-                )}
-              </select>
-            </label>
-          </div>
-          <div className="access-editor-footer access-editor-footer--inline">
-            <button type="button" className="glass-button-subtle" onClick={() => handleStageBasicGrant()} disabled={creatingUserInline || !basicGrantDraft.role || basicGrantDraftDuplicate}>
-              Add basic role
-            </button>
-          </div>
-          {basicGrantError && <div className="access-error-banner">{basicGrantError}</div>}
-          <div className="space-y-2">
-            {basicGrantEntries.length === 0 ? (
-              <p className="text-[12px] text-[var(--text-secondary)]">No basic roles listed.</p>
-            ) : (
-              basicGrantEntries.map(grant => (
-                <div key={grant.localID} className="access-minimal-row access-minimal-row--stack">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`access-chip ${accessPresetToneClass(grant.role)}`}>{grant.role}</span>
-                      <span className="access-chip access-chip--muted">{accessGrantResourceSummary(grant)}</span>
-                      {grant.inherit && grant.resourceType === 'folder' && !isRootAccessScopeID(grant.resourceID) && (
-                        <span className="access-chip access-chip--muted">Includes children</span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-[var(--text-secondary)] mt-2">{basicAccessGrantDescription(grant)}</p>
-                  </div>
-                  <button type="button" className="access-inline-btn access-inline-btn--danger" onClick={() => removeBasicGrantDraft(grant.localID)} disabled={creatingUserInline}>
-                    <TrashIcon />
-                    <span>Remove</span>
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
+        <BasicAccessGrantEditor
+          entries={basicGrantEntries}
+          draft={basicGrantDraft}
+          options={basicGrantOptions}
+          error={basicGrantError}
+          saving={creatingUserInline}
+          addLabel="Add basic role"
+          toneClassForRole={accessPresetToneClass}
+          onDraftChange={setBasicGrantDraft}
+          onAdd={() => handleStageBasicGrant()}
+          onRemove={removeBasicGrantDraft}
+        />
         <div className="access-editor-footer">
           <button type="submit" className="glass-button-primary" disabled={creatingUserInline}>
             {creatingUserInline ? 'Saving…' : 'Save user'}
@@ -2493,84 +1423,18 @@ function AccessPanel({
               </div>
             </div>
           </div>
-          <div className="access-editor-section">
-            <div className="access-minimal-section__header">
-              <p className="text-sm font-medium text-[var(--text-primary)]">Basic roles</p>
-              <span className="text-[11px] text-[var(--text-secondary)]">{basicGrantEntries.length} listed</span>
-            </div>
-            <div className="access-editor-grid">
-              <label className="access-minimal-label">
-                <span>Access level</span>
-                <select
-                  className="pipelines-input"
-                  value={basicGrantDraft.role}
-                  onChange={e => {
-                    const role = e.target.value;
-                    setBasicGrantDraft(prev => ({
-                      ...prev,
-                      role,
-                      scope: role === BASIC_ROLE_ADMIN ? prev.scope : prev.scope || ROOT_ACCESS_SCOPE,
-                    }));
-                  }}
-                >
-                  <option value="">Select role</option>
-                  <option value={BASIC_ROLE_VIEWER}>Viewer</option>
-                  <option value={BASIC_ROLE_DEVELOPER}>Developer</option>
-                  <option value={BASIC_ROLE_OWNER}>Owner</option>
-                  <option value={BASIC_ROLE_ADMIN}>Admin</option>
-                </select>
-              </label>
-              <label className="access-minimal-label">
-                <span>Group target</span>
-                <select
-                  className="pipelines-input"
-                  value={basicGrantDraft.role === BASIC_ROLE_ADMIN ? 'platform' : basicGrantDraft.scope}
-                  onChange={e => setBasicGrantDraft(prev => ({ ...prev, scope: e.target.value }))}
-                  disabled={basicGrantDraft.role === BASIC_ROLE_ADMIN}
-                >
-                  {basicGrantDraft.role === BASIC_ROLE_ADMIN ? (
-                    <option value="platform">Platform wide</option>
-                  ) : (
-                    basicGrantOptions.map(option => (
-                      <option key={`new-service-basic-${option.value}`} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))
-                  )}
-                </select>
-              </label>
-            </div>
-            <div className="access-editor-footer access-editor-footer--inline">
-              <button type="button" className="glass-button-subtle" onClick={() => handleStageBasicGrant()} disabled={creatingServiceAccountInline || !basicGrantDraft.role || basicGrantDraftDuplicate}>
-                Add basic role
-              </button>
-            </div>
-            {basicGrantError && <div className="access-error-banner">{basicGrantError}</div>}
-            <div className="space-y-2">
-              {basicGrantEntries.length === 0 ? (
-                <p className="text-[12px] text-[var(--text-secondary)]">No basic roles listed.</p>
-              ) : (
-                basicGrantEntries.map(grant => (
-                  <div key={grant.localID} className="access-minimal-row access-minimal-row--stack">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`access-chip ${accessPresetToneClass(grant.role)}`}>{grant.role}</span>
-                        <span className="access-chip access-chip--muted">{accessGrantResourceSummary(grant)}</span>
-                        {grant.inherit && grant.resourceType === 'folder' && !isRootAccessScopeID(grant.resourceID) && (
-                          <span className="access-chip access-chip--muted">Includes children</span>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-[var(--text-secondary)] mt-2">{basicAccessGrantDescription(grant)}</p>
-                    </div>
-                    <button type="button" className="access-inline-btn access-inline-btn--danger" onClick={() => removeBasicGrantDraft(grant.localID)} disabled={creatingServiceAccountInline}>
-                      <TrashIcon />
-                      <span>Remove</span>
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
+          <BasicAccessGrantEditor
+            entries={basicGrantEntries}
+            draft={basicGrantDraft}
+            options={basicGrantOptions}
+            error={basicGrantError}
+            saving={creatingServiceAccountInline}
+            addLabel="Add basic role"
+            toneClassForRole={accessPresetToneClass}
+            onDraftChange={setBasicGrantDraft}
+            onAdd={() => handleStageBasicGrant()}
+            onRemove={removeBasicGrantDraft}
+          />
           <div className="access-editor-footer">
             <button type="submit" className="glass-button-primary" disabled={creatingServiceAccountInline}>
               {creatingServiceAccountInline ? 'Saving…' : 'Save service account'}
@@ -2817,90 +1681,21 @@ function AccessPanel({
                   </div>
                 </div>
               </div>
-              <div className="access-editor-section access-editor-section--plain">
-                <div className="access-minimal-section__header">
-                  <p className="text-sm font-medium text-[var(--text-primary)]">Basic roles</p>
-                  <span className="text-[11px] text-[var(--text-secondary)]">
-                    {userRoleAssignmentsLocked ? 'Locked' : `${basicGrantEntries.length} listed`}
-                  </span>
-                </div>
-                <div className="access-editor-grid">
-                  <label className="access-minimal-label">
-                    <span>Access level</span>
-                    <select
-                      className="pipelines-input"
-                      value={basicGrantDraft.role}
-                      onChange={e => {
-                        const role = e.target.value;
-                        setBasicGrantDraft(prev => ({
-                          ...prev,
-                          role,
-                          scope: role === BASIC_ROLE_ADMIN ? prev.scope : prev.scope || ROOT_ACCESS_SCOPE,
-                        }));
-                      }}
-                      disabled={userRoleAssignmentsLocked}
-                    >
-                      <option value="">Select role</option>
-                      <option value={BASIC_ROLE_VIEWER}>Viewer</option>
-                      <option value={BASIC_ROLE_DEVELOPER}>Developer</option>
-                      <option value={BASIC_ROLE_OWNER}>Owner</option>
-                      <option value={BASIC_ROLE_ADMIN}>Admin</option>
-                    </select>
-                  </label>
-                  <label className="access-minimal-label">
-                    <span>Group target</span>
-                    <select
-                      className="pipelines-input"
-                      value={basicGrantDraft.role === BASIC_ROLE_ADMIN ? 'platform' : basicGrantDraft.scope}
-                      onChange={e => setBasicGrantDraft(prev => ({ ...prev, scope: e.target.value }))}
-                      disabled={userRoleAssignmentsLocked || basicGrantDraft.role === BASIC_ROLE_ADMIN}
-                    >
-                      {basicGrantDraft.role === BASIC_ROLE_ADMIN ? (
-                        <option value="platform">Platform wide</option>
-                      ) : (
-                        basicGrantOptions.map(option => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))
-                      )}
-                    </select>
-                  </label>
-                </div>
-                <div className="access-editor-footer access-editor-footer--inline">
-                  <button type="button" className="glass-button-subtle" onClick={() => handleStageBasicGrant()} disabled={userRoleAssignmentsLocked || basicGrantSaving || !basicGrantDraft.role || basicGrantDraftDuplicate}>
-                    Add
-                  </button>
-                </div>
-                {basicGrantError && <div className="access-error-banner">{basicGrantError}</div>}
-                <div className="space-y-2">
-                  {basicGrantEntries.length === 0 ? (
-                    <p className="text-[12px] text-[var(--text-secondary)]">No basic roles listed.</p>
-                  ) : (
-                    basicGrantEntries.map(grant => (
-                      <div key={grant.localID} className="access-minimal-row access-minimal-row--stack">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className={`access-chip ${accessPresetToneClass(grant.role)}`}>{grant.role}</span>
-                            <span className="access-chip access-chip--muted">{accessGrantResourceSummary(grant)}</span>
-                            {grant.inherit && grant.resourceType === 'folder' && !isRootAccessScopeID(grant.resourceID) && (
-                              <span className="access-chip access-chip--muted">Includes children</span>
-                            )}
-                          </div>
-                          <p className="text-[11px] text-[var(--text-secondary)] mt-2">
-                            {basicAccessGrantDescription(grant)}
-                            {grant.grantedBy ? ` Granted by ${grant.grantedBy}.` : ''}
-                          </p>
-                        </div>
-                        <button type="button" className="access-inline-btn access-inline-btn--danger" onClick={() => removeBasicGrantDraft(grant.localID)} disabled={userRoleAssignmentsLocked || basicGrantSaving}>
-                          <TrashIcon />
-                          <span>Remove</span>
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
+              <BasicAccessGrantEditor
+                entries={basicGrantEntries}
+                draft={basicGrantDraft}
+                options={basicGrantOptions}
+                error={basicGrantError}
+                disabled={userRoleAssignmentsLocked}
+                saving={basicGrantSaving}
+                plain
+                countLabel={userRoleAssignmentsLocked ? 'Locked' : undefined}
+                showGrantedBy
+                toneClassForRole={accessPresetToneClass}
+                onDraftChange={setBasicGrantDraft}
+                onAdd={() => handleStageBasicGrant()}
+                onRemove={removeBasicGrantDraft}
+              />
               <div className="access-editor-footer gap-2">
                 {basicGrantDirty && (
                   <button type="button" className="access-inline-btn access-inline-btn--pill" onClick={resetBasicGrantDrafts} disabled={userRoleAssignmentsLocked || basicGrantSaving || savingUserAccess}>
@@ -3145,87 +1940,19 @@ function AccessPanel({
                   </div>
                 </div>
               </div>
-              <div className="access-editor-section access-editor-section--plain">
-                <div className="access-minimal-section__header">
-                  <p className="text-sm font-medium text-[var(--text-primary)]">Basic roles</p>
-                  <span className="text-[11px] text-[var(--text-secondary)]">{basicGrantEntries.length} listed</span>
-                </div>
-                <div className="access-editor-grid">
-                  <label className="access-minimal-label">
-                    <span>Access level</span>
-                    <select
-                      className="pipelines-input"
-                      value={basicGrantDraft.role}
-                      onChange={e => {
-                        const role = e.target.value;
-                        setBasicGrantDraft(prev => ({
-                          ...prev,
-                          role,
-                          scope: role === BASIC_ROLE_ADMIN ? prev.scope : prev.scope || ROOT_ACCESS_SCOPE,
-                        }));
-                      }}
-                    >
-                      <option value="">Select role</option>
-                      <option value={BASIC_ROLE_VIEWER}>Viewer</option>
-                      <option value={BASIC_ROLE_DEVELOPER}>Developer</option>
-                      <option value={BASIC_ROLE_OWNER}>Owner</option>
-                      <option value={BASIC_ROLE_ADMIN}>Admin</option>
-                    </select>
-                  </label>
-                  <label className="access-minimal-label">
-                    <span>Group target</span>
-                    <select
-                      className="pipelines-input"
-                      value={basicGrantDraft.role === BASIC_ROLE_ADMIN ? 'platform' : basicGrantDraft.scope}
-                      onChange={e => setBasicGrantDraft(prev => ({ ...prev, scope: e.target.value }))}
-                      disabled={basicGrantDraft.role === BASIC_ROLE_ADMIN}
-                    >
-                      {basicGrantDraft.role === BASIC_ROLE_ADMIN ? (
-                        <option value="platform">Platform wide</option>
-                      ) : (
-                        basicGrantOptions.map(option => (
-                          <option key={`service-editor-basic-${option.value}`} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))
-                      )}
-                    </select>
-                  </label>
-                </div>
-                <div className="access-editor-footer access-editor-footer--inline">
-                  <button type="button" className="glass-button-subtle" onClick={() => handleStageBasicGrant()} disabled={basicGrantSaving || !basicGrantDraft.role || basicGrantDraftDuplicate}>
-                    Add
-                  </button>
-                </div>
-                {basicGrantError && <div className="access-error-banner">{basicGrantError}</div>}
-                <div className="space-y-2">
-                  {basicGrantEntries.length === 0 ? (
-                    <p className="text-[12px] text-[var(--text-secondary)]">No basic roles listed.</p>
-                  ) : (
-                    basicGrantEntries.map(grant => (
-                      <div key={grant.localID} className="access-minimal-row access-minimal-row--stack">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className={`access-chip ${accessPresetToneClass(grant.role)}`}>{grant.role}</span>
-                            <span className="access-chip access-chip--muted">{accessGrantResourceSummary(grant)}</span>
-                            {grant.inherit && grant.resourceType === 'folder' && !isRootAccessScopeID(grant.resourceID) && (
-                              <span className="access-chip access-chip--muted">Includes children</span>
-                            )}
-                          </div>
-                          <p className="text-[11px] text-[var(--text-secondary)] mt-2">
-                            {basicAccessGrantDescription(grant)}
-                            {grant.grantedBy ? ` Granted by ${grant.grantedBy}.` : ''}
-                          </p>
-                        </div>
-                        <button type="button" className="access-inline-btn access-inline-btn--danger" onClick={() => removeBasicGrantDraft(grant.localID)} disabled={basicGrantSaving}>
-                          <TrashIcon />
-                          <span>Remove</span>
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
+              <BasicAccessGrantEditor
+                entries={basicGrantEntries}
+                draft={basicGrantDraft}
+                options={basicGrantOptions}
+                error={basicGrantError}
+                saving={basicGrantSaving}
+                plain
+                showGrantedBy
+                toneClassForRole={accessPresetToneClass}
+                onDraftChange={setBasicGrantDraft}
+                onAdd={() => handleStageBasicGrant()}
+                onRemove={removeBasicGrantDraft}
+              />
               <div className="access-editor-footer gap-2">
                 {basicGrantDirty && (
                   <button type="button" className="access-inline-btn access-inline-btn--pill" onClick={resetBasicGrantDrafts} disabled={basicGrantSaving || savingServiceAccountAccess}>
@@ -3648,7 +2375,7 @@ function AccessPanel({
                       </button>
                     </div>
                     <form className="access-editor-form access-editor-form--compact" onSubmit={handleSavePolicyEdit}>
-                      <AAAPolicyRuleFields
+                      <AccessPolicyRuleFields
                         policy={policyEditor}
                         onChange={next => setPolicyEditor(prev => (prev ? { ...prev, ...next } : prev))}
                         resourceCatalog={resourceCatalog}
@@ -3680,7 +2407,7 @@ function AccessPanel({
                       </button>
                     </div>
                     <form className="access-editor-form access-editor-form--compact" onSubmit={handleCreatePolicyInline}>
-                      <AAAPolicyRuleFields policy={newPermission} onChange={onChangePermission} resourceCatalog={resourceCatalog} />
+                      <AccessPolicyRuleFields policy={newPermission} onChange={onChangePermission} resourceCatalog={resourceCatalog} />
                       <div className="access-editor-footer access-editor-footer--inline">
                         <button type="submit" className="glass-button-primary" disabled={creatingPolicyInline}>
                           {creatingPolicyInline ? 'Adding…' : 'Add policy'}

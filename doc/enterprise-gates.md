@@ -92,6 +92,20 @@ go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
 - Go test, race test, vet, lint, gosec, and govulncheck
 - Docker build checks for service images and the UI image
 
+`.github/workflows/ui-live-smoke.yml` provides the post-deployment UI gate. It
+can be called by a deployment workflow or dispatched manually against a
+protected GitHub environment. Configure that environment with:
+
+- variable `NOPS_UI_LIVE_BASE_URL`
+- secrets `NOPS_UI_LIVE_USERNAME` and `NOPS_UI_LIVE_PASSWORD`
+- secret `NOPS_UI_LIVE_PIPELINE_ID` for the optional mutation job
+
+The authentication job validates login, authorization-controlled navigation,
+and setup status. The mutation job only runs when explicitly enabled and
+round-trips a dedicated pipeline before starting a smoke run. Live CI fails
+closed for missing configuration, retains Playwright diagnostics on failure,
+and serializes runs per deployment environment.
+
 Service Dockerfiles that depend on the base image accept `BASE_IMAGE`, so CI can
 build from the local `nopsai-base:ci` image instead of pulling a published base.
 CI uses `golangci/golangci-lint-action@v7` and pins the `golangci-lint`

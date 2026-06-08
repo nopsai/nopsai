@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { X } from 'lucide-react';
+import { useDialogFocus } from './useDialogFocus';
 import {
   changedConfigRepositoryDriftItems,
   type ConfigRepositoryCommitResponse,
@@ -56,21 +57,29 @@ export function ConfigRepositoryDriftModal({
   const summary = drift?.summary ?? {};
   const gitOnlyCount = summary.deleted ?? changedItems.filter(item => item.status === 'deleted').length;
   const pushDisabled = loading || pushing || !canPush || changedItems.length === 0 || Boolean(pushResult);
+  const dialogRef = useDialogFocus(onClose);
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[var(--bg-overlay)] px-4 py-6">
-      <div className="flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-[var(--border-primary)] bg-white shadow-2xl dark:bg-slate-900">
+      <div
+        ref={dialogRef}
+        className="flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-[var(--border-primary)] bg-white shadow-2xl dark:bg-slate-900"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="config-repository-drift-title"
+        tabIndex={-1}
+      >
         <div className="flex items-start justify-between gap-4 border-b border-[var(--border-primary)] px-5 py-4">
           <div>
             <p className="text-xs uppercase tracking-wide text-[var(--text-secondary)] font-semibold">Config Repository Drift</p>
-            <h3 className="text-lg font-semibold text-[var(--text-primary)]">{title}</h3>
+            <h3 id="config-repository-drift-title" className="text-lg font-semibold text-[var(--text-primary)]">{title}</h3>
             {drift && (
               <p className="text-xs text-[var(--text-secondary)]">
                 {drift.base_branch || 'main'} to {drift.push_branch || 'push branch'}
               </p>
             )}
           </div>
-          <button type="button" className="pipelines-icon-only" aria-label="Close" onClick={onClose}>
+          <button type="button" className="pipelines-icon-only" aria-label="Close" onClick={onClose} data-dialog-initial-focus>
             <X className="h-4 w-4" />
           </button>
         </div>

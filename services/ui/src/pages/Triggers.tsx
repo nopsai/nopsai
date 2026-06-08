@@ -5,8 +5,9 @@ import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups'
 import { escapeRegExp, findLineNumberByRegex, findLineNumberForKey, parseYamlWithLocation } from '../lib/yamlValidation';
 import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
 import { EditorAutocompleteMenu } from '../features/editor/EditorAutocompleteMenu';
+import { TriggerRecentRuns } from '../features/triggers/TriggerRecentRuns';
 import {
-  checkTriggerPermission as checkTriggerPermissionRequest,
+  checkTriggerPermission,
   deleteTrigger,
   fetchTriggerAutocompleteResources,
   fetchTriggerDetail,
@@ -15,13 +16,12 @@ import {
   fetchTriggers,
   saveTrigger,
 } from '../features/triggers/api';
+import { useTriggerPermissions } from '../features/triggers/useTriggerPermissions';
 
 const INITIAL_RECENT_RUNS = 5;
 const RUNS_PAGE_SIZE = 10;
 const RUNS_CACHE_TTL = 60 * 1000;
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
-const TRIGGER_PERMISSION_PROBE_NAME = '__nopsai_permission_probe__';
-
 const TRIGGER_ROOT_KEYS = ['triggers'];
 const TRIGGER_KEYS = ['on', 'branches', 'skip_branches', 'tags', 'pipelines', 'scope'];
 const TRIGGER_EVENT_OPTIONS = ['push', 'pull_request', 'schedule'];
@@ -305,9 +305,6 @@ function TriggersPage({
 
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
   const selectedSlugRef = useRef<string | null>(null);
-  const [folderWriteAllowed, setFolderWriteAllowed] = useState(false);
-  const [selectedWriteAllowed, setSelectedWriteAllowed] = useState(false);
-
   const [detail, setDetail] = useState<TriggerDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -369,15 +366,6 @@ function TriggersPage({
     window.setTimeout(() => {
       setToasts(prev => prev.filter(toast => toast.id !== id));
     }, 3200);
-  }, []);
-
-  const buildPermissionProbeRepository = (folder: string) => {
-    const cleaned = folder.trim().replace(/^\/+|\/+$/g, '');
-    return cleaned ? `${cleaned}/${TRIGGER_PERMISSION_PROBE_NAME}` : TRIGGER_PERMISSION_PROBE_NAME;
-  };
-
-  const checkTriggerPermission = useCallback(async (action: string, resourceID: string) => {
-    return checkTriggerPermissionRequest(action, resourceID);
   }, []);
 
   const encodeSlug = (slug: string) => slug.split('/').map(encodeURIComponent).join('/');
@@ -872,35 +860,6 @@ function TriggersPage({
     }
   }, []);
 
-  const formatRelativeTime = (value?: string) => {
-    if (!value) return 'N/A';
-    const timestamp = new Date(value).getTime();
-    if (Number.isNaN(timestamp)) return value;
-    const delta = (Date.now() - timestamp) / 1000;
-    if (delta < 60) return 'Just now';
-    if (delta < 3600) return `${Math.floor(delta / 60)}m ago`;
-    if (delta < 86400) return `${Math.floor(delta / 3600)}h ago`;
-    return `${Math.floor(delta / 86400)}d ago`;
-  };
-
-  const formatRef = (ref?: string) => {
-    if (!ref) return '—';
-    return ref.replace(/^refs\/heads\//i, '').replace(/^refs\/tags\//i, '');
-  };
-
-  const statusClass = (status?: string) => {
-    const key = (status || '').toLowerCase();
-    if (key === 'success' || key === 'succeeded') return 'runner-pill--ok';
-    if (key === 'failure' || key === 'failed' || key === 'error' || key === 'cancelled') return 'runner-pill--error';
-    return 'runner-pill--muted';
-  };
-
-  const statusLabel = (status?: string) => {
-    const value = (status || '').replace(/_/g, ' ').trim();
-    if (!value) return 'unknown';
-    return value.charAt(0).toUpperCase() + value.slice(1);
-  };
-
   const loadRecentRuns = useCallback(async (slug: string, pipelines: PipelineRef[]) => {
     const target = slug;
     setRunsLoading(true);
@@ -1008,48 +967,10 @@ function TriggersPage({
   };
 
   const permissionFolder = selectedSlug ? folderForSlug(selectedSlug) : activeFolder;
-
-  useEffect(() => {
-    let cancelled = false;
-    setFolderWriteAllowed(false);
-    void checkTriggerPermission('trigger.update', buildPermissionProbeRepository(permissionFolder))
-      .then(allowed => {
-        if (!cancelled) setFolderWriteAllowed(allowed);
-      })
-      .catch(() => {
-        if (!cancelled) setFolderWriteAllowed(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [checkTriggerPermission, permissionFolder]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!selectedSlug) {
-      setSelectedWriteAllowed(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    setSelectedWriteAllowed(false);
-    void checkTriggerPermission('trigger.update', selectedSlug)
-      .then(allowed => {
-        if (!cancelled) setSelectedWriteAllowed(allowed);
-      })
-      .catch(() => {
-        if (!cancelled) setSelectedWriteAllowed(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [checkTriggerPermission, selectedSlug]);
-
-  const canCreateTriggerHere = folderWriteAllowed;
-  const canUpdateSelectedTrigger = selectedWriteAllowed;
+  const {
+    canCreateTriggerHere,
+    canUpdateSelectedTrigger,
+  } = useTriggerPermissions(permissionFolder, selectedSlug);
 
   const openCreateModal = () => {
     if (!canCreateTriggerHere) return;
@@ -1756,6 +1677,14 @@ function TriggersPage({
                         <textarea
                           ref={editorRef}
                           id="triggers-yaml-editor"
+                          aria-label="Trigger YAML editor"
+                          aria-describedby="trigger-validation-status"
+                          aria-invalid={validation.errors.length > 0}
+                          aria-autocomplete="list"
+                          aria-controls={editorSuggestion ? 'trigger-editor-autocomplete' : undefined}
+                          aria-activedescendant={
+                            editorSuggestion ? `trigger-editor-autocomplete-option-${editorSuggestion.activeIndex}` : undefined
+                          }
                           value={editorValue}
                           onChange={event => {
                             const next = event.target.value;
@@ -1765,44 +1694,69 @@ function TriggersPage({
                           }}
                           onScroll={handleEditorScroll}
                           onKeyDown={event => {
-                          if (event.ctrlKey && event.code === 'Space') {
-                            event.preventDefault();
-                            const cursor = event.currentTarget.selectionStart || 0;
-                            if (editorSuggestion) {
-                              setEditorSuggestion(null);
+                            if (event.ctrlKey && event.code === 'Space') {
+                              event.preventDefault();
+                              const cursor = event.currentTarget.selectionStart || 0;
+                              if (editorSuggestion) {
+                                setEditorSuggestion(null);
                               } else {
                                 openEditorSuggestion(cursor, { force: true });
                               }
-                            return;
-                          }
+                              return;
+                            }
 
-                          if (event.key === 'Tab') {
-                            event.preventDefault();
-                            handleIndentTab(event);
-                            return;
-                          }
+                            if (editorSuggestion && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+                              event.preventDefault();
+                              setEditorSuggestion(current => {
+                                if (!current || !current.items.length) return current;
+                                const direction = event.key === 'ArrowDown' ? 1 : -1;
+                                return {
+                                  ...current,
+                                  activeIndex: (current.activeIndex + direction + current.items.length) % current.items.length,
+                                };
+                              });
+                              return;
+                            }
 
-                          if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey) {
-                            event.preventDefault();
-                            handleAutoIndentEnter(event);
-                            return;
-                          }
+                            if (editorSuggestion && event.key === 'Enter' && !event.shiftKey && !event.ctrlKey) {
+                              event.preventDefault();
+                              const selectedSuggestion = editorSuggestion.items[editorSuggestion.activeIndex];
+                              if (selectedSuggestion) applyEditorSuggestion(selectedSuggestion);
+                              return;
+                            }
 
-                          if (editorSuggestion && event.key === 'Escape') {
-                            event.preventDefault();
-                            setEditorSuggestion(null);
-                          }
-                        }}
-                        onClick={event => {
-                          const cursor = event.currentTarget.selectionStart || 0;
-                          openEditorSuggestion(cursor);
-                        }}
+                            if (editorSuggestion && event.key === 'Escape') {
+                              event.preventDefault();
+                              setEditorSuggestion(null);
+                              return;
+                            }
+
+                            if (event.key === 'Tab') {
+                              event.preventDefault();
+                              handleIndentTab(event);
+                              return;
+                            }
+
+                            if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey) {
+                              event.preventDefault();
+                              handleAutoIndentEnter(event);
+                            }
+                          }}
+                          onClick={event => {
+                            const cursor = event.currentTarget.selectionStart || 0;
+                            openEditorSuggestion(cursor);
+                          }}
                           spellCheck={false}
                         ></textarea>
 
                       </div>
 
-                      <div id="validation-status" className={`validation-box ${validation.errors.length ? '' : 'validation-box--success'}`}>
+                      <div
+                        id="trigger-validation-status"
+                        className={`validation-box ${validation.errors.length ? '' : 'validation-box--success'}`}
+                        role="status"
+                        aria-live="polite"
+                      >
                         <div className="validation-box__header">{validation.errors.length ? 'Invalid' : 'Valid'}</div>
                         {validation.errors.length > 0 &&
                           validation.errors.slice(0, 3).map((err, idx) => (
@@ -1819,6 +1773,7 @@ function TriggersPage({
                       </div>
                       {editorSuggestion ? (
                         <EditorAutocompleteMenu
+                          id="trigger-editor-autocomplete"
                           suggestion={editorSuggestion}
                           loading={autocompleteMeta.loading}
                           width={340}
@@ -1873,60 +1828,15 @@ function TriggersPage({
                 </div>
               </div>
 
-              <div className="glass-card overflow-hidden">
-                <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b border-[var(--border-primary)]">
-                  <h3 className="text-lg font-semibold text-[var(--text-primary)]">Recent PipelineRuns</h3>
-                </div>
-                <div className="p-4">
-                  {runsLoading ? (
-                    <p className="text-sm text-[var(--text-secondary)]">Loading runs…</p>
-                  ) : runsError ? (
-                    <p className="text-sm text-red-500">Failed to load runs: {runsError}</p>
-                  ) : recentRuns.length ? (
-                    <ul
-                      ref={recentRunsListRef}
-                      onScroll={handleRecentRunsScroll}
-                      className={`triggers-runs-list ${recentRuns.length >= INITIAL_RECENT_RUNS ? 'triggers-runs-scroll' : ''}`}
-                    >
-                      {recentRuns.map(run => {
-                        const runId = run.run_id || '';
-                        const triggerId = run.trigger_event_id || '';
-                        const shortRunId = runId ? String(runId).slice(0, 8) : 'unknown';
-                        const shortTriggerId = triggerId ? String(triggerId).slice(0, 8) : 'unknown';
-                        return (
-                          <li key={`run-${runId}`} className="triggers-runs-item">
-                            <button
-                              type="button"
-                              className="pipelines-run-row w-full text-left"
-                              onClick={() => navigate(`/pipelineruns/recent/${encodeURIComponent(runId)}`)}
-                              title={`Open run ${runId}`}
-                            >
-                              <div className="triggers-run-row w-full">
-                                <div className="triggers-run-row__line triggers-run-row__line--primary">
-                                  <span className="triggers-run-row__pipeline">{run.pipeline_name || 'pipeline'}</span>
-                                  <span className="triggers-run-row__time">{formatRelativeTime(run.started_at)}</span>
-                                </div>
-                                <div className="triggers-run-row__line triggers-run-row__line--status">
-                                  <span className={`runner-pill ${statusClass(run.status)}`}>{statusLabel(run.status)}</span>
-                                  <span className="runner-pill runner-pill--muted">{formatRef(run.git_ref)}</span>
-                                </div>
-                                <dl className="triggers-detail-grid triggers-run-details">
-                                  <dt className="triggers-detail-label">Run ID:</dt>
-                                  <dd className="triggers-detail-value">{shortRunId}</dd>
-                                  <dt className="triggers-detail-label">Trigger:</dt>
-                                  <dd className="triggers-detail-value">{shortTriggerId}</dd>
-                                </dl>
-                              </div>
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  ) : (
-                    <p className="text-sm text-[var(--text-secondary)]">No recent runs for this trigger.</p>
-                  )}
-                </div>
-              </div>
+              <TriggerRecentRuns
+                runs={recentRuns}
+                loading={runsLoading}
+                error={runsError}
+                scrollable={recentRuns.length >= INITIAL_RECENT_RUNS}
+                listRef={recentRunsListRef}
+                onScroll={handleRecentRunsScroll}
+                onOpenRun={runId => navigate(`/pipelineruns/recent/${encodeURIComponent(runId)}`)}
+              />
             </div>
           </div>
         </div>
