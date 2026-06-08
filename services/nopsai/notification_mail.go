@@ -1,16 +1,20 @@
 package nopsai
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"database/sql"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"mime/multipart"
+	"mime/quotedprintable"
 	"net"
 	"net/http"
 	"net/mail"
 	"net/smtp"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,6 +63,13 @@ type notificationMailTestRequest struct {
 	To      string `json:"to"`
 	Subject string `json:"subject"`
 	Body    string `json:"body"`
+}
+
+type notificationMailMessage struct {
+	FromName string
+	Subject  string
+	TextBody string
+	HTMLBody string
 }
 
 func defaultNotificationMailSettings() notificationMailSettingsFile {
@@ -193,15 +204,12 @@ func (a *App) handleTestNotificationMailSettings(w http.ResponseWriter, r *http.
 		http.Error(w, "mail notifications are disabled", http.StatusBadRequest)
 		return
 	}
-	subject := strings.TrimSpace(req.Subject)
-	if subject == "" {
-		subject = "NopsAI mail notification test"
+	mailMessage, err := a.renderNotificationMailTest(settings.notificationMailSettingsFile, to, req.Subject, req.Body)
+	if err != nil {
+		http.Error(w, "failed to render mail notification test", http.StatusInternalServerError)
+		return
 	}
-	body := strings.TrimSpace(req.Body)
-	if body == "" {
-		body = "NopsAI mail notifications are configured."
-	}
-	if err := sendNotificationMail(r.Context(), settings.notificationMailSettingsFile, []string{to}, subject, body); err != nil {
+	if err := sendNotificationMailMessage(r.Context(), settings.notificationMailSettingsFile, []string{to}, mailMessage); err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -323,6 +331,13 @@ func scanNotificationMailSettings(row interface{ Scan(dest ...any) error }) (not
 }
 
 func sendNotificationMail(ctx context.Context, settings notificationMailSettingsFile, recipients []string, subject, body string) error {
+	return sendNotificationMailMessage(ctx, settings, recipients, notificationMailMessage{
+		Subject:  subject,
+		TextBody: body,
+	})
+}
+
+func sendNotificationMailMessage(ctx context.Context, settings notificationMailSettingsFile, recipients []string, mailMessage notificationMailMessage) error {
 	settings, err := normalizeNotificationMailSettings(settings)
 	if err != nil {
 		return err
@@ -337,7 +352,10 @@ func sendNotificationMail(ctx context.Context, settings notificationMailSettings
 			return fmt.Errorf("smtp password secret %q is not available", ref)
 		}
 	}
-	message := buildNotificationMailMessage(settings.From, recipients, subject, body)
+	message, err := buildNotificationMailMessage(settings.From, recipients, mailMessage)
+	if err != nil {
+		return err
+	}
 	addr := net.JoinHostPort(settings.SMTP.Host, fmt.Sprintf("%d", settings.SMTP.Port))
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	if ctx == nil {
@@ -384,7 +402,11 @@ func sendSMTPMessage(client *smtp.Client, settings notificationMailSettingsFile,
 			return fmt.Errorf("SMTP authentication failed: %w", err)
 		}
 	}
-	if err := client.Mail(settings.From); err != nil {
+	from, err := mail.ParseAddress(settings.From)
+	if err != nil {
+		return fmt.Errorf("failed to parse SMTP sender: %w", err)
+	}
+	if err := client.Mail(from.Address); err != nil {
 		return fmt.Errorf("failed to set SMTP sender: %w", err)
 	}
 	for _, recipient := range recipients {
@@ -409,19 +431,95 @@ func sendSMTPMessage(client *smtp.Client, settings notificationMailSettingsFile,
 	return nil
 }
 
-func buildNotificationMailMessage(from string, to []string, subject, body string) []byte {
-	subject = strings.TrimSpace(subject)
+func buildNotificationMailMessage(from string, to []string, mailMessage notificationMailMessage) ([]byte, error) {
+	subject := sanitizeMailHeader(mailMessage.Subject)
 	if subject == "" {
 		subject = "NopsAI notification"
 	}
+	fromAddress, err := mail.ParseAddress(from)
+	if err != nil {
+		return nil, fmt.Errorf("invalid mail sender: %w", err)
+	}
+	if fromName := sanitizeMailHeader(mailMessage.FromName); fromName != "" {
+		fromAddress.Name = fromName
+	}
+	recipients := make([]string, 0, len(to))
+	for _, raw := range to {
+		recipient, err := mail.ParseAddress(raw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid mail recipient %q: %w", raw, err)
+		}
+		recipients = append(recipients, recipient.String())
+	}
+
+	var body bytes.Buffer
 	headers := []string{
-		"From: " + from,
-		"To: " + strings.Join(to, ", "),
+		"From: " + fromAddress.String(),
+		"To: " + strings.Join(recipients, ", "),
 		"Subject: " + encodeMailHeader(subject),
-		"Content-Type: text/plain; charset=utf-8",
+		"Date: " + time.Now().UTC().Format(time.RFC1123Z),
 		"MIME-Version: 1.0",
 	}
-	return []byte(strings.Join(headers, "\r\n") + "\r\n\r\n" + body + "\r\n")
+	if strings.TrimSpace(mailMessage.HTMLBody) == "" {
+		headers = append(headers,
+			"Content-Type: text/plain; charset=utf-8",
+			"Content-Transfer-Encoding: quoted-printable",
+		)
+		body.WriteString(strings.Join(headers, "\r\n"))
+		body.WriteString("\r\n\r\n")
+		writer := quotedprintable.NewWriter(&body)
+		if _, err := writer.Write([]byte(mailMessage.TextBody)); err != nil {
+			return nil, err
+		}
+		if err := writer.Close(); err != nil {
+			return nil, err
+		}
+		body.WriteString("\r\n")
+		return body.Bytes(), nil
+	}
+
+	multipartWriter := multipart.NewWriter(&body)
+	headers = append(headers, "Content-Type: multipart/alternative; boundary="+multipartWriter.Boundary())
+	headerBlock := strings.Join(headers, "\r\n") + "\r\n\r\n"
+	var parts bytes.Buffer
+	partWriter := multipart.NewWriter(&parts)
+	if err := partWriter.SetBoundary(multipartWriter.Boundary()); err != nil {
+		return nil, err
+	}
+	if err := writeNotificationMailPart(partWriter, "text/plain; charset=utf-8", mailMessage.TextBody); err != nil {
+		return nil, err
+	}
+	if err := writeNotificationMailPart(partWriter, "text/html; charset=utf-8", mailMessage.HTMLBody); err != nil {
+		return nil, err
+	}
+	if err := partWriter.Close(); err != nil {
+		return nil, err
+	}
+	body.Reset()
+	body.WriteString(headerBlock)
+	body.Write(parts.Bytes())
+	return body.Bytes(), nil
+}
+
+func writeNotificationMailPart(writer *multipart.Writer, contentType, content string) error {
+	headers := make(textproto.MIMEHeader)
+	headers.Set("Content-Type", contentType)
+	headers.Set("Content-Transfer-Encoding", "quoted-printable")
+	part, err := writer.CreatePart(headers)
+	if err != nil {
+		return err
+	}
+	encoded := quotedprintable.NewWriter(part)
+	if _, err := encoded.Write([]byte(content)); err != nil {
+		return err
+	}
+	return encoded.Close()
+}
+
+func sanitizeMailHeader(value string) string {
+	value = strings.ReplaceAll(value, "\r", " ")
+	value = strings.ReplaceAll(value, "\n", " ")
+	return strings.TrimSpace(value)
 }
 
 func encodeMailHeader(value string) string {

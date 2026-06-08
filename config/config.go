@@ -77,6 +77,12 @@ type Config struct {
 	LogLevel    string `yaml:"log_level" env:"LOG_LEVEL"`
 	LogFormat   string `yaml:"log_format" env:"LOG_FORMAT"`
 	Environment string `yaml:"environment" env:"NOPSAI_ENVIRONMENT"`
+	PublicURL   string `yaml:"public_url" env:"NOPSAI_PUBLIC_URL"`
+
+	NotificationMailLogoURL       string `yaml:"notification_mail_logo_url" env:"NOPSAI_MAIL_LOGO_URL"`
+	NotificationMailWebsiteURL    string `yaml:"notification_mail_website_url" env:"NOPSAI_MAIL_WEBSITE_URL"`
+	NotificationMailSupportURL    string `yaml:"notification_mail_support_url" env:"NOPSAI_MAIL_SUPPORT_URL"`
+	NotificationMailFooterAddress string `yaml:"notification_mail_footer_address" env:"NOPSAI_MAIL_FOOTER_ADDRESS"`
 
 	RequireProductionGates bool `yaml:"require_production_gates" env:"NOPSAI_REQUIRE_PRODUCTION_GATES"`
 

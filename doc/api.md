@@ -300,6 +300,32 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
   http://localhost:8080/v1/system/notifications/mail/test
 ```
 
+The test endpoint sends the same multipart HTML/plain-text format used by
+operational mail. Its configuration-verification message shows the SMTP
+endpoint, security mode, authentication status, sender, recipient, environment,
+and generation time without exposing credentials. Optional `subject` and
+`body` fields remain supported; `body` is rendered as an escaped test note.
+
+Pipeline notification messages use multipart HTML and plain text. Failure
+messages include the failed or last active step/task, counts for passed and
+total steps, per-step task progress, repository/run links, and up to five
+deduplicated error lines. Log excerpts are length-limited, HTML-escaped, and
+redact common password, secret, token, authorization, and API-key patterns.
+
+Mail presentation and links are configured at runtime:
+
+| Environment variable | Purpose |
+| --- | --- |
+| `NOPSAI_PUBLIC_URL` | Browser-reachable application URL used for run links and the default logo URL. |
+| `NOPSAI_MAIL_LOGO_URL` | Optional absolute mail logo URL. |
+| `NOPSAI_MAIL_WEBSITE_URL` | Optional footer website; defaults to `NOPSAI_PUBLIC_URL`. |
+| `NOPSAI_MAIL_SUPPORT_URL` | Optional footer support link. |
+| `NOPSAI_MAIL_FOOTER_ADDRESS` | Optional organization/legal address shown in the footer. |
+
+Only absolute `http` and `https` URLs are rendered. When no public URL is
+configured, the message remains complete but omits the run link and remote
+logo.
+
 Group notification routes:
 
 ```bash

@@ -60,14 +60,19 @@ scripts/enterprise-gates.sh
 
 The script runs:
 
-- `go test ./...`
-- `go test -race ./...`
+- `scripts/test-backend.sh`
+- `scripts/test-backend.sh -race`
 - `go vet ./...`
 - `golangci-lint run ./...`
 - `gosec ./...`
 - `govulncheck ./...`
 - Docker build checks for the base image, all Go service images, the pipeline
   helper image, and the UI image
+
+`scripts/test-backend.sh` tests `config`, shared Go packages, and every service
+except `services/ui`. This keeps frontend dependencies under `node_modules`
+outside Go package discovery, including when Docker Compose runs backend and UI
+checks concurrently.
 
 Set `SKIP_DOCKER_BUILDS=1` when validating Go/lint/security gates without
 local Docker builds.

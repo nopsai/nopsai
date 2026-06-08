@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { resolvePostLoginPath } from '../auth/authRedirect';
 import { apiClient, loginLocal, persistSession } from '../lib/api';
 
 type SetupPreflightCheck = {
@@ -21,6 +22,7 @@ type SetupPreflight = {
 };
 
 export default function LoginPage({ onLogin }: { onLogin: () => void }) {
+  const location = useLocation();
   const navigate = useNavigate();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -71,7 +73,10 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
         mustChangePassword: Boolean(resp.must_change_password),
       });
       onLogin();
-      navigate(resp.must_change_password ? '/profile' : '/pipelineruns/main', { replace: true });
+      navigate(
+        resp.must_change_password ? '/profile' : resolvePostLoginPath(location.state),
+        { replace: true }
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
