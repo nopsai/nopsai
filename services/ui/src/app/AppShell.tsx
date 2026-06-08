@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { NavLink, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { BranchIcon, IconMenu, IconX, RunIdIcon } from './icons';
 import {
   SIDEBAR_MAX_WIDTH,
@@ -41,25 +41,13 @@ import { useResourceTrees } from './useResourceTrees';
 import { BaseSidebarNavigation } from './BaseSidebarNavigation';
 import { useInitialSetupRedirect } from './useInitialSetupRedirect';
 import { usePipelineRunsSidebar } from './usePipelineRunsSidebar';
+import { AppRoutes, PageLoading } from './AppRoutes';
 import { getAppAccess } from '../auth/capabilities';
-import { PermissionGuard } from '../auth/permissionGuards';
 import { useAuth } from '../auth/AuthContext';
 import { buildLoginRedirectState, resolvePostLoginPath } from '../auth/authRedirect';
 import AppHelp from '../components/AppHelp';
 
-const PipelineRunsPage = lazy(() => import('../pages/PipelineRuns'));
-const PipelinesPage = lazy(() => import('../pages/Pipelines'));
-const SchedulesPage = lazy(() => import('../pages/Schedules'));
-const TriggersPage = lazy(() => import('../pages/Triggers'));
-const ExternalTriggersPage = lazy(() => import('../pages/ExternalTriggers'));
-const ScopesPage = lazy(() => import('../pages/Scopes'));
-const LabPage = lazy(() => import('../pages/Lab'));
-const StepsPage = lazy(() => import('../pages/Steps'));
-const KnowledgeContextPage = lazy(() => import('../pages/KnowledgeContext'));
-const MonitoringPage = lazy(() => import('../pages/Monitoring'));
-const SystemPage = lazy(() => import('../pages/System'));
 const LoginPage = lazy(() => import('../pages/Login'));
-const ProfilePage = lazy(() => import('../pages/Profile'));
 
 const getInitialTheme = (): Theme => {
   if (typeof window === 'undefined') return 'light';
@@ -67,10 +55,6 @@ const getInitialTheme = (): Theme => {
   if (stored === 'dark' || stored === 'light') return stored;
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 };
-
-function PageLoading() {
-  return <div className="p-6 text-sm text-[var(--text-secondary)]">Loading...</div>;
-}
 
 function AppShell() {
   const location = useLocation();
@@ -90,22 +74,12 @@ function AppShell() {
   const {
     draftScope,
     canWritePipelines,
-    canDeletePipelines,
     canViewSchedules,
-    canWriteSchedules,
-    canDeleteSchedules,
     canWriteSteps,
-    canDeleteSteps,
     canViewTriggers,
-    canDeleteTriggers,
     canViewExternalTriggers,
-    canWriteExternalTriggers,
-    canDeleteExternalTriggers,
     canViewScopes,
-    canDeleteScopes,
     canViewKnowledge,
-    canWriteKnowledge,
-    canDeleteKnowledge,
     canViewSystemRuntimeConfig,
     canViewSystemConfig,
     canViewSystemSetup,
@@ -116,7 +90,6 @@ function AppShell() {
     canViewAnySystem,
     preferredSystemPath,
     isInitialAdminUser,
-    systemPermissions,
   } = access;
   const sidebar = useSidebarState(location.pathname);
 
@@ -222,17 +195,6 @@ function AppShell() {
   }, [location.pathname]);
   const isLoginRoute = location.pathname === '/login';
 
-  const renderAccessControlledPage = useCallback(
-    (allowed: boolean, element: ReactNode) => {
-      return (
-        <PermissionGuard allowed={allowed} loading={currentUserLoading}>
-          {element}
-        </PermissionGuard>
-      );
-    },
-    [currentUserLoading]
-  );
-
   return (
     <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
       {isLoginRoute ? (
@@ -281,7 +243,14 @@ function AppShell() {
               className={`hidden sm:block w-1.5 cursor-col-resize flex-shrink-0 transition-colors duration-200 ${sidebar.isResizing ? 'bg-[var(--border-accent)]' : 'bg-[var(--bg-tertiary)] hover:bg-[var(--border-accent)]'}`}
               onMouseDown={sidebar.startResize}
               onTouchStart={sidebar.startResize}
+              onKeyDown={sidebar.resizeWithKeyboard}
+              role="separator"
+              tabIndex={0}
               aria-label="Resize sidebar"
+              aria-orientation="vertical"
+              aria-valuemin={SIDEBAR_MIN_WIDTH}
+              aria-valuemax={SIDEBAR_MAX_WIDTH}
+              aria-valuenow={sidebar.width}
             ></div>
             <main className="flex-1 flex flex-col overflow-hidden">
               <Header
@@ -295,83 +264,15 @@ function AppShell() {
                 onOpenProfile={handleOpenProfile}
               />
               <div id="page-content-wrapper" className="flex-1 overflow-auto">
-                <Suspense fallback={<PageLoading />}>
-                  <Routes>
-                    <Route path="/" element={<Navigate to="/pipelineruns/main" replace />} />
-                    <Route path="/pipelineruns/:tab?" element={<PipelineRunsPage />} />
-                    <Route path="/monitoring" element={<MonitoringPage />} />
-                    <Route
-                      path="/pipelines/*"
-                      element={<PipelinesPage draftScope={draftScope} canDeletePipelines={canDeletePipelines} />}
-                    />
-                    <Route
-                      path="/schedules/*"
-                      element={renderAccessControlledPage(
-                        canViewSchedules,
-                        <SchedulesPage canWriteSchedules={canWriteSchedules} canDeleteSchedules={canDeleteSchedules} />
-                      )}
-                    />
-                    <Route
-                      path="/triggers/*"
-                      element={renderAccessControlledPage(
-                        canViewTriggers,
-                        <TriggersPage canDeleteTriggers={canDeleteTriggers} />
-                      )}
-                    />
-                    <Route
-                      path="/external-triggers/*"
-                      element={renderAccessControlledPage(
-                        canViewExternalTriggers,
-                        <ExternalTriggersPage
-                          canWriteExternalTriggers={canWriteExternalTriggers}
-                          canDeleteExternalTriggers={canDeleteExternalTriggers}
-                        />
-                      )}
-                    />
-                    <Route
-                      path="/scopes/*"
-                      element={renderAccessControlledPage(
-                        canViewScopes,
-                        <ScopesPage canDeleteScopes={canDeleteScopes} />
-                      )}
-                    />
-                    <Route path="/lab/*" element={<LabPage />} />
-                    <Route
-                      path="/steps/*"
-                      element={<StepsPage draftScope={draftScope} canDeleteSteps={canDeleteSteps} />}
-                    />
-                    <Route
-                      path="/knowledge-context/*"
-                      element={renderAccessControlledPage(
-                        canViewKnowledge,
-                        <KnowledgeContextPage canWriteKnowledge={canWriteKnowledge} canDeleteKnowledge={canDeleteKnowledge} />
-                      )}
-                    />
-                    <Route
-                      path="/system/:tab?"
-                      element={renderAccessControlledPage(
-                        canViewAnySystem,
-                        <SystemPage permissions={systemPermissions} />
-                      )}
-                    />
-                    <Route
-                      path="/profile"
-                      element={
-                        <ProfilePage
-                          user={currentUser}
-                          loading={currentUserLoading}
-                          onLogout={handleLogout}
-                          onUserUpdated={handleUserUpdated}
-                          mustChangePassword={Boolean(authSession.mustChangePassword)}
-                          onPasswordChanged={markPasswordChanged}
-                          canAccessSystem={canViewAnySystem}
-                          systemPath={preferredSystemPath}
-                        />
-                      }
-                    />
-                    <Route path="*" element={<Navigate to="/pipelineruns/main" replace />} />
-                  </Routes>
-                </Suspense>
+                <AppRoutes
+                  access={access}
+                  currentUser={currentUser}
+                  currentUserLoading={currentUserLoading}
+                  mustChangePassword={Boolean(authSession.mustChangePassword)}
+                  onLogout={handleLogout}
+                  onPasswordChanged={markPasswordChanged}
+                  onUserUpdated={handleUserUpdated}
+                />
               </div>
             </main>
           </div>
@@ -849,7 +750,7 @@ function Sidebar({
         </div>
         <BaseSidebarNavigation navItems={navItems} systemSubNav={systemSubNav} locationPathname={locationPathname} />
         <div className="flex-1 overflow-y-auto sidebar-scrollbar border-t border-[var(--border-primary)]">
-          <nav id="sidebar-details-nav" className="px-4 py-4 space-y-2">
+          <nav id="sidebar-details-nav" className="px-4 py-4 space-y-2" aria-label="Contextual">
             {isPipelineRunsRoute ? (
               <PipelineRunsSidebarContent
                 tab={pipelineRunsTab}
@@ -1363,6 +1264,7 @@ function Header({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const initials = (() => {
     const base = (currentUser?.sub || currentUser?.email || 'U').trim();
     const cleaned = base.replace(/[^A-Za-z0-9]/g, '');
@@ -1383,7 +1285,10 @@ function Header({
       }
     };
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMenuOpen(false);
+      if (event.key === 'Escape') {
+        setMenuOpen(false);
+        requestAnimationFrame(() => menuButtonRef.current?.focus());
+      }
     };
     document.addEventListener('mousedown', handleClick);
     document.addEventListener('keydown', handleKey);
@@ -1413,18 +1318,26 @@ function Header({
         <AppHelp />
         <div className="relative" ref={menuRef}>
           <button
+            ref={menuButtonRef}
             type="button"
             onClick={() => setMenuOpen(open => !open)}
             className={`flex items-center gap-3 px-3 h-11 rounded-full border bg-[var(--bg-secondary)] text-[var(--text-primary)] shadow-sm transition-all ${
               menuOpen ? 'border-[var(--border-accent)]' : 'border-[var(--border-primary)] hover:border-[var(--border-accent)]'
             } focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)]`}
-            aria-haspopup="true"
+            aria-label={`Open user menu for ${displayName}`}
+            aria-haspopup="menu"
             aria-expanded={menuOpen}
+            aria-controls={menuOpen ? 'user-menu' : undefined}
           >
             <span className="text-sm font-semibold text-[var(--text-primary)] max-w-[160px] truncate">{displayName}</span>
           </button>
           {menuOpen && (
-            <div className="absolute right-0 mt-2 w-72 rounded-2xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-2xl overflow-hidden z-[500]">
+            <div
+              id="user-menu"
+              className="absolute right-0 mt-2 w-72 rounded-2xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-2xl overflow-hidden z-[500]"
+              role="menu"
+              aria-label="User menu"
+            >
               <div className="p-4 border-b border-[var(--border-primary)] bg-[var(--bg-tertiary)]/70 backdrop-blur-sm">
                 <p className="text-xs uppercase tracking-wide text-[var(--text-secondary)] mb-1">Signed in as</p>
                 <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{userLoading ? 'Loading…' : displayName}</p>
@@ -1432,6 +1345,7 @@ function Header({
               </div>
               <div className="p-2 space-y-1">
                 <button
+                  role="menuitem"
                   className="w-full text-left px-3 py-2 rounded-lg hover:bg-[var(--bg-tertiary)] text-[var(--text-primary)] text-sm"
                   onClick={() => {
                     closeMenu();
@@ -1441,6 +1355,7 @@ function Header({
                   View profile
                 </button>
                 <button
+                  role="menuitem"
                   className="w-full text-left px-3 py-2 rounded-lg hover:bg-[var(--bg-tertiary)] text-[var(--text-primary)] text-sm"
                   onClick={() => {
                     closeMenu();
@@ -1451,6 +1366,7 @@ function Header({
                 </button>
                 {onLogout && (
                   <button
+                    role="menuitem"
                     className="w-full text-left px-3 py-2 rounded-lg hover:bg-[var(--bg-tertiary)] text-[var(--text-primary)] text-sm"
                     onClick={() => {
                       closeMenu();

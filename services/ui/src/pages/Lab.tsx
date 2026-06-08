@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import yaml from 'js-yaml';
 import { apiClient } from '../lib/api';
+import { LabRunControls } from '../features/lab/LabRunControls';
+import { useLabRunAuthorization } from '../features/lab/useLabRunAuthorization';
+import { useLabRunMutation } from '../features/lab/useLabRunMutation';
+import { useLabSession } from '../features/lab/useLabSession';
 import {
-  DEFAULT_PIPELINE_NAME,
   applyEnterIndent,
   buildSuggestionItems,
   buildValidationExample,
   detectSuggestionContext,
   suggestionCopyForContext,
-  validateOverrideKey,
   validatePipelineYamlStrict,
   type LabSuggestionContext,
   type LabSuggestionItem,
@@ -19,35 +21,7 @@ import { renderYamlHighlight } from '../lib/yamlRenderer';
 
 type PipelineListItem = { id: string; source?: string };
 
-type OverrideRow = { id: number; key: string; value: string };
-
-type LabFeedback = { tone: 'success' | 'error' | 'info'; message: string; runId?: string } | null;
-
-type ResourceUseCheckResult = {
-  allowed: boolean;
-  reason?: string;
-  action?: string;
-  resource_type?: string;
-  resource_id?: string;
-};
-
-type LabRunValidationState = {
-  loading: boolean;
-  checks: ResourceUseCheckResult[];
-  error: string | null;
-};
-
-type LabSessionState = {
-  version: 1;
-  selectedPipelineId: string;
-  yaml: string;
-  originalYaml: string;
-  scope: string;
-  overrides: Array<{ key: string; value: string }>;
-};
-
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
-const LAB_SESSION_STORAGE_KEY = 'nopsai.lab.session.v1';
 
 function normalizeScopeLabel(value: unknown): string {
   if (value == null) return '';
@@ -55,19 +29,6 @@ function normalizeScopeLabel(value: unknown): string {
     .trim()
     .replace(/^\/+|\/+$/g, '');
   return normalized.toLowerCase() === 'default' ? '' : normalized;
-}
-
-function buildBlankYaml(name = DEFAULT_PIPELINE_NAME) {
-  return [
-    `name: ${name}`,
-    'version: latest',
-    'description: Lab pipeline (ad-hoc)',
-    'container_image: alpine:latest',
-    'steps:',
-    '  - name: hello',
-    '    script: echo "Hello from Lab"',
-    '',
-  ].join('\n');
 }
 
 function normalizeList(payload: unknown): string[] {
@@ -126,80 +87,6 @@ function normalizeMCPProfileSuggestionList(payload: unknown): string[] {
     .filter(Boolean);
 }
 
-function encodeId(id: string) {
-  return id.split('/').map(encodeURIComponent).join('/');
-}
-
-function parsePipelineName(yamlText: string): string {
-  const match = yamlText.match(/^\s*name:\s*([^\s]+)/m);
-  return match ? match[1] : '';
-}
-
-function extractRunId(payload: unknown): string {
-  if (!payload) return '';
-  if (typeof payload === 'string') {
-    const fullMatch = payload.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
-    if (fullMatch) return fullMatch[0];
-    const shortMatch = payload.match(/[0-9a-f]{8}-[0-9a-f]{4}/i);
-    return shortMatch ? shortMatch[0] : '';
-  }
-  if (typeof payload === 'object') {
-    const record = payload as Record<string, unknown>;
-    const runId = record.run_id ?? record.id ?? '';
-    return typeof runId === 'string' ? runId : '';
-  }
-  return '';
-}
-
-function collectLabResourceUseChecks(selectedPipelineId: string, yamlText: string, scopeValue: string) {
-  const checks: Array<{ action: string; resource_type: string; resource_id: string }> = [];
-  const pipelineID = selectedPipelineId.trim() || parsePipelineName(yamlText).trim() || DEFAULT_PIPELINE_NAME;
-  if (pipelineID) {
-    checks.push({ action: 'pipeline.use', resource_type: 'pipeline', resource_id: pipelineID.replace(/^\/+|\/+$/g, '') });
-  }
-  const scopeID = normalizeScopeLabel(scopeValue);
-  if (scopeID) {
-    checks.push({ action: 'scope.use', resource_type: 'scope', resource_id: scopeID });
-  }
-
-  try {
-    const parsed = yaml.load(yamlText) as Record<string, unknown> | null;
-    const steps = Array.isArray(parsed?.steps) ? parsed.steps : [];
-    const seen = new Set(checks.map(check => `${check.action}:${check.resource_type}:${check.resource_id}`));
-    steps.forEach(step => {
-      if (!step || typeof step !== 'object') return;
-      const include = (step as Record<string, unknown>).include;
-      if (typeof include !== 'string') return;
-      const trimmed = include.trim();
-      const lower = trimmed.toLowerCase();
-      let next: { action: string; resource_type: string; resource_id: string } | null = null;
-      if (lower.startsWith('step:')) {
-        const resourceID = trimmed.slice(5).trim().replace(/^\/+|\/+$/g, '');
-        if (resourceID) next = { action: 'step.use', resource_type: 'step', resource_id: resourceID };
-      } else if (lower.startsWith('pipeline:')) {
-        const resourceID = trimmed.slice(9).trim().replace(/^\/+|\/+$/g, '');
-        if (resourceID) next = { action: 'pipeline.use', resource_type: 'pipeline', resource_id: resourceID };
-      }
-      if (!next) return;
-      const key = `${next.action}:${next.resource_type}:${next.resource_id}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      checks.push(next);
-    });
-  } catch {
-    return checks;
-  }
-
-  return checks;
-}
-
-function formatRunCheck(check: ResourceUseCheckResult) {
-  const type = String(check.resource_type || '').replace(/_/g, ' ');
-  const id = String(check.resource_id || '');
-  if (!type && !id) return 'Resource';
-  return `${type} ${id}`.trim();
-}
-
 function buildInlineSuggestionPreview(item: LabSuggestionItem, contextInfo: LabSuggestionContext): string {
   const prefix = typeof contextInfo.prefix === 'string' ? contextInfo.prefix : '';
   const snippetSource = item.value || item.snippet || '';
@@ -222,35 +109,12 @@ function buildInlineSuggestionPreview(item: LabSuggestionItem, contextInfo: LabS
 function LabPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const initialSession = useMemo<LabSessionState | null>(() => {
-    if (typeof window === 'undefined') return null;
-    try {
-      const raw = sessionStorage.getItem(LAB_SESSION_STORAGE_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as Partial<LabSessionState>;
-      if (!parsed || parsed.version !== 1) return null;
-      if (typeof parsed.yaml !== 'string') return null;
-      return {
-        version: 1,
-        selectedPipelineId: typeof parsed.selectedPipelineId === 'string' ? parsed.selectedPipelineId : '',
-        yaml: parsed.yaml,
-        originalYaml: typeof parsed.originalYaml === 'string' ? parsed.originalYaml : parsed.yaml,
-        scope: typeof parsed.scope === 'string' ? parsed.scope : '',
-        overrides: Array.isArray(parsed.overrides)
-          ? parsed.overrides.map(row => ({ key: typeof row?.key === 'string' ? row.key : '', value: typeof row?.value === 'string' ? row.value : '' }))
-          : [],
-      };
-    } catch {
-      return null;
-    }
-  }, []);
 
   const [pipelines, setPipelines] = useState<PipelineListItem[]>([]);
   const [pipelinesLoading, setPipelinesLoading] = useState(false);
   const [pipelinesError, setPipelinesError] = useState<string | null>(null);
 
   const [scopes, setScopes] = useState<string[]>([]);
-  const [scopeValue, setScopeValue] = useState(initialSession?.scope ?? '');
 
   const [autocompleteMeta, setAutocompleteMeta] = useState<{
     secrets: string[];
@@ -263,22 +127,22 @@ function LabPage() {
   }>({ secrets: [], variables: [], llmProfiles: [], mcpProfiles: [], reusableSteps: [], fetchedAt: 0, loading: false });
   const autocompleteFetchRef = useRef<{ fetchedAt: number; loadingPromise: Promise<void> | null }>({ fetchedAt: 0, loadingPromise: null });
   const pipelineHandoffRef = useRef('');
-
-  const [selectedPipelineId, setSelectedPipelineId] = useState(initialSession?.selectedPipelineId ?? '');
-  const [yamlText, setYamlText] = useState(initialSession?.yaml ?? buildBlankYaml());
-  const [originalYaml, setOriginalYaml] = useState(initialSession?.originalYaml ?? (initialSession?.yaml ?? buildBlankYaml()));
-
-  const overrideIdRef = useRef(0);
-  const [overrides, setOverrides] = useState<OverrideRow[]>(() => {
-    const seed = initialSession?.overrides ?? [];
-    return seed.map((row, idx) => ({ id: idx + 1, key: row.key, value: row.value }));
-  });
-
-  const [feedback, setFeedback] = useState<LabFeedback>(null);
-  const [runPending, setRunPending] = useState(false);
-  const [yamlLoading, setYamlLoading] = useState(false);
-  const [runValidation, setRunValidation] = useState<LabRunValidationState>({ loading: false, checks: [], error: null });
-
+  const {
+    addOverride,
+    changePipeline,
+    feedback,
+    overrides,
+    removeOverride,
+    saveSession,
+    scopeValue,
+    selectedPipelineId,
+    setFeedback,
+    setScopeValue,
+    setYamlText,
+    updateOverride,
+    yamlLoading,
+    yamlText,
+  } = useLabSession();
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const highlightContentRef = useRef<HTMLPreElement | null>(null);
   const lineNumbersRef = useRef<HTMLDivElement | null>(null);
@@ -292,8 +156,6 @@ function LabPage() {
   const [portalBody, setPortalBody] = useState<HTMLElement | null>(null);
   const overlayHostNodeRef = useRef<HTMLElement | null>(null);
   const [editorFocused, setEditorFocused] = useState(false);
-
-  const hasUnsavedChanges = useMemo(() => (yamlText || '') !== (originalYaml || ''), [yamlText, originalYaml]);
 
   const validation = useMemo(() => validatePipelineYamlStrict(yamlText), [yamlText]);
 
@@ -315,49 +177,29 @@ function LabPage() {
   const [editorSelection, setEditorSelection] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
 
   const pipelineIds = useMemo(() => pipelines.map(item => item.id).filter(Boolean), [pipelines]);
-  const resourceUseChecks = useMemo(() => collectLabResourceUseChecks(selectedPipelineId, yamlText, scopeValue), [selectedPipelineId, yamlText, scopeValue]);
-  const deniedRunChecks = useMemo(() => runValidation.checks.filter(check => !check.allowed), [runValidation.checks]);
-  const runValidationBlocked = deniedRunChecks.length > 0;
-
-  useEffect(() => {
-    let cancelled = false;
-    const timer = window.setTimeout(async () => {
-      if (validation.errors.length > 0 || resourceUseChecks.length === 0) {
-        setRunValidation({ loading: false, checks: [], error: null });
-        return;
-      }
-      setRunValidation(prev => ({ ...prev, loading: true, error: null }));
-      try {
-        const response = await apiClient.fetch('/v1/authz/resource-use/batch-check', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ checks: resourceUseChecks }),
-        });
-        const payload = await response.json().catch(() => null);
-        if (!response.ok) {
-          throw new Error(typeof payload === 'string' ? payload : `Unable to validate access (${response.status})`);
-        }
-        if (!cancelled) {
-          const checks = Array.isArray(payload?.results) ? payload.results : [];
-          setRunValidation({ loading: false, checks, error: null });
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setRunValidation({ loading: false, checks: [], error: error instanceof Error ? error.message : 'Unable to validate access' });
-        }
-      }
-    }, 250);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [resourceUseChecks, validation.errors.length]);
+  const runValidation = useLabRunAuthorization(
+    selectedPipelineId,
+    yamlText,
+    scopeValue,
+    validation.errors.length
+  );
+  const runValidationBlocked = runValidation.blocked;
+  const { run: handleRun, runPending } = useLabRunMutation({
+    accessBlocked: runValidationBlocked,
+    accessLoading: runValidation.loading,
+    overrides,
+    scopeValue,
+    selectedPipelineId,
+    setFeedback,
+    validationErrorCount: validation.errors.length,
+    yamlText,
+  });
 
   useEffect(() => {
     if (scopeValue && !scopes.includes(scopeValue)) {
       setScopeValue('');
     }
-  }, [scopeValue, scopes]);
+  }, [scopeValue, scopes, setScopeValue]);
 
   const scopeOptions = useMemo(() => {
     const list = scopes
@@ -761,10 +603,6 @@ function LabPage() {
   }, []);
 
   useEffect(() => {
-    overrideIdRef.current = Math.max(overrideIdRef.current, overrides.reduce((max, row) => Math.max(max, row.id), 0));
-  }, [overrides]);
-
-  useEffect(() => {
     if (suggestionContext?.type === 'secrets' && autocompleteMeta.secrets.length === 0 && !autocompleteMeta.loading) {
       void loadAutocomplete();
     }
@@ -882,7 +720,7 @@ function LabPage() {
         textarea.focus();
       }
     },
-    [suggestionContext, yamlText]
+    [setFeedback, setYamlText, suggestionContext, yamlText]
   );
 
   const handleIndentTab = useCallback(() => {
@@ -895,7 +733,7 @@ function LabPage() {
     const nextValue = `${before}  ${after}`;
     setYamlText(nextValue);
     pendingSelectionRef.current = start + 2;
-  }, [yamlText]);
+  }, [setYamlText, yamlText]);
 
   const handleAutoIndentEnter = useCallback(() => {
     const textarea = editorRef.current;
@@ -905,134 +743,7 @@ function LabPage() {
     const { nextValue, nextCursor } = applyEnterIndent(yamlText, start, end);
     setYamlText(nextValue);
     pendingSelectionRef.current = nextCursor;
-  }, [yamlText]);
-
-  const handleSaveSession = useCallback(() => {
-    if (validation.errors.length > 0) {
-      setFeedback({ tone: 'error', message: 'Fix validation errors before saving.' });
-      return;
-    }
-    setOriginalYaml(yamlText);
-    try {
-      const payload: LabSessionState = {
-        version: 1,
-        selectedPipelineId,
-        yaml: yamlText,
-        originalYaml: yamlText,
-        scope: scopeValue,
-        overrides: overrides.map(row => ({ key: row.key, value: row.value })),
-      };
-      sessionStorage.setItem(LAB_SESSION_STORAGE_KEY, JSON.stringify(payload));
-    } catch (error) {
-      console.warn('Unable to save Lab session state', error);
-    }
-    setFeedback({ tone: 'success', message: 'YAML saved for this lab session (pipelines unchanged).' });
-  }, [validation.errors.length, yamlText, selectedPipelineId, scopeValue, overrides]);
-
-  const handleRun = useCallback(async () => {
-    if (validation.errors.length > 0) {
-      setFeedback({ tone: 'error', message: 'Fix validation errors first.' });
-      return;
-    }
-    if (runValidationBlocked) {
-      setFeedback({ tone: 'error', message: 'Run access is not ready yet.' });
-      return;
-    }
-    if (runValidation.loading) {
-      setFeedback({ tone: 'info', message: 'Access check is still running.' });
-      return;
-    }
-
-    const overridesObject: Record<string, string> = {};
-    for (const row of overrides) {
-      const key = row.key.trim();
-      if (!key) continue;
-      if (!validateOverrideKey(key)) {
-        setFeedback({ tone: 'error', message: `Invalid override key '${key}'. Use only letters, numbers, underscore, dot, hyphen.` });
-        return;
-      }
-      overridesObject[key] = row.value;
-    }
-
-    const parsedName = parsePipelineName(yamlText);
-    const pipeline = selectedPipelineId || parsedName || DEFAULT_PIPELINE_NAME;
-
-    const payload: Record<string, unknown> = {
-      pipeline,
-      definition: yamlText,
-    };
-    if (Object.keys(overridesObject).length > 0) payload.variables = overridesObject;
-    if (scopeValue) payload.scope = scopeValue;
-
-    setRunPending(true);
-    setFeedback(null);
-    try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (scopeValue) headers['X-Nopsai-Scope'] = scopeValue;
-
-      const response = await apiClient.fetch('/v1/run', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-      });
-
-      const contentType = response.headers.get('content-type') || '';
-      const body = contentType.includes('application/json') ? await response.json() : await response.text();
-
-      if (!response.ok) {
-        const message = typeof body === 'string' ? body : JSON.stringify(body);
-        throw new Error(message || `Run failed (${response.status})`);
-      }
-
-      const runId = extractRunId(body);
-      setFeedback({ tone: 'success', message: 'Run started!', runId: runId || undefined });
-    } catch (error) {
-      setFeedback({ tone: 'error', message: `Run failed: ${error instanceof Error ? error.message : 'Unknown error'}` });
-    } finally {
-      setRunPending(false);
-    }
-  }, [validation.errors.length, runValidationBlocked, runValidation.loading, overrides, yamlText, selectedPipelineId, scopeValue]);
-
-  const handlePipelineChange = useCallback(
-    async (nextId: string, options?: { reload?: boolean; resetOverrides?: boolean }) => {
-      if (nextId === selectedPipelineId && !options?.reload) return true;
-      if (hasUnsavedChanges && !window.confirm('Discard your current Lab edits?')) {
-        return false;
-      }
-
-      setFeedback(null);
-      setYamlLoading(true);
-      setSelectedPipelineId(nextId);
-      if (options?.resetOverrides) {
-        setOverrides([]);
-      }
-      try {
-        if (!nextId) {
-          const blank = buildBlankYaml();
-          setYamlText(blank);
-          setOriginalYaml(blank);
-          return true;
-        }
-
-        const response = await apiClient.fetch(`/v1/pipelines/${encodeId(nextId)}`);
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(text || `Failed to load pipeline YAML (${response.status})`);
-        }
-        const rawYaml = await response.text();
-        setYamlText(rawYaml);
-        setOriginalYaml(rawYaml);
-        return true;
-      } catch (error) {
-        console.error('Failed to load pipeline YAML', error);
-        setFeedback({ tone: 'error', message: error instanceof Error ? error.message : 'Unable to load pipeline YAML' });
-        return false;
-      } finally {
-        setYamlLoading(false);
-      }
-    },
-    [selectedPipelineId, hasUnsavedChanges]
-  );
+  }, [setYamlText, yamlText]);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -1045,10 +756,10 @@ function LabPage() {
     pipelineHandoffRef.current = requestedPipelineId;
 
     void (async () => {
-      await handlePipelineChange(requestedPipelineId, { reload: true, resetOverrides: true });
+      await changePipeline(requestedPipelineId, { reload: true, resetOverrides: true });
       navigate('/lab', { replace: true });
     })();
-  }, [handlePipelineChange, location.search, navigate]);
+  }, [changePipeline, location.search, navigate]);
 
   const handleOverlayHostRef = useCallback((node: HTMLDivElement | null) => {
     if (overlayHostNodeRef.current && overlayHostNodeRef.current !== node) {
@@ -1061,19 +772,6 @@ function LabPage() {
     } else {
       setOverlayHost(null);
     }
-  }, []);
-
-  const handleAddOverride = useCallback(() => {
-    overrideIdRef.current += 1;
-    setOverrides(prev => [...prev, { id: overrideIdRef.current, key: '', value: '' }]);
-  }, []);
-
-  const handleOverrideChange = useCallback((id: number, field: 'key' | 'value', value: string) => {
-    setOverrides(prev => prev.map(row => (row.id === id ? { ...row, [field]: value } : row)));
-  }, []);
-
-  const handleRemoveOverride = useCallback((id: number) => {
-    setOverrides(prev => prev.filter(row => row.id !== id));
   }, []);
 
   return (
@@ -1111,119 +809,24 @@ function LabPage() {
 
       <div className="flex-1 overflow-auto px-6 pb-8">
         <div className="space-y-5">
-          <div className="glass-card p-6 space-y-5 rounded-2xl shadow-lg ring-1 ring-[var(--border-primary)]/70 bg-gradient-to-br from-[var(--bg-secondary)] to-[var(--bg-tertiary)]">
-            <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-4 items-end">
-              <div>
-                <label htmlFor="lab-pipeline-select" className="block text-sm font-medium text-[var(--text-secondary)]">
-                  Pipeline
-                </label>
-                <select
-                  id="lab-pipeline-select"
-                  className="mt-1 block w-full pipelines-input py-2 px-3 text-sm"
-                  aria-label="Pipeline selection"
-                  value={selectedPipelineId}
-                  disabled={pipelinesLoading || yamlLoading}
-                  onChange={event => void handlePipelineChange(event.target.value)}
-                >
-                  <option value="">Select a pipeline</option>
-                  {pipelines.map(item => (
-                    <option key={item.id} value={item.id}>
-                      {item.id}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label htmlFor="lab-scope-input" className="block text-sm font-medium text-[var(--text-secondary)]">
-                  Target scope
-                </label>
-                <select
-                  id="lab-scope-input"
-                  className="mt-1 block w-full pipelines-input py-2 px-3 text-sm"
-                  aria-label="Target scope selection"
-                  value={scopeValue}
-                  onChange={event => setScopeValue(event.target.value)}
-                >
-                  <option value="">Default scope</option>
-                  {scopeOptions.map(scope => (
-                    <option key={scope} value={scope}>
-                      {`/${scope}`}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-	              <div className="flex flex-wrap items-center gap-2 justify-start md:justify-end">
-	                <button
-	                  id="lab-run-btn"
-	                  type="button"
-	                  className="glass-button-primary"
-	                  onClick={() => void handleRun()}
-	                  disabled={runPending || yamlLoading || validation.errors.length > 0 || runValidation.loading || runValidationBlocked}
-	                >
-	                  <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-	                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 12h4l1-5 4 10 1-5h4" />
-	                  </svg>
-	                  <span>{runPending ? 'Running…' : 'Run'}</span>
-	                </button>
-	              </div>
-	            </div>
-
-	            <div className="rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-3">
-	              <div className="flex items-center justify-between gap-3">
-	                <p className="text-sm font-semibold text-[var(--text-primary)]">
-	                  {validation.errors.length
-	                    ? 'Cannot run yet'
-	                    : runValidation.loading
-	                      ? 'Checking access'
-	                      : runValidation.error || runValidationBlocked
-	                        ? 'Cannot run yet'
-	                        : 'Ready to run'}
-	                </p>
-	                {runValidation.loading ? <span className="text-xs text-[var(--text-secondary)]">Checking…</span> : null}
-	              </div>
-	              {runValidation.error ? <p className="mt-2 text-sm text-red-500">{runValidation.error}</p> : null}
-	              {!runValidation.error && validation.errors.length === 0 ? (
-	                <ul className="mt-2 space-y-1 text-sm">
-	                  {runValidation.checks.length ? (
-	                    runValidation.checks.map((check, index) => (
-	                      <li key={`${check.action}-${check.resource_type}-${check.resource_id}-${index}`} className={check.allowed ? 'text-green-600 dark:text-green-400' : 'text-red-500'}>
-	                        <span aria-hidden="true">{check.allowed ? '✓' : '✕'}</span> {formatRunCheck(check)} {check.allowed ? 'is available' : 'is not available'}
-	                      </li>
-	                    ))
-	                  ) : (
-	                    <li className="text-[var(--text-secondary)]">Select a valid pipeline and scope.</li>
-	                  )}
-	                </ul>
-	              ) : null}
-	            </div>
-
-	            <div
-              id="lab-run-feedback"
-              className={`text-sm ${feedback ? '' : 'hidden'} ${
-                feedback?.tone === 'error'
-                  ? 'text-red-500'
-                  : feedback?.tone === 'success'
-                    ? 'text-green-500'
-                    : 'text-[var(--text-secondary)]'
-              }`}
-            >
-              {feedback && (
-                <>
-                  <span>{feedback.message}</span>
-                  {feedback.runId && (
-                    <>
-                      {' '}
-                      <NavLink className="underline" to="/pipelineruns/main">
-                        View
-                      </NavLink>
-                    </>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
+          <LabRunControls
+            pipelines={pipelines}
+            pipelinesLoading={pipelinesLoading}
+            yamlLoading={yamlLoading}
+            selectedPipelineId={selectedPipelineId}
+            scopeOptions={scopeOptions}
+            scopeValue={scopeValue}
+            runPending={runPending}
+            validationErrorCount={validation.errors.length}
+            accessLoading={runValidation.loading}
+            accessError={runValidation.error}
+            accessBlocked={runValidationBlocked}
+            accessChecks={runValidation.checks}
+            feedback={feedback}
+            onPipelineChange={pipelineId => changePipeline(pipelineId)}
+            onScopeChange={setScopeValue}
+            onRun={() => void handleRun()}
+          />
 
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
             <div className="glass-card p-6 space-y-5 rounded-2xl shadow-lg ring-1 ring-[var(--border-primary)]/70 lg:col-span-3">
@@ -1240,7 +843,7 @@ function LabPage() {
                     type="button"
                     className="glass-button-primary"
                     title="Save this YAML for the current lab session (pipelines stay unchanged)."
-                    onClick={handleSaveSession}
+                    onClick={() => saveSession(validation.errors.length)}
                     disabled={validation.errors.length > 0}
                   >
                     <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1388,7 +991,7 @@ function LabPage() {
                       Variable overrides
                     </h3>
                   </div>
-                  <button id="lab-add-override" type="button" className="glass-button-primary" onClick={handleAddOverride}>
+                  <button id="lab-add-override" type="button" className="glass-button-primary" onClick={addOverride}>
                     <span className="lab-override-add__icon" aria-hidden="true">
                       +
                     </span>
@@ -1407,7 +1010,7 @@ function LabPage() {
                             className="pipelines-input lab-override-input"
                             placeholder="key"
                             value={row.key}
-                            onChange={event => handleOverrideChange(row.id, 'key', event.target.value)}
+                            onChange={event => updateOverride(row.id, 'key', event.target.value)}
                           />
                         </div>
                         <div className="lab-override-field">
@@ -1415,13 +1018,13 @@ function LabPage() {
                             className="pipelines-input lab-override-input"
                             placeholder="value"
                             value={row.value}
-                            onChange={event => handleOverrideChange(row.id, 'value', event.target.value)}
+                            onChange={event => updateOverride(row.id, 'value', event.target.value)}
                           />
                         </div>
                         <button
                           type="button"
                           className="lab-override-remove"
-                          onClick={() => handleRemoveOverride(row.id)}
+                          onClick={() => removeOverride(row.id)}
                           aria-label="Remove override"
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

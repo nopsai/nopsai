@@ -31,6 +31,87 @@ export type RunListItem = {
   failure_reason?: string;
 };
 
+export type TaskDefinition = {
+  name: string;
+  goal?: string;
+  script?: string;
+  depends_on?: string[];
+  ignore_failure?: boolean;
+  llm_profile?: string;
+  mcp_profiles?: string[];
+  llm_output_sharing?: boolean;
+  variables?: Record<string, string>;
+};
+
+export type ApprovalDefinition = {
+  type?: string;
+  groups?: string[];
+  allow_self_approval?: boolean;
+};
+
+export type StepConfiguration = {
+  include?: string;
+  sync?: boolean;
+  approval?: ApprovalDefinition;
+  image?: string;
+  secrets?: string[];
+  volumes?: string[];
+  variables?: Record<string, string>;
+  ignore_failure?: boolean;
+  llm_profile?: string;
+  mcp_profiles?: string[];
+  runtime_pool?: string;
+  llm_output_sharing?: boolean;
+  goal?: string;
+  script?: string;
+  tasks?: TaskDefinition[];
+};
+
+export type TaskDetail = {
+  task_id: string;
+  step_name: string;
+  task_name: string;
+  status: string;
+  exit_code?: number | null;
+  started_at?: string;
+  finished_at?: string;
+  task_index: number;
+};
+
+export type StepDetail = {
+  name: string;
+  status: string;
+  depends_on: string[];
+  tasks: TaskDetail[];
+  duration?: string;
+  started_at?: string;
+  finished_at?: string;
+  configuration?: StepConfiguration;
+};
+
+export type PipelineDefinition = {
+  name?: string;
+  description?: string;
+  version?: string;
+  llm_profile?: string;
+  mcp_profiles?: string[];
+  runtime_pool?: string;
+  affinity_enabled?: boolean;
+  steps?: Array<{
+    name: string;
+    description?: string;
+    depends_on?: string[];
+    approval?: ApprovalDefinition;
+    tasks?: TaskDefinition[];
+    goal?: string;
+    script?: string;
+    llm_profile?: string;
+    mcp_profiles?: string[];
+    runtime_pool?: string;
+    llm_output_sharing?: boolean;
+  }>;
+};
+
 export type GraphStatus = 'success' | 'failed' | 'running' | 'pending' | 'skipped' | 'cancelled';
 
 export type GraphPoint = { x: number; y: number };

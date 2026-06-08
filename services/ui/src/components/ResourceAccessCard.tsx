@@ -3,6 +3,7 @@ import { AlertTriangle, GitBranch, Plus, RefreshCw, Trash2, Users, X } from 'luc
 
 import { apiClient } from '../lib/api';
 import { buildResourceGroupPaths, type ResourceGroup } from '../lib/resourceGroups';
+import { useDialogFocus } from './useDialogFocus';
 
 type AccessGrant = {
   id: string;
@@ -136,6 +137,8 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
   const endpoint = useMemo(() => encodeResourcePath(resourceType, resourceID), [resourceType, resourceID]);
   const grants = access?.use_access?.grants || [];
   const showGrantControls = access?.visibility === 'restricted' || grants.length > 0;
+  const closeDialog = useCallback(() => setOpen(false), []);
+  const dialogRef = useDialogFocus(closeDialog, open);
 
   const loadAccess = useCallback(async () => {
     if (!resourceID.trim()) {
@@ -289,17 +292,24 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
 
       {open ? (
         <div id="resource-access-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show px-4 py-6">
-          <div className="pipelines-modal-card max-w-2xl w-full overflow-hidden">
+          <div
+            ref={dialogRef}
+            className="pipelines-modal-card max-w-2xl w-full overflow-hidden"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="resource-access-title"
+            tabIndex={-1}
+          >
             <header className="pipelines-modal-header">
               <div>
                 <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">Access</p>
-                <h3 className="text-lg font-semibold text-[var(--text-primary)]">Who can use this {label}?</h3>
+                <h3 id="resource-access-title" className="text-lg font-semibold text-[var(--text-primary)]">Who can use this {label}?</h3>
               </div>
               <div className="flex items-center gap-2">
-                <button className="glass-button-ghost" type="button" onClick={() => void loadAccess()} disabled={loading || saving} title="Refresh access">
+                <button className="glass-button-ghost" type="button" onClick={() => void loadAccess()} disabled={loading || saving} aria-label="Refresh access">
                   <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                 </button>
-                <button className="glass-button-ghost" type="button" onClick={() => setOpen(false)} disabled={saving}>
+                <button className="glass-button-ghost" type="button" onClick={closeDialog} disabled={saving} data-dialog-initial-focus>
                   <X className="h-4 w-4" />
                   <span>Close</span>
                 </button>
@@ -307,8 +317,8 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
             </header>
 
             <div className="pipelines-modal-body space-y-5 max-h-[calc(100vh-180px)] overflow-auto">
-              {error ? <p className="text-sm text-red-500 whitespace-pre-wrap">{error}</p> : null}
-              {!access && !error ? <p className="text-sm text-[var(--text-secondary)]">Loading access…</p> : null}
+              {error ? <p className="text-sm text-red-500 whitespace-pre-wrap" role="alert">{error}</p> : null}
+              {!access && !error ? <p className="text-sm text-[var(--text-secondary)]" role="status">Loading access…</p> : null}
 
               {access ? (
                 <>
@@ -387,6 +397,7 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
                     <div className="grid gap-2 sm:grid-cols-[150px_1fr_auto]">
                       <select
                         className="pipelines-input px-3 py-2 text-sm"
+                        aria-label="Grant subject type"
                         value={subjectType}
                         onChange={event => {
                           const nextType = event.target.value as GrantSubjectType;
@@ -402,6 +413,7 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
                       {subjectType === 'group' ? (
                         <select
                           className="pipelines-input px-3 py-2 text-sm"
+                          aria-label="Grant group"
                           value={subjectID}
                           onChange={event => setSubjectID(event.target.value)}
                           disabled={saving || groupsLoading || groups.length === 0}
@@ -420,6 +432,7 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
                         <>
                           <input
                             className="pipelines-input px-3 py-2 text-sm"
+                            aria-label="Grant service account"
                             value={subjectID}
                             onChange={event => setSubjectID(event.target.value)}
                             placeholder={serviceAccountsLoading ? 'Loading service accounts...' : 'servicenow-prod'}
@@ -437,6 +450,7 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
                       ) : (
                         <input
                           className="pipelines-input px-3 py-2 text-sm"
+                          aria-label="Grant repository"
                           value={subjectID}
                           onChange={event => setSubjectID(event.target.value)}
                           placeholder="owner/repo"

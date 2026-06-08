@@ -49,6 +49,7 @@ import {
   type ScheduleFormState,
   type ScheduleModalState,
 } from '../features/schedules/model';
+import { useDialogFocus } from '../components/useDialogFocus';
 
 type SchedulesPageProps = {
   canWriteSchedules: boolean;
@@ -644,13 +645,24 @@ function ScheduleFormModal({
   };
   const selectedWeekdays = new Set(normalizeCronList(form.cronWeekday, WEEKDAY_VALUES, '1').split(','));
   const selectedMonthdays = new Set(normalizeCronList(form.cronMonthday, MONTHDAY_VALUES, '1').split(','));
+  const dialogRef = useDialogFocus(onClose);
+  const titleId = 'schedule-form-title';
+  const errorId = 'schedule-form-error';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] p-4">
-      <div className="w-full max-w-3xl rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-2xl">
+      <div
+        ref={dialogRef}
+        className="w-full max-w-3xl rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={formError ? errorId : undefined}
+        tabIndex={-1}
+      >
         <div className="flex items-center justify-between gap-3 border-b border-[var(--border-primary)] p-4">
           <div className="min-w-0">
-            <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+            <h2 id={titleId} className="text-lg font-semibold text-[var(--text-primary)]">
               {modal.mode === 'edit' ? 'Edit schedule' : 'New schedule'}
             </h2>
             {modal.schedule?.managed_by_config_repo ? (
@@ -671,6 +683,7 @@ function ScheduleFormModal({
                 value={form.name}
                 onChange={event => update({ name: event.target.value })}
                 disabled={disabled}
+                data-dialog-initial-focus
               />
             </label>
             <label className="space-y-1 md:col-span-2">
@@ -975,7 +988,7 @@ function ScheduleFormModal({
             </label>
           </div>
 
-          {formError ? <p className="mt-4 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700">{formError}</p> : null}
+          {formError ? <p id={errorId} className="mt-4 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700" role="alert">{formError}</p> : null}
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-primary)] p-4">

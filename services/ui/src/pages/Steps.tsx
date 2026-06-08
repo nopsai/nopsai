@@ -6,7 +6,6 @@ import {
   deleteStepDraft,
   getStepDraftStorageKey,
   loadStepDrafts,
-  type StepDraft,
   upsertStepDraft,
 } from '../lib/stepDrafts';
 import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups';
@@ -14,8 +13,12 @@ import { applyEnterIndent, findParentBlock } from '../lib/lab';
 import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
 import ResourceAccessCard from '../components/ResourceAccessCard';
 import { fetchEditorAutocompleteMetadata } from '../features/editor/autocomplete';
+import { EditorAutocompleteMenu } from '../features/editor/EditorAutocompleteMenu';
+import { ResourceWorkflowModals } from '../features/editor/ResourceWorkflowModals';
+import { useDraftCollection } from '../features/editor/useDraftCollection';
+import { useYamlResourceMutations } from '../features/editor/useYamlResourceMutations';
 import {
-  checkStepPermission as checkStepPermissionRequest,
+  checkStepPermission,
   deleteStep,
   fetchStepList,
   fetchStepUsage,
@@ -31,38 +34,14 @@ import {
   formatUpdatedAt,
   normalizeRootPath,
   normalizeSource,
+  parseStepYaml,
   splitIdentifier,
   validateStepYaml,
+  type StepDetail,
 } from '../features/steps/model';
+import { useStepPermissions } from '../features/steps/useStepPermissions';
 
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
-const STEP_PERMISSION_PROBE_NAME = '__nopsai_permission_probe__';
-
-type StepDetail = {
-  id: string;
-  name: string;
-  path: string;
-  description: string;
-  rawYaml: string;
-  source?: string;
-  updatedAt?: string;
-};
-
-type FormModalState = {
-  mode: 'create' | 'clone';
-  path: string;
-  name: string;
-  pending: boolean;
-  error?: string;
-  baseYaml?: string;
-};
-
-type DeleteModalState = {
-  stepId: string;
-  stepName: string;
-  pending: boolean;
-  error?: string;
-};
 
 type ToastMessage = {
   id: number;
@@ -83,12 +62,21 @@ type StepsPageProps = {
   canDeleteSteps: boolean;
 };
 
+function buildStepTemplateYaml(name: string) {
+  return [
+    `name: ${name}`,
+    'description: Describe what this step does.',
+    'script: |',
+    `  echo "Implement ${name}"`,
+    '',
+  ].join('\n');
+}
+
 function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
   const navigate = useNavigate();
   const location = useLocation();
 
   const [serverSteps, setServerSteps] = useState<StepListItem[]>([]);
-  const [draftSteps, setDraftSteps] = useState<StepDraft[]>([]);
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
 
@@ -100,9 +88,6 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedIdRef = useRef<string | null>(null);
-  const [folderCreateAllowed, setFolderCreateAllowed] = useState(false);
-  const [selectedUpdateAllowed, setSelectedUpdateAllowed] = useState(false);
-
   const [detail, setDetail] = useState<StepDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -113,7 +98,31 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
 
   const [isEditing, setIsEditing] = useState(false);
   const [editorValue, setEditorValue] = useState('');
-  const [saving, setSaving] = useState(false);
+  const {
+    permissionFolder,
+    canCreateStepHere,
+    canUpdateSelectedStep,
+  } = useStepPermissions(selectedId, activeFolder);
+  const canUseStepDrafts = canCreateStepHere || canUpdateSelectedStep;
+  const {
+    drafts: draftSteps,
+    draftsByID: draftsById,
+    removeDraft: removeStepDraft,
+    upsertDraft: upsertStepDraftState,
+  } = useDraftCollection({
+    enabled: canUseStepDrafts,
+    scope: draftScope,
+    changedEvent: STEP_DRAFTS_CHANGED_EVENT,
+    getStorageKey: getStepDraftStorageKey,
+    load: loadStepDrafts,
+    upsert: upsertStepDraft,
+    remove: deleteStepDraft,
+    autosave: {
+      active: Boolean(detail && isEditing && normalizeSource(detail.source) === 'draft'),
+      id: detail?.id || '',
+      yaml: editorValue,
+    },
+  });
 
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const highlightContentRef = useRef<HTMLPreElement | null>(null);
@@ -146,8 +155,6 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     groupedSections?: Array<{ label: string; items: string[]; totalCount: number }>;
   }>(null);
 
-  const [formModal, setFormModal] = useState<FormModalState | null>(null);
-  const [deleteModal, setDeleteModal] = useState<DeleteModalState | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   const addToast = useCallback((message: string, tone: ToastMessage['tone'] = 'info') => {
@@ -157,19 +164,6 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
       setToasts(prev => prev.filter(toast => toast.id !== id));
     }, 3200);
   }, []);
-
-  const buildPermissionProbeIdentifier = (folder: string) => {
-    const cleaned = folder.trim().replace(/^\/+|\/+$/g, '');
-    return cleaned ? `${cleaned}/${STEP_PERMISSION_PROBE_NAME}` : STEP_PERMISSION_PROBE_NAME;
-  };
-
-  const checkStepPermission = useCallback((action: string, resourceID: string) => checkStepPermissionRequest(action, resourceID), []);
-
-  const draftsById = useMemo(() => {
-    const map = new Map<string, StepDraft>();
-    draftSteps.forEach(draft => map.set(draft.id, draft));
-    return map;
-  }, [draftSteps]);
 
   const syncEditorOverlays = useCallback((textarea: HTMLTextAreaElement | null) => {
     if (!textarea) return;
@@ -394,29 +388,6 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     []
   );
 
-  const parseStepYaml = useCallback((raw: string, id: string, source?: string, updatedAt?: string): StepDetail => {
-    const safe = (value: unknown) => (typeof value === 'string' ? value : '');
-    let parsed: Record<string, unknown> | null = null;
-    try {
-      const loaded = yaml.load(raw) as unknown;
-      if (loaded && typeof loaded === 'object' && !Array.isArray(loaded)) {
-        parsed = loaded as Record<string, unknown>;
-      }
-    } catch (error) {
-      console.warn('Failed to parse step YAML for metadata', error);
-    }
-    const { name: fallbackName, path } = splitIdentifier(id);
-    return {
-      id,
-      name: safe(parsed?.name).trim() || fallbackName,
-      description: safe(parsed?.description) || 'No description provided.',
-      path,
-      rawYaml: raw,
-      source,
-      updatedAt,
-    };
-  }, []);
-
   const validation = useMemo(() => {
     if (!isEditing) return { errors: [] };
     const expectedName = detail ? splitIdentifier(detail.id).name : '';
@@ -474,7 +445,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
         setDetailLoading(false);
       }
     },
-    [draftsById, parseStepYaml]
+    [draftsById]
   );
 
   const loadUsage = useCallback(async (stepId: string) => {
@@ -498,76 +469,6 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
       }
     }
   }, []);
-
-  const permissionFolder = selectedId ? splitIdentifier(selectedId).path : activeFolder;
-
-  useEffect(() => {
-    let cancelled = false;
-    setFolderCreateAllowed(false);
-    void checkStepPermission('step.create', buildPermissionProbeIdentifier(permissionFolder))
-      .then(allowed => {
-        if (!cancelled) setFolderCreateAllowed(allowed);
-      })
-      .catch(() => {
-        if (!cancelled) setFolderCreateAllowed(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [checkStepPermission, permissionFolder]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!selectedId) {
-      setSelectedUpdateAllowed(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    setSelectedUpdateAllowed(false);
-    void checkStepPermission('step.update', selectedId)
-      .then(allowed => {
-        if (!cancelled) setSelectedUpdateAllowed(allowed);
-      })
-      .catch(() => {
-        if (!cancelled) setSelectedUpdateAllowed(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [checkStepPermission, selectedId]);
-
-  const canCreateStepHere = folderCreateAllowed;
-  const canUpdateSelectedStep = selectedUpdateAllowed;
-  const canUseStepDrafts = canCreateStepHere || canUpdateSelectedStep;
-
-  useEffect(() => {
-    if (!canUseStepDrafts || !draftScope) {
-      setDraftSteps([]);
-      return;
-    }
-    setDraftSteps(loadStepDrafts(draftScope));
-  }, [canUseStepDrafts, draftScope]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    if (!canUseStepDrafts || !draftScope) return;
-    const storageKey = getStepDraftStorageKey(draftScope);
-    const refreshDrafts = () => setDraftSteps(loadStepDrafts(draftScope));
-    const onStorage = (event: StorageEvent) => {
-      if (event.key !== storageKey) return;
-      refreshDrafts();
-    };
-    window.addEventListener(STEP_DRAFTS_CHANGED_EVENT, refreshDrafts);
-    window.addEventListener('storage', onStorage);
-    return () => {
-      window.removeEventListener(STEP_DRAFTS_CHANGED_EVENT, refreshDrafts);
-      window.removeEventListener('storage', onStorage);
-    };
-  }, [canUseStepDrafts, draftScope]);
 
   const steps = useMemo(() => {
     const merged = new Map<string, StepListItem>();
@@ -659,17 +560,6 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
   }, [editorValue, isEditing]);
 
   useEffect(() => {
-    if (!detail || !isEditing) return;
-    if (!canUseStepDrafts || !draftScope) return;
-    if (normalizeSource(detail.source) !== 'draft') return;
-    const draftId = detail.id;
-    const handle = window.setTimeout(() => {
-      setDraftSteps(upsertStepDraft({ id: draftId, yaml: editorValue }, draftScope));
-    }, 800);
-    return () => window.clearTimeout(handle);
-  }, [canUseStepDrafts, detail, draftScope, editorValue, isEditing]);
-
-  useEffect(() => {
     if (!isEditing) return;
     const handler = (event: BeforeUnloadEvent) => {
       event.preventDefault();
@@ -737,13 +627,6 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     return current || buildTree;
   }, [activeFolder, buildTree]);
 
-  const buildIdentifier = (path: string, name: string) => {
-    const cleanedName = name.trim();
-    const cleanedPath = normalizeRootPath(path);
-    if (!cleanedName) return '';
-    return cleanedPath ? `${cleanedPath}/${cleanedName}` : cleanedName;
-  };
-
   const parentFolder = (path: string) => {
     const parts = path.split('/').filter(Boolean);
     parts.pop();
@@ -758,11 +641,72 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     navigate(cleaned ? `/steps?folder=${encodeURIComponent(cleaned)}` : '/steps');
   };
 
-  const handleSelect = (id: string) => {
+  const handleSelect = useCallback((id: string) => {
     selectedIdRef.current = id;
     setSelectedId(id);
     navigate(`/steps/${id.split('/').map(encodeURIComponent).join('/')}`);
-  };
+  }, [navigate]);
+
+  const parseSavedStep = useCallback(
+    (rawYaml: string, id: string, source?: string) =>
+      parseStepYaml(rawYaml, id, source, new Date().toISOString()),
+    []
+  );
+
+  const handleStepSaved = useCallback((updated: StepDetail) => {
+    setDetail(updated);
+    setEditorValue(updated.rawYaml);
+    setIsEditing(false);
+  }, []);
+
+  const handleStepDeleted = useCallback(() => {
+    setSelectedId(null);
+    selectedIdRef.current = null;
+    navigate('/steps');
+  }, [navigate]);
+
+  const {
+    closeDeleteModal,
+    closeFormModal,
+    confirmDelete,
+    deleteModal,
+    formModal,
+    openCloneModal,
+    openCreateModal,
+    openDeleteModal,
+    save: handleSave,
+    saving,
+    submitFormModal,
+    updateFormModal,
+  } = useYamlResourceMutations({
+    resourceLabel: 'step',
+    resources: steps,
+    detail,
+    editorValue,
+    validationErrorCount: validation.errors.length,
+    validationMessage: 'Fix validation errors before saving.',
+    permissionFolder,
+    draftScope,
+    canCreate: canCreateStepHere,
+    canUpdate: canUpdateSelectedStep,
+    canDelete: canDeleteSteps,
+    canUseDrafts: canUseStepDrafts,
+    namePattern: STEP_NAME_PATTERN,
+    normalizePath: normalizeRootPath,
+    normalizeSource,
+    checkCreatePermission: checkStepPermission,
+    persistYaml: saveStepYaml,
+    deleteResource: deleteStep,
+    upsertDraft: upsertStepDraftState,
+    removeDraft: removeStepDraft,
+    parseSaved: parseSavedStep,
+    reloadResources: loadSteps,
+    addToast,
+    onSelect: handleSelect,
+    onSaved: handleStepSaved,
+    onDeleted: handleStepDeleted,
+    buildTemplate: buildStepTemplateYaml,
+  });
 
   const handleBackToList = () => {
     if (detail) {
@@ -798,173 +742,6 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     URL.revokeObjectURL(url);
   };
 
-  const buildTemplateYaml = (name: string) => {
-    return [
-      `name: ${name}`,
-      'description: Describe what this step does.',
-      'script: |',
-      `  echo "Implement ${name}"`,
-      '',
-    ].join('\n');
-  };
-
-  const updateYamlName = (raw: string, nextName: string) => {
-    try {
-      const parsed = yaml.load(raw) as Record<string, unknown> | undefined;
-      const updated = { ...(parsed || {}), name: nextName };
-      return yaml.dump(updated, { lineWidth: 120 });
-    } catch {
-      const replaced = raw.replace(/^name:\s*.+$/m, `name: ${nextName}`);
-      if (replaced !== raw) return replaced;
-      return `name: ${nextName}\n${raw}`;
-    }
-  };
-
-  const handleSave = async () => {
-    if (!detail || !editorValue.trim()) return;
-    const detailSource = normalizeSource(detail.source);
-    const canPersistStep = detailSource === 'draft' ? canCreateStepHere : canUpdateSelectedStep;
-    if (!canPersistStep) {
-      addToast('You have read-only access to steps.', 'info');
-      return;
-    }
-    if (detailSource === 'git') {
-      addToast('Git-managed steps are read-only. Clone it to create an editable draft.', 'info');
-      return;
-    }
-    if (validation.errors.length > 0) {
-      addToast('Fix validation errors before saving.', 'error');
-      return;
-    }
-    setSaving(true);
-    try {
-      await saveStepYaml(detail.id, editorValue);
-      addToast('Step saved.', 'success');
-      const wasDraft = normalizeSource(detail.source) === 'draft';
-      if (wasDraft) {
-        setDraftSteps(deleteStepDraft(detail.id, draftScope));
-      }
-      const resolvedSource = wasDraft ? 'database' : steps.find(item => item.id === detail.id)?.source;
-      const savedAt = new Date().toISOString();
-      const updated = parseStepYaml(editorValue, detail.id, resolvedSource, savedAt);
-      setDetail(updated);
-      setEditorValue(editorValue);
-      setIsEditing(false);
-      await loadSteps({ quiet: true });
-    } catch (error) {
-      console.error('Save failed', error);
-      addToast(error instanceof Error ? error.message : 'Unable to save step', 'error');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const openCreateModal = () => {
-    if (!canCreateStepHere) {
-      addToast('You have read-only access to steps.', 'info');
-      return;
-    }
-    setFormModal({ mode: 'create', path: permissionFolder, name: '', pending: false });
-  };
-  const openCloneModal = () => {
-    if (!canCreateStepHere) {
-      addToast('You have read-only access to steps.', 'info');
-      return;
-    }
-    if (!detail) {
-      addToast('Select a step to clone.', 'info');
-      return;
-    }
-    const { path, name } = splitIdentifier(detail.id);
-    setFormModal({
-      mode: 'clone',
-      path,
-      name: `${name}-copy`,
-      pending: false,
-      baseYaml: detail.rawYaml,
-    });
-  };
-
-  const submitFormModal = async () => {
-    if (!formModal) return;
-    if (!canCreateStepHere || !draftScope) {
-      setFormModal(prev => (prev ? { ...prev, error: 'You have read-only access to steps.' } : prev));
-      return;
-    }
-    const identifier = buildIdentifier(formModal.path, formModal.name);
-    if (!identifier) {
-      setFormModal(prev => (prev ? { ...prev, error: 'Step name is required.' } : prev));
-      return;
-    }
-    if (!STEP_NAME_PATTERN.test(formModal.name.trim())) {
-      setFormModal(prev =>
-        prev
-          ? { ...prev, error: 'Step name can only contain letters, numbers, dots, underscores, and hyphens.' }
-          : prev
-      );
-      return;
-    }
-    if (steps.some(item => item.id === identifier)) {
-      setFormModal(prev => (prev ? { ...prev, error: 'A step with that identifier already exists.' } : prev));
-      return;
-    }
-    const allowed = await checkStepPermission('step.create', identifier);
-    if (!allowed) {
-      setFormModal(prev => (prev ? { ...prev, error: 'You do not have permission to create steps in this path.' } : prev));
-      return;
-    }
-    setFormModal(prev => (prev ? { ...prev, pending: true, error: undefined } : prev));
-    try {
-      const yamlBody =
-        formModal.mode === 'clone' && formModal.baseYaml
-          ? updateYamlName(formModal.baseYaml, formModal.name.trim())
-          : buildTemplateYaml(formModal.name.trim());
-      setDraftSteps(upsertStepDraft({ id: identifier, yaml: yamlBody }, draftScope));
-      addToast(`Draft step ${formModal.mode === 'create' ? 'created' : 'cloned'}.`, 'success');
-      setFormModal(null);
-      handleSelect(identifier);
-    } catch (error) {
-      console.error('Draft save failed', error);
-      setFormModal(prev => (prev ? { ...prev, error: error instanceof Error ? error.message : 'Unable to create draft' } : prev));
-    } finally {
-      setFormModal(prev => (prev ? { ...prev, pending: false } : prev));
-    }
-  };
-
-  const confirmDelete = async () => {
-    if (!deleteModal) return;
-    setDeleteModal(prev => (prev ? { ...prev, pending: true, error: undefined } : prev));
-    try {
-      const source = steps.find(item => item.id === deleteModal.stepId)?.source;
-      const normalizedSource = normalizeSource(source);
-      if (normalizedSource === 'git') {
-        throw new Error('This step is managed via Git. Clone it to customize instead of deleting.');
-      }
-      if (normalizedSource === 'draft') {
-        if (!canUseStepDrafts || !draftScope) {
-          throw new Error('You have read-only access to steps.');
-        }
-        setDraftSteps(deleteStepDraft(deleteModal.stepId, draftScope));
-      } else {
-        if (!canDeleteSteps) {
-          throw new Error('You do not have permission to delete steps.');
-        }
-        await deleteStep(deleteModal.stepId);
-      }
-      addToast('Step deleted.', 'success');
-      setDeleteModal(null);
-      setSelectedId(null);
-      selectedIdRef.current = null;
-      navigate('/steps');
-      await loadSteps();
-    } catch (error) {
-      console.error('Delete failed', error);
-      setDeleteModal(prev => (prev ? { ...prev, error: error instanceof Error ? error.message : 'Unable to delete step' } : prev));
-    } finally {
-      setDeleteModal(prev => (prev ? { ...prev, pending: false } : prev));
-    }
-  };
-
   const renderStepCard = (step: StepListItem) => {
     const { name, path } = splitIdentifier(step.id);
     const source = normalizeSource(step.source);
@@ -998,7 +775,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
                 title={source === 'draft' ? 'Discard draft' : 'Delete step'}
                 onClick={event => {
                   event.stopPropagation();
-                  setDeleteModal({ stepId: step.id, stepName: name || step.id, pending: false });
+                  openDeleteModal(step.id, name || step.id);
                 }}
                 aria-label={source === 'draft' ? 'Discard draft step' : 'Delete step'}
               >
@@ -1197,7 +974,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
                             setEditorSuggestion(null);
                             setEditorValue(resetYaml);
                             if (normalizeSource(detail.source) === 'draft' && draftScope) {
-                              setDraftSteps(upsertStepDraft({ id: detail.id, yaml: resetYaml }, draftScope));
+                              upsertStepDraftState({ id: detail.id, yaml: resetYaml });
                             }
                             setIsEditing(false);
                           }}
@@ -1236,6 +1013,14 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
                         <textarea
                           ref={editorRef}
                           id="step-yaml-editor"
+                          aria-label="Step YAML editor"
+                          aria-describedby="step-validation-status"
+                          aria-invalid={validation.errors.length > 0}
+                          aria-autocomplete="list"
+                          aria-controls={editorSuggestion ? 'step-editor-autocomplete' : undefined}
+                          aria-activedescendant={
+                            editorSuggestion ? `step-editor-autocomplete-option-${editorSuggestion.activeIndex}` : undefined
+                          }
                           value={editorValue}
                           onChange={event => {
                             const next = event.target.value;
@@ -1249,32 +1034,57 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
                           }}
                           onScroll={handleEditorScroll}
                           onKeyDown={event => {
-                          if (event.ctrlKey && event.code === 'Space') {
-                            event.preventDefault();
-                            const cursor = event.currentTarget.selectionStart || 0;
-                            if (editorSuggestion) {
-                              setEditorSuggestion(null);
+                            if (event.ctrlKey && event.code === 'Space') {
+                              event.preventDefault();
+                              const cursor = event.currentTarget.selectionStart || 0;
+                              if (editorSuggestion) {
+                                setEditorSuggestion(null);
                               } else {
                                 openEditorSuggestion(cursor, { force: true });
+                              }
+                              return;
                             }
-                            return;
-                          }
 
-                            if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey) {
+                            if (editorSuggestion && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
                               event.preventDefault();
-                              handleAutoIndentEnter();
+                              setEditorSuggestion(current => {
+                                if (!current || !current.items.length) return current;
+                                const direction = event.key === 'ArrowDown' ? 1 : -1;
+                                return {
+                                  ...current,
+                                  activeIndex: (current.activeIndex + direction + current.items.length) % current.items.length,
+                                };
+                              });
+                              return;
+                            }
+
+                            if (editorSuggestion && event.key === 'Enter' && !event.shiftKey && !event.ctrlKey) {
+                              event.preventDefault();
+                              const selectedSuggestion = editorSuggestion.items[editorSuggestion.activeIndex];
+                              if (selectedSuggestion) applyEditorSuggestion(selectedSuggestion);
                               return;
                             }
 
                             if (editorSuggestion && event.key === 'Escape') {
                               event.preventDefault();
                               setEditorSuggestion(null);
+                              return;
+                            }
+
+                            if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey) {
+                              event.preventDefault();
+                              handleAutoIndentEnter();
                             }
                           }}
                           spellCheck={false}
                         ></textarea>
                       </div>
-                      <div id="step-validation-status" className={`validation-box ${validation.errors.length ? '' : 'validation-box--success'}`}>
+                      <div
+                        id="step-validation-status"
+                        className={`validation-box ${validation.errors.length ? '' : 'validation-box--success'}`}
+                        role="status"
+                        aria-live="polite"
+                      >
                         <div className="validation-box__header">{validation.errors.length ? 'Invalid' : 'Valid'}</div>
                         {validation.errors.length > 0 &&
                           validation.errors.slice(0, 3).map((err, idx) => (
@@ -1289,99 +1099,14 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
                           </div>
                         )}
                       </div>
-                      {editorSuggestion && (
-                        <div
-                          className="pipeline-suggestion-overlay"
-                          style={{
-                            width: 320,
-                            maxWidth: 'calc(100% - 32px)',
-                            right: 16,
-                            bottom: 16,
-                            top: 'auto',
-                            left: 'auto',
-                          }}
-                        >
-                          <div className="scope-suggestion-panel">
-                            <div className="scope-suggestion-heading">
-                              <p className="scope-suggestion-kicker">Autocomplete</p>
-                              <p className="scope-suggestion-title">{editorSuggestion.title}</p>
-                              <p className="scope-suggestion-subtitle">
-                                Ctrl+Space • Enter to insert • Esc to close
-                                {autocompleteMeta.loading ? ' • Loading…' : ''}
-                              </p>
-                            </div>
-                            <div className="scope-suggestion-body">
-                              {editorSuggestion.items.length ? (
-                                <div className="scope-suggestion-list">
-                                  {editorSuggestion.groupedSections && editorSuggestion.groupedSections.length > 0 ? (
-                                    (() => {
-                                      let runningIndex = 0;
-                                      return editorSuggestion.groupedSections.map(section => {
-                                        const startIndex = runningIndex;
-                                        const pills = section.items.map((item, idx) => {
-                                          const globalIndex = startIndex + idx;
-                                          const isActive = editorSuggestion.activeIndex === globalIndex;
-                                          runningIndex += 1;
-                                          return (
-                                            <button
-                                              key={`${section.label}-${item}-${idx}`}
-                                              type="button"
-                                              className={`scope-suggestion-pill scope-suggestion-pill--action ${isActive ? 'scope-suggestion-pill--active' : ''}`}
-                                              onClick={() => applyEditorSuggestion(item)}
-                                            >
-                                              {item}
-                                            </button>
-                                          );
-                                        });
-                                        const remaining = Math.max(0, section.totalCount - section.items.length);
-                                        const hasActive =
-                                          editorSuggestion.activeIndex >= startIndex &&
-                                          editorSuggestion.activeIndex < startIndex + section.items.length;
-                                        return (
-                                          <article
-                                            key={`section-${section.label}`}
-                                            className={`scope-suggestion-item ${hasActive ? 'scope-suggestion-item--active' : ''}`}
-                                          >
-                                            <div className="scope-suggestion-scope">
-                                              <span className="scope-suggestion-scope-label">{section.label}</span>
-                                              <span className="scope-suggestion-scope-count">
-                                                {section.totalCount} {section.totalCount === 1 ? 'item' : 'items'}
-                                              </span>
-                                            </div>
-                                            <div className="scope-suggestion-variables">
-                                              {pills}
-                                              {remaining > 0 && (
-                                                <span className="scope-suggestion-pill scope-suggestion-pill--more">+{remaining} more</span>
-                                              )}
-                                            </div>
-                                          </article>
-                                        );
-                                      });
-                                    })()
-                                  ) : (
-                                    editorSuggestion.items.map((item, idx) => (
-                                      <div
-                                        key={`sg-${item}-${idx}`}
-                                        className={`scope-suggestion-item ${idx === editorSuggestion.activeIndex ? 'scope-suggestion-item--active' : ''}`}
-                                      >
-                                        <button
-                                          type="button"
-                                          className="scope-suggestion-pill scope-suggestion-pill--action"
-                                          onClick={() => applyEditorSuggestion(item)}
-                                        >
-                                          {item}
-                                        </button>
-                                      </div>
-                                    ))
-                                  )}
-                                </div>
-                              ) : (
-                                <p className="scope-suggestion-empty">No suggestions available.</p>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      )}
+                      {editorSuggestion ? (
+                        <EditorAutocompleteMenu
+                          id="step-editor-autocomplete"
+                          suggestion={editorSuggestion}
+                          loading={autocompleteMeta.loading}
+                          onSelect={applyEditorSuggestion}
+                        />
+                      ) : null}
                     </div>
                   )}
                 </div>
@@ -1513,89 +1238,28 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
         )}
       </div>
 
-      {formModal && (
-        <div id={formModal.mode === 'create' ? 'steps-new-modal' : 'steps-clone-modal'} className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
-          <div className="pipelines-modal-card max-w-md w-full">
-            <header className="pipelines-modal-header">
-              <div>
-                <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">
-                  {formModal.mode === 'create' ? 'New step' : 'Clone step'}
-                </p>
-                <h3 className="text-lg font-semibold text-[var(--text-primary)]">
-                  {formModal.mode === 'create' ? 'Create step' : 'Clone step'}
-                </h3>
-              </div>
-              <button className="glass-button-ghost" onClick={() => setFormModal(null)}>
-                Close
-              </button>
-            </header>
-            <div className="pipelines-modal-body space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-[var(--text-secondary)]">Step Path</label>
-                <input
-                  type="text"
-                  className="pipelines-input w-full mt-1"
-                  placeholder="library/docker"
-                  value={formModal.path}
-                  onChange={event => setFormModal(prev => (prev ? { ...prev, path: event.target.value } : prev))}
-                />
-                <p className="text-xs text-[var(--text-secondary)] mt-1">Optional group path. Leave blank for root.</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-[var(--text-secondary)]">Step Name</label>
-                <input
-                  type="text"
-                  className="pipelines-input w-full mt-1"
-                  placeholder="build-image"
-                  value={formModal.name}
-                  onChange={event => setFormModal(prev => (prev ? { ...prev, name: event.target.value } : prev))}
-                />
-              </div>
-              {formModal.error && <p className="text-sm text-red-500">{formModal.error}</p>}
-            </div>
-            <div className="pipelines-modal-footer">
-              <div className="pipelines-modal-actions">
-                <button className="glass-button-ghost" onClick={() => setFormModal(null)} disabled={formModal.pending}>
-                  Cancel
-                </button>
-                <button className="glass-button-primary" onClick={submitFormModal} disabled={formModal.pending}>
-                  {formModal.pending ? 'Saving…' : formModal.mode === 'create' ? 'Create' : 'Clone'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {deleteModal && (
-        <div id="steps-delete-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
-          <div className="pipelines-modal-card max-w-md w-full">
-            <header className="pipelines-modal-header">
-              <div>
-                <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">Delete step</p>
-                <h3 className="text-lg font-semibold text-[var(--text-primary)]">Remove {deleteModal.stepName}?</h3>
-              </div>
-              <button className="glass-button-ghost" onClick={() => setDeleteModal(null)} disabled={deleteModal.pending}>
-                Close
-              </button>
-            </header>
-            <div className="pipelines-modal-body space-y-3">
-              <p className="text-sm text-[var(--text-secondary)]">This action cannot be undone.</p>
-              {deleteModal.error && <p className="text-sm text-red-500">{deleteModal.error}</p>}
-            </div>
-            <div className="pipelines-modal-footer">
-              <div className="pipelines-modal-actions">
-                <button className="glass-button-ghost" onClick={() => setDeleteModal(null)} disabled={deleteModal.pending}>
-                  Cancel
-                </button>
-                <button className="glass-button-danger" onClick={confirmDelete} disabled={deleteModal.pending}>
-                  {deleteModal.pending ? 'Deleting…' : 'Delete'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <ResourceWorkflowModals
+        resourceLabel="step"
+        formModal={formModal}
+        formModalId={mode => (mode === 'create' ? 'steps-new-modal' : 'steps-clone-modal')}
+        pathPlaceholder="library/docker"
+        namePlaceholder="build-image"
+        deleteModal={
+          deleteModal
+            ? {
+                resourceName: deleteModal.resourceName,
+                pending: deleteModal.pending,
+                error: deleteModal.error,
+              }
+            : null
+        }
+        deleteModalId="steps-delete-modal"
+        onChangeForm={updateFormModal}
+        onCloseForm={closeFormModal}
+        onSubmitForm={() => void submitFormModal()}
+        onCloseDelete={closeDeleteModal}
+        onConfirmDelete={() => void confirmDelete()}
+      />
 
       {toasts.length > 0 && (
         <div className="fixed top-6 right-6 z-[100] w-full max-w-sm space-y-3">

@@ -24,6 +24,75 @@ const fullCapabilities = {
   },
 };
 
+const populatedRunDetail = {
+  run_info: {
+    run_id: 'run-1',
+    pipeline_name: 'Enterprise pipeline',
+    pipeline_path: 'platform',
+    pipeline_version: 'v1',
+    pipeline_source: 'database',
+    status: 'success',
+    is_complete: true,
+    started_at: '2026-06-08T10:00:00Z',
+    finished_at: '2026-06-08T10:02:00Z',
+    duration: '2m',
+    git_repo_owner: 'example',
+    git_repo_name: 'platform',
+    git_ref: 'refs/heads/main',
+    git_commit_sha: 'abc123def456',
+    git_pusher_name: 'Release Bot',
+  },
+  steps: [
+    {
+      name: 'build',
+      status: 'success',
+      depends_on: [],
+      started_at: '2026-06-08T10:00:00Z',
+      finished_at: '2026-06-08T10:01:00Z',
+      tasks: [
+        {
+          task_id: 'task-1',
+          step_name: 'build',
+          task_name: 'compile',
+          status: 'success',
+          task_index: 0,
+          started_at: '2026-06-08T10:00:00Z',
+          finished_at: '2026-06-08T10:01:00Z',
+        },
+      ],
+    },
+    {
+      name: 'deploy',
+      status: 'failure',
+      depends_on: ['build'],
+      started_at: '2026-06-08T10:01:00Z',
+      finished_at: '2026-06-08T10:02:00Z',
+      tasks: [
+        {
+          task_id: 'task-2',
+          step_name: 'deploy',
+          task_name: 'publish',
+          status: 'failure',
+          exit_code: 1,
+          task_index: 0,
+          started_at: '2026-06-08T10:01:00Z',
+          finished_at: '2026-06-08T10:02:00Z',
+        },
+      ],
+    },
+  ],
+  pipeline_definition: {
+    name: 'Enterprise pipeline',
+    version: 'v1',
+    steps: [
+      { name: 'build', tasks: [{ name: 'compile' }] },
+      { name: 'deploy', depends_on: ['build'], tasks: [{ name: 'publish', depends_on: ['compile'] }] },
+    ],
+  },
+  pipeline_definition_yaml: 'name: Enterprise pipeline\nversion: v1\nsteps:\n  - name: build\n  - name: deploy\n',
+  child_runs: [],
+};
+
 async function fulfillJson(route: Route, body: unknown, status = 200) {
   await route.fulfill({
     status,
@@ -108,6 +177,22 @@ async function installApiMocks(
       return fulfillJson(route, { allowed: true });
     }
     if (path === '/v1/groups') return fulfillJson(route, []);
+    if (path === '/v1/runs/run-1/approvals') return fulfillJson(route, []);
+    if (path === '/v1/runs/run-1/logs') {
+      return fulfillJson(route, [
+        {
+          id: 1,
+          timestamp: '2026-06-08T10:00:10Z',
+          line: '{"level":"info","step":"build","message":"compiled enterprise workspace"}',
+        },
+        {
+          id: 2,
+          timestamp: '2026-06-08T10:01:10Z',
+          line: '{"level":"error","step":"deploy","message":"deployment smoke failure"}',
+        },
+      ]);
+    }
+    if (path === '/v1/runs/run-1') return fulfillJson(route, populatedRunDetail);
     if (path === '/v1/runs') return fulfillJson(route, url.searchParams.has('groupId') ? {} : []);
     if (path === '/v1/overrides') return fulfillJson(route, []);
     if (path === '/v1/secrets/scopes' || path === '/v1/variables/scopes') return fulfillJson(route, []);
@@ -116,6 +201,20 @@ async function installApiMocks(
     if (path === '/v1/auth/tokens') return fulfillJson(route, []);
     return fulfillJson(route, []);
   });
+}
+
+async function expectNoBlockingAxeViolations(page: Page, include?: string) {
+  const builder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']);
+  if (include) builder.include(include);
+  const results = await builder.analyze();
+  const blocking = results.violations
+    .filter(violation => violation.impact === 'critical' || violation.impact === 'serious')
+    .map(violation => ({
+      id: violation.id,
+      impact: violation.impact,
+      targets: violation.nodes.map(node => node.target),
+    }));
+  expect(blocking).toEqual([]);
 }
 
 async function installStoredSession(page: Page, mustChangePassword = false) {
@@ -142,9 +241,96 @@ test('logs in and enters the authenticated workspace', async ({ page }) => {
 test('has no serious automatically detectable accessibility violations on login', async ({ page }) => {
   await installApiMocks(page);
   await page.goto('/#/login');
-  const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
-  const blocking = results.violations.filter(violation => violation.impact === 'critical' || violation.impact === 'serious');
-  expect(blocking).toEqual([]);
+  await expectNoBlockingAxeViolations(page);
+});
+
+test('has no serious automatically detectable accessibility violations in the authenticated workspace', async ({ page }) => {
+  await installStoredSession(page);
+  await installApiMocks(page);
+  await page.goto('/#/pipelineruns/main');
+  const pipelineRunsLink = page.getByRole('link', { name: 'Pipeline runs' });
+  await expect(pipelineRunsLink).toBeVisible();
+  await expect(pipelineRunsLink).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('tab', { name: 'Main' })).toHaveAttribute('aria-selected', 'true');
+  const resizer = page.getByRole('separator', { name: 'Resize sidebar' });
+  await resizer.focus();
+  const widthBeforeKeyboardResize = Number(await resizer.getAttribute('aria-valuenow'));
+  await resizer.press('ArrowRight');
+  await expect(resizer).toHaveAttribute('aria-valuenow', String(Math.min(520, widthBeforeKeyboardResize + 16)));
+
+  const userMenuButton = page.getByRole('button', { name: 'Open user menu for admin' });
+  await userMenuButton.click();
+  await expect(page.getByRole('menu', { name: 'User menu' })).toBeVisible();
+  await expectNoBlockingAxeViolations(page, '#user-menu');
+  await page.keyboard.press('Escape');
+  await expect(userMenuButton).toBeFocused();
+
+  await expectNoBlockingAxeViolations(page);
+});
+
+test('audits shared workflow dialogs and keyboard-accessible YAML editing', async ({ page }) => {
+  await installStoredSession(page);
+  await installApiMocks(page);
+  await page.goto('/#/pipelines');
+
+  const createButton = page.getByRole('button', { name: 'Create new pipeline' });
+  await createButton.click();
+  const dialog = page.getByRole('dialog', { name: 'Create pipeline' });
+  await expect(dialog).toBeVisible();
+  await expect(page.getByLabel('Pipeline Path')).toBeFocused();
+  await expectNoBlockingAxeViolations(page, '#pipelines-new-modal');
+
+  await dialog.getByRole('button', { name: 'Create', exact: true }).focus();
+  await page.keyboard.press('Tab');
+  await expect(dialog.getByRole('button', { name: 'Close' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(createButton).toBeFocused();
+
+  await page.goto('/#/pipelines/platform/deploy');
+  await page.getByRole('button', { name: 'Edit' }).click();
+  const editor = page.getByRole('textbox', { name: 'Pipeline YAML editor' });
+  await editor.focus();
+  await editor.press('Control+Space');
+  const autocomplete = page.getByRole('listbox');
+  await expect(autocomplete).toBeVisible();
+  await editor.press('ArrowDown');
+  await expect(editor).toHaveAttribute('aria-activedescendant', 'pipeline-editor-autocomplete-option-1');
+  await expectNoBlockingAxeViolations(page, '#editor-container');
+  await editor.press('Escape');
+  await expect(autocomplete).toHaveCount(0);
+  await expect(editor).toBeFocused();
+});
+
+test('audits keyboard graph interaction and a fully populated log dialog', async ({ page }) => {
+  await installStoredSession(page);
+  await installApiMocks(page);
+  await page.goto('/#/pipelineruns/main?run=run-1');
+
+  await expect(page.getByText('Enterprise pipeline', { exact: true }).first()).toBeVisible();
+  const graph = page.getByRole('region', { name: 'Pipeline run graph' });
+  await expect(graph).toBeVisible();
+  const buildStep = graph.getByRole('button', { name: /Expand build step/ });
+  await buildStep.focus();
+  await buildStep.press('Enter');
+  await expect(graph.getByRole('button', { name: /Open logs for compile task/ })).toBeVisible();
+  await expectNoBlockingAxeViolations(page, '[aria-label="Pipeline run graph"]');
+
+  const logsButton = page.getByRole('button', { name: 'Logs', exact: true });
+  await logsButton.click();
+  const logsDialog = page.getByRole('dialog', { name: 'Agent Logs for Enterprise pipeline' });
+  await expect(logsDialog).toBeVisible();
+  await expect(page.getByRole('searchbox', { name: 'Search run logs' })).toBeFocused();
+  await expect(page.getByText(/compiled enterprise workspace/)).toBeVisible();
+  await expect(page.getByText(/deployment smoke failure/)).toBeVisible();
+  await expectNoBlockingAxeViolations(page, '[role="dialog"][aria-labelledby="run-logs-title"]');
+
+  await logsDialog.getByRole('button', { name: 'Reset filters' }).focus();
+  await page.keyboard.press('Tab');
+  await expect(logsDialog.getByRole('button', { name: 'Download' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(logsDialog).toHaveCount(0);
+  await expect(logsButton).toBeFocused();
 });
 
 test('redirects first-login users to the required password change', async ({ page }) => {

@@ -35,6 +35,8 @@ describe('ConfigRepositoryDriftModal', () => {
       />
     );
 
+    expect(screen.getByRole('dialog', { name: 'Platform config' })).toBeVisible();
+    expect(screen.getAllByRole('button', { name: 'Close' })[0]).toHaveFocus();
     expect(screen.getAllByText('pipelines/deploy.yaml')).toHaveLength(2);
     expect(screen.getByText('name: deploy')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
