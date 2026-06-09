@@ -4,7 +4,6 @@ import {
   IconCog,
   IconDatabase,
   IconDispatch,
-  IconDocs,
   IconFlask,
   IconFlow,
   IconKnowledge,
@@ -27,11 +26,6 @@ export const baseNavItems: NavItem[] = [
     label: 'Monitoring',
     path: '/monitoring',
     icon: <IconMonitoring />,
-  },
-  {
-    label: 'Docs',
-    path: '/docs',
-    icon: <IconDocs />,
   },
   {
     label: 'Pipelines',
