@@ -184,3 +184,12 @@ export function IconKnowledge() {
     </svg>
   );
 }
+
+export function IconDocs() {
+  return (
+    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M5 4.5A2.5 2.5 0 017.5 2H20v17H7.5A2.5 2.5 0 005 21.5z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M5 4.5v17M9 7h7M9 11h7M9 15h4" />
+    </svg>
+  );
+}
