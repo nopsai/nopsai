@@ -1,4 +1,14 @@
 import yaml from 'js-yaml';
+import {
+  escapeRegExp,
+  findLineNumberByRegex,
+  findLineNumberForKey,
+  parseYamlWithLocation,
+} from '../../lib/yamlValidation.js';
+
+export const TRIGGER_ROOT_KEYS = ['triggers'];
+export const TRIGGER_KEYS = ['on', 'branches', 'skip_branches', 'tags', 'pipelines', 'scope'];
+export const TRIGGER_EVENT_OPTIONS = ['push', 'pull_request', 'schedule'];
 
 export type TriggerListItem = { slug: string; source?: string };
 
@@ -41,6 +51,16 @@ export type TriggerRun = {
   git_ref?: string;
   started_at?: string;
   trigger_event_id?: string;
+};
+
+export type TriggerValidationError = {
+  message: string;
+  line?: number;
+  column?: number;
+};
+
+export type TriggerValidationResult = {
+  errors: TriggerValidationError[];
 };
 
 export function asRecord(value: unknown): Record<string, unknown> | null {
@@ -196,4 +216,148 @@ export function splitTriggerSlug(slug: string) {
   const owner = parts.join('/');
   if (!owner || !repo) throw new Error('Repository must be in owner/name format.');
   return { owner, repo };
+}
+
+export function encodeTriggerSlug(slug: string): string {
+  return slug.split('/').map(encodeURIComponent).join('/');
+}
+
+export function triggerSlugLabel(slug: string): { name: string; path: string } {
+  const parts = slug.split('/').filter(Boolean);
+  const name = parts.pop() || slug;
+  return { name, path: parts.join('/') || 'root' };
+}
+
+export function validateTriggerYaml(rawYaml: string): TriggerValidationResult {
+  const trimmed = rawYaml.trim();
+  if (!trimmed) {
+    return { errors: [{ message: 'Trigger manifest cannot be empty.', line: 1 }] };
+  }
+
+  const { parsed, error } = parseYamlWithLocation(rawYaml);
+  if (error) return { errors: [error] };
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { errors: [{ message: 'YAML must define an object at the root.', line: 1 }] };
+  }
+
+  const root = asRecord(parsed);
+  if (!root) {
+    return { errors: [{ message: 'YAML must define an object at the root.', line: 1 }] };
+  }
+
+  const errors: TriggerValidationError[] = [];
+  if (root.steps) {
+    errors.push({
+      message:
+        "Validation failed: The provided file appears to be a pipeline, not a trigger manifest. A trigger must contain 'triggers', not 'steps'.",
+      line: findLineNumberForKey(rawYaml, 'steps') ?? 1,
+    });
+  }
+
+  const unknownRootKey = Object.keys(root).find(key => !TRIGGER_ROOT_KEYS.includes(key));
+  if (unknownRootKey) {
+    errors.push({
+      message: `Unknown directive '${unknownRootKey}' at root.`,
+      line: findLineNumberForKey(rawYaml, unknownRootKey) ?? 1,
+    });
+  }
+
+  const triggers = Array.isArray(root.triggers) ? root.triggers : [];
+  if (triggers.length === 0) {
+    errors.push({ message: "'triggers' must be a non-empty list.", line: findLineNumberForKey(rawYaml, 'triggers') ?? 1 });
+    return { errors };
+  }
+
+  triggers.forEach((trigger, index) => {
+    const triggerRecord = asRecord(trigger);
+    const triggerLine =
+      findLineNumberByRegex(
+        rawYaml,
+        new RegExp(
+          `^\\s*-\\s*on:\\s*${escapeRegExp(typeof triggerRecord?.on === 'string' ? triggerRecord.on.trim() : '')}\\b`,
+          'i'
+        )
+      ) ?? findLineNumberForKey(rawYaml, 'triggers') ?? 1;
+
+    if (!triggerRecord) {
+      errors.push({ message: `Trigger #${index + 1} must be an object.`, line: triggerLine });
+      return;
+    }
+
+    const unknownKey = Object.keys(triggerRecord).find(key => !TRIGGER_KEYS.includes(key) && key !== 'skipBranches');
+    if (unknownKey) {
+      errors.push({
+        message: `Trigger #${index + 1} contains unknown directive '${unknownKey}'.`,
+        line: findLineNumberForKey(rawYaml, unknownKey) ?? triggerLine,
+      });
+    }
+
+    const onValue = typeof triggerRecord.on === 'string' ? triggerRecord.on.trim() : '';
+    if (!onValue) {
+      errors.push({
+        message: `Trigger #${index + 1} is missing required 'on' event.`,
+        line: findLineNumberForKey(rawYaml, 'on') ?? triggerLine,
+      });
+    } else if (!TRIGGER_EVENT_OPTIONS.includes(onValue)) {
+      errors.push({
+        message: `Trigger #${index + 1} has unsupported event '${onValue}'.`,
+        line:
+          findLineNumberByRegex(rawYaml, new RegExp(`^\\s*(?:-\\s*)?on:\\s*${escapeRegExp(onValue)}\\b`, 'i')) ??
+          triggerLine,
+      });
+    }
+
+    const pipelines = Array.isArray(triggerRecord.pipelines) ? triggerRecord.pipelines : [];
+    if (pipelines.length === 0) {
+      errors.push({
+        message: `Trigger #${index + 1} must include at least one pipeline reference.`,
+        line: findLineNumberForKey(rawYaml, 'pipelines') ?? triggerLine,
+      });
+    } else {
+      pipelines.forEach((entry, pipelineIndex) => {
+        const entryRecord = asRecord(entry);
+        const path =
+          typeof entry === 'string'
+            ? entry.trim()
+            : typeof entryRecord?.path === 'string'
+              ? entryRecord.path.trim()
+              : '';
+        if (!path) {
+          errors.push({
+            message: `Trigger #${index + 1} pipeline #${pipelineIndex + 1} is missing a path.`,
+            line: findLineNumberForKey(rawYaml, 'pipelines') ?? triggerLine,
+          });
+        }
+      });
+    }
+
+    const validateEntries = (value: unknown, key: 'branches' | 'skip_branches' | 'tags') => {
+      const entries = Array.isArray(value) ? value : [];
+      entries.forEach((entry, entryIndex) => {
+        const normalized = typeof entry === 'string' ? entry.trim() : '';
+        if (!normalized) {
+          errors.push({
+            message: `Trigger #${index + 1} has an empty ${key} entry at position ${entryIndex + 1}.`,
+            line: findLineNumberForKey(rawYaml, key) ?? triggerLine,
+          });
+        }
+      });
+    };
+
+    validateEntries(triggerRecord.branches, 'branches');
+    validateEntries(triggerRecord.skip_branches ?? triggerRecord.skipBranches, 'skip_branches');
+    validateEntries(triggerRecord.tags, 'tags');
+
+    if (triggerRecord.scope != null) {
+      const scopeValue = typeof triggerRecord.scope === 'string' ? triggerRecord.scope.trim() : '';
+      if (!scopeValue) {
+        errors.push({
+          message: `Trigger #${index + 1} has an empty 'scope'.`,
+          line: findLineNumberForKey(rawYaml, 'scope') ?? triggerLine,
+        });
+      }
+    }
+  });
+
+  return { errors };
 }

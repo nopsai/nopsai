@@ -156,6 +156,14 @@ export type ValidationResult = {
   errors: ValidationError[];
 };
 
+export type PipelineDependencyReference = {
+  raw: string;
+  identifier: string;
+  typeLabel: 'Pipeline' | 'Step' | 'Include';
+  actionLabel: 'Open' | 'Copy';
+  navigable: boolean;
+};
+
 export function normalizeRootPath(path: string) {
   const parts = path.trim().replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
   if (parts[0]?.toLowerCase() === 'root') parts.shift();
@@ -180,6 +188,82 @@ export function normalizePipelineSource(source?: string) {
   if (key.includes('draft')) return 'draft';
   if (key.includes('db')) return 'database';
   return key;
+}
+
+export function formatPipelineRelativeTime(value?: string): string {
+  if (!value) return 'N/A';
+  const timestamp = new Date(value).getTime();
+  if (Number.isNaN(timestamp)) return value;
+  const delta = (Date.now() - timestamp) / 1000;
+  if (delta < 60) return 'Just now';
+  if (delta < 3600) return `${Math.floor(delta / 60)}m ago`;
+  if (delta < 86400) return `${Math.floor(delta / 3600)}h ago`;
+  return `${Math.floor(delta / 86400)}d ago`;
+}
+
+export function formatPipelineGitRef(ref?: string): string {
+  const value = (ref || '').trim();
+  return value.replace(/^refs\/heads\//, '').replace(/^refs\/tags\//, '') || '—';
+}
+
+export function pipelineRunStatusClass(status?: string): string {
+  const normalized = (status || '').toLowerCase();
+  if (normalized === 'success' || normalized === 'succeeded') return 'runner-pill--ok';
+  if (normalized === 'failure' || normalized === 'failed' || normalized === 'error' || normalized === 'cancelled') {
+    return 'runner-pill--error';
+  }
+  return 'runner-pill--muted';
+}
+
+export function pipelineRunStatusLabel(status?: string): string {
+  const normalized = (status || '').replace(/_/g, ' ').trim();
+  if (!normalized) return 'unknown';
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+export function formatPipelineTriggerEvent(value: unknown): string {
+  if (Array.isArray(value)) return value.map(item => String(item)).join(', ');
+  if (!value) return 'N/A';
+  const raw = String(value).toLowerCase();
+  if (raw === 'push') return 'Push';
+  if (raw === 'pull_request' || raw === 'pull-request') return 'Pull request';
+  if (raw === 'schedule') return 'Schedule';
+  return String(value);
+}
+
+export function formatPipelineTriggerBranchField(trigger: Record<string, unknown>): { label: string; value: string } {
+  const branches = Array.isArray(trigger.branches) ? trigger.branches.map(String).filter(Boolean) : [];
+  if (branches.length) return { label: 'branches:', value: branches.join(', ') };
+  const skip = Array.isArray(trigger.skip_branches)
+    ? trigger.skip_branches.map(String).filter(Boolean)
+    : Array.isArray(trigger.skipBranches)
+      ? trigger.skipBranches.map(String).filter(Boolean)
+      : [];
+  if (skip.length) return { label: 'skip_branches:', value: skip.join(', ') };
+  return { label: 'branches:', value: 'All branches' };
+}
+
+export function formatPipelineTriggerScope(trigger: Record<string, unknown>): string {
+  const scope = typeof trigger.scope === 'string' ? trigger.scope.trim() : '';
+  return scope || 'default';
+}
+
+export function parsePipelineDependencyReference(value: string): PipelineDependencyReference {
+  const raw = value.trim();
+  const navigable = raw.startsWith('pipeline:');
+  const isStep = raw.startsWith('step:');
+  const identifier = navigable
+    ? raw.slice('pipeline:'.length).trim()
+    : isStep
+      ? raw.slice('step:'.length).trim()
+      : raw;
+  return {
+    raw,
+    identifier,
+    typeLabel: navigable ? 'Pipeline' : isStep ? 'Step' : 'Include',
+    actionLabel: navigable ? 'Open' : 'Copy',
+    navigable,
+  };
 }
 
 function normalizeStringArray(value: unknown) {

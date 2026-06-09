@@ -2,10 +2,12 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { createPortal } from 'react-dom';
 import { Check, RefreshCw } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import yaml from 'js-yaml';
 import { apiClient } from '../lib/api';
+import { YamlValidationPanel } from '../features/editor/YamlValidationPanel';
+import { LabDependencyPanel } from '../features/lab/LabDependencyPanel';
 import { LabRunControls } from '../features/lab/LabRunControls';
 import { LabVariableOverrides } from '../features/lab/LabVariableOverrides';
+import { parseLabIncludedDependencies } from '../features/lab/model';
 import {
   buildInlineSuggestionPreview,
   normalizeLabScopeLabel,
@@ -136,31 +138,7 @@ function LabPage() {
     return list;
   }, [scopes]);
 
-  const includedDependencies = useMemo(() => {
-    try {
-      const parsed = yaml.load(yamlText) as unknown;
-      if (!parsed || typeof parsed !== 'object') {
-        return { status: 'invalid', items: [] as string[] };
-      }
-      const record = parsed as Record<string, unknown>;
-      const stepsRaw = record.steps;
-      const steps = Array.isArray(stepsRaw) ? stepsRaw : [];
-      if (steps.length === 0) return { status: 'no-steps', items: [] as string[] };
-
-      const includes = new Set<string>();
-      steps.forEach(step => {
-        if (!step || typeof step !== 'object') return;
-        const include = (step as Record<string, unknown>).include;
-        if (typeof include === 'string' && include.trim()) {
-          includes.add(include.trim());
-        }
-      });
-
-      return { status: 'ok', items: Array.from(includes).sort((a, b) => a.localeCompare(b)) };
-    } catch {
-      return { status: 'parse-error', items: [] as string[] };
-    }
-  }, [yamlText]);
+  const includedDependencies = useMemo(() => parseLabIncludedDependencies(yamlText), [yamlText]);
 
   const suggestionContext = useMemo(() => {
     if (!editorFocused) return null;
@@ -837,69 +815,28 @@ function LabPage() {
                   </div>
 
                   <div className="lab-side-panel">
-                    <div
+                    <YamlValidationPanel
                       id="lab-validation-status"
-                      className={`validation-box validation-box--inline ${validation.errors.length ? 'validation-box--error' : 'validation-box--success'}`}
-                    >
-                      {validation.errors.length ? (
-                        <>
-                          <div className="validation-box__header">Validation issues</div>
-                          {validation.errors.slice(0, 5).map((err, idx) => {
-                            const example = buildValidationExample(err.message);
-                            return (
-                              <div key={`val-${idx}`} className="validation-box__item">
-                                {typeof err.line === 'number' && <span className="validation-box__line">Line {err.line}</span>}
-                                <div className="validation-box__message">{err.message}</div>
-                                {example && (
-                                  <pre className="validation-box__example">
-                                    <code>{example}</code>
-                                  </pre>
-                                )}
-                              </div>
-                            );
-                          })}
-                          {validation.errors.length > 5 && (
-                            <div className="validation-box__item">
-                              <div className="validation-box__message">+ {validation.errors.length - 5} more…</div>
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <div className="validation-box__header">Valid</div>
-                      )}
-                    </div>
+                      errors={validation.errors}
+                      maxVisible={5}
+                      invalidLabel="Validation issues"
+                      inline
+                      renderExample={message => {
+                        const example = buildValidationExample(message);
+                        return example ? (
+                          <pre className="validation-box__example">
+                            <code>{example}</code>
+                          </pre>
+                        ) : null;
+                      }}
+                    />
                   </div>
                 </div>
               </div>
             </div>
 
             <div className="space-y-5">
-              <div className="glass-card p-4 space-y-2 rounded-2xl shadow-lg ring-1 ring-[var(--border-primary)]/70">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-[var(--text-primary)]">Included dependencies</p>
-                </div>
-                <div
-                  id="lab-includes"
-                  className="text-sm text-[var(--text-secondary)] space-y-2"
-                  data-empty="No steps defined yet."
-                >
-                  {includedDependencies.status === 'no-steps' ? (
-                    <p>No steps defined yet.</p>
-                  ) : includedDependencies.status === 'parse-error' || includedDependencies.status === 'invalid' ? (
-                    <p>Unable to parse pipeline YAML.</p>
-                  ) : includedDependencies.items.length === 0 ? (
-                    <p>No included dependencies found.</p>
-                  ) : (
-                    <ul className="triggers-pipeline-list">
-                      {includedDependencies.items.map(item => (
-                        <li key={item} className="triggers-pipeline-item">
-                          <span className="triggers-pipeline-name">{item}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </div>
+              <LabDependencyPanel dependencies={includedDependencies} />
 
               <LabVariableOverrides
                 overrides={overrides}

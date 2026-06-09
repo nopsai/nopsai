@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import { ArrowLeft, Copy, Download, Trash2 } from 'lucide-react';
-import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import yaml from 'js-yaml';
 import {
   STEP_DRAFTS_CHANGED_EVENT,
@@ -18,6 +18,7 @@ import { fetchEditorAutocompleteMetadata } from '../features/editor/autocomplete
 import { EditorAutocompleteMenu } from '../features/editor/EditorAutocompleteMenu';
 import { ResourceCollectionToolbar } from '../features/editor/ResourceCollectionToolbar';
 import { ResourceWorkflowModals } from '../features/editor/ResourceWorkflowModals';
+import { YamlValidationPanel } from '../features/editor/YamlValidationPanel';
 import { useDraftCollection } from '../features/editor/useDraftCollection';
 import { useYamlResourceMutations } from '../features/editor/useYamlResourceMutations';
 import {
@@ -43,6 +44,7 @@ import {
   type StepDetail,
 } from '../features/steps/model';
 import { useStepPermissions } from '../features/steps/useStepPermissions';
+import { StepUsagePanel } from '../features/steps/StepUsagePanel';
 
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
 
@@ -1064,26 +1066,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
                           spellCheck={false}
                         ></textarea>
                       </div>
-                      <div
-                        id="step-validation-status"
-                        className={`validation-box ${validation.errors.length ? '' : 'validation-box--success'}`}
-                        role="status"
-                        aria-live="polite"
-                      >
-                        <div className="validation-box__header">{validation.errors.length ? 'Invalid' : 'Valid'}</div>
-                        {validation.errors.length > 0 &&
-                          validation.errors.slice(0, 3).map((err, idx) => (
-                            <div key={`val-${idx}`} className="validation-box__item">
-                              {typeof err.line === 'number' && <span className="validation-box__line">Line {err.line}</span>}
-                              <div className="validation-box__message">{err.message}</div>
-                            </div>
-                          ))}
-                        {validation.errors.length > 3 && (
-                          <div className="validation-box__item">
-                            <div className="validation-box__message">+ {validation.errors.length - 3} more…</div>
-                          </div>
-                        )}
-                      </div>
+                      <YamlValidationPanel id="step-validation-status" errors={validation.errors} />
                       {editorSuggestion ? (
                         <EditorAutocompleteMenu
                           id="step-editor-autocomplete"
@@ -1097,45 +1080,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
                 </div>
               </div>
             </div>
-            <div className="min-w-0 space-y-6">
-              <div className="glass-card overflow-hidden">
-                <div className="p-4 border-b border-[var(--border-primary)]" style={{ paddingTop: 4 }}>
-                  <h3 className="text-lg font-semibold text-[var(--text-primary)]">Used in Pipelines</h3>
-                  <p className="text-xs text-[var(--text-secondary)] mt-1">Pipelines currently importing this step.</p>
-                </div>
-                <div className="p-4">
-                  {usageLoading ? (
-                    <p className="text-sm text-[var(--text-secondary)]">Loading usage…</p>
-                  ) : usageError ? (
-                    <p className="text-sm text-red-500">Failed to load usage: {usageError}</p>
-                  ) : usage.length ? (
-                    <ul className="space-y-2">
-                      {usage.map(item => {
-                        const pipelineId = item.identifier;
-                        return (
-                          <li key={pipelineId}>
-                            <NavLink
-                              className="glass-card p-3 block hover:border-[var(--border-accent)] transition-colors"
-                              to={`/pipelines/${pipelineId.split('/').map(encodeURIComponent).join('/')}`}
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-sm font-medium text-[var(--text-primary)] truncate">{pipelineId}</span>
-                                <span className="text-xs text-[var(--text-secondary)] uppercase">{normalizeSource(item.source)}</span>
-                              </div>
-                              {item.description ? (
-                                <p className="text-xs text-[var(--text-secondary)] mt-1 line-clamp-2">{item.description}</p>
-                              ) : null}
-                            </NavLink>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  ) : (
-                    <p className="text-sm text-[var(--text-secondary)]">No pipelines reference this step.</p>
-                  )}
-                </div>
-              </div>
-            </div>
+            <StepUsagePanel usage={usage} loading={usageLoading} error={usageError} />
           </div>
         </div>
       </div>

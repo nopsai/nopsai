@@ -4,16 +4,16 @@ This document tracks the UI clean-code work needed to keep NopsAI maintainable a
 
 ## Executive Summary
 
-The current UI refactor is in a healthy state. The completed pass moved most page-local orchestration into feature-owned `model.ts`, `api.ts`, hooks, dialog components, and presentation helpers. Auth and authorization are centralized, API access goes through `apiClient`, Git-managed resources preserve read-only/clone workflows, and the configured UI quality gates pass locally.
+The current UI refactor is in a healthy state. Phase 1 route-shell slimming is complete: the largest workflow routes now delegate substantial presentation, validation, catalog, graph, token, and workflow-dialog responsibilities to feature-owned modules. Auth and authorization remain centralized, API access goes through `apiClient`, Git-managed resources preserve read-only/clone workflows, and the configured UI quality gates pass locally.
 
 The refactor should not be called enterprise-complete yet. The main remaining blocker is to record the first protected-environment live execution against a deployed stack. The next phase should focus on reducing large route modules, locking architectural boundaries, improving coverage in high-risk flows, and making clean-code rules enforceable instead of tribal knowledge.
 
 ## Current Status
 
-- **Completed local refactor pass:** App bootstrap, auth, system modules, editor workflows, pipeline/step/scope/trigger/lab/run-log boundaries, accessibility primitives, component tests, mocked Playwright coverage, and local Docker Compose UI verification are in place.
+- **Completed local refactor pass:** App bootstrap, auth, system modules, editor workflows, Phase 1 route-shell slimming, pipeline/step/scope/trigger/lab/run-log boundaries, accessibility primitives, component tests, mocked Playwright coverage, and local Docker Compose UI verification are in place.
 - **Still open for enterprise completion:** First protected-environment live execution has not been recorded because live credentials and mutation fixtures were not available in the workspace.
-- **Main maintainability risk:** Several route-level modules still act as large orchestration shells and should be reduced incrementally, especially `PipelineRuns.tsx`, `AccessPanel.tsx`, `Scopes.tsx`, `Triggers.tsx`, `Pipelines.tsx`, `Steps.tsx`, and `Lab.tsx`.
-- **Quality baseline:** Local verification on June 9, 2026 passed lint, unit tests, component tests, mocked Playwright, and production build. Component coverage measured 21.29% statements, 17.91% branches, 22.66% functions, and 22.05% lines against enforced floors of 20%, 17%, 21%, and 21%.
+- **Main maintainability risk:** The route shells are materially smaller but remain state-heavy. Future changes should continue extracting orchestration only when a tested feature boundary is clear, with `AccessPanel.tsx` and the Pipeline Runs feature modules as the largest remaining surfaces.
+- **Quality baseline:** Local verification on June 9, 2026 passed lint, 88 unit tests, 115 component tests, all 9 mocked Playwright workflows, and the production build. Component coverage measured 22.19% statements, 19.31% branches, 23.89% functions, and 23.01% lines against enforced floors of 20%, 17%, 21%, and 21%.
 
 ## What Is Already Cleanly Separated
 
@@ -62,6 +62,8 @@ Acceptance criteria:
 
 ### Phase 1 — Route Shell Slimming
 
+Status: **Complete on June 9, 2026.**
+
 Goal: reduce the largest route modules into readable composition shells without changing behavior.
 
 Priority order:
@@ -74,9 +76,18 @@ Priority order:
 
 Acceptance criteria:
 
-- Route modules primarily compose hooks and feature components.
-- New extracted files have focused names and one reason to change.
-- No route, draft, permission, GitOps, or URL synchronization behavior changes without tests.
+- [x] Route modules primarily compose hooks and feature components.
+- [x] New extracted files have focused names and one reason to change.
+- [x] No route, draft, permission, GitOps, or URL synchronization behavior changes were introduced without tests.
+
+Completion record:
+
+- `PipelineRuns.tsx` was reduced from 4,786 to 1,553 lines by extracting dashboard/run-card presentation, selected-run detail, graph dialogs, folder/configuration dialogs, and notification-route UI under `src/features/pipeline-runs/`.
+- `AccessPanel.tsx` was reduced from 2,397 to 2,010 lines by extracting user, service-account, role, and policy catalogs plus service-account token and confirmation workflows under `src/features/system/access/`.
+- `Scopes.tsx` and `Triggers.tsx` now delegate selection, grouping, route identifiers, source presentation, manifest validation, and usage metadata to feature models and components. Existing Git-managed read-only behavior and action-time authorization hooks remain unchanged.
+- `Pipelines.tsx` and `Steps.tsx` now delegate activity, usage, validation, and presentation concerns while retaining the existing draft, mutation, autocomplete, permission, and URL synchronization hooks.
+- `Lab.tsx` now delegates dependency preview/model behavior and shares the extracted YAML validation presentation without changing authorization or run-submission contracts.
+- Focused unit and component tests cover the new pure models and critical extracted interactions. The existing mocked Playwright suite continues to cover AAA restrictions, GitOps-compatible pipeline mutation contracts, dialogs, graph/log interaction, and accessibility.
 
 ### Phase 2 — Boundary Enforcement
 
@@ -146,11 +157,11 @@ The enterprise UI refactor can be marked complete only when all of the following
 - [ ] Protected-environment live auth smoke has passed and is recorded here.
 - [ ] Optional mutation smoke has passed against a dedicated disposable fixture, or an explicit enterprise decision documents why auth-only live smoke is sufficient.
 - [ ] Large route modules have active extraction follow-ups or are below the agreed maintainability threshold.
-- [ ] No direct component-level transport, hook-rule suppressions, or TypeScript ignore directives were introduced in the final pass.
-- [ ] Local gates pass from `services/ui`: `npm run lint`, `npm run test`, `npm run build`, and `npm run test:e2e`.
-- [ ] Docker Compose UI gates pass from the repository root when host Node/npm are unavailable.
-- [ ] Accessibility serious/critical gates remain green for the covered browser workflows.
-- [ ] Coverage floors match the latest stable measured baseline with safe headroom.
+- [x] No direct component-level transport, hook-rule suppressions, or TypeScript ignore directives were introduced in the final pass.
+- [x] Local gates pass from `services/ui`: `npm run lint`, `npm run test`, `npm run build`, and `npm run test:e2e`.
+- [x] Docker Compose UI gates pass from the repository root when host Node/npm are unavailable.
+- [x] Accessibility serious/critical gates remain green for the covered browser workflows.
+- [x] Coverage floors match the latest stable measured baseline with safe headroom.
 
 ## Verification Commands
 
@@ -174,8 +185,9 @@ docker compose run --rm ui-e2e
 docker compose run --rm ui-test sh -c "npm ci && npm run test:e2e:live"
 ```
 
-Latest local verification on June 9, 2026 used the documented Docker Compose UI gates because the host shell did not expose `node` or `npm`: lint passed, 82 unit tests passed, 106 component tests passed with 21.29% statement coverage, 17.91% branch coverage, 22.66% function coverage, and 22.05% line coverage against enforced floors of 20%, 17%, 21%, and 21%; all 9 mocked Playwright workflows passed; and the production build completed successfully. The rebuilt UI service was healthy and served the new bundle from `http://localhost`. The in-app browser was unavailable for an additional manual visual pass. The live suite remained credential-gated and reported 2 explicit skips. `actionlint` was not available on the host shell during this pass, so workflow lint was not re-run.
+Latest local verification on June 9, 2026 used the documented Docker Compose UI gates because the host shell did not expose `node` or `npm`: lint passed, 88 unit tests passed, 115 component tests passed with 22.19% statement coverage, 19.31% branch coverage, 23.89% function coverage, and 23.01% line coverage against enforced floors of 20%, 17%, 21%, and 21%; all 9 mocked Playwright workflows passed; and the production build completed successfully. The rebuilt `nopsai-ui` service was healthy at `http://localhost`, and a desktop Playwright render confirmed the served login surface had no clipping or overlap. The route extraction preserved the existing `apiClient`, request-keyed permission hooks, action-time AAA checks, Git-managed read-only/clone paths, and GitOps-compatible deployment workflow. The protected live suite remains credential-gated. `actionlint` was not available on the host shell during this pass, so workflow lint was not re-run.
 
 ## Change Log
 
+- **June 9, 2026:** Completed Phase 1 route-shell slimming across Pipeline Runs, Access, Scopes, Triggers, Pipelines, Steps, and Lab; added focused model/component coverage; and recorded the updated local quality baseline.
 - **June 9, 2026:** Reframed the roadmap into an enterprise clean-code execution plan, preserved the completed refactor summary, made the protected live execution the explicit completion blocker, and added phased guardrails for route slimming, boundary enforcement, coverage hardening, accessibility consistency, and documentation ownership.
