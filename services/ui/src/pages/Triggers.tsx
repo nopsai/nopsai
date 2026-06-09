@@ -3,10 +3,10 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import yaml from 'js-yaml';
 import { ArrowLeft, Copy, Download, Plus, Search, Trash2, X } from 'lucide-react';
 import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups';
-import { escapeRegExp, findLineNumberByRegex, findLineNumberForKey, parseYamlWithLocation } from '../lib/yamlValidation';
 import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
 import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowToastRegion';
 import { EditorAutocompleteMenu } from '../features/editor/EditorAutocompleteMenu';
+import { YamlValidationPanel } from '../features/editor/YamlValidationPanel';
 import { TriggerRecentRuns } from '../features/triggers/TriggerRecentRuns';
 import { TriggerWorkflowModals } from '../features/triggers/TriggerWorkflowModals';
 import {
@@ -18,76 +18,31 @@ import {
 } from '../features/triggers/api';
 import { useTriggerManifestMutations } from '../features/triggers/useTriggerManifestMutations';
 import { useTriggerPermissions } from '../features/triggers/useTriggerPermissions';
+import {
+  TRIGGER_EVENT_OPTIONS,
+  TRIGGER_KEYS,
+  TRIGGER_ROOT_KEYS,
+  asRecord,
+  buildPipelineIdentifierFromRun,
+  encodeTriggerSlug,
+  normalizePipelineIdentifier,
+  normalizeScopeLabel,
+  normalizeSource,
+  sourceLabel,
+  splitTriggerSlug,
+  triggerSlugLabel,
+  validateTriggerYaml,
+  type PipelineMeta,
+  type PipelineRef,
+  type TriggerDetail,
+  type TriggerListItem,
+  type TriggerRun,
+} from '../features/triggers/model';
 
 const INITIAL_RECENT_RUNS = 5;
 const RUNS_PAGE_SIZE = 10;
 const RUNS_CACHE_TTL = 60 * 1000;
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
-const TRIGGER_ROOT_KEYS = ['triggers'];
-const TRIGGER_KEYS = ['on', 'branches', 'skip_branches', 'tags', 'pipelines', 'scope'];
-const TRIGGER_EVENT_OPTIONS = ['push', 'pull_request', 'schedule'];
-
-function normalizeScopeLabel(value: unknown): string {
-  if (value == null) return '';
-  const normalized = String(value)
-    .trim()
-    .replace(/^\/+|\/+$/g, '');
-  return normalized.toLowerCase() === 'default' ? '' : normalized;
-}
-
-type TriggerListItem = { slug: string; source?: string };
-
-type PipelineRef = {
-  identifier: string;
-  display: string;
-  pathLabel: string;
-};
-
-type TriggerSummary = {
-  triggerCount: number;
-  pipelines: PipelineRef[];
-  events: string[];
-  branches: string[];
-  skipBranches: string[];
-  tags: string[];
-  scopes: string[];
-};
-
-type TriggerDetail = {
-  slug: string;
-  source?: string;
-  rawYaml: string;
-  summary: TriggerSummary;
-};
-
-type PipelineMeta = {
-  version: string;
-  sourceKey: string;
-  sourceLabel: string;
-};
-
-type TriggerRun = {
-  run_id: string;
-  pipeline_name: string;
-  pipeline_path?: string;
-  status?: string;
-  git_repo_owner?: string;
-  git_repo_name?: string;
-  git_ref?: string;
-  started_at?: string;
-  trigger_event_id?: string;
-};
-
-type ValidationError = {
-  message: string;
-  line?: number;
-  column?: number;
-};
-
-type ValidationResult = {
-  errors: ValidationError[];
-};
-
 type TreeNode = {
   id: string;
   name: string;
@@ -95,53 +50,6 @@ type TreeNode = {
   children: TreeNode[];
   triggerSlugs: string[];
 };
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== 'object') return null;
-  return value as Record<string, unknown>;
-}
-
-function normalizeSource(source?: string): string {
-  const key = (source || '').trim().toLowerCase();
-  if (!key) return 'database';
-  if (key.includes('git')) return 'git';
-  if (key.includes('draft')) return 'draft';
-  if (key.includes('db') || key.includes('database')) return 'database';
-  if (key.includes('local')) return 'local';
-  return key;
-}
-
-function sourceLabel(sourceKey: string): string {
-  switch (normalizeSource(sourceKey)) {
-    case 'git':
-      return 'Git';
-    case 'draft':
-      return 'Draft';
-    case 'local':
-      return 'Local';
-    case 'database':
-    default:
-      return 'Database';
-  }
-}
-
-function normalizePipelineIdentifier(value: unknown): string {
-  if (!value) return '';
-  return String(value)
-    .trim()
-    .replace(/^\.nopsai\//i, '')
-    .replace(/^pipelines\//i, '')
-    .replace(/\.ya?ml$/i, '')
-    .replace(/\/+/g, '/')
-    .replace(/^\//, '');
-}
-
-function buildPipelineIdentifierFromRun(run: TriggerRun): string {
-  const name = run.pipeline_name || '';
-  const path = run.pipeline_path || '';
-  const identifier = path ? `${path}/${name}` : name;
-  return normalizePipelineIdentifier(identifier);
-}
 
 function TriggersPage({
   canDeleteTriggers = false,
@@ -221,185 +129,10 @@ function TriggersPage({
     }, 3200);
   }, []);
 
-  const encodeSlug = (slug: string) => slug.split('/').map(encodeURIComponent).join('/');
-
-  const splitSlug = (slug: string) => {
-    const parts = slug.split('/').filter(Boolean);
-    if (parts.length < 2) throw new Error('Repository must be in owner/name format.');
-    const repo = parts.pop()!;
-    const owner = parts.join('/');
-    if (!owner || !repo) throw new Error('Repository must be in owner/name format.');
-    return { owner, repo };
-  };
-
-  const slugToLabel = (slug: string) => {
-    const parts = slug.split('/').filter(Boolean);
-    const name = parts.pop() || slug;
-    const path = parts.join('/') || 'root';
-    return { name, path };
-  };
-
-  const validateTriggerYaml = useCallback((rawYaml: string): ValidationResult => {
-    const trimmed = rawYaml.trim();
-    if (!trimmed) {
-      return { errors: [{ message: 'Trigger manifest cannot be empty.', line: 1 }] };
-    }
-
-    const { parsed, error } = parseYamlWithLocation(rawYaml);
-    if (error) {
-      return { errors: [error] };
-    }
-
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return { errors: [{ message: 'YAML must define an object at the root.', line: 1 }] };
-    }
-
-    const root = asRecord(parsed);
-    if (!root) {
-      return { errors: [{ message: 'YAML must define an object at the root.', line: 1 }] };
-    }
-
-    const errors: ValidationError[] = [];
-
-    if (root.steps) {
-      errors.push({
-        message:
-          "Validation failed: The provided file appears to be a pipeline, not a trigger manifest. A trigger must contain 'triggers', not 'steps'.",
-        line: findLineNumberForKey(rawYaml, 'steps') ?? 1,
-      });
-    }
-
-    const unknownRootKey = Object.keys(root).find(key => !TRIGGER_ROOT_KEYS.includes(key));
-    if (unknownRootKey) {
-      errors.push({
-        message: `Unknown directive '${unknownRootKey}' at root.`,
-        line: findLineNumberForKey(rawYaml, unknownRootKey) ?? 1,
-      });
-    }
-
-    const triggers = Array.isArray(root.triggers) ? root.triggers : [];
-    if (triggers.length === 0) {
-      errors.push({ message: "'triggers' must be a non-empty list.", line: findLineNumberForKey(rawYaml, 'triggers') ?? 1 });
-      return { errors };
-    }
-
-    triggers.forEach((trigger, index: number) => {
-      const triggerRecord = asRecord(trigger);
-      const triggerLine =
-        findLineNumberByRegex(
-          rawYaml,
-          new RegExp(
-            `^\\s*-\\s*on:\\s*${escapeRegExp(typeof triggerRecord?.on === 'string' ? triggerRecord.on.trim() : '')}\\b`,
-            'i'
-          )
-        ) ?? findLineNumberForKey(rawYaml, 'triggers') ?? 1;
-
-      if (!triggerRecord) {
-        errors.push({ message: `Trigger #${index + 1} must be an object.`, line: triggerLine });
-        return;
-      }
-      const unknownKey = Object.keys(triggerRecord).find(key => !TRIGGER_KEYS.includes(key) && key !== 'skipBranches');
-      if (unknownKey) {
-        errors.push({
-          message: `Trigger #${index + 1} contains unknown directive '${unknownKey}'.`,
-          line: findLineNumberForKey(rawYaml, unknownKey) ?? triggerLine,
-        });
-      }
-      const onValue = typeof triggerRecord.on === 'string' ? triggerRecord.on.trim() : '';
-      if (!onValue) {
-        errors.push({
-          message: `Trigger #${index + 1} is missing required 'on' event.`,
-          line: findLineNumberForKey(rawYaml, 'on') ?? triggerLine,
-        });
-      } else if (!TRIGGER_EVENT_OPTIONS.includes(onValue)) {
-        errors.push({
-          message: `Trigger #${index + 1} has unsupported event '${onValue}'.`,
-          line:
-            findLineNumberByRegex(rawYaml, new RegExp(`^\\s*(?:-\\s*)?on:\\s*${escapeRegExp(onValue)}\\b`, 'i')) ??
-            triggerLine,
-        });
-      }
-
-      const pipelines = Array.isArray(triggerRecord.pipelines) ? triggerRecord.pipelines : [];
-      if (pipelines.length === 0) {
-        errors.push({
-          message: `Trigger #${index + 1} must include at least one pipeline reference.`,
-          line: findLineNumberForKey(rawYaml, 'pipelines') ?? triggerLine,
-        });
-      } else {
-        pipelines.forEach((entry, pipelineIdx) => {
-          const entryRecord =
-            entry && typeof entry === 'object' && !Array.isArray(entry) ? (entry as Record<string, unknown>) : null;
-          const path =
-            typeof entry === 'string'
-              ? entry.trim()
-              : typeof entryRecord?.path === 'string'
-              ? entryRecord.path.trim()
-              : '';
-          if (!path) {
-            errors.push({
-              message: `Trigger #${index + 1} pipeline #${pipelineIdx + 1} is missing a path.`,
-              line: findLineNumberForKey(rawYaml, 'pipelines') ?? triggerLine,
-            });
-          }
-        });
-      }
-
-      const branches = Array.isArray(triggerRecord.branches) ? triggerRecord.branches : [];
-      branches.forEach((branch, branchIdx) => {
-        const value = typeof branch === 'string' ? branch.trim() : '';
-        if (!value) {
-          errors.push({
-            message: `Trigger #${index + 1} has an empty branch entry at position ${branchIdx + 1}.`,
-            line: findLineNumberForKey(rawYaml, 'branches') ?? triggerLine,
-          });
-        }
-      });
-
-      const rawSkip = (Array.isArray(triggerRecord.skip_branches)
-        ? triggerRecord.skip_branches
-        : Array.isArray((triggerRecord as Record<string, unknown>).skipBranches)
-        ? (triggerRecord as Record<string, unknown>).skipBranches
-        : []) as unknown[];
-      rawSkip.forEach((branch, branchIdx) => {
-        const value = typeof branch === 'string' ? branch.trim() : '';
-        if (!value) {
-          errors.push({
-            message: `Trigger #${index + 1} has an empty skip_branches entry at position ${branchIdx + 1}.`,
-            line: findLineNumberForKey(rawYaml, 'skip_branches') ?? triggerLine,
-          });
-        }
-      });
-
-      const tags = Array.isArray(triggerRecord.tags) ? triggerRecord.tags : [];
-      tags.forEach((tag, tagIdx) => {
-        const value = typeof tag === 'string' ? tag.trim() : '';
-        if (!value) {
-          errors.push({
-            message: `Trigger #${index + 1} has an empty tag entry at position ${tagIdx + 1}.`,
-            line: findLineNumberForKey(rawYaml, 'tags') ?? triggerLine,
-          });
-        }
-      });
-
-      if (triggerRecord.scope != null) {
-        const scopeValue = typeof triggerRecord.scope === 'string' ? triggerRecord.scope.trim() : '';
-        if (!scopeValue) {
-          errors.push({
-            message: `Trigger #${index + 1} has an empty 'scope'.`,
-            line: findLineNumberForKey(rawYaml, 'scope') ?? triggerLine,
-          });
-        }
-      }
-    });
-
-    return { errors };
-  }, []);
-
   const validation = useMemo(() => {
     if (!isEditing) return { errors: [] };
     return validateTriggerYaml(editorValue);
-  }, [editorValue, isEditing, validateTriggerYaml]);
+  }, [editorValue, isEditing]);
 
   const validationErrorLines = useMemo(() => {
     const lines = new Set<number>();
@@ -723,7 +456,7 @@ function TriggersPage({
         runsCacheRef.current = { runs: await fetchTriggerRuns(), fetchedAt: Date.now() };
       }
 
-      const { owner, repo } = splitSlug(slug);
+      const { owner, repo } = splitTriggerSlug(slug);
       const pipelineSet = new Set(pipelines.map(item => item.identifier));
       const normalizedOwner = owner.toLowerCase();
       const normalizedRepo = repo.toLowerCase();
@@ -808,7 +541,7 @@ function TriggersPage({
   const handleSelectSlug = useCallback((slug: string) => {
     selectedSlugRef.current = slug;
     setSelectedSlug(slug);
-    navigate(`/triggers/${encodeSlug(slug)}`);
+    navigate(`/triggers/${encodeTriggerSlug(slug)}`);
   }, [navigate]);
 
   const handleBackToList = () => {
@@ -1010,7 +743,7 @@ function TriggersPage({
   const visibleTriggers = useMemo(() => {
     const list = searchTerm.trim()
       ? filteredTriggers
-      : filteredTriggers.filter(item => slugToLabel(item.slug).path === (activeFolder || 'root'));
+      : filteredTriggers.filter(item => triggerSlugLabel(item.slug).path === (activeFolder || 'root'));
     return [...list].sort((a, b) => a.slug.localeCompare(b.slug, undefined, { sensitivity: 'base' }));
   }, [filteredTriggers, searchTerm, activeFolder]);
 
@@ -1093,7 +826,7 @@ function TriggersPage({
   );
 
   const renderTriggerCard = (item: TriggerListItem) => {
-    const { name } = slugToLabel(item.slug);
+    const { name } = triggerSlugLabel(item.slug);
     const sourceKey = normalizeSource(item.source);
     const isActive = item.slug === selectedSlug;
     return (
@@ -1472,26 +1205,7 @@ function TriggersPage({
 
                       </div>
 
-                      <div
-                        id="trigger-validation-status"
-                        className={`validation-box ${validation.errors.length ? '' : 'validation-box--success'}`}
-                        role="status"
-                        aria-live="polite"
-                      >
-                        <div className="validation-box__header">{validation.errors.length ? 'Invalid' : 'Valid'}</div>
-                        {validation.errors.length > 0 &&
-                          validation.errors.slice(0, 3).map((err, idx) => (
-                            <div key={`val-${idx}`} className="validation-box__item">
-                              {typeof err.line === 'number' && <span className="validation-box__line">Line {err.line}</span>}
-                              <div className="validation-box__message">{err.message}</div>
-                            </div>
-                          ))}
-                        {validation.errors.length > 3 && (
-                          <div className="validation-box__item">
-                            <div className="validation-box__message">+ {validation.errors.length - 3} more…</div>
-                          </div>
-                        )}
-                      </div>
+                      <YamlValidationPanel id="trigger-validation-status" errors={validation.errors} />
                       {editorSuggestion ? (
                         <EditorAutocompleteMenu
                           id="trigger-editor-autocomplete"

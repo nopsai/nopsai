@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { Copy, Edit3, Plus, RefreshCw, Search, Server, Trash2, X } from 'lucide-react';
+import { Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import {
   ACCESS_UI_BUILD_ID,
   DEFAULT_ADMIN_ROLE,
@@ -19,8 +19,16 @@ import {
   policyLabel,
 } from './access/model';
 import { BasicAccessGrantEditor } from './access/BasicAccessGrantEditor';
-import { AccessEditorEmptyState, AccessModal } from './access/AccessModal';
+import {
+  AccessPoliciesCatalog,
+  AccessRolesCatalog,
+  AccessServiceAccountsCatalog,
+  AccessUsersCatalog,
+} from './access/AccessEntityCatalogs';
+import { AccessConfirmationDialog } from './access/AccessConfirmationDialog';
+import { AccessEditorEmptyState } from './access/AccessModal';
 import { AccessPolicyRuleFields } from './access/AccessPolicyRuleFields';
+import { ServiceAccountTokenPanel, ServiceAccountTokenReveal } from './access/ServiceAccountTokenPanel';
 import {
   areBasicGrantEntriesDirty,
   buildBasicGrantChangeSet,
@@ -29,8 +37,6 @@ import {
 import {
   formatAccessActionSummary,
   formatAccessResourceSummary,
-  parseAAAActionValue,
-  summarizeRoleCoverage,
 } from './access/policyRuleModel';
 import type { AccessResourceCatalog } from './access/resourceCatalog';
 import type {
@@ -49,7 +55,6 @@ import {
   accessPresetForRole,
   accessPresetToneClass,
   formatAccessCount,
-  formatAccessTimestamp,
   matchesAccessSearch,
 } from './access/presentation';
 
@@ -609,14 +614,6 @@ function AccessPanel({
     }
     onChangeServiceAccount({ ...newServiceAccount, roles: [...(newServiceAccount.roles || []), roleName] });
     setNextUserRole('');
-  };
-
-  const statusKey = (value: string) => {
-    const key = (value || '').toLowerCase();
-    if (key.includes('active')) return 'ok';
-    if (key.includes('pending')) return 'warn';
-    if (key.includes('blocked') || key.includes('disabled')) return 'danger';
-    return 'muted';
   };
 
   const visiblePolicies = useMemo(() => {
@@ -1224,19 +1221,13 @@ function AccessPanel({
     </div>
   );
 
-  const serviceAccountTokenReveal = createdServiceAccountToken?.token ? (
-    <div className="access-token-reveal">
-      <div className="min-w-0">
-        <p className="access-card__label">One-time token</p>
-        <code>{createdServiceAccountToken.token}</code>
-        <p className="text-[11px] text-[var(--text-secondary)] mt-2">Store this value now. It will not be shown again.</p>
-      </div>
-      <button type="button" className="access-inline-btn access-inline-btn--pill" onClick={copyCreatedServiceAccountToken}>
-        <Copy className="h-4 w-4" />
-        <span>{copyServiceAccountTokenLabel}</span>
-      </button>
-    </div>
-  ) : null;
+  const serviceAccountTokenReveal = (
+    <ServiceAccountTokenReveal
+      token={createdServiceAccountToken}
+      copyLabel={copyServiceAccountTokenLabel}
+      onCopy={copyCreatedServiceAccountToken}
+    />
+  );
 
   const createServiceAccountEditor = (
     <div className="access-editor-surface">
@@ -1415,104 +1406,18 @@ function AccessPanel({
   const usersWorkspace = (
     <div className="access-workspace">
       <div className="space-y-4 access-workspace__list">
-        {(error || accessGrantsError) && (
-          <div className="access-error-banner">
-            {error ? `Failed to load users: ${error}` : `Failed to load basic roles: ${accessGrantsError}`}
-          </div>
-        )}
-        {loading || accessGrantsLoading ? (
-          <div className="access-empty-card">
-            <p className="font-medium text-[var(--text-primary)]">Loading people…</p>
-            <p className="text-sm text-[var(--text-secondary)]">Fetching accounts and current role assignments.</p>
-          </div>
-        ) : users.length === 0 ? (
-          <div className="access-empty-card">
-            <p className="font-medium text-[var(--text-primary)]">No users yet</p>
-            <p className="text-sm text-[var(--text-secondary)]">Create a local account, then assign access and basic roles.</p>
-          </div>
-        ) : filteredUsers.length === 0 ? (
-          <div className="access-empty-card">
-            <p className="font-medium text-[var(--text-primary)]">No people match this search</p>
-            <p className="text-sm text-[var(--text-secondary)]">Try a username, email address, role, or group path.</p>
-          </div>
-        ) : (
-          <div className="access-entity-grid access-entity-grid--users">
-            {filteredUsers.map(user => {
-              const userRoles = user.roles || [];
-              const grants = basicUserGrantMap.get(user.id) || [];
-              const isSelected = userAccessEditor?.user.id === user.id;
-              return (
-                <article key={user.id} className={`access-card access-card--user ${isSelected ? 'access-card--selected' : ''}`}>
-                  <div className="access-card__header">
-                    <div className="min-w-0 flex items-center gap-3">
-                      <div className="access-avatar">{(user.sub || user.email || 'U').charAt(0).toUpperCase()}</div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="access-card__title">{user.sub}</p>
-                          <span className={`access-status access-status--${statusKey(user.status)}`}>{user.status || 'unknown'}</span>
-                        </div>
-                        <p className="access-card__subtitle">{user.email || 'No email address'}</p>
-                        <p className="access-card__meta-line">
-                          {user.last_login ? `Last sign-in ${formatAccessTimestamp(user.last_login)}` : 'Never signed in'}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="access-card__actions">
-                      <button
-                        type="button"
-                        className="access-card-action"
-                        title="Edit user"
-                        aria-label={`Edit ${user.sub || user.email || 'user'}`}
-                        onClick={() => openUserAccessModal(user)}
-                      >
-                        <EditIcon />
-                      </button>
-                      <button
-                        type="button"
-                        className="access-card-action access-card-action--danger"
-                        title="Delete user"
-                        aria-label={`Delete ${user.sub || user.email || 'user'}`}
-                        onClick={() => confirmDeleteUser(user.id)}
-                        disabled={loading}
-                      >
-                        <TrashIcon />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <p className="access-card__label">Access roles</p>
-                    <div className="flex flex-wrap gap-2">
-                      {userRoles.length > 0 ? (
-                        userRoles.map(role => (
-                          <span key={`${user.id}-${role.role}`} className={`access-chip ${accessPresetToneClass(role.role)}`}>
-                            {role.role}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-sm text-[var(--text-secondary)]">No roles assigned yet</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <p className="access-card__label">Basic roles</p>
-                    <div className="flex flex-wrap gap-2">
-                      {grants.length > 0 ? (
-                        grants.slice(0, 4).map(grant => (
-                          <span key={grant.id} className={`access-chip ${accessPresetToneClass(grant.role)}`}>
-                            {basicAccessGrantLabel(grant)}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-sm text-[var(--text-secondary)]">No basic roles yet</span>
-                      )}
-                      {grants.length > 4 && <span className="access-chip access-chip--muted">+ {grants.length - 4} more</span>}
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        )}
+        <AccessUsersCatalog
+          users={users}
+          filteredUsers={filteredUsers}
+          grantMap={basicUserGrantMap}
+          selectedUserID={userAccessEditor?.user.id}
+          loading={loading}
+          error={error}
+          grantsLoading={accessGrantsLoading}
+          grantsError={accessGrantsError}
+          onEdit={openUserAccessModal}
+          onDelete={confirmDeleteUser}
+        />
       </div>
       <aside className="access-editor-pane">
         {userAccessEditor ? (
@@ -1643,106 +1548,18 @@ function AccessPanel({
   const serviceAccountsWorkspace = (
     <div className="access-workspace">
       <div className="space-y-4 access-workspace__list">
-        {(serviceAccountsError || accessGrantsError) && (
-          <div className="access-error-banner">
-            {serviceAccountsError ? `Failed to load service accounts: ${serviceAccountsError}` : `Failed to load basic roles: ${accessGrantsError}`}
-          </div>
-        )}
-        {serviceAccountsLoading || accessGrantsLoading ? (
-          <div className="access-empty-card">
-            <p className="font-medium text-[var(--text-primary)]">Loading service accounts…</p>
-            <p className="text-sm text-[var(--text-secondary)]">Fetching integration identities, tokens, and role assignments.</p>
-          </div>
-        ) : serviceAccounts.length === 0 ? (
-          <div className="access-empty-card">
-            <p className="font-medium text-[var(--text-primary)]">No service accounts yet</p>
-            <p className="text-sm text-[var(--text-secondary)]">Create a token-only account for integrations and automation.</p>
-          </div>
-        ) : filteredServiceAccounts.length === 0 ? (
-          <div className="access-empty-card">
-            <p className="font-medium text-[var(--text-primary)]">No service accounts match this search</p>
-            <p className="text-sm text-[var(--text-secondary)]">Try a service account ID, contact email, role, or group path.</p>
-          </div>
-        ) : (
-          <div className="access-entity-grid access-entity-grid--users">
-            {filteredServiceAccounts.map(account => {
-              const accountRoles = account.roles || [];
-              const grants = basicServiceAccountGrantMap.get(account.sub) || [];
-              const isSelected = serviceAccountEditor?.account.id === account.id;
-              return (
-                <article key={account.id} className={`access-card access-card--user ${isSelected ? 'access-card--selected' : ''}`}>
-                  <div className="access-card__header">
-                    <div className="min-w-0 flex items-center gap-3">
-                      <div className="access-avatar">
-                        <Server className="h-4 w-4" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="access-card__title">{account.sub}</p>
-                          <span className={`access-status access-status--${statusKey(account.status)}`}>{account.status || 'unknown'}</span>
-                        </div>
-                        <p className="access-card__subtitle">{account.email || 'No contact email'}</p>
-                        <p className="access-card__meta-line">
-                          {account.last_used_at ? `Last token use ${formatAccessTimestamp(account.last_used_at)}` : 'No token activity yet'} · {formatAccessCount(account.token_count || 0, 'token')}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="access-card__actions">
-                      <button
-                        type="button"
-                        className="access-card-action"
-                        title="Edit service account"
-                        aria-label={`Edit ${account.sub || 'service account'}`}
-                        onClick={() => openServiceAccountAccessModal(account)}
-                      >
-                        <EditIcon />
-                      </button>
-                      <button
-                        type="button"
-                        className="access-card-action access-card-action--danger"
-                        title="Delete service account"
-                        aria-label={`Delete ${account.sub || 'service account'}`}
-                        onClick={() => confirmDeleteServiceAccount(account.id)}
-                        disabled={serviceAccountsLoading}
-                      >
-                        <TrashIcon />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <p className="access-card__label">Access roles</p>
-                    <div className="flex flex-wrap gap-2">
-                      {accountRoles.length > 0 ? (
-                        accountRoles.map(role => (
-                          <span key={`${account.id}-${role.role}`} className={`access-chip ${accessPresetToneClass(role.role)}`}>
-                            {role.role}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-sm text-[var(--text-secondary)]">No roles assigned yet</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <p className="access-card__label">Basic roles</p>
-                    <div className="flex flex-wrap gap-2">
-                      {grants.length > 0 ? (
-                        grants.slice(0, 4).map(grant => (
-                          <span key={grant.id} className={`access-chip ${accessPresetToneClass(grant.role)}`}>
-                            {basicAccessGrantLabel(grant)}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-sm text-[var(--text-secondary)]">No basic roles yet</span>
-                      )}
-                      {grants.length > 4 && <span className="access-chip access-chip--muted">+ {grants.length - 4} more</span>}
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        )}
+        <AccessServiceAccountsCatalog
+          accounts={serviceAccounts}
+          filteredAccounts={filteredServiceAccounts}
+          grantMap={basicServiceAccountGrantMap}
+          selectedAccountID={serviceAccountEditor?.account.id}
+          loading={serviceAccountsLoading}
+          error={serviceAccountsError}
+          grantsLoading={accessGrantsLoading}
+          grantsError={accessGrantsError}
+          onEdit={openServiceAccountAccessModal}
+          onDelete={confirmDeleteServiceAccount}
+        />
       </div>
       <aside className="access-editor-pane">
         {serviceAccountEditor ? (
@@ -1782,51 +1599,17 @@ function AccessPanel({
                   </select>
                 </label>
               </div>
-              <div className="access-editor-section access-editor-section--plain">
-                <div className="access-minimal-section__header">
-                  <p className="text-sm font-medium text-[var(--text-primary)]">Tokens</p>
-                  <span className="text-[11px] text-[var(--text-secondary)]">{serviceAccountEditor.tokens.length} active</span>
-                </div>
-                <div className="access-editor-inline-add">
-                  <input
-                    className="pipelines-input flex-1"
-                    value={serviceAccountEditor.tokenName}
-                    onChange={e => setServiceAccountEditor(prev => (prev ? { ...prev, tokenName: e.target.value } : prev))}
-                    placeholder="rotation"
-                  />
-                  <button type="button" className="glass-button-subtle" onClick={handleCreateServiceAccountToken} disabled={serviceAccountEditor.tokensLoading || !serviceAccountEditor.tokenName.trim()}>
-                    Create token
-                  </button>
-                </div>
-                {serviceAccountEditor.tokensError && <div className="access-error-banner">{serviceAccountEditor.tokensError}</div>}
-                <div className="space-y-2">
-                  {serviceAccountEditor.tokensLoading ? (
-                    <p className="text-[12px] text-[var(--text-secondary)]">Loading tokens…</p>
-                  ) : serviceAccountEditor.tokens.length === 0 ? (
-                    <p className="text-[12px] text-[var(--text-secondary)]">No active tokens.</p>
-                  ) : (
-                    serviceAccountEditor.tokens.map(token => (
-                      <div key={token.id} className="access-minimal-row access-minimal-row--stack">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="access-chip access-chip--muted">{token.name}</span>
-                            <span className="access-chip access-chip--muted">••••{token.token_suffix}</span>
-                          </div>
-                          <p className="text-[11px] text-[var(--text-secondary)] mt-2">
-                            Created {formatAccessTimestamp(token.created_at)}
-                            {token.expires_at ? ` · Expires ${formatAccessTimestamp(token.expires_at)}` : ' · Never expires'}
-                            {token.last_used_at ? ` · Last used ${formatAccessTimestamp(token.last_used_at)}` : ''}
-                          </p>
-                        </div>
-                        <button type="button" className="access-inline-btn access-inline-btn--danger" onClick={() => handleRevokeServiceAccountToken(token.id)} disabled={serviceAccountEditor.tokensLoading}>
-                          <TrashIcon />
-                          <span>Revoke</span>
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
+              <ServiceAccountTokenPanel
+                tokens={serviceAccountEditor.tokens}
+                loading={serviceAccountEditor.tokensLoading}
+                error={serviceAccountEditor.tokensError}
+                tokenName={serviceAccountEditor.tokenName}
+                onTokenNameChange={tokenName =>
+                  setServiceAccountEditor(prev => (prev ? { ...prev, tokenName } : prev))
+                }
+                onCreate={handleCreateServiceAccountToken}
+                onRevoke={handleRevokeServiceAccountToken}
+              />
               <div className="access-editor-section access-editor-section--plain">
                 <div className="access-minimal-section__header">
                   <p className="text-sm font-medium text-[var(--text-primary)]">Access roles</p>
@@ -2013,100 +1796,16 @@ function AccessPanel({
           {activeSection === 'roles' && (
             <div className="access-workspace">
               <div className="space-y-4 access-workspace__list">
-                {(policiesError || error) && <div className="access-error-banner">Failed to load roles: {policiesError || error}</div>}
-                {loading || policiesLoading ? (
-                  <div className="access-empty-card">
-                    <p className="font-medium text-[var(--text-primary)]">Loading roles…</p>
-                    <p className="text-sm text-[var(--text-secondary)]">Collecting reusable bundles and their current assignees.</p>
-                  </div>
-                ) : roleDefinitions.length === 0 ? (
-                  <div className="access-empty-card">
-                    <p className="font-medium text-[var(--text-primary)]">No roles yet</p>
-                    <p className="text-sm text-[var(--text-secondary)]">Create a role and attach policies that match the language your operators already use.</p>
-                  </div>
-                ) : filteredRoleDefinitions.length === 0 ? (
-                  <div className="access-empty-card">
-                    <p className="font-medium text-[var(--text-primary)]">No roles match this search</p>
-                    <p className="text-sm text-[var(--text-secondary)]">Try a role name, policy label, or one of the assigned accounts.</p>
-                  </div>
-                ) : (
-                  <div className="access-entity-grid access-entity-grid--roles">
-                    {filteredRoleDefinitions.map(role => {
-                      const assignedUsers = roleUserMap.get(role.id) || [];
-                      const preset = accessPresetForRole(role.role);
-                      const coverage = summarizeRoleCoverage(role.policies);
-                      const protectedRole = isProtectedAccessRole(role.role);
-                      const isSelected = roleEditor?.role === role.role;
-                      return (
-                        <article key={role.id} className={`access-card access-card--role ${isSelected ? 'access-card--selected' : ''}`}>
-                          <div className="access-card__header">
-                            <div className="space-y-2 min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <p className="access-card__title">{role.role}</p>
-                                {preset && <span className={`access-chip ${accessPresetToneClass(role.role)}`}>{preset.label}</span>}
-                                {protectedRole && <span className="access-chip access-chip--muted">Protected</span>}
-                              </div>
-                              <p className="access-card__subtitle">
-                                {preset?.description || 'Reusable role bundle for assigning multiple low-level AAA policies together.'}
-                              </p>
-                              <p className="access-card__meta-line">
-                                {formatAccessCount(role.policies.length, 'policy', 'policies')} · {formatAccessCount(assignedUsers.length, 'assignee')}
-                              </p>
-                            </div>
-                            <div className="access-card__actions">
-                              {protectedRole ? (
-                                <span className="access-chip access-chip--muted">Protected</span>
-                              ) : (
-                                <>
-                                  <button
-                                    type="button"
-                                    className="access-card-action"
-                                    title="Edit role"
-                                    aria-label={`Edit ${role.role}`}
-                                    onClick={() => openEditRoleEditor(role)}
-                                  >
-                                    <EditIcon />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="access-card-action access-card-action--danger"
-                                    title="Delete role"
-                                    aria-label={`Delete ${role.role}`}
-                                    onClick={() => confirmDeleteRoleDefinition(role)}
-                                  >
-                                    <TrashIcon />
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                          <div className="space-y-2">
-                            <p className="access-card__label">Coverage</p>
-                            <div className="flex flex-wrap gap-2">
-                              {coverage.map(label => (
-                                <span key={`${role.id}-coverage-${label}`} className="access-chip access-chip--muted">
-                                  {label}
-                                </span>
-                              ))}
-                              {coverage.length === 0 && <span className="text-sm text-[var(--text-secondary)]">No coverage yet</span>}
-                            </div>
-                          </div>
-                          <div className="space-y-2">
-                            <p className="access-card__label">Includes</p>
-                            <div className="flex flex-wrap gap-2">
-                              {role.policies.slice(0, 4).map(policy => (
-                                <span key={policyKey(policy)} className="access-chip access-chip--muted">
-                                  {policyLabel(policy)}
-                                </span>
-                              ))}
-                              {role.policies.length > 4 && <span className="access-chip access-chip--muted">+ {role.policies.length - 4} more</span>}
-                            </div>
-                          </div>
-                        </article>
-                      );
-                    })}
-                  </div>
-                )}
+                <AccessRolesCatalog
+                  roles={roleDefinitions}
+                  filteredRoles={filteredRoleDefinitions}
+                  roleUserMap={roleUserMap}
+                  selectedRole={roleEditor?.role}
+                  loading={loading || policiesLoading}
+                  error={policiesError || error}
+                  onEdit={openEditRoleEditor}
+                  onDelete={confirmDeleteRoleDefinition}
+                />
               </div>
               <aside className="access-editor-pane">
                 {roleEditor ? (
@@ -2206,83 +1905,15 @@ function AccessPanel({
           {activeSection === 'policies' && (
             <div className="access-workspace">
               <div className="space-y-4 access-workspace__list">
-                {policiesError && <div className="access-error-banner">Failed to load policies: {policiesError}</div>}
-                {policiesLoading ? (
-                  <div className="access-empty-card">
-                    <p className="font-medium text-[var(--text-primary)]">Loading policies…</p>
-                    <p className="text-sm text-[var(--text-secondary)]">Fetching the low-level rules behind each role bundle.</p>
-                  </div>
-                ) : visiblePolicies.length === 0 ? (
-                  <div className="access-empty-card">
-                    <p className="font-medium text-[var(--text-primary)]">No policies yet</p>
-                    <p className="text-sm text-[var(--text-secondary)]">Create a rule, then attach it to roles like viewer or developer.</p>
-                  </div>
-                ) : filteredPolicies.length === 0 ? (
-                  <div className="access-empty-card">
-                    <p className="font-medium text-[var(--text-primary)]">No policies match this search</p>
-                    <p className="text-sm text-[var(--text-secondary)]">Search by role, resource selector, action, or policy label.</p>
-                  </div>
-                ) : (
-                  <div className="access-policy-stack">
-                    {filteredPolicies.map(policy => {
-                      const protectedPolicy = isProtectedAccessRole(policy.role);
-                      const parsedAction = parseAAAActionValue(policy.act);
-                      const preset = accessPresetForRole(policy.role);
-                      const isSelected =
-                        policyEditor?.original.role === policy.role &&
-                        policyEditor?.original.obj === policy.obj &&
-                        policyEditor?.original.act === policy.act;
-                      return (
-                        <article key={`${policy.role}-${policy.obj}-${policy.act}`} className={`access-card access-card--policy ${isSelected ? 'access-card--selected' : ''}`}>
-                          <div className="access-card__header">
-                            <div className="space-y-2 min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <p className="access-card__title">{policyLabel(policy)}</p>
-                                <span className={`access-chip ${accessPresetToneClass(policy.role)}`}>{policy.role}</span>
-                                {parsedAction.effect === 'deny' && <span className="access-chip access-chip--danger">Deny</span>}
-                                {protectedPolicy && <span className="access-chip access-chip--muted">Protected</span>}
-                              </div>
-                              <p className="access-card__subtitle">
-                                {preset ? `${preset.label} role` : 'Role'} can {formatAccessActionSummary(policy.act)} on {formatAccessResourceSummary(policy.obj)}.
-                              </p>
-                            </div>
-                            <div className="access-card__actions">
-                              {protectedPolicy ? (
-                                <span className="access-chip access-chip--muted">Protected</span>
-                              ) : (
-                                <>
-                                  <button
-                                    type="button"
-                                    className="access-card-action"
-                                    title="Edit policy"
-                                    aria-label={`Edit ${policyLabel(policy)}`}
-                                    onClick={() => openPolicyEditModal(policy)}
-                                  >
-                                    <EditIcon />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="access-card-action access-card-action--danger"
-                                    title="Delete policy"
-                                    aria-label={`Delete ${policyLabel(policy)}`}
-                                    onClick={() => confirmDeletePolicy(policy)}
-                                  >
-                                    <TrashIcon />
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                          <div className="access-policy-preview access-policy-preview--minimal">
-                            <span className="access-policy-chip access-policy-chip--path">{policy.obj}</span>
-                            <span className="access-policy-arrow">-&gt;</span>
-                            <span className="access-policy-chip access-policy-chip--act">{policy.act}</span>
-                          </div>
-                        </article>
-                      );
-                    })}
-                  </div>
-                )}
+                <AccessPoliciesCatalog
+                  policies={visiblePolicies}
+                  filteredPolicies={filteredPolicies}
+                  selectedPolicy={policyEditor?.original}
+                  loading={policiesLoading}
+                  error={policiesError}
+                  onEdit={openPolicyEditModal}
+                  onDelete={confirmDeletePolicy}
+                />
               </div>
               <aside className="access-editor-pane">
                 {policyEditor ? (
@@ -2349,26 +1980,12 @@ function AccessPanel({
       </div>
 
       {confirmDialog && (
-        <AccessModal
-          kicker="Confirm"
-          title="Please confirm"
-          subtitle="This action cannot be undone."
-          onClose={() => setConfirmDialog(null)}
-          icon={<TrashIcon />}
-          variant="minimal"
-        >
-          <div className="space-y-4">
-            <p className="text-sm text-[var(--text-primary)]">{confirmDialog.message}</p>
-            <div className="flex items-center justify-end gap-2">
-              <button data-dialog-initial-focus type="button" className="access-inline-btn" onClick={() => setConfirmDialog(null)} disabled={confirming}>
-                Cancel
-              </button>
-              <button type="button" className="glass-button-danger" onClick={() => void handleConfirmDialog()} disabled={confirming}>
-                {confirming ? 'Working…' : 'Delete'}
-              </button>
-            </div>
-          </div>
-        </AccessModal>
+        <AccessConfirmationDialog
+          message={confirmDialog.message}
+          pending={confirming}
+          onCancel={() => setConfirmDialog(null)}
+          onConfirm={handleConfirmDialog}
+        />
       )}
     </div>
   );
@@ -2380,10 +1997,6 @@ function PlusIcon() {
 
 function TrashIcon() {
   return <Trash2 className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />;
-}
-
-function EditIcon() {
-  return <Edit3 className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />;
 }
 
 function RefreshIcon() {
