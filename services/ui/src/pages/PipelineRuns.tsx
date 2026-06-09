@@ -1,7 +1,32 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, FormEvent, ReactNode, SetStateAction } from 'react';
 import { Link, NavLink, useParams, useSearchParams } from 'react-router-dom';
-import { Activity, Boxes, CalendarClock, FolderTree, GitBranch, PlayCircle, Plus, Timer, Trash2, Webhook } from 'lucide-react';
+import {
+  Activity,
+  ArrowRight,
+  ArrowUpRight,
+  Boxes,
+  CalendarClock,
+  ChevronRight,
+  FileText,
+  Folder,
+  FolderTree,
+  GitBranch,
+  Grid2X2,
+  List,
+  PlayCircle,
+  Plus,
+  RefreshCw,
+  Search,
+  Settings,
+  Square,
+  Timer,
+  Trash2,
+  User,
+  Webhook,
+  Workflow,
+  X,
+} from 'lucide-react';
 import yaml from 'js-yaml';
 import { ConfigRepositoryDriftModal } from '../components/ConfigRepositoryDriftModal';
 import { fetchGroupConfigRepository, requestPipelineRunsJson } from '../features/pipeline-runs/api';
@@ -30,6 +55,33 @@ import {
   formatElapsedLabel,
   formatStepDuration,
 } from '../features/pipeline-runs/runGraphModel';
+import {
+  buildGroupPath,
+  buildPipelineLink,
+  buildRunSourceGroups,
+  buildStatusTimeline,
+  extractLatestRunSummary,
+  formatBranch,
+  formatBranchDisplay,
+  formatConfigRepoTimestamp,
+  formatRepoLabel,
+  formatTriggerId,
+  getBranchStatusTone,
+  getStatusDotClass,
+  groupDisplayName,
+  groupRepositoryLabel,
+  groupRepositoryURL,
+  isAppGroup,
+  runMatchesSearch,
+  runTimestamp,
+  summarizeStatus,
+  timeAgo,
+  type Group,
+  type ParentRunInfo,
+  type RepoSummary,
+  type RunSourceGroup,
+  type RunSourceKind,
+} from '../features/pipeline-runs/runPresentation';
 import { RunLogsModal as LogsModal } from '../features/pipeline-runs/RunLogsModal';
 import {
   STATUS_META,
@@ -57,24 +109,6 @@ import type {
   NotificationRouteRecord,
 } from '../features/pipeline-runs/notificationRoutes';
 type TabKey = 'main' | 'recent' | 'events';
-
-type Group = {
-  id: number;
-  name: string;
-  kind?: 'group' | 'app' | string;
-  parent_id?: number | null;
-  description?: string;
-  repo_url?: string;
-  repository_full_name?: string;
-  last_run_at?: string;
-};
-
-type ParentRunInfo = {
-  run_id: string;
-  pipeline_name: string;
-  pipeline_path?: string;
-  pipeline_version?: string;
-};
 
 const EMPTY_TASK_DEFINITIONS: TaskDefinition[] = [];
 
@@ -112,15 +146,6 @@ type TriggerGroup = {
   latestRun?: RunListItem;
 };
 
-type RunSourceKind = 'repository' | 'external' | 'schedule' | 'manual';
-
-type RunSourceGroup = {
-  kind: RunSourceKind;
-  label: string;
-  runs: RunListItem[];
-  branches?: Record<string, RunListItem[]>;
-};
-
 type BranchEventGroup = {
   id: string;
   runs: RunListItem[];
@@ -129,14 +154,6 @@ type BranchEventGroup = {
   actor?: string;
   branchLabel?: string;
   commitLabel?: string;
-};
-
-type RepoSummary = {
-  status: string;
-  branch: string;
-  commit: string;
-  pusher: string;
-  started_at?: string;
 };
 
 type ConfigRepository = {
@@ -183,7 +200,6 @@ function isReservedRootGroupName(name: string) {
   return normalized === 'root' || normalized === '__general__';
 }
 
-const STATUS_PRIORITY = ['failure', 'rejected', 'failure (ignored)', 'cancelled', 'waiting_approval', 'running', 'pending', 'skipped', 'success'];
 const RECENT_FETCH_SIZE = 60;
 const RECENT_INITIAL_BATCH = 30;
 const RECENT_BATCH_SIZE = 20;
@@ -198,6 +214,19 @@ const emptyConfigRepositoryForm: ConfigRepositoryFormState = {
 };
 
 const emptyNotificationRouteForm = createEmptyNotificationRouteForm();
+
+function runSourceIcon(kind: RunSourceKind) {
+  switch (kind) {
+    case 'repository':
+      return <GitBranch className="h-4 w-4" />;
+    case 'schedule':
+      return <Timer className="h-4 w-4" />;
+    case 'external':
+      return <Webhook className="h-4 w-4" />;
+    default:
+      return <PlayCircle className="h-4 w-4" />;
+  }
+}
 
 function PipelineRunsPage() {
   const { tab: tabParam } = useParams<{ tab?: string }>();
@@ -1342,9 +1371,7 @@ function PipelineRunsPage() {
                       requestAnimationFrame(() => searchInputRef.current?.focus());
                     }}
                   >
-                    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-4.35-4.35M10 18a8 8 0 110-16 8 8 0 010 16z" />
-                    </svg>
+                    <Search className="h-4 w-4" aria-hidden="true" />
                   </button>
                   <input
                     ref={searchInputRef}
@@ -1374,7 +1401,7 @@ function PipelineRunsPage() {
                       }}
                       aria-label="Clear search"
                     >
-                      ✕
+                      <X className="h-4 w-4" aria-hidden="true" />
                     </button>
                   )}
                 </div>
@@ -1387,9 +1414,7 @@ function PipelineRunsPage() {
                     disabled={Boolean(trimmedSearch)}
                     title={trimmedSearch ? 'Clear search to create an item' : 'New group or app'}
                   >
-                    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v14M5 12h14" />
-                    </svg>
+                    <Plus className="h-4 w-4" aria-hidden="true" />
                   </button>
                 )}
               </div>
@@ -2042,9 +2067,7 @@ function GroupGrid({
                   onDelete(group.id);
                 }}
               >
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
+                <Trash2 className="h-5 w-5" aria-hidden="true" />
               </button>
               <div className="flex items-center">
                 <svg className="h-8 w-8 text-[var(--text-accent)] mr-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -2066,10 +2089,7 @@ function GroupGrid({
                   title={repoURL}
                   onClick={event => event.stopPropagation()}
                 >
-                  <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M7 17L17 7" />
-                    <path d="M8 7h9v9" />
-                  </svg>
+                  <ArrowUpRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                   <span className="truncate">{repoLabel || repoURL}</span>
                 </a>
               )}
@@ -2087,9 +2107,7 @@ function GroupGrid({
                     <span className="truncate">{summary.commit || '—'}</span>
                   </div>
                   <div className="flex items-center">
-                    <svg className="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
+                    <User className="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" aria-hidden="true" />
                     <span className="truncate">{summary.pusher || 'N/A'}</span>
                   </div>
                 </div>
@@ -2113,18 +2131,14 @@ function GroupGrid({
           >
             <div className="pipeline-folder-card-header">
               <span className="pipeline-folder-icon">
-                <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 7h5l2 2h9a2 2 0 012 2v7a2 2 0 01-2 2H3a2 2 0 01-2-2V9a2 2 0 012-2z" />
-                </svg>
+                <Folder className="h-6 w-6" aria-hidden="true" />
               </span>
               <h3 className="pipeline-folder-title" title={displayName}>
                 {displayName}
               </h3>
               <div className="pipeline-folder-actions">
                 <span className="pipeline-folder-chevron" aria-hidden="true">
-                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M9 5l7 7-7 7" />
-                  </svg>
+                  <ChevronRight className="h-4 w-4" />
                 </span>
                 <button
                   className="pipelines-delete-button pipeline-folder-delete-btn"
@@ -2136,10 +2150,7 @@ function GroupGrid({
                     onOpenConfigRepository(group);
                   }}
                 >
-                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="3" />
-                    <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 005 15.08a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1A1.65 1.65 0 004.27 7.2l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 008.92 4a1.65 1.65 0 001-1.51V2a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019 8.92a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
-                  </svg>
+                  <Settings className="h-4 w-4" aria-hidden="true" />
                 </button>
                 <button
                   className="pipelines-delete-button pipeline-folder-delete-btn delete-group-btn"
@@ -2151,11 +2162,7 @@ function GroupGrid({
                     onDelete(group.id);
                   }}
                 >
-                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6" />
-                    <path d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
-                    <path d="M4 7h16" />
-                  </svg>
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
                 </button>
               </div>
             </div>
@@ -2298,18 +2305,10 @@ function BranchRunsSection({
         aria-label={`${collapsed ? 'Expand' : 'Collapse'} branch ${branchLabel || branch}`}
       >
         <div className="flex items-center gap-3 min-w-[180px] sm:min-w-[240px] flex-1">
-          <svg
+          <ChevronRight
             className={`h-5 w-5 text-[var(--text-secondary)] transition-transform ${collapsed ? '' : 'rotate-90'}`}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
             aria-hidden="true"
-          >
-            <path d="M9 5l7 7-7 7" />
-          </svg>
+          />
           <span className="h-5 w-5 flex items-center justify-center text-[var(--text-link)]">
             <BranchIcon className="h-4 w-4" />
           </span>
@@ -2335,13 +2334,7 @@ function BranchRunsSection({
               onDeleteBranch();
             }}
           >
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7" />
-              <path d="M10 11v6" />
-              <path d="M14 11v6" />
-              <path d="M9 7h6" />
-              <path d="M12 3v1" />
-            </svg>
+            <Trash2 className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
       </button>
@@ -2994,10 +2987,7 @@ function RunDetailView({
                 <span className="text-3xl font-black tracking-tight text-[var(--text-primary)] dark:text-white">{run.pipeline_name}</span>
                 {parentRun && (
                   <button type="button" className={`${ghostAction} px-3 py-1.5 text-xs`} onClick={() => onOpenRun(parentRun.run_id)}>
-                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M5 12h14" />
-                      <path d="M12 5l7 7-7 7" />
-                    </svg>
+                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
                     Parent: {parentRun.pipeline_name}
                   </button>
                 )}
@@ -3033,49 +3023,32 @@ function RunDetailView({
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
                 <button className={ghostAction} type="button" onClick={onOpenLogs}>
-                  <svg className="h-4 w-4 text-current" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M9 12h6" />
-                    <path d="M9 16h6" />
-                    <path d="M7 8h10" />
-                    <rect x="4" y="4" width="16" height="16" rx="2" ry="2" />
-                  </svg>
+                  <FileText className="h-4 w-4 text-current" aria-hidden="true" />
                   Logs
                 </button>
                 {pipelineLink ? (
                   <Link className={ghostAction} to={pipelineLink}>
-                    <svg className="h-4 w-4 text-current" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="12" cy="12" r="2.5" />
-                      <path d="M4 12h3m10 0h3M12 4v3m0 10v3" />
-                    </svg>
+                    <Workflow className="h-4 w-4 text-current" aria-hidden="true" />
                     Pipeline
                   </Link>
                 ) : (
                   <button className={ghostAction} type="button" onClick={onShowDefinition}>
-                    <svg className="h-4 w-4 text-current" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="12" cy="12" r="2.5" />
-                      <path d="M4 12h3m10 0h3M12 4v3m0 10v3" />
-                    </svg>
+                    <Workflow className="h-4 w-4 text-current" aria-hidden="true" />
                     Pipeline
                   </button>
                 )}
               </div>
               <div className="h-6 w-px bg-[var(--border-primary)] dark:bg-white/10" />
               <button className={isActiveRun ? dangerAction : primaryAction} type="button" onClick={isActiveRun ? onCancel : onRerun} disabled={loading}>
-                <svg className="h-4 w-4 text-current" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="1 4 1 10 7 10" />
-                  <polyline points="23 20 23 14 17 14" />
-                  <path d="M3.51 9a9 9 0 0114.13-3.36L23 10M1 14l5.36 4.36A9 9 0 0020.49 15" />
-                </svg>
+                {isActiveRun ? (
+                  <Square className="h-4 w-4 text-current" aria-hidden="true" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 text-current" aria-hidden="true" />
+                )}
                 {isActiveRun ? 'Cancel' : 'Re-run'}
               </button>
               <button className={iconDanger} type="button" onClick={onDelete} aria-label="Delete run">
-                <svg className="h-4 w-4 text-current" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="3 6 5 6 21 6" />
-                  <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" />
-                  <path d="M10 11v6" />
-                  <path d="M14 11v6" />
-                  <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
-                </svg>
+                <Trash2 className="h-4 w-4 text-current" aria-hidden="true" />
               </button>
               <button
                 className="pipelines-icon-only"
@@ -3084,10 +3057,7 @@ function RunDetailView({
                 aria-label="Close details"
                 title="Close"
               >
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M18 6L6 18" />
-                  <path d="M6 6l12 12" />
-                </svg>
+                <X className="h-4 w-4" aria-hidden="true" />
               </button>
             </div>
           </div>
@@ -3264,12 +3234,7 @@ function ViewToggle({ viewMode, onChange }: { viewMode: 'grid' | 'list'; onChang
         onClick={() => onChange('grid')}
         title="Grid view"
       >
-        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="4" y="4" width="7" height="7"></rect>
-          <rect x="13" y="4" width="7" height="7"></rect>
-          <rect x="4" y="13" width="7" height="7"></rect>
-          <rect x="13" y="13" width="7" height="7"></rect>
-        </svg>
+        <Grid2X2 className="h-4 w-4" aria-hidden="true" />
       </button>
       <button
         type="button"
@@ -3278,11 +3243,7 @@ function ViewToggle({ viewMode, onChange }: { viewMode: 'grid' | 'list'; onChang
         onClick={() => onChange('list')}
         title="List view"
       >
-        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M4 7h16" />
-          <path d="M4 12h16" />
-          <path d="M4 17h16" />
-        </svg>
+        <List className="h-4 w-4" aria-hidden="true" />
       </button>
     </div>
   );
@@ -3336,18 +3297,10 @@ function EventCard({
               'auto minmax(88px,105px) minmax(160px,1.2fr) minmax(82px,0.55fr) minmax(220px,1.4fr) minmax(120px,0.75fr) minmax(110px,0.65fr) minmax(130px,0.9fr) minmax(130px,0.9fr)',
           }}
         >
-          <svg
+          <ChevronRight
             className={`h-4 w-4 text-[var(--text-secondary)] transition-transform ${collapsed ? '' : 'rotate-90'}`}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
             aria-hidden="true"
-          >
-            <path d="M9 5l7 7-7 7" />
-          </svg>
+          />
           <span className={`runner-pill ${meta.pillClass} flex-shrink-0 min-w-[96px] justify-center text-center`}>
             {meta.text}
           </span>
@@ -4120,10 +4073,7 @@ function NewFolderModal({
             <p className="text-xs text-[var(--text-secondary)]">Parent: {parentLabel || 'Root'}</p>
           </div>
           <button type="button" className="pipelines-icon-only" aria-label="Close" onClick={onClose}>
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 6L6 18" />
-              <path d="M6 6l12 12" />
-            </svg>
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
@@ -4302,10 +4252,7 @@ function FolderConfigRepositoryModal({
           <div className="flex items-center gap-2">
             {!canManage && <span className="runner-pill runner-pill--muted">Read-only</span>}
             <button type="button" className="pipelines-icon-only" aria-label="Close" onClick={onClose}>
-              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 6L6 18" />
-                <path d="M6 6l12 12" />
-              </svg>
+              <X className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -4824,311 +4771,6 @@ function NotificationPatternInputs({
       </label>
     </div>
   );
-}
-
-function formatConfigRepoTimestamp(value?: string) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
-}
-
-function isAppGroup(group: Pick<Group, 'kind' | 'name' | 'repo_url' | 'repository_full_name'>) {
-  return group.kind === 'app' || Boolean(group.repo_url || group.repository_full_name) || group.name.includes('/');
-}
-
-function groupDisplayName(group: Pick<Group, 'kind' | 'name' | 'repo_url' | 'repository_full_name'>) {
-  if (!isAppGroup(group)) return group.name;
-  if (group.kind === 'app' && group.name && !group.name.includes('/')) return group.name;
-  const fullName = group.repository_full_name || group.name;
-  return fullName.split('/').filter(Boolean).pop() || group.name;
-}
-
-function groupRepositoryURL(group: Pick<Group, 'name' | 'repo_url' | 'repository_full_name'>) {
-  const fullName = (group.repository_full_name || group.name).trim().replace(/^\/+|\/+$/g, '');
-  if (group.repo_url) return repositoryBrowserURL(group.repo_url, fullName);
-  return fullName.includes('/') ? `https://github.com/${fullName}` : '';
-}
-
-function groupRepositoryLabel(group: Pick<Group, 'name' | 'repo_url' | 'repository_full_name'>) {
-  return (group.repository_full_name || group.name).trim().replace(/^\/+|\/+$/g, '');
-}
-
-function repositoryBrowserURL(rawURL: string, fallbackFullName: string) {
-  const trimmed = rawURL.trim();
-  if (!trimmed) return fallbackFullName.includes('/') ? `https://github.com/${fallbackFullName}` : '';
-  if (trimmed.startsWith('git@github.com:')) {
-    const path = trimmed.slice('git@github.com:'.length).replace(/\.git$/, '').replace(/^\/+|\/+$/g, '');
-    return path ? `https://github.com/${path}` : '';
-  }
-  if (trimmed.startsWith('github.com/')) return `https://${trimmed.replace(/\.git$/, '')}`;
-  if (/^https?:\/\//i.test(trimmed)) return trimmed.replace(/\.git$/, '');
-  return fallbackFullName.includes('/') ? `https://github.com/${fallbackFullName}` : trimmed;
-}
-
-function buildRunSourceGroups(runsByBranch: Record<string, RunListItem[]>): RunSourceGroup[] {
-  const buckets = new Map<RunSourceKind, RunListItem[]>();
-  const repositoryBranches: Record<string, RunListItem[]> = {};
-
-  Object.entries(runsByBranch).forEach(([branch, runs]) => {
-    runs.forEach(run => {
-      const kind = getRunSourceKind(run);
-      const list = buckets.get(kind) || [];
-      list.push(run);
-      buckets.set(kind, list);
-
-      if (kind === 'repository') {
-        const branchRuns = repositoryBranches[branch] || [];
-        branchRuns.push(run);
-        repositoryBranches[branch] = branchRuns;
-      }
-    });
-  });
-
-  const order: RunSourceKind[] = ['repository', 'schedule', 'external', 'manual'];
-  const groups: RunSourceGroup[] = [];
-  order.forEach(kind => {
-    const runs = buckets.get(kind) || [];
-    if (!runs.length) return;
-    groups.push({
-      kind,
-      label: runSourceLabel(kind),
-      runs,
-      branches: kind === 'repository' ? repositoryBranches : undefined,
-    });
-  });
-  return groups;
-}
-
-function getRunSourceKind(run: RunListItem): RunSourceKind {
-  if (run.trigger_source === 'external_trigger' || Boolean(run.external_trigger_id)) return 'external';
-  if (run.trigger_source === 'schedule' || Boolean(run.schedule_id)) return 'schedule';
-  if (hasRepositoryContext(run) || (run.trigger_source || '').startsWith('github_')) return 'repository';
-  return 'manual';
-}
-
-function hasRepositoryContext(run: Pick<RunListItem, 'git_repo_owner' | 'git_repo_name'>) {
-  return Boolean((run.git_repo_owner || '').trim() || (run.git_repo_name || '').trim());
-}
-
-function runSourceLabel(kind: RunSourceKind) {
-  switch (kind) {
-    case 'repository':
-      return 'Git repositories';
-    case 'schedule':
-      return 'Scheduled runs';
-    case 'external':
-      return 'External triggers';
-    case 'manual':
-    default:
-      return 'Manual / Ungrouped';
-  }
-}
-
-function runSourceIcon(kind: RunSourceKind) {
-  switch (kind) {
-    case 'repository':
-      return <GitBranch className="h-4 w-4" />;
-    case 'schedule':
-      return <Timer className="h-4 w-4" />;
-    case 'external':
-      return <Webhook className="h-4 w-4" />;
-    case 'manual':
-    default:
-      return <PlayCircle className="h-4 w-4" />;
-  }
-}
-
-function buildGroupPath(groupId: number | null, groups: Group[]): Group[] {
-  if (!groupId) return [];
-  const map = new Map<number, Group>();
-  groups.forEach(group => map.set(group.id, group));
-  const path: Group[] = [];
-  let current = map.get(groupId) || null;
-  const visited = new Set<number>();
-  while (current && !visited.has(current.id)) {
-    visited.add(current.id);
-    path.unshift(current);
-    const parentId = current.parent_id ?? null;
-    current = parentId ? map.get(parentId) || null : null;
-  }
-  return path;
-}
-
-function getStatusDotClass(status: string | undefined, complete?: boolean) {
-  const normalized = normalizeStatus(status, complete);
-  if (normalized === 'success') return 'bg-emerald-400';
-  if (normalized === 'failure') return 'bg-red-500';
-  if (normalized === 'failure (ignored)') return 'bg-amber-500';
-  if (normalized === 'running') return 'bg-blue-400';
-  if (normalized === 'cancelled') return 'bg-orange-400';
-  if (normalized === 'skipped') return 'bg-slate-400';
-  return 'bg-gray-500';
-}
-
-function runTimestamp(run?: RunListItem) {
-  if (!run) return 0;
-  const value = run.started_at || run.finished_at;
-  if (!value) return 0;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
-}
-
-function buildStatusTimeline(runs: RunListItem[], limit = 36) {
-  const sorted = [...runs].sort((a, b) => runTimestamp(b) - runTimestamp(a));
-  return sorted.slice(0, limit).map((run, index) => ({
-    key: run.run_id || `${run.trigger_event_id || 'run'}-${index}`,
-    status: normalizeStatus(run.status, run.is_complete),
-  }));
-}
-
-function getBranchStatusTone(status: string) {
-  const normalized = normalizeStatus(status, true);
-  if (normalized === 'success') return 'text-green-400';
-  if (normalized === 'failure' || normalized === 'failure (ignored)') return 'text-red-400';
-  if (normalized === 'rejected') return 'text-rose-400';
-  if (normalized === 'waiting_approval') return 'text-cyan-400';
-  if (normalized === 'running') return 'text-blue-400';
-  return 'text-slate-300';
-}
-
-function runMatchesSearch(run: RunListItem, term: string): boolean {
-  if (!term) return true;
-  const haystack = [
-    run.run_id,
-    run.parent_run_id,
-    run.pipeline_name,
-    run.pipeline_path,
-    run.pipeline_version,
-    run.pipeline_source,
-    run.trigger_source,
-    run.schedule_id,
-    run.schedule_name,
-    run.schedule_path,
-    run.git_repo_name,
-    run.git_repo_owner,
-    run.git_ref,
-    run.git_target_ref,
-    run.git_commit_sha,
-    run.git_pusher_name,
-    run.status,
-    run.trigger_event_id,
-    run.external_trigger_id,
-    run.external_trigger_name,
-    run.external_trigger_event_type,
-    run.external_trigger_caller_type,
-    run.external_trigger_caller_id,
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-  return haystack.includes(term);
-}
-
-function formatBranch(ref?: string) {
-  if (!ref) return '—';
-  return ref.replace(/^refs\/heads\//, '');
-}
-
-function formatBranchDisplay(source?: string, target?: string) {
-  const sourceBranch = formatBranch(source);
-  const targetBranch = formatBranch(target);
-  if (targetBranch && targetBranch !== '—') {
-    return `${sourceBranch} -> ${targetBranch}`;
-  }
-  return sourceBranch;
-}
-
-function formatRepoLabel(run: RunListItem) {
-  const owner = (run.git_repo_owner || '').trim();
-  const name = (run.git_repo_name || '').trim();
-  if (owner && name) return `${owner}/${name}`;
-  if (name) return name;
-  if (owner) return owner;
-  if (run.external_trigger_name || run.external_trigger_id) return run.external_trigger_name || run.external_trigger_id || 'External trigger';
-  if (run.schedule_name || run.schedule_path || run.schedule_id) return run.schedule_name || run.schedule_path || run.schedule_id || 'Scheduled run';
-  const path = (run.pipeline_path || '').trim().replace(/^\/+|\/+$/g, '');
-  if (path) return path;
-  if ((run.trigger_source || '').trim()) return runSourceLabel(getRunSourceKind(run));
-  return 'Manual';
-}
-
-function getPipelineIdentifier(run?: Pick<RunListItem, 'pipeline_name' | 'pipeline_path'> | ParentRunInfo | null) {
-  if (!run) return '';
-  const name = (run.pipeline_name || '').trim();
-  const path = (run.pipeline_path || '').trim().replace(/^\/+|\/+$/g, '');
-  if (!name) return '';
-  return path ? `${path}/${name}` : name;
-}
-
-function buildPipelineLink(run?: Pick<RunListItem, 'pipeline_name' | 'pipeline_path'> | ParentRunInfo | null) {
-  const identifier = getPipelineIdentifier(run);
-  if (!identifier) return '';
-  const encoded = identifier
-    .split('/')
-    .map(segment => encodeURIComponent(segment))
-    .join('/');
-  return `/pipelines/${encoded}`;
-}
-
-function timeAgo(dateInput?: string) {
-  if (!dateInput) return '—';
-  const date = new Date(dateInput);
-  if (Number.isNaN(date.getTime())) return '—';
-  const diff = Date.now() - date.getTime();
-  const seconds = Math.floor(diff / 1000);
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 48) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
-function formatTriggerId(id?: string) {
-  if (!id) return { display: 'N/A', full: 'N/A' };
-  const full = String(id);
-  const display = full.length > 12 ? `${full.slice(0, 8)}` : full;
-  return { display, full };
-}
-
-function summarizeStatus(runs: RunListItem[]): string {
-  if (!runs.length) return 'pending';
-  const ranked = runs
-    .map(run => normalizeStatus(run.status, run.is_complete))
-    .sort((a, b) => STATUS_PRIORITY.indexOf(a) - STATUS_PRIORITY.indexOf(b));
-  return ranked[0] || 'pending';
-}
-
-function extractLatestRunSummary(runsByBranch: Record<string, RunListItem[]> | null): RepoSummary | null {
-  if (!runsByBranch) return null;
-  let latest: RunListItem | null = null;
-  let branchName = '';
-  Object.entries(runsByBranch).forEach(([branch, runs]) => {
-    runs.forEach((run: RunListItem) => {
-      if (!latest) {
-        latest = run;
-        branchName = branch;
-        return;
-      }
-      const currentTime = latest.started_at ? new Date(latest.started_at).getTime() : 0;
-      const candidateTime = run.started_at ? new Date(run.started_at).getTime() : 0;
-      if (candidateTime > currentTime) {
-        latest = run;
-        branchName = branch;
-      }
-    });
-  });
-  if (!latest) return null;
-  const resolved = latest as RunListItem;
-  return {
-    status: normalizeStatus(resolved.status, resolved.is_complete),
-    branch: branchName,
-    commit: (resolved.git_commit_sha || '').slice(0, 8),
-    pusher: resolved.git_pusher_name || '',
-    started_at: resolved.started_at,
-  };
 }
 
 export { RunLogsModal as LogsModal } from '../features/pipeline-runs/RunLogsModal';

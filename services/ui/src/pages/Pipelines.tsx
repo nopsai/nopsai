@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
+import { ArrowLeft, Copy, Download, Play, Trash2 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   PIPELINE_DRAFTS_CHANGED_EVENT,
@@ -11,9 +12,11 @@ import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups'
 import { applyEnterIndent, findParentBlock } from '../lib/lab';
 import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
 import ResourceAccessCard from '../components/ResourceAccessCard';
+import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowToastRegion';
 import { StepsGraph } from './PipelineRuns';
 import { fetchEditorAutocompleteMetadata } from '../features/editor/autocomplete';
 import { EditorAutocompleteMenu } from '../features/editor/EditorAutocompleteMenu';
+import { ResourceCollectionToolbar } from '../features/editor/ResourceCollectionToolbar';
 import { ResourceWorkflowModals } from '../features/editor/ResourceWorkflowModals';
 import { useDraftCollection } from '../features/editor/useDraftCollection';
 import { useYamlResourceMutations } from '../features/editor/useYamlResourceMutations';
@@ -48,12 +51,6 @@ import { usePipelinePermissions } from '../features/pipelines/usePipelinePermiss
 const MAX_RECENT_RUNS = 5;
 const MAX_VISIBLE_TRIGGER_CARDS = 5;
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
-
-type ToastMessage = {
-  id: number;
-  message: string;
-  tone: 'success' | 'error' | 'info';
-};
 
 type TreeNode = {
   id: string;
@@ -91,9 +88,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   const [listError, setListError] = useState<string | null>(null);
   const [activeFolder, setActiveFolder] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [searchOpen, setSearchOpen] = useState(false);
   const [resourceGroupPaths, setResourceGroupPaths] = useState<string[]>([]);
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedIdRef = useRef<string | null>(null);
@@ -194,7 +189,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     }
   }, [graphData.steps, selectedGraphStep]);
 
-  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [toasts, setToasts] = useState<WorkflowToast[]>([]);
 
   const syncEditorOverlays = useCallback((textarea: HTMLTextAreaElement | null) => {
     if (!textarea) return;
@@ -425,7 +420,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     []
   );
 
-  const addToast = useCallback((message: string, tone: ToastMessage['tone'] = 'info') => {
+  const addToast = useCallback((message: string, tone: WorkflowToast['tone'] = 'info') => {
     const id = Date.now() + Math.random();
     setToasts(prev => [...prev, { id, message, tone }]);
     window.setTimeout(() => {
@@ -915,11 +910,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                 }}
                 aria-label={source === 'draft' ? 'Discard draft pipeline' : 'Delete pipeline'}
               >
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6" />
-                  <path d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
-                  <path d="M4 7h16" />
-                </svg>
+                <Trash2 className="h-4 w-4" aria-hidden="true" />
               </button>
             ) : null}
           </div>
@@ -1054,15 +1045,11 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                   disabled={executeDisabled}
                   title={executeTitle}
                 >
-                  <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M8 5v14l11-7z" />
-                  </svg>
+                  <Play className="h-4 w-4" aria-hidden="true" />
                   <span>Execute</span>
                 </button>
-                <button id="pipelines-back-btn" className="glass-button-ghost" onClick={handleBackToList}>
-                  <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
-                  </svg>
+                <button id="pipelines-back-btn" type="button" className="glass-button-ghost" onClick={handleBackToList}>
+                  <ArrowLeft className="h-4 w-4" aria-hidden="true" />
                   <span>Back to list</span>
                 </button>
               </div>
@@ -1078,14 +1065,10 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                     {!isEditing ? (
                       <>
                         <button className="glass-button-ghost" onClick={handleCopy} title="Copy YAML">
-                          <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                          </svg>
+                          <Copy className="h-4 w-4" aria-hidden="true" />
                         </button>
                         <button className="glass-button-ghost" onClick={handleDownload} title="Download YAML">
-                          <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                          </svg>
+                          <Download className="h-4 w-4" aria-hidden="true" />
                         </button>
                         {source !== 'draft' ? (
                           <ResourceAccessCard resourceType="pipeline" resourceID={detail.id} label="pipeline" />
@@ -1456,79 +1439,15 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   return (
     <div data-page="pipelines" className="active h-full flex flex-col">
       {!selectedId && (
-        <div className="px-6 pt-6 pb-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              className="glass-button-ghost"
-              aria-label="Back"
-              onClick={() => openFolder(parentFolder(activeFolder))}
-              disabled={!activeFolder}
-            >
-              <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M15 18l-6-6 6-6" />
-              </svg>
-            </button>
-            <div className={`pipelines-search-shell ${searchOpen ? 'open' : ''}`}>
-              <button
-                type="button"
-                className="pipelines-search-toggle"
-                aria-label="Search pipelines"
-                onClick={() => {
-                  setSearchOpen(true);
-                  requestAnimationFrame(() => searchInputRef.current?.focus());
-                }}
-              >
-                <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-4.35-4.35M10 18a8 8 0 110-16 8 8 0 010 16z" />
-                </svg>
-              </button>
-              <input
-                ref={searchInputRef}
-                id="pipelines-search"
-                type="text"
-                placeholder="Search pipelines"
-                className="pipelines-search-input"
-                value={searchTerm}
-                onChange={event => {
-                  setSearchTerm(event.target.value);
-                  if (event.target.value && !searchOpen) setSearchOpen(true);
-                }}
-                onBlur={() => {
-                  if (!searchTerm.trim()) setSearchOpen(false);
-                }}
-              />
-              {(searchTerm || searchOpen) && (
-                <button
-                  type="button"
-                  className="pipelines-search-clear"
-                  onClick={() => {
-                    setSearchTerm('');
-                    setSearchOpen(false);
-                    searchInputRef.current?.blur();
-                  }}
-                  aria-label="Clear search"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-            {canCreatePipelineHere ? (
-              <button
-                id="pipelines-new-btn"
-                type="button"
-                className="pipelines-icon-only"
-                aria-label="Create new pipeline"
-                title="New Pipeline"
-                onClick={openCreateModal}
-              >
-                <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v14M5 12h14" />
-                </svg>
-              </button>
-            ) : null}
-          </div>
-        </div>
+        <ResourceCollectionToolbar
+          resourceLabel="pipeline"
+          activeFolder={activeFolder}
+          searchTerm={searchTerm}
+          canCreate={canCreatePipelineHere}
+          onBack={() => openFolder(parentFolder(activeFolder))}
+          onSearchTermChange={setSearchTerm}
+          onCreate={openCreateModal}
+        />
       )}
       <div className="flex-1 overflow-auto px-6 pb-8 triggers-content">
         {!selectedId ? renderList() : detailLoading ? (
@@ -1563,15 +1482,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
         onConfirmDelete={() => void confirmDelete()}
       />
 
-      {toasts.length > 0 && (
-        <div className="fixed top-6 right-6 z-[100] w-full max-w-sm space-y-3">
-          {toasts.map(toast => (
-            <div key={toast.id} className={`pipelines-toast pipelines-toast--${toast.tone} show`}>
-              <div className="pipelines-toast__content">{toast.message}</div>
-            </div>
-          ))}
-        </div>
-      )}
+      <WorkflowToastRegion toasts={toasts} />
     </div>
   );
 }

@@ -1,9 +1,19 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import { createPortal } from 'react-dom';
+import { Check, RefreshCw } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import yaml from 'js-yaml';
 import { apiClient } from '../lib/api';
 import { LabRunControls } from '../features/lab/LabRunControls';
+import { LabVariableOverrides } from '../features/lab/LabVariableOverrides';
+import {
+  buildInlineSuggestionPreview,
+  normalizeLabScopeLabel,
+  normalizeLabSuggestionList,
+  normalizeLLMProfileSuggestionList,
+  normalizeMCPProfileSuggestionList,
+  normalizeVariableSuggestionList,
+} from '../features/lab/suggestions';
 import { useLabRunAuthorization } from '../features/lab/useLabRunAuthorization';
 import { useLabRunMutation } from '../features/lab/useLabRunMutation';
 import { useLabSession } from '../features/lab/useLabSession';
@@ -14,7 +24,6 @@ import {
   detectSuggestionContext,
   suggestionCopyForContext,
   validatePipelineYamlStrict,
-  type LabSuggestionContext,
   type LabSuggestionItem,
 } from '../lib/lab';
 import { renderYamlHighlight } from '../lib/yamlRenderer';
@@ -22,89 +31,6 @@ import { renderYamlHighlight } from '../lib/yamlRenderer';
 type PipelineListItem = { id: string; source?: string };
 
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
-
-function normalizeScopeLabel(value: unknown): string {
-  if (value == null) return '';
-  const normalized = String(value)
-    .trim()
-    .replace(/^\/+|\/+$/g, '');
-  return normalized.toLowerCase() === 'default' ? '' : normalized;
-}
-
-function normalizeList(payload: unknown): string[] {
-  if (!Array.isArray(payload)) return [];
-  return payload
-    .map(item => {
-      if (typeof item === 'string') return item.trim();
-      if (item && typeof item === 'object' && 'name' in item) {
-        const name = (item as Record<string, unknown>).name;
-        if (typeof name === 'string') return name.trim();
-      }
-      return '';
-    })
-    .filter(Boolean);
-}
-
-function normalizeVariableSuggestionList(payload: unknown): string[] {
-  const names = normalizeList(payload);
-  const set = new Set<string>();
-  names.forEach(name => {
-    const parts = name.split('/').filter(Boolean);
-    if (parts.length === 3) {
-      set.add(parts[2]);
-    } else {
-      set.add(name);
-    }
-  });
-  return Array.from(set).sort((a, b) => a.localeCompare(b));
-}
-
-function normalizeLLMProfileSuggestionList(payload: unknown): string[] {
-  const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null;
-  const profiles = record && Array.isArray(record.profiles) ? record.profiles : [];
-  return profiles
-    .map(profile => {
-      if (typeof profile === 'string') return profile.trim();
-      if (!profile || typeof profile !== 'object') return '';
-      const record = profile as Record<string, unknown>;
-      if (record.allowed_in_scope === false) return '';
-      return typeof record.name === 'string' ? record.name.trim() : '';
-    })
-    .filter(Boolean);
-}
-
-function normalizeMCPProfileSuggestionList(payload: unknown): string[] {
-  const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null;
-  const profiles = record && Array.isArray(record.profiles) ? record.profiles : [];
-  return profiles
-    .map(profile => {
-      if (typeof profile === 'string') return profile.trim();
-      if (!profile || typeof profile !== 'object') return '';
-      const record = profile as Record<string, unknown>;
-      if (record.enabled === false) return '';
-      return typeof record.name === 'string' ? record.name.trim() : '';
-    })
-    .filter(Boolean);
-}
-
-function buildInlineSuggestionPreview(item: LabSuggestionItem, contextInfo: LabSuggestionContext): string {
-  const prefix = typeof contextInfo.prefix === 'string' ? contextInfo.prefix : '';
-  const snippetSource = item.value || item.snippet || '';
-  if (!snippetSource) return '';
-  const firstLine = String(snippetSource).split('\n')[0];
-  if (!firstLine) return '';
-
-  if (prefix) {
-    const lowerPrefix = prefix.toLowerCase();
-    const lowerLine = firstLine.toLowerCase();
-    if (lowerLine.startsWith(lowerPrefix)) {
-      return firstLine.slice(prefix.length);
-    }
-    return '';
-  }
-
-  return firstLine;
-}
 
 function LabPage() {
   const location = useLocation();
@@ -204,7 +130,7 @@ function LabPage() {
   const scopeOptions = useMemo(() => {
     const list = scopes
       .slice()
-      .map(normalizeScopeLabel)
+      .map(normalizeLabScopeLabel)
       .filter(scope => scope !== '')
       .sort((a, b) => a.localeCompare(b));
     return list;
@@ -303,11 +229,11 @@ function LabPage() {
         ]);
 
         setAutocompleteMeta({
-          secrets: normalizeList(secretsResp),
+          secrets: normalizeLabSuggestionList(secretsResp),
           variables: normalizeVariableSuggestionList(varsResp),
           llmProfiles: normalizeLLMProfileSuggestionList(llmProfilesResp),
           mcpProfiles: normalizeMCPProfileSuggestionList(mcpProfilesResp),
-          reusableSteps: normalizeList(stepsResp),
+          reusableSteps: normalizeLabSuggestionList(stepsResp),
           fetchedAt: Date.now(),
           loading: false,
         });
@@ -382,7 +308,7 @@ function LabPage() {
         secretJson.forEach(entry => {
           if (!entry || typeof entry !== 'object') return;
           const record = entry as Record<string, unknown>;
-          const label = normalizeScopeLabel(record.scope);
+          const label = normalizeLabScopeLabel(record.scope);
           scopeSet.add(label);
         });
       }
@@ -390,18 +316,18 @@ function LabPage() {
       if (Array.isArray(variableJson)) {
         variableJson.forEach(entry => {
           if (typeof entry === 'string') {
-            scopeSet.add(normalizeScopeLabel(entry));
+            scopeSet.add(normalizeLabScopeLabel(entry));
             return;
           }
           if (!entry || typeof entry !== 'object') return;
           const record = entry as Record<string, unknown>;
-          const label = normalizeScopeLabel(record.scope ?? record.name ?? record.value);
+          const label = normalizeLabScopeLabel(record.scope ?? record.name ?? record.value);
           scopeSet.add(label);
         });
       }
 
       const normalized = Array.from(scopeSet)
-        .map(normalizeScopeLabel)
+        .map(normalizeLabScopeLabel)
         .filter(scope => scope !== null)
         .sort((a, b) => a.localeCompare(b));
       setScopes(normalized);
@@ -793,14 +719,7 @@ function LabPage() {
               onClick={() => void Promise.all([loadPipelines(), loadAutocomplete(true), loadScopes()])}
               disabled={pipelinesLoading}
             >
-              <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  d="M4 4v6h6M20 20v-6h-6M5 19a9 9 0 0113-13l1 .75M19 5v4h-4"
-                />
-              </svg>
+              <RefreshCw className={`h-4 w-4 ${pipelinesLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
               <span>{pipelinesLoading ? 'Refreshing…' : 'Refresh pipelines'}</span>
             </button>
           </div>
@@ -846,9 +765,7 @@ function LabPage() {
                     onClick={() => saveSession(validation.errors.length)}
                     disabled={validation.errors.length > 0}
                   >
-                    <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                    </svg>
+                    <Check className="h-4 w-4" aria-hidden="true" />
                     <span>Save for Lab</span>
                   </button>
                 </div>
@@ -984,58 +901,12 @@ function LabPage() {
                 </div>
               </div>
 
-              <div className="glass-card p-5 space-y-4 rounded-2xl ring-1 ring-[var(--border-primary)]/70">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <h3 className="text-lg font-semibold text-[var(--text-primary)] leading-tight" style={{ paddingTop: 10 }}>
-                      Variable overrides
-                    </h3>
-                  </div>
-                  <button id="lab-add-override" type="button" className="glass-button-primary" onClick={addOverride}>
-                    <span className="lab-override-add__icon" aria-hidden="true">
-                      +
-                    </span>
-                  </button>
-                </div>
-
-                <div className="lab-overrides-panel">
-                  <div id="lab-overrides-empty" className={`lab-overrides-empty ${overrides.length > 0 ? 'hidden' : ''}`}>
-                    No overrides yet. Leave it blank to inherit scope defaults.
-                  </div>
-                  <div id="lab-overrides-list" className="lab-overrides-list">
-                    {overrides.map(row => (
-                      <div key={row.id} className="lab-override-row">
-                        <div className="lab-override-field">
-                          <input
-                            className="pipelines-input lab-override-input"
-                            placeholder="key"
-                            value={row.key}
-                            onChange={event => updateOverride(row.id, 'key', event.target.value)}
-                          />
-                        </div>
-                        <div className="lab-override-field">
-                          <input
-                            className="pipelines-input lab-override-input"
-                            placeholder="value"
-                            value={row.value}
-                            onChange={event => updateOverride(row.id, 'value', event.target.value)}
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          className="lab-override-remove"
-                          onClick={() => removeOverride(row.id)}
-                          aria-label="Remove override"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
+              <LabVariableOverrides
+                overrides={overrides}
+                onAdd={addOverride}
+                onUpdate={updateOverride}
+                onRemove={removeOverride}
+              />
             </div>
           </div>
         </div>
