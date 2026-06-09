@@ -4,6 +4,7 @@ import {
   IconCog,
   IconDatabase,
   IconDispatch,
+  IconDocs,
   IconFlask,
   IconFlow,
   IconKnowledge,
@@ -26,6 +27,11 @@ export const baseNavItems: NavItem[] = [
     label: 'Monitoring',
     path: '/monitoring',
     icon: <IconMonitoring />,
+  },
+  {
+    label: 'Docs',
+    path: '/docs',
+    icon: <IconDocs />,
   },
   {
     label: 'Pipelines',
@@ -87,6 +93,7 @@ export const baseSystemSubNav: NavItem[] = [
 export const titleMap: Record<string, string> = {
   pipelineruns: 'Pipeline runs',
   monitoring: 'Monitoring',
+  docs: 'Docs',
   pipelines: 'Pipelines',
   schedules: 'Schedules',
   triggers: 'Triggers',
