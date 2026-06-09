@@ -5,7 +5,26 @@ This document tracks the UI clean-code work needed to keep NopsAI maintainable a
 ## Status
 
 - The refactor pass described under **Completed Roadmap Targets** is complete and passes the documented UI gates.
-- The broader enterprise UI refactor is not complete. The prioritized follow-on work below remains, but no release-blocking regression was found during the June 7, 2026 review.
+- The broader enterprise UI refactor is not complete until the first protected-environment live execution is recorded, but no release-blocking regression was found during the June 9, 2026 review.
+- The React/UI direction is healthy for the current pass: feature-owned models, hooks, dialogs, and presentation components are replacing page-local orchestration, API access goes through `apiClient`, AAA checks fail closed, and Git-managed resources keep read-only/clone workflows. The only remaining roadmap item is the first protected-environment live execution.
+
+## June 9, 2026 UI/React Clean-Code Review
+
+The current UI follows the intended clean-code direction for an enterprise control plane, with these strengths:
+
+- Domain behavior is increasingly isolated in feature modules (`model.ts`, `api.ts`, and focused hooks) instead of being embedded directly in route components.
+- The new Scope and Trigger mutation hooks preserve action-time AAA checks, Git-managed read-only behavior, repository-scoped resource identifiers, route selection, and toast-facing failures.
+- React hook usage is compatible with the configured `react-hooks` ESLint gate; no hook-rule exceptions or TypeScript ignore directives were found in the reviewed paths.
+- Shared accessibility primitives exist and are already used by schedule, drift, resource-access, workflow, and run-log dialogs.
+- The GitOps-compatible live workflow, credential-gated smoke suite, and fail-closed missing-credential behavior remain aligned with protected enterprise deployment gates.
+
+The review also found follow-up work that should stay visible:
+
+- The prioritized route modules are smaller and now delegate cohesive boundaries, but some remain large enough to justify future incremental extraction: `PipelineRuns.tsx` is 4,786 lines, `AccessPanel.tsx` is 2,397, `Scopes.tsx` is 1,574, `Triggers.tsx` is 1,671, `Pipelines.tsx` is 1,490, `Steps.tsx` is 1,197, and `Lab.tsx` is 985.
+- Scope, Trigger, and Access confirmation dialogs now use `useDialogFocus`, semantic dialog roles, labelled headings, associated labels, Escape/Tab handling, and opener focus restoration. Component tests cover create, clone, delete, GitOps encryption/copy, validation announcements, and keyboard close paths.
+- `AppHelp.tsx` now uses the shared `useDialogFocus` contract, labelled and described dialog semantics, opener focus restoration, and route-keyed close behavior. Focused tests cover topic resolution, documentation-link construction, route changes, Escape, outside-click close, and accessible trigger state.
+- Common command icons in Pipelines, Steps, Scopes, Triggers, Lab, and primary Pipeline Runs controls now use `lucide-react`. Remaining inline SVGs in those workflows are restricted to resource identity, status, chart, graph, or other domain-specific visuals.
+- Coverage thresholds now enforce 20% statements, 17% branches, 21% functions, and 21% lines against a measured result of 21.29%, 17.91%, 22.66%, and 22.05%. Direct component-runner coverage now includes the previously uncovered App Help, editor autocomplete, Lab suggestions, Pipeline Runs presentation/notification routes, Access presentation, Monitoring model, and Knowledge Context model boundaries.
 
 ## Completed In Current Pass
 
@@ -39,19 +58,27 @@ This document tracks the UI clean-code work needed to keep NopsAI maintainable a
 - `src/features/schedules/model.ts` and `api.ts` own schedule types, cron/form conversion, metadata normalization, validation, payload mapping, and schedule lifecycle API calls.
 - `src/features/knowledge-context/model.ts` and `api.ts` own knowledge document identities, routes, draft storage, tree/content normalization, validation, and CRUD calls.
 - `src/features/triggers/model.ts` and `api.ts` own trigger manifest normalization, pipeline/run helpers, editor metadata, permission checks, list/detail loading, and trigger lifecycle calls.
+- `src/features/triggers/useTriggerManifestMutations.ts` owns trigger manifest create, clone, save, and delete modal lifecycles, including action-time AAA checks and Git-managed read-only handling.
+- `src/features/triggers/TriggerWorkflowModals.tsx` owns accessible create, clone, and delete dialogs with shared focus management and labelled validation.
 - `src/features/scopes/model.ts` and `api.ts` own scope routes, repository-scoped identities, tree/list normalization, usage-analysis transport, clone naming, permission checks, scoped value lifecycle calls, and secret encryption.
+- `src/features/scopes/useScopeModalMutations.ts` owns scope creation/seeding, repository-scoped variable and secret modal lifecycles, GitOps secret encryption/copy, and scoped value deletion.
+- `src/features/scopes/ScopeWorkflowModals.tsx` owns accessible scope, variable, secret, GitOps encryption, and delete dialogs.
 - `src/features/pipelines/usePipelinePermissions.ts`, `steps/useStepPermissions.ts`, `triggers/useTriggerPermissions.ts`, and `scopes/useScopePermissions.ts` own fail-closed, request-keyed permission orchestration for their workflow pages.
 - `src/features/lab/useLabRunAuthorization.ts` owns Lab resource-use discovery, deduplication, debounced batch authorization, denied-resource state, and authorization failures.
 - `src/features/lab/useLabSession.ts` and `useLabRunMutation.ts` own isolated Lab session persistence, protected pipeline switching, override editing, and authorized scoped-run submission.
+- `src/features/lab/LabVariableOverrides.tsx` and `suggestions.ts` own override rendering and pure autocomplete normalization/preview behavior.
 - `src/features/pipeline-runs/api.ts` owns Pipeline Runs JSON, log, and folder config-repository transport behavior.
 - `src/features/pipeline-runs/contracts.ts` owns shared run-list and graph layout contracts that were previously embedded in `pages/PipelineRuns.tsx`.
 - `src/features/pipeline-runs/notificationRoutes.ts` owns legacy and current notification-route normalization, form state, editing, and API payload mapping.
 - `src/features/pipeline-runs/graphLayout.ts` owns graph labels, run/task/edge statuses, deterministic layout, and cyclic dependency protection.
 - `src/features/pipeline-runs/RunGraph.tsx` owns Pipeline Runs graph rendering and interaction, while `runGraphModel.ts` owns elapsed-time and step-duration formatting.
+- `src/features/pipeline-runs/runPresentation.ts` owns run-source classification, repository/group presentation, search, status timelines, links, and recent-run summaries.
 - `src/features/pipeline-runs/runLogs.ts` owns log contracts, structured/plain-text parsing, filtering, legacy hash compatibility, and download formatting.
 - `src/features/pipeline-runs/useRunLogs.ts` owns incremental log polling, URL synchronization, filters, follow state, loading, and failure state.
 - `src/features/pipeline-runs/RunLogsModal.tsx` owns log dialog rendering, filter controls, download interaction, and accessible dialog/log semantics.
 - `src/features/system/access/AccessPolicyRuleFields.tsx` owns the visual AAA rule editor, while `policyRuleModel.ts` owns selector catalogs, parsing, normalization, and display summaries.
+- `src/features/system/access/AccessModal.tsx` and `presentation.ts` own accessible confirmation rendering plus role-preset, search, count, and timestamp presentation.
+- `src/features/editor/ResourceCollectionToolbar.tsx` and `src/components/WorkflowToastRegion.tsx` own shared pipeline/step collection controls and workflow notification semantics.
 - `src/app/useInitialSetupRedirect.ts` owns first-install setup routing decisions.
 - `src/app/AppRoutes.tsx` owns lazy authenticated route composition and permission guards.
 - `src/app/runSidebarApi.ts` and `usePipelineRunsSidebar.ts` own recent/repository run loading, pagination, expansion, active-run synchronization, caching, and polling.
@@ -95,6 +122,8 @@ This document tracks the UI clean-code work needed to keep NopsAI maintainable a
 - `features/system/access/api.ts`: Access resource catalog transport.
 - `features/system/access/useSystemAccess.ts`: Access entity and resource-catalog API orchestration and state.
 - `features/system/access/AccessPolicyRuleFields.tsx`: Focused AAA policy-rule editor rendering.
+- `features/system/access/AccessModal.tsx`: Accessible Access dialog and editor-empty-state rendering.
+- `features/system/access/presentation.ts`: Role presets, section copy, filtering, counts, and timestamp presentation.
 - `features/system/access/policyRuleModel.ts`: AAA resource/action catalogs, selector parsing, normalization, and summaries.
 - `features/system/access/BasicAccessGrantEditor.tsx`: Shared basic-role rendering and editing for user and service-account create/edit workflows.
 - `features/system/access/basicGrantModel.ts`: Basic-grant staging, duplicate detection, dirty comparison, and API reconciliation planning.
@@ -135,16 +164,24 @@ This document tracks the UI clean-code work needed to keep NopsAI maintainable a
 - `features/triggers/model.ts`: Trigger manifest, list, source, pipeline, and run normalization helpers.
 - `features/triggers/api.ts`: Trigger permissions, list/detail/runs, editor metadata, pipeline YAML, save, create, clone, and delete API calls.
 - `features/triggers/useTriggerPermissions.ts`: Trigger folder-create and selected-update permission orchestration.
+- `features/triggers/useTriggerManifestMutations.ts`: Trigger manifest create/clone/save/delete modal orchestration, action-time authorization, and Git read-only safeguards.
 - `features/triggers/TriggerRecentRuns.tsx`: Trigger-linked run history rendering and run-navigation interaction.
+- `features/triggers/TriggerWorkflowModals.tsx`: Accessible Trigger create, clone, and delete dialogs.
 - `features/scopes/model.ts`: Scope identity, route, tree, item metadata, and clone-name normalization.
 - `features/scopes/api.ts`: Scope permissions, catalogs, usage-analysis resources, variables/secrets CRUD, and secret encryption API calls.
 - `features/scopes/useScopePermissions.ts`: Scope creation and selected variable/secret write permission orchestration.
+- `features/scopes/useScopeModalMutations.ts`: Scope creation/seeding, variable/secret create/update/clone/delete modal orchestration, and GitOps secret encryption/copy behavior.
 - `features/scopes/ScopeUsagePanel.tsx`: Selected variable/secret metadata and related pipeline/trigger impact rendering.
+- `features/scopes/ScopeWorkflowModals.tsx`: Accessible Scope, variable, secret, GitOps encryption, and delete dialogs.
 - `features/editor/ResourceWorkflowModals.tsx`: Shared controlled create/clone/delete dialogs for pipeline and reusable-step workflows.
+- `features/editor/ResourceCollectionToolbar.tsx`: Shared pipeline/step back, search, clear, and create controls.
+- `components/WorkflowToastRegion.tsx`: Shared accessible workflow notification region.
 - `features/lab/LabRunControls.tsx`: Lab pipeline/scope selection, run readiness, access checks, launch action, and feedback rendering.
 - `features/lab/useLabRunAuthorization.ts`: Lab dependency resource-use checks, debounced batch authorization, and denied-resource state.
 - `features/lab/useLabSession.ts`: Lab session restoration/persistence, protected pipeline switching, scope state, and variable overrides.
 - `features/lab/useLabRunMutation.ts`: Authorized Lab run payload validation, scoped submission, and run feedback.
+- `features/lab/LabVariableOverrides.tsx`: Accessible Lab variable-override rendering and interaction.
+- `features/lab/suggestions.ts`: Pure Lab suggestion payload normalization and inline-preview behavior.
 - `features/monitoring/model.ts`: Monitoring run, group, service, runner, duration, status, and trend normalization/aggregation.
 - `features/monitoring/MonitoringDashboard.tsx`: Monitoring metric, runtime, trend, status, group, and pipeline presentation.
 - `features/pipeline-runs/api.ts`: Shared Pipeline Runs JSON, incremental logs, and folder config-repository requests.
@@ -153,6 +190,7 @@ This document tracks the UI clean-code work needed to keep NopsAI maintainable a
 - `features/pipeline-runs/graphLayout.ts`: Run graph status derivation and deterministic layout.
 - `features/pipeline-runs/RunGraph.tsx`: Run and task graph rendering, pan/zoom, expansion, and previews.
 - `features/pipeline-runs/runGraphModel.ts`: Run graph duration formatting.
+- `features/pipeline-runs/runPresentation.ts`: Run-source grouping, repository/group labels, search, status timelines, links, and summaries.
 - `features/pipeline-runs/runLogs.ts`: Run log contracts, parsing, filtering, URL hash compatibility, and download formatting.
 - `features/pipeline-runs/useRunLogs.ts`: Incremental polling and log-view state orchestration.
 - `features/pipeline-runs/RunLogsModal.tsx`: Accessible log dialog rendering and interaction.
@@ -166,26 +204,31 @@ This document tracks the UI clean-code work needed to keep NopsAI maintainable a
 ## Completed Roadmap Targets
 
 1. The remaining workflow pages now delegate repeated transport and payload shaping to feature-owned `model.ts` and `api.ts` modules.
-2. Component coverage exists for access forms and policy rules, config repository drift, sidebar navigation, editor autocomplete, Pipeline Runs graph/log behavior, workflow dialogs, scope impact analysis, trigger run history, Lab run controls, Monitoring presentation, and modal save/delete flows.
+2. Component coverage exists for access forms and policy rules, config repository drift, sidebar navigation, editor autocomplete, Pipeline Runs graph/log behavior, workflow dialogs, scope impact analysis, trigger run history, Lab run controls, Monitoring presentation, pipeline/step draft and mutation flows, and Scope/Trigger modal controllers.
 3. Browser-level coverage exists for login, password-change redirect, pipeline save, system setup, access-controlled navigation, and automated login/authenticated-workspace accessibility checks.
 4. Pipeline run graph logic and notification route ownership now live under `features/pipeline-runs/` instead of the page module.
 5. Access resource catalogs and Dispatcher deployment-guide requests now have feature-owned APIs, models, and hooks.
 6. Setup redirect and run-sidebar orchestration now live outside `AppShell.tsx`.
 7. Coverage reporting, an initial enforced baseline, and a credential-gated live-backend smoke suite are available.
-8. Pipeline Runs graph and log rendering, Access policy-rule/basic-grant editing, and authenticated route composition now live in focused components. The parent modules are approximately 5,143 lines for `PipelineRuns.tsx`, 2,565 for `AccessPanel.tsx`, and 1,373 for `AppShell.tsx`.
-9. The remaining workflow pages now delegate cohesive product surfaces: scope impact analysis, trigger run history, shared pipeline/step lifecycle dialogs, Lab run readiness/feedback, and the complete Monitoring analytics/dashboard model. Parent modules are approximately 2,400 lines for `Scopes.tsx`, 2,082 for `Triggers.tsx`, 1,579 for `Pipelines.tsx`, 1,277 for `Steps.tsx`, 1,114 for `Lab.tsx`, and 299 for `Monitoring.tsx`.
+8. Pipeline Runs graph/log rendering and presentation logic, Access policy/basic-grant editing and accessible modal/presentation behavior, and authenticated route composition now live in focused modules. The parent modules are approximately 4,786 lines for `PipelineRuns.tsx`, 2,397 for `AccessPanel.tsx`, and 1,373 for `AppShell.tsx`.
+9. The remaining workflow pages now delegate cohesive product surfaces: scope impact analysis and dialogs, trigger run history and dialogs, shared pipeline/step lifecycle dialogs and collection controls, Lab run readiness/feedback and overrides, and the complete Monitoring analytics/dashboard model. Parent modules are approximately 1,574 lines for `Scopes.tsx`, 1,671 for `Triggers.tsx`, 1,490 for `Pipelines.tsx`, 1,197 for `Steps.tsx`, 985 for `Lab.tsx`, and 299 for `Monitoring.tsx`.
 10. Coverage now exercises Pipeline Runs graph controls and callbacks, Access basic-grant replacement/reconciliation, sidebar loading and pagination, transport failures, permission redirects, request-keyed workflow permissions, and Lab run authorization. The enforced floors increased to 11% statements, 9% branches, 12% functions, and 12% lines against a measured baseline of 11.52%, 9.30%, 12.82%, and 12.14%.
 11. Accessibility coverage now includes serious/critical Axe gates and focus-management checks for shared workflow dialogs, YAML editors and autocomplete, navigation state, pipeline run graphs, and populated log views. Shared modal focus handling and keyboard graph/editor behavior are component tested.
 12. The deployed live suite now has a GitOps-compatible GitHub Actions workflow with protected environment selection, environment-scoped credentials, separate opt-in mutation execution, per-environment serialization, fail-closed CI validation, and failure artifacts.
 13. Permission and run-readiness orchestration now lives in feature hooks across `Scopes`, `Triggers`, `Pipelines`, `Steps`, and `Lab`. Permission results are keyed to the active folder or selection so stale grants cannot leak across navigation, action-time checks remain in place for mutations, and focused hook tests cover grants, rejection, deselection, resource identifiers, debounce, and denied dependencies.
 14. Pipeline and reusable-step draft persistence and save/create/clone/delete mutation lifecycles now live in shared editor hooks, while Lab session persistence, protected pipeline switching, override editing, and run submission live in Lab hooks. Routes, API payloads, local draft behavior, action-time AAA checks, and GitOps read-only handling remain unchanged and are covered by focused component tests.
+15. Domain-specific Scope and Trigger modal controllers now live in feature hooks. Scope creation, repository-scoped variable/secret save/delete flows, GitOps secret encryption/copy, and trigger manifest create/clone/save/delete behavior preserve routes, drafts, action-time AAA checks, GitOps read-only behavior, and API contracts, with focused component coverage.
+16. Scope and Trigger modal markup now lives in feature-owned dialog components using `useDialogFocus`, semantic dialog attributes, labelled fields/headings, validation alerts, Escape/Tab handling, and opener focus restoration. Tests cover create, clone, delete, GitOps encryption/copy, validation, and keyboard close behavior.
+17. The prioritized route-level orchestration pass is complete: Pipeline Runs presentation logic, Access presentation/dialogs, Scope/Trigger workflows, pipeline/step collection controls and notifications, and Lab suggestions/overrides have focused owners and tests. Routes, local drafts, action-time AAA checks, resource-scoped permission keys, and GitOps read-only/clone behavior remain unchanged.
+18. Component-runner coverage now exercises App Help, editor autocomplete transport/normalization, Lab suggestions, Pipeline Runs presentation and notification routes, Access presentation, Monitoring aggregation/normalization, and Knowledge Context identity/tree/content behavior. The repository floors increased to 20% statements, 17% branches, 21% functions, and 21% lines.
+19. Common command actions across Pipelines, Steps, Scopes, Triggers, Lab, and primary Pipeline Runs controls now use `lucide-react`; custom SVG remains only for domain-specific resource, status, chart, and graph visuals.
+20. App Help now has a feature-owned pure resolver model plus shared focus management and explicit accessible relationships. Tests cover route/topic fallback, documentation URLs, route-change close, Escape/outside-click close, initial focus, opener focus restoration, and trigger state.
 
 ## Remaining Enterprise Follow-On Work
 
-These are not blockers for the completed pass, but they remain before the broader enterprise UI refactor should be called complete:
+These are not blockers for the completed local pass, but they remain before the broader enterprise UI refactor should be called complete:
 
 1. **Perform the first protected-environment live execution.** The deployment workflow and CI credential contract are complete, but an environment-backed run still requires configuring `NOPS_UI_LIVE_BASE_URL`, `NOPS_UI_LIVE_USERNAME`, and `NOPS_UI_LIVE_PASSWORD` in GitHub. The optional mutation job additionally requires a dedicated `NOPS_UI_LIVE_PIPELINE_ID`. Those values were unavailable in this workspace, so no deployed run can be truthfully recorded yet.
-2. **Extract the remaining domain-specific Scope and Trigger modal controllers only alongside those workflow changes.** Shared pipeline/step draft persistence and lifecycle mutations plus Lab session/run orchestration now live in feature hooks. `Scopes` and `Triggers` still retain specialized repository-scoped secret/variable encryption and trigger-manifest modal lifecycles; move those slices when the workflows next change, preserving routes, action-time AAA checks, GitOps read-only behavior, drafts, and API contracts.
 
 ## Verification
 
@@ -209,4 +252,4 @@ docker compose run --rm ui-e2e
 docker compose run --rm ui-test sh -c "npm ci && npm run test:e2e:live"
 ```
 
-Latest local verification on June 8, 2026: lint passed, 72 unit tests passed, 57 component tests passed with 13.35% statement coverage, 10.57% branch coverage, 14.31% function coverage, and 14.04% line coverage against the raised thresholds; all 9 mocked Playwright workflows passed, including the Axe/focus scenarios, and the production build completed successfully. The live suite remains credential-gated; its local run reported 2 explicit skips, the CI missing-credential guard failed closed as designed, and the workflow passed YAML and `actionlint` validation.
+Latest local verification on June 9, 2026 used the documented Docker Compose UI gates because the host shell did not expose `node` or `npm`: lint passed, 82 unit tests passed, 106 component tests passed with 21.29% statement coverage, 17.91% branch coverage, 22.66% function coverage, and 22.05% line coverage against enforced floors of 20%, 17%, 21%, and 21%; all 9 mocked Playwright workflows passed; and the production build completed successfully. The rebuilt UI service is healthy and serves the new bundle from `http://localhost`. The in-app browser was unavailable for an additional manual visual pass. The live suite remains credential-gated and reported 2 explicit skips. `actionlint` was not available on the host shell during this pass, so workflow lint was not re-run.

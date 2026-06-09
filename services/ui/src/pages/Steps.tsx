@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
+import { ArrowLeft, Copy, Download, Trash2 } from 'lucide-react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import yaml from 'js-yaml';
 import {
@@ -12,8 +13,10 @@ import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups'
 import { applyEnterIndent, findParentBlock } from '../lib/lab';
 import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
 import ResourceAccessCard from '../components/ResourceAccessCard';
+import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowToastRegion';
 import { fetchEditorAutocompleteMetadata } from '../features/editor/autocomplete';
 import { EditorAutocompleteMenu } from '../features/editor/EditorAutocompleteMenu';
+import { ResourceCollectionToolbar } from '../features/editor/ResourceCollectionToolbar';
 import { ResourceWorkflowModals } from '../features/editor/ResourceWorkflowModals';
 import { useDraftCollection } from '../features/editor/useDraftCollection';
 import { useYamlResourceMutations } from '../features/editor/useYamlResourceMutations';
@@ -42,12 +45,6 @@ import {
 import { useStepPermissions } from '../features/steps/useStepPermissions';
 
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
-
-type ToastMessage = {
-  id: number;
-  message: string;
-  tone: 'success' | 'error' | 'info';
-};
 
 type TreeNode = {
   id: string;
@@ -82,9 +79,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
 
   const [activeFolder, setActiveFolder] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [searchOpen, setSearchOpen] = useState(false);
   const [resourceGroupPaths, setResourceGroupPaths] = useState<string[]>([]);
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedIdRef = useRef<string | null>(null);
@@ -155,9 +150,9 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     groupedSections?: Array<{ label: string; items: string[]; totalCount: number }>;
   }>(null);
 
-  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [toasts, setToasts] = useState<WorkflowToast[]>([]);
 
-  const addToast = useCallback((message: string, tone: ToastMessage['tone'] = 'info') => {
+  const addToast = useCallback((message: string, tone: WorkflowToast['tone'] = 'info') => {
     const id = Date.now() + Math.random();
     setToasts(prev => [...prev, { id, message, tone }]);
     window.setTimeout(() => {
@@ -779,11 +774,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
                 }}
                 aria-label={source === 'draft' ? 'Discard draft step' : 'Delete step'}
               >
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6" />
-                  <path d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
-                  <path d="M4 7h16" />
-                </svg>
+                <Trash2 className="h-4 w-4" aria-hidden="true" />
               </button>
             ) : null}
           </div>
@@ -914,10 +905,8 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
                   </div>
                 </div>
               </div>
-              <button id="steps-back-btn" className="glass-button-ghost" onClick={handleBackToList}>
-                <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
-                </svg>
+              <button id="steps-back-btn" type="button" className="glass-button-ghost" onClick={handleBackToList}>
+                <ArrowLeft className="h-4 w-4" aria-hidden="true" />
                 <span>Back to list</span>
               </button>
             </div>
@@ -932,14 +921,10 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
                     {!isEditing ? (
                       <>
                         <button className="glass-button-ghost" onClick={handleCopy} title="Copy YAML">
-                          <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                          </svg>
+                          <Copy className="h-4 w-4" aria-hidden="true" />
                         </button>
                         <button className="glass-button-ghost" onClick={handleDownload} title="Download YAML">
-                          <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                          </svg>
+                          <Download className="h-4 w-4" aria-hidden="true" />
                         </button>
                         {source !== 'draft' ? (
                           <ResourceAccessCard resourceType="step" resourceID={detail.id} label="step" />
@@ -1160,72 +1145,15 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
   return (
     <div data-page="steps" className="active h-full flex flex-col">
       {!selectedId && (
-        <div className="px-6 pt-6 pb-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              className="glass-button-ghost"
-              aria-label="Back"
-              onClick={() => openFolder(parentFolder(activeFolder))}
-              disabled={!activeFolder}
-            >
-              <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M15 18l-6-6 6-6" />
-              </svg>
-            </button>
-            <div className={`pipelines-search-shell ${searchOpen ? 'open' : ''}`}>
-              <button
-                type="button"
-                className="pipelines-search-toggle"
-                aria-label="Search steps"
-                onClick={() => {
-                  setSearchOpen(true);
-                  requestAnimationFrame(() => searchInputRef.current?.focus());
-                }}
-              >
-                <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-4.35-4.35M10 18a8 8 0 110-16 8 8 0 010 16z" />
-                </svg>
-              </button>
-              <input
-                ref={searchInputRef}
-                id="steps-search"
-                type="text"
-                placeholder="Search steps"
-                className="pipelines-search-input"
-                value={searchTerm}
-                onChange={event => {
-                  setSearchTerm(event.target.value);
-                  if (event.target.value && !searchOpen) setSearchOpen(true);
-                }}
-                onBlur={() => {
-                  if (!searchTerm.trim()) setSearchOpen(false);
-                }}
-              />
-              {(searchTerm || searchOpen) && (
-                <button
-                  type="button"
-                  className="pipelines-search-clear"
-                  onClick={() => {
-                    setSearchTerm('');
-                    setSearchOpen(false);
-                    searchInputRef.current?.blur();
-                  }}
-                  aria-label="Clear search"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-            {canCreateStepHere ? (
-              <button id="steps-new-btn" type="button" className="pipelines-icon-only" aria-label="Create new step" title="New Step" onClick={openCreateModal}>
-                <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v14M5 12h14" />
-                </svg>
-              </button>
-            ) : null}
-          </div>
-        </div>
+        <ResourceCollectionToolbar
+          resourceLabel="step"
+          activeFolder={activeFolder}
+          searchTerm={searchTerm}
+          canCreate={canCreateStepHere}
+          onBack={() => openFolder(parentFolder(activeFolder))}
+          onSearchTermChange={setSearchTerm}
+          onCreate={openCreateModal}
+        />
       )}
 
       <div className="flex-1 overflow-auto px-6 pb-8 triggers-content">
@@ -1261,15 +1189,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
         onConfirmDelete={() => void confirmDelete()}
       />
 
-      {toasts.length > 0 && (
-        <div className="fixed top-6 right-6 z-[100] w-full max-w-sm space-y-3">
-          {toasts.map(toast => (
-            <div key={toast.id} className={`pipelines-toast pipelines-toast--${toast.tone} show`}>
-              <div className="pipelines-toast__content">{toast.message}</div>
-            </div>
-          ))}
-        </div>
-      )}
+      <WorkflowToastRegion toasts={toasts} />
     </div>
   );
 }

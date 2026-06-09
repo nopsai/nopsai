@@ -1,0 +1,125 @@
+import { useState } from 'react';
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { expect, test, vi } from 'vitest';
+import { TriggerWorkflowModals } from './TriggerWorkflowModals';
+import type {
+  TriggerCloneModalState,
+  TriggerCreateModalState,
+  TriggerDeleteModalState,
+} from './useTriggerManifestMutations';
+
+type OpenDialog = 'create' | 'clone' | 'delete' | null;
+
+function TriggerModalHarness({
+  onCreate,
+  onClone,
+  onDelete,
+}: {
+  onCreate: () => void;
+  onClone: () => void;
+  onDelete: () => void;
+}) {
+  const [open, setOpen] = useState<OpenDialog>(null);
+  const [createModal, setCreateModal] = useState<TriggerCreateModalState>({
+    repository: '',
+    yamlPreview: 'triggers:\n  - on: push\n',
+    pending: false,
+    error: 'Repository is required.',
+  });
+  const [cloneModal, setCloneModal] = useState<TriggerCloneModalState>({
+    repository: 'owner/repo-copy',
+    pending: false,
+  });
+  const deleteModal: TriggerDeleteModalState = {
+    slug: 'owner/repo',
+    pending: false,
+  };
+
+  return (
+    <>
+      <button type="button" onClick={() => setOpen('create')}>Open create</button>
+      <button type="button" onClick={() => setOpen('clone')}>Open clone</button>
+      <button type="button" onClick={() => setOpen('delete')}>Open delete</button>
+      <TriggerWorkflowModals
+        createModal={open === 'create' ? createModal : null}
+        cloneModal={open === 'clone' ? cloneModal : null}
+        deleteModal={open === 'delete' ? deleteModal : null}
+        canDeleteTriggers
+        selectedSlug="owner/repo"
+        onCloseCreate={() => setOpen(null)}
+        onUpdateCreateRepository={repository =>
+          setCreateModal(current => ({ ...current, repository, error: undefined }))
+        }
+        onSubmitCreate={onCreate}
+        onCloseClone={() => setOpen(null)}
+        onUpdateCloneRepository={repository =>
+          setCloneModal(current => ({ ...current, repository, error: undefined }))
+        }
+        onSubmitClone={onClone}
+        onCloseDelete={() => setOpen(null)}
+        onConfirmDelete={onDelete}
+      />
+    </>
+  );
+}
+
+function renderHarness() {
+  const callbacks = {
+    onCreate: vi.fn(),
+    onClone: vi.fn(),
+    onDelete: vi.fn(),
+  };
+  render(<TriggerModalHarness {...callbacks} />);
+  return callbacks;
+}
+
+test('creates trigger overrides with labelled fields, validation announcements, and keyboard close', async () => {
+  const user = userEvent.setup();
+  const { onCreate } = renderHarness();
+  const opener = screen.getByRole('button', { name: 'Open create' });
+
+  await user.click(opener);
+  const dialog = screen.getByRole('dialog', { name: 'Create trigger override' });
+  expect(screen.getByLabelText('Repository')).toHaveFocus();
+  expect(within(dialog).getByRole('alert')).toHaveTextContent('Repository is required.');
+
+  await user.type(screen.getByLabelText('Repository'), 'owner/repo');
+  await user.click(within(dialog).getByRole('button', { name: 'Create' }));
+  expect(onCreate).toHaveBeenCalledOnce();
+
+  await user.keyboard('{Escape}');
+  expect(screen.queryByRole('dialog', { name: 'Create trigger override' })).not.toBeInTheDocument();
+  expect(opener).toHaveFocus();
+});
+
+test('supports clone form submission and traps focus inside the dialog', async () => {
+  const user = userEvent.setup();
+  const { onClone } = renderHarness();
+
+  await user.click(screen.getByRole('button', { name: 'Open clone' }));
+  const dialog = screen.getByRole('dialog', { name: 'Clone owner/repo' });
+  const repository = screen.getByLabelText('Target repository');
+  expect(repository).toHaveFocus();
+
+  await user.clear(repository);
+  await user.type(repository, 'owner/repo-copy');
+  await user.click(within(dialog).getByRole('button', { name: 'Clone' }));
+  expect(onClone).toHaveBeenCalledOnce();
+
+  within(dialog).getByRole('button', { name: 'Clone' }).focus();
+  await user.tab();
+  expect(within(dialog).getByRole('button', { name: 'Close' })).toHaveFocus();
+});
+
+test('uses alert-dialog semantics for trigger deletion', async () => {
+  const user = userEvent.setup();
+  const { onDelete } = renderHarness();
+  const opener = screen.getByRole('button', { name: 'Open delete' });
+
+  await user.click(opener);
+  const dialog = screen.getByRole('alertdialog', { name: 'Remove owner/repo?' });
+  expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus();
+  await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+  expect(onDelete).toHaveBeenCalledOnce();
+});

@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { BookOpen, CircleHelp, ExternalLink, X } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
+import { buildDocumentationHref, resolveHelpTopicKey } from './appHelpModel';
+import { useDialogFocus } from './useDialogFocus';
 
 type HelpSection = {
   title: string;
@@ -15,9 +17,6 @@ type HelpTopic = {
   docsPath: string;
   sections: HelpSection[];
 };
-
-// Update this when the product documentation route or external docs site exists.
-const DOCUMENTATION_BASE_URL = '';
 
 const HELP_TOPICS: Record<string, HelpTopic> = {
   'pipelineruns/main': {
@@ -313,28 +312,15 @@ const HELP_TOPICS: Record<string, HelpTopic> = {
   },
 };
 
-function buildDocumentationHref(docsPath: string) {
-  const base = DOCUMENTATION_BASE_URL.trim().replace(/\/+$/, '');
-  if (!base) return '';
-  return `${base}/${docsPath.replace(/^\/+/, '')}`;
-}
-
 function resolveHelpTopic(pathname: string): HelpTopic {
-  const segments = pathname.split('/').filter(Boolean);
-  const primary = segments[0] || '';
-  const secondary = segments[1] || '';
-
-  if (primary === 'pipelineruns') {
-    return HELP_TOPICS[`pipelineruns/${secondary || 'main'}`] || HELP_TOPICS['pipelineruns/main'];
+  const topicKey = resolveHelpTopicKey(pathname);
+  if (topicKey.startsWith('pipelineruns/')) {
+    return HELP_TOPICS[topicKey] || HELP_TOPICS['pipelineruns/main'];
   }
-  if (primary === 'system') {
-    return HELP_TOPICS[`system/${secondary || 'config'}`] || HELP_TOPICS['system/config'];
+  if (topicKey.startsWith('system/')) {
+    return HELP_TOPICS[topicKey] || HELP_TOPICS['system/config'];
   }
-  if (primary === 'knowledge-context') {
-    return HELP_TOPICS['knowledge-context'];
-  }
-
-  return HELP_TOPICS[primary] || HELP_TOPICS.default;
+  return HELP_TOPICS[topicKey] || HELP_TOPICS.default;
 }
 
 export default function AppHelp() {
@@ -344,26 +330,26 @@ export default function AppHelp() {
   const [openState, setOpenState] = useState({ pathname: location.pathname, open: false });
   const open = openState.pathname === location.pathname && openState.open;
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const panelID = useId();
+  const titleID = useId();
+  const summaryID = useId();
+  const closeHelp = useCallback(() => {
+    setOpenState({ pathname: location.pathname, open: false });
+  }, [location.pathname]);
+  const dialogRef = useDialogFocus(closeHelp, open);
 
   useEffect(() => {
     if (!open) return;
     const handlePointerDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setOpenState({ pathname: location.pathname, open: false });
-      }
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setOpenState({ pathname: location.pathname, open: false });
+      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) {
+        closeHelp();
       }
     };
     document.addEventListener('mousedown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('mousedown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [location.pathname, open]);
+  }, [closeHelp, open]);
 
   return (
     <div className="app-help" ref={rootRef}>
@@ -374,19 +360,34 @@ export default function AppHelp() {
         aria-label={`Help for ${topic.title}`}
         aria-haspopup="dialog"
         aria-expanded={open}
+        aria-controls={open ? panelID : undefined}
         title="Help"
       >
         <CircleHelp className="h-5 w-5" aria-hidden="true" />
       </button>
       {open && (
-        <div className="app-help__panel" role="dialog" aria-label={`${topic.title} help`}>
+        <div
+          id={panelID}
+          ref={dialogRef}
+          className="app-help__panel"
+          role="dialog"
+          aria-labelledby={titleID}
+          aria-describedby={summaryID}
+          tabIndex={-1}
+        >
           <div className="app-help__header">
             <div className="app-help__header-copy">
               <span className="app-help__eyebrow">Help</span>
-              <h2>{topic.title}</h2>
-              <p>{topic.summary}</p>
+              <h2 id={titleID}>{topic.title}</h2>
+              <p id={summaryID}>{topic.summary}</p>
             </div>
-            <button type="button" className="app-help__close" onClick={() => setOpenState({ pathname: location.pathname, open: false })} aria-label="Close help">
+            <button
+              type="button"
+              className="app-help__close"
+              onClick={closeHelp}
+              aria-label="Close help"
+              data-dialog-initial-focus
+            >
               <X className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
