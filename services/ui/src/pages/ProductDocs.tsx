@@ -16,7 +16,6 @@ import {
   KeyRound,
   Layers3,
   LifeBuoy,
-  Lock,
   Network,
   PackageCheck,
   Rocket,
