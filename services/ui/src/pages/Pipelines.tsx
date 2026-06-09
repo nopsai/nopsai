@@ -13,13 +13,15 @@ import { applyEnterIndent, findParentBlock } from '../lib/lab';
 import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
 import ResourceAccessCard from '../components/ResourceAccessCard';
 import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowToastRegion';
-import { StepsGraph } from './PipelineRuns';
 import { fetchEditorAutocompleteMetadata } from '../features/editor/autocomplete';
 import { EditorAutocompleteMenu } from '../features/editor/EditorAutocompleteMenu';
 import { ResourceCollectionToolbar } from '../features/editor/ResourceCollectionToolbar';
 import { ResourceWorkflowModals } from '../features/editor/ResourceWorkflowModals';
+import { YamlValidationPanel } from '../features/editor/YamlValidationPanel';
 import { useDraftCollection } from '../features/editor/useDraftCollection';
 import { useYamlResourceMutations } from '../features/editor/useYamlResourceMutations';
+import { StepsGraph } from '../features/pipeline-runs/RunGraph';
+import { PipelineActivityPanels } from '../features/pipelines/PipelineActivityPanels';
 import {
   fetchPipelineList,
   fetchPipelineTriggers as fetchPipelineTriggersRequest,
@@ -49,7 +51,6 @@ import {
 import { usePipelinePermissions } from '../features/pipelines/usePipelinePermissions';
 
 const MAX_RECENT_RUNS = 5;
-const MAX_VISIBLE_TRIGGER_CARDS = 5;
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
 
 type TreeNode = {
@@ -427,71 +428,6 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       setToasts(prev => prev.filter(toast => toast.id !== id));
     }, 3200);
   }, []);
-
-  const formatRelativeTime = (value?: string) => {
-    if (!value) return 'N/A';
-    const timestamp = new Date(value).getTime();
-    if (Number.isNaN(timestamp)) return value;
-    const delta = (Date.now() - timestamp) / 1000;
-    if (delta < 60) return 'Just now';
-    if (delta < 3600) return `${Math.floor(delta / 60)}m ago`;
-    if (delta < 86400) return `${Math.floor(delta / 3600)}h ago`;
-    return `${Math.floor(delta / 86400)}d ago`;
-  };
-
-  const formatRef = (ref?: string) => {
-    if (!ref) return '—';
-    return ref.replace(/^refs\/heads\//i, '').replace(/^refs\/tags\//i, '');
-  };
-
-  const statusClass = (status?: string) => {
-    const key = (status || '').toLowerCase();
-    if (key === 'success' || key === 'succeeded') return 'runner-pill--ok';
-    if (key === 'failure' || key === 'failed' || key === 'error' || key === 'cancelled') return 'runner-pill--error';
-    return 'runner-pill--muted';
-  };
-
-  const statusLabel = (status?: string) => {
-    const value = (status || '').replace(/_/g, ' ').trim();
-    if (!value) return 'unknown';
-    return value.charAt(0).toUpperCase() + value.slice(1);
-  };
-
-  const formatTriggerEvent = (value: unknown) => {
-    if (Array.isArray(value)) {
-      return value.map(item => String(item)).join(', ');
-    }
-    if (!value) return 'N/A';
-    const raw = String(value).toLowerCase();
-    switch (raw) {
-      case 'push':
-        return 'Push';
-      case 'pull_request':
-      case 'pull-request':
-        return 'Pull request';
-      case 'schedule':
-        return 'Schedule';
-      default:
-        return String(value);
-    }
-  };
-
-  const formatTriggerBranchField = (trigger: Record<string, unknown>) => {
-    const branches = Array.isArray(trigger.branches) ? trigger.branches.map(item => String(item)).filter(Boolean) : [];
-    const skip = Array.isArray(trigger.skip_branches) ? trigger.skip_branches.map(item => String(item)).filter(Boolean) : [];
-    if (branches.length) {
-      return { label: 'branches:', value: branches.join(', ') };
-    }
-    if (skip.length) {
-      return { label: 'skip_branches:', value: skip.join(', ') };
-    }
-    return { label: 'branches:', value: 'All branches' };
-  };
-
-  const formatTriggerScope = (trigger: Record<string, unknown>) => {
-    const scope = typeof trigger.scope === 'string' ? trigger.scope.trim() : '';
-    return scope || 'default';
-  };
 
   const parentFolder = (path: string) => {
     const parts = path.split('/').filter(Boolean);
@@ -1208,26 +1144,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                           spellCheck={false}
                         ></textarea>
                       </div>
-                      <div
-                        id="pipeline-validation-status"
-                        className={`validation-box ${validation.errors.length ? '' : 'validation-box--success'}`}
-                        role="status"
-                        aria-live="polite"
-                      >
-                        <div className="validation-box__header">{validation.errors.length ? 'Invalid' : 'Valid'}</div>
-                        {validation.errors.length > 0 &&
-                          validation.errors.slice(0, 3).map((err, idx) => (
-                            <div key={`val-${idx}`} className="validation-box__item">
-                              {typeof err.line === 'number' && <span className="validation-box__line">Line {err.line}</span>}
-                              <div className="validation-box__message">{err.message}</div>
-                            </div>
-                          ))}
-                        {validation.errors.length > 3 && (
-                          <div className="validation-box__item">
-                            <div className="validation-box__message">+ {validation.errors.length - 3} more…</div>
-                          </div>
-                        )}
-                      </div>
+                      <YamlValidationPanel id="pipeline-validation-status" errors={validation.errors} />
                       {editorSuggestion ? (
                         <EditorAutocompleteMenu
                           id="pipeline-editor-autocomplete"
@@ -1269,167 +1186,30 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
                 </div>
               </div>
             </div>
-            <div className="min-w-0 space-y-4">
-              <div className="glass-card overflow-hidden">
-                <div className="p-4 border-b border-[var(--border-primary)]" style={{ marginTop: '9px' }}>
-                  <h3 className="text-lg font-semibold text-[var(--text-primary)]">Trigger Rules</h3>
-                </div>
-                <div className="p-4">
-                  {triggersLoading ? (
-                    <p className="text-sm text-[var(--text-secondary)]">Loading triggers…</p>
-                  ) : triggersError ? (
-                    <p className="text-sm text-red-500">Failed to load triggers: {triggersError}</p>
-                  ) : triggers.length ? (
-                    <ul className={`triggers-pipeline-list ${triggers.length > MAX_VISIBLE_TRIGGER_CARDS ? 'triggers-list-scroll' : ''}`}>
-                      {triggers.map((item, index) => {
-                        const sourceLabel = (item.source || 'database').trim() || 'database';
-                        const triggerPath = `/triggers/${encodeId(item.repoSlug)}`;
-                        const branchField = formatTriggerBranchField(item.trigger);
-                        return (
-                          <li key={`${item.repoSlug}-${index}`} className="triggers-pipeline-item">
-                            <button
-                              type="button"
-                              className="triggers-pipeline-link"
-                              title={`Open trigger ${item.repoSlug}`}
-                              onClick={() => navigate(triggerPath)}
-                            >
-                              <span className="triggers-pipeline-name">{item.repoSlug}</span>
-                              <dl className="triggers-detail-grid triggers-pipeline-details">
-                                <dt className="triggers-detail-label">Event:</dt>
-                                <dd className="triggers-detail-value">{formatTriggerEvent(item.trigger.on)}</dd>
-                                <dt className="triggers-detail-label">{branchField.label}</dt>
-                                <dd className="triggers-detail-value">{branchField.value}</dd>
-                                <dt className="triggers-detail-label">Scope:</dt>
-                                <dd className="triggers-detail-value">{formatTriggerScope(item.trigger)}</dd>
-                                <dt className="triggers-detail-label">Source:</dt>
-                                <dd className="triggers-detail-value">{sourceLabel}</dd>
-                              </dl>
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  ) : (
-                    <p className="text-sm text-[var(--text-secondary)]">No trigger manifests reference this pipeline.</p>
-                  )}
-                </div>
-              </div>
-
-              <div className="glass-card overflow-hidden">
-                <div className="p-4 border-b border-[var(--border-primary)]">
-                  <h3 className="text-lg font-semibold text-[var(--text-primary)]">Included Dependencies</h3>
-                </div>
-                <div className="p-4">
-                  {detail.includedDependencies.length ? (
-                    <ul
-                      className={`triggers-pipeline-list ${
-                        detail.includedDependencies.length > MAX_VISIBLE_TRIGGER_CARDS ? 'triggers-list-scroll' : ''
-                      }`}
-                    >
-                      {Array.from(new Set(detail.includedDependencies))
-                        .sort((a, b) => a.localeCompare(b))
-                        .map(dep => {
-                          const trimmed = dep.trim();
-                          const isPipeline = trimmed.startsWith('pipeline:');
-                          const isStep = trimmed.startsWith('step:');
-                          const identifier = isPipeline
-                            ? trimmed.slice('pipeline:'.length).trim()
-                            : isStep
-                              ? trimmed.slice('step:'.length).trim()
-                              : trimmed;
-
-                          const typeLabel = isPipeline ? 'Pipeline' : isStep ? 'Step' : 'Include';
-                          const actionLabel = isPipeline ? 'Open' : 'Copy';
-
-                          return (
-                            <li key={trimmed} className="triggers-pipeline-item">
-                              <button
-                                type="button"
-                                className="triggers-pipeline-link"
-                                title={isPipeline ? `Open ${identifier}` : `Copy ${identifier}`}
-                                onClick={async () => {
-                                  if (isPipeline && identifier) {
-                                    handleSelect(identifier);
-                                    return;
-                                  }
-                                  try {
-                                    await navigator.clipboard.writeText(identifier || trimmed);
-                                    addToast('Copied dependency reference.', 'success');
-                                  } catch (error) {
-                                    console.error('Failed to copy dependency reference', error);
-                                    addToast('Unable to copy dependency reference.', 'error');
-                                  }
-                                }}
-                              >
-                                <span className="triggers-pipeline-name">{identifier || trimmed}</span>
-                                <dl className="triggers-detail-grid triggers-pipeline-details">
-                                  <dt className="triggers-detail-label">Type:</dt>
-                                  <dd className="triggers-detail-value">{typeLabel}</dd>
-                                  <dt className="triggers-detail-label">Action:</dt>
-                                  <dd className="triggers-detail-value">{actionLabel}</dd>
-                                </dl>
-                              </button>
-                            </li>
-                          );
-                        })}
-                    </ul>
-                  ) : (
-                    <p className="text-sm text-[var(--text-secondary)]">No includes detected for this pipeline.</p>
-                  )}
-                </div>
-              </div>
-
-              <div className="glass-card overflow-hidden" id="pipeline-recent-runs">
-                <div className="p-4 border-b border-[var(--border-primary)]">
-                  <h3 className="text-lg font-semibold text-[var(--text-primary)]">Recent Pipeline Runs</h3>
-                </div>
-                <div className="p-4">
-                  {runsLoading ? (
-                    <p className="text-sm text-[var(--text-secondary)]">Loading recent runs…</p>
-                  ) : runsError ? (
-                    <p className="text-sm text-red-500">Failed to load runs: {runsError}</p>
-                  ) : recentRuns.length ? (
-                    <ul className="triggers-pipeline-list">
-                      {recentRuns.map(run => {
-                        const runId = run.run_id || '';
-                        const shortRunId = runId ? runId.slice(0, 8) : '—';
-                        const triggerId = typeof run.trigger_event_id === 'string' ? run.trigger_event_id : '';
-                        const shortTriggerId = triggerId ? triggerId.slice(0, 8) : '—';
-                        const runPath = runId ? `/pipelineruns/recent?run=${encodeURIComponent(runId)}` : '/pipelineruns/recent';
-                        return (
-                          <li key={runId || `${run.pipeline_name}-${run.started_at}`} className="triggers-pipeline-item">
-                            <button
-                              type="button"
-                              className="triggers-pipeline-link"
-                              title={runId ? `Open run ${runId}` : 'Open pipeline runs'}
-                              onClick={() => navigate(runPath)}
-                            >
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <span className="triggers-pipeline-name">{detail.name || detail.id}</span>
-                                  <p className="text-xs text-[var(--text-secondary)] mt-0.5">{formatRelativeTime(run.started_at)}</p>
-                                </div>
-                                <span className={`runner-pill ${statusClass(run.status)}`}>{statusLabel(run.status)}</span>
-                              </div>
-                              <dl className="triggers-detail-grid triggers-pipeline-details">
-                                <dt className="triggers-detail-label">Branch:</dt>
-                                <dd className="triggers-detail-value">{formatRef(run.git_ref)}</dd>
-                                <dt className="triggers-detail-label">Run ID:</dt>
-                                <dd className="triggers-detail-value">{shortRunId}</dd>
-                                <dt className="triggers-detail-label">Trigger:</dt>
-                                <dd className="triggers-detail-value">{shortTriggerId}</dd>
-                              </dl>
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  ) : (
-                    <p className="text-sm text-[var(--text-secondary)]">No recent runs for this pipeline.</p>
-                  )}
-                </div>
-              </div>
-            </div>
+            <PipelineActivityPanels
+              pipelineLabel={detail.name || detail.id}
+              triggers={triggers}
+              triggersLoading={triggersLoading}
+              triggersError={triggersError}
+              dependencies={detail.includedDependencies}
+              runs={recentRuns}
+              runsLoading={runsLoading}
+              runsError={runsError}
+              onOpenTrigger={repoSlug => navigate(`/triggers/${encodeId(repoSlug)}`)}
+              onOpenDependency={handleSelect}
+              onCopyDependency={async identifier => {
+                try {
+                  await navigator.clipboard.writeText(identifier);
+                  addToast('Copied dependency reference.', 'success');
+                } catch (error) {
+                  console.error('Failed to copy dependency reference', error);
+                  addToast('Unable to copy dependency reference.', 'error');
+                }
+              }}
+              onOpenRun={runID =>
+                navigate(runID ? `/pipelineruns/recent?run=${encodeURIComponent(runID)}` : '/pipelineruns/recent')
+              }
+            />
           </div>
         </div>
       </div>

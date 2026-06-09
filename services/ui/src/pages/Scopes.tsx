@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import yaml from 'js-yaml';
 import { ArrowLeft, Copy, Eye, EyeOff, KeyRound, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { fetchResourceGroupPaths } from '../lib/resourceGroups';
@@ -20,374 +19,37 @@ import { useScopeModalMutations } from '../features/scopes/useScopeModalMutation
 import { useScopePermissions } from '../features/scopes/useScopePermissions';
 import {
   buildScopeTree,
+  asScopeRecord,
+  buildScopePipelineMeta,
+  canonicalizeTriggerEvent,
+  countScopesRecursive,
+  createInitialScopeData,
   decodeScopeFromRoute,
   encodeScopeForRoute,
+  extractPipelineSecrets,
+  extractScopeVariables,
+  extractTriggerPipelines,
+  formatScopeDisplay,
+  getScopeTreeNode,
+  groupScopedItems,
+  isEditableScopeSource,
   normalizeItemListPayload,
+  normalizeScopePipelineList,
   normalizeScopeLabel,
-  normalizeSourceKey,
+  normalizeTriggerOverrideSlugs,
+  parentScopeFolder,
   parseScopedIdentity,
-  type ItemMeta,
+  parseScopeYamlSafe,
+  runWithConcurrencyLimit,
+  scopeSourceLabel,
+  scopeSourcePillClass,
+  type ScopeData,
   type ScopeEntry,
+  type GroupedScopedItem,
+  type ScopePipelineMeta,
   type ScopeTreeNode,
-  type SourceKey,
+  type ScopeTriggerDescriptor,
 } from '../features/scopes/model';
-
-type ScopeData = {
-  variables: string[];
-  variableMeta: Record<string, ItemMeta>;
-  variablesLoaded: boolean;
-  variablesLoading: boolean;
-  secrets: string[];
-  secretMeta: Record<string, ItemMeta>;
-  secretsLoaded: boolean;
-  secretsLoading: boolean;
-  error?: string;
-};
-
-type PipelineMeta = {
-  identifier: string;
-  name: string;
-  description: string;
-  path: string;
-  version: string;
-  source: string;
-};
-
-type TriggerDescriptor = {
-  slug: string;
-  scope: string;
-  pipelines: string[];
-  event: string;
-  branches: string[];
-  tags: string[];
-};
-
-function sourceLabel(source: SourceKey): string {
-  switch (normalizeSourceKey(source)) {
-    case 'git':
-      return 'Git';
-    case 'draft':
-      return 'Draft';
-    case 'local':
-      return 'Local';
-    case 'database':
-    default:
-      return 'Database';
-  }
-}
-
-function sourcePillClass(source: SourceKey): string {
-  const normalized = normalizeSourceKey(source);
-  if (normalized === 'git') return 'scope-variable-source-pill--git';
-  if (normalized === 'draft') return 'scope-variable-source-pill--draft';
-  if (normalized === 'local') return 'scope-variable-source-pill--local';
-  return 'scope-variable-source-pill--database';
-}
-
-function formatScopeDisplay(scopeLabel: string): string {
-  const normalized = normalizeScopeLabel(scopeLabel);
-  return normalized ? `/${normalized}` : '/';
-}
-
-function createInitialScopeData(): ScopeData {
-  return {
-    variables: [],
-    variableMeta: {},
-    variablesLoaded: false,
-    variablesLoading: false,
-    secrets: [],
-    secretMeta: {},
-    secretsLoaded: false,
-    secretsLoading: false,
-  };
-}
-
-function parentFolder(path: string): string {
-  const cleaned = normalizeScopeLabel(path);
-  if (!cleaned) return '';
-  const parts = cleaned.split('/').filter(Boolean);
-  parts.pop();
-  return parts.join('/');
-}
-
-function getScopeTreeNode(root: ScopeTreeNode, path: string): ScopeTreeNode | null {
-  const normalized = normalizeScopeLabel(path);
-  if (!normalized) return root;
-  const parts = normalized.split('/').filter(Boolean);
-  let node: ScopeTreeNode = root;
-  for (const part of parts) {
-    const next = node.children.find(child => child.name === part);
-    if (!next) return null;
-    node = next;
-  }
-  return node;
-}
-
-function countScopesRecursive(node: ScopeTreeNode): number {
-  let total = node.scopes.length;
-  node.children.forEach(child => {
-    total += countScopesRecursive(child);
-  });
-  return total;
-}
-
-function isEditableSource(source: SourceKey): boolean {
-  return normalizeSourceKey(source) !== 'git';
-}
-
-type GroupedScopedItem = { full: string; display: string };
-type GroupedScopedList = { global: GroupedScopedItem[]; repositories: { repo: string; items: GroupedScopedItem[] }[] };
-
-function groupScopedItems(items: string[]): GroupedScopedList {
-  const global: GroupedScopedItem[] = [];
-  const repoMap = new Map<string, GroupedScopedItem[]>();
-
-  items.forEach(entry => {
-    const trimmed = String(entry || '').trim();
-    if (!trimmed) return;
-    const identity = parseScopedIdentity(trimmed);
-    if (identity.repoSlug) {
-      const list = repoMap.get(identity.repoSlug) || [];
-      list.push({ full: identity.fullName, display: identity.name });
-      repoMap.set(identity.repoSlug, list);
-      return;
-    }
-    global.push({ full: trimmed, display: trimmed });
-  });
-
-  global.sort((a, b) => a.display.localeCompare(b.display, undefined, { sensitivity: 'base' }));
-
-  const repositories = Array.from(repoMap.entries())
-    .map(([repo, vars]) => ({
-      repo,
-      items: vars.sort((a, b) => a.display.localeCompare(b.display, undefined, { sensitivity: 'base' })),
-    }))
-    .sort((a, b) => a.repo.localeCompare(b.repo, undefined, { sensitivity: 'base' }));
-
-  return { global, repositories };
-}
-
-async function runWithConcurrencyLimit(tasks: Array<() => Promise<void>>, limit = 4): Promise<void> {
-  const queue = tasks.slice();
-  const workerCount = Math.max(1, Math.min(limit, queue.length));
-
-  const workers = Array.from({ length: workerCount }, async () => {
-    while (queue.length) {
-      const task = queue.shift();
-      if (!task) return;
-      try {
-        await task();
-      } catch (error) {
-        console.warn('Scope preload task failed', error);
-      }
-    }
-  });
-
-  await Promise.all(workers);
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
-}
-
-function parseYamlSafe(raw: string): Record<string, unknown> {
-  try {
-    const parsed = yaml.load(raw) as unknown;
-    return asRecord(parsed) || {};
-  } catch (error) {
-    console.warn('Failed to parse YAML', error);
-  }
-  return {};
-}
-
-function normalizePipelineIdentifier(value: string): string {
-  return String(value || '')
-    .trim()
-    .replace(/^\.nopsai\//i, '')
-    .replace(/^pipelines\//i, '')
-    .replace(/\.ya?ml$/i, '')
-    .replace(/\/+/g, '/')
-    .replace(/^\//, '');
-}
-
-function parsePipelineIdentifier(identifier: string): { path: string; name: string } {
-  const trimmed = normalizePipelineIdentifier(identifier);
-  if (!trimmed) return { path: '', name: '' };
-  const parts = trimmed.split('/').filter(Boolean);
-  const name = parts.pop() || '';
-  const path = parts.join('/');
-  return { path, name };
-}
-
-function buildPipelineMeta(identifier: string, manifest: Record<string, unknown>, seed?: { path?: string; version?: string; source?: string }): PipelineMeta {
-  const normalizedId = normalizePipelineIdentifier(identifier);
-  const fallback = parsePipelineIdentifier(normalizedId);
-  const name = typeof manifest?.name === 'string' && manifest.name.trim() ? manifest.name.trim() : fallback.name || normalizedId;
-  const description = typeof manifest?.description === 'string' ? manifest.description : '';
-  const seedPath = typeof seed?.path === 'string' ? seed.path.trim() : '';
-  const detailPath = typeof manifest?.path === 'string' ? manifest.path.trim() : '';
-  const path = normalizePipelineIdentifier(detailPath || seedPath || fallback.path);
-  const version = typeof manifest?.version === 'string' && manifest.version.trim()
-    ? manifest.version.trim()
-    : typeof seed?.version === 'string' && seed.version.trim()
-      ? seed.version.trim()
-      : 'latest';
-  const sourceRaw = typeof manifest?.source === 'string' ? manifest.source : seed?.source;
-  const source = sourceLabel(normalizeSourceKey(sourceRaw));
-
-  return {
-    identifier: normalizedId,
-    name,
-    description,
-    path,
-    version,
-    source,
-  };
-}
-
-function normalizePipelineList(payload: unknown): { identifiers: string[]; seeds: Map<string, { path?: string; version?: string; source?: string }> } {
-  const seeds = new Map<string, { path?: string; version?: string; source?: string }>();
-  if (!Array.isArray(payload)) {
-    return { identifiers: [], seeds };
-  }
-  const identifiers: string[] = [];
-  payload.forEach(item => {
-    if (!item) return;
-    let identifier = '';
-    if (typeof item === 'string') {
-      identifier = normalizePipelineIdentifier(item);
-      if (identifier && !seeds.has(identifier)) {
-        seeds.set(identifier, { path: item.replace(/^\/+/, '') });
-      }
-    } else if (typeof item === 'object') {
-      const record = item as Record<string, unknown>;
-      const rawIdentifier = typeof record.id === 'string' ? record.id : typeof record.identifier === 'string' ? record.identifier : '';
-      identifier = normalizePipelineIdentifier(rawIdentifier);
-      if (identifier) {
-        const rawPath = typeof record.path === 'string' ? record.path : typeof record.file === 'string' ? record.file : '';
-        const version = typeof record.version === 'string' ? record.version : '';
-        const source = typeof record.source === 'string' ? record.source : '';
-        seeds.set(identifier, { path: rawPath, version, source });
-      }
-    }
-    if (identifier) identifiers.push(identifier);
-  });
-  return { identifiers: Array.from(new Set(identifiers)).sort((a, b) => a.localeCompare(b)), seeds };
-}
-
-function extractPipelineSecrets(manifest: unknown): string[] {
-  const record = asRecord(manifest);
-  if (!record || !Array.isArray(record.steps)) return [];
-  const secrets = new Set<string>();
-  record.steps.forEach((stepValue: unknown) => {
-    const step = asRecord(stepValue);
-    if (step && Array.isArray(step.secrets)) {
-      step.secrets.forEach((secret: unknown) => {
-        if (secret && typeof secret === 'string') secrets.add(secret.trim());
-      });
-    }
-  });
-  return Array.from(secrets);
-}
-
-function extractScopeVariables(manifest: unknown): string[] {
-  const variables = new Set<string>();
-  const record = asRecord(manifest);
-  if (!record) return [];
-
-  const collect = (value: unknown) => {
-    if (!value) return;
-    if (Array.isArray(value)) {
-      value.forEach(entry => {
-        if (typeof entry === 'string' && entry.trim()) variables.add(entry.trim());
-      });
-      return;
-    }
-    const valueRecord = asRecord(value);
-    if (valueRecord) {
-      Object.entries(valueRecord).forEach(([key, val]) => {
-        if (typeof key === 'string' && key.trim()) variables.add(key.trim());
-        if (typeof val === 'string' && val.trim()) variables.add(val.trim());
-      });
-    }
-  };
-
-  collect(record.variables);
-  if (Array.isArray(record.steps)) {
-    record.steps.forEach((stepValue: unknown) => {
-      const step = asRecord(stepValue);
-      if (!step) return;
-      collect(step?.variables);
-      if (Array.isArray(step?.tasks)) {
-        step.tasks.forEach((taskValue: unknown) => {
-          const task = asRecord(taskValue);
-          collect(task?.variables);
-        });
-      }
-    });
-  }
-
-  return Array.from(variables);
-}
-
-function canonicalizeEvent(value: unknown): string {
-  if (!value) return 'custom';
-  const normalized = String(value).trim().toLowerCase();
-  if (normalized === 'pull-request') return 'pull_request';
-  return normalized;
-}
-
-function extractTriggerPipelines(entries: unknown): string[] {
-  if (!Array.isArray(entries)) return [];
-  const identifiers = new Set<string>();
-  entries.forEach(entry => {
-    let raw = '';
-    if (typeof entry === 'string') {
-      raw = entry;
-    } else if (entry && typeof entry === 'object') {
-      const record = entry as Record<string, unknown>;
-      raw = typeof record.path === 'string' ? record.path : typeof record.pipeline === 'string' ? record.pipeline : '';
-    }
-    const normalized = normalizePipelineIdentifier(raw);
-    if (normalized) identifiers.add(normalized);
-  });
-  return Array.from(identifiers);
-}
-
-function normalizeOverrideSlugs(payload: unknown): string[] {
-  if (!Array.isArray(payload)) return [];
-  const slugs: string[] = [];
-  payload.forEach(item => {
-    if (!item) return;
-    if (typeof item === 'string') {
-      const slug = item.trim();
-      if (slug) slugs.push(slug);
-      return;
-    }
-    if (typeof item === 'object') {
-      const record = item as Record<string, unknown>;
-      const owner =
-        typeof record.owner === 'string'
-          ? record.owner
-          : typeof record.repo_owner === 'string'
-            ? record.repo_owner
-            : typeof record.repoOwner === 'string'
-              ? record.repoOwner
-              : '';
-      const name =
-        typeof record.name === 'string'
-          ? record.name
-          : typeof record.repo === 'string'
-            ? record.repo
-            : typeof record.repository === 'string'
-              ? record.repository
-              : '';
-      const slug = [owner, name].filter(Boolean).join('/');
-      if (slug) slugs.push(slug);
-    }
-  });
-  return Array.from(new Set(slugs.filter(Boolean))).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-}
 
 function ScopesPage({
   canDeleteScopes = false,
@@ -440,8 +102,8 @@ function ScopesPage({
 
   const [pipelineVariableIndex, setPipelineVariableIndex] = useState<Map<string, Set<string>>>(new Map());
   const [pipelineSecretIndex, setPipelineSecretIndex] = useState<Map<string, Set<string>>>(new Map());
-  const [pipelineMetadata, setPipelineMetadata] = useState<Map<string, PipelineMeta>>(new Map());
-  const [triggersByScope, setTriggersByScope] = useState<Map<string, TriggerDescriptor[]>>(new Map());
+  const [pipelineMetadata, setPipelineMetadata] = useState<Map<string, ScopePipelineMeta>>(new Map());
+  const [triggersByScope, setTriggersByScope] = useState<Map<string, ScopeTriggerDescriptor[]>>(new Map());
   const [usageLoading, setUsageLoading] = useState(false);
   const [usageError, setUsageError] = useState<string | null>(null);
   const usageReadyRef = useRef(false);
@@ -648,20 +310,20 @@ function ScopesPage({
     setUsageError(null);
     try {
       const { pipelines: pipelinesPayload, triggers: trigPayload } = await fetchScopeUsageCatalogs();
-      const { identifiers, seeds } = normalizePipelineList(pipelinesPayload);
+      const { identifiers, seeds } = normalizeScopePipelineList(pipelinesPayload);
 
       const variableIndex = new Map<string, Set<string>>();
       const secretIndex = new Map<string, Set<string>>();
-      const metaMap = new Map<string, PipelineMeta>();
+      const metaMap = new Map<string, ScopePipelineMeta>();
 
       const pipelineTasks = identifiers.map(identifier => {
         return async () => {
           try {
             const rawYaml = await fetchScopeUsagePipelineYaml(identifier);
             if (!rawYaml) return;
-            const manifest = parseYamlSafe(rawYaml);
+            const manifest = parseScopeYamlSafe(rawYaml);
             const seed = seeds.get(identifier);
-            metaMap.set(identifier, buildPipelineMeta(identifier, manifest, seed));
+            metaMap.set(identifier, buildScopePipelineMeta(identifier, manifest, seed));
 
             extractScopeVariables(manifest).forEach(variable => {
               if (!variable) return;
@@ -687,8 +349,8 @@ function ScopesPage({
       setPipelineSecretIndex(secretIndex);
       setPipelineMetadata(metaMap);
 
-      const slugs = normalizeOverrideSlugs(trigPayload);
-      const trigMap = new Map<string, TriggerDescriptor[]>();
+      const slugs = normalizeTriggerOverrideSlugs(trigPayload);
+      const trigMap = new Map<string, ScopeTriggerDescriptor[]>();
 
       const triggerTasks = slugs.map(slug => {
         return async () => {
@@ -697,17 +359,17 @@ function ScopesPage({
           try {
             const rawYaml = await fetchScopeUsageTriggerYaml(slug);
             if (!rawYaml) return;
-            const manifest = parseYamlSafe(rawYaml);
+            const manifest = parseScopeYamlSafe(rawYaml);
             const triggers = Array.isArray(manifest?.triggers) ? manifest.triggers : [];
             triggers.forEach((triggerValue: unknown) => {
-              const trigger = asRecord(triggerValue);
+              const trigger = asScopeRecord(triggerValue);
               if (!trigger) return;
               const scope = normalizeScopeLabel(trigger?.scope || '');
-              const entry: TriggerDescriptor = {
+              const entry: ScopeTriggerDescriptor = {
                 slug,
                 scope,
                 pipelines: extractTriggerPipelines(trigger?.pipelines),
-                event: canonicalizeEvent(trigger?.on),
+                event: canonicalizeTriggerEvent(trigger?.on),
                 branches: Array.isArray(trigger?.branches) ? trigger.branches.map((b: unknown) => String(b || '').trim()).filter(Boolean) : [],
                 tags: Array.isArray(trigger?.tags) ? trigger.tags.map((t: unknown) => String(t || '').trim()).filter(Boolean) : [],
               };
@@ -927,7 +589,7 @@ function ScopesPage({
 
   const handleBackToList = () => {
     if (selectedScope != null) {
-      navigate(parentFolder(selectedScope) ? `/scopes?folder=${encodeURIComponent(parentFolder(selectedScope))}` : '/scopes');
+      navigate(parentScopeFolder(selectedScope) ? `/scopes?folder=${encodeURIComponent(parentScopeFolder(selectedScope))}` : '/scopes');
       return;
     }
     navigate('/scopes');
@@ -1182,7 +844,7 @@ function ScopesPage({
             const displayValue = value ? value : '(empty)';
             const isLoading = variableValueLoadingKey === cacheKey;
             const meta = data.variableMeta[item.full];
-            const editable = isEditableSource(meta?.source || 'database');
+            const editable = isEditableScopeSource(meta?.source || 'database');
             return (
               <div
                 key={`var-${item.full}`}
@@ -1196,7 +858,7 @@ function ScopesPage({
                   >
                     <span className="truncate">{item.display}</span>
                   </button>
-                  <span className={`scope-variable-source-pill ${sourcePillClass(meta?.source || 'database')}`}>{sourceLabel(meta?.source || 'database')}</span>
+                  <span className={`scope-variable-source-pill ${scopeSourcePillClass(meta?.source || 'database')}`}>{scopeSourceLabel(meta?.source || 'database')}</span>
                 </div>
                 <div className="scope-variable-inline-actions">
                   <button
@@ -1282,7 +944,7 @@ function ScopesPage({
           {items.map(item => {
             const isActive = item.full === selectedSecret;
             const meta = data.secretMeta[item.full];
-            const editable = isEditableSource(meta?.source || 'database');
+            const editable = isEditableScopeSource(meta?.source || 'database');
             return (
               <div
                 key={`secret-${item.full}`}
@@ -1296,7 +958,7 @@ function ScopesPage({
                   >
                     <span className="truncate">{item.display}</span>
                   </button>
-                  <span className={`scope-variable-source-pill ${sourcePillClass(meta?.source || 'database')}`}>{sourceLabel(meta?.source || 'database')}</span>
+                  <span className={`scope-variable-source-pill ${scopeSourcePillClass(meta?.source || 'database')}`}>{scopeSourceLabel(meta?.source || 'database')}</span>
                 </div>
                 <div className="scope-variable-inline-actions">
                   {editable ? (
@@ -1460,7 +1122,7 @@ function ScopesPage({
               type="button"
               className="glass-button-ghost"
               aria-label="Back"
-              onClick={() => openFolder(parentFolder(activeFolder))}
+              onClick={() => openFolder(parentScopeFolder(activeFolder))}
               disabled={!activeFolder}
             >
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />

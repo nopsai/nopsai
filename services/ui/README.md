@@ -31,17 +31,19 @@ npm run test:e2e:live
 - `src/app/useInitialSetupRedirect.ts` owns first-install setup routing.
 - `src/app/runSidebarApi.ts` and `src/app/usePipelineRunsSidebar.ts` own run-sidebar transport, caching, pagination, expansion, active-run synchronization, polling, and tested failure fallbacks.
 - `src/features/system/api.ts` centralizes System-area JSON API behavior on top of `apiClient`.
-- `src/features/system/access` owns Access entity loading, resource catalogs, mutations, form state, the shared basic-grant editor/reconciliation model, focused policy-rule rendering/normalization, role presentation, and accessible confirmation dialogs.
+- `src/features/system/access` owns Access entity loading, user/service-account/role/policy catalogs, token workflows, destructive confirmations, resource catalogs, mutations, form state, the shared basic-grant editor/reconciliation model, focused policy-rule rendering/normalization, and role presentation.
 - `src/features/system/dispatcher` owns Dispatcher status, polling, runner actions, deployment scopes, install-template generation, and guide state.
 - `src/features/schedules`, `knowledge-context`, `triggers`, and `scopes` own their workflow models, metadata/usage loading, and API clients.
-- `src/features/scopes/ScopeUsagePanel.tsx`, `scopes/ScopeWorkflowModals.tsx`, `triggers/TriggerRecentRuns.tsx`, `triggers/TriggerWorkflowModals.tsx`, `lab/LabRunControls.tsx`, `lab/LabVariableOverrides.tsx`, and `editor/ResourceWorkflowModals.tsx` own focused workflow rendering delegated by the remaining editor pages.
+- `src/features/scopes/ScopeUsagePanel.tsx`, `scopes/ScopeWorkflowModals.tsx`, `triggers/TriggerRecentRuns.tsx`, `triggers/TriggerWorkflowModals.tsx`, `lab/LabRunControls.tsx`, `lab/LabVariableOverrides.tsx`, `lab/LabDependencyPanel.tsx`, and `editor/ResourceWorkflowModals.tsx` own focused workflow rendering delegated by the remaining editor pages.
 - Feature hooks under `pipelines/`, `steps/`, `triggers/`, and `scopes/` own request-keyed permission orchestration; `lab/useLabRunAuthorization.ts` owns dependency discovery and debounced run authorization.
 - `src/features/triggers/useTriggerManifestMutations.ts` owns trigger manifest create/clone/save/delete modal lifecycles with action-time authorization and Git-managed read-only handling.
 - `src/features/scopes/useScopeModalMutations.ts` owns scope creation/seeding, repository-scoped variable/secret modal lifecycles, GitOps secret encryption/copy, and scoped value deletion.
 - `src/features/editor/useDraftCollection.ts` and `useYamlResourceMutations.ts` own pipeline/step draft autosave and save/create/clone/delete lifecycles without changing routes or API contracts.
 - `src/features/lab/useLabSession.ts` and `useLabRunMutation.ts` own Lab session persistence, protected pipeline switching, overrides, and authorized scoped-run submission.
 - `src/features/monitoring/model.ts` and `MonitoringDashboard.tsx` own Monitoring normalization, aggregation, formatting, and dashboard presentation.
-- `src/features/pipeline-runs` owns run transport/contracts, source/group presentation, notification route normalization, graph rendering/layout, and the incremental log dialog/polling/filter state.
+- `src/features/pipeline-runs` owns run transport/contracts, dashboard and run-card presentation, selected-run detail, notification and folder dialogs, notification route normalization, graph rendering/layout/dialogs, and the incremental log dialog/polling/filter state.
+- `src/features/pipelines/PipelineActivityPanels.tsx` and `src/features/steps/StepUsagePanel.tsx` own focused activity and usage presentation for their route shells.
+- `src/features/editor/YamlValidationPanel.tsx` owns shared accessible YAML validation presentation across pipeline, step, trigger, and Lab editors.
 - `src/features/editor/ResourceCollectionToolbar.tsx` and `src/components/WorkflowToastRegion.tsx` own shared pipeline/step collection controls and accessible workflow notifications.
 - `src/components/AppHelp.tsx` and `appHelpModel.ts` own accessible route-specific help rendering plus pure topic and documentation-link resolution.
 - `src/app/BaseSidebarNavigation.tsx` owns stable top-level navigation.

@@ -1,6 +1,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildPipelineGraphData, normalizePipelineSource, parsePipelineYaml, validatePipelineYaml } from './model.js';
+import {
+  buildPipelineGraphData,
+  formatPipelineGitRef,
+  formatPipelineTriggerBranchField,
+  formatPipelineTriggerEvent,
+  formatPipelineTriggerScope,
+  normalizePipelineSource,
+  parsePipelineDependencyReference,
+  parsePipelineYaml,
+  pipelineRunStatusClass,
+  pipelineRunStatusLabel,
+  validatePipelineYaml,
+} from './model.js';
 
 test('validates pipeline container image requirements for executable steps', () => {
   const result = validatePipelineYaml(`
@@ -101,4 +113,23 @@ test('normalizes pipeline source labels', () => {
   assert.equal(normalizePipelineSource('GitOps'), 'git');
   assert.equal(normalizePipelineSource('draft'), 'draft');
   assert.equal(normalizePipelineSource('db'), 'database');
+});
+
+test('formats pipeline activity presentation consistently', () => {
+  assert.equal(formatPipelineGitRef('refs/heads/main'), 'main');
+  assert.equal(formatPipelineTriggerEvent('pull_request'), 'Pull request');
+  assert.deepEqual(formatPipelineTriggerBranchField({ skip_branches: ['release/*'] }), {
+    label: 'skip_branches:',
+    value: 'release/*',
+  });
+  assert.equal(formatPipelineTriggerScope({ scope: 'production' }), 'production');
+  assert.equal(pipelineRunStatusClass('failed'), 'runner-pill--error');
+  assert.equal(pipelineRunStatusLabel('in_progress'), 'In progress');
+  assert.deepEqual(parsePipelineDependencyReference('pipeline:platform/deploy'), {
+    raw: 'pipeline:platform/deploy',
+    identifier: 'platform/deploy',
+    typeLabel: 'Pipeline',
+    actionLabel: 'Open',
+    navigable: true,
+  });
 });
