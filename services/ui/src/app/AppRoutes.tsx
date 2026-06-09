@@ -13,6 +13,7 @@ const ScopesPage = lazy(() => import('../pages/Scopes'));
 const LabPage = lazy(() => import('../pages/Lab'));
 const StepsPage = lazy(() => import('../pages/Steps'));
 const KnowledgeContextPage = lazy(() => import('../pages/KnowledgeContext'));
+const ProductDocsPage = lazy(() => import('../pages/ProductDocs'));
 const MonitoringPage = lazy(() => import('../pages/Monitoring'));
 const SystemPage = lazy(() => import('../pages/System'));
 const ProfilePage = lazy(() => import('../pages/Profile'));
@@ -44,6 +45,7 @@ export function AppRoutes({
         <Route path="/" element={<Navigate to="/pipelineruns/main" replace />} />
         <Route path="/pipelineruns/:tab?" element={<PipelineRunsPage />} />
         <Route path="/monitoring" element={<MonitoringPage />} />
+        <Route path="/docs" element={<ProductDocsPage />} />
         <Route
           path="/pipelines/*"
           element={
