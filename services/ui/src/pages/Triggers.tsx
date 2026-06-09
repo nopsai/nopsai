@@ -1,21 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type UIEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import yaml from 'js-yaml';
+import { ArrowLeft, Copy, Download, Plus, Search, Trash2, X } from 'lucide-react';
 import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups';
 import { escapeRegExp, findLineNumberByRegex, findLineNumberForKey, parseYamlWithLocation } from '../lib/yamlValidation';
 import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
+import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowToastRegion';
 import { EditorAutocompleteMenu } from '../features/editor/EditorAutocompleteMenu';
 import { TriggerRecentRuns } from '../features/triggers/TriggerRecentRuns';
+import { TriggerWorkflowModals } from '../features/triggers/TriggerWorkflowModals';
 import {
-  checkTriggerPermission,
-  deleteTrigger,
   fetchTriggerAutocompleteResources,
   fetchTriggerDetail,
   fetchTriggerPipelineYaml,
   fetchTriggerRuns,
   fetchTriggers,
-  saveTrigger,
 } from '../features/triggers/api';
+import { useTriggerManifestMutations } from '../features/triggers/useTriggerManifestMutations';
 import { useTriggerPermissions } from '../features/triggers/useTriggerPermissions';
 
 const INITIAL_RECENT_RUNS = 5;
@@ -95,31 +96,6 @@ type TreeNode = {
   triggerSlugs: string[];
 };
 
-type CreateModalState = {
-  repository: string;
-  yamlPreview: string;
-  pending: boolean;
-  error?: string;
-};
-
-type CloneModalState = {
-  repository: string;
-  pending: boolean;
-  error?: string;
-};
-
-type DeleteModalState = {
-  slug: string;
-  pending: boolean;
-  error?: string;
-};
-
-type ToastMessage = {
-  id: number;
-  message: string;
-  tone: 'success' | 'error' | 'info';
-};
-
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object') return null;
   return value as Record<string, unknown>;
@@ -160,129 +136,11 @@ function normalizePipelineIdentifier(value: unknown): string {
     .replace(/^\//, '');
 }
 
-function describePipeline(identifier: string): PipelineRef {
-  const segments = identifier.split('/').filter(Boolean);
-  const name = segments.pop() || identifier;
-  const path = segments.join('/');
-  return { identifier, display: name, pathLabel: path || 'root' };
-}
-
-function parseTriggerYaml(raw: string): Record<string, unknown> {
-  const parsed = yaml.load(raw) as Record<string, unknown> | undefined;
-  if (!parsed || typeof parsed !== 'object') {
-    throw new Error('Manifest must be a YAML object.');
-  }
-  const triggerValue = (parsed as { triggers?: unknown }).triggers;
-  if (!Array.isArray(triggerValue) || triggerValue.length === 0) {
-    throw new Error('Manifest must contain a non-empty "triggers" array.');
-  }
-  triggerValue.forEach((trigger: unknown, idx: number) => {
-    const triggerRecord = asRecord(trigger);
-    if (!triggerRecord) {
-      throw new Error(`Trigger #${idx + 1} must be an object.`);
-    }
-  });
-  return parsed;
-}
-
-function buildTriggerSummary(manifest: Record<string, unknown>): TriggerSummary {
-  const triggerValue = (manifest as { triggers?: unknown }).triggers;
-  const triggers = Array.isArray(triggerValue) ? triggerValue : [];
-  const pipelineIdentifiers: PipelineRef[] = [];
-  const events = new Set<string>();
-  const branches = new Set<string>();
-  const skipBranches = new Set<string>();
-  const tags = new Set<string>();
-  const scopes = new Set<string>();
-  let hasDefaultScope = false;
-
-  triggers.forEach(triggerValueItem => {
-    const trigger = asRecord(triggerValueItem);
-    if (!trigger) return;
-
-    if (trigger.on != null) {
-      const raw = String(trigger.on).trim();
-      events.add(raw);
-    }
-
-    const branchesList = Array.isArray(trigger.branches) ? trigger.branches : [];
-    branchesList.forEach(branch => {
-      const value = String(branch || '').trim();
-      if (value) branches.add(value);
-    });
-
-    const skipValue = trigger.skip_branches ?? trigger.skipBranches;
-    const skipList = Array.isArray(skipValue) ? skipValue : [];
-    skipList.forEach(branch => {
-      const value = String(branch || '').trim();
-      if (value) skipBranches.add(value);
-    });
-
-    const tagsList = Array.isArray(trigger.tags) ? trigger.tags : [];
-    tagsList.forEach(tag => {
-      const value = String(tag || '').trim();
-      if (value) tags.add(value);
-    });
-
-    const scope = normalizeScopeLabel(trigger.scope);
-    if (scope) {
-      scopes.add(scope);
-    } else {
-      hasDefaultScope = true;
-    }
-
-    const pipelines = Array.isArray(trigger.pipelines) ? trigger.pipelines : [];
-    pipelines.forEach(entry => {
-      const entryRecord = asRecord(entry);
-      const raw = typeof entry === 'string' ? entry : typeof entryRecord?.path === 'string' ? entryRecord.path : '';
-      const normalized = normalizePipelineIdentifier(raw);
-      if (!normalized) return;
-      pipelineIdentifiers.push(describePipeline(normalized));
-    });
-  });
-
-  if (hasDefaultScope) scopes.add('');
-
-  const dedupedPipelines = Array.from(new Map(pipelineIdentifiers.map(item => [item.identifier, item])).values()).sort((a, b) =>
-    a.identifier.localeCompare(b.identifier)
-  );
-
-  return {
-    triggerCount: triggers.length,
-    pipelines: dedupedPipelines,
-    events: Array.from(events).sort((a, b) => a.localeCompare(b)),
-    branches: Array.from(branches).sort((a, b) => a.localeCompare(b)),
-    skipBranches: Array.from(skipBranches).sort((a, b) => a.localeCompare(b)),
-    tags: Array.from(tags).sort((a, b) => a.localeCompare(b)),
-    scopes: Array.from(scopes).sort((a, b) => a.localeCompare(b)),
-  };
-}
-
 function buildPipelineIdentifierFromRun(run: TriggerRun): string {
   const name = run.pipeline_name || '';
   const path = run.pipeline_path || '';
   const identifier = path ? `${path}/${name}` : name;
   return normalizePipelineIdentifier(identifier);
-}
-
-function sanitizePipelineFileName(value: string): string {
-  const trimmed = String(value || '').trim();
-  const fallback = 'sample-pipeline';
-  if (!trimmed) return fallback;
-  const sanitized = trimmed.replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '');
-  return sanitized || fallback;
-}
-
-function deriveDefaultPipelinePath(repoSlug: string): string {
-  const parts = String(repoSlug || '').split('/').filter(Boolean);
-  const candidate = parts[parts.length - 1] || '';
-  const fileName = sanitizePipelineFileName(candidate);
-  return `pipelines/${fileName}.yaml`;
-}
-
-function buildNewTriggerYaml(pipelinePath: string): string {
-  const path = pipelinePath || 'pipelines/sample-pipeline.yaml';
-  return `triggers:\n  - on: push\n    branches:\n      - main\n    pipelines:\n      - ${path}\n`;
 }
 
 function TriggersPage({
@@ -316,7 +174,6 @@ function TriggersPage({
 
   const [isEditing, setIsEditing] = useState(false);
   const [editorValue, setEditorValue] = useState('');
-  const [saving, setSaving] = useState(false);
 
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const highlightContentRef = useRef<HTMLPreElement | null>(null);
@@ -354,13 +211,9 @@ function TriggersPage({
     replaceEnd: number;
     appendColon: boolean;
   }>(null);
+  const [toasts, setToasts] = useState<WorkflowToast[]>([]);
 
-  const [createModal, setCreateModal] = useState<CreateModalState | null>(null);
-  const [cloneModal, setCloneModal] = useState<CloneModalState | null>(null);
-  const [deleteModal, setDeleteModal] = useState<DeleteModalState | null>(null);
-  const [toasts, setToasts] = useState<ToastMessage[]>([]);
-
-  const addToast = useCallback((message: string, tone: ToastMessage['tone'] = 'info') => {
+  const addToast = useCallback((message: string, tone: WorkflowToast['tone'] = 'info') => {
     const id = Date.now() + Math.random();
     setToasts(prev => [...prev, { id, message, tone }]);
     window.setTimeout(() => {
@@ -952,11 +805,11 @@ function TriggersPage({
     navigate(cleaned ? `/triggers?folder=${encodeURIComponent(cleaned)}` : '/triggers');
   };
 
-  const handleSelectSlug = (slug: string) => {
+  const handleSelectSlug = useCallback((slug: string) => {
     selectedSlugRef.current = slug;
     setSelectedSlug(slug);
     navigate(`/triggers/${encodeSlug(slug)}`);
-  };
+  }, [navigate]);
 
   const handleBackToList = () => {
     if (!detail) {
@@ -972,31 +825,56 @@ function TriggersPage({
     canUpdateSelectedTrigger,
   } = useTriggerPermissions(permissionFolder, selectedSlug);
 
-  const openCreateModal = () => {
-    if (!canCreateTriggerHere) return;
-    const repository = permissionFolder ? `${permissionFolder}/new-repository` : '';
-    const yamlPreview = buildNewTriggerYaml(deriveDefaultPipelinePath(repository));
-    setCreateModal({ repository, yamlPreview, pending: false });
-  };
+  const handleTriggerSaved = useCallback((updated: TriggerDetail) => {
+    setDetail(updated);
+    setLinkedPipelines(updated.summary.pipelines);
+  }, []);
 
-  const openCloneModal = () => {
-    if (!canCreateTriggerHere) return;
-    if (!detail) {
-      addToast('Select a trigger to clone.', 'info');
-      return;
-    }
-    setCloneModal({ repository: detail.slug, pending: false });
-  };
+  const handleTriggerMutationSelect = useCallback((slug: string) => {
+    autoEnterEditSlugRef.current = slug;
+    handleSelectSlug(slug);
+  }, [handleSelectSlug]);
 
-  const openDeleteModal = (slug: string) => {
-    if (!canDeleteTriggers) return;
-    const source = normalizeSource(serverTriggers.find(item => item.slug === slug)?.source);
-    if (source === 'git') {
-      addToast('This trigger is managed via Git. Clone it to customize instead of deleting.', 'info');
-      return;
-    }
-    setDeleteModal({ slug, pending: false });
-  };
+  const handleTriggerDeleted = useCallback(() => {
+    setSelectedSlug(null);
+    selectedSlugRef.current = null;
+    navigate('/triggers');
+  }, [navigate]);
+
+  const {
+    cloneModal,
+    closeCloneModal,
+    closeCreateModal,
+    closeDeleteModal,
+    confirmDelete,
+    createModal,
+    deleteModal,
+    openCloneModal,
+    openCreateModal,
+    openDeleteModal,
+    save: handleSave,
+    saving,
+    submitCloneModal,
+    submitCreateModal,
+    updateCloneRepository,
+    updateCreateRepository,
+  } = useTriggerManifestMutations({
+    canCreateTriggerHere,
+    canUpdateSelectedTrigger,
+    canDeleteTriggers,
+    permissionFolder,
+    detail,
+    editorValue,
+    validationErrorCount: validation.errors.length,
+    serverTriggers,
+    addToast,
+    loadTriggers,
+    loadRecentRuns,
+    onSelectSlug: handleTriggerMutationSelect,
+    onSaved: handleTriggerSaved,
+    onEditingFinished: () => setIsEditing(false),
+    onDeleted: handleTriggerDeleted,
+  });
 
   const handleCopyYaml = async () => {
     if (!detail?.rawYaml) return;
@@ -1020,153 +898,6 @@ function TriggersPage({
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-  };
-
-  const handleSave = async () => {
-    if (!canUpdateSelectedTrigger) {
-      addToast('You do not have permission to update triggers.', 'error');
-      return;
-    }
-    if (!detail) return;
-    if (normalizeSource(detail.source) === 'git') {
-      addToast('Git-managed triggers are read-only. Clone it to customize.', 'info');
-      return;
-    }
-    if (validation.errors.length) {
-      addToast('Resolve validation errors before saving.', 'error');
-      return;
-    }
-    if (editorValue === detail.rawYaml) {
-      setIsEditing(false);
-      return;
-    }
-    setSaving(true);
-    try {
-      await saveTrigger(detail.slug, editorValue);
-      const manifest = parseTriggerYaml(editorValue);
-      const summary = buildTriggerSummary(manifest);
-      setDetail(prev => (prev ? { ...prev, rawYaml: editorValue, summary } : prev));
-      setLinkedPipelines(summary.pipelines);
-      setIsEditing(false);
-      addToast('Trigger saved.', 'success');
-      await loadTriggers();
-      void loadRecentRuns(detail.slug, summary.pipelines);
-    } catch (error) {
-      console.error('Save failed', error);
-      addToast(error instanceof Error ? error.message : 'Unable to save trigger', 'error');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const submitCreateModal = async () => {
-    if (!canCreateTriggerHere) return;
-    if (!createModal) return;
-    const repoSlug = createModal.repository.trim();
-    if (!repoSlug) {
-      setCreateModal(prev => (prev ? { ...prev, error: 'Repository is required.' } : prev));
-      return;
-    }
-    let owner: string;
-    let repo: string;
-    try {
-      ({ owner, repo } = splitSlug(repoSlug));
-    } catch (error) {
-      setCreateModal(prev => (prev ? { ...prev, error: error instanceof Error ? error.message : 'Invalid repository.' } : prev));
-      return;
-    }
-
-    const allowed = await checkTriggerPermission('trigger.update', repoSlug);
-    if (!allowed) {
-      setCreateModal(prev => (prev ? { ...prev, error: 'You do not have permission to create triggers for this repository.' } : prev));
-      return;
-    }
-
-    setCreateModal(prev => (prev ? { ...prev, pending: true, error: undefined } : prev));
-    try {
-      const yamlBody = createModal.yamlPreview;
-      await saveTrigger(`${owner}/${repo}`, yamlBody);
-      setCreateModal(null);
-      addToast('Trigger created.', 'success');
-      await loadTriggers();
-      autoEnterEditSlugRef.current = repoSlug;
-      handleSelectSlug(repoSlug);
-    } catch (error) {
-      console.error('Create failed', error);
-      setCreateModal(prev => (prev ? { ...prev, error: error instanceof Error ? error.message : 'Unable to create trigger' } : prev));
-    } finally {
-      setCreateModal(prev => (prev ? { ...prev, pending: false } : prev));
-    }
-  };
-
-  const submitCloneModal = async () => {
-    if (!canCreateTriggerHere) return;
-    if (!cloneModal || !detail) return;
-    const targetSlug = cloneModal.repository.trim();
-    if (!targetSlug) {
-      setCloneModal(prev => (prev ? { ...prev, error: 'Repository is required.' } : prev));
-      return;
-    }
-
-    let owner: string;
-    let repo: string;
-    try {
-      ({ owner, repo } = splitSlug(targetSlug));
-    } catch (error) {
-      setCloneModal(prev => (prev ? { ...prev, error: error instanceof Error ? error.message : 'Invalid repository.' } : prev));
-      return;
-    }
-
-    const allowed = await checkTriggerPermission('trigger.update', targetSlug);
-    if (!allowed) {
-      setCloneModal(prev => (prev ? { ...prev, error: 'You do not have permission to create triggers for this repository.' } : prev));
-      return;
-    }
-
-    setCloneModal(prev => (prev ? { ...prev, pending: true, error: undefined } : prev));
-    try {
-      await saveTrigger(`${owner}/${repo}`, detail.rawYaml);
-      setCloneModal(null);
-      addToast('Trigger cloned.', 'success');
-      await loadTriggers();
-      autoEnterEditSlugRef.current = targetSlug;
-      handleSelectSlug(targetSlug);
-    } catch (error) {
-      console.error('Clone failed', error);
-      setCloneModal(prev => (prev ? { ...prev, error: error instanceof Error ? error.message : 'Unable to clone trigger' } : prev));
-    } finally {
-      setCloneModal(prev => (prev ? { ...prev, pending: false } : prev));
-    }
-  };
-
-  const confirmDelete = async () => {
-    if (!canDeleteTriggers) return;
-    if (!deleteModal) return;
-    const slug = deleteModal.slug;
-    let owner: string;
-    let repo: string;
-    try {
-      ({ owner, repo } = splitSlug(slug));
-    } catch (error) {
-      setDeleteModal(prev => (prev ? { ...prev, error: error instanceof Error ? error.message : 'Invalid repository.' } : prev));
-      return;
-    }
-
-    setDeleteModal(prev => (prev ? { ...prev, pending: true, error: undefined } : prev));
-    try {
-      await deleteTrigger(`${owner}/${repo}`);
-      setDeleteModal(null);
-      addToast('Trigger deleted.', 'success');
-      await loadTriggers();
-      setSelectedSlug(null);
-      selectedSlugRef.current = null;
-      navigate('/triggers');
-    } catch (error) {
-      console.error('Delete failed', error);
-      setDeleteModal(prev => (prev ? { ...prev, error: error instanceof Error ? error.message : 'Unable to delete trigger' } : prev));
-    } finally {
-      setDeleteModal(prev => (prev ? { ...prev, pending: false } : prev));
-    }
   };
 
   useEffect(() => {
@@ -1396,11 +1127,7 @@ function TriggersPage({
                 }}
                 aria-label="Delete trigger"
               >
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6" />
-                  <path d="M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
-                  <path d="M4 7h16" />
-                </svg>
+                <Trash2 className="h-4 w-4" aria-hidden="true" />
               </button>
             )}
           </div>
@@ -1582,10 +1309,8 @@ function TriggersPage({
                   </div>
                 </div>
               </div>
-              <button id="triggers-back-btn" className="glass-button-ghost" onClick={handleBackToList}>
-                <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
-                </svg>
+              <button id="triggers-back-btn" type="button" className="glass-button-ghost" onClick={handleBackToList}>
+                <ArrowLeft className="h-4 w-4" aria-hidden="true" />
                 <span>Back to list</span>
               </button>
             </div>
@@ -1601,14 +1326,10 @@ function TriggersPage({
                     {!isEditing ? (
                       <>
                         <button className="glass-button-ghost" onClick={handleCopyYaml} title="Copy YAML">
-                          <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                          </svg>
+                          <Copy className="h-4 w-4" aria-hidden="true" />
                         </button>
                         <button className="glass-button-ghost" onClick={handleDownloadYaml} title="Download YAML">
-                          <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                          </svg>
+                          <Download className="h-4 w-4" aria-hidden="true" />
                         </button>
                         {(canUpdateSelectedTrigger || canCreateTriggerHere) &&
                           (isGitSource ? (
@@ -1856,9 +1577,7 @@ function TriggersPage({
               onClick={() => openFolder(parentFolder(activeFolder))}
               disabled={!activeFolder}
             >
-              <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M15 18l-6-6 6-6" />
-              </svg>
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
             </button>
             <div className={`pipelines-search-shell ${searchOpen ? 'open' : ''}`}>
               <button
@@ -1870,9 +1589,7 @@ function TriggersPage({
                   requestAnimationFrame(() => searchInputRef.current?.focus());
                 }}
               >
-                <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-4.35-4.35M10 18a8 8 0 110-16 8 8 0 010 16z" />
-                </svg>
+                <Search className="h-4 w-4" aria-hidden="true" />
               </button>
               <input
                 ref={searchInputRef}
@@ -1900,7 +1617,7 @@ function TriggersPage({
                   }}
                   aria-label="Clear search"
                 >
-                  ✕
+                  <X className="h-4 w-4" aria-hidden="true" />
                 </button>
               )}
             </div>
@@ -1913,9 +1630,7 @@ function TriggersPage({
                 title="New Trigger"
                 onClick={openCreateModal}
               >
-                <svg className="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v14M5 12h14" />
-                </svg>
+                <Plus className="h-4 w-4" aria-hidden="true" />
               </button>
             )}
           </div>
@@ -1932,149 +1647,23 @@ function TriggersPage({
         )}
       </div>
 
-      {createModal && (
-        <div id="triggers-new-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
-          <div className="pipelines-modal-card trigger-modal-card max-w-lg w-full">
-            <header className="pipelines-modal-header trigger-modal-header">
-              <div className="trigger-modal-heading">
-                <span className="trigger-modal-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 5v14M5 12h14" />
-                  </svg>
-                </span>
-                <div className="min-w-0">
-                  <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">New trigger</p>
-                  <h3 className="text-lg font-semibold text-[var(--text-primary)]">Create trigger override</h3>
-                </div>
-              </div>
-              <button className="glass-button-ghost" onClick={() => setCreateModal(null)} disabled={createModal.pending}>
-                Close
-              </button>
-            </header>
-            <div className="pipelines-modal-body trigger-modal-body">
-              <div className="trigger-modal-field-group">
-                <label className="block text-sm font-medium text-[var(--text-secondary)]">Repository</label>
-                <input
-                  type="text"
-                  className="pipelines-input w-full mt-1"
-                  placeholder="owner/repo"
-                  value={createModal.repository}
-                  onChange={event => {
-                    const repoSlug = event.target.value;
-                    setCreateModal(prev => {
-                      if (!prev) return prev;
-                      const pipelinePath = deriveDefaultPipelinePath(repoSlug);
-                      return { ...prev, repository: repoSlug, yamlPreview: buildNewTriggerYaml(pipelinePath), error: undefined };
-                    });
-                  }}
-                />
-                <p className="trigger-modal-hint">Creates or replaces a trigger override stored in the database.</p>
-              </div>
-              <div className="trigger-modal-field-group">
-                <label className="block text-sm font-medium text-[var(--text-secondary)]">Template</label>
-                <div className="glass-card border border-[var(--border-primary)] rounded-xl overflow-hidden">
-                  <pre className="p-3 text-xs overflow-auto max-h-52">{createModal.yamlPreview}</pre>
-                </div>
-              </div>
-              {createModal.error && <p className="text-sm text-red-500">{createModal.error}</p>}
-            </div>
-            <div className="pipelines-modal-footer trigger-modal-footer">
-              <button className="glass-button-ghost" onClick={() => setCreateModal(null)} disabled={createModal.pending}>
-                Cancel
-              </button>
-              <button className="glass-button-primary" onClick={submitCreateModal} disabled={createModal.pending}>
-                {createModal.pending ? 'Creating…' : 'Create'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <TriggerWorkflowModals
+        createModal={createModal}
+        cloneModal={cloneModal}
+        deleteModal={deleteModal}
+        canDeleteTriggers={canDeleteTriggers}
+        selectedSlug={detail?.slug}
+        onCloseCreate={closeCreateModal}
+        onUpdateCreateRepository={updateCreateRepository}
+        onSubmitCreate={() => void submitCreateModal()}
+        onCloseClone={closeCloneModal}
+        onUpdateCloneRepository={updateCloneRepository}
+        onSubmitClone={() => void submitCloneModal()}
+        onCloseDelete={closeDeleteModal}
+        onConfirmDelete={() => void confirmDelete()}
+      />
 
-      {cloneModal && (
-        <div id="triggers-clone-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
-          <div className="pipelines-modal-card trigger-modal-card max-w-md w-full">
-            <header className="pipelines-modal-header trigger-modal-header">
-              <div className="trigger-modal-heading">
-                <span className="trigger-modal-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M8 7h12M8 12h12M8 17h12" />
-                    <path d="M4 7h.01M4 12h.01M4 17h.01" />
-                  </svg>
-                </span>
-                <div className="min-w-0">
-                  <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">Clone trigger</p>
-                  <h3 className="text-lg font-semibold text-[var(--text-primary)]">Clone {detail?.slug}</h3>
-                </div>
-              </div>
-              <button className="glass-button-ghost" onClick={() => setCloneModal(null)} disabled={cloneModal.pending}>
-                Close
-              </button>
-            </header>
-            <div className="pipelines-modal-body trigger-modal-body">
-              <div className="trigger-modal-field-group">
-                <label className="block text-sm font-medium text-[var(--text-secondary)]">Target repository</label>
-                <input
-                  type="text"
-                  className="pipelines-input w-full mt-1"
-                  placeholder="owner/repo"
-                  value={cloneModal.repository}
-                  onChange={event => setCloneModal(prev => (prev ? { ...prev, repository: event.target.value, error: undefined } : prev))}
-                />
-                <p className="trigger-modal-hint">Copies the YAML from the current trigger into the target override.</p>
-              </div>
-              {cloneModal.error && <p className="text-sm text-red-500">{cloneModal.error}</p>}
-            </div>
-            <div className="pipelines-modal-footer trigger-modal-footer">
-              <button className="glass-button-ghost" onClick={() => setCloneModal(null)} disabled={cloneModal.pending}>
-                Cancel
-              </button>
-              <button className="glass-button-primary" onClick={submitCloneModal} disabled={cloneModal.pending}>
-                {cloneModal.pending ? 'Cloning…' : 'Clone'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {canDeleteTriggers && deleteModal && (
-        <div id="triggers-delete-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
-          <div className="pipelines-modal-card max-w-md w-full">
-            <header className="pipelines-modal-header">
-              <div>
-                <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">Delete trigger</p>
-                <h3 className="text-lg font-semibold text-[var(--text-primary)]">Remove {deleteModal.slug}?</h3>
-              </div>
-              <button className="glass-button-ghost" onClick={() => setDeleteModal(null)} disabled={deleteModal.pending}>
-                Close
-              </button>
-            </header>
-            <div className="pipelines-modal-body space-y-3">
-              <p className="text-sm text-[var(--text-secondary)]">This action cannot be undone.</p>
-              {deleteModal.error && <p className="text-sm text-red-500">{deleteModal.error}</p>}
-            </div>
-            <div className="pipelines-modal-footer">
-              <div className="pipelines-modal-actions">
-                <button className="glass-button-ghost" onClick={() => setDeleteModal(null)} disabled={deleteModal.pending}>
-                  Cancel
-                </button>
-                <button className="glass-button-danger" onClick={confirmDelete} disabled={deleteModal.pending}>
-                  {deleteModal.pending ? 'Deleting…' : 'Delete'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {toasts.length > 0 && (
-        <div className="fixed top-6 right-6 z-[100] w-full max-w-sm space-y-3">
-          {toasts.map(toast => (
-            <div key={toast.id} className={`triggers-toast triggers-toast--${toast.tone} show`}>
-              <div className="triggers-toast__content">{toast.message}</div>
-            </div>
-          ))}
-        </div>
-      )}
+      <WorkflowToastRegion toasts={toasts} classPrefix="triggers" />
     </div>
   );
 }

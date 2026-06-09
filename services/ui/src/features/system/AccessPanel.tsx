@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Copy, Edit3, Plus, RefreshCw, Search, Server, Trash2, X } from 'lucide-react';
 import {
   ACCESS_UI_BUILD_ID,
@@ -19,6 +19,7 @@ import {
   policyLabel,
 } from './access/model';
 import { BasicAccessGrantEditor } from './access/BasicAccessGrantEditor';
+import { AccessEditorEmptyState, AccessModal } from './access/AccessModal';
 import { AccessPolicyRuleFields } from './access/AccessPolicyRuleFields';
 import {
   areBasicGrantEntriesDirty,
@@ -43,92 +44,14 @@ import type {
   ServiceAccountToken,
   UserSummary,
 } from './access/model';
-
-type AccessPresetID = 'viewer' | 'developer' | 'owner' | 'admin';
-
-const ACCESS_ROLE_PRESETS: Array<{
-  id: AccessPresetID;
-  label: string;
-  description: string;
-}> = [
-  {
-    id: 'viewer',
-    label: 'Viewer',
-    description: 'Read-only access to groups, pipelines, runs, logs, triggers, and metadata.',
-  },
-  {
-    id: 'developer',
-    label: 'Developer',
-    description: 'Viewer access plus create, update, execute, and write access for day-to-day delivery work.',
-  },
-  {
-    id: 'owner',
-    label: 'Owner',
-    description: 'Developer access plus deletes, secret reads, and ACL management inside an owned scope.',
-  },
-  {
-    id: 'admin',
-    label: 'Admin',
-    description: 'Platform-wide access through the normal AAA path, with sensitive actions still audited.',
-  },
-];
-
-const ACCESS_SECTION_CONTENT: Record<
-  'users' | 'service-accounts' | 'roles' | 'policies',
-  { title: string; description: string; searchPlaceholder: string; resultsLabel: string }
-> = {
-  users: {
-    title: 'People and accounts',
-    description: 'See who can sign in, what they can do, and which accounts still need access assigned.',
-    searchPlaceholder: 'Search by username, email, or role',
-    resultsLabel: 'people',
-  },
-  'service-accounts': {
-    title: 'Service accounts',
-    description: 'Manage token-only identities for integrations, automation, and service-to-service access.',
-    searchPlaceholder: 'Search by service account, contact, token, or role',
-    resultsLabel: 'service accounts',
-  },
-  roles: {
-    title: 'Reusable role bundles',
-    description: 'Shape access around simple roles like viewer and developer, then map those bundles to people.',
-    searchPlaceholder: 'Search roles, included policies, or assigned users',
-    resultsLabel: 'roles',
-  },
-  policies: {
-    title: 'Underlying AAA rules',
-    description: 'Low-level resource and action rules that power your friendlier product roles.',
-    searchPlaceholder: 'Search policies, resources, actions, or role names',
-    resultsLabel: 'policies',
-  },
-};
-
-const accessPresetIDForRole = (roleName: string): AccessPresetID | null => {
-  const normalized = (roleName || '').trim().toLowerCase();
-  if (!normalized) return null;
-  if (normalized === DEFAULT_ADMIN_ROLE || normalized === 'admin' || normalized.endsWith('-admin')) return 'admin';
-  if (normalized === 'owner' || normalized.endsWith('-owner')) return 'owner';
-  if (normalized === 'developer' || normalized.endsWith('-developer')) return 'developer';
-  if (normalized === 'viewer' || normalized.endsWith('-viewer')) return 'viewer';
-  return null;
-};
-
-const accessPresetForRole = (roleName: string) => {
-  const presetID = accessPresetIDForRole(roleName);
-  return presetID ? ACCESS_ROLE_PRESETS.find(preset => preset.id === presetID) ?? null : null;
-};
-
-const accessPresetToneClass = (roleName: string) => {
-  const presetID = accessPresetIDForRole(roleName);
-  return presetID ? `access-chip--tone-${presetID}` : 'access-chip--muted';
-};
-
-const matchesAccessSearch = (query: string, ...values: Array<string | undefined>) => {
-  if (!query) return true;
-  return values.some(value => (value || '').toLowerCase().includes(query));
-};
-
-const formatAccessCount = (count: number, singular: string, plural = `${singular}s`) => `${count} ${count === 1 ? singular : plural}`;
+import {
+  ACCESS_SECTION_CONTENT,
+  accessPresetForRole,
+  accessPresetToneClass,
+  formatAccessCount,
+  formatAccessTimestamp,
+  matchesAccessSearch,
+} from './access/presentation';
 
 export type AccessPanelProps = {
   users: UserSummary[];
@@ -1530,7 +1453,7 @@ function AccessPanel({
                         </div>
                         <p className="access-card__subtitle">{user.email || 'No email address'}</p>
                         <p className="access-card__meta-line">
-                          {user.last_login ? `Last sign-in ${formatTimestamp(user.last_login)}` : 'Never signed in'}
+                          {user.last_login ? `Last sign-in ${formatAccessTimestamp(user.last_login)}` : 'Never signed in'}
                         </p>
                       </div>
                     </div>
@@ -1760,7 +1683,7 @@ function AccessPanel({
                         </div>
                         <p className="access-card__subtitle">{account.email || 'No contact email'}</p>
                         <p className="access-card__meta-line">
-                          {account.last_used_at ? `Last token use ${formatTimestamp(account.last_used_at)}` : 'No token activity yet'} · {formatAccessCount(account.token_count || 0, 'token')}
+                          {account.last_used_at ? `Last token use ${formatAccessTimestamp(account.last_used_at)}` : 'No token activity yet'} · {formatAccessCount(account.token_count || 0, 'token')}
                         </p>
                       </div>
                     </div>
@@ -1890,9 +1813,9 @@ function AccessPanel({
                             <span className="access-chip access-chip--muted">••••{token.token_suffix}</span>
                           </div>
                           <p className="text-[11px] text-[var(--text-secondary)] mt-2">
-                            Created {formatTimestamp(token.created_at)}
-                            {token.expires_at ? ` · Expires ${formatTimestamp(token.expires_at)}` : ' · Never expires'}
-                            {token.last_used_at ? ` · Last used ${formatTimestamp(token.last_used_at)}` : ''}
+                            Created {formatAccessTimestamp(token.created_at)}
+                            {token.expires_at ? ` · Expires ${formatAccessTimestamp(token.expires_at)}` : ' · Never expires'}
+                            {token.last_used_at ? ` · Last used ${formatAccessTimestamp(token.last_used_at)}` : ''}
                           </p>
                         </div>
                         <button type="button" className="access-inline-btn access-inline-btn--danger" onClick={() => handleRevokeServiceAccountToken(token.id)} disabled={serviceAccountEditor.tokensLoading}>
@@ -2437,7 +2360,7 @@ function AccessPanel({
           <div className="space-y-4">
             <p className="text-sm text-[var(--text-primary)]">{confirmDialog.message}</p>
             <div className="flex items-center justify-end gap-2">
-              <button type="button" className="access-inline-btn" onClick={() => setConfirmDialog(null)} disabled={confirming}>
+              <button data-dialog-initial-focus type="button" className="access-inline-btn" onClick={() => setConfirmDialog(null)} disabled={confirming}>
                 Cancel
               </button>
               <button type="button" className="glass-button-danger" onClick={() => void handleConfirmDialog()} disabled={confirming}>
@@ -2447,90 +2370,6 @@ function AccessPanel({
           </div>
         </AccessModal>
       )}
-    </div>
-  );
-}
-
-function AccessEditorEmptyState({
-  sectionLabel,
-  hint,
-  actionLabel,
-  onAction,
-}: {
-  sectionLabel: string;
-  hint: string;
-  actionLabel?: string;
-  onAction?: () => void;
-}) {
-  return (
-    <div className="access-editor-empty">
-      <div className="access-editor-empty__meta">
-        <span className="access-editor-empty__badge">{sectionLabel}</span>
-        <p className="access-editor-empty__hint">{hint}</p>
-      </div>
-      {actionLabel && onAction && (
-        <div className="access-editor-empty__footer">
-          <button type="button" className="glass-button-primary access-editor-empty__button" onClick={onAction}>
-            <PlusIcon />
-            <span>{actionLabel}</span>
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function AccessModal({
-  kicker,
-  title,
-  subtitle,
-  icon,
-  onClose,
-  children,
-  variant = 'default',
-}: {
-  kicker: string;
-  title: string;
-  subtitle?: string;
-  icon?: ReactNode;
-  onClose: () => void;
-  children: ReactNode;
-  variant?: 'default' | 'minimal';
-}) {
-  const minimal = variant === 'minimal';
-  return (
-    <div className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
-      <div className={`pipelines-modal-card access-modal-card max-w-xl w-full ${minimal ? 'access-modal-card--minimal' : ''}`}>
-        <header className={`pipelines-modal-header access-modal-header ${minimal ? 'access-modal-header--minimal' : ''}`}>
-          <div className="access-modal-heading">
-            {!minimal && (
-              <span className="access-modal-icon" aria-hidden="true">
-                {icon ?? <PlusIcon />}
-              </span>
-            )}
-            <div className="min-w-0">
-              {kicker && (
-                <p
-                  className={`pipelines-modal-kicker ${minimal ? 'text-[11px] tracking-[0.12em] uppercase text-[var(--text-tertiary)]' : 'text-xs text-[var(--text-secondary)]'}`}
-                >
-                  {kicker}
-                </p>
-              )}
-              <h3 className="text-lg font-semibold text-[var(--text-primary)]">{title}</h3>
-              {subtitle && (
-                <p className={`text-xs mt-1 ${minimal ? 'text-[var(--text-secondary)]' : 'text-[var(--text-secondary)]'}`}>
-                  {subtitle}
-                </p>
-              )}
-            </div>
-          </div>
-          <button className={minimal ? 'access-inline-btn' : 'glass-button-ghost'} onClick={onClose} aria-label="Close">
-            <X className="h-4 w-4" />
-            {!minimal && <span>Close</span>}
-          </button>
-        </header>
-        <div className={`pipelines-modal-body access-modal-body ${minimal ? 'access-modal-body--minimal' : ''}`}>{children}</div>
-      </div>
     </div>
   );
 }
@@ -2553,13 +2392,6 @@ function RefreshIcon() {
 
 function SearchIcon() {
   return <Search className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />;
-}
-
-function formatTimestamp(value?: string) {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
-  return date.toLocaleString();
 }
 
 export default AccessPanel;
