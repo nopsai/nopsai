@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { BookOpen, CircleHelp, ExternalLink, X } from 'lucide-react';
-import { useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { buildDocumentationHref, resolveHelpTopicKey } from './appHelpModel';
 import { useDialogFocus } from './useDialogFocus';
 
@@ -21,292 +21,247 @@ type HelpTopic = {
 const HELP_TOPICS: Record<string, HelpTopic> = {
   'pipelineruns/main': {
     title: 'Pipeline Runs',
-    summary: 'Use this page to watch automation work move through groups, inspect failures, and clean up completed runs.',
+    summary: 'Watch automation work move through groups, inspect failures, and clean up completed runs.',
     docsPath: 'pipeline-runs',
     sections: [
       {
-        title: 'Options and Features',
-        body: 'The Main tab is organized by pipeline-run groups. Select a folder in the sidebar, search runs by pipeline, repository, branch, commit, actor, or status, then open a run to see its graph, YAML, tasks, logs, and child runs.',
-        items: [
-          'New Group creates a folder for organizing runs and repository ownership.',
-          'Bulk selection appears when one or more runs are selected and supports clearing or deleting selected runs.',
-          'Run details show timing, source repository, trigger event, step status, task logs, and pipeline definition.',
-        ],
-        example: 'Example workflow: open Main, select team-1/service-api, search "deploy main", open a failed run, then expand the failed step logs.',
-      },
-      {
-        title: 'When to Use It',
-        body: 'Start here when an automation did not behave as expected or when you need the operational history for a repository group.',
+        title: 'What this page covers',
+        body: 'Pipeline Runs is the operational entry point for run history, status, graph inspection, logs, child runs, source metadata, trigger events, and troubleshooting.',
+        items: ['Browse by group or repository.', 'Open run details for graph, YAML, tasks, logs, and timing.', 'Search by pipeline, repository, branch, commit, actor, status, or run ID.'],
       },
     ],
   },
   'pipelineruns/recent': {
     title: 'Recent Runs',
-    summary: 'Recent shows the newest pipeline executions across the workspace without requiring you to pick a folder first.',
+    summary: 'Review the newest executions across the workspace without choosing a folder first.',
     docsPath: 'pipeline-runs/recent',
     sections: [
       {
-        title: 'Options and Features',
-        body: 'Switch between grid and list layout, search across recent runs, and open any run for the same graph, logs, and YAML details available from the Main tab.',
-        items: [
-          'Grid view is useful for quick status scanning.',
-          'List view is denser when you are comparing branch, repository, commit, and trigger metadata.',
-          'Search narrows the run stream by text such as status, pipeline name, repository, branch, or run ID.',
-        ],
-        example: 'Example search: "failure service-api main" to find recent failed runs for the service-api repository on main.',
+        title: 'What this page covers',
+        body: 'Recent Runs is useful for status scanning, broad troubleshooting, and comparing pipeline activity across groups.',
+        items: ['Switch between grid and list views.', 'Search by status, pipeline, repository, branch, or run ID.', 'Open any run for full operational detail.'],
       },
     ],
   },
   'pipelineruns/events': {
     title: 'Trigger Events',
-    summary: 'Events groups runs by the Git or trigger event that started them, so related pipeline executions can be reviewed together.',
+    summary: 'Review the Git or external events that started one or more pipeline runs.',
     docsPath: 'pipeline-runs/events',
     sections: [
       {
-        title: 'Options and Features',
-        body: 'Use this tab when one push or pull request started multiple pipelines. Event cards keep repository, branch, commit, pusher, and latest run status together.',
-        items: [
-          'Open a run from an event to inspect the detailed graph and logs.',
-          'Search helps narrow noisy event streams by repository, branch, actor, commit, or pipeline name.',
-          'Status is summarized from the runs attached to the same event.',
-        ],
-        example: 'Example workflow: open Events after a GitHub push, find the commit SHA, then compare each pipeline run created by that push.',
+        title: 'What this page covers',
+        body: 'Events group related executions by repository event, commit, branch, and pusher so teams can investigate one change across all affected pipelines.',
+      },
+    ],
+  },
+  monitoring: {
+    title: 'Monitoring',
+    summary: 'Monitor run efficiency, service health, runner capacity, trends, and product usage.',
+    docsPath: 'monitoring',
+    sections: [
+      {
+        title: 'What this page covers',
+        body: 'Monitoring helps administrators understand throughput, failures, durations, runner health, trigger activity, and enterprise efficiency indicators.',
       },
     ],
   },
   pipelines: {
     title: 'Pipelines',
-    summary: 'Pipelines define reusable automation flows made of steps, tasks, scripts, LLM goals, and knowledge context.',
+    summary: 'Define reusable automation flows made of steps, tasks, scripts, LLM goals, and context.',
     docsPath: 'pipelines',
     sections: [
       {
-        title: 'Options and Features',
-        body: 'Browse pipeline folders, search definitions, create database-backed drafts, clone Git-managed definitions for customization, copy or download YAML, and open related triggers and recent runs.',
-        items: [
-          'Source labels show whether a pipeline came from Git, the database, or a local draft.',
-          'Access controls decide who can use a pipeline and whether it is group-only, restricted, or public.',
-          'Validation highlights YAML issues and provides examples when the editor can infer a fix.',
-        ],
+        title: 'What this page covers',
+        body: 'Pipelines can be browsed, edited, cloned, validated, downloaded, access-controlled, and linked to recent runs or triggers.',
         example: 'name: build-and-test\ndescription: Build and test service changes\nsteps:\n  - name: test\n    script: npm test',
       },
+    ],
+  },
+  schedules: {
+    title: 'Schedules',
+    summary: 'Run pipelines on recurring time-based rules.',
+    docsPath: 'schedules',
+    sections: [
       {
-        title: 'When to Use It',
-        body: 'Use this page to create or review the automation contract before running it from Lab, triggers, or Git events.',
+        title: 'What this page covers',
+        body: 'Schedules define cadence, scope, pipeline target, status, ownership, and operational review points for recurring automation.',
       },
     ],
   },
   triggers: {
     title: 'Triggers',
-    summary: 'Triggers connect Git repository events to one or more pipeline definitions.',
+    summary: 'Connect repository events to one or more pipeline definitions.',
     docsPath: 'triggers',
     sections: [
       {
-        title: 'Options and Features',
-        body: 'Browse repository trigger overrides, search by owner/repo, create or replace database overrides, clone Git-managed triggers, inspect linked pipelines, and review recent runs started by a repository.',
-        items: [
-          'Repository uses the owner/repo format, for example acme/service-api.',
-          'The YAML preview creates a push trigger for main and points at a pipeline file path.',
-          'Git-managed triggers are read-only in the UI; clone them to make an editable database override.',
-        ],
+        title: 'What this page covers',
+        body: 'Triggers document repository matching, branch rules, event types, linked pipelines, Git-managed definitions, and database overrides.',
         example: 'triggers:\n  - on: push\n    branches:\n      - main\n    pipelines:\n      - pipelines/service-api.yaml',
+      },
+    ],
+  },
+  'external-triggers': {
+    title: 'External Triggers',
+    summary: 'Expose controlled webhook endpoints for non-Git systems.',
+    docsPath: 'external-triggers',
+    sections: [
+      {
+        title: 'What this page covers',
+        body: 'External triggers cover endpoint URLs, authentication, payload mapping, rate limits, pipeline selection, and auditability.',
       },
     ],
   },
   scopes: {
     title: 'Scopes',
-    summary: 'Scopes hold runtime variables and secrets for pipelines, with optional repository-specific overrides.',
+    summary: 'Manage runtime variables, secrets, and repository-specific overrides.',
     docsPath: 'scopes',
     sections: [
       {
-        title: 'Options and Features',
-        body: 'Create scopes, search by scope path or key, edit variables and secret keys, clone values between scopes, and encrypt secrets for GitOps-managed scope files.',
-        items: [
-          'Variables are plain text values injected into matching pipeline runs.',
-          'Secrets are sensitive values; GitOps files can store empty placeholders or encrypted values generated by this instance.',
-          'Repository-prefixed keys such as owner/repo/NAME override a value for one repository.',
-        ],
-        example: 'variables:\n  DEPLOY_TARGET: "development"\n  acme/service-api/IMAGE_TAG: "dev"\nsecrets:\n  GEMINI_API_KEY:\n  acme/service-api/DEPLOY_TOKEN:',
+        title: 'What this page covers',
+        body: 'Scopes provide runtime configuration boundaries for pipelines, including plain variables, sensitive secrets, and repository-prefixed overrides.',
       },
     ],
   },
   lab: {
     title: 'Lab',
-    summary: 'Lab is a safe place to run or adjust a pipeline definition against a chosen scope before committing it elsewhere.',
+    summary: 'Run or adjust a pipeline definition safely before committing it elsewhere.',
     docsPath: 'lab',
     sections: [
       {
-        title: 'Options and Features',
-        body: 'Pick a pipeline, choose a target scope, edit the YAML for the current lab session, add variable overrides, validate the definition, and launch a scoped run.',
-        items: [
-          'Session saves keep Lab edits local to the browser and do not overwrite saved pipelines.',
-          'Validation suggestions explain common YAML issues and often include a small fix example.',
-          'Overrides are useful for trying one value without changing the underlying scope.',
-        ],
-        example: 'Example: select team-1/build-and-test, target dev, override IMAGE_TAG=pr-42, validate, then run once.',
+        title: 'What this page covers',
+        body: 'Lab supports pipeline selection, target scope selection, session-local YAML edits, validation, overrides, and one-off runs.',
       },
     ],
   },
   steps: {
     title: 'Steps',
-    summary: 'Steps are reusable building blocks that pipelines can include instead of repeating scripts or LLM tasks.',
+    summary: 'Create reusable building blocks for pipelines.',
     docsPath: 'steps',
     sections: [
       {
-        title: 'Options and Features',
-        body: 'Browse step libraries, create drafts, clone read-only Git steps, edit YAML, copy or download definitions, and see which pipelines include each step.',
-        items: [
-          'A step can contain a script, a goal, tasks, variables, secrets, MCP profiles, and failure behavior.',
-          'Access controls decide which groups, repositories, or service accounts can reuse a step.',
-          'Used in Pipelines shows the blast radius before editing or deleting a reusable step.',
-        ],
-        example: 'name: shared/checkout\ndescription: Checkout repository\nscript: |\n  git fetch --all\n  git checkout "$GIT_REF"',
+        title: 'What this page covers',
+        body: 'Steps can include scripts, LLM goals, tasks, variables, secrets, MCP profiles, failure behavior, and access controls.',
       },
     ],
   },
   'knowledge-context': {
     title: 'Knowledge Context',
-    summary: 'Knowledge context stores curated markdown used by AI-enabled pipeline steps as architecture, guardrails, policies, runbooks, and examples.',
+    summary: 'Store curated markdown used by AI-enabled pipeline steps.',
     docsPath: 'knowledge-context',
     sections: [
       {
-        title: 'Options and Features',
-        body: 'Browse by kind and group, create documents, edit descriptions and content, copy or download markdown, manage access, and see which pipelines reference each document.',
-        items: [
-          'Kinds include architecture, guardrail, policy, ADR, guideline, runbook, reference, and example.',
-          'Access controls keep sensitive operational knowledge limited to the right groups, repositories, or service accounts.',
-          'Used in Pipelines helps you understand which automations depend on a document.',
-        ],
-        example: '---\nname: release-evidence\nkind: policy\n---\n# Release Evidence\nEvery production deploy must attach test results and rollout notes.',
+        title: 'What this page covers',
+        body: 'Knowledge context covers architecture, guardrails, policies, ADRs, guidelines, runbooks, references, and examples.',
       },
     ],
   },
   'system/config': {
     title: 'System Config',
-    summary: 'System Config controls runtime defaults, service discovery, and the global GitOps config repository.',
+    summary: 'Control runtime defaults, service discovery, and global GitOps repository settings.',
     docsPath: 'system/config',
     sections: [
       {
-        title: 'Options and Features',
-        body: 'Configure runner images, Docker network, pipeline timeouts, agent and git-bot URLs, automatic container cleanup, and the global config repository sync source.',
-        items: [
-          'Runners & timeouts affect how jobs are executed and how long they may run.',
-          'Service discovery URLs let containers call the NopsAI API, agent, and git-bot services.',
-          'Global config repository settings point sync at the Git source of truth for shared resources.',
-        ],
-        example: 'Example config repo: https://github.com/acme/nopsai-config on branch main with base path nopsai.',
+        title: 'What this page covers',
+        body: 'System Config covers runner images, Docker network, service URLs, cleanup, timeouts, and config repository synchronization.',
       },
     ],
   },
   'system/setup': {
     title: 'First-Install Setup',
-    summary: 'Setup guides the initial control-plane configuration and can generate starter files for GitOps.',
+    summary: 'Guide initial control-plane setup and starter GitOps output.',
     docsPath: 'system/setup',
     sections: [
       {
-        title: 'Options and Features',
-        body: 'Step through readiness checks, service-level runtime values, global config repository setup, GitHub App wiring, repository groups, AI profile defaults, starter users, and generated setup output.',
-        items: [
-          'Blocking preflight errors must be resolved before the install is considered ready.',
-          'Generated output separates runtime environment values from files that should be committed to Git.',
-          'MCP examples can be included disabled, so teams can review and enable tools later.',
-        ],
-        example: 'Example starter group: team-1 with repositories acme/service-api and acme/web-app, plus developer access for alice@example.com.',
+        title: 'What this page covers',
+        body: 'Setup covers preflight checks, runtime settings, GitHub App wiring, repository groups, LLM defaults, users, and generated installation output.',
       },
     ],
   },
   'system/llm-profiles': {
     title: 'LLM Profiles',
-    summary: 'LLM profiles define which model providers pipeline AI steps can use and where API keys are stored.',
+    summary: 'Define model providers, models, keys, and scope limits for AI steps.',
     docsPath: 'system/llm-profiles',
     sections: [
       {
-        title: 'Options and Features',
-        body: 'Set the default profile, create or edit provider profiles, test a profile, limit allowed scopes, configure reasoning or thinking behavior, and migrate references before deleting profiles.',
-        items: [
-          'Provider chooses the backend, such as gemini or lmstudio.',
-          'Model and base URL identify the concrete model endpoint.',
-          'API key secret names the scope secret that supplies credentials at runtime.',
-        ],
-        example: 'Name: reasoning\nProvider: gemini\nModel: gemini-2.5-pro\nAPI key secret: GEMINI_API_KEY\nAllowed scopes: dev, internal',
+        title: 'What this page covers',
+        body: 'LLM profiles cover provider selection, model configuration, base URLs, API key secret names, reasoning behavior, testing, and migrations.',
       },
     ],
   },
   'system/mcp': {
     title: 'MCP',
-    summary: 'MCP settings register external tool servers and assemble tool profiles for AI-enabled tasks.',
+    summary: 'Register external tool servers and assemble reusable MCP profiles.',
     docsPath: 'system/mcp',
     sections: [
       {
-        title: 'Options and Features',
-        body: 'Manage MCP servers, headers, auth secret references, timeouts, allowed scopes, tool allow-lists, and reusable profiles that pipeline steps can request.',
-        items: [
-          'Servers describe where tools are hosted and how to authenticate to them.',
-          'Profiles choose which tools from one or more servers are available to a task.',
-          'Allowed scopes prevent a profile or server from being used outside approved runtime scopes.',
-        ],
-        example: 'Server: github\nURL: https://api.githubcopilot.com/mcp/x/all/readonly\nProfile: github-pr-review\nTools: issues_list, repos_get',
+        title: 'What this page covers',
+        body: 'MCP covers server URLs, headers, auth secret references, timeouts, allowed scopes, tool allow-lists, and profile composition.',
+      },
+    ],
+  },
+  'system/data-management': {
+    title: 'Data Management',
+    summary: 'Manage retention, backups, data cleanup, imports, exports, and restore workflows.',
+    docsPath: 'system/data-management',
+    sections: [
+      {
+        title: 'What this page covers',
+        body: 'Data Management covers operational data retention, safe cleanup, backup and restore validation, and migration support.',
       },
     ],
   },
   'system/dispatcher': {
     title: 'Dispatcher',
-    summary: 'Dispatcher shows registered runners, active capacity, routing state, and deployment instructions for adding runners.',
+    summary: 'Monitor runners, capacity, routing, and deployment instructions.',
     docsPath: 'system/dispatcher',
     sections: [
       {
-        title: 'Options and Features',
-        body: 'Monitor runner heartbeats, capacity, active jobs, routing metadata, and generate runner deployment templates for specific scopes.',
-        items: [
-          'Runners can be scoped so only matching jobs are dispatched to them.',
-          'Capacity and inflight jobs help explain queueing and scheduling behavior.',
-          'The deployment guide creates compose and command examples for new runners.',
-        ],
-        example: 'Example: generate a runner for scopes dev,prod with capacity 2, then deploy it on the same Docker network as the dispatcher.',
+        title: 'What this page covers',
+        body: 'Dispatcher covers runner heartbeats, capacity, active jobs, scope routing, deployment templates, and scheduling behavior.',
       },
     ],
   },
   'system/access': {
     title: 'Access',
-    summary: 'Access manages who can sign in and what they can do across folders, resources, and low-level policies.',
+    summary: 'Manage users, roles, resource policies, and inheritance.',
     docsPath: 'system/access',
     sections: [
       {
-        title: 'Options and Features',
-        body: 'Use basic mode for users and product roles, or advanced mode for role bundles and policy rules. Assign viewer, developer, owner, or admin roles to folders, pipelines, scopes, and repositories.',
-        items: [
-          'Users define sign-in identity, status, password, and assigned roles.',
-          'Basic roles are friendlier product-level grants that can inherit through folders.',
-          'Advanced roles and policies expose the lower-level resource/action model for platform administrators.',
-        ],
-        example: 'Example grant: alice@example.com gets developer on folder team-1 with inherit enabled, so nested pipelines and scopes are covered.',
+        title: 'What this page covers',
+        body: 'Access covers users, basic roles, advanced policy rules, resource grants, service accounts, and inheritance across folders.',
       },
     ],
   },
   profile: {
     title: 'Profile',
-    summary: 'Profile contains your account details, password change flow, personal tokens, and quick links to permitted system pages.',
+    summary: 'Manage account details, password changes, and personal access tokens.',
     docsPath: 'profile',
     sections: [
       {
-        title: 'Options and Features',
-        body: 'Update your email where permitted, change your password, create personal access tokens for scripts, revoke old tokens, and sign out.',
-        items: [
-          'Personal tokens are shown once when created; revoke any token that is no longer needed.',
-          'Password changes may be required after first install or after an administrator reset.',
-          'System links appear only when your account has access to those pages.',
-        ],
-        example: 'Example token name: Deployment script. Store the generated token in your automation secret manager and revoke it during rotation.',
+        title: 'What this page covers',
+        body: 'Profile covers account identity, email update, password change, token creation, token revocation, and permitted system links.',
+      },
+    ],
+  },
+  docs: {
+    title: 'Product Documentation',
+    summary: 'Browse the full versioned product wiki.',
+    docsPath: 'overview',
+    sections: [
+      {
+        title: 'What this page covers',
+        body: 'Docs contains product-wide installation, deployment, configuration, operations, security, reference, and troubleshooting guidance for each version.',
       },
     ],
   },
   default: {
     title: 'Help',
-    summary: 'This panel explains the current page, its major controls, and a small example for common workflows.',
+    summary: 'This panel explains the current page, its major controls, and common workflows.',
     docsPath: 'overview',
     sections: [
       {
         title: 'Using Help',
-        body: 'Open the help sign from any authenticated page to get page-specific guidance. When full documentation is available, the documentation link can be enabled from one central setting.',
+        body: 'Open the help sign from any authenticated page to get page-specific guidance. Use the Docs link beside it for the complete product wiki.',
       },
     ],
   },
@@ -314,12 +269,8 @@ const HELP_TOPICS: Record<string, HelpTopic> = {
 
 function resolveHelpTopic(pathname: string): HelpTopic {
   const topicKey = resolveHelpTopicKey(pathname);
-  if (topicKey.startsWith('pipelineruns/')) {
-    return HELP_TOPICS[topicKey] || HELP_TOPICS['pipelineruns/main'];
-  }
-  if (topicKey.startsWith('system/')) {
-    return HELP_TOPICS[topicKey] || HELP_TOPICS['system/config'];
-  }
+  if (topicKey.startsWith('pipelineruns/')) return HELP_TOPICS[topicKey] || HELP_TOPICS['pipelineruns/main'];
+  if (topicKey.startsWith('system/')) return HELP_TOPICS[topicKey] || HELP_TOPICS['system/config'];
   return HELP_TOPICS[topicKey] || HELP_TOPICS.default;
 }
 
@@ -341,95 +292,95 @@ export default function AppHelp() {
   useEffect(() => {
     if (!open) return;
     const handlePointerDown = (event: MouseEvent) => {
-      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) {
-        closeHelp();
-      }
+      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) closeHelp();
     };
     document.addEventListener('mousedown', handlePointerDown);
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown);
-    };
+    return () => document.removeEventListener('mousedown', handlePointerDown);
   }, [closeHelp, open]);
 
   return (
-    <div className="app-help" ref={rootRef}>
-      <button
-        type="button"
-        className={`app-help__trigger ${open ? 'app-help__trigger--open' : ''}`}
-        onClick={() => setOpenState(value => ({ pathname: location.pathname, open: value.pathname === location.pathname ? !value.open : true }))}
-        aria-label={`Help for ${topic.title}`}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-controls={open ? panelID : undefined}
-        title="Help"
+    <div className="flex items-center gap-2" ref={rootRef}>
+      <Link
+        to="/docs"
+        className="hidden h-10 items-center gap-2 rounded-full border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 text-sm font-semibold text-[var(--text-primary)] shadow-sm transition hover:border-[var(--border-accent)] hover:bg-[var(--bg-tertiary)] sm:inline-flex"
+        aria-label="Open product documentation"
+        title="Product documentation"
       >
-        <CircleHelp className="h-5 w-5" aria-hidden="true" />
-      </button>
-      {open && (
-        <div
-          id={panelID}
-          ref={dialogRef}
-          className="app-help__panel"
-          role="dialog"
-          aria-labelledby={titleID}
-          aria-describedby={summaryID}
-          tabIndex={-1}
+        <BookOpen className="h-4 w-4" aria-hidden="true" />
+        <span>Docs</span>
+      </Link>
+      <div className="app-help">
+        <button
+          type="button"
+          className={`app-help__trigger ${open ? 'app-help__trigger--open' : ''}`}
+          onClick={() => setOpenState(value => ({ pathname: location.pathname, open: value.pathname === location.pathname ? !value.open : true }))}
+          aria-label={`Help for ${topic.title}`}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-controls={open ? panelID : undefined}
+          title="Help"
         >
-          <div className="app-help__header">
-            <div className="app-help__header-copy">
-              <span className="app-help__eyebrow">Help</span>
-              <h2 id={titleID}>{topic.title}</h2>
-              <p id={summaryID}>{topic.summary}</p>
-            </div>
-            <button
-              type="button"
-              className="app-help__close"
-              onClick={closeHelp}
-              aria-label="Close help"
-              data-dialog-initial-focus
-            >
-              <X className="h-4 w-4" aria-hidden="true" />
-            </button>
-          </div>
-
-          <div className="app-help__body">
-            {topic.sections.map(section => (
-              <section className="app-help__section" key={section.title}>
-                <h3>{section.title}</h3>
-                <p>{section.body}</p>
-                {section.items?.length ? (
-                  <ul>
-                    {section.items.map(item => (
-                      <li key={item}>{item}</li>
-                    ))}
-                  </ul>
-                ) : null}
-                {section.example ? (
-                  <pre>
-                    <code>{section.example}</code>
-                  </pre>
-                ) : null}
-              </section>
-            ))}
-          </div>
-
-          <div className="app-help__footer">
-            {docsHref ? (
-              <a className="app-help__docs-link" href={docsHref} target="_blank" rel="noreferrer">
-                <BookOpen className="h-4 w-4" aria-hidden="true" />
-                <span>Open full documentation</span>
-                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-              </a>
-            ) : (
-              <div className="app-help__docs-link app-help__docs-link--placeholder">
-                <BookOpen className="h-4 w-4" aria-hidden="true" />
-                <span>Documentation link ready for</span>
-                <code>{topic.docsPath}</code>
+          <CircleHelp className="h-5 w-5" aria-hidden="true" />
+        </button>
+        {open && (
+          <div
+            id={panelID}
+            ref={dialogRef}
+            className="app-help__panel"
+            role="dialog"
+            aria-labelledby={titleID}
+            aria-describedby={summaryID}
+            tabIndex={-1}
+          >
+            <div className="app-help__header">
+              <div className="app-help__header-copy">
+                <span className="app-help__eyebrow">Help</span>
+                <h2 id={titleID}>{topic.title}</h2>
+                <p id={summaryID}>{topic.summary}</p>
               </div>
-            )}
+              <button type="button" className="app-help__close" onClick={closeHelp} aria-label="Close help" data-dialog-initial-focus>
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="app-help__body">
+              {topic.sections.map(section => (
+                <section className="app-help__section" key={section.title}>
+                  <h3>{section.title}</h3>
+                  <p>{section.body}</p>
+                  {section.items?.length ? (
+                    <ul>
+                      {section.items.map(item => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {section.example ? (
+                    <pre>
+                      <code>{section.example}</code>
+                    </pre>
+                  ) : null}
+                </section>
+              ))}
+            </div>
+
+            <div className="app-help__footer">
+              {docsHref ? (
+                <a className="app-help__docs-link" href={docsHref} target="_blank" rel="noreferrer">
+                  <BookOpen className="h-4 w-4" aria-hidden="true" />
+                  <span>Open external documentation</span>
+                  <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                </a>
+              ) : (
+                <Link className="app-help__docs-link" to="/docs" onClick={closeHelp}>
+                  <BookOpen className="h-4 w-4" aria-hidden="true" />
+                  <span>Open product documentation</span>
+                </Link>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
