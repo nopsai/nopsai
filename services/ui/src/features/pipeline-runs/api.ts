@@ -1,4 +1,4 @@
-import { apiClient } from '../../lib/api';
+import { apiClient } from '../../lib/api.js';
 
 async function responseError(response: Response, fallback: string) {
   const text = await response.text();

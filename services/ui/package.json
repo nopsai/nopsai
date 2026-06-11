@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "check:ui-boundaries": "tsc -p tsconfig.boundaries.json && node node_modules/.tmp/ui-boundary-check/scripts/check-ui-boundaries.js",
     "test": "npm run test:unit && npm run test:component",
     "test:unit": "tsc -p tsconfig.test.json && node --test \"dist-test/**/*.test.js\"",
     "test:component": "vitest run --coverage --config vitest.config.ts",

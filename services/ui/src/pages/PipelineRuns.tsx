@@ -1,13 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { NavLink, useParams, useSearchParams } from 'react-router-dom';
-import { Grid2X2, List, Plus, Search, X } from 'lucide-react';
-import { ConfigRepositoryDriftModal } from '../components/ConfigRepositoryDriftModal';
-import { fetchGroupConfigRepository, requestPipelineRunsJson } from '../features/pipeline-runs/api';
-import type {
-  PipelineDefinition,
-  RunListItem,
-  StepDetail,
-} from '../features/pipeline-runs/contracts';
+import { useParams, useSearchParams } from 'react-router-dom';
+import { requestPipelineRunsJson } from '../features/pipeline-runs/api';
+import type { RunListItem } from '../features/pipeline-runs/contracts';
 import {
   buildGroupPath,
   extractLatestRunSummary,
@@ -15,107 +9,17 @@ import {
   runMatchesSearch,
   summarizeStatus,
   type Group,
-  type ParentRunInfo,
   type RepoSummary,
 } from '../features/pipeline-runs/runPresentation';
-import { RunLogsModal as LogsModal } from '../features/pipeline-runs/RunLogsModal';
-import { PipelineRunsDashboard } from '../features/pipeline-runs/PipelineRunsDashboard';
-import { RunDetailView } from '../features/pipeline-runs/RunDetailPanel';
-import { PipelineDefinitionModal, StepDetailModal } from '../features/pipeline-runs/RunGraphModals';
-import {
-  FolderConfigRepositoryModal,
-  NewFolderModal,
-} from '../features/pipeline-runs/PipelineRunsModals';
-import {
-  buildConfigRepositoryWriteFiles,
-  type ConfigRepositoryCommitResponse,
-  type ConfigRepositoryDriftResponse,
-} from '../lib/configRepositoryDrift';
-import {
-  createEmptyNotificationRouteForm,
-  defaultNotificationRouteDefinition,
-  normalizeNotificationRouteRecord,
-  notificationRouteFormFromDefinition,
-  notificationRoutePayloadFromForm,
-} from '../features/pipeline-runs/notificationRoutes';
+import { PipelineRunsPageView } from '../features/pipeline-runs/PipelineRunsPageView';
 import type {
-  NotificationRouteFormState,
-  NotificationRouteRecord,
-} from '../features/pipeline-runs/notificationRoutes';
-type TabKey = 'main' | 'recent' | 'events';
-
-type RunDetail = {
-  run_info: RunListItem;
-  steps: StepDetail[];
-  pipeline_definition?: PipelineDefinition;
-  pipeline_definition_yaml?: string;
-  child_runs: RunListItem[];
-  parent_run_info?: ParentRunInfo | null;
-  approvals?: PipelineApproval[];
-};
-
-type PipelineApproval = {
-  id: string;
-  run_id: string;
-  step_name: string;
-  task_name: string;
-  approval_type: string;
-  assigned_groups: string[];
-  allow_self_approval: boolean;
-  status: string;
-  requested_at: string;
-  requested_by_type?: string;
-  requested_by_id?: string;
-  decided_by_email?: string;
-  decided_at?: string;
-  decision_comment?: string;
-};
-
-type TriggerGroup = {
-  id: string;
-  runs: RunListItem[];
-  status: string;
-  latestRun?: RunListItem;
-};
-
-type ConfigRepository = {
-  id: number;
-  scope_type: string;
-  scope_id: string;
-  repo_url: string;
-  branch: string;
-  base_path: string;
-  enabled: boolean;
-  write_enabled: boolean;
-  write_branch: string;
-  last_sync_status: string;
-  last_sync_message?: string;
-  last_sync_started_at?: string;
-  last_sync_completed_at?: string;
-  last_sync_commit_sha?: string;
-};
-
-type ConfigRepositoryFormState = {
-  repo_url: string;
-  branch: string;
-  base_path: string;
-  enabled: boolean;
-  write_enabled: boolean;
-  write_branch: string;
-};
-
-type NewFolderPayload = {
-  kind: 'group' | 'app';
-  name: string;
-  description: string;
-  repoURL: string;
-};
-
-const tabs = [
-  { id: 'main', label: 'Main' },
-  { id: 'recent', label: 'Recent' },
-  { id: 'events', label: 'Events' },
-];
+  PipelineApproval,
+  PipelineRunDetail as RunDetail,
+  PipelineRunsNewFolderPayload as NewFolderPayload,
+  PipelineRunsTabKey as TabKey,
+  PipelineRunsTriggerGroup as TriggerGroup,
+} from '../features/pipeline-runs/pageTypes';
+import { useFolderConfigRepositoryController } from '../features/pipeline-runs/useFolderConfigRepositoryController';
 
 function isReservedRootGroupName(name: string) {
   const normalized = name.trim().replace(/^\/+|\/+$/g, '').toLowerCase();
@@ -125,17 +29,6 @@ function isReservedRootGroupName(name: string) {
 const RECENT_FETCH_SIZE = 60;
 const RECENT_INITIAL_BATCH = 30;
 const RECENT_BATCH_SIZE = 20;
-
-const emptyConfigRepositoryForm: ConfigRepositoryFormState = {
-  repo_url: '',
-  branch: 'main',
-  base_path: '',
-  enabled: true,
-  write_enabled: false,
-  write_branch: 'nopsai/ui-changes',
-};
-
-const emptyNotificationRouteForm = createEmptyNotificationRouteForm();
 
 function PipelineRunsPage() {
   const { tab: tabParam } = useParams<{ tab?: string }>();
@@ -179,26 +72,6 @@ function PipelineRunsPage() {
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderError, setNewFolderError] = useState<string | null>(null);
   const [newFolderPending, setNewFolderPending] = useState(false);
-  const [configRepoFolder, setConfigRepoFolder] = useState<{ group: Group; folderPath: string } | null>(null);
-  const [configRepo, setConfigRepo] = useState<ConfigRepository | null>(null);
-  const [configRepoForm, setConfigRepoForm] = useState<ConfigRepositoryFormState>(emptyConfigRepositoryForm);
-  const [configRepoLoading, setConfigRepoLoading] = useState(false);
-  const [configRepoSaving, setConfigRepoSaving] = useState(false);
-  const [configRepoSyncing, setConfigRepoSyncing] = useState(false);
-  const [configRepoError, setConfigRepoError] = useState<string | null>(null);
-  const [configRepoDriftOpen, setConfigRepoDriftOpen] = useState(false);
-  const [configRepoDrift, setConfigRepoDrift] = useState<ConfigRepositoryDriftResponse | null>(null);
-  const [configRepoDriftLoading, setConfigRepoDriftLoading] = useState(false);
-  const [configRepoDriftError, setConfigRepoDriftError] = useState<string | null>(null);
-  const [configRepoPushing, setConfigRepoPushing] = useState(false);
-  const [configRepoPushResult, setConfigRepoPushResult] = useState<ConfigRepositoryCommitResponse | null>(null);
-  const [configRepoManageAllowed, setConfigRepoManageAllowed] = useState(false);
-  const [configRepoSyncAllowed, setConfigRepoSyncAllowed] = useState(false);
-  const [notificationRoute, setNotificationRoute] = useState<NotificationRouteRecord | null>(null);
-  const [notificationRouteForm, setNotificationRouteForm] = useState<NotificationRouteFormState>(emptyNotificationRouteForm);
-  const [notificationRouteLoading, setNotificationRouteLoading] = useState(false);
-  const [notificationRouteSaving, setNotificationRouteSaving] = useState(false);
-  const [notificationRouteError, setNotificationRouteError] = useState<string | null>(null);
   const [selectedRunIds, setSelectedRunIds] = useState<Set<string>>(new Set());
   const [repoSummaries, setRepoSummaries] = useState<Map<number, RepoSummary>>(new Map());
 
@@ -337,90 +210,7 @@ function PipelineRunsPage() {
     }
   }, [fetchJson]);
 
-  const normalizeConfigRepository = useCallback((payload: unknown): ConfigRepository | null => {
-    if (!payload || typeof payload !== 'object') return null;
-    const record = payload as Record<string, unknown>;
-    const id = typeof record.id === 'number' ? record.id : Number(record.id);
-    return {
-      id: Number.isFinite(id) ? id : 0,
-      scope_type: typeof record.scope_type === 'string' ? record.scope_type : '',
-      scope_id: typeof record.scope_id === 'string' ? record.scope_id : '',
-      repo_url: typeof record.repo_url === 'string' ? record.repo_url : '',
-      branch: typeof record.branch === 'string' && record.branch.trim() ? record.branch : 'main',
-      base_path: typeof record.base_path === 'string' ? record.base_path : '',
-      enabled: Boolean(record.enabled),
-      write_enabled: Boolean(record.write_enabled),
-      write_branch: typeof record.write_branch === 'string' && record.write_branch.trim() ? record.write_branch : 'nopsai/ui-changes',
-      last_sync_status: typeof record.last_sync_status === 'string' ? record.last_sync_status : '',
-      last_sync_message: typeof record.last_sync_message === 'string' ? record.last_sync_message : undefined,
-      last_sync_started_at: typeof record.last_sync_started_at === 'string' ? record.last_sync_started_at : undefined,
-      last_sync_completed_at: typeof record.last_sync_completed_at === 'string' ? record.last_sync_completed_at : undefined,
-      last_sync_commit_sha: typeof record.last_sync_commit_sha === 'string' ? record.last_sync_commit_sha : undefined,
-    };
-  }, []);
-
-  const normalizeNotificationRoute = useCallback((payload: unknown): NotificationRouteRecord => {
-    return normalizeNotificationRouteRecord(payload);
-  }, []);
-
-  const loadFolderConfigRepository = useCallback(
-    async (folderPath: string, opts?: { quiet?: boolean }) => {
-      if (!opts?.quiet) {
-        setConfigRepoLoading(true);
-        setConfigRepoError(null);
-      }
-      try {
-        const payload = await fetchGroupConfigRepository(folderPath);
-        if (!payload) {
-          setConfigRepo(null);
-          setConfigRepoForm(emptyConfigRepositoryForm);
-          return;
-        }
-        const repo = normalizeConfigRepository(payload);
-        setConfigRepo(repo);
-        setConfigRepoForm(repo ? {
-          repo_url: repo.repo_url,
-          branch: repo.branch || 'main',
-          base_path: repo.base_path || '',
-          enabled: repo.enabled,
-          write_enabled: repo.write_enabled,
-          write_branch: repo.write_branch || 'nopsai/ui-changes',
-        } : emptyConfigRepositoryForm);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unable to load config repository';
-        setConfigRepoError(message);
-      } finally {
-        if (!opts?.quiet) {
-          setConfigRepoLoading(false);
-        }
-      }
-    },
-    [normalizeConfigRepository]
-  );
-
-  const loadFolderNotificationRoute = useCallback(
-    async (folderPath: string, opts?: { quiet?: boolean }) => {
-      if (!opts?.quiet) {
-        setNotificationRouteLoading(true);
-        setNotificationRouteError(null);
-      }
-      try {
-        const route = normalizeNotificationRoute(
-          await fetchJson<NotificationRouteRecord>(`/v1/groups/${encodeURIComponent(folderPath)}/notifications`)
-        );
-        setNotificationRoute(route);
-        setNotificationRouteForm(notificationRouteFormFromDefinition(route.definition));
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unable to load notification policy';
-        setNotificationRouteError(message);
-      } finally {
-        if (!opts?.quiet) {
-          setNotificationRouteLoading(false);
-        }
-      }
-    },
-    [fetchJson, normalizeNotificationRoute]
-  );
+  const folderConfig = useFolderConfigRepositoryController({ groups, fetchJson, checkAccessPermission });
 
   useLayoutEffect(() => {
     // Capture the scrollable wrapper used by the app layout so we can attach listeners there too.
@@ -539,36 +329,6 @@ function PipelineRunsPage() {
   useEffect(() => {
     void loadGroups();
   }, [loadGroups]);
-
-  useEffect(() => {
-    if (!configRepoFolder) return undefined;
-    let cancelled = false;
-    setConfigRepoManageAllowed(false);
-    setConfigRepoSyncAllowed(false);
-
-    void Promise.all([
-      loadFolderConfigRepository(configRepoFolder.folderPath),
-      loadFolderNotificationRoute(configRepoFolder.folderPath),
-      checkAccessPermission('config_repo.manage', 'folder', configRepoFolder.folderPath),
-      checkAccessPermission('config_repo.sync', 'folder', configRepoFolder.folderPath),
-    ]).then(([, , manageAllowed, syncAllowed]) => {
-      if (cancelled) return;
-      setConfigRepoManageAllowed(manageAllowed);
-      setConfigRepoSyncAllowed(syncAllowed);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [checkAccessPermission, configRepoFolder, loadFolderConfigRepository, loadFolderNotificationRoute]);
-
-  useEffect(() => {
-    if (!configRepoFolder || configRepo?.last_sync_status !== 'running') return undefined;
-    const handle = window.setInterval(() => {
-      void loadFolderConfigRepository(configRepoFolder.folderPath, { quiet: true });
-    }, 3000);
-    return () => window.clearInterval(handle);
-  }, [configRepo?.last_sync_status, configRepoFolder, loadFolderConfigRepository]);
 
   useEffect(() => {
     if (pollingRef.current) {
@@ -927,238 +687,6 @@ function PipelineRunsPage() {
     [activeGroupId, fetchJson, loadGroups]
   );
 
-  const openFolderConfigRepository = useCallback(
-    (group: Group) => {
-      const folderPath = buildGroupPath(group.id, groups).map(item => item.name).join('/');
-      if (!folderPath) return;
-      setConfigRepoFolder({ group, folderPath });
-      setConfigRepo(null);
-      setConfigRepoForm(emptyConfigRepositoryForm);
-      setConfigRepoError(null);
-      setNotificationRoute(null);
-      setNotificationRouteForm(emptyNotificationRouteForm);
-      setNotificationRouteError(null);
-      setConfigRepoDriftOpen(false);
-      setConfigRepoDrift(null);
-      setConfigRepoDriftError(null);
-      setConfigRepoPushResult(null);
-      setConfigRepoManageAllowed(false);
-      setConfigRepoSyncAllowed(false);
-    },
-    [groups]
-  );
-
-  const closeFolderConfigRepository = useCallback(() => {
-    setConfigRepoFolder(null);
-    setConfigRepo(null);
-    setConfigRepoForm(emptyConfigRepositoryForm);
-    setConfigRepoError(null);
-    setNotificationRoute(null);
-    setNotificationRouteForm(emptyNotificationRouteForm);
-    setNotificationRouteError(null);
-    setConfigRepoDriftOpen(false);
-    setConfigRepoDrift(null);
-    setConfigRepoDriftError(null);
-    setConfigRepoPushResult(null);
-    setConfigRepoSaving(false);
-    setConfigRepoSyncing(false);
-    setConfigRepoDriftLoading(false);
-    setConfigRepoPushing(false);
-    setNotificationRouteSaving(false);
-    setNotificationRouteLoading(false);
-  }, []);
-
-  const saveFolderConfigRepository = useCallback(async () => {
-    if (!configRepoFolder || !configRepoManageAllowed || configRepoSaving) return;
-    const repoURL = configRepoForm.repo_url.trim();
-    if (!repoURL) {
-      setConfigRepoError('Repository URL is required.');
-      return;
-    }
-    setConfigRepoSaving(true);
-    setConfigRepoError(null);
-    try {
-      const repo = await fetchJson<ConfigRepository>(`/v1/groups/${encodeURIComponent(configRepoFolder.folderPath)}/config-repo`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          repo_url: repoURL,
-          branch: configRepoForm.branch.trim() || 'main',
-          base_path: configRepoForm.base_path.trim(),
-          enabled: Boolean(configRepoForm.enabled),
-          write_enabled: Boolean(configRepoForm.write_enabled),
-          write_branch: configRepoForm.write_branch.trim(),
-        }),
-      });
-      const normalized = normalizeConfigRepository(repo);
-      setConfigRepo(normalized);
-      setConfigRepoDrift(null);
-      setConfigRepoPushResult(null);
-      if (normalized) {
-        setConfigRepoForm({
-          repo_url: normalized.repo_url,
-          branch: normalized.branch || 'main',
-          base_path: normalized.base_path || '',
-          enabled: normalized.enabled,
-          write_enabled: normalized.write_enabled,
-          write_branch: normalized.write_branch || 'nopsai/ui-changes',
-        });
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to save config repository';
-      setConfigRepoError(message);
-    } finally {
-      setConfigRepoSaving(false);
-    }
-  }, [configRepoFolder, configRepoForm, configRepoManageAllowed, configRepoSaving, fetchJson, normalizeConfigRepository]);
-
-  const deleteFolderConfigRepository = useCallback(async () => {
-    if (!configRepoFolder || !configRepoManageAllowed || configRepoSaving) return;
-    if (!window.confirm('Remove the config repository from this group? Synced resources will remain available.')) return;
-    setConfigRepoSaving(true);
-    setConfigRepoError(null);
-    try {
-      await fetchJson<void>(`/v1/groups/${encodeURIComponent(configRepoFolder.folderPath)}/config-repo`, { method: 'DELETE' });
-      setConfigRepo(null);
-      setConfigRepoForm(emptyConfigRepositoryForm);
-      setConfigRepoDriftOpen(false);
-      setConfigRepoDrift(null);
-      setConfigRepoPushResult(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to remove config repository';
-      setConfigRepoError(message);
-    } finally {
-      setConfigRepoSaving(false);
-    }
-  }, [configRepoFolder, configRepoManageAllowed, configRepoSaving, fetchJson]);
-
-  const syncFolderConfigRepository = useCallback(async () => {
-    if (!configRepoFolder || !configRepoSyncAllowed || configRepoSyncing || configRepo?.last_sync_status === 'running') return;
-    setConfigRepoSyncing(true);
-    setConfigRepoError(null);
-    try {
-      await fetchJson(`/v1/groups/${encodeURIComponent(configRepoFolder.folderPath)}/config-repo/sync`, { method: 'POST' });
-      setConfigRepo(prev => prev ? {
-        ...prev,
-        last_sync_status: 'running',
-        last_sync_message: 'Configuration synchronization started.',
-        last_sync_started_at: new Date().toISOString(),
-        last_sync_completed_at: undefined,
-      } : prev);
-      window.setTimeout(() => {
-        void loadFolderConfigRepository(configRepoFolder.folderPath, { quiet: true });
-      }, 1000);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to start config repository sync';
-      setConfigRepoError(message);
-    } finally {
-      setConfigRepoSyncing(false);
-    }
-  }, [configRepo?.last_sync_status, configRepoFolder, configRepoSyncAllowed, configRepoSyncing, fetchJson, loadFolderConfigRepository]);
-
-  const checkFolderConfigRepositoryDrift = useCallback(async () => {
-    if (!configRepoFolder || configRepoDriftLoading) return;
-    setConfigRepoDriftOpen(true);
-    setConfigRepoDriftLoading(true);
-    setConfigRepoDriftError(null);
-    setConfigRepoPushResult(null);
-    try {
-      const payload = await fetchJson<ConfigRepositoryDriftResponse>(`/v1/groups/${encodeURIComponent(configRepoFolder.folderPath)}/config-repo/drift`);
-      setConfigRepoDrift(payload);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to check config repository drift';
-      setConfigRepoDriftError(message);
-    } finally {
-      setConfigRepoDriftLoading(false);
-    }
-  }, [configRepoDriftLoading, configRepoFolder, fetchJson]);
-
-  const pushFolderConfigRepositoryDrift = useCallback(async () => {
-    if (!configRepoFolder || !configRepoManageAllowed || configRepoPushing) return;
-    const files = buildConfigRepositoryWriteFiles(configRepoDrift);
-    if (!configRepoDrift || files.length === 0) return;
-    if (!configRepoDrift.can_push) {
-      setConfigRepoDriftError('Enable Git push and set a push branch before committing changes.');
-      return;
-    }
-    setConfigRepoPushing(true);
-    setConfigRepoDriftError(null);
-    try {
-      const result = await fetchJson<ConfigRepositoryCommitResponse>(`/v1/groups/${encodeURIComponent(configRepoFolder.folderPath)}/config-repo/write`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: configRepoDrift.push_message || 'Update Nopsai config',
-          files,
-        }),
-      });
-      setConfigRepoPushResult(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to push config repository changes';
-      setConfigRepoDriftError(message);
-    } finally {
-      setConfigRepoPushing(false);
-    }
-  }, [configRepoDrift, configRepoFolder, configRepoManageAllowed, configRepoPushing, fetchJson]);
-
-  const saveFolderNotificationRoute = useCallback(async () => {
-    if (!configRepoFolder || !configRepoManageAllowed || notificationRouteSaving || notificationRoute?.managed_by_config_repo) return;
-    setNotificationRouteSaving(true);
-    setNotificationRouteError(null);
-    try {
-      const route = normalizeNotificationRoute(
-        await fetchJson<NotificationRouteRecord>(`/v1/groups/${encodeURIComponent(configRepoFolder.folderPath)}/notifications`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(notificationRoutePayloadFromForm(notificationRouteForm)),
-        })
-      );
-      setNotificationRoute(route);
-      setNotificationRouteForm(notificationRouteFormFromDefinition(route.definition));
-      setConfigRepoDrift(null);
-      setConfigRepoPushResult(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to save notification policy';
-      setNotificationRouteError(message);
-    } finally {
-      setNotificationRouteSaving(false);
-    }
-  }, [
-    configRepoFolder,
-    configRepoManageAllowed,
-    fetchJson,
-    normalizeNotificationRoute,
-    notificationRoute?.managed_by_config_repo,
-    notificationRouteForm,
-    notificationRouteSaving,
-  ]);
-
-  const deleteFolderNotificationRoute = useCallback(async () => {
-    if (!configRepoFolder || !configRepoManageAllowed || notificationRouteSaving || notificationRoute?.managed_by_config_repo) return;
-    if (!notificationRoute?.id) return;
-    if (!window.confirm('Remove the notification policy from this group?')) return;
-    setNotificationRouteSaving(true);
-    setNotificationRouteError(null);
-    try {
-      await fetchJson<void>(`/v1/groups/${encodeURIComponent(configRepoFolder.folderPath)}/notifications`, { method: 'DELETE' });
-      const definition = defaultNotificationRouteDefinition();
-      setNotificationRoute({
-        group_path: configRepoFolder.folderPath,
-        definition,
-        source: 'database',
-        managed_by_config_repo: false,
-      });
-      setNotificationRouteForm(notificationRouteFormFromDefinition(definition));
-      setConfigRepoDrift(null);
-      setConfigRepoPushResult(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to remove notification policy';
-      setNotificationRouteError(message);
-    } finally {
-      setNotificationRouteSaving(false);
-    }
-  }, [configRepoFolder, configRepoManageAllowed, fetchJson, notificationRoute?.id, notificationRoute?.managed_by_config_repo, notificationRouteSaving]);
-
   const handleCancelRun = useCallback(
     async (runId: string) => {
       try {
@@ -1246,307 +774,79 @@ function PipelineRunsPage() {
   const trimmedSearch = searchTerm.trim();
 
   return (
-    <div data-page="pipelineruns" className="active min-h-screen flex flex-col overflow-x-hidden overflow-y-auto">
-      <div className="px-6 pt-6 flex-shrink-0 tabs-nav-wrapper">
-        <div className="border-b border-[var(--border-primary)]">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <nav className="tabs-nav" aria-label="Pipeline run tabs" role="tablist">
-              {tabs.map(tab => (
-                <NavLink
-                  key={tab.id}
-                  to={`/pipelineruns/${tab.id}`}
-                  role="tab"
-                  aria-selected={activeTab === tab.id}
-                  className={({ isActive }) => `tabs-nav__link ${isActive ? 'tabs-nav__link--active' : ''}`}
-                  onClick={() => {
-                    updateSearchParams({ run: null, group: activeGroupId, q: searchTerm || null });
-                    setSelectedRunIds(new Set());
-                  }}
-                >
-                  {tab.label}
-                </NavLink>
-              ))}
-            </nav>
-            {!isViewingDetail && (
-              <div className="flex items-center gap-2 flex-shrink-0 order-1 sm:order-2">
-                {activeTab === 'recent' && <ViewToggle viewMode={viewMode} onChange={setViewMode} />}
-                <div className={`pipelines-search-shell ${searchOpen ? 'open' : ''}`}>
-                  <button
-                    type="button"
-                    className="pipelines-search-toggle"
-                    aria-label="Search pipeline runs"
-                    onClick={() => {
-                      setSearchOpen(true);
-                      requestAnimationFrame(() => searchInputRef.current?.focus());
-                    }}
-                  >
-                    <Search className="h-4 w-4" aria-hidden="true" />
-                  </button>
-                  <input
-                    ref={searchInputRef}
-                    id="pipeline-runs-search"
-                    type="text"
-                    placeholder="Search runs"
-                    className="pipelines-search-input"
-                    value={searchTerm}
-                    onChange={event => {
-                      setSearchTerm(event.target.value);
-                      if (event.target.value && !searchOpen) setSearchOpen(true);
-                      updateSearchParams({ q: event.target.value || null });
-                    }}
-                    onBlur={() => {
-                      if (!searchTerm.trim()) setSearchOpen(false);
-                    }}
-                  />
-                  {(searchTerm || searchOpen) && (
-                    <button
-                      type="button"
-                      className="pipelines-search-clear"
-                      onClick={() => {
-                        setSearchTerm('');
-                        setSearchOpen(false);
-                        updateSearchParams({ q: null });
-                        searchInputRef.current?.blur();
-                      }}
-                      aria-label="Clear search"
-                    >
-                      <X className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                  )}
-                </div>
-                {activeTab === 'main' && (
-                  <button
-                    type="button"
-                    className="pipelines-icon-only"
-                    onClick={handleNewFolder}
-                    aria-label="New group or app"
-                    disabled={Boolean(trimmedSearch)}
-                    title={trimmedSearch ? 'Clear search to create an item' : 'New group or app'}
-                  >
-                    <Plus className="h-4 w-4" aria-hidden="true" />
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-          {showSelectionBar && (
-            <div className="mt-3">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-lg px-4 py-3 text-sm">
-                <span className="text-[var(--text-primary)] font-medium">{selectedRunIds.size} runs selected</span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={clearSelection}
-                    className="inline-flex items-center px-3 py-1.5 border border-[var(--border-primary)] rounded-md text-[var(--text-primary)] hover:bg-[var(--border-primary)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--border-accent)] text-xs"
-                  >
-                    Clear
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleBulkDelete}
-                    className="inline-flex items-center px-3 py-1.5 border border-transparent rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Delete Selected
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="flex-1 min-h-0">
-        <main id="main-content-runs" ref={mainContentRef} className="h-full min-h-0 overflow-y-auto p-6 space-y-4">
-          {runDetail && activeRunId ? (
-            <RunDetailView
-              detail={runDetail}
-              loading={runDetailLoading}
-              error={runDetailError}
-              onClose={handleCloseDetail}
-              onCancel={() => handleCancelRun(runDetail.run_info.run_id)}
-              onRerun={() => handleRerun(runDetail.run_info.run_id)}
-              onDelete={() => handleDeleteRun(runDetail.run_info.run_id)}
-              selectedStep={selectedStep}
-              onSelectStep={setSelectedStep}
-              onOpenLogs={() => {
-                setLogsStepFilter(null);
-                setLogsSearchFilter(null);
-                setLogsOpen(true);
-              }}
-              onOpenTaskLogs={(stepName, taskName) => {
-                setSelectedStep(stepName);
-                setLogsStepFilter(stepName);
-                setLogsSearchFilter(taskName);
-                setLogsOpen(true);
-              }}
-              onOpenStepDetail={stepName => {
-                setStepDetailName(stepName);
-              }}
-              onOpenRun={handleOpenRun}
-              onShowDefinition={() => setDefinitionOpen(true)}
-              onApprovalDecision={handleApprovalDecision}
-              approvalDecisionPending={approvalDecisionPending}
-            />
-          ) : (
-            <PipelineRunsDashboard
-              activeTab={activeTab}
-              groups={groups}
-              groupsLoading={groupsLoading}
-              groupsError={groupsError}
-              onSelectGroup={onSelectGroup}
-              activeGroupId={activeGroupId}
-              activeGroupPath={activeGroupPath}
-              runsByBranch={runsByBranch}
-              recentRuns={filteredRecentRuns}
-              groupedEvents={groupedEvents}
-              viewMode={viewMode}
-              runsLoading={runsLoading}
-              runsError={runsError}
-              searchTerm={searchTerm}
-              repoSummaries={repoSummaries}
-              fetchRepoSummary={fetchRepoSummary}
-              onDeleteFolder={handleDeleteFolder}
-              onOpenConfigRepository={openFolderConfigRepository}
-              onOpenRun={handleOpenRun}
-              onSelectRun={handleRunSelect}
-              selectedRunIds={selectedRunIds}
-              collapsedEvents={collapsedEvents}
-              onToggleEventGroup={toggleEventGroup}
-              onCollapseAllEvents={collapseAllEvents}
-              onExpandAllEvents={expandAllEvents}
-              collapsedBranches={collapsedBranches}
-              onToggleBranch={toggleBranchCollapse}
-              onDeleteBranch={handleDeleteBranch}
-            />
-          )}
-        </main>
-      </div>
-
-      {definitionOpen && runDetail && (
-        <PipelineDefinitionModal
-          open={definitionOpen}
-          pipelineName={runDetail.run_info.pipeline_name}
-          yamlText={runDetail.pipeline_definition_yaml}
-          definition={runDetail.pipeline_definition}
-          onClose={() => setDefinitionOpen(false)}
-        />
-      )}
-
-      {logsOpen && activeRunId && (
-        <LogsModal
-          runId={activeRunId}
-          runName={runDetail?.run_info.pipeline_name}
-          onClose={() => {
-            setLogsOpen(false);
-            setLogsStepFilter(null);
-            setLogsSearchFilter(null);
-          }}
-          steps={runDetail?.steps}
-          stepNames={runDetail?.steps.map(step => step.name)}
-          initialStep={logsStepFilter}
-          initialSearch={logsSearchFilter}
-        />
-      )}
-
-      {stepDetailName && runDetail && (
-      <StepDetailModal
-        step={runDetail.steps.find(step => step.name === stepDetailName) || null}
-        onClose={() => setStepDetailName(null)}
-        onViewLogs={() => {
-          setLogsStepFilter(stepDetailName);
-          setLogsSearchFilter(null);
-          setLogsOpen(true);
-        }}
-        pipelineDefinition={runDetail.pipeline_definition}
-      />
-    )}
-
-      {newFolderOpen && (
-        <NewFolderModal
-          open={newFolderOpen}
-          parentLabel={activeGroupLabel}
-          error={newFolderError}
-          pending={newFolderPending}
-          onClose={() => {
-            setNewFolderOpen(false);
-            setNewFolderError(null);
-            setNewFolderPending(false);
-          }}
-          onSubmit={submitNewFolder}
-        />
-      )}
-
-      {configRepoFolder && (
-        <FolderConfigRepositoryModal
-          folderLabel={configRepoFolder.folderPath}
-          repo={configRepo}
-          form={configRepoForm}
-          loading={configRepoLoading}
-          saving={configRepoSaving}
-          syncing={configRepoSyncing}
-          error={configRepoError}
-          driftLoading={configRepoDriftLoading}
-          pushing={configRepoPushing}
-          notificationRoute={notificationRoute}
-          notificationForm={notificationRouteForm}
-          notificationLoading={notificationRouteLoading}
-          notificationSaving={notificationRouteSaving}
-          notificationError={notificationRouteError}
-          canManage={configRepoManageAllowed}
-          canSync={configRepoSyncAllowed}
-          onChange={setConfigRepoForm}
-          onNotificationChange={setNotificationRouteForm}
-          onSave={saveFolderConfigRepository}
-          onDelete={deleteFolderConfigRepository}
-          onSync={syncFolderConfigRepository}
-          onCheckDrift={checkFolderConfigRepositoryDrift}
-          onSaveNotification={saveFolderNotificationRoute}
-          onDeleteNotification={deleteFolderNotificationRoute}
-          onClose={closeFolderConfigRepository}
-        />
-      )}
-
-      {configRepoFolder && configRepoDriftOpen && (
-        <ConfigRepositoryDriftModal
-          title={`${configRepoFolder.folderPath} config repository`}
-          drift={configRepoDrift}
-          loading={configRepoDriftLoading}
-          error={configRepoDriftError}
-          pushing={configRepoPushing}
-          pushResult={configRepoPushResult}
-          canPush={configRepoManageAllowed && Boolean(configRepoDrift?.can_push)}
-          onClose={() => setConfigRepoDriftOpen(false)}
-          onRefresh={checkFolderConfigRepositoryDrift}
-          onPush={pushFolderConfigRepositoryDrift}
-        />
-      )}
-    </div>
-  );
-}
-
-function ViewToggle({ viewMode, onChange }: { viewMode: 'grid' | 'list'; onChange: (mode: 'grid' | 'list') => void }) {
-  const isGrid = viewMode !== 'list';
-  return (
-    <div className="runs-view-toggle" role="group" aria-label="Pipeline run layout">
-      <button
-        type="button"
-        className={`runs-view-toggle__btn ${isGrid ? 'runs-view-toggle__btn--active' : ''}`}
-        aria-pressed={isGrid}
-        onClick={() => onChange('grid')}
-        title="Grid view"
-      >
-        <Grid2X2 className="h-4 w-4" aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        className={`runs-view-toggle__btn ${!isGrid ? 'runs-view-toggle__btn--active' : ''}`}
-        aria-pressed={!isGrid}
-        onClick={() => onChange('list')}
-        title="List view"
-      >
-        <List className="h-4 w-4" aria-hidden="true" />
-      </button>
-    </div>
+    <PipelineRunsPageView
+      activeTab={activeTab}
+      activeGroupId={activeGroupId}
+      activeGroupPath={activeGroupPath}
+      activeGroupLabel={activeGroupLabel}
+      activeRunId={activeRunId}
+      searchTerm={searchTerm}
+      searchOpen={searchOpen}
+      searchInputRef={searchInputRef}
+      setSearchTerm={setSearchTerm}
+      setSearchOpen={setSearchOpen}
+      updateSearchParams={updateSearchParams}
+      viewMode={viewMode}
+      setViewMode={setViewMode}
+      mainContentRef={mainContentRef}
+      isViewingDetail={isViewingDetail}
+      showSelectionBar={showSelectionBar}
+      trimmedSearch={trimmedSearch}
+      selectedRunIds={selectedRunIds}
+      clearSelection={clearSelection}
+      handleBulkDelete={handleBulkDelete}
+      handleNewFolder={handleNewFolder}
+      groups={groups}
+      groupsLoading={groupsLoading}
+      groupsError={groupsError}
+      runsByBranch={runsByBranch}
+      filteredRecentRuns={filteredRecentRuns}
+      groupedEvents={groupedEvents}
+      runsLoading={runsLoading}
+      runsError={runsError}
+      repoSummaries={repoSummaries}
+      fetchRepoSummary={fetchRepoSummary}
+      onSelectGroup={onSelectGroup}
+      handleDeleteFolder={handleDeleteFolder}
+      handleOpenRun={handleOpenRun}
+      handleRunSelect={handleRunSelect}
+      collapsedEvents={collapsedEvents}
+      toggleEventGroup={toggleEventGroup}
+      collapseAllEvents={collapseAllEvents}
+      expandAllEvents={expandAllEvents}
+      collapsedBranches={collapsedBranches}
+      toggleBranchCollapse={toggleBranchCollapse}
+      handleDeleteBranch={handleDeleteBranch}
+      runDetail={runDetail}
+      runDetailLoading={runDetailLoading}
+      runDetailError={runDetailError}
+      handleCloseDetail={handleCloseDetail}
+      handleCancelRun={handleCancelRun}
+      handleRerun={handleRerun}
+      handleDeleteRun={handleDeleteRun}
+      selectedStep={selectedStep}
+      setSelectedStep={setSelectedStep}
+      setLogsOpen={setLogsOpen}
+      setLogsStepFilter={setLogsStepFilter}
+      setLogsSearchFilter={setLogsSearchFilter}
+      setStepDetailName={setStepDetailName}
+      setDefinitionOpen={setDefinitionOpen}
+      handleApprovalDecision={handleApprovalDecision}
+      approvalDecisionPending={approvalDecisionPending}
+      definitionOpen={definitionOpen}
+      logsOpen={logsOpen}
+      logsStepFilter={logsStepFilter}
+      logsSearchFilter={logsSearchFilter}
+      stepDetailName={stepDetailName}
+      newFolderOpen={newFolderOpen}
+      newFolderError={newFolderError}
+      newFolderPending={newFolderPending}
+      setNewFolderOpen={setNewFolderOpen}
+      setNewFolderError={setNewFolderError}
+      setNewFolderPending={setNewFolderPending}
+      submitNewFolder={submitNewFolder}
+      folderConfig={folderConfig}
+    />
   );
 }
 
