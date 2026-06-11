@@ -19,6 +19,7 @@ type configSyncPlan struct {
 	accessPlan                           accessSyncPlan
 	knowledgeContexts                    map[string]storedKnowledgeContext
 	llmProfilePlan                       *gitOpsLLMProfilePlan
+	agentProfilePlan                     *gitOpsAgentProfilePlan
 	mcpRegistryPlan                      *mcpregistry.GitOpsPlan
 	runtimeSettingsPlan                  *gitOpsRuntimeSettingsPlan
 	mailSettingsPlan                     *gitOpsMailSettingsPlan
@@ -181,6 +182,14 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 		binding,
 		gitOpsLLMProfileDirectory{root: settingDir, files: files.setting},
 		gitOpsLLMProfileDirectory{root: settingsDir, files: files.settings},
+	)
+	if err != nil {
+		return configSyncPlan{}, err
+	}
+	plan.agentProfilePlan, err = parseGitOpsAgentProfilePlan(
+		binding,
+		gitOpsAgentProfileDirectory{root: settingDir, files: files.setting},
+		gitOpsAgentProfileDirectory{root: settingsDir, files: files.settings},
 	)
 	if err != nil {
 		return configSyncPlan{}, err

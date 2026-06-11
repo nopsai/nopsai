@@ -155,6 +155,7 @@ func TestConfigRepositoryDriftPathIncludesSyncableResourceFamilies(t *testing.T)
 		"config-repositories/groups/structure.yaml",
 		"pipelineruns/structure.yaml",
 		"setting/system/llm_profile.yaml",
+		"setting/system/agent-profiles.yaml",
 		"setting/system/mcp.yaml",
 		"settings/system/runner.yaml",
 	} {

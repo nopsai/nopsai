@@ -17,6 +17,7 @@ type fakeActionSession struct {
 }
 
 func (s *fakeActionSession) ProfileName() string         { return "unit" }
+func (s *fakeActionSession) AgentProfileName() string    { return "devops-engineer" }
 func (s *fakeActionSession) MCPEnabled() bool            { return false }
 func (s *fakeActionSession) MCPProfiles() []string       { return nil }
 func (s *fakeActionSession) MCPToolCount() int           { return 0 }

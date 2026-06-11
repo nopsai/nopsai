@@ -20,6 +20,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 	accessPlan := plan.accessPlan
 	knowledgeContexts := plan.knowledgeContexts
 	llmProfilePlan := plan.llmProfilePlan
+	agentProfilePlan := plan.agentProfilePlan
 	mcpRegistryPlan := plan.mcpRegistryPlan
 	runtimeSettingsPlan := plan.runtimeSettingsPlan
 	mailSettingsPlan := plan.mailSettingsPlan
@@ -528,7 +529,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			rows.Close()
 		}
 		if len(prunedRepoIDs) > 0 {
-			for _, tableName := range []string{"config_repositories", "pipelines", "steps", "pipeline_schedules", "triggers", "external_triggers", "variables", "secrets", "knowledge_contexts", "notification_routes", "notification_mail_settings"} {
+			for _, tableName := range []string{"config_repositories", "pipelines", "steps", "pipeline_schedules", "triggers", "external_triggers", "variables", "secrets", "knowledge_contexts", "agent_profiles", "notification_routes", "notification_mail_settings"} {
 				if _, err := tx.Exec(ctx, fmt.Sprintf(`
 					UPDATE %s
 					SET config_repo_id = NULL,
@@ -837,6 +838,12 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			return fmt.Errorf("failed to sync LLM profiles from '%s': %w", llmProfilePlan.sourcePath, err)
 		}
 		details["llm_profiles_synced"] = len(llmProfilePlan.profiles)
+	}
+	if agentProfilePlan != nil {
+		if err := persistGitOpsAgentProfilesToTx(ctx, tx, agentProfilePlan, binding.ID, commitSHA); err != nil {
+			return fmt.Errorf("failed to sync agent profiles from '%s': %w", agentProfilePlan.sourcePath, err)
+		}
+		details["agent_profiles_synced"] = len(agentProfilePlan.profiles)
 	}
 	if mcpRegistryPlan != nil {
 		if err := persistMCPRegistryToTx(ctx, tx, mcpRegistryPlan.Servers, mcpRegistryPlan.Profiles); err != nil {

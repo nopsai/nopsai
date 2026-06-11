@@ -84,6 +84,7 @@ function AppShell() {
     canViewSystemConfig,
     canViewSystemSetup,
     canViewSystemLLMProfiles,
+    canViewSystemAgentProfiles,
     canViewSystemMCP,
     canViewSystemDispatcher,
     canViewSystemAccess,
@@ -158,13 +159,14 @@ function AppShell() {
         if (item.path === '/system/config') return canViewSystemConfig;
         if (item.path === '/system/setup') return canViewSystemSetup;
         if (item.path === '/system/llm-profiles') return canViewSystemLLMProfiles;
+        if (item.path === '/system/agent-profiles') return canViewSystemAgentProfiles;
         if (item.path === '/system/mcp') return canViewSystemMCP;
         if (item.path === '/system/data-management') return canViewSystemRuntimeConfig;
         if (item.path === '/system/dispatcher') return canViewSystemDispatcher;
         if (item.path === '/system/access') return canViewSystemAccess;
         return false;
       }),
-    [canViewSystemAccess, canViewSystemConfig, canViewSystemDispatcher, canViewSystemLLMProfiles, canViewSystemMCP, canViewSystemRuntimeConfig, canViewSystemSetup]
+    [canViewSystemAccess, canViewSystemAgentProfiles, canViewSystemConfig, canViewSystemDispatcher, canViewSystemLLMProfiles, canViewSystemMCP, canViewSystemRuntimeConfig, canViewSystemSetup]
   );
 
   useInitialSetupRedirect({

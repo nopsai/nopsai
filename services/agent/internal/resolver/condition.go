@@ -15,6 +15,10 @@ type ConditionClient interface {
 	EvaluateCondition(context.Context, *proto.ConditionRequest) (*proto.ConditionResponse, error)
 }
 
+type agentProfileAwareConditionClient interface {
+	AgentProfileName() string
+}
+
 type ConditionClientResolver func(*models.Pipeline, *models.PipelineStep, *models.Task) (ConditionClient, string, error)
 
 type ConditionRequest struct {
@@ -90,6 +94,11 @@ func (ConditionEvaluator) Evaluate(ctx context.Context, req ConditionRequest) Co
 	}
 	if req.Logger != nil {
 		req.Logger.Info().Str("llm_profile", conditionProfile).Msg("Using LLM profile for condition")
+		if aware, ok := conditionClient.(agentProfileAwareConditionClient); ok {
+			if agentProfile := strings.TrimSpace(aware.AgentProfileName()); agentProfile != "" {
+				req.Logger.Info().Str("agent_profile", agentProfile).Msg("Using agent profile for condition")
+			}
+		}
 	}
 
 	parentCtx := ctx

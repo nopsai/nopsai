@@ -12,6 +12,7 @@ export const PIPELINE_DIRECTIVES = [
   'steps',
   'timeout',
   'llm_enabled',
+  'agent_profile',
   'llm_profile',
   'mcp_profiles',
   'runtime_pool',
@@ -39,6 +40,7 @@ export const STEP_DIRECTIVES = [
   'script',
   'depends_on',
   'ignore_failure',
+  'agent_profile',
   'llm_profile',
   'mcp_profiles',
   'runtime_pool',
@@ -101,6 +103,7 @@ export type PipelineGraphStepConfiguration = {
   variables?: Record<string, string>;
   ignore_failure?: boolean;
   llm_output_sharing?: boolean;
+  agent_profile?: string;
   goal?: string;
   script?: string;
   tasks?: PipelineGraphTaskDefinition[];

@@ -14,8 +14,13 @@ test('round-trips supported Access resource selectors', () => {
     resourceType: 'pipeline',
     resourceID: 'platform/build',
   });
+  assert.deepEqual(parseAAAResourceSelector('system:agent-profiles'), {
+    resourceType: 'system',
+    resourceID: 'agent-profiles',
+  });
   assert.equal(buildAAAResourceSelector('pipeline', '*'), 'pipeline:*');
   assert.equal(formatAccessResourceSummary('secret:*'), 'all secret');
+  assert.equal(formatAccessResourceSummary('system:agent-profiles'), 'system agent-profiles');
 });
 
 test('normalizes Access actions for the selected resource and effect', () => {

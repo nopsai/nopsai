@@ -24,6 +24,8 @@ export type Permission =
   | 'system.config.write'
   | 'system.llm_profiles.read'
   | 'system.llm_profiles.write'
+  | 'system.agent_profiles.read'
+  | 'system.agent_profiles.write'
   | 'system.mcp.read'
   | 'system.mcp.write'
   | 'system.config_repos.read'
@@ -40,6 +42,8 @@ export type SystemPagePermissions = {
   canManageRuntimeConfig: boolean;
   canViewLLMProfiles: boolean;
   canManageLLMProfiles: boolean;
+  canViewAgentProfiles: boolean;
+  canManageAgentProfiles: boolean;
   canViewMCP: boolean;
   canManageMCP: boolean;
   canViewDataManagement: boolean;
@@ -79,6 +83,8 @@ export type AppAccess = {
   canManageSystemSetup: boolean;
   canViewSystemLLMProfiles: boolean;
   canManageSystemLLMProfiles: boolean;
+  canViewSystemAgentProfiles: boolean;
+  canManageSystemAgentProfiles: boolean;
   canViewSystemMCP: boolean;
   canManageSystemMCP: boolean;
   canViewSystemDispatcher: boolean;
@@ -124,6 +130,8 @@ const normalizeSystemCapabilities = (value: unknown): SystemCapabilities | undef
     configWrite: Boolean(record.config_write),
     llmProfilesRead: Boolean(record.llm_profiles_read),
     llmProfilesWrite: Boolean(record.llm_profiles_write),
+    agentProfilesRead: Boolean(record.agent_profiles_read),
+    agentProfilesWrite: Boolean(record.agent_profiles_write),
     mcpRead: Boolean(record.mcp_read),
     mcpWrite: Boolean(record.mcp_write),
     configReposRead: Boolean(record.config_repos_read),
@@ -207,6 +215,10 @@ export function can(user: CurrentUser | null | undefined, permission: Permission
       return Boolean(capabilities?.system?.llmProfilesRead);
     case 'system.llm_profiles.write':
       return Boolean(capabilities?.system?.llmProfilesWrite);
+    case 'system.agent_profiles.read':
+      return Boolean(capabilities?.system?.agentProfilesRead);
+    case 'system.agent_profiles.write':
+      return Boolean(capabilities?.system?.agentProfilesWrite);
     case 'system.mcp.read':
       return Boolean(capabilities?.system?.mcpRead);
     case 'system.mcp.write':
@@ -230,6 +242,7 @@ export function getPreferredSystemPath(permissions: SystemPagePermissions): stri
   if (permissions.canViewConfig) return '/system/config';
   if (permissions.canViewSetup) return '/system/setup';
   if (permissions.canViewLLMProfiles) return '/system/llm-profiles';
+  if (permissions.canViewAgentProfiles) return '/system/agent-profiles';
   if (permissions.canViewMCP) return '/system/mcp';
   if (permissions.canViewDispatcher) return '/system/dispatcher';
   if (permissions.canViewAccess) return '/system/access';
@@ -250,6 +263,8 @@ export function getSystemPagePermissions(user: CurrentUser | null | undefined): 
     canManageRuntimeConfig,
     canViewLLMProfiles: can(user, 'system.llm_profiles.read') || canViewRuntimeConfig,
     canManageLLMProfiles: can(user, 'system.llm_profiles.write') || canManageRuntimeConfig,
+    canViewAgentProfiles: can(user, 'system.agent_profiles.read') || canViewRuntimeConfig,
+    canManageAgentProfiles: can(user, 'system.agent_profiles.write') || canManageRuntimeConfig,
     canViewMCP: can(user, 'system.mcp.read') || canViewRuntimeConfig,
     canManageMCP: can(user, 'system.mcp.write') || canManageRuntimeConfig,
     canViewDataManagement: canViewRuntimeConfig,
@@ -274,6 +289,7 @@ export function getAppAccess(user: CurrentUser | null | undefined, session: Auth
     systemPermissions.canViewConfig ||
     systemPermissions.canViewSetup ||
     systemPermissions.canViewLLMProfiles ||
+    systemPermissions.canViewAgentProfiles ||
     systemPermissions.canViewMCP ||
     systemPermissions.canViewDispatcher ||
     systemPermissions.canViewAccess;
@@ -306,6 +322,8 @@ export function getAppAccess(user: CurrentUser | null | undefined, session: Auth
     canManageSystemSetup: systemPermissions.canManageSetup,
     canViewSystemLLMProfiles: systemPermissions.canViewLLMProfiles,
     canManageSystemLLMProfiles: systemPermissions.canManageLLMProfiles,
+    canViewSystemAgentProfiles: systemPermissions.canViewAgentProfiles,
+    canManageSystemAgentProfiles: systemPermissions.canManageAgentProfiles,
     canViewSystemMCP: systemPermissions.canViewMCP,
     canManageSystemMCP: systemPermissions.canManageMCP,
     canViewSystemDispatcher: systemPermissions.canViewDispatcher,

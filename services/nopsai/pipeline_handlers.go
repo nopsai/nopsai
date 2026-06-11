@@ -518,6 +518,9 @@ func (a *App) resolveStepIncludes(pipeline *models.Pipeline) (*models.Pipeline, 
 		if llm := step.GetLlmOutputSharing(); llm != nil {
 			includedStep.SetLlmOutputSharing(llm)
 		}
+		if agentProfile := strings.TrimSpace(step.GetAgentProfile()); agentProfile != "" {
+			includedStep.SetAgentProfile(agentProfile)
+		}
 		if llmProfile := strings.TrimSpace(step.GetLLMProfile()); llmProfile != "" {
 			includedStep.SetLLMProfile(llmProfile)
 		}

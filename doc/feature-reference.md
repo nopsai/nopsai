@@ -23,8 +23,8 @@ Supported setup capabilities:
 - generated runtime variable output for container environment, secret-manager
   entries, or environment files
 - starter GitOps template preview for pipelines, reusable steps, scopes,
-  triggers, access bootstrap, knowledge docs, LLM profiles, MCP settings, and
-  run group structure
+  triggers, access bootstrap, knowledge docs, Agent Profiles, LLM profiles, MCP
+  settings, and run group structure
 - direct starter database seeding for groups, starter pipeline, reusable step,
   triggers, variables, knowledge context, optional LLM profile, optional MCP
   examples, and optional users
@@ -58,6 +58,7 @@ Supported pipeline features:
 - per-step secret declaration
 - ignored failures
 - LLM content and output sharing controls
+- pipeline- and step-level Agent Profile selection through `agent_profile`
 - knowledge context references for architecture docs, guardrails, policies, ADRs, guidelines, runbooks, references, and examples
 - GitHub display options
 
@@ -209,6 +210,7 @@ GitOps-style configuration sync supports:
 - `config-repositories/` -> group config repo bindings, group shells, and colocated group structure files
 - `settings/system/mail.yaml` -> SMTP mail notification settings from a global config repo
 - `setting/system/llm_profile.yaml` -> system LLM profile registry from a global config repo
+- `setting/system/agent-profiles.yaml` -> system Agent Profile persona registry and default profile setting from a global config repo
 - `setting/system/mcp.yaml` -> system MCP server and profile registry from a global config repo
 - `setting/system/runner.yaml` -> runner install defaults, runtime URLs, and dispatcher routing from a global config repo
 
@@ -224,7 +226,7 @@ Sync behavior:
 - sync system/global config repositories before group config repositories, so group bindings defined in Git can be picked up during the same sync-all run
 - group config repositories are authoritative for resources under their group path; parent repos prune their own managed resources in delegated groups
 - config repository bindings can enable Git push to a review branch with `write_enabled` and `write_branch`
-- config repository drift compares both directions across syncable declarative resources: pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, notification routes, run group/config-repository structure, access manifests, LLM profiles, MCP registry files, mail settings, and runtime settings. UI-side Access dialog changes for pipelines, reusable steps, scopes, and knowledge contexts are exported back into embedded GitOps `access:` blocks; pipeline run rows remain runtime/audit state.
+- config repository drift compares both directions across syncable declarative resources: pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, notification routes, run group/config-repository structure, access manifests, Agent Profiles, LLM profiles, MCP registry files, mail settings, and runtime settings. UI-side Access dialog changes for pipelines, reusable steps, scopes, and knowledge contexts are exported back into embedded GitOps `access:` blocks; pipeline run rows remain runtime/audit state.
 - config sync can adopt matching database-owned resources inside the syncing repo scope after the generated files are present in the sync branch, then mark them as GitOps-managed
 - `config-repositories/groups/structure.yaml` and `config-repositories/groups/<group>/structure.yaml` can place apps under group shells with `name` and `repo_url`, while legacy `repos:` lists remain accepted during migration; these files can also include inline `config:` blocks for group repo bindings
 - global legacy `pipelineruns/structure.yaml` does not apply delegated group subtrees; those groups are created from `config-repositories/groups` and owned by their group repos

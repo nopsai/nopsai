@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SystemPagePermissions } from '../auth/capabilities';
 import { ConfigRepositoryDriftModal } from '../components/ConfigRepositoryDriftModal';
 import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowToastRegion';
+import AgentProfilesPanel from '../features/system/AgentProfilesPanel';
 import LLMProfilesPanel from '../features/system/LLMProfilesPanel';
 import MCPPanel from '../features/system/MCPPanel';
 import DataManagementPanel from '../features/system/DataManagementPanel';
@@ -14,7 +15,7 @@ import AccessPanel from '../features/system/AccessPanel';
 import { useSystemAccess } from '../features/system/access/useSystemAccess';
 import { useSystemConfig } from '../features/system/config/useSystemConfig';
 
-type SystemTab = 'config' | 'setup' | 'llm-profiles' | 'mcp' | 'data-management' | 'dispatcher' | 'access';
+type SystemTab = 'config' | 'setup' | 'llm-profiles' | 'agent-profiles' | 'mcp' | 'data-management' | 'dispatcher' | 'access';
 
 function resolveSystemTab(tab?: string): SystemTab {
   if (
@@ -22,6 +23,7 @@ function resolveSystemTab(tab?: string): SystemTab {
     tab === 'dispatcher' ||
     tab === 'access' ||
     tab === 'llm-profiles' ||
+    tab === 'agent-profiles' ||
     tab === 'mcp' ||
     tab === 'data-management'
   ) {
@@ -40,6 +42,7 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     if (permissions.canViewConfig) tabs.push('config');
     if (permissions.canViewSetup) tabs.push('setup');
     if (permissions.canViewLLMProfiles) tabs.push('llm-profiles');
+    if (permissions.canViewAgentProfiles) tabs.push('agent-profiles');
     if (permissions.canViewMCP) tabs.push('mcp');
     if (permissions.canViewDataManagement) tabs.push('data-management');
     if (permissions.canViewDispatcher) tabs.push('dispatcher');
@@ -50,6 +53,7 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     permissions.canViewConfig,
     permissions.canViewDataManagement,
     permissions.canViewDispatcher,
+    permissions.canViewAgentProfiles,
     permissions.canViewLLMProfiles,
     permissions.canViewMCP,
     permissions.canViewSetup,
@@ -106,6 +110,9 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
       )}
       {visibleTab === 'llm-profiles' && (
         <LLMProfilesPanel canManage={permissions.canManageLLMProfiles} />
+      )}
+      {visibleTab === 'agent-profiles' && (
+        <AgentProfilesPanel canManage={permissions.canManageAgentProfiles} />
       )}
       {visibleTab === 'setup' && (
         <SetupWizard canManage={permissions.canManageSetup} />

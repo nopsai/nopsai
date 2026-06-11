@@ -150,7 +150,7 @@ The agent runs tasks in dependency order, not strictly line order.
 17. It decides the action:
    - `script` task: execute the script directly
    - `goal` task: ask the LLM to return a structured action
-18. For goal tasks, the LLM prompt includes variables, effective knowledge context, optional workspace contents, MCP tools, execution history, and the current goal.
+18. For goal tasks, the LLM prompt includes the resolved Agent Profile role/instructions, variables, effective knowledge context, optional workspace contents, MCP tools, execution history, and the current goal.
 19. If LLM content sharing is enabled, it scans the workspace and includes file contents in the prompt, excluding ignored paths.
 20. It executes the chosen action inside the step container or pod.
 21. It masks secret values from output before logging or saving history.
@@ -164,7 +164,7 @@ The agent runs tasks in dependency order, not strictly line order.
 
 For a goal-driven task:
 
-1. The agent builds an LLM prompt from variables, effective knowledge context, optional directory contents, MCP tools, execution history, and the current goal.
+1. The agent resolves `agent_profile` from step, pipeline, then the configured system default, and builds an LLM prompt from that profile persona/instructions, variables, effective knowledge context, optional directory contents, MCP tools, execution history, and the current goal.
 2. The LLM must return one structured action:
    - `EXECUTE_COMMAND`
    - `REPLACE_FILE`
@@ -265,6 +265,7 @@ Rerun:
    - `access/*.yaml` declares GitOps-managed users, service accounts, advanced roles, policies, role bindings, and scoped product-role grants; service-account token material is created at runtime, not synced from Git
    - `notifications/groups/<group>.yaml` in a system repo, or `notifications.yaml` in a group repo, becomes a pipeline notification policy with one or more named routes for that run group
    - `setting/system/llm_profile.yaml` becomes the system LLM profile registry, only from a system/global config repo
+   - `setting/system/agent-profiles.yaml` becomes the system Agent Profile persona registry and default profile setting, only from a system/global config repo
    - `setting/system/mcp.yaml` becomes the system MCP server/profile registry, only from a system/global config repo
    - `setting/system/runner.yaml` becomes runner install defaults, runtime URLs, and dispatcher routing, only from a system/global config repo
    - `settings/system/mail.yaml` becomes SMTP mail notification settings, only from a system/global config repo, with password values referenced by secret name instead of stored in Git
@@ -280,7 +281,7 @@ files to the review branch. The sync branch is not updated directly. The drift
 endpoint exports the current declarative Nopsai config and compares it with the
 sync branch so the UI can show exact changes for pipelines, steps, schedules,
 triggers, scopes, knowledge contexts, run group/config-repository structure,
-notification routes, access manifests, LLM profiles, MCP registry files, mail settings, and runtime settings before
+notification routes, access manifests, Agent Profiles, LLM profiles, MCP registry files, mail settings, and runtime settings before
 pushing. After those files are merged into the sync branch, the next config sync
 can adopt the matching database-owned resources and switch their UI source to
 GitOps. Pipeline run rows remain runtime/audit records, not Git-owned resources.

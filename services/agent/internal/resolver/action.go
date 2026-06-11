@@ -16,6 +16,7 @@ import (
 
 type ActionSession interface {
 	ProfileName() string
+	AgentProfileName() string
 	MCPEnabled() bool
 	MCPProfiles() []string
 	MCPToolCount() int
@@ -30,8 +31,9 @@ type DirectoryLister func(*zerolog.Logger, string, []string, []string) map[strin
 type ActionSessionResolutionStage string
 
 const (
-	ActionSessionResolutionLLMProfile ActionSessionResolutionStage = "llm_profile"
-	ActionSessionResolutionMCPProfile ActionSessionResolutionStage = "mcp_profile"
+	ActionSessionResolutionLLMProfile   ActionSessionResolutionStage = "llm_profile"
+	ActionSessionResolutionAgentProfile ActionSessionResolutionStage = "agent_profile"
+	ActionSessionResolutionMCPProfile   ActionSessionResolutionStage = "mcp_profile"
 )
 
 type ActionSessionResolutionError struct {
@@ -172,6 +174,9 @@ func (llmBackedActionResolver) Resolve(ctx context.Context, req ActionRequest) A
 	}
 	if req.Logger != nil {
 		req.Logger.Info().Str("llm_profile", session.ProfileName()).Msg("Using LLM profile for goal")
+		if agentProfile := strings.TrimSpace(session.AgentProfileName()); agentProfile != "" {
+			req.Logger.Info().Str("agent_profile", agentProfile).Msg("Using agent profile for goal")
+		}
 	}
 	logMCPSession(req.Logger, session)
 
@@ -380,6 +385,8 @@ func logActionSessionResolutionError(logger *zerolog.Logger, err error) {
 	switch resolutionErr.Stage {
 	case ActionSessionResolutionLLMProfile:
 		logger.Error().Err(err).Msg("Failed to resolve LLM profile for goal")
+	case ActionSessionResolutionAgentProfile:
+		logger.Error().Err(err).Msg("Failed to resolve agent profile for goal")
 	case ActionSessionResolutionMCPProfile:
 		logger.Error().Err(err).Msg("Failed to resolve MCP profiles for goal")
 	default:

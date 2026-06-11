@@ -11,6 +11,7 @@ import {
 export type PipelineAutocompleteMetadata = {
   secrets: string[];
   variables: string[];
+  agentProfiles: string[];
   llmProfiles: string[];
   mcpProfiles: string[];
   reusableSteps: string[];
@@ -65,6 +66,9 @@ export function buildPipelineEditorSuggestion({
   const llmProfileValueContext =
     currentKey === 'llm_profile' ||
     /^\s*llm_profile\s*:\s*[A-Za-z0-9_.-]*$/.test(lineBeforeCursor.trim());
+  const agentProfileValueContext =
+    currentKey === 'agent_profile' ||
+    /^\s*agent_profile\s*:\s*[A-Za-z0-9_.-]*$/.test(lineBeforeCursor.trim());
 
   let title = 'Suggestions';
   let pool: string[] = [];
@@ -74,6 +78,9 @@ export function buildPipelineEditorSuggestion({
   if (includeValueContext) {
     title = 'Reusable steps';
     pool = metadata.reusableSteps;
+  } else if (agentProfileValueContext) {
+    title = 'Agent profiles';
+    pool = metadata.agentProfiles;
   } else if (llmProfileValueContext) {
     title = 'LLM profiles';
     pool = metadata.llmProfiles;
@@ -112,6 +119,7 @@ export function buildPipelineEditorSuggestion({
 
   const hasContext =
     includeValueContext ||
+    agentProfileValueContext ||
     llmProfileValueContext ||
     ancestorKey === 'mcp_profiles' ||
     ancestorKey === 'secrets' ||

@@ -429,6 +429,111 @@ func TestValidatePipelineLLMProfilesSkippedWhenLLMDisabled(t *testing.T) {
 	}
 }
 
+func TestValidatePipelineAgentProfilesInheritance(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "valid-name",
+		ContainerImage: "ubuntu",
+		AgentProfile:   "sre",
+		Steps: []models.PipelineStep{
+			{
+				Step: &models.GoalStep{
+					BaseStep: models.BaseStep{Name: "pipeline-profile"},
+					Goal:     "Review reliability",
+				},
+			},
+			{
+				Step: &models.GoalStep{
+					BaseStep: models.BaseStep{Name: "step-profile", AgentProfile: "security-engineer"},
+					Goal:     "Review security",
+				},
+			},
+		},
+	}
+
+	err := ValidatePipelineAgentProfiles(p, AgentProfileValidationOptions{
+		DefaultProfile: models.DefaultAgentProfileID,
+		Profiles: map[string]AgentProfileDefinition{
+			models.DefaultAgentProfileID: {Enabled: true},
+			"sre":                        {Enabled: true},
+			"security-engineer":          {Enabled: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected agent profiles to validate, got %v", err)
+	}
+}
+
+func TestValidatePipelineAgentProfilesRejectsUnknownAndDisabled(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "valid-name",
+		ContainerImage: "ubuntu",
+		Steps: []models.PipelineStep{
+			{
+				Step: &models.GoalStep{
+					BaseStep: models.BaseStep{Name: "review", AgentProfile: "disabled"},
+					Goal:     "Review",
+				},
+			},
+		},
+	}
+
+	err := ValidatePipelineAgentProfiles(p, AgentProfileValidationOptions{
+		DefaultProfile: models.DefaultAgentProfileID,
+		Profiles: map[string]AgentProfileDefinition{
+			models.DefaultAgentProfileID: {Enabled: true},
+			"disabled":                   {Enabled: false},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected disabled profile validation error")
+	}
+	if !strings.Contains(err.Error(), `agent profile "disabled" referenced by step "review" is disabled`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	p.Steps[0].SetAgentProfile("missing")
+	err = ValidatePipelineAgentProfiles(p, AgentProfileValidationOptions{
+		DefaultProfile: models.DefaultAgentProfileID,
+		Profiles: map[string]AgentProfileDefinition{
+			models.DefaultAgentProfileID: {Enabled: true},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected unknown profile validation error")
+	}
+	if !strings.Contains(err.Error(), `agent profile "missing" referenced by step "review" is not configured`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidatePipelineAgentProfilesRequiresEnabledDefault(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "valid-name",
+		ContainerImage: "ubuntu",
+		Steps: []models.PipelineStep{
+			{
+				Step: &models.ScriptStep{
+					BaseStep: models.BaseStep{Name: "build"},
+					Script:   "go test ./...",
+				},
+			},
+		},
+	}
+
+	err := ValidatePipelineAgentProfiles(p, AgentProfileValidationOptions{
+		DefaultProfile: models.DefaultAgentProfileID,
+		Profiles: map[string]AgentProfileDefinition{
+			models.DefaultAgentProfileID: {Enabled: false},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected disabled default profile validation error")
+	}
+	if !strings.Contains(err.Error(), `default agent profile "devops-engineer" is disabled`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestValidatePipelineMCPProfilesAdditiveGoalUsage(t *testing.T) {
 	p := &models.Pipeline{
 		Name:           "valid-name",

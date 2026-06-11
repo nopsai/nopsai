@@ -142,6 +142,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   const [autocompleteMeta, setAutocompleteMeta] = useState<{
     secrets: string[];
     variables: string[];
+    agentProfiles: string[];
     llmProfiles: string[];
     mcpProfiles: string[];
     reusableSteps: string[];
@@ -149,7 +150,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     variableScopes: Array<{ scope: string; items: string[] }>;
     fetchedAt: number;
     loading: boolean;
-  }>({ secrets: [], variables: [], llmProfiles: [], mcpProfiles: [], reusableSteps: [], secretScopes: [], variableScopes: [], fetchedAt: 0, loading: false });
+  }>({ secrets: [], variables: [], agentProfiles: [], llmProfiles: [], mcpProfiles: [], reusableSteps: [], secretScopes: [], variableScopes: [], fetchedAt: 0, loading: false });
 
   const [editorSuggestion, setEditorSuggestion] = useState<PipelineEditorSuggestion | null>(null);
 
@@ -294,6 +295,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       try {
         const promise = (async () => {
           const metadata = await fetchEditorAutocompleteMetadata({
+            includeAgentProfiles: true,
             includeLLMProfiles: true,
             includeMCPProfiles: true,
           });

@@ -10,6 +10,15 @@ import (
 	"nopsai/pkg/models"
 )
 
+type AgentProfileDefinition struct {
+	Enabled bool
+}
+
+type AgentProfileValidationOptions struct {
+	DefaultProfile string
+	Profiles       map[string]AgentProfileDefinition
+}
+
 type LLMProfileDefinition struct {
 	AllowedScopes []string
 }
@@ -426,6 +435,64 @@ func ValidatePipelineLLMProfiles(pipeline *models.Pipeline, opts LLMProfileValid
 			if err := validateProfile(firstNonEmpty(taskProfile, stepProfile), fmt.Sprintf("task %q in step %q", taskName, stepName)); err != nil {
 				return err
 			}
+		}
+	}
+
+	return nil
+}
+
+func ValidatePipelineAgentProfiles(pipeline *models.Pipeline, opts AgentProfileValidationOptions) error {
+	if pipeline == nil {
+		return fmt.Errorf("pipeline is required")
+	}
+	profiles := opts.Profiles
+	if len(profiles) == 0 {
+		return fmt.Errorf("no agent profiles are configured")
+	}
+
+	defaultProfile := strings.TrimSpace(opts.DefaultProfile)
+	if defaultProfile == "" {
+		defaultProfile = models.DefaultAgentProfileID
+	}
+	defaultDefinition, ok := profiles[defaultProfile]
+	if !ok {
+		return fmt.Errorf("default agent profile %q is not configured", defaultProfile)
+	}
+	if !defaultDefinition.Enabled {
+		return fmt.Errorf("default agent profile %q is disabled", defaultProfile)
+	}
+
+	validateProfile := func(profileName string, location string) error {
+		profileName = strings.TrimSpace(profileName)
+		if profileName == "" {
+			profileName = defaultProfile
+		}
+		profile, ok := profiles[profileName]
+		if !ok {
+			return fmt.Errorf("agent profile %q referenced by %s is not configured", profileName, location)
+		}
+		if !profile.Enabled {
+			return fmt.Errorf("agent profile %q referenced by %s is disabled", profileName, location)
+		}
+		return nil
+	}
+
+	pipelineProfile := strings.TrimSpace(pipeline.AgentProfile)
+	if err := validateProfile(pipelineProfile, "pipeline"); err != nil {
+		return err
+	}
+	if pipelineProfile == "" {
+		pipelineProfile = defaultProfile
+	}
+
+	for _, step := range pipeline.Steps {
+		stepName := step.GetName()
+		if stepName == "" {
+			stepName = "unknown"
+		}
+		stepProfile := strings.TrimSpace(step.GetAgentProfile())
+		if err := validateProfile(firstNonEmpty(stepProfile, pipelineProfile), fmt.Sprintf("step %q", stepName)); err != nil {
+			return err
 		}
 	}
 
