@@ -18,6 +18,7 @@ Start here when you want to understand the system from different angles:
 - [access-control.md](./access-control.md): Current AAA service, product roles, access grants, route authorization, and audit behavior.
 - [jwt-authentication.md](./jwt-authentication.md): User/API JWTs, refresh tokens, internal REST service JWTs, and dispatcher gRPC service JWTs.
 - [knowledge-context.md](./knowledge-context.md): Project knowledge documents for LLM-backed pipeline steps, GitOps layout, runtime snapshots, and access checks.
+- [agent-profiles.md](./agent-profiles.md): AI role/persona selection for pipelines and steps, GitOps management, AAA, and runtime prompt behavior.
 
 Existing focused docs:
 

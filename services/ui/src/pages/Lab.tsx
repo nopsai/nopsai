@@ -7,9 +7,11 @@ import { LabDependencyPanel } from '../features/lab/LabDependencyPanel';
 import { LabRunControls } from '../features/lab/LabRunControls';
 import { LabSuggestionPortals } from '../features/lab/LabSuggestionPortals';
 import { LabVariableOverrides } from '../features/lab/LabVariableOverrides';
+import { fetchLabAgentProfilesMetadata } from '../features/lab/api';
 import { parseLabIncludedDependencies } from '../features/lab/model';
 import {
   buildInlineSuggestionPreview,
+  normalizeAgentProfileSuggestionList,
   normalizeLabScopeLabel,
   normalizeLabSuggestionList,
   normalizeLLMProfileSuggestionList,
@@ -47,12 +49,13 @@ function LabPage() {
   const [autocompleteMeta, setAutocompleteMeta] = useState<{
     secrets: string[];
     variables: string[];
+    agentProfiles: string[];
     llmProfiles: string[];
     mcpProfiles: string[];
     reusableSteps: string[];
     fetchedAt: number;
     loading: boolean;
-  }>({ secrets: [], variables: [], llmProfiles: [], mcpProfiles: [], reusableSteps: [], fetchedAt: 0, loading: false });
+  }>({ secrets: [], variables: [], agentProfiles: [], llmProfiles: [], mcpProfiles: [], reusableSteps: [], fetchedAt: 0, loading: false });
   const autocompleteFetchRef = useRef<{ fetchedAt: number; loadingPromise: Promise<void> | null }>({ fetchedAt: 0, loadingPromise: null });
   const pipelineHandoffRef = useRef('');
   const {
@@ -150,6 +153,7 @@ function LabPage() {
     return buildSuggestionItems(suggestionContext, yamlText, {
       secrets: autocompleteMeta.secrets,
       variables: autocompleteMeta.variables,
+      agentProfiles: autocompleteMeta.agentProfiles,
       llmProfiles: autocompleteMeta.llmProfiles,
       mcpProfiles: autocompleteMeta.mcpProfiles,
       reusableSteps: autocompleteMeta.reusableSteps,
@@ -198,10 +202,11 @@ function LabPage() {
     try {
       const promise = (async () => {
         const scopeParam = scopeValue ? `?scope=${encodeURIComponent(scopeValue)}` : '';
-        const [secretsResp, varsResp, stepsResp, llmProfilesResp, mcpProfilesResp] = await Promise.all([
+        const [secretsResp, varsResp, stepsResp, agentProfilesResp, llmProfilesResp, mcpProfilesResp] = await Promise.all([
           apiClient.fetch(`/v1/secrets${scopeParam}`).then(r => (r.ok ? r.json() : [])),
           apiClient.fetch(`/v1/variables${scopeParam}`).then(r => (r.ok ? r.json() : [])),
           apiClient.fetch('/v1/steps').then(r => (r.ok ? r.json() : [])),
+          fetchLabAgentProfilesMetadata(),
           apiClient.fetch(`/v1/system/llm-profiles${scopeParam}`).then(r => (r.ok ? r.json() : null)),
           apiClient.fetch('/v1/system/mcp/profiles').then(r => (r.ok ? r.json() : null)),
         ]);
@@ -209,6 +214,7 @@ function LabPage() {
         setAutocompleteMeta({
           secrets: normalizeLabSuggestionList(secretsResp),
           variables: normalizeVariableSuggestionList(varsResp),
+          agentProfiles: normalizeAgentProfileSuggestionList(agentProfilesResp),
           llmProfiles: normalizeLLMProfileSuggestionList(llmProfilesResp),
           mcpProfiles: normalizeMCPProfileSuggestionList(mcpProfilesResp),
           reusableSteps: normalizeLabSuggestionList(stepsResp),
@@ -511,6 +517,9 @@ function LabPage() {
       void loadAutocomplete();
     }
     if (suggestionContext?.type === 'variables' && autocompleteMeta.variables.length === 0 && !autocompleteMeta.loading) {
+      void loadAutocomplete();
+    }
+    if (suggestionContext?.type === 'agent_profile' && autocompleteMeta.agentProfiles.length === 0 && !autocompleteMeta.loading) {
       void loadAutocomplete();
     }
     if (suggestionContext?.type === 'llm_profile' && autocompleteMeta.llmProfiles.length === 0 && !autocompleteMeta.loading) {

@@ -64,7 +64,7 @@ export function deriveTaskGraphStatus(task: TaskStatusInput, stepStatus?: string
 
   if (base === 'skipped' || base === 'failed' || base === 'cancelled') return base;
   if (finished && hasExitCode) return task.exit_code === 0 ? 'success' : 'failed';
-  if (!finished && stepBase && stepBase !== 'pending' && stepBase !== 'running') return stepBase;
+  if (!finished && started && stepBase && stepBase !== 'pending' && stepBase !== 'running') return stepBase;
   if (base === 'running' || (started && !finished)) return 'running';
   if (!started && !finished && base === 'success') return stepBase && stepBase !== 'pending' ? stepBase : 'pending';
   if (base === 'pending' && !started && !finished) {

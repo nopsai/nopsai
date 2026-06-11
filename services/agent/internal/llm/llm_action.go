@@ -13,7 +13,11 @@ import (
 )
 
 func (c *LLMClient) GetAction(ctx context.Context, req *proto.GetActionRequest) (*proto.Action, error) {
-	actionModel, err := c.getActionModel(ctx, c.buildPrompt(req))
+	return c.GetActionWithAgentProfile(ctx, req, defaultAgentPromptProfile())
+}
+
+func (c *LLMClient) GetActionWithAgentProfile(ctx context.Context, req *proto.GetActionRequest, agentProfile AgentPromptProfile) (*proto.Action, error) {
+	actionModel, err := c.getActionModel(ctx, c.buildPromptWithMCP(req, "", "", agentProfile))
 	if err != nil {
 		return nil, err
 	}
@@ -21,8 +25,12 @@ func (c *LLMClient) GetAction(ctx context.Context, req *proto.GetActionRequest) 
 }
 
 func (c *LLMClient) GetActionWithMCP(ctx context.Context, req *proto.GetActionRequest, mcpRuntime *MCPTaskRuntime) (*proto.Action, error) {
+	return c.GetActionWithMCPAndAgentProfile(ctx, req, mcpRuntime, defaultAgentPromptProfile())
+}
+
+func (c *LLMClient) GetActionWithMCPAndAgentProfile(ctx context.Context, req *proto.GetActionRequest, mcpRuntime *MCPTaskRuntime, agentProfile AgentPromptProfile) (*proto.Action, error) {
 	if mcpRuntime == nil || !mcpRuntime.Enabled() {
-		return c.GetAction(ctx, req)
+		return c.GetActionWithAgentProfile(ctx, req, agentProfile)
 	}
 
 	toolTranscript := mcpRuntime.ToolTranscript()
@@ -36,7 +44,7 @@ func (c *LLMClient) GetActionWithMCP(ctx context.Context, req *proto.GetActionRe
 		logEvent.Msg("MCP tool call is required before final action")
 	}
 	for toolCallCount := 0; toolCallCount <= maxMCPToolCallsPerAction; toolCallCount++ {
-		actionModel, err := c.getActionModel(ctx, c.buildPromptWithMCP(req, toolTranscript, mcpRuntime.ToolPrompt()))
+		actionModel, err := c.getActionModel(ctx, c.buildPromptWithMCP(req, toolTranscript, mcpRuntime.ToolPrompt(), agentProfile))
 		if err != nil {
 			return nil, err
 		}

@@ -29,6 +29,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		"access_grants_synced":           0,
 		"resource_access_synced":         0,
 		"llm_profiles_synced":            0,
+		"agent_profiles_synced":          0,
 		"mcp_servers_synced":             0,
 		"mcp_profiles_synced":            0,
 		"knowledge_contexts_synced":      0,
@@ -79,6 +80,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		Int("access_grants_synced", details["access_grants_synced"]).
 		Int("resource_access_synced", details["resource_access_synced"]).
 		Int("llm_profiles_synced", details["llm_profiles_synced"]).
+		Int("agent_profiles_synced", details["agent_profiles_synced"]).
 		Int("mcp_servers_synced", details["mcp_servers_synced"]).
 		Int("mcp_profiles_synced", details["mcp_profiles_synced"]).
 		Int("mail_settings_synced", details["mail_settings_synced"]).

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   buildInlineSuggestionPreview,
+  normalizeAgentProfileSuggestionList,
   normalizeLLMProfileSuggestionList,
   normalizeLabScopeLabel,
   normalizeLabSuggestionList,
@@ -17,6 +18,12 @@ test('normalizes Lab scopes and list payloads', () => {
 });
 
 test('filters unavailable LLM and MCP profiles', () => {
+  assert.deepEqual(
+    normalizeAgentProfileSuggestionList({
+      profiles: [{ id: 'sre' }, { id: 'disabled', enabled: false }],
+    }),
+    ['sre']
+  );
   assert.deepEqual(
     normalizeLLMProfileSuggestionList({
       profiles: [{ name: 'standard' }, { name: 'blocked', allowed_in_scope: false }],

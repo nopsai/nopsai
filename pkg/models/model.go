@@ -57,6 +57,7 @@ type Step interface {
 	GetImage() string
 	GetIgnoreFailure() bool
 	GetLlmOutputSharing() *bool
+	GetAgentProfile() string
 	GetLLMProfile() string
 	GetMCPProfiles() []string
 	GetRuntimePool() string
@@ -81,6 +82,7 @@ type BaseStep struct {
 	Condition        string                `yaml:"condition,omitempty" json:"condition,omitempty"`
 	IgnoreFailure    bool                  `yaml:"ignore_failure,omitempty" json:"ignore_failure,omitempty"`
 	LlmOutputSharing *bool                 `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
+	AgentProfile     string                `yaml:"agent_profile,omitempty" json:"agent_profile,omitempty"`
 	LLMProfile       string                `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
 	MCPProfiles      []string              `yaml:"mcp_profiles,omitempty" json:"mcp_profiles,omitempty"`
 	RuntimePool      string                `yaml:"runtime_pool,omitempty" json:"runtime_pool,omitempty"`
@@ -111,6 +113,9 @@ func (s *BaseStep) GetIgnoreFailure() bool { return s.IgnoreFailure }
 
 // GetLlmOutputSharing returns the step's LLM output sharing setting.
 func (s *BaseStep) GetLlmOutputSharing() *bool { return s.LlmOutputSharing }
+
+// GetAgentProfile returns the step's AI role/persona override.
+func (s *BaseStep) GetAgentProfile() string { return s.AgentProfile }
 
 // GetLLMProfile returns the step's LLM profile override.
 func (s *BaseStep) GetLLMProfile() string { return s.LLMProfile }
@@ -441,6 +446,13 @@ func (ps PipelineStep) GetLlmOutputSharing() *bool {
 	return ps.Step.GetLlmOutputSharing()
 }
 
+func (ps PipelineStep) GetAgentProfile() string {
+	if ps.Step == nil {
+		return ""
+	}
+	return ps.Step.GetAgentProfile()
+}
+
 func (ps PipelineStep) GetLLMProfile() string {
 	if ps.Step == nil {
 		return ""
@@ -621,6 +633,12 @@ func (ps *PipelineStep) SetLlmOutputSharing(value *bool) {
 	}
 }
 
+func (ps *PipelineStep) SetAgentProfile(value string) {
+	if base := ps.baseStep(); base != nil {
+		base.AgentProfile = value
+	}
+}
+
 func (ps *PipelineStep) SetLLMProfile(value string) {
 	if base := ps.baseStep(); base != nil {
 		base.LLMProfile = value
@@ -680,6 +698,7 @@ type Pipeline struct {
 	Steps             []PipelineStep        `yaml:"steps" json:"steps"`
 	Timeout           string                `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 	LLMEnabled        *bool                 `yaml:"llm_enabled,omitempty" json:"llm_enabled,omitempty"`
+	AgentProfile      string                `yaml:"agent_profile,omitempty" json:"agent_profile,omitempty"`
 	LLMProfile        string                `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
 	MCPProfiles       []string              `yaml:"mcp_profiles,omitempty" json:"mcp_profiles,omitempty"`
 	RuntimePool       string                `yaml:"runtime_pool,omitempty" json:"runtime_pool,omitempty"`
@@ -722,6 +741,51 @@ type Task struct {
 	MCPProfiles      []string              `yaml:"mcp_profiles,omitempty" json:"mcp_profiles,omitempty"`
 	Variables        map[string]string     `yaml:"variables,omitempty" json:"variables,omitempty"`
 	KnowledgeContext []KnowledgeContextRef `yaml:"knowledge_context,omitempty" json:"knowledge_context,omitempty"`
+}
+
+func (t *Task) UnmarshalYAML(value *yaml.Node) error {
+	var raw map[string]interface{}
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	if _, exists := raw["agent_profile"]; exists {
+		taskName := "unknown"
+		if name, ok := raw["name"].(string); ok && name != "" {
+			taskName = name
+		}
+		return fmt.Errorf("task %q cannot define agent_profile; set agent_profile on the pipeline or step", taskName)
+	}
+	type rawTask Task
+	var parsed rawTask
+	if err := value.Decode(&parsed); err != nil {
+		return err
+	}
+	*t = Task(parsed)
+	return nil
+}
+
+func (t *Task) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if _, exists := raw["agent_profile"]; exists {
+		taskName := "unknown"
+		if rawName, ok := raw["name"]; ok {
+			var name string
+			if err := json.Unmarshal(rawName, &name); err == nil && name != "" {
+				taskName = name
+			}
+		}
+		return fmt.Errorf("task %q cannot define agent_profile; set agent_profile on the pipeline or step", taskName)
+	}
+	type rawTask Task
+	var parsed rawTask
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return err
+	}
+	*t = Task(parsed)
+	return nil
 }
 
 // CommandAction defines a command to be executed in the shell.

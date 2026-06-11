@@ -498,8 +498,9 @@ Responsibilities:
 - Reusable step library
 - Lab for ad-hoc YAML execution and quick runs
 - System pages for config sync, data backups/cleanup, dispatcher status, runner controls, and access management
-- System feature modules for config, LLM profiles, MCP, dispatcher, and access
-  keep the route page focused on data loading and mutation orchestration.
+- System feature modules for config, Agent Profiles, LLM profiles, MCP,
+  dispatcher, and access keep the route page focused on data loading and
+  mutation orchestration.
 - Access-grant management for product roles and effective-permission inspection
 - Resource Access dialogs on pipelines, scopes, reusable steps, and knowledge contexts for use visibility and group/repository sharing
 - Profile page for email and password changes

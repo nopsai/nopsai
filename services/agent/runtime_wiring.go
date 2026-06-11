@@ -18,6 +18,7 @@ type agentDispatcherConnection interface {
 type agentRuntimeAdapters struct {
 	PipelineLLMEnabled      bool
 	LLMRegistry             *llmruntime.LLMProfileRegistry
+	AgentRegistry           *llmruntime.AgentProfileRegistry
 	MCPRegistry             *llmruntime.MCPProfileRegistry
 	ConditionClientResolver resolver.ConditionClientResolver
 	ActionSessionResolver   resolver.ActionSessionResolver
@@ -26,8 +27,9 @@ type agentRuntimeAdapters struct {
 type agentRuntimeWiringStage string
 
 const (
-	agentRuntimeWiringLLMProfiles agentRuntimeWiringStage = "llm_profiles"
-	agentRuntimeWiringMCPRegistry agentRuntimeWiringStage = "mcp_registry"
+	agentRuntimeWiringLLMProfiles   agentRuntimeWiringStage = "llm_profiles"
+	agentRuntimeWiringAgentProfiles agentRuntimeWiringStage = "agent_profiles"
+	agentRuntimeWiringMCPRegistry   agentRuntimeWiringStage = "mcp_registry"
 )
 
 type agentRuntimeWiringError struct {
@@ -57,9 +59,12 @@ func newAgentRuntimeAdapters(runScope string, pipeline *models.Pipeline) (agentR
 			return adapters, agentRuntimeWiringError{Stage: agentRuntimeWiringLLMProfiles, Err: err}
 		}
 		adapters.LLMRegistry = llmRegistry
-		adapters.ConditionClientResolver = func(pipeline *models.Pipeline, step *models.PipelineStep, task *models.Task) (resolver.ConditionClient, string, error) {
-			return llmRegistry.ClientFor(pipeline, step, task)
+		agentRegistry, err := llmruntime.NewAgentProfileRegistryFromEnv()
+		if err != nil {
+			return adapters, agentRuntimeWiringError{Stage: agentRuntimeWiringAgentProfiles, Err: err}
 		}
+		adapters.AgentRegistry = agentRegistry
+		adapters.ConditionClientResolver = newAgentConditionClientResolver(adapters.LLMRegistry, adapters.AgentRegistry)
 	}
 
 	mcpRegistry, err := llmruntime.NewMCPProfileRegistryFromEnv(runScope)
@@ -67,7 +72,7 @@ func newAgentRuntimeAdapters(runScope string, pipeline *models.Pipeline) (agentR
 		return adapters, agentRuntimeWiringError{Stage: agentRuntimeWiringMCPRegistry, Err: err}
 	}
 	adapters.MCPRegistry = mcpRegistry
-	adapters.ActionSessionResolver = newAgentActionSessionResolver(adapters.LLMRegistry, adapters.MCPRegistry)
+	adapters.ActionSessionResolver = newAgentActionSessionResolver(adapters.LLMRegistry, adapters.AgentRegistry, adapters.MCPRegistry)
 	return adapters, nil
 }
 
@@ -87,6 +92,9 @@ func logAgentRuntimeWiringError(runID, pipelineName string, err error) {
 		case agentRuntimeWiringLLMProfiles:
 			agentLog(runID, pipelineName).Error().Err(wiringErr.Err).Msg("Invalid LLM profile configuration")
 			return
+		case agentRuntimeWiringAgentProfiles:
+			agentLog(runID, pipelineName).Error().Err(wiringErr.Err).Msg("Invalid agent profile configuration")
+			return
 		case agentRuntimeWiringMCPRegistry:
 			agentLog(runID, pipelineName).Error().Err(wiringErr.Err).Msg("Invalid MCP registry configuration")
 			return
@@ -100,6 +108,7 @@ func logAgentRuntimeAdapters(runID, pipelineName string, adapters agentRuntimeAd
 		defaultLLMProfile, _ := adapters.LLMRegistry.DefaultProfile()
 		startupLog := agentLog(runID, pipelineName).Info().
 			Str("llm_profile", adapters.LLMRegistry.DefaultProfileName()).
+			Str("agent_profile", adapters.AgentRegistry.DefaultProfileName()).
 			Str("llm_provider", defaultLLMProfile.Provider)
 		switch defaultLLMProfile.Provider {
 		case appconfig.LLMProviderGemini:

@@ -247,6 +247,7 @@ func BuildStepDetailsForRun(run models.RunListItem, originalPipeline, resolvedPi
 			Variables:        pStep.GetVariables(),
 			IgnoreFailure:    pStep.GetIgnoreFailure(),
 			LlmOutputSharing: pStep.GetLlmOutputSharing(),
+			AgentProfile:     pStep.GetAgentProfile(),
 			LLMProfile:       pStep.GetLLMProfile(),
 			MCPProfiles:      pStep.GetMCPProfiles(),
 			RuntimePool:      pStep.GetRuntimePool(),

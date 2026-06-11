@@ -58,6 +58,20 @@ export function normalizeMCPProfileSuggestionList(payload: unknown): string[] {
     .filter(Boolean);
 }
 
+export function normalizeAgentProfileSuggestionList(payload: unknown): string[] {
+  const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null;
+  const profiles = record && Array.isArray(record.profiles) ? record.profiles : [];
+  return profiles
+    .map(profile => {
+      if (typeof profile === 'string') return profile.trim();
+      if (!profile || typeof profile !== 'object') return '';
+      const profileRecord = profile as Record<string, unknown>;
+      if (profileRecord.enabled === false) return '';
+      return typeof profileRecord.id === 'string' ? profileRecord.id.trim() : '';
+    })
+    .filter(Boolean);
+}
+
 export function buildInlineSuggestionPreview(
   item: LabSuggestionItem,
   contextInfo: LabSuggestionContext

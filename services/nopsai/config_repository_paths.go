@@ -15,6 +15,7 @@ const (
 	configRepositoryServiceAccountsAccessPath = "access/service-accounts.yaml"
 	configRepositoryGroupStructurePath        = "config-repositories/groups/structure.yaml"
 	configRepositoryLLMProfilesPath           = "setting/system/llm_profile.yaml"
+	configRepositoryAgentProfilesPath         = "setting/system/agent-profiles.yaml"
 	configRepositoryMCPRegistryPath           = "setting/system/mcp.yaml"
 )
 
@@ -54,6 +55,7 @@ func isConfigRepositorySettingsDriftPath(rel string) bool {
 	return isGitOpsRuntimeSettingsRelativePath(rel) ||
 		isGitOpsMailSettingsRelativePath(rel) ||
 		isGitOpsLLMProfileRelativePath(rel) ||
+		isGitOpsAgentProfileRelativePath(rel) ||
 		mcpregistry.IsGitOpsRelativePath(rel)
 }
 

@@ -46,17 +46,19 @@ type authReadCapabilities struct {
 }
 
 type authSystemCapabilities struct {
-	ConfigRead       bool `json:"config_read"`
-	ConfigWrite      bool `json:"config_write"`
-	LLMProfilesRead  bool `json:"llm_profiles_read"`
-	LLMProfilesWrite bool `json:"llm_profiles_write"`
-	MCPRead          bool `json:"mcp_read"`
-	MCPWrite         bool `json:"mcp_write"`
-	ConfigReposRead  bool `json:"config_repos_read"`
-	ConfigReposWrite bool `json:"config_repos_write"`
-	DispatcherRead   bool `json:"dispatcher_read"`
-	DispatcherWrite  bool `json:"dispatcher_write"`
-	Access           bool `json:"access"`
+	ConfigRead         bool `json:"config_read"`
+	ConfigWrite        bool `json:"config_write"`
+	LLMProfilesRead    bool `json:"llm_profiles_read"`
+	LLMProfilesWrite   bool `json:"llm_profiles_write"`
+	AgentProfilesRead  bool `json:"agent_profiles_read"`
+	AgentProfilesWrite bool `json:"agent_profiles_write"`
+	MCPRead            bool `json:"mcp_read"`
+	MCPWrite           bool `json:"mcp_write"`
+	ConfigReposRead    bool `json:"config_repos_read"`
+	ConfigReposWrite   bool `json:"config_repos_write"`
+	DispatcherRead     bool `json:"dispatcher_read"`
+	DispatcherWrite    bool `json:"dispatcher_write"`
+	Access             bool `json:"access"`
 }
 
 type authChangePasswordRequest struct {

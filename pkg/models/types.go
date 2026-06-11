@@ -53,6 +53,7 @@ type StepConfiguration struct {
 	Variables        map[string]string     `json:"variables,omitempty"`
 	IgnoreFailure    bool                  `json:"ignore_failure"`
 	LlmOutputSharing *bool                 `json:"llm_output_sharing,omitempty"`
+	AgentProfile     string                `json:"agent_profile,omitempty"`
 	LLMProfile       string                `json:"llm_profile,omitempty"`
 	MCPProfiles      []string              `json:"mcp_profiles,omitempty"`
 	RuntimePool      string                `json:"runtime_pool,omitempty"`

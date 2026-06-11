@@ -151,6 +151,11 @@ func (a *App) buildAgentLaunchPayload(ctx context.Context, req AgentRunLaunchReq
 		log.Error().Str("run_id", req.RunID).Msg(reason)
 		return nil, agentLaunchFailed(reason, true)
 	}
+	if err := a.validatePipelineAgentProfiles(&req.Pipeline); err != nil {
+		reason := err.Error()
+		log.Error().Str("run_id", req.RunID).Msg(reason)
+		return nil, agentLaunchFailed(reason, true)
+	}
 	if err := a.validatePipelineMCPProfiles(&req.Pipeline, req.Scope); err != nil {
 		reason := err.Error()
 		log.Error().Str("run_id", req.RunID).Msg(reason)
@@ -166,6 +171,18 @@ func (a *App) buildAgentLaunchPayload(ctx context.Context, req AgentRunLaunchReq
 	runtimeProfilesJSON, err := json.Marshal(runtimeProfiles)
 	if err != nil {
 		reason := "Failed to marshal LLM profiles"
+		log.Error().Err(err).Str("run_id", req.RunID).Msg(reason)
+		return nil, agentLaunchFailed(reason, false)
+	}
+	runtimeAgentProfiles, err := a.buildRuntimeAgentProfiles(ctx)
+	if err != nil {
+		reason := fmt.Sprintf("Failed to prepare agent profiles: %v", err)
+		log.Error().Err(err).Str("run_id", req.RunID).Msg("Failed to prepare agent profiles")
+		return nil, agentLaunchFailed(reason, false)
+	}
+	runtimeAgentProfilesJSON, err := json.Marshal(runtimeAgentProfiles)
+	if err != nil {
+		reason := "Failed to marshal agent profiles"
 		log.Error().Err(err).Str("run_id", req.RunID).Msg(reason)
 		return nil, agentLaunchFailed(reason, false)
 	}
@@ -229,6 +246,7 @@ func (a *App) buildAgentLaunchPayload(ctx context.Context, req AgentRunLaunchReq
 		Pipeline:                req.Pipeline,
 		PipelineDefinition:      req.PipelineDefinition,
 		LLMProfilesJSON:         runtimeProfilesJSON,
+		AgentProfilesJSON:       runtimeAgentProfilesJSON,
 		MCPRegistryJSON:         runtimeMCPRegistryJSON,
 		KnowledgeContextsBase64: knowledgeSnapshotsEnv,
 		SharedVolumeName:        sharedVolumeName,
@@ -290,6 +308,7 @@ type agentEnvironmentInput struct {
 	Pipeline                models.Pipeline
 	PipelineDefinition      []byte
 	LLMProfilesJSON         []byte
+	AgentProfilesJSON       []byte
 	MCPRegistryJSON         []byte
 	KnowledgeContextsBase64 string
 	SharedVolumeName        string
@@ -312,6 +331,7 @@ func buildAgentEnvironment(cfg config.Config, input agentEnvironmentInput) []str
 		fmt.Sprintf("PIPELINE_NAME=%s", input.Pipeline.Name),
 		fmt.Sprintf("PIPELINE_VERSION=%s", input.Pipeline.Version),
 		fmt.Sprintf("%s=%s", llmProfilesRuntimeEnv, base64.StdEncoding.EncodeToString(input.LLMProfilesJSON)),
+		fmt.Sprintf("%s=%s", agentProfilesRuntimeEnv, base64.StdEncoding.EncodeToString(input.AgentProfilesJSON)),
 		fmt.Sprintf("%s=%s", mcpRegistryRuntimeEnv, base64.StdEncoding.EncodeToString(input.MCPRegistryJSON)),
 		fmt.Sprintf("NOPSAI_KNOWLEDGE_CONTEXTS=%s", input.KnowledgeContextsBase64),
 		fmt.Sprintf("NOPSAI_API_URL=%s", cfg.AgentNopsaiAPIURL),

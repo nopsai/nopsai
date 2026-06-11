@@ -297,6 +297,31 @@ CREATE TABLE llm_profiles (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE agent_profile_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE agent_profiles (
+    id TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    instructions TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    source TEXT NOT NULL DEFAULT 'ui',
+    config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
+    config_source_path TEXT NOT NULL DEFAULT '',
+    config_source_commit_sha TEXT NOT NULL DEFAULT '',
+    managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_agent_profiles_source ON agent_profiles(source);
+CREATE INDEX idx_agent_profiles_config_repo ON agent_profiles(config_repo_id);
+
 CREATE TABLE mcp_servers (
     name TEXT PRIMARY KEY,
     display_name TEXT NOT NULL DEFAULT '',
