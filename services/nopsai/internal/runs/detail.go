@@ -203,7 +203,7 @@ func LoadTaskDetailsByStep(ctx context.Context, db Queryer, runID string) (map[s
 func BuildDetail(input DetailBuildInput) models.RunDetail {
 	return models.RunDetail{
 		RunInfo:                input.Run,
-		Steps:                  BuildStepDetailsForRun(input.Run.Status, input.OriginalPipeline, input.ResolvedPipeline, input.TasksByStep, input.ChildRuns),
+		Steps:                  BuildStepDetailsForRun(input.Run, input.OriginalPipeline, input.ResolvedPipeline, input.TasksByStep, input.ChildRuns),
 		PipelineDefinition:     input.OriginalPipeline,
 		PipelineDefinitionYAML: input.PipelineDefinitionYAML,
 		KnowledgeContexts:      input.KnowledgeContexts,
@@ -212,7 +212,7 @@ func BuildDetail(input DetailBuildInput) models.RunDetail {
 	}
 }
 
-func BuildStepDetailsForRun(runStatus string, originalPipeline, resolvedPipeline models.Pipeline, tasksByStep map[string][]models.TaskDetail, childRuns []models.RunListItem) []models.StepDetail {
+func BuildStepDetailsForRun(run models.RunListItem, originalPipeline, resolvedPipeline models.Pipeline, tasksByStep map[string][]models.TaskDetail, childRuns []models.RunListItem) []models.StepDetail {
 	childRunsByStep := make(map[string][]models.RunListItem)
 	for _, childRun := range childRuns {
 		if childRun.ParentStepName == "" {
@@ -221,13 +221,20 @@ func BuildStepDetailsForRun(runStatus string, originalPipeline, resolvedPipeline
 		childRunsByStep[childRun.ParentStepName] = append(childRunsByStep[childRun.ParentStepName], childRun)
 	}
 
+	runStatus := run.Status
+	runFinishedAt := time.Time{}
+	if IsTerminalRunStatus(runStatus) && !run.FinishedAt.IsZero() {
+		runFinishedAt = run.FinishedAt
+	}
+
 	steps := make([]models.StepDetail, 0, len(resolvedPipeline.Steps))
 	for _, pStep := range resolvedPipeline.Steps {
 		stepName := pStep.GetName()
-		stepTasks := tasksByStep[stepName]
+		rawStepTasks := tasksByStep[stepName]
 		stepChildRuns := childRunsByStep[stepName]
-		status := FinalizeRunDetailStepStatus(DeriveRunDetailStepStatus(stepTasks, stepChildRuns), stepTasks, runStatus)
-		stepDuration := DeriveRunDetailStepDuration(stepTasks, stepChildRuns)
+		status := FinalizeRunDetailStepStatus(DeriveRunDetailStepStatus(rawStepTasks, stepChildRuns), rawStepTasks, runStatus)
+		stepTasks := FinalizeRunDetailTasksForDisplay(rawStepTasks, runStatus, status, runFinishedAt)
+		stepDuration := DeriveRunDetailStepDurationUntil(stepTasks, stepChildRuns, runFinishedAt)
 
 		originalPStep, _ := FindStepByName(originalPipeline.Steps, stepName)
 		config := models.StepConfiguration{
@@ -256,6 +263,60 @@ func BuildStepDetailsForRun(runStatus string, originalPipeline, resolvedPipeline
 		})
 	}
 	return steps
+}
+
+func FinalizeRunDetailTasksForDisplay(tasks []models.TaskDetail, runStatus, stepStatus string, runFinishedAt time.Time) []models.TaskDetail {
+	normalizedRun := NormalizeRunDetailStatus(runStatus)
+	if !IsTerminalRunStatus(normalizedRun) {
+		return tasks
+	}
+
+	normalizedStep := NormalizeRunDetailStatus(stepStatus)
+	finalized := make([]models.TaskDetail, len(tasks))
+	copy(finalized, tasks)
+
+	for i := range finalized {
+		taskStatus := NormalizeRunDetailStatus(finalized[i].Status)
+		if IsTerminalRunDetailTaskStatus(taskStatus) {
+			continue
+		}
+
+		if finalized[i].StartedAt.IsZero() {
+			if normalizedRun == "failure" || normalizedRun == "failure (ignored)" || normalizedRun == "cancelled" || normalizedRun == "rejected" {
+				finalized[i].Status = "skipped"
+			}
+			continue
+		}
+
+		switch normalizedRun {
+		case "cancelled", "rejected":
+			finalized[i].Status = "cancelled"
+		case "failure", "failure (ignored)":
+			if normalizedStep == "failure" {
+				finalized[i].Status = "failure"
+				if finalized[i].ExitCode == nil {
+					exitCode := 1
+					finalized[i].ExitCode = &exitCode
+				}
+			} else {
+				finalized[i].Status = "cancelled"
+			}
+		}
+		if finalized[i].FinishedAt.IsZero() && !runFinishedAt.IsZero() {
+			finalized[i].FinishedAt = runFinishedAt
+		}
+	}
+
+	return finalized
+}
+
+func IsTerminalRunDetailTaskStatus(status string) bool {
+	switch NormalizeRunDetailStatus(status) {
+	case "success", "failure", "failure (ignored)", "cancelled", "skipped", "rejected":
+		return true
+	default:
+		return false
+	}
 }
 
 func BuildRunDetailETag(run models.RunListItem, childRuns []models.RunListItem, tasksByStep map[string][]models.TaskDetail) string {
@@ -435,6 +496,10 @@ func HasInFlightRunDetailTask(tasks []models.TaskDetail) bool {
 }
 
 func DeriveRunDetailStepDuration(tasks []models.TaskDetail, childRuns []models.RunListItem) time.Duration {
+	return DeriveRunDetailStepDurationUntil(tasks, childRuns, time.Time{})
+}
+
+func DeriveRunDetailStepDurationUntil(tasks []models.TaskDetail, childRuns []models.RunListItem, upperBound time.Time) time.Duration {
 	var earliestStart time.Time
 	var latestFinish time.Time
 	hasActiveWork := false
@@ -448,6 +513,9 @@ func DeriveRunDetailStepDuration(tasks []models.TaskDetail, childRuns []models.R
 		}
 		if !task.StartedAt.IsZero() && task.FinishedAt.IsZero() {
 			hasActiveWork = true
+			if !upperBound.IsZero() && upperBound.After(latestFinish) {
+				latestFinish = upperBound
+			}
 		}
 	}
 
@@ -460,13 +528,19 @@ func DeriveRunDetailStepDuration(tasks []models.TaskDetail, childRuns []models.R
 		}
 		if !childRun.StartedAt.IsZero() && childRun.FinishedAt.IsZero() {
 			hasActiveWork = true
+			if !upperBound.IsZero() && upperBound.After(latestFinish) {
+				latestFinish = upperBound
+			}
 		}
 	}
 
 	if earliestStart.IsZero() {
 		return 0
 	}
-	if !latestFinish.IsZero() && !hasActiveWork {
+	if !latestFinish.IsZero() && (!hasActiveWork || !upperBound.IsZero()) {
+		if latestFinish.Before(earliestStart) {
+			return 0
+		}
 		return latestFinish.Sub(earliestStart)
 	}
 	return time.Since(earliestStart)

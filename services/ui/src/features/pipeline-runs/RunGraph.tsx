@@ -17,7 +17,7 @@ import {
   getGraphStatusLabel,
   normalizeGraphStatus,
 } from './graphLayout';
-import { formatElapsedLabel, formatStepDuration } from './runGraphModel';
+import { formatStepDuration, formatTaskDuration } from './runGraphModel';
 import { getStatusMeta } from './statusPresentation';
 
 const STEP_WIDTH_CLOSED = 190;
@@ -112,11 +112,12 @@ export function StepsGraph({
         : '';
       const tasks: GraphTask[] = (step.tasks || []).map(task => {
         const def = stepDef?.tasks?.find(t => t.name === task.task_name);
+        const status = deriveTaskGraphStatus(task, step.status);
         return {
           id: task.task_name,
           name: task.task_name,
-          status: deriveTaskGraphStatus(task, step.status),
-          duration: formatElapsedLabel(task.started_at, task.finished_at),
+          status,
+          duration: formatTaskDuration(task, status),
           dependsOn: def?.depends_on || [],
         };
       });

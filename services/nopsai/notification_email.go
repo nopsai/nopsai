@@ -112,7 +112,7 @@ func (a *App) enrichPipelineNotificationContext(ctx context.Context, notificatio
 		if resolved, resolveErr := a.resolveStepIncludes(&resolvedPipeline); resolveErr == nil && resolved != nil {
 			resolvedPipeline = *resolved
 		}
-		stepDetails = runquery.BuildStepDetailsForRun(notificationCtx.Status, pipeline, resolvedPipeline, tasksByStep, childRuns)
+		stepDetails = runquery.BuildStepDetailsForRun(models.RunListItem{Status: notificationCtx.Status}, pipeline, resolvedPipeline, tasksByStep, childRuns)
 	}
 	if len(stepDetails) == 0 {
 		stepDetails = fallbackPipelineNotificationSteps(notificationCtx.Status, tasksByStep)

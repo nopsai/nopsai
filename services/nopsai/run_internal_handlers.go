@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/rs/zerolog/log"
 
 	"nopsai/pkg/httpapi"
@@ -104,7 +105,7 @@ func (a *App) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		go a.dispatchPipelineRunNotification(runID, "running")
 	} else {
-		query := "UPDATE task_runs SET status = $1, exit_code = $2, finished_at = NOW() WHERE run_id = $3 AND step_name = $4 AND task_name = $5"
+		query := "UPDATE task_runs SET status = $1, exit_code = $2, started_at = COALESCE(started_at, NOW()), finished_at = NOW() WHERE run_id = $3 AND step_name = $4 AND task_name = $5"
 		_, err := a.db.Exec(context.Background(), query, update.Status, update.ExitCode, runID, stepName, taskName)
 		if err != nil {
 			log.Error().Err(err).Str("run_id", runID).Str("step", stepName).Str("task", taskName).Msg("Failed to update task finish status")
@@ -185,7 +186,21 @@ func (a *App) handleFinalizeRun(w http.ResponseWriter, r *http.Request) {
 		failureReason = strings.TrimSpace(req.FailureReason)
 	}
 
-	_, err = a.db.Exec(context.Background(), `
+	tx, err := a.db.Begin(context.Background())
+	if err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to begin final run status transaction")
+		http.Error(w, "Failed to update run status", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(context.Background())
+
+	if err := closeIncompleteTasksForFinalStatus(context.Background(), tx, runID, finalStatus); err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to close incomplete tasks for final run status")
+		http.Error(w, "Failed to update run status", http.StatusInternalServerError)
+		return
+	}
+
+	_, err = tx.Exec(context.Background(), `
 		UPDATE pipeline_runs
 		SET status = $1::varchar,
 		    finished_at = COALESCE(finished_at, NOW()),
@@ -200,6 +215,11 @@ func (a *App) handleFinalizeRun(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to update run status", http.StatusInternalServerError)
 		return
 	}
+	if err := tx.Commit(context.Background()); err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to commit final run status transaction")
+		http.Error(w, "Failed to update run status", http.StatusInternalServerError)
+		return
+	}
 
 	if gitContext["repo_owner"] != "" {
 		// Run git-bot notification in background to prevent agent hang
@@ -208,6 +228,47 @@ func (a *App) handleFinalizeRun(w http.ResponseWriter, r *http.Request) {
 	go a.dispatchPipelineRunNotification(runID, finalStatus)
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func closeIncompleteTasksForFinalStatus(ctx context.Context, exec interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}, runID, finalStatus string) error {
+	switch runquery.NormalizeRunDetailStatus(finalStatus) {
+	case "failure", "failure (ignored)":
+		_, err := exec.Exec(ctx, `
+			UPDATE task_runs
+			SET status = CASE
+			        WHEN started_at IS NULL THEN 'skipped'
+			        ELSE 'failure'
+			    END,
+			    exit_code = CASE
+			        WHEN started_at IS NULL THEN exit_code
+			        ELSE COALESCE(exit_code, 1)
+			    END,
+			    finished_at = CASE
+			        WHEN started_at IS NULL THEN finished_at
+			        ELSE COALESCE(finished_at, NOW())
+			    END
+			WHERE run_id = $1
+			  AND status NOT IN ('success', 'failure', 'failure (ignored)', 'skipped', 'cancelled', 'rejected')`, runID)
+		return err
+	case "cancelled", "rejected":
+		_, err := exec.Exec(ctx, `
+			UPDATE task_runs
+			SET status = CASE
+			        WHEN started_at IS NULL THEN 'skipped'
+			        ELSE 'cancelled'
+			    END,
+			    finished_at = CASE
+			        WHEN started_at IS NULL THEN finished_at
+			        ELSE COALESCE(finished_at, NOW())
+			    END
+			WHERE run_id = $1
+			  AND status NOT IN ('success', 'failure', 'failure (ignored)', 'skipped', 'cancelled', 'rejected')`, runID)
+		return err
+	default:
+		return nil
+	}
 }
 
 func (a *App) handleGetRunStatus(w http.ResponseWriter, r *http.Request) {
