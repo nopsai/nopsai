@@ -28,6 +28,62 @@ func TestFinalizeRunDetailStepStatusMarksPendingStepSkippedOnFailedRun(t *testin
 	}
 }
 
+func TestDeriveRunDetailStepDurationCapsUnfinishedWorkAtRunFinish(t *testing.T) {
+	start := time.Unix(1_700_000_000, 0).UTC()
+	finished := start.Add(45 * time.Second)
+	tasks := []models.TaskDetail{
+		{
+			TaskID:    "task-1",
+			StepName:  "prepare",
+			TaskName:  "clone",
+			Status:    "running",
+			StartedAt: start,
+		},
+	}
+
+	got := DeriveRunDetailStepDurationUntil(tasks, nil, finished)
+	if got != 45*time.Second {
+		t.Fatalf("DeriveRunDetailStepDurationUntil() = %s, want 45s", got)
+	}
+}
+
+func TestFinalizeRunDetailTasksForDisplaySkipsNeverStartedWorkAndBoundsFailedWork(t *testing.T) {
+	start := time.Unix(1_700_000_000, 0).UTC()
+	finished := start.Add(30 * time.Second)
+	tasks := []models.TaskDetail{
+		{
+			TaskID:    "task-1",
+			StepName:  "prepare",
+			TaskName:  "clone",
+			Status:    "running",
+			StartedAt: start,
+		},
+		{
+			TaskID:   "task-2",
+			StepName: "prepare",
+			TaskName: "branch",
+			Status:   "pending",
+		},
+	}
+
+	got := FinalizeRunDetailTasksForDisplay(tasks, "failure", "failure", finished)
+	if got[0].Status != "failure" {
+		t.Fatalf("first task status = %q, want failure", got[0].Status)
+	}
+	if got[0].FinishedAt != finished {
+		t.Fatalf("first task finished_at = %s, want %s", got[0].FinishedAt, finished)
+	}
+	if got[0].ExitCode == nil || *got[0].ExitCode != 1 {
+		t.Fatalf("first task exit code = %v, want 1", got[0].ExitCode)
+	}
+	if got[1].Status != "skipped" {
+		t.Fatalf("second task status = %q, want skipped", got[1].Status)
+	}
+	if !got[1].FinishedAt.IsZero() {
+		t.Fatalf("second task finished_at = %s, want zero", got[1].FinishedAt)
+	}
+}
+
 func TestBuildRunDetailETagChangesWhenTaskStatusChanges(t *testing.T) {
 	start := time.Unix(1_700_000_000, 0).UTC()
 	run := models.RunListItem{

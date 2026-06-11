@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { formatElapsedLabel, formatStepDuration } from './runGraphModel.js';
+import { formatElapsedLabel, formatStepDuration, formatTaskDuration } from './runGraphModel.js';
 
 test('formats bounded run graph durations', () => {
   assert.equal(
@@ -30,5 +30,44 @@ test('derives step duration from task execution before the supplied fallback', (
       ],
     }),
     '1m 30s'
+  );
+});
+
+test('uses provided terminal step duration instead of stale open task time', () => {
+  assert.equal(
+    formatStepDuration({
+      name: 'preparation',
+      status: 'failure',
+      depends_on: [],
+      duration: '45s',
+      tasks: [
+        {
+          task_id: 'task-1',
+          step_name: 'preparation',
+          task_name: 'branch-versioning',
+          status: 'running',
+          task_index: 0,
+          started_at: '2026-06-08T10:00:00Z',
+        },
+      ],
+    }),
+    '45s'
+  );
+});
+
+test('does not keep counting terminal task display durations without finish times', () => {
+  assert.equal(
+    formatTaskDuration(
+      {
+        task_id: 'task-1',
+        step_name: 'preparation',
+        task_name: 'branch-versioning',
+        status: 'running',
+        task_index: 0,
+        started_at: '2026-06-08T10:00:00Z',
+      },
+      'failed'
+    ),
+    '0s'
   );
 });

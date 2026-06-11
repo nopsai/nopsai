@@ -10,7 +10,7 @@ import type {
 } from './contracts';
 import { calculateGraphLayout, deriveTaskGraphStatus, getGraphStatusColor } from './graphLayout';
 import { TASK_HEIGHT, TASK_MAX_WIDTH, TASK_MIN_WIDTH, TaskNodeRenderer } from './RunGraph';
-import { formatElapsedLabel, formatStepDuration } from './runGraphModel';
+import { formatStepDuration, formatTaskDuration } from './runGraphModel';
 import { getStatusMeta } from './statusPresentation';
 
 const EMPTY_TASK_DEFINITIONS: TaskDefinition[] = [];
@@ -36,11 +36,12 @@ export function StepDetailModal({
       const def = taskDefs.find(t => t.name === task.task_name);
       const deps = def?.depends_on || [];
       const taskId = task.task_name || task.task_id || `task-${task.task_index}`;
+      const status = deriveTaskGraphStatus(task, step.status);
       return {
         id: taskId,
         name: task.task_name,
-        status: deriveTaskGraphStatus(task, step.status),
-        duration: formatElapsedLabel(task.started_at, task.finished_at, ''),
+        status,
+        duration: formatTaskDuration(task, status),
         dependsOn: deps,
       };
     });
@@ -544,7 +545,7 @@ export function StepDetailModal({
               <div className="flex items-center justify-between">
                 <div className="text-base font-semibold text-[var(--text-primary)]">{selectedTask.task_name}</div>
                 <div className="text-xs text-[var(--text-secondary)] font-mono">
-                  Duration: {formatElapsedLabel(selectedTask.started_at, selectedTask.finished_at, '—')}
+                  Duration: {formatTaskDuration(selectedTask, deriveTaskGraphStatus(selectedTask, step?.status)) || '—'}
                   </div>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2 text-sm text-[var(--text-primary)]">
@@ -670,4 +671,3 @@ export function PipelineDefinitionModal({
     </div>
   );
 }
-

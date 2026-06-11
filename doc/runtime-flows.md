@@ -158,6 +158,7 @@ The agent runs tasks in dependency order, not strictly line order.
 23. It appends a normalized history entry that later tasks and child pipelines can use.
 24. If a task fails and `ignore_failure` is false, the pipeline stops with failure.
 25. If a task fails and `ignore_failure` is true, the task becomes `failure (ignored)` and the pipeline continues.
+26. When a run finalizes as failed, task rows that never started are closed as `skipped`; started task rows without a terminal update are closed as `failure` with a finish timestamp so run graphs show bounded step time instead of an open-ended pipeline age.
 
 ## 7. How Goal-Based Tasks Work
 

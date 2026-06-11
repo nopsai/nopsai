@@ -11,6 +11,7 @@ test('derives graph statuses from run and task execution details', () => {
   assert.equal(normalizeGraphStatus('waiting_approval'), 'running');
   assert.equal(normalizeGraphStatus('failure'), 'failed');
   assert.equal(deriveTaskGraphStatus({ status: 'success' }, 'pending'), 'pending');
+  assert.equal(deriveTaskGraphStatus({ status: 'pending' }, 'failure'), 'skipped');
   assert.equal(
     deriveTaskGraphStatus({ status: 'running', started_at: '2026-01-01', finished_at: '2026-01-01', exit_code: 1 }),
     'failed'

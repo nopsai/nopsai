@@ -67,7 +67,10 @@ export function deriveTaskGraphStatus(task: TaskStatusInput, stepStatus?: string
   if (!finished && stepBase && stepBase !== 'pending' && stepBase !== 'running') return stepBase;
   if (base === 'running' || (started && !finished)) return 'running';
   if (!started && !finished && base === 'success') return stepBase && stepBase !== 'pending' ? stepBase : 'pending';
-  return base === 'pending' && !started && !finished ? (stepBase || 'pending') : base;
+  if (base === 'pending' && !started && !finished) {
+    return stepBase && stepBase !== 'pending' && stepBase !== 'running' ? 'skipped' : (stepBase || 'pending');
+  }
+  return base;
 }
 
 export function deriveGraphEdgeStatus(source: GraphStatus, target: GraphStatus): GraphStatus {
