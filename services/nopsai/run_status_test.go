@@ -130,6 +130,32 @@ func TestMarkRunRunningPromotesNonTerminalRun(t *testing.T) {
 	}
 }
 
+func TestCloseIncompleteTasksForFinalFailureSkipsPendingAndFailsStartedTasks(t *testing.T) {
+	runner := &recordingRunExecRunner{}
+
+	if err := closeIncompleteTasksForFinalStatus(context.Background(), runner, "run-1", "failure"); err != nil {
+		t.Fatalf("closeIncompleteTasksForFinalStatus() error = %v", err)
+	}
+
+	if len(runner.calls) != 1 {
+		t.Fatalf("expected 1 Exec call, got %d", len(runner.calls))
+	}
+	statement := strings.Join(strings.Fields(runner.calls[0].sql), " ")
+	for _, want := range []string{
+		"WHEN started_at IS NULL THEN 'skipped'",
+		"ELSE 'failure'",
+		"ELSE COALESCE(exit_code, 1)",
+		"status NOT IN ('success', 'failure', 'failure (ignored)', 'skipped', 'cancelled', 'rejected')",
+	} {
+		if !strings.Contains(statement, want) {
+			t.Fatalf("closeIncompleteTasksForFinalStatus() SQL missing %q in %q", want, statement)
+		}
+	}
+	if got := runner.calls[0].args[0]; got != "run-1" {
+		t.Fatalf("closeIncompleteTasksForFinalStatus() run id arg = %v, want run-1", got)
+	}
+}
+
 type recordingRunExecRunner struct {
 	calls []recordingRunExecCall
 }
