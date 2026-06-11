@@ -15,6 +15,11 @@ type configRepositoryLLMProfilesExportDocument struct {
 	Profiles       []llmProfileForm `yaml:"profiles"`
 }
 
+type configRepositoryAgentProfilesExportDocument struct {
+	DefaultProfile string             `yaml:"default_profile"`
+	AgentProfiles  []agentProfileForm `yaml:"agent_profiles"`
+}
+
 func (a *App) exportConfigRepositoryLLMProfiles(ctx context.Context, repo models.ConfigRepository, files map[string]string) error {
 	if repo.ScopeType != models.ConfigRepositoryScopeSystem {
 		return nil
@@ -52,6 +57,40 @@ func (a *App) exportConfigRepositoryLLMProfiles(ctx context.Context, repo models
 		return err
 	}
 	files[configRepositoryLLMProfilesPath] = string(content)
+	return nil
+}
+
+func (a *App) exportConfigRepositoryAgentProfiles(ctx context.Context, repo models.ConfigRepository, files map[string]string) error {
+	if repo.ScopeType != models.ConfigRepositoryScopeSystem {
+		return nil
+	}
+
+	stored, err := a.loadStoredAgentProfilesFromDB(ctx)
+	if err != nil {
+		return err
+	}
+	defaultProfile, err := a.effectiveAgentProfileDefault(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if len(stored) == 0 && defaultProfile == models.DefaultAgentProfileID {
+		return nil
+	}
+	names := make([]string, 0, len(stored))
+	for name := range stored {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	doc := configRepositoryAgentProfilesExportDocument{DefaultProfile: defaultProfile}
+	for _, name := range names {
+		profile := stored[name].AgentProfile
+		doc.AgentProfiles = append(doc.AgentProfiles, agentProfileFormFromModel(profile))
+	}
+	content, err := marshalConfigRepositoryYAML(doc)
+	if err != nil {
+		return err
+	}
+	files[configRepositoryAgentProfilesPath] = string(content)
 	return nil
 }
 

@@ -30,6 +30,7 @@ func databaseBootstrapSteps(cfg *config.Config) []databaseBootstrapStep {
 		{name: "external trigger schema", run: ensureExternalTriggerSchema},
 		{name: "schedule schema", run: ensureScheduleSchema},
 		{name: "LLM profile schema", run: ensureLLMProfileSchema},
+		{name: "agent profile schema", run: ensureAgentProfileSchema},
 		{name: "MCP schema", run: ensureMCPSchema},
 		{name: "setup schema", run: ensureSetupSchema},
 		{name: "approval schema", run: ensureApprovalSchema},

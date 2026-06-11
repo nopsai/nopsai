@@ -4,6 +4,10 @@ Nopsai uses named LLM profiles for all model selection. Pipelines do not set raw
 provider credentials or model configuration directly; they reference approved
 profile names.
 
+Agent Profiles are separate from LLM Profiles. `agent_profile` selects the role
+and instruction text inserted into prompts, while `llm_profile` selects the
+provider/model client. See [agent-profiles.md](./agent-profiles.md).
+
 ## Configuration
 
 Define bootstrap profiles in `config.yml`, manage them from **System -> LLM
@@ -116,7 +120,8 @@ steps:
 ```
 
 When `llm_enabled: false` is set, LLM and MCP profile validation is skipped and
-no LLM profile registry is required at runtime. The pipeline cannot define
+no LLM profile registry is required at runtime. Agent Profile references are
+still schema-validated as pipeline/step metadata. The pipeline cannot define
 `goal` tasks or step `condition` values, because those require an LLM.
 
 ## Resolution
@@ -182,6 +187,9 @@ The control plane loads the active profile registry from the database, validates
 it, and packages the full registry into the agent runtime as
 `NOPSAI_LLM_PROFILES`. The agent reads that registry and caches LLM clients by
 profile name.
+
+The Agent Profile catalog is packaged separately as `NOPSAI_AGENT_PROFILES`.
+The agent uses it only to build persona text for prompts.
 
 There is no fallback to provider-specific environment variables for model
 selection. Environment variables are only used when a profile's

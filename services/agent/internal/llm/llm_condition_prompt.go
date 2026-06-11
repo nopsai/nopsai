@@ -58,7 +58,11 @@ func actionModelToProto(actionModel *models.Action) (*proto.Action, error) {
 }
 
 func (c *LLMClient) EvaluateCondition(ctx context.Context, req *proto.ConditionRequest) (*proto.ConditionResponse, error) {
-	prompt := c.buildConditionPrompt(req)
+	return c.EvaluateConditionWithAgentProfile(ctx, req, defaultAgentPromptProfile())
+}
+
+func (c *LLMClient) EvaluateConditionWithAgentProfile(ctx context.Context, req *proto.ConditionRequest, agentProfile AgentPromptProfile) (*proto.ConditionResponse, error) {
+	prompt := c.buildConditionPrompt(req, agentProfile)
 
 	var (
 		result bool
@@ -85,13 +89,15 @@ func (c *LLMClient) EvaluateCondition(ctx context.Context, req *proto.ConditionR
 	return &proto.ConditionResponse{Result: result}, nil
 }
 
-func (c *LLMClient) buildConditionPrompt(req *proto.ConditionRequest) string {
+func (c *LLMClient) buildConditionPrompt(req *proto.ConditionRequest, agentProfile AgentPromptProfile) string {
 	history := req.GetHistory()
 	if history == "" {
 		history = "No history yet."
 	}
 
-	promptTemplate := `You are a CI/CD automation bot. Your task is to answer a YES/NO question based on the provided context.
+	promptTemplate := `%s
+
+Your task is to answer a YES/NO question based on the provided context.
 You must only respond with the word "true" or "false" and nothing else.
 
 ---
@@ -107,7 +113,7 @@ You must only respond with the word "true" or "false" and nothing else.
 ---
 Based on the context, is the answer to the question YES or NO? Respond with only "true" or "false".`
 
-	fullPrompt := fmt.Sprintf(promptTemplate, buildVariablesSection(req.GetVariables()), buildKnowledgeContextSection(req.GetKnowledgeContext()), history, req.GetGoal())
+	fullPrompt := fmt.Sprintf(promptTemplate, formatAgentPromptProfile(agentProfile), buildVariablesSection(req.GetVariables()), buildKnowledgeContextSection(req.GetKnowledgeContext()), history, req.GetGoal())
 	logEvent := log.Debug().Str("provider", c.provider)
 	if c.profile != "" {
 		logEvent = logEvent.Str("llm_profile", c.profile)
@@ -117,10 +123,10 @@ Based on the context, is the answer to the question YES or NO? Respond with only
 }
 
 func (c *LLMClient) buildPrompt(req *proto.GetActionRequest) string {
-	return c.buildPromptWithMCP(req, "", "")
+	return c.buildPromptWithMCP(req, "", "", defaultAgentPromptProfile())
 }
 
-func (c *LLMClient) buildPromptWithMCP(req *proto.GetActionRequest, mcpTranscript, mcpToolPrompt string) string {
+func (c *LLMClient) buildPromptWithMCP(req *proto.GetActionRequest, mcpTranscript, mcpToolPrompt string, agentProfile AgentPromptProfile) string {
 	history := req.GetHistory()
 	if history == "" {
 		history = "No history yet."
@@ -133,7 +139,9 @@ func (c *LLMClient) buildPromptWithMCP(req *proto.GetActionRequest, mcpTranscrip
 		mcpSection = "**External MCP Tools:**\nNo external MCP tools are available for this goal."
 	}
 
-	promptTemplate := `You are an expert CI/CD automation bot. Your task is to achieve a user's goal by choosing the correct action from a toolkit.
+	promptTemplate := `%s
+
+Your task is to achieve a user's goal by choosing the correct action from a toolkit.
 You must only respond with a single JSON object. Inside this object, there should be a single key "action" which contains the action to perform.
 
 Here are the available actions:
@@ -160,6 +168,7 @@ Now, choose the single best action from your toolkit and provide the response in
 
 	fullPrompt := fmt.Sprintf(
 		promptTemplate,
+		formatAgentPromptProfile(agentProfile),
 		buildVariablesSection(req.GetVariables()),
 		buildKnowledgeContextSection(req.GetKnowledgeContext()),
 		buildDirectoryListingSection(req.GetDirectoryListing()),

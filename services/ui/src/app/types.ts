@@ -65,6 +65,8 @@ export type SystemCapabilities = {
   configWrite?: boolean;
   llmProfilesRead?: boolean;
   llmProfilesWrite?: boolean;
+  agentProfilesRead?: boolean;
+  agentProfilesWrite?: boolean;
   mcpRead?: boolean;
   mcpWrite?: boolean;
   configReposRead?: boolean;

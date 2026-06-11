@@ -54,7 +54,7 @@ Drift is bidirectional for syncable resources: Git-only changes appear as files
 to import or delete, and UI-side changes appear as generated GitOps updates. The
 check covers pipelines, reusable steps, schedules, trigger manifests, scopes,
 knowledge contexts, run group/config-repository structure, notification routes,
-access manifests, LLM profiles, MCP registry files, mail settings, and runtime settings. Pipeline run records
+access manifests, Agent Profiles, LLM profiles, MCP registry files, mail settings, and runtime settings. Pipeline run records
 themselves are runtime audit state, so they are not exported as Git-owned
 objects. For pipeline, reusable step, scope, and knowledge context Access dialog
 changes, the generated diff updates the embedded `access:` block in that
@@ -89,7 +89,7 @@ pipelineruns/          Run group structure
 config-repositories/   Group config repo bindings
 access/                Users, service accounts, advanced roles, policies, and basic role grants
 notifications/         Group pipeline notification policies with named routes
-setting/               System settings such as LLM, MCP, and runtime settings
+setting/               System settings such as Agent Profiles, LLM, MCP, and runtime settings
 settings/              System notification mail settings
 ```
 
@@ -168,6 +168,9 @@ global-repo/notifications/groups/team-2.yaml
 
 global-repo/setting/system/llm_profile.yaml
   -> system LLM profile registry
+
+global-repo/setting/system/agent-profiles.yaml
+  -> system Agent Profile persona registry and default profile setting
 
 global-repo/setting/system/mcp.yaml
   -> system MCP server and profile registry

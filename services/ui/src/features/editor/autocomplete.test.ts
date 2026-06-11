@@ -9,14 +9,15 @@ import {
 
 test('normalizes editor autocomplete list payloads', () => {
   assert.deepEqual(
-    normalizeAutocompleteList([' TOKEN ', { name: 'DEPLOY_ENV' }, { id: 'ignored' }, '']),
-    ['TOKEN', 'DEPLOY_ENV']
+    normalizeAutocompleteList([' TOKEN ', { name: 'DEPLOY_ENV' }, { id: 'agent-profile' }, '']),
+    ['TOKEN', 'DEPLOY_ENV', 'agent-profile']
   );
   assert.deepEqual(normalizeAutocompleteList(null), []);
 });
 
 test('normalizes profile payload envelopes', () => {
-  assert.deepEqual(normalizeProfilePayload({ profiles: [{ name: 'standard' }, { name: 'reasoning' }] }), ['standard', 'reasoning']);
+  assert.deepEqual(normalizeProfilePayload({ profiles: [{ name: 'standard' }, { name: 'blocked', allowed_in_scope: false }] }), ['standard']);
+  assert.deepEqual(normalizeProfilePayload({ profiles: [{ id: 'devops-engineer' }, { id: 'disabled', enabled: false }] }), ['devops-engineer']);
   assert.deepEqual(normalizeProfilePayload(['github-pr-review']), ['github-pr-review']);
 });
 

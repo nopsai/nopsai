@@ -14,14 +14,17 @@ afterEach(() => {
 
 describe('editor autocomplete metadata', () => {
   it('normalizes list, profile, and scope payloads', () => {
-    expect(normalizeAutocompleteList([' TOKEN ', { name: 'DEPLOY_ENV' }, { id: 'ignored' }, '', null])).toEqual([
+    expect(normalizeAutocompleteList([' TOKEN ', { name: 'DEPLOY_ENV' }, { id: 'agent-profile' }, '', null])).toEqual([
       'TOKEN',
       'DEPLOY_ENV',
+      'agent-profile',
     ]);
     expect(normalizeAutocompleteList(null)).toEqual([]);
-    expect(normalizeProfilePayload({ profiles: [{ name: 'standard' }, { name: 'reasoning' }] })).toEqual([
+    expect(normalizeProfilePayload({ profiles: [{ name: 'standard' }, { name: 'blocked', allowed_in_scope: false }] })).toEqual([
       'standard',
-      'reasoning',
+    ]);
+    expect(normalizeProfilePayload({ profiles: [{ id: 'devops-engineer' }, { id: 'disabled', enabled: false }] })).toEqual([
+      'devops-engineer',
     ]);
     expect(normalizeProfilePayload(['github-pr-review'])).toEqual(['github-pr-review']);
     expect(normalizeScopeLabel(' default ')).toBe('');
@@ -44,6 +47,7 @@ describe('editor autocomplete metadata', () => {
         '/v1/steps': [{ name: 'shared/checkout' }],
         '/v1/secrets/scopes': ['default', 'team'],
         '/v1/variables/scopes': [{ scope: 'team' }],
+        '/v1/system/agent-profiles': { profiles: [{ id: 'devops-engineer' }, { id: 'sre' }] },
         '/v1/system/llm-profiles': { profiles: [{ name: 'reasoning' }] },
         '/v1/system/mcp/profiles': { profiles: [{ name: 'github' }] },
         '/v1/secrets?scope=team': ['TEAM_SECRET'],
@@ -56,6 +60,7 @@ describe('editor autocomplete metadata', () => {
     });
 
     const metadata = await fetchEditorAutocompleteMetadata({
+      includeAgentProfiles: true,
       includeLLMProfiles: true,
       includeMCPProfiles: true,
     });
@@ -71,6 +76,7 @@ describe('editor autocomplete metadata', () => {
       { scope: '', items: ['GLOBAL_VARIABLE'] },
       { scope: 'team', items: ['TEAM_VARIABLE'] },
     ]);
+    expect(metadata.agentProfiles).toEqual(['devops-engineer', 'sre']);
     expect(metadata.llmProfiles).toEqual(['reasoning']);
     expect(metadata.mcpProfiles).toEqual(['github']);
     expect(metadata.loading).toBe(false);

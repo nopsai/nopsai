@@ -272,6 +272,9 @@ func (a *App) exportConfigRepositoryFiles(ctx context.Context, repo models.Confi
 	if err := a.exportConfigRepositoryLLMProfiles(ctx, repo, files); err != nil {
 		return nil, err
 	}
+	if err := a.exportConfigRepositoryAgentProfiles(ctx, repo, files); err != nil {
+		return nil, err
+	}
 	if err := a.exportConfigRepositoryMCPRegistry(ctx, repo, files); err != nil {
 		return nil, err
 	}

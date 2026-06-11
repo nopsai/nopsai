@@ -14,6 +14,8 @@ test('normalizes API capability payloads into UI capabilities', () => {
         config_read: true,
         config_write: false,
         llm_profiles_read: false,
+        agent_profiles_read: true,
+        agent_profiles_write: false,
         mcp_write: true,
         access: true,
       },
@@ -26,6 +28,8 @@ test('normalizes API capability payloads into UI capabilities', () => {
   assert.equal(can(user, 'pipelines.delete'), false);
   assert.equal(can(user, 'schedules.delete'), true);
   assert.equal(can(user, 'system.config.read'), true);
+  assert.equal(can(user, 'system.agent_profiles.read'), true);
+  assert.equal(can(user, 'system.agent_profiles.write'), false);
   assert.equal(can(user, 'system.mcp.write'), true);
 });
 
@@ -53,6 +57,27 @@ test('derives app and system access from normalized capabilities', () => {
   assert.equal(access.preferredSystemPath, '/system/config');
   assert.equal(access.systemPermissions.canViewLLMProfiles, true);
   assert.equal(access.systemPermissions.canManageLLMProfiles, false);
+  assert.equal(access.systemPermissions.canViewAgentProfiles, true);
+  assert.equal(access.systemPermissions.canManageAgentProfiles, false);
   assert.equal(access.systemPermissions.canViewDataManagement, true);
   assert.equal(access.systemPermissions.canManageDataManagement, false);
+});
+
+test('prefers Agent Profiles when only that system capability is granted', () => {
+  const user = normalizeCurrentUser({
+    sub: 'operator',
+    capabilities: {
+      system: {
+        agent_profiles_read: true,
+        agent_profiles_write: true,
+      },
+    },
+  });
+
+  const access = getAppAccess(user, { sub: 'operator' });
+
+  assert.equal(access.canViewAnySystem, true);
+  assert.equal(access.preferredSystemPath, '/system/agent-profiles');
+  assert.equal(access.canViewSystemAgentProfiles, true);
+  assert.equal(access.canManageSystemAgentProfiles, true);
 });

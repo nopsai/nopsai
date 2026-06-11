@@ -19,6 +19,7 @@ export const STEP_DIRECTIVES = [
   'script',
   'depends_on',
   'ignore_failure',
+  'agent_profile',
   'llm_output_sharing',
   'artifacts',
   'access',

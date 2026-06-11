@@ -24,6 +24,7 @@ export const PIPELINE_DIRECTIVES: LabDirective[] = [
   { key: 'steps', hint: 'List pipeline steps' },
   { key: 'timeout', hint: 'Pipeline timeout' },
   { key: 'llm_enabled', hint: 'Enable or disable LLM for this pipeline' },
+  { key: 'agent_profile', hint: 'Select AI role/persona' },
   { key: 'llm_profile', hint: 'Select LLM profile' },
   { key: 'mcp_profiles', hint: 'Select MCP profiles for goal tasks' },
   { key: 'runtime_pool', hint: 'Kubernetes runtime pool for steps' },
@@ -51,6 +52,7 @@ export const STEP_DIRECTIVES: LabDirective[] = [
   { key: 'script', hint: 'Shell script body' },
   { key: 'depends_on', hint: 'Upstream steps' },
   { key: 'ignore_failure', hint: 'Ignore failures' },
+  { key: 'agent_profile', hint: 'Select AI role/persona' },
   { key: 'llm_profile', hint: 'Select LLM profile' },
   { key: 'mcp_profiles', hint: 'MCP profiles for goal tasks' },
   { key: 'runtime_pool', hint: 'Kubernetes runtime pool override' },
@@ -227,6 +229,7 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'steps',
     'timeout',
     'llm_enabled',
+    'agent_profile',
     'llm_profile',
     'mcp_profiles',
     'runtime_pool',
@@ -253,6 +256,7 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'script',
     'depends_on',
     'ignore_failure',
+    'agent_profile',
     'llm_profile',
     'mcp_profiles',
     'runtime_pool',
@@ -717,6 +721,7 @@ export type LabSuggestionType =
   | 'depends_on'
   | 'secrets'
   | 'variables'
+  | 'agent_profile'
   | 'llm_profile'
   | 'mcp_profile'
   | 'directive-value'
@@ -821,6 +826,17 @@ function detectDirectiveValueContext(lineInfo: LineInfo, selectionEnd: number): 
   const currentValue = rawLine.slice(valueOffsetLocal, lineInfo.column).trim();
 
   const metadata = DIRECTIVE_VALUE_METADATA[key];
+  if (!metadata && key === 'agent_profile') {
+    return {
+      type: 'agent_profile',
+      title: 'Agent Profiles',
+      key,
+      prefix: currentValue,
+      rangeStart,
+      rangeEnd: Math.max(rangeStart, selectionEnd),
+      insertSuffix: '',
+    };
+  }
   if (!metadata && key === 'llm_profile') {
     return {
       type: 'llm_profile',
@@ -1025,6 +1041,7 @@ export function buildSuggestionItems(
   opts: {
     secrets: string[];
     variables: string[];
+    agentProfiles?: string[];
     llmProfiles: string[];
     mcpProfiles?: string[];
     reusableSteps: string[];
@@ -1040,6 +1057,8 @@ export function buildSuggestionItems(
     pool = opts.secrets.map(s => ({ value: s, label: s }));
   } else if (ctx.type === 'variables') {
     pool = opts.variables.map(v => ({ value: v, label: v }));
+  } else if (ctx.type === 'agent_profile') {
+    pool = (opts.agentProfiles || []).map(p => ({ value: p, label: p }));
   } else if (ctx.type === 'llm_profile') {
     pool = opts.llmProfiles.map(p => ({ value: p, label: p }));
   } else if (ctx.type === 'mcp_profile') {
@@ -1079,6 +1098,8 @@ export function suggestionCopyForContext(contextInfo: LabSuggestionContext | nul
       return { title: 'Secrets', subtitle: 'Available secret names.', footnote: 'Tab to accept inline hint.' };
     case 'include':
       return { title: 'Include targets', subtitle: 'Reusable steps and pipelines.', footnote: 'Click or Tab to insert.' };
+    case 'agent_profile':
+      return { title: 'Agent profiles', subtitle: 'AI roles/personas for this pipeline or step.', footnote: 'Click or Tab to insert.' };
     case 'llm_profile':
       return { title: 'LLM profiles', subtitle: 'Profiles allowed for the selected scope.', footnote: 'Click or Tab to insert.' };
     case 'mcp_profile':

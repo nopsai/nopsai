@@ -23,7 +23,7 @@ The refactor has established these boundaries and they should be preserved:
 - `src/app/*` owns shell composition, lazy routes, sidebar state, resource trees, initial setup redirect, and run-sidebar orchestration.
 - `src/auth/*` owns session loading, current-user state, capability normalization, access decisions, auth context, and route guards.
 - `src/lib/api.ts` owns API URL resolution, session persistence, bearer-token attachment, and refresh retry behavior through `apiClient`.
-- `src/features/**/model.ts` owns pure domain rules, normalization, validation, identifiers, payload shaping, and display helpers.
+- `src/features/**/model.ts` owns pure domain rules, normalization, validation, identifiers, payload shaping, and display helpers, including enterprise catalog features such as Agent Profiles.
 - `src/features/**/api.ts` owns transport and endpoint-specific request/response mapping.
 - `src/features/**/use*.ts` owns async orchestration, polling, local mutation state, permission checks, and toast-facing failure handling.
 - Feature-owned `*.tsx` components own rendering, accessibility semantics, keyboard behavior, and local visual interaction only.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildInlineSuggestionPreview,
+  normalizeAgentProfileSuggestionList,
   normalizeLLMProfileSuggestionList,
   normalizeLabScopeLabel,
   normalizeLabSuggestionList,
@@ -25,6 +26,12 @@ describe('Lab suggestions', () => {
   });
 
   it('filters unavailable LLM and MCP profiles', () => {
+    expect(
+      normalizeAgentProfileSuggestionList({
+        profiles: [' direct ', { id: 'sre' }, { id: 'disabled', enabled: false }, null],
+      })
+    ).toEqual(['direct', 'sre']);
+    expect(normalizeAgentProfileSuggestionList(null)).toEqual([]);
     expect(
       normalizeLLMProfileSuggestionList({
         profiles: [' direct ', { name: 'standard' }, { name: 'blocked', allowed_in_scope: false }, null],
