@@ -2,6 +2,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SystemPagePermissions } from '../auth/capabilities';
 import { ConfigRepositoryDriftModal } from '../components/ConfigRepositoryDriftModal';
+import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowToastRegion';
 import LLMProfilesPanel from '../features/system/LLMProfilesPanel';
 import MCPPanel from '../features/system/MCPPanel';
 import DataManagementPanel from '../features/system/DataManagementPanel';
@@ -14,12 +15,6 @@ import { useSystemAccess } from '../features/system/access/useSystemAccess';
 import { useSystemConfig } from '../features/system/config/useSystemConfig';
 
 type SystemTab = 'config' | 'setup' | 'llm-profiles' | 'mcp' | 'data-management' | 'dispatcher' | 'access';
-
-type ToastMessage = {
-  id: number;
-  message: string;
-  tone: 'success' | 'error' | 'info';
-};
 
 function resolveSystemTab(tab?: string): SystemTab {
   if (
@@ -60,7 +55,7 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     permissions.canViewSetup,
   ]);
   const visibleTab = allowedTabs.includes(activeTab) ? activeTab : allowedTabs[0] ?? activeTab;
-  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [toasts, setToasts] = useState<WorkflowToast[]>([]);
 
   useEffect(() => {
     if (allowedTabs.includes(activeTab)) return;
@@ -69,7 +64,7 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     navigate(`/system/${nextTab}`, { replace: true });
   }, [activeTab, allowedTabs, navigate]);
 
-  const addToast = useCallback((message: string, tone: ToastMessage['tone'] = 'info') => {
+  const addToast = useCallback((message: string, tone: WorkflowToast['tone'] = 'info') => {
     const id = Date.now() + Math.random();
     setToasts(prev => [...prev, { id, message, tone }]);
     window.setTimeout(() => {
@@ -132,15 +127,7 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
         <AccessPanel {...accessPanel} />
       )}
 
-      {toasts.length > 0 && (
-        <div className="fixed top-6 right-6 z-[100] w-full max-w-sm space-y-3">
-          {toasts.map(toast => (
-            <div key={toast.id} className={`pipelines-toast pipelines-toast--${toast.tone} show`}>
-              <div className="pipelines-toast__content">{toast.message}</div>
-            </div>
-          ))}
-        </div>
-      )}
+      <WorkflowToastRegion toasts={toasts} />
 
       {systemConfig.globalConfigRepoDriftOpen && (
         <ConfigRepositoryDriftModal

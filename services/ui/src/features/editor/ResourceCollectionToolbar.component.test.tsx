@@ -38,3 +38,22 @@ test('delegates navigation and creation while owning collection search behavior'
   expect(onBack).toHaveBeenCalledOnce();
   expect(onCreate).toHaveBeenCalledOnce();
 });
+
+test('hides creation and disables folder navigation when access or context is missing', () => {
+  const onBack = vi.fn();
+  const onCreate = vi.fn();
+  render(
+    <ResourceCollectionToolbar
+      resourceLabel="step"
+      activeFolder=""
+      searchTerm=""
+      canCreate={false}
+      onBack={onBack}
+      onSearchTermChange={() => undefined}
+      onCreate={onCreate}
+    />
+  );
+
+  expect(screen.getByRole('button', { name: 'Back' })).toBeDisabled();
+  expect(screen.queryByRole('button', { name: 'Create new step' })).not.toBeInTheDocument();
+});

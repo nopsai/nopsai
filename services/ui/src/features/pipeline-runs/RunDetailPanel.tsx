@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { ArrowRight, FileText, RefreshCw, Square, Trash2, Workflow, X } from 'lucide-react';
 import type { PipelineDefinition, RunListItem, StepDetail } from './contracts';
-import { BranchIcon, CommitIcon, RunIdIcon, StatusBadge, ZapIcon } from './PipelineRunsDashboard';
+import { BranchIcon, CommitIcon, RunIdIcon, StatusBadge, ZapIcon } from './PipelineRunCards';
 import { StepsGraph } from './RunGraph';
 import { buildPipelineLink, formatBranchDisplay, formatRepoLabel, formatTriggerId, timeAgo, type ParentRunInfo } from './runPresentation';
 import { getStatusMeta, normalizeStatus } from './statusPresentation';

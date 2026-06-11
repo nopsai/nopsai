@@ -74,6 +74,28 @@ except `services/ui`. This keeps frontend dependencies under `node_modules`
 outside Go package discovery, including when Docker Compose runs backend and UI
 checks concurrently.
 
+Run the UI boundary gate from `services/ui` whenever a frontend change touches
+route pages, feature modules, hooks, or shared UI helpers:
+
+```bash
+npm run check:ui-boundaries
+```
+
+The boundary gate fails on raw `fetch`, new TypeScript suppression comments,
+React Hooks/Fast Refresh lint suppressions, and route-local transport growth
+beyond the current baseline. It also prints a report-only summary of large route
+and feature-shell files plus browser `window.*` usage so release reviews can
+track extraction debt before a branch is cut.
+
+For workflow UI changes that introduce dialogs, empty states, alerts, icon-only
+commands, toast/live-region feedback, editor autocomplete, graph controls, or
+log dialogs, keep the shared primitives in `services/ui/src/components` as the
+default starting point. Component tests should cover accessible names,
+descriptions, validation announcements, focus trap behavior, Escape close, Tab
+order, and focus restoration. The mocked Playwright suite is the release gate
+for serious/critical axe violations across login, authenticated workspace,
+workflow dialogs, editor autocomplete, graph interaction, and populated logs.
+
 Set `SKIP_DOCKER_BUILDS=1` when validating Go/lint/security gates without
 local Docker builds.
 
@@ -91,6 +113,7 @@ go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
 
 - Go test, race test, vet, lint, gosec, and govulncheck
 - Docker build checks for service images and the UI image
+- UI lint, boundary checks, unit/component tests, and production build
 
 `.github/workflows/ui-live-smoke.yml` provides the post-deployment UI gate. It
 can be called by a deployment workflow or dispatched manually against a

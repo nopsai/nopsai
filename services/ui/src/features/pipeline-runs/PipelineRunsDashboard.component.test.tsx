@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, test, vi } from 'vitest';
-import { RunCard } from './PipelineRunsDashboard';
+import { RunCard } from './PipelineRunCards';
 
 test('renders run summary and delegates open and selection actions', async () => {
   const onOpen = vi.fn();

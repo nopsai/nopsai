@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
-import { ArrowLeft, Copy, Download, Play, Trash2 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   PIPELINE_DRAFTS_CHANGED_EVENT,
@@ -9,19 +8,19 @@ import {
   upsertPipelineDraft,
 } from '../lib/pipelineDrafts';
 import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups';
-import { applyEnterIndent, findParentBlock } from '../lib/lab';
-import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
-import ResourceAccessCard from '../components/ResourceAccessCard';
+import { applyEnterIndent } from '../lib/lab';
 import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowToastRegion';
 import { fetchEditorAutocompleteMetadata } from '../features/editor/autocomplete';
-import { EditorAutocompleteMenu } from '../features/editor/EditorAutocompleteMenu';
 import { ResourceCollectionToolbar } from '../features/editor/ResourceCollectionToolbar';
 import { ResourceWorkflowModals } from '../features/editor/ResourceWorkflowModals';
-import { YamlValidationPanel } from '../features/editor/YamlValidationPanel';
 import { useDraftCollection } from '../features/editor/useDraftCollection';
 import { useYamlResourceMutations } from '../features/editor/useYamlResourceMutations';
-import { StepsGraph } from '../features/pipeline-runs/RunGraph';
-import { PipelineActivityPanels } from '../features/pipelines/PipelineActivityPanels';
+import { PipelineCollectionList } from '../features/pipelines/PipelineCollectionList';
+import { PipelineDetailView } from '../features/pipelines/PipelineDetailView';
+import {
+  buildPipelineEditorSuggestion,
+  type PipelineEditorSuggestion,
+} from '../features/pipelines/editorAutocomplete';
 import {
   fetchPipelineList,
   fetchPipelineTriggers as fetchPipelineTriggersRequest,
@@ -34,9 +33,6 @@ import {
   type PipelineTrigger,
 } from '../features/pipelines/api';
 import {
-  PIPELINE_DIRECTIVES,
-  STEP_DIRECTIVES,
-  TASK_DIRECTIVES,
   buildPipelineGraphData,
   encodeId,
   normalizePipelineSource as normalizeSource,
@@ -142,7 +138,6 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   });
   const editSessionOriginalYamlRef = useRef<string>('');
   const wasEditingRef = useRef(false);
-  const parsePipelineYamlRef = useRef(parsePipelineYaml);
 
   const [autocompleteMeta, setAutocompleteMeta] = useState<{
     secrets: string[];
@@ -156,15 +151,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     loading: boolean;
   }>({ secrets: [], variables: [], llmProfiles: [], mcpProfiles: [], reusableSteps: [], secretScopes: [], variableScopes: [], fetchedAt: 0, loading: false });
 
-  const [editorSuggestion, setEditorSuggestion] = useState<null | {
-    title: string;
-    items: string[];
-    activeIndex: number;
-    replaceStart: number;
-    replaceEnd: number;
-    appendColon: boolean;
-    groupedSections?: Array<{ label: string; items: string[]; totalCount: number }>;
-  }>(null);
+  const [editorSuggestion, setEditorSuggestion] = useState<PipelineEditorSuggestion | null>(null);
 
   const validation = useMemo(() => {
     if (!isEditing) return { errors: [] };
@@ -252,140 +239,45 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   const openEditorSuggestion = useCallback(
     (cursor: number, opts?: { text?: string; force?: boolean }) => {
       const text = typeof opts?.text === 'string' ? opts.text : editorValue;
-      const before = text.slice(0, cursor);
-      const lineStart = before.lastIndexOf('\n') + 1;
-      const lineBeforeCursor = text.slice(lineStart, cursor);
-      const prefixMatch = lineBeforeCursor.match(/[A-Za-z0-9_.-]+$/);
-      const prefix = prefixMatch ? prefixMatch[0] : '';
-      const replaceStart = cursor - prefix.length;
-      const replaceEnd = cursor;
-
-      const lines = text.split('\n');
-      const lineIndex = before.split('\n').length - 1;
-      const currentLine = lines[lineIndex] || '';
-      const currentIndent = currentLine.match(/^\s*/)?.[0].length ?? 0;
-
-      const currentKeyMatch = currentLine.match(/^\s*-?\s*([A-Za-z0-9_.-]+)\s*:\s*/);
-      const currentKey = currentKeyMatch?.[1] || '';
-
-      const beforeLineText = text.slice(0, lineStart);
-      const ancestorKey = findParentBlock(beforeLineText, ['secrets', 'variables', 'depends_on', 'mcp_profiles', 'tasks', 'steps'], currentIndent) || '';
-      const containerBlock = findParentBlock(beforeLineText, ['tasks', 'steps'], currentIndent) || '';
-
-      const includeValueContext =
-        currentKey === 'include' ||
-        /^\s*include\s*:\s*[A-Za-z0-9_.-]*$/.test(lineBeforeCursor.trim());
-      const llmProfileValueContext =
-        currentKey === 'llm_profile' ||
-        /^\s*llm_profile\s*:\s*[A-Za-z0-9_.-]*$/.test(lineBeforeCursor.trim());
-
-      const resolveStepNames = () => {
-        if (!detail) return [];
-        try {
-          return parsePipelineYamlRef.current(text, detail.id, detail.source).stepNames;
-        } catch {
-          return [];
-        }
-      };
-
-      let title = 'Suggestions';
-      let pool: string[] = [];
-      let appendColon = false;
-      let groupedSections: Array<{ label: string; items: string[]; totalCount: number }> | undefined;
-
-      if (includeValueContext) {
-        title = 'Reusable steps';
-        pool = autocompleteMeta.reusableSteps;
-      } else if (llmProfileValueContext) {
-        title = 'LLM profiles';
-        pool = autocompleteMeta.llmProfiles;
-      } else if (ancestorKey === 'mcp_profiles') {
-        title = 'MCP profiles';
-        pool = autocompleteMeta.mcpProfiles;
-      } else if (ancestorKey === 'secrets') {
-        title = 'Secrets';
-        const base = autocompleteMeta.secretScopes.length
-          ? autocompleteMeta.secretScopes
-          : [{ scope: '', items: autocompleteMeta.secrets }];
-        let remaining = 50;
-        groupedSections = base
-          .map(entry => {
-            const filteredItems = entry.items.filter(item => item.toLowerCase().startsWith(prefix.toLowerCase()));
-            if (!filteredItems.length) return null;
-            const slice = filteredItems.slice(0, remaining);
-            remaining -= slice.length;
-            return {
-              label: entry.scope ? `/${entry.scope}` : 'Default scope',
-              items: slice,
-              totalCount: filteredItems.length,
-            };
-          })
-          .filter(Boolean) as Array<{ label: string; items: string[]; totalCount: number }>;
-        pool = groupedSections.flatMap(section => section.items);
-      } else if (ancestorKey === 'variables') {
-        title = 'Variables';
-        const base = autocompleteMeta.variableScopes.length
-          ? autocompleteMeta.variableScopes
-          : [{ scope: '', items: autocompleteMeta.variables }];
-        let remaining = 50;
-        groupedSections = base
-          .map(entry => {
-            const filteredItems = entry.items.filter(item => item.toLowerCase().startsWith(prefix.toLowerCase()));
-            if (!filteredItems.length) return null;
-            const slice = filteredItems.slice(0, remaining);
-            remaining -= slice.length;
-            return {
-              label: entry.scope ? `/${entry.scope}` : 'Default scope',
-              items: slice,
-              totalCount: filteredItems.length,
-            };
-          })
-          .filter(Boolean) as Array<{ label: string; items: string[]; totalCount: number }>;
-        pool = groupedSections.flatMap(section => section.items);
-      } else if (ancestorKey === 'depends_on') {
-        title = 'Step dependencies';
-        pool = resolveStepNames();
-      } else {
-        appendColon = true;
-        if (containerBlock === 'tasks') {
-          title = 'Task keys';
-          pool = TASK_DIRECTIVES;
-        } else if (containerBlock === 'steps') {
-          title = 'Step keys';
-          pool = STEP_DIRECTIVES;
-        } else {
-          title = 'Pipeline keys';
-          pool = PIPELINE_DIRECTIVES;
-        }
-      }
-
-      const normalizedPrefix = prefix.toLowerCase();
-      const filtered = pool
-        .filter(item => item.toLowerCase().startsWith(normalizedPrefix))
-        .sort((a, b) => a.localeCompare(b));
-
-      const hasContext =
-        includeValueContext || llmProfileValueContext || ancestorKey === 'mcp_profiles' || ancestorKey === 'secrets' || ancestorKey === 'variables' || ancestorKey === 'depends_on';
-      const isRootLine = !containerBlock && currentIndent === 0 && !currentKey;
-      const shouldShow = opts?.force || hasContext || filtered.length > 0 || containerBlock === 'tasks' || containerBlock === 'steps';
-
-      if (!shouldShow || (!opts?.force && isRootLine && !prefix)) {
-        setEditorSuggestion(null);
-        return;
-      }
-
-      setEditorSuggestion({
-        title,
-        items: filtered.slice(0, 50),
-        activeIndex: 0,
-        replaceStart,
-        replaceEnd,
-        appendColon,
-        groupedSections,
-      });
+      setEditorSuggestion(buildPipelineEditorSuggestion({
+        text,
+        cursor,
+        force: opts?.force,
+        metadata: autocompleteMeta,
+        detail,
+      }));
     },
     [autocompleteMeta, detail, editorValue]
   );
+
+  const handleEditorTextChange = useCallback(
+    (next: string, cursor: number) => {
+      setEditorValue(next);
+      openEditorSuggestion(cursor, { text: next });
+    },
+    [openEditorSuggestion]
+  );
+
+  const moveEditorSuggestion = useCallback((direction: 1 | -1) => {
+    setEditorSuggestion(current => {
+      if (!current || !current.items.length) return current;
+      return {
+        ...current,
+        activeIndex: (current.activeIndex + direction + current.items.length) % current.items.length,
+      };
+    });
+  }, []);
+
+  const discardEditorChanges = useCallback(() => {
+    if (!detail) return;
+    const resetYaml = editSessionOriginalYamlRef.current || detail.rawYaml;
+    setEditorSuggestion(null);
+    setEditorValue(resetYaml);
+    if (normalizeSource(detail.source) === 'draft' && draftScope) {
+      upsertPipelineDraftState({ id: detail.id, yaml: resetYaml });
+    }
+    setIsEditing(false);
+  }, [detail, draftScope, upsertPipelineDraftState]);
 
   const loadAutocomplete = useCallback(
     async (force?: boolean) => {
@@ -810,412 +702,6 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     navigate(`/lab?pipeline=${encodeURIComponent(detail.id)}`);
   };
 
-  const renderPipelineCard = (pipeline: PipelineListItem) => {
-    const { name, path } = splitIdentifier(pipeline.id);
-    const source = normalizeSource(pipeline.source);
-    const canDeleteThisPipeline = source === 'draft' ? canUsePipelineDrafts : canDeletePipelines && source !== 'git';
-    return (
-      <article
-        key={pipeline.id}
-        className="glass-card pipeline-card border border-[var(--border-primary)] rounded-xl p-4"
-        onClick={() => handleSelect(pipeline.id)}
-      >
-        <div className="pipeline-card-header">
-          <div className="pipeline-card-info">
-            <span className="pipeline-card-icon" aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M6 12h2m8 0h2M12 6v2m0 8v2" />
-              </svg>
-            </span>
-            <div className="pipeline-card-text">
-              <h3 className="pipeline-card-title">{name || pipeline.id}</h3>
-              <p className="pipeline-card-path">{path || 'root'}</p>
-              <p className="pipeline-card-description">A sample pipeline.</p>
-            </div>
-          </div>
-          <div className="pipeline-card-actions">
-            {canDeleteThisPipeline ? (
-              <button
-                type="button"
-                className="pipelines-delete-button"
-                title={source === 'draft' ? 'Discard draft' : 'Delete pipeline'}
-                onClick={event => {
-                  event.stopPropagation();
-                  openDeleteModal(pipeline.id, name || pipeline.id);
-                }}
-                aria-label={source === 'draft' ? 'Discard draft pipeline' : 'Delete pipeline'}
-              >
-                <Trash2 className="h-4 w-4" aria-hidden="true" />
-              </button>
-            ) : null}
-          </div>
-        </div>
-        <div className="pipeline-card-meta">
-          <div className="pipeline-card-meta-row">
-            <span className="pipeline-card-meta-label">Version</span>
-            <span className="pipeline-card-meta-value">latest</span>
-          </div>
-          <div className="pipeline-card-meta-row">
-            <span className="pipeline-card-meta-label">Source</span>
-            <span className="pipeline-card-meta-value">{source}</span>
-          </div>
-        </div>
-      </article>
-    );
-  };
-
-  const renderFolderCard = (node: TreeNode) => {
-    return (
-      <article
-        key={`folder-${node.id}`}
-        className="glass-card pipeline-card border border-[var(--border-primary)] rounded-xl p-4"
-        onClick={() => openFolder(node.fullPath)}
-      >
-        <div className="pipeline-card-header">
-          <div className="pipeline-card-info">
-            <span className="pipeline-card-icon" aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 7h5l2 2h11v9a2 2 0 0 1-2 2H3z" />
-                <path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2" />
-              </svg>
-            </span>
-            <div className="pipeline-card-text">
-              <h3 className="pipeline-card-title">{node.name}</h3>
-            </div>
-          </div>
-          <span className="pipeline-folder-chevron">›</span>
-        </div>
-        <div className="pipeline-folder-meta">
-          <div className="pipeline-folder-meta-row">
-            <span className="pipeline-card-meta-label">Pipelines:</span>
-            <span className="pipeline-card-meta-value">{node.pipelineIds.length}</span>
-          </div>
-          <div className="pipeline-folder-meta-row">
-            <span className="pipeline-card-meta-label">Sub groups:</span>
-            <span className="pipeline-card-meta-value">{node.children.length}</span>
-          </div>
-        </div>
-      </article>
-    );
-  };
-
-  const renderList = () => (
-    <div id="pipelines-list-view" className="pipelines-view">
-      <div className="space-y-3">
-        {listLoading ? (
-          <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Loading pipelines…</div>
-        ) : listError ? (
-          <div className="glass-card p-5 text-sm text-red-500">Failed to load pipelines: {listError}</div>
-        ) : (
-          <>
-            {visiblePipelines.length ? (
-              <div className="pipelines-card-grid pipelines-card-grid--pipelines">
-                {visiblePipelines.map(item => renderPipelineCard(item))}
-              </div>
-            ) : null}
-
-            {searchTerm.trim() ? null : activeFolderNode.children.length ? (
-              <div className="pipelines-card-grid pipelines-card-grid--pipelines mt-4">
-                {activeFolderNode.children.map(child => renderFolderCard(child))}
-              </div>
-            ) : null}
-
-            {!visiblePipelines.length && !activeFolderNode.children.length && (
-              <div id="pipelines-empty" className="pipelines-empty">
-                <h3 className="text-base font-semibold text-[var(--text-primary)]">No pipelines found</h3>
-                <p className="text-sm text-[var(--text-secondary)]">
-                  {canCreatePipelineHere ? 'Create a new pipeline or adjust your filters.' : 'Adjust your filters or check your access.'}
-                </p>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  );
-
-  const renderDetail = () => {
-    if (!detail) {
-      return (
-        <div id="pipelines-detail-view" className="pipelines-view">
-          <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Select a pipeline to see details.</div>
-        </div>
-      );
-    }
-    const source = normalizeSource(detail.source);
-    const isGitSource = source === 'git';
-    const executeDisabled = isEditing || source === 'draft' || !canExecuteSelectedPipeline;
-    const executeTitle = source === 'draft'
-      ? 'Save the draft before executing'
-      : isEditing
-        ? 'Save or discard edits before executing'
-        : canExecuteSelectedPipeline
-          ? 'Execute in Lab'
-          : 'You do not have permission to execute this pipeline';
-    const editorLines = editorValue.split('\n');
-    return (
-      <div id="pipelines-detail-view" className="pipelines-view">
-        <div className="min-w-0 space-y-6">
-          <div className="glass-card p-6">
-            <div className="flex items-start justify-between gap-4 w-full mb-4">
-              <div>
-                <h2 id="pipeline-detail-name" className="text-3xl font-bold text-[var(--text-primary)] truncate">
-                  {detail.name || detail.id}
-                </h2>
-                <p id="pipeline-detail-description" className="text-sm text-[var(--text-secondary)] mt-1">
-                  {detail.description || 'No description provided.'}
-                </p>
-                <div className="flex flex-wrap gap-3 mt-3 text-xs uppercase tracking-wide text-[var(--text-secondary)]">
-                  <span>Path: <span className="text-[var(--text-primary)]" id="pipeline-detail-path">{detail.path || 'Root'}</span></span>
-                  <span>Version: <span className="text-[var(--text-primary)]" id="pipeline-detail-version">{detail.version || 'latest'}</span></span>
-                  <span>Source: <span className="text-[var(--text-primary)]" id="pipeline-detail-source">{source}</span></span>
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <button
-                  id="pipelines-execute-btn"
-                  type="button"
-                  className="glass-button-primary"
-                  onClick={handleExecute}
-                  disabled={executeDisabled}
-                  title={executeTitle}
-                >
-                  <Play className="h-4 w-4" aria-hidden="true" />
-                  <span>Execute</span>
-                </button>
-                <button id="pipelines-back-btn" type="button" className="glass-button-ghost" onClick={handleBackToList}>
-                  <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-                  <span>Back to list</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]">
-            <div className="min-w-0 space-y-6">
-              <div className="glass-card overflow-hidden">
-                <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b border-[var(--border-primary)]">
-                  <h3 className="text-lg font-semibold text-[var(--text-primary)]">Pipeline Definition (YAML)</h3>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {!isEditing ? (
-                      <>
-                        <button className="glass-button-ghost" onClick={handleCopy} title="Copy YAML">
-                          <Copy className="h-4 w-4" aria-hidden="true" />
-                        </button>
-                        <button className="glass-button-ghost" onClick={handleDownload} title="Download YAML">
-                          <Download className="h-4 w-4" aria-hidden="true" />
-                        </button>
-                        {source !== 'draft' ? (
-                          <ResourceAccessCard resourceType="pipeline" resourceID={detail.id} label="pipeline" />
-                        ) : null}
-                        {!canUpdateSelectedPipeline && !canCreatePipelineHere ? null : isGitSource ? (
-                          canCreatePipelineHere ? (
-                            <button className="glass-button-primary" onClick={openCloneModal}>
-                              Clone
-                            </button>
-                          ) : null
-                        ) : (
-                          <>
-                            {canUpdateSelectedPipeline ? (
-                              <button className="glass-button-primary" onClick={() => setIsEditing(true)}>
-                                Edit
-                              </button>
-                            ) : null}
-                            {canCreatePipelineHere ? (
-                              <button className="glass-button-subtle" onClick={openCloneModal}>
-                                Clone
-                              </button>
-                            ) : null}
-                          </>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          className="glass-button-ghost"
-                          onClick={() => {
-                            const resetYaml = editSessionOriginalYamlRef.current || detail.rawYaml;
-                            setEditorSuggestion(null);
-                            setEditorValue(resetYaml);
-                            if (normalizeSource(detail.source) === 'draft' && draftScope) {
-                              upsertPipelineDraftState({ id: detail.id, yaml: resetYaml });
-                            }
-                            setIsEditing(false);
-                          }}
-                        >
-                          Discard
-                        </button>
-                        <button className="glass-button-primary" onClick={handleSave} disabled={saving || validation.errors.length > 0}>
-                          {saving ? 'Saving…' : 'Save'}
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-                <div className="p-4 space-y-3">
-                  {!isEditing ? (
-                    <div id="pipeline-yaml-content" className="yaml-view">
-                      {renderYamlLines(detail.rawYaml)}
-                    </div>
-                  ) : (
-                    <div id="editor-container" className="editor-container">
-                      <div id="line-numbers" ref={lineNumbersRef}>
-                        <div className="line-number-track">
-                          {editorLines.map((_, idx) => (
-                            <div key={`ln-${idx}`} className={`line-number ${validationErrorLines.has(idx + 1) ? 'line-number--error' : ''}`}>
-                              {idx + 1}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <div id="pipeline-yaml-stage" className="yaml-editor-stage yaml-editor-stage--with-highlight">
-                        <div id="pipeline-yaml-highlight" className="yaml-editor-highlight" aria-hidden="true">
-                          <pre ref={highlightContentRef} className="yaml-editor-highlight__content">
-                            {renderYamlHighlight(editorValue)}
-                          </pre>
-                        </div>
-                        <textarea
-                          ref={editorRef}
-                          id="pipeline-yaml-editor"
-                          aria-label="Pipeline YAML editor"
-                          aria-describedby="pipeline-validation-status"
-                          aria-invalid={validation.errors.length > 0}
-                          aria-autocomplete="list"
-                          aria-controls={editorSuggestion ? 'pipeline-editor-autocomplete' : undefined}
-                          aria-activedescendant={
-                            editorSuggestion ? `pipeline-editor-autocomplete-option-${editorSuggestion.activeIndex}` : undefined
-                          }
-                          value={editorValue}
-                          onChange={event => {
-                            const next = event.target.value;
-                            setEditorValue(next);
-                            const cursor = event.target.selectionStart || 0;
-                            openEditorSuggestion(cursor, { text: next });
-                          }}
-                          onClick={event => {
-                            const cursor = event.currentTarget.selectionStart || 0;
-                            openEditorSuggestion(cursor);
-                          }}
-                          onScroll={handleEditorScroll}
-                          onKeyDown={event => {
-                            if (event.ctrlKey && event.code === 'Space') {
-                              event.preventDefault();
-                              const cursor = event.currentTarget.selectionStart || 0;
-                              if (editorSuggestion) {
-                                setEditorSuggestion(null);
-                              } else {
-                                openEditorSuggestion(cursor, { force: true });
-                              }
-                              return;
-                            }
-
-                            if (editorSuggestion && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
-                              event.preventDefault();
-                              setEditorSuggestion(current => {
-                                if (!current || !current.items.length) return current;
-                                const direction = event.key === 'ArrowDown' ? 1 : -1;
-                                return {
-                                  ...current,
-                                  activeIndex: (current.activeIndex + direction + current.items.length) % current.items.length,
-                                };
-                              });
-                              return;
-                            }
-
-                            if (editorSuggestion && event.key === 'Enter' && !event.shiftKey && !event.ctrlKey) {
-                              event.preventDefault();
-                              const selectedSuggestion = editorSuggestion.items[editorSuggestion.activeIndex];
-                              if (selectedSuggestion) applyEditorSuggestion(selectedSuggestion);
-                              return;
-                            }
-
-                            if (editorSuggestion && event.key === 'Escape') {
-                              event.preventDefault();
-                              setEditorSuggestion(null);
-                              return;
-                            }
-
-                            if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey) {
-                              event.preventDefault();
-                              handleAutoIndentEnter();
-                            }
-                          }}
-                          spellCheck={false}
-                        ></textarea>
-                      </div>
-                      <YamlValidationPanel id="pipeline-validation-status" errors={validation.errors} />
-                      {editorSuggestion ? (
-                        <EditorAutocompleteMenu
-                          id="pipeline-editor-autocomplete"
-                          suggestion={editorSuggestion}
-                          loading={autocompleteMeta.loading}
-                          onSelect={applyEditorSuggestion}
-                        />
-                      ) : null}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="glass-card overflow-hidden">
-                <div className="p-4">
-                  <h3 className="text-lg font-semibold text-[var(--text-primary)]">Step Dependency Graph</h3>
-                  <p className="text-xs text-[var(--text-secondary)] mt-1">Based on `depends_on` relationships.</p>
-                </div>
-                <div className="pipelines-graph">
-                  {graphData.error ? (
-                    <p className="text-sm text-red-500">Unable to render graph: {graphData.error}</p>
-                  ) : !graphData.steps.length ? (
-                    <p className="text-sm text-[var(--text-secondary)]">No steps defined in this pipeline.</p>
-                  ) : (
-                    <div className="rounded-2xl border border-[var(--border-primary)] bg-white dark:bg-slate-950 shadow-[0_16px_44px_rgba(15,23,42,0.07)] p-2">
-                      <StepsGraph
-                        steps={graphData.steps}
-                        selectedStep={selectedGraphStep}
-                        onSelectStep={setSelectedGraphStep}
-                        childRuns={[]}
-                        pipelineDefinition={graphData.definition}
-                        statusVariant="dot"
-                        stepStatusColorOverride="#10b981"
-                        taskStatusColorOverride="#60a5fa"
-                        hideStatusLegend
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-            <PipelineActivityPanels
-              pipelineLabel={detail.name || detail.id}
-              triggers={triggers}
-              triggersLoading={triggersLoading}
-              triggersError={triggersError}
-              dependencies={detail.includedDependencies}
-              runs={recentRuns}
-              runsLoading={runsLoading}
-              runsError={runsError}
-              onOpenTrigger={repoSlug => navigate(`/triggers/${encodeId(repoSlug)}`)}
-              onOpenDependency={handleSelect}
-              onCopyDependency={async identifier => {
-                try {
-                  await navigator.clipboard.writeText(identifier);
-                  addToast('Copied dependency reference.', 'success');
-                } catch (error) {
-                  console.error('Failed to copy dependency reference', error);
-                  addToast('Unable to copy dependency reference.', 'error');
-                }
-              }}
-              onOpenRun={runID =>
-                navigate(runID ? `/pipelineruns/recent?run=${encodeURIComponent(runID)}` : '/pipelineruns/recent')
-              }
-            />
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div data-page="pipelines" className="active h-full flex flex-col">
       {!selectedId && (
@@ -1230,12 +716,79 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
         />
       )}
       <div className="flex-1 overflow-auto px-6 pb-8 triggers-content">
-        {!selectedId ? renderList() : detailLoading ? (
+        {!selectedId ? (
+          <PipelineCollectionList
+            listLoading={listLoading}
+            listError={listError}
+            visiblePipelines={visiblePipelines}
+            activeFolderNode={activeFolderNode}
+            searchTerm={searchTerm}
+            canCreatePipelineHere={canCreatePipelineHere}
+            canUsePipelineDrafts={canUsePipelineDrafts}
+            canDeletePipelines={canDeletePipelines}
+            onSelectPipeline={handleSelect}
+            onOpenFolder={openFolder}
+            onDeletePipeline={openDeleteModal}
+          />
+        ) : detailLoading ? (
           <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Loading pipeline…</div>
         ) : detailError ? (
           <div className="glass-card p-5 text-sm text-red-500">Failed to load pipeline: {detailError}</div>
         ) : (
-          renderDetail()
+          <PipelineDetailView
+            detail={detail}
+            graphData={graphData}
+            selectedGraphStep={selectedGraphStep}
+            isEditing={isEditing}
+            editorValue={editorValue}
+            validationErrors={validation.errors}
+            validationErrorLines={validationErrorLines}
+            editorSuggestion={editorSuggestion}
+            autocompleteLoading={autocompleteMeta.loading}
+            editorRef={editorRef}
+            highlightContentRef={highlightContentRef}
+            lineNumbersRef={lineNumbersRef}
+            canUpdateSelectedPipeline={canUpdateSelectedPipeline}
+            canCreatePipelineHere={canCreatePipelineHere}
+            canExecuteSelectedPipeline={canExecuteSelectedPipeline}
+            saving={saving}
+            triggers={triggers}
+            triggersLoading={triggersLoading}
+            triggersError={triggersError}
+            recentRuns={recentRuns}
+            runsLoading={runsLoading}
+            runsError={runsError}
+            onBack={handleBackToList}
+            onExecute={handleExecute}
+            onCopy={() => void handleCopy()}
+            onDownload={handleDownload}
+            onEdit={() => setIsEditing(true)}
+            onClone={openCloneModal}
+            onDiscard={discardEditorChanges}
+            onSave={() => void handleSave()}
+            onSelectGraphStep={setSelectedGraphStep}
+            onOpenTrigger={repoSlug => navigate(`/triggers/${encodeId(repoSlug)}`)}
+            onOpenDependency={handleSelect}
+            onCopyDependency={async identifier => {
+              try {
+                await navigator.clipboard.writeText(identifier);
+                addToast('Copied dependency reference.', 'success');
+              } catch (error) {
+                console.error('Failed to copy dependency reference', error);
+                addToast('Unable to copy dependency reference.', 'error');
+              }
+            }}
+            onOpenRun={runID =>
+              navigate(runID ? `/pipelineruns/recent?run=${encodeURIComponent(runID)}` : '/pipelineruns/recent')
+            }
+            onEditorTextChange={handleEditorTextChange}
+            onOpenSuggestion={openEditorSuggestion}
+            onMoveSuggestion={moveEditorSuggestion}
+            onDismissSuggestion={() => setEditorSuggestion(null)}
+            onSelectSuggestion={applyEditorSuggestion}
+            onEditorScroll={handleEditorScroll}
+            onAutoIndentEnter={() => handleAutoIndentEnter()}
+          />
         )}
       </div>
 

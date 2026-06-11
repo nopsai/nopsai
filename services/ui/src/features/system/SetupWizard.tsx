@@ -1,14 +1,9 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle,
   Bot,
-  CheckCircle2,
-  Download,
-  FileText,
   FolderTree,
   GitBranch,
   Github,
-  Info,
   KeyRound,
   PlayCircle,
   Plus,
@@ -18,6 +13,9 @@ import {
   Users,
 } from 'lucide-react';
 import { bootstrapSetup, downloadSetupTemplatesZip, fetchSetupStatus, fetchSetupTemplates } from './setup/api';
+import { SetupReviewOutput } from './setup/SetupReviewOutput';
+import { SetupBootstrapResult, SetupStarterFilesPreview, SetupStatusOverview } from './setup/SetupStatusPanels';
+import { SetupStatusIcon, SetupStepNavigation, StepIntro, WarningCallout } from './setup/SetupWizardPrimitives';
 import {
   LLM_SKIP_WARNING,
   REVIEW_STEP_INDEX,
@@ -42,13 +40,6 @@ import {
   type UserDraft,
 } from './setup/model';
 
-function statusIcon(status: string) {
-  if (status === 'success') return <CheckCircle2 className="h-4 w-4" />;
-  if (status === 'error') return <AlertTriangle className="h-4 w-4" />;
-  if (status === 'warning') return <AlertTriangle className="h-4 w-4" />;
-  return <Info className="h-4 w-4" />;
-}
-
 function generateBrowserSecret(bytes = 32): string {
   const buffer = new Uint8Array(bytes);
   if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
@@ -60,41 +51,6 @@ function generateBrowserSecret(bytes = 32): string {
   }
   const binary = Array.from(buffer, byte => String.fromCharCode(byte)).join('');
   return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
-}
-
-function downloadTextFile(fileName: string, content: string, mimeType = 'text/plain;charset=utf-8') {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = fileName;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
-}
-
-function StepIntro({ title, children, icon }: { title: string; children: ReactNode; icon: ReactNode }) {
-  return (
-    <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-4">
-      <div className="flex items-center gap-2 text-sm font-semibold">
-        {icon}
-        {title}
-      </div>
-      <div className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">{children}</div>
-    </div>
-  );
-}
-
-function WarningCallout({ children }: { children: ReactNode }) {
-  return (
-    <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm leading-6 text-amber-700 dark:text-amber-300">
-      <div className="flex items-start gap-2">
-        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-        <div>{children}</div>
-      </div>
-    </div>
-  );
 }
 
 function SetupWizard({ canManage }: { canManage: boolean }) {
@@ -562,7 +518,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
               {(status?.checks || []).map(check => (
                 <div key={check.id} className={`rounded-lg border p-3 ${statusClasses(check.status)}`}>
                   <div className="flex items-center gap-2 text-sm font-semibold">
-                    {statusIcon(check.status)}
+                    <SetupStatusIcon status={check.status} />
                     {check.label}
                   </div>
                   {check.message && <div className="mt-2 text-xs leading-5">{check.message}</div>}
@@ -837,96 +793,25 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
         );
       default:
         return (
-          <div className="space-y-4">
-            <StepIntro title="Generated setup output" icon={<FileText className="h-4 w-4" />}>
-              Review what will be created now and what should be applied outside the database. Runtime variables are grouped by target container; GitOps starter files can be previewed in the page and downloaded as one zip for the global config repository.
-            </StepIntro>
-            {!aiEnabled && <WarningCallout>{LLM_SKIP_WARNING}</WarningCallout>}
-            <div className="grid gap-3 md:grid-cols-3">
-              <div className="rounded-md border border-[var(--border-primary)] p-3 text-sm">
-                <div className="text-xs text-[var(--text-secondary)]">Repository groups</div>
-                <div className="mt-1">{normalizedRepositoryGroups.length || 'Skipped'}</div>
-              </div>
-              <div className="rounded-md border border-[var(--border-primary)] p-3 text-sm">
-                <div className="text-xs text-[var(--text-secondary)]">Repositories</div>
-                <div className="mt-1">{repositories.length || 'Skipped'}</div>
-              </div>
-              <div className="rounded-md border border-[var(--border-primary)] p-3 text-sm">
-                <div className="text-xs text-[var(--text-secondary)]">Users</div>
-                <div className="mt-1">{userPayload.length || 'Skipped'}</div>
-              </div>
-            </div>
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-sm font-semibold">Runtime variables by container</div>
-                <button type="button" className="inline-flex items-center gap-2 rounded-md border border-[var(--border-primary)] px-3 py-2 text-sm" onClick={() => downloadTextFile('nopsai-runtime-env.txt', environmentSnippet)}>
-                  <Download className="h-4 w-4" />
-                  Download all env
-                </button>
-              </div>
-              <div className="grid gap-3 xl:grid-cols-3">
-                {runtimeEnvSections.map(section => (
-                  <div key={section.fileName} className="rounded-md border border-[var(--border-primary)] p-3">
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <div className="text-sm font-semibold">{section.title}</div>
-                      <button type="button" className="rounded-md border border-[var(--border-primary)] p-2" onClick={() => downloadTextFile(section.fileName, section.lines.join('\n'))} title={`Download ${section.fileName}`}>
-                        <Download className="h-4 w-4" />
-                      </button>
-                    </div>
-                    <pre className="max-h-72 overflow-auto rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] p-3 text-xs leading-5">{section.lines.join('\n')}</pre>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div>
-              <div className="mb-2 text-sm font-semibold">GitOps group file</div>
-              <pre className="max-h-80 overflow-auto rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] p-3 text-xs leading-5">{gitOpsStructureSnippet}</pre>
-            </div>
-            <div className="rounded-md border border-[var(--border-primary)] p-3 text-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <div className="font-semibold">Files to commit when using GitOps</div>
-                  <div className="mt-1 text-xs text-[var(--text-secondary)]">The zip preserves folder paths such as `pipelines/`, `steps/`, `triggers/`, and `setting/system/`.</div>
-                </div>
-                <button type="button" className="inline-flex items-center gap-2 rounded-md border border-[var(--border-primary)] px-3 py-2 text-sm" onClick={() => void downloadGitOpsZip()} disabled={downloadingGitOpsZip}>
-                  <Download className="h-4 w-4" />
-                  {downloadingGitOpsZip ? 'Downloading...' : 'Download GitOps zip'}
-                </button>
-              </div>
-              <div className="mt-3 grid gap-2 md:grid-cols-2">
-                {gitOpsFiles.map(file => <div key={file} className="rounded border border-[var(--border-primary)] px-2 py-1 font-mono text-xs">{file}</div>)}
-              </div>
-            </div>
-            <div className="rounded-md border border-sky-500/30 bg-sky-500/10 p-3 text-sm leading-6 text-sky-700 dark:text-sky-300">
-              Configure the GitHub App webhook URL as `{gitBotWebhookURL}`, apply each env group to the matching container or secret manager, mount or store the GitHub private key for git-bot, commit the GitOps zip if you are using GitOps, restart services that received new runtime values, and run `setup/first-run` to prove runner, agent, logs, and UI are working{aiEnabled ? ', including AI.' : '.'}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button className="inline-flex items-center gap-2 rounded-md border border-[var(--border-primary)] px-4 py-2 text-sm" onClick={() => void loadTemplates()} disabled={templateLoading}>
-                <FileText className="h-4 w-4" />
-                {templateLoading ? 'Loading...' : templates ? 'Refresh file preview' : 'Preview GitOps files'}
-              </button>
-            </div>
-          </div>
+          <SetupReviewOutput
+            aiEnabled={aiEnabled}
+            normalizedRepositoryGroups={normalizedRepositoryGroups}
+            repositories={repositories}
+            userCount={userPayload.length}
+            runtimeEnvSections={runtimeEnvSections}
+            environmentSnippet={environmentSnippet}
+            gitOpsStructureSnippet={gitOpsStructureSnippet}
+            gitOpsFiles={gitOpsFiles}
+            gitBotWebhookURL={gitBotWebhookURL}
+            templateLoading={templateLoading}
+            templatesLoaded={Boolean(templates)}
+            downloadingGitOpsZip={downloadingGitOpsZip}
+            onLoadTemplates={() => void loadTemplates()}
+            onDownloadGitOpsZip={() => void downloadGitOpsZip()}
+          />
         );
     }
   };
-
-  const renderStepNavigation = () => (
-    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
-      {WIZARD_STEPS.map((step, index) => (
-        <button
-          key={step.id}
-          type="button"
-          onClick={() => setWizardStepIndex(index)}
-          aria-current={index === wizardStepIndex ? 'step' : undefined}
-          className={`rounded-md border px-2 py-2 text-left text-xs ${index === wizardStepIndex ? 'border-[var(--border-accent)] bg-[var(--bg-tertiary)]' : 'border-[var(--border-primary)]'}`}
-        >
-          <span className="block font-semibold">{step.label}</span>
-          <span className="text-[var(--text-secondary)]">{step.required ? 'Required' : 'Optional'}</span>
-        </button>
-      ))}
-    </div>
-  );
 
   const wizardModal = status && !status.completed ? (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
@@ -939,7 +824,9 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
             </div>
             <div className="text-sm text-[var(--text-secondary)]">Step {wizardStepIndex + 1} of {WIZARD_STEPS.length}</div>
           </div>
-          <div className="mt-4">{renderStepNavigation()}</div>
+          <div className="mt-4">
+            <SetupStepNavigation wizardStepIndex={wizardStepIndex} onSelectStep={setWizardStepIndex} />
+          </div>
         </div>
         <div className="flex-1 overflow-auto p-5">{renderWizardStep()}</div>
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-primary)] p-5">
@@ -977,65 +864,8 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
 
       {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-300">{error}</div>}
 
-      <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-        <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4">
-          <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
-            <CheckCircle2 className="h-4 w-4" />
-            Health checks
-          </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            {(status?.checks || []).map(check => (
-              <div key={check.id} className={`rounded-lg border p-3 ${statusClasses(check.status)}`}>
-                <div className="flex items-center gap-2 text-sm font-semibold">
-                  {statusIcon(check.status)}
-                  {check.label}
-                </div>
-                {check.message && <div className="mt-2 text-xs leading-5">{check.message}</div>}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4">
-          <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
-            <Info className="h-4 w-4" />
-            Resource counts
-          </div>
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            {status && Object.entries(status.counts).map(([key, value]) => (
-              <div key={key} className="rounded-md border border-[var(--border-primary)] p-2">
-                <div className="text-xs capitalize text-[var(--text-secondary)]">{key.replaceAll('_', ' ')}</div>
-                <div className="text-lg font-semibold">{value}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {bootstrapResult && (
-        <section className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4">
-          <div className="mb-3 text-sm font-semibold">Bootstrap result</div>
-          <div className="grid gap-3 lg:grid-cols-3">
-            {(bootstrapResult.warnings || []).map(warning => (
-              <div key={warning} className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
-                <div className="flex items-start gap-2">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                  <span>{warning}</span>
-                </div>
-              </div>
-            ))}
-            {(bootstrapResult.messages || []).map(message => (
-              <div key={message} className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-700 dark:text-emerald-300">{message}</div>
-            ))}
-            {(bootstrapResult.generated_secrets || []).map(secret => (
-              <div key={secret} className="rounded-md border border-[var(--border-primary)] p-3 font-mono text-xs">{secret}</div>
-            ))}
-          </div>
-          {(bootstrapResult.temporary_credentials || []).length > 0 && (
-            <pre className="mt-3 overflow-auto rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] p-3 text-xs">{JSON.stringify(bootstrapResult.temporary_credentials, null, 2)}</pre>
-          )}
-        </section>
-      )}
+      <SetupStatusOverview status={status} />
+      <SetupBootstrapResult bootstrapResult={bootstrapResult} />
 
       <section className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4">
         <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -1045,7 +875,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
           </div>
           <div className="text-sm text-[var(--text-secondary)]">Step {wizardStepIndex + 1} of {WIZARD_STEPS.length}</div>
         </div>
-        {renderStepNavigation()}
+        <SetupStepNavigation wizardStepIndex={wizardStepIndex} onSelectStep={setWizardStepIndex} />
         <div className="mt-5">{renderWizardStep()}</div>
         <div className="mt-4 flex flex-wrap justify-end gap-2">
           <button className="rounded-md border border-[var(--border-primary)] px-4 py-2 text-sm" onClick={() => setWizardStepIndex(index => Math.max(0, index - 1))} disabled={wizardStepIndex === 0}>Back</button>
@@ -1053,19 +883,13 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
         </div>
       </section>
 
-      {templates && (
-        <section className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div className="text-sm font-semibold">Starter files</div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <select className="max-w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm" value={selectedTemplatePath} onChange={event => setSelectedTemplatePath(event.target.value)}>
-                {templatePaths.map(path => <option key={path} value={path}>{path}</option>)}
-              </select>
-            </div>
-          </div>
-          <pre className="max-h-[520px] overflow-auto rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] p-4 text-xs leading-5">{selectedTemplate}</pre>
-        </section>
-      )}
+      <SetupStarterFilesPreview
+        templates={templates}
+        templatePaths={templatePaths}
+        selectedTemplatePath={selectedTemplatePath}
+        selectedTemplate={selectedTemplate}
+        onSelectedTemplatePathChange={setSelectedTemplatePath}
+      />
     </div>
   );
 }

@@ -2,21 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
-  BookOpen,
-  Braces,
   Copy,
   Download,
-  FileText,
-  Folder,
-  Lock,
   Plus,
   Search,
-  ShieldCheck,
   Trash2,
-  type LucideIcon,
 } from 'lucide-react';
 
 import ResourceAccessCard from '../components/ResourceAccessCard';
+import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowToastRegion';
 import {
   deleteKnowledgeContext,
   fetchKnowledgeContext,
@@ -28,14 +22,12 @@ import {
   buildKnowledgeID,
   buildKnowledgeTree,
   clearKnowledgeDraft,
-  countFolderDocs,
   decodeKnowledgeRouteID,
   deriveIdentityFromFolder,
   emptyKnowledgeDraft,
   encodeKnowledgeID,
   findKnowledgeFolder,
   isGitManagedDocument,
-  kindOrder,
   loadKnowledgeDraft,
   normalizeFolderPath,
   normalizeKnowledgeSource,
@@ -46,74 +38,20 @@ import {
   validateKnowledgeIdentity,
   type KnowledgeContextDetail,
   type KnowledgeContextListItem,
-  type KnowledgeFolderNode,
 } from '../features/knowledge-context/model';
+import { KnowledgeContextCollectionList } from '../features/knowledge-context/KnowledgeContextCollectionList';
+import {
+  KnowledgeContextModals,
+  type KnowledgeDeleteModalState,
+  type KnowledgeFormModalState,
+} from '../features/knowledge-context/KnowledgeContextModals';
+import { formatKnowledgeDate, kindIcon } from '../features/knowledge-context/presentation';
 import { fetchResourceGroupPaths } from '../lib/resourceGroups';
 
 type KnowledgeContextPageProps = {
   canWriteKnowledge: boolean;
   canDeleteKnowledge: boolean;
 };
-
-type KnowledgeFormModalState = {
-  mode: 'create' | 'clone';
-  kind: string;
-  group: string;
-  name: string;
-  content: string;
-  pending: boolean;
-  error?: string;
-};
-
-type KnowledgeDeleteModalState = {
-  id: string;
-  name: string;
-  pending: boolean;
-  error?: string;
-};
-
-type ToastMessage = {
-  id: number;
-  message: string;
-  tone: 'success' | 'error' | 'info';
-};
-
-function kindTitle(kind: string) {
-  if (kind === 'adr') return 'ADR';
-  return `${kind.charAt(0).toUpperCase()}${kind.slice(1)}`;
-}
-
-function kindPlural(kind: string) {
-  if (kind === 'architecture') return 'Architecture';
-  if (kind === 'adr') return 'ADRs';
-  if (kind === 'policy') return 'Policies';
-  if (kind === 'reference') return 'References';
-  return `${kindTitle(kind)}s`;
-}
-
-function kindIcon(kind: string): LucideIcon {
-  switch (kind) {
-    case 'guardrail':
-      return ShieldCheck;
-    case 'policy':
-      return Lock;
-    case 'runbook':
-      return Braces;
-    case 'reference':
-      return BookOpen;
-    case 'example':
-      return FileText;
-    default:
-      return FileText;
-  }
-}
-
-function formatKnowledgeDate(value?: string) {
-  if (!value) return '-';
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleString();
-}
 
 export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowledge }: KnowledgeContextPageProps) {
   const navigate = useNavigate();
@@ -138,9 +76,9 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
   const [isEditing, setIsEditing] = useState(false);
   const [formModal, setFormModal] = useState<KnowledgeFormModalState | null>(null);
   const [deleteModal, setDeleteModal] = useState<KnowledgeDeleteModalState | null>(null);
-  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [toasts, setToasts] = useState<WorkflowToast[]>([]);
 
-  const addToast = useCallback((message: string, tone: ToastMessage['tone'] = 'info') => {
+  const addToast = useCallback((message: string, tone: WorkflowToast['tone'] = 'info') => {
     toastCounterRef.current += 1;
     const id = toastCounterRef.current;
     setToasts(prev => [...prev, { id, message, tone }]);
@@ -511,135 +449,7 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
 
   const canEditSelected = Boolean(detail && canWriteKnowledge && !isGitManagedDocument(detail));
   const selectedCanEdit = Boolean(canEditSelected && isEditing);
-  const CurrentKindIcon = detail ? kindIcon(detail.kind) : FileText;
-
-  const renderFolderCard = (node: KnowledgeFolderNode) => {
-    const folderDepth = node.fullPath.split('/').filter(Boolean).length;
-    const Icon = folderDepth === 1 ? kindIcon(node.name) : Folder;
-    const folderName = folderDepth === 1 ? kindPlural(node.name) : node.name;
-    return (
-      <article
-        key={`folder-${node.id}`}
-        className="glass-card pipeline-card kc-folder-card border border-[var(--border-primary)] rounded-xl p-4"
-        onClick={() => openFolder(node.fullPath)}
-      >
-        <div className="pipeline-card-header">
-          <div className="pipeline-card-info">
-            <span className="pipeline-card-icon" aria-hidden="true">
-              <Icon />
-            </span>
-            <div className="pipeline-card-text">
-              <h3 className="pipeline-card-title">{folderName}</h3>
-              <p className="pipeline-card-path">{node.fullPath || 'root'}</p>
-              <p className="pipeline-card-description">Knowledge folder</p>
-            </div>
-          </div>
-          <span className="pipeline-folder-chevron">›</span>
-        </div>
-        <div className="pipeline-card-meta">
-          <div className="pipeline-card-meta-row">
-            <span className="pipeline-card-meta-label">Documents</span>
-            <span className="pipeline-card-meta-value">{countFolderDocs(node)}</span>
-          </div>
-          <div className="pipeline-card-meta-row">
-            <span className="pipeline-card-meta-label">Sub groups</span>
-            <span className="pipeline-card-meta-value">{node.children.length}</span>
-          </div>
-        </div>
-      </article>
-    );
-  };
-
-  const renderDocumentCard = (doc: KnowledgeContextListItem) => {
-    const Icon = kindIcon(doc.kind);
-    const { folder } = splitKnowledgePath(doc.id);
-    const canDeleteThisDocument = canDeleteKnowledge && !isGitManagedDocument(doc);
-    return (
-      <article
-        key={doc.id}
-        className={`glass-card pipeline-card kc-document-card border border-[var(--border-primary)] rounded-xl p-4 ${selectedID === doc.id ? 'kc-document-card--active' : ''}`}
-        onClick={() => handleSelectDocument(doc.id)}
-      >
-        <div className="pipeline-card-header">
-          <div className="pipeline-card-info">
-            <span className="pipeline-card-icon" aria-hidden="true">
-              <Icon />
-            </span>
-            <div className="pipeline-card-text">
-              <h3 className="pipeline-card-title">{doc.name}</h3>
-              <p className="pipeline-card-path">{folder || 'root'}</p>
-              <p className="pipeline-card-description">{doc.description || `${kindTitle(doc.kind)} knowledge context.`}</p>
-            </div>
-          </div>
-          <div className="pipeline-card-actions">
-            {canDeleteThisDocument ? (
-              <button
-                type="button"
-                className="pipelines-delete-button"
-                title="Delete knowledge context"
-                onClick={event => {
-                  event.stopPropagation();
-                  openDeleteModal(doc);
-                }}
-                aria-label="Delete knowledge context"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            ) : null}
-          </div>
-        </div>
-        <div className="pipeline-card-meta">
-          <div className="pipeline-card-meta-row">
-            <span className="pipeline-card-meta-label">Source</span>
-            <span className="pipeline-card-meta-value">{normalizeKnowledgeSource(doc.source)}</span>
-          </div>
-          <div className="pipeline-card-meta-row">
-            <span className="pipeline-card-meta-label">Used by</span>
-            <span className="pipeline-card-meta-value">{doc.used_by_count || 0}</span>
-          </div>
-        </div>
-      </article>
-    );
-  };
-
-  const renderList = () => (
-    <div id="knowledge-context-list-view" className="pipelines-view">
-      <div className="space-y-3">
-        {listLoading ? (
-          <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Loading knowledge contexts...</div>
-        ) : listError ? (
-          <div className="glass-card p-5 text-sm text-red-500">Failed to load knowledge contexts: {listError}</div>
-        ) : (
-          <>
-            {search.trim() ? (
-              <div className="triggers-search-summary">
-                Showing {visibleDocuments.length} result{visibleDocuments.length === 1 ? '' : 's'} for "{search.trim()}"
-              </div>
-            ) : null}
-
-            {visibleDocuments.length ? (
-              <div className="pipelines-card-grid pipelines-card-grid--pipelines">{visibleDocuments.map(doc => renderDocumentCard(doc))}</div>
-            ) : null}
-
-            {search.trim() ? null : visibleFolders.length ? (
-              <div className="pipelines-card-grid pipelines-card-grid--pipelines mt-4">
-                {visibleFolders.map(folder => renderFolderCard(folder))}
-              </div>
-            ) : null}
-
-            {!visibleDocuments.length && !visibleFolders.length ? (
-              <div id="knowledge-context-empty" className="pipelines-empty">
-                <h3 className="text-base font-semibold text-[var(--text-primary)]">No knowledge contexts found</h3>
-                <p className="text-sm text-[var(--text-secondary)]">
-                  {canWriteKnowledge ? 'Create a new document or adjust your filters.' : 'Adjust your filters or browse another group.'}
-                </p>
-              </div>
-            ) : null}
-          </>
-        )}
-      </div>
-    </div>
-  );
+  const CurrentKindIcon = kindIcon(detail?.kind || '');
 
   const renderDetail = () => {
     if (!detail) {
@@ -899,7 +709,21 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
       )}
 
       <div className="flex-1 overflow-auto px-6 pb-8 triggers-content">
-        {!selectedID ? renderList() : detailLoading ? (
+        {!selectedID ? (
+          <KnowledgeContextCollectionList
+            listLoading={listLoading}
+            listError={listError}
+            search={search}
+            visibleDocuments={visibleDocuments}
+            visibleFolders={visibleFolders}
+            selectedID={selectedID}
+            canWriteKnowledge={canWriteKnowledge}
+            canDeleteKnowledge={canDeleteKnowledge}
+            onOpenFolder={openFolder}
+            onSelectDocument={handleSelectDocument}
+            onDeleteDocument={openDeleteModal}
+          />
+        ) : detailLoading ? (
           <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Loading knowledge context...</div>
         ) : detailError && !detail ? (
           <div className="glass-card p-5 text-sm text-red-500">Failed to load knowledge context: {detailError}</div>
@@ -908,108 +732,17 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
         )}
       </div>
 
-      {formModal && (
-        <div id={formModal.mode === 'create' ? 'knowledge-context-new-modal' : 'knowledge-context-clone-modal'} className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
-          <div className="pipelines-modal-card max-w-lg w-full">
-            <header className="pipelines-modal-header">
-              <div>
-                <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">
-                  {formModal.mode === 'create' ? 'New knowledge context' : 'Clone knowledge context'}
-                </p>
-                <h3 className="text-lg font-semibold text-[var(--text-primary)]">
-                  {formModal.mode === 'create' ? 'Create document' : 'Clone document'}
-                </h3>
-              </div>
-              <button className="glass-button-ghost" onClick={() => setFormModal(null)} disabled={formModal.pending}>
-                Close
-              </button>
-            </header>
-            <div className="pipelines-modal-body space-y-4">
-              <div className="grid gap-3 sm:grid-cols-[180px_1fr]">
-                <label className="block text-sm font-medium text-[var(--text-secondary)]">
-                  Kind
-                  <select className="pipelines-input w-full mt-1" value={formModal.kind} onChange={event => setFormModal(prev => (prev ? { ...prev, kind: event.target.value, error: undefined } : prev))}>
-                    {kindOrder.map(kind => (
-                      <option key={kind} value={kind}>{kind}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block text-sm font-medium text-[var(--text-secondary)]">
-                  Group
-                  <input
-                    className="pipelines-input w-full mt-1"
-                    placeholder="team-1"
-                    value={formModal.group}
-                    onChange={event => setFormModal(prev => (prev ? { ...prev, group: event.target.value, error: undefined } : prev))}
-                  />
-                </label>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-[var(--text-secondary)]">
-                  Name
-                  <input
-                    className="pipelines-input w-full mt-1"
-                    placeholder="repo-check"
-                    value={formModal.name}
-                    onChange={event => setFormModal(prev => (prev ? { ...prev, name: event.target.value, error: undefined } : prev))}
-                  />
-                </label>
-              </div>
-              {formModal.error ? <p className="text-sm text-red-500">{formModal.error}</p> : null}
-            </div>
-            <div className="pipelines-modal-footer">
-              <div className="pipelines-modal-actions">
-                <button className="glass-button-ghost" onClick={() => setFormModal(null)} disabled={formModal.pending}>
-                  Cancel
-                </button>
-                <button className="glass-button-primary" onClick={submitFormModal} disabled={formModal.pending}>
-                  {formModal.mode === 'clone' ? 'Clone' : 'Create'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <KnowledgeContextModals
+        formModal={formModal}
+        deleteModal={deleteModal}
+        onCloseForm={() => setFormModal(null)}
+        onUpdateForm={patch => setFormModal(prev => (prev ? { ...prev, ...patch, error: undefined } : prev))}
+        onSubmitForm={submitFormModal}
+        onCloseDelete={() => setDeleteModal(null)}
+        onConfirmDelete={confirmDelete}
+      />
 
-      {deleteModal && (
-        <div id="knowledge-context-delete-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
-          <div className="pipelines-modal-card max-w-md w-full">
-            <header className="pipelines-modal-header">
-              <div>
-                <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">Delete knowledge context</p>
-                <h3 className="text-lg font-semibold text-[var(--text-primary)]">Remove {deleteModal.name}?</h3>
-              </div>
-              <button className="glass-button-ghost" onClick={() => setDeleteModal(null)} disabled={deleteModal.pending}>
-                Close
-              </button>
-            </header>
-            <div className="pipelines-modal-body space-y-3">
-              <p className="text-sm text-[var(--text-secondary)]">This action cannot be undone.</p>
-              {deleteModal.error ? <p className="text-sm text-red-500">{deleteModal.error}</p> : null}
-            </div>
-            <div className="pipelines-modal-footer">
-              <div className="pipelines-modal-actions">
-                <button className="glass-button-ghost" onClick={() => setDeleteModal(null)} disabled={deleteModal.pending}>
-                  Cancel
-                </button>
-                <button className="glass-button-danger" onClick={confirmDelete} disabled={deleteModal.pending}>
-                  {deleteModal.pending ? 'Deleting...' : 'Delete'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {toasts.length > 0 && (
-        <div className="fixed top-6 right-6 z-[100] w-full max-w-sm space-y-3">
-          {toasts.map(toast => (
-            <div key={toast.id} className={`pipelines-toast pipelines-toast--${toast.tone} show`}>
-              <div className="pipelines-toast__content">{toast.message}</div>
-            </div>
-          ))}
-        </div>
-      )}
+      <WorkflowToastRegion toasts={toasts} />
     </div>
   );
 }
