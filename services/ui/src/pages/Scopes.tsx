@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Copy, Eye, EyeOff, KeyRound, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { ArrowLeft, KeyRound, Plus, Search, X } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { fetchResourceGroupPaths } from '../lib/resourceGroups';
-import ResourceAccessCard from '../components/ResourceAccessCard';
 import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowToastRegion';
+import { ScopeCollectionList } from '../features/scopes/ScopeCollectionList';
+import { ScopeDetailView } from '../features/scopes/ScopeDetailView';
 import { ScopeWorkflowModals } from '../features/scopes/ScopeWorkflowModals';
-import { ScopeUsagePanel } from '../features/scopes/ScopeUsagePanel';
 import {
   fetchScopeCatalogs,
   fetchScopedItems,
@@ -22,17 +22,13 @@ import {
   asScopeRecord,
   buildScopePipelineMeta,
   canonicalizeTriggerEvent,
-  countScopesRecursive,
   createInitialScopeData,
   decodeScopeFromRoute,
   encodeScopeForRoute,
   extractPipelineSecrets,
   extractScopeVariables,
   extractTriggerPipelines,
-  formatScopeDisplay,
   getScopeTreeNode,
-  groupScopedItems,
-  isEditableScopeSource,
   normalizeItemListPayload,
   normalizeScopePipelineList,
   normalizeScopeLabel,
@@ -41,13 +37,9 @@ import {
   parseScopedIdentity,
   parseScopeYamlSafe,
   runWithConcurrencyLimit,
-  scopeSourceLabel,
-  scopeSourcePillClass,
   type ScopeData,
   type ScopeEntry,
-  type GroupedScopedItem,
   type ScopePipelineMeta,
-  type ScopeTreeNode,
   type ScopeTriggerDescriptor,
 } from '../features/scopes/model';
 
@@ -698,421 +690,6 @@ function ScopesPage({
     setExpandedVariableKey(cacheKey);
   };
 
-  const renderFolderCard = (node: ScopeTreeNode) => {
-    const totalScopes = countScopesRecursive(node);
-    return (
-      <article
-        key={`folder-${node.id}`}
-        className="glass-card pipeline-card border border-[var(--border-primary)] rounded-xl p-4"
-        onClick={() => openFolder(node.fullPath)}
-      >
-        <div className="pipeline-card-header">
-          <div className="pipeline-card-info">
-            <span className="pipeline-card-icon" aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 7h5l2 2h11v9a2 2 0 0 1-2 2H3z" />
-                <path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2" />
-              </svg>
-            </span>
-            <div className="pipeline-card-text">
-              <h3 className="pipeline-card-title">{node.name}</h3>
-              <p className="pipeline-card-path">{node.fullPath ? `/${node.fullPath}` : '/'}</p>
-            </div>
-          </div>
-          <span className="pipeline-folder-chevron">›</span>
-        </div>
-        <div className="pipeline-folder-meta">
-          <div className="pipeline-folder-meta-row">
-            <span className="pipeline-card-meta-label">Scopes:</span>
-            <span className="pipeline-card-meta-value">{totalScopes}</span>
-          </div>
-          <div className="pipeline-folder-meta-row">
-            <span className="pipeline-card-meta-label">Sub groups:</span>
-            <span className="pipeline-card-meta-value">{node.children.length}</span>
-          </div>
-        </div>
-      </article>
-    );
-  };
-
-  const renderScopeCard = (entry: ScopeEntry) => {
-    const scopeLabel = entry.scope ? `/${entry.scope}` : '/';
-    const data = scopeDataByScope[entry.scope];
-    const variableCount = data?.variablesLoaded ? data.variables.length : 0;
-    const secretCount = data?.secretsLoaded ? data.secrets.length : entry.secretCountHint;
-    const variableLabel = `${variableCount} variable${variableCount === 1 ? '' : 's'}`;
-    const secretLabel = `${secretCount} secret${secretCount === 1 ? '' : 's'}`;
-    return (
-      <article
-        key={entry.scope || '__default__'}
-        className="glass-card pipeline-card border border-[var(--border-primary)] rounded-xl p-4"
-        onClick={() => handleSelectScope(entry.scope)}
-      >
-        <div className="pipeline-card-header">
-          <div className="pipeline-card-info">
-            <span className="pipeline-card-icon" aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="7.5" />
-                <circle cx="12" cy="12" r="2.5" />
-                <path d="M12 3v3m0 12v3m9-9h-3M6 12H3" />
-                <path d="M16.5 7.5l-1.75 1.75m-5.5 5.5L7.5 16.5" />
-                <path d="M7.5 7.5l1.75 1.75m5.5 5.5l1.75 1.75" />
-              </svg>
-            </span>
-            <div className="pipeline-card-text">
-              <h3 className="pipeline-card-title">{entry.label}</h3>
-              <p className="pipeline-card-path">{scopeLabel}</p>
-              <p className="pipeline-card-description">Configuration &amp; secrets manager.</p>
-            </div>
-          </div>
-        </div>
-        <div className="pipeline-card-meta">
-          <div className="pipeline-card-meta-row">
-            <span className="pipeline-card-meta-label">Variables</span>
-            <span className="pipeline-card-meta-value">{variableLabel}</span>
-          </div>
-          <div className="pipeline-card-meta-row">
-            <span className="pipeline-card-meta-label">Secrets</span>
-            <span className="pipeline-card-meta-value">{secretLabel}</span>
-          </div>
-        </div>
-      </article>
-    );
-  };
-
-  const renderList = () => {
-    const hasSearch = Boolean(searchTerm.trim());
-    const folders = hasSearch ? [] : activeFolderNode.children;
-    const scopeLabels = hasSearch ? [] : activeFolderNode.scopes;
-    const scopeEntries = hasSearch
-      ? filteredScopes
-      : scopeLabels.map(label => scopesByLabel.get(label)).filter((item): item is ScopeEntry => Boolean(item));
-
-    return (
-      <div id="scopes-list-view" className="pipelines-view">
-        <div className="space-y-3">
-          {listLoading ? (
-            <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Loading scopes…</div>
-          ) : listError ? (
-            <div className="glass-card p-5 text-sm text-red-500">Failed to load scopes: {listError}</div>
-          ) : (
-            <>
-              {scopeEntries.length ? (
-                <div className="pipelines-card-grid pipelines-card-grid--pipelines">{scopeEntries.map(scope => renderScopeCard(scope))}</div>
-              ) : null}
-
-              {!hasSearch && folders.length ? (
-                <div className="pipelines-card-grid pipelines-card-grid--pipelines mt-4">{folders.map(child => renderFolderCard(child))}</div>
-              ) : null}
-
-              {!scopeEntries.length && !folders.length && (
-                <div id="scopes-empty" className="pipelines-empty">
-                  <h3 className="text-base font-semibold text-[var(--text-primary)]">No scopes found</h3>
-                  <p className="text-sm text-[var(--text-secondary)]">
-                    {hasSearch
-                      ? `No scope groups matched “${searchTerm.trim()}”.`
-                      : canCreateScopeHere
-                        ? 'Create a new scope or adjust your filters.'
-                        : 'Adjust your filters or browse another group.'}
-                  </p>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  const renderDetail = () => {
-    if (selectedScope == null) return null;
-    const scopeLabel = normalizeScopeLabel(selectedScope);
-    const scopeDisplay = formatScopeDisplay(scopeLabel);
-    const data = scopeDataByScope[scopeLabel] || createInitialScopeData();
-    const variableGroups = groupScopedItems(data.variables);
-    const secretGroups = groupScopedItems(data.secrets);
-
-    const renderVariableSection = (title: string, items: GroupedScopedItem[]) => (
-      <section key={`var-section-${title || 'global'}`} className="space-y-2">
-        {title ? <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-secondary)]">{title}</p> : null}
-        <div className="scope-variable-buttons">
-          {items.map(item => {
-            const isActive = item.full === selectedVariable;
-            const cacheKey = `${item.full}@@${scopeLabel}`;
-            const isExpanded = expandedVariableKey === cacheKey;
-            const value = variableValues[cacheKey] ?? '';
-            const displayValue = value ? value : '(empty)';
-            const isLoading = variableValueLoadingKey === cacheKey;
-            const meta = data.variableMeta[item.full];
-            const editable = isEditableScopeSource(meta?.source || 'database');
-            return (
-              <div
-                key={`var-${item.full}`}
-                className={`scope-variable-item rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] ${isActive ? 'scope-variable-item--active' : ''} ${isExpanded ? 'scope-variable-item--expanded' : ''}`}
-              >
-                <div className="scope-variable-info">
-                  <button
-                    type="button"
-                    className={`scope-variable-btn${isActive ? ' scope-variable-btn--active' : ''}`}
-                    onClick={() => selectVariable(item.full)}
-                  >
-                    <span className="truncate">{item.display}</span>
-                  </button>
-                  <span className={`scope-variable-source-pill ${scopeSourcePillClass(meta?.source || 'database')}`}>{scopeSourceLabel(meta?.source || 'database')}</span>
-                </div>
-                <div className="scope-variable-inline-actions">
-                  <button
-                    type="button"
-                    className={`scope-inline-icon${isLoading ? ' loading' : ''}${isExpanded ? ' scope-inline-icon--active' : ''}`}
-                    title={isExpanded ? 'Hide value' : 'Show value'}
-                    aria-label={isExpanded ? 'Hide value' : 'Show value'}
-                    disabled={isLoading}
-                    onClick={async event => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      selectVariable(item.full);
-                      await toggleVariableValue(scopeLabel, item.full);
-                    }}
-                  >
-                    {isExpanded ? (
-                      <EyeOff className="h-4 w-4" aria-hidden="true" />
-                    ) : (
-                      <Eye className="h-4 w-4" aria-hidden="true" />
-                    )}
-                  </button>
-
-                  {editable ? (
-                    <>
-	                      {canWriteVariablesInSelectedScope && (
-                        <button
-                          type="button"
-                          className="scope-inline-icon"
-                          title="Edit variable"
-                          onClick={event => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            selectVariable(item.full);
-                            openVariableUpdateModal(scopeLabel, item.full);
-                          }}
-                        >
-                          <Pencil className="h-4 w-4" aria-hidden="true" />
-                        </button>
-                      )}
-                      {canDeleteScopes && (
-                        <button
-                          type="button"
-                          className="scope-inline-icon scope-inline-icon--danger"
-                          title="Delete variable"
-                          onClick={event => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            selectVariable(item.full);
-                            openDeleteModal('variable', scopeLabel, item.full);
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" aria-hidden="true" />
-                        </button>
-                      )}
-                    </>
-	                  ) : canWriteVariablesInSelectedScope ? (
-                    <button
-                      type="button"
-                      className="scope-inline-icon"
-                      title="Clone"
-                      onClick={event => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        openVariableCloneModal(scopeLabel, item.full);
-                      }}
-                    >
-                      <Copy className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                  ) : null}
-                </div>
-                <div className="scope-variable-value">{isExpanded ? displayValue : ''}</div>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-    );
-
-    const renderSecretSection = (title: string, items: GroupedScopedItem[]) => (
-      <section key={`secret-section-${title || 'global'}`} className="space-y-2">
-        {title ? <p className="text-xs uppercase tracking-[0.18em] text-[var(--text-secondary)]">{title}</p> : null}
-        <div className="scope-variable-buttons">
-          {items.map(item => {
-            const isActive = item.full === selectedSecret;
-            const meta = data.secretMeta[item.full];
-            const editable = isEditableScopeSource(meta?.source || 'database');
-            return (
-              <div
-                key={`secret-${item.full}`}
-                className={`scope-variable-item rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] ${isActive ? ' scope-variable-item--active' : ''}`}
-              >
-                <div className="scope-variable-info">
-                  <button
-                    type="button"
-                    className={`scope-variable-btn${isActive ? ' scope-variable-btn--active' : ''}`}
-                    onClick={() => selectSecret(item.full)}
-                  >
-                    <span className="truncate">{item.display}</span>
-                  </button>
-                  <span className={`scope-variable-source-pill ${scopeSourcePillClass(meta?.source || 'database')}`}>{scopeSourceLabel(meta?.source || 'database')}</span>
-                </div>
-                <div className="scope-variable-inline-actions">
-                  {editable ? (
-                    <>
-	                      {canWriteSecretsInSelectedScope && (
-                        <button
-                          type="button"
-                          className="scope-inline-icon"
-                          title="Edit secret"
-                          onClick={event => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            selectSecret(item.full);
-                            openSecretUpdateModal(scopeLabel, item.full);
-                          }}
-                        >
-                          <Pencil className="h-4 w-4" aria-hidden="true" />
-                        </button>
-                      )}
-                      {canDeleteScopes && (
-                        <button
-                          type="button"
-                          className="scope-inline-icon scope-inline-icon--danger"
-                          title="Delete secret"
-                          onClick={event => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            selectSecret(item.full);
-                            openDeleteModal('secret', scopeLabel, item.full);
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" aria-hidden="true" />
-                        </button>
-                      )}
-                    </>
-	                  ) : canWriteSecretsInSelectedScope ? (
-                    <button
-                      type="button"
-                      className="scope-inline-icon"
-                      title="Clone"
-                      onClick={event => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        openSecretCloneModal(scopeLabel, item.full);
-                      }}
-                    >
-                      <Copy className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-    );
-
-    const variableMeta = selectedVariable ? data.variableMeta[selectedVariable] : undefined;
-    const secretMeta = selectedSecret ? data.secretMeta[selectedSecret] : undefined;
-    const relatedVariablePipelines = selectedVariable ? Array.from(pipelineVariableIndex.get(selectedVariable) || []) : [];
-    const relatedSecretPipelines = selectedSecret ? Array.from(pipelineSecretIndex.get(selectedSecret) || []) : [];
-    const scopeTriggers = triggersByScope.get(scopeLabel) || [];
-
-    const activeSelection = selectedVariable
-      ? { type: 'variable' as const, name: selectedVariable, meta: variableMeta, pipelines: relatedVariablePipelines }
-      : selectedSecret
-        ? { type: 'secret' as const, name: selectedSecret, meta: secretMeta, pipelines: relatedSecretPipelines }
-        : null;
-
-    return (
-      <div id="scopes-detail-view" className="pipelines-view">
-        <div className="glass-card p-6">
-          <div className="flex items-start justify-between gap-4 w-full">
-            <div className="min-w-0 space-y-2">
-              <p className="text-xs uppercase tracking-[0.2em] text-[var(--text-secondary)]">Scope</p>
-              <h2 className="text-3xl font-bold text-[var(--text-primary)] truncate">{scopeDisplay}</h2>
-              <p className="text-sm text-[var(--text-secondary)]">Manage variables and secrets for this scope, all in one view.</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="pipelines-icon-only"
-                aria-label="Encrypt secret for GitOps"
-                title="Encrypt secret for GitOps"
-                onClick={openGitOpsEncryptModal}
-              >
-                <KeyRound className="h-4 w-4" aria-hidden="true" />
-              </button>
-              <ResourceAccessCard resourceType="scope" resourceID={scopeLabel || 'default'} label="scope" sensitive />
-              <button type="button" className="glass-button-ghost" onClick={handleBackToList}>
-                <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-                <span>Back</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid gap-6 mt-6 lg:grid-cols-[360px_1fr]">
-          <div className="space-y-4">
-            <div className="glass-card p-4 rounded-2xl border border-[var(--border-primary)]">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <p className="text-sm font-semibold text-[var(--text-primary)]">Variables</p>
-                  <p className="text-xs text-[var(--text-secondary)]">Plain text values.</p>
-                </div>
-                {canWriteVariablesInSelectedScope && (
-                  <button className="glass-button-primary" onClick={() => openVariableCreateModal(scopeLabel)}>
-                    New
-                  </button>
-                )}
-              </div>
-              {!data.variablesLoading && !data.variables.length ? <div className="scope-panel-empty">No variables configured yet.</div> : null}
-              {data.variablesLoading && !data.variablesLoaded ? <div className="scope-panel-empty">Loading variables…</div> : null}
-              <div className="scope-variable-list space-y-4">
-                {variableGroups.global.length ? renderVariableSection('Global', variableGroups.global) : null}
-                {variableGroups.repositories.map(group => renderVariableSection(group.repo, group.items))}
-              </div>
-            </div>
-
-            <div className="glass-card p-4 rounded-2xl border border-[var(--border-primary)]">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <p className="text-sm font-semibold text-[var(--text-primary)]">Secrets</p>
-                  <p className="text-xs text-[var(--text-secondary)]">Encrypted values.</p>
-                </div>
-	                {canWriteSecretsInSelectedScope && (
-                  <button className="glass-button-primary" onClick={() => openSecretCreateModal(scopeLabel)}>
-                    New
-                  </button>
-                )}
-              </div>
-              {!data.secretsLoading && !data.secrets.length ? <div className="scope-panel-empty">No secrets configured yet.</div> : null}
-              {data.secretsLoading && !data.secretsLoaded ? <div className="scope-panel-empty">Loading secrets…</div> : null}
-              <div className="scope-variable-list space-y-4">
-                {secretGroups.global.length ? renderSecretSection('Global', secretGroups.global) : null}
-                {secretGroups.repositories.map(group => renderSecretSection(group.repo, group.items))}
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <ScopeUsagePanel
-              selection={activeSelection}
-              pipelineMetadata={pipelineMetadata}
-              triggers={scopeTriggers}
-              loading={usageLoading}
-              error={usageError}
-            />
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div data-page="scopes" className="active h-full flex flex-col">
       {selectedScope === null && (
@@ -1181,7 +758,7 @@ function ScopesPage({
               <KeyRound className="h-4 w-4" aria-hidden="true" />
             </button>
 
-	            {!searchTerm.trim() && canCreateScopeHere && (
+            {!searchTerm.trim() && canCreateScopeHere && (
               <button
                 id="scopes-new-btn"
                 type="button"
@@ -1197,7 +774,53 @@ function ScopesPage({
         </div>
       )}
 
-      <div className="flex-1 overflow-auto px-6 pb-8 triggers-content">{selectedScope === null ? renderList() : renderDetail()}</div>
+      <div className="flex-1 overflow-auto px-6 pb-8 triggers-content">
+        {selectedScope === null ? (
+          <ScopeCollectionList
+            listLoading={listLoading}
+            listError={listError}
+            searchTerm={searchTerm}
+            activeFolderNode={activeFolderNode}
+            filteredScopes={filteredScopes}
+            scopesByLabel={scopesByLabel}
+            scopeDataByScope={scopeDataByScope}
+            canCreateScopeHere={canCreateScopeHere}
+            onOpenFolder={openFolder}
+            onSelectScope={handleSelectScope}
+          />
+        ) : (
+          <ScopeDetailView
+            selectedScope={selectedScope}
+            scopeDataByScope={scopeDataByScope}
+            selectedVariable={selectedVariable}
+            selectedSecret={selectedSecret}
+            expandedVariableKey={expandedVariableKey}
+            variableValueLoadingKey={variableValueLoadingKey}
+            variableValues={variableValues}
+            pipelineVariableIndex={pipelineVariableIndex}
+            pipelineSecretIndex={pipelineSecretIndex}
+            pipelineMetadata={pipelineMetadata}
+            triggersByScope={triggersByScope}
+            usageLoading={usageLoading}
+            usageError={usageError}
+            canWriteVariablesInSelectedScope={canWriteVariablesInSelectedScope}
+            canWriteSecretsInSelectedScope={canWriteSecretsInSelectedScope}
+            canDeleteScopes={canDeleteScopes}
+            onSelectVariable={selectVariable}
+            onSelectSecret={selectSecret}
+            onToggleVariableValue={toggleVariableValue}
+            onCreateVariable={openVariableCreateModal}
+            onUpdateVariable={openVariableUpdateModal}
+            onCloneVariable={openVariableCloneModal}
+            onCreateSecret={openSecretCreateModal}
+            onUpdateSecret={openSecretUpdateModal}
+            onCloneSecret={openSecretCloneModal}
+            onDeleteValue={openDeleteModal}
+            onOpenGitOpsEncrypt={openGitOpsEncryptModal}
+            onBack={handleBackToList}
+          />
+        )}
+      </div>
 
       <ScopeWorkflowModals
         scopeModal={scopeModal}

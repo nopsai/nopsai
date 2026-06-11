@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type UIEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import yaml from 'js-yaml';
-import { ArrowLeft, Copy, Download, Plus, Search, Trash2, X } from 'lucide-react';
 import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups';
-import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
 import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowToastRegion';
-import { EditorAutocompleteMenu } from '../features/editor/EditorAutocompleteMenu';
-import { YamlValidationPanel } from '../features/editor/YamlValidationPanel';
-import { TriggerRecentRuns } from '../features/triggers/TriggerRecentRuns';
+import {
+  buildTriggerEditorSuggestion,
+  type TriggerEditorSuggestion,
+} from '../features/triggers/editorAutocomplete';
+import { TriggerCollectionList, type TriggerTreeNode } from '../features/triggers/TriggerCollectionList';
+import { TriggerCollectionToolbar } from '../features/triggers/TriggerCollectionToolbar';
+import { TriggerDetailView } from '../features/triggers/TriggerDetailView';
 import { TriggerWorkflowModals } from '../features/triggers/TriggerWorkflowModals';
 import {
   fetchTriggerAutocompleteResources,
@@ -19,9 +21,6 @@ import {
 import { useTriggerManifestMutations } from '../features/triggers/useTriggerManifestMutations';
 import { useTriggerPermissions } from '../features/triggers/useTriggerPermissions';
 import {
-  TRIGGER_EVENT_OPTIONS,
-  TRIGGER_KEYS,
-  TRIGGER_ROOT_KEYS,
   asRecord,
   buildPipelineIdentifierFromRun,
   encodeTriggerSlug,
@@ -43,14 +42,6 @@ const INITIAL_RECENT_RUNS = 5;
 const RUNS_PAGE_SIZE = 10;
 const RUNS_CACHE_TTL = 60 * 1000;
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
-type TreeNode = {
-  id: string;
-  name: string;
-  fullPath: string;
-  children: TreeNode[];
-  triggerSlugs: string[];
-};
-
 function TriggersPage({
   canDeleteTriggers = false,
 }: {
@@ -111,14 +102,7 @@ function TriggersPage({
     loading: boolean;
   }>({ pipelines: [], scopes: [], fetchedAt: 0, loading: false });
 
-  const [editorSuggestion, setEditorSuggestion] = useState<null | {
-    title: string;
-    items: string[];
-    activeIndex: number;
-    replaceStart: number;
-    replaceEnd: number;
-    appendColon: boolean;
-  }>(null);
+  const [editorSuggestion, setEditorSuggestion] = useState<TriggerEditorSuggestion | null>(null);
   const [toasts, setToasts] = useState<WorkflowToast[]>([]);
 
   const addToast = useCallback((message: string, tone: WorkflowToast['tone'] = 'info') => {
@@ -185,103 +169,41 @@ function TriggersPage({
   const openEditorSuggestion = useCallback(
     (cursor: number, opts?: { text?: string; force?: boolean }) => {
       const text = typeof opts?.text === 'string' ? opts.text : editorValue;
-      const before = text.slice(0, cursor);
-      const lineStart = before.lastIndexOf('\n') + 1;
-      const lineBeforeCursor = text.slice(lineStart, cursor);
-      const prefixMatch = lineBeforeCursor.match(/[A-Za-z0-9_./-]+$/);
-      const prefix = prefixMatch ? prefixMatch[0] : '';
-      const replaceStart = cursor - prefix.length;
-      const replaceEnd = cursor;
-
-      const lines = text.split('\n');
-      const lineIndex = before.split('\n').length - 1;
-      const currentLine = lines[lineIndex] || '';
-      const currentIndent = currentLine.match(/^\s*/)?.[0].length ?? 0;
-
-      const currentKeyMatch = currentLine.match(/^\s*-?\s*([A-Za-z0-9_.-]+)\s*:\s*/);
-      const currentKey = currentKeyMatch?.[1] || '';
-
-      let parentKey = '';
-      for (let i = lineIndex; i >= 0; i -= 1) {
-        const rawLine = lines[i];
-        const trimmed = rawLine.trim();
-        if (!trimmed || trimmed.startsWith('#')) continue;
-        const indent = rawLine.match(/^\s*/)?.[0].length ?? 0;
-        if (indent < currentIndent) {
-          const match = rawLine.match(/^\s*-?\s*([A-Za-z0-9_.-]+)\s*:\s*/);
-          if (match) {
-            parentKey = match[1];
-            break;
-          }
-        }
-      }
-
-      const trimmedLineBefore = lineBeforeCursor.trim();
-      const isKeyContext = !trimmedLineBefore.includes(':') && /^-?\s*[A-Za-z0-9_.-]*$/.test(trimmedLineBefore.replace(/^-/, '').trim());
-
-      const pipelineValueContext = parentKey === 'pipelines';
-      const scopeValueContext =
-        currentKey === 'scope' || /^\s*scope\s*:\s*[A-Za-z0-9_./-]*$/.test(trimmedLineBefore);
-      const onValueContext = currentKey === 'on' || /^\s*on\s*:\s*[A-Za-z0-9_.-]*$/.test(trimmedLineBefore);
-
-      let title = 'Suggestions';
-      let pool: string[] = [];
-      let appendColon = false;
-
-      if (pipelineValueContext) {
-        title = 'Pipelines';
-        pool = autocompleteMeta.pipelines;
-      } else if (scopeValueContext) {
-        title = 'Scopes';
-        pool = autocompleteMeta.scopes;
-      } else if (onValueContext) {
-        title = 'Events';
-        pool = TRIGGER_EVENT_OPTIONS;
-      } else if (isKeyContext) {
-        appendColon = true;
-        title = currentIndent === 0 ? 'Root keys' : 'Trigger keys';
-        pool = currentIndent === 0 ? TRIGGER_ROOT_KEYS : TRIGGER_KEYS;
-      } else {
-        title = 'Suggestions';
-        pool = [];
-      }
-
-      const normalizedPrefix = prefix.toLowerCase();
-      const filtered = pool
-        .filter(item => item.toLowerCase().startsWith(normalizedPrefix))
-        .sort((a, b) => a.localeCompare(b));
-
-      if (
-        !opts?.force &&
-        !lineBeforeCursor.trim() &&
-        !prefix &&
-        !pipelineValueContext &&
-        !scopeValueContext &&
-        !onValueContext
-      ) {
-        setEditorSuggestion(null);
-        return;
-      }
-
-      const hasContext = pipelineValueContext || scopeValueContext || onValueContext || isKeyContext;
-      const shouldShow = opts?.force || hasContext || filtered.length > 0;
-
-      if (!shouldShow) {
-        setEditorSuggestion(null);
-        return;
-      }
-
-      setEditorSuggestion({
-        title,
-        items: filtered.slice(0, 50),
-        activeIndex: 0,
-        replaceStart,
-        replaceEnd,
-        appendColon,
-      });
+      setEditorSuggestion(buildTriggerEditorSuggestion({
+        text,
+        cursor,
+        force: opts?.force,
+        metadata: autocompleteMeta,
+      }));
     },
-    [autocompleteMeta.pipelines, autocompleteMeta.scopes, editorValue]
+    [autocompleteMeta, editorValue]
   );
+
+  const handleEditorTextChange = useCallback(
+    (next: string, cursor: number) => {
+      setEditorValue(next);
+      openEditorSuggestion(cursor, { text: next });
+    },
+    [openEditorSuggestion]
+  );
+
+  const moveEditorSuggestion = useCallback((direction: 1 | -1) => {
+    setEditorSuggestion(current => {
+      if (!current || !current.items.length) return current;
+      return {
+        ...current,
+        activeIndex: (current.activeIndex + direction + current.items.length) % current.items.length,
+      };
+    });
+  }, []);
+
+  const discardEditorChanges = useCallback(() => {
+    if (!detail) return;
+    const resetYaml = editSessionOriginalYamlRef.current || detail.rawYaml;
+    setEditorSuggestion(null);
+    setEditorValue(resetYaml);
+    setIsEditing(false);
+  }, [detail]);
 
   const ensureAutocompleteMeta = useCallback(
     async (force?: boolean) => {
@@ -748,7 +670,7 @@ function TriggersPage({
   }, [filteredTriggers, searchTerm, activeFolder]);
 
   const buildTree = useMemo(() => {
-    const root: TreeNode = { id: '__root__', name: '', fullPath: '', children: [], triggerSlugs: [] };
+    const root: TriggerTreeNode = { id: '__root__', name: '', fullPath: '', children: [], triggerSlugs: [] };
     resourceGroupPaths.forEach(path => {
       insertGroupPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], triggerSlugs: [] }));
     });
@@ -777,142 +699,14 @@ function TriggersPage({
   const activeFolderNode = useMemo(() => {
     if (!activeFolder) return buildTree;
     const segments = activeFolder.split('/').filter(Boolean);
-    let current: TreeNode | null = buildTree;
+    let current: TriggerTreeNode | null = buildTree;
     for (const segment of segments) {
-      const nextNode: TreeNode | undefined = current?.children.find(child => child.name === segment);
+      const nextNode: TriggerTreeNode | undefined = current?.children.find(child => child.name === segment);
       if (!nextNode) return buildTree;
       current = nextNode;
     }
     return current || buildTree;
   }, [activeFolder, buildTree]);
-
-  const countTriggersRecursive = (node: TreeNode): number => {
-    const own = node.triggerSlugs.length;
-    if (!node.children.length) return own;
-    return own + node.children.reduce((sum, child) => sum + countTriggersRecursive(child), 0);
-  };
-
-  const renderFolderCard = (node: TreeNode) => (
-    <article
-      key={`folder-${node.id}`}
-      className="glass-card pipeline-card border border-[var(--border-primary)] rounded-xl p-4"
-      onClick={() => openFolder(node.fullPath)}
-    >
-      <div className="pipeline-card-header">
-        <div className="pipeline-card-info">
-          <span className="pipeline-card-icon" aria-hidden="true">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 7h5l2 2h11v9a2 2 0 0 1-2 2H3z" />
-              <path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2" />
-            </svg>
-          </span>
-          <div className="pipeline-card-text">
-            <h3 className="pipeline-card-title">{node.name}</h3>
-          </div>
-        </div>
-        <span className="pipeline-folder-chevron">›</span>
-      </div>
-      <div className="pipeline-folder-meta">
-        <div className="pipeline-folder-meta-row">
-          <span className="pipeline-card-meta-label">Triggers:</span>
-          <span className="pipeline-card-meta-value">{countTriggersRecursive(node)}</span>
-        </div>
-        <div className="pipeline-folder-meta-row">
-          <span className="pipeline-card-meta-label">Sub groups:</span>
-          <span className="pipeline-card-meta-value">{node.children.length}</span>
-        </div>
-      </div>
-    </article>
-  );
-
-  const renderTriggerCard = (item: TriggerListItem) => {
-    const { name } = triggerSlugLabel(item.slug);
-    const sourceKey = normalizeSource(item.source);
-    const isActive = item.slug === selectedSlug;
-    return (
-      <article
-        key={item.slug}
-        className={`glass-card pipeline-card triggers-card border border-[var(--border-primary)] rounded-xl p-4 ${isActive ? 'triggers-card--active' : ''}`}
-        onClick={() => handleSelectSlug(item.slug)}
-      >
-        <div className="pipeline-card-header">
-          <div className="pipeline-card-info">
-            <span className="triggers-card-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-              </svg>
-            </span>
-            <div className="pipeline-card-text">
-              <h3 className="pipeline-card-title">{name || item.slug}</h3>
-            </div>
-          </div>
-          <div className="pipeline-card-actions">
-            {canDeleteTriggers && (
-              <button
-                type="button"
-                className="pipelines-delete-button"
-                aria-disabled={sourceKey === 'git'}
-                title={sourceKey === 'git' ? 'This trigger is managed via Git. Clone it to customize.' : 'Delete trigger'}
-                onClick={event => {
-                  event.stopPropagation();
-                  if (sourceKey === 'git') return;
-                  openDeleteModal(item.slug);
-                }}
-                aria-label="Delete trigger"
-              >
-                <Trash2 className="h-4 w-4" aria-hidden="true" />
-              </button>
-            )}
-          </div>
-        </div>
-        <div className="pipeline-card-meta">
-          <div className="pipeline-card-meta-row">
-            <span className="pipeline-card-meta-label">Source</span>
-            <span className="pipeline-card-meta-value">{sourceKey}</span>
-          </div>
-        </div>
-      </article>
-    );
-  };
-
-  const renderList = () => (
-    <div id="triggers-list-view" className="pipelines-view">
-      <div className="space-y-3 triggers-list-container">
-        {listLoading ? (
-          <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Loading triggers…</div>
-        ) : listError ? (
-          <div className="glass-card p-5 text-sm text-red-500">Failed to load triggers: {listError}</div>
-        ) : (
-          <>
-            {searchTerm.trim() ? (
-              <div className="triggers-search-summary">
-                Showing {visibleTriggers.length} result{visibleTriggers.length === 1 ? '' : 's'} for "{searchTerm.trim()}"
-              </div>
-            ) : null}
-
-            {visibleTriggers.length ? (
-              <div className="pipelines-card-grid pipelines-card-grid--pipelines">{visibleTriggers.map(item => renderTriggerCard(item))}</div>
-            ) : null}
-
-            {searchTerm.trim() ? null : activeFolderNode.children.length ? (
-              <div className="pipelines-card-grid pipelines-card-grid--pipelines mt-4">
-                {activeFolderNode.children.map(child => renderFolderCard(child))}
-              </div>
-            ) : null}
-
-            {!visibleTriggers.length && !activeFolderNode.children.length && (
-              <div id="triggers-empty" className="pipelines-empty">
-                <h3 className="text-base font-semibold text-[var(--text-primary)]">No triggers found</h3>
-                <p className="text-sm text-[var(--text-secondary)]">
-                  {canCreateTriggerHere ? 'Create a new trigger or adjust your filters.' : 'Adjust your filters or browse another group.'}
-                </p>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  );
 
   const handleIndentTab = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const el = event.currentTarget;
@@ -966,398 +760,84 @@ function TriggersPage({
     });
   };
 
-  const renderDetail = () => {
-    if (!detail) {
-      return (
-        <div id="triggers-detail-view" className="pipelines-view">
-          <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Select a trigger to see details.</div>
-        </div>
-      );
-    }
-
-    const sourceKey = normalizeSource(detail.source);
-    const isGitSource = sourceKey === 'git';
-    const editorLines = editorValue.split('\n');
-
-    return (
-      <div id="triggers-detail-view" className="pipelines-view">
-        <div className="min-w-0 space-y-6">
-          <div className="glass-card p-6">
-            <div className="flex items-start justify-between gap-4 w-full mb-4">
-              <div className="min-w-0">
-                <div className="triggers-detail-heading">
-                  <span className="triggers-detail-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-                    </svg>
-                  </span>
-                  <div className="min-w-0">
-                    <h2 id="triggers-detail-name" className="text-3xl font-bold text-[var(--text-primary)] truncate">
-                      {detail.slug}
-                    </h2>
-                    <div className="triggers-detail-meta">
-                      <dl className="triggers-detail-grid">
-                        <dt className="triggers-detail-label">Source:</dt>
-                        <dd className="triggers-detail-value">{sourceLabel(sourceKey)}</dd>
-                        <dt className="triggers-detail-label">Rules:</dt>
-                        <dd className="triggers-detail-value">{detail.summary.triggerCount}</dd>
-                        <dt className="triggers-detail-label">Events:</dt>
-                        <dd className="triggers-detail-value">
-                          {detail.summary.events.length ? detail.summary.events.join(', ') : 'N/A'}
-                        </dd>
-                        <dt className="triggers-detail-label" style={{ alignSelf: 'flex-start', marginTop: 4 }}>
-                          Scopes:
-                        </dt>
-                        <dd
-                          className="triggers-detail-value flex flex-wrap gap-1.5"
-                          style={{ whiteSpace: 'normal', overflow: 'visible', textOverflow: 'clip' }}
-                        >
-                          {detail.summary.scopes.length ? (
-                            detail.summary.scopes.map(scope => {
-                              const label = scope ? `/${scope}` : 'Default Scope';
-                              const target = scope ? encodeURIComponent(scope) : 'default';
-                              return (
-                                <button
-                                  key={`scope-${scope || 'default'}`}
-                                  type="button"
-                                  className="pipelines-tag font-semibold transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-accent)]"
-                                  onClick={() => navigate(`/scopes/${target}`)}
-                                >
-                                  {label}
-                                </button>
-                              );
-                            })
-                          ) : (
-                            <button
-                              type="button"
-                              className="pipelines-tag font-semibold transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-accent)]"
-                              onClick={() => navigate('/scopes/default')}
-                            >
-                              Default Scope
-                            </button>
-                          )}
-                        </dd>
-                      </dl>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <button id="triggers-back-btn" type="button" className="glass-button-ghost" onClick={handleBackToList}>
-                <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-                <span>Back to list</span>
-              </button>
-            </div>
-
-          </div>
-
-          <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]">
-            <div className="min-w-0 space-y-6">
-              <div className="glass-card overflow-hidden">
-                <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b border-[var(--border-primary)]">
-                  <h3 className="text-lg font-semibold text-[var(--text-primary)]">Trigger Definition (YAML)</h3>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {!isEditing ? (
-                      <>
-                        <button className="glass-button-ghost" onClick={handleCopyYaml} title="Copy YAML">
-                          <Copy className="h-4 w-4" aria-hidden="true" />
-                        </button>
-                        <button className="glass-button-ghost" onClick={handleDownloadYaml} title="Download YAML">
-                          <Download className="h-4 w-4" aria-hidden="true" />
-                        </button>
-                        {(canUpdateSelectedTrigger || canCreateTriggerHere) &&
-                          (isGitSource ? (
-                            canCreateTriggerHere ? (
-                              <button className="glass-button-primary" onClick={openCloneModal}>
-                                Clone
-                              </button>
-                            ) : null
-                          ) : (
-                            <>
-                              {canUpdateSelectedTrigger ? (
-                                <button className="glass-button-primary" onClick={() => setIsEditing(true)}>
-                                  Edit
-                                </button>
-                              ) : null}
-                              {canCreateTriggerHere ? (
-                                <button className="glass-button-subtle" onClick={openCloneModal}>
-                                  Clone
-                                </button>
-                              ) : null}
-                            </>
-                          ))}
-                      </>
-                    ) : canUpdateSelectedTrigger ? (
-                      <>
-                        <button
-                          className="glass-button-ghost"
-                          onClick={() => {
-                            const resetYaml = editSessionOriginalYamlRef.current || detail.rawYaml;
-                            setEditorSuggestion(null);
-                            setEditorValue(resetYaml);
-                            setIsEditing(false);
-                          }}
-                        >
-                          Discard
-                        </button>
-                        <button className="glass-button-primary" onClick={handleSave} disabled={saving || validation.errors.length > 0}>
-                          {saving ? 'Saving…' : 'Save'}
-                        </button>
-                      </>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="p-4 space-y-3">
-                  {!isEditing ? (
-                    <div id="triggers-yaml-content" className="yaml-view">
-                      {renderYamlLines(detail.rawYaml)}
-                    </div>
-                  ) : (
-                    <div id="editor-container" className="editor-container">
-                      <div id="line-numbers" ref={lineNumbersRef}>
-                        <div className="line-number-track">
-                          {editorLines.map((_, idx) => (
-                            <div key={`ln-${idx}`} className={`line-number ${validationErrorLines.has(idx + 1) ? 'line-number--error' : ''}`}>
-                              {idx + 1}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <div id="triggers-yaml-stage" className="yaml-editor-stage yaml-editor-stage--with-highlight">
-                        <div id="triggers-yaml-highlight" className="yaml-editor-highlight" aria-hidden="true">
-                          <pre ref={highlightContentRef} className="yaml-editor-highlight__content">
-                            {renderYamlHighlight(editorValue)}
-                          </pre>
-                        </div>
-                        <textarea
-                          ref={editorRef}
-                          id="triggers-yaml-editor"
-                          aria-label="Trigger YAML editor"
-                          aria-describedby="trigger-validation-status"
-                          aria-invalid={validation.errors.length > 0}
-                          aria-autocomplete="list"
-                          aria-controls={editorSuggestion ? 'trigger-editor-autocomplete' : undefined}
-                          aria-activedescendant={
-                            editorSuggestion ? `trigger-editor-autocomplete-option-${editorSuggestion.activeIndex}` : undefined
-                          }
-                          value={editorValue}
-                          onChange={event => {
-                            const next = event.target.value;
-                            setEditorValue(next);
-                            const cursor = event.target.selectionStart || 0;
-                            openEditorSuggestion(cursor, { text: next });
-                          }}
-                          onScroll={handleEditorScroll}
-                          onKeyDown={event => {
-                            if (event.ctrlKey && event.code === 'Space') {
-                              event.preventDefault();
-                              const cursor = event.currentTarget.selectionStart || 0;
-                              if (editorSuggestion) {
-                                setEditorSuggestion(null);
-                              } else {
-                                openEditorSuggestion(cursor, { force: true });
-                              }
-                              return;
-                            }
-
-                            if (editorSuggestion && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
-                              event.preventDefault();
-                              setEditorSuggestion(current => {
-                                if (!current || !current.items.length) return current;
-                                const direction = event.key === 'ArrowDown' ? 1 : -1;
-                                return {
-                                  ...current,
-                                  activeIndex: (current.activeIndex + direction + current.items.length) % current.items.length,
-                                };
-                              });
-                              return;
-                            }
-
-                            if (editorSuggestion && event.key === 'Enter' && !event.shiftKey && !event.ctrlKey) {
-                              event.preventDefault();
-                              const selectedSuggestion = editorSuggestion.items[editorSuggestion.activeIndex];
-                              if (selectedSuggestion) applyEditorSuggestion(selectedSuggestion);
-                              return;
-                            }
-
-                            if (editorSuggestion && event.key === 'Escape') {
-                              event.preventDefault();
-                              setEditorSuggestion(null);
-                              return;
-                            }
-
-                            if (event.key === 'Tab') {
-                              event.preventDefault();
-                              handleIndentTab(event);
-                              return;
-                            }
-
-                            if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey) {
-                              event.preventDefault();
-                              handleAutoIndentEnter(event);
-                            }
-                          }}
-                          onClick={event => {
-                            const cursor = event.currentTarget.selectionStart || 0;
-                            openEditorSuggestion(cursor);
-                          }}
-                          spellCheck={false}
-                        ></textarea>
-
-                      </div>
-
-                      <YamlValidationPanel id="trigger-validation-status" errors={validation.errors} />
-                      {editorSuggestion ? (
-                        <EditorAutocompleteMenu
-                          id="trigger-editor-autocomplete"
-                          suggestion={editorSuggestion}
-                          loading={autocompleteMeta.loading}
-                          width={340}
-                          onSelect={applyEditorSuggestion}
-                        />
-                      ) : null}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="min-w-0 space-y-6">
-              <div className="glass-card overflow-hidden">
-                <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b border-[var(--border-primary)]" style={{ marginTop: '9px' }}>
-                  <h3 className="text-lg font-semibold text-[var(--text-primary)]">Linked Pipelines</h3>
-                </div>
-                <div className="p-4">
-                  {linkedPipelines.length ? (
-                    <ul className={`triggers-pipeline-list ${linkedPipelines.length > 5 ? 'triggers-pipelines-scroll' : ''}`}>
-                      {linkedPipelines.map(pipeline => {
-                        const meta = pipelineMetaCacheRef.current.get(pipeline.identifier);
-                        const sourceKeyLocal = meta?.sourceKey || pipelineSourceIndexRef.current?.get(pipeline.identifier) || 'local';
-                        const canNavigate = sourceKeyLocal !== 'local';
-                        const buttonProps = canNavigate
-                          ? {
-                              onClick: () => navigate(`/pipelines/${pipeline.identifier.split('/').map(encodeURIComponent).join('/')}`),
-                              title: `Open ${pipeline.identifier}`,
-                            }
-                          : { disabled: true as const, title: 'Pipeline not available in the pipeline catalog yet.' };
-
-                        return (
-                          <li key={`pipe-${pipeline.identifier}`} className={`triggers-pipeline-item ${canNavigate ? '' : 'triggers-pipeline-item--local'}`}>
-                            <button type="button" className={`triggers-pipeline-link ${canNavigate ? '' : 'triggers-pipeline-link--local'}`} {...buttonProps}>
-                              <span className="triggers-pipeline-name">{pipeline.display}</span>
-                              <dl className="triggers-detail-grid triggers-pipeline-details">
-                                <dt className="triggers-detail-label">Path:</dt>
-                                <dd className="triggers-detail-value">{pipeline.pathLabel === 'root' ? '/' : `/${pipeline.pathLabel}`}</dd>
-                                <dt className="triggers-detail-label">Version:</dt>
-                                <dd className="triggers-detail-value">{meta?.version || 'latest'}</dd>
-                                <dt className="triggers-detail-label">Source:</dt>
-                                <dd className="triggers-detail-value">{meta?.sourceLabel || sourceLabel(sourceKeyLocal)}</dd>
-                              </dl>
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  ) : (
-                    <p className="text-sm text-[var(--text-secondary)]">No pipelines referenced yet.</p>
-                  )}
-                </div>
-              </div>
-
-              <TriggerRecentRuns
-                runs={recentRuns}
-                loading={runsLoading}
-                error={runsError}
-                scrollable={recentRuns.length >= INITIAL_RECENT_RUNS}
-                listRef={recentRunsListRef}
-                onScroll={handleRecentRunsScroll}
-                onOpenRun={runId => navigate(`/pipelineruns/recent/${encodeURIComponent(runId)}`)}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div data-page="triggers" className="active h-full flex flex-col">
       {!selectedSlug && (
-        <div className="px-6 pt-6 pb-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              className="glass-button-ghost"
-              aria-label="Back"
-              onClick={() => openFolder(parentFolder(activeFolder))}
-              disabled={!activeFolder}
-            >
-              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-            </button>
-            <div className={`pipelines-search-shell ${searchOpen ? 'open' : ''}`}>
-              <button
-                type="button"
-                className="pipelines-search-toggle"
-                aria-label="Search triggers"
-                onClick={() => {
-                  setSearchOpen(true);
-                  requestAnimationFrame(() => searchInputRef.current?.focus());
-                }}
-              >
-                <Search className="h-4 w-4" aria-hidden="true" />
-              </button>
-              <input
-                ref={searchInputRef}
-                id="triggers-search"
-                type="text"
-                placeholder="Search triggers"
-                className="pipelines-search-input"
-                value={searchTerm}
-                onChange={event => {
-                  setSearchTerm(event.target.value);
-                  if (event.target.value && !searchOpen) setSearchOpen(true);
-                }}
-                onBlur={() => {
-                  if (!searchTerm.trim()) setSearchOpen(false);
-                }}
-              />
-              {(searchTerm || searchOpen) && (
-                <button
-                  type="button"
-                  className="pipelines-search-clear"
-                  onClick={() => {
-                    setSearchTerm('');
-                    setSearchOpen(false);
-                    searchInputRef.current?.blur();
-                  }}
-                  aria-label="Clear search"
-                >
-                  <X className="h-4 w-4" aria-hidden="true" />
-                </button>
-              )}
-            </div>
-            {canCreateTriggerHere && (
-              <button
-                id="triggers-new-btn"
-                type="button"
-                className="pipelines-icon-only"
-                aria-label="Create new trigger"
-                title="New Trigger"
-                onClick={openCreateModal}
-              >
-                <Plus className="h-4 w-4" aria-hidden="true" />
-              </button>
-            )}
-          </div>
-        </div>
+        <TriggerCollectionToolbar
+          activeFolder={activeFolder}
+          searchTerm={searchTerm}
+          searchOpen={searchOpen}
+          searchInputRef={searchInputRef}
+          canCreateTriggerHere={canCreateTriggerHere}
+          onBack={() => openFolder(parentFolder(activeFolder))}
+          onSearchTermChange={setSearchTerm}
+          onSearchOpenChange={setSearchOpen}
+          onCreate={openCreateModal}
+        />
       )}
 
       <div className="flex-1 overflow-auto px-6 pb-8 triggers-content">
-        {!selectedSlug ? renderList() : detailLoading ? (
+        {!selectedSlug ? (
+          <TriggerCollectionList
+            listLoading={listLoading}
+            listError={listError}
+            visibleTriggers={visibleTriggers}
+            activeFolderNode={activeFolderNode}
+            searchTerm={searchTerm}
+            selectedSlug={selectedSlug}
+            canCreateTriggerHere={canCreateTriggerHere}
+            canDeleteTriggers={canDeleteTriggers}
+            onSelectTrigger={handleSelectSlug}
+            onOpenFolder={openFolder}
+            onDeleteTrigger={openDeleteModal}
+          />
+        ) : detailLoading ? (
           <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Loading trigger…</div>
         ) : detailError ? (
           <div className="glass-card p-5 text-sm text-red-500">Failed to load trigger: {detailError}</div>
         ) : (
-          renderDetail()
+          <TriggerDetailView
+            detail={detail}
+            isEditing={isEditing}
+            editorValue={editorValue}
+            validationErrors={validation.errors}
+            validationErrorLines={validationErrorLines}
+            editorSuggestion={editorSuggestion}
+            autocompleteLoading={autocompleteMeta.loading}
+            editorRef={editorRef}
+            highlightContentRef={highlightContentRef}
+            lineNumbersRef={lineNumbersRef}
+            canUpdateSelectedTrigger={canUpdateSelectedTrigger}
+            canCreateTriggerHere={canCreateTriggerHere}
+            saving={saving}
+            linkedPipelines={linkedPipelines}
+            pipelineMetadata={pipelineMetaCacheRef.current}
+            pipelineSourceIndex={pipelineSourceIndexRef.current}
+            recentRuns={recentRuns}
+            runsLoading={runsLoading}
+            runsError={runsError}
+            runsScrollable={recentRuns.length >= INITIAL_RECENT_RUNS}
+            recentRunsListRef={recentRunsListRef}
+            onBack={handleBackToList}
+            onOpenScope={scope => navigate(`/scopes/${scope ? encodeURIComponent(scope) : 'default'}`)}
+            onOpenPipeline={identifier => navigate(`/pipelines/${identifier.split('/').map(encodeURIComponent).join('/')}`)}
+            onOpenRun={runId => navigate(`/pipelineruns/recent/${encodeURIComponent(runId)}`)}
+            onRecentRunsScroll={handleRecentRunsScroll}
+            onCopy={() => void handleCopyYaml()}
+            onDownload={handleDownloadYaml}
+            onEdit={() => setIsEditing(true)}
+            onClone={openCloneModal}
+            onDiscard={discardEditorChanges}
+            onSave={() => void handleSave()}
+            onEditorTextChange={handleEditorTextChange}
+            onOpenSuggestion={openEditorSuggestion}
+            onMoveSuggestion={moveEditorSuggestion}
+            onDismissSuggestion={() => setEditorSuggestion(null)}
+            onSelectSuggestion={applyEditorSuggestion}
+            onEditorScroll={handleEditorScroll}
+            onIndentTab={handleIndentTab}
+            onAutoIndentEnter={handleAutoIndentEnter}
+          />
         )}
       </div>
 

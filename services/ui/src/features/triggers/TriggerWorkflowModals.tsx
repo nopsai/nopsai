@@ -1,5 +1,5 @@
 import { ListPlus, Plus } from 'lucide-react';
-import { useDialogFocus } from '../../components/useDialogFocus';
+import { WorkflowDialogFrame, WorkflowInlineAlert } from '../../components/WorkflowPrimitives';
 import type {
   TriggerCloneModalState,
   TriggerCreateModalState,
@@ -37,7 +37,6 @@ function TriggerRepositoryDialog({
   onUpdateRepository: (repository: string) => void;
   onSubmit: () => void;
 }) {
-  const dialogRef = useDialogFocus(onClose);
   const isCreate = mode === 'create';
   const modalId = isCreate ? 'triggers-new-modal' : 'triggers-clone-modal';
   const titleId = `${modalId}-title`;
@@ -47,16 +46,13 @@ function TriggerRepositoryDialog({
   const title = isCreate ? 'Create trigger override' : `Clone ${selectedSlug || 'trigger'}`;
 
   return (
-    <div id={modalId} className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
-      <div
-        ref={dialogRef}
-        className={`pipelines-modal-card trigger-modal-card ${isCreate ? 'max-w-lg' : 'max-w-md'} w-full`}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={`${descriptionId}${modal.error ? ` ${errorId}` : ''}`}
-        tabIndex={-1}
-      >
+    <WorkflowDialogFrame
+      id={modalId}
+      titleId={titleId}
+      descriptionId={`${descriptionId}${modal.error ? ` ${errorId}` : ''}`}
+      onClose={onClose}
+      className={`pipelines-modal-card trigger-modal-card ${isCreate ? 'max-w-lg' : 'max-w-md'} w-full`}
+    >
         <header className="pipelines-modal-header trigger-modal-header">
           <div className="trigger-modal-heading">
             <span className="trigger-modal-icon" aria-hidden="true">
@@ -108,11 +104,7 @@ function TriggerRepositoryDialog({
                 </div>
               </div>
             ) : null}
-            {modal.error ? (
-              <p id={errorId} className="text-sm text-red-500" role="alert">
-                {modal.error}
-              </p>
-            ) : null}
+            {modal.error ? <WorkflowInlineAlert id={errorId}>{modal.error}</WorkflowInlineAlert> : null}
           </div>
           <div className="pipelines-modal-footer trigger-modal-footer">
             <button type="button" className="glass-button-ghost" onClick={onClose} disabled={modal.pending}>
@@ -123,8 +115,7 @@ function TriggerRepositoryDialog({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </WorkflowDialogFrame>
   );
 }
 
@@ -137,22 +128,19 @@ function TriggerDeleteDialog({
   onClose: () => void;
   onConfirm: () => void;
 }) {
-  const dialogRef = useDialogFocus(onClose);
   const titleId = 'triggers-delete-modal-title';
   const descriptionId = 'triggers-delete-modal-description';
   const errorId = 'triggers-delete-modal-error';
 
   return (
-    <div id="triggers-delete-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
-      <div
-        ref={dialogRef}
-        className="pipelines-modal-card max-w-md w-full"
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={`${descriptionId}${modal.error ? ` ${errorId}` : ''}`}
-        tabIndex={-1}
-      >
+    <WorkflowDialogFrame
+      id="triggers-delete-modal"
+      role="alertdialog"
+      titleId={titleId}
+      descriptionId={`${descriptionId}${modal.error ? ` ${errorId}` : ''}`}
+      onClose={onClose}
+      className="pipelines-modal-card max-w-md w-full"
+    >
         <header className="pipelines-modal-header">
           <div>
             <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">Delete trigger</p>
@@ -164,11 +152,7 @@ function TriggerDeleteDialog({
         </header>
         <div className="pipelines-modal-body space-y-3">
           <p id={descriptionId} className="text-sm text-[var(--text-secondary)]">This action cannot be undone.</p>
-          {modal.error ? (
-            <p id={errorId} className="text-sm text-red-500" role="alert">
-              {modal.error}
-            </p>
-          ) : null}
+          {modal.error ? <WorkflowInlineAlert id={errorId}>{modal.error}</WorkflowInlineAlert> : null}
         </div>
         <div className="pipelines-modal-footer">
           <div className="pipelines-modal-actions">
@@ -186,8 +170,7 @@ function TriggerDeleteDialog({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </WorkflowDialogFrame>
   );
 }
 

@@ -13,6 +13,7 @@ Start here when you want to understand the system from different angles:
 - [enterprise-gates.md](./enterprise-gates.md): Production startup gates, local/CI verification commands, Docker build checks, and integration coverage baseline.
 - [enterprise-refactor-roadmap.md](./enterprise-refactor-roadmap.md): UI clean-code refactor status, ownership boundaries, and next enterprise-grade extraction targets.
 - [package-ownership.md](./package-ownership.md): Handler, service, store, domain, DTO, provider-client, and bootstrap ownership rules.
+- [services/ui/src/README.md](../services/ui/src/README.md): UI source ownership, feature contracts, accessibility primitives, and test placement rules.
 - [decision-architecture.md](./decision-architecture.md): The main architectural decisions, why they exist, and the tradeoffs they introduce.
 - [access-control.md](./access-control.md): Current AAA service, product roles, access grants, route authorization, and audit behavior.
 - [jwt-authentication.md](./jwt-authentication.md): User/API JWTs, refresh tokens, internal REST service JWTs, and dispatcher gRPC service JWTs.

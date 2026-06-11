@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
-import { ArrowLeft, Copy, Download, Trash2 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import yaml from 'js-yaml';
 import {
@@ -11,14 +10,10 @@ import {
 } from '../lib/stepDrafts';
 import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups';
 import { applyEnterIndent, findParentBlock } from '../lib/lab';
-import { renderYamlHighlight, renderYamlLines } from '../lib/yamlRenderer';
-import ResourceAccessCard from '../components/ResourceAccessCard';
 import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowToastRegion';
 import { fetchEditorAutocompleteMetadata } from '../features/editor/autocomplete';
-import { EditorAutocompleteMenu } from '../features/editor/EditorAutocompleteMenu';
 import { ResourceCollectionToolbar } from '../features/editor/ResourceCollectionToolbar';
 import { ResourceWorkflowModals } from '../features/editor/ResourceWorkflowModals';
-import { YamlValidationPanel } from '../features/editor/YamlValidationPanel';
 import { useDraftCollection } from '../features/editor/useDraftCollection';
 import { useYamlResourceMutations } from '../features/editor/useYamlResourceMutations';
 import {
@@ -35,7 +30,6 @@ import {
   STEP_DIRECTIVES,
   STEP_NAME_PATTERN,
   TASK_DIRECTIVES,
-  formatUpdatedAt,
   normalizeRootPath,
   normalizeSource,
   parseStepYaml,
@@ -44,7 +38,8 @@ import {
   type StepDetail,
 } from '../features/steps/model';
 import { useStepPermissions } from '../features/steps/useStepPermissions';
-import { StepUsagePanel } from '../features/steps/StepUsagePanel';
+import { StepCollectionList } from '../features/steps/StepCollectionList';
+import { StepDetailView } from '../features/steps/StepDetailView';
 
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
 
@@ -352,6 +347,35 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     },
     [autocompleteMeta.reusableSteps, autocompleteMeta.secrets, autocompleteMeta.secretScopes, autocompleteMeta.variableScopes, autocompleteMeta.variables, editorValue]
   );
+
+  const handleEditorTextChange = useCallback(
+    (next: string, cursor: number) => {
+      setEditorValue(next);
+      openEditorSuggestion(cursor, { text: next });
+    },
+    [openEditorSuggestion]
+  );
+
+  const moveEditorSuggestion = useCallback((direction: 1 | -1) => {
+    setEditorSuggestion(current => {
+      if (!current || !current.items.length) return current;
+      return {
+        ...current,
+        activeIndex: (current.activeIndex + direction + current.items.length) % current.items.length,
+      };
+    });
+  }, []);
+
+  const discardEditorChanges = useCallback(() => {
+    if (!detail) return;
+    const resetYaml = editSessionOriginalYamlRef.current || detail.rawYaml;
+    setEditorSuggestion(null);
+    setEditorValue(resetYaml);
+    if (normalizeSource(detail.source) === 'draft' && draftScope) {
+      upsertStepDraftState({ id: detail.id, yaml: resetYaml });
+    }
+    setIsEditing(false);
+  }, [detail, draftScope, upsertStepDraftState]);
 
   const loadAutocomplete = useCallback(
     async (force?: boolean) => {
@@ -739,354 +763,6 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     URL.revokeObjectURL(url);
   };
 
-  const renderStepCard = (step: StepListItem) => {
-    const { name, path } = splitIdentifier(step.id);
-    const source = normalizeSource(step.source);
-    const canDeleteThisStep = source === 'draft' ? canUseStepDrafts : canDeleteSteps && source !== 'git';
-    return (
-      <article
-        key={step.id}
-        className="glass-card pipeline-card border border-[var(--border-primary)] rounded-xl p-4"
-        onClick={() => handleSelect(step.id)}
-      >
-        <div className="pipeline-card-header">
-          <div className="pipeline-card-info">
-            <span className="pipeline-card-icon" aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2l8 4.5v11L12 22 4 17.5v-11L12 2z" />
-                <path d="M12 22v-7.5" />
-                <path d="M20 6.5l-8 4.5-8-4.5" />
-              </svg>
-            </span>
-            <div className="pipeline-card-text">
-              <h3 className="pipeline-card-title">{name || step.id}</h3>
-              <p className="pipeline-card-path">{path || 'root'}</p>
-              <p className="pipeline-card-description">Reusable step definition.</p>
-            </div>
-          </div>
-          <div className="pipeline-card-actions">
-            {canDeleteThisStep ? (
-              <button
-                type="button"
-                className="pipelines-delete-button"
-                title={source === 'draft' ? 'Discard draft' : 'Delete step'}
-                onClick={event => {
-                  event.stopPropagation();
-                  openDeleteModal(step.id, name || step.id);
-                }}
-                aria-label={source === 'draft' ? 'Discard draft step' : 'Delete step'}
-              >
-                <Trash2 className="h-4 w-4" aria-hidden="true" />
-              </button>
-            ) : null}
-          </div>
-        </div>
-        <div className="pipeline-card-meta">
-          <div className="pipeline-card-meta-row">
-            <span className="pipeline-card-meta-label">Source</span>
-            <span className="pipeline-card-meta-value">{source}</span>
-          </div>
-        </div>
-      </article>
-    );
-  };
-
-  const renderFolderCard = (node: TreeNode) => {
-    return (
-      <article
-        key={`folder-${node.id}`}
-        className="glass-card pipeline-card border border-[var(--border-primary)] rounded-xl p-4"
-        onClick={() => openFolder(node.fullPath)}
-      >
-        <div className="pipeline-card-header">
-          <div className="pipeline-card-info">
-            <span className="pipeline-card-icon" aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 7h5l2 2h11v9a2 2 0 0 1-2 2H3z" />
-                <path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2" />
-              </svg>
-            </span>
-            <div className="pipeline-card-text">
-              <h3 className="pipeline-card-title">{node.name}</h3>
-            </div>
-          </div>
-          <span className="pipeline-folder-chevron">›</span>
-        </div>
-        <div className="pipeline-folder-meta">
-          <div className="pipeline-folder-meta-row">
-            <span className="pipeline-card-meta-label">Steps:</span>
-            <span className="pipeline-card-meta-value">{node.stepIds.length}</span>
-          </div>
-          <div className="pipeline-folder-meta-row">
-            <span className="pipeline-card-meta-label">Sub groups:</span>
-            <span className="pipeline-card-meta-value">{node.children.length}</span>
-          </div>
-        </div>
-      </article>
-    );
-  };
-
-  const renderList = () => (
-    <div id="steps-list-view" className="pipelines-view">
-      <div className="space-y-3">
-        {listLoading ? (
-          <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Loading steps…</div>
-        ) : listError ? (
-          <div className="glass-card p-5 text-sm text-red-500">Failed to load steps: {listError}</div>
-        ) : (
-          <>
-            {visibleSteps.length ? (
-              <div className="pipelines-card-grid pipelines-card-grid--pipelines">{visibleSteps.map(item => renderStepCard(item))}</div>
-            ) : null}
-
-            {searchTerm.trim() ? null : activeFolderNode.children.length ? (
-              <div className="pipelines-card-grid pipelines-card-grid--pipelines mt-4">
-                {activeFolderNode.children.map(child => renderFolderCard(child))}
-              </div>
-            ) : null}
-
-            {!visibleSteps.length && !activeFolderNode.children.length && (
-              <div id="steps-empty" className="pipelines-empty">
-                <h3 className="text-base font-semibold text-[var(--text-primary)]">No steps found</h3>
-                <p className="text-sm text-[var(--text-secondary)]">
-                  {canCreateStepHere ? 'Create a new step or adjust your filters.' : 'Adjust your filters or check your access.'}
-                </p>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  );
-
-  const renderDetail = () => {
-    if (!detail) {
-      return (
-        <div id="steps-detail-view" className="pipelines-view">
-          <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Select a step to see details.</div>
-        </div>
-      );
-    }
-    const source = normalizeSource(detail.source);
-    const sourceLabel = source === 'git' ? 'Git' : source === 'draft' ? 'Draft' : 'Database';
-    const isGitSource = source === 'git';
-    const editorLines = editorValue.split('\n');
-    const updatedLabel = source === 'draft' ? 'Draft' : formatUpdatedAt(detail.updatedAt);
-    const pathLabel = detail.path || 'root';
-    return (
-      <div id="steps-detail-view" className="pipelines-view">
-        <div className="min-w-0 space-y-6">
-          <div className="glass-card p-6">
-            <div className="flex items-start justify-between gap-4 w-full mb-4">
-              <div className="min-w-0 flex items-start gap-3">
-                <span className="step-logo step-logo--detail step-logo--steps mt-1" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 2l8 4.5v11L12 22 4 17.5v-11L12 2z" />
-                    <path d="M12 22v-7.5" />
-                    <path d="M20 6.5l-8 4.5-8-4.5" />
-                  </svg>
-                </span>
-                <div className="min-w-0">
-                  <h2 id="step-detail-name" className="text-3xl font-bold text-[var(--text-primary)] truncate">
-                    {detail.name || detail.id}
-                  </h2>
-                  <p id="step-detail-description" className="text-sm text-[var(--text-secondary)] mt-1">
-                    {detail.description || 'No description provided.'}
-                  </p>
-                  <div className="pipeline-detail-meta">
-                    <dl className="pipeline-detail-grid">
-                      <dt className="pipeline-detail-label">Identifier:</dt>
-                      <dd className="pipeline-detail-value" id="step-detail-identifier">{detail.id}</dd>
-                      <dt className="pipeline-detail-label">Path:</dt>
-                      <dd className="pipeline-detail-value" id="step-detail-path">{pathLabel}</dd>
-                      <dt className="pipeline-detail-label">Source:</dt>
-                      <dd className="pipeline-detail-value" id="step-detail-source">{sourceLabel}</dd>
-                      <dt className="pipeline-detail-label">Last updated:</dt>
-                      <dd className="pipeline-detail-value" id="step-detail-updated">{updatedLabel}</dd>
-                    </dl>
-                  </div>
-                </div>
-              </div>
-              <button id="steps-back-btn" type="button" className="glass-button-ghost" onClick={handleBackToList}>
-                <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-                <span>Back to list</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]">
-            <div className="min-w-0 space-y-6">
-              <div className="glass-card overflow-hidden">
-                <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b border-[var(--border-primary)]">
-                  <h3 className="text-lg font-semibold text-[var(--text-primary)]">Step Definition (YAML)</h3>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {!isEditing ? (
-                      <>
-                        <button className="glass-button-ghost" onClick={handleCopy} title="Copy YAML">
-                          <Copy className="h-4 w-4" aria-hidden="true" />
-                        </button>
-                        <button className="glass-button-ghost" onClick={handleDownload} title="Download YAML">
-                          <Download className="h-4 w-4" aria-hidden="true" />
-                        </button>
-                        {source !== 'draft' ? (
-                          <ResourceAccessCard resourceType="step" resourceID={detail.id} label="step" />
-                        ) : null}
-                        {!canUpdateSelectedStep && !canCreateStepHere ? null : isGitSource ? (
-                          canCreateStepHere ? (
-                            <button className="glass-button-primary" onClick={openCloneModal}>
-                              Clone
-                            </button>
-                          ) : null
-                        ) : (
-                          <>
-                            {canUpdateSelectedStep ? (
-                              <button className="glass-button-primary" onClick={() => setIsEditing(true)}>
-                                Edit
-                              </button>
-                            ) : null}
-                            {canCreateStepHere ? (
-                              <button className="glass-button-subtle" onClick={openCloneModal}>
-                                Clone
-                              </button>
-                            ) : null}
-                          </>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          className="glass-button-ghost"
-                          onClick={() => {
-                            const resetYaml = editSessionOriginalYamlRef.current || detail.rawYaml;
-                            setEditorSuggestion(null);
-                            setEditorValue(resetYaml);
-                            if (normalizeSource(detail.source) === 'draft' && draftScope) {
-                              upsertStepDraftState({ id: detail.id, yaml: resetYaml });
-                            }
-                            setIsEditing(false);
-                          }}
-                        >
-                          Discard
-                        </button>
-                        <button className="glass-button-primary" onClick={handleSave} disabled={saving || validation.errors.length > 0}>
-                          {saving ? 'Saving…' : 'Save'}
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-                <div className="p-4 space-y-3">
-                  {!isEditing ? (
-                    <div id="step-yaml-content" className="yaml-view">
-                      {renderYamlLines(detail.rawYaml)}
-                    </div>
-                  ) : (
-                    <div id="step-editor-container" className="editor-container">
-                      <div id="step-line-numbers" ref={lineNumbersRef}>
-                        <div className="line-number-track">
-                          {editorLines.map((_, idx) => (
-                            <div key={`ln-${idx}`} className={`line-number ${validationErrorLines.has(idx + 1) ? 'line-number--error' : ''}`}>
-                              {idx + 1}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <div id="step-yaml-stage" className="yaml-editor-stage yaml-editor-stage--with-highlight">
-                        <div id="step-yaml-highlight" className="yaml-editor-highlight" aria-hidden="true">
-                          <pre ref={highlightContentRef} className="yaml-editor-highlight__content">
-                            {renderYamlHighlight(editorValue)}
-                          </pre>
-                        </div>
-                        <textarea
-                          ref={editorRef}
-                          id="step-yaml-editor"
-                          aria-label="Step YAML editor"
-                          aria-describedby="step-validation-status"
-                          aria-invalid={validation.errors.length > 0}
-                          aria-autocomplete="list"
-                          aria-controls={editorSuggestion ? 'step-editor-autocomplete' : undefined}
-                          aria-activedescendant={
-                            editorSuggestion ? `step-editor-autocomplete-option-${editorSuggestion.activeIndex}` : undefined
-                          }
-                          value={editorValue}
-                          onChange={event => {
-                            const next = event.target.value;
-                            setEditorValue(next);
-                            const cursor = event.target.selectionStart || 0;
-                            openEditorSuggestion(cursor, { text: next });
-                          }}
-                          onClick={event => {
-                            const cursor = event.currentTarget.selectionStart || 0;
-                            openEditorSuggestion(cursor);
-                          }}
-                          onScroll={handleEditorScroll}
-                          onKeyDown={event => {
-                            if (event.ctrlKey && event.code === 'Space') {
-                              event.preventDefault();
-                              const cursor = event.currentTarget.selectionStart || 0;
-                              if (editorSuggestion) {
-                                setEditorSuggestion(null);
-                              } else {
-                                openEditorSuggestion(cursor, { force: true });
-                              }
-                              return;
-                            }
-
-                            if (editorSuggestion && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
-                              event.preventDefault();
-                              setEditorSuggestion(current => {
-                                if (!current || !current.items.length) return current;
-                                const direction = event.key === 'ArrowDown' ? 1 : -1;
-                                return {
-                                  ...current,
-                                  activeIndex: (current.activeIndex + direction + current.items.length) % current.items.length,
-                                };
-                              });
-                              return;
-                            }
-
-                            if (editorSuggestion && event.key === 'Enter' && !event.shiftKey && !event.ctrlKey) {
-                              event.preventDefault();
-                              const selectedSuggestion = editorSuggestion.items[editorSuggestion.activeIndex];
-                              if (selectedSuggestion) applyEditorSuggestion(selectedSuggestion);
-                              return;
-                            }
-
-                            if (editorSuggestion && event.key === 'Escape') {
-                              event.preventDefault();
-                              setEditorSuggestion(null);
-                              return;
-                            }
-
-                            if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey) {
-                              event.preventDefault();
-                              handleAutoIndentEnter();
-                            }
-                          }}
-                          spellCheck={false}
-                        ></textarea>
-                      </div>
-                      <YamlValidationPanel id="step-validation-status" errors={validation.errors} />
-                      {editorSuggestion ? (
-                        <EditorAutocompleteMenu
-                          id="step-editor-autocomplete"
-                          suggestion={editorSuggestion}
-                          loading={autocompleteMeta.loading}
-                          onSelect={applyEditorSuggestion}
-                        />
-                      ) : null}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-            <StepUsagePanel usage={usage} loading={usageLoading} error={usageError} />
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div data-page="steps" className="active h-full flex flex-col">
       {!selectedId && (
@@ -1102,12 +778,57 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
       )}
 
       <div className="flex-1 overflow-auto px-6 pb-8 triggers-content">
-        {!selectedId ? renderList() : detailLoading ? (
+        {!selectedId ? (
+          <StepCollectionList
+            listLoading={listLoading}
+            listError={listError}
+            visibleSteps={visibleSteps}
+            activeFolderNode={activeFolderNode}
+            searchTerm={searchTerm}
+            canCreateStepHere={canCreateStepHere}
+            canUseStepDrafts={canUseStepDrafts}
+            canDeleteSteps={canDeleteSteps}
+            onSelectStep={handleSelect}
+            onOpenFolder={openFolder}
+            onDeleteStep={openDeleteModal}
+          />
+        ) : detailLoading ? (
           <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Loading step…</div>
         ) : detailError ? (
           <div className="glass-card p-5 text-sm text-red-500">Failed to load step: {detailError}</div>
         ) : (
-          renderDetail()
+          <StepDetailView
+            detail={detail}
+            isEditing={isEditing}
+            editorValue={editorValue}
+            validationErrors={validation.errors}
+            validationErrorLines={validationErrorLines}
+            editorSuggestion={editorSuggestion}
+            autocompleteLoading={autocompleteMeta.loading}
+            editorRef={editorRef}
+            highlightContentRef={highlightContentRef}
+            lineNumbersRef={lineNumbersRef}
+            canUpdateSelectedStep={canUpdateSelectedStep}
+            canCreateStepHere={canCreateStepHere}
+            saving={saving}
+            usage={usage}
+            usageLoading={usageLoading}
+            usageError={usageError}
+            onBack={handleBackToList}
+            onCopy={() => void handleCopy()}
+            onDownload={handleDownload}
+            onEdit={() => setIsEditing(true)}
+            onClone={openCloneModal}
+            onDiscard={discardEditorChanges}
+            onSave={() => void handleSave()}
+            onEditorTextChange={handleEditorTextChange}
+            onOpenSuggestion={openEditorSuggestion}
+            onMoveSuggestion={moveEditorSuggestion}
+            onDismissSuggestion={() => setEditorSuggestion(null)}
+            onSelectSuggestion={applyEditorSuggestion}
+            onEditorScroll={handleEditorScroll}
+            onAutoIndentEnter={() => handleAutoIndentEnter()}
+          />
         )}
       </div>
 

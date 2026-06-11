@@ -34,6 +34,7 @@ export function useRunLogs({ runID, initialStep, initialSearch }: RunLogsOptions
   const [hasUnseen, setHasUnseen] = useState(false);
   const lastIDRef = useRef(0);
   const followRef = useRef(true);
+  const shortViewRef = useRef(true);
 
   const setFollow = useCallback((value: boolean | ((current: boolean) => boolean)) => {
     setFollowState(current => {
@@ -88,7 +89,9 @@ export function useRunLogs({ runID, initialStep, initialSearch }: RunLogsOptions
   }, [agentOnly, runID, searchText, selectedLevels, selectedSteps, shortView, structured, wrap]);
 
   useEffect(() => {
-    if (shortView) {
+    const wasShortView = shortViewRef.current;
+    shortViewRef.current = shortView;
+    if (shortView && !wasShortView) {
       setWrap(false);
       setStructured(false);
     }

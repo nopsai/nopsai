@@ -1,4 +1,4 @@
-import { useDialogFocus } from '../../components/useDialogFocus';
+import { WorkflowDialogFrame, WorkflowInlineAlert } from '../../components/WorkflowPrimitives';
 
 export type ResourceFormModal = {
   mode: 'create' | 'clone';
@@ -48,7 +48,6 @@ function ResourceFormDialog({
   onClose: () => void;
   onSubmit: () => void;
 }) {
-  const dialogRef = useDialogFocus(onClose);
   const resourceTitle = resourceLabel.charAt(0).toUpperCase() + resourceLabel.slice(1);
   const pathInputId = `${resourceLabel}-workflow-path`;
   const nameInputId = `${resourceLabel}-workflow-name`;
@@ -56,16 +55,13 @@ function ResourceFormDialog({
   const errorId = `${modalId}-error`;
 
   return (
-    <div id={modalId} className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
-      <div
-        ref={dialogRef}
-        className="pipelines-modal-card max-w-md w-full"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={formModal.error ? errorId : undefined}
-        tabIndex={-1}
-      >
+    <WorkflowDialogFrame
+      id={modalId}
+      titleId={titleId}
+      descriptionId={formModal.error ? errorId : undefined}
+      onClose={onClose}
+      className="pipelines-modal-card max-w-md w-full"
+    >
         <header className="pipelines-modal-header">
           <div>
             <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">
@@ -108,11 +104,7 @@ function ResourceFormDialog({
               onChange={event => onChangeForm({ name: event.target.value })}
             />
           </div>
-          {formModal.error ? (
-            <p id={errorId} className="text-sm text-red-500" role="alert">
-              {formModal.error}
-            </p>
-          ) : null}
+          {formModal.error ? <WorkflowInlineAlert id={errorId}>{formModal.error}</WorkflowInlineAlert> : null}
         </div>
         <div className="pipelines-modal-footer">
           <div className="pipelines-modal-actions">
@@ -124,8 +116,7 @@ function ResourceFormDialog({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </WorkflowDialogFrame>
   );
 }
 
@@ -142,22 +133,19 @@ function ResourceDeleteDialog({
   onClose: () => void;
   onConfirm: () => void;
 }) {
-  const dialogRef = useDialogFocus(onClose);
   const titleId = `${modalId}-title`;
   const descriptionId = `${modalId}-description`;
   const errorId = `${modalId}-error`;
 
   return (
-    <div id={modalId} className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
-      <div
-        ref={dialogRef}
-        className="pipelines-modal-card max-w-md w-full"
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={`${descriptionId}${deleteModal.error ? ` ${errorId}` : ''}`}
-        tabIndex={-1}
-      >
+    <WorkflowDialogFrame
+      id={modalId}
+      role="alertdialog"
+      titleId={titleId}
+      descriptionId={`${descriptionId}${deleteModal.error ? ` ${errorId}` : ''}`}
+      onClose={onClose}
+      className="pipelines-modal-card max-w-md w-full"
+    >
         <header className="pipelines-modal-header">
           <div>
             <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">Delete {resourceLabel}</p>
@@ -171,11 +159,7 @@ function ResourceDeleteDialog({
         </header>
         <div className="pipelines-modal-body space-y-3">
           <p id={descriptionId} className="text-sm text-[var(--text-secondary)]">This action cannot be undone.</p>
-          {deleteModal.error ? (
-            <p id={errorId} className="text-sm text-red-500" role="alert">
-              {deleteModal.error}
-            </p>
-          ) : null}
+          {deleteModal.error ? <WorkflowInlineAlert id={errorId}>{deleteModal.error}</WorkflowInlineAlert> : null}
         </div>
         <div className="pipelines-modal-footer">
           <div className="pipelines-modal-actions">
@@ -193,8 +177,7 @@ function ResourceDeleteDialog({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </WorkflowDialogFrame>
   );
 }
 

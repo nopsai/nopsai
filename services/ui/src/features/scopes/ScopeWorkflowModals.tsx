@@ -1,5 +1,5 @@
 import { Copy, KeyRound } from 'lucide-react';
-import { useDialogFocus } from '../../components/useDialogFocus';
+import { WorkflowDialogFrame, WorkflowInlineAlert } from '../../components/WorkflowPrimitives';
 import { normalizeScopeLabel, parseScopedIdentity } from './model';
 import {
   SAMPLE_SCOPE_VARIABLE,
@@ -61,22 +61,18 @@ function ScopeCreateDialog({
   onUpdateName: (name: string) => void;
   onSubmit: () => void;
 }) {
-  const dialogRef = useDialogFocus(onClose);
   const titleId = 'scope-new-modal-title';
   const descriptionId = 'scope-new-modal-description';
   const errorId = 'scope-new-modal-error';
 
   return (
-    <div id="scope-new-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
-      <div
-        ref={dialogRef}
-        className="pipelines-modal-card max-w-md w-full"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={`${descriptionId}${modal.error ? ` ${errorId}` : ''}`}
-        tabIndex={-1}
-      >
+    <WorkflowDialogFrame
+      id="scope-new-modal"
+      titleId={titleId}
+      descriptionId={`${descriptionId}${modal.error ? ` ${errorId}` : ''}`}
+      onClose={onClose}
+      className="pipelines-modal-card max-w-md w-full"
+    >
         <header className="pipelines-modal-header">
           <div>
             <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">Create scope</p>
@@ -120,11 +116,7 @@ function ScopeCreateDialog({
               Each new scope is seeded with <code>{SAMPLE_SCOPE_VARIABLE}</code>. Update or remove it after creating the scope.
             </p>
           </div>
-          {modal.error ? (
-            <p id={errorId} className="text-sm text-red-500" role="alert">
-              {modal.error}
-            </p>
-          ) : null}
+          {modal.error ? <WorkflowInlineAlert id={errorId}>{modal.error}</WorkflowInlineAlert> : null}
           <div className="flex items-center justify-end gap-2 pt-2">
             <button type="button" className="glass-button-ghost" onClick={onClose} disabled={modal.pending}>
               Cancel
@@ -134,8 +126,7 @@ function ScopeCreateDialog({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </WorkflowDialogFrame>
   );
 }
 
@@ -230,7 +221,6 @@ function ScopedValueDialog({
   onChooseSuggestion: (fullName: string) => void;
   onSubmit: () => void;
 }) {
-  const dialogRef = useDialogFocus(onClose);
   const isVariable = kind === 'variable';
   const title = modal.mode === 'update' ? (isVariable ? 'Variable' : 'Secret') : isVariable ? 'New Variable' : 'New Secret';
   const modalId = isVariable ? 'variable-edit-modal' : 'secret-edit-modal';
@@ -243,16 +233,13 @@ function ScopedValueDialog({
   const repositoryListId = `${modalId}-repository-options`;
 
   return (
-    <div id={modalId} className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
-      <div
-        ref={dialogRef}
-        className={`pipelines-modal-card ${isVariable ? 'max-w-10xl rounded-2xl' : 'max-w-6xl rounded-xl'} w-full overflow-hidden border border-[var(--border-primary)] shadow-2xl`}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={`${descriptionId}${modal.error ? ` ${errorId}` : ''}`}
-        tabIndex={-1}
-      >
+    <WorkflowDialogFrame
+      id={modalId}
+      titleId={titleId}
+      descriptionId={`${descriptionId}${modal.error ? ` ${errorId}` : ''}`}
+      onClose={onClose}
+      className={`pipelines-modal-card ${isVariable ? 'max-w-10xl rounded-2xl' : 'max-w-6xl rounded-xl'} w-full overflow-hidden border border-[var(--border-primary)] shadow-2xl`}
+    >
         <header className="flex items-start justify-between gap-3 px-6 py-4 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)]">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
@@ -342,15 +329,11 @@ function ScopedValueDialog({
                 disabled={modal.pending}
                 data-dialog-initial-focus={modal.mode === 'update' ? true : undefined}
               />
-              <p className="text-xs text-[var(--text-secondary)]">
-                {isVariable ? 'Overwrites any existing value for this scope.' : 'Encrypted at rest; never shown in plain text.'}
-              </p>
-            </div>
-            {modal.error ? (
-              <p id={errorId} className="text-sm text-red-500" role="alert">
-                {modal.error}
-              </p>
-            ) : null}
+            <p className="text-xs text-[var(--text-secondary)]">
+              {isVariable ? 'Overwrites any existing value for this scope.' : 'Encrypted at rest; never shown in plain text.'}
+            </p>
+          </div>
+            {modal.error ? <WorkflowInlineAlert id={errorId}>{modal.error}</WorkflowInlineAlert> : null}
             <div className="flex items-center justify-end gap-2 pt-1">
               <button type="button" className="glass-button-ghost" onClick={onClose} disabled={modal.pending}>
                 Cancel
@@ -367,8 +350,7 @@ function ScopedValueDialog({
             onChoose={onChooseSuggestion}
           />
         </div>
-      </div>
-    </div>
+    </WorkflowDialogFrame>
   );
 }
 
@@ -385,22 +367,18 @@ function GitOpsEncryptDialog({
   onEncrypt: () => void;
   onCopy: () => void;
 }) {
-  const dialogRef = useDialogFocus(onClose);
   const titleId = 'gitops-secret-encrypt-modal-title';
   const descriptionId = 'gitops-secret-encrypt-modal-description';
   const errorId = 'gitops-secret-encrypt-modal-error';
 
   return (
-    <div id="gitops-secret-encrypt-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
-      <div
-        ref={dialogRef}
-        className="pipelines-modal-card max-w-3xl w-full overflow-hidden rounded-xl border border-[var(--border-primary)] shadow-2xl"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={`${descriptionId}${modal.error ? ` ${errorId}` : ''}`}
-        tabIndex={-1}
-      >
+    <WorkflowDialogFrame
+      id="gitops-secret-encrypt-modal"
+      titleId={titleId}
+      descriptionId={`${descriptionId}${modal.error ? ` ${errorId}` : ''}`}
+      onClose={onClose}
+      className="pipelines-modal-card max-w-3xl w-full overflow-hidden rounded-xl border border-[var(--border-primary)] shadow-2xl"
+    >
         <header className="flex items-start justify-between gap-3 px-6 py-4 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)]">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
@@ -451,11 +429,7 @@ function GitOpsEncryptDialog({
               />
             </div>
           ) : null}
-          {modal.error ? (
-            <p id={errorId} className="text-sm text-red-500" role="alert">
-              {modal.error}
-            </p>
-          ) : null}
+          {modal.error ? <WorkflowInlineAlert id={errorId}>{modal.error}</WorkflowInlineAlert> : null}
           <div className="flex items-center justify-end gap-2 pt-1">
             {modal.encryptedValue ? (
               <button type="button" className="glass-button-ghost inline-flex items-center gap-2" onClick={onCopy} disabled={modal.pending}>
@@ -471,8 +445,7 @@ function GitOpsEncryptDialog({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </WorkflowDialogFrame>
   );
 }
 
@@ -485,23 +458,20 @@ function ScopedValueDeleteDialog({
   onClose: () => void;
   onConfirm: () => void;
 }) {
-  const dialogRef = useDialogFocus(onClose);
   const modalId = modal.kind === 'variable' ? 'variable-delete-modal' : 'secret-delete-modal';
   const titleId = `${modalId}-title`;
   const descriptionId = `${modalId}-description`;
   const errorId = `${modalId}-error`;
 
   return (
-    <div id={modalId} className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
-      <div
-        ref={dialogRef}
-        className="pipelines-modal-card max-w-md w-full"
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={`${descriptionId}${modal.error ? ` ${errorId}` : ''}`}
-        tabIndex={-1}
-      >
+    <WorkflowDialogFrame
+      id={modalId}
+      role="alertdialog"
+      titleId={titleId}
+      descriptionId={`${descriptionId}${modal.error ? ` ${errorId}` : ''}`}
+      onClose={onClose}
+      className="pipelines-modal-card max-w-md w-full"
+    >
         <header className="pipelines-modal-header">
           <div>
             <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">Delete {modal.kind}</p>
@@ -515,11 +485,7 @@ function ScopedValueDeleteDialog({
           <p id={descriptionId} className="text-sm text-[var(--text-secondary)]">
             Remove <strong>{modal.name}</strong> from <strong>{formatScopeDisplay(modal.scope)}</strong>?
           </p>
-          {modal.error ? (
-            <p id={errorId} className="text-sm text-red-500" role="alert">
-              {modal.error}
-            </p>
-          ) : null}
+          {modal.error ? <WorkflowInlineAlert id={errorId}>{modal.error}</WorkflowInlineAlert> : null}
           <div className="flex items-center justify-end gap-2 pt-2">
             <button
               type="button"
@@ -535,8 +501,7 @@ function ScopedValueDeleteDialog({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </WorkflowDialogFrame>
   );
 }
 
