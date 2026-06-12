@@ -238,7 +238,35 @@ Sync behavior:
 Pipeline notifications include:
 
 - Prometheus-friendly `GET /metrics` with DB-backed pipeline run, duration,
-  active/pending/approval, step, task, and notification delivery metrics
+  queue duration, end-to-end duration, active/pending/approval, step, task,
+  external trigger, AI usage, runner capacity, approval wait, audit, and
+  notification delivery metrics
+- backend-computed monitoring analytics under **Monitoring** with tabs for
+  Overview, Runs, Pipelines, Steps & Tasks, Triggers, External Triggers,
+  Runners, AI Usage, Reliability, Efficiency, and Security
+- monitoring step analytics fall back to task-run grouping for historical runs
+  that do not have explicit `step_runs`, and monitoring tables link supported
+  object references back to pipelines, pipeline runs, external triggers, and
+  dispatcher runner status
+- shared monitoring filters for time range, group, pipeline, repository,
+  trigger source, status, subject identity, external trigger, schedule,
+  duration range, and previous-period comparison with tab-level regression
+  deltas
+- access-filtered aggregate endpoints that reuse `pipeline_run.list` so normal
+  users see only permitted run analytics while admins can see global metrics
+- AI usage accounting through agent-recorded `ai_usage_events` and
+  `pipeline_run_usage_summary`; provider token metadata is stored when
+  available, with estimated token counts marked in metadata and reported
+  separately when providers omit exact usage
+- runner trend sampling through `runner_metric_snapshots` with hourly capacity,
+  active-job, inflight-job, queued-job, and utilization timelines
+- GitOps-ready monitoring saved views and alert rules through
+  `monitoring_saved_views`, `monitoring_alert_rules`, and
+  `monitoring_alert_events`, including database UI workflows, evaluator events,
+  and config repository source metadata for managed definitions
+- external trigger last-fired and rate-limit violation analytics in Monitoring
+- persisted monitoring recommendations through `monitoring_recommendations`,
+  with open/acknowledged/resolved workflow status
 - system-level mail settings under **System > Config** and
   `GET|PUT /v1/system/notifications/mail`
 - `POST /v1/system/notifications/mail/test` for validating SMTP delivery with

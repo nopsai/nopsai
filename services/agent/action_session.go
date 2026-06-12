@@ -16,15 +16,21 @@ type agentActionSession struct {
 	llmProfile    string
 	agentProfile  string
 	promptProfile llmruntime.AgentPromptProfile
+	usageReporter aiUsageReporter
+	stepName      string
+	taskName      string
 }
 
 type agentConditionClient struct {
 	client        *llmruntime.LLMClient
 	agentProfile  string
 	promptProfile llmruntime.AgentPromptProfile
+	usageReporter aiUsageReporter
+	stepName      string
+	taskName      string
 }
 
-func newAgentConditionClientResolver(llmRegistry *llmruntime.LLMProfileRegistry, agentRegistry *llmruntime.AgentProfileRegistry) resolver.ConditionClientResolver {
+func newAgentConditionClientResolver(llmRegistry *llmruntime.LLMProfileRegistry, agentRegistry *llmruntime.AgentProfileRegistry, usageReporter aiUsageReporter) resolver.ConditionClientResolver {
 	return func(pipeline *models.Pipeline, step *models.PipelineStep, task *models.Task) (resolver.ConditionClient, string, error) {
 		if llmRegistry == nil {
 			return nil, "", fmt.Errorf("LLM profile registry is not initialized")
@@ -44,11 +50,14 @@ func newAgentConditionClientResolver(llmRegistry *llmruntime.LLMProfileRegistry,
 			client:        conditionClient,
 			agentProfile:  agentProfile,
 			promptProfile: promptProfile,
+			usageReporter: usageReporter,
+			stepName:      resolvedStepName(step),
+			taskName:      resolvedTaskName(task),
 		}, llmProfile, nil
 	}
 }
 
-func newAgentActionSessionResolver(llmRegistry *llmruntime.LLMProfileRegistry, agentRegistry *llmruntime.AgentProfileRegistry, mcpRegistry *llmruntime.MCPProfileRegistry) resolver.ActionSessionResolver {
+func newAgentActionSessionResolver(llmRegistry *llmruntime.LLMProfileRegistry, agentRegistry *llmruntime.AgentProfileRegistry, mcpRegistry *llmruntime.MCPProfileRegistry, usageReporter aiUsageReporter) resolver.ActionSessionResolver {
 	return func(pipeline *models.Pipeline, step *models.PipelineStep, task *models.Task) (resolver.ActionSession, error) {
 		if llmRegistry == nil {
 			return nil, resolver.NewActionSessionResolutionError(resolver.ActionSessionResolutionLLMProfile, fmt.Errorf("LLM profile registry is not initialized"))
@@ -74,6 +83,9 @@ func newAgentActionSessionResolver(llmRegistry *llmruntime.LLMProfileRegistry, a
 			llmProfile:    actionProfile,
 			agentProfile:  agentProfile,
 			promptProfile: promptProfile,
+			usageReporter: usageReporter,
+			stepName:      resolvedStepName(step),
+			taskName:      resolvedTaskName(task),
 		}, nil
 	}
 }
@@ -89,7 +101,11 @@ func (c *agentConditionClient) EvaluateCondition(ctx context.Context, req *proto
 	if c == nil || c.client == nil {
 		return nil, fmt.Errorf("LLM condition client is not initialized")
 	}
-	return c.client.EvaluateConditionWithAgentProfile(ctx, req, c.promptProfile)
+	collector := llmruntime.NewUsageCollector()
+	callCtx := llmruntime.ContextWithUsageCollector(ctx, collector)
+	resp, err := c.client.EvaluateConditionWithAgentProfile(callCtx, req, c.promptProfile)
+	reportCollectedAIUsage(context.Background(), c.usageReporter, "condition", c.stepName, c.taskName, c.agentProfile, collector.Snapshot())
+	return resp, err
 }
 
 func (s *agentActionSession) ProfileName() string {
@@ -143,5 +159,23 @@ func (s *agentActionSession) GetAction(ctx context.Context, req *proto.GetAction
 	if s == nil || s.client == nil {
 		return nil, fmt.Errorf("LLM action client is not initialized")
 	}
-	return s.client.GetActionWithMCPAndAgentProfile(ctx, req, s.runtime, s.promptProfile)
+	collector := llmruntime.NewUsageCollector()
+	callCtx := llmruntime.ContextWithUsageCollector(ctx, collector)
+	action, err := s.client.GetActionWithMCPAndAgentProfile(callCtx, req, s.runtime, s.promptProfile)
+	reportCollectedAIUsage(context.Background(), s.usageReporter, "goal_resolution", s.stepName, s.taskName, s.agentProfile, collector.Snapshot())
+	return action, err
+}
+
+func resolvedStepName(step *models.PipelineStep) string {
+	if step == nil {
+		return ""
+	}
+	return step.GetName()
+}
+
+func resolvedTaskName(task *models.Task) string {
+	if task == nil {
+		return ""
+	}
+	return task.Name
 }

@@ -103,6 +103,22 @@ type StepStatusUpdate struct {
 	ExitCode int    `json:"exit_code"`
 }
 
+type AIUsageReport struct {
+	StepName         string         `json:"step_name,omitempty"`
+	TaskName         string         `json:"task_name,omitempty"`
+	Feature          string         `json:"feature,omitempty"`
+	Provider         string         `json:"provider,omitempty"`
+	Model            string         `json:"model,omitempty"`
+	LLMProfile       string         `json:"llm_profile,omitempty"`
+	PromptTokens     int64          `json:"prompt_tokens,omitempty"`
+	CompletionTokens int64          `json:"completion_tokens,omitempty"`
+	TotalTokens      int64          `json:"total_tokens,omitempty"`
+	InputCostUSD     float64        `json:"input_cost_usd,omitempty"`
+	OutputCostUSD    float64        `json:"output_cost_usd,omitempty"`
+	TotalCostUSD     float64        `json:"total_cost_usd,omitempty"`
+	Metadata         map[string]any `json:"metadata,omitempty"`
+}
+
 type SecretRequest struct {
 	Value string `json:"value"`
 }

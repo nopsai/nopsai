@@ -93,6 +93,13 @@ func (c *LLMClient) callLMStudio(ctx context.Context, prompt string) (string, er
 			Type    string `json:"type"`
 			Content string `json:"content"`
 		} `json:"output"`
+		Usage struct {
+			InputTokens      int64 `json:"input_tokens"`
+			OutputTokens     int64 `json:"output_tokens"`
+			PromptTokens     int64 `json:"prompt_tokens"`
+			CompletionTokens int64 `json:"completion_tokens"`
+			TotalTokens      int64 `json:"total_tokens"`
+		} `json:"usage"`
 	}
 	if err := json.Unmarshal(body, &lmStudioResp); err != nil {
 		return "", fmt.Errorf("failed to unmarshal lm studio response: %w", err)
@@ -110,8 +117,20 @@ func (c *LLMClient) callLMStudio(ctx context.Context, prompt string) (string, er
 	if len(messages) == 0 {
 		return "", fmt.Errorf("lm studio response did not contain a message item: %s", string(body))
 	}
+	responseText := strings.Join(messages, "\n")
+	c.recordLMStudioUsage(ctx, model, prompt, responseText, lmStudioResp.Usage.InputTokens, lmStudioResp.Usage.OutputTokens, lmStudioResp.Usage.PromptTokens, lmStudioResp.Usage.CompletionTokens, lmStudioResp.Usage.TotalTokens)
 
-	return strings.Join(messages, "\n"), nil
+	return responseText, nil
+}
+
+func (c *LLMClient) recordLMStudioUsage(ctx context.Context, model, prompt, completion string, inputTokens, outputTokens, promptTokens, completionTokens, totalTokens int64) {
+	if promptTokens == 0 {
+		promptTokens = inputTokens
+	}
+	if completionTokens == 0 {
+		completionTokens = outputTokens
+	}
+	recordUsage(ctx, usageFromTokens(c.provider, model, c.profile, prompt, completion, promptTokens, completionTokens, totalTokens))
 }
 
 func lmStudioEndpointLoadGateFor(baseURL string) *lmStudioEndpointGate {

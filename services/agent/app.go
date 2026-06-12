@@ -72,7 +72,7 @@ func Run() int {
 			Int("completed_tasks", len(checkpoint.CompletedTasks)).
 			Msg("Restored approval checkpoint")
 	}
-	runtimeAdapters, err := newAgentRuntimeAdapters(runScope, &pipeline)
+	runtimeAdapters, err := newAgentRuntimeAdapters(runScope, runID, &pipeline)
 	if err != nil {
 		logAgentRuntimeWiringError(runID, pipelineName, err)
 		return 1

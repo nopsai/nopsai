@@ -141,6 +141,10 @@ Key files:
 - `services/nopsai/knowledge_context.go`
 - `services/nopsai/knowledge_context_schema.go`
 - `services/nopsai/metrics.go`
+- `services/nopsai/monitoring_handlers.go`
+- `services/nopsai/monitoring_analytics_handlers.go`
+- `services/nopsai/monitoring_operations_handlers.go`
+- `services/nopsai/monitoring_analytics_schema.go`
 - `services/nopsai/notification_mail.go`
 - `services/nopsai/notification_routes.go`
 - `services/nopsai/notification_schema.go`
@@ -498,6 +502,13 @@ Responsibilities:
 - Reusable step library
 - Lab for ad-hoc YAML execution and quick runs
 - System pages for config sync, data backups/cleanup, dispatcher status, runner controls, and access management
+- Monitoring page orchestration for backend-computed run analytics, pipeline
+  performance, trigger activity, runner health/history, AI usage,
+  reliability, efficiency, governance/security views, saved views, alert
+  evaluation, alert events, and persisted recommendations
+- AI-backed agents report provider/model/profile token usage to Nopsai through
+  internal service-auth endpoints so monitoring can aggregate usage by run,
+  pipeline, feature, and subject.
 - System feature modules for config, Agent Profiles, LLM profiles, MCP,
   dispatcher, and access keep the route page focused on data loading and
   mutation orchestration.
@@ -531,6 +542,7 @@ Responsibilities:
 
 - Stores runs, tasks, logs, configuration, knowledge context, groups, users, roles, refresh tokens, audit logs, backup records, and cleanup job/schedule history.
 - Stores AAA subjects, role bindings, grant metadata, resource visibility, expanded ACLs, ownership metadata, run authorization snapshots, and authorization decision logs.
+- Stores AI usage events and per-run AI usage summaries for monitoring and Prometheus token metrics.
 - Keeps the execution record durable even though agents and step containers are ephemeral.
 
 Key files:

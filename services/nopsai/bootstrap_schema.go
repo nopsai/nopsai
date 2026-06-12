@@ -35,6 +35,7 @@ func databaseBootstrapSteps(cfg *config.Config) []databaseBootstrapStep {
 		{name: "setup schema", run: ensureSetupSchema},
 		{name: "approval schema", run: ensureApprovalSchema},
 		{name: "notification schema", run: ensureNotificationSchema},
+		{name: "monitoring analytics schema", run: ensureMonitoringAnalyticsSchema},
 		{name: "data management schema", run: ensureDataManagementSchema},
 	}
 }
