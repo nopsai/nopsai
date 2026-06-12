@@ -30,7 +30,7 @@ import {
   type RunnerSummary,
   type ServiceStatus,
 } from '../features/monitoring/model';
-import { apiClient } from '../lib/api';
+import { requestMonitoringJson, sendMonitoringJson } from '../features/monitoring/api';
 
 const WINDOW_OPTIONS = [
   { label: '7 days', days: 7 },
@@ -107,6 +107,7 @@ const emptyMonitoringData: MonitoringData = {
 
 function MonitoringPage() {
   const savedView = useMemo(readSavedMonitoringView, []);
+  const linkedRunId = useMemo(readInitialMonitoringRunID, []);
   const [groups, setGroups] = useState<Group[]>([]);
   const [services, setServices] = useState<ServiceStatus[]>([]);
   const [runners, setRunners] = useState<MonitoringRunner[]>([]);
@@ -123,7 +124,8 @@ function MonitoringPage() {
   const [workflowError, setWorkflowError] = useState<string | null>(null);
   const [workflowBusy, setWorkflowBusy] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState<number | 'all'>(savedView.selectedGroupId ?? 'all');
-  const [windowDays, setWindowDays] = useState(savedView.windowDays ?? 30);
+  const [windowDays, setWindowDays] = useState(linkedRunId ? 0 : savedView.windowDays ?? 30);
+  const [runIdFilter] = useState(linkedRunId);
   const [pipelineFilter, setPipelineFilter] = useState(savedView.pipelineFilter ?? '');
   const [repoFilter, setRepoFilter] = useState(savedView.repoFilter ?? '');
   const [triggerSourceFilter, setTriggerSourceFilter] = useState(savedView.triggerSourceFilter ?? '');
@@ -144,27 +146,11 @@ function MonitoringPage() {
   });
 
   const fetchJson = useCallback(async <T,>(path: string): Promise<T> => {
-    const response = await apiClient.fetch(path, { cache: 'no-store' });
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text ? `${text} (${response.status})` : `Request failed (${response.status})`);
-    }
-    return (await response.json()) as T;
+    return requestMonitoringJson<T>(path);
   }, []);
 
   const sendJson = useCallback(async <T,>(path: string, method: string, body?: unknown): Promise<T> => {
-    const response = await apiClient.fetch(path, {
-      method,
-      cache: 'no-store',
-      headers: body == null ? undefined : { 'Content-Type': 'application/json' },
-      body: body == null ? undefined : JSON.stringify(body),
-    });
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text ? `${text} (${response.status})` : `Request failed (${response.status})`);
-    }
-    if (response.status === 204) return undefined as T;
-    return (await response.json()) as T;
+    return sendMonitoringJson<T>(path, method, body);
   }, []);
 
   const fetchMonitoringRuntime = useCallback(async (): Promise<{
@@ -255,15 +241,15 @@ function MonitoringPage() {
   }, [fetchJson]);
 
   const monitoringQuery = useMemo(
-    () => buildMonitoringQuery({ selectedGroupId, windowDays, pipelineFilter, repoFilter, triggerSourceFilter, statusFilter, comparePrevious }),
-    [comparePrevious, pipelineFilter, repoFilter, selectedGroupId, statusFilter, triggerSourceFilter, windowDays]
+    () => buildMonitoringQuery({ selectedGroupId, windowDays, pipelineFilter, repoFilter, triggerSourceFilter, statusFilter, comparePrevious, runIdFilter }),
+    [comparePrevious, pipelineFilter, repoFilter, runIdFilter, selectedGroupId, statusFilter, triggerSourceFilter, windowDays]
   );
 
   const previousMonitoringQuery = useMemo(
-    () => (comparePrevious && windowDays > 0
-      ? buildMonitoringQuery({ selectedGroupId, windowDays, pipelineFilter, repoFilter, triggerSourceFilter, statusFilter, comparePrevious: false }, 1)
+    () => (comparePrevious && windowDays > 0 && !runIdFilter
+      ? buildMonitoringQuery({ selectedGroupId, windowDays, pipelineFilter, repoFilter, triggerSourceFilter, statusFilter, comparePrevious: false, runIdFilter }, 1)
       : ''),
-    [comparePrevious, pipelineFilter, repoFilter, selectedGroupId, statusFilter, triggerSourceFilter, windowDays]
+    [comparePrevious, pipelineFilter, repoFilter, runIdFilter, selectedGroupId, statusFilter, triggerSourceFilter, windowDays]
   );
 
   const loadMonitoringData = useCallback(async () => {
@@ -512,7 +498,7 @@ function MonitoringPage() {
             </button>
             <button type="button" className="inline-flex h-10 items-center gap-2 rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 text-sm font-semibold text-[var(--text-primary)] shadow-sm hover:bg-[var(--bg-tertiary)]" onClick={() => activateShortcut('ai')}>
               <Bell className="h-4 w-4" />
-              AI tokens
+              LLM tokens
             </button>
           </div>
         </div>
@@ -710,7 +696,7 @@ function MonitoringWorkflowPanel({
             <option value="p95_duration_seconds">p95 duration</option>
             <option value="queued_jobs">Queued jobs</option>
             <option value="runner_utilization">Runner utilization</option>
-            <option value="ai_tokens">AI tokens</option>
+            <option value="ai_tokens">LLM tokens</option>
             <option value="external_trigger_failures">External failures</option>
           </select>
           <select value={alertDraft.comparator} onChange={event => onAlertDraftChange('comparator', event.target.value)} className="h-9 min-w-0 rounded-md border border-[var(--border-input)] bg-[var(--bg-primary)] px-2 text-sm text-[var(--text-primary)]">
@@ -804,6 +790,7 @@ function buildMonitoringQuery(filters: {
   triggerSourceFilter: string;
   statusFilter: string;
   comparePrevious: boolean;
+  runIdFilter?: string;
 }, periodOffset = 0) {
   const params = new URLSearchParams();
   const windowMs = filters.windowDays * 24 * 60 * 60 * 1000;
@@ -827,6 +814,7 @@ function buildMonitoringQuery(filters: {
     }
   }
   if (filters.repoFilter.trim()) params.set('repo', filters.repoFilter.trim());
+  if (filters.runIdFilter?.trim()) params.set('runId', filters.runIdFilter.trim());
   if (filters.triggerSourceFilter.trim()) params.set('triggerSource', filters.triggerSourceFilter.trim());
   if (filters.statusFilter !== 'all') params.set('status', filters.statusFilter);
   if (filters.comparePrevious) params.set('compare', 'previous_period');
@@ -857,6 +845,11 @@ function readMonitoringTabFromLocation(): MonitoringTab | null {
   if (typeof window === 'undefined') return null;
   const tab = new URLSearchParams(window.location.search).get('tab');
   return isMonitoringTab(tab) ? tab : null;
+}
+
+function readInitialMonitoringRunID() {
+  if (typeof window === 'undefined') return '';
+  return (new URLSearchParams(window.location.search).get('runId') || '').trim();
 }
 
 function syncMonitoringTabToURL(tab: MonitoringTab) {

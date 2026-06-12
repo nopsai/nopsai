@@ -77,7 +77,7 @@ test('renders backend monitoring metrics and switches tabs', async () => {
   expect(onTabChange).toHaveBeenCalledWith('runners');
 });
 
-test('renders exact and estimated AI token usage separately', () => {
+test('renders exact, estimated, and profile LLM token usage separately', () => {
   render(
     <MemoryRouter>
       <MonitoringDashboard
@@ -101,7 +101,10 @@ test('renders exact and estimated AI token usage separately', () => {
           exact_token_events: 3,
           estimated_token_events: 1,
           by_pipeline: [{ key: 'platform/release', label: 'release', count: 4, tokens: 1200 }],
+          by_step: [{ key: 'plan', label: 'plan', count: 2, tokens: 900 }],
+          by_task: [{ key: 'plan/summarize', label: 'plan/summarize', count: 1, tokens: 600 }],
           by_feature: [{ key: 'log_analysis', label: 'log_analysis', count: 2, tokens: 700 }],
+          by_profile: [{ key: 'default', label: 'default', count: 2, tokens: 800 }],
           by_model: [{ key: 'gemini/gemini-2.5-pro', label: 'gemini/gemini-2.5-pro', count: 2, tokens: 700 }],
           trend: [{ key: '2026-06-12', label: '2026-06-12', runs: 1200 }],
           top_token_runs: [{ key: 'run-1', label: 'run-1', count: 2, tokens: 1200 }],
@@ -121,6 +124,11 @@ test('renders exact and estimated AI token usage separately', () => {
   expect(screen.getByText('Estimated tokens')).toBeVisible();
   expect(screen.getByText('3 provider events')).toBeVisible();
   expect(screen.getByText('1 estimated events')).toBeVisible();
+  expect(screen.getByText('By Step')).toBeVisible();
+  expect(screen.getByText('By Task')).toBeVisible();
+  expect(screen.getByText('By LLM Profile')).toBeVisible();
+  expect(screen.getByText('default')).toBeVisible();
+  expect(screen.getByText('plan/summarize')).toBeVisible();
   expect(screen.getByText('Top Token Runs')).toBeVisible();
 });
 

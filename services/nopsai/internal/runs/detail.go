@@ -27,6 +27,8 @@ type DetailBuildInput struct {
 	ResolvedPipeline       models.Pipeline
 	ChildRuns              []models.RunListItem
 	TasksByStep            map[string][]models.TaskDetail
+	StepAIUsage            map[string]models.AIUsageSummary
+	TaskAIUsage            map[string]models.AIUsageSummary
 	KnowledgeContexts      []models.KnowledgeContextSnapshot
 	ParentRunInfo          *models.ParentRunInfo
 }
@@ -41,11 +43,14 @@ func LoadRunRecord(ctx context.Context, db Queryer, runID string) (RunRecord, er
 			pr.failure_reason, COALESCE(pr.pipeline_source, ''), COALESCE(pr.trigger_event_id, ''),
 			COALESCE(pr.trigger_source, ''), COALESCE(pr.schedule_id::text, ''), COALESCE(ps.name, ''), COALESCE(ps.path, ''),
 			COALESCE(eti.trigger_id, ''), COALESCE(et.name, ''), COALESCE(eti.event_type, ''),
-			COALESCE(eti.caller_type, ''), COALESCE(eti.caller_id, ''), COALESCE(eti.idempotency_key, '')
+			COALESCE(eti.caller_type, ''), COALESCE(eti.caller_id, ''), COALESCE(eti.idempotency_key, ''),
+			COALESCE(prus.ai_prompt_tokens, 0)::bigint, COALESCE(prus.ai_completion_tokens, 0)::bigint,
+			COALESCE(prus.ai_total_tokens, 0)::bigint, COALESCE(prus.ai_cost_usd, 0)::float8
 		FROM pipeline_runs pr
 		LEFT JOIN pipeline_schedules ps ON ps.id = pr.schedule_id
 		LEFT JOIN external_trigger_invocations eti ON eti.id::text = pr.trigger_event_id
 		LEFT JOIN external_triggers et ON et.id = eti.trigger_id
+		LEFT JOIN pipeline_run_usage_summary prus ON prus.run_id = pr.run_id
 		WHERE pr.run_id = $1
 	`, runID)
 
@@ -60,6 +65,7 @@ func LoadRunRecord(ctx context.Context, db Queryer, runID string) (RunRecord, er
 		&failureReason, &pipelineSource, &triggerEventID,
 		&triggerSource, &scheduleID, &scheduleName, &schedulePath, &externalTriggerID, &externalTriggerName,
 		&externalTriggerEventType, &externalTriggerCallerType, &externalTriggerCallerID, &externalTriggerIdempotency,
+		&record.Run.AIUsage.PromptTokens, &record.Run.AIUsage.CompletionTokens, &record.Run.AIUsage.TotalTokens, &record.Run.AIUsage.TotalCostUSD,
 	)
 	if err != nil {
 		return RunRecord{}, err
@@ -127,10 +133,14 @@ func LoadParentRunInfo(ctx context.Context, db Queryer, parentRunID *string) (*m
 
 func LoadChildRuns(ctx context.Context, db Queryer, runID string) ([]models.RunListItem, error) {
 	rows, err := db.Query(ctx, `
-		SELECT run_id, pipeline_name, pipeline_path, pipeline_version, status, started_at, finished_at, parent_step_name, COALESCE(trigger_event_id, '')
-		FROM pipeline_runs
-		WHERE parent_run_id = $1
-		ORDER BY created_at ASC
+		SELECT pr.run_id, pr.pipeline_name, pr.pipeline_path, pr.pipeline_version, pr.status, pr.started_at, pr.finished_at,
+		       pr.parent_step_name, COALESCE(pr.trigger_event_id, ''),
+		       COALESCE(prus.ai_prompt_tokens, 0)::bigint, COALESCE(prus.ai_completion_tokens, 0)::bigint,
+		       COALESCE(prus.ai_total_tokens, 0)::bigint, COALESCE(prus.ai_cost_usd, 0)::float8
+		FROM pipeline_runs pr
+		LEFT JOIN pipeline_run_usage_summary prus ON prus.run_id = pr.run_id
+		WHERE pr.parent_run_id = $1
+		ORDER BY pr.created_at ASC
 	`, runID)
 	if err != nil {
 		return nil, err
@@ -142,7 +152,11 @@ func LoadChildRuns(ctx context.Context, db Queryer, runID string) ([]models.RunL
 		var childRun models.RunListItem
 		var childStartedAt, childFinishedAt sql.NullTime
 		var parentStepName, childPipelineVersion, childPipelinePath, childTriggerEventID sql.NullString
-		if err := rows.Scan(&childRun.RunID, &childRun.PipelineName, &childPipelinePath, &childPipelineVersion, &childRun.Status, &childStartedAt, &childFinishedAt, &parentStepName, &childTriggerEventID); err != nil {
+		if err := rows.Scan(
+			&childRun.RunID, &childRun.PipelineName, &childPipelinePath, &childPipelineVersion, &childRun.Status, &childStartedAt, &childFinishedAt,
+			&parentStepName, &childTriggerEventID,
+			&childRun.AIUsage.PromptTokens, &childRun.AIUsage.CompletionTokens, &childRun.AIUsage.TotalTokens, &childRun.AIUsage.TotalCostUSD,
+		); err != nil {
 			return nil, err
 		}
 		childRun.PipelinePath = childPipelinePath.String
@@ -200,10 +214,73 @@ func LoadTaskDetailsByStep(ctx context.Context, db Queryer, runID string) (map[s
 	return tasksByStep, nil
 }
 
+func LoadAIUsageByStep(ctx context.Context, db Queryer, runID string) (map[string]models.AIUsageSummary, error) {
+	rows, err := db.Query(ctx, `
+		SELECT COALESCE(step_name, ''),
+		       COALESCE(SUM(prompt_tokens), 0)::bigint,
+		       COALESCE(SUM(completion_tokens), 0)::bigint,
+		       COALESCE(SUM(total_tokens), 0)::bigint,
+		       COALESCE(SUM(total_cost_usd), 0)::float8
+		FROM ai_usage_events
+		WHERE run_id = $1
+		GROUP BY COALESCE(step_name, '')
+	`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	usageByStep := make(map[string]models.AIUsageSummary)
+	for rows.Next() {
+		var stepName string
+		var usage models.AIUsageSummary
+		if err := rows.Scan(&stepName, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.TotalCostUSD); err != nil {
+			return nil, err
+		}
+		usageByStep[stepName] = usage
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return usageByStep, nil
+}
+
+func LoadAIUsageByTask(ctx context.Context, db Queryer, runID string) (map[string]models.AIUsageSummary, error) {
+	rows, err := db.Query(ctx, `
+		SELECT COALESCE(step_name, ''), COALESCE(task_name, ''),
+		       COALESCE(SUM(prompt_tokens), 0)::bigint,
+		       COALESCE(SUM(completion_tokens), 0)::bigint,
+		       COALESCE(SUM(total_tokens), 0)::bigint,
+		       COALESCE(SUM(total_cost_usd), 0)::float8
+		FROM ai_usage_events
+		WHERE run_id = $1
+		  AND COALESCE(task_name, '') <> ''
+		GROUP BY COALESCE(step_name, ''), COALESCE(task_name, '')
+	`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	usageByTask := make(map[string]models.AIUsageSummary)
+	for rows.Next() {
+		var stepName, taskName string
+		var usage models.AIUsageSummary
+		if err := rows.Scan(&stepName, &taskName, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.TotalCostUSD); err != nil {
+			return nil, err
+		}
+		usageByTask[taskUsageKey(stepName, taskName)] = usage
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return usageByTask, nil
+}
+
 func BuildDetail(input DetailBuildInput) models.RunDetail {
 	return models.RunDetail{
 		RunInfo:                input.Run,
-		Steps:                  BuildStepDetailsForRun(input.Run, input.OriginalPipeline, input.ResolvedPipeline, input.TasksByStep, input.ChildRuns),
+		Steps:                  BuildStepDetailsForRun(input.Run, input.OriginalPipeline, input.ResolvedPipeline, input.TasksByStep, input.ChildRuns, input.StepAIUsage, input.TaskAIUsage),
 		PipelineDefinition:     input.OriginalPipeline,
 		PipelineDefinitionYAML: input.PipelineDefinitionYAML,
 		KnowledgeContexts:      input.KnowledgeContexts,
@@ -212,7 +289,7 @@ func BuildDetail(input DetailBuildInput) models.RunDetail {
 	}
 }
 
-func BuildStepDetailsForRun(run models.RunListItem, originalPipeline, resolvedPipeline models.Pipeline, tasksByStep map[string][]models.TaskDetail, childRuns []models.RunListItem) []models.StepDetail {
+func BuildStepDetailsForRun(run models.RunListItem, originalPipeline, resolvedPipeline models.Pipeline, tasksByStep map[string][]models.TaskDetail, childRuns []models.RunListItem, stepAIUsage map[string]models.AIUsageSummary, taskAIUsage map[string]models.AIUsageSummary) []models.StepDetail {
 	childRunsByStep := make(map[string][]models.RunListItem)
 	for _, childRun := range childRuns {
 		if childRun.ParentStepName == "" {
@@ -234,6 +311,9 @@ func BuildStepDetailsForRun(run models.RunListItem, originalPipeline, resolvedPi
 		stepChildRuns := childRunsByStep[stepName]
 		status := FinalizeRunDetailStepStatus(DeriveRunDetailStepStatus(rawStepTasks, stepChildRuns), rawStepTasks, runStatus)
 		stepTasks := FinalizeRunDetailTasksForDisplay(rawStepTasks, runStatus, status, runFinishedAt)
+		for i := range stepTasks {
+			stepTasks[i].AIUsage = taskAIUsage[taskUsageKey(stepTasks[i].StepName, stepTasks[i].TaskName)]
+		}
 		stepDuration := DeriveRunDetailStepDurationUntil(stepTasks, stepChildRuns, runFinishedAt)
 
 		originalPStep, _ := FindStepByName(originalPipeline.Steps, stepName)
@@ -261,9 +341,14 @@ func BuildStepDetailsForRun(run models.RunListItem, originalPipeline, resolvedPi
 			Tasks:         stepTasks,
 			Duration:      stepDuration.Round(time.Second).String(),
 			Configuration: config,
+			AIUsage:       stepAIUsage[stepName],
 		})
 	}
 	return steps
+}
+
+func taskUsageKey(stepName, taskName string) string {
+	return strings.TrimSpace(stepName) + "\x00" + strings.TrimSpace(taskName)
 }
 
 func FinalizeRunDetailTasksForDisplay(tasks []models.TaskDetail, runStatus, stepStatus string, runFinishedAt time.Time) []models.TaskDetail {
@@ -320,11 +405,11 @@ func IsTerminalRunDetailTaskStatus(status string) bool {
 	}
 }
 
-func BuildRunDetailETag(run models.RunListItem, childRuns []models.RunListItem, tasksByStep map[string][]models.TaskDetail) string {
+func BuildRunDetailETag(run models.RunListItem, childRuns []models.RunListItem, tasksByStep map[string][]models.TaskDetail, stepAIUsage map[string]models.AIUsageSummary, taskAIUsage map[string]models.AIUsageSummary) string {
 	hasher := sha256.New()
 	fmt.Fprintf(
 		hasher,
-		"run|%s|%s|%t|%d|%d|%s|%s|%s|",
+		"run|%s|%s|%t|%d|%d|%s|%s|%s|%d|%d|%d|%.8f|",
 		run.RunID,
 		NormalizeRunDetailStatus(run.Status),
 		run.IsComplete,
@@ -333,6 +418,10 @@ func BuildRunDetailETag(run models.RunListItem, childRuns []models.RunListItem, 
 		strings.TrimSpace(run.FailureReason),
 		strings.TrimSpace(run.PipelineSource),
 		strings.TrimSpace(run.TriggerEventID),
+		run.AIUsage.PromptTokens,
+		run.AIUsage.CompletionTokens,
+		run.AIUsage.TotalTokens,
+		run.AIUsage.TotalCostUSD,
 	)
 
 	for _, childRun := range childRuns {
@@ -376,7 +465,33 @@ func BuildRunDetailETag(run models.RunListItem, childRuns []models.RunListItem, 
 		}
 	}
 
+	writeAIUsageMapToHash(hasher, "step_usage", stepAIUsage)
+	writeAIUsageMapToHash(hasher, "task_usage", taskAIUsage)
+
 	return fmt.Sprintf(`W/"%x"`, hasher.Sum(nil))
+}
+
+func writeAIUsageMapToHash(hasher interface {
+	Write([]byte) (int, error)
+}, prefix string, usageMap map[string]models.AIUsageSummary) {
+	keys := make([]string, 0, len(usageMap))
+	for key := range usageMap {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		usage := usageMap[key]
+		fmt.Fprintf(
+			hasher,
+			"%s|%s|%d|%d|%d|%.8f|",
+			prefix,
+			key,
+			usage.PromptTokens,
+			usage.CompletionTokens,
+			usage.TotalTokens,
+			usage.TotalCostUSD,
+		)
+	}
 }
 
 func NormalizeRunDetailStatus(status string) string {

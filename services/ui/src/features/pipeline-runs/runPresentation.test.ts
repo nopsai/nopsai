@@ -4,11 +4,14 @@ import type { RunListItem } from './contracts.js';
 import {
   buildGroupPath,
   buildPipelineLink,
+  buildRunMonitoringLink,
   buildRunSourceGroups,
   buildStatusTimeline,
   extractLatestRunSummary,
+  formatAIUsageBreakdown,
   formatBranchDisplay,
   formatRepoLabel,
+  formatTokenCount,
   formatTriggerId,
   getRunSourceKind,
   groupDisplayName,
@@ -74,7 +77,15 @@ test('formats, searches, and links run metadata', () => {
   assert.equal(formatRepoLabel(item), 'acme/api');
   assert.equal(formatBranchDisplay(item.git_ref, item.git_target_ref), 'feature -> main');
   assert.equal(buildPipelineLink(item), '/pipelines/platform/core/release');
+  assert.equal(buildRunMonitoringLink(item), '/monitoring?tab=ai-usage&runId=run-1');
   assert.deepEqual(formatTriggerId('1234567890123456'), { display: '12345678', full: '1234567890123456' });
+});
+
+test('formats LLM token usage for run summaries', () => {
+  assert.equal(formatTokenCount(1), '1 token');
+  assert.equal(formatTokenCount(4200), '4.2k tokens');
+  assert.equal(formatAIUsageBreakdown({ prompt_tokens: 300, completion_tokens: 120 }), '300 tokens prompt / 120 tokens completion');
+  assert.equal(formatAIUsageBreakdown(null), 'No prompt/completion split recorded');
 });
 
 test('summarizes status and latest activity deterministically', () => {

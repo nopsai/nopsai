@@ -50,7 +50,7 @@ const TABS: Array<{ id: MonitoringTab; label: string }> = [
   { id: 'triggers', label: 'Triggers' },
   { id: 'external-triggers', label: 'External Triggers' },
   { id: 'runners', label: 'Runners' },
-  { id: 'ai-usage', label: 'AI Usage' },
+  { id: 'ai-usage', label: 'LLM Usage' },
   { id: 'reliability', label: 'Reliability' },
   { id: 'efficiency', label: 'Efficiency' },
   { id: 'security', label: 'Security' },
@@ -185,7 +185,7 @@ function OverviewTab({ summary, previousSummary, runAnalytics, loading }: { summ
         <MetricCard icon={<Timer />} label="Median duration" value={formatDurationSeconds(summary?.median_duration_seconds)} detail={`p99 ${formatDurationSeconds(summary?.p99_duration_seconds)}`} delta={deltaValue(summary?.median_duration_seconds, previousSummary?.median_duration_seconds)} deltaFormat="duration" tone="blue" loading={loading} />
         <MetricCard icon={<Gauge />} label="Runner utilization" value={formatPercent(summary?.runner_utilization)} detail={`${formatNumber(summary?.queued_jobs)} queued jobs`} delta={deltaValue(summary?.runner_utilization, previousSummary?.runner_utilization)} deltaFormat="percent" tone="green" loading={loading} />
         <MetricCard icon={<Workflow />} label="Steps executed" value={formatNumber(summary?.total_steps_executed)} detail={`${formatNumber(summary?.total_tasks_executed)} tasks`} delta={deltaValue(summary?.total_steps_executed, previousSummary?.total_steps_executed)} tone="amber" loading={loading} />
-        <MetricCard icon={<Bot />} label="AI tokens" value={formatNumber(summary?.estimated_ai_tokens)} detail="recorded usage" delta={deltaValue(summary?.estimated_ai_tokens, previousSummary?.estimated_ai_tokens)} tone="red" loading={loading} />
+        <MetricCard icon={<Bot />} label="LLM tokens" value={formatNumber(summary?.estimated_ai_tokens)} detail="recorded usage" delta={deltaValue(summary?.estimated_ai_tokens, previousSummary?.estimated_ai_tokens)} tone="red" loading={loading} />
       </section>
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)]">
         <Panel title="Run Trend" icon={<BarChart3 className="h-4 w-4" />}>
@@ -284,7 +284,7 @@ function TriggersTab({ analytics, previousAnalytics, loading }: { analytics: Mon
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={<Zap />} label="Trigger runs" value={formatNumber(currentInvocations)} detail={`${formatNumber((analytics?.trigger_sources || []).length)} sources`} delta={deltaValue(currentInvocations, previousInvocations)} tone="blue" loading={loading} />
         <MetricCard icon={<XCircle />} label="Trigger failures" value={formatNumber(currentFailures)} detail="failed runs" delta={deltaValue(currentFailures, previousFailures)} tone="red" loading={loading} />
-        <MetricCard icon={<Bot />} label="Trigger tokens" value={formatNumber(currentTokens)} detail="AI token usage" delta={deltaValue(currentTokens, previousTokens)} tone="amber" loading={loading} />
+        <MetricCard icon={<Bot />} label="Trigger tokens" value={formatNumber(currentTokens)} detail="LLM token usage" delta={deltaValue(currentTokens, previousTokens)} tone="amber" loading={loading} />
         <MetricCard icon={<CheckCircle2 />} label="Reliability groups" value={formatNumber((analytics?.trigger_source_reliability || []).length)} detail="tracked sources" delta={deltaValue((analytics?.trigger_source_reliability || []).length, (previousAnalytics?.trigger_source_reliability || []).length)} positiveIsGood tone="green" loading={loading} />
       </section>
       <section className="grid gap-4 xl:grid-cols-3">
@@ -375,12 +375,21 @@ function AIUsageTab({ usage, previousUsage, loading }: { usage: MonitoringAIUsag
         <MetricCard icon={<Gauge />} label="Estimated tokens" value={formatNumber(usage?.estimated_tokens)} detail={`${formatNumber(usage?.estimated_token_events)} estimated events`} delta={deltaValue(usage?.estimated_tokens, previousUsage?.estimated_tokens)} tone="amber" loading={loading} />
         <MetricCard icon={<Clock3 />} label="Token trend" value={formatNumber((usage?.trend || []).reduce((sum, item) => sum + safeNumber(item.runs), 0))} detail={`${(usage?.trend || []).length} buckets`} delta={deltaValue((usage?.trend || []).reduce((sum, item) => sum + safeNumber(item.runs), 0), (previousUsage?.trend || []).reduce((sum, item) => sum + safeNumber(item.runs), 0))} tone="red" loading={loading} />
       </section>
-      <section className="grid gap-4 xl:grid-cols-2">
+      <section className="grid gap-4 xl:grid-cols-3">
         <Panel title="By Pipeline" icon={<Workflow className="h-4 w-4" />}>
           <NamedCountList items={usage?.by_pipeline || []} loading={loading} value="tokens" linkForItem={pipelineNamedCountHref} />
         </Panel>
+        <Panel title="By Step" icon={<Layers className="h-4 w-4" />}>
+          <NamedCountList items={usage?.by_step || []} loading={loading} value="tokens" />
+        </Panel>
+        <Panel title="By Task" icon={<Bot className="h-4 w-4" />}>
+          <NamedCountList items={usage?.by_task || []} loading={loading} value="tokens" />
+        </Panel>
         <Panel title="By Feature" icon={<Bot className="h-4 w-4" />}>
           <NamedCountList items={usage?.by_feature || []} loading={loading} value="tokens" />
+        </Panel>
+        <Panel title="By LLM Profile" icon={<ShieldCheck className="h-4 w-4" />}>
+          <NamedCountList items={usage?.by_profile || []} loading={loading} value="tokens" />
         </Panel>
         <Panel title="By Model" icon={<Gauge className="h-4 w-4" />}>
           <NamedCountList items={usage?.by_model || []} loading={loading} value="tokens" />
@@ -438,7 +447,7 @@ function EfficiencyTab({ efficiency, previousEfficiency, loading }: { efficiency
     <div className="space-y-4">
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={<Clock3 />} label="Runtime" value={formatDurationSeconds(efficiency?.total_runtime_seconds)} detail={`${formatNumber(efficiency?.total_runner_minutes)} runner minutes`} delta={deltaValue(efficiency?.total_runtime_seconds, previousEfficiency?.total_runtime_seconds)} deltaFormat="duration" tone="blue" loading={loading} />
-        <MetricCard icon={<Bot />} label="AI tokens" value={formatNumber(efficiency?.total_ai_tokens)} detail="recorded usage" delta={deltaValue(efficiency?.total_ai_tokens, previousEfficiency?.total_ai_tokens)} tone="amber" loading={loading} />
+        <MetricCard icon={<Bot />} label="LLM tokens" value={formatNumber(efficiency?.total_ai_tokens)} detail="recorded usage" delta={deltaValue(efficiency?.total_ai_tokens, previousEfficiency?.total_ai_tokens)} tone="amber" loading={loading} />
         <MetricCard icon={<GitBranch />} label="Rerun groups" value={formatNumber(efficiency?.frequent_reruns?.length)} detail="pipelines with reruns" delta={deltaValue(efficiency?.frequent_reruns?.length, previousEfficiency?.frequent_reruns?.length)} tone="green" loading={loading} />
         <MetricCard icon={<Gauge />} label="High queue groups" value={formatNumber(efficiency?.high_queue_groups?.length)} detail="capacity pressure" delta={deltaValue(efficiency?.high_queue_groups?.length, previousEfficiency?.high_queue_groups?.length)} tone="red" loading={loading} />
       </section>

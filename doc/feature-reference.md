@@ -239,25 +239,29 @@ Pipeline notifications include:
 
 - Prometheus-friendly `GET /metrics` with DB-backed pipeline run, duration,
   queue duration, end-to-end duration, active/pending/approval, step, task,
-  external trigger, AI usage, runner capacity, approval wait, audit, and
+  external trigger, LLM usage, runner capacity, approval wait, audit, and
   notification delivery metrics
 - backend-computed monitoring analytics under **Monitoring** with tabs for
   Overview, Runs, Pipelines, Steps & Tasks, Triggers, External Triggers,
-  Runners, AI Usage, Reliability, Efficiency, and Security
+  Runners, LLM Usage, Reliability, Efficiency, and Security
 - monitoring step analytics fall back to task-run grouping for historical runs
   that do not have explicit `step_runs`, and monitoring tables link supported
   object references back to pipelines, pipeline runs, external triggers, and
   dispatcher runner status
 - shared monitoring filters for time range, group, pipeline, repository,
-  trigger source, status, subject identity, external trigger, schedule,
+  pipeline run ID, trigger source, status, subject identity, external trigger, schedule,
   duration range, and previous-period comparison with tab-level regression
   deltas
 - access-filtered aggregate endpoints that reuse `pipeline_run.list` so normal
   users see only permitted run analytics while admins can see global metrics
-- AI usage accounting through agent-recorded `ai_usage_events` and
+- LLM usage accounting through agent-recorded `ai_usage_events` and
   `pipeline_run_usage_summary`; provider token metadata is stored when
   available, with estimated token counts marked in metadata and reported
   separately when providers omit exact usage
+- Pipeline Runs shows compact per-run LLM token totals on cards and run detail,
+  step/task token totals in the step detail modal, and a run-scoped LLM Usage
+  Monitoring link for deeper filtering by pipeline, step, task, model, profile,
+  feature, subject, and exact/estimated token source
 - runner trend sampling through `runner_metric_snapshots` with hourly capacity,
   active-job, inflight-job, queued-job, and utilization timelines
 - GitOps-ready monitoring saved views and alert rules through

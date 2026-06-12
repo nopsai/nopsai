@@ -4,8 +4,10 @@ import { CalendarClock, ChevronRight, Trash2, Webhook } from 'lucide-react';
 import type { RunListItem } from './contracts';
 import {
   buildStatusTimeline,
+  aiUsageTotalTokens,
   formatBranch,
   formatBranchDisplay,
+  formatTokenCount,
   formatRepoLabel,
   formatTriggerId,
   getBranchStatusTone,
@@ -356,6 +358,7 @@ export function RunCard({
   const repoLabel = formatRepoLabel(run);
   const branchLabel = formatBranchDisplay(run.git_ref, run.git_target_ref);
   const failurePreview = getFailurePreview(run.failure_reason);
+  const aiTokens = aiUsageTotalTokens(run.ai_usage);
   const cardTone =
     variant === 'event'
       ? 'border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-[0_6px_18px_rgba(0,0,0,0.12)]'
@@ -415,6 +418,12 @@ export function RunCard({
             <CommitIcon className="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" />
             <span className="truncate" title="Commit Hash">{(run.git_commit_sha || 'N/A').slice(0, 8)}</span>
           </div>
+          {aiTokens > 0 && (
+            <div className="flex items-center">
+              <ZapIcon className="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" />
+              <span className="truncate" title="LLM tokens">{formatTokenCount(aiTokens)}</span>
+            </div>
+          )}
           <div className="flex items-center">
             <svg className="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 7a1 1 0 011-1h3.586a1 1 0 01.707.293l6.414 6.414a1 1 0 010 1.414l-4.586 4.586a1 1 0 01-1.414 0L7.293 13.707A1 1 0 017 13V9a1 1 0 011-1z" />
@@ -452,6 +461,7 @@ function ListRunRow({ run, selected, onSelect, onOpen }: { run: RunListItem; sel
   const commitLabel = (run.git_commit_sha || 'N/A').slice(0, 8);
   const runIdLabel = (run.run_id || 'N/A').slice(0, 8);
   const failurePreview = getFailurePreview(run.failure_reason);
+  const aiTokens = aiUsageTotalTokens(run.ai_usage);
   return (
     <div
       className={`run-card run-card--list border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-sm rounded-2xl hover:border-[var(--border-accent)] ${selected ? 'run-link-highlight' : ''}`}
@@ -494,6 +504,12 @@ function ListRunRow({ run, selected, onSelect, onOpen }: { run: RunListItem; sel
               <RunIdIcon className="h-3.5 w-3.5 flex-shrink-0" />
               {runIdLabel}
             </span>
+            {aiTokens > 0 && (
+              <span className="run-list-chip font-mono" title="LLM tokens">
+                <ZapIcon className="h-3.5 w-3.5 flex-shrink-0" />
+                {formatTokenCount(aiTokens)}
+              </span>
+            )}
           </div>
           {failurePreview && (
             <div className="mt-2 max-w-full rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-700/70 dark:bg-red-950/40 dark:text-red-200">
