@@ -56,11 +56,14 @@ func BuildListRunsQuery(groupID *int, rootGroup bool, branchName string, limit, 
 			COALESCE(pr.pipeline_source, ''), COALESCE(pr.trigger_event_id, ''), COALESCE(pr.failure_reason, ''),
 			COALESCE(pr.trigger_source, ''), COALESCE(pr.schedule_id::text, ''), COALESCE(ps.name, ''), COALESCE(ps.path, ''),
 			COALESCE(eti.trigger_id, ''), COALESCE(et.name, ''), COALESCE(eti.event_type, ''), COALESCE(eti.caller_type, ''),
-			COALESCE(eti.caller_id, ''), COALESCE(eti.idempotency_key, '')
+			COALESCE(eti.caller_id, ''), COALESCE(eti.idempotency_key, ''),
+			COALESCE(prus.ai_prompt_tokens, 0)::bigint, COALESCE(prus.ai_completion_tokens, 0)::bigint,
+			COALESCE(prus.ai_total_tokens, 0)::bigint, COALESCE(prus.ai_cost_usd, 0)::float8
 			FROM pipeline_runs pr
 		LEFT JOIN pipeline_schedules ps ON ps.id = pr.schedule_id
 		LEFT JOIN external_trigger_invocations eti ON eti.id::text = pr.trigger_event_id
 		LEFT JOIN external_triggers et ON et.id = eti.trigger_id
+		LEFT JOIN pipeline_run_usage_summary prus ON prus.run_id = pr.run_id
 	`
 	args := []any{}
 	var conditions []string
@@ -119,6 +122,7 @@ func scanRunListItem(scanner interface {
 		&repoOwner, &repoName, &startedAt, &finishedAt, &run.ParentRunID, &pusherName, &gitRef, &gitTargetRef, &pipelineSource, &triggerEventID, &failureReason,
 		&triggerSource, &scheduleID, &scheduleName, &schedulePath, &externalTriggerID, &externalTriggerName, &externalTriggerEventType,
 		&externalTriggerCallerType, &externalTriggerCallerID, &externalTriggerIdempotency,
+		&run.AIUsage.PromptTokens, &run.AIUsage.CompletionTokens, &run.AIUsage.TotalTokens, &run.AIUsage.TotalCostUSD,
 	)
 	if err != nil {
 		return models.RunListItem{}, err

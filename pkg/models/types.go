@@ -11,36 +11,44 @@ type LogLine struct {
 }
 
 type RunListItem struct {
-	RunID                      string    `json:"run_id"`
-	PipelineName               string    `json:"pipeline_name"`
-	PipelinePath               string    `json:"pipeline_path"`
-	PipelineVersion            string    `json:"pipeline_version"`
-	PipelineSource             string    `json:"pipeline_source,omitempty"`
-	Status                     string    `json:"status"`
-	GitCommitSHA               string    `json:"git_commit_sha"`
-	GitRepoName                string    `json:"git_repo_name"`
-	GitRepoOwner               string    `json:"git_repo_owner"`
-	GitRef                     string    `json:"git_ref"`
-	GitTargetRef               string    `json:"git_target_ref"`
-	StartedAt                  time.Time `json:"started_at"`
-	FinishedAt                 time.Time `json:"finished_at"`
-	Duration                   string    `json:"duration"`
-	IsComplete                 bool      `json:"is_complete"`
-	ParentRunID                *string   `json:"parent_run_id"`
-	TriggerEventID             string    `json:"trigger_event_id,omitempty"`
-	TriggerSource              string    `json:"trigger_source,omitempty"`
-	ExternalTriggerID          string    `json:"external_trigger_id,omitempty"`
-	ExternalTriggerName        string    `json:"external_trigger_name,omitempty"`
-	ExternalTriggerEventType   string    `json:"external_trigger_event_type,omitempty"`
-	ExternalTriggerCallerType  string    `json:"external_trigger_caller_type,omitempty"`
-	ExternalTriggerCallerID    string    `json:"external_trigger_caller_id,omitempty"`
-	ExternalTriggerIdempotency string    `json:"external_trigger_idempotency_key,omitempty"`
-	ScheduleID                 string    `json:"schedule_id,omitempty"`
-	ScheduleName               string    `json:"schedule_name,omitempty"`
-	SchedulePath               string    `json:"schedule_path,omitempty"`
-	GitPusherName              string    `json:"git_pusher_name"`
-	ParentStepName             string    `json:"parent_step_name,omitempty"`
-	FailureReason              string    `json:"failure_reason,omitempty"`
+	RunID                      string         `json:"run_id"`
+	PipelineName               string         `json:"pipeline_name"`
+	PipelinePath               string         `json:"pipeline_path"`
+	PipelineVersion            string         `json:"pipeline_version"`
+	PipelineSource             string         `json:"pipeline_source,omitempty"`
+	Status                     string         `json:"status"`
+	GitCommitSHA               string         `json:"git_commit_sha"`
+	GitRepoName                string         `json:"git_repo_name"`
+	GitRepoOwner               string         `json:"git_repo_owner"`
+	GitRef                     string         `json:"git_ref"`
+	GitTargetRef               string         `json:"git_target_ref"`
+	StartedAt                  time.Time      `json:"started_at"`
+	FinishedAt                 time.Time      `json:"finished_at"`
+	Duration                   string         `json:"duration"`
+	IsComplete                 bool           `json:"is_complete"`
+	ParentRunID                *string        `json:"parent_run_id"`
+	TriggerEventID             string         `json:"trigger_event_id,omitempty"`
+	TriggerSource              string         `json:"trigger_source,omitempty"`
+	ExternalTriggerID          string         `json:"external_trigger_id,omitempty"`
+	ExternalTriggerName        string         `json:"external_trigger_name,omitempty"`
+	ExternalTriggerEventType   string         `json:"external_trigger_event_type,omitempty"`
+	ExternalTriggerCallerType  string         `json:"external_trigger_caller_type,omitempty"`
+	ExternalTriggerCallerID    string         `json:"external_trigger_caller_id,omitempty"`
+	ExternalTriggerIdempotency string         `json:"external_trigger_idempotency_key,omitempty"`
+	ScheduleID                 string         `json:"schedule_id,omitempty"`
+	ScheduleName               string         `json:"schedule_name,omitempty"`
+	SchedulePath               string         `json:"schedule_path,omitempty"`
+	GitPusherName              string         `json:"git_pusher_name"`
+	ParentStepName             string         `json:"parent_step_name,omitempty"`
+	FailureReason              string         `json:"failure_reason,omitempty"`
+	AIUsage                    AIUsageSummary `json:"ai_usage"`
+}
+
+type AIUsageSummary struct {
+	PromptTokens     int64   `json:"prompt_tokens"`
+	CompletionTokens int64   `json:"completion_tokens"`
+	TotalTokens      int64   `json:"total_tokens"`
+	TotalCostUSD     float64 `json:"total_cost_usd"`
 }
 
 type StepConfiguration struct {
@@ -68,17 +76,19 @@ type StepDetail struct {
 	Tasks         []TaskDetail      `json:"tasks"`
 	Duration      string            `json:"duration"`
 	Configuration StepConfiguration `json:"configuration"`
+	AIUsage       AIUsageSummary    `json:"ai_usage"`
 }
 
 type TaskDetail struct {
-	TaskID     string    `json:"task_id"`
-	StepName   string    `json:"step_name"`
-	TaskName   string    `json:"task_name"`
-	Status     string    `json:"status"`
-	ExitCode   *int      `json:"exit_code"`
-	StartedAt  time.Time `json:"started_at"`
-	FinishedAt time.Time `json:"finished_at"`
-	TaskIndex  int       `json:"task_index"`
+	TaskID     string         `json:"task_id"`
+	StepName   string         `json:"step_name"`
+	TaskName   string         `json:"task_name"`
+	Status     string         `json:"status"`
+	ExitCode   *int           `json:"exit_code"`
+	StartedAt  time.Time      `json:"started_at"`
+	FinishedAt time.Time      `json:"finished_at"`
+	TaskIndex  int            `json:"task_index"`
+	AIUsage    AIUsageSummary `json:"ai_usage"`
 }
 
 type ParentRunInfo struct {

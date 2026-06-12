@@ -503,10 +503,10 @@ Responsibilities:
 - Lab for ad-hoc YAML execution and quick runs
 - System pages for config sync, data backups/cleanup, dispatcher status, runner controls, and access management
 - Monitoring page orchestration for backend-computed run analytics, pipeline
-  performance, trigger activity, runner health/history, AI usage,
+  performance, trigger activity, runner health/history, LLM usage,
   reliability, efficiency, governance/security views, saved views, alert
   evaluation, alert events, and persisted recommendations
-- AI-backed agents report provider/model/profile token usage to Nopsai through
+- LLM-backed agents report provider/model/profile token usage to Nopsai through
   internal service-auth endpoints so monitoring can aggregate usage by run,
   pipeline, feature, and subject.
 - System feature modules for config, Agent Profiles, LLM profiles, MCP,
@@ -542,7 +542,7 @@ Responsibilities:
 
 - Stores runs, tasks, logs, configuration, knowledge context, groups, users, roles, refresh tokens, audit logs, backup records, and cleanup job/schedule history.
 - Stores AAA subjects, role bindings, grant metadata, resource visibility, expanded ACLs, ownership metadata, run authorization snapshots, and authorization decision logs.
-- Stores AI usage events and per-run AI usage summaries for monitoring and Prometheus token metrics.
+- Stores LLM usage events and per-run usage summaries for monitoring and Prometheus token metrics.
 - Keeps the execution record durable even though agents and step containers are ephemeral.
 
 Key files:

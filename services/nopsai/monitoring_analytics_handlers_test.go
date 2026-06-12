@@ -8,7 +8,7 @@ import (
 )
 
 func TestParseMonitoringAnalyticsFilters(t *testing.T) {
-	req := httptest.NewRequest("GET", "/v1/monitoring/summary?from=2026-06-01&to=2026-06-11&groupId=42&pipelinePath=platform&pipelineName=release&repo=acme/app&branch=main&triggerSource=schedule&status=failure&compare=previous_period&minDurationSeconds=5&maxDurationSeconds=60", nil)
+	req := httptest.NewRequest("GET", "/v1/monitoring/summary?from=2026-06-01&to=2026-06-11&groupId=42&pipelinePath=platform&pipelineName=release&repo=acme/app&runId=00000000-0000-0000-0000-000000000002&branch=main&triggerSource=schedule&status=failure&compare=previous_period&minDurationSeconds=5&maxDurationSeconds=60", nil)
 
 	filters, err := parseMonitoringAnalyticsFilters(req)
 	if err != nil {
@@ -23,6 +23,9 @@ func TestParseMonitoringAnalyticsFilters(t *testing.T) {
 	if filters.Repo != "acme/app" || filters.Ref != "refs/heads/main" {
 		t.Fatalf("repo/ref = %q/%q, want acme/app refs/heads/main", filters.Repo, filters.Ref)
 	}
+	if filters.RunID != "00000000-0000-0000-0000-000000000002" {
+		t.Fatalf("RunID = %q, want requested run ID", filters.RunID)
+	}
 	if !filters.ComparePreviousPeriod {
 		t.Fatal("ComparePreviousPeriod = false, want true")
 	}
@@ -32,20 +35,20 @@ func TestParseMonitoringAnalyticsFilters(t *testing.T) {
 }
 
 func TestBuildMonitoringCandidateRunIDsQueryUsesParameterizedFilters(t *testing.T) {
-	req := httptest.NewRequest("GET", "/v1/monitoring/summary?from=2026-06-01T00:00:00Z&to=2026-06-11T00:00:00Z&groupId=42&repo=acme/app&externalTriggerId=deploy&scheduleId=00000000-0000-0000-0000-000000000001", nil)
+	req := httptest.NewRequest("GET", "/v1/monitoring/summary?from=2026-06-01T00:00:00Z&to=2026-06-11T00:00:00Z&groupId=42&repo=acme/app&runId=00000000-0000-0000-0000-000000000002&externalTriggerId=deploy&scheduleId=00000000-0000-0000-0000-000000000001", nil)
 	filters, err := parseMonitoringAnalyticsFilters(req)
 	if err != nil {
 		t.Fatalf("parseMonitoringAnalyticsFilters() error = %v", err)
 	}
 
 	query, args := buildMonitoringCandidateRunIDsQuery(filters)
-	for _, fragment := range []string{"WITH RECURSIVE selected_groups", "pr.group_id IN (SELECT id FROM selected_groups)", "LOWER(COALESCE(eti.trigger_id, '')) = LOWER($5)", "pr.schedule_id::text = $6"} {
+	for _, fragment := range []string{"WITH RECURSIVE selected_groups", "pr.group_id IN (SELECT id FROM selected_groups)", "LOWER(COALESCE(pr.run_id::text, '')) = LOWER($4)", "LOWER(COALESCE(eti.trigger_id, '')) = LOWER($6)", "pr.schedule_id::text = $7"} {
 		if !strings.Contains(query, fragment) {
 			t.Fatalf("query missing %q:\n%s", fragment, query)
 		}
 	}
-	if len(args) != 6 {
-		t.Fatalf("args len = %d, want 6 (%#v)", len(args), args)
+	if len(args) != 7 {
+		t.Fatalf("args len = %d, want 7 (%#v)", len(args), args)
 	}
 }
 
@@ -53,8 +56,10 @@ func TestMonitoringAIUsageQueriesCastTokenSumsForIntegerScans(t *testing.T) {
 	queries := map[string]string{
 		"totals":         monitoringAIUsageTotalsQuery(),
 		"by pipeline":    monitoringAIUsageByPipelineQuery(),
+		"by task":        monitoringAIUsageByTaskQuery(),
 		"top token runs": monitoringAITopTokenRunsQuery(),
 		"by feature":     monitoringAIUsageGroupQuery("feature"),
+		"by profile":     monitoringAIUsageGroupQuery("llm_profile"),
 		"trend":          monitoringAIUsageTrendQuery(),
 	}
 	for name, query := range queries {
@@ -94,6 +99,19 @@ func TestMonitoringAITopTokenRunsQueryOrdersBySelectedColumns(t *testing.T) {
 	}
 	if !strings.Contains(query, "ORDER BY 4 DESC, 3 DESC") {
 		t.Fatalf("query should order by tokens then events:\n%s", query)
+	}
+}
+
+func TestMonitoringAIUsageByTaskQueryFiltersTasklessEvents(t *testing.T) {
+	query := monitoringAIUsageByTaskQuery()
+	for _, fragment := range []string{
+		"COALESCE(task_name, '') <> ''",
+		"CONCAT_WS('/', NULLIF(step_name, ''), NULLIF(task_name, ''))",
+		"ORDER BY 4 DESC, 2",
+	} {
+		if !strings.Contains(query, fragment) {
+			t.Fatalf("task query missing %q:\n%s", fragment, query)
+		}
 	}
 }
 

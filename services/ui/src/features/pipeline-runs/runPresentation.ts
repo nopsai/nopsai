@@ -1,4 +1,4 @@
-import type { RunListItem } from './contracts.js';
+import type { AIUsageSummary, RunListItem } from './contracts.js';
 import { normalizeStatus } from './statusPresentation.js';
 
 export type Group = {
@@ -258,6 +258,33 @@ export function formatRepoLabel(run: RunListItem) {
   if (path) return path;
   if ((run.trigger_source || '').trim()) return runSourceLabel(getRunSourceKind(run));
   return 'Manual';
+}
+
+export function aiUsageTotalTokens(usage?: AIUsageSummary | null) {
+  const total = Number(usage?.total_tokens || 0);
+  return Number.isFinite(total) && total > 0 ? total : 0;
+}
+
+export function formatTokenCount(value?: number | null) {
+  const count = Number(value || 0);
+  if (!Number.isFinite(count) || count <= 0) return '0 tokens';
+  if (count < 1000) return `${count.toLocaleString()} ${count === 1 ? 'token' : 'tokens'}`;
+  if (count < 1_000_000) return `${(count / 1000).toFixed(count < 10_000 ? 1 : 0)}k tokens`;
+  return `${(count / 1_000_000).toFixed(count < 10_000_000 ? 1 : 0)}M tokens`;
+}
+
+export function formatAIUsageBreakdown(usage?: AIUsageSummary | null) {
+  const prompt = Number(usage?.prompt_tokens || 0);
+  const completion = Number(usage?.completion_tokens || 0);
+  if (prompt <= 0 && completion <= 0) return 'No prompt/completion split recorded';
+  return `${formatTokenCount(prompt)} prompt / ${formatTokenCount(completion)} completion`;
+}
+
+export function buildRunMonitoringLink(run: Pick<RunListItem, 'run_id'> | null | undefined) {
+  const params = new URLSearchParams({ tab: 'ai-usage' });
+  const runID = (run?.run_id || '').trim();
+  if (runID) params.set('runId', runID);
+  return `/monitoring?${params.toString()}`;
 }
 
 export function getPipelineIdentifier(

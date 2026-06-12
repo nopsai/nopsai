@@ -10,6 +10,7 @@ import type {
 } from './contracts';
 import { calculateGraphLayout, deriveTaskGraphStatus, getGraphStatusColor } from './graphLayout';
 import { TASK_HEIGHT, TASK_MAX_WIDTH, TASK_MIN_WIDTH, TaskNodeRenderer } from './RunGraph';
+import { formatAIUsageBreakdown, formatTokenCount } from './runPresentation';
 import { formatStepDuration, formatTaskDuration } from './runGraphModel';
 import { getStatusMeta } from './statusPresentation';
 
@@ -252,6 +253,7 @@ export function StepDetailModal({
             <h3 className="text-lg font-semibold text-[var(--text-primary)]">Step: {step.name}</h3>
             {statusMeta && <span className={`runner-pill border ${statusMeta.pillClass} text-xs`}>{statusMeta.text}</span>}
             {step.duration && <span className="runner-pill runner-pill--muted text-xs">Duration: {step.duration}</span>}
+            <span className="runner-pill runner-pill--muted text-xs">LLM: {formatTokenCount(step.ai_usage?.total_tokens)}</span>
           </div>
           <div className="flex items-center gap-2">
             <button className="runner-pill runner-pill--ghost" type="button" onClick={onViewLogs}>
@@ -485,6 +487,14 @@ export function StepDetailModal({
                     <span className="font-mono">{step?.configuration?.ignore_failure ? 'true' : 'false'}</span>
                   </div>
                   <div className="flex items-center gap-2">
+                    <span className="text-[var(--text-secondary)]">LLM tokens</span>
+                    <span className="font-mono">{formatTokenCount(step?.ai_usage?.total_tokens)}</span>
+                  </div>
+                  <div className="flex items-center gap-2 sm:col-span-2">
+                    <span className="text-[var(--text-secondary)]">LLM split</span>
+                    <span className="font-mono">{formatAIUsageBreakdown(step?.ai_usage)}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
                     <span className="text-[var(--text-secondary)]">Sync</span>
                     <span className="font-mono">{step?.configuration?.sync ? 'true' : 'false'}</span>
                   </div>
@@ -556,6 +566,14 @@ export function StepDetailModal({
                   <div className="flex items-center gap-2">
                     <span className="text-[var(--text-secondary)]">Exit code</span>
                     <span className="font-mono">{selectedTask.exit_code ?? '—'}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[var(--text-secondary)]">LLM tokens</span>
+                    <span className="font-mono">{formatTokenCount(selectedTask.ai_usage?.total_tokens)}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[var(--text-secondary)]">LLM split</span>
+                    <span className="font-mono">{formatAIUsageBreakdown(selectedTask.ai_usage)}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-[var(--text-secondary)]">Started</span>
