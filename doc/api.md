@@ -243,6 +243,34 @@ status/counts on `data_cleanup_schedules`.
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
   http://localhost:8080/v1/monitoring/dispatcher
 
+# Access-filtered monitoring aggregates
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  "http://localhost:8080/v1/monitoring/summary?from=2026-06-01T00:00:00Z&to=2026-06-11T00:00:00Z&groupId=42"
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  "http://localhost:8080/v1/monitoring/runs/analytics?status=failure&repo=acme/app"
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  "http://localhost:8080/v1/monitoring/pipelines/performance?triggerSource=schedule"
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  "http://localhost:8080/v1/monitoring/ai-usage?pipelineName=release"
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  "http://localhost:8080/v1/monitoring/runners/history?from=2026-06-01T00:00:00Z&to=2026-06-11T00:00:00Z"
+
+# Monitoring saved views, alert rules, alert events, and recommendations
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" http://localhost:8080/v1/monitoring/views
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Failure view","visibility":"private","filters":{"status":"failure","windowDays":30},"columns":[]}' \
+  http://localhost:8080/v1/monitoring/views
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" http://localhost:8080/v1/monitoring/alert-rules
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Failure rate","enabled":true,"visibility":"workspace","severity":"warning","metric":"failure_rate","comparator":"gt","threshold":0.1,"window_seconds":3600,"filters":{"triggerSource":"external"}}' \
+  http://localhost:8080/v1/monitoring/alert-rules
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  http://localhost:8080/v1/monitoring/alert-rules/<rule-id>/evaluate
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" http://localhost:8080/v1/monitoring/alert-events
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" http://localhost:8080/v1/monitoring/recommendations?status=open
+
 # Prometheus scrape endpoint
 curl http://localhost:8080/metrics
 
@@ -264,7 +292,19 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 ```
 
 - `GET /v1/monitoring/dispatcher` is authenticated. It returns dispatcher-backed service status, runner totals, sanitized runner rows, queue depth, and active runs. Active run entries are filtered with `pipeline_run.list`, so users only see runs they can list through their group/repository access.
-- `GET /metrics` emits Prometheus text format. Metrics are DB-backed and include pipeline run counters, duration histograms, active/pending/approval gauges, step/task counters, and notification delivery counters.
+- `GET /v1/monitoring/summary` returns executive totals: run status counts, success/failure rates, duration percentiles, longest run, runtime consumed, step/task counts, external trigger invocations, notification failures, AI token totals, and runner utilization.
+- `GET /v1/monitoring/runners/history` returns hourly runner capacity, active-job, inflight-job, queued-job, and utilization buckets from `runner_metric_snapshots`. Snapshots are sampled opportunistically when Monitoring reads dispatcher status or the summary endpoint.
+- `GET /v1/monitoring/runs/analytics` returns runs over time, status split, duration/queue/end-to-end percentiles, longest runs, rerun/timeout counts, failure groups, heatmap cells, and a recent run table.
+- `GET /v1/monitoring/pipelines/performance`, `/steps/performance`, and `/tasks/performance` return backend-computed average, median, p95, p99, max, total duration, success/failure rates, and queue-time metrics where applicable.
+- `GET /v1/monitoring/triggers/analytics` and `/external-triggers/analytics` return trigger-source reliability plus external trigger invocation, caller, idempotency, last-fired, rate-limit violation, and error aggregates.
+- `GET /v1/monitoring/ai-usage`, `/reliability`, `/efficiency`, and `/security` return AI usage with exact/estimated token splits, incident/reliability, token efficiency, and governance aggregates for the same filtered run set. Efficiency recommendations are also persisted into `monitoring_recommendations`.
+- `GET|POST|PUT|DELETE /v1/monitoring/views` manages owner-scoped saved views. Database-authored views can be edited in the UI; config-repo-managed views remain read-only and keep source metadata for GitOps drift/audit workflows.
+- `GET|POST|PUT|DELETE /v1/monitoring/alert-rules`, `POST /v1/monitoring/alert-rules/{ruleID}/evaluate`, and `GET /v1/monitoring/alert-events` manage alert rules and persisted evaluation events. The first evaluator supports `failure_rate`, `p95_duration_seconds`, `queued_jobs`, `runner_utilization`, `ai_tokens`, and `external_trigger_failures`.
+- `GET /v1/monitoring/recommendations`, `POST /v1/monitoring/recommendations/{recommendationID}/acknowledge`, and `POST /v1/monitoring/recommendations/{recommendationID}/resolve` manage persisted recommendation workflow status.
+- Agents record AI usage with `POST /v1/internal/runs/{runID}/ai-usage` using an agent service JWT. The endpoint stores run, step, task, provider, model, LLM profile, token totals, metadata, and a per-run usage summary. Provider token metadata is used when available; otherwise the agent records an estimated token count with `metadata.estimated_tokens=true`.
+- Monitoring aggregate endpoints accept shared query parameters: `from`, `to`, `groupId`, `pipelinePath`, `pipelineName`, `repo`, `branch`/`ref`, `commitSHA`, `triggerSource`, `status`, `requestedByType`, `requestedById`, `effectiveSubjectType`, `effectiveSubjectId`, `externalTriggerId`, `scheduleId`, `minDurationSeconds`, `maxDurationSeconds`, and `compare=previous_period`. The UI fetches the shifted previous window and renders regression deltas on Monitoring tabs when comparison is enabled.
+- Monitoring aggregate endpoints first load candidate run IDs in Postgres, filter them through AAA with `pipeline_run.list`, then aggregate only visible run IDs. External trigger analytics also filters trigger-only rows with `external_trigger.read` so failed invocations that did not create runs are still governed.
+- `GET /metrics` emits Prometheus text format. Metrics are DB-backed and include pipeline run counters, duration, queue-duration and end-to-end histograms, active/pending/approval gauges, step/task counters, notification delivery counters, external trigger invocation counters, AI token counters, runner capacity/job/heartbeat gauges, pending approval wait histograms, and audit event counters by provider/action/result.
 - `GET /v1/system/dispatcher/scopes` returns existing scope names from runner defaults, dispatcher routing, variables, secrets, and run history. It is used by the runner install UI for multi-select scope choices.
 - `GET /v1/internal/dispatcher/routing` is dispatcher-internal. The live dispatcher polls it with a service-auth JWT and updates its in-memory routing table without a restart.
 - Runner install command generation, Kubernetes manifest generation, and runner dispatch pause/resume remain under `System > Dispatcher` and require dispatcher runner management access.

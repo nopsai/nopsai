@@ -850,4 +850,9 @@ type GeminiResponse struct {
 			Parts []Part `json:"parts"`
 		} `json:"content"`
 	} `json:"candidates"`
+	UsageMetadata struct {
+		PromptTokenCount     int64 `json:"promptTokenCount"`
+		CandidatesTokenCount int64 `json:"candidatesTokenCount"`
+		TotalTokenCount      int64 `json:"totalTokenCount"`
+	} `json:"usageMetadata"`
 }

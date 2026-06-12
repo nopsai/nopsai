@@ -48,10 +48,11 @@ func (e agentRuntimeWiringError) Unwrap() error {
 	return e.Err
 }
 
-func newAgentRuntimeAdapters(runScope string, pipeline *models.Pipeline) (agentRuntimeAdapters, error) {
+func newAgentRuntimeAdapters(runScope, runID string, pipeline *models.Pipeline) (agentRuntimeAdapters, error) {
 	adapters := agentRuntimeAdapters{
 		PipelineLLMEnabled: models.PipelineLLMEnabled(pipeline),
 	}
+	usageReporter := newNopsaiAIUsageReporter(runID)
 
 	if adapters.PipelineLLMEnabled {
 		llmRegistry, err := llmruntime.NewLLMProfileRegistryFromEnv(runScope)
@@ -64,7 +65,7 @@ func newAgentRuntimeAdapters(runScope string, pipeline *models.Pipeline) (agentR
 			return adapters, agentRuntimeWiringError{Stage: agentRuntimeWiringAgentProfiles, Err: err}
 		}
 		adapters.AgentRegistry = agentRegistry
-		adapters.ConditionClientResolver = newAgentConditionClientResolver(adapters.LLMRegistry, adapters.AgentRegistry)
+		adapters.ConditionClientResolver = newAgentConditionClientResolver(adapters.LLMRegistry, adapters.AgentRegistry, usageReporter)
 	}
 
 	mcpRegistry, err := llmruntime.NewMCPProfileRegistryFromEnv(runScope)
@@ -72,7 +73,7 @@ func newAgentRuntimeAdapters(runScope string, pipeline *models.Pipeline) (agentR
 		return adapters, agentRuntimeWiringError{Stage: agentRuntimeWiringMCPRegistry, Err: err}
 	}
 	adapters.MCPRegistry = mcpRegistry
-	adapters.ActionSessionResolver = newAgentActionSessionResolver(adapters.LLMRegistry, adapters.AgentRegistry, adapters.MCPRegistry)
+	adapters.ActionSessionResolver = newAgentActionSessionResolver(adapters.LLMRegistry, adapters.AgentRegistry, adapters.MCPRegistry, usageReporter)
 	return adapters, nil
 }
 
