@@ -3,6 +3,7 @@ package llm
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -60,6 +61,110 @@ func TestBuildLMStudioModelsURL(t *testing.T) {
 func TestBuildLMStudioModelLoadURL(t *testing.T) {
 	if got, want := buildLMStudioModelLoadURL("http://127.0.0.1:1234"), "http://127.0.0.1:1234/api/v1/models/load"; got != want {
 		t.Fatalf("buildLMStudioModelLoadURL() = %q, want %q", got, want)
+	}
+}
+
+func TestLMStudioRecordsUsageMetadata(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"models":[%s]}`, lmStudioModelListItemForTest("model-a", true))
+		case "/api/v1/chat":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"output":[{"type":"message","content":"true"}],"usage":{"input_tokens":9,"output_tokens":3,"total_tokens":12}}`)
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	collector := NewUsageCollector()
+	ctx := ContextWithUsageCollector(t.Context(), collector)
+	client := NewLLMClient(appconfig.LLMProviderLMStudio, "", "model-a", server.URL, "off", "local")
+
+	if _, err := client.callLMStudioForBoolean(ctx, "is usage recorded?"); err != nil {
+		t.Fatalf("callLMStudioForBoolean() error = %v", err)
+	}
+	usages := collector.Snapshot()
+	if len(usages) != 1 {
+		t.Fatalf("usage count = %d, want 1", len(usages))
+	}
+	usage := usages[0]
+	if usage.Provider != appconfig.LLMProviderLMStudio || usage.Model != "model-a" || usage.Profile != "local" {
+		t.Fatalf("usage identity = %#v", usage)
+	}
+	if usage.PromptTokens != 9 || usage.CompletionTokens != 3 || usage.TotalTokens != 12 {
+		t.Fatalf("usage tokens = (%d,%d,%d), want (9,3,12)", usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens)
+	}
+}
+
+func TestLMStudioEstimatesUsageWhenMetadataIsMissing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"models":[%s]}`, lmStudioModelListItemForTest("model-a", true))
+		case "/api/v1/chat":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"output":[{"type":"message","content":"true"}]}`)
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	collector := NewUsageCollector()
+	ctx := ContextWithUsageCollector(t.Context(), collector)
+	client := NewLLMClient(appconfig.LLMProviderLMStudio, "", "model-a", server.URL, "off", "local")
+
+	if _, err := client.callLMStudioForBoolean(ctx, strings.Repeat("prompt ", 8)); err != nil {
+		t.Fatalf("callLMStudioForBoolean() error = %v", err)
+	}
+	usages := collector.Snapshot()
+	if len(usages) != 1 {
+		t.Fatalf("usage count = %d, want 1", len(usages))
+	}
+	if !usages[0].Estimated {
+		t.Fatalf("Estimated = false, want true: %#v", usages[0])
+	}
+	if usages[0].PromptTokens <= 0 || usages[0].CompletionTokens <= 0 || usages[0].TotalTokens <= 0 {
+		t.Fatalf("estimated usage tokens should be positive: %#v", usages[0])
+	}
+}
+
+func TestGeminiRecordsUsageMetadata(t *testing.T) {
+	client := NewLLMClient(appconfig.LLMProviderGemini, "test-key", "gemini-2.5-flash", "", "", "cloud")
+	client.httpClient = &http.Client{Transport: llmRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodPost {
+			t.Fatalf("method = %s, want POST", req.Method)
+		}
+		body := `{"candidates":[{"content":{"parts":[{"text":"{\"action\":{\"type\":\"RETURN_ANSWER\",\"answer_action\":{\"answer\":\"ok\"}}}"}]}}],"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":5,"totalTokenCount":12}}`
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(body)),
+		}, nil
+	})}
+	collector := NewUsageCollector()
+	ctx := ContextWithUsageCollector(t.Context(), collector)
+
+	if _, err := client.callGeminiForAction(ctx, "choose an action"); err != nil {
+		t.Fatalf("callGeminiForAction() error = %v", err)
+	}
+	usages := collector.Snapshot()
+	if len(usages) != 1 {
+		t.Fatalf("usage count = %d, want 1", len(usages))
+	}
+	usage := usages[0]
+	if usage.Provider != appconfig.LLMProviderGemini || usage.Model != "gemini-2.5-flash" || usage.Profile != "cloud" {
+		t.Fatalf("usage identity = %#v", usage)
+	}
+	if usage.PromptTokens != 7 || usage.CompletionTokens != 5 || usage.TotalTokens != 12 {
+		t.Fatalf("usage tokens = (%d,%d,%d), want (7,5,12)", usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens)
 	}
 }
 
@@ -688,4 +793,10 @@ func recordMaxInt32(target *int32, current int32) {
 			return
 		}
 	}
+}
+
+type llmRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f llmRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }

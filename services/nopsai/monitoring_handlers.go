@@ -55,6 +55,21 @@ type monitoringRunnerSummary struct {
 	QueuedJobs   int32 `json:"queued_jobs"`
 }
 
+type monitoringRunnerHistoryBucket struct {
+	Key          string  `json:"key"`
+	Label        string  `json:"label"`
+	Capacity     float64 `json:"capacity"`
+	ActiveJobs   float64 `json:"active_jobs"`
+	InflightJobs float64 `json:"inflight_jobs"`
+	QueuedJobs   float64 `json:"queued_jobs"`
+	Utilization  float64 `json:"utilization"`
+}
+
+type monitoringRunnerHistoryResponse struct {
+	Window  monitoringWindowResponse        `json:"window"`
+	Buckets []monitoringRunnerHistoryBucket `json:"buckets"`
+}
+
 func (a *App) handleMonitoringDispatcherStatus(w http.ResponseWriter, r *http.Request) {
 	setNoStoreHeaders(w)
 
@@ -62,6 +77,8 @@ func (a *App) handleMonitoringDispatcherStatus(w http.ResponseWriter, r *http.Re
 	status, dispatcherErr := a.fetchDispatcherStatus(ctx)
 	if dispatcherErr != nil {
 		log.Error().Err(dispatcherErr).Msg("Failed to fetch dispatcher status for monitoring")
+	} else {
+		a.sampleMonitoringRunnerSnapshots(ctx, status)
 	}
 
 	allowedRunSet := a.allowedMonitoringActiveRunSet(r, status)
@@ -82,6 +99,26 @@ func (a *App) handleMonitoringDispatcherStatus(w http.ResponseWriter, r *http.Re
 	}
 }
 
+func (a *App) handleMonitoringRunnerHistory(w http.ResponseWriter, r *http.Request) {
+	setNoStoreHeaders(w)
+	filters, err := parseMonitoringAnalyticsFilters(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if status, err := a.fetchDispatcherStatus(r.Context()); err == nil {
+		a.sampleMonitoringRunnerSnapshots(r.Context(), status)
+	}
+	resp, err := a.loadMonitoringRunnerHistory(r.Context(), filters)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to load monitoring runner history")
+		http.Error(w, "failed to load monitoring runner history", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
 func (a *App) fetchDispatcherStatus(ctx context.Context) (*proto.DispatcherStatus, error) {
 	if a.dispatcher == nil {
 		return nil, errors.New("dispatcher client is unavailable")
@@ -89,6 +126,84 @@ func (a *App) fetchDispatcherStatus(ctx context.Context) (*proto.DispatcherStatu
 	statusCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	return a.dispatcher.GetStatus(statusCtx)
+}
+
+func (a *App) sampleMonitoringRunnerSnapshots(ctx context.Context, status *proto.DispatcherStatus) {
+	if a == nil || a.db == nil || status == nil || len(status.GetRunners()) == 0 {
+		return
+	}
+	var recent bool
+	if err := a.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM runner_metric_snapshots
+			WHERE sampled_at > NOW() - INTERVAL '45 seconds'
+		)
+	`).Scan(&recent); err != nil {
+		log.Debug().Err(err).Msg("Failed to check recent runner metric snapshot")
+		return
+	}
+	if recent {
+		return
+	}
+	for _, runner := range status.GetRunners() {
+		metadata := runner.GetMetadata()
+		if _, err := a.db.Exec(ctx, `
+			INSERT INTO runner_metric_snapshots (
+				runner_id, runtime, namespace, node, status,
+				capacity, active_jobs, inflight_jobs, queued_jobs,
+				allow_dispatch
+			)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		`,
+			strings.TrimSpace(runner.GetRunnerId()),
+			runnerRuntime(metadata),
+			firstMonitoringText(metadata["kubernetes_namespace"], metadata["namespace"]),
+			firstMonitoringText(metadata["kubernetes_node"], metadata["node"], metadata["hostname"]),
+			monitoringRunnerState(runner, time.Now()),
+			runner.GetCapacity(),
+			runner.GetActiveJobs(),
+			runner.GetInflightJobs(),
+			status.GetQueuedJobs(),
+			runner.GetAllowDispatch(),
+		); err != nil {
+			log.Debug().Err(err).Str("runner_id", runner.GetRunnerId()).Msg("Failed to store runner metric snapshot")
+		}
+	}
+}
+
+func (a *App) loadMonitoringRunnerHistory(ctx context.Context, filters monitoringAnalyticsFilters) (monitoringRunnerHistoryResponse, error) {
+	resp := monitoringRunnerHistoryResponse{Window: windowResponse(filters)}
+	if a == nil || a.db == nil {
+		return resp, nil
+	}
+	rows, err := a.db.Query(ctx, `
+		SELECT TO_CHAR(DATE_TRUNC('hour', sampled_at), 'YYYY-MM-DD HH24:00'),
+		       TO_CHAR(DATE_TRUNC('hour', sampled_at), 'MM-DD HH24:00'),
+		       COALESCE(AVG(capacity), 0)::float8,
+		       COALESCE(AVG(active_jobs), 0)::float8,
+		       COALESCE(AVG(inflight_jobs), 0)::float8,
+		       COALESCE(MAX(queued_jobs), 0)::float8
+		FROM runner_metric_snapshots
+		WHERE sampled_at >= $1 AND sampled_at <= $2
+		GROUP BY 1,2
+		ORDER BY 1
+	`, filters.From, filters.To)
+	if err != nil {
+		return resp, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item monitoringRunnerHistoryBucket
+		if err := rows.Scan(&item.Key, &item.Label, &item.Capacity, &item.ActiveJobs, &item.InflightJobs, &item.QueuedJobs); err != nil {
+			return resp, err
+		}
+		if item.Capacity > 0 {
+			item.Utilization = item.ActiveJobs / item.Capacity
+		}
+		resp.Buckets = append(resp.Buckets, item)
+	}
+	return resp, rows.Err()
 }
 
 func (a *App) allowedMonitoringActiveRunSet(r *http.Request, status *proto.DispatcherStatus) map[string]struct{} {

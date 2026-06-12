@@ -204,6 +204,7 @@ The enterprise UI refactor can be marked complete only when all of the following
 ## Remaining Items
 
 - **Enterprise-completion blocker:** Record the protected live auth smoke, then run or explicitly defer the optional mutation smoke with a documented disposable fixture decision.
+- **Monitoring workflow pass completed on June 12, 2026:** Runner capacity trends now sample `runner_metric_snapshots` from dispatcher status reads and surface hourly capacity/utilization charts. Monitoring saved views, alert rules, alert events, and recommendations now have UI workflows backed by GitOps-compatible tables and config-source metadata. Previous-period comparison fetches the shifted window and renders regression deltas across Monitoring tabs. External trigger last-fired and rate-limit violation analytics are surfaced in Monitoring. Efficiency recommendations are persisted with open/acknowledged/resolved workflow status.
 
 ## Ongoing Maintenance Guardrails
 

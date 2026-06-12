@@ -123,6 +123,319 @@ export type DailyBucket = {
   averageDurationMs: number;
 };
 
+export type MonitoringTab =
+  | 'overview'
+  | 'runs'
+  | 'pipelines'
+  | 'steps-tasks'
+  | 'triggers'
+  | 'external-triggers'
+  | 'runners'
+  | 'ai-usage'
+  | 'reliability'
+  | 'efficiency'
+  | 'security';
+
+export type MonitoringWindow = {
+  from: string;
+  to: string;
+};
+
+export type MonitoringDurationStats = {
+  average_seconds?: number;
+  median_seconds?: number;
+  p95_seconds?: number;
+  p99_seconds?: number;
+  max_seconds?: number;
+  total_seconds?: number;
+};
+
+export type MonitoringRunRef = {
+  run_id: string;
+  pipeline_path?: string;
+  pipeline_name?: string;
+  status?: string;
+  duration_seconds?: number;
+};
+
+export type MonitoringRunRow = MonitoringRunRef & {
+  group_name?: string;
+  repo?: string;
+  ref?: string;
+  commit_sha?: string;
+  trigger_source?: string;
+  external_trigger_id?: string;
+  schedule_id?: string;
+  failure_reason?: string;
+  created_at?: string;
+  started_at?: string;
+  finished_at?: string;
+  queue_seconds?: number;
+  end_to_end_seconds?: number;
+};
+
+export type MonitoringNamedCount = {
+  key: string;
+  label: string;
+  count: number;
+  failed?: number;
+  tokens?: number;
+  rate?: number;
+  seconds?: number;
+};
+
+export type MonitoringTimeBucket = {
+  key: string;
+  label: string;
+  runs: number;
+  failures?: number;
+  average_duration_seconds?: number;
+  total_duration_seconds?: number;
+};
+
+export type MonitoringRunnerHistoryBucket = {
+  key: string;
+  label: string;
+  capacity?: number;
+  active_jobs?: number;
+  inflight_jobs?: number;
+  queued_jobs?: number;
+  utilization?: number;
+};
+
+export type MonitoringRunnerHistory = {
+  window?: MonitoringWindow;
+  buckets?: MonitoringRunnerHistoryBucket[];
+};
+
+export type MonitoringHeatmapCell = {
+  day_of_week: number;
+  hour: number;
+  runs: number;
+  failures?: number;
+};
+
+export type MonitoringSummary = {
+  window?: MonitoringWindow;
+  total_runs?: number;
+  successful_runs?: number;
+  failed_runs?: number;
+  cancelled_runs?: number;
+  running_runs?: number;
+  pending_runs?: number;
+  waiting_approval_runs?: number;
+  skipped_runs?: number;
+  success_rate?: number;
+  failure_rate?: number;
+  average_duration_seconds?: number;
+  median_duration_seconds?: number;
+  p95_duration_seconds?: number;
+  p99_duration_seconds?: number;
+  longest_run?: MonitoringRunRef;
+  total_runtime_seconds?: number;
+  total_steps_executed?: number;
+  total_tasks_executed?: number;
+  active_runners?: number;
+  queued_jobs?: number;
+  runner_utilization?: number;
+  external_trigger_invocations?: number;
+  notification_failures?: number;
+  estimated_ai_tokens?: number;
+  runner_summary?: RunnerSummary;
+  dispatcher_error?: string;
+  compare_previous_period_enabled?: boolean;
+};
+
+export type MonitoringRunAnalytics = {
+  window?: MonitoringWindow;
+  runs_over_time?: MonitoringTimeBucket[];
+  status_split?: MonitoringNamedCount[];
+  trigger_source_split?: MonitoringNamedCount[];
+  failure_reasons?: MonitoringNamedCount[];
+  duration?: MonitoringDurationStats;
+  queue_time?: MonitoringDurationStats;
+  end_to_end_time?: MonitoringDurationStats;
+  longest_runs?: MonitoringRunRow[];
+  run_heatmap?: MonitoringHeatmapCell[];
+  rerun_count?: number;
+  timeout_count?: number;
+  recent_runs?: MonitoringRunRow[];
+};
+
+export type MonitoringPerformanceRow = {
+  key: string;
+  pipeline_path?: string;
+  pipeline_name?: string;
+  step_name?: string;
+  task_name?: string;
+  total_runs?: number;
+  successful_runs?: number;
+  failed_runs?: number;
+  cancelled_runs?: number;
+  timeout_runs?: number;
+  success_rate?: number;
+  failure_rate?: number;
+  average_duration_seconds?: number;
+  median_duration_seconds?: number;
+  p95_duration_seconds?: number;
+  p99_duration_seconds?: number;
+  max_duration_seconds?: number;
+  total_duration_seconds?: number;
+  average_queue_seconds?: number;
+};
+
+export type MonitoringPerformanceResponse = {
+  window?: MonitoringWindow;
+  items?: MonitoringPerformanceRow[];
+};
+
+export type MonitoringTriggerAnalytics = {
+  window?: MonitoringWindow;
+  trigger_sources?: MonitoringNamedCount[];
+  trigger_source_trend?: MonitoringTimeBucket[];
+  failures_by_trigger_source?: MonitoringNamedCount[];
+  duration_by_trigger_source?: MonitoringNamedCount[];
+  token_by_trigger_source?: MonitoringNamedCount[];
+  trigger_source_reliability?: MonitoringNamedCount[];
+};
+
+export type MonitoringExternalTriggerLastFired = {
+  id: string;
+  name: string;
+  enabled?: boolean;
+  last_used_at?: string;
+  rate_limit?: string;
+};
+
+export type MonitoringExternalTriggerAnalytics = {
+  window?: MonitoringWindow;
+  total_external_triggers?: number;
+  enabled_external_triggers?: number;
+  disabled_external_triggers?: number;
+  invocation_count?: number;
+  successful_invocations?: number;
+  failed_invocations?: number;
+  pending_invocations?: number;
+  invocation_to_run_rate?: number;
+  most_fired_triggers?: MonitoringNamedCount[];
+  top_callers?: MonitoringNamedCount[];
+  error_reasons?: MonitoringNamedCount[];
+  idempotency_conflicts?: number;
+  last_fired_triggers?: MonitoringExternalTriggerLastFired[];
+  rate_limit_violations?: number;
+  rate_limit_violation_triggers?: MonitoringNamedCount[];
+};
+
+export type MonitoringAIUsage = {
+  window?: MonitoringWindow;
+  total_prompt_tokens?: number;
+  total_completion_tokens?: number;
+  total_tokens?: number;
+  exact_tokens?: number;
+  estimated_tokens?: number;
+  exact_token_events?: number;
+  estimated_token_events?: number;
+  by_pipeline?: MonitoringNamedCount[];
+  by_feature?: MonitoringNamedCount[];
+  by_model?: MonitoringNamedCount[];
+  by_subject?: MonitoringNamedCount[];
+  trend?: MonitoringTimeBucket[];
+  top_token_runs?: MonitoringNamedCount[];
+};
+
+export type MonitoringReliability = {
+  window?: MonitoringWindow;
+  recent_failures?: MonitoringRunRow[];
+  failure_reasons?: MonitoringNamedCount[];
+  repeated_failure_pipelines?: MonitoringPerformanceRow[];
+  flaky_pipelines?: MonitoringPerformanceRow[];
+  stuck_runs?: MonitoringRunRow[];
+  approvals_waiting_too_long?: MonitoringNamedCount[];
+  notification_failures?: MonitoringNamedCount[];
+  failed_external_invocations?: MonitoringNamedCount[];
+};
+
+export type MonitoringEfficiency = {
+  window?: MonitoringWindow;
+  total_runtime_seconds?: number;
+  total_runner_minutes?: number;
+  total_ai_tokens?: number;
+  token_by_pipeline?: MonitoringNamedCount[];
+  token_by_group?: MonitoringNamedCount[];
+  token_by_step?: MonitoringNamedCount[];
+  token_heavy_low_success_pipelines?: MonitoringPerformanceRow[];
+  frequent_reruns?: MonitoringPerformanceRow[];
+  high_queue_groups?: MonitoringNamedCount[];
+  recommendations?: string[];
+};
+
+export type MonitoringSecurity = {
+  window?: MonitoringWindow;
+  runs_by_requester?: MonitoringNamedCount[];
+  runs_by_effective_subject?: MonitoringNamedCount[];
+  external_trigger_callers?: MonitoringNamedCount[];
+  service_account_runs?: MonitoringNamedCount[];
+  high_risk_failed_pipelines?: MonitoringPerformanceRow[];
+};
+
+export type MonitoringSavedView = {
+  id: string;
+  name: string;
+  owner_subject_type?: string;
+  owner_subject_id?: string;
+  visibility?: 'private' | 'group' | 'workspace';
+  group_id?: number;
+  filters?: Record<string, unknown>;
+  columns?: string[];
+  source?: string;
+  managed_by_config_repo?: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type MonitoringAlertEvent = {
+  id: string;
+  rule_id?: string;
+  status: string;
+  value?: number;
+  message?: string;
+  started_at?: string;
+  resolved_at?: string;
+  created_at?: string;
+};
+
+export type MonitoringAlertRule = {
+  id: string;
+  name: string;
+  description?: string;
+  enabled?: boolean;
+  visibility?: 'private' | 'group' | 'workspace';
+  severity?: 'info' | 'warning' | 'critical';
+  metric?: string;
+  comparator?: string;
+  threshold?: number;
+  window_seconds?: number;
+  filters?: Record<string, unknown>;
+  source?: string;
+  managed_by_config_repo?: boolean;
+  created_at?: string;
+  updated_at?: string;
+  last_event?: MonitoringAlertEvent;
+};
+
+export type MonitoringRecommendation = {
+  id: string;
+  fingerprint?: string;
+  category?: string;
+  severity?: 'info' | 'warning' | 'critical';
+  status?: 'open' | 'acknowledged' | 'resolved';
+  message: string;
+  metadata?: Record<string, unknown>;
+  first_seen_at?: string;
+  last_seen_at?: string;
+  resolved_at?: string;
+};
+
 export const emptyRunnerSummary: RunnerSummary = {
   total: 0,
   online: 0,

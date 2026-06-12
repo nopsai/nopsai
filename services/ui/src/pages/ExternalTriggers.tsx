@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   CheckCircle2,
   Clipboard,
@@ -130,8 +131,11 @@ const emptyForm: ExternalTriggerForm = {
 };
 
 function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTriggers }: ExternalTriggersPageProps) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const routeSelectedID = useMemo(() => externalTriggerIDFromPath(location.pathname), [location.pathname]);
   const [triggers, setTriggers] = useState<ExternalTrigger[]>([]);
-  const [selectedID, setSelectedID] = useState('');
+  const [selectedID, setSelectedID] = useState(() => routeSelectedID);
   const [selected, setSelected] = useState<ExternalTrigger | null>(null);
   const [invocations, setInvocations] = useState<ExternalTriggerInvocation[]>([]);
   const [pipelines, setPipelines] = useState<string[]>([]);
@@ -225,7 +229,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
       const data = await fetchJson<ExternalTrigger[]>('/v1/external-triggers');
       const list = Array.isArray(data) ? data : [];
       setTriggers(list);
-      setSelectedID(prev => prev || list[0]?.id || '');
+      setSelectedID(prev => prev || routeSelectedID || list[0]?.id || '');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load external triggers');
       setTriggers([]);
@@ -233,7 +237,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
     } finally {
       setLoading(false);
     }
-  }, [fetchJson]);
+  }, [fetchJson, routeSelectedID]);
 
   const loadReferenceData = useCallback(async () => {
     const [pipelineData, runtimeScopeData, secretScopeData, variableScopeData, runGroupData, userData, serviceAccountData, groupData] = await Promise.all([
@@ -303,9 +307,20 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
   }, [loadReferenceData, loadTriggers]);
 
   useEffect(() => {
+    if (routeSelectedID && routeSelectedID !== selectedID) {
+      setSelectedID(routeSelectedID);
+    }
+  }, [routeSelectedID, selectedID]);
+
+  useEffect(() => {
     void loadSelected(selectedID);
     void loadInvocations(selectedID);
   }, [loadInvocations, loadSelected, selectedID]);
+
+  const selectTrigger = useCallback((id: string) => {
+    setSelectedID(id);
+    navigate(id ? `/external-triggers/${encodeRouteIdentifier(id)}` : '/external-triggers');
+  }, [navigate]);
 
   const openCreate = () => {
     const pipeline = pipelines[0] || '';
@@ -409,7 +424,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
       });
       setModal(null);
       await loadTriggers();
-      setSelectedID(saved?.id || payload.id);
+      selectTrigger(saved?.id || payload.id);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Unable to save external trigger');
     } finally {
@@ -446,7 +461,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
     setDeletePending(true);
     try {
       await fetchJson<void>(`/v1/external-triggers/${encodeURIComponent(trigger.id)}`, { method: 'DELETE' });
-      setSelectedID('');
+      selectTrigger('');
       setSelected(null);
       await loadTriggers();
     } catch (err) {
@@ -510,7 +525,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
                     className={`grid min-w-[1040px] w-full grid-cols-[1.2fr_1fr_0.7fr_0.8fr_0.7fr_0.8fr_0.8fr] gap-3 px-4 py-3 text-left border-b border-[var(--border-primary)] hover:bg-[var(--bg-secondary)] transition ${
                       active ? 'bg-[var(--bg-secondary)]' : 'bg-transparent'
                     }`}
-                    onClick={() => setSelectedID(trigger.id)}
+                    onClick={() => selectTrigger(trigger.id)}
                   >
                     <span className="min-w-0">
                       <span className="block text-sm font-semibold text-[var(--text-primary)] truncate">{trigger.name}</span>
@@ -806,6 +821,22 @@ function normalizeIdentifier(value?: string) {
     .replace(/\.ya?ml$/i, '')
     .replace(/\/+/g, '/')
     .replace(/^\/+|\/+$/g, '');
+}
+
+function externalTriggerIDFromPath(pathname: string) {
+  const parts = pathname.split('/').filter(Boolean);
+  if (parts[0] !== 'external-triggers' || parts.length < 2) return '';
+  return parts.slice(1).map(segment => {
+    try {
+      return decodeURIComponent(segment);
+    } catch {
+      return segment;
+    }
+  }).join('/');
+}
+
+function encodeRouteIdentifier(identifier: string) {
+  return identifier.split('/').filter(Boolean).map(segment => encodeURIComponent(segment)).join('/');
 }
 
 function normalizeScopeOption(value?: string) {

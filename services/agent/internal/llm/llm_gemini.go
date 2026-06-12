@@ -57,8 +57,10 @@ func (c *LLMClient) callGeminiForBoolean(ctx context.Context, prompt string) (bo
 	if len(geminiResp.Candidates) == 0 || len(geminiResp.Candidates[0].Content.Parts) == 0 {
 		return false, fmt.Errorf("invalid or empty response from gemini: %s", string(body))
 	}
+	responseText := geminiResp.Candidates[0].Content.Parts[0].Text
+	c.recordGeminiUsage(ctx, geminiResp, prompt, responseText)
 
-	return parseBooleanText(geminiResp.Candidates[0].Content.Parts[0].Text)
+	return parseBooleanText(responseText)
 }
 
 func (c *LLMClient) callGeminiForAction(ctx context.Context, prompt string) (*models.Action, error) {
@@ -105,6 +107,21 @@ func (c *LLMClient) callGeminiForAction(ctx context.Context, prompt string) (*mo
 	if len(geminiResp.Candidates) == 0 || len(geminiResp.Candidates[0].Content.Parts) == 0 {
 		return nil, fmt.Errorf("invalid or empty response from gemini: %s", string(body))
 	}
+	responseText := geminiResp.Candidates[0].Content.Parts[0].Text
+	c.recordGeminiUsage(ctx, geminiResp, prompt, responseText)
 
-	return decodeActionResponse(geminiResp.Candidates[0].Content.Parts[0].Text)
+	return decodeActionResponse(responseText)
+}
+
+func (c *LLMClient) recordGeminiUsage(ctx context.Context, resp models.GeminiResponse, prompt, completion string) {
+	recordUsage(ctx, usageFromTokens(
+		c.provider,
+		c.model,
+		c.profile,
+		prompt,
+		completion,
+		resp.UsageMetadata.PromptTokenCount,
+		resp.UsageMetadata.CandidatesTokenCount,
+		resp.UsageMetadata.TotalTokenCount,
+	))
 }
