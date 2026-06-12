@@ -336,7 +336,10 @@ export type MonitoringAIUsage = {
   exact_token_events?: number;
   estimated_token_events?: number;
   by_pipeline?: MonitoringNamedCount[];
+  by_step?: MonitoringNamedCount[];
+  by_task?: MonitoringNamedCount[];
   by_feature?: MonitoringNamedCount[];
+  by_profile?: MonitoringNamedCount[];
   by_model?: MonitoringNamedCount[];
   by_subject?: MonitoringNamedCount[];
   trend?: MonitoringTimeBucket[];

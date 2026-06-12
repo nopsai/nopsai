@@ -30,6 +30,7 @@ type monitoringAnalyticsFilters struct {
 	PipelinePath          string
 	PipelineName          string
 	Repo                  string
+	RunID                 string
 	Ref                   string
 	CommitSHA             string
 	TriggerSource         string
@@ -230,7 +231,10 @@ type monitoringAIUsageResponse struct {
 	ExactTokenEvents      int64                    `json:"exact_token_events"`
 	EstimatedTokenEvents  int64                    `json:"estimated_token_events"`
 	ByPipeline            []monitoringNamedCount   `json:"by_pipeline"`
+	ByStep                []monitoringNamedCount   `json:"by_step"`
+	ByTask                []monitoringNamedCount   `json:"by_task"`
 	ByFeature             []monitoringNamedCount   `json:"by_feature"`
+	ByProfile             []monitoringNamedCount   `json:"by_profile"`
 	ByModel               []monitoringNamedCount   `json:"by_model"`
 	BySubject             []monitoringNamedCount   `json:"by_subject"`
 	Trend                 []monitoringTimeBucket   `json:"trend"`
@@ -488,6 +492,7 @@ func parseMonitoringAnalyticsFilters(r *http.Request) (monitoringAnalyticsFilter
 	filters.PipelinePath = strings.TrimSpace(values.Get("pipelinePath"))
 	filters.PipelineName = strings.TrimSpace(values.Get("pipelineName"))
 	filters.Repo = strings.TrimSpace(values.Get("repo"))
+	filters.RunID = strings.TrimSpace(firstMonitoringText(values.Get("runId"), values.Get("runID"), values.Get("run_id")))
 	filters.Ref = strings.TrimSpace(firstMonitoringText(values.Get("ref"), values.Get("branch")))
 	if rawBranch := strings.TrimSpace(values.Get("branch")); rawBranch != "" && !strings.HasPrefix(filters.Ref, "refs/") {
 		filters.Ref = "refs/heads/" + rawBranch
@@ -613,6 +618,7 @@ func buildMonitoringCandidateRunIDsQuery(filters monitoringAnalyticsFilters) (st
 	}
 	addTextCondition("pr.pipeline_path", filters.PipelinePath)
 	addTextCondition("pr.pipeline_name", filters.PipelineName)
+	addTextCondition("pr.run_id::text", filters.RunID)
 	addTextCondition("pr.git_ref", filters.Ref)
 	addTextCondition("pr.git_commit_sha", filters.CommitSHA)
 	addTextCondition("pr.trigger_source", filters.TriggerSource)
@@ -1301,7 +1307,19 @@ func (a *App) loadMonitoringAIUsage(ctx context.Context, filters monitoringAnaly
 	if err != nil {
 		return resp, err
 	}
+	resp.ByStep, err = a.loadAIUsageGroup(ctx, runIDs, filters, "step_name")
+	if err != nil {
+		return resp, err
+	}
+	resp.ByTask, err = a.loadMonitoringTokenCounts(ctx, monitoringAIUsageByTaskQuery(), runIDs, filters.From, filters.To)
+	if err != nil {
+		return resp, err
+	}
 	resp.ByFeature, err = a.loadAIUsageGroup(ctx, runIDs, filters, "feature")
+	if err != nil {
+		return resp, err
+	}
+	resp.ByProfile, err = a.loadAIUsageGroup(ctx, runIDs, filters, "llm_profile")
 	if err != nil {
 		return resp, err
 	}
@@ -1819,6 +1837,20 @@ func monitoringAITopTokenRunsQuery() string {
 		  AND created_at >= $2 AND created_at <= $3
 		GROUP BY run_id
 		ORDER BY 4 DESC, 3 DESC
+		LIMIT 20`
+}
+
+func monitoringAIUsageByTaskQuery() string {
+	return `
+		SELECT COALESCE(NULLIF(CONCAT_WS('/', NULLIF(step_name, ''), NULLIF(task_name, '')), ''), 'unknown'),
+		       COALESCE(NULLIF(CONCAT_WS('/', NULLIF(step_name, ''), NULLIF(task_name, '')), ''), 'Unknown'),
+		       COUNT(*), COALESCE(SUM(total_tokens), 0)::bigint, 0::float8
+		FROM ai_usage_events
+		WHERE run_id::text = ANY($1)
+		  AND created_at >= $2 AND created_at <= $3
+		  AND COALESCE(task_name, '') <> ''
+		GROUP BY 1,2
+		ORDER BY 4 DESC, 2
 		LIMIT 20`
 }
 

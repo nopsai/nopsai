@@ -1,3 +1,10 @@
+export type AIUsageSummary = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  total_cost_usd?: number;
+};
+
 export type RunListItem = {
   run_id: string;
   pipeline_name: string;
@@ -29,6 +36,7 @@ export type RunListItem = {
   external_trigger_idempotency_key?: string;
   parent_step_name?: string;
   failure_reason?: string;
+  ai_usage?: AIUsageSummary;
 };
 
 export type TaskDefinition = {
@@ -76,6 +84,7 @@ export type TaskDetail = {
   started_at?: string;
   finished_at?: string;
   task_index: number;
+  ai_usage?: AIUsageSummary;
 };
 
 export type StepDetail = {
@@ -87,6 +96,7 @@ export type StepDetail = {
   started_at?: string;
   finished_at?: string;
   configuration?: StepConfiguration;
+  ai_usage?: AIUsageSummary;
 };
 
 export type PipelineDefinition = {

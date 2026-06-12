@@ -1,9 +1,19 @@
 import { Link } from 'react-router-dom';
-import { ArrowRight, FileText, RefreshCw, Square, Trash2, Workflow, X } from 'lucide-react';
+import { ArrowRight, BarChart3, FileText, RefreshCw, Square, Trash2, Workflow, X } from 'lucide-react';
 import type { PipelineDefinition, RunListItem, StepDetail } from './contracts';
 import { BranchIcon, CommitIcon, RunIdIcon, StatusBadge, ZapIcon } from './PipelineRunCards';
 import { StepsGraph } from './RunGraph';
-import { buildPipelineLink, formatBranchDisplay, formatRepoLabel, formatTriggerId, timeAgo, type ParentRunInfo } from './runPresentation';
+import {
+  buildPipelineLink,
+  buildRunMonitoringLink,
+  formatAIUsageBreakdown,
+  formatBranchDisplay,
+  formatRepoLabel,
+  formatTokenCount,
+  formatTriggerId,
+  timeAgo,
+  type ParentRunInfo,
+} from './runPresentation';
 import { getStatusMeta, normalizeStatus } from './statusPresentation';
 
 type RunDetail = {
@@ -73,6 +83,7 @@ export function RunDetailView({
   const isActiveRun = normalizedStatus === 'running' || normalizedStatus === 'pending' || normalizedStatus === 'waiting_approval';
   const approvals = detail.approvals || [];
   const pipelineLink = buildPipelineLink(run);
+  const monitoringLink = buildRunMonitoringLink(run);
   const triggerLabel = formatTriggerId(run.trigger_event_id);
   const parentRun = detail.parent_run_info;
 
@@ -110,6 +121,12 @@ export function RunDetailView({
       value: triggerLabel.full || '—',
       subtext: run.started_at ? `Started ${startedLabel}` : 'Started: —',
       icon: <ZapIcon className="h-4 w-4 text-slate-500" />,
+    },
+    {
+      label: 'LLM tokens',
+      value: formatTokenCount(run.ai_usage?.total_tokens),
+      subtext: formatAIUsageBreakdown(run.ai_usage),
+      icon: <BarChart3 className="h-4 w-4 text-slate-500" />,
     },
   ];
 
@@ -231,6 +248,10 @@ export function RunDetailView({
                   <FileText className="h-4 w-4 text-current" aria-hidden="true" />
                   Logs
                 </button>
+                <Link className={ghostAction} to={monitoringLink}>
+                  <BarChart3 className="h-4 w-4 text-current" aria-hidden="true" />
+                  Usage
+                </Link>
                 {pipelineLink ? (
                   <Link className={ghostAction} to={pipelineLink}>
                     <Workflow className="h-4 w-4 text-current" aria-hidden="true" />
@@ -269,7 +290,7 @@ export function RunDetailView({
 
           <div className="flex items-start gap-6 flex-wrap justify-between">
             <div className="flex-1 min-w-[320px] space-y-6">
-              <div className="grid gap-3 md:grid-cols-3 text-sm text-[var(--text-primary)] mt-4">
+              <div className="grid gap-3 md:grid-cols-4 text-sm text-[var(--text-primary)] mt-4">
                 {detailLines.map(item => (
                   <div
                     key={item.label}

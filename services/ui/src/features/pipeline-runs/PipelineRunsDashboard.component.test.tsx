@@ -19,6 +19,7 @@ test('renders run summary and delegates open and selection actions', async () =>
         git_repo_name: 'api',
         git_ref: 'refs/heads/main',
         failure_reason: 'Deployment failed\nWhy: rollout timed out',
+        ai_usage: { total_tokens: 4200, prompt_tokens: 3000, completion_tokens: 1200 },
       }}
       selected={false}
       onOpen={onOpen}
@@ -27,6 +28,7 @@ test('renders run summary and delegates open and selection actions', async () =>
   );
 
   expect(screen.getByText('release')).toBeInTheDocument();
+  expect(screen.getByText('4.2k tokens')).toBeInTheDocument();
   expect(screen.getByText('Deployment failed')).toBeInTheDocument();
   const card = screen.getByText('release').closest('[role="button"]');
   expect(card).not.toBeNull();

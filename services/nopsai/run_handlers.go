@@ -157,6 +157,19 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	stepAIUsage, err := runquery.LoadAIUsageByStep(r.Context(), a.db, runID)
+	if err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to query AI usage by step for run")
+		http.Error(w, "Failed to retrieve run AI usage", http.StatusInternalServerError)
+		return
+	}
+	taskAIUsage, err := runquery.LoadAIUsageByTask(r.Context(), a.db, runID)
+	if err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to query AI usage by task for run")
+		http.Error(w, "Failed to retrieve run AI usage", http.StatusInternalServerError)
+		return
+	}
+
 	var originalPipeline models.Pipeline
 	if err := yaml.Unmarshal([]byte(record.PipelineDefinitionYAML), &originalPipeline); err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to parse original pipeline definition")
@@ -183,11 +196,13 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		ResolvedPipeline:       *resolvedPipeline,
 		ChildRuns:              childRuns,
 		TasksByStep:            tasksByStep,
+		StepAIUsage:            stepAIUsage,
+		TaskAIUsage:            taskAIUsage,
 		KnowledgeContexts:      knowledgeContexts,
 		ParentRunInfo:          parentRunInfo,
 	})
 
-	etag := runquery.BuildRunDetailETag(run, childRuns, tasksByStep)
+	etag := runquery.BuildRunDetailETag(run, childRuns, tasksByStep, stepAIUsage, taskAIUsage)
 	w.Header().Set("ETag", etag)
 	if match := r.Header.Get("If-None-Match"); match == etag {
 		w.WriteHeader(http.StatusNotModified)

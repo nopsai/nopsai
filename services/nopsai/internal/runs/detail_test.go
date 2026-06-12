@@ -84,6 +84,47 @@ func TestFinalizeRunDetailTasksForDisplaySkipsNeverStartedWorkAndBoundsFailedWor
 	}
 }
 
+func TestBuildStepDetailsForRunAttachesAIUsageByStepAndTask(t *testing.T) {
+	pipeline := models.Pipeline{
+		Steps: []models.PipelineStep{{
+			Step: &models.TaskStep{
+				BaseStep: models.BaseStep{Name: "plan"},
+				Tasks: []models.Task{{
+					Name: "summarize",
+				}},
+			},
+		}},
+	}
+	tasksByStep := map[string][]models.TaskDetail{
+		"plan": {{
+			TaskID:    "task-1",
+			StepName:  "plan",
+			TaskName:  "summarize",
+			Status:    "success",
+			TaskIndex: 1,
+		}},
+	}
+
+	steps := BuildStepDetailsForRun(
+		models.RunListItem{Status: "success", IsComplete: true},
+		pipeline,
+		pipeline,
+		tasksByStep,
+		nil,
+		map[string]models.AIUsageSummary{"plan": {TotalTokens: 75, PromptTokens: 50, CompletionTokens: 25}},
+		map[string]models.AIUsageSummary{taskUsageKey("plan", "summarize"): {TotalTokens: 60}},
+	)
+	if len(steps) != 1 {
+		t.Fatalf("steps len = %d, want 1", len(steps))
+	}
+	if steps[0].AIUsage.TotalTokens != 75 {
+		t.Fatalf("step tokens = %d, want 75", steps[0].AIUsage.TotalTokens)
+	}
+	if len(steps[0].Tasks) != 1 || steps[0].Tasks[0].AIUsage.TotalTokens != 60 {
+		t.Fatalf("task usage = %#v, want 60 tokens", steps[0].Tasks)
+	}
+}
+
 func TestBuildRunDetailETagChangesWhenTaskStatusChanges(t *testing.T) {
 	start := time.Unix(1_700_000_000, 0).UTC()
 	run := models.RunListItem{
@@ -122,9 +163,28 @@ func TestBuildRunDetailETagChangesWhenTaskStatusChanges(t *testing.T) {
 		},
 	}
 
-	baseETag := BuildRunDetailETag(run, nil, baseTasks)
-	taskETag := BuildRunDetailETag(run, nil, taskUpdated)
+	baseETag := BuildRunDetailETag(run, nil, baseTasks, nil, nil)
+	taskETag := BuildRunDetailETag(run, nil, taskUpdated, nil, nil)
 	if taskETag == baseETag {
 		t.Fatalf("expected task status change to alter ETag, but both were %q", taskETag)
+	}
+}
+
+func TestBuildRunDetailETagChangesWhenAIUsageChanges(t *testing.T) {
+	run := models.RunListItem{RunID: "run-1", Status: "success", IsComplete: true}
+	tasks := map[string][]models.TaskDetail{
+		"plan": {{
+			TaskID:    "task-1",
+			StepName:  "plan",
+			TaskName:  "summarize",
+			Status:    "success",
+			TaskIndex: 1,
+		}},
+	}
+
+	baseETag := BuildRunDetailETag(run, nil, tasks, map[string]models.AIUsageSummary{"plan": {TotalTokens: 10}}, nil)
+	updatedETag := BuildRunDetailETag(run, nil, tasks, map[string]models.AIUsageSummary{"plan": {TotalTokens: 11}}, nil)
+	if updatedETag == baseETag {
+		t.Fatalf("expected AI usage change to alter ETag, but both were %q", updatedETag)
 	}
 }

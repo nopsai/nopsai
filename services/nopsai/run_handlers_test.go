@@ -34,6 +34,8 @@ func TestBuildListRunsQueryFiltersGroupDescendants(t *testing.T) {
 		"JOIN selected_groups sg ON g.parent_id = sg.id",
 		"pr.group_id IN (SELECT id FROM selected_groups)",
 		"pr.git_ref = $2",
+		"LEFT JOIN pipeline_run_usage_summary prus ON prus.run_id = pr.run_id",
+		"COALESCE(prus.ai_total_tokens, 0)::bigint",
 		"ORDER BY pr.created_at DESC LIMIT 50 OFFSET 10",
 	} {
 		if !strings.Contains(normalized, want) {

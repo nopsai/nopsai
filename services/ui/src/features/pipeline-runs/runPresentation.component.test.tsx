@@ -3,13 +3,16 @@ import type { RunListItem } from './contracts';
 import {
   buildGroupPath,
   buildPipelineLink,
+  buildRunMonitoringLink,
   buildRunSourceGroups,
   buildStatusTimeline,
   extractLatestRunSummary,
+  formatAIUsageBreakdown,
   formatBranch,
   formatBranchDisplay,
   formatConfigRepoTimestamp,
   formatRepoLabel,
+  formatTokenCount,
   formatTriggerId,
   getBranchStatusTone,
   getPipelineIdentifier,
@@ -112,8 +115,16 @@ describe('Pipeline Runs presentation', () => {
     expect(getPipelineIdentifier(item)).toBe('platform/core/release');
     expect(buildPipelineLink(item)).toBe('/pipelines/platform/core/release');
     expect(buildPipelineLink(null)).toBe('');
+    expect(buildRunMonitoringLink(item)).toBe('/monitoring?tab=ai-usage&runId=run-1');
     expect(formatTriggerId('1234567890123456')).toEqual({ display: '12345678', full: '1234567890123456' });
     expect(formatTriggerId()).toEqual({ display: 'N/A', full: 'N/A' });
+  });
+
+  it('formats LLM token usage for run summaries', () => {
+    expect(formatTokenCount(1)).toBe('1 token');
+    expect(formatTokenCount(4200)).toBe('4.2k tokens');
+    expect(formatAIUsageBreakdown({ prompt_tokens: 300, completion_tokens: 120 })).toBe('300 tokens prompt / 120 tokens completion');
+    expect(formatAIUsageBreakdown()).toBe('No prompt/completion split recorded');
   });
 
   it('summarizes status and latest activity deterministically', () => {
