@@ -93,6 +93,12 @@ grants include `pipeline_schedule.list` and `pipeline_schedule.read`;
 and `pipeline_schedule.execute`; `owner` grants add
 `pipeline_schedule.delete` and `pipeline_schedule.manage_acl`.
 
+Personal access tokens belong to the signed-in user and inherit that user's
+current authorization. Local and OIDC/SSO browser sessions can create, list, and
+revoke their own personal tokens from Profile or `/v1/auth/personal-tokens`.
+Long-lived bearer tokens such as personal tokens, service-account tokens, and
+internal service tokens cannot create more personal tokens.
+
 ## Grant Lifecycle
 
 Product grants are managed through `nopsai`:
