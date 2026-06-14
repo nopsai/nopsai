@@ -86,45 +86,8 @@ and group role mappings in the Keycloak UI.
 ## Configure NopsAI
 
 Use this provider when NopsAI runs in Docker Compose with Keycloak on the same
-`nopsai-net` network. In `config.yml`, keep the nested `auth:` key:
-
-```yaml
-auth:
-  local_enabled: true
-  oidc:
-    enabled: true
-    auto_create_users: true
-    default_role: ""
-    domain_mapping:
-      example.com: nopsai
-    providers:
-      nopsai:
-        type: oidc
-        display_name: Local Keycloak
-        issuer: http://192.168.1.143:8088/realms/nopsai
-        authorization_endpoint: http://192.168.1.143:8088/realms/nopsai/protocol/openid-connect/auth
-        token_endpoint: http://keycloak:8080/realms/nopsai/protocol/openid-connect/token
-        jwks_uri: http://keycloak:8080/realms/nopsai/protocol/openid-connect/certs
-        userinfo_endpoint: http://keycloak:8080/realms/nopsai/protocol/openid-connect/userinfo
-        client_id: nopsai
-        client_secret: dev-nopsai-secret
-        scopes: ["openid", "email", "profile"]
-        allowed_email_domains: ["example.com"]
-        allow_email_linking: true
-        entitlement_sync:
-          mode: keycloak_group_roles
-          admin_base_url: http://keycloak:8080
-          realm: nopsai
-          admin_realm: master
-          admin_client_id: admin-cli
-          admin_username: admin
-          admin_password: admin
-          client_id: nopsai
-          target_resource_type: folder
-```
-
-For GitOps-managed SSO, put the same auth body in the global config repository
-at `setting/system/auth.yaml` without the outer `auth:` wrapper:
+`nopsai-net` network. SSO settings are GitOps-managed; put the auth body in the
+global config repository at `setting/system/auth.yaml`:
 
 ```yaml
 local_enabled: true
@@ -159,6 +122,10 @@ oidc:
         client_id: nopsai
         target_resource_type: folder
 ```
+
+`config.yml` still accepts the legacy nested `auth:` key for bootstrap-only or
+non-GitOps deployments, but the checked-in local config intentionally leaves
+OIDC out so the config repository remains the source of truth.
 
 `settings/system/auth.yaml` is accepted during sync for compatibility, but
 exports use the canonical `setting/system/auth.yaml` path. For production,
