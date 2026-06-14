@@ -18,13 +18,24 @@ var accessGrantSchemaStatements = []string{
 		resource_display TEXT NOT NULL DEFAULT '',
 		inherit BOOLEAN NOT NULL DEFAULT TRUE,
 		granted_by TEXT NOT NULL DEFAULT '',
+		managed_by_identity_provider BOOLEAN NOT NULL DEFAULT FALSE,
+		identity_provider_id TEXT NOT NULL DEFAULT '',
+		external_group_name TEXT NOT NULL DEFAULT '',
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		UNIQUE(subject_type, subject_id, resource_type, resource_id)
 	)`,
+	`ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS managed_by_identity_provider BOOLEAN NOT NULL DEFAULT FALSE`,
+	`ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS identity_provider_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS external_group_name TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE resource_acl ADD COLUMN IF NOT EXISTS access_grant_id BIGINT REFERENCES access_grants(id) ON DELETE CASCADE`,
 	`ALTER TABLE resource_ownership ADD COLUMN IF NOT EXISTS access_grant_id BIGINT REFERENCES access_grants(id) ON DELETE CASCADE`,
 	`ALTER TABLE auth_group_members DROP CONSTRAINT IF EXISTS auth_group_members_subject_type_check`,
 	`ALTER TABLE auth_group_members ADD CONSTRAINT auth_group_members_subject_type_check CHECK (subject_type IN ('user', 'repository', 'trigger', 'service_account', 'internal_service'))`,
+	`ALTER TABLE auth_group_members ADD COLUMN IF NOT EXISTS managed_by_identity_provider BOOLEAN NOT NULL DEFAULT FALSE`,
+	`ALTER TABLE auth_group_members ADD COLUMN IF NOT EXISTS identity_provider_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE auth_group_members ADD COLUMN IF NOT EXISTS external_group_name TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE auth_group_members ADD COLUMN IF NOT EXISTS auth_group_name TEXT NOT NULL DEFAULT ''`,
+	`CREATE INDEX IF NOT EXISTS idx_auth_group_members_identity_provider ON auth_group_members(identity_provider_id, external_group_name) WHERE managed_by_identity_provider = TRUE`,
 	`ALTER TABLE auth_role_bindings DROP CONSTRAINT IF EXISTS auth_role_bindings_subject_type_check`,
 	`ALTER TABLE auth_role_bindings ADD CONSTRAINT auth_role_bindings_subject_type_check CHECK (subject_type IN ('user', 'auth_group', 'repository', 'trigger', 'service_account', 'internal_service'))`,
 	`ALTER TABLE access_grants DROP CONSTRAINT IF EXISTS access_grants_subject_type_check`,
@@ -35,6 +46,7 @@ var accessGrantSchemaStatements = []string{
 	`ALTER TABLE resource_ownership ADD CONSTRAINT resource_ownership_owner_subject_type_check CHECK (owner_subject_type IN ('user', 'auth_group', 'repository', 'trigger', 'service_account', 'internal_service'))`,
 	`CREATE INDEX IF NOT EXISTS idx_access_grants_subject_lookup ON access_grants(subject_type, subject_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_access_grants_resource_lookup ON access_grants(resource_type, resource_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_access_grants_identity_provider ON access_grants(identity_provider_id, external_group_name) WHERE managed_by_identity_provider = TRUE`,
 }
 
 func ensureProductAccessBootstrap(ctx context.Context, db *pgxpool.Pool) error {

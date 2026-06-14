@@ -12,6 +12,8 @@ func accessGrantResponseFromRecord(record accessGrantRecord) accessGrantResponse
 	source := "ui"
 	if record.ManagedByConfig {
 		source = "gitops"
+	} else if record.ManagedByIdentityProvider {
+		source = "sso"
 	}
 	inheritedFromResourceID := externalGrantResourceID(record.InheritedFromResourceType, record.InheritedFromResourceDisplay, record.InheritedFromResourceID)
 	inheritedFromResource := ""
@@ -32,6 +34,9 @@ func accessGrantResponseFromRecord(record accessGrantRecord) accessGrantResponse
 		ManagedByConfigRepo:       record.ManagedByConfig,
 		ConfigSourcePath:          record.ConfigSourcePath,
 		ConfigSourceCommitSHA:     record.ConfigSourceCommitSHA,
+		ManagedByIdentityProvider: record.ManagedByIdentityProvider,
+		IdentityProviderID:        record.IdentityProviderID,
+		ExternalGroupName:         record.ExternalGroupName,
 		Source:                    source,
 		InheritedFromResourceType: record.InheritedFromResourceType,
 		InheritedFromResourceID:   inheritedFromResourceID,

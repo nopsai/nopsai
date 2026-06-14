@@ -71,8 +71,30 @@ func pruneManagedAccessGrants(ctx context.Context, tx pgx.Tx, binding models.Con
 	rows, err := tx.Query(ctx, `
 		SELECT id, subject_type, subject_id, role_name, resource_type, resource_id, resource_display, managed_by_config_repo
 		FROM access_grants
-		WHERE (managed_by_config_repo = TRUE AND config_repo_id = $1)
-		   OR managed_by_config_repo = FALSE
+		WHERE COALESCE(managed_by_identity_provider, FALSE) = FALSE
+		  AND (
+			(managed_by_config_repo = TRUE AND config_repo_id = $1)
+			OR managed_by_config_repo = FALSE
+		  )
+		  AND NOT (
+			subject_type = 'user'
+			AND (
+				LOWER(BTRIM(subject_id)) LIKE 'oidc:%'
+				OR EXISTS (
+					SELECT 1
+					FROM users u
+					WHERE (subject_id = u.id::text OR subject_id = u.sub)
+					  AND (
+						LOWER(COALESCE(u.provider, '')) LIKE 'oidc:%'
+						OR EXISTS (
+							SELECT 1
+							FROM auth_external_identities ei
+							WHERE ei.user_id = u.id
+						)
+					  )
+				)
+			)
+		  )
 	`, binding.ID)
 	if err != nil {
 		return fmt.Errorf("failed to load managed access grants for pruning: %w", err)
@@ -196,11 +218,17 @@ func pruneStaleAccessGrantsForManagedUsers(ctx context.Context, tx pgx.Tx, users
 
 func pruneManagedUsers(ctx context.Context, tx pgx.Tx, configRepoID int64, users map[string]storedAccessUser) error {
 	query := `
-		SELECT id::text
-		FROM users
-		WHERE managed_by_config_repo = TRUE
-		  AND config_repo_id = $1
-		  AND provider <> $2
+		SELECT u.id::text
+		FROM users u
+		WHERE u.managed_by_config_repo = TRUE
+		  AND u.config_repo_id = $1
+		  AND u.provider <> $2
+		  AND LOWER(COALESCE(u.provider, '')) NOT LIKE 'oidc:%'
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM auth_external_identities ei
+			WHERE ei.user_id = u.id
+		  )
 	`
 	args := []any{configRepoID, auth.ProviderServiceAccount}
 	if len(users) > 0 {
@@ -239,10 +267,16 @@ func pruneManagedUsers(ctx context.Context, tx pgx.Tx, configRepoID int64, users
 
 	if len(users) == 0 {
 		_, err := tx.Exec(ctx, `
-			DELETE FROM users
-			WHERE managed_by_config_repo = TRUE
-			  AND config_repo_id = $1
-			  AND provider <> $2
+			DELETE FROM users u
+			WHERE u.managed_by_config_repo = TRUE
+			  AND u.config_repo_id = $1
+			  AND u.provider <> $2
+			  AND LOWER(COALESCE(u.provider, '')) NOT LIKE 'oidc:%'
+			  AND NOT EXISTS (
+				SELECT 1
+				FROM auth_external_identities ei
+				WHERE ei.user_id = u.id
+			  )
 		`, configRepoID, auth.ProviderServiceAccount)
 		return err
 	}
@@ -251,11 +285,17 @@ func pruneManagedUsers(ctx context.Context, tx pgx.Tx, configRepoID int64, users
 		subs = append(subs, sub)
 	}
 	_, err = tx.Exec(ctx, `
-		DELETE FROM users
-		WHERE managed_by_config_repo = TRUE
-		  AND config_repo_id = $1
-		  AND provider <> $2
-		  AND sub != ALL($3)
+		DELETE FROM users u
+		WHERE u.managed_by_config_repo = TRUE
+		  AND u.config_repo_id = $1
+		  AND u.provider <> $2
+		  AND LOWER(COALESCE(u.provider, '')) NOT LIKE 'oidc:%'
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM auth_external_identities ei
+			WHERE ei.user_id = u.id
+		  )
+		  AND u.sub != ALL($3)
 	`, configRepoID, auth.ProviderServiceAccount, subs)
 	return err
 }

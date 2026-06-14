@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { fetchSystemJson } from '../api';
-import { fetchAccessResourceCatalog } from './api';
+import {
+  deleteIdentityProvider as deleteIdentityProviderAPI,
+  fetchAccessResourceCatalog,
+  fetchIdentityProvidersState,
+  saveIdentityProvider as saveIdentityProviderAPI,
+  saveIdentityProviderSettings as saveIdentityProviderSettingsAPI,
+} from './api';
 import {
   POLICY_TEMPLATE_ROLE,
   isProtectedAccessRole,
@@ -14,6 +20,9 @@ import {
 import type {
   AccessGrantRecord,
   BasicGrantInput,
+  IdentityProviderFormState,
+  IdentityProviderSettings,
+  IdentityProvidersState,
   RoleDefinition,
   RolePermission,
   RolePolicyDraft,
@@ -35,6 +44,17 @@ type UseSystemAccessOptions = {
 const createEmptyUserForm = () => ({ sub: '', email: '', password: '', roles: [] as string[] });
 const createEmptyServiceAccountForm = () => ({ sub: '', email: '', tokenName: 'default', roles: [] as string[] });
 const createEmptyPermissionForm = () => ({ name: '', obj: 'pipeline:*', act: 'pipeline.read' });
+const createEmptyIdentityProvidersState = (): IdentityProvidersState => ({
+  settings: {
+    local_enabled: true,
+    oidc_enabled: false,
+    auto_create_users: false,
+    default_role: '',
+    allow_email_linking: false,
+  },
+  providers: [],
+  domain_mappings: {},
+});
 
 export function useSystemAccess({ enabled, addToast }: UseSystemAccessOptions): AccessPanelProps {
   const [users, setUsers] = useState<UserSummary[]>([]);
@@ -46,6 +66,9 @@ export function useSystemAccess({ enabled, addToast }: UseSystemAccessOptions): 
   const [accessGrants, setAccessGrants] = useState<AccessGrantRecord[]>([]);
   const [accessGrantsLoading, setAccessGrantsLoading] = useState(false);
   const [accessGrantsError, setAccessGrantsError] = useState<string | null>(null);
+  const [identityProvidersState, setIdentityProvidersState] = useState<IdentityProvidersState>(createEmptyIdentityProvidersState);
+  const [identityProvidersLoading, setIdentityProvidersLoading] = useState(false);
+  const [identityProvidersError, setIdentityProvidersError] = useState<string | null>(null);
   const [policies, setPolicies] = useState<RolePermission[]>([]);
   const [policyTemplates, setPolicyTemplates] = useState<RolePermission[]>([]);
   const [policiesLoading, setPoliciesLoading] = useState(false);
@@ -133,6 +156,18 @@ export function useSystemAccess({ enabled, addToast }: UseSystemAccessOptions): 
 
   const loadResourceCatalog = useCallback(async () => {
     setResourceCatalog(await fetchAccessResourceCatalog());
+  }, []);
+
+  const loadIdentityProviders = useCallback(async () => {
+    setIdentityProvidersLoading(true);
+    setIdentityProvidersError(null);
+    try {
+      setIdentityProvidersState(await fetchIdentityProvidersState());
+    } catch (error) {
+      setIdentityProvidersError(error instanceof Error ? error.message : 'Unable to load identity providers');
+    } finally {
+      setIdentityProvidersLoading(false);
+    }
   }, []);
 
   const createUser = useCallback(
@@ -900,14 +935,60 @@ export function useSystemAccess({ enabled, addToast }: UseSystemAccessOptions): 
     [addToast, loadServiceAccounts]
   );
 
+  const saveIdentityProviderSettings = useCallback(
+    async (settings: IdentityProviderSettings, mappings: Record<string, string>) => {
+      try {
+        setIdentityProvidersState(await saveIdentityProviderSettingsAPI(settings, mappings));
+        addToast('Identity provider settings saved', 'success');
+      } catch (error) {
+        addToast(error instanceof Error ? error.message : 'Failed to save identity provider settings', 'error');
+        throw error;
+      }
+    },
+    [addToast]
+  );
+
+  const saveIdentityProvider = useCallback(
+    async (form: IdentityProviderFormState) => {
+      const providerID = form.id.trim();
+      if (!providerID) {
+        addToast('Provider ID is required.', 'error');
+        return;
+      }
+      try {
+        setIdentityProvidersState(await saveIdentityProviderAPI(form));
+        addToast('Identity provider saved', 'success');
+      } catch (error) {
+        addToast(error instanceof Error ? error.message : 'Failed to save identity provider', 'error');
+        throw error;
+      }
+    },
+    [addToast]
+  );
+
+  const deleteIdentityProvider = useCallback(
+    async (providerID: string) => {
+      try {
+        await deleteIdentityProviderAPI(providerID);
+        addToast('Identity provider deleted', 'success');
+        await loadIdentityProviders();
+      } catch (error) {
+        addToast(error instanceof Error ? error.message : 'Failed to delete identity provider', 'error');
+        throw error;
+      }
+    },
+    [addToast, loadIdentityProviders]
+  );
+
   useEffect(() => {
     if (!enabled) return;
     void loadUsers();
     void loadServiceAccounts();
     void loadAccessGrants();
+    void loadIdentityProviders();
     void loadPolicies();
     void loadResourceCatalog();
-  }, [enabled, loadAccessGrants, loadPolicies, loadResourceCatalog, loadServiceAccounts, loadUsers]);
+  }, [enabled, loadAccessGrants, loadIdentityProviders, loadPolicies, loadResourceCatalog, loadServiceAccounts, loadUsers]);
 
   return {
     users,
@@ -919,6 +1000,11 @@ export function useSystemAccess({ enabled, addToast }: UseSystemAccessOptions): 
     accessGrants,
     accessGrantsLoading,
     accessGrantsError,
+    identityProviders: identityProvidersState.providers,
+    identityProviderSettings: identityProvidersState.settings,
+    identityProviderDomainMappings: identityProvidersState.domain_mappings,
+    identityProvidersLoading,
+    identityProvidersError,
     policies,
     policiesLoading,
     policiesError,
@@ -948,6 +1034,10 @@ export function useSystemAccess({ enabled, addToast }: UseSystemAccessOptions): 
     onCreateServiceAccountAccessGrant: createServiceAccountAccessGrant,
     onDeleteAccessGrant: deleteAccessGrant,
     onReloadAccessGrants: loadAccessGrants,
+    onReloadIdentityProviders: loadIdentityProviders,
+    onSaveIdentityProviderSettings: saveIdentityProviderSettings,
+    onSaveIdentityProvider: saveIdentityProvider,
+    onDeleteIdentityProvider: deleteIdentityProvider,
     onUpdateUser: updateUser,
     onUpdateServiceAccount: updateServiceAccount,
     onLoadServiceAccountTokens: loadServiceAccountTokens,

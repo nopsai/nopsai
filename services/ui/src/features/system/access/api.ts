@@ -1,5 +1,12 @@
 import { fetchSystemJson } from '../api';
 import {
+  identityProviderPayloadFromForm,
+  normalizeIdentityProvidersState,
+  type IdentityProviderFormState,
+  type IdentityProviderSettings,
+  type IdentityProvidersState,
+} from './model';
+import {
   buildAccessResourceCatalog,
   type AccessResourceCatalog,
   type AccessResourceCatalogSources,
@@ -37,4 +44,43 @@ export async function fetchAccessResourceCatalog(): Promise<AccessResourceCatalo
   });
 
   return buildAccessResourceCatalog(sources);
+}
+
+export async function fetchIdentityProvidersState(): Promise<IdentityProvidersState> {
+  const payload = await fetchSystemJson('/v1/admin/identity-providers');
+  return normalizeIdentityProvidersState(payload);
+}
+
+export async function saveIdentityProviderSettings(
+  settings: IdentityProviderSettings,
+  mappings: Record<string, string>
+): Promise<IdentityProvidersState> {
+  const payload = await fetchSystemJson('/v1/admin/identity-providers', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ...settings,
+      domain_mappings: mappings,
+    }),
+  });
+  return normalizeIdentityProvidersState(payload);
+}
+
+export async function saveIdentityProvider(form: IdentityProviderFormState): Promise<IdentityProvidersState> {
+  const providerID = form.id.trim();
+  if (!providerID) {
+    throw new Error('Provider ID is required.');
+  }
+  const payload = await fetchSystemJson(`/v1/admin/identity-providers/${encodeURIComponent(providerID)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(identityProviderPayloadFromForm(form)),
+  });
+  return normalizeIdentityProvidersState(payload);
+}
+
+export async function deleteIdentityProvider(providerID: string): Promise<void> {
+  await fetchSystemJson(`/v1/admin/identity-providers/${encodeURIComponent(providerID)}`, {
+    method: 'DELETE',
+  });
 }

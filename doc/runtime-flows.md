@@ -267,6 +267,7 @@ Rerun:
    - `setting/system/llm_profile.yaml` becomes the system LLM profile registry, only from a system/global config repo
    - `setting/system/agent-profiles.yaml` becomes the system Agent Profile persona registry and default profile setting, only from a system/global config repo
    - `setting/system/mcp.yaml` becomes the system MCP server/profile registry, only from a system/global config repo
+   - `setting/system/auth.yaml` becomes local-login and OIDC SSO settings, only from a system/global config repo, with provider secret fields allowed to stay local and preserved when omitted from Git
    - `setting/system/runner.yaml` becomes runner install defaults, runtime URLs, and dispatcher routing, only from a system/global config repo
    - `settings/system/mail.yaml` becomes SMTP mail notification settings, only from a system/global config repo, with password values referenced by secret name instead of stored in Git
 6. System/global repositories are synced before group repositories during sync-all, so newly defined group bindings can be used immediately.
@@ -281,7 +282,8 @@ files to the review branch. The sync branch is not updated directly. The drift
 endpoint exports the current declarative Nopsai config and compares it with the
 sync branch so the UI can show exact changes for pipelines, steps, schedules,
 triggers, scopes, knowledge contexts, run group/config-repository structure,
-notification routes, access manifests, Agent Profiles, LLM profiles, MCP registry files, mail settings, and runtime settings before
+notification routes, access manifests, Agent Profiles, LLM profiles, MCP
+registry files, auth settings, mail settings, and runtime settings before
 pushing. After those files are merged into the sync branch, the next config sync
 can adopt the matching database-owned resources and switch their UI source to
 GitOps. Pipeline run rows remain runtime/audit records, not Git-owned resources.

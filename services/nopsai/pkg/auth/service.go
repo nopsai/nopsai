@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -30,6 +31,7 @@ type Service struct {
 	db           *pgxpool.Pool
 	local        *LocalJWTService
 	cfg          Config
+	cfgMu        sync.RWMutex
 	rateLimiter  *RateLimiter
 	lockout      *LockoutTracker
 	refreshTTL   time.Duration
@@ -91,6 +93,24 @@ func (s *Service) AuthenticateToken(ctx context.Context, raw string) (*Claims, e
 	}
 
 	return nil, fmt.Errorf("token could not be verified")
+}
+
+func (s *Service) SetLocalEnabled(enabled bool) {
+	if s == nil {
+		return
+	}
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+	s.cfg.LocalEnabled = enabled
+}
+
+func (s *Service) localEnabled() bool {
+	if s == nil {
+		return false
+	}
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.cfg.LocalEnabled
 }
 
 func (s *Service) authenticatePersonalAccessToken(ctx context.Context, raw string) (*Claims, error) {
@@ -195,7 +215,7 @@ func (s *Service) authenticateServiceAccountToken(ctx context.Context, raw strin
 }
 
 func (s *Service) LoginLocal(ctx context.Context, identifier, password string) (*LoginResult, error) {
-	if !s.cfg.LocalEnabled {
+	if !s.localEnabled() {
 		return nil, fmt.Errorf("local authentication is disabled")
 	}
 	if s.local == nil {
@@ -355,6 +375,65 @@ func (s *Service) Refresh(ctx context.Context, rawRefresh string) (*LoginResult,
 	return &LoginResult{
 		AccessToken:        access,
 		RefreshToken:       newRefresh,
+		ExpiresAt:          exp,
+		Claims:             claims,
+		MustChangePassword: mustChange,
+	}, nil
+}
+
+func (s *Service) IssueSessionForUser(ctx context.Context, userID uuid.UUID) (*LoginResult, error) {
+	if userID == uuid.Nil {
+		return nil, fmt.Errorf("user id is required")
+	}
+	if s.local == nil {
+		return nil, fmt.Errorf("local JWT signing is not configured")
+	}
+
+	var sub string
+	var email sql.NullString
+	var provider string
+	var status string
+	var mustChange bool
+	row := s.db.QueryRow(ctx, `SELECT sub, email, provider, status, must_change_password FROM users WHERE id = $1`, userID)
+	if err := row.Scan(&sub, &email, &provider, &status, &mustChange); err != nil {
+		return nil, err
+	}
+	if status != "active" {
+		return nil, fmt.Errorf("account disabled")
+	}
+
+	roles, err := s.fetchRoles(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	claims := &Claims{
+		Sub:      sub,
+		Email:    email.String,
+		Provider: provider,
+		Roles:    roles,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject: sub,
+			Issuer:  s.cfg.JWTIssuer,
+		},
+	}
+
+	access, exp, err := s.local.MintAccessToken(ctx, *claims)
+	if err != nil {
+		return nil, err
+	}
+	refresh := ""
+	if s.refreshTTL > 0 {
+		refresh, err = s.persistRefreshToken(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	_, _ = s.db.Exec(ctx, `UPDATE users SET last_login = NOW() WHERE id = $1`, userID)
+
+	return &LoginResult{
+		AccessToken:        access,
+		RefreshToken:       refresh,
 		ExpiresAt:          exp,
 		Claims:             claims,
 		MustChangePassword: mustChange,

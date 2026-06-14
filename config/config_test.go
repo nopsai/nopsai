@@ -134,6 +134,118 @@ func TestEffectiveServiceJWTConfig(t *testing.T) {
 	}
 }
 
+func TestEffectiveAuthProviderLocalEnabledPrefersNestedAuthConfig(t *testing.T) {
+	disabled := false
+	cfg := Config{
+		AuthProviderLocalEnabled: true,
+		Auth: AuthConfig{
+			LocalEnabled: &disabled,
+		},
+	}
+
+	if cfg.EffectiveAuthProviderLocalEnabled() {
+		t.Fatal("EffectiveAuthProviderLocalEnabled() = true, want nested false to win")
+	}
+}
+
+func TestEffectiveOIDCAuthDoesNotInventDefaultRole(t *testing.T) {
+	cfg := Config{
+		Auth: AuthConfig{
+			OIDC: OIDCAuthConfig{
+				Enabled:         true,
+				AutoCreateUsers: true,
+			},
+		},
+	}
+
+	if got := cfg.EffectiveOIDCAuth().DefaultRole; got != "" {
+		t.Fatalf("EffectiveOIDCAuth().DefaultRole = %q, want empty", got)
+	}
+
+	cfg.Auth.OIDC.DefaultRole = " viewer "
+	if got := cfg.EffectiveOIDCAuth().DefaultRole; got != "viewer" {
+		t.Fatalf("EffectiveOIDCAuth().DefaultRole = %q, want trimmed configured role", got)
+	}
+}
+
+func TestNormalizeAuthConfigNormalizesOIDCProviders(t *testing.T) {
+	enabled := true
+	allowEmailLinking := true
+	cfg := NormalizeAuthConfig(AuthConfig{
+		OIDC: OIDCAuthConfig{
+			DefaultRole: " viewer ",
+			DomainMapping: map[string]string{
+				"@Company.COM": " Corporate ",
+			},
+			Providers: map[string]OIDCProviderConfig{
+				" Corporate ": {
+					Type:                "generic",
+					DisplayName:         " Company SSO ",
+					Issuer:              "https://idp.company.com/",
+					ClientID:            " client-id ",
+					Scopes:              []string{"email", "profile", "email"},
+					AllowedEmailDomains: []string{"Company.COM", "@company.com"},
+					RoleMapping: map[string]string{
+						" nopsai-admins ": " admin ",
+					},
+					GroupMapping: map[string]string{
+						" team-platform ": " Platform Engineers ",
+					},
+					BasicRoleMapping: map[string]OIDCBasicRoleGrantConfig{
+						" team-1-owner ": {
+							Role:     " Owner ",
+							Resource: " folder:team-1 ",
+						},
+					},
+					EntitlementSync: OIDCEntitlementSyncConfig{
+						Mode:               "keycloak",
+						AdminBaseURL:       " http://keycloak:8080/ ",
+						Realm:              " nopsai ",
+						AdminUsername:      " admin ",
+						AdminPassword:      " admin ",
+						TargetResourceType: "",
+						GroupPathPrefix:    " /teams ",
+					},
+					AllowEmailLinking: &allowEmailLinking,
+					Enabled:           &enabled,
+				},
+			},
+		},
+	})
+
+	provider := cfg.OIDC.Providers["corporate"]
+	if provider.Type != "oidc" {
+		t.Fatalf("provider type = %q, want oidc", provider.Type)
+	}
+	if provider.Issuer != "https://idp.company.com" {
+		t.Fatalf("issuer = %q, want trimmed issuer", provider.Issuer)
+	}
+	if got := cfg.OIDC.DomainMapping["company.com"]; got != "corporate" {
+		t.Fatalf("domain mapping = %q, want corporate", got)
+	}
+	if len(provider.Scopes) != 3 || provider.Scopes[0] != "openid" {
+		t.Fatalf("scopes = %#v, want openid plus normalized configured scopes", provider.Scopes)
+	}
+	if len(provider.AllowedEmailDomains) != 1 || provider.AllowedEmailDomains[0] != "company.com" {
+		t.Fatalf("allowed domains = %#v, want company.com", provider.AllowedEmailDomains)
+	}
+	if provider.RoleMapping["nopsai-admins"] != "admin" {
+		t.Fatalf("role mapping = %#v, want trimmed mapping", provider.RoleMapping)
+	}
+	if provider.GroupMapping["team-platform"] != "Platform Engineers" {
+		t.Fatalf("group mapping = %#v, want trimmed mapping", provider.GroupMapping)
+	}
+	if provider.BasicRoleMapping["team-1-owner"].Role != "owner" || provider.BasicRoleMapping["team-1-owner"].Resource != "folder:team-1" {
+		t.Fatalf("basic role mapping = %#v, want trimmed scoped grant", provider.BasicRoleMapping)
+	}
+	if provider.EntitlementSync.Mode != "keycloak_group_roles" || provider.EntitlementSync.AdminBaseURL != "http://keycloak:8080" || provider.EntitlementSync.TargetResourceType != "folder" || provider.EntitlementSync.GroupPathPrefix != "teams" {
+		t.Fatalf("entitlement sync = %#v, want normalized Keycloak sync config", provider.EntitlementSync)
+	}
+	if provider.AllowEmailLinking == nil || !*provider.AllowEmailLinking {
+		t.Fatalf("allow email linking = %#v, want true provider override", provider.AllowEmailLinking)
+	}
+}
+
 func TestEffectiveEnvironmentAndProductionGates(t *testing.T) {
 	cfg := Config{}
 	if got := cfg.EffectiveEnvironment(); got != "development" {

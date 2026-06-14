@@ -136,6 +136,71 @@ func (a *App) exportConfigRepositoryMCPRegistry(ctx context.Context, repo models
 	return nil
 }
 
+func (a *App) exportConfigRepositoryAuthSettings(ctx context.Context, repo models.ConfigRepository, files map[string]string) error {
+	if repo.ScopeType != models.ConfigRepositoryScopeSystem {
+		return nil
+	}
+
+	settings, providers, mappings, err := a.loadAuthSettingsGitOpsState(ctx)
+	if err != nil {
+		return err
+	}
+	doc := buildAuthSettingsGitOpsFile(settings, providers, mappings)
+	if !authSettingsGitOpsFileHasState(doc) {
+		return nil
+	}
+	content, err := marshalConfigRepositoryYAML(doc)
+	if err != nil {
+		return err
+	}
+	files["setting/system/auth.yaml"] = string(content)
+	return nil
+}
+
+func (a *App) loadAuthSettingsGitOpsState(ctx context.Context) (oidcSettings, []oidcProviderRecord, map[string]string, error) {
+	cfg := config.Config{AuthProviderLocalEnabled: true}
+	if a != nil && a.cfg != nil {
+		cfg = a.getConfigSnapshot()
+	}
+
+	settings := oidcSettings{
+		LocalEnabled:      cfg.EffectiveAuthProviderLocalEnabled(),
+		OIDCEnabled:       cfg.EffectiveOIDCAuth().Enabled,
+		AutoCreateUsers:   cfg.EffectiveOIDCAuth().AutoCreateUsers,
+		DefaultRole:       strings.TrimSpace(cfg.EffectiveOIDCAuth().DefaultRole),
+		AllowEmailLinking: cfg.EffectiveOIDCAuth().AllowEmailLinking,
+	}
+	var providers []oidcProviderRecord
+	mappings := normalizeOIDCDomainMappings(cfg.EffectiveOIDCAuth().DomainMapping)
+	for id, providerCfg := range cfg.EffectiveOIDCAuth().Providers {
+		provider := oidcProviderRecordFromConfig(id, providerCfg, authProviderSourceConfig)
+		if provider.ID != "" {
+			providers = append(providers, provider)
+		}
+	}
+
+	if a == nil || a.db == nil {
+		return settings, providers, mappings, nil
+	}
+
+	dbSettings, err := getOIDCSettings(ctx, a.db, a.cfg)
+	if err != nil {
+		return oidcSettings{}, nil, nil, err
+	}
+	dbProviders, err := listOIDCProviders(ctx, a.db, false)
+	if err != nil {
+		return oidcSettings{}, nil, nil, err
+	}
+	dbMappings, err := listOIDCDomainMappings(ctx, a.db)
+	if err != nil {
+		return oidcSettings{}, nil, nil, err
+	}
+	if len(dbProviders) > 0 || len(dbMappings) > 0 || dbSettings != settings {
+		return dbSettings, dbProviders, dbMappings, nil
+	}
+	return settings, providers, mappings, nil
+}
+
 func (a *App) exportConfigRepositoryRuntimeSettings(repo models.ConfigRepository, files map[string]string) error {
 	if repo.ScopeType != models.ConfigRepositoryScopeSystem {
 		return nil

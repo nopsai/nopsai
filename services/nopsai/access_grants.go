@@ -47,7 +47,10 @@ const (
 	rootGrantID     = "root"
 )
 
-var errEveryFolderMustRetainOwner = errors.New("every folder must retain at least one owner")
+var (
+	errEveryFolderMustRetainOwner           = errors.New("every folder must retain at least one owner")
+	errExternallyManagedUserRoleAssignments = errors.New("user role assignments are managed by the identity provider")
+)
 
 type productRoleDefinition struct {
 	Description string
@@ -69,6 +72,9 @@ type accessGrantRecord struct {
 	ManagedByConfig              bool
 	ConfigSourcePath             string
 	ConfigSourceCommitSHA        string
+	ManagedByIdentityProvider    bool
+	IdentityProviderID           string
+	ExternalGroupName            string
 	InheritedFromResourceType    string
 	InheritedFromResourceID      string
 	InheritedFromResourceDisplay string
@@ -107,6 +113,9 @@ type accessGrantResponse struct {
 	ManagedByConfigRepo       bool      `json:"managed_by_config_repo"`
 	ConfigSourcePath          string    `json:"config_source_path,omitempty"`
 	ConfigSourceCommitSHA     string    `json:"config_source_commit_sha,omitempty"`
+	ManagedByIdentityProvider bool      `json:"managed_by_identity_provider"`
+	IdentityProviderID        string    `json:"identity_provider_id,omitempty"`
+	ExternalGroupName         string    `json:"external_group_name,omitempty"`
 	Source                    string    `json:"source"`
 	InheritedFromResourceType string    `json:"inherited_from_resource_type,omitempty"`
 	InheritedFromResourceID   string    `json:"inherited_from_resource_id,omitempty"`

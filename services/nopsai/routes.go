@@ -3,6 +3,11 @@ package nopsai
 import "net/http"
 
 func (a *App) registerAuthRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /v1/auth/providers", a.handleAuthProviders)
+	mux.HandleFunc("POST /v1/auth/discover", a.handleAuthDiscover)
+	mux.HandleFunc("GET /v1/auth/oidc/{provider}/start", a.handleAuthOIDCStart)
+	mux.HandleFunc("GET /v1/auth/oidc/{provider}/callback", a.handleAuthOIDCCallback)
+	mux.HandleFunc("POST /v1/auth/session/exchange", a.handleAuthSessionExchange)
 	mux.HandleFunc("POST /v1/auth/login", a.handleAuthLogin)
 	mux.HandleFunc("POST /v1/auth/refresh", a.handleAuthRefresh)
 	mux.HandleFunc("POST /v1/auth/logout", a.handleAuthLogout)
@@ -33,6 +38,10 @@ func (a *App) registerAuthRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/admin/roles", a.handleListRoles)
 	mux.HandleFunc("POST /v1/admin/roles", a.handleCreateRole)
 	mux.HandleFunc("DELETE /v1/admin/roles", a.handleDeleteRole)
+	mux.HandleFunc("GET /v1/admin/identity-providers", a.handleAdminIdentityProviders)
+	mux.HandleFunc("PUT /v1/admin/identity-providers", a.handleAdminIdentityProviders)
+	mux.HandleFunc("PUT /v1/admin/identity-providers/{provider}", a.handleAdminIdentityProvider)
+	mux.HandleFunc("DELETE /v1/admin/identity-providers/{provider}", a.handleAdminIdentityProvider)
 }
 
 func (a *App) registerAccessRoutes(mux *http.ServeMux) {

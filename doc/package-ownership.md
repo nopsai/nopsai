@@ -78,6 +78,36 @@ Provider clients stay behind interfaces:
 
 Concrete HTTP/gRPC/Postgres clients are wired in command/bootstrap packages.
 
+## Enterprise SSO Ownership
+
+Enterprise authentication follows the same split:
+
+- Config model logic lives in `config/config.go`.
+- OIDC persistence, provider records, state, login-code, external identity, and
+  group-membership logic live in `services/nopsai/auth_oidc_store.go`.
+- OIDC provider HTTP behavior, metadata discovery, token exchange, JWKS
+  verification, PKCE, nonce, and safe redirect rules live in
+  `services/nopsai/auth_oidc_flow.go`.
+- Provider-specific entitlement lookups, such as Keycloak Admin API role and
+  group-role reads, live in `services/nopsai/auth_keycloak_entitlements.go`.
+- REST request/response DTOs and transport handlers live in
+  `services/nopsai/auth_oidc_models.go` and
+  `services/nopsai/auth_oidc_handlers.go`.
+- Route composition lives in `services/nopsai/routes.go`; auth/public-path
+  middleware lives in `services/nopsai/http_middleware.go`.
+- JWT and refresh-token session issuance remains owned by
+  `services/nopsai/pkg/auth`.
+- UI auth API helpers live in `services/ui/src/lib/api.ts`.
+- UI System Access Identity Provider API calls live in
+  `services/ui/src/features/system/access/api.ts`.
+- UI System Access model parsing/payload shaping lives in
+  `services/ui/src/features/system/access/model.ts`.
+- UI hook orchestration lives in
+  `services/ui/src/features/system/access/useSystemAccess.ts` and
+  `useAccessPanelController.ts`.
+- UI rendering for Identity Providers lives in
+  `services/ui/src/features/system/access/IdentityProvidersWorkspace.tsx`.
+
 ## Commands And Bootstrap
 
 Command entrypoints should be thin:

@@ -54,7 +54,8 @@ Drift is bidirectional for syncable resources: Git-only changes appear as files
 to import or delete, and UI-side changes appear as generated GitOps updates. The
 check covers pipelines, reusable steps, schedules, trigger manifests, scopes,
 knowledge contexts, run group/config-repository structure, notification routes,
-access manifests, Agent Profiles, LLM profiles, MCP registry files, mail settings, and runtime settings. Pipeline run records
+access manifests, Agent Profiles, LLM profiles, MCP registry files, auth
+settings, mail settings, and runtime settings. Pipeline run records
 themselves are runtime audit state, so they are not exported as Git-owned
 objects. For pipeline, reusable step, scope, and knowledge context Access dialog
 changes, the generated diff updates the embedded `access:` block in that
@@ -89,7 +90,7 @@ pipelineruns/          Run group structure
 config-repositories/   Group config repo bindings
 access/                Users, service accounts, advanced roles, policies, and basic role grants
 notifications/         Group pipeline notification policies with named routes
-setting/               System settings such as Agent Profiles, LLM, MCP, and runtime settings
+setting/               System settings such as auth, Agent Profiles, LLM, MCP, and runtime settings
 settings/              System notification mail settings
 ```
 
@@ -175,6 +176,9 @@ global-repo/setting/system/agent-profiles.yaml
 global-repo/setting/system/mcp.yaml
   -> system MCP server and profile registry
 
+global-repo/setting/system/auth.yaml
+  -> local-login and OIDC SSO settings
+
 global-repo/setting/system/runner.yaml
   -> runner install defaults and dispatcher runtime routing
 
@@ -196,6 +200,43 @@ If a service account is first created in the UI or API, config repository drift
 can export the identity and service-account product grants back to
 `access/service-accounts.yaml` for review-branch push. Token values remain local
 runtime secrets and are not exported.
+
+## SSO settings
+
+A system/global config repo can define local-login and OIDC SSO settings in
+`setting/system/auth.yaml`. The same auth fields are also accepted under a
+wrapped `auth:` key for migration from `config.yml`, but the canonical GitOps
+shape is top-level:
+
+```yaml
+local_enabled: true
+oidc:
+  enabled: true
+  auto_create_users: true
+  default_role: ""
+  domain_mapping:
+    example.com: nopsai
+  providers:
+    nopsai:
+      type: oidc
+      display_name: Enterprise SSO
+      issuer: https://sso.example.com/realms/nopsai
+      client_id: nopsai
+      scopes: ["openid", "email", "profile"]
+      allowed_email_domains: ["example.com"]
+```
+
+Provider secrets such as `client_secret`,
+`entitlement_sync.admin_client_secret`, and `entitlement_sync.admin_password`
+may be omitted from Git. When those fields are omitted, sync preserves the
+already stored local values for that provider, so the first secret can be set
+through System Access or injected by your secret-management process.
+
+SSO-managed users are intentionally excluded from access GitOps. Export and
+drift skip linked OIDC users, raw `oidc:*` user subjects, and provider-managed
+basic role grants because those identities and entitlements belong to the
+identity provider. Use access manifests for local users, service accounts, and
+local grants; use `setting/system/auth.yaml` for the SSO provider settings.
 
 ## Runtime settings
 
@@ -311,6 +352,10 @@ or repo-relative IDs that sync can normalize under the bound group. A
 `run_group_path` controls where scheduled runs appear and which notification
 routes receive their events. Use `run_group_path: root` to keep runs at the
 Pipeline Runs root without assigning them to a group.
+Repository-triggered runs that do not set an explicit run group are grouped by
+the matching repository/app folder first, then by the pipeline path. This keeps
+AAA visibility aligned with app ownership when a child-folder repository invokes
+a shared parent-folder pipeline.
 
 Group notification policies control who receives pipeline event notifications for
 a run group. A system/global repo can define policies at

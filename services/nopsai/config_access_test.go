@@ -1,6 +1,7 @@
 package nopsai
 
 import (
+	"strings"
 	"testing"
 
 	"nopsai/pkg/models"
@@ -181,7 +182,7 @@ groups:
 	}
 }
 
-func TestParseAccessSyncPlanRejectsAuthGroupSubjects(t *testing.T) {
+func TestParseAccessSyncPlanSupportsAuthGroupSubjects(t *testing.T) {
 	files := map[string]string{
 		"access/grants.yaml": `
 basic_roles:
@@ -191,12 +192,22 @@ basic_roles:
 `,
 	}
 
-	_, err := parseAccessSyncPlan(files, "access", models.ConfigRepository{
+	plan, err := parseAccessSyncPlan(files, "access", models.ConfigRepository{
 		ScopeType: models.ConfigRepositoryScopeSystem,
 		ScopeID:   models.ConfigRepositorySystemGlobalID,
 	}, "")
-	if err == nil {
-		t.Fatal("expected auth group grant subjects to be rejected")
+	if err != nil {
+		t.Fatalf("parseAccessSyncPlan() error = %v", err)
+	}
+
+	key := accessGrantPlanKey{
+		subjectType:  model.SubjectTypeAuthGroup,
+		subjectID:    "team-1-developers",
+		resourceType: grantResourceFolder,
+		resourceID:   "team-1",
+	}
+	if _, ok := plan.grants[key]; !ok {
+		t.Fatalf("expected auth group grant key %#v, got %#v", key, plan.grants)
 	}
 }
 
@@ -229,6 +240,59 @@ users:
 				t.Fatal("expected ambiguous role key to be rejected")
 			}
 		})
+	}
+}
+
+func TestParseAccessSyncPlanRejectsSSOManagedUsers(t *testing.T) {
+	tests := map[string]string{
+		"user sub": `
+users:
+  - sub: oidc:nopsai:alice
+`,
+		"user provider": `
+users:
+  - sub: alice
+    provider: oidc:nopsai
+`,
+		"basic role user": `
+basic_roles:
+  - user: oidc:nopsai:alice
+    role: viewer
+    resource: folder:team-1
+`,
+		"advanced role binding user": `
+advanced_role_bindings:
+  - role: release-manager
+    subject_type: user
+    subject_id: oidc:nopsai:alice
+`,
+	}
+
+	for name, content := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := parseAccessSyncPlan(map[string]string{"access/access.yaml": content}, "access", models.ConfigRepository{
+				ScopeType: models.ConfigRepositoryScopeSystem,
+				ScopeID:   models.ConfigRepositorySystemGlobalID,
+			}, "")
+			if err == nil {
+				t.Fatal("expected SSO-managed user to be rejected")
+			}
+			if !strings.Contains(err.Error(), "SSO-managed user") {
+				t.Fatalf("error = %v, want SSO-managed user rejection", err)
+			}
+		})
+	}
+}
+
+func TestNormalizeEmbeddedResourceUseGrantRejectsSSOManagedUser(t *testing.T) {
+	_, _, err := normalizeEmbeddedResourceUseGrantSubject(embeddedResourceUseGrantFile{
+		User: "oidc:nopsai:alice",
+	})
+	if err == nil {
+		t.Fatal("expected SSO-managed resource access user to be rejected")
+	}
+	if !strings.Contains(err.Error(), "SSO-managed user") {
+		t.Fatalf("error = %v, want SSO-managed user rejection", err)
 	}
 }
 

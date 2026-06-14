@@ -6,6 +6,7 @@ const REFRESH_TOKEN_KEY = 'nopsai.auth.refresh';
 const ROLES_KEY = 'nopsai.auth.roles';
 const SUB_KEY = 'nopsai.auth.sub';
 const PASSWORD_CHANGE_REQUIRED_KEY = 'nopsai.auth.mustChangePassword';
+const FORCE_SSO_PROMPT_KEY = 'nopsai.auth.forceSsoPrompt';
 
 export type StoredSession = {
   accessToken?: string;
@@ -99,6 +100,7 @@ export function persistSession(session: {
   else localStorage.removeItem(SUB_KEY);
   if (session.mustChangePassword) localStorage.setItem(PASSWORD_CHANGE_REQUIRED_KEY, 'true');
   else localStorage.removeItem(PASSWORD_CHANGE_REQUIRED_KEY);
+  localStorage.removeItem(FORCE_SSO_PROMPT_KEY);
   dispatchAuthChanged();
 }
 
@@ -119,6 +121,18 @@ export function clearSession() {
   localStorage.removeItem(SUB_KEY);
   localStorage.removeItem(PASSWORD_CHANGE_REQUIRED_KEY);
   dispatchAuthChanged();
+}
+
+export function requirePromptForNextSSOLogin() {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.setItem(FORCE_SSO_PROMPT_KEY, 'true');
+}
+
+export function consumeNextSSOLoginPrompt(): boolean {
+  if (typeof localStorage === 'undefined') return false;
+  const required = localStorage.getItem(FORCE_SSO_PROMPT_KEY) === 'true';
+  localStorage.removeItem(FORCE_SSO_PROMPT_KEY);
+  return required;
 }
 
 export class ApiClient {
@@ -286,6 +300,100 @@ export async function loginLocal(identifier: string, password: string) {
     throw new Error(text || 'Login failed');
   }
   return response.json();
+}
+
+export type AuthProviderOption = {
+  id: string;
+  type: string;
+  display_name: string;
+  scopes?: string[];
+  allowed_email_domains?: string[];
+};
+
+export type AuthProvidersResponse = {
+  local_enabled: boolean;
+  oidc_enabled: boolean;
+  providers: AuthProviderOption[];
+};
+
+export async function fetchAuthProviders(): Promise<AuthProvidersResponse> {
+  const response = await apiClient.fetch('/v1/auth/providers', {
+    auth: false,
+    cache: 'no-store',
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || 'Failed to load authentication providers');
+  }
+  const payload = await response.json();
+  return {
+    local_enabled: Boolean(payload?.local_enabled),
+    oidc_enabled: Boolean(payload?.oidc_enabled),
+    providers: Array.isArray(payload?.providers)
+      ? payload.providers.filter((provider: unknown): provider is AuthProviderOption => {
+          const record = provider as Partial<AuthProviderOption>;
+          return typeof record?.id === 'string' && typeof record?.display_name === 'string';
+        })
+      : [],
+  };
+}
+
+export async function discoverAuthProvider(email: string): Promise<AuthProviderOption | null> {
+  const response = await apiClient.fetch('/v1/auth/discover', {
+    auth: false,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || 'Failed to discover authentication provider');
+  }
+  const payload = await response.json();
+  return payload?.found && payload?.provider ? payload.provider as AuthProviderOption : null;
+}
+
+export async function exchangeSessionCode(code: string) {
+  const response = await apiClient.fetch('/v1/auth/session/exchange', {
+    auth: false,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || 'Session exchange failed');
+  }
+  return response.json();
+}
+
+export function buildOIDCStartUrl(providerID: string, returnTo: string, options: { prompt?: string } = {}): string {
+  const values = new URLSearchParams();
+  if (returnTo) values.set('return_to', returnTo);
+  if (options.prompt) values.set('prompt', options.prompt);
+  return buildApiUrl(`/v1/auth/oidc/${encodeURIComponent(providerID)}/start?${values.toString()}`);
+}
+
+export async function logoutCurrentSession(): Promise<{ logoutURL?: string }> {
+  const session = getStoredSession();
+  try {
+    if (!session.refreshToken) return {};
+    const response = await apiClient.fetch('/v1/auth/logout', {
+      auth: false,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: session.refreshToken }),
+      retryOnUnauthorized: false,
+    });
+    if (!response.ok) return {};
+    if (response.status === 204) return {};
+    const payload = await response.json().catch(() => ({}));
+    const logoutURL = typeof payload?.logout_url === 'string' ? payload.logout_url : '';
+    return logoutURL ? { logoutURL } : {};
+  } finally {
+    clearSession();
+    requirePromptForNextSSOLogin();
+  }
 }
 
 export async function updateEmail(email: string): Promise<{ email: string }> {

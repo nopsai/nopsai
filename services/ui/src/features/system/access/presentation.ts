@@ -30,7 +30,7 @@ export const ACCESS_ROLE_PRESETS: Array<{
 ];
 
 export const ACCESS_SECTION_CONTENT: Record<
-  'users' | 'service-accounts' | 'roles' | 'policies',
+  'users' | 'service-accounts' | 'roles' | 'identity-providers' | 'policies',
   { title: string; description: string; searchPlaceholder: string; resultsLabel: string }
 > = {
   users: {
@@ -50,6 +50,12 @@ export const ACCESS_SECTION_CONTENT: Record<
     description: 'Shape access around simple roles like viewer and developer, then map those bundles to people.',
     searchPlaceholder: 'Search roles, included policies, or assigned users',
     resultsLabel: 'roles',
+  },
+  'identity-providers': {
+    title: 'Identity providers',
+    description: 'Configure Google, Microsoft, and generic OIDC providers plus email-domain discovery.',
+    searchPlaceholder: 'Search providers, issuers, domains, or client IDs',
+    resultsLabel: 'identity providers',
   },
   policies: {
     title: 'Underlying AAA rules',

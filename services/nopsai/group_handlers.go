@@ -175,7 +175,6 @@ func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resources := make([]model.ResourceRef, 0, len(allGroups))
-	resourceByGroupID := make(map[int]model.ResourceRef, len(allGroups))
 	for _, group := range allGroups {
 		record, ok := pathRecords[group.ID]
 		if !ok || strings.TrimSpace(record.Path) == "" {
@@ -183,7 +182,6 @@ func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
 		}
 		resource := model.ResourceRef{Type: grantResourceFolder, ID: record.Path}
 		resources = append(resources, resource)
-		resourceByGroupID[group.ID] = resource
 	}
 
 	allowedSet, err := a.allowedResourceSet(r, "folder.list", resources)
@@ -191,6 +189,7 @@ func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
 		return
 	}
+	visibleGroupIDs, directAllowedGroupIDs := visibleFolderGroupIDs(allGroups, pathRecords, allowedSet)
 
 	query := `
         SELECT g.id, MAX(r.started_at)
@@ -218,18 +217,54 @@ func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
 
 	filtered := make([]Group, 0, len(allGroups))
 	for _, group := range allGroups {
-		resource, ok := resourceByGroupID[group.ID]
-		if !ok {
+		if _, ok := visibleGroupIDs[group.ID]; !ok {
 			continue
 		}
-		if _, ok := allowedSet[resourceKey(resource)]; !ok {
-			continue
+		if _, ok := directAllowedGroupIDs[group.ID]; !ok {
+			group.Description = ""
+			group.LastRunAt = nil
+			group.NavigationOnly = true
 		}
 		filtered = append(filtered, group)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(filtered)
+}
+
+func visibleFolderGroupIDs(allGroups []Group, pathRecords map[int]groupPathRecord, allowedSet map[string]struct{}) (map[int]struct{}, map[int]struct{}) {
+	visible := make(map[int]struct{})
+	directAllowed := make(map[int]struct{})
+	groupByID := make(map[int]Group, len(allGroups))
+	for _, group := range allGroups {
+		groupByID[group.ID] = group
+	}
+
+	for _, group := range allGroups {
+		record, ok := pathRecords[group.ID]
+		if !ok || strings.TrimSpace(record.Path) == "" {
+			continue
+		}
+		resource := model.ResourceRef{Type: grantResourceFolder, ID: record.Path}
+		if _, ok := allowedSet[resourceKey(resource)]; !ok {
+			continue
+		}
+
+		directAllowed[group.ID] = struct{}{}
+		for currentID := group.ID; ; {
+			if _, ok := visible[currentID]; ok {
+				break
+			}
+			visible[currentID] = struct{}{}
+			current, ok := groupByID[currentID]
+			if !ok || current.ParentID == nil {
+				break
+			}
+			currentID = *current.ParentID
+		}
+	}
+
+	return visible, directAllowed
 }
 
 func (a *App) handleUpdateGroup(w http.ResponseWriter, r *http.Request) {

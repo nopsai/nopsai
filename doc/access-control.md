@@ -221,14 +221,24 @@ grant with `resource_type: folder` in the `team-1` repo targets `folder:team-1`.
 User- and service-account-level `advanced_roles` assignments can reference
 custom roles from the manifest or protected built-in role bundles such as
 `viewer`, `developer`, `owner`, and `admin`. These assignments are global
-access-role bindings. Use `basic_roles` when the same product role name should
-be scoped to a folder/group target.
+access-role bindings. In SSO, direct Keycloak client roles on the NopsAI client
+map to this same global lane. Use `basic_roles` when the same product role name
+should be scoped to a folder/group target.
 
 GitOps `basic_roles` use the same product roles as the API: `viewer`,
 `developer`, `owner`, and `admin`. The group/folder is the grant target, not a
 separate subject type. Non-admin basic roles are expanded into `resource_acl`;
 owner grants also write `resource_ownership`. `admin` grants remain
 platform-only and are rejected in group-scoped config repositories.
+OIDC providers can also sync scoped basic roles directly from SSO groups with
+`entitlement_sync.mode: keycloak_group_roles`. In that mode, direct Keycloak
+client roles become global access roles, while Keycloak group client roles
+become scoped Basic roles. For example, Keycloak group `/team-1` with client
+role `owner` becomes a provider-managed `owner` grant on `folder:team-1`.
+NopsAI reconciles those provider-managed grants on OIDC login, entitlement
+worker startup, and periodic worker runs. SSO-sourced folder grants can be
+stored before the folder exists, which keeps Keycloak and GitOps rollout order
+flexible.
 Use the shorthand subject fields `user:`, `service_account:`, or `service:` for
 editable GitOps manifests. The canonical `subject_type` plus `subject_id` form
 is still accepted for compatibility. Sync resolves users and service accounts to
