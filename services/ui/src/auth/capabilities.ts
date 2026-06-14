@@ -161,6 +161,7 @@ export function normalizeCurrentUser(data: unknown): CurrentUser {
   return {
     sub: typeof record.sub === 'string' ? record.sub : '',
     email: typeof record.email === 'string' ? record.email : '',
+    displayName: typeof record.display_name === 'string' ? record.display_name : '',
     roles: Array.isArray(record.roles) ? record.roles.filter((role): role is string => typeof role === 'string') : undefined,
     capabilities,
   };

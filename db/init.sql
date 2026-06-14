@@ -735,6 +735,10 @@ CREATE TABLE auth_group_members (
     group_id UUID NOT NULL REFERENCES auth_groups(id) ON DELETE CASCADE,
     subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'repository', 'trigger', 'service_account', 'internal_service')),
     subject_id TEXT NOT NULL,
+    managed_by_identity_provider BOOLEAN NOT NULL DEFAULT FALSE,
+    identity_provider_id TEXT NOT NULL DEFAULT '',
+    external_group_name TEXT NOT NULL DEFAULT '',
+    auth_group_name TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (group_id, subject_type, subject_id)
 );
@@ -891,6 +895,7 @@ ALTER TABLE data_cleanup_schedules
     FOREIGN KEY (last_job_id) REFERENCES data_cleanup_jobs(id) ON DELETE SET NULL;
 
 CREATE INDEX idx_auth_group_members_subject ON auth_group_members(subject_type, subject_id);
+CREATE INDEX idx_auth_group_members_identity_provider ON auth_group_members(identity_provider_id, external_group_name) WHERE managed_by_identity_provider = TRUE;
 CREATE INDEX idx_auth_role_bindings_subject ON auth_role_bindings(subject_type, subject_id);
 CREATE INDEX idx_auth_role_permissions_role_name ON auth_role_permissions(role_name);
 CREATE INDEX idx_auth_role_permissions_resource_lookup ON auth_role_permissions(resource_type, resource_id, action);

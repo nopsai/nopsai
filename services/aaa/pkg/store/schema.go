@@ -20,9 +20,17 @@ var aaaSchemaStatements = []string{
 		group_id UUID NOT NULL REFERENCES auth_groups(id) ON DELETE CASCADE,
 		subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'repository', 'trigger', 'service_account', 'internal_service')),
 		subject_id TEXT NOT NULL,
+		managed_by_identity_provider BOOLEAN NOT NULL DEFAULT FALSE,
+		identity_provider_id TEXT NOT NULL DEFAULT '',
+		external_group_name TEXT NOT NULL DEFAULT '',
+		auth_group_name TEXT NOT NULL DEFAULT '',
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		PRIMARY KEY (group_id, subject_type, subject_id)
 	)`,
+	`ALTER TABLE auth_group_members ADD COLUMN IF NOT EXISTS managed_by_identity_provider BOOLEAN NOT NULL DEFAULT FALSE`,
+	`ALTER TABLE auth_group_members ADD COLUMN IF NOT EXISTS identity_provider_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE auth_group_members ADD COLUMN IF NOT EXISTS external_group_name TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE auth_group_members ADD COLUMN IF NOT EXISTS auth_group_name TEXT NOT NULL DEFAULT ''`,
 	`CREATE TABLE IF NOT EXISTS auth_roles (
 		name TEXT PRIMARY KEY,
 		description TEXT NOT NULL DEFAULT '',
@@ -111,6 +119,7 @@ var aaaSchemaStatements = []string{
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_auth_group_members_subject ON auth_group_members(subject_type, subject_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_auth_group_members_identity_provider ON auth_group_members(identity_provider_id, external_group_name) WHERE managed_by_identity_provider = TRUE`,
 	`CREATE INDEX IF NOT EXISTS idx_auth_role_bindings_subject ON auth_role_bindings(subject_type, subject_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_auth_role_permissions_role_name ON auth_role_permissions(role_name)`,
 	`CREATE INDEX IF NOT EXISTS idx_auth_role_permissions_resource_lookup ON auth_role_permissions(resource_type, resource_id, action)`,

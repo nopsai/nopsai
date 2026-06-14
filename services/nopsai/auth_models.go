@@ -11,6 +11,15 @@ type authRefreshRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
+type authLogoutRequest struct {
+	RefreshToken string `json:"refresh_token"`
+	ReturnTo     string `json:"return_to,omitempty"`
+}
+
+type authLogoutResponse struct {
+	LogoutURL string `json:"logout_url,omitempty"`
+}
+
 type authLoginResponse struct {
 	AccessToken        string                    `json:"access_token"`
 	RefreshToken       string                    `json:"refresh_token,omitempty"`
@@ -108,14 +117,27 @@ type userRoleBinding struct {
 	Role string `json:"role"`
 }
 
+type userAuthGroupSummary struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 type userSummary struct {
-	ID        string            `json:"id"`
-	Sub       string            `json:"sub"`
-	Email     string            `json:"email"`
-	Provider  string            `json:"provider"`
-	Status    string            `json:"status"`
-	LastLogin *time.Time        `json:"last_login,omitempty"`
-	Roles     []userRoleBinding `json:"roles,omitempty"`
+	ID                   string                 `json:"id"`
+	Sub                  string                 `json:"sub"`
+	Email                string                 `json:"email"`
+	DisplayName          string                 `json:"display_name,omitempty"`
+	Provider             string                 `json:"provider"`
+	Status               string                 `json:"status"`
+	LastLogin            *time.Time             `json:"last_login,omitempty"`
+	Roles                []userRoleBinding      `json:"roles,omitempty"`
+	ExternalManaged      bool                   `json:"external_managed"`
+	ExternalProviderID   string                 `json:"external_provider_id,omitempty"`
+	ExternalProviderName string                 `json:"external_provider_name,omitempty"`
+	ExternalSubject      string                 `json:"external_subject,omitempty"`
+	ExternalGroups       []string               `json:"external_groups,omitempty"`
+	ExternalAuthGroups   []userAuthGroupSummary `json:"external_auth_groups,omitempty"`
+	ExternalRoles        []string               `json:"external_roles,omitempty"`
 }
 
 type serviceAccountSummary struct {

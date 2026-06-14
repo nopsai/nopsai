@@ -153,11 +153,17 @@ func (doc configRepositoryAccessExportDocument) empty() bool {
 
 func (a *App) configRepositoryUserExports(ctx context.Context, repo models.ConfigRepository) ([]configRepositoryUserExport, error) {
 	rows, err := a.db.Query(ctx, `
-		SELECT sub, COALESCE(email, ''), provider, status
-		FROM users
-		WHERE provider <> $1
-		  AND sub <> $2
-		  AND (managed_by_config_repo = FALSE OR config_repo_id = $3)
+		SELECT u.sub, COALESCE(u.email, ''), u.provider, u.status
+		FROM users u
+		WHERE u.provider <> $1
+		  AND LOWER(COALESCE(u.provider, '')) NOT LIKE 'oidc:%'
+		  AND u.sub <> $2
+		  AND (u.managed_by_config_repo = FALSE OR u.config_repo_id = $3)
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM auth_external_identities ei
+			WHERE ei.user_id = u.id
+		  )
 		ORDER BY sub ASC
 	`, auth.ProviderServiceAccount, defaultAdminSub, repo.ID)
 	if err != nil {
@@ -430,11 +436,36 @@ func (a *App) configRepositoryBasicRoleGrantExports(ctx context.Context, repo mo
 		  ON ag.subject_type = $2
 		 AND (ag.subject_id = u.id::text OR ag.subject_id = u.sub)
 		 AND u.provider <> $3
+		 AND LOWER(COALESCE(u.provider, '')) NOT LIKE 'oidc:%'
+		 AND NOT EXISTS (
+			SELECT 1
+			FROM auth_external_identities ei
+			WHERE ei.user_id = u.id
+		 )
 		LEFT JOIN users sa
 		  ON ag.subject_type = $4
 		 AND (ag.subject_id = sa.sub OR ag.subject_id = sa.id::text)
 		 AND sa.provider = $3
 		WHERE ag.role_name <> $1
+		  AND COALESCE(ag.managed_by_identity_provider, FALSE) = FALSE
+		  AND NOT (
+			ag.subject_type = $2
+			AND LOWER(BTRIM(ag.subject_id)) LIKE 'oidc:%'
+		  )
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM users sso_user
+			WHERE ag.subject_type = $2
+			  AND (ag.subject_id = sso_user.id::text OR ag.subject_id = sso_user.sub)
+			  AND (
+				LOWER(COALESCE(sso_user.provider, '')) LIKE 'oidc:%'
+				OR EXISTS (
+					SELECT 1
+					FROM auth_external_identities ei
+					WHERE ei.user_id = sso_user.id
+				)
+			  )
+		  )
 		ORDER BY ag.subject_type ASC, subject_id ASC, ag.resource_type ASC, ag.resource_id ASC, ag.role_name ASC
 	`, customUseGrantRole, model.SubjectTypeUser, auth.ProviderServiceAccount, model.SubjectTypeServiceAccount)
 	if err != nil {

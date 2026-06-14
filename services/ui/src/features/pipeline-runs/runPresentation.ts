@@ -10,6 +10,7 @@ export type Group = {
   repo_url?: string;
   repository_full_name?: string;
   last_run_at?: string;
+  navigation_only?: boolean;
 };
 
 export type ParentRunInfo = {

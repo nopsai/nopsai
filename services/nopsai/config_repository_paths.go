@@ -52,7 +52,8 @@ func isConfigRepositoryDriftPath(filePath string) bool {
 }
 
 func isConfigRepositorySettingsDriftPath(rel string) bool {
-	return isGitOpsRuntimeSettingsRelativePath(rel) ||
+	return isGitOpsAuthSettingsRelativePath(rel) ||
+		isGitOpsRuntimeSettingsRelativePath(rel) ||
 		isGitOpsMailSettingsRelativePath(rel) ||
 		isGitOpsLLMProfileRelativePath(rel) ||
 		isGitOpsAgentProfileRelativePath(rel) ||

@@ -63,3 +63,19 @@ func TestAuthMiddlewarePreservesAgentServiceRoleWithSharedSigningKey(t *testing.
 		t.Fatalf("status = %d, want %d; body: %s", rec.Code, http.StatusNoContent, rec.Body.String())
 	}
 }
+
+func TestOIDCAuthEndpointsArePublic(t *testing.T) {
+	publicPaths := []string{
+		"/v1/auth/providers",
+		"/v1/auth/discover",
+		"/v1/auth/session/exchange",
+		"/v1/auth/oidc/corporate/start",
+		"/v1/auth/oidc/corporate/callback",
+	}
+
+	for _, path := range publicPaths {
+		if !isPublicPath(path) {
+			t.Fatalf("isPublicPath(%q) = false, want true", path)
+		}
+	}
+}

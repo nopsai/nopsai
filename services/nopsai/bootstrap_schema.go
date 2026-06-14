@@ -22,8 +22,13 @@ func databaseBootstrapSteps(cfg *config.Config) []databaseBootstrapStep {
 			return ensureDefaultAdmin(ctx, db)
 		}},
 		{name: "auth schema", run: ensureAuthSchema},
+		{name: "auth oidc config", run: func(ctx context.Context, db *pgxpool.Pool) error {
+			return seedOIDCConfigProviders(ctx, db, cfg)
+		}},
 		{name: "group schema", run: ensureGroupSchema},
 		{name: "product access roles", run: ensureProductAccessBootstrap},
+		{name: "oidc auth group mappings", run: reconcileOIDCAuthGroupMappings},
+		{name: "oidc basic role mappings", run: reconcileOIDCBasicRoleMappings},
 		{name: "config repository schema", run: ensureConfigRepositorySchema},
 		{name: "knowledge context schema", run: ensureKnowledgeContextSchema},
 		{name: "resource authorization schema", run: ensureResourceAuthorizationSchema},

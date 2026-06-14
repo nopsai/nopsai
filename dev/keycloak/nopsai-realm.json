@@ -1,0 +1,219 @@
+{
+  "realm": "nopsai",
+  "enabled": true,
+  "displayName": "NopsAI Local SSO",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "roles": {
+    "client": {
+      "nopsai": [
+        {
+          "name": "viewer",
+          "description": "NopsAI global viewer access or scoped folder viewer when assigned to a group."
+        },
+        {
+          "name": "developer",
+          "description": "NopsAI global developer access or scoped folder developer when assigned to a group."
+        },
+        {
+          "name": "owner",
+          "description": "NopsAI global owner access or scoped folder owner when assigned to a group."
+        },
+        {
+          "name": "nopsai-admin",
+          "description": "NopsAI platform administrator access."
+        }
+      ]
+    }
+  },
+  "groups": [
+    {
+      "name": "nopsai-admin"
+    },
+    {
+      "name": "owner"
+    },
+    {
+      "name": "team-1-owner"
+    },
+    {
+      "name": "team-1-dev-owner"
+    },
+    {
+      "name": "viewer"
+    },
+    {
+      "name": "team-1",
+      "clientRoles": {
+        "nopsai": [
+          "owner"
+        ]
+      },
+      "subGroups": [
+        {
+          "name": "dev",
+          "clientRoles": {
+            "nopsai": [
+              "owner"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "operations",
+      "clientRoles": {
+        "nopsai": [
+          "viewer"
+        ]
+      }
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "nopsai",
+      "name": "NopsAI Local Development",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "dev-nopsai-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://192.168.1.143/",
+        "http://192.168.1.143:8080/",
+        "http://192.168.1.143/v1/auth/oidc/nopsai/callback",
+        "http://192.168.1.143:8080/v1/auth/oidc/nopsai/callback",
+        "http://192.168.1.143/v1/auth/oidc/keycloak/callback",
+        "http://192.168.1.143:8080/v1/auth/oidc/keycloak/callback"
+      ],
+      "webOrigins": [
+        "http://192.168.1.143",
+        "http://192.168.1.143:5173",
+        "http://192.168.1.143:4173",
+        "http://192.168.1.143:8080",
+        "http://192.168.1.143:8080"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+"
+      },
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "jsonType.label": "String",
+            "multivalued": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "sso-admin",
+      "email": "sso-admin@example.com",
+      "firstName": "SSO",
+      "lastName": "Admin",
+      "enabled": true,
+      "emailVerified": true,
+      "clientRoles": {
+        "nopsai": [
+          "nopsai-admin"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "qazwsx123456",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "jip",
+      "email": "jip@example.com",
+      "firstName": "Jip",
+      "lastName": "TeamOwner",
+      "enabled": true,
+      "emailVerified": true,
+      "groups": [
+        "/team-1/dev"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "qazwsx123456",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "martin",
+      "email": "sso-operator@example.com",
+      "firstName": "SSO",
+      "lastName": "Operator",
+      "enabled": true,
+      "emailVerified": true,
+      "clientRoles": {
+        "nopsai": [
+          "owner"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "qazwsx123456",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "john",
+      "email": "sso-viewer@example.com",
+      "firstName": "SSO",
+      "lastName": "Viewer",
+      "enabled": true,
+      "emailVerified": true,
+      "clientRoles": {
+        "nopsai": [
+          "viewer"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "qazwsx123456",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "alice",
+      "email": "alice@example.com",
+      "firstName": "Alice",
+      "lastName": "TeamOwner",
+      "enabled": true,
+      "emailVerified": true,
+      "groups": [
+        "/team-1"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "qazwsx123456",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

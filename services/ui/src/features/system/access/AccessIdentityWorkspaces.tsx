@@ -1,17 +1,32 @@
-import type { FormEvent, ReactNode } from 'react';
-import { Trash2 } from 'lucide-react';
-import { AccessEditorEmptyState } from './AccessModal';
-import { AccessServiceAccountsCatalog, AccessUsersCatalog } from './AccessEntityCatalogs';
-import { BasicAccessGrantEditor } from './BasicAccessGrantEditor';
-import { ServiceAccountTokenPanel, ServiceAccountTokenReveal } from './ServiceAccountTokenPanel';
+import type { FormEvent, ReactNode } from "react";
+import { Trash2 } from "lucide-react";
+import { AccessEditorEmptyState } from "./AccessModal";
+import {
+  AccessServiceAccountsCatalog,
+  AccessUsersCatalog,
+} from "./AccessEntityCatalogs";
+import { BasicAccessGrantEditor } from "./BasicAccessGrantEditor";
+import {
+  ServiceAccountTokenPanel,
+  ServiceAccountTokenReveal,
+} from "./ServiceAccountTokenPanel";
+import {
+  isExternallyManagedUser,
+  userDisplayName,
+  userProviderLabel,
+} from "./model";
 import type {
   AccessGrantRecord,
   EditableAccessGrant,
   ServiceAccountSummary,
   ServiceAccountToken,
   UserSummary,
-} from './model';
-import type { BasicGrantDraft, ServiceAccountEditorState, UserAccessEditorState } from './panelTypes';
+} from "./model";
+import type {
+  BasicGrantDraft,
+  ServiceAccountEditorState,
+  UserAccessEditorState,
+} from "./panelTypes";
 
 type BasicGrantOption = {
   value: string;
@@ -47,6 +62,7 @@ export type UsersWorkspaceProps = SharedBasicGrantProps & {
   allRoleOptions: string[];
   nextAccessRole: string;
   userRoleAssignmentsLocked: boolean;
+  userRoleAssignmentsLockLabel: string;
   savingUserAccess: boolean;
   onEdit: (user: UserSummary) => void;
   onDelete: (userID: string) => void;
@@ -75,6 +91,7 @@ export function UsersWorkspace({
   allRoleOptions,
   nextAccessRole,
   userRoleAssignmentsLocked,
+  userRoleAssignmentsLockLabel,
   savingUserAccess,
   entries,
   draft,
@@ -116,94 +133,136 @@ export function UsersWorkspace({
       </div>
       <aside className="access-editor-pane">
         {userAccessEditor ? (
-          <div className="access-editor-surface access-editor-surface--minimal">
-            <div className="access-editor-header">
-              <div>
-                <p className="access-editor-kicker">Edit user</p>
-                <h5 className="access-editor-title">{userAccessEditor.user.sub}</h5>
-                <p className="access-editor-text">Manage account details, access roles, and group-scoped basic roles.</p>
-              </div>
-              <button type="button" className="access-inline-btn access-inline-btn--pill" onClick={onCloseEditor}>
-                Close
-              </button>
-            </div>
-            <form className="access-editor-form access-editor-form--compact" onSubmit={onSubmit}>
-              <div className="access-editor-grid">
-                <label className="access-minimal-label">
-                  <span>Email</span>
-                  <input
-                    className="pipelines-input"
-                    type="email"
-                    value={userAccessEditor.email}
-                    onChange={event => onChangeEmail(event.target.value)}
-                    placeholder="name@example.com"
-                  />
-                </label>
-                <label className="access-minimal-label">
-                  <span>Status</span>
-                  <select
-                    className="pipelines-input"
-                    value={userAccessEditor.status}
-                    onChange={event => onChangeStatus(event.target.value)}
-                    disabled={userAccessEditor.user.sub === 'admin'}
+          (() => {
+            const externalManaged = isExternallyManagedUser(
+              userAccessEditor.user,
+            );
+            const providerLabel = userProviderLabel(userAccessEditor.user);
+            const displayName = userDisplayName(userAccessEditor.user);
+            return (
+              <div className="access-editor-surface access-editor-surface--minimal">
+                <div className="access-editor-header">
+                  <div>
+                    <p className="access-editor-kicker">
+                      {externalManaged ? "External user" : "Edit user"}
+                    </p>
+                    <h5 className="access-editor-title">{displayName}</h5>
+                    <p className="access-editor-text">
+                      {externalManaged
+                        ? `This user's role assignments are managed by ${providerLabel}. Change groups in ${providerLabel} to update NopsAI access.`
+                        : "Manage account details, access roles, and group-scoped basic roles."}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="access-inline-btn access-inline-btn--pill"
+                    onClick={onCloseEditor}
                   >
-                    <option value="active">Active</option>
-                    <option value="disabled">Disabled</option>
-                  </select>
-                </label>
-              </div>
-              <label className="access-minimal-label">
-                <span>New password</span>
-                <input
-                  className="pipelines-input"
-                  type="password"
-                  value={userAccessEditor.password}
-                  onChange={event => onChangePassword(event.target.value)}
-                  placeholder="Leave blank to keep current password"
-                />
-              </label>
-              <AssignedRoleEditor
-                entries={userAccessEditor.entries}
-                allRoleOptions={allRoleOptions}
-                nextAccessRole={nextAccessRole}
-                locked={userRoleAssignmentsLocked}
-                lockedLabel="Protected admin role assignment"
-                toneClassForRole={toneClassForRole}
-                onNextAccessRoleChange={onNextAccessRoleChange}
-                onAdd={onAddAccessEntry}
-                onRemove={onRemoveAccessEntry}
-              />
-              <BasicAccessGrantEditor
-                entries={entries}
-                draft={draft}
-                options={options}
-                error={basicGrantError}
-                disabled={userRoleAssignmentsLocked}
-                saving={basicGrantSaving}
-                plain
-                countLabel={userRoleAssignmentsLocked ? 'Locked' : undefined}
-                showGrantedBy
-                toneClassForRole={toneClassForRole}
-                onDraftChange={onDraftChange}
-                onAdd={onAdd}
-                onRemove={onRemove}
-              />
-              <div className="access-editor-footer gap-2">
-                {basicGrantDirty && (
-                  <button type="button" className="access-inline-btn access-inline-btn--pill" onClick={onReset} disabled={userRoleAssignmentsLocked || basicGrantSaving || savingUserAccess}>
-                    Reset basic roles
+                    Close
                   </button>
-                )}
-                <button type="submit" className="glass-button-primary" disabled={savingUserAccess || basicGrantSaving}>
-                  {savingUserAccess || basicGrantSaving ? 'Saving…' : 'Save changes'}
-                </button>
+                </div>
+                <form
+                  className="access-editor-form access-editor-form--compact"
+                  onSubmit={onSubmit}
+                >
+                  <div className="access-editor-grid">
+                    <label className="access-minimal-label">
+                      <span>Email</span>
+                      <input
+                        className="pipelines-input"
+                        type="email"
+                        value={userAccessEditor.email}
+                        onChange={(event) => onChangeEmail(event.target.value)}
+                        placeholder="name@example.com"
+                      />
+                    </label>
+                    <label className="access-minimal-label">
+                      <span>Status</span>
+                      <select
+                        className="pipelines-input"
+                        value={userAccessEditor.status}
+                        onChange={(event) => onChangeStatus(event.target.value)}
+                        disabled={userAccessEditor.user.sub === "admin"}
+                      >
+                        <option value="active">Active</option>
+                        <option value="disabled">Disabled</option>
+                      </select>
+                    </label>
+                  </div>
+                  <label className="access-minimal-label">
+                    <span>New password</span>
+                    <input
+                      className="pipelines-input"
+                      type="password"
+                      value={userAccessEditor.password}
+                      onChange={(event) => onChangePassword(event.target.value)}
+                      placeholder="Leave blank to keep current password"
+                    />
+                  </label>
+                  <AssignedRoleEditor
+                    entries={userAccessEditor.entries}
+                    allRoleOptions={allRoleOptions}
+                    nextAccessRole={nextAccessRole}
+                    locked={userRoleAssignmentsLocked}
+                    lockedLabel={userRoleAssignmentsLockLabel}
+                    toneClassForRole={toneClassForRole}
+                    onNextAccessRoleChange={onNextAccessRoleChange}
+                    onAdd={onAddAccessEntry}
+                    onRemove={onRemoveAccessEntry}
+                  />
+                  <BasicAccessGrantEditor
+                    entries={entries}
+                    draft={draft}
+                    options={options}
+                    error={basicGrantError}
+                    disabled={userRoleAssignmentsLocked}
+                    saving={basicGrantSaving}
+                    plain
+                    countLabel={
+                      userRoleAssignmentsLocked ? "Locked" : undefined
+                    }
+                    showGrantedBy
+                    toneClassForRole={toneClassForRole}
+                    onDraftChange={onDraftChange}
+                    onAdd={onAdd}
+                    onRemove={onRemove}
+                  />
+                  <div className="access-editor-footer gap-2">
+                    {basicGrantDirty && (
+                      <button
+                        type="button"
+                        className="access-inline-btn access-inline-btn--pill"
+                        onClick={onReset}
+                        disabled={
+                          userRoleAssignmentsLocked ||
+                          basicGrantSaving ||
+                          savingUserAccess
+                        }
+                      >
+                        Reset basic roles
+                      </button>
+                    )}
+                    <button
+                      type="submit"
+                      className="glass-button-primary"
+                      disabled={savingUserAccess || basicGrantSaving}
+                    >
+                      {savingUserAccess || basicGrantSaving
+                        ? "Saving…"
+                        : "Save changes"}
+                    </button>
+                  </div>
+                </form>
               </div>
-            </form>
-          </div>
+            );
+          })()
         ) : showUserModal ? (
           createUserEditor
         ) : (
-          <AccessEditorEmptyState sectionLabel="User details" hint="Select a user to edit access." />
+          <AccessEditorEmptyState
+            sectionLabel="User details"
+            hint="Select a user to edit access."
+          />
         )}
       </aside>
     </div>
@@ -306,15 +365,30 @@ export function ServiceAccountsWorkspace({
             <div className="access-editor-header">
               <div>
                 <p className="access-editor-kicker">Edit service account</p>
-                <h5 className="access-editor-title">{serviceAccountEditor.account.sub}</h5>
-                <p className="access-editor-text">Manage token-only integration access and scoped basic roles.</p>
+                <h5 className="access-editor-title">
+                  {serviceAccountEditor.account.sub}
+                </h5>
+                <p className="access-editor-text">
+                  Manage token-only integration access and scoped basic roles.
+                </p>
               </div>
-              <button type="button" className="access-inline-btn access-inline-btn--pill" onClick={onCloseEditor}>
+              <button
+                type="button"
+                className="access-inline-btn access-inline-btn--pill"
+                onClick={onCloseEditor}
+              >
                 Close
               </button>
             </div>
-            <ServiceAccountTokenReveal token={createdToken} copyLabel={copyTokenLabel} onCopy={onCopyToken} />
-            <form className="access-editor-form access-editor-form--compact" onSubmit={onSubmit}>
+            <ServiceAccountTokenReveal
+              token={createdToken}
+              copyLabel={copyTokenLabel}
+              onCopy={onCopyToken}
+            />
+            <form
+              className="access-editor-form access-editor-form--compact"
+              onSubmit={onSubmit}
+            >
               <div className="access-editor-grid">
                 <label className="access-minimal-label">
                   <span>Contact email</span>
@@ -322,7 +396,7 @@ export function ServiceAccountsWorkspace({
                     className="pipelines-input"
                     type="email"
                     value={serviceAccountEditor.email}
-                    onChange={event => onChangeEmail(event.target.value)}
+                    onChange={(event) => onChangeEmail(event.target.value)}
                     placeholder="platform@example.com"
                   />
                 </label>
@@ -331,7 +405,7 @@ export function ServiceAccountsWorkspace({
                   <select
                     className="pipelines-input"
                     value={serviceAccountEditor.status}
-                    onChange={event => onChangeStatus(event.target.value)}
+                    onChange={(event) => onChangeStatus(event.target.value)}
                   >
                     <option value="active">Active</option>
                     <option value="disabled">Disabled</option>
@@ -373,12 +447,23 @@ export function ServiceAccountsWorkspace({
               />
               <div className="access-editor-footer gap-2">
                 {basicGrantDirty && (
-                  <button type="button" className="access-inline-btn access-inline-btn--pill" onClick={onReset} disabled={basicGrantSaving || savingServiceAccountAccess}>
+                  <button
+                    type="button"
+                    className="access-inline-btn access-inline-btn--pill"
+                    onClick={onReset}
+                    disabled={basicGrantSaving || savingServiceAccountAccess}
+                  >
                     Reset basic roles
                   </button>
                 )}
-                <button type="submit" className="glass-button-primary" disabled={savingServiceAccountAccess || basicGrantSaving}>
-                  {savingServiceAccountAccess || basicGrantSaving ? 'Saving…' : 'Save changes'}
+                <button
+                  type="submit"
+                  className="glass-button-primary"
+                  disabled={savingServiceAccountAccess || basicGrantSaving}
+                >
+                  {savingServiceAccountAccess || basicGrantSaving
+                    ? "Saving…"
+                    : "Save changes"}
                 </button>
               </div>
             </form>
@@ -386,7 +471,10 @@ export function ServiceAccountsWorkspace({
         ) : showServiceAccountModal ? (
           createServiceAccountEditor
         ) : (
-          <AccessEditorEmptyState sectionLabel="Service account details" hint="Select a service account to edit access and tokens." />
+          <AccessEditorEmptyState
+            sectionLabel="Service account details"
+            hint="Select a service account to edit access and tokens."
+          />
         )}
       </aside>
     </div>
@@ -417,19 +505,32 @@ function AssignedRoleEditor({
   return (
     <div className="access-editor-section access-editor-section--plain">
       <div className="access-minimal-section__header">
-        <p className="text-sm font-medium text-[var(--text-primary)]">Access roles</p>
-        <span className="text-[11px] text-[var(--text-secondary)]">{locked ? 'Locked' : `${entries.length} assigned`}</span>
+        <p className="text-sm font-medium text-[var(--text-primary)]">
+          Access roles
+        </p>
+        <span className="text-[11px] text-[var(--text-secondary)]">
+          {locked ? "Locked" : `${entries.length} assigned`}
+        </span>
       </div>
       <div className="space-y-2">
-        {entries.length === 0 && <p className="text-[12px] text-[var(--text-secondary)]">No roles assigned yet.</p>}
+        {entries.length === 0 && (
+          <p className="text-[12px] text-[var(--text-secondary)]">
+            No roles assigned yet.
+          </p>
+        )}
         {entries.map((entry, index) => {
-          const label = locked ? lockedLabel : 'Remove assignment';
+          const label = locked ? lockedLabel : "Remove assignment";
           return (
-            <div key={`assigned-role-${index}`} className="access-minimal-row justify-between">
-              <span className={`access-chip ${toneClassForRole(entry)}`}>{entry || 'Role'}</span>
+            <div
+              key={`assigned-role-${index}`}
+              className="access-minimal-row justify-between"
+            >
+              <span className={`access-chip ${toneClassForRole(entry)}`}>
+                {entry || "Role"}
+              </span>
               <button
                 type="button"
-                className={`access-inline-btn access-inline-btn--danger access-role-remove ${locked ? 'opacity-60 cursor-not-allowed' : ''}`}
+                className={`access-inline-btn access-inline-btn--danger access-role-remove ${locked ? "opacity-60 cursor-not-allowed" : ""}`}
                 onClick={() => onRemove(index)}
                 title={label}
                 aria-label={label}
@@ -441,15 +542,29 @@ function AssignedRoleEditor({
           );
         })}
         <div className="access-editor-inline-add">
-          <select className="pipelines-input w-full" value={nextAccessRole} onChange={event => onNextAccessRoleChange(event.target.value)} disabled={locked}>
-            <option value="">{allRoleOptions.length === 0 ? 'No roles available' : 'Select a role'}</option>
-            {allRoleOptions.map(role => (
+          <select
+            className="pipelines-input w-full"
+            value={nextAccessRole}
+            onChange={(event) => onNextAccessRoleChange(event.target.value)}
+            disabled={locked}
+          >
+            <option value="">
+              {allRoleOptions.length === 0
+                ? "No roles available"
+                : "Select a role"}
+            </option>
+            {allRoleOptions.map((role) => (
               <option key={`access-role-${role}`} value={role}>
                 {role}
               </option>
             ))}
           </select>
-          <button type="button" className="glass-button-subtle" onClick={onAdd} disabled={locked || !nextAccessRole || allRoleOptions.length === 0}>
+          <button
+            type="button"
+            className="glass-button-subtle"
+            onClick={onAdd}
+            disabled={locked || !nextAccessRole || allRoleOptions.length === 0}
+          >
             Add
           </button>
         </div>

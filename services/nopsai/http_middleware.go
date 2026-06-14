@@ -43,10 +43,10 @@ const (
 
 func isPublicPath(path string) bool {
 	switch path {
-	case "/metrics", "/v1/auth/login", "/v1/auth/refresh", "/v1/auth/logout", "/v1/git/events", "/v1/setup/preflight", "/v1/system/dispatcher/runner-bootstrap":
+	case "/metrics", "/v1/auth/providers", "/v1/auth/discover", "/v1/auth/session/exchange", "/v1/auth/login", "/v1/auth/refresh", "/v1/auth/logout", "/v1/git/events", "/v1/setup/preflight", "/v1/system/dispatcher/runner-bootstrap":
 		return true
 	default:
-		return false
+		return strings.HasPrefix(path, "/v1/auth/oidc/")
 	}
 }
 

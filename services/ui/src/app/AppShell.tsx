@@ -46,6 +46,8 @@ import { getAppAccess } from '../auth/capabilities';
 import { useAuth } from '../auth/AuthContext';
 import { buildLoginRedirectState, resolvePostLoginPath } from '../auth/authRedirect';
 import AppHelp from '../components/AppHelp';
+import { logoutCurrentSession } from '../lib/api';
+import { currentUserDisplayName } from './userIdentity';
 
 const LoginPage = lazy(() => import('../pages/Login'));
 
@@ -133,8 +135,15 @@ function AppShell() {
   }, [navigate]);
 
   const handleLogout = useCallback(() => {
-    clearAuthSession();
-    navigate('/login', { replace: true });
+    void (async () => {
+      const result = await logoutCurrentSession().catch((): { logoutURL?: string } => ({}));
+      clearAuthSession();
+      if (result.logoutURL) {
+        window.location.assign(result.logoutURL);
+        return;
+      }
+      navigate('/login', { replace: true });
+    })();
   }, [clearAuthSession, navigate]);
 
   const handleUserUpdated = useCallback((updates: Partial<CurrentUser>) => {
@@ -750,9 +759,9 @@ function Sidebar({
             <IconX />
           </button>
         </div>
-        <BaseSidebarNavigation navItems={navItems} systemSubNav={systemSubNav} locationPathname={locationPathname} />
-        <div className="flex-1 overflow-y-auto sidebar-scrollbar border-t border-[var(--border-primary)]">
-          <nav id="sidebar-details-nav" className="px-4 py-4 space-y-2" aria-label="Contextual">
+        <div className="flex-1 min-h-0 overflow-y-auto sidebar-scrollbar">
+          <BaseSidebarNavigation navItems={navItems} systemSubNav={systemSubNav} locationPathname={locationPathname} />
+          <nav id="sidebar-details-nav" className="border-t border-[var(--border-primary)] px-4 py-4 space-y-2" aria-label="Contextual">
             {isPipelineRunsRoute ? (
               <PipelineRunsSidebarContent
                 tab={pipelineRunsTab}
@@ -1267,16 +1276,7 @@ function Header({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
-  const initials = (() => {
-    const base = (currentUser?.sub || currentUser?.email || 'U').trim();
-    const cleaned = base.replace(/[^A-Za-z0-9]/g, '');
-    return (cleaned[0] || base[0] || 'U').toUpperCase();
-  })();
-  const displayName = (() => {
-    const preferred = (currentUser?.sub || '').trim();
-    if (preferred && !preferred.includes('@')) return preferred;
-    return initials;
-  })();
+  const displayName = currentUserDisplayName(currentUser);
 
   useEffect(() => {
     if (!menuOpen) return;

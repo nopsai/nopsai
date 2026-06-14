@@ -33,6 +33,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		"mcp_servers_synced":             0,
 		"mcp_profiles_synced":            0,
 		"knowledge_contexts_synced":      0,
+		"auth_settings_synced":           0,
 		"runtime_settings_synced":        0,
 		"mail_settings_synced":           0,
 		"notification_routes_synced":     0,
@@ -83,6 +84,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		Int("agent_profiles_synced", details["agent_profiles_synced"]).
 		Int("mcp_servers_synced", details["mcp_servers_synced"]).
 		Int("mcp_profiles_synced", details["mcp_profiles_synced"]).
+		Int("auth_settings_synced", details["auth_settings_synced"]).
 		Int("mail_settings_synced", details["mail_settings_synced"]).
 		Int("notification_routes_synced", details["notification_routes_synced"]).
 		Msg("Configuration synchronization from Git completed")

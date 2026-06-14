@@ -169,4 +169,5 @@ type Group struct {
 	RepositoryFullName string     `json:"repository_full_name,omitempty"`
 	Children           []Group    `json:"children"`
 	LastRunAt          *time.Time `json:"last_run_at,omitempty"`
+	NavigationOnly     bool       `json:"navigation_only,omitempty"`
 }

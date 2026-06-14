@@ -843,6 +843,28 @@ func (s *PGStore) repositoryFolderAncestors(ctx context.Context, repoID string) 
 		return nil, nil
 	}
 
+	parentID, name, ok, err := s.repositoryGroupByMetadata(ctx, repoID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		parentID, name, ok, err = s.repositoryGroupByPathSuffix(ctx, repoID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !ok {
+		return repositoryIDFolderAncestors(repoID), nil
+	}
+
+	parentAncestors, err := s.groupParentFolderAncestors(ctx, parentID)
+	if err != nil {
+		return nil, err
+	}
+	return groupSelfAndParentFolderAncestors(name, parentAncestors), nil
+}
+
+func (s *PGStore) repositoryGroupByMetadata(ctx context.Context, repoID string) (*int, string, bool, error) {
 	var parentID *int
 	var name string
 	if err := s.db.QueryRow(ctx, `
@@ -858,15 +880,51 @@ func (s *PGStore) repositoryFolderAncestors(ctx context.Context, repoID string) 
 		LIMIT 1
 	`, repoID).Scan(&parentID, &name); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return repositoryIDFolderAncestors(repoID), nil
+			return nil, "", false, nil
 		}
-		return nil, err
+		return nil, "", false, err
 	}
-	parentAncestors, err := s.groupParentFolderAncestors(ctx, parentID)
-	if err != nil {
-		return nil, err
+	return parentID, name, true, nil
+}
+
+func (s *PGStore) repositoryGroupByPathSuffix(ctx context.Context, repoID string) (*int, string, bool, error) {
+	var parentID *int
+	var name string
+	if err := s.db.QueryRow(ctx, `
+		WITH RECURSIVE group_paths AS (
+			SELECT
+				id,
+				parent_id,
+				name,
+				TRIM(BOTH '/' FROM name)::text AS path
+			FROM groups
+			WHERE parent_id IS NULL
+			UNION ALL
+			SELECT
+				g.id,
+				g.parent_id,
+				g.name,
+				TRIM(BOTH '/' FROM
+					CASE
+						WHEN gp.path = '' THEN g.name
+						ELSE gp.path || '/' || g.name
+					END
+				)::text AS path
+			FROM groups g
+			JOIN group_paths gp ON g.parent_id = gp.id
+		)
+		SELECT parent_id, name
+		FROM group_paths
+		WHERE path = $1 OR RIGHT(path, LENGTH($1) + 1) = '/' || $1
+		ORDER BY LENGTH(path) DESC, path ASC
+		LIMIT 1
+	`, repoID).Scan(&parentID, &name); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, "", false, nil
+		}
+		return nil, "", false, err
 	}
-	return groupSelfAndParentFolderAncestors(name, parentAncestors), nil
+	return parentID, name, true, nil
 }
 
 func (s *PGStore) groupFolderAncestors(ctx context.Context, groupID int) ([]model.InheritedResource, error) {

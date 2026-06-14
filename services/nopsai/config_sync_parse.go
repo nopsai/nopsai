@@ -21,6 +21,7 @@ type configSyncPlan struct {
 	llmProfilePlan                       *gitOpsLLMProfilePlan
 	agentProfilePlan                     *gitOpsAgentProfilePlan
 	mcpRegistryPlan                      *mcpregistry.GitOpsPlan
+	authSettingsPlan                     *gitOpsAuthSettingsPlan
 	runtimeSettingsPlan                  *gitOpsRuntimeSettingsPlan
 	mailSettingsPlan                     *gitOpsMailSettingsPlan
 	schedules                            map[string]storedSchedule
@@ -198,6 +199,14 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 		binding,
 		mcpregistry.GitOpsDirectory{Root: settingDir, Files: files.setting},
 		mcpregistry.GitOpsDirectory{Root: settingsDir, Files: files.settings},
+	)
+	if err != nil {
+		return configSyncPlan{}, err
+	}
+	plan.authSettingsPlan, err = parseGitOpsAuthSettingsPlan(
+		binding,
+		gitOpsRuntimeSettingsDirectory{root: settingDir, files: files.setting},
+		gitOpsRuntimeSettingsDirectory{root: settingsDir, files: files.settings},
 	)
 	if err != nil {
 		return configSyncPlan{}, err

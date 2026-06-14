@@ -217,7 +217,7 @@ export function PipelineRunsDashboard({
                 </div>
               ))}
             </div>
-            {activeFolder && !isAppGroup(activeFolder) && (
+            {activeFolder && !isAppGroup(activeFolder) && !activeFolder.navigation_only && (
               <button
                 type="button"
                 className="glass-button-subtle"
@@ -489,6 +489,7 @@ function GroupGrid({
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
       {groups.map(group => {
         const isRepo = isAppGroup(group);
+        const navigationOnly = Boolean(group.navigation_only);
         const description = (group.description || '').trim();
         const isActive = activeGroupId === group.id;
         const summary = repoSummaries.get(group.id);
@@ -509,17 +510,19 @@ function GroupGrid({
               }}
               className={`relative group bg-[var(--bg-secondary)] p-4 rounded-md hover:bg-[var(--bg-tertiary)] transition-colors duration-200 border border-[var(--border-primary)] hover:border-[var(--border-accent)] shadow-sm hover:shadow-lg flex flex-col justify-between min-h-[220px] ${isActive ? 'run-link-highlight' : ''}`}
             >
-              <button
-                type="button"
-                className="delete-group-btn absolute top-2 right-2 text-[var(--text-secondary)] hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity z-10"
-                aria-label={`Delete ${displayName}`}
-                onClick={event => {
-                  event.stopPropagation();
-                  onDelete(group.id);
-                }}
-              >
-                <Trash2 className="h-5 w-5" aria-hidden="true" />
-              </button>
+              {!navigationOnly && (
+                <button
+                  type="button"
+                  className="delete-group-btn absolute top-2 right-2 text-[var(--text-secondary)] hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                  aria-label={`Delete ${displayName}`}
+                  onClick={event => {
+                    event.stopPropagation();
+                    onDelete(group.id);
+                  }}
+                >
+                  <Trash2 className="h-5 w-5" aria-hidden="true" />
+                </button>
+              )}
               <div className="flex items-center">
                 <svg className="h-8 w-8 text-[var(--text-accent)] mr-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <circle cx="8" cy="7" r="2.2" fill="currentColor" />
@@ -591,30 +594,34 @@ function GroupGrid({
                 <span className="pipeline-folder-chevron" aria-hidden="true">
                   <ChevronRight className="h-4 w-4" />
                 </span>
-                <button
-                  className="pipelines-delete-button pipeline-folder-delete-btn"
-                  type="button"
-                  title="Config repository"
-                  aria-label={`Config repository for ${displayName}`}
-                  onClick={event => {
-                    event.stopPropagation();
-                    onOpenConfigRepository(group);
-                  }}
-                >
-                  <Settings className="h-4 w-4" aria-hidden="true" />
-                </button>
-                <button
-                  className="pipelines-delete-button pipeline-folder-delete-btn delete-group-btn"
-                  type="button"
-                  title="Delete group"
-                  aria-label={`Delete ${displayName}`}
-                  onClick={event => {
-                    event.stopPropagation();
-                    onDelete(group.id);
-                  }}
-                >
-                  <Trash2 className="h-4 w-4" aria-hidden="true" />
-                </button>
+                {!navigationOnly && (
+                  <>
+                    <button
+                      className="pipelines-delete-button pipeline-folder-delete-btn"
+                      type="button"
+                      title="Config repository"
+                      aria-label={`Config repository for ${displayName}`}
+                      onClick={event => {
+                        event.stopPropagation();
+                        onOpenConfigRepository(group);
+                      }}
+                    >
+                      <Settings className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                    <button
+                      className="pipelines-delete-button pipeline-folder-delete-btn delete-group-btn"
+                      type="button"
+                      title="Delete group"
+                      aria-label={`Delete ${displayName}`}
+                      onClick={event => {
+                        event.stopPropagation();
+                        onDelete(group.id);
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
             {description && <p className="pipeline-folder-description" title={description}>{description}</p>}

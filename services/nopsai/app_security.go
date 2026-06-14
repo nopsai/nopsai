@@ -30,7 +30,7 @@ type appSecurityRuntime struct {
 
 func newAppSecurityRuntime(ctx context.Context, options AppOptions) (appSecurityRuntime, error) {
 	authCfg := auth.Config{
-		LocalEnabled:       options.Config.AuthProviderLocalEnabled,
+		LocalEnabled:       options.Config.EffectiveAuthProviderLocalEnabled(),
 		SigningKey:         options.Config.JWTSigningKey,
 		JWTIssuer:          options.Config.JWTIssuer,
 		JWTAudience:        options.Config.JWTAudience,

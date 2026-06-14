@@ -22,6 +22,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 	llmProfilePlan := plan.llmProfilePlan
 	agentProfilePlan := plan.agentProfilePlan
 	mcpRegistryPlan := plan.mcpRegistryPlan
+	authSettingsPlan := plan.authSettingsPlan
 	runtimeSettingsPlan := plan.runtimeSettingsPlan
 	mailSettingsPlan := plan.mailSettingsPlan
 	schedules := plan.schedules
@@ -855,6 +856,12 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit configuration synchronization transaction: %w", err)
+	}
+	if authSettingsPlan != nil {
+		if err := a.applyAuthSettingsGitOpsPlan(ctx, authSettingsPlan); err != nil {
+			return fmt.Errorf("failed to sync auth settings from '%s': %w", authSettingsPlan.sourcePath, err)
+		}
+		details["auth_settings_synced"] = 1
 	}
 	if runtimeSettingsPlan != nil {
 		if err := a.applyRuntimeSettingsGitOpsPlan(runtimeSettingsPlan); err != nil {

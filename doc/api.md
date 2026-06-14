@@ -2,7 +2,9 @@
 
 The core service exposes its REST API on `http://localhost:8080`. This guide summarises the high-impact endpoints that power day-to-day automation. All examples assume local development defaults.
 
-Except for login, token refresh, logout, and forwarded Git events, API calls require a bearer token:
+Except for login, SSO discovery/callback/session exchange, token refresh,
+logout, setup preflight, runner bootstrap, and forwarded Git events, API calls
+require a bearer token:
 
 ```bash
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" http://localhost:8080/v1/runs
@@ -26,6 +28,24 @@ curl -X POST \
   -H "Content-Type: application/json" \
   -d '{"refresh_token":"<refresh-token>"}' \
   http://localhost:8080/v1/auth/refresh
+
+# List enabled login providers for the UI
+curl http://localhost:8080/v1/auth/providers
+
+# Discover whether an email domain maps to enterprise SSO
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"email":"alice@company.com"}' \
+  http://localhost:8080/v1/auth/discover
+
+# Browser SSO starts with a redirect to the identity provider
+open "http://localhost:8080/v1/auth/oidc/corporate/start?return_to=/pipelineruns/main"
+
+# The OIDC callback creates a one-time code. The UI exchanges it for Nopsai tokens.
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"code":"<one-time-session-code>"}' \
+  http://localhost:8080/v1/auth/session/exchange
 
 # Current user and profile updates
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" http://localhost:8080/v1/auth/me
@@ -63,10 +83,47 @@ curl -X DELETE -H "Authorization: Bearer $NOPSAI_TOKEN" \
 ```
 
 - Local auth issues an access token and optional refresh token.
+- Enterprise SSO uses OIDC Authorization Code Flow with PKCE, then exchanges a
+  short-lived Nopsai login code for the same access/refresh token family as
+  local login.
 - Personal tokens are created from Profile/API auth routes, are returned only once, support `expires_in_days`, exact `expires_at`, or explicit `never_expires`, and use the same authorization as the owning user.
 - Nopsai stores only personal-token hashes plus metadata, not the raw token value.
 - Protected UI calls automatically attach the access token and retry once after refresh on `401`.
 - Profile routes require authentication but do not require an extra AAA resource decision.
+
+Identity Provider administration is available under System Access and requires
+`iam.admin`:
+
+```bash
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  http://localhost:8080/v1/admin/identity-providers
+
+curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"oidc_enabled":true,"local_enabled":true,"auto_create_users":true,"default_role":"","domain_mappings":{"company.com":"corporate"}}' \
+  http://localhost:8080/v1/admin/identity-providers
+
+curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"id":"corporate","type":"oidc","display_name":"Company SSO","issuer":"https://idp.company.com","client_id":"client-id","client_secret":"client-secret","scopes":["openid","email","profile"],"allowed_email_domains":["company.com"],"group_claim":"groups","entitlement_sync":{"mode":"keycloak_group_roles","admin_base_url":"https://keycloak.example.com","realm":"company","admin_client_id":"nopsai-admin","admin_client_secret":"replace-me","client_id":"nopsai","target_resource_type":"folder"},"enabled":true}' \
+  http://localhost:8080/v1/admin/identity-providers/corporate
+```
+
+For local SSO testing against real users and groups, see
+[local-keycloak-sso.md](./local-keycloak-sso.md). The fixture provides a
+Keycloak realm, a confidential `nopsai` client, and seeded `admin`, `owner`,
+and `viewer` client-role mappings.
+
+OIDC-created or linked users are marked with `external_managed` in
+`GET /v1/admin/users`. Their `display_name`, external provider, subject,
+external groups, mapped NopsAI auth groups, and externally sourced roles are
+returned for administration views. Local user-role and basic-role mutation
+endpoints reject those users because the identity provider owns their direct
+role assignments. With Keycloak entitlement sync, direct client roles drive
+global access roles and group client roles drive provider-managed scoped Basic
+roles.
+Leave `default_role` empty for least-privilege SSO providers; set it only when
+every auto-created SSO user should intentionally receive the same global role.
 
 ---
 
@@ -85,6 +142,7 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - System LLM profiles can be managed in the global config repo at `setting/system/llm_profile.yaml`.
 - System Agent Profiles and the default agent profile can be managed in the global config repo at `setting/system/agent-profiles.yaml`.
 - System MCP profiles can be managed in the global config repo at `setting/system/mcp.yaml`.
+- Local-login and OIDC SSO settings can be managed in the global config repo at `setting/system/auth.yaml`.
 - Runner defaults, supported runtime URLs, and dispatcher routing can be managed in the global config repo at `setting/system/runner.yaml`.
 - Managed knowledge context markdown files can be synced from `knowledge/<kind>/<group>/<document>.md`.
 
@@ -445,6 +503,7 @@ curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \
 
 GitOps:
 
+- The global config repo may define `setting/system/auth.yaml`.
 - The global config repo may define `settings/system/mail.yaml`.
 - The global config repo may define group notification policies with one or more named routes at `notifications/groups/<group>.yaml`.
 - A group-scoped config repo may define `notifications.yaml` with one or more named routes for its bound group.
@@ -1188,11 +1247,12 @@ curl -X POST -H "Content-Type: application/json" \
 - System- and group-scoped repos may define managed knowledge context markdown under `knowledge/`.
 - System- and group-scoped repos may define group pipeline notification policies with named routes under `notifications/`; group repos can use root `notifications.yaml` for their bound group.
 - The system/global repo may define Agent Profiles and `default_profile` under `setting/system/agent-profiles.yaml`; group repos may reference approved profile IDs but cannot define the catalog.
+- The system/global repo may define local-login and OIDC SSO settings under `setting/system/auth.yaml`; provider secrets may be omitted to preserve already stored values.
 - The system/global repo may define runtime runner defaults and dispatcher routing under `setting/system/runner.yaml`; dispatcher routing changes are synced into `nopsai` and applied by the live dispatcher.
 - The system/global repo may define SMTP mail notification settings under `settings/system/mail.yaml`; only `smtp.password_secret_ref` is synced for credentials.
 - A binding file contains `repo_url`, optional `branch`, optional `base_path`, optional `enabled`, optional `write_enabled`, and optional `write_branch`.
 - `branch` remains the read/sync source. When `write_enabled` is true, Nopsai can push generated GitOps changes to `write_branch` so they can be reviewed in GitHub before merging back to the sync branch. The GitHub App needs `contents: read and write`.
-- Drift compares the sync branch with Nopsai's current declarative state for pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, run group/config-repository structure, notification routes, access manifests, Agent Profiles, LLM profiles, MCP registry files, mail settings, and runtime settings. UI-side resource Access changes for pipelines, reusable steps, scopes, and knowledge contexts are exported as embedded `access:` updates in the affected GitOps files. Pipeline run rows remain runtime/audit records rather than Git-owned resources.
+- Drift compares the sync branch with Nopsai's current declarative state for pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, run group/config-repository structure, notification routes, access manifests, Agent Profiles, LLM profiles, MCP registry files, auth settings, mail settings, and runtime settings. UI-side resource Access changes for pipelines, reusable steps, scopes, and knowledge contexts are exported as embedded `access:` updates in the affected GitOps files. Pipeline run rows remain runtime/audit records rather than Git-owned resources.
 - After generated files are merged into the sync branch, config sync can adopt matching database-owned resources inside the repository scope and mark them as GitOps-managed. Resources already owned by an unrelated config repo remain protected by config-repo precedence.
 - Group repositories use the same drift and write endpoint shape at `GET /v1/groups/<group-path>/config-repo/drift` and `POST /v1/groups/<group-path>/config-repo/write`. File paths are relative to the configured `base_path`.
 - Nested groups are represented by nested paths, for example `config-repositories/groups/team-2/platform.yaml` creates a binding for `team-2/platform`.
