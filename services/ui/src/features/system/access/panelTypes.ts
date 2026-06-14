@@ -8,7 +8,7 @@ import type {
 } from './model';
 
 export type AccessMode = 'basic' | 'advanced';
-export type AccessSection = 'users' | 'service-accounts' | 'roles' | 'policies';
+export type AccessSection = 'users' | 'service-accounts' | 'roles' | 'identity-providers' | 'policies';
 
 export type BasicGrantDraft = {
   role: string;

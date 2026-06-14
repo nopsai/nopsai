@@ -273,6 +273,9 @@ func normalizeAccessUser(raw accessUserFile, sourcePath string) (storedAccessUse
 	if strings.EqualFold(sub, defaultAdminSub) {
 		return storedAccessUser{}, fmt.Errorf("default admin user cannot be managed by GitOps")
 	}
+	if isSSOManagedUserIdentifier(sub) {
+		return storedAccessUser{}, fmt.Errorf("SSO-managed user %q cannot be managed by GitOps", sub)
+	}
 	email, err := normalizeOptionalEmail(raw.Email)
 	if err != nil {
 		return storedAccessUser{}, err
@@ -280,6 +283,9 @@ func normalizeAccessUser(raw accessUserFile, sourcePath string) (storedAccessUse
 	provider := strings.TrimSpace(raw.Provider)
 	if provider == "" {
 		provider = "local"
+	}
+	if isSSOManagedUserIdentifier(provider) {
+		return storedAccessUser{}, fmt.Errorf("SSO-managed user %q cannot be managed by GitOps", sub)
 	}
 	status := strings.ToLower(strings.TrimSpace(raw.Status))
 	if status == "" {
@@ -305,6 +311,10 @@ func normalizeAccessUser(raw accessUserFile, sourcePath string) (storedAccessUse
 		passwordHash: strings.TrimSpace(raw.PasswordHash),
 		sourcePath:   sourcePath,
 	}, nil
+}
+
+func isSSOManagedUserIdentifier(value string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(value)), "oidc:")
 }
 
 func normalizeAccessServiceAccount(raw accessServiceAccountFile, sourcePath string) (storedAccessServiceAccount, error) {
@@ -403,7 +413,8 @@ func normalizeAccessSubject(subjectType, subjectID, userID, groupID, serviceID, 
 		subjectType = model.SubjectTypeUser
 		subjectID = strings.TrimSpace(userID)
 	case strings.TrimSpace(groupID) != "":
-		return "", "", fmt.Errorf("auth group subjects are not supported in access manifests; use user or service subjects and target folders with resource_type: folder")
+		subjectType = model.SubjectTypeAuthGroup
+		subjectID = strings.TrimSpace(groupID)
 	case strings.TrimSpace(serviceAccountID) != "":
 		subjectType = model.SubjectTypeServiceAccount
 		subjectID = strings.TrimSpace(serviceAccountID)
@@ -415,11 +426,11 @@ func normalizeAccessSubject(subjectType, subjectID, userID, groupID, serviceID, 
 	if err != nil {
 		return "", "", err
 	}
-	if normalizedType == model.SubjectTypeAuthGroup {
-		return "", "", fmt.Errorf("auth group subjects are not supported in access manifests; use user or service subjects and target folders with resource_type: folder")
-	}
 	if subjectID == "" {
 		return "", "", fmt.Errorf("subject_id is required")
+	}
+	if err := rejectSSOManagedGitOpsSubject(normalizedType, subjectID); err != nil {
+		return "", "", err
 	}
 	return normalizedType, subjectID, nil
 }
@@ -634,8 +645,18 @@ func normalizeEmbeddedResourceUseGrantSubject(raw embeddedResourceUseGrantFile) 
 		if err != nil {
 			return "", "", err
 		}
+		if err := rejectSSOManagedGitOpsSubject(normalizedType, subjectID); err != nil {
+			return "", "", err
+		}
 		return normalizedType, subjectID, nil
 	}
+}
+
+func rejectSSOManagedGitOpsSubject(subjectType, subjectID string) error {
+	if subjectType == model.SubjectTypeUser && isSSOManagedUserIdentifier(subjectID) {
+		return fmt.Errorf("SSO-managed user %q cannot be managed by GitOps", subjectID)
+	}
+	return nil
 }
 
 func normalizeAccessGrantResourceIDForBinding(resourceType, resourceID string, binding models.ConfigRepository, boundFolder string) (string, error) {

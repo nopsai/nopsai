@@ -6,6 +6,7 @@ test('normalizes API capability payloads into UI capabilities', () => {
   const user = normalizeCurrentUser({
     sub: 'admin',
     email: 'admin@example.test',
+    display_name: 'Admin User',
     roles: ['nopsai-admin', 42],
     capabilities: {
       pipelines: { write: 1, delete: 0 },
@@ -23,6 +24,7 @@ test('normalizes API capability payloads into UI capabilities', () => {
   });
 
   assert.equal(user.sub, 'admin');
+  assert.equal(user.displayName, 'Admin User');
   assert.deepEqual(user.roles, ['nopsai-admin']);
   assert.equal(can(user, 'pipelines.write'), true);
   assert.equal(can(user, 'pipelines.delete'), false);

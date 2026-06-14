@@ -24,6 +24,20 @@ const fullCapabilities = {
   },
 };
 
+const localKeycloakProvider = {
+  id: 'keycloak',
+  type: 'oidc',
+  display_name: 'Local Keycloak',
+  scopes: ['openid', 'email', 'profile', 'groups'],
+  allowed_email_domains: ['example.com'],
+};
+
+const localAuthProviders = {
+  local_enabled: true,
+  oidc_enabled: false,
+  providers: [],
+};
+
 const populatedRunDetail = {
   run_info: {
     run_id: 'run-1',
@@ -107,6 +121,13 @@ async function installApiMocks(
     capabilities?: typeof fullCapabilities | Record<string, unknown>;
     mustChangePassword?: boolean;
     setupCompleted?: boolean;
+    authProviders?: {
+      local_enabled: boolean;
+      oidc_enabled: boolean;
+      providers: Array<typeof localKeycloakProvider>;
+    };
+    discoverProvider?: typeof localKeycloakProvider | null;
+    sessionExchangeResponse?: Record<string, unknown>;
     onPipelineSave?: (body: string) => void;
   } = {}
 ) {
@@ -118,6 +139,22 @@ async function installApiMocks(
 
     if (path === '/v1/setup/preflight') {
       return fulfillJson(route, { ready: true, can_login: true, mode: 'team', checks: [] });
+    }
+    if (path === '/v1/auth/providers') {
+      return fulfillJson(route, options.authProviders ?? localAuthProviders);
+    }
+    if (path === '/v1/auth/discover') {
+      const provider = options.discoverProvider;
+      return fulfillJson(route, provider ? { found: true, provider } : { found: false });
+    }
+    if (path === '/v1/auth/session/exchange') {
+      return fulfillJson(route, options.sessionExchangeResponse ?? {
+        access_token: 'sso-access-token',
+        refresh_token: 'sso-refresh-token',
+        roles: ['viewer'],
+        sub: 'sso-user',
+        must_change_password: false,
+      });
     }
     if (path === '/v1/auth/login') {
       return fulfillJson(route, {
@@ -236,6 +273,68 @@ test('logs in and enters the authenticated workspace', async ({ page }) => {
 
   await expect(page).toHaveURL(/#\/pipelineruns\/main/);
   await expect(page.getByRole('link', { name: 'Pipeline runs' })).toBeVisible();
+});
+
+test('starts direct enterprise provider login with the return path preserved', async ({ page }) => {
+  await installApiMocks(page, {
+    authProviders: {
+      local_enabled: true,
+      oidc_enabled: true,
+      providers: [localKeycloakProvider],
+    },
+  });
+  await page.goto('/#/login');
+
+  const startRequest = page.waitForRequest(request => {
+    const url = new URL(request.url());
+    return url.pathname === '/v1/auth/oidc/keycloak/start';
+  });
+  await page.getByRole('button', { name: 'Continue with Local Keycloak' }).click();
+
+  const request = await startRequest;
+  const url = new URL(request.url());
+  expect(url.searchParams.get('return_to')).toBe('/pipelineruns/main');
+});
+
+test('falls back to local password login when SSO email discovery has no match', async ({ page }) => {
+  await installApiMocks(page, {
+    authProviders: {
+      local_enabled: true,
+      oidc_enabled: true,
+      providers: [localKeycloakProvider],
+    },
+    discoverProvider: null,
+  });
+  await page.goto('/#/login');
+
+  await page.getByLabel('Company email').fill('teammate@unknown.example');
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+
+  await expect(page.getByLabel('Password')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sign in' })).toBeEnabled();
+});
+
+test('exchanges an SSO callback session code and stores the Nopsai session', async ({ page }) => {
+  await installApiMocks(page, {
+    authProviders: {
+      local_enabled: true,
+      oidc_enabled: true,
+      providers: [localKeycloakProvider],
+    },
+    sessionExchangeResponse: {
+      access_token: 'sso-access-token',
+      refresh_token: 'sso-refresh-token',
+      roles: ['developer'],
+      sub: 'sso-operator',
+      must_change_password: false,
+    },
+  });
+
+  await page.goto('/#/login?session_code=callback-code');
+
+  await expect(page).toHaveURL(/#\/pipelineruns\/main/);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('nopsai.auth.token'))).toBe('sso-access-token');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('nopsai.auth.refresh'))).toBe('sso-refresh-token');
 });
 
 test('has no serious automatically detectable accessibility violations on login', async ({ page }) => {

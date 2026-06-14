@@ -55,6 +55,47 @@ Main API JWT settings:
 | `login_lockout_threshold` | `LOGIN_LOCKOUT_THRESHOLD` | Failed password attempts before lockout |
 | `login_lockout_window_minutes` | `LOGIN_LOCKOUT_WINDOW_MINUTES` | Lockout window |
 
+Enterprise SSO can also be declared under nested `auth` config. When
+`auth.local_enabled` is present it takes precedence over the flat
+`auth_provider_local_enabled` flag. Providers declared here are reconciled into
+the database at startup, so config-managed deployments can keep SSO settings in
+GitOps:
+
+```yaml
+auth:
+  local_enabled: true
+  oidc:
+    enabled: true
+    auto_create_users: true
+    default_role: "" # Optional baseline global role. Leave empty when the IdP owns role assignment.
+    allow_email_linking: false
+    domain_mapping:
+      company.com: corporate
+    providers:
+      corporate:
+        type: oidc
+        display_name: Company SSO
+        issuer: https://idp.company.com
+        client_id: ${OIDC_CLIENT_ID}
+        client_secret: ${OIDC_CLIENT_SECRET}
+        scopes: ["openid", "email", "profile"]
+        allowed_email_domains: ["company.com"]
+        # Keycloak-only entitlement sync. Direct client roles become global
+        # access roles; group client roles become scoped Basic roles.
+        entitlement_sync:
+          mode: keycloak_group_roles
+          admin_base_url: https://keycloak.example.com
+          realm: company
+          admin_client_id: nopsai-admin
+          admin_client_secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET}
+          client_id: nopsai
+          target_resource_type: folder
+```
+
+For a runnable local IdP with users and groups, use the Keycloak fixture in
+[local-keycloak-sso.md](./local-keycloak-sso.md). It starts behind the Compose
+`sso` profile and seeds admin, operator, and viewer SSO users.
+
 Service JWT settings for internal REST and dispatcher gRPC:
 
 | YAML | Env | Meaning |
@@ -114,6 +155,65 @@ Access-token claims include:
 ```
 
 The custom `sub` field and the registered JWT `sub` are both populated with the same user subject.
+
+## Enterprise SSO / OIDC Flow
+
+Enterprise SSO keeps external authentication separate from Nopsai
+authorization. The identity provider proves who the user is; Nopsai then links
+or creates a local `users` row, issues its own access and refresh tokens, and
+continues to authorize through AAA.
+
+Public auth endpoints:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /v1/auth/providers` | Returns enabled local/OIDC login options for the UI |
+| `POST /v1/auth/discover` | Accepts an email address and returns a mapped SSO provider when one exists |
+| `GET /v1/auth/oidc/{provider}/start` | Creates short-lived state, nonce, and PKCE verifier, then redirects to the provider |
+| `GET /v1/auth/oidc/{provider}/callback` | Consumes OIDC state, exchanges the authorization code, verifies the ID token, and creates a one-time Nopsai login code |
+| `POST /v1/auth/session/exchange` | Exchanges the one-time login code for Nopsai access and refresh tokens |
+
+Admin endpoints live under System Access and require the existing `iam.admin`
+AAA decision:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /v1/admin/identity-providers` | Lists login policy, providers, and domain mappings |
+| `PUT /v1/admin/identity-providers` | Updates local/OIDC login policy and domain mappings |
+| `PUT /v1/admin/identity-providers/{provider}` | Creates or updates one Google, Microsoft, or generic OIDC provider |
+| `DELETE /v1/admin/identity-providers/{provider}` | Deletes a provider and its dependent external identity links |
+
+OIDC security behavior:
+
+- Authorization Code Flow with PKCE S256 is used for browser sign-in.
+- `state` and `nonce` are stored hashed, short-lived, and single-use.
+- ID tokens are validated for issuer, audience/client ID, expiration, nonce,
+  and RS256/RS384/RS512 JWKS signature.
+- `email_verified=false` is rejected when the claim is present.
+- Provider domain allowlists are enforced when configured.
+- Session exchange codes are short-lived and single-use.
+- `return_to` values must be local paths and cannot point back to `/login`.
+- Login, link, creation, and failure outcomes are written to audit logs.
+
+SSO users remain normal Nopsai users:
+
+- `users.provider = "oidc:<provider>"`
+- `users.password_hash = NULL`
+- `users.must_change_password = false`
+- `auth_external_identities` links provider issuer/subject to `users.id`
+- `auth_external_group_memberships` stores last-seen external groups
+- `auth_external_role_assignments` tracks roles derived from external groups so
+  stale mapped roles can be pruned on later logins
+- Keycloak entitlement sync can also read direct client roles as global access
+  roles and group client roles as provider-managed scoped Basic roles
+- If `default_role` is empty, NopsAI does not add a baseline global role such as
+  `viewer`; roles must come from direct mappings, direct Keycloak client roles,
+  or scoped Basic-role grants.
+
+Nopsai does not automatically link a new SSO identity to an existing local
+account unless the provider or global policy allows verified-email linking.
+Otherwise, auto-create creates a separate OIDC-backed user only when the email
+is not already owned by another account.
 
 Refresh:
 

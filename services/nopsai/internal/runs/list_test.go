@@ -36,15 +36,15 @@ func TestBuildListRunsQueryFiltersGroupDescendants(t *testing.T) {
 	}
 }
 
-func TestGroupResolutionCandidatesUsePipelinePathBeforeRepo(t *testing.T) {
+func TestGroupResolutionCandidatesPreferRepoBeforePipelinePath(t *testing.T) {
 	got := GroupResolutionCandidates("", "payments/backend", map[string]string{
 		"repo_owner": "acme",
 		"repo_name":  "payments-api",
 	})
 
 	want := []GroupResolutionCandidate{
-		{Kind: GroupResolutionPath, Value: "payments/backend"},
 		{Kind: GroupResolutionRepo, Value: "acme/payments-api"},
+		{Kind: GroupResolutionPath, Value: "payments/backend"},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("candidates = %#v, want %#v", got, want)
@@ -53,6 +53,15 @@ func TestGroupResolutionCandidatesUsePipelinePathBeforeRepo(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("candidate[%d] = %#v, want %#v", i, got[i], want[i])
 		}
+	}
+}
+
+func TestGroupResolutionCandidatesUsePipelinePathWithoutRepo(t *testing.T) {
+	got := GroupResolutionCandidates("", "payments/backend", nil)
+
+	want := []GroupResolutionCandidate{{Kind: GroupResolutionPath, Value: "payments/backend"}}
+	if len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("candidates = %#v, want %#v", got, want)
 	}
 }
 

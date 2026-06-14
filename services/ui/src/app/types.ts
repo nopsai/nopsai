@@ -83,6 +83,7 @@ export type SetupStatusSummary = {
 export type CurrentUser = {
   sub: string;
   email?: string;
+  displayName?: string;
   roles?: string[];
   capabilities?: {
     pipelines?: ResourceCapabilities;

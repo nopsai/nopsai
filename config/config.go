@@ -61,6 +61,64 @@ type RunnerLimits struct {
 	MaxPendingTasks          int `yaml:"max_pending_tasks" json:"max_pending_tasks,omitempty"`
 }
 
+type AuthConfig struct {
+	LocalEnabled *bool          `yaml:"local_enabled,omitempty" json:"local_enabled,omitempty"`
+	OIDC         OIDCAuthConfig `yaml:"oidc,omitempty" json:"oidc,omitempty"`
+}
+
+type OIDCAuthConfig struct {
+	Enabled           bool                          `yaml:"enabled" json:"enabled"`
+	AutoCreateUsers   bool                          `yaml:"auto_create_users" json:"auto_create_users"`
+	DefaultRole       string                        `yaml:"default_role,omitempty" json:"default_role,omitempty"`
+	AllowEmailLinking bool                          `yaml:"allow_email_linking,omitempty" json:"allow_email_linking,omitempty"`
+	DomainMapping     map[string]string             `yaml:"domain_mapping,omitempty" json:"domain_mapping,omitempty"`
+	Providers         map[string]OIDCProviderConfig `yaml:"providers,omitempty" json:"providers,omitempty"`
+}
+
+type OIDCProviderConfig struct {
+	Type                  string                              `yaml:"type,omitempty" json:"type,omitempty"`
+	DisplayName           string                              `yaml:"display_name,omitempty" json:"display_name,omitempty"`
+	Issuer                string                              `yaml:"issuer,omitempty" json:"issuer,omitempty"`
+	AuthorizationEndpoint string                              `yaml:"authorization_endpoint,omitempty" json:"authorization_endpoint,omitempty"`
+	TokenEndpoint         string                              `yaml:"token_endpoint,omitempty" json:"token_endpoint,omitempty"`
+	JWKSURI               string                              `yaml:"jwks_uri,omitempty" json:"jwks_uri,omitempty"`
+	UserInfoEndpoint      string                              `yaml:"userinfo_endpoint,omitempty" json:"userinfo_endpoint,omitempty"`
+	ClientID              string                              `yaml:"client_id,omitempty" json:"client_id,omitempty"`
+	ClientSecret          string                              `yaml:"client_secret,omitempty" json:"client_secret,omitempty"`
+	Scopes                []string                            `yaml:"scopes,omitempty" json:"scopes,omitempty"`
+	AllowedEmailDomains   []string                            `yaml:"allowed_email_domains,omitempty" json:"allowed_email_domains,omitempty"`
+	GroupClaim            string                              `yaml:"group_claim,omitempty" json:"group_claim,omitempty"`
+	RoleMapping           map[string]string                   `yaml:"role_mapping,omitempty" json:"role_mapping,omitempty"`
+	GroupMapping          map[string]string                   `yaml:"group_mapping,omitempty" json:"group_mapping,omitempty"`
+	BasicRoleMapping      map[string]OIDCBasicRoleGrantConfig `yaml:"basic_role_mapping,omitempty" json:"basic_role_mapping,omitempty"`
+	EntitlementSync       OIDCEntitlementSyncConfig           `yaml:"entitlement_sync,omitempty" json:"entitlement_sync,omitempty"`
+	AutoCreateUsers       *bool                               `yaml:"auto_create_users,omitempty" json:"auto_create_users,omitempty"`
+	DefaultRole           string                              `yaml:"default_role,omitempty" json:"default_role,omitempty"`
+	AllowEmailLinking     *bool                               `yaml:"allow_email_linking,omitempty" json:"allow_email_linking,omitempty"`
+	Enabled               *bool                               `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+}
+
+type OIDCBasicRoleGrantConfig struct {
+	Role         string `yaml:"role,omitempty" json:"role,omitempty"`
+	Resource     string `yaml:"resource,omitempty" json:"resource,omitempty"`
+	ResourceType string `yaml:"resource_type,omitempty" json:"resource_type,omitempty"`
+	ResourceID   string `yaml:"resource_id,omitempty" json:"resource_id,omitempty"`
+}
+
+type OIDCEntitlementSyncConfig struct {
+	Mode               string `yaml:"mode,omitempty" json:"mode,omitempty"`
+	AdminBaseURL       string `yaml:"admin_base_url,omitempty" json:"admin_base_url,omitempty"`
+	Realm              string `yaml:"realm,omitempty" json:"realm,omitempty"`
+	AdminRealm         string `yaml:"admin_realm,omitempty" json:"admin_realm,omitempty"`
+	AdminClientID      string `yaml:"admin_client_id,omitempty" json:"admin_client_id,omitempty"`
+	AdminClientSecret  string `yaml:"admin_client_secret,omitempty" json:"admin_client_secret,omitempty"`
+	AdminUsername      string `yaml:"admin_username,omitempty" json:"admin_username,omitempty"`
+	AdminPassword      string `yaml:"admin_password,omitempty" json:"admin_password,omitempty"`
+	ClientID           string `yaml:"client_id,omitempty" json:"client_id,omitempty"`
+	TargetResourceType string `yaml:"target_resource_type,omitempty" json:"target_resource_type,omitempty"`
+	GroupPathPrefix    string `yaml:"group_path_prefix,omitempty" json:"group_path_prefix,omitempty"`
+}
+
 type RuntimePool struct {
 	NodeSelector map[string]string    `yaml:"node_selector" json:"node_selector,omitempty"`
 	Resources    RuntimePoolResources `yaml:"resources" json:"resources,omitempty"`
@@ -89,26 +147,27 @@ type Config struct {
 	MasterKey string `yaml:"master_key" env:"NOPSAI_MASTER_KEY"`
 
 	// Authentication and authorization
-	JWTSigningKey            string `yaml:"jwt_signing_key" env:"JWT_SIGNING_KEY"`
-	JWTRSAKeyPath            string `yaml:"jwt_rsa_key_path" env:"JWT_RSA_KEY_PATH"`
-	JWTIssuer                string `yaml:"jwt_issuer" env:"JWT_ISSUER"`
-	JWTAudience              string `yaml:"jwt_audience" env:"JWT_AUDIENCE"`
-	JWTExpiryMinutes         int    `yaml:"jwt_expiry_minutes" env:"JWT_EXPIRY_MINUTES"`
-	IdleTimeoutMinutes       int    `yaml:"idle_timeout_minutes" env:"IDLE_TIMEOUT_MINUTES"`
-	RefreshTokenTTLMinutes   int    `yaml:"refresh_token_ttl_minutes" env:"REFRESH_TOKEN_TTL_MINUTES"`
-	AuthProviderLocalEnabled bool   `yaml:"auth_provider_local_enabled" env:"AUTH_PROVIDER_LOCAL_ENABLED"`
-	RateLimitLoginPerMinute  int    `yaml:"rate_limit_login_per_minute" env:"RATE_LIMIT_LOGIN_PER_MINUTE"`
-	LoginLockoutThreshold    int    `yaml:"login_lockout_threshold" env:"LOGIN_LOCKOUT_THRESHOLD"`
-	LoginLockoutWindowMin    int    `yaml:"login_lockout_window_minutes" env:"LOGIN_LOCKOUT_WINDOW_MINUTES"`
-	ServiceJWTSigningKey     string `yaml:"service_jwt_signing_key" env:"SERVICE_JWT_SIGNING_KEY"`
-	ServiceJWTIssuer         string `yaml:"service_jwt_issuer" env:"SERVICE_JWT_ISSUER"`
-	ServiceJWTAudience       string `yaml:"service_jwt_audience" env:"SERVICE_JWT_AUDIENCE"`
-	NopsaiServiceID          string `yaml:"nopsai_service_id" env:"NOPSAI_SERVICE_ID"`
-	RunnerServiceID          string `yaml:"runner_service_id" env:"RUNNER_SERVICE_ID"`
-	AgentServiceID           string `yaml:"agent_service_id" env:"AGENT_SERVICE_ID"`
-	DispatcherTLSMode        string `yaml:"dispatcher_tls_mode" env:"DISPATCHER_TLS_MODE"`
-	DispatcherTLSSecret      string `yaml:"dispatcher_tls_secret" env:"DISPATCHER_TLS_SECRET"`
-	DispatcherTLSServerName  string `yaml:"dispatcher_tls_server_name" env:"DISPATCHER_TLS_SERVER_NAME"`
+	JWTSigningKey            string     `yaml:"jwt_signing_key" env:"JWT_SIGNING_KEY"`
+	JWTRSAKeyPath            string     `yaml:"jwt_rsa_key_path" env:"JWT_RSA_KEY_PATH"`
+	JWTIssuer                string     `yaml:"jwt_issuer" env:"JWT_ISSUER"`
+	JWTAudience              string     `yaml:"jwt_audience" env:"JWT_AUDIENCE"`
+	JWTExpiryMinutes         int        `yaml:"jwt_expiry_minutes" env:"JWT_EXPIRY_MINUTES"`
+	IdleTimeoutMinutes       int        `yaml:"idle_timeout_minutes" env:"IDLE_TIMEOUT_MINUTES"`
+	RefreshTokenTTLMinutes   int        `yaml:"refresh_token_ttl_minutes" env:"REFRESH_TOKEN_TTL_MINUTES"`
+	AuthProviderLocalEnabled bool       `yaml:"auth_provider_local_enabled" env:"AUTH_PROVIDER_LOCAL_ENABLED"`
+	RateLimitLoginPerMinute  int        `yaml:"rate_limit_login_per_minute" env:"RATE_LIMIT_LOGIN_PER_MINUTE"`
+	LoginLockoutThreshold    int        `yaml:"login_lockout_threshold" env:"LOGIN_LOCKOUT_THRESHOLD"`
+	LoginLockoutWindowMin    int        `yaml:"login_lockout_window_minutes" env:"LOGIN_LOCKOUT_WINDOW_MINUTES"`
+	Auth                     AuthConfig `yaml:"auth" env:"-"`
+	ServiceJWTSigningKey     string     `yaml:"service_jwt_signing_key" env:"SERVICE_JWT_SIGNING_KEY"`
+	ServiceJWTIssuer         string     `yaml:"service_jwt_issuer" env:"SERVICE_JWT_ISSUER"`
+	ServiceJWTAudience       string     `yaml:"service_jwt_audience" env:"SERVICE_JWT_AUDIENCE"`
+	NopsaiServiceID          string     `yaml:"nopsai_service_id" env:"NOPSAI_SERVICE_ID"`
+	RunnerServiceID          string     `yaml:"runner_service_id" env:"RUNNER_SERVICE_ID"`
+	AgentServiceID           string     `yaml:"agent_service_id" env:"AGENT_SERVICE_ID"`
+	DispatcherTLSMode        string     `yaml:"dispatcher_tls_mode" env:"DISPATCHER_TLS_MODE"`
+	DispatcherTLSSecret      string     `yaml:"dispatcher_tls_secret" env:"DISPATCHER_TLS_SECRET"`
+	DispatcherTLSServerName  string     `yaml:"dispatcher_tls_server_name" env:"DISPATCHER_TLS_SERVER_NAME"`
 
 	LLMDefaultProfile string                       `yaml:"llm_default_profile" env:"LLM_DEFAULT_PROFILE"`
 	LLMProfiles       map[string]LLMProfile        `yaml:"llm_profiles" env:"LLM_PROFILES"`
@@ -206,6 +265,7 @@ func LoadConfig(path string) (*Config, error) {
 	config.MCPServers = models.NormalizeMCPServers(config.MCPServers)
 	config.MCPProfiles = models.NormalizeMCPProfiles(config.MCPProfiles)
 	applyNestedEnvOverrides(config)
+	config.Auth = NormalizeAuthConfig(config.Auth)
 	config.Runtime = NormalizeRuntime(config.Runtime)
 	config.Kubernetes = NormalizeKubernetesConfig(config.Kubernetes)
 	config.RuntimePools = NormalizeRuntimePools(config.RuntimePools)
@@ -276,6 +336,190 @@ func NormalizeRuntime(raw string) string {
 	default:
 		return normalized
 	}
+}
+
+func NormalizeAuthConfig(auth AuthConfig) AuthConfig {
+	auth.OIDC.DefaultRole = strings.TrimSpace(auth.OIDC.DefaultRole)
+	auth.OIDC.DomainMapping = normalizeDomainProviderMap(auth.OIDC.DomainMapping)
+	auth.OIDC.Providers = normalizeOIDCProviders(auth.OIDC.Providers)
+	return auth
+}
+
+func normalizeOIDCProviders(providers map[string]OIDCProviderConfig) map[string]OIDCProviderConfig {
+	if len(providers) == 0 {
+		return nil
+	}
+	normalized := make(map[string]OIDCProviderConfig, len(providers))
+	for id, provider := range providers {
+		providerID := normalizeProviderID(id)
+		if providerID == "" {
+			continue
+		}
+		provider.Type = normalizeOIDCProviderType(provider.Type)
+		if provider.Type == "" {
+			provider.Type = "oidc"
+		}
+		provider.DisplayName = strings.TrimSpace(provider.DisplayName)
+		if provider.DisplayName == "" {
+			provider.DisplayName = providerID
+		}
+		provider.Issuer = strings.TrimRight(strings.TrimSpace(provider.Issuer), "/")
+		provider.AuthorizationEndpoint = strings.TrimSpace(provider.AuthorizationEndpoint)
+		provider.TokenEndpoint = strings.TrimSpace(provider.TokenEndpoint)
+		provider.JWKSURI = strings.TrimSpace(provider.JWKSURI)
+		provider.UserInfoEndpoint = strings.TrimSpace(provider.UserInfoEndpoint)
+		provider.ClientID = strings.TrimSpace(provider.ClientID)
+		provider.ClientSecret = strings.TrimSpace(provider.ClientSecret)
+		provider.Scopes = normalizeOIDCScopes(provider.Scopes)
+		provider.AllowedEmailDomains = normalizeEmailDomains(provider.AllowedEmailDomains)
+		provider.GroupClaim = strings.TrimSpace(provider.GroupClaim)
+		provider.RoleMapping = normalizeStringMap(provider.RoleMapping)
+		provider.GroupMapping = normalizeStringMap(provider.GroupMapping)
+		provider.BasicRoleMapping = normalizeOIDCBasicRoleMapping(provider.BasicRoleMapping)
+		provider.EntitlementSync = normalizeOIDCEntitlementSync(provider.EntitlementSync)
+		provider.DefaultRole = strings.TrimSpace(provider.DefaultRole)
+		normalized[providerID] = provider
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
+}
+
+func normalizeOIDCBasicRoleMapping(mapping map[string]OIDCBasicRoleGrantConfig) map[string]OIDCBasicRoleGrantConfig {
+	if len(mapping) == 0 {
+		return nil
+	}
+	out := make(map[string]OIDCBasicRoleGrantConfig, len(mapping))
+	for group, grant := range mapping {
+		group = strings.TrimSpace(group)
+		grant.Role = strings.ToLower(strings.TrimSpace(grant.Role))
+		grant.Resource = strings.TrimSpace(grant.Resource)
+		grant.ResourceType = strings.TrimSpace(grant.ResourceType)
+		grant.ResourceID = strings.TrimSpace(grant.ResourceID)
+		if group == "" || grant.Role == "" {
+			continue
+		}
+		if grant.Resource == "" && (grant.ResourceType == "" || grant.ResourceID == "") {
+			continue
+		}
+		out[group] = grant
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func normalizeOIDCEntitlementSync(sync OIDCEntitlementSyncConfig) OIDCEntitlementSyncConfig {
+	sync.Mode = strings.ToLower(strings.TrimSpace(sync.Mode))
+	if sync.Mode == "keycloak" {
+		sync.Mode = "keycloak_group_roles"
+	}
+	sync.AdminBaseURL = strings.TrimRight(strings.TrimSpace(sync.AdminBaseURL), "/")
+	sync.Realm = strings.TrimSpace(sync.Realm)
+	sync.AdminRealm = strings.TrimSpace(sync.AdminRealm)
+	if sync.AdminRealm == "" {
+		sync.AdminRealm = "master"
+	}
+	sync.AdminClientID = strings.TrimSpace(sync.AdminClientID)
+	if sync.AdminClientID == "" {
+		sync.AdminClientID = "admin-cli"
+	}
+	sync.AdminClientSecret = strings.TrimSpace(sync.AdminClientSecret)
+	sync.AdminUsername = strings.TrimSpace(sync.AdminUsername)
+	sync.AdminPassword = strings.TrimSpace(sync.AdminPassword)
+	sync.ClientID = strings.TrimSpace(sync.ClientID)
+	sync.TargetResourceType = strings.TrimSpace(sync.TargetResourceType)
+	if sync.TargetResourceType == "" {
+		sync.TargetResourceType = "folder"
+	}
+	sync.GroupPathPrefix = strings.Trim(strings.TrimSpace(sync.GroupPathPrefix), "/")
+	if sync.Mode == "" && sync.AdminBaseURL == "" {
+		return OIDCEntitlementSyncConfig{}
+	}
+	return sync
+}
+
+func normalizeProviderID(raw string) string {
+	normalized := strings.ToLower(strings.TrimSpace(raw))
+	normalized = strings.ReplaceAll(normalized, " ", "-")
+	return normalized
+}
+
+func normalizeOIDCProviderType(raw string) string {
+	normalized := strings.ToLower(strings.TrimSpace(raw))
+	switch normalized {
+	case "entra", "entra-id", "azure", "azure-ad", "microsoft-entra":
+		return "microsoft"
+	case "google-workspace":
+		return "google"
+	case "generic":
+		return "oidc"
+	default:
+		return normalized
+	}
+}
+
+func normalizeOIDCScopes(scopes []string) []string {
+	seen := map[string]bool{}
+	normalized := make([]string, 0, len(scopes)+3)
+	add := func(scope string) {
+		scope = strings.TrimSpace(scope)
+		if scope == "" || seen[scope] {
+			return
+		}
+		seen[scope] = true
+		normalized = append(normalized, scope)
+	}
+	add("openid")
+	for _, scope := range scopes {
+		add(scope)
+	}
+	if len(normalized) == 1 {
+		add("email")
+		add("profile")
+	}
+	return normalized
+}
+
+func normalizeEmailDomains(domains []string) []string {
+	seen := map[string]bool{}
+	normalized := make([]string, 0, len(domains))
+	for _, domain := range domains {
+		domain = normalizeEmailDomain(domain)
+		if domain == "" || seen[domain] {
+			continue
+		}
+		seen[domain] = true
+		normalized = append(normalized, domain)
+	}
+	return normalized
+}
+
+func normalizeDomainProviderMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	normalized := make(map[string]string, len(values))
+	for domain, providerID := range values {
+		domain = normalizeEmailDomain(domain)
+		providerID = normalizeProviderID(providerID)
+		if domain == "" || providerID == "" {
+			continue
+		}
+		normalized[domain] = providerID
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
+}
+
+func normalizeEmailDomain(raw string) string {
+	domain := strings.ToLower(strings.TrimSpace(raw))
+	domain = strings.TrimPrefix(domain, "@")
+	return domain
 }
 
 func NormalizeKubernetesConfig(k KubernetesConfig) KubernetesConfig {
@@ -458,6 +702,17 @@ func (c Config) EffectiveMCPServers() map[string]models.MCPServer {
 
 func (c Config) EffectiveMCPProfiles() map[string]models.MCPProfile {
 	return models.NormalizeMCPProfiles(c.MCPProfiles)
+}
+
+func (c Config) EffectiveAuthProviderLocalEnabled() bool {
+	if c.Auth.LocalEnabled != nil {
+		return *c.Auth.LocalEnabled
+	}
+	return c.AuthProviderLocalEnabled
+}
+
+func (c Config) EffectiveOIDCAuth() OIDCAuthConfig {
+	return NormalizeAuthConfig(c.Auth).OIDC
 }
 
 func LLMProfileAllowedInScope(profile LLMProfile, scope string) bool {

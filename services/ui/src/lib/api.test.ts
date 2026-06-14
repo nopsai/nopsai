@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ApiClient, clearSession, getStoredSession, persistSession } from './api.js';
+import {
+  ApiClient,
+  buildOIDCStartUrl,
+  clearSession,
+  consumeNextSSOLoginPrompt,
+  getStoredSession,
+  logoutCurrentSession,
+  persistSession,
+  requirePromptForNextSSOLogin,
+} from './api.js';
 
 class MemoryStorage implements Storage {
   private store = new Map<string, string>();
@@ -89,4 +98,36 @@ test('supports unauthenticated requests without attaching stored credentials', a
   await client.fetch('/v1/auth/login', { auth: false });
 
   assert.deepEqual(seenAuthHeaders, [null]);
+});
+
+test('marks the next SSO login to prompt only once', () => {
+  requirePromptForNextSSOLogin();
+
+  assert.equal(consumeNextSSOLoginPrompt(), true);
+  assert.equal(consumeNextSSOLoginPrompt(), false);
+  assert.match(buildOIDCStartUrl('nopsai', '/pipelineruns/main', { prompt: 'login' }), /prompt=login/);
+});
+
+test('logout revokes the refresh token, clears local state, and returns provider logout URL', async () => {
+  persistSession({ accessToken: 'access-token', refreshToken: 'refresh-token', sub: 'operator' });
+  const originalFetch = globalThis.fetch;
+  const bodies: string[] = [];
+  globalThis.fetch = (async (_input, init) => {
+    bodies.push(String(init?.body || ''));
+    return new Response(JSON.stringify({ logout_url: 'http://keycloak/logout' }), {
+      headers: { 'Content-Type': 'application/json' },
+      status: 200,
+    });
+  }) as typeof fetch;
+
+  try {
+    const result = await logoutCurrentSession();
+
+    assert.deepEqual(result, { logoutURL: 'http://keycloak/logout' });
+    assert.deepEqual(JSON.parse(bodies[0]), { refresh_token: 'refresh-token' });
+    assert.equal(getStoredSession().accessToken, undefined);
+    assert.equal(consumeNextSSOLoginPrompt(), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

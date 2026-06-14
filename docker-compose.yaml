@@ -49,13 +49,13 @@ services:
     container_name: nopsai-db
     image: postgres:15
     restart: always
-    depends_on:
-      ui-test:
-        condition: "service_completed_successfully"
-      backend-test:
-        condition: "service_completed_successfully"
-      ui-e2e:
-        condition: "service_completed_successfully"
+    # depends_on:
+    #   ui-test:
+    #     condition: "service_completed_successfully"
+    #   backend-test:
+    #     condition: "service_completed_successfully"
+    #   ui-e2e:
+    #     condition: "service_completed_successfully"
     environment:
       POSTGRES_DB: nopsai_db
       POSTGRES_USER: nopsai_user
@@ -70,6 +70,26 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - nopsai-net
+
+  keycloak:
+    container_name: nopsai-keycloak
+    image: quay.io/keycloak/keycloak:26.6.3
+    command:
+      - start-dev
+      - --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HOSTNAME: http://192.168.1.143:8088
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "8088:8080"
+    volumes:
+      - ./dev/keycloak/nopsai-realm.json:/opt/keycloak/data/import/nopsai-realm.json:ro
     networks:
       - nopsai-net
 

@@ -110,16 +110,25 @@ func TestRunGroupResolutionCandidatesPreferExplicitGroupPath(t *testing.T) {
 	}
 }
 
-func TestRunGroupResolutionCandidatesUsePipelinePathBeforeRepo(t *testing.T) {
+func TestRunGroupResolutionCandidatesPreferRepoBeforePipelinePath(t *testing.T) {
 	got := runquery.GroupResolutionCandidates("", "payments/backend", map[string]string{
 		"repo_owner": "acme",
 		"repo_name":  "payments-api",
 	})
 
 	want := []runquery.GroupResolutionCandidate{
-		{Kind: runquery.GroupResolutionPath, Value: "payments/backend"},
 		{Kind: runquery.GroupResolutionRepo, Value: "acme/payments-api"},
+		{Kind: runquery.GroupResolutionPath, Value: "payments/backend"},
 	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("candidates = %#v, want %#v", got, want)
+	}
+}
+
+func TestRunGroupResolutionCandidatesUsePipelinePathWithoutRepo(t *testing.T) {
+	got := runquery.GroupResolutionCandidates("", "payments/backend", nil)
+
+	want := []runquery.GroupResolutionCandidate{{Kind: runquery.GroupResolutionPath, Value: "payments/backend"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("candidates = %#v, want %#v", got, want)
 	}

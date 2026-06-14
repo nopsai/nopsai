@@ -55,6 +55,11 @@ type fakeScanRow struct {
 	err    error
 }
 
+type fakeScanAnyRow struct {
+	values []any
+	err    error
+}
+
 func (r *recordingExecRunner) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
 	r.statements = append(r.statements, sql)
 	return pgconn.NewCommandTag("DELETE 1"), nil
@@ -87,6 +92,34 @@ func (r fakeScanRow) Scan(dest ...any) error {
 			return fmt.Errorf("unsupported scan destination %T", dest[idx])
 		}
 		*ptr = value
+	}
+	return nil
+}
+
+func (r fakeScanAnyRow) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	for idx, value := range r.values {
+		if idx >= len(dest) {
+			break
+		}
+		switch ptr := dest[idx].(type) {
+		case *int:
+			typed, ok := value.(int)
+			if !ok {
+				return fmt.Errorf("unsupported int scan value %T", value)
+			}
+			*ptr = typed
+		case *string:
+			typed, ok := value.(string)
+			if !ok {
+				return fmt.Errorf("unsupported string scan value %T", value)
+			}
+			*ptr = typed
+		default:
+			return fmt.Errorf("unsupported scan destination %T", dest[idx])
+		}
 	}
 	return nil
 }
@@ -269,6 +302,40 @@ func TestResolveAccessGrantServiceAccountCanonicalizesSub(t *testing.T) {
 	}
 	if len(runner.args) != 1 || len(runner.args[0]) == 0 || runner.args[0][0] != auth.ProviderServiceAccount {
 		t.Fatalf("query args = %#v, want service account provider filter", runner.args)
+	}
+}
+
+func TestExternallyManagedUserSubjectLocksRoleAssignments(t *testing.T) {
+	runner := &fakeQueryRunner{
+		row: fakeScanAnyRow{values: []any{1}},
+	}
+
+	locked, err := isExternallyManagedUserSubject(context.Background(), runner, model.SubjectTypeUser, "user-1")
+	if err != nil {
+		t.Fatalf("isExternallyManagedUserSubject() error = %v", err)
+	}
+	if !locked {
+		t.Fatal("isExternallyManagedUserSubject() = false, want true")
+	}
+	if len(runner.queries) != 1 || !strings.Contains(runner.queries[0], "auth_external_identities") {
+		t.Fatalf("ownership query = %#v, want external identity lookup", runner.queries)
+	}
+}
+
+func TestExternallyManagedUserSubjectIgnoresNonUsers(t *testing.T) {
+	runner := &fakeQueryRunner{
+		row: fakeScanAnyRow{values: []any{1}},
+	}
+
+	locked, err := isExternallyManagedUserSubject(context.Background(), runner, model.SubjectTypeServiceAccount, "svc")
+	if err != nil {
+		t.Fatalf("isExternallyManagedUserSubject() error = %v", err)
+	}
+	if locked {
+		t.Fatal("isExternallyManagedUserSubject() = true, want false for service accounts")
+	}
+	if len(runner.queries) != 0 {
+		t.Fatalf("queries = %#v, want no database lookup", runner.queries)
 	}
 }
 
@@ -487,6 +554,25 @@ func TestRepositoryRunInheritanceAllowsFolderOwnerToExploreRuns(t *testing.T) {
 	}
 	if !decision.Allowed {
 		t.Fatalf("pipeline run read decision = %#v, want allowed through repository folder inheritance", decision)
+	}
+}
+
+func TestPipelineRunListAllowsChildFolderOwnerThroughRunGroupInheritance(t *testing.T) {
+	backend := newUserGrantBackend()
+	backend.aclPolicies = append(backend.aclPolicies, grantACLPolicies(productRoleOwner, model.SubjectTypeUser, "user-1", grantResourceFolder, "team-1/dev")...)
+	backend.inheritance[grantResourceKey(model.ResourceRef{Type: "pipeline_run", ID: "run-1"})] = []model.InheritedResource{
+		{Resource: model.ResourceRef{Type: grantResourceFolder, ID: "team-1/dev/t-app"}, Reason: "folder_inheritance"},
+		{Resource: model.ResourceRef{Type: grantResourceFolder, ID: "team-1/dev"}, Reason: "folder_inheritance"},
+		{Resource: model.ResourceRef{Type: grantResourceFolder, ID: "team-1"}, Reason: "folder_inheritance"},
+	}
+
+	evaluator := aaaauthz.NewEvaluator(backend)
+	decision, err := evaluator.Check(context.Background(), backend.resolved.Subject, "pipeline_run.list", model.ResourceRef{Type: "pipeline_run", ID: "run-1"}, nil)
+	if err != nil {
+		t.Fatalf("pipeline run list Check() error = %v", err)
+	}
+	if !decision.Allowed {
+		t.Fatalf("pipeline run list decision = %#v, want allowed through child folder inheritance", decision)
 	}
 }
 

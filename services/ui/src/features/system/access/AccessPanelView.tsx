@@ -1,13 +1,24 @@
-import { Plus, RefreshCw, Search, X } from 'lucide-react';
-import { ACCESS_UI_BUILD_ID, ROOT_ACCESS_SCOPE } from './model';
-import { AccessConfirmationDialog } from './AccessConfirmationDialog';
-import { CreateServiceAccountEditor, CreateUserEditor } from './AccessCreateEditors';
-import { PoliciesWorkspace, RolesWorkspace } from './AccessAdvancedWorkspaces';
-import { ServiceAccountsWorkspace, UsersWorkspace } from './AccessIdentityWorkspaces';
-import { accessPresetToneClass } from './presentation';
-import type { AccessPanelController } from './useAccessPanelController';
+import { Plus, RefreshCw, Search, X } from "lucide-react";
+import { ACCESS_UI_BUILD_ID, ROOT_ACCESS_SCOPE } from "./model";
+import { AccessConfirmationDialog } from "./AccessConfirmationDialog";
+import {
+  CreateServiceAccountEditor,
+  CreateUserEditor,
+} from "./AccessCreateEditors";
+import { PoliciesWorkspace, RolesWorkspace } from "./AccessAdvancedWorkspaces";
+import {
+  ServiceAccountsWorkspace,
+  UsersWorkspace,
+} from "./AccessIdentityWorkspaces";
+import { IdentityProvidersWorkspace } from "./IdentityProvidersWorkspace";
+import { accessPresetToneClass } from "./presentation";
+import type { AccessPanelController } from "./useAccessPanelController";
 
-export function AccessPanelView({ controller }: { controller: AccessPanelController }) {
+export function AccessPanelView({
+  controller,
+}: {
+  controller: AccessPanelController;
+}) {
   const {
     users,
     loading,
@@ -17,6 +28,19 @@ export function AccessPanelView({ controller }: { controller: AccessPanelControl
     serviceAccountsError,
     accessGrantsLoading,
     accessGrantsError,
+    identityProviders,
+    filteredIdentityProviders,
+    identityProviderSettingsDraft,
+    setIdentityProviderSettingsDraft,
+    identityProviderDomainMappingDraft,
+    setIdentityProviderDomainMappingDraft,
+    identityProviderForm,
+    setIdentityProviderForm,
+    selectedIdentityProvider,
+    identityProvidersLoading,
+    identityProvidersError,
+    savingIdentityProvider,
+    savingIdentityProviderSettings,
     policiesLoading,
     policiesError,
     resourceCatalog,
@@ -79,6 +103,7 @@ export function AccessPanelView({ controller }: { controller: AccessPanelControl
     filteredPolicies,
     sectionContent,
     userRoleAssignmentsLocked,
+    userRoleAssignmentsLockLabel,
     basicGrantOptions,
     basicUserGrantMap,
     basicServiceAccountGrantMap,
@@ -99,6 +124,8 @@ export function AccessPanelView({ controller }: { controller: AccessPanelControl
     openCreateUserEditor,
     openCreateServiceAccountEditor,
     openCreatePolicyEditor,
+    openCreateIdentityProvider,
+    openEditIdentityProvider,
     openEditRoleEditor,
     openPolicyEditModal,
     openUserAccessModal,
@@ -126,8 +153,11 @@ export function AccessPanelView({ controller }: { controller: AccessPanelControl
     confirmDeleteServiceAccount,
     confirmDeleteRoleDefinition,
     confirmDeletePolicy,
+    confirmDeleteIdentityProvider,
     handleConfirmDialog,
     handleRefresh,
+    handleSaveIdentityProviderSettings,
+    handleSaveIdentityProvider,
     handleStageBasicGrant,
     removeBasicGrantDraft,
     resetBasicGrantDrafts,
@@ -153,7 +183,7 @@ export function AccessPanelView({ controller }: { controller: AccessPanelControl
         setAwaitingUserCreateReset(false);
         setShowUserModal(false);
         setBasicGrantError(null);
-        setBasicGrantDraft({ role: '', scope: ROOT_ACCESS_SCOPE });
+        setBasicGrantDraft({ role: "", scope: ROOT_ACCESS_SCOPE });
         setBasicGrantEntries([]);
       }}
       onUpdateRoleEntry={updateNewUserRoleEntry}
@@ -186,7 +216,7 @@ export function AccessPanelView({ controller }: { controller: AccessPanelControl
         setShowServiceAccountModal(false);
         setCreatedServiceAccountToken(null);
         setBasicGrantError(null);
-        setBasicGrantDraft({ role: '', scope: ROOT_ACCESS_SCOPE });
+        setBasicGrantDraft({ role: "", scope: ROOT_ACCESS_SCOPE });
         setBasicGrantEntries([]);
       }}
       onCopyToken={copyCreatedServiceAccountToken}
@@ -200,9 +230,14 @@ export function AccessPanelView({ controller }: { controller: AccessPanelControl
     />
   );
 
-  const accessSearchPlaceholder = accessMode === 'basic' ? 'Search by username, email, role, or group' : sectionContent.searchPlaceholder;
+  const accessSearchPlaceholder =
+    accessMode === "basic"
+      ? "Search by username, email, role, or group"
+      : sectionContent.searchPlaceholder;
   const accessSearchControl = (
-    <div className={`pipelines-search-shell access-search-shell ${searchOpen ? 'open' : ''}`}>
+    <div
+      className={`pipelines-search-shell access-search-shell ${searchOpen ? "open" : ""}`}
+    >
       <button
         type="button"
         className="pipelines-search-toggle"
@@ -221,7 +256,7 @@ export function AccessPanelView({ controller }: { controller: AccessPanelControl
         placeholder={accessSearchPlaceholder}
         className="pipelines-search-input"
         value={searchTerm}
-        onChange={event => {
+        onChange={(event) => {
           setSearchTerm(event.target.value);
           if (event.target.value && !searchOpen) setSearchOpen(true);
         }}
@@ -234,7 +269,7 @@ export function AccessPanelView({ controller }: { controller: AccessPanelControl
           type="button"
           className="pipelines-search-clear"
           onClick={() => {
-            setSearchTerm('');
+            setSearchTerm("");
             setSearchOpen(false);
             searchInputRef.current?.blur();
           }}
@@ -262,6 +297,7 @@ export function AccessPanelView({ controller }: { controller: AccessPanelControl
       allRoleOptions={allRoleOptions}
       nextAccessRole={nextAccessRole}
       userRoleAssignmentsLocked={userRoleAssignmentsLocked}
+      userRoleAssignmentsLockLabel={userRoleAssignmentsLockLabel}
       savingUserAccess={savingUserAccess}
       entries={basicGrantEntries}
       draft={basicGrantDraft}
@@ -274,9 +310,15 @@ export function AccessPanelView({ controller }: { controller: AccessPanelControl
       onDelete={confirmDeleteUser}
       onCloseEditor={() => setUserAccessEditor(null)}
       onSubmit={handleSaveUserAccess}
-      onChangeEmail={email => setUserAccessEditor(prev => (prev ? { ...prev, email } : prev))}
-      onChangeStatus={status => setUserAccessEditor(prev => (prev ? { ...prev, status } : prev))}
-      onChangePassword={password => setUserAccessEditor(prev => (prev ? { ...prev, password } : prev))}
+      onChangeEmail={(email) =>
+        setUserAccessEditor((prev) => (prev ? { ...prev, email } : prev))
+      }
+      onChangeStatus={(status) =>
+        setUserAccessEditor((prev) => (prev ? { ...prev, status } : prev))
+      }
+      onChangePassword={(password) =>
+        setUserAccessEditor((prev) => (prev ? { ...prev, password } : prev))
+      }
       onNextAccessRoleChange={setNextAccessRole}
       onAddAccessEntry={addUserAccessEntry}
       onRemoveAccessEntry={removeUserAccessEntry}
@@ -316,9 +358,17 @@ export function AccessPanelView({ controller }: { controller: AccessPanelControl
       onDelete={confirmDeleteServiceAccount}
       onCloseEditor={() => setServiceAccountEditor(null)}
       onSubmit={handleSaveServiceAccountAccess}
-      onChangeEmail={email => setServiceAccountEditor(prev => (prev ? { ...prev, email } : prev))}
-      onChangeStatus={status => setServiceAccountEditor(prev => (prev ? { ...prev, status } : prev))}
-      onChangeTokenName={tokenName => setServiceAccountEditor(prev => (prev ? { ...prev, tokenName } : prev))}
+      onChangeEmail={(email) =>
+        setServiceAccountEditor((prev) => (prev ? { ...prev, email } : prev))
+      }
+      onChangeStatus={(status) =>
+        setServiceAccountEditor((prev) => (prev ? { ...prev, status } : prev))
+      }
+      onChangeTokenName={(tokenName) =>
+        setServiceAccountEditor((prev) =>
+          prev ? { ...prev, tokenName } : prev,
+        )
+      }
       onCreateToken={handleCreateServiceAccountToken}
       onRevokeToken={handleRevokeServiceAccountToken}
       onCopyToken={copyCreatedServiceAccountToken}
@@ -340,22 +390,26 @@ export function AccessPanelView({ controller }: { controller: AccessPanelControl
             <h3 className="access-header__title">Access</h3>
           </div>
           <div className="access-header__actions">
-            <div className="access-mode-switch" role="tablist" aria-label="Access mode">
+            <div
+              className="access-mode-switch"
+              role="tablist"
+              aria-label="Access mode"
+            >
               <button
                 type="button"
                 role="tab"
-                aria-selected={accessMode === 'basic'}
-                className={`access-mode-switch__option ${accessMode === 'basic' ? 'access-mode-switch__option--active' : ''}`}
-                onClick={() => setAccessMode('basic')}
+                aria-selected={accessMode === "basic"}
+                className={`access-mode-switch__option ${accessMode === "basic" ? "access-mode-switch__option--active" : ""}`}
+                onClick={() => setAccessMode("basic")}
               >
                 <span className="access-mode-switch__title">Basic</span>
               </button>
               <button
                 type="button"
                 role="tab"
-                aria-selected={accessMode === 'advanced'}
-                className={`access-mode-switch__option ${accessMode === 'advanced' ? 'access-mode-switch__option--active' : ''}`}
-                onClick={() => setAccessMode('advanced')}
+                aria-selected={accessMode === "advanced"}
+                className={`access-mode-switch__option ${accessMode === "advanced" ? "access-mode-switch__option--active" : ""}`}
+                onClick={() => setAccessMode("advanced")}
               >
                 <span className="access-mode-switch__title">Advanced</span>
               </button>
@@ -364,7 +418,12 @@ export function AccessPanelView({ controller }: { controller: AccessPanelControl
               className="glass-button-ghost access-toolbar-btn"
               type="button"
               onClick={handleRefresh}
-              disabled={loading || serviceAccountsLoading || accessGrantsLoading || policiesLoading}
+              disabled={
+                loading ||
+                serviceAccountsLoading ||
+                accessGrantsLoading ||
+                policiesLoading
+              }
             >
               <RefreshIcon />
               <span>Refresh</span>
@@ -372,25 +431,27 @@ export function AccessPanelView({ controller }: { controller: AccessPanelControl
           </div>
         </div>
 
-        {accessMode === 'advanced' && (
+        {accessMode === "advanced" && (
           <div className="access-nav">
             <div className="access-tabs">
-              {tabItems.map(tab => (
+              {tabItems.map((tab) => (
                 <button
                   key={tab.id}
                   type="button"
-                  className={`access-tab ${activeSection === tab.id ? 'access-tab--active' : ''}`}
+                  className={`access-tab ${activeSection === tab.id ? "access-tab--active" : ""}`}
                   onClick={() => setActiveSection(tab.id)}
                 >
                   <span className="access-tab__label">{tab.label}</span>
-                  <span className="access-tab__badge">{tab.id === 'policies' ? policyCount : tab.count}</span>
+                  <span className="access-tab__badge">
+                    {tab.id === "policies" ? policyCount : tab.count}
+                  </span>
                 </button>
               ))}
             </div>
           </div>
         )}
 
-        {accessMode === 'basic' ? (
+        {accessMode === "basic" ? (
           <div className="access-panel-card">
             <div className="access-section-header">
               <div className="space-y-1">
@@ -398,7 +459,11 @@ export function AccessPanelView({ controller }: { controller: AccessPanelControl
               </div>
               <div className="access-section-tools">
                 {accessSearchControl}
-                <button type="button" className="glass-button-primary access-section-action" onClick={openCreateUserEditor}>
+                <button
+                  type="button"
+                  className="glass-button-primary access-section-action"
+                  onClick={openCreateUserEditor}
+                >
                   <PlusIcon />
                   <span>Add user</span>
                 </button>
@@ -414,26 +479,52 @@ export function AccessPanelView({ controller }: { controller: AccessPanelControl
               </div>
               <div className="access-section-tools">
                 {accessSearchControl}
-                {activeSection === 'users' && (
-                  <button type="button" className="glass-button-primary access-section-action" onClick={openCreateUserEditor}>
+                {activeSection === "users" && (
+                  <button
+                    type="button"
+                    className="glass-button-primary access-section-action"
+                    onClick={openCreateUserEditor}
+                  >
                     <PlusIcon />
                     <span>Add user</span>
                   </button>
                 )}
-                {activeSection === 'service-accounts' && (
-                  <button type="button" className="glass-button-primary access-section-action" onClick={openCreateServiceAccountEditor}>
+                {activeSection === "service-accounts" && (
+                  <button
+                    type="button"
+                    className="glass-button-primary access-section-action"
+                    onClick={openCreateServiceAccountEditor}
+                  >
                     <PlusIcon />
                     <span>Add service account</span>
                   </button>
                 )}
-                {activeSection === 'roles' && (
-                  <button type="button" className="glass-button-primary access-section-action" onClick={openCreateRoleEditor}>
+                {activeSection === "roles" && (
+                  <button
+                    type="button"
+                    className="glass-button-primary access-section-action"
+                    onClick={openCreateRoleEditor}
+                  >
                     <PlusIcon />
                     <span>Add role</span>
                   </button>
                 )}
-                {activeSection === 'policies' && (
-                  <button type="button" className="glass-button-primary access-section-action" onClick={openCreatePolicyEditor}>
+                {activeSection === "identity-providers" && (
+                  <button
+                    type="button"
+                    className="glass-button-primary access-section-action"
+                    onClick={openCreateIdentityProvider}
+                  >
+                    <PlusIcon />
+                    <span>Add provider</span>
+                  </button>
+                )}
+                {activeSection === "policies" && (
+                  <button
+                    type="button"
+                    className="glass-button-primary access-section-action"
+                    onClick={openCreatePolicyEditor}
+                  >
                     <PlusIcon />
                     <span>Add policy</span>
                   </button>
@@ -441,11 +532,11 @@ export function AccessPanelView({ controller }: { controller: AccessPanelControl
               </div>
             </div>
 
-            {activeSection === 'users' && usersWorkspace}
+            {activeSection === "users" && usersWorkspace}
 
-            {activeSection === 'service-accounts' && serviceAccountsWorkspace}
+            {activeSection === "service-accounts" && serviceAccountsWorkspace}
 
-            {activeSection === 'roles' && (
+            {activeSection === "roles" && (
               <RolesWorkspace
                 roles={roleDefinitions}
                 filteredRoles={filteredRoleDefinitions}
@@ -461,14 +552,39 @@ export function AccessPanelView({ controller }: { controller: AccessPanelControl
                 onDelete={confirmDeleteRoleDefinition}
                 onCloseEditor={() => setRoleEditor(null)}
                 onSubmit={handleSaveRoleEditor}
-                onChangeRoleName={role => setRoleEditor(prev => (prev ? { ...prev, role } : prev))}
+                onChangeRoleName={(role) =>
+                  setRoleEditor((prev) => (prev ? { ...prev, role } : prev))
+                }
                 onRemovePolicyDraft={removeRolePolicyDraft}
                 onNextPolicyKeyChange={setNextPolicyKey}
                 onAddPolicyDraft={addExistingPolicyDraft}
               />
             )}
 
-            {activeSection === 'policies' && (
+            {activeSection === "identity-providers" && (
+              <IdentityProvidersWorkspace
+                providers={identityProviders}
+                filteredProviders={filteredIdentityProviders}
+                settings={identityProviderSettingsDraft}
+                domainMappingDraft={identityProviderDomainMappingDraft}
+                form={identityProviderForm}
+                selectedProvider={selectedIdentityProvider}
+                loading={identityProvidersLoading}
+                error={identityProvidersError}
+                savingSettings={savingIdentityProviderSettings}
+                savingProvider={savingIdentityProvider}
+                onSettingsChange={setIdentityProviderSettingsDraft}
+                onDomainMappingChange={setIdentityProviderDomainMappingDraft}
+                onFormChange={setIdentityProviderForm}
+                onEdit={openEditIdentityProvider}
+                onCreate={openCreateIdentityProvider}
+                onDelete={confirmDeleteIdentityProvider}
+                onSubmitSettings={handleSaveIdentityProviderSettings}
+                onSubmitProvider={handleSaveIdentityProvider}
+              />
+            )}
+
+            {activeSection === "policies" && (
               <PoliciesWorkspace
                 policies={visiblePolicies}
                 filteredPolicies={filteredPolicies}
@@ -490,7 +606,11 @@ export function AccessPanelView({ controller }: { controller: AccessPanelControl
                 }}
                 onSubmitEdit={handleSavePolicyEdit}
                 onSubmitCreate={handleCreatePolicyInline}
-                onChangeEditor={next => setPolicyEditor(prev => (prev ? { ...prev, ...next } : prev))}
+                onChangeEditor={(next) =>
+                  setPolicyEditor((prev) =>
+                    prev ? { ...prev, ...next } : prev,
+                  )
+                }
                 onChangeCreate={onChangePermission}
               />
             )}

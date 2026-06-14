@@ -24,17 +24,17 @@ func GroupResolutionCandidates(explicitGroupPath, pipelinePath string, gitContex
 	}
 
 	candidates := []GroupResolutionCandidate{}
-	pipelinePath = strings.Trim(strings.TrimSpace(pipelinePath), "/")
-	if pipelinePath != "" {
-		candidates = append(candidates, GroupResolutionCandidate{Kind: GroupResolutionPath, Value: pipelinePath})
-	}
-
 	repoName := strings.TrimSpace(gitContext["repo_name"])
 	if repoName != "" {
 		candidates = append(candidates, GroupResolutionCandidate{
 			Kind:  GroupResolutionRepo,
 			Value: repositoryFullName(gitContext["repo_owner"], repoName),
 		})
+	}
+
+	pipelinePath = strings.Trim(strings.TrimSpace(pipelinePath), "/")
+	if pipelinePath != "" {
+		candidates = append(candidates, GroupResolutionCandidate{Kind: GroupResolutionPath, Value: pipelinePath})
 	}
 	return candidates
 }
