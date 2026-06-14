@@ -55,41 +55,42 @@ Main API JWT settings:
 | `login_lockout_threshold` | `LOGIN_LOCKOUT_THRESHOLD` | Failed password attempts before lockout |
 | `login_lockout_window_minutes` | `LOGIN_LOCKOUT_WINDOW_MINUTES` | Lockout window |
 
-Enterprise SSO can also be declared under nested `auth` config. When
-`auth.local_enabled` is present it takes precedence over the flat
-`auth_provider_local_enabled` flag. Providers declared here are reconciled into
-the database at startup, so config-managed deployments can keep SSO settings in
-GitOps:
+Enterprise SSO is normally managed by the global config repository at
+`setting/system/auth.yaml`. The runtime config loader still accepts the same
+fields under nested `auth` for bootstrap-only or non-GitOps deployments. When
+`auth.local_enabled` is present in runtime config, it takes precedence over the
+flat `auth_provider_local_enabled` flag.
+
+Canonical GitOps shape:
 
 ```yaml
-auth:
-  local_enabled: true
-  oidc:
-    enabled: true
-    auto_create_users: true
-    default_role: "" # Optional baseline global role. Leave empty when the IdP owns role assignment.
-    allow_email_linking: false
-    domain_mapping:
-      company.com: corporate
-    providers:
-      corporate:
-        type: oidc
-        display_name: Company SSO
-        issuer: https://idp.company.com
-        client_id: ${OIDC_CLIENT_ID}
-        client_secret: ${OIDC_CLIENT_SECRET}
-        scopes: ["openid", "email", "profile"]
-        allowed_email_domains: ["company.com"]
-        # Keycloak-only entitlement sync. Direct client roles become global
-        # access roles; group client roles become scoped Basic roles.
-        entitlement_sync:
-          mode: keycloak_group_roles
-          admin_base_url: https://keycloak.example.com
-          realm: company
-          admin_client_id: nopsai-admin
-          admin_client_secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET}
-          client_id: nopsai
-          target_resource_type: folder
+local_enabled: true
+oidc:
+  enabled: true
+  auto_create_users: true
+  default_role: "" # Optional baseline global role. Leave empty when the IdP owns role assignment.
+  allow_email_linking: false
+  domain_mapping:
+    company.com: corporate
+  providers:
+    corporate:
+      type: oidc
+      display_name: Company SSO
+      issuer: https://idp.company.com
+      client_id: ${OIDC_CLIENT_ID}
+      client_secret: ${OIDC_CLIENT_SECRET}
+      scopes: ["openid", "email", "profile"]
+      allowed_email_domains: ["company.com"]
+      # Keycloak-only entitlement sync. Direct client roles become global
+      # access roles; group client roles become scoped Basic roles.
+      entitlement_sync:
+        mode: keycloak_group_roles
+        admin_base_url: https://keycloak.example.com
+        realm: company
+        admin_client_id: nopsai-admin
+        admin_client_secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET}
+        client_id: nopsai
+        target_resource_type: folder
 ```
 
 For a runnable local IdP with users and groups, use the Keycloak fixture in
