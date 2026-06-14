@@ -10,38 +10,12 @@ provider/model client. See [agent-profiles.md](./agent-profiles.md).
 
 ## Configuration
 
-Define bootstrap profiles in `config.yml`, manage them from **System -> LLM
-Profiles**, or manage them with GitOps from a system config repository at
-`setting/system/llm_profile.yaml`. On startup, configured profiles seed the
-database when no database profiles exist yet. After that, the database is
-authoritative for UI/API changes unless the GitOps file is present; when it is
-present, config sync writes that file into the database and refreshes the
-running profile registry.
-
-```yaml
-llm_default_profile: standard
-
-llm_profiles:
-  fast:
-    provider: gemini
-    model: gemini-2.5-flash
-    api_key_secret: GEMINI_API_KEY
-    allowed_scopes: ["dev", "test", "prod"]
-
-  reasoning:
-    provider: lmstudio
-    model: qwen3-coder
-    base_url: http://lmstudio:1234
-    api_key_secret: LMSTUDIO_API_KEY
-    allowed_scopes: ["dev", "internal"]
-    thinking: true
-
-  standard:
-    provider: gemini
-    model: gemini-2.5-pro
-    api_key_secret: GEMINI_API_KEY
-    allowed_scopes: ["dev", "test", "prod"]
-```
+Manage LLM profiles from **System -> LLM Profiles** or with GitOps from a
+system config repository at `setting/system/llm_profile.yaml`. When the GitOps
+file is present, config sync writes that file into the database and refreshes
+the running profile registry. `config.yml` still accepts bootstrap profile
+settings for non-GitOps deployments, but the checked-in config intentionally
+does not define profiles so GitOps remains the source of truth.
 
 Supported providers:
 
