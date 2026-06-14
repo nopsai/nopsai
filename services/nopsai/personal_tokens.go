@@ -164,7 +164,7 @@ func (a *App) loadInteractiveAuthenticatedUser(w http.ResponseWriter, r *http.Re
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return authenticatedUserRecord{}, false
 	}
-	if !strings.EqualFold(strings.TrimSpace(claims.Provider), "local") {
+	if !isPersonalTokenManagementSessionProvider(claims.Provider) {
 		http.Error(w, "personal token management requires an interactive session", http.StatusForbidden)
 		return authenticatedUserRecord{}, false
 	}
@@ -182,6 +182,12 @@ func (a *App) loadInteractiveAuthenticatedUser(w http.ResponseWriter, r *http.Re
 		return authenticatedUserRecord{}, false
 	}
 	return userRecord, true
+}
+
+func isPersonalTokenManagementSessionProvider(provider string) bool {
+	provider = strings.TrimSpace(provider)
+	return strings.EqualFold(provider, "local") ||
+		strings.HasPrefix(strings.ToLower(provider), "oidc:")
 }
 
 func validatePersonalAccessTokenName(raw string) (string, error) {

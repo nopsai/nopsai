@@ -3,7 +3,34 @@ package nopsai
 import (
 	"testing"
 	"time"
+
+	"nopsai/services/nopsai/pkg/auth"
 )
+
+func TestPersonalTokenManagementSessionProvider(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider string
+		want     bool
+	}{
+		{name: "local session", provider: "local", want: true},
+		{name: "oidc session", provider: "oidc:nopsai", want: true},
+		{name: "oidc session mixed case", provider: " OIDC:Microsoft ", want: true},
+		{name: "personal token", provider: auth.ProviderPersonalAccessToken, want: false},
+		{name: "service account token", provider: auth.ProviderServiceAccountToken, want: false},
+		{name: "service account identity", provider: auth.ProviderServiceAccount, want: false},
+		{name: "internal service", provider: "internal-service", want: false},
+		{name: "empty", provider: "", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isPersonalTokenManagementSessionProvider(tt.provider); got != tt.want {
+				t.Fatalf("isPersonalTokenManagementSessionProvider(%q) = %v, want %v", tt.provider, got, tt.want)
+			}
+		})
+	}
+}
 
 func TestValidatePersonalAccessTokenName(t *testing.T) {
 	name, err := validatePersonalAccessTokenName("  deploy bot  ")
