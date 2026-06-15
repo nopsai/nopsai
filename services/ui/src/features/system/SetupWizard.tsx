@@ -13,6 +13,7 @@ import {
   Users,
 } from 'lucide-react';
 import { bootstrapSetup, downloadSetupTemplatesZip, fetchSetupStatus, fetchSetupTemplates } from './setup/api';
+import { LLM_PROVIDERS, getLLMProvider, replaceProviderDefault } from './llmProviders';
 import { SetupReviewOutput } from './setup/SetupReviewOutput';
 import { SetupBootstrapResult, SetupStarterFilesPreview, SetupStatusOverview } from './setup/SetupStatusPanels';
 import { SetupStatusIcon, SetupStepNavigation, StepIntro, WarningCallout } from './setup/SetupWizardPrimitives';
@@ -20,6 +21,8 @@ import {
   LLM_SKIP_WARNING,
   REVIEW_STEP_INDEX,
   WIZARD_STEPS,
+  buildSetupGitOpsFileList,
+  buildSetupGitOpsStructurePreview,
   defaultSecretName,
   deriveGitBotBaseURL,
   initialRepositoryGroups,
@@ -115,6 +118,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
   const selectedTemplate = selectedTemplatePath && templates ? templates.files[selectedTemplatePath] : '';
   const requiredHealthErrors = (status?.checks || []).filter(check => check.blocking && check.status === 'error');
   const llmSecretName = llmAPIKeySecretName.trim() || defaultSecretName(llmProvider);
+  const llmProviderDefinition = getLLMProvider(llmProvider);
   const currentRuntimeDefaults = runtimeDefaults(runtimeImplementation);
   const gitBotPublicBaseURL = gitBotPublicURL.trim().replace(/\/+$/, '') || 'https://<your-ngrok-or-git-bot-domain>';
   const gitBotWebhookURL = `${gitBotPublicBaseURL}/webhook`;
@@ -123,17 +127,6 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
     if (!templates || selectedTemplatePath) return;
     setSelectedTemplatePath(templatePaths[0] || '');
   }, [selectedTemplatePath, templatePaths, templates]);
-
-  useEffect(() => {
-    setLLMAPIKeySecretName(current => current || defaultSecretName(llmProvider));
-    if (llmProvider === 'gemini') {
-      setLLMModel(current => (current === 'qwen3-coder' || !current.trim() ? 'gemini-2.5-flash' : current));
-      setLLMBaseURL('');
-    } else {
-      setLLMModel(current => (current.startsWith('gemini-') || !current.trim() ? 'qwen3-coder' : current));
-      setLLMBaseURL(current => current || 'http://lmstudio:1234');
-    }
-  }, [llmProvider]);
 
   const updateRuntimeImplementation = (nextRuntime: RuntimeImplementation) => {
     if (nextRuntime === 'kubernetes') return;
@@ -250,11 +243,11 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
     if (aiEnabled) {
       params.set('llm_provider', llmProvider.trim());
       params.set('llm_model', llmModel.trim());
-      params.set('llm_api_key_secret', llmSecretName);
-      if (llmProvider === 'lmstudio') params.set('llm_base_url', llmBaseURL.trim());
+      if (llmProviderDefinition.apiKeyMode !== 'none') params.set('llm_api_key_secret', llmSecretName);
+      if (llmProviderDefinition.baseURLMode !== 'hidden' && llmBaseURL.trim()) params.set('llm_base_url', llmBaseURL.trim());
     }
     return params;
-  }, [aiEnabled, llmBaseURL, llmModel, llmProvider, llmSecretName, mcpExamples, normalizedRepositoryGroups, repositories, users, usersEnabled]);
+  }, [aiEnabled, llmBaseURL, llmModel, llmProvider, llmProviderDefinition.apiKeyMode, llmProviderDefinition.baseURLMode, llmSecretName, mcpExamples, normalizedRepositoryGroups, repositories, users, usersEnabled]);
 
   const loadTemplates = useCallback(async () => {
     setTemplateLoading(true);
@@ -321,10 +314,10 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
       `NOPSAI_GIT_BOT_API_URL=${gitBotServiceURL.trim() || currentRuntimeDefaults.gitBotServiceURL}`,
       runtimeImplementation === 'docker' ? 'DOCKER_NETWORK_NAME=nopsai-net' : '# Kubernetes runtime is under construction.',
     ];
-    if (aiEnabled && llmProvider === 'gemini') {
-      nopsaiLines.push(`${llmSecretName}=${secretPlaceholder(Boolean(llmAPIKey.trim()), '<paste Gemini API key or mount from secret manager>')}`);
-    } else if (aiEnabled && llmProvider === 'lmstudio' && llmAPIKey.trim()) {
-      nopsaiLines.push(`${llmSecretName}=<optional LM Studio API key provided in wizard>`);
+    if (aiEnabled && llmProviderDefinition.apiKeyMode === 'required') {
+      nopsaiLines.push(`${llmSecretName}=${secretPlaceholder(Boolean(llmAPIKey.trim()), `<paste ${llmProviderDefinition.label} API key or mount from secret manager>`)}`);
+    } else if (aiEnabled && llmProviderDefinition.apiKeyMode === 'optional' && llmAPIKey.trim()) {
+      nopsaiLines.push(`${llmSecretName}=<optional ${llmProviderDefinition.label} API key provided in wizard>`);
     }
 
     const gitBotLines = [
@@ -360,7 +353,8 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
     githubPrivateKeyPath,
     githubWebhookSecret,
     llmAPIKey,
-    llmProvider,
+    llmProviderDefinition.apiKeyMode,
+    llmProviderDefinition.label,
     llmSecretName,
     nopsaiAPIURL,
     runtimeImplementation,
@@ -371,44 +365,19 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
     [runtimeEnvSections]
   );
 
-  const gitOpsStructureSnippet = useMemo(() => {
-    const groups = normalizedRepositoryGroups;
-    if (groups.length === 0) {
-      return '{}';
-    }
-    const lines: string[] = [];
-    groups.forEach(group => {
-      lines.push(`${group.name}:`);
-      lines.push('  description: Repository group');
-      if (group.repositories.length === 0) {
-        lines.push('  apps: []');
-      } else {
-        lines.push('  apps:');
-        group.repositories.forEach(repo => {
-          const appName = repo.split('/').filter(Boolean).pop() || repo;
-          lines.push(`    - name: ${appName}`);
-          lines.push(`      repo_url: https://github.com/${repo}`);
-        });
-      }
-    });
-    return lines.join('\n');
-  }, [normalizedRepositoryGroups]);
+  const gitOpsStructureSnippet = useMemo(
+    () => buildSetupGitOpsStructurePreview(normalizedRepositoryGroups),
+    [normalizedRepositoryGroups]
+  );
 
-  const gitOpsFiles = useMemo(() => {
-    const files = [
-      'config-repositories/groups/structure.yaml',
-      'pipelines/setup/first-run.yaml',
-      'steps/setup/announce.yaml',
-      'scopes/dev/scope.yaml',
-      'scopes/prod/scope.yaml',
-      'knowledge/guideline/platform/setup-run.md',
-      'access/bootstrap.yaml',
-    ];
-    if (aiEnabled) files.push('setting/system/llm_profile.yaml');
-    if (mcpExamples) files.push('setting/system/mcp.yaml');
-    repositories.forEach(repo => files.push(`triggers/${repo}.yaml`));
-    return files;
-  }, [aiEnabled, mcpExamples, repositories]);
+  const gitOpsFiles = useMemo(
+    () =>
+      buildSetupGitOpsFileList(normalizedRepositoryGroups, repositories, {
+        includeLLM: aiEnabled,
+        includeMCP: aiEnabled && mcpExamples,
+      }),
+    [aiEnabled, mcpExamples, normalizedRepositoryGroups, repositories]
+  );
 
   const canContinueWizard = (() => {
     switch (currentWizardStep.id) {
@@ -471,8 +440,8 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
           name: 'standard',
           provider: llmProvider.trim(),
           model: llmModel.trim(),
-          base_url: llmProvider === 'gemini' ? '' : llmBaseURL.trim(),
-          api_key_secret: aiEnabled && (llmProvider === 'gemini' || llmAPIKey.trim()) ? llmSecretName : '',
+          base_url: llmProviderDefinition.baseURLMode === 'hidden' ? '' : llmBaseURL.trim(),
+          api_key_secret: aiEnabled && llmProviderDefinition.apiKeyMode !== 'none' && (llmProviderDefinition.apiKeyMode === 'required' || llmAPIKey.trim()) ? llmSecretName : '',
           api_key_value: aiEnabled ? llmAPIKey.trim() : '',
           allowed_scopes: ['dev', 'prod'],
         },
@@ -496,6 +465,8 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
     llmBaseURL,
     llmModel,
     llmProvider,
+    llmProviderDefinition.apiKeyMode,
+    llmProviderDefinition.baseURLMode,
     llmSecretName,
     mcpExamples,
     normalizedRepositoryGroups,
@@ -711,7 +682,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
         return (
           <div className="space-y-4">
             <StepIntro title="Configure the default AI profile" icon={<Bot className="h-4 w-4" />}>
-              This creates one default LLM profile named `standard` so goal-based steps can work immediately. Gemini uses a model and API key secret; LM Studio uses an OpenAI-compatible base URL and only needs a key when your local server requires one.
+              This creates one default LLM profile named `standard` so goal-based steps can work immediately. Hosted providers use secret references; local providers can run without credentials when their endpoint allows it.
             </StepIntro>
             <label className="flex items-center gap-2 rounded-md border border-[var(--border-primary)] p-3 text-sm">
               <input type="checkbox" checked={aiEnabled} onChange={event => setAIEnabled(event.target.checked)} disabled={!canManage} />
@@ -723,32 +694,39 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
                 <span className="text-xs text-[var(--text-secondary)]">Provider</span>
                 <select className="w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2" value={llmProvider} onChange={event => {
                   const nextProvider = event.target.value;
+                  const previousDefinition = getLLMProvider(llmProvider);
+                  const nextDefinition = getLLMProvider(nextProvider);
                   setLLMProvider(nextProvider);
-                  setLLMAPIKeySecretName(current => (!current.trim() || current === defaultSecretName(llmProvider) ? defaultSecretName(nextProvider) : current));
+                  setLLMModel(current => replaceProviderDefault(current, previousDefinition.defaultModel, nextDefinition.defaultModel));
+                  setLLMBaseURL(current => replaceProviderDefault(current, previousDefinition.defaultBaseURL, nextDefinition.defaultBaseURL));
+                  setLLMAPIKeySecretName(current => replaceProviderDefault(current, previousDefinition.defaultSecretName, nextDefinition.defaultSecretName));
                 }} disabled={!canManage || !aiEnabled}>
-                  <option value="lmstudio">LM Studio</option>
-                  <option value="gemini">Gemini</option>
+                  {LLM_PROVIDERS.map(provider => <option key={provider.id} value={provider.id}>{provider.label}</option>)}
                 </select>
               </label>
               <label className="space-y-1 text-sm">
                 <span className="text-xs text-[var(--text-secondary)]">Model</span>
                 <input className="w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2" value={llmModel} onChange={event => setLLMModel(event.target.value)} disabled={!canManage || !aiEnabled} />
               </label>
-              {llmProvider === 'lmstudio' && (
+              {llmProviderDefinition.baseURLMode !== 'hidden' && (
                 <label className="space-y-1 text-sm">
-                  <span className="text-xs text-[var(--text-secondary)]">Base URL</span>
-                  <input className="w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2" value={llmBaseURL} onChange={event => setLLMBaseURL(event.target.value)} placeholder="http://lmstudio:1234" disabled={!canManage || !aiEnabled} />
+                  <span className="text-xs text-[var(--text-secondary)]">Base URL{llmProviderDefinition.baseURLMode === 'required' ? ' *' : ''}</span>
+                  <input className="w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2" value={llmBaseURL} onChange={event => setLLMBaseURL(event.target.value)} placeholder={llmProviderDefinition.defaultBaseURL || 'https://resource.openai.azure.com'} disabled={!canManage || !aiEnabled} />
                   <span className="block text-[11px] leading-5 text-[var(--text-secondary)]">Use a URL the agent container can reach.</span>
                 </label>
               )}
-              <label className="space-y-1 text-sm">
-                <span className="text-xs text-[var(--text-secondary)]">API key secret name</span>
-                <input className="w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2" value={llmAPIKeySecretName} onChange={event => setLLMAPIKeySecretName(event.target.value)} placeholder={defaultSecretName(llmProvider)} disabled={!canManage || !aiEnabled} />
-              </label>
-              <label className="space-y-1 text-sm">
-                <span className="text-xs text-[var(--text-secondary)]">{llmProvider === 'gemini' ? 'Gemini API key value' : 'Optional API key value'}</span>
-                <input className="w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2" value={llmAPIKey} onChange={event => setLLMAPIKey(event.target.value)} type="password" placeholder={llmProvider === 'lmstudio' ? 'Optional for local LM Studio' : 'Paste key to seed the secret'} disabled={!canManage || !aiEnabled} />
-              </label>
+              {llmProviderDefinition.apiKeyMode !== 'none' && (
+                <>
+                  <label className="space-y-1 text-sm">
+                    <span className="text-xs text-[var(--text-secondary)]">API key secret name{llmProviderDefinition.apiKeyMode === 'required' ? ' *' : ''}</span>
+                    <input className="w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2" value={llmAPIKeySecretName} onChange={event => setLLMAPIKeySecretName(event.target.value)} placeholder={defaultSecretName(llmProvider)} disabled={!canManage || !aiEnabled} />
+                  </label>
+                  <label className="space-y-1 text-sm">
+                    <span className="text-xs text-[var(--text-secondary)]">{llmProviderDefinition.apiKeyMode === 'required' ? `${llmProviderDefinition.label} API key value` : 'Optional API key value'}</span>
+                    <input className="w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2" value={llmAPIKey} onChange={event => setLLMAPIKey(event.target.value)} type="password" placeholder={llmProviderDefinition.apiKeyMode === 'optional' ? `Optional for ${llmProviderDefinition.label}` : 'Paste key to seed the secret'} disabled={!canManage || !aiEnabled} />
+                  </label>
+                </>
+              )}
             </div>
             <label className="flex items-center gap-2 rounded-md border border-[var(--border-primary)] p-3 text-sm">
               <input type="checkbox" checked={mcpExamples} onChange={event => setMCPExamples(event.target.checked)} disabled={!canManage || !aiEnabled} />

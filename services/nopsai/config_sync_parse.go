@@ -13,7 +13,6 @@ import (
 )
 
 type configSyncPlan struct {
-	pipelineRunStructure                 map[string]*configsync.PipelineRunStructureNode
 	configRepositoryPipelineRunStructure map[string]*configsync.PipelineRunStructureNode
 	configRepositories                   map[string]storedConfigRepository
 	accessPlan                           accessSyncPlan
@@ -45,13 +44,10 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 	externalTriggerDir := repoCtx.dirs.externalTrigger
 	scheduleDir := repoCtx.dirs.schedule
 	scopeDir := repoCtx.dirs.scope
-	pipelineRunDir := repoCtx.dirs.pipelineRun
 	configRepositoryDir := repoCtx.dirs.configRepository
 	accessDir := repoCtx.dirs.access
 	knowledgeDir := repoCtx.dirs.knowledge
-	notificationDir := repoCtx.dirs.notification
 	settingDir := repoCtx.dirs.setting
-	settingsDir := repoCtx.dirs.settings
 
 	plan := configSyncPlan{
 		configRepositoryPipelineRunStructure: map[string]*configsync.PipelineRunStructureNode{},
@@ -65,28 +61,6 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 		triggers:                             map[string]storedTrigger{},
 	}
 
-	for path, content := range files.pipelineRuns {
-		normalized := filepath.ToSlash(path)
-		rel, ok := configsync.RelativePath(normalized, pipelineRunDir)
-		if !ok {
-			continue
-		}
-		if rel == "structure.yaml" || rel == "structure.yml" {
-			parsed, err := configsync.ParsePipelineRunStructure(content)
-			if err != nil {
-				return configSyncPlan{}, fmt.Errorf("failed to parse pipeline run structure '%s': %w", normalized, err)
-			}
-			if binding.ScopeType == models.ConfigRepositoryScopeFolder {
-				parsed, err = configsync.NormalizePipelineRunStructureForFolder(boundFolder, parsed)
-				if err != nil {
-					return configSyncPlan{}, fmt.Errorf("failed to normalize pipeline run structure '%s': %w", normalized, err)
-				}
-			}
-			plan.pipelineRunStructure = parsed
-			break
-		}
-	}
-
 	for path, content := range files.configRepositories {
 		normalized := filepath.ToSlash(path)
 		rel, ok := configsync.RelativePath(normalized, configRepositoryDir)
@@ -94,6 +68,11 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 			continue
 		}
 		if rel == "" || strings.HasSuffix(rel, "/") || !isYAMLFile(rel) {
+			continue
+		}
+		if _, ok, err := configRepositoryGroupNotificationRoutePath(rel); err != nil {
+			return configSyncPlan{}, fmt.Errorf("invalid notification route path '%s': %w", normalized, err)
+		} else if ok {
 			continue
 		}
 		structure, isStructureFile, err := configsync.ParseConfigRepositoryGroupPipelineRunStructure(rel, content)
@@ -182,7 +161,6 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 	plan.llmProfilePlan, err = parseGitOpsLLMProfilePlan(
 		binding,
 		gitOpsLLMProfileDirectory{root: settingDir, files: files.setting},
-		gitOpsLLMProfileDirectory{root: settingsDir, files: files.settings},
 	)
 	if err != nil {
 		return configSyncPlan{}, err
@@ -190,7 +168,6 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 	plan.agentProfilePlan, err = parseGitOpsAgentProfilePlan(
 		binding,
 		gitOpsAgentProfileDirectory{root: settingDir, files: files.setting},
-		gitOpsAgentProfileDirectory{root: settingsDir, files: files.settings},
 	)
 	if err != nil {
 		return configSyncPlan{}, err
@@ -198,7 +175,6 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 	plan.mcpRegistryPlan, err = mcpregistry.ParseGitOpsPlan(
 		binding,
 		mcpregistry.GitOpsDirectory{Root: settingDir, Files: files.setting},
-		mcpregistry.GitOpsDirectory{Root: settingsDir, Files: files.settings},
 	)
 	if err != nil {
 		return configSyncPlan{}, err
@@ -206,7 +182,6 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 	plan.authSettingsPlan, err = parseGitOpsAuthSettingsPlan(
 		binding,
 		gitOpsRuntimeSettingsDirectory{root: settingDir, files: files.setting},
-		gitOpsRuntimeSettingsDirectory{root: settingsDir, files: files.settings},
 	)
 	if err != nil {
 		return configSyncPlan{}, err
@@ -214,7 +189,6 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 	plan.runtimeSettingsPlan, err = parseGitOpsRuntimeSettingsPlan(
 		binding,
 		gitOpsRuntimeSettingsDirectory{root: settingDir, files: files.setting},
-		gitOpsRuntimeSettingsDirectory{root: settingsDir, files: files.settings},
 	)
 	if err != nil {
 		return configSyncPlan{}, err
@@ -222,7 +196,6 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 	plan.mailSettingsPlan, err = parseGitOpsMailSettingsPlan(
 		binding,
 		gitOpsRuntimeSettingsDirectory{root: settingDir, files: files.setting},
-		gitOpsRuntimeSettingsDirectory{root: settingsDir, files: files.settings},
 	)
 	if err != nil {
 		return configSyncPlan{}, err
@@ -235,9 +208,19 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 	if err != nil {
 		return configSyncPlan{}, err
 	}
-	plan.notificationRoutes, err = parseGitOpsNotificationRoutes(files.notifications, notificationDir, basePath, binding, boundFolder)
+	plan.notificationRoutes, err = parseGitOpsNotificationRoutes(files.notifications, basePath, binding, boundFolder)
 	if err != nil {
 		return configSyncPlan{}, err
+	}
+	colocatedNotificationRoutes, err := parseGitOpsConfigRepositoryNotificationRoutes(files.configRepositories, configRepositoryDir, binding, boundFolder)
+	if err != nil {
+		return configSyncPlan{}, err
+	}
+	for key, route := range colocatedNotificationRoutes {
+		if _, exists := plan.notificationRoutes[key]; exists {
+			return configSyncPlan{}, fmt.Errorf("duplicate notification route for group '%s' detected", route.groupPath)
+		}
+		plan.notificationRoutes[key] = route
 	}
 
 	for path, content := range files.pipelines {

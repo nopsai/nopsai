@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	appconfig "nopsai/config"
 	"nopsai/pkg/models"
@@ -122,5 +123,86 @@ func TestLLMProfileRegistryMapsThinkingToReasoning(t *testing.T) {
 	}
 	if profile.Reasoning != "on" {
 		t.Fatalf("profile.Reasoning = %q, want on", profile.Reasoning)
+	}
+}
+
+func TestLLMProfileRegistryRejectsUnsupportedGenerationOptions(t *testing.T) {
+	thinking := true
+	tests := []struct {
+		name    string
+		profile agentRuntimeLLMProfile
+	}{
+		{
+			name: "generic thinking outside lm studio",
+			profile: agentRuntimeLLMProfile{
+				Provider: appconfig.LLMProviderOpenAI,
+				Model:    "gpt-test",
+				Thinking: &thinking,
+			},
+		},
+		{
+			name: "anthropic temperature above provider maximum",
+			profile: agentRuntimeLLMProfile{
+				Provider:    appconfig.LLMProviderAnthropic,
+				Model:       "claude-test",
+				Temperature: llmTestFloat64Pointer(1.1),
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := newLLMProfileRegistry(
+				"standard",
+				map[string]agentRuntimeLLMProfile{"standard": tt.profile},
+				"dev",
+			)
+			if err == nil {
+				t.Fatal("newLLMProfileRegistry() unexpectedly succeeded")
+			}
+		})
+	}
+}
+
+func llmTestFloat64Pointer(value float64) *float64 {
+	return &value
+}
+
+func TestLLMProfileRegistryPassesProviderOptionsToClient(t *testing.T) {
+	temperature := 0.4
+	payload := agentRuntimeLLMProfiles{
+		DefaultProfile: "standard",
+		Profiles: map[string]agentRuntimeLLMProfile{
+			"standard": {
+				Provider:       appconfig.LLMProviderOpenAI,
+				Model:          "gpt-test",
+				BaseURL:        "https://example.test/v1",
+				APIKey:         "secret",
+				TimeoutSeconds: 12,
+				MaxTokens:      345,
+				Temperature:    &temperature,
+				Extra:          map[string]string{" project ": " project-1 "},
+			},
+		},
+	}
+	registry, err := newLLMProfileRegistry(payload.DefaultProfile, payload.Profiles, "dev")
+	if err != nil {
+		t.Fatalf("newLLMProfileRegistry() error = %v", err)
+	}
+	client, _, err := registry.ClientFor(&models.Pipeline{}, nil, nil)
+	if err != nil {
+		t.Fatalf("ClientFor() error = %v", err)
+	}
+	if client.httpClient.Timeout != 12*time.Second {
+		t.Fatalf("timeout = %s", client.httpClient.Timeout)
+	}
+	provider, ok := client.providerClient.(*openAICompatibleClient)
+	if !ok {
+		t.Fatalf("provider client = %T", client.providerClient)
+	}
+	if provider.maxTokens != 345 || provider.temperature == nil || *provider.temperature != temperature {
+		t.Fatalf("provider options = %#v", provider)
+	}
+	if provider.extra["project"] != "project-1" {
+		t.Fatalf("extra = %#v", provider.extra)
 	}
 }

@@ -836,7 +836,12 @@ type ActionResult struct {
 
 // Gemini API specific structures
 type GeminiRequest struct {
-	Contents []Content `json:"contents"`
+	Contents         []Content               `json:"contents"`
+	GenerationConfig *GeminiGenerationConfig `json:"generationConfig,omitempty"`
+}
+type GeminiGenerationConfig struct {
+	MaxOutputTokens int      `json:"maxOutputTokens,omitempty"`
+	Temperature     *float64 `json:"temperature,omitempty"`
 }
 type Content struct {
 	Parts []Part `json:"parts"`

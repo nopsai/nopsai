@@ -12,6 +12,8 @@ import (
 
 	"nopsai/config"
 	"nopsai/services/nopsai/internal/configsync"
+
+	"gopkg.in/yaml.v3"
 )
 
 func setupProfiles() []setupStarterProfile {
@@ -276,7 +278,9 @@ func setupStarterTemplatesWithOptions(profile string, repositories []string, opt
 		"scopes/dev/scope.yaml":                     setupScopeYAML(profile, "dev"),
 		"knowledge/guideline/platform/setup-run.md": setupKnowledgeMarkdown(profile),
 		"access/bootstrap.yaml":                     setupAccessYAML(profile, repositoryGroups, options.Users),
-		"config-repositories/groups/structure.yaml": setupConfigRepositoryStructureYAML(repositoryGroups, repositories),
+	}
+	for path, content := range setupConfigRepositoryStructureFiles(repositoryGroups, repositories) {
+		files[path] = content
 	}
 	if options.IncludeLLM {
 		files["setting/system/llm_profile.yaml"] = setupLLMProfileYAML(options.LLMProfile)
@@ -528,38 +532,48 @@ func setupLLMProfileYAML(input setupLLMProfileInput) string {
 	}
 	model := strings.TrimSpace(input.Model)
 	if model == "" {
-		if provider == config.LLMProviderGemini {
-			model = "gemini-2.5-flash"
-		} else {
-			model = "qwen3-coder"
-		}
+		model = config.DefaultLLMProviderModel(provider)
 	}
 	apiKeySecret := strings.TrimSpace(input.APIKeySecret)
-	if apiKeySecret == "" && provider == config.LLMProviderGemini {
-		apiKeySecret = "GEMINI_API_KEY"
+	if apiKeySecret == "" {
+		apiKeySecret = config.DefaultLLMProviderAPIKeySecret(provider)
 	}
 	baseURL := strings.TrimSpace(input.BaseURL)
-	if baseURL == "" && provider == config.LLMProviderLMStudio {
-		baseURL = "http://lmstudio:1234"
+	if baseURL == "" {
+		baseURL = config.DefaultLLMProviderBaseURL(provider)
 	}
 
-	var builder strings.Builder
-	builder.WriteString(strings.TrimSpace(`
-default_profile: standard
-
-profiles:
-  - name: standard
-`) + "\n")
-	builder.WriteString(fmt.Sprintf("    provider: %s\n", provider))
-	builder.WriteString(fmt.Sprintf("    model: %s\n", model))
-	if baseURL != "" {
-		builder.WriteString(fmt.Sprintf("    base_url: %s\n", baseURL))
+	document := struct {
+		DefaultProfile string `yaml:"default_profile"`
+		Profiles       []struct {
+			Name              string `yaml:"name"`
+			config.LLMProfile `yaml:",inline"`
+		} `yaml:"profiles"`
+	}{
+		DefaultProfile: config.DefaultLLMProfileName,
 	}
-	if apiKeySecret != "" {
-		builder.WriteString(fmt.Sprintf("    api_key_secret: %s\n", apiKeySecret))
+	document.Profiles = append(document.Profiles, struct {
+		Name              string `yaml:"name"`
+		config.LLMProfile `yaml:",inline"`
+	}{
+		Name: config.DefaultLLMProfileName,
+		LLMProfile: config.NormalizeLLMProfile(config.LLMProfile{
+			Provider:       provider,
+			Model:          model,
+			BaseURL:        baseURL,
+			APIKeySecret:   apiKeySecret,
+			AllowedScopes:  []string{"dev", "prod"},
+			TimeoutSeconds: input.TimeoutSeconds,
+			MaxTokens:      input.MaxTokens,
+			Temperature:    input.Temperature,
+			Extra:          input.Extra,
+		}),
+	})
+	contents, err := yaml.Marshal(document)
+	if err != nil {
+		return ""
 	}
-	builder.WriteString("    allowed_scopes: [\"dev\", \"prod\"]\n")
-	return builder.String()
+	return string(contents)
 }
 
 func setupMCPYAML() string {
@@ -588,25 +602,26 @@ mcp_profiles:
 `) + "\n"
 }
 
-func setupConfigRepositoryStructureYAML(repositoryGroups []setupRepositoryGroupInput, repositories []string) string {
-	var builder strings.Builder
+func setupConfigRepositoryStructureFiles(repositoryGroups []setupRepositoryGroupInput, repositories []string) map[string]string {
+	files := map[string]string{}
 	repositoryGroups = normalizeSetupRepositoryGroups(repositoryGroups, repositories)
-	if len(repositoryGroups) == 0 {
-		builder.WriteString("{}\n")
+	for _, group := range repositoryGroups {
+		files[configRepositoryGroupStructurePathForScope(group.Name)] = setupConfigRepositoryGroupStructureYAML(group)
+	}
+	return files
+}
+
+func setupConfigRepositoryGroupStructureYAML(group setupRepositoryGroupInput) string {
+	var builder strings.Builder
+	builder.WriteString("description: Repository group\n")
+	if len(group.Repositories) == 0 {
+		builder.WriteString("apps: []\n")
 		return builder.String()
 	}
-	for _, group := range repositoryGroups {
-		builder.WriteString(fmt.Sprintf("%s:\n", group.Name))
-		builder.WriteString("  description: Repository group\n")
-		if len(group.Repositories) == 0 {
-			builder.WriteString("  apps: []\n")
-			continue
-		}
-		builder.WriteString("  apps:\n")
-		for _, repo := range group.Repositories {
-			builder.WriteString(fmt.Sprintf("    - name: %s\n", configsync.RepositoryDisplayNameFromFullName(repo)))
-			builder.WriteString(fmt.Sprintf("      repo_url: %s\n", configsync.CanonicalRepositoryURL(repo)))
-		}
+	builder.WriteString("apps:\n")
+	for _, repo := range group.Repositories {
+		builder.WriteString(fmt.Sprintf("  - name: %s\n", configsync.RepositoryDisplayNameFromFullName(repo)))
+		builder.WriteString(fmt.Sprintf("    repo_url: %s\n", configsync.CanonicalRepositoryURL(repo)))
 	}
 	return builder.String()
 }

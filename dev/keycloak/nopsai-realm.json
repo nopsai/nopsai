@@ -81,19 +81,19 @@
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
       "redirectUris": [
-        "http://192.168.1.143/",
-        "http://192.168.1.143:8080/",
-        "http://192.168.1.143/v1/auth/oidc/nopsai/callback",
-        "http://192.168.1.143:8080/v1/auth/oidc/nopsai/callback",
-        "http://192.168.1.143/v1/auth/oidc/keycloak/callback",
-        "http://192.168.1.143:8080/v1/auth/oidc/keycloak/callback"
+        "http://nopsai-ui.pre-nopsai.orb.local/",
+        "http://nopsai-ui.pre-nopsai.orb.local:8080/",
+        "http://nopsai-ui.pre-nopsai.orb.local/v1/auth/oidc/nopsai/callback",
+        "http://nopsai-ui.pre-nopsai.orb.local:8080/v1/auth/oidc/nopsai/callback",
+        "http://nopsai-ui.pre-nopsai.orb.local/v1/auth/oidc/keycloak/callback",
+        "http://nopsai-ui.pre-nopsai.orb.local:8080/v1/auth/oidc/keycloak/callback"
       ],
       "webOrigins": [
-        "http://192.168.1.143",
-        "http://192.168.1.143:5173",
-        "http://192.168.1.143:4173",
-        "http://192.168.1.143:8080",
-        "http://192.168.1.143:8080"
+        "http://nopsai-ui.pre-nopsai.orb.local",
+        "http://nopsai-ui.pre-nopsai.orb.local:5173",
+        "http://nopsai-ui.pre-nopsai.orb.local:4173",
+        "http://nopsai-ui.pre-nopsai.orb.local:8080",
+        "http://nopsai-ui.pre-nopsai.orb.local:8080"
       ],
       "attributes": {
         "pkce.code.challenge.method": "S256",

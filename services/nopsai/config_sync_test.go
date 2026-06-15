@@ -576,18 +576,8 @@ func TestEffectivePipelineRunStructureForSystemUsesConfigRepositoryGroups(t *tes
 			enabled:   true,
 		},
 	}
-	structure := map[string]*configsync.PipelineRunStructureNode{
-		"team-1": {
-			Description: "Should not be applied from global structure",
-			Repos:       []string{"acme/team-1"},
-			Children: map[string]*configsync.PipelineRunStructureNode{
-				"dev": {Description: "Should not be created", Children: map[string]*configsync.PipelineRunStructureNode{}},
-			},
-		},
-		"shared": {Description: "Should not be created", Children: map[string]*configsync.PipelineRunStructureNode{}},
-	}
 
-	got, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, structure, nil, []string{"team-1", "team-2/platform"})
+	got, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, nil)
 	if err != nil {
 		t.Fatalf("effectivePipelineRunStructureForConfigSync() error = %v", err)
 	}
@@ -605,12 +595,9 @@ func TestEffectivePipelineRunStructureForSystemUsesConfigRepositoryGroups(t *tes
 	if _, ok := team2.Children["platform"]; !ok {
 		t.Fatal("expected team-2/platform shell from nested config repository binding")
 	}
-	if _, ok := got["shared"]; ok {
-		t.Fatal("did not expect unbound shared group from global structure")
-	}
 }
 
-func TestEffectivePipelineRunStructureForGroupFiltersNestedConfigRepositoryGroups(t *testing.T) {
+func TestEffectivePipelineRunStructureForGroupUsesConfigRepositoryStructure(t *testing.T) {
 	binding := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"}
 	configRepositories := map[string]storedConfigRepository{
 		"folder/team-1/platform": {
@@ -624,12 +611,12 @@ func TestEffectivePipelineRunStructureForGroupFiltersNestedConfigRepositoryGroup
 			Description: "Owned by team-1 repo",
 			Children: map[string]*configsync.PipelineRunStructureNode{
 				"dev":      {Description: "Owned by team-1 repo", Children: map[string]*configsync.PipelineRunStructureNode{}},
-				"platform": {Description: "Owned by nested repo", Children: map[string]*configsync.PipelineRunStructureNode{}},
+				"platform": {Description: "Platform shell", Children: map[string]*configsync.PipelineRunStructureNode{}},
 			},
 		},
 	}
 
-	got, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, structure, nil, []string{"team-1/platform"})
+	got, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, structure)
 	if err != nil {
 		t.Fatalf("effectivePipelineRunStructureForConfigSync() error = %v", err)
 	}
@@ -647,8 +634,8 @@ func TestEffectivePipelineRunStructureForGroupFiltersNestedConfigRepositoryGroup
 	if !ok {
 		t.Fatal("expected delegated team-1/platform shell from config repository binding")
 	}
-	if platform.Description != "" || len(platform.Children) != 0 {
-		t.Fatalf("platform structure = %#v, want empty shell", platform)
+	if platform.Description != "Platform shell" || len(platform.Children) != 0 {
+		t.Fatalf("platform structure = %#v, want colocated structure", platform)
 	}
 }
 
@@ -661,20 +648,15 @@ func TestConfigRepositoryGroupStructureAppliesInsideDelegatedGroup(t *testing.T)
 			enabled:   true,
 		},
 	}
-	globalStructure := map[string]*configsync.PipelineRunStructureNode{
-		"team-1": {
-			Description: "Ignored from legacy pipelineruns structure",
-			Repos:       []string{"acme/ignored"},
-			Children:    map[string]*configsync.PipelineRunStructureNode{},
-		},
-	}
 	groupStructure, ok, err := configsync.ParseConfigRepositoryGroupPipelineRunStructure("groups/team-1/structure.yaml", `
 description: Team 1 apps
-repos:
-  - hosein-yousefii/test-app
+apps:
+  - name: test-app
+    repo_url: https://github.com/hosein-yousefii/test-app
 dev:
-  repos:
-    - hosein-yousefii/dev-app
+  apps:
+    - name: dev-app
+      repo_url: https://github.com/hosein-yousefii/dev-app
 `)
 	if err != nil {
 		t.Fatalf("configsync.ParseConfigRepositoryGroupPipelineRunStructure() error = %v", err)
@@ -683,7 +665,7 @@ dev:
 		t.Fatal("expected groups/team-1/structure.yaml to be treated as a group structure file")
 	}
 
-	got, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, globalStructure, groupStructure, []string{"team-1"})
+	got, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, groupStructure)
 	if err != nil {
 		t.Fatalf("effectivePipelineRunStructureForConfigSync() error = %v", err)
 	}
@@ -694,38 +676,37 @@ dev:
 	if team1.Description != "Team 1 apps" {
 		t.Fatalf("team-1 description = %q", team1.Description)
 	}
-	if len(team1.Repos) != 1 || team1.Repos[0] != "hosein-yousefii/test-app" {
-		t.Fatalf("team-1 repos = %#v, want hosein-yousefii/test-app", team1.Repos)
+	if len(team1.Apps) != 1 || team1.Apps[0].RepositoryFullName != "hosein-yousefii/test-app" {
+		t.Fatalf("team-1 apps = %#v, want hosein-yousefii/test-app", team1.Apps)
 	}
 	dev, ok := team1.Children["dev"]
 	if !ok {
 		t.Fatal("expected team-1/dev from config-repositories group structure")
 	}
-	if len(dev.Repos) != 1 || dev.Repos[0] != "hosein-yousefii/dev-app" {
-		t.Fatalf("team-1/dev repos = %#v, want hosein-yousefii/dev-app", dev.Repos)
+	if len(dev.Apps) != 1 || dev.Apps[0].RepositoryFullName != "hosein-yousefii/dev-app" {
+		t.Fatalf("team-1/dev apps = %#v, want hosein-yousefii/dev-app", dev.Apps)
 	}
 }
 
 func TestConfigRepositoryGroupStructureCollectsInlineConfig(t *testing.T) {
-	structure, ok, err := configsync.ParseConfigRepositoryGroupPipelineRunStructure("groups/structure.yaml", `
-data-team:
-  description: Owns data-team scoped configuration
-  config:
-    repo_url: git@github.com:hosein-yousefii/nopsai-data-team-config.git
-    branch: main
-    base_path: ""
-    enabled: true
-    write_enabled: true
-    write_branch: nopsai/data-team-ui
+	structure, ok, err := configsync.ParseConfigRepositoryGroupPipelineRunStructure("groups/data-team/structure.yaml", `
+description: Owns data-team scoped configuration
+config:
+  repo_url: git@github.com:hosein-yousefii/nopsai-data-team-config.git
+  branch: main
+  base_path: ""
+  enabled: true
+  write_enabled: true
+  write_branch: nopsai/data-team-ui
 `)
 	if err != nil {
 		t.Fatalf("configsync.ParseConfigRepositoryGroupPipelineRunStructure() error = %v", err)
 	}
 	if !ok {
-		t.Fatal("expected groups/structure.yaml to be treated as a group structure file")
+		t.Fatal("expected groups/data-team/structure.yaml to be treated as a group structure file")
 	}
 
-	bindings, err := configRepositoryBindingsFromPipelineRunStructure(structure, "config-repositories/groups/structure.yaml")
+	bindings, err := configRepositoryBindingsFromPipelineRunStructure(structure, "config-repositories/groups/data-team/structure.yaml")
 	if err != nil {
 		t.Fatalf("configRepositoryBindingsFromPipelineRunStructure() error = %v", err)
 	}

@@ -10,7 +10,6 @@ import (
 
 type DriftPathOptions struct {
 	ExternalTriggersDirectory string
-	NotificationsDirectory    string
 	SettingsRelativePath      func(string) bool
 }
 
@@ -40,27 +39,6 @@ func ExportPath(repo models.ConfigRepository, identifier, sourcePath, directory,
 		return "", false
 	}
 	return filepath.ToSlash(filepath.Join(directory, relID+extension)), true
-}
-
-func NotificationRoutePath(repo models.ConfigRepository, groupPath, sourcePath string, managed bool, configRepoID sql.NullInt64, options DriftPathOptions) (string, bool) {
-	options = normalizeDriftPathOptions(options)
-	if managed && configRepoID.Valid && configRepoID.Int64 == repo.ID && strings.TrimSpace(sourcePath) != "" {
-		return ManagedSourcePath(repo, sourcePath, options)
-	}
-	relID, ok := RelativeResourceIdentifier(repo, groupPath)
-	if !ok {
-		return "", false
-	}
-	if repo.ScopeType == models.ConfigRepositoryScopeFolder {
-		if relID == "" {
-			return "notifications.yaml", true
-		}
-		return filepath.ToSlash(filepath.Join(options.NotificationsDirectory, relID+".yaml")), true
-	}
-	if relID == "" {
-		return "", false
-	}
-	return filepath.ToSlash(filepath.Join(options.NotificationsDirectory, "groups", relID+".yaml")), true
 }
 
 func ScopeFilePath(repo models.ConfigRepository, scope, sourcePath string, managed bool, configRepoID sql.NullInt64, options DriftPathOptions) (string, bool) {
@@ -143,8 +121,6 @@ func IsDriftPath(filePath string, options DriftPathOptions) bool {
 		"schedules/",
 		"scopes/",
 		"knowledge/",
-		options.NotificationsDirectory + "/",
-		"pipelineruns/",
 		"config-repositories/",
 	} {
 		if strings.HasPrefix(filePath, prefix) {
@@ -153,9 +129,6 @@ func IsDriftPath(filePath string, options DriftPathOptions) bool {
 	}
 	if strings.HasPrefix(filePath, "access/") && isYAMLFile(filePath) {
 		return true
-	}
-	if rel, ok := strings.CutPrefix(filePath, "settings/"); ok {
-		return options.SettingsRelativePath(rel)
 	}
 	if rel, ok := strings.CutPrefix(filePath, "setting/"); ok {
 		return options.SettingsRelativePath(rel)
@@ -175,10 +148,6 @@ func normalizeDriftPathOptions(options DriftPathOptions) DriftPathOptions {
 	options.ExternalTriggersDirectory = strings.Trim(strings.TrimSpace(options.ExternalTriggersDirectory), "/")
 	if options.ExternalTriggersDirectory == "" {
 		options.ExternalTriggersDirectory = "external-triggers"
-	}
-	options.NotificationsDirectory = strings.Trim(strings.TrimSpace(options.NotificationsDirectory), "/")
-	if options.NotificationsDirectory == "" {
-		options.NotificationsDirectory = "notifications"
 	}
 	if options.SettingsRelativePath == nil {
 		options.SettingsRelativePath = func(string) bool { return false }

@@ -1,6 +1,9 @@
 package configsync
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseBindingPath(t *testing.T) {
 	tests := []struct {
@@ -63,8 +66,9 @@ apps:
     repo_url: https://github.com/acme/service-api.git
   - git@github.com:acme/worker.git
 dev:
-  repos:
-    - acme/dev-api
+  apps:
+    - name: dev-api
+      repo_url: https://github.com/acme/dev-api
 `)
 	if err != nil {
 		t.Fatalf("ParseConfigRepositoryGroupPipelineRunStructure() error = %v", err)
@@ -90,8 +94,31 @@ dev:
 		t.Fatalf("second app = %#v, want worker -> acme/worker", team.Apps[1])
 	}
 	dev := team.Children["dev"]
-	if dev == nil || len(dev.Repos) != 1 || dev.Repos[0] != "acme/dev-api" {
-		t.Fatalf("dev repos = %#v, want acme/dev-api", dev)
+	if dev == nil || len(dev.Apps) != 1 || dev.Apps[0].RepositoryFullName != "acme/dev-api" {
+		t.Fatalf("dev apps = %#v, want acme/dev-api", dev)
+	}
+}
+
+func TestParseConfigRepositoryGroupPipelineRunStructureRejectsReposShortcut(t *testing.T) {
+	_, _, err := ParseConfigRepositoryGroupPipelineRunStructure("groups/team-1/structure.yaml", `
+repos:
+  - acme/service-api
+`)
+	if err == nil || !strings.Contains(err.Error(), "repos is not supported") {
+		t.Fatalf("error = %v, want unsupported repos message", err)
+	}
+}
+
+func TestParseConfigRepositoryGroupPipelineRunStructureRejectsAggregateFile(t *testing.T) {
+	_, ok, err := ParseConfigRepositoryGroupPipelineRunStructure("groups/structure.yaml", `
+team-1:
+  description: Team 1
+`)
+	if !ok {
+		t.Fatal("expected aggregate structure path to be recognized and rejected")
+	}
+	if err == nil || !strings.Contains(err.Error(), "aggregate group structure file is not supported") {
+		t.Fatalf("error = %v, want aggregate structure rejection", err)
 	}
 }
 

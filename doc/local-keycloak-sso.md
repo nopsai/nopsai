@@ -127,8 +127,7 @@ oidc:
 non-GitOps deployments, but the checked-in local config intentionally leaves
 OIDC out so the config repository remains the source of truth.
 
-`settings/system/auth.yaml` is accepted during sync for compatibility, but
-exports use the canonical `setting/system/auth.yaml` path. For production,
+Use `setting/system/auth.yaml` for GitOps-managed auth settings. For production,
 provider secrets such as `client_secret`,
 `entitlement_sync.admin_client_secret`, and `entitlement_sync.admin_password`
 can be omitted from Git; when omitted, sync preserves the stored local values

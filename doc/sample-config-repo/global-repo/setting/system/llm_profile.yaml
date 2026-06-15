@@ -19,3 +19,33 @@ profiles:
     model: google/gemma-4-e4b
     base_url: http://lmstudio:1234
     reasoning: off
+
+  - name: hosted
+    provider: openai
+    model: gpt-4.1-mini
+    api_key_secret: OPENAI_API_KEY
+    timeout_seconds: 60
+    max_tokens: 4096
+    allowed_scopes: ["dev", "prod"]
+
+  - name: claude-review
+    provider: anthropic
+    model: claude-sonnet-4-6
+    api_key_secret: ANTHROPIC_API_KEY
+    max_tokens: 4096
+    allowed_scopes: ["prod"]
+
+  - name: local-ollama
+    provider: ollama
+    model: qwen2.5-coder:14b
+    base_url: http://ollama:11434/v1
+    allowed_scopes: ["dev"]
+
+  - name: routed
+    provider: openrouter
+    model: openai/gpt-4.1-mini
+    api_key_secret: OPENROUTER_API_KEY
+    extra:
+      http_referer: https://nopsai.example.com
+      x_title: NopsAI
+    allowed_scopes: ["dev", "prod"]

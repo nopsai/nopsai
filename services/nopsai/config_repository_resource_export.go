@@ -295,12 +295,16 @@ func (a *App) exportConfigRepositorySchedules(ctx context.Context, repo models.C
 }
 
 func (a *App) exportConfigRepositoryNotificationRoutes(ctx context.Context, repo models.ConfigRepository, delegatedScopes []string, files map[string]string) error {
+	groupRecords, err := loadGroupPathRecords(ctx, a.db)
+	if err != nil {
+		return fmt.Errorf("failed to resolve notification group paths: %w", err)
+	}
+
 	rows, err := a.db.Query(ctx, `
 		SELECT nr.definition::text, COALESCE(nr.source, 'database'), nr.config_repo_id,
-		       nr.managed_by_config_repo, COALESCE(nr.config_source_path, ''), g.name
+		       nr.managed_by_config_repo, COALESCE(nr.config_source_path, ''), nr.group_id
 		FROM notification_routes nr
-		JOIN groups g ON g.id = nr.group_id
-		ORDER BY g.name ASC
+		ORDER BY nr.group_id ASC
 	`)
 	if err != nil {
 		return err
@@ -308,10 +312,15 @@ func (a *App) exportConfigRepositoryNotificationRoutes(ctx context.Context, repo
 	defer rows.Close()
 
 	for rows.Next() {
-		var definitionRaw, source, sourcePath, groupPath string
+		var definitionRaw, source, sourcePath string
 		var configRepoID sql.NullInt64
 		var managed bool
-		if err := rows.Scan(&definitionRaw, &source, &configRepoID, &managed, &sourcePath, &groupPath); err != nil {
+		var groupID int
+		if err := rows.Scan(&definitionRaw, &source, &configRepoID, &managed, &sourcePath, &groupID); err != nil {
+			return err
+		}
+		groupPath, err := notificationRouteGroupPath(groupRecords, groupID)
+		if err != nil {
 			return err
 		}
 		if !configRepositoryIncludesResource(repo, groupPath, source, configRepoID, managed, delegatedScopes) {
@@ -336,4 +345,16 @@ func (a *App) exportConfigRepositoryNotificationRoutes(ctx context.Context, repo
 		files[filePath] = string(content)
 	}
 	return rows.Err()
+}
+
+func notificationRouteGroupPath(records map[int]groupPathRecord, groupID int) (string, error) {
+	record, ok := records[groupID]
+	if !ok {
+		return "", fmt.Errorf("notification route references unknown group %d", groupID)
+	}
+	groupPath := strings.Trim(strings.TrimSpace(record.Path), "/")
+	if groupPath == "" {
+		return "", fmt.Errorf("notification route group %d has no resolved path", groupID)
+	}
+	return groupPath, nil
 }

@@ -86,12 +86,9 @@ triggers/              Trigger override manifests
 external-triggers/     Authenticated external trigger endpoints
 scopes/                Scope variable and secret key files
 knowledge/             Managed knowledge context markdown documents
-pipelineruns/          Run group structure
-config-repositories/   Group config repo bindings
+config-repositories/   Group config repo bindings, group structure, and colocated notifications
 access/                Users, service accounts, advanced roles, policies, and basic role grants
-notifications/         Group pipeline notification policies with named routes
-setting/               System settings such as auth, Agent Profiles, LLM, MCP, and runtime settings
-settings/              System notification mail settings
+setting/               System settings such as auth, mail, Agent Profiles, LLM, MCP, and runtime settings
 ```
 
 Scope files use separate `variables:` and `secrets:` sections. Variables must be
@@ -155,8 +152,17 @@ global-repo/knowledge/architecture/team-1/backend.md
 global-repo/config-repositories/groups/team-2/platform.yaml
   -> config repo binding and group shell for group team-2/platform
 
-global-repo/config-repositories/groups/structure.yaml
-  -> Pipeline Runs group structure, apps with repository URLs under group shells, and inline group config repo binding for team-1
+global-repo/config-repositories/groups/team-1/structure.yaml
+  -> Pipeline Runs group structure, apps with repository URLs under the team-1 group shell, and inline group config repo binding
+
+global-repo/config-repositories/groups/data-team/structure.yaml
+  -> Pipeline Runs group structure and inline group config repo binding for data-team
+
+global-repo/config-repositories/groups/team-2/structure.yaml
+  -> Pipeline Runs group structure and inline group config repo binding for the team-2 subtree
+
+global-repo/config-repositories/groups/platform/structure.yaml
+  -> Pipeline Runs group structure for platform automation
 
 global-repo/access/*.yaml
   -> global users, service accounts, advanced roles, policies, advanced role bindings, and basic role grants
@@ -164,7 +170,7 @@ global-repo/access/*.yaml
 global-repo/access/service-accounts.yaml
   -> service account identities webhook-deployer and servicenow-prod, plus scoped webhook grants and a least-privilege external trigger runner role
 
-global-repo/notifications/groups/team-2.yaml
+global-repo/config-repositories/groups/team-2/notifications.yaml
   -> group notification policy with named routes for team-2 pipeline events
 
 global-repo/setting/system/llm_profile.yaml
@@ -182,7 +188,7 @@ global-repo/setting/system/auth.yaml
 global-repo/setting/system/runner.yaml
   -> runner install defaults and dispatcher runtime routing
 
-global-repo/settings/system/mail.yaml
+global-repo/setting/system/mail.yaml
   -> SMTP mail notification settings with a password secret reference
 ```
 
@@ -282,7 +288,7 @@ timeouts, runner defaults, and dispatcher routing; secrets such as database URLs
 master keys, service JWT signing keys, webhook secrets, and service account
 tokens stay in local runtime configuration or a secret manager.
 
-System mail notification settings live in `settings/system/mail.yaml`. The SMTP
+System mail notification settings live in `setting/system/mail.yaml`. The SMTP
 password value is not stored in GitOps; `smtp.password_secret_ref` names an
 environment variable or runtime secret reference that the running service can
 resolve when it sends mail.
@@ -300,11 +306,9 @@ smtp:
 
 When the global repo defines group bindings under `config-repositories/groups`,
 those bindings create the group shells. Put app placement next to those bindings
-in `config-repositories/groups/structure.yaml` or in a scoped file such as
-`config-repositories/groups/team-1/structure.yaml`. A group node can include
-`apps:` entries with `name` and `repo_url`, plus `config:` with the same fields
-as a standalone binding file. Legacy `repos:` entries are still readable for
-migration.
+in scoped files such as `config-repositories/groups/team-1/structure.yaml`.
+A group node can include `apps:` entries with `name` and `repo_url`, plus
+`config:` with the same fields as a standalone binding file.
 
 ## Group Repo File Map
 
@@ -359,20 +363,21 @@ a shared parent-folder pipeline.
 
 Group notification policies control who receives pipeline event notifications for
 a run group. A system/global repo can define policies at
-`notifications/groups/<group>.yaml`; a delegated group repo can define
-`notifications.yaml` for the group it owns. Each file can contain one or more
-named `routes`, so teams can split failure, approval, and success notifications
-without creating competing GitOps files for the same group. Recipients can
-include direct users, groups, and the reserved `same_group` team. Exclusions are
-applied after includes. Event keys support failure, success, pending, running,
-waiting_approval, approval_requested, approval_approved, approval_rejected,
-cancelled, and skipped. Branch, pipeline, and repository filters use glob-style
-patterns, and delivery currently supports the `mail` channel. Policies apply to
-their group subtree, with the nearest policy in the run group's ancestry taking
-precedence. Schedules and external triggers can set `run_group_path` from the
-Pipeline Runs hierarchy when their run events should be routed to a notification
-group that differs from the target pipeline's group. The reserved `root` value
-always means the Pipeline Runs root, not a group named `root`.
+`config-repositories/groups/<group>/notifications.yaml` beside that group's
+structure file. A delegated group repo can define `notifications.yaml` for the
+group it owns. Each file can contain one or more named `routes`, so teams can
+split failure, approval, and success notifications without creating competing
+GitOps files for the same group. Recipients can include direct users, groups, and
+the reserved `same_group` team. Exclusions are applied after includes. Event keys
+support failure, success, pending, running, waiting_approval, approval_requested,
+approval_approved, approval_rejected, cancelled, and skipped. Branch, pipeline,
+and repository filters use glob-style patterns, and delivery currently supports
+the `mail` channel. Policies apply to their group subtree, with the nearest
+policy in the run group's ancestry taking precedence. Schedules and external
+triggers can set `run_group_path` from the Pipeline Runs hierarchy when their run
+events should be routed to a notification group that differs from the target
+pipeline's group. The reserved `root` value always means the Pipeline Runs root,
+not a group named `root`.
 
 Nopsai reads every `.yaml` and `.yml` file under `access/`; file names such as
 `all.yaml` or `grants.yaml` are only examples, so teams can split manifests by

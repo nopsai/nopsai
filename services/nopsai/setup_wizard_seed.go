@@ -122,17 +122,18 @@ func (a *App) seedSetupLLMProfile(ctx context.Context, input setupLLMProfileInpu
 	if provider == "" {
 		provider = config.LLMProviderLMStudio
 	}
+	provider = config.NormalizeLLMProvider(provider)
 	modelName := strings.TrimSpace(input.Model)
 	if modelName == "" {
-		modelName = "qwen3-coder"
+		modelName = config.DefaultLLMProviderModel(provider)
 	}
 	baseURL := strings.TrimSpace(input.BaseURL)
-	if baseURL == "" && config.NormalizeLLMProvider(provider) == config.LLMProviderLMStudio {
-		baseURL = "http://lmstudio:1234"
+	if baseURL == "" {
+		baseURL = config.DefaultLLMProviderBaseURL(provider)
 	}
 	apiKeySecret := strings.TrimSpace(input.APIKeySecret)
-	if apiKeySecret == "" && config.NormalizeLLMProvider(provider) == config.LLMProviderGemini {
-		apiKeySecret = "GEMINI_API_KEY"
+	if apiKeySecret == "" {
+		apiKeySecret = config.DefaultLLMProviderAPIKeySecret(provider)
 	}
 	allowedScopes := models.NormalizeScopeList(input.AllowedScopes)
 	if len(allowedScopes) == 0 {
@@ -146,11 +147,15 @@ func (a *App) seedSetupLLMProfile(ctx context.Context, input setupLLMProfileInpu
 	}
 	_, existed := profiles[name]
 	profiles[name] = config.NormalizeLLMProfile(config.LLMProfile{
-		Provider:      provider,
-		Model:         modelName,
-		BaseURL:       baseURL,
-		APIKeySecret:  apiKeySecret,
-		AllowedScopes: allowedScopes,
+		Provider:       provider,
+		Model:          modelName,
+		BaseURL:        baseURL,
+		APIKeySecret:   apiKeySecret,
+		AllowedScopes:  allowedScopes,
+		TimeoutSeconds: input.TimeoutSeconds,
+		MaxTokens:      input.MaxTokens,
+		Temperature:    input.Temperature,
+		Extra:          input.Extra,
 	})
 	cfg.LLMDefaultProfile = name
 	cfg.LLMProfiles = profiles

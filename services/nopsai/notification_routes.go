@@ -22,8 +22,6 @@ import (
 	"nopsai/services/nopsai/internal/configsync"
 )
 
-const notificationGitOpsDirectory = "notifications"
-
 var (
 	errNotificationGitOpsNotFound = errors.New("notification GitOps file not found")
 	notificationEventTypes        = []string{
@@ -467,9 +465,8 @@ func parseNotificationRouteDefinition(content, sourcePath string) (notificationR
 	return definition, nil
 }
 
-func parseGitOpsNotificationRoutes(files map[string]string, notificationDir, basePath string, binding models.ConfigRepository, boundFolder string) (map[string]storedNotificationRoute, error) {
+func parseGitOpsNotificationRoutes(files map[string]string, basePath string, binding models.ConfigRepository, boundFolder string) (map[string]storedNotificationRoute, error) {
 	routes := map[string]storedNotificationRoute{}
-	notificationDir = filepath.ToSlash(strings.Trim(notificationDir, "/"))
 	basePath = filepath.ToSlash(strings.Trim(basePath, "/"))
 	rootRoutePath := configsync.RepoJoinPath(basePath, "notifications.yaml")
 
@@ -479,32 +476,55 @@ func parseGitOpsNotificationRoutes(files map[string]string, notificationDir, bas
 			continue
 		}
 
-		var groupPath string
-		if binding.ScopeType == models.ConfigRepositoryScopeFolder && normalized == rootRoutePath {
-			groupPath = boundFolder
-		} else {
-			rel, ok := configsync.RelativePath(normalized, notificationDir)
-			if !ok || rel == "" || strings.HasSuffix(rel, "/") || !isYAMLFile(rel) {
-				continue
-			}
-			if binding.ScopeType == models.ConfigRepositoryScopeSystem {
-				routePath, ok := strings.CutPrefix(rel, "groups/")
-				if !ok {
-					continue
-				}
-				groupPath = strings.TrimSuffix(routePath, filepath.Ext(routePath))
-			} else {
-				routePath := strings.TrimSuffix(rel, filepath.Ext(rel))
-				switch strings.ToLower(strings.Trim(routePath, "/")) {
-				case "route", "routes", "notification", "notifications", "index":
-					groupPath = boundFolder
-				default:
-					var err error
-					groupPath, err = configsync.NormalizePathForFolder(boundFolder, routePath)
-					if err != nil {
-						return nil, fmt.Errorf("invalid notification route path '%s': %w", normalized, err)
-					}
-				}
+		if binding.ScopeType != models.ConfigRepositoryScopeFolder || normalized != rootRoutePath {
+			continue
+		}
+		groupPath := boundFolder
+		groupPath = normalizeNotificationGroupPath(groupPath)
+		if groupPath == "" {
+			return nil, fmt.Errorf("notification route '%s' must target a group path", normalized)
+		}
+		if binding.ScopeType == models.ConfigRepositoryScopeFolder && !configsync.ResourceUnderScope(groupPath, boundFolder) {
+			return nil, fmt.Errorf("notification route '%s' targets group '%s' outside bound group '%s'", normalized, groupPath, boundFolder)
+		}
+		definition, err := parseNotificationRouteDefinition(content, normalized)
+		if err != nil {
+			return nil, err
+		}
+		key := strings.ToLower(groupPath)
+		if _, exists := routes[key]; exists {
+			return nil, fmt.Errorf("duplicate notification route for group '%s' detected", groupPath)
+		}
+		routes[key] = storedNotificationRoute{
+			groupPath:  groupPath,
+			definition: definition,
+			sourcePath: normalized,
+		}
+	}
+	return routes, nil
+}
+
+func parseGitOpsConfigRepositoryNotificationRoutes(files map[string]string, configRepositoryDir string, binding models.ConfigRepository, boundFolder string) (map[string]storedNotificationRoute, error) {
+	routes := map[string]storedNotificationRoute{}
+	configRepositoryDir = filepath.ToSlash(strings.Trim(configRepositoryDir, "/"))
+
+	for rawPath, content := range files {
+		normalized := filepath.ToSlash(rawPath)
+		rel, ok := configsync.RelativePath(normalized, configRepositoryDir)
+		if !ok {
+			continue
+		}
+		groupPath, ok, err := configRepositoryGroupNotificationRoutePath(rel)
+		if err != nil {
+			return nil, fmt.Errorf("invalid notification route path '%s': %w", normalized, err)
+		}
+		if !ok {
+			continue
+		}
+		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+			groupPath, err = configsync.NormalizePathForFolder(boundFolder, groupPath)
+			if err != nil {
+				return nil, fmt.Errorf("invalid notification route path '%s': %w", normalized, err)
 			}
 		}
 		groupPath = normalizeNotificationGroupPath(groupPath)
@@ -529,6 +549,26 @@ func parseGitOpsNotificationRoutes(files map[string]string, notificationDir, bas
 		}
 	}
 	return routes, nil
+}
+
+func configRepositoryGroupNotificationRoutePath(rel string) (string, bool, error) {
+	path := strings.Trim(strings.ReplaceAll(filepath.ToSlash(rel), "\\", "/"), "/")
+	if path == "" || !isYAMLFile(path) {
+		return "", false, nil
+	}
+	parts := strings.Split(path, "/")
+	if len(parts) < 3 || parts[0] != "groups" {
+		return "", false, nil
+	}
+	fileName := strings.ToLower(parts[len(parts)-1])
+	if fileName != "notifications.yaml" && fileName != "notifications.yml" {
+		return "", false, nil
+	}
+	groupPath := strings.Trim(strings.Join(parts[1:len(parts)-1], "/"), "/")
+	if _, err := configsync.CleanPathSegments(groupPath, false); err != nil {
+		return "", true, err
+	}
+	return groupPath, true, nil
 }
 
 func notificationRouteResourceScope(route storedNotificationRoute) string {

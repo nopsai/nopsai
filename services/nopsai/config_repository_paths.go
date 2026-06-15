@@ -2,6 +2,7 @@ package nopsai
 
 import (
 	"database/sql"
+	"path/filepath"
 	"strings"
 
 	"nopsai/pkg/models"
@@ -13,10 +14,10 @@ const (
 	configRepositoryAccessAllPath             = "access/all.yaml"
 	configRepositoryAccessGrantsPath          = "access/grants.yaml"
 	configRepositoryServiceAccountsAccessPath = "access/service-accounts.yaml"
-	configRepositoryGroupStructurePath        = "config-repositories/groups/structure.yaml"
 	configRepositoryLLMProfilesPath           = "setting/system/llm_profile.yaml"
 	configRepositoryAgentProfilesPath         = "setting/system/agent-profiles.yaml"
 	configRepositoryMCPRegistryPath           = "setting/system/mcp.yaml"
+	configRepositoryMailSettingsPath          = "setting/system/mail.yaml"
 )
 
 func configRepositoryIncludesResource(repo models.ConfigRepository, identifier, source string, configRepoID sql.NullInt64, managed bool, delegatedScopes []string) bool {
@@ -28,7 +29,17 @@ func configRepositoryExportPath(repo models.ConfigRepository, identifier, source
 }
 
 func configRepositoryNotificationRoutePath(repo models.ConfigRepository, groupPath, sourcePath string, managed bool, configRepoID sql.NullInt64) (string, bool) {
-	return configsync.NotificationRoutePath(repo, groupPath, sourcePath, managed, configRepoID, configRepositoryDriftPathOptions())
+	relID, ok := configsync.RelativeResourceIdentifier(repo, groupPath)
+	if !ok {
+		return "", false
+	}
+	if repo.ScopeType == models.ConfigRepositoryScopeFolder && relID == "" {
+		return "notifications.yaml", true
+	}
+	if relID == "" {
+		return "", false
+	}
+	return filepath.ToSlash(filepath.Join("config-repositories", "groups", relID, "notifications.yaml")), true
 }
 
 func configRepositoryScopeFilePath(repo models.ConfigRepository, scope, sourcePath string, managed bool, configRepoID sql.NullInt64) (string, bool) {
@@ -63,7 +74,6 @@ func isConfigRepositorySettingsDriftPath(rel string) bool {
 func configRepositoryDriftPathOptions() configsync.DriftPathOptions {
 	return configsync.DriftPathOptions{
 		ExternalTriggersDirectory: externalTriggersGitOpsDirectory,
-		NotificationsDirectory:    notificationGitOpsDirectory,
 		SettingsRelativePath:      isConfigRepositorySettingsDriftPath,
 	}
 }

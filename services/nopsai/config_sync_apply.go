@@ -14,7 +14,6 @@ import (
 )
 
 func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepository, plan configSyncPlan, details map[string]int, commitSHA string) error {
-	pipelineRunStructure := plan.pipelineRunStructure
 	configRepositoryPipelineRunStructure := plan.configRepositoryPipelineRunStructure
 	configRepositories := plan.configRepositories
 	accessPlan := plan.accessPlan
@@ -49,7 +48,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 	}
 	filterDelegatedConfigResources(binding, overrideScopes, pipelines, steps, schedules, externalTriggers, notificationRoutes, knowledgeContexts, generalScopeVars, repoScopeVars, generalScopeSecrets, repoScopeSecrets, triggers)
 	filterDelegatedAccessResources(accessPlan, binding, overrideScopes)
-	effectivePipelineRunStructure, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, pipelineRunStructure, configRepositoryPipelineRunStructure, overrideScopes)
+	effectivePipelineRunStructure, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, configRepositoryPipelineRunStructure)
 	if err != nil {
 		return err
 	}

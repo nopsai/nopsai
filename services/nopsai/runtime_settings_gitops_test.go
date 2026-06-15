@@ -20,9 +20,9 @@ func TestParseGitOpsRuntimeSettingsPlan(t *testing.T) {
 	plan, err := parseGitOpsRuntimeSettingsPlan(
 		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID},
 		gitOpsRuntimeSettingsDirectory{
-			root: "settings",
+			root: "setting",
 			files: map[string]string{
-				"settings/system/runner.yaml": `
+				"setting/system/runner.yaml": `
 dispatcher_address: dispatcher:9090
 dispatcher_routing:
   prod:
@@ -59,8 +59,6 @@ func TestParseGitOpsRuntimeSettingsPlanSupportsOnlyRunnerYAML(t *testing.T) {
 		sourcePath string
 	}{
 		{name: "setting runner", root: "setting", path: "setting/system/runner.yaml", sourcePath: "setting/system/runner.yaml"},
-		{name: "settings runner", root: "settings", path: "settings/system/runner.yaml", sourcePath: "settings/system/runner.yaml"},
-		{name: "empty root runner", root: "", path: "system/runner.yaml", sourcePath: "system/runner.yaml"},
 	}
 
 	for _, tt := range tests {
@@ -97,11 +95,11 @@ func TestParseGitOpsRuntimeSettingsPlanReturnsNilWhenNoRuntimeFile(t *testing.T)
 	plan, err := parseGitOpsRuntimeSettingsPlan(
 		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"},
 		gitOpsRuntimeSettingsDirectory{
-			root: "settings",
+			root: "setting",
 			files: map[string]string{
-				"settings/system/not-runtime.yaml": "runner_id: ignored",
-				"settings/system/runtime.yaml":     "runner_id: ignored",
-				"elsewhere/system/runner.yaml":     "runner_id: ignored",
+				"setting/system/not-runtime.yaml": "runner_id: ignored",
+				"setting/system/runtime.yaml":     "runner_id: ignored",
+				"elsewhere/system/runner.yaml":    "runner_id: ignored",
 			},
 		},
 	)
@@ -117,39 +115,14 @@ func TestParseGitOpsRuntimeSettingsPlanRejectsNonSystemRepo(t *testing.T) {
 	_, err := parseGitOpsRuntimeSettingsPlan(
 		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"},
 		gitOpsRuntimeSettingsDirectory{
-			root: "settings",
-			files: map[string]string{
-				"settings/system/runner.yaml": "runner_id: runner-a",
-			},
-		},
-	)
-	if err == nil || !strings.Contains(err.Error(), "system config repository") {
-		t.Fatalf("expected system-scope error, got %v", err)
-	}
-}
-
-func TestParseGitOpsRuntimeSettingsPlanRejectsMultipleRuntimeFiles(t *testing.T) {
-	_, err := parseGitOpsRuntimeSettingsPlan(
-		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID},
-		gitOpsRuntimeSettingsDirectory{
 			root: "setting",
 			files: map[string]string{
 				"setting/system/runner.yaml": "runner_id: runner-a",
 			},
 		},
-		gitOpsRuntimeSettingsDirectory{
-			root: "settings",
-			files: map[string]string{
-				"settings/system/runner.yaml": "runner_id: runner-b",
-			},
-		},
 	)
-	if err == nil {
-		t.Fatal("parseGitOpsRuntimeSettingsPlan() error = nil, want duplicate-file error")
-	}
-	if !strings.Contains(err.Error(), "multiple runtime settings GitOps files found") ||
-		!strings.Contains(err.Error(), "setting/system/runner.yaml, settings/system/runner.yaml") {
-		t.Fatalf("duplicate-file error = %q", err.Error())
+	if err == nil || !strings.Contains(err.Error(), "system config repository") {
+		t.Fatalf("expected system-scope error, got %v", err)
 	}
 }
 
@@ -169,7 +142,7 @@ dispatcher_routing:
 runner_id: runner-prod
 runner_scopes: prod,dev
 runner_capacity: 3
-`, "settings/system/runner.yaml")
+`, "setting/system/runner.yaml")
 	if err != nil {
 		t.Fatalf("parseGitOpsRuntimeSettingsFile() error = %v", err)
 	}
@@ -213,14 +186,14 @@ runner_capacity: 3
 		t.Fatalf("runner_capacity = %#v", plan.payload.RunnerCapacity)
 	}
 
-	_, err = parseGitOpsRuntimeSettingsFile("runner_capacity: 0", "settings/system/runner.yaml")
+	_, err = parseGitOpsRuntimeSettingsFile("runner_capacity: 0", "setting/system/runner.yaml")
 	if err == nil || !strings.Contains(err.Error(), "invalid runner_capacity") {
 		t.Fatalf("expected invalid capacity error, got %v", err)
 	}
 }
 
 func TestParseGitOpsRuntimeSettingsFileRejectsInvalidYAML(t *testing.T) {
-	_, err := parseGitOpsRuntimeSettingsFile("dispatcher_routing: [", "settings/system/runner.yaml")
+	_, err := parseGitOpsRuntimeSettingsFile("dispatcher_routing: [", "setting/system/runner.yaml")
 	if err == nil || !strings.Contains(err.Error(), "failed to parse runtime settings GitOps file") {
 		t.Fatalf("expected parse error, got %v", err)
 	}
@@ -239,7 +212,6 @@ func TestIsGitOpsRuntimeSettingsRelativePath(t *testing.T) {
 		{path: "system/runners.yml", want: false},
 		{path: "system/dispatcher.yaml", want: false},
 		{path: "system/mcp.yaml", want: false},
-		{path: "settings/system/runtime.yaml", want: false},
 		{path: "../system/runner.yaml", want: false},
 	}
 
@@ -356,7 +328,7 @@ func TestApplyRuntimeSettingsGitOpsPlanPersistsConfigAndEnvOverrides(t *testing.
 		envFilePath: envPath,
 	}
 	plan := &gitOpsRuntimeSettingsPlan{
-		sourcePath: "settings/system/runner.yaml",
+		sourcePath: "setting/system/runner.yaml",
 		payload: systemConfigPayload{
 			AgentNopsaiAPIURL:         stringPtr(" http://nopsai.example.com "),
 			DispatcherAddress:         stringPtr(" dispatcher:9090 "),

@@ -1,26 +1,39 @@
 package llm
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
+	"time"
 
 	appconfig "nopsai/config"
 )
 
-type LLMClient struct {
-	provider   string
-	profile    string
-	apiKey     string
-	model      string
-	baseURL    string
-	reasoning  string
-	httpClient *http.Client
+type ProviderClient interface {
+	Complete(ctx context.Context, prompt string) (string, error)
+	Name() string
+}
 
-	modelMu     sync.Mutex
-	loadedModel string
+type LLMClientOptions struct {
+	Provider       string
+	Profile        string
+	APIKey         string
+	Model          string
+	BaseURL        string
+	Reasoning      string
+	TimeoutSeconds int
+	MaxTokens      int
+	Temperature    *float64
+	Extra          map[string]string
+}
+
+type LLMClient struct {
+	provider       string
+	profile        string
+	httpClient     *http.Client
+	providerClient ProviderClient
 }
 
 const maxMCPToolCallsPerAction = 8
@@ -42,40 +55,45 @@ func IsNonRetryableGoalResolutionError(err error) bool {
 	return errors.As(err, &target)
 }
 
-type lmStudioEndpointGate struct {
-	sem chan struct{}
-}
-
-var lmStudioEndpointLoadGates sync.Map
-
-type lmStudioModelsResponse struct {
-	Models []lmStudioModelInfo `json:"models"`
-	Data   []struct {
-		ID string `json:"id"`
-	} `json:"data"`
-}
-
-type lmStudioModelInfo struct {
-	Type            string `json:"type"`
-	Key             string `json:"key"`
-	SelectedVariant string `json:"selected_variant"`
-	LoadedInstances []struct {
-		ID string `json:"id"`
-	} `json:"loaded_instances"`
-	Variants []string `json:"variants"`
-}
-
 func NewLLMClient(provider, apiKey, model, baseURL, reasoning string, profileName ...string) *LLMClient {
-	client := &LLMClient{
-		provider:   appconfig.NormalizeLLMProvider(provider),
-		apiKey:     strings.TrimSpace(apiKey),
-		model:      strings.TrimSpace(model),
-		baseURL:    strings.TrimSpace(baseURL),
-		reasoning:  appconfig.NormalizeLMStudioReasoning(reasoning),
-		httpClient: &http.Client{},
+	options := LLMClientOptions{
+		Provider:  provider,
+		APIKey:    apiKey,
+		Model:     model,
+		BaseURL:   baseURL,
+		Reasoning: reasoning,
 	}
 	if len(profileName) > 0 {
-		client.profile = strings.TrimSpace(profileName[0])
+		options.Profile = profileName[0]
 	}
+	return NewLLMClientWithOptions(options)
+}
+
+func NewLLMClientWithOptions(options LLMClientOptions) *LLMClient {
+	timeout := time.Duration(0)
+	if options.TimeoutSeconds > 0 {
+		timeout = time.Duration(options.TimeoutSeconds) * time.Second
+	}
+	client := &LLMClient{
+		provider:   appconfig.NormalizeLLMProvider(options.Provider),
+		profile:    strings.TrimSpace(options.Profile),
+		httpClient: &http.Client{Timeout: timeout},
+	}
+	options.Provider = client.provider
+	options.Profile = client.profile
+	options.APIKey = strings.TrimSpace(options.APIKey)
+	options.Model = strings.TrimSpace(options.Model)
+	options.BaseURL = strings.TrimSpace(options.BaseURL)
+	options.Reasoning = appconfig.NormalizeLMStudioReasoning(options.Reasoning)
+	if len(options.Extra) > 0 {
+		normalizedExtra := make(map[string]string, len(options.Extra))
+		for key, value := range options.Extra {
+			if key = strings.TrimSpace(key); key != "" {
+				normalizedExtra[key] = strings.TrimSpace(value)
+			}
+		}
+		options.Extra = normalizedExtra
+	}
+	client.providerClient = newProviderClient(client, options)
 	return client
 }

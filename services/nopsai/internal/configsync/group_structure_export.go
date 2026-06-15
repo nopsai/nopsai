@@ -89,6 +89,10 @@ func GroupStructureExportMap(structure map[string]*GroupStructureExportNode) map
 	return out
 }
 
+func GroupStructureExportNodeMap(node *GroupStructureExportNode) map[string]any {
+	return groupStructureNodeExportMap(node)
+}
+
 func groupStructureNodeExportMap(node *GroupStructureExportNode) map[string]any {
 	out := map[string]any{}
 	if node == nil {
