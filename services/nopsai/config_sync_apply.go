@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"nopsai/pkg/models"
 	"nopsai/services/nopsai/internal/configsync"
@@ -26,6 +27,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 	mailSettingsPlan := plan.mailSettingsPlan
 	schedules := plan.schedules
 	externalTriggers := plan.externalTriggers
+	gitWebhookSources := plan.gitWebhookSources
 	notificationRoutes := plan.notificationRoutes
 	pipelines := plan.pipelines
 	steps := plan.steps
@@ -77,6 +79,19 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			credentialMetadata("password", "SMTP authentication password", mailSettingsPlan.sourcePath),
 		); err != nil {
 			return fmt.Errorf("prepare mail credential metadata: %w", err)
+		}
+	}
+	for id, source := range gitWebhookSources {
+		if err := a.ensureCredentialReferenceMetadata(
+			ctx,
+			source.input.CredentialRef,
+			credentialMetadata(
+				gitWebhookSecretCredentialKind,
+				"Webhook secret for Git source "+id,
+				source.sourcePath,
+			),
+		); err != nil {
+			return fmt.Errorf("prepare git webhook source credential metadata for %q: %w", id, err)
 		}
 	}
 	if authSettingsPlan != nil {
@@ -246,6 +261,30 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			allowed_callers = EXCLUDED.allowed_callers,
 			variable_mapping = EXCLUDED.variable_mapping,
 			payload_schema = EXCLUDED.payload_schema,
+			rate_limit = EXCLUDED.rate_limit,
+			source = 'git',
+			config_repo_id = EXCLUDED.config_repo_id,
+			config_source_path = EXCLUDED.config_source_path,
+			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
+			managed_by_config_repo = TRUE,
+			updated_at = NOW()`
+	const gitWebhookSourceUpsert = `INSERT INTO git_webhook_sources (
+			id, name, description, provider, enabled, auth_mode, credential_ref,
+			repository_allowlist, rate_limit, created_by, source,
+			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7,
+			$8::jsonb, $9::jsonb, 'config-repo', 'git',
+			$10, $11, $12, TRUE, NOW()
+		)
+		ON CONFLICT (id) DO UPDATE SET
+			name = EXCLUDED.name,
+			description = EXCLUDED.description,
+			provider = EXCLUDED.provider,
+			enabled = EXCLUDED.enabled,
+			auth_mode = EXCLUDED.auth_mode,
+			credential_ref = EXCLUDED.credential_ref,
+			repository_allowlist = EXCLUDED.repository_allowlist,
 			rate_limit = EXCLUDED.rate_limit,
 			source = 'git',
 			config_repo_id = EXCLUDED.config_repo_id,
@@ -543,6 +582,56 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		details["external_triggers_synced"]++
 	}
 
+	// K. Upsert Git Webhook Sources
+	for key, stored := range gitWebhookSources {
+		resourceScope := rootGrantID
+		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+			resourceScope = strings.Trim(strings.TrimSpace(binding.ScopeID), "/")
+		}
+		writable, err := ensureConfigResourceWritable(
+			ctx,
+			tx,
+			"git_webhook_sources",
+			"git webhook source",
+			key,
+			binding,
+			resourceScope,
+			"id = $1",
+			key,
+		)
+		if err != nil {
+			return err
+		}
+		if !writable {
+			continue
+		}
+		allowlistJSON, err := json.Marshal(stored.input.RepositoryAllowlist)
+		if err != nil {
+			return fmt.Errorf("failed to marshal git webhook source allowlist %q: %w", key, err)
+		}
+		rateLimitJSON, err := json.Marshal(stored.input.RateLimit)
+		if err != nil {
+			return fmt.Errorf("failed to marshal git webhook source rate limit %q: %w", key, err)
+		}
+		if _, err := tx.Exec(ctx, gitWebhookSourceUpsert,
+			stored.input.ID,
+			stored.input.Name,
+			stored.input.Description,
+			stored.input.Provider,
+			stored.input.Enabled,
+			stored.input.AuthMode,
+			stored.input.CredentialRef,
+			string(allowlistJSON),
+			string(rateLimitJSON),
+			binding.ID,
+			stored.sourcePath,
+			commitSHA,
+		); err != nil {
+			return fmt.Errorf("failed to upsert git webhook source %q: %w", key, err)
+		}
+		details["git_webhook_sources_synced"]++
+	}
+
 	// --- PRUNING PHASE: Remove items that exist in DB as source='git' but were not in the Git payload ---
 
 	// 0. Prune Config Repository Bindings
@@ -599,7 +688,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			rows.Close()
 		}
 		if len(prunedRepoIDs) > 0 {
-			for _, tableName := range []string{"config_repositories", "pipelines", "steps", "pipeline_schedules", "triggers", "external_triggers", "variables", "secrets", "knowledge_contexts", "agent_profiles", "notification_routes", "notification_mail_settings"} {
+			for _, tableName := range []string{"config_repositories", "pipelines", "steps", "pipeline_schedules", "triggers", "external_triggers", "git_webhook_sources", "variables", "secrets", "knowledge_contexts", "agent_profiles", "notification_routes", "notification_mail_settings"} {
 				if _, err := tx.Exec(ctx, fmt.Sprintf(`
 					UPDATE %s
 					SET config_repo_id = NULL,
@@ -750,6 +839,23 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		} else {
 			if _, err := tx.Exec(ctx, "DELETE FROM external_triggers WHERE managed_by_config_repo = TRUE AND config_repo_id = $2 AND id != ALL($1)", ids, binding.ID); err != nil {
 				return fmt.Errorf("failed to prune external triggers: %w", err)
+			}
+		}
+	}
+
+	// 6b. Prune Git Webhook Sources
+	{
+		var ids []string
+		for id := range gitWebhookSources {
+			ids = append(ids, id)
+		}
+		if len(ids) == 0 {
+			if _, err := tx.Exec(ctx, "DELETE FROM git_webhook_sources WHERE managed_by_config_repo = TRUE AND config_repo_id = $1", binding.ID); err != nil {
+				return fmt.Errorf("failed to prune git webhook sources: %w", err)
+			}
+		} else {
+			if _, err := tx.Exec(ctx, "DELETE FROM git_webhook_sources WHERE managed_by_config_repo = TRUE AND config_repo_id = $2 AND id != ALL($1)", ids, binding.ID); err != nil {
+				return fmt.Errorf("failed to prune git webhook sources: %w", err)
 			}
 		}
 	}

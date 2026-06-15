@@ -95,8 +95,15 @@ truth; this file is the source-adjacent placement guide.
 
 ## Accessibility And Test Ownership
 
+- `AppShell` owns the single route-level `h1` for authenticated pages. Page
+  content must not repeat the route title; distinct hero copy starts at `h2`.
+  Standalone routes such as Login own their own `h1`.
 - New dialogs should use `WorkflowDialogFrame` unless a documented product
   reason requires a specialized shell.
+- Feature create actions remain visible when AAA makes a collection read-only;
+  disable them and explain the restriction instead of removing the control.
+- Form dialogs use opaque themed surfaces with independently scrollable bodies;
+  collection card effects such as `glass-card` are not dialog shells.
 - New validation feedback should use `WorkflowInlineAlert` or an equivalent
   `role="alert"` relationship included in `aria-describedby`.
 - New toast/live-region feedback should use `WorkflowToastRegion`.

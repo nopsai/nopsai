@@ -506,6 +506,8 @@ func actionAppliesToGrantResource(action, resourceType string) bool {
 		return strings.HasPrefix(action, "trigger.")
 	case grantResourceExternalTrigger:
 		return strings.HasPrefix(action, "external_trigger.")
+	case grantResourceGitWebhookSource:
+		return strings.HasPrefix(action, "git_webhook_source.")
 	case grantResourceStep:
 		return strings.HasPrefix(action, "step.")
 	case grantResourceRunner:

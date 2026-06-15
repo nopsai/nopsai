@@ -120,3 +120,59 @@ Manual tests can omit it or use a fresh test key.
 GitOps-managed external triggers live in `external-triggers/*.yaml`. Config sync
 imports them, direct UI/API edits are blocked while GitOps owns them, and config
 repository drift can push database-created triggers back into that directory.
+
+---
+
+## Generic Git Webhook Sources
+
+GitLab, Bitbucket, Gitea, and normalized generic webhooks post directly to:
+
+```text
+POST /v1/git/webhooks/{sourceID}
+```
+
+Create the source first and write its referenced secret value through
+**System > Credentials**. The following generic example signs the exact request
+body with HMAC-SHA256:
+
+```bash
+SOURCE_ID=generic-local
+SECRET='<active webhook credential value>'
+PAYLOAD_FILE=/tmp/nopsai-git-webhook.json
+
+cat > "$PAYLOAD_FILE" <<'JSON'
+{
+  "event_type": "push",
+  "repository": {
+    "full_name": "platform/api",
+    "owner": "platform",
+    "name": "api"
+  },
+  "ref": "refs/heads/main",
+  "commit_sha": "0123456789abcdef",
+  "changed_files": ["services/api/main.go"],
+  "delivery_id": "local-test-1"
+}
+JSON
+
+SIGNATURE=$(openssl dgst -sha256 -hmac "$SECRET" "$PAYLOAD_FILE" | awk '{print $2}')
+
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -H "X-Nopsai-Signature-256: sha256=$SIGNATURE" \
+  --data-binary "@$PAYLOAD_FILE" \
+  "http://localhost:8080/v1/git/webhooks/$SOURCE_ID"
+```
+
+Before testing, synchronize a trigger override for `platform/api` and every
+pipeline referenced by it. Generic providers do not use the GitHub repository
+file/check-run path.
+
+Inspect the response and
+`GET /v1/git-webhook-sources/{sourceID}/deliveries`. Reusing
+`delivery_id=local-test-1` should return a duplicate acknowledgement without
+starting another run.
+
+For provider headers, GitOps manifests, the generic payload schema, and
+changed-file filters, see
+[git-webhook-sources.md](./git-webhook-sources.md).

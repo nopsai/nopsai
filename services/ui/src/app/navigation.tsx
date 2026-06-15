@@ -48,6 +48,11 @@ export const baseNavItems: NavItem[] = [
     icon: <IconZap />,
   },
   {
+    label: 'Git Webhook Sources',
+    path: '/git-webhook-sources',
+    icon: <IconFlow />,
+  },
+  {
     label: 'Scopes',
     path: '/scopes',
     icon: <IconScope />,
@@ -94,6 +99,7 @@ export const titleMap: Record<string, string> = {
   schedules: 'Schedules',
   triggers: 'Triggers',
   'external-triggers': 'External Triggers',
+  'git-webhook-sources': 'Git Webhook Sources',
   scopes: 'Scopes',
   lab: 'Lab',
   steps: 'Steps',

@@ -55,6 +55,13 @@ var credentialReferenceQueries = []struct {
 			WHERE entitlement_sync->>'admin_password_credential_ref' = $1
 			ORDER BY id`,
 	},
+	{
+		label: "Git webhook source",
+		query: `SELECT id
+			FROM git_webhook_sources
+			WHERE credential_ref = $1
+			ORDER BY id`,
+	},
 }
 
 func (a *App) ensureCredentialReference(

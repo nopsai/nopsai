@@ -105,6 +105,7 @@ func (a *App) loadConfigRepositoryGitFiles(repo models.ConfigRepository) (map[st
 		dirs.step,
 		dirs.trigger,
 		dirs.externalTrigger,
+		dirs.gitWebhookSource,
 		dirs.schedule,
 		dirs.scope,
 		dirs.knowledge,
@@ -246,6 +247,9 @@ func (a *App) exportConfigRepositoryFiles(ctx context.Context, repo models.Confi
 		return nil, err
 	}
 	if err := a.exportConfigRepositoryExternalTriggers(ctx, repo, delegatedScopes, files); err != nil {
+		return nil, err
+	}
+	if err := a.exportConfigRepositoryGitWebhookSources(ctx, repo, files); err != nil {
 		return nil, err
 	}
 	if err := a.exportConfigRepositorySchedules(ctx, repo, delegatedScopes, files); err != nil {

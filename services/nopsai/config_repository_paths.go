@@ -73,8 +73,9 @@ func isConfigRepositorySettingsDriftPath(rel string) bool {
 
 func configRepositoryDriftPathOptions() configsync.DriftPathOptions {
 	return configsync.DriftPathOptions{
-		ExternalTriggersDirectory: externalTriggersGitOpsDirectory,
-		SettingsRelativePath:      isConfigRepositorySettingsDriftPath,
+		ExternalTriggersDirectory:  externalTriggersGitOpsDirectory,
+		GitWebhookSourcesDirectory: gitWebhookSourcesGitOpsDirectory,
+		SettingsRelativePath:       isConfigRepositorySettingsDriftPath,
 	}
 }
 

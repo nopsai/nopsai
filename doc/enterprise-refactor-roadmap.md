@@ -63,3 +63,13 @@ Enterprise SSO is separated into:
 - Added config-repository import/export for identity-provider, mail, LLM, and
   MCP policy using credential references. GitOps creates pending metadata but
   never stores credential values.
+- Added provider-neutral Git webhook triggering with:
+  - shared trigger matching in `pkg/gittrigger`
+  - isolated provider normalization/authentication in
+    `services/nopsai/internal/gitwebhook`
+  - source model, schema, persistence, handlers, and run orchestration in
+    focused `git_webhook_*` files
+  - UI model, API, hook, form, rendering, and route composition under
+    `services/ui/src/features/git-webhook-sources`
+  - AAA, encrypted credential references, GitOps sync/export/drift, delivery
+    audit/idempotency, and changed-file include/exclude filters

@@ -111,6 +111,18 @@ const HELP_TOPICS: Record<string, HelpTopic> = {
       },
     ],
   },
+  'git-webhook-sources': {
+    title: 'Git Webhook Sources',
+    summary: 'Connect non-GitHub Git providers to repository-driven pipeline triggers.',
+    docsPath: 'git-webhook-sources',
+    sections: [
+      {
+        title: 'What this page covers',
+        body: 'Git webhook sources define provider normalization, authentication, repository allowlists, delivery limits, GitOps ownership, and delivery audit history.',
+        example: 'provider: gitlab\nauth_mode: static_token\ncredential_ref: credential://system/webhooks/gitlab\nrepository_allowlist:\n  - platform/*',
+      },
+    ],
+  },
   scopes: {
     title: 'Scopes',
     summary: 'Manage runtime variables, secrets, and repository-specific overrides.',

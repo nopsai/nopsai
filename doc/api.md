@@ -711,6 +711,55 @@ Authorization and controls:
 
 ---
 
+## Git Webhook Sources
+
+Git Webhook Sources receive repository events from GitLab, Bitbucket, Gitea, or
+a normalized generic sender. Unlike External Triggers, a source is not bound to
+one pipeline: the repository event is evaluated against its trigger manifest.
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id":"gitlab-platform",
+    "name":"GitLab Platform",
+    "provider":"gitlab",
+    "enabled":true,
+    "auth_mode":"static_token",
+    "credential_ref":"credential://system/webhooks/gitlab-platform",
+    "repository_allowlist":["platform/api","platform/*"],
+    "rate_limit":{"per_minute":120}
+  }' \
+  http://localhost:8080/v1/git-webhook-sources
+```
+
+Management and audit endpoints:
+
+- `GET|POST /v1/git-webhook-sources`
+- `GET|PUT|PATCH|DELETE /v1/git-webhook-sources/{sourceID}`
+- `GET /v1/git-webhook-sources/{sourceID}/deliveries`
+- `POST /v1/git/webhooks/{sourceID}`: public provider delivery endpoint
+
+Sources support `generic`, `gitlab`, `bitbucket`, and `gitea` providers with
+`hmac`, `static_token`, or `none` authentication. Authenticated sources resolve
+stable credential references from the encrypted registry. `none` is intended
+only for trusted, network-isolated ingress.
+
+GitOps manifests live under `git-webhook-sources/*.yaml`. GitOps-managed
+sources must be changed in their config repository. Database-created sources
+can be exported through global config repository drift/write.
+
+V1 generic sources load trigger overrides and pipeline definitions from the
+NopsAI database. Synchronize them through `triggers/` and `pipelines/` before
+enabling the source. GitHub's repository-file fallback and check-run behavior
+remain GitHub-only.
+
+See [git-webhook-sources.md](./git-webhook-sources.md) for provider headers,
+the generic payload contract, path-filter semantics, and operations guidance.
+
+---
+
 ## Access Grants
 
 Use these endpoints to assign product roles to subjects on resources.
@@ -741,7 +790,7 @@ Grant request fields:
 - `subject_type`: `user`, `auth_group`, `repository`, `trigger`, `service_account`, or `internal_service`
 - `subject_id`: user subject/email/UUID, auth group id/name, repository `owner/repo`, trigger id, service-account id, or service id
 - `role`: `viewer`, `developer`, `owner`, or `admin`
-- `resource_type`: `folder` for groups, `pipeline`, `pipeline_schedule`, `trigger`, `external_trigger`, `secret`, `variable`, `scope`, `repository`, `step`, `knowledge_context`, `runner`, `config_repo`, or `platform`
+- `resource_type`: `folder` for groups, `pipeline`, `pipeline_schedule`, `trigger`, `external_trigger`, `git_webhook_source`, `secret`, `variable`, `scope`, `repository`, `step`, `knowledge_context`, `runner`, `config_repo`, or `platform`
 - `resource_id`: group path such as `/payments`, pipeline id such as `team-1/dev/build`, repository id such as `owner/repo`, or `platform`
 - `inherit`: required for group subtree grants; group grants should normally use `true`
 
@@ -1347,7 +1396,7 @@ curl -X DELETE http://localhost:8080/v1/overrides/hosein-yousefii/test-app
 ```
 
 - Overrides let you replace or augment the config-repo trigger manifest for a given repository.
-- The payload mirrors the `.nopsai/triggers.yaml` schema (event, branches, skip branches, tags, pipelines, scope).
+- The payload mirrors the `.nopsai/triggers.yaml` schema (event, branches, skip branches, tags, skipped repositories, include paths, exclude paths, pipelines, and scope).
 
 ---
 

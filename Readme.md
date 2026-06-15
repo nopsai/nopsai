@@ -23,7 +23,8 @@ Modern engineering teams need automation that is both flexible enough for
 LLM-assisted work and governed enough for production operations. NopsAI is built
 around that balance:
 
-- GitHub events and manual UI/API runs enter a centralized control plane.
+- GitHub, GitLab, Bitbucket, Gitea, generic Git events, and manual UI/API runs
+  enter a centralized control plane.
 - Pipelines can mix deterministic scripts with LLM-backed goals.
 - Secrets, variables, knowledge documents, scopes, and access rules are resolved
   before dispatch.
@@ -39,7 +40,8 @@ around that balance:
 | --- | --- |
 | AI-assisted pipelines | YAML pipelines with scripts, natural language goals, reusable steps, child pipelines, dependency ordering, conditions, timeouts, volumes, and failure tolerance. |
 | GitHub automation | GitHub App webhooks, signed webhook validation, repository file access, trigger manifests, check-run creation, check-run updates, reruns, and stale-check cancellation. |
-| GitOps configuration | Sync pipelines, reusable steps, schedules, triggers, scopes, access rules, knowledge documents, notification routes, LLM profiles, MCP settings, auth settings, mail settings, runtime runner/dispatcher settings, and group config repository bindings from Git. |
+| Generic Git webhooks | Managed GitLab, Bitbucket, Gitea, and generic sources with credential-backed authentication, repository allowlists, normalized events, changed-file filters, delivery idempotency, rate limits, and audit history. |
+| GitOps configuration | Sync pipelines, reusable steps, schedules, triggers, Git webhook sources, scopes, access rules, knowledge documents, notification routes, LLM profiles, MCP settings, auth settings, mail settings, runtime runner/dispatcher settings, and group config repository bindings from Git. |
 | Enterprise access control | Local auth, JWTs, refresh tokens, personal access tokens, predefined product roles, inherited folder grants, AAA checks, deny-before-allow evaluation, and audit logs. |
 | Secrets and scopes | Encrypted secrets, plaintext scoped variables, strict scope isolation, repository-specific overrides, cross-scope references, and runtime authorization checks. |
 | Knowledge context | Managed or repo-local markdown context for architecture docs, guardrails, policies, ADRs, runbooks, references, examples, and guidelines injected into LLM tasks. |
@@ -52,7 +54,7 @@ around that balance:
 NopsAI uses a control-plane/data-plane architecture.
 
 ```text
-GitHub / UI / API
+Git providers / UI / API
     |
     v
 git-bot or nopsai API
@@ -94,7 +96,7 @@ step containers + optional child pipelines
   containers for assigned jobs.
 - `services/agent`: Per-run orchestrator that executes pipeline logic, talks to
   the configured LLM provider, runs step containers, and streams status/logs.
-- `services/ui`: Operator UI for runs, pipelines, triggers, scopes, access,
+- `services/ui`: Operator UI for runs, pipelines, triggers, Git webhook sources, scopes, access,
   knowledge context, system settings, and first-install setup.
 - `db/init.sql`: Postgres schema for durable runtime, configuration, auth,
   access, setup, and audit state.
@@ -104,7 +106,9 @@ See [doc/architecture-overview.md](doc/architecture-overview.md) and
 
 ## How A Run Works
 
-1. A user starts a run from the UI/API, a pipeline schedule becomes due, or GitHub sends an event to `git-bot`.
+1. A user starts a run from the UI/API, a pipeline schedule becomes due, GitHub
+   sends an event to `git-bot`, or another Git provider posts to a managed Git
+   Webhook Source.
 2. `nopsai` authenticates the request and maps the route to an authorization
    decision.
 3. Pipeline definitions, reusable steps, schedules, trigger rules, variables, secrets, and
@@ -387,6 +391,20 @@ The first-install wizard shows the public webhook URL for GitHub and the
 internal service URLs used between NopsAI and git-bot.
 
 For local webhook simulation, see [doc/triggering.md](doc/triggering.md).
+
+## Git Webhook Sources
+
+Non-GitHub providers can post repository events directly to
+`/v1/git/webhooks/{sourceID}`. Sources support GitLab, Bitbucket, Gitea, and a
+normalized generic payload with HMAC/static-token authentication, repository
+allowlists, source rate limits, delivery idempotency, and delivery audit.
+
+Generic providers reuse the provider-neutral trigger matcher, including
+`include_paths` and `exclude_paths`, but do not create GitHub checks. In v1,
+their trigger overrides and pipeline definitions must already be synchronized
+into NopsAI through GitOps or the management APIs.
+
+See [doc/git-webhook-sources.md](doc/git-webhook-sources.md).
 
 ## LLM And MCP
 

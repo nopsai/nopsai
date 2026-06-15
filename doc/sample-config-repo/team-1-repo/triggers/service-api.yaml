@@ -2,6 +2,12 @@ triggers:
   - on: push
     branches:
       - main
+    include_paths:
+      - services/api/**
+      - pkg/**
+    exclude_paths:
+      - docs/**
+      - "**/*.md"
     scope: team-1/dev
     pipelines:
       - team-1/build-and-test

@@ -550,6 +550,54 @@ CREATE INDEX idx_external_trigger_invocations_trigger_created
 CREATE INDEX idx_external_trigger_invocations_run
     ON external_trigger_invocations(run_id);
 
+CREATE TABLE git_webhook_sources (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    provider TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    auth_mode TEXT NOT NULL,
+    credential_ref TEXT NOT NULL DEFAULT '',
+    repository_allowlist JSONB NOT NULL DEFAULT '[]'::jsonb,
+    rate_limit JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_used_at TIMESTAMPTZ,
+    source TEXT NOT NULL DEFAULT 'database',
+    config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
+    config_source_path TEXT NOT NULL DEFAULT '',
+    config_source_commit_sha TEXT NOT NULL DEFAULT '',
+    managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE INDEX idx_git_webhook_sources_enabled ON git_webhook_sources(enabled);
+CREATE INDEX idx_git_webhook_sources_provider ON git_webhook_sources(provider);
+CREATE INDEX idx_git_webhook_sources_config_repo ON git_webhook_sources(config_repo_id);
+
+CREATE TABLE git_webhook_deliveries (
+    id UUID PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES git_webhook_sources(id) ON DELETE CASCADE,
+    delivery_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    event_type TEXT NOT NULL DEFAULT '',
+    repository_full_name TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL,
+    run_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+    error TEXT NOT NULL DEFAULT '',
+    source_ip TEXT NOT NULL DEFAULT '',
+    received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ,
+    UNIQUE(source_id, delivery_id)
+);
+
+CREATE INDEX idx_git_webhook_deliveries_source_received
+    ON git_webhook_deliveries(source_id, received_at DESC);
+CREATE INDEX idx_git_webhook_deliveries_repository
+    ON git_webhook_deliveries(repository_full_name, received_at DESC);
+CREATE INDEX idx_git_webhook_deliveries_status
+    ON git_webhook_deliveries(status, received_at DESC);
+
 CREATE TABLE notification_mail_settings (
     id BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
     enabled BOOLEAN NOT NULL DEFAULT FALSE,

@@ -754,7 +754,10 @@ func (a *App) authorizeRunResourceUses(
 	scope string,
 ) ([]ResourceUseAuthResult, error) {
 	repoID := repositoryFullName(gitContext["repo_owner"], gitContext["repo_name"])
-	eventType := strings.TrimPrefix(strings.TrimSpace(triggerSource), "github_")
+	eventType := strings.TrimSpace(gitContext["event_type"])
+	if eventType == "" {
+		eventType = strings.TrimPrefix(strings.TrimSpace(triggerSource), "github_")
+	}
 	ref := strings.TrimSpace(gitContext["ref"])
 
 	type checkSpec struct {

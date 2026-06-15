@@ -80,6 +80,7 @@ function AppShell() {
     canWriteSteps,
     canViewTriggers,
     canViewExternalTriggers,
+    canViewGitWebhookSources,
     canViewScopes,
     canViewKnowledge,
     canViewSystemRuntimeConfig,
@@ -158,11 +159,12 @@ function AppShell() {
         if (item.path === '/schedules') return canViewSchedules;
         if (item.path === '/triggers') return canViewTriggers;
         if (item.path === '/external-triggers') return canViewExternalTriggers;
+        if (item.path === '/git-webhook-sources') return canViewGitWebhookSources;
         if (item.path === '/scopes') return canViewScopes;
         if (item.path === '/knowledge-context') return canViewKnowledge;
         return true;
       });
-  }, [canViewAnySystem, canViewExternalTriggers, canViewKnowledge, canViewSchedules, canViewScopes, canViewTriggers, preferredSystemPath]);
+  }, [canViewAnySystem, canViewExternalTriggers, canViewGitWebhookSources, canViewKnowledge, canViewSchedules, canViewScopes, canViewTriggers, preferredSystemPath]);
   const systemSubNav = useMemo(
     () =>
       baseSystemSubNav.filter(item => {
@@ -1317,7 +1319,7 @@ function Header({
       >
         <IconMenu />
       </button>
-      <div id="main-header" className="flex-1 text-xl font-semibold min-w-0 truncate">{title}</div>
+      <h1 id="main-header" className="flex-1 text-xl font-semibold min-w-0 truncate">{title}</h1>
       <div className="flex items-center gap-3">
         <AppHelp />
         <div className="relative" ref={menuRef}>

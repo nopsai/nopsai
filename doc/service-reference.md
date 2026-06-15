@@ -17,7 +17,7 @@ Responsibilities:
   through `pkg/startupgates`.
 - Uses shared HTTP server timeout defaults from `pkg/httpapi` for production
   request hardening.
-- Exposes REST endpoints for auth, runs, pipelines, steps, triggers, knowledge contexts, notifications, metrics, secrets, variables, groups, and system operations.
+- Exposes REST endpoints for auth, runs, pipelines, steps, triggers, Git webhook sources, knowledge contexts, notifications, metrics, secrets, variables, groups, and system operations.
 - Exposes product access-management endpoints for role grants and effective-permission inspection.
 - Stores and reads all durable state from Postgres.
 - Validates pipelines and resolves reusable `step:` includes.
@@ -83,6 +83,10 @@ Responsibilities:
 - Seeds predefined product roles and expands role grants into low-level AAA ACLs.
 - Talks to the dispatcher as a gRPC client.
 - Talks to `git-bot` over HTTP for GitHub checks and repository content access.
+- Owns provider-neutral Git webhook source records, provider adapters,
+  authentication, repository allowlists, delivery audit/idempotency, trigger
+  matching, and run orchestration in focused `git_webhook_*` files and
+  `internal/gitwebhook`.
 
 Key files:
 
@@ -109,6 +113,10 @@ Key files:
 - `services/nopsai/repository_branch_handlers.go`
 - `services/nopsai/routes.go`
 - `services/nopsai/run_handlers.go`
+- `services/nopsai/git_webhook_sources_handlers.go`
+- `services/nopsai/git_webhook_orchestrator.go`
+- `services/nopsai/internal/gitwebhook`
+- `pkg/gittrigger`
 - `services/nopsai/run_group_resolution.go`
 - `services/nopsai/run_failure_records.go`
 - `services/nopsai/run_lifecycle_handlers.go`
@@ -182,6 +190,7 @@ Inbound interfaces:
 
 - Browser/UI HTTP traffic
 - `git-bot` forwarded GitHub events
+- GitLab, Bitbucket, Gitea, and generic Git webhook deliveries
 - Internal dispatcher-authenticated HTTP calls for logs, task updates, finalization, pipeline fetches, and child pipeline creation
 
 Authorization notes:

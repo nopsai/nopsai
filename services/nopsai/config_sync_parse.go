@@ -25,6 +25,7 @@ type configSyncPlan struct {
 	mailSettingsPlan                     *gitOpsMailSettingsPlan
 	schedules                            map[string]storedSchedule
 	externalTriggers                     map[string]storedExternalTrigger
+	gitWebhookSources                    map[string]storedGitWebhookSource
 	notificationRoutes                   map[string]storedNotificationRoute
 	pipelines                            map[string]storedPipeline
 	steps                                map[string]storedStep
@@ -205,6 +206,10 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 		return configSyncPlan{}, err
 	}
 	plan.externalTriggers, err = parseGitOpsExternalTriggers(files.externalTriggers, externalTriggerDir, binding, boundFolder)
+	if err != nil {
+		return configSyncPlan{}, err
+	}
+	plan.gitWebhookSources, err = parseGitOpsGitWebhookSources(files.gitWebhookSources, repoCtx.dirs.gitWebhookSource, binding, boundFolder)
 	if err != nil {
 		return configSyncPlan{}, err
 	}

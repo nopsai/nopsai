@@ -16,6 +16,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		"repo_vars_synced":               0,
 		"triggers_synced":                0,
 		"external_triggers_synced":       0,
+		"git_webhook_sources_synced":     0,
 		"schedules_synced":               0,
 		"secrets_synced":                 0,
 		"config_repositories_synced":     0,
@@ -70,6 +71,7 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 		Int("secrets_synced", details["secrets_synced"]).
 		Int("triggers_synced", details["triggers_synced"]).
 		Int("external_triggers_synced", details["external_triggers_synced"]).
+		Int("git_webhook_sources_synced", details["git_webhook_sources_synced"]).
 		Int("config_repositories_synced", details["config_repositories_synced"]).
 		Int("run_groups_created", details["run_groups_created"]).
 		Int("run_groups_updated", details["run_groups_updated"]).

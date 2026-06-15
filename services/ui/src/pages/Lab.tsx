@@ -692,7 +692,7 @@ function LabPage() {
       <div className="px-6 pt-6 pb-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-bold text-[var(--text-primary)]">Scoped pipeline runs</h1>
+            <h2 className="text-3xl font-bold text-[var(--text-primary)]">Scoped pipeline runs</h2>
             <p className="text-sm text-[var(--text-secondary)] max-w-3xl">
               Pick a stored pipeline, lock in a scope, and launch it with temporary variables to validate behavior quickly.
             </p>

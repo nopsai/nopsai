@@ -1,0 +1,12 @@
+id: gitlab-platform
+name: GitLab Platform
+description: Primary GitLab repository event source.
+provider: gitlab
+enabled: true
+auth_mode: static_token
+credential_ref: credential://system/webhooks/gitlab-platform
+repository_allowlist:
+  - platform/*
+  - team-1/*
+rate_limit:
+  per_minute: 120

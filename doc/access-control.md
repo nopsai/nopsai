@@ -46,8 +46,8 @@ Internal endpoints require the `X-Internal-Token` header, configured with `AAA_S
 
 The product roles are templates seeded by `nopsai` startup:
 
-- `viewer`: read/list access for groups, pipelines, schedules, runs, logs, triggers, repositories, steps, scopes, knowledge contexts, secret metadata, variable metadata, and config repository metadata.
-- `developer`: includes all viewer access plus non-destructive creation, updates, pipeline and schedule execution, `*.use` runtime permissions, rerun/cancel, trigger updates, secret writes, variable writes, repository updates, scope updates, reusable step usage, knowledge context usage, runner usage, and config repository usage.
+- `viewer`: read/list access for groups, pipelines, schedules, runs, logs, triggers, Git webhook sources, repositories, steps, scopes, knowledge contexts, secret metadata, variable metadata, and config repository metadata.
+- `developer`: includes all viewer access plus non-destructive creation, updates, pipeline and schedule execution, `*.use` runtime permissions, rerun/cancel, trigger and Git webhook source updates, secret writes, variable writes, repository updates, scope updates, reusable step usage, knowledge context usage, runner usage, and config repository usage.
 - `owner`: includes all developer and viewer access plus all scoped non-admin actions, deletes, secret and variable value reads, ownership, and ACL management inside the owned scope.
 - `admin`: platform-wide access through the normal AAA `Check` path.
 
@@ -61,6 +61,8 @@ Supported grant subjects:
 - `auth_group`
 - `repository`
 - `trigger`
+- `external_trigger`
+- `git_webhook_source`
 - `service_account` for scheduled-run identities and administrator-created integration accounts
 - `internal_service`
 
@@ -92,6 +94,12 @@ grants include `pipeline_schedule.list` and `pipeline_schedule.read`;
 `developer` grants add `pipeline_schedule.create`, `pipeline_schedule.update`,
 and `pipeline_schedule.execute`; `owner` grants add
 `pipeline_schedule.delete` and `pipeline_schedule.manage_acl`.
+
+Git Webhook Sources use `git_webhook_source`. Viewer grants add
+`git_webhook_source.read`; developer grants add create and update; owner grants
+add delete and `git_webhook_source.manage_acl`. The unauthenticated delivery
+route is protected by the source credential, repository allowlist, payload
+limit, idempotency, and rate limit rather than a user bearer token.
 
 Personal access tokens belong to the signed-in user and inherit that user's
 current authorization. Local and OIDC/SSO browser sessions can create, list, and

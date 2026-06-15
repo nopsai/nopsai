@@ -12,37 +12,18 @@ import {
   RefreshCw,
   Shield,
   Trash2,
-  X,
 } from 'lucide-react';
 
+import { ExternalTriggerFormModal } from '../features/external-triggers/ExternalTriggerFormModal';
+import type {
+  AllowedCaller,
+  ExternalTrigger,
+  ExternalTriggerForm,
+  ExternalTriggerModalState,
+  SelectOption,
+} from '../features/external-triggers/model';
 import { apiClient, buildApiUrl } from '../lib/api';
 import { fetchPipelineRunGroupPaths } from '../lib/resourceGroups';
-
-type AllowedCaller = {
-  type: 'user' | 'service_account' | 'auth_group';
-  id: string;
-};
-
-type ExternalTrigger = {
-  id: string;
-  name: string;
-  description?: string;
-  enabled: boolean;
-  pipeline: string;
-  scope?: string;
-  run_group_path?: string;
-  allowed_callers?: AllowedCaller[];
-  variable_mapping?: Record<string, string>;
-  payload_schema?: Record<string, unknown>;
-  rate_limit?: Record<string, unknown>;
-  created_by?: string;
-  created_at?: string;
-  updated_at?: string;
-  last_used_at?: string;
-  source?: string;
-  managed_by_config_repo?: boolean;
-  config_source_path?: string;
-};
 
 type ExternalTriggerInvocation = {
   id: string;
@@ -85,30 +66,6 @@ type ServiceAccountListItem = {
 type GroupListItem = {
   id?: string;
   name?: string;
-};
-
-type SelectOption = {
-  value: string;
-  label: string;
-};
-
-type ExternalTriggerForm = {
-  id: string;
-  name: string;
-  description: string;
-  pipeline: string;
-  scope: string;
-  runGroupPath: string;
-  enabled: boolean;
-  allowedCallers: AllowedCaller[];
-  variableMappingText: string;
-  payloadSchemaText: string;
-  rateLimitPerMinute: string;
-};
-
-type ExternalTriggerModalState = {
-  mode: 'create' | 'edit';
-  trigger?: ExternalTrigger;
 };
 
 type ExternalTriggersPageProps = {
@@ -302,19 +259,25 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
   }, [fetchJson]);
 
   useEffect(() => {
-    void loadTriggers();
-    void loadReferenceData();
+    const timeout = window.setTimeout(() => {
+      void loadTriggers();
+      void loadReferenceData();
+    }, 0);
+    return () => window.clearTimeout(timeout);
   }, [loadReferenceData, loadTriggers]);
 
   useEffect(() => {
-    if (routeSelectedID && routeSelectedID !== selectedID) {
-      setSelectedID(routeSelectedID);
-    }
+    if (!routeSelectedID || routeSelectedID === selectedID) return;
+    const timeout = window.setTimeout(() => setSelectedID(routeSelectedID), 0);
+    return () => window.clearTimeout(timeout);
   }, [routeSelectedID, selectedID]);
 
   useEffect(() => {
-    void loadSelected(selectedID);
-    void loadInvocations(selectedID);
+    const timeout = window.setTimeout(() => {
+      void loadSelected(selectedID);
+      void loadInvocations(selectedID);
+    }, 0);
+    return () => window.clearTimeout(timeout);
   }, [loadInvocations, loadSelected, selectedID]);
 
   const selectTrigger = useCallback((id: string) => {
@@ -323,6 +286,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
   }, [navigate]);
 
   const openCreate = () => {
+    if (!canWriteExternalTriggers) return;
     const pipeline = pipelines[0] || '';
     const pipelineParent = parentPathFromIdentifier(pipeline);
     const defaultRunGroup = pipelineParent && runGroups.includes(pipelineParent) ? pipelineParent : 'root';
@@ -482,20 +446,24 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
     <div className="h-full overflow-auto bg-[var(--bg-secondary)]">
       <div className="px-6 py-5 space-y-5">
         <header className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold text-[var(--text-primary)]">External Triggers</h1>
-            <p className="text-sm text-[var(--text-secondary)] mt-1">Authenticated pipeline entrypoints for service accounts and user tokens.</p>
-          </div>
+          <p className="text-sm text-[var(--text-secondary)]">
+            Authenticated pipeline entrypoints for service accounts and user tokens.
+          </p>
           <div className="flex items-center gap-2">
+            {!canWriteExternalTriggers ? <span className="runner-pill runner-pill--muted">Read-only</span> : null}
             <button type="button" className="pipelines-icon-only" title="Refresh" aria-label="Refresh" onClick={() => void loadTriggers()}>
               <RefreshCw className="h-4 w-4" />
             </button>
-            {canWriteExternalTriggers && (
-              <button type="button" className="pipelines-primary-button" onClick={openCreate}>
-                <Plus className="h-4 w-4" />
-                Create
-              </button>
-            )}
+            <button
+              type="button"
+              className="pipelines-primary-button"
+              onClick={openCreate}
+              disabled={!canWriteExternalTriggers}
+              title={canWriteExternalTriggers ? 'Create external trigger' : 'You have read-only access to external triggers'}
+            >
+              <Plus className="h-4 w-4" />
+              New trigger
+            </button>
           </div>
         </header>
 
@@ -666,140 +634,41 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
         </div>
       </div>
 
-      {modal && (
-        <div id="external-triggers-edit-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show">
-          <form className="pipelines-modal-card max-w-3xl w-full" onSubmit={saveTrigger}>
-            <header className="pipelines-modal-header">
-              <div>
-                <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">
-                  {modal.mode === 'create' ? 'Create external trigger' : 'Edit external trigger'}
-                </p>
-                <h2 className="text-lg font-semibold text-[var(--text-primary)]">
-                  {modal.mode === 'create' ? 'New authenticated endpoint' : form.name || form.id}
-                </h2>
-              </div>
-              <button type="button" className="pipelines-icon-only" onClick={closeModal} aria-label="Close">
-                <X className="h-4 w-4" />
-              </button>
-            </header>
-
-            <div className="pipelines-modal-body space-y-4">
-              {formError && <div className="dispatcher-error">{formError}</div>}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <label className="flex flex-col gap-1 text-sm">
-                  <span>Name</span>
-                  <input className="pipelines-input" value={form.name} onChange={event => setForm(prev => ({ ...prev, name: event.target.value }))} required />
-                </label>
-                <label className="flex flex-col gap-1 text-sm">
-                  <span>ID</span>
-                  <input className="pipelines-input" value={form.id} onChange={event => setForm(prev => ({ ...prev, id: event.target.value }))} disabled={modal.mode === 'edit'} placeholder="deploy-prod" />
-                </label>
-                <label className="flex flex-col gap-1 text-sm md:col-span-2">
-                  <span>Description</span>
-                  <input className="pipelines-input" value={form.description} onChange={event => setForm(prev => ({ ...prev, description: event.target.value }))} />
-                </label>
-                <label className="flex flex-col gap-1 text-sm">
-                  <span>Pipeline</span>
-                  <select
-                    className="pipelines-input"
-                    value={form.pipeline}
-	                    onChange={event => {
-	                      const pipeline = normalizeIdentifier(event.target.value);
-	                      const pipelineParent = parentPathFromIdentifier(pipeline);
-	                      const defaultRunGroup = pipelineParent && runGroups.includes(pipelineParent) ? pipelineParent : 'root';
-	                      setForm(prev => ({
-	                        ...prev,
-	                        pipeline,
-	                        runGroupPath: prev.runGroupPath && prev.runGroupPath !== 'root' ? prev.runGroupPath : defaultRunGroup,
-	                      }));
-	                    }}
-                    required
-                  >
-                    <option value="" disabled>Select pipeline</option>
-                    {pipelineOptions.map(pipeline => <option key={pipeline} value={pipeline}>{pipeline}</option>)}
-                  </select>
-                </label>
-                <label className="flex flex-col gap-1 text-sm">
-                  <span>Scope</span>
-                  <select className="pipelines-input" value={form.scope} onChange={event => setForm(prev => ({ ...prev, scope: event.target.value }))}>
-                    {scopeOptions.map(scope => <option key={scope || '__default__'} value={scope}>{scope || 'default'}</option>)}
-                  </select>
-                </label>
-                <label className="flex flex-col gap-1 text-sm">
-                  <span>Run group</span>
-                  <select className="pipelines-input" value={form.runGroupPath} onChange={event => setForm(prev => ({ ...prev, runGroupPath: event.target.value }))}>
-                    {runGroupOptions.map(group => <option key={group} value={group}>{group === 'root' ? 'Root' : group}</option>)}
-                  </select>
-                </label>
-              </div>
-
-              <section className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-sm font-semibold text-[var(--text-primary)]">Allowed callers</h3>
-                  <label className="dispatcher-toggle">
-                    <input type="checkbox" checked={form.enabled} onChange={event => setForm(prev => ({ ...prev, enabled: event.target.checked }))} />
-                    <span className="dispatcher-toggle__control"><span /></span>
-                    <span className="dispatcher-toggle__label">Enabled</span>
-                  </label>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <select
-                    className="pipelines-input max-w-[180px]"
-                    value={callerDraft.type}
-                    onChange={event => {
-                      const type = event.target.value as AllowedCaller['type'];
-                      const first = callerOptions[type]?.[0]?.value || '';
-                      setCallerDraft({ type, id: first });
-                    }}
-                  >
-                    <option value="service_account">Service account</option>
-                    <option value="user">User</option>
-                    <option value="auth_group">Group</option>
-                  </select>
-                  <select className="pipelines-input flex-1 min-w-[220px]" value={callerDraft.id} onChange={event => setCallerDraft(prev => ({ ...prev, id: event.target.value }))}>
-                    <option value="" disabled>{activeCallerOptions.length ? 'Select caller' : 'No callers available'}</option>
-                    {activeCallerOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                  </select>
-                  <button type="button" className="pipelines-secondary-button" onClick={addAllowedCaller} disabled={!callerDraft.id}>
-                    <Plus className="h-4 w-4" />
-                    Add
-                  </button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {form.allowedCallers.map((caller, index) => (
-                    <button key={`${caller.type}:${caller.id}`} type="button" className="runner-pill runner-pill--muted" onClick={() => removeAllowedCaller(index)}>
-                      {caller.type}:{caller.id}
-                      <X className="h-3 w-3" />
-                    </button>
-                  ))}
-                </div>
-              </section>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <label className="flex flex-col gap-1 text-sm">
-                  <span>Variable mapping</span>
-                  <textarea className="pipelines-input font-mono min-h-[140px]" value={form.variableMappingText} onChange={event => setForm(prev => ({ ...prev, variableMappingText: event.target.value }))} />
-                </label>
-                <label className="flex flex-col gap-1 text-sm">
-                  <span>Payload schema</span>
-                  <textarea className="pipelines-input font-mono min-h-[140px]" value={form.payloadSchemaText} onChange={event => setForm(prev => ({ ...prev, payloadSchemaText: event.target.value }))} />
-                </label>
-                <label className="flex flex-col gap-1 text-sm">
-                  <span>Rate limit per minute</span>
-                  <input className="pipelines-input" type="number" min="0" value={form.rateLimitPerMinute} onChange={event => setForm(prev => ({ ...prev, rateLimitPerMinute: event.target.value }))} />
-                </label>
-              </div>
-            </div>
-
-            <footer className="pipelines-modal-footer">
-              <div className="pipelines-modal-actions">
-                <button type="button" className="pipelines-secondary-button" onClick={closeModal} disabled={saving}>Cancel</button>
-                <button type="submit" className="pipelines-primary-button" disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
-              </div>
-            </footer>
-          </form>
-        </div>
-      )}
+      {modal ? (
+        <ExternalTriggerFormModal
+          modal={modal}
+          form={form}
+          formError={formError}
+          saving={saving}
+          pipelineOptions={pipelineOptions}
+          scopeOptions={scopeOptions}
+          runGroupOptions={runGroupOptions}
+          callerDraft={callerDraft}
+          activeCallerOptions={activeCallerOptions}
+          onClose={closeModal}
+          onSubmit={saveTrigger}
+          onFormChange={patch => setForm(current => ({ ...current, ...patch }))}
+          onPipelineChange={value => {
+            const pipeline = normalizeIdentifier(value);
+            const pipelineParent = parentPathFromIdentifier(pipeline);
+            const defaultRunGroup = pipelineParent && runGroups.includes(pipelineParent) ? pipelineParent : 'root';
+            setForm(current => ({
+              ...current,
+              pipeline,
+              runGroupPath: current.runGroupPath && current.runGroupPath !== 'root'
+                ? current.runGroupPath
+                : defaultRunGroup,
+            }));
+          }}
+          onCallerTypeChange={type => {
+            const first = callerOptions[type]?.[0]?.value || '';
+            setCallerDraft({ type, id: first });
+          }}
+          onCallerIDChange={id => setCallerDraft(current => ({ ...current, id }))}
+          onAddCaller={addAllowedCaller}
+          onRemoveCaller={removeAllowedCaller}
+        />
+      ) : null}
     </div>
   );
 }

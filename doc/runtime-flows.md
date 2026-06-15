@@ -6,7 +6,7 @@ This document explains how the tool works step by step.
 
 Most API routes pass through the same middleware stack before reaching a handler.
 
-1. Public paths such as `/v1/auth/login`, `/v1/auth/refresh`, `/v1/auth/logout`, and `/v1/git/events` skip bearer-token authentication.
+1. Public paths such as `/v1/auth/login`, `/v1/auth/refresh`, `/v1/auth/logout`, `/v1/git/events`, and `/v1/git/webhooks/{sourceID}` skip bearer-token authentication.
 2. Other requests must include a bearer token produced by the local auth service, service-auth credentials, or a user-created personal access token.
 3. `nopsai` validates service tokens first, then user/API JWTs with signature, expiration, issuer, and audience checks, or hashes opaque `nopat_` personal tokens and `nopsat_` service account tokens against their token tables.
 4. Session JWTs enforce idle-session timeout when configured; service tokens, personal tokens, and service account tokens rely on expiry and revocation semantics. Valid credentials place claims in the request context.
@@ -23,7 +23,7 @@ Most API routes pass through the same middleware stack before reaching a handler
 3. If valid, `git-bot` forwards the same payload and selected GitHub headers to `nopsai` at `/v1/git/events`.
 4. `nopsai` parses the webhook, extracts repository, ref, commit SHA, pusher, PR info, check-run info, and delivery ID.
 5. `nopsai` loads the trigger manifest, first checking DB overrides and then falling back to `.nopsai/triggers.yaml` through `git-bot`.
-6. It matches the event against trigger rules, branches, tags, skipped branches, and skipped repositories.
+6. It matches the event against trigger rules, branches, tags, skipped branches, skipped repositories, and changed-file include/exclude filters. If changed files are unavailable, path matching fails open.
 7. For each matched pipeline source, `nopsai` treats the repository as the caller, for example `repository:hosein-yousefii/test-app`.
 8. Before loading the pipeline definition, it checks `pipeline.use` for that repository against the matched pipeline resource.
 9. If the repository is not allowed to use the pipeline, `nopsai` does not fetch the pipeline and does not create a real run; it creates or updates the GitHub check with a clear failure message and audits the denial.
@@ -31,6 +31,30 @@ Most API routes pass through the same middleware stack before reaching a handler
 11. `nopsai` creates a `pipeline_runs` record, stores git context and the authorization snapshot with it, and asynchronously creates or initializes the GitHub check run.
 12. It resolves required knowledge context, stores run snapshots, and inserts `task_runs` rows so every task has durable tracking before execution starts.
 13. `nopsai` prepares the agent job and submits it to the dispatcher.
+
+## Git Webhook Source To Pipeline Run
+
+1. GitLab, Bitbucket, Gitea, or a generic sender posts the raw request body to
+   `/v1/git/webhooks/{sourceID}`.
+2. `nopsai` loads the enabled source and resolves its credential reference.
+3. It validates the provider token or HMAC signature before normalizing JSON.
+4. The adapter normalizes repository, event type, ref, target ref, commit,
+   changed files, actor, URLs, and delivery ID.
+5. The repository must match the source allowlist.
+6. `nopsai` inserts an idempotent delivery audit record and evaluates the source
+   rate limit.
+7. It loads the database trigger override for the repository. Generic sources
+   do not fetch `.nopsai/triggers.yaml` from the provider in v1.
+8. The provider-neutral matcher evaluates event, branch/tag, skip, and path
+   rules.
+9. Each referenced pipeline must already exist in the database, normally from
+   `pipelines/` GitOps sync.
+10. The normal run handler starts each pipeline with the repository as caller,
+    preserving runtime `*.use` authorization.
+11. Runs record `pipeline_source=git_webhook` and
+    `trigger_source=git_webhook_<provider>`. GitHub checks are not created.
+12. The delivery is finalized with status, matched pipelines, run IDs, and
+    errors. A repeated source/delivery ID is acknowledged without another run.
 
 ## 2. Manual API Run
 
@@ -302,6 +326,7 @@ Where failures stop the flow:
 - AAA denial: stopped in `nopsai` with `403`
 - Resource-use denial: stopped in `nopsai` before execution; GitHub-triggered denials create a failed check instead of a real run
 - Invalid webhook signature: stopped at `git-bot`
+- Invalid generic Git webhook signature or token: stopped in `nopsai` before payload normalization
 - Trigger mismatch: stopped in `nopsai`
 - Invalid pipeline YAML or validation failure: stopped in `nopsai`
 - Missing scoped secret or variable: stopped in `nopsai`
@@ -315,7 +340,8 @@ Where failures stop the flow:
 
 The simplest way to think about the tool is:
 
-- `git-bot` knows GitHub
+- `git-bot` knows GitHub repository APIs and checks
+- `nopsai` knows provider-neutral webhook sources and normalized Git events
 - `nopsai` knows configuration and state
 - `aaa` knows authorization decisions
 - `dispatcher` knows scheduling
