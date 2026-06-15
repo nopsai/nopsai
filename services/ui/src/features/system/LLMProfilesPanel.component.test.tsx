@@ -13,7 +13,7 @@ const apiMocks = vi.hoisted(() => ({
         provider: 'openai',
         model: 'gpt-4.1-mini',
         base_url: 'https://api.openai.com/v1',
-        api_key_secret: 'OPENAI_API_KEY',
+        credential_ref: 'credential://system/llm/openai',
         allowed_scopes: ['prod'],
         reasoning: '',
         timeout_seconds: 30,
@@ -48,7 +48,7 @@ test('renders provider labels and applies provider-aware profile defaults', asyn
   await user.selectOptions(provider, 'openai');
   expect(screen.getByLabelText('Model')).toHaveValue('gpt-4.1-mini');
   expect(screen.getByLabelText('Base URL')).toHaveValue('https://api.openai.com/v1');
-  expect(screen.getByLabelText(/API key secret/)).toHaveValue('OPENAI_API_KEY');
+  expect(screen.getByLabelText(/Credential reference/)).toHaveValue('credential://system/llm/standard');
   expect(screen.queryByLabelText('Reasoning')).not.toBeInTheDocument();
   expect(screen.getByLabelText('Temperature')).toHaveAttribute('max', '2');
   expect(screen.getByTitle(
@@ -70,7 +70,7 @@ test('renders provider labels and applies provider-aware profile defaults', asyn
   await user.selectOptions(provider, 'ollama');
   expect(screen.getByLabelText('Model')).toHaveValue('qwen2.5-coder:14b');
   expect(screen.getByLabelText('Base URL *')).toHaveValue('http://ollama:11434/v1');
-  expect(screen.getByLabelText('API key secret')).toHaveValue('OLLAMA_API_KEY');
+  expect(screen.getByLabelText('Credential reference')).toHaveValue('credential://system/llm/standard');
 
   await user.selectOptions(provider, 'lmstudio');
   expect(screen.getByTitle(

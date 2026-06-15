@@ -35,6 +35,76 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 	repoScopeSecrets := plan.repoScopeSecrets
 	triggers := plan.triggers
 
+	credentialActor := fmt.Sprintf("gitops:config-repository:%d", binding.ID)
+	credentialRepoID := binding.ID
+	credentialMetadata := func(kind, description, sourcePath string) createCredentialInput {
+		return createCredentialInput{
+			Kind:                  kind,
+			Description:           description,
+			Actor:                 credentialActor,
+			ManagedByConfigRepo:   true,
+			ConfigRepoID:          &credentialRepoID,
+			ConfigSourcePath:      sourcePath,
+			ConfigSourceCommitSHA: commitSHA,
+		}
+	}
+	if llmProfilePlan != nil {
+		for name, profile := range llmProfilePlan.profiles {
+			if err := a.ensureCredentialReferenceMetadata(
+				ctx,
+				profile.CredentialRef,
+				credentialMetadata("api_key", "LLM API key for "+name, llmProfilePlan.sourcePath),
+			); err != nil {
+				return fmt.Errorf("prepare LLM credential metadata for %q: %w", name, err)
+			}
+		}
+	}
+	if mcpRegistryPlan != nil {
+		for name, server := range mcpRegistryPlan.Servers {
+			if err := a.ensureCredentialReferenceMetadata(
+				ctx,
+				server.CredentialRef,
+				credentialMetadata("bearer_token", "MCP bearer token for "+name, mcpRegistryPlan.SourcePath),
+			); err != nil {
+				return fmt.Errorf("prepare MCP credential metadata for %q: %w", name, err)
+			}
+		}
+	}
+	if mailSettingsPlan != nil {
+		if err := a.ensureCredentialReferenceMetadata(
+			ctx,
+			mailSettingsPlan.settings.SMTP.PasswordCredentialRef,
+			credentialMetadata("password", "SMTP authentication password", mailSettingsPlan.sourcePath),
+		); err != nil {
+			return fmt.Errorf("prepare mail credential metadata: %w", err)
+		}
+	}
+	if authSettingsPlan != nil {
+		for _, provider := range authSettingsPlan.providers {
+			if err := a.ensureCredentialReferenceMetadata(
+				ctx,
+				provider.ClientCredentialRef,
+				credentialMetadata("client_secret", "OIDC client secret for "+provider.ID, authSettingsPlan.sourcePath),
+			); err != nil {
+				return fmt.Errorf("prepare OIDC client credential metadata for %q: %w", provider.ID, err)
+			}
+			if err := a.ensureCredentialReferenceMetadata(
+				ctx,
+				provider.EntitlementSync.AdminClientCredentialRef,
+				credentialMetadata("client_secret", "OIDC entitlement admin client secret for "+provider.ID, authSettingsPlan.sourcePath),
+			); err != nil {
+				return fmt.Errorf("prepare OIDC admin client credential metadata for %q: %w", provider.ID, err)
+			}
+			if err := a.ensureCredentialReferenceMetadata(
+				ctx,
+				provider.EntitlementSync.AdminPasswordCredentialRef,
+				credentialMetadata("password", "OIDC entitlement admin password for "+provider.ID, authSettingsPlan.sourcePath),
+			); err != nil {
+				return fmt.Errorf("prepare OIDC credential metadata for %q: %w", provider.ID, err)
+			}
+		}
+	}
+
 	// --- 3. Database Transaction (Upsert + Prune) ---
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
@@ -818,7 +888,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			mailSettingsPlan.settings.SMTP.Port,
 			mailSettingsPlan.settings.SMTP.StartTLS,
 			mailSettingsPlan.settings.SMTP.Username,
-			mailSettingsPlan.settings.SMTP.PasswordSecretRef,
+			mailSettingsPlan.settings.SMTP.PasswordCredentialRef,
 			"git",
 			binding.ID,
 			mailSettingsPlan.sourcePath,

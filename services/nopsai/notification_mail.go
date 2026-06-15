@@ -15,7 +15,6 @@ import (
 	"net/mail"
 	"net/smtp"
 	"net/textproto"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -26,16 +25,17 @@ import (
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
 	"nopsai/services/nopsai/internal/configsync"
+	"nopsai/services/nopsai/internal/credentials"
 )
 
 const notificationMailGitOpsPath = "system/mail.yaml"
 
 type notificationMailSMTPSettings struct {
-	Host              string `json:"host" yaml:"host,omitempty"`
-	Port              int    `json:"port" yaml:"port,omitempty"`
-	StartTLS          bool   `json:"start_tls" yaml:"start_tls"`
-	Username          string `json:"username" yaml:"username,omitempty"`
-	PasswordSecretRef string `json:"password_secret_ref" yaml:"password_secret_ref,omitempty"`
+	Host                  string `json:"host" yaml:"host,omitempty"`
+	Port                  int    `json:"port" yaml:"port,omitempty"`
+	StartTLS              bool   `json:"start_tls" yaml:"start_tls"`
+	Username              string `json:"username" yaml:"username,omitempty"`
+	PasswordCredentialRef string `json:"password_credential_ref" yaml:"password_credential_ref,omitempty"`
 }
 
 type notificationMailSettingsFile struct {
@@ -87,7 +87,7 @@ func normalizeNotificationMailSettings(input notificationMailSettingsFile) (noti
 	settings.From = strings.TrimSpace(settings.From)
 	settings.SMTP.Host = strings.TrimSpace(settings.SMTP.Host)
 	settings.SMTP.Username = strings.TrimSpace(settings.SMTP.Username)
-	settings.SMTP.PasswordSecretRef = strings.TrimSpace(settings.SMTP.PasswordSecretRef)
+	settings.SMTP.PasswordCredentialRef = strings.TrimSpace(settings.SMTP.PasswordCredentialRef)
 	if settings.SMTP.Port == 0 {
 		settings.SMTP.Port = 587
 	}
@@ -104,8 +104,8 @@ func normalizeNotificationMailSettings(input notificationMailSettingsFile) (noti
 		if settings.SMTP.Host == "" {
 			return notificationMailSettingsFile{}, fmt.Errorf("smtp.host is required when mail notifications are enabled")
 		}
-		if settings.SMTP.Username != "" && settings.SMTP.PasswordSecretRef == "" {
-			return notificationMailSettingsFile{}, fmt.Errorf("smtp.password_secret_ref is required when smtp.username is set")
+		if settings.SMTP.Username != "" && settings.SMTP.PasswordCredentialRef == "" {
+			return notificationMailSettingsFile{}, fmt.Errorf("smtp.password_credential_ref is required when smtp.username is set")
 		}
 	}
 	return settings, nil
@@ -209,7 +209,7 @@ func (a *App) handleTestNotificationMailSettings(w http.ResponseWriter, r *http.
 		http.Error(w, "failed to render mail notification test", http.StatusInternalServerError)
 		return
 	}
-	if err := sendNotificationMailMessage(r.Context(), settings.notificationMailSettingsFile, []string{to}, mailMessage); err != nil {
+	if err := a.sendNotificationMailMessage(r.Context(), settings.notificationMailSettingsFile, []string{to}, mailMessage); err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -234,7 +234,7 @@ func (a *App) loadNotificationMailSettings(ctx context.Context) (notificationMai
 	}
 	record, err := scanNotificationMailSettings(a.db.QueryRow(ctx, `
 		SELECT enabled, from_address, smtp_host, smtp_port, smtp_start_tls, smtp_username,
-		       smtp_password_secret_ref, COALESCE(source, 'database'), config_repo_id,
+		       smtp_password_credential_ref, COALESCE(source, 'database'), config_repo_id,
 		       COALESCE(config_source_path, ''), COALESCE(config_source_commit_sha, ''),
 		       managed_by_config_repo, updated_at
 		FROM notification_mail_settings
@@ -250,6 +250,15 @@ func (a *App) upsertNotificationMailSettings(ctx context.Context, settings notif
 	if a == nil || a.db == nil {
 		return notificationMailSettingsRecord{notificationMailSettingsFile: settings, Source: source}, nil
 	}
+	if err := a.ensureCredentialReference(
+		ctx,
+		settings.SMTP.PasswordCredentialRef,
+		"password",
+		"SMTP authentication password",
+		credentialActorFromContext(ctx),
+	); err != nil {
+		return notificationMailSettingsRecord{}, err
+	}
 	return scanNotificationMailSettings(a.db.QueryRow(ctx, notificationMailSettingsUpsertSQL,
 		settings.Enabled,
 		settings.From,
@@ -257,7 +266,7 @@ func (a *App) upsertNotificationMailSettings(ctx context.Context, settings notif
 		settings.SMTP.Port,
 		settings.SMTP.StartTLS,
 		settings.SMTP.Username,
-		settings.SMTP.PasswordSecretRef,
+		settings.SMTP.PasswordCredentialRef,
 		source,
 		configRepoID,
 		sourcePath,
@@ -269,7 +278,7 @@ func (a *App) upsertNotificationMailSettings(ctx context.Context, settings notif
 const notificationMailSettingsUpsertSQL = `
 	INSERT INTO notification_mail_settings (
 		id, enabled, from_address, smtp_host, smtp_port, smtp_start_tls, smtp_username,
-		smtp_password_secret_ref, source, config_repo_id, config_source_path,
+		smtp_password_credential_ref, source, config_repo_id, config_source_path,
 		config_source_commit_sha, managed_by_config_repo, updated_at
 	) VALUES (
 		TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW()
@@ -281,7 +290,7 @@ const notificationMailSettingsUpsertSQL = `
 		smtp_port = EXCLUDED.smtp_port,
 		smtp_start_tls = EXCLUDED.smtp_start_tls,
 		smtp_username = EXCLUDED.smtp_username,
-		smtp_password_secret_ref = EXCLUDED.smtp_password_secret_ref,
+		smtp_password_credential_ref = EXCLUDED.smtp_password_credential_ref,
 		source = EXCLUDED.source,
 		config_repo_id = EXCLUDED.config_repo_id,
 		config_source_path = EXCLUDED.config_source_path,
@@ -289,7 +298,7 @@ const notificationMailSettingsUpsertSQL = `
 		managed_by_config_repo = EXCLUDED.managed_by_config_repo,
 		updated_at = NOW()
 	RETURNING enabled, from_address, smtp_host, smtp_port, smtp_start_tls, smtp_username,
-	          smtp_password_secret_ref, COALESCE(source, 'database'), config_repo_id,
+	          smtp_password_credential_ref, COALESCE(source, 'database'), config_repo_id,
 	          COALESCE(config_source_path, ''), COALESCE(config_source_commit_sha, ''),
 	          managed_by_config_repo, updated_at`
 
@@ -304,7 +313,7 @@ func scanNotificationMailSettings(row interface{ Scan(dest ...any) error }) (not
 		&record.SMTP.Port,
 		&record.SMTP.StartTLS,
 		&record.SMTP.Username,
-		&record.SMTP.PasswordSecretRef,
+		&record.SMTP.PasswordCredentialRef,
 		&record.Source,
 		&configRepoID,
 		&record.ConfigSourcePath,
@@ -330,14 +339,14 @@ func scanNotificationMailSettings(row interface{ Scan(dest ...any) error }) (not
 	return record, nil
 }
 
-func sendNotificationMail(ctx context.Context, settings notificationMailSettingsFile, recipients []string, subject, body string) error {
-	return sendNotificationMailMessage(ctx, settings, recipients, notificationMailMessage{
+func (a *App) sendNotificationMail(ctx context.Context, settings notificationMailSettingsFile, recipients []string, subject, body string) error {
+	return a.sendNotificationMailMessage(ctx, settings, recipients, notificationMailMessage{
 		Subject:  subject,
 		TextBody: body,
 	})
 }
 
-func sendNotificationMailMessage(ctx context.Context, settings notificationMailSettingsFile, recipients []string, mailMessage notificationMailMessage) error {
+func (a *App) sendNotificationMailMessage(ctx context.Context, settings notificationMailSettingsFile, recipients []string, mailMessage notificationMailMessage) error {
 	settings, err := normalizeNotificationMailSettings(settings)
 	if err != nil {
 		return err
@@ -346,10 +355,15 @@ func sendNotificationMailMessage(ctx context.Context, settings notificationMailS
 		return fmt.Errorf("mail notifications are disabled")
 	}
 	password := ""
-	if ref := strings.TrimSpace(settings.SMTP.PasswordSecretRef); ref != "" {
-		password = os.Getenv(ref)
-		if password == "" {
-			return fmt.Errorf("smtp password secret %q is not available", ref)
+	if ref := strings.TrimSpace(settings.SMTP.PasswordCredentialRef); ref != "" {
+		password, err = a.resolveCredentialText(ctx, ref, credentials.Purpose{
+			ConsumerService: "nopsai",
+			Operation:       "smtp.authenticate",
+			SubjectType:     "service",
+			SubjectID:       "notification-mail",
+		})
+		if err != nil {
+			return fmt.Errorf("resolve SMTP credential: %w", err)
 		}
 	}
 	message, err := buildNotificationMailMessage(settings.From, recipients, mailMessage)

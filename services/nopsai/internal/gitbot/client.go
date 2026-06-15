@@ -10,11 +10,13 @@ import (
 	"time"
 
 	"nopsai/pkg/models"
+	"nopsai/pkg/serviceauth"
 )
 
 type Client struct {
-	BaseURL    string
-	HTTPClient *http.Client
+	BaseURL     string
+	HTTPClient  *http.Client
+	Credentials *serviceauth.Credentials
 }
 
 type CommitFile struct {
@@ -430,7 +432,20 @@ func (c Client) postJSON(path string, payload interface{}) (*http.Response, erro
 	if client == nil {
 		client = http.DefaultClient
 	}
-	return client.Post(c.url(path), "application/json", bytes.NewBuffer(body))
+	req, err := http.NewRequest(http.MethodPost, c.url(path), bytes.NewBuffer(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.Credentials == nil {
+		return nil, fmt.Errorf("nopsai service credentials are not configured")
+	}
+	token, err := c.Credentials.MintToken(req.Context())
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	return client.Do(req)
 }
 
 func (c Client) url(path string) string {

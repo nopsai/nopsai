@@ -6,7 +6,7 @@ export type LLMProviderDefinition = {
   label: string;
   defaultModel: string;
   defaultBaseURL: string;
-  defaultSecretName: string;
+  defaultCredentialRef: string;
   baseURLMode: LLMBaseURLMode;
   apiKeyMode: LLMAPIKeyMode;
   supportsReasoning?: boolean;
@@ -23,7 +23,7 @@ export const LLM_PROVIDERS: LLMProviderDefinition[] = [
     label: 'LM Studio',
     defaultModel: 'qwen3-coder',
     defaultBaseURL: 'http://lmstudio:1234',
-    defaultSecretName: 'LLM_API_KEY',
+    defaultCredentialRef: 'credential://system/llm/standard',
     baseURLMode: 'required',
     apiKeyMode: 'optional',
     supportsReasoning: true,
@@ -38,7 +38,7 @@ export const LLM_PROVIDERS: LLMProviderDefinition[] = [
     label: 'Google Gemini',
     defaultModel: 'gemini-2.5-flash',
     defaultBaseURL: '',
-    defaultSecretName: 'GEMINI_API_KEY',
+    defaultCredentialRef: 'credential://system/llm/standard',
     baseURLMode: 'hidden',
     apiKeyMode: 'required',
     supportsMaxTokens: true,
@@ -51,7 +51,7 @@ export const LLM_PROVIDERS: LLMProviderDefinition[] = [
     label: 'OpenAI / ChatGPT',
     defaultModel: 'gpt-4.1-mini',
     defaultBaseURL: 'https://api.openai.com/v1',
-    defaultSecretName: 'OPENAI_API_KEY',
+    defaultCredentialRef: 'credential://system/llm/standard',
     baseURLMode: 'optional',
     apiKeyMode: 'required',
     supportsMaxTokens: true,
@@ -64,7 +64,7 @@ export const LLM_PROVIDERS: LLMProviderDefinition[] = [
     label: 'Anthropic Claude',
     defaultModel: 'claude-sonnet-4-6',
     defaultBaseURL: 'https://api.anthropic.com',
-    defaultSecretName: 'ANTHROPIC_API_KEY',
+    defaultCredentialRef: 'credential://system/llm/standard',
     baseURLMode: 'optional',
     apiKeyMode: 'required',
     supportsMaxTokens: true,
@@ -77,7 +77,7 @@ export const LLM_PROVIDERS: LLMProviderDefinition[] = [
     label: 'Groq',
     defaultModel: 'llama-3.3-70b-versatile',
     defaultBaseURL: 'https://api.groq.com/openai/v1',
-    defaultSecretName: 'GROQ_API_KEY',
+    defaultCredentialRef: 'credential://system/llm/standard',
     baseURLMode: 'optional',
     apiKeyMode: 'required',
     supportsMaxTokens: true,
@@ -90,7 +90,7 @@ export const LLM_PROVIDERS: LLMProviderDefinition[] = [
     label: 'Mistral',
     defaultModel: 'mistral-large-latest',
     defaultBaseURL: 'https://api.mistral.ai/v1',
-    defaultSecretName: 'MISTRAL_API_KEY',
+    defaultCredentialRef: 'credential://system/llm/standard',
     baseURLMode: 'optional',
     apiKeyMode: 'required',
     supportsMaxTokens: true,
@@ -103,7 +103,7 @@ export const LLM_PROVIDERS: LLMProviderDefinition[] = [
     label: 'OpenRouter',
     defaultModel: 'openai/gpt-4.1-mini',
     defaultBaseURL: 'https://openrouter.ai/api/v1',
-    defaultSecretName: 'OPENROUTER_API_KEY',
+    defaultCredentialRef: 'credential://system/llm/standard',
     baseURLMode: 'optional',
     apiKeyMode: 'required',
     supportsMaxTokens: true,
@@ -116,7 +116,7 @@ export const LLM_PROVIDERS: LLMProviderDefinition[] = [
     label: 'Ollama',
     defaultModel: 'qwen2.5-coder:14b',
     defaultBaseURL: 'http://ollama:11434/v1',
-    defaultSecretName: 'OLLAMA_API_KEY',
+    defaultCredentialRef: 'credential://system/llm/standard',
     baseURLMode: 'required',
     apiKeyMode: 'optional',
     supportsMaxTokens: true,
@@ -129,7 +129,7 @@ export const LLM_PROVIDERS: LLMProviderDefinition[] = [
     label: 'Azure OpenAI',
     defaultModel: 'gpt-4.1-mini',
     defaultBaseURL: '',
-    defaultSecretName: 'AZURE_OPENAI_API_KEY',
+    defaultCredentialRef: 'credential://system/llm/standard',
     baseURLMode: 'required',
     apiKeyMode: 'required',
     supportsMaxTokens: true,
@@ -143,8 +143,8 @@ export function getLLMProvider(provider: string): LLMProviderDefinition {
   return LLM_PROVIDERS.find(candidate => candidate.id === provider.trim()) ?? LLM_PROVIDERS[0]!;
 }
 
-export function defaultLLMSecretName(provider: string): string {
-  return getLLMProvider(provider).defaultSecretName;
+export function defaultLLMCredentialRef(provider: string): string {
+  return getLLMProvider(provider).defaultCredentialRef;
 }
 
 export function replaceProviderDefault(

@@ -9,6 +9,7 @@ import (
 
 	"nopsai/config"
 	"nopsai/pkg/serviceauth"
+	"nopsai/services/nopsai/internal/credentials"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -20,10 +21,12 @@ type AppOptions struct {
 	Database             *pgxpool.Pool
 	Dispatcher           DispatcherClient
 	ServiceAuthenticator *serviceauth.Authenticator
+	ServiceCredentials   *serviceauth.Credentials
 	GitProvider          GitProvider
 	RunLauncher          RunLauncher
 	ConfigSyncStore      ConfigSyncStore
 	SecretCodec          SecretCodec
+	CredentialResolver   CredentialResolver
 	AAAClient            AAAClient
 	LocalAAAClient       AAAClient
 	ConfigPath           string
@@ -50,25 +53,39 @@ func NewApp(ctx context.Context, options AppOptions) (*App, error) {
 		return nil, err
 	}
 
+	pgStore := store.NewPGStore(options.Database)
+	credentialCodec, err := credentials.NewEnvelopeCodec(options.Config.MasterKey)
+	if err != nil {
+		return nil, fmt.Errorf("initialize credential encryption: %w", err)
+	}
+	credentialService, err := newCredentialService(pgStore, credentialCodec, security.auditLogger)
+	if err != nil {
+		return nil, fmt.Errorf("initialize credential service: %w", err)
+	}
+
 	app := &App{
-		db:           options.Database,
-		cfg:          options.Config,
-		dispatcher:   options.Dispatcher,
-		encKey:       key[:],
-		httpClient:   security.internalHTTP,
-		gitProvider:  security.gitProvider,
-		runLauncher:  options.RunLauncher,
-		configSync:   options.ConfigSyncStore,
-		secretCrypto: options.SecretCodec,
-		store:        store.NewPGStore(options.Database),
-		configPath:   options.ConfigPath,
-		envFilePath:  options.EnvFilePath,
-		authService:  security.authService,
-		serviceAuth:  options.ServiceAuthenticator,
-		aaaClient:    security.aaaClient,
-		aaaLocal:     security.localAAA,
-		authz:        security.authz,
-		auditLogger:  security.auditLogger,
+		db:                 options.Database,
+		cfg:                options.Config,
+		dispatcher:         options.Dispatcher,
+		encKey:             key[:],
+		httpClient:         security.internalHTTP,
+		gitProvider:        security.gitProvider,
+		runLauncher:        options.RunLauncher,
+		configSync:         options.ConfigSyncStore,
+		secretCrypto:       options.SecretCodec,
+		store:              pgStore,
+		credentialStore:    pgStore,
+		credentialResolver: credentialService,
+		credentials:        credentialService,
+		configPath:         options.ConfigPath,
+		envFilePath:        options.EnvFilePath,
+		authService:        security.authService,
+		serviceAuth:        options.ServiceAuthenticator,
+		serviceCredentials: options.ServiceCredentials,
+		aaaClient:          security.aaaClient,
+		aaaLocal:           security.localAAA,
+		authz:              security.authz,
+		auditLogger:        security.auditLogger,
 		configSyncStatus: ConfigSyncStatus{
 			Status:  "idle",
 			Message: "No configuration sync has been requested yet.",
@@ -83,6 +100,9 @@ func NewApp(ctx context.Context, options AppOptions) (*App, error) {
 	}
 	if app.secretCrypto == nil {
 		app.secretCrypto = aesGCMSecretCodec{key: key[:]}
+	}
+	if options.CredentialResolver != nil {
+		app.credentialResolver = options.CredentialResolver
 	}
 	if err := app.loadOrSeedLLMProfilesConfig(ctx); err != nil {
 		return nil, fmt.Errorf("load LLM profiles: %w", err)

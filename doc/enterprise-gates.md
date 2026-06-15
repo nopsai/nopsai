@@ -20,7 +20,8 @@ The NopsAI API production gates currently check:
 - `AAA_SHARED_INTERNAL_TOKEN` is production-grade and not the local development
   default.
 - Dispatcher transport security is not disabled.
-- If a GitHub App is configured, `GITHUB_WEBHOOK_SECRET` is production-grade.
+- If a GitHub App is configured, private-key and webhook credential references
+  are configured.
 - The built-in `admin@example.com` account is not using the default password.
   In production gate mode, a missing default admin is not auto-seeded.
 
@@ -35,8 +36,8 @@ Additional service binaries also call the shared startup gates directly:
 - `agent` requires dispatcher address, service identity, production-grade
   service JWT signing, and dispatcher TLS when production gates are enabled.
 - `aaa` requires a database URL and production-grade shared internal token.
-- `git-bot` requires GitHub App identifiers, private key path, webhook secret,
-  and NopsAI callback URL.
+- `git-bot` requires service identity and the NopsAI callback URL; it obtains
+  GitHub App credentials from the authenticated broker during startup.
 - `runner` and `k8s-runner` require dispatcher address, production-grade
   service JWT isolation, and dispatcher TLS.
 

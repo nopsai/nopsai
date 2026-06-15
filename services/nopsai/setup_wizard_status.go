@@ -295,8 +295,8 @@ func (a *App) setupGitHubInfo() setupGitHubInfo {
 		},
 		AppIDConfigured:            strings.TrimSpace(cfg.GitHubAppID) != "",
 		InstallationIDConfigured:   strings.TrimSpace(cfg.GitHubInstallID) != "",
-		PrivateKeyConfigured:       strings.TrimSpace(cfg.GitHubPrivateKeyPath) != "" || strings.TrimSpace(cfg.GitHubPrivateKey) != "",
-		WebhookSecretConfigured:    strings.TrimSpace(cfg.GitHubWebhookSecret) != "",
+		PrivateKeyConfigured:       strings.TrimSpace(cfg.GitHubPrivateKeyCredentialRef) != "",
+		WebhookSecretConfigured:    strings.TrimSpace(cfg.GitHubWebhookCredentialRef) != "",
 		GitBotURLConfigured:        gitBotServiceURL != "",
 		NopsaiForwardURLConfigured: nopsaiAPIURL != "",
 	}
@@ -351,7 +351,6 @@ func (a *App) generateSetupSecrets() ([]string, bool, error) {
 		{cfg.JWTSigningKey, "JWT_SIGNING_KEY", 48},
 		{cfg.ServiceJWTSigningKey, "SERVICE_JWT_SIGNING_KEY", 48},
 		{cfg.AAASharedToken, "AAA_SHARED_INTERNAL_TOKEN", 32},
-		{cfg.GitHubWebhookSecret, "GITHUB_WEBHOOK_SECRET", 32},
 		{cfg.DispatcherTLSSecret, "DISPATCHER_TLS_SECRET", 48},
 	} {
 		if err := addIfEmpty(candidate.current, candidate.envKey, candidate.bytes); err != nil {
@@ -374,9 +373,6 @@ func (a *App) generateSetupSecrets() ([]string, bool, error) {
 	}
 	if value := updates["AAA_SHARED_INTERNAL_TOKEN"]; value != "" {
 		a.cfg.AAASharedToken = value
-	}
-	if value := updates["GITHUB_WEBHOOK_SECRET"]; value != "" {
-		a.cfg.GitHubWebhookSecret = value
 	}
 	if value := updates["DISPATCHER_TLS_SECRET"]; value != "" {
 		a.cfg.DispatcherTLSSecret = value

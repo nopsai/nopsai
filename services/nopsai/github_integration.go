@@ -19,8 +19,10 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"nopsai/pkg/models"
+	"nopsai/pkg/serviceauth"
 	"nopsai/services/aaa/pkg/model"
 	"nopsai/services/nopsai/internal/configsync"
+	"nopsai/services/nopsai/pkg/auth"
 )
 
 func findStepByName(steps []models.PipelineStep, name string) (models.PipelineStep, bool) {
@@ -33,6 +35,13 @@ func findStepByName(steps []models.PipelineStep, name string) (models.PipelineSt
 }
 
 func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.ClaimsFromContext(r.Context())
+	if !ok || claims == nil ||
+		!strings.EqualFold(strings.TrimSpace(claims.Provider), serviceauth.ProviderInternalService) ||
+		!containsFold(claims.Roles, serviceauth.RoleGitBot) {
+		http.Error(w, "git-bot service identity required", http.StatusForbidden)
+		return
+	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Could not read request body", http.StatusInternalServerError)

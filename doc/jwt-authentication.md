@@ -78,7 +78,7 @@ oidc:
       display_name: Company SSO
       issuer: https://idp.company.com
       client_id: ${OIDC_CLIENT_ID}
-      client_secret: ${OIDC_CLIENT_SECRET}
+      client_credential_ref: credential://system/oidc/corporate/client-secret
       scopes: ["openid", "email", "profile"]
       allowed_email_domains: ["company.com"]
       # Keycloak-only entitlement sync. Direct client roles become global
@@ -88,7 +88,7 @@ oidc:
         admin_base_url: https://keycloak.example.com
         realm: company
         admin_client_id: nopsai-admin
-        admin_client_secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET}
+        admin_client_credential_ref: credential://system/oidc/corporate/admin-client-secret
         client_id: nopsai
         target_resource_type: folder
 ```

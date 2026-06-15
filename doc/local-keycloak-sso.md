@@ -107,7 +107,7 @@ oidc:
       jwks_uri: http://keycloak:8080/realms/nopsai/protocol/openid-connect/certs
       userinfo_endpoint: http://keycloak:8080/realms/nopsai/protocol/openid-connect/userinfo
       client_id: nopsai
-      client_secret: dev-nopsai-secret
+      client_credential_ref: credential://system/oidc/nopsai/client-secret
       scopes: ["openid", "email", "profile"]
       allowed_email_domains: ["example.com"]
       allow_email_linking: true
@@ -118,7 +118,7 @@ oidc:
         admin_realm: master
         admin_client_id: admin-cli
         admin_username: admin
-        admin_password: admin
+        admin_password_credential_ref: credential://system/oidc/nopsai/admin-password
         client_id: nopsai
         target_resource_type: folder
 ```
@@ -127,11 +127,9 @@ oidc:
 non-GitOps deployments, but the checked-in local config intentionally leaves
 OIDC out so the config repository remains the source of truth.
 
-Use `setting/system/auth.yaml` for GitOps-managed auth settings. For production,
-provider secrets such as `client_secret`,
-`entitlement_sync.admin_client_secret`, and `entitlement_sync.admin_password`
-can be omitted from Git; when omitted, sync preserves the stored local values
-for that provider.
+Use `setting/system/auth.yaml` for GitOps-managed auth settings. Create the
+referenced client secret and admin password in **System > Credentials** before
+testing login or entitlement sync.
 
 The issuer is browser-visible because it must match the `iss` claim in
 Keycloak ID tokens. The token, JWKS, and userinfo endpoints use the Docker
@@ -155,8 +153,8 @@ ownership.
 
 For production Keycloak, prefer a dedicated confidential admin client with
 service-account permissions to read users, groups, clients, and role mappings.
-Then use `admin_client_id` and `admin_client_secret` instead of
-`admin_username` and `admin_password`.
+Then use `admin_client_id` with `admin_client_credential_ref` instead of
+`admin_username` with `admin_password_credential_ref`.
 
 To manage roles in the Keycloak UI:
 

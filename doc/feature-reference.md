@@ -228,9 +228,9 @@ Sync behavior:
 - config repository drift compares both directions across syncable declarative resources: pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, notification routes, run group/config-repository structure, access manifests, Agent Profiles, LLM profiles, MCP registry files, auth settings, mail settings, and runtime settings. UI-side Access dialog changes for pipelines, reusable steps, scopes, and knowledge contexts are exported back into embedded GitOps `access:` blocks; pipeline run rows remain runtime/audit state.
 - config sync can adopt matching database-owned resources inside the syncing repo scope after the generated files are present in the sync branch, then mark them as GitOps-managed
 - `config-repositories/groups/<group>/structure.yaml` can place apps under group shells with `name` and `repo_url`; these files can also include inline `config:` blocks for group repo bindings
-- auth settings GitOps is system/global only and can omit provider secret fields to preserve locally stored values
+- auth settings GitOps is system/global only and binds provider credential references
 - runtime settings GitOps is system/global only; `dispatcher_routing` changes are persisted and applied by the live dispatcher through the control-plane sync path
-- mail settings GitOps is system/global only and stores `smtp.password_secret_ref` rather than the SMTP password value
+- mail settings GitOps is system/global only and stores `smtp.password_credential_ref` rather than the SMTP password value
 
 ## Notifications And Metrics
 

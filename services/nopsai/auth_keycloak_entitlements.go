@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 
+	"nopsai/services/nopsai/internal/credentials"
+
 	"github.com/rs/zerolog/log"
 )
 
@@ -107,24 +109,42 @@ func (a *App) enrichOIDCIdentityEntitlements(ctx context.Context, provider oidcP
 }
 
 func (a *App) keycloakAdminToken(ctx context.Context, sync oidcEntitlementSyncConfig) (string, error) {
+	adminPassword, err := a.resolveCredentialText(ctx, sync.AdminPasswordCredentialRef, credentials.Purpose{
+		ConsumerService: "nopsai",
+		Operation:       "oidc.keycloak_admin_password",
+		SubjectType:     "identity_provider",
+		SubjectID:       sync.Realm,
+	})
+	if err != nil {
+		return "", fmt.Errorf("resolve Keycloak admin password credential: %w", err)
+	}
+	adminClientSecret, err := a.resolveCredentialText(ctx, sync.AdminClientCredentialRef, credentials.Purpose{
+		ConsumerService: "nopsai",
+		Operation:       "oidc.keycloak_admin_client",
+		SubjectType:     "identity_provider",
+		SubjectID:       sync.Realm,
+	})
+	if err != nil {
+		return "", fmt.Errorf("resolve Keycloak admin client credential: %w", err)
+	}
 	form := url.Values{}
 	form.Set("client_id", sync.AdminClientID)
 	switch {
-	case sync.AdminUsername != "" || sync.AdminPassword != "":
-		if sync.AdminUsername == "" || sync.AdminPassword == "" {
-			return "", fmt.Errorf("keycloak password grant requires admin_username and admin_password")
+	case sync.AdminUsername != "" || sync.AdminPasswordCredentialRef != "":
+		if sync.AdminUsername == "" || adminPassword == "" {
+			return "", fmt.Errorf("keycloak password grant requires admin_username and admin_password_credential_ref")
 		}
 		form.Set("grant_type", "password")
 		form.Set("username", sync.AdminUsername)
-		form.Set("password", sync.AdminPassword)
-		if sync.AdminClientSecret != "" {
-			form.Set("client_secret", sync.AdminClientSecret)
+		form.Set("password", adminPassword)
+		if adminClientSecret != "" {
+			form.Set("client_secret", adminClientSecret)
 		}
-	case sync.AdminClientSecret != "":
+	case sync.AdminClientCredentialRef != "":
 		form.Set("grant_type", "client_credentials")
-		form.Set("client_secret", sync.AdminClientSecret)
+		form.Set("client_secret", adminClientSecret)
 	default:
-		return "", fmt.Errorf("keycloak entitlement sync requires admin_username/admin_password or admin_client_secret")
+		return "", fmt.Errorf("keycloak entitlement sync requires admin credentials")
 	}
 	tokenURL := sync.AdminBaseURL + "/realms/" + url.PathEscape(sync.AdminRealm) + "/protocol/openid-connect/token"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))

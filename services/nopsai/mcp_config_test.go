@@ -24,7 +24,7 @@ mcp_servers:
     transport: streamable_http
     url: https://provider.example.com/mcp
     auth_type: bearer_token
-    auth_secret: GITHUB_MCP_TOKEN
+    credential_ref: credential://system/mcp/github
     headers:
       X-MCP-Toolsets: default,actions
       X-MCP-Readonly: "true"

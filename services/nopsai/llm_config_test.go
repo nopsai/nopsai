@@ -1,6 +1,7 @@
 package nopsai
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -14,35 +15,35 @@ func TestValidateLLMProfileDefinitionSupportsFirstWaveProviders(t *testing.T) {
 		profile config.LLMProfile
 		valid   bool
 	}{
-		{name: "gemini", profile: config.LLMProfile{Provider: "gemini", Model: "gemini-test", APIKeySecret: "GEMINI_API_KEY"}, valid: true},
+		{name: "gemini", profile: config.LLMProfile{Provider: "gemini", Model: "gemini-test", CredentialRef: "credential://system/llm/test"}, valid: true},
 		{name: "lm studio", profile: config.LLMProfile{Provider: "lmstudio", BaseURL: "http://lmstudio:1234", Reasoning: "high"}, valid: true},
-		{name: "openai", profile: config.LLMProfile{Provider: "openai", Model: "gpt-test", APIKeySecret: "OPENAI_API_KEY"}, valid: true},
-		{name: "anthropic", profile: config.LLMProfile{Provider: "anthropic", Model: "claude-test", APIKeySecret: "ANTHROPIC_API_KEY"}, valid: true},
-		{name: "groq", profile: config.LLMProfile{Provider: "groq", Model: "llama-test", APIKeySecret: "GROQ_API_KEY"}, valid: true},
-		{name: "mistral", profile: config.LLMProfile{Provider: "mistral", Model: "mistral-test", APIKeySecret: "MISTRAL_API_KEY"}, valid: true},
-		{name: "openrouter", profile: config.LLMProfile{Provider: "openrouter", Model: "openai/test", APIKeySecret: "OPENROUTER_API_KEY"}, valid: true},
+		{name: "openai", profile: config.LLMProfile{Provider: "openai", Model: "gpt-test", CredentialRef: "credential://system/llm/test"}, valid: true},
+		{name: "anthropic", profile: config.LLMProfile{Provider: "anthropic", Model: "claude-test", CredentialRef: "credential://system/llm/test"}, valid: true},
+		{name: "groq", profile: config.LLMProfile{Provider: "groq", Model: "llama-test", CredentialRef: "credential://system/llm/test"}, valid: true},
+		{name: "mistral", profile: config.LLMProfile{Provider: "mistral", Model: "mistral-test", CredentialRef: "credential://system/llm/test"}, valid: true},
+		{name: "openrouter", profile: config.LLMProfile{Provider: "openrouter", Model: "openai/test", CredentialRef: "credential://system/llm/test"}, valid: true},
 		{name: "ollama", profile: config.LLMProfile{Provider: "ollama", Model: "qwen", BaseURL: "http://ollama:11434/v1"}, valid: true},
-		{name: "azure v1", profile: config.LLMProfile{Provider: "azure-openai", Model: "deployment", BaseURL: "https://resource.openai.azure.com/openai/v1", APIKeySecret: "AZURE_OPENAI_API_KEY"}, valid: true},
-		{name: "azure legacy", profile: config.LLMProfile{Provider: "azure-openai", BaseURL: "https://resource.openai.azure.com", APIKeySecret: "AZURE_OPENAI_API_KEY", Extra: map[string]string{"deployment": "deploy"}}, valid: true},
+		{name: "azure v1", profile: config.LLMProfile{Provider: "azure-openai", Model: "deployment", BaseURL: "https://resource.openai.azure.com/openai/v1", CredentialRef: "credential://system/llm/test"}, valid: true},
+		{name: "azure legacy", profile: config.LLMProfile{Provider: "azure-openai", BaseURL: "https://resource.openai.azure.com", CredentialRef: "credential://system/llm/test", Extra: map[string]string{"deployment": "deploy"}}, valid: true},
 		{name: "missing cloud key", profile: config.LLMProfile{Provider: "openai", Model: "gpt-test"}, valid: false},
-		{name: "missing hosted model", profile: config.LLMProfile{Provider: "anthropic", APIKeySecret: "ANTHROPIC_API_KEY"}, valid: false},
-		{name: "missing gemini model", profile: config.LLMProfile{Provider: "gemini", APIKeySecret: "GEMINI_API_KEY"}, valid: false},
+		{name: "missing hosted model", profile: config.LLMProfile{Provider: "anthropic", CredentialRef: "credential://system/llm/test"}, valid: false},
+		{name: "missing gemini model", profile: config.LLMProfile{Provider: "gemini", CredentialRef: "credential://system/llm/test"}, valid: false},
 		{name: "missing gemini key", profile: config.LLMProfile{Provider: "gemini", Model: "gemini-test"}, valid: false},
 		{name: "missing lm studio base", profile: config.LLMProfile{Provider: "lmstudio"}, valid: false},
 		{name: "invalid lm studio reasoning", profile: config.LLMProfile{Provider: "lmstudio", BaseURL: "http://lmstudio:1234", Reasoning: "extreme"}, valid: false},
 		{name: "lm studio temperature maximum", profile: config.LLMProfile{Provider: "lmstudio", BaseURL: "http://lmstudio:1234", Temperature: float64Ptr(1.1)}, valid: false},
-		{name: "anthropic temperature maximum", profile: config.LLMProfile{Provider: "anthropic", Model: "claude-test", APIKeySecret: "ANTHROPIC_API_KEY", Temperature: float64Ptr(1.1)}, valid: false},
-		{name: "openai temperature above one", profile: config.LLMProfile{Provider: "openai", Model: "gpt-test", APIKeySecret: "OPENAI_API_KEY", Temperature: float64Ptr(1.1)}, valid: true},
-		{name: "generic reasoning outside lm studio", profile: config.LLMProfile{Provider: "openai", Model: "gpt-test", APIKeySecret: "OPENAI_API_KEY", Reasoning: "high"}, valid: false},
-		{name: "generic thinking outside lm studio", profile: config.LLMProfile{Provider: "anthropic", Model: "claude-test", APIKeySecret: "ANTHROPIC_API_KEY", Thinking: boolPtr(true)}, valid: false},
+		{name: "anthropic temperature maximum", profile: config.LLMProfile{Provider: "anthropic", Model: "claude-test", CredentialRef: "credential://system/llm/test", Temperature: float64Ptr(1.1)}, valid: false},
+		{name: "openai temperature above one", profile: config.LLMProfile{Provider: "openai", Model: "gpt-test", CredentialRef: "credential://system/llm/test", Temperature: float64Ptr(1.1)}, valid: true},
+		{name: "generic reasoning outside lm studio", profile: config.LLMProfile{Provider: "openai", Model: "gpt-test", CredentialRef: "credential://system/llm/test", Reasoning: "high"}, valid: false},
+		{name: "generic thinking outside lm studio", profile: config.LLMProfile{Provider: "anthropic", Model: "claude-test", CredentialRef: "credential://system/llm/test", Thinking: boolPtr(true)}, valid: false},
 		{name: "missing ollama model", profile: config.LLMProfile{Provider: "ollama", BaseURL: "http://ollama:11434/v1"}, valid: false},
 		{name: "missing ollama base", profile: config.LLMProfile{Provider: "ollama", Model: "qwen"}, valid: false},
-		{name: "missing azure base", profile: config.LLMProfile{Provider: "azure-openai", Model: "gpt-test", APIKeySecret: "AZURE_OPENAI_API_KEY"}, valid: false},
-		{name: "missing azure model", profile: config.LLMProfile{Provider: "azure-openai", BaseURL: "https://resource.openai.azure.com", APIKeySecret: "AZURE_OPENAI_API_KEY"}, valid: false},
+		{name: "missing azure base", profile: config.LLMProfile{Provider: "azure-openai", Model: "gpt-test", CredentialRef: "credential://system/llm/test"}, valid: false},
+		{name: "missing azure model", profile: config.LLMProfile{Provider: "azure-openai", BaseURL: "https://resource.openai.azure.com", CredentialRef: "credential://system/llm/test"}, valid: false},
 		{name: "missing azure key", profile: config.LLMProfile{Provider: "azure-openai", BaseURL: "https://resource.openai.azure.com", Model: "gpt-test"}, valid: false},
-		{name: "invalid temperature", profile: config.LLMProfile{Provider: "openai", Model: "gpt-test", APIKeySecret: "OPENAI_API_KEY", Temperature: float64Ptr(2.5)}, valid: false},
-		{name: "negative timeout", profile: config.LLMProfile{Provider: "openai", Model: "gpt-test", APIKeySecret: "OPENAI_API_KEY", TimeoutSeconds: -1}, valid: false},
-		{name: "negative max tokens", profile: config.LLMProfile{Provider: "openai", Model: "gpt-test", APIKeySecret: "OPENAI_API_KEY", MaxTokens: -1}, valid: false},
+		{name: "invalid temperature", profile: config.LLMProfile{Provider: "openai", Model: "gpt-test", CredentialRef: "credential://system/llm/test", Temperature: float64Ptr(2.5)}, valid: false},
+		{name: "negative timeout", profile: config.LLMProfile{Provider: "openai", Model: "gpt-test", CredentialRef: "credential://system/llm/test", TimeoutSeconds: -1}, valid: false},
+		{name: "negative max tokens", profile: config.LLMProfile{Provider: "openai", Model: "gpt-test", CredentialRef: "credential://system/llm/test", MaxTokens: -1}, valid: false},
 		{name: "unsupported", profile: config.LLMProfile{Provider: "custom"}, valid: false},
 	}
 
@@ -56,18 +57,18 @@ func TestValidateLLMProfileDefinitionSupportsFirstWaveProviders(t *testing.T) {
 	}
 }
 
-func TestValidateLLMProfileConfigurationResolvesRequiredSecrets(t *testing.T) {
+func TestValidateLLMProfileConfigurationResolvesRequiredCredentials(t *testing.T) {
 	profile := config.LLMProfile{
-		Provider:     config.LLMProviderOpenAI,
-		Model:        "gpt-test",
-		APIKeySecret: "OPENAI_TEST_KEY",
+		Provider:      config.LLMProviderOpenAI,
+		Model:         "gpt-test",
+		CredentialRef: "credential://system/llm/hosted",
 	}
-	t.Setenv("OPENAI_TEST_KEY", "")
-	if status, _ := validateLLMProfileConfiguration("hosted", profile); status != "invalid" {
+	app := &App{credentialResolver: staticCredentialResolver{}}
+	if status, _ := app.validateLLMProfileConfiguration(context.Background(), "hosted", profile); status != "invalid" {
 		t.Fatalf("status = %q, want invalid", status)
 	}
-	t.Setenv("OPENAI_TEST_KEY", "secret")
-	if status, message := validateLLMProfileConfiguration("hosted", profile); status != "valid" {
+	app.credentialResolver = staticCredentialResolver{"credential://system/llm/hosted": "secret"}
+	if status, message := app.validateLLMProfileConfiguration(context.Background(), "hosted", profile); status != "valid" {
 		t.Fatalf("status = %q, message = %q", status, message)
 	}
 
@@ -76,21 +77,23 @@ func TestValidateLLMProfileConfigurationResolvesRequiredSecrets(t *testing.T) {
 		Model:    "qwen",
 		BaseURL:  "http://ollama:11434/v1",
 	}
-	if status, message := validateLLMProfileConfiguration("local", ollama); status != "valid" {
+	if status, message := app.validateLLMProfileConfiguration(context.Background(), "local", ollama); status != "valid" {
 		t.Fatalf("status = %q, message = %q", status, message)
 	}
 }
 
 func TestBuildRuntimeLLMProfilesPreservesProviderOptions(t *testing.T) {
 	temperature := 0.2
-	app := &App{}
-	runtime, err := app.buildRuntimeLLMProfiles(config.Config{
+	app := &App{credentialResolver: staticCredentialResolver{
+		"credential://system/llm/openrouter": "secret",
+	}}
+	runtime, err := app.buildRuntimeLLMProfiles(context.Background(), config.Config{
 		LLMDefaultProfile: "standard",
 		LLMProfiles: map[string]config.LLMProfile{
 			"standard": {
 				Provider:       config.LLMProviderOpenRouter,
 				Model:          "openai/test",
-				APIKeySecret:   "OPENROUTER_API_KEY",
+				CredentialRef:  "credential://system/llm/openrouter",
 				TimeoutSeconds: 45,
 				MaxTokens:      3000,
 				Temperature:    &temperature,
@@ -146,7 +149,7 @@ profiles:
   - name: fast
     provider: gemini
     model: gemini-2.5-flash
-    api_key_secret: GEMINI_API_KEY
+    credential_ref: credential://system/llm/gemini-fast
     allowed_scopes: ["dev"]
   - name: reasoning
     provider: lmstudio
@@ -156,7 +159,7 @@ profiles:
   - name: hosted
     provider: openrouter
     model: openai/gpt-test
-    api_key_secret: OPENROUTER_API_KEY
+    credential_ref: credential://system/llm/openrouter-hosted
     timeout_seconds: 45
     max_tokens: 3000
     temperature: 0.2

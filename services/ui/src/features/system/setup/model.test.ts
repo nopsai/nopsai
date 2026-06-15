@@ -5,7 +5,7 @@ import {
   WIZARD_STEPS,
   buildSetupGitOpsFileList,
   buildSetupGitOpsStructurePreview,
-  defaultSecretName,
+  defaultCredentialRef,
   deriveGitBotBaseURL,
   isLikelyPublicURL,
   normalizeGroupName,
@@ -37,15 +37,15 @@ test('derives runtime and GitHub integration defaults', () => {
   assert.equal(deriveGitBotBaseURL(''), 'https://nopsai.example.com/git-bot');
 });
 
-test('classifies public URLs and provider secret names', () => {
+test('classifies public URLs and provider credential references', () => {
   assert.equal(isLikelyPublicURL('https://hooks.example.test/webhook'), true);
   assert.equal(isLikelyPublicURL('http://localhost:8081/webhook'), false);
   assert.equal(isLikelyPublicURL('http://git-bot:8081/webhook'), false);
-  assert.equal(defaultSecretName('gemini'), 'GEMINI_API_KEY');
-  assert.equal(defaultSecretName('lmstudio'), 'LLM_API_KEY');
-  assert.equal(defaultSecretName('openai'), 'OPENAI_API_KEY');
-  assert.equal(defaultSecretName('anthropic'), 'ANTHROPIC_API_KEY');
-  assert.equal(defaultSecretName('ollama'), 'OLLAMA_API_KEY');
+  assert.equal(defaultCredentialRef('gemini'), 'credential://system/llm/standard');
+  assert.equal(defaultCredentialRef('lmstudio'), 'credential://system/llm/standard');
+  assert.equal(defaultCredentialRef('openai'), 'credential://system/llm/standard');
+  assert.equal(defaultCredentialRef('anthropic'), 'credential://system/llm/standard');
+  assert.equal(defaultCredentialRef('ollama'), 'credential://system/llm/standard');
 });
 
 test('formats setup status classes and secret placeholders', () => {

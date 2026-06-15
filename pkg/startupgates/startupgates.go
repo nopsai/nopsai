@@ -92,38 +92,21 @@ func dispatcherChecks(cfg *config.Config) []Check {
 
 func gitBotChecks(cfg *config.Config) []Check {
 	strict := requiresProductionGates(cfg)
-	return []Check{
-		{
-			ID:       "github_app_id",
-			Passed:   strings.TrimSpace(valueOrEmpty(cfg, func(c *config.Config) string { return c.GitHubAppID })) != "",
+	checks := commonServiceChecks(cfg, strict)
+	return append(checks,
+		Check{
+			ID:       "git_bot_service_id",
+			Passed:   strings.TrimSpace(valueOrEmpty(cfg, func(c *config.Config) string { return c.EffectiveGitBotServiceID() })) != "",
 			Required: strict,
-			Message:  "GITHUB_APP_ID must be configured for git-bot",
+			Message:  "GIT_BOT_SERVICE_ID must identify git-bot for service authentication",
 		},
-		{
-			ID:       "github_installation_id",
-			Passed:   strings.TrimSpace(valueOrEmpty(cfg, func(c *config.Config) string { return c.GitHubInstallID })) != "",
-			Required: strict,
-			Message:  "GITHUB_INSTALLATION_ID must be configured for git-bot",
-		},
-		{
-			ID:       "github_private_key_path",
-			Passed:   strings.TrimSpace(valueOrEmpty(cfg, func(c *config.Config) string { return c.GitHubPrivateKeyPath })) != "",
-			Required: strict,
-			Message:  "GITHUB_PRIVATE_KEY_PATH must be configured for git-bot",
-		},
-		{
-			ID:       "github_webhook_secret",
-			Passed:   ProductionSecretReady(valueOrEmpty(cfg, func(c *config.Config) string { return c.GitHubWebhookSecret })),
-			Required: strict,
-			Message:  "GITHUB_WEBHOOK_SECRET must be a production-grade secret before accepting webhooks",
-		},
-		{
+		Check{
 			ID:       "git_bot_nopsai_api_url",
 			Passed:   strings.TrimSpace(valueOrEmpty(cfg, func(c *config.Config) string { return c.GitBotNopsaiAPIURL })) != "",
 			Required: strict,
 			Message:  "GIT_BOT_NOPSAI_API_URL must be configured so git-bot can forward webhook events",
 		},
-	}
+	)
 }
 
 func aaaChecks(cfg *config.Config) []Check {

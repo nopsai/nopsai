@@ -42,6 +42,11 @@ Responsibilities:
 - Uses a consumer-owned `SecretCodec` boundary for secret encryption and
   decryption; AES-256-GCM remains the default implementation wired during
   service bootstrap.
+- Owns the encrypted system credential registry through
+  `internal/credentials`, `pkg/store/credentials.go`,
+  `credential_service.go`, and `credential_handlers.go`. GitOps stores stable
+  references; runtime consumers use the narrow resolver and never query
+  credential tables directly.
 - Uses a consumer-owned `AAAClient` boundary for subject introspection,
   authorization checks, batch checks, resource filtering, and audit decision
   recording; the AAA HTTP client and in-process evaluator fallback are wired

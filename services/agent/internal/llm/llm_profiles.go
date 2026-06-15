@@ -19,7 +19,7 @@ type agentRuntimeLLMProfile struct {
 	Model          string            `json:"model,omitempty"`
 	BaseURL        string            `json:"base_url,omitempty"`
 	APIKey         string            `json:"api_key,omitempty"`
-	APIKeySecret   string            `json:"api_key_secret,omitempty"`
+	CredentialRef  string            `json:"credential_ref,omitempty"`
 	AllowedScopes  []string          `json:"allowed_scopes,omitempty"`
 	Reasoning      string            `json:"reasoning,omitempty"`
 	Thinking       *bool             `json:"thinking,omitempty"`
@@ -78,7 +78,7 @@ func newLLMProfileRegistry(defaultProfile string, profiles map[string]agentRunti
 		profile.Model = strings.TrimSpace(profile.Model)
 		profile.BaseURL = strings.TrimSpace(profile.BaseURL)
 		profile.APIKey = strings.TrimSpace(profile.APIKey)
-		profile.APIKeySecret = strings.TrimSpace(profile.APIKeySecret)
+		profile.CredentialRef = strings.TrimSpace(profile.CredentialRef)
 		profile.Reasoning = appconfig.NormalizeLMStudioReasoning(profile.Reasoning)
 		profile.Extra = normalizeRuntimeExtra(profile.Extra)
 		if profile.MaxTokens < 0 {

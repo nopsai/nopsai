@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 
 	"nopsai/pkg/models"
 	"nopsai/services/nopsai/internal/configsync"
+	"nopsai/services/nopsai/internal/credentials"
 	"nopsai/services/nopsai/internal/mcpregistry"
 
 	"github.com/jackc/pgx/v5"
@@ -144,7 +144,11 @@ func (a *App) buildRuntimeMCPRegistry(pipeline *models.Pipeline, scope string) (
 			if !models.MCPAllowedInScope(server.AllowedScopes, scope) {
 				return runtimeMCPRegistry{}, fmt.Errorf("MCP server %q is not allowed in scope %q", ref.ServerName, strings.TrimSpace(scope))
 			}
-			registry.Servers[ref.ServerName] = runtimeMCPServer{MCPServer: server, AuthValue: resolveMCPAuthSecret(server)}
+			authValue, err := a.resolveMCPAuthCredential(context.Background(), server)
+			if err != nil {
+				return runtimeMCPRegistry{}, fmt.Errorf("resolve MCP credential for server %q: %w", ref.ServerName, err)
+			}
+			registry.Servers[ref.ServerName] = runtimeMCPServer{MCPServer: server, AuthValue: authValue}
 			if mcpregistry.ProfileRefSelectsAllTools(ref) && len(toolsByServer[ref.ServerName]) == 0 {
 				discovered, err := a.discoverAndStoreMCPServerTools(context.Background(), server)
 				if err != nil {
@@ -162,11 +166,13 @@ func (a *App) buildRuntimeMCPRegistry(pipeline *models.Pipeline, scope string) (
 	return registry, nil
 }
 
-func resolveMCPAuthSecret(server models.MCPServer) string {
-	if strings.TrimSpace(server.AuthSecret) == "" {
-		return ""
-	}
-	return strings.TrimSpace(os.Getenv(server.AuthSecret))
+func (a *App) resolveMCPAuthCredential(ctx context.Context, server models.MCPServer) (string, error) {
+	return a.resolveCredentialText(ctx, server.CredentialRef, credentials.Purpose{
+		ConsumerService: "nopsai",
+		Operation:       "mcp.authenticate",
+		SubjectType:     "mcp_server",
+		SubjectID:       server.Name,
+	})
 }
 
 func writeMCPStoreError(w http.ResponseWriter, err error) {

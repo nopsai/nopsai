@@ -119,7 +119,7 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
                   <th className="px-4 py-3">Provider</th>
                   <th className="px-4 py-3">Model</th>
                   <th className="px-4 py-3">Base URL</th>
-                  <th className="px-4 py-3">API key secret</th>
+                  <th className="px-4 py-3">Credential ref</th>
                   <th className="px-4 py-3">Allowed scopes</th>
                   <th className="px-4 py-3">Limits</th>
                   <th className="px-4 py-3">Thinking</th>
@@ -137,7 +137,7 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
                     <td className="px-4 py-3">{getLLMProvider(profile.provider).label}</td>
                     <td className="px-4 py-3 max-w-[220px] truncate" title={profile.model}>{profile.model || '-'}</td>
                     <td className="px-4 py-3 max-w-[220px] truncate" title={profile.base_url}>{profile.base_url || '-'}</td>
-                    <td className="px-4 py-3">{profile.api_key_secret || '-'}</td>
+                    <td className="px-4 py-3">{profile.credential_ref || '-'}</td>
                     <td className="px-4 py-3">{profile.allowed_scopes.length ? profile.allowed_scopes.join(', ') : 'All'}</td>
                     <td className="px-4 py-3 text-xs text-[var(--text-secondary)]">
                       {profile.timeout_seconds > 0 ? `${profile.timeout_seconds}s` : 'Default'}
@@ -218,7 +218,7 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
                           provider: nextProvider.id,
                           model: replaceProviderDefault(prev.model, previousProvider.defaultModel, nextProvider.defaultModel),
                           base_url: replaceProviderDefault(prev.base_url, previousProvider.defaultBaseURL, nextProvider.defaultBaseURL),
-                          api_key_secret: replaceProviderDefault(prev.api_key_secret, previousProvider.defaultSecretName, nextProvider.defaultSecretName),
+                          credential_ref: replaceProviderDefault(prev.credential_ref, previousProvider.defaultCredentialRef, nextProvider.defaultCredentialRef),
                           reasoning: nextProvider.supportsReasoning ? prev.reasoning : '',
                           thinking: nextProvider.supportsThinking ? prev.thinking : 'default',
                         };
@@ -240,8 +240,8 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
                   )}
                   {formProvider.apiKeyMode !== 'none' && (
                     <label className="flex flex-col gap-1 text-sm">
-                      <span>API key secret{formProvider.apiKeyMode === 'required' ? ' *' : ''}</span>
-                      <input className="pipelines-input" value={form.api_key_secret} onChange={event => setForm(prev => ({ ...prev, api_key_secret: event.target.value }))} disabled={!canManage} placeholder={formProvider.defaultSecretName} />
+                      <span>Credential reference{formProvider.apiKeyMode === 'required' ? ' *' : ''}</span>
+                      <input className="pipelines-input" value={form.credential_ref} onChange={event => setForm(prev => ({ ...prev, credential_ref: event.target.value }))} disabled={!canManage} placeholder={formProvider.defaultCredentialRef} />
                     </label>
                   )}
                   <label className="flex flex-col gap-1 text-sm">

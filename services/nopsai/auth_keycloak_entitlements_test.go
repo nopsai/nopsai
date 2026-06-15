@@ -69,19 +69,24 @@ func TestEnrichOIDCIdentityEntitlementsUsesKeycloakUserAndGroupClientRoles(t *te
 	}))
 	defer server.Close()
 
-	app := &App{httpClient: server.Client()}
+	app := &App{
+		httpClient: server.Client(),
+		credentialResolver: staticCredentialResolver{
+			"credential://system/oidc/nopsai/admin-password": "admin",
+		},
+	}
 	provider := oidcProviderRecord{
 		ID:       "nopsai",
 		ClientID: "nopsai",
 		EntitlementSync: oidcEntitlementSyncConfig{
-			Mode:               "keycloak_group_roles",
-			AdminBaseURL:       server.URL,
-			Realm:              "nopsai",
-			AdminRealm:         "master",
-			AdminClientID:      "admin-cli",
-			AdminUsername:      "admin",
-			AdminPassword:      "admin",
-			TargetResourceType: grantResourceFolder,
+			Mode:                       "keycloak_group_roles",
+			AdminBaseURL:               server.URL,
+			Realm:                      "nopsai",
+			AdminRealm:                 "master",
+			AdminClientID:              "admin-cli",
+			AdminUsername:              "admin",
+			AdminPasswordCredentialRef: "credential://system/oidc/nopsai/admin-password",
+			TargetResourceType:         grantResourceFolder,
 		},
 	}
 
@@ -133,12 +138,17 @@ func TestKeycloakAdminTokenSupportsClientCredentials(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := &App{httpClient: server.Client()}
+	app := &App{
+		httpClient: server.Client(),
+		credentialResolver: staticCredentialResolver{
+			"credential://system/oidc/nopsai/admin-client-secret": "secret",
+		},
+	}
 	token, err := app.keycloakAdminToken(context.Background(), oidcEntitlementSyncConfig{
-		AdminBaseURL:      server.URL,
-		AdminRealm:        "master",
-		AdminClientID:     "nopsai-admin",
-		AdminClientSecret: "secret",
+		AdminBaseURL:             server.URL,
+		AdminRealm:               "master",
+		AdminClientID:            "nopsai-admin",
+		AdminClientCredentialRef: "credential://system/oidc/nopsai/admin-client-secret",
 	})
 	if err != nil {
 		t.Fatalf("keycloakAdminToken() error = %v", err)

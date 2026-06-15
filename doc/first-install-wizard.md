@@ -119,8 +119,8 @@ Production startup gates:
 - `SERVICE_JWT_SIGNING_KEY` must be separate from `JWT_SIGNING_KEY` so browser
   sessions and internal service tokens do not share one signing secret.
 - Dispatcher TLS/mTLS must remain enabled.
-- When a GitHub App is configured, `GITHUB_WEBHOOK_SECRET` must also be set to
-  a production-grade value.
+- When a GitHub App is configured, private-key and webhook credential
+  references must be configured.
 - The built-in `admin@example.com` account must not use the default password.
   Production gate mode does not auto-seed default admin credentials.
 
@@ -132,7 +132,6 @@ values for:
 - `JWT_SIGNING_KEY`
 - `SERVICE_JWT_SIGNING_KEY`
 - `AAA_SHARED_INTERNAL_TOKEN`
-- `GITHUB_WEBHOOK_SECRET`
 - `DISPATCHER_TLS_SECRET`
 
 The API response lists the names that were generated and sets
@@ -155,11 +154,10 @@ Install flow:
    Docker Compose.
 2. Create or open a GitHub App and set its webhook URL to the public git-bot
    webhook URL shown in the wizard.
-3. Paste the same webhook secret into the GitHub App and
-   `GITHUB_WEBHOOK_SECRET`.
-4. Generate a GitHub App private key, configure the App ID and private key for
-   git-bot, install the App on selected repositories, and copy the installation
-   ID from the installation URL.
+3. Create `credential://system/github/webhook-secret` and
+   `credential://system/github/app-private-key` in **System > Credentials**.
+4. Use the same webhook value in GitHub, configure the App ID, installation ID,
+   and credential references for `nopsai`, then install the App.
 
 Required GitHub App events:
 

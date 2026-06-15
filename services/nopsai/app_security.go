@@ -53,7 +53,7 @@ func newAppSecurityRuntime(ctx context.Context, options AppOptions) (appSecurity
 	httpClient := proxyhttp.NewInternalAwareClient(10 * time.Second)
 	gitProvider := options.GitProvider
 	if gitProvider == nil {
-		gitProvider = NewGitBotProvider(options.Config.NopsaiGitBotAPIURL, httpClient)
+		gitProvider = NewGitBotProvider(options.Config.NopsaiGitBotAPIURL, httpClient, options.ServiceCredentials)
 	}
 	aaaClient := options.AAAClient
 	if aaaClient == nil {

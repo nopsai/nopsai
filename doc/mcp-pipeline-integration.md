@@ -36,7 +36,7 @@ mcp_servers:
     transport: streamable_http
     url: https://api.githubcopilot.com/mcp/x/all/readonly
     auth_type: bearer_token
-    auth_secret: GITHUB_MCP_TOKEN
+    credential_ref: credential://system/mcp/github-readonly
     timeout: 30s
 ```
 
@@ -70,7 +70,7 @@ mcp_servers:
     transport: streamable_http
     url: https://api.githubcopilot.com/mcp/x/all/readonly
     auth_type: bearer_token
-    auth_secret: GITHUB_MCP_TOKEN
+    credential_ref: credential://system/mcp/github-readonly
     timeout: 30s
 
 mcp_profiles:
@@ -86,6 +86,9 @@ mcp_profiles:
 Only system/global config repositories may define the MCP registry. Group config
 repositories can reference approved `mcp_profiles` in their pipelines, but they
 cannot define new MCP servers.
+
+Create the referenced bearer token under **System > Credentials**. GitOps owns
+the binding and metadata; the value remains local and write-only.
 
 ## Inheritance
 
