@@ -12,7 +12,7 @@ NopsAI is a Git-aware pipeline orchestration platform built around a control-pla
 
 ## System Layers
 
-- `services/nopsai`: Main API, source-of-truth database access, auth, AAA-backed product access control, config sync, run creation, run tracking.
+- `services/nopsai`: Main API, source-of-truth database access, auth, AAA-backed product access control, config sync, Git webhook source ingress, run creation, run tracking.
 - `services/aaa`: Internal authorization service for subject introspection, checks, filtering, and authz decision audit writes.
 - `services/git-bot`: GitHub App integration, webhook ingress, repository file access, check-run updates.
 - `services/dispatcher`: Scheduler and bridge between HTTP-oriented control-plane APIs and gRPC-oriented runners and agents.
@@ -24,7 +24,7 @@ NopsAI is a Git-aware pipeline orchestration platform built around a control-pla
 ## High-Level Flow
 
 ```text
-GitHub / User
+Git providers / User
     |
     v
 git-bot or UI/API
@@ -60,10 +60,14 @@ Feedback flows in the opposite direction:
 
 The control plane lives mostly in `services/nopsai`, `services/aaa`, `services/git-bot`, and `services/dispatcher`.
 
-- `nopsai` receives manual run requests and forwarded GitHub events.
+- `nopsai` receives manual run requests, forwarded GitHub events, and
+  authenticated provider-normalized Git webhook deliveries.
 - It authenticates requests, asks AAA for route-level decisions, resolves reusable step includes, validates pipeline shape, creates DB records, resolves knowledge context, secrets, and variables, and submits jobs to the dispatcher.
 - `aaa` is the internal policy decision service. It handles introspection, check, batch-check, filter, and audit-record requests behind a shared internal token.
 - `git-bot` is the GitHub-facing edge. It validates webhook signatures, proxies webhook payloads to `nopsai`, fetches repository contents for config-driven features, and keeps GitHub checks in sync.
+- GitLab, Bitbucket, Gitea, and generic webhook adapters live in `nopsai`.
+  They normalize and audit ingress but intentionally do not own provider
+  repository reads or status/check APIs.
 - `dispatcher` keeps runners connected over gRPC, chooses an eligible runner, and forwards agent updates back into protected `nopsai` endpoints using a service-auth JWT.
 
 ### Data plane
@@ -178,6 +182,8 @@ reference that structure:
 - manual pipeline runs use the pipeline path/folder and the user subject
 - GitHub webhook runs use the owning folder plus repository metadata, with the
   repository as runtime identity
+- generic Git webhook runs use synchronized trigger/pipeline configuration plus
+  repository metadata, with the repository as runtime identity
 - schedule runs use the schedule group path and schedule service account
 - external-trigger runs use the target pipeline or trigger group path and the
   allowed user/service account caller

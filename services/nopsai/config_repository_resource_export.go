@@ -202,6 +202,76 @@ func configRepositoryIncludesExternalTrigger(repo models.ConfigRepository, trigg
 	return configsync.ResourceUnderBindingScope(resourceScope, repo)
 }
 
+func (a *App) exportConfigRepositoryGitWebhookSources(ctx context.Context, repo models.ConfigRepository, files map[string]string) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT id, name, description, provider, enabled, auth_mode, credential_ref,
+		       repository_allowlist, rate_limit, COALESCE(source, 'database'), config_repo_id,
+		       managed_by_config_repo, COALESCE(config_source_path, '')
+		FROM git_webhook_sources
+		ORDER BY id ASC
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var source gitWebhookSourceRecord
+		var allowlistJSON, rateLimitJSON []byte
+		var sourceType, sourcePath string
+		var configRepoID sql.NullInt64
+		var managed bool
+		if err := rows.Scan(
+			&source.ID,
+			&source.Name,
+			&source.Description,
+			&source.Provider,
+			&source.Enabled,
+			&source.AuthMode,
+			&source.CredentialRef,
+			&allowlistJSON,
+			&rateLimitJSON,
+			&sourceType,
+			&configRepoID,
+			&managed,
+			&sourcePath,
+		); err != nil {
+			return err
+		}
+		if managed && configRepoID.Valid {
+			if configRepoID.Int64 != repo.ID {
+				continue
+			}
+		} else if repo.ScopeType != models.ConfigRepositoryScopeSystem || !strings.EqualFold(strings.TrimSpace(sourceType), "database") {
+			continue
+		}
+		_ = decodeJSONWithDefault(allowlistJSON, &source.RepositoryAllowlist, []string{})
+		_ = decodeJSONWithDefault(rateLimitJSON, &source.RateLimit, map[string]any{})
+		filePath, ok := gitWebhookSourceExportPath(repo, source, sourcePath, managed, configRepoID.Valid, configRepoID.Int64)
+		if !ok {
+			continue
+		}
+		enabled := source.Enabled
+		doc := gitWebhookSourceGitOpsDocument{
+			ID:                  source.ID,
+			Name:                source.Name,
+			Description:         source.Description,
+			Provider:            source.Provider,
+			Enabled:             &enabled,
+			AuthMode:            source.AuthMode,
+			CredentialRef:       source.CredentialRef,
+			RepositoryAllowlist: source.RepositoryAllowlist,
+			RateLimit:           nilIfEmptyAnyMap(source.RateLimit),
+		}
+		content, err := marshalConfigRepositoryYAML(doc)
+		if err != nil {
+			return err
+		}
+		files[filePath] = string(content)
+	}
+	return rows.Err()
+}
+
 func nilIfEmptyStringMap(values map[string]string) map[string]string {
 	if len(values) == 0 {
 		return nil

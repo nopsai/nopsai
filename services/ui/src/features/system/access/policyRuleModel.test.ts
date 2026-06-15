@@ -21,6 +21,7 @@ test('round-trips supported Access resource selectors', () => {
   assert.equal(buildAAAResourceSelector('pipeline', '*'), 'pipeline:*');
   assert.equal(formatAccessResourceSummary('secret:*'), 'all secret');
   assert.equal(formatAccessResourceSummary('system:agent-profiles'), 'system agent-profiles');
+  assert.equal(formatAccessResourceSummary('git_webhook_source:gitlab-platform'), 'git webhook source gitlab-platform');
 });
 
 test('normalizes Access actions for the selected resource and effect', () => {
@@ -33,4 +34,8 @@ test('normalizes Access actions for the selected resource and effect', () => {
     'deny scope.read'
   );
   assert.equal(formatAccessActionSummary('deny secret.read_value'), 'deny read value');
+  assert.equal(
+    normalizeAAAActionForResource('git_webhook_source:gitlab-platform', 'pipeline.read', 'allow'),
+    'git_webhook_source.read'
+  );
 });

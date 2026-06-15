@@ -19,6 +19,7 @@ const CATALOG_REQUESTS: Array<{ key: CatalogSourceKey; path: string }> = [
   { key: 'pipelines', path: '/v1/pipelines' },
   { key: 'triggers', path: '/v1/overrides' },
   { key: 'externalTriggers', path: '/v1/external-triggers' },
+  { key: 'gitWebhookSources', path: '/v1/git-webhook-sources' },
   { key: 'secretScopes', path: '/v1/secrets/scopes' },
   { key: 'variableScopes', path: '/v1/variables/scopes' },
 ];
@@ -30,6 +31,7 @@ export async function fetchAccessResourceCatalog(): Promise<AccessResourceCatalo
     pipelines: [],
     triggers: [],
     externalTriggers: [],
+    gitWebhookSources: [],
     secretScopes: [],
     variableScopes: [],
   };

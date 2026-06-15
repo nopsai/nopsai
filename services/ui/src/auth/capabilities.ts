@@ -14,6 +14,9 @@ export type Permission =
   | 'external_triggers.read'
   | 'external_triggers.write'
   | 'external_triggers.delete'
+  | 'git_webhook_sources.read'
+  | 'git_webhook_sources.write'
+  | 'git_webhook_sources.delete'
   | 'scopes.read'
   | 'scopes.write'
   | 'scopes.delete'
@@ -73,6 +76,9 @@ export type AppAccess = {
   canViewExternalTriggers: boolean;
   canWriteExternalTriggers: boolean;
   canDeleteExternalTriggers: boolean;
+  canViewGitWebhookSources: boolean;
+  canWriteGitWebhookSources: boolean;
+  canDeleteGitWebhookSources: boolean;
   canViewScopes: boolean;
   canDeleteScopes: boolean;
   canViewKnowledge: boolean;
@@ -160,6 +166,7 @@ export function normalizeCurrentUser(data: unknown): CurrentUser {
         schedules: normalizeReadCapabilities(capabilitiesRecord.schedules),
         triggers: normalizeReadCapabilities(capabilitiesRecord.triggers),
         external_triggers: normalizeReadCapabilities(capabilitiesRecord.external_triggers),
+        git_webhook_sources: normalizeReadCapabilities(capabilitiesRecord.git_webhook_sources),
         scopes: normalizeReadCapabilities(capabilitiesRecord.scopes),
         knowledge_contexts: normalizeReadCapabilities(capabilitiesRecord.knowledge_contexts),
         system: normalizeSystemCapabilities(capabilitiesRecord.system),
@@ -204,6 +211,12 @@ export function can(user: CurrentUser | null | undefined, permission: Permission
       return Boolean(capabilities?.external_triggers?.write);
     case 'external_triggers.delete':
       return Boolean(capabilities?.external_triggers?.delete);
+    case 'git_webhook_sources.read':
+      return Boolean(capabilities?.git_webhook_sources?.read);
+    case 'git_webhook_sources.write':
+      return Boolean(capabilities?.git_webhook_sources?.write);
+    case 'git_webhook_sources.delete':
+      return Boolean(capabilities?.git_webhook_sources?.delete);
     case 'scopes.read':
       return Boolean(capabilities?.scopes?.read);
     case 'scopes.write':
@@ -325,6 +338,9 @@ export function getAppAccess(user: CurrentUser | null | undefined, session: Auth
     canViewExternalTriggers: can(user, 'external_triggers.read'),
     canWriteExternalTriggers: can(user, 'external_triggers.write'),
     canDeleteExternalTriggers: can(user, 'external_triggers.delete'),
+    canViewGitWebhookSources: can(user, 'git_webhook_sources.read'),
+    canWriteGitWebhookSources: can(user, 'git_webhook_sources.write'),
+    canDeleteGitWebhookSources: can(user, 'git_webhook_sources.delete'),
     canViewScopes: can(user, 'scopes.read'),
     canDeleteScopes: can(user, 'scopes.delete'),
     canViewKnowledge: can(user, 'knowledge_contexts.read'),

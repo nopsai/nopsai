@@ -52,7 +52,8 @@ curl http://localhost:8080/v1/system/config-repo/drift
 
 Drift is bidirectional for syncable resources: Git-only changes appear as files
 to import or delete, and UI-side changes appear as generated GitOps updates. The
-check covers pipelines, reusable steps, schedules, trigger manifests, scopes,
+check covers pipelines, reusable steps, schedules, trigger manifests, Git
+webhook sources, scopes,
 knowledge contexts, run group/config-repository structure, notification routes,
 access manifests, Agent Profiles, LLM profiles, MCP registry files, auth
 settings, mail settings, and runtime settings. Pipeline run records
@@ -84,6 +85,7 @@ steps/                 Reusable step definitions
 schedules/             One-time and recurring pipeline schedules
 triggers/              Trigger override manifests
 external-triggers/     Authenticated external trigger endpoints
+git-webhook-sources/   GitLab, Bitbucket, Gitea, and generic Git event sources
 scopes/                Scope variable and secret key files
 knowledge/             Managed knowledge context markdown documents
 config-repositories/   Group config repo bindings, group structure, and colocated notifications
@@ -127,6 +129,9 @@ global-repo/triggers/acme/deploy-webhook.yaml
 global-repo/external-triggers/deploy-prod.yaml
   -> authenticated external trigger for ServiceNow-style production deploy approvals,
      with invoked runs grouped under platform/prod
+
+global-repo/git-webhook-sources/gitlab-platform.yaml
+  -> GitLab source with a credential reference, repository allowlist, and rate limit
 
 global-repo/scopes/dev/scope.yaml
   -> variables and secret key placeholders in scope dev
@@ -206,6 +211,11 @@ If a service account is first created in the UI or API, config repository drift
 can export the identity and service-account product grants back to
 `access/service-accounts.yaml` for review-branch push. Token values remain local
 runtime secrets and are not exported.
+
+The GitLab source references
+`credential://system/webhooks/gitlab-platform`. Config sync creates pending
+credential metadata when needed, but an operator must write the token value in
+**System > Credentials** before enabling provider delivery.
 
 ## SSO settings
 

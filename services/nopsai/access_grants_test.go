@@ -193,6 +193,8 @@ func TestProductRolePermissions(t *testing.T) {
 		assertAction(t, actions, "pipeline.read", true)
 		assertAction(t, actions, "pipeline_schedule.list", true)
 		assertAction(t, actions, "pipeline_schedule.read", true)
+		assertAction(t, actions, "git_webhook_source.read", true)
+		assertAction(t, actions, "git_webhook_source.update", false)
 		assertAction(t, actions, "pipeline_schedule.execute", false)
 		assertAction(t, actions, "pipeline.update", false)
 		assertAction(t, actions, "pipeline.execute", false)
@@ -209,6 +211,8 @@ func TestProductRolePermissions(t *testing.T) {
 		assertAction(t, actions, "pipeline_schedule.create", true)
 		assertAction(t, actions, "pipeline_schedule.update", true)
 		assertAction(t, actions, "pipeline_schedule.execute", true)
+		assertAction(t, actions, "git_webhook_source.create", true)
+		assertAction(t, actions, "git_webhook_source.update", true)
 		assertAction(t, actions, "pipeline.update", true)
 		assertAction(t, actions, "pipeline.execute", true)
 		assertAction(t, actions, "pipeline.use", true)
@@ -237,6 +241,8 @@ func TestProductRolePermissions(t *testing.T) {
 		assertAction(t, actions, "pipeline.delete", true)
 		assertAction(t, actions, "pipeline_schedule.delete", true)
 		assertAction(t, actions, "pipeline_schedule.manage_acl", true)
+		assertAction(t, actions, "git_webhook_source.delete", true)
+		assertAction(t, actions, "git_webhook_source.manage_acl", true)
 		assertAction(t, actions, "pipeline_run.delete", true)
 		assertAction(t, actions, "pipeline_run.finalize", true)
 		assertAction(t, actions, "pipeline_run.write_logs", true)
@@ -390,6 +396,16 @@ func TestNormalizeAccessGrantResourceTypeSupportsPipelineSchedule(t *testing.T) 
 	}
 	if got != grantResourceSchedule {
 		t.Fatalf("normalizeAccessGrantResourceType() = %q, want %q", got, grantResourceSchedule)
+	}
+}
+
+func TestNormalizeAccessGrantResourceTypeSupportsGitWebhookSource(t *testing.T) {
+	got, err := normalizeAccessGrantResourceType("git_webhook_source")
+	if err != nil {
+		t.Fatalf("normalizeAccessGrantResourceType() error = %v", err)
+	}
+	if got != grantResourceGitWebhookSource {
+		t.Fatalf("normalizeAccessGrantResourceType() = %q, want %q", got, grantResourceGitWebhookSource)
 	}
 }
 

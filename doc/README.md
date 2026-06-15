@@ -25,7 +25,8 @@ Start here when you want to understand the system from different angles:
 Existing focused docs:
 
 - [api.md](./api.md): REST API guide.
-- [triggering.md](./triggering.md): Local GitHub webhook simulation.
+- [triggering.md](./triggering.md): Local GitHub and generic Git webhook simulation.
+- [git-webhook-sources.md](./git-webhook-sources.md): GitLab, Bitbucket, Gitea, and generic source configuration, security, GitOps, payload normalization, path filters, and operations.
 - [llm-model-selection.md](./llm-model-selection.md): LLM provider and model notes.
 - [mcp-pipeline-integration.md](./mcp-pipeline-integration.md): MCP integration details.
 - [wiki](./wiki): Earlier broad control-plane/data-plane overview.

@@ -56,6 +56,8 @@ func normalizeAccessGrantResourceType(raw string) (string, error) {
 		return grantResourceTrigger, nil
 	case grantResourceExternalTrigger:
 		return grantResourceExternalTrigger, nil
+	case grantResourceGitWebhookSource:
+		return grantResourceGitWebhookSource, nil
 	case grantResourceSecret:
 		return grantResourceSecret, nil
 	case grantResourceVariable:
@@ -341,6 +343,21 @@ func resolveAccessGrantResource(ctx context.Context, runner queryRunner, rawType
 			}
 		}
 		return accessGrantResource{Type: grantResourceExternalTrigger, ID: rawID, Display: rawID}, nil
+	case grantResourceGitWebhookSource:
+		if rawID == "" {
+			return accessGrantResource{}, fmt.Errorf("resource_id is required")
+		}
+		if requireExists && rawID != "*" {
+			var exists int
+			err := runner.QueryRow(ctx, `SELECT 1 FROM git_webhook_sources WHERE id = $1 LIMIT 1`, rawID).Scan(&exists)
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+					return accessGrantResource{}, fmt.Errorf("resource not found")
+				}
+				return accessGrantResource{}, err
+			}
+		}
+		return accessGrantResource{Type: grantResourceGitWebhookSource, ID: rawID, Display: rawID}, nil
 	case grantResourceScope:
 		scopeID, scopeLookup, scopeDisplay := normalizeScopeGrantResourceID(rawID)
 		if scopeDisplay == "" {
@@ -684,6 +701,8 @@ func managementActionForGrantResource(resource accessGrantResource) (string, mod
 		return "trigger.manage_acl", model.ResourceRef{Type: grantResourceTrigger, ID: resource.ID}, nil
 	case grantResourceExternalTrigger:
 		return "external_trigger.manage_acl", model.ResourceRef{Type: grantResourceExternalTrigger, ID: resource.ID}, nil
+	case grantResourceGitWebhookSource:
+		return "git_webhook_source.manage_acl", model.ResourceRef{Type: grantResourceGitWebhookSource, ID: resource.ID}, nil
 	case grantResourceSecret:
 		return "secret.manage_acl", model.ResourceRef{Type: grantResourceSecret, ID: resource.ID}, nil
 	case grantResourceVariable:

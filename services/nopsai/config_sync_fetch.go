@@ -29,6 +29,7 @@ type configSyncRepositoryFiles struct {
 	steps              map[string]string
 	triggers           map[string]string
 	externalTriggers   map[string]string
+	gitWebhookSources  map[string]string
 	schedules          map[string]string
 	scopes             map[string]string
 	configRepositories map[string]string
@@ -95,6 +96,9 @@ func fetchConfigSyncRepositoryFiles(reader configSyncGitReader, repoCtx configSy
 		return configSyncRepositoryFiles{}, err
 	}
 	if files.externalTriggers, err = fetchDir(repoCtx.dirs.externalTrigger, "external trigger manifests"); err != nil {
+		return configSyncRepositoryFiles{}, err
+	}
+	if files.gitWebhookSources, err = fetchDir(repoCtx.dirs.gitWebhookSource, "git webhook source manifests"); err != nil {
 		return configSyncRepositoryFiles{}, err
 	}
 	if files.schedules, err = fetchDir(repoCtx.dirs.schedule, "schedule manifests"); err != nil {

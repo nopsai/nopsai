@@ -108,6 +108,30 @@ Enterprise authentication follows the same split:
 - UI rendering for Identity Providers lives in
   `services/ui/src/features/system/access/IdentityProvidersWorkspace.tsx`.
 
+## Git Webhook Source Ownership
+
+Provider-neutral Git webhook triggering follows the same split:
+
+- Trigger model fields live in `pkg/models`; pure event/branch/path matching
+  lives in `pkg/gittrigger`.
+- Provider authentication and payload normalization live in
+  `services/nopsai/internal/gitwebhook`.
+- Source DTOs and validation live in
+  `services/nopsai/git_webhook_sources_model.go`.
+- Persistence and schema ownership live in
+  `git_webhook_sources_store.go` and `git_webhook_sources_schema.go`.
+- REST transport and public delivery ingress live in
+  `git_webhook_sources_handlers.go`; run selection and launch orchestration
+  live in `git_webhook_orchestrator.go`.
+- GitOps parse/apply/export/drift integration lives in
+  `git_webhook_sources_gitops.go` and the existing config-sync ownership files.
+- Backend route composition stays in `services/nopsai/routes.go`.
+- UI model, API transport, hook orchestration, form rendering, and feature
+  rendering are separated under
+  `services/ui/src/features/git-webhook-sources`.
+- Frontend route composition stays in `services/ui/src/app/AppRoutes.tsx`;
+  `services/ui/src/pages/GitWebhookSources.tsx` remains a thin route adapter.
+
 ## Commands And Bootstrap
 
 Command entrypoints should be thin:

@@ -634,7 +634,7 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 			return nil, err
 		}
 		return append(out, folderAncestors...), nil
-	case "external_trigger":
+	case "external_trigger", "git_webhook_source":
 		triggerID := strings.Trim(strings.TrimSpace(resource.ID), "/")
 		if triggerID == "" {
 			return nil, nil

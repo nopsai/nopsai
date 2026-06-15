@@ -480,8 +480,7 @@ function MonitoringPage() {
               <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
               Access-filtered
             </div>
-            <h1 className="mt-3 text-2xl font-semibold text-[var(--text-primary)]">Monitoring</h1>
-            <p className="mt-1 text-sm text-[var(--text-secondary)]">
+            <p className="mt-3 text-sm text-[var(--text-secondary)]">
               {selectedGroupLabel}
               {refreshedAt ? ` - refreshed ${formatShortDateTime(refreshedAt)}` : ''}
               {savedAt ? ` - view saved ${formatShortDateTime(savedAt)}` : ''}

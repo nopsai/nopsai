@@ -7,6 +7,7 @@ type configRepositoryGitDirs struct {
 	step             string
 	trigger          string
 	externalTrigger  string
+	gitWebhookSource string
 	schedule         string
 	scope            string
 	configRepository string
@@ -21,6 +22,7 @@ func configRepositoryGitDirsForBasePath(basePath string) configRepositoryGitDirs
 		step:             configsync.RepoJoinPath(basePath, "steps"),
 		trigger:          configsync.RepoJoinPath(basePath, "triggers"),
 		externalTrigger:  configsync.RepoJoinPath(basePath, externalTriggersGitOpsDirectory),
+		gitWebhookSource: configsync.RepoJoinPath(basePath, gitWebhookSourcesGitOpsDirectory),
 		schedule:         configsync.RepoJoinPath(basePath, "schedules"),
 		scope:            configsync.RepoJoinPath(basePath, "scopes"),
 		configRepository: configsync.RepoJoinPath(basePath, "config-repositories"),

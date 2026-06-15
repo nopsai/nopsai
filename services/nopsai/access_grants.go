@@ -24,6 +24,7 @@ const (
 	grantResourceSchedule         = "pipeline_schedule"
 	grantResourceTrigger          = "trigger"
 	grantResourceExternalTrigger  = "external_trigger"
+	grantResourceGitWebhookSource = "git_webhook_source"
 	grantResourceSecret           = "secret"
 	grantResourceVariable         = "variable"
 	grantResourceScope            = "scope"
@@ -184,6 +185,7 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"pipeline_schedule.read",
 			"trigger.read",
 			"external_trigger.read",
+			"git_webhook_source.read",
 			"secret.list_metadata",
 			"variable.list_metadata",
 			"scope.read",
@@ -225,6 +227,8 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"external_trigger.create",
 			"external_trigger.update",
 			"external_trigger.invoke",
+			"git_webhook_source.create",
+			"git_webhook_source.update",
 			"secret.use",
 			"secret.write_value",
 			"variable.use",
@@ -272,6 +276,8 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"external_trigger.create",
 			"external_trigger.update",
 			"external_trigger.invoke",
+			"git_webhook_source.create",
+			"git_webhook_source.update",
 			"secret.use",
 			"secret.write_value",
 			"variable.read_value",
@@ -306,6 +312,8 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"trigger.manage_acl",
 			"external_trigger.delete",
 			"external_trigger.manage_acl",
+			"git_webhook_source.delete",
+			"git_webhook_source.manage_acl",
 			"secret.delete",
 			"secret.read_value",
 			"secret.manage_acl",

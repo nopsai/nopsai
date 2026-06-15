@@ -17,7 +17,8 @@ Use one credential model:
 
 This replaces long-lived integration values currently supplied as
 container environment variables, including LLM API keys, MCP bearer tokens,
-SMTP passwords, OIDC client/admin secrets, and GitHub App credentials.
+SMTP passwords, OIDC client/admin secrets, GitHub App credentials, and Git
+webhook source signing secrets.
 
 The database password and root encryption key are bootstrap inputs, not
 credentials managed by the product. They cannot be stored in the database they
@@ -59,6 +60,7 @@ models explicit.
 - immutable credential versions with activation, rollback, disable, expiry,
   management audit, and consumer access logs
 - one resolver contract for LLM, MCP, SMTP, OIDC, and GitHub credentials
+- purpose-bound resolution for Git webhook source HMAC and static-token secrets
 - authenticated and encrypted `nopsai` to `git-bot` credential bootstrap
 - controlled one-time import and scrubbing of legacy database/config values
 - GitOps references that create pending metadata without storing values
@@ -116,6 +118,7 @@ credential://system/mcp/github-readonly
 credential://system/mail/smtp-primary
 credential://system/oidc/keycloak/client
 credential://system/github/default/private-key
+credential://system/webhooks/gitlab-platform
 ```
 
 Integration tables should store the stable reference, not copy encrypted
@@ -238,6 +241,9 @@ Preferred behavior by integration:
 - OIDC: resolve inside `nopsai` for token exchange or entitlement sync.
 - GitHub: `git-bot` authenticates as an internal service and obtains the active
   GitHub App private key and webhook secret through a protected broker flow.
+- Git webhook sources: `nopsai` resolves only the source's referenced
+  `webhook_secret` while verifying a delivery. Source GitOps files contain the
+  reference, repository allowlist, and policy, never the value.
 
 `git-bot` retrieves the required values during startup through its authenticated
 broker request and keeps them only in memory. Restart `git-bot` after rotating
