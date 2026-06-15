@@ -6,6 +6,7 @@ import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowT
 import AgentProfilesPanel from '../features/system/AgentProfilesPanel';
 import LLMProfilesPanel from '../features/system/LLMProfilesPanel';
 import MCPPanel from '../features/system/MCPPanel';
+import CredentialsPanel from '../features/system/CredentialsPanel';
 import DataManagementPanel from '../features/system/DataManagementPanel';
 import SetupWizard from '../features/system/SetupWizard';
 import DispatcherPanel from '../features/system/DispatcherPanel';
@@ -15,7 +16,7 @@ import AccessPanel from '../features/system/AccessPanel';
 import { useSystemAccess } from '../features/system/access/useSystemAccess';
 import { useSystemConfig } from '../features/system/config/useSystemConfig';
 
-type SystemTab = 'config' | 'setup' | 'llm-profiles' | 'agent-profiles' | 'mcp' | 'data-management' | 'dispatcher' | 'access';
+type SystemTab = 'config' | 'setup' | 'llm-profiles' | 'agent-profiles' | 'mcp' | 'credentials' | 'data-management' | 'dispatcher' | 'access';
 
 function resolveSystemTab(tab?: string): SystemTab {
   if (
@@ -25,6 +26,7 @@ function resolveSystemTab(tab?: string): SystemTab {
     tab === 'llm-profiles' ||
     tab === 'agent-profiles' ||
     tab === 'mcp' ||
+    tab === 'credentials' ||
     tab === 'data-management'
   ) {
     return tab;
@@ -44,6 +46,7 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     if (permissions.canViewLLMProfiles) tabs.push('llm-profiles');
     if (permissions.canViewAgentProfiles) tabs.push('agent-profiles');
     if (permissions.canViewMCP) tabs.push('mcp');
+    if (permissions.canViewCredentials) tabs.push('credentials');
     if (permissions.canViewDataManagement) tabs.push('data-management');
     if (permissions.canViewDispatcher) tabs.push('dispatcher');
     if (permissions.canViewAccess) tabs.push('access');
@@ -56,6 +59,7 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     permissions.canViewAgentProfiles,
     permissions.canViewLLMProfiles,
     permissions.canViewMCP,
+    permissions.canViewCredentials,
     permissions.canViewSetup,
   ]);
   const visibleTab = allowedTabs.includes(activeTab) ? activeTab : allowedTabs[0] ?? activeTab;
@@ -119,6 +123,9 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
       )}
       {visibleTab === 'mcp' && (
         <MCPPanel canManage={permissions.canManageMCP} />
+      )}
+      {visibleTab === 'credentials' && (
+        <CredentialsPanel canManage={permissions.canManageCredentials} />
       )}
       {visibleTab === 'data-management' && (
         <DataManagementPanel canManage={permissions.canManageDataManagement} />

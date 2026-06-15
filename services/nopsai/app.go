@@ -29,33 +29,37 @@ const (
 // WebSocket Hub implementation
 
 type App struct {
-	db           *pgxpool.Pool
-	cfg          *config.Config
-	dispatcher   DispatcherClient
-	encKey       []byte
-	httpClient   *http.Client
-	gitProvider  GitProvider
-	runLauncher  RunLauncher
-	configSync   ConfigSyncStore
-	secretCrypto SecretCodec
-	store        store.Store
-	configPath   string
-	cfgMu        sync.RWMutex
-	idleTimeout  time.Duration
+	db                 *pgxpool.Pool
+	cfg                *config.Config
+	dispatcher         DispatcherClient
+	encKey             []byte
+	httpClient         *http.Client
+	gitProvider        GitProvider
+	runLauncher        RunLauncher
+	configSync         ConfigSyncStore
+	secretCrypto       SecretCodec
+	store              store.Store
+	credentialStore    store.CredentialStore
+	credentialResolver CredentialResolver
+	credentials        *credentialService
+	configPath         string
+	cfgMu              sync.RWMutex
+	idleTimeout        time.Duration
 
 	configSyncMu     sync.Mutex
 	configSyncStatus ConfigSyncStatus
 	envFilePath      string
 
-	authService   *auth.Service
-	serviceAuth   *serviceauth.Authenticator
-	aaaClient     AAAClient
-	aaaLocal      AAAClient
-	aaaRemoteMu   sync.Mutex
-	aaaRetryAfter time.Time
-	authz         *authz.Enforcer
-	auditLogger   *audit.Logger
-	tokenActivity sync.Map
+	authService        *auth.Service
+	serviceAuth        *serviceauth.Authenticator
+	serviceCredentials *serviceauth.Credentials
+	aaaClient          AAAClient
+	aaaLocal           AAAClient
+	aaaRemoteMu        sync.Mutex
+	aaaRetryAfter      time.Time
+	authz              *authz.Enforcer
+	auditLogger        *audit.Logger
+	tokenActivity      sync.Map
 
 	runnerBootstrapMu     sync.Mutex
 	runnerBootstrapTokens map[string]runnerBootstrapToken

@@ -190,7 +190,7 @@ export function IdentityProvidersWorkspace({
               <ProviderInput label="Display name" value={form.display_name} onChange={value => onFormChange(prev => ({ ...prev, display_name: value }))} placeholder="Company SSO" />
               <ProviderInput label="Issuer" value={form.issuer} onChange={value => onFormChange(prev => ({ ...prev, issuer: value }))} placeholder="https://idp.company.com" />
               <ProviderInput label="Client ID" value={form.client_id} onChange={value => onFormChange(prev => ({ ...prev, client_id: value }))} />
-              <ProviderInput label="Client secret" value={form.client_secret} onChange={value => onFormChange(prev => ({ ...prev, client_secret: value }))} type="password" placeholder={selectedProvider?.has_client_secret ? 'Leave blank to keep current secret' : ''} />
+              <ProviderInput label="Client credential ref" value={form.client_credential_ref} onChange={value => onFormChange(prev => ({ ...prev, client_credential_ref: value }))} placeholder="credential://system/oidc/corporate/client-secret" />
               <ProviderInput label="Scopes" value={form.scopes} onChange={value => onFormChange(prev => ({ ...prev, scopes: value }))} placeholder="openid, email, profile" />
               <ProviderInput label="Allowed domains" value={form.allowed_email_domains} onChange={value => onFormChange(prev => ({ ...prev, allowed_email_domains: value }))} placeholder="company.com" />
               <ProviderInput label="Authorization endpoint" value={form.authorization_endpoint} onChange={value => onFormChange(prev => ({ ...prev, authorization_endpoint: value }))} />

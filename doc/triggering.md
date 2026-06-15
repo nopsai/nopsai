@@ -15,7 +15,7 @@ Use this guide to simulate GitHub webhook traffic against the git-bot and verify
 ## 1. Export the Webhook Secret
 
 ```bash
-export GITHUB_WEBHOOK_SECRET="vsfdverguhuyi3287467324ujfbsaihufb"
+export TEST_GITHUB_WEBHOOK_SECRET="<the-value-written-to-the-webhook credential>"
 ```
 
 > Replace the value with the secret configured in your GitHub App. The git-bot will reject payloads whose signature does not match this secret.
@@ -26,7 +26,7 @@ export GITHUB_WEBHOOK_SECRET="vsfdverguhuyi3287467324ujfbsaihufb"
 
 ```bash
 PAYLOAD_FILE="doc/sample-git-event.json"
-SIGNATURE=$(openssl dgst -sha256 -hmac "$GITHUB_WEBHOOK_SECRET" "$PAYLOAD_FILE" | awk '{print $2}')
+SIGNATURE=$(openssl dgst -sha256 -hmac "$TEST_GITHUB_WEBHOOK_SECRET" "$PAYLOAD_FILE" | awk '{print $2}')
 echo "sha256=$SIGNATURE"
 ```
 
@@ -62,7 +62,8 @@ curl -X POST \
 
 ## Troubleshooting
 
-- **Signature mismatch**: Confirm both the git-bot OS variable (`GITHUB_WEBHOOK_SECRET`) and your shell export use the same value.
+- **Signature mismatch**: Confirm the GitHub App, your local test variable, and
+  the active webhook credential version use the same value.
 - **Run not created**: Check the git-bot logs for repository access issues or trigger mismatches. The API logs (container `nopsai`) will also record trigger evaluations.
 - **No UI updates**: Refresh the Pipeline runs page and verify authenticated `/v1/runs` requests are succeeding.
 

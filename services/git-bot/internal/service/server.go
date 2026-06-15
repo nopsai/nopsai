@@ -17,6 +17,7 @@ import (
 	"nopsai/config"
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
+	"nopsai/pkg/serviceauth"
 	"nopsai/services/git-bot/internal/checkrender"
 
 	"github.com/google/go-github/v53/github"
@@ -33,6 +34,7 @@ type GitBotApp struct {
 	repositoryProvider repositoryProvider
 	checksProvider     checksProvider
 	webhookForwarder   nopsaiWebhookForwarder
+	serviceAuth        *serviceauth.Authenticator
 }
 
 type RunStatusUpdate struct {
@@ -186,11 +188,15 @@ type FindSuiteCheckRunResponse struct {
 	HeadBranch         string `json:"head_branch,omitempty"`
 }
 
-func NewGitBotApp(cfg *config.Config, ghClient *github.Client, httpClient *http.Client, githubAppID int64) *GitBotApp {
-	webhookSecret := ""
-	if cfg != nil {
-		webhookSecret = cfg.GitHubWebhookSecret
-	}
+func NewGitBotApp(
+	cfg *config.Config,
+	ghClient *github.Client,
+	httpClient *http.Client,
+	githubAppID int64,
+	webhookSecret string,
+	serviceAuthenticator *serviceauth.Authenticator,
+	serviceCredentials *serviceauth.Credentials,
+) *GitBotApp {
 	return &GitBotApp{
 		ghClient:           ghClient,
 		webhookSecret:      webhookSecret,
@@ -198,7 +204,8 @@ func NewGitBotApp(cfg *config.Config, ghClient *github.Client, httpClient *http.
 		githubAppID:        githubAppID,
 		repositoryProvider: newGitHubRepositoryProvider(ghClient),
 		checksProvider:     newGitHubChecksProvider(ghClient),
-		webhookForwarder:   newNopsaiWebhookForwarder(cfg, httpClient),
+		webhookForwarder:   newNopsaiWebhookForwarder(cfg, httpClient, serviceCredentials),
+		serviceAuth:        serviceAuthenticator,
 	}
 }
 
@@ -220,7 +227,7 @@ func (a *GitBotApp) Handler() http.Handler {
 	mux.HandleFunc("/v1/run/status", a.handleRunStatusUpdate)
 	mux.HandleFunc("/v1/task/status", a.handleTaskStatusUpdate)
 	mux.HandleFunc("/v1/checks/create-child", a.handleCreateChildCheckRun)
-	return mux
+	return a.authenticateInternalRoutes(mux)
 }
 
 func (a *GitBotApp) verifySignature(r *http.Request, body []byte) bool {

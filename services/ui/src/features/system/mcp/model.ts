@@ -17,7 +17,7 @@ export type MCPServerRecord = {
   transport: string;
   url: string;
   auth_type: string;
-  auth_secret: string;
+  credential_ref: string;
   headers: Record<string, string>;
   timeout: string;
   allowed_scopes: string[];
@@ -52,7 +52,7 @@ export type MCPServerFormState = {
   transport: string;
   url: string;
   auth_type: string;
-  auth_secret: string;
+  credential_ref: string;
   headers_json: string;
   timeout: string;
   allowed_scopes: string;
@@ -77,7 +77,7 @@ export type MCPServerPayload = {
   transport: string;
   url: string;
   auth_type: string;
-  auth_secret: string;
+  credential_ref: string;
   headers: Record<string, string>;
   timeout: string;
   allowed_scopes: string[];
@@ -99,7 +99,7 @@ export const emptyMCPServerForm: MCPServerFormState = {
   transport: 'streamable_http',
   url: '',
   auth_type: 'none',
-  auth_secret: '',
+  credential_ref: '',
   headers_json: '',
   timeout: '30s',
   allowed_scopes: '',
@@ -131,7 +131,7 @@ export function normalizeMCPServersPayload(value: unknown): MCPServerRecord[] {
         transport: readString(server.transport).trim() || 'streamable_http',
         url: readString(server.url).trim(),
         auth_type: readString(server.auth_type).trim() || 'none',
-        auth_secret: readString(server.auth_secret).trim(),
+        credential_ref: readString(server.credential_ref).trim(),
         headers: normalizeStringMap(server.headers),
         timeout: readString(server.timeout).trim() || '30s',
         allowed_scopes: normalizeStringArray(server.allowed_scopes),
@@ -204,7 +204,7 @@ export function mcpServerFormFromRecord(server: MCPServerRecord): MCPServerFormS
     transport: server.transport || 'streamable_http',
     url: server.url || '',
     auth_type: server.auth_type || 'none',
-    auth_secret: server.auth_secret || '',
+    credential_ref: server.credential_ref || '',
     headers_json: formatHeadersJSON(server.headers),
     timeout: server.timeout || '30s',
     allowed_scopes: server.allowed_scopes.join(', '),
@@ -239,7 +239,7 @@ export function mcpServerPayloadFromForm(form: MCPServerFormState): MCPServerPay
     transport: form.transport.trim(),
     url: form.url.trim(),
     auth_type: form.auth_type.trim(),
-    auth_secret: form.auth_secret.trim(),
+    credential_ref: form.credential_ref.trim(),
     headers,
     timeout: form.timeout.trim() || '30s',
     allowed_scopes: splitCSV(form.allowed_scopes),

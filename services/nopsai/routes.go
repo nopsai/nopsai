@@ -57,6 +57,7 @@ func (a *App) registerAccessRoutes(mux *http.ServeMux) {
 }
 
 func (a *App) registerGitHubRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /v1/internal/git-bot/bootstrap", a.handleGitBotBootstrap)
 	mux.HandleFunc("POST /v1/git/events", a.handleGitEvent)
 }
 
@@ -69,6 +70,15 @@ func (a *App) registerGroupRoutes(mux *http.ServeMux) {
 }
 
 func (a *App) registerSystemRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /v1/system/credentials", a.handleListCredentials)
+	mux.HandleFunc("POST /v1/system/credentials", a.handleCreateCredential)
+	mux.HandleFunc("GET /v1/system/credentials/{credentialID}", a.handleGetCredential)
+	mux.HandleFunc("PUT /v1/system/credentials/{credentialID}/value", a.handleRotateCredential)
+	mux.HandleFunc("POST /v1/system/credentials/{credentialID}/versions/{version}/activate", a.handleActivateCredentialVersion)
+	mux.HandleFunc("DELETE /v1/system/credentials/{credentialID}/versions/{version}", a.handleDeleteCredentialVersion)
+	mux.HandleFunc("POST /v1/system/credentials/{credentialID}/disable", a.handleDisableCredential)
+	mux.HandleFunc("POST /v1/system/credentials/{credentialID}/enable", a.handleEnableCredential)
+	mux.HandleFunc("DELETE /v1/system/credentials/{credentialID}", a.handleDeleteCredential)
 	mux.HandleFunc("GET /v1/system/config", a.handleGetSystemConfig)
 	mux.HandleFunc("PUT /v1/system/config", a.handleUpdateSystemConfig)
 	mux.HandleFunc("GET /v1/system/notifications/mail", a.handleGetNotificationMailSettings)

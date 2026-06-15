@@ -18,6 +18,7 @@ const (
 	RoleRunner     = "runner"
 	RoleAgent      = "agent"
 	RoleDispatcher = "dispatcher"
+	RoleGitBot     = "git-bot"
 
 	EnvSigningKey = "SERVICE_JWT_SIGNING_KEY"
 	EnvIssuer     = "SERVICE_JWT_ISSUER"

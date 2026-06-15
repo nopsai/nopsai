@@ -28,6 +28,8 @@ export type Permission =
   | 'system.agent_profiles.write'
   | 'system.mcp.read'
   | 'system.mcp.write'
+  | 'system.credentials.read'
+  | 'system.credentials.write'
   | 'system.config_repos.read'
   | 'system.config_repos.write'
   | 'system.dispatcher.read'
@@ -46,6 +48,8 @@ export type SystemPagePermissions = {
   canManageAgentProfiles: boolean;
   canViewMCP: boolean;
   canManageMCP: boolean;
+  canViewCredentials: boolean;
+  canManageCredentials: boolean;
   canViewDataManagement: boolean;
   canManageDataManagement: boolean;
   canViewGlobalConfigRepo: boolean;
@@ -87,6 +91,8 @@ export type AppAccess = {
   canManageSystemAgentProfiles: boolean;
   canViewSystemMCP: boolean;
   canManageSystemMCP: boolean;
+  canViewSystemCredentials: boolean;
+  canManageSystemCredentials: boolean;
   canViewSystemDispatcher: boolean;
   canManageSystemDispatcher: boolean;
   canViewSystemAccess: boolean;
@@ -134,6 +140,8 @@ const normalizeSystemCapabilities = (value: unknown): SystemCapabilities | undef
     agentProfilesWrite: Boolean(record.agent_profiles_write),
     mcpRead: Boolean(record.mcp_read),
     mcpWrite: Boolean(record.mcp_write),
+    credentialsRead: Boolean(record.credentials_read),
+    credentialsWrite: Boolean(record.credentials_write),
     configReposRead: Boolean(record.config_repos_read),
     configReposWrite: Boolean(record.config_repos_write),
     dispatcherRead: Boolean(record.dispatcher_read),
@@ -224,6 +232,10 @@ export function can(user: CurrentUser | null | undefined, permission: Permission
       return Boolean(capabilities?.system?.mcpRead);
     case 'system.mcp.write':
       return Boolean(capabilities?.system?.mcpWrite);
+    case 'system.credentials.read':
+      return Boolean(capabilities?.system?.credentialsRead);
+    case 'system.credentials.write':
+      return Boolean(capabilities?.system?.credentialsWrite);
     case 'system.config_repos.read':
       return Boolean(capabilities?.system?.configReposRead);
     case 'system.config_repos.write':
@@ -245,6 +257,7 @@ export function getPreferredSystemPath(permissions: SystemPagePermissions): stri
   if (permissions.canViewLLMProfiles) return '/system/llm-profiles';
   if (permissions.canViewAgentProfiles) return '/system/agent-profiles';
   if (permissions.canViewMCP) return '/system/mcp';
+  if (permissions.canViewCredentials) return '/system/credentials';
   if (permissions.canViewDispatcher) return '/system/dispatcher';
   if (permissions.canViewAccess) return '/system/access';
   return '/system/config';
@@ -268,6 +281,8 @@ export function getSystemPagePermissions(user: CurrentUser | null | undefined): 
     canManageAgentProfiles: can(user, 'system.agent_profiles.write') || canManageRuntimeConfig,
     canViewMCP: can(user, 'system.mcp.read') || canViewRuntimeConfig,
     canManageMCP: can(user, 'system.mcp.write') || canManageRuntimeConfig,
+    canViewCredentials: can(user, 'system.credentials.read'),
+    canManageCredentials: can(user, 'system.credentials.write'),
     canViewDataManagement: canViewRuntimeConfig,
     canManageDataManagement: canManageRuntimeConfig,
     canViewGlobalConfigRepo,
@@ -292,6 +307,7 @@ export function getAppAccess(user: CurrentUser | null | undefined, session: Auth
     systemPermissions.canViewLLMProfiles ||
     systemPermissions.canViewAgentProfiles ||
     systemPermissions.canViewMCP ||
+    systemPermissions.canViewCredentials ||
     systemPermissions.canViewDispatcher ||
     systemPermissions.canViewAccess;
 
@@ -327,6 +343,8 @@ export function getAppAccess(user: CurrentUser | null | undefined, session: Auth
     canManageSystemAgentProfiles: systemPermissions.canManageAgentProfiles,
     canViewSystemMCP: systemPermissions.canViewMCP,
     canManageSystemMCP: systemPermissions.canManageMCP,
+    canViewSystemCredentials: systemPermissions.canViewCredentials,
+    canManageSystemCredentials: systemPermissions.canManageCredentials,
     canViewSystemDispatcher: systemPermissions.canViewDispatcher,
     canManageSystemDispatcher: systemPermissions.canManageDispatcher,
     canViewSystemAccess: systemPermissions.canViewAccess,

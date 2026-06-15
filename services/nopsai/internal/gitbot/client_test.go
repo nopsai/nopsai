@@ -6,7 +6,22 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"nopsai/pkg/serviceauth"
 )
+
+func testCredentials(t *testing.T) *serviceauth.Credentials {
+	t.Helper()
+	credentials, err := serviceauth.NewCredentials(serviceauth.Config{
+		SigningKey: "test-signing-key-with-enough-entropy",
+		Role:       serviceauth.RoleNopsai,
+		ServiceID:  "nopsai-test",
+	})
+	if err != nil {
+		t.Fatalf("NewCredentials() error = %v", err)
+	}
+	return credentials
+}
 
 func TestFileReturnsContent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -24,7 +39,7 @@ func TestFileReturnsContent(t *testing.T) {
 	}))
 	defer server.Close()
 
-	got, err := (Client{BaseURL: server.URL}).File("acme", "app", "main", ".nopsai/pipeline.yaml", errors.New("not found"))
+	got, err := (Client{BaseURL: server.URL, Credentials: testCredentials(t)}).File("acme", "app", "main", ".nopsai/pipeline.yaml", errors.New("not found"))
 	if err != nil {
 		t.Fatalf("File() error = %v", err)
 	}
@@ -40,7 +55,7 @@ func TestFileReturnsSuppliedNotFoundError(t *testing.T) {
 	defer server.Close()
 
 	wantErr := errors.New("pipeline not found")
-	_, err := (Client{BaseURL: server.URL}).File("acme", "app", "main", ".nopsai/missing.yaml", wantErr)
+	_, err := (Client{BaseURL: server.URL, Credentials: testCredentials(t)}).File("acme", "app", "main", ".nopsai/missing.yaml", wantErr)
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("File() error = %v, want supplied not found error", err)
 	}
@@ -55,7 +70,7 @@ func TestCreateCheckRunDecodesID(t *testing.T) {
 	}))
 	defer server.Close()
 
-	got, err := (Client{BaseURL: server.URL}).CreateCheckRun("acme", "app", "abc123", []byte("name: ci"), "git")
+	got, err := (Client{BaseURL: server.URL, Credentials: testCredentials(t)}).CreateCheckRun("acme", "app", "abc123", []byte("name: ci"), "git")
 	if err != nil {
 		t.Fatalf("CreateCheckRun() error = %v", err)
 	}

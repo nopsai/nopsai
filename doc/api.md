@@ -105,7 +105,7 @@ curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \
 
 curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"id":"corporate","type":"oidc","display_name":"Company SSO","issuer":"https://idp.company.com","client_id":"client-id","client_secret":"client-secret","scopes":["openid","email","profile"],"allowed_email_domains":["company.com"],"group_claim":"groups","entitlement_sync":{"mode":"keycloak_group_roles","admin_base_url":"https://keycloak.example.com","realm":"company","admin_client_id":"nopsai-admin","admin_client_secret":"replace-me","client_id":"nopsai","target_resource_type":"folder"},"enabled":true}' \
+  -d '{"id":"corporate","type":"oidc","display_name":"Company SSO","issuer":"https://idp.company.com","client_id":"client-id","client_credential_ref":"credential://system/oidc/corporate/client-secret","scopes":["openid","email","profile"],"allowed_email_domains":["company.com"],"group_claim":"groups","entitlement_sync":{"mode":"keycloak_group_roles","admin_base_url":"https://keycloak.example.com","realm":"company","admin_client_id":"nopsai-admin","admin_client_credential_ref":"credential://system/oidc/corporate/admin-client-secret","client_id":"nopsai","target_resource_type":"folder"},"enabled":true}' \
   http://localhost:8080/v1/admin/identity-providers/corporate
 ```
 
@@ -394,7 +394,7 @@ curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \
       "port": 587,
       "start_tls": true,
       "username": "nopsai@example.com",
-      "password_secret_ref": "NOPSAI_SMTP_PASSWORD"
+      "password_credential_ref": "credential://system/mail/smtp-primary"
     }
   }' \
   http://localhost:8080/v1/system/notifications/mail
@@ -511,7 +511,8 @@ GitOps:
 - The global config repo may define `setting/system/mail.yaml`.
 - The global config repo may define group notification policies with one or more named routes at `config-repositories/groups/<group>/notifications.yaml`.
 - A group-scoped config repo may define `notifications.yaml` with one or more named routes for its bound group.
-- SMTP passwords are never stored in GitOps; only `smtp.password_secret_ref` is synced.
+- SMTP passwords are never stored in GitOps; only
+  `smtp.password_credential_ref` is synced.
 
 ---
 
@@ -952,6 +953,47 @@ Normal clients should use the `nopsai` API rather than calling AAA directly.
 
 ---
 
+## System Credentials
+
+System integration credentials are encrypted, versioned, and write-only.
+Metadata APIs never return plaintext, ciphertext, or wrapped keys.
+
+```bash
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  http://localhost:8080/v1/system/credentials
+
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"reference":"credential://system/llm/openai-primary","kind":"api_key","description":"Primary OpenAI key","value":"<value>"}' \
+  http://localhost:8080/v1/system/credentials
+
+curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"value":"<rotated-value>"}' \
+  http://localhost:8080/v1/system/credentials/<credential-id>/value
+
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  http://localhost:8080/v1/system/credentials/<credential-id>/versions/1/activate
+
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  http://localhost:8080/v1/system/credentials/<credential-id>/disable
+
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  http://localhost:8080/v1/system/credentials/<credential-id>/enable
+
+curl -X DELETE -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  http://localhost:8080/v1/system/credentials/<credential-id>/versions/1
+```
+
+Enabling restores the retained active version. Version deletion returns
+`409 Conflict` for the active version or when fewer than two stored versions
+exist.
+
+Deletion returns `409 Conflict` while LLM, MCP, mail, OIDC, or GitHub
+configuration still references the credential.
+
+---
+
 ## Secrets
 
 Secrets are encrypted at rest using the master key. They can be scoped globally, per scope, or per repository.
@@ -1249,9 +1291,9 @@ curl -X POST -H "Content-Type: application/json" \
 - System- and group-scoped repos may define managed knowledge context markdown under `knowledge/`.
 - System-scoped repos may define group pipeline notification policies with named routes under `config-repositories/groups/<group>/notifications.yaml`. Group repos can use root `notifications.yaml` for their bound group.
 - The system/global repo may define Agent Profiles and `default_profile` under `setting/system/agent-profiles.yaml`; group repos may reference approved profile IDs but cannot define the catalog.
-- The system/global repo may define local-login and OIDC SSO settings under `setting/system/auth.yaml`; provider secrets may be omitted to preserve already stored values.
+- The system/global repo may define local-login and OIDC SSO settings under `setting/system/auth.yaml`; providers bind credential references whose values remain local.
 - The system/global repo may define runtime runner defaults and dispatcher routing under `setting/system/runner.yaml`; dispatcher routing changes are synced into `nopsai` and applied by the live dispatcher.
-- The system/global repo may define SMTP mail notification settings under `setting/system/mail.yaml`; only `smtp.password_secret_ref` is synced for credentials.
+- The system/global repo may define SMTP mail notification settings under `setting/system/mail.yaml`; only `smtp.password_credential_ref` is synced for credentials.
 - A binding file contains `repo_url`, optional `branch`, optional `base_path`, optional `enabled`, optional `write_enabled`, and optional `write_branch`.
 - `branch` remains the read/sync source. When `write_enabled` is true, Nopsai can push generated GitOps changes to `write_branch` so they can be reviewed in GitHub before merging back to the sync branch. The GitHub App needs `contents: read and write`.
 - Drift compares the sync branch with Nopsai's current declarative state for pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, run group/config-repository structure, notification routes, access manifests, Agent Profiles, LLM profiles, MCP registry files, auth settings, mail settings, and runtime settings. UI-side resource Access changes for pipelines, reusable steps, scopes, and knowledge contexts are exported as embedded `access:` updates in the affected GitOps files. Pipeline run rows remain runtime/audit records rather than Git-owned resources.

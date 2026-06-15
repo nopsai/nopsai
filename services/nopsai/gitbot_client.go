@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"nopsai/pkg/models"
+	"nopsai/pkg/serviceauth"
 	"nopsai/services/nopsai/internal/gitbot"
 )
 
@@ -36,10 +37,11 @@ type GitProvider interface {
 	NotifyTaskStatus(req GitTaskStatusRequest) error
 }
 
-func NewGitBotProvider(baseURL string, httpClient *http.Client) GitProvider {
+func NewGitBotProvider(baseURL string, httpClient *http.Client, credentials *serviceauth.Credentials) GitProvider {
 	return gitbot.Client{
-		BaseURL:    baseURL,
-		HTTPClient: httpClient,
+		BaseURL:     baseURL,
+		HTTPClient:  httpClient,
+		Credentials: credentials,
 	}
 }
 
@@ -51,7 +53,7 @@ func (a *App) gitClient() GitProvider {
 	if a.cfg != nil {
 		baseURL = a.cfg.NopsaiGitBotAPIURL
 	}
-	return NewGitBotProvider(baseURL, a.httpClient)
+	return NewGitBotProvider(baseURL, a.httpClient, a.serviceCredentials)
 }
 
 func (a *App) requestGitBotFile(owner, repo, ref, path string, notFoundErr error) (string, error) {

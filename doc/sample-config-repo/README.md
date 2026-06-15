@@ -228,15 +228,14 @@ oidc:
       display_name: Enterprise SSO
       issuer: https://sso.example.com/realms/nopsai
       client_id: nopsai
+      client_credential_ref: credential://system/oidc/nopsai/client-secret
       scopes: ["openid", "email", "profile"]
       allowed_email_domains: ["example.com"]
 ```
 
-Provider secrets such as `client_secret`,
-`entitlement_sync.admin_client_secret`, and `entitlement_sync.admin_password`
-may be omitted from Git. When those fields are omitted, sync preserves the
-already stored local values for that provider, so the first secret can be set
-through System Access or injected by your secret-management process.
+GitOps stores credential references, not provider values. Create referenced
+values in **System > Credentials**; sync creates missing metadata in `pending`
+state and preserves locally managed versions.
 
 SSO-managed users are intentionally excluded from access GitOps. Export and
 drift skip linked OIDC users, raw `oidc:*` user subjects, and provider-managed
@@ -282,16 +281,13 @@ entry. Changes to `dispatcher_routing` are written to runtime config and exposed
 through the protected internal control-plane endpoint that the dispatcher polls,
 so new scheduling decisions can use the updated table without a restart.
 
-Keep sensitive runtime values out of GitOps. This file intentionally supports
-only operational defaults such as service URLs, agent image/network defaults,
-timeouts, runner defaults, and dispatcher routing; secrets such as database URLs,
-master keys, service JWT signing keys, webhook secrets, and service account
-tokens stay in local runtime configuration or a secret manager.
+Keep bootstrap values out of GitOps. Database URLs, master keys, and service JWT
+signing keys stay in deployment secrets. Operational integration credentials
+use the encrypted registry and are referenced from GitOps.
 
 System mail notification settings live in `setting/system/mail.yaml`. The SMTP
-password value is not stored in GitOps; `smtp.password_secret_ref` names an
-environment variable or runtime secret reference that the running service can
-resolve when it sends mail.
+password value is not stored in GitOps; `smtp.password_credential_ref` names a
+write-only encrypted registry entry.
 
 ```yaml
 enabled: true
@@ -301,7 +297,7 @@ smtp:
   port: 587
   start_tls: true
   username: nopsai@example.com
-  password_secret_ref: NOPSAI_SMTP_PASSWORD
+  password_credential_ref: credential://system/mail/smtp-primary
 ```
 
 When the global repo defines group bindings under `config-repositories/groups`,

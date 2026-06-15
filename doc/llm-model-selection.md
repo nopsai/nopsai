@@ -40,9 +40,9 @@ Profile fields:
 - `model`: provider model name. LM Studio may omit this to auto-discover the first loaded model.
 - `base_url`: required for LM Studio, Ollama, and Azure OpenAI. Hosted providers
   use provider defaults when it is omitted.
-- `api_key_secret`: environment variable name that contains the API key.
+- `credential_ref`: stable reference to an API key in System > Credentials.
   Hosted providers require it. LM Studio and Ollama can omit it when the
-  endpoint does not require auth.
+  endpoint does not require authentication.
 - `allowed_scopes`: scopes where this profile can run. Empty means allowed everywhere.
 - `reasoning`: optional LM Studio reasoning level: `off`, `low`, `medium`, `high`, or `on`.
 - `thinking`: optional LM Studio shortcut. When `reasoning` is omitted, `thinking: true` maps to reasoning `on` and `thinking: false` maps to reasoning `off`.
@@ -113,7 +113,7 @@ profiles:
   - name: fast
     provider: gemini
     model: gemini-2.5-flash
-    api_key_secret: GEMINI_API_KEY
+    credential_ref: credential://system/llm/gemini-fast
     allowed_scopes: ["dev", "test"]
 
   - name: standard
@@ -125,14 +125,14 @@ profiles:
   - name: hosted
     provider: openai
     model: gpt-4.1-mini
-    api_key_secret: OPENAI_API_KEY
+    credential_ref: credential://system/llm/openai-hosted
     timeout_seconds: 60
     max_tokens: 4096
 
   - name: claude-review
     provider: anthropic
     model: claude-sonnet-4-6
-    api_key_secret: ANTHROPIC_API_KEY
+    credential_ref: credential://system/llm/anthropic-review
     max_tokens: 4096
 
   - name: local-ollama
@@ -140,13 +140,13 @@ profiles:
     model: qwen2.5-coder:14b
     base_url: http://ollama:11434/v1
     # Optional for authenticated self-hosted gateways:
-    # api_key_secret: OLLAMA_API_KEY
+    # credential_ref: credential://system/llm/ollama-gateway
 
   - name: azure
     provider: azure-openai
     model: nopsai-gpt41-mini
     base_url: https://my-resource.openai.azure.com/openai/v1
-    api_key_secret: AZURE_OPENAI_API_KEY
+    credential_ref: credential://system/llm/azure-primary
 ```
 
 Azure OpenAI uses the current `/openai/v1` API when the base URL points to that
@@ -266,6 +266,6 @@ profile name.
 The Agent Profile catalog is packaged separately as `NOPSAI_AGENT_PROFILES`.
 The agent uses it only to build persona text for prompts.
 
-There is no fallback to provider-specific environment variables for model
-selection. Environment variables are only used when a profile's
-`api_key_secret` points to one.
+There is no fallback to provider-specific environment variables. NopsAI
+resolves `credential_ref` through the encrypted registry and delivers only the
+selected run credentials to the agent.

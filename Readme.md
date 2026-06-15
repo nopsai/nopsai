@@ -232,25 +232,26 @@ GitOps sync can import:
 
 Runtime settings GitOps is limited to operational defaults such as runner ID,
 runner scopes, runner capacity, dispatcher address, agent image/network defaults,
-timeouts, and `dispatcher_routing`. Keep database URLs, master keys, service JWT
-keys, webhook secrets, and other sensitive values in local runtime configuration
-or a secret manager. Dispatcher routing changes made from the UI or synced from
+timeouts, and `dispatcher_routing`. Keep database URLs, master keys, and service
+JWT bootstrap keys in deployment secrets. Store operational integration
+credentials in **System > Credentials** and bind them from GitOps by reference.
+Dispatcher routing changes made from the UI or synced from
 GitOps are published through `nopsai` and picked up by the live dispatcher
 without a restart.
 
 SSO settings live under **System > Access > Identity Providers** and can be
 declared in the global config repository at `setting/system/auth.yaml`. GitOps
 sync manages `local_enabled`, OIDC enablement, auto-create/linking defaults,
-domain mappings, providers, and Keycloak entitlement-sync mappings. Provider
-secrets such as `client_secret`, `entitlement_sync.admin_client_secret`, and
-`entitlement_sync.admin_password` may be omitted from Git; when omitted, sync
-preserves the values already stored locally for that provider.
+domain mappings, providers, Keycloak entitlement-sync mappings, and their
+`client_credential_ref`, `admin_client_credential_ref`, and
+`admin_password_credential_ref` bindings. Values remain write-only in the
+credential registry.
 
 Mail notification settings live under **System > Config** and can be
 declared in the global config repository at `setting/system/mail.yaml`. GitOps
 stores only SMTP host, port, sender, username, TLS mode, and
-`password_secret_ref`; the actual SMTP password must stay in the referenced
-environment variable or secret manager entry.
+`password_credential_ref`; the actual SMTP password stays in the encrypted
+credential registry.
 
 Pipeline mail is sent as multipart HTML with a plain-text fallback. It includes
 the pipeline and run status, failed step/task, step and task progress, repository

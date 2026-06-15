@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -86,9 +85,8 @@ func New(server models.MCPServer, opts ...Option) (*Client, error) {
 		timeout = parsed
 	}
 	client := &Client{
-		server:    server,
-		authValue: resolveAuthSecret(server.AuthSecret),
-		http:      &http.Client{Timeout: timeout},
+		server: server,
+		http:   &http.Client{Timeout: timeout},
 	}
 	for _, opt := range opts {
 		opt(client)
@@ -260,7 +258,7 @@ func (c *Client) send(ctx context.Context, payload jsonRPCRequest) ([]byte, erro
 	switch c.server.AuthType {
 	case models.MCPAuthBearerToken:
 		if c.authValue == "" {
-			return nil, fmt.Errorf("MCP server %q auth secret %q is not set", c.server.Name, c.server.AuthSecret)
+			return nil, fmt.Errorf("MCP server %q credential %q is unavailable", c.server.Name, c.server.CredentialRef)
 		}
 		req.Header.Set("Authorization", "Bearer "+c.authValue)
 	case models.MCPAuthNone:
@@ -361,14 +359,6 @@ func jsonRPCIDEqual(a, b any) bool {
 		return fmt.Sprint(a) == fmt.Sprint(b)
 	}
 	return bytes.Equal(aJSON, bJSON)
-}
-
-func resolveAuthSecret(secretName string) string {
-	secretName = strings.TrimSpace(secretName)
-	if secretName == "" {
-		return ""
-	}
-	return strings.TrimSpace(os.Getenv(secretName))
 }
 
 func JSONString(raw json.RawMessage, maxBytes int) string {

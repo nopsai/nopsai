@@ -63,6 +63,8 @@ type authSystemCapabilities struct {
 	AgentProfilesWrite bool `json:"agent_profiles_write"`
 	MCPRead            bool `json:"mcp_read"`
 	MCPWrite           bool `json:"mcp_write"`
+	CredentialsRead    bool `json:"credentials_read"`
+	CredentialsWrite   bool `json:"credentials_write"`
 	ConfigReposRead    bool `json:"config_repos_read"`
 	ConfigReposWrite   bool `json:"config_repos_write"`
 	DispatcherRead     bool `json:"dispatcher_read"`

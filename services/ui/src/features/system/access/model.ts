@@ -91,6 +91,7 @@ export type IdentityProviderRecord = {
   jwks_uri?: string;
   userinfo_endpoint?: string;
   client_id: string;
+  client_credential_ref?: string;
   scopes: string[];
   allowed_email_domains: string[];
   group_claim?: string;
@@ -102,7 +103,7 @@ export type IdentityProviderRecord = {
   allow_email_linking?: boolean;
   enabled: boolean;
   config_source?: string;
-  has_client_secret?: boolean;
+  has_client_credential?: boolean;
 };
 
 export type IdentityProviderBasicRoleMapping = {
@@ -128,7 +129,7 @@ export type IdentityProviderFormState = {
   jwks_uri: string;
   userinfo_endpoint: string;
   client_id: string;
-  client_secret: string;
+  client_credential_ref: string;
   scopes: string;
   allowed_email_domains: string;
   group_claim: string;
@@ -491,7 +492,7 @@ export const emptyIdentityProviderForm = (): IdentityProviderFormState => ({
   jwks_uri: "",
   userinfo_endpoint: "",
   client_id: "",
-  client_secret: "",
+  client_credential_ref: "",
   scopes: "openid, email, profile",
   allowed_email_domains: "",
   group_claim: "groups",
@@ -517,7 +518,7 @@ export function identityProviderFormFromRecord(
     jwks_uri: record.jwks_uri || "",
     userinfo_endpoint: record.userinfo_endpoint || "",
     client_id: record.client_id || "",
-    client_secret: "",
+    client_credential_ref: record.client_credential_ref || "",
     scopes: (record.scopes || []).join(", "),
     allowed_email_domains: (record.allowed_email_domains || []).join(", "),
     group_claim: record.group_claim || "groups",
@@ -558,7 +559,7 @@ export function identityProviderPayloadFromForm(
     jwks_uri: form.jwks_uri.trim(),
     userinfo_endpoint: form.userinfo_endpoint.trim(),
     client_id: form.client_id.trim(),
-    client_secret: form.client_secret.trim(),
+    client_credential_ref: form.client_credential_ref.trim(),
     scopes: splitCSV(form.scopes),
     allowed_email_domains: splitCSV(form.allowed_email_domains),
     group_claim: form.group_claim.trim(),
@@ -616,6 +617,7 @@ function normalizeIdentityProviderRecord(
     jwks_uri: readOptionalString(record.jwks_uri),
     userinfo_endpoint: readOptionalString(record.userinfo_endpoint),
     client_id: readString(record.client_id),
+    client_credential_ref: readOptionalString(record.client_credential_ref),
     scopes: Array.isArray(record.scopes)
       ? record.scopes.map((item) => String(item || "").trim()).filter(Boolean)
       : [],
@@ -639,7 +641,7 @@ function normalizeIdentityProviderRecord(
         : undefined,
     enabled: record.enabled !== false,
     config_source: readOptionalString(record.config_source),
-    has_client_secret: Boolean(record.has_client_secret),
+    has_client_credential: Boolean(record.has_client_credential),
   };
 }
 

@@ -157,7 +157,7 @@ func oidcProviderRecordFromConfig(id string, providerCfg config.OIDCProviderConf
 		JWKSURI:               strings.TrimSpace(providerCfg.JWKSURI),
 		UserInfoEndpoint:      strings.TrimSpace(providerCfg.UserInfoEndpoint),
 		ClientID:              strings.TrimSpace(providerCfg.ClientID),
-		ClientSecret:          strings.TrimSpace(providerCfg.ClientSecret),
+		ClientCredentialRef:   strings.TrimSpace(providerCfg.ClientCredentialRef),
 		Scopes:                normalizeOIDCScopes(providerCfg.Scopes),
 		AllowedEmailDomains:   normalizeOIDCEmailDomains(providerCfg.AllowedEmailDomains),
 		GroupClaim:            strings.TrimSpace(providerCfg.GroupClaim),
@@ -264,8 +264,6 @@ func buildAuthSettingsGitOpsFile(settings oidcSettings, providers []oidcProvider
 
 func oidcProviderConfigFromRecord(provider oidcProviderRecord) config.OIDCProviderConfig {
 	entitlementSync := provider.EntitlementSync
-	entitlementSync.AdminClientSecret = ""
-	entitlementSync.AdminPassword = ""
 
 	cfg := config.OIDCProviderConfig{
 		Type:                  normalizeOIDCProviderType(provider.Type),
@@ -276,6 +274,7 @@ func oidcProviderConfigFromRecord(provider oidcProviderRecord) config.OIDCProvid
 		JWKSURI:               strings.TrimSpace(provider.JWKSURI),
 		UserInfoEndpoint:      strings.TrimSpace(provider.UserInfoEndpoint),
 		ClientID:              strings.TrimSpace(provider.ClientID),
+		ClientCredentialRef:   strings.TrimSpace(provider.ClientCredentialRef),
 		Scopes:                normalizeOIDCScopes(provider.Scopes),
 		AllowedEmailDomains:   normalizeOIDCEmailDomains(provider.AllowedEmailDomains),
 		GroupClaim:            strings.TrimSpace(provider.GroupClaim),
@@ -313,17 +312,17 @@ func basicRoleMappingToConfig(mapping map[string]oidcBasicRoleGrantMapping) map[
 
 func entitlementSyncToConfig(sync oidcEntitlementSyncConfig) config.OIDCEntitlementSyncConfig {
 	return config.OIDCEntitlementSyncConfig{
-		Mode:               sync.Mode,
-		AdminBaseURL:       sync.AdminBaseURL,
-		Realm:              sync.Realm,
-		AdminRealm:         sync.AdminRealm,
-		AdminClientID:      sync.AdminClientID,
-		AdminClientSecret:  sync.AdminClientSecret,
-		AdminUsername:      sync.AdminUsername,
-		AdminPassword:      sync.AdminPassword,
-		ClientID:           sync.ClientID,
-		TargetResourceType: sync.TargetResourceType,
-		GroupPathPrefix:    sync.GroupPathPrefix,
+		Mode:                       sync.Mode,
+		AdminBaseURL:               sync.AdminBaseURL,
+		Realm:                      sync.Realm,
+		AdminRealm:                 sync.AdminRealm,
+		AdminClientID:              sync.AdminClientID,
+		AdminClientCredentialRef:   sync.AdminClientCredentialRef,
+		AdminUsername:              sync.AdminUsername,
+		AdminPasswordCredentialRef: sync.AdminPasswordCredentialRef,
+		ClientID:                   sync.ClientID,
+		TargetResourceType:         sync.TargetResourceType,
+		GroupPathPrefix:            sync.GroupPathPrefix,
 	}
 }
 

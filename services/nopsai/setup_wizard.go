@@ -85,7 +85,7 @@ type setupLLMProfileInput struct {
 	Provider       string            `json:"provider"`
 	Model          string            `json:"model"`
 	BaseURL        string            `json:"base_url"`
-	APIKeySecret   string            `json:"api_key_secret"`
+	CredentialRef  string            `json:"credential_ref"`
 	APIKeyValue    string            `json:"api_key_value"`
 	AllowedScopes  []string          `json:"allowed_scopes"`
 	TimeoutSeconds int               `json:"timeout_seconds,omitempty"`

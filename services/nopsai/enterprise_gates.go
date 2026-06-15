@@ -59,15 +59,24 @@ func enterpriseStartupGateChecks(cfg *config.Config) []setupPreflightCheck {
 	)
 
 	if githubAppConfigured(cfg) {
-		checks = append(checks, secretStrengthCheck(
-			"github_webhook_secret_strength",
-			"GitHub webhook secret strength",
-			"GITHUB_WEBHOOK_SECRET",
-			cfg.GitHubWebhookSecret,
-			"GitHub webhook secret has production-grade length and is not a known placeholder.",
-			"Set a unique random GITHUB_WEBHOOK_SECRET before accepting GitHub webhooks in production.",
-			strict,
-		))
+		checks = append(checks,
+			configuredValueCheck(
+				"github_private_key_credential_ref",
+				"GitHub private key credential",
+				cfg.GitHubPrivateKeyCredentialRef,
+				"GitHub App private key uses the credential registry.",
+				"Configure GITHUB_PRIVATE_KEY_CREDENTIAL_REF.",
+				strict,
+			),
+			configuredValueCheck(
+				"github_webhook_credential_ref",
+				"GitHub webhook credential",
+				cfg.GitHubWebhookCredentialRef,
+				"GitHub webhook verification uses the credential registry.",
+				"Configure GITHUB_WEBHOOK_CREDENTIAL_REF.",
+				strict,
+			),
+		)
 	}
 
 	return checks
@@ -120,6 +129,29 @@ func secretStrengthCheck(id, label, envName, value, successMessage, failureMessa
 		}
 	}
 	return enterpriseFailureCheck(id, label, envName, failureMessage, strict)
+}
+
+func configuredValueCheck(id, label, value, successMessage, failureMessage string, strict bool) setupPreflightCheck {
+	if strings.TrimSpace(value) != "" {
+		return setupPreflightCheck{
+			ID:       id,
+			Label:    label,
+			Status:   "success",
+			Required: false,
+			Message:  successMessage,
+		}
+	}
+	status := "warning"
+	if strict {
+		status = "error"
+	}
+	return setupPreflightCheck{
+		ID:       id,
+		Label:    label,
+		Status:   status,
+		Required: strict,
+		Message:  failureMessage,
+	}
 }
 
 func serviceJWTIsolationCheck(cfg *config.Config, strict bool) setupPreflightCheck {
@@ -196,6 +228,6 @@ func githubAppConfigured(cfg *config.Config) bool {
 	}
 	return strings.TrimSpace(cfg.GitHubAppID) != "" ||
 		strings.TrimSpace(cfg.GitHubInstallID) != "" ||
-		strings.TrimSpace(cfg.GitHubPrivateKeyPath) != "" ||
-		strings.TrimSpace(cfg.GitHubPrivateKey) != ""
+		strings.TrimSpace(cfg.GitHubPrivateKeyCredentialRef) != "" ||
+		strings.TrimSpace(cfg.GitHubWebhookCredentialRef) != ""
 }

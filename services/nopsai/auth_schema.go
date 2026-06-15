@@ -57,7 +57,7 @@ var authSchemaStatements = []string{
 		jwks_uri TEXT NOT NULL DEFAULT '',
 		userinfo_endpoint TEXT NOT NULL DEFAULT '',
 		client_id TEXT NOT NULL DEFAULT '',
-		client_secret TEXT NOT NULL DEFAULT '',
+		client_credential_ref TEXT NOT NULL DEFAULT '',
 		scopes JSONB NOT NULL DEFAULT '["openid","email","profile"]'::jsonb,
 		allowed_email_domains JSONB NOT NULL DEFAULT '[]'::jsonb,
 		group_claim TEXT NOT NULL DEFAULT '',
@@ -73,6 +73,7 @@ var authSchemaStatements = []string{
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
+	`ALTER TABLE auth_identity_providers ADD COLUMN IF NOT EXISTS client_credential_ref TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE auth_identity_providers ADD COLUMN IF NOT EXISTS group_mapping JSONB NOT NULL DEFAULT '{}'::jsonb`,
 	`ALTER TABLE auth_identity_providers ADD COLUMN IF NOT EXISTS basic_role_mapping JSONB NOT NULL DEFAULT '{}'::jsonb`,
 	`ALTER TABLE auth_identity_providers ADD COLUMN IF NOT EXISTS entitlement_sync JSONB NOT NULL DEFAULT '{}'::jsonb`,

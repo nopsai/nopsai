@@ -55,14 +55,14 @@ func TestClientInitializesListsAndCallsTool(t *testing.T) {
 	defer server.Close()
 
 	client, err := New(models.MCPServer{
-		Name:       "github",
-		Enabled:    true,
-		Transport:  models.MCPTransportStreamableHTTP,
-		URL:        server.URL,
-		AuthType:   models.MCPAuthBearerToken,
-		AuthSecret: "TOKEN",
-		Headers:    map[string]string{"X-MCP-Toolsets": "default,actions"},
-		Timeout:    "5s",
+		Name:          "github",
+		Enabled:       true,
+		Transport:     models.MCPTransportStreamableHTTP,
+		URL:           server.URL,
+		AuthType:      models.MCPAuthBearerToken,
+		CredentialRef: "credential://system/mcp/github",
+		Headers:       map[string]string{"X-MCP-Toolsets": "default,actions"},
+		Timeout:       "5s",
 	}, WithAuthValue("test-token"))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)

@@ -187,14 +187,19 @@ func cloneURLValues(values url.Values) url.Values {
 func TestOIDCFlowWithLocalProviderAndRotatingJWKS(t *testing.T) {
 	ctx := context.Background()
 	idp := newLocalOIDCTestProvider(t)
-	app := &App{httpClient: idp.server.Client()}
+	app := &App{
+		httpClient: idp.server.Client(),
+		credentialResolver: staticCredentialResolver{
+			"credential://system/oidc/keycloak/client-secret": "dev-nopsai-secret",
+		},
+	}
 	provider := oidcProviderRecord{
 		ID:                  "keycloak",
 		Type:                "oidc",
 		DisplayName:         "Local Keycloak",
 		Issuer:              idp.issuer(),
 		ClientID:            "nopsai",
-		ClientSecret:        "dev-nopsai-secret",
+		ClientCredentialRef: "credential://system/oidc/keycloak/client-secret",
 		Scopes:              []string{"openid", "email", "profile", "groups"},
 		AllowedEmailDomains: []string{"example.com"},
 		GroupClaim:          "groups",

@@ -80,6 +80,7 @@ export const baseSystemSubNav: NavItem[] = [
   { label: 'LLM Profiles', path: '/system/llm-profiles', icon: <IconFlask /> },
   { label: 'Agent Profiles', path: '/system/agent-profiles', icon: <IconShield /> },
   { label: 'MCP', path: '/system/mcp', icon: <IconFlask /> },
+  { label: 'Credentials', path: '/system/credentials', icon: <IconShield /> },
   { label: 'Data Management', path: '/system/data-management', icon: <IconDatabase /> },
   { label: 'Dispatcher', path: '/system/dispatcher', icon: <IconDispatch /> },
   { label: 'Access', path: '/system/access', icon: <IconShield /> },

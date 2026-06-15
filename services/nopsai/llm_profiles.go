@@ -18,6 +18,7 @@ import (
 	"nopsai/config"
 	"nopsai/pkg/models"
 	"nopsai/services/nopsai/internal/configsync"
+	"nopsai/services/nopsai/internal/credentials"
 	"nopsai/services/nopsai/pkg/validation"
 
 	"github.com/jackc/pgx/v5"
@@ -38,7 +39,7 @@ var llmProfileSchemaStatements = []string{
 		provider TEXT NOT NULL,
 		model TEXT NOT NULL DEFAULT '',
 		base_url TEXT NOT NULL DEFAULT '',
-		api_key_secret TEXT NOT NULL DEFAULT '',
+		credential_ref TEXT NOT NULL DEFAULT '',
 		allowed_scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
 		reasoning TEXT NOT NULL DEFAULT '',
 		thinking BOOLEAN,
@@ -49,6 +50,7 @@ var llmProfileSchemaStatements = []string{
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
+	`ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS credential_ref TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS timeout_seconds INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS max_tokens INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS temperature DOUBLE PRECISION`,
@@ -60,7 +62,7 @@ type llmProfileForm struct {
 	Provider       string            `json:"provider" yaml:"provider"`
 	Model          string            `json:"model" yaml:"model"`
 	BaseURL        string            `json:"base_url" yaml:"base_url"`
-	APIKeySecret   string            `json:"api_key_secret" yaml:"api_key_secret"`
+	CredentialRef  string            `json:"credential_ref" yaml:"credential_ref"`
 	AllowedScopes  []string          `json:"allowed_scopes" yaml:"allowed_scopes"`
 	Reasoning      string            `json:"reasoning" yaml:"reasoning"`
 	Thinking       *bool             `json:"thinking,omitempty" yaml:"thinking,omitempty"`
@@ -112,7 +114,7 @@ type runtimeLLMProfile struct {
 	Model          string            `json:"model,omitempty"`
 	BaseURL        string            `json:"base_url,omitempty"`
 	APIKey         string            `json:"api_key,omitempty"`
-	APIKeySecret   string            `json:"api_key_secret,omitempty"`
+	CredentialRef  string            `json:"credential_ref,omitempty"`
 	AllowedScopes  []string          `json:"allowed_scopes,omitempty"`
 	Reasoning      string            `json:"reasoning,omitempty"`
 	Thinking       *bool             `json:"thinking,omitempty"`
@@ -133,7 +135,7 @@ func profileFormFromConfig(name string, profile config.LLMProfile) llmProfileFor
 		Provider:       profile.Provider,
 		Model:          profile.Model,
 		BaseURL:        profile.BaseURL,
-		APIKeySecret:   profile.APIKeySecret,
+		CredentialRef:  profile.CredentialRef,
 		AllowedScopes:  append([]string(nil), profile.AllowedScopes...),
 		Reasoning:      profile.Reasoning,
 		Thinking:       profile.Thinking,
@@ -149,7 +151,7 @@ func profileConfigFromForm(form llmProfileForm) config.LLMProfile {
 		Provider:       form.Provider,
 		Model:          form.Model,
 		BaseURL:        form.BaseURL,
-		APIKeySecret:   form.APIKeySecret,
+		CredentialRef:  form.CredentialRef,
 		AllowedScopes:  form.AllowedScopes,
 		Reasoning:      form.Reasoning,
 		Thinking:       form.Thinking,
@@ -203,7 +205,7 @@ func (a *App) validatePipelineLLMProfiles(pipeline *models.Pipeline, scope strin
 	effectiveProfiles := cfg.EffectiveLLMProfiles()
 	for name := range collectResolvedLLMProfiles(pipeline, defaultProfile) {
 		profile := effectiveProfiles[name]
-		status, message := validateLLMProfileConfiguration(name, profile)
+		status, message := a.validateLLMProfileConfiguration(context.Background(), name, profile)
 		if status != "valid" {
 			if message == "" {
 				message = fmt.Sprintf("LLM profile %q is invalid", name)
@@ -534,7 +536,7 @@ func (a *App) loadLLMProfilesFromDB(ctx context.Context) (string, map[string]con
 	}
 
 	rows, err := a.db.Query(ctx, `
-		SELECT name, provider, model, base_url, api_key_secret, allowed_scopes, reasoning, thinking,
+		SELECT name, provider, model, base_url, credential_ref, allowed_scopes, reasoning, thinking,
 		       timeout_seconds, max_tokens, temperature, extra
 		FROM llm_profiles
 		ORDER BY name ASC
@@ -559,7 +561,7 @@ func (a *App) loadLLMProfilesFromDB(ctx context.Context) (string, map[string]con
 			&profile.Provider,
 			&profile.Model,
 			&profile.BaseURL,
-			&profile.APIKeySecret,
+			&profile.CredentialRef,
 			&allowedScopesRaw,
 			&profile.Reasoning,
 			&thinking,
@@ -667,7 +669,7 @@ func persistLLMProfilesToTx(ctx context.Context, tx pgx.Tx, defaultProfile strin
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO llm_profiles (
-				name, provider, model, base_url, api_key_secret, allowed_scopes, reasoning, thinking,
+				name, provider, model, base_url, credential_ref, allowed_scopes, reasoning, thinking,
 				timeout_seconds, max_tokens, temperature, extra, updated_at
 			)
 			VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12::jsonb, NOW())
@@ -676,7 +678,7 @@ func persistLLMProfilesToTx(ctx context.Context, tx pgx.Tx, defaultProfile strin
 			profile.Provider,
 			profile.Model,
 			profile.BaseURL,
-			profile.APIKeySecret,
+			profile.CredentialRef,
 			string(allowedScopesJSON),
 			profile.Reasoning,
 			thinking,
@@ -700,6 +702,9 @@ func persistLLMProfilesToTx(ctx context.Context, tx pgx.Tx, defaultProfile strin
 }
 
 func (a *App) persistLLMProfilesConfig(ctx context.Context, cfg config.Config) error {
+	if err := a.ensureLLMProfileCredentialReferences(ctx, cfg.EffectiveLLMProfiles(), credentialActorFromContext(ctx)); err != nil {
+		return err
+	}
 	if err := a.persistLLMProfilesToDB(ctx, cfg.EffectiveLLMDefaultProfile(), cfg.EffectiveLLMProfiles()); err != nil {
 		return err
 	}
@@ -884,8 +889,8 @@ func validateLLMProfileDefinition(name string, profile config.LLMProfile) (strin
 		if strings.TrimSpace(profile.Model) == "" {
 			return "invalid", fmt.Sprintf("LLM profile %q is missing model", name)
 		}
-		if strings.TrimSpace(profile.APIKeySecret) == "" {
-			return "invalid", fmt.Sprintf("LLM profile %q is missing api_key_secret", name)
+		if strings.TrimSpace(profile.CredentialRef) == "" {
+			return "invalid", fmt.Sprintf("LLM profile %q is missing credential_ref", name)
 		}
 	case config.LLMProviderLMStudio:
 		if strings.TrimSpace(profile.BaseURL) == "" {
@@ -902,8 +907,8 @@ func validateLLMProfileDefinition(name string, profile config.LLMProfile) (strin
 		if strings.TrimSpace(profile.Model) == "" {
 			return "invalid", fmt.Sprintf("LLM profile %q is missing model", name)
 		}
-		if strings.TrimSpace(profile.APIKeySecret) == "" {
-			return "invalid", fmt.Sprintf("LLM profile %q is missing api_key_secret", name)
+		if strings.TrimSpace(profile.CredentialRef) == "" {
+			return "invalid", fmt.Sprintf("LLM profile %q is missing credential_ref", name)
 		}
 	case config.LLMProviderOllama:
 		if strings.TrimSpace(profile.Model) == "" {
@@ -919,8 +924,8 @@ func validateLLMProfileDefinition(name string, profile config.LLMProfile) (strin
 		if strings.TrimSpace(profile.Model) == "" && strings.TrimSpace(profile.Extra["deployment"]) == "" {
 			return "invalid", fmt.Sprintf("LLM profile %q is missing model or extra.deployment", name)
 		}
-		if strings.TrimSpace(profile.APIKeySecret) == "" {
-			return "invalid", fmt.Sprintf("LLM profile %q is missing api_key_secret", name)
+		if strings.TrimSpace(profile.CredentialRef) == "" {
+			return "invalid", fmt.Sprintf("LLM profile %q is missing credential_ref", name)
 		}
 	default:
 		return "invalid", fmt.Sprintf("LLM profile %q uses unsupported provider %q", name, profile.Provider)
@@ -928,26 +933,30 @@ func validateLLMProfileDefinition(name string, profile config.LLMProfile) (strin
 	return "valid", ""
 }
 
-func validateLLMProfileConfiguration(name string, profile config.LLMProfile) (string, string) {
+func (a *App) validateLLMProfileConfiguration(ctx context.Context, name string, profile config.LLMProfile) (string, string) {
 	if status, message := validateLLMProfileDefinition(name, profile); status != "valid" {
 		return status, message
 	}
 	profile = config.NormalizeLLMProfile(profile)
-	if config.LLMProviderRequiresAPIKey(profile.Provider) && strings.TrimSpace(resolveLLMProfileAPIKey(profile)) == "" {
-		return "invalid", fmt.Sprintf("LLM profile %q API key secret %q is not set", name, profile.APIKeySecret)
+	if config.LLMProviderRequiresAPIKey(profile.Provider) {
+		value, err := a.resolveLLMProfileAPIKey(ctx, name, profile)
+		if err != nil || strings.TrimSpace(value) == "" {
+			return "invalid", fmt.Sprintf("LLM profile %q credential %q is unavailable", name, profile.CredentialRef)
+		}
 	}
 	return "valid", ""
 }
 
-func resolveLLMProfileAPIKey(profile config.LLMProfile) string {
-	secretName := strings.TrimSpace(profile.APIKeySecret)
-	if secretName == "" {
-		return ""
-	}
-	return strings.TrimSpace(os.Getenv(secretName))
+func (a *App) resolveLLMProfileAPIKey(ctx context.Context, name string, profile config.LLMProfile) (string, error) {
+	return a.resolveCredentialText(ctx, profile.CredentialRef, credentials.Purpose{
+		ConsumerService: "nopsai",
+		Operation:       "llm.authenticate",
+		SubjectType:     "llm_profile",
+		SubjectID:       name,
+	})
 }
 
-func (a *App) buildRuntimeLLMProfiles(cfg config.Config) (runtimeLLMProfiles, error) {
+func (a *App) buildRuntimeLLMProfiles(ctx context.Context, cfg config.Config) (runtimeLLMProfiles, error) {
 	defaultProfile := cfg.EffectiveLLMDefaultProfile()
 	effectiveProfiles := cfg.EffectiveLLMProfiles()
 	profiles := make(map[string]runtimeLLMProfile, len(effectiveProfiles))
@@ -957,12 +966,16 @@ func (a *App) buildRuntimeLLMProfiles(cfg config.Config) (runtimeLLMProfiles, er
 		if normalized.Provider == config.LLMProviderLMStudio {
 			baseURL = containerReachableLMStudioBaseURL(baseURL)
 		}
+		apiKey, err := a.resolveLLMProfileAPIKey(ctx, name, normalized)
+		if err != nil {
+			return runtimeLLMProfiles{}, fmt.Errorf("resolve credential for LLM profile %q: %w", name, err)
+		}
 		profiles[name] = runtimeLLMProfile{
 			Provider:       normalized.Provider,
 			Model:          normalized.Model,
 			BaseURL:        baseURL,
-			APIKey:         resolveLLMProfileAPIKey(normalized),
-			APIKeySecret:   normalized.APIKeySecret,
+			APIKey:         apiKey,
+			CredentialRef:  normalized.CredentialRef,
 			AllowedScopes:  append([]string(nil), normalized.AllowedScopes...),
 			Reasoning:      config.EffectiveLLMProfileReasoning(normalized),
 			Thinking:       normalized.Thinking,
@@ -990,7 +1003,7 @@ func (a *App) handleListLLMProfiles(w http.ResponseWriter, r *http.Request) {
 	views := make([]llmProfileView, 0, len(names))
 	for _, name := range names {
 		profile := config.NormalizeLLMProfile(profiles[name])
-		status, message := validateLLMProfileConfiguration(name, profile)
+		status, message := a.validateLLMProfileConfiguration(r.Context(), name, profile)
 		refs, _ := a.findLLMProfileReferences(name)
 		allowed := config.LLMProfileAllowedInScope(profile, scope)
 		disabledReason := ""
@@ -1172,7 +1185,7 @@ func (a *App) handleTestLLMProfile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "LLM profile not found", http.StatusNotFound)
 		return
 	}
-	if status, message := validateLLMProfileConfiguration(profileName, profile); status != "valid" {
+	if status, message := a.validateLLMProfileConfiguration(r.Context(), profileName, profile); status != "valid" {
 		http.Error(w, message, http.StatusBadRequest)
 		return
 	}
@@ -1183,7 +1196,12 @@ func (a *App) handleTestLLMProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
-	reply, err := testLLMProfile(ctx, profile, resolveLLMProfileAPIKey(profile))
+	apiKey, err := a.resolveLLMProfileAPIKey(ctx, profileName, profile)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	reply, err := testLLMProfile(ctx, profile, apiKey)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return

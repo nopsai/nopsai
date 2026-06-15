@@ -18,6 +18,8 @@ test('normalizes API capability payloads into UI capabilities', () => {
         agent_profiles_read: true,
         agent_profiles_write: false,
         mcp_write: true,
+        credentials_read: true,
+        credentials_write: false,
         access: true,
       },
     },
@@ -33,6 +35,8 @@ test('normalizes API capability payloads into UI capabilities', () => {
   assert.equal(can(user, 'system.agent_profiles.read'), true);
   assert.equal(can(user, 'system.agent_profiles.write'), false);
   assert.equal(can(user, 'system.mcp.write'), true);
+  assert.equal(can(user, 'system.credentials.read'), true);
+  assert.equal(can(user, 'system.credentials.write'), false);
 });
 
 test('derives app and system access from normalized capabilities', () => {
@@ -82,4 +86,22 @@ test('prefers Agent Profiles when only that system capability is granted', () =>
   assert.equal(access.preferredSystemPath, '/system/agent-profiles');
   assert.equal(access.canViewSystemAgentProfiles, true);
   assert.equal(access.canManageSystemAgentProfiles, true);
+});
+
+test('exposes the credential registry only through credential capabilities', () => {
+  const user = normalizeCurrentUser({
+    sub: 'security-admin',
+    capabilities: {
+      system: {
+        credentials_read: true,
+        credentials_write: true,
+      },
+    },
+  });
+
+  const access = getAppAccess(user, { sub: 'security-admin' });
+
+  assert.equal(access.canViewSystemCredentials, true);
+  assert.equal(access.canManageSystemCredentials, true);
+  assert.equal(access.preferredSystemPath, '/system/credentials');
 });

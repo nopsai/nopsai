@@ -20,7 +20,7 @@ var mcpSchemaStatements = []string{
 		transport TEXT NOT NULL DEFAULT 'streamable_http',
 		url TEXT NOT NULL DEFAULT '',
 		auth_type TEXT NOT NULL DEFAULT 'none',
-		auth_secret TEXT NOT NULL DEFAULT '',
+		credential_ref TEXT NOT NULL DEFAULT '',
 		headers JSONB NOT NULL DEFAULT '{}'::jsonb,
 		timeout TEXT NOT NULL DEFAULT '30s',
 		allowed_scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -34,6 +34,7 @@ var mcpSchemaStatements = []string{
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
+	`ALTER TABLE mcp_servers ADD COLUMN IF NOT EXISTS credential_ref TEXT NOT NULL DEFAULT ''`,
 	`CREATE TABLE IF NOT EXISTS mcp_tools (
 		server_name TEXT NOT NULL REFERENCES mcp_servers(name) ON DELETE CASCADE,
 		name TEXT NOT NULL,

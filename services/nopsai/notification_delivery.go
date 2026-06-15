@@ -320,7 +320,7 @@ func (a *App) deliverPipelineNotificationEmail(ctx context.Context, notification
 		}
 		return err
 	}
-	sendErr := sendNotificationMailMessage(ctx, settings, []string{recipient}, mailMessage)
+	sendErr := a.sendNotificationMailMessage(ctx, settings, []string{recipient}, mailMessage)
 	status := "sent"
 	errorMessage := ""
 	if sendErr != nil {

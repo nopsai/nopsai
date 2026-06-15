@@ -55,7 +55,7 @@ func seedOIDCConfigProviders(ctx context.Context, db *pgxpool.Pool, cfg *config.
 			JWKSURI:               strings.TrimSpace(providerCfg.JWKSURI),
 			UserInfoEndpoint:      strings.TrimSpace(providerCfg.UserInfoEndpoint),
 			ClientID:              strings.TrimSpace(providerCfg.ClientID),
-			ClientSecret:          strings.TrimSpace(providerCfg.ClientSecret),
+			ClientCredentialRef:   strings.TrimSpace(providerCfg.ClientCredentialRef),
 			Scopes:                normalizeOIDCScopes(providerCfg.Scopes),
 			AllowedEmailDomains:   normalizeOIDCEmailDomains(providerCfg.AllowedEmailDomains),
 			GroupClaim:            strings.TrimSpace(providerCfg.GroupClaim),
@@ -159,17 +159,17 @@ func basicRoleMappingFromConfig(mapping map[string]config.OIDCBasicRoleGrantConf
 
 func entitlementSyncFromConfig(sync config.OIDCEntitlementSyncConfig) oidcEntitlementSyncConfig {
 	return oidcEntitlementSyncConfig{
-		Mode:               sync.Mode,
-		AdminBaseURL:       sync.AdminBaseURL,
-		Realm:              sync.Realm,
-		AdminRealm:         sync.AdminRealm,
-		AdminClientID:      sync.AdminClientID,
-		AdminClientSecret:  sync.AdminClientSecret,
-		AdminUsername:      sync.AdminUsername,
-		AdminPassword:      sync.AdminPassword,
-		ClientID:           sync.ClientID,
-		TargetResourceType: sync.TargetResourceType,
-		GroupPathPrefix:    sync.GroupPathPrefix,
+		Mode:                       sync.Mode,
+		AdminBaseURL:               sync.AdminBaseURL,
+		Realm:                      sync.Realm,
+		AdminRealm:                 sync.AdminRealm,
+		AdminClientID:              sync.AdminClientID,
+		AdminClientCredentialRef:   sync.AdminClientCredentialRef,
+		AdminUsername:              sync.AdminUsername,
+		AdminPasswordCredentialRef: sync.AdminPasswordCredentialRef,
+		ClientID:                   sync.ClientID,
+		TargetResourceType:         sync.TargetResourceType,
+		GroupPathPrefix:            sync.GroupPathPrefix,
 	}
 }
 
@@ -179,7 +179,7 @@ func listOIDCProviders(ctx context.Context, db *pgxpool.Pool, enabledOnly bool) 
 	}
 	query := `
 		SELECT id, type, display_name, issuer, authorization_endpoint, token_endpoint, jwks_uri, userinfo_endpoint,
-		       client_id, client_secret, scopes, allowed_email_domains, group_claim, role_mapping, group_mapping, basic_role_mapping, entitlement_sync,
+		       client_id, client_credential_ref, scopes, allowed_email_domains, group_claim, role_mapping, group_mapping, basic_role_mapping, entitlement_sync,
 		       auto_create_users, default_role, allow_email_linking, enabled, config_source, created_at, updated_at
 		FROM auth_identity_providers`
 	if enabledOnly {
@@ -209,7 +209,7 @@ func getOIDCProvider(ctx context.Context, db *pgxpool.Pool, providerID string) (
 	}
 	row := db.QueryRow(ctx, `
 		SELECT id, type, display_name, issuer, authorization_endpoint, token_endpoint, jwks_uri, userinfo_endpoint,
-		       client_id, client_secret, scopes, allowed_email_domains, group_claim, role_mapping, group_mapping, basic_role_mapping, entitlement_sync,
+		       client_id, client_credential_ref, scopes, allowed_email_domains, group_claim, role_mapping, group_mapping, basic_role_mapping, entitlement_sync,
 		       auto_create_users, default_role, allow_email_linking, enabled, config_source, created_at, updated_at
 		FROM auth_identity_providers
 		WHERE id = $1
@@ -235,7 +235,7 @@ func scanOIDCProvider(scanner oidcProviderScanner) (oidcProviderRecord, error) {
 		&provider.JWKSURI,
 		&provider.UserInfoEndpoint,
 		&provider.ClientID,
-		&provider.ClientSecret,
+		&provider.ClientCredentialRef,
 		&scopesJSON,
 		&domainsJSON,
 		&provider.GroupClaim,
@@ -276,7 +276,7 @@ func scanOIDCProvider(scanner oidcProviderScanner) (oidcProviderRecord, error) {
 	return provider, nil
 }
 
-func upsertOIDCProvider(ctx context.Context, db *pgxpool.Pool, provider oidcProviderRecord, replaceSecret bool) error {
+func upsertOIDCProvider(ctx context.Context, db *pgxpool.Pool, provider oidcProviderRecord, replaceCredentialRefs bool) error {
 	if db == nil {
 		return nil
 	}
@@ -294,20 +294,20 @@ func upsertOIDCProvider(ctx context.Context, db *pgxpool.Pool, provider oidcProv
 	if provider.ID == "" || provider.Issuer == "" || provider.ClientID == "" {
 		return fmt.Errorf("provider id, issuer, and client_id are required")
 	}
-	if !replaceSecret {
+	if !replaceCredentialRefs {
 		existing, err := getOIDCProvider(ctx, db, provider.ID)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
 		if err == nil {
-			if provider.ClientSecret == "" {
-				provider.ClientSecret = existing.ClientSecret
+			if provider.ClientCredentialRef == "" {
+				provider.ClientCredentialRef = existing.ClientCredentialRef
 			}
-			if provider.EntitlementSync.AdminClientSecret == "" {
-				provider.EntitlementSync.AdminClientSecret = existing.EntitlementSync.AdminClientSecret
+			if provider.EntitlementSync.AdminClientCredentialRef == "" {
+				provider.EntitlementSync.AdminClientCredentialRef = existing.EntitlementSync.AdminClientCredentialRef
 			}
-			if provider.EntitlementSync.AdminPassword == "" {
-				provider.EntitlementSync.AdminPassword = existing.EntitlementSync.AdminPassword
+			if provider.EntitlementSync.AdminPasswordCredentialRef == "" {
+				provider.EntitlementSync.AdminPasswordCredentialRef = existing.EntitlementSync.AdminPasswordCredentialRef
 			}
 		}
 	}
@@ -327,7 +327,7 @@ func upsertOIDCProvider(ctx context.Context, db *pgxpool.Pool, provider oidcProv
 		provider.JWKSURI,
 		provider.UserInfoEndpoint,
 		provider.ClientID,
-		provider.ClientSecret,
+		provider.ClientCredentialRef,
 		scopesJSON,
 		domainsJSON,
 		provider.GroupClaim,
@@ -341,14 +341,14 @@ func upsertOIDCProvider(ctx context.Context, db *pgxpool.Pool, provider oidcProv
 		provider.Enabled,
 		provider.ConfigSource,
 	}
-	secretSet := `client_secret = EXCLUDED.client_secret`
-	if !replaceSecret {
-		secretSet = `client_secret = CASE WHEN EXCLUDED.client_secret <> '' THEN EXCLUDED.client_secret ELSE auth_identity_providers.client_secret END`
+	credentialRefSet := `client_credential_ref = EXCLUDED.client_credential_ref`
+	if !replaceCredentialRefs {
+		credentialRefSet = `client_credential_ref = CASE WHEN EXCLUDED.client_credential_ref <> '' THEN EXCLUDED.client_credential_ref ELSE auth_identity_providers.client_credential_ref END`
 	}
 	_, err := db.Exec(ctx, `
 		INSERT INTO auth_identity_providers (
 			id, type, display_name, issuer, authorization_endpoint, token_endpoint, jwks_uri, userinfo_endpoint,
-			client_id, client_secret, scopes, allowed_email_domains, group_claim, role_mapping, group_mapping, basic_role_mapping, entitlement_sync,
+			client_id, client_credential_ref, scopes, allowed_email_domains, group_claim, role_mapping, group_mapping, basic_role_mapping, entitlement_sync,
 			auto_create_users, default_role, allow_email_linking, enabled, config_source, updated_at
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, NOW())
@@ -361,7 +361,7 @@ func upsertOIDCProvider(ctx context.Context, db *pgxpool.Pool, provider oidcProv
 		    jwks_uri = EXCLUDED.jwks_uri,
 		    userinfo_endpoint = EXCLUDED.userinfo_endpoint,
 		    client_id = EXCLUDED.client_id,
-		    `+secretSet+`,
+		    `+credentialRefSet+`,
 		    scopes = EXCLUDED.scopes,
 		    allowed_email_domains = EXCLUDED.allowed_email_domains,
 		    group_claim = EXCLUDED.group_claim,
