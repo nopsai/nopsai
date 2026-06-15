@@ -5,7 +5,7 @@ NUM_RUNS=$1
 NOPSAI_API_URL="http://localhost:8080"
 WEBHOOK_URL="http://localhost:8081/webhook"
 PAYLOAD_FILE="../doc/sample-git-event.json"
-GITHUB_WEBHOOK_SECRET="vsfdverguhuyi3287467324ujfbsaihufb"
+TEST_GITHUB_WEBHOOK_SECRET="vsfdverguhuyi3287467324ujfbsaihufb"
 FIND_RUN_TIMEOUT=30
 PIPELINE_RUN_TIMEOUT=600 # 10 minutes
 # --- End Configuration ---
@@ -18,7 +18,7 @@ command -v uuidgen >/dev/null 2>&1 || { echo >&2 "Error: 'uuidgen' is required."
 command -v awk >/dev/null 2>&1 || { echo >&2 "Error: 'awk' is required."; exit 1; }
 
 # 1. Calculate the HMAC signature
-SIGNATURE=$(openssl dgst -sha256 -hmac "$GITHUB_WEBHOOK_SECRET" "$PAYLOAD_FILE" | awk '{print $2}')
+SIGNATURE=$(openssl dgst -sha256 -hmac "$TEST_GITHUB_WEBHOOK_SECRET" "$PAYLOAD_FILE" | awk '{print $2}')
 if [ -z "$SIGNATURE" ]; then
   echo >&2 "Error: Failed to calculate signature."
   exit 1

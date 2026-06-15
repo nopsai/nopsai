@@ -85,8 +85,6 @@ export type UserDraft = {
 
 export type SetupStepID = 'readiness' | 'runtime' | 'gitops' | 'github' | 'repositories' | 'ai' | 'users' | 'review';
 export type RuntimeImplementation = 'docker' | 'kubernetes';
-export type GitHubPrivateKeyMode = 'path' | 'inline';
-
 export type RuntimeDefaults = {
   nopsaiAPIURL: string;
   gitBotServiceURL: string;
@@ -119,7 +117,7 @@ export type SetupBootstrapRequest = {
     provider: string;
     model: string;
     base_url: string;
-    api_key_secret: string;
+    credential_ref: string;
     api_key_value: string;
     allowed_scopes: string[];
   };
@@ -235,8 +233,8 @@ export function deriveGitBotBaseURL(webhookURL?: string): string {
   return value.replace(/\/webhook\/?$/, '');
 }
 
-export function defaultSecretName(provider: string): string {
-  return defaultLLMSecretName(provider);
+export function defaultCredentialRef(provider: string): string {
+  return defaultLLMCredentialRef(provider);
 }
 
 export function runtimeDefaults(runtime: RuntimeImplementation): RuntimeDefaults {
@@ -267,4 +265,4 @@ export function isLikelyPublicURL(value?: string): boolean {
 export function secretPlaceholder(provided: boolean, fallback: string): string {
   return provided ? '<provided in wizard; store as a secret value>' : fallback;
 }
-import { defaultLLMSecretName } from '../llmProviders.js';
+import { defaultLLMCredentialRef } from '../llmProviders.js';

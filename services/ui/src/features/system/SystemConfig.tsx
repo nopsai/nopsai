@@ -493,14 +493,14 @@ function SystemConfig({
                     />
                   </label>
                   <label className={mailFieldClass}>
-                    <span>Password secret ref</span>
+                    <span>Password credential ref</span>
                     <input
                       id="system-mail-smtp-secret"
                       type="text"
                       className={mailInputClass}
-                      value={mailSettingsForm.smtp_password_secret_ref}
-                      onChange={handleMailChange('smtp_password_secret_ref')}
-                      placeholder="NOPSAI_SMTP_PASSWORD"
+                      value={mailSettingsForm.smtp_password_credential_ref}
+                      onChange={handleMailChange('smtp_password_credential_ref')}
+                      placeholder="credential://system/mail/smtp-password"
                       disabled={!mailCanEdit}
                     />
                   </label>

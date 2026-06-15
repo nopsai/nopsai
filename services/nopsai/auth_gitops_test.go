@@ -29,7 +29,7 @@ oidc:
       display_name: Local Keycloak
       issuer: http://keycloak:8080/realms/nopsai/
       client_id: nopsai
-      client_secret: dev-secret
+      client_credential_ref: credential://system/oidc/nopsai/client-secret
       scopes: ["openid"]
       allowed_email_domains: ["@Example.COM"]
       basic_role_mapping:
@@ -65,8 +65,8 @@ oidc:
 	if provider.ID != "nopsai" || provider.Type != "oidc" || provider.Issuer != "http://keycloak:8080/realms/nopsai" {
 		t.Fatalf("provider = %#v, want normalized nopsai OIDC provider", provider)
 	}
-	if provider.ClientSecret != "dev-secret" {
-		t.Fatalf("provider client secret = %q, want fixture secret", provider.ClientSecret)
+	if provider.ClientCredentialRef != "credential://system/oidc/nopsai/client-secret" {
+		t.Fatalf("provider client credential ref = %q, want fixture reference", provider.ClientCredentialRef)
 	}
 	if got := provider.AllowedEmailDomains; len(got) != 1 || got[0] != "example.com" {
 		t.Fatalf("allowed domains = %#v, want normalized example.com", provider.AllowedEmailDomains)
@@ -175,7 +175,7 @@ func TestIsGitOpsAuthSettingsRelativePath(t *testing.T) {
 	}
 }
 
-func TestBuildAuthSettingsGitOpsFileRedactsSecrets(t *testing.T) {
+func TestBuildAuthSettingsGitOpsFileExportsCredentialReferences(t *testing.T) {
 	doc := buildAuthSettingsGitOpsFile(
 		oidcSettings{
 			LocalEnabled:      false,
@@ -185,18 +185,18 @@ func TestBuildAuthSettingsGitOpsFileRedactsSecrets(t *testing.T) {
 		},
 		[]oidcProviderRecord{
 			{
-				ID:           "nopsai",
-				Type:         "oidc",
-				DisplayName:  "Local Keycloak",
-				Issuer:       "http://keycloak:8080/realms/nopsai",
-				ClientID:     "nopsai",
-				ClientSecret: "do-not-export",
-				Enabled:      false,
+				ID:                  "nopsai",
+				Type:                "oidc",
+				DisplayName:         "Local Keycloak",
+				Issuer:              "http://keycloak:8080/realms/nopsai",
+				ClientID:            "nopsai",
+				ClientCredentialRef: "credential://system/oidc/nopsai/client-secret",
+				Enabled:             false,
 				EntitlementSync: oidcEntitlementSyncConfig{
-					Mode:              "keycloak_group_roles",
-					AdminBaseURL:      "http://keycloak:8080",
-					AdminClientSecret: "do-not-export",
-					AdminPassword:     "do-not-export",
+					Mode:                       "keycloak_group_roles",
+					AdminBaseURL:               "http://keycloak:8080",
+					AdminClientCredentialRef:   "credential://system/oidc/nopsai/admin-client-secret",
+					AdminPasswordCredentialRef: "credential://system/oidc/nopsai/admin-password",
 				},
 			},
 		},
@@ -209,11 +209,12 @@ func TestBuildAuthSettingsGitOpsFileRedactsSecrets(t *testing.T) {
 		t.Fatalf("oidc = %#v, want enabled auto-create/linking", doc.OIDC)
 	}
 	provider := doc.OIDC.Providers["nopsai"]
-	if provider.ClientSecret != "" {
-		t.Fatalf("client_secret exported as %q, want redacted", provider.ClientSecret)
+	if provider.ClientCredentialRef != "credential://system/oidc/nopsai/client-secret" {
+		t.Fatalf("client credential ref = %q, want exported reference", provider.ClientCredentialRef)
 	}
-	if provider.EntitlementSync.AdminClientSecret != "" || provider.EntitlementSync.AdminPassword != "" {
-		t.Fatalf("entitlement secrets exported: %#v", provider.EntitlementSync)
+	if provider.EntitlementSync.AdminClientCredentialRef != "credential://system/oidc/nopsai/admin-client-secret" ||
+		provider.EntitlementSync.AdminPasswordCredentialRef != "credential://system/oidc/nopsai/admin-password" {
+		t.Fatalf("entitlement credential references = %#v", provider.EntitlementSync)
 	}
 	if provider.Enabled == nil || *provider.Enabled {
 		t.Fatalf("provider enabled = %#v, want explicit false", provider.Enabled)
@@ -226,7 +227,7 @@ func TestBuildAuthSettingsGitOpsFileRedactsSecrets(t *testing.T) {
 	}
 }
 
-func TestExportConfigRepositoryAuthSettingsUsesCanonicalPathAndRedactsSecrets(t *testing.T) {
+func TestExportConfigRepositoryAuthSettingsUsesCanonicalPathAndCredentialReferences(t *testing.T) {
 	app := App{cfg: &config.Config{
 		AuthProviderLocalEnabled: true,
 		Auth: config.AuthConfig{
@@ -238,10 +239,10 @@ func TestExportConfigRepositoryAuthSettingsUsesCanonicalPathAndRedactsSecrets(t 
 				},
 				Providers: map[string]config.OIDCProviderConfig{
 					"nopsai": {
-						DisplayName:  "Local Keycloak",
-						Issuer:       "http://keycloak:8080/realms/nopsai",
-						ClientID:     "nopsai",
-						ClientSecret: "do-not-export",
+						DisplayName:         "Local Keycloak",
+						Issuer:              "http://keycloak:8080/realms/nopsai",
+						ClientID:            "nopsai",
+						ClientCredentialRef: "credential://system/oidc/nopsai/client-secret",
 					},
 				},
 			},
@@ -259,7 +260,7 @@ func TestExportConfigRepositoryAuthSettingsUsesCanonicalPathAndRedactsSecrets(t 
 	if _, ok := files["settings/system/auth.yaml"]; ok {
 		t.Fatalf("unexpected compatibility auth settings export path: %#v", files)
 	}
-	if strings.Contains(content, "do-not-export") {
-		t.Fatalf("exported auth settings leaked provider secret: %s", content)
+	if !strings.Contains(content, "client_credential_ref: credential://system/oidc/nopsai/client-secret") {
+		t.Fatalf("exported auth settings missing provider credential reference: %s", content)
 	}
 }

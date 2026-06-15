@@ -21,7 +21,7 @@ smtp:
   port: 587
   start_tls: true
   username: nopsai@example.com
-  password_secret_ref: NOPSAI_SMTP_PASSWORD
+  password_credential_ref: credential://system/mail/smtp-primary
 `,
 			},
 		},
@@ -52,7 +52,7 @@ func TestParseGitOpsMailSettingsPlanRejectsGroupRepo(t *testing.T) {
 	}
 }
 
-func TestNormalizeNotificationMailSettingsRequiresSecretRefForUsername(t *testing.T) {
+func TestNormalizeNotificationMailSettingsRequiresCredentialRefForUsername(t *testing.T) {
 	_, err := normalizeNotificationMailSettings(notificationMailSettingsFile{
 		Enabled: true,
 		From:    "nopsai@example.com",
@@ -63,7 +63,7 @@ func TestNormalizeNotificationMailSettingsRequiresSecretRefForUsername(t *testin
 			Username: "nopsai@example.com",
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "password_secret_ref") {
-		t.Fatalf("error = %v, want password secret ref validation", err)
+	if err == nil || !strings.Contains(err.Error(), "password_credential_ref") {
+		t.Fatalf("error = %v, want password credential ref validation", err)
 	}
 }

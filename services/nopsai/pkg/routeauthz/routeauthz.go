@@ -23,6 +23,30 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		return "iam.admin", model.ResourceRef{Type: "iam", ID: "admin"}, false, nil
 	case strings.HasPrefix(path, "/v1/audit"):
 		return "audit.read", model.ResourceRef{Type: "audit", ID: "authz"}, false, nil
+	case path == "/v1/system/credentials":
+		if r.Method == http.MethodGet {
+			return "credential.list_metadata", model.ResourceRef{Type: "credential", ID: "*"}, false, nil
+		}
+		return "credential.create", model.ResourceRef{Type: "credential", ID: "*"}, false, nil
+	case strings.HasPrefix(path, "/v1/system/credentials/"):
+		credentialID := pathValueOrSegment(r, "credentialID", 3)
+		resource = model.ResourceRef{Type: "credential", ID: credentialID}
+		switch {
+		case r.Method == http.MethodGet:
+			return "credential.list_metadata", resource, false, nil
+		case r.Method == http.MethodPut && strings.HasSuffix(path, "/value"):
+			return "credential.write_value", resource, false, nil
+		case r.Method == http.MethodPost && strings.Contains(path, "/versions/") && strings.HasSuffix(path, "/activate"):
+			return "credential.rotate", resource, false, nil
+		case r.Method == http.MethodDelete && strings.Contains(path, "/versions/"):
+			return "credential.delete_version", resource, false, nil
+		case r.Method == http.MethodPost && strings.HasSuffix(path, "/disable"):
+			return "credential.disable", resource, false, nil
+		case r.Method == http.MethodPost && strings.HasSuffix(path, "/enable"):
+			return "credential.enable", resource, false, nil
+		case r.Method == http.MethodDelete:
+			return "credential.delete", resource, false, nil
+		}
 	case path == "/v1/system/config":
 		if r.Method == http.MethodGet {
 			return "system.read", model.ResourceRef{Type: "system", ID: "config"}, false, nil

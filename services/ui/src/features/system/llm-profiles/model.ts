@@ -6,7 +6,7 @@ export type LLMProfileRecord = {
   provider: string;
   model: string;
   base_url: string;
-  api_key_secret: string;
+  credential_ref: string;
   allowed_scopes: string[];
   reasoning: string;
   thinking?: boolean;
@@ -31,7 +31,7 @@ export type LLMProfileFormState = {
   provider: string;
   model: string;
   base_url: string;
-  api_key_secret: string;
+  credential_ref: string;
   allowed_scopes: string;
   reasoning: string;
   thinking: 'default' | 'true' | 'false';
@@ -54,7 +54,7 @@ export const emptyLLMProfileForm: LLMProfileFormState = {
   provider: 'lmstudio',
   model: 'qwen3-coder',
   base_url: 'http://lmstudio:1234',
-  api_key_secret: 'LLM_API_KEY',
+  credential_ref: 'credential://system/llm/standard',
   allowed_scopes: '',
   reasoning: '',
   thinking: 'default',
@@ -83,7 +83,7 @@ export function normalizeLLMProfilesPayload(value: unknown): LLMProfilesPayload 
         provider: readString(profile.provider).trim(),
         model: readString(profile.model).trim(),
         base_url: readString(profile.base_url).trim(),
-        api_key_secret: readString(profile.api_key_secret).trim(),
+        credential_ref: readString(profile.credential_ref).trim(),
         allowed_scopes: normalizeStringArray(profile.allowed_scopes),
         reasoning: readString(profile.reasoning).trim(),
         thinking: typeof profile.thinking === 'boolean' ? profile.thinking : undefined,
@@ -113,7 +113,7 @@ export function llmProfileFormFromRecord(profile: LLMProfileRecord): LLMProfileF
     provider: profile.provider || 'gemini',
     model: profile.model || '',
     base_url: profile.base_url || '',
-    api_key_secret: profile.api_key_secret || '',
+    credential_ref: profile.credential_ref || '',
     allowed_scopes: (profile.allowed_scopes || []).join(', '),
     reasoning: profile.reasoning || '',
     thinking: profile.thinking === undefined ? 'default' : profile.thinking ? 'true' : 'false',
@@ -132,7 +132,7 @@ export function llmProfilePayloadFromForm(form: LLMProfileFormState) {
     provider,
     model: form.model.trim(),
     base_url: providerDefinition.baseURLMode === 'hidden' ? '' : form.base_url.trim(),
-    api_key_secret: providerDefinition.apiKeyMode === 'none' ? '' : form.api_key_secret.trim(),
+    credential_ref: providerDefinition.apiKeyMode === 'none' ? '' : form.credential_ref.trim(),
     allowed_scopes: form.allowed_scopes.split(',').map(item => item.trim()).filter(Boolean),
     reasoning: providerDefinition.supportsReasoning ? form.reasoning.trim() : '',
     thinking: providerDefinition.supportsThinking && form.thinking !== 'default' ? form.thinking === 'true' : undefined,

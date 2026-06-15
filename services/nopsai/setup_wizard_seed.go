@@ -13,6 +13,7 @@ import (
 
 	"nopsai/config"
 	"nopsai/pkg/models"
+	"nopsai/services/nopsai/internal/credentials"
 	"nopsai/services/nopsai/pkg/auth"
 )
 
@@ -131,9 +132,9 @@ func (a *App) seedSetupLLMProfile(ctx context.Context, input setupLLMProfileInpu
 	if baseURL == "" {
 		baseURL = config.DefaultLLMProviderBaseURL(provider)
 	}
-	apiKeySecret := strings.TrimSpace(input.APIKeySecret)
-	if apiKeySecret == "" {
-		apiKeySecret = config.DefaultLLMProviderAPIKeySecret(provider)
+	credentialRef := strings.TrimSpace(input.CredentialRef)
+	if credentialRef == "" && config.LLMProviderRequiresAPIKey(provider) {
+		credentialRef = "credential://system/llm/" + credentialReferenceSegment(name)
 	}
 	allowedScopes := models.NormalizeScopeList(input.AllowedScopes)
 	if len(allowedScopes) == 0 {
@@ -150,7 +151,7 @@ func (a *App) seedSetupLLMProfile(ctx context.Context, input setupLLMProfileInpu
 		Provider:       provider,
 		Model:          modelName,
 		BaseURL:        baseURL,
-		APIKeySecret:   apiKeySecret,
+		CredentialRef:  credentialRef,
 		AllowedScopes:  allowedScopes,
 		TimeoutSeconds: input.TimeoutSeconds,
 		MaxTokens:      input.MaxTokens,
@@ -167,17 +168,24 @@ func (a *App) seedSetupLLMProfile(ctx context.Context, input setupLLMProfileInpu
 	if err := a.persistLLMProfilesConfig(ctx, cfg); err != nil {
 		return 0, err
 	}
-	if apiKeySecret != "" && strings.TrimSpace(input.APIKeyValue) != "" {
-		encrypted, err := a.encrypt(strings.TrimSpace(input.APIKeyValue))
+	if credentialRef != "" {
+		ref, err := credentials.ParseReference(credentialRef)
 		if err != nil {
 			return 0, err
 		}
-		if _, err := a.db.Exec(ctx, `
-			INSERT INTO secrets (name, value, repository_name, scope)
-			VALUES ($1, $2, NULL, 'default')
-			ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
-		`, apiKeySecret, encrypted); err != nil {
+		credential, err := a.credentials.EnsureMetadata(ctx, createCredentialInput{
+			Reference:   ref,
+			Kind:        "api_key",
+			Description: "LLM API key for " + name,
+			Actor:       credentialActorFromContext(ctx),
+		})
+		if err != nil {
 			return 0, err
+		}
+		if value := strings.TrimSpace(input.APIKeyValue); value != "" {
+			if _, err := a.credentials.PutValue(ctx, credential.ID, []byte(value), credentialActorFromContext(ctx)); err != nil {
+				return 0, err
+			}
 		}
 	}
 	if existed {
@@ -206,7 +214,7 @@ func (a *App) seedSetupMCPExamples(ctx context.Context) (int, error) {
 			Transport:     models.MCPTransportStreamableHTTP,
 			URL:           "https://api.githubcopilot.com/mcp/x/all/readonly",
 			AuthType:      models.MCPAuthBearerToken,
-			AuthSecret:    "GITHUB_MCP_TOKEN",
+			CredentialRef: "credential://system/mcp/github-readonly",
 			Timeout:       models.DefaultMCPTimeout,
 			AllowedScopes: []string{"dev", "prod"},
 		}

@@ -23,7 +23,7 @@ import {
   WIZARD_STEPS,
   buildSetupGitOpsFileList,
   buildSetupGitOpsStructurePreview,
-  defaultSecretName,
+  defaultCredentialRef,
   deriveGitBotBaseURL,
   initialRepositoryGroups,
   isLikelyPublicURL,
@@ -31,10 +31,8 @@ import {
   normalizeGroupName,
   parseRepositories,
   runtimeDefaults,
-  secretPlaceholder,
   statusClasses,
   type BootstrapResponse,
-  type GitHubPrivateKeyMode,
   type RepositoryGroupDraft,
   type RuntimeEnvSection,
   type RuntimeImplementation,
@@ -42,19 +40,6 @@ import {
   type SetupTemplates,
   type UserDraft,
 } from './setup/model';
-
-function generateBrowserSecret(bytes = 32): string {
-  const buffer = new Uint8Array(bytes);
-  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-    crypto.getRandomValues(buffer);
-  } else {
-    for (let index = 0; index < buffer.length; index += 1) {
-      buffer[index] = Math.floor(Math.random() * 256);
-    }
-  }
-  const binary = Array.from(buffer, byte => String.fromCharCode(byte)).join('');
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
-}
 
 function SetupWizard({ canManage }: { canManage: boolean }) {
   const [status, setStatus] = useState<SetupStatus | null>(null);
@@ -73,17 +58,15 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
   const [githubEnabled, setGithubEnabled] = useState(true);
   const [githubAppID, setGithubAppID] = useState('');
   const [githubInstallationID, setGithubInstallationID] = useState('');
-  const [githubPrivateKeyMode, setGithubPrivateKeyMode] = useState<GitHubPrivateKeyMode>('path');
-  const [githubPrivateKeyPath, setGithubPrivateKeyPath] = useState('/run/secrets/nopsai-github-app.pem');
-  const [githubPrivateKey, setGithubPrivateKey] = useState('');
-  const [githubWebhookSecret, setGithubWebhookSecret] = useState('');
+  const [githubPrivateKeyCredentialRef, setGithubPrivateKeyCredentialRef] = useState('credential://system/github/app-private-key');
+  const [githubWebhookCredentialRef, setGithubWebhookCredentialRef] = useState('credential://system/github/webhook-secret');
   const [repositoryEnabled, setRepositoryEnabled] = useState(true);
   const [repositoryGroups, setRepositoryGroups] = useState<RepositoryGroupDraft[]>(() => initialRepositoryGroups());
   const [aiEnabled, setAIEnabled] = useState(true);
   const [llmProvider, setLLMProvider] = useState('lmstudio');
   const [llmModel, setLLMModel] = useState('qwen3-coder');
   const [llmBaseURL, setLLMBaseURL] = useState('http://lmstudio:1234');
-  const [llmAPIKeySecretName, setLLMAPIKeySecretName] = useState(defaultSecretName('lmstudio'));
+  const [llmCredentialRef, setLLMCredentialRef] = useState(defaultCredentialRef('lmstudio'));
   const [llmAPIKey, setLLMAPIKey] = useState('');
   const [mcpExamples, setMCPExamples] = useState(false);
   const [usersEnabled, setUsersEnabled] = useState(true);
@@ -117,7 +100,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
   const templatePaths = useMemo(() => (templates ? Object.keys(templates.files).sort() : []), [templates]);
   const selectedTemplate = selectedTemplatePath && templates ? templates.files[selectedTemplatePath] : '';
   const requiredHealthErrors = (status?.checks || []).filter(check => check.blocking && check.status === 'error');
-  const llmSecretName = llmAPIKeySecretName.trim() || defaultSecretName(llmProvider);
+  const llmReference = llmCredentialRef.trim() || defaultCredentialRef(llmProvider);
   const llmProviderDefinition = getLLMProvider(llmProvider);
   const currentRuntimeDefaults = runtimeDefaults(runtimeImplementation);
   const gitBotPublicBaseURL = gitBotPublicURL.trim().replace(/\/+$/, '') || 'https://<your-ngrok-or-git-bot-domain>';
@@ -243,11 +226,11 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
     if (aiEnabled) {
       params.set('llm_provider', llmProvider.trim());
       params.set('llm_model', llmModel.trim());
-      if (llmProviderDefinition.apiKeyMode !== 'none') params.set('llm_api_key_secret', llmSecretName);
+      if (llmProviderDefinition.apiKeyMode !== 'none') params.set('llm_credential_ref', llmReference);
       if (llmProviderDefinition.baseURLMode !== 'hidden' && llmBaseURL.trim()) params.set('llm_base_url', llmBaseURL.trim());
     }
     return params;
-  }, [aiEnabled, llmBaseURL, llmModel, llmProvider, llmProviderDefinition.apiKeyMode, llmProviderDefinition.baseURLMode, llmSecretName, mcpExamples, normalizedRepositoryGroups, repositories, users, usersEnabled]);
+  }, [aiEnabled, llmBaseURL, llmModel, llmProvider, llmProviderDefinition.apiKeyMode, llmProviderDefinition.baseURLMode, llmReference, mcpExamples, normalizedRepositoryGroups, repositories, users, usersEnabled]);
 
   const loadTemplates = useCallback(async () => {
     setTemplateLoading(true);
@@ -314,25 +297,15 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
       `NOPSAI_GIT_BOT_API_URL=${gitBotServiceURL.trim() || currentRuntimeDefaults.gitBotServiceURL}`,
       runtimeImplementation === 'docker' ? 'DOCKER_NETWORK_NAME=nopsai-net' : '# Kubernetes runtime is under construction.',
     ];
-    if (aiEnabled && llmProviderDefinition.apiKeyMode === 'required') {
-      nopsaiLines.push(`${llmSecretName}=${secretPlaceholder(Boolean(llmAPIKey.trim()), `<paste ${llmProviderDefinition.label} API key or mount from secret manager>`)}`);
-    } else if (aiEnabled && llmProviderDefinition.apiKeyMode === 'optional' && llmAPIKey.trim()) {
-      nopsaiLines.push(`${llmSecretName}=<optional ${llmProviderDefinition.label} API key provided in wizard>`);
-    }
-
     const gitBotLines = [
       `GIT_BOT_NOPSAI_API_URL=${nopsaiAPIURL.trim() || currentRuntimeDefaults.nopsaiAPIURL}`,
+      'GIT_BOT_SERVICE_ID=git-bot',
     ];
     if (githubEnabled) {
-      gitBotLines.push(`GITHUB_APP_ID=${githubAppID.trim() || '<github-app-id>'}`);
-      gitBotLines.push(`GITHUB_INSTALLATION_ID=${githubInstallationID.trim() || '<github-installation-id>'}`);
-      gitBotLines.push(`GITHUB_WEBHOOK_SECRET=${githubWebhookSecret.trim() || '<generate-or-paste-webhook-secret>'}`);
-      gitBotLines.push(`GITHUB_PRIVATE_KEY_PATH=${githubPrivateKeyPath.trim() || '/run/secrets/nopsai-github-app.pem'}`);
-      if (githubPrivateKeyMode === 'inline') {
-        gitBotLines.push(`GITHUB_PRIVATE_KEY=${secretPlaceholder(Boolean(githubPrivateKey.trim()), '<paste-private-key-pem>')}`);
-      } else {
-        gitBotLines.push('# Mount the GitHub App private key file at GITHUB_PRIVATE_KEY_PATH.');
-      }
+      nopsaiLines.push(`GITHUB_APP_ID=${githubAppID.trim() || '<github-app-id>'}`);
+      nopsaiLines.push(`GITHUB_INSTALLATION_ID=${githubInstallationID.trim() || '<github-installation-id>'}`);
+      nopsaiLines.push(`GITHUB_PRIVATE_KEY_CREDENTIAL_REF=${githubPrivateKeyCredentialRef.trim() || 'credential://system/github/app-private-key'}`);
+      nopsaiLines.push(`GITHUB_WEBHOOK_CREDENTIAL_REF=${githubWebhookCredentialRef.trim() || 'credential://system/github/webhook-secret'}`);
     }
 
     return [
@@ -341,21 +314,14 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
       { title: 'git-bot container', fileName: 'git-bot.env', lines: gitBotLines },
     ];
   }, [
-    aiEnabled,
     currentRuntimeDefaults.gitBotServiceURL,
     currentRuntimeDefaults.nopsaiAPIURL,
     gitBotServiceURL,
     githubAppID,
     githubEnabled,
     githubInstallationID,
-    githubPrivateKey,
-    githubPrivateKeyMode,
-    githubPrivateKeyPath,
-    githubWebhookSecret,
-    llmAPIKey,
-    llmProviderDefinition.apiKeyMode,
-    llmProviderDefinition.label,
-    llmSecretName,
+    githubPrivateKeyCredentialRef,
+    githubWebhookCredentialRef,
     nopsaiAPIURL,
     runtimeImplementation,
   ]);
@@ -441,7 +407,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
           provider: llmProvider.trim(),
           model: llmModel.trim(),
           base_url: llmProviderDefinition.baseURLMode === 'hidden' ? '' : llmBaseURL.trim(),
-          api_key_secret: aiEnabled && llmProviderDefinition.apiKeyMode !== 'none' && (llmProviderDefinition.apiKeyMode === 'required' || llmAPIKey.trim()) ? llmSecretName : '',
+          credential_ref: aiEnabled && llmProviderDefinition.apiKeyMode !== 'none' && (llmProviderDefinition.apiKeyMode === 'required' || llmAPIKey.trim()) ? llmReference : '',
           api_key_value: aiEnabled ? llmAPIKey.trim() : '',
           allowed_scopes: ['dev', 'prod'],
         },
@@ -467,7 +433,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
     llmProvider,
     llmProviderDefinition.apiKeyMode,
     llmProviderDefinition.baseURLMode,
-    llmSecretName,
+    llmReference,
     mcpExamples,
     normalizedRepositoryGroups,
     repositories,
@@ -574,7 +540,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
         return (
           <div className="space-y-4">
             <StepIntro title="Prepare the GitHub App integration" icon={<Github className="h-4 w-4" />}>
-              GitHub automation needs an App ID, installation ID, webhook secret, private key, and a webhook URL that GitHub can reach. For local Docker you can expose only git-bot through ngrok or another tunnel; NopsAI itself can remain private on the Docker network.
+              GitHub automation needs an App ID, installation ID, two credential references, and a webhook URL that GitHub can reach. Secret values live only in System &gt; Credentials and are brokered to git-bot at startup.
             </StepIntro>
             <label className="flex items-center gap-2 rounded-md border border-[var(--border-primary)] p-3 text-sm">
               <input type="checkbox" checked={githubEnabled} onChange={event => setGithubEnabled(event.target.checked)} disabled={!canManage} />
@@ -584,9 +550,10 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
               <div className="font-semibold">git-bot install checklist</div>
               <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs leading-5 text-[var(--text-secondary)]">
                 <li>Start the `git-bot` service with Docker Compose or your runtime, and set `GIT_BOT_NOPSAI_API_URL` to `{nopsaiAPIURL || currentRuntimeDefaults.nopsaiAPIURL}`.</li>
-                <li>Create or open a GitHub App, set its webhook URL to the value shown below, and paste the same webhook secret into GitHub and `GITHUB_WEBHOOK_SECRET`.</li>
+                <li>Create or open a GitHub App and set its webhook URL to the value shown below.</li>
                 <li>Set repository permissions to Contents read and write, Metadata read, Pull requests read, and Checks read and write.</li>
-                <li>Generate a private key in the GitHub App settings, configure the App ID and private key for git-bot, then install the App on the selected repositories.</li>
+                <li>In System &gt; Credentials, create the webhook-secret and private-key credentials using the references below.</li>
+                <li>Use the same webhook value in the GitHub App settings, then install the App on the selected repositories.</li>
                 <li>Copy the installation ID from the GitHub installation URL after installing the App.</li>
               </ol>
             </div>
@@ -607,33 +574,15 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
                 <span className="block text-[11px] leading-5 text-[var(--text-secondary)]">Install App page, then use the number in the installation URL, such as `/settings/installations/12345678`.</span>
               </label>
               <label className="space-y-1 text-sm">
-                <span className="text-xs text-[var(--text-secondary)]">Private key source</span>
-                <select className="w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2" value={githubPrivateKeyMode} onChange={event => setGithubPrivateKeyMode(event.target.value as GitHubPrivateKeyMode)} disabled={!canManage || !githubEnabled}>
-                  <option value="path">Mount downloaded key file</option>
-                  <option value="inline">Paste PEM into secret value</option>
-                </select>
-                <span className="block text-[11px] leading-5 text-[var(--text-secondary)]">Generate a new private key from the GitHub App settings Private keys section, then mount the downloaded PEM or paste it into your secret manager.</span>
+                <span className="text-xs text-[var(--text-secondary)]">Private-key credential reference</span>
+                <input className="w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 font-mono text-xs" value={githubPrivateKeyCredentialRef} onChange={event => setGithubPrivateKeyCredentialRef(event.target.value)} disabled={!canManage || !githubEnabled} />
+                <span className="block text-[11px] leading-5 text-[var(--text-secondary)]">Create this as kind `private_key` in System &gt; Credentials.</span>
               </label>
-              {githubPrivateKeyMode === 'path' ? (
-                <label className="space-y-1 text-sm">
-                  <span className="text-xs text-[var(--text-secondary)]">Private key mount path</span>
-                  <input className="w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2" value={githubPrivateKeyPath} onChange={event => setGithubPrivateKeyPath(event.target.value)} disabled={!canManage || !githubEnabled} />
-                </label>
-              ) : (
-                <label className="space-y-1 text-sm md:col-span-2">
-                  <span className="text-xs text-[var(--text-secondary)]">Pasted private key</span>
-                  <textarea className="min-h-32 w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 font-mono text-xs" value={githubPrivateKey} onChange={event => setGithubPrivateKey(event.target.value)} placeholder="-----BEGIN RSA PRIVATE KEY-----" disabled={!canManage || !githubEnabled} />
-                  <span className="block text-[11px] leading-5 text-[var(--text-secondary)]">The review output will not echo the PEM; it will show where to store it.</span>
-                </label>
-              )}
-            </div>
-            <div className="grid gap-3 md:grid-cols-[1fr_auto]">
               <label className="space-y-1 text-sm">
-                <span className="text-xs text-[var(--text-secondary)]">Webhook secret</span>
-                <input className="w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2" value={githubWebhookSecret} onChange={event => setGithubWebhookSecret(event.target.value)} placeholder="Paste or generate a shared secret" disabled={!canManage || !githubEnabled} />
-                <span className="block text-[11px] leading-5 text-[var(--text-secondary)]">Use the same value in GitHub App webhook settings and `GITHUB_WEBHOOK_SECRET`.</span>
+                <span className="text-xs text-[var(--text-secondary)]">Webhook credential reference</span>
+                <input className="w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 font-mono text-xs" value={githubWebhookCredentialRef} onChange={event => setGithubWebhookCredentialRef(event.target.value)} disabled={!canManage || !githubEnabled} />
+                <span className="block text-[11px] leading-5 text-[var(--text-secondary)]">Create this as kind `webhook_secret` in System &gt; Credentials.</span>
               </label>
-              <button type="button" className="self-end rounded-md border border-[var(--border-primary)] px-3 py-2 text-sm disabled:opacity-50" onClick={() => setGithubWebhookSecret(generateBrowserSecret(32))} disabled={!canManage || !githubEnabled}>Generate secret</button>
             </div>
             <div className="rounded-md border border-[var(--border-primary)] p-3 text-sm">
               <div className="text-xs text-[var(--text-secondary)]">Webhook URL to configure in GitHub</div>
@@ -699,7 +648,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
                   setLLMProvider(nextProvider);
                   setLLMModel(current => replaceProviderDefault(current, previousDefinition.defaultModel, nextDefinition.defaultModel));
                   setLLMBaseURL(current => replaceProviderDefault(current, previousDefinition.defaultBaseURL, nextDefinition.defaultBaseURL));
-                  setLLMAPIKeySecretName(current => replaceProviderDefault(current, previousDefinition.defaultSecretName, nextDefinition.defaultSecretName));
+                  setLLMCredentialRef(current => replaceProviderDefault(current, previousDefinition.defaultCredentialRef, nextDefinition.defaultCredentialRef));
                 }} disabled={!canManage || !aiEnabled}>
                   {LLM_PROVIDERS.map(provider => <option key={provider.id} value={provider.id}>{provider.label}</option>)}
                 </select>
@@ -718,8 +667,8 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
               {llmProviderDefinition.apiKeyMode !== 'none' && (
                 <>
                   <label className="space-y-1 text-sm">
-                    <span className="text-xs text-[var(--text-secondary)]">API key secret name{llmProviderDefinition.apiKeyMode === 'required' ? ' *' : ''}</span>
-                    <input className="w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2" value={llmAPIKeySecretName} onChange={event => setLLMAPIKeySecretName(event.target.value)} placeholder={defaultSecretName(llmProvider)} disabled={!canManage || !aiEnabled} />
+                    <span className="text-xs text-[var(--text-secondary)]">Credential reference{llmProviderDefinition.apiKeyMode === 'required' ? ' *' : ''}</span>
+                    <input className="w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2" value={llmCredentialRef} onChange={event => setLLMCredentialRef(event.target.value)} placeholder={defaultCredentialRef(llmProvider)} disabled={!canManage || !aiEnabled} />
                   </label>
                   <label className="space-y-1 text-sm">
                     <span className="text-xs text-[var(--text-secondary)]">{llmProviderDefinition.apiKeyMode === 'required' ? `${llmProviderDefinition.label} API key value` : 'Optional API key value'}</span>

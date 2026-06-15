@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"nopsai/config"
+	"nopsai/pkg/serviceauth"
 
 	"github.com/rs/zerolog/log"
 )
@@ -17,11 +18,12 @@ type nopsaiWebhookForwarder interface {
 }
 
 type httpNopsaiWebhookForwarder struct {
-	baseURL    string
-	httpClient *http.Client
+	baseURL     string
+	httpClient  *http.Client
+	credentials *serviceauth.Credentials
 }
 
-func newNopsaiWebhookForwarder(cfg *config.Config, httpClient *http.Client) nopsaiWebhookForwarder {
+func newNopsaiWebhookForwarder(cfg *config.Config, httpClient *http.Client, credentials *serviceauth.Credentials) nopsaiWebhookForwarder {
 	baseURL := ""
 	if cfg != nil {
 		baseURL = strings.TrimRight(strings.TrimSpace(cfg.GitBotNopsaiAPIURL), "/")
@@ -29,7 +31,7 @@ func newNopsaiWebhookForwarder(cfg *config.Config, httpClient *http.Client) nops
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
-	return httpNopsaiWebhookForwarder{baseURL: baseURL, httpClient: httpClient}
+	return httpNopsaiWebhookForwarder{baseURL: baseURL, httpClient: httpClient, credentials: credentials}
 }
 
 func (f httpNopsaiWebhookForwarder) ForwardWebhook(w http.ResponseWriter, r *http.Request, body []byte) {
@@ -47,6 +49,16 @@ func (f httpNopsaiWebhookForwarder) ForwardWebhook(w http.ResponseWriter, r *htt
 		}
 	}
 	req.Header.Set("X-Nopsai-Forwarded-By", "git-bot")
+	if f.credentials == nil {
+		http.Error(w, "git-bot service credentials are unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	token, err := f.credentials.MintToken(r.Context())
+	if err != nil {
+		http.Error(w, "failed to authenticate webhook forwarding", http.StatusServiceUnavailable)
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := f.httpClient.Do(req)
 	if err != nil {

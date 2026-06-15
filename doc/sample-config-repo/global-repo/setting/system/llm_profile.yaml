@@ -4,7 +4,7 @@ profiles:
   - name: fast
     provider: gemini
     model: gemini-2.5-flash
-    api_key_secret: GEMINI_API_KEY
+    credential_ref: credential://system/llm/gemini-fast
     allowed_scopes: ["dev", "prod"]
 
   - name: reasoning
@@ -23,7 +23,7 @@ profiles:
   - name: hosted
     provider: openai
     model: gpt-4.1-mini
-    api_key_secret: OPENAI_API_KEY
+    credential_ref: credential://system/llm/openai-hosted
     timeout_seconds: 60
     max_tokens: 4096
     allowed_scopes: ["dev", "prod"]
@@ -31,7 +31,7 @@ profiles:
   - name: claude-review
     provider: anthropic
     model: claude-sonnet-4-6
-    api_key_secret: ANTHROPIC_API_KEY
+    credential_ref: credential://system/llm/anthropic-review
     max_tokens: 4096
     allowed_scopes: ["prod"]
 
@@ -44,7 +44,7 @@ profiles:
   - name: routed
     provider: openrouter
     model: openai/gpt-4.1-mini
-    api_key_secret: OPENROUTER_API_KEY
+    credential_ref: credential://system/llm/openrouter-routed
     extra:
       http_referer: https://nopsai.example.com
       x_title: NopsAI

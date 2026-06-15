@@ -112,11 +112,11 @@ func TestSetupStarterTemplatesIncludeSelectedUsersInAccess(t *testing.T) {
 
 func TestSetupLLMProfileYAMLGeminiHasProviderSpecificFields(t *testing.T) {
 	got := setupLLMProfileYAML(setupLLMProfileInput{
-		Provider:     config.LLMProviderGemini,
-		Model:        "gemini-2.5-pro",
-		APIKeySecret: "MY_GEMINI_KEY",
+		Provider:      config.LLMProviderGemini,
+		Model:         "gemini-2.5-pro",
+		CredentialRef: "credential://system/llm/gemini",
 	})
-	for _, want := range []string{"provider: gemini", "model: gemini-2.5-pro", "api_key_secret: MY_GEMINI_KEY"} {
+	for _, want := range []string{"provider: gemini", "model: gemini-2.5-pro", "credential_ref: credential://system/llm/gemini"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("Gemini template missing %q:\n%s", want, got)
 		}
@@ -134,7 +134,7 @@ func TestSetupLLMProfileYAMLOpenAIUsesProviderDefaults(t *testing.T) {
 		"provider: openai",
 		"model: gpt-4.1-mini",
 		"base_url: https://api.openai.com/v1",
-		"api_key_secret: OPENAI_API_KEY",
+		"credential_ref: credential://system/llm/standard",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("OpenAI template missing %q:\n%s", want, got)

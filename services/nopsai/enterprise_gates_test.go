@@ -14,7 +14,6 @@ func TestEnterpriseStartupGatesWarnByDefault(t *testing.T) {
 		DispatcherTLSMode:    "disabled",
 		ServiceJWTSigningKey: "",
 		GitHubAppID:          "123",
-		GitHubWebhookSecret:  "",
 	}
 
 	if HasBlockingEnterpriseStartupGates(cfg) {
@@ -39,7 +38,6 @@ func TestEnterpriseStartupGatesBlockProductionDefaults(t *testing.T) {
 		DispatcherTLSMode:    "disabled",
 		ServiceJWTSigningKey: "",
 		GitHubAppID:          "123",
-		GitHubWebhookSecret:  "",
 	}
 
 	if !HasBlockingEnterpriseStartupGates(cfg) {
@@ -51,7 +49,8 @@ func TestEnterpriseStartupGatesBlockProductionDefaults(t *testing.T) {
 		"service_jwt_isolated",
 		"aaa_shared_token_strength",
 		"dispatcher_transport_security",
-		"github_webhook_secret_strength",
+		"github_private_key_credential_ref",
+		"github_webhook_credential_ref",
 	} {
 		if checks[id].Status != "error" || !checks[id].Required {
 			t.Fatalf("%s check = %#v, want blocking error", id, checks[id])
@@ -61,14 +60,15 @@ func TestEnterpriseStartupGatesBlockProductionDefaults(t *testing.T) {
 
 func TestEnterpriseStartupGatesAcceptProductionSecrets(t *testing.T) {
 	cfg := &config.Config{
-		Environment:          "production",
-		MasterKey:            "01234567890123456789012345678901",
-		JWTSigningKey:        "abcdefghijklmnopqrstuvwxyz123456",
-		ServiceJWTSigningKey: "service-token-key-012345678901234",
-		AAASharedToken:       "aaa-shared-token-01234567890123456",
-		DispatcherTLSMode:    "mtls",
-		GitHubAppID:          "123",
-		GitHubWebhookSecret:  "github-webhook-secret-012345678901",
+		Environment:                   "production",
+		MasterKey:                     "01234567890123456789012345678901",
+		JWTSigningKey:                 "abcdefghijklmnopqrstuvwxyz123456",
+		ServiceJWTSigningKey:          "service-token-key-012345678901234",
+		AAASharedToken:                "aaa-shared-token-01234567890123456",
+		DispatcherTLSMode:             "mtls",
+		GitHubAppID:                   "123",
+		GitHubPrivateKeyCredentialRef: "credential://system/github/app-private-key",
+		GitHubWebhookCredentialRef:    "credential://system/github/webhook-secret",
 	}
 
 	if HasBlockingEnterpriseStartupGates(cfg) {
@@ -82,7 +82,8 @@ func TestEnterpriseStartupGatesAcceptProductionSecrets(t *testing.T) {
 		"service_jwt_isolated",
 		"aaa_shared_token_strength",
 		"dispatcher_transport_security",
-		"github_webhook_secret_strength",
+		"github_private_key_credential_ref",
+		"github_webhook_credential_ref",
 	} {
 		if checks[id].Status != "success" {
 			t.Fatalf("%s check = %#v, want success", id, checks[id])

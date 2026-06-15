@@ -14,6 +14,14 @@ import (
 	"nopsai/services/nopsai/internal/mcpregistry"
 )
 
+func (a *App) newMCPClient(ctx context.Context, server models.MCPServer) (*mcpclient.Client, error) {
+	authValue, err := a.resolveMCPAuthCredential(ctx, server)
+	if err != nil {
+		return nil, err
+	}
+	return mcpclient.New(server, mcpclient.WithAuthValue(authValue))
+}
+
 func (a *App) handleListMCPServers(w http.ResponseWriter, r *http.Request) {
 	servers, err := a.loadMCPServersFromDB(r.Context())
 	if err != nil {
@@ -186,7 +194,7 @@ func (a *App) handleDiscoverMCPServerTools(w http.ResponseWriter, r *http.Reques
 }
 
 func (a *App) discoverAndStoreMCPServerTools(ctx context.Context, server models.MCPServer) (mcpServerView, error) {
-	client, err := mcpclient.New(server)
+	client, err := a.newMCPClient(ctx, server)
 	if err != nil {
 		return mcpServerView{}, err
 	}
@@ -425,7 +433,7 @@ func (a *App) handleTestMCPProfile(w http.ResponseWriter, r *http.Request) {
 	var warnings []string
 	for _, ref := range profile.ServerRefs {
 		server := servers[ref.ServerName]
-		client, err := mcpclient.New(server)
+		client, err := a.newMCPClient(r.Context(), server)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return

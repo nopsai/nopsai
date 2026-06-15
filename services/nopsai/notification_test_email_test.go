@@ -20,11 +20,11 @@ func TestRenderNotificationMailTestUsesBrandedMultipartContent(t *testing.T) {
 		Enabled: true,
 		From:    "alerts@example.com",
 		SMTP: notificationMailSMTPSettings{
-			Host:              "smtp.example.com",
-			Port:              587,
-			StartTLS:          true,
-			Username:          "alerts@example.com",
-			PasswordSecretRef: "SMTP_PASSWORD",
+			Host:                  "smtp.example.com",
+			Port:                  587,
+			StartTLS:              true,
+			Username:              "alerts@example.com",
+			PasswordCredentialRef: "credential://system/mail/smtp-primary",
 		},
 	}
 
@@ -39,7 +39,7 @@ func TestRenderNotificationMailTestUsesBrandedMultipartContent(t *testing.T) {
 		"CONFIGURATION VERIFIED",
 		"smtp.example.com:587",
 		"STARTTLS required",
-		"Username and secret reference configured",
+		"Username and credential reference configured",
 		"operator@example.com",
 		"staging",
 		"https://cdn.example.com/nopsai-logo.png",

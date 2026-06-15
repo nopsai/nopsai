@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   LLM_PROVIDERS,
-  defaultLLMSecretName,
+  defaultLLMCredentialRef,
   getLLMProvider,
   replaceProviderDefault,
 } from './llmProviders.js';
@@ -13,9 +13,9 @@ test('defines the first-wave LLM provider catalog', () => {
     ['lmstudio', 'gemini', 'openai', 'anthropic', 'groq', 'mistral', 'openrouter', 'ollama', 'azure-openai']
   );
   assert.equal(getLLMProvider('openai').label, 'OpenAI / ChatGPT');
-  assert.equal(defaultLLMSecretName('anthropic'), 'ANTHROPIC_API_KEY');
+  assert.equal(defaultLLMCredentialRef('anthropic'), 'credential://system/llm/standard');
   assert.equal(getLLMProvider('ollama').apiKeyMode, 'optional');
-  assert.equal(defaultLLMSecretName('ollama'), 'OLLAMA_API_KEY');
+  assert.equal(defaultLLMCredentialRef('ollama'), 'credential://system/llm/standard');
   assert.equal(getLLMProvider('anthropic').defaultModel, 'claude-sonnet-4-6');
   assert.equal(getLLMProvider('lmstudio').supportsReasoning, true);
   assert.equal(getLLMProvider('openai').supportsReasoning, undefined);

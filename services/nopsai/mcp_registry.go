@@ -93,7 +93,7 @@ func (a *App) loadMCPRegistryFromDB(ctx context.Context) (map[string]models.MCPS
 
 func (a *App) loadMCPServersFromDB(ctx context.Context) (map[string]models.MCPServer, error) {
 	rows, err := a.db.Query(ctx, `
-		SELECT name, display_name, enabled, provider, transport, url, auth_type, auth_secret,
+		SELECT name, display_name, enabled, provider, transport, url, auth_type, credential_ref,
 			headers, timeout, allowed_scopes, last_test_status, last_test_message, last_tested_at,
 			last_discovered_at, discovered_server_name, discovered_version, discovered_protocol
 		FROM mcp_servers
@@ -121,7 +121,7 @@ func (a *App) loadMCPServersFromDB(ctx context.Context) (map[string]models.MCPSe
 			&server.Transport,
 			&server.URL,
 			&server.AuthType,
-			&server.AuthSecret,
+			&server.CredentialRef,
 			&headersRaw,
 			&server.Timeout,
 			&allowedRaw,
@@ -294,7 +294,7 @@ func upsertMCPServerTx(ctx context.Context, tx pgx.Tx, server models.MCPServer) 
 	}
 	_, err = tx.Exec(ctx, `
 		INSERT INTO mcp_servers (
-			name, display_name, enabled, provider, transport, url, auth_type, auth_secret,
+			name, display_name, enabled, provider, transport, url, auth_type, credential_ref,
 			headers, timeout, allowed_scopes, updated_at
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11::jsonb, NOW())
@@ -305,12 +305,12 @@ func upsertMCPServerTx(ctx context.Context, tx pgx.Tx, server models.MCPServer) 
 			transport = EXCLUDED.transport,
 			url = EXCLUDED.url,
 			auth_type = EXCLUDED.auth_type,
-			auth_secret = EXCLUDED.auth_secret,
+			credential_ref = EXCLUDED.credential_ref,
 			headers = EXCLUDED.headers,
 			timeout = EXCLUDED.timeout,
 			allowed_scopes = EXCLUDED.allowed_scopes,
 			updated_at = NOW()
-	`, server.Name, server.DisplayName, server.Enabled, server.Provider, server.Transport, server.URL, server.AuthType, server.AuthSecret, string(headersJSON), server.Timeout, string(allowedJSON))
+	`, server.Name, server.DisplayName, server.Enabled, server.Provider, server.Transport, server.URL, server.AuthType, server.CredentialRef, string(headersJSON), server.Timeout, string(allowedJSON))
 	if err != nil {
 		return fmt.Errorf("persist MCP server %q: %w", server.Name, err)
 	}
@@ -353,6 +353,9 @@ func (a *App) refreshMCPRegistryFromDB(ctx context.Context) error {
 }
 
 func (a *App) persistMCPRegistryConfig(ctx context.Context, cfg config.Config) error {
+	if err := a.ensureMCPServerCredentialReferences(ctx, cfg.EffectiveMCPServers(), credentialActorFromContext(ctx)); err != nil {
+		return err
+	}
 	if a.configPath == "" {
 		return nil
 	}

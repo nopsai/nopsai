@@ -49,7 +49,7 @@ export type NotificationMailSMTPSettings = {
   port: number;
   start_tls: boolean;
   username: string;
-  password_secret_ref: string;
+  password_credential_ref: string;
 };
 
 export type NotificationMailSettingsRecord = {
@@ -69,7 +69,7 @@ export type NotificationMailSettingsFormState = {
   smtp_port: string;
   smtp_start_tls: boolean;
   smtp_username: string;
-  smtp_password_secret_ref: string;
+  smtp_password_credential_ref: string;
   test_to: string;
 };
 
@@ -105,7 +105,7 @@ export const emptyNotificationMailSettingsForm: NotificationMailSettingsFormStat
   smtp_port: '587',
   smtp_start_tls: true,
   smtp_username: '',
-  smtp_password_secret_ref: '',
+  smtp_password_credential_ref: '',
   test_to: '',
 };
 
@@ -210,7 +210,7 @@ export function normalizeNotificationMailSettings(value: unknown): NotificationM
       port: port > 0 ? port : 587,
       start_tls: typeof smtp?.start_tls === 'boolean' ? smtp.start_tls : true,
       username: readString(smtp?.username),
-      password_secret_ref: readString(smtp?.password_secret_ref),
+      password_credential_ref: readString(smtp?.password_credential_ref),
     },
     source: readOptionalString(record?.source),
     config_source_path: readOptionalString(record?.config_source_path),
@@ -230,7 +230,7 @@ export function mailSettingsFormFromRecord(
     smtp_port: String(record.smtp.port || 587),
     smtp_start_tls: record.smtp.start_tls,
     smtp_username: record.smtp.username,
-    smtp_password_secret_ref: record.smtp.password_secret_ref,
+    smtp_password_credential_ref: record.smtp.password_credential_ref,
     test_to: testTo,
   };
 }
@@ -245,7 +245,7 @@ export function mailSettingsPayloadFromForm(form: NotificationMailSettingsFormSt
       port: Number.isFinite(port) && port > 0 ? port : 587,
       start_tls: Boolean(form.smtp_start_tls),
       username: form.smtp_username.trim(),
-      password_secret_ref: form.smtp_password_secret_ref.trim(),
+      password_credential_ref: form.smtp_password_credential_ref.trim(),
     },
   };
 }

@@ -194,16 +194,13 @@ func buildSetupPreflightResponse(ctx context.Context, cfg *config.Config, config
 		})
 	}
 
-	if strings.TrimSpace(cfg.GitHubWebhookSecret) == "" {
+	if strings.TrimSpace(cfg.GitHubWebhookCredentialRef) == "" {
 		add(setupPreflightCheck{
-			ID:       "github_webhook_secret",
-			Label:    "GitHub webhook secret",
+			ID:       "github_webhook_credential",
+			Label:    "GitHub webhook credential",
 			Status:   "warning",
 			Required: false,
-			Message:  "GitHub webhook signing can be configured in the setup wizard after login.",
-			SuggestedEnv: map[string]string{
-				"GITHUB_WEBHOOK_SECRET": "$(openssl rand -base64 32)",
-			},
+			Message:  "Create the GitHub webhook secret in System > Credentials and configure its credential reference.",
 		})
 	}
 

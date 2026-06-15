@@ -122,6 +122,8 @@ Main tables from `db/init.sql`:
 - `pipeline_run_knowledge_contexts`: Per-run snapshots of resolved knowledge content.
 - `groups`: Folder/repository tree used by the UI’s pipeline-runs organization.
 - `users`, `user_roles`, `role_permissions`, `refresh_tokens`, `personal_access_tokens`, `service_account_tokens`, `audit_logs`: Local auth, legacy RBAC metadata, session, personal API credentials, service account credentials, and audit data.
+- `credentials`, `credential_versions`, `credential_access_logs`: Encrypted,
+  versioned system integration credentials and purpose-bound consumer audit.
 - `auth_groups`, `auth_group_members`, `auth_roles`, `auth_role_bindings`, `auth_role_permissions`: AAA role data used by the policy engine; product access grants can target users, auth groups, repositories, triggers, service accounts, and internal services.
 - `resource_visibility`: Visibility settings for reusable resources, including knowledge contexts.
 - `access_grants`, `resource_acl`, `resource_ownership`, `authz_decision_logs`: Product-role grants, resource-use sharing grants, expanded ACLs, ownership metadata, and authorization decision audit logs.

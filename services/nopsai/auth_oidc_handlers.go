@@ -318,13 +318,10 @@ func (a *App) handleListAdminIdentityProviders(w http.ResponseWriter, r *http.Re
 	}
 	out := make([]oidcAdminProviderResponse, 0, len(providers))
 	for _, provider := range providers {
-		provider.EntitlementSync.AdminClientSecret = ""
-		provider.EntitlementSync.AdminPassword = ""
 		out = append(out, oidcAdminProviderResponse{
-			oidcProviderRecord: provider,
-			HasClientSecret:    strings.TrimSpace(provider.ClientSecret) != "",
+			oidcProviderRecord:  provider,
+			HasClientCredential: strings.TrimSpace(provider.ClientCredentialRef) != "",
 		})
-		out[len(out)-1].ClientSecret = ""
 	}
 	_ = httpapi.WriteJSON(w, http.StatusOK, oidcAdminResponse{
 		Settings:       settings,
@@ -402,7 +399,7 @@ func (a *App) handleUpsertAdminIdentityProvider(w http.ResponseWriter, r *http.R
 		JWKSURI:               strings.TrimSpace(req.JWKSURI),
 		UserInfoEndpoint:      strings.TrimSpace(req.UserInfoEndpoint),
 		ClientID:              strings.TrimSpace(req.ClientID),
-		ClientSecret:          strings.TrimSpace(req.ClientSecret),
+		ClientCredentialRef:   strings.TrimSpace(req.ClientCredentialRef),
 		Scopes:                normalizeOIDCScopes(req.Scopes),
 		AllowedEmailDomains:   normalizeOIDCEmailDomains(req.AllowedEmailDomains),
 		GroupClaim:            strings.TrimSpace(req.GroupClaim),
@@ -418,6 +415,10 @@ func (a *App) handleUpsertAdminIdentityProvider(w http.ResponseWriter, r *http.R
 	}
 	if provider.ID == "" || provider.ID != providerID {
 		http.Error(w, "provider id is invalid", http.StatusBadRequest)
+		return
+	}
+	if err := a.ensureOIDCProviderCredentialReferences(r.Context(), provider, credentialActor(r)); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if err := upsertOIDCProvider(r.Context(), a.db, provider, false); err != nil {

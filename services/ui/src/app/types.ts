@@ -69,6 +69,8 @@ export type SystemCapabilities = {
   agentProfilesWrite?: boolean;
   mcpRead?: boolean;
   mcpWrite?: boolean;
+  credentialsRead?: boolean;
+  credentialsWrite?: boolean;
   configReposRead?: boolean;
   configReposWrite?: boolean;
   dispatcherRead?: boolean;

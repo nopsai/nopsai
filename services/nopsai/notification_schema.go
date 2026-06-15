@@ -16,7 +16,7 @@ var notificationSchemaStatements = []string{
 		smtp_port INTEGER NOT NULL DEFAULT 587,
 		smtp_start_tls BOOLEAN NOT NULL DEFAULT TRUE,
 		smtp_username TEXT NOT NULL DEFAULT '',
-		smtp_password_secret_ref TEXT NOT NULL DEFAULT '',
+		smtp_password_credential_ref TEXT NOT NULL DEFAULT '',
 		source TEXT NOT NULL DEFAULT 'database',
 		config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
 		config_source_path TEXT NOT NULL DEFAULT '',
@@ -24,6 +24,7 @@ var notificationSchemaStatements = []string{
 		managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE,
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
+	`ALTER TABLE notification_mail_settings ADD COLUMN IF NOT EXISTS smtp_password_credential_ref TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE notification_mail_settings ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'database'`,
 	`ALTER TABLE notification_mail_settings ADD COLUMN IF NOT EXISTS config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL`,
 	`ALTER TABLE notification_mail_settings ADD COLUMN IF NOT EXISTS config_source_path TEXT NOT NULL DEFAULT ''`,

@@ -83,7 +83,7 @@ func notificationMailAuthenticationLabel(settings notificationMailSMTPSettings) 
 	if strings.TrimSpace(settings.Username) == "" {
 		return "Not configured"
 	}
-	return "Username and secret reference configured"
+	return "Username and credential reference configured"
 }
 
 func buildNotificationMailTestTextBody(view notificationMailTestView) string {

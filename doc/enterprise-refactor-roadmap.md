@@ -54,8 +54,12 @@ Enterprise SSO is separated into:
   behavior remains in `services/ui/src/lib/api.ts`.
 - Added a Compose Keycloak fixture with a seeded realm, users, groups, role
   mappings, and auth-group mappings for local end-to-end SSO testing.
-
-## Next Targets
-
-- Add config-repository import/export for identity provider policy once secret
-  reference handling is available for client secrets.
+- Implemented the single encrypted credential registry, management API/UI,
+  AAA actions, versioning, audit/access records, and deletion safeguards.
+- Migrated OIDC, mail, LLM, MCP, and GitHub integrations to stable credential
+  references with no runtime environment-value fallback.
+- Added authenticated encrypted GitHub credential delivery from `nopsai` to
+  `git-bot`.
+- Added config-repository import/export for identity-provider, mail, LLM, and
+  MCP policy using credential references. GitOps creates pending metadata but
+  never stores credential values.

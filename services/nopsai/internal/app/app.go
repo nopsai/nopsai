@@ -78,12 +78,17 @@ func Run() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to configure service HTTP authentication")
 	}
+	serviceCredentials, err := newNopsaiServiceCredentials(cfg)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to configure service HTTP credentials")
+	}
 
 	api, err := service.NewApp(context.Background(), service.AppOptions{
 		Config:               cfg,
 		Database:             dbpool,
 		Dispatcher:           service.NewDispatcherClient(proto.NewDispatcherServiceClient(dispatcherConn)),
 		ServiceAuthenticator: serviceAuthenticator,
+		ServiceCredentials:   serviceCredentials,
 		ConfigPath:           configPath,
 		EnvFilePath:          envFilePath,
 	})
@@ -171,6 +176,16 @@ func newServiceAuthenticator(cfg *config.Config) (*serviceauth.Authenticator, er
 		SigningKey: cfg.EffectiveServiceJWTSigningKey(),
 		Issuer:     cfg.EffectiveServiceJWTIssuer(),
 		Audience:   cfg.EffectiveServiceJWTAudience(),
+	})
+}
+
+func newNopsaiServiceCredentials(cfg *config.Config) (*serviceauth.Credentials, error) {
+	return serviceauth.NewCredentials(serviceauth.Config{
+		SigningKey: cfg.EffectiveServiceJWTSigningKey(),
+		Issuer:     cfg.EffectiveServiceJWTIssuer(),
+		Audience:   cfg.EffectiveServiceJWTAudience(),
+		Role:       serviceauth.RoleNopsai,
+		ServiceID:  cfg.EffectiveNopsaiServiceID(),
 	})
 }
 

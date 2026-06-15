@@ -99,6 +99,14 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 	agentProfilesWrite := a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "agent-profiles"})
 	mcpRead := a.checkCapability(subject, "system.read", model.ResourceRef{Type: "system", ID: "mcp"})
 	mcpWrite := a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "mcp"})
+	credentialsRead := a.checkCapability(subject, "credential.list_metadata", model.ResourceRef{Type: "credential", ID: "*"})
+	credentialsWrite := a.checkCapability(subject, "credential.write_value", model.ResourceRef{Type: "credential", ID: "*"}) ||
+		a.checkCapability(subject, "credential.create", model.ResourceRef{Type: "credential", ID: "*"}) ||
+		a.checkCapability(subject, "credential.rotate", model.ResourceRef{Type: "credential", ID: "*"}) ||
+		a.checkCapability(subject, "credential.disable", model.ResourceRef{Type: "credential", ID: "*"}) ||
+		a.checkCapability(subject, "credential.enable", model.ResourceRef{Type: "credential", ID: "*"}) ||
+		a.checkCapability(subject, "credential.delete_version", model.ResourceRef{Type: "credential", ID: "*"}) ||
+		a.checkCapability(subject, "credential.delete", model.ResourceRef{Type: "credential", ID: "*"})
 	configReposRead := a.checkCapability(subject, "system.read", model.ResourceRef{Type: "system", ID: "config-repos"})
 	configReposWrite := a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "config-repos"})
 	dispatcherRead := a.checkCapability(subject, "system.read", model.ResourceRef{Type: "dispatcher", ID: "status"})
@@ -172,6 +180,8 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 			AgentProfilesWrite: agentProfilesWrite,
 			MCPRead:            mcpRead,
 			MCPWrite:           mcpWrite,
+			CredentialsRead:    credentialsRead,
+			CredentialsWrite:   credentialsWrite,
 			ConfigReposRead:    configReposRead,
 			ConfigReposWrite:   configReposWrite,
 			DispatcherRead:     dispatcherRead,

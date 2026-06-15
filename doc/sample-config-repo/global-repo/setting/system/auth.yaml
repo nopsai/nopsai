@@ -16,6 +16,7 @@ oidc:
       jwks_uri: https://sso.example.com/realms/nopsai/protocol/openid-connect/certs
       userinfo_endpoint: https://sso.example.com/realms/nopsai/protocol/openid-connect/userinfo
       client_id: nopsai
+      client_credential_ref: credential://system/oidc/nopsai/client-secret
       scopes: ["openid", "email", "profile"]
       allowed_email_domains: ["example.com"]
       allow_email_linking: true
@@ -25,5 +26,6 @@ oidc:
         realm: nopsai
         admin_realm: master
         admin_client_id: admin-cli
+        admin_client_credential_ref: credential://system/oidc/nopsai/admin-client-secret
         client_id: nopsai
         target_resource_type: folder

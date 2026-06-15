@@ -265,7 +265,7 @@ Rerun:
    - `setting/system/llm_profile.yaml` becomes the system LLM profile registry, only from a system/global config repo
    - `setting/system/agent-profiles.yaml` becomes the system Agent Profile persona registry and default profile setting, only from a system/global config repo
    - `setting/system/mcp.yaml` becomes the system MCP server/profile registry, only from a system/global config repo
-   - `setting/system/auth.yaml` becomes local-login and OIDC SSO settings, only from a system/global config repo, with provider secret fields allowed to stay local and preserved when omitted from Git
+   - `setting/system/auth.yaml` becomes local-login and OIDC SSO settings, only from a system/global config repo, with provider credential references resolved from the encrypted local registry
    - `setting/system/runner.yaml` becomes runner install defaults, runtime URLs, and dispatcher routing, only from a system/global config repo
    - `setting/system/mail.yaml` becomes SMTP mail notification settings, only from a system/global config repo, with password values referenced by secret name instead of stored in Git
 6. System/global repositories are synced before group repositories during sync-all, so newly defined group bindings can be used immediately.

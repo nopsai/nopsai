@@ -75,11 +75,11 @@ func setupTemplateOptionsFromQuery(values url.Values) setupTemplateOptions {
 		IncludeLLM:       includeLLM,
 		IncludeMCP:       includeMCP,
 		LLMProfile: setupLLMProfileInput{
-			Name:         "standard",
-			Provider:     values.Get("llm_provider"),
-			Model:        values.Get("llm_model"),
-			BaseURL:      values.Get("llm_base_url"),
-			APIKeySecret: values.Get("llm_api_key_secret"),
+			Name:          "standard",
+			Provider:      values.Get("llm_provider"),
+			Model:         values.Get("llm_model"),
+			BaseURL:       values.Get("llm_base_url"),
+			CredentialRef: values.Get("llm_credential_ref"),
 			AllowedScopes: []string{
 				"dev",
 				"prod",
@@ -534,9 +534,9 @@ func setupLLMProfileYAML(input setupLLMProfileInput) string {
 	if model == "" {
 		model = config.DefaultLLMProviderModel(provider)
 	}
-	apiKeySecret := strings.TrimSpace(input.APIKeySecret)
-	if apiKeySecret == "" {
-		apiKeySecret = config.DefaultLLMProviderAPIKeySecret(provider)
+	credentialRef := strings.TrimSpace(input.CredentialRef)
+	if credentialRef == "" && config.LLMProviderRequiresAPIKey(provider) {
+		credentialRef = "credential://system/llm/" + credentialReferenceSegment(firstNonEmptyString(input.Name, config.DefaultLLMProfileName))
 	}
 	baseURL := strings.TrimSpace(input.BaseURL)
 	if baseURL == "" {
@@ -561,7 +561,7 @@ func setupLLMProfileYAML(input setupLLMProfileInput) string {
 			Provider:       provider,
 			Model:          model,
 			BaseURL:        baseURL,
-			APIKeySecret:   apiKeySecret,
+			CredentialRef:  credentialRef,
 			AllowedScopes:  []string{"dev", "prod"},
 			TimeoutSeconds: input.TimeoutSeconds,
 			MaxTokens:      input.MaxTokens,
@@ -586,7 +586,7 @@ mcp_servers:
     transport: streamable_http
     url: https://api.githubcopilot.com/mcp/x/all/readonly
     auth_type: bearer_token
-    auth_secret: GITHUB_MCP_TOKEN
+    credential_ref: credential://system/mcp/github-readonly
     timeout: 30s
     allowed_scopes: ["dev", "prod"]
 

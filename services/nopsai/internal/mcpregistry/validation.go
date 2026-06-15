@@ -29,8 +29,8 @@ func ValidateServerDefinition(server models.MCPServer) error {
 	if server.AuthType != models.MCPAuthNone && server.AuthType != models.MCPAuthBearerToken {
 		return fmt.Errorf("MCP server %q uses unsupported auth_type %q", server.Name, server.AuthType)
 	}
-	if server.AuthType == models.MCPAuthBearerToken && strings.TrimSpace(server.AuthSecret) == "" {
-		return fmt.Errorf("MCP server %q bearer_token auth requires auth_secret", server.Name)
+	if server.AuthType == models.MCPAuthBearerToken && strings.TrimSpace(server.CredentialRef) == "" {
+		return fmt.Errorf("MCP server %q bearer_token auth requires credential_ref", server.Name)
 	}
 	if _, err := time.ParseDuration(server.Timeout); err != nil {
 		return fmt.Errorf("MCP server %q has invalid timeout %q", server.Name, server.Timeout)

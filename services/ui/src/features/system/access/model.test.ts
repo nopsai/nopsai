@@ -107,8 +107,9 @@ test("normalizes identity provider state and builds save payloads", () => {
         basic_role_mapping: {
           "team-1-owner": { role: "owner", resource: "folder:team-1" },
         },
+        client_credential_ref: "credential://system/oidc/corporate/client-secret",
         enabled: true,
-        has_client_secret: true,
+        has_client_credential: true,
       },
     ],
   });
@@ -138,7 +139,7 @@ test("normalizes identity provider state and builds save payloads", () => {
       jwks_uri: "",
       userinfo_endpoint: "",
       client_id: "client-id",
-      client_secret: "",
+      client_credential_ref: "credential://system/oidc/corporate/client-secret",
       scopes: "openid, email, profile",
       allowed_email_domains: "company.com",
       group_claim: "groups",
@@ -160,7 +161,7 @@ test("normalizes identity provider state and builds save payloads", () => {
       jwks_uri: "",
       userinfo_endpoint: "",
       client_id: "client-id",
-      client_secret: "",
+      client_credential_ref: "credential://system/oidc/corporate/client-secret",
       scopes: ["openid", "email", "profile"],
       allowed_email_domains: ["company.com"],
       group_claim: "groups",

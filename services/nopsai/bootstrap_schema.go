@@ -22,14 +22,10 @@ func databaseBootstrapSteps(cfg *config.Config) []databaseBootstrapStep {
 			return ensureDefaultAdmin(ctx, db)
 		}},
 		{name: "auth schema", run: ensureAuthSchema},
-		{name: "auth oidc config", run: func(ctx context.Context, db *pgxpool.Pool) error {
-			return seedOIDCConfigProviders(ctx, db, cfg)
-		}},
+		{name: "config repository schema", run: ensureConfigRepositorySchema},
+		{name: "credential schema", run: ensureCredentialSchema},
 		{name: "group schema", run: ensureGroupSchema},
 		{name: "product access roles", run: ensureProductAccessBootstrap},
-		{name: "oidc auth group mappings", run: reconcileOIDCAuthGroupMappings},
-		{name: "oidc basic role mappings", run: reconcileOIDCBasicRoleMappings},
-		{name: "config repository schema", run: ensureConfigRepositorySchema},
 		{name: "knowledge context schema", run: ensureKnowledgeContextSchema},
 		{name: "resource authorization schema", run: ensureResourceAuthorizationSchema},
 		{name: "external trigger schema", run: ensureExternalTriggerSchema},
@@ -42,5 +38,13 @@ func databaseBootstrapSteps(cfg *config.Config) []databaseBootstrapStep {
 		{name: "notification schema", run: ensureNotificationSchema},
 		{name: "monitoring analytics schema", run: ensureMonitoringAnalyticsSchema},
 		{name: "data management schema", run: ensureDataManagementSchema},
+		{name: "legacy credential migration", run: func(ctx context.Context, db *pgxpool.Pool) error {
+			return migrateLegacyCredentialSources(ctx, db, cfg)
+		}},
+		{name: "auth oidc config", run: func(ctx context.Context, db *pgxpool.Pool) error {
+			return seedOIDCConfigProviders(ctx, db, cfg)
+		}},
+		{name: "oidc auth group mappings", run: reconcileOIDCAuthGroupMappings},
+		{name: "oidc basic role mappings", run: reconcileOIDCBasicRoleMappings},
 	}
 }

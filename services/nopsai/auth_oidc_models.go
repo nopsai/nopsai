@@ -34,7 +34,7 @@ type oidcProviderRecord struct {
 	JWKSURI               string                               `json:"jwks_uri,omitempty"`
 	UserInfoEndpoint      string                               `json:"userinfo_endpoint,omitempty"`
 	ClientID              string                               `json:"client_id,omitempty"`
-	ClientSecret          string                               `json:"client_secret,omitempty"`
+	ClientCredentialRef   string                               `json:"client_credential_ref,omitempty"`
 	Scopes                []string                             `json:"scopes"`
 	AllowedEmailDomains   []string                             `json:"allowed_email_domains"`
 	GroupClaim            string                               `json:"group_claim,omitempty"`
@@ -80,7 +80,7 @@ type oidcExchangeRequest struct {
 
 type oidcAdminProviderResponse struct {
 	oidcProviderRecord
-	HasClientSecret bool `json:"has_client_secret"`
+	HasClientCredential bool `json:"has_client_credential"`
 }
 
 type oidcAdminResponse struct {
@@ -108,7 +108,7 @@ type oidcProviderRequest struct {
 	JWKSURI               string                               `json:"jwks_uri"`
 	UserInfoEndpoint      string                               `json:"userinfo_endpoint"`
 	ClientID              string                               `json:"client_id"`
-	ClientSecret          string                               `json:"client_secret"`
+	ClientCredentialRef   string                               `json:"client_credential_ref"`
 	Scopes                []string                             `json:"scopes"`
 	AllowedEmailDomains   []string                             `json:"allowed_email_domains"`
 	GroupClaim            string                               `json:"group_claim"`
@@ -149,17 +149,17 @@ type oidcBasicRoleGrantMapping struct {
 }
 
 type oidcEntitlementSyncConfig struct {
-	Mode               string `json:"mode,omitempty"`
-	AdminBaseURL       string `json:"admin_base_url,omitempty"`
-	Realm              string `json:"realm,omitempty"`
-	AdminRealm         string `json:"admin_realm,omitempty"`
-	AdminClientID      string `json:"admin_client_id,omitempty"`
-	AdminClientSecret  string `json:"admin_client_secret,omitempty"`
-	AdminUsername      string `json:"admin_username,omitempty"`
-	AdminPassword      string `json:"admin_password,omitempty"`
-	ClientID           string `json:"client_id,omitempty"`
-	TargetResourceType string `json:"target_resource_type,omitempty"`
-	GroupPathPrefix    string `json:"group_path_prefix,omitempty"`
+	Mode                       string `json:"mode,omitempty"`
+	AdminBaseURL               string `json:"admin_base_url,omitempty"`
+	Realm                      string `json:"realm,omitempty"`
+	AdminRealm                 string `json:"admin_realm,omitempty"`
+	AdminClientID              string `json:"admin_client_id,omitempty"`
+	AdminClientCredentialRef   string `json:"admin_client_credential_ref,omitempty"`
+	AdminUsername              string `json:"admin_username,omitempty"`
+	AdminPasswordCredentialRef string `json:"admin_password_credential_ref,omitempty"`
+	ClientID                   string `json:"client_id,omitempty"`
+	TargetResourceType         string `json:"target_resource_type,omitempty"`
+	GroupPathPrefix            string `json:"group_path_prefix,omitempty"`
 }
 
 type oidcUserResolution struct {
@@ -334,9 +334,9 @@ func normalizeOIDCEntitlementSync(sync oidcEntitlementSyncConfig) oidcEntitlemen
 	if sync.AdminClientID == "" {
 		sync.AdminClientID = "admin-cli"
 	}
-	sync.AdminClientSecret = strings.TrimSpace(sync.AdminClientSecret)
+	sync.AdminClientCredentialRef = strings.TrimSpace(sync.AdminClientCredentialRef)
 	sync.AdminUsername = strings.TrimSpace(sync.AdminUsername)
-	sync.AdminPassword = strings.TrimSpace(sync.AdminPassword)
+	sync.AdminPasswordCredentialRef = strings.TrimSpace(sync.AdminPasswordCredentialRef)
 	sync.ClientID = strings.TrimSpace(sync.ClientID)
 	sync.TargetResourceType = strings.TrimSpace(sync.TargetResourceType)
 	if sync.TargetResourceType == "" {

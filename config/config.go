@@ -35,17 +35,18 @@ var validLMStudioReasoningLevels = map[string]struct{}{
 }
 
 type LLMProfile struct {
-	Provider       string            `yaml:"provider" json:"provider"`
-	Model          string            `yaml:"model,omitempty" json:"model,omitempty"`
-	BaseURL        string            `yaml:"base_url,omitempty" json:"base_url,omitempty"`
-	APIKeySecret   string            `yaml:"api_key_secret,omitempty" json:"api_key_secret,omitempty"`
-	AllowedScopes  []string          `yaml:"allowed_scopes,omitempty" json:"allowed_scopes,omitempty"`
-	Reasoning      string            `yaml:"reasoning,omitempty" json:"reasoning,omitempty"`
-	Thinking       *bool             `yaml:"thinking,omitempty" json:"thinking,omitempty"`
-	TimeoutSeconds int               `yaml:"timeout_seconds,omitempty" json:"timeout_seconds,omitempty"`
-	MaxTokens      int               `yaml:"max_tokens,omitempty" json:"max_tokens,omitempty"`
-	Temperature    *float64          `yaml:"temperature,omitempty" json:"temperature,omitempty"`
-	Extra          map[string]string `yaml:"extra,omitempty" json:"extra,omitempty"`
+	Provider           string            `yaml:"provider" json:"provider"`
+	Model              string            `yaml:"model,omitempty" json:"model,omitempty"`
+	BaseURL            string            `yaml:"base_url,omitempty" json:"base_url,omitempty"`
+	CredentialRef      string            `yaml:"credential_ref,omitempty" json:"credential_ref,omitempty"`
+	LegacyAPIKeySecret string            `yaml:"api_key_secret,omitempty" json:"-"`
+	AllowedScopes      []string          `yaml:"allowed_scopes,omitempty" json:"allowed_scopes,omitempty"`
+	Reasoning          string            `yaml:"reasoning,omitempty" json:"reasoning,omitempty"`
+	Thinking           *bool             `yaml:"thinking,omitempty" json:"thinking,omitempty"`
+	TimeoutSeconds     int               `yaml:"timeout_seconds,omitempty" json:"timeout_seconds,omitempty"`
+	MaxTokens          int               `yaml:"max_tokens,omitempty" json:"max_tokens,omitempty"`
+	Temperature        *float64          `yaml:"temperature,omitempty" json:"temperature,omitempty"`
+	Extra              map[string]string `yaml:"extra,omitempty" json:"extra,omitempty"`
 }
 
 type KubernetesConfig struct {
@@ -95,7 +96,8 @@ type OIDCProviderConfig struct {
 	JWKSURI               string                              `yaml:"jwks_uri,omitempty" json:"jwks_uri,omitempty"`
 	UserInfoEndpoint      string                              `yaml:"userinfo_endpoint,omitempty" json:"userinfo_endpoint,omitempty"`
 	ClientID              string                              `yaml:"client_id,omitempty" json:"client_id,omitempty"`
-	ClientSecret          string                              `yaml:"client_secret,omitempty" json:"client_secret,omitempty"`
+	ClientCredentialRef   string                              `yaml:"client_credential_ref,omitempty" json:"client_credential_ref,omitempty"`
+	LegacyClientSecret    string                              `yaml:"client_secret,omitempty" json:"-"`
 	Scopes                []string                            `yaml:"scopes,omitempty" json:"scopes,omitempty"`
 	AllowedEmailDomains   []string                            `yaml:"allowed_email_domains,omitempty" json:"allowed_email_domains,omitempty"`
 	GroupClaim            string                              `yaml:"group_claim,omitempty" json:"group_claim,omitempty"`
@@ -117,17 +119,19 @@ type OIDCBasicRoleGrantConfig struct {
 }
 
 type OIDCEntitlementSyncConfig struct {
-	Mode               string `yaml:"mode,omitempty" json:"mode,omitempty"`
-	AdminBaseURL       string `yaml:"admin_base_url,omitempty" json:"admin_base_url,omitempty"`
-	Realm              string `yaml:"realm,omitempty" json:"realm,omitempty"`
-	AdminRealm         string `yaml:"admin_realm,omitempty" json:"admin_realm,omitempty"`
-	AdminClientID      string `yaml:"admin_client_id,omitempty" json:"admin_client_id,omitempty"`
-	AdminClientSecret  string `yaml:"admin_client_secret,omitempty" json:"admin_client_secret,omitempty"`
-	AdminUsername      string `yaml:"admin_username,omitempty" json:"admin_username,omitempty"`
-	AdminPassword      string `yaml:"admin_password,omitempty" json:"admin_password,omitempty"`
-	ClientID           string `yaml:"client_id,omitempty" json:"client_id,omitempty"`
-	TargetResourceType string `yaml:"target_resource_type,omitempty" json:"target_resource_type,omitempty"`
-	GroupPathPrefix    string `yaml:"group_path_prefix,omitempty" json:"group_path_prefix,omitempty"`
+	Mode                       string `yaml:"mode,omitempty" json:"mode,omitempty"`
+	AdminBaseURL               string `yaml:"admin_base_url,omitempty" json:"admin_base_url,omitempty"`
+	Realm                      string `yaml:"realm,omitempty" json:"realm,omitempty"`
+	AdminRealm                 string `yaml:"admin_realm,omitempty" json:"admin_realm,omitempty"`
+	AdminClientID              string `yaml:"admin_client_id,omitempty" json:"admin_client_id,omitempty"`
+	AdminClientCredentialRef   string `yaml:"admin_client_credential_ref,omitempty" json:"admin_client_credential_ref,omitempty"`
+	LegacyAdminClientSecret    string `yaml:"admin_client_secret,omitempty" json:"-"`
+	AdminUsername              string `yaml:"admin_username,omitempty" json:"admin_username,omitempty"`
+	AdminPasswordCredentialRef string `yaml:"admin_password_credential_ref,omitempty" json:"admin_password_credential_ref,omitempty"`
+	LegacyAdminPassword        string `yaml:"admin_password,omitempty" json:"-"`
+	ClientID                   string `yaml:"client_id,omitempty" json:"client_id,omitempty"`
+	TargetResourceType         string `yaml:"target_resource_type,omitempty" json:"target_resource_type,omitempty"`
+	GroupPathPrefix            string `yaml:"group_path_prefix,omitempty" json:"group_path_prefix,omitempty"`
 }
 
 type RuntimePool struct {
@@ -176,6 +180,7 @@ type Config struct {
 	NopsaiServiceID          string     `yaml:"nopsai_service_id" env:"NOPSAI_SERVICE_ID"`
 	RunnerServiceID          string     `yaml:"runner_service_id" env:"RUNNER_SERVICE_ID"`
 	AgentServiceID           string     `yaml:"agent_service_id" env:"AGENT_SERVICE_ID"`
+	GitBotServiceID          string     `yaml:"git_bot_service_id" env:"GIT_BOT_SERVICE_ID"`
 	DispatcherTLSMode        string     `yaml:"dispatcher_tls_mode" env:"DISPATCHER_TLS_MODE"`
 	DispatcherTLSSecret      string     `yaml:"dispatcher_tls_secret" env:"DISPATCHER_TLS_SECRET"`
 	DispatcherTLSServerName  string     `yaml:"dispatcher_tls_server_name" env:"DISPATCHER_TLS_SERVER_NAME"`
@@ -200,12 +205,14 @@ type Config struct {
 	AAASharedToken       string `yaml:"aaa_shared_internal_token" env:"AAA_SHARED_INTERNAL_TOKEN"`
 
 	// Git Bot specific configuration
-	GitHubWebhookSecret  string `yaml:"github_webhook_secret" env:"GITHUB_WEBHOOK_SECRET"`
-	GitHubAppID          string `yaml:"github_app_id" env:"GITHUB_APP_ID"`
-	GitHubInstallID      string `yaml:"github_installation_id" env:"GITHUB_INSTALLATION_ID"`
-	GitHubPrivateKeyPath string `yaml:"github_private_key_path" env:"GITHUB_PRIVATE_KEY_PATH"`
-	NopsaiGitBotAPIURL   string `yaml:"nopsai_git_bot_api_url" env:"NOPSAI_GIT_BOT_API_URL"`
-	GitHubPrivateKey     string `yaml:"github_private_key" env:"GITHUB_PRIVATE_KEY"`
+	GitHubWebhookCredentialRef    string `yaml:"github_webhook_credential_ref" env:"GITHUB_WEBHOOK_CREDENTIAL_REF"`
+	GitHubPrivateKeyCredentialRef string `yaml:"github_private_key_credential_ref" env:"GITHUB_PRIVATE_KEY_CREDENTIAL_REF"`
+	GitHubAppID                   string `yaml:"github_app_id" env:"GITHUB_APP_ID"`
+	GitHubInstallID               string `yaml:"github_installation_id" env:"GITHUB_INSTALLATION_ID"`
+	NopsaiGitBotAPIURL            string `yaml:"nopsai_git_bot_api_url" env:"NOPSAI_GIT_BOT_API_URL"`
+	LegacyGitHubWebhookSecret     string `yaml:"github_webhook_secret,omitempty" env:"GITHUB_WEBHOOK_SECRET" json:"-"`
+	LegacyGitHubPrivateKeyPath    string `yaml:"github_private_key_path,omitempty" env:"GITHUB_PRIVATE_KEY_PATH" json:"-"`
+	LegacyGitHubPrivateKey        string `yaml:"github_private_key,omitempty" env:"GITHUB_PRIVATE_KEY" json:"-"`
 
 	DockerNetworkName         string `yaml:"docker_network_name" env:"DOCKER_NETWORK_NAME"`
 	AutoRemovalAgentContainer bool   `yaml:"auto_removal_agent_container" env:"AUTO_REMOVAL_AGENT_CONTAINER"`
@@ -380,7 +387,8 @@ func normalizeOIDCProviders(providers map[string]OIDCProviderConfig) map[string]
 		provider.JWKSURI = strings.TrimSpace(provider.JWKSURI)
 		provider.UserInfoEndpoint = strings.TrimSpace(provider.UserInfoEndpoint)
 		provider.ClientID = strings.TrimSpace(provider.ClientID)
-		provider.ClientSecret = strings.TrimSpace(provider.ClientSecret)
+		provider.ClientCredentialRef = strings.TrimSpace(provider.ClientCredentialRef)
+		provider.LegacyClientSecret = strings.TrimSpace(provider.LegacyClientSecret)
 		provider.Scopes = normalizeOIDCScopes(provider.Scopes)
 		provider.AllowedEmailDomains = normalizeEmailDomains(provider.AllowedEmailDomains)
 		provider.GroupClaim = strings.TrimSpace(provider.GroupClaim)
@@ -437,9 +445,11 @@ func normalizeOIDCEntitlementSync(sync OIDCEntitlementSyncConfig) OIDCEntitlemen
 	if sync.AdminClientID == "" {
 		sync.AdminClientID = "admin-cli"
 	}
-	sync.AdminClientSecret = strings.TrimSpace(sync.AdminClientSecret)
+	sync.AdminClientCredentialRef = strings.TrimSpace(sync.AdminClientCredentialRef)
+	sync.LegacyAdminClientSecret = strings.TrimSpace(sync.LegacyAdminClientSecret)
 	sync.AdminUsername = strings.TrimSpace(sync.AdminUsername)
-	sync.AdminPassword = strings.TrimSpace(sync.AdminPassword)
+	sync.AdminPasswordCredentialRef = strings.TrimSpace(sync.AdminPasswordCredentialRef)
+	sync.LegacyAdminPassword = strings.TrimSpace(sync.LegacyAdminPassword)
 	sync.ClientID = strings.TrimSpace(sync.ClientID)
 	sync.TargetResourceType = strings.TrimSpace(sync.TargetResourceType)
 	if sync.TargetResourceType == "" {
@@ -662,7 +672,8 @@ func NormalizeLLMProfile(profile LLMProfile) LLMProfile {
 	profile.Provider = NormalizeLLMProvider(profile.Provider)
 	profile.Model = strings.TrimSpace(profile.Model)
 	profile.BaseURL = strings.TrimSpace(profile.BaseURL)
-	profile.APIKeySecret = strings.TrimSpace(profile.APIKeySecret)
+	profile.CredentialRef = strings.TrimSpace(profile.CredentialRef)
+	profile.LegacyAPIKeySecret = strings.TrimSpace(profile.LegacyAPIKeySecret)
 	profile.Reasoning = NormalizeLMStudioReasoning(profile.Reasoning)
 	profile.Extra = normalizeStringMap(profile.Extra)
 
@@ -978,6 +989,13 @@ func (c Config) EffectiveAgentServiceID() string {
 		return id
 	}
 	return "agent"
+}
+
+func (c Config) EffectiveGitBotServiceID() string {
+	if id := strings.TrimSpace(c.GitBotServiceID); id != "" {
+		return id
+	}
+	return "git-bot"
 }
 
 func (c Config) EffectiveDispatcherTLSMode() string {

@@ -20,16 +20,17 @@ const (
 )
 
 type MCPServer struct {
-	Name        string            `yaml:"name,omitempty" json:"name"`
-	DisplayName string            `yaml:"display_name,omitempty" json:"display_name,omitempty"`
-	Enabled     bool              `yaml:"enabled" json:"enabled"`
-	Provider    string            `yaml:"provider,omitempty" json:"provider,omitempty"`
-	Transport   string            `yaml:"transport,omitempty" json:"transport,omitempty"`
-	URL         string            `yaml:"url,omitempty" json:"url,omitempty"`
-	AuthType    string            `yaml:"auth_type,omitempty" json:"auth_type,omitempty"`
-	AuthSecret  string            `yaml:"auth_secret,omitempty" json:"auth_secret,omitempty"`
-	Headers     map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
-	Timeout     string            `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Name             string            `yaml:"name,omitempty" json:"name"`
+	DisplayName      string            `yaml:"display_name,omitempty" json:"display_name,omitempty"`
+	Enabled          bool              `yaml:"enabled" json:"enabled"`
+	Provider         string            `yaml:"provider,omitempty" json:"provider,omitempty"`
+	Transport        string            `yaml:"transport,omitempty" json:"transport,omitempty"`
+	URL              string            `yaml:"url,omitempty" json:"url,omitempty"`
+	AuthType         string            `yaml:"auth_type,omitempty" json:"auth_type,omitempty"`
+	CredentialRef    string            `yaml:"credential_ref,omitempty" json:"credential_ref,omitempty"`
+	LegacyAuthSecret string            `yaml:"auth_secret,omitempty" json:"-"`
+	Headers          map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
+	Timeout          string            `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 
 	AllowedScopes []string `yaml:"allowed_scopes,omitempty" json:"allowed_scopes,omitempty"`
 
@@ -79,7 +80,8 @@ func NormalizeMCPServer(server MCPServer) MCPServer {
 	server.Transport = normalizeMCPTransport(server.Transport)
 	server.URL = strings.TrimSpace(server.URL)
 	server.AuthType = normalizeMCPAuthType(server.AuthType)
-	server.AuthSecret = strings.TrimSpace(server.AuthSecret)
+	server.CredentialRef = strings.TrimSpace(server.CredentialRef)
+	server.LegacyAuthSecret = strings.TrimSpace(server.LegacyAuthSecret)
 	if strings.TrimSpace(server.Timeout) == "" {
 		server.Timeout = DefaultMCPTimeout
 	} else {

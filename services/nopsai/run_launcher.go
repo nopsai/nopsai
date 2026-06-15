@@ -162,7 +162,7 @@ func (a *App) buildAgentLaunchPayload(ctx context.Context, req AgentRunLaunchReq
 		return nil, agentLaunchFailed(reason, true)
 	}
 
-	runtimeProfiles, err := a.buildRuntimeLLMProfiles(cfg)
+	runtimeProfiles, err := a.buildRuntimeLLMProfiles(ctx, cfg)
 	if err != nil {
 		reason := fmt.Sprintf("Failed to prepare LLM profiles: %v", err)
 		log.Error().Err(err).Str("run_id", req.RunID).Msg("Failed to prepare LLM profiles")

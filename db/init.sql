@@ -262,6 +262,63 @@ CREATE TABLE secrets (
     UNIQUE NULLS NOT DISTINCT (name, repository_name, scope)
 );
 
+CREATE TABLE credentials (
+    id UUID PRIMARY KEY,
+    namespace TEXT NOT NULL DEFAULT 'system',
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'disabled')),
+    active_version INTEGER NOT NULL DEFAULT 0 CHECK (active_version >= 0),
+    next_version INTEGER NOT NULL DEFAULT 1 CHECK (next_version > 0),
+    expires_at TIMESTAMPTZ,
+    last_rotated_at TIMESTAMPTZ,
+    managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE,
+    config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
+    config_source_path TEXT NOT NULL DEFAULT '',
+    config_source_commit_sha TEXT NOT NULL DEFAULT '',
+    created_by TEXT NOT NULL DEFAULT '',
+    updated_by TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(namespace, name)
+);
+
+CREATE TABLE credential_versions (
+    credential_id UUID NOT NULL REFERENCES credentials(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL CHECK (version > 0),
+    ciphertext BYTEA NOT NULL,
+    wrapped_data_key BYTEA NOT NULL,
+    encryption_key_id TEXT NOT NULL,
+    encryption_format_version INTEGER NOT NULL,
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    activated_at TIMESTAMPTZ,
+    revoked_at TIMESTAMPTZ,
+    PRIMARY KEY (credential_id, version)
+);
+
+CREATE TABLE credential_access_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    credential_id UUID NOT NULL REFERENCES credentials(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    consumer_service TEXT NOT NULL,
+    purpose TEXT NOT NULL,
+    subject_type TEXT NOT NULL DEFAULT '',
+    subject_id TEXT NOT NULL DEFAULT '',
+    correlation_id TEXT NOT NULL DEFAULT '',
+    success BOOLEAN NOT NULL,
+    error_code TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_credentials_status ON credentials(status);
+CREATE INDEX idx_credentials_config_repo ON credentials(config_repo_id);
+CREATE INDEX idx_credential_access_logs_credential_created
+    ON credential_access_logs(credential_id, created_at DESC);
+CREATE INDEX idx_credential_access_logs_consumer_created
+    ON credential_access_logs(consumer_service, created_at DESC);
+
 CREATE TABLE variables (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
@@ -289,7 +346,7 @@ CREATE TABLE llm_profiles (
     provider TEXT NOT NULL,
     model TEXT NOT NULL DEFAULT '',
     base_url TEXT NOT NULL DEFAULT '',
-    api_key_secret TEXT NOT NULL DEFAULT '',
+    credential_ref TEXT NOT NULL DEFAULT '',
     allowed_scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
     reasoning TEXT NOT NULL DEFAULT '',
     thinking BOOLEAN,
@@ -334,7 +391,7 @@ CREATE TABLE mcp_servers (
     transport TEXT NOT NULL DEFAULT 'streamable_http',
     url TEXT NOT NULL DEFAULT '',
     auth_type TEXT NOT NULL DEFAULT 'none',
-    auth_secret TEXT NOT NULL DEFAULT '',
+    credential_ref TEXT NOT NULL DEFAULT '',
     headers JSONB NOT NULL DEFAULT '{}'::jsonb,
     timeout TEXT NOT NULL DEFAULT '30s',
     allowed_scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -501,7 +558,7 @@ CREATE TABLE notification_mail_settings (
     smtp_port INTEGER NOT NULL DEFAULT 587,
     smtp_start_tls BOOLEAN NOT NULL DEFAULT TRUE,
     smtp_username TEXT NOT NULL DEFAULT '',
-    smtp_password_secret_ref TEXT NOT NULL DEFAULT '',
+    smtp_password_credential_ref TEXT NOT NULL DEFAULT '',
     source TEXT NOT NULL DEFAULT 'database',
     config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
     config_source_path TEXT NOT NULL DEFAULT '',

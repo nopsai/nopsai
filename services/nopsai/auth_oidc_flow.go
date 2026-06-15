@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"nopsai/services/nopsai/internal/credentials"
 	"nopsai/services/nopsai/pkg/auth"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -136,8 +137,17 @@ func (a *App) exchangeOIDCCode(ctx context.Context, provider oidcProviderRecord,
 	form.Set("redirect_uri", redirectURI)
 	form.Set("client_id", provider.ClientID)
 	form.Set("code_verifier", codeVerifier)
-	if provider.ClientSecret != "" {
-		form.Set("client_secret", provider.ClientSecret)
+	clientSecret, err := a.resolveCredentialText(ctx, provider.ClientCredentialRef, credentials.Purpose{
+		ConsumerService: "nopsai",
+		Operation:       "oidc.token_exchange",
+		SubjectType:     "identity_provider",
+		SubjectID:       provider.ID,
+	})
+	if err != nil {
+		return tokenResponse, fmt.Errorf("resolve OIDC client credential: %w", err)
+	}
+	if clientSecret != "" {
+		form.Set("client_secret", clientSecret)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, metadata.TokenEndpoint, strings.NewReader(form.Encode()))
 	if err != nil {
