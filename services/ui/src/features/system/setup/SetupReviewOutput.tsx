@@ -1,11 +1,6 @@
 import { Download, FileText } from 'lucide-react';
-import { LLM_SKIP_WARNING, type RuntimeEnvSection } from './model';
+import { LLM_SKIP_WARNING, type RepositoryGroupSummary, type RuntimeEnvSection } from './model';
 import { StepIntro, WarningCallout } from './SetupWizardPrimitives';
-
-type RepositoryGroupSummary = {
-  name: string;
-  repositories: string[];
-};
 
 type SetupReviewOutputProps = {
   aiEnabled: boolean;
@@ -95,7 +90,7 @@ export function SetupReviewOutput({
         </div>
       </div>
       <div>
-        <div className="mb-2 text-sm font-semibold">GitOps group file</div>
+        <div className="mb-2 text-sm font-semibold">GitOps group files</div>
         <pre className="max-h-80 overflow-auto rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] p-3 text-xs leading-5">{gitOpsStructureSnippet}</pre>
       </div>
       <div className="rounded-md border border-[var(--border-primary)] p-3 text-sm">

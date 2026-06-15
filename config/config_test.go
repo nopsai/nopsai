@@ -12,6 +12,10 @@ func TestNormalizeLLMProvider(t *testing.T) {
 		{name: "gemini alias", raw: "google-gemini", want: LLMProviderGemini},
 		{name: "lmstudio canonical", raw: "lmstudio", want: LLMProviderLMStudio},
 		{name: "openai compatible alias", raw: "openai-compatible", want: LLMProviderLMStudio},
+		{name: "openai alias", raw: "ChatGPT", want: LLMProviderOpenAI},
+		{name: "anthropic alias", raw: "Claude", want: LLMProviderAnthropic},
+		{name: "openrouter alias", raw: "open-router", want: LLMProviderOpenRouter},
+		{name: "azure alias", raw: "azure_openai", want: LLMProviderAzureOpenAI},
 		{name: "unknown passes through normalized", raw: "CustomProvider", want: "customprovider"},
 	}
 
@@ -21,6 +25,92 @@ func TestNormalizeLLMProvider(t *testing.T) {
 				t.Fatalf("NormalizeLLMProvider(%q) = %q, want %q", tt.raw, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestLLMProviderDefaultsAndAPIKeyRequirements(t *testing.T) {
+	if got := DefaultLLMProviderBaseURL(LLMProviderGroq); got != "https://api.groq.com/openai/v1" {
+		t.Fatalf("DefaultLLMProviderBaseURL(groq) = %q", got)
+	}
+	if got := EffectiveLLMProfileBaseURL(LLMProfile{Provider: LLMProviderOpenAI}); got != "https://api.openai.com/v1" {
+		t.Fatalf("EffectiveLLMProfileBaseURL(openai) = %q", got)
+	}
+	if got := EffectiveLLMProfileBaseURL(LLMProfile{Provider: LLMProviderOpenAI, BaseURL: " http://proxy/v1 "}); got != "http://proxy/v1" {
+		t.Fatalf("EffectiveLLMProfileBaseURL(custom) = %q", got)
+	}
+	if !LLMProviderRequiresAPIKey(LLMProviderAnthropic) {
+		t.Fatal("Anthropic should require an API key")
+	}
+	if LLMProviderRequiresAPIKey(LLMProviderOllama) {
+		t.Fatal("Ollama should not require an API key")
+	}
+	if got := DefaultLLMProviderModel(LLMProviderAnthropic); got != "claude-sonnet-4-6" {
+		t.Fatalf("DefaultLLMProviderModel(anthropic) = %q", got)
+	}
+	if got := DefaultLLMProviderAPIKeySecret(LLMProviderOllama); got != "OLLAMA_API_KEY" {
+		t.Fatalf("DefaultLLMProviderAPIKeySecret(ollama) = %q", got)
+	}
+	if got := DefaultLLMProviderAPIKeySecret(LLMProviderAzureOpenAI); got != "AZURE_OPENAI_API_KEY" {
+		t.Fatalf("DefaultLLMProviderAPIKeySecret(azure-openai) = %q", got)
+	}
+}
+
+func TestLLMProviderGenerationCapabilities(t *testing.T) {
+	providers := []string{
+		LLMProviderGemini,
+		LLMProviderLMStudio,
+		LLMProviderOpenAI,
+		LLMProviderAnthropic,
+		LLMProviderGroq,
+		LLMProviderMistral,
+		LLMProviderOllama,
+		LLMProviderOpenRouter,
+		LLMProviderAzureOpenAI,
+	}
+	for _, provider := range providers {
+		if !LLMProviderSupportsMaxTokens(provider) {
+			t.Errorf("LLMProviderSupportsMaxTokens(%q) = false", provider)
+		}
+		if _, _, ok := LLMProviderTemperatureRange(provider); !ok {
+			t.Errorf("LLMProviderTemperatureRange(%q) is unsupported", provider)
+		}
+	}
+
+	if !LLMProviderSupportsGenericReasoning(LLMProviderLMStudio) {
+		t.Fatal("LM Studio should support generic reasoning")
+	}
+	if LLMProviderSupportsGenericReasoning(LLMProviderOpenAI) {
+		t.Fatal("OpenAI reasoning requires model-specific configuration")
+	}
+	if min, max, ok := LLMProviderTemperatureRange(LLMProviderAnthropic); !ok || min != 0 || max != 1 {
+		t.Fatalf("Anthropic temperature range = (%g, %g, %v), want (0, 1, true)", min, max, ok)
+	}
+	if !LLMProviderUsesMaxCompletionTokens(LLMProviderOpenAI) ||
+		!LLMProviderUsesMaxCompletionTokens(LLMProviderGroq) ||
+		LLMProviderUsesMaxCompletionTokens(LLMProviderMistral) {
+		t.Fatal("max completion token field selection is incorrect")
+	}
+	if LLMProviderSupportsMaxTokens("custom") {
+		t.Fatal("custom provider should not advertise max token support")
+	}
+	if _, _, ok := LLMProviderTemperatureRange("custom"); ok {
+		t.Fatal("custom provider should not advertise temperature support")
+	}
+}
+
+func TestNormalizeLLMProfileNormalizesExtra(t *testing.T) {
+	profile := NormalizeLLMProfile(LLMProfile{
+		Provider: "openrouter",
+		Extra: map[string]string{
+			" http_referer ": " https://nopsai.example.com ",
+			"":               "ignored",
+		},
+	})
+	if got := profile.Extra["http_referer"]; got != "https://nopsai.example.com" {
+		t.Fatalf("normalized extra = %#v", profile.Extra)
+	}
+	if _, ok := profile.Extra[""]; ok {
+		t.Fatalf("empty extra key preserved: %#v", profile.Extra)
 	}
 }
 

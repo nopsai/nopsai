@@ -70,6 +70,11 @@ export type RepositoryGroupDraft = {
   repositoriesText: string;
 };
 
+export type RepositoryGroupSummary = {
+  name: string;
+  repositories: string[];
+};
+
 export type UserDraft = {
   id: string;
   email: string;
@@ -152,6 +157,50 @@ export function initialRepositoryGroups(): RepositoryGroupDraft[] {
   ];
 }
 
+export function buildSetupGitOpsStructurePreview(groups: RepositoryGroupSummary[]): string {
+  if (groups.length === 0) return '{}';
+
+  return groups
+    .map(group => {
+      const lines = [
+        `# config-repositories/groups/${group.name}/structure.yaml`,
+        'description: Repository group',
+      ];
+      if (group.repositories.length === 0) {
+        lines.push('apps: []');
+      } else {
+        lines.push('apps:');
+        group.repositories.forEach(repo => {
+          const appName = repo.split('/').filter(Boolean).pop() || repo;
+          lines.push(`  - name: ${appName}`);
+          lines.push(`    repo_url: https://github.com/${repo}`);
+        });
+      }
+      return lines.join('\n');
+    })
+    .join('\n\n');
+}
+
+export function buildSetupGitOpsFileList(
+  groups: RepositoryGroupSummary[],
+  repositories: string[],
+  options: { includeLLM: boolean; includeMCP: boolean }
+): string[] {
+  const files = [
+    ...groups.map(group => `config-repositories/groups/${group.name}/structure.yaml`),
+    'pipelines/setup/first-run.yaml',
+    'steps/setup/announce.yaml',
+    'scopes/dev/scope.yaml',
+    'scopes/prod/scope.yaml',
+    'knowledge/guideline/platform/setup-run.md',
+    'access/bootstrap.yaml',
+  ];
+  if (options.includeLLM) files.push('setting/system/llm_profile.yaml');
+  if (options.includeMCP) files.push('setting/system/mcp.yaml');
+  repositories.forEach(repo => files.push(`triggers/${repo}.yaml`));
+  return Array.from(new Set(files));
+}
+
 export function parseRepositories(value: string): string[] {
   return Array.from(
     new Set(
@@ -187,7 +236,7 @@ export function deriveGitBotBaseURL(webhookURL?: string): string {
 }
 
 export function defaultSecretName(provider: string): string {
-  return provider === 'gemini' ? 'GEMINI_API_KEY' : 'LLM_API_KEY';
+  return defaultLLMSecretName(provider);
 }
 
 export function runtimeDefaults(runtime: RuntimeImplementation): RuntimeDefaults {
@@ -218,3 +267,4 @@ export function isLikelyPublicURL(value?: string): boolean {
 export function secretPlaceholder(provided: boolean, fallback: string): string {
   return provided ? '<provided in wizard; store as a secret value>' : fallback;
 }
+import { defaultLLMSecretName } from '../llmProviders.js';

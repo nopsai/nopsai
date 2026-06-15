@@ -1,0 +1,18 @@
+config:
+  repo_url: https://github.com/hosein-yousefii/nopsai-config-team-1.git
+  branch: main
+  base_path: ""
+  enabled: true
+  write_enabled: true
+  write_branch: nopsai/team-1-ui
+description: Description for team-1 folder
+apps:
+  - name: test-app
+    repo_url: https://github.com/hosein-yousefii/test-app
+  - name: general-app
+    repo_url: https://github.com/hosein-yousefii/general-app
+dev:
+  description: This is new
+  apps:
+    - name: t-app
+      repo_url: https://github.com/hosein-yousefii/t-app

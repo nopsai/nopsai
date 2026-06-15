@@ -140,6 +140,10 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - The caller needs `system.update` on `system:config-sync`.
 - For the global GitOps entrypoint, use `PUT /v1/system/config-repo` with `scope_id=global`.
 - System LLM profiles can be managed in the global config repo at `setting/system/llm_profile.yaml`.
+- LLM profile providers are `gemini`, `lmstudio`, `openai`, `anthropic`,
+  `groq`, `mistral`, `ollama`, `openrouter`, and `azure-openai`. Profiles can
+  also set `timeout_seconds`, `max_tokens`, `temperature`, and provider-specific
+  string values under `extra`.
 - System Agent Profiles and the default agent profile can be managed in the global config repo at `setting/system/agent-profiles.yaml`.
 - System MCP profiles can be managed in the global config repo at `setting/system/mcp.yaml`.
 - Local-login and OIDC SSO settings can be managed in the global config repo at `setting/system/auth.yaml`.
@@ -504,10 +508,9 @@ curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \
 GitOps:
 
 - The global config repo may define `setting/system/auth.yaml`.
-- The global config repo may define `settings/system/mail.yaml`.
-- The global config repo may define group notification policies with one or more named routes at `notifications/groups/<group>.yaml`.
+- The global config repo may define `setting/system/mail.yaml`.
+- The global config repo may define group notification policies with one or more named routes at `config-repositories/groups/<group>/notifications.yaml`.
 - A group-scoped config repo may define `notifications.yaml` with one or more named routes for its bound group.
-- The legacy single-route top-level shape is still accepted; new files should use `routes: [...]`.
 - SMTP passwords are never stored in GitOps; only `smtp.password_secret_ref` is synced.
 
 ---
@@ -1174,15 +1177,14 @@ prefix on runtime references means the root hierarchy, not a group named
 
 ## Pipeline Run Structure
 
-- The GitOps config repository can define the group and app hierarchy for the Pipeline Runs UI via `config-repositories/groups/structure.yaml`, scoped files such as `config-repositories/groups/team-1/structure.yaml`, or the legacy `pipelineruns/structure.yaml`.
+- The GitOps config repository can define the group and app hierarchy for the Pipeline Runs UI via scoped files such as `config-repositories/groups/team-1/structure.yaml`.
 - Each top-level key is a group. Nest groups by adding child keys, assign apps under a group with an `apps:` list, and optionally delegate a group with a `config:` block.
 - Schedule and external-trigger `run_group_path` values should reference groups
   from this Pipeline Runs hierarchy, or `root` for ungrouped root runs; their UI
   selectors are populated from Pipeline Runs groups.
-- App entries require a `repo_url`; NopsAI normalizes that URL to the repository identity used by triggers and run metadata. Legacy `repos:` lists with `owner/repo` strings are still accepted during migration.
-- Group repo bindings under `config-repositories/groups/...` always create matching group shells, even when `pipelineruns/structure.yaml` does not mention them.
+- App entries require `name` and `repo_url`; NopsAI normalizes that URL to the repository identity used by triggers and run metadata.
+- Group repo bindings under `config-repositories/groups/...` always create matching group shells.
 - Structure files colocated under `config-repositories/groups` are merged into those group shells, so repository placement can live next to the group binding.
-- In the global repo, legacy `pipelineruns/structure.yaml` is still ignored for delegated group subtrees.
 - In a group-scoped repo, `structure.yaml` may define groups inside the bound group, except for nested groups that have their own config repo binding.
 - Example:
 
@@ -1245,11 +1247,11 @@ curl -X POST -H "Content-Type: application/json" \
 - System- and group-scoped repos may define group repo bindings under `config-repositories/groups/<group>.yaml`.
 - System- and group-scoped repos may define pipeline schedules under `schedules/`.
 - System- and group-scoped repos may define managed knowledge context markdown under `knowledge/`.
-- System- and group-scoped repos may define group pipeline notification policies with named routes under `notifications/`; group repos can use root `notifications.yaml` for their bound group.
+- System-scoped repos may define group pipeline notification policies with named routes under `config-repositories/groups/<group>/notifications.yaml`. Group repos can use root `notifications.yaml` for their bound group.
 - The system/global repo may define Agent Profiles and `default_profile` under `setting/system/agent-profiles.yaml`; group repos may reference approved profile IDs but cannot define the catalog.
 - The system/global repo may define local-login and OIDC SSO settings under `setting/system/auth.yaml`; provider secrets may be omitted to preserve already stored values.
 - The system/global repo may define runtime runner defaults and dispatcher routing under `setting/system/runner.yaml`; dispatcher routing changes are synced into `nopsai` and applied by the live dispatcher.
-- The system/global repo may define SMTP mail notification settings under `settings/system/mail.yaml`; only `smtp.password_secret_ref` is synced for credentials.
+- The system/global repo may define SMTP mail notification settings under `setting/system/mail.yaml`; only `smtp.password_secret_ref` is synced for credentials.
 - A binding file contains `repo_url`, optional `branch`, optional `base_path`, optional `enabled`, optional `write_enabled`, and optional `write_branch`.
 - `branch` remains the read/sync source. When `write_enabled` is true, Nopsai can push generated GitOps changes to `write_branch` so they can be reviewed in GitHub before merging back to the sync branch. The GitHub App needs `contents: read and write`.
 - Drift compares the sync branch with Nopsai's current declarative state for pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, run group/config-repository structure, notification routes, access manifests, Agent Profiles, LLM profiles, MCP registry files, auth settings, mail settings, and runtime settings. UI-side resource Access changes for pipelines, reusable steps, scopes, and knowledge contexts are exported as embedded `access:` updates in the affected GitOps files. Pipeline run rows remain runtime/audit records rather than Git-owned resources.

@@ -86,7 +86,7 @@ auth:
   local_enabled: false
   oidc:
     enabled: false
-`, "settings/system/auth.yaml")
+`, "setting/system/auth.yaml")
 	if err != nil {
 		t.Fatalf("parseGitOpsAuthSettingsFile() error = %v", err)
 	}
@@ -110,30 +110,6 @@ func TestParseGitOpsAuthSettingsPlanRejectsGroupRepo(t *testing.T) {
 	)
 	if err == nil || !strings.Contains(err.Error(), "system config repository") {
 		t.Fatalf("expected system-scope error, got %v", err)
-	}
-}
-
-func TestParseGitOpsAuthSettingsPlanRejectsMultipleFiles(t *testing.T) {
-	_, err := parseGitOpsAuthSettingsPlan(
-		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID},
-		gitOpsRuntimeSettingsDirectory{
-			root: "setting",
-			files: map[string]string{
-				"setting/system/auth.yaml": "local_enabled: true",
-			},
-		},
-		gitOpsRuntimeSettingsDirectory{
-			root: "settings",
-			files: map[string]string{
-				"settings/system/auth.yaml": "local_enabled: true",
-			},
-		},
-	)
-	if err == nil {
-		t.Fatal("parseGitOpsAuthSettingsPlan() error = nil, want duplicate-file error")
-	}
-	if !strings.Contains(err.Error(), "multiple auth settings GitOps files found") {
-		t.Fatalf("duplicate-file error = %q", err.Error())
 	}
 }
 

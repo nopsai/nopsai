@@ -10,7 +10,6 @@ import (
 func testDriftOptions() DriftPathOptions {
 	return DriftPathOptions{
 		ExternalTriggersDirectory: "external-triggers",
-		NotificationsDirectory:    "notifications",
 		SettingsRelativePath: func(rel string) bool {
 			switch rel {
 			case "system/runner.yaml", "system/mail.yaml", "system/llm_profile.yaml", "system/agent-profiles.yaml", "system/mcp.yaml":
@@ -38,14 +37,14 @@ func TestIsDriftPathIncludesSyncableResourceFamilies(t *testing.T) {
 		"access/service-accounts.yaml",
 		"access/all.yaml",
 		"access/grants.yaml",
-		"config-repositories/groups/structure.yaml",
+		"config-repositories/groups/team-1/notifications.yaml",
+		"config-repositories/groups/team-1/structure.yaml",
 		"external-triggers/webhook.yaml",
-		"notifications/groups/team-1.yaml",
-		"pipelineruns/structure.yaml",
+		"setting/system/mail.yaml",
 		"setting/system/llm_profile.yaml",
 		"setting/system/agent-profiles.yaml",
 		"setting/system/mcp.yaml",
-		"settings/system/runner.yaml",
+		"setting/system/runner.yaml",
 	} {
 		if !IsDriftPath(path, options) {
 			t.Fatalf("syncable path %q should be included in drift", path)
@@ -53,6 +52,11 @@ func TestIsDriftPathIncludesSyncableResourceFamilies(t *testing.T) {
 	}
 	if IsDriftPath("access/readme.md", options) {
 		t.Fatal("non-YAML access files should not be included in drift")
+	}
+	for _, path := range []string{"notifications/groups/team-1.yaml", "pipelineruns/structure.yaml", "settings/system/runner.yaml"} {
+		if IsDriftPath(path, options) {
+			t.Fatalf("legacy path %q should not be included in drift", path)
+		}
 	}
 }
 

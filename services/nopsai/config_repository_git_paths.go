@@ -9,13 +9,10 @@ type configRepositoryGitDirs struct {
 	externalTrigger  string
 	schedule         string
 	scope            string
-	pipelineRun      string
 	configRepository string
 	access           string
 	knowledge        string
-	notification     string
 	setting          string
-	settings         string
 }
 
 func configRepositoryGitDirsForBasePath(basePath string) configRepositoryGitDirs {
@@ -26,12 +23,9 @@ func configRepositoryGitDirsForBasePath(basePath string) configRepositoryGitDirs
 		externalTrigger:  configsync.RepoJoinPath(basePath, externalTriggersGitOpsDirectory),
 		schedule:         configsync.RepoJoinPath(basePath, "schedules"),
 		scope:            configsync.RepoJoinPath(basePath, "scopes"),
-		pipelineRun:      configsync.RepoJoinPath(basePath, "pipelineruns"),
 		configRepository: configsync.RepoJoinPath(basePath, "config-repositories"),
 		access:           configsync.RepoJoinPath(basePath, "access"),
 		knowledge:        configsync.RepoJoinPath(basePath, "knowledge"),
-		notification:     configsync.RepoJoinPath(basePath, notificationGitOpsDirectory),
 		setting:          configsync.RepoJoinPath(basePath, "setting"),
-		settings:         configsync.RepoJoinPath(basePath, "settings"),
 	}
 }

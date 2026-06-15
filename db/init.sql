@@ -293,6 +293,10 @@ CREATE TABLE llm_profiles (
     allowed_scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
     reasoning TEXT NOT NULL DEFAULT '',
     thinking BOOLEAN,
+    timeout_seconds INTEGER NOT NULL DEFAULT 0,
+    max_tokens INTEGER NOT NULL DEFAULT 0,
+    temperature DOUBLE PRECISION,
+    extra JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

@@ -74,8 +74,8 @@ func TestNewConfigSyncRepositoryContextNormalizesBinding(t *testing.T) {
 	if ctx.boundFolder != "team-1/platform" {
 		t.Fatalf("boundFolder = %q, want team-1/platform", ctx.boundFolder)
 	}
-	if ctx.dirs.pipeline != "config/prod/pipelines" || ctx.dirs.notification != "config/prod/notifications" {
-		t.Fatalf("dirs = %#v, want base-path-qualified pipeline and notification dirs", ctx.dirs)
+	if ctx.dirs.pipeline != "config/prod/pipelines" || ctx.dirs.configRepository != "config/prod/config-repositories" {
+		t.Fatalf("dirs = %#v, want base-path-qualified pipeline and config repository dirs", ctx.dirs)
 	}
 }
 

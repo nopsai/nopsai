@@ -3,6 +3,8 @@ import { test } from 'node:test';
 import {
   LLM_SKIP_WARNING,
   WIZARD_STEPS,
+  buildSetupGitOpsFileList,
+  buildSetupGitOpsStructurePreview,
   defaultSecretName,
   deriveGitBotBaseURL,
   isLikelyPublicURL,
@@ -41,6 +43,9 @@ test('classifies public URLs and provider secret names', () => {
   assert.equal(isLikelyPublicURL('http://git-bot:8081/webhook'), false);
   assert.equal(defaultSecretName('gemini'), 'GEMINI_API_KEY');
   assert.equal(defaultSecretName('lmstudio'), 'LLM_API_KEY');
+  assert.equal(defaultSecretName('openai'), 'OPENAI_API_KEY');
+  assert.equal(defaultSecretName('anthropic'), 'ANTHROPIC_API_KEY');
+  assert.equal(defaultSecretName('ollama'), 'OLLAMA_API_KEY');
 });
 
 test('formats setup status classes and secret placeholders', () => {
@@ -50,4 +55,37 @@ test('formats setup status classes and secret placeholders', () => {
   assert.match(statusClasses('info'), /sky/);
   assert.equal(secretPlaceholder(true, '<fallback>'), '<provided in wizard; store as a secret value>');
   assert.equal(secretPlaceholder(false, '<fallback>'), '<fallback>');
+});
+
+test('builds canonical per-group GitOps structure previews', () => {
+  const preview = buildSetupGitOpsStructurePreview([
+    { name: 'platform', repositories: ['acme/api'] },
+    { name: 'apps', repositories: [] },
+  ]);
+
+  assert.match(preview, /# config-repositories\/groups\/platform\/structure\.yaml/);
+  assert.match(preview, /name: api/);
+  assert.match(preview, /repo_url: https:\/\/github\.com\/acme\/api/);
+  assert.match(preview, /# config-repositories\/groups\/apps\/structure\.yaml/);
+  assert.match(preview, /apps: \[\]/);
+  assert.doesNotMatch(preview, /groups\/structure\.yaml/);
+  assert.equal(buildSetupGitOpsStructurePreview([]), '{}');
+});
+
+test('lists canonical setup GitOps files without legacy aggregate structure', () => {
+  const files = buildSetupGitOpsFileList(
+    [
+      { name: 'platform', repositories: ['acme/api'] },
+      { name: 'platform', repositories: ['acme/api'] },
+    ],
+    ['acme/api'],
+    { includeLLM: true, includeMCP: true }
+  );
+
+  assert.ok(files.includes('config-repositories/groups/platform/structure.yaml'));
+  assert.ok(files.includes('setting/system/llm_profile.yaml'));
+  assert.ok(files.includes('setting/system/mcp.yaml'));
+  assert.ok(files.includes('triggers/acme/api.yaml'));
+  assert.equal(files.filter(file => file === 'config-repositories/groups/platform/structure.yaml').length, 1);
+  assert.ok(!files.includes('config-repositories/groups/structure.yaml'));
 });

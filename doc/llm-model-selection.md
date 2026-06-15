@@ -21,16 +21,84 @@ Supported providers:
 
 - `gemini`
 - `lmstudio`
+- `openai` (displayed as OpenAI / ChatGPT)
+- `anthropic`
+- `groq`
+- `mistral`
+- `ollama`
+- `openrouter`
+- `azure-openai`
+
+`openai`, `groq`, `mistral`, `openrouter`, and `ollama` share the
+OpenAI-compatible Chat Completions adapter. Anthropic uses its native Messages
+API. Gemini and LM Studio keep their native adapters, including LM Studio model
+discovery and serialized model loading.
 
 Profile fields:
 
 - `provider`: provider implementation to use.
 - `model`: provider model name. LM Studio may omit this to auto-discover the first loaded model.
-- `base_url`: required for LM Studio.
-- `api_key_secret`: environment variable name that contains the API key. Gemini profiles require it. LM Studio can omit it when the server does not require auth.
+- `base_url`: required for LM Studio, Ollama, and Azure OpenAI. Hosted providers
+  use provider defaults when it is omitted.
+- `api_key_secret`: environment variable name that contains the API key.
+  Hosted providers require it. LM Studio and Ollama can omit it when the
+  endpoint does not require auth.
 - `allowed_scopes`: scopes where this profile can run. Empty means allowed everywhere.
 - `reasoning`: optional LM Studio reasoning level: `off`, `low`, `medium`, `high`, or `on`.
 - `thinking`: optional LM Studio shortcut. When `reasoning` is omitted, `thinking: true` maps to reasoning `on` and `thinking: false` maps to reasoning `off`.
+- `timeout_seconds`: optional HTTP timeout for provider requests.
+- `max_tokens`: optional completion token limit supported by every built-in
+  provider. OpenAI-compatible, Azure OpenAI, and Anthropic adapters default to
+  `2048`; Gemini and LM Studio use the provider/model default when omitted.
+- `temperature`: optional sampling temperature. It is omitted from provider
+  requests when unset so the selected model can apply its own default.
+- `extra`: provider-specific string options without expanding the top-level
+  profile schema.
+
+### Generation option compatibility
+
+The profile schema stays consistent for GitOps, but provider adapters translate
+the fields to the correct wire format:
+
+| Provider | `max_tokens` | `temperature` | Generic `reasoning` / `thinking` |
+| --- | --- | --- | --- |
+| Gemini | `generationConfig.maxOutputTokens` | `generationConfig.temperature`; effective limits are model-specific | No. Gemini thinking uses model-specific `thinkingBudget` or `thinkingLevel` controls. |
+| LM Studio | `max_output_tokens` | `0` to `1` | Yes, through the native chat API. |
+| OpenAI | `max_completion_tokens` | `0` to `2`; some reasoning models reject it | No. Reasoning settings are model-specific. |
+| Anthropic | `max_tokens` | `0` to `1` | No. Extended thinking requires Anthropic's model-specific thinking configuration. |
+| Groq | `max_completion_tokens` | `0` to `2`; model support varies | No. Reasoning settings are model-specific. |
+| Mistral | `max_tokens` | Supported; conservative values such as `0` to `0.7` are recommended | No. Reasoning settings are model-specific. |
+| OpenRouter | `max_completion_tokens` | `0` to `2`; downstream model support varies | No. Reasoning settings are routed-model-specific. |
+| Ollama | `max_tokens` through the OpenAI-compatible API | Support depends on the Ollama version and local model | No generic Nopsai mapping. |
+| Azure OpenAI | `max_completion_tokens` | Deployment-specific; reasoning deployments may reject it | No. Reasoning settings are deployment/model-specific. |
+
+`timeout_seconds` is a client-side HTTP timeout and works for every provider.
+The control plane and agent both reject generic `reasoning` or `thinking`
+values outside LM Studio instead of silently ignoring stale API or GitOps
+configuration. Provider- and model-specific reasoning controls can be added as
+dedicated options without changing this generic contract.
+
+Official API references:
+
+- [OpenAI Chat Completions](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create/)
+- [OpenAI reasoning models](https://developers.openai.com/api/docs/guides/reasoning)
+- [Azure OpenAI reasoning models](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/reasoning)
+- [Anthropic Messages API](https://docs.anthropic.com/en/api/messages)
+- [Anthropic extended thinking](https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking)
+- [Gemini content generation](https://ai.google.dev/api/generate-content)
+- [Gemini thinking](https://ai.google.dev/gemini-api/docs/thinking)
+- [LM Studio native chat](https://lmstudio.ai/docs/developer/rest/chat)
+- [Groq API reference](https://console.groq.com/docs/api-reference)
+- [Mistral chat API](https://docs.mistral.ai/api/endpoint/chat)
+- [OpenRouter parameters](https://openrouter.ai/docs/api/reference/parameters)
+- [Ollama OpenAI compatibility](https://docs.ollama.com/api/openai-compatibility)
+
+Recognized `extra` options:
+
+- OpenAI: `organization`, `project`
+- Anthropic: `anthropic_version`
+- OpenRouter: `http_referer`, `x_title`
+- Azure OpenAI: `deployment`, `api_version`
 
 The previous single-provider configuration is no longer supported.
 
@@ -53,10 +121,40 @@ profiles:
     model: google/gemma-4-e4b
     base_url: http://lmstudio:1234
     reasoning: off
+
+  - name: hosted
+    provider: openai
+    model: gpt-4.1-mini
+    api_key_secret: OPENAI_API_KEY
+    timeout_seconds: 60
+    max_tokens: 4096
+
+  - name: claude-review
+    provider: anthropic
+    model: claude-sonnet-4-6
+    api_key_secret: ANTHROPIC_API_KEY
+    max_tokens: 4096
+
+  - name: local-ollama
+    provider: ollama
+    model: qwen2.5-coder:14b
+    base_url: http://ollama:11434/v1
+    # Optional for authenticated self-hosted gateways:
+    # api_key_secret: OLLAMA_API_KEY
+
+  - name: azure
+    provider: azure-openai
+    model: nopsai-gpt41-mini
+    base_url: https://my-resource.openai.azure.com/openai/v1
+    api_key_secret: AZURE_OPENAI_API_KEY
 ```
 
-The canonical path is `setting/system/llm_profile.yaml`. The sync path also
-accepts `settings/system/llm_profile.yaml` and `.yml` variants. Group-scoped
+Azure OpenAI uses the current `/openai/v1` API when the base URL points to that
+path. Existing deployments can use the legacy route by setting
+`extra.deployment` and `extra.api_version`; the adapter then calls
+`/openai/deployments/{deployment}/chat/completions`.
+
+The canonical GitOps path is `setting/system/llm_profile.yaml`. Group-scoped
 config repositories cannot manage system LLM profiles.
 
 ## Pipeline Usage
@@ -121,6 +219,8 @@ Runs are rejected before agent launch when:
 - A referenced profile does not exist.
 - A selected profile is not allowed for the run scope.
 - The selected profile has invalid provider configuration.
+- A required API key environment variable is missing.
+- Timeout, token, or temperature limits are invalid.
 
 These checks do not apply when the pipeline sets `llm_enabled: false`.
 
@@ -147,7 +247,8 @@ The **System -> LLM Profiles** page shows:
 
 Admins can create, edit, delete, and test profiles. The **Test Profile** action
 sends a tiny prompt (`reply ok`) to catch bad credentials or unreachable
-providers.
+providers. Hover over generation option labels for a one-line explanation of
+each setting.
 
 Deletion rules:
 

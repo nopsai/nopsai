@@ -112,8 +112,6 @@ func logAgentRuntimeAdapters(runID, pipelineName string, adapters agentRuntimeAd
 			Str("agent_profile", adapters.AgentRegistry.DefaultProfileName()).
 			Str("llm_provider", defaultLLMProfile.Provider)
 		switch defaultLLMProfile.Provider {
-		case appconfig.LLMProviderGemini:
-			startupLog.Str("llm_model", defaultLLMProfile.Model).Msg("Agent starting with embedded LLM profile registry")
 		case appconfig.LLMProviderLMStudio:
 			logEvent := startupLog.Str("lmstudio_base_url", defaultLLMProfile.BaseURL)
 			if strings.TrimSpace(defaultLLMProfile.Model) != "" {
@@ -129,7 +127,11 @@ func logAgentRuntimeAdapters(runID, pipelineName string, adapters agentRuntimeAd
 			}
 			logEvent.Msg("Agent starting with embedded LLM profile registry")
 		default:
-			startupLog.Msg("Agent starting with embedded LLM profile registry")
+			logEvent := startupLog.Str("llm_model", defaultLLMProfile.Model)
+			if strings.TrimSpace(defaultLLMProfile.BaseURL) != "" {
+				logEvent = logEvent.Str("llm_base_url", defaultLLMProfile.BaseURL)
+			}
+			logEvent.Msg("Agent starting with embedded LLM profile registry")
 		}
 		return
 	}

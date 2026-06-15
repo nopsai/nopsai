@@ -116,7 +116,8 @@ directory.
 2. It connects to the dispatcher over gRPC.
 3. It parses the pipeline definition from base64-encoded YAML.
 4. If `RESUME_CHECKPOINT_ID` is present, it fetches the checkpoint from `nopsai`, restores the compressed workspace archive into `/workspace`, loads the saved execution history, and marks already completed task keys in memory.
-5. It initializes the embedded `LLMClient` for Gemini or LM Studio.
+5. It initializes the embedded `LLMClient` and selected provider adapter:
+   Gemini, LM Studio, OpenAI-compatible, Anthropic, or Azure OpenAI.
 6. It creates a Docker client for Docker runtime, or a Kubernetes client for Kubernetes runtime.
 7. It starts background cancellation and signal handlers.
 8. Docker runtime optionally starts asynchronous image pre-pulling for pipeline step images.
@@ -247,11 +248,9 @@ Rerun:
    - `triggers/`
    - `scopes/`
    - `knowledge/`
-   - `pipelineruns/`
    - `config-repositories/`
    - `access/`
-   - `notifications/`
-   - `setting/` and `settings/`
+   - `setting/`
 5. It parses and validates each file class:
    - pipelines must parse and pass pipeline validation
    - reusable steps must parse and have matching names
@@ -259,17 +258,16 @@ Rerun:
    - scope files turn `variables:` entries into scoped variables and `secrets:`
      entries into GitOps secret keys
    - knowledge markdown files are turned into `knowledge_contexts`
-   - legacy `pipelineruns/structure.yaml` becomes the run-group tree for groups owned by that repo
    - `config-repositories/groups/<group>.yaml` becomes a group config repo binding and group shell
-   - `config-repositories/groups/structure.yaml` and `config-repositories/groups/<group>/structure.yaml` place apps under group shells with `name` and `repo_url`, keep legacy `repos:` lists readable, and can define inline group repo `config:` blocks
+   - `config-repositories/groups/<group>/structure.yaml` places apps under group shells with `name` and `repo_url`, and can define inline group repo `config:` blocks
    - `access/*.yaml` declares GitOps-managed users, service accounts, advanced roles, policies, role bindings, and scoped product-role grants; service-account token material is created at runtime, not synced from Git
-   - `notifications/groups/<group>.yaml` in a system repo, or `notifications.yaml` in a group repo, becomes a pipeline notification policy with one or more named routes for that run group
+   - `config-repositories/groups/<group>/notifications.yaml` in a system repo, or `notifications.yaml` in a group repo, becomes a pipeline notification policy with one or more named routes for that run group
    - `setting/system/llm_profile.yaml` becomes the system LLM profile registry, only from a system/global config repo
    - `setting/system/agent-profiles.yaml` becomes the system Agent Profile persona registry and default profile setting, only from a system/global config repo
    - `setting/system/mcp.yaml` becomes the system MCP server/profile registry, only from a system/global config repo
    - `setting/system/auth.yaml` becomes local-login and OIDC SSO settings, only from a system/global config repo, with provider secret fields allowed to stay local and preserved when omitted from Git
    - `setting/system/runner.yaml` becomes runner install defaults, runtime URLs, and dispatcher routing, only from a system/global config repo
-   - `settings/system/mail.yaml` becomes SMTP mail notification settings, only from a system/global config repo, with password values referenced by secret name instead of stored in Git
+   - `setting/system/mail.yaml` becomes SMTP mail notification settings, only from a system/global config repo, with password values referenced by secret name instead of stored in Git
 6. System/global repositories are synced before group repositories during sync-all, so newly defined group bindings can be used immediately.
 7. Group-scoped resources are normalized under the bound group before writing.
 8. It adopts matching database-owned resources that are inside the syncing repository scope, then marks them GitOps-managed; resources already managed by an unrelated config repository remain protected by config-repo precedence.
@@ -293,9 +291,8 @@ protected internal NopsAI endpoint; the dispatcher polls that endpoint and swaps
 in-memory routing table while it is running, so new scheduling decisions use the
 updated table without a dispatcher restart.
 10. It prunes rows managed by the same config repository that disappeared from the repo.
-11. Legacy global `pipelineruns/structure.yaml` is ignored for groups delegated via `config-repositories/groups`; colocated group structure under `config-repositories/groups` is still applied.
-12. It does not prune user-created groups, even when syncing the run-group structure.
-13. It records sync status per config repository for the UI.
+11. It does not prune user-created groups, even when syncing the run-group structure.
+12. It records sync status per config repository for the UI.
 
 ## 13. Failure Boundaries
 

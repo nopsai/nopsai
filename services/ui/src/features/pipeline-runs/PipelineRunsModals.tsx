@@ -4,6 +4,7 @@ import { Plus, Trash2, X } from 'lucide-react';
 import { formatConfigRepoTimestamp } from './runPresentation';
 import {
   NOTIFICATION_EVENTS,
+  folderNotificationGitOpsTarget,
   notificationRouteFormAddRoute,
   notificationRouteFormRemoveSelectedRoute,
   notificationRouteFormSelectRoute,
@@ -187,7 +188,6 @@ export function FolderConfigRepositoryModal({
   syncing,
   error,
   driftLoading,
-  pushing,
   notificationRoute,
   notificationForm,
   notificationLoading,
@@ -213,7 +213,6 @@ export function FolderConfigRepositoryModal({
   syncing: boolean;
   error: string | null;
   driftLoading: boolean;
-  pushing: boolean;
   notificationRoute: NotificationRouteRecord | null;
   notificationForm: NotificationRouteFormState;
   notificationLoading: boolean;
@@ -242,12 +241,12 @@ export function FolderConfigRepositoryModal({
   const canEdit = canManage && !loading && !saving;
   const syncDisabled = !repo || !canSync || syncing || saving || isRunning;
   const driftDisabled = !repo || driftLoading || saving || syncing || isRunning;
-  const pushDisabled = driftDisabled || pushing || !canManage || !repo?.write_enabled || !repo?.write_branch;
   const notificationManaged = Boolean(notificationRoute?.managed_by_config_repo);
   const notificationCanEdit = canManage && !notificationLoading && !notificationSaving && !notificationManaged;
   const notificationSourceLabel = notificationManaged ? 'GitOps' : notificationRoute?.id ? 'Database' : 'Default';
   const notificationSaveDisabled = !notificationCanEdit;
   const notificationDeleteDisabled = !notificationCanEdit || !notificationRoute?.id;
+  const notificationGitOpsTarget = repo ? folderNotificationGitOpsTarget(repo.base_path) : '';
   const [activeSettingsTab, setActiveSettingsTab] = useState<'sync' | 'notifications'>('sync');
   const settingsTabClass = (tab: 'sync' | 'notifications') =>
     `inline-flex min-h-[38px] items-center justify-center rounded-md px-4 py-2 text-sm font-semibold transition ${
@@ -440,11 +439,6 @@ export function FolderConfigRepositoryModal({
                     {driftLoading ? 'Checking...' : 'Check drift'}
                   </button>
                 )}
-                {repo && (
-                  <button type="button" className="glass-button-subtle" onClick={() => void onCheckDrift()} disabled={pushDisabled}>
-                    {pushing ? 'Pushing...' : 'Push to Git'}
-                  </button>
-                )}
                 <button type="button" className="glass-button-subtle" onClick={onClose} disabled={saving || syncing}>
                   Close
                 </button>
@@ -482,6 +476,11 @@ export function FolderConfigRepositoryModal({
                     {notificationManaged && (
                       <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
                         Managed by GitOps.
+                      </div>
+                    )}
+                    {repo && (
+                      <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+                        GitOps target: <span className="font-mono text-[var(--text-primary)]">{notificationGitOpsTarget}</span>
                       </div>
                     )}
 
@@ -724,6 +723,11 @@ export function FolderConfigRepositoryModal({
                       {notificationRoute?.id && (
                         <button type="button" className="glass-button-danger mr-auto" onClick={() => void onDeleteNotification()} disabled={notificationDeleteDisabled}>
                           {notificationSaving ? 'Removing...' : 'Remove Policy'}
+                        </button>
+                      )}
+                      {repo && (
+                        <button type="button" className="glass-button-subtle" onClick={() => void onCheckDrift()} disabled={driftDisabled}>
+                          {driftLoading ? 'Checking...' : 'Review GitOps drift'}
                         </button>
                       )}
                       {canManage && (

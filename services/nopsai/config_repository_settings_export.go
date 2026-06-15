@@ -222,16 +222,10 @@ func (a *App) exportConfigRepositoryMailSettings(ctx context.Context, repo model
 	if err != nil {
 		return err
 	}
-	filePath := "settings/system/mail.yaml"
-	if record.ManagedByConfigRepo && record.ConfigRepoID != nil && *record.ConfigRepoID == repo.ID && strings.TrimSpace(record.ConfigSourcePath) != "" {
-		if managedPath, ok := configRepositoryManagedSourcePath(repo, record.ConfigSourcePath); ok {
-			filePath = managedPath
-		}
-	}
 	content, err := marshalConfigRepositoryYAML(record.notificationMailSettingsFile)
 	if err != nil {
 		return err
 	}
-	files[filePath] = string(content)
+	files[configRepositoryMailSettingsPath] = string(content)
 	return nil
 }

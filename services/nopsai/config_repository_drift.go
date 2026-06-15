@@ -108,12 +108,9 @@ func (a *App) loadConfigRepositoryGitFiles(repo models.ConfigRepository) (map[st
 		dirs.schedule,
 		dirs.scope,
 		dirs.knowledge,
-		dirs.notification,
-		dirs.pipelineRun,
 		dirs.configRepository,
 		dirs.access,
 		dirs.setting,
-		dirs.settings,
 	} {
 		files, err := a.requestGitBotDirectory(owner, name, repo.Branch, directoryPath)
 		if err != nil {

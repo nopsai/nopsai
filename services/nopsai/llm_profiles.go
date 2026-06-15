@@ -42,20 +42,32 @@ var llmProfileSchemaStatements = []string{
 		allowed_scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
 		reasoning TEXT NOT NULL DEFAULT '',
 		thinking BOOLEAN,
+		timeout_seconds INTEGER NOT NULL DEFAULT 0,
+		max_tokens INTEGER NOT NULL DEFAULT 0,
+		temperature DOUBLE PRECISION,
+		extra JSONB NOT NULL DEFAULT '{}'::jsonb,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
+	`ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS timeout_seconds INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS max_tokens INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS temperature DOUBLE PRECISION`,
+	`ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS extra JSONB NOT NULL DEFAULT '{}'::jsonb`,
 }
 
 type llmProfileForm struct {
-	Name          string   `json:"name" yaml:"name"`
-	Provider      string   `json:"provider" yaml:"provider"`
-	Model         string   `json:"model" yaml:"model"`
-	BaseURL       string   `json:"base_url" yaml:"base_url"`
-	APIKeySecret  string   `json:"api_key_secret" yaml:"api_key_secret"`
-	AllowedScopes []string `json:"allowed_scopes" yaml:"allowed_scopes"`
-	Reasoning     string   `json:"reasoning" yaml:"reasoning"`
-	Thinking      *bool    `json:"thinking,omitempty" yaml:"thinking,omitempty"`
+	Name           string            `json:"name" yaml:"name"`
+	Provider       string            `json:"provider" yaml:"provider"`
+	Model          string            `json:"model" yaml:"model"`
+	BaseURL        string            `json:"base_url" yaml:"base_url"`
+	APIKeySecret   string            `json:"api_key_secret" yaml:"api_key_secret"`
+	AllowedScopes  []string          `json:"allowed_scopes" yaml:"allowed_scopes"`
+	Reasoning      string            `json:"reasoning" yaml:"reasoning"`
+	Thinking       *bool             `json:"thinking,omitempty" yaml:"thinking,omitempty"`
+	TimeoutSeconds int               `json:"timeout_seconds,omitempty" yaml:"timeout_seconds,omitempty"`
+	MaxTokens      int               `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
+	Temperature    *float64          `json:"temperature,omitempty" yaml:"temperature,omitempty"`
+	Extra          map[string]string `json:"extra,omitempty" yaml:"extra,omitempty"`
 }
 
 type llmProfileView struct {
@@ -96,14 +108,18 @@ type gitOpsLLMProfileFileCandidate struct {
 }
 
 type runtimeLLMProfile struct {
-	Provider      string   `json:"provider"`
-	Model         string   `json:"model,omitempty"`
-	BaseURL       string   `json:"base_url,omitempty"`
-	APIKey        string   `json:"api_key,omitempty"`
-	APIKeySecret  string   `json:"api_key_secret,omitempty"`
-	AllowedScopes []string `json:"allowed_scopes,omitempty"`
-	Reasoning     string   `json:"reasoning,omitempty"`
-	Thinking      *bool    `json:"thinking,omitempty"`
+	Provider       string            `json:"provider"`
+	Model          string            `json:"model,omitempty"`
+	BaseURL        string            `json:"base_url,omitempty"`
+	APIKey         string            `json:"api_key,omitempty"`
+	APIKeySecret   string            `json:"api_key_secret,omitempty"`
+	AllowedScopes  []string          `json:"allowed_scopes,omitempty"`
+	Reasoning      string            `json:"reasoning,omitempty"`
+	Thinking       *bool             `json:"thinking,omitempty"`
+	TimeoutSeconds int               `json:"timeout_seconds,omitempty"`
+	MaxTokens      int               `json:"max_tokens,omitempty"`
+	Temperature    *float64          `json:"temperature,omitempty"`
+	Extra          map[string]string `json:"extra,omitempty"`
 }
 
 type runtimeLLMProfiles struct {
@@ -113,27 +129,46 @@ type runtimeLLMProfiles struct {
 
 func profileFormFromConfig(name string, profile config.LLMProfile) llmProfileForm {
 	return llmProfileForm{
-		Name:          name,
-		Provider:      profile.Provider,
-		Model:         profile.Model,
-		BaseURL:       profile.BaseURL,
-		APIKeySecret:  profile.APIKeySecret,
-		AllowedScopes: append([]string(nil), profile.AllowedScopes...),
-		Reasoning:     profile.Reasoning,
-		Thinking:      profile.Thinking,
+		Name:           name,
+		Provider:       profile.Provider,
+		Model:          profile.Model,
+		BaseURL:        profile.BaseURL,
+		APIKeySecret:   profile.APIKeySecret,
+		AllowedScopes:  append([]string(nil), profile.AllowedScopes...),
+		Reasoning:      profile.Reasoning,
+		Thinking:       profile.Thinking,
+		TimeoutSeconds: profile.TimeoutSeconds,
+		MaxTokens:      profile.MaxTokens,
+		Temperature:    profile.Temperature,
+		Extra:          cloneStringMap(profile.Extra),
 	}
 }
 
 func profileConfigFromForm(form llmProfileForm) config.LLMProfile {
 	return config.NormalizeLLMProfile(config.LLMProfile{
-		Provider:      form.Provider,
-		Model:         form.Model,
-		BaseURL:       form.BaseURL,
-		APIKeySecret:  form.APIKeySecret,
-		AllowedScopes: form.AllowedScopes,
-		Reasoning:     form.Reasoning,
-		Thinking:      form.Thinking,
+		Provider:       form.Provider,
+		Model:          form.Model,
+		BaseURL:        form.BaseURL,
+		APIKeySecret:   form.APIKeySecret,
+		AllowedScopes:  form.AllowedScopes,
+		Reasoning:      form.Reasoning,
+		Thinking:       form.Thinking,
+		TimeoutSeconds: form.TimeoutSeconds,
+		MaxTokens:      form.MaxTokens,
+		Temperature:    form.Temperature,
+		Extra:          form.Extra,
 	})
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	cloned := make(map[string]string, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func (a *App) llmProfilesSnapshot() (string, map[string]config.LLMProfile) {
@@ -499,7 +534,8 @@ func (a *App) loadLLMProfilesFromDB(ctx context.Context) (string, map[string]con
 	}
 
 	rows, err := a.db.Query(ctx, `
-		SELECT name, provider, model, base_url, api_key_secret, allowed_scopes, reasoning, thinking
+		SELECT name, provider, model, base_url, api_key_secret, allowed_scopes, reasoning, thinking,
+		       timeout_seconds, max_tokens, temperature, extra
 		FROM llm_profiles
 		ORDER BY name ASC
 	`)
@@ -515,6 +551,8 @@ func (a *App) loadLLMProfilesFromDB(ctx context.Context) (string, map[string]con
 			profile          config.LLMProfile
 			allowedScopesRaw []byte
 			thinking         sql.NullBool
+			temperature      sql.NullFloat64
+			extraRaw         []byte
 		)
 		if err := rows.Scan(
 			&name,
@@ -525,6 +563,10 @@ func (a *App) loadLLMProfilesFromDB(ctx context.Context) (string, map[string]con
 			&allowedScopesRaw,
 			&profile.Reasoning,
 			&thinking,
+			&profile.TimeoutSeconds,
+			&profile.MaxTokens,
+			&temperature,
+			&extraRaw,
 		); err != nil {
 			return "", nil, false, fmt.Errorf("scan LLM profile from database: %w", err)
 		}
@@ -536,6 +578,15 @@ func (a *App) loadLLMProfilesFromDB(ctx context.Context) (string, map[string]con
 		if thinking.Valid {
 			value := thinking.Bool
 			profile.Thinking = &value
+		}
+		if temperature.Valid {
+			value := temperature.Float64
+			profile.Temperature = &value
+		}
+		if len(extraRaw) > 0 {
+			if err := json.Unmarshal(extraRaw, &profile.Extra); err != nil {
+				return "", nil, false, fmt.Errorf("parse extra options for LLM profile %q: %w", name, err)
+			}
 		}
 		profiles[config.NormalizeLLMProfileName(name)] = config.NormalizeLLMProfile(profile)
 	}
@@ -606,11 +657,20 @@ func persistLLMProfilesToTx(ctx context.Context, tx pgx.Tx, defaultProfile strin
 		if profile.Thinking != nil {
 			thinking = *profile.Thinking
 		}
+		var temperature any
+		if profile.Temperature != nil {
+			temperature = *profile.Temperature
+		}
+		extraJSON, err := json.Marshal(profile.Extra)
+		if err != nil {
+			return fmt.Errorf("encode extra options for LLM profile %q: %w", name, err)
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO llm_profiles (
-				name, provider, model, base_url, api_key_secret, allowed_scopes, reasoning, thinking, updated_at
+				name, provider, model, base_url, api_key_secret, allowed_scopes, reasoning, thinking,
+				timeout_seconds, max_tokens, temperature, extra, updated_at
 			)
-			VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, NOW())
+			VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12::jsonb, NOW())
 		`,
 			name,
 			profile.Provider,
@@ -620,6 +680,10 @@ func persistLLMProfilesToTx(ctx context.Context, tx pgx.Tx, defaultProfile strin
 			string(allowedScopesJSON),
 			profile.Reasoning,
 			thinking,
+			profile.TimeoutSeconds,
+			profile.MaxTokens,
+			temperature,
+			string(extraJSON),
 		); err != nil {
 			return fmt.Errorf("persist LLM profile %q: %w", name, err)
 		}
@@ -782,6 +846,39 @@ func parseGitOpsLLMProfileFile(content, sourcePath string) (*gitOpsLLMProfilePla
 
 func validateLLMProfileDefinition(name string, profile config.LLMProfile) (string, string) {
 	profile = config.NormalizeLLMProfile(profile)
+	if profile.TimeoutSeconds < 0 {
+		return "invalid", fmt.Sprintf("LLM profile %q has invalid timeout_seconds %d", name, profile.TimeoutSeconds)
+	}
+	if profile.MaxTokens < 0 {
+		return "invalid", fmt.Sprintf("LLM profile %q has invalid max_tokens %d", name, profile.MaxTokens)
+	}
+	if profile.MaxTokens > 0 && !config.LLMProviderSupportsMaxTokens(profile.Provider) {
+		return "invalid", fmt.Sprintf("LLM profile %q provider %q does not support max_tokens", name, profile.Provider)
+	}
+	if profile.Temperature != nil {
+		minimum, maximum, supported := config.LLMProviderTemperatureRange(profile.Provider)
+		if !supported {
+			return "invalid", fmt.Sprintf("LLM profile %q provider %q does not support temperature", name, profile.Provider)
+		}
+		if *profile.Temperature < minimum || *profile.Temperature > maximum {
+			return "invalid", fmt.Sprintf(
+				"LLM profile %q has invalid temperature %g for provider %q; expected %g to %g",
+				name,
+				*profile.Temperature,
+				profile.Provider,
+				minimum,
+				maximum,
+			)
+		}
+	}
+	if !config.LLMProviderSupportsGenericReasoning(profile.Provider) {
+		if strings.TrimSpace(profile.Reasoning) != "" {
+			return "invalid", fmt.Sprintf("LLM profile %q provider %q does not support the generic reasoning setting", name, profile.Provider)
+		}
+		if profile.Thinking != nil {
+			return "invalid", fmt.Sprintf("LLM profile %q provider %q does not support the generic thinking setting", name, profile.Provider)
+		}
+	}
 	switch profile.Provider {
 	case config.LLMProviderGemini:
 		if strings.TrimSpace(profile.Model) == "" {
@@ -797,6 +894,34 @@ func validateLLMProfileDefinition(name string, profile config.LLMProfile) (strin
 		if !config.IsValidLMStudioReasoning(profile.Reasoning) {
 			return "invalid", fmt.Sprintf("LLM profile %q has invalid reasoning setting %q", name, profile.Reasoning)
 		}
+	case config.LLMProviderOpenAI,
+		config.LLMProviderAnthropic,
+		config.LLMProviderGroq,
+		config.LLMProviderMistral,
+		config.LLMProviderOpenRouter:
+		if strings.TrimSpace(profile.Model) == "" {
+			return "invalid", fmt.Sprintf("LLM profile %q is missing model", name)
+		}
+		if strings.TrimSpace(profile.APIKeySecret) == "" {
+			return "invalid", fmt.Sprintf("LLM profile %q is missing api_key_secret", name)
+		}
+	case config.LLMProviderOllama:
+		if strings.TrimSpace(profile.Model) == "" {
+			return "invalid", fmt.Sprintf("LLM profile %q is missing model", name)
+		}
+		if strings.TrimSpace(profile.BaseURL) == "" {
+			return "invalid", fmt.Sprintf("LLM profile %q is missing base_url", name)
+		}
+	case config.LLMProviderAzureOpenAI:
+		if strings.TrimSpace(profile.BaseURL) == "" {
+			return "invalid", fmt.Sprintf("LLM profile %q is missing base_url", name)
+		}
+		if strings.TrimSpace(profile.Model) == "" && strings.TrimSpace(profile.Extra["deployment"]) == "" {
+			return "invalid", fmt.Sprintf("LLM profile %q is missing model or extra.deployment", name)
+		}
+		if strings.TrimSpace(profile.APIKeySecret) == "" {
+			return "invalid", fmt.Sprintf("LLM profile %q is missing api_key_secret", name)
+		}
 	default:
 		return "invalid", fmt.Sprintf("LLM profile %q uses unsupported provider %q", name, profile.Provider)
 	}
@@ -808,7 +933,7 @@ func validateLLMProfileConfiguration(name string, profile config.LLMProfile) (st
 		return status, message
 	}
 	profile = config.NormalizeLLMProfile(profile)
-	if profile.Provider == config.LLMProviderGemini && strings.TrimSpace(resolveLLMProfileAPIKey(profile)) == "" {
+	if config.LLMProviderRequiresAPIKey(profile.Provider) && strings.TrimSpace(resolveLLMProfileAPIKey(profile)) == "" {
 		return "invalid", fmt.Sprintf("LLM profile %q API key secret %q is not set", name, profile.APIKeySecret)
 	}
 	return "valid", ""
@@ -828,19 +953,23 @@ func (a *App) buildRuntimeLLMProfiles(cfg config.Config) (runtimeLLMProfiles, er
 	profiles := make(map[string]runtimeLLMProfile, len(effectiveProfiles))
 	for name, profile := range effectiveProfiles {
 		normalized := config.NormalizeLLMProfile(profile)
-		baseURL := normalized.BaseURL
+		baseURL := config.EffectiveLLMProfileBaseURL(normalized)
 		if normalized.Provider == config.LLMProviderLMStudio {
 			baseURL = containerReachableLMStudioBaseURL(baseURL)
 		}
 		profiles[name] = runtimeLLMProfile{
-			Provider:      normalized.Provider,
-			Model:         normalized.Model,
-			BaseURL:       baseURL,
-			APIKey:        resolveLLMProfileAPIKey(normalized),
-			APIKeySecret:  normalized.APIKeySecret,
-			AllowedScopes: append([]string(nil), normalized.AllowedScopes...),
-			Reasoning:     config.EffectiveLLMProfileReasoning(normalized),
-			Thinking:      normalized.Thinking,
+			Provider:       normalized.Provider,
+			Model:          normalized.Model,
+			BaseURL:        baseURL,
+			APIKey:         resolveLLMProfileAPIKey(normalized),
+			APIKeySecret:   normalized.APIKeySecret,
+			AllowedScopes:  append([]string(nil), normalized.AllowedScopes...),
+			Reasoning:      config.EffectiveLLMProfileReasoning(normalized),
+			Thinking:       normalized.Thinking,
+			TimeoutSeconds: normalized.TimeoutSeconds,
+			MaxTokens:      normalized.MaxTokens,
+			Temperature:    normalized.Temperature,
+			Extra:          cloneStringMap(normalized.Extra),
 		}
 	}
 	return runtimeLLMProfiles{DefaultProfile: defaultProfile, Profiles: profiles}, nil
@@ -1048,7 +1177,11 @@ func (a *App) handleTestLLMProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	timeout := 20 * time.Second
+	if profile.TimeoutSeconds > 0 {
+		timeout = time.Duration(profile.TimeoutSeconds) * time.Second
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 	reply, err := testLLMProfile(ctx, profile, resolveLLMProfileAPIKey(profile))
 	if err != nil {
@@ -1070,6 +1203,16 @@ func testLLMProfile(ctx context.Context, profile config.LLMProfile, apiKey strin
 		return testGeminiProfile(ctx, profile, apiKey)
 	case config.LLMProviderLMStudio:
 		return testLMStudioProfile(ctx, profile, apiKey)
+	case config.LLMProviderOpenAI,
+		config.LLMProviderGroq,
+		config.LLMProviderMistral,
+		config.LLMProviderOllama,
+		config.LLMProviderOpenRouter:
+		return testOpenAICompatibleProfile(ctx, profile, apiKey)
+	case config.LLMProviderAnthropic:
+		return testAnthropicProfile(ctx, profile, apiKey)
+	case config.LLMProviderAzureOpenAI:
+		return testAzureOpenAIProfile(ctx, profile, apiKey)
 	default:
 		return "", fmt.Errorf("unsupported LLM provider: %s", profile.Provider)
 	}
@@ -1079,6 +1222,12 @@ func testGeminiProfile(ctx context.Context, profile config.LLMProfile, apiKey st
 	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", profile.Model, apiKey)
 	payload := models.GeminiRequest{
 		Contents: []models.Content{{Parts: []models.Part{{Text: "reply ok"}}}},
+	}
+	if profile.MaxTokens > 0 || profile.Temperature != nil {
+		payload.GenerationConfig = &models.GeminiGenerationConfig{
+			MaxOutputTokens: profile.MaxTokens,
+			Temperature:     profile.Temperature,
+		}
 	}
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
@@ -1110,15 +1259,19 @@ func testGeminiProfile(ctx context.Context, profile config.LLMProfile, apiKey st
 
 func testLMStudioProfile(ctx context.Context, profile config.LLMProfile, apiKey string) (string, error) {
 	payload := struct {
-		Model     string `json:"model,omitempty"`
-		Input     string `json:"input"`
-		Reasoning string `json:"reasoning,omitempty"`
-		Store     bool   `json:"store"`
+		Model           string   `json:"model,omitempty"`
+		Input           string   `json:"input"`
+		Reasoning       string   `json:"reasoning,omitempty"`
+		MaxOutputTokens int      `json:"max_output_tokens,omitempty"`
+		Temperature     *float64 `json:"temperature,omitempty"`
+		Store           bool     `json:"store"`
 	}{
-		Model:     profile.Model,
-		Input:     "reply ok",
-		Reasoning: config.EffectiveLLMProfileReasoning(profile),
-		Store:     false,
+		Model:           profile.Model,
+		Input:           "reply ok",
+		Reasoning:       config.EffectiveLLMProfileReasoning(profile),
+		MaxOutputTokens: profile.MaxTokens,
+		Temperature:     profile.Temperature,
+		Store:           false,
 	}
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {

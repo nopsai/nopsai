@@ -449,7 +449,6 @@ export function PipelineRunsPageView({
           syncing={configRepoSyncing}
           error={configRepoError}
           driftLoading={configRepoDriftLoading}
-          pushing={configRepoPushing}
           notificationRoute={notificationRoute}
           notificationForm={notificationRouteForm}
           notificationLoading={notificationRouteLoading}

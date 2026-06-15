@@ -32,7 +32,7 @@ delivery:
     dedupe_window: 15m
     max_per_run: 3
 `,
-	}, "notifications", "", models.ConfigRepository{
+	}, "", models.ConfigRepository{
 		ScopeType: models.ConfigRepositoryScopeFolder,
 		ScopeID:   "team-1",
 	}, "team-1")
@@ -57,28 +57,62 @@ delivery:
 	}
 }
 
-func TestParseGitOpsNotificationRoutesGlobalGroupPath(t *testing.T) {
-	routes, err := parseGitOpsNotificationRoutes(map[string]string{
-		"notifications/groups/team-1/platform.yaml": `
+func TestParseGitOpsNotificationRoutesConfigRepositoryGroupPath(t *testing.T) {
+	routes, err := parseGitOpsConfigRepositoryNotificationRoutes(map[string]string{
+		"config-repositories/groups/team-1/platform/notifications.yaml": `
 enabled: true
 events:
   waiting-approval: true
 `,
-	}, "notifications", "", models.ConfigRepository{
+	}, "config-repositories", models.ConfigRepository{
 		ScopeType: models.ConfigRepositoryScopeSystem,
 		ScopeID:   models.ConfigRepositorySystemGlobalID,
 	}, "")
 	if err != nil {
-		t.Fatalf("parseGitOpsNotificationRoutes() error = %v", err)
+		t.Fatalf("parseGitOpsConfigRepositoryNotificationRoutes() error = %v", err)
 	}
-	if _, ok := routes["team-1/platform"]; !ok {
-		t.Fatalf("missing normalized nested route: %#v", routes)
+	route, ok := routes["team-1/platform"]
+	if !ok {
+		t.Fatalf("missing colocated route: %#v", routes)
+	}
+	if route.sourcePath != "config-repositories/groups/team-1/platform/notifications.yaml" {
+		t.Fatalf("source path = %q, want colocated notification path", route.sourcePath)
+	}
+	if !route.definition.Events["waiting_approval"] {
+		t.Fatalf("events = %#v, want waiting_approval enabled", route.definition.Events)
+	}
+}
+
+func TestParseConfigSyncPlanSkipsColocatedNotificationAsBinding(t *testing.T) {
+	app := &App{}
+	binding := models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID}
+	plan, err := app.parseConfigSyncPlan(binding, configSyncRepositoryContext{
+		dirs: configRepositoryGitDirsForBasePath(""),
+	}, configSyncRepositoryFiles{
+		configRepositories: map[string]string{
+			"config-repositories/groups/team-1/notifications.yaml": `
+enabled: true
+routes:
+  - name: failures
+    events:
+      failure: true
+`,
+		},
+	})
+	if err != nil {
+		t.Fatalf("parseConfigSyncPlan() error = %v", err)
+	}
+	if _, ok := plan.configRepositories["folder/team-1/notifications"]; ok {
+		t.Fatal("colocated notification policy was parsed as a config repository binding")
+	}
+	if _, ok := plan.notificationRoutes["team-1"]; !ok {
+		t.Fatalf("missing colocated notification route: %#v", plan.notificationRoutes)
 	}
 }
 
 func TestParseGitOpsNotificationRoutesMultiRoutePolicy(t *testing.T) {
-	routes, err := parseGitOpsNotificationRoutes(map[string]string{
-		"notifications/groups/team-1.yaml": `
+	routes, err := parseGitOpsConfigRepositoryNotificationRoutes(map[string]string{
+		"config-repositories/groups/team-1/notifications.yaml": `
 enabled: true
 routes:
   - name: ops failures
@@ -95,7 +129,7 @@ routes:
       include:
         groups: [team-1/release]
 `,
-	}, "notifications", "", models.ConfigRepository{
+	}, "config-repositories", models.ConfigRepository{
 		ScopeType: models.ConfigRepositoryScopeSystem,
 		ScopeID:   models.ConfigRepositorySystemGlobalID,
 	}, "")
@@ -118,12 +152,12 @@ routes:
 }
 
 func TestParseGitOpsNotificationRoutesRejectsUnknownEvent(t *testing.T) {
-	_, err := parseGitOpsNotificationRoutes(map[string]string{
-		"notifications/groups/team-1.yaml": `
+	_, err := parseGitOpsConfigRepositoryNotificationRoutes(map[string]string{
+		"config-repositories/groups/team-1/notifications.yaml": `
 events:
   maybe: true
 `,
-	}, "notifications", "", models.ConfigRepository{
+	}, "config-repositories", models.ConfigRepository{
 		ScopeType: models.ConfigRepositoryScopeSystem,
 		ScopeID:   models.ConfigRepositorySystemGlobalID,
 	}, "")

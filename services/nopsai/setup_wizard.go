@@ -81,13 +81,17 @@ type setupConfigRepositoryInput struct {
 }
 
 type setupLLMProfileInput struct {
-	Name          string   `json:"name"`
-	Provider      string   `json:"provider"`
-	Model         string   `json:"model"`
-	BaseURL       string   `json:"base_url"`
-	APIKeySecret  string   `json:"api_key_secret"`
-	APIKeyValue   string   `json:"api_key_value"`
-	AllowedScopes []string `json:"allowed_scopes"`
+	Name           string            `json:"name"`
+	Provider       string            `json:"provider"`
+	Model          string            `json:"model"`
+	BaseURL        string            `json:"base_url"`
+	APIKeySecret   string            `json:"api_key_secret"`
+	APIKeyValue    string            `json:"api_key_value"`
+	AllowedScopes  []string          `json:"allowed_scopes"`
+	TimeoutSeconds int               `json:"timeout_seconds,omitempty"`
+	MaxTokens      int               `json:"max_tokens,omitempty"`
+	Temperature    *float64          `json:"temperature,omitempty"`
+	Extra          map[string]string `json:"extra,omitempty"`
 }
 
 type setupRepositoryGroupInput struct {
