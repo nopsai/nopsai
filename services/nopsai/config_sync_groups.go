@@ -70,66 +70,14 @@ func configRepositoryOverrideScopes(ctx context.Context, tx pgx.Tx, binding mode
 func effectivePipelineRunStructureForConfigSync(
 	binding models.ConfigRepository,
 	configRepositories map[string]storedConfigRepository,
-	pipelineRunStructure map[string]*configsync.PipelineRunStructureNode,
 	configRepositoryPipelineRunStructure map[string]*configsync.PipelineRunStructureNode,
-	overrideScopes []string,
 ) (map[string]*configsync.PipelineRunStructureNode, error) {
 	effective, err := configRepositoryGroupStructure(binding, configRepositories)
 	if err != nil {
 		return nil, err
 	}
-
-	structure := pipelineRunStructure
-	if binding.ScopeType == models.ConfigRepositoryScopeSystem && containsGroupConfigRepository(configRepositories) {
-		structure = nil
-	} else {
-		structure = configsync.FilterPipelineRunStructureByScopes(structure, configRepositoryStructureFilterScopes(binding, configRepositories, overrideScopes))
-	}
-
-	configsync.MergePipelineRunStructure(effective, structure)
 	configsync.MergePipelineRunStructure(effective, configRepositoryPipelineRunStructure)
 	return effective, nil
-}
-
-func containsGroupConfigRepository(configRepositories map[string]storedConfigRepository) bool {
-	for _, repo := range configRepositories {
-		if repo.scopeType == models.ConfigRepositoryScopeFolder {
-			return true
-		}
-	}
-	return false
-}
-
-func configRepositoryStructureFilterScopes(binding models.ConfigRepository, configRepositories map[string]storedConfigRepository, overrideScopes []string) []string {
-	scopeSet := map[string]struct{}{}
-	addScope := func(scope string) {
-		scope = strings.Trim(strings.TrimSpace(scope), "/")
-		if scope == "" {
-			return
-		}
-		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
-			boundScope := strings.Trim(strings.TrimSpace(binding.ScopeID), "/")
-			if scope == boundScope || !configsync.ResourceUnderScope(scope, boundScope) {
-				return
-			}
-		}
-		scopeSet[scope] = struct{}{}
-	}
-
-	for _, scope := range overrideScopes {
-		addScope(scope)
-	}
-	for _, repo := range configRepositories {
-		if repo.scopeType == models.ConfigRepositoryScopeFolder {
-			addScope(repo.scopeID)
-		}
-	}
-
-	scopes := make([]string, 0, len(scopeSet))
-	for scope := range scopeSet {
-		scopes = append(scopes, scope)
-	}
-	return scopes
 }
 
 func configRepositoryGroupStructure(binding models.ConfigRepository, configRepositories map[string]storedConfigRepository) (map[string]*configsync.PipelineRunStructureNode, error) {

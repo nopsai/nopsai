@@ -3,6 +3,7 @@ package nopsai
 import (
 	"context"
 	"database/sql"
+	"path/filepath"
 	"strings"
 
 	"nopsai/pkg/models"
@@ -82,10 +83,74 @@ func (a *App) exportConfigRepositoryGroupStructure(ctx context.Context, repo mod
 	if len(structure) == 0 {
 		return nil
 	}
-	content, err := marshalConfigRepositoryYAML(configsync.GroupStructureExportMap(structure))
+	structureFiles, err := configRepositoryGroupStructureFiles(repo, structure)
 	if err != nil {
 		return err
 	}
-	files[configRepositoryGroupStructurePath] = string(content)
+	for filePath, content := range structureFiles {
+		files[filePath] = content
+	}
 	return nil
+}
+
+func configRepositoryGroupStructureFiles(repo models.ConfigRepository, structure map[string]*configsync.GroupStructureExportNode) (map[string]string, error) {
+	files := map[string]string{}
+	switch repo.ScopeType {
+	case models.ConfigRepositoryScopeFolder:
+		scope := strings.Trim(strings.TrimSpace(repo.ScopeID), "/")
+		if scope == "" {
+			return files, nil
+		}
+		node := configRepositoryGroupStructureNodeAtPath(structure, scope)
+		if node == nil {
+			return files, nil
+		}
+		content, err := marshalConfigRepositoryGroupStructureNode(node)
+		if err != nil {
+			return nil, err
+		}
+		files[configRepositoryGroupStructurePathForScope(scope)] = content
+	default:
+		for name, node := range structure {
+			scope := strings.Trim(strings.TrimSpace(name), "/")
+			if scope == "" {
+				continue
+			}
+			content, err := marshalConfigRepositoryGroupStructureNode(node)
+			if err != nil {
+				return nil, err
+			}
+			files[configRepositoryGroupStructurePathForScope(scope)] = content
+		}
+	}
+	return files, nil
+}
+
+func configRepositoryGroupStructureNodeAtPath(structure map[string]*configsync.GroupStructureExportNode, scope string) *configsync.GroupStructureExportNode {
+	parts := strings.Split(strings.Trim(strings.TrimSpace(scope), "/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		return nil
+	}
+	var node *configsync.GroupStructureExportNode
+	children := structure
+	for _, part := range parts {
+		node = children[part]
+		if node == nil {
+			return nil
+		}
+		children = node.Children
+	}
+	return node
+}
+
+func marshalConfigRepositoryGroupStructureNode(node *configsync.GroupStructureExportNode) (string, error) {
+	content, err := marshalConfigRepositoryYAML(configsync.GroupStructureExportNodeMap(node))
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
+}
+
+func configRepositoryGroupStructurePathForScope(scope string) string {
+	return filepath.ToSlash(filepath.Join("config-repositories", "groups", strings.Trim(strings.TrimSpace(scope), "/"), "structure.yaml"))
 }

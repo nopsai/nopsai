@@ -163,8 +163,8 @@ Prerequisites:
 - A Docker runtime available to the runner
 - Postgres is provided by `docker-compose.yaml`
 - A GitHub App for webhook-driven automation
-- An LLM provider supported by the configured LLM profile, such as LM Studio or
-  Gemini
+- An LLM provider supported by the configured LLM profile, including LM Studio,
+  Gemini, OpenAI, Anthropic, Groq, Mistral, OpenRouter, Ollama, or Azure OpenAI
 
 1. Review `config.yml` and `.env`.
 
@@ -222,15 +222,13 @@ GitOps sync can import:
 - `triggers/`: repository trigger overrides
 - `scopes/`: scoped variables and GitOps secret keys
 - `knowledge/`: managed knowledge documents
-- `notifications/`: group-level notification routing
 - `access/`: users, roles, policies, bindings, and basic product role grants
-- `config-repositories/`: global and group config repository bindings
+- `config-repositories/`: global and group config repository bindings, per-group hierarchy, and notification routing
 - `setting/system/auth.yaml`: local-login and OIDC SSO settings from the global config repo
-- `settings/system/mail.yaml`: mail notification SMTP settings from the global config repo
+- `setting/system/mail.yaml`: mail notification SMTP settings from the global config repo
 - `setting/system/llm_profile.yaml`: system LLM profile registry
 - `setting/system/mcp.yaml`: MCP server and profile registry
 - `setting/system/runner.yaml`: runner install defaults, runtime URLs, and dispatcher routing from the global config repo
-- `pipelineruns/structure.yaml`: legacy run group structure
 
 Runtime settings GitOps is limited to operational defaults such as runner ID,
 runner scopes, runner capacity, dispatcher address, agent image/network defaults,
@@ -249,7 +247,7 @@ secrets such as `client_secret`, `entitlement_sync.admin_client_secret`, and
 preserves the values already stored locally for that provider.
 
 Mail notification settings live under **System > Config** and can be
-declared in the global config repository at `settings/system/mail.yaml`. GitOps
+declared in the global config repository at `setting/system/mail.yaml`. GitOps
 stores only SMTP host, port, sender, username, TLS mode, and
 `password_secret_ref`; the actual SMTP password must stay in the referenced
 environment variable or secret manager entry.
@@ -269,10 +267,10 @@ the SMTP endpoint, TLS mode, authentication configuration, sender, recipient,
 environment, and generation time without including passwords or secret values.
 
 Group notification routing lives next to the group config repository controls.
-The global repo can define `notifications/groups/<group>.yaml`; a group repo can
-define `notifications.yaml` for its bound group. Each policy can contain one or
-more named routes that select recipients (`same_group`, explicit users, groups,
-and excludes), event types such as
+The global repo defines `config-repositories/groups/<group>/notifications.yaml`;
+a group repo defines `notifications.yaml` for its bound group. Each policy can
+contain one or more named routes that select recipients (`same_group`, explicit
+users, groups, and excludes), event types such as
 `failure`, `success`, `pending`, `waiting_approval`, approval decisions, and
 `cancelled`, plus optional pipeline/repo/branch filters and mail delivery
 throttling. Policies apply to their group subtree; the closest policy in the
@@ -397,12 +395,13 @@ managed in the UI/API or through the global config repository at
 
 Supported profile concepts include:
 
-- provider selection, currently including Gemini and LM Studio paths in the
-  runtime configuration
+- provider selection for Gemini, LM Studio, OpenAI, Anthropic, Groq, Mistral,
+  OpenRouter, Ollama, and Azure OpenAI
 - model name
 - base URL for local/provider-compatible endpoints
 - API key secret reference
 - allowed scopes
+- request timeout, maximum tokens, temperature, and provider-specific options
 - optional reasoning controls where supported by the provider path
 
 MCP servers and MCP profiles can be managed through system configuration at

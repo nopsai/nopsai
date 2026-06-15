@@ -342,9 +342,7 @@ func upsertOIDCProvider(ctx context.Context, db *pgxpool.Pool, provider oidcProv
 		provider.ConfigSource,
 	}
 	secretSet := `client_secret = EXCLUDED.client_secret`
-	if replaceSecret {
-		secretSet = `client_secret = EXCLUDED.client_secret`
-	} else {
+	if !replaceSecret {
 		secretSet = `client_secret = CASE WHEN EXCLUDED.client_secret <> '' THEN EXCLUDED.client_secret ELSE auth_identity_providers.client_secret END`
 	}
 	_, err := db.Exec(ctx, `

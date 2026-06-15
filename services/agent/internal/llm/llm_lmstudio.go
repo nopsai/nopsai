@@ -8,14 +8,70 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 
 	"nopsai/pkg/models"
 
 	"github.com/rs/zerolog/log"
 )
 
+type lmStudioClient struct {
+	owner       *LLMClient
+	apiKey      string
+	model       string
+	baseURL     string
+	reasoning   string
+	maxTokens   int
+	temperature *float64
+	modelMu     sync.Mutex
+	loadedModel string
+}
+
+type lmStudioEndpointGate struct {
+	sem chan struct{}
+}
+
+var lmStudioEndpointLoadGates sync.Map
+
+type lmStudioModelsResponse struct {
+	Models []lmStudioModelInfo `json:"models"`
+	Data   []struct {
+		ID string `json:"id"`
+	} `json:"data"`
+}
+
+type lmStudioModelInfo struct {
+	Type            string `json:"type"`
+	Key             string `json:"key"`
+	SelectedVariant string `json:"selected_variant"`
+	LoadedInstances []struct {
+		ID string `json:"id"`
+	} `json:"loaded_instances"`
+	Variants []string `json:"variants"`
+}
+
+func newLMStudioClient(owner *LLMClient, options LLMClientOptions) ProviderClient {
+	return &lmStudioClient{
+		owner:       owner,
+		apiKey:      options.APIKey,
+		model:       options.Model,
+		baseURL:     options.BaseURL,
+		reasoning:   options.Reasoning,
+		maxTokens:   options.MaxTokens,
+		temperature: options.Temperature,
+	}
+}
+
+func (c *lmStudioClient) Name() string {
+	return c.owner.provider
+}
+
+func (c *lmStudioClient) Complete(ctx context.Context, prompt string) (string, error) {
+	return c.callLMStudio(ctx, prompt)
+}
+
 func (c *LLMClient) callLMStudioForBoolean(ctx context.Context, prompt string) (bool, error) {
-	responseText, err := c.callLMStudio(ctx, prompt)
+	responseText, err := c.providerClient.Complete(ctx, prompt)
 	if err != nil {
 		return false, err
 	}
@@ -23,14 +79,14 @@ func (c *LLMClient) callLMStudioForBoolean(ctx context.Context, prompt string) (
 }
 
 func (c *LLMClient) callLMStudioForAction(ctx context.Context, prompt string) (*models.Action, error) {
-	responseText, err := c.callLMStudio(ctx, prompt)
+	responseText, err := c.providerClient.Complete(ctx, prompt)
 	if err != nil {
 		return nil, err
 	}
 	return decodeActionResponse(responseText)
 }
 
-func (c *LLMClient) callLMStudio(ctx context.Context, prompt string) (string, error) {
+func (c *lmStudioClient) callLMStudio(ctx context.Context, prompt string) (string, error) {
 	model, err := c.resolveLMStudioModel(ctx)
 	if err != nil {
 		return "", err
@@ -40,20 +96,24 @@ func (c *LLMClient) callLMStudio(ctx context.Context, prompt string) (string, er
 	}
 
 	reqPayload := struct {
-		Model     string `json:"model"`
-		Input     string `json:"input"`
-		Reasoning string `json:"reasoning,omitempty"`
-		Store     bool   `json:"store"`
+		Model           string   `json:"model"`
+		Input           string   `json:"input"`
+		Reasoning       string   `json:"reasoning,omitempty"`
+		MaxOutputTokens int      `json:"max_output_tokens,omitempty"`
+		Temperature     *float64 `json:"temperature,omitempty"`
+		Store           bool     `json:"store"`
 	}{
-		Model:     model,
-		Input:     prompt,
-		Reasoning: c.reasoning,
-		Store:     false,
+		Model:           model,
+		Input:           prompt,
+		Reasoning:       c.reasoning,
+		MaxOutputTokens: c.maxTokens,
+		Temperature:     c.temperature,
+		Store:           false,
 	}
 
 	logEvent := log.Debug().Str("model", model).Str("endpoint", buildLMStudioChatURL(c.baseURL))
-	if c.profile != "" {
-		logEvent = logEvent.Str("llm_profile", c.profile)
+	if c.owner.profile != "" {
+		logEvent = logEvent.Str("llm_profile", c.owner.profile)
 	}
 	if c.reasoning != "" {
 		logEvent = logEvent.Str("reasoning", c.reasoning)
@@ -74,7 +134,7 @@ func (c *LLMClient) callLMStudio(ctx context.Context, prompt string) (string, er
 		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := c.owner.httpClient.Do(httpReq)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return "", fmt.Errorf("lm studio chat request cancelled: %w", ctxErr)
@@ -123,14 +183,14 @@ func (c *LLMClient) callLMStudio(ctx context.Context, prompt string) (string, er
 	return responseText, nil
 }
 
-func (c *LLMClient) recordLMStudioUsage(ctx context.Context, model, prompt, completion string, inputTokens, outputTokens, promptTokens, completionTokens, totalTokens int64) {
+func (c *lmStudioClient) recordLMStudioUsage(ctx context.Context, model, prompt, completion string, inputTokens, outputTokens, promptTokens, completionTokens, totalTokens int64) {
 	if promptTokens == 0 {
 		promptTokens = inputTokens
 	}
 	if completionTokens == 0 {
 		completionTokens = outputTokens
 	}
-	recordUsage(ctx, usageFromTokens(c.provider, model, c.profile, prompt, completion, promptTokens, completionTokens, totalTokens))
+	recordUsage(ctx, usageFromTokens(c.owner.provider, model, c.owner.profile, prompt, completion, promptTokens, completionTokens, totalTokens))
 }
 
 func lmStudioEndpointLoadGateFor(baseURL string) *lmStudioEndpointGate {
@@ -150,7 +210,7 @@ func (g *lmStudioEndpointGate) acquire(ctx context.Context) (func(), error) {
 	}
 }
 
-func (c *LLMClient) ensureLMStudioModelLoaded(ctx context.Context, model string) error {
+func (c *lmStudioClient) ensureLMStudioModelLoaded(ctx context.Context, model string) error {
 	model = strings.TrimSpace(model)
 	if model == "" {
 		return fmt.Errorf("lm studio model is required")
@@ -196,19 +256,19 @@ func (c *LLMClient) ensureLMStudioModelLoaded(ctx context.Context, model string)
 	return nil
 }
 
-func (c *LLMClient) isLMStudioModelMarkedLoaded(model string) bool {
+func (c *lmStudioClient) isLMStudioModelMarkedLoaded(model string) bool {
 	c.modelMu.Lock()
 	defer c.modelMu.Unlock()
 	return strings.TrimSpace(c.loadedModel) == strings.TrimSpace(model)
 }
 
-func (c *LLMClient) markLMStudioModelLoaded(model string) {
+func (c *lmStudioClient) markLMStudioModelLoaded(model string) {
 	c.modelMu.Lock()
 	c.loadedModel = strings.TrimSpace(model)
 	c.modelMu.Unlock()
 }
 
-func (c *LLMClient) lmStudioModelAvailability(ctx context.Context, model string) (bool, bool, error) {
+func (c *lmStudioClient) lmStudioModelAvailability(ctx context.Context, model string) (bool, bool, error) {
 	modelsResp, err := c.fetchLMStudioModels(ctx)
 	if err != nil {
 		return false, false, err
@@ -248,7 +308,7 @@ func (c *LLMClient) lmStudioModelAvailability(ctx context.Context, model string)
 	return false, false, nil
 }
 
-func (c *LLMClient) loadLMStudioModel(ctx context.Context, model string) error {
+func (c *lmStudioClient) loadLMStudioModel(ctx context.Context, model string) error {
 	reqPayload := struct {
 		Model string `json:"model"`
 	}{
@@ -268,7 +328,7 @@ func (c *LLMClient) loadLMStudioModel(ctx context.Context, model string) error {
 		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := c.owner.httpClient.Do(httpReq)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("lm studio model load cancelled: %w", ctxErr)
@@ -285,7 +345,7 @@ func (c *LLMClient) loadLMStudioModel(ctx context.Context, model string) error {
 	return nil
 }
 
-func (c *LLMClient) fetchLMStudioModels(ctx context.Context) (lmStudioModelsResponse, error) {
+func (c *lmStudioClient) fetchLMStudioModels(ctx context.Context) (lmStudioModelsResponse, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, buildLMStudioModelsURL(c.baseURL), nil)
 	if err != nil {
 		return lmStudioModelsResponse{}, fmt.Errorf("failed to build lm studio model discovery request: %w", err)
@@ -294,7 +354,7 @@ func (c *LLMClient) fetchLMStudioModels(ctx context.Context) (lmStudioModelsResp
 		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := c.owner.httpClient.Do(httpReq)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return lmStudioModelsResponse{}, fmt.Errorf("lm studio model discovery cancelled: %w", ctxErr)
@@ -316,7 +376,7 @@ func (c *LLMClient) fetchLMStudioModels(ctx context.Context) (lmStudioModelsResp
 	return modelsResp, nil
 }
 
-func (c *LLMClient) resolveLMStudioModel(ctx context.Context) (string, error) {
+func (c *lmStudioClient) resolveLMStudioModel(ctx context.Context) (string, error) {
 	c.modelMu.Lock()
 	configuredModel := strings.TrimSpace(c.model)
 	c.modelMu.Unlock()

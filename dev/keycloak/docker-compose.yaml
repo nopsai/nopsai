@@ -1,0 +1,24 @@
+networks:
+  nopsai-net:
+    driver: bridge
+    name: nopsai-net
+services:  
+  keycloak:
+    container_name: nopsai-keycloak
+    image: quay.io/keycloak/keycloak:26.6.3
+    command:
+      - start-dev
+      - --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HOSTNAME: http://keycloak.pre-nopsai.orb.local:8088
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "8088:8080"
+    volumes:
+      - ./dev/keycloak/nopsai-realm.json:/opt/keycloak/data/import/nopsai-realm.json:ro
+    networks:
+      - nopsai-net

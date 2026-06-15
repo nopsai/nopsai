@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 
-	appconfig "nopsai/config"
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
 
@@ -14,18 +13,7 @@ import (
 )
 
 func (c *LLMClient) getActionModel(ctx context.Context, prompt string) (*models.Action, error) {
-	var (
-		actionModel *models.Action
-		err         error
-	)
-	switch c.provider {
-	case appconfig.LLMProviderGemini:
-		actionModel, err = c.callGeminiForAction(ctx, prompt)
-	case appconfig.LLMProviderLMStudio:
-		actionModel, err = c.callLMStudioForAction(ctx, prompt)
-	default:
-		err = fmt.Errorf("unsupported llm provider: %s", c.provider)
-	}
+	responseText, err := c.providerClient.Complete(ctx, prompt)
 	if err != nil {
 		logEvent := log.Error().Err(err).Str("provider", c.provider)
 		if c.profile != "" {
@@ -35,7 +23,7 @@ func (c *LLMClient) getActionModel(ctx context.Context, prompt string) (*models.
 		return nil, err
 	}
 
-	return actionModel, nil
+	return decodeActionResponse(responseText)
 }
 
 func actionModelToProto(actionModel *models.Action) (*proto.Action, error) {
@@ -64,19 +52,7 @@ func (c *LLMClient) EvaluateCondition(ctx context.Context, req *proto.ConditionR
 func (c *LLMClient) EvaluateConditionWithAgentProfile(ctx context.Context, req *proto.ConditionRequest, agentProfile AgentPromptProfile) (*proto.ConditionResponse, error) {
 	prompt := c.buildConditionPrompt(req, agentProfile)
 
-	var (
-		result bool
-		err    error
-	)
-
-	switch c.provider {
-	case appconfig.LLMProviderGemini:
-		result, err = c.callGeminiForBoolean(ctx, prompt)
-	case appconfig.LLMProviderLMStudio:
-		result, err = c.callLMStudioForBoolean(ctx, prompt)
-	default:
-		err = fmt.Errorf("unsupported llm provider: %s", c.provider)
-	}
+	responseText, err := c.providerClient.Complete(ctx, prompt)
 	if err != nil {
 		logEvent := log.Error().Err(err).Str("provider", c.provider)
 		if c.profile != "" {
@@ -86,6 +62,10 @@ func (c *LLMClient) EvaluateConditionWithAgentProfile(ctx context.Context, req *
 		return &proto.ConditionResponse{Result: false}, err
 	}
 
+	result, err := parseBooleanText(responseText)
+	if err != nil {
+		return &proto.ConditionResponse{Result: false}, err
+	}
 	return &proto.ConditionResponse{Result: result}, nil
 }
 

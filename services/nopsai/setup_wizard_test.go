@@ -68,10 +68,19 @@ func TestSetupStarterTemplatesUseSelectedRepositoryGroups(t *testing.T) {
 		IncludeLLM: true,
 		IncludeMCP: false,
 	})
-	structure := files["config-repositories/groups/structure.yaml"]
-	for _, want := range []string{"platform:", "name: service-api", "repo_url: https://github.com/acme/service-api", "apps:", "name: web", "repo_url: https://github.com/acme/web"} {
-		if !strings.Contains(structure, want) {
-			t.Fatalf("structure missing %q:\n%s", want, structure)
+	if _, ok := files["config-repositories/groups/structure.yaml"]; ok {
+		t.Fatal("starter templates should use scoped group structure files, not the aggregate structure file")
+	}
+	platformStructure := files["config-repositories/groups/platform/structure.yaml"]
+	for _, want := range []string{"description: Repository group", "apps:", "name: service-api", "repo_url: https://github.com/acme/service-api"} {
+		if !strings.Contains(platformStructure, want) {
+			t.Fatalf("platform structure missing %q:\n%s", want, platformStructure)
+		}
+	}
+	appsStructure := files["config-repositories/groups/apps/structure.yaml"]
+	for _, want := range []string{"description: Repository group", "apps:", "name: web", "repo_url: https://github.com/acme/web"} {
+		if !strings.Contains(appsStructure, want) {
+			t.Fatalf("apps structure missing %q:\n%s", want, appsStructure)
 		}
 	}
 	if _, ok := files["setting/system/mcp.yaml"]; ok {
@@ -114,6 +123,47 @@ func TestSetupLLMProfileYAMLGeminiHasProviderSpecificFields(t *testing.T) {
 	}
 	if strings.Contains(got, "base_url:") {
 		t.Fatalf("Gemini template should not contain base_url:\n%s", got)
+	}
+}
+
+func TestSetupLLMProfileYAMLOpenAIUsesProviderDefaults(t *testing.T) {
+	got := setupLLMProfileYAML(setupLLMProfileInput{
+		Provider: config.LLMProviderOpenAI,
+	})
+	for _, want := range []string{
+		"provider: openai",
+		"model: gpt-4.1-mini",
+		"base_url: https://api.openai.com/v1",
+		"api_key_secret: OPENAI_API_KEY",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("OpenAI template missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestSetupLLMProfileYAMLPreservesAdvancedOptions(t *testing.T) {
+	temperature := 0.2
+	got := setupLLMProfileYAML(setupLLMProfileInput{
+		Provider:       config.LLMProviderOpenRouter,
+		TimeoutSeconds: 30,
+		MaxTokens:      4096,
+		Temperature:    &temperature,
+		Extra: map[string]string{
+			"x_title":      "NopsAI",
+			"http_referer": "https://nopsai.example.com",
+		},
+	})
+	for _, want := range []string{
+		"timeout_seconds: 30",
+		"max_tokens: 4096",
+		"temperature: 0.2",
+		"http_referer: https://nopsai.example.com",
+		"x_title: NopsAI",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("OpenRouter template missing %q:\n%s", want, got)
+		}
 	}
 }
 

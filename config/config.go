@@ -12,8 +12,15 @@ import (
 )
 
 const (
-	LLMProviderGemini   = "gemini"
-	LLMProviderLMStudio = "lmstudio"
+	LLMProviderGemini      = "gemini"
+	LLMProviderLMStudio    = "lmstudio"
+	LLMProviderOpenAI      = "openai"
+	LLMProviderAnthropic   = "anthropic"
+	LLMProviderGroq        = "groq"
+	LLMProviderMistral     = "mistral"
+	LLMProviderOllama      = "ollama"
+	LLMProviderOpenRouter  = "openrouter"
+	LLMProviderAzureOpenAI = "azure-openai"
 
 	DefaultLLMProfileName = "standard"
 )
@@ -28,13 +35,17 @@ var validLMStudioReasoningLevels = map[string]struct{}{
 }
 
 type LLMProfile struct {
-	Provider      string   `yaml:"provider" json:"provider"`
-	Model         string   `yaml:"model,omitempty" json:"model,omitempty"`
-	BaseURL       string   `yaml:"base_url,omitempty" json:"base_url,omitempty"`
-	APIKeySecret  string   `yaml:"api_key_secret,omitempty" json:"api_key_secret,omitempty"`
-	AllowedScopes []string `yaml:"allowed_scopes,omitempty" json:"allowed_scopes,omitempty"`
-	Reasoning     string   `yaml:"reasoning,omitempty" json:"reasoning,omitempty"`
-	Thinking      *bool    `yaml:"thinking,omitempty" json:"thinking,omitempty"`
+	Provider       string            `yaml:"provider" json:"provider"`
+	Model          string            `yaml:"model,omitempty" json:"model,omitempty"`
+	BaseURL        string            `yaml:"base_url,omitempty" json:"base_url,omitempty"`
+	APIKeySecret   string            `yaml:"api_key_secret,omitempty" json:"api_key_secret,omitempty"`
+	AllowedScopes  []string          `yaml:"allowed_scopes,omitempty" json:"allowed_scopes,omitempty"`
+	Reasoning      string            `yaml:"reasoning,omitempty" json:"reasoning,omitempty"`
+	Thinking       *bool             `yaml:"thinking,omitempty" json:"thinking,omitempty"`
+	TimeoutSeconds int               `yaml:"timeout_seconds,omitempty" json:"timeout_seconds,omitempty"`
+	MaxTokens      int               `yaml:"max_tokens,omitempty" json:"max_tokens,omitempty"`
+	Temperature    *float64          `yaml:"temperature,omitempty" json:"temperature,omitempty"`
+	Extra          map[string]string `yaml:"extra,omitempty" json:"extra,omitempty"`
 }
 
 type KubernetesConfig struct {
@@ -624,6 +635,20 @@ func NormalizeLLMProvider(raw string) string {
 		return LLMProviderGemini
 	case "lmstudio", "lm-studio", "openai-compatible", "openai_compatible":
 		return LLMProviderLMStudio
+	case "openai", "chatgpt", "gpt":
+		return LLMProviderOpenAI
+	case "anthropic", "claude":
+		return LLMProviderAnthropic
+	case "groq":
+		return LLMProviderGroq
+	case "mistral":
+		return LLMProviderMistral
+	case "ollama":
+		return LLMProviderOllama
+	case "openrouter", "open-router":
+		return LLMProviderOpenRouter
+	case "azure-openai", "azure_openai", "azure":
+		return LLMProviderAzureOpenAI
 	default:
 		return normalized
 	}
@@ -639,6 +664,7 @@ func NormalizeLLMProfile(profile LLMProfile) LLMProfile {
 	profile.BaseURL = strings.TrimSpace(profile.BaseURL)
 	profile.APIKeySecret = strings.TrimSpace(profile.APIKeySecret)
 	profile.Reasoning = NormalizeLMStudioReasoning(profile.Reasoning)
+	profile.Extra = normalizeStringMap(profile.Extra)
 
 	scopes := make([]string, 0, len(profile.AllowedScopes))
 	seen := map[string]bool{}
@@ -653,6 +679,149 @@ func NormalizeLLMProfile(profile LLMProfile) LLMProfile {
 	profile.AllowedScopes = scopes
 
 	return profile
+}
+
+func DefaultLLMProviderBaseURL(provider string) string {
+	switch NormalizeLLMProvider(provider) {
+	case LLMProviderLMStudio:
+		return "http://lmstudio:1234"
+	case LLMProviderOpenAI:
+		return "https://api.openai.com/v1"
+	case LLMProviderAnthropic:
+		return "https://api.anthropic.com"
+	case LLMProviderGroq:
+		return "https://api.groq.com/openai/v1"
+	case LLMProviderMistral:
+		return "https://api.mistral.ai/v1"
+	case LLMProviderOllama:
+		return "http://ollama:11434/v1"
+	case LLMProviderOpenRouter:
+		return "https://openrouter.ai/api/v1"
+	default:
+		return ""
+	}
+}
+
+func DefaultLLMProviderModel(provider string) string {
+	switch NormalizeLLMProvider(provider) {
+	case LLMProviderGemini:
+		return "gemini-2.5-flash"
+	case LLMProviderLMStudio:
+		return "qwen3-coder"
+	case LLMProviderOpenAI:
+		return "gpt-4.1-mini"
+	case LLMProviderAnthropic:
+		return "claude-sonnet-4-6"
+	case LLMProviderGroq:
+		return "llama-3.3-70b-versatile"
+	case LLMProviderMistral:
+		return "mistral-large-latest"
+	case LLMProviderOllama:
+		return "qwen2.5-coder:14b"
+	case LLMProviderOpenRouter:
+		return "openai/gpt-4.1-mini"
+	case LLMProviderAzureOpenAI:
+		return "gpt-4.1-mini"
+	default:
+		return ""
+	}
+}
+
+func DefaultLLMProviderAPIKeySecret(provider string) string {
+	switch NormalizeLLMProvider(provider) {
+	case LLMProviderGemini:
+		return "GEMINI_API_KEY"
+	case LLMProviderOpenAI:
+		return "OPENAI_API_KEY"
+	case LLMProviderAnthropic:
+		return "ANTHROPIC_API_KEY"
+	case LLMProviderGroq:
+		return "GROQ_API_KEY"
+	case LLMProviderMistral:
+		return "MISTRAL_API_KEY"
+	case LLMProviderOpenRouter:
+		return "OPENROUTER_API_KEY"
+	case LLMProviderAzureOpenAI:
+		return "AZURE_OPENAI_API_KEY"
+	case LLMProviderOllama:
+		return "OLLAMA_API_KEY"
+	case LLMProviderLMStudio:
+		return "LLM_API_KEY"
+	default:
+		return ""
+	}
+}
+
+func EffectiveLLMProfileBaseURL(profile LLMProfile) string {
+	if baseURL := strings.TrimSpace(profile.BaseURL); baseURL != "" {
+		return baseURL
+	}
+	return DefaultLLMProviderBaseURL(profile.Provider)
+}
+
+func LLMProviderRequiresAPIKey(provider string) bool {
+	switch NormalizeLLMProvider(provider) {
+	case LLMProviderGemini,
+		LLMProviderOpenAI,
+		LLMProviderAnthropic,
+		LLMProviderGroq,
+		LLMProviderMistral,
+		LLMProviderOpenRouter,
+		LLMProviderAzureOpenAI:
+		return true
+	default:
+		return false
+	}
+}
+
+func LLMProviderSupportsGenericReasoning(provider string) bool {
+	return NormalizeLLMProvider(provider) == LLMProviderLMStudio
+}
+
+func LLMProviderSupportsMaxTokens(provider string) bool {
+	switch NormalizeLLMProvider(provider) {
+	case LLMProviderGemini,
+		LLMProviderLMStudio,
+		LLMProviderOpenAI,
+		LLMProviderAnthropic,
+		LLMProviderGroq,
+		LLMProviderMistral,
+		LLMProviderOllama,
+		LLMProviderOpenRouter,
+		LLMProviderAzureOpenAI:
+		return true
+	default:
+		return false
+	}
+}
+
+func LLMProviderTemperatureRange(provider string) (float64, float64, bool) {
+	switch NormalizeLLMProvider(provider) {
+	case LLMProviderLMStudio, LLMProviderAnthropic:
+		return 0, 1, true
+	case LLMProviderGemini,
+		LLMProviderOpenAI,
+		LLMProviderGroq,
+		LLMProviderMistral,
+		LLMProviderOllama,
+		LLMProviderOpenRouter,
+		LLMProviderAzureOpenAI:
+		return 0, 2, true
+	default:
+		return 0, 0, false
+	}
+}
+
+func LLMProviderUsesMaxCompletionTokens(provider string) bool {
+	switch NormalizeLLMProvider(provider) {
+	case LLMProviderOpenAI,
+		LLMProviderGroq,
+		LLMProviderOpenRouter,
+		LLMProviderAzureOpenAI:
+		return true
+	default:
+		return false
+	}
 }
 
 func EffectiveLLMProfileReasoning(profile LLMProfile) string {

@@ -15,14 +15,18 @@ import (
 const llmProfilesRuntimeEnv = "NOPSAI_LLM_PROFILES"
 
 type agentRuntimeLLMProfile struct {
-	Provider      string   `json:"provider"`
-	Model         string   `json:"model,omitempty"`
-	BaseURL       string   `json:"base_url,omitempty"`
-	APIKey        string   `json:"api_key,omitempty"`
-	APIKeySecret  string   `json:"api_key_secret,omitempty"`
-	AllowedScopes []string `json:"allowed_scopes,omitempty"`
-	Reasoning     string   `json:"reasoning,omitempty"`
-	Thinking      *bool    `json:"thinking,omitempty"`
+	Provider       string            `json:"provider"`
+	Model          string            `json:"model,omitempty"`
+	BaseURL        string            `json:"base_url,omitempty"`
+	APIKey         string            `json:"api_key,omitempty"`
+	APIKeySecret   string            `json:"api_key_secret,omitempty"`
+	AllowedScopes  []string          `json:"allowed_scopes,omitempty"`
+	Reasoning      string            `json:"reasoning,omitempty"`
+	Thinking       *bool             `json:"thinking,omitempty"`
+	TimeoutSeconds int               `json:"timeout_seconds,omitempty"`
+	MaxTokens      int               `json:"max_tokens,omitempty"`
+	Temperature    *float64          `json:"temperature,omitempty"`
+	Extra          map[string]string `json:"extra,omitempty"`
 }
 
 type agentRuntimeLLMProfiles struct {
@@ -76,7 +80,31 @@ func newLLMProfileRegistry(defaultProfile string, profiles map[string]agentRunti
 		profile.APIKey = strings.TrimSpace(profile.APIKey)
 		profile.APIKeySecret = strings.TrimSpace(profile.APIKeySecret)
 		profile.Reasoning = appconfig.NormalizeLMStudioReasoning(profile.Reasoning)
-		if profile.Reasoning == "" && profile.Thinking != nil {
+		profile.Extra = normalizeRuntimeExtra(profile.Extra)
+		if profile.MaxTokens < 0 {
+			return nil, fmt.Errorf("LLM profile %q has invalid max_tokens %d", profileName, profile.MaxTokens)
+		}
+		if profile.Temperature != nil {
+			minimum, maximum, supported := appconfig.LLMProviderTemperatureRange(profile.Provider)
+			if !supported || *profile.Temperature < minimum || *profile.Temperature > maximum {
+				return nil, fmt.Errorf(
+					"LLM profile %q has invalid temperature %g for provider %q",
+					profileName,
+					*profile.Temperature,
+					profile.Provider,
+				)
+			}
+		}
+		if !appconfig.LLMProviderSupportsGenericReasoning(profile.Provider) &&
+			(profile.Reasoning != "" || profile.Thinking != nil) {
+			return nil, fmt.Errorf(
+				"LLM profile %q provider %q does not support generic reasoning or thinking",
+				profileName,
+				profile.Provider,
+			)
+		}
+		if appconfig.LLMProviderSupportsGenericReasoning(profile.Provider) &&
+			profile.Reasoning == "" && profile.Thinking != nil {
 			if *profile.Thinking {
 				profile.Reasoning = "on"
 			} else {
@@ -148,9 +176,37 @@ func (r *LLMProfileRegistry) ClientFor(pipeline *models.Pipeline, step *models.P
 		return client, profileName, nil
 	}
 
-	client := NewLLMClient(profile.Provider, profile.APIKey, profile.Model, profile.BaseURL, profile.Reasoning, profileName)
+	client := NewLLMClientWithOptions(LLMClientOptions{
+		Provider:       profile.Provider,
+		Profile:        profileName,
+		APIKey:         profile.APIKey,
+		Model:          profile.Model,
+		BaseURL:        profile.BaseURL,
+		Reasoning:      profile.Reasoning,
+		TimeoutSeconds: profile.TimeoutSeconds,
+		MaxTokens:      profile.MaxTokens,
+		Temperature:    profile.Temperature,
+		Extra:          profile.Extra,
+	})
 	r.clients[profileName] = client
 	return client, profileName, nil
+}
+
+func normalizeRuntimeExtra(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	normalized := make(map[string]string, len(values))
+	for key, value := range values {
+		key = strings.TrimSpace(key)
+		if key != "" {
+			normalized[key] = strings.TrimSpace(value)
+		}
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
 }
 
 func agentProfileAllowedInScope(allowedScopes []string, scope string) bool {

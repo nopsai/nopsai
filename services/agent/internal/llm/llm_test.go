@@ -65,12 +65,27 @@ func TestBuildLMStudioModelLoadURL(t *testing.T) {
 }
 
 func TestLMStudioRecordsUsageMetadata(t *testing.T) {
+	temperature := 0.3
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/models":
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprintf(w, `{"models":[%s]}`, lmStudioModelListItemForTest("model-a", true))
 		case "/api/v1/chat":
+			var payload struct {
+				MaxOutputTokens int      `json:"max_output_tokens"`
+				Temperature     *float64 `json:"temperature"`
+				Reasoning       string   `json:"reasoning"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Errorf("decode request: %v", err)
+			}
+			if payload.MaxOutputTokens != 512 ||
+				payload.Temperature == nil ||
+				*payload.Temperature != temperature ||
+				payload.Reasoning != "off" {
+				t.Errorf("payload = %#v", payload)
+			}
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprint(w, `{"output":[{"type":"message","content":"true"}],"usage":{"input_tokens":9,"output_tokens":3,"total_tokens":12}}`)
 		default:
@@ -82,7 +97,15 @@ func TestLMStudioRecordsUsageMetadata(t *testing.T) {
 
 	collector := NewUsageCollector()
 	ctx := ContextWithUsageCollector(t.Context(), collector)
-	client := NewLLMClient(appconfig.LLMProviderLMStudio, "", "model-a", server.URL, "off", "local")
+	client := NewLLMClientWithOptions(LLMClientOptions{
+		Provider:    appconfig.LLMProviderLMStudio,
+		Profile:     "local",
+		Model:       "model-a",
+		BaseURL:     server.URL,
+		Reasoning:   "off",
+		MaxTokens:   512,
+		Temperature: &temperature,
+	})
 
 	if _, err := client.callLMStudioForBoolean(ctx, "is usage recorded?"); err != nil {
 		t.Fatalf("callLMStudioForBoolean() error = %v", err)
@@ -136,10 +159,28 @@ func TestLMStudioEstimatesUsageWhenMetadataIsMissing(t *testing.T) {
 }
 
 func TestGeminiRecordsUsageMetadata(t *testing.T) {
-	client := NewLLMClient(appconfig.LLMProviderGemini, "test-key", "gemini-2.5-flash", "", "", "cloud")
+	temperature := 0.4
+	client := NewLLMClientWithOptions(LLMClientOptions{
+		Provider:    appconfig.LLMProviderGemini,
+		Profile:     "cloud",
+		APIKey:      "test-key",
+		Model:       "gemini-2.5-flash",
+		MaxTokens:   640,
+		Temperature: &temperature,
+	})
 	client.httpClient = &http.Client{Transport: llmRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if req.Method != http.MethodPost {
 			t.Fatalf("method = %s, want POST", req.Method)
+		}
+		var payload models.GeminiRequest
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if payload.GenerationConfig == nil ||
+			payload.GenerationConfig.MaxOutputTokens != 640 ||
+			payload.GenerationConfig.Temperature == nil ||
+			*payload.GenerationConfig.Temperature != temperature {
+			t.Fatalf("generation config = %#v", payload.GenerationConfig)
 		}
 		body := `{"candidates":[{"content":{"parts":[{"text":"{\"action\":{\"type\":\"RETURN_ANSWER\",\"answer_action\":{\"answer\":\"ok\"}}}"}]}}],"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":5,"totalTokenCount":12}}`
 		return &http.Response{

@@ -294,7 +294,7 @@ func configRepositoryGroupStructureFileScope(rel string) (string, bool, error) {
 		return "", false, nil
 	}
 	if len(parts) == 2 {
-		return "", true, nil
+		return "", true, fmt.Errorf("aggregate group structure file is not supported; use groups/<group>/structure.yaml")
 	}
 	scope := strings.Trim(strings.Join(parts[1:len(parts)-1], "/"), "/")
 	if _, err := CleanPathSegments(scope, false); err != nil {
@@ -324,12 +324,7 @@ func decodePipelineRunStructureMap(node *PipelineRunStructureNode, childMap map[
 	for key, raw := range childMap {
 		switch key {
 		case "repos":
-			apps, err := parseStructureRepoList(raw)
-			if err != nil {
-				return nil, err
-			}
-			node.Repos = structureRepoNames(apps)
-			node.Apps = append(node.Apps, apps...)
+			return nil, fmt.Errorf("repos is not supported in group structure; use apps with name and repo_url")
 		case "apps":
 			apps, err := parseStructureAppList(raw)
 			if err != nil {
@@ -385,40 +380,6 @@ func parseStructureConfigRepositoryBinding(raw interface{}) (*BindingFile, error
 		return nil, fmt.Errorf("config must match config repository binding schema: %w", err)
 	}
 	return &file, nil
-}
-
-func parseStructureRepoList(value interface{}) ([]PipelineRunStructureApp, error) {
-	if value == nil {
-		return nil, nil
-	}
-	items, ok := value.([]interface{})
-	if !ok {
-		return nil, fmt.Errorf("repos must be defined as a list, got %T", value)
-	}
-	var apps []PipelineRunStructureApp
-	for idx, raw := range items {
-		if raw == nil {
-			continue
-		}
-		text, ok := raw.(string)
-		if !ok {
-			return nil, fmt.Errorf("repos entry %d must be a string, got %T", idx, raw)
-		}
-		repo := strings.TrimSpace(text)
-		if repo == "" {
-			continue
-		}
-		fullName, err := RepositoryFullNameFromURL(repo)
-		if err != nil {
-			return nil, fmt.Errorf("repos entry %d: %w", idx, err)
-		}
-		apps = append(apps, PipelineRunStructureApp{
-			Name:               fullName,
-			RepoURL:            CanonicalRepositoryURL(fullName),
-			RepositoryFullName: fullName,
-		})
-	}
-	return apps, nil
 }
 
 func parseStructureAppList(value interface{}) ([]PipelineRunStructureApp, error) {

@@ -11,9 +11,9 @@ func TestParseGitOpsMailSettingsPlanSystemRepo(t *testing.T) {
 	plan, err := parseGitOpsMailSettingsPlan(
 		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID},
 		gitOpsRuntimeSettingsDirectory{
-			root: "settings",
+			root: "setting",
 			files: map[string]string{
-				"settings/system/mail.yaml": `
+				"setting/system/mail.yaml": `
 enabled: true
 from: nopsai@example.com
 smtp:
@@ -41,9 +41,9 @@ func TestParseGitOpsMailSettingsPlanRejectsGroupRepo(t *testing.T) {
 	_, err := parseGitOpsMailSettingsPlan(
 		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"},
 		gitOpsRuntimeSettingsDirectory{
-			root: "settings",
+			root: "setting",
 			files: map[string]string{
-				"settings/system/mail.yaml": "enabled: false",
+				"setting/system/mail.yaml": "enabled: false",
 			},
 		},
 	)

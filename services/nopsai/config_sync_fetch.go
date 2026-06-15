@@ -31,13 +31,11 @@ type configSyncRepositoryFiles struct {
 	externalTriggers   map[string]string
 	schedules          map[string]string
 	scopes             map[string]string
-	pipelineRuns       map[string]string
 	configRepositories map[string]string
 	access             map[string]string
 	knowledge          map[string]string
 	notifications      map[string]string
 	setting            map[string]string
-	settings           map[string]string
 }
 
 func newConfigSyncRepositoryContext(binding models.ConfigRepository) (configSyncRepositoryContext, error) {
@@ -105,9 +103,6 @@ func fetchConfigSyncRepositoryFiles(reader configSyncGitReader, repoCtx configSy
 	if files.scopes, err = fetchDir(repoCtx.dirs.scope, "scope definitions"); err != nil {
 		return configSyncRepositoryFiles{}, err
 	}
-	if files.pipelineRuns, err = fetchDir(repoCtx.dirs.pipelineRun, "pipeline run structure definitions"); err != nil {
-		return configSyncRepositoryFiles{}, err
-	}
 	if files.configRepositories, err = fetchDir(repoCtx.dirs.configRepository, "config repository bindings"); err != nil {
 		return configSyncRepositoryFiles{}, err
 	}
@@ -117,9 +112,7 @@ func fetchConfigSyncRepositoryFiles(reader configSyncGitReader, repoCtx configSy
 	if files.knowledge, err = fetchDir(repoCtx.dirs.knowledge, "knowledge contexts"); err != nil {
 		return configSyncRepositoryFiles{}, err
 	}
-	if files.notifications, err = fetchDir(repoCtx.dirs.notification, "notification routes"); err != nil {
-		return configSyncRepositoryFiles{}, err
-	}
+	files.notifications = map[string]string{}
 	if binding.ScopeType == models.ConfigRepositoryScopeFolder {
 		rootRoutePath := configsync.RepoJoinPath(repoCtx.basePath, "notifications.yaml")
 		content, err := reader.requestGitBotFile(repoCtx.owner, repoCtx.repo, repoCtx.branch, rootRoutePath, errNotificationGitOpsNotFound)
@@ -130,9 +123,6 @@ func fetchConfigSyncRepositoryFiles(reader configSyncGitReader, repoCtx configSy
 		}
 	}
 	if files.setting, err = fetchDir(repoCtx.dirs.setting, "system settings"); err != nil {
-		return configSyncRepositoryFiles{}, err
-	}
-	if files.settings, err = fetchDir(repoCtx.dirs.settings, "system settings"); err != nil {
 		return configSyncRepositoryFiles{}, err
 	}
 	return files, nil

@@ -89,7 +89,7 @@ func StripResourcePrefix(path string) string {
 		return path
 	}
 	switch strings.ToLower(strings.TrimSpace(parts[0])) {
-	case "pipelines", "steps", "triggers", "scopes", "pipelineruns":
+	case "pipelines", "steps", "triggers", "scopes":
 		return strings.Join(parts[1:], "/")
 	default:
 		return path

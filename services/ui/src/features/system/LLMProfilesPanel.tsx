@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Edit3, Plus, RefreshCw, Trash2, X } from 'lucide-react';
-import { providerOptions, type LLMProfileFormState, type LLMProfileRecord } from './llm-profiles/model';
+import { LLM_PROVIDERS, getLLMProvider, replaceProviderDefault } from './llmProviders';
+import { type LLMProfileFormState, type LLMProfileRecord } from './llm-profiles/model';
 import { useLLMProfiles } from './llm-profiles/useLLMProfiles';
 
 function PlusIcon() {
@@ -17,6 +18,10 @@ function EditIcon() {
 
 function RefreshIcon() {
   return <RefreshCw className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />;
+}
+
+function OptionLabel({ children, help }: { children: string; help: string }) {
+  return <span title={help}>{children}</span>;
 }
 
 function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
@@ -61,6 +66,7 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
   const migrationTargets = payload.profiles.filter(profile => profile.name !== deleteBlocker?.name).map(profile => profile.name);
   const showProfilePanel = panelMode !== null || deleteBlocker !== null;
   const showProfileForm = panelMode === 'create' || panelMode === 'edit';
+  const formProvider = getLLMProvider(form.provider);
 
   return (
     <div id="system-llm-profiles-section" className="space-y-6 pb-24">
@@ -115,6 +121,7 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
                   <th className="px-4 py-3">Base URL</th>
                   <th className="px-4 py-3">API key secret</th>
                   <th className="px-4 py-3">Allowed scopes</th>
+                  <th className="px-4 py-3">Limits</th>
                   <th className="px-4 py-3">Thinking</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3 text-right">Actions</th>
@@ -127,16 +134,19 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
                       {profile.name}
                       {profile.name === payload.default_profile && <span className="ml-2 runner-pill runner-pill--ok">Default</span>}
                     </td>
-                    <td className="px-4 py-3">{profile.provider || '-'}</td>
+                    <td className="px-4 py-3">{getLLMProvider(profile.provider).label}</td>
                     <td className="px-4 py-3 max-w-[220px] truncate" title={profile.model}>{profile.model || '-'}</td>
                     <td className="px-4 py-3 max-w-[220px] truncate" title={profile.base_url}>{profile.base_url || '-'}</td>
                     <td className="px-4 py-3">{profile.api_key_secret || '-'}</td>
                     <td className="px-4 py-3">{profile.allowed_scopes.length ? profile.allowed_scopes.join(', ') : 'All'}</td>
+                    <td className="px-4 py-3 text-xs text-[var(--text-secondary)]">
+                      {profile.timeout_seconds > 0 ? `${profile.timeout_seconds}s` : 'Default'}
+                      {profile.max_tokens > 0 ? ` / ${profile.max_tokens} tokens` : ''}
+                    </td>
                     <td className="px-4 py-3">
-                      {profile.reasoning || (() => {
-                        if (profile.thinking === undefined) return 'Default';
-                        return profile.thinking ? 'On' : 'Off';
-                      })()}
+                      {getLLMProvider(profile.provider).supportsThinking
+                        ? profile.reasoning || (profile.thinking === undefined ? 'Default' : profile.thinking ? 'On' : 'Off')
+                        : '-'}
                     </td>
                     <td className="px-4 py-3">
                       <div className="space-y-1">
@@ -167,7 +177,7 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
                 ))}
                 {!loading && payload.profiles.length === 0 && (
                   <tr>
-                    <td className="px-4 py-6 text-[var(--text-secondary)]" colSpan={9}>
+                    <td className="px-4 py-6 text-[var(--text-secondary)]" colSpan={10}>
                       No LLM profiles configured.
                     </td>
                   </tr>
@@ -200,47 +210,60 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
                     <select
                       className="pipelines-input"
                       value={form.provider}
-                      onChange={event => setForm(prev => ({
-                        ...prev,
-                        provider: event.target.value,
-                        api_key_secret: event.target.value === 'gemini' && !prev.api_key_secret ? 'GEMINI_API_KEY' : prev.api_key_secret,
-                        thinking: event.target.value === 'lmstudio' ? prev.thinking : 'default',
-                      }))}
+                      onChange={event => setForm(prev => {
+                        const previousProvider = getLLMProvider(prev.provider);
+                        const nextProvider = getLLMProvider(event.target.value);
+                        return {
+                          ...prev,
+                          provider: nextProvider.id,
+                          model: replaceProviderDefault(prev.model, previousProvider.defaultModel, nextProvider.defaultModel),
+                          base_url: replaceProviderDefault(prev.base_url, previousProvider.defaultBaseURL, nextProvider.defaultBaseURL),
+                          api_key_secret: replaceProviderDefault(prev.api_key_secret, previousProvider.defaultSecretName, nextProvider.defaultSecretName),
+                          reasoning: nextProvider.supportsReasoning ? prev.reasoning : '',
+                          thinking: nextProvider.supportsThinking ? prev.thinking : 'default',
+                        };
+                      })}
                       disabled={!canManage}
                     >
-                      {providerOptions.map(provider => <option key={provider} value={provider}>{provider}</option>)}
+                      {LLM_PROVIDERS.map(provider => <option key={provider.id} value={provider.id}>{provider.label}</option>)}
                     </select>
                   </label>
                   <label className="flex flex-col gap-1 text-sm">
                     <span>Model</span>
-                    <input className="pipelines-input" value={form.model} onChange={event => setForm(prev => ({ ...prev, model: event.target.value }))} disabled={!canManage} placeholder={form.provider === 'gemini' ? 'gemini-2.5-pro' : 'qwen3-coder'} />
+                    <input className="pipelines-input" value={form.model} onChange={event => setForm(prev => ({ ...prev, model: event.target.value }))} disabled={!canManage} placeholder={formProvider.defaultModel} />
                   </label>
-                  <label className="flex flex-col gap-1 text-sm">
-                    <span>Base URL</span>
-                    <input className="pipelines-input" value={form.base_url} onChange={event => setForm(prev => ({ ...prev, base_url: event.target.value }))} disabled={!canManage} placeholder="http://lmstudio:1234" />
-                  </label>
-                  <label className="flex flex-col gap-1 text-sm">
-                    <span>API key secret</span>
-                    <input className="pipelines-input" value={form.api_key_secret} onChange={event => setForm(prev => ({ ...prev, api_key_secret: event.target.value }))} disabled={!canManage} placeholder="GEMINI_API_KEY" />
-                  </label>
+                  {formProvider.baseURLMode !== 'hidden' && (
+                    <label className="flex flex-col gap-1 text-sm">
+                      <span>Base URL{formProvider.baseURLMode === 'required' ? ' *' : ''}</span>
+                      <input className="pipelines-input" value={form.base_url} onChange={event => setForm(prev => ({ ...prev, base_url: event.target.value }))} disabled={!canManage} placeholder={formProvider.defaultBaseURL || 'https://resource.openai.azure.com'} />
+                    </label>
+                  )}
+                  {formProvider.apiKeyMode !== 'none' && (
+                    <label className="flex flex-col gap-1 text-sm">
+                      <span>API key secret{formProvider.apiKeyMode === 'required' ? ' *' : ''}</span>
+                      <input className="pipelines-input" value={form.api_key_secret} onChange={event => setForm(prev => ({ ...prev, api_key_secret: event.target.value }))} disabled={!canManage} placeholder={formProvider.defaultSecretName} />
+                    </label>
+                  )}
                   <label className="flex flex-col gap-1 text-sm">
                     <span>Allowed scopes</span>
                     <input className="pipelines-input" value={form.allowed_scopes} onChange={event => setForm(prev => ({ ...prev, allowed_scopes: event.target.value }))} disabled={!canManage} placeholder="dev, internal" />
                   </label>
-                  <label className="flex flex-col gap-1 text-sm">
-                    <span>Reasoning</span>
-                    <select className="pipelines-input" value={form.reasoning} onChange={event => setForm(prev => ({ ...prev, reasoning: event.target.value }))} disabled={!canManage}>
-                      <option value="">Provider default</option>
-                      <option value="off">Off</option>
-                      <option value="low">Low</option>
-                      <option value="medium">Medium</option>
-                      <option value="high">High</option>
-                      <option value="on">On</option>
-                    </select>
-                  </label>
-                  {form.provider === 'lmstudio' && (
+                  {formProvider.supportsReasoning && (
                     <label className="flex flex-col gap-1 text-sm">
-                      <span>Thinking</span>
+                      <OptionLabel help="Controls how much internal reasoning the model performs before answering.">Reasoning</OptionLabel>
+                      <select className="pipelines-input" value={form.reasoning} onChange={event => setForm(prev => ({ ...prev, reasoning: event.target.value }))} disabled={!canManage}>
+                        <option value="">Provider default</option>
+                        <option value="off">Off</option>
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                        <option value="on">On</option>
+                      </select>
+                    </label>
+                  )}
+                  {formProvider.supportsThinking && (
+                    <label className="flex flex-col gap-1 text-sm">
+                      <OptionLabel help="Turns the provider's extended thinking mode on or off when no reasoning level is selected.">Thinking</OptionLabel>
                       <select className="pipelines-input" value={form.thinking} onChange={event => setForm(prev => ({ ...prev, thinking: event.target.value as LLMProfileFormState['thinking'] }))} disabled={!canManage}>
                         <option value="default">Provider default</option>
                         <option value="true">True</option>
@@ -248,6 +271,36 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
                       </select>
                     </label>
                   )}
+                  <div className="grid items-end gap-3 sm:grid-cols-3">
+                    <label className="flex flex-col gap-1 text-sm">
+                      <OptionLabel help="Maximum time to wait for the provider before the request is cancelled.">Timeout seconds</OptionLabel>
+                      <input className="pipelines-input" type="number" min="0" value={form.timeout_seconds} onChange={event => setForm(prev => ({ ...prev, timeout_seconds: event.target.value }))} disabled={!canManage} placeholder="60" />
+                    </label>
+                    {formProvider.supportsMaxTokens && (
+                      <label className="flex flex-col gap-1 text-sm">
+                        <OptionLabel help="Maximum number of tokens the model may generate in its response.">Max tokens</OptionLabel>
+                        <input className="pipelines-input" type="number" min="0" value={form.max_tokens} onChange={event => setForm(prev => ({ ...prev, max_tokens: event.target.value }))} disabled={!canManage} placeholder="2048" />
+                      </label>
+                    )}
+                    {formProvider.supportsTemperature && (
+                      <label className="flex flex-col gap-1 text-sm">
+                        <OptionLabel help="Controls response randomness: lower values are more predictable, higher values are more varied.">Temperature</OptionLabel>
+                        <input className="pipelines-input" type="number" min="0" max={formProvider.temperatureMax} step="0.1" value={form.temperature} onChange={event => setForm(prev => ({ ...prev, temperature: event.target.value }))} disabled={!canManage} placeholder="Provider default" />
+                      </label>
+                    )}
+                  </div>
+                  <p className="text-xs text-[var(--text-secondary)]">{formProvider.generationOptionsNote}</p>
+                  <label className="flex flex-col gap-1 text-sm">
+                    <OptionLabel help="Additional provider-specific settings entered as one key=value pair per line.">Provider options</OptionLabel>
+                    <textarea
+                      className="pipelines-input min-h-24 font-mono text-xs"
+                      value={form.extra}
+                      onChange={event => setForm(prev => ({ ...prev, extra: event.target.value }))}
+                      disabled={!canManage}
+                      placeholder={form.provider === 'azure-openai' ? 'deployment=my-deployment\napi_version=2024-10-21' : form.provider === 'openrouter' ? 'http_referer=https://nopsai.example.com\nx_title=NopsAI' : 'key=value'}
+                    />
+                    <span className="text-xs text-[var(--text-secondary)]">One `key=value` option per line.</span>
+                  </label>
                   <button type="submit" className="glass-button-primary w-full justify-center" disabled={!canManage || saving}>
                     {saving ? 'Saving…' : 'Save profile'}
                   </button>

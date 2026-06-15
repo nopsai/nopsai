@@ -67,7 +67,9 @@ There are no starter profiles in the UI. The wizard is a single guided flow:
    initial access assignments.
 9. Optionally configure the default LLM profile. For local development, the
    default is LM Studio at `http://lmstudio:1234` with model `qwen3-coder`.
-   Hosted providers use one API key field, stored as a NopsAI secret.
+   The catalog also supports Gemini, OpenAI / ChatGPT, Anthropic Claude, Groq,
+   Mistral, OpenRouter, Ollama, and Azure OpenAI. Hosted providers use one API
+   key field, stored as a NopsAI secret.
 10. Optionally seed disabled MCP examples for later activation.
 11. Optionally create starter users, assign them to a group with owner,
     developer, or viewer role, and set or generate temporary passwords. Created
@@ -196,7 +198,7 @@ knowledge/guideline/platform/setup-run.md
 access/bootstrap.yaml
 setting/system/llm_profile.yaml
 setting/system/mcp.yaml
-config-repositories/groups/structure.yaml
+config-repositories/groups/<group>/structure.yaml
 ```
 
 The wizard can seed equivalent starter resources directly into the database for

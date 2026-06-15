@@ -399,7 +399,8 @@ Responsibilities:
   orchestration to `internal/app`.
 - Keeps LLM provider behavior and MCP tool-call action runtime in
   `internal/llm`, with focused files for shared contracts, profiles, action
-  generation, condition prompts, Gemini, LM Studio, and response decoding.
+  generation, condition prompts, Gemini, LM Studio, OpenAI-compatible,
+  Anthropic, Azure OpenAI, and response decoding.
   The app pipeline runtime remains split into request DTOs, the run loop, and
   request helpers.
 
@@ -433,7 +434,7 @@ Outbound interfaces:
 
 - gRPC to dispatcher
 - Docker Engine API
-- Gemini or LM Studio HTTP APIs
+- Gemini, LM Studio, OpenAI-compatible, Anthropic, or Azure OpenAI HTTP APIs
 
 Notable implementation detail:
 

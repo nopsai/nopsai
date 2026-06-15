@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   createEmptyNotificationRouteForm,
+  folderNotificationGitOpsTarget,
   normalizeNotificationRouteRecord,
   notificationRouteFormAddRoute,
   notificationRouteFormFromDefinition,
@@ -9,6 +10,12 @@ import {
   notificationRouteFormSelectRoute,
   notificationRoutePayloadFromForm,
 } from './notificationRoutes.js';
+
+test('uses the delegated folder repository root for notification GitOps', () => {
+  assert.equal(folderNotificationGitOpsTarget(''), 'notifications.yaml');
+  assert.equal(folderNotificationGitOpsTarget('/configs/team-1/'), 'configs/team-1/notifications.yaml');
+  assert.equal(folderNotificationGitOpsTarget('configs\\team-1'), 'configs/team-1/notifications.yaml');
+});
 
 test('normalizes legacy notification definitions into route rules', () => {
   const record = normalizeNotificationRouteRecord({

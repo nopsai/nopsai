@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"nopsai/pkg/models"
+	"nopsai/services/nopsai/internal/configsync"
 
 	"gopkg.in/yaml.v3"
 )
@@ -152,13 +153,14 @@ func TestConfigRepositoryDriftPathIncludesSyncableResourceFamilies(t *testing.T)
 	for _, path := range []string{
 		"access/all.yaml",
 		"access/grants.yaml",
-		"config-repositories/groups/structure.yaml",
-		"pipelineruns/structure.yaml",
+		"config-repositories/groups/team-1/notifications.yaml",
+		"config-repositories/groups/team-1/structure.yaml",
 		"setting/system/auth.yaml",
+		"setting/system/mail.yaml",
 		"setting/system/llm_profile.yaml",
 		"setting/system/agent-profiles.yaml",
 		"setting/system/mcp.yaml",
-		"settings/system/runner.yaml",
+		"setting/system/runner.yaml",
 	} {
 		if !isConfigRepositoryDriftPath(path) {
 			t.Fatalf("syncable path %q should be included in drift", path)
@@ -166,6 +168,81 @@ func TestConfigRepositoryDriftPathIncludesSyncableResourceFamilies(t *testing.T)
 	}
 	if isConfigRepositoryDriftPath("access/readme.md") {
 		t.Fatal("non-YAML access files should not be included in drift")
+	}
+	for _, path := range []string{"notifications/groups/team-1.yaml", "pipelineruns/structure.yaml", "settings/system/runner.yaml"} {
+		if isConfigRepositoryDriftPath(path) {
+			t.Fatalf("legacy path %q should not be included in drift", path)
+		}
+	}
+}
+
+func TestConfigRepositoryNotificationRoutePathUsesColocatedSystemPath(t *testing.T) {
+	repo := models.ConfigRepository{ID: 7, ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID}
+	got, ok := configRepositoryNotificationRoutePath(repo, "team-1/dev", "config-repositories/groups/team-1/dev/notifications.yaml", true, sql.NullInt64{Int64: 7, Valid: true})
+	if !ok || got != "config-repositories/groups/team-1/dev/notifications.yaml" {
+		t.Fatalf("notification route path = %q, %t; want colocated team-1/dev path", got, ok)
+	}
+}
+
+func TestConfigRepositoryNotificationRoutePathUsesRootFileForBoundFolder(t *testing.T) {
+	repo := models.ConfigRepository{ID: 7, ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"}
+	got, ok := configRepositoryNotificationRoutePath(repo, "team-1", "", false, sql.NullInt64{})
+	if !ok || got != "notifications.yaml" {
+		t.Fatalf("notification route path = %q, %t; want group root notifications.yaml", got, ok)
+	}
+	got, ok = configRepositoryNotificationRoutePath(repo, "team-1/dev", "", false, sql.NullInt64{})
+	if !ok || got != "config-repositories/groups/dev/notifications.yaml" {
+		t.Fatalf("child notification route path = %q, %t; want colocated child path", got, ok)
+	}
+}
+
+func TestNotificationRouteGroupPathUsesResolvedHierarchy(t *testing.T) {
+	records := map[int]groupPathRecord{
+		2: {ID: 2, Name: "dev", Path: "team-1/dev"},
+	}
+	got, err := notificationRouteGroupPath(records, 2)
+	if err != nil {
+		t.Fatalf("notificationRouteGroupPath() error = %v", err)
+	}
+	if got != "team-1/dev" {
+		t.Fatalf("notificationRouteGroupPath() = %q, want team-1/dev", got)
+	}
+	if _, err := notificationRouteGroupPath(records, 99); err == nil {
+		t.Fatal("notificationRouteGroupPath() should reject an unknown group")
+	}
+}
+
+func TestConfigRepositoryGroupStructureFilesUseScopedPaths(t *testing.T) {
+	structure := map[string]*configsync.GroupStructureExportNode{
+		"team-1": {
+			Description: "Team 1",
+			Apps: []configsync.GroupStructureAppExport{
+				{Name: "api", RepoURL: "https://github.com/acme/api"},
+			},
+			Children: map[string]*configsync.GroupStructureExportNode{},
+		},
+		"team-2": {
+			Description: "Team 2",
+			Children:    map[string]*configsync.GroupStructureExportNode{},
+		},
+	}
+
+	files, err := configRepositoryGroupStructureFiles(
+		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID},
+		structure,
+	)
+	if err != nil {
+		t.Fatalf("configRepositoryGroupStructureFiles() error = %v", err)
+	}
+	if _, ok := files["config-repositories/groups/structure.yaml"]; ok {
+		t.Fatalf("aggregate structure file should not be exported: %#v", files)
+	}
+	team1 := files["config-repositories/groups/team-1/structure.yaml"]
+	if !strings.Contains(team1, "description: Team 1") || strings.Contains(team1, "team-1:") {
+		t.Fatalf("team-1 scoped structure = %q, want node content without wrapper", team1)
+	}
+	if _, ok := files["config-repositories/groups/team-2/structure.yaml"]; !ok {
+		t.Fatalf("missing team-2 scoped structure file: %#v", files)
 	}
 }
 
