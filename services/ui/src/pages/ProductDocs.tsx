@@ -294,7 +294,7 @@ export default function ProductDocsPage() {
                 <BookOpen className="h-3.5 w-3.5 text-[var(--text-accent)]" />
                 Versioned product wiki
               </div>
-              <h1 className="mt-4 text-3xl font-semibold text-[var(--text-primary)]">Nopsai documentation</h1>
+              <h2 className="mt-4 text-3xl font-semibold text-[var(--text-primary)]">Nopsai documentation</h2>
               <p className="mt-3 max-w-4xl text-sm leading-6 text-[var(--text-secondary)]">
                 A complete product wiki for every released version: installation, architecture, configuration, pipelines, AI, MCP, security, operations, integrations, troubleshooting, and support. The page is structured for enterprise usage where every article belongs to a version, owner, lifecycle, and runbook.
               </p>

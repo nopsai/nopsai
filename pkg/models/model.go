@@ -20,6 +20,8 @@ type Trigger struct {
 	SkipBranches []string         `yaml:"skip_branches,omitempty" json:"skip_branches,omitempty"`
 	Tags         []string         `yaml:"tags,omitempty" json:"tags,omitempty"`
 	SkipRepos    []string         `yaml:"skip_repos,omitempty" json:"skip_repos,omitempty"`
+	IncludePaths []string         `yaml:"include_paths,omitempty" json:"include_paths,omitempty"`
+	ExcludePaths []string         `yaml:"exclude_paths,omitempty" json:"exclude_paths,omitempty"`
 	Pipelines    []PipelineSource `yaml:"pipelines" json:"pipelines"`
 	Scope        string           `yaml:"scope,omitempty" json:"scope,omitempty"`
 }

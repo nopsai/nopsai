@@ -93,6 +93,7 @@ export type CurrentUser = {
     steps?: ResourceCapabilities;
     triggers?: ReadCapabilities;
     external_triggers?: ReadCapabilities;
+    git_webhook_sources?: ReadCapabilities;
     scopes?: ReadCapabilities;
     knowledge_contexts?: ReadCapabilities;
     system?: SystemCapabilities;

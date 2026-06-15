@@ -11,6 +11,7 @@ test('normalizes API capability payloads into UI capabilities', () => {
     capabilities: {
       pipelines: { write: 1, delete: 0 },
       schedules: { read: true, write: false, delete: true },
+      git_webhook_sources: { read: true, write: true, delete: false },
       system: {
         config_read: true,
         config_write: false,
@@ -31,6 +32,9 @@ test('normalizes API capability payloads into UI capabilities', () => {
   assert.equal(can(user, 'pipelines.write'), true);
   assert.equal(can(user, 'pipelines.delete'), false);
   assert.equal(can(user, 'schedules.delete'), true);
+  assert.equal(can(user, 'git_webhook_sources.read'), true);
+  assert.equal(can(user, 'git_webhook_sources.write'), true);
+  assert.equal(can(user, 'git_webhook_sources.delete'), false);
   assert.equal(can(user, 'system.config.read'), true);
   assert.equal(can(user, 'system.agent_profiles.read'), true);
   assert.equal(can(user, 'system.agent_profiles.write'), false);
@@ -44,6 +48,7 @@ test('derives app and system access from normalized capabilities', () => {
     sub: 'operator',
     capabilities: {
       schedules: { read: true },
+      git_webhook_sources: { read: true, write: false },
       knowledge_contexts: { read: true, write: true },
       system: {
         config_read: true,
@@ -57,6 +62,8 @@ test('derives app and system access from normalized capabilities', () => {
 
   assert.equal(access.canViewSchedules, true);
   assert.equal(access.canWriteSchedules, false);
+  assert.equal(access.canViewGitWebhookSources, true);
+  assert.equal(access.canWriteGitWebhookSources, false);
   assert.equal(access.canViewKnowledge, true);
   assert.equal(access.canWriteKnowledge, true);
   assert.equal(access.canViewAnySystem, true);

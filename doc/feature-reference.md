@@ -172,17 +172,23 @@ Scope behavior:
 - `default:NAME` explicitly targets the unscoped/default value.
 - Runtime authorization is checked against the concrete scoped secret or variable that was resolved.
 
-## Triggering And GitHub Integration
+## Triggering And Git Provider Integration
 
 Git-aware features:
 
 - GitHub webhook ingestion through `git-bot`
+- GitLab, Bitbucket, Gitea, and generic webhook ingestion through managed Git
+  Webhook Sources
+- source HMAC/static-token authentication, repository allowlists, delivery
+  idempotency, source rate limits, and delivery audit records
 - trigger manifests with:
   - event matching
   - branch globs
   - tag globs
   - skipped branches
   - skipped repositories
+  - included changed-file globs
+  - excluded changed-file globs
   - pipeline lists
   - scope selection
 - repository-specific trigger overrides in the database
@@ -193,6 +199,7 @@ Git-aware features:
 - branch open-PR checks
 - repository access verification for config sync
 - config Git push commits to a configured review branch
+- GitOps-managed Git Webhook Sources under `git-webhook-sources/`
 
 ## Configuration Sync
 
@@ -202,6 +209,7 @@ GitOps-style configuration sync supports:
 - `steps/` -> reusable step definitions
 - `schedules/` -> one-time and recurring pipeline schedules
 - `triggers/` -> trigger overrides
+- `git-webhook-sources/` -> provider webhook source definitions and credential references
 - `scopes/` -> scoped variables declared under `variables:` and GitOps secret
   keys declared under `secrets:`
 - `knowledge/` -> managed knowledge context markdown documents
@@ -430,7 +438,7 @@ These are real characteristics of the current implementation:
 
 The codebase already supports a surprisingly complete CI/CD tool shape:
 
-- GitHub-triggered automation
+- GitHub and generic Git-provider-triggered automation
 - manual and ad-hoc runs
 - reusable steps and nested pipelines
 - scoped runtime configuration

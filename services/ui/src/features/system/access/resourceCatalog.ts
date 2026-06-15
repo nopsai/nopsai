@@ -11,6 +11,7 @@ export type AccessResourceCatalog = {
   scopeOptions: AccessResourceOption[];
   triggerOptions: AccessResourceOption[];
   externalTriggerOptions: AccessResourceOption[];
+  gitWebhookSourceOptions: AccessResourceOption[];
   repositoryOptions: AccessResourceOption[];
   secretScopeOptions: AccessResourceOption[];
   variableScopeOptions: AccessResourceOption[];
@@ -21,6 +22,7 @@ export type AccessResourceCatalogSources = {
   pipelines: unknown[];
   triggers: unknown[];
   externalTriggers: unknown[];
+  gitWebhookSources: unknown[];
   secretScopes: unknown[];
   variableScopes: unknown[];
 };
@@ -40,6 +42,7 @@ export function createEmptyAccessResourceCatalog(): AccessResourceCatalog {
     scopeOptions: [],
     triggerOptions: [],
     externalTriggerOptions: [],
+    gitWebhookSourceOptions: [],
     repositoryOptions: [],
     secretScopeOptions: [],
     variableScopeOptions: [],
@@ -56,6 +59,12 @@ export function buildAccessResourceCatalog(sources: AccessResourceCatalogSources
       return record ? readString(record.id || record.name).trim() : '';
     })
     .filter(Boolean);
+  const gitWebhookSources = sources.gitWebhookSources
+    .map(entry => {
+      const record = asRecord(entry);
+      return record ? readString(record.id || record.name).trim() : '';
+    })
+    .filter(Boolean);
   const secretScopes = normalizeScopeValues(sources.secretScopes);
   const variableScopes = normalizeScopeValues(sources.variableScopes);
   const triggerOptions = buildStringOptions(triggers);
@@ -67,6 +76,7 @@ export function buildAccessResourceCatalog(sources: AccessResourceCatalogSources
     scopeOptions: buildStringOptions([...secretScopes, ...variableScopes]),
     triggerOptions,
     externalTriggerOptions: buildStringOptions(externalTriggers),
+    gitWebhookSourceOptions: buildStringOptions(gitWebhookSources),
     repositoryOptions: triggerOptions,
     secretScopeOptions: namedScopeOptions,
     variableScopeOptions: namedScopeOptions,

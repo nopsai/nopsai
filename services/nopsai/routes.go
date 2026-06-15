@@ -59,6 +59,17 @@ func (a *App) registerAccessRoutes(mux *http.ServeMux) {
 func (a *App) registerGitHubRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/internal/git-bot/bootstrap", a.handleGitBotBootstrap)
 	mux.HandleFunc("POST /v1/git/events", a.handleGitEvent)
+	mux.HandleFunc("POST /v1/git/webhooks/{sourceID}", a.handleGitWebhookDelivery)
+}
+
+func (a *App) registerGitWebhookSourceRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /v1/git-webhook-sources", a.handleListGitWebhookSources)
+	mux.HandleFunc("POST /v1/git-webhook-sources", a.handleCreateGitWebhookSource)
+	mux.HandleFunc("GET /v1/git-webhook-sources/{sourceID}", a.handleGetGitWebhookSource)
+	mux.HandleFunc("PUT /v1/git-webhook-sources/{sourceID}", a.handleUpdateGitWebhookSource)
+	mux.HandleFunc("PATCH /v1/git-webhook-sources/{sourceID}", a.handleUpdateGitWebhookSource)
+	mux.HandleFunc("DELETE /v1/git-webhook-sources/{sourceID}", a.handleDeleteGitWebhookSource)
+	mux.HandleFunc("GET /v1/git-webhook-sources/{sourceID}/deliveries", a.handleListGitWebhookDeliveries)
 }
 
 func (a *App) registerGroupRoutes(mux *http.ServeMux) {
@@ -300,6 +311,7 @@ func (a *App) buildHTTPHandler() http.Handler {
 	a.registerPipelineRoutes(mux)
 	a.registerScheduleRoutes(mux)
 	a.registerExternalTriggerRoutes(mux)
+	a.registerGitWebhookSourceRoutes(mux)
 	a.registerKnowledgeContextRoutes(mux)
 	a.registerSecretVariableRoutes(mux)
 	a.registerRunRoutes(mux)

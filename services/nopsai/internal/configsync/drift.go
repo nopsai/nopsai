@@ -9,8 +9,9 @@ import (
 )
 
 type DriftPathOptions struct {
-	ExternalTriggersDirectory string
-	SettingsRelativePath      func(string) bool
+	ExternalTriggersDirectory  string
+	GitWebhookSourcesDirectory string
+	SettingsRelativePath       func(string) bool
 }
 
 func IncludesResource(repo models.ConfigRepository, identifier, source string, configRepoID sql.NullInt64, managed bool, delegatedScopes []string) bool {
@@ -118,6 +119,7 @@ func IsDriftPath(filePath string, options DriftPathOptions) bool {
 		"steps/",
 		"triggers/",
 		options.ExternalTriggersDirectory + "/",
+		options.GitWebhookSourcesDirectory + "/",
 		"schedules/",
 		"scopes/",
 		"knowledge/",
@@ -148,6 +150,10 @@ func normalizeDriftPathOptions(options DriftPathOptions) DriftPathOptions {
 	options.ExternalTriggersDirectory = strings.Trim(strings.TrimSpace(options.ExternalTriggersDirectory), "/")
 	if options.ExternalTriggersDirectory == "" {
 		options.ExternalTriggersDirectory = "external-triggers"
+	}
+	options.GitWebhookSourcesDirectory = strings.Trim(strings.TrimSpace(options.GitWebhookSourcesDirectory), "/")
+	if options.GitWebhookSourcesDirectory == "" {
+		options.GitWebhookSourcesDirectory = "git-webhook-sources"
 	}
 	if options.SettingsRelativePath == nil {
 		options.SettingsRelativePath = func(string) bool { return false }

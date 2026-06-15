@@ -118,6 +118,10 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 	externalTriggerWrite := a.checkCapabilityOrScopedGrant(ctx, subject, "external_trigger.update", model.ResourceRef{Type: grantResourceExternalTrigger, ID: "*"}) ||
 		a.checkCapabilityOrScopedGrant(ctx, subject, "external_trigger.create", model.ResourceRef{Type: grantResourceExternalTrigger, ID: "*"})
 	externalTriggerDelete := a.checkCapabilityOrScopedGrant(ctx, subject, "external_trigger.delete", model.ResourceRef{Type: grantResourceExternalTrigger, ID: "*"})
+	gitWebhookSourceRead := a.checkCapabilityOrScopedGrant(ctx, subject, "git_webhook_source.read", model.ResourceRef{Type: grantResourceGitWebhookSource, ID: "*"})
+	gitWebhookSourceWrite := a.checkCapabilityOrScopedGrant(ctx, subject, "git_webhook_source.update", model.ResourceRef{Type: grantResourceGitWebhookSource, ID: "*"}) ||
+		a.checkCapabilityOrScopedGrant(ctx, subject, "git_webhook_source.create", model.ResourceRef{Type: grantResourceGitWebhookSource, ID: "*"})
+	gitWebhookSourceDelete := a.checkCapabilityOrScopedGrant(ctx, subject, "git_webhook_source.delete", model.ResourceRef{Type: grantResourceGitWebhookSource, ID: "*"})
 	scheduleRead := a.checkCapabilityOrScopedGrant(ctx, subject, "pipeline_schedule.read", model.ResourceRef{Type: grantResourceSchedule, ID: "*"})
 	scheduleWrite := a.checkCapabilityOrScopedGrant(ctx, subject, "pipeline_schedule.update", model.ResourceRef{Type: grantResourceSchedule, ID: "*"}) ||
 		a.checkCapabilityOrScopedGrant(ctx, subject, "pipeline_schedule.create", model.ResourceRef{Type: grantResourceSchedule, ID: "*"})
@@ -160,6 +164,11 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 			Read:   externalTriggerRead,
 			Write:  externalTriggerWrite,
 			Delete: externalTriggerDelete,
+		},
+		GitWebhookSources: authReadCapabilities{
+			Read:   gitWebhookSourceRead,
+			Write:  gitWebhookSourceWrite,
+			Delete: gitWebhookSourceDelete,
 		},
 		Scopes: authReadCapabilities{
 			Read:   scopeRead,

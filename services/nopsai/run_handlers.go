@@ -349,6 +349,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		"pusher_email":           r.Header.Get("X-Git-Pusher-Email"),
 		"check_run_id":           r.Header.Get("X-Git-Check-Run-ID"),
 		"trigger_event_id":       r.Header.Get("X-Nopsai-Trigger-Event-ID"),
+		"event_type":             r.Header.Get("X-Nopsai-Git-Event-Type"),
 	}
 
 	pipeline.Name = sanitizeInput(pipeline.Name)
@@ -416,7 +417,18 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 	runID := record.RunID
 
-	if parentRunID != "" {
+	createGitHubCheck := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(triggerSource)), "git_webhook_")
+	if parentRunID != "" && strings.EqualFold(strings.TrimSpace(triggerSource), "child_pipeline") {
+		var parentTriggerSource sql.NullString
+		if err := a.db.QueryRow(r.Context(), `
+			SELECT trigger_source
+			FROM pipeline_runs
+			WHERE run_id = $1
+		`, parentRunID).Scan(&parentTriggerSource); err == nil {
+			createGitHubCheck = strings.HasPrefix(strings.ToLower(strings.TrimSpace(parentTriggerSource.String)), "github")
+		}
+	}
+	if parentRunID != "" && createGitHubCheck {
 		parentPipelineName := r.Header.Get("X-Nopsai-Parent-Pipeline-Name")
 
 		// Run git-bot notification in background and update DB with the new check_run_id
@@ -462,8 +474,10 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 	resolvedPipeline := preparedRun.Pipeline
 	resolvedPipelineDef := preparedRun.PipelineDefinition
 
-	// Create or initialize GitHub check run without blocking the trigger path.
-	a.ensureCheckRunAsync(runID, resolvedPipeline, resolvedPipelineDef, gitContext, pipelineSource, rerunCommitSHA != "")
+	if createGitHubCheck {
+		// Create or initialize GitHub check run without blocking the trigger path.
+		a.ensureCheckRunAsync(runID, resolvedPipeline, resolvedPipelineDef, gitContext, pipelineSource, rerunCommitSHA != "")
+	}
 
 	timeoutStr := resolvedPipeline.Timeout
 	if timeoutStr == "" {

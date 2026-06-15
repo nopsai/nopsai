@@ -163,6 +163,15 @@ export const AAA_RESOURCE_TYPE_CONFIGS: AAAResourceTypeConfig[] = [
     customPlaceholder: 'deploy-prod',
   },
   {
+    value: 'git_webhook_source',
+    label: 'Git webhook source',
+    targetLabel: 'Git webhook source',
+    allowAll: true,
+    allLabel: 'All Git webhook sources',
+    dynamicSource: 'gitWebhookSourceOptions',
+    customPlaceholder: 'gitlab-platform',
+  },
+  {
     value: 'repository',
     label: 'Repository',
     targetLabel: 'Repository',
@@ -276,6 +285,16 @@ const AAA_ALL_ACTION_OPTION_GROUPS: AAAOptionGroup[] = [
     ],
   },
   {
+    label: 'Git Webhook Sources',
+    options: [
+      { value: 'git_webhook_source.read', label: 'read' },
+      { value: 'git_webhook_source.create', label: 'create' },
+      { value: 'git_webhook_source.update', label: 'update' },
+      { value: 'git_webhook_source.delete', label: 'delete' },
+      { value: 'git_webhook_source.manage_acl', label: 'manage ACL' },
+    ],
+  },
+  {
     label: 'Secrets',
     options: [
       { value: 'secret.list_metadata', label: 'list metadata' },
@@ -317,6 +336,7 @@ const AAA_ACTION_OPTION_GROUPS_BY_RESOURCE_TYPE: Record<string, AAAOptionGroup[]
   scope: [{ label: 'Scope actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Scopes')?.options || [] }],
   trigger: [{ label: 'Trigger actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Triggers')?.options || [] }],
   external_trigger: [{ label: 'External trigger actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'External Triggers')?.options || [] }],
+  git_webhook_source: [{ label: 'Git webhook source actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Git Webhook Sources')?.options || [] }],
   secret: [{ label: 'Secret actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Secrets')?.options || [] }],
   variable: [{ label: 'Variable actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Variables')?.options || [] }],
   system: [{ label: 'System actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'System')?.options || [] }],

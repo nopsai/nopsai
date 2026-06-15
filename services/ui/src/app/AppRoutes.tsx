@@ -9,6 +9,7 @@ const PipelinesPage = lazy(() => import('../pages/Pipelines'));
 const SchedulesPage = lazy(() => import('../pages/Schedules'));
 const TriggersPage = lazy(() => import('../pages/Triggers'));
 const ExternalTriggersPage = lazy(() => import('../pages/ExternalTriggers'));
+const GitWebhookSourcesPage = lazy(() => import('../pages/GitWebhookSources'));
 const ScopesPage = lazy(() => import('../pages/Scopes'));
 const LabPage = lazy(() => import('../pages/Lab'));
 const StepsPage = lazy(() => import('../pages/Steps'));
@@ -81,6 +82,17 @@ export function AppRoutes({
               <ExternalTriggersPage
                 canWriteExternalTriggers={access.canWriteExternalTriggers}
                 canDeleteExternalTriggers={access.canDeleteExternalTriggers}
+              />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="/git-webhook-sources/*"
+          element={
+            <PermissionGuard allowed={access.canViewGitWebhookSources} loading={currentUserLoading}>
+              <GitWebhookSourcesPage
+                canWriteGitWebhookSources={access.canWriteGitWebhookSources}
+                canDeleteGitWebhookSources={access.canDeleteGitWebhookSources}
               />
             </PermissionGuard>
           }

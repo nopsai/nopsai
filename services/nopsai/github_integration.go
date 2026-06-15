@@ -18,6 +18,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
 
+	"nopsai/pkg/gittrigger"
 	"nopsai/pkg/models"
 	"nopsai/pkg/serviceauth"
 	"nopsai/services/aaa/pkg/model"
@@ -77,6 +78,8 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 		pusherName                  string
 		pusherEmail                 string
 		beforeSHA                   string
+		changedFiles                []string
+		changedFilesKnown           bool
 		isRerun                     bool
 		rerunCheckRun               *github.CheckRun
 	)
@@ -107,6 +110,8 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 		headCommit = event.HeadCommit
 		pusher = event.Pusher
 		beforeSHA = event.GetBefore()
+		changedFiles = githubPushChangedFiles(event)
+		changedFilesKnown = len(event.Commits) > 0
 
 		if event.Repo.CloneURL != nil {
 			cloneURL = event.Repo.GetCloneURL()
@@ -357,7 +362,14 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pipelines, baseScope := findPipelinesForEvent(manifest, eventType, ref, repo)
+	pipelines, baseScope := findPipelinesForGitEvent(manifest, gittrigger.Event{
+		Type:              eventType,
+		Ref:               ref,
+		TargetRef:         targetRef,
+		RepositoryName:    repo,
+		ChangedFiles:      changedFiles,
+		ChangedFilesKnown: changedFilesKnown,
+	})
 	if len(pipelines) == 0 {
 		log.Info().Str("repo", repoFullName).Str("ref", ref).Msg("No pipelines matched event.")
 		w.WriteHeader(http.StatusOK)
@@ -781,52 +793,16 @@ func (a *App) findEncryptedSecret(secretName, repoFullName, scope string) (strin
 }
 
 func findPipelinesForEvent(manifest models.Manifest, eventType, ref, repoName string) ([]models.PipelineSource, string) {
-	for _, trigger := range manifest.Triggers {
-		// Support "all" event type or specific match
-		if trigger.On != eventType && trigger.On != "all" {
-			continue
-		}
+	return findPipelinesForGitEvent(manifest, gittrigger.Event{
+		Type:           eventType,
+		Ref:            ref,
+		RepositoryName: repoName,
+	})
+}
 
-		// Check for repo exceptions
-		if len(trigger.SkipRepos) > 0 && isRepoSkipped(repoName, trigger.SkipRepos) {
-			continue
-		}
-
-		if eventType == "push" {
-			if strings.HasPrefix(ref, "refs/heads/") {
-				branchName := strings.TrimPrefix(ref, "refs/heads/")
-				branchIncluded := false
-				if len(trigger.Branches) > 0 {
-					branchIncluded = branchMatchesAnyPattern(branchName, trigger.Branches)
-				} else if len(trigger.SkipBranches) > 0 {
-					branchIncluded = true
-				}
-				// If "on: all", treat empty branches as "all branches"
-				if trigger.On == "all" && len(trigger.Branches) == 0 {
-					branchIncluded = true
-				}
-
-				if branchIncluded {
-					if branchMatchesAnyPattern(branchName, trigger.SkipBranches) {
-						continue
-					}
-					return trigger.Pipelines, trigger.Scope
-				}
-			} else if strings.HasPrefix(ref, "refs/tags/") {
-				tagName := strings.TrimPrefix(ref, "refs/tags/")
-				for _, pattern := range trigger.Tags {
-					if matchBranchPattern(pattern, tagName) {
-						return trigger.Pipelines, trigger.Scope
-					}
-				}
-			}
-		}
-
-		if eventType == "pull_request" {
-			return trigger.Pipelines, trigger.Scope
-		}
-	}
-	return nil, ""
+func findPipelinesForGitEvent(manifest models.Manifest, event gittrigger.Event) ([]models.PipelineSource, string) {
+	match := gittrigger.Find(manifest, event)
+	return match.Pipelines, match.Scope
 }
 
 func branchMatchesAnyPattern(branchName string, patterns []string) bool {
@@ -838,9 +814,9 @@ func branchMatchesAnyPattern(branchName string, patterns []string) bool {
 	return false
 }
 
-func (a *App) getTriggerOverride(fullName string) (string, error) {
+func (a *App) getTriggerOverride(ctx context.Context, fullName string) (string, error) {
 	var triggerDef string
-	err := a.db.QueryRow(context.Background(), "SELECT trigger_definition FROM triggers WHERE repository_name = $1", fullName).Scan(&triggerDef)
+	err := a.db.QueryRow(ctx, "SELECT trigger_definition FROM triggers WHERE repository_name = $1", fullName).Scan(&triggerDef)
 	if err == pgx.ErrNoRows {
 		return "", nil
 	}
@@ -859,64 +835,103 @@ func isRepoSkipped(repoName string, skipList []string) bool {
 	return false
 }
 
+func githubPushChangedFiles(event *github.PushEvent) []string {
+	if event == nil {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	files := make([]string, 0)
+	for _, commit := range event.Commits {
+		if commit == nil {
+			continue
+		}
+		for _, values := range [][]string{commit.Added, commit.Modified, commit.Removed} {
+			for _, file := range values {
+				file = strings.TrimSpace(file)
+				if file == "" {
+					continue
+				}
+				if _, ok := seen[file]; ok {
+					continue
+				}
+				seen[file] = struct{}{}
+				files = append(files, file)
+			}
+		}
+	}
+	return files
+}
+
 func (a *App) fetchTriggerManifest(owner, repo, commitSHA string) (models.Manifest, string, error) {
+	manifest, source, found, err := a.loadTriggerManifestOverride(context.Background(), owner, repo)
+	if err != nil {
+		return models.Manifest{}, "", err
+	}
+	if found {
+		return manifest, source, nil
+	}
+
+	// GitHub keeps repository fallback behavior. Other providers use GitOps/DB
+	// trigger definitions until provider-neutral repository reads are available.
+	content, err := a.requestGitBotFile(owner, repo, commitSHA, ".nopsai/triggers.yaml", errManifestNotFound)
+	if err != nil {
+		return models.Manifest{}, "", err
+	}
+	if err := yaml.Unmarshal([]byte(content), &manifest); err != nil {
+		return models.Manifest{}, "", err
+	}
+	return manifest, "git", nil
+}
+
+func (a *App) loadTriggerManifestOverride(ctx context.Context, owner, repo string) (models.Manifest, string, bool, error) {
 	fullName := repositoryFullName(owner, repo)
 	var manifest models.Manifest
-	matches, err := a.repositoryGroupMatches(context.Background(), owner, repo)
+	matches, err := a.repositoryGroupMatches(ctx, owner, repo)
 	if err != nil {
-		return manifest, "", err
+		return manifest, "", false, err
 	}
 	groupPaths := make([]string, 0, len(matches))
 	for _, match := range matches {
 		groupPaths = append(groupPaths, match.Path)
 	}
 	specificKeys, ownerWideKeys := repositoryTriggerOverrideKeys(owner, repo, groupPaths)
-	dbSpecificKeys, err := a.triggerOverrideKeysEndingWith(context.Background(), fullName)
+	dbSpecificKeys, err := a.triggerOverrideKeysEndingWith(ctx, fullName)
 	if err != nil {
-		return manifest, "", err
+		return manifest, "", false, err
 	}
-	dbOwnerWideKeys, err := a.triggerOverrideKeysEndingWith(context.Background(), repositoryFullName(owner, "all"))
+	dbOwnerWideKeys, err := a.triggerOverrideKeysEndingWith(ctx, repositoryFullName(owner, "all"))
 	if err != nil {
-		return manifest, "", err
+		return manifest, "", false, err
 	}
 	specificKeys = sortTriggerKeysBySpecificity(appendUniqueStrings(specificKeys, dbSpecificKeys))
 	ownerWideKeys = sortTriggerKeysBySpecificity(appendUniqueStrings(ownerWideKeys, dbOwnerWideKeys))
 
 	// 1. Try Specific Repo Override
 	for _, key := range specificKeys {
-		if overrideDef, err := a.getTriggerOverride(key); err != nil {
-			return manifest, "", err
+		if overrideDef, err := a.getTriggerOverride(ctx, key); err != nil {
+			return manifest, "", false, err
 		} else if overrideDef != "" {
 			if err := yaml.Unmarshal([]byte(overrideDef), &manifest); err != nil {
-				return manifest, "", err
+				return manifest, "", false, err
 			}
 			log.Info().Str("repository", fullName).Str("trigger", key).Msg("Using trigger override from database")
-			return manifest, "database override", nil
+			return manifest, "database override", true, nil
 		}
 	}
 
 	// 2. Try Owner-Wide "all" Override
 	for _, key := range ownerWideKeys {
-		if overrideDef, err := a.getTriggerOverride(key); err != nil {
-			return manifest, "", err
+		if overrideDef, err := a.getTriggerOverride(ctx, key); err != nil {
+			return manifest, "", false, err
 		} else if overrideDef != "" {
 			if err := yaml.Unmarshal([]byte(overrideDef), &manifest); err != nil {
-				return manifest, "", err
+				return manifest, "", false, err
 			}
 			log.Info().Str("repository", fullName).Str("owner_trigger", key).Msg("Using owner-wide trigger override from database")
-			return manifest, "database owner override", nil
+			return manifest, "database owner override", true, nil
 		}
 	}
-
-	// 3. Fallback to Git
-	content, err := a.requestGitBotFile(owner, repo, commitSHA, ".nopsai/triggers.yaml", errManifestNotFound)
-	if err != nil {
-		return manifest, "", err
-	}
-	if err := yaml.Unmarshal([]byte(content), &manifest); err != nil {
-		return manifest, "", err
-	}
-	return manifest, "git", nil
+	return manifest, "", false, nil
 }
 
 func (a *App) ensureCheckRunAsync(runID uuid.UUID, pipeline models.Pipeline, resolvedPipelineDef []byte, gitCtx map[string]string, pipelineSource string, isRerun bool) {

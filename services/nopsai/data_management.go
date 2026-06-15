@@ -45,6 +45,7 @@ var runBackupTables = []string{
 	"pipeline_run_logs",
 	"pipeline_run_knowledge_contexts",
 	"external_trigger_invocations",
+	"git_webhook_deliveries",
 }
 
 type dataBackupRecord struct {

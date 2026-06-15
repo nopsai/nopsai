@@ -9,7 +9,8 @@ import (
 
 func testDriftOptions() DriftPathOptions {
 	return DriftPathOptions{
-		ExternalTriggersDirectory: "external-triggers",
+		ExternalTriggersDirectory:  "external-triggers",
+		GitWebhookSourcesDirectory: "git-webhook-sources",
 		SettingsRelativePath: func(rel string) bool {
 			switch rel {
 			case "system/runner.yaml", "system/mail.yaml", "system/llm_profile.yaml", "system/agent-profiles.yaml", "system/mcp.yaml":
@@ -40,6 +41,7 @@ func TestIsDriftPathIncludesSyncableResourceFamilies(t *testing.T) {
 		"config-repositories/groups/team-1/notifications.yaml",
 		"config-repositories/groups/team-1/structure.yaml",
 		"external-triggers/webhook.yaml",
+		"git-webhook-sources/gitlab-platform.yaml",
 		"setting/system/mail.yaml",
 		"setting/system/llm_profile.yaml",
 		"setting/system/agent-profiles.yaml",

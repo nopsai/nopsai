@@ -189,6 +189,22 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		case http.MethodDelete:
 			return "external_trigger.delete", resource, false, nil
 		}
+	case path == "/v1/git-webhook-sources" && r.Method == http.MethodGet:
+		return "git_webhook_source.read", model.ResourceRef{Type: "git_webhook_source", ID: "*"}, true, nil
+	case path == "/v1/git-webhook-sources" && r.Method == http.MethodPost:
+		return "", model.ResourceRef{}, false, nil
+	case strings.HasPrefix(path, "/v1/git-webhook-sources/") && strings.HasSuffix(path, "/deliveries"):
+		return "git_webhook_source.read", GitWebhookSourceResource(gitWebhookSourceIDFromRequest(r)), false, nil
+	case strings.HasPrefix(path, "/v1/git-webhook-sources/"):
+		resource = GitWebhookSourceResource(gitWebhookSourceIDFromRequest(r))
+		switch r.Method {
+		case http.MethodGet:
+			return "git_webhook_source.read", resource, false, nil
+		case http.MethodPut, http.MethodPatch:
+			return "git_webhook_source.update", resource, false, nil
+		case http.MethodDelete:
+			return "git_webhook_source.delete", resource, false, nil
+		}
 	case strings.HasPrefix(path, "/v1/pipelines/"):
 		pipelineID := normalizePathIdentifier(pathValueOrTail(r, "pipelineName", "/v1/pipelines/"))
 		switch r.Method {
@@ -383,6 +399,13 @@ func ExternalTriggerResource(id string) model.ResourceRef {
 	}
 }
 
+func GitWebhookSourceResource(id string) model.ResourceRef {
+	return model.ResourceRef{
+		Type: "git_webhook_source",
+		ID:   normalizePathIdentifier(id),
+	}
+}
+
 func StepResource(identifier string) model.ResourceRef {
 	return model.ResourceRef{
 		Type: "step",
@@ -454,6 +477,18 @@ func externalTriggerIDFromRequest(r *http.Request) string {
 	value := pathTail(r.URL.Path, "/v1/external-triggers/")
 	value = strings.TrimSuffix(value, "/invoke")
 	value = strings.TrimSuffix(value, "/invocations")
+	return normalizePathIdentifier(value)
+}
+
+func gitWebhookSourceIDFromRequest(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	if value := strings.TrimSpace(r.PathValue("sourceID")); value != "" {
+		return normalizePathIdentifier(value)
+	}
+	value := pathTail(r.URL.Path, "/v1/git-webhook-sources/")
+	value = strings.TrimSuffix(value, "/deliveries")
 	return normalizePathIdentifier(value)
 }
 
