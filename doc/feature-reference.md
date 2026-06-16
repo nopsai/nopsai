@@ -113,8 +113,9 @@ Pipeline schedules are first-class resources for time-based automation:
   offers friendly specific-date, interval, hourly, daily, weekday, weekly,
   monthly, yearly, or custom timing controls; weekly and monthly modes support
   multiple selected days
-- schedules can be enabled, disabled, run immediately, edited, or deleted when
-  the caller has the matching `pipeline_schedule.*` action
+- database-owned schedules can be enabled, disabled, run immediately, edited, or
+  deleted when the caller has the matching `pipeline_schedule.*` action;
+  GitOps-managed schedules stay read-only for direct mutation and deletion
 - scheduled runs are tagged with `trigger_source: schedule`, linked to
   `schedule_id`, and badged in Pipeline runs
 - execution uses a schedule-owned service account with explicit pipeline,

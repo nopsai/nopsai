@@ -1,4 +1,5 @@
 import { ListPlus, Plus } from 'lucide-react';
+import { WorkflowFormDialog } from '../../components/WorkflowFormDialog';
 import { WorkflowDialogFrame, WorkflowInlineAlert } from '../../components/WorkflowPrimitives';
 import type {
   TriggerCloneModalState,
@@ -46,76 +47,66 @@ function TriggerRepositoryDialog({
   const title = isCreate ? 'Create trigger override' : `Clone ${selectedSlug || 'trigger'}`;
 
   return (
-    <WorkflowDialogFrame
+    <WorkflowFormDialog
       id={modalId}
       titleId={titleId}
       descriptionId={`${descriptionId}${modal.error ? ` ${errorId}` : ''}`}
       onClose={onClose}
-      className={`pipelines-modal-card trigger-modal-card ${isCreate ? 'max-w-lg' : 'max-w-md'} w-full`}
-    >
-        <header className="pipelines-modal-header trigger-modal-header">
-          <div className="trigger-modal-heading">
-            <span className="trigger-modal-icon" aria-hidden="true">
-              {isCreate ? <Plus className="h-5 w-5" /> : <ListPlus className="h-5 w-5" />}
-            </span>
-            <div className="min-w-0">
-              <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">
-                {isCreate ? 'New trigger' : 'Clone trigger'}
-              </p>
-              <h3 id={titleId} className="text-lg font-semibold text-[var(--text-primary)]">{title}</h3>
-            </div>
-          </div>
+      onSubmit={event => {
+        event.preventDefault();
+        onSubmit();
+      }}
+      closeDisabled={modal.pending}
+      kicker={isCreate ? 'New trigger' : 'Clone trigger'}
+      title={title}
+      headerLeading={(
+        <span className="trigger-modal-icon" aria-hidden="true">
+          {isCreate ? <Plus className="h-5 w-5" /> : <ListPlus className="h-5 w-5" />}
+        </span>
+      )}
+      cardClassName="trigger-modal-card"
+      bodyClassName="trigger-modal-body"
+      actions={(
+        <>
           <button type="button" className="glass-button-ghost" onClick={onClose} disabled={modal.pending}>
-            Close
+            Cancel
           </button>
-        </header>
-        <form
-          onSubmit={event => {
-            event.preventDefault();
-            onSubmit();
-          }}
-        >
-          <div className="pipelines-modal-body trigger-modal-body">
-            <div className="trigger-modal-field-group">
-              <label htmlFor={inputId} className="block text-sm font-medium text-[var(--text-secondary)]">
-                {isCreate ? 'Repository' : 'Target repository'}
-              </label>
-              <input
-                id={inputId}
-                type="text"
-                className="pipelines-input w-full mt-1"
-                placeholder="owner/repo"
-                value={modal.repository}
-                onChange={event => onUpdateRepository(event.target.value)}
-                disabled={modal.pending}
-                data-dialog-initial-focus
-              />
-              <p id={descriptionId} className="trigger-modal-hint">
-                {isCreate
-                  ? 'Creates or replaces a trigger override stored in the database.'
-                  : 'Copies the YAML from the current trigger into the target override.'}
-              </p>
-            </div>
-            {isCreate && 'yamlPreview' in modal ? (
-              <div className="trigger-modal-field-group">
-                <p className="block text-sm font-medium text-[var(--text-secondary)]">Template</p>
-                <div className="glass-card border border-[var(--border-primary)] rounded-xl overflow-hidden">
-                  <pre className="p-3 text-xs overflow-auto max-h-52">{modal.yamlPreview}</pre>
-                </div>
-              </div>
-            ) : null}
-            {modal.error ? <WorkflowInlineAlert id={errorId}>{modal.error}</WorkflowInlineAlert> : null}
+          <button type="submit" className="glass-button-primary" disabled={modal.pending}>
+            {modal.pending ? (isCreate ? 'Creating…' : 'Cloning…') : isCreate ? 'Create' : 'Clone'}
+          </button>
+        </>
+      )}
+    >
+      <div className="trigger-modal-field-group">
+        <label htmlFor={inputId} className="block text-sm font-medium text-[var(--text-secondary)]">
+          {isCreate ? 'Repository' : 'Target repository'}
+        </label>
+        <input
+          id={inputId}
+          type="text"
+          className="pipelines-input w-full mt-1"
+          placeholder="owner/repo"
+          value={modal.repository}
+          onChange={event => onUpdateRepository(event.target.value)}
+          disabled={modal.pending}
+          data-dialog-initial-focus
+        />
+        <p id={descriptionId} className="trigger-modal-hint">
+          {isCreate
+            ? 'Creates or replaces a trigger override stored in the database.'
+            : 'Copies the YAML from the current trigger into the target override.'}
+        </p>
+      </div>
+      {isCreate && 'yamlPreview' in modal ? (
+        <div className="trigger-modal-field-group">
+          <p className="block text-sm font-medium text-[var(--text-secondary)]">Template</p>
+          <div className="glass-card border border-[var(--border-primary)] rounded-xl overflow-hidden">
+            <pre className="p-3 text-xs overflow-auto max-h-52">{modal.yamlPreview}</pre>
           </div>
-          <div className="pipelines-modal-footer trigger-modal-footer">
-            <button type="button" className="glass-button-ghost" onClick={onClose} disabled={modal.pending}>
-              Cancel
-            </button>
-            <button type="submit" className="glass-button-primary" disabled={modal.pending}>
-              {modal.pending ? (isCreate ? 'Creating…' : 'Cloning…') : isCreate ? 'Create' : 'Clone'}
-            </button>
-          </div>
-        </form>
-    </WorkflowDialogFrame>
+        </div>
+      ) : null}
+      {modal.error ? <WorkflowInlineAlert id={errorId}>{modal.error}</WorkflowInlineAlert> : null}
+    </WorkflowFormDialog>
   );
 }
 

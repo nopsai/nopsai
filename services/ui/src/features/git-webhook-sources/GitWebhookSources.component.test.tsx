@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { expect, test, vi } from 'vitest';
 import GitWebhookSourcesPage from '../../pages/GitWebhookSources';
 import { GitWebhookSourceForm } from './GitWebhookSourceForm';
+import { GitWebhookSourceCards } from './GitWebhookSourceCards';
 import { gitWebhookSourceForm } from './model';
 
 const source = {
@@ -52,9 +53,67 @@ test('renders source details and audited deliveries', async () => {
   );
 
   expect(await screen.findByRole('heading', { name: 'GitLab Platform' })).toBeVisible();
+  const list = screen.getByTestId('git-webhook-source-card-list');
+  expect(list).toHaveClass('compact-resource-grid');
+  const cards = Array.from(list.querySelectorAll('.compact-resource-card'));
+  expect(cards).toHaveLength(1);
+  expect(cards[0]).toHaveClass('compact-resource-card--bordered', 'git-webhook-source-card');
+  expect(screen.getByRole('button', { name: 'Select Git webhook source GitLab Platform' })).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  );
   expect(await screen.findByText('platform/api')).toBeVisible();
   expect(screen.getByDisplayValue(/\/v1\/git\/webhooks\/gitlab-platform$/)).toBeVisible();
   expect(screen.getByText('processed')).toBeVisible();
+});
+
+test('shows source details only after selecting a card from the list route', async () => {
+  const user = userEvent.setup();
+  apiMocks.fetchGitWebhookSources.mockResolvedValue([source]);
+  apiMocks.fetchGitWebhookSource.mockResolvedValue(source);
+  apiMocks.fetchGitWebhookDeliveries.mockResolvedValue([]);
+
+  render(
+    <MemoryRouter initialEntries={['/git-webhook-sources']}>
+      <GitWebhookSourcesPage canWriteGitWebhookSources canDeleteGitWebhookSources />
+    </MemoryRouter>
+  );
+
+  expect(await screen.findByText('GitLab Platform')).toBeVisible();
+  expect(screen.queryByText('Select a webhook source')).not.toBeInTheDocument();
+  expect(screen.queryByText('1 total')).not.toBeInTheDocument();
+  expect(screen.queryByDisplayValue(/\/v1\/git\/webhooks\/gitlab-platform$/)).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole('button', { name: 'Select Git webhook source GitLab Platform' }));
+
+  expect(await screen.findByDisplayValue(/\/v1\/git\/webhooks\/gitlab-platform$/)).toBeVisible();
+});
+
+test('renders and selects managed webhook sources as compact GitOps cards', async () => {
+  const user = userEvent.setup();
+  const onSelect = vi.fn();
+  render(
+    <GitWebhookSourceCards
+      sources={[{
+        ...source,
+        name: '',
+        description: '',
+        enabled: false,
+        managed_by_config_repo: true,
+      }]}
+      selectedID=""
+      onSelect={onSelect}
+    />
+  );
+
+  expect(screen.getByText('Disabled')).toBeVisible();
+  expect(screen.getByText('GitOps')).toBeVisible();
+  expect(screen.getByRole('article')).toHaveClass('compact-resource-card--bordered', 'git-webhook-source-card');
+  expect(screen.getByText('1')).toBeVisible();
+  const selector = screen.getByRole('button', { name: 'Select Git webhook source gitlab-platform' });
+  expect(selector).toHaveAttribute('aria-pressed', 'false');
+  await user.click(selector);
+  expect(onSelect).toHaveBeenCalledWith('gitlab-platform');
 });
 
 test('creates a source through the feature-owned form and API', async () => {
@@ -68,11 +127,21 @@ test('creates a source through the feature-owned form and API', async () => {
     </MemoryRouter>
   );
 
-  await screen.findByText('No Git webhook sources configured.');
+  await screen.findByText('No webhook sources found');
+  expect(screen.getByRole('button', { name: 'Search webhook sources' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Refresh webhook sources' })).toBeVisible();
   await user.click(screen.getByRole('button', { name: 'New source' }));
   const dialog = screen.getByRole('dialog', { name: 'New Git webhook source' });
   expect(dialog).toBeVisible();
+  expect(dialog).toHaveClass(
+    'pipelines-modal-card',
+    'workflow-form-dialog',
+    'workflow-form-dialog--wide'
+  );
   expect(dialog).not.toHaveClass('glass-card');
+  expect(dialog.querySelector('.pipelines-modal-header')).not.toBeNull();
+  expect(dialog.querySelector('.pipelines-modal-body')).not.toBeNull();
+  expect(dialog.querySelector('.pipelines-modal-footer')).not.toBeNull();
   expect(screen.getByLabelText('Source ID')).toHaveFocus();
   await user.type(screen.getByLabelText('Source ID'), 'gitlab-platform');
   await user.selectOptions(screen.getByLabelText('Provider'), 'gitlab');
@@ -111,6 +180,11 @@ test('renders solid edit, validation, and saving states for source forms', () =>
   );
 
   const dialog = screen.getByRole('dialog', { name: 'Edit Git webhook source' });
+  expect(dialog).toHaveClass(
+    'pipelines-modal-card',
+    'workflow-form-dialog',
+    'workflow-form-dialog--wide'
+  );
   expect(dialog).not.toHaveClass('glass-card');
   expect(dialog).toHaveAccessibleDescription('Repository allowlist is required.');
   expect(screen.getByLabelText('Source ID')).toBeDisabled();

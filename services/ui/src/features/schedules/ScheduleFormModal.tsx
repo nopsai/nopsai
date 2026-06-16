@@ -1,5 +1,5 @@
-import { Shield, X } from 'lucide-react';
-import { useDialogFocus } from '../../components/useDialogFocus';
+import { Shield } from 'lucide-react';
+import { WorkflowFormDialog } from '../../components/WorkflowFormDialog';
 import {
   MONTHDAY_VALUES,
   MONTH_OPTIONS,
@@ -64,37 +64,39 @@ export function ScheduleFormModal({
   };
   const selectedWeekdays = new Set(normalizeCronList(form.cronWeekday, WEEKDAY_VALUES, '1').split(','));
   const selectedMonthdays = new Set(normalizeCronList(form.cronMonthday, MONTHDAY_VALUES, '1').split(','));
-  const dialogRef = useDialogFocus(onClose);
   const titleId = 'schedule-form-title';
   const errorId = 'schedule-form-error';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] p-4">
-      <div
-        ref={dialogRef}
-        className="w-full max-w-3xl rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-2xl"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={formError ? errorId : undefined}
-        tabIndex={-1}
-      >
-        <div className="flex items-center justify-between gap-3 border-b border-[var(--border-primary)] p-4">
-          <div className="min-w-0">
-            <h2 id={titleId} className="text-lg font-semibold text-[var(--text-primary)]">
-              {modal.mode === 'edit' ? 'Edit schedule' : 'New schedule'}
-            </h2>
-            {modal.schedule?.managed_by_config_repo ? (
-              <p className="mt-1 text-xs text-[var(--text-secondary)]">Managed by {modal.schedule.config_source_path || 'GitOps'}</p>
-            ) : null}
-          </div>
-          <button type="button" className="glass-button-ghost" onClick={onClose} title="Close">
-            <X className="h-4 w-4" />
+    <WorkflowFormDialog
+      id="schedule-form-modal"
+      titleId={titleId}
+      descriptionId={formError ? errorId : undefined}
+      kicker="Schedule"
+      title={modal.mode === 'edit' ? 'Edit schedule' : 'New schedule'}
+      subtitle={
+        modal.schedule?.managed_by_config_repo
+          ? `Managed by ${modal.schedule.config_source_path || 'GitOps'}`
+          : undefined
+      }
+      onClose={onClose}
+      closeDisabled={saving}
+      size="wide"
+      bodyClassName="space-y-4"
+      actions={(
+        <>
+          <button type="button" className="glass-button-ghost" onClick={onClose} disabled={saving}>
+            Cancel
           </button>
-        </div>
-
-        <div className="max-h-[75vh] overflow-y-auto p-4">
-          <div className="grid gap-4 md:grid-cols-2">
+          {canSubmit ? (
+            <button type="button" className="glass-button-primary" onClick={onSubmit} disabled={saving}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          ) : null}
+        </>
+      )}
+    >
+      <div className="grid gap-4 md:grid-cols-2">
             <label className="space-y-1">
               <span className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Name</span>
               <input
@@ -405,28 +407,13 @@ export function ScheduleFormModal({
                 disabled={disabled}
               />
             </label>
-          </div>
-
-          {formError ? <p id={errorId} className="mt-4 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700" role="alert">{formError}</p> : null}
-        </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-primary)] p-4">
-          <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
-            <Shield className="h-4 w-4" />
-            <span>{modal.schedule?.managed_by_config_repo ? 'Change this schedule in GitOps.' : 'Runtime access is checked before saving.'}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <button type="button" className="glass-button-ghost" onClick={onClose} disabled={saving}>
-              Cancel
-            </button>
-            {canSubmit ? (
-              <button type="button" className="glass-button-primary" onClick={onSubmit} disabled={saving}>
-                {saving ? 'Saving…' : 'Save'}
-              </button>
-            ) : null}
-          </div>
-        </div>
       </div>
-    </div>
+
+      {formError ? <p id={errorId} className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700" role="alert">{formError}</p> : null}
+      <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+        <Shield className="h-4 w-4" />
+        <span>{modal.schedule?.managed_by_config_repo ? 'Change this schedule in GitOps.' : 'Runtime access is checked before saving.'}</span>
+      </div>
+    </WorkflowFormDialog>
   );
 }

@@ -43,6 +43,10 @@ test('edits, traps focus, and restores focus for a shared resource workflow form
   const opener = screen.getByRole('button', { name: 'Open create' });
   await user.click(opener);
   const dialog = screen.getByRole('dialog', { name: 'Create pipeline' });
+  expect(dialog).toHaveClass('pipelines-modal-card', 'workflow-form-dialog');
+  expect(dialog.querySelector('.pipelines-modal-header')).not.toBeNull();
+  expect(dialog.querySelector('.pipelines-modal-body')).not.toBeNull();
+  expect(dialog.querySelector('.pipelines-modal-footer')).not.toBeNull();
   expect(screen.getByLabelText('Pipeline Path')).toHaveFocus();
 
   await user.type(screen.getByLabelText('Pipeline Path'), 'platform/build');

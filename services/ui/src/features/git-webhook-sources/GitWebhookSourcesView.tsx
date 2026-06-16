@@ -1,17 +1,18 @@
+import { useMemo, useState } from 'react';
 import {
   Activity,
   Edit3,
   GitBranch,
   PauseCircle,
   PlayCircle,
-  Plus,
-  RefreshCw,
   ShieldCheck,
   Trash2,
   Webhook,
 } from 'lucide-react';
+import { ResourceCollectionToolbar } from '../editor/ResourceCollectionToolbar';
 import { buildApiUrl } from '../../lib/api';
 import { GitWebhookSourceForm } from './GitWebhookSourceForm';
+import { GitWebhookSourceCards } from './GitWebhookSourceCards';
 import {
   deliveryStatusClass,
   formatGitWebhookDate,
@@ -30,81 +31,72 @@ export function GitWebhookSourcesView({
   canDelete: boolean;
 }) {
   const { selected } = controller;
+  const [searchTerm, setSearchTerm] = useState('');
+  const filteredSources = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return controller.sources;
+    return controller.sources.filter(source => [
+      source.id,
+      source.name,
+      source.description,
+      source.provider,
+      source.auth_mode,
+      source.credential_ref,
+      source.source,
+      ...source.repository_allowlist,
+    ].join(' ').toLowerCase().includes(term));
+  }, [controller.sources, searchTerm]);
+
   return (
-    <div className="space-y-6 pb-24">
-      <section className="glass-card rounded-xl border border-[var(--border-primary)] p-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="max-w-3xl text-sm text-[var(--text-secondary)]">
-              Receive GitLab, Bitbucket, Gitea, or normalized generic repository events and apply the same trigger manifest rules used by GitHub automation.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {!canWrite ? <span className="runner-pill runner-pill--muted">Read-only</span> : null}
-            <button
-              type="button"
-              className="glass-button-ghost"
-              onClick={() => void controller.loadSources()}
-              disabled={controller.loading || controller.saving}
-            >
-              <RefreshCw className="h-4 w-4" />
-              Reload
-            </button>
-            {canWrite ? (
-              <button type="button" className="glass-button-primary" onClick={controller.startCreate}>
-                <Plus className="h-4 w-4" />
-                New source
-              </button>
-            ) : null}
-          </div>
-        </div>
+    <div data-page="git-webhook-sources" className="active h-full flex flex-col">
+      <ResourceCollectionToolbar
+        resourceLabel="webhook source"
+        searchTerm={searchTerm}
+        canCreate={canWrite}
+        createLabel="New source"
+        createDisabledReason="You have read-only access to Git webhook sources"
+        showCreateWhenDisabled
+        onSearchTermChange={setSearchTerm}
+        onCreate={controller.startCreate}
+        onRefresh={() => void controller.loadSources()}
+        refreshDisabled={controller.loading || controller.saving}
+        filters={!canWrite ? <span className="runner-pill runner-pill--muted">Read-only</span> : null}
+      />
+      <div className="flex-1 overflow-auto px-6 pb-8 triggers-content">
         {controller.error && !controller.editorOpen ? (
-          <div className="mt-4 rounded-lg border border-red-500/30 px-4 py-3 text-sm text-red-500">
+          <div className="mb-4 rounded-lg border border-red-500/30 px-4 py-3 text-sm text-red-500">
             {controller.error}
           </div>
         ) : null}
-      </section>
-
-      <div className="grid items-start gap-6 xl:grid-cols-[minmax(280px,0.7fr)_minmax(0,1.3fr)]">
-        <section className="glass-card rounded-xl border border-[var(--border-primary)] p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-semibold text-[var(--text-primary)]">Sources</h2>
-            <span className="runner-pill runner-pill--muted">{controller.sources.length}</span>
-          </div>
-          {controller.loading ? (
-            <p className="py-8 text-center text-sm text-[var(--text-secondary)]">Loading sources...</p>
-          ) : controller.sources.length ? (
-            <div className="space-y-2">
-              {controller.sources.map(source => (
-                <SourceListItem
-                  key={source.id}
-                  source={source}
-                  selected={selected?.id === source.id}
-                  onSelect={() => controller.onSelect(source.id)}
-                />
-              ))}
-            </div>
-          ) : (
-            <p className="py-8 text-center text-sm text-[var(--text-secondary)]">No Git webhook sources configured.</p>
-          )}
-        </section>
-
-        {selected ? (
-          <SourceDetail
-            source={selected}
-            controller={controller}
-            canWrite={canWrite}
-            canDelete={canDelete}
-          />
-        ) : (
-          <section className="glass-card rounded-xl border border-dashed border-[var(--border-primary)] p-10 text-center">
-            <Webhook className="mx-auto h-8 w-8 text-[var(--text-secondary)]" />
-            <h2 className="mt-3 font-semibold text-[var(--text-primary)]">Select a webhook source</h2>
-            <p className="mt-1 text-sm text-[var(--text-secondary)]">
-              Review its endpoint, repository allowlist, authentication, and recent deliveries.
-            </p>
+        <div className={`grid items-start gap-6 ${selected ? 'xl:grid-cols-[minmax(280px,0.7fr)_minmax(0,1.3fr)]' : ''}`}>
+          <section className="min-w-0">
+            {controller.loading ? (
+              <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Loading sources...</div>
+            ) : filteredSources.length ? (
+              <GitWebhookSourceCards
+                sources={filteredSources}
+                selectedID={selected?.id}
+                onSelect={controller.onSelect}
+              />
+            ) : (
+              <div className="pipelines-empty">
+                <h2 className="text-base font-semibold text-[var(--text-primary)]">No webhook sources found</h2>
+                <p className="text-sm text-[var(--text-secondary)]">
+                  {searchTerm.trim() ? 'Adjust your search.' : 'Create a source to receive repository webhook events.'}
+                </p>
+              </div>
+            )}
           </section>
-        )}
+
+          {selected ? (
+            <SourceDetail
+              source={selected}
+              controller={controller}
+              canWrite={canWrite}
+              canDelete={canDelete}
+            />
+          ) : null}
+        </div>
       </div>
 
       {controller.editorOpen ? (
@@ -119,40 +111,6 @@ export function GitWebhookSourcesView({
         />
       ) : null}
     </div>
-  );
-}
-
-function SourceListItem({
-  source,
-  selected,
-  onSelect,
-}: {
-  source: GitWebhookSource;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={`w-full rounded-lg border p-3 text-left transition-colors ${
-        selected
-          ? 'border-[var(--accent-primary)] bg-[var(--bg-tertiary)]'
-          : 'border-[var(--border-primary)] hover:bg-[var(--bg-tertiary)]'
-      }`}
-      onClick={onSelect}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <span className="truncate font-medium text-[var(--text-primary)]">{source.name || source.id}</span>
-        <span className={`runner-pill ${source.enabled ? 'runner-pill--ok' : 'runner-pill--muted'}`}>
-          {sourceStatusLabel(source)}
-        </span>
-      </div>
-      <div className="mt-2 flex items-center gap-2 text-xs text-[var(--text-secondary)]">
-        <span className="font-mono">{source.provider}</span>
-        <span aria-hidden="true">/</span>
-        <span className="truncate font-mono">{source.id}</span>
-      </div>
-    </button>
   );
 }
 

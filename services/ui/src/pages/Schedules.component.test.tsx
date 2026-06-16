@@ -58,9 +58,26 @@ describe('SchedulesPage modal flows', () => {
     );
 
     await screen.findByText('Nightly deploy');
+    const list = screen.getByTestId('schedule-card-list');
+    expect(list).toHaveClass('compact-resource-grid');
+    expect(list.querySelectorAll('.compact-resource-card')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Search schedules' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Refresh schedules' })).toBeVisible();
+    expect(screen.queryByLabelText('Filter by group')).not.toBeInTheDocument();
+    expect(screen.queryByText('Show disabled')).not.toBeInTheDocument();
+    expect(screen.queryByText('1 total')).not.toBeInTheDocument();
     const opener = screen.getByRole('button', { name: 'New schedule' });
     await userEvent.click(opener);
-    expect(screen.getByRole('dialog', { name: 'New schedule' })).toBeVisible();
+    const dialog = screen.getByRole('dialog', { name: 'New schedule' });
+    expect(dialog).toBeVisible();
+    expect(dialog).toHaveClass(
+      'pipelines-modal-card',
+      'workflow-form-dialog',
+      'workflow-form-dialog--wide'
+    );
+    expect(dialog.querySelector('.pipelines-modal-header')).not.toBeNull();
+    expect(dialog.querySelector('.pipelines-modal-body')).not.toBeNull();
+    expect(dialog.querySelector('.pipelines-modal-footer')).not.toBeNull();
     expect(screen.getByLabelText('Name')).toHaveFocus();
     await userEvent.type(screen.getByLabelText('Name'), 'Morning deploy');
     await userEvent.selectOptions(screen.getByLabelText('Pipeline'), 'platform/deploy');

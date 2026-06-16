@@ -1189,6 +1189,11 @@ curl -X PUT -H "Content-Type: application/json" -d @schedule.json http://localho
 curl -X DELETE http://localhost:8080/v1/schedules/<schedule-id>
 ```
 
+Direct enable, disable, update, and delete operations apply to database-owned
+schedules. GitOps-managed schedules return a conflict for direct mutation or
+deletion and should be changed in the owning config repository; authorized
+callers can still execute them with the run-now endpoint.
+
 Schedule payload fields:
 
 - `path`: optional schedule resource path. If omitted, the schedule uses the

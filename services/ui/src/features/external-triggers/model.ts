@@ -47,3 +47,34 @@ export type SelectOption = {
   value: string;
   label: string;
 };
+
+export function externalTriggerScopeLabel(scope?: string) {
+  const normalized = normalizeExternalTriggerIdentifier(scope);
+  return normalized.toLowerCase() === 'default' || !normalized ? 'default' : normalized;
+}
+
+export function externalTriggerGroupLabel(path?: string) {
+  const normalized = normalizeExternalTriggerIdentifier(path);
+  return normalized === 'root' || !normalized ? 'Root' : normalized;
+}
+
+export function externalTriggerRelativeLabel(value?: string, now = Date.now()) {
+  if (!value) return 'Never';
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return 'Never';
+  const delta = Math.max(0, Math.floor((now - timestamp) / 1000));
+  if (delta < 60) return 'just now';
+  if (delta < 3600) return `${Math.floor(delta / 60)}m ago`;
+  if (delta < 86400) return `${Math.floor(delta / 3600)}h ago`;
+  return `${Math.floor(delta / 86400)}d ago`;
+}
+
+function normalizeExternalTriggerIdentifier(value?: string) {
+  return String(value || '')
+    .trim()
+    .replace(/^\.nopsai\//i, '')
+    .replace(/^(pipelines|external-triggers)\//i, '')
+    .replace(/\.ya?ml$/i, '')
+    .replace(/\/+/g, '/')
+    .replace(/^\/+|\/+$/g, '');
+}

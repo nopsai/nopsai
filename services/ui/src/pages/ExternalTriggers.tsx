@@ -8,19 +8,23 @@ import {
   History,
   PauseCircle,
   PlayCircle,
-  Plus,
   RefreshCw,
   Shield,
   Trash2,
 } from 'lucide-react';
 
+import { ResourceCollectionToolbar } from '../features/editor/ResourceCollectionToolbar';
 import { ExternalTriggerFormModal } from '../features/external-triggers/ExternalTriggerFormModal';
-import type {
-  AllowedCaller,
-  ExternalTrigger,
-  ExternalTriggerForm,
-  ExternalTriggerModalState,
-  SelectOption,
+import { ExternalTriggerCards } from '../features/external-triggers/ExternalTriggerCards';
+import {
+  externalTriggerGroupLabel,
+  externalTriggerRelativeLabel,
+  externalTriggerScopeLabel,
+  type AllowedCaller,
+  type ExternalTrigger,
+  type ExternalTriggerForm,
+  type ExternalTriggerModalState,
+  type SelectOption,
 } from '../features/external-triggers/model';
 import { apiClient, buildApiUrl } from '../lib/api';
 import { fetchPipelineRunGroupPaths } from '../lib/resourceGroups';
@@ -111,12 +115,28 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
   const [saving, setSaving] = useState(false);
   const [deletePending, setDeletePending] = useState(false);
   const [copyState, setCopyState] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
   const [callerDraft, setCallerDraft] = useState<AllowedCaller>({ type: 'service_account', id: '' });
 
   const selectedTrigger = useMemo(
     () => selected || triggers.find(trigger => trigger.id === selectedID) || null,
     [selected, selectedID, triggers]
   );
+
+  const filteredTriggers = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return triggers;
+    return triggers.filter(trigger => [
+      trigger.id,
+      trigger.name,
+      trigger.description,
+      trigger.pipeline,
+      trigger.scope,
+      trigger.run_group_path,
+      trigger.source,
+      ...(trigger.allowed_callers || []).flatMap(caller => [caller.type, caller.id]),
+    ].join(' ').toLowerCase().includes(term));
+  }, [searchTerm, triggers]);
 
   const invokeURL = useMemo(() => {
     if (!selectedTrigger) return '';
@@ -186,7 +206,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
       const data = await fetchJson<ExternalTrigger[]>('/v1/external-triggers');
       const list = Array.isArray(data) ? data : [];
       setTriggers(list);
-      setSelectedID(prev => prev || routeSelectedID || list[0]?.id || '');
+      setSelectedID(prev => prev || routeSelectedID || '');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load external triggers');
       setTriggers([]);
@@ -443,78 +463,40 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
   };
 
   return (
-    <div className="h-full overflow-auto bg-[var(--bg-secondary)]">
-      <div className="px-6 py-5 space-y-5">
-        <header className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-[var(--text-secondary)]">
-            Authenticated pipeline entrypoints for service accounts and user tokens.
-          </p>
-          <div className="flex items-center gap-2">
-            {!canWriteExternalTriggers ? <span className="runner-pill runner-pill--muted">Read-only</span> : null}
-            <button type="button" className="pipelines-icon-only" title="Refresh" aria-label="Refresh" onClick={() => void loadTriggers()}>
-              <RefreshCw className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              className="pipelines-primary-button"
-              onClick={openCreate}
-              disabled={!canWriteExternalTriggers}
-              title={canWriteExternalTriggers ? 'Create external trigger' : 'You have read-only access to external triggers'}
-            >
-              <Plus className="h-4 w-4" />
-              New trigger
-            </button>
-          </div>
-        </header>
-
-        {error && <div className="dispatcher-error">{error}</div>}
-
-        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_440px] gap-5">
-          <section className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-primary)] overflow-x-auto">
-            <div className="grid min-w-[1040px] grid-cols-[1.2fr_1fr_0.7fr_0.8fr_0.7fr_0.8fr_0.8fr] gap-3 px-4 py-3 text-xs font-semibold uppercase text-[var(--text-secondary)] border-b border-[var(--border-primary)]">
-              <span>Name</span>
-              <span>Pipeline</span>
-              <span>Scope</span>
-              <span>Run group</span>
-              <span>Enabled</span>
-              <span>Last used</span>
-              <span>Caller type</span>
-            </div>
-            {loading && <div className="p-5 text-sm text-[var(--text-secondary)]">Loading external triggers...</div>}
-            {!loading && !triggers.length && <div className="p-5 text-sm text-[var(--text-secondary)]">No external triggers configured.</div>}
-            {!loading &&
-              triggers.map(trigger => {
-                const active = trigger.id === selectedID;
-                const callerTypes = Array.from(new Set((trigger.allowed_callers || []).map(caller => caller.type))).join(', ') || 'none';
-                return (
-                  <button
-                    key={trigger.id}
-                    type="button"
-                    className={`grid min-w-[1040px] w-full grid-cols-[1.2fr_1fr_0.7fr_0.8fr_0.7fr_0.8fr_0.8fr] gap-3 px-4 py-3 text-left border-b border-[var(--border-primary)] hover:bg-[var(--bg-secondary)] transition ${
-                      active ? 'bg-[var(--bg-secondary)]' : 'bg-transparent'
-                    }`}
-                    onClick={() => selectTrigger(trigger.id)}
-                  >
-                    <span className="min-w-0">
-                      <span className="block text-sm font-semibold text-[var(--text-primary)] truncate">{trigger.name}</span>
-                      <span className="block text-xs font-mono text-[var(--text-secondary)] truncate">{trigger.id}</span>
-                    </span>
-                    <span className="text-sm text-[var(--text-primary)] truncate">{trigger.pipeline}</span>
-                    <span className="text-sm text-[var(--text-secondary)] truncate">{formatScope(trigger.scope)}</span>
-                    <span className="text-sm text-[var(--text-secondary)] truncate">{formatGroupPath(trigger.run_group_path)}</span>
-                    <span className={trigger.enabled ? 'runner-pill runner-pill--ok' : 'runner-pill runner-pill--muted'}>
-                      {trigger.enabled ? 'Enabled' : 'Disabled'}
-                    </span>
-                    <span className="text-sm text-[var(--text-secondary)] truncate">{formatRelative(trigger.last_used_at)}</span>
-                    <span className="text-sm text-[var(--text-secondary)] truncate">{callerTypes}</span>
-                  </button>
-                );
-              })}
+    <div data-page="external-triggers" className="active h-full flex flex-col">
+      <ResourceCollectionToolbar
+        resourceLabel="external trigger"
+        searchTerm={searchTerm}
+        canCreate={canWriteExternalTriggers}
+        createLabel="New trigger"
+        createDisabledReason="You have read-only access to external triggers"
+        showCreateWhenDisabled
+        onSearchTermChange={setSearchTerm}
+        onCreate={openCreate}
+        onRefresh={() => void loadTriggers()}
+        refreshDisabled={loading || saving}
+        filters={!canWriteExternalTriggers ? <span className="runner-pill runner-pill--muted">Read-only</span> : null}
+      />
+      <div className="flex-1 overflow-auto px-6 pb-8 triggers-content">
+        {error && <div className="dispatcher-error mb-4">{error}</div>}
+        <div className={`grid grid-cols-1 gap-5 ${selectedTrigger ? 'xl:grid-cols-[minmax(0,1fr)_440px]' : ''}`}>
+          <section className="min-w-0">
+            {loading ? <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Loading external triggers...</div> : null}
+            {!loading && !filteredTriggers.length ? (
+              <div className="pipelines-empty">
+                <h2 className="text-base font-semibold text-[var(--text-primary)]">No external triggers found</h2>
+                <p className="text-sm text-[var(--text-secondary)]">
+                  {searchTerm.trim() ? 'Adjust your search.' : 'Create an external trigger to expose an authenticated endpoint.'}
+                </p>
+              </div>
+            ) : null}
+            {!loading && filteredTriggers.length ? (
+              <ExternalTriggerCards triggers={filteredTriggers} selectedID={selectedID} onSelect={selectTrigger} />
+            ) : null}
           </section>
 
-          <aside className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-primary)] p-4 min-h-[520px]">
-            {!selectedTrigger && <div className="text-sm text-[var(--text-secondary)]">Select an external trigger.</div>}
-            {selectedTrigger && (
+          {selectedTrigger ? (
+            <aside className="glass-card rounded-xl border border-[var(--border-primary)] p-4 min-h-[520px]">
               <div className="space-y-5">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -559,8 +541,8 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
 
                 <dl className="grid grid-cols-2 gap-3 text-sm">
                   <Meta label="Pipeline" value={selectedTrigger.pipeline} />
-                  <Meta label="Scope" value={formatScope(selectedTrigger.scope)} />
-                  <Meta label="Run group" value={formatGroupPath(selectedTrigger.run_group_path)} />
+                  <Meta label="Scope" value={externalTriggerScopeLabel(selectedTrigger.scope)} />
+                  <Meta label="Run group" value={externalTriggerGroupLabel(selectedTrigger.run_group_path)} />
                   <Meta label="Created by" value={selectedTrigger.created_by || '-'} />
                   <Meta label="Last used" value={formatDate(selectedTrigger.last_used_at)} />
                   <Meta label="Source" value={selectedTrigger.managed_by_config_repo ? `GitOps ${selectedTrigger.config_source_path || ''}`.trim() : selectedTrigger.source || 'database'} />
@@ -613,7 +595,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
                             <span className={invocation.status === 'queued' ? 'runner-pill runner-pill--ok' : invocation.status === 'failed' ? 'runner-pill runner-pill--error' : 'runner-pill runner-pill--muted'}>
                               {invocation.status}
                             </span>
-                            <span className="text-xs text-[var(--text-secondary)]">{formatRelative(invocation.created_at)}</span>
+                            <span className="text-xs text-[var(--text-secondary)]">{externalTriggerRelativeLabel(invocation.created_at)}</span>
                           </div>
                           <div className="mt-2 text-xs text-[var(--text-secondary)] space-y-1">
                             <p className="font-mono truncate">{invocation.caller_type}:{invocation.caller_id}</p>
@@ -629,8 +611,8 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
                   )}
                 </section>
               </div>
-            )}
-          </aside>
+            </aside>
+          ) : null}
         </div>
       </div>
 
@@ -717,15 +699,6 @@ function uniqueRunGroupOptions(values: string[]) {
   return uniqueSortedStrings(['root', ...values.map(normalizeIdentifier).filter(Boolean)]);
 }
 
-function formatScope(scope?: string) {
-  return normalizeScopeOption(scope) || 'default';
-}
-
-function formatGroupPath(path?: string) {
-  const normalized = normalizeIdentifier(path);
-  return normalized === 'root' || !normalized ? 'Root' : normalized;
-}
-
 function parentPathFromIdentifier(identifier?: string) {
   const parts = normalizeIdentifier(identifier).split('/').filter(Boolean);
   parts.pop();
@@ -743,17 +716,6 @@ function formatDate(value?: string) {
     hour: '2-digit',
     minute: '2-digit',
   }).format(date);
-}
-
-function formatRelative(value?: string) {
-  if (!value) return '-';
-  const timestamp = new Date(value).getTime();
-  if (!Number.isFinite(timestamp)) return '-';
-  const delta = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
-  if (delta < 60) return 'just now';
-  if (delta < 3600) return `${Math.floor(delta / 60)}m ago`;
-  if (delta < 86400) return `${Math.floor(delta / 3600)}h ago`;
-  return `${Math.floor(delta / 86400)}d ago`;
 }
 
 function readPerMinute(rateLimit?: Record<string, unknown>) {
