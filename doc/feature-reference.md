@@ -10,15 +10,15 @@ database into a runnable workspace.
 Supported setup capabilities:
 
 - setup status and health checks for database, admin bootstrap, local secrets,
-  GitHub App settings, git-bot service configuration, access bootstrap,
-  LLM/MCP state, starter pipeline presence, and runner health
+  git-bot service configuration, access bootstrap, LLM/MCP state, starter
+  pipeline presence, and runner health
 - public setup preflight for missing database, master-key, and JWT prerequisites
   before login
 - step-by-step setup modal with required gates and skippable optional steps, shown
   after the first admin password change
 - persistent setup reference page after completion, including generated runtime
   env groups, GitOps zip download, and starter file preview
-- local generation of missing signing, webhook, AAA, and dispatcher secret values
+- local generation of missing signing, AAA, and dispatcher secret values
 - global GitOps config repository creation and optional sync kickoff
 - generated runtime variable output for container environment, secret-manager
   entries, or environment files
@@ -28,12 +28,11 @@ Supported setup capabilities:
 - direct starter database seeding for groups, starter pipeline, reusable step,
   triggers, variables, knowledge context, optional LLM profile, optional MCP
   examples, and optional users
-- GitHub App and git-bot installation guidance
 - one or two starter repository groups with selected repositories underneath
 - starter users with group role assignment, password creation, and forced first
   password change
-- guardrails that flag insecure default admin state and missing webhook
-  verification
+- guardrails that flag insecure default admin state and missing runtime
+  prerequisites
 
 See [first-install-wizard.md](./first-install-wizard.md) for the operator flow
 and setup endpoint examples.

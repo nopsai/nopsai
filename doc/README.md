@@ -9,7 +9,7 @@ Start here when you want to understand the system from different angles:
 - [runtime-flows.md](./runtime-flows.md): Step-by-step execution flows for request authorization, webhooks, manual runs, dispatching, agent execution, child pipelines, cancellation, and config sync.
 - [kubernetes-runner.md](./kubernetes-runner.md): Kubernetes runner runtime, namespace deployment, agent-owned PVC workspace behavior, node affinity, GitOps settings, one-time install commands, and GitOps manifests.
 - [feature-reference.md](./feature-reference.md): Functional capabilities exposed by the codebase and UI.
-- [first-install-wizard.md](./first-install-wizard.md): UI bootstrap flow for an empty database, starter profiles, secret generation, GitOps seeding, GitHub App guidance, repository groups, and production guardrails.
+- [first-install-wizard.md](./first-install-wizard.md): UI bootstrap flow for an empty database, starter profiles, secret generation, GitOps seeding, repository groups, and production guardrails.
 - [enterprise-gates.md](./enterprise-gates.md): Production startup gates, local/CI verification commands, Docker build checks, and integration coverage baseline.
 - [enterprise-refactor-roadmap.md](./enterprise-refactor-roadmap.md): Enterprise feature ownership, SSO follow-up status, and remaining refactor targets.
 - [credential-management.md](./credential-management.md): Implemented single credential interface, encrypted registry, bootstrap boundary, GitOps references, AAA, rotation, and migration behavior.

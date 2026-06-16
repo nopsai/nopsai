@@ -185,7 +185,7 @@ const HELP_TOPICS: Record<string, HelpTopic> = {
     sections: [
       {
         title: 'What this page covers',
-        body: 'Setup covers preflight checks, runtime settings, GitHub App wiring, repository groups, LLM defaults, users, and generated installation output.',
+        body: 'Setup covers preflight checks, runtime settings, repository groups, LLM defaults, users, and generated installation output.',
       },
     ],
   },

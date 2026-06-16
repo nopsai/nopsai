@@ -35,7 +35,6 @@ There are no starter profiles in the UI. The wizard is a single guided flow:
 
 - required readiness and runtime configuration steps
 - optional GitOps repository connection and sync kickoff
-- optional GitHub App and git-bot installation guidance
 - optional repository groups, limited to one or two starter groups for an
   introduction
 - optional default AI setup with one API key field
@@ -54,36 +53,34 @@ There are no starter profiles in the UI. The wizard is a single guided flow:
    Profile page is shown first and setup opens after the password requirement is
    cleared.
 4. Review health checks for database connectivity, local secrets, admin
-   bootstrap state, GitHub App configuration, git-bot service configuration,
-   access grants, LLM/MCP configuration, starter pipeline presence, and runner
-   connectivity.
+   bootstrap state, git-bot service configuration, access grants, LLM/MCP
+   configuration, starter pipeline presence, and runner connectivity.
 5. Review runtime values for service-to-service auth, git-bot forwarding, and
-   public webhook routing. The final step prints variables that can be applied
-   as container environment, secret-manager values, or an environment file.
+   service discovery. The final step prints variables that can be applied as
+   container environment, secret-manager values, or an environment file.
 6. Optionally connect a global GitOps config repository and start sync.
-7. Configure or verify the GitHub App and git-bot settings.
-8. Create one or two repository groups and place selected repositories under
+7. Create one or two repository groups and place selected repositories under
    them. These groups drive starter trigger generation, run navigation, and
    initial access assignments.
-9. Optionally configure the default LLM profile. For local development, the
+8. Optionally configure the default LLM profile. For local development, the
    default is LM Studio at `http://lmstudio:1234` with model `qwen3-coder`.
    The catalog also supports Gemini, OpenAI / ChatGPT, Anthropic Claude, Groq,
    Mistral, OpenRouter, Ollama, and Azure OpenAI. Hosted providers use one API
    key field, stored as a NopsAI secret.
-10. Optionally seed disabled MCP examples for later activation.
-11. Optionally create starter users, assign them to a group with owner,
+9. Optionally seed disabled MCP examples for later activation.
+10. Optionally create starter users, assign them to a group with owner,
     developer, or viewer role, and set or generate temporary passwords. Created
     local users must change password on first login.
-12. Review generated runtime variables, GitOps folder/file layout, and
+11. Review generated runtime variables, GitOps folder/file layout, and
     post-setup instructions.
-13. Apply setup, then run the starter `setup/first-run` pipeline to verify the
+12. Apply setup, then run the starter `setup/first-run` pipeline to verify the
     runner, agent, LLM path, logs, and UI.
 
-The setup modal is step-by-step. Optional steps such as GitOps, GitHub,
-repository groups, AI, MCP examples, and users can be skipped and completed
-later. The review step summarises generated variables, GitOps files, repository
-groups, selected repositories, AI settings, and user assignments before anything
-is applied.
+The setup modal is step-by-step. Optional steps such as GitOps, repository
+groups, AI, MCP examples, and users can be skipped and completed later. The
+review step summarises generated variables, GitOps files, repository groups,
+selected repositories, AI settings, and user assignments before anything is
+applied.
 
 After setup is completed, **System > Setup** remains available as an operator
 reference page. The page keeps the same step navigation and opens on the output
@@ -142,10 +139,11 @@ Do not commit these values to the config repository.
 
 ## GitHub App And git-bot
 
-The wizard separates the internal git-bot service URL from the public webhook
-URL. In Docker Compose the internal NopsAI-to-git-bot URL is usually
-`http://git-bot:8081`, while the public GitHub webhook URL can be an ngrok
-tunnel ending in `/webhook`.
+The wizard manages only the internal NopsAI-to-git-bot service URL. In Docker
+Compose that URL is usually `http://git-bot:8081`. GitHub App IDs,
+installation IDs, private keys, webhook secrets, and the public webhook URL
+belong to the separate `git-bot` deployment or its secret manager, not the
+NopsAI UI.
 
 Install flow:
 
@@ -153,11 +151,10 @@ Install flow:
    NopsAI API URL reachable from git-bot, usually `http://nopsai:8080` in
    Docker Compose.
 2. Create or open a GitHub App and set its webhook URL to the public git-bot
-   webhook URL shown in the wizard.
-3. Create `credential://system/github/webhook-secret` and
-   `credential://system/github/app-private-key` in **System > Credentials**.
-4. Use the same webhook value in GitHub, configure the App ID, installation ID,
-   and credential references for `nopsai`, then install the App.
+   endpoint exposed by your deployment, ending in `/webhook`.
+3. Configure the App ID, installation ID, private key, and webhook secret on
+   the `git-bot` container or secret manager, then install the App on the
+   selected repositories.
 
 Required GitHub App events:
 
@@ -177,8 +174,9 @@ Required GitHub App permissions:
 Repository groups are entered manually as GitHub `owner/repo` names or GitHub
 URLs. Starter GitOps structure stores each app with a `repo_url`, which NopsAI
 normalizes for trigger-to-app matching. If a repository does not trigger later,
-verify the GitHub App ID, installation ID, private key, git-bot service URL, and
-which repositories are selected in the GitHub App installation.
+verify the GitHub App ID, installation ID, private key, webhook secret, public
+git-bot webhook URL, internal git-bot service URL, and which repositories are
+selected in the GitHub App installation.
 
 ## Starter Templates
 

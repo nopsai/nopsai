@@ -78,8 +78,10 @@ Responsibilities:
   GitOps parsing in `services/nopsai/internal/mcpregistry`; root MCP files keep
   the `*App` HTTP, config, and persistence wiring.
 - Applies system GitOps runtime settings through shared system-config helpers
-  for runner install defaults, supported runtime URLs, agent defaults,
-  dispatcher routing, and mail notification settings.
+  and `runtime_settings_store.go`, persisting runner install defaults, supported
+  runtime URLs, agent defaults, and dispatcher routing before mirroring writable
+  local `config.yml`/`.env` files. Mail notification settings stay in their
+  dedicated notification settings store.
 - Seeds predefined product roles and expands role grants into low-level AAA ACLs.
 - Talks to the dispatcher as a gRPC client.
 - Talks to `git-bot` over HTTP for GitHub checks and repository content access.

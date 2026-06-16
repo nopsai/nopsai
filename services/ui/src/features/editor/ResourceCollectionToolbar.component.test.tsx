@@ -23,7 +23,15 @@ test('delegates navigation and creation while owning collection search behavior'
   const user = userEvent.setup();
   const onBack = vi.fn();
   const onCreate = vi.fn();
-  render(<ToolbarHarness onBack={onBack} onCreate={onCreate} />);
+  const { container } = render(<ToolbarHarness onBack={onBack} onCreate={onCreate} />);
+
+  const toolbarRow = container.querySelector('.resource-collection-toolbar-row');
+  expect(toolbarRow).not.toBeNull();
+  expect(toolbarRow).not.toHaveClass('justify-between');
+  expect(toolbarRow).not.toHaveClass('border-b');
+  expect(toolbarRow?.children[0]).toBe(screen.getByRole('button', { name: 'Back' }));
+  expect(toolbarRow?.children[1]).toContainElement(screen.getByRole('button', { name: 'Search pipelines' }));
+  expect(toolbarRow?.children[2]).toBe(screen.getByRole('button', { name: 'Create new pipeline' }));
 
   await user.click(screen.getByRole('button', { name: 'Back' }));
   await user.click(screen.getByRole('button', { name: 'Create new pipeline' }));
@@ -61,7 +69,7 @@ test('hides creation and disables folder navigation when access or context is mi
 test('supports resource page actions, filters, summaries, and visible read-only creation', async () => {
   const user = userEvent.setup();
   const onRefresh = vi.fn();
-  render(
+  const { container } = render(
     <ResourceCollectionToolbar
       resourceLabel="schedule"
       searchTerm=""
@@ -79,6 +87,12 @@ test('supports resource page actions, filters, summaries, and visible read-only 
 
   expect(screen.getByText('3 total')).toBeVisible();
   expect(screen.getByLabelText('Show disabled')).toBeVisible();
+  const toolbarRow = container.querySelector('.resource-collection-toolbar-row');
+  expect(toolbarRow).not.toHaveClass('justify-between');
+  expect(toolbarRow).not.toHaveClass('border-b');
+  expect(toolbarRow?.children[1]).toContainElement(screen.getByLabelText('Show disabled'));
+  expect(toolbarRow?.children[2]).toBe(screen.getByRole('button', { name: 'Refresh schedules' }));
+  expect(toolbarRow?.children[3]).toBe(screen.getByRole('button', { name: 'New schedule' }));
   expect(screen.getByRole('button', { name: 'New schedule' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'New schedule' })).toHaveAttribute('title', 'Read-only schedules');
   await user.click(screen.getByRole('button', { name: 'Refresh schedules' }));

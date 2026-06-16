@@ -134,6 +134,28 @@ func (a *App) ensureMCPServerCredentialReferences(
 	return nil
 }
 
+func (a *App) ensureGitHubAppCredentialReferences(ctx context.Context, cfg config.Config, actor string) error {
+	if err := a.ensureCredentialReference(
+		ctx,
+		cfg.GitHubPrivateKeyCredentialRef,
+		"private_key",
+		"GitHub App private key",
+		actor,
+	); err != nil {
+		return fmt.Errorf("GitHub App private key credential: %w", err)
+	}
+	if err := a.ensureCredentialReference(
+		ctx,
+		cfg.GitHubWebhookCredentialRef,
+		"webhook_secret",
+		"GitHub App webhook verification secret",
+		actor,
+	); err != nil {
+		return fmt.Errorf("GitHub App webhook credential: %w", err)
+	}
+	return nil
+}
+
 func (a *App) ensureOIDCProviderCredentialReferences(
 	ctx context.Context,
 	provider oidcProviderRecord,

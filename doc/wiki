@@ -68,8 +68,10 @@ Flow: GitHub event or user request → Nopsai authenticates and checks AAA → N
   Runners must use matching `RUNNER_ID` and declare scopes via `RUNNER_SCOPES`.
 - **Runtime GitOps**: The global config repo can manage runner install defaults,
   supported runtime URLs, agent defaults, and `dispatcher_routing` in
-  `setting/system/runner.yaml`. Restart or redeploy the dispatcher after routing
-  changes so scheduling uses the new table.
+  `setting/system/runner.yaml`. Synced values are persisted in the database and
+  reloaded before NopsAI connects to the dispatcher on restart; routing changes
+  are also exposed through the dispatcher control-plane polling path for live
+  scheduling updates.
 - **Runner**: `RUNNER_ID`, `RUNNER_SCOPES` (e.g., `dev,prod`), `RUNNER_CAPACITY` (concurrent jobs). Mount Docker socket on the runner container/host.
 - **Agent defaults**: `agent_image`, `docker_network_name`, `auto_removal_agent_container`, `default_pipeline_timeout`, `llm_agent_timeout`.
 - **Secrets/vars**: Master key from `NOPSAI_MASTER_KEY`; secrets encrypted with AES-256-GCM and scope-aware resolution stays unchanged.

@@ -1,6 +1,8 @@
 package nopsai
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +15,8 @@ import (
 	"nopsai/pkg/models"
 	"nopsai/services/nopsai/pkg/auth"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"gopkg.in/yaml.v3"
 )
 
@@ -142,6 +146,10 @@ dispatcher_routing:
 runner_id: runner-prod
 runner_scopes: prod,dev
 runner_capacity: 3
+github_app_id: "123456"
+github_installation_id: "987654"
+github_private_key_credential_ref: credential://system/github/app-private-key
+github_webhook_credential_ref: credential://system/github/webhook-secret
 `, "setting/system/runner.yaml")
 	if err != nil {
 		t.Fatalf("parseGitOpsRuntimeSettingsFile() error = %v", err)
@@ -184,6 +192,18 @@ runner_capacity: 3
 	}
 	if plan.payload.RunnerCapacity == nil || *plan.payload.RunnerCapacity != 3 {
 		t.Fatalf("runner_capacity = %#v", plan.payload.RunnerCapacity)
+	}
+	if plan.payload.GitHubAppID == nil || *plan.payload.GitHubAppID != "123456" {
+		t.Fatalf("github_app_id = %#v", plan.payload.GitHubAppID)
+	}
+	if plan.payload.GitHubInstallationID == nil || *plan.payload.GitHubInstallationID != "987654" {
+		t.Fatalf("github_installation_id = %#v", plan.payload.GitHubInstallationID)
+	}
+	if plan.payload.GitHubPrivateKeyRef == nil || *plan.payload.GitHubPrivateKeyRef != "credential://system/github/app-private-key" {
+		t.Fatalf("github_private_key_credential_ref = %#v", plan.payload.GitHubPrivateKeyRef)
+	}
+	if plan.payload.GitHubWebhookRef == nil || *plan.payload.GitHubWebhookRef != "credential://system/github/webhook-secret" {
+		t.Fatalf("github_webhook_credential_ref = %#v", plan.payload.GitHubWebhookRef)
 	}
 
 	_, err = parseGitOpsRuntimeSettingsFile("runner_capacity: 0", "setting/system/runner.yaml")
@@ -338,13 +358,17 @@ func TestApplyRuntimeSettingsGitOpsPlanPersistsConfigAndEnvOverrides(t *testing.
 				" prod ": {" runner-prod ", ""},
 				"":       {" runner-default "},
 			},
-			RunnerID:       stringPtr(" runner-prod "),
-			RunnerScopes:   stringPtr(" prod, /dev/ ,prod "),
-			RunnerCapacity: intPtr(3),
+			RunnerID:             stringPtr(" runner-prod "),
+			RunnerScopes:         stringPtr(" prod, /dev/ ,prod "),
+			RunnerCapacity:       intPtr(3),
+			GitHubAppID:          stringPtr(" 123456 "),
+			GitHubInstallationID: stringPtr(" 987654 "),
+			GitHubPrivateKeyRef:  stringPtr(" credential://system/github/app-private-key "),
+			GitHubWebhookRef:     stringPtr(" credential://system/github/webhook-secret "),
 		},
 	}
 
-	if err := app.applyRuntimeSettingsGitOpsPlan(plan); err != nil {
+	if err := app.applyRuntimeSettingsGitOpsPlan(context.Background(), models.ConfigRepository{ID: 17}, plan, "commit-a"); err != nil {
 		t.Fatalf("applyRuntimeSettingsGitOpsPlan() error = %v", err)
 	}
 
@@ -364,6 +388,12 @@ func TestApplyRuntimeSettingsGitOpsPlanPersistsConfigAndEnvOverrides(t *testing.
 	if got := cfg.DispatcherRouting["*"]; len(got) != 1 || got[0] != "runner-default" {
 		t.Fatalf("dispatcher routing = %#v", cfg.DispatcherRouting)
 	}
+	if cfg.GitHubAppID != "123456" ||
+		cfg.GitHubInstallID != "987654" ||
+		cfg.GitHubPrivateKeyCredentialRef != "credential://system/github/app-private-key" ||
+		cfg.GitHubWebhookCredentialRef != "credential://system/github/webhook-secret" {
+		t.Fatalf("github settings = (%q, %q, %q, %q)", cfg.GitHubAppID, cfg.GitHubInstallID, cfg.GitHubPrivateKeyCredentialRef, cfg.GitHubWebhookCredentialRef)
+	}
 
 	configBytes, err := os.ReadFile(configPath)
 	if err != nil {
@@ -379,6 +409,10 @@ func TestApplyRuntimeSettingsGitOpsPlanPersistsConfigAndEnvOverrides(t *testing.
 		RunnerID                  string              `yaml:"runner_id"`
 		RunnerScopes              string              `yaml:"runner_scopes"`
 		RunnerCapacity            int                 `yaml:"runner_capacity"`
+		GitHubAppID               string              `yaml:"github_app_id"`
+		GitHubInstallationID      string              `yaml:"github_installation_id"`
+		GitHubPrivateKeyRef       string              `yaml:"github_private_key_credential_ref"`
+		GitHubWebhookRef          string              `yaml:"github_webhook_credential_ref"`
 	}
 	if err := yaml.Unmarshal(configBytes, &persisted); err != nil {
 		t.Fatalf("parse persisted config: %v\n%s", err, string(configBytes))
@@ -392,7 +426,11 @@ func TestApplyRuntimeSettingsGitOpsPlanPersistsConfigAndEnvOverrides(t *testing.
 		persisted.DefaultPipelineTimeout != "45m" ||
 		persisted.RunnerID != "runner-prod" ||
 		persisted.RunnerScopes != "prod,dev" ||
-		persisted.RunnerCapacity != 3 {
+		persisted.RunnerCapacity != 3 ||
+		persisted.GitHubAppID != "123456" ||
+		persisted.GitHubInstallationID != "987654" ||
+		persisted.GitHubPrivateKeyRef != "credential://system/github/app-private-key" ||
+		persisted.GitHubWebhookRef != "credential://system/github/webhook-secret" {
 		t.Fatalf("persisted config = %#v", persisted)
 	}
 	if got := persisted.DispatcherRouting["prod"]; len(got) != 1 || got[0] != "runner-prod" {
@@ -413,6 +451,10 @@ func TestApplyRuntimeSettingsGitOpsPlanPersistsConfigAndEnvOverrides(t *testing.
 		`DISPATCHER_ADDRESS="dispatcher:9090"`,
 		`AUTO_REMOVAL_AGENT_CONTAINER="false"`,
 		`DEFAULT_PIPELINE_TIMEOUT="45m"`,
+		`GITHUB_APP_ID="123456"`,
+		`GITHUB_INSTALLATION_ID="987654"`,
+		`GITHUB_PRIVATE_KEY_CREDENTIAL_REF="credential://system/github/app-private-key"`,
+		`GITHUB_WEBHOOK_CREDENTIAL_REF="credential://system/github/webhook-secret"`,
 	} {
 		if !strings.Contains(env, want) {
 			t.Fatalf("env file missing %q:\n%s", want, env)
@@ -423,4 +465,177 @@ func TestApplyRuntimeSettingsGitOpsPlanPersistsConfigAndEnvOverrides(t *testing.
 		!strings.Contains(env, "runner-default") {
 		t.Fatalf("env file missing dispatcher routing JSON:\n%s", env)
 	}
+}
+
+func TestPersistRuntimeSettingsSnapshotStoresDurableGitOpsPayload(t *testing.T) {
+	repoID := int64(42)
+	db := &runtimeSettingsFakeQuerier{}
+	cfg := config.Config{
+		AgentNopsaiAPIURL:         "http://nopsai.example.com",
+		DispatcherAddress:         "dispatcher:9090",
+		AutoRemovalAgentContainer: false,
+		DefaultPipelineTimeout:    "45m",
+		DispatcherRouting: map[string][]string{
+			" prod ": {" runner-prod ", ""},
+			"":       {" runner-default "},
+		},
+		RunnerID:                      "runner-prod",
+		RunnerScopes:                  "prod,dev",
+		RunnerCapacity:                3,
+		GitHubAppID:                   "123456",
+		GitHubInstallID:               "987654",
+		GitHubPrivateKeyCredentialRef: "credential://system/github/app-private-key",
+		GitHubWebhookCredentialRef:    "credential://system/github/webhook-secret",
+	}
+
+	if err := persistRuntimeSettingsSnapshotToDB(context.Background(), db, cfg, "git", &repoID, " setting/system/runner.yaml ", " commit-a ", true); err != nil {
+		t.Fatalf("persistRuntimeSettingsSnapshotToDB() error = %v", err)
+	}
+	if len(db.execArgs) != 6 {
+		t.Fatalf("exec args = %d, want 6", len(db.execArgs))
+	}
+	if db.execArgs[1] != "git" || db.execArgs[2] != &repoID || db.execArgs[3] != "setting/system/runner.yaml" || db.execArgs[4] != "commit-a" || db.execArgs[5] != true {
+		t.Fatalf("metadata args = %#v", db.execArgs[1:])
+	}
+
+	var stored runtimeSettingsGitOpsFile
+	raw, ok := db.execArgs[0].(string)
+	if !ok {
+		t.Fatalf("payload arg = %T, want string", db.execArgs[0])
+	}
+	if err := json.Unmarshal([]byte(raw), &stored); err != nil {
+		t.Fatalf("decode stored payload: %v\n%s", err, raw)
+	}
+	if stored.RunnerCapacity == nil || *stored.RunnerCapacity != 3 {
+		t.Fatalf("runner capacity = %#v", stored.RunnerCapacity)
+	}
+	if stored.AutoRemovalAgentContainer == nil || *stored.AutoRemovalAgentContainer {
+		t.Fatalf("auto removal = %#v, want explicit false", stored.AutoRemovalAgentContainer)
+	}
+	if got := stored.DispatcherRouting["prod"]; len(got) != 1 || got[0] != "runner-prod" {
+		t.Fatalf("stored routing = %#v", stored.DispatcherRouting)
+	}
+	if got := stored.DispatcherRouting["*"]; len(got) != 1 || got[0] != "runner-default" {
+		t.Fatalf("stored routing = %#v", stored.DispatcherRouting)
+	}
+	if stored.GitHubAppID == nil || *stored.GitHubAppID != "123456" ||
+		stored.GitHubInstallationID == nil || *stored.GitHubInstallationID != "987654" ||
+		stored.GitHubPrivateKeyRef == nil || *stored.GitHubPrivateKeyRef != "credential://system/github/app-private-key" ||
+		stored.GitHubWebhookRef == nil || *stored.GitHubWebhookRef != "credential://system/github/webhook-secret" {
+		t.Fatalf("stored GitHub settings = %#v", stored)
+	}
+}
+
+func TestLoadRuntimeSettingsRecordAppliesPersistedGitOpsSnapshot(t *testing.T) {
+	repoID := int64(42)
+	updatedAt := sql.NullTime{Valid: true}
+	raw := []byte(`{
+		"dispatcher_address": "dispatcher-gitops:9090",
+		"auto_removal_agent_container": false,
+		"dispatcher_routing": {" prod ": [" runner-prod ", ""]},
+		"runner_id": " runner-prod ",
+		"runner_scopes": "prod, /dev/, prod",
+		"runner_capacity": 5,
+		"github_app_id": "123456",
+		"github_installation_id": "987654",
+		"github_private_key_credential_ref": " credential://system/github/app-private-key ",
+		"github_webhook_credential_ref": " credential://system/github/webhook-secret "
+	}`)
+	db := &runtimeSettingsFakeQuerier{
+		row: runtimeSettingsFakeRow{scan: func(dest ...any) error {
+			*(dest[0].(*[]byte)) = raw
+			*(dest[1].(*string)) = "git"
+			*(dest[2].(*sql.NullInt64)) = sql.NullInt64{Int64: repoID, Valid: true}
+			*(dest[3].(*string)) = "setting/system/runner.yaml"
+			*(dest[4].(*string)) = "commit-a"
+			*(dest[5].(*bool)) = true
+			*(dest[6].(*sql.NullTime)) = updatedAt
+			return nil
+		}},
+	}
+
+	record, found, err := loadRuntimeSettingsRecord(context.Background(), db)
+	if err != nil {
+		t.Fatalf("loadRuntimeSettingsRecord() error = %v", err)
+	}
+	if !found {
+		t.Fatal("loadRuntimeSettingsRecord() found = false, want true")
+	}
+	if record.Source != "git" || record.ConfigRepoID == nil || *record.ConfigRepoID != repoID || !record.ManagedByConfigRepo {
+		t.Fatalf("record metadata = %#v", record)
+	}
+
+	cfg := config.Config{
+		DispatcherAddress:         "old:9090",
+		AutoRemovalAgentContainer: true,
+		RunnerID:                  "old-runner",
+		RunnerScopes:              "old",
+		RunnerCapacity:            1,
+	}
+	next, err := applyRuntimeSettingsRecordToConfig(&cfg, record)
+	if err != nil {
+		t.Fatalf("applyRuntimeSettingsRecordToConfig() error = %v", err)
+	}
+	if next.DispatcherAddress != "dispatcher-gitops:9090" {
+		t.Fatalf("dispatcher address = %q", next.DispatcherAddress)
+	}
+	if next.AutoRemovalAgentContainer {
+		t.Fatal("auto removal should remain explicit false")
+	}
+	if next.RunnerID != "runner-prod" || next.RunnerScopes != "prod,dev" || next.RunnerCapacity != 5 {
+		t.Fatalf("runner settings = (%q, %q, %d)", next.RunnerID, next.RunnerScopes, next.RunnerCapacity)
+	}
+	if got := next.DispatcherRouting["prod"]; len(got) != 1 || got[0] != "runner-prod" {
+		t.Fatalf("dispatcher routing = %#v", next.DispatcherRouting)
+	}
+	if next.GitHubAppID != "123456" ||
+		next.GitHubInstallID != "987654" ||
+		next.GitHubPrivateKeyCredentialRef != "credential://system/github/app-private-key" ||
+		next.GitHubWebhookCredentialRef != "credential://system/github/webhook-secret" {
+		t.Fatalf("GitHub settings = (%q, %q, %q, %q)", next.GitHubAppID, next.GitHubInstallID, next.GitHubPrivateKeyCredentialRef, next.GitHubWebhookCredentialRef)
+	}
+}
+
+func TestLoadRuntimeSettingsRecordMissingReturnsNotFound(t *testing.T) {
+	db := &runtimeSettingsFakeQuerier{row: runtimeSettingsFakeRow{err: pgx.ErrNoRows}}
+	_, found, err := loadRuntimeSettingsRecord(context.Background(), db)
+	if err != nil {
+		t.Fatalf("loadRuntimeSettingsRecord() error = %v", err)
+	}
+	if found {
+		t.Fatal("loadRuntimeSettingsRecord() found = true, want false")
+	}
+}
+
+type runtimeSettingsFakeQuerier struct {
+	row      pgx.Row
+	execArgs []any
+	execErr  error
+}
+
+func (q *runtimeSettingsFakeQuerier) QueryRow(context.Context, string, ...any) pgx.Row {
+	if q.row == nil {
+		return runtimeSettingsFakeRow{err: pgx.ErrNoRows}
+	}
+	return q.row
+}
+
+func (q *runtimeSettingsFakeQuerier) Exec(_ context.Context, _ string, args ...any) (pgconn.CommandTag, error) {
+	q.execArgs = append([]any(nil), args...)
+	return pgconn.CommandTag{}, q.execErr
+}
+
+type runtimeSettingsFakeRow struct {
+	scan func(dest ...any) error
+	err  error
+}
+
+func (r runtimeSettingsFakeRow) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	if r.scan != nil {
+		return r.scan(dest...)
+	}
+	return nil
 }

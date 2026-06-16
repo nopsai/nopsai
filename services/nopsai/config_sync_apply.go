@@ -81,6 +81,26 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			return fmt.Errorf("prepare mail credential metadata: %w", err)
 		}
 	}
+	if runtimeSettingsPlan != nil {
+		if runtimeSettingsPlan.payload.GitHubPrivateKeyRef != nil {
+			if err := a.ensureCredentialReferenceMetadata(
+				ctx,
+				*runtimeSettingsPlan.payload.GitHubPrivateKeyRef,
+				credentialMetadata("private_key", "GitHub App private key", runtimeSettingsPlan.sourcePath),
+			); err != nil {
+				return fmt.Errorf("prepare GitHub App private key credential metadata: %w", err)
+			}
+		}
+		if runtimeSettingsPlan.payload.GitHubWebhookRef != nil {
+			if err := a.ensureCredentialReferenceMetadata(
+				ctx,
+				*runtimeSettingsPlan.payload.GitHubWebhookRef,
+				credentialMetadata("webhook_secret", "GitHub App webhook verification secret", runtimeSettingsPlan.sourcePath),
+			); err != nil {
+				return fmt.Errorf("prepare GitHub App webhook credential metadata: %w", err)
+			}
+		}
+	}
 	for id, source := range gitWebhookSources {
 		if err := a.ensureCredentialReferenceMetadata(
 			ctx,
@@ -688,7 +708,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			rows.Close()
 		}
 		if len(prunedRepoIDs) > 0 {
-			for _, tableName := range []string{"config_repositories", "pipelines", "steps", "pipeline_schedules", "triggers", "external_triggers", "git_webhook_sources", "variables", "secrets", "knowledge_contexts", "agent_profiles", "notification_routes", "notification_mail_settings"} {
+			for _, tableName := range []string{"config_repositories", "pipelines", "steps", "pipeline_schedules", "triggers", "external_triggers", "git_webhook_sources", "variables", "secrets", "knowledge_contexts", "agent_profiles", "notification_routes", "notification_mail_settings", "runtime_settings"} {
 				if _, err := tx.Exec(ctx, fmt.Sprintf(`
 					UPDATE %s
 					SET config_repo_id = NULL,
@@ -1039,7 +1059,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		details["auth_settings_synced"] = 1
 	}
 	if runtimeSettingsPlan != nil {
-		if err := a.applyRuntimeSettingsGitOpsPlan(runtimeSettingsPlan); err != nil {
+		if err := a.applyRuntimeSettingsGitOpsPlan(ctx, binding, runtimeSettingsPlan, commitSHA); err != nil {
 			return fmt.Errorf("failed to sync runtime settings from '%s': %w", runtimeSettingsPlan.sourcePath, err)
 		}
 		details["runtime_settings_synced"] = 1
