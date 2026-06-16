@@ -83,7 +83,7 @@ export type UserDraft = {
   group: string;
 };
 
-export type SetupStepID = 'readiness' | 'runtime' | 'gitops' | 'github' | 'repositories' | 'ai' | 'users' | 'review';
+export type SetupStepID = 'readiness' | 'runtime' | 'gitops' | 'repositories' | 'ai' | 'users' | 'review';
 export type RuntimeImplementation = 'docker' | 'kubernetes';
 export type RuntimeDefaults = {
   nopsaiAPIURL: string;
@@ -134,7 +134,6 @@ export const WIZARD_STEPS: Array<{ id: SetupStepID; label: string; required: boo
   { id: 'readiness', label: 'Readiness', required: true },
   { id: 'runtime', label: 'Runtime', required: true },
   { id: 'gitops', label: 'GitOps', required: false },
-  { id: 'github', label: 'GitHub App', required: false },
   { id: 'repositories', label: 'Groups', required: false },
   { id: 'ai', label: 'AI', required: false },
   { id: 'users', label: 'Users', required: false },

@@ -46,7 +46,6 @@ test('renders setup review output and delegates preview, zip, and env downloads'
       environmentSnippet="# shared by services\nAAA_SHARED_INTERNAL_TOKEN=<generate-strong-value>"
       gitOpsStructureSnippet="platform:\n  apps:\n    - name: api"
       gitOpsFiles={['access/bootstrap.yaml', 'pipelines/setup/first-run.yaml']}
-      gitBotWebhookURL="https://hooks.example.test/webhook"
       templateLoading={false}
       templatesLoaded={false}
       downloadingGitOpsZip={false}
@@ -58,7 +57,7 @@ test('renders setup review output and delegates preview, zip, and env downloads'
   expect(screen.getByText(/LLM profile setup was skipped/i)).toBeInTheDocument();
   expect(screen.getByText('AAA_SHARED_INTERNAL_TOKEN=<generate-strong-value>')).toBeInTheDocument();
   expect(screen.getByText('access/bootstrap.yaml')).toBeInTheDocument();
-  expect(screen.getByText(/https:\/\/hooks\.example\.test\/webhook/)).toBeInTheDocument();
+  expect(screen.getByText(/configure provider webhook settings on the git-bot deployment/i)).toBeInTheDocument();
 
   await user.click(screen.getByRole('button', { name: /preview gitops files/i }));
   await user.click(screen.getByRole('button', { name: /download gitops zip/i }));

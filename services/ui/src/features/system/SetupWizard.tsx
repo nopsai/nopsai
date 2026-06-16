@@ -3,7 +3,6 @@ import {
   Bot,
   FolderTree,
   GitBranch,
-  Github,
   KeyRound,
   PlayCircle,
   Plus,
@@ -50,16 +49,10 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
   const [runtimeImplementation, setRuntimeImplementation] = useState<RuntimeImplementation>('docker');
   const [nopsaiAPIURL, setNopsaiAPIURL] = useState(runtimeDefaults('docker').nopsaiAPIURL);
   const [gitBotServiceURL, setGitBotServiceURL] = useState(runtimeDefaults('docker').gitBotServiceURL);
-  const [gitBotPublicURL, setGitBotPublicURL] = useState('');
   const [repoURL, setRepoURL] = useState('');
   const [branch, setBranch] = useState('main');
   const [basePath, setBasePath] = useState('');
   const [syncConfigRepository, setSyncConfigRepository] = useState(false);
-  const [githubEnabled, setGithubEnabled] = useState(true);
-  const [githubAppID, setGithubAppID] = useState('');
-  const [githubInstallationID, setGithubInstallationID] = useState('');
-  const [githubPrivateKeyCredentialRef, setGithubPrivateKeyCredentialRef] = useState('credential://system/github/app-private-key');
-  const [githubWebhookCredentialRef, setGithubWebhookCredentialRef] = useState('credential://system/github/webhook-secret');
   const [repositoryEnabled, setRepositoryEnabled] = useState(true);
   const [repositoryGroups, setRepositoryGroups] = useState<RepositoryGroupDraft[]>(() => initialRepositoryGroups());
   const [aiEnabled, setAIEnabled] = useState(true);
@@ -103,8 +96,6 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
   const llmReference = llmCredentialRef.trim() || defaultCredentialRef(llmProvider);
   const llmProviderDefinition = getLLMProvider(llmProvider);
   const currentRuntimeDefaults = runtimeDefaults(runtimeImplementation);
-  const gitBotPublicBaseURL = gitBotPublicURL.trim().replace(/\/+$/, '') || 'https://<your-ngrok-or-git-bot-domain>';
-  const gitBotWebhookURL = `${gitBotPublicBaseURL}/webhook`;
 
   useEffect(() => {
     if (!templates || selectedTemplatePath) return;
@@ -134,10 +125,6 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
         const configured = (payload.github.git_bot_service_url || (payload.github.webhook_url ? deriveGitBotBaseURL(payload.github.webhook_url) : '')).trim();
         if (isLikelyPublicURL(configured)) return current;
         return configured && (!current.trim() || current === runtimeDefaults('docker').gitBotServiceURL) ? configured : current;
-      });
-      setGitBotPublicURL(current => {
-        if (current.trim() || !isLikelyPublicURL(payload.github.webhook_url)) return current;
-        return deriveGitBotBaseURL(payload.github.webhook_url);
       });
       if (payload.global_config_repo) {
         setRepoURL(payload.global_config_repo.repo_url || '');
@@ -301,13 +288,6 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
       `GIT_BOT_NOPSAI_API_URL=${nopsaiAPIURL.trim() || currentRuntimeDefaults.nopsaiAPIURL}`,
       'GIT_BOT_SERVICE_ID=git-bot',
     ];
-    if (githubEnabled) {
-      nopsaiLines.push(`GITHUB_APP_ID=${githubAppID.trim() || '<github-app-id>'}`);
-      nopsaiLines.push(`GITHUB_INSTALLATION_ID=${githubInstallationID.trim() || '<github-installation-id>'}`);
-      nopsaiLines.push(`GITHUB_PRIVATE_KEY_CREDENTIAL_REF=${githubPrivateKeyCredentialRef.trim() || 'credential://system/github/app-private-key'}`);
-      nopsaiLines.push(`GITHUB_WEBHOOK_CREDENTIAL_REF=${githubWebhookCredentialRef.trim() || 'credential://system/github/webhook-secret'}`);
-    }
-
     return [
       { title: 'Shared by nopsai, git-bot, dispatcher, runner, and aaa', fileName: 'shared.env', lines: sharedLines },
       { title: 'nopsai container', fileName: 'nopsai.env', lines: nopsaiLines },
@@ -317,11 +297,6 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
     currentRuntimeDefaults.gitBotServiceURL,
     currentRuntimeDefaults.nopsaiAPIURL,
     gitBotServiceURL,
-    githubAppID,
-    githubEnabled,
-    githubInstallationID,
-    githubPrivateKeyCredentialRef,
-    githubWebhookCredentialRef,
     nopsaiAPIURL,
     runtimeImplementation,
   ]);
@@ -359,9 +334,6 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
       case 'gitops':
         setRepoURL('');
         setSyncConfigRepository(false);
-        break;
-      case 'github':
-        setGithubEnabled(false);
         break;
       case 'repositories':
         setRepositoryEnabled(false);
@@ -449,7 +421,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
         return (
           <div className="space-y-4">
             <StepIntro title="Confirm the control plane is ready" icon={<ShieldCheck className="h-4 w-4" />}>
-              These checks make sure the database, admin account, signing keys, GitHub App wiring, runner path, and starter resources are visible before real automation starts. Blocking errors must be resolved before setup can continue.
+              These checks make sure the database, admin account, signing keys, runner path, and starter resources are visible before real automation starts. Blocking errors must be resolved before setup can continue.
             </StepIntro>
             <div className="grid gap-3 md:grid-cols-2">
               {(status?.checks || []).map(check => (
@@ -505,7 +477,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
               <label className="space-y-1 text-sm">
                 <span className="text-xs text-[var(--text-secondary)]">NopsAI to git-bot service URL</span>
                 <input className="w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2" value={gitBotServiceURL} onChange={event => setGitBotServiceURL(event.target.value)} disabled={!canManage} />
-                <span className="block text-[11px] leading-5 text-[var(--text-secondary)]">For Docker Compose this should stay `http://git-bot:8081`; the public webhook tunnel is configured in the GitHub step.</span>
+                <span className="block text-[11px] leading-5 text-[var(--text-secondary)]">For Docker Compose this should stay `http://git-bot:8081`; configure public GitHub webhook access on the git-bot deployment.</span>
               </label>
             </div>
           </div>
@@ -534,61 +506,6 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
               <input type="checkbox" checked={syncConfigRepository} onChange={event => setSyncConfigRepository(event.target.checked)} disabled={!canManage || !repoURL.trim()} />
               Start config sync after saving the repository
             </label>
-          </div>
-        );
-      case 'github':
-        return (
-          <div className="space-y-4">
-            <StepIntro title="Prepare the GitHub App integration" icon={<Github className="h-4 w-4" />}>
-              GitHub automation needs an App ID, installation ID, two credential references, and a webhook URL that GitHub can reach. Secret values live only in System &gt; Credentials and are brokered to git-bot at startup.
-            </StepIntro>
-            <label className="flex items-center gap-2 rounded-md border border-[var(--border-primary)] p-3 text-sm">
-              <input type="checkbox" checked={githubEnabled} onChange={event => setGithubEnabled(event.target.checked)} disabled={!canManage} />
-              Include GitHub App configuration in the generated output
-            </label>
-            <div className="rounded-md border border-[var(--border-primary)] p-3 text-sm">
-              <div className="font-semibold">git-bot install checklist</div>
-              <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs leading-5 text-[var(--text-secondary)]">
-                <li>Start the `git-bot` service with Docker Compose or your runtime, and set `GIT_BOT_NOPSAI_API_URL` to `{nopsaiAPIURL || currentRuntimeDefaults.nopsaiAPIURL}`.</li>
-                <li>Create or open a GitHub App and set its webhook URL to the value shown below.</li>
-                <li>Set repository permissions to Contents read and write, Metadata read, Pull requests read, and Checks read and write.</li>
-                <li>In System &gt; Credentials, create the webhook-secret and private-key credentials using the references below.</li>
-                <li>Use the same webhook value in the GitHub App settings, then install the App on the selected repositories.</li>
-                <li>Copy the installation ID from the GitHub installation URL after installing the App.</li>
-              </ol>
-            </div>
-            <label className="space-y-1 text-sm">
-              <span className="text-xs text-[var(--text-secondary)]">Public git-bot webhook base URL</span>
-              <input className="w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2" value={gitBotPublicURL} onChange={event => setGitBotPublicURL(event.target.value)} placeholder="https://your-subdomain.ngrok-free.app" disabled={!canManage || !githubEnabled} />
-              <span className="block text-[11px] leading-5 text-[var(--text-secondary)]">Point ngrok at the host or container port that reaches git-bot, then paste the tunnel base URL here. GitHub only needs `/webhook`; the API URL used by git-bot stays `{nopsaiAPIURL || currentRuntimeDefaults.nopsaiAPIURL}`.</span>
-            </label>
-            <div className="grid gap-3 md:grid-cols-2">
-              <label className="space-y-1 text-sm">
-                <span className="text-xs text-[var(--text-secondary)]">GitHub App ID</span>
-                <input className="w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2" value={githubAppID} onChange={event => setGithubAppID(event.target.value)} disabled={!canManage || !githubEnabled} />
-                <span className="block text-[11px] leading-5 text-[var(--text-secondary)]">GitHub App settings, General tab, App ID.</span>
-              </label>
-              <label className="space-y-1 text-sm">
-                <span className="text-xs text-[var(--text-secondary)]">Installation ID</span>
-                <input className="w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2" value={githubInstallationID} onChange={event => setGithubInstallationID(event.target.value)} disabled={!canManage || !githubEnabled} />
-                <span className="block text-[11px] leading-5 text-[var(--text-secondary)]">Install App page, then use the number in the installation URL, such as `/settings/installations/12345678`.</span>
-              </label>
-              <label className="space-y-1 text-sm">
-                <span className="text-xs text-[var(--text-secondary)]">Private-key credential reference</span>
-                <input className="w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 font-mono text-xs" value={githubPrivateKeyCredentialRef} onChange={event => setGithubPrivateKeyCredentialRef(event.target.value)} disabled={!canManage || !githubEnabled} />
-                <span className="block text-[11px] leading-5 text-[var(--text-secondary)]">Create this as kind `private_key` in System &gt; Credentials.</span>
-              </label>
-              <label className="space-y-1 text-sm">
-                <span className="text-xs text-[var(--text-secondary)]">Webhook credential reference</span>
-                <input className="w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 font-mono text-xs" value={githubWebhookCredentialRef} onChange={event => setGithubWebhookCredentialRef(event.target.value)} disabled={!canManage || !githubEnabled} />
-                <span className="block text-[11px] leading-5 text-[var(--text-secondary)]">Create this as kind `webhook_secret` in System &gt; Credentials.</span>
-              </label>
-            </div>
-            <div className="rounded-md border border-[var(--border-primary)] p-3 text-sm">
-              <div className="text-xs text-[var(--text-secondary)]">Webhook URL to configure in GitHub</div>
-              <div className="mt-2 break-all font-mono text-xs">{gitBotWebhookURL}</div>
-              <div className="mt-3 text-xs text-[var(--text-secondary)]">Events: {(status?.github.required_events || []).join(', ') || 'push, pull_request, check_run, check_suite, ping'}</div>
-            </div>
           </div>
         );
       case 'repositories':
@@ -729,7 +646,6 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
             environmentSnippet={environmentSnippet}
             gitOpsStructureSnippet={gitOpsStructureSnippet}
             gitOpsFiles={gitOpsFiles}
-            gitBotWebhookURL={gitBotWebhookURL}
             templateLoading={templateLoading}
             templatesLoaded={Boolean(templates)}
             downloadingGitOpsZip={downloadingGitOpsZip}

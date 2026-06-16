@@ -67,6 +67,9 @@ func Run() {
 	if err := service.EnsureDatabaseBootstrapForConfig(context.Background(), dbpool, cfg); err != nil {
 		log.Fatal().Err(err).Msg("Failed to initialize database bootstrap")
 	}
+	if err := service.ApplyPersistedRuntimeSettings(context.Background(), dbpool, cfg); err != nil {
+		log.Fatal().Err(err).Msg("Failed to load persisted runtime settings")
+	}
 
 	dispatcherConn, err := newDispatcherConnection(cfg)
 	if err != nil {

@@ -93,6 +93,11 @@ agent and step pods. Use PVC mode for full pipeline compatibility.
 Store runtime settings in the system config repository at
 `setting/system/runner.yaml`:
 
+NopsAI persists synced runtime settings in the database and reloads them before
+connecting to the dispatcher on restart. The generated `config.yml` and `.env`
+mirrors are compatibility outputs for writable local installs, not the durable
+source of truth for Kubernetes.
+
 ```yaml
 runner_id: k8s-runner-ams-1
 runner_scopes: production,eu-west

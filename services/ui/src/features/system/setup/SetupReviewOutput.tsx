@@ -11,7 +11,6 @@ type SetupReviewOutputProps = {
   environmentSnippet: string;
   gitOpsStructureSnippet: string;
   gitOpsFiles: string[];
-  gitBotWebhookURL: string;
   templateLoading: boolean;
   templatesLoaded: boolean;
   downloadingGitOpsZip: boolean;
@@ -40,7 +39,6 @@ export function SetupReviewOutput({
   environmentSnippet,
   gitOpsStructureSnippet,
   gitOpsFiles,
-  gitBotWebhookURL,
   templateLoading,
   templatesLoaded,
   downloadingGitOpsZip,
@@ -109,7 +107,7 @@ export function SetupReviewOutput({
         </div>
       </div>
       <div className="rounded-md border border-sky-500/30 bg-sky-500/10 p-3 text-sm leading-6 text-sky-700 dark:text-sky-300">
-        Configure the GitHub App webhook URL as `{gitBotWebhookURL}`, apply each env group to the matching container or secret manager, mount or store the GitHub private key for git-bot, commit the GitOps zip if you are using GitOps, restart services that received new runtime values, and run `setup/first-run` to prove runner, agent, logs, and UI are working{aiEnabled ? ', including AI.' : '.'}
+        Apply each env group to the matching container or secret manager, configure provider webhook settings on the git-bot deployment, commit the GitOps zip if you are using GitOps, restart services that received new runtime values, and run `setup/first-run` to prove runner, agent, logs, and UI are working{aiEnabled ? ', including AI.' : '.'}
       </div>
       <div className="flex flex-wrap gap-2">
         <button className="inline-flex items-center gap-2 rounded-md border border-[var(--border-primary)] px-4 py-2 text-sm" onClick={onLoadTemplates} disabled={templateLoading}>

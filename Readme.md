@@ -46,7 +46,7 @@ around that balance:
 | Secrets and scopes | Encrypted secrets, plaintext scoped variables, strict scope isolation, repository-specific overrides, cross-scope references, and runtime authorization checks. |
 | Knowledge context | Managed or repo-local markdown context for architecture docs, guardrails, policies, ADRs, runbooks, references, examples, and guidelines injected into LLM tasks. |
 | Runner-based execution | Dispatcher-managed Docker and Kubernetes runners, per-run agents, per-step containers or pods, scope routing, affinity, capacity controls, cancellation, and durable logs. |
-| First-install bootstrap | UI wizard for empty databases, generated runtime configuration, GitHub App guidance, starter repository groups, starter templates, user bootstrap, and setup guardrails. |
+| First-install bootstrap | UI wizard for empty databases, generated runtime configuration, starter repository groups, starter templates, user bootstrap, and setup guardrails. |
 | MCP integration | System-managed MCP server and profile registry with optional profile examples and scope-aware enablement. |
 
 ## Architecture
@@ -136,14 +136,14 @@ downloads, generated file previews, and setup guidance.
 
 After starting the stack, open the UI and go to **System > Setup**. The wizard
 uses one guided setup path: required readiness and runtime steps must be
-completed, while GitOps, GitHub, repository groups, AI, MCP examples, and user
+completed, while GitOps, repository groups, AI, MCP examples, and user
 bootstrap can be skipped and configured later.
 
 The wizard can:
 
 - guide the operator through setup in a step-by-step modal
-- check database, admin, local secret, GitHub App configuration, git-bot
-  service configuration, access, LLM, MCP, demo pipeline, and runner readiness
+- check database, admin, local secret, git-bot service configuration, access,
+  LLM, MCP, demo pipeline, and runner readiness
 - generate missing local keys and tokens
 - create or connect the global GitOps config repository
 - preview starter GitOps templates
@@ -202,8 +202,8 @@ Prerequisites:
 
 5. Run **System > Setup** after changing the first admin password.
 
-6. Configure the GitHub App webhook URL shown in the wizard and verify the
-   git-bot runtime settings.
+6. Verify the git-bot runtime settings. Configure GitHub App IDs, secrets, and
+   webhook URL on the git-bot deployment or its secret manager.
 
 7. Create one or two starter repository groups, apply setup, and run the starter
    `setup/first-run` pipeline to verify runner, agent, LLM, logs, and UI.
@@ -239,9 +239,13 @@ runner scopes, runner capacity, dispatcher address, agent image/network defaults
 timeouts, and `dispatcher_routing`. Keep database URLs, master keys, and service
 JWT bootstrap keys in deployment secrets. Store operational integration
 credentials in **System > Credentials** and bind them from GitOps by reference.
-Dispatcher routing changes made from the UI or synced from
-GitOps are published through `nopsai` and picked up by the live dispatcher
-without a restart.
+Runtime settings saved from the UI or synced from GitOps are stored in the
+database as the durable source of truth, then mirrored to `config.yml` and
+`.env` when those files are writable for local compatibility. On restart, the
+database copy is loaded before NopsAI connects to the dispatcher, so GitOps
+changes do not require a second sync. Dispatcher routing changes made from the
+UI or synced from GitOps are published through `nopsai` and picked up by the
+live dispatcher without a restart.
 
 SSO settings live under **System > Access > Identity Providers** and can be
 declared in the global config repository at `setting/system/auth.yaml`. GitOps
@@ -387,8 +391,10 @@ Required GitHub App permissions:
 - `pull_requests`: read
 - `checks`: read and write
 
-The first-install wizard shows the public webhook URL for GitHub and the
-internal service URLs used between NopsAI and git-bot.
+The NopsAI UI does not manage GitHub App IDs, installation IDs, private keys, or
+webhook secrets. Keep those values with the `git-bot` deployment or its secret
+manager; NopsAI runtime settings only need the internal service URL used to call
+git-bot.
 
 For local webhook simulation, see [doc/triggering.md](doc/triggering.md).
 
