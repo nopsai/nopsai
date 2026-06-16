@@ -305,8 +305,16 @@ func (a *App) handleCreateOrUpdateGeneralVariable(w http.ResponseWriter, r *http
 		return
 	}
 
-	query := `INSERT INTO variables (name, value, repository_name, scope, source, updated_at) VALUES ($1, $2, NULL, $3, 'database', NOW())
-			  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, source = 'database', updated_at = NOW()`
+	query := `INSERT INTO variables (name, value, repository_name, scope, source, config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at)
+			  VALUES ($1, $2, NULL, $3, 'database', NULL, '', '', FALSE, NOW())
+			  ON CONFLICT (name, repository_name, scope) DO UPDATE SET
+			    value = EXCLUDED.value,
+			    source = 'database',
+			    config_repo_id = NULL,
+			    config_source_path = '',
+			    config_source_commit_sha = '',
+			    managed_by_config_repo = FALSE,
+			    updated_at = NOW()`
 	_, err := a.db.Exec(context.Background(), query, variableName, req.Value, scope)
 
 	if err != nil {
@@ -410,8 +418,16 @@ func (a *App) handleCreateOrUpdateRepoVariable(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	query := `INSERT INTO variables (name, value, repository_name, scope, source, updated_at) VALUES ($1, $2, $3, $4, 'database', NOW())
-			  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, source = 'database', updated_at = NOW()`
+	query := `INSERT INTO variables (name, value, repository_name, scope, source, config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at)
+			  VALUES ($1, $2, $3, $4, 'database', NULL, '', '', FALSE, NOW())
+			  ON CONFLICT (name, repository_name, scope) DO UPDATE SET
+			    value = EXCLUDED.value,
+			    source = 'database',
+			    config_repo_id = NULL,
+			    config_source_path = '',
+			    config_source_commit_sha = '',
+			    managed_by_config_repo = FALSE,
+			    updated_at = NOW()`
 	_, err := a.db.Exec(context.Background(), query, variableName, req.Value, fullName, scope)
 
 	if err != nil {
@@ -860,8 +876,16 @@ func (a *App) handleCreateOrUpdateGeneralSecret(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	query := `INSERT INTO secrets (name, value, repository_name, scope, source, updated_at) VALUES ($1, $2, NULL, $3, 'database', NOW())
-			  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, source = 'database', updated_at = NOW()`
+	query := `INSERT INTO secrets (name, value, repository_name, scope, source, config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at)
+			  VALUES ($1, $2, NULL, $3, 'database', NULL, '', '', FALSE, NOW())
+			  ON CONFLICT (name, repository_name, scope) DO UPDATE SET
+			    value = EXCLUDED.value,
+			    source = 'database',
+			    config_repo_id = NULL,
+			    config_source_path = '',
+			    config_source_commit_sha = '',
+			    managed_by_config_repo = FALSE,
+			    updated_at = NOW()`
 	_, err = a.db.Exec(context.Background(), query, secretName, encryptedValue, scope)
 
 	if err != nil {
@@ -951,8 +975,16 @@ func (a *App) handleCreateOrUpdateRepoSecret(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	query := `INSERT INTO secrets (name, value, repository_name, scope, source, updated_at) VALUES ($1, $2, $3, $4, 'database', NOW())
-			  ON CONFLICT (name, repository_name, scope) DO UPDATE SET value = EXCLUDED.value, source = 'database', updated_at = NOW()`
+	query := `INSERT INTO secrets (name, value, repository_name, scope, source, config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at)
+			  VALUES ($1, $2, $3, $4, 'database', NULL, '', '', FALSE, NOW())
+			  ON CONFLICT (name, repository_name, scope) DO UPDATE SET
+			    value = EXCLUDED.value,
+			    source = 'database',
+			    config_repo_id = NULL,
+			    config_source_path = '',
+			    config_source_commit_sha = '',
+			    managed_by_config_repo = FALSE,
+			    updated_at = NOW()`
 	_, err = a.db.Exec(context.Background(), query, secretName, encryptedValue, fullName, scope)
 
 	if err != nil {

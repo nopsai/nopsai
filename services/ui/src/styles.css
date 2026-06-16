@@ -680,48 +680,6 @@ html.dark .themed-bg-blur {
     align-items: center;
     justify-content: center;
 }
-.step-logo {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    background: none;
-    border: 0;
-    box-shadow: none;
-    border-radius: 0;
-    text-shadow: none;
-    color: inherit;
-}
-.step-logo svg {
-    width: 1rem;
-    height: 1rem;
-}
-.step-logo--card svg {
-    width: 1.2rem;
-    height: 1.2rem;
-}
-.step-logo--detail svg {
-    width: 1.6rem;
-    height: 1.6rem;
-}
-.step-logo--menu svg {
-    width: 1.2rem;
-    height: 1.2rem;
-}
-.step-logo--list svg,
-.step-logo--sidebar svg {
-    width: 1.75rem;
-    height: 1.75rem;
-}
-.step-logo--brand { color: #7c3aed; }
-.step-logo--pipelineruns { color: #2563eb; }
-.step-logo--pipelines { color: #16a34a; }
-.step-logo--steps { color: #a855f7; }
-.step-logo--scopes { color: #0ea5e9; }
-.step-logo--lab { color: #f97316; }
-.step-logo--triggers { color: #f43f5e; }
-.step-logo--monitoring { color: #6366f1; }
-.step-logo--system { color: #64748b; }
 .mini-task-node rect {
     stroke: var(--border-secondary);
     stroke-width: 1.5px;
@@ -2799,23 +2757,6 @@ html.dark .recent-run-card {
     gap: 0.18rem;
     min-width: 0;
     flex: 1;
-}
-
-.triggers-card-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 2rem;
-    height: 2rem;
-    border-radius: 0.6rem;
-    background: rgba(59,130,246,0.12);
-    color: var(--text-accent);
-    flex-shrink: 0;
-}
-
-.triggers-card-icon svg {
-    width: 1.2rem;
-    height: 1.2rem;
 }
 
 .pipeline-card-title {

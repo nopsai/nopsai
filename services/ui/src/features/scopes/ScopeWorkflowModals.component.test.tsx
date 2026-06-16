@@ -50,6 +50,7 @@ function ScopeModalHarness({
     kind: 'secret',
     scope: 'team',
     name: 'owner/repo/API_TOKEN',
+    gitOpsManaged: true,
     pending: false,
   };
 
@@ -57,6 +58,24 @@ function ScopeModalHarness({
     <>
       <button type="button" onClick={() => setOpen('scope')}>Open scope</button>
       <button type="button" onClick={() => setOpen('variable')}>Open variable</button>
+      <button
+        type="button"
+        onClick={() => {
+          setVariableModal({
+            mode: 'update',
+            scope: 'team',
+            originalName: 'owner/repo/API_URL',
+            name: 'API_URL',
+            repository: 'owner/repo',
+            value: '',
+            gitOpsManaged: true,
+            pending: false,
+          });
+          setOpen('variable');
+        }}
+      >
+        Open override variable
+      </button>
       <button type="button" onClick={() => setOpen('gitops')}>Open GitOps</button>
       <button type="button" onClick={() => setOpen('delete')}>Open delete</button>
       <ScopeWorkflowModals
@@ -144,6 +163,15 @@ test('associates scoped-value fields and exposes local validation errors', async
   expect(onSubmitVariable).toHaveBeenCalledOnce();
 });
 
+test('warns when editing GitOps-managed scoped values', async () => {
+  const user = userEvent.setup();
+  renderHarness();
+
+  await user.click(screen.getByRole('button', { name: 'Open override variable' }));
+  const dialog = screen.getByRole('dialog', { name: 'Variable' });
+  expect(within(dialog).getByText(/Saving here creates a database override/)).toBeVisible();
+});
+
 test('supports GitOps encryption controls and destructive confirmation semantics', async () => {
   const user = userEvent.setup();
   const { onCopy, onDelete, onEncrypt } = renderHarness();
@@ -162,6 +190,7 @@ test('supports GitOps encryption controls and destructive confirmation semantics
   await user.click(deleteOpener);
   const deleteDialog = screen.getByRole('alertdialog', { name: 'Confirm removal' });
   expect(within(deleteDialog).getByRole('button', { name: 'Cancel' })).toHaveFocus();
+  expect(within(deleteDialog).getByText(/The next GitOps sync can recreate it/)).toBeVisible();
   await user.click(within(deleteDialog).getByRole('button', { name: 'Delete' }));
   expect(onDelete).toHaveBeenCalledOnce();
 });

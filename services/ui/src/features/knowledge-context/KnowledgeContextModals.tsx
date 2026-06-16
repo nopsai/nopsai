@@ -14,6 +14,7 @@ export type KnowledgeFormModalState = {
 export type KnowledgeDeleteModalState = {
   id: string;
   name: string;
+  gitOpsManaged?: boolean;
   pending: boolean;
   error?: string;
 };
@@ -134,7 +135,11 @@ export function KnowledgeContextModals({
             </button>
           </header>
           <div className="pipelines-modal-body space-y-3">
-            <p id={deleteDescriptionId} className="text-sm text-[var(--text-secondary)]">This action cannot be undone.</p>
+            <p id={deleteDescriptionId} className="text-sm text-[var(--text-secondary)]">
+              {deleteModal.gitOpsManaged
+                ? 'This removes the database row. A future GitOps sync can recreate it from the repository.'
+                : 'This action cannot be undone.'}
+            </p>
             {deleteModal.error ? <WorkflowInlineAlert id={deleteErrorId}>{deleteModal.error}</WorkflowInlineAlert> : null}
           </div>
           <div className="pipelines-modal-footer">

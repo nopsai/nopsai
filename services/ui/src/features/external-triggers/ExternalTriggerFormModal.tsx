@@ -12,6 +12,7 @@ type ExternalTriggerFormModalProps = {
   form: ExternalTriggerForm;
   formError: string;
   saving: boolean;
+  gitOpsManaged?: boolean;
   pipelineOptions: string[];
   scopeOptions: string[];
   runGroupOptions: string[];
@@ -35,6 +36,7 @@ export function ExternalTriggerFormModal({
   form,
   formError,
   saving,
+  gitOpsManaged = false,
   pipelineOptions,
   scopeOptions,
   runGroupOptions,
@@ -76,6 +78,11 @@ export function ExternalTriggerFormModal({
       {formError ? (
         <div id={errorId} className="dispatcher-error" role="alert">
           {formError}
+        </div>
+      ) : null}
+      {gitOpsManaged ? (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-[var(--text-secondary)]">
+          Saving here creates a database override. The next GitOps sync can replace it unless the change is pushed to GitOps.
         </div>
       ) : null}
 

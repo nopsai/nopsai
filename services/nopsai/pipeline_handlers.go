@@ -345,14 +345,18 @@ func (a *App) handleCreateOrUpdateTriggerOverride(w http.ResponseWriter, r *http
 		return
 	}
 
-	desiredSource := "database"
-	if strings.EqualFold(existingSource, "git") {
-		desiredSource = existingSource
-	}
-
-	query := `INSERT INTO triggers (repository_name, trigger_definition, source) VALUES ($1, $2, $3)
-			  ON CONFLICT (repository_name) DO UPDATE SET trigger_definition = $2, source = $3`
-	_, err = a.db.Exec(context.Background(), query, fullName, string(triggerDef), desiredSource)
+	query := `INSERT INTO triggers (
+			repository_name, trigger_definition, source,
+			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo
+		) VALUES ($1, $2, 'database', NULL, '', '', FALSE)
+		ON CONFLICT (repository_name) DO UPDATE SET
+			trigger_definition = EXCLUDED.trigger_definition,
+			source = 'database',
+			config_repo_id = NULL,
+			config_source_path = '',
+			config_source_commit_sha = '',
+			managed_by_config_repo = FALSE`
+	_, err = a.db.Exec(context.Background(), query, fullName, string(triggerDef))
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to save trigger override")
 		http.Error(w, "Failed to save trigger override", http.StatusInternalServerError)
@@ -449,14 +453,20 @@ func (a *App) handleCreateOrUpdatePipeline(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	desiredSource := "database"
-	if strings.EqualFold(existingSource, "git") {
-		desiredSource = existingSource
-	}
-
-	query := `INSERT INTO pipelines (path, name, version, definition, source, updated_at) VALUES ($1, $2, $3, $4, $5, NOW())
-			  ON CONFLICT (path, name) DO UPDATE SET version = $3, definition = $4, source = $5, updated_at = NOW()`
-	_, err = a.db.Exec(context.Background(), query, dbPath, storedName, storedVersion, string(pipelineDef), desiredSource)
+	query := `INSERT INTO pipelines (
+			path, name, version, definition, source,
+			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at
+		) VALUES ($1, $2, $3, $4, 'database', NULL, '', '', FALSE, NOW())
+		ON CONFLICT (path, name) DO UPDATE SET
+			version = EXCLUDED.version,
+			definition = EXCLUDED.definition,
+			source = 'database',
+			config_repo_id = NULL,
+			config_source_path = '',
+			config_source_commit_sha = '',
+			managed_by_config_repo = FALSE,
+			updated_at = NOW()`
+	_, err = a.db.Exec(context.Background(), query, dbPath, storedName, storedVersion, string(pipelineDef))
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to save pipeline to database")
 		http.Error(w, "Failed to save pipeline", http.StatusInternalServerError)
@@ -893,14 +903,19 @@ func (a *App) handleCreateOrUpdateReusableStep(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	desiredSource := "database"
-	if strings.EqualFold(existingSource, "git") {
-		desiredSource = existingSource
-	}
-
-	query := `INSERT INTO steps (path, name, definition, source, updated_at) VALUES ($1, $2, $3, $4, NOW())
-			  ON CONFLICT (path, name) DO UPDATE SET definition = $3, source = $4, updated_at = NOW()`
-	_, err = a.db.Exec(context.Background(), query, dbPath, storedName, string(stepDef), desiredSource)
+	query := `INSERT INTO steps (
+			path, name, definition, source,
+			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at
+		) VALUES ($1, $2, $3, 'database', NULL, '', '', FALSE, NOW())
+		ON CONFLICT (path, name) DO UPDATE SET
+			definition = EXCLUDED.definition,
+			source = 'database',
+			config_repo_id = NULL,
+			config_source_path = '',
+			config_source_commit_sha = '',
+			managed_by_config_repo = FALSE,
+			updated_at = NOW()`
+	_, err = a.db.Exec(context.Background(), query, dbPath, storedName, string(stepDef))
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to save reusable step to database")
 		http.Error(w, "Failed to save reusable step", http.StatusInternalServerError)

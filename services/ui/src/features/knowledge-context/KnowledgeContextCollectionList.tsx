@@ -1,4 +1,5 @@
-import { BookOpen, Braces, FileText, Folder, Lock, ShieldCheck, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
+import { ObjectIcon } from '../../components/ObjectIcon';
 import {
   countFolderDocs,
   isGitManagedDocument,
@@ -7,7 +8,7 @@ import {
   type KnowledgeContextListItem,
   type KnowledgeFolderNode,
 } from './model';
-import { kindPlural, kindTitle } from './presentation';
+import { kindIconType, kindPlural, kindTitle } from './presentation';
 
 type KnowledgeContextCollectionListProps = {
   listLoading: boolean;
@@ -91,7 +92,7 @@ export function KnowledgeContextCollectionList({
 
 function KnowledgeFolderCard({ folder, onOpenFolder }: { folder: KnowledgeFolderNode; onOpenFolder: (folder: string) => void }) {
   const folderDepth = folder.fullPath.split('/').filter(Boolean).length;
-  const icon = folderDepth === 1 ? renderKnowledgeIcon(folder.name) : <Folder />;
+  const iconType = folderDepth === 1 ? kindIconType(folder.name) : 'folder';
   const folderName = folderDepth === 1 ? kindPlural(folder.name) : folder.name;
 
   return (
@@ -102,7 +103,7 @@ function KnowledgeFolderCard({ folder, onOpenFolder }: { folder: KnowledgeFolder
       <div className="pipeline-card-header">
         <div className="pipeline-card-info">
           <span className="pipeline-card-icon" aria-hidden="true">
-            {icon}
+            <ObjectIcon type={iconType} />
           </span>
           <div className="pipeline-card-text">
             <h3 className="pipeline-card-title">{folderName}</h3>
@@ -139,9 +140,9 @@ function KnowledgeDocumentCard({
   onSelectDocument: (id: string) => void;
   onDeleteDocument: (document: KnowledgeContextListItem) => void;
 }) {
-  const icon = renderKnowledgeIcon(document.kind);
+  const iconType = kindIconType(document.kind);
   const { folder } = splitKnowledgePath(document.id);
-  const canDeleteThisDocument = canDeleteKnowledge && !isGitManagedDocument(document);
+  const canDeleteThisDocument = canDeleteKnowledge;
 
   return (
     <article
@@ -151,7 +152,7 @@ function KnowledgeDocumentCard({
       <div className="pipeline-card-header">
         <div className="pipeline-card-info">
           <span className="pipeline-card-icon" aria-hidden="true">
-            {icon}
+            <ObjectIcon type={iconType} />
           </span>
           <div className="pipeline-card-text">
             <h3 className="pipeline-card-title">{document.name}</h3>
@@ -164,7 +165,7 @@ function KnowledgeDocumentCard({
             <button
               type="button"
               className="pipelines-delete-button"
-              title="Delete knowledge context"
+              title={isGitManagedDocument(document) ? 'Delete database row; GitOps can recreate it on the next sync' : 'Delete knowledge context'}
               onClick={event => {
                 event.stopPropagation();
                 onDeleteDocument(document);
@@ -188,21 +189,4 @@ function KnowledgeDocumentCard({
       </div>
     </article>
   );
-}
-
-function renderKnowledgeIcon(kind: string) {
-  switch (kind) {
-    case 'guardrail':
-      return <ShieldCheck />;
-    case 'policy':
-      return <Lock />;
-    case 'runbook':
-      return <Braces />;
-    case 'reference':
-      return <BookOpen />;
-    case 'example':
-      return <FileText />;
-    default:
-      return <FileText />;
-  }
 }

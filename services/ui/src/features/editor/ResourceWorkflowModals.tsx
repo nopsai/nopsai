@@ -11,6 +11,7 @@ export type ResourceFormModal = {
 
 export type ResourceDeleteModal = {
   resourceName: string;
+  gitOpsManaged?: boolean;
   pending: boolean;
   error?: string;
 };
@@ -146,7 +147,11 @@ function ResourceDeleteDialog({
           </button>
         </header>
         <div className="pipelines-modal-body space-y-3">
-          <p id={descriptionId} className="text-sm text-[var(--text-secondary)]">This action cannot be undone.</p>
+          <p id={descriptionId} className="text-sm text-[var(--text-secondary)]">
+            {deleteModal.gitOpsManaged
+              ? 'This removes the database row. A future GitOps sync can recreate it from the repository.'
+              : 'This action cannot be undone.'}
+          </p>
           {deleteModal.error ? <WorkflowInlineAlert id={errorId}>{deleteModal.error}</WorkflowInlineAlert> : null}
         </div>
         <div className="pipelines-modal-footer">

@@ -804,6 +804,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
           deleteModal
             ? {
                 resourceName: deleteModal.resourceName,
+                gitOpsManaged: deleteModal.gitOpsManaged,
                 pending: deleteModal.pending,
                 error: deleteModal.error,
               }

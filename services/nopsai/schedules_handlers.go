@@ -102,10 +102,6 @@ func (a *App) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if existing.ManagedByConfigRepo {
-		http.Error(w, "GitOps-managed schedules must be changed in the config repository", http.StatusConflict)
-		return
-	}
 	var req scheduleRequest
 	if err := httpapi.DecodeJSON(r, &req); err != nil {
 		http.Error(w, "Invalid schedule payload", http.StatusBadRequest)
@@ -139,10 +135,6 @@ func (a *App) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if record.ManagedByConfigRepo {
-		http.Error(w, "GitOps-managed schedules must be changed in the config repository", http.StatusConflict)
-		return
-	}
 	if err := a.deleteSchedule(r.Context(), record.ID); err != nil {
 		log.Error().Err(err).Str("schedule_id", record.ID).Msg("Failed to delete schedule")
 		http.Error(w, "Failed to delete schedule", http.StatusInternalServerError)
@@ -162,10 +154,6 @@ func (a *App) handleDisableSchedule(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleSetScheduleEnabled(w http.ResponseWriter, r *http.Request, enabled bool) {
 	record, ok := a.requireScheduleDecision(w, r, "pipeline_schedule.update")
 	if !ok {
-		return
-	}
-	if record.ManagedByConfigRepo {
-		http.Error(w, "GitOps-managed schedules must be changed in the config repository", http.StatusConflict)
 		return
 	}
 	nextRunAt := record.NextRunAt

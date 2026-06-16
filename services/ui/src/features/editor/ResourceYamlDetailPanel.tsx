@@ -150,13 +150,7 @@ export function ResourceYamlDetailPanel({
                 <Download className="h-4 w-4" aria-hidden="true" />
               </button>
               {access ? <ResourceAccessCard resourceType={access.resourceType} resourceID={access.resourceID} label={access.label} /> : null}
-              {!canUpdate && !canCreate ? null : isGitSource ? (
-                canCreate ? (
-                  <button className="glass-button-primary" onClick={onClone}>
-                    Clone
-                  </button>
-                ) : null
-              ) : (
+              {!canUpdate && !canCreate ? null : (
                 <>
                   {canUpdate ? (
                     <button className="glass-button-primary" onClick={onEdit}>
@@ -184,6 +178,11 @@ export function ResourceYamlDetailPanel({
         </div>
       </div>
       <div className="p-4 space-y-3">
+        {isGitSource ? (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-[var(--text-secondary)]">
+            Editing here saves a database override. The next GitOps sync can replace it unless the change is pushed to GitOps.
+          </div>
+        ) : null}
         {!isEditing ? (
           <div id={ids.content} className="yaml-view">
             {renderYamlLines(rawYaml)}

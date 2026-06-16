@@ -182,6 +182,89 @@ test('clones, updates, and no-ops secrets without exposing old values', async ()
   expect(addToast).toHaveBeenCalledWith('Secret value updated (unchanged).', 'info');
 });
 
+test('warns and saves database overrides for GitOps-managed scoped values', async () => {
+  const { result } = renderMutations({
+    scopeDataByScope: {
+      team: {
+        variables: ['owner/repo/API_URL'],
+        variableMeta: { 'owner/repo/API_URL': { source: 'git' } },
+        secrets: ['owner/repo/API_TOKEN'],
+        secretMeta: { 'owner/repo/API_TOKEN': { source: 'git' } },
+      },
+    },
+  });
+
+  act(() => {
+    result.current.openVariableUpdateModal('team', 'owner/repo/API_URL');
+  });
+  expect(result.current.variableModal).toMatchObject({
+    mode: 'update',
+    gitOpsManaged: true,
+    originalName: 'owner/repo/API_URL',
+  });
+  expect(addToast).toHaveBeenCalledWith(
+    'Editing saves a database override. The next GitOps sync can replace it unless it is pushed to GitOps.',
+    'info'
+  );
+
+  act(() => {
+    result.current.updateVariableModal({ value: 'https://override.test' });
+  });
+  await act(async () => {
+    expect(await result.current.submitVariableModal()).toBe(true);
+  });
+  expect(saveScopedValueMock).toHaveBeenCalledWith(
+    '/repo/owner/repo/variables/API_URL?scope=team',
+    'https://override.test',
+    'variable'
+  );
+  expect(addToast).toHaveBeenCalledWith(
+    'Variable saved as a database override. GitOps can replace it on the next sync unless it is pushed.',
+    'success'
+  );
+
+  act(() => {
+    result.current.openSecretUpdateModal('team', 'owner/repo/API_TOKEN');
+  });
+  expect(result.current.secretModal).toMatchObject({
+    mode: 'update',
+    gitOpsManaged: true,
+    originalName: 'owner/repo/API_TOKEN',
+  });
+
+  act(() => {
+    result.current.updateSecretModal({ value: 'rotated-secret' });
+  });
+  await act(async () => {
+    expect(await result.current.submitSecretModal()).toBe(true);
+  });
+  expect(saveScopedValueMock).toHaveBeenLastCalledWith(
+    '/repo/owner/repo/secrets/API_TOKEN?scope=team',
+    'rotated-secret',
+    'secret'
+  );
+  expect(addToast).toHaveBeenCalledWith(
+    'Secret saved as a database override. GitOps can replace it on the next sync unless it is pushed.',
+    'success'
+  );
+
+  act(() => {
+    result.current.openDeleteModal('secret', 'team', 'owner/repo/API_TOKEN');
+  });
+  expect(result.current.deleteModal).toMatchObject({
+    kind: 'secret',
+    gitOpsManaged: true,
+  });
+  await act(async () => {
+    expect(await result.current.confirmDelete()).toBe(true);
+  });
+  expect(deleteScopedValueMock).toHaveBeenCalledWith('/repo/owner/repo/secrets/API_TOKEN?scope=team');
+  expect(addToast).toHaveBeenCalledWith(
+    'Secret database row removed. GitOps can recreate it on the next sync unless it is removed from GitOps.',
+    'success'
+  );
+});
+
 test('encrypts and copies GitOps secret values', async () => {
   const { result } = renderMutations();
 

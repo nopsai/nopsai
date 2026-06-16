@@ -78,9 +78,9 @@ test('groups scoped items and preserves GitOps source behavior', () => {
       },
     ],
   });
-  assert.equal(isEditableScopeSource('git'), false);
+  assert.equal(isEditableScopeSource('git'), true);
   assert.equal(isEditableScopeSource('database'), true);
-  assert.equal(scopeSourceLabel('git'), 'Git');
+  assert.equal(scopeSourceLabel('git'), 'GitOps');
   assert.equal(formatScopeDisplay('teams/platform'), '/teams/platform');
   assert.deepEqual(createInitialScopeData(), {
     variables: [],
@@ -128,7 +128,7 @@ steps:
     description: '',
     path: 'team/deploy',
     version: 'v2',
-    source: 'Git',
+    source: 'GitOps',
   });
   assert.deepEqual(normalizeTriggerOverrideSlugs([
     'acme/api',

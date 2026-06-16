@@ -192,8 +192,10 @@ use NopsAI sessions. Source authentication, the repository allowlist, rate
 limits, payload limits, delivery idempotency, and runtime resource checks form
 the ingress boundary.
 
-GitOps-managed sources are read-only through direct update and delete APIs.
-Change them in the owning config repository. Config sync imports, updates, and
+Direct update and delete APIs are allowed when AAA permits. Updating a
+GitOps-managed source stores a database override, and deleting one removes the
+database row; the next GitOps sync can replace or recreate it unless the change
+is pushed to the owning config repository. Config sync imports, updates, and
 prunes source manifests, while config drift/write exports database-created
 sources into the global config repository.
 

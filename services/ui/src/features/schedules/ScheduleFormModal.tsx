@@ -76,7 +76,7 @@ export function ScheduleFormModal({
       title={modal.mode === 'edit' ? 'Edit schedule' : 'New schedule'}
       subtitle={
         modal.schedule?.managed_by_config_repo
-          ? `Managed by ${modal.schedule.config_source_path || 'GitOps'}`
+          ? `GitOps source: ${modal.schedule.config_source_path || 'repository'}`
           : undefined
       }
       onClose={onClose}
@@ -410,9 +410,14 @@ export function ScheduleFormModal({
       </div>
 
       {formError ? <p id={errorId} className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700" role="alert">{formError}</p> : null}
+      {modal.schedule?.managed_by_config_repo ? (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-[var(--text-secondary)]">
+          Saving here creates a database override. The next GitOps sync can replace it unless the change is pushed to GitOps.
+        </div>
+      ) : null}
       <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
         <Shield className="h-4 w-4" />
-        <span>{modal.schedule?.managed_by_config_repo ? 'Change this schedule in GitOps.' : 'Runtime access is checked before saving.'}</span>
+        <span>Runtime access is checked before saving.</span>
       </div>
     </WorkflowFormDialog>
   );

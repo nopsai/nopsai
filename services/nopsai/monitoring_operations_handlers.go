@@ -213,12 +213,13 @@ func (a *App) handleDeleteMonitoringSavedView(w http.ResponseWriter, r *http.Req
 	}
 	ownerType, ownerID := monitoringSubjectOwner(subject)
 	tag, err := a.db.Exec(r.Context(), `
-		DELETE FROM monitoring_saved_views
-		WHERE id::text = $1
-		  AND owner_subject_type = $2
-		  AND owner_subject_id = $3
-		  AND managed_by_config_repo = FALSE
-	`, viewID, ownerType, ownerID)
+			DELETE FROM monitoring_saved_views
+			WHERE id::text = $1
+			  AND (
+			      (owner_subject_type = $2 AND owner_subject_id = $3)
+			      OR managed_by_config_repo = TRUE
+			  )
+		`, viewID, ownerType, ownerID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to delete monitoring saved view")
 		http.Error(w, "failed to delete monitoring saved view", http.StatusInternalServerError)
@@ -326,12 +327,13 @@ func (a *App) handleDeleteMonitoringAlertRule(w http.ResponseWriter, r *http.Req
 	}
 	ownerType, ownerID := monitoringSubjectOwner(subject)
 	tag, err := a.db.Exec(r.Context(), `
-		DELETE FROM monitoring_alert_rules
-		WHERE id::text = $1
-		  AND owner_subject_type = $2
-		  AND owner_subject_id = $3
-		  AND managed_by_config_repo = FALSE
-	`, ruleID, ownerType, ownerID)
+			DELETE FROM monitoring_alert_rules
+			WHERE id::text = $1
+			  AND (
+			      (owner_subject_type = $2 AND owner_subject_id = $3)
+			      OR managed_by_config_repo = TRUE
+			  )
+		`, ruleID, ownerType, ownerID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to delete monitoring alert rule")
 		http.Error(w, "failed to delete monitoring alert rule", http.StatusInternalServerError)
@@ -510,16 +512,22 @@ func (a *App) insertMonitoringSavedView(ctx context.Context, input monitoringSav
 func (a *App) updateMonitoringSavedView(ctx context.Context, viewID string, input monitoringSavedViewInput, ownerType, ownerID string, filtersJSON, columnsJSON []byte) (monitoringSavedViewRecord, error) {
 	row := a.db.QueryRow(ctx, `
 		UPDATE monitoring_saved_views
-		SET name = $2,
-		    visibility = $3,
-		    group_id = $4,
-		    filters = $5::jsonb,
-		    columns = $6::jsonb,
-		    updated_at = NOW()
-		WHERE id::text = $1
-		  AND owner_subject_type = $7
-		  AND owner_subject_id = $8
-		  AND managed_by_config_repo = FALSE
+			SET name = $2,
+			    visibility = $3,
+			    group_id = $4,
+			    filters = $5::jsonb,
+			    columns = $6::jsonb,
+			    source = 'database',
+			    config_repo_id = NULL,
+			    config_source_path = '',
+			    config_source_commit_sha = '',
+			    managed_by_config_repo = FALSE,
+			    updated_at = NOW()
+			WHERE id::text = $1
+			  AND (
+			      (owner_subject_type = $7 AND owner_subject_id = $8)
+			      OR managed_by_config_repo = TRUE
+			  )
 		RETURNING id::text, name, owner_subject_type, owner_subject_id, visibility, group_id,
 		          filters, columns, source, managed_by_config_repo, created_at, updated_at
 	`, viewID, input.Name, input.Visibility, input.GroupID, string(filtersJSON), string(columnsJSON), ownerType, ownerID)
@@ -587,15 +595,21 @@ func (a *App) updateMonitoringAlertRule(ctx context.Context, ruleID string, inpu
 		    visibility = $5,
 		    severity = $6,
 		    metric = $7,
-		    comparator = $8,
-		    threshold = $9,
-		    window_seconds = $10,
-		    filters = $11::jsonb,
-		    updated_at = NOW()
-		WHERE id::text = $1
-		  AND owner_subject_type = $12
-		  AND owner_subject_id = $13
-		  AND managed_by_config_repo = FALSE
+			    comparator = $8,
+			    threshold = $9,
+			    window_seconds = $10,
+			    filters = $11::jsonb,
+			    source = 'database',
+			    config_repo_id = NULL,
+			    config_source_path = '',
+			    config_source_commit_sha = '',
+			    managed_by_config_repo = FALSE,
+			    updated_at = NOW()
+			WHERE id::text = $1
+			  AND (
+			      (owner_subject_type = $12 AND owner_subject_id = $13)
+			      OR managed_by_config_repo = TRUE
+			  )
 		RETURNING id::text, name, description, enabled, owner_subject_type, owner_subject_id,
 		          visibility, severity, metric, comparator, threshold::float8, window_seconds,
 		          filters, source, managed_by_config_repo, created_at, updated_at,

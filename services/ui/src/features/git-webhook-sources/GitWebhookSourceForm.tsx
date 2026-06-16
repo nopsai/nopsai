@@ -53,6 +53,12 @@ export function GitWebhookSourceForm({
         </>
       )}
     >
+      {source?.managed_by_config_repo ? (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-[var(--text-secondary)]">
+          Saving here creates a database override. The next GitOps sync can replace it unless the change is pushed to GitOps.
+        </div>
+      ) : null}
+
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Source ID">
           <input

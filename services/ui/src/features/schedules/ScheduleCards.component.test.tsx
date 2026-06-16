@@ -88,36 +88,41 @@ test('routes every compact schedule action through its feature callback', () => 
   expect(screen.getByText('Success')).toBeVisible();
 });
 
-test('keeps GitOps schedule mutation actions read-only', () => {
+test('allows GitOps schedule mutation actions with override affordances', () => {
+  const callbacks = {
+    onEdit: vi.fn(),
+    onEnable: vi.fn(),
+    onRun: vi.fn(),
+    onDelete: vi.fn(),
+    onOpenRun: vi.fn(),
+  };
+  const managedSchedule = {
+    ...schedule,
+    name: '',
+    description: '',
+    enabled: false,
+    source: 'git',
+    managed_by_config_repo: true,
+    latest_run: undefined,
+    last_run_id: '',
+    last_status: '',
+  };
   render(
     <ScheduleCard
-      schedule={{
-        ...schedule,
-        name: '',
-        description: '',
-        enabled: false,
-        source: 'git',
-        managed_by_config_repo: true,
-        latest_run: undefined,
-        last_run_id: '',
-        last_status: '',
-      }}
+      schedule={managedSchedule}
       canWriteSchedules
       canDeleteSchedules
       busy
-      onEdit={() => undefined}
-      onEnable={() => undefined}
-      onRun={() => undefined}
-      onDelete={() => undefined}
-      onOpenRun={() => undefined}
+      {...callbacks}
     />
   );
 
   expect(screen.getByText('GitOps')).toBeVisible();
   expect(screen.getByText('Disabled')).toBeVisible();
   expect(screen.getByRole('button', { name: 'Run platform/nightly-deploy now' })).toBeDisabled();
-  expect(screen.queryByRole('button', { name: /Edit platform\/nightly-deploy/ })).not.toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: /Delete platform\/nightly-deploy/ })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Edit platform/nightly-deploy' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Delete platform/nightly-deploy' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Enable platform/nightly-deploy' })).toBeDisabled();
   expect(screen.queryByRole('button', { name: /Open latest run/ })).not.toBeInTheDocument();
 });
 

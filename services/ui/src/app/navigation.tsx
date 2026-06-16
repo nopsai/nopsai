@@ -1,94 +1,79 @@
-import {
-  IconBell,
-  IconCalendarSchedule,
-  IconCog,
-  IconDatabase,
-  IconDispatch,
-  IconFlask,
-  IconFlow,
-  IconKnowledge,
-  IconMonitoring,
-  IconPlay,
-  IconScope,
-  IconShield,
-  IconSteps,
-  IconZap,
-} from './icons';
+import { ObjectIcon } from '../components/ObjectIcon';
 import type { NavItem } from './types';
 
 export const baseNavItems: NavItem[] = [
   {
     label: 'Pipeline runs',
     path: '/pipelineruns/main',
-    icon: <IconPlay />,
+    icon: <ObjectIcon type="pipeline-run" />,
   },
   {
     label: 'Monitoring',
     path: '/monitoring',
-    icon: <IconMonitoring />,
+    icon: <ObjectIcon type="monitoring" />,
   },
   {
     label: 'Pipelines',
     path: '/pipelines',
-    icon: <IconFlow />,
+    icon: <ObjectIcon type="pipeline" />,
   },
   {
     label: 'Schedules',
     path: '/schedules',
-    icon: <IconCalendarSchedule />,
+    icon: <ObjectIcon type="schedule" />,
   },
   {
     label: 'Triggers',
     path: '/triggers',
-    icon: <IconBell />,
+    icon: <ObjectIcon type="trigger" />,
   },
   {
     label: 'External Triggers',
     path: '/external-triggers',
-    icon: <IconZap />,
+    icon: <ObjectIcon type="external-trigger" />,
   },
   {
     label: 'Git Webhook Sources',
     path: '/git-webhook-sources',
-    icon: <IconFlow />,
+    icon: <ObjectIcon type="git-webhook-source" />,
   },
   {
     label: 'Scopes',
     path: '/scopes',
-    icon: <IconScope />,
+    icon: <ObjectIcon type="scope" />,
   },
   {
     label: 'Lab',
     path: '/lab',
-    icon: <IconFlask />,
+    icon: <ObjectIcon type="lab" />,
   },
   {
     label: 'Steps',
     path: '/steps',
-    icon: <IconSteps />,
+    icon: <ObjectIcon type="step" />,
   },
   {
     label: 'Knowledge Context',
     path: '/knowledge-context',
-    icon: <IconKnowledge />,
+    icon: <ObjectIcon type="knowledge-context" />,
   },
   {
     label: 'System',
     path: '/system/config',
-    icon: <IconCog />,
+    icon: <ObjectIcon type="system" />,
   },
 ];
 
 export const baseSystemSubNav: NavItem[] = [
-  { label: 'Config', path: '/system/config', icon: <IconCog /> },
-  { label: 'Setup', path: '/system/setup', icon: <IconShield /> },
-  { label: 'LLM Profiles', path: '/system/llm-profiles', icon: <IconFlask /> },
-  { label: 'Agent Profiles', path: '/system/agent-profiles', icon: <IconShield /> },
-  { label: 'MCP', path: '/system/mcp', icon: <IconFlask /> },
-  { label: 'Credentials', path: '/system/credentials', icon: <IconShield /> },
-  { label: 'Data Management', path: '/system/data-management', icon: <IconDatabase /> },
-  { label: 'Dispatcher', path: '/system/dispatcher', icon: <IconDispatch /> },
-  { label: 'Access', path: '/system/access', icon: <IconShield /> },
+  { label: 'Config', path: '/system/config', icon: <ObjectIcon type="system-config" /> },
+  { label: 'Setup', path: '/system/setup', icon: <ObjectIcon type="setup" /> },
+  { label: 'LLM Profiles', path: '/system/llm-profiles', icon: <ObjectIcon type="llm-profile" /> },
+  { label: 'Agent Profiles', path: '/system/agent-profiles', icon: <ObjectIcon type="agent-profile" /> },
+  { label: 'MCP', path: '/system/mcp', icon: <ObjectIcon type="mcp-profile" /> },
+  { label: 'Credentials', path: '/system/credentials', icon: <ObjectIcon type="credential" /> },
+  { label: 'Data Management', path: '/system/data-management', icon: <ObjectIcon type="data-management" /> },
+  { label: 'Dispatcher', path: '/system/dispatcher', icon: <ObjectIcon type="dispatcher" /> },
+  { label: 'Access', path: '/system/access', icon: <ObjectIcon type="access" /> },
 ];
 
 export const titleMap: Record<string, string> = {
