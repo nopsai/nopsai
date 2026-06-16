@@ -1,3 +1,4 @@
+import { WorkflowFormDialog } from '../../components/WorkflowFormDialog';
 import { WorkflowDialogFrame, WorkflowInlineAlert } from '../../components/WorkflowPrimitives';
 
 export type ResourceFormModal = {
@@ -55,68 +56,55 @@ function ResourceFormDialog({
   const errorId = `${modalId}-error`;
 
   return (
-    <WorkflowDialogFrame
+    <WorkflowFormDialog
       id={modalId}
       titleId={titleId}
       descriptionId={formModal.error ? errorId : undefined}
       onClose={onClose}
-      className="pipelines-modal-card max-w-md w-full"
-    >
-        <header className="pipelines-modal-header">
-          <div>
-            <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">
-              {formModal.mode === 'create' ? `New ${resourceLabel}` : `Clone ${resourceLabel}`}
-            </p>
-            <h3 id={titleId} className="text-lg font-semibold text-[var(--text-primary)]">
-              {formModal.mode === 'create' ? `Create ${resourceLabel}` : `Clone ${resourceLabel}`}
-            </h3>
-          </div>
-          <button type="button" className="glass-button-ghost" onClick={onClose}>
-            Close
+      closeDisabled={formModal.pending}
+      kicker={formModal.mode === 'create' ? `New ${resourceLabel}` : `Clone ${resourceLabel}`}
+      title={formModal.mode === 'create' ? `Create ${resourceLabel}` : `Clone ${resourceLabel}`}
+      actions={(
+        <>
+          <button type="button" className="glass-button-ghost" onClick={onClose} disabled={formModal.pending}>
+            Cancel
           </button>
-        </header>
-        <div className="pipelines-modal-body space-y-4">
-          <div>
-            <label htmlFor={pathInputId} className="block text-sm font-medium text-[var(--text-secondary)]">
-              {resourceTitle} Path
-            </label>
-            <input
-              id={pathInputId}
-              type="text"
-              className="pipelines-input w-full mt-1"
-              placeholder={pathPlaceholder}
-              value={formModal.path}
-              onChange={event => onChangeForm({ path: event.target.value })}
-              data-dialog-initial-focus
-            />
-            <p className="text-xs text-[var(--text-secondary)] mt-1">Optional group path. Leave blank for root.</p>
-          </div>
-          <div>
-            <label htmlFor={nameInputId} className="block text-sm font-medium text-[var(--text-secondary)]">
-              {resourceTitle} Name
-            </label>
-            <input
-              id={nameInputId}
-              type="text"
-              className="pipelines-input w-full mt-1"
-              placeholder={namePlaceholder}
-              value={formModal.name}
-              onChange={event => onChangeForm({ name: event.target.value })}
-            />
-          </div>
-          {formModal.error ? <WorkflowInlineAlert id={errorId}>{formModal.error}</WorkflowInlineAlert> : null}
-        </div>
-        <div className="pipelines-modal-footer">
-          <div className="pipelines-modal-actions">
-            <button type="button" className="glass-button-ghost" onClick={onClose} disabled={formModal.pending}>
-              Cancel
-            </button>
-            <button type="button" className="glass-button-primary" onClick={onSubmit} disabled={formModal.pending}>
-              {formModal.pending ? 'Saving…' : formModal.mode === 'create' ? 'Create' : 'Clone'}
-            </button>
-          </div>
-        </div>
-    </WorkflowDialogFrame>
+          <button type="button" className="glass-button-primary" onClick={onSubmit} disabled={formModal.pending}>
+            {formModal.pending ? 'Saving…' : formModal.mode === 'create' ? 'Create' : 'Clone'}
+          </button>
+        </>
+      )}
+    >
+      <div>
+        <label htmlFor={pathInputId} className="block text-sm font-medium text-[var(--text-secondary)]">
+          {resourceTitle} Path
+        </label>
+        <input
+          id={pathInputId}
+          type="text"
+          className="pipelines-input w-full mt-1"
+          placeholder={pathPlaceholder}
+          value={formModal.path}
+          onChange={event => onChangeForm({ path: event.target.value })}
+          data-dialog-initial-focus
+        />
+        <p className="text-xs text-[var(--text-secondary)] mt-1">Optional group path. Leave blank for root.</p>
+      </div>
+      <div>
+        <label htmlFor={nameInputId} className="block text-sm font-medium text-[var(--text-secondary)]">
+          {resourceTitle} Name
+        </label>
+        <input
+          id={nameInputId}
+          type="text"
+          className="pipelines-input w-full mt-1"
+          placeholder={namePlaceholder}
+          value={formModal.name}
+          onChange={event => onChangeForm({ name: event.target.value })}
+        />
+      </div>
+      {formModal.error ? <WorkflowInlineAlert id={errorId}>{formModal.error}</WorkflowInlineAlert> : null}
+    </WorkflowFormDialog>
   );
 }
 

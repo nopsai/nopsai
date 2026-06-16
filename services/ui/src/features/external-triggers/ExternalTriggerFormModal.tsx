@@ -1,5 +1,5 @@
 import { Plus, X } from 'lucide-react';
-import { WorkflowDialogFrame } from '../../components/WorkflowPrimitives';
+import { WorkflowFormDialog } from '../../components/WorkflowFormDialog';
 import type {
   AllowedCaller,
   ExternalTriggerForm,
@@ -52,43 +52,34 @@ export function ExternalTriggerFormModal({
   const isCreate = modal.mode === 'create';
 
   return (
-    <WorkflowDialogFrame
+    <WorkflowFormDialog
       id="external-triggers-edit-modal"
       titleId={titleId}
       descriptionId={formError ? errorId : undefined}
       onClose={onClose}
-      className="w-full max-w-3xl overflow-hidden rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-2xl"
-      overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] p-4"
-    >
-      <form onSubmit={onSubmit}>
-        <header className="flex items-center justify-between gap-4 border-b border-[var(--border-primary)] bg-[var(--bg-tertiary)] px-5 py-4">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
-              {isCreate ? 'Create external trigger' : 'Edit external trigger'}
-            </p>
-            <h2 id={titleId} className="mt-1 truncate text-lg font-semibold text-[var(--text-primary)]">
-              {isCreate ? 'New authenticated endpoint' : form.name || form.id}
-            </h2>
-          </div>
-          <button
-            type="button"
-            className="pipelines-icon-only"
-            onClick={onClose}
-            aria-label="Close"
-            disabled={saving}
-          >
-            <X className="h-4 w-4" />
+      onSubmit={onSubmit}
+      closeDisabled={saving}
+      size="wide"
+      kicker={isCreate ? 'Create external trigger' : 'Edit external trigger'}
+      title={isCreate ? 'New authenticated endpoint' : form.name || form.id}
+      actions={(
+        <>
+          <button type="button" className="glass-button-ghost" onClick={onClose} disabled={saving}>
+            Cancel
           </button>
-        </header>
+          <button type="submit" className="glass-button-primary" disabled={saving}>
+            {saving ? 'Saving...' : isCreate ? 'Create trigger' : 'Save trigger'}
+          </button>
+        </>
+      )}
+    >
+      {formError ? (
+        <div id={errorId} className="dispatcher-error" role="alert">
+          {formError}
+        </div>
+      ) : null}
 
-        <div className="max-h-[calc(100vh-12rem)] space-y-4 overflow-y-auto p-5">
-          {formError ? (
-            <div id={errorId} className="dispatcher-error" role="alert">
-              {formError}
-            </div>
-          ) : null}
-
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <label className="flex flex-col gap-1 text-sm">
               <span>Name</span>
               <input
@@ -156,9 +147,9 @@ export function ExternalTriggerFormModal({
                 ))}
               </select>
             </label>
-          </div>
+      </div>
 
-          <section className="space-y-2">
+      <section className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-sm font-semibold text-[var(--text-primary)]">Allowed callers</h3>
               <label className="dispatcher-toggle">
@@ -218,9 +209,9 @@ export function ExternalTriggerFormModal({
                 </button>
               ))}
             </div>
-          </section>
+      </section>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <label className="flex flex-col gap-1 text-sm">
               <span>Variable mapping</span>
               <textarea
@@ -247,18 +238,7 @@ export function ExternalTriggerFormModal({
                 onChange={event => onFormChange({ rateLimitPerMinute: event.target.value })}
               />
             </label>
-          </div>
-        </div>
-
-        <footer className="flex justify-end gap-2 border-t border-[var(--border-primary)] bg-[var(--bg-tertiary)] px-5 py-4">
-          <button type="button" className="pipelines-secondary-button" onClick={onClose} disabled={saving}>
-            Cancel
-          </button>
-          <button type="submit" className="pipelines-primary-button" disabled={saving}>
-            {saving ? 'Saving...' : isCreate ? 'Create trigger' : 'Save trigger'}
-          </button>
-        </footer>
-      </form>
-    </WorkflowDialogFrame>
+      </div>
+    </WorkflowFormDialog>
   );
 }
