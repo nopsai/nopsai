@@ -34,7 +34,8 @@ func (a *App) handleGitBotBootstrap(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "GitHub integration is not configured", http.StatusServiceUnavailable)
 		return
 	}
-	privateKey, err := a.resolveCredentialText(r.Context(), a.cfg.GitHubPrivateKeyCredentialRef, credentials.Purpose{
+	cfg := a.getConfigSnapshot()
+	privateKey, err := a.resolveCredentialText(r.Context(), cfg.GitHubPrivateKeyCredentialRef, credentials.Purpose{
 		ConsumerService: serviceauth.RoleGitBot,
 		Operation:       "github.app_authenticate",
 		SubjectType:     "service",
@@ -44,7 +45,7 @@ func (a *App) handleGitBotBootstrap(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "GitHub private key credential is unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	webhookSecret, err := a.resolveCredentialText(r.Context(), a.cfg.GitHubWebhookCredentialRef, credentials.Purpose{
+	webhookSecret, err := a.resolveCredentialText(r.Context(), cfg.GitHubWebhookCredentialRef, credentials.Purpose{
 		ConsumerService: serviceauth.RoleGitBot,
 		Operation:       "github.verify_webhook",
 		SubjectType:     "service",
@@ -55,8 +56,8 @@ func (a *App) handleGitBotBootstrap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response := gitBotBootstrapResponse{
-		GitHubAppID:          strings.TrimSpace(a.cfg.GitHubAppID),
-		GitHubInstallationID: strings.TrimSpace(a.cfg.GitHubInstallID),
+		GitHubAppID:          strings.TrimSpace(cfg.GitHubAppID),
+		GitHubInstallationID: strings.TrimSpace(cfg.GitHubInstallID),
 		GitHubPrivateKey:     privateKey,
 		GitHubWebhookSecret:  webhookSecret,
 	}
@@ -70,7 +71,7 @@ func (a *App) handleGitBotBootstrap(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to encode GitHub integration", http.StatusInternalServerError)
 		return
 	}
-	sealed, err := credentialbroker.Seal(a.cfg.EffectiveServiceJWTSigningKey(), claims.Sub, plaintext)
+	sealed, err := credentialbroker.Seal(cfg.EffectiveServiceJWTSigningKey(), claims.Sub, plaintext)
 	if err != nil {
 		http.Error(w, "failed to protect GitHub integration", http.StatusInternalServerError)
 		return

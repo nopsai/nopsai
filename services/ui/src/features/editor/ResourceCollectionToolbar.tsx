@@ -42,91 +42,87 @@ export function ResourceCollectionToolbar({
 
   return (
     <div className="px-6 pt-6 pb-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-primary)] pb-4">
-        <div className="flex min-w-0 flex-wrap items-center gap-3">
-          {onBack ? (
+      <div className="resource-collection-toolbar-row flex flex-wrap items-center gap-3">
+        {onBack ? (
+          <button
+            type="button"
+            className="glass-button-ghost"
+            aria-label="Back"
+            onClick={onBack}
+            disabled={!activeFolder}
+          >
+            <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+          </button>
+        ) : null}
+        <div className={`pipelines-search-shell ${searchOpen ? 'open' : ''}`}>
+          <button
+            type="button"
+            className="pipelines-search-toggle"
+            aria-label={`Search ${plural}`}
+            onClick={() => {
+              setSearchOpen(true);
+              requestAnimationFrame(() => searchInputRef.current?.focus());
+            }}
+          >
+            <Search className="h-4 w-4" aria-hidden="true" />
+          </button>
+          <input
+            ref={searchInputRef}
+            id={`${plural.replace(/\s+/g, '-')}-search`}
+            type="search"
+            placeholder={`Search ${plural}`}
+            className="pipelines-search-input"
+            value={searchTerm}
+            onChange={event => {
+              onSearchTermChange(event.target.value);
+              if (event.target.value && !searchOpen) setSearchOpen(true);
+            }}
+            onBlur={() => {
+              if (!searchTerm.trim()) setSearchOpen(false);
+            }}
+          />
+          {searchTerm || searchOpen ? (
             <button
               type="button"
-              className="glass-button-ghost"
-              aria-label="Back"
-              onClick={onBack}
-              disabled={!activeFolder}
-            >
-              <ChevronLeft className="h-4 w-4" aria-hidden="true" />
-            </button>
-          ) : null}
-          <div className={`pipelines-search-shell ${searchOpen ? 'open' : ''}`}>
-            <button
-              type="button"
-              className="pipelines-search-toggle"
-              aria-label={`Search ${plural}`}
+              className="pipelines-search-clear"
               onClick={() => {
-                setSearchOpen(true);
-                requestAnimationFrame(() => searchInputRef.current?.focus());
+                onSearchTermChange('');
+                setSearchOpen(false);
+                searchInputRef.current?.blur();
               }}
+              aria-label="Clear search"
             >
-              <Search className="h-4 w-4" aria-hidden="true" />
-            </button>
-            <input
-              ref={searchInputRef}
-              id={`${plural.replace(/\s+/g, '-')}-search`}
-              type="search"
-              placeholder={`Search ${plural}`}
-              className="pipelines-search-input"
-              value={searchTerm}
-              onChange={event => {
-                onSearchTermChange(event.target.value);
-                if (event.target.value && !searchOpen) setSearchOpen(true);
-              }}
-              onBlur={() => {
-                if (!searchTerm.trim()) setSearchOpen(false);
-              }}
-            />
-            {searchTerm || searchOpen ? (
-              <button
-                type="button"
-                className="pipelines-search-clear"
-                onClick={() => {
-                  onSearchTermChange('');
-                  setSearchOpen(false);
-                  searchInputRef.current?.blur();
-                }}
-                aria-label="Clear search"
-              >
-                <X className="h-4 w-4" aria-hidden="true" />
-              </button>
-            ) : null}
-          </div>
-          {summary ? <div className="text-xs text-[var(--text-secondary)]">{summary}</div> : null}
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {filters}
-          {onRefresh ? (
-            <button
-              type="button"
-              className="pipelines-icon-only"
-              aria-label={`Refresh ${plural}`}
-              title={`Refresh ${plural}`}
-              onClick={onRefresh}
-              disabled={refreshDisabled}
-            >
-              <RefreshCw className="h-4 w-4" aria-hidden="true" />
-            </button>
-          ) : null}
-          {canCreate || showCreateWhenDisabled ? (
-            <button
-              id={`${plural.replace(/\s+/g, '-')}-new-btn`}
-              type="button"
-              className="pipelines-icon-only"
-              aria-label={createButtonLabel}
-              title={canCreate ? createLabel || `New ${title}` : createDisabledReason}
-              onClick={onCreate}
-              disabled={!canCreate}
-            >
-              <Plus className="h-4 w-4" aria-hidden="true" />
+              <X className="h-4 w-4" aria-hidden="true" />
             </button>
           ) : null}
         </div>
+        {filters}
+        {onRefresh ? (
+          <button
+            type="button"
+            className="pipelines-icon-only"
+            aria-label={`Refresh ${plural}`}
+            title={`Refresh ${plural}`}
+            onClick={onRefresh}
+            disabled={refreshDisabled}
+          >
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
+          </button>
+        ) : null}
+        {canCreate || showCreateWhenDisabled ? (
+          <button
+            id={`${plural.replace(/\s+/g, '-')}-new-btn`}
+            type="button"
+            className="pipelines-icon-only"
+            aria-label={createButtonLabel}
+            title={canCreate ? createLabel || `New ${title}` : createDisabledReason}
+            onClick={onCreate}
+            disabled={!canCreate}
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+          </button>
+        ) : null}
+        {summary ? <div className="text-xs text-[var(--text-secondary)]">{summary}</div> : null}
       </div>
     </div>
   );

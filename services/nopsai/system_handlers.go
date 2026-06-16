@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"os"
 	"sort"
@@ -13,6 +12,7 @@ import (
 
 	"nopsai/config"
 	"nopsai/pkg/httpapi"
+	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
 	"nopsai/services/nopsai/internal/runnerinstall"
 	"nopsai/services/nopsai/internal/systemconfig"
@@ -38,6 +38,10 @@ type systemConfigPayload struct {
 	RunnerID                  *string                       `json:"runner_id"`
 	RunnerScopes              *string                       `json:"runner_scopes"`
 	RunnerCapacity            *int                          `json:"runner_capacity"`
+	GitHubAppID               *string                       `json:"github_app_id"`
+	GitHubInstallationID      *string                       `json:"github_installation_id"`
+	GitHubPrivateKeyRef       *string                       `json:"github_private_key_credential_ref"`
+	GitHubWebhookRef          *string                       `json:"github_webhook_credential_ref"`
 	Runtime                   *string                       `json:"runtime"`
 	Kubernetes                *config.KubernetesConfig      `json:"kubernetes"`
 	Limits                    *config.RunnerLimits          `json:"limits"`
@@ -45,72 +49,9 @@ type systemConfigPayload struct {
 }
 
 func (a *App) applySystemConfig(payload systemConfigPayload) (config.Config, error) {
-	if payload.RunnerCapacity != nil && *payload.RunnerCapacity <= 0 {
-		return config.Config{}, fmt.Errorf("runner_capacity must be a positive integer")
-	}
-	if payload.Limits != nil {
-		if err := systemconfig.ValidateRunnerLimits(*payload.Limits); err != nil {
-			return config.Config{}, err
-		}
-	}
-	routing := systemconfig.NormalizeDispatcherRoutingConfig(payload.DispatcherRouting)
-
 	a.cfgMu.Lock()
 	defer a.cfgMu.Unlock()
-
-	if payload.AgentNopsaiAPIURL != nil {
-		a.cfg.AgentNopsaiAPIURL = strings.TrimSpace(*payload.AgentNopsaiAPIURL)
-	}
-	if payload.GitBotNopsaiAPIURL != nil {
-		a.cfg.GitBotNopsaiAPIURL = strings.TrimSpace(*payload.GitBotNopsaiAPIURL)
-	}
-	if payload.NopsaiGitBotAPIURL != nil {
-		a.cfg.NopsaiGitBotAPIURL = strings.TrimSpace(*payload.NopsaiGitBotAPIURL)
-	}
-	if payload.DispatcherAddress != nil {
-		a.cfg.DispatcherAddress = strings.TrimSpace(*payload.DispatcherAddress)
-	}
-	if payload.AgentImage != nil {
-		a.cfg.AgentImage = strings.TrimSpace(*payload.AgentImage)
-	}
-	if payload.DockerNetworkName != nil {
-		a.cfg.DockerNetworkName = strings.TrimSpace(*payload.DockerNetworkName)
-	}
-	if payload.AutoRemovalAgentContainer != nil {
-		a.cfg.AutoRemovalAgentContainer = *payload.AutoRemovalAgentContainer
-	}
-	if payload.DefaultPipelineTimeout != nil {
-		a.cfg.DefaultPipelineTimeout = strings.TrimSpace(*payload.DefaultPipelineTimeout)
-	}
-	if payload.LLMAgentTimeout != nil {
-		a.cfg.LLMAgentTimeout = strings.TrimSpace(*payload.LLMAgentTimeout)
-	}
-	if payload.DispatcherRouting != nil {
-		a.cfg.DispatcherRouting = routing
-	}
-	if payload.RunnerID != nil {
-		a.cfg.RunnerID = strings.TrimSpace(*payload.RunnerID)
-	}
-	if payload.RunnerScopes != nil {
-		a.cfg.RunnerScopes = systemconfig.NormalizeRunnerScopes(*payload.RunnerScopes)
-	}
-	if payload.RunnerCapacity != nil {
-		a.cfg.RunnerCapacity = *payload.RunnerCapacity
-	}
-	if payload.Runtime != nil {
-		a.cfg.Runtime = config.NormalizeRuntime(*payload.Runtime)
-	}
-	if payload.Kubernetes != nil {
-		a.cfg.Kubernetes = config.NormalizeKubernetesConfig(*payload.Kubernetes)
-	}
-	if payload.Limits != nil {
-		a.cfg.Limits = *payload.Limits
-	}
-	if payload.RuntimePools != nil {
-		a.cfg.RuntimePools = config.NormalizeRuntimePools(payload.RuntimePools)
-	}
-
-	return *a.cfg, nil
+	return applySystemConfigToConfig(a.cfg, payload)
 }
 
 func (a *App) persistSystemConfig(cfg config.Config, payload systemConfigPayload) error {
@@ -167,6 +108,18 @@ func (a *App) persistSystemConfig(cfg config.Config, payload systemConfigPayload
 	}
 	if payload.RunnerCapacity != nil {
 		existing["runner_capacity"] = cfg.RunnerCapacity
+	}
+	if payload.GitHubAppID != nil {
+		existing["github_app_id"] = cfg.GitHubAppID
+	}
+	if payload.GitHubInstallationID != nil {
+		existing["github_installation_id"] = cfg.GitHubInstallID
+	}
+	if payload.GitHubPrivateKeyRef != nil {
+		existing["github_private_key_credential_ref"] = cfg.GitHubPrivateKeyCredentialRef
+	}
+	if payload.GitHubWebhookRef != nil {
+		existing["github_webhook_credential_ref"] = cfg.GitHubWebhookCredentialRef
 	}
 	if payload.Runtime != nil {
 		existing["runtime"] = config.NormalizeRuntime(cfg.Runtime)
@@ -237,6 +190,18 @@ func (a *App) persistEnvOverrides(cfg config.Config, payload systemConfigPayload
 	if payload.RunnerCapacity != nil {
 		updates["RUNNER_CAPACITY"] = strconv.Itoa(cfg.RunnerCapacity)
 	}
+	if payload.GitHubAppID != nil {
+		updates["GITHUB_APP_ID"] = cfg.GitHubAppID
+	}
+	if payload.GitHubInstallationID != nil {
+		updates["GITHUB_INSTALLATION_ID"] = cfg.GitHubInstallID
+	}
+	if payload.GitHubPrivateKeyRef != nil {
+		updates["GITHUB_PRIVATE_KEY_CREDENTIAL_REF"] = cfg.GitHubPrivateKeyCredentialRef
+	}
+	if payload.GitHubWebhookRef != nil {
+		updates["GITHUB_WEBHOOK_CREDENTIAL_REF"] = cfg.GitHubWebhookCredentialRef
+	}
 	if payload.Runtime != nil {
 		updates["RUNTIME"] = config.NormalizeRuntime(cfg.Runtime)
 	}
@@ -282,7 +247,7 @@ func (a *App) persistEnvOverrides(cfg config.Config, payload systemConfigPayload
 	return systemconfig.WriteEnvFile(a.envFilePath, updates)
 }
 
-func (a *App) applyRuntimeSettingsGitOpsPlan(plan *gitOpsRuntimeSettingsPlan) error {
+func (a *App) applyRuntimeSettingsGitOpsPlan(ctx context.Context, binding models.ConfigRepository, plan *gitOpsRuntimeSettingsPlan, commitSHA string) error {
 	if plan == nil {
 		return nil
 	}
@@ -290,10 +255,17 @@ func (a *App) applyRuntimeSettingsGitOpsPlan(plan *gitOpsRuntimeSettingsPlan) er
 	if err != nil {
 		return err
 	}
-	if err := a.persistSystemConfig(cfg, plan.payload); err != nil {
+	configRepoID := binding.ID
+	if err := a.persistRuntimeSettingsSnapshot(ctx, cfg, "git", &configRepoID, plan.sourcePath, commitSHA, true); err != nil {
 		return err
 	}
-	return a.persistEnvOverrides(cfg, plan.payload)
+	if err := a.persistSystemConfig(cfg, plan.payload); err != nil {
+		log.Warn().Err(err).Msg("Failed to persist GitOps runtime settings to config file; database state remains authoritative")
+	}
+	if err := a.persistEnvOverrides(cfg, plan.payload); err != nil {
+		log.Warn().Err(err).Msg("Failed to persist GitOps runtime settings to .env; database state remains authoritative")
+	}
+	return nil
 }
 
 func (a *App) handleGetSystemConfig(w http.ResponseWriter, r *http.Request) {
@@ -468,6 +440,15 @@ func (a *App) handleUpdateSystemConfig(w http.ResponseWriter, r *http.Request) {
 	cfg, err := a.applySystemConfig(payload)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := a.ensureGitHubAppCredentialReferences(r.Context(), cfg, credentialActorFromContext(r.Context())); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := a.persistRuntimeSettingsSnapshot(r.Context(), cfg, "database", nil, "", "", false); err != nil {
+		log.Error().Err(err).Msg("Failed to persist runtime settings")
+		http.Error(w, "Failed to persist system config", http.StatusInternalServerError)
 		return
 	}
 	if err := a.persistSystemConfig(cfg, payload); err != nil {

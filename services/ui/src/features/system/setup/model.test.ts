@@ -18,7 +18,7 @@ import {
 test('defines setup wizard steps and skip warning copy', () => {
   assert.deepEqual(
     WIZARD_STEPS.map(step => step.id),
-    ['readiness', 'runtime', 'gitops', 'github', 'repositories', 'ai', 'users', 'review']
+    ['readiness', 'runtime', 'gitops', 'repositories', 'ai', 'users', 'review']
   );
   assert.match(LLM_SKIP_WARNING, /LLM profile setup was skipped/);
 });

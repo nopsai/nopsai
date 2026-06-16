@@ -156,6 +156,19 @@ CREATE TABLE IF NOT EXISTS config_repositories (
     UNIQUE(repo_url, branch, base_path)
 );
 
+CREATE TABLE runtime_settings (
+    id BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    source TEXT NOT NULL DEFAULT 'database',
+    config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
+    config_source_path TEXT NOT NULL DEFAULT '',
+    config_source_commit_sha TEXT NOT NULL DEFAULT '',
+    managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_runtime_settings_config_repo ON runtime_settings(config_repo_id);
+
 ALTER TABLE triggers
     ADD CONSTRAINT triggers_config_repo_id_fkey
     FOREIGN KEY (config_repo_id) REFERENCES config_repositories(id) ON DELETE SET NULL;

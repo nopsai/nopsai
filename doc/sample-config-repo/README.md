@@ -290,6 +290,10 @@ alongside every scope-specific route and also covers scopes without an explicit
 entry. Changes to `dispatcher_routing` are written to runtime config and exposed
 through the protected internal control-plane endpoint that the dispatcher polls,
 so new scheduling decisions can use the updated table without a restart.
+Runtime settings are persisted in the database when synced, then mirrored to
+`config.yml` and `.env` only when those files are writable. On NopsAI restart,
+the persisted database snapshot is loaded before connecting to the dispatcher,
+so a GitOps-synced runner file remains effective without manually syncing again.
 
 Keep bootstrap values out of GitOps. Database URLs, master keys, and service JWT
 signing keys stay in deployment secrets. Operational integration credentials

@@ -46,6 +46,9 @@ func NewApp(ctx context.Context, options AppOptions) (*App, error) {
 	if options.ServiceAuthenticator == nil {
 		return nil, fmt.Errorf("service authenticator is required")
 	}
+	if err := ApplyPersistedRuntimeSettings(ctx, options.Database, options.Config); err != nil {
+		return nil, fmt.Errorf("load runtime settings: %w", err)
+	}
 
 	key := sha256.Sum256([]byte(options.Config.MasterKey))
 	security, err := newAppSecurityRuntime(ctx, options)

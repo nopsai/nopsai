@@ -51,7 +51,7 @@ func (a *App) gitClient() GitProvider {
 	}
 	baseURL := ""
 	if a.cfg != nil {
-		baseURL = a.cfg.NopsaiGitBotAPIURL
+		baseURL = a.getConfigSnapshot().NopsaiGitBotAPIURL
 	}
 	return NewGitBotProvider(baseURL, a.httpClient, a.serviceCredentials)
 }

@@ -43,6 +43,10 @@ type runtimeSettingsGitOpsFile struct {
 	RunnerID                  *string                       `json:"runner_id" yaml:"runner_id,omitempty"`
 	RunnerScopes              *string                       `json:"runner_scopes" yaml:"runner_scopes,omitempty"`
 	RunnerCapacity            *int                          `json:"runner_capacity" yaml:"runner_capacity,omitempty"`
+	GitHubAppID               *string                       `json:"github_app_id" yaml:"github_app_id,omitempty"`
+	GitHubInstallationID      *string                       `json:"github_installation_id" yaml:"github_installation_id,omitempty"`
+	GitHubPrivateKeyRef       *string                       `json:"github_private_key_credential_ref" yaml:"github_private_key_credential_ref,omitempty"`
+	GitHubWebhookRef          *string                       `json:"github_webhook_credential_ref" yaml:"github_webhook_credential_ref,omitempty"`
 	Runtime                   *string                       `json:"runtime" yaml:"runtime,omitempty"`
 	Kubernetes                *config.KubernetesConfig      `json:"kubernetes" yaml:"kubernetes,omitempty"`
 	Limits                    *config.RunnerLimits          `json:"limits" yaml:"limits,omitempty"`
@@ -107,6 +111,10 @@ func parseGitOpsRuntimeSettingsFile(content, sourcePath string) (*gitOpsRuntimeS
 		RunnerID:                  file.RunnerID,
 		RunnerScopes:              file.RunnerScopes,
 		RunnerCapacity:            file.RunnerCapacity,
+		GitHubAppID:               file.GitHubAppID,
+		GitHubInstallationID:      file.GitHubInstallationID,
+		GitHubPrivateKeyRef:       file.GitHubPrivateKeyRef,
+		GitHubWebhookRef:          file.GitHubWebhookRef,
 		Runtime:                   file.Runtime,
 		Kubernetes:                file.Kubernetes,
 		Limits:                    file.Limits,
@@ -142,6 +150,10 @@ func buildRuntimeSettingsGitOpsFile(cfg config.Config) runtimeSettingsGitOpsFile
 		RunnerID:                  stringPtr(cfg.RunnerID),
 		RunnerScopes:              stringPtr(cfg.RunnerScopes),
 		RunnerCapacity:            intPtr(runnerCapacity),
+		GitHubAppID:               stringPtr(cfg.GitHubAppID),
+		GitHubInstallationID:      stringPtr(cfg.GitHubInstallID),
+		GitHubPrivateKeyRef:       stringPtr(cfg.GitHubPrivateKeyCredentialRef),
+		GitHubWebhookRef:          stringPtr(cfg.GitHubWebhookCredentialRef),
 		Runtime:                   stringPtr(config.NormalizeRuntime(cfg.Runtime)),
 		Kubernetes:                kubernetesConfigPtr(config.NormalizeKubernetesConfig(cfg.Kubernetes)),
 		Limits:                    runnerLimitsPtr(cfg.Limits),
