@@ -101,7 +101,7 @@ export function useGitWebhookSources({
   }, [canWrite]);
 
   const startEdit = useCallback((source: GitWebhookSource) => {
-    if (!canWrite || source.managed_by_config_repo) return;
+    if (!canWrite) return;
     setEditing(source);
     setForm(gitWebhookSourceForm(source));
     setError(null);
@@ -131,7 +131,12 @@ export function useGitWebhookSources({
   }, [canWrite, editing, form, onSelect, saving, upsertSource]);
 
   const setEnabled = useCallback(async (source: GitWebhookSource, enabled: boolean) => {
-    if (!canWrite || source.managed_by_config_repo || saving) return;
+    if (!canWrite || saving) return;
+    if (source.managed_by_config_repo && !window.confirm(
+      `This Git webhook source is managed by GitOps. ${enabled ? 'Enabling' : 'Disabling'} it saves a database override that the next GitOps sync can replace unless it is pushed to GitOps. Continue?`
+    )) {
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -145,8 +150,11 @@ export function useGitWebhookSources({
   }, [canWrite, saving, upsertSource]);
 
   const remove = useCallback(async (source: GitWebhookSource) => {
-    if (!canDelete || source.managed_by_config_repo || saving) return;
-    if (!window.confirm(`Delete Git webhook source ${source.id}? Delivery history will also be deleted.`)) return;
+    if (!canDelete || saving) return;
+    const message = source.managed_by_config_repo
+      ? `Delete Git webhook source ${source.id}? This removes the database row; the next GitOps sync can recreate it from the repository. Delivery history will also be deleted.`
+      : `Delete Git webhook source ${source.id}? Delivery history will also be deleted.`;
+    if (!window.confirm(message)) return;
     setSaving(true);
     setError(null);
     try {

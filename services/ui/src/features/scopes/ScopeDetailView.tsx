@@ -6,6 +6,7 @@ import {
   formatScopeDisplay,
   groupScopedItems,
   isEditableScopeSource,
+  isGitOpsScopeSource,
   normalizeScopeLabel,
   scopeSourceLabel,
   scopeSourcePillClass,
@@ -321,6 +322,7 @@ function VariableSection({
           const isLoading = variableValueLoadingKey === cacheKey;
           const meta = data.variableMeta[item.full];
           const editable = isEditableScopeSource(meta?.source || 'database');
+          const gitOpsManaged = isGitOpsScopeSource(meta?.source);
           return (
             <div
               key={`var-${item.full}`}
@@ -359,7 +361,7 @@ function VariableSection({
                       <button
                         type="button"
                         className="scope-inline-icon"
-                        title="Edit variable"
+                        title={gitOpsManaged ? 'Edit database override; GitOps can replace it on next sync' : 'Edit variable'}
                         onClick={event => {
                           event.preventDefault();
                           event.stopPropagation();
@@ -374,7 +376,7 @@ function VariableSection({
                       <button
                         type="button"
                         className="scope-inline-icon scope-inline-icon--danger"
-                        title="Delete variable"
+                        title={gitOpsManaged ? 'Delete database row; GitOps can recreate it on next sync' : 'Delete variable'}
                         onClick={event => {
                           event.preventDefault();
                           event.stopPropagation();
@@ -385,6 +387,20 @@ function VariableSection({
                         <Trash2 className="h-4 w-4" aria-hidden="true" />
                       </button>
                     )}
+                    {gitOpsManaged && canWriteVariablesInSelectedScope ? (
+                      <button
+                        type="button"
+                        className="scope-inline-icon"
+                        title="Clone"
+                        onClick={event => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onCloneVariable(scopeLabel, item.full);
+                        }}
+                      >
+                        <Copy className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    ) : null}
                   </>
                 ) : canWriteVariablesInSelectedScope ? (
                   <button
@@ -443,6 +459,7 @@ function SecretSection({
           const isActive = item.full === selectedSecret;
           const meta = data.secretMeta[item.full];
           const editable = isEditableScopeSource(meta?.source || 'database');
+          const gitOpsManaged = isGitOpsScopeSource(meta?.source);
           return (
             <div
               key={`secret-${item.full}`}
@@ -465,7 +482,7 @@ function SecretSection({
                       <button
                         type="button"
                         className="scope-inline-icon"
-                        title="Edit secret"
+                        title={gitOpsManaged ? 'Edit database override; GitOps can replace it on next sync' : 'Edit secret'}
                         onClick={event => {
                           event.preventDefault();
                           event.stopPropagation();
@@ -480,7 +497,7 @@ function SecretSection({
                       <button
                         type="button"
                         className="scope-inline-icon scope-inline-icon--danger"
-                        title="Delete secret"
+                        title={gitOpsManaged ? 'Delete database row; GitOps can recreate it on next sync' : 'Delete secret'}
                         onClick={event => {
                           event.preventDefault();
                           event.stopPropagation();
@@ -491,6 +508,20 @@ function SecretSection({
                         <Trash2 className="h-4 w-4" aria-hidden="true" />
                       </button>
                     )}
+                    {gitOpsManaged && canWriteSecretsInSelectedScope ? (
+                      <button
+                        type="button"
+                        className="scope-inline-icon"
+                        title="Clone"
+                        onClick={event => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onCloneSecret(scopeLabel, item.full);
+                        }}
+                      >
+                        <Copy className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    ) : null}
                   </>
                 ) : canWriteSecretsInSelectedScope ? (
                   <button

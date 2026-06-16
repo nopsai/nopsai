@@ -1,4 +1,5 @@
 import { Trash2 } from 'lucide-react';
+import { ObjectIcon } from '../../components/ObjectIcon';
 import { normalizePipelineSource, splitIdentifier, type PipelineListItem } from './model';
 
 type PipelineTreeNode = {
@@ -105,10 +106,7 @@ function PipelineCard({
       <div className="pipeline-card-header">
         <div className="pipeline-card-info">
           <span className="pipeline-card-icon" aria-hidden="true">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M6 12h2m8 0h2M12 6v2m0 8v2" />
-            </svg>
+            <ObjectIcon type="pipeline" />
           </span>
           <div className="pipeline-card-text">
             <h3 className="pipeline-card-title">{name || pipeline.id}</h3>
@@ -156,10 +154,7 @@ function PipelineFolderCard({ node, onOpenFolder }: { node: PipelineTreeNode; on
       <div className="pipeline-card-header">
         <div className="pipeline-card-info">
           <span className="pipeline-card-icon" aria-hidden="true">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 7h5l2 2h11v9a2 2 0 0 1-2 2H3z" />
-              <path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2" />
-            </svg>
+            <ObjectIcon type="folder" />
           </span>
           <div className="pipeline-card-text">
             <h3 className="pipeline-card-title">{node.name}</h3>

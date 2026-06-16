@@ -1,3 +1,4 @@
+import { ObjectIcon } from '../../components/ObjectIcon';
 import {
   countScopesRecursive,
   type ScopeData,
@@ -96,10 +97,7 @@ function ScopeFolderCard({ node, onOpenFolder }: { node: ScopeTreeNode; onOpenFo
       <div className="pipeline-card-header">
         <div className="pipeline-card-info">
           <span className="pipeline-card-icon" aria-hidden="true">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 7h5l2 2h11v9a2 2 0 0 1-2 2H3z" />
-              <path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2" />
-            </svg>
+            <ObjectIcon type="folder" />
           </span>
           <div className="pipeline-card-text">
             <h3 className="pipeline-card-title">{node.name}</h3>
@@ -145,13 +143,7 @@ function ScopeCard({
       <div className="pipeline-card-header">
         <div className="pipeline-card-info">
           <span className="pipeline-card-icon" aria-hidden="true">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="7.5" />
-              <circle cx="12" cy="12" r="2.5" />
-              <path d="M12 3v3m0 12v3m9-9h-3M6 12H3" />
-              <path d="M16.5 7.5l-1.75 1.75m-5.5 5.5L7.5 16.5" />
-              <path d="M7.5 7.5l1.75 1.75m5.5 5.5l1.75 1.75" />
-            </svg>
+            <ObjectIcon type="scope" />
           </span>
           <div className="pipeline-card-text">
             <h3 className="pipeline-card-title">{scope.label}</h3>

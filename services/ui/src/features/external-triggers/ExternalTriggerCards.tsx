@@ -1,5 +1,5 @@
-import { GitBranch, Zap } from 'lucide-react';
 import { CompactResourceCard } from '../../components/CompactResourceCard';
+import { ObjectIcon } from '../../components/ObjectIcon';
 import {
   externalTriggerGroupLabel,
   externalTriggerScopeLabel,
@@ -25,7 +25,7 @@ export function ExternalTriggerCards({
           <CompactResourceCard
             key={trigger.id}
             className="compact-resource-card--bordered external-trigger-card"
-            icon={<Zap />}
+            icon={<ObjectIcon type="external-trigger" />}
             tone="cyan"
             title={name}
             subtitle={<span className="font-mono">{trigger.id}</span>}
@@ -40,7 +40,7 @@ export function ExternalTriggerCards({
                 </span>
                 {managed ? (
                   <span className="runner-pill runner-pill--link">
-                    <GitBranch className="h-3.5 w-3.5" />
+                    <ObjectIcon type="gitops" className="h-3.5 w-3.5" />
                     GitOps
                   </span>
                 ) : null}

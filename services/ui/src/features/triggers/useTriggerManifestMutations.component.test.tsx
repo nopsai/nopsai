@@ -163,24 +163,36 @@ test('saves editable trigger manifests and refreshes dependent runs', async () =
   );
 });
 
-test('enforces read-only save/delete behavior and surfaces delete failures', async () => {
+test('saves and deletes GitOps triggers as database overrides and surfaces delete failures', async () => {
+  const editorValue = 'triggers:\n  - on: pull_request\n    pipelines:\n      - pipelines/release.yaml\n';
   const git = renderMutation({
     detail: { ...detail, source: 'git' },
+    editorValue,
     serverTriggers: [{ slug: detail.slug, source: 'git' }],
   });
 
   await act(async () => {
-    expect(await git.result.current.save()).toBe(false);
+    expect(await git.result.current.save()).toBe(true);
   });
-  expect(addToast).toHaveBeenCalledWith('Git-managed triggers are read-only. Clone it to customize.', 'info');
+  expect(saveTriggerMock).toHaveBeenCalledWith(detail.slug, editorValue);
+  expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ source: 'database' }));
+  expect(addToast).toHaveBeenCalledWith(
+    'Trigger saved as a database override. The next GitOps sync can replace it unless it is pushed to GitOps.',
+    'success'
+  );
 
   act(() => {
     git.result.current.openDeleteModal(detail.slug);
   });
-  expect(git.result.current.deleteModal).toBeNull();
+  expect(git.result.current.deleteModal).toMatchObject({ slug: detail.slug, gitOpsManaged: true });
+
+  await act(async () => {
+    expect(await git.result.current.confirmDelete()).toBe(true);
+  });
+  expect(deleteTriggerMock).toHaveBeenCalledWith(detail.slug);
   expect(addToast).toHaveBeenCalledWith(
-    'This trigger is managed via Git. Clone it to customize instead of deleting.',
-    'info'
+    'Trigger database row deleted. The next GitOps sync can recreate it from the repository.',
+    'success'
   );
 
   deleteTriggerMock.mockRejectedValueOnce(new Error('delete failed'));

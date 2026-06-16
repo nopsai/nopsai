@@ -145,10 +145,11 @@ test('persists an editable draft and converts it to a database resource', async 
   expect(result.current.saving).toBe(false);
 });
 
-test('enforces read-only sources and handles draft and persisted deletion separately', async () => {
+test('saves GitOps resources as database overrides and handles draft and persisted deletion separately', async () => {
   const git = renderHook(() =>
     useYamlResourceMutations(
       buildOptions({
+        resources: [{ id: 'team/release', source: 'git' }],
         detail: {
           id: 'team/release',
           name: 'release',
@@ -160,13 +161,15 @@ test('enforces read-only sources and handles draft and persisted deletion separa
     )
   );
   await act(async () => {
-    expect(await git.result.current.save()).toBe(false);
+    expect(await git.result.current.save()).toBe(true);
   });
-  expect(persistYaml).not.toHaveBeenCalled();
+  expect(persistYaml).toHaveBeenCalledWith('team/release', 'name: release\nsteps: []\n');
+  expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ source: 'database' }));
   expect(addToast).toHaveBeenCalledWith(
-    'Git-managed pipelines are read-only. Clone it to create an editable draft.',
-    'info'
+    'Pipeline saved as a database override. The next GitOps sync can replace it unless it is pushed to GitOps.',
+    'success'
   );
+  vi.clearAllMocks();
 
   const draft = renderHook(() =>
     useYamlResourceMutations(
@@ -188,17 +191,22 @@ test('enforces read-only sources and handles draft and persisted deletion separa
   const persisted = renderHook(() =>
     useYamlResourceMutations(
       buildOptions({
-        resources: [{ id: 'stored-one', source: 'database' }],
+        resources: [{ id: 'stored-one', source: 'git' }],
       })
     )
   );
   act(() => {
     persisted.result.current.openDeleteModal('stored-one', 'stored-one');
   });
+  expect(persisted.result.current.deleteModal).toMatchObject({ gitOpsManaged: true });
   await act(async () => {
     expect(await persisted.result.current.confirmDelete()).toBe(true);
   });
   expect(deleteResource).toHaveBeenCalledWith('stored-one');
+  expect(addToast).toHaveBeenCalledWith(
+    'Pipeline database row deleted. The next GitOps sync can recreate it from the repository.',
+    'success'
+  );
 });
 
 test('updates a YAML name even when the source is malformed', () => {

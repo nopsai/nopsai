@@ -235,17 +235,13 @@ func (a *App) handleUpdateExternalTrigger(w http.ResponseWriter, r *http.Request
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	existing, err := a.loadExternalTrigger(r.Context(), id)
+	_, err = a.loadExternalTrigger(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "external trigger not found", http.StatusNotFound)
 			return
 		}
 		http.Error(w, "failed to load external trigger", http.StatusInternalServerError)
-		return
-	}
-	if existing.ManagedByGitOps {
-		http.Error(w, "GitOps-managed external triggers must be changed in the config repository", http.StatusConflict)
 		return
 	}
 	if err := a.validateExternalTriggerPipeline(r.Context(), trigger.Pipeline); err != nil {
@@ -269,6 +265,11 @@ func (a *App) handleUpdateExternalTrigger(w http.ResponseWriter, r *http.Request
 		    variable_mapping = $9::jsonb,
 		    payload_schema = $10::jsonb,
 		    rate_limit = $11::jsonb,
+		    source = 'database',
+		    config_repo_id = NULL,
+		    config_source_path = '',
+		    config_source_commit_sha = '',
+		    managed_by_config_repo = FALSE,
 		    updated_at = NOW()
 		WHERE id = $1
 	`, id, trigger.Name, trigger.Description, trigger.Enabled, trigger.Pipeline, trigger.Scope,
@@ -295,17 +296,13 @@ func (a *App) handleDeleteExternalTrigger(w http.ResponseWriter, r *http.Request
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
-	existing, err := a.loadExternalTrigger(r.Context(), id)
+	_, err := a.loadExternalTrigger(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "external trigger not found", http.StatusNotFound)
 			return
 		}
 		http.Error(w, "failed to load external trigger", http.StatusInternalServerError)
-		return
-	}
-	if existing.ManagedByGitOps {
-		http.Error(w, "GitOps-managed external triggers must be changed in the config repository", http.StatusConflict)
 		return
 	}
 	tag, err := a.db.Exec(r.Context(), `DELETE FROM external_triggers WHERE id = $1`, id)

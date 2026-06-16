@@ -31,6 +31,7 @@ export type TriggerCloneModalState = {
 
 export type TriggerDeleteModalState = {
   slug: string;
+  gitOpsManaged?: boolean;
   pending: boolean;
   error?: string;
 };
@@ -122,13 +123,9 @@ export function useTriggerManifestMutations({
     (slug: string) => {
       if (!canDeleteTriggers) return;
       const source = normalizeSource(serverTriggers.find(item => item.slug === slug)?.source);
-      if (source === 'git') {
-        addToast('This trigger is managed via Git. Clone it to customize instead of deleting.', 'info');
-        return;
-      }
-      setDeleteModal({ slug, pending: false });
+      setDeleteModal({ slug, gitOpsManaged: source === 'git', pending: false });
     },
-    [addToast, canDeleteTriggers, serverTriggers]
+    [canDeleteTriggers, serverTriggers]
   );
 
   const save = useCallback(async () => {
@@ -137,10 +134,7 @@ export function useTriggerManifestMutations({
       return false;
     }
     if (!detail) return false;
-    if (normalizeSource(detail.source) === 'git') {
-      addToast('Git-managed triggers are read-only. Clone it to customize.', 'info');
-      return false;
-    }
+    const isGitSource = normalizeSource(detail.source) === 'git';
     if (validationErrorCount > 0) {
       addToast('Resolve validation errors before saving.', 'error');
       return false;
@@ -154,10 +148,15 @@ export function useTriggerManifestMutations({
     try {
       await saveTrigger(detail.slug, editorValue);
       const summary = buildTriggerSummary(parseTriggerYaml(editorValue));
-      const updated = { ...detail, rawYaml: editorValue, summary };
+      const updated = { ...detail, rawYaml: editorValue, summary, source: isGitSource ? 'database' : detail.source };
       onSaved(updated);
       onEditingFinished();
-      addToast('Trigger saved.', 'success');
+      addToast(
+        isGitSource
+          ? 'Trigger saved as a database override. The next GitOps sync can replace it unless it is pushed to GitOps.'
+          : 'Trigger saved.',
+        'success'
+      );
       await loadTriggers();
       void loadRecentRuns(detail.slug, summary.pipelines);
       return true;
@@ -296,7 +295,12 @@ export function useTriggerManifestMutations({
     try {
       await deleteTrigger(normalizedSlug);
       setDeleteModal(null);
-      addToast('Trigger deleted.', 'success');
+      addToast(
+        deleteModal.gitOpsManaged
+          ? 'Trigger database row deleted. The next GitOps sync can recreate it from the repository.'
+          : 'Trigger deleted.',
+        'success'
+      );
       await loadTriggers();
       onDeleted();
       return true;

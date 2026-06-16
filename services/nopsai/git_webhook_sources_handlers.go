@@ -128,17 +128,13 @@ func (a *App) handleGetGitWebhookSource(w http.ResponseWriter, r *http.Request) 
 
 func (a *App) handleUpdateGitWebhookSource(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("sourceID"))
-	existing, err := a.loadGitWebhookSource(r.Context(), id)
+	_, err := a.loadGitWebhookSource(r.Context(), id)
 	if err != nil {
 		if isNotFoundError(err) {
 			http.Error(w, "git webhook source not found", http.StatusNotFound)
 			return
 		}
 		http.Error(w, "failed to load git webhook source", http.StatusInternalServerError)
-		return
-	}
-	if existing.ManagedByGitOps {
-		http.Error(w, "GitOps-managed git webhook sources must be changed in the config repository", http.StatusConflict)
 		return
 	}
 	var input gitWebhookSourceInput
@@ -173,6 +169,11 @@ func (a *App) handleUpdateGitWebhookSource(w http.ResponseWriter, r *http.Reques
 		    credential_ref = $7,
 		    repository_allowlist = $8::jsonb,
 		    rate_limit = $9::jsonb,
+		    source = 'database',
+		    config_repo_id = NULL,
+		    config_source_path = '',
+		    config_source_commit_sha = '',
+		    managed_by_config_repo = FALSE,
 		    updated_at = NOW()
 		WHERE id = $1
 	`, id, source.Name, source.Description, source.Provider, source.Enabled, source.AuthMode,
@@ -195,17 +196,13 @@ func (a *App) handleUpdateGitWebhookSource(w http.ResponseWriter, r *http.Reques
 
 func (a *App) handleDeleteGitWebhookSource(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("sourceID"))
-	existing, err := a.loadGitWebhookSource(r.Context(), id)
+	_, err := a.loadGitWebhookSource(r.Context(), id)
 	if err != nil {
 		if isNotFoundError(err) {
 			http.Error(w, "git webhook source not found", http.StatusNotFound)
 			return
 		}
 		http.Error(w, "failed to load git webhook source", http.StatusInternalServerError)
-		return
-	}
-	if existing.ManagedByGitOps {
-		http.Error(w, "GitOps-managed git webhook sources must be changed in the config repository", http.StatusConflict)
 		return
 	}
 	if _, err := a.db.Exec(r.Context(), `DELETE FROM git_webhook_sources WHERE id = $1`, id); err != nil {

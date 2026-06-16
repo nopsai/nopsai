@@ -239,7 +239,7 @@ export function suggestCloneName(existing: string[], repoSlug: string, baseName:
 export function scopeSourceLabel(source: SourceKey): string {
   switch (normalizeSourceKey(source)) {
     case 'git':
-      return 'Git';
+      return 'GitOps';
     case 'draft':
       return 'Draft';
     case 'local':
@@ -301,7 +301,11 @@ export function countScopesRecursive(node: ScopeTreeNode): number {
 }
 
 export function isEditableScopeSource(source: SourceKey): boolean {
-  return normalizeSourceKey(source) !== 'git';
+  return ['database', 'git'].includes(normalizeSourceKey(source));
+}
+
+export function isGitOpsScopeSource(source: SourceKey | undefined): boolean {
+  return normalizeSourceKey(source) === 'git';
 }
 
 export function groupScopedItems(items: string[]): GroupedScopedList {

@@ -9,6 +9,7 @@ import {
 import {
   normalizeRepositorySlug,
   normalizeScopeLabel,
+  normalizeSourceKey,
   parseScopedIdentity,
   sanitizeScopeSegments,
   suggestCloneName,
@@ -25,6 +26,8 @@ type ToastTone = 'success' | 'error' | 'info';
 type ScopeCollection = {
   variables: string[];
   secrets: string[];
+  variableMeta?: Record<string, { source?: unknown }>;
+  secretMeta?: Record<string, { source?: unknown }>;
 };
 
 export type ScopeModalState = {
@@ -41,6 +44,7 @@ export type ScopedValueModalState = {
   name: string;
   repository: string;
   value: string;
+  gitOpsManaged?: boolean;
   pending: boolean;
   error?: string;
 };
@@ -56,6 +60,7 @@ export type ScopedValueDeleteModalState = {
   kind: ScopedKind;
   scope: string;
   name: string;
+  gitOpsManaged?: boolean;
   pending: boolean;
   error?: string;
 };
@@ -85,6 +90,22 @@ function applyModalPatch<T extends object>(
   patch: Partial<T>
 ): T | null {
   return current ? { ...current, ...patch, error: undefined } : current;
+}
+
+function isGitOpsManagedSource(source: unknown): boolean {
+  return normalizeSourceKey(source) === 'git';
+}
+
+function isScopedValueGitOpsManaged(
+  scopeDataByScope: Record<string, ScopeCollection | undefined>,
+  kind: ScopedKind,
+  scopeLabel: string,
+  fullName: string
+): boolean {
+  const scope = normalizeScopeLabel(scopeLabel);
+  const data = scopeDataByScope[scope];
+  const meta = kind === 'variable' ? data?.variableMeta?.[fullName] : data?.secretMeta?.[fullName];
+  return isGitOpsManagedSource(meta?.source);
 }
 
 export function useScopeModalMutations({
@@ -239,18 +260,24 @@ export function useScopeModalMutations({
   const openVariableUpdateModal = useCallback(
     (scopeLabel: string, fullName: string) => {
       if (!canWriteVariablesInSelectedScope) return;
+      const scope = normalizeScopeLabel(scopeLabel);
       const identity = parseScopedIdentity(fullName);
+      const gitOpsManaged = isScopedValueGitOpsManaged(scopeDataByScope, 'variable', scope, identity.fullName);
+      if (gitOpsManaged) {
+        addToast('Editing saves a database override. The next GitOps sync can replace it unless it is pushed to GitOps.', 'info');
+      }
       setVariableModal({
         mode: 'update',
-        scope: normalizeScopeLabel(scopeLabel),
+        scope,
         originalName: identity.fullName,
         name: identity.name,
         repository: identity.repoSlug,
         value: '',
+        gitOpsManaged,
         pending: false,
       });
     },
-    [canWriteVariablesInSelectedScope]
+    [addToast, canWriteVariablesInSelectedScope, scopeDataByScope]
   );
 
   const openVariableCloneModal = useCallback(
@@ -342,7 +369,14 @@ export function useScopeModalMutations({
         'variable'
       );
       const fullName = finalRepoSlug ? `${finalRepoSlug}/${finalName}` : finalName;
-      addToast(variableModal.mode === 'update' ? 'Variable updated.' : 'Variable created.', 'success');
+      addToast(
+        variableModal.mode === 'update' && variableModal.gitOpsManaged
+          ? 'Variable saved as a database override. GitOps can replace it on the next sync unless it is pushed.'
+          : variableModal.mode === 'update'
+            ? 'Variable updated.'
+            : 'Variable created.',
+        'success'
+      );
       setVariableModal(null);
       await ensureScopeVariables(scope, true);
       selectVariable(fullName);
@@ -387,18 +421,24 @@ export function useScopeModalMutations({
   const openSecretUpdateModal = useCallback(
     (scopeLabel: string, fullName: string) => {
       if (!canWriteSecretsInSelectedScope) return;
+      const scope = normalizeScopeLabel(scopeLabel);
       const identity = parseScopedIdentity(fullName);
+      const gitOpsManaged = isScopedValueGitOpsManaged(scopeDataByScope, 'secret', scope, identity.fullName);
+      if (gitOpsManaged) {
+        addToast('Editing saves a database override. The next GitOps sync can replace it unless it is pushed to GitOps.', 'info');
+      }
       setSecretModal({
         mode: 'update',
-        scope: normalizeScopeLabel(scopeLabel),
+        scope,
         originalName: identity.fullName,
         name: identity.name,
         repository: identity.repoSlug,
         value: '',
+        gitOpsManaged,
         pending: false,
       });
     },
-    [canWriteSecretsInSelectedScope]
+    [addToast, canWriteSecretsInSelectedScope, scopeDataByScope]
   );
 
   const openSecretCloneModal = useCallback(
@@ -496,7 +536,14 @@ export function useScopeModalMutations({
         'secret'
       );
       const fullName = finalRepoSlug ? `${finalRepoSlug}/${finalName}` : finalName;
-      addToast(secretModal.mode === 'update' ? 'Secret value updated.' : 'Secret created.', 'success');
+      addToast(
+        secretModal.mode === 'update' && secretModal.gitOpsManaged
+          ? 'Secret saved as a database override. GitOps can replace it on the next sync unless it is pushed.'
+          : secretModal.mode === 'update'
+            ? 'Secret value updated.'
+            : 'Secret created.',
+        'success'
+      );
       setSecretModal(null);
       await ensureScopeSecrets(scope, true);
       selectSecret(fullName);
@@ -565,9 +612,15 @@ export function useScopeModalMutations({
   const openDeleteModal = useCallback(
     (kind: ScopedKind, scope: string, name: string) => {
       if (!canDeleteScopes) return;
-      setDeleteModal({ kind, scope, name, pending: false });
+      setDeleteModal({
+        kind,
+        scope,
+        name,
+        gitOpsManaged: isScopedValueGitOpsManaged(scopeDataByScope, kind, scope, name),
+        pending: false,
+      });
     },
-    [canDeleteScopes]
+    [canDeleteScopes, scopeDataByScope]
   );
 
   const confirmDelete = useCallback(async () => {
@@ -589,7 +642,14 @@ export function useScopeModalMutations({
       }
 
       await loadScopes();
-      addToast(deleteModal.kind === 'variable' ? 'Variable removed.' : 'Secret removed.', 'success');
+      addToast(
+        deleteModal.gitOpsManaged
+          ? `${deleteModal.kind === 'variable' ? 'Variable' : 'Secret'} database row removed. GitOps can recreate it on the next sync unless it is removed from GitOps.`
+          : deleteModal.kind === 'variable'
+            ? 'Variable removed.'
+            : 'Secret removed.',
+        'success'
+      );
       setDeleteModal(null);
       return true;
     } catch (error) {

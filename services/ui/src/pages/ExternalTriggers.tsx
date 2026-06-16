@@ -417,6 +417,11 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
   };
 
   const updateTrigger = async (trigger: ExternalTrigger, updates: Partial<ExternalTrigger>) => {
+    if (trigger.managed_by_config_repo && !window.confirm(
+      'This external trigger is managed by GitOps. Saving here creates a database override that the next GitOps sync can replace unless it is pushed to GitOps. Continue?'
+    )) {
+      return;
+    }
     const payload = {
       id: trigger.id,
       name: trigger.name,
@@ -442,6 +447,10 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
 
   const deleteTrigger = async (trigger: ExternalTrigger) => {
     if (!canDeleteExternalTriggers || deletePending) return;
+    const message = trigger.managed_by_config_repo
+      ? `Delete external trigger ${trigger.id}? This removes the database row; the next GitOps sync can recreate it from the repository.`
+      : `Delete external trigger ${trigger.id}?`;
+    if (!window.confirm(message)) return;
     setDeletePending(true);
     try {
       await fetchJson<void>(`/v1/external-triggers/${encodeURIComponent(trigger.id)}`, { method: 'DELETE' });
@@ -511,7 +520,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
                 <div className="flex flex-wrap gap-2">
                   {canWriteExternalTriggers && (
                     <>
-                      <button type="button" className="pipelines-secondary-button" onClick={() => openEdit(selectedTrigger)} disabled={selectedManagedByGitOps} title={selectedManagedByGitOps ? 'Change GitOps-managed external triggers in the config repository' : 'Edit'}>
+                      <button type="button" className="pipelines-secondary-button" onClick={() => openEdit(selectedTrigger)} title={selectedManagedByGitOps ? 'Save database override; GitOps can replace it on next sync' : 'Edit'}>
                         <Edit3 className="h-4 w-4" />
                         Edit
                       </button>
@@ -519,8 +528,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
                         type="button"
                         className="pipelines-secondary-button"
                         onClick={() => void updateTrigger(selectedTrigger, { enabled: !selectedTrigger.enabled })}
-                        disabled={selectedManagedByGitOps}
-                        title={selectedManagedByGitOps ? 'Change GitOps-managed external triggers in the config repository' : selectedTrigger.enabled ? 'Disable' : 'Enable'}
+                        title={selectedManagedByGitOps ? 'Save database override; GitOps can replace it on next sync' : selectedTrigger.enabled ? 'Disable' : 'Enable'}
                       >
                         {selectedTrigger.enabled ? <PauseCircle className="h-4 w-4" /> : <PlayCircle className="h-4 w-4" />}
                         {selectedTrigger.enabled ? 'Disable' : 'Enable'}
@@ -532,7 +540,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
                     {copyState === 'url' ? 'Copied' : 'URL'}
                   </button>
                   {canDeleteExternalTriggers && (
-                    <button type="button" className="pipelines-danger-button" onClick={() => void deleteTrigger(selectedTrigger)} disabled={deletePending || selectedManagedByGitOps} title={selectedManagedByGitOps ? 'Change GitOps-managed external triggers in the config repository' : 'Delete'}>
+                    <button type="button" className="pipelines-danger-button" onClick={() => void deleteTrigger(selectedTrigger)} disabled={deletePending} title={selectedManagedByGitOps ? 'Delete database row; GitOps can recreate it on next sync' : 'Delete'}>
                       <Trash2 className="h-4 w-4" />
                       Delete
                     </button>
@@ -622,6 +630,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
           form={form}
           formError={formError}
           saving={saving}
+          gitOpsManaged={Boolean(modal.mode === 'edit' && modal.trigger?.managed_by_config_repo)}
           pipelineOptions={pipelineOptions}
           scopeOptions={scopeOptions}
           runGroupOptions={runGroupOptions}

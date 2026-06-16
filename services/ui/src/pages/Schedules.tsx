@@ -166,6 +166,11 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
   const setScheduleEnabled = useCallback(
     async (schedule: PipelineSchedule, enabled: boolean) => {
       if (busyScheduleID) return;
+      if (isGitOpsSchedule(schedule) && !window.confirm(
+        `This schedule is managed by GitOps. ${enabled ? 'Enabling' : 'Disabling'} it saves a database override that the next GitOps sync can replace unless it is pushed to GitOps. Continue?`
+      )) {
+        return;
+      }
       setBusyScheduleID(schedule.id);
       try {
         const updated = await setScheduleEnabledRequest(schedule.id, enabled);
@@ -200,7 +205,10 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
 
   const deleteSchedule = useCallback(
     async (schedule: PipelineSchedule) => {
-      if (!window.confirm(`Delete schedule ${schedule.identifier}?`)) return;
+      const message = isGitOpsSchedule(schedule)
+        ? `Delete schedule ${schedule.identifier}? This removes the database row; the next GitOps sync can recreate it from the repository.`
+        : `Delete schedule ${schedule.identifier}?`;
+      if (!window.confirm(message)) return;
       setBusyScheduleID(schedule.id);
       try {
         await deleteScheduleRequest(schedule.id);
@@ -279,7 +287,7 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
           pipelines={pipelines}
           runGroups={runGroupOptions}
           scopes={scopeOptions}
-          canSubmit={canWriteSchedules && !modal.schedule?.managed_by_config_repo}
+          canSubmit={canWriteSchedules}
           onChange={setForm}
           onClose={closeModal}
           onSubmit={() => void submitForm()}
@@ -287,4 +295,8 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
       ) : null}
     </div>
   );
+}
+
+function isGitOpsSchedule(schedule: PipelineSchedule) {
+  return Boolean(schedule.managed_by_config_repo || sourceLabel(schedule.source) === 'GitOps');
 }

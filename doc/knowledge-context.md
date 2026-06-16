@@ -269,5 +269,7 @@ curl -X DELETE \
   http://localhost:8080/v1/knowledge-contexts/guardrail/security/repo-check
 ```
 
-GitOps-managed documents can be viewed in the UI, but their source should be
-changed in Git so the next sync remains authoritative.
+GitOps-managed documents can also be edited or deleted through the UI/API when
+AAA permits. Editing stores a database override and deleting removes the
+database row; the next GitOps sync can replace or recreate the document unless
+the change is also pushed back to GitOps.

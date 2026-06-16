@@ -142,7 +142,11 @@ function TriggerDeleteDialog({
           </button>
         </header>
         <div className="pipelines-modal-body space-y-3">
-          <p id={descriptionId} className="text-sm text-[var(--text-secondary)]">This action cannot be undone.</p>
+          <p id={descriptionId} className="text-sm text-[var(--text-secondary)]">
+            {modal.gitOpsManaged
+              ? 'This removes the database row. A future GitOps sync can recreate it from the repository.'
+              : 'This action cannot be undone.'}
+          </p>
           {modal.error ? <WorkflowInlineAlert id={errorId}>{modal.error}</WorkflowInlineAlert> : null}
         </div>
         <div className="pipelines-modal-footer">

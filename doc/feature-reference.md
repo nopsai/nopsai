@@ -112,9 +112,10 @@ Pipeline schedules are first-class resources for time-based automation:
   offers friendly specific-date, interval, hourly, daily, weekday, weekly,
   monthly, yearly, or custom timing controls; weekly and monthly modes support
   multiple selected days
-- database-owned schedules can be enabled, disabled, run immediately, edited, or
-  deleted when the caller has the matching `pipeline_schedule.*` action;
-  GitOps-managed schedules stay read-only for direct mutation and deletion
+- schedules can be enabled, disabled, run immediately, edited, or deleted when
+  the caller has the matching `pipeline_schedule.*` action. Editing or deleting
+  a GitOps-managed schedule changes the database row only; the next GitOps sync
+  can replace or recreate it unless the change is pushed back to GitOps.
 - scheduled runs are tagged with `trigger_source: schedule`, linked to
   `schedule_id`, and badged in Pipeline runs
 - execution uses a schedule-owned service account with explicit pipeline,
@@ -171,6 +172,7 @@ Scope behavior:
 - A pipeline can explicitly reference another scope with `scope:NAME`, such as `dev:TEST_ENV`; the value is resolved from that scope and injected as runtime variable `TEST_ENV`.
 - `default:NAME` explicitly targets the unscoped/default value.
 - Runtime authorization is checked against the concrete scoped secret or variable that was resolved.
+- GitOps-managed scoped variables and secrets can be edited or deleted in the UI/API when AAA permits. Edits become database overrides, and deletes remove the database row; the next GitOps sync can replace or recreate them unless the change is pushed to GitOps.
 
 ## Triggering And Git Provider Integration
 

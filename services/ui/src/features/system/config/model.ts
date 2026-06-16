@@ -1,4 +1,4 @@
-import { asRecord, normalizeNumber, readOptionalString, readString } from '../data';
+import { asRecord, normalizeNumber, readOptionalString, readString } from '../data.js';
 
 export type ConfigFormState = {
   agent_image: string;
