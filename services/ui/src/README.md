@@ -25,7 +25,8 @@ truth; this file is the source-adjacent placement guide.
   large presentation branches.
 - `components/` owns shared UI primitives that cross feature boundaries.
   Workflow dialogs, inline alerts, empty states, icon-only commands, focus
-  handling, and toast/live-region feedback should start here.
+  handling, compact resource collection cards, and toast/live-region feedback
+  should start here.
 - `tools/` owns local and CI guardrails such as boundary checks. Runtime code
   should not depend on tool-only modules.
 
@@ -98,12 +99,25 @@ truth; this file is the source-adjacent placement guide.
 - `AppShell` owns the single route-level `h1` for authenticated pages. Page
   content must not repeat the route title; distinct hero copy starts at `h2`.
   Standalone routes such as Login own their own `h1`.
-- New dialogs should use `WorkflowDialogFrame` unless a documented product
-  reason requires a specialized shell.
+- Create and edit forms should use `WorkflowFormDialog`, which owns the
+  Pipeline modal card, header, scrollable body, footer, focus, and animation
+  contract. Lower-level or destructive dialogs should use `WorkflowDialogFrame`
+  unless a documented product reason requires a specialized shell.
 - Feature create actions remain visible when AAA makes a collection read-only;
   disable them and explain the restriction instead of removing the control.
-- Form dialogs use opaque themed surfaces with independently scrollable bodies;
-  collection card effects such as `glass-card` are not dialog shells.
+- Dense resource collections should use `CompactResourceCard` in a responsive
+  tile grid and the same glass surface, icon treatment, hover state, spacing,
+  and divider metadata used by Pipelines and Pipeline Runs. Shared icon-led
+  identity, descriptions, facts, footer status tags, and action slots keep
+  hierarchy consistent without repeating the collection's resource type on each
+  card. Feature modules own essential facts, status labels, actions, and
+  GitOps/AAA decisions.
+- Collection routes should reuse `ResourceCollectionToolbar` for compact search,
+  refresh, create, summaries, and feature-owned filters. Create controls remain
+  visible but disabled when AAA grants read-only access. Secondary detail panes
+  should mount only after a resource is selected or deep-linked.
+- Form dialogs share the Pipeline themed surface and independently scrollable
+  body; collection card effects such as `glass-card` are not dialog shells.
 - New validation feedback should use `WorkflowInlineAlert` or an equivalent
   `role="alert"` relationship included in `aria-describedby`.
 - New toast/live-region feedback should use `WorkflowToastRegion`.

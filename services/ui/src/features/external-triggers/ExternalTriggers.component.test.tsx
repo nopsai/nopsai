@@ -3,8 +3,9 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ExternalTriggersPage from '../../pages/ExternalTriggers';
+import { ExternalTriggerCards } from './ExternalTriggerCards';
 import { ExternalTriggerFormModal } from './ExternalTriggerFormModal';
-import type { ExternalTriggerForm } from './model';
+import type { ExternalTrigger, ExternalTriggerForm } from './model';
 
 const mocks = vi.hoisted(() => ({
   fetch: vi.fn(),
@@ -35,11 +36,60 @@ describe('ExternalTriggersPage create action', () => {
     );
 
     const opener = screen.getByRole('button', { name: 'New trigger' });
+    expect(screen.getByRole('button', { name: 'Search external triggers' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Refresh external triggers' })).toBeVisible();
     await user.click(opener);
 
-    expect(screen.getByRole('dialog', { name: 'New authenticated endpoint' })).toBeVisible();
+    const dialog = screen.getByRole('dialog', { name: 'New authenticated endpoint' });
+    expect(dialog).toBeVisible();
+    expect(dialog).toHaveClass(
+      'pipelines-modal-card',
+      'workflow-form-dialog',
+      'workflow-form-dialog--wide'
+    );
+    expect(dialog.querySelector('.pipelines-modal-header')).not.toBeNull();
+    expect(dialog.querySelector('.pipelines-modal-body')).not.toBeNull();
+    expect(dialog.querySelector('.pipelines-modal-footer')).not.toBeNull();
     expect(screen.getByLabelText('Name')).toHaveFocus();
     expect(screen.getByRole('button', { name: 'Create trigger' })).toBeVisible();
+  });
+
+  it('keeps details hidden until a card is selected', async () => {
+    const user = userEvent.setup();
+    const trigger: ExternalTrigger = {
+      id: 'deploy-prod',
+      name: 'Deploy production',
+      description: 'ServiceNow approval endpoint',
+      enabled: true,
+      pipeline: 'platform/deploy',
+      scope: 'production',
+      run_group_path: 'platform/prod',
+      allowed_callers: [{ type: 'service_account', id: 'deployer' }],
+      source: 'database',
+    };
+    mocks.fetch.mockImplementation(async path => {
+      const requestPath = String(path);
+      if (requestPath === '/v1/external-triggers') return Response.json([trigger]);
+      if (requestPath === '/v1/external-triggers/deploy-prod') return Response.json(trigger);
+      if (requestPath === '/v1/external-triggers/deploy-prod/invocations?limit=20') return Response.json([]);
+      return Response.json([]);
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/external-triggers']}>
+        <ExternalTriggersPage canWriteExternalTriggers canDeleteExternalTriggers />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Deploy production')).toBeVisible();
+    expect(screen.queryByText('Allowed Callers')).not.toBeInTheDocument();
+    expect(screen.queryByText('1 total')).not.toBeInTheDocument();
+    expect(screen.queryByText('1 enabled')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Select external trigger Deploy production' }));
+
+    expect(await screen.findByText('Allowed Callers')).toBeVisible();
+    expect(screen.getByText('service_account:deployer')).toBeVisible();
   });
 
   it('keeps the action visible but disabled when AAA grants read-only access', () => {
@@ -55,6 +105,59 @@ describe('ExternalTriggersPage create action', () => {
       'title',
       'You have read-only access to external triggers'
     );
+  });
+});
+
+describe('ExternalTriggerCards', () => {
+  it('renders compact selectable cards with GitOps and disabled states', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const triggers: ExternalTrigger[] = [
+      {
+        id: 'platform/deploy-prod',
+        name: 'Deploy production',
+        description: 'ServiceNow approval endpoint',
+        enabled: false,
+        pipeline: 'platform/deploy',
+        scope: 'production',
+        run_group_path: 'platform/prod',
+        allowed_callers: [
+          { type: 'service_account', id: 'deployer' },
+          { type: 'auth_group', id: 'operators' },
+        ],
+        managed_by_config_repo: true,
+      },
+      {
+        id: 'deploy-dev',
+        name: '',
+        enabled: true,
+        pipeline: 'platform/deploy-dev',
+      },
+    ];
+
+    render(<ExternalTriggerCards triggers={triggers} selectedID={triggers[0].id} onSelect={onSelect} />);
+
+    const list = screen.getByTestId('external-trigger-card-list');
+    expect(list).toHaveClass('compact-resource-grid');
+    const cards = Array.from(list.querySelectorAll('.compact-resource-card'));
+    expect(cards).toHaveLength(2);
+    cards.forEach(card => {
+      expect(card).toHaveClass('compact-resource-card--bordered', 'external-trigger-card');
+    });
+    expect(screen.getByText('Disabled')).toBeVisible();
+    expect(screen.getByText('GitOps')).toBeVisible();
+    expect(screen.getByText('production · service_account, auth_group')).toBeVisible();
+    expect(screen.getAllByText('deploy-dev')).toHaveLength(2);
+    expect(screen.getByText('default · none')).toBeVisible();
+    const selector = screen.getByRole('button', { name: 'Select external trigger Deploy production' });
+    expect(selector).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Select external trigger deploy-dev' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
+
+    await user.click(selector);
+    expect(onSelect).toHaveBeenCalledWith('platform/deploy-prod');
   });
 });
 

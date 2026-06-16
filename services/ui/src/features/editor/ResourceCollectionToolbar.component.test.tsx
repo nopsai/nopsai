@@ -57,3 +57,30 @@ test('hides creation and disables folder navigation when access or context is mi
   expect(screen.getByRole('button', { name: 'Back' })).toBeDisabled();
   expect(screen.queryByRole('button', { name: 'Create new step' })).not.toBeInTheDocument();
 });
+
+test('supports resource page actions, filters, summaries, and visible read-only creation', async () => {
+  const user = userEvent.setup();
+  const onRefresh = vi.fn();
+  render(
+    <ResourceCollectionToolbar
+      resourceLabel="schedule"
+      searchTerm=""
+      canCreate={false}
+      createLabel="New schedule"
+      createDisabledReason="Read-only schedules"
+      showCreateWhenDisabled
+      summary={<span>3 total</span>}
+      filters={<label><input type="checkbox" /> Show disabled</label>}
+      onRefresh={onRefresh}
+      onSearchTermChange={() => undefined}
+      onCreate={() => undefined}
+    />
+  );
+
+  expect(screen.getByText('3 total')).toBeVisible();
+  expect(screen.getByLabelText('Show disabled')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'New schedule' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'New schedule' })).toHaveAttribute('title', 'Read-only schedules');
+  await user.click(screen.getByRole('button', { name: 'Refresh schedules' }));
+  expect(onRefresh).toHaveBeenCalledOnce();
+});

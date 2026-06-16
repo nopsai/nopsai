@@ -1,17 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import {
-  CalendarClock,
-  CheckCircle2,
-  Clock3,
-  GitBranch,
-  Plus,
-  RefreshCw,
-  Search,
-  X,
-} from 'lucide-react';
+import { X } from 'lucide-react';
 
-import { ScheduleCard, ScheduleStatCard } from '../features/schedules/ScheduleCards';
+import { ResourceCollectionToolbar } from '../features/editor/ResourceCollectionToolbar';
+import { ScheduleCard } from '../features/schedules/ScheduleCards';
 import { ScheduleFormModal } from '../features/schedules/ScheduleFormModal';
 import {
   deleteSchedule as deleteScheduleRequest,
@@ -42,7 +34,6 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const pipelineFilter = normalizeIdentifier(searchParams.get('pipeline') || '');
-  const activeGroup = normalizeIdentifier(searchParams.get('folder') || '') || 'all';
 
   const [schedules, setSchedules] = useState<PipelineSchedule[]>([]);
   const [pipelines, setPipelines] = useState<string[]>([]);
@@ -51,7 +42,6 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [showDisabled, setShowDisabled] = useState(true);
   const [modal, setModal] = useState<ScheduleModalState | null>(null);
   const [form, setForm] = useState<ScheduleFormState>(() => createEmptyForm(''));
   const [formError, setFormError] = useState<string | null>(null);
@@ -72,7 +62,8 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
   }, [pipelineFilter]);
 
   useEffect(() => {
-    void loadSchedules();
+    const timeout = window.setTimeout(() => void loadSchedules(), 0);
+    return () => window.clearTimeout(timeout);
   }, [loadSchedules]);
 
   useEffect(() => {
@@ -98,15 +89,6 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
     };
   }, []);
 
-  const scheduleGroupOptions = useMemo(() => {
-    const values = new Set<string>(groups);
-    schedules.forEach(schedule => {
-      const path = normalizeIdentifier(schedule.path);
-      if (path) values.add(path);
-    });
-    return Array.from(values).sort((a, b) => a.localeCompare(b));
-  }, [groups, schedules]);
-
   const runGroupOptions = useMemo(() => uniqueRunGroupOptions(groups), [groups]);
 
   const scopeOptions = useMemo(() => {
@@ -118,15 +100,6 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
   const filteredSchedules = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
     return schedules.filter(schedule => {
-      if (!showDisabled && !schedule.enabled) return false;
-      const path = normalizeIdentifier(schedule.path);
-      if (activeGroup !== 'all') {
-        if (activeGroup === 'root') {
-          if (path) return false;
-        } else if (path !== activeGroup && !path.startsWith(`${activeGroup}/`)) {
-          return false;
-        }
-      }
       if (!term) return true;
       const haystack = [
         schedule.identifier,
@@ -145,25 +118,7 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
         .toLowerCase();
       return haystack.includes(term);
     });
-  }, [activeGroup, schedules, searchTerm, showDisabled]);
-
-  const stats = useMemo(() => {
-    const enabled = schedules.filter(schedule => schedule.enabled).length;
-    const due = schedules.filter(schedule => schedule.enabled && schedule.next_run_at).length;
-    const gitops = schedules.filter(schedule => schedule.managed_by_config_repo || sourceLabel(schedule.source) === 'GitOps').length;
-    return { total: schedules.length, enabled, due, gitops };
-  }, [schedules]);
-
-  const setFolderFilter = useCallback(
-    (folder: string) => {
-      const params = new URLSearchParams(searchParams);
-      const normalized = normalizeIdentifier(folder);
-      if (!normalized || normalized === 'all') params.delete('folder');
-      else params.set('folder', normalized);
-      setSearchParams(params, { replace: true });
-    },
-    [searchParams, setSearchParams]
-  );
+  }, [schedules, searchTerm]);
 
   const clearPipelineFilter = useCallback(() => {
     const params = new URLSearchParams(searchParams);
@@ -260,93 +215,36 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
   );
 
   return (
-    <div data-page="schedules" className="active min-h-screen flex flex-col overflow-x-hidden overflow-y-auto">
-      <div className="px-6 py-6 space-y-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--text-secondary)]">
-              {pipelineFilter ? (
-                <span className="runner-pill runner-pill--link">
-                  Pipeline {pipelineFilter}
-                  <button type="button" onClick={clearPipelineFilter} aria-label="Clear pipeline filter">
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </span>
-              ) : null}
-              <span>{stats.total} total</span>
-              <span>{stats.enabled} enabled</span>
-              <span>{stats.gitops} GitOps</span>
-            </div>
-          </div>
+    <div data-page="schedules" className="active h-full flex flex-col">
+      <ResourceCollectionToolbar
+        resourceLabel="schedule"
+        searchTerm={searchTerm}
+        canCreate={canWriteSchedules}
+        createLabel="New schedule"
+        createDisabledReason="You have read-only access to schedules"
+        showCreateWhenDisabled
+        onSearchTermChange={setSearchTerm}
+        onCreate={openCreate}
+        onRefresh={() => void loadSchedules()}
+        refreshDisabled={loading || saving}
+        summary={pipelineFilter ? (
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" className="glass-button-ghost" onClick={() => void loadSchedules()} title="Refresh schedules">
-              <RefreshCw className="h-4 w-4" />
-            </button>
-            {canWriteSchedules ? (
-              <button type="button" className="glass-button-primary" onClick={openCreate}>
-                <Plus className="h-4 w-4" />
-                <span>New schedule</span>
+            <span className="runner-pill runner-pill--link">
+              Pipeline {pipelineFilter}
+              <button type="button" onClick={clearPipelineFilter} aria-label="Clear pipeline filter">
+                <X className="h-3.5 w-3.5" />
               </button>
-            ) : null}
+            </span>
           </div>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-4">
-          <ScheduleStatCard icon={<CalendarClock className="h-5 w-5" />} label="Schedules" value={stats.total} />
-          <ScheduleStatCard icon={<CheckCircle2 className="h-5 w-5" />} label="Enabled" value={stats.enabled} />
-          <ScheduleStatCard icon={<Clock3 className="h-5 w-5" />} label="Scheduled" value={stats.due} />
-          <ScheduleStatCard icon={<GitBranch className="h-5 w-5" />} label="GitOps" value={stats.gitops} />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-3">
-          <div className="pipelines-search-shell open min-w-[16rem] flex-1">
-            <Search className="h-4 w-4 text-[var(--text-secondary)] ml-2" />
-            <input
-              value={searchTerm}
-              onChange={event => setSearchTerm(event.target.value)}
-              className="pipelines-search-input"
-              placeholder="Search schedules"
-            />
-            {searchTerm ? (
-              <button type="button" className="pipelines-search-clear" onClick={() => setSearchTerm('')} aria-label="Clear search">
-                <X className="h-4 w-4" />
-              </button>
-            ) : null}
-          </div>
-          <select
-            className="pipelines-input min-w-[12rem]"
-            value={activeGroup}
-            onChange={event => setFolderFilter(event.target.value)}
-            aria-label="Filter by group"
-          >
-            <option value="all">All groups</option>
-            {scheduleGroupOptions.map(group => (
-              <option key={group} value={group}>
-                {group === 'root' ? 'Root' : `/${group}`}
-              </option>
-            ))}
-          </select>
-          <label className="inline-flex items-center gap-2 text-sm text-[var(--text-secondary)]">
-            <input
-              type="checkbox"
-              checked={showDisabled}
-              onChange={event => setShowDisabled(event.target.checked)}
-              className="h-4 w-4 rounded border-[var(--border-primary)]"
-            />
-            <span>Show disabled</span>
-          </label>
-        </div>
-
+        ) : undefined}
+      />
+      <div className="flex-1 overflow-auto px-6 pb-8 triggers-content">
         {loading ? (
-          <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-5 text-sm text-[var(--text-secondary)]">
-            Loading schedules…
-          </div>
+          <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Loading schedules...</div>
         ) : error ? (
-          <div className="rounded-xl border border-red-300 bg-red-50 p-5 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
-            {error}
-          </div>
+          <div className="glass-card p-5 text-sm text-red-500">{error}</div>
         ) : filteredSchedules.length ? (
-          <div className="grid gap-4 xl:grid-cols-2">
+          <div className="compact-resource-grid" data-testid="schedule-card-list">
             {filteredSchedules.map(schedule => (
               <ScheduleCard
                 key={schedule.id}
@@ -363,8 +261,11 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
             ))}
           </div>
         ) : (
-          <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-6 text-sm text-[var(--text-secondary)]">
-            No schedules match the current filters.
+          <div className="pipelines-empty">
+            <h2 className="text-base font-semibold text-[var(--text-primary)]">No schedules found</h2>
+            <p className="text-sm text-[var(--text-secondary)]">
+              Create a schedule or adjust the current filters.
+            </p>
           </div>
         )}
       </div>
