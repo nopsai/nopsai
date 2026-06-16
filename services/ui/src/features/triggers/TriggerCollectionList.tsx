@@ -1,4 +1,5 @@
 import { Trash2 } from 'lucide-react';
+import { ObjectIcon } from '../../components/ObjectIcon';
 import { normalizeSource, triggerSlugLabel, type TriggerListItem } from './model';
 
 export type TriggerTreeNode = {
@@ -98,10 +99,7 @@ function TriggerFolderCard({ node, onOpenFolder }: { node: TriggerTreeNode; onOp
       <div className="pipeline-card-header">
         <div className="pipeline-card-info">
           <span className="pipeline-card-icon" aria-hidden="true">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 7h5l2 2h11v9a2 2 0 0 1-2 2H3z" />
-              <path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2" />
-            </svg>
+            <ObjectIcon type="folder" />
           </span>
           <div className="pipeline-card-text">
             <h3 className="pipeline-card-title">{node.name}</h3>
@@ -147,10 +145,8 @@ function TriggerCard({
     >
       <div className="pipeline-card-header">
         <div className="pipeline-card-info">
-          <span className="triggers-card-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-            </svg>
+          <span className="pipeline-card-icon" aria-hidden="true">
+            <ObjectIcon type="trigger" />
           </span>
           <div className="pipeline-card-text">
             <h3 className="pipeline-card-title">{name || item.slug}</h3>
@@ -161,11 +157,9 @@ function TriggerCard({
             <button
               type="button"
               className="pipelines-delete-button"
-              aria-disabled={sourceKey === 'git'}
-              title={sourceKey === 'git' ? 'This trigger is managed via Git. Clone it to customize.' : 'Delete trigger'}
+              title={sourceKey === 'git' ? 'Delete database row; GitOps can recreate it on the next sync' : 'Delete trigger'}
               onClick={event => {
                 event.stopPropagation();
-                if (sourceKey === 'git') return;
                 onDeleteTrigger(item.slug);
               }}
               aria-label="Delete trigger"

@@ -25,8 +25,8 @@ truth; this file is the source-adjacent placement guide.
   large presentation branches.
 - `components/` owns shared UI primitives that cross feature boundaries.
   Workflow dialogs, inline alerts, empty states, icon-only commands, focus
-  handling, compact resource collection cards, and toast/live-region feedback
-  should start here.
+  handling, compact resource collection cards, shared object icons, and
+  toast/live-region feedback should start here.
 - `tools/` owns local and CI guardrails such as boundary checks. Runtime code
   should not depend on tool-only modules.
 
@@ -41,15 +41,19 @@ truth; this file is the source-adjacent placement guide.
   stays under `features/pipelines` and `features/steps`.
 - Permission checks must be keyed to the active resource path/name and must fail
   closed when navigation changes.
-- Git-managed resources stay read-only in the editor; clone/customize flows are
-  the supported write path.
+- Git-managed workflow resources can be edited in the UI when AAA permits; those
+  saves become database overrides and must warn that the next GitOps sync can
+  replace them unless pushed back to GitOps.
 
 ### Scopes And Triggers
 
 - Scope and trigger route identifiers, grouping, source labels, usage indexes,
   manifest validation, and modal mutation state belong in their feature modules.
-- GitOps-managed scoped values and trigger manifests must keep read-only affordances
-  and explicit clone/customize paths.
+- GitOps-managed trigger manifests use the same database-override behavior as
+  pipelines and steps. Clone paths remain available for draft workflows.
+- GitOps-managed scoped variables and secrets follow the same database-override
+  rule: direct edits become database overrides and direct deletes remove the
+  database row until GitOps sync replaces or recreates it.
 - Destructive actions require action-time AAA checks and alert-dialog semantics.
 - GitOps secret encryption must remain compatible with config-repository
   workflows and avoid exposing plaintext after encryption.
@@ -111,7 +115,10 @@ truth; this file is the source-adjacent placement guide.
   identity, descriptions, facts, footer status tags, and action slots keep
   hierarchy consistent without repeating the collection's resource type on each
   card. Feature modules own essential facts, status labels, actions, and
-  GitOps/AAA decisions.
+  GitOps/AAA decisions. Resource identity glyphs should come from
+  `components/ObjectIcon.tsx` and `components/objectIconRegistry.ts`; new
+  object types must extend that registry and its focused component test instead
+  of adding inline SVGs or feature-local icon switches.
 - Collection routes should reuse `ResourceCollectionToolbar` for compact search,
   refresh, create, summaries, and feature-owned filters. Create controls remain
   visible but disabled when AAA grants read-only access. Secondary detail panes

@@ -118,8 +118,10 @@ event, and use a new key for a new change, ticket, deployment, or approval.
 Manual tests can omit it or use a fresh test key.
 
 GitOps-managed external triggers live in `external-triggers/*.yaml`. Config sync
-imports them, direct UI/API edits are blocked while GitOps owns them, and config
-repository drift can push database-created triggers back into that directory.
+imports them, direct UI/API edits become database overrides, and config
+repository drift can push database-created or overridden triggers back into that
+directory. The next GitOps sync can replace database overrides unless they are
+pushed to GitOps.
 
 ---
 

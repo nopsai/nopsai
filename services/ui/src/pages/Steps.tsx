@@ -848,6 +848,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
           deleteModal
             ? {
                 resourceName: deleteModal.resourceName,
+                gitOpsManaged: deleteModal.gitOpsManaged,
                 pending: deleteModal.pending,
                 error: deleteModal.error,
               }

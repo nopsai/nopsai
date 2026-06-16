@@ -312,9 +312,12 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
 
   const startEditing = useCallback(() => {
     if (!detail) return;
-    if (!canWriteKnowledge || isGitManagedDocument(detail)) {
-      addToast('This knowledge context is read-only. Clone it to customize.', 'info');
+    if (!canWriteKnowledge) {
+      addToast('You have read-only access to knowledge contexts.', 'info');
       return;
+    }
+    if (isGitManagedDocument(detail)) {
+      addToast('Editing saves a database override. The next GitOps sync can replace it unless it is pushed to GitOps.', 'info');
     }
     editSessionOriginalRef.current = { detail: { ...detail }, content: editorValue };
     setIsEditing(true);
@@ -333,10 +336,7 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
 
   const saveDetail = useCallback(async () => {
     if (!detail || !canWriteKnowledge || saving) return;
-    if (isGitManagedDocument(detail)) {
-      addToast('Git-managed knowledge contexts are read-only. Clone it to customize.', 'info');
-      return;
-    }
+    const isGitManaged = isGitManagedDocument(detail);
     const validationError = validateKnowledgeIdentity(detail.kind, detail.group, detail.name, items, draftID || detail.id);
     if (validationError) {
       setDetailError(validationError);
@@ -357,7 +357,12 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
       if (payload.id && payload.id !== detail.id) clearKnowledgeDraft(payload.id);
       navigate(`/knowledge-context/${encodeKnowledgeID(payload.id)}`, { replace: true });
       await loadList();
-      addToast('Knowledge context saved.', 'success');
+      addToast(
+        isGitManaged
+          ? 'Knowledge context saved as a database override. The next GitOps sync can replace it unless it is pushed to GitOps.'
+          : 'Knowledge context saved.',
+        'success'
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unable to save document';
       setDetailError(message);
@@ -373,11 +378,12 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
         addToast('You do not have permission to delete knowledge contexts.', 'info');
         return;
       }
-      if (isGitManagedDocument(doc)) {
-        addToast('This knowledge context is managed via Git. Clone it to customize instead of deleting.', 'info');
-        return;
-      }
-      setDeleteModal({ id: doc.id, name: doc.name || doc.id, pending: false });
+      setDeleteModal({
+        id: doc.id,
+        name: doc.name || doc.id,
+        gitOpsManaged: isGitManagedDocument(doc),
+        pending: false,
+      });
     },
     [addToast, canDeleteKnowledge]
   );
@@ -401,7 +407,12 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
         await loadList();
       }
       setDeleteModal(null);
-      addToast('Knowledge context deleted.', 'success');
+      addToast(
+        deleteModal.gitOpsManaged
+          ? 'Knowledge context database row deleted. The next GitOps sync can recreate it from the repository.'
+          : 'Knowledge context deleted.',
+        'success'
+      );
       if (detail?.id === deleteModal.id) {
         openFolder(splitKnowledgePath(deleteModal.id).folder);
       }
@@ -447,7 +458,7 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
     setItems(prev => prev.map(item => (item.id === resourceID ? { ...item, visibility } : item)));
   }, [detail?.id]);
 
-  const canEditSelected = Boolean(detail && canWriteKnowledge && !isGitManagedDocument(detail));
+  const canEditSelected = Boolean(detail && canWriteKnowledge);
   const selectedCanEdit = Boolean(canEditSelected && isEditing);
   const CurrentKindIcon = kindIcon(detail?.kind || '');
 
@@ -516,6 +527,11 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
           </div>
 
           {detailError ? <div className="kc-alert kc-alert--error">{detailError}</div> : null}
+          {isGitManagedDocument(detail) ? (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-[var(--text-secondary)]">
+              Editing here saves a database override. The next GitOps sync can replace it unless the change is pushed to GitOps.
+            </div>
+          ) : null}
 
           <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]">
             <div className="min-w-0 space-y-6">
@@ -564,7 +580,7 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
                         </button>
                       </>
                     )}
-                    {canDeleteKnowledge && !isGitManagedDocument(detail) ? (
+                    {canDeleteKnowledge ? (
                       <button className="glass-button-danger" onClick={() => openDeleteModal(detail)} disabled={saving}>
                         <Trash2 className="h-4 w-4" />
                         Delete

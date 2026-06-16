@@ -1,11 +1,5 @@
-import {
-  BookOpen,
-  Braces,
-  FileText,
-  Lock,
-  ShieldCheck,
-  type LucideIcon,
-} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import { getObjectIconComponent, type ObjectIconType } from '../../components/objectIconRegistry';
 
 export function kindTitle(kind: string) {
   if (kind === 'adr') return 'ADR';
@@ -20,21 +14,25 @@ export function kindPlural(kind: string) {
   return `${kindTitle(kind)}s`;
 }
 
-export function kindIcon(kind: string): LucideIcon {
+export function kindIconType(kind: string): ObjectIconType {
   switch (kind) {
     case 'guardrail':
-      return ShieldCheck;
+      return 'knowledge-guardrail';
     case 'policy':
-      return Lock;
+      return 'knowledge-policy';
     case 'runbook':
-      return Braces;
+      return 'knowledge-runbook';
     case 'reference':
-      return BookOpen;
+      return 'knowledge-reference';
     case 'example':
-      return FileText;
+      return 'knowledge-example';
     default:
-      return FileText;
+      return 'knowledge-default';
   }
+}
+
+export function kindIcon(kind: string): LucideIcon {
+  return getObjectIconComponent(kindIconType(kind));
 }
 
 export function formatKnowledgeDate(value?: string) {

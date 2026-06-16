@@ -252,6 +252,11 @@ function ScopedValueDialog({
             <p id={descriptionId} className="text-sm text-[var(--text-secondary)]">
               {isVariable ? 'Plain text value; best for non-sensitive config.' : 'Encrypted value; use for sensitive credentials.'}
             </p>
+            {modal.mode === 'update' && modal.gitOpsManaged ? (
+              <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-200">
+                Saving here creates a database override. The next GitOps sync can replace it unless the change is pushed to GitOps.
+              </p>
+            ) : null}
           </div>
           <button type="button" className="glass-button-ghost" onClick={onClose} disabled={modal.pending}>
             Close
@@ -485,6 +490,11 @@ function ScopedValueDeleteDialog({
           <p id={descriptionId} className="text-sm text-[var(--text-secondary)]">
             Remove <strong>{modal.name}</strong> from <strong>{formatScopeDisplay(modal.scope)}</strong>?
           </p>
+          {modal.gitOpsManaged ? (
+            <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-200">
+              This removes the database row. The next GitOps sync can recreate it unless it is removed from GitOps.
+            </p>
+          ) : null}
           {modal.error ? <WorkflowInlineAlert id={errorId}>{modal.error}</WorkflowInlineAlert> : null}
           <div className="flex items-center justify-end gap-2 pt-2">
             <button

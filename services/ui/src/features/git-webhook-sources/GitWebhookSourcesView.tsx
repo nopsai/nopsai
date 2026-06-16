@@ -146,14 +146,14 @@ function SourceDetail({
           <p className="mt-1 font-mono text-xs text-[var(--text-secondary)]">{source.id}</p>
         </div>
         <div className="flex items-center gap-2">
-          {canWrite && !managed ? (
+          {canWrite ? (
             <>
               <button
                 type="button"
                 className="glass-button-ghost"
                 disabled={controller.saving}
                 onClick={() => void controller.setEnabled(source, !source.enabled)}
-                title={source.enabled ? 'Disable source' : 'Enable source'}
+                title={managed ? 'Save database override; GitOps can replace it on next sync' : source.enabled ? 'Disable source' : 'Enable source'}
               >
                 {source.enabled ? <PauseCircle className="h-4 w-4" /> : <PlayCircle className="h-4 w-4" />}
               </button>
@@ -162,19 +162,19 @@ function SourceDetail({
                 className="glass-button-ghost"
                 disabled={controller.saving}
                 onClick={() => controller.startEdit(source)}
-                title="Edit source"
+                title={managed ? 'Save database override; GitOps can replace it on next sync' : 'Edit source'}
               >
                 <Edit3 className="h-4 w-4" />
               </button>
             </>
           ) : null}
-          {canDelete && !managed ? (
+          {canDelete ? (
             <button
               type="button"
               className="glass-button-danger"
               disabled={controller.saving}
               onClick={() => void controller.remove(source)}
-              title="Delete source"
+              title={managed ? 'Delete database row; GitOps can recreate it on next sync' : 'Delete source'}
             >
               <Trash2 className="h-4 w-4" />
             </button>

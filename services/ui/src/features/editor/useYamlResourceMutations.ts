@@ -24,6 +24,7 @@ export type YamlResourceFormModal = {
 export type YamlResourceDeleteModal = {
   resourceId: string;
   resourceName: string;
+  gitOpsManaged?: boolean;
   pending: boolean;
   error?: string;
 };
@@ -154,8 +155,14 @@ export function useYamlResourceMutations<TDetail extends ResourceDetail>({
   }, [addToast, canCreate, detail, resourceLabel, resourcePlural]);
 
   const openDeleteModal = useCallback((resourceId: string, resourceName: string) => {
-    setDeleteModal({ resourceId, resourceName, pending: false });
-  }, []);
+    const source = resources.find(item => item.id === resourceId)?.source;
+    setDeleteModal({
+      resourceId,
+      resourceName,
+      gitOpsManaged: normalizeSource(source) === 'git',
+      pending: false,
+    });
+  }, [normalizeSource, resources]);
 
   const save = useCallback(async () => {
     if (!detail || !editorValue.trim()) return false;
@@ -163,13 +170,6 @@ export function useYamlResourceMutations<TDetail extends ResourceDetail>({
     const canPersist = detailSource === 'draft' ? canCreate : canUpdate;
     if (!canPersist) {
       addToast(`You have read-only access to ${resourcePlural}.`, 'info');
-      return false;
-    }
-    if (detailSource === 'git') {
-      addToast(
-        `Git-managed ${resourcePlural} are read-only. Clone it to create an editable draft.`,
-        'info'
-      );
       return false;
     }
     if (validationErrorCount > 0) {
@@ -180,10 +180,16 @@ export function useYamlResourceMutations<TDetail extends ResourceDetail>({
     setSaving(true);
     try {
       await persistYaml(detail.id, editorValue);
-      addToast(`${resourceTitle} saved.`, 'success');
+      const wasGit = detailSource === 'git';
+      addToast(
+        wasGit
+          ? `${resourceTitle} saved as a database override. The next GitOps sync can replace it unless it is pushed to GitOps.`
+          : `${resourceTitle} saved.`,
+        'success'
+      );
       const wasDraft = detailSource === 'draft';
       if (wasDraft) removeDraft(detail.id);
-      const resolvedSource = wasDraft
+      const resolvedSource = wasDraft || wasGit
         ? 'database'
         : resources.find(item => item.id === detail.id)?.source;
       onSaved(parseSaved(editorValue, detail.id, resolvedSource));
@@ -302,11 +308,6 @@ export function useYamlResourceMutations<TDetail extends ResourceDetail>({
     try {
       const source = resources.find(item => item.id === deleteModal.resourceId)?.source;
       const normalizedSource = normalizeSource(source);
-      if (normalizedSource === 'git') {
-        throw new Error(
-          `This ${resourceLabel} is managed via Git. Clone it to customize instead of deleting.`
-        );
-      }
       if (normalizedSource === 'draft') {
         if (!canUseDrafts || !draftScope) {
           throw new Error(`You have read-only access to ${resourcePlural}.`);
@@ -318,7 +319,12 @@ export function useYamlResourceMutations<TDetail extends ResourceDetail>({
         }
         await deleteResource(deleteModal.resourceId);
       }
-      addToast(`${resourceTitle} deleted.`, 'success');
+      addToast(
+        normalizedSource === 'git'
+          ? `${resourceTitle} database row deleted. The next GitOps sync can recreate it from the repository.`
+          : `${resourceTitle} deleted.`,
+        'success'
+      );
       setDeleteModal(null);
       onDeleted();
       await reloadResources();

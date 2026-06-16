@@ -1,4 +1,5 @@
 import { Trash2 } from 'lucide-react';
+import { ObjectIcon } from '../../components/ObjectIcon';
 import type { StepListItem } from './api';
 import { normalizeSource, splitIdentifier } from './model';
 
@@ -105,12 +106,8 @@ function StepCard({
     <article className="glass-card pipeline-card border border-[var(--border-primary)] rounded-xl p-4" onClick={() => onSelectStep(item.id)}>
       <div className="pipeline-card-header">
         <div className="pipeline-card-info">
-          <span className="step-logo step-logo--steps" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2l8 4.5v11L12 22 4 17.5v-11L12 2z" />
-              <path d="M12 22v-7.5" />
-              <path d="M20 6.5l-8 4.5-8-4.5" />
-            </svg>
+          <span className="pipeline-card-icon" aria-hidden="true">
+            <ObjectIcon type="step" />
           </span>
           <div className="pipeline-card-text">
             <h3 className="pipeline-card-title">{name || item.id}</h3>
@@ -154,10 +151,7 @@ function StepFolderCard({ node, onOpenFolder }: { node: StepTreeNode; onOpenFold
       <div className="pipeline-card-header">
         <div className="pipeline-card-info">
           <span className="pipeline-card-icon" aria-hidden="true">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 7h5l2 2h11v9a2 2 0 0 1-2 2H3z" />
-              <path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2" />
-            </svg>
+            <ObjectIcon type="folder" />
           </span>
           <div className="pipeline-card-text">
             <h3 className="pipeline-card-title">{node.name}</h3>

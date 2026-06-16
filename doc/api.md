@@ -362,8 +362,8 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - `GET /v1/monitoring/pipelines/performance`, `/steps/performance`, and `/tasks/performance` return backend-computed average, median, p95, p99, max, total duration, success/failure rates, and queue-time metrics where applicable.
 - `GET /v1/monitoring/triggers/analytics` and `/external-triggers/analytics` return trigger-source reliability plus external trigger invocation, caller, idempotency, last-fired, rate-limit violation, and error aggregates.
 - `GET /v1/monitoring/ai-usage`, `/reliability`, `/efficiency`, and `/security` return LLM usage with exact/estimated token splits, incident/reliability, token efficiency, and governance aggregates for the same filtered run set. The LLM Usage response includes totals plus `by_pipeline`, `by_step`, `by_task`, `by_feature`, `by_profile`, `by_model`, `by_subject`, trend, and top-token-run rows. Efficiency recommendations are also persisted into `monitoring_recommendations`.
-- `GET|POST|PUT|DELETE /v1/monitoring/views` manages owner-scoped saved views. Database-authored views can be edited in the UI; config-repo-managed views remain read-only and keep source metadata for GitOps drift/audit workflows.
-- `GET|POST|PUT|DELETE /v1/monitoring/alert-rules`, `POST /v1/monitoring/alert-rules/{ruleID}/evaluate`, and `GET /v1/monitoring/alert-events` manage alert rules and persisted evaluation events. The first evaluator supports `failure_rate`, `p95_duration_seconds`, `queued_jobs`, `runner_utilization`, `ai_tokens`, and `external_trigger_failures`.
+- `GET|POST|PUT|DELETE /v1/monitoring/views` manages owner-scoped saved views. Updating a config-repo-managed view stores a database override, and deleting one removes the database row; the next GitOps sync can replace or recreate it unless the change is pushed to GitOps.
+- `GET|POST|PUT|DELETE /v1/monitoring/alert-rules`, `POST /v1/monitoring/alert-rules/{ruleID}/evaluate`, and `GET /v1/monitoring/alert-events` manage alert rules and persisted evaluation events. Updating a config-repo-managed alert rule stores a database override, and deleting one removes the database row; the next GitOps sync can replace or recreate it unless the change is pushed to GitOps. The first evaluator supports `failure_rate`, `p95_duration_seconds`, `queued_jobs`, `runner_utilization`, `ai_tokens`, and `external_trigger_failures`.
 - `GET /v1/monitoring/recommendations`, `POST /v1/monitoring/recommendations/{recommendationID}/acknowledge`, and `POST /v1/monitoring/recommendations/{recommendationID}/resolve` manage persisted recommendation workflow status.
 - Agents record LLM usage with `POST /v1/internal/runs/{runID}/ai-usage` using an agent service JWT. The endpoint stores run, step, task, provider, model, LLM profile, token totals, metadata, and a per-run usage summary. Run list/detail responses expose that summary as `ai_usage`, while detail step/task rows include their own `ai_usage` totals for API compatibility. Provider token metadata is used when available; otherwise the agent records an estimated token count with `metadata.estimated_tokens=true`.
 - Monitoring aggregate endpoints accept shared query parameters: `from`, `to`, `groupId`, `pipelinePath`, `pipelineName`, `repo`, `runId`, `branch`/`ref`, `commitSHA`, `triggerSource`, `status`, `requestedByType`, `requestedById`, `effectiveSubjectType`, `effectiveSubjectId`, `externalTriggerId`, `scheduleId`, `minDurationSeconds`, `maxDurationSeconds`, and `compare=previous_period`. The UI fetches the shifted previous window and renders regression deltas on Monitoring tabs when comparison is enabled. Pipeline Runs usage links open Monitoring with `tab=ai-usage&runId=<pipeline-run-id>` and use an all-time window for that run-scoped drilldown.
@@ -661,7 +661,10 @@ GitOps:
 - External trigger manifests live under `external-triggers/*.yaml`.
 - Config sync imports, updates, and prunes GitOps-managed external triggers.
 - Config repository drift/push exports UI-created database triggers back to `external-triggers/`.
-- GitOps-managed external triggers are read-only through direct CRUD APIs; change them in the config repository.
+- Direct CRUD is allowed when AAA permits. Updating a GitOps-managed external
+  trigger stores a database override, and deleting one removes the database row;
+  the next GitOps sync can replace or recreate it unless the change is pushed to
+  the config repository.
 
 Example manifest:
 
@@ -746,8 +749,10 @@ Sources support `generic`, `gitlab`, `bitbucket`, and `gitea` providers with
 stable credential references from the encrypted registry. `none` is intended
 only for trusted, network-isolated ingress.
 
-GitOps manifests live under `git-webhook-sources/*.yaml`. GitOps-managed
-sources must be changed in their config repository. Database-created sources
+GitOps manifests live under `git-webhook-sources/*.yaml`. Updating a
+GitOps-managed source through the API stores a database override, and deleting
+one removes the database row; the next GitOps sync can replace or recreate it
+unless the change is pushed to the config repository. Database-created sources
 can be exported through global config repository drift/write.
 
 V1 generic sources load trigger overrides and pipeline definitions from the
@@ -1076,6 +1081,7 @@ curl -X PUT \
 - `GET /v1/secrets/scopes` reports only scopes (default, prod, etc.) to mirror the Scopes page.
 - Secrets resolve in the following order for the requested scope: repo+scope -> global+scope. Default/unscoped runs resolve repo+default -> global+default.
 - Pipeline YAML can reference a different scope with `scope:SECRET_NAME`, for example `dev:TEST_SECRET`; the step receives `TEST_SECRET`.
+- Updating a GitOps-managed scoped secret through the UI/API stores a database override and clears GitOps ownership metadata. Deleting one removes the database row; the next GitOps sync can recreate it unless the change is pushed back to GitOps.
 - Predefined product roles expose secret metadata broadly, but secret value reads remain owner/admin-level by default.
 
 ---
@@ -1103,6 +1109,7 @@ curl "http://localhost:8080/v1/variables?scope=prod"
 - The config repo may define scoped variables under `variables:` and secret keys under `secrets:` in `scopes/<scope>/scope.yaml`; the sync endpoint imports them automatically. Scope variables must be inside the `variables:` section; flat top-level variable entries are rejected. GitOps secret values must be encrypted by this NopsAI instance, otherwise the key is imported with no value.
 - To generate a GitOps secret value without storing it, call `POST /v1/secrets/encrypt` with `{"value":"plain"}` and commit the returned `encrypted_value`.
 - Pipeline `variables` entries can use `scope:NAME` to resolve from that explicit scope while injecting `NAME` at runtime. Bare `NAME` resolves from the run's current scope.
+- Updating a GitOps-managed scoped variable through the UI/API stores a database override and clears GitOps ownership metadata. Deleting one removes the database row; the next GitOps sync can recreate it unless the change is pushed back to GitOps.
 - Predefined product roles allow variable metadata reads and writes, but do not grant variable value reads by default.
 
 ---
@@ -1189,10 +1196,11 @@ curl -X PUT -H "Content-Type: application/json" -d @schedule.json http://localho
 curl -X DELETE http://localhost:8080/v1/schedules/<schedule-id>
 ```
 
-Direct enable, disable, update, and delete operations apply to database-owned
-schedules. GitOps-managed schedules return a conflict for direct mutation or
-deletion and should be changed in the owning config repository; authorized
-callers can still execute them with the run-now endpoint.
+Direct enable, disable, update, and delete operations are allowed when AAA
+permits. For GitOps-managed schedules, those operations affect the database row
+only; the next GitOps sync can replace or recreate the row unless the change is
+pushed to the owning config repository. Authorized callers can still execute
+schedules with the run-now endpoint.
 
 Schedule payload fields:
 

@@ -45,6 +45,7 @@ npm run test:e2e:live
 - `src/features/pipelines/PipelineActivityPanels.tsx` and `src/features/steps/StepUsagePanel.tsx` own focused activity and usage presentation for their route shells.
 - `src/features/editor/YamlValidationPanel.tsx` owns shared accessible YAML validation presentation across pipeline, step, trigger, and Lab editors.
 - `src/features/editor/ResourceCollectionToolbar.tsx` and `src/components/WorkflowToastRegion.tsx` own shared pipeline/step collection controls and accessible workflow notifications.
+- `src/components/ObjectIcon.tsx` and `src/components/objectIconRegistry.ts` own the shared lucide-backed object icon renderer and registry for navigation, resource cards, knowledge kinds, GitOps badges, and future first-class resources.
 - `src/components/AppHelp.tsx` and `appHelpModel.ts` own accessible route-specific help rendering plus pure topic and documentation-link resolution.
 - `src/app/BaseSidebarNavigation.tsx` owns stable top-level navigation.
 - `src/features/editor/EditorAutocompleteMenu.tsx` owns reusable editor suggestion rendering.

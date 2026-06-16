@@ -1,14 +1,13 @@
 import {
-  CalendarClock,
   CheckCircle2,
   Edit3,
   ExternalLink,
-  GitBranch,
   PauseCircle,
   Play,
   Trash2,
 } from 'lucide-react';
 import { CompactResourceCard } from '../../components/CompactResourceCard';
+import { ObjectIcon } from '../../components/ObjectIcon';
 import type { PipelineSchedule } from './model';
 import {
   formatDateTime,
@@ -42,14 +41,14 @@ export function ScheduleCard({
   const managed = Boolean(schedule.managed_by_config_repo || sourceLabel(schedule.source) === 'GitOps');
   const latestRunID = schedule.latest_run?.run_id || schedule.last_run_id || '';
   const latestStatus = schedule.latest_run?.status || schedule.last_status || '';
-  const canMutate = canWriteSchedules && !managed;
-  const canDeleteSchedule = canDeleteSchedules && !managed;
+  const canMutate = canWriteSchedules;
+  const canDeleteSchedule = canDeleteSchedules;
   const hasHeadingActions = canWriteSchedules || canDeleteSchedule;
 
   return (
     <CompactResourceCard
       className="compact-resource-card--bordered schedule-card"
-      icon={<CalendarClock />}
+      icon={<ObjectIcon type="schedule" />}
       tone="violet"
       title={schedule.name || schedule.identifier}
       subtitle={<span className="font-mono">/{schedule.path || 'root'}</span>}
@@ -61,7 +60,7 @@ export function ScheduleCard({
           </span>
           {managed ? (
             <span className="runner-pill runner-pill--link">
-              <GitBranch className="h-3.5 w-3.5" />
+              <ObjectIcon type="gitops" className="h-3.5 w-3.5" />
               GitOps
             </span>
           ) : null}
@@ -91,7 +90,7 @@ export function ScheduleCard({
             <button
               type="button"
               className="pipelines-delete-button schedule-card__delete-button"
-              title="Delete schedule"
+              title={managed ? 'Delete database row; GitOps can recreate it on next sync' : 'Delete schedule'}
               aria-label={`Delete ${schedule.name || schedule.identifier}`}
               disabled={busy}
               onClick={() => onDelete(schedule)}
@@ -117,7 +116,7 @@ export function ScheduleCard({
           <button
             type="button"
             className="compact-resource-card__action"
-            title={schedule.enabled ? 'Disable schedule' : 'Enable schedule'}
+            title={managed ? 'Save database override; GitOps can replace it on next sync' : schedule.enabled ? 'Disable schedule' : 'Enable schedule'}
             aria-label={`${schedule.enabled ? 'Disable' : 'Enable'} ${schedule.name || schedule.identifier}`}
             disabled={busy}
             onClick={() => onEnable(schedule, !schedule.enabled)}
@@ -127,7 +126,7 @@ export function ScheduleCard({
           <button
             type="button"
             className="compact-resource-card__action"
-            title="Edit schedule"
+            title={managed ? 'Edit database override; GitOps can replace it on next sync' : 'Edit schedule'}
             aria-label={`Edit ${schedule.name || schedule.identifier}`}
             disabled={busy}
             onClick={() => onEdit(schedule)}

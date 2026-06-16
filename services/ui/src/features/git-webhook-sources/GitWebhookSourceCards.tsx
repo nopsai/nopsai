@@ -1,5 +1,5 @@
-import { GitBranch, Webhook } from 'lucide-react';
 import { CompactResourceCard } from '../../components/CompactResourceCard';
+import { ObjectIcon } from '../../components/ObjectIcon';
 import {
   sourceStatusLabel,
   type GitWebhookSource,
@@ -22,7 +22,7 @@ export function GitWebhookSourceCards({
           <CompactResourceCard
             key={source.id}
             className="compact-resource-card--bordered git-webhook-source-card"
-            icon={<Webhook />}
+            icon={<ObjectIcon type="git-webhook-source" />}
             tone="blue"
             title={name}
             subtitle={<span className="font-mono">{source.id}</span>}
@@ -37,7 +37,7 @@ export function GitWebhookSourceCards({
                 </span>
                 {source.managed_by_config_repo ? (
                   <span className="runner-pill runner-pill--link">
-                    <GitBranch className="h-3.5 w-3.5" />
+                    <ObjectIcon type="gitops" className="h-3.5 w-3.5" />
                     GitOps
                   </span>
                 ) : null}

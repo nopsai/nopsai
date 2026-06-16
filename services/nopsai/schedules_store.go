@@ -139,6 +139,11 @@ func (a *App) updateSchedule(ctx context.Context, scheduleID string, input sched
 			variables = $14::jsonb,
 			next_run_at = $15,
 			run_group_path = $16,
+			source = 'database',
+			config_repo_id = NULL,
+			config_source_path = '',
+			config_source_commit_sha = '',
+			managed_by_config_repo = FALSE,
 			updated_by = $17,
 			updated_at = NOW()
 		WHERE id::text = $1
@@ -164,6 +169,11 @@ func (a *App) setScheduleEnabled(ctx context.Context, scheduleID string, enabled
 		UPDATE pipeline_schedules
 		SET enabled = $2,
 			next_run_at = $3,
+			source = 'database',
+			config_repo_id = NULL,
+			config_source_path = '',
+			config_source_commit_sha = '',
+			managed_by_config_repo = FALSE,
 			updated_by = $4,
 			updated_at = NOW()
 		WHERE id::text = $1

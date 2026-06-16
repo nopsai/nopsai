@@ -390,6 +390,10 @@ function MonitoringPage() {
   };
 
   const deleteServerView = async (view: MonitoringSavedView) => {
+    const message = isMonitoringGitOpsManaged(view)
+      ? `Delete monitoring view ${view.name}? This removes the database row; the next GitOps sync can recreate it from the repository.`
+      : `Delete monitoring view ${view.name}?`;
+    if (!window.confirm(message)) return;
     setWorkflowBusy(true);
     setWorkflowError(null);
     try {
@@ -446,6 +450,10 @@ function MonitoringPage() {
   };
 
   const deleteAlertRule = async (rule: MonitoringAlertRule) => {
+    const message = isMonitoringGitOpsManaged(rule)
+      ? `Delete alert rule ${rule.name}? This removes the database row; the next GitOps sync can recreate it from the repository.`
+      : `Delete alert rule ${rule.name}?`;
+    if (!window.confirm(message)) return;
     setWorkflowBusy(true);
     setWorkflowError(null);
     try {
@@ -672,12 +680,20 @@ function MonitoringWorkflowPanel({
               <button type="button" onClick={() => onApplyView(view)} className="min-w-0 flex-1 text-left text-sm font-medium text-[var(--text-primary)] hover:text-[var(--text-link)]">
                 <span className="block truncate">{view.name}</span>
               </button>
-              <span className="shrink-0 text-xs text-[var(--text-secondary)]">{view.visibility || 'private'}</span>
-              {!view.managed_by_config_repo ? (
-                <button type="button" onClick={() => onDeleteView(view)} disabled={busy} aria-label={`Delete ${view.name}`} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-red-500 disabled:opacity-60">
-                  <Trash2 className="h-4 w-4" />
-                </button>
+              {isMonitoringGitOpsManaged(view) ? (
+                <span className="shrink-0 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-200">GitOps</span>
               ) : null}
+              <span className="shrink-0 text-xs text-[var(--text-secondary)]">{view.visibility || 'private'}</span>
+              <button
+                type="button"
+                onClick={() => onDeleteView(view)}
+                disabled={busy}
+                title={isMonitoringGitOpsManaged(view) ? 'Delete database row; GitOps can recreate it on next sync' : 'Delete view'}
+                aria-label={`Delete ${view.name}`}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-red-500 disabled:opacity-60"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
             </div>
           )) : <WorkflowEmpty label="No saved views" />}
         </div>
@@ -729,17 +745,25 @@ function MonitoringWorkflowPanel({
                 <p className="truncate text-sm font-medium text-[var(--text-primary)]">{rule.name}</p>
                 <p className="truncate text-xs text-[var(--text-secondary)]">{rule.metric} {rule.comparator} {rule.threshold}</p>
               </div>
+              {isMonitoringGitOpsManaged(rule) ? (
+                <span className="shrink-0 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:text-amber-200">GitOps</span>
+              ) : null}
               <span className={`shrink-0 rounded-md border px-2 py-1 text-xs font-semibold ${rule.last_event?.status === 'firing' ? 'border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-300' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300'}`}>
                 {rule.last_event?.status || 'new'}
               </span>
               <button type="button" onClick={() => onEvaluateAlertRule(rule)} disabled={busy} aria-label={`Evaluate ${rule.name}`} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:opacity-60">
                 <Play className="h-4 w-4" />
               </button>
-              {!rule.managed_by_config_repo ? (
-                <button type="button" onClick={() => onDeleteAlertRule(rule)} disabled={busy} aria-label={`Delete ${rule.name}`} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-red-500 disabled:opacity-60">
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              ) : null}
+              <button
+                type="button"
+                onClick={() => onDeleteAlertRule(rule)}
+                disabled={busy}
+                title={isMonitoringGitOpsManaged(rule) ? 'Delete database row; GitOps can recreate it on next sync' : 'Delete alert rule'}
+                aria-label={`Delete ${rule.name}`}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-red-500 disabled:opacity-60"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
             </div>
           )) : <WorkflowEmpty label="No alert rules" />}
         </div>
@@ -857,6 +881,10 @@ function syncMonitoringTabToURL(tab: MonitoringTab) {
   if (url.searchParams.get('tab') === tab) return;
   url.searchParams.set('tab', tab);
   window.history.replaceState(window.history.state, '', `${url.pathname}?${url.searchParams.toString()}${url.hash}`);
+}
+
+function isMonitoringGitOpsManaged(item: { source?: string; managed_by_config_repo?: boolean }) {
+  return Boolean(item.managed_by_config_repo || String(item.source || '').toLowerCase() === 'git');
 }
 
 function isMonitoringTab(value: string | null): value is MonitoringTab {
