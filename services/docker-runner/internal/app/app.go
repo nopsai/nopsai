@@ -9,7 +9,7 @@ import (
 	"nopsai/pkg/serviceauth"
 	"nopsai/pkg/servicetls"
 	"nopsai/pkg/startupgates"
-	"nopsai/services/runner/internal/service"
+	"nopsai/services/docker-runner/internal/service"
 
 	"github.com/moby/moby/client"
 	"github.com/rs/zerolog"

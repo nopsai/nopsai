@@ -87,7 +87,8 @@ Responsibilities:
 - Exposes versioned internal runtime snapshots at
   `/internal/v1/runtime-config/{service}` and a long-poll watch endpoint for
   services that can reload clients or reconnect without a container restart.
-- Seeds predefined product roles and expands role grants into low-level AAA ACLs.
+- Records product access grants and delegates predefined role, binding,
+  permission, and ACL policy mutations to AAA-owned store helpers.
 - Talks to the dispatcher as a gRPC client.
 - Talks to `git-bot` over HTTP for GitHub checks and repository content access.
 - Owns provider-neutral Git webhook source records, provider adapters,
@@ -203,7 +204,9 @@ Inbound interfaces:
 Authorization notes:
 
 - Product roles are seeded as predefined templates: `viewer`, `developer`, `owner`, and `admin`.
-- Access grants are written at grant time into existing AAA tables instead of changing evaluator behavior.
+- Access grants are recorded as product intent; low-level role, binding,
+  permission, and ACL rows are mutated through AAA-owned store helpers instead
+  of product-service SQL.
 - Folder-targeted grants inherit by path to child resources.
 - Runtime resource-use checks are caller-based, so Git runs are authorized as repositories, manual runs as users, and dispatcher calls do not inherit resource-owner permissions.
 - Managed knowledge context references are checked with `knowledge_context.use` before dispatch.
@@ -227,6 +230,8 @@ Responsibilities:
 - Serves internal HTTP endpoints for subject introspection, single checks, batch checks, resource filtering, and audit recording.
 - Enforces deny-before-allow behavior across direct roles, auth-group roles, direct ACLs, auth-group ACLs, and inherited ACLs.
 - Resolves users, groups, roles, resource ACLs, ownership, and inheritance from Postgres.
+- Owns the AAA policy schema and table-specific policy mutation helpers used by
+  product workflows.
 - Writes authorization decision logs for denied decisions and sensitive allowed decisions.
 - Ensures the AAA schema and default internal roles exist at startup.
 - Fails closed in production gate mode when the database URL or shared internal
@@ -312,7 +317,7 @@ Notable behavior:
 - production startup gates for service JWT isolation, dispatcher TLS, and the
   NopsAI callback URL
 
-## `services/runner`
+## `services/docker-runner`
 
 Primary role:
 
@@ -329,15 +334,16 @@ Responsibilities:
 - Polls run status so a cancelled run stops the agent container quickly.
 - Fails closed in production gate mode when dispatcher address, service JWT, or
   dispatcher TLS settings are not production-ready.
-- Uses a thin `cmd/runner` command entrypoint, with process bootstrap and Docker
+- Uses a thin `cmd/docker-runner` command entrypoint, with process bootstrap and Docker
   client/auth/TLS wiring in `internal/app` and dispatcher stream/job execution
   behavior in `internal/service`.
 
 Key files:
 
-- `services/runner/cmd/runner/main.go`
-- `services/runner/internal/app/app.go`
-- `services/runner/internal/service/runner.go`
+- `services/docker-runner/cmd/docker-runner/main.go`
+- `services/docker-runner/internal/app/app.go`
+- `services/docker-runner/internal/service/runner.go`
+- `container/Dockerfile.docker-runner`
 
 Inbound interfaces:
 
@@ -563,7 +569,7 @@ Primary role:
 Responsibilities:
 
 - Stores runs, tasks, logs, configuration, knowledge context, groups, users, roles, refresh tokens, audit logs, backup records, and cleanup job/schedule history.
-- Stores AAA subjects, role bindings, grant metadata, resource visibility, expanded ACLs, ownership metadata, run authorization snapshots, and authorization decision logs.
+- Stores product grant metadata, resource visibility, ownership metadata, run authorization snapshots, and AAA policy data; AAA owns the policy schema and policy-table mutations.
 - Stores LLM usage events and per-run usage summaries for monitoring and Prometheus token metrics.
 - Keeps the execution record durable even though agents and step containers are ephemeral.
 

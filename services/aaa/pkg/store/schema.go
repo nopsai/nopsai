@@ -152,6 +152,54 @@ var aaaSchemaStatements = []string{
 	ON CONFLICT (role_name, resource_type, resource_id, action, effect) DO NOTHING`,
 }
 
+var aaaConfigMetadataForeignKeyStatements = []string{
+	`DO $$
+	BEGIN
+		IF to_regclass('config_repositories') IS NOT NULL
+		   AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'auth_roles_config_repo_id_fkey') THEN
+			ALTER TABLE auth_roles
+			ADD CONSTRAINT auth_roles_config_repo_id_fkey
+			FOREIGN KEY (config_repo_id) REFERENCES config_repositories(id) ON DELETE SET NULL;
+		END IF;
+	END $$`,
+	`DO $$
+	BEGIN
+		IF to_regclass('config_repositories') IS NOT NULL
+		   AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'auth_role_bindings_config_repo_id_fkey') THEN
+			ALTER TABLE auth_role_bindings
+			ADD CONSTRAINT auth_role_bindings_config_repo_id_fkey
+			FOREIGN KEY (config_repo_id) REFERENCES config_repositories(id) ON DELETE SET NULL;
+		END IF;
+	END $$`,
+	`DO $$
+	BEGIN
+		IF to_regclass('config_repositories') IS NOT NULL
+		   AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'auth_role_permissions_config_repo_id_fkey') THEN
+			ALTER TABLE auth_role_permissions
+			ADD CONSTRAINT auth_role_permissions_config_repo_id_fkey
+			FOREIGN KEY (config_repo_id) REFERENCES config_repositories(id) ON DELETE SET NULL;
+		END IF;
+	END $$`,
+}
+
+var aaaConfigMetadataSchemaStatements = []string{
+	`ALTER TABLE auth_roles ADD COLUMN IF NOT EXISTS config_repo_id BIGINT`,
+	`ALTER TABLE auth_roles ADD COLUMN IF NOT EXISTS config_source_path TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE auth_roles ADD COLUMN IF NOT EXISTS config_source_commit_sha TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE auth_roles ADD COLUMN IF NOT EXISTS managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE`,
+	`ALTER TABLE auth_role_bindings ADD COLUMN IF NOT EXISTS config_repo_id BIGINT`,
+	`ALTER TABLE auth_role_bindings ADD COLUMN IF NOT EXISTS config_source_path TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE auth_role_bindings ADD COLUMN IF NOT EXISTS config_source_commit_sha TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE auth_role_bindings ADD COLUMN IF NOT EXISTS managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE`,
+	`ALTER TABLE auth_role_permissions ADD COLUMN IF NOT EXISTS config_repo_id BIGINT`,
+	`ALTER TABLE auth_role_permissions ADD COLUMN IF NOT EXISTS config_source_path TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE auth_role_permissions ADD COLUMN IF NOT EXISTS config_source_commit_sha TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE auth_role_permissions ADD COLUMN IF NOT EXISTS managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE`,
+	`CREATE INDEX IF NOT EXISTS idx_auth_roles_config_repo_id ON auth_roles(config_repo_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_auth_role_bindings_config_repo_id ON auth_role_bindings(config_repo_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_auth_role_permissions_config_repo_id ON auth_role_permissions(config_repo_id)`,
+}
+
 func (s *PGStore) EnsureSchema(ctx context.Context) error {
 	if s == nil || s.db == nil {
 		return errors.New("store is not configured")
@@ -168,9 +216,26 @@ func (s *PGStore) EnsureSchema(ctx context.Context) error {
 			return fmt.Errorf("apply aaa schema statement %d: %w", idx+1, err)
 		}
 	}
+	if err := EnsurePolicyConfigMetadataSchema(ctx, tx); err != nil {
+		return err
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit aaa schema transaction: %w", err)
+	}
+	return nil
+}
+
+func EnsurePolicyConfigMetadataSchema(ctx context.Context, runner PolicyRunner) error {
+	for idx, stmt := range aaaConfigMetadataSchemaStatements {
+		if _, err := runner.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("apply aaa config metadata column statement %d: %w", idx+1, err)
+		}
+	}
+	for idx, stmt := range aaaConfigMetadataForeignKeyStatements {
+		if _, err := runner.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("apply aaa config metadata schema statement %d: %w", idx+1, err)
+		}
 	}
 	return nil
 }

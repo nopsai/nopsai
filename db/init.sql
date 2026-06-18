@@ -869,6 +869,10 @@ CREATE TABLE auth_group_members (
 CREATE TABLE auth_roles (
     name TEXT PRIMARY KEY,
     description TEXT NOT NULL DEFAULT '',
+    config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
+    config_source_path TEXT NOT NULL DEFAULT '',
+    config_source_commit_sha TEXT NOT NULL DEFAULT '',
+    managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -878,6 +882,10 @@ CREATE TABLE auth_role_bindings (
     role_name TEXT NOT NULL REFERENCES auth_roles(name) ON DELETE CASCADE,
     subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_group', 'repository', 'trigger', 'service_account', 'internal_service')),
     subject_id TEXT NOT NULL,
+    config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
+    config_source_path TEXT NOT NULL DEFAULT '',
+    config_source_commit_sha TEXT NOT NULL DEFAULT '',
+    managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(role_name, subject_type, subject_id)
 );
@@ -889,6 +897,10 @@ CREATE TABLE auth_role_permissions (
     resource_id TEXT NOT NULL DEFAULT '*',
     action TEXT NOT NULL,
     effect TEXT NOT NULL CHECK (effect IN ('allow', 'deny')),
+    config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
+    config_source_path TEXT NOT NULL DEFAULT '',
+    config_source_commit_sha TEXT NOT NULL DEFAULT '',
+    managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(role_name, resource_type, resource_id, action, effect)
 );
@@ -1022,6 +1034,9 @@ CREATE INDEX idx_auth_group_members_identity_provider ON auth_group_members(iden
 CREATE INDEX idx_auth_role_bindings_subject ON auth_role_bindings(subject_type, subject_id);
 CREATE INDEX idx_auth_role_permissions_role_name ON auth_role_permissions(role_name);
 CREATE INDEX idx_auth_role_permissions_resource_lookup ON auth_role_permissions(resource_type, resource_id, action);
+CREATE INDEX idx_auth_roles_config_repo_id ON auth_roles(config_repo_id);
+CREATE INDEX idx_auth_role_bindings_config_repo_id ON auth_role_bindings(config_repo_id);
+CREATE INDEX idx_auth_role_permissions_config_repo_id ON auth_role_permissions(config_repo_id);
 CREATE INDEX idx_access_grants_subject_lookup ON access_grants(subject_type, subject_id);
 CREATE INDEX idx_access_grants_resource_lookup ON access_grants(resource_type, resource_id);
 CREATE INDEX idx_resource_acl_resource_lookup ON resource_acl(resource_type, resource_id, action);

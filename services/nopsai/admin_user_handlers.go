@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"nopsai/pkg/httpapi"
+	aaastore "nopsai/services/aaa/pkg/store"
 	"nopsai/services/nopsai/pkg/auth"
 )
 
@@ -217,11 +218,7 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Role != "" {
-		if _, err := tx.Exec(r.Context(), `
-			INSERT INTO auth_roles (name, description)
-			VALUES ($1, '')
-			ON CONFLICT (name) DO NOTHING
-		`, req.Role); err != nil {
+		if err := aaastore.EnsureRole(r.Context(), tx, req.Role, ""); err != nil {
 			http.Error(w, "failed to prepare role", http.StatusInternalServerError)
 			return
 		}
@@ -234,11 +231,11 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "failed to assign role", http.StatusInternalServerError)
 			return
 		}
-		if _, err := tx.Exec(r.Context(), `
-			INSERT INTO auth_role_bindings (role_name, subject_type, subject_id)
-			VALUES ($1, 'user', $2)
-			ON CONFLICT (role_name, subject_type, subject_id) DO NOTHING
-		`, req.Role, userID.String()); err != nil {
+		if err := aaastore.EnsureRoleBinding(r.Context(), tx, aaastore.RoleBinding{
+			RoleName:    req.Role,
+			SubjectType: "user",
+			SubjectID:   userID.String(),
+		}); err != nil {
 			http.Error(w, "failed to assign aaa role", http.StatusInternalServerError)
 			return
 		}
@@ -487,11 +484,7 @@ func (a *App) handleAddUserRole(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 
-	if _, err := tx.Exec(r.Context(), `
-		INSERT INTO auth_roles (name, description)
-		VALUES ($1, '')
-		ON CONFLICT (name) DO NOTHING
-	`, req.Role); err != nil {
+	if err := aaastore.EnsureRole(r.Context(), tx, req.Role, ""); err != nil {
 		http.Error(w, "failed to prepare role", http.StatusInternalServerError)
 		return
 	}
@@ -503,11 +496,11 @@ func (a *App) handleAddUserRole(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to assign role", http.StatusInternalServerError)
 		return
 	}
-	if _, err := tx.Exec(r.Context(), `
-		INSERT INTO auth_role_bindings (role_name, subject_type, subject_id)
-		VALUES ($1, 'user', $2)
-		ON CONFLICT (role_name, subject_type, subject_id) DO NOTHING
-	`, req.Role, req.UserID); err != nil {
+	if err := aaastore.EnsureRoleBinding(r.Context(), tx, aaastore.RoleBinding{
+		RoleName:    req.Role,
+		SubjectType: "user",
+		SubjectID:   req.UserID,
+	}); err != nil {
 		http.Error(w, "failed to assign aaa role", http.StatusInternalServerError)
 		return
 	}
@@ -564,10 +557,11 @@ func (a *App) handleDeleteUserRole(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 
-	authTag, err := tx.Exec(r.Context(), `
-		DELETE FROM auth_role_bindings
-		WHERE role_name = $1 AND subject_type = 'user' AND subject_id = $2
-	`, req.Role, req.UserID)
+	authTag, err := aaastore.DeleteRoleBinding(r.Context(), tx, aaastore.RoleBinding{
+		RoleName:    req.Role,
+		SubjectType: "user",
+		SubjectID:   req.UserID,
+	})
 	if err != nil {
 		http.Error(w, "failed to remove aaa role", http.StatusInternalServerError)
 		return

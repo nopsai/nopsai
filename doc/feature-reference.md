@@ -374,6 +374,8 @@ Current auth/access features:
 - login lockout after repeated failures
 - standalone AAA service with `Check`, `BatchCheck`, `Filter`, and `Introspect`
 - in-process AAA fallback in `nopsai` for short service outages
+- AAA-owned policy schema and policy-table mutations for roles, bindings,
+  permissions, and expanded ACL rows
 - route-level action/resource mapping for protected REST endpoints
 - predefined product roles: `viewer`, `developer`, `owner`, `admin`
 - `developer`, `owner`, and `admin` can approve assigned approval steps through `approval.approve`

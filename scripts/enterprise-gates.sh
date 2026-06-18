@@ -73,6 +73,6 @@ run docker build -t nopsai-pipeline:ci -f container/Dockerfile.pipeline .
 run docker build --build-arg BASE_IMAGE=nopsai-base:ci -t nopsai-api:ci -f container/Dockerfile.nopsai .
 run docker build --build-arg BASE_IMAGE=nopsai-base:ci -t nopsai-dispatcher:ci -f container/Dockerfile.dispatcher .
 run docker build --build-arg BASE_IMAGE=nopsai-base:ci -t nopsai-git-bot:ci -f container/Dockerfile.git-bot .
-run docker build --build-arg BASE_IMAGE=nopsai-base:ci -t nopsai-runner:ci -f container/Dockerfile.runner .
+run docker build --build-arg BASE_IMAGE=nopsai-base:ci -t nopsai-runner:ci -f container/Dockerfile.docker-runner .
 run docker build --build-arg BASE_IMAGE=nopsai-base:ci -t nopsai-k8s-runner:ci -f container/Dockerfile.k8s-runner .
 run docker build -t nopsai-ui:ci -f services/ui/Dockerfile services/ui
