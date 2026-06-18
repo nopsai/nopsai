@@ -406,13 +406,15 @@ Pages present in the current UI:
 - `Pipeline runs`: subgroup/application/run panels, source-grouped runs, recent runs, event grouping, details, logs, rerun, cancel, branch cleanup
 - `Pipeline runs`: pending approval records with assigned groups and approve/reject actions inside run details
 - `Pipelines`: pipeline browser/editor, drafts, validation, dependency graphing, and Execute handoff to Lab
+- `Pipelines`: configured Kubernetes runtime pool suggestions for pipeline-level and step-level `runtime_pool` values
 - `Schedules`: schedule browser, pipeline-filtered schedule view, enable/disable, run now, latest-run link, and GitOps markers
 - `Triggers`: trigger override browser/editor
 - `Scopes`: variable and secret management by scope and repository, including scope use-access controls
-- `Lab`: ad-hoc YAML editing, preselected pipeline handoff, and direct run execution
+- `Lab`: ad-hoc YAML editing, runtime pool suggestions, preselected pipeline handoff, and direct run execution
 - `Steps`: reusable step library, usage inspection, and step use-access controls
+- `Steps`: reusable step YAML validation and autocomplete for Kubernetes `runtime_pool` selection
 - `Knowledge Context`: kind/group/document browser, markdown editor/preview, source metadata, access settings, and usage inspection
-- `System`: config, data management, dispatcher, runner controls, user/role/access management
+- `System`: config, data management, dispatcher, runner controls, runtime pool management, user/role/access management
 - `Profile`: email and password management
 - `Login`: local authentication entrypoint
 
@@ -423,7 +425,7 @@ Operational support already in the code:
 - Docker Compose stack for local deployment
 - dedicated `aaa` service for internal authorization decisions
 - dedicated runner capacities and scope declarations
-- Kubernetes runner one-time install commands, GitOps manifests, namespace-scoped RBAC, agent-owned PVC workspaces, and agent-to-step node-affinity controls
+- Kubernetes runner one-time install commands, GitOps manifests, namespace-scoped RBAC, agent-owned PVC workspaces, runtime pools, and agent-to-step node-affinity controls
 - dispatcher queue visibility
 - active runner metadata display
 - active-run inspection from runner metadata

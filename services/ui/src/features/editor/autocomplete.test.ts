@@ -4,6 +4,7 @@ import {
   buildEditorScopeList,
   normalizeAutocompleteList,
   normalizeProfilePayload,
+  normalizeRuntimePoolNames,
   normalizeScopeLabel,
 } from './autocomplete.js';
 
@@ -26,4 +27,13 @@ test('normalizes scope labels and builds the union scope list', () => {
   assert.equal(normalizeScopeLabel('/platform/dev/'), 'platform/dev');
   assert.equal(normalizeScopeLabel({ value: 'prod' }), 'prod');
   assert.deepEqual(buildEditorScopeList(['default', 'platform'], [{ scope: 'prod' }, { name: '/platform/' }]), ['', 'platform', 'prod']);
+});
+
+test('normalizes runtime pool names from system config payloads', () => {
+  assert.deepEqual(
+    normalizeRuntimePoolNames({ runtime_pools: { ' high-memory ': {}, default: {}, '': {} } }),
+    ['default', 'high-memory']
+  );
+  assert.deepEqual(normalizeRuntimePoolNames(['default', { name: 'gpu' }]), ['default', 'gpu']);
+  assert.deepEqual(normalizeRuntimePoolNames(null), []);
 });

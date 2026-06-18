@@ -70,7 +70,7 @@ Flow: GitHub event or user request → Nopsai authenticates and checks AAA → N
   ```
   Runners must use matching `RUNNER_ID` and declare scopes via `RUNNER_SCOPES`.
 - **Runtime GitOps**: The global config repo can manage runner install defaults,
-  supported runtime URLs, agent defaults, and `dispatcher_routing` in
+  supported runtime URLs, agent defaults, `runtime_pools`, and `dispatcher_routing` in
   `setting/system/runner.yaml`. Synced values are persisted in the database and
   reloaded before NopsAI connects to the dispatcher on restart; routing changes
   are also exposed through the dispatcher control-plane polling path for live

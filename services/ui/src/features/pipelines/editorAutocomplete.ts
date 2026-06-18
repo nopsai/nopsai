@@ -1,12 +1,12 @@
-import { findParentBlock } from '../../lib/lab';
-import type { EditorAutocompleteSuggestion } from '../editor/EditorAutocompleteMenu';
+import { findParentBlock } from '../../lib/lab.js';
+import type { EditorAutocompleteSuggestion } from '../editor/EditorAutocompleteMenu.js';
 import {
   PIPELINE_DIRECTIVES,
   STEP_DIRECTIVES,
   TASK_DIRECTIVES,
   parsePipelineYaml,
   type PipelineDetail,
-} from './model';
+} from './model.js';
 
 export type PipelineAutocompleteMetadata = {
   secrets: string[];
@@ -14,6 +14,7 @@ export type PipelineAutocompleteMetadata = {
   agentProfiles: string[];
   llmProfiles: string[];
   mcpProfiles: string[];
+  runtimePools: string[];
   reusableSteps: string[];
   secretScopes: Array<{ scope: string; items: string[] }>;
   variableScopes: Array<{ scope: string; items: string[] }>;
@@ -69,6 +70,9 @@ export function buildPipelineEditorSuggestion({
   const agentProfileValueContext =
     currentKey === 'agent_profile' ||
     /^\s*agent_profile\s*:\s*[A-Za-z0-9_.-]*$/.test(lineBeforeCursor.trim());
+  const runtimePoolValueContext =
+    currentKey === 'runtime_pool' ||
+    /^\s*runtime_pool\s*:\s*[A-Za-z0-9_.-]*$/.test(lineBeforeCursor.trim());
 
   let title = 'Suggestions';
   let pool: string[] = [];
@@ -84,6 +88,9 @@ export function buildPipelineEditorSuggestion({
   } else if (llmProfileValueContext) {
     title = 'LLM profiles';
     pool = metadata.llmProfiles;
+  } else if (runtimePoolValueContext) {
+    title = 'Runtime pools';
+    pool = metadata.runtimePools;
   } else if (ancestorKey === 'mcp_profiles') {
     title = 'MCP profiles';
     pool = metadata.mcpProfiles;
@@ -121,6 +128,7 @@ export function buildPipelineEditorSuggestion({
     includeValueContext ||
     agentProfileValueContext ||
     llmProfileValueContext ||
+    runtimePoolValueContext ||
     ancestorKey === 'mcp_profiles' ||
     ancestorKey === 'secrets' ||
     ancestorKey === 'variables' ||

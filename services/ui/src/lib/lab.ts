@@ -724,6 +724,7 @@ export type LabSuggestionType =
   | 'agent_profile'
   | 'llm_profile'
   | 'mcp_profile'
+  | 'runtime_pool'
   | 'directive-value'
   | 'pipeline-key'
   | 'step-key'
@@ -841,6 +842,17 @@ function detectDirectiveValueContext(lineInfo: LineInfo, selectionEnd: number): 
     return {
       type: 'llm_profile',
       title: 'LLM Profiles',
+      key,
+      prefix: currentValue,
+      rangeStart,
+      rangeEnd: Math.max(rangeStart, selectionEnd),
+      insertSuffix: '',
+    };
+  }
+  if (!metadata && key === 'runtime_pool') {
+    return {
+      type: 'runtime_pool',
+      title: 'Runtime Pools',
       key,
       prefix: currentValue,
       rangeStart,
@@ -1044,6 +1056,7 @@ export function buildSuggestionItems(
     agentProfiles?: string[];
     llmProfiles: string[];
     mcpProfiles?: string[];
+    runtimePools?: string[];
     reusableSteps: string[];
     pipelineIds: string[];
   }
@@ -1063,6 +1076,8 @@ export function buildSuggestionItems(
     pool = opts.llmProfiles.map(p => ({ value: p, label: p }));
   } else if (ctx.type === 'mcp_profile') {
     pool = (opts.mcpProfiles || []).map(p => ({ value: p, label: p }));
+  } else if (ctx.type === 'runtime_pool') {
+    pool = (opts.runtimePools || []).map(p => ({ value: p, label: p }));
   } else if (ctx.type === 'include') {
     pool = [
       ...opts.reusableSteps.map(s => ({ value: `step:${s}`, label: `step:${s}` })),
@@ -1104,6 +1119,8 @@ export function suggestionCopyForContext(contextInfo: LabSuggestionContext | nul
       return { title: 'LLM profiles', subtitle: 'Profiles allowed for the selected scope.', footnote: 'Click or Tab to insert.' };
     case 'mcp_profile':
       return { title: 'MCP profiles', subtitle: 'Approved external tool bundles for goal tasks.', footnote: 'Click or Tab to insert.' };
+    case 'runtime_pool':
+      return { title: 'Runtime pools', subtitle: 'Configured Kubernetes scheduling pools.', footnote: 'Click or Tab to insert.' };
     case 'pipeline-key':
       return { title: 'Pipeline directives', subtitle: 'Keys allowed at root level.', footnote: 'Tab to accept inline hint.' };
     case 'step-key':
