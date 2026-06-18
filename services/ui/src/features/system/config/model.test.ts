@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { normalizeSystemConfigPayload, systemConfigPayloadFromForm } from './model.js';
+import { normalizeRuntimePools, normalizeSystemConfigPayload, systemConfigPayloadFromForm } from './model.js';
 
 test('normalizes system runtime config with GitHub App UI ownership', () => {
   const { config, envFilePath, fieldMetadata } = normalizeSystemConfigPayload({
@@ -26,6 +26,18 @@ test('normalizes system runtime config with GitHub App UI ownership', () => {
     runner_id: 'runner-general',
     runner_scopes: 'dev,prod',
     runner_capacity: 2,
+    runtime_pools: {
+      default: {
+        node_selector: { workload: 'nopsai' },
+      },
+      'high-memory': {
+        node_selector: { workload: 'nopsai', 'node-class': ' memory ' },
+        resources: {
+          requests: { memory: ' 4Gi ' },
+          limits: { memory: '16Gi' },
+        },
+      },
+    },
     env_file_path: '.env',
     github_app_id: '123456',
     github_installation_id: '987654',
@@ -46,6 +58,16 @@ test('normalizes system runtime config with GitHub App UI ownership', () => {
   assert.equal(config.github_private_key_credential_ref, 'credential://system/github/app-private-key');
   assert.equal(config.github_webhook_credential_ref, 'credential://system/github/webhook-secret');
   assert.equal(config.runner_capacity, '2');
+  assert.deepEqual(config.runtime_pools, {
+    default: {
+      node_selector: { workload: 'nopsai' },
+      resources: { requests: {}, limits: {} },
+    },
+    'high-memory': {
+      node_selector: { workload: 'nopsai', 'node-class': 'memory' },
+      resources: { requests: { memory: '4Gi' }, limits: { memory: '16Gi' } },
+    },
+  });
   assert.deepEqual(config.dispatcher_routing, { '*': ['runner-general'], prod: ['runner-prod'] });
   assert.equal(fieldMetadata.log_level.apply, 'Applied immediately');
 
@@ -68,4 +90,41 @@ test('normalizes system runtime config with GitHub App UI ownership', () => {
   assert.equal(payload.github_private_key_credential_ref, 'credential://system/github/prod-private-key');
   assert.equal(payload.github_webhook_credential_ref, 'credential://system/github/prod-webhook-secret');
   assert.equal(payload.runner_capacity, 3);
+  assert.deepEqual(payload.runtime_pools, config.runtime_pools);
+});
+
+test('normalizes runtime pool map names, selectors, requests, and limits', () => {
+  assert.deepEqual(
+    normalizeRuntimePools({
+      ' high-memory ': {
+        node_selector: {
+          ' node-class ': ' memory ',
+          empty: '',
+        },
+        resources: {
+          requests: {
+            cpu: ' 500m ',
+            memory: '4Gi',
+          },
+          limits: {
+            memory: ' 16Gi ',
+          },
+        },
+      },
+      ' ': {
+        node_selector: {
+          workload: 'ignored',
+        },
+      },
+    }),
+    {
+      'high-memory': {
+        node_selector: { 'node-class': 'memory' },
+        resources: {
+          requests: { cpu: '500m', memory: '4Gi' },
+          limits: { memory: '16Gi' },
+        },
+      },
+    }
+  );
 });

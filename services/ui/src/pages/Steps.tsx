@@ -131,12 +131,13 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     secrets: string[];
     variables: string[];
     agentProfiles: string[];
+    runtimePools: string[];
     reusableSteps: string[];
     secretScopes: Array<{ scope: string; items: string[] }>;
     variableScopes: Array<{ scope: string; items: string[] }>;
     fetchedAt: number;
     loading: boolean;
-  }>({ secrets: [], variables: [], agentProfiles: [], reusableSteps: [], secretScopes: [], variableScopes: [], fetchedAt: 0, loading: false });
+  }>({ secrets: [], variables: [], agentProfiles: [], runtimePools: [], reusableSteps: [], secretScopes: [], variableScopes: [], fetchedAt: 0, loading: false });
 
   const [editorSuggestion, setEditorSuggestion] = useState<null | {
     title: string;
@@ -241,6 +242,8 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
         currentKey === 'include' || /^\s*include\s*:\s*[A-Za-z0-9_.:/-]*$/.test(lineBeforeCursor.trim());
       const agentProfileValueContext =
         currentKey === 'agent_profile' || /^\s*agent_profile\s*:\s*[A-Za-z0-9_.-]*$/.test(lineBeforeCursor.trim());
+      const runtimePoolValueContext =
+        currentKey === 'runtime_pool' || /^\s*runtime_pool\s*:\s*[A-Za-z0-9_.-]*$/.test(lineBeforeCursor.trim());
       const cursorInKeyPosition = !lineBeforeCursor.includes(':');
 
       const resolveTaskNames = () => {
@@ -274,6 +277,9 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
       } else if (agentProfileValueContext) {
         title = 'Agent profiles';
         pool = autocompleteMeta.agentProfiles;
+      } else if (runtimePoolValueContext) {
+        title = 'Runtime pools';
+        pool = autocompleteMeta.runtimePools;
       } else if (ancestorKey === 'secrets') {
         title = 'Secrets';
         const base = autocompleteMeta.secretScopes.length
@@ -332,7 +338,12 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
       const normalizedPrefix = prefix.toLowerCase();
       const filtered = pool.filter(item => item.toLowerCase().startsWith(normalizedPrefix)).sort((a, b) => a.localeCompare(b));
       const hasContext =
-        includeValueContext || agentProfileValueContext || ancestorKey === 'secrets' || ancestorKey === 'depends_on' || ancestorKey === 'variables';
+        includeValueContext ||
+        agentProfileValueContext ||
+        runtimePoolValueContext ||
+        ancestorKey === 'secrets' ||
+        ancestorKey === 'depends_on' ||
+        ancestorKey === 'variables';
       const isRootLine = !containerBlock && currentIndent === 0 && !currentKey;
       const shouldShow = opts?.force || hasContext || filtered.length > 0 || containerBlock === 'tasks';
 
@@ -351,7 +362,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
         groupedSections,
       });
     },
-    [autocompleteMeta.agentProfiles, autocompleteMeta.reusableSteps, autocompleteMeta.secrets, autocompleteMeta.secretScopes, autocompleteMeta.variableScopes, autocompleteMeta.variables, editorValue]
+    [autocompleteMeta.agentProfiles, autocompleteMeta.reusableSteps, autocompleteMeta.runtimePools, autocompleteMeta.secrets, autocompleteMeta.secretScopes, autocompleteMeta.variableScopes, autocompleteMeta.variables, editorValue]
   );
 
   const handleEditorTextChange = useCallback(
@@ -398,7 +409,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
 
       try {
         const promise = (async () => {
-          const metadata = await fetchEditorAutocompleteMetadata({ includeAgentProfiles: true });
+          const metadata = await fetchEditorAutocompleteMetadata({ includeAgentProfiles: true, includeRuntimePools: true });
           setAutocompleteMeta(metadata);
           autocompleteFetchRef.current.fetchedAt = metadata.fetchedAt;
         })();

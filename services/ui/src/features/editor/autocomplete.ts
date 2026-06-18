@@ -14,6 +14,7 @@ export type EditorAutocompleteMetadata = {
   agentProfiles: string[];
   llmProfiles: string[];
   mcpProfiles: string[];
+  runtimePools: string[];
   fetchedAt: number;
   loading: boolean;
 };
@@ -22,6 +23,7 @@ export type EditorAutocompleteOptions = {
   includeAgentProfiles?: boolean;
   includeLLMProfiles?: boolean;
   includeMCPProfiles?: boolean;
+  includeRuntimePools?: boolean;
 };
 
 export function normalizeAutocompleteList(payload: unknown): string[] {
@@ -55,6 +57,23 @@ export function normalizeProfilePayload(payload: unknown): string[] {
       return '';
     })
     .filter(Boolean);
+}
+
+export function normalizeRuntimePoolNames(payload: unknown): string[] {
+  const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null;
+  const runtimePools = record && Object.prototype.hasOwnProperty.call(record, 'runtime_pools')
+    ? record.runtime_pools
+    : payload;
+  if (Array.isArray(runtimePools)) return normalizeAutocompleteList(runtimePools);
+  if (!runtimePools || typeof runtimePools !== 'object') return [];
+  return Object.keys(runtimePools as Record<string, unknown>)
+    .map(name => name.trim())
+    .filter(Boolean)
+    .sort((a, b) => {
+      if (a === 'default' && b !== 'default') return -1;
+      if (b === 'default' && a !== 'default') return 1;
+      return a.localeCompare(b);
+    });
 }
 
 export function normalizeScopeLabel(entry: unknown): string {
@@ -104,7 +123,17 @@ async function fetchScopedList(path: string, scope: string): Promise<string[]> {
 export async function fetchEditorAutocompleteMetadata(
   options: EditorAutocompleteOptions = {}
 ): Promise<EditorAutocompleteMetadata> {
-  const [secretsResp, variablesResp, stepsResp, secretScopesResp, variableScopesResp, agentProfilesResp, llmProfilesResp, mcpProfilesResp] = await Promise.all([
+  const [
+    secretsResp,
+    variablesResp,
+    stepsResp,
+    secretScopesResp,
+    variableScopesResp,
+    agentProfilesResp,
+    llmProfilesResp,
+    mcpProfilesResp,
+    runtimeConfigResp,
+  ] = await Promise.all([
     fetchOptionalJson('/v1/secrets'),
     fetchOptionalJson('/v1/variables'),
     fetchOptionalJson('/v1/steps'),
@@ -113,6 +142,7 @@ export async function fetchEditorAutocompleteMetadata(
     options.includeAgentProfiles ? fetchOptionalJson('/v1/system/agent-profiles', null) : Promise.resolve(null),
     options.includeLLMProfiles ? fetchOptionalJson('/v1/system/llm-profiles', null) : Promise.resolve(null),
     options.includeMCPProfiles ? fetchOptionalJson('/v1/system/mcp/profiles', null) : Promise.resolve(null),
+    options.includeRuntimePools ? fetchOptionalJson('/v1/system/config', null) : Promise.resolve(null),
   ]);
 
   const scopeList = buildEditorScopeList(secretScopesResp, variableScopesResp);
@@ -130,6 +160,7 @@ export async function fetchEditorAutocompleteMetadata(
     agentProfiles: normalizeProfilePayload(agentProfilesResp),
     llmProfiles: normalizeProfilePayload(llmProfilesResp),
     mcpProfiles: normalizeProfilePayload(mcpProfilesResp),
+    runtimePools: normalizeRuntimePoolNames(runtimeConfigResp),
     fetchedAt: Date.now(),
     loading: false,
   };

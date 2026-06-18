@@ -5,6 +5,7 @@ import {
   fetchEditorAutocompleteMetadata,
   normalizeAutocompleteList,
   normalizeProfilePayload,
+  normalizeRuntimePoolNames,
   normalizeScopeLabel,
 } from './autocomplete';
 
@@ -27,6 +28,11 @@ describe('editor autocomplete metadata', () => {
       'devops-engineer',
     ]);
     expect(normalizeProfilePayload(['github-pr-review'])).toEqual(['github-pr-review']);
+    expect(normalizeRuntimePoolNames({ runtime_pools: { ' high-memory ': {}, default: {} } })).toEqual([
+      'default',
+      'high-memory',
+    ]);
+    expect(normalizeRuntimePoolNames(['default', { name: 'gpu' }])).toEqual(['default', 'gpu']);
     expect(normalizeScopeLabel(' default ')).toBe('');
     expect(normalizeScopeLabel('/platform/dev/')).toBe('platform/dev');
     expect(normalizeScopeLabel({ value: 'prod' })).toBe('prod');
@@ -50,6 +56,7 @@ describe('editor autocomplete metadata', () => {
         '/v1/system/agent-profiles': { profiles: [{ id: 'devops-engineer' }, { id: 'sre' }] },
         '/v1/system/llm-profiles': { profiles: [{ name: 'reasoning' }] },
         '/v1/system/mcp/profiles': { profiles: [{ name: 'github' }] },
+        '/v1/system/config': { runtime_pools: { default: {}, 'high-memory': {} } },
         '/v1/secrets?scope=team': ['TEAM_SECRET'],
         '/v1/variables?scope=team': ['TEAM_VARIABLE'],
       };
@@ -63,6 +70,7 @@ describe('editor autocomplete metadata', () => {
       includeAgentProfiles: true,
       includeLLMProfiles: true,
       includeMCPProfiles: true,
+      includeRuntimePools: true,
     });
 
     expect(metadata.secrets).toEqual(['GLOBAL_SECRET']);
@@ -79,6 +87,7 @@ describe('editor autocomplete metadata', () => {
     expect(metadata.agentProfiles).toEqual(['devops-engineer', 'sre']);
     expect(metadata.llmProfiles).toEqual(['reasoning']);
     expect(metadata.mcpProfiles).toEqual(['github']);
+    expect(metadata.runtimePools).toEqual(['default', 'high-memory']);
     expect(metadata.loading).toBe(false);
     expect(metadata.fetchedAt).toEqual(expect.any(Number));
   });

@@ -6,7 +6,7 @@ test('validates reusable step include contracts', () => {
   const invalid = validateStepYaml('name: deploy\ninclude: pipelines/deploy');
   assert.equal(invalid.errors[0]?.message, "Include steps must reference a reusable step using the 'step:' prefix.");
 
-  const valid = validateStepYaml('name: deploy\ninclude: step:shared/deploy');
+  const valid = validateStepYaml('name: deploy\nruntime_pool: high-memory\ninclude: step:shared/deploy');
   assert.deepEqual(valid.errors, []);
 });
 
