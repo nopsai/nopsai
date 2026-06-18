@@ -197,13 +197,19 @@ func NewGitBotApp(
 	serviceAuthenticator *serviceauth.Authenticator,
 	serviceCredentials *serviceauth.Credentials,
 ) *GitBotApp {
+	repositoryProvider := repositoryProvider(unavailableRepositoryProvider{})
+	checksProvider := checksProvider(unavailableChecksProvider{})
+	if ghClient != nil {
+		repositoryProvider = newGitHubRepositoryProvider(ghClient)
+		checksProvider = newGitHubChecksProvider(ghClient)
+	}
 	return &GitBotApp{
 		ghClient:           ghClient,
 		webhookSecret:      webhookSecret,
 		checkRunStates:     make(map[int64]*checkrender.State),
 		githubAppID:        githubAppID,
-		repositoryProvider: newGitHubRepositoryProvider(ghClient),
-		checksProvider:     newGitHubChecksProvider(ghClient),
+		repositoryProvider: repositoryProvider,
+		checksProvider:     checksProvider,
 		webhookForwarder:   newNopsaiWebhookForwarder(cfg, httpClient, serviceCredentials),
 		serviceAuth:        serviceAuthenticator,
 	}
@@ -231,6 +237,9 @@ func (a *GitBotApp) Handler() http.Handler {
 }
 
 func (a *GitBotApp) verifySignature(r *http.Request, body []byte) bool {
+	if a == nil || strings.TrimSpace(a.webhookSecret) == "" {
+		return false
+	}
 	signature := r.Header.Get("X-Hub-Signature-256")
 	if !strings.HasPrefix(signature, "sha256=") {
 		return false
@@ -244,7 +253,7 @@ func (a *GitBotApp) verifySignature(r *http.Request, body []byte) bool {
 	return hmac.Equal([]byte(actualSignature), []byte(expectedMAC))
 }
 
-func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineDef, pipelineSource string) int64 {
+func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineDef, pipelineSource string) (int64, error) {
 	var pipeline models.Pipeline
 	_ = yaml.Unmarshal([]byte(pipelineDef), &pipeline)
 
@@ -264,7 +273,7 @@ func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineDef, pipelineSource
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create check run")
-		return 0
+		return 0, err
 	}
 
 	// Use the centralized helper to initialize the state
@@ -272,7 +281,7 @@ func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineDef, pipelineSource
 		log.Error().Err(err).Msg("Failed to initialize check run state")
 		// Conclude the check run as a failure since we can't track it
 		a.concludeCheckRun(owner, repo, checkRunID, "failure", "Failed to initialize internal tracking state for this pipeline.")
-		return 0
+		return 0, err
 	}
 
 	if err := a.checksProvider.MarkInProgress(context.Background(), checkRunProgressUpdate{
@@ -286,7 +295,7 @@ func (a *GitBotApp) createCheckRun(owner, repo, ref, pipelineDef, pipelineSource
 		log.Error().Err(err).Int64("check_run_id", checkRunID).Msg("Failed to mark check run in progress")
 	}
 
-	return checkRunID
+	return checkRunID, nil
 }
 
 func (a *GitBotApp) handleCreateChildCheckRun(w http.ResponseWriter, r *http.Request) {
@@ -317,7 +326,7 @@ func (a *GitBotApp) handleCreateChildCheckRun(w http.ResponseWriter, r *http.Req
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create child check run")
-		_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to create child check run")
+		writeProviderError(w, err, "failed to create child check run")
 		return
 	}
 
@@ -438,6 +447,10 @@ func (a *GitBotApp) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if a == nil || strings.TrimSpace(a.webhookSecret) == "" || a.webhookForwarder == nil {
+		http.Error(w, githubIntegrationUnavailableMessage, http.StatusServiceUnavailable)
+		return
+	}
 	if !a.verifySignature(r, body) {
 		http.Error(w, "Invalid signature", http.StatusUnauthorized)
 		return
@@ -518,6 +531,10 @@ func (a *GitBotApp) handleCommitFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(req.Files) == 0 {
 		_ = httpapi.WriteJSONError(w, http.StatusBadRequest, "files is required")
+		return
+	}
+	if a == nil || a.ghClient == nil {
+		_ = httpapi.WriteJSONError(w, http.StatusServiceUnavailable, githubIntegrationUnavailableMessage)
 		return
 	}
 
@@ -808,9 +825,13 @@ func (a *GitBotApp) handleCreateCheckRun(w http.ResponseWriter, r *http.Request)
 		req.PipelineSource = "repository"
 	}
 
-	checkRunID := a.createCheckRun(req.Owner, req.Repo, req.Ref, req.PipelineDefinition, req.PipelineSource)
+	checkRunID, err := a.createCheckRun(req.Owner, req.Repo, req.Ref, req.PipelineDefinition, req.PipelineSource)
+	if err != nil {
+		writeProviderError(w, err, "failed to create check run")
+		return
+	}
 	if checkRunID == 0 {
-		_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to create check run")
+		_ = httpapi.WriteJSONError(w, http.StatusBadGateway, "created check run did not include an id")
 		return
 	}
 
@@ -850,7 +871,7 @@ func (a *GitBotApp) handleInitializeCheckRun(w http.ResponseWriter, r *http.Requ
 		Summary:    "Pipeline is starting...",
 	}); err != nil {
 		log.Error().Err(err).Int64("check_run_id", req.CheckRunID).Msg("Failed to mark check run in progress")
-		_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to update check run")
+		writeProviderError(w, err, "failed to update check run")
 		return
 	}
 
@@ -876,7 +897,7 @@ func (a *GitBotApp) handleCancelStaleCheckRuns(w http.ResponseWriter, r *http.Re
 	checkRuns, err := a.checksProvider.ListForRef(context.Background(), req.Owner, req.Repo, req.BeforeSHA)
 	if err != nil {
 		log.Error().Err(err).Str("owner", req.Owner).Str("repo", req.Repo).Str("sha", req.BeforeSHA).Msg("Failed to list check runs for stale commit")
-		_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to list check runs")
+		writeProviderError(w, err, "failed to list check runs")
 		return
 	}
 
@@ -927,7 +948,7 @@ func (a *GitBotApp) handleFindSuiteCheckRun(w http.ResponseWriter, r *http.Reque
 	checkRuns, err := a.checksProvider.ListForRef(context.Background(), req.Owner, req.Repo, req.CommitSHA)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to list check runs for commit")
-		_ = httpapi.WriteJSONError(w, http.StatusInternalServerError, "failed to list check runs for commit")
+		writeProviderError(w, err, "failed to list check runs for commit")
 		return
 	}
 	if len(checkRuns) == 0 {

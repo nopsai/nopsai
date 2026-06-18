@@ -1,101 +1,20 @@
-log_level: "debug" # Options: "debug", "info", "warn", "error"
-log_format: "json" # Options: "console", "json"
-# environment: "development" # development, staging, production. production enforces enterprise startup gates.
-# public_url: "https://ci.example.com" # Browser-reachable NopsAI URL used for notification run links and the default mail logo.
-# notification_mail_logo_url: "https://cdn.example.com/nopsai-logo.png" # Optional absolute HTTPS logo override.
-# notification_mail_website_url: "https://www.example.com" # Optional footer website; defaults to public_url.
-# notification_mail_support_url: "https://support.example.com" # Optional footer support link.
-# notification_mail_footer_address: "Example Corp, Street, City, Country" # Optional legal or office address.
-# require_production_gates: false # Set true outside production when staging should fail on production-hardening gaps.
-
-# database_url: "postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_db"
-# agent_image: "nopsai-agent:latest"
-# master_key: "vsfdverguhuyi3287467324ujfbsaihufb" # 32bytes random key (openssl rand -base64 32)
-# jwt_signing_key: "replace-me" # HMAC signing key for local JWTs
-# jwt_issuer: "nopsai.local"
-# jwt_audience: "nopsai-api"
-# jwt_expiry_minutes: 60
-# service_jwt_signing_key: "replace-me-too" # HMAC key for dispatcher gRPC service tokens; falls back to jwt_signing_key if unset
-# service_jwt_issuer: "nopsai.internal"
-# service_jwt_audience: "nopsai-dispatcher"
-# nopsai_service_id: "nopsai"
-# runner_service_id: "runner"
-# agent_service_id: "agent"
-# dispatcher_tls_mode: "mtls" # mtls (default), tls, or disabled. Certificates are generated automatically in memory.
-# dispatcher_tls_secret: "" # Optional; falls back to the service JWT signing key when empty.
-# dispatcher_tls_server_name: "dispatcher" # Logical TLS server identity; runners can still dial any dispatcher host:port.
-# refresh_token_ttl_minutes: 43200 # 30 days
-# auth_provider_local_enabled: true
-# rate_limit_login_per_minute: 10
-# login_lockout_threshold: 5
-# login_lockout_window_minutes: 15
-# IdleTimeoutMinutes: 60
-
-# SSO/OIDC and LLM profile registries are GitOps-managed for enterprise
-# deployments. Use:
-# - setting/system/auth.yaml for local-login and OIDC provider settings
-# - setting/system/llm_profile.yaml for model/profile registry settings
-# Keep config.yml focused on process bootstrap, runtime wiring, and secrets.
-
-# # --- Service Addresses ---
-# nopsai_listen_address: "0.0.0.0:8080"
-# git_bot_listen_address: "0.0.0.0:8081"
-# dispatcher_listen_address: "0.0.0.0:9090"
-# aaa_addr: ":8082"
-
-# # Connection addresses use Docker's service discovery
-# agent_nopsai_api_url: "http://nopsai:8080"
-# git_bot_nopsai_api_url: "http://nopsai:8080"
-# nopsai_git_bot_api_url: "http://nopsai-git-bot:8081"
-# dispatcher_address: "dispatcher:9090"
-# aaa_api_url: "http://aaa:8082"
-# aaa_shared_internal_token: "dev-default-for-local-only"
-# dispatcher_routing:
-#   prod: ["runner-prod-1", "runner-prod-2"]
-#   "*": ["runner-general"]
-# runner_id: "runner-general"
-# runner_scopes: "dev,prod"
-# runner_capacity: 2
-# runtime: "docker" # docker or kubernetes
-# kubernetes:
-#   namespace: "nopsai-runs"
-#   service_account: "nopsai-runner"
-#   default_image_pull_policy: "IfNotPresent"
-#   default_workspace_size: "5Gi"
-#   default_workspace_access_mode: "ReadWriteOnce"
-#   default_task_timeout: "30m"
-#   default_run_timeout: "2h"
-#   workspace_volume_mode: "pvc" # pvc or existing; emptyDir is not compatible with multi-pod execution
-#   existing_workspace_pvc: ""
-#   storage_class: ""
-#   affinity_enabled: true
-# limits:
-#   max_concurrent_runs: 30
-#   max_concurrent_tasks: 200
-#   max_concurrent_tasks_per_run: 20
-#   max_pending_tasks: 1000
-# runtime_pools:
-#   default:
-#     node_selector:
-#       workload: "nopsai"
-#   high-memory:
-#     node_selector:
-#       workload: "nopsai"
-#       node-class: "memory"
-#     resources:
-#       requests:
-#         memory: "4Gi"
-#       limits:
-#         memory: "16Gi"
-
-# # --- Docker Configuration ---
-# docker_network_name: "nopsai-net"
-# auto_removal_agent_container: false
-# default_pipeline_timeout: "30m" # A global default timeout for all pipelines
-# data_backup_dir: "/data/backups" # Directory where system data backups are written
-
-# # --- GitHub App Configuration for Git Bot ---
-# github_webhook_secret: "vsfdverguhuyi3287467324ujfbsaihufb"
-# github_app_id: "1754146"
-# github_installation_id: "80056360"
-# github_private_key_path: "/app/private-key.pem"
+# NopsAI local config placeholder.
+#
+# Product/runtime settings are intentionally not defined here. Manage them from
+# System > Config / System > Credentials and commit the GitOps representation to
+# the global config repository under setting/system/.
+#
+# The active GitOps system files are:
+# - credentials.yaml for encrypted credential envelopes
+# - github.yaml for GitHub App IDs, credential references, and git-bot URLs
+# - runner.yaml for runtime topology, runner defaults, and dispatcher routing
+# - auth.yaml for local login and OIDC providers
+# - mail.yaml for notification SMTP settings
+# - llm_profile.yaml for LLM profile registry
+# - mcp.yaml for MCP server/profile registry
+# - agent-profiles.yaml for Agent Profile registry
+#
+# Keep bootstrap-only values such as DATABASE_URL, NOPSAI_MASTER_KEY,
+# JWT_SIGNING_KEY, SERVICE_JWT_SIGNING_KEY, and AAA_SHARED_INTERNAL_TOKEN in
+# deployment secrets or the service environment. Docker Compose defines the
+# minimal local-dev service addresses needed before GitOps can be loaded.

@@ -1,6 +1,15 @@
 import { asRecord, normalizeNumber, readOptionalString, readString } from '../data.js';
 
 export type ConfigFormState = {
+  log_level: string;
+  log_format: string;
+  environment: string;
+  public_url: string;
+  notification_mail_logo_url: string;
+  notification_mail_website_url: string;
+  notification_mail_support_url: string;
+  notification_mail_footer_address: string;
+  require_production_gates: boolean;
   agent_image: string;
   docker_network_name: string;
   default_pipeline_timeout: string;
@@ -9,11 +18,22 @@ export type ConfigFormState = {
   agent_nopsai_api_url: string;
   git_bot_nopsai_api_url: string;
   nopsai_git_bot_api_url: string;
+  github_app_id: string;
+  github_installation_id: string;
+  github_private_key_credential_ref: string;
+  github_webhook_credential_ref: string;
   dispatcher_address: string;
   dispatcher_routing: Record<string, string[]>;
   runner_id: string;
   runner_scopes: string;
   runner_capacity: string;
+};
+
+export type ConfigFieldMetadata = {
+  scope: string;
+  label: string;
+  section: string;
+  apply: string;
 };
 
 export type ConfigRepository = {
@@ -74,6 +94,15 @@ export type NotificationMailSettingsFormState = {
 };
 
 export const initialConfig: ConfigFormState = {
+  log_level: '',
+  log_format: '',
+  environment: '',
+  public_url: '',
+  notification_mail_logo_url: '',
+  notification_mail_website_url: '',
+  notification_mail_support_url: '',
+  notification_mail_footer_address: '',
+  require_production_gates: false,
   agent_image: '',
   docker_network_name: '',
   default_pipeline_timeout: '',
@@ -82,6 +111,10 @@ export const initialConfig: ConfigFormState = {
   agent_nopsai_api_url: '',
   git_bot_nopsai_api_url: '',
   nopsai_git_bot_api_url: '',
+  github_app_id: '',
+  github_installation_id: '',
+  github_private_key_credential_ref: '',
+  github_webhook_credential_ref: '',
   dispatcher_address: '',
   dispatcher_routing: {},
   runner_id: '',
@@ -109,12 +142,21 @@ export const emptyNotificationMailSettingsForm: NotificationMailSettingsFormStat
   test_to: '',
 };
 
-export function normalizeSystemConfigPayload(payload: unknown): { config: ConfigFormState; envFilePath: string } {
+export function normalizeSystemConfigPayload(payload: unknown): { config: ConfigFormState; envFilePath: string; fieldMetadata: Record<string, ConfigFieldMetadata> } {
   const record = asRecord(payload);
   if (!record) throw new Error('Unexpected system config response');
 
   return {
     config: {
+      log_level: readString(record.log_level),
+      log_format: readString(record.log_format),
+      environment: readString(record.environment),
+      public_url: readString(record.public_url),
+      notification_mail_logo_url: readString(record.notification_mail_logo_url),
+      notification_mail_website_url: readString(record.notification_mail_website_url),
+      notification_mail_support_url: readString(record.notification_mail_support_url),
+      notification_mail_footer_address: readString(record.notification_mail_footer_address),
+      require_production_gates: Boolean(record.require_production_gates),
       agent_image: readString(record.agent_image),
       docker_network_name: readString(record.docker_network_name),
       default_pipeline_timeout: readString(record.default_pipeline_timeout),
@@ -123,6 +165,10 @@ export function normalizeSystemConfigPayload(payload: unknown): { config: Config
       agent_nopsai_api_url: readString(record.agent_nopsai_api_url),
       git_bot_nopsai_api_url: readString(record.git_bot_nopsai_api_url),
       nopsai_git_bot_api_url: readString(record.nopsai_git_bot_api_url),
+      github_app_id: readString(record.github_app_id),
+      github_installation_id: readString(record.github_installation_id),
+      github_private_key_credential_ref: readString(record.github_private_key_credential_ref),
+      github_webhook_credential_ref: readString(record.github_webhook_credential_ref),
       dispatcher_address: readString(record.dispatcher_address),
       dispatcher_routing: normalizeRouting(record.dispatcher_routing),
       runner_id: readString(record.runner_id),
@@ -130,11 +176,21 @@ export function normalizeSystemConfigPayload(payload: unknown): { config: Config
       runner_capacity: String(record.runner_capacity ?? '1'),
     },
     envFilePath: readString(record.env_file_path),
+    fieldMetadata: normalizeFieldMetadata(record.field_metadata),
   };
 }
 
 export function systemConfigPayloadFromForm(config: ConfigFormState) {
   return {
+    log_level: config.log_level.trim(),
+    log_format: config.log_format.trim(),
+    environment: config.environment.trim(),
+    public_url: config.public_url.trim(),
+    notification_mail_logo_url: config.notification_mail_logo_url.trim(),
+    notification_mail_website_url: config.notification_mail_website_url.trim(),
+    notification_mail_support_url: config.notification_mail_support_url.trim(),
+    notification_mail_footer_address: config.notification_mail_footer_address.trim(),
+    require_production_gates: Boolean(config.require_production_gates),
     agent_image: config.agent_image.trim(),
     docker_network_name: config.docker_network_name.trim(),
     default_pipeline_timeout: config.default_pipeline_timeout.trim(),
@@ -143,12 +199,33 @@ export function systemConfigPayloadFromForm(config: ConfigFormState) {
     agent_nopsai_api_url: config.agent_nopsai_api_url.trim(),
     git_bot_nopsai_api_url: config.git_bot_nopsai_api_url.trim(),
     nopsai_git_bot_api_url: config.nopsai_git_bot_api_url.trim(),
+    github_app_id: config.github_app_id.trim(),
+    github_installation_id: config.github_installation_id.trim(),
+    github_private_key_credential_ref: config.github_private_key_credential_ref.trim(),
+    github_webhook_credential_ref: config.github_webhook_credential_ref.trim(),
     dispatcher_address: config.dispatcher_address.trim(),
     dispatcher_routing: config.dispatcher_routing,
     runner_id: config.runner_id.trim(),
     runner_scopes: config.runner_scopes.trim(),
     runner_capacity: Number.parseInt(config.runner_capacity, 10) || 1,
   };
+}
+
+function normalizeFieldMetadata(value: unknown): Record<string, ConfigFieldMetadata> {
+  const record = asRecord(value);
+  if (!record) return {};
+  const result: Record<string, ConfigFieldMetadata> = {};
+  Object.entries(record).forEach(([key, raw]) => {
+    const item = asRecord(raw);
+    if (!item) return;
+    result[key] = {
+      scope: readString(item.scope),
+      label: readString(item.label),
+      section: readString(item.section),
+      apply: readString(item.apply),
+    };
+  });
+  return result;
 }
 
 export function normalizeConfigRepository(payload: unknown): ConfigRepository | null {

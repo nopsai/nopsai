@@ -74,7 +74,7 @@ nopsai control plane
 dispatcher
     |
     v
-runner
+docker-runner or k8s-runner
     |
     v
 agent container
@@ -92,8 +92,9 @@ step containers + optional child pipelines
 - `services/git-bot`: GitHub App edge service for webhook verification,
   repository content access, GitHub check runs, and GitHub status updates.
 - `services/dispatcher`: Scheduling hub between the control plane and runners.
-- `services/runner`: Long-running worker attached to Docker that starts agent
-  containers for assigned jobs.
+- `services/runner`: Docker runner implementation. In the local Compose stack
+  this runs as the `docker-runner` service and starts agent containers for
+  assigned jobs.
 - `services/agent`: Per-run orchestrator that executes pipeline logic, talks to
   the configured LLM provider, runs step containers, and streams status/logs.
 - `services/ui`: Operator UI for runs, pipelines, triggers, Git webhook sources, scopes, access,
@@ -170,10 +171,13 @@ Prerequisites:
 - An LLM provider supported by the configured LLM profile, including LM Studio,
   Gemini, OpenAI, Anthropic, Groq, Mistral, OpenRouter, Ollama, or Azure OpenAI
 
-1. Review `config.yml` and `.env`.
+1. Review `config.yml` and `docker-compose.yaml`.
 
-   `config.yml` documents the available runtime settings. `.env` is loaded by
-   the Docker Compose services. Do not commit real secrets.
+   The checked-in `config.yml` and `.env` files are documentation-only
+   placeholders. Product/runtime settings are managed from the UI and GitOps;
+   `docker-compose.yaml` defines only local-dev bootstrap and service topology.
+   Override local placeholder secrets from your shell or deployment secret
+   manager before production use.
 
 2. Start the stack.
 
@@ -202,8 +206,11 @@ Prerequisites:
 
 5. Run **System > Setup** after changing the first admin password.
 
-6. Verify the git-bot runtime settings. Configure GitHub App IDs, secrets, and
-   webhook URL on the git-bot deployment or its secret manager.
+6. Verify the git-bot runtime settings. Configure GitHub App IDs and credential
+   references in **System > Config** or `setting/system/github.yaml`, store
+   encrypted private-key and webhook secret envelopes through **System >
+   Credentials** or `setting/system/credentials.yaml`, and set the public
+   webhook URL on the GitHub App.
 
 7. Create one or two starter repository groups, apply setup, and run the starter
    `setup/first-run` pipeline to verify runner, agent, LLM, logs, and UI.
@@ -229,47 +236,59 @@ GitOps sync can import:
 - `access/`: users, roles, policies, bindings, and basic product role grants
 - `config-repositories/`: global and group config repository bindings, per-group hierarchy, and notification routing
 - `setting/system/auth.yaml`: local-login and OIDC SSO settings from the global config repo
+- `setting/system/github.yaml`: GitHub App IDs, credential references, and git-bot URLs from the global config repo
 - `setting/system/mail.yaml`: mail notification SMTP settings from the global config repo
 - `setting/system/llm_profile.yaml`: system LLM profile registry
 - `setting/system/mcp.yaml`: MCP server and profile registry
-- `setting/system/runner.yaml`: runner install defaults, runtime URLs, and dispatcher routing from the global config repo
+- `setting/system/runner.yaml`: runner install defaults, runtime defaults, and dispatcher routing from the global config repo
+- `setting/system/credentials.yaml`: encrypted system credential envelopes from the global config repo
 
 Runtime settings GitOps is limited to operational defaults such as runner ID,
-runner scopes, runner capacity, dispatcher address, agent image/network defaults,
-timeouts, and `dispatcher_routing`. Keep database URLs, master keys, and service
-JWT bootstrap keys in deployment secrets. Store operational integration
-credentials in **System > Credentials** and bind them from GitOps by reference.
+runner scopes, runner capacity, dispatcher address, agent image/network
+defaults, timeouts, and `dispatcher_routing`. GitHub App IDs, git-bot URLs, and
+GitHub credential references live in `setting/system/github.yaml`; they are not
+accepted from `setting/system/runner.yaml`. Keep database URLs, master keys, and
+service JWT bootstrap keys in deployment secrets. Store operational integration
+credential values as encrypted envelopes in `setting/system/credentials.yaml` or
+write them through **System > Credentials** and let drift export the encrypted
+form. Feature files such as auth, GitHub, mail, LLM, MCP, runner, and Git webhook
+sources store only stable
+credential references.
 Runtime settings saved from the UI or synced from GitOps are stored in the
-database as the durable source of truth, then mirrored to `config.yml` and
-`.env` when those files are writable for local compatibility. On restart, the
-database copy is loaded before NopsAI connects to the dispatcher, so GitOps
-changes do not require a second sync. Dispatcher routing changes made from the
-UI or synced from GitOps are published through `nopsai` and picked up by the
-live dispatcher without a restart.
+database as the durable source of truth. `config.yml`, `.env`, Docker Compose
+environment blocks, and deployment secrets are bootstrap inputs only. On
+restart, the database copy is loaded before NopsAI connects to the dispatcher,
+so GitOps changes do not require a second sync. Services can read versioned
+snapshots from `GET /internal/v1/runtime-config/{service}` or long-poll
+`GET /internal/v1/runtime-config/{service}/watch?version=<n>`. Dispatcher
+routing changes made from the UI or synced from GitOps are published through
+`nopsai` and picked up by the live dispatcher without a restart.
 
 SSO settings live under **System > Access > Identity Providers** and can be
 declared in the global config repository at `setting/system/auth.yaml`. GitOps
 sync manages `local_enabled`, OIDC enablement, auto-create/linking defaults,
 domain mappings, providers, Keycloak entitlement-sync mappings, and their
 `client_credential_ref`, `admin_client_credential_ref`, and
-`admin_password_credential_ref` bindings. Values remain write-only in the
-credential registry.
+`admin_password_credential_ref` bindings. Plaintext values remain write-only in
+the API/UI; encrypted versions can be synced in
+`setting/system/credentials.yaml`.
 
 Mail notification settings live under **System > Config** and can be
 declared in the global config repository at `setting/system/mail.yaml`. GitOps
 stores only SMTP host, port, sender, username, TLS mode, and
-`password_credential_ref`; the actual SMTP password stays in the encrypted
-credential registry.
+`password_credential_ref`. Plaintext SMTP passwords stay out of feature files;
+encrypted versions can be synced in `setting/system/credentials.yaml`.
 
 Pipeline mail is sent as multipart HTML with a plain-text fallback. It includes
 the pipeline and run status, failed step/task, step and task progress, repository
 metadata, deep links, and a short redacted error excerpt. Configure
-`NOPSAI_PUBLIC_URL` with the browser-reachable NopsAI URL to enable **View run**
-links and the default `/brand/nopsai-logo-light.png` mail logo. Footer branding
-can be overridden with `NOPSAI_MAIL_LOGO_URL`, `NOPSAI_MAIL_WEBSITE_URL`,
-`NOPSAI_MAIL_SUPPORT_URL`, and `NOPSAI_MAIL_FOOTER_ADDRESS`. Use absolute
-`http` or `https` URLs; invalid or missing URLs are omitted rather than emitted
-as broken links.
+`public_url` in **System > Config** or `setting/system/runner.yaml` with the
+browser-reachable NopsAI URL to enable **View run** links and the default
+`/brand/nopsai-logo-light.png` mail logo. Footer branding can be configured
+with `notification_mail_logo_url`, `notification_mail_website_url`,
+`notification_mail_support_url`, and `notification_mail_footer_address`. Use
+absolute `http` or `https` URLs; invalid or missing URLs are omitted rather
+than emitted as broken links.
 
 The **Send test** action uses a matching branded multipart message. It confirms
 the SMTP endpoint, TLS mode, authentication configuration, sender, recipient,
@@ -391,10 +410,11 @@ Required GitHub App permissions:
 - `pull_requests`: read
 - `checks`: read and write
 
-The NopsAI UI does not manage GitHub App IDs, installation IDs, private keys, or
-webhook secrets. Keep those values with the `git-bot` deployment or its secret
-manager; NopsAI runtime settings only need the internal service URL used to call
-git-bot.
+Manage GitHub App ID, installation ID, private-key credential reference, webhook
+credential reference, and internal git-bot URLs in **System > Config** or
+`setting/system/github.yaml`. Store encrypted private key and webhook secret
+versions in **System > Credentials** or `setting/system/credentials.yaml`; the
+runtime settings snapshot exposes only non-secret IDs and credential references.
 
 For local webhook simulation, see [doc/triggering.md](doc/triggering.md).
 
@@ -424,7 +444,7 @@ Supported profile concepts include:
   OpenRouter, Ollama, and Azure OpenAI
 - model name
 - base URL for local/provider-compatible endpoints
-- API key secret reference
+- API key credential reference
 - allowed scopes
 - request timeout, maximum tokens, temperature, and provider-specific options
 - optional reasoning controls where supported by the provider path
@@ -471,7 +491,7 @@ services/agent          Per-run pipeline orchestrator
 services/dispatcher     Scheduler and runner bridge
 services/git-bot        GitHub App integration
 services/nopsai         Main API and control plane
-services/runner         Docker-backed runner
+services/runner         Docker-backed runner (`docker-runner` in Compose)
 services/ui             React operator UI
 test/                   Local operational and performance scripts
 ```

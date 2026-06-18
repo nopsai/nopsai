@@ -94,9 +94,10 @@ Store runtime settings in the system config repository at
 `setting/system/runner.yaml`:
 
 NopsAI persists synced runtime settings in the database and reloads them before
-connecting to the dispatcher on restart. The generated `config.yml` and `.env`
-mirrors are compatibility outputs for writable local installs, not the durable
-source of truth for Kubernetes.
+connecting to the dispatcher on restart. `config.yml`, `.env`, Docker Compose,
+and Kubernetes manifests are bootstrap inputs, not the durable source of truth.
+Services that support reloads can consume the versioned runtime snapshot API at
+`/internal/v1/runtime-config/{service}`.
 
 ```yaml
 runner_id: k8s-runner-ams-1

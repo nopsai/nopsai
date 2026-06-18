@@ -11,8 +11,77 @@ import (
 	"nopsai/config"
 )
 
+type FieldMetadata struct {
+	Scope   config.ConfigScope `json:"scope"`
+	Label   string             `json:"label"`
+	Section string             `json:"section"`
+	Apply   string             `json:"apply"`
+}
+
+var FieldMetadataByKey = map[string]FieldMetadata{
+	"log_level":                        runtimeLive("Log level", "General"),
+	"log_format":                       runtimeLive("Log format", "General"),
+	"environment":                      runtimeLive("Environment", "General"),
+	"public_url":                       runtimeLive("Public URL", "General"),
+	"notification_mail_logo_url":       runtimeLive("Mail logo URL", "General"),
+	"notification_mail_website_url":    runtimeLive("Mail website URL", "General"),
+	"notification_mail_support_url":    runtimeLive("Mail support URL", "General"),
+	"notification_mail_footer_address": runtimeLive("Mail footer address", "General"),
+	"require_production_gates":         bootstrapOnly("Production startup gates", "General"),
+
+	"agent_image":                  nextRunOnly("Agent image", "Runtime"),
+	"docker_network_name":          nextRunOnly("Docker network", "Runtime"),
+	"auto_removal_agent_container": nextRunOnly("Auto-remove agent containers", "Runtime"),
+	"default_pipeline_timeout":     nextRunOnly("Default pipeline timeout", "Runtime"),
+	"llm_agent_timeout":            nextRunOnly("LLM agent timeout", "Runtime"),
+	"runtime":                      nextRunOnly("Runtime", "Runtime"),
+	"kubernetes":                   nextRunOnly("Kubernetes defaults", "Runtime"),
+	"limits":                       nextRunOnly("Runner limits", "Runtime"),
+	"runtime_pools":                runtimeLive("Runtime pools", "Runtime"),
+
+	"agent_nopsai_api_url":   runtimeReload("Agent NopsAI API URL", "Dispatcher"),
+	"dispatcher_address":     runtimeReload("Dispatcher address", "Dispatcher"),
+	"dispatcher_routing":     runtimeLive("Dispatcher routing", "Dispatcher"),
+	"git_bot_nopsai_api_url": runtimeReload("git-bot NopsAI API URL", "GitHub App"),
+	"nopsai_git_bot_api_url": runtimeLive("NopsAI git-bot API URL", "GitHub App"),
+
+	"github_app_id":                     runtimeReload("GitHub App ID", "GitHub App"),
+	"github_installation_id":            runtimeReload("GitHub installation ID", "GitHub App"),
+	"github_private_key_credential_ref": runtimeReload("GitHub private key credential", "GitHub App"),
+	"github_webhook_credential_ref":     runtimeReload("GitHub webhook credential", "GitHub App"),
+
+	"runner_id":       bootstrapOnly("Runner ID", "Runners"),
+	"runner_scopes":   runtimeReload("Runner scopes", "Runners"),
+	"runner_capacity": runtimeReload("Runner capacity", "Runners"),
+}
+
+func runtimeLive(label, section string) FieldMetadata {
+	return FieldMetadata{Scope: config.ConfigScopeRuntimeLive, Label: label, Section: section, Apply: "Applied immediately"}
+}
+
+func runtimeReload(label, section string) FieldMetadata {
+	return FieldMetadata{Scope: config.ConfigScopeRuntimeReload, Label: label, Section: section, Apply: "Applies after reconnect"}
+}
+
+func nextRunOnly(label, section string) FieldMetadata {
+	return FieldMetadata{Scope: config.ConfigScopeNextRunOnly, Label: label, Section: section, Apply: "Applies to new runs only"}
+}
+
+func bootstrapOnly(label, section string) FieldMetadata {
+	return FieldMetadata{Scope: config.ConfigScopeBootstrapOnly, Label: label, Section: section, Apply: "Requires service restart"}
+}
+
 func BuildResponse(cfg config.Config, envFilePath string) map[string]interface{} {
 	return map[string]interface{}{
+		"log_level":                         cfg.LogLevel,
+		"log_format":                        cfg.LogFormat,
+		"environment":                       cfg.Environment,
+		"public_url":                        cfg.PublicURL,
+		"notification_mail_logo_url":        cfg.NotificationMailLogoURL,
+		"notification_mail_website_url":     cfg.NotificationMailWebsiteURL,
+		"notification_mail_support_url":     cfg.NotificationMailSupportURL,
+		"notification_mail_footer_address":  cfg.NotificationMailFooterAddress,
+		"require_production_gates":          cfg.RequireProductionGates,
 		"agent_nopsai_api_url":              cfg.AgentNopsaiAPIURL,
 		"git_bot_nopsai_api_url":            cfg.GitBotNopsaiAPIURL,
 		"nopsai_git_bot_api_url":            cfg.NopsaiGitBotAPIURL,
@@ -35,6 +104,7 @@ func BuildResponse(cfg config.Config, envFilePath string) map[string]interface{}
 		"limits":                            cfg.Limits,
 		"runtime_pools":                     config.NormalizeRuntimePools(cfg.RuntimePools),
 		"env_file_path":                     envFilePath,
+		"field_metadata":                    FieldMetadataByKey,
 	}
 }
 

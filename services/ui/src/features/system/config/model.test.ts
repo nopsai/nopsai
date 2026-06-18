@@ -2,12 +2,17 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { normalizeSystemConfigPayload, systemConfigPayloadFromForm } from './model.js';
 
-function hasOwn(value: object, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(value, key);
-}
-
-test('normalizes system runtime config without GitHub App UI ownership', () => {
-  const { config, envFilePath } = normalizeSystemConfigPayload({
+test('normalizes system runtime config with GitHub App UI ownership', () => {
+  const { config, envFilePath, fieldMetadata } = normalizeSystemConfigPayload({
+    log_level: 'info',
+    log_format: 'json',
+    environment: 'production',
+    public_url: 'https://nopsai.example.com',
+    notification_mail_logo_url: 'https://cdn.example.com/logo.png',
+    notification_mail_website_url: 'https://example.com',
+    notification_mail_support_url: 'https://support.example.com',
+    notification_mail_footer_address: 'Example Corp',
+    require_production_gates: true,
     agent_image: 'nopsai-agent:test',
     docker_network_name: 'nopsai-net',
     default_pipeline_timeout: '30m',
@@ -26,23 +31,41 @@ test('normalizes system runtime config without GitHub App UI ownership', () => {
     github_installation_id: '987654',
     github_private_key_credential_ref: 'credential://system/github/app-private-key',
     github_webhook_credential_ref: 'credential://system/github/webhook-secret',
+    field_metadata: {
+      log_level: { scope: 'runtime_live', label: 'Log level', section: 'General', apply: 'Applied immediately' },
+      agent_image: { scope: 'next_run_only', label: 'Agent image', section: 'Runtime', apply: 'Applies to new runs only' },
+    },
   });
 
   assert.equal(envFilePath, '.env');
+  assert.equal(config.log_level, 'info');
+  assert.equal(config.public_url, 'https://nopsai.example.com');
+  assert.equal(config.require_production_gates, true);
+  assert.equal(config.github_app_id, '123456');
+  assert.equal(config.github_installation_id, '987654');
+  assert.equal(config.github_private_key_credential_ref, 'credential://system/github/app-private-key');
+  assert.equal(config.github_webhook_credential_ref, 'credential://system/github/webhook-secret');
   assert.equal(config.runner_capacity, '2');
   assert.deepEqual(config.dispatcher_routing, { '*': ['runner-general'], prod: ['runner-prod'] });
-  assert.equal(hasOwn(config, 'github_app_id'), false);
+  assert.equal(fieldMetadata.log_level.apply, 'Applied immediately');
 
   const payload = systemConfigPayloadFromForm({
     ...config,
+    public_url: ' https://nopsai.prod.example.com ',
     agent_image: ' nopsai-agent:prod ',
+    github_app_id: ' 654321 ',
+    github_installation_id: ' 456789 ',
+    github_private_key_credential_ref: ' credential://system/github/prod-private-key ',
+    github_webhook_credential_ref: ' credential://system/github/prod-webhook-secret ',
     runner_capacity: '3',
   });
 
+  assert.equal(payload.public_url, 'https://nopsai.prod.example.com');
+  assert.equal(payload.require_production_gates, true);
   assert.equal(payload.agent_image, 'nopsai-agent:prod');
+  assert.equal(payload.github_app_id, '654321');
+  assert.equal(payload.github_installation_id, '456789');
+  assert.equal(payload.github_private_key_credential_ref, 'credential://system/github/prod-private-key');
+  assert.equal(payload.github_webhook_credential_ref, 'credential://system/github/prod-webhook-secret');
   assert.equal(payload.runner_capacity, 3);
-  assert.equal(hasOwn(payload, 'github_app_id'), false);
-  assert.equal(hasOwn(payload, 'github_installation_id'), false);
-  assert.equal(hasOwn(payload, 'github_private_key_credential_ref'), false);
-  assert.equal(hasOwn(payload, 'github_webhook_credential_ref'), false);
 });

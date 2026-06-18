@@ -14,6 +14,17 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const runtimeSettingsGitOpsPath = "system/runner.yaml"
+
+var runtimeSettingsForbiddenGitHubKeys = []string{
+	"git_bot_nopsai_api_url",
+	"nopsai_git_bot_api_url",
+	"github_app_id",
+	"github_installation_id",
+	"github_private_key_credential_ref",
+	"github_webhook_credential_ref",
+}
+
 type gitOpsRuntimeSettingsDirectory struct {
 	root  string
 	files map[string]string
@@ -30,27 +41,35 @@ type gitOpsRuntimeSettingsPlan struct {
 }
 
 type runtimeSettingsGitOpsFile struct {
-	AgentNopsaiAPIURL         *string                       `json:"agent_nopsai_api_url" yaml:"agent_nopsai_api_url,omitempty"`
-	GitBotNopsaiAPIURL        *string                       `json:"git_bot_nopsai_api_url" yaml:"git_bot_nopsai_api_url,omitempty"`
-	NopsaiGitBotAPIURL        *string                       `json:"nopsai_git_bot_api_url" yaml:"nopsai_git_bot_api_url,omitempty"`
-	DispatcherAddress         *string                       `json:"dispatcher_address" yaml:"dispatcher_address,omitempty"`
-	AgentImage                *string                       `json:"agent_image" yaml:"agent_image,omitempty"`
-	DockerNetworkName         *string                       `json:"docker_network_name" yaml:"docker_network_name,omitempty"`
-	AutoRemovalAgentContainer *bool                         `json:"auto_removal_agent_container" yaml:"auto_removal_agent_container,omitempty"`
-	DefaultPipelineTimeout    *string                       `json:"default_pipeline_timeout" yaml:"default_pipeline_timeout,omitempty"`
-	LLMAgentTimeout           *string                       `json:"llm_agent_timeout" yaml:"llm_agent_timeout,omitempty"`
-	DispatcherRouting         map[string][]string           `json:"dispatcher_routing" yaml:"dispatcher_routing,omitempty"`
-	RunnerID                  *string                       `json:"runner_id" yaml:"runner_id,omitempty"`
-	RunnerScopes              *string                       `json:"runner_scopes" yaml:"runner_scopes,omitempty"`
-	RunnerCapacity            *int                          `json:"runner_capacity" yaml:"runner_capacity,omitempty"`
-	GitHubAppID               *string                       `json:"github_app_id" yaml:"github_app_id,omitempty"`
-	GitHubInstallationID      *string                       `json:"github_installation_id" yaml:"github_installation_id,omitempty"`
-	GitHubPrivateKeyRef       *string                       `json:"github_private_key_credential_ref" yaml:"github_private_key_credential_ref,omitempty"`
-	GitHubWebhookRef          *string                       `json:"github_webhook_credential_ref" yaml:"github_webhook_credential_ref,omitempty"`
-	Runtime                   *string                       `json:"runtime" yaml:"runtime,omitempty"`
-	Kubernetes                *config.KubernetesConfig      `json:"kubernetes" yaml:"kubernetes,omitempty"`
-	Limits                    *config.RunnerLimits          `json:"limits" yaml:"limits,omitempty"`
-	RuntimePools              map[string]config.RuntimePool `json:"runtime_pools" yaml:"runtime_pools,omitempty"`
+	LogLevel                      *string                       `json:"log_level" yaml:"log_level,omitempty"`
+	LogFormat                     *string                       `json:"log_format" yaml:"log_format,omitempty"`
+	Environment                   *string                       `json:"environment" yaml:"environment,omitempty"`
+	PublicURL                     *string                       `json:"public_url" yaml:"public_url,omitempty"`
+	NotificationMailLogoURL       *string                       `json:"notification_mail_logo_url" yaml:"notification_mail_logo_url,omitempty"`
+	NotificationMailWebsiteURL    *string                       `json:"notification_mail_website_url" yaml:"notification_mail_website_url,omitempty"`
+	NotificationMailSupportURL    *string                       `json:"notification_mail_support_url" yaml:"notification_mail_support_url,omitempty"`
+	NotificationMailFooterAddress *string                       `json:"notification_mail_footer_address" yaml:"notification_mail_footer_address,omitempty"`
+	RequireProductionGates        *bool                         `json:"require_production_gates" yaml:"require_production_gates,omitempty"`
+	AgentNopsaiAPIURL             *string                       `json:"agent_nopsai_api_url" yaml:"agent_nopsai_api_url,omitempty"`
+	DispatcherAddress             *string                       `json:"dispatcher_address" yaml:"dispatcher_address,omitempty"`
+	AgentImage                    *string                       `json:"agent_image" yaml:"agent_image,omitempty"`
+	DockerNetworkName             *string                       `json:"docker_network_name" yaml:"docker_network_name,omitempty"`
+	AutoRemovalAgentContainer     *bool                         `json:"auto_removal_agent_container" yaml:"auto_removal_agent_container,omitempty"`
+	DefaultPipelineTimeout        *string                       `json:"default_pipeline_timeout" yaml:"default_pipeline_timeout,omitempty"`
+	LLMAgentTimeout               *string                       `json:"llm_agent_timeout" yaml:"llm_agent_timeout,omitempty"`
+	DispatcherRouting             map[string][]string           `json:"dispatcher_routing" yaml:"dispatcher_routing,omitempty"`
+	RunnerID                      *string                       `json:"runner_id" yaml:"runner_id,omitempty"`
+	RunnerScopes                  *string                       `json:"runner_scopes" yaml:"runner_scopes,omitempty"`
+	RunnerCapacity                *int                          `json:"runner_capacity" yaml:"runner_capacity,omitempty"`
+	Runtime                       *string                       `json:"runtime" yaml:"runtime,omitempty"`
+	Kubernetes                    *config.KubernetesConfig      `json:"kubernetes" yaml:"kubernetes,omitempty"`
+	Limits                        *config.RunnerLimits          `json:"limits" yaml:"limits,omitempty"`
+	RuntimePools                  map[string]config.RuntimePool `json:"runtime_pools" yaml:"runtime_pools,omitempty"`
+}
+
+type runtimeSettingsSnapshotFile struct {
+	runtimeSettingsGitOpsFile `yaml:",inline"`
+	githubSettingsGitOpsFile  `yaml:",inline"`
 }
 
 func parseGitOpsRuntimeSettingsPlan(binding models.ConfigRepository, directories ...gitOpsRuntimeSettingsDirectory) (*gitOpsRuntimeSettingsPlan, error) {
@@ -89,36 +108,49 @@ func parseGitOpsRuntimeSettingsPlan(binding models.ConfigRepository, directories
 }
 
 func isGitOpsRuntimeSettingsRelativePath(rel string) bool {
-	return strings.Trim(filepath.ToSlash(rel), "/") == "system/runner.yaml"
+	return strings.Trim(filepath.ToSlash(rel), "/") == runtimeSettingsGitOpsPath
 }
 
 func parseGitOpsRuntimeSettingsFile(content, sourcePath string) (*gitOpsRuntimeSettingsPlan, error) {
+	var raw map[string]any
+	if err := yaml.Unmarshal([]byte(content), &raw); err != nil {
+		return nil, fmt.Errorf("failed to parse runtime settings GitOps file '%s': %w", sourcePath, err)
+	}
+	for _, key := range runtimeSettingsForbiddenGitHubKeys {
+		if _, exists := raw[key]; exists {
+			return nil, fmt.Errorf("runtime settings GitOps file '%s' contains GitHub setting %q; move GitHub settings to setting/system/github.yaml", sourcePath, key)
+		}
+	}
+
 	var file runtimeSettingsGitOpsFile
 	if err := yaml.Unmarshal([]byte(content), &file); err != nil {
 		return nil, fmt.Errorf("failed to parse runtime settings GitOps file '%s': %w", sourcePath, err)
 	}
 	payload := systemConfigPayload{
-		AgentNopsaiAPIURL:         file.AgentNopsaiAPIURL,
-		GitBotNopsaiAPIURL:        file.GitBotNopsaiAPIURL,
-		NopsaiGitBotAPIURL:        file.NopsaiGitBotAPIURL,
-		DispatcherAddress:         file.DispatcherAddress,
-		AgentImage:                file.AgentImage,
-		DockerNetworkName:         file.DockerNetworkName,
-		AutoRemovalAgentContainer: file.AutoRemovalAgentContainer,
-		DefaultPipelineTimeout:    file.DefaultPipelineTimeout,
-		LLMAgentTimeout:           file.LLMAgentTimeout,
-		DispatcherRouting:         file.DispatcherRouting,
-		RunnerID:                  file.RunnerID,
-		RunnerScopes:              file.RunnerScopes,
-		RunnerCapacity:            file.RunnerCapacity,
-		GitHubAppID:               file.GitHubAppID,
-		GitHubInstallationID:      file.GitHubInstallationID,
-		GitHubPrivateKeyRef:       file.GitHubPrivateKeyRef,
-		GitHubWebhookRef:          file.GitHubWebhookRef,
-		Runtime:                   file.Runtime,
-		Kubernetes:                file.Kubernetes,
-		Limits:                    file.Limits,
-		RuntimePools:              file.RuntimePools,
+		LogLevel:                      file.LogLevel,
+		LogFormat:                     file.LogFormat,
+		Environment:                   file.Environment,
+		PublicURL:                     file.PublicURL,
+		NotificationMailLogoURL:       file.NotificationMailLogoURL,
+		NotificationMailWebsiteURL:    file.NotificationMailWebsiteURL,
+		NotificationMailSupportURL:    file.NotificationMailSupportURL,
+		NotificationMailFooterAddress: file.NotificationMailFooterAddress,
+		RequireProductionGates:        file.RequireProductionGates,
+		AgentNopsaiAPIURL:             file.AgentNopsaiAPIURL,
+		DispatcherAddress:             file.DispatcherAddress,
+		AgentImage:                    file.AgentImage,
+		DockerNetworkName:             file.DockerNetworkName,
+		AutoRemovalAgentContainer:     file.AutoRemovalAgentContainer,
+		DefaultPipelineTimeout:        file.DefaultPipelineTimeout,
+		LLMAgentTimeout:               file.LLMAgentTimeout,
+		DispatcherRouting:             file.DispatcherRouting,
+		RunnerID:                      file.RunnerID,
+		RunnerScopes:                  file.RunnerScopes,
+		RunnerCapacity:                file.RunnerCapacity,
+		Runtime:                       file.Runtime,
+		Kubernetes:                    file.Kubernetes,
+		Limits:                        file.Limits,
+		RuntimePools:                  file.RuntimePools,
 	}
 	if payload.RunnerCapacity != nil && *payload.RunnerCapacity <= 0 {
 		return nil, fmt.Errorf("runtime settings GitOps file '%s' has invalid runner_capacity", sourcePath)
@@ -137,27 +169,37 @@ func buildRuntimeSettingsGitOpsFile(cfg config.Config) runtimeSettingsGitOpsFile
 		runnerCapacity = 1
 	}
 	return runtimeSettingsGitOpsFile{
-		AgentNopsaiAPIURL:         stringPtr(cfg.AgentNopsaiAPIURL),
-		GitBotNopsaiAPIURL:        stringPtr(cfg.GitBotNopsaiAPIURL),
-		NopsaiGitBotAPIURL:        stringPtr(cfg.NopsaiGitBotAPIURL),
-		DispatcherAddress:         stringPtr(cfg.DispatcherAddress),
-		AgentImage:                stringPtr(cfg.AgentImage),
-		DockerNetworkName:         stringPtr(cfg.DockerNetworkName),
-		AutoRemovalAgentContainer: boolPtr(cfg.AutoRemovalAgentContainer),
-		DefaultPipelineTimeout:    stringPtr(cfg.DefaultPipelineTimeout),
-		LLMAgentTimeout:           stringPtr(cfg.LLMAgentTimeout),
-		DispatcherRouting:         systemconfig.CloneDispatcherRouting(cfg.DispatcherRouting),
-		RunnerID:                  stringPtr(cfg.RunnerID),
-		RunnerScopes:              stringPtr(cfg.RunnerScopes),
-		RunnerCapacity:            intPtr(runnerCapacity),
-		GitHubAppID:               stringPtr(cfg.GitHubAppID),
-		GitHubInstallationID:      stringPtr(cfg.GitHubInstallID),
-		GitHubPrivateKeyRef:       stringPtr(cfg.GitHubPrivateKeyCredentialRef),
-		GitHubWebhookRef:          stringPtr(cfg.GitHubWebhookCredentialRef),
-		Runtime:                   stringPtr(config.NormalizeRuntime(cfg.Runtime)),
-		Kubernetes:                kubernetesConfigPtr(config.NormalizeKubernetesConfig(cfg.Kubernetes)),
-		Limits:                    runnerLimitsPtr(cfg.Limits),
-		RuntimePools:              config.NormalizeRuntimePools(cfg.RuntimePools),
+		LogLevel:                      stringPtr(cfg.LogLevel),
+		LogFormat:                     stringPtr(cfg.LogFormat),
+		Environment:                   stringPtr(cfg.Environment),
+		PublicURL:                     stringPtr(cfg.PublicURL),
+		NotificationMailLogoURL:       stringPtr(cfg.NotificationMailLogoURL),
+		NotificationMailWebsiteURL:    stringPtr(cfg.NotificationMailWebsiteURL),
+		NotificationMailSupportURL:    stringPtr(cfg.NotificationMailSupportURL),
+		NotificationMailFooterAddress: stringPtr(cfg.NotificationMailFooterAddress),
+		RequireProductionGates:        boolPtr(cfg.RequireProductionGates),
+		AgentNopsaiAPIURL:             stringPtr(cfg.AgentNopsaiAPIURL),
+		DispatcherAddress:             stringPtr(cfg.DispatcherAddress),
+		AgentImage:                    stringPtr(cfg.AgentImage),
+		DockerNetworkName:             stringPtr(cfg.DockerNetworkName),
+		AutoRemovalAgentContainer:     boolPtr(cfg.AutoRemovalAgentContainer),
+		DefaultPipelineTimeout:        stringPtr(cfg.DefaultPipelineTimeout),
+		LLMAgentTimeout:               stringPtr(cfg.LLMAgentTimeout),
+		DispatcherRouting:             systemconfig.CloneDispatcherRouting(cfg.DispatcherRouting),
+		RunnerID:                      stringPtr(cfg.RunnerID),
+		RunnerScopes:                  stringPtr(cfg.RunnerScopes),
+		RunnerCapacity:                intPtr(runnerCapacity),
+		Runtime:                       stringPtr(config.NormalizeRuntime(cfg.Runtime)),
+		Kubernetes:                    kubernetesConfigPtr(config.NormalizeKubernetesConfig(cfg.Kubernetes)),
+		Limits:                        runnerLimitsPtr(cfg.Limits),
+		RuntimePools:                  config.NormalizeRuntimePools(cfg.RuntimePools),
+	}
+}
+
+func buildRuntimeSettingsSnapshotFile(cfg config.Config) runtimeSettingsSnapshotFile {
+	return runtimeSettingsSnapshotFile{
+		runtimeSettingsGitOpsFile: buildRuntimeSettingsGitOpsFile(cfg),
+		githubSettingsGitOpsFile:  buildGitHubSettingsGitOpsFile(cfg),
 	}
 }
 

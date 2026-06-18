@@ -9,8 +9,10 @@ Use one credential model:
 - Store all operational integration credentials in one encrypted, versioned
   database-backed credential registry.
 - Expose one `CredentialResolver` interface to every credential consumer.
-- Store credential references, never plaintext values, in GitOps-managed
-  configuration.
+- Store credential references, never plaintext values, in feature-specific
+  GitOps configuration.
+- Store encrypted credential envelopes in `setting/system/credentials.yaml`
+  when GitOps should be the source of truth for credential versions.
 - Resolve credentials only for the service and purpose that need them.
 - Do not support environment-variable credential references, automatic
   precedence rules, or per-integration storage choices.
@@ -63,7 +65,10 @@ models explicit.
 - purpose-bound resolution for Git webhook source HMAC and static-token secrets
 - authenticated and encrypted `nopsai` to `git-bot` credential bootstrap
 - controlled one-time import and scrubbing of legacy database/config values
-- GitOps references that create pending metadata without storing values
+- GitOps references that create pending metadata when no encrypted value is
+  present
+- GitOps import/export of encrypted credential envelopes in
+  `setting/system/credentials.yaml`
 
 ## Bootstrap Boundary
 
@@ -155,8 +160,15 @@ Deleting a credential is blocked while an integration still references it.
 
 ## GitOps Contract
 
-GitOps owns integration configuration and credential metadata, not secret
-values.
+GitOps has two layers:
+
+- Feature files own integration configuration and stable credential references.
+- `setting/system/credentials.yaml` owns encrypted credential envelopes when
+  credential values should be promoted through GitOps.
+
+GitOps never stores or exports plaintext secret values. The credential envelope
+is instance-encrypted; it can be restored directly only with the matching
+encryption root or after being re-encrypted for the target environment.
 
 Example LLM profile:
 
@@ -183,17 +195,22 @@ smtp:
 
 Sync behavior:
 
-- create missing credential metadata as `pending`
-- preserve locally managed credential versions
+- create missing credential metadata as `pending` when a feature file references
+  a credential but `credentials.yaml` does not provide an active encrypted
+  version
+- import encrypted versions from `setting/system/credentials.yaml` without
+  decrypting or re-encrypting during sync
+- export encrypted versions to `setting/system/credentials.yaml` during config
+  repository drift/export
 - report unresolved or disabled references as drift/status errors
-- never export plaintext or ciphertext through normal GitOps push
-- prune a credential only when it is no longer referenced and policy explicitly
-  permits destructive pruning
+- never export plaintext through API responses, runtime snapshots, support
+  bundles, or GitOps feature files
+- when `setting/system/credentials.yaml` is present, prune credentials managed
+  by the same config repository that are removed from that file
 
 Instance-encrypted values in scope files can remain supported for pipeline
-secrets. They should not become the default system-credential GitOps model
-because they are tied to one NopsAI encryption root and are awkward to promote
-between environments.
+secrets. System credentials use `setting/system/credentials.yaml` instead so
+the registry, UI, drift, and config sync share one source-of-truth model.
 
 ## AAA And Audit
 
@@ -271,8 +288,8 @@ Keep the implementation separated:
 - AAA action/resource mapping:
   `services/nopsai/pkg/routeauthz` and `services/aaa/pkg/model`
 - GitOps parsing and reconciliation:
-  feature-local credential reference fields plus a focused credential metadata
-  plan
+  feature-local credential reference fields plus
+  `services/nopsai/credentials_gitops.go`
 - UI API/model/hook/rendering:
   separate files under `services/ui/src/features/system/credentials`
 
@@ -306,7 +323,8 @@ environment variables, database columns, or private-key files.
 - API tests proving values are never returned
 - AAA tests for default deny, human administration, and service-only use
 - audit tests proving no secret material is recorded
-- GitOps tests for pending metadata, value preservation, drift, and no export
+- GitOps tests for pending metadata, encrypted envelope import/export, value
+  preservation, drift, and plaintext non-disclosure
 - integration tests for OIDC, SMTP, LLM, MCP, and GitHub consumers
 - migration tests for existing plaintext OIDC records and explicit failure when
   credential references are unresolved
@@ -319,7 +337,8 @@ environment variables, database columns, or private-key files.
 - metrics for unresolved, expired, failed, and recently rotated credentials
 - startup and readiness status without exposing secret material
 - rate limits and step-up authentication for credential administration
-- no secret values in support bundles, config exports, or GitOps diffs
+- no plaintext secret values in support bundles, API config exports, runtime
+  snapshots, or GitOps diffs
 
 ## References
 

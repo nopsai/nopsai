@@ -268,4 +268,6 @@ The agent uses it only to build persona text for prompts.
 
 There is no fallback to provider-specific environment variables. NopsAI
 resolves `credential_ref` through the encrypted registry and delivers only the
-selected run credentials to the agent.
+selected run credentials to the agent. GitOps profile files store only
+credential references; encrypted credential versions can be managed in
+`setting/system/credentials.yaml`.

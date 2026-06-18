@@ -56,9 +56,9 @@ check covers pipelines, reusable steps, schedules, trigger manifests, Git
 webhook sources, scopes,
 knowledge contexts, run group/config-repository structure, notification routes,
 access manifests, Agent Profiles, LLM profiles, MCP registry files, auth
-settings, mail settings, and runtime settings. Pipeline run records
-themselves are runtime audit state, so they are not exported as Git-owned
-objects. For pipeline, reusable step, scope, and knowledge context Access dialog
+settings, mail settings, runtime settings, and encrypted credential envelopes.
+Pipeline run records themselves are runtime audit state, so they are not
+exported as Git-owned objects. For pipeline, reusable step, scope, and knowledge context Access dialog
 changes, the generated diff updates the embedded `access:` block in that
 resource file so the change can be pushed to the configured review branch.
 After the pushed files are merged into the sync branch, config sync may adopt
@@ -90,7 +90,7 @@ scopes/                Scope variable and secret key files
 knowledge/             Managed knowledge context markdown documents
 config-repositories/   Group config repo bindings, group structure, and colocated notifications
 access/                Users, service accounts, advanced roles, policies, and basic role grants
-setting/               System settings such as auth, mail, Agent Profiles, LLM, MCP, and runtime settings
+setting/               System settings such as auth, mail, Agent Profiles, LLM, MCP, runtime settings, and encrypted credentials
 ```
 
 Scope files use separate `variables:` and `secrets:` sections. Variables must be
@@ -190,11 +190,17 @@ global-repo/setting/system/mcp.yaml
 global-repo/setting/system/auth.yaml
   -> local-login and OIDC SSO settings
 
+global-repo/setting/system/github.yaml
+  -> GitHub App IDs, credential references, and git-bot URLs
+
 global-repo/setting/system/runner.yaml
   -> runner install defaults and dispatcher runtime routing
 
 global-repo/setting/system/mail.yaml
-  -> SMTP mail notification settings with a password secret reference
+  -> SMTP mail notification settings with a password credential reference
+
+global-repo/setting/system/credentials.example.yaml
+  -> documentation-only example of encrypted credential envelopes; drift export writes the active credentials.yaml
 ```
 
 The `webhook-deployer` and `servicenow-prod` service accounts are intentionally
@@ -214,8 +220,10 @@ runtime secrets and are not exported.
 
 The GitLab source references
 `credential://system/webhooks/gitlab-platform`. Config sync creates pending
-credential metadata when needed, but an operator must write the token value in
-**System > Credentials** before enabling provider delivery.
+credential metadata when needed. Store the encrypted token envelope through
+**System > Credentials** or by committing a real
+`setting/system/credentials.yaml` exported from this NopsAI instance before
+enabling provider delivery.
 
 ## SSO settings
 
@@ -243,9 +251,10 @@ oidc:
       allowed_email_domains: ["example.com"]
 ```
 
-GitOps stores credential references, not provider values. Create referenced
-values in **System > Credentials**; sync creates missing metadata in `pending`
-state and preserves locally managed versions.
+GitOps feature files store credential references, not provider plaintext.
+Create referenced values in **System > Credentials** or sync encrypted versions
+from `setting/system/credentials.yaml`; sync creates missing metadata in
+`pending` state when no encrypted value is present.
 
 SSO-managed users are intentionally excluded from access GitOps. Export and
 drift skip linked OIDC users, raw `oidc:*` user subjects, and provider-managed
@@ -257,7 +266,7 @@ local grants; use `setting/system/auth.yaml` for the SSO provider settings.
 
 A system/global config repo can define runner and dispatcher runtime settings in
 one file. The canonical path is `setting/system/runner.yaml`; `runner.yaml` is
-the only accepted settings file name for this GitOps surface.
+the only accepted settings file name for this runner/dispatcher GitOps surface.
 
 ```yaml
 dispatcher_address: dispatcher:9090
@@ -290,18 +299,43 @@ alongside every scope-specific route and also covers scopes without an explicit
 entry. Changes to `dispatcher_routing` are written to runtime config and exposed
 through the protected internal control-plane endpoint that the dispatcher polls,
 so new scheduling decisions can use the updated table without a restart.
-Runtime settings are persisted in the database when synced, then mirrored to
-`config.yml` and `.env` only when those files are writable. On NopsAI restart,
-the persisted database snapshot is loaded before connecting to the dispatcher,
-so a GitOps-synced runner file remains effective without manually syncing again.
+Runtime settings are persisted in the database when synced. `config.yml`,
+`.env`, Docker Compose, and deployment secrets are bootstrap inputs only. On
+NopsAI restart, the persisted database snapshot is loaded before connecting to
+the dispatcher, so a GitOps-synced runner file remains effective without
+manually syncing again. Services can read versioned snapshots from
+`/internal/v1/runtime-config/{service}` and long-poll
+`/internal/v1/runtime-config/{service}/watch?version=<n>`.
+
+## GitHub App settings
+
+A system/global config repo can define GitHub App and git-bot runtime settings
+in `setting/system/github.yaml`:
+
+```yaml
+git_bot_nopsai_api_url: http://nopsai:8080
+nopsai_git_bot_api_url: http://git-bot:8081
+
+github_app_id: "123456"
+github_installation_id: "987654"
+github_private_key_credential_ref: credential://system/github/app-private-key
+github_webhook_credential_ref: credential://system/github/webhook-secret
+```
+
+The GitHub file stores only stable IDs, internal service URLs, and credential
+references. Store encrypted private-key and webhook-secret versions in
+`setting/system/credentials.yaml` or through **System > Credentials**. These
+GitHub settings are not accepted from `setting/system/runner.yaml`.
 
 Keep bootstrap values out of GitOps. Database URLs, master keys, and service JWT
 signing keys stay in deployment secrets. Operational integration credentials
-use the encrypted registry and are referenced from GitOps.
+use the encrypted registry, are referenced from feature GitOps files, and can be
+stored as encrypted envelopes in `setting/system/credentials.yaml`.
 
 System mail notification settings live in `setting/system/mail.yaml`. The SMTP
-password value is not stored in GitOps; `smtp.password_credential_ref` names a
-write-only encrypted registry entry.
+password plaintext is not stored in the mail file; `smtp.password_credential_ref`
+names an encrypted registry entry that can be managed through
+`setting/system/credentials.yaml`.
 
 ```yaml
 enabled: true

@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState, type ChangeEvent, type Dispatch, type FormEvent, type SetStateAction } from 'react';
 import { Mail, Plus, Save, Send, Trash2 } from 'lucide-react';
 import type {
+  ConfigFieldMetadata,
   ConfigFormState,
   ConfigRepository,
   ConfigRepositoryFormState,
   NotificationMailSettingsFormState,
   NotificationMailSettingsRecord,
 } from './config/model';
+import { ApplyBadge } from './config/ConfigApplyBadge';
+import GitHubAppSettingsCard from './config/GitHubAppSettingsCard';
 
 type RoutingDraftRow = {
   localId: string;
@@ -18,6 +21,7 @@ type RoutingDraftRow = {
 function SystemConfig({
   config,
   envFilePath,
+  fieldMetadata,
   configError,
   configLoading,
   saving,
@@ -53,6 +57,7 @@ function SystemConfig({
 }: {
   config: ConfigFormState;
   envFilePath: string;
+  fieldMetadata: Record<string, ConfigFieldMetadata>;
   configError: string | null;
   configLoading: boolean;
   saving: boolean;
@@ -103,10 +108,17 @@ function SystemConfig({
   const routingRowSeq = useRef(0);
   const [routingRows, setRoutingRows] = useState<RoutingDraftRow[]>([]);
 
-  const handleChange = (key: keyof ConfigFormState) => (event: ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (key: keyof ConfigFormState) => (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
     onChange({ ...config, [key]: value } as ConfigFormState);
   };
+
+  const labelWithApply = (label: string, key: keyof ConfigFormState) => (
+    <span className="flex flex-wrap items-center gap-2">
+      <span>{label}</span>
+      <ApplyBadge metadata={fieldMetadata[key]} />
+    </span>
+  );
 
   const handleMailChange = (key: keyof NotificationMailSettingsFormState) => (event: ChangeEvent<HTMLInputElement>) => {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
@@ -178,12 +190,136 @@ function SystemConfig({
       <form id="system-config-form" className="space-y-4 lg:col-span-2" onSubmit={onSubmit}>
         <div className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
           <div>
+            <p className="text-xs text-[var(--text-secondary)]">General</p>
+            <h3 className="text-lg font-semibold text-[var(--text-primary)]">Control plane defaults</h3>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <label className="flex flex-col gap-1 text-sm">
+              {labelWithApply('Log level', 'log_level')}
+              <select
+                id="system-log-level"
+                className="pipelines-input"
+                value={config.log_level}
+                onChange={handleChange('log_level')}
+                disabled={!canManageRuntimeConfig || configLoading || saving}
+              >
+                <option value="">Default</option>
+                <option value="debug">debug</option>
+                <option value="info">info</option>
+                <option value="warn">warn</option>
+                <option value="error">error</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              {labelWithApply('Log format', 'log_format')}
+              <select
+                id="system-log-format"
+                className="pipelines-input"
+                value={config.log_format}
+                onChange={handleChange('log_format')}
+                disabled={!canManageRuntimeConfig || configLoading || saving}
+              >
+                <option value="">Default</option>
+                <option value="json">json</option>
+                <option value="console">console</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              {labelWithApply('Environment', 'environment')}
+              <select
+                id="system-environment"
+                className="pipelines-input"
+                value={config.environment}
+                onChange={handleChange('environment')}
+                disabled={!canManageRuntimeConfig || configLoading || saving}
+              >
+                <option value="">Default</option>
+                <option value="development">development</option>
+                <option value="staging">staging</option>
+                <option value="production">production</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              {labelWithApply('Public URL', 'public_url')}
+              <input
+                id="system-public-url"
+                type="url"
+                className="pipelines-input"
+                value={config.public_url}
+                onChange={handleChange('public_url')}
+                placeholder="https://nopsai.example.com"
+                disabled={!canManageRuntimeConfig || configLoading || saving}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              {labelWithApply('Mail logo URL', 'notification_mail_logo_url')}
+              <input
+                id="system-mail-logo-url"
+                type="url"
+                className="pipelines-input"
+                value={config.notification_mail_logo_url}
+                onChange={handleChange('notification_mail_logo_url')}
+                placeholder="https://cdn.example.com/logo.png"
+                disabled={!canManageRuntimeConfig || configLoading || saving}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              {labelWithApply('Mail website URL', 'notification_mail_website_url')}
+              <input
+                id="system-mail-website-url"
+                type="url"
+                className="pipelines-input"
+                value={config.notification_mail_website_url}
+                onChange={handleChange('notification_mail_website_url')}
+                placeholder="https://example.com"
+                disabled={!canManageRuntimeConfig || configLoading || saving}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              {labelWithApply('Mail support URL', 'notification_mail_support_url')}
+              <input
+                id="system-mail-support-url"
+                type="url"
+                className="pipelines-input"
+                value={config.notification_mail_support_url}
+                onChange={handleChange('notification_mail_support_url')}
+                placeholder="https://support.example.com"
+                disabled={!canManageRuntimeConfig || configLoading || saving}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              {labelWithApply('Mail footer address', 'notification_mail_footer_address')}
+              <input
+                id="system-mail-footer-address"
+                type="text"
+                className="pipelines-input"
+                value={config.notification_mail_footer_address}
+                onChange={handleChange('notification_mail_footer_address')}
+                placeholder="Example Corp"
+                disabled={!canManageRuntimeConfig || configLoading || saving}
+              />
+            </label>
+            <label className="flex items-center gap-2 text-sm md:col-span-2">
+              <input
+                id="system-require-production-gates"
+                type="checkbox"
+                checked={config.require_production_gates}
+                onChange={handleChange('require_production_gates')}
+                disabled={!canManageRuntimeConfig || configLoading || saving}
+              />
+              {labelWithApply('Require production gates', 'require_production_gates')}
+            </label>
+          </div>
+        </div>
+
+        <div className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
+          <div>
             <p className="text-xs text-[var(--text-secondary)]">Runtime tuning</p>
             <h3 className="text-lg font-semibold text-[var(--text-primary)]">Runners & timeouts</h3>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <label className="flex flex-col gap-1 text-sm">
-              <span>Agent image</span>
+              {labelWithApply('Agent image', 'agent_image')}
               <input
                 id="system-agent-image"
                 type="text"
@@ -195,7 +331,7 @@ function SystemConfig({
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              <span>Docker network name</span>
+              {labelWithApply('Docker network name', 'docker_network_name')}
               <input
                 id="system-docker-network"
                 type="text"
@@ -207,7 +343,7 @@ function SystemConfig({
               />
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                <span>Default pipeline timeout</span>
+                {labelWithApply('Default pipeline timeout', 'default_pipeline_timeout')}
                 <input
                   id="system-default-timeout"
                   type="text"
@@ -219,7 +355,7 @@ function SystemConfig({
                 />
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                <span>LLM agent timeout</span>
+                {labelWithApply('LLM agent timeout', 'llm_agent_timeout')}
                 <input
                   id="system-llm-timeout"
                   type="text"
@@ -231,7 +367,7 @@ function SystemConfig({
                 />
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                <span>Default runner ID</span>
+                {labelWithApply('Default runner ID', 'runner_id')}
                 <input
                   id="system-runner-id"
                   type="text"
@@ -243,7 +379,7 @@ function SystemConfig({
                 />
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                <span>Default runner scopes</span>
+                {labelWithApply('Default runner scopes', 'runner_scopes')}
                 <input
                   id="system-runner-scopes"
                   type="text"
@@ -255,7 +391,7 @@ function SystemConfig({
                 />
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                <span>Default runner capacity</span>
+                {labelWithApply('Default runner capacity', 'runner_capacity')}
                 <input
                   id="system-runner-capacity"
                   type="number"
@@ -275,7 +411,7 @@ function SystemConfig({
                 onChange={handleChange('auto_removal_agent_container')}
                 disabled={!canManageRuntimeConfig || configLoading || saving}
               />
-              <span>Auto-remove agent containers</span>
+              {labelWithApply('Auto-remove agent containers', 'auto_removal_agent_container')}
             </label>
           </div>
         </div>
@@ -287,7 +423,7 @@ function SystemConfig({
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <label className="flex flex-col gap-1 text-sm">
-              <span>Agent ↔ Server API URL</span>
+              {labelWithApply('Agent ↔ Server API URL', 'agent_nopsai_api_url')}
               <input
                 id="system-agent-api"
                 type="text"
@@ -299,7 +435,7 @@ function SystemConfig({
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              <span>GitBot ↔ Server API URL</span>
+              {labelWithApply('GitBot ↔ Server API URL', 'git_bot_nopsai_api_url')}
               <input
                 id="system-gitbot-api"
                 type="text"
@@ -311,7 +447,7 @@ function SystemConfig({
               />
             </label>
             <label className="flex flex-col gap-1 text-sm md:col-span-2">
-              <span>NopsAI ↔ GitBot API URL</span>
+              {labelWithApply('NopsAI ↔ GitBot API URL', 'nopsai_git_bot_api_url')}
               <input
                 id="system-nopsai-gitbot-api"
                 type="text"
@@ -323,7 +459,7 @@ function SystemConfig({
               />
             </label>
             <label className="flex flex-col gap-1 text-sm md:col-span-2">
-              <span>Dispatcher address</span>
+              {labelWithApply('Dispatcher address', 'dispatcher_address')}
               <input
                 id="system-dispatcher-address"
                 type="text"
@@ -336,6 +472,13 @@ function SystemConfig({
             </label>
           </div>
         </div>
+
+        <GitHubAppSettingsCard
+          config={config}
+          fieldMetadata={fieldMetadata}
+          disabled={!canManageRuntimeConfig || configLoading || saving}
+          onChange={onChange}
+        />
 
         <div className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
           <div className="flex items-start justify-between gap-3">
@@ -743,7 +886,6 @@ function SystemConfig({
     </div>
   );
 }
-
 
 function formatTimestamp(value?: string) {
   if (!value) return '—';
