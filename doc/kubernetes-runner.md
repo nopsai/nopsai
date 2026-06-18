@@ -48,6 +48,23 @@ inside the Kubernetes cluster. Docker Compose names such as `http://nopsai:8080`
 work for Docker runners, but Kubernetes runners usually need an externally
 resolvable service DNS name or ingress URL.
 
+The generated runner install commands never expose long-lived secrets directly.
+They download a one-time bootstrap script through the NopsAI HTTP API. When
+the configured `dispatcher_address` is an internal stack name such as
+`dispatcher:9090`, NopsAI derives an external dispatcher endpoint from the
+request host and dispatcher port. For Docker/OrbStack-style service hosts such
+as `nopsai-ui.<env>`, it uses the sibling dispatcher host
+`nopsai-dispatcher.<env>:9090` instead of the UI host. The Dispatcher runner
+install panel also lets operators override the dispatcher address for a single
+generated command without changing the persisted runtime config.
+
+The visible Kubernetes install command downloads and executes that one-time
+script. The script writes the generated manifest to a temporary file, applies
+it, waits for the runner Deployment rollout, and prints recent runner logs. If
+the Deployment does not become ready, it prints pod, deployment, and runner log
+diagnostics so network, image, RBAC, or dispatcher-address problems are visible
+from the same terminal session.
+
 ## Workspace PVCs And Node Locality
 
 By default the runner does not create a standalone PVC itself. It starts the
@@ -159,11 +176,11 @@ value overrides it. Docker runners ignore `runtime_pool`.
 
 ## Installing From The UI
 
-Go to **System > Dispatcher > Runner Deployment Guide** and generate a
-Kubernetes one-time install command. The command downloads a single-use
-manifest token and applies it with `kubectl`, so the long-lived service auth and
-TLS secrets are not printed in the UI. The token expires after 10 minutes and is
-consumed by the first successful download.
+Go to **System > Dispatcher > Runner Installs** and generate a Kubernetes
+one-time install command. The command downloads a single-use install script and
+executes it locally, so the long-lived service auth and TLS secrets are not
+printed in the UI. The token expires after 10 minutes and is consumed by the
+first successful download.
 
 Run the generated command from a workstation or automation host where `kubectl`
 already targets the destination cluster.

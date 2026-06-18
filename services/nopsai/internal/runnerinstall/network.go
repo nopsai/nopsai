@@ -30,6 +30,9 @@ func RequestExternalBaseURL(r *http.Request) string {
 }
 
 func ExternalDispatcherAddress(cfg config.Config, r *http.Request) (string, bool, []string) {
+	if override := requestedDispatcherAddress(r); override != "" {
+		return override, false, []string{"Using the dispatcher address supplied for this runner install. Confirm that endpoint is reachable from the runner host or cluster."}
+	}
 	configured := strings.TrimSpace(cfg.DispatcherAddress)
 	if configured == "" {
 		configured = "localhost:9090"
@@ -43,7 +46,23 @@ func ExternalDispatcherAddress(cfg config.Config, r *http.Request) (string, bool
 	if requestHost == "" {
 		return configured, false, []string{"The dispatcher address could not be adapted because the request host was empty."}
 	}
-	return net.JoinHostPort(requestHost, port), true, nil
+	return net.JoinHostPort(externalDispatcherHost(requestHost), port), true, nil
+}
+
+func requestedDispatcherAddress(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	raw := strings.TrimSpace(r.URL.Query().Get("dispatcher_address"))
+	if raw == "" {
+		return ""
+	}
+	if strings.Contains(raw, "://") {
+		if parsed, err := url.Parse(raw); err == nil && strings.TrimSpace(parsed.Host) != "" {
+			return strings.TrimSpace(parsed.Host)
+		}
+	}
+	return raw
 }
 
 func LooksInternalAddress(raw string) bool {
@@ -62,6 +81,22 @@ func requestHostForExternalAddress(r *http.Request) string {
 		return stripAddressPort(first)
 	}
 	return ""
+}
+
+func externalDispatcherHost(requestHost string) string {
+	host := stripAddressPort(requestHost)
+	parts := strings.Split(host, ".")
+	if len(parts) > 1 {
+		switch parts[0] {
+		case "nopsai-ui":
+			parts[0] = "nopsai-dispatcher"
+			return strings.Join(parts, ".")
+		case "ui":
+			parts[0] = "dispatcher"
+			return strings.Join(parts, ".")
+		}
+	}
+	return host
 }
 
 func addressHost(raw string) string {
