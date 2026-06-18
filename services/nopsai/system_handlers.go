@@ -3,12 +3,11 @@ package nopsai
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
+	"time"
 
 	"nopsai/config"
 	"nopsai/pkg/httpapi"
@@ -18,34 +17,43 @@ import (
 	"nopsai/services/nopsai/internal/systemconfig"
 	"nopsai/services/nopsai/pkg/auth"
 
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
-	"gopkg.in/yaml.v3"
 )
 
 type systemConfigPayload struct {
-	AgentNopsaiAPIURL         *string                       `json:"agent_nopsai_api_url"`
-	GitBotNopsaiAPIURL        *string                       `json:"git_bot_nopsai_api_url"`
-	NopsaiGitBotAPIURL        *string                       `json:"nopsai_git_bot_api_url"`
-	DispatcherAddress         *string                       `json:"dispatcher_address"`
-	AgentImage                *string                       `json:"agent_image"`
-	DockerNetworkName         *string                       `json:"docker_network_name"`
-	AutoRemovalAgentContainer *bool                         `json:"auto_removal_agent_container"`
-	DefaultPipelineTimeout    *string                       `json:"default_pipeline_timeout"`
-	LLMAgentTimeout           *string                       `json:"llm_agent_timeout"`
-	DispatcherRouting         map[string][]string           `json:"dispatcher_routing"`
-	RunnerID                  *string                       `json:"runner_id"`
-	RunnerScopes              *string                       `json:"runner_scopes"`
-	RunnerCapacity            *int                          `json:"runner_capacity"`
-	GitHubAppID               *string                       `json:"github_app_id"`
-	GitHubInstallationID      *string                       `json:"github_installation_id"`
-	GitHubPrivateKeyRef       *string                       `json:"github_private_key_credential_ref"`
-	GitHubWebhookRef          *string                       `json:"github_webhook_credential_ref"`
-	Runtime                   *string                       `json:"runtime"`
-	Kubernetes                *config.KubernetesConfig      `json:"kubernetes"`
-	Limits                    *config.RunnerLimits          `json:"limits"`
-	RuntimePools              map[string]config.RuntimePool `json:"runtime_pools"`
+	LogLevel                      *string                       `json:"log_level"`
+	LogFormat                     *string                       `json:"log_format"`
+	Environment                   *string                       `json:"environment"`
+	PublicURL                     *string                       `json:"public_url"`
+	NotificationMailLogoURL       *string                       `json:"notification_mail_logo_url"`
+	NotificationMailWebsiteURL    *string                       `json:"notification_mail_website_url"`
+	NotificationMailSupportURL    *string                       `json:"notification_mail_support_url"`
+	NotificationMailFooterAddress *string                       `json:"notification_mail_footer_address"`
+	RequireProductionGates        *bool                         `json:"require_production_gates"`
+	AgentNopsaiAPIURL             *string                       `json:"agent_nopsai_api_url"`
+	GitBotNopsaiAPIURL            *string                       `json:"git_bot_nopsai_api_url"`
+	NopsaiGitBotAPIURL            *string                       `json:"nopsai_git_bot_api_url"`
+	DispatcherAddress             *string                       `json:"dispatcher_address"`
+	AgentImage                    *string                       `json:"agent_image"`
+	DockerNetworkName             *string                       `json:"docker_network_name"`
+	AutoRemovalAgentContainer     *bool                         `json:"auto_removal_agent_container"`
+	DefaultPipelineTimeout        *string                       `json:"default_pipeline_timeout"`
+	LLMAgentTimeout               *string                       `json:"llm_agent_timeout"`
+	DispatcherRouting             map[string][]string           `json:"dispatcher_routing"`
+	RunnerID                      *string                       `json:"runner_id"`
+	RunnerScopes                  *string                       `json:"runner_scopes"`
+	RunnerCapacity                *int                          `json:"runner_capacity"`
+	GitHubAppID                   *string                       `json:"github_app_id"`
+	GitHubInstallationID          *string                       `json:"github_installation_id"`
+	GitHubPrivateKeyRef           *string                       `json:"github_private_key_credential_ref"`
+	GitHubWebhookRef              *string                       `json:"github_webhook_credential_ref"`
+	Runtime                       *string                       `json:"runtime"`
+	Kubernetes                    *config.KubernetesConfig      `json:"kubernetes"`
+	Limits                        *config.RunnerLimits          `json:"limits"`
+	RuntimePools                  map[string]config.RuntimePool `json:"runtime_pools"`
 }
 
 func (a *App) applySystemConfig(payload systemConfigPayload) (config.Config, error) {
@@ -54,218 +62,67 @@ func (a *App) applySystemConfig(payload systemConfigPayload) (config.Config, err
 	return applySystemConfigToConfig(a.cfg, payload)
 }
 
-func (a *App) persistSystemConfig(cfg config.Config, payload systemConfigPayload) error {
-	if a.configPath == "" {
-		return nil
-	}
-
-	existing := map[string]interface{}{}
-	if contents, err := os.ReadFile(a.configPath); err == nil {
-		if len(contents) > 0 {
-			if unmarshalErr := yaml.Unmarshal(contents, &existing); unmarshalErr != nil {
-				log.Warn().Err(unmarshalErr).Msg("Failed to parse existing config file; rewriting allowed fields")
-			}
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-
-	if payload.AgentImage != nil {
-		existing["agent_image"] = cfg.AgentImage
-	}
-	if payload.AgentNopsaiAPIURL != nil {
-		existing["agent_nopsai_api_url"] = cfg.AgentNopsaiAPIURL
-	}
-	if payload.GitBotNopsaiAPIURL != nil {
-		existing["git_bot_nopsai_api_url"] = cfg.GitBotNopsaiAPIURL
-	}
-	if payload.NopsaiGitBotAPIURL != nil {
-		existing["nopsai_git_bot_api_url"] = cfg.NopsaiGitBotAPIURL
-	}
-	if payload.DispatcherAddress != nil {
-		existing["dispatcher_address"] = cfg.DispatcherAddress
-	}
-	if payload.DockerNetworkName != nil {
-		existing["docker_network_name"] = cfg.DockerNetworkName
-	}
-	if payload.AutoRemovalAgentContainer != nil {
-		existing["auto_removal_agent_container"] = cfg.AutoRemovalAgentContainer
-	}
-	if payload.DefaultPipelineTimeout != nil {
-		existing["default_pipeline_timeout"] = cfg.DefaultPipelineTimeout
-	}
-	if payload.LLMAgentTimeout != nil {
-		existing["llm_agent_timeout"] = cfg.LLMAgentTimeout
-	}
-	if payload.DispatcherRouting != nil {
-		existing["dispatcher_routing"] = systemconfig.CloneDispatcherRouting(cfg.DispatcherRouting)
-	}
-	if payload.RunnerID != nil {
-		existing["runner_id"] = cfg.RunnerID
-	}
-	if payload.RunnerScopes != nil {
-		existing["runner_scopes"] = cfg.RunnerScopes
-	}
-	if payload.RunnerCapacity != nil {
-		existing["runner_capacity"] = cfg.RunnerCapacity
-	}
-	if payload.GitHubAppID != nil {
-		existing["github_app_id"] = cfg.GitHubAppID
-	}
-	if payload.GitHubInstallationID != nil {
-		existing["github_installation_id"] = cfg.GitHubInstallID
-	}
-	if payload.GitHubPrivateKeyRef != nil {
-		existing["github_private_key_credential_ref"] = cfg.GitHubPrivateKeyCredentialRef
-	}
-	if payload.GitHubWebhookRef != nil {
-		existing["github_webhook_credential_ref"] = cfg.GitHubWebhookCredentialRef
-	}
-	if payload.Runtime != nil {
-		existing["runtime"] = config.NormalizeRuntime(cfg.Runtime)
-	}
-	if payload.Kubernetes != nil {
-		existing["kubernetes"] = config.NormalizeKubernetesConfig(cfg.Kubernetes)
-	}
-	if payload.Limits != nil {
-		existing["limits"] = cfg.Limits
-	}
-	if payload.RuntimePools != nil {
-		existing["runtime_pools"] = config.NormalizeRuntimePools(cfg.RuntimePools)
-	}
-
-	contents, err := yaml.Marshal(existing)
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(a.configPath, contents, 0o644)
-}
-
-func (a *App) persistEnvOverrides(cfg config.Config, payload systemConfigPayload) error {
-	if a.envFilePath == "" {
-		return nil
-	}
-
-	updates := map[string]string{}
-
-	if payload.AgentNopsaiAPIURL != nil {
-		updates["AGENT_NOPSAI_API_URL"] = cfg.AgentNopsaiAPIURL
-	}
-	if payload.GitBotNopsaiAPIURL != nil {
-		updates["GIT_BOT_NOPSAI_API_URL"] = cfg.GitBotNopsaiAPIURL
-	}
-	if payload.NopsaiGitBotAPIURL != nil {
-		updates["NOPSAI_GIT_BOT_API_URL"] = cfg.NopsaiGitBotAPIURL
-	}
-	if payload.DispatcherAddress != nil {
-		updates["DISPATCHER_ADDRESS"] = cfg.DispatcherAddress
-	}
-	if payload.AgentImage != nil {
-		updates["AGENT_IMAGE"] = cfg.AgentImage
-	}
-	if payload.DockerNetworkName != nil {
-		updates["DOCKER_NETWORK_NAME"] = cfg.DockerNetworkName
-	}
-	if payload.AutoRemovalAgentContainer != nil {
-		updates["AUTO_REMOVAL_AGENT_CONTAINER"] = strconv.FormatBool(cfg.AutoRemovalAgentContainer)
-	}
-	if payload.DefaultPipelineTimeout != nil {
-		updates["DEFAULT_PIPELINE_TIMEOUT"] = cfg.DefaultPipelineTimeout
-	}
-	if payload.LLMAgentTimeout != nil {
-		updates["LLM_AGENT_TIMEOUT"] = cfg.LLMAgentTimeout
-	}
-	if payload.DispatcherRouting != nil {
-		if encoded, err := json.Marshal(systemconfig.CloneDispatcherRouting(cfg.DispatcherRouting)); err == nil {
-			updates["DISPATCHER_ROUTING"] = string(encoded)
+func applyRuntimeProcessSettings(cfg config.Config, payload systemConfigPayload) {
+	if payload.LogFormat != nil {
+		if strings.EqualFold(strings.TrimSpace(cfg.LogFormat), "console") {
+			log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
+		} else {
+			log.Logger = zerolog.New(os.Stderr).With().Timestamp().Logger()
 		}
 	}
-	if payload.RunnerID != nil {
-		updates["RUNNER_ID"] = cfg.RunnerID
-	}
-	if payload.RunnerScopes != nil {
-		updates["RUNNER_SCOPES"] = cfg.RunnerScopes
-	}
-	if payload.RunnerCapacity != nil {
-		updates["RUNNER_CAPACITY"] = strconv.Itoa(cfg.RunnerCapacity)
-	}
-	if payload.GitHubAppID != nil {
-		updates["GITHUB_APP_ID"] = cfg.GitHubAppID
-	}
-	if payload.GitHubInstallationID != nil {
-		updates["GITHUB_INSTALLATION_ID"] = cfg.GitHubInstallID
-	}
-	if payload.GitHubPrivateKeyRef != nil {
-		updates["GITHUB_PRIVATE_KEY_CREDENTIAL_REF"] = cfg.GitHubPrivateKeyCredentialRef
-	}
-	if payload.GitHubWebhookRef != nil {
-		updates["GITHUB_WEBHOOK_CREDENTIAL_REF"] = cfg.GitHubWebhookCredentialRef
-	}
-	if payload.Runtime != nil {
-		updates["RUNTIME"] = config.NormalizeRuntime(cfg.Runtime)
-	}
-	if payload.Kubernetes != nil {
-		k := config.NormalizeKubernetesConfig(cfg.Kubernetes)
-		updates["KUBERNETES_NAMESPACE"] = k.Namespace
-		updates["KUBERNETES_SERVICE_ACCOUNT"] = k.ServiceAccount
-		updates["KUBERNETES_DEFAULT_IMAGE_PULL_POLICY"] = k.DefaultImagePullPolicy
-		updates["KUBERNETES_DEFAULT_WORKSPACE_SIZE"] = k.DefaultWorkspaceSize
-		updates["KUBERNETES_DEFAULT_WORKSPACE_ACCESS_MODE"] = k.DefaultWorkspaceAccessMode
-		updates["KUBERNETES_DEFAULT_TASK_TIMEOUT"] = k.DefaultTaskTimeout
-		updates["KUBERNETES_DEFAULT_RUN_TIMEOUT"] = k.DefaultRunTimeout
-		updates["KUBERNETES_WORKSPACE_VOLUME_MODE"] = k.WorkspaceVolumeMode
-		updates["KUBERNETES_EXISTING_WORKSPACE_PVC"] = k.ExistingWorkspacePVC
-		updates["KUBERNETES_STORAGE_CLASS"] = k.StorageClass
-		if k.AffinityEnabled != nil {
-			updates["KUBERNETES_AFFINITY_ENABLED"] = strconv.FormatBool(*k.AffinityEnabled)
+	if payload.LogLevel != nil {
+		level, err := zerolog.ParseLevel(strings.TrimSpace(cfg.LogLevel))
+		if err != nil {
+			log.Warn().Str("log_level", cfg.LogLevel).Msg("Invalid runtime log level; keeping previous global level")
+			return
 		}
-		if k.CleanupFinishedPods != nil {
-			updates["KUBERNETES_CLEANUP_FINISHED_PODS"] = strconv.FormatBool(*k.CleanupFinishedPods)
-		}
-		if len(k.PodLabels) > 0 {
-			updates["KUBERNETES_POD_LABELS"] = systemconfig.EncodeEnvJSON(k.PodLabels)
-		}
-		if len(k.PodAnnotations) > 0 {
-			updates["KUBERNETES_POD_ANNOTATIONS"] = systemconfig.EncodeEnvJSON(k.PodAnnotations)
-		}
+		zerolog.SetGlobalLevel(level)
 	}
-	if payload.Limits != nil {
-		updates["LIMITS_MAX_CONCURRENT_RUNS"] = strconv.Itoa(cfg.Limits.MaxConcurrentRuns)
-		updates["LIMITS_MAX_CONCURRENT_TASKS"] = strconv.Itoa(cfg.Limits.MaxConcurrentTasks)
-		updates["LIMITS_MAX_CONCURRENT_TASKS_PER_RUN"] = strconv.Itoa(cfg.Limits.MaxConcurrentTasksPerRun)
-		updates["LIMITS_MAX_PENDING_TASKS"] = strconv.Itoa(cfg.Limits.MaxPendingTasks)
-	}
-	if payload.RuntimePools != nil {
-		updates["RUNTIME_POOLS"] = systemconfig.EncodeEnvJSON(config.NormalizeRuntimePools(cfg.RuntimePools))
-	}
-
-	if len(updates) == 0 {
-		return nil
-	}
-
-	return systemconfig.WriteEnvFile(a.envFilePath, updates)
 }
 
 func (a *App) applyRuntimeSettingsGitOpsPlan(ctx context.Context, binding models.ConfigRepository, plan *gitOpsRuntimeSettingsPlan, commitSHA string) error {
+	return a.applySystemSettingsGitOpsPlans(ctx, binding, plan, nil, commitSHA)
+}
+
+func (a *App) applySystemSettingsGitOpsPlans(ctx context.Context, binding models.ConfigRepository, runtimePlan *gitOpsRuntimeSettingsPlan, githubPlan *gitOpsGitHubSettingsPlan, commitSHA string) error {
+	sourcePaths := make([]string, 0, 2)
+	applied := false
+	var cfg config.Config
+
+	if runtimePlan != nil {
+		next, err := a.applySystemConfig(runtimePlan.payload)
+		if err != nil {
+			return err
+		}
+		cfg = next
+		applyRuntimeProcessSettings(cfg, runtimePlan.payload)
+		sourcePaths = append(sourcePaths, runtimePlan.sourcePath)
+		applied = true
+	}
+	if githubPlan != nil {
+		next, err := a.applySystemConfig(githubPlan.payload)
+		if err != nil {
+			return err
+		}
+		cfg = next
+		sourcePaths = append(sourcePaths, githubPlan.sourcePath)
+		applied = true
+	}
+	if !applied {
+		return nil
+	}
+	configRepoID := binding.ID
+	if err := a.persistRuntimeSettingsSnapshot(ctx, cfg, "git", &configRepoID, strings.Join(sourcePaths, ", "), commitSHA, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (a *App) applyGitHubSettingsGitOpsPlan(ctx context.Context, binding models.ConfigRepository, plan *gitOpsGitHubSettingsPlan, commitSHA string) error {
 	if plan == nil {
 		return nil
 	}
-	cfg, err := a.applySystemConfig(plan.payload)
-	if err != nil {
-		return err
-	}
-	configRepoID := binding.ID
-	if err := a.persistRuntimeSettingsSnapshot(ctx, cfg, "git", &configRepoID, plan.sourcePath, commitSHA, true); err != nil {
-		return err
-	}
-	if err := a.persistSystemConfig(cfg, plan.payload); err != nil {
-		log.Warn().Err(err).Msg("Failed to persist GitOps runtime settings to config file; database state remains authoritative")
-	}
-	if err := a.persistEnvOverrides(cfg, plan.payload); err != nil {
-		log.Warn().Err(err).Msg("Failed to persist GitOps runtime settings to .env; database state remains authoritative")
-	}
-	return nil
+	return a.applySystemSettingsGitOpsPlans(ctx, binding, nil, plan, commitSHA)
 }
 
 func (a *App) handleGetSystemConfig(w http.ResponseWriter, r *http.Request) {
@@ -442,6 +299,7 @@ func (a *App) handleUpdateSystemConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	applyRuntimeProcessSettings(cfg, payload)
 	if err := a.ensureGitHubAppCredentialReferences(r.Context(), cfg, credentialActorFromContext(r.Context())); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -450,12 +308,6 @@ func (a *App) handleUpdateSystemConfig(w http.ResponseWriter, r *http.Request) {
 		log.Error().Err(err).Msg("Failed to persist runtime settings")
 		http.Error(w, "Failed to persist system config", http.StatusInternalServerError)
 		return
-	}
-	if err := a.persistSystemConfig(cfg, payload); err != nil {
-		log.Warn().Err(err).Msg("Failed to persist system config; keeping in-memory settings only")
-	}
-	if err := a.persistEnvOverrides(cfg, payload); err != nil {
-		log.Warn().Err(err).Msg("Failed to persist .env overrides; keeping in-memory settings only")
 	}
 
 	resp := systemconfig.BuildResponse(cfg, a.envFilePath)

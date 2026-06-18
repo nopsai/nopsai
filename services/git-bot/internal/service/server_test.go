@@ -104,6 +104,26 @@ func TestHandleFetchFileUsesRepositoryProvider(t *testing.T) {
 	}
 }
 
+func TestHandleFetchFileReturnsUnavailableWithoutGitHubClient(t *testing.T) {
+	app := NewGitBotApp(nil, nil, nil, 0, "", nil, nil)
+	req := httptest.NewRequest(http.MethodPost, "/v1/github/file", strings.NewReader(`{
+		"owner": "acme",
+		"repo": "widgets",
+		"ref": "main",
+		"path": ".nopsai/pipeline.yaml"
+	}`))
+	rec := httptest.NewRecorder()
+
+	app.handleFetchFile(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusServiceUnavailable, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), githubIntegrationUnavailableMessage) {
+		t.Fatalf("body = %q, want unavailable message", rec.Body.String())
+	}
+}
+
 func TestHandleCreateCheckRunUsesChecksProvider(t *testing.T) {
 	checks := &fakeChecksProvider{nextID: 42}
 	app := &GitBotApp{
@@ -142,6 +162,26 @@ func TestHandleCreateCheckRunUsesChecksProvider(t *testing.T) {
 	}
 	if response.CheckRunID != 42 {
 		t.Fatalf("check_run_id = %d, want 42", response.CheckRunID)
+	}
+}
+
+func TestHandleCreateCheckRunReturnsUnavailableWithoutGitHubClient(t *testing.T) {
+	app := NewGitBotApp(nil, nil, nil, 0, "", nil, nil)
+	req := httptest.NewRequest(http.MethodPost, "/v1/checks/create", strings.NewReader(`{
+		"owner": "acme",
+		"repo": "widgets",
+		"ref": "abc123",
+		"pipeline_definition": "name: build\nsteps:\n  - name: test\n    script: go test ./...\n"
+	}`))
+	rec := httptest.NewRecorder()
+
+	app.handleCreateCheckRun(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusServiceUnavailable, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), githubIntegrationUnavailableMessage) {
+		t.Fatalf("body = %q, want unavailable message", rec.Body.String())
 	}
 }
 

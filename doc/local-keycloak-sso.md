@@ -128,13 +128,15 @@ non-GitOps deployments, but the checked-in local config intentionally leaves
 OIDC out so the config repository remains the source of truth.
 
 Use `setting/system/auth.yaml` for GitOps-managed auth settings. Create the
-referenced client secret and admin password in **System > Credentials** before
+referenced client secret and admin password in **System > Credentials**, or sync
+their encrypted envelopes from `setting/system/credentials.yaml`, before
 testing login or entitlement sync.
 
 The issuer is browser-visible because it must match the `iss` claim in
 Keycloak ID tokens. The token, JWKS, and userinfo endpoints use the Docker
 service name so the backend can reach Keycloak from inside the Compose network.
-Keep `NOPSAI_PUBLIC_URL` aligned with one of the client redirect URIs above.
+Keep the `public_url` runtime setting aligned with one of the client redirect
+URIs above.
 The callback path includes the NopsAI provider ID:
 `/v1/auth/oidc/{provider-id}/callback`. If the provider ID is `nopsai`,
 Keycloak must allow the `.../oidc/nopsai/callback` redirect URI.

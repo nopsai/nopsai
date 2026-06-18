@@ -93,8 +93,9 @@ Provider HMAC headers:
 - Generic: `X-Nopsai-Signature-256`, with `X-Hub-Signature-256` accepted as a
   compatibility fallback.
 
-Credential values remain write-only in **System > Credentials**. GitOps creates
-or references credential metadata but never stores the secret value.
+Credential plaintext remains write-only in **System > Credentials**. Source
+GitOps stores the credential reference, and `setting/system/credentials.yaml`
+can store the encrypted credential envelope for the same reference.
 
 ## Repository Allowlist
 

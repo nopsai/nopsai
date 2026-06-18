@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -35,10 +34,7 @@ func Run() {
 	applyConfigDefaults(cfg)
 	configureLogging(cfg)
 
-	envFilePath := os.Getenv("ENV_FILE_PATH")
-	if envFilePath == "" {
-		envFilePath = filepath.Join(filepath.Dir(configPath), ".env")
-	}
+	envFilePath := runtimeEnvFilePathFromEnv(os.Getenv)
 
 	hardConfigMissing := strings.TrimSpace(cfg.MasterKey) == "" ||
 		strings.TrimSpace(cfg.JWTSigningKey) == "" ||
@@ -70,6 +66,7 @@ func Run() {
 	if err := service.ApplyPersistedRuntimeSettings(context.Background(), dbpool, cfg); err != nil {
 		log.Fatal().Err(err).Msg("Failed to load persisted runtime settings")
 	}
+	configureLogging(cfg)
 
 	dispatcherConn, err := newDispatcherConnection(cfg)
 	if err != nil {
@@ -132,6 +129,13 @@ func applyConfigDefaults(cfg *config.Config) {
 	if strings.TrimSpace(cfg.NopsaiListenAddress) == "" {
 		cfg.NopsaiListenAddress = "0.0.0.0:8080"
 	}
+}
+
+func runtimeEnvFilePathFromEnv(lookup func(string) string) string {
+	if lookup == nil {
+		return ""
+	}
+	return strings.TrimSpace(lookup("ENV_FILE_PATH"))
 }
 
 func configureLogging(cfg *config.Config) {

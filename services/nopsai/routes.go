@@ -148,6 +148,8 @@ func (a *App) registerSystemRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/system/data/cleanup/schedules/{scheduleID}/disable", a.handleDisableDataCleanupSchedule)
 	mux.HandleFunc("POST /v1/internal/config/sync", a.handleConfigSync)
 	mux.HandleFunc("GET /v1/internal/dispatcher/routing", a.handleInternalDispatcherRouting)
+	mux.HandleFunc("GET /internal/v1/runtime-config/{service}", a.handleInternalRuntimeConfig)
+	mux.HandleFunc("GET /internal/v1/runtime-config/{service}/watch", a.handleInternalRuntimeConfigWatch)
 	mux.HandleFunc("GET /v1/system/dispatcher", a.handleDispatcherStatus)
 	mux.HandleFunc("GET /v1/system/dispatcher/scopes", a.handleListRuntimeScopes)
 	mux.HandleFunc("GET /v1/system/dispatcher/runner-compose", a.handleGenerateRunnerCompose)

@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -17,7 +15,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"gopkg.in/yaml.v3"
 )
 
 func TestParseGitOpsRuntimeSettingsPlan(t *testing.T) {
@@ -133,8 +130,6 @@ func TestParseGitOpsRuntimeSettingsPlanRejectsNonSystemRepo(t *testing.T) {
 func TestParseGitOpsRuntimeSettingsFileMapsAllFieldsAndRejectsInvalidCapacity(t *testing.T) {
 	plan, err := parseGitOpsRuntimeSettingsFile(`
 agent_nopsai_api_url: http://nopsai:8080
-git_bot_nopsai_api_url: http://git-bot:8081
-nopsai_git_bot_api_url: http://git-bot:8081
 dispatcher_address: dispatcher:9090
 agent_image: nopsai-agent:dev
 docker_network_name: nopsai-net
@@ -146,22 +141,12 @@ dispatcher_routing:
 runner_id: runner-prod
 runner_scopes: prod,dev
 runner_capacity: 3
-github_app_id: "123456"
-github_installation_id: "987654"
-github_private_key_credential_ref: credential://system/github/app-private-key
-github_webhook_credential_ref: credential://system/github/webhook-secret
 `, "setting/system/runner.yaml")
 	if err != nil {
 		t.Fatalf("parseGitOpsRuntimeSettingsFile() error = %v", err)
 	}
 	if plan.payload.AgentNopsaiAPIURL == nil || *plan.payload.AgentNopsaiAPIURL != "http://nopsai:8080" {
 		t.Fatalf("agent URL = %#v", plan.payload.AgentNopsaiAPIURL)
-	}
-	if plan.payload.GitBotNopsaiAPIURL == nil || *plan.payload.GitBotNopsaiAPIURL != "http://git-bot:8081" {
-		t.Fatalf("git-bot URL = %#v", plan.payload.GitBotNopsaiAPIURL)
-	}
-	if plan.payload.NopsaiGitBotAPIURL == nil || *plan.payload.NopsaiGitBotAPIURL != "http://git-bot:8081" {
-		t.Fatalf("nopsai git-bot URL = %#v", plan.payload.NopsaiGitBotAPIURL)
 	}
 	if plan.payload.DispatcherAddress == nil || *plan.payload.DispatcherAddress != "dispatcher:9090" {
 		t.Fatalf("dispatcher address = %#v", plan.payload.DispatcherAddress)
@@ -193,18 +178,6 @@ github_webhook_credential_ref: credential://system/github/webhook-secret
 	if plan.payload.RunnerCapacity == nil || *plan.payload.RunnerCapacity != 3 {
 		t.Fatalf("runner_capacity = %#v", plan.payload.RunnerCapacity)
 	}
-	if plan.payload.GitHubAppID == nil || *plan.payload.GitHubAppID != "123456" {
-		t.Fatalf("github_app_id = %#v", plan.payload.GitHubAppID)
-	}
-	if plan.payload.GitHubInstallationID == nil || *plan.payload.GitHubInstallationID != "987654" {
-		t.Fatalf("github_installation_id = %#v", plan.payload.GitHubInstallationID)
-	}
-	if plan.payload.GitHubPrivateKeyRef == nil || *plan.payload.GitHubPrivateKeyRef != "credential://system/github/app-private-key" {
-		t.Fatalf("github_private_key_credential_ref = %#v", plan.payload.GitHubPrivateKeyRef)
-	}
-	if plan.payload.GitHubWebhookRef == nil || *plan.payload.GitHubWebhookRef != "credential://system/github/webhook-secret" {
-		t.Fatalf("github_webhook_credential_ref = %#v", plan.payload.GitHubWebhookRef)
-	}
 
 	_, err = parseGitOpsRuntimeSettingsFile("runner_capacity: 0", "setting/system/runner.yaml")
 	if err == nil || !strings.Contains(err.Error(), "invalid runner_capacity") {
@@ -216,6 +189,17 @@ func TestParseGitOpsRuntimeSettingsFileRejectsInvalidYAML(t *testing.T) {
 	_, err := parseGitOpsRuntimeSettingsFile("dispatcher_routing: [", "setting/system/runner.yaml")
 	if err == nil || !strings.Contains(err.Error(), "failed to parse runtime settings GitOps file") {
 		t.Fatalf("expected parse error, got %v", err)
+	}
+}
+
+func TestParseGitOpsRuntimeSettingsFileRejectsGitHubFields(t *testing.T) {
+	_, err := parseGitOpsRuntimeSettingsFile(`
+runner_id: runner-a
+github_app_id: "123456"
+git_bot_nopsai_api_url: http://nopsai:8080
+`, "setting/system/runner.yaml")
+	if err == nil || !strings.Contains(err.Error(), "setting/system/github.yaml") {
+		t.Fatalf("expected move-to-github error, got %v", err)
 	}
 }
 
@@ -307,8 +291,85 @@ func TestHandleInternalDispatcherRoutingRequiresDispatcherClaims(t *testing.T) {
 	}
 }
 
+func TestHandleInternalRuntimeConfigRequiresMatchingServiceRole(t *testing.T) {
+	app := App{cfg: &config.Config{
+		GitHubAppID:                   "123456",
+		GitHubInstallID:               "987654",
+		GitHubPrivateKeyCredentialRef: "credential://system/github/app-private-key",
+		GitHubWebhookCredentialRef:    "credential://system/github/webhook-secret",
+		GitBotNopsaiAPIURL:            "http://nopsai:8080",
+	}}
+
+	req := httptest.NewRequest(http.MethodGet, "/internal/v1/runtime-config/git-bot", nil)
+	req.SetPathValue("service", "git-bot")
+	rec := httptest.NewRecorder()
+	app.handleInternalRuntimeConfig(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("unauthorized status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+
+	wrongRoleReq := httptest.NewRequest(http.MethodGet, "/internal/v1/runtime-config/git-bot", nil)
+	wrongRoleReq.SetPathValue("service", "git-bot")
+	wrongRoleReq = wrongRoleReq.WithContext(auth.WithClaims(wrongRoleReq.Context(), &auth.Claims{
+		Sub:      "runner",
+		Provider: "internal-service",
+		Roles:    []string{"runner"},
+	}))
+	wrongRoleRec := httptest.NewRecorder()
+	app.handleInternalRuntimeConfig(wrongRoleRec, wrongRoleReq)
+	if wrongRoleRec.Code != http.StatusForbidden {
+		t.Fatalf("wrong-role status = %d, want %d", wrongRoleRec.Code, http.StatusForbidden)
+	}
+
+	authorizedReq := httptest.NewRequest(http.MethodGet, "/internal/v1/runtime-config/git-bot", nil)
+	authorizedReq.SetPathValue("service", "git-bot")
+	authorizedReq = authorizedReq.WithContext(auth.WithClaims(authorizedReq.Context(), &auth.Claims{
+		Sub:      "git-bot",
+		Provider: "internal-service",
+		Roles:    []string{"git-bot"},
+	}))
+	authorizedRec := httptest.NewRecorder()
+	app.handleInternalRuntimeConfig(authorizedRec, authorizedReq)
+	if authorizedRec.Code != http.StatusOK {
+		t.Fatalf("authorized status = %d, want %d: %s", authorizedRec.Code, http.StatusOK, authorizedRec.Body.String())
+	}
+
+	var resp runtimeConfigResponse
+	if err := json.Unmarshal(authorizedRec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Service != "git-bot" || resp.ReloadMode != config.ConfigScopeRuntimeReload {
+		t.Fatalf("runtime config identity = (%q, %q)", resp.Service, resp.ReloadMode)
+	}
+	if resp.Config["github_private_key"] != nil || resp.Config["github_webhook_secret"] != nil {
+		t.Fatalf("runtime config exposed secret material: %#v", resp.Config)
+	}
+	if resp.Config["github_private_key_ref"] != "credential://system/github/app-private-key" ||
+		resp.Config["github_webhook_secret_ref"] != "credential://system/github/webhook-secret" {
+		t.Fatalf("runtime config refs = %#v", resp.Config)
+	}
+	if resp.Metadata["github_app_id"].Apply != "Applies after reconnect" {
+		t.Fatalf("metadata = %#v", resp.Metadata["github_app_id"])
+	}
+}
+
+func TestRuntimeConfigWatchVersionSupportsVersionAliases(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/internal/v1/runtime-config/runner/watch?since_version=7", nil)
+	if got := runtimeConfigWatchVersion(req); got != 7 {
+		t.Fatalf("since_version = %d, want 7", got)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/internal/v1/runtime-config/runner/watch?version=9&since_version=7", nil)
+	if got := runtimeConfigWatchVersion(req); got != 9 {
+		t.Fatalf("version = %d, want 9", got)
+	}
+}
+
 func TestExportConfigRepositoryRuntimeSettingsUsesCanonicalRunnerPath(t *testing.T) {
-	app := App{cfg: &config.Config{RunnerCapacity: 2}}
+	app := App{cfg: &config.Config{
+		RunnerCapacity:                2,
+		GitHubAppID:                   "123456",
+		GitHubPrivateKeyCredentialRef: "credential://system/github/app-private-key",
+	}}
 	files := map[string]string{}
 
 	if err := app.exportConfigRepositoryRuntimeSettings(models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeSystem}, files); err != nil {
@@ -317,24 +378,25 @@ func TestExportConfigRepositoryRuntimeSettingsUsesCanonicalRunnerPath(t *testing
 	if _, ok := files["setting/system/runner.yaml"]; !ok {
 		t.Fatalf("missing canonical runner settings export path: %#v", files)
 	}
-	for _, unexpected := range []string{"setting/system/runtime.yaml", "settings/system/runtime.yaml", "settings/system/runner.yaml"} {
+	if _, ok := files["setting/system/github.yaml"]; !ok {
+		t.Fatalf("missing canonical GitHub settings export path: %#v", files)
+	}
+	if strings.Contains(files["setting/system/runner.yaml"], "github_") ||
+		strings.Contains(files["setting/system/runner.yaml"], "git_bot_") {
+		t.Fatalf("runner export contains GitHub-owned settings:\n%s", files["setting/system/runner.yaml"])
+	}
+	if strings.Contains(files["setting/system/github.yaml"], "runner_") ||
+		strings.Contains(files["setting/system/github.yaml"], "dispatcher_") {
+		t.Fatalf("GitHub export contains runner-owned settings:\n%s", files["setting/system/github.yaml"])
+	}
+	for _, unexpected := range []string{"setting/system/runtime.yaml", "settings/system/runtime.yaml", "settings/system/runner.yaml", "settings/system/github.yaml"} {
 		if _, ok := files[unexpected]; ok {
 			t.Fatalf("unexpected non-canonical runtime settings export path %q: %#v", unexpected, files)
 		}
 	}
 }
 
-func TestApplyRuntimeSettingsGitOpsPlanPersistsConfigAndEnvOverrides(t *testing.T) {
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yml")
-	envPath := filepath.Join(tempDir, ".env")
-	if err := os.WriteFile(configPath, []byte("database_url: postgres://keep\nrunner_capacity: 9\n"), 0o644); err != nil {
-		t.Fatalf("write config fixture: %v", err)
-	}
-	if err := os.WriteFile(envPath, []byte("# keep this comment\nRUNNER_ID=\"old-runner\"\n"), 0o644); err != nil {
-		t.Fatalf("write env fixture: %v", err)
-	}
-
+func TestApplyRuntimeSettingsGitOpsPlanUsesDatabaseWithoutBootstrapFileMirroring(t *testing.T) {
 	app := App{
 		cfg: &config.Config{
 			DatabaseURL:            "postgres://keep",
@@ -344,8 +406,6 @@ func TestApplyRuntimeSettingsGitOpsPlanPersistsConfigAndEnvOverrides(t *testing.
 			DockerNetworkName:      "old-net",
 			DefaultPipelineTimeout: "20m",
 		},
-		configPath:  configPath,
-		envFilePath: envPath,
 	}
 	plan := &gitOpsRuntimeSettingsPlan{
 		sourcePath: "setting/system/runner.yaml",
@@ -358,9 +418,16 @@ func TestApplyRuntimeSettingsGitOpsPlanPersistsConfigAndEnvOverrides(t *testing.
 				" prod ": {" runner-prod ", ""},
 				"":       {" runner-default "},
 			},
-			RunnerID:             stringPtr(" runner-prod "),
-			RunnerScopes:         stringPtr(" prod, /dev/ ,prod "),
-			RunnerCapacity:       intPtr(3),
+			RunnerID:       stringPtr(" runner-prod "),
+			RunnerScopes:   stringPtr(" prod, /dev/ ,prod "),
+			RunnerCapacity: intPtr(3),
+		},
+	}
+	githubPlan := &gitOpsGitHubSettingsPlan{
+		sourcePath: "setting/system/github.yaml",
+		payload: systemConfigPayload{
+			GitBotNopsaiAPIURL:   stringPtr(" http://nopsai:8080 "),
+			NopsaiGitBotAPIURL:   stringPtr(" http://git-bot:8081 "),
 			GitHubAppID:          stringPtr(" 123456 "),
 			GitHubInstallationID: stringPtr(" 987654 "),
 			GitHubPrivateKeyRef:  stringPtr(" credential://system/github/app-private-key "),
@@ -368,8 +435,8 @@ func TestApplyRuntimeSettingsGitOpsPlanPersistsConfigAndEnvOverrides(t *testing.
 		},
 	}
 
-	if err := app.applyRuntimeSettingsGitOpsPlan(context.Background(), models.ConfigRepository{ID: 17}, plan, "commit-a"); err != nil {
-		t.Fatalf("applyRuntimeSettingsGitOpsPlan() error = %v", err)
+	if err := app.applySystemSettingsGitOpsPlans(context.Background(), models.ConfigRepository{ID: 17}, plan, githubPlan, "commit-a"); err != nil {
+		t.Fatalf("applySystemSettingsGitOpsPlans() error = %v", err)
 	}
 
 	cfg := app.getConfigSnapshot()
@@ -394,76 +461,8 @@ func TestApplyRuntimeSettingsGitOpsPlanPersistsConfigAndEnvOverrides(t *testing.
 		cfg.GitHubWebhookCredentialRef != "credential://system/github/webhook-secret" {
 		t.Fatalf("github settings = (%q, %q, %q, %q)", cfg.GitHubAppID, cfg.GitHubInstallID, cfg.GitHubPrivateKeyCredentialRef, cfg.GitHubWebhookCredentialRef)
 	}
-
-	configBytes, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("read persisted config: %v", err)
-	}
-	var persisted struct {
-		DatabaseURL               string              `yaml:"database_url"`
-		AgentNopsaiAPIURL         string              `yaml:"agent_nopsai_api_url"`
-		DispatcherAddress         string              `yaml:"dispatcher_address"`
-		AutoRemovalAgentContainer bool                `yaml:"auto_removal_agent_container"`
-		DefaultPipelineTimeout    string              `yaml:"default_pipeline_timeout"`
-		DispatcherRouting         map[string][]string `yaml:"dispatcher_routing"`
-		RunnerID                  string              `yaml:"runner_id"`
-		RunnerScopes              string              `yaml:"runner_scopes"`
-		RunnerCapacity            int                 `yaml:"runner_capacity"`
-		GitHubAppID               string              `yaml:"github_app_id"`
-		GitHubInstallationID      string              `yaml:"github_installation_id"`
-		GitHubPrivateKeyRef       string              `yaml:"github_private_key_credential_ref"`
-		GitHubWebhookRef          string              `yaml:"github_webhook_credential_ref"`
-	}
-	if err := yaml.Unmarshal(configBytes, &persisted); err != nil {
-		t.Fatalf("parse persisted config: %v\n%s", err, string(configBytes))
-	}
-	if persisted.DatabaseURL != "postgres://keep" {
-		t.Fatalf("database_url = %q, want existing value preserved", persisted.DatabaseURL)
-	}
-	if persisted.AgentNopsaiAPIURL != "http://nopsai.example.com" ||
-		persisted.DispatcherAddress != "dispatcher:9090" ||
-		persisted.AutoRemovalAgentContainer ||
-		persisted.DefaultPipelineTimeout != "45m" ||
-		persisted.RunnerID != "runner-prod" ||
-		persisted.RunnerScopes != "prod,dev" ||
-		persisted.RunnerCapacity != 3 ||
-		persisted.GitHubAppID != "123456" ||
-		persisted.GitHubInstallationID != "987654" ||
-		persisted.GitHubPrivateKeyRef != "credential://system/github/app-private-key" ||
-		persisted.GitHubWebhookRef != "credential://system/github/webhook-secret" {
-		t.Fatalf("persisted config = %#v", persisted)
-	}
-	if got := persisted.DispatcherRouting["prod"]; len(got) != 1 || got[0] != "runner-prod" {
-		t.Fatalf("persisted routing = %#v", persisted.DispatcherRouting)
-	}
-
-	envBytes, err := os.ReadFile(envPath)
-	if err != nil {
-		t.Fatalf("read persisted env: %v", err)
-	}
-	env := string(envBytes)
-	for _, want := range []string{
-		"# keep this comment",
-		`RUNNER_ID="runner-prod"`,
-		`RUNNER_SCOPES="prod,dev"`,
-		`RUNNER_CAPACITY="3"`,
-		`AGENT_NOPSAI_API_URL="http://nopsai.example.com"`,
-		`DISPATCHER_ADDRESS="dispatcher:9090"`,
-		`AUTO_REMOVAL_AGENT_CONTAINER="false"`,
-		`DEFAULT_PIPELINE_TIMEOUT="45m"`,
-		`GITHUB_APP_ID="123456"`,
-		`GITHUB_INSTALLATION_ID="987654"`,
-		`GITHUB_PRIVATE_KEY_CREDENTIAL_REF="credential://system/github/app-private-key"`,
-		`GITHUB_WEBHOOK_CREDENTIAL_REF="credential://system/github/webhook-secret"`,
-	} {
-		if !strings.Contains(env, want) {
-			t.Fatalf("env file missing %q:\n%s", want, env)
-		}
-	}
-	if !strings.Contains(env, "DISPATCHER_ROUTING=") ||
-		!strings.Contains(env, "runner-prod") ||
-		!strings.Contains(env, "runner-default") {
-		t.Fatalf("env file missing dispatcher routing JSON:\n%s", env)
+	if cfg.GitBotNopsaiAPIURL != "http://nopsai:8080" || cfg.NopsaiGitBotAPIURL != "http://git-bot:8081" {
+		t.Fatalf("git-bot URLs = (%q, %q)", cfg.GitBotNopsaiAPIURL, cfg.NopsaiGitBotAPIURL)
 	}
 }
 
@@ -498,7 +497,7 @@ func TestPersistRuntimeSettingsSnapshotStoresDurableGitOpsPayload(t *testing.T) 
 		t.Fatalf("metadata args = %#v", db.execArgs[1:])
 	}
 
-	var stored runtimeSettingsGitOpsFile
+	var stored runtimeSettingsSnapshotFile
 	raw, ok := db.execArgs[0].(string)
 	if !ok {
 		t.Fatalf("payload arg = %T, want string", db.execArgs[0])
@@ -544,12 +543,13 @@ func TestLoadRuntimeSettingsRecordAppliesPersistedGitOpsSnapshot(t *testing.T) {
 	db := &runtimeSettingsFakeQuerier{
 		row: runtimeSettingsFakeRow{scan: func(dest ...any) error {
 			*(dest[0].(*[]byte)) = raw
-			*(dest[1].(*string)) = "git"
-			*(dest[2].(*sql.NullInt64)) = sql.NullInt64{Int64: repoID, Valid: true}
-			*(dest[3].(*string)) = "setting/system/runner.yaml"
-			*(dest[4].(*string)) = "commit-a"
-			*(dest[5].(*bool)) = true
-			*(dest[6].(*sql.NullTime)) = updatedAt
+			*(dest[1].(*int64)) = 42
+			*(dest[2].(*string)) = "git"
+			*(dest[3].(*sql.NullInt64)) = sql.NullInt64{Int64: repoID, Valid: true}
+			*(dest[4].(*string)) = "setting/system/runner.yaml"
+			*(dest[5].(*string)) = "commit-a"
+			*(dest[6].(*bool)) = true
+			*(dest[7].(*sql.NullTime)) = updatedAt
 			return nil
 		}},
 	}
@@ -561,7 +561,7 @@ func TestLoadRuntimeSettingsRecordAppliesPersistedGitOpsSnapshot(t *testing.T) {
 	if !found {
 		t.Fatal("loadRuntimeSettingsRecord() found = false, want true")
 	}
-	if record.Source != "git" || record.ConfigRepoID == nil || *record.ConfigRepoID != repoID || !record.ManagedByConfigRepo {
+	if record.Version != 42 || record.Source != "git" || record.ConfigRepoID == nil || *record.ConfigRepoID != repoID || !record.ManagedByConfigRepo {
 		t.Fatalf("record metadata = %#v", record)
 	}
 

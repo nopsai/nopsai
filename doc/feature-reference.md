@@ -221,7 +221,9 @@ GitOps-style configuration sync supports:
 - `setting/system/llm_profile.yaml` -> system LLM profile registry from a global config repo
 - `setting/system/agent-profiles.yaml` -> system Agent Profile persona registry and default profile setting from a global config repo
 - `setting/system/mcp.yaml` -> system MCP server and profile registry from a global config repo
-- `setting/system/runner.yaml` -> runner install defaults, runtime URLs, and dispatcher routing from a global config repo
+- `setting/system/github.yaml` -> GitHub App IDs, credential references, and git-bot URLs from a global config repo
+- `setting/system/runner.yaml` -> runner install defaults, runtime defaults, and dispatcher routing from a global config repo
+- `setting/system/credentials.yaml` -> encrypted system credential envelopes from a global config repo
 
 Sync behavior:
 
@@ -235,12 +237,13 @@ Sync behavior:
 - sync system/global config repositories before group config repositories, so group bindings defined in Git can be picked up during the same sync-all run
 - group config repositories are authoritative for resources under their group path; parent repos prune their own managed resources in delegated groups
 - config repository bindings can enable Git push to a review branch with `write_enabled` and `write_branch`
-- config repository drift compares both directions across syncable declarative resources: pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, notification routes, run group/config-repository structure, access manifests, Agent Profiles, LLM profiles, MCP registry files, auth settings, mail settings, and runtime settings. UI-side Access dialog changes for pipelines, reusable steps, scopes, and knowledge contexts are exported back into embedded GitOps `access:` blocks; pipeline run rows remain runtime/audit state.
+- config repository drift compares both directions across syncable declarative resources: pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, notification routes, run group/config-repository structure, access manifests, Agent Profiles, LLM profiles, MCP registry files, auth settings, mail settings, runtime settings, and encrypted credential envelopes. UI-side Access dialog changes for pipelines, reusable steps, scopes, and knowledge contexts are exported back into embedded GitOps `access:` blocks; pipeline run rows remain runtime/audit state.
 - config sync can adopt matching database-owned resources inside the syncing repo scope after the generated files are present in the sync branch, then mark them as GitOps-managed
 - `config-repositories/groups/<group>/structure.yaml` can place apps under group shells with `name` and `repo_url`; these files can also include inline `config:` blocks for group repo bindings
 - auth settings GitOps is system/global only and binds provider credential references
 - runtime settings GitOps is system/global only; `dispatcher_routing` changes are persisted and applied by the live dispatcher through the control-plane sync path
-- mail settings GitOps is system/global only and stores `smtp.password_credential_ref` rather than the SMTP password value
+- mail settings GitOps is system/global only and stores `smtp.password_credential_ref` rather than the SMTP password plaintext
+- credential GitOps is system/global only; `setting/system/credentials.yaml` stores encrypted versions, never plaintext
 
 ## Notifications And Metrics
 

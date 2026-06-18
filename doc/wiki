@@ -33,17 +33,20 @@ Flow: GitHub event or user request → Nopsai authenticates and checks AAA → N
 ## Deploy the Stack (Docker Compose)
 
 1. **Prereqs**: Docker + Docker Compose, Gemini key, GitHub App credentials, and a generated `NOPSAI_MASTER_KEY`.
-2. **Config**: Set `.env` or shell exports for values defined in `config/config.go`. Key additions:
+2. **Config**: Review `config.yml` for non-secret runtime defaults and the
+   per-service `environment` blocks in `docker-compose.yaml` for bootstrap
+   values. Override real secrets from your shell or deployment secret manager.
+   Key additions:
    - `DISPATCHER_LISTEN_ADDRESS` (default `:9090`), `DISPATCHER_ADDRESS` (what clients dial, default `dispatcher:9090`).
    - `SERVICE_JWT_SIGNING_KEY` for internal REST and dispatcher gRPC service authentication. Optional: `SERVICE_JWT_ISSUER`, `SERVICE_JWT_AUDIENCE`, `NOPSAI_SERVICE_ID`, `RUNNER_SERVICE_ID`, `AGENT_SERVICE_ID`.
    - `AAA_ADDR` (default `:8082`), `AAA_API_URL` (default `http://aaa:8082`), and `AAA_SHARED_INTERNAL_TOKEN` for Nopsai-to-AAA calls.
-   - `DISPATCHER_ROUTING` (YAML in `config.yml`) maps scope → allowed runner IDs; `RUNNER_ID`, `RUNNER_SCOPES` (comma list), `RUNNER_CAPACITY`.
+   - `DISPATCHER_ROUTING` (YAML in `config.yml`) maps scope → allowed runner IDs; per-runner `RUNNER_ID`, `RUNNER_SCOPES` (comma list), and `RUNNER_CAPACITY` belong on generated runner installs, not the local control-plane containers.
    - Existing fields still apply: DB URL, Gemini model/key, service listen addresses, Docker network name, agent image, log format/level, GitBot URLs, config repo URL, defaults for timeouts.
 3. **Compose up**:
    ```bash
    docker-compose up --build -d
    ```
-   Services: `nopsai`, `aaa`, `dispatcher`, `runner`, `git-bot`, `nopsai-ui`, Postgres, plus build-only images (`agent`, `pipeline`, `k8s-runner`).
+   Services: `nopsai`, `aaa`, `dispatcher`, `docker-runner`, `git-bot`, `nopsai-ui`, Postgres, plus build-only images (`agent`, `pipeline`, `k8s-runner`).
 4. **Verify**:
    - Dispatcher: `nc -z localhost 9090` (or check logs for “dispatcher listening”).
    - Runner: logs should show registration + heartbeats; ensure `/var/run/docker.sock` is mounted.
@@ -133,7 +136,7 @@ Flow: GitHub event or user request → Nopsai authenticates and checks AAA → N
 
 - Compose up: `docker-compose up --build -d`
 - Tail dispatcher: `docker logs -f nopsai-dispatcher`
-- Tail runner: `docker logs -f nopsai-runner`
+- Tail Docker runner: `docker logs -f nopsai-docker-runner`
 - Trigger config sync: `curl -X POST http://localhost:8080/v1/internal/config/sync`
 
 With these pieces, Nopsai now follows a standard CI/CD control-plane/data-plane pattern similar to GitHub Actions or GitLab Runners, making it easier to scale and to place runners near your workloads.

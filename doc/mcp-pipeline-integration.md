@@ -87,8 +87,9 @@ Only system/global config repositories may define the MCP registry. Group config
 repositories can reference approved `mcp_profiles` in their pipelines, but they
 cannot define new MCP servers.
 
-Create the referenced bearer token under **System > Credentials**. GitOps owns
-the binding and metadata; the value remains local and write-only.
+Create the referenced bearer token under **System > Credentials** or sync its
+encrypted envelope from `setting/system/credentials.yaml`. GitOps owns the
+binding; plaintext remains write-only in the API/UI.
 
 ## Inheritance
 
