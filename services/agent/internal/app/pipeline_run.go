@@ -106,7 +106,6 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 
 	var pipelineFailed atomic.Bool
 	pipelinePaused := false
-	var syncWg sync.WaitGroup
 	conditionEvaluator := resolver.NewConditionEvaluator()
 	taskResolver := resolver.NewTaskActionResolver()
 
@@ -253,7 +252,6 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 						History:            historySnapshot,
 						Sync:               step.GetSync(),
 						LLMDurationMs:      llmDurationMs,
-						SyncWaitGroup:      &syncWg,
 						FinalizeTask: func(stepName, taskName, status string, exitCode int, llmDurationMs int64) {
 							req.finalizeTask(activeTasks, stepName, taskName, status, exitCode, llmDurationMs)
 						},
@@ -305,22 +303,23 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 				historyMutex.Unlock()
 				actionParentCtx := timeoutController.ContextOrDefault(context.Background())
 				actionResult := taskResolver.Resolve(context.Background(), resolver.ActionRequest{
-					Logger:          taskLogger,
-					Pipeline:        &pipeline,
-					Step:            step,
-					Task:            task,
-					Context:         taskContext,
-					History:         historySnapshot,
-					ParentContext:   actionParentCtx,
-					WorkspaceDir:    req.WorkspaceDir,
-					IsRunStopping:   isRunStopping,
-					Secrets:         req.Secrets,
-					KnowledgePrompt: req.knowledgePrompt(&pipeline, step, task),
-					LLMTimeout:      req.LLMTimeout,
-					LLMEnabled:      req.PipelineLLMEnabled,
-					SessionResolver: req.ActionSessionResolver,
-					DirectoryLister: req.DirectoryLister,
-					StopRetry:       req.StopRetry,
+					Logger:                 taskLogger,
+					Pipeline:               &pipeline,
+					Step:                   step,
+					Task:                   task,
+					Context:                taskContext,
+					History:                historySnapshot,
+					ParentContext:          actionParentCtx,
+					WorkspaceDir:           req.WorkspaceDir,
+					IsRunStopping:          isRunStopping,
+					Secrets:                req.Secrets,
+					KnowledgePrompt:        req.knowledgePrompt(&pipeline, step, task),
+					BlockingKnowledgeKinds: req.blockingKnowledgeKinds(&pipeline, step, task),
+					LLMTimeout:             req.LLMTimeout,
+					LLMEnabled:             req.PipelineLLMEnabled,
+					SessionResolver:        req.ActionSessionResolver,
+					DirectoryLister:        req.DirectoryLister,
+					StopRetry:              req.StopRetry,
 				})
 				if actionResult.LLMDurationSet {
 					llmDurationMs = actionResult.LLMDurationMs
@@ -359,7 +358,8 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 				debugLogger := taskLogger.With().
 					Str("action_type", action.Type).
 					Logger()
-				debugLogger.Debug().Msgf("Executing action: %s", actionStr)
+				maskedActionStr := taskContext.MaskRuntimeText(actionStr, req.Secrets)
+				debugLogger.Debug().Msgf("Executing action: %s", maskedActionStr)
 
 				var stdout, stderr string
 				var exitCode int
@@ -382,9 +382,9 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 					status = "failure"
 					output = stderr + stdout
 				}
-				maskedOutput := taskContext.MaskText(output, req.Secrets)
+				maskedOutput := taskContext.MaskRuntimeText(output, req.Secrets)
 				if zerolog.GlobalLevel() <= zerolog.InfoLevel {
-					logMsg := fmt.Sprintf(`status=%s action="%s" output="%s"`, status, actionStr, maskedOutput)
+					logMsg := fmt.Sprintf(`status=%s action="%s" output="%s"`, status, maskedActionStr, maskedOutput)
 					taskLogger.Info().Msg(logMsg)
 				}
 
@@ -407,7 +407,7 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 				}
 
 				historyMutex.Lock()
-				history.WriteString(fmt.Sprintf("- Goal: %s\n  Action: %s\n  Result (Exit Code %d): %s\n", historyGoal, actionStr, exitCode, output))
+				history.WriteString(fmt.Sprintf("- Goal: %s\n  Action: %s\n  Result (Exit Code %d): %s\n", historyGoal, maskedActionStr, exitCode, output))
 				historyMutex.Unlock()
 
 				if exitCode == 0 {
@@ -454,8 +454,6 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 			break
 		}
 	}
-
-	syncWg.Wait()
 
 	if pipelinePaused {
 		logger.Info().Msg("Pipeline paused for approval")

@@ -63,6 +63,91 @@ func TestTaskActionResolverUsesDirectScriptWithoutLLM(t *testing.T) {
 	}
 }
 
+func TestTaskActionResolverValidatesDirectScriptWhenGuardrailContextExists(t *testing.T) {
+	logger := zerolog.Nop()
+	session := &fakeActionSession{action: &proto.Action{
+		Type:    "EXECUTE_COMMAND",
+		Payload: &proto.Action_CommandAction{CommandAction: &proto.CommandAction{Command: "make deploy"}},
+	}}
+	task := &models.Task{
+		Name:   "script",
+		Script: "make deploy",
+	}
+
+	result := NewTaskActionResolver().Resolve(context.Background(), ActionRequest{
+		Logger:                 &logger,
+		Pipeline:               &models.Pipeline{},
+		Step:                   &models.PipelineStep{Step: &models.GoalStep{Goal: "ship release"}},
+		Task:                   task,
+		Context:                NewExecutionContext(),
+		KnowledgePrompt:        "Guardrail: do not print env vars.",
+		BlockingKnowledgeKinds: []string{"guardrail"},
+		LLMEnabled:             true,
+		SessionResolver: func(*models.Pipeline, *models.PipelineStep, *models.Task) (ActionSession, error) {
+			return session, nil
+		},
+	})
+
+	if result.Failed {
+		t.Fatal("guardrail-validated script failed; want allowed action")
+	}
+	if len(session.requests) != 1 {
+		t.Fatalf("session requests = %d, want 1", len(session.requests))
+	}
+	if !strings.Contains(session.requests[0].GetGoal(), "Validate this direct script before execution") {
+		t.Fatalf("validation goal = %q, want direct script validation prompt", session.requests[0].GetGoal())
+	}
+	if cmd := result.Action.GetCommandAction(); cmd == nil || cmd.Command != "make deploy" {
+		t.Fatalf("command action = %#v, want original script", cmd)
+	}
+}
+
+func TestTaskActionResolverBlocksDirectScriptGuardrailRefusal(t *testing.T) {
+	logger := zerolog.Nop()
+	session := &fakeActionSession{action: &proto.Action{
+		Type: "RETURN_ANSWER",
+		Payload: &proto.Action_AnswerAction{AnswerAction: &proto.AnswerAction{
+			Answer: "I cannot run this script because it conflicts with the runtime output guardrail.",
+		}},
+	}}
+
+	result := NewTaskActionResolver().Resolve(context.Background(), ActionRequest{
+		Logger:                 &logger,
+		Pipeline:               &models.Pipeline{},
+		Step:                   &models.PipelineStep{Step: &models.GoalStep{Goal: "inspect runtime"}},
+		Task:                   &models.Task{Name: "script", Script: "printenv"},
+		Context:                NewExecutionContext(),
+		KnowledgePrompt:        "Guardrail: do not print env vars.",
+		BlockingKnowledgeKinds: []string{"guardrail"},
+		LLMEnabled:             true,
+		SessionResolver: func(*models.Pipeline, *models.PipelineStep, *models.Task) (ActionSession, error) {
+			return session, nil
+		},
+	})
+
+	if !result.Failed || result.FinalizeStatus != "failure" || result.FinalizeExitCode != 1 {
+		t.Fatalf("result = %#v, want finalizable failure", result)
+	}
+}
+
+func TestTaskActionResolverFailsClosedForDirectScriptGuardrailWithoutLLM(t *testing.T) {
+	logger := zerolog.Nop()
+	result := NewTaskActionResolver().Resolve(context.Background(), ActionRequest{
+		Logger:                 &logger,
+		Pipeline:               &models.Pipeline{},
+		Step:                   &models.PipelineStep{Step: &models.GoalStep{Goal: "inspect runtime"}},
+		Task:                   &models.Task{Name: "script", Script: "printenv"},
+		Context:                NewExecutionContext(),
+		KnowledgePrompt:        "Guardrail: do not print env vars.",
+		BlockingKnowledgeKinds: []string{"guardrail"},
+		LLMEnabled:             false,
+	})
+
+	if !result.Failed || result.FinalizeStatus != "failure" || result.FinalizeExitCode != 1 {
+		t.Fatalf("result = %#v, want finalizable failure", result)
+	}
+}
+
 func TestTaskActionResolverDisabledLLMReturnsFinalizableFailure(t *testing.T) {
 	logger := zerolog.Nop()
 	step := &models.PipelineStep{Step: &models.GoalStep{

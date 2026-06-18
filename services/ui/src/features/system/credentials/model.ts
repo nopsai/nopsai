@@ -139,6 +139,15 @@ export function buildCredentialReference(namespace: string, name: string): strin
   return `credential://${normalizedNamespace}/${normalizedName}`;
 }
 
+export function isCredentialReference(reference: string): boolean {
+  return /^credential:\/\/[^/]+\/.+/i.test(reference.trim());
+}
+
+export function credentialReferenceRoute(reference: string): string {
+  const trimmed = reference.trim();
+  return `/system/credentials?credential=${encodeURIComponent(trimmed)}`;
+}
+
 export function parseCredentialReference(reference: string): CredentialReferenceParts {
   const body = reference.trim().replace(/^credential:\/\//i, '');
   const slashIndex = body.indexOf('/');

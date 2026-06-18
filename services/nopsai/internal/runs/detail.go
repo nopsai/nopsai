@@ -278,15 +278,59 @@ func LoadAIUsageByTask(ctx context.Context, db Queryer, runID string) (map[strin
 }
 
 func BuildDetail(input DetailBuildInput) models.RunDetail {
+	run := ApplyChildRunStatus(input.Run, input.ChildRuns)
 	return models.RunDetail{
-		RunInfo:                input.Run,
-		Steps:                  BuildStepDetailsForRun(input.Run, input.OriginalPipeline, input.ResolvedPipeline, input.TasksByStep, input.ChildRuns, input.StepAIUsage, input.TaskAIUsage),
+		RunInfo:                run,
+		Steps:                  BuildStepDetailsForRun(run, input.OriginalPipeline, input.ResolvedPipeline, input.TasksByStep, input.ChildRuns, input.StepAIUsage, input.TaskAIUsage),
 		PipelineDefinition:     input.OriginalPipeline,
 		PipelineDefinitionYAML: input.PipelineDefinitionYAML,
 		KnowledgeContexts:      input.KnowledgeContexts,
 		ChildRuns:              input.ChildRuns,
 		ParentRunInfo:          input.ParentRunInfo,
 	}
+}
+
+func ApplyChildRunStatus(run models.RunListItem, childRuns []models.RunListItem) models.RunListItem {
+	if len(childRuns) == 0 {
+		run.Status = NormalizeRunDetailStatus(run.Status)
+		return run
+	}
+
+	statuses := make([]string, 0, len(childRuns)+1)
+	statuses = append(statuses, run.Status)
+	for _, childRun := range childRuns {
+		statuses = append(statuses, childRun.Status)
+	}
+	effectiveStatus := SummarizeRunDetailStatuses(statuses)
+	run.Status = effectiveStatus
+
+	if IsTerminalRunStatus(effectiveStatus) {
+		run.IsComplete = true
+		if latestChildFinish := latestFinishedAt(childRuns); !latestChildFinish.IsZero() && latestChildFinish.After(run.FinishedAt) {
+			run.FinishedAt = latestChildFinish
+		}
+		if !run.StartedAt.IsZero() && !run.FinishedAt.IsZero() {
+			run.Duration = run.FinishedAt.Sub(run.StartedAt).Round(time.Second).String()
+		}
+		return run
+	}
+
+	run.IsComplete = false
+	run.FinishedAt = time.Time{}
+	if !run.StartedAt.IsZero() {
+		run.Duration = time.Since(run.StartedAt).Round(time.Second).String()
+	}
+	return run
+}
+
+func latestFinishedAt(runs []models.RunListItem) time.Time {
+	var latest time.Time
+	for _, run := range runs {
+		if run.FinishedAt.After(latest) {
+			latest = run.FinishedAt
+		}
+	}
+	return latest
 }
 
 func BuildStepDetailsForRun(run models.RunListItem, originalPipeline, resolvedPipeline models.Pipeline, tasksByStep map[string][]models.TaskDetail, childRuns []models.RunListItem, stepAIUsage map[string]models.AIUsageSummary, taskAIUsage map[string]models.AIUsageSummary) []models.StepDetail {

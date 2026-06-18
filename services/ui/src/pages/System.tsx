@@ -134,7 +134,15 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
         <DispatcherPanel
           {...dispatcherPanel}
           canManageDispatcher={permissions.canManageDispatcher}
+          canViewRuntimeConfig={permissions.canViewRuntimeConfig}
+          canManageRuntimeConfig={permissions.canManageRuntimeConfig}
           runnerDefaults={systemConfig.config}
+          config={systemConfig.config}
+          fieldMetadata={systemConfig.panelProps.fieldMetadata}
+          configLoading={systemConfig.panelProps.configLoading}
+          saving={systemConfig.panelProps.saving}
+          onConfigChange={systemConfig.panelProps.onChange}
+          onSaveConfig={systemConfig.panelProps.onSave}
         />
       )}
       {visibleTab === 'access' && (

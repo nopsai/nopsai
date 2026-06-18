@@ -14,6 +14,12 @@ import (
 
 const knowledgeContextsRuntimeEnv = "NOPSAI_KNOWLEDGE_CONTEXTS"
 
+const strictKnowledgeContextActionInstruction = "If the requested action conflicts with guardrails or policies, do not execute it. " +
+	"Before returning any action, inspect the exact structured action you are about to return. " +
+	"If the action is EXECUTE_COMMAND, inspect the generated command_action.command text, including shell command text, scripts, arguments, and any stdout/stderr-producing operation. " +
+	"Guardrails and policies apply to the user's goal and to generated commands, file writes, MCP/tool actions, and their arguments. " +
+	"If any generated action would violate a guardrail or policy from the knowledge context, return RETURN_ANSWER instead with a short explanation that names the conflicting guardrail or policy; the agent will treat that response as a task failure."
+
 func loadRuntimeKnowledgeContexts() ([]models.KnowledgeContextSnapshot, error) {
 	raw := strings.TrimSpace(os.Getenv(knowledgeContextsRuntimeEnv))
 	if raw == "" {
@@ -102,7 +108,8 @@ func formatKnowledgeContextPrompt(snapshots []models.KnowledgeContextSnapshot) s
 		}
 	}
 	if hasStrict {
-		builder.WriteString("If the requested action conflicts with guardrails or policies, do not execute it. Return a short explanation that names the conflicting guardrail or policy; the agent will treat that response as a task failure.\n\n")
+		builder.WriteString(strictKnowledgeContextActionInstruction)
+		builder.WriteString("\n\n")
 	}
 	for _, snapshot := range snapshots {
 		title := strings.TrimSpace(snapshot.Name)

@@ -173,12 +173,16 @@ The agent runs tasks in dependency order, not strictly line order.
 15. Kubernetes runtime resolves the pipeline-level `affinity_enabled` directive, falling back to the runner default, and uses it to decide whether step pods must stay on the agent pod's node. Docker runtime ignores this directive.
 16. Docker runtime mounts the shared run volume at the pipeline `working_directory` plus any declared named volumes. Kubernetes runtime mounts the agent-owned workspace PVC at the step pod's pipeline `working_directory` and maps declared volumes to PVCs in the runner namespace.
 17. It decides the action:
-   - `script` task: execute the script directly
+   - `script` task: execute the script directly, unless effective guardrail or
+     policy context exists; in that case the LLM validates the exact script
+     before execution and the task fails closed if validation is unavailable or
+     returns a conflict
    - `goal` task: ask the LLM to return a structured action
 18. For goal tasks, the LLM prompt includes the resolved Agent Profile role/instructions, variables, effective knowledge context, optional workspace contents, MCP tools, execution history, and the current goal.
 19. If LLM content sharing is enabled, it scans the workspace and includes file contents in the prompt, excluding ignored paths.
 20. It executes the chosen action inside the step container or pod.
-21. It masks secret values from output before logging or saving history.
+21. It masks known secret values and NopsAI-provided runtime variable values
+    from action summaries and output before logging or saving history.
 22. It updates task status through the dispatcher.
 23. It appends a normalized history entry that later tasks and child pipelines can use.
 24. If a task fails and `ignore_failure` is false, the pipeline stops with failure.
@@ -194,9 +198,17 @@ For a goal-driven task:
    - `EXECUTE_COMMAND`
    - `REPLACE_FILE`
    - `RETURN_ANSWER`
-3. The agent executes that action in the step container. If a guardrail or policy caused a blocking `RETURN_ANSWER`, the agent records that explanation as a task failure.
-4. The command output becomes part of the run history unless output sharing is disabled.
-5. That history can influence later tasks or child pipelines.
+3. If effective guardrail or policy context exists, the prompt instructs the LLM
+   to inspect the exact structured action before returning it. For
+   `EXECUTE_COMMAND`, that includes checking the generated command text,
+   scripts, arguments, and any stdout/stderr-producing operation against the
+   guardrail or policy. Generated file writes, MCP/tool actions, and tool
+   arguments are also covered by this prompt-level check.
+4. The agent executes the returned action in the step container. If a guardrail
+   or policy caused a blocking `RETURN_ANSWER`, the agent records that
+   explanation as a task failure.
+5. The command output becomes part of the run history unless output sharing is disabled.
+6. That history can influence later tasks or child pipelines.
 
 ## 8. How Included Pipelines Work
 
@@ -216,8 +228,15 @@ For a `pipeline:<identifier>` include:
 4. The dispatcher turns that into an internal `POST /v1/run` call to `nopsai`.
 5. `nopsai` creates a child `pipeline_runs` record with parent metadata and the original authorization context; child pipelines never gain permissions from the parent pipeline owner, child pipeline owner, or dispatcher identity.
 6. The child run is dispatched like any other run.
-7. If the include is `sync: true`, the parent agent waits for the child result.
+7. If the include is `sync: true`, the include step waits for the child result.
+   A child failure marks the include step and parent pipeline failed before
+   downstream parent tasks are allowed to run.
 8. If the include is `sync: false`, the parent treats it as unblocking and continues.
+9. Run detail and run list responses expose an aggregate lineage status for display:
+   a parent is shown as running while a direct child run is still active, and a
+   successful parent is shown as failed if a direct child later fails. The stored
+   parent run result remains separate so dispatcher polling and rerun lifecycle
+   logic keep using the run's own terminal state.
 
 ## 9. How Reusable Steps Work
 

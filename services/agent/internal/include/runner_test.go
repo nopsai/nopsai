@@ -73,7 +73,6 @@ func TestRunnerNotFoundFinalizesNotFound(t *testing.T) {
 
 func TestRunnerSyncMonitorFinalizesAndMarksFailure(t *testing.T) {
 	logger := zerolog.Nop()
-	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var finalized []includeFinalization
 	markedFailed := false
@@ -111,7 +110,6 @@ func TestRunnerSyncMonitorFinalizesAndMarksFailure(t *testing.T) {
 		History:            "- Goal: build",
 		Sync:               true,
 		LLMDurationMs:      34,
-		SyncWaitGroup:      &wg,
 		FinalizeTask: func(stepName, taskName, status string, exitCode int, llmDurationMs int64) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -119,10 +117,9 @@ func TestRunnerSyncMonitorFinalizesAndMarksFailure(t *testing.T) {
 		},
 		MarkPipelineFailed: func() { markedFailed = true },
 	})
-	if !result.Handled || !result.Success {
-		t.Fatalf("result = %#v, want handled success while sync monitor runs", result)
+	if !result.Handled || result.Success {
+		t.Fatalf("result = %#v, want handled failure after sync child failure", result)
 	}
-	wg.Wait()
 
 	if triggeredDef != "name: release-child" || triggeredHistory != "- Goal: build" {
 		t.Fatalf("triggered def/history = %q/%q", triggeredDef, triggeredHistory)

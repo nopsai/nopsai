@@ -57,22 +57,23 @@ func NewActionSessionResolutionError(stage ActionSessionResolutionStage, err err
 }
 
 type ActionRequest struct {
-	Logger          *zerolog.Logger
-	Pipeline        *models.Pipeline
-	Step            *models.PipelineStep
-	Task            *models.Task
-	Context         ExecutionContext
-	History         string
-	ParentContext   context.Context
-	WorkspaceDir    string
-	IsRunStopping   func() bool
-	Secrets         map[string]string
-	KnowledgePrompt string
-	LLMTimeout      time.Duration
-	LLMEnabled      bool
-	SessionResolver ActionSessionResolver
-	DirectoryLister DirectoryLister
-	StopRetry       func(error) bool
+	Logger                 *zerolog.Logger
+	Pipeline               *models.Pipeline
+	Step                   *models.PipelineStep
+	Task                   *models.Task
+	Context                ExecutionContext
+	History                string
+	ParentContext          context.Context
+	WorkspaceDir           string
+	IsRunStopping          func() bool
+	Secrets                map[string]string
+	KnowledgePrompt        string
+	BlockingKnowledgeKinds []string
+	LLMTimeout             time.Duration
+	LLMEnabled             bool
+	SessionResolver        ActionSessionResolver
+	DirectoryLister        DirectoryLister
+	StopRetry              func(error) bool
 }
 
 type ActionResult struct {
@@ -111,7 +112,7 @@ func (r TaskActionResolver) Resolve(ctx context.Context, req ActionRequest) Acti
 
 type scriptActionResolver struct{}
 
-func (scriptActionResolver) Resolve(_ context.Context, req ActionRequest) ActionResult {
+func (scriptActionResolver) Resolve(ctx context.Context, req ActionRequest) ActionResult {
 	goal := taskGoal(req.Step, req.Task)
 	if req.Logger != nil {
 		if goal != "" {
@@ -124,6 +125,9 @@ func (scriptActionResolver) Resolve(_ context.Context, req ActionRequest) Action
 	if req.Task != nil {
 		script = req.Task.Script
 	}
+	if len(req.BlockingKnowledgeKinds) > 0 {
+		return validateDirectScriptAction(ctx, req, goal, script)
+	}
 	return ActionResult{
 		Action: &proto.Action{
 			Type:    "EXECUTE_COMMAND",
@@ -132,6 +136,147 @@ func (scriptActionResolver) Resolve(_ context.Context, req ActionRequest) Action
 		ActionSummary: script,
 		Goal:          goal,
 	}
+}
+
+func validateDirectScriptAction(ctx context.Context, req ActionRequest, goal, script string) ActionResult {
+	if !req.LLMEnabled || req.SessionResolver == nil {
+		if req.Logger != nil {
+			req.Logger.Error().
+				Strs("knowledge_context_kinds", req.BlockingKnowledgeKinds).
+				Msg("Cannot validate direct script against blocking knowledge context because LLM is disabled")
+		}
+		return ActionResult{
+			Goal:             goal,
+			Failed:           true,
+			FinalizeStatus:   "failure",
+			FinalizeExitCode: 1,
+		}
+	}
+
+	session, sessionErr := req.SessionResolver(req.Pipeline, req.Step, req.Task)
+	if sessionErr != nil {
+		logActionSessionResolutionError(req.Logger, sessionErr)
+		return ActionResult{Goal: goal, Failed: true, FinalizeStatus: "failure", FinalizeExitCode: 1}
+	}
+	if session == nil {
+		if req.Logger != nil {
+			req.Logger.Error().Msg("Failed to resolve action session for direct script validation")
+		}
+		return ActionResult{Goal: goal, Failed: true, FinalizeStatus: "failure", FinalizeExitCode: 1}
+	}
+	if req.Logger != nil {
+		req.Logger.Info().
+			Str("llm_profile", session.ProfileName()).
+			Strs("knowledge_context_kinds", req.BlockingKnowledgeKinds).
+			Msg("Validating direct script against blocking knowledge context")
+	}
+
+	parentCtx := req.ParentContext
+	if parentCtx == nil {
+		parentCtx = ctx
+	}
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	llmTimeout := req.LLMTimeout
+	if llmTimeout <= 0 {
+		llmTimeout = 2 * time.Minute
+	}
+
+	actionReq := req.Context.BuildActionRequest(
+		directScriptValidationGoal(goal, script),
+		req.History,
+		map[string]string{},
+		req.KnowledgePrompt,
+		req.Secrets,
+	)
+
+	var validationAction *proto.Action
+	actionStart := time.Now()
+	err := withRetry(func() error {
+		attemptCtx, cancel := context.WithTimeout(parentCtx, llmTimeout)
+		defer cancel()
+		var callErr error
+		validationAction, callErr = session.GetAction(attemptCtx, actionReq)
+		return callErr
+	}, 3, time.Second, req.StopRetry)
+	llmDurationMs := time.Since(actionStart).Milliseconds()
+	if err != nil {
+		if req.Logger != nil {
+			req.Logger.Error().Err(err).Msg("Direct script guardrail validation failed")
+		}
+		return ActionResult{
+			Goal:             goal,
+			LLMDurationMs:    llmDurationMs,
+			LLMDurationSet:   true,
+			Failed:           true,
+			FinalizeStatus:   "failure",
+			FinalizeExitCode: 1,
+		}
+	}
+
+	if answer := validationAction.GetAnswerAction(); answer != nil {
+		reason := strings.TrimSpace(answer.Answer)
+		if reason == "" {
+			reason = "Direct script blocked by guardrail or policy."
+		}
+		if req.Logger != nil {
+			req.Logger.Error().
+				Strs("knowledge_context_kinds", req.BlockingKnowledgeKinds).
+				Msgf("Knowledge context blocked direct script: %s", req.Context.MaskText(reason, req.Secrets))
+		}
+		return ActionResult{
+			Goal:             goal,
+			LLMDurationMs:    llmDurationMs,
+			LLMDurationSet:   true,
+			Failed:           true,
+			FinalizeStatus:   "failure",
+			FinalizeExitCode: 1,
+		}
+	}
+
+	allowedCommand := ""
+	if cmd := validationAction.GetCommandAction(); cmd != nil {
+		allowedCommand = cmd.Command
+	}
+	if strings.TrimSpace(allowedCommand) != strings.TrimSpace(script) {
+		if req.Logger != nil {
+			req.Logger.Error().
+				Str("validation_action", actionSummary(validationAction)).
+				Msg("Direct script guardrail validation did not return the exact script command")
+		}
+		return ActionResult{
+			Goal:             goal,
+			LLMDurationMs:    llmDurationMs,
+			LLMDurationSet:   true,
+			Failed:           true,
+			FinalizeStatus:   "failure",
+			FinalizeExitCode: 1,
+		}
+	}
+
+	return ActionResult{
+		Action: &proto.Action{
+			Type:    "EXECUTE_COMMAND",
+			Payload: &proto.Action_CommandAction{CommandAction: &proto.CommandAction{Command: script}},
+		},
+		ActionSummary:  script,
+		Goal:           goal,
+		LLMDurationMs:  llmDurationMs,
+		LLMDurationSet: true,
+	}
+}
+
+func directScriptValidationGoal(goal, script string) string {
+	trimmedGoal := strings.TrimSpace(goal)
+	if trimmedGoal == "" {
+		trimmedGoal = "Execute a direct script task."
+	}
+	return fmt.Sprintf(
+		"Validate this direct script before execution. The script is the exact proposed EXECUTE_COMMAND for the current task goal: %s\n\nInspect the script against all guardrails and policies in the knowledge context. If it complies, return EXECUTE_COMMAND with exactly this command text and no changes. If it conflicts with any guardrail or policy, return RETURN_ANSWER with a short explanation naming the conflicting guardrail or policy.\n\nScript:\n%s",
+		trimmedGoal,
+		script,
+	)
 }
 
 type llmBackedActionResolver struct{}

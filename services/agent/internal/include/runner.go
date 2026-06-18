@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/rs/zerolog"
 )
@@ -35,7 +34,6 @@ type Request struct {
 	History            string
 	Sync               bool
 	LLMDurationMs      int64
-	SyncWaitGroup      *sync.WaitGroup
 	FinalizeTask       Finalizer
 	MarkPipelineFailed func()
 }
@@ -100,46 +98,37 @@ func (r Runner) Run(ctx context.Context, req Request) Result {
 		return Result{Handled: true, Success: false}
 	}
 
-	monitorFunc := r.monitorFunc(ctx, req, childRunID)
 	if req.Sync {
-		if req.SyncWaitGroup != nil {
-			req.SyncWaitGroup.Add(1)
-			go func() {
-				defer req.SyncWaitGroup.Done()
-				monitorFunc()
-			}()
-		} else {
-			go monitorFunc()
+		finalStatus := r.monitor(ctx, req, childRunID)
+		success := finalStatus == "success"
+		if !success && req.MarkPipelineFailed != nil {
+			req.MarkPipelineFailed()
 		}
-		return Result{Handled: true, Success: true}
+		return Result{Handled: true, Success: success}
 	}
 
-	go monitorFunc()
+	go r.monitor(ctx, req, childRunID)
 	req.finalize(req.StepName, req.StepName, "success", 0)
 	return Result{Handled: true, Success: true}
 }
 
-func (r Runner) monitorFunc(ctx context.Context, req Request, childRunID string) func() {
-	return func() {
-		finalStatus := "failure"
-		var err error
-		if r.config.MonitorPipeline == nil {
-			err = fmt.Errorf("child pipeline monitor is not configured")
-		} else {
-			finalStatus, err = r.config.MonitorPipeline(ctx, req.Logger, childRunID)
-		}
-		if err != nil {
-			r.logErrorWithRunID(req.Logger, err, childRunID, "Error monitoring child pipeline")
-			finalStatus = "failure"
-		}
-		if req.Logger != nil {
-			req.Logger.Info().Str("child_run_id", childRunID).Str("status", finalStatus).Msg("Child pipeline finished")
-		}
-		req.finalize(req.StepName, req.StepName, finalStatus, 0)
-		if finalStatus != "success" && req.Sync && req.MarkPipelineFailed != nil {
-			req.MarkPipelineFailed()
-		}
+func (r Runner) monitor(ctx context.Context, req Request, childRunID string) string {
+	finalStatus := "failure"
+	var err error
+	if r.config.MonitorPipeline == nil {
+		err = fmt.Errorf("child pipeline monitor is not configured")
+	} else {
+		finalStatus, err = r.config.MonitorPipeline(ctx, req.Logger, childRunID)
 	}
+	if err != nil {
+		r.logErrorWithRunID(req.Logger, err, childRunID, "Error monitoring child pipeline")
+		finalStatus = "failure"
+	}
+	if req.Logger != nil {
+		req.Logger.Info().Str("child_run_id", childRunID).Str("status", finalStatus).Msg("Child pipeline finished")
+	}
+	req.finalize(req.StepName, req.StepName, finalStatus, 0)
+	return finalStatus
 }
 
 func (req Request) finalize(stepName, taskName, status string, exitCode int) {

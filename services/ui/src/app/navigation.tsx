@@ -1,5 +1,6 @@
-import { ObjectIcon } from '../components/ObjectIcon';
-import type { NavItem } from './types';
+import { ObjectIcon } from '../components/ObjectIcon.js';
+import type { NavItem } from './types.js';
+export { pipelineRunsNavPath } from './navigationModel.js';
 
 export const baseNavItems: NavItem[] = [
   {

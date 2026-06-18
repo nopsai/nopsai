@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expect, test, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
+import { beforeEach, expect, test, vi } from 'vitest';
 import CredentialsPanel from './CredentialsPanel';
 
 const disabledCredential = {
@@ -34,6 +35,11 @@ const apiMocks = vi.hoisted(() => ({
 
 vi.mock('./credentials/api', () => apiMocks);
 
+beforeEach(() => {
+  vi.restoreAllMocks();
+  Object.values(apiMocks).forEach(mock => mock.mockReset());
+});
+
 test('uses compact references and supports enable plus old-version deletion', async () => {
   const user = userEvent.setup();
   vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -47,7 +53,11 @@ test('uses compact references and supports enable plus old-version deletion', as
     versions: [disabledCredential.versions[0]],
   });
 
-  render(<CredentialsPanel canManage />);
+  render(
+    <MemoryRouter>
+      <CredentialsPanel canManage />
+    </MemoryRouter>
+  );
 
   expect(await screen.findByText('OpenAI Primary')).toBeVisible();
   expect(screen.queryByText('credential://system/llm/openai-primary')).not.toBeInTheDocument();
@@ -68,11 +78,29 @@ test('creates credentials using namespace and name fields', async () => {
   const user = userEvent.setup();
   apiMocks.fetchCredentials.mockResolvedValue([]);
 
-  render(<CredentialsPanel canManage />);
+  render(
+    <MemoryRouter>
+      <CredentialsPanel canManage />
+    </MemoryRouter>
+  );
   await screen.findByText('No matching credentials');
   await user.click(screen.getByRole('button', { name: 'New credential' }));
 
   expect(screen.getByLabelText('Namespace')).toHaveValue('system');
   await user.type(screen.getByLabelText('Name / path'), 'mail/smtp-primary');
   expect(screen.getByText('credential://system/mail/smtp-primary')).toBeVisible();
+});
+
+test('opens a credential detail from the credential query parameter', async () => {
+  apiMocks.fetchCredentials.mockResolvedValue([disabledCredential]);
+  apiMocks.fetchCredential.mockResolvedValue(disabledCredential);
+
+  render(
+    <MemoryRouter initialEntries={['/system/credentials?credential=credential%3A%2F%2Fsystem%2Fllm%2Fopenai-primary']}>
+      <CredentialsPanel canManage />
+    </MemoryRouter>
+  );
+
+  expect(await screen.findByText('credential://system/llm/openai-primary')).toBeVisible();
+  expect(apiMocks.fetchCredential).toHaveBeenCalledWith('credential-1');
 });

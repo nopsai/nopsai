@@ -78,9 +78,25 @@ Built-in kinds:
 Guardrails and policies are treated as strict constraints in the agent prompt.
 The prompt tells the LLM that if a requested action conflicts with guardrails or
 policies, it must not execute the action and should return an explanation. The
-agent treats that blocking explanation as a task failure instead of a successful
-answer. A false step `condition` with an effective guardrail or policy context
-also fails the current task instead of marking the step as skipped.
+prompt also tells the LLM to inspect the exact structured action before
+returning it. For `EXECUTE_COMMAND`, the LLM must inspect the generated command
+text, scripts, arguments, and any stdout/stderr-producing operation. Guardrails
+and policies apply to the user's goal as well as generated commands, file
+writes, MCP/tool actions, and their arguments. If the generated action would
+conflict with a guardrail or policy, the LLM must return `RETURN_ANSWER` with a
+short explanation naming the conflict instead of returning the action.
+
+This is prompt-level enforcement: the agent treats that blocking explanation as
+a task failure instead of a successful answer. A false step `condition` with an
+effective guardrail or policy context also fails the current task instead of
+marking the step as skipped.
+
+Direct `script` tasks are also checked when an effective guardrail or policy is
+present. Before the script runs, the LLM must validate the exact script as the
+proposed `EXECUTE_COMMAND`. If validation is unavailable, changes the command,
+or returns a conflict explanation, the task fails instead of executing the
+script. Command logs and run history mask known secret values plus the
+NopsAI-provided runtime variable values passed into the step.
 
 ## Managed Knowledge
 

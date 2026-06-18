@@ -76,6 +76,11 @@ export type KubernetesRunnerManifestTemplate = {
 
 export type RunnerInstallRuntime = 'docker' | 'kubernetes';
 
+export type DispatcherRoutingDraftRow = {
+  scope: string;
+  runners: string;
+};
+
 export function normalizeDispatcherStatus(value: unknown): Omit<DispatcherStatusState, 'fetchedAt'> {
   const record = asRecord(value);
   const runnersRaw = record && Array.isArray(record.runners) ? record.runners : [];
@@ -172,6 +177,34 @@ export function sortRuntimeScopeOptions(scopes: string[]): string[] {
     if (b === 'default' && a !== 'default') return 1;
     return a.localeCompare(b);
   });
+}
+
+export function normalizeDispatcherRoutingScope(value: string) {
+  const trimmed = value.trim();
+  return trimmed || '*';
+}
+
+export function dispatcherRoutingRowsToConfig(rows: DispatcherRoutingDraftRow[]): Record<string, string[]> {
+  const routing: Record<string, string[]> = {};
+  rows.forEach(row => {
+    const runners = row.runners
+      .split(/[\n,]/)
+      .map(item => item.trim())
+      .filter(Boolean);
+    routing[normalizeDispatcherRoutingScope(row.scope)] = runners;
+  });
+  return routing;
+}
+
+export function dispatcherRoutingConfigSignature(routing: Record<string, string[]>): string {
+  return JSON.stringify(
+    Object.entries(routing || {})
+      .map(([scope, runners]) => [
+        normalizeDispatcherRoutingScope(scope),
+        Array.isArray(runners) ? runners.map(item => String(item || '').trim()).filter(Boolean) : [],
+      ])
+      .sort(([left], [right]) => String(left).localeCompare(String(right)))
+  );
 }
 
 function normalizeRunner(value: unknown): Runner {
