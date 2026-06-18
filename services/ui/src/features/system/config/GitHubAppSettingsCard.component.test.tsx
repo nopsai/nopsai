@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { expect, test } from 'vitest';
 import GitHubAppSettingsCard from './GitHubAppSettingsCard';
 import { initialConfig, type ConfigFieldMetadata, type ConfigFormState } from './model';
@@ -35,13 +36,21 @@ function GitHubAppSettingsHarness() {
 
 test('renders editable git-bot GitHub App runtime settings', async () => {
   const user = userEvent.setup();
-  render(<GitHubAppSettingsHarness />);
+  render(
+    <MemoryRouter>
+      <GitHubAppSettingsHarness />
+    </MemoryRouter>
+  );
 
   expect(screen.getByText('git-bot application')).toBeVisible();
   expect(screen.getByText('Applies after reconnect')).toBeVisible();
   expect(screen.getByLabelText(/GitHub App ID/)).toHaveValue('123456');
   expect(screen.getByLabelText(/GitHub installation ID/)).toHaveValue('987654');
   expect(screen.getByLabelText(/Private key credential ref/)).toHaveValue('credential://system/github/app-private-key');
+  expect(screen.getAllByRole('link', { name: 'Open credential' })[0]).toHaveAttribute(
+    'href',
+    '/system/credentials?credential=credential%3A%2F%2Fsystem%2Fgithub%2Fapp-private-key'
+  );
   expect(screen.getByLabelText(/Webhook secret credential ref/)).toHaveValue('credential://system/github/webhook-secret');
 
   await user.clear(screen.getByLabelText(/GitHub App ID/));

@@ -20,6 +20,10 @@ func TestFormatKnowledgeContextPromptExplainsBlockingFailure(t *testing.T) {
 
 	for _, want := range []string{
 		"conflicts with guardrails or policies",
+		"Before returning any action, inspect the exact structured action",
+		"inspect the generated command_action.command text",
+		"Guardrails and policies apply to the user's goal and to generated commands",
+		"return RETURN_ANSWER instead",
 		"agent will treat that response as a task failure",
 		"runtime-output-safety",
 	} {

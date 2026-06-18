@@ -84,6 +84,21 @@ func TestBuildActionRequestMasksSensitiveHistoryAndDirectoryContent(t *testing.T
 	}
 }
 
+func TestMaskRuntimeTextMasksAllRuntimeValues(t *testing.T) {
+	context := NewExecutionContext()
+	context.SetValue("VISIBLE_VAR", "plain-runtime-value", false)
+	context.SetValue("STEP_SECRET", "super-secret-value", true)
+
+	if got := context.MaskText("value=plain-runtime-value secret=super-secret-value", nil); !strings.Contains(got, "plain-runtime-value") {
+		t.Fatalf("MaskText should leave non-sensitive prompt values visible, got %q", got)
+	}
+
+	masked := context.MaskRuntimeText("value=plain-runtime-value secret=super-secret-value", nil)
+	if strings.Contains(masked, "plain-runtime-value") || strings.Contains(masked, "super-secret-value") {
+		t.Fatalf("expected all runtime values to be masked, got %q", masked)
+	}
+}
+
 func TestTaskExecutionContextTaskOverridesWin(t *testing.T) {
 	base := NewExecutionContext()
 	base.SetValue("SHARED", "step", false)

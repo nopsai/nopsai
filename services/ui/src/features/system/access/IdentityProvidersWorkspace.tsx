@@ -5,6 +5,7 @@ import type {
   IdentityProviderRecord,
   IdentityProviderSettings,
 } from './model';
+import { CredentialReferenceLink } from '../credentials/CredentialReferenceLink';
 
 type IdentityProvidersWorkspaceProps = {
   providers: IdentityProviderRecord[];
@@ -190,7 +191,7 @@ export function IdentityProvidersWorkspace({
               <ProviderInput label="Display name" value={form.display_name} onChange={value => onFormChange(prev => ({ ...prev, display_name: value }))} placeholder="Company SSO" />
               <ProviderInput label="Issuer" value={form.issuer} onChange={value => onFormChange(prev => ({ ...prev, issuer: value }))} placeholder="https://idp.company.com" />
               <ProviderInput label="Client ID" value={form.client_id} onChange={value => onFormChange(prev => ({ ...prev, client_id: value }))} />
-              <ProviderInput label="Client credential ref" value={form.client_credential_ref} onChange={value => onFormChange(prev => ({ ...prev, client_credential_ref: value }))} placeholder="credential://system/oidc/corporate/client-secret" />
+              <ProviderInput label="Client credential ref" value={form.client_credential_ref} onChange={value => onFormChange(prev => ({ ...prev, client_credential_ref: value }))} placeholder="credential://system/oidc/corporate/client-secret" credentialReference={form.client_credential_ref} />
               <ProviderInput label="Scopes" value={form.scopes} onChange={value => onFormChange(prev => ({ ...prev, scopes: value }))} placeholder="openid, email, profile" />
               <ProviderInput label="Allowed domains" value={form.allowed_email_domains} onChange={value => onFormChange(prev => ({ ...prev, allowed_email_domains: value }))} placeholder="company.com" />
               <ProviderInput label="Authorization endpoint" value={form.authorization_endpoint} onChange={value => onFormChange(prev => ({ ...prev, authorization_endpoint: value }))} />
@@ -274,16 +275,25 @@ function ProviderInput({
   onChange,
   placeholder,
   type = 'text',
+  credentialReference,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   type?: string;
+  credentialReference?: string;
 }) {
   return (
     <label className="access-minimal-label">
-      <span>{label}</span>
+      <span className="flex flex-wrap items-center gap-2">
+        <span>{label}</span>
+        {credentialReference ? (
+          <CredentialReferenceLink reference={credentialReference} className="text-xs underline decoration-dotted underline-offset-4 hover:text-[var(--accent-primary)]">
+            Open credential
+          </CredentialReferenceLink>
+        ) : null}
+      </span>
       <input
         className="pipelines-input"
         type={type}

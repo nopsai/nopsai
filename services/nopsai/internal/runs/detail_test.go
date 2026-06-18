@@ -21,6 +21,118 @@ func TestDeriveRunDetailStepStatusPrefersChildRunProgress(t *testing.T) {
 	}
 }
 
+func TestApplyChildRunStatusKeepsParentRunningWhileChildRuns(t *testing.T) {
+	start := time.Unix(1_700_000_000, 0).UTC()
+	finished := start.Add(20 * time.Second)
+	parent := models.RunListItem{
+		RunID:      "parent-1",
+		Status:     "success",
+		StartedAt:  start,
+		FinishedAt: finished,
+		Duration:   "20s",
+		IsComplete: true,
+	}
+
+	got := ApplyChildRunStatus(parent, []models.RunListItem{{
+		RunID:     "child-1",
+		Status:    "running",
+		StartedAt: start.Add(5 * time.Second),
+	}})
+
+	if got.Status != "running" {
+		t.Fatalf("status = %q, want running", got.Status)
+	}
+	if got.IsComplete {
+		t.Fatal("parent should not be complete while a child run is active")
+	}
+	if !got.FinishedAt.IsZero() {
+		t.Fatalf("finished_at = %s, want zero while child is active", got.FinishedAt)
+	}
+}
+
+func TestApplyChildRunStatusFailsSuccessfulParentWhenChildFails(t *testing.T) {
+	start := time.Unix(1_700_000_000, 0).UTC()
+	parentFinished := start.Add(20 * time.Second)
+	childFinished := start.Add(45 * time.Second)
+	parent := models.RunListItem{
+		RunID:      "parent-1",
+		Status:     "success",
+		StartedAt:  start,
+		FinishedAt: parentFinished,
+		Duration:   "20s",
+		IsComplete: true,
+	}
+
+	got := ApplyChildRunStatus(parent, []models.RunListItem{{
+		RunID:      "child-1",
+		Status:     "failure",
+		StartedAt:  start.Add(5 * time.Second),
+		FinishedAt: childFinished,
+		IsComplete: true,
+	}})
+
+	if got.Status != "failure" {
+		t.Fatalf("status = %q, want failure", got.Status)
+	}
+	if !got.IsComplete {
+		t.Fatal("parent should stay complete after terminal child failure")
+	}
+	if got.FinishedAt != childFinished {
+		t.Fatalf("finished_at = %s, want child finish %s", got.FinishedAt, childFinished)
+	}
+	if got.Duration != "45s" {
+		t.Fatalf("duration = %q, want 45s", got.Duration)
+	}
+}
+
+func TestBuildDetailUsesChildRunStatusForParentAndStep(t *testing.T) {
+	start := time.Unix(1_700_000_000, 0).UTC()
+	pipeline := models.Pipeline{
+		Steps: []models.PipelineStep{{
+			Step: &models.IncludeStep{
+				BaseStep: models.BaseStep{Name: "included"},
+				Include:  "pipeline:child",
+			},
+		}},
+	}
+	detail := BuildDetail(DetailBuildInput{
+		Run: models.RunListItem{
+			RunID:      "parent-1",
+			Status:     "success",
+			StartedAt:  start,
+			FinishedAt: start.Add(10 * time.Second),
+			IsComplete: true,
+		},
+		OriginalPipeline: pipeline,
+		ResolvedPipeline: pipeline,
+		ChildRuns: []models.RunListItem{{
+			RunID:          "child-1",
+			ParentStepName: "included",
+			Status:         "running",
+			StartedAt:      start.Add(5 * time.Second),
+		}},
+		TasksByStep: map[string][]models.TaskDetail{
+			"included": {{
+				TaskID:    "task-1",
+				StepName:  "included",
+				TaskName:  "included",
+				Status:    "success",
+				StartedAt: start,
+			}},
+		},
+	})
+
+	if detail.RunInfo.Status != "running" {
+		t.Fatalf("run status = %q, want running", detail.RunInfo.Status)
+	}
+	if detail.RunInfo.IsComplete {
+		t.Fatal("run_info should be incomplete while child run is active")
+	}
+	if len(detail.Steps) != 1 || detail.Steps[0].Status != "running" {
+		t.Fatalf("step status = %#v, want running", detail.Steps)
+	}
+}
+
 func TestFinalizeRunDetailStepStatusMarksPendingStepSkippedOnFailedRun(t *testing.T) {
 	got := FinalizeRunDetailStepStatus("pending", nil, "failure")
 	if got != "skipped" {

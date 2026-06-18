@@ -1,5 +1,6 @@
 import { Plus, RefreshCw } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { CredentialCatalog } from './credentials/CredentialCatalog';
 import { CredentialCreateForm } from './credentials/CredentialCreateForm';
 import { CredentialDetail } from './credentials/CredentialDetail';
@@ -8,14 +9,17 @@ import {
   credentialSummary,
   filterCredentials,
   groupCredentials,
+  parseCredentialReference,
 } from './credentials/model';
 import { useCredentials } from './credentials/useCredentials';
 
 function CredentialsPanel({ canManage }: { canManage: boolean }) {
   const controller = useCredentials({ canManage });
+  const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
   const [namespace, setNamespace] = useState('all');
+  const linkedCredentialRef = (searchParams.get('credential') || '').trim();
   const summary = useMemo(() => credentialSummary(controller.credentials), [controller.credentials]);
   const namespaces = useMemo(() => credentialNamespaces(controller.credentials), [controller.credentials]);
   const groups = useMemo(
@@ -23,6 +27,33 @@ function CredentialsPanel({ canManage }: { canManage: boolean }) {
     [controller.credentials, namespace, query, status]
   );
   const showSidePanel = controller.creating || Boolean(controller.selected);
+
+  useEffect(() => {
+    if (!linkedCredentialRef || controller.loading) return;
+    setQuery(linkedCredentialRef);
+    setStatus('all');
+    const match = controller.credentials.find(credential => credential.reference === linkedCredentialRef);
+    if (!match) {
+      setNamespace('all');
+      return;
+    }
+    setNamespace(parseCredentialReference(match.reference).namespace);
+    if (controller.selected?.id !== match.id) void controller.selectCredential(match);
+  }, [controller.credentials, controller.loading, controller.selected?.id, controller.selectCredential, linkedCredentialRef]);
+
+  const selectCredential = (credential: Parameters<typeof controller.selectCredential>[0]) => {
+    const next = new URLSearchParams(searchParams);
+    next.set('credential', credential.reference);
+    setSearchParams(next, { replace: true });
+    void controller.selectCredential(credential);
+  };
+
+  const closeCredentialDetails = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete('credential');
+    setSearchParams(next, { replace: true });
+    controller.closeDetails();
+  };
 
   return (
     <div id="system-credentials-section" className="space-y-6 pb-24">
@@ -85,7 +116,7 @@ function CredentialsPanel({ canManage }: { canManage: boolean }) {
           onQueryChange={setQuery}
           onStatusChange={setStatus}
           onNamespaceChange={setNamespace}
-          onSelect={credential => void controller.selectCredential(credential)}
+          onSelect={selectCredential}
         />
 
         {controller.creating && (
@@ -111,7 +142,7 @@ function CredentialsPanel({ canManage }: { canManage: boolean }) {
             onEnable={() => void controller.enableSelected()}
             onDisable={() => void controller.disableSelected()}
             onDelete={() => void controller.deleteSelected()}
-            onClose={controller.closeDetails}
+            onClose={closeCredentialDetails}
           />
         )}
       </div>

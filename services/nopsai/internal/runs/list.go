@@ -44,7 +44,72 @@ func List(ctx context.Context, db Queryer, filter ListFilter) ([]models.RunListI
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	return out, nil
+	return ApplyDirectChildRunStatuses(ctx, db, out)
+}
+
+func ApplyDirectChildRunStatuses(ctx context.Context, db Queryer, runs []models.RunListItem) ([]models.RunListItem, error) {
+	if len(runs) == 0 {
+		return runs, nil
+	}
+
+	parentIDs := make([]string, 0, len(runs))
+	runIndexes := make(map[string]int, len(runs))
+	for index, run := range runs {
+		runID := strings.TrimSpace(run.RunID)
+		if runID == "" {
+			continue
+		}
+		parentIDs = append(parentIDs, runID)
+		runIndexes[runID] = index
+	}
+	if len(parentIDs) == 0 {
+		return runs, nil
+	}
+
+	rows, err := db.Query(ctx, `
+		SELECT parent_run_id::text, run_id::text, status, started_at, finished_at
+		FROM pipeline_runs
+		WHERE parent_run_id::text = ANY($1::text[])
+	`, parentIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	childRunsByParent := make(map[string][]models.RunListItem)
+	for rows.Next() {
+		var parentRunID, childRunID, status string
+		var startedAt, finishedAt sql.NullTime
+		if err := rows.Scan(&parentRunID, &childRunID, &status, &startedAt, &finishedAt); err != nil {
+			return nil, err
+		}
+		childRun := models.RunListItem{
+			RunID:  childRunID,
+			Status: status,
+		}
+		if startedAt.Valid {
+			childRun.StartedAt = startedAt.Time
+		}
+		if finishedAt.Valid {
+			childRun.FinishedAt = finishedAt.Time
+			childRun.IsComplete = true
+		} else {
+			childRun.IsComplete = IsTerminalRunStatus(status)
+		}
+		childRunsByParent[parentRunID] = append(childRunsByParent[parentRunID], childRun)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	for runID, childRuns := range childRunsByParent {
+		index, ok := runIndexes[runID]
+		if !ok {
+			continue
+		}
+		runs[index] = ApplyChildRunStatus(runs[index], childRuns)
+	}
+	return runs, nil
 }
 
 func BuildListRunsQuery(groupID *int, rootGroup bool, branchName string, limit, offset int) (string, []any) {

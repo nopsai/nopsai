@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { expect, test, vi } from 'vitest';
 import LLMProfilesPanel from './LLMProfilesPanel';
 
@@ -33,9 +34,17 @@ vi.mock('./llm-profiles/api', () => apiMocks);
 test('renders provider labels and applies provider-aware profile defaults', async () => {
   Element.prototype.scrollIntoView = vi.fn();
   const user = userEvent.setup();
-  render(<LLMProfilesPanel canManage />);
+  render(
+    <MemoryRouter>
+      <LLMProfilesPanel canManage />
+    </MemoryRouter>
+  );
 
   expect(await screen.findByText('OpenAI / ChatGPT')).toBeVisible();
+  expect(screen.getByRole('link', { name: 'credential://system/llm/openai' })).toHaveAttribute(
+    'href',
+    '/system/credentials?credential=credential%3A%2F%2Fsystem%2Fllm%2Fopenai'
+  );
   expect(screen.getByText('30s / 2048 tokens')).toBeVisible();
 
   await user.click(screen.getByRole('button', { name: 'Test' }));

@@ -6,7 +6,7 @@ import {
   SIDEBAR_MIN_WIDTH,
   SIDEBAR_SCROLL_BUFFER,
 } from './constants';
-import { baseNavItems, baseSystemSubNav, titleMap } from './navigation';
+import { baseNavItems, baseSystemSubNav, pipelineRunsNavPath, titleMap } from './navigation';
 import {
   formatBranch,
   formatBranchDisplay,
@@ -153,7 +153,11 @@ function AppShell() {
   }, [updateCurrentUser]);
   const navItems = useMemo(() => {
     return baseNavItems
-      .map(item => (item.path.startsWith('/system') ? { ...item, path: preferredSystemPath } : item))
+      .map(item => {
+        if (item.path.startsWith('/system')) return { ...item, path: preferredSystemPath };
+        if (item.path.startsWith('/pipelineruns')) return { ...item, path: pipelineRunsNavPath(location.pathname) };
+        return item;
+      })
       .filter(item => {
         if (item.path.startsWith('/system')) return canViewAnySystem;
         if (item.path === '/schedules') return canViewSchedules;
@@ -164,7 +168,7 @@ function AppShell() {
         if (item.path === '/knowledge-context') return canViewKnowledge;
         return true;
       });
-  }, [canViewAnySystem, canViewExternalTriggers, canViewGitWebhookSources, canViewKnowledge, canViewSchedules, canViewScopes, canViewTriggers, preferredSystemPath]);
+  }, [canViewAnySystem, canViewExternalTriggers, canViewGitWebhookSources, canViewKnowledge, canViewSchedules, canViewScopes, canViewTriggers, location.pathname, preferredSystemPath]);
   const systemSubNav = useMemo(
     () =>
       baseSystemSubNav.filter(item => {
@@ -862,10 +866,11 @@ function PipelineRunsSidebarContent({
       if (groupId === null) params.delete('group');
       else params.set('group', String(groupId));
       params.delete('run');
-      navigateTo(`/pipelineruns/main${params.toString() ? `?${params.toString()}` : ''}`);
+      const base = tab === 'recent' ? '/pipelineruns/recent' : tab === 'events' ? '/pipelineruns/events' : '/pipelineruns/main';
+      navigateTo(`${base}${params.toString() ? `?${params.toString()}` : ''}`);
       onClose?.();
     },
-    [navigateTo, onClose, searchParams]
+    [navigateTo, onClose, searchParams, tab]
   );
 
   const handleOpenRun = useCallback(

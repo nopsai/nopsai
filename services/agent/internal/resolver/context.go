@@ -166,12 +166,27 @@ func (c ExecutionContext) MaskText(input string, secrets map[string]string) stri
 	return maskSensitiveValues(input, c.promptMaskValues(secrets))
 }
 
+func (c ExecutionContext) MaskRuntimeText(input string, secrets map[string]string) string {
+	return maskSensitiveValues(input, c.runtimeMaskValues(secrets))
+}
+
 func (c ExecutionContext) promptMaskValues(secrets map[string]string) []string {
 	values := make([]string, 0, len(c.values)+len(secrets))
 	for _, value := range c.values {
 		if value.Sensitive {
 			values = append(values, value.Value)
 		}
+	}
+	for _, value := range secrets {
+		values = append(values, value)
+	}
+	return uniqueSensitiveValues(values)
+}
+
+func (c ExecutionContext) runtimeMaskValues(secrets map[string]string) []string {
+	values := make([]string, 0, len(c.values)+len(secrets))
+	for _, value := range c.values {
+		values = append(values, value.Value)
 	}
 	for _, value := range secrets {
 		values = append(values, value)

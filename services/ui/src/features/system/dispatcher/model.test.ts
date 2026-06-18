@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  dispatcherRoutingConfigSignature,
+  dispatcherRoutingRowsToConfig,
   normalizeKubernetesRunnerManifestTemplate,
   normalizeRunnerComposeTemplate,
   normalizeRuntimeScopeOptions,
@@ -47,4 +49,24 @@ test('normalizes and sorts dispatcher runtime scopes', () => {
   assert.deepEqual(normalizeRuntimeScopeOptions({ scopes: [{ scope: '/prod/' }, { name: 'default' }, 'prod'] }), ['default', 'prod']);
   assert.deepEqual(splitRuntimeScopes(' prod, staging,,'), ['prod', 'staging']);
   assert.deepEqual(sortRuntimeScopeOptions(['zeta', 'default', ' alpha ']), ['default', 'alpha', 'zeta']);
+});
+
+test('converts dispatcher routing editor rows into runtime config', () => {
+  assert.deepEqual(
+    dispatcherRoutingRowsToConfig([
+      { scope: ' prod ', runners: ' runner-prod-1, runner-prod-2\nrunner-prod-3 ' },
+      { scope: '', runners: 'runner-default' },
+    ]),
+    {
+      prod: ['runner-prod-1', 'runner-prod-2', 'runner-prod-3'],
+      '*': ['runner-default'],
+    }
+  );
+});
+
+test('signs dispatcher routing config independent of row order and whitespace', () => {
+  assert.equal(
+    dispatcherRoutingConfigSignature({ prod: ['runner-prod'], '*': ['runner-default'] }),
+    dispatcherRoutingConfigSignature({ ' * ': [' runner-default '], prod: ['runner-prod'] })
+  );
 });

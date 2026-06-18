@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Edit3, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 import { useMCPRegistry } from './mcp/useMCPRegistry';
+import { CredentialReferenceLink } from './credentials/CredentialReferenceLink';
 
 function PlusIcon() {
   return <Plus className="h-4 w-4" strokeWidth={2} aria-hidden="true" />;
@@ -119,6 +120,7 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
                     <th className="px-4 py-3">Name</th>
                     <th className="px-4 py-3">Provider</th>
                     <th className="px-4 py-3">URL</th>
+                    <th className="px-4 py-3">Credential</th>
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3">Tools</th>
                     <th className="px-4 py-3 text-right">Actions</th>
@@ -133,6 +135,11 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
                       </td>
                       <td className="px-4 py-3">{server.provider || '-'}</td>
                       <td className="px-4 py-3 max-w-[260px] truncate" title={server.url}>{server.url || '-'}</td>
+                      <td className="px-4 py-3">
+                        {server.credential_ref ? (
+                          <CredentialReferenceLink reference={server.credential_ref} className="break-all font-mono text-xs underline decoration-dotted underline-offset-4 hover:text-[var(--accent-primary)]" />
+                        ) : '-'}
+                      </td>
                       <td className="px-4 py-3">
                         <span className={`runner-pill ${server.enabled ? 'runner-pill--ok' : 'runner-pill--muted'}`}>{server.enabled ? 'Enabled' : 'Disabled'}</span>
                         {server.last_test_status && <div className="text-xs text-[var(--text-secondary)] mt-1">{server.last_test_status}</div>}
@@ -156,7 +163,7 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
                     </tr>
                   ))}
                   {!loading && servers.length === 0 && (
-                    <tr><td className="px-4 py-6 text-[var(--text-secondary)]" colSpan={6}>No MCP servers configured.</td></tr>
+                    <tr><td className="px-4 py-6 text-[var(--text-secondary)]" colSpan={7}>No MCP servers configured.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -182,7 +189,15 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
                 <label className="flex flex-col gap-1 text-sm"><span>Transport</span><select className="pipelines-input" value={serverForm.transport} onChange={event => setServerForm(prev => ({ ...prev, transport: event.target.value }))} disabled={!canManage}><option value="streamable_http">streamable_http</option><option value="http">http</option></select></label>
                 <label className="flex flex-col gap-1 text-sm"><span>URL</span><input className="pipelines-input" value={serverForm.url} onChange={event => setServerForm(prev => ({ ...prev, url: event.target.value }))} disabled={!canManage} placeholder="https://api.githubcopilot.com/mcp/x/all/readonly" /></label>
                 <label className="flex flex-col gap-1 text-sm"><span>Auth type</span><select className="pipelines-input" value={serverForm.auth_type} onChange={event => setServerForm(prev => ({ ...prev, auth_type: event.target.value }))} disabled={!canManage}><option value="none">none</option><option value="bearer_token">bearer_token</option></select></label>
-                <label className="flex flex-col gap-1 text-sm"><span>Credential reference</span><input className="pipelines-input" value={serverForm.credential_ref} onChange={event => setServerForm(prev => ({ ...prev, credential_ref: event.target.value }))} disabled={!canManage} placeholder="credential://system/mcp/github-readonly" /></label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span>Credential reference</span>
+                    <CredentialReferenceLink reference={serverForm.credential_ref} className="text-xs underline decoration-dotted underline-offset-4 hover:text-[var(--accent-primary)]">
+                      Open credential
+                    </CredentialReferenceLink>
+                  </span>
+                  <input className="pipelines-input" value={serverForm.credential_ref} onChange={event => setServerForm(prev => ({ ...prev, credential_ref: event.target.value }))} disabled={!canManage} placeholder="credential://system/mcp/github-readonly" />
+                </label>
                 <div className="rounded-lg border border-[var(--border-primary)] p-3 space-y-3">
                   <p className="text-sm font-semibold text-[var(--text-primary)]">Extra configuration</p>
                   <label className="flex flex-col gap-1 text-sm">
