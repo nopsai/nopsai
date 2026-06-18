@@ -9,6 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	aaastore "nopsai/services/aaa/pkg/store"
 )
 
 func ensureDefaultAdmin(ctx context.Context, db *pgxpool.Pool) error {
@@ -46,25 +48,23 @@ func ensureDefaultAdmin(ctx context.Context, db *pgxpool.Pool) error {
 	`, existingID, defaultAdminRole); err != nil {
 		return err
 	}
-	if _, err := db.Exec(ctx, `
-		INSERT INTO auth_roles (name, description)
-		VALUES ($1, 'Default platform administrator')
-		ON CONFLICT (name) DO NOTHING
-	`, defaultAdminRole); err != nil {
+	if err := aaastore.EnsureRole(ctx, db, defaultAdminRole, "Default platform administrator"); err != nil {
 		return err
 	}
-	if _, err := db.Exec(ctx, `
-		INSERT INTO auth_role_bindings (role_name, subject_type, subject_id)
-		VALUES ($1, 'user', $2)
-		ON CONFLICT (role_name, subject_type, subject_id) DO NOTHING
-	`, defaultAdminRole, existingID.String()); err != nil {
+	if err := aaastore.EnsureRoleBinding(ctx, db, aaastore.RoleBinding{
+		RoleName:    defaultAdminRole,
+		SubjectType: "user",
+		SubjectID:   existingID.String(),
+	}); err != nil {
 		return err
 	}
-	if _, err := db.Exec(ctx, `
-		INSERT INTO auth_role_permissions (role_name, resource_type, resource_id, action, effect)
-		VALUES ($1, '*', '*', '*', 'allow')
-		ON CONFLICT (role_name, resource_type, resource_id, action, effect) DO NOTHING
-	`, defaultAdminRole); err != nil {
+	if err := aaastore.EnsureRolePermission(ctx, db, aaastore.RolePermission{
+		RoleName:     defaultAdminRole,
+		ResourceType: "*",
+		ResourceID:   "*",
+		Action:       "*",
+		Effect:       "allow",
+	}); err != nil {
 		return err
 	}
 	if _, err := db.Exec(ctx, `

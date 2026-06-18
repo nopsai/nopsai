@@ -415,7 +415,7 @@ Allowed dispatcher gRPC roles:
 Client wiring:
 
 - `services/nopsai` dials dispatcher with role `nopsai`.
-- `services/runner` dials dispatcher with role `runner`.
+- `services/docker-runner` dials dispatcher with role `runner`.
 - `services/nopsai` injects service JWT config into launched agent containers.
 - `services/agent` dials dispatcher with role `agent`.
 

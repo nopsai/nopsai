@@ -16,7 +16,7 @@ NopsAI is a Git-aware pipeline orchestration platform built around a control-pla
 - `services/aaa`: Internal authorization service for subject introspection, checks, filtering, and authz decision audit writes.
 - `services/git-bot`: GitHub App integration, webhook ingress, repository file access, check-run updates.
 - `services/dispatcher`: Scheduler and bridge between HTTP-oriented control-plane APIs and gRPC-oriented runners and agents.
-- `services/runner`: Long-lived worker that starts agent containers on Docker-capable hosts.
+- `services/docker-runner`: Long-lived worker that starts agent containers on Docker-capable hosts.
 - `services/agent`: Per-run orchestrator that executes pipeline logic and talks to the configured LLM provider.
 - `services/ui`: Operator UI for runs, pipelines, triggers, scopes, lab runs, steps, knowledge context, and system management.
 - `db/init.sql`: Persistent storage schema for runs, configuration, auth, and audit data.
@@ -72,7 +72,7 @@ The control plane lives mostly in `services/nopsai`, `services/aaa`, `services/g
 
 ### Data plane
 
-The data plane lives in `services/runner`, `services/k8s-runner`, and `services/agent`.
+The data plane lives in `services/docker-runner`, `services/k8s-runner`, and `services/agent`.
 
 - A Docker runner is long-lived and bound to a Docker runtime.
 - A Kubernetes runner is long-lived inside one namespace and starts agent pods with an agent-owned PVC workspace.
@@ -128,9 +128,10 @@ Main tables from `db/init.sql`:
 - `users`, `user_roles`, `role_permissions`, `refresh_tokens`, `personal_access_tokens`, `service_account_tokens`, `audit_logs`: Local auth, legacy RBAC metadata, session, personal API credentials, service account credentials, and audit data.
 - `credentials`, `credential_versions`, `credential_access_logs`: Encrypted,
   versioned system integration credentials and purpose-bound consumer audit.
-- `auth_groups`, `auth_group_members`, `auth_roles`, `auth_role_bindings`, `auth_role_permissions`: AAA role data used by the policy engine; product access grants can target users, auth groups, repositories, triggers, service accounts, and internal services.
+- `auth_groups`, `auth_group_members`, `auth_roles`, `auth_role_bindings`, `auth_role_permissions`: AAA-owned policy data used by the policy engine; product access grants can target users, auth groups, repositories, triggers, service accounts, and internal services.
 - `resource_visibility`: Visibility settings for reusable resources, including knowledge contexts.
-- `access_grants`, `resource_acl`, `resource_ownership`, `authz_decision_logs`: Product-role grants, resource-use sharing grants, expanded ACLs, ownership metadata, and authorization decision audit logs.
+- `access_grants`, `resource_ownership`: Product-owned grant intent and ownership metadata used by the access UI/API.
+- `resource_acl`, `authz_decision_logs`: AAA-owned expanded ACL rows and authorization decision audit logs.
 
 ### Run Organization Model
 
@@ -210,7 +211,7 @@ Important evaluator properties that remain unchanged:
 Important product-layer properties:
 
 - Folder grants are stored once at the parent folder path and inherited by child folders, pipelines, runs, repositories, scoped secrets, scoped variables, triggers, reusable steps, and knowledge contexts.
-- Product grants do not require evaluator-specific awareness; they are written into existing AAA tables as ACL-style policies.
+- Product grants do not require evaluator-specific awareness; `nopsai` records grant intent and delegates low-level role, binding, permission, and ACL mutations to `services/aaa/pkg/store`.
 - Platform admin still flows through normal `Check` decisions, so sensitive admin actions remain visible in audit logs.
 - Runtime resource-use authorization is caller-based: manual runs use the user, Git-triggered runs use the repository, and internal dispatcher calls do not gain permissions from resource owners.
 - Reusable resources can be `group`, `restricted`, or `workspace` visible. The UI labels workspace visibility as `Public`, but callers still need the appropriate use action and related resources such as scopes and secrets are checked separately.
@@ -272,7 +273,7 @@ The main operational assumption is that runners have Docker access and can start
 - `services/nopsai/pkg/authz`: Casbin-backed legacy RBAC enforcement still used by older role metadata paths.
 - `services/nopsai/pkg/aaaclient`: HTTP client for the internal AAA service.
 - `services/nopsai/pkg/routeauthz`: HTTP route to action/resource mapping.
-- `services/aaa/pkg/authz`, `services/aaa/pkg/server`, and `services/aaa/pkg/store`: The current AAA server, evaluator, inheritance resolution, and decision logging implementation.
+- `services/aaa/pkg/authz`, `services/aaa/pkg/server`, and `services/aaa/pkg/store`: The AAA server, evaluator, policy schema ownership, policy mutation helpers, inheritance resolution, and decision logging implementation.
 - `services/nopsai/pkg/validation`: Pipeline validation rules.
 
 ## Architectural Summary

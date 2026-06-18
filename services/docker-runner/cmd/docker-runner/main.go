@@ -1,6 +1,6 @@
 package main
 
-import "nopsai/services/runner/internal/app"
+import "nopsai/services/docker-runner/internal/app"
 
 func main() {
 	app.Run()

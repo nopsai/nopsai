@@ -8,6 +8,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"nopsai/pkg/httpapi"
+	aaastore "nopsai/services/aaa/pkg/store"
 )
 
 func (a *App) handleCreateRole(w http.ResponseWriter, r *http.Request) {
@@ -53,19 +54,17 @@ func (a *App) handleCreateRole(w http.ResponseWriter, r *http.Request) {
 	if permission.Role == policyTemplateRole {
 		description = "Reusable UI policy templates"
 	}
-	if _, err := tx.Exec(r.Context(), `
-		INSERT INTO auth_roles (name, description)
-		VALUES ($1, $2)
-		ON CONFLICT (name) DO NOTHING
-	`, permission.Role, description); err != nil {
+	if err := aaastore.EnsureRole(r.Context(), tx, permission.Role, description); err != nil {
 		http.Error(w, "failed to prepare aaa role", http.StatusInternalServerError)
 		return
 	}
-	if _, err := tx.Exec(r.Context(), `
-		INSERT INTO auth_role_permissions (role_name, resource_type, resource_id, action, effect)
-		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (role_name, resource_type, resource_id, action, effect) DO NOTHING
-	`, permission.Role, permission.ResourceType, permission.ResourceID, permission.Action, permission.Effect); err != nil {
+	if err := aaastore.EnsureRolePermission(r.Context(), tx, aaastore.RolePermission{
+		RoleName:     permission.Role,
+		ResourceType: permission.ResourceType,
+		ResourceID:   permission.ResourceID,
+		Action:       permission.Action,
+		Effect:       permission.Effect,
+	}); err != nil {
 		http.Error(w, "failed to create aaa role permission", http.StatusInternalServerError)
 		return
 	}
@@ -141,10 +140,13 @@ func (a *App) handleDeleteRole(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 
-	authTag, err := tx.Exec(r.Context(), `
-		DELETE FROM auth_role_permissions
-		WHERE role_name = $1 AND resource_type = $2 AND resource_id = $3 AND action = $4 AND effect = $5
-	`, permission.Role, permission.ResourceType, permission.ResourceID, permission.Action, permission.Effect)
+	authTag, err := aaastore.DeleteRolePermission(r.Context(), tx, aaastore.RolePermission{
+		RoleName:     permission.Role,
+		ResourceType: permission.ResourceType,
+		ResourceID:   permission.ResourceID,
+		Action:       permission.Action,
+		Effect:       permission.Effect,
+	})
 	if err != nil {
 		http.Error(w, "failed to delete aaa role permission", http.StatusInternalServerError)
 		return
@@ -161,12 +163,7 @@ func (a *App) handleDeleteRole(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "role permission not found", http.StatusNotFound)
 		return
 	}
-	if _, err := tx.Exec(r.Context(), `
-		DELETE FROM auth_roles
-		WHERE name = $1
-		  AND NOT EXISTS (SELECT 1 FROM auth_role_permissions WHERE role_name = $1)
-		  AND NOT EXISTS (SELECT 1 FROM auth_role_bindings WHERE role_name = $1)
-	`, permission.Role); err != nil {
+	if err := aaastore.DeleteEmptyRole(r.Context(), tx, permission.Role); err != nil {
 		http.Error(w, "failed to clean up empty role", http.StatusInternalServerError)
 		return
 	}

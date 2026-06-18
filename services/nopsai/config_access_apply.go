@@ -12,6 +12,7 @@ import (
 
 	"nopsai/pkg/models"
 	"nopsai/services/aaa/pkg/model"
+	aaastore "nopsai/services/aaa/pkg/store"
 	"nopsai/services/nopsai/pkg/auth"
 )
 
@@ -74,14 +75,18 @@ func (a *App) syncAccessConfiguration(ctx context.Context, tx pgx.Tx, binding mo
 func resetManagedAccessLinks(ctx context.Context, tx pgx.Tx, configRepoID int64) error {
 	statements := []string{
 		`DELETE FROM user_roles WHERE managed_by_config_repo = TRUE AND config_repo_id = $1`,
-		`DELETE FROM auth_role_bindings WHERE managed_by_config_repo = TRUE AND config_repo_id = $1`,
-		`DELETE FROM auth_role_permissions WHERE managed_by_config_repo = TRUE AND config_repo_id = $1`,
 		`DELETE FROM role_permissions WHERE managed_by_config_repo = TRUE AND config_repo_id = $1`,
 	}
 	for _, stmt := range statements {
 		if _, err := tx.Exec(ctx, stmt, configRepoID); err != nil {
 			return fmt.Errorf("failed to reset managed access links: %w", err)
 		}
+	}
+	if err := aaastore.DeleteManagedRoleBindingsByConfig(ctx, tx, configRepoID); err != nil {
+		return fmt.Errorf("failed to reset managed access links: %w", err)
+	}
+	if err := aaastore.DeleteManagedRolePermissionsByConfig(ctx, tx, configRepoID); err != nil {
+		return fmt.Errorf("failed to reset managed access links: %w", err)
 	}
 	return nil
 }
@@ -185,21 +190,11 @@ func upsertAccessRole(ctx context.Context, tx pgx.Tx, binding models.ConfigRepos
 	if err := ensureGlobalConfigObjectWritable(ctx, tx, binding, "auth_roles", "role", role.name, "name = $1", role.name); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, `
-		INSERT INTO auth_roles (
-			name, description,
-			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo
-		)
-		VALUES ($1, $2, $3, $4, $5, TRUE)
-		ON CONFLICT (name) DO UPDATE SET
-			description = EXCLUDED.description,
-			config_repo_id = EXCLUDED.config_repo_id,
-			config_source_path = EXCLUDED.config_source_path,
-			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
-			managed_by_config_repo = TRUE,
-			updated_at = NOW()
-	`, role.name, role.description, binding.ID, role.sourcePath, commitSHA)
-	if err != nil {
+	if err := aaastore.UpsertManagedRole(ctx, tx, role.name, role.description, aaastore.ConfigMetadata{
+		RepoID:     binding.ID,
+		SourcePath: role.sourcePath,
+		CommitSHA:  commitSHA,
+	}); err != nil {
 		return fmt.Errorf("failed to upsert role %q: %w", role.name, err)
 	}
 	return nil
@@ -212,19 +207,13 @@ func upsertAccessPolicy(ctx context.Context, tx pgx.Tx, binding models.ConfigRep
 	if err := ensureGlobalConfigObjectWritable(ctx, tx, binding, "auth_role_permissions", "role policy", policy.role, "role_name = $1 AND resource_type = $2 AND resource_id = $3 AND action = $4 AND effect = $5", policy.role, policy.resourceType, policy.resourceID, policy.action, policy.effect); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, `
-		INSERT INTO auth_role_permissions (
-			role_name, resource_type, resource_id, action, effect,
-			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo
-		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE)
-		ON CONFLICT (role_name, resource_type, resource_id, action, effect) DO UPDATE SET
-			config_repo_id = EXCLUDED.config_repo_id,
-			config_source_path = EXCLUDED.config_source_path,
-			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
-			managed_by_config_repo = TRUE
-	`, policy.role, policy.resourceType, policy.resourceID, policy.action, policy.effect, binding.ID, policy.sourcePath, commitSHA)
-	if err != nil {
+	if err := aaastore.UpsertManagedRolePermission(ctx, tx, aaastore.RolePermission{
+		RoleName:     policy.role,
+		ResourceType: policy.resourceType,
+		ResourceID:   policy.resourceID,
+		Action:       policy.action,
+		Effect:       policy.effect,
+	}, aaastore.ConfigMetadata{RepoID: binding.ID, SourcePath: policy.sourcePath, CommitSHA: commitSHA}); err != nil {
 		return fmt.Errorf("failed to upsert role policy for %q: %w", policy.role, err)
 	}
 
@@ -270,19 +259,11 @@ func upsertAccessRoleBinding(ctx context.Context, tx pgx.Tx, binding models.Conf
 	if err := ensureGlobalConfigObjectWritable(ctx, tx, binding, "auth_role_bindings", "role binding", roleBinding.role, "role_name = $1 AND subject_type = $2 AND subject_id = $3", roleBinding.role, subject.Type, subject.ID); err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `
-		INSERT INTO auth_role_bindings (
-			role_name, subject_type, subject_id,
-			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo
-		)
-		VALUES ($1, $2, $3, $4, $5, $6, TRUE)
-		ON CONFLICT (role_name, subject_type, subject_id) DO UPDATE SET
-			config_repo_id = EXCLUDED.config_repo_id,
-			config_source_path = EXCLUDED.config_source_path,
-			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
-			managed_by_config_repo = TRUE
-	`, roleBinding.role, subject.Type, subject.ID, binding.ID, roleBinding.sourcePath, commitSHA)
-	if err != nil {
+	if err := aaastore.UpsertManagedRoleBinding(ctx, tx, aaastore.RoleBinding{
+		RoleName:    roleBinding.role,
+		SubjectType: subject.Type,
+		SubjectID:   subject.ID,
+	}, aaastore.ConfigMetadata{RepoID: binding.ID, SourcePath: roleBinding.sourcePath, CommitSHA: commitSHA}); err != nil {
 		return fmt.Errorf("failed to upsert role binding for %q: %w", roleBinding.role, err)
 	}
 	if subject.Type == model.SubjectTypeUser {

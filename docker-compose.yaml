@@ -193,7 +193,7 @@ services:
     image: hoseindocker/nopsai-runner
     build:
       context: .
-      dockerfile: container/Dockerfile.runner
+      dockerfile: container/Dockerfile.docker-runner
     restart: always
     depends_on:
       - dispatcher

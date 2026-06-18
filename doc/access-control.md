@@ -6,10 +6,14 @@ This document describes the current AAA-backed authorization model.
 
 NopsAI now has a dedicated AAA service plus an in-process fallback evaluator inside `services/nopsai`.
 
-- `services/aaa` owns the HTTP authorization service and uses Postgres as its policy store.
+- `services/aaa` owns the HTTP authorization service, the policy-store schema, and the table-specific mutation helpers for roles, bindings, permissions, and ACL rows.
 - `services/nopsai` authenticates users, maps API routes to low-level actions, calls AAA, exposes product-facing access-grant APIs, and performs runtime resource-use checks before pipeline execution.
-- Product roles are stored as user-friendly grants, then expanded into low-level AAA ACL rows at grant time.
+- Product roles are stored by `nopsai` as user-friendly `access_grants`, then expanded through AAA-owned policy writer helpers instead of direct product-service SQL against AAA ACL tables.
 - The evaluator stays generic: it checks roles, direct ACLs, auth-group membership, resource inheritance, and deny-before-allow rules.
+
+## Ownership Boundary
+
+`nopsai` owns product intent and UX-facing records: users, service-account credentials, `access_grants`, `resource_ownership`, visibility settings, and GitOps manifests. `aaa` owns the low-level policy representation used by the evaluator: `auth_roles`, `auth_role_bindings`, `auth_role_permissions`, `resource_acl`, auth-group policy membership, and authorization decision logs. When product workflows need to seed roles, bind an admin role, or expand a product grant into ACL rows, they call `services/aaa/pkg/store` helpers so schema-specific writes stay in the AAA package.
 
 ## Request Authorization Flow
 
@@ -121,9 +125,9 @@ When a grant is created:
 1. `nopsai` resolves the target subject and resource.
 2. It checks whether the caller can manage ACLs for that resource, or has `iam.admin` for platform/admin grants.
 3. It inserts an `access_grants` row.
-4. It expands the product role into `resource_acl` rows.
+4. It asks the AAA policy writer to expand the product role into `resource_acl` rows.
 5. Owner grants also write `resource_ownership`.
-6. Admin grants write `auth_role_bindings` for the platform role instead of resource ACLs.
+6. Admin grants ask the AAA policy writer to bind `auth_role_bindings` for the platform role instead of resource ACLs.
 
 Deleting a grant removes its expanded ACL and ownership rows through the grant foreign key.
 
@@ -241,8 +245,9 @@ should be scoped to a folder/group target.
 
 GitOps `basic_roles` use the same product roles as the API: `viewer`,
 `developer`, `owner`, and `admin`. The group/folder is the grant target, not a
-separate subject type. Non-admin basic roles are expanded into `resource_acl`;
-owner grants also write `resource_ownership`. `admin` grants remain
+separate subject type. Non-admin basic roles are expanded through AAA-owned
+policy helpers into `resource_acl`; owner grants also write
+`resource_ownership`. `admin` grants remain
 platform-only and are rejected in group-scoped config repositories.
 OIDC providers can also sync scoped basic roles directly from SSO groups with
 `entitlement_sync.mode: keycloak_group_roles`. In that mode, direct Keycloak

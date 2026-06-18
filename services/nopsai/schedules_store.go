@@ -15,6 +15,7 @@ import (
 
 	"nopsai/pkg/models"
 	aaamodel "nopsai/services/aaa/pkg/model"
+	aaastore "nopsai/services/aaa/pkg/store"
 	"nopsai/services/nopsai/internal/configsync"
 )
 
@@ -193,7 +194,7 @@ func (a *App) deleteSchedule(ctx context.Context, scheduleID string) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	_, _ = tx.Exec(ctx, `DELETE FROM resource_acl WHERE subject_type = $1 AND subject_id = $2`, aaamodel.SubjectTypeServiceAccount, scheduleServiceAccountID(scheduleID))
+	_ = aaastore.DeleteResourceACLBySubject(ctx, tx, aaamodel.SubjectTypeServiceAccount, scheduleServiceAccountID(scheduleID))
 	tag, err := tx.Exec(ctx, `DELETE FROM pipeline_schedules WHERE id::text = $1`, scheduleID)
 	if err != nil {
 		return err
@@ -206,7 +207,7 @@ func (a *App) deleteSchedule(ctx context.Context, scheduleID string) error {
 
 func ensureScheduleExecutionACLs(ctx context.Context, runner queryRunner, scheduleID string, input scheduleInput, pipeline models.Pipeline) error {
 	serviceAccountID := scheduleServiceAccountID(scheduleID)
-	if _, err := runner.Exec(ctx, `DELETE FROM resource_acl WHERE subject_type = $1 AND subject_id = $2`, aaamodel.SubjectTypeServiceAccount, serviceAccountID); err != nil {
+	if err := aaastore.DeleteResourceACLBySubject(ctx, runner, aaamodel.SubjectTypeServiceAccount, serviceAccountID); err != nil {
 		return err
 	}
 	type acl struct {
@@ -240,12 +241,14 @@ func ensureScheduleExecutionACLs(ctx context.Context, runner queryRunner, schedu
 			continue
 		}
 		seen[key] = struct{}{}
-		if _, err := runner.Exec(ctx, `
-			INSERT INTO resource_acl (resource_type, resource_id, subject_type, subject_id, action, effect)
-			VALUES ($1, $2, $3, $4, $5, 'allow')
-			ON CONFLICT (resource_type, resource_id, subject_type, subject_id, action, effect)
-			DO UPDATE SET access_grant_id = NULL
-		`, grant.resourceType, grant.resourceID, aaamodel.SubjectTypeServiceAccount, serviceAccountID, grant.action); err != nil {
+		if err := aaastore.UpsertResourceACL(ctx, runner, aaastore.ResourceACL{
+			ResourceType: grant.resourceType,
+			ResourceID:   grant.resourceID,
+			SubjectType:  aaamodel.SubjectTypeServiceAccount,
+			SubjectID:    serviceAccountID,
+			Action:       grant.action,
+			Effect:       "allow",
+		}); err != nil {
 			return err
 		}
 	}

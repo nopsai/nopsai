@@ -3,6 +3,8 @@ package nopsai
 import (
 	"context"
 
+	aaastore "nopsai/services/aaa/pkg/store"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -27,21 +29,9 @@ var accessGrantSchemaStatements = []string{
 	`ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS managed_by_identity_provider BOOLEAN NOT NULL DEFAULT FALSE`,
 	`ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS identity_provider_id TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS external_group_name TEXT NOT NULL DEFAULT ''`,
-	`ALTER TABLE resource_acl ADD COLUMN IF NOT EXISTS access_grant_id BIGINT REFERENCES access_grants(id) ON DELETE CASCADE`,
 	`ALTER TABLE resource_ownership ADD COLUMN IF NOT EXISTS access_grant_id BIGINT REFERENCES access_grants(id) ON DELETE CASCADE`,
-	`ALTER TABLE auth_group_members DROP CONSTRAINT IF EXISTS auth_group_members_subject_type_check`,
-	`ALTER TABLE auth_group_members ADD CONSTRAINT auth_group_members_subject_type_check CHECK (subject_type IN ('user', 'repository', 'trigger', 'service_account', 'internal_service'))`,
-	`ALTER TABLE auth_group_members ADD COLUMN IF NOT EXISTS managed_by_identity_provider BOOLEAN NOT NULL DEFAULT FALSE`,
-	`ALTER TABLE auth_group_members ADD COLUMN IF NOT EXISTS identity_provider_id TEXT NOT NULL DEFAULT ''`,
-	`ALTER TABLE auth_group_members ADD COLUMN IF NOT EXISTS external_group_name TEXT NOT NULL DEFAULT ''`,
-	`ALTER TABLE auth_group_members ADD COLUMN IF NOT EXISTS auth_group_name TEXT NOT NULL DEFAULT ''`,
-	`CREATE INDEX IF NOT EXISTS idx_auth_group_members_identity_provider ON auth_group_members(identity_provider_id, external_group_name) WHERE managed_by_identity_provider = TRUE`,
-	`ALTER TABLE auth_role_bindings DROP CONSTRAINT IF EXISTS auth_role_bindings_subject_type_check`,
-	`ALTER TABLE auth_role_bindings ADD CONSTRAINT auth_role_bindings_subject_type_check CHECK (subject_type IN ('user', 'auth_group', 'repository', 'trigger', 'service_account', 'internal_service'))`,
 	`ALTER TABLE access_grants DROP CONSTRAINT IF EXISTS access_grants_subject_type_check`,
 	`ALTER TABLE access_grants ADD CONSTRAINT access_grants_subject_type_check CHECK (subject_type IN ('user', 'auth_group', 'group', 'repository', 'trigger', 'service_account', 'internal_service'))`,
-	`ALTER TABLE resource_acl DROP CONSTRAINT IF EXISTS resource_acl_subject_type_check`,
-	`ALTER TABLE resource_acl ADD CONSTRAINT resource_acl_subject_type_check CHECK (subject_type IN ('user', 'auth_group', 'repository', 'trigger', 'service_account', 'internal_service'))`,
 	`ALTER TABLE resource_ownership DROP CONSTRAINT IF EXISTS resource_ownership_owner_subject_type_check`,
 	`ALTER TABLE resource_ownership ADD CONSTRAINT resource_ownership_owner_subject_type_check CHECK (owner_subject_type IN ('user', 'auth_group', 'repository', 'trigger', 'service_account', 'internal_service'))`,
 	`CREATE INDEX IF NOT EXISTS idx_access_grants_subject_lookup ON access_grants(subject_type, subject_id)`,
@@ -87,18 +77,12 @@ func seedProductRoleTemplates(ctx context.Context, db *pgxpool.Pool) error {
 	roleNames := []string{productRoleViewer, productRoleDeveloper, productRoleOwner, productRoleAdmin}
 	for _, roleName := range roleNames {
 		definition := productRoleDefinitions[roleName]
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO auth_roles (name, description)
-			VALUES ($1, $2)
-			ON CONFLICT (name) DO UPDATE
-			SET description = EXCLUDED.description,
-			    updated_at = NOW()
-		`, roleName, definition.Description); err != nil {
+		if err := aaastore.UpsertRoleDescription(ctx, tx, roleName, definition.Description); err != nil {
 			return err
 		}
 	}
 
-	if _, err := tx.Exec(ctx, `DELETE FROM auth_role_permissions WHERE role_name = ANY($1)`, roleNames); err != nil {
+	if err := aaastore.DeleteRolePermissionsForRoles(ctx, tx, roleNames); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM role_permissions WHERE role = ANY($1)`, roleNames); err != nil {
@@ -113,10 +97,13 @@ func seedProductRoleTemplates(ctx context.Context, db *pgxpool.Pool) error {
 				resourceType = "*"
 				resourceID = "*"
 			}
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO auth_role_permissions (role_name, resource_type, resource_id, action, effect)
-				VALUES ($1, $2, $3, $4, 'allow')
-			`, roleName, resourceType, resourceID, action); err != nil {
+			if err := aaastore.InsertRolePermission(ctx, tx, aaastore.RolePermission{
+				RoleName:     roleName,
+				ResourceType: resourceType,
+				ResourceID:   resourceID,
+				Action:       action,
+				Effect:       "allow",
+			}); err != nil {
 				return err
 			}
 
@@ -190,7 +177,7 @@ func reconcileProductAccessGrants(ctx context.Context, db *pgxpool.Pool) error {
 			continue
 		}
 
-		if _, err := tx.Exec(ctx, `DELETE FROM resource_acl WHERE access_grant_id = $1`, grant.id); err != nil {
+		if err := aaastore.DeleteResourceACLByAccessGrantID(ctx, tx, grant.id); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `DELETE FROM resource_ownership WHERE access_grant_id = $1`, grant.id); err != nil {
@@ -198,25 +185,26 @@ func reconcileProductAccessGrants(ctx context.Context, db *pgxpool.Pool) error {
 		}
 
 		if grant.roleName == productRoleAdmin {
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO auth_role_bindings (role_name, subject_type, subject_id)
-				VALUES ($1, $2, $3)
-				ON CONFLICT (role_name, subject_type, subject_id) DO NOTHING
-			`, productRoleAdmin, grant.subjectType, grant.subjectID); err != nil {
+			if err := aaastore.EnsureRoleBinding(ctx, tx, aaastore.RoleBinding{
+				RoleName:    productRoleAdmin,
+				SubjectType: grant.subjectType,
+				SubjectID:   grant.subjectID,
+			}); err != nil {
 				return err
 			}
 			continue
 		}
 
 		for _, action := range applicableProductRoleActions(grant.roleName, grant.resourceType) {
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO resource_acl (
-					resource_type, resource_id, subject_type, subject_id, access_grant_id, action, effect
-				)
-				VALUES ($1, $2, $3, $4, $5, $6, 'allow')
-				ON CONFLICT (resource_type, resource_id, subject_type, subject_id, action, effect)
-				DO UPDATE SET access_grant_id = EXCLUDED.access_grant_id
-			`, grant.resourceType, grant.resourceID, grant.subjectType, grant.subjectID, grant.id, action); err != nil {
+			if err := aaastore.UpsertResourceACL(ctx, tx, aaastore.ResourceACL{
+				ResourceType:  grant.resourceType,
+				ResourceID:    grant.resourceID,
+				SubjectType:   grant.subjectType,
+				SubjectID:     grant.subjectID,
+				AccessGrantID: &grant.id,
+				Action:        action,
+				Effect:        "allow",
+			}); err != nil {
 				return err
 			}
 		}
