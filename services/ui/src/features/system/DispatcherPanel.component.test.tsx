@@ -28,6 +28,7 @@ vi.mock('./dispatcher/api', () => ({
 }));
 
 test('loads runner scopes and generates an install command through the dispatcher feature API', async () => {
+  const user = userEvent.setup();
   render(
     <MemoryRouter>
       <DispatcherPanel
@@ -44,6 +45,7 @@ test('loads runner scopes and generates an install command through the dispatche
           runner_id: 'runner-test',
           runner_scopes: 'prod',
           runner_capacity: '2',
+          dispatcher_address: 'nopsai-dispatcher.pre-nopsai.orb.local:9090',
         } as ConfigFormState}
         config={{ dispatcher_routing: {} } as ConfigFormState}
         fieldMetadata={{}}
@@ -56,9 +58,13 @@ test('loads runner scopes and generates an install command through the dispatche
   );
 
   expect(await screen.findByText('staging')).toBeVisible();
-  await userEvent.click(screen.getByRole('button', { name: 'Generate command' }));
+  await user.type(screen.getByLabelText('Dispatcher address override'), 'nopsai-dispatcher.pre-nopsai.orb.local:9090');
+  await user.click(screen.getByRole('button', { name: 'Generate command' }));
 
   await waitFor(() => expect(apiMocks.fetchDockerRunnerTemplate).toHaveBeenCalled());
+  expect(apiMocks.fetchDockerRunnerTemplate).toHaveBeenCalledWith(expect.objectContaining({
+    dispatcherAddress: 'nopsai-dispatcher.pre-nopsai.orb.local:9090',
+  }));
   expect(await screen.findByText('docker run nopsai-runner')).toBeVisible();
 });
 

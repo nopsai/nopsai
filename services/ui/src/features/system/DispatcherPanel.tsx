@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Activity, Boxes, Clock3, Copy, GitBranch, PauseCircle, PlayCircle, Plus, RefreshCw, Route, Server, Trash2 } from 'lucide-react';
+import { copyTextToClipboard } from '../../lib/clipboard';
 import type { ConfigFieldMetadata, ConfigFormState } from './config/model';
 import { ApplyBadge } from './config/ConfigApplyBadge';
 import {
@@ -321,6 +322,8 @@ function RunnerDeploymentGuide({ canManageDispatcher, runnerDefaults }: { canMan
     setRunnerScopes,
     runnerCapacity,
     setRunnerCapacity,
+    dispatcherAddress,
+    setDispatcherAddress,
     runnerNetworkMode,
     setRunnerNetworkMode,
     runnerImage,
@@ -356,7 +359,7 @@ function RunnerDeploymentGuide({ canManageDispatcher, runnerDefaults }: { canMan
   const handleCopyTemplate = async () => {
     if (!template?.bootstrapCommand) return;
     try {
-      await navigator.clipboard.writeText(template.bootstrapCommand);
+      await copyTextToClipboard(template.bootstrapCommand);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1600);
     } catch (error) {
@@ -368,7 +371,7 @@ function RunnerDeploymentGuide({ canManageDispatcher, runnerDefaults }: { canMan
   const handleCopyKubernetesInstallCommand = async () => {
     if (!kubernetesTemplate?.bootstrapCommand) return;
     try {
-      await navigator.clipboard.writeText(kubernetesTemplate.bootstrapCommand);
+      await copyTextToClipboard(kubernetesTemplate.bootstrapCommand);
       setCopiedKubernetes(true);
       window.setTimeout(() => setCopiedKubernetes(false), 1600);
     } catch (error) {
@@ -433,6 +436,15 @@ function RunnerDeploymentGuide({ canManageDispatcher, runnerDefaults }: { canMan
               <label className="space-y-1.5 text-sm">
                 <span className="dispatcher-field-label">Capacity</span>
                 <input className="pipelines-input w-full" type="number" min="1" value={runnerCapacity} onChange={event => setRunnerCapacity(event.target.value)} />
+              </label>
+              <label className="space-y-1.5 text-sm dispatcher-install-grid__wide">
+                <span className="dispatcher-field-label">Dispatcher address override</span>
+                <input
+                  className="pipelines-input w-full font-mono text-xs sm:text-sm"
+                  value={dispatcherAddress}
+                  onChange={event => setDispatcherAddress(event.target.value)}
+                  placeholder={runnerDefaults.dispatcher_address ? `auto from ${runnerDefaults.dispatcher_address}` : 'auto from system config or current host'}
+                />
               </label>
               <div className="space-y-1.5 text-sm dispatcher-install-grid__wide">
                 <span className="dispatcher-field-label">Scopes</span>
