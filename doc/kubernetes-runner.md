@@ -174,6 +174,23 @@ steps:
 The pipeline-level value is the default for Kubernetes step pods. A step-level
 value overrides it. Docker runners ignore `runtime_pool`.
 
+## Configuring Pools From The UI
+
+Go to **System > Config > Runtime pools** to add or edit Kubernetes scheduling
+pools. Each pool can define:
+
+- `node_selector`: labels used to place step pods on matching nodes.
+- `resources.requests`: CPU, memory, or other Kubernetes resource requests.
+- `resources.limits`: CPU, memory, or other Kubernetes resource limits.
+
+Saving the form persists the same `runtime_pools` shape used by GitOps in
+`setting/system/runner.yaml`. The runner install command and Kubernetes
+manifest include the configured pools as `KUBERNETES_RUNTIME_POOLS`.
+
+Pipeline, Lab, and reusable-step editors suggest configured pool names when
+editing a `runtime_pool:` value. Use Ctrl+Space in the YAML editor to open
+suggestions, or type the pool name directly.
+
 ## Installing From The UI
 
 Go to **System > Dispatcher > Runner Installs** and generate a Kubernetes

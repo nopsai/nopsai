@@ -10,6 +10,7 @@ import type {
 } from './config/model';
 import { ApplyBadge } from './config/ConfigApplyBadge';
 import GitHubAppSettingsCard from './config/GitHubAppSettingsCard';
+import { RuntimePoolsEditor } from './config/RuntimePoolsEditor';
 import { CredentialReferenceLink } from './credentials/CredentialReferenceLink';
 
 function SystemConfig({
@@ -357,6 +358,13 @@ function SystemConfig({
             </label>
           </div>
         </div>
+
+        <RuntimePoolsEditor
+          value={config.runtime_pools}
+          metadata={fieldMetadata.runtime_pools}
+          disabled={!canManageRuntimeConfig || configLoading || saving}
+          onChange={runtime_pools => onChange({ ...config, runtime_pools })}
+        />
 
         <div className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
           <div>

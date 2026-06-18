@@ -27,7 +27,18 @@ export type ConfigFormState = {
   runner_id: string;
   runner_scopes: string;
   runner_capacity: string;
+  runtime_pools: RuntimePoolsConfig;
 };
+
+export type RuntimePoolConfig = {
+  node_selector: Record<string, string>;
+  resources: {
+    requests: Record<string, string>;
+    limits: Record<string, string>;
+  };
+};
+
+export type RuntimePoolsConfig = Record<string, RuntimePoolConfig>;
 
 export type ConfigFieldMetadata = {
   scope: string;
@@ -120,6 +131,7 @@ export const initialConfig: ConfigFormState = {
   runner_id: '',
   runner_scopes: '',
   runner_capacity: '1',
+  runtime_pools: {},
 };
 
 export const emptyConfigRepositoryForm: ConfigRepositoryFormState = {
@@ -174,6 +186,7 @@ export function normalizeSystemConfigPayload(payload: unknown): { config: Config
       runner_id: readString(record.runner_id),
       runner_scopes: readString(record.runner_scopes),
       runner_capacity: String(record.runner_capacity ?? '1'),
+      runtime_pools: normalizeRuntimePools(record.runtime_pools),
     },
     envFilePath: readString(record.env_file_path),
     fieldMetadata: normalizeFieldMetadata(record.field_metadata),
@@ -208,7 +221,41 @@ export function systemConfigPayloadFromForm(config: ConfigFormState) {
     runner_id: config.runner_id.trim(),
     runner_scopes: config.runner_scopes.trim(),
     runner_capacity: Number.parseInt(config.runner_capacity, 10) || 1,
+    runtime_pools: normalizeRuntimePools(config.runtime_pools),
   };
+}
+
+export function normalizeRuntimePools(value: unknown): RuntimePoolsConfig {
+  const record = asRecord(value);
+  if (!record) return {};
+  const normalized: RuntimePoolsConfig = {};
+  Object.entries(record).forEach(([rawName, rawPool]) => {
+    const name = rawName.trim();
+    if (!name) return;
+    const pool = asRecord(rawPool);
+    const resources = asRecord(pool?.resources);
+    normalized[name] = {
+      node_selector: normalizeRuntimePoolMap(pool?.node_selector),
+      resources: {
+        requests: normalizeRuntimePoolMap(resources?.requests),
+        limits: normalizeRuntimePoolMap(resources?.limits),
+      },
+    };
+  });
+  return normalized;
+}
+
+function normalizeRuntimePoolMap(value: unknown): Record<string, string> {
+  const record = asRecord(value);
+  if (!record) return {};
+  const normalized: Record<string, string> = {};
+  Object.entries(record).forEach(([rawKey, rawValue]) => {
+    const key = rawKey.trim();
+    const mapValue = typeof rawValue === 'string' ? rawValue.trim() : String(rawValue ?? '').trim();
+    if (!key || !mapValue) return;
+    normalized[key] = mapValue;
+  });
+  return normalized;
 }
 
 function normalizeFieldMetadata(value: unknown): Record<string, ConfigFieldMetadata> {

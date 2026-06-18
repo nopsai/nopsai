@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { Check, RefreshCw } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { apiClient } from '../lib/api';
+import { normalizeRuntimePoolNames } from '../features/editor/autocomplete';
 import { YamlValidationPanel } from '../features/editor/YamlValidationPanel';
 import { LabDependencyPanel } from '../features/lab/LabDependencyPanel';
 import { LabRunControls } from '../features/lab/LabRunControls';
@@ -52,10 +53,11 @@ function LabPage() {
     agentProfiles: string[];
     llmProfiles: string[];
     mcpProfiles: string[];
+    runtimePools: string[];
     reusableSteps: string[];
     fetchedAt: number;
     loading: boolean;
-  }>({ secrets: [], variables: [], agentProfiles: [], llmProfiles: [], mcpProfiles: [], reusableSteps: [], fetchedAt: 0, loading: false });
+  }>({ secrets: [], variables: [], agentProfiles: [], llmProfiles: [], mcpProfiles: [], runtimePools: [], reusableSteps: [], fetchedAt: 0, loading: false });
   const autocompleteFetchRef = useRef<{ fetchedAt: number; loadingPromise: Promise<void> | null }>({ fetchedAt: 0, loadingPromise: null });
   const pipelineHandoffRef = useRef('');
   const {
@@ -156,6 +158,7 @@ function LabPage() {
       agentProfiles: autocompleteMeta.agentProfiles,
       llmProfiles: autocompleteMeta.llmProfiles,
       mcpProfiles: autocompleteMeta.mcpProfiles,
+      runtimePools: autocompleteMeta.runtimePools,
       reusableSteps: autocompleteMeta.reusableSteps,
       pipelineIds,
     });
@@ -202,13 +205,14 @@ function LabPage() {
     try {
       const promise = (async () => {
         const scopeParam = scopeValue ? `?scope=${encodeURIComponent(scopeValue)}` : '';
-        const [secretsResp, varsResp, stepsResp, agentProfilesResp, llmProfilesResp, mcpProfilesResp] = await Promise.all([
+        const [secretsResp, varsResp, stepsResp, agentProfilesResp, llmProfilesResp, mcpProfilesResp, runtimeConfigResp] = await Promise.all([
           apiClient.fetch(`/v1/secrets${scopeParam}`).then(r => (r.ok ? r.json() : [])),
           apiClient.fetch(`/v1/variables${scopeParam}`).then(r => (r.ok ? r.json() : [])),
           apiClient.fetch('/v1/steps').then(r => (r.ok ? r.json() : [])),
           fetchLabAgentProfilesMetadata(),
           apiClient.fetch(`/v1/system/llm-profiles${scopeParam}`).then(r => (r.ok ? r.json() : null)),
           apiClient.fetch('/v1/system/mcp/profiles').then(r => (r.ok ? r.json() : null)),
+          apiClient.fetch('/v1/system/config').then(r => (r.ok ? r.json() : null)),
         ]);
 
         setAutocompleteMeta({
@@ -217,6 +221,7 @@ function LabPage() {
           agentProfiles: normalizeAgentProfileSuggestionList(agentProfilesResp),
           llmProfiles: normalizeLLMProfileSuggestionList(llmProfilesResp),
           mcpProfiles: normalizeMCPProfileSuggestionList(mcpProfilesResp),
+          runtimePools: normalizeRuntimePoolNames(runtimeConfigResp),
           reusableSteps: normalizeLabSuggestionList(stepsResp),
           fetchedAt: Date.now(),
           loading: false,
@@ -526,6 +531,9 @@ function LabPage() {
       void loadAutocomplete();
     }
     if (suggestionContext?.type === 'mcp_profile' && autocompleteMeta.mcpProfiles.length === 0 && !autocompleteMeta.loading) {
+      void loadAutocomplete();
+    }
+    if (suggestionContext?.type === 'runtime_pool' && autocompleteMeta.runtimePools.length === 0 && !autocompleteMeta.loading) {
       void loadAutocomplete();
     }
     if (suggestionContext?.type === 'include' && autocompleteMeta.reusableSteps.length === 0 && !autocompleteMeta.loading) {

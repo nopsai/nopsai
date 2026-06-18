@@ -145,12 +145,13 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     agentProfiles: string[];
     llmProfiles: string[];
     mcpProfiles: string[];
+    runtimePools: string[];
     reusableSteps: string[];
     secretScopes: Array<{ scope: string; items: string[] }>;
     variableScopes: Array<{ scope: string; items: string[] }>;
     fetchedAt: number;
     loading: boolean;
-  }>({ secrets: [], variables: [], agentProfiles: [], llmProfiles: [], mcpProfiles: [], reusableSteps: [], secretScopes: [], variableScopes: [], fetchedAt: 0, loading: false });
+  }>({ secrets: [], variables: [], agentProfiles: [], llmProfiles: [], mcpProfiles: [], runtimePools: [], reusableSteps: [], secretScopes: [], variableScopes: [], fetchedAt: 0, loading: false });
 
   const [editorSuggestion, setEditorSuggestion] = useState<PipelineEditorSuggestion | null>(null);
 
@@ -298,6 +299,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
             includeAgentProfiles: true,
             includeLLMProfiles: true,
             includeMCPProfiles: true,
+            includeRuntimePools: true,
           });
           setAutocompleteMeta(metadata);
           autocompleteFetchRef.current.fetchedAt = metadata.fetchedAt;
