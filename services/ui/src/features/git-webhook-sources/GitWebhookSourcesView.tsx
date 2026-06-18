@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { ResourceCollectionToolbar } from '../editor/ResourceCollectionToolbar';
 import { buildApiUrl } from '../../lib/api';
+import { CredentialReferenceLink } from '../system/credentials/CredentialReferenceLink';
 import { GitWebhookSourceForm } from './GitWebhookSourceForm';
 import { GitWebhookSourceCards } from './GitWebhookSourceCards';
 import {
@@ -212,7 +213,9 @@ function SourceDetail({
       {source.credential_ref ? (
         <div className="mt-5">
           <p className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Credential reference</p>
-          <p className="mt-1 break-all font-mono text-sm text-[var(--text-primary)]">{source.credential_ref}</p>
+          <p className="mt-1 break-all font-mono text-sm text-[var(--text-primary)]">
+            <CredentialReferenceLink reference={source.credential_ref} />
+          </p>
         </div>
       ) : null}
 

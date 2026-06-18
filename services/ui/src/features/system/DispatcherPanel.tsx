@@ -1,8 +1,18 @@
 import { Link } from 'react-router-dom';
-import { useState, type ReactNode } from 'react';
-import { Activity, Boxes, Clock3, Copy, GitBranch, PauseCircle, PlayCircle, Plus, RefreshCw, Route, Server } from 'lucide-react';
-import type { ConfigFormState } from './config/model';
-import { getRunnerMeta, runnerActionKey, type DispatcherStatusState, type Runner } from './dispatcher/model';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Activity, Boxes, Clock3, Copy, GitBranch, PauseCircle, PlayCircle, Plus, RefreshCw, Route, Server, Trash2 } from 'lucide-react';
+import type { ConfigFieldMetadata, ConfigFormState } from './config/model';
+import { ApplyBadge } from './config/ConfigApplyBadge';
+import {
+  dispatcherRoutingConfigSignature,
+  dispatcherRoutingRowsToConfig,
+  getRunnerMeta,
+  normalizeDispatcherRoutingScope,
+  runnerActionKey,
+  type DispatcherRoutingDraftRow,
+  type DispatcherStatusState,
+  type Runner,
+} from './dispatcher/model';
 import { useRunnerDeploymentGuide } from './dispatcher/useRunnerDeploymentGuide';
 
 const STALE_THRESHOLD_MS = 30_000;
@@ -25,7 +35,15 @@ function DispatcherPanel({
   onRefresh,
   onToggleRunnerDispatch,
   canManageDispatcher,
+  canViewRuntimeConfig,
+  canManageRuntimeConfig,
   runnerDefaults,
+  config,
+  fieldMetadata,
+  configLoading,
+  saving,
+  onConfigChange,
+  onSaveConfig,
 }: {
   loading: boolean;
   error: string | null;
@@ -34,7 +52,15 @@ function DispatcherPanel({
   onRefresh: () => void;
   onToggleRunnerDispatch: (runner: Runner) => Promise<void>;
   canManageDispatcher: boolean;
+  canViewRuntimeConfig: boolean;
+  canManageRuntimeConfig: boolean;
   runnerDefaults: ConfigFormState;
+  config: ConfigFormState;
+  fieldMetadata: Record<string, ConfigFieldMetadata>;
+  configLoading: boolean;
+  saving: boolean;
+  onConfigChange: (next: ConfigFormState) => void;
+  onSaveConfig: () => Promise<void>;
 }) {
   const runners = status?.runners ?? [];
   const runnerCount = runners.length;
@@ -119,10 +145,169 @@ function DispatcherPanel({
           </div>
           <Route className="h-4 w-4 text-[var(--text-secondary)]" />
         </div>
+        {canViewRuntimeConfig ? (
+          <DispatcherRoutingEditor
+            config={config}
+            fieldMetadata={fieldMetadata}
+            configLoading={configLoading}
+            saving={saving}
+            canManageRuntimeConfig={canManageRuntimeConfig}
+            onConfigChange={onConfigChange}
+            onSaveConfig={onSaveConfig}
+          />
+        ) : (
+          <div className="mb-4 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+            Runtime config access is required to edit routing.
+          </div>
+        )}
         <RoutingMap routing={status?.routing ?? {}} runners={runners} />
       </section>
 
       <RunnerDeploymentGuide canManageDispatcher={canManageDispatcher} runnerDefaults={runnerDefaults} />
+    </div>
+  );
+}
+
+type RoutingDraftRow = DispatcherRoutingDraftRow & {
+  localId: string;
+};
+
+function DispatcherRoutingEditor({
+  config,
+  fieldMetadata,
+  configLoading,
+  saving,
+  canManageRuntimeConfig,
+  onConfigChange,
+  onSaveConfig,
+}: {
+  config: ConfigFormState;
+  fieldMetadata: Record<string, ConfigFieldMetadata>;
+  configLoading: boolean;
+  saving: boolean;
+  canManageRuntimeConfig: boolean;
+  onConfigChange: (next: ConfigFormState) => void;
+  onSaveConfig: () => Promise<void>;
+}) {
+  const routingRowSeq = useRef(0);
+  const [routingRows, setRoutingRows] = useState<RoutingDraftRow[]>([]);
+  const disabled = !canManageRuntimeConfig || configLoading || saving;
+
+  useEffect(() => {
+    setRoutingRows(prev => {
+      const currentRouting = dispatcherRoutingRowsToConfig(prev);
+      if (dispatcherRoutingConfigSignature(currentRouting) === dispatcherRoutingConfigSignature(config.dispatcher_routing || {})) {
+        return prev;
+      }
+      return Object.entries(config.dispatcher_routing || {})
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([scope, runners], index) => ({
+          localId: prev[index]?.localId || `routing-${routingRowSeq.current++}`,
+          scope,
+          runners: (runners || []).join(', '),
+        }));
+    });
+  }, [config.dispatcher_routing]);
+
+  const commitRoutingRows = (nextRows: RoutingDraftRow[]) => {
+    setRoutingRows(nextRows);
+    onConfigChange({ ...config, dispatcher_routing: dispatcherRoutingRowsToConfig(nextRows) });
+  };
+
+  const updateRoutingScope = (localId: string, rawScope: string) => {
+    commitRoutingRows(routingRows.map(row => (row.localId === localId ? { ...row, scope: rawScope } : row)));
+  };
+
+  const updateRoutingRunners = (localId: string, rawRunners: string) => {
+    commitRoutingRows(routingRows.map(row => (row.localId === localId ? { ...row, runners: rawRunners } : row)));
+  };
+
+  const addRoutingRow = () => {
+    const existingScopes = new Set(routingRows.map(row => normalizeDispatcherRoutingScope(row.scope)));
+    let scope = '*';
+    let suffix = 1;
+    while (existingScopes.has(scope)) {
+      scope = `scope-${suffix}`;
+      suffix += 1;
+    }
+    commitRoutingRows([...routingRows, { localId: `routing-${routingRowSeq.current++}`, scope, runners: '' }]);
+  };
+
+  const removeRoutingRow = (localId: string) => {
+    commitRoutingRows(routingRows.filter(row => row.localId !== localId));
+  };
+
+  return (
+    <div className="mb-5 space-y-3 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold text-[var(--text-primary)]">Configured routes</p>
+            <ApplyBadge metadata={fieldMetadata.dispatcher_routing} />
+          </div>
+          <p className="text-xs text-[var(--text-secondary)]">Saved through runtime config and applied by the live dispatcher sync.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {canManageRuntimeConfig ? (
+            <>
+              <button className="glass-button-subtle" type="button" onClick={addRoutingRow} disabled={disabled}>
+                <Plus className="h-4 w-4" />
+                Add route
+              </button>
+              <button className="glass-button-primary" type="button" onClick={() => void onSaveConfig()} disabled={disabled}>
+                {saving ? 'Saving...' : 'Save routes'}
+              </button>
+            </>
+          ) : (
+            <span className="runner-pill runner-pill--muted">Read-only</span>
+          )}
+        </div>
+      </div>
+
+      {routingRows.length > 0 ? (
+        <div className="space-y-3">
+          {routingRows.map(row => (
+            <div key={row.localId} className="grid grid-cols-1 items-end gap-3 md:grid-cols-[minmax(0,180px)_1fr_auto]">
+              <label className="flex flex-col gap-1 text-sm">
+                <span>Scope</span>
+                <input
+                  type="text"
+                  className="pipelines-input"
+                  value={row.scope}
+                  onChange={event => updateRoutingScope(row.localId, event.target.value)}
+                  placeholder="prod"
+                  disabled={disabled}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <span>Runner IDs</span>
+                <input
+                  type="text"
+                  className="pipelines-input"
+                  value={row.runners}
+                  onChange={event => updateRoutingRunners(row.localId, event.target.value)}
+                  placeholder="runner-prod-1, runner-prod-2"
+                  disabled={disabled}
+                />
+              </label>
+              <button
+                type="button"
+                className="glass-button-danger md:mb-0"
+                onClick={() => removeRoutingRow(row.localId)}
+                disabled={disabled}
+                aria-label={`Remove route ${normalizeDispatcherRoutingScope(row.scope)}`}
+                title={`Remove route ${normalizeDispatcherRoutingScope(row.scope)}`}
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-dashed border-[var(--border-primary)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+          No dispatcher routing configured.
+        </div>
+      )}
     </div>
   );
 }
@@ -485,7 +670,7 @@ function RunnerCard({
               const runIdLabel = truncateId(run.runId, 8);
               const display = `${run.pipeline || 'Run'} run ${runIdLabel}`;
               const title = `${run.pipeline || 'Run'} | Trigger ${run.triggerId || 'manual'} | Run ${run.runId}`;
-              const to = `/pipelineruns/recent?run_id=${encodeURIComponent(run.runId)}`;
+              const to = `/pipelineruns/recent?run=${encodeURIComponent(run.runId)}`;
               return (
                 <Link key={run.runId} to={to} className="runner-pill runner-pill--link" title={title}>
                   {display}

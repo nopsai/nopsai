@@ -3,6 +3,7 @@ import { Edit3, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 import { LLM_PROVIDERS, getLLMProvider, replaceProviderDefault } from './llmProviders';
 import { type LLMProfileFormState, type LLMProfileRecord } from './llm-profiles/model';
 import { useLLMProfiles } from './llm-profiles/useLLMProfiles';
+import { CredentialReferenceLink } from './credentials/CredentialReferenceLink';
 
 function PlusIcon() {
   return <Plus className="h-4 w-4" strokeWidth={2} aria-hidden="true" />;
@@ -137,7 +138,11 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
                     <td className="px-4 py-3">{getLLMProvider(profile.provider).label}</td>
                     <td className="px-4 py-3 max-w-[220px] truncate" title={profile.model}>{profile.model || '-'}</td>
                     <td className="px-4 py-3 max-w-[220px] truncate" title={profile.base_url}>{profile.base_url || '-'}</td>
-                    <td className="px-4 py-3">{profile.credential_ref || '-'}</td>
+                    <td className="px-4 py-3">
+                      {profile.credential_ref ? (
+                        <CredentialReferenceLink reference={profile.credential_ref} className="break-all font-mono text-xs underline decoration-dotted underline-offset-4 hover:text-[var(--accent-primary)]" />
+                      ) : '-'}
+                    </td>
                     <td className="px-4 py-3">{profile.allowed_scopes.length ? profile.allowed_scopes.join(', ') : 'All'}</td>
                     <td className="px-4 py-3 text-xs text-[var(--text-secondary)]">
                       {profile.timeout_seconds > 0 ? `${profile.timeout_seconds}s` : 'Default'}
@@ -240,7 +245,12 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
                   )}
                   {formProvider.apiKeyMode !== 'none' && (
                     <label className="flex flex-col gap-1 text-sm">
-                      <span>Credential reference{formProvider.apiKeyMode === 'required' ? ' *' : ''}</span>
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span>Credential reference{formProvider.apiKeyMode === 'required' ? ' *' : ''}</span>
+                        <CredentialReferenceLink reference={form.credential_ref} className="text-xs underline decoration-dotted underline-offset-4 hover:text-[var(--accent-primary)]">
+                          Open credential
+                        </CredentialReferenceLink>
+                      </span>
                       <input className="pipelines-input" value={form.credential_ref} onChange={event => setForm(prev => ({ ...prev, credential_ref: event.target.value }))} disabled={!canManage} placeholder={formProvider.defaultCredentialRef} />
                     </label>
                   )}

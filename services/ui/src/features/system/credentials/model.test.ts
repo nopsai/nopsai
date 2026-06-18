@@ -4,9 +4,11 @@ import {
   buildCredentialReference,
   credentialNamespaces,
   credentialPayloadFromForm,
+  credentialReferenceRoute,
   credentialSummary,
   filterCredentials,
   groupCredentials,
+  isCredentialReference,
   normalizeCredential,
   normalizeCredentialsPayload,
   parseCredentialReference,
@@ -71,6 +73,15 @@ test('builds and parses references for compact credential presentation', () => {
     displayName: 'client-secret',
     parentPath: 'keycloak',
   });
+});
+
+test('builds deep links for credential references', () => {
+  assert.equal(isCredentialReference('credential://system/llm/openai'), true);
+  assert.equal(isCredentialReference('not-a-credential'), false);
+  assert.equal(
+    credentialReferenceRoute('credential://system/llm/openai'),
+    '/system/credentials?credential=credential%3A%2F%2Fsystem%2Fllm%2Fopenai'
+  );
 });
 
 test('summarizes, filters, and groups credentials by namespace and integration category', () => {

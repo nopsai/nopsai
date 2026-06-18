@@ -90,6 +90,9 @@ The runtime supports:
 - one reusable container session per step
 - child pipeline triggering with inherited execution history
 - optional asynchronous child pipeline monitoring
+- aggregate parent/child run status in Pipeline Runs, so parent cards and
+  detail graphs stay running while direct child runs are active and surface
+  child failures instead of showing a green parent lineage
 - approval checkpoints that pause a run without holding an agent or runner
 - approval resume from stored variables, execution history, completed task keys, and compressed workspace archive
 - pipeline-level timeout handling
@@ -244,6 +247,9 @@ Sync behavior:
 - runtime settings GitOps is system/global only; `dispatcher_routing` changes are persisted and applied by the live dispatcher through the control-plane sync path
 - mail settings GitOps is system/global only and stores `smtp.password_credential_ref` rather than the SMTP password plaintext
 - credential GitOps is system/global only; `setting/system/credentials.yaml` stores encrypted versions, never plaintext
+- the Dispatcher UI owns `dispatcher_routing` editing while still saving through
+  runtime settings, and persisted `credential://...` references link to
+  **System > Credentials** without exposing credential values
 
 ## Notifications And Metrics
 

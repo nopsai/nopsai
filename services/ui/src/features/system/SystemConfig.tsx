@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type ChangeEvent, type Dispatch, type FormEvent, type SetStateAction } from 'react';
-import { Mail, Plus, Save, Send, Trash2 } from 'lucide-react';
+import type { ChangeEvent, Dispatch, FormEvent, SetStateAction } from 'react';
+import { Mail, Save, Send } from 'lucide-react';
 import type {
   ConfigFieldMetadata,
   ConfigFormState,
@@ -10,13 +10,7 @@ import type {
 } from './config/model';
 import { ApplyBadge } from './config/ConfigApplyBadge';
 import GitHubAppSettingsCard from './config/GitHubAppSettingsCard';
-
-type RoutingDraftRow = {
-  localId: string;
-  scope: string;
-  runners: string;
-};
-
+import { CredentialReferenceLink } from './credentials/CredentialReferenceLink';
 
 function SystemConfig({
   config,
@@ -105,9 +99,6 @@ function SystemConfig({
   const mailToggleClass = 'flex min-h-[46px] items-center gap-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)]';
   const mailInputClass = 'pipelines-input w-full';
   const mailSectionTitleClass = 'text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]';
-  const routingRowSeq = useRef(0);
-  const [routingRows, setRoutingRows] = useState<RoutingDraftRow[]>([]);
-
   const handleChange = (key: keyof ConfigFormState) => (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
     onChange({ ...config, [key]: value } as ConfigFormState);
@@ -123,55 +114,6 @@ function SystemConfig({
   const handleMailChange = (key: keyof NotificationMailSettingsFormState) => (event: ChangeEvent<HTMLInputElement>) => {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
     onMailSettingsChange(prev => ({ ...prev, [key]: value } as NotificationMailSettingsFormState));
-  };
-
-  const normalizeRoutingScopeInput = (value: string) => {
-    const trimmed = value.trim();
-    return trimmed || '*';
-  };
-
-  useEffect(() => {
-    setRoutingRows(prev => {
-      const currentRouting = routingRowsToConfig(prev);
-      if (routingConfigSignature(currentRouting) === routingConfigSignature(config.dispatcher_routing || {})) {
-        return prev;
-      }
-      return Object.entries(config.dispatcher_routing || {})
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([scope, runners], index) => ({
-          localId: prev[index]?.localId || `routing-${routingRowSeq.current++}`,
-          scope,
-          runners: (runners || []).join(', '),
-        }));
-    });
-  }, [config.dispatcher_routing]);
-
-  const commitRoutingRows = (nextRows: RoutingDraftRow[]) => {
-    setRoutingRows(nextRows);
-    onChange({ ...config, dispatcher_routing: routingRowsToConfig(nextRows) });
-  };
-
-  const updateRoutingScope = (localId: string, rawScope: string) => {
-    commitRoutingRows(routingRows.map(row => (row.localId === localId ? { ...row, scope: rawScope } : row)));
-  };
-
-  const updateRoutingRunners = (localId: string, rawRunners: string) => {
-    commitRoutingRows(routingRows.map(row => (row.localId === localId ? { ...row, runners: rawRunners } : row)));
-  };
-
-  const addRoutingRow = () => {
-    const existingScopes = new Set(routingRows.map(row => normalizeRoutingScopeInput(row.scope)));
-    let scope = '*';
-    let suffix = 1;
-    while (existingScopes.has(scope)) {
-      scope = `scope-${suffix}`;
-      suffix += 1;
-    }
-    commitRoutingRows([...routingRows, { localId: `routing-${routingRowSeq.current++}`, scope, runners: '' }]);
-  };
-
-  const removeRoutingRow = (localId: string) => {
-    commitRoutingRows(routingRows.filter(row => row.localId !== localId));
   };
 
   const handleGlobalRepoChange = (key: keyof ConfigRepositoryFormState) => (event: ChangeEvent<HTMLInputElement>) => {
@@ -481,65 +423,6 @@ function SystemConfig({
         />
 
         <div className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs text-[var(--text-secondary)]">Dispatcher</p>
-              <h3 className="text-lg font-semibold text-[var(--text-primary)]">Routing</h3>
-            </div>
-            {canManageRuntimeConfig && (
-              <button className="glass-button-subtle" type="button" onClick={addRoutingRow} disabled={configLoading || saving}>
-                <Plus className="h-4 w-4" />
-                Add route
-              </button>
-            )}
-          </div>
-          {routingRows.length > 0 ? (
-            <div className="space-y-3">
-              {routingRows.map(row => (
-                <div key={row.localId} className="grid grid-cols-1 md:grid-cols-[minmax(0,180px)_1fr_auto] gap-3 items-end">
-                  <label className="flex flex-col gap-1 text-sm">
-                    <span>Scope</span>
-                    <input
-                      type="text"
-                      className="pipelines-input"
-                      value={row.scope}
-                      onChange={event => updateRoutingScope(row.localId, event.target.value)}
-                      placeholder="prod"
-                      disabled={!canManageRuntimeConfig || configLoading || saving}
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 text-sm">
-                    <span>Runner IDs</span>
-                    <input
-                      type="text"
-                      className="pipelines-input"
-                      value={row.runners}
-                      onChange={event => updateRoutingRunners(row.localId, event.target.value)}
-                      placeholder="runner-prod-1, runner-prod-2"
-                      disabled={!canManageRuntimeConfig || configLoading || saving}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    className="glass-button-danger md:mb-0"
-                    onClick={() => removeRoutingRow(row.localId)}
-                    disabled={!canManageRuntimeConfig || configLoading || saving}
-                    aria-label={`Remove route ${normalizeRoutingScopeInput(row.scope)}`}
-                    title={`Remove route ${normalizeRoutingScopeInput(row.scope)}`}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-lg border border-dashed border-[var(--border-primary)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">
-              No dispatcher routing configured.
-            </div>
-          )}
-        </div>
-
-        <div className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-xs text-[var(--text-secondary)]">Notifications</p>
@@ -636,7 +519,12 @@ function SystemConfig({
                     />
                   </label>
                   <label className={mailFieldClass}>
-                    <span>Password credential ref</span>
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span>Password credential ref</span>
+                      <CredentialReferenceLink reference={mailSettingsForm.smtp_password_credential_ref} className="text-xs underline decoration-dotted underline-offset-4 hover:text-[var(--accent-primary)]">
+                        Open credential
+                      </CredentialReferenceLink>
+                    </span>
                     <input
                       id="system-mail-smtp-secret"
                       type="text"
@@ -892,35 +780,6 @@ function formatTimestamp(value?: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
   return date.toLocaleString();
-}
-
-
-function normalizeRoutingScope(value: string) {
-  const trimmed = value.trim();
-  return trimmed || '*';
-}
-
-function routingRowsToConfig(rows: RoutingDraftRow[]): Record<string, string[]> {
-  const routing: Record<string, string[]> = {};
-  rows.forEach(row => {
-    const runners = row.runners
-      .split(/[\n,]/)
-      .map(item => item.trim())
-      .filter(Boolean);
-    routing[normalizeRoutingScope(row.scope)] = runners;
-  });
-  return routing;
-}
-
-function routingConfigSignature(routing: Record<string, string[]>): string {
-  return JSON.stringify(
-    Object.entries(routing || {})
-      .map(([scope, runners]) => [
-        normalizeRoutingScope(scope),
-        Array.isArray(runners) ? runners.map(item => String(item || '').trim()).filter(Boolean) : [],
-      ])
-      .sort(([left], [right]) => String(left).localeCompare(String(right)))
-  );
 }
 
 
