@@ -289,9 +289,11 @@ Rerun:
    - `setting/system/llm_profile.yaml` becomes the system LLM profile registry, only from a system/global config repo
    - `setting/system/agent-profiles.yaml` becomes the system Agent Profile persona registry and default profile setting, only from a system/global config repo
    - `setting/system/mcp.yaml` becomes the system MCP server/profile registry, only from a system/global config repo
-   - `setting/system/auth.yaml` becomes local-login and OIDC SSO settings, only from a system/global config repo, with provider credential references resolved from the encrypted local registry
-   - `setting/system/runner.yaml` becomes runner install defaults, runtime URLs, and dispatcher routing, only from a system/global config repo
-   - `setting/system/mail.yaml` becomes SMTP mail notification settings, only from a system/global config repo, with password values referenced by secret name instead of stored in Git
+   - `setting/system/auth.yaml` becomes local-login and OIDC SSO settings, only from a system/global config repo, with provider credential references resolved from the encrypted registry
+   - `setting/system/github.yaml` becomes GitHub App IDs, credential references, and git-bot URLs, only from a system/global config repo
+   - `setting/system/runner.yaml` becomes runner install defaults, runtime defaults, and dispatcher routing, only from a system/global config repo
+   - `setting/system/mail.yaml` becomes SMTP mail notification settings, only from a system/global config repo, with password plaintext kept out of the mail file
+   - `setting/system/credentials.yaml` becomes encrypted system credential envelopes, only from a system/global config repo
 6. System/global repositories are synced before group repositories during sync-all, so newly defined group bindings can be used immediately.
 7. Group-scoped resources are normalized under the bound group before writing.
 8. It adopts matching database-owned resources that are inside the syncing repository scope, then marks them GitOps-managed; resources already managed by an unrelated config repository remain protected by config-repo precedence.
@@ -305,15 +307,22 @@ endpoint exports the current declarative Nopsai config and compares it with the
 sync branch so the UI can show exact changes for pipelines, steps, schedules,
 triggers, scopes, knowledge contexts, run group/config-repository structure,
 notification routes, access manifests, Agent Profiles, LLM profiles, MCP
-registry files, auth settings, mail settings, and runtime settings before
+registry files, auth settings, mail settings, runtime settings, and encrypted
+credential envelopes before
 pushing. After those files are merged into the sync branch, the next config sync
 can adopt the matching database-owned resources and switch their UI source to
 GitOps. Pipeline run rows remain runtime/audit records, not Git-owned resources.
-Runtime settings sync persists supported operational defaults back to the local
-runtime config files. `dispatcher_routing` is exposed through a service-token
-protected internal NopsAI endpoint; the dispatcher polls that endpoint and swaps its
-in-memory routing table while it is running, so new scheduling decisions use the
-updated table without a dispatcher restart.
+Runtime settings sync persists supported operational defaults to the
+`runtime_settings` database row. `config.yml`, `.env`, Docker Compose, and
+deployment secrets are bootstrap inputs only. Credential GitOps stores encrypted
+envelopes in the credential registry and never exports plaintext.
+`dispatcher_routing` is exposed through a service-token protected internal
+NopsAI endpoint; the dispatcher polls that endpoint and swaps its in-memory
+routing table while it is running, so new scheduling decisions use the updated
+table without a dispatcher restart. New service integrations should read
+versioned snapshots from
+`/internal/v1/runtime-config/{service}` or long-poll
+`/internal/v1/runtime-config/{service}/watch?version=<n>`.
 10. It prunes rows managed by the same config repository that disappeared from the repo.
 11. It does not prune user-created groups, even when syncing the run-group structure.
 12. It records sync status per config repository for the UI.

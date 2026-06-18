@@ -46,8 +46,8 @@ There are no starter profiles in the UI. The wizard is a single guided flow:
 
 1. Open the UI. The login page checks preflight readiness for the database,
    master encryption key, and JWT signing key.
-2. Resolve any required preflight items in `.env` or `config.yml`, then restart
-   affected services.
+2. Resolve any required preflight items in `docker-compose.yaml`, exported
+   environment, or `config.yml`, then restart affected services.
 3. Sign in as an administrator. On an incomplete installation the UI opens the
    setup modal automatically. If the bootstrap admin must change password, the
    Profile page is shown first and setup opens after the password requirement is
@@ -101,8 +101,8 @@ Required preflight items:
 - `NOPSAI_MASTER_KEY`: required for encrypted secret storage.
 - `JWT_SIGNING_KEY`: required for local login sessions.
 
-The login page shows suggested `.env` entries for missing required values. The
-wizard can generate later service secrets after login, but these hard
+The login page shows suggested environment entries for missing required values.
+The wizard can generate later service secrets after login, but these hard
 pre-authentication values must exist before an authenticated workspace can open.
 
 Production startup gates:
@@ -139,11 +139,11 @@ Do not commit these values to the config repository.
 
 ## GitHub App And git-bot
 
-The wizard manages only the internal NopsAI-to-git-bot service URL. In Docker
-Compose that URL is usually `http://git-bot:8081`. GitHub App IDs,
-installation IDs, private keys, webhook secrets, and the public webhook URL
-belong to the separate `git-bot` deployment or its secret manager, not the
-NopsAI UI.
+The wizard prepares the internal NopsAI-to-git-bot service URL. In Docker
+Compose that URL is usually `http://git-bot:8081`. Manage GitHub App IDs and
+credential references in **System > Config** or `setting/system/github.yaml`,
+store private-key and webhook secret values in **System > Credentials**, and set
+the public webhook URL on the GitHub App.
 
 Install flow:
 
@@ -152,9 +152,9 @@ Install flow:
    Docker Compose.
 2. Create or open a GitHub App and set its webhook URL to the public git-bot
    endpoint exposed by your deployment, ending in `/webhook`.
-3. Configure the App ID, installation ID, private key, and webhook secret on
-   the `git-bot` container or secret manager, then install the App on the
-   selected repositories.
+3. Configure the App ID, installation ID, private-key credential reference, and
+   webhook credential reference in **System > Config**, then install the App on
+   the selected repositories.
 
 Required GitHub App events:
 

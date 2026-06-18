@@ -282,6 +282,9 @@ func (a *App) exportConfigRepositoryFiles(ctx context.Context, repo models.Confi
 	if err := a.exportConfigRepositoryAuthSettings(ctx, repo, files); err != nil {
 		return nil, err
 	}
+	if err := a.exportConfigRepositoryCredentials(ctx, repo, files); err != nil {
+		return nil, err
+	}
 	if err := a.exportConfigRepositoryRuntimeSettings(repo, files); err != nil {
 		return nil, err
 	}

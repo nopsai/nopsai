@@ -18,6 +18,7 @@ const (
 	configRepositoryAgentProfilesPath         = "setting/system/agent-profiles.yaml"
 	configRepositoryMCPRegistryPath           = "setting/system/mcp.yaml"
 	configRepositoryMailSettingsPath          = "setting/system/mail.yaml"
+	configRepositoryCredentialsPath           = "setting/system/credentials.yaml"
 )
 
 func configRepositoryIncludesResource(repo models.ConfigRepository, identifier, source string, configRepoID sql.NullInt64, managed bool, delegatedScopes []string) bool {
@@ -65,7 +66,9 @@ func isConfigRepositoryDriftPath(filePath string) bool {
 func isConfigRepositorySettingsDriftPath(rel string) bool {
 	return isGitOpsAuthSettingsRelativePath(rel) ||
 		isGitOpsRuntimeSettingsRelativePath(rel) ||
+		isGitOpsGitHubSettingsRelativePath(rel) ||
 		isGitOpsMailSettingsRelativePath(rel) ||
+		isGitOpsCredentialsRelativePath(rel) ||
 		isGitOpsLLMProfileRelativePath(rel) ||
 		isGitOpsAgentProfileRelativePath(rel) ||
 		mcpregistry.IsGitOpsRelativePath(rel)

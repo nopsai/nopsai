@@ -10,7 +10,15 @@ volumes:
   go-build-cache:
   ui-node-modules:
   ui-dist:
-    
+
+x-service-auth-env: &service-auth-env
+  SERVICE_JWT_SIGNING_KEY: ${SERVICE_JWT_SIGNING_KEY:-local-dev-service-jwt-key-change-me-please-rotate}
+
+x-local-topology-env: &local-topology-env
+  AGENT_NOPSAI_API_URL: http://nopsai:8080
+  DISPATCHER_ADDRESS: dispatcher:9090
+  DOCKER_NETWORK_NAME: nopsai-net
+
 services:
   base:
     container_name: nopsai-base
@@ -49,13 +57,6 @@ services:
     container_name: nopsai-db
     image: postgres:15
     restart: always
-    # depends_on:
-    #   ui-test:
-    #     condition: "service_completed_successfully"
-    #   backend-test:
-    #     condition: "service_completed_successfully"
-    #   ui-e2e:
-    #     condition: "service_completed_successfully"
     environment:
       POSTGRES_DB: nopsai_db
       POSTGRES_USER: nopsai_user
@@ -64,7 +65,7 @@ services:
       - "5432:5432"
     volumes:
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
-      -  db:/var/lib/postgresql/data
+      - db:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U nopsai_user -d nopsai_db"]
       interval: 5s
@@ -89,8 +90,14 @@ services:
         condition: service_started
       base:
         condition: service_completed_successfully
-    env_file:
-      - .env
+    environment:
+      <<: [*service-auth-env, *local-topology-env]
+      DATABASE_URL: ${DATABASE_URL:-postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_db}
+      NOPSAI_GIT_BOT_API_URL: http://nopsai-git-bot:8081
+      NOPSAI_MASTER_KEY: ${NOPSAI_MASTER_KEY:-4Ns627gVMolptxqC1tePPpOR3FFr04zi3Lk3iHuEV/g=}
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-local-dev-jwt-signing-key-change-me-please-rotate}
+      AAA_API_URL: http://aaa:8082
+      AAA_SHARED_INTERNAL_TOKEN: ${AAA_SHARED_INTERNAL_TOKEN:-local-dev-aaa-token-change-me-please-rotate}
     networks:
       - nopsai-net
 
@@ -106,8 +113,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    env_file:
-      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_db}
+      AAA_SHARED_INTERNAL_TOKEN: ${AAA_SHARED_INTERNAL_TOKEN:-local-dev-aaa-token-change-me-please-rotate}
     networks:
       - nopsai-net
 
@@ -122,8 +130,9 @@ services:
       - "9090:9090"
     depends_on:
       - base
-    env_file:
-      - .env
+    environment:
+      <<: *service-auth-env
+      AGENT_NOPSAI_API_URL: http://nopsai:8080
     networks:
       - nopsai-net
 
@@ -139,8 +148,10 @@ services:
     depends_on:
       - db
       - nopsai
-    env_file:
-      - .env
+    environment:
+      <<: *service-auth-env
+      GIT_BOT_LISTEN_ADDRESS: 0.0.0.0:8081
+      GIT_BOT_NOPSAI_API_URL: http://nopsai:8080
     networks:
       - nopsai-net
 
@@ -151,7 +162,7 @@ services:
       context: ./services/ui
       dockerfile: Dockerfile
       args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-""}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
     restart: always
     ports:
       - "80:80"
@@ -162,8 +173,6 @@ services:
       retries: 3
     networks:
       - nopsai-net
-    env_file:
-      - .env
     depends_on:
       nopsai:
         condition: service_started
@@ -178,8 +187,9 @@ services:
       - base
     entrypoint: 'true'
 
-  runner:
-    container_name: nopsai-runner
+  docker-runner:
+    container_name: nopsai-docker-runner
+    hostname: docker-runner
     image: hoseindocker/nopsai-runner
     build:
       context: .
@@ -187,8 +197,10 @@ services:
     restart: always
     depends_on:
       - dispatcher
-    env_file:
-      - .env
+    environment:
+      <<: *service-auth-env
+      DISPATCHER_ADDRESS: dispatcher:9090
+      DOCKER_NETWORK_NAME: nopsai-net
     networks:
       - nopsai-net
     volumes:

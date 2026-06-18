@@ -25,6 +25,15 @@ const (
 	DefaultLLMProfileName = "standard"
 )
 
+type ConfigScope string
+
+const (
+	ConfigScopeBootstrapOnly ConfigScope = "bootstrap_only"
+	ConfigScopeRuntimeLive   ConfigScope = "runtime_live"
+	ConfigScopeRuntimeReload ConfigScope = "runtime_reload"
+	ConfigScopeNextRunOnly   ConfigScope = "next_run_only"
+)
+
 var validLMStudioReasoningLevels = map[string]struct{}{
 	"":       {},
 	"off":    {},

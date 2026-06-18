@@ -159,6 +159,7 @@ CREATE TABLE IF NOT EXISTS config_repositories (
 CREATE TABLE runtime_settings (
     id BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
     payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    version BIGINT NOT NULL DEFAULT 1,
     source TEXT NOT NULL DEFAULT 'database',
     config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
     config_source_path TEXT NOT NULL DEFAULT '',

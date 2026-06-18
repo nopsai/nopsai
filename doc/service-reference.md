@@ -78,10 +78,15 @@ Responsibilities:
   GitOps parsing in `services/nopsai/internal/mcpregistry`; root MCP files keep
   the `*App` HTTP, config, and persistence wiring.
 - Applies system GitOps runtime settings through shared system-config helpers
-  and `runtime_settings_store.go`, persisting runner install defaults, supported
-  runtime URLs, agent defaults, and dispatcher routing before mirroring writable
-  local `config.yml`/`.env` files. Mail notification settings stay in their
-  dedicated notification settings store.
+  and `runtime_settings_store.go`, persisting runner install defaults, runner
+  runtime defaults, agent defaults, and dispatcher routing in the database as
+  the source of truth. GitHub App IDs, credential references, and git-bot URLs
+  are owned by the GitHub settings file. `config.yml`, `.env`, Docker Compose,
+  and deployment secrets are bootstrap inputs. Mail notification settings stay
+  in their dedicated notification settings store.
+- Exposes versioned internal runtime snapshots at
+  `/internal/v1/runtime-config/{service}` and a long-poll watch endpoint for
+  services that can reload clients or reconnect without a container restart.
 - Seeds predefined product roles and expands role grants into low-level AAA ACLs.
 - Talks to the dispatcher as a gRPC client.
 - Talks to `git-bot` over HTTP for GitHub checks and repository content access.

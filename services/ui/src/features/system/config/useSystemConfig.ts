@@ -24,6 +24,7 @@ import {
   emptyNotificationMailSettingsForm,
   initialConfig,
   mailSettingsFormFromRecord,
+  type ConfigFieldMetadata,
   type ConfigFormState,
   type ConfigRepository,
   type ConfigRepositoryFormState,
@@ -46,6 +47,7 @@ type UseSystemConfigOptions = {
 type SystemConfigPanelProps = {
   config: ConfigFormState;
   envFilePath: string;
+  fieldMetadata: Record<string, ConfigFieldMetadata>;
   configError: string | null;
   configLoading: boolean;
   saving: boolean;
@@ -106,6 +108,7 @@ export function useSystemConfig({
   const isMountedRef = useRef(true);
   const [config, setConfig] = useState<ConfigFormState>(initialConfig);
   const [envFilePath, setEnvFilePath] = useState('');
+  const [fieldMetadata, setFieldMetadata] = useState<Record<string, ConfigFieldMetadata>>({});
   const [configLoading, setConfigLoading] = useState(runtimeConfigEnabled);
   const [configError, setConfigError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -143,6 +146,7 @@ export function useSystemConfig({
       if (!isMountedRef.current) return;
       setConfig(payload.config);
       setEnvFilePath(payload.envFilePath);
+      setFieldMetadata(payload.fieldMetadata);
     } catch (error) {
       console.error('Failed to load system config', error);
       if (!isMountedRef.current) return;
@@ -203,6 +207,7 @@ export function useSystemConfig({
       if (!isMountedRef.current) return;
       setConfig(payload.config);
       setEnvFilePath(payload.envFilePath);
+      setFieldMetadata(payload.fieldMetadata);
       addToast('System settings saved.', 'success');
     } catch (error) {
       console.error('Failed to save system config', error);
@@ -440,6 +445,7 @@ export function useSystemConfig({
     panelProps: {
       config,
       envFilePath,
+      fieldMetadata,
       configError,
       configLoading,
       saving,

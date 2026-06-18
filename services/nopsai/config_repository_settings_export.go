@@ -205,12 +205,20 @@ func (a *App) exportConfigRepositoryRuntimeSettings(repo models.ConfigRepository
 	if repo.ScopeType != models.ConfigRepositoryScopeSystem {
 		return nil
 	}
-	doc := buildRuntimeSettingsGitOpsFile(a.getConfigSnapshot())
-	content, err := marshalConfigRepositoryYAML(doc)
+	cfg := a.getConfigSnapshot()
+	runtimeDoc := buildRuntimeSettingsGitOpsFile(cfg)
+	runtimeContent, err := marshalConfigRepositoryYAML(runtimeDoc)
 	if err != nil {
 		return err
 	}
-	files["setting/system/runner.yaml"] = string(content)
+	files["setting/system/runner.yaml"] = string(runtimeContent)
+
+	githubDoc := buildGitHubSettingsGitOpsFile(cfg)
+	githubContent, err := marshalConfigRepositoryYAML(githubDoc)
+	if err != nil {
+		return err
+	}
+	files["setting/system/github.yaml"] = string(githubContent)
 	return nil
 }
 

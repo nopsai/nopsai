@@ -147,7 +147,9 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - System Agent Profiles and the default agent profile can be managed in the global config repo at `setting/system/agent-profiles.yaml`.
 - System MCP profiles can be managed in the global config repo at `setting/system/mcp.yaml`.
 - Local-login and OIDC SSO settings can be managed in the global config repo at `setting/system/auth.yaml`.
-- Runner defaults, supported runtime URLs, and dispatcher routing can be managed in the global config repo at `setting/system/runner.yaml`.
+- GitHub App IDs, credential references, and git-bot URLs can be managed in the global config repo at `setting/system/github.yaml`.
+- Runner defaults, runtime defaults, and dispatcher routing can be managed in the global config repo at `setting/system/runner.yaml`.
+- Encrypted system credential envelopes can be managed in the global config repo at `setting/system/credentials.yaml`.
 - Managed knowledge context markdown files can be synced from `knowledge/<kind>/<group>/<document>.md`.
 
 ---
@@ -417,15 +419,16 @@ total steps, per-step task progress, repository/run links, and up to five
 deduplicated error lines. Log excerpts are length-limited, HTML-escaped, and
 redact common password, secret, token, authorization, and API-key patterns.
 
-Mail presentation and links are configured at runtime:
+Mail presentation and links are configured through **System > Config** or
+`setting/system/runner.yaml`:
 
-| Environment variable | Purpose |
+| Runtime setting | Purpose |
 | --- | --- |
-| `NOPSAI_PUBLIC_URL` | Browser-reachable application URL used for run links and the default logo URL. |
-| `NOPSAI_MAIL_LOGO_URL` | Optional absolute mail logo URL. |
-| `NOPSAI_MAIL_WEBSITE_URL` | Optional footer website; defaults to `NOPSAI_PUBLIC_URL`. |
-| `NOPSAI_MAIL_SUPPORT_URL` | Optional footer support link. |
-| `NOPSAI_MAIL_FOOTER_ADDRESS` | Optional organization/legal address shown in the footer. |
+| `public_url` | Browser-reachable application URL used for run links and the default logo URL. |
+| `notification_mail_logo_url` | Optional absolute mail logo URL. |
+| `notification_mail_website_url` | Optional footer website; defaults to `public_url`. |
+| `notification_mail_support_url` | Optional footer support link. |
+| `notification_mail_footer_address` | Optional organization/legal address shown in the footer. |
 
 Only absolute `http` and `https` URLs are rendered. When no public URL is
 configured, the message remains complete but omits the run link and remote
@@ -1011,6 +1014,9 @@ Normal clients should use the `nopsai` API rather than calling AAA directly.
 
 System integration credentials are encrypted, versioned, and write-only.
 Metadata APIs never return plaintext, ciphertext, or wrapped keys.
+GitOps drift/export can write the encrypted envelope records to
+`setting/system/credentials.yaml`; feature config files still store only stable
+credential references.
 
 ```bash
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
@@ -1353,12 +1359,14 @@ curl -X POST -H "Content-Type: application/json" \
 - System- and group-scoped repos may define managed knowledge context markdown under `knowledge/`.
 - System-scoped repos may define group pipeline notification policies with named routes under `config-repositories/groups/<group>/notifications.yaml`. Group repos can use root `notifications.yaml` for their bound group.
 - The system/global repo may define Agent Profiles and `default_profile` under `setting/system/agent-profiles.yaml`; group repos may reference approved profile IDs but cannot define the catalog.
-- The system/global repo may define local-login and OIDC SSO settings under `setting/system/auth.yaml`; providers bind credential references whose values remain local.
+- The system/global repo may define local-login and OIDC SSO settings under `setting/system/auth.yaml`; providers bind credential references whose encrypted values can be stored in `setting/system/credentials.yaml`.
+- The system/global repo may define GitHub App IDs, credential references, and git-bot URLs under `setting/system/github.yaml`.
 - The system/global repo may define runtime runner defaults and dispatcher routing under `setting/system/runner.yaml`; dispatcher routing changes are synced into `nopsai` and applied by the live dispatcher.
 - The system/global repo may define SMTP mail notification settings under `setting/system/mail.yaml`; only `smtp.password_credential_ref` is synced for credentials.
+- The system/global repo may define encrypted system credential envelopes under `setting/system/credentials.yaml`; plaintext is never exported.
 - A binding file contains `repo_url`, optional `branch`, optional `base_path`, optional `enabled`, optional `write_enabled`, and optional `write_branch`.
 - `branch` remains the read/sync source. When `write_enabled` is true, Nopsai can push generated GitOps changes to `write_branch` so they can be reviewed in GitHub before merging back to the sync branch. The GitHub App needs `contents: read and write`.
-- Drift compares the sync branch with Nopsai's current declarative state for pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, run group/config-repository structure, notification routes, access manifests, Agent Profiles, LLM profiles, MCP registry files, auth settings, mail settings, and runtime settings. UI-side resource Access changes for pipelines, reusable steps, scopes, and knowledge contexts are exported as embedded `access:` updates in the affected GitOps files. Pipeline run rows remain runtime/audit records rather than Git-owned resources.
+- Drift compares the sync branch with Nopsai's current declarative state for pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, run group/config-repository structure, notification routes, access manifests, Agent Profiles, LLM profiles, MCP registry files, auth settings, mail settings, runtime settings, and encrypted credential envelopes. UI-side resource Access changes for pipelines, reusable steps, scopes, and knowledge contexts are exported as embedded `access:` updates in the affected GitOps files. Pipeline run rows remain runtime/audit records rather than Git-owned resources.
 - After generated files are merged into the sync branch, config sync can adopt matching database-owned resources inside the repository scope and mark them as GitOps-managed. Resources already owned by an unrelated config repo remain protected by config-repo precedence.
 - Group repositories use the same drift and write endpoint shape at `GET /v1/groups/<group-path>/config-repo/drift` and `POST /v1/groups/<group-path>/config-repo/write`. File paths are relative to the configured `base_path`.
 - Nested groups are represented by nested paths, for example `config-repositories/groups/team-2/platform.yaml` creates a binding for `team-2/platform`.
@@ -1368,6 +1376,40 @@ curl -X POST -H "Content-Type: application/json" \
   trigger executions when it should differ from the resource path or target
   pipeline path.
 - Once a group repo is assigned and synced, it is authoritative for resources under that group path. Parent or global repos skip and prune their own managed resources inside delegated groups.
+
+## Internal Runtime Config
+
+Internal services authenticate with service bearer tokens and can read
+versioned runtime snapshots:
+
+- `GET /internal/v1/runtime-config/{service}`
+- `GET /internal/v1/runtime-config/{service}/watch?version=<n>`
+
+Supported service names are `nopsai`, `git-bot`, `dispatcher`, `runner`, and
+`agent`. The watch endpoint long-polls until the `runtime_settings.version`
+changes or the request times out, then returns the current snapshot.
+
+Example `git-bot` response:
+
+```json
+{
+  "version": 42,
+  "service": "git-bot",
+  "reload_mode": "runtime_reload",
+  "config": {
+    "github_app_id": "123456",
+    "github_installation_id": "987654",
+    "github_private_key_ref": "credential://system/github/app-private-key",
+    "github_webhook_secret_ref": "credential://system/github/webhook-secret",
+    "git_bot_nopsai_api_url": "http://nopsai:8080"
+  }
+}
+```
+
+The endpoint returns credential references and non-secret runtime values only.
+Plaintext secret values remain behind the credential registry and existing
+sealed bootstrap/credential resolution flows, even when encrypted envelopes are
+GitOps-managed in `setting/system/credentials.yaml`.
 - Only owners of the target group, including inherited parent owners, can sync that group repo.
 - Complete examples live under `doc/sample-config-repo`.
 

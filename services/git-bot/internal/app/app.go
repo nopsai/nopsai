@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"nopsai/config"
@@ -54,22 +55,49 @@ func Run() {
 	}
 	httpClient := proxyhttp.NewInternalAwareClient(10 * time.Second)
 	bootstrap, err := fetchGitHubBootstrap(context.Background(), cfg, httpClient, serviceCredentials)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to retrieve GitHub credentials from nopsai")
-	}
+	gitBot := newGitBotAppFromBootstrap(
+		cfg,
+		httpClient,
+		serviceAuthenticator,
+		serviceCredentials,
+		bootstrap,
+		err,
+	)
 
+	server := httpapi.NewServer(cfg.GitBotListenAddress, gitBot.Handler())
+	log.Info().Msgf("Nopsai Git Bot server listening on %s", cfg.GitBotListenAddress)
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatal().Err(err).Msg("Failed to start server")
+	}
+}
+
+func newGitBotAppFromBootstrap(
+	cfg *config.Config,
+	httpClient *http.Client,
+	serviceAuthenticator *serviceauth.Authenticator,
+	serviceCredentials *serviceauth.Credentials,
+	bootstrap gitHubBootstrap,
+	bootstrapErr error,
+) *service.GitBotApp {
+	if bootstrapErr != nil {
+		log.Warn().Err(bootstrapErr).Msg("GitHub App credentials are not available; starting git-bot in degraded mode")
+		return service.NewGitBotApp(cfg, nil, httpClient, 0, "", serviceAuthenticator, serviceCredentials)
+	}
 	appID, err := strconv.ParseInt(bootstrap.GitHubAppID, 10, 64)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Invalid GitHub App ID in configuration")
+		log.Warn().Err(err).Str("github_app_id", bootstrap.GitHubAppID).Msg("Invalid GitHub App ID; starting git-bot in degraded mode")
+		return service.NewGitBotApp(cfg, nil, httpClient, 0, "", serviceAuthenticator, serviceCredentials)
 	}
 	installationID, err := strconv.ParseInt(bootstrap.GitHubInstallationID, 10, 64)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Invalid GitHub Installation ID in configuration")
+		log.Warn().Err(err).Str("github_installation_id", bootstrap.GitHubInstallationID).Msg("Invalid GitHub Installation ID; starting git-bot in degraded mode")
+		return service.NewGitBotApp(cfg, nil, httpClient, 0, "", serviceAuthenticator, serviceCredentials)
 	}
 
 	itr, err := ghinstallation.NewAppsTransport(http.DefaultTransport, appID, []byte(bootstrap.GitHubPrivateKey))
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create GitHub App transport")
+		log.Warn().Err(err).Msg("Failed to create GitHub App transport; starting git-bot in degraded mode")
+		return service.NewGitBotApp(cfg, nil, httpClient, 0, "", serviceAuthenticator, serviceCredentials)
 	}
 
 	installationTransport := ghinstallation.NewFromAppsTransport(itr, installationID)
@@ -87,11 +115,11 @@ func Run() {
 		serviceAuthenticator,
 		serviceCredentials,
 	)
-	server := httpapi.NewServer(cfg.GitBotListenAddress, gitBot.Handler())
-	log.Info().Msgf("Nopsai Git Bot server listening on %s", cfg.GitBotListenAddress)
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatal().Err(err).Msg("Failed to start server")
-	}
+	log.Info().
+		Int64("github_app_id", appID).
+		Str("github_installation_id", strings.TrimSpace(bootstrap.GitHubInstallationID)).
+		Msg("GitHub App credentials loaded")
+	return gitBot
 }
 
 func configureLogging(cfg *config.Config) {

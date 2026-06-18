@@ -156,6 +156,8 @@ func TestConfigRepositoryDriftPathIncludesSyncableResourceFamilies(t *testing.T)
 		"config-repositories/groups/team-1/notifications.yaml",
 		"config-repositories/groups/team-1/structure.yaml",
 		"setting/system/auth.yaml",
+		"setting/system/credentials.yaml",
+		"setting/system/github.yaml",
 		"setting/system/mail.yaml",
 		"setting/system/llm_profile.yaml",
 		"setting/system/agent-profiles.yaml",

@@ -437,7 +437,8 @@ Recommended setup:
 
 - Development: set `JWT_SIGNING_KEY`; leave `SERVICE_JWT_SIGNING_KEY` blank if you want service JWTs to reuse it.
 - Production: set both `JWT_SIGNING_KEY` and a separate `SERVICE_JWT_SIGNING_KEY`.
-- Store keys in your deployment secret manager or `.env` outside source control.
+- Store keys in your deployment secret manager or exported Compose environment,
+  outside source control.
 - Keep `SERVICE_JWT_ISSUER` and `SERVICE_JWT_AUDIENCE` identical for Nopsai, dispatcher, runners, and agents.
 - Keep `DISPATCHER_TLS_SECRET` identical for all dispatcher gRPC clients and the dispatcher if you set it explicitly.
 - Rotate keys with a coordinated deployment. The current implementation does not support multiple active signing keys or `kid`-based key selection.

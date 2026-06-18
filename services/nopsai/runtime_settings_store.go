@@ -21,6 +21,7 @@ var runtimeSettingsSchemaStatements = []string{
 	`CREATE TABLE IF NOT EXISTS runtime_settings (
 		id BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
 		payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+		version BIGINT NOT NULL DEFAULT 1,
 		source TEXT NOT NULL DEFAULT 'database',
 		config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
 		config_source_path TEXT NOT NULL DEFAULT '',
@@ -29,6 +30,7 @@ var runtimeSettingsSchemaStatements = []string{
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
 	`ALTER TABLE runtime_settings ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb`,
+	`ALTER TABLE runtime_settings ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1`,
 	`ALTER TABLE runtime_settings ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'database'`,
 	`ALTER TABLE runtime_settings ADD COLUMN IF NOT EXISTS config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL`,
 	`ALTER TABLE runtime_settings ADD COLUMN IF NOT EXISTS config_source_path TEXT NOT NULL DEFAULT ''`,
@@ -39,13 +41,14 @@ var runtimeSettingsSchemaStatements = []string{
 }
 
 type runtimeSettingsRecord struct {
-	runtimeSettingsGitOpsFile `yaml:",inline"`
-	Source                    string     `json:"source,omitempty" yaml:"-"`
-	ConfigRepoID              *int64     `json:"config_repo_id,omitempty" yaml:"-"`
-	ConfigSourcePath          string     `json:"config_source_path,omitempty" yaml:"-"`
-	ConfigSourceCommitSHA     string     `json:"config_source_commit_sha,omitempty" yaml:"-"`
-	ManagedByConfigRepo       bool       `json:"managed_by_config_repo" yaml:"-"`
-	UpdatedAt                 *time.Time `json:"updated_at,omitempty" yaml:"-"`
+	runtimeSettingsSnapshotFile `yaml:",inline"`
+	Version                     int64      `json:"version,omitempty" yaml:"-"`
+	Source                      string     `json:"source,omitempty" yaml:"-"`
+	ConfigRepoID                *int64     `json:"config_repo_id,omitempty" yaml:"-"`
+	ConfigSourcePath            string     `json:"config_source_path,omitempty" yaml:"-"`
+	ConfigSourceCommitSHA       string     `json:"config_source_commit_sha,omitempty" yaml:"-"`
+	ManagedByConfigRepo         bool       `json:"managed_by_config_repo" yaml:"-"`
+	UpdatedAt                   *time.Time `json:"updated_at,omitempty" yaml:"-"`
 }
 
 type runtimeSettingsQuerier interface {
@@ -75,29 +78,38 @@ func ensureRuntimeSettingsSchema(ctx context.Context, db *pgxpool.Pool) error {
 	return nil
 }
 
-func runtimeSettingsPayloadFromFile(file runtimeSettingsGitOpsFile) systemConfigPayload {
+func runtimeSettingsPayloadFromFile(file runtimeSettingsSnapshotFile) systemConfigPayload {
 	return systemConfigPayload{
-		AgentNopsaiAPIURL:         file.AgentNopsaiAPIURL,
-		GitBotNopsaiAPIURL:        file.GitBotNopsaiAPIURL,
-		NopsaiGitBotAPIURL:        file.NopsaiGitBotAPIURL,
-		DispatcherAddress:         file.DispatcherAddress,
-		AgentImage:                file.AgentImage,
-		DockerNetworkName:         file.DockerNetworkName,
-		AutoRemovalAgentContainer: file.AutoRemovalAgentContainer,
-		DefaultPipelineTimeout:    file.DefaultPipelineTimeout,
-		LLMAgentTimeout:           file.LLMAgentTimeout,
-		DispatcherRouting:         file.DispatcherRouting,
-		RunnerID:                  file.RunnerID,
-		RunnerScopes:              file.RunnerScopes,
-		RunnerCapacity:            file.RunnerCapacity,
-		GitHubAppID:               file.GitHubAppID,
-		GitHubInstallationID:      file.GitHubInstallationID,
-		GitHubPrivateKeyRef:       file.GitHubPrivateKeyRef,
-		GitHubWebhookRef:          file.GitHubWebhookRef,
-		Runtime:                   file.Runtime,
-		Kubernetes:                file.Kubernetes,
-		Limits:                    file.Limits,
-		RuntimePools:              file.RuntimePools,
+		LogLevel:                      file.LogLevel,
+		LogFormat:                     file.LogFormat,
+		Environment:                   file.Environment,
+		PublicURL:                     file.PublicURL,
+		NotificationMailLogoURL:       file.NotificationMailLogoURL,
+		NotificationMailWebsiteURL:    file.NotificationMailWebsiteURL,
+		NotificationMailSupportURL:    file.NotificationMailSupportURL,
+		NotificationMailFooterAddress: file.NotificationMailFooterAddress,
+		RequireProductionGates:        file.RequireProductionGates,
+		AgentNopsaiAPIURL:             file.AgentNopsaiAPIURL,
+		DispatcherAddress:             file.DispatcherAddress,
+		AgentImage:                    file.AgentImage,
+		DockerNetworkName:             file.DockerNetworkName,
+		AutoRemovalAgentContainer:     file.AutoRemovalAgentContainer,
+		DefaultPipelineTimeout:        file.DefaultPipelineTimeout,
+		LLMAgentTimeout:               file.LLMAgentTimeout,
+		DispatcherRouting:             file.DispatcherRouting,
+		RunnerID:                      file.RunnerID,
+		RunnerScopes:                  file.RunnerScopes,
+		RunnerCapacity:                file.RunnerCapacity,
+		Runtime:                       file.Runtime,
+		Kubernetes:                    file.Kubernetes,
+		Limits:                        file.Limits,
+		RuntimePools:                  file.RuntimePools,
+		GitBotNopsaiAPIURL:            file.GitBotNopsaiAPIURL,
+		NopsaiGitBotAPIURL:            file.NopsaiGitBotAPIURL,
+		GitHubAppID:                   file.GitHubAppID,
+		GitHubInstallationID:          file.GitHubInstallationID,
+		GitHubPrivateKeyRef:           file.GitHubPrivateKeyRef,
+		GitHubWebhookRef:              file.GitHubWebhookRef,
 	}
 }
 
@@ -115,6 +127,33 @@ func applySystemConfigToConfig(cfg *config.Config, payload systemConfigPayload) 
 	}
 	routing := systemconfig.NormalizeDispatcherRoutingConfig(payload.DispatcherRouting)
 
+	if payload.LogLevel != nil {
+		cfg.LogLevel = strings.TrimSpace(*payload.LogLevel)
+	}
+	if payload.LogFormat != nil {
+		cfg.LogFormat = strings.TrimSpace(*payload.LogFormat)
+	}
+	if payload.Environment != nil {
+		cfg.Environment = strings.TrimSpace(*payload.Environment)
+	}
+	if payload.PublicURL != nil {
+		cfg.PublicURL = strings.TrimSpace(*payload.PublicURL)
+	}
+	if payload.NotificationMailLogoURL != nil {
+		cfg.NotificationMailLogoURL = strings.TrimSpace(*payload.NotificationMailLogoURL)
+	}
+	if payload.NotificationMailWebsiteURL != nil {
+		cfg.NotificationMailWebsiteURL = strings.TrimSpace(*payload.NotificationMailWebsiteURL)
+	}
+	if payload.NotificationMailSupportURL != nil {
+		cfg.NotificationMailSupportURL = strings.TrimSpace(*payload.NotificationMailSupportURL)
+	}
+	if payload.NotificationMailFooterAddress != nil {
+		cfg.NotificationMailFooterAddress = strings.TrimSpace(*payload.NotificationMailFooterAddress)
+	}
+	if payload.RequireProductionGates != nil {
+		cfg.RequireProductionGates = *payload.RequireProductionGates
+	}
 	if payload.AgentNopsaiAPIURL != nil {
 		cfg.AgentNopsaiAPIURL = strings.TrimSpace(*payload.AgentNopsaiAPIURL)
 	}
@@ -183,7 +222,7 @@ func applySystemConfigToConfig(cfg *config.Config, payload systemConfigPayload) 
 }
 
 func applyRuntimeSettingsRecordToConfig(cfg *config.Config, record runtimeSettingsRecord) (config.Config, error) {
-	return applySystemConfigToConfig(cfg, runtimeSettingsPayloadFromFile(record.runtimeSettingsGitOpsFile))
+	return applySystemConfigToConfig(cfg, runtimeSettingsPayloadFromFile(record.runtimeSettingsSnapshotFile))
 }
 
 func ApplyPersistedRuntimeSettings(ctx context.Context, db *pgxpool.Pool, cfg *config.Config) error {
@@ -216,20 +255,21 @@ func persistRuntimeSettingsSnapshotToDB(ctx context.Context, db runtimeSettingsQ
 	if source == "" {
 		source = "database"
 	}
-	payload := buildRuntimeSettingsGitOpsFile(cfg)
+	payload := buildRuntimeSettingsSnapshotFile(cfg)
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("marshal runtime settings: %w", err)
 	}
 	_, err = db.Exec(ctx, `
 		INSERT INTO runtime_settings (
-			id, payload, source, config_repo_id, config_source_path,
+			id, payload, version, source, config_repo_id, config_source_path,
 			config_source_commit_sha, managed_by_config_repo, updated_at
 		) VALUES (
-			TRUE, $1::jsonb, $2, $3, $4, $5, $6, NOW()
+			TRUE, $1::jsonb, 1, $2, $3, $4, $5, $6, NOW()
 		)
 		ON CONFLICT (id) DO UPDATE SET
 			payload = EXCLUDED.payload,
+			version = runtime_settings.version + 1,
 			source = EXCLUDED.source,
 			config_repo_id = EXCLUDED.config_repo_id,
 			config_source_path = EXCLUDED.config_source_path,
@@ -254,13 +294,14 @@ func loadRuntimeSettingsRecord(ctx context.Context, db runtimeSettingsQuerier) (
 		updatedAt  sql.NullTime
 	)
 	err := db.QueryRow(ctx, `
-		SELECT payload, COALESCE(source, 'database'), config_repo_id,
+		SELECT payload, COALESCE(version, 1), COALESCE(source, 'database'), config_repo_id,
 		       COALESCE(config_source_path, ''), COALESCE(config_source_commit_sha, ''),
 		       managed_by_config_repo, updated_at
 		FROM runtime_settings
 		WHERE id = TRUE
 	`).Scan(
 		&raw,
+		&record.Version,
 		&record.Source,
 		&configRepo,
 		&record.ConfigSourcePath,
@@ -275,7 +316,7 @@ func loadRuntimeSettingsRecord(ctx context.Context, db runtimeSettingsQuerier) (
 		return runtimeSettingsRecord{}, false, fmt.Errorf("load runtime settings: %w", err)
 	}
 	if len(raw) > 0 {
-		if err := json.Unmarshal(raw, &record.runtimeSettingsGitOpsFile); err != nil {
+		if err := json.Unmarshal(raw, &record.runtimeSettingsSnapshotFile); err != nil {
 			return runtimeSettingsRecord{}, false, fmt.Errorf("parse persisted runtime settings: %w", err)
 		}
 	}
