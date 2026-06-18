@@ -1,10 +1,13 @@
 package service
 
 import (
+	"context"
 	"testing"
 
 	"nopsai/pkg/proto"
 
+	"google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/emptypb"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -55,4 +58,32 @@ func TestWorkspaceVolumeSourceUsesExistingPVCWhenConfigured(t *testing.T) {
 	if source.Ephemeral != nil {
 		t.Fatalf("workspaceVolumeSource() should not create an ephemeral PVC for existing mode")
 	}
+}
+
+func TestEmitRunLogSendsDiagnosticToDispatcher(t *testing.T) {
+	dispatcher := &recordingDispatcherClient{}
+	r := &kubernetesRunner{}
+
+	r.emitRunLog(context.Background(), dispatcher, "run-123", "Kubernetes runner diagnostic")
+
+	if len(dispatcher.batches) != 1 {
+		t.Fatalf("log batches = %d, want 1", len(dispatcher.batches))
+	}
+	got := dispatcher.batches[0]
+	if got.RunId != "run-123" {
+		t.Fatalf("run id = %q, want run-123", got.RunId)
+	}
+	if len(got.Lines) != 1 || got.Lines[0] != "Kubernetes runner diagnostic" {
+		t.Fatalf("lines = %#v, want diagnostic line", got.Lines)
+	}
+}
+
+type recordingDispatcherClient struct {
+	proto.DispatcherServiceClient
+	batches []*proto.LogBatch
+}
+
+func (c *recordingDispatcherClient) IngestLogs(_ context.Context, batch *proto.LogBatch, _ ...grpc.CallOption) (*emptypb.Empty, error) {
+	c.batches = append(c.batches, batch)
+	return &emptypb.Empty{}, nil
 }

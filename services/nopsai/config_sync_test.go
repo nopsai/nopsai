@@ -309,7 +309,31 @@ func TestBuildKubernetesRunnerManifestResponseIncludesRuntimeRBACAndPVCSettings(
 	}
 }
 
-func TestBuildKubernetesRunnerBootstrapCommandResponseUsesOneTimeManifestToken(t *testing.T) {
+func TestBuildKubernetesRunnerManifestResponseUsesDispatcherAddressOverride(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://nopsai-ui.pre-nopsai.orb.local/v1/system/dispatcher/kubernetes-runner-manifest?runner_id=k8s-runner-ams-1&dispatcher_address=nopsai-dispatcher.pre-nopsai.orb.local%3A9090", nil)
+	resp, err := runnerinstall.BuildKubernetesManifestResponse(config.Config{
+		DispatcherAddress:       "dispatcher:9090",
+		DispatcherListenAddress: ":9090",
+		ServiceJWTSigningKey:    "service-secret",
+		ServiceJWTIssuer:        "issuer",
+		ServiceJWTAudience:      "audience",
+		RunnerServiceID:         "runner-service",
+	}, req)
+	if err != nil {
+		t.Fatalf("buildKubernetesRunnerManifestResponse() error = %v", err)
+	}
+	if resp.DispatcherAddress != "nopsai-dispatcher.pre-nopsai.orb.local:9090" {
+		t.Fatalf("dispatcher address = %q, want explicit override", resp.DispatcherAddress)
+	}
+	if !strings.Contains(resp.Manifest, "DISPATCHER_ADDRESS: nopsai-dispatcher.pre-nopsai.orb.local:9090") {
+		t.Fatalf("manifest missing explicit dispatcher address:\n%s", resp.Manifest)
+	}
+	if len(resp.Warnings) == 0 {
+		t.Fatal("warnings should explain dispatcher address override")
+	}
+}
+
+func TestBuildKubernetesRunnerBootstrapCommandResponseUsesOneTimeScriptToken(t *testing.T) {
 	app := App{}
 	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/kubernetes-runner-bootstrap-command?runner_id=k8s-runner-ams-1&runner_scopes=production,eu-west&runner_capacity=30&namespace=nopsai-runs&service_account=nopsai-runner&storage_class=fast-rwo", nil)
 	resp, err := runnerinstall.BuildKubernetesBootstrapCommandResponse(config.Config{
@@ -331,8 +355,11 @@ func TestBuildKubernetesRunnerBootstrapCommandResponseUsesOneTimeManifestToken(t
 	if strings.Contains(resp.BootstrapCommand, "service-secret") || strings.Contains(resp.BootstrapCommand, "tls-secret") {
 		t.Fatalf("bootstrap command should not expose long-lived secrets: %s", resp.BootstrapCommand)
 	}
-	if !strings.Contains(resp.BootstrapCommand, "kubectl apply -f") {
-		t.Fatalf("bootstrap command should apply the manifest with kubectl: %s", resp.BootstrapCommand)
+	if !strings.Contains(resp.BootstrapCommand, "curl -fsSL") || !strings.Contains(resp.BootstrapCommand, "sh \"$tmp\"") {
+		t.Fatalf("bootstrap command should download and execute the one-time script: %s", resp.BootstrapCommand)
+	}
+	if strings.Contains(resp.BootstrapCommand, "kubectl apply -f") || strings.Contains(resp.BootstrapCommand, "rollout status deployment/") {
+		t.Fatalf("bootstrap command should keep Kubernetes details inside the downloaded script: %s", resp.BootstrapCommand)
 	}
 	if resp.Namespace != "nopsai-runs" || resp.ServiceAccount != "nopsai-runner" {
 		t.Fatalf("namespace/service account = %q/%q", resp.Namespace, resp.ServiceAccount)
@@ -352,11 +379,14 @@ func TestBuildKubernetesRunnerBootstrapCommandResponseUsesOneTimeManifestToken(t
 	if !ok {
 		t.Fatal("expected bootstrap token to be consumable")
 	}
-	if entry.ContentType != "application/x-yaml; charset=utf-8" {
-		t.Fatalf("content type = %q, want Kubernetes YAML", entry.ContentType)
+	if entry.ContentType != "text/x-shellscript; charset=utf-8" {
+		t.Fatalf("content type = %q, want Kubernetes install script", entry.ContentType)
 	}
 	if !strings.Contains(entry.Content, "kind: Deployment") || !strings.Contains(entry.Content, "SERVICE_JWT_SIGNING_KEY: service-secret") {
-		t.Fatalf("bootstrap manifest should include runner resources and secrets:\n%s", entry.Content)
+		t.Fatalf("bootstrap script should include runner resources and secrets:\n%s", entry.Content)
+	}
+	if !strings.Contains(entry.Content, "kubectl apply -f \"$tmp\"") || !strings.Contains(entry.Content, "rollout status deployment/") || !strings.Contains(entry.Content, "logs deployment/") {
+		t.Fatalf("bootstrap script should apply the manifest and show rollout diagnostics:\n%s", entry.Content)
 	}
 	if _, ok := app.consumeRunnerBootstrapToken(token); ok {
 		t.Fatal("bootstrap token should be single-use")

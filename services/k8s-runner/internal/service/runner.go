@@ -311,6 +311,7 @@ func (r *kubernetesRunner) handleJob(ctx context.Context, dispatcher proto.Dispa
 		podName := kubernetesObjectName(firstNonEmpty(job.ContainerName, "agent-"+job.RunId))
 		workspacePVC, err := r.workspaceClaimName(podName, job)
 		if err != nil {
+			r.emitRunLog(context.Background(), dispatcher, job.RunId, "Kubernetes runner failed to prepare workspace: "+err.Error())
 			sendJobResult(sendCh, job.RunId, "failed", err.Error())
 			return
 		}
@@ -318,6 +319,7 @@ func (r *kubernetesRunner) handleJob(ctx context.Context, dispatcher proto.Dispa
 		runtimeVars := r.agentRuntimeVars(job, workspacePVC)
 		pod, err := r.createAgentPod(context.Background(), podName, agentImage, workspacePVC, runtimeVars, job)
 		if err != nil {
+			r.emitRunLog(context.Background(), dispatcher, job.RunId, "Kubernetes runner failed to start agent pod: "+err.Error())
 			sendJobResult(sendCh, job.RunId, "failed", err.Error())
 			return
 		}
@@ -326,6 +328,7 @@ func (r *kubernetesRunner) handleJob(ctx context.Context, dispatcher proto.Dispa
 		}
 
 		log.Info().Str("run_id", job.RunId).Str("pod", pod.Name).Str("workspace_pvc", workspacePVC).Msg("started agent pod")
+		r.emitRunLog(context.Background(), dispatcher, job.RunId, fmt.Sprintf("Kubernetes runner started agent pod %s in namespace %s.", pod.Name, r.namespace))
 
 		runCtx, cancelRun := context.WithCancel(context.Background())
 		defer cancelRun()
@@ -343,11 +346,15 @@ func (r *kubernetesRunner) handleJob(ctx context.Context, dispatcher proto.Dispa
 		cancelRun()
 		if err != nil {
 			stopPodLogForwarder(logDone, cancelLogs, job.RunId, podName)
+			r.emitRunLog(context.Background(), dispatcher, job.RunId, "Kubernetes runner failed while waiting for agent pod completion: "+err.Error())
 			sendJobResult(sendCh, job.RunId, "failed", err.Error())
 			return
 		}
-		waitForPodLogDrain(logDone, cancelLogs, job.RunId, podName)
+		if !waitForPodLogDrain(logDone, cancelLogs, job.RunId, podName) {
+			r.emitRunLog(context.Background(), dispatcher, job.RunId, fmt.Sprintf("Kubernetes runner timed out waiting for logs from agent pod %s to drain.", podName))
+		}
 		if phase != corev1.PodSucceeded {
+			r.emitRunLog(context.Background(), dispatcher, job.RunId, fmt.Sprintf("Kubernetes runner agent pod %s completed with phase %s.", podName, phase))
 			sendJobResult(sendCh, job.RunId, "failed", fmt.Sprintf("agent pod completed with phase %s", phase))
 			return
 		}
@@ -403,6 +410,7 @@ func (r *kubernetesRunner) streamPodLogs(ctx context.Context, dispatcher proto.D
 	}
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Str("pod", podName).Msg("failed to attach to pod logs")
+		r.emitRunLog(context.Background(), dispatcher, runID, fmt.Sprintf("Kubernetes runner could not attach to logs for agent pod %s: %v", podName, err))
 		return
 	}
 	defer reader.Close()
@@ -416,10 +424,10 @@ func (r *kubernetesRunner) streamPodLogs(ctx context.Context, dispatcher proto.D
 	})
 }
 
-func waitForPodLogDrain(done <-chan struct{}, cancel context.CancelFunc, runID, podName string) {
+func waitForPodLogDrain(done <-chan struct{}, cancel context.CancelFunc, runID, podName string) bool {
 	select {
 	case <-done:
-		return
+		return true
 	case <-time.After(kubernetesPodLogDrainTimeout):
 		log.Warn().
 			Str("run_id", runID).
@@ -431,6 +439,7 @@ func waitForPodLogDrain(done <-chan struct{}, cancel context.CancelFunc, runID, 
 		case <-done:
 		case <-time.After(kubernetesPodLogStopTimeout):
 		}
+		return false
 	}
 }
 
@@ -456,6 +465,13 @@ func (r *kubernetesRunner) flushLogs(ctx context.Context, dispatcher proto.Dispa
 	if _, err := dispatcher.IngestLogs(sendCtx, &proto.LogBatch{RunId: runID, Lines: lines}); err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("failed to send log batch to dispatcher")
 	}
+}
+
+func (r *kubernetesRunner) emitRunLog(ctx context.Context, dispatcher proto.DispatcherServiceClient, runID, line string) {
+	if dispatcher == nil || strings.TrimSpace(runID) == "" || strings.TrimSpace(line) == "" {
+		return
+	}
+	r.flushLogs(ctx, dispatcher, runID, []string{line})
 }
 
 func (r *kubernetesRunner) monitorRunCancellation(ctx context.Context, dispatcher proto.DispatcherServiceClient, runID, podName string) {

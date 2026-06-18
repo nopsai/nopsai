@@ -66,7 +66,7 @@ func BuildKubernetesManifestResponse(cfg config.Config, r *http.Request) (Kubern
 	}
 	dispatcherAddress, adapted, warnings := ExternalDispatcherAddress(cfg, r)
 	if adapted {
-		warnings = append(warnings, "The configured dispatcher address is local to the NopsAI stack, so this manifest uses the current request host and dispatcher port. Confirm that endpoint is reachable from the Kubernetes cluster.")
+		warnings = append(warnings, "The configured dispatcher address is local to the NopsAI stack, so this manifest uses an external dispatcher host derived from the current request host and dispatcher port. Confirm that endpoint is reachable from the Kubernetes cluster.")
 	}
 	tlsSecret := cfg.EffectiveDispatcherTLSSecret()
 	tlsMode := cfg.EffectiveDispatcherTLSMode()
@@ -149,7 +149,9 @@ func BuildKubernetesBootstrapCommandResponse(cfg config.Config, r *http.Request,
 	if err != nil {
 		return KubernetesBootstrapCommandResponse{}, err
 	}
-	token, expiresAt, err := issueToken(manifestResp.Manifest, 10*time.Minute, "application/x-yaml; charset=utf-8")
+	appName := kubernetesManifestName("nopsai-k8s-runner", manifestResp.RunnerID)
+	script := buildKubernetesBootstrapScript(manifestResp.Manifest, manifestResp.Namespace, appName)
+	token, expiresAt, err := issueToken(script, 10*time.Minute, "text/x-shellscript; charset=utf-8")
 	if err != nil {
 		return KubernetesBootstrapCommandResponse{}, err
 	}
@@ -162,13 +164,57 @@ func BuildKubernetesBootstrapCommandResponse(cfg config.Config, r *http.Request,
 		ServiceAccount:    manifestResp.ServiceAccount,
 		DispatcherAddress: manifestResp.DispatcherAddress,
 		RunnerImage:       manifestResp.RunnerImage,
-		BootstrapCommand:  fmt.Sprintf("tmp=$(mktemp) && curl -fsSL %s -o \"$tmp\" && kubectl apply -f \"$tmp\"; rc=$?; rm -f \"$tmp\"; exit $rc", ShellQuote(bootstrapURL)),
+		BootstrapCommand:  buildKubernetesBootstrapCommand(bootstrapURL),
 		ExpiresAt:         expiresAt,
 		Warnings: append([]string{
 			"This one-time Kubernetes install command expires in 10 minutes and is consumed by the first successful download.",
 			"Run this command from a machine where kubectl targets the destination cluster.",
 		}, manifestResp.Warnings...),
 	}, nil
+}
+
+func buildKubernetesBootstrapCommand(bootstrapURL string) string {
+	return fmt.Sprintf("tmp=$(mktemp) && curl -fsSL %s -o \"$tmp\" && sh \"$tmp\"; rc=$?; rm -f \"$tmp\"; exit $rc", ShellQuote(bootstrapURL))
+}
+
+func buildKubernetesBootstrapScript(manifest, namespace, appName string) string {
+	var builder strings.Builder
+	builder.WriteString("#!/bin/sh\n")
+	builder.WriteString("set -eu\n")
+	builder.WriteString("\n")
+	builder.WriteString("if ! command -v kubectl >/dev/null 2>&1; then\n")
+	builder.WriteString("  echo \"kubectl is required on this host\" >&2\n")
+	builder.WriteString("  exit 1\n")
+	builder.WriteString("fi\n\n")
+	builder.WriteString("tmp=$(mktemp)\n")
+	builder.WriteString("ns=")
+	builder.WriteString(ShellQuote(namespace))
+	builder.WriteString("\n")
+	builder.WriteString("app=")
+	builder.WriteString(ShellQuote(appName))
+	builder.WriteString("\n")
+	builder.WriteString("cleanup() { rm -f \"$tmp\"; }\n")
+	builder.WriteString("trap cleanup EXIT\n\n")
+	builder.WriteString("cat > \"$tmp\" <<'NOPSAI_K8S_RUNNER_MANIFEST'\n")
+	builder.WriteString(manifest)
+	if !strings.HasSuffix(manifest, "\n") {
+		builder.WriteString("\n")
+	}
+	builder.WriteString("NOPSAI_K8S_RUNNER_MANIFEST\n\n")
+	builder.WriteString("echo \"Applying NopsAI Kubernetes runner manifest...\"\n")
+	builder.WriteString("kubectl apply -f \"$tmp\"\n")
+	builder.WriteString("echo \"Waiting for Kubernetes runner rollout...\"\n")
+	builder.WriteString("if ! kubectl -n \"$ns\" rollout status deployment/\"$app\" --timeout=120s; then\n")
+	builder.WriteString("  echo \"Runner deployment did not become ready. Diagnostics:\" >&2\n")
+	builder.WriteString("  kubectl -n \"$ns\" get pods -l app.kubernetes.io/instance=\"$app\" -o wide >&2 || true\n")
+	builder.WriteString("  kubectl -n \"$ns\" describe deployment/\"$app\" >&2 || true\n")
+	builder.WriteString("  kubectl -n \"$ns\" logs deployment/\"$app\" --tail=120 >&2 || true\n")
+	builder.WriteString("  exit 1\n")
+	builder.WriteString("fi\n")
+	builder.WriteString("echo \"Recent runner logs:\"\n")
+	builder.WriteString("kubectl -n \"$ns\" logs deployment/\"$app\" --tail=40 || true\n")
+	builder.WriteString("echo \"Refresh System > Dispatcher to confirm registration. If no registration appears, run: kubectl -n $ns logs -f deployment/$app\"\n")
+	return builder.String()
 }
 
 func buildKubernetesManifest(namespace, serviceAccount, runnerID, runnerImage string, env, secretEnv map[string]string) string {

@@ -14,6 +14,7 @@ export function useRunnerDeploymentGuide(canManageDispatcher: boolean, runnerDef
   const [runnerId, setRunnerId] = useState(runnerDefaults.runner_id || 'runner-prod-1');
   const [runnerScopes, setRunnerScopes] = useState(runnerDefaults.runner_scopes || 'prod');
   const [runnerCapacity, setRunnerCapacity] = useState(runnerDefaults.runner_capacity || '2');
+  const [dispatcherAddress, setDispatcherAddress] = useState('');
   const [runnerNetworkMode, setRunnerNetworkMode] = useState('host');
   const [runnerImage, setRunnerImage] = useState('hoseindocker/nopsai-runner:latest');
   const [kubernetesNamespace, setKubernetesNamespace] = useState('nopsai-runs');
@@ -77,6 +78,7 @@ export function useRunnerDeploymentGuide(canManageDispatcher: boolean, runnerDef
           runnerId,
           runnerScopes,
           runnerCapacity: capacity,
+          dispatcherAddress,
           networkMode: runnerNetworkMode,
           runnerImage,
         })
@@ -87,7 +89,7 @@ export function useRunnerDeploymentGuide(canManageDispatcher: boolean, runnerDef
     } finally {
       setLoadingTemplate(false);
     }
-  }, [canManageDispatcher, runnerCapacity, runnerId, runnerImage, runnerNetworkMode, runnerScopes]);
+  }, [canManageDispatcher, dispatcherAddress, runnerCapacity, runnerId, runnerImage, runnerNetworkMode, runnerScopes]);
 
   const loadKubernetesTemplate = useCallback(async () => {
     if (!canManageDispatcher) return;
@@ -104,6 +106,7 @@ export function useRunnerDeploymentGuide(canManageDispatcher: boolean, runnerDef
           runnerId,
           runnerScopes,
           runnerCapacity: capacity,
+          dispatcherAddress,
           namespace: kubernetesNamespace,
           serviceAccount: kubernetesServiceAccount,
           runnerImage: kubernetesRunnerImage,
@@ -119,6 +122,7 @@ export function useRunnerDeploymentGuide(canManageDispatcher: boolean, runnerDef
     }
   }, [
     canManageDispatcher,
+    dispatcherAddress,
     kubernetesAffinityEnabled,
     kubernetesNamespace,
     kubernetesRunnerImage,
@@ -138,6 +142,8 @@ export function useRunnerDeploymentGuide(canManageDispatcher: boolean, runnerDef
     setRunnerScopes,
     runnerCapacity,
     setRunnerCapacity,
+    dispatcherAddress,
+    setDispatcherAddress,
     runnerNetworkMode,
     setRunnerNetworkMode,
     runnerImage,

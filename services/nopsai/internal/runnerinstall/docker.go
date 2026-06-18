@@ -101,7 +101,7 @@ func buildInstallSpec(cfg config.Config, r *http.Request) (installSpec, error) {
 		return installSpec{}, fmt.Errorf("DISPATCHER_TLS_SECRET is not configured")
 	}
 	if adapted {
-		warnings = append(warnings, "The configured dispatcher address is local to the NopsAI stack, so this template uses the current request host and dispatcher port. Confirm that endpoint is reachable from the new runner host.")
+		warnings = append(warnings, "The configured dispatcher address is local to the NopsAI stack, so this template uses an external dispatcher host derived from the current request host and dispatcher port. Confirm that endpoint is reachable from the new runner host.")
 		if LooksInternalAddress(cfg.AgentNopsaiAPIURL) {
 			warnings = append(warnings, fmt.Sprintf("agent_nopsai_api_url is %q. Remote agent containers may need System > Config to use a URL reachable outside the Docker network.", cfg.AgentNopsaiAPIURL))
 		}
