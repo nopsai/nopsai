@@ -15,6 +15,7 @@ import (
 
 	"nopsai/pkg/httpapi"
 	"nopsai/services/aaa/pkg/model"
+	aaastore "nopsai/services/aaa/pkg/store"
 	"nopsai/services/nopsai/pkg/auth"
 )
 
@@ -471,10 +472,11 @@ func (a *App) handleDeleteServiceAccountRole(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "failed to load service account", http.StatusInternalServerError)
 		return
 	}
-	tag, err := a.db.Exec(r.Context(), `
-		DELETE FROM auth_role_bindings
-		WHERE role_name = $1 AND subject_type = $2 AND subject_id = $3
-	`, role, model.SubjectTypeServiceAccount, identity.Sub)
+	tag, err := aaastore.DeleteRoleBinding(r.Context(), a.db, aaastore.RoleBinding{
+		RoleName:    role,
+		SubjectType: model.SubjectTypeServiceAccount,
+		SubjectID:   identity.Sub,
+	})
 	if err != nil {
 		http.Error(w, "failed to remove role", http.StatusInternalServerError)
 		return
@@ -587,19 +589,14 @@ func assignServiceAccountRole(ctx context.Context, runner queryRunner, serviceAc
 	if role == "" || serviceAccountSub == "" {
 		return nil
 	}
-	if _, err := runner.Exec(ctx, `
-		INSERT INTO auth_roles (name, description)
-		VALUES ($1, '')
-		ON CONFLICT (name) DO NOTHING
-	`, role); err != nil {
+	if err := aaastore.EnsureRole(ctx, runner, role, ""); err != nil {
 		return err
 	}
-	_, err := runner.Exec(ctx, `
-		INSERT INTO auth_role_bindings (role_name, subject_type, subject_id)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (role_name, subject_type, subject_id) DO NOTHING
-	`, role, model.SubjectTypeServiceAccount, serviceAccountSub)
-	return err
+	return aaastore.EnsureRoleBinding(ctx, runner, aaastore.RoleBinding{
+		RoleName:    role,
+		SubjectType: model.SubjectTypeServiceAccount,
+		SubjectID:   serviceAccountSub,
+	})
 }
 
 func loadServiceAccountIdentity(ctx context.Context, runner queryRunner, serviceAccountID uuid.UUID) (serviceAccountIdentity, error) {
@@ -698,15 +695,16 @@ func deleteServiceAccountAccessArtifacts(ctx context.Context, runner execRunner,
 	}
 	statements := []string{
 		`DELETE FROM access_grants WHERE subject_type = 'service_account' AND subject_id = $1`,
-		`DELETE FROM resource_acl WHERE subject_type = 'service_account' AND subject_id = $1`,
 		`DELETE FROM resource_ownership WHERE owner_subject_type = 'service_account' AND owner_subject_id = $1`,
 		`DELETE FROM auth_group_members WHERE subject_type = 'service_account' AND subject_id = $1`,
-		`DELETE FROM auth_role_bindings WHERE subject_type = 'service_account' AND subject_id = $1`,
 	}
 	for _, stmt := range statements {
 		if _, err := runner.Exec(ctx, stmt, serviceAccountID); err != nil {
 			return err
 		}
 	}
-	return nil
+	if err := aaastore.DeleteResourceACLBySubject(ctx, runner, model.SubjectTypeServiceAccount, serviceAccountID); err != nil {
+		return err
+	}
+	return aaastore.DeleteSubjectRoleBindings(ctx, runner, model.SubjectTypeServiceAccount, serviceAccountID)
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	aaastore "nopsai/services/aaa/pkg/store"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -130,18 +132,6 @@ var configRepositorySchemaStatements = []string{
 	`ALTER TABLE role_permissions ADD COLUMN IF NOT EXISTS config_source_path TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE role_permissions ADD COLUMN IF NOT EXISTS config_source_commit_sha TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE role_permissions ADD COLUMN IF NOT EXISTS managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE`,
-	`ALTER TABLE auth_roles ADD COLUMN IF NOT EXISTS config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL`,
-	`ALTER TABLE auth_roles ADD COLUMN IF NOT EXISTS config_source_path TEXT NOT NULL DEFAULT ''`,
-	`ALTER TABLE auth_roles ADD COLUMN IF NOT EXISTS config_source_commit_sha TEXT NOT NULL DEFAULT ''`,
-	`ALTER TABLE auth_roles ADD COLUMN IF NOT EXISTS managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE`,
-	`ALTER TABLE auth_role_bindings ADD COLUMN IF NOT EXISTS config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL`,
-	`ALTER TABLE auth_role_bindings ADD COLUMN IF NOT EXISTS config_source_path TEXT NOT NULL DEFAULT ''`,
-	`ALTER TABLE auth_role_bindings ADD COLUMN IF NOT EXISTS config_source_commit_sha TEXT NOT NULL DEFAULT ''`,
-	`ALTER TABLE auth_role_bindings ADD COLUMN IF NOT EXISTS managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE`,
-	`ALTER TABLE auth_role_permissions ADD COLUMN IF NOT EXISTS config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL`,
-	`ALTER TABLE auth_role_permissions ADD COLUMN IF NOT EXISTS config_source_path TEXT NOT NULL DEFAULT ''`,
-	`ALTER TABLE auth_role_permissions ADD COLUMN IF NOT EXISTS config_source_commit_sha TEXT NOT NULL DEFAULT ''`,
-	`ALTER TABLE auth_role_permissions ADD COLUMN IF NOT EXISTS managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE`,
 	`ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL`,
 	`ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS config_source_path TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS config_source_commit_sha TEXT NOT NULL DEFAULT ''`,
@@ -156,9 +146,6 @@ var configRepositorySchemaStatements = []string{
 	`CREATE INDEX IF NOT EXISTS idx_users_config_repo_id ON users(config_repo_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_user_roles_config_repo_id ON user_roles(config_repo_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_role_permissions_config_repo_id ON role_permissions(config_repo_id)`,
-	`CREATE INDEX IF NOT EXISTS idx_auth_roles_config_repo_id ON auth_roles(config_repo_id)`,
-	`CREATE INDEX IF NOT EXISTS idx_auth_role_bindings_config_repo_id ON auth_role_bindings(config_repo_id)`,
-	`CREATE INDEX IF NOT EXISTS idx_auth_role_permissions_config_repo_id ON auth_role_permissions(config_repo_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_access_grants_config_repo_id ON access_grants(config_repo_id)`,
 }
 
@@ -173,6 +160,9 @@ func ensureConfigRepositorySchema(ctx context.Context, db *pgxpool.Pool) error {
 		if _, err := tx.Exec(ctx, stmt); err != nil {
 			return fmt.Errorf("apply config repository schema statement %d: %w", idx+1, err)
 		}
+	}
+	if err := aaastore.EnsurePolicyConfigMetadataSchema(ctx, tx); err != nil {
+		return err
 	}
 
 	if err := tx.Commit(ctx); err != nil {

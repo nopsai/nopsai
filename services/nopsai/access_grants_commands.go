@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"nopsai/services/aaa/pkg/model"
+	aaastore "nopsai/services/aaa/pkg/store"
 )
 
 func (a *App) GrantProductRole(ctx context.Context, input GrantProductRoleInput) (accessGrantRecord, error) {
@@ -91,10 +92,11 @@ func (a *App) GrantProductRole(ctx context.Context, input GrantProductRoleInput)
 		if err := ensureUniqueAdminBinding(ctx, tx, subject); err != nil {
 			return accessGrantRecord{}, err
 		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO auth_role_bindings (role_name, subject_type, subject_id)
-			VALUES ($1, $2, $3)
-		`, productRoleAdmin, subject.Type, subject.ID); err != nil {
+		if err := aaastore.CreateRoleBinding(ctx, tx, aaastore.RoleBinding{
+			RoleName:    productRoleAdmin,
+			SubjectType: subject.Type,
+			SubjectID:   subject.ID,
+		}); err != nil {
 			return accessGrantRecord{}, err
 		}
 		if err := tx.Commit(ctx); err != nil {
@@ -105,12 +107,15 @@ func (a *App) GrantProductRole(ctx context.Context, input GrantProductRoleInput)
 
 	actions := applicableProductRoleActions(roleName, resource.Type)
 	for _, action := range actions {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO resource_acl (
-				resource_type, resource_id, subject_type, subject_id, access_grant_id, action, effect
-			)
-			VALUES ($1, $2, $3, $4, $5, $6, 'allow')
-		`, resource.Type, resource.ID, subject.Type, subject.ID, record.ID, action); err != nil {
+		if err := aaastore.InsertResourceACL(ctx, tx, aaastore.ResourceACL{
+			ResourceType:  resource.Type,
+			ResourceID:    resource.ID,
+			SubjectType:   subject.Type,
+			SubjectID:     subject.ID,
+			AccessGrantID: &record.ID,
+			Action:        action,
+			Effect:        "allow",
+		}); err != nil {
 			return accessGrantRecord{}, err
 		}
 	}
@@ -168,12 +173,11 @@ func (a *App) deleteProductRoleGrant(ctx context.Context, grantID int64) (access
 	}
 
 	if record.RoleName == productRoleAdmin {
-		if _, err := tx.Exec(ctx, `
-			DELETE FROM auth_role_bindings
-			WHERE role_name = $1 AND subject_type = $2 AND subject_id = (
-				SELECT subject_id FROM access_grants WHERE id = $3
-			)
-		`, productRoleAdmin, record.SubjectType, record.ID); err != nil {
+		if _, err := aaastore.DeleteRoleBinding(ctx, tx, aaastore.RoleBinding{
+			RoleName:    productRoleAdmin,
+			SubjectType: record.SubjectType,
+			SubjectID:   record.SubjectID,
+		}); err != nil {
 			return accessGrantRecord{}, err
 		}
 	}
@@ -194,9 +198,7 @@ func deleteUserAccessArtifacts(ctx context.Context, runner execRunner, userID st
 	}
 	statements := []string{
 		`DELETE FROM access_grants WHERE subject_type = 'user' AND subject_id = $1`,
-		`DELETE FROM resource_acl WHERE subject_type = 'user' AND subject_id = $1`,
 		`DELETE FROM resource_ownership WHERE owner_subject_type = 'user' AND owner_subject_id = $1`,
-		`DELETE FROM auth_role_bindings WHERE subject_type = 'user' AND subject_id = $1`,
 		`DELETE FROM user_roles WHERE user_id = $1::uuid`,
 	}
 	for _, stmt := range statements {
@@ -204,7 +206,10 @@ func deleteUserAccessArtifacts(ctx context.Context, runner execRunner, userID st
 			return err
 		}
 	}
-	return nil
+	if err := aaastore.DeleteResourceACLBySubject(ctx, runner, "user", userID); err != nil {
+		return err
+	}
+	return aaastore.DeleteSubjectRoleBindings(ctx, runner, "user", userID)
 }
 
 func loadAccessGrantRecord(ctx context.Context, runner queryRunner, grantID int64) (accessGrantRecord, error) {

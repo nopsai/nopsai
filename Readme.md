@@ -92,7 +92,7 @@ step containers + optional child pipelines
 - `services/git-bot`: GitHub App edge service for webhook verification,
   repository content access, GitHub check runs, and GitHub status updates.
 - `services/dispatcher`: Scheduling hub between the control plane and runners.
-- `services/runner`: Docker runner implementation. In the local Compose stack
+- `services/docker-runner`: Docker runner implementation. In the local Compose stack
   this runs as the `docker-runner` service and starts agent containers for
   assigned jobs.
 - `services/agent`: Per-run orchestrator that executes pipeline logic, talks to
@@ -491,7 +491,7 @@ services/agent          Per-run pipeline orchestrator
 services/dispatcher     Scheduler and runner bridge
 services/git-bot        GitHub App integration
 services/nopsai         Main API and control plane
-services/runner         Docker-backed runner (`docker-runner` in Compose)
+services/docker-runner  Docker-backed runner (`docker-runner` in Compose)
 services/ui             React operator UI
 test/                   Local operational and performance scripts
 ```

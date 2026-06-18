@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"nopsai/config"
+	aaastore "nopsai/services/aaa/pkg/store"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -15,6 +16,12 @@ type databaseBootstrapStep struct {
 
 func databaseBootstrapSteps(cfg *config.Config) []databaseBootstrapStep {
 	return []databaseBootstrapStep{
+		{name: "aaa policy schema", run: func(ctx context.Context, db *pgxpool.Pool) error {
+			if db == nil {
+				return nil
+			}
+			return aaastore.NewPGStore(db).EnsureSchema(ctx)
+		}},
 		{name: "default admin", run: func(ctx context.Context, db *pgxpool.Pool) error {
 			if cfg != nil && cfg.RequiresProductionGates() {
 				return ensureNoDefaultAdminPassword(ctx, db)

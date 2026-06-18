@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"nopsai/config"
+	aaastore "nopsai/services/aaa/pkg/store"
 	"nopsai/services/nopsai/pkg/auth"
 
 	"github.com/google/uuid"
@@ -875,11 +876,7 @@ func syncOIDCRolesAndGroups(ctx context.Context, tx oidcTx, userID uuid.UUID, pr
 		return err
 	}
 	for role := range roleSet {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO auth_roles (name, description)
-			VALUES ($1, '')
-			ON CONFLICT (name) DO NOTHING
-		`, role); err != nil {
+		if err := aaastore.EnsureRole(ctx, tx, role, ""); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
@@ -897,11 +894,11 @@ func syncOIDCRolesAndGroups(ctx context.Context, tx oidcTx, userID uuid.UUID, pr
 		`, userID, provider.ID, role); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO auth_role_bindings (role_name, subject_type, subject_id)
-			VALUES ($1, 'user', $2)
-			ON CONFLICT (role_name, subject_type, subject_id) DO NOTHING
-		`, role, userID.String()); err != nil {
+		if err := aaastore.EnsureRoleBinding(ctx, tx, aaastore.RoleBinding{
+			RoleName:    role,
+			SubjectType: "user",
+			SubjectID:   userID.String(),
+		}); err != nil {
 			return err
 		}
 	}
@@ -1135,21 +1132,22 @@ func syncOIDCBasicRoleGrants(ctx context.Context, tx oidcTx, userID uuid.UUID, p
 }
 
 func rebuildAccessGrantExpansion(ctx context.Context, tx oidcTx, grantID int64, subjectType, subjectID, roleName string, resource accessGrantResource) error {
-	if _, err := tx.Exec(ctx, `DELETE FROM resource_acl WHERE access_grant_id = $1`, grantID); err != nil {
+	if err := aaastore.DeleteResourceACLByAccessGrantID(ctx, tx, grantID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM resource_ownership WHERE access_grant_id = $1`, grantID); err != nil {
 		return err
 	}
 	for _, action := range applicableProductRoleActions(roleName, resource.Type) {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO resource_acl (
-				resource_type, resource_id, subject_type, subject_id, access_grant_id, action, effect
-			)
-			VALUES ($1, $2, $3, $4, $5, $6, 'allow')
-			ON CONFLICT (resource_type, resource_id, subject_type, subject_id, action, effect)
-			DO UPDATE SET access_grant_id = EXCLUDED.access_grant_id
-		`, resource.Type, resource.ID, subjectType, subjectID, grantID, action); err != nil {
+		if err := aaastore.UpsertResourceACL(ctx, tx, aaastore.ResourceACL{
+			ResourceType:  resource.Type,
+			ResourceID:    resource.ID,
+			SubjectType:   subjectType,
+			SubjectID:     subjectID,
+			AccessGrantID: &grantID,
+			Action:        action,
+			Effect:        "allow",
+		}); err != nil {
 			return err
 		}
 	}
@@ -1323,15 +1321,23 @@ func pruneStaleExternalRoleAssignments(ctx context.Context, tx oidcTx, userID uu
 		`, userID, role); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `
-			DELETE FROM auth_role_bindings
-			WHERE role_name = $1 AND subject_type = 'user' AND subject_id = $2
-			  AND NOT EXISTS (
-				SELECT 1
-				FROM auth_external_role_assignments
-				WHERE user_id = $3 AND role_name = $1
-			  )
-		`, role, userID.String(), userID); err != nil {
+		var remaining int
+		err := tx.QueryRow(ctx, `
+			SELECT 1
+			FROM auth_external_role_assignments
+			WHERE user_id = $1 AND role_name = $2
+			LIMIT 1
+		`, userID, role).Scan(&remaining)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows), errors.Is(err, sql.ErrNoRows):
+			if _, err := aaastore.DeleteRoleBinding(ctx, tx, aaastore.RoleBinding{
+				RoleName:    role,
+				SubjectType: "user",
+				SubjectID:   userID.String(),
+			}); err != nil {
+				return err
+			}
+		case err != nil:
 			return err
 		}
 	}
@@ -1350,8 +1356,9 @@ func pruneNonExternalUserRoleAssignments(ctx context.Context, tx oidcTx, userID 
 	`, userID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM auth_role_bindings rb
+	rows, err := tx.Query(ctx, `
+		SELECT rb.role_name
+		FROM auth_role_bindings rb
 		WHERE rb.subject_type = 'user'
 		  AND rb.subject_id = $2
 		  AND NOT EXISTS (
@@ -1359,8 +1366,30 @@ func pruneNonExternalUserRoleAssignments(ctx context.Context, tx oidcTx, userID 
 			FROM auth_external_role_assignments er
 			WHERE er.user_id = $1 AND er.role_name = rb.role_name
 		  )
-	`, userID, userID.String()); err != nil {
+	`, userID, userID.String())
+	if err != nil {
 		return err
+	}
+	defer rows.Close()
+	var staleRoles []string
+	for rows.Next() {
+		var role string
+		if err := rows.Scan(&role); err != nil {
+			return err
+		}
+		staleRoles = append(staleRoles, role)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, role := range staleRoles {
+		if _, err := aaastore.DeleteRoleBinding(ctx, tx, aaastore.RoleBinding{
+			RoleName:    role,
+			SubjectType: "user",
+			SubjectID:   userID.String(),
+		}); err != nil {
+			return err
+		}
 	}
 	return nil
 }

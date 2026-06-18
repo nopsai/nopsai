@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"nopsai/pkg/models"
+	aaastore "nopsai/services/aaa/pkg/store"
 	"nopsai/services/nopsai/pkg/auth"
 )
 
@@ -136,13 +137,11 @@ func pruneManagedAccessGrants(ctx context.Context, tx pgx.Tx, binding models.Con
 
 	for _, row := range prune {
 		if row.roleName == productRoleAdmin {
-			if _, err := tx.Exec(ctx, `
-				DELETE FROM auth_role_bindings
-				WHERE role_name = $1
-				  AND subject_type = $2
-				  AND subject_id = $3
-				  AND (managed_by_config_repo = FALSE OR config_repo_id = $4)
-			`, productRoleAdmin, row.subjectType, row.subjectID, binding.ID); err != nil {
+			if err := aaastore.DeleteRoleBindingForConfigScope(ctx, tx, aaastore.RoleBinding{
+				RoleName:    productRoleAdmin,
+				SubjectType: row.subjectType,
+				SubjectID:   row.subjectID,
+			}, binding.ID); err != nil {
 				return err
 			}
 		}
@@ -379,23 +378,14 @@ func pruneManagedRoles(ctx context.Context, tx pgx.Tx, configRepoID int64, plan 
 	}
 
 	if len(keep) == 0 {
-		_, err := tx.Exec(ctx, `
-			DELETE FROM auth_roles
-			WHERE managed_by_config_repo = TRUE
-			  AND config_repo_id = $1
-		`, configRepoID)
+		_, err := aaastore.DeleteManagedRolesByConfig(ctx, tx, configRepoID)
 		return err
 	}
 	names := make([]string, 0, len(keep))
 	for name := range keep {
 		names = append(names, name)
 	}
-	_, err := tx.Exec(ctx, `
-		DELETE FROM auth_roles
-		WHERE managed_by_config_repo = TRUE
-		  AND config_repo_id = $1
-		  AND name != ALL($2)
-	`, configRepoID, names)
+	_, err := aaastore.DeleteManagedRolesByConfigExcept(ctx, tx, configRepoID, names)
 	return err
 }
 

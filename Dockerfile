@@ -18,7 +18,7 @@ RUN go build -ldflags="-s -w" -o /out/nopsai-agent ./services/agent/cmd/agent &&
   go build -ldflags="-s -w" -o /out/nopsai-git-bot ./services/git-bot/cmd/git-bot && \
   go build -ldflags="-s -w" -o /out/nopsai ./services/nopsai/cmd/nopsai && \
   go build -ldflags="-s -w" -o /out/nopsai-dispatcher ./services/dispatcher/cmd/dispatcher && \
-  go build -ldflags="-s -w" -o /out/nopsai-runner ./services/runner/cmd/runner && \
+  go build -ldflags="-s -w" -o /out/nopsai-runner ./services/docker-runner/cmd/docker-runner && \
   go build -ldflags="-s -w" -o /out/nopsai-k8s-runner ./services/k8s-runner/cmd/k8s-runner
 
 FROM alpine:3.20

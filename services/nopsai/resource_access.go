@@ -17,6 +17,7 @@ import (
 
 	"nopsai/pkg/httpapi"
 	"nopsai/services/aaa/pkg/model"
+	aaastore "nopsai/services/aaa/pkg/store"
 )
 
 const customUseGrantRole = "use"
@@ -904,14 +905,15 @@ func (a *App) CreateResourceUseGrant(ctx context.Context, input createResourceUs
 
 	if subject.Type != grantSubjectGroup {
 		for _, action := range actions {
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO resource_acl (
-					resource_type, resource_id, subject_type, subject_id, access_grant_id, action, effect
-				)
-				VALUES ($1, $2, $3, $4, $5, $6, 'allow')
-				ON CONFLICT (resource_type, resource_id, subject_type, subject_id, action, effect)
-				DO UPDATE SET access_grant_id = EXCLUDED.access_grant_id
-			`, resource.Type, resource.ID, subject.Type, subject.ID, record.ID, action); err != nil {
+			if err := aaastore.UpsertResourceACL(ctx, tx, aaastore.ResourceACL{
+				ResourceType:  resource.Type,
+				ResourceID:    resource.ID,
+				SubjectType:   subject.Type,
+				SubjectID:     subject.ID,
+				AccessGrantID: &record.ID,
+				Action:        action,
+				Effect:        "allow",
+			}); err != nil {
 				return accessGrantRecord{}, err
 			}
 		}

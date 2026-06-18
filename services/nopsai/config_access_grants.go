@@ -10,6 +10,7 @@ import (
 
 	"nopsai/pkg/models"
 	"nopsai/services/aaa/pkg/model"
+	aaastore "nopsai/services/aaa/pkg/store"
 	"nopsai/services/nopsai/internal/configsync"
 )
 
@@ -103,20 +104,18 @@ func (a *App) upsertManagedProductRoleGrant(ctx context.Context, tx pgx.Tx, bind
 			return resolvedAccessGrantKey{}, fmt.Errorf("failed to insert access grant: %w", err)
 		}
 	} else {
-		if _, err := tx.Exec(ctx, `DELETE FROM resource_acl WHERE access_grant_id = $1`, existingID); err != nil {
+		if err := aaastore.DeleteResourceACLByAccessGrantID(ctx, tx, existingID); err != nil {
 			return resolvedAccessGrantKey{}, err
 		}
 		if _, err := tx.Exec(ctx, `DELETE FROM resource_ownership WHERE access_grant_id = $1`, existingID); err != nil {
 			return resolvedAccessGrantKey{}, err
 		}
 		if previousRole == productRoleAdmin {
-			if _, err := tx.Exec(ctx, `
-				DELETE FROM auth_role_bindings
-				WHERE role_name = $1
-				  AND subject_type = $2
-				  AND subject_id = $3
-				  AND (managed_by_config_repo = FALSE OR config_repo_id = $4)
-			`, productRoleAdmin, subject.Type, subject.ID, binding.ID); err != nil {
+			if err := aaastore.DeleteRoleBindingForConfigScope(ctx, tx, aaastore.RoleBinding{
+				RoleName:    productRoleAdmin,
+				SubjectType: subject.Type,
+				SubjectID:   subject.ID,
+			}, binding.ID); err != nil {
 				return resolvedAccessGrantKey{}, err
 			}
 		}
@@ -138,32 +137,26 @@ func (a *App) upsertManagedProductRoleGrant(ctx context.Context, tx pgx.Tx, bind
 	}
 
 	if roleName == productRoleAdmin {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO auth_role_bindings (
-				role_name, subject_type, subject_id,
-				config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo
-			)
-			VALUES ($1, $2, $3, $4, $5, $6, TRUE)
-			ON CONFLICT (role_name, subject_type, subject_id) DO UPDATE SET
-				config_repo_id = EXCLUDED.config_repo_id,
-				config_source_path = EXCLUDED.config_source_path,
-				config_source_commit_sha = EXCLUDED.config_source_commit_sha,
-				managed_by_config_repo = TRUE
-		`, productRoleAdmin, subject.Type, subject.ID, binding.ID, grant.sourcePath, commitSHA); err != nil {
+		if err := aaastore.UpsertManagedRoleBinding(ctx, tx, aaastore.RoleBinding{
+			RoleName:    productRoleAdmin,
+			SubjectType: subject.Type,
+			SubjectID:   subject.ID,
+		}, aaastore.ConfigMetadata{RepoID: binding.ID, SourcePath: grant.sourcePath, CommitSHA: commitSHA}); err != nil {
 			return resolvedAccessGrantKey{}, err
 		}
 		return resolvedAccessGrantKey{subjectType: subject.Type, subjectID: subject.ID, resourceType: resource.Type, resourceID: resource.ID}, nil
 	}
 
 	for _, action := range applicableProductRoleActions(roleName, resource.Type) {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO resource_acl (
-				resource_type, resource_id, subject_type, subject_id, access_grant_id, action, effect
-			)
-			VALUES ($1, $2, $3, $4, $5, $6, 'allow')
-			ON CONFLICT (resource_type, resource_id, subject_type, subject_id, action, effect)
-			DO UPDATE SET access_grant_id = EXCLUDED.access_grant_id
-		`, resource.Type, resource.ID, subject.Type, subject.ID, existingID, action); err != nil {
+		if err := aaastore.UpsertResourceACL(ctx, tx, aaastore.ResourceACL{
+			ResourceType:  resource.Type,
+			ResourceID:    resource.ID,
+			SubjectType:   subject.Type,
+			SubjectID:     subject.ID,
+			AccessGrantID: &existingID,
+			Action:        action,
+			Effect:        "allow",
+		}); err != nil {
 			return resolvedAccessGrantKey{}, err
 		}
 	}
@@ -245,20 +238,18 @@ func (a *App) upsertManagedResourceUseGrant(ctx context.Context, tx pgx.Tx, bind
 			return resolvedAccessGrantKey{}, fmt.Errorf("failed to insert resource access grant: %w", err)
 		}
 	} else {
-		if _, err := tx.Exec(ctx, `DELETE FROM resource_acl WHERE access_grant_id = $1`, existingID); err != nil {
+		if err := aaastore.DeleteResourceACLByAccessGrantID(ctx, tx, existingID); err != nil {
 			return resolvedAccessGrantKey{}, err
 		}
 		if _, err := tx.Exec(ctx, `DELETE FROM resource_ownership WHERE access_grant_id = $1`, existingID); err != nil {
 			return resolvedAccessGrantKey{}, err
 		}
 		if previousRole == productRoleAdmin {
-			if _, err := tx.Exec(ctx, `
-				DELETE FROM auth_role_bindings
-				WHERE role_name = $1
-				  AND subject_type = $2
-				  AND subject_id = $3
-				  AND (managed_by_config_repo = FALSE OR config_repo_id = $4)
-			`, productRoleAdmin, subject.Type, subject.ID, binding.ID); err != nil {
+			if err := aaastore.DeleteRoleBindingForConfigScope(ctx, tx, aaastore.RoleBinding{
+				RoleName:    productRoleAdmin,
+				SubjectType: subject.Type,
+				SubjectID:   subject.ID,
+			}, binding.ID); err != nil {
 				return resolvedAccessGrantKey{}, err
 			}
 		}
@@ -281,14 +272,15 @@ func (a *App) upsertManagedResourceUseGrant(ctx context.Context, tx pgx.Tx, bind
 
 	if subject.Type != grantSubjectGroup {
 		for _, action := range actions {
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO resource_acl (
-					resource_type, resource_id, subject_type, subject_id, access_grant_id, action, effect
-				)
-				VALUES ($1, $2, $3, $4, $5, $6, 'allow')
-				ON CONFLICT (resource_type, resource_id, subject_type, subject_id, action, effect)
-				DO UPDATE SET access_grant_id = EXCLUDED.access_grant_id
-			`, resource.Type, resource.ID, subject.Type, subject.ID, existingID, action); err != nil {
+			if err := aaastore.UpsertResourceACL(ctx, tx, aaastore.ResourceACL{
+				ResourceType:  resource.Type,
+				ResourceID:    resource.ID,
+				SubjectType:   subject.Type,
+				SubjectID:     subject.ID,
+				AccessGrantID: &existingID,
+				Action:        action,
+				Effect:        "allow",
+			}); err != nil {
 				return resolvedAccessGrantKey{}, err
 			}
 		}
