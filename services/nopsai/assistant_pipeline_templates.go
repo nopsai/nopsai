@@ -70,6 +70,27 @@ func selectPipelineTemplate(req pipelineGenerationRequest) pipelineTemplate {
 func pipelineTemplates() []pipelineTemplate {
 	return []pipelineTemplate{
 		{
+			ID:         "docker-ddd-publish-approval",
+			MatchTerms: []string{"docker", "image", "publish", "container", "registry", "ddd", "domain-driven", "domain driven"},
+			RequiredVars: []string{
+				"IMAGE_REGISTRY",
+				"IMAGE_REPOSITORY",
+				"IMAGE_TAG",
+			},
+			RequiredSecrets: []string{
+				"REGISTRY_USERNAME",
+				"REGISTRY_PASSWORD",
+			},
+			Assumptions: []string{
+				"The repository contains a Dockerfile at the repository root.",
+				"The service keeps Domain-Driven Design boundaries in domain, application, and infrastructure packages or folders.",
+				"The runner can build Docker images and reach the target registry.",
+				"Registry credentials are supplied through scoped NopsAI secrets, not inline YAML.",
+				"The final approval group exists at platform/prod.",
+			},
+			Render: renderDockerDDDPublishApprovalTemplate,
+		},
+		{
 			ID:         "golang-aws-ecs",
 			MatchTerms: []string{"go", "golang", "aws", "ecs", "ecr", "deploy"},
 			RequiredVars: []string{
@@ -109,6 +130,87 @@ func genericPipelineTemplate() pipelineTemplate {
 			return renderGenericPipelineTemplate(req, template), nil
 		},
 	}
+}
+
+func renderDockerDDDPublishApprovalTemplate(req pipelineGenerationRequest, template pipelineTemplate) (pipelineGenerationResult, error) {
+	doc := baseGeneratedPipelineDoc(req, "Build and publish a Docker image after checking Domain-Driven Design boundaries.")
+	doc["llm_enabled"] = false
+	doc["variables"] = template.RequiredVars
+	doc["steps"] = []map[string]any{
+		{
+			"name":  "ddd-standards-check",
+			"image": "alpine:3.20",
+			"tasks": []map[string]any{{
+				"name": "check-ddd-boundaries",
+				"script": strings.TrimSpace(`
+set -eu
+test -f Dockerfile
+for layer in domain application infrastructure; do
+  test -d "$layer" || test -d "src/$layer" || test -d "internal/$layer"
+done
+`),
+			}},
+		},
+		{
+			"name":       "test",
+			"image":      "alpine:3.20",
+			"depends_on": []string{"ddd-standards-check"},
+			"tasks": []map[string]any{{
+				"name": "run-project-tests",
+				"script": strings.TrimSpace(`
+set -eu
+if [ -f Makefile ]; then
+  make test
+elif [ -f package.json ]; then
+  apk add --no-cache nodejs npm
+  npm ci
+  npm test
+elif [ -f go.mod ]; then
+  apk add --no-cache go
+  go test ./...
+else
+  echo "No known test entrypoint found; add make test, npm test, or go test before production use."
+fi
+`),
+			}},
+		},
+		{
+			"name":       "docker-build-publish",
+			"image":      "docker:26-cli",
+			"depends_on": []string{"test"},
+			"secrets":    template.RequiredSecrets,
+			"tasks": []map[string]any{{
+				"name": "build-and-publish-image",
+				"script": strings.TrimSpace(`
+set -eu
+IMAGE="$IMAGE_REGISTRY/$IMAGE_REPOSITORY:$IMAGE_TAG"
+printf '%s' "$REGISTRY_PASSWORD" | docker login "$IMAGE_REGISTRY" --username "$REGISTRY_USERNAME" --password-stdin
+docker build --pull -t "$IMAGE" .
+docker push "$IMAGE"
+`),
+			}},
+		},
+		{
+			"name":       "release-approval",
+			"depends_on": []string{"docker-build-publish"},
+			"approval": map[string]any{
+				"type":                "image-publish-review",
+				"groups":              []string{"platform/prod"},
+				"allow_self_approval": false,
+			},
+		},
+	}
+	raw, err := yaml.Marshal(doc)
+	if err != nil {
+		return pipelineGenerationResult{}, err
+	}
+	return pipelineGenerationResult{
+		TemplateID:      template.ID,
+		Assumptions:     append([]string{}, template.Assumptions...),
+		RequiredVars:    append([]string{}, template.RequiredVars...),
+		RequiredSecrets: append([]string{}, template.RequiredSecrets...),
+		YAML:            string(raw),
+	}, nil
 }
 
 func renderGolangAWSECSTemplate(req pipelineGenerationRequest, template pipelineTemplate) (pipelineGenerationResult, error) {

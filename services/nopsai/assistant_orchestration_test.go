@@ -483,7 +483,9 @@ func TestAssistantOrchestrationSynthesizesReplyWithLLMProfile(t *testing.T) {
 	if result.Reply != "LLM final answer. No changes were applied." {
 		t.Fatalf("reply = %q, want quality-safe LLM answer", result.Reply)
 	}
-	if !strings.Contains(plannerPrompt, "available_tools") || !strings.Contains(plannerPrompt, "nopsai.get_feature_capabilities") {
+	if !strings.Contains(plannerPrompt, "available_tools") ||
+		!strings.Contains(plannerPrompt, "feature_catalog") ||
+		!strings.Contains(plannerPrompt, "nopsai.get_feature_capabilities") {
 		t.Fatalf("planner prompt missing tool catalog: %s", plannerPrompt)
 	}
 	if !strings.Contains(synthesisPrompt, "nopsai.get_feature_capabilities") || !strings.Contains(synthesisPrompt, "No changes were applied") {
@@ -665,7 +667,9 @@ func TestAssistantLLMPlannerExecutesValidatedToolPlan(t *testing.T) {
 	if requestCount != 2 {
 		t.Fatalf("LLM requests = %d, want planner and synthesis", requestCount)
 	}
-	if !strings.Contains(plannerPrompt, "available_tools") || !strings.Contains(plannerPrompt, "nopsai.get_feature_capabilities") {
+	if !strings.Contains(plannerPrompt, "available_tools") ||
+		!strings.Contains(plannerPrompt, "feature_catalog") ||
+		!strings.Contains(plannerPrompt, "nopsai.get_feature_capabilities") {
 		t.Fatalf("planner prompt missing tool catalog: %s", plannerPrompt)
 	}
 	if !strings.Contains(synthesisPrompt, "nopsai.get_feature_capabilities") {
@@ -710,6 +714,222 @@ func TestAssistantPlannerPromptRequiresAIUsageEvidenceForRunTokenQuestion(t *tes
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("planner prompt missing %q:\n%s", want, prompt)
 		}
+	}
+}
+
+func TestAssistantPlannerPromptRequiresPipelineGenerationEvidence(t *testing.T) {
+	app := &App{aaaLocal: allowActionsForAssistantTest("pipeline.create")}
+	content := "give me a pipeline that has 4 step and last one is approval, pipeline goal is to build and publish docker image based on DDD standards"
+	plan := assistantBaseTurnPlan(content, assistantConversationMemory{})
+
+	prompt := app.buildAssistantPlannerPrompt(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		assistantConversation{ID: uuid.New(), DocsVersion: "auto"},
+		plan.Goal,
+		plan,
+		nil,
+		assistantMaxPlanToolCalls,
+		1,
+	)
+
+	for _, want := range []string{
+		`"id": "pipeline_generation"`,
+		`"required_any_tools": [`,
+		`"nopsai.generate_pipeline"`,
+		"For pipeline draft requests, use nopsai.generate_pipeline",
+		"docker-ddd-publish-approval",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("planner prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestAssistantRequestContractsRejectWrongFeatureEvidence(t *testing.T) {
+	tests := []struct {
+		name      string
+		message   string
+		wrongTool string
+		args      map[string]any
+		wantErr   string
+	}{
+		{
+			name:      "feature policy requires capability catalog",
+			message:   "do we have any policy to prevent showing envs?",
+			wrongTool: "nopsai.search_docs",
+			args:      map[string]any{"query": "env policy"},
+			wantErr:   "nopsai.get_feature_capabilities",
+		},
+		{
+			name:      "repetitive variables require metadata analyzer",
+			message:   "how many repetitive variables are used in all scopes?",
+			wrongTool: "nopsai.list_variables_metadata",
+			args:      map[string]any{},
+			wantErr:   "nopsai.analyze_variable_usage",
+		},
+		{
+			name:      "scope secret counts require secret scope metadata",
+			message:   "how many scope do we have and for each how many secrets",
+			wrongTool: "nopsai.list_scopes",
+			args:      map[string]any{"limit": 200},
+			wantErr:   "nopsai.list_secret_scopes",
+		},
+		{
+			name:      "approval pipeline question requires search",
+			message:   "give me a pipeline that has approval step",
+			wrongTool: "nopsai.list_pipelines",
+			args:      map[string]any{"limit": 20},
+			wantErr:   "nopsai.search_pipelines",
+		},
+		{
+			name:      "pipeline generation requires generator",
+			message:   "give me a pipeline that has 4 step and last one is approval, pipeline goal is to build and publish docker image based on DDD standards",
+			wrongTool: "nopsai.search_pipelines",
+			args:      map[string]any{"query": "approval"},
+			wantErr:   "nopsai.generate_pipeline",
+		},
+		{
+			name:      "pasted yaml validation requires validator",
+			message:   "Validate this:\n```yaml\nname: deploy-web\nsteps: []\n```",
+			wrongTool: "nopsai.search_docs",
+			args:      map[string]any{"query": "pipeline validation"},
+			wantErr:   "nopsai.validate_pipeline",
+		},
+		{
+			name:      "explicit api call requires api bridge",
+			message:   "GET /v1/system/status",
+			wrongTool: "nopsai.search_docs",
+			args:      map[string]any{"query": "system status"},
+			wantErr:   "nopsai.call_api",
+		},
+	}
+
+	app := &App{}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			plan := assistantBaseTurnPlan(tt.message, assistantConversationMemory{})
+			plan.Steps = []assistantPlanStep{{ToolName: tt.wrongTool, Args: tt.args}}
+
+			err := app.validateAssistantToolPlan(
+				context.Background(),
+				model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+				plan,
+			)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("err = %v, want contract error containing %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestAssistantRequestContractsAllowMatchingEvidence(t *testing.T) {
+	runID := "e3850cec-550f-456a-bec8-e67777d71d24"
+	tests := []struct {
+		name    string
+		message string
+		steps   []assistantPlanStep
+		actions []string
+	}{
+		{
+			name:    "run token usage",
+			message: "how many token is used by " + runID + " pipelinerun",
+			steps: []assistantPlanStep{{
+				ToolName: "nopsai.get_monitoring_ai_usage",
+				Args:     map[string]any{"run_id": runID},
+			}},
+			actions: []string{"pipeline_run.list"},
+		},
+		{
+			name:    "feature policy",
+			message: "do we have any policy to prevent showing envs?",
+			steps: []assistantPlanStep{{
+				ToolName: "nopsai.get_feature_capabilities",
+				Args:     map[string]any{"query": "secret", "area": "secrets"},
+			}},
+			actions: []string{"system.read"},
+		},
+		{
+			name:    "scope secret inventory",
+			message: "how many scope do we have and for each how many secrets",
+			steps: []assistantPlanStep{
+				{ToolName: "nopsai.list_scopes", Args: map[string]any{"limit": 200}},
+				{ToolName: "nopsai.list_secret_scopes", Args: map[string]any{}},
+			},
+			actions: []string{"scope.read", "secret.list_metadata"},
+		},
+		{
+			name:    "approval pipeline search",
+			message: "give me a pipeline that has approval step",
+			steps: []assistantPlanStep{{
+				ToolName: "nopsai.search_pipelines",
+				Args:     map[string]any{"query": "approval", "limit": 20},
+			}},
+			actions: []string{"pipeline.list"},
+		},
+		{
+			name:    "pipeline generation",
+			message: "give me a pipeline that has 4 step and last one is approval, pipeline goal is to build and publish docker image based on DDD standards",
+			steps: []assistantPlanStep{{
+				ToolName: "nopsai.generate_pipeline",
+				Args: map[string]any{
+					"name": "docker-ddd-image",
+					"goal": "build and publish docker image based on DDD standards with 4 steps and the last one approval",
+				},
+			}},
+			actions: []string{"pipeline.create"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app := &App{aaaLocal: allowActionsForAssistantTest(tt.actions...)}
+			plan := assistantBaseTurnPlan(tt.message, assistantConversationMemory{})
+			plan.Steps = tt.steps
+
+			if err := app.validateAssistantToolPlan(
+				context.Background(),
+				model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+				plan,
+			); err != nil {
+				t.Fatalf("matching contract evidence should pass: %v", err)
+			}
+		})
+	}
+}
+
+func TestAssistantRequestContractsRejectDirectFinalPipelineGeneration(t *testing.T) {
+	plan := assistantBaseTurnPlan("give me a pipeline that has 4 step and last one is approval, pipeline goal is to build and publish docker image based on DDD standards", assistantConversationMemory{})
+	plan.FinalAnswer = "name: docker-ddd-image\nsteps: []"
+
+	err := assistantValidatePlannerFinalAnswer(plan, nil)
+	if err == nil || !strings.Contains(err.Error(), "nopsai.generate_pipeline") {
+		t.Fatalf("err = %v, want missing pipeline generator evidence", err)
+	}
+}
+
+func TestAssistantRequestContractsRequireAllEvidenceForFinalAnswer(t *testing.T) {
+	plan := assistantBaseTurnPlan("how many scope do we have and for each how many secrets", assistantConversationMemory{})
+	scopeOnly := []assistantToolActivity{{
+		Name:   "nopsai.list_scopes",
+		Status: assistantToolStatusSuccess,
+		Input:  map[string]any{"limit": 200},
+		Output: map[string]any{"scopes": []string{"default", "prod"}},
+	}}
+
+	err := assistantValidatePlannerFinalAnswer(plan, scopeOnly)
+	if err == nil || !strings.Contains(err.Error(), "nopsai.list_secret_scopes") {
+		t.Fatalf("err = %v, want missing secret-scope evidence", err)
+	}
+
+	withSecretScopes := append(scopeOnly, assistantToolActivity{
+		Name:   "nopsai.list_secret_scopes",
+		Status: assistantToolStatusSuccess,
+		Input:  map[string]any{},
+		Output: map[string]any{"secret_scopes": []map[string]any{{"scope": "default", "secret_count": 1}}},
+	})
+	if err := assistantValidatePlannerFinalAnswer(plan, withSecretScopes); err != nil {
+		t.Fatalf("complete evidence should pass: %v", err)
 	}
 }
 
@@ -765,7 +985,8 @@ func TestAssistantLLMPlannerRejectsRunAnalysisForRunTokenUsage(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing semantic plan denial: %#v", result.ToolCalls)
 	}
-	if !strings.Contains(assistantOutputString(denial.Output, "error"), "token usage") {
+	if !strings.Contains(assistantOutputString(denial.Output, "error"), "ai_token_usage") ||
+		!strings.Contains(assistantOutputString(denial.Output, "error"), "nopsai.get_monitoring_ai_usage") {
 		t.Fatalf("denial should explain token usage evidence requirement: %#v", denial.Output)
 	}
 	if !strings.Contains(result.Reply, "No changes were applied") {
@@ -822,7 +1043,8 @@ func TestAssistantLLMPlannerRejectsFinalTokenAnswerWithoutUsageEvidence(t *testi
 	if !ok {
 		t.Fatalf("missing plan denial for unsupported final answer: %#v", result.ToolCalls)
 	}
-	if !strings.Contains(assistantOutputString(denial.Output, "error"), "without successful nopsai.get_monitoring_ai_usage evidence") {
+	if !strings.Contains(assistantOutputString(denial.Output, "error"), "without successful evidence from") ||
+		!strings.Contains(assistantOutputString(denial.Output, "error"), "nopsai.get_monitoring_ai_usage") {
 		t.Fatalf("denial output = %#v", denial.Output)
 	}
 }
