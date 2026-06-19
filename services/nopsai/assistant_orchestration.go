@@ -74,6 +74,9 @@ func (a *App) runAssistantConversationTurn(
 	}
 	memory := assistantMemoryForTurn(conversation, plan)
 	reply := "I could not create a validated NopsAI tool plan for that request because the assistant LLM planner was unavailable or returned an invalid plan. No changes were applied."
+	if reason := assistantPlannerFailureReason(planned.ToolCalls); reason != "" {
+		reply = "I could not create a validated NopsAI tool plan for that request because the assistant LLM planner was unavailable or returned an invalid plan: " + reason + ". No changes were applied."
+	}
 	return assistantOrchestrationResult{
 		Reply:     reply,
 		ToolCalls: planned.ToolCalls,
@@ -338,6 +341,9 @@ func composePipelineGenerationReply(toolCalls []assistantToolActivity) string {
 		case "nopsai.generate_pipeline":
 			generated = call.Output
 			yaml = assistantOutputString(call.Output, "yaml")
+			if nested, _ := call.Output["validation"].(map[string]any); len(nested) > 0 {
+				validation = nested
+			}
 		case "nopsai.validate_pipeline":
 			validation = call.Output
 		}
@@ -1191,6 +1197,19 @@ func assistantFirstPlanDenial(toolCalls []assistantToolActivity) (assistantToolA
 		}
 	}
 	return assistantToolActivity{}, false
+}
+
+func assistantPlannerFailureReason(toolCalls []assistantToolActivity) string {
+	for _, call := range toolCalls {
+		if call.Name != assistantLLMPlannerToolName || call.Status == assistantToolStatusSuccess {
+			continue
+		}
+		reason := strings.TrimSpace(assistantOutputString(call.Output, "fallback_reason"))
+		if reason != "" {
+			return reason
+		}
+	}
+	return ""
 }
 
 func composeAssistantPlanDeniedReply(call assistantToolActivity) string {
