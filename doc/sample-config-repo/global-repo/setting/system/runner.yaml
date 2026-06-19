@@ -8,8 +8,29 @@ runtime: docker
 
 assistant:
   enabled: true
+  provider: gemini
+  model: gemini-2.5-pro
+  credential_ref: credential://system/assistant/api-key
+  timeout: 60s
   default_docs_version: auto
   conversation_retention_days: 30
+  max_input_logs_bytes: 120000
+  max_conversation_turns: 30
+  docs_enabled: true
+  docs_version_aware: true
+  mcp:
+    enabled: false
+    server_url: ""
+  features:
+    docs: true
+    pipeline_debugging: true
+    config_generation: true
+    statistics_insights: true
+    maintenance_recommendations: true
+    cost_recommendations: true
+    action_execution: false
+  actions:
+    require_confirmation: true
   memory:
     enabled: true
     scope: conversation

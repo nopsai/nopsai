@@ -235,16 +235,20 @@ The Nopsai AI Assistant is available as a bottom-right dock and a full
 conversation-scoped memory for selected runs, pipelines, scopes, docs version,
 open tasks, and proposed fixes.
 
-Assistant model selection uses existing LLM profiles. The assistant does not
-own a separate LLM profile registry. The UI loads selectable profiles from
-`GET /v1/assistant/llm-profiles`, which exposes only safe picker metadata and
-requires an authenticated assistant user rather than `system.read` on the
-system LLM profile registry. When a selected or default profile is valid for
-the conversation scope, the assistant sends the user request, conversation
-memory, hosted MCP tool outputs, and a deterministic tool summary to that
-provider for final synthesis. If the LLM provider, credential, or scope check
-is unavailable, the assistant falls back to the deterministic permission-bound
-tool summary and records the fallback reason on the message tool activity.
+Assistant model configuration is separate from pipeline execution profiles.
+When `assistant.provider` is set in `setting/system/runner.yaml`, the UI shows a
+dedicated `assistant` picker profile backed by that provider/model/credential.
+If no assistant provider is configured, the assistant remains backward
+compatible with existing LLM profiles. `GET /v1/assistant/config` exposes only
+safe assistant metadata and feature flags. `GET /v1/assistant/llm-profiles`
+exposes only safe picker metadata and requires an authenticated assistant user
+rather than `system.read` on the system LLM profile registry. When a selected
+or default profile is valid for the conversation scope, the assistant sends the
+user request, conversation memory, hosted MCP tool outputs, and a deterministic
+tool summary to that provider for final synthesis. If the LLM provider,
+credential, or scope check is unavailable, the assistant falls back to the
+deterministic permission-bound tool summary and records the fallback reason on
+the message tool activity.
 
 Message turns orchestrate first-party Nopsai tools for the current subject.
 For a user-facing capability catalog with example chat prompts, see
@@ -315,8 +319,29 @@ Minimal GitOps config lives under `setting/system/runner.yaml`:
 ```yaml
 assistant:
   enabled: true
+  provider: gemini
+  model: gemini-2.5-pro
+  credential_ref: credential://system/assistant/api-key
+  timeout: 60s
   default_docs_version: auto
   conversation_retention_days: 30
+  max_input_logs_bytes: 120000
+  max_conversation_turns: 30
+  docs_enabled: true
+  docs_version_aware: true
+  mcp:
+    enabled: false
+    server_url: ""
+  features:
+    docs: true
+    pipeline_debugging: true
+    config_generation: true
+    statistics_insights: true
+    maintenance_recommendations: true
+    cost_recommendations: true
+    action_execution: false
+  actions:
+    require_confirmation: true
   memory:
     enabled: true
     scope: conversation

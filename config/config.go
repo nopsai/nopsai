@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	"nopsai/pkg/models"
 
@@ -148,11 +149,43 @@ type AssistantMemoryConfig struct {
 	Scope   string `yaml:"scope,omitempty" json:"scope,omitempty"`
 }
 
+type AssistantMCPConfig struct {
+	Enabled   bool   `yaml:"enabled" json:"enabled"`
+	ServerURL string `yaml:"server_url,omitempty" json:"server_url,omitempty"`
+}
+
+type AssistantFeaturesConfig struct {
+	Docs                       *bool `yaml:"docs,omitempty" json:"docs,omitempty"`
+	PipelineDebugging          *bool `yaml:"pipeline_debugging,omitempty" json:"pipeline_debugging,omitempty"`
+	ConfigGeneration           *bool `yaml:"config_generation,omitempty" json:"config_generation,omitempty"`
+	StatisticsInsights         *bool `yaml:"statistics_insights,omitempty" json:"statistics_insights,omitempty"`
+	MaintenanceRecommendations *bool `yaml:"maintenance_recommendations,omitempty" json:"maintenance_recommendations,omitempty"`
+	CostRecommendations        *bool `yaml:"cost_recommendations,omitempty" json:"cost_recommendations,omitempty"`
+	ActionExecution            *bool `yaml:"action_execution,omitempty" json:"action_execution,omitempty"`
+}
+
+type AssistantActionsConfig struct {
+	RequireConfirmation *bool `yaml:"require_confirmation,omitempty" json:"require_confirmation,omitempty"`
+}
+
 type AssistantConfig struct {
-	Enabled                   bool                  `yaml:"enabled" json:"enabled"`
-	DefaultDocsVersion        string                `yaml:"default_docs_version" json:"default_docs_version,omitempty"`
-	ConversationRetentionDays int                   `yaml:"conversation_retention_days" json:"conversation_retention_days,omitempty"`
-	Memory                    AssistantMemoryConfig `yaml:"memory" json:"memory"`
+	Enabled                   bool                    `yaml:"enabled" json:"enabled"`
+	Provider                  string                  `yaml:"provider,omitempty" json:"provider,omitempty"`
+	Model                     string                  `yaml:"model,omitempty" json:"model,omitempty"`
+	BaseURL                   string                  `yaml:"base_url,omitempty" json:"base_url,omitempty"`
+	CredentialRef             string                  `yaml:"credential_ref,omitempty" json:"credential_ref,omitempty"`
+	LegacyAPIKeySecret        string                  `yaml:"api_key_secret,omitempty" json:"-"`
+	Timeout                   string                  `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	MaxInputLogsBytes         int                     `yaml:"max_input_logs_bytes,omitempty" json:"max_input_logs_bytes,omitempty"`
+	MaxConversationTurns      int                     `yaml:"max_conversation_turns,omitempty" json:"max_conversation_turns,omitempty"`
+	DocsEnabled               *bool                   `yaml:"docs_enabled,omitempty" json:"docs_enabled,omitempty"`
+	DocsVersionAware          *bool                   `yaml:"docs_version_aware,omitempty" json:"docs_version_aware,omitempty"`
+	DefaultDocsVersion        string                  `yaml:"default_docs_version" json:"default_docs_version,omitempty"`
+	ConversationRetentionDays int                     `yaml:"conversation_retention_days" json:"conversation_retention_days,omitempty"`
+	Memory                    AssistantMemoryConfig   `yaml:"memory" json:"memory"`
+	MCP                       AssistantMCPConfig      `yaml:"mcp" json:"mcp"`
+	Features                  AssistantFeaturesConfig `yaml:"features" json:"features"`
+	Actions                   AssistantActionsConfig  `yaml:"actions" json:"actions"`
 }
 
 type RuntimePool struct {
@@ -387,6 +420,31 @@ func NormalizeAuthConfig(auth AuthConfig) AuthConfig {
 }
 
 func NormalizeAssistantConfig(assistant AssistantConfig) AssistantConfig {
+	assistant.Provider = NormalizeLLMProvider(assistant.Provider)
+	assistant.Model = strings.TrimSpace(assistant.Model)
+	if assistant.Provider != "" && assistant.Model == "" {
+		assistant.Model = DefaultLLMProviderModel(assistant.Provider)
+	}
+	assistant.BaseURL = strings.TrimSpace(assistant.BaseURL)
+	assistant.CredentialRef = strings.TrimSpace(assistant.CredentialRef)
+	assistant.LegacyAPIKeySecret = strings.TrimSpace(assistant.LegacyAPIKeySecret)
+	if assistant.Timeout = strings.TrimSpace(assistant.Timeout); assistant.Timeout == "" {
+		assistant.Timeout = "60s"
+	} else if _, err := time.ParseDuration(assistant.Timeout); err != nil {
+		assistant.Timeout = "60s"
+	}
+	if assistant.MaxInputLogsBytes <= 0 {
+		assistant.MaxInputLogsBytes = 120000
+	}
+	if assistant.MaxConversationTurns <= 0 {
+		assistant.MaxConversationTurns = 30
+	}
+	if assistant.DocsEnabled == nil {
+		assistant.DocsEnabled = boolConfigPtr(true)
+	}
+	if assistant.DocsVersionAware == nil {
+		assistant.DocsVersionAware = boolConfigPtr(true)
+	}
 	assistant.DefaultDocsVersion = strings.TrimSpace(assistant.DefaultDocsVersion)
 	if assistant.DefaultDocsVersion == "" {
 		assistant.DefaultDocsVersion = "auto"
@@ -401,11 +459,53 @@ func NormalizeAssistantConfig(assistant AssistantConfig) AssistantConfig {
 	if assistant.Memory.Scope != "conversation" {
 		assistant.Memory.Scope = "conversation"
 	}
+	assistant.MCP.ServerURL = strings.TrimSpace(assistant.MCP.ServerURL)
+	assistant.Features = NormalizeAssistantFeaturesConfig(assistant.Features)
+	if assistant.Actions.RequireConfirmation == nil {
+		assistant.Actions.RequireConfirmation = boolConfigPtr(true)
+	}
 	return assistant
 }
 
 func (c Config) EffectiveAssistantConfig() AssistantConfig {
 	return NormalizeAssistantConfig(c.Assistant)
+}
+
+func NormalizeAssistantFeaturesConfig(features AssistantFeaturesConfig) AssistantFeaturesConfig {
+	if features.Docs == nil {
+		features.Docs = boolConfigPtr(true)
+	}
+	if features.PipelineDebugging == nil {
+		features.PipelineDebugging = boolConfigPtr(true)
+	}
+	if features.ConfigGeneration == nil {
+		features.ConfigGeneration = boolConfigPtr(true)
+	}
+	if features.StatisticsInsights == nil {
+		features.StatisticsInsights = boolConfigPtr(true)
+	}
+	if features.MaintenanceRecommendations == nil {
+		features.MaintenanceRecommendations = boolConfigPtr(true)
+	}
+	if features.CostRecommendations == nil {
+		features.CostRecommendations = boolConfigPtr(true)
+	}
+	if features.ActionExecution == nil {
+		features.ActionExecution = boolConfigPtr(false)
+	}
+	return features
+}
+
+func AssistantFeatureFlagEnabled(flag *bool) bool {
+	return flag != nil && *flag
+}
+
+func AssistantRequireConfirmation(actions AssistantActionsConfig) bool {
+	return actions.RequireConfirmation == nil || *actions.RequireConfirmation
+}
+
+func boolConfigPtr(value bool) *bool {
+	return &value
 }
 
 func normalizeOIDCProviders(providers map[string]OIDCProviderConfig) map[string]OIDCProviderConfig {

@@ -1,11 +1,29 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { fetchAssistantConfig } from '../features/assistant/api.js';
 import { AssistantPanel } from '../features/assistant/AssistantPanel.js';
 import { ObjectIcon } from './ObjectIcon.js';
 
 export function AssistantDock() {
   const [open, setOpen] = useState(false);
+  const [enabled, setEnabled] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    let active = true;
+    fetchAssistantConfig()
+      .then(config => {
+        if (active) setEnabled(config.enabled);
+      })
+      .catch(() => {
+        if (active) setEnabled(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (!enabled) return null;
 
   return (
     <>

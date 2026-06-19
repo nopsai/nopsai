@@ -889,7 +889,7 @@ func validateLLMProfileDefinition(name string, profile config.LLMProfile) (strin
 		if strings.TrimSpace(profile.Model) == "" {
 			return "invalid", fmt.Sprintf("LLM profile %q is missing model", name)
 		}
-		if strings.TrimSpace(profile.CredentialRef) == "" {
+		if !llmProfileHasCredential(profile) {
 			return "invalid", fmt.Sprintf("LLM profile %q is missing credential_ref", name)
 		}
 	case config.LLMProviderLMStudio:
@@ -907,7 +907,7 @@ func validateLLMProfileDefinition(name string, profile config.LLMProfile) (strin
 		if strings.TrimSpace(profile.Model) == "" {
 			return "invalid", fmt.Sprintf("LLM profile %q is missing model", name)
 		}
-		if strings.TrimSpace(profile.CredentialRef) == "" {
+		if !llmProfileHasCredential(profile) {
 			return "invalid", fmt.Sprintf("LLM profile %q is missing credential_ref", name)
 		}
 	case config.LLMProviderOllama:
@@ -924,7 +924,7 @@ func validateLLMProfileDefinition(name string, profile config.LLMProfile) (strin
 		if strings.TrimSpace(profile.Model) == "" && strings.TrimSpace(profile.Extra["deployment"]) == "" {
 			return "invalid", fmt.Sprintf("LLM profile %q is missing model or extra.deployment", name)
 		}
-		if strings.TrimSpace(profile.CredentialRef) == "" {
+		if !llmProfileHasCredential(profile) {
 			return "invalid", fmt.Sprintf("LLM profile %q is missing credential_ref", name)
 		}
 	default:
@@ -948,12 +948,19 @@ func (a *App) validateLLMProfileConfiguration(ctx context.Context, name string, 
 }
 
 func (a *App) resolveLLMProfileAPIKey(ctx context.Context, name string, profile config.LLMProfile) (string, error) {
+	if strings.TrimSpace(profile.CredentialRef) == "" && strings.TrimSpace(profile.LegacyAPIKeySecret) != "" {
+		return strings.TrimSpace(os.Getenv(strings.TrimSpace(profile.LegacyAPIKeySecret))), nil
+	}
 	return a.resolveCredentialText(ctx, profile.CredentialRef, credentials.Purpose{
 		ConsumerService: "nopsai",
 		Operation:       "llm.authenticate",
 		SubjectType:     "llm_profile",
 		SubjectID:       name,
 	})
+}
+
+func llmProfileHasCredential(profile config.LLMProfile) bool {
+	return strings.TrimSpace(profile.CredentialRef) != "" || strings.TrimSpace(profile.LegacyAPIKeySecret) != ""
 }
 
 func (a *App) buildRuntimeLLMProfiles(ctx context.Context, cfg config.Config) (runtimeLLMProfiles, error) {

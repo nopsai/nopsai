@@ -17,12 +17,20 @@ import (
 )
 
 func (a *App) registerAssistantRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /v1/assistant/config", a.handleGetAssistantConfig)
 	mux.HandleFunc("GET /v1/assistant/llm-profiles", a.handleListAssistantLLMProfiles)
 	mux.HandleFunc("POST /v1/assistant/conversations", a.handleCreateAssistantConversation)
 	mux.HandleFunc("GET /v1/assistant/conversations", a.handleListAssistantConversations)
 	mux.HandleFunc("GET /v1/assistant/conversations/{id}", a.handleGetAssistantConversation)
 	mux.HandleFunc("POST /v1/assistant/conversations/{id}/messages", a.handleCreateAssistantMessage)
 	mux.HandleFunc("POST /v1/assistant/conversations/{id}/summarize-memory", a.handleSummarizeAssistantMemory)
+}
+
+func (a *App) handleGetAssistantConfig(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.requireAssistantUserID(w, r); !ok {
+		return
+	}
+	_ = httpapi.WriteJSON(w, http.StatusOK, buildAssistantConfigResponse(a.assistantConfig()))
 }
 
 func (a *App) requireAssistantEnabled(w http.ResponseWriter) bool {
