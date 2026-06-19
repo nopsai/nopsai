@@ -250,22 +250,44 @@ credential, or scope check is unavailable, the assistant falls back to the
 deterministic permission-bound tool summary and records the fallback reason on
 the message tool activity.
 
-Message turns orchestrate first-party Nopsai tools for the current subject.
+Message turns orchestrate first-party Nopsai tools for the current subject
+through the hosted MCP JSON-RPC request path.
 For a user-facing capability catalog with example chat prompts, see
 [assistant-capabilities.md](./assistant-capabilities.md).
+Each static turn creates a structured assistant plan with goal, intent, tool
+steps, and success criteria. Before execution, NopsAI validates that the plan
+uses available hosted MCP tools for the current AAA subject, stays within the
+tool-call and argument bounds, and does not run mutating tools without explicit
+`confirm:true`.
+The planner includes a feature-wide routing layer for NopsAI product areas that
+previously required exact API/tool knowledge: setup, config repositories,
+notifications, monitoring saved views/alerts/recommendations, credentials,
+runners, access/admin/audit, backups/cleanup, webhook sources, external
+triggers, reusable steps, scoped secrets/variables, UI ownership context, and
+explicit `nopsai.*` hosted MCP tool names. The router keeps existing specialist
+paths for run failure analysis, variable repetition analysis, scope/secret
+counts, AI token investigations, pipeline generation, and feature coverage
+questions.
 The assistant can analyze failed runs from status/log excerpts, generate and
-validate pipeline YAML drafts, prepare GitOps-ready pipeline create/update
-file plans, validate pasted pipeline YAML, traverse pipeline knowledge context,
-search pipelines, manage reusable-step plans, review dispatcher/runner health,
-review monitoring analytics, statistics, cost and design signals, and inspect
-triggers, schedules, scopes, pipelines, profiles, docs, setup state, access,
-credentials, and system status. Generated YAML and GitOps write plans are
-proposals only; confirmed runtime/admin tools still go through the existing
-API, approval, AAA, and audit flows.
+validate template-aware pipeline YAML drafts, prepare GitOps-ready pipeline
+create/update file plans, validate pasted pipeline YAML, traverse pipeline
+knowledge context, search pipelines, manage reusable-step plans, review
+dispatcher/runner health, review monitoring analytics, statistics, cost and
+design signals, and inspect triggers, schedules, scopes, pipelines, profiles,
+docs, setup state, access, credentials, and system status. Generated YAML and
+GitOps write plans are proposals only; confirmed runtime/admin tools still go
+through the existing API, approval, AAA, and audit flows.
 The deterministic orchestration layer handles common chat aliases such as
 `pipelineruns`, approval-step pipeline searches, feature-discovery questions,
 and env/secret exposure policy questions so permission-bound answers still work
-when final LLM synthesis is unavailable.
+when final LLM synthesis is unavailable. AI usage requests now run an
+evidence-driven investigation: default-window analytics, broader-window
+fallbacks, efficiency/summary context, recent runs, and LLM profile context
+when no token events are visible.
+Final LLM synthesis is answer-quality gated against the validated plan and tool
+evidence; if it claims a change was applied without tool evidence or omits
+required proposal-safe language, the assistant returns the deterministic
+MCP-grounded summary instead.
 
 Nopsai also exposes a first-party hosted MCP endpoint at `POST /v1/mcp`. This
 is separate from the external MCP registry in `setting/system/mcp.yaml`: the
@@ -280,11 +302,11 @@ runs, triggers, schedules, scopes, cost/statistics, and system profile/status
 resources, including dispatcher/runner status and `nopsai://features`. Hosted
 tools can list/read managed knowledge documents, search pipelines across
 metadata and readable YAML definitions, walk pipeline-, step-, and task-level
-knowledge refs, validate pipeline YAML, read dispatcher and runner health, and
-return commit-ready GitOps file payloads for pipeline, reusable-step, schedule,
-knowledge, webhook-source, external-trigger, notification, scoped
-secret/variable, and credential operations without directly mutating database
-state.
+knowledge refs, validate pipeline YAML, generate template-aware pipeline
+proposals, read dispatcher and runner health, and return commit-ready GitOps
+file payloads for pipeline, reusable-step, schedule, knowledge, webhook-source,
+external-trigger, notification, scoped secret/variable, and credential
+operations without directly mutating database state.
 
 `nopsai.get_feature_capabilities` gives the assistant and external MCP clients a
 current-user-scoped coverage map for the full NopsAI feature inventory. It lists
@@ -330,7 +352,7 @@ assistant:
   docs_enabled: true
   docs_version_aware: true
   mcp:
-    enabled: false
+    enabled: true
     server_url: ""
   features:
     docs: true
@@ -386,9 +408,12 @@ Pipeline notifications include:
   object references back to pipelines, pipeline runs, external triggers, and
   dispatcher runner status
 - shared monitoring filters for time range, group, pipeline, repository,
-  pipeline run ID, trigger source, status, subject identity, external trigger, schedule,
-  duration range, and previous-period comparison with tab-level regression
-  deltas
+  pipeline run ID, trigger source, status, subject identity, external trigger,
+  schedule, duration range, and previous-period comparison with tab-level
+  regression deltas
+- AI usage filters for provider, model, LLM profile, feature, step name, and
+  task name across REST analytics and hosted MCP monitoring tools, plus
+  schedule-level highest/lowest token rankings for scheduled pipeline runs
 - access-filtered aggregate endpoints that reuse `pipeline_run.list` so normal
   users see only permitted run analytics while admins can see global metrics
 - LLM usage accounting through agent-recorded `ai_usage_events` and

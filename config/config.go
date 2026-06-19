@@ -150,7 +150,7 @@ type AssistantMemoryConfig struct {
 }
 
 type AssistantMCPConfig struct {
-	Enabled   bool   `yaml:"enabled" json:"enabled"`
+	Enabled   *bool  `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 	ServerURL string `yaml:"server_url,omitempty" json:"server_url,omitempty"`
 }
 
@@ -459,6 +459,9 @@ func NormalizeAssistantConfig(assistant AssistantConfig) AssistantConfig {
 	if assistant.Memory.Scope != "conversation" {
 		assistant.Memory.Scope = "conversation"
 	}
+	if assistant.MCP.Enabled == nil {
+		assistant.MCP.Enabled = boolConfigPtr(true)
+	}
 	assistant.MCP.ServerURL = strings.TrimSpace(assistant.MCP.ServerURL)
 	assistant.Features = NormalizeAssistantFeaturesConfig(assistant.Features)
 	if assistant.Actions.RequireConfirmation == nil {
@@ -498,6 +501,10 @@ func NormalizeAssistantFeaturesConfig(features AssistantFeaturesConfig) Assistan
 
 func AssistantFeatureFlagEnabled(flag *bool) bool {
 	return flag != nil && *flag
+}
+
+func AssistantMCPEnabled(mcp AssistantMCPConfig) bool {
+	return mcp.Enabled != nil && *mcp.Enabled
 }
 
 func AssistantRequireConfirmation(actions AssistantActionsConfig) bool {

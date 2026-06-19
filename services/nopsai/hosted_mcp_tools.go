@@ -553,27 +553,19 @@ func hostedMCPGeneratePipeline(args map[string]any) map[string]any {
 		goal = "Describe the desired automation goal here."
 	}
 	scope := strings.Trim(strings.TrimSpace(stringArg(args, "scope")), "/")
-	pipeline := map[string]any{
-		"name":            name,
-		"version":         "latest",
-		"llm":             map[string]any{"enabled": true},
-		"container_image": "alpine:3.20",
-		"steps": []map[string]any{{
-			"name": "plan",
-			"tasks": []map[string]any{{
-				"name": "draft",
-				"goal": goal,
-			}},
-		}},
-	}
-	if scope != "" {
-		pipeline["scope"] = scope
-	}
-	raw, _ := yaml.Marshal(pipeline)
+	result := renderGeneratedPipeline(pipelineGenerationRequest{
+		Name:  name,
+		Goal:  goal,
+		Scope: scope,
+	})
 	return map[string]any{
-		"proposal_type": "pipeline_yaml",
-		"applies":       false,
-		"yaml":          string(raw),
+		"proposal_type":      "pipeline_yaml",
+		"applies":            false,
+		"template_id":        result.TemplateID,
+		"assumptions":        result.Assumptions,
+		"required_variables": result.RequiredVars,
+		"required_secrets":   result.RequiredSecrets,
+		"yaml":               result.YAML,
 	}
 }
 
