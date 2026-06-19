@@ -46,6 +46,7 @@ import { getAppAccess } from '../auth/capabilities';
 import { useAuth } from '../auth/AuthContext';
 import { buildLoginRedirectState, resolvePostLoginPath } from '../auth/authRedirect';
 import AppHelp from '../components/AppHelp';
+import AssistantDock from '../components/AssistantDock';
 import { logoutCurrentSession } from '../lib/api';
 import { currentUserDisplayName } from './userIdentity';
 
@@ -296,6 +297,7 @@ function AppShell() {
             </main>
           </div>
           <div id="toast-container" className="fixed top-6 right-6 z-[100] w-full max-w-sm space-y-3"></div>
+          <AssistantDock />
         </>
       )}
     </div>

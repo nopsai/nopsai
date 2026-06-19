@@ -9,6 +9,7 @@ Start here when you want to understand the system from different angles:
 - [runtime-flows.md](./runtime-flows.md): Step-by-step execution flows for request authorization, webhooks, manual runs, dispatching, agent execution, child pipelines, cancellation, and config sync.
 - [kubernetes-runner.md](./kubernetes-runner.md): Kubernetes runner runtime, namespace deployment, agent-owned PVC workspace behavior, node affinity, GitOps settings, one-time install commands, and GitOps manifests.
 - [feature-reference.md](./feature-reference.md): Functional capabilities exposed by the codebase and UI.
+- [assistant-capabilities.md](./assistant-capabilities.md): User-facing assistant capabilities and example chat prompts for each NopsAI feature area.
 - [first-install-wizard.md](./first-install-wizard.md): UI bootstrap flow for an empty database, starter profiles, secret generation, GitOps seeding, repository groups, and production guardrails.
 - [enterprise-gates.md](./enterprise-gates.md): Production startup gates, local/CI verification commands, Docker build checks, and integration coverage baseline.
 - [enterprise-refactor-roadmap.md](./enterprise-refactor-roadmap.md): Enterprise feature ownership, SSO follow-up status, and remaining refactor targets.
@@ -29,6 +30,7 @@ Existing focused docs:
 - [git-webhook-sources.md](./git-webhook-sources.md): GitLab, Bitbucket, Gitea, and generic source configuration, security, GitOps, payload normalization, path filters, and operations.
 - [llm-model-selection.md](./llm-model-selection.md): LLM provider and model notes.
 - [mcp-pipeline-integration.md](./mcp-pipeline-integration.md): MCP integration details.
+- [mcp-feature-coverage.md](./mcp-feature-coverage.md): Hosted MCP feature coverage, user-scoped permissions, and enterprise automation boundaries.
 - [wiki](./wiki): Earlier broad control-plane/data-plane overview.
 
 Recommended reading order:
@@ -39,4 +41,5 @@ Recommended reading order:
 4. `jwt-authentication.md`
 5. `runtime-flows.md`
 6. `feature-reference.md`
-7. `decision-architecture.md`
+7. `assistant-capabilities.md`
+8. `decision-architecture.md`

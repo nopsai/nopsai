@@ -9,8 +9,14 @@ import (
 )
 
 func (a *App) getConfigSnapshot() config.Config {
+	if a == nil {
+		return config.Config{}
+	}
 	a.cfgMu.RLock()
 	defer a.cfgMu.RUnlock()
+	if a.cfg == nil {
+		return config.Config{}
+	}
 	return *a.cfg
 }
 

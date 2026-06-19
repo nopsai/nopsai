@@ -104,6 +104,7 @@ func runtimeSettingsPayloadFromFile(file runtimeSettingsSnapshotFile) systemConf
 		Kubernetes:                    file.Kubernetes,
 		Limits:                        file.Limits,
 		RuntimePools:                  file.RuntimePools,
+		Assistant:                     file.Assistant,
 		GitBotNopsaiAPIURL:            file.GitBotNopsaiAPIURL,
 		NopsaiGitBotAPIURL:            file.NopsaiGitBotAPIURL,
 		GitHubAppID:                   file.GitHubAppID,
@@ -216,6 +217,9 @@ func applySystemConfigToConfig(cfg *config.Config, payload systemConfigPayload) 
 	}
 	if payload.RuntimePools != nil {
 		cfg.RuntimePools = config.NormalizeRuntimePools(payload.RuntimePools)
+	}
+	if payload.Assistant != nil {
+		cfg.Assistant = config.NormalizeAssistantConfig(*payload.Assistant)
 	}
 
 	return *cfg, nil

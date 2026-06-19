@@ -55,6 +55,7 @@ export const objectIconTypes = [
   'knowledge-reference',
   'knowledge-example',
   'knowledge-default',
+  'assistant',
 ] as const;
 
 export type ObjectIconType = (typeof objectIconTypes)[number];
@@ -89,6 +90,7 @@ export const objectIconRegistry = {
   'knowledge-reference': BookOpen,
   'knowledge-example': FileText,
   'knowledge-default': FileText,
+  assistant: Bot,
 } satisfies Record<ObjectIconType, LucideIcon>;
 
 export function getObjectIconComponent(type: ObjectIconType): LucideIcon {

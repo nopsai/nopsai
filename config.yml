@@ -1,13 +1,13 @@
 # NopsAI local config placeholder.
 #
-# Product/runtime settings are intentionally not defined here. Manage them from
-# System > Config / System > Credentials and commit the GitOps representation to
-# the global config repository under setting/system/.
+# Product/runtime settings are intentionally minimal here. Manage live settings
+# from System > Config / System > Credentials and commit the GitOps
+# representation to the global config repository under setting/system/.
 #
 # The active GitOps system files are:
 # - credentials.yaml for encrypted credential envelopes
 # - github.yaml for GitHub App IDs, credential references, and git-bot URLs
-# - runner.yaml for runtime topology, runner defaults, and dispatcher routing
+# - runner.yaml for runtime topology, runner defaults, dispatcher routing, and assistant settings
 # - auth.yaml for local login and OIDC providers
 # - mail.yaml for notification SMTP settings
 # - llm_profile.yaml for LLM profile registry
@@ -18,3 +18,13 @@
 # JWT_SIGNING_KEY, SERVICE_JWT_SIGNING_KEY, and AAA_SHARED_INTERNAL_TOKEN in
 # deployment secrets or the service environment. Docker Compose defines the
 # minimal local-dev service addresses needed before GitOps can be loaded.
+
+# Local bootstrap default. A GitOps runtime settings file with an explicit
+# assistant block still overrides this value.
+assistant:
+  enabled: true
+  default_docs_version: auto
+  conversation_retention_days: 30
+  memory:
+    enabled: true
+    scope: conversation

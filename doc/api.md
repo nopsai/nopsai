@@ -148,9 +148,53 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - System MCP profiles can be managed in the global config repo at `setting/system/mcp.yaml`.
 - Local-login and OIDC SSO settings can be managed in the global config repo at `setting/system/auth.yaml`.
 - GitHub App IDs, credential references, and git-bot URLs can be managed in the global config repo at `setting/system/github.yaml`.
-- Runner defaults, runtime defaults, and dispatcher routing can be managed in the global config repo at `setting/system/runner.yaml`.
+- Runner defaults, runtime defaults, dispatcher routing, and assistant settings can be managed in the global config repo at `setting/system/runner.yaml`.
 - Encrypted system credential envelopes can be managed in the global config repo at `setting/system/credentials.yaml`.
 - Managed knowledge context markdown files can be synced from `knowledge/<kind>/<group>/<document>.md`.
+
+## Assistant and Hosted MCP
+
+For a user-facing guide to assistant capabilities and example chat prompts, see
+[assistant-capabilities.md](./assistant-capabilities.md).
+
+- `GET /v1/assistant/llm-profiles` lists safe, selectable LLM profile metadata for the authenticated assistant user without exposing credential refs, base URLs, or provider extras.
+- `POST /v1/assistant/conversations` creates a persistent assistant conversation for the authenticated subject.
+- `GET /v1/assistant/conversations` lists the subject's conversations.
+- `GET /v1/assistant/conversations/{id}` reads a conversation, messages, and conversation-scoped memory.
+- `POST /v1/assistant/conversations/{id}/messages` appends a user message, orchestrates permission-bound hosted MCP tools for the selected workflow, optionally synthesizes the final reply with the selected/default LLM profile, records tool and LLM activity, updates memory, and returns an assistant reply. Generated YAML and trigger/schedule edits are proposals only.
+- `POST /v1/assistant/conversations/{id}/summarize-memory` updates conversation-scoped memory.
+- `POST /v1/mcp` exposes Nopsai-hosted MCP JSON-RPC operations: `initialize`, `tools/list`, `tools/call`, `resources/list`, and `resources/read`.
+
+The hosted MCP is first-party and permission-bound. It is separate from the
+external MCP registry under `setting/system/mcp.yaml`, which defines
+third-party MCP servers Nopsai can connect to. Hosted MCP and assistant tool
+execution use the current authenticated AAA subject; they do not elevate to a
+global assistant/admin identity.
+
+Hosted MCP tools cover Nopsai operational context, including guided setup,
+knowledge-context search/list/read/write plans, pipeline inventory/search,
+pipeline knowledge-context traversal, pipeline YAML validation, reusable step
+GitOps plans, GitOps-ready pipeline create/update proposals, pipeline run
+status/log analysis and confirmed mutations, triggers, webhook sources,
+external triggers, schedules, config repo sync/drift/write workflows,
+notifications, monitoring analytics and operations, data backup/cleanup
+operations, scopes, secret/variable metadata and safe write/GitOps flows,
+usage/cost, LLM/MCP profiles, credential metadata/rotation/GitOps plans, runner
+install/dispatch workflows, AAA/access/audit/admin workflows, system status, and
+dispatcher/runner status.
+`nopsai.get_feature_capabilities` reports the current user's full NopsAI
+feature coverage map, including hosted MCP tools/resources, backing REST/GitOps
+routes, and required AAA actions. The same data is available as the
+`nopsai://features` MCP resource.
+`nopsai.call_api` is the guarded compatibility bridge for REST-backed features
+that do not need richer first-class UX. It calls allowed `/v1` routes as the
+current authenticated subject, rejects public/provider ingress and internal
+service routes, blocks default plaintext secret reads, and requires
+`confirm:true` before mutating routes execute. Dedicated policy tools explain
+why internal run callbacks, public webhook delivery ingress, and UI rendering
+are not assistant mutation surfaces.
+GitOps write tools return `applies:false` with a commit-ready `gitops.files`
+payload; they do not save product state directly.
 
 ---
 
