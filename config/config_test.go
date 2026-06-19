@@ -55,6 +55,19 @@ func TestLLMProviderDefaultsAndAPIKeyRequirements(t *testing.T) {
 	}
 }
 
+func TestRepositoryConfigEnablesAssistantBootstrapDefault(t *testing.T) {
+	cfg, err := LoadConfig("../config.yml")
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if !cfg.EffectiveAssistantConfig().Enabled {
+		t.Fatal("checked-in config.yml should enable the assistant as a local bootstrap default")
+	}
+	if !cfg.EffectiveAssistantConfig().Memory.Enabled {
+		t.Fatal("checked-in config.yml should enable assistant memory")
+	}
+}
+
 func TestLLMProviderGenerationCapabilities(t *testing.T) {
 	providers := []string{
 		LLMProviderGemini,
@@ -255,6 +268,31 @@ func TestEffectiveOIDCAuthDoesNotInventDefaultRole(t *testing.T) {
 	cfg.Auth.OIDC.DefaultRole = " viewer "
 	if got := cfg.EffectiveOIDCAuth().DefaultRole; got != "viewer" {
 		t.Fatalf("EffectiveOIDCAuth().DefaultRole = %q, want trimmed configured role", got)
+	}
+}
+
+func TestNormalizeAssistantConfigUsesMinimalDefaults(t *testing.T) {
+	cfg := NormalizeAssistantConfig(AssistantConfig{
+		Enabled:                   true,
+		DefaultDocsVersion:        " ",
+		ConversationRetentionDays: -1,
+		Memory: AssistantMemoryConfig{
+			Enabled: true,
+			Scope:   "global",
+		},
+	})
+
+	if !cfg.Enabled {
+		t.Fatal("assistant enabled flag should be preserved")
+	}
+	if cfg.DefaultDocsVersion != "auto" {
+		t.Fatalf("default docs version = %q, want auto", cfg.DefaultDocsVersion)
+	}
+	if cfg.ConversationRetentionDays != 30 {
+		t.Fatalf("retention = %d, want 30", cfg.ConversationRetentionDays)
+	}
+	if !cfg.Memory.Enabled || cfg.Memory.Scope != "conversation" {
+		t.Fatalf("memory = %#v, want enabled conversation scope", cfg.Memory)
 	}
 }
 

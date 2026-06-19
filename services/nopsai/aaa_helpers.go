@@ -47,9 +47,13 @@ func isAuthenticatedOnlyPath(path string) bool {
 	default:
 		return path == "/v1/auth/personal-tokens" ||
 			path == "/v1/monitoring/dispatcher" ||
+			path == "/v1/mcp" ||
+			path == "/v1/assistant/llm-profiles" ||
+			path == "/v1/assistant/conversations" ||
 			path == "/v1/internal/dispatcher/routing" ||
 			strings.HasPrefix(path, "/internal/v1/runtime-config/") ||
 			strings.HasPrefix(path, "/v1/internal/runs/") ||
+			strings.HasPrefix(path, "/v1/assistant/conversations/") ||
 			strings.HasPrefix(path, "/v1/auth/personal-tokens/")
 	}
 }

@@ -6,6 +6,14 @@ runner_scopes: dev,prod
 runner_capacity: 2
 runtime: docker
 
+assistant:
+  enabled: true
+  default_docs_version: auto
+  conversation_retention_days: 30
+  memory:
+    enabled: true
+    scope: conversation
+
 # Optional hard routing by scope to runner IDs
 dispatcher_routing:
   prod:

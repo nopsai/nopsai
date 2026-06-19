@@ -54,6 +54,7 @@ type systemConfigPayload struct {
 	Kubernetes                    *config.KubernetesConfig      `json:"kubernetes"`
 	Limits                        *config.RunnerLimits          `json:"limits"`
 	RuntimePools                  map[string]config.RuntimePool `json:"runtime_pools"`
+	Assistant                     *config.AssistantConfig       `json:"assistant"`
 }
 
 func (a *App) applySystemConfig(payload systemConfigPayload) (config.Config, error) {

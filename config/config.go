@@ -143,6 +143,18 @@ type OIDCEntitlementSyncConfig struct {
 	GroupPathPrefix            string `yaml:"group_path_prefix,omitempty" json:"group_path_prefix,omitempty"`
 }
 
+type AssistantMemoryConfig struct {
+	Enabled bool   `yaml:"enabled" json:"enabled"`
+	Scope   string `yaml:"scope,omitempty" json:"scope,omitempty"`
+}
+
+type AssistantConfig struct {
+	Enabled                   bool                  `yaml:"enabled" json:"enabled"`
+	DefaultDocsVersion        string                `yaml:"default_docs_version" json:"default_docs_version,omitempty"`
+	ConversationRetentionDays int                   `yaml:"conversation_retention_days" json:"conversation_retention_days,omitempty"`
+	Memory                    AssistantMemoryConfig `yaml:"memory" json:"memory"`
+}
+
 type RuntimePool struct {
 	NodeSelector map[string]string    `yaml:"node_selector" json:"node_selector,omitempty"`
 	Resources    RuntimePoolResources `yaml:"resources" json:"resources,omitempty"`
@@ -198,6 +210,7 @@ type Config struct {
 	LLMProfiles       map[string]LLMProfile        `yaml:"llm_profiles" env:"LLM_PROFILES"`
 	MCPServers        map[string]models.MCPServer  `yaml:"mcp_servers" env:"MCP_SERVERS"`
 	MCPProfiles       map[string]models.MCPProfile `yaml:"mcp_profiles" env:"MCP_PROFILES"`
+	Assistant         AssistantConfig              `yaml:"assistant" env:"-"`
 
 	// Addresses for services to listen on
 	NopsaiListenAddress     string `yaml:"nopsai_listen_address" env:"NOPSAI_LISTEN_ADDRESS"`
@@ -293,6 +306,7 @@ func LoadConfig(path string) (*Config, error) {
 	config.MCPProfiles = models.NormalizeMCPProfiles(config.MCPProfiles)
 	applyNestedEnvOverrides(config)
 	config.Auth = NormalizeAuthConfig(config.Auth)
+	config.Assistant = NormalizeAssistantConfig(config.Assistant)
 	config.Runtime = NormalizeRuntime(config.Runtime)
 	config.Kubernetes = NormalizeKubernetesConfig(config.Kubernetes)
 	config.RuntimePools = NormalizeRuntimePools(config.RuntimePools)
@@ -370,6 +384,28 @@ func NormalizeAuthConfig(auth AuthConfig) AuthConfig {
 	auth.OIDC.DomainMapping = normalizeDomainProviderMap(auth.OIDC.DomainMapping)
 	auth.OIDC.Providers = normalizeOIDCProviders(auth.OIDC.Providers)
 	return auth
+}
+
+func NormalizeAssistantConfig(assistant AssistantConfig) AssistantConfig {
+	assistant.DefaultDocsVersion = strings.TrimSpace(assistant.DefaultDocsVersion)
+	if assistant.DefaultDocsVersion == "" {
+		assistant.DefaultDocsVersion = "auto"
+	}
+	if assistant.ConversationRetentionDays <= 0 {
+		assistant.ConversationRetentionDays = 30
+	}
+	assistant.Memory.Scope = strings.ToLower(strings.TrimSpace(assistant.Memory.Scope))
+	if assistant.Memory.Scope == "" {
+		assistant.Memory.Scope = "conversation"
+	}
+	if assistant.Memory.Scope != "conversation" {
+		assistant.Memory.Scope = "conversation"
+	}
+	return assistant
+}
+
+func (c Config) EffectiveAssistantConfig() AssistantConfig {
+	return NormalizeAssistantConfig(c.Assistant)
 }
 
 func normalizeOIDCProviders(providers map[string]OIDCProviderConfig) map[string]OIDCProviderConfig {

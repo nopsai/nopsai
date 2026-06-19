@@ -194,7 +194,7 @@ global-repo/setting/system/github.yaml
   -> GitHub App IDs, credential references, and git-bot URLs
 
 global-repo/setting/system/runner.yaml
-  -> runner install defaults and dispatcher runtime routing
+  -> runner install defaults, dispatcher runtime routing, and assistant settings
 
 global-repo/setting/system/mail.yaml
   -> SMTP mail notification settings with a password credential reference
@@ -275,6 +275,15 @@ dispatcher_address: dispatcher:9090
 runner_id: runner-general
 runner_scopes: dev,prod
 runner_capacity: 2
+runtime: docker
+
+assistant:
+  enabled: true
+  default_docs_version: auto
+  conversation_retention_days: 30
+  memory:
+    enabled: true
+    scope: conversation
 
 # Optional hard routing by scope to runner IDs
 dispatcher_routing:
