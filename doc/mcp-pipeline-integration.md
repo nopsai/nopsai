@@ -150,6 +150,10 @@ Final actions remain normal Nopsai actions such as `EXECUTE_COMMAND`,
 
 The hosted MCP endpoint supports JSON-RPC `initialize`, `tools/list`,
 `tools/call`, `resources/list`, and `resources/read`.
+The assistant calls tools through the same hosted MCP JSON-RPC processor as
+external clients. For curl-based debugging, an authenticated empty `POST` body
+defaults to `tools/list`; explicit MCP clients should still send JSON-RPC
+payloads with `Content-Type: application/json`.
 
 High-value hosted tools include:
 

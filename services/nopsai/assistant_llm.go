@@ -84,11 +84,19 @@ func (a *App) synthesizeAssistantReplyWithLLM(
 	if reply == "" {
 		reply = deterministicReply
 	}
+	quality := assistantAssessAnswerQuality(plan, toolCalls, reply)
+	output := map[string]any{
+		"usage":   completion.Usage,
+		"quality": quality,
+	}
+	if !assistantAnswerQualityPasses(quality) {
+		reply = deterministicReply
+		output["quality_fallback"] = true
+		output["fallback_reason"] = "LLM reply failed assistant answer-quality checks"
+	}
 	return assistantLLMSynthesis{
-		Reply: reply,
-		Activity: assistantLLMActivity(profileName, profile, assistantToolStatusSuccess, map[string]any{
-			"usage": completion.Usage,
-		}),
+		Reply:    reply,
+		Activity: assistantLLMActivity(profileName, profile, assistantToolStatusSuccess, output),
 	}
 }
 
@@ -226,6 +234,7 @@ func buildAssistantLLMPrompt(
 	payload := map[string]any{
 		"user_request":        strings.TrimSpace(userContent),
 		"intent":              plan.Intent,
+		"validated_plan":      assistantPlanActivityInput(plan),
 		"conversation_memory": normalizeAssistantMemory(conversation.Memory),
 		"tool_calls":          assistantLLMPromptToolCalls(toolCalls),
 		"tool_summary":        strings.TrimSpace(deterministicReply),

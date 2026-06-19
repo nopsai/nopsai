@@ -1,14 +1,20 @@
 package nopsai
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
 	"github.com/google/uuid"
 
+	"nopsai/config"
 	"nopsai/pkg/httpapi"
+	aaamodel "nopsai/services/aaa/pkg/model"
 )
 
 const hostedMCPProtocolVersion = "2025-06-18"
@@ -49,6 +55,9 @@ func (a *App) handleHostedMCP(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAssistantEnabled(w) {
 		return
 	}
+	if !a.requireHostedMCPEnabled(w) {
+		return
+	}
 	userID, ok := a.requireAssistantUserID(w, r)
 	if !ok {
 		return
@@ -59,14 +68,9 @@ func (a *App) handleHostedMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req hostedMCPRequest
-	if err := httpapi.DecodeJSON(r, &req); err != nil {
+	req, err := decodeHostedMCPRequest(r)
+	if err != nil {
 		writeHostedMCPError(w, nil, -32700, "invalid JSON-RPC payload")
-		return
-	}
-	req.Method = strings.TrimSpace(req.Method)
-	if req.JSONRPC != "" && req.JSONRPC != "2.0" {
-		writeHostedMCPError(w, req.ID, -32600, "jsonrpc must be 2.0")
 		return
 	}
 	if req.ID == nil && strings.HasPrefix(req.Method, "notifications/") {
@@ -74,9 +78,50 @@ func (a *App) handleHostedMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	writeHostedMCPResponse(w, a.processHostedMCPRequest(r.Context(), subject, userID, req))
+}
+
+func (a *App) requireHostedMCPEnabled(w http.ResponseWriter) bool {
+	if !config.AssistantMCPEnabled(a.assistantConfig().MCP) {
+		http.Error(w, "hosted MCP is disabled", http.StatusNotFound)
+		return false
+	}
+	return true
+}
+
+func decodeHostedMCPRequest(r *http.Request) (hostedMCPRequest, error) {
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		return hostedMCPRequest{}, err
+	}
+	if strings.TrimSpace(string(raw)) == "" {
+		return hostedMCPRequest{JSONRPC: "2.0", Method: "tools/list"}, nil
+	}
+
+	var req hostedMCPRequest
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	if err := decoder.Decode(&req); err != nil {
+		return hostedMCPRequest{}, err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err == nil {
+		return hostedMCPRequest{}, errors.New("invalid trailing JSON-RPC payload")
+	} else if !errors.Is(err, io.EOF) {
+		return hostedMCPRequest{}, err
+	}
+	req.Method = strings.TrimSpace(req.Method)
+	return req, nil
+}
+
+func (a *App) processHostedMCPRequest(ctx context.Context, subject aaamodel.Subject, userID string, req hostedMCPRequest) hostedMCPResponse {
+	req.Method = strings.TrimSpace(req.Method)
+	if req.JSONRPC != "" && req.JSONRPC != "2.0" {
+		return hostedMCPErrorResponse(req.ID, -32600, "jsonrpc must be 2.0")
+	}
+
 	switch req.Method {
 	case "initialize":
-		writeHostedMCPResult(w, req.ID, map[string]any{
+		return hostedMCPResultResponse(req.ID, map[string]any{
 			"protocolVersion": hostedMCPProtocolVersion,
 			"capabilities": map[string]any{
 				"tools":     map[string]any{"listChanged": true},
@@ -88,45 +133,40 @@ func (a *App) handleHostedMCP(w http.ResponseWriter, r *http.Request) {
 			},
 		})
 	case "tools/list":
-		tools := a.hostedMCPToolsForSubject(r.Context(), subject)
-		writeHostedMCPResult(w, req.ID, map[string]any{"tools": tools})
+		tools := a.hostedMCPToolsForSubject(ctx, subject)
+		return hostedMCPResultResponse(req.ID, map[string]any{"tools": tools})
 	case "tools/call":
 		var params hostedMCPToolCallParams
 		if err := json.Unmarshal(req.Params, &params); err != nil {
-			writeHostedMCPError(w, req.ID, -32602, "invalid tools/call params")
-			return
+			return hostedMCPErrorResponse(req.ID, -32602, "invalid tools/call params")
 		}
 		params.Name = strings.TrimSpace(params.Name)
 		if params.Arguments == nil {
 			params.Arguments = map[string]any{}
 		}
-		tool, ok := a.hostedMCPToolByName(r.Context(), subject, params.Name)
+		tool, ok := a.hostedMCPToolByName(ctx, subject, params.Name)
 		if !ok {
-			writeHostedMCPError(w, req.ID, -32601, "tool is not available")
-			return
+			return hostedMCPErrorResponse(req.ID, -32601, "tool is not available")
 		}
 		conversationID := hostedMCPConversationID(params.Arguments)
-		result, err := a.callHostedMCPTool(r.Context(), subject, userID, tool, params.Arguments, conversationID)
+		result, err := a.callHostedMCPTool(ctx, subject, userID, tool, params.Arguments, conversationID)
 		if err != nil {
-			writeHostedMCPResult(w, req.ID, hostedMCPToolResult(map[string]any{"error": err.Error()}, true))
-			return
+			return hostedMCPResultResponse(req.ID, hostedMCPToolResult(map[string]any{"error": err.Error()}, true))
 		}
-		writeHostedMCPResult(w, req.ID, hostedMCPToolResult(result, false))
+		return hostedMCPResultResponse(req.ID, hostedMCPToolResult(result, false))
 	case "resources/list":
-		resources := a.hostedMCPResourcesForSubject(r.Context(), subject)
-		writeHostedMCPResult(w, req.ID, map[string]any{"resources": resources})
+		resources := a.hostedMCPResourcesForSubject(ctx, subject)
+		return hostedMCPResultResponse(req.ID, map[string]any{"resources": resources})
 	case "resources/read":
 		var params hostedMCPResourceReadParams
 		if err := json.Unmarshal(req.Params, &params); err != nil {
-			writeHostedMCPError(w, req.ID, -32602, "invalid resources/read params")
-			return
+			return hostedMCPErrorResponse(req.ID, -32602, "invalid resources/read params")
 		}
-		resource, text, err := a.readHostedMCPResource(r.Context(), subject, params.URI)
+		resource, text, err := a.readHostedMCPResource(ctx, subject, params.URI)
 		if err != nil {
-			writeHostedMCPError(w, req.ID, -32000, err.Error())
-			return
+			return hostedMCPErrorResponse(req.ID, -32000, err.Error())
 		}
-		writeHostedMCPResult(w, req.ID, map[string]any{
+		return hostedMCPResultResponse(req.ID, map[string]any{
 			"contents": []map[string]any{{
 				"uri":      resource.URI,
 				"mimeType": resource.MimeType,
@@ -134,7 +174,7 @@ func (a *App) handleHostedMCP(w http.ResponseWriter, r *http.Request) {
 			}},
 		})
 	default:
-		writeHostedMCPError(w, req.ID, -32601, fmt.Sprintf("method %q is not supported", req.Method))
+		return hostedMCPErrorResponse(req.ID, -32601, fmt.Sprintf("method %q is not supported", req.Method))
 	}
 }
 
@@ -167,20 +207,32 @@ func hostedMCPConversationID(arguments map[string]any) *uuid.UUID {
 }
 
 func writeHostedMCPResult(w http.ResponseWriter, id any, result any) {
-	_ = httpapi.WriteJSON(w, http.StatusOK, hostedMCPResponse{
-		JSONRPC: "2.0",
-		ID:      id,
-		Result:  result,
-	})
+	writeHostedMCPResponse(w, hostedMCPResultResponse(id, result))
 }
 
 func writeHostedMCPError(w http.ResponseWriter, id any, code int, message string) {
-	_ = httpapi.WriteJSON(w, http.StatusOK, hostedMCPResponse{
+	writeHostedMCPResponse(w, hostedMCPErrorResponse(id, code, message))
+}
+
+func writeHostedMCPResponse(w http.ResponseWriter, response hostedMCPResponse) {
+	_ = httpapi.WriteJSON(w, http.StatusOK, response)
+}
+
+func hostedMCPResultResponse(id any, result any) hostedMCPResponse {
+	return hostedMCPResponse{
+		JSONRPC: "2.0",
+		ID:      id,
+		Result:  result,
+	}
+}
+
+func hostedMCPErrorResponse(id any, code int, message string) hostedMCPResponse {
+	return hostedMCPResponse{
 		JSONRPC: "2.0",
 		ID:      id,
 		Error: &hostedMCPError{
 			Code:    code,
 			Message: message,
 		},
-	})
+	}
 }

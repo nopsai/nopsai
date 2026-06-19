@@ -10,6 +10,7 @@ import {
   updateEmail,
   type PersonalAccessToken,
 } from '../lib/api';
+import { copyTextToClipboard } from '../lib/clipboard';
 
 type CurrentUser = {
   sub: string;
@@ -97,7 +98,7 @@ export default function ProfilePage({ user, loading, onLogout, onUserUpdated, mu
   const [tokenLoading, setTokenLoading] = useState(false);
   const [tokenSaving, setTokenSaving] = useState(false);
   const [tokenActionID, setTokenActionID] = useState<string | null>(null);
-  const [tokenCopyState, setTokenCopyState] = useState<'idle' | 'copied'>('idle');
+  const [tokenCopyState, setTokenCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const initials = useMemo(() => {
     const base = (user?.email || user?.sub || 'U').trim();
     const cleaned = base.replace(/[^A-Za-z0-9]/g, '');
@@ -233,11 +234,12 @@ export default function ProfilePage({ user, loading, onLogout, onUserUpdated, mu
   const handleCopyToken = async () => {
     if (!createdToken?.token) return;
     try {
-      await navigator.clipboard.writeText(createdToken.token);
+      await copyTextToClipboard(createdToken.token);
       setTokenCopyState('copied');
       window.setTimeout(() => setTokenCopyState('idle'), 1500);
     } catch {
-      window.alert('Failed to copy token.');
+      setTokenCopyState('failed');
+      window.setTimeout(() => setTokenCopyState('idle'), 2200);
     }
   };
 
@@ -435,7 +437,7 @@ export default function ProfilePage({ user, loading, onLogout, onUserUpdated, mu
                     <input className="pipelines-input flex-1 font-mono text-xs" value={createdToken.token} readOnly />
                     <button type="button" className="glass-button-subtle inline-flex items-center justify-center gap-2" onClick={handleCopyToken}>
                       <Copy className="h-4 w-4" aria-hidden="true" />
-                      <span>{tokenCopyState === 'copied' ? 'Copied' : 'Copy'}</span>
+                      <span>{tokenCopyState === 'copied' ? 'Copied' : tokenCopyState === 'failed' ? 'Copy failed' : 'Copy'}</span>
                     </button>
                   </div>
                   <p className="text-xs text-[var(--text-secondary)]">

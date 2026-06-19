@@ -52,6 +52,24 @@ func TestHostedMCPToolsAreFilteredByAAA(t *testing.T) {
 	}
 }
 
+func TestHostedMCPEmptyCurlDefaultsToToolsList(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/v1/mcp", nil)
+	decoded, err := decodeHostedMCPRequest(req)
+	if err != nil {
+		t.Fatalf("decodeHostedMCPRequest() error = %v", err)
+	}
+	if decoded.JSONRPC != "2.0" || decoded.Method != "tools/list" {
+		t.Fatalf("decoded request = %#v, want tools/list default", decoded)
+	}
+}
+
+func TestHostedMCPDecodeRejectsTrailingPayload(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/v1/mcp", strings.NewReader(`{"jsonrpc":"2.0","method":"tools/list"} {}`))
+	if _, err := decodeHostedMCPRequest(req); err == nil {
+		t.Fatal("decodeHostedMCPRequest() should reject trailing JSON")
+	}
+}
+
 func TestHostedMCPAPIBridgeChecksRoutePermissionForCurrentSubject(t *testing.T) {
 	subject := model.Subject{Type: model.SubjectTypeUser, Sub: "viewer@example.com"}
 	var checkedSubject model.Subject
@@ -223,6 +241,40 @@ func TestHostedMCPValidatePipelineReturnsStructuredValidation(t *testing.T) {
 	}
 	if result["error"] == "" {
 		t.Fatalf("validation error missing: %#v", result)
+	}
+}
+
+func TestHostedMCPGeneratePipelineUsesGolangAWSECSTemplate(t *testing.T) {
+	result := hostedMCPGeneratePipeline(map[string]any{
+		"name": "deploy-api",
+		"goal": "create steps to build, test, and deploy a Golang app to AWS ECS",
+	})
+	raw := assistantOutputString(result, "yaml")
+	if result["template_id"] != "golang-aws-ecs" {
+		t.Fatalf("template_id = %#v, want golang-aws-ecs", result["template_id"])
+	}
+	for _, want := range []string{
+		"name: deploy-api",
+		"name: go-test",
+		"name: docker-build-push",
+		"name: production-approval",
+		"name: update-ecs",
+		"AWS_ACCESS_KEY_ID",
+		"ECS_SERVICE",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("generated yaml missing %q:\n%s", want, raw)
+		}
+	}
+	if strings.Count(raw, "goal:") != 0 {
+		t.Fatalf("domain template should use executable scripts, not generic LLM goals:\n%s", raw)
+	}
+	validation := hostedMCPValidatePipelineYAML(raw)
+	if validation["valid"] != true {
+		t.Fatalf("generated yaml should validate, got %#v\n%s", validation, raw)
+	}
+	if len(assistantStringSlice(result["required_variables"])) == 0 || len(assistantStringSlice(result["required_secrets"])) == 0 {
+		t.Fatalf("required vars/secrets missing: %#v", result)
 	}
 }
 
@@ -645,10 +697,13 @@ func TestHostedMCPMonitoringAnalyticsPathUsesAliases(t *testing.T) {
 	path := hostedMCPMonitoringAnalyticsPath("nopsai.get_monitoring_summary", map[string]any{
 		"group_id":                   "42",
 		"pipeline_path":              "platform",
+		"llm_profile":                "standard",
+		"step_name":                  "plan",
+		"task_name":                  "summarize",
 		"min_duration_seconds":       5,
 		"include_sensitive_response": true,
 	})
-	if !strings.Contains(path, "groupId=42") || !strings.Contains(path, "pipelinePath=platform") || !strings.Contains(path, "minDurationSeconds=5") {
+	if !strings.Contains(path, "groupId=42") || !strings.Contains(path, "pipelinePath=platform") || !strings.Contains(path, "llmProfile=standard") || !strings.Contains(path, "stepName=plan") || !strings.Contains(path, "taskName=summarize") || !strings.Contains(path, "minDurationSeconds=5") {
 		t.Fatalf("path = %q", path)
 	}
 	if strings.Contains(path, "include_sensitive_response") {
