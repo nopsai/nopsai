@@ -2,13 +2,19 @@ package service
 
 import (
 	"context"
+	"errors"
+	"io"
+	"strings"
 	"testing"
+	"time"
 
 	"nopsai/pkg/proto"
 
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/emptypb"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/fake"
 )
 
 func TestWorkspaceClaimNameUsesAgentEphemeralPVCName(t *testing.T) {
@@ -78,6 +84,102 @@ func TestEmitRunLogSendsDiagnosticToDispatcher(t *testing.T) {
 	}
 }
 
+func TestStreamPodLogsReattachesWhenFollowStreamEndsBeforePodCompletes(t *testing.T) {
+	dispatcher := &recordingDispatcherClient{}
+	client := fake.NewSimpleClientset(&corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "agent-run-123", Namespace: "runs"},
+		Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+	})
+	const firstLine = "2026-06-19T10:00:00Z first agent line"
+	const secondLine = "2026-06-19T10:00:01Z second agent line"
+	var calls []corev1.PodLogOptions
+
+	r := &kubernetesRunner{
+		client:           client,
+		namespace:        "runs",
+		podLogRetryDelay: time.Millisecond,
+		podLogStream: func(_ context.Context, podName string, opts *corev1.PodLogOptions) (io.ReadCloser, error) {
+			if podName != "agent-run-123" {
+				t.Fatalf("pod name = %q, want agent-run-123", podName)
+			}
+			calls = append(calls, *opts)
+			switch len(calls) {
+			case 1:
+				if !opts.Follow || opts.SinceTime != nil {
+					t.Fatalf("first log request = %#v, want initial follow without since_time", opts)
+				}
+				return io.NopCloser(strings.NewReader(firstLine + "\n")), nil
+			case 2:
+				if !opts.Follow || opts.SinceTime == nil {
+					t.Fatalf("second log request = %#v, want reattached follow with since_time", opts)
+				}
+				setTestPodPhase(t, client, "runs", "agent-run-123", corev1.PodSucceeded)
+				return io.NopCloser(strings.NewReader(secondLine + "\n")), nil
+			case 3:
+				if opts.Follow || opts.SinceTime == nil {
+					t.Fatalf("third log request = %#v, want final non-follow with since_time", opts)
+				}
+				return io.NopCloser(strings.NewReader(secondLine + "\n")), nil
+			default:
+				t.Fatalf("unexpected log stream call %d", len(calls))
+				return nil, errors.New("unexpected call")
+			}
+		},
+	}
+
+	r.streamPodLogs(context.Background(), dispatcher, "run-123", "agent-run-123")
+
+	got := flattenLogBatches(dispatcher.batches)
+	want := []string{firstLine, secondLine}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("forwarded logs = %#v, want %#v", got, want)
+	}
+	if len(calls) != 3 {
+		t.Fatalf("log stream calls = %d, want follow, reattach, final fetch", len(calls))
+	}
+}
+
+func TestStreamPodLogsFetchesFinalLogsWhenFollowAttachFailsAfterPodCompletes(t *testing.T) {
+	dispatcher := &recordingDispatcherClient{}
+	client := fake.NewSimpleClientset(&corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "agent-run-456", Namespace: "runs"},
+		Status:     corev1.PodStatus{Phase: corev1.PodSucceeded},
+	})
+	const finalLine = "2026-06-19T10:00:02Z final agent line"
+	var calls []corev1.PodLogOptions
+
+	r := &kubernetesRunner{
+		client:           client,
+		namespace:        "runs",
+		podLogRetryDelay: time.Millisecond,
+		podLogStream: func(_ context.Context, _ string, opts *corev1.PodLogOptions) (io.ReadCloser, error) {
+			calls = append(calls, *opts)
+			switch len(calls) {
+			case 1:
+				if !opts.Follow {
+					t.Fatalf("first log request = %#v, want follow", opts)
+				}
+				return nil, errors.New("container is terminated")
+			case 2:
+				if opts.Follow {
+					t.Fatalf("second log request = %#v, want final non-follow fetch", opts)
+				}
+				return io.NopCloser(strings.NewReader(finalLine + "\n")), nil
+			default:
+				t.Fatalf("unexpected log stream call %d", len(calls))
+				return nil, errors.New("unexpected call")
+			}
+		},
+	}
+
+	r.streamPodLogs(context.Background(), dispatcher, "run-456", "agent-run-456")
+
+	got := flattenLogBatches(dispatcher.batches)
+	if len(got) != 1 || got[0] != finalLine {
+		t.Fatalf("forwarded logs = %#v, want final line", got)
+	}
+}
+
 type recordingDispatcherClient struct {
 	proto.DispatcherServiceClient
 	batches []*proto.LogBatch
@@ -86,4 +188,24 @@ type recordingDispatcherClient struct {
 func (c *recordingDispatcherClient) IngestLogs(_ context.Context, batch *proto.LogBatch, _ ...grpc.CallOption) (*emptypb.Empty, error) {
 	c.batches = append(c.batches, batch)
 	return &emptypb.Empty{}, nil
+}
+
+func setTestPodPhase(t *testing.T, client *fake.Clientset, namespace, podName string, phase corev1.PodPhase) {
+	t.Helper()
+	pod, err := client.CoreV1().Pods(namespace).Get(context.Background(), podName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get pod: %v", err)
+	}
+	pod.Status.Phase = phase
+	if _, err := client.CoreV1().Pods(namespace).UpdateStatus(context.Background(), pod, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("update pod status: %v", err)
+	}
+}
+
+func flattenLogBatches(batches []*proto.LogBatch) []string {
+	var out []string
+	for _, batch := range batches {
+		out = append(out, batch.Lines...)
+	}
+	return out
 }

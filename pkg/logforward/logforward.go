@@ -22,6 +22,7 @@ type Options struct {
 	ScannerBufferBytes  int
 	MaxScanTokenBytes   int
 	MaxForwardLineBytes int
+	FilterLine          func(string) (string, bool)
 	OnScannerError      func(error)
 }
 
@@ -44,6 +45,13 @@ func Forward(ctx context.Context, reader io.Reader, send Sender, opts Options) {
 
 	var batch []string
 	appendLine := func(sendCtx context.Context, line string) {
+		if opts.FilterLine != nil {
+			filtered, ok := opts.FilterLine(line)
+			if !ok {
+				return
+			}
+			line = filtered
+		}
 		for _, chunk := range splitLine(line, opts.MaxForwardLineBytes) {
 			batch = append(batch, chunk)
 			if len(batch) >= opts.BatchSize {

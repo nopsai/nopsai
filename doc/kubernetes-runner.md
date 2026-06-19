@@ -25,11 +25,12 @@ substrate from Docker containers to Kubernetes pods.
 ## Log Delivery
 
 The Kubernetes runner follows the agent pod's `pods/log` stream and forwards
-logs to the dispatcher in batches. After the agent pod reaches `Succeeded` or
-`Failed`, the runner waits briefly for the pod log stream to drain before
-cleaning up the pod, so the final task and agent lines are persisted with the
-run. Very large log entries are split into transport-safe chunks before they are
-sent to NopsAI.
+logs to the dispatcher in batches. If Kubernetes closes the follow stream before
+the agent pod reaches `Succeeded` or `Failed`, the runner reattaches using the
+last observed Kubernetes log timestamp. Once the pod is terminal, the runner also
+performs a final non-follow log read to capture any lines that arrived during
+stream shutdown. Duplicate terminal lines are suppressed before large log entries
+are split into transport-safe chunks and sent to NopsAI.
 
 The generated Role includes `get`, `list`, and `watch` on `pods/log`. Keep those
 permissions in custom manifests; without them the run may complete but the UI

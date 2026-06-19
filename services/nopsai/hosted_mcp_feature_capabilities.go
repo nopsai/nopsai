@@ -24,6 +24,7 @@ func (a *App) hostedMCPGetFeatureCapabilities(ctx context.Context, subject aaamo
 	areaFilter := strings.ToLower(strings.TrimSpace(stringArg(args, "area")))
 	query := strings.ToLower(strings.TrimSpace(stringArg(args, "query")))
 	includeAPIRoutes := boolArg(args, "include_api_routes", true)
+	areaFilter, query = hostedMCPNormalizeFeatureCapabilityFilters(areaFilter, query)
 
 	availableTools := hostedMCPToolNames(a.hostedMCPToolsForSubject(ctx, subject))
 	availableToolSet := hostedMCPNameSet(availableTools)
@@ -1098,16 +1099,39 @@ func hostedMCPFeatureCapabilityMatches(capability hostedMCPFeatureCapability, qu
 	values = append(values, capability.APIRoutes...)
 	values = append(values, capability.Notes...)
 	for _, value := range values {
-		if strings.Contains(strings.ToLower(value), query) {
+		if hostedMCPTextMatchesSearch(value, query) {
 			return true
 		}
 	}
 	for _, permission := range capability.Permissions {
-		if strings.Contains(strings.ToLower(permission.Action+" "+permission.Resource.Type+" "+permission.Resource.ID), query) {
+		if hostedMCPTextMatchesSearch(permission.Action+" "+permission.Resource.Type+" "+permission.Resource.ID, query) {
 			return true
 		}
 	}
 	return false
+}
+
+func hostedMCPNormalizeFeatureCapabilityFilters(areaFilter, query string) (string, string) {
+	areaFilter = strings.ToLower(strings.TrimSpace(areaFilter))
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return areaFilter, query
+	}
+	if containsAny(query, "features can i use", "what features", "assistant capabilities", "capabilities do i have", "available tools", "available resources", "feature coverage", "mcp coverage") {
+		return areaFilter, ""
+	}
+	if containsAny(query, "policy", "prevent", "block", "hide", "showing", "show", "expose", "read") &&
+		containsAny(query, "env", "envs", "environment variable", "environment variables", "secret", "secrets", "credential", "credentials", "token", "password") {
+		if areaFilter == "" {
+			if containsAny(query, "credential", "credentials") && !containsAny(query, "env", "envs", "secret", "secrets", "environment") {
+				areaFilter = "system"
+			} else {
+				areaFilter = "secrets"
+			}
+		}
+		return areaFilter, ""
+	}
+	return areaFilter, query
 }
 
 func hostedMCPToolNames(tools []hostedMCPTool) []string {

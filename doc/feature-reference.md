@@ -258,6 +258,10 @@ triggers, schedules, scopes, pipelines, profiles, docs, setup state, access,
 credentials, and system status. Generated YAML and GitOps write plans are
 proposals only; confirmed runtime/admin tools still go through the existing
 API, approval, AAA, and audit flows.
+The deterministic orchestration layer handles common chat aliases such as
+`pipelineruns`, approval-step pipeline searches, feature-discovery questions,
+and env/secret exposure policy questions so permission-bound answers still work
+when final LLM synthesis is unavailable.
 
 Nopsai also exposes a first-party hosted MCP endpoint at `POST /v1/mcp`. This
 is separate from the external MCP registry in `setting/system/mcp.yaml`: the
