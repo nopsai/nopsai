@@ -239,6 +239,42 @@ func TestHostedMCPPipelineSearchMatchFieldsAndSnippet(t *testing.T) {
 	}
 }
 
+func TestHostedMCPPipelineSearchTokenizesApprovalStepQuery(t *testing.T) {
+	definition := "name: release\nsteps:\n  - name: production-gate\n    approval:\n      type: manual\n"
+	fields := hostedMCPPipelineMatchFields(
+		"approval step",
+		"platform",
+		"release",
+		"latest",
+		"git",
+		"group",
+		definition,
+	)
+	if len(fields) != 1 || fields[0] != "definition" {
+		t.Fatalf("fields = %#v, want definition", fields)
+	}
+	snippet := hostedMCPSnippet(definition, "approval step", 48)
+	if snippet == "" || !strings.Contains(snippet, "approval") {
+		t.Fatalf("snippet = %q, want approval context", snippet)
+	}
+	patterns := hostedMCPSearchPatterns("approval step")
+	if len(patterns) != 1 || patterns[0] != "%approval%" {
+		t.Fatalf("patterns = %#v, want approval-only pattern", patterns)
+	}
+}
+
+func TestHostedMCPFeatureCapabilitiesNormalizeNaturalLanguagePolicyQuery(t *testing.T) {
+	area, query := hostedMCPNormalizeFeatureCapabilityFilters("", "do we have any policy to prevent showing envs?")
+	if area != "secrets" || query != "" {
+		t.Fatalf("filters = area %q query %q, want secrets with broad query", area, query)
+	}
+
+	area, query = hostedMCPNormalizeFeatureCapabilityFilters("", "What features can I use with the assistant right now?")
+	if area != "" || query != "" {
+		t.Fatalf("filters = area %q query %q, want broad capability catalog", area, query)
+	}
+}
+
 func TestHostedMCPGetDispatcherStatusReturnsRunnerSummary(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

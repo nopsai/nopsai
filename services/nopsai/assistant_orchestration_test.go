@@ -144,6 +144,83 @@ func TestAssistantPlanDetectsPipelineSearch(t *testing.T) {
 	}
 }
 
+func TestAssistantPlanRecognizesReportedMCPChatPhrases(t *testing.T) {
+	tests := []struct {
+		name           string
+		message        string
+		wantIntent     string
+		wantQuery      string
+		wantArea       string
+		wantPipelineID string
+	}{
+		{
+			name:       "feature discovery",
+			message:    "What features can I use with the assistant right now?",
+			wantIntent: "feature_capabilities",
+		},
+		{
+			name:       "pipelineruns alias",
+			message:    "list of pipelineruns",
+			wantIntent: "list_runs",
+		},
+		{
+			name:           "approval pipeline search",
+			message:        "give me a pipeline that has approval step",
+			wantIntent:     "search_pipelines",
+			wantQuery:      "approval",
+			wantPipelineID: "",
+		},
+		{
+			name:       "env policy",
+			message:    "do we have any policy to prevent showing envs?",
+			wantIntent: "feature_capabilities",
+			wantQuery:  "secret",
+			wantArea:   "secrets",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			plan := assistantPlanFromMessage(tt.message, assistantConversationMemory{})
+			if plan.Intent != tt.wantIntent {
+				t.Fatalf("intent = %q, want %q", plan.Intent, tt.wantIntent)
+			}
+			if plan.SearchQuery != tt.wantQuery {
+				t.Fatalf("search query = %q, want %q", plan.SearchQuery, tt.wantQuery)
+			}
+			if plan.CapabilityArea != tt.wantArea {
+				t.Fatalf("capability area = %q, want %q", plan.CapabilityArea, tt.wantArea)
+			}
+			if plan.PipelineID != tt.wantPipelineID {
+				t.Fatalf("pipeline id = %q, want %q", plan.PipelineID, tt.wantPipelineID)
+			}
+		})
+	}
+}
+
+func TestAssistantOrchestrationAnswersSensitivePolicyFromCapabilities(t *testing.T) {
+	app := &App{aaaLocal: allowActionsForAssistantTest("system.read")}
+
+	result := app.runAssistantConversationTurn(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		"user:viewer",
+		assistantConversation{ID: uuid.New(), DocsVersion: "auto"},
+		"do we have any policy to prevent showing envs?",
+		"",
+	)
+
+	if len(result.ToolCalls) != 1 || result.ToolCalls[0].Name != "nopsai.get_feature_capabilities" {
+		t.Fatalf("tool calls = %#v, want feature capabilities", result.ToolCalls)
+	}
+	if result.ToolCalls[0].Input["area"] != "secrets" || result.ToolCalls[0].Input["query"] != "secret" {
+		t.Fatalf("capability input = %#v, want secrets/secret", result.ToolCalls[0].Input)
+	}
+	if !strings.Contains(result.Reply, "Policy notes") || !strings.Contains(result.Reply, "Plaintext secret reads remain blocked") {
+		t.Fatalf("reply = %q, want sensitive policy notes", result.Reply)
+	}
+}
+
 func TestAssistantOrchestrationChecksDispatcherAndRunners(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

@@ -324,13 +324,15 @@ func (a *App) hostedMCPSearchPipelines(ctx context.Context, subject aaamodel.Sub
 	if query == "" {
 		return nil, fmt.Errorf("query is required")
 	}
+	patterns := hostedMCPSearchPatterns(query)
 	rows, err := a.db.Query(ctx, `
 		SELECT path, name, version, source, visibility, updated_at, definition
 		FROM pipelines
 		WHERE LOWER(path || ' ' || name || ' ' || version || ' ' || source || ' ' || visibility || ' ' || definition) LIKE LOWER('%' || $1 || '%')
+		   OR ($3::text[] <> '{}'::text[] AND LOWER(path || ' ' || name || ' ' || version || ' ' || source || ' ' || visibility || ' ' || definition) LIKE ALL($3::text[]))
 		ORDER BY path ASC, name ASC
 		LIMIT $2
-	`, query, limitArg(args, 50, 200))
+	`, query, limitArg(args, 50, 200), patterns)
 	if err != nil {
 		return nil, err
 	}
@@ -381,6 +383,13 @@ func (a *App) hostedMCPGetPipeline(ctx context.Context, args map[string]any) (ma
 		WHERE path = $1 AND name = $2
 	`, pathPart, namePart).Scan(&version, &definition, &source, &visibility, &updatedAt)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			pipelineID := aaamodel.BuildPipelineID(pathPart, namePart)
+			if pipelineID == "" {
+				pipelineID = "requested pipeline"
+			}
+			return nil, fmt.Errorf("pipeline %q was not found", pipelineID)
+		}
 		return nil, err
 	}
 	return map[string]any{
@@ -1258,7 +1267,7 @@ func hostedMCPPipelineMatchFields(query, path, name, version, source, visibility
 	}
 	matches := []string{}
 	for _, field := range fields {
-		if strings.Contains(strings.ToLower(field.value), query) {
+		if hostedMCPTextMatchesSearch(strings.ToLower(field.value), query) {
 			matches = append(matches, field.name)
 		}
 	}
@@ -1278,6 +1287,14 @@ func hostedMCPSnippet(content, query string, maxLen int) string {
 	lowerContent := strings.ToLower(content)
 	lowerQuery := strings.ToLower(query)
 	index := strings.Index(lowerContent, lowerQuery)
+	if index < 0 {
+		for _, term := range hostedMCPSearchTerms(query) {
+			index = strings.Index(lowerContent, term)
+			if index >= 0 {
+				break
+			}
+		}
+	}
 	if index < 0 {
 		return ""
 	}
@@ -1301,6 +1318,65 @@ func hostedMCPSnippet(content, query string, maxLen int) string {
 		snippet += "..."
 	}
 	return snippet
+}
+
+func hostedMCPTextMatchesSearch(value, query string) bool {
+	value = strings.ToLower(strings.TrimSpace(value))
+	query = strings.ToLower(strings.TrimSpace(query))
+	if value == "" || query == "" {
+		return false
+	}
+	if strings.Contains(value, query) {
+		return true
+	}
+	terms := hostedMCPSearchTerms(query)
+	if len(terms) == 0 {
+		return false
+	}
+	for _, term := range terms {
+		if !strings.Contains(value, term) {
+			return false
+		}
+	}
+	return true
+}
+
+func hostedMCPSearchPatterns(query string) []string {
+	terms := hostedMCPSearchTerms(query)
+	patterns := make([]string, 0, len(terms))
+	for _, term := range terms {
+		patterns = append(patterns, "%"+term+"%")
+	}
+	return patterns
+}
+
+func hostedMCPSearchTerms(query string) []string {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return []string{}
+	}
+	stopWords := map[string]struct{}{
+		"a": {}, "an": {}, "and": {}, "are": {}, "for": {}, "has": {}, "have": {}, "having": {}, "in": {}, "me": {}, "of": {}, "or": {}, "pipeline": {}, "pipelineruns": {}, "pipelines": {}, "please": {}, "run": {}, "runs": {}, "show": {}, "step": {}, "steps": {}, "that": {}, "the": {}, "to": {}, "with": {},
+	}
+	terms := []string{}
+	seen := map[string]struct{}{}
+	for _, part := range strings.FieldsFunc(query, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '_' && r != '-' && r != '/'
+	}) {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if _, skip := stopWords[part]; skip {
+			continue
+		}
+		if _, ok := seen[part]; ok {
+			continue
+		}
+		seen[part] = struct{}{}
+		terms = append(terms, part)
+	}
+	return terms
 }
 
 func pipelineWritePlanResourceID(args map[string]any) string {
