@@ -14,28 +14,37 @@ import (
 )
 
 func TestHostedMCPToolsAreFilteredByAAA(t *testing.T) {
-	app := &App{aaaLocal: stubAAAAuthorizer{
+	allowPipelineList := stubAAAAuthorizer{
 		checkFn: func(_ context.Context, _ model.Subject, action string, resource model.ResourceRef, _ map[string]any) (model.Decision, error) {
 			allowed := action == "pipeline.list" && resource.Type == "pipeline" && resource.ID == "*"
 			return model.Decision{Allowed: allowed}, nil
 		},
-	}}
+	}
+	app := &App{aaaLocal: allowPipelineList}
 
 	tools := app.hostedMCPToolsForSubject(context.Background(), model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"})
-	if len(tools) != 4 {
-		t.Fatalf("tools len = %d, want 4: %#v", len(tools), tools)
+	if len(tools) != 3 {
+		t.Fatalf("tools len = %d, want 3: %#v", len(tools), tools)
 	}
-	authenticatedBridgeFound := false
 	for _, tool := range tools {
 		if tool.AuthenticatedOnly {
-			if tool.Name == "nopsai.call_api" {
-				authenticatedBridgeFound = true
-				continue
-			}
 			t.Fatalf("unexpected authenticated-only tool escaped filter: %#v", tool)
 		}
 		if tool.Action != "pipeline.list" || tool.Resource.Type != "pipeline" || tool.Resource.ID != "*" {
 			t.Fatalf("unexpected tool escaped filter: %#v", tool)
+		}
+	}
+
+	enabled := true
+	app = &App{
+		cfg:      &config.Config{Assistant: config.AssistantConfig{Features: config.AssistantFeaturesConfig{ActionExecution: &enabled}}},
+		aaaLocal: allowPipelineList,
+	}
+	tools = app.hostedMCPToolsForSubject(context.Background(), model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"})
+	authenticatedBridgeFound := false
+	for _, tool := range tools {
+		if tool.Name == "nopsai.call_api" && tool.AuthenticatedOnly {
+			authenticatedBridgeFound = true
 		}
 	}
 	if !authenticatedBridgeFound {

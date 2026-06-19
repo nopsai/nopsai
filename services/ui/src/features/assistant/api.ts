@@ -1,9 +1,11 @@
 import { apiClient } from '../../lib/api.js';
 import {
+  normalizeAssistantConfig,
   normalizeAssistantConversation,
   normalizeAssistantConversationsPayload,
   normalizeAssistantLLMProfilesPayload,
   normalizeAssistantMessagePayload,
+  type AssistantConfig,
   type AssistantConversation,
   type AssistantConversationsPayload,
   type AssistantLLMProfilesPayload,
@@ -13,6 +15,14 @@ import {
 async function responseError(response: Response, fallback: string) {
   const text = await response.text();
   return text || fallback;
+}
+
+export async function fetchAssistantConfig(): Promise<AssistantConfig> {
+  const response = await apiClient.fetch('/v1/assistant/config', { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error(await responseError(response, `Failed to load assistant config (${response.status})`));
+  }
+  return normalizeAssistantConfig(await response.json());
 }
 
 export async function fetchAssistantConversations(): Promise<AssistantConversationsPayload> {

@@ -18,6 +18,11 @@ the current user's coverage. The response includes:
 For a user-facing capability catalog with example chat prompts, see
 [assistant-capabilities.md](./assistant-capabilities.md).
 
+The assistant planner maps normal-language requests to first-party MCP tools
+when the target is clear, and asks a clarifying question before tool execution
+when a broad term such as "usage" could mean AI/LLM tokens, runner cost,
+pipeline runs, variables, or another product area.
+
 `nopsai.call_api` is the broad compatibility bridge for remaining product
 features. It calls guarded `/v1` REST routes as the current authenticated
 subject, rejects public/provider ingress and internal service routes, blocks
@@ -37,12 +42,14 @@ Current first-class coverage includes setup status/preflight/template planning
 and confirmed bootstrap, pipeline inventory/search, pipeline YAML inspection and
 validation, reusable step GitOps plans, pipeline knowledge-context traversal,
 GitOps-ready pipeline create/update proposals, managed knowledge reads and write
-plans, run/log analysis, confirmed run mutations, schedule inventory and GitOps
-write plans, webhook source and external trigger plans, webhook-ingress policy
-explanations, config repo sync/drift/write workflows, notification mail/route
-plans, monitoring analytics/views/alerts/recommendation actions, data
-backup/cleanup operations, scope inventory, secret/variable metadata and safe
-write/GitOps plans, cost/statistics, LLM/MCP profile reads, system status,
+plans, run/log analysis with explicit run-status and bounded-log chaining,
+confirmed run mutations, schedule inventory and GitOps write plans, webhook
+source and external trigger plans, webhook-ingress policy explanations, config
+repo sync/drift/write workflows, notification mail/route plans, monitoring
+analytics/views/alerts/recommendation actions including AI token usage by
+pipeline/run, data backup/cleanup operations, scope inventory, secret/variable
+metadata and repeated variable-name analysis plus safe write/GitOps plans,
+cost/statistics, LLM/MCP profile reads, system status,
 credential metadata/rotation/GitOps plans, runner install/dispatch operations,
 AAA/access/audit/admin workflows, and dispatcher/runner health.
 The API bridge remains the compatibility surface for auth self-service and other

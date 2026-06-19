@@ -66,6 +66,39 @@ export type AssistantLLMProfilesPayload = {
   profiles: AssistantLLMProfile[];
 };
 
+export type AssistantConfig = {
+  enabled: boolean;
+  provider: string;
+  model: string;
+  default_docs_version: string;
+  conversation_retention_days: number;
+  max_input_logs_bytes: number;
+  max_conversation_turns: number;
+  docs_enabled: boolean;
+  docs_version_aware: boolean;
+  credential_configured: boolean;
+  dedicated_profile: string;
+  memory: {
+    enabled: boolean;
+    scope: string;
+  };
+  mcp: {
+    enabled: boolean;
+  };
+  features: {
+    docs: boolean;
+    pipeline_debugging: boolean;
+    config_generation: boolean;
+    statistics_insights: boolean;
+    maintenance_recommendations: boolean;
+    cost_recommendations: boolean;
+    action_execution: boolean;
+  };
+  actions: {
+    require_confirmation: boolean;
+  };
+};
+
 export const emptyAssistantMemory: AssistantMemory = {
   summary: '',
   entities: {},
@@ -122,6 +155,46 @@ export function normalizeAssistantLLMProfilesPayload(value: unknown): AssistantL
   };
 }
 
+export function normalizeAssistantConfig(value: unknown): AssistantConfig {
+  const record = asRecord(value) || {};
+  const memory = asRecord(record.memory) || {};
+  const mcp = asRecord(record.mcp) || {};
+  const features = asRecord(record.features) || {};
+  const actions = asRecord(record.actions) || {};
+  return {
+    enabled: readBoolean(record.enabled, false),
+    provider: readString(record.provider),
+    model: readString(record.model),
+    default_docs_version: readString(record.default_docs_version) || 'auto',
+    conversation_retention_days: readNumber(record.conversation_retention_days, 30),
+    max_input_logs_bytes: readNumber(record.max_input_logs_bytes, 120000),
+    max_conversation_turns: readNumber(record.max_conversation_turns, 30),
+    docs_enabled: readBoolean(record.docs_enabled, true),
+    docs_version_aware: readBoolean(record.docs_version_aware, true),
+    credential_configured: readBoolean(record.credential_configured, false),
+    dedicated_profile: readString(record.dedicated_profile),
+    memory: {
+      enabled: readBoolean(memory.enabled, false),
+      scope: readString(memory.scope) || 'conversation',
+    },
+    mcp: {
+      enabled: readBoolean(mcp.enabled, false),
+    },
+    features: {
+      docs: readBoolean(features.docs, true),
+      pipeline_debugging: readBoolean(features.pipeline_debugging, true),
+      config_generation: readBoolean(features.config_generation, true),
+      statistics_insights: readBoolean(features.statistics_insights, true),
+      maintenance_recommendations: readBoolean(features.maintenance_recommendations, true),
+      cost_recommendations: readBoolean(features.cost_recommendations, true),
+      action_execution: readBoolean(features.action_execution, false),
+    },
+    actions: {
+      require_confirmation: readBoolean(actions.require_confirmation, true),
+    },
+  };
+}
+
 export function normalizeAssistantMessage(value: unknown): AssistantMessage {
   const record = asRecord(value) || {};
   return {
@@ -171,6 +244,14 @@ function normalizeAssistantStringArray(value: unknown): string[] {
     normalized.push(item);
   });
   return normalized;
+}
+
+function readBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback;
+}
+
+function readNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
 function normalizeAssistantToolActivity(value: unknown): AssistantToolActivity {

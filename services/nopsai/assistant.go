@@ -85,6 +85,47 @@ type assistantLLMProfilesResponse struct {
 	Profiles       []assistantLLMProfileOption `json:"profiles"`
 }
 
+type assistantConfigResponse struct {
+	Enabled                   bool                            `json:"enabled"`
+	Provider                  string                          `json:"provider,omitempty"`
+	Model                     string                          `json:"model,omitempty"`
+	DefaultDocsVersion        string                          `json:"default_docs_version"`
+	ConversationRetentionDays int                             `json:"conversation_retention_days"`
+	MaxInputLogsBytes         int                             `json:"max_input_logs_bytes"`
+	MaxConversationTurns      int                             `json:"max_conversation_turns"`
+	DocsEnabled               bool                            `json:"docs_enabled"`
+	DocsVersionAware          bool                            `json:"docs_version_aware"`
+	CredentialConfigured      bool                            `json:"credential_configured"`
+	DedicatedProfile          string                          `json:"dedicated_profile,omitempty"`
+	Memory                    assistantMemoryConfigResponse   `json:"memory"`
+	MCP                       assistantMCPConfigResponse      `json:"mcp"`
+	Features                  assistantFeaturesConfigResponse `json:"features"`
+	Actions                   assistantActionsConfigResponse  `json:"actions"`
+}
+
+type assistantMemoryConfigResponse struct {
+	Enabled bool   `json:"enabled"`
+	Scope   string `json:"scope"`
+}
+
+type assistantMCPConfigResponse struct {
+	Enabled bool `json:"enabled"`
+}
+
+type assistantFeaturesConfigResponse struct {
+	Docs                       bool `json:"docs"`
+	PipelineDebugging          bool `json:"pipeline_debugging"`
+	ConfigGeneration           bool `json:"config_generation"`
+	StatisticsInsights         bool `json:"statistics_insights"`
+	MaintenanceRecommendations bool `json:"maintenance_recommendations"`
+	CostRecommendations        bool `json:"cost_recommendations"`
+	ActionExecution            bool `json:"action_execution"`
+}
+
+type assistantActionsConfigResponse struct {
+	RequireConfirmation bool `json:"require_confirmation"`
+}
+
 type assistantLLMProfileOption struct {
 	Name           string `json:"name"`
 	Provider       string `json:"provider,omitempty"`
@@ -112,6 +153,46 @@ func (a *App) assistantConfig() config.AssistantConfig {
 	}
 	cfg := a.getConfigSnapshot()
 	return cfg.EffectiveAssistantConfig()
+}
+
+func buildAssistantConfigResponse(cfg config.AssistantConfig) assistantConfigResponse {
+	cfg = config.NormalizeAssistantConfig(cfg)
+	dedicatedProfile := ""
+	if assistantConfigHasDedicatedLLMProfile(cfg) {
+		dedicatedProfile = assistantDedicatedLLMProfileName
+	}
+	return assistantConfigResponse{
+		Enabled:                   cfg.Enabled,
+		Provider:                  cfg.Provider,
+		Model:                     cfg.Model,
+		DefaultDocsVersion:        cfg.DefaultDocsVersion,
+		ConversationRetentionDays: cfg.ConversationRetentionDays,
+		MaxInputLogsBytes:         cfg.MaxInputLogsBytes,
+		MaxConversationTurns:      cfg.MaxConversationTurns,
+		DocsEnabled:               config.AssistantFeatureFlagEnabled(cfg.DocsEnabled),
+		DocsVersionAware:          config.AssistantFeatureFlagEnabled(cfg.DocsVersionAware),
+		CredentialConfigured:      strings.TrimSpace(cfg.CredentialRef) != "" || strings.TrimSpace(cfg.LegacyAPIKeySecret) != "",
+		DedicatedProfile:          dedicatedProfile,
+		Memory: assistantMemoryConfigResponse{
+			Enabled: cfg.Memory.Enabled,
+			Scope:   cfg.Memory.Scope,
+		},
+		MCP: assistantMCPConfigResponse{
+			Enabled: cfg.MCP.Enabled,
+		},
+		Features: assistantFeaturesConfigResponse{
+			Docs:                       config.AssistantFeatureFlagEnabled(cfg.Features.Docs),
+			PipelineDebugging:          config.AssistantFeatureFlagEnabled(cfg.Features.PipelineDebugging),
+			ConfigGeneration:           config.AssistantFeatureFlagEnabled(cfg.Features.ConfigGeneration),
+			StatisticsInsights:         config.AssistantFeatureFlagEnabled(cfg.Features.StatisticsInsights),
+			MaintenanceRecommendations: config.AssistantFeatureFlagEnabled(cfg.Features.MaintenanceRecommendations),
+			CostRecommendations:        config.AssistantFeatureFlagEnabled(cfg.Features.CostRecommendations),
+			ActionExecution:            config.AssistantFeatureFlagEnabled(cfg.Features.ActionExecution),
+		},
+		Actions: assistantActionsConfigResponse{
+			RequireConfirmation: config.AssistantRequireConfirmation(cfg.Actions),
+		},
+	}
 }
 
 func normalizeAssistantConversationRequest(req assistantCreateConversationRequest, cfg config.AssistantConfig) assistantCreateConversationRequest {
