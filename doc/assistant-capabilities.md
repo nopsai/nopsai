@@ -11,7 +11,8 @@ operations as the current authenticated user.
   visibility, and audit model as the user who is chatting.
 - The selected/default assistant LLM acts as a feature-wide planner. It creates
   a structured turn plan with goal, intent, tool steps, and success criteria
-  before execution.
+  before execution from the live permission-filtered hosted MCP tool list and a
+  compact feature catalog.
 - Assistant conversation turns do not use static normal-language routing. If
   the LLM planner is unavailable or returns an invalid plan, NopsAI executes no
   hosted MCP tools and replies that no changes were applied.
@@ -22,6 +23,11 @@ operations as the current authenticated user.
 - NopsAI validates planned tools against the current user's available hosted
   MCP tools, bounded tool-call and argument limits, and mutation confirmation
   requirements before running the plan.
+- Feature-specific request contracts validate that the plan uses evidence
+  appropriate to the user's intent. For example, token counts must come from AI
+  usage analytics, capability/policy questions from the capability catalog,
+  repeated-variable questions from metadata analysis, and YAML validation from
+  the pipeline validator.
 - Tool lists, resources, and tool calls are permission-filtered. If a user
   cannot use a route or resource in NopsAI, the assistant cannot bypass that.
 - Enterprise feature flags under `assistant.features` decide which broad
@@ -162,8 +168,9 @@ The assistant can list/search pipelines, read pipeline definitions, generate
 pipeline YAML, validate pasted YAML, prepare GitOps create/update plans, and
 prepare reusable-step create/update/delete plans. Generated pipeline YAML is
 template-aware for common deployment domains such as Go services deployed to
-AWS ECS through ECR, and includes assumptions plus required variables/secrets
-so the proposal can be reviewed through GitOps.
+AWS ECS through ECR and Docker image publishing with Domain-Driven Design
+boundary checks, and includes assumptions plus required variables/secrets so
+the proposal can be reviewed through GitOps.
 
 Ask:
 
@@ -172,6 +179,8 @@ Ask:
 - "Open pipeline `platform/deploy-api` and summarize its steps."
 - "Generate a pipeline for build, test, approval, and deploy to staging."
 - "Create steps to build, test, and deploy a Golang app to AWS ECS."
+- "Give me a pipeline that has 4 steps and the last one is approval; the goal
+  is to build and publish a Docker image based on DDD standards."
 - "Validate this YAML and identify unsafe task settings."
 - "Create a GitOps update plan for `platform/deploy-api` to add a manual
   approval before production."

@@ -19,7 +19,8 @@ For a user-facing capability catalog with example chat prompts, see
 [assistant-capabilities.md](./assistant-capabilities.md).
 
 The assistant LLM planner maps normal-language requests to first-party MCP
-tools when the target is clear, and asks a clarifying question before tool
+tools from the live permission-filtered tool list plus the hosted MCP feature
+catalog when the target is clear, and asks a clarifying question before tool
 execution when a broad term such as "usage" could mean AI/LLM tokens, runner
 cost, pipeline runs, variables, or another product area. In addition to
 specialist intents, the planner covers setup, config repositories, notification
@@ -40,6 +41,14 @@ tools are rejected because they do not expose token counts.
 Every planned turn is validated against the current AAA subject, available
 hosted MCP tools, a bounded tool-call count, bounded argument shape, and
 explicit user confirmation for mutating tools before any planned step runs.
+Planner validation also applies feature-specific request contracts for
+high-signal prompts. These contracts do not route requests themselves; they
+reject plans that use the wrong evidence surface, such as answering capability
+questions without `nopsai.get_feature_capabilities`, repeated-variable
+questions without `nopsai.analyze_variable_usage`, scope/secret count questions
+without secret-scope metadata, pipeline-search questions without
+`nopsai.search_pipelines`, YAML validation without `nopsai.validate_pipeline`,
+or explicit REST route requests without `nopsai.call_api`.
 Final LLM synthesis is also quality-gated: if the model claims unapplied
 changes or misses required proposal-safe wording, NopsAI falls back to the
 deterministic MCP-grounded summary.
@@ -73,6 +82,7 @@ comparison aliases, pipeline health explanations, optimization opportunity
 discovery, data backup/cleanup operations, scope inventory, secret/variable
 metadata and repeated variable-name analysis plus safe write/GitOps plans,
 template-aware pipeline YAML generation for common deployment domains,
+Docker image publishing with DDD boundary checks and approval gates,
 cost/statistics, LLM/MCP profile reads, system status,
 credential metadata/rotation/GitOps plans, runner install/dispatch operations,
 AAA/access/audit/admin workflows, and dispatcher/runner health.

@@ -278,6 +278,41 @@ func TestHostedMCPGeneratePipelineUsesGolangAWSECSTemplate(t *testing.T) {
 	}
 }
 
+func TestHostedMCPGeneratePipelineUsesDockerDDDApprovalTemplate(t *testing.T) {
+	result := hostedMCPGeneratePipeline(map[string]any{
+		"name": "docker-ddd-image",
+		"goal": "build and publish docker image based on DDD standards with 4 steps and the last one approval",
+	})
+	raw := assistantOutputString(result, "yaml")
+	if result["template_id"] != "docker-ddd-publish-approval" {
+		t.Fatalf("template_id = %#v, want docker-ddd-publish-approval", result["template_id"])
+	}
+	if result["valid"] != true {
+		t.Fatalf("valid = %#v, validation = %#v\n%s", result["valid"], result["validation"], raw)
+	}
+	pipeline, validation, ok := hostedMCPParseValidPipelineYAML(raw)
+	if !ok {
+		t.Fatalf("generated yaml should validate, got %#v\n%s", validation, raw)
+	}
+	if len(pipeline.Steps) != 4 {
+		t.Fatalf("steps = %d, want 4\n%s", len(pipeline.Steps), raw)
+	}
+	if _, ok := pipeline.Steps[3].AsApprovalStep(); !ok {
+		t.Fatalf("last step should be approval: %#v\n%s", pipeline.Steps[3], raw)
+	}
+	for _, want := range []string{
+		"name: ddd-standards-check",
+		"name: docker-build-publish",
+		"name: release-approval",
+		"REGISTRY_USERNAME",
+		"IMAGE_REPOSITORY",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("generated yaml missing %q:\n%s", want, raw)
+		}
+	}
+}
+
 func TestHostedMCPPipelineSearchMatchFieldsAndSnippet(t *testing.T) {
 	fields := hostedMCPPipelineMatchFields(
 		"deploy",

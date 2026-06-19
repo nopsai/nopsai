@@ -558,6 +558,7 @@ func hostedMCPGeneratePipeline(args map[string]any) map[string]any {
 		Goal:  goal,
 		Scope: scope,
 	})
+	validation := hostedMCPValidatePipelineYAML(result.YAML)
 	return map[string]any{
 		"proposal_type":      "pipeline_yaml",
 		"applies":            false,
@@ -566,6 +567,8 @@ func hostedMCPGeneratePipeline(args map[string]any) map[string]any {
 		"required_variables": result.RequiredVars,
 		"required_secrets":   result.RequiredSecrets,
 		"yaml":               result.YAML,
+		"validation":         validation,
+		"valid":              boolValue(validation["valid"]),
 	}
 }
 
