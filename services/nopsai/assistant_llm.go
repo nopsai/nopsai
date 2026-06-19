@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"nopsai/config"
 	"nopsai/pkg/llmclient"
 )
 
 const assistantLLMToolName = "nopsai.llm.complete"
+const assistantDedicatedLLMProfileName = "assistant"
 
 type assistantLLMSynthesis struct {
 	Reply    string
@@ -34,7 +36,7 @@ func (a *App) synthesizeAssistantReplyWithLLM(
 			return assistantLLMSynthesis{Reply: deterministicReply}
 		}
 		return assistantLLMSynthesis{
-			Reply: deterministicReply + "\n\nLLM synthesis was unavailable; I used the permission-bound tool summary instead.",
+			Reply: deterministicReply,
 			Activity: assistantLLMActivity(profileName, profile, assistantToolStatusError, map[string]any{
 				"fallback_reason": reason,
 			}),
@@ -46,7 +48,7 @@ func (a *App) synthesizeAssistantReplyWithLLM(
 		value, err := a.resolveLLMProfileAPIKey(ctx, profileName, profile)
 		if err != nil || strings.TrimSpace(value) == "" {
 			return assistantLLMSynthesis{
-				Reply: deterministicReply + "\n\nLLM synthesis was unavailable; I used the permission-bound tool summary instead.",
+				Reply: deterministicReply,
 				Activity: assistantLLMActivity(profileName, profile, assistantToolStatusError, map[string]any{
 					"fallback_reason": fmt.Sprintf("credential %q is unavailable", profile.CredentialRef),
 				}),
@@ -72,7 +74,7 @@ func (a *App) synthesizeAssistantReplyWithLLM(
 	completion, err := client.Complete(ctx, prompt)
 	if err != nil {
 		return assistantLLMSynthesis{
-			Reply: deterministicReply + "\n\nLLM synthesis was unavailable; I used the permission-bound tool summary instead.",
+			Reply: deterministicReply,
 			Activity: assistantLLMActivity(profileName, profile, assistantToolStatusError, map[string]any{
 				"fallback_reason": err.Error(),
 			}),
@@ -124,16 +126,55 @@ func (a *App) resolveAssistantLLMProfile(ctx context.Context, conversation assis
 }
 
 func (a *App) assistantLLMProfiles(ctx context.Context) (string, map[string]config.LLMProfile) {
+	cfg := a.assistantConfig()
 	if a != nil && a.db != nil {
 		if defaultProfile, profiles, found, err := a.loadLLMProfilesFromDB(ctx); err == nil && found {
-			return defaultProfile, profiles
+			return assistantLLMProfilesWithDedicatedConfig(defaultProfile, profiles, cfg)
 		}
 	}
 	if a == nil || a.cfg == nil {
-		return "", nil
+		return assistantLLMProfilesWithDedicatedConfig("", nil, cfg)
 	}
 	defaultProfile, profiles := a.llmProfilesSnapshot()
-	return defaultProfile, profiles
+	return assistantLLMProfilesWithDedicatedConfig(defaultProfile, profiles, cfg)
+}
+
+func assistantLLMProfilesWithDedicatedConfig(defaultProfile string, profiles map[string]config.LLMProfile, cfg config.AssistantConfig) (string, map[string]config.LLMProfile) {
+	profiles = config.NormalizeLLMProfiles(profiles)
+	if profiles == nil {
+		profiles = map[string]config.LLMProfile{}
+	}
+	profile, ok := assistantLLMProfileFromConfig(cfg)
+	if !ok {
+		return defaultProfile, profiles
+	}
+	profiles[assistantDedicatedLLMProfileName] = profile
+	return assistantDedicatedLLMProfileName, profiles
+}
+
+func assistantConfigHasDedicatedLLMProfile(cfg config.AssistantConfig) bool {
+	_, ok := assistantLLMProfileFromConfig(cfg)
+	return ok
+}
+
+func assistantLLMProfileFromConfig(cfg config.AssistantConfig) (config.LLMProfile, bool) {
+	cfg = config.NormalizeAssistantConfig(cfg)
+	if strings.TrimSpace(cfg.Provider) == "" {
+		return config.LLMProfile{}, false
+	}
+	timeoutSeconds := 0
+	if timeout, err := time.ParseDuration(cfg.Timeout); err == nil && timeout > 0 {
+		timeoutSeconds = int(timeout.Seconds())
+	}
+	profile := config.NormalizeLLMProfile(config.LLMProfile{
+		Provider:           cfg.Provider,
+		Model:              cfg.Model,
+		BaseURL:            cfg.BaseURL,
+		CredentialRef:      cfg.CredentialRef,
+		LegacyAPIKeySecret: cfg.LegacyAPIKeySecret,
+		TimeoutSeconds:     timeoutSeconds,
+	})
+	return profile, true
 }
 
 func buildAssistantLLMProfilesResponse(defaultProfile string, profiles map[string]config.LLMProfile, scope string) assistantLLMProfilesResponse {

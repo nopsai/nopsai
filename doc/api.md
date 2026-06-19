@@ -157,6 +157,7 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 For a user-facing guide to assistant capabilities and example chat prompts, see
 [assistant-capabilities.md](./assistant-capabilities.md).
 
+- `GET /v1/assistant/config` returns safe assistant configuration for the authenticated subject: enabled state, docs defaults, retention/limits, feature flags, action confirmation policy, and whether a dedicated assistant credential is configured. It does not return credential refs, API key env names, base URLs, or provider extras.
 - `GET /v1/assistant/llm-profiles` lists safe, selectable LLM profile metadata for the authenticated assistant user without exposing credential refs, base URLs, or provider extras.
 - `POST /v1/assistant/conversations` creates a persistent assistant conversation for the authenticated subject.
 - `GET /v1/assistant/conversations` lists the subject's conversations.
@@ -170,6 +171,12 @@ external MCP registry under `setting/system/mcp.yaml`, which defines
 third-party MCP servers Nopsai can connect to. Hosted MCP and assistant tool
 execution use the current authenticated AAA subject; they do not elevate to a
 global assistant/admin identity.
+Assistant feature flags in `setting/system/runner.yaml` decide which broad
+capability families are globally available. AAA still decides the specific
+resources and actions the current user can read or execute. Runtime and admin
+execution tools are hidden unless `assistant.features.action_execution` is
+enabled, and confirmed mutation tools still require existing API, AAA, and
+audit checks.
 
 Hosted MCP tools cover Nopsai operational context, including guided setup,
 knowledge-context search/list/read/write plans, pipeline inventory/search,

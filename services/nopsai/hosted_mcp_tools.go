@@ -121,6 +121,9 @@ func (a *App) hostedMCPToolsForSubject(ctx context.Context, subject aaamodel.Sub
 	all := allHostedMCPTools()
 	tools := make([]hostedMCPTool, 0, len(all))
 	for _, tool := range all {
+		if !a.assistantToolEnabledByConfig(tool) {
+			continue
+		}
 		if tool.AuthenticatedOnly {
 			tools = append(tools, tool)
 			continue
@@ -130,6 +133,110 @@ func (a *App) hostedMCPToolsForSubject(ctx context.Context, subject aaamodel.Sub
 		}
 	}
 	return tools
+}
+
+func (a *App) assistantToolEnabledByConfig(tool hostedMCPTool) bool {
+	cfg := a.assistantConfig()
+	if assistantToolRequiresActionExecution(tool) && !config.AssistantFeatureFlagEnabled(cfg.Features.ActionExecution) {
+		return false
+	}
+	switch assistantFeatureForTool(tool.Name) {
+	case "docs":
+		return config.AssistantFeatureFlagEnabled(cfg.DocsEnabled) && config.AssistantFeatureFlagEnabled(cfg.Features.Docs)
+	case "pipeline_debugging":
+		return config.AssistantFeatureFlagEnabled(cfg.Features.PipelineDebugging)
+	case "config_generation":
+		return config.AssistantFeatureFlagEnabled(cfg.Features.ConfigGeneration)
+	case "statistics_insights":
+		return config.AssistantFeatureFlagEnabled(cfg.Features.StatisticsInsights)
+	case "maintenance_recommendations":
+		return config.AssistantFeatureFlagEnabled(cfg.Features.MaintenanceRecommendations)
+	case "cost_recommendations":
+		return config.AssistantFeatureFlagEnabled(cfg.Features.CostRecommendations)
+	default:
+		return true
+	}
+}
+
+func assistantToolRequiresActionExecution(tool hostedMCPTool) bool {
+	name := strings.TrimSpace(tool.Name)
+	if name == "nopsai.call_api" {
+		return true
+	}
+	if strings.HasPrefix(name, "nopsai.propose_") ||
+		strings.HasPrefix(name, "nopsai.plan_") ||
+		strings.HasPrefix(name, "nopsai.preview_") ||
+		name == "nopsai.generate_pipeline" {
+		return false
+	}
+	if properties, _ := tool.InputSchema["properties"].(map[string]any); properties != nil {
+		if _, ok := properties["confirm"]; ok {
+			return true
+		}
+	}
+	action := strings.TrimSpace(tool.Action)
+	return strings.HasSuffix(action, ".execute") ||
+		strings.HasSuffix(action, ".update") ||
+		strings.HasSuffix(action, ".delete") ||
+		strings.HasSuffix(action, ".write_value") ||
+		strings.HasSuffix(action, ".create") ||
+		strings.HasSuffix(action, ".approve") ||
+		strings.HasSuffix(action, ".cancel") ||
+		strings.HasSuffix(action, ".rerun") ||
+		strings.Contains(name, ".sync_") ||
+		strings.Contains(name, ".write_") ||
+		strings.Contains(name, ".rotate_") ||
+		strings.Contains(name, ".activate_") ||
+		strings.Contains(name, ".disable_") ||
+		strings.Contains(name, ".enable_") ||
+		strings.Contains(name, ".bootstrap_") ||
+		strings.Contains(name, ".invoke_")
+}
+
+func assistantFeatureForTool(name string) string {
+	name = strings.TrimSpace(name)
+	switch {
+	case name == "nopsai.search_docs" ||
+		name == "nopsai.read_doc" ||
+		strings.Contains(name, "knowledge_context"):
+		return "docs"
+	case strings.Contains(name, "cost"):
+		return "cost_recommendations"
+	case name == "nopsai.get_statistics" ||
+		strings.Contains(name, "monitoring_") ||
+		strings.Contains(name, "analytics"):
+		return "statistics_insights"
+	case name == "nopsai.suggest_design_improvements" ||
+		strings.Contains(name, "dispatcher") ||
+		strings.Contains(name, "runner") ||
+		strings.Contains(name, "cleanup") ||
+		strings.Contains(name, "backup") ||
+		strings.Contains(name, "maintenance"):
+		return "maintenance_recommendations"
+	case name == "nopsai.generate_pipeline" ||
+		name == "nopsai.validate_pipeline" ||
+		strings.HasPrefix(name, "nopsai.propose_pipeline_") ||
+		strings.HasPrefix(name, "nopsai.propose_schedule_") ||
+		strings.HasPrefix(name, "nopsai.propose_trigger_") ||
+		strings.HasPrefix(name, "nopsai.propose_reusable_step_") ||
+		strings.HasPrefix(name, "nopsai.propose_external_trigger_") ||
+		strings.HasPrefix(name, "nopsai.propose_git_webhook_source_") ||
+		strings.HasPrefix(name, "nopsai.propose_secret_") ||
+		strings.HasPrefix(name, "nopsai.propose_variable_") ||
+		strings.HasPrefix(name, "nopsai.propose_notification_") ||
+		strings.HasPrefix(name, "nopsai.propose_credential_"):
+		return "config_generation"
+	case strings.Contains(name, "pipeline_run") ||
+		strings.Contains(name, "pipeline_runs") ||
+		strings.Contains(name, "run_approval") ||
+		strings.Contains(name, "lab_") ||
+		name == "nopsai.list_pipelines" ||
+		name == "nopsai.search_pipelines" ||
+		name == "nopsai.get_pipeline":
+		return "pipeline_debugging"
+	default:
+		return ""
+	}
 }
 
 func (a *App) hostedMCPToolByName(ctx context.Context, subject aaamodel.Subject, name string) (hostedMCPTool, bool) {
@@ -617,6 +724,7 @@ func (a *App) hostedMCPGetPipelineRunLogs(ctx context.Context, args map[string]a
 	if runID == "" {
 		return nil, fmt.Errorf("run_id is required")
 	}
+	maxBytes := a.assistantConfig().MaxInputLogsBytes
 	rows, err := a.db.Query(ctx, `
 		SELECT id, timestamp, line
 		FROM pipeline_run_logs
@@ -629,6 +737,8 @@ func (a *App) hostedMCPGetPipelineRunLogs(ctx context.Context, args map[string]a
 	}
 	defer rows.Close()
 	logs := []map[string]any{}
+	usedBytes := 0
+	truncated := false
 	for rows.Next() {
 		var id int64
 		var timestamp time.Time
@@ -636,10 +746,22 @@ func (a *App) hostedMCPGetPipelineRunLogs(ctx context.Context, args map[string]a
 		if err := rows.Scan(&id, &timestamp, &line); err != nil {
 			return nil, err
 		}
+		lineBytes := len([]byte(line))
+		if maxBytes > 0 && usedBytes+lineBytes > maxBytes {
+			truncated = true
+			break
+		}
+		usedBytes += lineBytes
 		logs = append(logs, map[string]any{"id": id, "timestamp": timestamp, "line": line})
 	}
 	reverseMaps(logs)
-	return map[string]any{"run_id": runID, "logs": logs}, rows.Err()
+	return map[string]any{
+		"run_id":          runID,
+		"logs":            logs,
+		"bytes":           usedBytes,
+		"max_bytes":       maxBytes,
+		"bytes_truncated": truncated,
+	}, rows.Err()
 }
 
 func (a *App) hostedMCPAnalyzePipelineRunFailure(ctx context.Context, args map[string]any) (map[string]any, error) {

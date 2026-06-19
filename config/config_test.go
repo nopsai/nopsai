@@ -274,6 +274,14 @@ func TestEffectiveOIDCAuthDoesNotInventDefaultRole(t *testing.T) {
 func TestNormalizeAssistantConfigUsesMinimalDefaults(t *testing.T) {
 	cfg := NormalizeAssistantConfig(AssistantConfig{
 		Enabled:                   true,
+		Provider:                  " Google-Gemini ",
+		Model:                     " ",
+		BaseURL:                   " https://proxy.example/v1 ",
+		CredentialRef:             " credential://system/assistant/api-key ",
+		LegacyAPIKeySecret:        " NOPSAI_ASSISTANT_API_KEY ",
+		Timeout:                   "invalid",
+		MaxInputLogsBytes:         -1,
+		MaxConversationTurns:      0,
 		DefaultDocsVersion:        " ",
 		ConversationRetentionDays: -1,
 		Memory: AssistantMemoryConfig{
@@ -288,11 +296,79 @@ func TestNormalizeAssistantConfigUsesMinimalDefaults(t *testing.T) {
 	if cfg.DefaultDocsVersion != "auto" {
 		t.Fatalf("default docs version = %q, want auto", cfg.DefaultDocsVersion)
 	}
+	if cfg.Provider != LLMProviderGemini {
+		t.Fatalf("provider = %q, want gemini", cfg.Provider)
+	}
+	if cfg.Model != DefaultLLMProviderModel(LLMProviderGemini) {
+		t.Fatalf("model = %q, want provider default", cfg.Model)
+	}
+	if cfg.BaseURL != "https://proxy.example/v1" {
+		t.Fatalf("base URL = %q", cfg.BaseURL)
+	}
+	if cfg.CredentialRef != "credential://system/assistant/api-key" || cfg.LegacyAPIKeySecret != "NOPSAI_ASSISTANT_API_KEY" {
+		t.Fatalf("credential fields = (%q, %q)", cfg.CredentialRef, cfg.LegacyAPIKeySecret)
+	}
+	if cfg.Timeout != "60s" {
+		t.Fatalf("timeout = %q, want 60s", cfg.Timeout)
+	}
+	if cfg.MaxInputLogsBytes != 120000 || cfg.MaxConversationTurns != 30 {
+		t.Fatalf("limits = (%d, %d)", cfg.MaxInputLogsBytes, cfg.MaxConversationTurns)
+	}
 	if cfg.ConversationRetentionDays != 30 {
 		t.Fatalf("retention = %d, want 30", cfg.ConversationRetentionDays)
 	}
 	if !cfg.Memory.Enabled || cfg.Memory.Scope != "conversation" {
 		t.Fatalf("memory = %#v, want enabled conversation scope", cfg.Memory)
+	}
+	if !AssistantFeatureFlagEnabled(cfg.DocsEnabled) || !AssistantFeatureFlagEnabled(cfg.DocsVersionAware) {
+		t.Fatalf("docs flags = (%v, %v), want enabled", cfg.DocsEnabled, cfg.DocsVersionAware)
+	}
+	if !AssistantFeatureFlagEnabled(cfg.Features.Docs) ||
+		!AssistantFeatureFlagEnabled(cfg.Features.PipelineDebugging) ||
+		!AssistantFeatureFlagEnabled(cfg.Features.ConfigGeneration) ||
+		!AssistantFeatureFlagEnabled(cfg.Features.StatisticsInsights) ||
+		!AssistantFeatureFlagEnabled(cfg.Features.MaintenanceRecommendations) ||
+		!AssistantFeatureFlagEnabled(cfg.Features.CostRecommendations) {
+		t.Fatalf("default assistant feature flags should be enabled: %#v", cfg.Features)
+	}
+	if AssistantFeatureFlagEnabled(cfg.Features.ActionExecution) {
+		t.Fatalf("action execution should default off: %#v", cfg.Features)
+	}
+	if !AssistantRequireConfirmation(cfg.Actions) {
+		t.Fatalf("actions should require confirmation by default: %#v", cfg.Actions)
+	}
+}
+
+func TestNormalizeAssistantConfigPreservesExplicitFeatureDisables(t *testing.T) {
+	disabled := false
+	enabled := true
+	cfg := NormalizeAssistantConfig(AssistantConfig{
+		DocsEnabled: &disabled,
+		Features: AssistantFeaturesConfig{
+			Docs:                       &disabled,
+			PipelineDebugging:          &disabled,
+			ConfigGeneration:           &enabled,
+			StatisticsInsights:         &disabled,
+			MaintenanceRecommendations: &disabled,
+			CostRecommendations:        &disabled,
+			ActionExecution:            &enabled,
+		},
+		Actions: AssistantActionsConfig{RequireConfirmation: &disabled},
+	})
+
+	if AssistantFeatureFlagEnabled(cfg.DocsEnabled) ||
+		AssistantFeatureFlagEnabled(cfg.Features.Docs) ||
+		AssistantFeatureFlagEnabled(cfg.Features.PipelineDebugging) ||
+		AssistantFeatureFlagEnabled(cfg.Features.StatisticsInsights) ||
+		AssistantFeatureFlagEnabled(cfg.Features.MaintenanceRecommendations) ||
+		AssistantFeatureFlagEnabled(cfg.Features.CostRecommendations) {
+		t.Fatalf("explicit feature disables were not preserved: %#v", cfg)
+	}
+	if !AssistantFeatureFlagEnabled(cfg.Features.ConfigGeneration) || !AssistantFeatureFlagEnabled(cfg.Features.ActionExecution) {
+		t.Fatalf("explicit enabled flags were not preserved: %#v", cfg.Features)
+	}
+	if AssistantRequireConfirmation(cfg.Actions) {
+		t.Fatalf("explicit relaxed confirmation policy was not preserved: %#v", cfg.Actions)
 	}
 }
 

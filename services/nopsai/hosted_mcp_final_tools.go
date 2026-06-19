@@ -78,6 +78,7 @@ func hostedMCPFinalTools() []hostedMCPTool {
 		toolDef("nopsai.propose_secret_gitops_delete", "Return a scoped GitOps edit plan to remove a secret entry without applying changes.", "secret.delete", "secret", "*", objectSchema(map[string]any{"name": stringSchema(), "secret_name": stringSchema(), "repository": stringSchema(), "repo_owner": stringSchema(), "repo_name": stringSchema(), "scope": stringSchema(), "message": stringSchema()})),
 		toolDef("nopsai.list_variables_metadata", "List variable metadata visible to the current subject.", "variable.list_metadata", "variable", "*", objectSchema(map[string]any{"repository": stringSchema(), "repo_owner": stringSchema(), "repo_name": stringSchema(), "scope": stringSchema()})),
 		toolDef("nopsai.list_variable_scopes", "List scopes that contain visible variables.", "variable.list_metadata", "variable", "*", objectSchema(map[string]any{})),
+		toolDef("nopsai.analyze_variable_usage", "Analyze visible variable metadata for repeated names across scopes and repositories without reading values.", "variable.list_metadata", "variable", "*", objectSchema(map[string]any{"scope": stringSchema(), "repository": stringSchema(), "repo_owner": stringSchema(), "repo_name": stringSchema(), "limit": numberSchema()})),
 		toolDef("nopsai.get_variable_value", "Read a variable value as the current subject when allowed.", "variable.read_value", "variable", "*", objectSchema(map[string]any{"name": stringSchema(), "variable_name": stringSchema(), "repository": stringSchema(), "repo_owner": stringSchema(), "repo_name": stringSchema(), "scope": stringSchema()})),
 		toolDef("nopsai.write_variable_value", "Create or update a variable value through the API as the current subject. Requires confirm:true.", "variable.write_value", "variable", "*", objectSchema(map[string]any{"name": stringSchema(), "variable_name": stringSchema(), "value": stringSchema(), "repository": stringSchema(), "repo_owner": stringSchema(), "repo_name": stringSchema(), "scope": stringSchema(), "confirm": booleanSchema()})),
 		toolDef("nopsai.delete_variable_value", "Delete a variable value through the API as the current subject. Requires confirm:true.", "variable.delete", "variable", "*", objectSchema(map[string]any{"name": stringSchema(), "variable_name": stringSchema(), "repository": stringSchema(), "repo_owner": stringSchema(), "repo_name": stringSchema(), "scope": stringSchema(), "confirm": booleanSchema()})),
@@ -155,7 +156,7 @@ func (a *App) authorizeHostedMCPFinalToolCall(ctx context.Context, subject aaamo
 		permission.Resource.ID = "*"
 	case "nopsai.encrypt_secret_for_gitops", "nopsai.write_secret_value", "nopsai.delete_secret_value", "nopsai.propose_secret_gitops_write", "nopsai.propose_secret_gitops_delete":
 		permission.Resource.ID = hostedMCPNamedValueResourceID(args, "secret")
-	case "nopsai.list_variables_metadata", "nopsai.list_variable_scopes":
+	case "nopsai.list_variables_metadata", "nopsai.list_variable_scopes", "nopsai.analyze_variable_usage":
 		permission.Resource.ID = "*"
 	case "nopsai.get_variable_value", "nopsai.write_variable_value", "nopsai.delete_variable_value", "nopsai.propose_variable_gitops_write", "nopsai.propose_variable_gitops_delete":
 		permission.Resource.ID = hostedMCPNamedValueResourceID(args, "variable")
@@ -225,6 +226,9 @@ func (a *App) executeHostedMCPFinalTool(ctx context.Context, subject aaamodel.Su
 		return a.hostedMCPFinalAPITool(ctx, subject, http.MethodGet, hostedMCPSecretVariablePath(args, "variables", "list"), nil, false, false, false, ""), true, nil
 	case "nopsai.list_variable_scopes":
 		return a.hostedMCPFinalAPITool(ctx, subject, http.MethodGet, "/v1/variables/scopes", nil, false, false, false, ""), true, nil
+	case "nopsai.analyze_variable_usage":
+		result, err := a.hostedMCPAnalyzeVariableUsage(ctx, subject, args)
+		return result, true, err
 	case "nopsai.get_variable_value":
 		return a.hostedMCPFinalAPITool(ctx, subject, http.MethodGet, hostedMCPSecretVariablePath(args, "variables", "item"), nil, false, false, false, ""), true, nil
 	case "nopsai.write_variable_value":

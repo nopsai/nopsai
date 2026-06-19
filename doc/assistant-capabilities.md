@@ -11,6 +11,13 @@ current authenticated user.
   visibility, and audit model as the user who is chatting.
 - Tool lists, resources, and tool calls are permission-filtered. If a user
   cannot use a route or resource in NopsAI, the assistant cannot bypass that.
+- Enterprise feature flags under `assistant.features` decide which broad
+  capability families are globally available. AAA still decides the exact
+  resources and actions available to the current user.
+- Assistant model configuration is separate from pipeline execution profiles
+  when `assistant.provider` is set. The safe config endpoint reports provider,
+  model, docs defaults, limits, and feature flags without exposing credential
+  refs, API key env names, base URLs, or provider extras.
 - GitOps write tools return plans with `applies:false` and commit-ready file
   payloads. The assistant does not silently save pipeline, schedule, knowledge,
   webhook-source, external-trigger, notification, secret, variable, credential,
@@ -36,6 +43,12 @@ Good assistant requests usually include four things:
 - The mode: read-only, proposal only, GitOps-ready, or confirmed execution.
 - The constraints: environment, repository, branch, approval comment, retention
   window, variables, or notification recipient.
+
+When the request already has enough context, the assistant should answer through
+the matching permission-bound MCP tools. When a normal-language request is too
+broad to choose the right tool safely, it should ask a short clarifying question
+instead of guessing. For example, "show usage" should ask whether the user means
+AI/LLM tokens, runner cost, pipeline runs, variables, or a specific target.
 
 Examples:
 
@@ -151,7 +164,8 @@ Main MCP coverage: `nopsai.list_pipelines`, `nopsai.search_pipelines`,
 
 The assistant can investigate pipeline runs, inspect logs, analyze failures,
 start runs, list approvals, approve/reject gates, rerun, cancel, and delete
-runs. Mutations require confirmation.
+runs. Run investigation uses a hosted MCP chain: run metadata, bounded recent
+logs, then failure analysis. Mutations require confirmation.
 
 Ask:
 
@@ -272,7 +286,8 @@ Main MCP coverage: `nopsai.get_config_sync_status`,
 ### Scopes, Secrets, And Variables
 
 The assistant can list scopes, explain scope permissions, inspect secret and
-variable metadata, encrypt secret values for GitOps, write/delete values with
+variable metadata, analyze repeated variable names across visible scopes without
+reading values, encrypt secret values for GitOps, write/delete values with
 confirmation, and prepare scoped GitOps value plans.
 
 Ask:
@@ -285,6 +300,7 @@ Ask:
 - "Delete secret `OLD_TOKEN` from scope `platform/dev`; I confirm."
 - "Create a GitOps plan to add variable `DEPLOY_REGION=eu-west-1` to
   `platform/prod`."
+- "How many repetitive variables are used across all scopes?"
 - "Read variable `DEPLOY_REGION` from `platform/prod`."
 - "Delete variable `OLD_REGION` from `platform/prod`; I confirm."
 
@@ -294,9 +310,9 @@ Main MCP coverage: `nopsai.list_scopes`, `nopsai.get_scope`,
 `nopsai.write_secret_value`, `nopsai.delete_secret_value`,
 `nopsai.propose_secret_gitops_write`,
 `nopsai.propose_secret_gitops_delete`, `nopsai.list_variable_scopes`,
-`nopsai.list_variables_metadata`, `nopsai.get_variable_value`,
-`nopsai.write_variable_value`, `nopsai.delete_variable_value`,
-`nopsai.propose_variable_gitops_write`, and
+`nopsai.list_variables_metadata`, `nopsai.analyze_variable_usage`,
+`nopsai.get_variable_value`, `nopsai.write_variable_value`,
+`nopsai.delete_variable_value`, `nopsai.propose_variable_gitops_write`, and
 `nopsai.propose_variable_gitops_delete`.
 
 ### Notifications
@@ -335,6 +351,8 @@ Ask:
 - "Show pipeline performance for `platform/deploy-api` this week."
 - "Which steps are slowest across production deploy pipelines?"
 - "Analyze AI usage cost by provider."
+- "Give me LLM usage."
+- "Which pipeline uses the highest LLM tokens?"
 - "Show reliability and security monitoring signals."
 - "Create a monitoring saved view for failed production deploys; I confirm."
 - "Create an alert rule for failure rate above 10 percent; I confirm."
@@ -488,6 +506,9 @@ Main MCP coverage: `nopsai.list_data_backups`,
 The assistant can inspect safe LLM profile metadata, MCP profile metadata,
 system status, lab items, and lab results. It does not expose credential refs
 or unsafe provider details in ordinary chat context.
+When an assistant-specific provider is configured, the picker includes the
+dedicated `assistant` profile. Otherwise it falls back to existing selectable
+LLM profiles for backward compatibility.
 
 Ask:
 

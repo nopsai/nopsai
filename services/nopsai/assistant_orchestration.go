@@ -84,10 +84,18 @@ func (a *App) runAssistantConversationTurn(
 	case "validate_pipeline":
 		runTool("nopsai.validate_pipeline", map[string]any{"yaml": plan.YAML})
 	case "analyze_run":
+		runTool("nopsai.get_pipeline_run", map[string]any{"run_id": plan.RunID})
+		runTool("nopsai.get_pipeline_run_logs", map[string]any{"run_id": plan.RunID, "limit": 160})
 		runTool("nopsai.analyze_pipeline_run_failure", map[string]any{"run_id": plan.RunID})
 		memory.OpenTasks = append(memory.OpenTasks, "Review failed run analysis before applying remediation.")
 	case "list_runs":
 		runTool("nopsai.list_pipeline_runs", map[string]any{"limit": 5})
+	case "variable_usage":
+		runTool("nopsai.analyze_variable_usage", map[string]any{"scope": plan.Scope, "limit": 20})
+	case "ai_token_usage":
+		runTool("nopsai.get_monitoring_ai_usage", map[string]any{})
+	case "clarify":
+		// No tool call is useful yet; ask for the missing target instead of guessing.
 	case "cost":
 		runTool("nopsai.get_cost_summary", map[string]any{})
 		runTool("nopsai.suggest_cost_improvements", map[string]any{})
@@ -162,6 +170,13 @@ func (a *App) runAssistantConversationTurn(
 
 	memory = assistantMemoryAfterTools(memory, plan, toolCalls)
 	reply := composeAssistantReply(plan, selectedProfile, toolCalls)
+	if plan.Intent == "clarify" {
+		return assistantOrchestrationResult{
+			Reply:     reply,
+			ToolCalls: toolCalls,
+			Memory:    normalizeAssistantMemory(memory),
+		}
+	}
 	synthesis := a.synthesizeAssistantReplyWithLLM(ctx, conversation, content, selectedProfile, plan, toolCalls, reply)
 	if synthesis.Activity != nil {
 		toolCalls = append(toolCalls, *synthesis.Activity)
@@ -175,19 +190,20 @@ func (a *App) runAssistantConversationTurn(
 }
 
 type assistantTurnPlan struct {
-	Intent         string
-	LowerContent   string
-	RunID          string
-	YAML           string
-	PipelineName   string
-	PipelineID     string
-	Repository     string
-	ScheduleID     string
-	Scope          string
-	SearchQuery    string
-	CapabilityArea string
-	APIMethod      string
-	APIPath        string
+	Intent          string
+	LowerContent    string
+	RunID           string
+	YAML            string
+	PipelineName    string
+	PipelineID      string
+	Repository      string
+	ScheduleID      string
+	Scope           string
+	SearchQuery     string
+	CapabilityArea  string
+	ClarifyQuestion string
+	APIMethod       string
+	APIPath         string
 }
 
 func assistantPlanFromMessage(content string, memory assistantConversationMemory) assistantTurnPlan {
@@ -237,8 +253,15 @@ func assistantPlanFromMessage(content string, memory assistantConversationMemory
 		plan.Intent = "analyze_run"
 	case assistantMessageAsksRunList(lower):
 		plan.Intent = "list_runs"
-	case containsAny(lower, "cost", "usage", "spend", "budget", "expensive"):
+	case assistantMessageAsksVariableUsage(lower):
+		plan.Intent = "variable_usage"
+	case assistantMessageAsksAITokenUsage(lower):
+		plan.Intent = "ai_token_usage"
+	case assistantMessageAsksCost(lower):
 		plan.Intent = "cost"
+	case assistantMessageNeedsUsageClarification(lower):
+		plan.Intent = "clarify"
+		plan.ClarifyQuestion = "Which usage area should I check: AI/LLM tokens, runner cost, pipeline runs, variables, or a specific pipeline/run?"
 	case containsAny(lower, "design", "improve", "best practice", "maintenance", "refactor", "architecture"):
 		plan.Intent = "design"
 	case containsAny(lower, "statistics", "stats", "overview", "dashboard"):
@@ -391,6 +414,12 @@ func assistantMemorySummary(plan assistantTurnPlan) string {
 		return "Reviewing managed knowledge context with permission-bound reads."
 	case "analyze_run":
 		return "Investigating a pipeline run failure."
+	case "variable_usage":
+		return "Analyzing visible variable names and repeated scope usage without reading values."
+	case "ai_token_usage":
+		return "Reviewing AI token usage analytics by pipeline and run."
+	case "clarify":
+		return "Waiting for one more detail before choosing a NopsAI tool."
 	case "runtime":
 		return "Checking dispatcher and runner health."
 	case "api_call":
@@ -407,6 +436,9 @@ func assistantMemorySummary(plan assistantTurnPlan) string {
 }
 
 func composeAssistantReply(plan assistantTurnPlan, selectedProfile string, toolCalls []assistantToolActivity) string {
+	if plan.Intent == "clarify" {
+		return composeClarifyingReply(plan)
+	}
 	if len(toolCalls) == 0 {
 		return buildAssistantFoundationReply(selectedProfile)
 	}
@@ -424,6 +456,10 @@ func composeAssistantReply(plan assistantTurnPlan, selectedProfile string, toolC
 		return composeRunAnalysisReply(toolCalls)
 	case "list_runs":
 		return composeRecentRunsReply(toolCalls)
+	case "variable_usage":
+		return composeVariableUsageReply(toolCalls)
+	case "ai_token_usage":
+		return composeAIUsageReply(toolCalls)
 	case "cost":
 		return composeCostReply(toolCalls)
 	case "design":
@@ -549,15 +585,23 @@ func composePipelineValidationReply(toolCalls []assistantToolActivity) string {
 }
 
 func composeRunAnalysisReply(toolCalls []assistantToolActivity) string {
-	call := assistantFirstToolCall(toolCalls, "nopsai.analyze_pipeline_run_failure")
-	if call.Status != assistantToolStatusSuccess {
-		return assistantToolErrorReply("I could not analyze that run.", call)
+	analysis := assistantFirstToolCall(toolCalls, "nopsai.analyze_pipeline_run_failure")
+	runCall := assistantFirstToolCall(toolCalls, "nopsai.get_pipeline_run")
+	logsCall := assistantFirstToolCall(toolCalls, "nopsai.get_pipeline_run_logs")
+	if analysis.Status != assistantToolStatusSuccess {
+		return assistantToolErrorReply("I could not analyze that run.", analysis)
 	}
-	run, _ := call.Output["run"].(map[string]any)
+	run, _ := runCall.Output["run"].(map[string]any)
+	if run == nil {
+		run = runCall.Output
+	}
+	if len(run) == 0 {
+		run, _ = analysis.Output["run"].(map[string]any)
+	}
 	if run == nil {
 		run = map[string]any{}
 	}
-	lines := []string{"I analyzed the run using status and recent logs."}
+	lines := []string{"I investigated the run through the hosted Nopsai MCP chain: status, recent logs, then failure analysis."}
 	if runID := assistantOutputString(run, "run_id"); runID != "" {
 		lines = append(lines, "", "Run: "+runID)
 	}
@@ -567,10 +611,26 @@ func composeRunAnalysisReply(toolCalls []assistantToolActivity) string {
 	if status := assistantOutputString(run, "status"); status != "" {
 		lines = append(lines, "Status: "+status)
 	}
-	if hint := assistantOutputString(call.Output, "root_cause_hint"); hint != "" {
+	if reason := assistantOutputString(run, "failure_reason"); reason != "" {
+		lines = append(lines, "Recorded failure: "+reason)
+	}
+	logs := assistantMapSlice(logsCall.Output["logs"])
+	if len(logs) > 0 {
+		lines = append(lines, fmt.Sprintf("Log lines reviewed: %d", len(logs)))
+		if assistantOutputBool(logsCall.Output, "bytes_truncated") {
+			lines = append(lines, fmt.Sprintf(
+				"Log excerpt was truncated at %.0f bytes by assistant safety limits.",
+				assistantOutputFloat(logsCall.Output, "max_bytes"),
+			))
+		}
+		if excerpt := assistantLastRelevantLogLine(logs); excerpt != "" {
+			lines = append(lines, "Most relevant log line: "+excerpt)
+		}
+	}
+	if hint := assistantOutputString(analysis.Output, "root_cause_hint"); hint != "" {
 		lines = append(lines, "", "Root-cause hint: "+hint)
 	}
-	if steps := assistantStringSlice(call.Output["suggested_next_steps"]); len(steps) > 0 {
+	if steps := assistantStringSlice(analysis.Output["suggested_next_steps"]); len(steps) > 0 {
 		lines = append(lines, "", "Suggested next steps:")
 		for _, step := range steps {
 			lines = append(lines, "- "+step)
@@ -578,6 +638,82 @@ func composeRunAnalysisReply(toolCalls []assistantToolActivity) string {
 	}
 	lines = append(lines, "", "No changes were applied.")
 	return strings.Join(lines, "\n")
+}
+
+func composeVariableUsageReply(toolCalls []assistantToolActivity) string {
+	call := assistantFirstToolCall(toolCalls, "nopsai.analyze_variable_usage")
+	if call.Status != assistantToolStatusSuccess {
+		return assistantToolErrorReply("I could not analyze visible variable usage.", call)
+	}
+	lines := []string{"Visible variable usage:"}
+	lines = append(lines, fmt.Sprintf("- Total visible variable entries: %.0f", assistantOutputFloat(call.Output, "total_visible_variables")))
+	lines = append(lines, fmt.Sprintf("- Unique variable names: %.0f", assistantOutputFloat(call.Output, "unique_variable_names")))
+	lines = append(lines, fmt.Sprintf("- Repeated variable names: %.0f", assistantOutputFloat(call.Output, "repetitive_variable_names")))
+	duplicates := assistantMapSlice(call.Output["duplicates"])
+	if len(duplicates) > 0 {
+		lines = append(lines, "", "Most repeated variables:")
+		for _, duplicate := range duplicates {
+			line := fmt.Sprintf("- %s: %.0f entries", assistantOutputString(duplicate, "name"), assistantOutputFloat(duplicate, "occurrences"))
+			if scopes := assistantStringSlice(duplicate["scopes"]); len(scopes) > 0 {
+				line += " across scopes " + strings.Join(scopes, ", ")
+			}
+			if repositories := assistantStringSlice(duplicate["repositories"]); len(repositories) > 0 {
+				line += " and repositories " + strings.Join(repositories, ", ")
+			}
+			lines = append(lines, line)
+		}
+	} else {
+		lines = append(lines, "", "No repeated variable names were visible to your account.")
+	}
+	lines = append(lines, "", "Values were not read. No changes were applied.")
+	return strings.Join(lines, "\n")
+}
+
+func composeAIUsageReply(toolCalls []assistantToolActivity) string {
+	call := assistantFirstToolCall(toolCalls, "nopsai.get_monitoring_ai_usage")
+	if call.Status != assistantToolStatusSuccess {
+		return assistantToolErrorReply("I could not load AI token usage analytics.", call)
+	}
+	lines := []string{"AI token usage:"}
+	lines = append(lines, fmt.Sprintf("- Total tokens: %.0f", assistantOutputFloat(call.Output, "total_tokens")))
+	lines = append(lines, fmt.Sprintf("- Prompt tokens: %.0f", assistantOutputFloat(call.Output, "total_prompt_tokens")))
+	lines = append(lines, fmt.Sprintf("- Completion tokens: %.0f", assistantOutputFloat(call.Output, "total_completion_tokens")))
+	pipelines := assistantMapSlice(call.Output["by_pipeline"])
+	if len(pipelines) > 0 {
+		lines = append(lines, "", "Highest token pipelines:")
+		for _, item := range pipelines {
+			label := firstNonEmptyString(assistantOutputString(item, "label"), assistantOutputString(item, "key"))
+			if label == "" {
+				continue
+			}
+			lines = append(lines, fmt.Sprintf("- %s: %.0f tokens across %.0f events", label, assistantOutputFloat(item, "tokens"), assistantOutputFloat(item, "count")))
+		}
+	}
+	runs := assistantMapSlice(call.Output["top_token_runs"])
+	if len(runs) > 0 {
+		lines = append(lines, "", "Top token runs:")
+		for _, item := range runs {
+			label := firstNonEmptyString(assistantOutputString(item, "label"), assistantOutputString(item, "key"))
+			if label == "" {
+				continue
+			}
+			lines = append(lines, fmt.Sprintf("- %s: %.0f tokens", label, assistantOutputFloat(item, "tokens")))
+		}
+	}
+	if assistantOutputFloat(call.Output, "total_tokens") == 0 && len(pipelines) == 0 && len(runs) == 0 {
+		lines = append(lines, "", "I did not find visible AI usage events in the default monitoring window.")
+		lines = append(lines, "Tell me a time range, pipeline, LLM profile, model, or run ID if you want me to narrow it.")
+	}
+	lines = append(lines, "", "No changes were applied.")
+	return strings.Join(lines, "\n")
+}
+
+func composeClarifyingReply(plan assistantTurnPlan) string {
+	question := strings.TrimSpace(plan.ClarifyQuestion)
+	if question == "" {
+		question = "Which NopsAI area should I check?"
+	}
+	return "I can help, but I need one more detail first. " + question
 }
 
 func composePipelineKnowledgeContextReply(toolCalls []assistantToolActivity) string {
@@ -1037,9 +1173,11 @@ func assistantResourceURIsForTool(name string) []string {
 		return []string{"nopsai://schedules"}
 	case "nopsai.list_scopes", "nopsai.get_scope", "nopsai.explain_scope_permissions":
 		return []string{"nopsai://scopes"}
+	case "nopsai.analyze_variable_usage", "nopsai.list_variable_scopes", "nopsai.list_variables_metadata", "nopsai.get_variable_value", "nopsai.write_variable_value", "nopsai.delete_variable_value", "nopsai.propose_variable_gitops_write", "nopsai.propose_variable_gitops_delete":
+		return []string{"nopsai://scopes", "nopsai://variables"}
 	case "nopsai.get_cost_summary", "nopsai.suggest_cost_improvements":
 		return []string{"nopsai://costs"}
-	case "nopsai.list_monitoring_views", "nopsai.create_monitoring_view", "nopsai.update_monitoring_view", "nopsai.delete_monitoring_view", "nopsai.list_monitoring_alert_rules", "nopsai.create_monitoring_alert_rule", "nopsai.update_monitoring_alert_rule", "nopsai.delete_monitoring_alert_rule", "nopsai.evaluate_monitoring_alert_rule", "nopsai.list_monitoring_alert_events", "nopsai.list_monitoring_recommendations", "nopsai.acknowledge_monitoring_recommendation", "nopsai.resolve_monitoring_recommendation":
+	case "nopsai.get_monitoring_summary", "nopsai.get_monitoring_run_analytics", "nopsai.get_monitoring_pipeline_performance", "nopsai.get_monitoring_step_performance", "nopsai.get_monitoring_task_performance", "nopsai.get_monitoring_trigger_analytics", "nopsai.get_monitoring_external_trigger_analytics", "nopsai.get_monitoring_ai_usage", "nopsai.get_monitoring_reliability", "nopsai.get_monitoring_efficiency", "nopsai.get_monitoring_security", "nopsai.get_monitoring_runner_history", "nopsai.list_monitoring_views", "nopsai.create_monitoring_view", "nopsai.update_monitoring_view", "nopsai.delete_monitoring_view", "nopsai.list_monitoring_alert_rules", "nopsai.create_monitoring_alert_rule", "nopsai.update_monitoring_alert_rule", "nopsai.delete_monitoring_alert_rule", "nopsai.evaluate_monitoring_alert_rule", "nopsai.list_monitoring_alert_events", "nopsai.list_monitoring_recommendations", "nopsai.acknowledge_monitoring_recommendation", "nopsai.resolve_monitoring_recommendation":
 		return []string{"nopsai://statistics"}
 	case "nopsai.get_llm_profiles":
 		return []string{"nopsai://system/llm-profiles"}
@@ -1110,7 +1248,7 @@ func assistantLooksLikePipelineYAML(content string) bool {
 func assistantPipelineIDFromMessage(content string) string {
 	id := assistantFirstPatternGroup(assistantPipelineIDPattern, content)
 	switch strings.ToLower(strings.Trim(strings.TrimSpace(id), "/")) {
-	case "", "a", "an", "the", "that", "which", "who", "where", "has", "have", "having", "with", "through", "via", "yaml", "context", "knowledge", "runs", "run", "logs", "called", "named", "name", "approval", "step", "steps":
+	case "", "a", "an", "the", "that", "which", "who", "where", "has", "have", "having", "with", "through", "via", "yaml", "context", "knowledge", "runs", "run", "logs", "called", "named", "name", "approval", "step", "steps", "use", "uses", "using", "highest", "llm", "tokens":
 		return ""
 	default:
 		return strings.Trim(id, "/")
@@ -1150,6 +1288,98 @@ func assistantMessageAsksRunList(lower string) bool {
 		"pipelineruns",
 		"logs",
 	)
+}
+
+func assistantMessageAsksVariableUsage(lower string) bool {
+	if !containsAny(lower, "variable", "variables", "env", "envs", "environment variable", "environment variables") {
+		return false
+	}
+	return containsAny(
+		lower,
+		"repetitive",
+		"repeated",
+		"duplicate",
+		"duplicates",
+		"how many",
+		"all scopes",
+		"across scopes",
+		"used in scopes",
+	)
+}
+
+func assistantMessageAsksAITokenUsage(lower string) bool {
+	if containsAny(
+		lower,
+		"llm usage",
+		"llm usages",
+		"ai usage",
+		"ai usages",
+		"model usage",
+		"model usages",
+		"token usage",
+		"token usages",
+		"llm token",
+		"llm tokens",
+		"ai token",
+		"ai tokens",
+	) {
+		return true
+	}
+	if !assistantMessageHasAITokenSubject(lower) {
+		return false
+	}
+	return containsAny(
+		lower,
+		"usage",
+		"usages",
+		"highest",
+		"most",
+		"top",
+		"token usage",
+		"uses the most",
+		"use the most",
+		"usage by pipeline",
+		"which pipeline",
+		"pipelines use",
+	)
+}
+
+func assistantMessageAsksCost(lower string) bool {
+	return containsAny(lower, "cost", "costs", "spend", "budget", "expensive")
+}
+
+func assistantMessageNeedsUsageClarification(lower string) bool {
+	if !containsAny(lower, "usage", "usages") {
+		return false
+	}
+	if assistantMessageHasAITokenSubject(lower) {
+		return false
+	}
+	return !containsAny(
+		lower,
+		"cost",
+		"costs",
+		"spend",
+		"budget",
+		"expensive",
+		"runner",
+		"runners",
+		"run",
+		"runs",
+		"pipeline run",
+		"variable",
+		"variables",
+		"env",
+		"envs",
+		"secret",
+		"secrets",
+		"credential",
+		"credentials",
+	)
+}
+
+func assistantMessageHasAITokenSubject(lower string) bool {
+	return containsAny(lower, "llm", "token", "tokens", "model", "models") || containsWord(lower, "ai")
 }
 
 func assistantMessageAsksFeatureCapabilities(lower string) bool {
@@ -1213,6 +1443,23 @@ func assistantQueryMentionsApproval(value string) bool {
 	return containsAny(value, "approval", "approve", "manual gate", "gate")
 }
 
+func assistantLastRelevantLogLine(logs []map[string]any) string {
+	for idx := len(logs) - 1; idx >= 0; idx-- {
+		line := assistantOutputString(logs[idx], "line")
+		if line == "" {
+			continue
+		}
+		lower := strings.ToLower(line)
+		if containsAny(lower, "error", "failed", "failure", "fatal", "panic", "exception", "denied", "timeout", "invalid") {
+			return line
+		}
+	}
+	if len(logs) == 0 {
+		return ""
+	}
+	return assistantOutputString(logs[len(logs)-1], "line")
+}
+
 func assistantCapabilityPolicyNotes(output map[string]any) []string {
 	notes := []string{}
 	seen := map[string]struct{}{}
@@ -1256,6 +1503,17 @@ func assistantAPICallFromMessage(content string) (string, string) {
 func containsAny(value string, needles ...string) bool {
 	for _, needle := range needles {
 		if strings.Contains(value, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsWord(value string, word string) bool {
+	for _, field := range strings.FieldsFunc(value, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
+	}) {
+		if field == word {
 			return true
 		}
 	}

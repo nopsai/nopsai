@@ -313,6 +313,7 @@ func hostedMCPFeatureCapabilityCatalog() []hostedMCPFeatureCapability {
 			},
 			Notes: []string{
 				"Dispatcher/internal log ingestion, task update, and finalization are service paths, not normal assistant tools.",
+				"Assistant run investigations chain run metadata, bounded recent logs, and failure analysis before answering.",
 				"Run creation, approval decisions, rerun, cancel, and delete require explicit confirmation before execution.",
 			},
 		},
@@ -437,6 +438,7 @@ func hostedMCPFeatureCapabilityCatalog() []hostedMCPFeatureCapability {
 				"nopsai.propose_secret_gitops_delete",
 				"nopsai.list_variables_metadata",
 				"nopsai.list_variable_scopes",
+				"nopsai.analyze_variable_usage",
 				"nopsai.get_variable_value",
 				"nopsai.write_variable_value",
 				"nopsai.delete_variable_value",
@@ -445,6 +447,7 @@ func hostedMCPFeatureCapabilityCatalog() []hostedMCPFeatureCapability {
 			},
 			Resources: []string{
 				"nopsai://scopes",
+				"nopsai://variables",
 			},
 			APIRoutes: []string{
 				"GET /v1/secrets",

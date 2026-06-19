@@ -1,4 +1,5 @@
-import type { FormEvent, KeyboardEvent } from 'react';
+import { useEffect, useRef, type FormEvent, type KeyboardEvent } from 'react';
+import { Loader2, Maximize2, Plus, Send, X } from 'lucide-react';
 import { ObjectIcon } from '../../components/ObjectIcon.js';
 import type { AssistantMessage } from './model.js';
 import { useAssistantController } from './useAssistantController.js';
@@ -14,9 +15,17 @@ export function AssistantPanel({
 }) {
   const assistant = useAssistantController();
   const compact = variant === 'dock';
+  const transcriptRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const transcript = transcriptRef.current;
+    if (!transcript) return;
+    transcript.scrollTop = transcript.scrollHeight;
+  }, [assistant.activeConversation?.id, assistant.activeMessages.length, assistant.sending, assistant.loading]);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    if (!assistant.enabled) return;
     void assistant.submitMessage();
   };
 
@@ -43,20 +52,23 @@ export function AssistantPanel({
           {onExpand && (
             <button
               type="button"
-              className="rounded-md border border-[var(--border-primary)] px-2.5 py-1.5 text-xs font-medium hover:bg-[var(--bg-tertiary)]"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-primary)] hover:bg-[var(--bg-tertiary)]"
               onClick={onExpand}
+              aria-label="Open full assistant page"
+              title="Full page"
             >
-              Full page
+              <Maximize2 className="h-4 w-4" aria-hidden="true" />
             </button>
           )}
           {onClose && (
             <button
               type="button"
-              className="rounded-md border border-[var(--border-primary)] px-2.5 py-1.5 text-xs font-medium hover:bg-[var(--bg-tertiary)]"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-primary)] hover:bg-[var(--bg-tertiary)]"
               onClick={onClose}
               aria-label="Close assistant"
+              title="Close"
             >
-              Close
+              <X className="h-4 w-4" aria-hidden="true" />
             </button>
           )}
         </div>
@@ -71,7 +83,7 @@ export function AssistantPanel({
                 className="mt-1 w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-2 py-2 text-sm normal-case text-[var(--text-primary)]"
                 value={assistant.selectedProfile}
                 onChange={event => assistant.setSelectedProfile(event.target.value)}
-                disabled={assistant.profileOptions.length === 0}
+                disabled={!assistant.enabled || assistant.loading || assistant.profileOptions.length === 0}
               >
                 {assistant.profileOptions.length === 0 ? (
                   <option value="">No profiles</option>
@@ -82,10 +94,11 @@ export function AssistantPanel({
             </label>
             <button
               type="button"
-              className="w-full rounded-md bg-[var(--border-accent)] px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-[var(--border-accent)] px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
               onClick={() => void assistant.startConversation()}
-              disabled={assistant.sending}
+              disabled={!assistant.enabled || assistant.loading || assistant.sending}
             >
+              <Plus className="h-4 w-4" aria-hidden="true" />
               New conversation
             </button>
           </div>
@@ -117,15 +130,22 @@ export function AssistantPanel({
               {assistant.error}
             </div>
           )}
-          <div className="min-h-0 flex-1 space-y-3 overflow-auto px-4 py-4">
-            {assistant.loading ? (
+          <div ref={transcriptRef} className="min-h-0 flex-1 space-y-3 overflow-auto px-4 py-4" aria-live="polite">
+            {assistant.config && !assistant.enabled ? (
+              <div className="rounded-md border border-dashed border-[var(--border-primary)] p-4 text-sm text-[var(--text-secondary)]">
+                The assistant is disabled by administrator configuration.
+              </div>
+            ) : assistant.loading ? (
               <p className="text-sm text-[var(--text-secondary)]">Loading assistant...</p>
             ) : assistant.activeMessages.length === 0 ? (
               <div className="rounded-md border border-dashed border-[var(--border-primary)] p-4 text-sm text-[var(--text-secondary)]">
                 Ask about a failed run, pipeline YAML, schedules, scopes, costs, docs, or system status.
               </div>
             ) : (
-              assistant.activeMessages.map(message => <AssistantMessageBubble key={message.id} message={message} />)
+              <>
+                {assistant.activeMessages.map(message => <AssistantMessageBubble key={message.id} message={message} />)}
+                {assistant.sending && <AssistantThinkingBubble />}
+              </>
             )}
           </div>
           <form onSubmit={submit} className="border-t border-[var(--border-primary)] p-3">
@@ -135,15 +155,18 @@ export function AssistantPanel({
               onChange={event => assistant.setDraft(event.target.value)}
               onKeyDown={handleDraftKeyDown}
               placeholder="Ask the assistant..."
+              disabled={!assistant.enabled || assistant.loading}
             />
             <div className="mt-2 flex items-center justify-between gap-3">
-              <span className="text-xs text-[var(--text-secondary)]">Ctrl/Cmd Enter sends</span>
+              <span className="text-xs text-[var(--text-secondary)]">{assistant.config?.actions.require_confirmation !== false ? 'Actions require confirmation' : 'Confirmation can be relaxed by policy'}</span>
               <button
                 type="submit"
-                className="rounded-md bg-[var(--border-accent)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={!assistant.draft.trim() || assistant.sending}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-[var(--border-accent)] text-white disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={!assistant.enabled || assistant.loading || !assistant.draft.trim() || assistant.sending}
+                aria-label="Send message"
+                title="Send"
               >
-                {assistant.sending ? 'Sending...' : 'Send'}
+                {assistant.sending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Send className="h-4 w-4" aria-hidden="true" />}
               </button>
             </div>
           </form>
@@ -163,9 +186,9 @@ function AssistantMessageBubble({ message }: { message: AssistantMessage }) {
   const isUser = message.role === 'user';
   return (
     <article className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div className={`max-w-[820px] rounded-md border px-3 py-2 text-sm ${isUser ? 'border-[var(--border-accent)] bg-[var(--bg-tertiary)]' : 'border-[var(--border-primary)] bg-[var(--bg-secondary)]'}`}>
-        <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">{isUser ? 'You' : 'Assistant'}</div>
-        <p className="whitespace-pre-wrap text-[var(--text-primary)]">{message.content}</p>
+      <div className={`max-w-[820px] rounded-md border px-3 py-2 text-sm shadow-sm ${isUser ? 'border-[var(--border-accent)] bg-[var(--border-accent)] text-white' : 'border-[var(--border-primary)] bg-[var(--bg-secondary)] text-[var(--text-primary)]'}`}>
+        <div className={`mb-1 text-xs font-semibold uppercase tracking-wide ${isUser ? 'text-white/75' : 'text-[var(--text-secondary)]'}`}>{isUser ? 'You' : 'Assistant'}</div>
+        <p className="whitespace-pre-wrap">{message.content}</p>
         {message.tool_calls.length > 0 && (
           <div className="mt-2 space-y-1 border-t border-[var(--border-primary)] pt-2">
             {message.tool_calls.map(tool => (
@@ -178,6 +201,17 @@ function AssistantMessageBubble({ message }: { message: AssistantMessage }) {
             ))}
           </div>
         )}
+      </div>
+    </article>
+  );
+}
+
+function AssistantThinkingBubble() {
+  return (
+    <article className="flex justify-start">
+      <div className="inline-flex items-center gap-2 rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--text-secondary)] shadow-sm">
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+        <span>Thinking</span>
       </div>
     </article>
   );

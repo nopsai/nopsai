@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  normalizeAssistantConfig,
   normalizeAssistantConversation,
   normalizeAssistantConversationsPayload,
   normalizeAssistantLLMProfilesPayload,
@@ -86,5 +87,37 @@ describe('assistant model', () => {
       disabled_reason: 'not allowed',
     });
     expect('credential_ref' in payload.profiles[0]).toBe(false);
+  });
+
+  it('normalizes safe assistant config without credential material', () => {
+    const config = normalizeAssistantConfig({
+      enabled: true,
+      provider: 'gemini',
+      model: 'gemini-2.5-pro',
+      default_docs_version: '2026.06',
+      credential_configured: true,
+      credential_ref: 'credential://system/assistant/api-key',
+      api_key_secret: 'NOPSAI_ASSISTANT_API_KEY',
+      features: {
+        docs: false,
+        pipeline_debugging: true,
+        action_execution: false,
+      },
+      actions: {
+        require_confirmation: true,
+      },
+    });
+
+    expect(config.enabled).toBe(true);
+    expect(config.provider).toBe('gemini');
+    expect(config.default_docs_version).toBe('2026.06');
+    expect(config.credential_configured).toBe(true);
+    expect(config.features.docs).toBe(false);
+    expect(config.features.pipeline_debugging).toBe(true);
+    expect(config.features.config_generation).toBe(true);
+    expect(config.features.action_execution).toBe(false);
+    expect(config.actions.require_confirmation).toBe(true);
+    expect('credential_ref' in config).toBe(false);
+    expect('api_key_secret' in config).toBe(false);
   });
 });

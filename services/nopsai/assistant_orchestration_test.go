@@ -123,6 +123,33 @@ func TestAssistantOrchestrationPreparesPipelineGitOpsWritePlan(t *testing.T) {
 	}
 }
 
+func TestAssistantFeatureFlagsGateHostedMCPTools(t *testing.T) {
+	disabled := false
+	app := &App{
+		cfg: &config.Config{Assistant: config.AssistantConfig{
+			Enabled: true,
+			Features: config.AssistantFeaturesConfig{
+				PipelineDebugging: &disabled,
+				ActionExecution:   &disabled,
+			},
+		}},
+		aaaLocal: allowActionsForAssistantTest("pipeline_run.read_logs", "pipeline.execute", "pipeline.create"),
+	}
+
+	tools := app.hostedMCPToolsForSubject(context.Background(), model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"})
+	names := assistantToolNamesForTest(tools)
+
+	if names["nopsai.analyze_pipeline_run_failure"] {
+		t.Fatalf("run-analysis tool should be hidden when pipeline_debugging is disabled")
+	}
+	if names["nopsai.run_pipeline"] {
+		t.Fatalf("execution tool should be hidden when action_execution is disabled")
+	}
+	if !names["nopsai.propose_pipeline_create"] {
+		t.Fatalf("proposal-only config generation should remain available")
+	}
+}
+
 func TestAssistantPlanUsesRememberedRunID(t *testing.T) {
 	runID := uuid.NewString()
 	plan := assistantPlanFromMessage("Why did it fail?", assistantConversationMemory{SelectedRun: runID})
@@ -177,6 +204,26 @@ func TestAssistantPlanRecognizesReportedMCPChatPhrases(t *testing.T) {
 			wantQuery:  "secret",
 			wantArea:   "secrets",
 		},
+		{
+			name:       "repetitive variables across scopes",
+			message:    "how many repetitive variables are used in all scopes?",
+			wantIntent: "variable_usage",
+		},
+		{
+			name:       "highest llm token pipeline",
+			message:    "which pipeline use the highest LLM tokens?",
+			wantIntent: "ai_token_usage",
+		},
+		{
+			name:       "plural llm usage",
+			message:    "give me llm usages",
+			wantIntent: "ai_token_usage",
+		},
+		{
+			name:       "ambiguous usage asks for target",
+			message:    "show usage",
+			wantIntent: "clarify",
+		},
 	}
 
 	for _, tt := range tests {
@@ -195,6 +242,146 @@ func TestAssistantPlanRecognizesReportedMCPChatPhrases(t *testing.T) {
 				t.Fatalf("pipeline id = %q, want %q", plan.PipelineID, tt.wantPipelineID)
 			}
 		})
+	}
+}
+
+func TestAssistantRunAnalysisReplyIncludesMCPChainAndLogHint(t *testing.T) {
+	runID := uuid.NewString()
+	reply := composeRunAnalysisReply([]assistantToolActivity{
+		{
+			Name:   "nopsai.get_pipeline_run",
+			Status: assistantToolStatusSuccess,
+			Output: map[string]any{
+				"run_id":         runID,
+				"pipeline_id":    "platform/deploy-api",
+				"status":         "failure",
+				"failure_reason": "task failed",
+			},
+		},
+		{
+			Name:   "nopsai.get_pipeline_run_logs",
+			Status: assistantToolStatusSuccess,
+			Output: map[string]any{
+				"logs": []map[string]any{
+					{"line": "starting deploy"},
+					{"line": "ERROR image tag is invalid"},
+				},
+				"bytes_truncated": true,
+				"max_bytes":       120000,
+			},
+		},
+		{
+			Name:   "nopsai.analyze_pipeline_run_failure",
+			Status: assistantToolStatusSuccess,
+			Output: map[string]any{
+				"root_cause_hint": "image tag is invalid",
+				"suggested_next_steps": []string{
+					"Check the image tag variable.",
+				},
+			},
+		},
+	})
+
+	for _, want := range []string{"hosted Nopsai MCP chain", "platform/deploy-api", "ERROR image tag is invalid", "Log excerpt was truncated", "image tag is invalid"} {
+		if !strings.Contains(reply, want) {
+			t.Fatalf("reply missing %q:\n%s", want, reply)
+		}
+	}
+}
+
+func TestAssistantVariableUsageReplyStaysMetadataOnly(t *testing.T) {
+	reply := composeVariableUsageReply([]assistantToolActivity{{
+		Name:   "nopsai.analyze_variable_usage",
+		Status: assistantToolStatusSuccess,
+		Output: map[string]any{
+			"total_visible_variables":   4,
+			"unique_variable_names":     3,
+			"repetitive_variable_names": 1,
+			"duplicates": []map[string]any{{
+				"name":         "DEPLOY_REGION",
+				"occurrences":  2,
+				"scopes":       []string{"dev", "prod"},
+				"repositories": []string{"global"},
+			}},
+			"values_read": false,
+		},
+	}})
+
+	if !strings.Contains(reply, "DEPLOY_REGION: 2 entries") || !strings.Contains(reply, "Values were not read") {
+		t.Fatalf("reply did not summarize metadata-only variable usage:\n%s", reply)
+	}
+	if strings.Contains(strings.ToLower(reply), "value:") {
+		t.Fatalf("reply should not include variable values:\n%s", reply)
+	}
+}
+
+func TestAssistantAIUsageReplyRanksPipelinesByTokens(t *testing.T) {
+	reply := composeAIUsageReply([]assistantToolActivity{{
+		Name:   "nopsai.get_monitoring_ai_usage",
+		Status: assistantToolStatusSuccess,
+		Output: map[string]any{
+			"total_tokens":            4500,
+			"total_prompt_tokens":     3000,
+			"total_completion_tokens": 1500,
+			"by_pipeline": []map[string]any{{
+				"label":  "deploy-api",
+				"tokens": 3200,
+				"count":  7,
+			}},
+			"top_token_runs": []map[string]any{{
+				"label":  "run-1",
+				"tokens": 2100,
+			}},
+		},
+	}})
+
+	for _, want := range []string{"Total tokens: 4500", "deploy-api: 3200 tokens", "run-1: 2100 tokens"} {
+		if !strings.Contains(reply, want) {
+			t.Fatalf("reply missing %q:\n%s", want, reply)
+		}
+	}
+}
+
+func TestAssistantAIUsageReplyAsksFollowUpWhenNoEventsAreVisible(t *testing.T) {
+	reply := composeAIUsageReply([]assistantToolActivity{{
+		Name:   "nopsai.get_monitoring_ai_usage",
+		Status: assistantToolStatusSuccess,
+		Output: map[string]any{
+			"total_tokens":            0,
+			"total_prompt_tokens":     0,
+			"total_completion_tokens": 0,
+			"by_pipeline":             []map[string]any{},
+			"top_token_runs":          []map[string]any{},
+		},
+	}})
+
+	for _, want := range []string{"default monitoring window", "time range", "pipeline", "run ID"} {
+		if !strings.Contains(reply, want) {
+			t.Fatalf("reply missing %q:\n%s", want, reply)
+		}
+	}
+}
+
+func TestAssistantOrchestrationClarifiesAmbiguousUsage(t *testing.T) {
+	app := &App{aaaLocal: allowActionsForAssistantTest("pipeline_run.list")}
+
+	result := app.runAssistantConversationTurn(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		"user:viewer",
+		assistantConversation{ID: uuid.New(), DocsVersion: "auto"},
+		"show usage",
+		"",
+	)
+
+	if len(result.ToolCalls) != 0 {
+		t.Fatalf("tool calls = %#v, want none before clarification", result.ToolCalls)
+	}
+	if !strings.Contains(result.Reply, "Which usage area should I check") {
+		t.Fatalf("reply = %q, want clarification question", result.Reply)
+	}
+	if result.Memory.Entities["last_intent"] != "clarify" {
+		t.Fatalf("memory last intent = %#v, want clarify", result.Memory.Entities["last_intent"])
 	}
 }
 
@@ -294,7 +481,13 @@ func TestAssistantOrchestrationChecksMCPFeatureCapabilities(t *testing.T) {
 }
 
 func TestAssistantOrchestrationCallsExplicitAPIRouteThroughMCP(t *testing.T) {
-	app := &App{aaaLocal: allowActionsForAssistantTest("system.update")}
+	enabled := true
+	app := &App{
+		cfg: &config.Config{Assistant: config.AssistantConfig{
+			Features: config.AssistantFeaturesConfig{ActionExecution: &enabled},
+		}},
+		aaaLocal: allowActionsForAssistantTest("system.update"),
+	}
 
 	result := app.runAssistantConversationTurn(
 		context.Background(),
@@ -420,8 +613,8 @@ func TestAssistantOrchestrationFallsBackWhenLLMProviderFails(t *testing.T) {
 		"standard",
 	)
 
-	if !strings.Contains(result.Reply, "Draft YAML") || !strings.Contains(result.Reply, "LLM synthesis was unavailable") {
-		t.Fatalf("reply did not fall back to deterministic summary: %q", result.Reply)
+	if !strings.Contains(result.Reply, "Draft YAML") || strings.Contains(result.Reply, "LLM synthesis was unavailable") {
+		t.Fatalf("reply did not fall back cleanly to deterministic summary: %q", result.Reply)
 	}
 	call := assistantFirstToolCall(result.ToolCalls, assistantLLMToolName)
 	if call.Status != assistantToolStatusError {
@@ -443,4 +636,12 @@ func allowActionsForAssistantTest(actions ...string) stubAAAAuthorizer {
 			return model.Decision{Allowed: ok}, nil
 		},
 	}
+}
+
+func assistantToolNamesForTest(tools []hostedMCPTool) map[string]bool {
+	names := map[string]bool{}
+	for _, tool := range tools {
+		names[tool.Name] = true
+	}
+	return names
 }

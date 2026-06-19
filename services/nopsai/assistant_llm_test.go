@@ -64,7 +64,54 @@ func TestBuildAssistantLLMProfilesResponseFiltersForPickerContext(t *testing.T) 
 	}
 }
 
+func TestAssistantConfigResponseRedactsCredentialFields(t *testing.T) {
+	response := buildAssistantConfigResponse(config.AssistantConfig{
+		Enabled:            true,
+		Provider:           "openai",
+		Model:              "gpt-test",
+		BaseURL:            "https://proxy.example/v1",
+		CredentialRef:      "credential://system/assistant/api-key",
+		LegacyAPIKeySecret: "NOPSAI_ASSISTANT_API_KEY",
+	})
+
+	if !response.Enabled || response.Provider != config.LLMProviderOpenAI || response.Model != "gpt-test" {
+		t.Fatalf("response model fields = %#v", response)
+	}
+	if !response.CredentialConfigured {
+		t.Fatalf("credential_configured = false, want true")
+	}
+	if response.DedicatedProfile != assistantDedicatedLLMProfileName {
+		t.Fatalf("dedicated profile = %q", response.DedicatedProfile)
+	}
+}
+
+func TestAssistantDedicatedConfigProfileWinsDefaultPickerProfile(t *testing.T) {
+	defaultProfile, profiles := assistantLLMProfilesWithDedicatedConfig("standard", map[string]config.LLMProfile{
+		"standard": {
+			Provider: config.LLMProviderLMStudio,
+			BaseURL:  "http://lmstudio:1234",
+			Model:    "qwen",
+		},
+	}, config.AssistantConfig{
+		Provider:      "gemini",
+		Model:         "gemini-2.5-pro",
+		CredentialRef: "credential://system/assistant/api-key",
+		Timeout:       "45s",
+	})
+
+	if defaultProfile != assistantDedicatedLLMProfileName {
+		t.Fatalf("default profile = %q, want dedicated assistant profile", defaultProfile)
+	}
+	profile := profiles[assistantDedicatedLLMProfileName]
+	if profile.Provider != config.LLMProviderGemini || profile.Model != "gemini-2.5-pro" || profile.TimeoutSeconds != 45 {
+		t.Fatalf("assistant profile = %#v", profile)
+	}
+}
+
 func TestAssistantLLMProfilesRouteIsAuthenticatedOnly(t *testing.T) {
+	if !isAuthenticatedOnlyPath("/v1/assistant/config") {
+		t.Fatal("assistant config route must be authenticated-only")
+	}
 	if !isAuthenticatedOnlyPath("/v1/assistant/llm-profiles") {
 		t.Fatal("assistant LLM profile picker route must be authenticated-only")
 	}
