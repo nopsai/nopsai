@@ -9,13 +9,16 @@ operations as the current authenticated user.
 
 - The assistant is user-scoped. It uses the same AAA subject, grants, scoped
   visibility, and audit model as the user who is chatting.
-- Static workflows create a structured turn plan with goal, intent, tool steps,
-  and success criteria before execution.
-- A feature-wide planner routes clear normal-language requests across the full
-  NopsAI MCP surface, including setup, config repositories, notifications,
-  monitoring extras, credentials, runners, access/admin, backups/cleanup,
-  webhook sources, external triggers, reusable steps, and explicit `nopsai.*`
-  tool names.
+- The selected/default assistant LLM acts as a feature-wide planner. It creates
+  a structured turn plan with goal, intent, tool steps, and success criteria
+  before execution.
+- Assistant conversation turns do not use static normal-language routing. If
+  the LLM planner is unavailable or returns an invalid plan, NopsAI executes no
+  hosted MCP tools and replies that no changes were applied.
+- The planner routes clear normal-language requests across the full NopsAI MCP
+  surface, including setup, config repositories, notifications, monitoring
+  extras, credentials, runners, access/admin, backups/cleanup, webhook sources,
+  external triggers, reusable steps, and explicit `nopsai.*` tool names.
 - NopsAI validates planned tools against the current user's available hosted
   MCP tools, bounded tool-call and argument limits, and mutation confirmation
   requirements before running the plan.
@@ -370,6 +373,9 @@ views, alert rules, alert events, and recommendations. AI/LLM usage prompts
 inspect before answering: empty default-window results are retried against
 broader windows, combined with summary/efficiency context, and explained with a
 recording/permission diagnosis when no events are visible.
+Run-level token questions are answered from `nopsai.get_monitoring_ai_usage`
+with the run ID as a filter; run status, log, and failure-analysis tools do not
+provide token counts.
 
 Ask:
 
@@ -380,9 +386,13 @@ Ask:
 - "Give me LLM usage."
 - "Give me LLM usage for qwen model."
 - "Show tokens for the openai profile last week."
+- "How many tokens were used by pipeline run `e3850cec-550f-456a-bec8-e67777d71d24`?"
 - "Which step used the most tokens?"
 - "Which pipeline uses the highest LLM tokens?"
 - "Which schedule runs a pipeline with the lowest LLM token usage?"
+- "Compare schedule AI usage for this month."
+- "Explain pipeline health for `platform/deploy-api`."
+- "Find optimization opportunities across production pipelines."
 - "Show reliability and security monitoring signals."
 - "Create a monitoring saved view for failed production deploys; I confirm."
 - "Create an alert rule for failure rate above 10 percent; I confirm."
@@ -403,7 +413,13 @@ Main MCP coverage: `nopsai.get_statistics`, `nopsai.get_cost_summary`,
 `nopsai.get_monitoring_external_trigger_analytics`,
 `nopsai.get_monitoring_ai_usage`, `nopsai.get_monitoring_reliability`,
 `nopsai.get_monitoring_efficiency`, `nopsai.get_monitoring_security`,
-`nopsai.get_monitoring_runner_history`, `nopsai.list_monitoring_views`,
+`nopsai.get_monitoring_runner_history`,
+`nopsai.get_monitoring_schedule_ai_usage`,
+`nopsai.get_monitoring_schedule_performance`,
+`nopsai.get_monitoring_trigger_performance`,
+`nopsai.get_pipeline_efficiency`, `nopsai.compare_pipelines`,
+`nopsai.compare_schedules`, `nopsai.explain_pipeline_health`,
+`nopsai.find_optimization_opportunities`, `nopsai.list_monitoring_views`,
 `nopsai.create_monitoring_view`, `nopsai.update_monitoring_view`,
 `nopsai.delete_monitoring_view`, `nopsai.list_monitoring_alert_rules`,
 `nopsai.create_monitoring_alert_rule`,

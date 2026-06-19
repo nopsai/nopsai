@@ -110,6 +110,14 @@ func hostedMCPFinalTools() []hostedMCPTool {
 		toolDef("nopsai.get_monitoring_efficiency", "Read efficiency analytics with filters.", "pipeline_run.list", "pipeline_run", "*", monitoringSchema),
 		toolDef("nopsai.get_monitoring_security", "Read security analytics with filters.", "pipeline_run.list", "pipeline_run", "*", monitoringSchema),
 		toolDef("nopsai.get_monitoring_runner_history", "Read runner history analytics with filters.", "pipeline_run.list", "pipeline_run", "*", monitoringSchema),
+		toolDef("nopsai.get_monitoring_schedule_ai_usage", "Read schedule-level AI usage analytics with filters.", "pipeline_run.list", "pipeline_run", "*", monitoringSchema),
+		toolDef("nopsai.get_monitoring_schedule_performance", "Read combined schedule performance, AI usage, and efficiency analytics with filters.", "pipeline_run.list", "pipeline_run", "*", monitoringSchema),
+		toolDef("nopsai.get_monitoring_trigger_performance", "Read combined trigger and external-trigger performance analytics with filters.", "pipeline_run.list", "pipeline_run", "*", monitoringSchema),
+		toolDef("nopsai.get_pipeline_efficiency", "Read combined pipeline performance, efficiency, and AI usage analytics with filters.", "pipeline_run.list", "pipeline_run", "*", monitoringSchema),
+		toolDef("nopsai.compare_pipelines", "Compare pipeline performance, reliability, efficiency, and AI usage with filters.", "pipeline_run.list", "pipeline_run", "*", monitoringSchema),
+		toolDef("nopsai.compare_schedules", "Compare schedule AI usage, run performance, and efficiency with filters.", "pipeline_run.list", "pipeline_run", "*", monitoringSchema),
+		toolDef("nopsai.explain_pipeline_health", "Explain pipeline health from performance, reliability, efficiency, and security analytics.", "pipeline_run.list", "pipeline_run", "*", monitoringSchema),
+		toolDef("nopsai.find_optimization_opportunities", "Find optimization opportunities from efficiency, recommendation, AI usage, and pipeline performance analytics.", "pipeline_run.list", "pipeline_run", "*", monitoringSchema),
 
 		toolDef("nopsai.list_credentials_metadata", "List credential metadata only; credential values are never returned.", "credential.list_metadata", "credential", "*", objectSchema(map[string]any{})),
 		toolDef("nopsai.get_credential_metadata", "Read credential metadata and version metadata by credential id.", "credential.list_metadata", "credential", "*", objectSchema(map[string]any{"credential_id": stringSchema()})),
@@ -255,8 +263,10 @@ func (a *App) executeHostedMCPFinalTool(ctx context.Context, subject aaamodel.Su
 		return hostedMCPExplainInternalRunOperations(args), true, nil
 	case "nopsai.explain_webhook_ingress_policy":
 		return hostedMCPExplainWebhookIngressPolicy(args), true, nil
-	case "nopsai.get_monitoring_summary", "nopsai.get_monitoring_run_analytics", "nopsai.get_monitoring_pipeline_performance", "nopsai.get_monitoring_step_performance", "nopsai.get_monitoring_task_performance", "nopsai.get_monitoring_trigger_analytics", "nopsai.get_monitoring_external_trigger_analytics", "nopsai.get_monitoring_ai_usage", "nopsai.get_monitoring_reliability", "nopsai.get_monitoring_efficiency", "nopsai.get_monitoring_security", "nopsai.get_monitoring_runner_history":
+	case "nopsai.get_monitoring_summary", "nopsai.get_monitoring_run_analytics", "nopsai.get_monitoring_pipeline_performance", "nopsai.get_monitoring_step_performance", "nopsai.get_monitoring_task_performance", "nopsai.get_monitoring_trigger_analytics", "nopsai.get_monitoring_external_trigger_analytics", "nopsai.get_monitoring_ai_usage", "nopsai.get_monitoring_reliability", "nopsai.get_monitoring_efficiency", "nopsai.get_monitoring_security", "nopsai.get_monitoring_runner_history", "nopsai.get_monitoring_schedule_ai_usage":
 		return a.hostedMCPFinalAPITool(ctx, subject, http.MethodGet, hostedMCPMonitoringAnalyticsPath(name, args), nil, false, false, false, ""), true, nil
+	case "nopsai.get_monitoring_schedule_performance", "nopsai.get_monitoring_trigger_performance", "nopsai.get_pipeline_efficiency", "nopsai.compare_pipelines", "nopsai.compare_schedules", "nopsai.explain_pipeline_health", "nopsai.find_optimization_opportunities":
+		return a.hostedMCPMonitoringInsightTool(ctx, subject, name, args), true, nil
 	case "nopsai.list_credentials_metadata":
 		return a.hostedMCPFinalAPITool(ctx, subject, http.MethodGet, "/v1/system/credentials", nil, false, false, false, ""), true, nil
 	case "nopsai.get_credential_metadata":
@@ -667,7 +677,12 @@ func hostedMCPExplainWebhookIngressPolicy(args map[string]any) map[string]any {
 }
 
 func hostedMCPMonitoringAnalyticsPath(toolName string, args map[string]any) string {
-	base := map[string]string{
+	base := hostedMCPMonitoringAnalyticsBasePath(toolName)
+	return hostedMCPPathWithQuery(base, args, hostedMCPMonitoringAnalyticsAliases())
+}
+
+func hostedMCPMonitoringAnalyticsBasePath(toolName string) string {
+	return map[string]string{
 		"nopsai.get_monitoring_summary":                    "/v1/monitoring/summary",
 		"nopsai.get_monitoring_run_analytics":              "/v1/monitoring/runs/analytics",
 		"nopsai.get_monitoring_pipeline_performance":       "/v1/monitoring/pipelines/performance",
@@ -680,8 +695,12 @@ func hostedMCPMonitoringAnalyticsPath(toolName string, args map[string]any) stri
 		"nopsai.get_monitoring_efficiency":                 "/v1/monitoring/efficiency",
 		"nopsai.get_monitoring_security":                   "/v1/monitoring/security",
 		"nopsai.get_monitoring_runner_history":             "/v1/monitoring/runners/history",
+		"nopsai.get_monitoring_schedule_ai_usage":          "/v1/monitoring/ai-usage",
 	}[toolName]
-	aliases := map[string]string{
+}
+
+func hostedMCPMonitoringAnalyticsAliases() map[string]string {
+	return map[string]string{
 		"group_id":               "groupId",
 		"pipeline_path":          "pipelinePath",
 		"pipeline_name":          "pipelineName",
@@ -700,7 +719,89 @@ func hostedMCPMonitoringAnalyticsPath(toolName string, args map[string]any) stri
 		"min_duration_seconds":   "minDurationSeconds",
 		"max_duration_seconds":   "maxDurationSeconds",
 	}
-	return hostedMCPPathWithQuery(base, args, aliases)
+}
+
+func (a *App) hostedMCPMonitoringInsightTool(ctx context.Context, subject aaamodel.Subject, toolName string, args map[string]any) map[string]any {
+	paths := hostedMCPMonitoringInsightPaths(toolName)
+	result := map[string]any{
+		"analysis":     strings.TrimPrefix(toolName, "nopsai."),
+		"applied":      false,
+		"combined":     true,
+		"source_count": len(paths),
+		"ok":           true,
+	}
+	sourcePaths := make([]string, 0, len(paths))
+	for _, path := range paths {
+		requestPath := hostedMCPPathWithQuery(path.Path, args, hostedMCPMonitoringAnalyticsAliases())
+		sourcePaths = append(sourcePaths, requestPath)
+		part := a.hostedMCPFinalAPITool(ctx, subject, http.MethodGet, requestPath, nil, false, false, false, "")
+		if _, hasError := part["error"]; hasError {
+			result["ok"] = false
+		}
+		if ok, hasOK := part["ok"].(bool); hasOK && !ok {
+			result["ok"] = false
+		}
+		result[path.Key] = part
+	}
+	result["source_paths"] = sourcePaths
+	return result
+}
+
+type hostedMCPMonitoringInsightPath struct {
+	Key  string
+	Path string
+}
+
+func hostedMCPMonitoringInsightPaths(toolName string) []hostedMCPMonitoringInsightPath {
+	switch toolName {
+	case "nopsai.get_monitoring_schedule_performance":
+		return []hostedMCPMonitoringInsightPath{
+			{Key: "summary", Path: "/v1/monitoring/summary"},
+			{Key: "ai_usage", Path: "/v1/monitoring/ai-usage"},
+			{Key: "efficiency", Path: "/v1/monitoring/efficiency"},
+		}
+	case "nopsai.get_monitoring_trigger_performance":
+		return []hostedMCPMonitoringInsightPath{
+			{Key: "trigger_analytics", Path: "/v1/monitoring/triggers/analytics"},
+			{Key: "external_trigger_analytics", Path: "/v1/monitoring/external-triggers/analytics"},
+			{Key: "summary", Path: "/v1/monitoring/summary"},
+		}
+	case "nopsai.get_pipeline_efficiency":
+		return []hostedMCPMonitoringInsightPath{
+			{Key: "pipeline_performance", Path: "/v1/monitoring/pipelines/performance"},
+			{Key: "efficiency", Path: "/v1/monitoring/efficiency"},
+			{Key: "ai_usage", Path: "/v1/monitoring/ai-usage"},
+		}
+	case "nopsai.compare_pipelines":
+		return []hostedMCPMonitoringInsightPath{
+			{Key: "pipeline_performance", Path: "/v1/monitoring/pipelines/performance"},
+			{Key: "efficiency", Path: "/v1/monitoring/efficiency"},
+			{Key: "reliability", Path: "/v1/monitoring/reliability"},
+			{Key: "ai_usage", Path: "/v1/monitoring/ai-usage"},
+		}
+	case "nopsai.compare_schedules":
+		return []hostedMCPMonitoringInsightPath{
+			{Key: "ai_usage", Path: "/v1/monitoring/ai-usage"},
+			{Key: "efficiency", Path: "/v1/monitoring/efficiency"},
+			{Key: "summary", Path: "/v1/monitoring/summary"},
+		}
+	case "nopsai.explain_pipeline_health":
+		return []hostedMCPMonitoringInsightPath{
+			{Key: "pipeline_performance", Path: "/v1/monitoring/pipelines/performance"},
+			{Key: "reliability", Path: "/v1/monitoring/reliability"},
+			{Key: "efficiency", Path: "/v1/monitoring/efficiency"},
+			{Key: "security", Path: "/v1/monitoring/security"},
+		}
+	case "nopsai.find_optimization_opportunities":
+		return []hostedMCPMonitoringInsightPath{
+			{Key: "efficiency", Path: "/v1/monitoring/efficiency"},
+			{Key: "recommendations", Path: "/v1/monitoring/recommendations"},
+			{Key: "ai_usage", Path: "/v1/monitoring/ai-usage"},
+			{Key: "pipeline_performance", Path: "/v1/monitoring/pipelines/performance"},
+		}
+	default:
+		return nil
+	}
 }
 
 func hostedMCPCredentialCreateBody(args map[string]any) map[string]any {

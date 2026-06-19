@@ -217,9 +217,12 @@ temperature validation apply. The assistant UI reads profile choices from
 `GET /v1/assistant/llm-profiles`, which returns only picker-safe metadata and
 does not require system LLM profile administration permission. Assistant
 replies are synthesized from the user request, conversation memory, and hosted
-MCP tool outputs. If the selected profile cannot be used, the assistant records
-the fallback reason and returns the deterministic permission-bound tool
-summary.
+MCP tool outputs. Assistant conversation turns do not use static
+normal-language routing. If the selected profile cannot be used for planning,
+no hosted MCP tools run and the assistant reports that no changes were applied.
+If final synthesis fails after a validated plan already produced MCP evidence,
+the assistant records the fallback reason and returns the deterministic
+permission-bound tool summary.
 
 ## Validation
 
