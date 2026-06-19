@@ -41,6 +41,12 @@ type monitoringAnalyticsFilters struct {
 	EffectiveSubjectID    string
 	ExternalTriggerID     string
 	ScheduleID            string
+	Provider              string
+	Model                 string
+	LLMProfile            string
+	Feature               string
+	StepName              string
+	TaskName              string
 	MinDurationSeconds    *float64
 	MaxDurationSeconds    *float64
 }
@@ -231,6 +237,8 @@ type monitoringAIUsageResponse struct {
 	ExactTokenEvents      int64                    `json:"exact_token_events"`
 	EstimatedTokenEvents  int64                    `json:"estimated_token_events"`
 	ByPipeline            []monitoringNamedCount   `json:"by_pipeline"`
+	BySchedule            []monitoringNamedCount   `json:"by_schedule"`
+	LowestTokenSchedules  []monitoringNamedCount   `json:"lowest_token_schedules"`
 	ByStep                []monitoringNamedCount   `json:"by_step"`
 	ByTask                []monitoringNamedCount   `json:"by_task"`
 	ByFeature             []monitoringNamedCount   `json:"by_feature"`
@@ -506,6 +514,12 @@ func parseMonitoringAnalyticsFilters(r *http.Request) (monitoringAnalyticsFilter
 	filters.EffectiveSubjectID = strings.TrimSpace(values.Get("effectiveSubjectId"))
 	filters.ExternalTriggerID = strings.TrimSpace(values.Get("externalTriggerId"))
 	filters.ScheduleID = strings.TrimSpace(values.Get("scheduleId"))
+	filters.Provider = strings.TrimSpace(values.Get("provider"))
+	filters.Model = strings.TrimSpace(values.Get("model"))
+	filters.LLMProfile = strings.TrimSpace(firstMonitoringText(values.Get("llmProfile"), values.Get("llm_profile"), values.Get("profile")))
+	filters.Feature = strings.TrimSpace(values.Get("feature"))
+	filters.StepName = strings.TrimSpace(firstMonitoringText(values.Get("stepName"), values.Get("step_name")))
+	filters.TaskName = strings.TrimSpace(firstMonitoringText(values.Get("taskName"), values.Get("task_name")))
 	if raw := strings.TrimSpace(values.Get("minDurationSeconds")); raw != "" {
 		parsed, err := strconv.ParseFloat(raw, 64)
 		if err != nil || parsed < 0 {
@@ -651,6 +665,15 @@ func buildMonitoringCandidateRunIDsQuery(filters monitoringAnalyticsFilters) (st
 		args = append(args, *filters.MaxDurationSeconds)
 		conditions = append(conditions, fmt.Sprintf("pr.started_at IS NOT NULL AND pr.finished_at IS NOT NULL AND EXTRACT(EPOCH FROM pr.finished_at - pr.started_at) <= $%d", len(args)))
 	}
+	if aiUsageFilters := monitoringAIUsageCandidateRunConditions(&args, filters); len(aiUsageFilters) > 0 {
+		conditions = append(conditions, `EXISTS (
+			SELECT 1
+			FROM ai_usage_events au
+			WHERE au.run_id = pr.run_id
+			  AND au.created_at >= $1 AND au.created_at <= $2
+			  AND `+strings.Join(aiUsageFilters, " AND ")+`
+		)`)
+	}
 
 	return withClause + `
 		SELECT DISTINCT pr.run_id::text
@@ -658,6 +681,25 @@ func buildMonitoringCandidateRunIDsQuery(filters monitoringAnalyticsFilters) (st
 		LEFT JOIN external_trigger_invocations eti ON eti.id::text = pr.trigger_event_id OR eti.run_id = pr.run_id
 		WHERE ` + strings.Join(conditions, " AND ") + `
 		ORDER BY pr.run_id::text`, args
+}
+
+func monitoringAIUsageCandidateRunConditions(args *[]any, filters monitoringAnalyticsFilters) []string {
+	conditions := []string{}
+	addTextCondition := func(column, value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		*args = append(*args, value)
+		conditions = append(conditions, fmt.Sprintf("LOWER(COALESCE(au.%s, '')) = LOWER($%d)", column, len(*args)))
+	}
+	addTextCondition("provider", filters.Provider)
+	addTextCondition("model", filters.Model)
+	addTextCondition("llm_profile", filters.LLMProfile)
+	addTextCondition("feature", filters.Feature)
+	addTextCondition("step_name", filters.StepName)
+	addTextCondition("task_name", filters.TaskName)
+	return conditions
 }
 
 func (a *App) visibleMonitoringExternalTriggerIDs(r *http.Request, filters monitoringAnalyticsFilters) ([]string, error) {
@@ -1291,7 +1333,8 @@ func (a *App) loadMonitoringAIUsage(ctx context.Context, filters monitoringAnaly
 	if len(runIDs) == 0 {
 		return resp, nil
 	}
-	if err := a.db.QueryRow(ctx, monitoringAIUsageTotalsQuery(), runIDs, filters.From, filters.To).Scan(
+	queryArgs := monitoringAIUsageQueryArgs(runIDs, filters)
+	if err := a.db.QueryRow(ctx, monitoringAIUsageTotalsQuery(), queryArgs...).Scan(
 		&resp.TotalPromptTokens,
 		&resp.TotalCompletionTokens,
 		&resp.TotalTokens,
@@ -1303,7 +1346,15 @@ func (a *App) loadMonitoringAIUsage(ctx context.Context, filters monitoringAnaly
 		return resp, err
 	}
 	var err error
-	resp.ByPipeline, err = a.loadMonitoringTokenCounts(ctx, monitoringAIUsageByPipelineQuery(), runIDs, filters.From, filters.To)
+	resp.ByPipeline, err = a.loadMonitoringTokenCounts(ctx, monitoringAIUsageByPipelineQuery(), queryArgs...)
+	if err != nil {
+		return resp, err
+	}
+	resp.BySchedule, err = a.loadMonitoringTokenCounts(ctx, monitoringAIUsageByScheduleQuery(false), queryArgs...)
+	if err != nil {
+		return resp, err
+	}
+	resp.LowestTokenSchedules, err = a.loadMonitoringTokenCounts(ctx, monitoringAIUsageByScheduleQuery(true), queryArgs...)
 	if err != nil {
 		return resp, err
 	}
@@ -1311,7 +1362,7 @@ func (a *App) loadMonitoringAIUsage(ctx context.Context, filters monitoringAnaly
 	if err != nil {
 		return resp, err
 	}
-	resp.ByTask, err = a.loadMonitoringTokenCounts(ctx, monitoringAIUsageByTaskQuery(), runIDs, filters.From, filters.To)
+	resp.ByTask, err = a.loadMonitoringTokenCounts(ctx, monitoringAIUsageByTaskQuery(), queryArgs...)
 	if err != nil {
 		return resp, err
 	}
@@ -1335,7 +1386,7 @@ func (a *App) loadMonitoringAIUsage(ctx context.Context, filters monitoringAnaly
 	if err != nil {
 		return resp, err
 	}
-	resp.TopTokenRuns, err = a.loadMonitoringTokenCounts(ctx, monitoringAITopTokenRunsQuery(), runIDs, filters.From, filters.To)
+	resp.TopTokenRuns, err = a.loadMonitoringTokenCounts(ctx, monitoringAITopTokenRunsQuery(), queryArgs...)
 	return resp, err
 }
 
@@ -1779,11 +1830,11 @@ func (a *App) loadMonitoringHeatmap(ctx context.Context, runIDs []string) ([]mon
 }
 
 func (a *App) loadAIUsageGroup(ctx context.Context, runIDs []string, filters monitoringAnalyticsFilters, expression string) ([]monitoringNamedCount, error) {
-	return a.loadMonitoringTokenCounts(ctx, monitoringAIUsageGroupQuery(expression), runIDs, filters.From, filters.To)
+	return a.loadMonitoringTokenCounts(ctx, monitoringAIUsageGroupQuery(expression), monitoringAIUsageQueryArgs(runIDs, filters)...)
 }
 
 func (a *App) loadAIUsageTrend(ctx context.Context, runIDs []string, filters monitoringAnalyticsFilters) ([]monitoringTimeBucket, error) {
-	rows, err := a.db.Query(ctx, monitoringAIUsageTrendQuery(), runIDs, filters.From, filters.To)
+	rows, err := a.db.Query(ctx, monitoringAIUsageTrendQuery(), monitoringAIUsageQueryArgs(runIDs, filters)...)
 	if err != nil {
 		return nil, err
 	}
@@ -1799,6 +1850,30 @@ func (a *App) loadAIUsageTrend(ctx context.Context, runIDs []string, filters mon
 	return items, rows.Err()
 }
 
+func monitoringAIUsageQueryArgs(runIDs []string, filters monitoringAnalyticsFilters) []any {
+	return []any{
+		runIDs,
+		filters.From,
+		filters.To,
+		filters.Provider,
+		filters.Model,
+		filters.LLMProfile,
+		filters.Feature,
+		filters.StepName,
+		filters.TaskName,
+	}
+}
+
+func monitoringAIUsageEventFilterPredicate() string {
+	return `
+		  AND ($4::text = '' OR LOWER(COALESCE(provider, '')) = LOWER($4))
+		  AND ($5::text = '' OR LOWER(COALESCE(model, '')) = LOWER($5))
+		  AND ($6::text = '' OR LOWER(COALESCE(llm_profile, '')) = LOWER($6))
+		  AND ($7::text = '' OR LOWER(COALESCE(feature, '')) = LOWER($7))
+		  AND ($8::text = '' OR LOWER(COALESCE(step_name, '')) = LOWER($8))
+		  AND ($9::text = '' OR LOWER(COALESCE(task_name, '')) = LOWER($9))`
+}
+
 func monitoringAIUsageTotalsQuery() string {
 	estimatedPredicate := monitoringEstimatedTokenPredicate()
 	return `
@@ -1810,7 +1885,7 @@ func monitoringAIUsageTotalsQuery() string {
 		       (COUNT(*) FILTER (WHERE ` + estimatedPredicate + `))::bigint
 		FROM ai_usage_events
 		WHERE run_id::text = ANY($1)
-		  AND created_at >= $2 AND created_at <= $3`
+		  AND created_at >= $2 AND created_at <= $3` + monitoringAIUsageEventFilterPredicate()
 }
 
 func monitoringEstimatedTokenPredicate() string {
@@ -1823,9 +1898,33 @@ func monitoringAIUsageByPipelineQuery() string {
 		       COALESCE(SUM(total_tokens), 0)::bigint, 0::float8
 		FROM ai_usage_events
 		WHERE run_id::text = ANY($1)
-		  AND created_at >= $2 AND created_at <= $3
+		  AND created_at >= $2 AND created_at <= $3` + monitoringAIUsageEventFilterPredicate() + `
 		GROUP BY pipeline_path, pipeline_name
 		ORDER BY 4 DESC, 2
+		LIMIT 20`
+}
+
+func monitoringAIUsageByScheduleQuery(lowestFirst bool) string {
+	orderDirection := "DESC"
+	if lowestFirst {
+		orderDirection = "ASC"
+	}
+	return `
+		WITH filtered_usage AS (
+			SELECT *
+			FROM ai_usage_events
+			WHERE run_id::text = ANY($1)
+			  AND created_at >= $2 AND created_at <= $3` + monitoringAIUsageEventFilterPredicate() + `
+		)
+		SELECT pr.schedule_id::text,
+		       COALESCE(NULLIF(CONCAT_WS('/', NULLIF(ps.path, ''), NULLIF(ps.name, '')), ''), pr.schedule_id::text),
+		       COUNT(*), COALESCE(SUM(au.total_tokens), 0)::bigint, 0::float8
+		FROM filtered_usage au
+		JOIN pipeline_runs pr ON pr.run_id = au.run_id
+		LEFT JOIN pipeline_schedules ps ON ps.id = pr.schedule_id
+		WHERE pr.schedule_id IS NOT NULL
+		GROUP BY pr.schedule_id, ps.path, ps.name
+		ORDER BY 4 ` + orderDirection + `, 2
 		LIMIT 20`
 }
 
@@ -1834,7 +1933,7 @@ func monitoringAITopTokenRunsQuery() string {
 		SELECT run_id::text, run_id::text, COUNT(*), COALESCE(SUM(total_tokens), 0)::bigint, 0::float8
 		FROM ai_usage_events
 		WHERE run_id::text = ANY($1)
-		  AND created_at >= $2 AND created_at <= $3
+		  AND created_at >= $2 AND created_at <= $3` + monitoringAIUsageEventFilterPredicate() + `
 		GROUP BY run_id
 		ORDER BY 4 DESC, 3 DESC
 		LIMIT 20`
@@ -1847,7 +1946,7 @@ func monitoringAIUsageByTaskQuery() string {
 		       COUNT(*), COALESCE(SUM(total_tokens), 0)::bigint, 0::float8
 		FROM ai_usage_events
 		WHERE run_id::text = ANY($1)
-		  AND created_at >= $2 AND created_at <= $3
+		  AND created_at >= $2 AND created_at <= $3` + monitoringAIUsageEventFilterPredicate() + `
 		  AND COALESCE(task_name, '') <> ''
 		GROUP BY 1,2
 		ORDER BY 4 DESC, 2
@@ -1860,7 +1959,7 @@ func monitoringAIUsageGroupQuery(expression string) string {
 		       COUNT(*), COALESCE(SUM(total_tokens), 0)::bigint, 0::float8
 		FROM ai_usage_events
 		WHERE run_id::text = ANY($1)
-		  AND created_at >= $2 AND created_at <= $3
+		  AND created_at >= $2 AND created_at <= $3` + monitoringAIUsageEventFilterPredicate() + `
 		GROUP BY 1,2
 		ORDER BY 4 DESC, 2
 		LIMIT 20`
@@ -1876,7 +1975,7 @@ func monitoringAIUsageTrendQuery() string {
 		       0::float8
 		FROM ai_usage_events
 		WHERE run_id::text = ANY($1)
-		  AND created_at >= $2 AND created_at <= $3
+		  AND created_at >= $2 AND created_at <= $3` + monitoringAIUsageEventFilterPredicate() + `
 		GROUP BY 1,2
 		ORDER BY 1
 	`

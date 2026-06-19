@@ -1,9 +1,9 @@
 # Hosted MCP Feature Coverage
 
 Hosted MCP exposes NopsAI as the current authenticated user. The assistant and
-external MCP clients receive only the tools/resources allowed by that user's AAA
-subject, and each tool call re-checks the specific resource identified by the
-arguments.
+external MCP clients use the same JSON-RPC request processor and receive only
+the tools/resources allowed by that user's AAA subject. Each tool call
+re-checks the specific resource identified by the arguments.
 
 Use `nopsai.get_feature_capabilities` or read `nopsai://features` to inspect
 the current user's coverage. The response includes:
@@ -21,7 +21,24 @@ For a user-facing capability catalog with example chat prompts, see
 The assistant planner maps normal-language requests to first-party MCP tools
 when the target is clear, and asks a clarifying question before tool execution
 when a broad term such as "usage" could mean AI/LLM tokens, runner cost,
-pipeline runs, variables, or another product area.
+pipeline runs, variables, or another product area. In addition to specialist
+intents, a feature-wide router covers setup, config repositories, notification
+settings/routes, monitoring views/alerts/recommendations, credentials, runners,
+AAA/admin/audit, data backup/cleanup, webhook sources, external triggers,
+reusable steps, scoped secrets/variables, and explicit `nopsai.*` tool names.
+AI/LLM usage requests use an investigation loop: the assistant checks the
+default monitoring window, retries broader windows when results are empty,
+gathers summary/efficiency context, and explains likely recording or permission
+gaps with evidence instead of returning a bare zero.
+
+For static workflows, the assistant builds a structured turn plan with a goal,
+intent, tool steps, and success criteria before execution. NopsAI validates the
+plan against the current AAA subject, available hosted MCP tools, a bounded
+tool-call count, bounded argument shape, and explicit `confirm:true` for
+mutating tools before any planned step runs. Final LLM synthesis is also
+quality-gated: if the model claims unapplied changes or misses required
+proposal-safe wording, NopsAI falls back to the deterministic MCP-grounded
+summary.
 
 `nopsai.call_api` is the broad compatibility bridge for remaining product
 features. It calls guarded `/v1` REST routes as the current authenticated
@@ -47,11 +64,15 @@ confirmed run mutations, schedule inventory and GitOps write plans, webhook
 source and external trigger plans, webhook-ingress policy explanations, config
 repo sync/drift/write workflows, notification mail/route plans, monitoring
 analytics/views/alerts/recommendation actions including AI token usage by
-pipeline/run, data backup/cleanup operations, scope inventory, secret/variable
+pipeline/schedule/run/model/profile/feature/step/task, data backup/cleanup
+operations, scope inventory, secret/variable
 metadata and repeated variable-name analysis plus safe write/GitOps plans,
+template-aware pipeline YAML generation for common deployment domains,
 cost/statistics, LLM/MCP profile reads, system status,
 credential metadata/rotation/GitOps plans, runner install/dispatch operations,
 AAA/access/audit/admin workflows, and dispatcher/runner health.
+Natural-language scope inventory requests can combine visible scope listing with
+metadata-only secret counts by scope without reading plaintext secret values.
 The API bridge remains the compatibility surface for auth self-service and other
 guarded `/v1` routes when the current user has the matching AAA permissions.
 

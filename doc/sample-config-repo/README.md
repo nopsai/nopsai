@@ -290,7 +290,7 @@ assistant:
   docs_enabled: true
   docs_version_aware: true
   mcp:
-    enabled: false
+    enabled: true
     server_url: ""
   features:
     docs: true

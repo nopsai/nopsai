@@ -57,6 +57,7 @@ import {
   accessPresetForRole,
   matchesAccessSearch,
 } from "./presentation";
+import { copyTextToClipboard } from "../../../lib/clipboard";
 import type {
   AccessMode,
   AccessSection,
@@ -1511,9 +1512,13 @@ export function useAccessPanelController({
 
   const copyCreatedServiceAccountToken = async () => {
     const token = createdServiceAccountToken?.token;
-    if (!token || !navigator.clipboard) return;
-    await navigator.clipboard.writeText(token);
-    setCopyServiceAccountTokenLabel("Copied");
+    if (!token) return;
+    try {
+      await copyTextToClipboard(token);
+      setCopyServiceAccountTokenLabel("Copied");
+    } catch {
+      setCopyServiceAccountTokenLabel("Copy failed");
+    }
     window.setTimeout(() => setCopyServiceAccountTokenLabel("Copy"), 1800);
   };
 

@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/google/uuid"
 
+	"nopsai/config"
 	"nopsai/services/aaa/pkg/model"
 )
 
@@ -50,6 +52,13 @@ func (a *App) runAssistantConversationTurn(
 		toolCalls = append(toolCalls, call)
 		return call
 	}
+	runValidatedPlan := func() bool {
+		handled, validation := a.runAssistantValidatedToolPlan(ctx, subject, plan, runTool)
+		if validation != nil {
+			toolCalls = append(toolCalls, *validation)
+		}
+		return handled
+	}
 
 	switch plan.Intent {
 	case "generate_pipeline":
@@ -82,90 +91,62 @@ func (a *App) runAssistantConversationTurn(
 			memory.OpenTasks = append(memory.OpenTasks, "Commit the generated pipeline file through the config repository review branch.")
 		}
 	case "validate_pipeline":
-		runTool("nopsai.validate_pipeline", map[string]any{"yaml": plan.YAML})
+		runValidatedPlan()
 	case "analyze_run":
-		runTool("nopsai.get_pipeline_run", map[string]any{"run_id": plan.RunID})
-		runTool("nopsai.get_pipeline_run_logs", map[string]any{"run_id": plan.RunID, "limit": 160})
-		runTool("nopsai.analyze_pipeline_run_failure", map[string]any{"run_id": plan.RunID})
+		runValidatedPlan()
 		memory.OpenTasks = append(memory.OpenTasks, "Review failed run analysis before applying remediation.")
 	case "list_runs":
-		runTool("nopsai.list_pipeline_runs", map[string]any{"limit": 5})
+		runValidatedPlan()
 	case "variable_usage":
-		runTool("nopsai.analyze_variable_usage", map[string]any{"scope": plan.Scope, "limit": 20})
+		runValidatedPlan()
 	case "ai_token_usage":
-		runTool("nopsai.get_monitoring_ai_usage", map[string]any{})
+		a.runAIUsageInvestigation(plan, runTool)
+	case "feature_tool":
+		runValidatedPlan()
 	case "clarify":
 		// No tool call is useful yet; ask for the missing target instead of guessing.
+	case "scope_secret_summary":
+		runValidatedPlan()
 	case "cost":
-		runTool("nopsai.get_cost_summary", map[string]any{})
-		runTool("nopsai.suggest_cost_improvements", map[string]any{})
+		runValidatedPlan()
 	case "design":
-		runTool("nopsai.suggest_design_improvements", map[string]any{})
+		runValidatedPlan()
 	case "statistics":
-		runTool("nopsai.get_statistics", map[string]any{})
+		runValidatedPlan()
 	case "trigger":
+		runValidatedPlan()
 		if plan.Repository != "" && containsAny(plan.LowerContent, "change", "update", "modify", "propose") {
-			runTool("nopsai.propose_trigger_change", map[string]any{"repository": plan.Repository, "change": content})
 			memory.PreviousProposedFixes = append(memory.PreviousProposedFixes, "Draft trigger change for "+plan.Repository)
-		} else if plan.Repository != "" {
-			runTool("nopsai.get_trigger", map[string]any{"repository": plan.Repository})
-		} else {
-			runTool("nopsai.list_triggers", map[string]any{"limit": 20})
 		}
 	case "schedule":
+		runValidatedPlan()
 		if plan.ScheduleID != "" && containsAny(plan.LowerContent, "change", "update", "modify", "propose") {
-			runTool("nopsai.propose_schedule_change", map[string]any{"schedule_id": plan.ScheduleID, "change": content})
 			memory.PreviousProposedFixes = append(memory.PreviousProposedFixes, "Draft schedule change for "+plan.ScheduleID)
-		} else if plan.ScheduleID != "" {
-			runTool("nopsai.get_schedule", map[string]any{"schedule_id": plan.ScheduleID})
-		} else {
-			runTool("nopsai.list_schedules", map[string]any{"limit": 20})
 		}
 	case "scope":
-		if plan.Scope != "" {
-			runTool("nopsai.explain_scope_permissions", map[string]any{"scope": plan.Scope})
-		} else {
-			runTool("nopsai.list_scopes", map[string]any{"limit": 20})
-		}
+		runValidatedPlan()
 	case "api_call":
 		runTool("nopsai.call_api", map[string]any{"method": plan.APIMethod, "path": plan.APIPath, "confirm": containsAny(plan.LowerContent, "confirm", "confirmed", "execute", "apply")})
 	case "search_pipelines":
-		query := plan.SearchQuery
-		if query == "" {
-			query = content
-		}
-		runTool("nopsai.search_pipelines", map[string]any{"query": query, "limit": 20, "include_snippets": true})
+		runValidatedPlan()
 	case "pipeline_knowledge_context":
-		if plan.YAML != "" {
-			runTool("nopsai.get_pipeline_knowledge_context", map[string]any{"yaml": plan.YAML, "include_content": true})
-		} else if plan.PipelineID != "" {
-			runTool("nopsai.get_pipeline_knowledge_context", map[string]any{"pipeline": plan.PipelineID, "include_content": true})
-		} else {
-			runTool("nopsai.list_knowledge_contexts", map[string]any{"query": content, "limit": 20})
-		}
+		runValidatedPlan()
 	case "knowledge_context":
-		runTool("nopsai.list_knowledge_contexts", map[string]any{"query": content, "limit": 20})
+		runValidatedPlan()
 	case "pipeline":
-		if plan.PipelineID != "" {
-			runTool("nopsai.get_pipeline", map[string]any{"pipeline": plan.PipelineID})
-		} else {
-			runTool("nopsai.list_pipelines", map[string]any{"limit": 20})
-		}
+		runValidatedPlan()
 	case "profiles":
-		runTool("nopsai.get_llm_profiles", map[string]any{})
-		runTool("nopsai.get_mcp_profiles", map[string]any{})
+		runValidatedPlan()
 	case "feature_capabilities":
-		args := map[string]any{"query": plan.SearchQuery, "include_api_routes": false}
-		if plan.CapabilityArea != "" {
-			args["area"] = plan.CapabilityArea
-		}
-		runTool("nopsai.get_feature_capabilities", args)
+		runValidatedPlan()
 	case "runtime":
-		runTool("nopsai.get_dispatcher_status", map[string]any{})
+		runValidatedPlan()
 	case "system":
-		runTool("nopsai.get_system_status", map[string]any{})
+		runValidatedPlan()
 	default:
-		runTool("nopsai.search_docs", map[string]any{"query": content, "limit": 5})
+		if !runValidatedPlan() {
+			runTool("nopsai.search_docs", map[string]any{"query": content, "limit": 5})
+		}
 	}
 
 	memory = assistantMemoryAfterTools(memory, plan, toolCalls)
@@ -191,6 +172,7 @@ func (a *App) runAssistantConversationTurn(
 
 type assistantTurnPlan struct {
 	Intent          string
+	Goal            string
 	LowerContent    string
 	RunID           string
 	YAML            string
@@ -204,6 +186,10 @@ type assistantTurnPlan struct {
 	ClarifyQuestion string
 	APIMethod       string
 	APIPath         string
+	Steps           []assistantPlanStep
+	FallbackSteps   []assistantPlanStep
+	AIUsageFilters  map[string]any
+	SuccessCriteria string
 }
 
 func assistantPlanFromMessage(content string, memory assistantConversationMemory) assistantTurnPlan {
@@ -218,7 +204,7 @@ func assistantPlanFromMessage(content string, memory assistantConversationMemory
 		PipelineID:   assistantPipelineIDFromMessage(content),
 		Repository:   assistantFirstPatternGroup(assistantRepositoryPattern, content),
 		ScheduleID:   assistantFirstPatternGroup(assistantScheduleIDPattern, content),
-		Scope:        strings.Trim(assistantFirstPatternGroup(assistantScopePattern, content), "/"),
+		Scope:        assistantScopeFromMessage(content),
 		SearchQuery:  assistantPipelineSearchQueryFromMessage(content),
 	}
 	plan.APIMethod, plan.APIPath = assistantAPICallFromMessage(content)
@@ -236,6 +222,7 @@ func assistantPlanFromMessage(content string, memory assistantConversationMemory
 		plan.PipelineName = "generated-pipeline"
 	}
 
+	featureStep, featureCriteria, featureMatched := assistantFeatureToolPlanFromMessage(content, plan)
 	switch {
 	case plan.YAML != "" && containsAny(lower, "update pipeline", "replace pipeline", "modify pipeline", "save pipeline", "write pipeline", "gitops", "review branch", "commit"):
 		if containsAny(lower, "update", "replace", "modify", "existing") {
@@ -249,19 +236,27 @@ func assistantPlanFromMessage(content string, memory assistantConversationMemory
 		plan.Intent = "validate_pipeline"
 	case containsAny(lower, "generate pipeline", "create pipeline", "draft pipeline", "pipeline yaml", "new pipeline"):
 		plan.Intent = "generate_pipeline"
+	case assistantMessageAsksAITokenUsage(lower):
+		plan.Intent = "ai_token_usage"
+	case assistantMessageAsksFeatureCapabilities(lower):
+		plan.Intent = "feature_capabilities"
+	case assistantMessageAsksVariableUsage(lower):
+		plan.Intent = "variable_usage"
+	case assistantMessageNeedsUsageClarification(lower):
+		plan.Intent = "clarify"
+		plan.ClarifyQuestion = "Which usage area should I check: AI/LLM tokens, runner cost, pipeline runs, variables, or a specific pipeline/run?"
+	case assistantMessageAsksScopeSecretSummary(lower):
+		plan.Intent = "scope_secret_summary"
+	case assistantMessageAsksCost(lower):
+		plan.Intent = "cost"
+	case featureMatched:
+		plan.Intent = "feature_tool"
+		plan.Steps = []assistantPlanStep{featureStep}
+		plan.SuccessCriteria = featureCriteria
 	case plan.RunID != "" && containsAny(lower, "run", "failed", "failure", "fail", "log", "logs", "analyze", "explain", "why"):
 		plan.Intent = "analyze_run"
 	case assistantMessageAsksRunList(lower):
 		plan.Intent = "list_runs"
-	case assistantMessageAsksVariableUsage(lower):
-		plan.Intent = "variable_usage"
-	case assistantMessageAsksAITokenUsage(lower):
-		plan.Intent = "ai_token_usage"
-	case assistantMessageAsksCost(lower):
-		plan.Intent = "cost"
-	case assistantMessageNeedsUsageClarification(lower):
-		plan.Intent = "clarify"
-		plan.ClarifyQuestion = "Which usage area should I check: AI/LLM tokens, runner cost, pipeline runs, variables, or a specific pipeline/run?"
 	case containsAny(lower, "design", "improve", "best practice", "maintenance", "refactor", "architecture"):
 		plan.Intent = "design"
 	case containsAny(lower, "statistics", "stats", "overview", "dashboard"):
@@ -272,8 +267,6 @@ func assistantPlanFromMessage(content string, memory assistantConversationMemory
 		plan.Intent = "trigger"
 	case containsAny(lower, "schedule", "cron"):
 		plan.Intent = "schedule"
-	case assistantMessageAsksFeatureCapabilities(lower):
-		plan.Intent = "feature_capabilities"
 	case containsAny(lower, "scope", "permission", "access grant", "access"):
 		plan.Intent = "scope"
 	case assistantMessageAsksPipelineSearch(lower):
@@ -298,23 +291,22 @@ func assistantPlanFromMessage(content string, memory assistantConversationMemory
 	default:
 		plan.Intent = "docs"
 	}
-	return plan
+	return assistantFinalizeTurnPlan(plan, content)
 }
 
 func (a *App) runAssistantHostedMCPTool(ctx context.Context, subject model.Subject, userID string, conversationID uuid.UUID, name string, args map[string]any) assistantToolActivity {
 	if args == nil {
 		args = map[string]any{}
 	}
-	tool, ok := a.hostedMCPToolByName(ctx, subject, name)
-	if !ok {
+	if !config.AssistantMCPEnabled(a.assistantConfig().MCP) {
 		return assistantToolActivity{
 			Name:   name,
 			Input:  args,
-			Output: map[string]any{"error": "tool is not available for the current subject"},
+			Output: map[string]any{"error": "hosted MCP is disabled by assistant configuration"},
 			Status: assistantToolStatusDenied,
 		}
 	}
-	result, err := a.callHostedMCPTool(ctx, subject, userID, tool, args, &conversationID)
+	result, err := a.callAssistantHostedMCPTool(ctx, subject, userID, conversationID, name, args)
 	status := assistantToolStatusSuccess
 	if err != nil {
 		status = assistantToolStatusError
@@ -333,6 +325,45 @@ func (a *App) runAssistantHostedMCPTool(ctx context.Context, subject model.Subje
 		Output:       result,
 		Status:       status,
 		ResourceURIs: assistantResourceURIsForTool(name),
+	}
+}
+
+func (a *App) runAssistantValidatedToolPlan(ctx context.Context, subject model.Subject, plan assistantTurnPlan, runTool assistantToolRunner) (bool, *assistantToolActivity) {
+	if len(plan.Steps) == 0 {
+		return false, nil
+	}
+	if err := a.validateAssistantToolPlan(ctx, subject, plan); err != nil {
+		return true, &assistantToolActivity{
+			Name:   "nopsai.assistant_plan",
+			Status: assistantToolStatusDenied,
+			Input:  assistantPlanActivityInput(plan),
+			Output: map[string]any{
+				"error":      err.Error(),
+				"applied":    false,
+				"validated":  false,
+				"tool_count": len(plan.Steps),
+			},
+		}
+	}
+	for _, step := range plan.Steps {
+		runTool(step.ToolName, cloneAssistantArgs(step.Args))
+	}
+	return true, nil
+}
+
+func assistantPlanActivityInput(plan assistantTurnPlan) map[string]any {
+	steps := make([]map[string]any, 0, len(plan.Steps))
+	for _, step := range plan.Steps {
+		steps = append(steps, map[string]any{
+			"tool":   strings.TrimSpace(step.ToolName),
+			"reason": strings.TrimSpace(step.Thought),
+		})
+	}
+	return map[string]any{
+		"goal":             strings.TrimSpace(plan.Goal),
+		"intent":           strings.TrimSpace(plan.Intent),
+		"success_criteria": strings.TrimSpace(plan.SuccessCriteria),
+		"steps":            steps,
 	}
 }
 
@@ -418,8 +449,12 @@ func assistantMemorySummary(plan assistantTurnPlan) string {
 		return "Analyzing visible variable names and repeated scope usage without reading values."
 	case "ai_token_usage":
 		return "Reviewing AI token usage analytics by pipeline and run."
+	case "feature_tool":
+		return "Routing the request to the relevant NopsAI hosted MCP feature tool with current-user authorization."
 	case "clarify":
 		return "Waiting for one more detail before choosing a NopsAI tool."
+	case "scope_secret_summary":
+		return "Counting visible scopes and metadata-only secret counts per scope."
 	case "runtime":
 		return "Checking dispatcher and runner health."
 	case "api_call":
@@ -459,7 +494,9 @@ func composeAssistantReply(plan assistantTurnPlan, selectedProfile string, toolC
 	case "variable_usage":
 		return composeVariableUsageReply(toolCalls)
 	case "ai_token_usage":
-		return composeAIUsageReply(toolCalls)
+		return composeAIUsageReply(plan, toolCalls)
+	case "feature_tool":
+		return composeFeatureToolReply(toolCalls)
 	case "cost":
 		return composeCostReply(toolCalls)
 	case "design":
@@ -470,6 +507,8 @@ func composeAssistantReply(plan assistantTurnPlan, selectedProfile string, toolC
 		return composeProposalOrInventoryReply(toolCalls)
 	case "scope":
 		return composeScopeReply(toolCalls)
+	case "scope_secret_summary":
+		return composeScopeSecretSummaryReply(toolCalls)
 	case "api_call":
 		return composeAPICallReply(toolCalls)
 	case "search_pipelines":
@@ -496,15 +535,38 @@ func composeAssistantReply(plan assistantTurnPlan, selectedProfile string, toolC
 func composePipelineGenerationReply(toolCalls []assistantToolActivity) string {
 	var yaml string
 	validation := map[string]any{}
+	generated := map[string]any{}
 	for _, call := range toolCalls {
 		switch call.Name {
 		case "nopsai.generate_pipeline":
+			generated = call.Output
 			yaml = assistantOutputString(call.Output, "yaml")
 		case "nopsai.validate_pipeline":
 			validation = call.Output
 		}
 	}
 	lines := []string{"I drafted a GitOps-safe pipeline proposal. No changes were applied."}
+	if templateID := assistantOutputString(generated, "template_id"); templateID != "" {
+		lines = append(lines, "", "Template: "+templateID)
+	}
+	if assumptions := assistantStringSlice(generated["assumptions"]); len(assumptions) > 0 {
+		lines = append(lines, "", "Assumptions:")
+		for _, assumption := range assumptions {
+			lines = append(lines, "- "+assumption)
+		}
+	}
+	if vars := assistantStringSlice(generated["required_variables"]); len(vars) > 0 {
+		lines = append(lines, "", "Required variables:")
+		for _, value := range vars {
+			lines = append(lines, "- "+value)
+		}
+	}
+	if secrets := assistantStringSlice(generated["required_secrets"]); len(secrets) > 0 {
+		lines = append(lines, "", "Required secrets:")
+		for _, value := range secrets {
+			lines = append(lines, "- "+value)
+		}
+	}
 	if len(validation) > 0 {
 		if assistantOutputBool(validation, "valid") {
 			lines = append(lines, "", "Validation: passed.")
@@ -669,15 +731,24 @@ func composeVariableUsageReply(toolCalls []assistantToolActivity) string {
 	return strings.Join(lines, "\n")
 }
 
-func composeAIUsageReply(toolCalls []assistantToolActivity) string {
-	call := assistantFirstToolCall(toolCalls, "nopsai.get_monitoring_ai_usage")
+func composeAIUsageReply(plan assistantTurnPlan, toolCalls []assistantToolActivity) string {
+	usageCalls := assistantToolCallsByName(toolCalls, "nopsai.get_monitoring_ai_usage")
+	call := assistantBestAIUsageCall(usageCalls)
 	if call.Status != assistantToolStatusSuccess {
 		return assistantToolErrorReply("I could not load AI token usage analytics.", call)
 	}
-	lines := []string{"AI token usage:"}
+	lines := []string{"AI token usage investigation:"}
+	if filterSummary := assistantAIUsageFilterSummary(call.Input); filterSummary != "" {
+		lines = append(lines, "- Filters: "+filterSummary)
+	}
+	if len(usageCalls) > 1 {
+		lines = append(lines, "- Windows checked: "+fmt.Sprint(len(usageCalls)))
+	}
 	lines = append(lines, fmt.Sprintf("- Total tokens: %.0f", assistantOutputFloat(call.Output, "total_tokens")))
 	lines = append(lines, fmt.Sprintf("- Prompt tokens: %.0f", assistantOutputFloat(call.Output, "total_prompt_tokens")))
 	lines = append(lines, fmt.Sprintf("- Completion tokens: %.0f", assistantOutputFloat(call.Output, "total_completion_tokens")))
+	lines = append(lines, fmt.Sprintf("- Exact token events: %.0f", assistantOutputFloat(call.Output, "exact_token_events")))
+	lines = append(lines, fmt.Sprintf("- Estimated token events: %.0f", assistantOutputFloat(call.Output, "estimated_token_events")))
 	pipelines := assistantMapSlice(call.Output["by_pipeline"])
 	if len(pipelines) > 0 {
 		lines = append(lines, "", "Highest token pipelines:")
@@ -700,12 +771,40 @@ func composeAIUsageReply(toolCalls []assistantToolActivity) string {
 			lines = append(lines, fmt.Sprintf("- %s: %.0f tokens", label, assistantOutputFloat(item, "tokens")))
 		}
 	}
-	if assistantOutputFloat(call.Output, "total_tokens") == 0 && len(pipelines) == 0 && len(runs) == 0 {
-		lines = append(lines, "", "I did not find visible AI usage events in the default monitoring window.")
-		lines = append(lines, "Tell me a time range, pipeline, LLM profile, model, or run ID if you want me to narrow it.")
+	if assistantPlanAsksScheduleLowTokens(plan) {
+		lines = assistantAppendTokenGroup(lines, "Lowest token schedules:", call.Output["lowest_token_schedules"], 10)
+	} else {
+		lines = assistantAppendTokenGroup(lines, "Highest token schedules:", call.Output["by_schedule"], 10)
+	}
+	lines = assistantAppendTokenGroups(lines, call)
+	if !assistantAnyAIUsageCallHasEvents(usageCalls) {
+		lines = append(lines, "", "Investigation evidence:")
+		for idx, usageCall := range usageCalls {
+			lines = append(lines, fmt.Sprintf(
+				"- %s: %.0f tokens across %.0f visible events",
+				assistantAIUsageWindowLabel(usageCall, idx),
+				assistantOutputFloat(usageCall.Output, "total_tokens"),
+				assistantOutputFloat(usageCall.Output, "exact_token_events")+assistantOutputFloat(usageCall.Output, "estimated_token_events"),
+			))
+		}
+		lines = append(lines, "", "Diagnosis:")
+		lines = append(lines, "- I found no visible AI usage events in the checked monitoring windows.")
+		if runs := assistantVisibleRunCount(toolCalls); runs > 0 {
+			lines = append(lines, fmt.Sprintf("- I did find %.0f visible pipeline runs, so the likely issue is token usage recording or runs that did not execute LLM-backed tasks.", runs))
+		} else {
+			lines = append(lines, "- I did not find recent visible runs with the available tools, so this may also be a permissions or data-retention window issue.")
+		}
+		lines = append(lines, "- Token recording depends on the agent reporting collected usage to /v1/internal/runs/{runID}/ai-usage.")
+		lines = append(lines, "- Next action: inspect a recent run that should have used goal, condition, or resolver LLM work and verify the agent AI usage reporter path.")
 	}
 	lines = append(lines, "", "No changes were applied.")
 	return strings.Join(lines, "\n")
+}
+
+func assistantPlanAsksScheduleLowTokens(plan assistantTurnPlan) bool {
+	lower := plan.LowerContent
+	return containsAny(lower, "schedule", "schedules", "scheduled", "cron") &&
+		containsAny(lower, "low", "lower", "lowest", "least", "less", "minimal", "minimum", "cheapest")
 }
 
 func composeClarifyingReply(plan assistantTurnPlan) string {
@@ -884,6 +983,82 @@ func composeScopeReply(toolCalls []assistantToolActivity) string {
 		return "I did not find scopes visible to your account."
 	}
 	return "Visible scopes:\n- " + strings.Join(scopes, "\n- ")
+}
+
+func composeScopeSecretSummaryReply(toolCalls []assistantToolActivity) string {
+	scopesCall := assistantFirstToolCall(toolCalls, "nopsai.list_scopes")
+	secretsCall := assistantFirstToolCall(toolCalls, "nopsai.list_secret_scopes")
+	if scopesCall.Status != assistantToolStatusSuccess && secretsCall.Status != assistantToolStatusSuccess {
+		return assistantToolErrorReply("I could not load scope and secret metadata.", assistantFirstNonEmptyToolCall(toolCalls))
+	}
+
+	scopeSet := map[string]struct{}{}
+	scopes := assistantStringSlice(scopesCall.Output["scopes"])
+	for _, scope := range scopes {
+		scope = strings.TrimSpace(scope)
+		if scope != "" {
+			scopeSet[scope] = struct{}{}
+		}
+	}
+
+	secretCounts := map[string]int{}
+	for _, row := range assistantSecretScopeRows(secretsCall.Output) {
+		scope := strings.TrimSpace(assistantOutputString(row, "scope"))
+		if scope == "" {
+			continue
+		}
+		count := int(assistantOutputFloat(row, "secret_count"))
+		if count == 0 {
+			count = int(assistantOutputFloat(row, "secrets"))
+		}
+		secretCounts[scope] = count
+		scopeSet[scope] = struct{}{}
+	}
+
+	orderedScopes := make([]string, 0, len(scopeSet))
+	for scope := range scopeSet {
+		orderedScopes = append(orderedScopes, scope)
+	}
+	sort.Slice(orderedScopes, func(i, j int) bool {
+		return strings.ToLower(orderedScopes[i]) < strings.ToLower(orderedScopes[j])
+	})
+
+	totalSecrets := 0
+	for _, scope := range orderedScopes {
+		totalSecrets += secretCounts[scope]
+	}
+
+	lines := []string{"Visible scopes and secret counts:"}
+	if scopesCall.Status == assistantToolStatusSuccess {
+		lines = append(lines, fmt.Sprintf("- Total visible scopes: %d", len(orderedScopes)))
+	} else {
+		lines = append(lines, "- Total visible scopes: unavailable with current permissions")
+	}
+	if secretsCall.Status == assistantToolStatusSuccess {
+		lines = append(lines, fmt.Sprintf("- Total visible secrets: %d", totalSecrets))
+	} else {
+		lines = append(lines, "- Secret counts: unavailable with current permissions")
+	}
+
+	if len(orderedScopes) > 0 {
+		lines = append(lines, "", "By scope:")
+		for _, scope := range orderedScopes {
+			count := secretCounts[scope]
+			label := "secrets"
+			if count == 1 {
+				label = "secret"
+			}
+			lines = append(lines, fmt.Sprintf("- %s: %d %s", scope, count, label))
+		}
+	} else if secretsCall.Status == assistantToolStatusSuccess {
+		lines = append(lines, "", "No visible scopes with secrets were found.")
+	}
+
+	if secretsCall.Status != assistantToolStatusSuccess {
+		lines = append(lines, "", "I could list scopes, but secret metadata is not available to your current permissions.")
+	}
+	lines = append(lines, "", "Only secret metadata was used; plaintext secret values were not read. No changes were applied.")
+	return strings.Join(lines, "\n")
 }
 
 func composeAPICallReply(toolCalls []assistantToolActivity) string {
@@ -1171,10 +1346,12 @@ func assistantResourceURIsForTool(name string) []string {
 		return []string{"nopsai://triggers"}
 	case "nopsai.list_schedules", "nopsai.get_schedule", "nopsai.propose_schedule_change", "nopsai.propose_schedule_create", "nopsai.propose_schedule_update", "nopsai.propose_schedule_delete", "nopsai.propose_schedule_enable", "nopsai.propose_schedule_disable", "nopsai.run_schedule_now":
 		return []string{"nopsai://schedules"}
-	case "nopsai.list_scopes", "nopsai.get_scope", "nopsai.explain_scope_permissions":
+	case "nopsai.list_scopes", "nopsai.get_scope", "nopsai.explain_scope_permissions", "nopsai.list_secret_scopes":
 		return []string{"nopsai://scopes"}
 	case "nopsai.analyze_variable_usage", "nopsai.list_variable_scopes", "nopsai.list_variables_metadata", "nopsai.get_variable_value", "nopsai.write_variable_value", "nopsai.delete_variable_value", "nopsai.propose_variable_gitops_write", "nopsai.propose_variable_gitops_delete":
 		return []string{"nopsai://scopes", "nopsai://variables"}
+	case "nopsai.list_secrets_metadata", "nopsai.encrypt_secret_for_gitops", "nopsai.write_secret_value", "nopsai.delete_secret_value", "nopsai.propose_secret_gitops_write", "nopsai.propose_secret_gitops_delete":
+		return []string{"nopsai://scopes", "nopsai://secrets"}
 	case "nopsai.get_cost_summary", "nopsai.suggest_cost_improvements":
 		return []string{"nopsai://costs"}
 	case "nopsai.get_monitoring_summary", "nopsai.get_monitoring_run_analytics", "nopsai.get_monitoring_pipeline_performance", "nopsai.get_monitoring_step_performance", "nopsai.get_monitoring_task_performance", "nopsai.get_monitoring_trigger_analytics", "nopsai.get_monitoring_external_trigger_analytics", "nopsai.get_monitoring_ai_usage", "nopsai.get_monitoring_reliability", "nopsai.get_monitoring_efficiency", "nopsai.get_monitoring_security", "nopsai.get_monitoring_runner_history", "nopsai.list_monitoring_views", "nopsai.create_monitoring_view", "nopsai.update_monitoring_view", "nopsai.delete_monitoring_view", "nopsai.list_monitoring_alert_rules", "nopsai.create_monitoring_alert_rule", "nopsai.update_monitoring_alert_rule", "nopsai.delete_monitoring_alert_rule", "nopsai.evaluate_monitoring_alert_rule", "nopsai.list_monitoring_alert_events", "nopsai.list_monitoring_recommendations", "nopsai.acknowledge_monitoring_recommendation", "nopsai.resolve_monitoring_recommendation":
@@ -1187,8 +1364,20 @@ func assistantResourceURIsForTool(name string) []string {
 		return []string{"nopsai://features"}
 	case "nopsai.call_api":
 		return []string{"nopsai://features"}
+	case "nopsai.get_setup_status", "nopsai.get_setup_preflight", "nopsai.get_setup_templates", "nopsai.plan_first_install_setup", "nopsai.bootstrap_first_install_setup":
+		return []string{"nopsai://system/status"}
+	case "nopsai.propose_reusable_step_create", "nopsai.propose_reusable_step_update", "nopsai.propose_reusable_step_delete":
+		return []string{"nopsai://pipelines"}
 	case "nopsai.get_config_sync_status", "nopsai.sync_system_config", "nopsai.get_config_repo", "nopsai.get_config_repo_drift", "nopsai.sync_config_repo", "nopsai.write_config_repo", "nopsai.list_config_repos", "nopsai.sync_all_config_repos", "nopsai.get_notification_mail_settings", "nopsai.propose_notification_mail_settings", "nopsai.test_notification_mail_settings", "nopsai.get_notification_route", "nopsai.propose_notification_route_update", "nopsai.propose_notification_route_delete", "nopsai.list_data_backups", "nopsai.create_data_backup", "nopsai.delete_data_backup", "nopsai.preview_data_cleanup", "nopsai.run_data_cleanup", "nopsai.list_data_cleanup_jobs", "nopsai.list_data_cleanup_schedules", "nopsai.create_data_cleanup_schedule", "nopsai.update_data_cleanup_schedule", "nopsai.delete_data_cleanup_schedule", "nopsai.run_data_cleanup_schedule", "nopsai.enable_data_cleanup_schedule", "nopsai.disable_data_cleanup_schedule":
 		return []string{"nopsai://system/status"}
+	case "nopsai.list_credentials_metadata", "nopsai.get_credential_metadata", "nopsai.create_credential", "nopsai.rotate_credential_value", "nopsai.activate_credential_version", "nopsai.disable_credential", "nopsai.enable_credential", "nopsai.delete_credential_version", "nopsai.delete_credential", "nopsai.propose_credential_gitops":
+		return []string{"nopsai://system/status"}
+	case "nopsai.generate_runner_compose", "nopsai.generate_kubernetes_runner_manifest", "nopsai.generate_runner_bootstrap_command", "nopsai.generate_kubernetes_runner_bootstrap_command", "nopsai.update_runner_dispatch":
+		return []string{"nopsai://system/dispatcher"}
+	case "nopsai.list_access_grants", "nopsai.create_access_grant", "nopsai.delete_access_grant", "nopsai.get_effective_permissions", "nopsai.check_resource_use", "nopsai.batch_check_resource_use", "nopsai.get_resource_access", "nopsai.update_resource_access", "nopsai.create_resource_use_grant", "nopsai.delete_resource_access_grant", "nopsai.list_audit_logs", "nopsai.list_admin_users", "nopsai.create_admin_user", "nopsai.update_admin_user", "nopsai.delete_admin_user", "nopsai.list_admin_service_accounts", "nopsai.create_admin_service_account", "nopsai.update_admin_service_account", "nopsai.delete_admin_service_account", "nopsai.list_admin_roles", "nopsai.create_admin_role", "nopsai.delete_admin_role", "nopsai.list_admin_identity_providers", "nopsai.update_admin_identity_provider":
+		return []string{"nopsai://features"}
+	case "nopsai.get_ui_context":
+		return []string{"nopsai://features"}
 	case "nopsai.get_system_status":
 		return []string{"nopsai://system/status"}
 	case "nopsai.get_dispatcher_status":
@@ -1252,6 +1441,24 @@ func assistantPipelineIDFromMessage(content string) string {
 		return ""
 	default:
 		return strings.Trim(id, "/")
+	}
+}
+
+func assistantScopeFromMessage(content string) string {
+	scope := strings.Trim(strings.TrimSpace(assistantFirstPatternGroup(assistantScopePattern, content)), "/")
+	scope = strings.Trim(scope, ".,;:!?\"'")
+	if assistantScopeCandidateIsGrammar(scope) {
+		return ""
+	}
+	return scope
+}
+
+func assistantScopeCandidateIsGrammar(scope string) bool {
+	switch strings.ToLower(strings.TrimSpace(scope)) {
+	case "", "a", "an", "the", "do", "does", "did", "we", "i", "you", "they", "have", "has", "having", "is", "are", "was", "were", "for", "each", "every", "all", "many", "much", "count", "counts", "total", "secret", "secrets", "variable", "variables", "permission", "permissions", "access":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -1382,6 +1589,13 @@ func assistantMessageHasAITokenSubject(lower string) bool {
 	return containsAny(lower, "llm", "token", "tokens", "model", "models") || containsWord(lower, "ai")
 }
 
+func assistantMessageAsksScopeSecretSummary(lower string) bool {
+	if !containsAny(lower, "scope", "scopes") || !containsAny(lower, "secret", "secrets") {
+		return false
+	}
+	return containsAny(lower, "how many", "count", "counts", "total", "per scope", "by scope", "for each", "each scope", "every scope")
+}
+
 func assistantMessageAsksFeatureCapabilities(lower string) bool {
 	return containsAny(
 		lower,
@@ -1391,6 +1605,9 @@ func assistantMessageAsksFeatureCapabilities(lower string) bool {
 		"mcp support",
 		"hosted mcp",
 		"support all with mcp",
+		"support all nopsai features",
+		"all nopsai features",
+		"all features",
 		"features with mcp",
 		"feature coverage",
 		"features can i use",
@@ -1606,6 +1823,16 @@ func assistantMapSlice(value any) []map[string]any {
 	default:
 		return []map[string]any{}
 	}
+}
+
+func assistantSecretScopeRows(output map[string]any) []map[string]any {
+	if rows := assistantMapSlice(output["response"]); len(rows) > 0 {
+		return rows
+	}
+	if rows := assistantMapSlice(output["scopes"]); len(rows) > 0 {
+		return rows
+	}
+	return assistantMapSlice(output["secret_scopes"])
 }
 
 func assistantRuntimeRunnerRows(value any) []monitoringRunnerStatus {

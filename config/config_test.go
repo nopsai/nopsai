@@ -66,6 +66,9 @@ func TestRepositoryConfigEnablesAssistantBootstrapDefault(t *testing.T) {
 	if !cfg.EffectiveAssistantConfig().Memory.Enabled {
 		t.Fatal("checked-in config.yml should enable assistant memory")
 	}
+	if !AssistantMCPEnabled(cfg.EffectiveAssistantConfig().MCP) {
+		t.Fatal("checked-in config.yml should enable hosted MCP for assistant bootstrap")
+	}
 }
 
 func TestLLMProviderGenerationCapabilities(t *testing.T) {
@@ -320,6 +323,9 @@ func TestNormalizeAssistantConfigUsesMinimalDefaults(t *testing.T) {
 	if !cfg.Memory.Enabled || cfg.Memory.Scope != "conversation" {
 		t.Fatalf("memory = %#v, want enabled conversation scope", cfg.Memory)
 	}
+	if !AssistantMCPEnabled(cfg.MCP) {
+		t.Fatalf("hosted MCP should default on for assistant tool orchestration: %#v", cfg.MCP)
+	}
 	if !AssistantFeatureFlagEnabled(cfg.DocsEnabled) || !AssistantFeatureFlagEnabled(cfg.DocsVersionAware) {
 		t.Fatalf("docs flags = (%v, %v), want enabled", cfg.DocsEnabled, cfg.DocsVersionAware)
 	}
@@ -353,6 +359,7 @@ func TestNormalizeAssistantConfigPreservesExplicitFeatureDisables(t *testing.T) 
 			CostRecommendations:        &disabled,
 			ActionExecution:            &enabled,
 		},
+		MCP:     AssistantMCPConfig{Enabled: &disabled},
 		Actions: AssistantActionsConfig{RequireConfirmation: &disabled},
 	})
 
@@ -369,6 +376,9 @@ func TestNormalizeAssistantConfigPreservesExplicitFeatureDisables(t *testing.T) 
 	}
 	if AssistantRequireConfirmation(cfg.Actions) {
 		t.Fatalf("explicit relaxed confirmation policy was not preserved: %#v", cfg.Actions)
+	}
+	if AssistantMCPEnabled(cfg.MCP) {
+		t.Fatalf("explicit hosted MCP disable was not preserved: %#v", cfg.MCP)
 	}
 }
 

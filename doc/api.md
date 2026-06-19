@@ -171,12 +171,39 @@ external MCP registry under `setting/system/mcp.yaml`, which defines
 third-party MCP servers Nopsai can connect to. Hosted MCP and assistant tool
 execution use the current authenticated AAA subject; they do not elevate to a
 global assistant/admin identity.
+Assistant tool execution goes through the same hosted MCP JSON-RPC request
+processor as external clients, so chat answers are grounded in the
+permission-filtered Nopsai tool/resource surface.
 Assistant feature flags in `setting/system/runner.yaml` decide which broad
 capability families are globally available. AAA still decides the specific
 resources and actions the current user can read or execute. Runtime and admin
 execution tools are hidden unless `assistant.features.action_execution` is
 enabled, and confirmed mutation tools still require existing API, AAA, and
 audit checks.
+
+```bash
+# Quick debugging: an empty body defaults to tools/list instead of a parse error.
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  http://localhost:8080/v1/mcp
+
+# Explicit JSON-RPC initialize.
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"dev"}}}' \
+  http://localhost:8080/v1/mcp
+
+# List tools available to the current authenticated subject.
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+  http://localhost:8080/v1/mcp
+
+# Ask for the current user's Nopsai feature coverage.
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"nopsai.get_feature_capabilities","arguments":{"include_api_routes":false}}}' \
+  http://localhost:8080/v1/mcp
+```
 
 Hosted MCP tools cover Nopsai operational context, including guided setup,
 knowledge-context search/list/read/write plans, pipeline inventory/search,

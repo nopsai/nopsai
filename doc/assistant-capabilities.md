@@ -1,14 +1,24 @@
 # Assistant Capabilities And Chat Examples
 
 The NopsAI Assistant is the conversational layer over NopsAI's first-party
-hosted MCP tools. It can inspect product state, explain operational context,
-draft GitOps changes, and execute confirmed runtime/admin operations as the
-current authenticated user.
+hosted MCP JSON-RPC tool path. It can inspect product state, explain
+operational context, draft GitOps changes, and execute confirmed runtime/admin
+operations as the current authenticated user.
 
 ## Operating Rules
 
 - The assistant is user-scoped. It uses the same AAA subject, grants, scoped
   visibility, and audit model as the user who is chatting.
+- Static workflows create a structured turn plan with goal, intent, tool steps,
+  and success criteria before execution.
+- A feature-wide planner routes clear normal-language requests across the full
+  NopsAI MCP surface, including setup, config repositories, notifications,
+  monitoring extras, credentials, runners, access/admin, backups/cleanup,
+  webhook sources, external triggers, reusable steps, and explicit `nopsai.*`
+  tool names.
+- NopsAI validates planned tools against the current user's available hosted
+  MCP tools, bounded tool-call and argument limits, and mutation confirmation
+  requirements before running the plan.
 - Tool lists, resources, and tool calls are permission-filtered. If a user
   cannot use a route or resource in NopsAI, the assistant cannot bypass that.
 - Enterprise feature flags under `assistant.features` decide which broad
@@ -25,6 +35,9 @@ current authenticated user.
 - Runtime, admin, cleanup, SMTP, trigger invocation, and other side-effecting
   actions require explicit confirmation in chat before the MCP call is made
   with `confirm:true`.
+- Final LLM synthesis is quality-gated against the validated plan and hosted
+  MCP evidence. If the model claims unapplied changes or omits required
+  proposal-safe wording, NopsAI falls back to the deterministic tool summary.
 - Secret and credential workflows are metadata-, reference-, encrypted-payload-,
   or explicit-write-oriented. Plaintext secret reads are not part of ordinary
   assistant context.
@@ -61,6 +74,10 @@ Examples:
 - "Cancel run `run_123`; I confirm."
 - "Create a GitOps plan to rotate the GitHub deploy credential. Do not expose
   the secret value."
+- "Check config repo drift for folder `platform`."
+- "Generate a Kubernetes runner manifest for runner `runner-prod`."
+- "List Git webhook deliveries for source `gitlab-main`."
+- "Create a data backup; I confirm."
 - "Do we have any policy to prevent showing envs?"
 - "What NopsAI features can I use from this account, and which ones are blocked
   by permissions?"
@@ -74,6 +91,7 @@ Examples:
 | Draft GitOps | "Create a GitOps plan for a nightly schedule on `platform/deploy`." | Returns proposed files and commit message; does not apply. |
 | Validate | "Validate this pipeline YAML before I commit it." | Parses and reports schema/semantic issues. |
 | Confirm action | "Rerun `run_123`; I confirm." | Executes the dedicated mutation tool as the current user. |
+| Feature action | "Show notification mail settings" or "List credentials metadata." | Routes to the matching first-party MCP tool and summarizes the result safely. |
 | Explain policy | "Why can't the assistant ingest runner logs directly?" | Explains the safe boundary and supported alternatives. |
 | Use API bridge | "Call the existing API to list my auth sessions." | Uses guarded `/v1` routes when no dedicated tool is needed. |
 
@@ -139,7 +157,10 @@ Main MCP coverage: `nopsai.get_setup_status`, `nopsai.get_setup_preflight`,
 
 The assistant can list/search pipelines, read pipeline definitions, generate
 pipeline YAML, validate pasted YAML, prepare GitOps create/update plans, and
-prepare reusable-step create/update/delete plans.
+prepare reusable-step create/update/delete plans. Generated pipeline YAML is
+template-aware for common deployment domains such as Go services deployed to
+AWS ECS through ECR, and includes assumptions plus required variables/secrets
+so the proposal can be reviewed through GitOps.
 
 Ask:
 
@@ -147,6 +168,7 @@ Ask:
 - "Give me a pipeline that has an approval step."
 - "Open pipeline `platform/deploy-api` and summarize its steps."
 - "Generate a pipeline for build, test, approval, and deploy to staging."
+- "Create steps to build, test, and deploy a Golang app to AWS ECS."
 - "Validate this YAML and identify unsafe task settings."
 - "Create a GitOps update plan for `platform/deploy-api` to add a manual
   approval before production."
@@ -294,6 +316,7 @@ Ask:
 
 - "List scopes available to me and explain which one should own deploy
   secrets."
+- "How many scopes do we have, and how many secrets are in each scope?"
 - "Show secret metadata for the `platform/prod` scope."
 - "Encrypt this secret value for GitOps under key `GITHUB_TOKEN`."
 - "Write secret `GITHUB_TOKEN` in scope `platform/prod`; I confirm."
@@ -343,7 +366,10 @@ Main MCP coverage: `nopsai.get_notification_mail_settings`,
 The assistant can summarize system health, run analytics, pipeline/step/task
 performance, trigger analytics, AI usage, reliability, efficiency, security,
 runner history, statistics, cost, design suggestions, cost suggestions, saved
-views, alert rules, alert events, and recommendations.
+views, alert rules, alert events, and recommendations. AI/LLM usage prompts
+inspect before answering: empty default-window results are retried against
+broader windows, combined with summary/efficiency context, and explained with a
+recording/permission diagnosis when no events are visible.
 
 Ask:
 
@@ -352,7 +378,11 @@ Ask:
 - "Which steps are slowest across production deploy pipelines?"
 - "Analyze AI usage cost by provider."
 - "Give me LLM usage."
+- "Give me LLM usage for qwen model."
+- "Show tokens for the openai profile last week."
+- "Which step used the most tokens?"
 - "Which pipeline uses the highest LLM tokens?"
+- "Which schedule runs a pipeline with the lowest LLM token usage?"
 - "Show reliability and security monitoring signals."
 - "Create a monitoring saved view for failed production deploys; I confirm."
 - "Create an alert rule for failure rate above 10 percent; I confirm."

@@ -178,7 +178,7 @@ func buildAssistantConfigResponse(cfg config.AssistantConfig) assistantConfigRes
 			Scope:   cfg.Memory.Scope,
 		},
 		MCP: assistantMCPConfigResponse{
-			Enabled: cfg.MCP.Enabled,
+			Enabled: config.AssistantMCPEnabled(cfg.MCP),
 		},
 		Features: assistantFeaturesConfigResponse{
 			Docs:                       config.AssistantFeatureFlagEnabled(cfg.Features.Docs),
