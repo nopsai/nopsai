@@ -154,6 +154,10 @@ The assistant calls tools through the same hosted MCP JSON-RPC processor as
 external clients. For curl-based debugging, an authenticated empty `POST` body
 defaults to `tools/list`; explicit MCP clients should still send JSON-RPC
 payloads with `Content-Type: application/json`.
+Assistant conversation turns use the selected/default LLM profile to plan
+hosted MCP calls first, then NopsAI validates the structured plan against the
+current AAA subject, available tools, bounded arguments, and explicit mutation
+confirmation before any tool executes.
 
 High-value hosted tools include:
 
@@ -195,7 +199,9 @@ High-value hosted tools include:
   account/role/identity-provider workflows
 - monitoring analytics:
   summary, run, pipeline, step, task, trigger, external-trigger, AI-usage,
-  reliability, efficiency, security, and runner-history analytics tools
+  reliability, efficiency, security, runner-history, schedule AI usage,
+  schedule/trigger performance, pipeline efficiency, pipeline/schedule
+  comparisons, pipeline health, and optimization opportunity tools
 - feature coverage:
   `nopsai.get_feature_capabilities` reports NopsAI feature areas, hosted MCP
   surfaces, REST/GitOps backing routes, required AAA actions, and current-user

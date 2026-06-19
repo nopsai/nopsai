@@ -18,27 +18,31 @@ the current user's coverage. The response includes:
 For a user-facing capability catalog with example chat prompts, see
 [assistant-capabilities.md](./assistant-capabilities.md).
 
-The assistant planner maps normal-language requests to first-party MCP tools
-when the target is clear, and asks a clarifying question before tool execution
-when a broad term such as "usage" could mean AI/LLM tokens, runner cost,
-pipeline runs, variables, or another product area. In addition to specialist
-intents, a feature-wide router covers setup, config repositories, notification
+The assistant LLM planner maps normal-language requests to first-party MCP
+tools when the target is clear, and asks a clarifying question before tool
+execution when a broad term such as "usage" could mean AI/LLM tokens, runner
+cost, pipeline runs, variables, or another product area. In addition to
+specialist intents, the planner covers setup, config repositories, notification
 settings/routes, monitoring views/alerts/recommendations, credentials, runners,
 AAA/admin/audit, data backup/cleanup, webhook sources, external triggers,
 reusable steps, scoped secrets/variables, and explicit `nopsai.*` tool names.
+Assistant conversation turns do not use static normal-language routing. If the
+LLM planner is unavailable or returns an invalid plan, NopsAI executes no
+hosted MCP tools and reports that no changes were applied.
 AI/LLM usage requests use an investigation loop: the assistant checks the
 default monitoring window, retries broader windows when results are empty,
 gathers summary/efficiency context, and explains likely recording or permission
 gaps with evidence instead of returning a bare zero.
+When a token-usage request names a run ID, planner validation requires
+`nopsai.get_monitoring_ai_usage` with that run filter; run status/log/failure
+tools are rejected because they do not expose token counts.
 
-For static workflows, the assistant builds a structured turn plan with a goal,
-intent, tool steps, and success criteria before execution. NopsAI validates the
-plan against the current AAA subject, available hosted MCP tools, a bounded
-tool-call count, bounded argument shape, and explicit `confirm:true` for
-mutating tools before any planned step runs. Final LLM synthesis is also
-quality-gated: if the model claims unapplied changes or misses required
-proposal-safe wording, NopsAI falls back to the deterministic MCP-grounded
-summary.
+Every planned turn is validated against the current AAA subject, available
+hosted MCP tools, a bounded tool-call count, bounded argument shape, and
+explicit user confirmation for mutating tools before any planned step runs.
+Final LLM synthesis is also quality-gated: if the model claims unapplied
+changes or misses required proposal-safe wording, NopsAI falls back to the
+deterministic MCP-grounded summary.
 
 `nopsai.call_api` is the broad compatibility bridge for remaining product
 features. It calls guarded `/v1` REST routes as the current authenticated
@@ -64,8 +68,9 @@ confirmed run mutations, schedule inventory and GitOps write plans, webhook
 source and external trigger plans, webhook-ingress policy explanations, config
 repo sync/drift/write workflows, notification mail/route plans, monitoring
 analytics/views/alerts/recommendation actions including AI token usage by
-pipeline/schedule/run/model/profile/feature/step/task, data backup/cleanup
-operations, scope inventory, secret/variable
+pipeline/schedule/run/model/profile/feature/step/task, schedule/pipeline
+comparison aliases, pipeline health explanations, optimization opportunity
+discovery, data backup/cleanup operations, scope inventory, secret/variable
 metadata and repeated variable-name analysis plus safe write/GitOps plans,
 template-aware pipeline YAML generation for common deployment domains,
 cost/statistics, LLM/MCP profile reads, system status,

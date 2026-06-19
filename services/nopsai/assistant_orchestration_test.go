@@ -8,120 +8,12 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 
 	"nopsai/config"
-	"nopsai/pkg/proto"
 	"nopsai/services/aaa/pkg/model"
 )
-
-func TestAssistantOrchestrationGeneratesAndValidatesPipelineProposal(t *testing.T) {
-	app := &App{aaaLocal: allowActionsForAssistantTest("pipeline.create", "pipeline.read")}
-	conversation := assistantConversation{
-		ID:          uuid.New(),
-		DocsVersion: "auto",
-		Scope:       "platform/dev",
-		Memory:      assistantConversationMemory{SelectedScope: "platform/dev"},
-	}
-
-	result := app.runAssistantConversationTurn(
-		context.Background(),
-		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
-		"user:viewer",
-		conversation,
-		"Generate pipeline YAML named deploy-web to build and deploy the web service",
-		"standard",
-	)
-
-	if len(result.ToolCalls) != 2 {
-		t.Fatalf("tool calls len = %d, want 2: %#v", len(result.ToolCalls), result.ToolCalls)
-	}
-	if result.ToolCalls[0].Name != "nopsai.generate_pipeline" || result.ToolCalls[1].Name != "nopsai.validate_pipeline" {
-		t.Fatalf("unexpected tool order: %#v", result.ToolCalls)
-	}
-	if result.ToolCalls[0].Status != assistantToolStatusSuccess {
-		t.Fatalf("generate status = %q", result.ToolCalls[0].Status)
-	}
-	if yaml := assistantOutputString(result.ToolCalls[0].Output, "yaml"); !strings.Contains(yaml, "name: deploy-web") {
-		t.Fatalf("generated yaml missing pipeline name: %q", yaml)
-	}
-	if !strings.Contains(result.Reply, "No changes were applied") {
-		t.Fatalf("reply does not preserve proposal-only contract: %q", result.Reply)
-	}
-	if result.Memory.SelectedPipeline != "deploy-web" {
-		t.Fatalf("selected pipeline = %q, want deploy-web", result.Memory.SelectedPipeline)
-	}
-	if len(result.Memory.PreviousProposedFixes) == 0 {
-		t.Fatalf("previous proposed fixes not updated: %#v", result.Memory)
-	}
-}
-
-func TestAssistantOrchestrationValidatesPastedPipelineYAML(t *testing.T) {
-	app := &App{aaaLocal: allowActionsForAssistantTest("pipeline.read")}
-	conversation := assistantConversation{ID: uuid.New(), DocsVersion: "auto"}
-
-	result := app.runAssistantConversationTurn(
-		context.Background(),
-		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
-		"user:viewer",
-		conversation,
-		"Validate this:\n```yaml\nname: bad pipeline\nsteps: []\n```",
-		"",
-	)
-
-	if len(result.ToolCalls) != 1 {
-		t.Fatalf("tool calls len = %d, want 1: %#v", len(result.ToolCalls), result.ToolCalls)
-	}
-	call := result.ToolCalls[0]
-	if call.Name != "nopsai.validate_pipeline" {
-		t.Fatalf("tool name = %q, want validate", call.Name)
-	}
-	if call.Status != assistantToolStatusSuccess {
-		t.Fatalf("validate status = %q", call.Status)
-	}
-	if call.Output["valid"] != false {
-		t.Fatalf("valid = %#v, want false", call.Output["valid"])
-	}
-	if !strings.Contains(result.Reply, "Validation failed") {
-		t.Fatalf("reply = %q, want validation failure", result.Reply)
-	}
-}
-
-func TestAssistantOrchestrationPreparesPipelineGitOpsWritePlan(t *testing.T) {
-	app := &App{aaaLocal: allowActionsForAssistantTest("pipeline.create")}
-	conversation := assistantConversation{ID: uuid.New(), DocsVersion: "auto"}
-
-	result := app.runAssistantConversationTurn(
-		context.Background(),
-		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
-		"user:viewer",
-		conversation,
-		"Write this pipeline through GitOps:\n```yaml\nname: deploy-web\ncontainer_image: alpine:3.20\nsteps:\n  - name: plan\n    tasks:\n      - name: draft\n        goal: Draft deployment\n```",
-		"",
-	)
-
-	if len(result.ToolCalls) != 1 {
-		t.Fatalf("tool calls len = %d, want 1: %#v", len(result.ToolCalls), result.ToolCalls)
-	}
-	call := result.ToolCalls[0]
-	if call.Name != "nopsai.propose_pipeline_create" {
-		t.Fatalf("tool name = %q, want propose create", call.Name)
-	}
-	if call.Status != assistantToolStatusSuccess {
-		t.Fatalf("tool status = %q, output = %#v", call.Status, call.Output)
-	}
-	if assistantOutputString(call.Output, "pipeline_id") != "deploy-web" {
-		t.Fatalf("pipeline id output = %#v", call.Output)
-	}
-	if result.Memory.SelectedPipeline != "deploy-web" {
-		t.Fatalf("selected pipeline = %q, want deploy-web", result.Memory.SelectedPipeline)
-	}
-	if !strings.Contains(result.Reply, "GitOps-ready pipeline write plan") || !strings.Contains(result.Reply, "No changes were applied") {
-		t.Fatalf("reply does not explain write-plan contract: %q", result.Reply)
-	}
-}
 
 func TestAssistantFeatureFlagsGateHostedMCPTools(t *testing.T) {
 	disabled := false
@@ -188,210 +80,6 @@ func TestAssistantHostedMCPToolRespectsMCPEnabledFlag(t *testing.T) {
 	}
 }
 
-func TestAssistantPlanUsesRememberedRunID(t *testing.T) {
-	runID := uuid.NewString()
-	plan := assistantPlanFromMessage("Why did it fail?", assistantConversationMemory{SelectedRun: runID})
-	if plan.Intent != "analyze_run" {
-		t.Fatalf("intent = %q, want analyze_run", plan.Intent)
-	}
-	if plan.RunID != runID {
-		t.Fatalf("run id = %q, want %q", plan.RunID, runID)
-	}
-}
-
-func TestAssistantPlanDetectsPipelineSearch(t *testing.T) {
-	plan := assistantPlanFromMessage("Search pipelines for deploy-api", assistantConversationMemory{})
-	if plan.Intent != "search_pipelines" {
-		t.Fatalf("intent = %q, want search_pipelines", plan.Intent)
-	}
-	if plan.SearchQuery != "deploy-api" {
-		t.Fatalf("search query = %q, want deploy-api", plan.SearchQuery)
-	}
-}
-
-func TestAssistantPlanRecognizesReportedMCPChatPhrases(t *testing.T) {
-	tests := []struct {
-		name           string
-		message        string
-		wantIntent     string
-		wantQuery      string
-		wantArea       string
-		wantPipelineID string
-	}{
-		{
-			name:       "feature discovery",
-			message:    "What features can I use with the assistant right now?",
-			wantIntent: "feature_capabilities",
-		},
-		{
-			name:       "pipelineruns alias",
-			message:    "list of pipelineruns",
-			wantIntent: "list_runs",
-		},
-		{
-			name:           "approval pipeline search",
-			message:        "give me a pipeline that has approval step",
-			wantIntent:     "search_pipelines",
-			wantQuery:      "approval",
-			wantPipelineID: "",
-		},
-		{
-			name:       "env policy",
-			message:    "do we have any policy to prevent showing envs?",
-			wantIntent: "feature_capabilities",
-			wantQuery:  "secret",
-			wantArea:   "secrets",
-		},
-		{
-			name:       "repetitive variables across scopes",
-			message:    "how many repetitive variables are used in all scopes?",
-			wantIntent: "variable_usage",
-		},
-		{
-			name:       "highest llm token pipeline",
-			message:    "which pipeline use the highest LLM tokens?",
-			wantIntent: "ai_token_usage",
-		},
-		{
-			name:       "plural llm usage",
-			message:    "give me llm usages",
-			wantIntent: "ai_token_usage",
-		},
-		{
-			name:       "ambiguous usage asks for target",
-			message:    "show usage",
-			wantIntent: "clarify",
-		},
-		{
-			name:       "scope secret counts inventory",
-			message:    "how many scope do we have and for each how many secrets",
-			wantIntent: "scope_secret_summary",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			plan := assistantPlanFromMessage(tt.message, assistantConversationMemory{})
-			if plan.Intent != tt.wantIntent {
-				t.Fatalf("intent = %q, want %q", plan.Intent, tt.wantIntent)
-			}
-			if plan.SearchQuery != tt.wantQuery {
-				t.Fatalf("search query = %q, want %q", plan.SearchQuery, tt.wantQuery)
-			}
-			if plan.CapabilityArea != tt.wantArea {
-				t.Fatalf("capability area = %q, want %q", plan.CapabilityArea, tt.wantArea)
-			}
-			if plan.PipelineID != tt.wantPipelineID {
-				t.Fatalf("pipeline id = %q, want %q", plan.PipelineID, tt.wantPipelineID)
-			}
-		})
-	}
-}
-
-func TestAssistantFeaturePlannerRoutesNopsAIFeatureSurface(t *testing.T) {
-	runID := "11111111-1111-1111-1111-111111111111"
-	tests := []struct {
-		message string
-		tool    string
-		assert  func(t *testing.T, plan assistantTurnPlan)
-	}{
-		{message: "show setup status", tool: "nopsai.get_setup_status"},
-		{
-			message: "check config repo drift for folder platform/dev",
-			tool:    "nopsai.get_config_repo_drift",
-			assert: func(t *testing.T, plan assistantTurnPlan) {
-				if plan.Steps[0].Args["folder_id"] != "platform/dev" {
-					t.Fatalf("folder_id = %#v, want platform/dev", plan.Steps[0].Args["folder_id"])
-				}
-			},
-		},
-		{message: "show notification mail settings", tool: "nopsai.get_notification_mail_settings"},
-		{message: "list credentials metadata", tool: "nopsai.list_credentials_metadata"},
-		{
-			message: "create data backup confirmed",
-			tool:    "nopsai.create_data_backup",
-			assert: func(t *testing.T, plan assistantTurnPlan) {
-				if plan.Steps[0].Args["confirm"] != true {
-					t.Fatalf("confirm = %#v, want true", plan.Steps[0].Args["confirm"])
-				}
-			},
-		},
-		{message: "show access grants", tool: "nopsai.list_access_grants"},
-		{
-			message: "generate kubernetes runner manifest for runner runner-a namespace nopsai",
-			tool:    "nopsai.generate_kubernetes_runner_manifest",
-			assert: func(t *testing.T, plan assistantTurnPlan) {
-				if plan.Steps[0].Args["runner_id"] != "runner-a" || plan.Steps[0].Args["namespace"] != "nopsai" {
-					t.Fatalf("runner manifest args = %#v", plan.Steps[0].Args)
-				}
-			},
-		},
-		{
-			message: "list git webhook deliveries source github-main",
-			tool:    "nopsai.list_git_webhook_deliveries",
-			assert: func(t *testing.T, plan assistantTurnPlan) {
-				if plan.Steps[0].Args["source_id"] != "github-main" {
-					t.Fatalf("source_id = %#v, want github-main", plan.Steps[0].Args["source_id"])
-				}
-			},
-		},
-		{
-			message: "list external trigger invocations trigger deploy-hook",
-			tool:    "nopsai.list_external_trigger_invocations",
-			assert: func(t *testing.T, plan assistantTurnPlan) {
-				if plan.Steps[0].Args["trigger_id"] != "deploy-hook" {
-					t.Fatalf("trigger_id = %#v, want deploy-hook", plan.Steps[0].Args["trigger_id"])
-				}
-			},
-		},
-		{message: "show monitoring recommendations", tool: "nopsai.list_monitoring_recommendations"},
-		{
-			message: "what should the UI request from MCP for monitoring",
-			tool:    "nopsai.get_ui_context",
-			assert: func(t *testing.T, plan assistantTurnPlan) {
-				if plan.Steps[0].Args["area"] != "monitoring" {
-					t.Fatalf("area = %#v, want monitoring", plan.Steps[0].Args["area"])
-				}
-			},
-		},
-		{
-			message: "cancel run " + runID + " confirmed",
-			tool:    "nopsai.cancel_pipeline_run",
-			assert: func(t *testing.T, plan assistantTurnPlan) {
-				if plan.Intent != "feature_tool" || plan.Steps[0].Args["run_id"] != runID || plan.Steps[0].Args["confirm"] != true {
-					t.Fatalf("cancel run plan = %#v", plan)
-				}
-			},
-		},
-		{message: "run nopsai.list_data_backups", tool: "nopsai.list_data_backups"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.message, func(t *testing.T) {
-			plan := assistantPlanFromMessage(tt.message, assistantConversationMemory{})
-			if plan.Intent != "feature_tool" {
-				t.Fatalf("intent = %q, want feature_tool: %#v", plan.Intent, plan)
-			}
-			if len(plan.Steps) != 1 || plan.Steps[0].ToolName != tt.tool {
-				t.Fatalf("steps = %#v, want %s", plan.Steps, tt.tool)
-			}
-			if tt.assert != nil {
-				tt.assert(t, plan)
-			}
-		})
-	}
-}
-
-func TestAssistantFeaturePlannerKeepsAllFeatureCoverageQuestionOnCapabilities(t *testing.T) {
-	plan := assistantPlanFromMessage("it should support all nopsai features", assistantConversationMemory{})
-	if plan.Intent != "feature_capabilities" {
-		t.Fatalf("intent = %q, want feature_capabilities", plan.Intent)
-	}
-	if len(plan.Steps) != 1 || plan.Steps[0].ToolName != "nopsai.get_feature_capabilities" {
-		t.Fatalf("steps = %#v, want feature capabilities", plan.Steps)
-	}
-}
-
 func TestAssistantFeaturePlanValidationBlocksUnconfirmedMutation(t *testing.T) {
 	enabled := true
 	app := &App{
@@ -400,9 +88,13 @@ func TestAssistantFeaturePlanValidationBlocksUnconfirmedMutation(t *testing.T) {
 		}},
 		aaaLocal: allowActionsForAssistantTest("system.update"),
 	}
-	plan := assistantPlanFromMessage("create data backup", assistantConversationMemory{})
-	if plan.Intent != "feature_tool" || len(plan.Steps) != 1 {
-		t.Fatalf("plan = %#v, want feature tool", plan)
+	plan := assistantTurnPlan{
+		Intent: "llm_planned",
+		Goal:   "Create a data backup",
+		Steps: []assistantPlanStep{{
+			ToolName: "nopsai.create_data_backup",
+			Args:     map[string]any{},
+		}},
 	}
 
 	err := app.validateAssistantToolPlan(
@@ -457,12 +149,8 @@ func TestAssistantFeatureReplySurfacesConfirmationRequired(t *testing.T) {
 }
 
 func TestAssistantPlanDoesNotTreatQuestionGrammarAsScope(t *testing.T) {
-	plan := assistantPlanFromMessage("how many scope do we have and for each how many secrets", assistantConversationMemory{})
-	if plan.Intent != "scope_secret_summary" {
-		t.Fatalf("intent = %q, want scope_secret_summary", plan.Intent)
-	}
-	if plan.Scope != "" {
-		t.Fatalf("scope = %q, want empty question grammar ignored", plan.Scope)
+	if scope := assistantScopeFromMessage("how many scope do we have and for each how many secrets"); scope != "" {
+		t.Fatalf("scope = %q, want empty question grammar ignored", scope)
 	}
 }
 
@@ -564,9 +252,9 @@ func TestAssistantAIUsageReplyRanksPipelinesByTokens(t *testing.T) {
 }
 
 func TestAssistantAIUsageReplyRanksLowestTokenSchedules(t *testing.T) {
-	plan := assistantPlanFromMessage("which one of the schedules run a pipeline with lower llm token required", assistantConversationMemory{})
-	if plan.Intent != "ai_token_usage" {
-		t.Fatalf("intent = %q, want ai_token_usage", plan.Intent)
+	plan := assistantTurnPlan{
+		Intent:       "ai_token_usage",
+		LowerContent: "which one of the schedules run a pipeline with lower llm token required",
 	}
 	if !assistantPlanAsksScheduleLowTokens(plan) {
 		t.Fatalf("plan should detect schedule low-token ranking: %#v", plan)
@@ -660,13 +348,7 @@ func TestAssistantAIUsageReplyExplainsEmptyInvestigation(t *testing.T) {
 }
 
 func TestAssistantAIUsageInvestigationRetriesAndCollectsContext(t *testing.T) {
-	plan := assistantPlanFromMessage("give me llm usage for qwen model", assistantConversationMemory{})
-	if plan.Intent != "ai_token_usage" {
-		t.Fatalf("intent = %q, want ai_token_usage", plan.Intent)
-	}
-	if plan.AIUsageFilters["model"] != "qwen" {
-		t.Fatalf("ai filters = %#v, want model qwen", plan.AIUsageFilters)
-	}
+	plan := assistantTurnPlan{Intent: "ai_token_usage", AIUsageFilters: map[string]any{"model": "qwen"}}
 	calls := []assistantToolActivity{}
 	(&App{}).runAIUsageInvestigation(plan, func(name string, args map[string]any) assistantToolActivity {
 		call := assistantToolActivity{Name: name, Input: args, Status: assistantToolStatusSuccess, Output: map[string]any{}}
@@ -703,18 +385,8 @@ func TestAssistantAIUsageInvestigationRetriesAndCollectsContext(t *testing.T) {
 	}
 }
 
-func TestAssistantAIUsageStepRankingDoesNotInventStepFilter(t *testing.T) {
-	plan := assistantPlanFromMessage("which step used the most tokens?", assistantConversationMemory{})
-	if plan.Intent != "ai_token_usage" {
-		t.Fatalf("intent = %q, want ai_token_usage", plan.Intent)
-	}
-	if _, ok := plan.AIUsageFilters["step_name"]; ok {
-		t.Fatalf("step ranking question should not add a literal step filter: %#v", plan.AIUsageFilters)
-	}
-}
-
 func TestAssistantAIUsageInvestigationStopsWhenFallbackFindsEvents(t *testing.T) {
-	plan := assistantPlanFromMessage("which pipeline used most llm tokens?", assistantConversationMemory{})
+	plan := assistantTurnPlan{Intent: "ai_token_usage", AIUsageFilters: map[string]any{}}
 	usageCalls := 0
 	calls := []assistantToolActivity{}
 	(&App{}).runAIUsageInvestigation(plan, func(name string, args map[string]any) assistantToolActivity {
@@ -740,159 +412,11 @@ func TestAssistantAIUsageInvestigationStopsWhenFallbackFindsEvents(t *testing.T)
 	}
 }
 
-func TestAssistantOrchestrationClarifiesAmbiguousUsage(t *testing.T) {
-	app := &App{aaaLocal: allowActionsForAssistantTest("pipeline_run.list")}
-
-	result := app.runAssistantConversationTurn(
-		context.Background(),
-		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
-		"user:viewer",
-		assistantConversation{ID: uuid.New(), DocsVersion: "auto"},
-		"show usage",
-		"",
-	)
-
-	if len(result.ToolCalls) != 0 {
-		t.Fatalf("tool calls = %#v, want none before clarification", result.ToolCalls)
-	}
-	if !strings.Contains(result.Reply, "Which usage area should I check") {
-		t.Fatalf("reply = %q, want clarification question", result.Reply)
-	}
-	if result.Memory.Entities["last_intent"] != "clarify" {
-		t.Fatalf("memory last intent = %#v, want clarify", result.Memory.Entities["last_intent"])
-	}
-}
-
-func TestAssistantOrchestrationAnswersSensitivePolicyFromCapabilities(t *testing.T) {
-	app := &App{aaaLocal: allowActionsForAssistantTest("system.read")}
-
-	result := app.runAssistantConversationTurn(
-		context.Background(),
-		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
-		"user:viewer",
-		assistantConversation{ID: uuid.New(), DocsVersion: "auto"},
-		"do we have any policy to prevent showing envs?",
-		"",
-	)
-
-	if len(result.ToolCalls) != 1 || result.ToolCalls[0].Name != "nopsai.get_feature_capabilities" {
-		t.Fatalf("tool calls = %#v, want feature capabilities", result.ToolCalls)
-	}
-	if result.ToolCalls[0].Input["area"] != "secrets" || result.ToolCalls[0].Input["query"] != "secret" {
-		t.Fatalf("capability input = %#v, want secrets/secret", result.ToolCalls[0].Input)
-	}
-	if !strings.Contains(result.Reply, "Policy notes") || !strings.Contains(result.Reply, "Plaintext secret reads remain blocked") {
-		t.Fatalf("reply = %q, want sensitive policy notes", result.Reply)
-	}
-}
-
-func TestAssistantOrchestrationChecksDispatcherAndRunners(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	}))
-	defer server.Close()
-
-	app := &App{
-		cfg: &config.Config{
-			AAAAPIURL:          server.URL,
-			NopsaiGitBotAPIURL: server.URL,
-		},
-		httpClient: server.Client(),
-		dispatcher: &fakeDispatcherClient{status: &proto.DispatcherStatus{
-			QueuedJobs: 1,
-			Runners: []*proto.RunnerInfo{{
-				RunnerId:          "runner-a",
-				Capacity:          2,
-				ActiveJobs:        1,
-				InflightJobs:      1,
-				LastHeartbeatUnix: time.Now().Unix(),
-				AllowDispatch:     true,
-				Metadata:          map[string]string{"runtime": "docker"},
-			}},
-		}},
-		aaaLocal: allowActionsForAssistantTest("system.read"),
-	}
-
-	result := app.runAssistantConversationTurn(
-		context.Background(),
-		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
-		"user:viewer",
-		assistantConversation{ID: uuid.New(), DocsVersion: "auto"},
-		"Can you check dispatcher and runners?",
-		"",
-	)
-
-	if len(result.ToolCalls) != 1 || result.ToolCalls[0].Name != "nopsai.get_dispatcher_status" {
-		t.Fatalf("tool calls = %#v, want dispatcher status", result.ToolCalls)
-	}
-	if result.ToolCalls[0].Status != assistantToolStatusSuccess {
-		t.Fatalf("dispatcher status = %q, output = %#v", result.ToolCalls[0].Status, result.ToolCalls[0].Output)
-	}
-	if !strings.Contains(result.Reply, "Dispatcher and runner status") || !strings.Contains(result.Reply, "runner-a") {
-		t.Fatalf("reply = %q", result.Reply)
-	}
-}
-
-func TestAssistantOrchestrationChecksMCPFeatureCapabilities(t *testing.T) {
-	app := &App{aaaLocal: allowActionsForAssistantTest("system.read", "pipeline.list")}
-
-	result := app.runAssistantConversationTurn(
-		context.Background(),
-		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
-		"user:viewer",
-		assistantConversation{ID: uuid.New(), DocsVersion: "auto"},
-		"Do we support all NopsAI features with MCP for my permissions?",
-		"",
-	)
-
-	if len(result.ToolCalls) != 1 || result.ToolCalls[0].Name != "nopsai.get_feature_capabilities" {
-		t.Fatalf("tool calls = %#v, want feature capabilities", result.ToolCalls)
-	}
-	if result.ToolCalls[0].Status != assistantToolStatusSuccess {
-		t.Fatalf("feature capabilities status = %q, output = %#v", result.ToolCalls[0].Status, result.ToolCalls[0].Output)
-	}
-	if !strings.Contains(result.Reply, "MCP feature coverage for your current permissions") ||
-		!strings.Contains(result.Reply, "current authenticated AAA subject") {
-		t.Fatalf("reply = %q", result.Reply)
-	}
-}
-
-func TestAssistantOrchestrationCallsExplicitAPIRouteThroughMCP(t *testing.T) {
-	enabled := true
-	app := &App{
-		cfg: &config.Config{Assistant: config.AssistantConfig{
-			Features: config.AssistantFeaturesConfig{ActionExecution: &enabled},
-		}},
-		aaaLocal: allowActionsForAssistantTest("system.update"),
-	}
-
-	result := app.runAssistantConversationTurn(
-		context.Background(),
-		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
-		"user:viewer",
-		assistantConversation{ID: uuid.New(), DocsVersion: "auto"},
-		"Call API POST /v1/system/config/sync",
-		"",
-	)
-
-	if len(result.ToolCalls) != 1 || result.ToolCalls[0].Name != "nopsai.call_api" {
-		t.Fatalf("tool calls = %#v, want API bridge", result.ToolCalls)
-	}
-	if result.ToolCalls[0].Status != assistantToolStatusSuccess {
-		t.Fatalf("API bridge status = %q, output = %#v", result.ToolCalls[0].Status, result.ToolCalls[0].Output)
-	}
-	if result.ToolCalls[0].Output["requires_confirmation"] != true {
-		t.Fatalf("requires_confirmation = %#v, want true", result.ToolCalls[0].Output["requires_confirmation"])
-	}
-	if !strings.Contains(result.Reply, "Confirmation required") {
-		t.Fatalf("reply = %q", result.Reply)
-	}
-}
-
 func TestAssistantOrchestrationSynthesizesReplyWithLLMProfile(t *testing.T) {
 	credentialRef := "credential://system/llm/standard"
-	var capturedPrompt string
+	requestCount := 0
+	var plannerPrompt string
+	var synthesisPrompt string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {
 			t.Errorf("path = %q, want /v1/chat/completions", r.URL.Path)
@@ -900,6 +424,7 @@ func TestAssistantOrchestrationSynthesizesReplyWithLLMProfile(t *testing.T) {
 		if got := r.Header.Get("Authorization"); got != "Bearer secret" {
 			t.Errorf("Authorization = %q", got)
 		}
+		requestCount++
 		var payload struct {
 			Messages []struct {
 				Content string `json:"content"`
@@ -909,10 +434,19 @@ func TestAssistantOrchestrationSynthesizesReplyWithLLMProfile(t *testing.T) {
 			t.Errorf("decode request: %v", err)
 		}
 		if len(payload.Messages) > 0 {
-			capturedPrompt = payload.Messages[0].Content
+			if requestCount == 1 {
+				plannerPrompt = payload.Messages[0].Content
+			} else {
+				synthesisPrompt = payload.Messages[0].Content
+			}
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"choices":[{"message":{"content":"LLM final answer. No changes were applied."}}],"usage":{"prompt_tokens":11,"completion_tokens":4,"total_tokens":15}}`)
+		switch requestCount {
+		case 1:
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"goal\":\"List current assistant feature coverage\",\"intent\":\"llm_planned\",\"steps\":[{\"tool\":\"nopsai.get_feature_capabilities\",\"args\":{\"query\":\"assistant\",\"include_api_routes\":false},\"reason\":\"Use the current-user capability catalog.\"}],\"success_criteria\":\"Return available feature coverage.\",\"needs_more_tools\":false,\"final_answer\":\"\",\"clarifying_question\":\"\"}"}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`)
+		default:
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"LLM final answer. No changes were applied."}}],"usage":{"prompt_tokens":11,"completion_tokens":4,"total_tokens":15}}`)
+		}
 	}))
 	defer server.Close()
 
@@ -930,7 +464,7 @@ func TestAssistantOrchestrationSynthesizesReplyWithLLMProfile(t *testing.T) {
 		},
 		httpClient:         server.Client(),
 		credentialResolver: staticCredentialResolver{credentialRef: "secret"},
-		aaaLocal:           allowActionsForAssistantTest("pipeline.create", "pipeline.read"),
+		aaaLocal:           allowActionsForAssistantTest("system.read"),
 	}
 	conversation := assistantConversation{ID: uuid.New(), DocsVersion: "auto", SelectedLLMProfile: "standard"}
 
@@ -939,15 +473,21 @@ func TestAssistantOrchestrationSynthesizesReplyWithLLMProfile(t *testing.T) {
 		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
 		"user:viewer",
 		conversation,
-		"Generate pipeline YAML named deploy-web",
+		"What assistant capabilities can I use?",
 		"standard",
 	)
 
+	if requestCount != 2 {
+		t.Fatalf("LLM requests = %d, want planner and synthesis", requestCount)
+	}
 	if result.Reply != "LLM final answer. No changes were applied." {
 		t.Fatalf("reply = %q, want quality-safe LLM answer", result.Reply)
 	}
-	if !strings.Contains(capturedPrompt, "Generated pipeline YAML") || !strings.Contains(capturedPrompt, "No changes were applied") {
-		t.Fatalf("prompt missing deterministic context: %s", capturedPrompt)
+	if !strings.Contains(plannerPrompt, "available_tools") || !strings.Contains(plannerPrompt, "nopsai.get_feature_capabilities") {
+		t.Fatalf("planner prompt missing tool catalog: %s", plannerPrompt)
+	}
+	if !strings.Contains(synthesisPrompt, "nopsai.get_feature_capabilities") || !strings.Contains(synthesisPrompt, "No changes were applied") {
+		t.Fatalf("synthesis prompt missing tool evidence: %s", synthesisPrompt)
 	}
 	call := assistantFirstToolCall(result.ToolCalls, assistantLLMToolName)
 	if call.Status != assistantToolStatusSuccess {
@@ -960,9 +500,16 @@ func TestAssistantOrchestrationSynthesizesReplyWithLLMProfile(t *testing.T) {
 
 func TestAssistantOrchestrationFallsBackWhenLLMClaimsUnappliedChange(t *testing.T) {
 	credentialRef := "credential://system/llm/standard"
+	requestCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requestCount++
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"choices":[{"message":{"content":"I applied the pipeline change."}}],"usage":{"prompt_tokens":9,"completion_tokens":5,"total_tokens":14}}`)
+		switch requestCount {
+		case 1:
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"goal\":\"Generate pipeline YAML named deploy-web\",\"intent\":\"generate_pipeline\",\"steps\":[{\"tool\":\"nopsai.generate_pipeline\",\"args\":{\"name\":\"deploy-web\",\"goal\":\"Generate pipeline YAML named deploy-web\"},\"reason\":\"Draft proposal YAML only.\"}],\"success_criteria\":\"Return a GitOps-safe YAML proposal without applying it.\",\"needs_more_tools\":false,\"final_answer\":\"\",\"clarifying_question\":\"\"}"}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`)
+		default:
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"I applied the pipeline change."}}],"usage":{"prompt_tokens":9,"completion_tokens":5,"total_tokens":14}}`)
+		}
 	}))
 	defer server.Close()
 
@@ -992,6 +539,9 @@ func TestAssistantOrchestrationFallsBackWhenLLMClaimsUnappliedChange(t *testing.
 		"standard",
 	)
 
+	if requestCount != 2 {
+		t.Fatalf("LLM requests = %d, want planner and synthesis", requestCount)
+	}
 	if !strings.Contains(result.Reply, "I drafted a GitOps-safe pipeline proposal") || !strings.Contains(result.Reply, "No changes were applied") {
 		t.Fatalf("reply should fall back to deterministic proposal-safe summary: %q", result.Reply)
 	}
@@ -1001,7 +551,7 @@ func TestAssistantOrchestrationFallsBackWhenLLMClaimsUnappliedChange(t *testing.
 	}
 }
 
-func TestAssistantOrchestrationFallsBackWhenLLMProviderFails(t *testing.T) {
+func TestAssistantOrchestrationReportsPlannerUnavailableWhenLLMProviderFails(t *testing.T) {
 	credentialRef := "credential://system/llm/standard"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "provider unavailable", http.StatusBadGateway)
@@ -1034,15 +584,308 @@ func TestAssistantOrchestrationFallsBackWhenLLMProviderFails(t *testing.T) {
 		"standard",
 	)
 
-	if !strings.Contains(result.Reply, "Draft YAML") || strings.Contains(result.Reply, "LLM synthesis was unavailable") {
-		t.Fatalf("reply did not fall back cleanly to deterministic summary: %q", result.Reply)
+	if !strings.Contains(result.Reply, "assistant LLM planner was unavailable") || !strings.Contains(result.Reply, "No changes were applied") {
+		t.Fatalf("reply did not fail closed on planner error: %q", result.Reply)
 	}
-	call := assistantFirstToolCall(result.ToolCalls, assistantLLMToolName)
+	for _, call := range result.ToolCalls {
+		if call.Name == "nopsai.generate_pipeline" {
+			t.Fatalf("tool should not run without a validated planner result: %#v", call)
+		}
+	}
+	call := assistantFirstToolCall(result.ToolCalls, assistantLLMPlannerToolName)
 	if call.Status != assistantToolStatusError {
-		t.Fatalf("llm status = %q, want error", call.Status)
+		t.Fatalf("planner status = %q, want error", call.Status)
 	}
 	if assistantOutputString(call.Output, "fallback_reason") == "" {
 		t.Fatalf("fallback reason missing: %#v", call.Output)
+	}
+}
+
+func TestAssistantLLMPlannerExecutesValidatedToolPlan(t *testing.T) {
+	credentialRef := "credential://system/llm/standard"
+	requestCount := 0
+	var plannerPrompt string
+	var synthesisPrompt string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Errorf("path = %q, want /v1/chat/completions", r.URL.Path)
+		}
+		requestCount++
+		var payload struct {
+			Messages []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		if len(payload.Messages) > 0 {
+			if requestCount == 1 {
+				plannerPrompt = payload.Messages[0].Content
+			} else {
+				synthesisPrompt = payload.Messages[0].Content
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch requestCount {
+		case 1:
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"goal\":\"List current assistant feature coverage\",\"intent\":\"llm_planned\",\"steps\":[{\"tool\":\"nopsai.get_feature_capabilities\",\"args\":{\"query\":\"assistant\",\"include_api_routes\":false},\"reason\":\"Use the current-user capability catalog.\"}],\"success_criteria\":\"Return available feature coverage.\",\"needs_more_tools\":false,\"final_answer\":\"\",\"clarifying_question\":\"\"}"}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`)
+		default:
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"Feature coverage was checked through hosted MCP. No changes were applied."}}],"usage":{"prompt_tokens":11,"completion_tokens":4,"total_tokens":15}}`)
+		}
+	}))
+	defer server.Close()
+
+	app := &App{
+		cfg: &config.Config{
+			LLMDefaultProfile: "standard",
+			LLMProfiles: map[string]config.LLMProfile{
+				"standard": {
+					Provider:      config.LLMProviderOpenAI,
+					Model:         "gpt-test",
+					BaseURL:       server.URL + "/v1",
+					CredentialRef: credentialRef,
+				},
+			},
+		},
+		httpClient:         server.Client(),
+		credentialResolver: staticCredentialResolver{credentialRef: "secret"},
+		aaaLocal:           allowActionsForAssistantTest("system.read"),
+	}
+
+	result := app.runAssistantConversationTurn(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		"user:viewer",
+		assistantConversation{ID: uuid.New(), DocsVersion: "auto", SelectedLLMProfile: "standard"},
+		"What assistant capabilities can I use?",
+		"standard",
+	)
+
+	if requestCount != 2 {
+		t.Fatalf("LLM requests = %d, want planner and synthesis", requestCount)
+	}
+	if !strings.Contains(plannerPrompt, "available_tools") || !strings.Contains(plannerPrompt, "nopsai.get_feature_capabilities") {
+		t.Fatalf("planner prompt missing tool catalog: %s", plannerPrompt)
+	}
+	if !strings.Contains(synthesisPrompt, "nopsai.get_feature_capabilities") {
+		t.Fatalf("synthesis prompt missing tool evidence: %s", synthesisPrompt)
+	}
+	if result.Reply != "Feature coverage was checked through hosted MCP. No changes were applied." {
+		t.Fatalf("reply = %q", result.Reply)
+	}
+	if result.ToolCalls[0].Name != assistantLLMPlannerToolName || result.ToolCalls[0].Status != assistantToolStatusSuccess {
+		t.Fatalf("planner call = %#v", result.ToolCalls[0])
+	}
+	if call := assistantFirstToolCall(result.ToolCalls, "nopsai.get_feature_capabilities"); call.Status != assistantToolStatusSuccess {
+		t.Fatalf("feature capability call = %#v", call)
+	}
+	if call := assistantFirstToolCall(result.ToolCalls, assistantLLMToolName); call.Status != assistantToolStatusSuccess {
+		t.Fatalf("synthesis call = %#v", call)
+	}
+}
+
+func TestAssistantPlannerPromptRequiresAIUsageEvidenceForRunTokenQuestion(t *testing.T) {
+	runID := "e3850cec-550f-456a-bec8-e67777d71d24"
+	app := &App{aaaLocal: allowActionsForAssistantTest("pipeline_run.list", "pipeline_run.read", "pipeline_run.read_logs")}
+	plan := assistantBaseTurnPlan("how many token is used by "+runID+" pipelinerun", assistantConversationMemory{})
+
+	prompt := app.buildAssistantPlannerPrompt(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		assistantConversation{ID: uuid.New(), DocsVersion: "auto"},
+		plan.Goal,
+		plan,
+		nil,
+		assistantMaxPlanToolCalls,
+		1,
+	)
+
+	for _, want := range []string{
+		`"ai_token_usage_evidence_required": true`,
+		`"required_tool": "nopsai.get_monitoring_ai_usage"`,
+		runID,
+		"Pipeline run status, logs, and failure-analysis tools do not report token counts",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("planner prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestAssistantLLMPlannerRejectsRunAnalysisForRunTokenUsage(t *testing.T) {
+	credentialRef := "credential://system/llm/standard"
+	runID := "e3850cec-550f-456a-bec8-e67777d71d24"
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requestCount++
+		w.Header().Set("Content-Type", "application/json")
+		switch requestCount {
+		case 1:
+			fmt.Fprintf(w, `{"choices":[{"message":{"content":"{\"goal\":\"Analyze run\",\"intent\":\"analyze_run\",\"steps\":[{\"tool\":\"nopsai.get_pipeline_run\",\"args\":{\"run_id\":\"%s\"},\"reason\":\"Read run status.\"},{\"tool\":\"nopsai.get_pipeline_run_logs\",\"args\":{\"run_id\":\"%s\",\"limit\":120},\"reason\":\"Read logs.\"},{\"tool\":\"nopsai.analyze_pipeline_run_failure\",\"args\":{\"run_id\":\"%s\"},\"reason\":\"Analyze failure.\"}],\"success_criteria\":\"Explain run status.\",\"needs_more_tools\":false,\"final_answer\":\"\",\"clarifying_question\":\"\"}"}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`, runID, runID, runID)
+		default:
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"I could not answer token usage without AI usage analytics evidence. No changes were applied."}}],"usage":{"prompt_tokens":11,"completion_tokens":4,"total_tokens":15}}`)
+		}
+	}))
+	defer server.Close()
+
+	app := &App{
+		cfg: &config.Config{
+			LLMDefaultProfile: "standard",
+			LLMProfiles: map[string]config.LLMProfile{
+				"standard": {
+					Provider:      config.LLMProviderOpenAI,
+					Model:         "gpt-test",
+					BaseURL:       server.URL + "/v1",
+					CredentialRef: credentialRef,
+				},
+			},
+		},
+		httpClient:         server.Client(),
+		credentialResolver: staticCredentialResolver{credentialRef: "secret"},
+		aaaLocal:           allowActionsForAssistantTest("pipeline_run.list", "pipeline_run.read", "pipeline_run.read_logs"),
+	}
+
+	result := app.runAssistantConversationTurn(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		"user:viewer",
+		assistantConversation{ID: uuid.New(), DocsVersion: "auto", SelectedLLMProfile: "standard"},
+		"how many token is used by "+runID+" pipelinerun",
+		"standard",
+	)
+
+	for _, call := range result.ToolCalls {
+		switch call.Name {
+		case "nopsai.get_pipeline_run", "nopsai.get_pipeline_run_logs", "nopsai.analyze_pipeline_run_failure":
+			t.Fatalf("run-analysis tool should not execute for token usage request: %#v", call)
+		}
+	}
+	denial, ok := assistantFirstPlanDenial(result.ToolCalls)
+	if !ok {
+		t.Fatalf("missing semantic plan denial: %#v", result.ToolCalls)
+	}
+	if !strings.Contains(assistantOutputString(denial.Output, "error"), "token usage") {
+		t.Fatalf("denial should explain token usage evidence requirement: %#v", denial.Output)
+	}
+	if !strings.Contains(result.Reply, "No changes were applied") {
+		t.Fatalf("reply should remain fail-closed: %q", result.Reply)
+	}
+}
+
+func TestAssistantLLMPlannerRejectsFinalTokenAnswerWithoutUsageEvidence(t *testing.T) {
+	credentialRef := "credential://system/llm/standard"
+	runID := "e3850cec-550f-456a-bec8-e67777d71d24"
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requestCount++
+		w.Header().Set("Content-Type", "application/json")
+		switch requestCount {
+		case 1:
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"goal\":\"Answer token usage\",\"intent\":\"ai_token_usage\",\"steps\":[],\"success_criteria\":\"Return tokens.\",\"needs_more_tools\":false,\"final_answer\":\"This run used 42 tokens.\",\"clarifying_question\":\"\"}"}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`)
+		default:
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"I could not answer token usage without AI usage analytics evidence. No changes were applied."}}],"usage":{"prompt_tokens":11,"completion_tokens":4,"total_tokens":15}}`)
+		}
+	}))
+	defer server.Close()
+
+	app := &App{
+		cfg: &config.Config{
+			LLMDefaultProfile: "standard",
+			LLMProfiles: map[string]config.LLMProfile{
+				"standard": {
+					Provider:      config.LLMProviderOpenAI,
+					Model:         "gpt-test",
+					BaseURL:       server.URL + "/v1",
+					CredentialRef: credentialRef,
+				},
+			},
+		},
+		httpClient:         server.Client(),
+		credentialResolver: staticCredentialResolver{credentialRef: "secret"},
+		aaaLocal:           allowActionsForAssistantTest("pipeline_run.list"),
+	}
+
+	result := app.runAssistantConversationTurn(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		"user:viewer",
+		assistantConversation{ID: uuid.New(), DocsVersion: "auto", SelectedLLMProfile: "standard"},
+		"how many token is used by "+runID+" pipelinerun",
+		"standard",
+	)
+
+	if strings.Contains(result.Reply, "42 tokens") {
+		t.Fatalf("reply should not use unsupported final answer: %q", result.Reply)
+	}
+	denial, ok := assistantFirstPlanDenial(result.ToolCalls)
+	if !ok {
+		t.Fatalf("missing plan denial for unsupported final answer: %#v", result.ToolCalls)
+	}
+	if !strings.Contains(assistantOutputString(denial.Output, "error"), "without successful nopsai.get_monitoring_ai_usage evidence") {
+		t.Fatalf("denial output = %#v", denial.Output)
+	}
+}
+
+func TestAssistantLLMPlannerBlocksUnconfirmedMutation(t *testing.T) {
+	enabled := true
+	credentialRef := "credential://system/llm/standard"
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requestCount++
+		w.Header().Set("Content-Type", "application/json")
+		switch requestCount {
+		case 1:
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"goal\":\"Pause runner dispatch\",\"intent\":\"llm_planned\",\"steps\":[{\"tool\":\"nopsai.update_runner_dispatch\",\"args\":{\"runner_id\":\"runner-a\",\"allow_dispatch\":false,\"confirm\":true},\"reason\":\"Pause dispatch for the named runner.\"}],\"success_criteria\":\"Dispatch should only pause after explicit user confirmation.\",\"needs_more_tools\":false,\"final_answer\":\"\",\"clarifying_question\":\"\"}"}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`)
+		default:
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"Explicit confirmation is required before pausing runner dispatch. No changes were applied."}}],"usage":{"prompt_tokens":11,"completion_tokens":4,"total_tokens":15}}`)
+		}
+	}))
+	defer server.Close()
+
+	app := &App{
+		cfg: &config.Config{
+			LLMDefaultProfile: "standard",
+			LLMProfiles: map[string]config.LLMProfile{
+				"standard": {
+					Provider:      config.LLMProviderOpenAI,
+					Model:         "gpt-test",
+					BaseURL:       server.URL + "/v1",
+					CredentialRef: credentialRef,
+				},
+			},
+			Assistant: config.AssistantConfig{
+				Features: config.AssistantFeaturesConfig{ActionExecution: &enabled},
+			},
+		},
+		httpClient:         server.Client(),
+		credentialResolver: staticCredentialResolver{credentialRef: "secret"},
+		aaaLocal:           allowActionsForAssistantTest("system.update"),
+	}
+
+	result := app.runAssistantConversationTurn(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		"user:viewer",
+		assistantConversation{ID: uuid.New(), DocsVersion: "auto", SelectedLLMProfile: "standard"},
+		"Pause runner runner-a",
+		"standard",
+	)
+
+	for _, call := range result.ToolCalls {
+		if call.Name == "nopsai.update_runner_dispatch" {
+			t.Fatalf("mutation tool should not execute: %#v", call)
+		}
+	}
+	denial, ok := assistantFirstPlanDenial(result.ToolCalls)
+	if !ok {
+		t.Fatalf("missing plan denial: %#v", result.ToolCalls)
+	}
+	if !strings.Contains(assistantOutputString(denial.Output, "error"), "user did not explicitly confirm") {
+		t.Fatalf("denial output = %#v", denial.Output)
+	}
+	if !strings.Contains(result.Reply, "Explicit confirmation is required") || !strings.Contains(result.Reply, "No changes were applied") {
+		t.Fatalf("reply = %q", result.Reply)
 	}
 }
 
@@ -1057,25 +900,13 @@ func TestAssistantPlanValidationFailsClosedForUnavailableTool(t *testing.T) {
 		},
 	}
 
-	called := false
-	handled, activity := app.runAssistantValidatedToolPlan(
+	err := app.validateAssistantToolPlan(
 		context.Background(),
 		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
 		plan,
-		func(name string, args map[string]any) assistantToolActivity {
-			called = true
-			return assistantToolActivity{Name: name, Input: args, Status: assistantToolStatusSuccess}
-		},
 	)
-
-	if !handled || activity == nil {
-		t.Fatalf("plan should be handled by validation failure, activity = %#v", activity)
-	}
-	if called {
-		t.Fatal("plan execution should not call any tools after validation failure")
-	}
-	if activity.Status != assistantToolStatusDenied || !strings.Contains(assistantOutputString(activity.Output, "error"), "unavailable tool") {
-		t.Fatalf("validation activity = %#v", activity)
+	if err == nil || !strings.Contains(err.Error(), "unavailable tool") {
+		t.Fatalf("err = %v, want unavailable tool validation", err)
 	}
 }
 
@@ -1129,6 +960,7 @@ func TestAssistantPlanValidationRequiresConfirmForMutatingTools(t *testing.T) {
 	}
 
 	plan.Steps[0].Args["confirm"] = true
+	plan.UserConfirmed = true
 	if err := app.validateAssistantToolPlan(
 		context.Background(),
 		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
