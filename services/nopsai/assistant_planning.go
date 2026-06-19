@@ -2,6 +2,7 @@ package nopsai
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -12,8 +13,11 @@ import (
 )
 
 const (
-	assistantMaxPlanToolCalls = 8
-	assistantMaxPlanArgKeys   = 40
+	assistantMaxPlanToolCalls      = 8
+	assistantMaxPlanArgKeys        = 40
+	assistantMaxPlanArgDepth       = 8
+	assistantMaxPlanArgStringBytes = 256 * 1024
+	assistantMaxPlanArgListItems   = 200
 )
 
 type assistantPlanStep struct {
@@ -46,167 +50,12 @@ var (
 	assistantUsageTaskPattern           = regexp.MustCompile(`(?i)\btask\s+([a-zA-Z0-9][a-zA-Z0-9._:/-]{0,80})`)
 )
 
-func assistantFinalizeTurnPlan(plan assistantTurnPlan, content string) assistantTurnPlan {
-	plan.Goal = strings.TrimSpace(content)
-	switch plan.Intent {
-	case "validate_pipeline":
-		plan.Steps = []assistantPlanStep{{
-			Thought:  "Validate the supplied pipeline YAML without saving it.",
-			ToolName: "nopsai.validate_pipeline",
-			Args:     map[string]any{"yaml": plan.YAML},
-		}}
-		plan.SuccessCriteria = "Return validation status and schema/semantic errors without applying changes."
-	case "analyze_run":
-		plan.Steps = []assistantPlanStep{
-			{Thought: "Read run status and metadata.", ToolName: "nopsai.get_pipeline_run", Args: map[string]any{"run_id": plan.RunID}},
-			{Thought: "Read bounded recent logs for evidence.", ToolName: "nopsai.get_pipeline_run_logs", Args: map[string]any{"run_id": plan.RunID, "limit": 160}},
-			{Thought: "Analyze the run failure from run and log evidence.", ToolName: "nopsai.analyze_pipeline_run_failure", Args: map[string]any{"run_id": plan.RunID}},
-		}
-		plan.SuccessCriteria = "Explain the most likely failure using run status and bounded logs."
-	case "list_runs":
-		plan.Steps = []assistantPlanStep{{
-			Thought:  "List recent visible pipeline runs.",
-			ToolName: "nopsai.list_pipeline_runs",
-			Args:     map[string]any{"limit": 5},
-		}}
-		plan.SuccessCriteria = "Return recent visible runs or explain empty results."
-	case "variable_usage":
-		plan.Steps = []assistantPlanStep{{
-			Thought:  "Analyze variable metadata for repeated names without reading values.",
-			ToolName: "nopsai.analyze_variable_usage",
-			Args:     map[string]any{"scope": plan.Scope, "limit": 20},
-		}}
-		plan.SuccessCriteria = "Summarize visible duplicate variable names without exposing values."
-	case "ai_token_usage":
-		plan.AIUsageFilters = assistantAIUsageFiltersFromMessage(content)
-		plan.Steps = []assistantPlanStep{{
-			Thought:             "Check AI usage in the default monitoring window.",
-			ToolName:            "nopsai.get_monitoring_ai_usage",
-			Args:                cloneAssistantArgs(plan.AIUsageFilters),
-			StopWhenUsageFound:  true,
-			StopWhenToolBlocked: true,
-		}}
-		plan.SuccessCriteria = "Return token totals, top pipelines/runs, and explain zero-event results with broader-window evidence."
-	case "scope_secret_summary":
-		plan.Steps = []assistantPlanStep{
-			{Thought: "List visible scopes.", ToolName: "nopsai.list_scopes", Args: map[string]any{"limit": 200}},
-			{Thought: "List secret counts by scope using metadata only.", ToolName: "nopsai.list_secret_scopes", Args: map[string]any{}},
-		}
-		plan.SuccessCriteria = "Count visible scopes and metadata-only secrets per scope without reading plaintext values."
-	case "cost":
-		plan.Steps = []assistantPlanStep{
-			{Thought: "Read cost summary.", ToolName: "nopsai.get_cost_summary", Args: map[string]any{}},
-			{Thought: "Read cost improvement suggestions.", ToolName: "nopsai.suggest_cost_improvements", Args: map[string]any{}},
-		}
-		plan.SuccessCriteria = "Summarize cost signals and safe recommendations without applying changes."
-	case "design":
-		plan.Steps = []assistantPlanStep{{
-			Thought:  "Read design improvement suggestions from visible pipeline inventory.",
-			ToolName: "nopsai.suggest_design_improvements",
-			Args:     map[string]any{},
-		}}
-		plan.SuccessCriteria = "Return design recommendations without applying changes."
-	case "statistics":
-		plan.Steps = []assistantPlanStep{{
-			Thought:  "Read platform statistics.",
-			ToolName: "nopsai.get_statistics",
-			Args:     map[string]any{},
-		}}
-		plan.SuccessCriteria = "Return visible platform counts."
-	case "generate_pipeline":
-		plan.SuccessCriteria = "Return a GitOps-safe generated YAML proposal with assumptions, required variables, and required secrets."
-	case "trigger":
-		if plan.Repository != "" && containsAny(plan.LowerContent, "change", "update", "modify", "propose") {
-			plan.Steps = []assistantPlanStep{{Thought: "Draft a trigger change without applying it.", ToolName: "nopsai.propose_trigger_change", Args: map[string]any{"repository": plan.Repository, "change": content}}}
-			plan.SuccessCriteria = "Return a trigger proposal only."
-		} else if plan.Repository != "" {
-			plan.Steps = []assistantPlanStep{{Thought: "Read the requested trigger definition.", ToolName: "nopsai.get_trigger", Args: map[string]any{"repository": plan.Repository}}}
-			plan.SuccessCriteria = "Return trigger details visible to the user."
-		} else {
-			plan.Steps = []assistantPlanStep{{Thought: "List visible trigger definitions.", ToolName: "nopsai.list_triggers", Args: map[string]any{"limit": 20}}}
-			plan.SuccessCriteria = "Return visible trigger inventory."
-		}
-	case "schedule":
-		if plan.ScheduleID != "" && containsAny(plan.LowerContent, "change", "update", "modify", "propose") {
-			plan.Steps = []assistantPlanStep{{Thought: "Draft a schedule change without applying it.", ToolName: "nopsai.propose_schedule_change", Args: map[string]any{"schedule_id": plan.ScheduleID, "change": content}}}
-			plan.SuccessCriteria = "Return a schedule proposal only."
-		} else if plan.ScheduleID != "" {
-			plan.Steps = []assistantPlanStep{{Thought: "Read the requested schedule definition.", ToolName: "nopsai.get_schedule", Args: map[string]any{"schedule_id": plan.ScheduleID}}}
-			plan.SuccessCriteria = "Return schedule details visible to the user."
-		} else {
-			plan.Steps = []assistantPlanStep{{Thought: "List visible schedules.", ToolName: "nopsai.list_schedules", Args: map[string]any{"limit": 20}}}
-			plan.SuccessCriteria = "Return visible schedule inventory."
-		}
-	case "scope":
-		if plan.Scope != "" {
-			plan.Steps = []assistantPlanStep{{Thought: "Explain scope permissions and usage.", ToolName: "nopsai.explain_scope_permissions", Args: map[string]any{"scope": plan.Scope}}}
-			plan.SuccessCriteria = "Return scope permission context visible to the user."
-		} else {
-			plan.Steps = []assistantPlanStep{{Thought: "List visible scopes.", ToolName: "nopsai.list_scopes", Args: map[string]any{"limit": 20}}}
-			plan.SuccessCriteria = "Return visible scope inventory."
-		}
-	case "search_pipelines":
-		query := plan.SearchQuery
-		if query == "" {
-			query = content
-		}
-		plan.Steps = []assistantPlanStep{{Thought: "Search visible pipeline metadata and readable YAML.", ToolName: "nopsai.search_pipelines", Args: map[string]any{"query": query, "limit": 20, "include_snippets": true}}}
-		plan.SuccessCriteria = "Return matching visible pipelines and evidence snippets."
-	case "pipeline_knowledge_context":
-		args := map[string]any{"query": content, "limit": 20}
-		toolName := "nopsai.list_knowledge_contexts"
-		thought := "Search managed knowledge context."
-		if plan.YAML != "" {
-			toolName = "nopsai.get_pipeline_knowledge_context"
-			args = map[string]any{"yaml": plan.YAML, "include_content": true}
-			thought = "Resolve knowledge context references from supplied pipeline YAML."
-		} else if plan.PipelineID != "" {
-			toolName = "nopsai.get_pipeline_knowledge_context"
-			args = map[string]any{"pipeline": plan.PipelineID, "include_content": true}
-			thought = "Resolve knowledge context references from the stored pipeline."
-		}
-		plan.Steps = []assistantPlanStep{{Thought: thought, ToolName: toolName, Args: args}}
-		plan.SuccessCriteria = "Return managed and unresolved knowledge context references."
-	case "knowledge_context":
-		plan.Steps = []assistantPlanStep{{Thought: "Search managed knowledge context.", ToolName: "nopsai.list_knowledge_contexts", Args: map[string]any{"query": content, "limit": 20}}}
-		plan.SuccessCriteria = "Return visible matching managed knowledge context."
-	case "pipeline":
-		if plan.PipelineID != "" {
-			plan.Steps = []assistantPlanStep{{Thought: "Read the requested pipeline definition.", ToolName: "nopsai.get_pipeline", Args: map[string]any{"pipeline": plan.PipelineID}}}
-			plan.SuccessCriteria = "Return the visible pipeline definition."
-		} else {
-			plan.Steps = []assistantPlanStep{{Thought: "List visible pipelines.", ToolName: "nopsai.list_pipelines", Args: map[string]any{"limit": 20}}}
-			plan.SuccessCriteria = "Return visible pipeline inventory."
-		}
-	case "profiles":
-		plan.Steps = []assistantPlanStep{
-			{Thought: "List LLM profiles visible to the assistant.", ToolName: "nopsai.get_llm_profiles", Args: map[string]any{}},
-			{Thought: "List MCP profiles visible to the assistant.", ToolName: "nopsai.get_mcp_profiles", Args: map[string]any{}},
-		}
-		plan.SuccessCriteria = "Return visible LLM and MCP profile names."
-	case "feature_capabilities":
-		args := map[string]any{"query": plan.SearchQuery, "include_api_routes": false}
-		if plan.CapabilityArea != "" {
-			args["area"] = plan.CapabilityArea
-		}
-		plan.Steps = []assistantPlanStep{{Thought: "Read current-user MCP feature coverage and policy notes.", ToolName: "nopsai.get_feature_capabilities", Args: args}}
-		plan.SuccessCriteria = "Return current-user feature capabilities and blocked areas."
-	case "runtime":
-		plan.Steps = []assistantPlanStep{{Thought: "Read dispatcher and runner health.", ToolName: "nopsai.get_dispatcher_status", Args: map[string]any{}}}
-		plan.SuccessCriteria = "Return dispatcher/runner health and capacity signals."
-	case "system":
-		plan.Steps = []assistantPlanStep{{Thought: "Read system status.", ToolName: "nopsai.get_system_status", Args: map[string]any{}}}
-		plan.SuccessCriteria = "Return visible system status."
-	case "docs":
-		plan.Steps = []assistantPlanStep{{Thought: "Search NopsAI docs and knowledge context.", ToolName: "nopsai.search_docs", Args: map[string]any{"query": content, "limit": 5}}}
-		plan.SuccessCriteria = "Return relevant visible documentation or explain no matches."
-	}
-	return plan
-}
-
 func (a *App) validateAssistantToolPlan(ctx context.Context, subject aaamodel.Subject, plan assistantTurnPlan) error {
 	if len(plan.Steps) == 0 {
 		return nil
+	}
+	if err := assistantValidateToolPlanMatchesRequest(plan); err != nil {
+		return err
 	}
 	if len(plan.Steps) > assistantMaxPlanToolCalls {
 		return fmt.Errorf("assistant plan has %d tool calls; max allowed is %d", len(plan.Steps), assistantMaxPlanToolCalls)
@@ -219,9 +68,19 @@ func (a *App) validateAssistantToolPlan(ctx context.Context, subject aaamodel.Su
 		if len(step.Args) > assistantMaxPlanArgKeys {
 			return fmt.Errorf("assistant plan step %d has too many arguments", idx+1)
 		}
+		if err := assistantValidatePlanArgs(step.Args, 0); err != nil {
+			return fmt.Errorf("assistant plan step %d has unsafe arguments: %w", idx+1, err)
+		}
 		tool, ok := a.hostedMCPToolByName(ctx, subject, toolName)
 		if !ok {
 			return fmt.Errorf("assistant plan step %d requested unavailable tool %q", idx+1, toolName)
+		}
+		userConfirmed := plan.UserConfirmed || assistantFeatureConfirmed(plan.LowerContent)
+		if assistantToolRequiresActionExecution(tool) &&
+			boolArg(step.Args, "confirm", false) &&
+			!assistantPlannedToolIsProposal(tool.Name) &&
+			!userConfirmed {
+			return fmt.Errorf("assistant plan step %d requested mutating tool %q with confirm:true but the user did not explicitly confirm", idx+1, toolName)
 		}
 		if assistantToolRequiresActionExecution(tool) &&
 			configuredAssistantRequiresConfirm(a) &&
@@ -233,8 +92,188 @@ func (a *App) validateAssistantToolPlan(ctx context.Context, subject aaamodel.Su
 	return nil
 }
 
+func assistantValidatePlanArgs(value any, depth int) error {
+	if depth > assistantMaxPlanArgDepth {
+		return fmt.Errorf("max depth %d exceeded", assistantMaxPlanArgDepth)
+	}
+	switch typed := value.(type) {
+	case nil, bool, float64, float32, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, json.Number:
+		return nil
+	case string:
+		if len(typed) > assistantMaxPlanArgStringBytes {
+			return fmt.Errorf("string argument exceeds %d bytes", assistantMaxPlanArgStringBytes)
+		}
+		return nil
+	case map[string]any:
+		if len(typed) > assistantMaxPlanArgKeys {
+			return fmt.Errorf("object has %d keys; max allowed is %d", len(typed), assistantMaxPlanArgKeys)
+		}
+		for key, item := range typed {
+			if strings.TrimSpace(key) == "" {
+				return fmt.Errorf("blank argument key")
+			}
+			if err := assistantValidatePlanArgs(item, depth+1); err != nil {
+				return fmt.Errorf("%s: %w", key, err)
+			}
+		}
+		return nil
+	case []any:
+		if len(typed) > assistantMaxPlanArgListItems {
+			return fmt.Errorf("array has %d items; max allowed is %d", len(typed), assistantMaxPlanArgListItems)
+		}
+		for idx, item := range typed {
+			if err := assistantValidatePlanArgs(item, depth+1); err != nil {
+				return fmt.Errorf("[%d]: %w", idx, err)
+			}
+		}
+		return nil
+	case []string:
+		if len(typed) > assistantMaxPlanArgListItems {
+			return fmt.Errorf("array has %d items; max allowed is %d", len(typed), assistantMaxPlanArgListItems)
+		}
+		for idx, item := range typed {
+			if err := assistantValidatePlanArgs(item, depth+1); err != nil {
+				return fmt.Errorf("[%d]: %w", idx, err)
+			}
+		}
+		return nil
+	default:
+		encoded, err := json.Marshal(typed)
+		if err != nil {
+			return fmt.Errorf("value is not JSON-serializable")
+		}
+		if len(encoded) > assistantMaxPlanArgStringBytes {
+			return fmt.Errorf("encoded value exceeds %d bytes", assistantMaxPlanArgStringBytes)
+		}
+		var decoded any
+		if err := json.Unmarshal(encoded, &decoded); err != nil {
+			return fmt.Errorf("value is not valid JSON")
+		}
+		return assistantValidatePlanArgs(decoded, depth+1)
+	}
+}
+
 func configuredAssistantRequiresConfirm(a *App) bool {
 	return a == nil || config.AssistantRequireConfirmation(a.assistantConfig().Actions)
+}
+
+func assistantFeatureConfirmed(lower string) bool {
+	return containsAny(lower, "confirm", "confirmed", "with confirmation", "i approve", "approved to execute", "apply it", "execute it")
+}
+
+func assistantPlannerRequestRequirements(plan assistantTurnPlan) map[string]any {
+	requirements := map[string]any{
+		"ai_token_usage_evidence_required": assistantRequestRequiresAIUsageEvidence(plan.LowerContent),
+	}
+	if assistantRequestRequiresAIUsageEvidence(plan.LowerContent) {
+		requirements["required_tool"] = "nopsai.get_monitoring_ai_usage"
+		if plan.RunID != "" {
+			requirements["required_run_filter"] = map[string]any{
+				"run_id": plan.RunID,
+				"args":   []string{"run_id", "runId"},
+			}
+		}
+	}
+	return requirements
+}
+
+func assistantValidateToolPlanMatchesRequest(plan assistantTurnPlan) error {
+	if !assistantRequestRequiresAIUsageEvidence(plan.LowerContent) {
+		return nil
+	}
+	if !assistantPlanIncludesTool(plan, "nopsai.get_monitoring_ai_usage") {
+		return fmt.Errorf("assistant plan must use nopsai.get_monitoring_ai_usage for token usage requests; pipeline run status, log, and failure-analysis tools do not report token counts")
+	}
+	if plan.RunID != "" && !assistantPlanIncludesAIUsageRunFilter(plan, plan.RunID) {
+		return fmt.Errorf("assistant plan must filter nopsai.get_monitoring_ai_usage by run_id %q for this token usage request", plan.RunID)
+	}
+	return nil
+}
+
+func assistantValidatePlannerFinalAnswer(plan assistantTurnPlan, toolCalls []assistantToolActivity) error {
+	if !assistantRequestRequiresAIUsageEvidence(plan.LowerContent) {
+		return nil
+	}
+	if !assistantToolCallsIncludeSuccessfulAIUsage(toolCalls, plan.RunID) {
+		return fmt.Errorf("assistant planner cannot answer a token usage request without successful nopsai.get_monitoring_ai_usage evidence")
+	}
+	return nil
+}
+
+func assistantRequestRequiresAIUsageEvidence(lower string) bool {
+	lower = strings.ToLower(strings.TrimSpace(lower))
+	if lower == "" {
+		return false
+	}
+	if containsAny(lower, "access token", "personal token", "refresh token", "bearer token", "bootstrap token", "jwt", "oauth token", "api token") {
+		return false
+	}
+	if containsAny(lower, "llm usage", "ai usage", "model usage", "llm token", "llm tokens", "ai token", "ai tokens") {
+		return true
+	}
+	if !containsAny(lower, "token", "tokens") {
+		return false
+	}
+	return containsAny(lower, "usage", "used", "use", "uses", "how many", "pipelinerun", "pipeline run", "run ", " run", "pipeline", "schedule", "model", "llm", "ai")
+}
+
+func assistantPlanIncludesTool(plan assistantTurnPlan, toolName string) bool {
+	for _, step := range plan.Steps {
+		if strings.TrimSpace(step.ToolName) == toolName {
+			return true
+		}
+	}
+	return false
+}
+
+func assistantPlanIncludesAIUsageRunFilter(plan assistantTurnPlan, runID string) bool {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return true
+	}
+	for _, step := range plan.Steps {
+		if strings.TrimSpace(step.ToolName) != "nopsai.get_monitoring_ai_usage" {
+			continue
+		}
+		if assistantPlanArgString(step.Args, "run_id", "runId") == runID {
+			return true
+		}
+	}
+	return false
+}
+
+func assistantToolCallsIncludeSuccessfulAIUsage(toolCalls []assistantToolActivity, runID string) bool {
+	runID = strings.TrimSpace(runID)
+	for _, call := range toolCalls {
+		if call.Name != "nopsai.get_monitoring_ai_usage" || call.Status != assistantToolStatusSuccess {
+			continue
+		}
+		if runID == "" || assistantPlanArgString(call.Input, "run_id", "runId") == runID {
+			return true
+		}
+	}
+	return false
+}
+
+func assistantPlanArgString(args map[string]any, keys ...string) string {
+	for _, key := range keys {
+		value, ok := args[key]
+		if !ok {
+			continue
+		}
+		switch typed := value.(type) {
+		case string:
+			if strings.TrimSpace(typed) != "" {
+				return strings.TrimSpace(typed)
+			}
+		default:
+			rendered := strings.TrimSpace(fmt.Sprint(typed))
+			if rendered != "" {
+				return rendered
+			}
+		}
+	}
+	return ""
 }
 
 func assistantPlannedToolIsProposal(name string) bool {
@@ -251,7 +290,7 @@ func assistantAssessAnswerQuality(plan assistantTurnPlan, toolCalls []assistantT
 	lower := strings.ToLower(reply)
 	quality := assistantAnswerQuality{
 		HasDirectAnswer:      reply != "",
-		UsedRelevantTools:    plan.Intent == "clarify" || len(toolCalls) > 0,
+		UsedRelevantTools:    plan.Intent == "clarify" || plan.FinalAnswer != "" || len(assistantEvidenceToolCalls(toolCalls)) > 0 || assistantHasPlanDenial(toolCalls),
 		EmptyResultExplained: true,
 		SuggestedNextStep:    true,
 		NoFakeData:           !assistantReplyClaimsApplied(lower) || assistantAnyToolApplied(toolCalls),
@@ -263,6 +302,11 @@ func assistantAssessAnswerQuality(plan assistantTurnPlan, toolCalls []assistantT
 		quality.SuggestedNextStep = containsAny(lower, "no changes were applied", "review", "commit", "gitops", "confirm", "proposal")
 	}
 	return quality
+}
+
+func assistantHasPlanDenial(toolCalls []assistantToolActivity) bool {
+	_, ok := assistantFirstPlanDenial(toolCalls)
+	return ok
 }
 
 func assistantAnswerQualityPasses(quality assistantAnswerQuality) bool {

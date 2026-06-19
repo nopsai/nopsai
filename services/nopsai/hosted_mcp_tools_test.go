@@ -711,6 +711,45 @@ func TestHostedMCPMonitoringAnalyticsPathUsesAliases(t *testing.T) {
 	}
 }
 
+func TestHostedMCPMonitoringRoadmapToolsAreDiscoverable(t *testing.T) {
+	app := &App{aaaLocal: allowActionsForAssistantTest("pipeline_run.list")}
+	tools := app.hostedMCPToolsForSubject(context.Background(), model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"})
+	available := map[string]bool{}
+	for _, tool := range tools {
+		available[tool.Name] = true
+	}
+	for _, name := range []string{
+		"nopsai.get_monitoring_schedule_ai_usage",
+		"nopsai.get_monitoring_schedule_performance",
+		"nopsai.get_monitoring_trigger_performance",
+		"nopsai.get_pipeline_efficiency",
+		"nopsai.compare_pipelines",
+		"nopsai.compare_schedules",
+		"nopsai.explain_pipeline_health",
+		"nopsai.find_optimization_opportunities",
+	} {
+		if !available[name] {
+			t.Fatalf("tool %q missing from filtered tools/list", name)
+		}
+		if uris := assistantResourceURIsForTool(name); len(uris) != 1 || uris[0] != "nopsai://statistics" {
+			t.Fatalf("resource URIs for %s = %#v", name, uris)
+		}
+	}
+
+	path := hostedMCPMonitoringAnalyticsPath("nopsai.get_monitoring_schedule_ai_usage", map[string]any{
+		"schedule_id": "00000000-0000-0000-0000-000000000001",
+		"llm_profile": "standard",
+	})
+	if !strings.HasPrefix(path, "/v1/monitoring/ai-usage?") || !strings.Contains(path, "scheduleId=00000000-0000-0000-0000-000000000001") || !strings.Contains(path, "llmProfile=standard") {
+		t.Fatalf("schedule AI usage path = %q", path)
+	}
+
+	paths := hostedMCPMonitoringInsightPaths("nopsai.explain_pipeline_health")
+	if len(paths) != 4 || paths[0].Path != "/v1/monitoring/pipelines/performance" || paths[3].Path != "/v1/monitoring/security" {
+		t.Fatalf("pipeline health paths = %#v", paths)
+	}
+}
+
 func TestHostedMCPUIContextIsContextualOnly(t *testing.T) {
 	result := hostedMCPUIContext(map[string]any{"area": "monitoring"})
 	if result["applies"] != false || result["rendering"] != "intentionally_excluded_from_mcp_mutation" {

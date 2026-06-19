@@ -162,7 +162,7 @@ For a user-facing guide to assistant capabilities and example chat prompts, see
 - `POST /v1/assistant/conversations` creates a persistent assistant conversation for the authenticated subject.
 - `GET /v1/assistant/conversations` lists the subject's conversations.
 - `GET /v1/assistant/conversations/{id}` reads a conversation, messages, and conversation-scoped memory.
-- `POST /v1/assistant/conversations/{id}/messages` appends a user message, orchestrates permission-bound hosted MCP tools for the selected workflow, optionally synthesizes the final reply with the selected/default LLM profile, records tool and LLM activity, updates memory, and returns an assistant reply. Generated YAML and trigger/schedule edits are proposals only.
+- `POST /v1/assistant/conversations/{id}/messages` appends a user message, asks the selected/default LLM profile for a structured hosted MCP plan, validates the plan against current-user AAA, tool availability, argument limits, and mutation confirmation rules, executes allowed hosted MCP tools, quality-gates final LLM synthesis against MCP evidence, records tool and LLM activity, updates memory, and returns an assistant reply. Assistant turns do not use static normal-language routing: if the LLM planner is unavailable or returns an invalid plan, no hosted MCP tools run and no changes are applied. Generated YAML and trigger/schedule edits are proposals only.
 - `POST /v1/assistant/conversations/{id}/summarize-memory` updates conversation-scoped memory.
 - `POST /v1/mcp` exposes Nopsai-hosted MCP JSON-RPC operations: `initialize`, `tools/list`, `tools/call`, `resources/list`, and `resources/read`.
 

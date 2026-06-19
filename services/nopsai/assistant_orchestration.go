@@ -44,128 +44,39 @@ func (a *App) runAssistantConversationTurn(
 	content string,
 	selectedProfile string,
 ) assistantOrchestrationResult {
-	plan := assistantPlanFromMessage(content, conversation.Memory)
-	memory := assistantMemoryForTurn(conversation, plan)
-	toolCalls := []assistantToolActivity{}
-	runTool := func(name string, args map[string]any) assistantToolActivity {
-		call := a.runAssistantHostedMCPTool(ctx, subject, userID, conversation.ID, name, args)
-		toolCalls = append(toolCalls, call)
-		return call
-	}
-	runValidatedPlan := func() bool {
-		handled, validation := a.runAssistantValidatedToolPlan(ctx, subject, plan, runTool)
-		if validation != nil {
-			toolCalls = append(toolCalls, *validation)
+	planned := a.runAssistantLLMPlannedTurn(ctx, subject, userID, conversation, content, selectedProfile)
+	if planned.Handled {
+		memory := assistantMemoryForTurn(conversation, planned.Plan)
+		memory = assistantMemoryAfterTools(memory, planned.Plan, planned.ToolCalls)
+		reply := composeAssistantReply(planned.Plan, selectedProfile, planned.ToolCalls)
+		if planned.Plan.Intent == "clarify" || planned.Plan.FinalAnswer != "" {
+			return assistantOrchestrationResult{
+				Reply:     reply,
+				ToolCalls: planned.ToolCalls,
+				Memory:    normalizeAssistantMemory(memory),
+			}
 		}
-		return handled
-	}
-
-	switch plan.Intent {
-	case "generate_pipeline":
-		generated := runTool("nopsai.generate_pipeline", map[string]any{
-			"name":  plan.PipelineName,
-			"goal":  content,
-			"scope": plan.Scope,
-		})
-		if yaml := assistantOutputString(generated.Output, "yaml"); yaml != "" {
-			runTool("nopsai.validate_pipeline", map[string]any{"yaml": yaml})
-			memory.PreviousProposedFixes = append(memory.PreviousProposedFixes, "Generated pipeline YAML draft for "+plan.PipelineName)
-			memory.OpenTasks = append(memory.OpenTasks, "Review generated pipeline YAML through GitOps before applying it.")
+		synthesis := a.synthesizeAssistantReplyWithLLM(ctx, conversation, content, selectedProfile, planned.Plan, planned.ToolCalls, reply)
+		if synthesis.Activity != nil {
+			planned.ToolCalls = append(planned.ToolCalls, *synthesis.Activity)
+			reply = synthesis.Reply
 		}
-	case "propose_pipeline_create":
-		call := runTool("nopsai.propose_pipeline_create", map[string]any{
-			"pipeline": plan.PipelineID,
-			"yaml":     plan.YAML,
-		})
-		if assistantOutputBool(call.Output, "valid") {
-			memory.PreviousProposedFixes = append(memory.PreviousProposedFixes, "Prepared GitOps create plan for "+assistantOutputString(call.Output, "pipeline_id"))
-			memory.OpenTasks = append(memory.OpenTasks, "Commit the generated pipeline file through the config repository review branch.")
-		}
-	case "propose_pipeline_update":
-		call := runTool("nopsai.propose_pipeline_update", map[string]any{
-			"pipeline": plan.PipelineID,
-			"yaml":     plan.YAML,
-		})
-		if assistantOutputBool(call.Output, "valid") {
-			memory.PreviousProposedFixes = append(memory.PreviousProposedFixes, "Prepared GitOps update plan for "+assistantOutputString(call.Output, "pipeline_id"))
-			memory.OpenTasks = append(memory.OpenTasks, "Commit the generated pipeline file through the config repository review branch.")
-		}
-	case "validate_pipeline":
-		runValidatedPlan()
-	case "analyze_run":
-		runValidatedPlan()
-		memory.OpenTasks = append(memory.OpenTasks, "Review failed run analysis before applying remediation.")
-	case "list_runs":
-		runValidatedPlan()
-	case "variable_usage":
-		runValidatedPlan()
-	case "ai_token_usage":
-		a.runAIUsageInvestigation(plan, runTool)
-	case "feature_tool":
-		runValidatedPlan()
-	case "clarify":
-		// No tool call is useful yet; ask for the missing target instead of guessing.
-	case "scope_secret_summary":
-		runValidatedPlan()
-	case "cost":
-		runValidatedPlan()
-	case "design":
-		runValidatedPlan()
-	case "statistics":
-		runValidatedPlan()
-	case "trigger":
-		runValidatedPlan()
-		if plan.Repository != "" && containsAny(plan.LowerContent, "change", "update", "modify", "propose") {
-			memory.PreviousProposedFixes = append(memory.PreviousProposedFixes, "Draft trigger change for "+plan.Repository)
-		}
-	case "schedule":
-		runValidatedPlan()
-		if plan.ScheduleID != "" && containsAny(plan.LowerContent, "change", "update", "modify", "propose") {
-			memory.PreviousProposedFixes = append(memory.PreviousProposedFixes, "Draft schedule change for "+plan.ScheduleID)
-		}
-	case "scope":
-		runValidatedPlan()
-	case "api_call":
-		runTool("nopsai.call_api", map[string]any{"method": plan.APIMethod, "path": plan.APIPath, "confirm": containsAny(plan.LowerContent, "confirm", "confirmed", "execute", "apply")})
-	case "search_pipelines":
-		runValidatedPlan()
-	case "pipeline_knowledge_context":
-		runValidatedPlan()
-	case "knowledge_context":
-		runValidatedPlan()
-	case "pipeline":
-		runValidatedPlan()
-	case "profiles":
-		runValidatedPlan()
-	case "feature_capabilities":
-		runValidatedPlan()
-	case "runtime":
-		runValidatedPlan()
-	case "system":
-		runValidatedPlan()
-	default:
-		if !runValidatedPlan() {
-			runTool("nopsai.search_docs", map[string]any{"query": content, "limit": 5})
-		}
-	}
-
-	memory = assistantMemoryAfterTools(memory, plan, toolCalls)
-	reply := composeAssistantReply(plan, selectedProfile, toolCalls)
-	if plan.Intent == "clarify" {
 		return assistantOrchestrationResult{
 			Reply:     reply,
-			ToolCalls: toolCalls,
+			ToolCalls: planned.ToolCalls,
 			Memory:    normalizeAssistantMemory(memory),
 		}
 	}
-	synthesis := a.synthesizeAssistantReplyWithLLM(ctx, conversation, content, selectedProfile, plan, toolCalls, reply)
-	if synthesis.Activity != nil {
-		toolCalls = append(toolCalls, *synthesis.Activity)
-		reply = synthesis.Reply
+
+	plan := planned.Plan
+	if strings.TrimSpace(plan.Goal) == "" {
+		plan = assistantBaseTurnPlan(content, conversation.Memory)
 	}
+	memory := assistantMemoryForTurn(conversation, plan)
+	reply := "I could not create a validated NopsAI tool plan for that request because the assistant LLM planner was unavailable or returned an invalid plan. No changes were applied."
 	return assistantOrchestrationResult{
 		Reply:     reply,
-		ToolCalls: toolCalls,
+		ToolCalls: planned.ToolCalls,
 		Memory:    normalizeAssistantMemory(memory),
 	}
 }
@@ -181,117 +92,14 @@ type assistantTurnPlan struct {
 	Repository      string
 	ScheduleID      string
 	Scope           string
-	SearchQuery     string
-	CapabilityArea  string
 	ClarifyQuestion string
 	APIMethod       string
 	APIPath         string
 	Steps           []assistantPlanStep
-	FallbackSteps   []assistantPlanStep
 	AIUsageFilters  map[string]any
 	SuccessCriteria string
-}
-
-func assistantPlanFromMessage(content string, memory assistantConversationMemory) assistantTurnPlan {
-	content = strings.TrimSpace(content)
-	lower := strings.ToLower(content)
-	plan := assistantTurnPlan{
-		Intent:       "docs",
-		LowerContent: lower,
-		RunID:        assistantFirstUUID(content),
-		YAML:         assistantYAMLFromMessage(content),
-		PipelineName: assistantPipelineNameFromMessage(content),
-		PipelineID:   assistantPipelineIDFromMessage(content),
-		Repository:   assistantFirstPatternGroup(assistantRepositoryPattern, content),
-		ScheduleID:   assistantFirstPatternGroup(assistantScheduleIDPattern, content),
-		Scope:        assistantScopeFromMessage(content),
-		SearchQuery:  assistantPipelineSearchQueryFromMessage(content),
-	}
-	plan.APIMethod, plan.APIPath = assistantAPICallFromMessage(content)
-	plan.CapabilityArea, plan.SearchQuery = assistantCapabilityFocusFromMessage(lower, plan.SearchQuery)
-	if plan.RunID == "" {
-		plan.RunID = strings.TrimSpace(memory.SelectedRun)
-	}
-	if plan.PipelineID == "" {
-		plan.PipelineID = strings.Trim(strings.TrimSpace(memory.SelectedPipeline), "/")
-	}
-	if plan.Scope == "" {
-		plan.Scope = strings.Trim(strings.TrimSpace(memory.SelectedScope), "/")
-	}
-	if plan.PipelineName == "" {
-		plan.PipelineName = "generated-pipeline"
-	}
-
-	featureStep, featureCriteria, featureMatched := assistantFeatureToolPlanFromMessage(content, plan)
-	switch {
-	case plan.YAML != "" && containsAny(lower, "update pipeline", "replace pipeline", "modify pipeline", "save pipeline", "write pipeline", "gitops", "review branch", "commit"):
-		if containsAny(lower, "update", "replace", "modify", "existing") {
-			plan.Intent = "propose_pipeline_update"
-		} else {
-			plan.Intent = "propose_pipeline_create"
-		}
-	case plan.YAML != "" && containsAny(lower, "create pipeline", "new pipeline"):
-		plan.Intent = "propose_pipeline_create"
-	case plan.YAML != "" && (containsAny(lower, "validate", "lint", "check") || !containsAny(lower, "generate", "create", "draft", "new pipeline")):
-		plan.Intent = "validate_pipeline"
-	case containsAny(lower, "generate pipeline", "create pipeline", "draft pipeline", "pipeline yaml", "new pipeline"):
-		plan.Intent = "generate_pipeline"
-	case assistantMessageAsksAITokenUsage(lower):
-		plan.Intent = "ai_token_usage"
-	case assistantMessageAsksFeatureCapabilities(lower):
-		plan.Intent = "feature_capabilities"
-	case assistantMessageAsksVariableUsage(lower):
-		plan.Intent = "variable_usage"
-	case assistantMessageNeedsUsageClarification(lower):
-		plan.Intent = "clarify"
-		plan.ClarifyQuestion = "Which usage area should I check: AI/LLM tokens, runner cost, pipeline runs, variables, or a specific pipeline/run?"
-	case assistantMessageAsksScopeSecretSummary(lower):
-		plan.Intent = "scope_secret_summary"
-	case assistantMessageAsksCost(lower):
-		plan.Intent = "cost"
-	case featureMatched:
-		plan.Intent = "feature_tool"
-		plan.Steps = []assistantPlanStep{featureStep}
-		plan.SuccessCriteria = featureCriteria
-	case plan.RunID != "" && containsAny(lower, "run", "failed", "failure", "fail", "log", "logs", "analyze", "explain", "why"):
-		plan.Intent = "analyze_run"
-	case assistantMessageAsksRunList(lower):
-		plan.Intent = "list_runs"
-	case containsAny(lower, "design", "improve", "best practice", "maintenance", "refactor", "architecture"):
-		plan.Intent = "design"
-	case containsAny(lower, "statistics", "stats", "overview", "dashboard"):
-		plan.Intent = "statistics"
-	case plan.APIMethod != "" && containsAny(lower, "api", "/v1/"):
-		plan.Intent = "api_call"
-	case containsAny(lower, "trigger", "webhook"):
-		plan.Intent = "trigger"
-	case containsAny(lower, "schedule", "cron"):
-		plan.Intent = "schedule"
-	case containsAny(lower, "scope", "permission", "access grant", "access"):
-		plan.Intent = "scope"
-	case assistantMessageAsksPipelineSearch(lower):
-		plan.Intent = "search_pipelines"
-		if plan.SearchQuery == "" {
-			plan.SearchQuery = assistantInferredPipelineSearchQuery(content)
-		}
-	case containsAny(lower, "knowledge context", "knowledge doc", "runbook", "guardrail", "guideline", "adr"):
-		if containsAny(lower, "pipeline") || plan.PipelineID != "" || plan.YAML != "" {
-			plan.Intent = "pipeline_knowledge_context"
-		} else {
-			plan.Intent = "knowledge_context"
-		}
-	case containsAny(lower, "pipeline"):
-		plan.Intent = "pipeline"
-	case containsAny(lower, "llm profile", "mcp profile", "profiles", "models"):
-		plan.Intent = "profiles"
-	case containsAny(lower, "dispatcher", "runner", "runners", "runtime"):
-		plan.Intent = "runtime"
-	case containsAny(lower, "system status", "health"):
-		plan.Intent = "system"
-	default:
-		plan.Intent = "docs"
-	}
-	return assistantFinalizeTurnPlan(plan, content)
+	UserConfirmed   bool
+	FinalAnswer     string
 }
 
 func (a *App) runAssistantHostedMCPTool(ctx context.Context, subject model.Subject, userID string, conversationID uuid.UUID, name string, args map[string]any) assistantToolActivity {
@@ -326,29 +134,6 @@ func (a *App) runAssistantHostedMCPTool(ctx context.Context, subject model.Subje
 		Status:       status,
 		ResourceURIs: assistantResourceURIsForTool(name),
 	}
-}
-
-func (a *App) runAssistantValidatedToolPlan(ctx context.Context, subject model.Subject, plan assistantTurnPlan, runTool assistantToolRunner) (bool, *assistantToolActivity) {
-	if len(plan.Steps) == 0 {
-		return false, nil
-	}
-	if err := a.validateAssistantToolPlan(ctx, subject, plan); err != nil {
-		return true, &assistantToolActivity{
-			Name:   "nopsai.assistant_plan",
-			Status: assistantToolStatusDenied,
-			Input:  assistantPlanActivityInput(plan),
-			Output: map[string]any{
-				"error":      err.Error(),
-				"applied":    false,
-				"validated":  false,
-				"tool_count": len(plan.Steps),
-			},
-		}
-	}
-	for _, step := range plan.Steps {
-		runTool(step.ToolName, cloneAssistantArgs(step.Args))
-	}
-	return true, nil
 }
 
 func assistantPlanActivityInput(plan assistantTurnPlan) map[string]any {
@@ -471,13 +256,23 @@ func assistantMemorySummary(plan assistantTurnPlan) string {
 }
 
 func composeAssistantReply(plan assistantTurnPlan, selectedProfile string, toolCalls []assistantToolActivity) string {
+	evidenceCalls := assistantEvidenceToolCalls(toolCalls)
+	if denial, ok := assistantFirstPlanDenial(toolCalls); ok {
+		return composeAssistantPlanDeniedReply(denial)
+	}
+	if plan.FinalAnswer != "" {
+		return plan.FinalAnswer
+	}
 	if plan.Intent == "clarify" {
 		return composeClarifyingReply(plan)
 	}
 	if len(toolCalls) == 0 {
 		return buildAssistantFoundationReply(selectedProfile)
 	}
-	if assistantAllToolsDenied(toolCalls) {
+	if len(evidenceCalls) == 0 {
+		return buildAssistantFoundationReply(selectedProfile)
+	}
+	if assistantAllToolsDenied(evidenceCalls) {
 		return "I could not use the required Nopsai tools with your current permissions. No changes were applied."
 	}
 	switch plan.Intent {
@@ -496,7 +291,9 @@ func composeAssistantReply(plan assistantTurnPlan, selectedProfile string, toolC
 	case "ai_token_usage":
 		return composeAIUsageReply(plan, toolCalls)
 	case "feature_tool":
-		return composeFeatureToolReply(toolCalls)
+		return composeFeatureToolReply(evidenceCalls)
+	case "llm_planned":
+		return composeFeatureToolReply(evidenceCalls)
 	case "cost":
 		return composeCostReply(toolCalls)
 	case "design":
@@ -1354,7 +1151,7 @@ func assistantResourceURIsForTool(name string) []string {
 		return []string{"nopsai://scopes", "nopsai://secrets"}
 	case "nopsai.get_cost_summary", "nopsai.suggest_cost_improvements":
 		return []string{"nopsai://costs"}
-	case "nopsai.get_monitoring_summary", "nopsai.get_monitoring_run_analytics", "nopsai.get_monitoring_pipeline_performance", "nopsai.get_monitoring_step_performance", "nopsai.get_monitoring_task_performance", "nopsai.get_monitoring_trigger_analytics", "nopsai.get_monitoring_external_trigger_analytics", "nopsai.get_monitoring_ai_usage", "nopsai.get_monitoring_reliability", "nopsai.get_monitoring_efficiency", "nopsai.get_monitoring_security", "nopsai.get_monitoring_runner_history", "nopsai.list_monitoring_views", "nopsai.create_monitoring_view", "nopsai.update_monitoring_view", "nopsai.delete_monitoring_view", "nopsai.list_monitoring_alert_rules", "nopsai.create_monitoring_alert_rule", "nopsai.update_monitoring_alert_rule", "nopsai.delete_monitoring_alert_rule", "nopsai.evaluate_monitoring_alert_rule", "nopsai.list_monitoring_alert_events", "nopsai.list_monitoring_recommendations", "nopsai.acknowledge_monitoring_recommendation", "nopsai.resolve_monitoring_recommendation":
+	case "nopsai.get_monitoring_summary", "nopsai.get_monitoring_run_analytics", "nopsai.get_monitoring_pipeline_performance", "nopsai.get_monitoring_step_performance", "nopsai.get_monitoring_task_performance", "nopsai.get_monitoring_trigger_analytics", "nopsai.get_monitoring_external_trigger_analytics", "nopsai.get_monitoring_ai_usage", "nopsai.get_monitoring_reliability", "nopsai.get_monitoring_efficiency", "nopsai.get_monitoring_security", "nopsai.get_monitoring_runner_history", "nopsai.get_monitoring_schedule_ai_usage", "nopsai.get_monitoring_schedule_performance", "nopsai.get_monitoring_trigger_performance", "nopsai.get_pipeline_efficiency", "nopsai.compare_pipelines", "nopsai.compare_schedules", "nopsai.explain_pipeline_health", "nopsai.find_optimization_opportunities", "nopsai.list_monitoring_views", "nopsai.create_monitoring_view", "nopsai.update_monitoring_view", "nopsai.delete_monitoring_view", "nopsai.list_monitoring_alert_rules", "nopsai.create_monitoring_alert_rule", "nopsai.update_monitoring_alert_rule", "nopsai.delete_monitoring_alert_rule", "nopsai.evaluate_monitoring_alert_rule", "nopsai.list_monitoring_alert_events", "nopsai.list_monitoring_recommendations", "nopsai.acknowledge_monitoring_recommendation", "nopsai.resolve_monitoring_recommendation":
 		return []string{"nopsai://statistics"}
 	case "nopsai.get_llm_profiles":
 		return []string{"nopsai://system/llm-profiles"}
@@ -1385,6 +1182,23 @@ func assistantResourceURIsForTool(name string) []string {
 	default:
 		return []string{}
 	}
+}
+
+func assistantFirstPlanDenial(toolCalls []assistantToolActivity) (assistantToolActivity, bool) {
+	for _, call := range toolCalls {
+		if call.Name == "nopsai.assistant_plan" && call.Status == assistantToolStatusDenied {
+			return call, true
+		}
+	}
+	return assistantToolActivity{}, false
+}
+
+func composeAssistantPlanDeniedReply(call assistantToolActivity) string {
+	reason := strings.TrimSpace(assistantOutputString(call.Output, "error"))
+	if reason == "" {
+		reason = "the requested plan did not pass NopsAI safety and permission validation"
+	}
+	return "I could not safely execute that assistant plan: " + reason + ". No changes were applied."
 }
 
 func assistantFirstUUID(content string) string {
@@ -1462,204 +1276,6 @@ func assistantScopeCandidateIsGrammar(scope string) bool {
 	}
 }
 
-func assistantPipelineSearchQueryFromMessage(content string) string {
-	query := assistantFirstPatternGroup(assistantPipelineSearchPattern, content)
-	query = strings.TrimSpace(query)
-	query = strings.Trim(query, "`\"' ")
-	if assistantQueryMentionsApproval(query) {
-		return "approval"
-	}
-	if strings.EqualFold(query, "now") || strings.EqualFold(query, "please") {
-		return ""
-	}
-	return query
-}
-
-func assistantMessageAsksRunList(lower string) bool {
-	lower = strings.TrimSpace(lower)
-	if lower == "runs" || lower == "pipeline runs" || lower == "pipelineruns" || lower == "pipeline-runs" {
-		return true
-	}
-	return containsAny(
-		lower,
-		"list runs",
-		"list of runs",
-		"show runs",
-		"show me runs",
-		"recent runs",
-		"failed run",
-		"failure",
-		"run failed",
-		"pipeline runs",
-		"pipeline-runs",
-		"pipelineruns",
-		"logs",
-	)
-}
-
-func assistantMessageAsksVariableUsage(lower string) bool {
-	if !containsAny(lower, "variable", "variables", "env", "envs", "environment variable", "environment variables") {
-		return false
-	}
-	return containsAny(
-		lower,
-		"repetitive",
-		"repeated",
-		"duplicate",
-		"duplicates",
-		"how many",
-		"all scopes",
-		"across scopes",
-		"used in scopes",
-	)
-}
-
-func assistantMessageAsksAITokenUsage(lower string) bool {
-	if containsAny(
-		lower,
-		"llm usage",
-		"llm usages",
-		"ai usage",
-		"ai usages",
-		"model usage",
-		"model usages",
-		"token usage",
-		"token usages",
-		"llm token",
-		"llm tokens",
-		"ai token",
-		"ai tokens",
-	) {
-		return true
-	}
-	if !assistantMessageHasAITokenSubject(lower) {
-		return false
-	}
-	return containsAny(
-		lower,
-		"usage",
-		"usages",
-		"highest",
-		"most",
-		"top",
-		"token usage",
-		"uses the most",
-		"use the most",
-		"usage by pipeline",
-		"which pipeline",
-		"pipelines use",
-	)
-}
-
-func assistantMessageAsksCost(lower string) bool {
-	return containsAny(lower, "cost", "costs", "spend", "budget", "expensive")
-}
-
-func assistantMessageNeedsUsageClarification(lower string) bool {
-	if !containsAny(lower, "usage", "usages") {
-		return false
-	}
-	if assistantMessageHasAITokenSubject(lower) {
-		return false
-	}
-	return !containsAny(
-		lower,
-		"cost",
-		"costs",
-		"spend",
-		"budget",
-		"expensive",
-		"runner",
-		"runners",
-		"run",
-		"runs",
-		"pipeline run",
-		"variable",
-		"variables",
-		"env",
-		"envs",
-		"secret",
-		"secrets",
-		"credential",
-		"credentials",
-	)
-}
-
-func assistantMessageHasAITokenSubject(lower string) bool {
-	return containsAny(lower, "llm", "token", "tokens", "model", "models") || containsWord(lower, "ai")
-}
-
-func assistantMessageAsksScopeSecretSummary(lower string) bool {
-	if !containsAny(lower, "scope", "scopes") || !containsAny(lower, "secret", "secrets") {
-		return false
-	}
-	return containsAny(lower, "how many", "count", "counts", "total", "per scope", "by scope", "for each", "each scope", "every scope")
-}
-
-func assistantMessageAsksFeatureCapabilities(lower string) bool {
-	return containsAny(
-		lower,
-		"mcp coverage",
-		"mcp capability",
-		"mcp capabilities",
-		"mcp support",
-		"hosted mcp",
-		"support all with mcp",
-		"support all nopsai features",
-		"all nopsai features",
-		"all features",
-		"features with mcp",
-		"feature coverage",
-		"features can i use",
-		"what features can i use",
-		"assistant capabilities",
-		"capabilities do i have",
-		"tools/resources available",
-		"tools available",
-		"resources available",
-		"available to my user",
-	) || assistantMessageAsksSensitivePolicy(lower)
-}
-
-func assistantMessageAsksSensitivePolicy(lower string) bool {
-	if !containsAny(lower, "policy", "prevent", "block", "hide", "showing", "show", "expose", "read") {
-		return false
-	}
-	return containsAny(lower, "env", "envs", "environment variable", "environment variables", "secret", "secrets", "credential", "credentials", "token", "tokens", "password")
-}
-
-func assistantCapabilityFocusFromMessage(lower, currentSearchQuery string) (string, string) {
-	searchQuery := strings.TrimSpace(currentSearchQuery)
-	switch {
-	case assistantMessageAsksSensitivePolicy(lower):
-		return "secrets", "secret"
-	case assistantMessageAsksFeatureCapabilities(lower):
-		return "", ""
-	default:
-		return "", searchQuery
-	}
-}
-
-func assistantMessageAsksPipelineSearch(lower string) bool {
-	if containsAny(lower, "search pipeline", "search pipelines", "find pipeline", "find pipelines", "look for pipeline", "look through pipeline", "search through pipeline") {
-		return true
-	}
-	return containsAny(lower, "pipeline") && containsAny(lower, "approval step", "approval gate", "manual approval", "has approval", "with approval", "needs approval", "requires approval")
-}
-
-func assistantInferredPipelineSearchQuery(content string) string {
-	lower := strings.ToLower(content)
-	if assistantQueryMentionsApproval(lower) {
-		return "approval"
-	}
-	return strings.Trim(strings.TrimSpace(content), "`\"' ")
-}
-
-func assistantQueryMentionsApproval(value string) bool {
-	value = strings.ToLower(strings.TrimSpace(value))
-	return containsAny(value, "approval", "approve", "manual gate", "gate")
-}
-
 func assistantLastRelevantLogLine(logs []map[string]any) string {
 	for idx := len(logs) - 1; idx >= 0; idx-- {
 		line := assistantOutputString(logs[idx], "line")
@@ -1720,17 +1336,6 @@ func assistantAPICallFromMessage(content string) (string, string) {
 func containsAny(value string, needles ...string) bool {
 	for _, needle := range needles {
 		if strings.Contains(value, needle) {
-			return true
-		}
-	}
-	return false
-}
-
-func containsWord(value string, word string) bool {
-	for _, field := range strings.FieldsFunc(value, func(r rune) bool {
-		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
-	}) {
-		if field == word {
 			return true
 		}
 	}

@@ -244,9 +244,12 @@ safe assistant metadata and feature flags. `GET /v1/assistant/llm-profiles`
 exposes only safe picker metadata and requires an authenticated assistant user
 rather than `system.read` on the system LLM profile registry. When a selected
 or default profile is valid for the conversation scope, the assistant sends the
-user request, conversation memory, hosted MCP tool outputs, and a deterministic
-tool summary to that provider for final synthesis. If the LLM provider,
-credential, or scope check is unavailable, the assistant falls back to the
+user request and conversation memory to that provider for planner output, then
+uses hosted MCP tool outputs and a deterministic tool summary for final
+synthesis. If the LLM provider, credential, or scope check is unavailable
+before a validated plan exists, no hosted MCP tool runs and the assistant
+reports that no changes were applied. If final synthesis fails after a validated
+plan has already produced MCP evidence, the assistant falls back to the
 deterministic permission-bound tool summary and records the fallback reason on
 the message tool activity.
 
@@ -254,20 +257,22 @@ Message turns orchestrate first-party Nopsai tools for the current subject
 through the hosted MCP JSON-RPC request path.
 For a user-facing capability catalog with example chat prompts, see
 [assistant-capabilities.md](./assistant-capabilities.md).
-Each static turn creates a structured assistant plan with goal, intent, tool
-steps, and success criteria. Before execution, NopsAI validates that the plan
-uses available hosted MCP tools for the current AAA subject, stays within the
-tool-call and argument bounds, and does not run mutating tools without explicit
-`confirm:true`.
-The planner includes a feature-wide routing layer for NopsAI product areas that
-previously required exact API/tool knowledge: setup, config repositories,
-notifications, monitoring saved views/alerts/recommendations, credentials,
-runners, access/admin/audit, backups/cleanup, webhook sources, external
-triggers, reusable steps, scoped secrets/variables, UI ownership context, and
-explicit `nopsai.*` hosted MCP tool names. The router keeps existing specialist
-paths for run failure analysis, variable repetition analysis, scope/secret
-counts, AI token investigations, pipeline generation, and feature coverage
-questions.
+Each turn asks the selected/default assistant LLM to create a structured plan
+with goal, intent, tool steps, and success criteria. NopsAI does not use static
+normal-language routing for assistant turns; if the LLM planner is unavailable
+or returns an invalid plan, no hosted MCP tool is executed and the assistant
+fails closed with "No changes were applied." Before execution, NopsAI validates
+that the plan uses available hosted MCP tools for the current AAA subject,
+stays within the tool-call and argument bounds, and does not run mutating tools
+without explicit `confirm:true`.
+The planner covers NopsAI product areas that previously required exact
+API/tool knowledge: setup, config repositories, notifications, monitoring saved
+views/alerts/recommendations, credentials, runners, access/admin/audit,
+backups/cleanup, webhook sources, external triggers, reusable steps, scoped
+secrets/variables, UI ownership context, run failure analysis, variable
+repetition analysis, scope/secret counts, AI token investigations, pipeline
+generation, feature coverage questions, and explicit `nopsai.*` hosted MCP
+tool names.
 The assistant can analyze failed runs from status/log excerpts, generate and
 validate template-aware pipeline YAML drafts, prepare GitOps-ready pipeline
 create/update file plans, validate pasted pipeline YAML, traverse pipeline
@@ -277,13 +282,12 @@ design signals, and inspect triggers, schedules, scopes, pipelines, profiles,
 docs, setup state, access, credentials, and system status. Generated YAML and
 GitOps write plans are proposals only; confirmed runtime/admin tools still go
 through the existing API, approval, AAA, and audit flows.
-The deterministic orchestration layer handles common chat aliases such as
-`pipelineruns`, approval-step pipeline searches, feature-discovery questions,
-and env/secret exposure policy questions so permission-bound answers still work
-when final LLM synthesis is unavailable. AI usage requests now run an
-evidence-driven investigation: default-window analytics, broader-window
-fallbacks, efficiency/summary context, recent runs, and LLM profile context
-when no token events are visible.
+Planner-selected MCP tools handle common chat aliases such as `pipelineruns`,
+approval-step pipeline searches, feature-discovery questions, and env/secret
+exposure policy questions through the same permission-bound tool path. AI usage
+requests can use an evidence-driven investigation: default-window analytics,
+broader-window fallbacks, efficiency/summary context, recent runs, and LLM
+profile context when no token events are visible.
 Final LLM synthesis is answer-quality gated against the validated plan and tool
 evidence; if it claims a change was applied without tool evidence or omits
 required proposal-safe language, the assistant returns the deterministic

@@ -30,7 +30,7 @@ func (a *App) synthesizeAssistantReplyWithLLM(
 	toolCalls []assistantToolActivity,
 	deterministicReply string,
 ) assistantLLMSynthesis {
-	profileName, profile, ok, reason := a.resolveAssistantLLMProfile(ctx, conversation, selectedProfile)
+	profileName, profile, client, ok, reason := a.assistantLLMClientForTurn(ctx, conversation, selectedProfile)
 	if !ok {
 		if reason == "" {
 			return assistantLLMSynthesis{Reply: deterministicReply}
@@ -42,34 +42,6 @@ func (a *App) synthesizeAssistantReplyWithLLM(
 			}),
 		}
 	}
-
-	apiKey := ""
-	if config.LLMProviderRequiresAPIKey(profile.Provider) {
-		value, err := a.resolveLLMProfileAPIKey(ctx, profileName, profile)
-		if err != nil || strings.TrimSpace(value) == "" {
-			return assistantLLMSynthesis{
-				Reply: deterministicReply,
-				Activity: assistantLLMActivity(profileName, profile, assistantToolStatusError, map[string]any{
-					"fallback_reason": fmt.Sprintf("credential %q is unavailable", profile.CredentialRef),
-				}),
-			}
-		}
-		apiKey = value
-	}
-
-	client := llmclient.New(llmclient.Options{
-		Provider:       profile.Provider,
-		Profile:        profileName,
-		APIKey:         apiKey,
-		Model:          profile.Model,
-		BaseURL:        config.EffectiveLLMProfileBaseURL(profile),
-		Reasoning:      config.EffectiveLLMProfileReasoning(profile),
-		TimeoutSeconds: profile.TimeoutSeconds,
-		MaxTokens:      profile.MaxTokens,
-		Temperature:    profile.Temperature,
-		Extra:          cloneStringMap(profile.Extra),
-		HTTPClient:     assistantHTTPClient(a),
-	})
 	prompt := buildAssistantLLMPrompt(conversation, userContent, plan, toolCalls, deterministicReply)
 	completion, err := client.Complete(ctx, prompt)
 	if err != nil {
@@ -98,6 +70,34 @@ func (a *App) synthesizeAssistantReplyWithLLM(
 		Reply:    reply,
 		Activity: assistantLLMActivity(profileName, profile, assistantToolStatusSuccess, output),
 	}
+}
+
+func (a *App) assistantLLMClientForTurn(ctx context.Context, conversation assistantConversation, selectedProfile string) (string, config.LLMProfile, *llmclient.Client, bool, string) {
+	profileName, profile, ok, reason := a.resolveAssistantLLMProfile(ctx, conversation, selectedProfile)
+	if !ok {
+		return profileName, profile, nil, false, reason
+	}
+	apiKey := ""
+	if config.LLMProviderRequiresAPIKey(profile.Provider) {
+		value, err := a.resolveLLMProfileAPIKey(ctx, profileName, profile)
+		if err != nil || strings.TrimSpace(value) == "" {
+			return profileName, profile, nil, false, fmt.Sprintf("credential %q is unavailable", profile.CredentialRef)
+		}
+		apiKey = value
+	}
+	return profileName, profile, llmclient.New(llmclient.Options{
+		Provider:       profile.Provider,
+		Profile:        profileName,
+		APIKey:         apiKey,
+		Model:          profile.Model,
+		BaseURL:        config.EffectiveLLMProfileBaseURL(profile),
+		Reasoning:      config.EffectiveLLMProfileReasoning(profile),
+		TimeoutSeconds: profile.TimeoutSeconds,
+		MaxTokens:      profile.MaxTokens,
+		Temperature:    profile.Temperature,
+		Extra:          cloneStringMap(profile.Extra),
+		HTTPClient:     assistantHTTPClient(a),
+	}), true, ""
 }
 
 func (a *App) resolveAssistantLLMProfile(ctx context.Context, conversation assistantConversation, selectedProfile string) (string, config.LLMProfile, bool, string) {
