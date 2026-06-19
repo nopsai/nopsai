@@ -1,0 +1,169 @@
+package nopsai
+
+import (
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+
+	"nopsai/config"
+)
+
+const (
+	assistantRoleUser      = "user"
+	assistantRoleAssistant = "assistant"
+	assistantRoleSystem    = "system"
+)
+
+type assistantConversation struct {
+	ID                 uuid.UUID                   `json:"id"`
+	UserID             string                      `json:"user_id"`
+	Title              string                      `json:"title"`
+	SelectedLLMProfile string                      `json:"selected_llm_profile"`
+	DocsVersion        string                      `json:"docs_version"`
+	Scope              string                      `json:"scope"`
+	Memory             assistantConversationMemory `json:"memory,omitempty"`
+	Messages           []assistantMessage          `json:"messages,omitempty"`
+	CreatedAt          time.Time                   `json:"created_at"`
+	UpdatedAt          time.Time                   `json:"updated_at"`
+}
+
+type assistantMessage struct {
+	ID             uuid.UUID               `json:"id"`
+	ConversationID uuid.UUID               `json:"conversation_id"`
+	Role           string                  `json:"role"`
+	Content        string                  `json:"content"`
+	ToolCalls      []assistantToolActivity `json:"tool_calls"`
+	CreatedAt      time.Time               `json:"created_at"`
+}
+
+type assistantToolActivity struct {
+	Name         string         `json:"name"`
+	Input        map[string]any `json:"input,omitempty"`
+	Output       map[string]any `json:"output,omitempty"`
+	Status       string         `json:"status,omitempty"`
+	ResourceURIs []string       `json:"resource_uris,omitempty"`
+}
+
+type assistantConversationMemory struct {
+	ConversationID        uuid.UUID      `json:"conversation_id,omitempty"`
+	Summary               string         `json:"summary"`
+	Entities              map[string]any `json:"entities"`
+	OpenTasks             []string       `json:"open_tasks"`
+	PreviousProposedFixes []string       `json:"previous_proposed_fixes"`
+	SelectedRun           string         `json:"selected_run"`
+	SelectedPipeline      string         `json:"selected_pipeline"`
+	SelectedScope         string         `json:"selected_scope"`
+	SelectedDocsVersion   string         `json:"selected_docs_version"`
+	UpdatedAt             time.Time      `json:"updated_at,omitempty"`
+}
+
+type assistantConversationsResponse struct {
+	Conversations []assistantConversation `json:"conversations"`
+}
+
+type assistantCreateConversationRequest struct {
+	Title              string `json:"title"`
+	SelectedLLMProfile string `json:"selected_llm_profile"`
+	DocsVersion        string `json:"docs_version"`
+	Scope              string `json:"scope"`
+}
+
+type assistantCreateMessageRequest struct {
+	Content            string `json:"content"`
+	SelectedLLMProfile string `json:"selected_llm_profile"`
+}
+
+type assistantMessageResponse struct {
+	Conversation assistantConversation `json:"conversation"`
+	UserMessage  assistantMessage      `json:"user_message"`
+	Reply        assistantMessage      `json:"reply"`
+}
+
+type assistantLLMProfilesResponse struct {
+	DefaultProfile string                      `json:"default_profile"`
+	Profiles       []assistantLLMProfileOption `json:"profiles"`
+}
+
+type assistantLLMProfileOption struct {
+	Name           string `json:"name"`
+	Provider       string `json:"provider,omitempty"`
+	Model          string `json:"model,omitempty"`
+	Status         string `json:"status"`
+	Validation     string `json:"validation,omitempty"`
+	AllowedInScope bool   `json:"allowed_in_scope"`
+	DisabledReason string `json:"disabled_reason,omitempty"`
+}
+
+type assistantSummarizeMemoryRequest struct {
+	Summary               string         `json:"summary"`
+	Entities              map[string]any `json:"entities"`
+	OpenTasks             []string       `json:"open_tasks"`
+	PreviousProposedFixes []string       `json:"previous_proposed_fixes"`
+	SelectedRun           string         `json:"selected_run"`
+	SelectedPipeline      string         `json:"selected_pipeline"`
+	SelectedScope         string         `json:"selected_scope"`
+	SelectedDocsVersion   string         `json:"selected_docs_version"`
+}
+
+func (a *App) assistantConfig() config.AssistantConfig {
+	if a == nil || a.cfg == nil {
+		return config.NormalizeAssistantConfig(config.AssistantConfig{})
+	}
+	cfg := a.getConfigSnapshot()
+	return cfg.EffectiveAssistantConfig()
+}
+
+func normalizeAssistantConversationRequest(req assistantCreateConversationRequest, cfg config.AssistantConfig) assistantCreateConversationRequest {
+	req.Title = strings.TrimSpace(req.Title)
+	req.SelectedLLMProfile = config.NormalizeLLMProfileName(req.SelectedLLMProfile)
+	req.DocsVersion = strings.TrimSpace(req.DocsVersion)
+	if req.DocsVersion == "" {
+		req.DocsVersion = cfg.DefaultDocsVersion
+	}
+	if req.DocsVersion == "" {
+		req.DocsVersion = "auto"
+	}
+	req.Scope = strings.Trim(strings.TrimSpace(req.Scope), "/")
+	return req
+}
+
+func normalizeAssistantMessageRequest(req assistantCreateMessageRequest) assistantCreateMessageRequest {
+	req.Content = strings.TrimSpace(req.Content)
+	req.SelectedLLMProfile = config.NormalizeLLMProfileName(req.SelectedLLMProfile)
+	return req
+}
+
+func normalizeAssistantMemory(memory assistantConversationMemory) assistantConversationMemory {
+	memory.Summary = strings.TrimSpace(memory.Summary)
+	if memory.Entities == nil {
+		memory.Entities = map[string]any{}
+	}
+	memory.OpenTasks = normalizeAssistantStringList(memory.OpenTasks)
+	memory.PreviousProposedFixes = normalizeAssistantStringList(memory.PreviousProposedFixes)
+	memory.SelectedRun = strings.TrimSpace(memory.SelectedRun)
+	memory.SelectedPipeline = strings.Trim(strings.TrimSpace(memory.SelectedPipeline), "/")
+	memory.SelectedScope = strings.Trim(strings.TrimSpace(memory.SelectedScope), "/")
+	memory.SelectedDocsVersion = strings.TrimSpace(memory.SelectedDocsVersion)
+	return memory
+}
+
+func normalizeAssistantStringList(values []string) []string {
+	if len(values) == 0 {
+		return []string{}
+	}
+	out := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}

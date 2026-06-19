@@ -210,6 +210,17 @@ Step-level conditions use the resolved step profile. Task-level goals use the
 resolved task profile. Script-only tasks can declare `llm_profile`, but it only
 matters when an LLM-backed operation is performed.
 
+The Nopsai AI Assistant uses the profile selected on the conversation. If no
+conversation profile is selected, it uses `llm_default_profile`. The same
+`allowed_scopes`, credential refs, provider options, timeout, token, and
+temperature validation apply. The assistant UI reads profile choices from
+`GET /v1/assistant/llm-profiles`, which returns only picker-safe metadata and
+does not require system LLM profile administration permission. Assistant
+replies are synthesized from the user request, conversation memory, and hosted
+MCP tool outputs. If the selected profile cannot be used, the assistant records
+the fallback reason and returns the deterministic permission-bound tool
+summary.
+
 ## Validation
 
 Runs are rejected before agent launch when:

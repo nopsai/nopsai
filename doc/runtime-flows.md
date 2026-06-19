@@ -10,7 +10,7 @@ Most API routes pass through the same middleware stack before reaching a handler
 2. Other requests must include a bearer token produced by the local auth service, service-auth credentials, or a user-created personal access token.
 3. `nopsai` validates service tokens first, then user/API JWTs with signature, expiration, issuer, and audience checks, or hashes opaque `nopat_` personal tokens and `nopsat_` service account tokens against their token tables.
 4. Session JWTs enforce idle-session timeout when configured; service tokens, personal tokens, and service account tokens rely on expiry and revocation semantics. Valid credentials place claims in the request context.
-5. Authenticated-only profile routes (`/v1/auth/me`, `/v1/auth/password`, `/v1/auth/email`, `/v1/auth/personal-tokens`) stop here.
+5. Authenticated-only profile routes (`/v1/auth/me`, `/v1/auth/password`, `/v1/auth/email`, `/v1/auth/personal-tokens`, `/v1/assistant/llm-profiles`) stop here.
 6. Other protected routes are mapped by `routeauthz.MapRequest` to an action/resource pair.
 7. `nopsai` calls the AAA service for a `Check`, or defers to handler-level `Filter` for list endpoints.
 8. If the AAA service is unavailable, `nopsai` temporarily falls back to an in-process evaluator backed by the same Postgres tables.

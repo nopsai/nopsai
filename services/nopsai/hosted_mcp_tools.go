@@ -1,0 +1,1531 @@
+package nopsai
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"gopkg.in/yaml.v3"
+
+	"nopsai/config"
+	"nopsai/pkg/models"
+	aaamodel "nopsai/services/aaa/pkg/model"
+	"nopsai/services/nopsai/internal/configsync"
+	"nopsai/services/nopsai/pkg/validation"
+)
+
+type hostedMCPTool struct {
+	Name              string               `json:"name"`
+	Description       string               `json:"description"`
+	InputSchema       map[string]any       `json:"inputSchema"`
+	Action            string               `json:"-"`
+	Resource          aaamodel.ResourceRef `json:"-"`
+	AuthenticatedOnly bool                 `json:"-"`
+}
+
+func allHostedMCPTools() []hostedMCPTool {
+	tools := []hostedMCPTool{
+		authenticatedToolDef("nopsai.call_api", "Call an allowed NopsAI REST API route as the current authenticated subject. Mutating calls require confirm:true and route/resource AAA checks still apply.", objectSchema(map[string]any{"method": stringSchema(), "path": stringSchema(), "query": objectSchema(map[string]any{}), "body": objectSchema(map[string]any{}), "headers": objectSchema(map[string]any{}), "confirm": booleanSchema(), "include_sensitive_response": booleanSchema()})),
+		toolDef("nopsai.search_docs", "Search Nopsai knowledge and docs.", "knowledge_context.read", "knowledge_context", "*", objectSchema(map[string]any{"query": stringSchema(), "limit": numberSchema()})),
+		toolDef("nopsai.read_doc", "Read a Nopsai knowledge document by id.", "knowledge_context.read", "knowledge_context", "*", objectSchema(map[string]any{"id": stringSchema()})),
+		toolDef("nopsai.list_knowledge_contexts", "List managed Nopsai knowledge context documents with optional filters.", "knowledge_context.read", "knowledge_context", "*", objectSchema(map[string]any{"kind": stringSchema(), "group": stringSchema(), "query": stringSchema(), "used_by_pipeline": stringSchema(), "limit": numberSchema()})),
+		toolDef("nopsai.get_knowledge_context", "Read a managed knowledge context document by id, kind/group/name, or kind plus ref.", "knowledge_context.read", "knowledge_context", "*", objectSchema(map[string]any{"id": stringSchema(), "kind": stringSchema(), "group": stringSchema(), "name": stringSchema(), "ref": stringSchema()})),
+		toolDef("nopsai.list_pipelines", "List pipelines visible to the current user.", "pipeline.list", "pipeline", "*", objectSchema(map[string]any{"limit": numberSchema()})),
+		toolDef("nopsai.search_pipelines", "Search pipeline metadata and readable YAML definitions.", "pipeline.list", "pipeline", "*", objectSchema(map[string]any{"query": stringSchema(), "limit": numberSchema(), "include_snippets": booleanSchema()})),
+		toolDef("nopsai.get_pipeline", "Read a pipeline YAML definition.", "pipeline.read", "pipeline", "*", objectSchema(map[string]any{"pipeline": stringSchema(), "path": stringSchema(), "name": stringSchema()})),
+		toolDef("nopsai.get_pipeline_knowledge_context", "Resolve knowledge context references used by a stored or supplied pipeline.", "pipeline.read", "pipeline", "*", objectSchema(map[string]any{"pipeline": stringSchema(), "path": stringSchema(), "name": stringSchema(), "yaml": stringSchema(), "include_content": booleanSchema()})),
+		toolDef("nopsai.validate_pipeline", "Validate pipeline YAML without saving it.", "pipeline.read", "pipeline", "*", objectSchema(map[string]any{"yaml": stringSchema()})),
+		toolDef("nopsai.generate_pipeline", "Generate a pipeline YAML draft without applying changes.", "pipeline.create", "pipeline", "*", objectSchema(map[string]any{"name": stringSchema(), "goal": stringSchema(), "scope": stringSchema()})),
+		toolDef("nopsai.propose_pipeline_create", "Validate pipeline YAML and return a GitOps-ready create file plan without applying changes.", "pipeline.create", "pipeline", "*", objectSchema(map[string]any{"pipeline": stringSchema(), "path": stringSchema(), "name": stringSchema(), "yaml": stringSchema(), "message": stringSchema()})),
+		toolDef("nopsai.propose_pipeline_update", "Validate pipeline YAML and return a GitOps-ready update file plan without applying changes.", "pipeline.update", "pipeline", "*", objectSchema(map[string]any{"pipeline": stringSchema(), "path": stringSchema(), "name": stringSchema(), "yaml": stringSchema(), "message": stringSchema()})),
+		toolDef("nopsai.list_pipeline_runs", "List recent pipeline runs visible to the current user.", "pipeline_run.list", "pipeline_run", "*", objectSchema(map[string]any{"limit": numberSchema()})),
+		toolDef("nopsai.get_pipeline_run", "Read pipeline run status and metadata.", "pipeline_run.read", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema()})),
+		toolDef("nopsai.get_pipeline_run_logs", "Read recent pipeline run logs.", "pipeline_run.read_logs", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema(), "limit": numberSchema()})),
+		toolDef("nopsai.analyze_pipeline_run_failure", "Analyze a failed pipeline run from status and log excerpts.", "pipeline_run.read_logs", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema()})),
+		toolDef("nopsai.list_triggers", "List repository triggers.", "trigger.read", "trigger", "*", objectSchema(map[string]any{"limit": numberSchema()})),
+		toolDef("nopsai.get_trigger", "Read a trigger definition.", "trigger.read", "trigger", "*", objectSchema(map[string]any{"repository": stringSchema()})),
+		toolDef("nopsai.propose_trigger_change", "Draft a trigger change without applying it.", "trigger.update", "trigger", "*", objectSchema(map[string]any{"repository": stringSchema(), "change": stringSchema()})),
+		toolDef("nopsai.list_schedules", "List pipeline schedules.", "pipeline_schedule.list", "pipeline_schedule", "*", objectSchema(map[string]any{"limit": numberSchema()})),
+		toolDef("nopsai.get_schedule", "Read a schedule definition.", "pipeline_schedule.read", "pipeline_schedule", "*", objectSchema(map[string]any{"schedule_id": stringSchema()})),
+		toolDef("nopsai.propose_schedule_change", "Draft a schedule change without applying it.", "pipeline_schedule.update", "pipeline_schedule", "*", objectSchema(map[string]any{"schedule_id": stringSchema(), "change": stringSchema()})),
+		toolDef("nopsai.list_scopes", "List scopes referenced by pipelines, schedules, secrets, and variables.", "scope.read", "scope", "*", objectSchema(map[string]any{"limit": numberSchema()})),
+		toolDef("nopsai.get_scope", "Read high-level scope usage.", "scope.read", "scope", "*", objectSchema(map[string]any{"scope": stringSchema()})),
+		toolDef("nopsai.explain_scope_permissions", "Explain what a scope is used for.", "scope.read", "scope", "*", objectSchema(map[string]any{"scope": stringSchema()})),
+		toolDef("nopsai.list_lab_items", "List lab-oriented recent runs and experiments.", "pipeline_run.list", "pipeline_run", "*", objectSchema(map[string]any{"limit": numberSchema()})),
+		toolDef("nopsai.get_lab_item", "Read a lab item by run id.", "pipeline_run.read", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema()})),
+		toolDef("nopsai.explain_lab_result", "Explain a lab result using run status and logs.", "pipeline_run.read_logs", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema()})),
+		toolDef("nopsai.get_statistics", "Read platform statistics.", "pipeline_run.list", "pipeline_run", "*", objectSchema(map[string]any{})),
+		toolDef("nopsai.get_cost_summary", "Read cost and usage summary.", "pipeline_run.list", "pipeline_run", "*", objectSchema(map[string]any{})),
+		toolDef("nopsai.suggest_cost_improvements", "Suggest cost improvements from current usage data.", "pipeline_run.list", "pipeline_run", "*", objectSchema(map[string]any{})),
+		toolDef("nopsai.suggest_design_improvements", "Suggest pipeline design improvements from current inventory.", "pipeline.list", "pipeline", "*", objectSchema(map[string]any{})),
+		toolDef("nopsai.get_llm_profiles", "List existing LLM profiles the assistant can use.", "system.read", "system", "llm-profiles", objectSchema(map[string]any{})),
+		toolDef("nopsai.get_mcp_profiles", "List external MCP profiles configured in Nopsai.", "system.read", "system", "mcp", objectSchema(map[string]any{})),
+		toolDef("nopsai.get_feature_capabilities", "List NopsAI feature coverage, MCP surfaces, REST/GitOps backing routes, and current-user AAA availability.", "system.read", "system", "mcp", objectSchema(map[string]any{"area": stringSchema(), "query": stringSchema(), "include_api_routes": booleanSchema()})),
+		toolDef("nopsai.get_system_status", "Read basic system setup and dispatcher status.", "system.read", "system", "config", objectSchema(map[string]any{})),
+		toolDef("nopsai.get_dispatcher_status", "Read dispatcher and runner health, queued jobs, and runner capacity.", "system.read", "dispatcher", "status", objectSchema(map[string]any{})),
+	}
+	tools = append(tools, hostedMCPDedicatedTools()...)
+	return append(tools, hostedMCPFinalTools()...)
+}
+
+func toolDef(name, description, action, resourceType, resourceID string, schema map[string]any) hostedMCPTool {
+	return hostedMCPTool{
+		Name:        name,
+		Description: description,
+		InputSchema: schema,
+		Action:      action,
+		Resource: aaamodel.ResourceRef{
+			Type: resourceType,
+			ID:   resourceID,
+		},
+	}
+}
+
+func authenticatedToolDef(name, description string, schema map[string]any) hostedMCPTool {
+	return hostedMCPTool{
+		Name:              name,
+		Description:       description,
+		InputSchema:       schema,
+		AuthenticatedOnly: true,
+	}
+}
+
+func objectSchema(properties map[string]any) map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"properties":           properties,
+		"additionalProperties": true,
+	}
+}
+
+func stringSchema() map[string]any {
+	return map[string]any{"type": "string"}
+}
+
+func numberSchema() map[string]any {
+	return map[string]any{"type": "number"}
+}
+
+func booleanSchema() map[string]any {
+	return map[string]any{"type": "boolean"}
+}
+
+func (a *App) hostedMCPToolsForSubject(ctx context.Context, subject aaamodel.Subject) []hostedMCPTool {
+	all := allHostedMCPTools()
+	tools := make([]hostedMCPTool, 0, len(all))
+	for _, tool := range all {
+		if tool.AuthenticatedOnly {
+			tools = append(tools, tool)
+			continue
+		}
+		if a.hostedMCPAllowed(ctx, subject, hostedMCPToolPermission(tool)) {
+			tools = append(tools, tool)
+		}
+	}
+	return tools
+}
+
+func (a *App) hostedMCPToolByName(ctx context.Context, subject aaamodel.Subject, name string) (hostedMCPTool, bool) {
+	name = strings.TrimSpace(name)
+	for _, tool := range a.hostedMCPToolsForSubject(ctx, subject) {
+		if tool.Name == name {
+			return tool, true
+		}
+	}
+	return hostedMCPTool{}, false
+}
+
+func (a *App) callHostedMCPTool(ctx context.Context, subject aaamodel.Subject, userID string, tool hostedMCPTool, args map[string]any, conversationID *uuid.UUID) (map[string]any, error) {
+	if err := a.authorizeHostedMCPToolCall(ctx, subject, tool, args); err != nil {
+		a.recordHostedMCPAudit(ctx, hostedMCPAuditRecord{UserID: userID, ConversationID: conversationID, ToolName: tool.Name, Input: hostedMCPAuditInput(tool.Name, args), Status: "denied"})
+		return nil, err
+	}
+	result, err := a.executeHostedMCPTool(ctx, subject, tool.Name, args)
+	status := "success"
+	if err != nil {
+		status = "error"
+	}
+	a.recordHostedMCPAudit(ctx, hostedMCPAuditRecord{
+		UserID:         userID,
+		ConversationID: conversationID,
+		ToolName:       tool.Name,
+		Input:          hostedMCPAuditInput(tool.Name, args),
+		Output:         hostedMCPAuditOutput(tool.Name, result),
+		ResourceScope:  tool.Resource.Type + ":" + tool.Resource.ID,
+		Status:         status,
+	})
+	return result, err
+}
+
+func (a *App) authorizeHostedMCPToolCall(ctx context.Context, subject aaamodel.Subject, tool hostedMCPTool, args map[string]any) error {
+	if tool.Name == "nopsai.call_api" {
+		return a.authorizeHostedMCPAPICall(ctx, subject, args)
+	}
+	if handled, err := a.authorizeHostedMCPFinalToolCall(ctx, subject, tool, args); handled {
+		return err
+	}
+	if handled, err := a.authorizeHostedMCPDedicatedToolCall(ctx, subject, tool, args); handled {
+		return err
+	}
+	if tool.AuthenticatedOnly {
+		return nil
+	}
+	permission := hostedMCPToolPermission(tool)
+	switch tool.Name {
+	case "nopsai.get_pipeline":
+		permission.Resource.ID = pipelineArgID(args)
+	case "nopsai.get_pipeline_knowledge_context":
+		if strings.TrimSpace(stringArg(args, "yaml")) == "" {
+			permission.Resource.ID = pipelineArgID(args)
+		}
+	case "nopsai.propose_pipeline_create", "nopsai.propose_pipeline_update":
+		permission.Resource.ID = pipelineWritePlanResourceID(args)
+	case "nopsai.get_knowledge_context":
+		permission.Resource.ID = a.knowledgeContextArgID(ctx, args)
+	case "nopsai.get_pipeline_run", "nopsai.get_pipeline_run_logs", "nopsai.analyze_pipeline_run_failure", "nopsai.get_lab_item", "nopsai.explain_lab_result":
+		permission.Resource.ID = stringArg(args, "run_id")
+	case "nopsai.get_trigger", "nopsai.propose_trigger_change":
+		permission.Resource.ID = stringArg(args, "repository")
+	case "nopsai.get_schedule", "nopsai.propose_schedule_change":
+		permission.Resource.ID = stringArg(args, "schedule_id")
+	case "nopsai.get_scope", "nopsai.explain_scope_permissions":
+		permission.Resource.ID = stringArg(args, "scope")
+	}
+	if strings.TrimSpace(permission.Resource.ID) == "" {
+		permission.Resource.ID = tool.Resource.ID
+	}
+	if a.hostedMCPAllowed(ctx, subject, permission) {
+		return nil
+	}
+	return fmt.Errorf("tool %s is not allowed for %s:%s", tool.Name, permission.Resource.Type, permission.Resource.ID)
+}
+
+func (a *App) executeHostedMCPTool(ctx context.Context, subject aaamodel.Subject, name string, args map[string]any) (map[string]any, error) {
+	if result, handled, err := a.executeHostedMCPFinalTool(ctx, subject, name, args); handled {
+		return result, err
+	}
+	if result, handled, err := a.executeHostedMCPDedicatedTool(ctx, subject, name, args); handled {
+		return result, err
+	}
+	switch name {
+	case "nopsai.call_api":
+		return a.hostedMCPCallAPI(ctx, subject, args)
+	case "nopsai.search_docs":
+		return a.hostedMCPSearchDocs(ctx, args)
+	case "nopsai.read_doc":
+		return a.hostedMCPReadDoc(ctx, args)
+	case "nopsai.list_knowledge_contexts":
+		return a.hostedMCPListKnowledgeContexts(ctx, subject, args)
+	case "nopsai.get_knowledge_context":
+		return a.hostedMCPGetKnowledgeContext(ctx, subject, args)
+	case "nopsai.list_pipelines":
+		return a.hostedMCPListPipelines(ctx, args)
+	case "nopsai.search_pipelines":
+		return a.hostedMCPSearchPipelines(ctx, subject, args)
+	case "nopsai.get_pipeline":
+		return a.hostedMCPGetPipeline(ctx, args)
+	case "nopsai.get_pipeline_knowledge_context":
+		return a.hostedMCPGetPipelineKnowledgeContext(ctx, subject, args)
+	case "nopsai.validate_pipeline":
+		return hostedMCPValidatePipeline(args)
+	case "nopsai.generate_pipeline":
+		return hostedMCPGeneratePipeline(args), nil
+	case "nopsai.propose_pipeline_create":
+		return hostedMCPProposePipelineWrite(args, "create")
+	case "nopsai.propose_pipeline_update":
+		return hostedMCPProposePipelineWrite(args, "update")
+	case "nopsai.list_pipeline_runs", "nopsai.list_lab_items":
+		return a.hostedMCPListPipelineRuns(ctx, args)
+	case "nopsai.get_pipeline_run", "nopsai.get_lab_item":
+		return a.hostedMCPGetPipelineRun(ctx, args)
+	case "nopsai.get_pipeline_run_logs":
+		return a.hostedMCPGetPipelineRunLogs(ctx, args)
+	case "nopsai.analyze_pipeline_run_failure", "nopsai.explain_lab_result":
+		return a.hostedMCPAnalyzePipelineRunFailure(ctx, args)
+	case "nopsai.list_triggers":
+		return a.hostedMCPListTriggers(ctx, args)
+	case "nopsai.get_trigger":
+		return a.hostedMCPGetTrigger(ctx, args)
+	case "nopsai.propose_trigger_change":
+		return hostedMCPProposal("trigger", args), nil
+	case "nopsai.list_schedules":
+		return a.hostedMCPListSchedules(ctx, args)
+	case "nopsai.get_schedule":
+		return a.hostedMCPGetSchedule(ctx, args)
+	case "nopsai.propose_schedule_change":
+		return hostedMCPProposal("schedule", args), nil
+	case "nopsai.list_scopes":
+		return a.hostedMCPListScopes(ctx, args)
+	case "nopsai.get_scope", "nopsai.explain_scope_permissions":
+		return a.hostedMCPGetScope(ctx, args)
+	case "nopsai.get_statistics":
+		return a.hostedMCPStatistics(ctx)
+	case "nopsai.get_cost_summary":
+		return a.hostedMCPCostSummary(ctx)
+	case "nopsai.suggest_cost_improvements":
+		return a.hostedMCPSuggestCostImprovements(ctx)
+	case "nopsai.suggest_design_improvements":
+		return a.hostedMCPSuggestDesignImprovements(ctx)
+	case "nopsai.get_llm_profiles":
+		return a.hostedMCPGetLLMProfiles(ctx)
+	case "nopsai.get_mcp_profiles":
+		return a.hostedMCPGetMCPProfiles(ctx)
+	case "nopsai.get_feature_capabilities":
+		return a.hostedMCPGetFeatureCapabilities(ctx, subject, args)
+	case "nopsai.get_system_status":
+		return a.hostedMCPGetSystemStatus(ctx)
+	case "nopsai.get_dispatcher_status":
+		return a.hostedMCPGetDispatcherStatus(ctx)
+	default:
+		return nil, fmt.Errorf("unknown hosted MCP tool %q", name)
+	}
+}
+
+func (a *App) hostedMCPListPipelines(ctx context.Context, args map[string]any) (map[string]any, error) {
+	rows, err := a.db.Query(ctx, `
+		SELECT path, name, version, source, visibility, updated_at
+		FROM pipelines
+		ORDER BY path ASC, name ASC
+		LIMIT $1
+	`, limitArg(args, 50, 200))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []map[string]any{}
+	for rows.Next() {
+		var path, name, version, source, visibility string
+		var updatedAt time.Time
+		if err := rows.Scan(&path, &name, &version, &source, &visibility, &updatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, map[string]any{
+			"id":         aaamodel.BuildPipelineID(path, name),
+			"path":       path,
+			"name":       name,
+			"version":    version,
+			"source":     source,
+			"visibility": visibility,
+			"updated_at": updatedAt,
+		})
+	}
+	return map[string]any{"pipelines": items}, rows.Err()
+}
+
+func (a *App) hostedMCPSearchPipelines(ctx context.Context, subject aaamodel.Subject, args map[string]any) (map[string]any, error) {
+	query := strings.TrimSpace(stringArg(args, "query"))
+	if query == "" {
+		return nil, fmt.Errorf("query is required")
+	}
+	rows, err := a.db.Query(ctx, `
+		SELECT path, name, version, source, visibility, updated_at, definition
+		FROM pipelines
+		WHERE LOWER(path || ' ' || name || ' ' || version || ' ' || source || ' ' || visibility || ' ' || definition) LIKE LOWER('%' || $1 || '%')
+		ORDER BY path ASC, name ASC
+		LIMIT $2
+	`, query, limitArg(args, 50, 200))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	includeSnippets := boolArg(args, "include_snippets", true)
+	items := []map[string]any{}
+	for rows.Next() {
+		var path, name, version, source, visibility, definition string
+		var updatedAt time.Time
+		if err := rows.Scan(&path, &name, &version, &source, &visibility, &updatedAt, &definition); err != nil {
+			return nil, err
+		}
+		pipelineID := aaamodel.BuildPipelineID(path, name)
+		matchFields := hostedMCPPipelineMatchFields(query, path, name, version, source, visibility, definition)
+		readAllowed := a.hostedMCPAllowed(ctx, subject, hostedMCPReadPermission("pipeline.read", "pipeline", pipelineID))
+		if onlyPipelineDefinitionMatched(matchFields) && !readAllowed {
+			continue
+		}
+		item := map[string]any{
+			"id":           pipelineID,
+			"path":         path,
+			"name":         name,
+			"version":      version,
+			"source":       source,
+			"visibility":   visibility,
+			"updated_at":   updatedAt,
+			"match_fields": matchFields,
+			"read_allowed": readAllowed,
+		}
+		if includeSnippets && readAllowed {
+			if snippet := hostedMCPSnippet(definition, query, 180); snippet != "" {
+				item["snippet"] = snippet
+			}
+		}
+		items = append(items, item)
+	}
+	return map[string]any{"query": query, "pipelines": items}, rows.Err()
+}
+
+func (a *App) hostedMCPGetPipeline(ctx context.Context, args map[string]any) (map[string]any, error) {
+	pathPart, namePart := splitPipelineArg(args)
+	var version, definition, source, visibility string
+	var updatedAt time.Time
+	err := a.db.QueryRow(ctx, `
+		SELECT version, definition, source, visibility, updated_at
+		FROM pipelines
+		WHERE path = $1 AND name = $2
+	`, pathPart, namePart).Scan(&version, &definition, &source, &visibility, &updatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"id":         aaamodel.BuildPipelineID(pathPart, namePart),
+		"path":       pathPart,
+		"name":       namePart,
+		"version":    version,
+		"definition": definition,
+		"source":     source,
+		"visibility": visibility,
+		"updated_at": updatedAt,
+	}, nil
+}
+
+func hostedMCPValidatePipeline(args map[string]any) (map[string]any, error) {
+	raw := stringArg(args, "yaml")
+	if raw == "" {
+		return nil, fmt.Errorf("yaml is required")
+	}
+	return hostedMCPValidatePipelineYAML(raw), nil
+}
+
+func hostedMCPValidatePipelineYAML(raw string) map[string]any {
+	var pipeline models.Pipeline
+	if err := yaml.Unmarshal([]byte(raw), &pipeline); err != nil {
+		return map[string]any{"valid": false, "error": err.Error()}
+	}
+	if err := validation.ValidatePipeline(&pipeline); err != nil {
+		return map[string]any{"valid": false, "error": err.Error()}
+	}
+	return map[string]any{"valid": true, "name": pipeline.Name, "version": pipeline.Version}
+}
+
+func hostedMCPParseValidPipelineYAML(raw string) (models.Pipeline, map[string]any, bool) {
+	var pipeline models.Pipeline
+	validationResult := hostedMCPValidatePipelineYAML(raw)
+	if !boolValue(validationResult["valid"]) {
+		return pipeline, validationResult, false
+	}
+	if err := yaml.Unmarshal([]byte(raw), &pipeline); err != nil {
+		return pipeline, map[string]any{"valid": false, "error": err.Error()}, false
+	}
+	pipeline.Version = normalizePipelineVersion(pipeline.Version)
+	return pipeline, validationResult, true
+}
+
+func hostedMCPGeneratePipeline(args map[string]any) map[string]any {
+	name := strings.TrimSpace(stringArg(args, "name"))
+	if name == "" {
+		name = "generated-pipeline"
+	}
+	goal := strings.TrimSpace(stringArg(args, "goal"))
+	if goal == "" {
+		goal = "Describe the desired automation goal here."
+	}
+	scope := strings.Trim(strings.TrimSpace(stringArg(args, "scope")), "/")
+	pipeline := map[string]any{
+		"name":            name,
+		"version":         "latest",
+		"llm":             map[string]any{"enabled": true},
+		"container_image": "alpine:3.20",
+		"steps": []map[string]any{{
+			"name": "plan",
+			"tasks": []map[string]any{{
+				"name": "draft",
+				"goal": goal,
+			}},
+		}},
+	}
+	if scope != "" {
+		pipeline["scope"] = scope
+	}
+	raw, _ := yaml.Marshal(pipeline)
+	return map[string]any{
+		"proposal_type": "pipeline_yaml",
+		"applies":       false,
+		"yaml":          string(raw),
+	}
+}
+
+func hostedMCPProposePipelineWrite(args map[string]any, mode string) (map[string]any, error) {
+	raw := stringArg(args, "yaml")
+	if raw == "" {
+		return nil, fmt.Errorf("yaml is required")
+	}
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode != "create" && mode != "update" {
+		return nil, fmt.Errorf("unsupported pipeline write mode %q", mode)
+	}
+	pipeline, validationResult, ok := hostedMCPParseValidPipelineYAML(raw)
+	if !ok {
+		return map[string]any{
+			"proposal_type": "pipeline_" + mode,
+			"applies":       false,
+			"valid":         false,
+			"validation":    validationResult,
+			"note":          "No write plan was produced because the pipeline YAML did not pass validation.",
+		}, nil
+	}
+	pathPart, expectedName := splitPipelineArg(args)
+	if expectedName != "" && expectedName != pipeline.Name {
+		errText := fmt.Sprintf("target pipeline name %q does not match YAML name %q", expectedName, pipeline.Name)
+		return map[string]any{
+			"proposal_type": "pipeline_" + mode,
+			"applies":       false,
+			"valid":         false,
+			"validation":    map[string]any{"valid": false, "error": errText},
+			"note":          "No write plan was produced because the target and YAML disagree.",
+		}, nil
+	}
+	pipelineID := aaamodel.BuildPipelineID(pathPart, pipeline.Name)
+	action := "pipeline.create"
+	verb := "Create"
+	if mode == "update" {
+		action = "pipeline.update"
+		verb = "Update"
+	}
+	message := stringArg(args, "message")
+	if message == "" {
+		message = verb + " Nopsai pipeline " + pipelineID
+	}
+	relativePath := "pipelines/" + configsync.BuildPipelineFilePath(pathPart, pipeline.Name, ".yaml")
+	return map[string]any{
+		"proposal_type": "pipeline_" + mode,
+		"applies":       false,
+		"valid":         true,
+		"action":        action,
+		"pipeline_id":   pipelineID,
+		"path":          pathPart,
+		"name":          pipeline.Name,
+		"version":       pipeline.Version,
+		"yaml":          raw,
+		"validation":    validationResult,
+		"gitops": map[string]any{
+			"message": message,
+			"files": []map[string]any{{
+				"path":    relativePath,
+				"content": raw,
+				"delete":  false,
+			}},
+			"review_note": "Commit this file through the configured config repository review branch, then sync GitOps before relying on the change.",
+		},
+		"api": map[string]any{
+			"method": "PUT",
+			"path":   "/v1/pipelines/" + pipelineID,
+			"note":   "The direct API can save the pipeline when authorized, but the MCP tool returns a proposal only.",
+		},
+	}, nil
+}
+
+func (a *App) hostedMCPListPipelineRuns(ctx context.Context, args map[string]any) (map[string]any, error) {
+	rows, err := a.db.Query(ctx, `
+		SELECT run_id::text, COALESCE(pipeline_path, ''), COALESCE(pipeline_name, ''), status, COALESCE(scope, ''), created_at, started_at, finished_at, COALESCE(failure_reason, '')
+		FROM pipeline_runs
+		ORDER BY created_at DESC
+		LIMIT $1
+	`, limitArg(args, 30, 100))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	runs := []map[string]any{}
+	for rows.Next() {
+		var runID, path, name, status, scope, failureReason string
+		var createdAt time.Time
+		var startedAt, finishedAt sql.NullTime
+		if err := rows.Scan(&runID, &path, &name, &status, &scope, &createdAt, &startedAt, &finishedAt, &failureReason); err != nil {
+			return nil, err
+		}
+		runs = append(runs, map[string]any{
+			"run_id":         runID,
+			"pipeline_id":    aaamodel.BuildPipelineID(path, name),
+			"pipeline_path":  path,
+			"pipeline_name":  name,
+			"status":         status,
+			"scope":          scope,
+			"created_at":     createdAt,
+			"started_at":     hostedMCPNullableTime(startedAt),
+			"finished_at":    hostedMCPNullableTime(finishedAt),
+			"failure_reason": failureReason,
+		})
+	}
+	return map[string]any{"runs": runs}, rows.Err()
+}
+
+func (a *App) hostedMCPGetPipelineRun(ctx context.Context, args map[string]any) (map[string]any, error) {
+	runID := stringArg(args, "run_id")
+	if runID == "" {
+		return nil, fmt.Errorf("run_id is required")
+	}
+	var path, name, version, status, source, scope, failureReason, triggerSource string
+	var definition sql.NullString
+	var createdAt time.Time
+	var startedAt, finishedAt sql.NullTime
+	err := a.db.QueryRow(ctx, `
+		SELECT COALESCE(pipeline_path, ''), COALESCE(pipeline_name, ''), pipeline_version, status, COALESCE(pipeline_source, ''),
+		       COALESCE(scope, ''), COALESCE(failure_reason, ''), COALESCE(trigger_source, ''), pipeline_definition,
+		       created_at, started_at, finished_at
+		FROM pipeline_runs
+		WHERE run_id::text = $1
+	`, runID).Scan(&path, &name, &version, &status, &source, &scope, &failureReason, &triggerSource, &definition, &createdAt, &startedAt, &finishedAt)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"run_id":              runID,
+		"pipeline_id":         aaamodel.BuildPipelineID(path, name),
+		"pipeline_path":       path,
+		"pipeline_name":       name,
+		"pipeline_version":    version,
+		"pipeline_definition": definition.String,
+		"status":              status,
+		"source":              source,
+		"scope":               scope,
+		"trigger_source":      triggerSource,
+		"failure_reason":      failureReason,
+		"created_at":          createdAt,
+		"started_at":          hostedMCPNullableTime(startedAt),
+		"finished_at":         hostedMCPNullableTime(finishedAt),
+	}, nil
+}
+
+func (a *App) hostedMCPGetPipelineRunLogs(ctx context.Context, args map[string]any) (map[string]any, error) {
+	runID := stringArg(args, "run_id")
+	if runID == "" {
+		return nil, fmt.Errorf("run_id is required")
+	}
+	rows, err := a.db.Query(ctx, `
+		SELECT id, timestamp, line
+		FROM pipeline_run_logs
+		WHERE run_id::text = $1
+		ORDER BY id DESC
+		LIMIT $2
+	`, runID, limitArg(args, 80, 500))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	logs := []map[string]any{}
+	for rows.Next() {
+		var id int64
+		var timestamp time.Time
+		var line string
+		if err := rows.Scan(&id, &timestamp, &line); err != nil {
+			return nil, err
+		}
+		logs = append(logs, map[string]any{"id": id, "timestamp": timestamp, "line": line})
+	}
+	reverseMaps(logs)
+	return map[string]any{"run_id": runID, "logs": logs}, rows.Err()
+}
+
+func (a *App) hostedMCPAnalyzePipelineRunFailure(ctx context.Context, args map[string]any) (map[string]any, error) {
+	run, err := a.hostedMCPGetPipelineRun(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	logs, err := a.hostedMCPGetPipelineRunLogs(ctx, map[string]any{"run_id": stringArg(args, "run_id"), "limit": 120})
+	if err != nil {
+		return nil, err
+	}
+	failureReason, _ := run["failure_reason"].(string)
+	status, _ := run["status"].(string)
+	summary := "No terminal failure reason is recorded yet."
+	if strings.TrimSpace(failureReason) != "" {
+		summary = failureReason
+	} else if strings.EqualFold(status, "failure") {
+		summary = "Run is marked as failure. Review recent logs for the failing step or task."
+	}
+	return map[string]any{
+		"run":             run,
+		"log_excerpt":     logs["logs"],
+		"root_cause_hint": summary,
+		"suggested_next_steps": []string{
+			"Check the first error in the log excerpt.",
+			"Compare the failing run pipeline definition with the current pipeline.",
+			"Validate any generated YAML before applying it through GitOps.",
+		},
+	}, nil
+}
+
+func (a *App) hostedMCPListTriggers(ctx context.Context, args map[string]any) (map[string]any, error) {
+	rows, err := a.db.Query(ctx, `
+		SELECT repository_name, source, visibility, created_at
+		FROM triggers
+		ORDER BY repository_name ASC
+		LIMIT $1
+	`, limitArg(args, 50, 200))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []map[string]any{}
+	for rows.Next() {
+		var repository, source, visibility string
+		var createdAt time.Time
+		if err := rows.Scan(&repository, &source, &visibility, &createdAt); err != nil {
+			return nil, err
+		}
+		items = append(items, map[string]any{"repository": repository, "source": source, "visibility": visibility, "created_at": createdAt})
+	}
+	return map[string]any{"triggers": items}, rows.Err()
+}
+
+func (a *App) hostedMCPGetTrigger(ctx context.Context, args map[string]any) (map[string]any, error) {
+	repository := stringArg(args, "repository")
+	if repository == "" {
+		return nil, fmt.Errorf("repository is required")
+	}
+	var definition, source, visibility string
+	var createdAt time.Time
+	err := a.db.QueryRow(ctx, `
+		SELECT trigger_definition, source, visibility, created_at
+		FROM triggers
+		WHERE repository_name = $1
+	`, repository).Scan(&definition, &source, &visibility, &createdAt)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"repository": repository, "definition": definition, "source": source, "visibility": visibility, "created_at": createdAt}, nil
+}
+
+func (a *App) hostedMCPListSchedules(ctx context.Context, args map[string]any) (map[string]any, error) {
+	rows, err := a.db.Query(ctx, `
+		SELECT id::text, path, name, pipeline_path, pipeline_name, schedule_kind, cron_expression,
+		       run_at, timezone, enabled, scope, next_run_at, last_status
+		FROM pipeline_schedules
+		ORDER BY path ASC, name ASC
+		LIMIT $1
+	`, limitArg(args, 50, 200))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []map[string]any{}
+	for rows.Next() {
+		var id, path, name, pipelinePath, pipelineName, kind, cron, timezoneName, scope, lastStatus string
+		var enabled bool
+		var runAt, nextRunAt sql.NullTime
+		if err := rows.Scan(&id, &path, &name, &pipelinePath, &pipelineName, &kind, &cron, &runAt, &timezoneName, &enabled, &scope, &nextRunAt, &lastStatus); err != nil {
+			return nil, err
+		}
+		items = append(items, map[string]any{
+			"id":              id,
+			"path":            path,
+			"name":            name,
+			"pipeline_id":     aaamodel.BuildPipelineID(pipelinePath, pipelineName),
+			"schedule_kind":   kind,
+			"cron_expression": cron,
+			"run_at":          hostedMCPNullableTime(runAt),
+			"timezone":        timezoneName,
+			"enabled":         enabled,
+			"scope":           scope,
+			"next_run_at":     hostedMCPNullableTime(nextRunAt),
+			"last_status":     lastStatus,
+		})
+	}
+	return map[string]any{"schedules": items}, rows.Err()
+}
+
+func (a *App) hostedMCPGetSchedule(ctx context.Context, args map[string]any) (map[string]any, error) {
+	id := stringArg(args, "schedule_id")
+	if id == "" {
+		return nil, fmt.Errorf("schedule_id is required")
+	}
+	var variablesRaw []byte
+	row := a.db.QueryRow(ctx, `
+		SELECT id::text, path, name, description, pipeline_path, pipeline_name, pipeline_version,
+		       schedule_kind, cron_expression, run_at, timezone, enabled, scope, run_group_path,
+		       variables, next_run_at, last_run_at, COALESCE(last_run_id::text, ''), last_status
+		FROM pipeline_schedules
+		WHERE id::text = $1
+	`, id)
+	var path, name, description, pipelinePath, pipelineName, version, kind, cron, timezoneName, scope, runGroup, lastRunID, lastStatus string
+	var enabled bool
+	var runAt, nextRunAt, lastRunAt sql.NullTime
+	if err := row.Scan(&id, &path, &name, &description, &pipelinePath, &pipelineName, &version, &kind, &cron, &runAt, &timezoneName, &enabled, &scope, &runGroup, &variablesRaw, &nextRunAt, &lastRunAt, &lastRunID, &lastStatus); err != nil {
+		return nil, err
+	}
+	var variables map[string]any
+	_ = json.Unmarshal(variablesRaw, &variables)
+	return map[string]any{
+		"id":               id,
+		"path":             path,
+		"name":             name,
+		"description":      description,
+		"pipeline_id":      aaamodel.BuildPipelineID(pipelinePath, pipelineName),
+		"pipeline_version": version,
+		"schedule_kind":    kind,
+		"cron_expression":  cron,
+		"run_at":           hostedMCPNullableTime(runAt),
+		"timezone":         timezoneName,
+		"enabled":          enabled,
+		"scope":            scope,
+		"run_group_path":   runGroup,
+		"variables":        variables,
+		"next_run_at":      hostedMCPNullableTime(nextRunAt),
+		"last_run_at":      hostedMCPNullableTime(lastRunAt),
+		"last_run_id":      lastRunID,
+		"last_status":      lastStatus,
+	}, nil
+}
+
+func (a *App) hostedMCPListScopes(ctx context.Context, args map[string]any) (map[string]any, error) {
+	rows, err := a.db.Query(ctx, `
+		SELECT scope FROM (
+			SELECT scope FROM pipeline_runs WHERE COALESCE(scope, '') <> ''
+			UNION
+			SELECT scope FROM pipeline_schedules WHERE COALESCE(scope, '') <> ''
+			UNION
+			SELECT scope FROM secrets WHERE COALESCE(scope, '') <> ''
+			UNION
+			SELECT scope FROM variables WHERE COALESCE(scope, '') <> ''
+		) scopes
+		ORDER BY scope ASC
+		LIMIT $1
+	`, limitArg(args, 50, 200))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	scopes := []string{}
+	for rows.Next() {
+		var scope string
+		if err := rows.Scan(&scope); err != nil {
+			return nil, err
+		}
+		scopes = append(scopes, scope)
+	}
+	return map[string]any{"scopes": scopes}, rows.Err()
+}
+
+func (a *App) hostedMCPGetScope(ctx context.Context, args map[string]any) (map[string]any, error) {
+	scope := strings.Trim(strings.TrimSpace(stringArg(args, "scope")), "/")
+	if scope == "" {
+		return nil, fmt.Errorf("scope is required")
+	}
+	counts := map[string]int64{}
+	queries := map[string]string{
+		"pipeline_runs": "SELECT COUNT(*) FROM pipeline_runs WHERE scope = $1",
+		"schedules":     "SELECT COUNT(*) FROM pipeline_schedules WHERE scope = $1",
+		"secrets":       "SELECT COUNT(*) FROM secrets WHERE scope = $1",
+		"variables":     "SELECT COUNT(*) FROM variables WHERE scope = $1",
+	}
+	for key, query := range queries {
+		var count int64
+		if err := a.db.QueryRow(ctx, query, scope).Scan(&count); err != nil {
+			return nil, err
+		}
+		counts[key] = count
+	}
+	return map[string]any{
+		"scope":       scope,
+		"usage":       counts,
+		"explanation": "Scope permissions are enforced through AAA grants and resource-use checks. Use GitOps access grants for durable enterprise changes.",
+	}, nil
+}
+
+func (a *App) hostedMCPListKnowledgeContexts(ctx context.Context, subject aaamodel.Subject, args map[string]any) (map[string]any, error) {
+	kindFilter := strings.TrimSpace(stringArg(args, "kind"))
+	if kindFilter != "" {
+		kind, err := normalizeKnowledgeContextKind(kindFilter)
+		if err != nil {
+			return nil, err
+		}
+		kindFilter = kind
+	}
+	groupFilter := strings.Trim(strings.TrimSpace(stringArg(args, "group")), "/")
+	if groupFilter != "" {
+		group, err := normalizeKnowledgeContextGroup(groupFilter)
+		if err != nil {
+			return nil, err
+		}
+		groupFilter = group
+	}
+	query := strings.ToLower(strings.TrimSpace(stringArg(args, "query")))
+	usedByPipeline := strings.Trim(strings.TrimSpace(stringArg(args, "used_by_pipeline")), "/")
+
+	rows, err := a.db.Query(ctx, `
+		SELECT id::text, kind, group_path, name, description, source,
+		       managed_by_config_repo, config_source_path, config_source_commit_sha, updated_at
+		FROM knowledge_contexts
+		WHERE ($1 = '' OR kind = $1)
+		  AND ($2 = '' OR group_path = $2 OR group_path LIKE $2 || '/%')
+		  AND ($3 = '' OR LOWER(name || ' ' || description || ' ' || content) LIKE '%' || $3 || '%')
+		ORDER BY kind ASC, group_path ASC, name ASC
+	`, kindFilter, groupFilter, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	usage := a.knowledgeContextUsage(ctx)
+	items := []map[string]any{}
+	limit := limitArg(args, 50, 200)
+	for rows.Next() {
+		var item knowledgeContextListItem
+		var managed bool
+		if err := rows.Scan(&item.UUID, &item.Kind, &item.Group, &item.Name, &item.Description, &item.Source, &managed, &item.GitOpsPath, &item.GitOpsCommit, &item.UpdatedAt); err != nil {
+			return nil, err
+		}
+		item.ID = buildKnowledgeContextIdentifier(item.Kind, item.Group, item.Name)
+		if usedByPipeline != "" && !hostedMCPContainsString(usage[item.ID], usedByPipeline) {
+			continue
+		}
+		if !a.hostedMCPAllowed(ctx, subject, hostedMCPReadPermission("knowledge_context.read", grantResourceKnowledgeContext, item.ID)) {
+			continue
+		}
+		item.Visibility, err = a.resourceVisibility(ctx, grantResourceKnowledgeContext, item.ID)
+		if err != nil {
+			return nil, err
+		}
+		if managed {
+			item.Source = knowledgeSourceGitOps
+		}
+		item.Access = item.Visibility
+		item.UsedBy = usage[item.ID]
+		item.UsedByCount = len(item.UsedBy)
+		items = append(items, hostedMCPKnowledgeContextListItem(item))
+		if len(items) >= limit {
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return map[string]any{"knowledge_contexts": items}, nil
+}
+
+func (a *App) hostedMCPGetKnowledgeContext(ctx context.Context, subject aaamodel.Subject, args map[string]any) (map[string]any, error) {
+	detail, err := a.loadHostedMCPKnowledgeContextDetail(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	if !a.hostedMCPAllowed(ctx, subject, hostedMCPReadPermission("knowledge_context.read", grantResourceKnowledgeContext, detail.ID)) {
+		return nil, fmt.Errorf("knowledge context %s is not allowed", detail.ID)
+	}
+	return hostedMCPKnowledgeContextDetail(detail), nil
+}
+
+func (a *App) hostedMCPGetPipelineKnowledgeContext(ctx context.Context, subject aaamodel.Subject, args map[string]any) (map[string]any, error) {
+	raw := strings.TrimSpace(stringArg(args, "yaml"))
+	pipelineID := ""
+	if raw == "" {
+		pipeline, err := a.hostedMCPGetPipeline(ctx, args)
+		if err != nil {
+			return nil, err
+		}
+		raw = assistantOutputString(pipeline, "definition")
+		pipelineID = assistantOutputString(pipeline, "id")
+	}
+	if raw == "" {
+		return nil, fmt.Errorf("pipeline yaml or pipeline identifier is required")
+	}
+
+	var pipeline models.Pipeline
+	if err := yaml.Unmarshal([]byte(raw), &pipeline); err != nil {
+		return map[string]any{"valid": false, "error": err.Error(), "applies": false}, nil
+	}
+	refs := collectPipelineKnowledgeContextRefs(pipeline)
+	includeContent := boolArg(args, "include_content", true)
+	references := make([]map[string]any, 0, len(refs))
+	documents := []map[string]any{}
+	unresolved := []map[string]any{}
+	for _, entry := range refs {
+		ref := entry.Ref
+		reference := map[string]any{
+			"location": entry.Location,
+			"kind":     strings.TrimSpace(ref.Kind),
+			"ref":      strings.Trim(strings.TrimSpace(ref.Ref), "/"),
+			"path":     strings.TrimSpace(ref.Path),
+			"required": ref.Required,
+		}
+		references = append(references, reference)
+
+		kind, err := normalizeKnowledgeContextKind(ref.Kind)
+		if err != nil {
+			unresolved = append(unresolved, map[string]any{"location": entry.Location, "status": "invalid_kind", "error": err.Error()})
+			continue
+		}
+		if strings.TrimSpace(ref.Ref) == "" {
+			if strings.TrimSpace(ref.Path) != "" {
+				unresolved = append(unresolved, map[string]any{
+					"location": entry.Location,
+					"kind":     kind,
+					"path":     strings.TrimSpace(ref.Path),
+					"status":   "repo_local",
+					"note":     "Repo-local knowledge context is resolved at run time from git owner, repo, and commit.",
+				})
+			}
+			continue
+		}
+		_, group, name, err := knowledgeContextRefToParts(kind, ref.Ref)
+		if err != nil {
+			unresolved = append(unresolved, map[string]any{"location": entry.Location, "kind": kind, "ref": ref.Ref, "status": "invalid_ref", "error": err.Error()})
+			continue
+		}
+		id := buildKnowledgeContextIdentifier(kind, group, name)
+		if !a.hostedMCPAllowed(ctx, subject, hostedMCPReadPermission("knowledge_context.read", grantResourceKnowledgeContext, id)) {
+			documents = append(documents, map[string]any{"id": id, "status": "denied", "location": entry.Location})
+			continue
+		}
+		detail, err := a.loadKnowledgeContextDetail(ctx, kind, group, name)
+		if err != nil {
+			unresolved = append(unresolved, map[string]any{"location": entry.Location, "id": id, "status": "not_found", "error": err.Error()})
+			continue
+		}
+		document := hostedMCPKnowledgeContextDetail(detail)
+		document["location"] = entry.Location
+		if !includeContent {
+			delete(document, "content")
+		}
+		documents = append(documents, document)
+	}
+	if pipelineID == "" {
+		pipelineID = pipelineWritePlanResourceID(map[string]any{"yaml": raw})
+	}
+	return map[string]any{
+		"valid":              true,
+		"pipeline_id":        pipelineID,
+		"references":         references,
+		"documents":          documents,
+		"unresolved":         unresolved,
+		"document_count":     len(documents),
+		"unresolved_count":   len(unresolved),
+		"include_content":    includeContent,
+		"gitops_compatible":  true,
+		"applies":            false,
+		"resolution_surface": "managed knowledge is read from Nopsai; repo-local knowledge is resolved during pipeline runs.",
+	}, nil
+}
+
+func (a *App) hostedMCPSearchDocs(ctx context.Context, args map[string]any) (map[string]any, error) {
+	query := strings.TrimSpace(stringArg(args, "query"))
+	if query == "" {
+		return nil, fmt.Errorf("query is required")
+	}
+	rows, err := a.db.Query(ctx, `
+		SELECT id::text, kind, group_path, name, description
+		FROM knowledge_contexts
+		WHERE LOWER(name || ' ' || description || ' ' || content) LIKE LOWER('%' || $1 || '%')
+		ORDER BY kind ASC, group_path ASC, name ASC
+		LIMIT $2
+	`, query, limitArg(args, 10, 50))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	docs := []map[string]any{}
+	for rows.Next() {
+		var id, kind, groupPath, name, description string
+		if err := rows.Scan(&id, &kind, &groupPath, &name, &description); err != nil {
+			return nil, err
+		}
+		docs = append(docs, map[string]any{"id": id, "kind": kind, "group_path": groupPath, "name": name, "description": description})
+	}
+	return map[string]any{"docs": docs}, rows.Err()
+}
+
+func (a *App) hostedMCPReadDoc(ctx context.Context, args map[string]any) (map[string]any, error) {
+	id := stringArg(args, "id")
+	if id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	var kind, groupPath, name, description, content string
+	err := a.db.QueryRow(ctx, `
+		SELECT kind, group_path, name, description, content
+		FROM knowledge_contexts
+		WHERE id::text = $1 OR kind || '/' || CASE WHEN group_path = '' THEN '' ELSE group_path || '/' END || name = $1
+		LIMIT 1
+	`, id).Scan(&kind, &groupPath, &name, &description, &content)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"id": id, "kind": kind, "group_path": groupPath, "name": name, "description": description, "content": content}, nil
+}
+
+func (a *App) hostedMCPStatistics(ctx context.Context) (map[string]any, error) {
+	counts := map[string]int64{}
+	queries := map[string]string{
+		"pipelines":     "SELECT COUNT(*) FROM pipelines",
+		"pipeline_runs": "SELECT COUNT(*) FROM pipeline_runs",
+		"triggers":      "SELECT COUNT(*) FROM triggers",
+		"schedules":     "SELECT COUNT(*) FROM pipeline_schedules",
+		"scopes":        "SELECT COUNT(DISTINCT scope) FROM pipeline_runs WHERE COALESCE(scope, '') <> ''",
+		"knowledge":     "SELECT COUNT(*) FROM knowledge_contexts",
+	}
+	for key, query := range queries {
+		var count int64
+		if err := a.db.QueryRow(ctx, query).Scan(&count); err != nil {
+			return nil, err
+		}
+		counts[key] = count
+	}
+	return map[string]any{"counts": counts}, nil
+}
+
+func (a *App) hostedMCPCostSummary(ctx context.Context) (map[string]any, error) {
+	var runCost, aiCost, totalCost float64
+	err := a.db.QueryRow(ctx, `
+		SELECT COALESCE(SUM(runner_cost_usd), 0), COALESCE(SUM(ai_cost_usd), 0), COALESCE(SUM(total_cost_usd), 0)
+		FROM pipeline_run_usage_summary
+	`).Scan(&runCost, &aiCost, &totalCost)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return map[string]any{"runner_cost_usd": 0, "ai_cost_usd": 0, "total_cost_usd": 0}, nil
+		}
+		return nil, err
+	}
+	return map[string]any{"runner_cost_usd": runCost, "ai_cost_usd": aiCost, "total_cost_usd": totalCost}, nil
+}
+
+func (a *App) hostedMCPSuggestCostImprovements(ctx context.Context) (map[string]any, error) {
+	summary, err := a.hostedMCPCostSummary(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"cost_summary": summary,
+		"suggestions": []string{
+			"Review high-cost runs in Monitoring before changing retention or runner sizing.",
+			"Prefer scoped LLM profiles with explicit limits for AI-heavy pipelines.",
+			"Use data cleanup previews before deleting historical logs or runs.",
+		},
+	}, nil
+}
+
+func (a *App) hostedMCPSuggestDesignImprovements(ctx context.Context) (map[string]any, error) {
+	stats, err := a.hostedMCPStatistics(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"statistics": stats,
+		"suggestions": []string{
+			"Keep reusable logic in steps and include it from pipelines to reduce drift.",
+			"Keep production changes GitOps-managed through config repositories.",
+			"Attach knowledge/runbook context to pipelines that rely on human diagnosis.",
+		},
+	}, nil
+}
+
+func (a *App) hostedMCPGetLLMProfiles(ctx context.Context) (map[string]any, error) {
+	defaultProfile, profiles, _, err := a.loadLLMProfilesFromDB(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(profiles) == 0 {
+		defaultProfile, profiles = a.llmProfilesSnapshot()
+	}
+	names := make([]string, 0, len(profiles))
+	for name := range profiles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	items := []map[string]any{}
+	for _, name := range names {
+		profile := config.NormalizeLLMProfile(profiles[name])
+		items = append(items, map[string]any{
+			"name":           name,
+			"provider":       profile.Provider,
+			"model":          profile.Model,
+			"base_url":       profile.BaseURL,
+			"allowed_scopes": profile.AllowedScopes,
+		})
+	}
+	return map[string]any{"default_profile": defaultProfile, "profiles": items}, nil
+}
+
+func (a *App) hostedMCPGetMCPProfiles(ctx context.Context) (map[string]any, error) {
+	profiles, err := a.loadMCPProfilesFromDB(ctx)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(profiles))
+	for name := range profiles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	items := []models.MCPProfile{}
+	for _, name := range names {
+		items = append(items, models.NormalizeMCPProfile(profiles[name]))
+	}
+	return map[string]any{"profiles": items}, nil
+}
+
+func (a *App) hostedMCPGetSystemStatus(ctx context.Context) (map[string]any, error) {
+	stats, err := a.hostedMCPStatistics(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cfg := a.getConfigSnapshot()
+	return map[string]any{
+		"environment": cfg.EffectiveEnvironment(),
+		"runtime":     cfg.Runtime,
+		"assistant":   cfg.EffectiveAssistantConfig(),
+		"statistics":  stats,
+	}, nil
+}
+
+func (a *App) hostedMCPGetDispatcherStatus(ctx context.Context) (map[string]any, error) {
+	status, dispatcherErr := a.fetchDispatcherStatus(ctx)
+	if dispatcherErr == nil {
+		a.sampleMonitoringRunnerSnapshots(ctx, status)
+	}
+	runners, summary := monitoringRunnersFromDispatcherStatus(status, nil)
+	dispatcher := map[string]any{
+		"status": "ok",
+	}
+	if dispatcherErr != nil {
+		dispatcher["status"] = "error"
+		dispatcher["error"] = dispatcherErr.Error()
+	} else if status == nil {
+		dispatcher["status"] = "warning"
+		dispatcher["message"] = "Dispatcher status has not been loaded."
+	} else {
+		dispatcher["queued_jobs"] = status.GetQueuedJobs()
+		dispatcher["runner_count"] = len(status.GetRunners())
+	}
+	return map[string]any{
+		"dispatcher":     dispatcher,
+		"queued_jobs":    summary.QueuedJobs,
+		"runner_summary": summary,
+		"runners":        runners,
+		"services":       a.buildSystemServiceStatuses(ctx, status, dispatcherErr),
+	}, nil
+}
+
+func hostedMCPProposal(kind string, args map[string]any) map[string]any {
+	return map[string]any{
+		"proposal_type": kind + "_change",
+		"applies":       false,
+		"target":        args,
+		"note":          "This hosted MCP foundation returns proposals only. Applying changes must go through the existing API/GitOps approval flow.",
+	}
+}
+
+func splitPipelineArg(args map[string]any) (string, string) {
+	pathPart := strings.Trim(strings.TrimSpace(stringArg(args, "path")), "/")
+	namePart := strings.TrimSpace(stringArg(args, "name"))
+	if namePart != "" {
+		return pathPart, namePart
+	}
+	id := strings.Trim(strings.TrimSpace(stringArg(args, "pipeline")), "/")
+	if id == "" {
+		return pathPart, ""
+	}
+	parts := strings.Split(id, "/")
+	if len(parts) == 1 {
+		return "", parts[0]
+	}
+	return strings.Join(parts[:len(parts)-1], "/"), parts[len(parts)-1]
+}
+
+func pipelineArgID(args map[string]any) string {
+	pathPart, namePart := splitPipelineArg(args)
+	return aaamodel.BuildPipelineID(pathPart, namePart)
+}
+
+func hostedMCPPipelineMatchFields(query, path, name, version, source, visibility, definition string) []string {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return nil
+	}
+	fields := []struct {
+		name  string
+		value string
+	}{
+		{name: "path", value: path},
+		{name: "name", value: name},
+		{name: "version", value: version},
+		{name: "source", value: source},
+		{name: "visibility", value: visibility},
+		{name: "definition", value: definition},
+	}
+	matches := []string{}
+	for _, field := range fields {
+		if strings.Contains(strings.ToLower(field.value), query) {
+			matches = append(matches, field.name)
+		}
+	}
+	return matches
+}
+
+func onlyPipelineDefinitionMatched(fields []string) bool {
+	return len(fields) == 1 && fields[0] == "definition"
+}
+
+func hostedMCPSnippet(content, query string, maxLen int) string {
+	content = strings.TrimSpace(content)
+	query = strings.TrimSpace(query)
+	if content == "" || query == "" || maxLen <= 0 {
+		return ""
+	}
+	lowerContent := strings.ToLower(content)
+	lowerQuery := strings.ToLower(query)
+	index := strings.Index(lowerContent, lowerQuery)
+	if index < 0 {
+		return ""
+	}
+	start := index - maxLen/3
+	if start < 0 {
+		start = 0
+	}
+	end := start + maxLen
+	if end > len(content) {
+		end = len(content)
+		start = end - maxLen
+		if start < 0 {
+			start = 0
+		}
+	}
+	snippet := strings.TrimSpace(content[start:end])
+	if start > 0 {
+		snippet = "..." + snippet
+	}
+	if end < len(content) {
+		snippet += "..."
+	}
+	return snippet
+}
+
+func pipelineWritePlanResourceID(args map[string]any) string {
+	pathPart, namePart := splitPipelineArg(args)
+	if namePart != "" {
+		return aaamodel.BuildPipelineID(pathPart, namePart)
+	}
+	raw := stringArg(args, "yaml")
+	if raw == "" {
+		return ""
+	}
+	var pipeline models.Pipeline
+	if err := yaml.Unmarshal([]byte(raw), &pipeline); err != nil {
+		return ""
+	}
+	return aaamodel.BuildPipelineID(pathPart, pipeline.Name)
+}
+
+func (a *App) knowledgeContextArgID(ctx context.Context, args map[string]any) string {
+	id := strings.Trim(strings.TrimSpace(stringArg(args, "id")), "/")
+	if id != "" {
+		if strings.Contains(id, "/") {
+			kind, group, name, err := splitKnowledgeContextIdentifier(id)
+			if err == nil {
+				return buildKnowledgeContextIdentifier(kind, group, name)
+			}
+		}
+		if a != nil && a.db != nil {
+			var kind, group, name string
+			err := a.db.QueryRow(ctx, `SELECT kind, group_path, name FROM knowledge_contexts WHERE id::text = $1`, id).Scan(&kind, &group, &name)
+			if err == nil {
+				return buildKnowledgeContextIdentifier(kind, group, name)
+			}
+		}
+		return id
+	}
+	kind := stringArg(args, "kind")
+	ref := stringArg(args, "ref")
+	if kind != "" && ref != "" {
+		kind, group, name, err := knowledgeContextRefToParts(kind, ref)
+		if err == nil {
+			return buildKnowledgeContextIdentifier(kind, group, name)
+		}
+	}
+	kind = firstNonEmptyString(kind, stringArg(args, "document_kind"))
+	group := firstNonEmptyString(stringArg(args, "group"), stringArg(args, "group_path"))
+	name := stringArg(args, "name")
+	if kind == "" || group == "" || name == "" {
+		return ""
+	}
+	kind, kindErr := normalizeKnowledgeContextKind(kind)
+	group, groupErr := normalizeKnowledgeContextGroup(group)
+	name, nameErr := normalizeKnowledgeContextName(name)
+	if kindErr != nil || groupErr != nil || nameErr != nil {
+		return ""
+	}
+	return buildKnowledgeContextIdentifier(kind, group, name)
+}
+
+func (a *App) loadHostedMCPKnowledgeContextDetail(ctx context.Context, args map[string]any) (knowledgeContextDetail, error) {
+	id := strings.Trim(strings.TrimSpace(stringArg(args, "id")), "/")
+	if id != "" {
+		if strings.Contains(id, "/") {
+			kind, group, name, err := splitKnowledgeContextIdentifier(id)
+			if err != nil {
+				return knowledgeContextDetail{}, err
+			}
+			return a.loadKnowledgeContextDetail(ctx, kind, group, name)
+		}
+		var kind, group, name string
+		err := a.db.QueryRow(ctx, `SELECT kind, group_path, name FROM knowledge_contexts WHERE id::text = $1`, id).Scan(&kind, &group, &name)
+		if err != nil {
+			return knowledgeContextDetail{}, err
+		}
+		return a.loadKnowledgeContextDetail(ctx, kind, group, name)
+	}
+	kind := stringArg(args, "kind")
+	ref := stringArg(args, "ref")
+	if kind != "" && ref != "" {
+		kind, group, name, err := knowledgeContextRefToParts(kind, ref)
+		if err != nil {
+			return knowledgeContextDetail{}, err
+		}
+		return a.loadKnowledgeContextDetail(ctx, kind, group, name)
+	}
+	kind, err := normalizeKnowledgeContextKind(kind)
+	if err != nil {
+		return knowledgeContextDetail{}, err
+	}
+	group, err := normalizeKnowledgeContextGroup(firstNonEmptyString(stringArg(args, "group"), stringArg(args, "group_path")))
+	if err != nil {
+		return knowledgeContextDetail{}, err
+	}
+	name, err := normalizeKnowledgeContextName(stringArg(args, "name"))
+	if err != nil {
+		return knowledgeContextDetail{}, err
+	}
+	return a.loadKnowledgeContextDetail(ctx, kind, group, name)
+}
+
+func hostedMCPKnowledgeContextListItem(item knowledgeContextListItem) map[string]any {
+	return map[string]any{
+		"id":                         item.ID,
+		"uuid":                       item.UUID,
+		"kind":                       item.Kind,
+		"group_path":                 item.Group,
+		"name":                       item.Name,
+		"description":                item.Description,
+		"visibility":                 item.Visibility,
+		"access":                     item.Access,
+		"source":                     item.Source,
+		"updated_at":                 item.UpdatedAt,
+		"used_by_count":              item.UsedByCount,
+		"used_by":                    item.UsedBy,
+		"config_source_path":         item.GitOpsPath,
+		"config_source_commit_sha":   item.GitOpsCommit,
+		"gitops_managed":             item.Source == knowledgeSourceGitOps,
+		"knowledge_context_resource": grantResourceKnowledgeContext + ":" + item.ID,
+	}
+}
+
+func hostedMCPKnowledgeContextDetail(detail knowledgeContextDetail) map[string]any {
+	item := hostedMCPKnowledgeContextListItem(detail.knowledgeContextListItem)
+	item["content"] = detail.Content
+	item["managed_by_config_repo"] = detail.ManagedByGit
+	item["gitops_compatible"] = true
+	return item
+}
+
+func stringArg(args map[string]any, key string) string {
+	if args == nil {
+		return ""
+	}
+	value, ok := args[key]
+	if !ok || value == nil {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case fmt.Stringer:
+		return strings.TrimSpace(typed.String())
+	default:
+		return strings.TrimSpace(fmt.Sprint(typed))
+	}
+}
+
+func boolArg(args map[string]any, key string, fallback bool) bool {
+	if args == nil {
+		return fallback
+	}
+	value, ok := args[key]
+	if !ok || value == nil {
+		return fallback
+	}
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		normalized := strings.ToLower(strings.TrimSpace(typed))
+		if normalized == "" {
+			return fallback
+		}
+		return normalized == "true" || normalized == "1" || normalized == "yes"
+	default:
+		return boolValue(typed)
+	}
+}
+
+func boolValue(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		normalized := strings.ToLower(strings.TrimSpace(typed))
+		return normalized == "true" || normalized == "1" || normalized == "yes"
+	default:
+		return false
+	}
+}
+
+func hostedMCPContainsString(values []string, target string) bool {
+	target = strings.Trim(strings.TrimSpace(target), "/")
+	for _, value := range values {
+		if strings.Trim(strings.TrimSpace(value), "/") == target {
+			return true
+		}
+	}
+	return false
+}
+
+func limitArg(args map[string]any, fallback, max int) int {
+	if args == nil {
+		return fallback
+	}
+	var raw float64
+	switch value := args["limit"].(type) {
+	case float64:
+		raw = value
+	case int:
+		raw = float64(value)
+	case json.Number:
+		parsed, _ := value.Float64()
+		raw = parsed
+	default:
+		return fallback
+	}
+	if raw <= 0 {
+		return fallback
+	}
+	if int(raw) > max {
+		return max
+	}
+	return int(raw)
+}
+
+func hostedMCPNullableTime(value sql.NullTime) any {
+	if !value.Valid {
+		return nil
+	}
+	return value.Time
+}
+
+func reverseMaps(values []map[string]any) {
+	for left, right := 0, len(values)-1; left < right; left, right = left+1, right-1 {
+		values[left], values[right] = values[right], values[left]
+	}
+}

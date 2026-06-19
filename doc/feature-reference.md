@@ -225,8 +225,98 @@ GitOps-style configuration sync supports:
 - `setting/system/agent-profiles.yaml` -> system Agent Profile persona registry and default profile setting from a global config repo
 - `setting/system/mcp.yaml` -> system MCP server and profile registry from a global config repo
 - `setting/system/github.yaml` -> GitHub App IDs, credential references, and git-bot URLs from a global config repo
-- `setting/system/runner.yaml` -> runner install defaults, runtime defaults, and dispatcher routing from a global config repo
+- `setting/system/runner.yaml` -> runner install defaults, runtime defaults, dispatcher routing, and assistant settings from a global config repo
 - `setting/system/credentials.yaml` -> encrypted system credential envelopes from a global config repo
+
+## Nopsai AI Assistant
+
+The Nopsai AI Assistant is available as a bottom-right dock and a full
+`/assistant` page. Conversations persist per authenticated subject and include
+conversation-scoped memory for selected runs, pipelines, scopes, docs version,
+open tasks, and proposed fixes.
+
+Assistant model selection uses existing LLM profiles. The assistant does not
+own a separate LLM profile registry. The UI loads selectable profiles from
+`GET /v1/assistant/llm-profiles`, which exposes only safe picker metadata and
+requires an authenticated assistant user rather than `system.read` on the
+system LLM profile registry. When a selected or default profile is valid for
+the conversation scope, the assistant sends the user request, conversation
+memory, hosted MCP tool outputs, and a deterministic tool summary to that
+provider for final synthesis. If the LLM provider, credential, or scope check
+is unavailable, the assistant falls back to the deterministic permission-bound
+tool summary and records the fallback reason on the message tool activity.
+
+Message turns orchestrate first-party Nopsai tools for the current subject.
+For a user-facing capability catalog with example chat prompts, see
+[assistant-capabilities.md](./assistant-capabilities.md).
+The assistant can analyze failed runs from status/log excerpts, generate and
+validate pipeline YAML drafts, prepare GitOps-ready pipeline create/update
+file plans, validate pasted pipeline YAML, traverse pipeline knowledge context,
+search pipelines, manage reusable-step plans, review dispatcher/runner health,
+review monitoring analytics, statistics, cost and design signals, and inspect
+triggers, schedules, scopes, pipelines, profiles, docs, setup state, access,
+credentials, and system status. Generated YAML and GitOps write plans are
+proposals only; confirmed runtime/admin tools still go through the existing
+API, approval, AAA, and audit flows.
+
+Nopsai also exposes a first-party hosted MCP endpoint at `POST /v1/mcp`. This
+is separate from the external MCP registry in `setting/system/mcp.yaml`: the
+external registry defines third-party MCP servers Nopsai can call, while the
+hosted MCP exposes Nopsai itself as permission-bound tools and resources for
+the assistant and future integrations. Tool and resource lists are filtered by
+AAA permissions for the current subject, and tool calls are audited in
+`hosted_mcp_audit_logs`.
+
+Hosted MCP resources include docs, knowledge contexts, pipelines, pipeline
+runs, triggers, schedules, scopes, cost/statistics, and system profile/status
+resources, including dispatcher/runner status and `nopsai://features`. Hosted
+tools can list/read managed knowledge documents, search pipelines across
+metadata and readable YAML definitions, walk pipeline-, step-, and task-level
+knowledge refs, validate pipeline YAML, read dispatcher and runner health, and
+return commit-ready GitOps file payloads for pipeline, reusable-step, schedule,
+knowledge, webhook-source, external-trigger, notification, scoped
+secret/variable, and credential operations without directly mutating database
+state.
+
+`nopsai.get_feature_capabilities` gives the assistant and external MCP clients a
+current-user-scoped coverage map for the full NopsAI feature inventory. It lists
+which areas are first-class MCP, partial, API-backed, or contextual, and
+includes the hosted MCP tools/resources, backing REST/GitOps routes, required
+AAA actions, and whether the authenticated subject has access. Secret and
+credential domains are represented as metadata/encrypted-reference/write-plan
+workflows by default; plaintext secret retrieval is not included in ordinary
+assistant context.
+
+Dedicated hosted MCP tools now cover guided setup, reusable step plans, run
+mutations, schedule GitOps plans, knowledge context plans, webhook source and
+external trigger plans, config repo sync/drift/write workflows, notification
+plans and SMTP test, monitoring analytics/saved views/alerts/recommendations,
+secret and variable metadata/write-plan flows, credential metadata/rotation and
+GitOps plans, runner install/dispatch workflows, AAA/access/audit/admin
+workflows, and backup/cleanup operations. Mutating runtime/admin tools require
+`confirm:true`; write-plan tools return `applies:false` with commit-ready GitOps
+file payloads.
+
+`nopsai.call_api` remains the guarded compatibility bridge for REST-backed
+product surface that does not need richer first-class UX. It executes allowed
+`/v1` routes as the current authenticated subject, requires `confirm:true` for
+mutating calls, rejects public/provider ingress and internal service routes, and
+blocks default plaintext secret reads.
+Dedicated policy tools explain why internal run callbacks, public webhook
+delivery ingress, and UI rendering are intentionally not exposed as assistant
+mutation surfaces.
+
+Minimal GitOps config lives under `setting/system/runner.yaml`:
+
+```yaml
+assistant:
+  enabled: true
+  default_docs_version: auto
+  conversation_retention_days: 30
+  memory:
+    enabled: true
+    scope: conversation
+```
 
 Sync behavior:
 
@@ -444,7 +534,8 @@ Operational support already in the code:
 These are real characteristics of the current implementation:
 
 - gRPC uses insecure credentials by default, which is acceptable for local/dev but not a full production security story.
-- Secrets are database-managed; config sync imports variables, steps, triggers, pipelines, and knowledge contexts, but not secrets.
+- Secret values are write-only in API/UI; config sync imports encrypted scoped
+  secrets and encrypted system credential envelopes, never plaintext values.
 - Reusable `step:` includes are resolved from the database, not directly from Git at execution time.
 - The agent embeds its LLM client directly, even though `agent.proto` still defines a separate `LLMService`.
 - Scoped runs intentionally do not fall back to unscoped defaults.

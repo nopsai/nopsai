@@ -38,6 +38,7 @@ var FieldMetadataByKey = map[string]FieldMetadata{
 	"kubernetes":                   nextRunOnly("Kubernetes defaults", "Runtime"),
 	"limits":                       nextRunOnly("Runner limits", "Runtime"),
 	"runtime_pools":                runtimeLive("Runtime pools", "Runtime"),
+	"assistant":                    runtimeLive("Assistant", "Assistant"),
 
 	"agent_nopsai_api_url":   runtimeReload("Agent NopsAI API URL", "Dispatcher"),
 	"dispatcher_address":     runtimeReload("Dispatcher address", "Dispatcher"),
@@ -103,6 +104,7 @@ func BuildResponse(cfg config.Config, envFilePath string) map[string]interface{}
 		"kubernetes":                        config.NormalizeKubernetesConfig(cfg.Kubernetes),
 		"limits":                            cfg.Limits,
 		"runtime_pools":                     config.NormalizeRuntimePools(cfg.RuntimePools),
+		"assistant":                         cfg.EffectiveAssistantConfig(),
 		"env_file_path":                     envFilePath,
 		"field_metadata":                    FieldMetadataByKey,
 	}

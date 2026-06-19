@@ -1,7 +1,15 @@
-# MCP Pipeline Integration
+# MCP Integration
 
-Nopsai is an MCP client/host during goal-based pipeline execution. It does not
-act as an MCP server.
+Nopsai uses MCP in two directions:
+
+- During goal-based pipeline execution, the agent is an MCP client for approved
+  external MCP profiles.
+- For the AI Assistant and external clients, Nopsai exposes a first-party hosted
+  MCP server at `POST /v1/mcp`.
+
+The hosted MCP server is permission-bound through AAA, records tool audit
+activity, and keeps write-oriented operations GitOps-compatible by returning
+validated proposals instead of mutating production state directly.
 
 Pipeline authors select approved MCP profiles:
 
@@ -138,10 +146,123 @@ The internal MCP action shape is:
 Final actions remain normal Nopsai actions such as `EXECUTE_COMMAND`,
 `REPLACE_FILE`, or `RETURN_ANSWER`.
 
+## Hosted MCP Server
+
+The hosted MCP endpoint supports JSON-RPC `initialize`, `tools/list`,
+`tools/call`, `resources/list`, and `resources/read`.
+
+High-value hosted tools include:
+
+- guided setup:
+  `nopsai.get_setup_status`, `nopsai.get_setup_preflight`,
+  `nopsai.get_setup_templates`, `nopsai.plan_first_install_setup`, and
+  confirmed `nopsai.bootstrap_first_install_setup`
+- knowledge context search, list, and read:
+  `nopsai.search_docs`, `nopsai.read_doc`,
+  `nopsai.list_knowledge_contexts`, and `nopsai.get_knowledge_context`
+- pipeline inventory and YAML inspection:
+  `nopsai.list_pipelines`, `nopsai.search_pipelines`,
+  `nopsai.get_pipeline`, and `nopsai.get_pipeline_knowledge_context`
+- pipeline authoring proposals:
+  `nopsai.generate_pipeline`, `nopsai.validate_pipeline`,
+  `nopsai.propose_pipeline_create`, `nopsai.propose_pipeline_update`, and
+  reusable step create/update/delete GitOps plans
+- run investigation:
+  `nopsai.list_pipeline_runs`, `nopsai.get_pipeline_run`,
+  `nopsai.get_pipeline_run_logs`, and
+  `nopsai.analyze_pipeline_run_failure`
+- confirmed run operations:
+  `nopsai.run_pipeline`, `nopsai.list_run_approvals`,
+  `nopsai.approve_run_approval`, `nopsai.reject_run_approval`,
+  `nopsai.rerun_pipeline_run`, `nopsai.cancel_pipeline_run`, and
+  `nopsai.delete_pipeline_run`
+- GitOps-ready operational plans:
+  schedule create/update/delete/enable/disable, knowledge context
+  create/update/delete, Git webhook source changes, external trigger changes,
+  notification mail/route changes, and config repository write/sync workflows
+- confirmed operational actions:
+  schedule run-now, external trigger invocation, SMTP test, monitoring saved
+  views/alert rules/recommendations, and data backup/cleanup operations
+- secrets, variables, credentials, runners, and admin operations:
+  metadata-only secret/credential listing, secret encryption, confirmed
+  value writes/rotations/deletes, scoped GitOps value plans, credential GitOps
+  plans, runner compose/manifest/bootstrap generation, confirmed runner
+  dispatch updates, access-grant workflows, audit reads, and admin user/service
+  account/role/identity-provider workflows
+- monitoring analytics:
+  summary, run, pipeline, step, task, trigger, external-trigger, AI-usage,
+  reliability, efficiency, security, and runner-history analytics tools
+- feature coverage:
+  `nopsai.get_feature_capabilities` reports NopsAI feature areas, hosted MCP
+  surfaces, REST/GitOps backing routes, required AAA actions, and current-user
+  availability
+- API bridge:
+  `nopsai.call_api` calls guarded `/v1` REST routes as the current subject for
+  compatibility coverage; mutating calls require `confirm:true`
+- triggers, schedules, scopes, cost, statistics, LLM profiles, MCP profiles,
+  system status, and dispatcher/runner status read/proposal/action tools
+
+Hosted MCP is always user-scoped: `tools/list`, `resources/list`, and
+`tools/call` evaluate against the authenticated subject from the request. Tool
+calls re-check the concrete resource when arguments identify one, and audit
+records are written under the same subject/conversation.
+The API bridge rejects public/provider ingress and internal service routes, and
+blocks default plaintext secret reads so secret/credential workflows stay
+metadata-, reference-, encryption-, or explicit-write-oriented.
+Dedicated policy tools explain why internal run callbacks, public webhook
+delivery ingress, and UI rendering are intentionally not assistant mutation
+surfaces.
+
+Pipeline, reusable-step, schedule, knowledge-context, webhook-source,
+external-trigger, notification, scoped secret/variable, and credential GitOps
+tools validate input and return commit-ready file plans. A pipeline create
+response looks like:
+
+```json
+{
+  "proposal_type": "pipeline_create",
+  "applies": false,
+  "pipeline_id": "team-1/services/api/deploy",
+  "gitops": {
+    "message": "Create Nopsai pipeline team-1/services/api/deploy",
+    "files": [
+      {
+        "path": "pipelines/team-1/services/api/deploy.yaml",
+        "content": "name: deploy\n...",
+        "delete": false
+      }
+    ]
+  }
+}
+```
+
+The MCP response is not an applied change. Operators or automation should commit
+the proposed files to the configured config repository review branch and run
+GitOps sync, or use the existing REST API with the matching `pipeline.create` or
+`pipeline.update` permission when direct database writes are intentionally
+allowed.
+
+Knowledge context traversal works at two levels:
+
+- `nopsai.list_knowledge_contexts` and `nopsai.get_knowledge_context` enumerate
+  managed knowledge documents the caller may read.
+- `nopsai.get_pipeline_knowledge_context` parses stored or supplied pipeline
+  YAML, walks pipeline-, step-, and task-level knowledge refs, returns readable
+  managed documents, and marks repo-local docs as run-time-only because they are
+  resolved from the run repository commit.
+
+Hosted resources include `nopsai://docs`, `nopsai://knowledge-contexts`,
+`nopsai://pipelines`, `nopsai://pipeline-runs`, `nopsai://triggers`,
+`nopsai://schedules`, `nopsai://scopes`, `nopsai://statistics`,
+`nopsai://costs`, `nopsai://features`, and system profile/status/dispatcher
+resources. See [mcp-feature-coverage.md](./mcp-feature-coverage.md) for the
+current full-feature coverage map and enterprise automation boundaries.
+
 ## Supported Scope
 
 Current implementation:
 
+- First-party hosted MCP server for assistant and external clients.
 - External HTTP/streamable HTTP MCP servers.
 - Admin-managed MCP servers and profiles.
 - Bearer-token or no-auth server connections.
@@ -150,7 +271,18 @@ Current implementation:
 - Tool execution via `tools/call`.
 - Read-only profile enforcement by write-like tool-name rejection.
 - Scope checks for profiles and servers.
+- Hosted knowledge-context listing, reading, and pipeline context traversal.
+- Hosted pipeline search across metadata and readable YAML definitions.
+- Hosted dispatcher and runner health checks using dispatcher status and runner
+  monitoring summaries.
+- Hosted GitOps-ready pipeline create/update proposals with validation.
+- Dedicated hosted tools for confirmed run mutations, schedule GitOps plans,
+  knowledge context plans, webhook source/external trigger plans, config repo
+  sync/drift/write, notifications, monitoring operations, and backup/cleanup.
+- Guarded hosted API bridge for setup, reusable step, variable/secret,
+  AAA/admin/audit, auth self-service, credential, runner-operation, and other
+  compatible `/v1` routes.
 - Runtime logs for selected profiles and called tools.
 
-Future extensions can add stdio servers, sidecars, write approvals, rate limits,
-and richer per-tool audit records.
+Future extensions can add stdio servers, sidecars, direct hosted write approvals,
+rate limits, and richer per-tool audit records.

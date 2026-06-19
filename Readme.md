@@ -46,6 +46,7 @@ around that balance:
 | Secrets and scopes | Encrypted secrets, plaintext scoped variables, strict scope isolation, repository-specific overrides, cross-scope references, and runtime authorization checks. |
 | Knowledge context | Managed or repo-local markdown context for architecture docs, guardrails, policies, ADRs, runbooks, references, examples, and guidelines injected into LLM tasks. |
 | Runner-based execution | Dispatcher-managed Docker and Kubernetes runners, per-run agents, per-step containers or pods, scope routing, affinity, capacity controls, cancellation, and durable logs. |
+| Nopsai AI Assistant | Docked and full-page assistant that uses existing LLM profiles, conversation memory, and permission-bound hosted MCP tools to analyze runs, draft/validate pipeline YAML, synthesize answers with configured providers, inspect platform context, and keep changes proposal-only for GitOps review. |
 | First-install bootstrap | UI wizard for empty databases, generated runtime configuration, starter repository groups, starter templates, user bootstrap, and setup guardrails. |
 | MCP integration | System-managed MCP server and profile registry with optional profile examples and scope-aware enablement. |
 
@@ -173,11 +174,11 @@ Prerequisites:
 
 1. Review `config.yml` and `docker-compose.yaml`.
 
-   The checked-in `config.yml` and `.env` files are documentation-only
-   placeholders. Product/runtime settings are managed from the UI and GitOps;
-   `docker-compose.yaml` defines only local-dev bootstrap and service topology.
-   Override local placeholder secrets from your shell or deployment secret
-   manager before production use.
+   The checked-in `config.yml` and `.env` files are bootstrap placeholders.
+   Product/runtime settings are managed from the UI and GitOps; `config.yml`
+   keeps only local defaults needed before GitOps is loaded, including the
+   Nopsai AI Assistant being enabled. Override local placeholder secrets from
+   your shell or deployment secret manager before production use.
 
 2. Start the stack.
 
@@ -240,12 +241,12 @@ GitOps sync can import:
 - `setting/system/mail.yaml`: mail notification SMTP settings from the global config repo
 - `setting/system/llm_profile.yaml`: system LLM profile registry
 - `setting/system/mcp.yaml`: MCP server and profile registry
-- `setting/system/runner.yaml`: runner install defaults, runtime defaults, and dispatcher routing from the global config repo
+- `setting/system/runner.yaml`: runner install defaults, runtime defaults, dispatcher routing, and assistant settings from the global config repo
 - `setting/system/credentials.yaml`: encrypted system credential envelopes from the global config repo
 
 Runtime settings GitOps is limited to operational defaults such as runner ID,
 runner scopes, runner capacity, dispatcher address, agent image/network
-defaults, timeouts, and `dispatcher_routing`. GitHub App IDs, git-bot URLs, and
+defaults, timeouts, `dispatcher_routing`, and the minimal `assistant` block. GitHub App IDs, git-bot URLs, and
 GitHub credential references live in `setting/system/github.yaml`; they are not
 accepted from `setting/system/runner.yaml`. Keep database URLs, master keys, and
 service JWT bootstrap keys in deployment secrets. Store operational integration
@@ -452,6 +453,14 @@ Supported profile concepts include:
 MCP servers and MCP profiles can be managed through system configuration at
 `setting/system/mcp.yaml`. The setup wizard can seed disabled MCP examples so
 operators can review and enable them deliberately.
+
+The Nopsai AI Assistant exposes Nopsai itself through a first-party hosted MCP
+endpoint at `POST /v1/mcp`. Tools are filtered through AAA, audited, and kept
+read/proposal-only for generated YAML, trigger changes, and schedule changes;
+applying changes remains an explicit API/GitOps approval workflow. Assistant
+message turns use the selected or default LLM profile for final synthesis when
+the profile is valid for the conversation scope, and fall back to deterministic
+tool summaries when the provider or credential is unavailable.
 
 See:
 

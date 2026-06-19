@@ -65,6 +65,7 @@ type runtimeSettingsGitOpsFile struct {
 	Kubernetes                    *config.KubernetesConfig      `json:"kubernetes" yaml:"kubernetes,omitempty"`
 	Limits                        *config.RunnerLimits          `json:"limits" yaml:"limits,omitempty"`
 	RuntimePools                  map[string]config.RuntimePool `json:"runtime_pools" yaml:"runtime_pools,omitempty"`
+	Assistant                     *config.AssistantConfig       `json:"assistant" yaml:"assistant,omitempty"`
 }
 
 type runtimeSettingsSnapshotFile struct {
@@ -151,6 +152,7 @@ func parseGitOpsRuntimeSettingsFile(content, sourcePath string) (*gitOpsRuntimeS
 		Kubernetes:                    file.Kubernetes,
 		Limits:                        file.Limits,
 		RuntimePools:                  file.RuntimePools,
+		Assistant:                     file.Assistant,
 	}
 	if payload.RunnerCapacity != nil && *payload.RunnerCapacity <= 0 {
 		return nil, fmt.Errorf("runtime settings GitOps file '%s' has invalid runner_capacity", sourcePath)
@@ -193,6 +195,7 @@ func buildRuntimeSettingsGitOpsFile(cfg config.Config) runtimeSettingsGitOpsFile
 		Kubernetes:                    kubernetesConfigPtr(config.NormalizeKubernetesConfig(cfg.Kubernetes)),
 		Limits:                        runnerLimitsPtr(cfg.Limits),
 		RuntimePools:                  config.NormalizeRuntimePools(cfg.RuntimePools),
+		Assistant:                     assistantConfigPtr(cfg.EffectiveAssistantConfig()),
 	}
 }
 
@@ -220,5 +223,9 @@ func kubernetesConfigPtr(value config.KubernetesConfig) *config.KubernetesConfig
 }
 
 func runnerLimitsPtr(value config.RunnerLimits) *config.RunnerLimits {
+	return &value
+}
+
+func assistantConfigPtr(value config.AssistantConfig) *config.AssistantConfig {
 	return &value
 }
