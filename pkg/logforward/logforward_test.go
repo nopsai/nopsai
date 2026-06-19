@@ -45,6 +45,33 @@ func TestForwardSplitsAtRuneBoundary(t *testing.T) {
 	}
 }
 
+func TestForwardFiltersLinesBeforeChunking(t *testing.T) {
+	var got []string
+	var filtered []string
+	longLine := strings.Repeat("x", 12)
+
+	Forward(context.Background(), strings.NewReader("drop\n"+longLine+"\n"), func(_ context.Context, lines []string) {
+		got = append(got, lines...)
+	}, Options{
+		BatchTimeout:        time.Hour,
+		MaxForwardLineBytes: 5,
+		FilterLine: func(line string) (string, bool) {
+			filtered = append(filtered, line)
+			if line == "drop" {
+				return "", false
+			}
+			return line, true
+		},
+	})
+
+	if strings.Join(filtered, ",") != "drop,"+longLine {
+		t.Fatalf("filtered lines = %#v, want full raw lines before chunking", filtered)
+	}
+	if strings.Join(got, "") != longLine {
+		t.Fatalf("forwarded chunks = %#v, want only long line chunks", got)
+	}
+}
+
 func TestForwardFlushesPartialBatchOnEOF(t *testing.T) {
 	var got [][]string
 

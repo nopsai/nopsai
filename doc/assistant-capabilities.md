@@ -40,12 +40,15 @@ Good assistant requests usually include four things:
 Examples:
 
 - "Search pipelines that deploy `acme/api` and show their knowledge context."
+- "Give me a pipeline that has an approval step."
+- "List pipeline runs."
 - "Validate this pipeline YAML and return a GitOps create plan for
   `platform/deploy-api`."
 - "Analyze run `run_123` and explain the most likely failure from logs."
 - "Cancel run `run_123`; I confirm."
 - "Create a GitOps plan to rotate the GitHub deploy credential. Do not expose
   the secret value."
+- "Do we have any policy to prevent showing envs?"
 - "What NopsAI features can I use from this account, and which ones are blocked
   by permissions?"
 
@@ -74,6 +77,7 @@ Ask:
 - "What features can I use with the assistant right now?"
 - "Show the tools/resources available to my user."
 - "Why can I read this pipeline but not update it?"
+- "Do we have any policy to prevent showing envs or secrets?"
 - "Explain why internal run finalization is not an assistant tool."
 - "Can this user execute `pipeline.update` on `folder:platform`?"
 
@@ -127,6 +131,7 @@ prepare reusable-step create/update/delete plans.
 Ask:
 
 - "Search pipelines that mention Kubernetes runners."
+- "Give me a pipeline that has an approval step."
 - "Open pipeline `platform/deploy-api` and summarize its steps."
 - "Generate a pipeline for build, test, approval, and deploy to staging."
 - "Validate this YAML and identify unsafe task settings."
@@ -151,6 +156,7 @@ runs. Mutations require confirmation.
 Ask:
 
 - "List recent failed runs for `platform/deploy-api`."
+- "List of pipelineruns."
 - "Analyze failure for run `run_123` and include relevant log excerpts."
 - "Start `platform/deploy-api` with variable `env=staging`; I confirm."
 - "List pending approvals for run `run_123`."
@@ -539,4 +545,3 @@ Ask:
 - Plaintext secret and credential reads are not ordinary assistant context.
   Ask for metadata, encrypted GitOps payloads, references, or explicit
   write/rotation flows instead.
-

@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"regexp"
 	"strconv"
@@ -13,7 +12,6 @@ import (
 	"time"
 
 	"nopsai/config"
-	"nopsai/pkg/logforward"
 	"nopsai/pkg/proto"
 	"nopsai/pkg/serviceauth"
 
@@ -46,6 +44,7 @@ const (
 	kubernetesWorkspaceEmptyDir    = "emptyDir"
 	kubernetesPodLogDrainTimeout   = 15 * time.Second
 	kubernetesPodLogStopTimeout    = 2 * time.Second
+	kubernetesPodLogRetryDelay     = time.Second
 )
 
 var nameInvalidChars = regexp.MustCompile(`[^a-z0-9-]+`)
@@ -92,6 +91,8 @@ type kubernetesRunner struct {
 	runtimePoolsYAML string
 	runtimePools     map[string]config.RuntimePool
 	limits           config.RunnerLimits
+	podLogStream     podLogStreamFunc
+	podLogRetryDelay time.Duration
 }
 
 func NewKubernetesRunner(options RunnerOptions) Runner {
@@ -386,44 +387,6 @@ func (r *kubernetesRunner) agentRuntimeVars(job *proto.JobRequest, workspacePVC 
 	return runtimeVars
 }
 
-func (r *kubernetesRunner) streamPodLogs(ctx context.Context, dispatcher proto.DispatcherServiceClient, runID, podName string) {
-	if dispatcher == nil {
-		return
-	}
-	var reader io.ReadCloser
-	var err error
-	for attempt := 0; attempt < 30; attempt++ {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-		reader, err = r.client.CoreV1().Pods(r.namespace).GetLogs(podName, &corev1.PodLogOptions{
-			Container:  kubernetesAgentContainerName,
-			Follow:     true,
-			Timestamps: true,
-		}).Stream(ctx)
-		if err == nil {
-			break
-		}
-		time.Sleep(time.Second)
-	}
-	if err != nil {
-		log.Error().Err(err).Str("run_id", runID).Str("pod", podName).Msg("failed to attach to pod logs")
-		r.emitRunLog(context.Background(), dispatcher, runID, fmt.Sprintf("Kubernetes runner could not attach to logs for agent pod %s: %v", podName, err))
-		return
-	}
-	defer reader.Close()
-
-	logforward.Forward(ctx, reader, func(sendCtx context.Context, lines []string) {
-		r.flushLogs(sendCtx, dispatcher, runID, lines)
-	}, logforward.Options{
-		OnScannerError: func(err error) {
-			log.Error().Err(err).Str("run_id", runID).Msg("pod log scanner error")
-		},
-	})
-}
-
 func waitForPodLogDrain(done <-chan struct{}, cancel context.CancelFunc, runID, podName string) bool {
 	select {
 	case <-done:
@@ -454,24 +417,6 @@ func stopPodLogForwarder(done <-chan struct{}, cancel context.CancelFunc, runID,
 			Dur("timeout", kubernetesPodLogStopTimeout).
 			Msg("timed out stopping pod log forwarder")
 	}
-}
-
-func (r *kubernetesRunner) flushLogs(ctx context.Context, dispatcher proto.DispatcherServiceClient, runID string, lines []string) {
-	if len(lines) == 0 {
-		return
-	}
-	sendCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	if _, err := dispatcher.IngestLogs(sendCtx, &proto.LogBatch{RunId: runID, Lines: lines}); err != nil {
-		log.Error().Err(err).Str("run_id", runID).Msg("failed to send log batch to dispatcher")
-	}
-}
-
-func (r *kubernetesRunner) emitRunLog(ctx context.Context, dispatcher proto.DispatcherServiceClient, runID, line string) {
-	if dispatcher == nil || strings.TrimSpace(runID) == "" || strings.TrimSpace(line) == "" {
-		return
-	}
-	r.flushLogs(ctx, dispatcher, runID, []string{line})
 }
 
 func (r *kubernetesRunner) monitorRunCancellation(ctx context.Context, dispatcher proto.DispatcherServiceClient, runID, podName string) {

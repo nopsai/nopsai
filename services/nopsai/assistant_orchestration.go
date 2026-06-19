@@ -147,7 +147,11 @@ func (a *App) runAssistantConversationTurn(
 		runTool("nopsai.get_llm_profiles", map[string]any{})
 		runTool("nopsai.get_mcp_profiles", map[string]any{})
 	case "feature_capabilities":
-		runTool("nopsai.get_feature_capabilities", map[string]any{"query": content, "include_api_routes": false})
+		args := map[string]any{"query": plan.SearchQuery, "include_api_routes": false}
+		if plan.CapabilityArea != "" {
+			args["area"] = plan.CapabilityArea
+		}
+		runTool("nopsai.get_feature_capabilities", args)
 	case "runtime":
 		runTool("nopsai.get_dispatcher_status", map[string]any{})
 	case "system":
@@ -171,18 +175,19 @@ func (a *App) runAssistantConversationTurn(
 }
 
 type assistantTurnPlan struct {
-	Intent       string
-	LowerContent string
-	RunID        string
-	YAML         string
-	PipelineName string
-	PipelineID   string
-	Repository   string
-	ScheduleID   string
-	Scope        string
-	SearchQuery  string
-	APIMethod    string
-	APIPath      string
+	Intent         string
+	LowerContent   string
+	RunID          string
+	YAML           string
+	PipelineName   string
+	PipelineID     string
+	Repository     string
+	ScheduleID     string
+	Scope          string
+	SearchQuery    string
+	CapabilityArea string
+	APIMethod      string
+	APIPath        string
 }
 
 func assistantPlanFromMessage(content string, memory assistantConversationMemory) assistantTurnPlan {
@@ -201,6 +206,7 @@ func assistantPlanFromMessage(content string, memory assistantConversationMemory
 		SearchQuery:  assistantPipelineSearchQueryFromMessage(content),
 	}
 	plan.APIMethod, plan.APIPath = assistantAPICallFromMessage(content)
+	plan.CapabilityArea, plan.SearchQuery = assistantCapabilityFocusFromMessage(lower, plan.SearchQuery)
 	if plan.RunID == "" {
 		plan.RunID = strings.TrimSpace(memory.SelectedRun)
 	}
@@ -229,7 +235,7 @@ func assistantPlanFromMessage(content string, memory assistantConversationMemory
 		plan.Intent = "generate_pipeline"
 	case plan.RunID != "" && containsAny(lower, "run", "failed", "failure", "fail", "log", "logs", "analyze", "explain", "why"):
 		plan.Intent = "analyze_run"
-	case containsAny(lower, "failed run", "failure", "run failed", "recent runs", "pipeline runs", "logs"):
+	case assistantMessageAsksRunList(lower):
 		plan.Intent = "list_runs"
 	case containsAny(lower, "cost", "usage", "spend", "budget", "expensive"):
 		plan.Intent = "cost"
@@ -243,12 +249,15 @@ func assistantPlanFromMessage(content string, memory assistantConversationMemory
 		plan.Intent = "trigger"
 	case containsAny(lower, "schedule", "cron"):
 		plan.Intent = "schedule"
-	case containsAny(lower, "mcp coverage", "mcp capability", "mcp capabilities", "mcp support", "hosted mcp", "support all with mcp", "features with mcp", "feature coverage"):
+	case assistantMessageAsksFeatureCapabilities(lower):
 		plan.Intent = "feature_capabilities"
 	case containsAny(lower, "scope", "permission", "access grant", "access"):
 		plan.Intent = "scope"
-	case containsAny(lower, "search pipeline", "search pipelines", "find pipeline", "find pipelines", "look for pipeline", "look through pipeline", "search through pipeline"):
+	case assistantMessageAsksPipelineSearch(lower):
 		plan.Intent = "search_pipelines"
+		if plan.SearchQuery == "" {
+			plan.SearchQuery = assistantInferredPipelineSearchQuery(content)
+		}
 	case containsAny(lower, "knowledge context", "knowledge doc", "runbook", "guardrail", "guideline", "adr"):
 		if containsAny(lower, "pipeline") || plan.PipelineID != "" || plan.YAML != "" {
 			plan.Intent = "pipeline_knowledge_context"
@@ -776,6 +785,10 @@ func composePipelineSearchReply(toolCalls []assistantToolActivity) string {
 	}
 	pipelines := assistantMapSlice(call.Output["pipelines"])
 	if len(pipelines) == 0 {
+		query := assistantOutputString(call.Output, "query")
+		if query != "" {
+			return "I did not find visible pipelines matching " + query + ". Try a pipeline path, name, step name, or YAML keyword."
+		}
 		return "I did not find matching pipelines visible to your account."
 	}
 	lines := []string{"Matching pipelines:"}
@@ -785,6 +798,9 @@ func composePipelineSearchReply(toolCalls []assistantToolActivity) string {
 			line += " (matched " + strings.Join(fields, ", ") + ")"
 		}
 		lines = append(lines, line)
+		if snippet := assistantOutputString(pipeline, "snippet"); snippet != "" {
+			lines = append(lines, "  "+snippet)
+		}
 	}
 	lines = append(lines, "", "Use a specific pipeline ID if you want me to load the full YAML.")
 	return strings.Join(lines, "\n")
@@ -919,6 +935,12 @@ func composeFeatureCapabilitiesReply(toolCalls []assistantToolActivity) string {
 			line += " (" + mode + ")"
 		}
 		lines = append(lines, line)
+	}
+	if notes := assistantCapabilityPolicyNotes(call.Output); len(notes) > 0 {
+		lines = append(lines, "", "Policy notes:")
+		for _, note := range notes {
+			lines = append(lines, "- "+note)
+		}
 	}
 	lines = append(lines, "", "The assistant and hosted MCP use the current authenticated AAA subject for the user. No changes were applied.")
 	return strings.Join(lines, "\n")
@@ -1088,7 +1110,7 @@ func assistantLooksLikePipelineYAML(content string) bool {
 func assistantPipelineIDFromMessage(content string) string {
 	id := assistantFirstPatternGroup(assistantPipelineIDPattern, content)
 	switch strings.ToLower(strings.Trim(strings.TrimSpace(id), "/")) {
-	case "", "through", "via", "with", "yaml", "context", "knowledge", "runs", "run", "logs", "called", "named", "name":
+	case "", "a", "an", "the", "that", "which", "who", "where", "has", "have", "having", "with", "through", "via", "yaml", "context", "knowledge", "runs", "run", "logs", "called", "named", "name", "approval", "step", "steps":
 		return ""
 	default:
 		return strings.Trim(id, "/")
@@ -1099,10 +1121,118 @@ func assistantPipelineSearchQueryFromMessage(content string) string {
 	query := assistantFirstPatternGroup(assistantPipelineSearchPattern, content)
 	query = strings.TrimSpace(query)
 	query = strings.Trim(query, "`\"' ")
+	if assistantQueryMentionsApproval(query) {
+		return "approval"
+	}
 	if strings.EqualFold(query, "now") || strings.EqualFold(query, "please") {
 		return ""
 	}
 	return query
+}
+
+func assistantMessageAsksRunList(lower string) bool {
+	lower = strings.TrimSpace(lower)
+	if lower == "runs" || lower == "pipeline runs" || lower == "pipelineruns" || lower == "pipeline-runs" {
+		return true
+	}
+	return containsAny(
+		lower,
+		"list runs",
+		"list of runs",
+		"show runs",
+		"show me runs",
+		"recent runs",
+		"failed run",
+		"failure",
+		"run failed",
+		"pipeline runs",
+		"pipeline-runs",
+		"pipelineruns",
+		"logs",
+	)
+}
+
+func assistantMessageAsksFeatureCapabilities(lower string) bool {
+	return containsAny(
+		lower,
+		"mcp coverage",
+		"mcp capability",
+		"mcp capabilities",
+		"mcp support",
+		"hosted mcp",
+		"support all with mcp",
+		"features with mcp",
+		"feature coverage",
+		"features can i use",
+		"what features can i use",
+		"assistant capabilities",
+		"capabilities do i have",
+		"tools/resources available",
+		"tools available",
+		"resources available",
+		"available to my user",
+	) || assistantMessageAsksSensitivePolicy(lower)
+}
+
+func assistantMessageAsksSensitivePolicy(lower string) bool {
+	if !containsAny(lower, "policy", "prevent", "block", "hide", "showing", "show", "expose", "read") {
+		return false
+	}
+	return containsAny(lower, "env", "envs", "environment variable", "environment variables", "secret", "secrets", "credential", "credentials", "token", "tokens", "password")
+}
+
+func assistantCapabilityFocusFromMessage(lower, currentSearchQuery string) (string, string) {
+	searchQuery := strings.TrimSpace(currentSearchQuery)
+	switch {
+	case assistantMessageAsksSensitivePolicy(lower):
+		return "secrets", "secret"
+	case assistantMessageAsksFeatureCapabilities(lower):
+		return "", ""
+	default:
+		return "", searchQuery
+	}
+}
+
+func assistantMessageAsksPipelineSearch(lower string) bool {
+	if containsAny(lower, "search pipeline", "search pipelines", "find pipeline", "find pipelines", "look for pipeline", "look through pipeline", "search through pipeline") {
+		return true
+	}
+	return containsAny(lower, "pipeline") && containsAny(lower, "approval step", "approval gate", "manual approval", "has approval", "with approval", "needs approval", "requires approval")
+}
+
+func assistantInferredPipelineSearchQuery(content string) string {
+	lower := strings.ToLower(content)
+	if assistantQueryMentionsApproval(lower) {
+		return "approval"
+	}
+	return strings.Trim(strings.TrimSpace(content), "`\"' ")
+}
+
+func assistantQueryMentionsApproval(value string) bool {
+	value = strings.ToLower(strings.TrimSpace(value))
+	return containsAny(value, "approval", "approve", "manual gate", "gate")
+}
+
+func assistantCapabilityPolicyNotes(output map[string]any) []string {
+	notes := []string{}
+	seen := map[string]struct{}{}
+	for _, area := range assistantMapSlice(output["areas"]) {
+		for _, note := range assistantStringSlice(area["notes"]) {
+			lower := strings.ToLower(note)
+			if !containsAny(lower, "secret", "credential", "sensitive", "plaintext", "redact", "blocked", "policy") {
+				continue
+			}
+			if _, ok := seen[note]; ok {
+				continue
+			}
+			seen[note] = struct{}{}
+			notes = append(notes, note)
+			if len(notes) >= 3 {
+				return notes
+			}
+		}
+	}
+	return notes
 }
 
 func assistantPipelineNameFromMessage(content string) string {

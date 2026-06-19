@@ -252,16 +252,17 @@ For a `step:<identifier>` include:
 ## 10. Logs, Status, And GitHub Feedback
 
 1. The runner reads agent container logs and batches them.
-2. Logs go to `dispatcher.IngestLogs`.
-3. The dispatcher makes an authenticated internal service call to `nopsai` at `/v1/runs/{runID}/logs/ingest`.
-4. The agent reports task status to `dispatcher.ReportTaskStatus`.
-5. The dispatcher forwards that to `nopsai` at `/v1/runs/{runID}/steps/{step}/tasks/{task}`.
-6. `nopsai` persists the update and asynchronously tells `git-bot` about the task status.
-7. `git-bot` updates its in-memory check-run state and renders the GitHub check output.
-8. When the agent finishes, it calls `dispatcher.FinalizeRun`. An agent that has paused for approval exits without finalizing, and late finalization attempts are ignored while the run is `waiting_approval`.
-9. The dispatcher forwards final status to `nopsai`, which finalizes the run and notifies `git-bot` of the final result.
-10. If the runner reports a job failure, including an agent container startup failure or nonzero agent exit, the dispatcher writes the runner error into the run logs and finalizes the run as `failure` with the same failure reason.
-11. The UI refreshes run lists and details over REST polling, and log modals poll `/v1/runs/{runID}/logs?since_line=<id>` for incremental log lines.
+2. Kubernetes runners reattach if `pods/log?follow=true` ends before the agent pod is terminal, then perform a final non-follow pod-log read after terminal state to fill any stream-shutdown gap.
+3. Logs go to `dispatcher.IngestLogs`.
+4. The dispatcher makes an authenticated internal service call to `nopsai` at `/v1/runs/{runID}/logs/ingest`.
+5. The agent reports task status to `dispatcher.ReportTaskStatus`.
+6. The dispatcher forwards that to `nopsai` at `/v1/runs/{runID}/steps/{step}/tasks/{task}`.
+7. `nopsai` persists the update and asynchronously tells `git-bot` about the task status.
+8. `git-bot` updates its in-memory check-run state and renders the GitHub check output.
+9. When the agent finishes, it calls `dispatcher.FinalizeRun`. An agent that has paused for approval exits without finalizing, and late finalization attempts are ignored while the run is `waiting_approval`.
+10. The dispatcher forwards final status to `nopsai`, which finalizes the run and notifies `git-bot` of the final result.
+11. If the runner reports a job failure, including an agent container startup failure or nonzero agent exit, the dispatcher writes the runner error into the run logs and finalizes the run as `failure` with the same failure reason.
+12. The UI refreshes run lists and details over REST polling, and log modals poll `/v1/runs/{runID}/logs?since_line=<id>` for incremental log lines.
 
 ## 11. Cancellation And Reruns
 
