@@ -190,7 +190,6 @@ func hostedMCPFeatureCapabilityCatalog() []hostedMCPFeatureCapability {
 				"nopsai.search_pipelines",
 				"nopsai.get_pipeline",
 				"nopsai.get_pipeline_knowledge_context",
-				"nopsai.generate_pipeline",
 				"nopsai.validate_pipeline",
 				"nopsai.propose_pipeline_create",
 				"nopsai.propose_pipeline_update",

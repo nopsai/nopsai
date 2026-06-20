@@ -99,7 +99,6 @@ type assistantTurnPlan struct {
 	APIMethod       string
 	APIPath         string
 	Steps           []assistantPlanStep
-	AIUsageFilters  map[string]any
 	SuccessCriteria string
 	UserConfirmed   bool
 	FinalAnswer     string
@@ -202,10 +201,6 @@ func assistantMemoryAfterTools(memory assistantConversationMemory, plan assistan
 			if id := assistantOutputString(call.Output, "id"); id != "" {
 				memory.SelectedPipeline = strings.Trim(id, "/")
 			}
-		case "nopsai.generate_pipeline":
-			if plan.PipelineName != "" {
-				memory.SelectedPipeline = plan.PipelineName
-			}
 		case "nopsai.propose_pipeline_create", "nopsai.propose_pipeline_update", "nopsai.get_pipeline_knowledge_context":
 			if id := assistantOutputString(call.Output, "pipeline_id"); id != "" {
 				memory.SelectedPipeline = strings.Trim(id, "/")
@@ -221,8 +216,6 @@ func assistantMemoryAfterTools(memory assistantConversationMemory, plan assistan
 
 func assistantMemorySummary(plan assistantTurnPlan) string {
 	switch plan.Intent {
-	case "generate_pipeline":
-		return "Drafting a GitOps-safe pipeline proposal."
 	case "propose_pipeline_create", "propose_pipeline_update":
 		return "Preparing a GitOps-safe pipeline write plan."
 	case "validate_pipeline":
@@ -279,8 +272,6 @@ func composeAssistantReply(plan assistantTurnPlan, selectedProfile string, toolC
 		return "I could not use the required Nopsai tools with your current permissions. No changes were applied."
 	}
 	switch plan.Intent {
-	case "generate_pipeline":
-		return composePipelineGenerationReply(toolCalls)
 	case "propose_pipeline_create", "propose_pipeline_update":
 		return composePipelineWritePlanReply(toolCalls)
 	case "validate_pipeline":
@@ -332,63 +323,8 @@ func composeAssistantReply(plan assistantTurnPlan, selectedProfile string, toolC
 	}
 }
 
-func composePipelineGenerationReply(toolCalls []assistantToolActivity) string {
-	var yaml string
-	validation := map[string]any{}
-	generated := map[string]any{}
-	for _, call := range toolCalls {
-		switch call.Name {
-		case "nopsai.generate_pipeline":
-			generated = call.Output
-			yaml = assistantOutputString(call.Output, "yaml")
-			if nested, _ := call.Output["validation"].(map[string]any); len(nested) > 0 {
-				validation = nested
-			}
-		case "nopsai.validate_pipeline":
-			validation = call.Output
-		}
-	}
-	lines := []string{"I drafted a GitOps-safe pipeline proposal. No changes were applied."}
-	if templateID := assistantOutputString(generated, "template_id"); templateID != "" {
-		lines = append(lines, "", "Template: "+templateID)
-	}
-	if assumptions := assistantStringSlice(generated["assumptions"]); len(assumptions) > 0 {
-		lines = append(lines, "", "Assumptions:")
-		for _, assumption := range assumptions {
-			lines = append(lines, "- "+assumption)
-		}
-	}
-	if vars := assistantStringSlice(generated["required_variables"]); len(vars) > 0 {
-		lines = append(lines, "", "Required variables:")
-		for _, value := range vars {
-			lines = append(lines, "- "+value)
-		}
-	}
-	if secrets := assistantStringSlice(generated["required_secrets"]); len(secrets) > 0 {
-		lines = append(lines, "", "Required secrets:")
-		for _, value := range secrets {
-			lines = append(lines, "- "+value)
-		}
-	}
-	if len(validation) > 0 {
-		if assistantOutputBool(validation, "valid") {
-			lines = append(lines, "", "Validation: passed.")
-		} else {
-			lines = append(lines, "", "Validation: failed.")
-			if errText := assistantOutputString(validation, "error"); errText != "" {
-				lines = append(lines, "Issue: "+errText)
-			}
-		}
-	}
-	if yaml != "" {
-		lines = append(lines, "", "Draft YAML:", "```yaml", strings.TrimSpace(yaml), "```")
-	}
-	lines = append(lines, "", "Apply it by committing the reviewed YAML through the GitOps configuration repository.")
-	return strings.Join(lines, "\n")
-}
-
 func composePipelineWritePlanReply(toolCalls []assistantToolActivity) string {
-	call := assistantFirstNonEmptyToolCall(toolCalls)
+	call := assistantFirstPipelineWritePlanToolCall(toolCalls)
 	if call.Status != assistantToolStatusSuccess {
 		return assistantToolErrorReply("I could not prepare that pipeline write plan.", call)
 	}
@@ -427,6 +363,16 @@ func composePipelineWritePlanReply(toolCalls []assistantToolActivity) string {
 	}
 	lines = append(lines, "", "Review the YAML, commit it to the config repository review branch, and sync GitOps.")
 	return strings.Join(lines, "\n")
+}
+
+func assistantFirstPipelineWritePlanToolCall(toolCalls []assistantToolActivity) assistantToolActivity {
+	for _, call := range toolCalls {
+		switch call.Name {
+		case "nopsai.propose_pipeline_create", "nopsai.propose_pipeline_update":
+			return call
+		}
+	}
+	return assistantFirstNonEmptyToolCall(assistantEvidenceToolCalls(toolCalls))
 }
 
 func composePipelineValidationReply(toolCalls []assistantToolActivity) string {
@@ -1139,7 +1085,7 @@ func assistantResourceURIsForTool(name string) []string {
 	switch name {
 	case "nopsai.search_docs", "nopsai.read_doc", "nopsai.list_knowledge_contexts", "nopsai.get_knowledge_context", "nopsai.propose_knowledge_context_create", "nopsai.propose_knowledge_context_update", "nopsai.propose_knowledge_context_delete":
 		return []string{"nopsai://docs"}
-	case "nopsai.list_pipelines", "nopsai.search_pipelines", "nopsai.get_pipeline", "nopsai.validate_pipeline", "nopsai.generate_pipeline", "nopsai.propose_pipeline_create", "nopsai.propose_pipeline_update":
+	case "nopsai.list_pipelines", "nopsai.search_pipelines", "nopsai.get_pipeline", "nopsai.validate_pipeline", "nopsai.propose_pipeline_create", "nopsai.propose_pipeline_update":
 		return []string{"nopsai://pipelines"}
 	case "nopsai.get_pipeline_knowledge_context":
 		return []string{"nopsai://pipelines", "nopsai://docs"}

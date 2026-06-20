@@ -1,8 +1,11 @@
 package nopsai
 
 import (
+	"context"
+	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"nopsai/config"
 )
@@ -105,6 +108,65 @@ func TestAssistantDedicatedConfigProfileWinsDefaultPickerProfile(t *testing.T) {
 	profile := profiles[assistantDedicatedLLMProfileName]
 	if profile.Provider != config.LLMProviderGemini || profile.Model != "gemini-2.5-pro" || profile.TimeoutSeconds != 45 {
 		t.Fatalf("assistant profile = %#v", profile)
+	}
+}
+
+func TestAssistantHTTPClientDoesNotInheritInternalTimeout(t *testing.T) {
+	transport := http.DefaultTransport
+	internal := &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: transport,
+	}
+
+	client := assistantHTTPClient(&App{httpClient: internal})
+	if client == internal {
+		t.Fatal("assistantHTTPClient returned the shared internal client")
+	}
+	if client.Timeout != 0 {
+		t.Fatalf("timeout = %s, want no inherited timeout", client.Timeout)
+	}
+	if client.Transport != transport {
+		t.Fatal("assistantHTTPClient did not preserve the internal transport")
+	}
+}
+
+func TestResolveAssistantLLMProfileAllowsScopedProfileWhenConversationScopeUnknown(t *testing.T) {
+	app := &App{cfg: &config.Config{
+		LLMDefaultProfile: "standard",
+		LLMProfiles: map[string]config.LLMProfile{
+			"standard": {
+				Provider:      config.LLMProviderGemini,
+				Model:         "gemini-2.5-flash",
+				CredentialRef: "credential://system/llm/standard",
+				AllowedScopes: []string{"prod"},
+			},
+		},
+	}}
+
+	name, _, ok, reason := app.resolveAssistantLLMProfile(context.Background(), assistantConversation{}, "standard")
+	if !ok {
+		t.Fatalf("resolveAssistantLLMProfile(%q) failed: %s", name, reason)
+	}
+}
+
+func TestResolveAssistantLLMProfileRejectsScopedProfileWhenConversationScopeDiffers(t *testing.T) {
+	app := &App{cfg: &config.Config{
+		LLMDefaultProfile: "standard",
+		LLMProfiles: map[string]config.LLMProfile{
+			"standard": {
+				Provider:      config.LLMProviderGemini,
+				Model:         "gemini-2.5-flash",
+				CredentialRef: "credential://system/llm/standard",
+				AllowedScopes: []string{"prod"},
+			},
+		},
+	}}
+
+	_, _, ok, reason := app.resolveAssistantLLMProfile(context.Background(), assistantConversation{
+		Memory: assistantConversationMemory{SelectedScope: "dev"},
+	}, "standard")
+	if ok || !strings.Contains(reason, `LLM profile "standard" is not allowed in scope "dev"`) {
+		t.Fatalf("resolveAssistantLLMProfile() ok=%v reason=%q", ok, reason)
 	}
 }
 

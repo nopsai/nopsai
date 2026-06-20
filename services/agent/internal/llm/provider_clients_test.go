@@ -44,6 +44,29 @@ func TestProviderRegistryDispatchesAllSupportedProviders(t *testing.T) {
 	}
 }
 
+func TestLMStudioClientPreservesMaxTokens(t *testing.T) {
+	client := NewLLMClientWithOptions(LLMClientOptions{Provider: appconfig.LLMProviderLMStudio})
+	provider, ok := client.providerClient.(*lmStudioClient)
+	if !ok {
+		t.Fatalf("provider client = %T", client.providerClient)
+	}
+	if provider.maxTokens != 0 {
+		t.Fatalf("maxTokens = %d, want 0", provider.maxTokens)
+	}
+
+	client = NewLLMClientWithOptions(LLMClientOptions{
+		Provider:  appconfig.LLMProviderLMStudio,
+		MaxTokens: 123,
+	})
+	provider, ok = client.providerClient.(*lmStudioClient)
+	if !ok {
+		t.Fatalf("provider client = %T", client.providerClient)
+	}
+	if provider.maxTokens != 123 {
+		t.Fatalf("maxTokens = %d, want 123", provider.maxTokens)
+	}
+}
+
 func TestOpenAICompatibleClientRequestAndUsage(t *testing.T) {
 	var request openAIChatRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
-	"time"
 
 	"nopsai/config"
 	aaamodel "nopsai/services/aaa/pkg/model"
@@ -21,11 +19,9 @@ const (
 )
 
 type assistantPlanStep struct {
-	Thought             string
-	ToolName            string
-	Args                map[string]any
-	StopWhenUsageFound  bool
-	StopWhenToolBlocked bool
+	Thought  string
+	ToolName string
+	Args     map[string]any
 }
 
 type assistantAnswerQuality struct {
@@ -36,26 +32,9 @@ type assistantAnswerQuality struct {
 	NoFakeData           bool
 }
 
-type assistantToolRunner func(name string, args map[string]any) assistantToolActivity
-
-var (
-	assistantUsageProfileAfterPattern   = regexp.MustCompile(`(?i)\b(?:llm\s+profile|profile)\s+([a-zA-Z0-9][a-zA-Z0-9._:/-]{0,80})`)
-	assistantUsageProfileBeforePattern  = regexp.MustCompile(`(?i)\b([a-zA-Z0-9][a-zA-Z0-9._:/-]{1,80})\s+(?:llm\s+profile|profile)\b`)
-	assistantUsageModelAfterPattern     = regexp.MustCompile(`(?i)\bmodel\s+([a-zA-Z0-9][a-zA-Z0-9._:/-]{0,80})`)
-	assistantUsageModelBeforePattern    = regexp.MustCompile(`(?i)\b([a-zA-Z0-9][a-zA-Z0-9._:/-]{1,80})\s+model\b`)
-	assistantUsageProviderAfterPattern  = regexp.MustCompile(`(?i)\bprovider\s+([a-zA-Z0-9][a-zA-Z0-9._:/-]{0,80})`)
-	assistantUsageProviderBeforePattern = regexp.MustCompile(`(?i)\b([a-zA-Z0-9][a-zA-Z0-9._:/-]{1,80})\s+provider\b`)
-	assistantUsageFeaturePattern        = regexp.MustCompile(`(?i)\bfeature\s+([a-zA-Z0-9][a-zA-Z0-9._:/-]{0,80})`)
-	assistantUsageStepPattern           = regexp.MustCompile(`(?i)\bstep\s+([a-zA-Z0-9][a-zA-Z0-9._:/-]{0,80})`)
-	assistantUsageTaskPattern           = regexp.MustCompile(`(?i)\btask\s+([a-zA-Z0-9][a-zA-Z0-9._:/-]{0,80})`)
-)
-
 func (a *App) validateAssistantToolPlan(ctx context.Context, subject aaamodel.Subject, plan assistantTurnPlan) error {
 	if len(plan.Steps) == 0 {
 		return nil
-	}
-	if err := assistantValidateToolPlanMatchesRequest(plan); err != nil {
-		return err
 	}
 	if len(plan.Steps) > assistantMaxPlanToolCalls {
 		return fmt.Errorf("assistant plan has %d tool calls; max allowed is %d", len(plan.Steps), assistantMaxPlanToolCalls)
@@ -75,6 +54,9 @@ func (a *App) validateAssistantToolPlan(ctx context.Context, subject aaamodel.Su
 		if !ok {
 			return fmt.Errorf("assistant plan step %d requested unavailable tool %q", idx+1, toolName)
 		}
+		if err := assistantValidatePlanArgsAgainstToolSchema(step.Args, tool.InputSchema); err != nil {
+			return fmt.Errorf("assistant plan step %d has arguments that do not match %s input schema: %w", idx+1, toolName, err)
+		}
 		userConfirmed := plan.UserConfirmed || assistantFeatureConfirmed(plan.LowerContent)
 		if assistantToolRequiresActionExecution(tool) &&
 			boolArg(step.Args, "confirm", false) &&
@@ -90,6 +72,100 @@ func (a *App) validateAssistantToolPlan(ctx context.Context, subject aaamodel.Su
 		}
 	}
 	return nil
+}
+
+func assistantValidatePlanArgsAgainstToolSchema(args map[string]any, schema map[string]any) error {
+	if len(schema) == 0 {
+		return nil
+	}
+	if schemaType, _ := schema["type"].(string); schemaType != "" && !assistantSchemaTypeMatches(schemaType, args) {
+		return fmt.Errorf("root must be %s", schemaType)
+	}
+	properties, _ := schema["properties"].(map[string]any)
+	if len(properties) == 0 {
+		return nil
+	}
+	for key, value := range args {
+		rawProperty, ok := properties[key]
+		if !ok {
+			continue
+		}
+		property, _ := rawProperty.(map[string]any)
+		if len(property) == 0 {
+			continue
+		}
+		if err := assistantValidateValueAgainstSchema(value, property, key); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func assistantValidateValueAgainstSchema(value any, schema map[string]any, path string) error {
+	schemaType, _ := schema["type"].(string)
+	if schemaType == "" {
+		return nil
+	}
+	if !assistantSchemaTypeMatches(schemaType, value) {
+		return fmt.Errorf("%s must be %s", path, schemaType)
+	}
+	if schemaType != "object" {
+		return nil
+	}
+	properties, _ := schema["properties"].(map[string]any)
+	if len(properties) == 0 {
+		return nil
+	}
+	mapped, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	for key, nestedValue := range mapped {
+		rawProperty, ok := properties[key]
+		if !ok {
+			continue
+		}
+		property, _ := rawProperty.(map[string]any)
+		if len(property) == 0 {
+			continue
+		}
+		if err := assistantValidateValueAgainstSchema(nestedValue, property, path+"."+key); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func assistantSchemaTypeMatches(schemaType string, value any) bool {
+	switch strings.ToLower(strings.TrimSpace(schemaType)) {
+	case "", "any":
+		return true
+	case "object":
+		_, ok := value.(map[string]any)
+		return ok
+	case "array":
+		switch value.(type) {
+		case []any, []string:
+			return true
+		default:
+			return false
+		}
+	case "string":
+		_, ok := value.(string)
+		return ok
+	case "number", "integer":
+		switch value.(type) {
+		case float64, float32, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, json.Number:
+			return true
+		default:
+			return false
+		}
+	case "boolean":
+		_, ok := value.(bool)
+		return ok
+	default:
+		return true
+	}
 }
 
 func assistantValidatePlanArgs(value any, depth int) error {
@@ -166,7 +242,6 @@ func assistantPlannedToolIsProposal(name string) bool {
 	return strings.HasPrefix(name, "nopsai.propose_") ||
 		strings.HasPrefix(name, "nopsai.plan_") ||
 		strings.HasPrefix(name, "nopsai.preview_") ||
-		name == "nopsai.generate_pipeline" ||
 		name == "nopsai.validate_pipeline"
 }
 
@@ -204,7 +279,7 @@ func assistantAnswerQualityPasses(quality assistantAnswerQuality) bool {
 
 func assistantPlanNeedsProposalSafetyLanguage(plan assistantTurnPlan) bool {
 	switch plan.Intent {
-	case "generate_pipeline", "propose_pipeline_create", "propose_pipeline_update":
+	case "propose_pipeline_create", "propose_pipeline_update":
 		return true
 	case "feature_tool":
 		for _, step := range plan.Steps {
@@ -286,136 +361,6 @@ func assistantAnyToolApplied(toolCalls []assistantToolActivity) bool {
 		}
 	}
 	return false
-}
-
-func (a *App) runAIUsageInvestigation(plan assistantTurnPlan, runTool assistantToolRunner) {
-	now := time.Now().UTC()
-	windows := assistantAIUsageInvestigationWindows(plan, now)
-	foundUsage := false
-	var lastArgs map[string]any
-	for _, step := range windows {
-		call := runTool(step.ToolName, step.Args)
-		lastArgs = cloneAssistantArgs(step.Args)
-		if step.StopWhenToolBlocked && call.Status != assistantToolStatusSuccess {
-			return
-		}
-		if step.StopWhenUsageFound && assistantAIUsageCallHasEvents(call) {
-			foundUsage = true
-			break
-		}
-	}
-	if lastArgs == nil {
-		lastArgs = cloneAssistantArgs(plan.AIUsageFilters)
-	}
-	runTool("nopsai.get_monitoring_efficiency", cloneAssistantArgs(lastArgs))
-	runTool("nopsai.get_monitoring_summary", cloneAssistantArgs(lastArgs))
-	if foundUsage {
-		return
-	}
-	runTool("nopsai.list_pipeline_runs", map[string]any{"limit": 12})
-	runTool("nopsai.get_llm_profiles", map[string]any{})
-}
-
-func assistantAIUsageInvestigationWindows(plan assistantTurnPlan, now time.Time) []assistantPlanStep {
-	baseArgs := assistantAIUsageBaseArgs(plan, now)
-	return []assistantPlanStep{
-		{
-			Thought:             "Check AI usage in the default monitoring window.",
-			ToolName:            "nopsai.get_monitoring_ai_usage",
-			Args:                cloneAssistantArgs(baseArgs),
-			StopWhenUsageFound:  true,
-			StopWhenToolBlocked: true,
-		},
-		{
-			Thought:             "Retry across the last 90 days if the default window is empty.",
-			ToolName:            "nopsai.get_monitoring_ai_usage",
-			Args:                assistantArgsWithWindow(baseArgs, now.AddDate(0, -3, 0), time.Time{}),
-			StopWhenUsageFound:  true,
-			StopWhenToolBlocked: true,
-		},
-		{
-			Thought:             "Retry across the last year before concluding no visible usage exists.",
-			ToolName:            "nopsai.get_monitoring_ai_usage",
-			Args:                assistantArgsWithWindow(baseArgs, now.AddDate(-1, 0, 0), time.Time{}),
-			StopWhenUsageFound:  true,
-			StopWhenToolBlocked: true,
-		},
-	}
-}
-
-func assistantAIUsageBaseArgs(plan assistantTurnPlan, now time.Time) map[string]any {
-	args := cloneAssistantArgs(plan.AIUsageFilters)
-	lower := plan.LowerContent
-	switch {
-	case containsAny(lower, "last week", "past week"):
-		args["from"] = now.AddDate(0, 0, -7).Format(time.RFC3339)
-	case containsAny(lower, "last month", "past month"):
-		args["from"] = now.AddDate(0, -1, 0).Format(time.RFC3339)
-	case containsAny(lower, "last quarter", "past quarter"):
-		args["from"] = now.AddDate(0, -3, 0).Format(time.RFC3339)
-	}
-	return args
-}
-
-func assistantArgsWithWindow(base map[string]any, from, to time.Time) map[string]any {
-	args := cloneAssistantArgs(base)
-	if !from.IsZero() {
-		args["from"] = from.UTC().Format(time.RFC3339)
-	}
-	if !to.IsZero() {
-		args["to"] = to.UTC().Format(time.RFC3339)
-	}
-	return args
-}
-
-func assistantAIUsageFiltersFromMessage(content string) map[string]any {
-	filters := map[string]any{}
-	if value := assistantFirstUsagePatternGroup(assistantUsageProfileAfterPattern, content); value != "" {
-		filters["llm_profile"] = value
-	} else if value := assistantFirstUsagePatternGroup(assistantUsageProfileBeforePattern, content); value != "" {
-		filters["llm_profile"] = value
-	}
-	if value := assistantFirstUsagePatternGroup(assistantUsageModelAfterPattern, content); value != "" {
-		filters["model"] = value
-	} else if value := assistantFirstUsagePatternGroup(assistantUsageModelBeforePattern, content); value != "" {
-		filters["model"] = value
-	}
-	if value := assistantFirstUsagePatternGroup(assistantUsageProviderAfterPattern, content); value != "" {
-		filters["provider"] = value
-	} else if value := assistantFirstUsagePatternGroup(assistantUsageProviderBeforePattern, content); value != "" {
-		filters["provider"] = value
-	}
-	if value := assistantFirstUsagePatternGroup(assistantUsageFeaturePattern, content); value != "" {
-		filters["feature"] = value
-	}
-	if value := assistantFirstUsagePatternGroup(assistantUsageStepPattern, content); value != "" {
-		filters["step_name"] = value
-	}
-	if value := assistantFirstUsagePatternGroup(assistantUsageTaskPattern, content); value != "" {
-		filters["task_name"] = value
-	}
-	if len(filters) == 0 {
-		return nil
-	}
-	return filters
-}
-
-func assistantFirstUsagePatternGroup(pattern *regexp.Regexp, content string) string {
-	value := assistantFirstPatternGroup(pattern, content)
-	value = strings.Trim(value, ".,;:!?\"'`")
-	if assistantUsageFilterCandidateIsGrammar(value) {
-		return ""
-	}
-	return value
-}
-
-func assistantUsageFilterCandidateIsGrammar(value string) bool {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "for", "the", "a", "an", "usage", "usages", "token", "tokens", "llm", "ai", "which", "what", "last", "week", "month", "quarter", "use", "used", "uses", "using", "most", "highest":
-		return true
-	default:
-		return false
-	}
 }
 
 func cloneAssistantArgs(args map[string]any) map[string]any {

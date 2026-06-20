@@ -168,6 +168,14 @@ func TestEffectiveLLMProfileReasoningUsesThinking(t *testing.T) {
 	}
 }
 
+func TestEffectiveLLMProfileReasoningDefaultsLMStudioOff(t *testing.T) {
+	profile := NormalizeLLMProfile(LLMProfile{Provider: LLMProviderLMStudio})
+
+	if got := EffectiveLLMProfileReasoning(profile); got != "off" {
+		t.Fatalf("EffectiveLLMProfileReasoning() = %q, want off", got)
+	}
+}
+
 func TestEffectiveLLMProfileReasoningPrefersExplicitReasoning(t *testing.T) {
 	enabled := false
 	profile := LLMProfile{Reasoning: "high", Thinking: &enabled}

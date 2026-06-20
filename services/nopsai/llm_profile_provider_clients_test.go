@@ -59,6 +59,55 @@ func TestTestOpenAICompatibleProfile(t *testing.T) {
 	}
 }
 
+func TestTestLMStudioProfilePreservesMaxOutputTokens(t *testing.T) {
+	tests := []struct {
+		name      string
+		maxTokens int
+		want      any
+	}{
+		{name: "default omitted"},
+		{name: "configured", maxTokens: 64, want: float64(64)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/v1/chat" {
+					t.Errorf("path = %q", r.URL.Path)
+				}
+				if got := r.Header.Get("Authorization"); got != "Bearer secret" {
+					t.Errorf("Authorization = %q", got)
+				}
+				var payload map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Errorf("decode request: %v", err)
+				}
+				if tt.want == nil {
+					if _, ok := payload["max_output_tokens"]; ok {
+						t.Errorf("max_output_tokens should be omitted: %#v", payload)
+					}
+				} else if payload["max_output_tokens"] != tt.want {
+					t.Errorf("max_output_tokens = %#v, want %#v", payload["max_output_tokens"], tt.want)
+				}
+				if payload["reasoning"] != "off" {
+					t.Errorf("reasoning = %#v, want off", payload["reasoning"])
+				}
+				fmt.Fprint(w, `{"output":[{"type":"message","content":"ok"}]}`)
+			}))
+			defer server.Close()
+
+			reply, err := testLMStudioProfile(t.Context(), config.LLMProfile{
+				Provider:  config.LLMProviderLMStudio,
+				Model:     "local-model",
+				BaseURL:   server.URL,
+				MaxTokens: tt.maxTokens,
+			}, "secret")
+			if err != nil || reply != "ok" {
+				t.Fatalf("testLMStudioProfile() = %q, %v", reply, err)
+			}
+		})
+	}
+}
+
 func TestNopsaiOpenAIMessageTextRejectsInvalidContent(t *testing.T) {
 	tests := []json.RawMessage{
 		json.RawMessage(`""`),
