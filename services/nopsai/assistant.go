@@ -24,6 +24,7 @@ type assistantConversation struct {
 	Scope              string                      `json:"scope"`
 	Memory             assistantConversationMemory `json:"memory,omitempty"`
 	Messages           []assistantMessage          `json:"messages,omitempty"`
+	Usage              assistantConversationUsage  `json:"usage"`
 	CreatedAt          time.Time                   `json:"created_at"`
 	UpdatedAt          time.Time                   `json:"updated_at"`
 }
@@ -34,7 +35,29 @@ type assistantMessage struct {
 	Role           string                  `json:"role"`
 	Content        string                  `json:"content"`
 	ToolCalls      []assistantToolActivity `json:"tool_calls"`
+	Usage          assistantMessageUsage   `json:"usage"`
 	CreatedAt      time.Time               `json:"created_at"`
+}
+
+type assistantMessageUsage struct {
+	ContentTokens    int64 `json:"content_tokens"`
+	PromptTokens     int64 `json:"prompt_tokens"`
+	CompletionTokens int64 `json:"completion_tokens"`
+	TotalTokens      int64 `json:"total_tokens"`
+	Estimated        bool  `json:"estimated"`
+	DurationMS       int64 `json:"duration_ms"`
+	LLMCalls         int   `json:"llm_calls"`
+}
+
+type assistantConversationUsage struct {
+	MessageCount           int   `json:"message_count"`
+	ContentTokens          int64 `json:"content_tokens"`
+	PromptTokens           int64 `json:"prompt_tokens"`
+	CompletionTokens       int64 `json:"completion_tokens"`
+	TotalTokens            int64 `json:"total_tokens"`
+	EstimatedTokenMessages int   `json:"estimated_token_messages"`
+	DurationMS             int64 `json:"duration_ms"`
+	LLMCalls               int   `json:"llm_calls"`
 }
 
 type assistantToolActivity struct {

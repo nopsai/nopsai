@@ -100,10 +100,15 @@ test('renders exact, estimated, and profile LLM token usage separately', () => {
           estimated_tokens: 300,
           exact_token_events: 3,
           estimated_token_events: 1,
+          assistant_chat_tokens: 200,
+          assistant_chat_messages: 4,
           by_pipeline: [{ key: 'platform/release', label: 'release', count: 4, tokens: 1200 }],
           by_step: [{ key: 'plan', label: 'plan', count: 2, tokens: 900 }],
           by_task: [{ key: 'plan/summarize', label: 'plan/summarize', count: 1, tokens: 600 }],
-          by_feature: [{ key: 'log_analysis', label: 'log_analysis', count: 2, tokens: 700 }],
+          by_feature: [
+            { key: 'log_analysis', label: 'log_analysis', count: 2, tokens: 700 },
+            { key: 'assistant_chat', label: 'Assistant chat', count: 4, tokens: 200 },
+          ],
           by_profile: [{ key: 'default', label: 'default', count: 2, tokens: 800 }],
           by_model: [{ key: 'gemini/gemini-2.5-pro', label: 'gemini/gemini-2.5-pro', count: 2, tokens: 700 }],
           trend: [{ key: '2026-06-12', label: '2026-06-12', runs: 1200 }],
@@ -123,6 +128,8 @@ test('renders exact, estimated, and profile LLM token usage separately', () => {
   expect(screen.getByText('Exact tokens')).toBeVisible();
   expect(screen.getByText('Estimated tokens')).toBeVisible();
   expect(screen.getByText('3 provider events')).toBeVisible();
+  expect(screen.getByText(/200 assistant chat/)).toBeVisible();
+  expect(screen.getByText('Assistant chat')).toBeVisible();
   expect(screen.getByText('1 estimated events')).toBeVisible();
   expect(screen.getByText('By Step')).toBeVisible();
   expect(screen.getByText('By Task')).toBeVisible();

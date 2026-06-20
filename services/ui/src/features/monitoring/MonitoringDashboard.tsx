@@ -367,10 +367,14 @@ function RunnersTab({ services, runners, summary, history, unavailable, loading 
 }
 
 function AIUsageTab({ usage, previousUsage, loading }: { usage: MonitoringAIUsage | null; previousUsage: MonitoringAIUsage | null; loading: boolean }) {
+  const assistantChatTokens = safeNumber(usage?.assistant_chat_tokens);
+  const assistantChatDetail = assistantChatTokens > 0
+    ? ` · ${formatNumber(assistantChatTokens)} assistant chat`
+    : '';
   return (
     <div className="space-y-4">
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard icon={<Bot />} label="Total tokens" value={formatNumber(usage?.total_tokens)} detail={`${formatNumber(usage?.total_prompt_tokens)} prompt / ${formatNumber(usage?.total_completion_tokens)} completion`} delta={deltaValue(usage?.total_tokens, previousUsage?.total_tokens)} tone="blue" loading={loading} />
+        <MetricCard icon={<Bot />} label="Total tokens" value={formatNumber(usage?.total_tokens)} detail={`${formatNumber(usage?.total_prompt_tokens)} prompt / ${formatNumber(usage?.total_completion_tokens)} completion${assistantChatDetail}`} delta={deltaValue(usage?.total_tokens, previousUsage?.total_tokens)} tone="blue" loading={loading} />
         <MetricCard icon={<Activity />} label="Exact tokens" value={formatNumber(usage?.exact_tokens)} detail={`${formatNumber(usage?.exact_token_events)} provider events`} delta={deltaValue(usage?.exact_tokens, previousUsage?.exact_tokens)} positiveIsGood tone="green" loading={loading} />
         <MetricCard icon={<Gauge />} label="Estimated tokens" value={formatNumber(usage?.estimated_tokens)} detail={`${formatNumber(usage?.estimated_token_events)} estimated events`} delta={deltaValue(usage?.estimated_tokens, previousUsage?.estimated_tokens)} tone="amber" loading={loading} />
         <MetricCard icon={<Clock3 />} label="Token trend" value={formatNumber((usage?.trend || []).reduce((sum, item) => sum + safeNumber(item.runs), 0))} detail={`${(usage?.trend || []).length} buckets`} delta={deltaValue((usage?.trend || []).reduce((sum, item) => sum + safeNumber(item.runs), 0), (previousUsage?.trend || []).reduce((sum, item) => sum + safeNumber(item.runs), 0))} tone="red" loading={loading} />

@@ -11,7 +11,7 @@ import {
   sendAssistantMessage,
 } from './api.js';
 import type { AssistantConfig, AssistantConversation, AssistantMessagePayload } from './model.js';
-import { emptyAssistantMemory } from './model.js';
+import { emptyAssistantConversationUsage, emptyAssistantMemory, emptyAssistantMessageUsage } from './model.js';
 import { useAssistantController } from './useAssistantController.js';
 
 vi.mock('./api.js', () => ({
@@ -231,6 +231,7 @@ function assistantConversation(id: string, messages: ReturnType<typeof assistant
     scope: '',
     memory: emptyAssistantMemory,
     messages,
+    usage: emptyAssistantConversationUsage,
     created_at: '2026-06-19T00:00:00Z',
     updated_at: '2026-06-19T00:00:00Z',
   };
@@ -243,6 +244,7 @@ function assistantMessage(id: string, conversationID: string, role: string, cont
     role,
     content,
     tool_calls: [],
+    usage: emptyAssistantMessageUsage,
     created_at: '2026-06-19T00:00:00Z',
   };
 }

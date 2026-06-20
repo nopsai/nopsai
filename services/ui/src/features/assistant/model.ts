@@ -14,7 +14,29 @@ export type AssistantMessage = {
   role: 'user' | 'assistant' | 'system' | string;
   content: string;
   tool_calls: AssistantToolActivity[];
+  usage: AssistantMessageUsage;
   created_at: string;
+};
+
+export type AssistantMessageUsage = {
+  content_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  estimated: boolean;
+  duration_ms: number;
+  llm_calls: number;
+};
+
+export type AssistantConversationUsage = {
+  message_count: number;
+  content_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  estimated_token_messages: number;
+  duration_ms: number;
+  llm_calls: number;
 };
 
 export type AssistantMemory = {
@@ -37,6 +59,7 @@ export type AssistantConversation = {
   scope: string;
   memory: AssistantMemory;
   messages: AssistantMessage[];
+  usage: AssistantConversationUsage;
   created_at: string;
   updated_at: string;
 };
@@ -110,8 +133,31 @@ export const emptyAssistantMemory: AssistantMemory = {
   selected_docs_version: '',
 };
 
+export const emptyAssistantMessageUsage: AssistantMessageUsage = {
+  content_tokens: 0,
+  prompt_tokens: 0,
+  completion_tokens: 0,
+  total_tokens: 0,
+  estimated: false,
+  duration_ms: 0,
+  llm_calls: 0,
+};
+
+export const emptyAssistantConversationUsage: AssistantConversationUsage = {
+  message_count: 0,
+  content_tokens: 0,
+  prompt_tokens: 0,
+  completion_tokens: 0,
+  total_tokens: 0,
+  estimated_token_messages: 0,
+  duration_ms: 0,
+  llm_calls: 0,
+};
+
 export function normalizeAssistantConversation(value: unknown): AssistantConversation {
   const record = asRecord(value) || {};
+  const messages = Array.isArray(record.messages) ? record.messages.map(normalizeAssistantMessage) : [];
+  const usage = normalizeAssistantConversationUsage(record.usage);
   return {
     id: readString(record.id),
     user_id: readString(record.user_id),
@@ -120,7 +166,8 @@ export function normalizeAssistantConversation(value: unknown): AssistantConvers
     docs_version: readString(record.docs_version) || 'auto',
     scope: readString(record.scope),
     memory: normalizeAssistantMemory(record.memory),
-    messages: Array.isArray(record.messages) ? record.messages.map(normalizeAssistantMessage) : [],
+    messages,
+    usage: usage.message_count > 0 || messages.length === 0 ? usage : assistantConversationUsageFromMessages(messages),
     created_at: readString(record.created_at),
     updated_at: readString(record.updated_at),
   };
@@ -203,6 +250,7 @@ export function normalizeAssistantMessage(value: unknown): AssistantMessage {
     role: readString(record.role),
     content: readString(record.content),
     tool_calls: Array.isArray(record.tool_calls) ? record.tool_calls.map(normalizeAssistantToolActivity) : [],
+    usage: normalizeAssistantMessageUsage(record.usage),
     created_at: readString(record.created_at),
   };
 }
@@ -271,6 +319,55 @@ export function assistantMessageAuthorLabel(message: AssistantMessage): string {
   return message.role || 'System';
 }
 
+export function assistantMessageUsageLabel(message: AssistantMessage): string {
+  const usage = message.usage || emptyAssistantMessageUsage;
+  const parts: string[] = [];
+  if (usage.total_tokens > 0) {
+    const source = usage.llm_calls > 0 ? 'LLM token' : 'visible token';
+    parts.push(`${formatAssistantNumber(usage.total_tokens)} ${source}${usage.total_tokens === 1 ? '' : 's'}${usage.estimated ? ' est.' : ''}`);
+  } else if (usage.content_tokens > 0) {
+    parts.push(`${formatAssistantNumber(usage.content_tokens)} visible token${usage.content_tokens === 1 ? '' : 's'} est.`);
+  }
+  if (usage.duration_ms > 0) parts.push(formatAssistantDuration(usage.duration_ms));
+  if (usage.llm_calls > 1) parts.push(`${usage.llm_calls} LLM calls`);
+  return parts.join(' · ');
+}
+
+export function assistantConversationUsageLabel(conversation: AssistantConversation | null): string {
+  const usage = conversation?.usage || emptyAssistantConversationUsage;
+  if (!conversation || usage.message_count === 0) return 'No usage recorded yet';
+  const parts = [
+    `${formatAssistantNumber(usage.total_tokens)} tokens`,
+    `${usage.message_count} message${usage.message_count === 1 ? '' : 's'}`,
+  ];
+  if (usage.duration_ms > 0) parts.push(formatAssistantDuration(usage.duration_ms));
+  if (usage.estimated_token_messages > 0) parts.push(`${usage.estimated_token_messages} estimated`);
+  return parts.join(' · ');
+}
+
+export type ProposedChange = {
+  key: string;
+  title: string;
+  body: string;
+  note: string;
+};
+
+export function proposedChangesFromMessages(messages: AssistantMessage[]): ProposedChange[] {
+  return messages.flatMap(message => message.tool_calls.flatMap((tool, index) => {
+    const proposalType = readRecordString(tool.output, 'proposal_type');
+    const yaml = readRecordString(tool.output, 'yaml');
+    if (!proposalType && !yaml) return [];
+
+    const body = yaml || prettyPrintRecord(tool.output['target']) || prettyPrintRecord(tool.output);
+    return [{
+      key: `${message.id}-${tool.name}-${index}`,
+      title: proposalTitle(proposalType || tool.name),
+      body,
+      note: tool.output['applies'] === false ? 'Proposal only. No changes were applied.' : '',
+    }];
+  }));
+}
+
 function normalizeAssistantStringArray(value: unknown): string[] {
   const seen = new Set<string>();
   const normalized: string[] = [];
@@ -290,6 +387,52 @@ function readNumber(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
+function readNonNegativeNumber(value: unknown): number {
+  const number = readNumber(value, 0);
+  return number > 0 ? Math.floor(number) : 0;
+}
+
+function normalizeAssistantMessageUsage(value: unknown): AssistantMessageUsage {
+  const record = asRecord(value) || {};
+  return {
+    content_tokens: readNonNegativeNumber(record.content_tokens),
+    prompt_tokens: readNonNegativeNumber(record.prompt_tokens),
+    completion_tokens: readNonNegativeNumber(record.completion_tokens),
+    total_tokens: readNonNegativeNumber(record.total_tokens),
+    estimated: readBoolean(record.estimated, false),
+    duration_ms: readNonNegativeNumber(record.duration_ms),
+    llm_calls: readNonNegativeNumber(record.llm_calls),
+  };
+}
+
+function normalizeAssistantConversationUsage(value: unknown): AssistantConversationUsage {
+  const record = asRecord(value) || {};
+  return {
+    message_count: readNonNegativeNumber(record.message_count),
+    content_tokens: readNonNegativeNumber(record.content_tokens),
+    prompt_tokens: readNonNegativeNumber(record.prompt_tokens),
+    completion_tokens: readNonNegativeNumber(record.completion_tokens),
+    total_tokens: readNonNegativeNumber(record.total_tokens),
+    estimated_token_messages: readNonNegativeNumber(record.estimated_token_messages),
+    duration_ms: readNonNegativeNumber(record.duration_ms),
+    llm_calls: readNonNegativeNumber(record.llm_calls),
+  };
+}
+
+function assistantConversationUsageFromMessages(messages: AssistantMessage[]): AssistantConversationUsage {
+  return messages.reduce<AssistantConversationUsage>((usage, message) => {
+    usage.message_count += 1;
+    usage.content_tokens += message.usage.content_tokens;
+    usage.prompt_tokens += message.usage.prompt_tokens;
+    usage.completion_tokens += message.usage.completion_tokens;
+    usage.total_tokens += message.usage.total_tokens;
+    usage.duration_ms += message.usage.duration_ms;
+    usage.llm_calls += message.usage.llm_calls;
+    if (message.usage.estimated) usage.estimated_token_messages += 1;
+    return usage;
+  }, { ...emptyAssistantConversationUsage });
+}
+
 function normalizeAssistantToolActivity(value: unknown): AssistantToolActivity {
   const record = asRecord(value) || {};
   return {
@@ -299,4 +442,36 @@ function normalizeAssistantToolActivity(value: unknown): AssistantToolActivity {
     status: readString(record.status),
     resource_uris: normalizeStringArray(record.resource_uris),
   };
+}
+
+function formatAssistantNumber(value: number): string {
+  return new Intl.NumberFormat('en-US').format(value);
+}
+
+function formatAssistantDuration(durationMs: number): string {
+  if (durationMs < 1000) return `${durationMs}ms`;
+  const seconds = durationMs / 1000;
+  if (seconds < 10) return `${seconds.toFixed(1).replace(/\.0$/, '')}s`;
+  return `${Math.round(seconds)}s`;
+}
+
+function proposalTitle(value: string): string {
+  return value
+    .replace(/^nopsai\./, '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, char => char.toUpperCase());
+}
+
+function readRecordString(record: Record<string, unknown>, key: string): string {
+  const value = record[key];
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function prettyPrintRecord(value: unknown): string {
+  if (!value) return '';
+  try {
+    return JSON.stringify(value, null, 2) || '';
+  } catch {
+    return String(value);
+  }
 }
