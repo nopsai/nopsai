@@ -232,11 +232,13 @@ func assistantTurnPlanFromPlannerDecision(base assistantTurnPlan, decision assis
 			Args:     cloneAssistantArgs(step.Args),
 		})
 	}
-	if assistantRequestRequiresAIUsageEvidence(plan.LowerContent) && assistantPlanIncludesTool(plan, "nopsai.get_monitoring_ai_usage") {
+	if assistantPlanIncludesTool(plan, "nopsai.get_monitoring_ai_usage") {
 		plan.Intent = "ai_token_usage"
 	}
-	if assistantPlanIncludesTool(plan, "nopsai.generate_pipeline") {
-		plan.Intent = "generate_pipeline"
+	if assistantPlanIncludesTool(plan, "nopsai.propose_pipeline_create") {
+		plan.Intent = "propose_pipeline_create"
+	} else if assistantPlanIncludesTool(plan, "nopsai.propose_pipeline_update") {
+		plan.Intent = "propose_pipeline_update"
 	} else if assistantPlanIncludesTool(plan, "nopsai.validate_pipeline") {
 		plan.Intent = "validate_pipeline"
 	} else if assistantPlanIncludesTool(plan, "nopsai.search_pipelines") {
@@ -266,25 +268,20 @@ func (a *App) buildAssistantPlannerPrompt(ctx context.Context, subject aaamodel.
 			"max_steps_per_plan":   assistantMaxPlanToolCalls,
 			"iteration":            iteration,
 		},
-		"request_requirements":          assistantPlannerRequestRequirements(plan),
-		"available_tools":               assistantPlannerToolCatalog(availableTools),
-		"feature_catalog":               assistantPlannerFeatureCatalog(availableTools),
-		"pipeline_generation_templates": assistantPlannerPipelineTemplateCatalog(),
-		"previous_tool_calls":           assistantLLMPromptToolCalls(assistantEvidenceToolCalls(toolCalls)),
+		"available_tools":     assistantPlannerToolCatalog(availableTools),
+		"previous_tool_calls": assistantLLMPromptToolCalls(assistantEvidenceToolCalls(toolCalls)),
 	}
-	raw, _ := json.MarshalIndent(payload, "", "  ")
+	raw, _ := json.Marshal(payload)
 	return strings.TrimSpace(`You are the NopsAI assistant planner for an enterprise CI/CD, GitOps, and operations platform.
 
-Create a safe hosted MCP tool plan from the user's request, feature_catalog, available_tools, and observed tool results.
-Use only tool names from available_tools. feature_catalog helps map natural language to product areas but does not grant access. Never invent tools. Never request direct database access.
+Create a safe hosted MCP tool plan from the user's request, available_tools, and observed tool results.
+Use only tool names from available_tools. Select tools from their descriptions and input_schema. Never invent tools. Never request direct database access.
 Prefer first-party analytics tools over stitching raw data manually.
 For reads, choose the smallest evidence set that can answer the question.
-request_requirements.contracts contains enforced semantic contracts for this user request. Satisfy every contract's required_any_tools, required_all_tools, and required_args; wrong_evidence_notes explain tool evidence that is not sufficient.
-If request_requirements.ai_token_usage_evidence_required is true, use nopsai.get_monitoring_ai_usage with the requested run_id/runId filter when present. Pipeline run status, logs, and failure-analysis tools do not report token counts and must not be used as the answer to token-usage questions.
-For pipeline draft requests, use nopsai.generate_pipeline with the full user goal. pipeline_generation_templates describes available generator coverage. Do not write pipeline YAML directly in final_answer.
+For pipeline YAML, config, or API validation, use the relevant MCP validation/API/doc tools and schemas instead of relying on memory.
 For changes, prefer nopsai.propose_* or nopsai.plan_* tools. Do not apply changes unless the user explicitly confirmed the mutation and the tool accepts confirm:true.
 If a mutating tool is needed but the user did not explicitly confirm, return that tool without confirm:true; NopsAI validation will block execution and the answer should explain confirmation is required.
-If the previous tool outputs satisfy every request contract, return no steps and write final_answer from the evidence.
+If the previous tool outputs are sufficient, return no steps and write final_answer from the evidence.
 If the request is too broad or missing a target, return no steps and set clarifying_question.
 
 Return JSON only, with this shape:
@@ -307,21 +304,12 @@ Context:
 func assistantPlannerToolCatalog(tools []hostedMCPTool) []map[string]any {
 	items := make([]map[string]any, 0, len(tools))
 	for _, tool := range tools {
-		properties := []string{}
-		if schemaProps, _ := tool.InputSchema["properties"].(map[string]any); len(schemaProps) > 0 {
-			for key := range schemaProps {
-				properties = append(properties, key)
-			}
-			sort.Strings(properties)
-		}
 		items = append(items, map[string]any{
-			"name":        tool.Name,
-			"description": tool.Description,
-			"args":        properties,
-			"mutating":    assistantToolRequiresActionExecution(tool),
-			"proposal":    assistantPlannedToolIsProposal(tool.Name),
-			"resource":    tool.Resource,
-			"action":      tool.Action,
+			"name":         tool.Name,
+			"description":  tool.Description,
+			"input_schema": assistantPlannerCompactInputSchema(tool.InputSchema),
+			"mutating":     assistantToolRequiresActionExecution(tool),
+			"proposal":     assistantPlannedToolIsProposal(tool.Name),
 		})
 	}
 	sort.Slice(items, func(i, j int) bool {
@@ -330,54 +318,33 @@ func assistantPlannerToolCatalog(tools []hostedMCPTool) []map[string]any {
 	return items
 }
 
-func assistantPlannerFeatureCatalog(tools []hostedMCPTool) []map[string]any {
-	availableToolSet := map[string]struct{}{}
-	for _, tool := range tools {
-		availableToolSet[tool.Name] = struct{}{}
+func assistantPlannerCompactInputSchema(schema map[string]any) map[string]any {
+	compact := map[string]any{"type": "object"}
+	properties, _ := schema["properties"].(map[string]any)
+	if len(properties) == 0 {
+		return compact
 	}
-	items := []map[string]any{}
-	for _, capability := range hostedMCPFeatureCapabilityCatalog() {
-		availableTools := []string{}
-		for _, toolName := range capability.Tools {
-			if _, ok := availableToolSet[toolName]; ok {
-				availableTools = append(availableTools, toolName)
-			}
-		}
-		if len(availableTools) == 0 {
-			continue
-		}
-		items = append(items, map[string]any{
-			"area":            capability.Area,
-			"features":        capability.Features,
-			"coverage":        capability.Coverage,
-			"mode":            capability.Mode,
-			"available_tools": availableTools,
-		})
+	propertyTypes := map[string]string{}
+	keys := make([]string, 0, len(properties))
+	for key := range properties {
+		keys = append(keys, key)
 	}
-	sort.Slice(items, func(i, j int) bool {
-		return fmt.Sprint(items[i]["area"]) < fmt.Sprint(items[j]["area"])
-	})
-	return items
+	sort.Strings(keys)
+	for _, key := range keys {
+		property, _ := properties[key].(map[string]any)
+		propertyTypes[key] = assistantPlannerSchemaTypeLabel(property)
+	}
+	compact["properties"] = propertyTypes
+	return compact
 }
 
-func assistantPlannerPipelineTemplateCatalog() []map[string]any {
-	templates := pipelineTemplates()
-	items := make([]map[string]any, 0, len(templates)+1)
-	for _, template := range templates {
-		items = append(items, map[string]any{
-			"id":          template.ID,
-			"match_terms": template.MatchTerms,
-		})
+func assistantPlannerSchemaTypeLabel(schema map[string]any) string {
+	schemaType, _ := schema["type"].(string)
+	schemaType = strings.TrimSpace(schemaType)
+	if schemaType == "" {
+		return "any"
 	}
-	generic := genericPipelineTemplate()
-	items = append(items, map[string]any{
-		"id":          generic.ID,
-		"match_terms": generic.MatchTerms,
-	})
-	sort.Slice(items, func(i, j int) bool {
-		return fmt.Sprint(items[i]["id"]) < fmt.Sprint(items[j]["id"])
-	})
-	return items
+	return schemaType
 }
 
 func parseAssistantPlannerDecision(text string) (assistantPlannerDecision, error) {

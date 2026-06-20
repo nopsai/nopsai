@@ -15,6 +15,8 @@ import (
 	"nopsai/services/aaa/pkg/model"
 )
 
+const assistantValidPipelineYAMLForTest = "name: deploy-web\ncontainer_image: alpine:3.20\nsteps:\n  - name: plan\n    script: echo ok\n"
+
 func TestAssistantFeatureFlagsGateHostedMCPTools(t *testing.T) {
 	disabled := false
 	app := &App{
@@ -43,20 +45,20 @@ func TestAssistantFeatureFlagsGateHostedMCPTools(t *testing.T) {
 }
 
 func TestAssistantHostedMCPToolUsesJSONRPCProcessor(t *testing.T) {
-	app := &App{aaaLocal: allowActionsForAssistantTest("pipeline.create")}
+	app := &App{aaaLocal: allowActionsForAssistantTest("pipeline.read")}
 	result, err := app.callAssistantHostedMCPTool(
 		context.Background(),
 		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
 		"user:viewer",
 		uuid.New(),
-		"nopsai.generate_pipeline",
-		map[string]any{"name": "deploy-web", "goal": "build and deploy"},
+		"nopsai.validate_pipeline",
+		map[string]any{"yaml": assistantValidPipelineYAMLForTest},
 	)
 	if err != nil {
 		t.Fatalf("callAssistantHostedMCPTool() error = %v", err)
 	}
-	if yaml := assistantOutputString(result, "yaml"); !strings.Contains(yaml, "name: deploy-web") {
-		t.Fatalf("structured MCP result missing generated yaml: %#v", result)
+	if result["valid"] != true || result["name"] != "deploy-web" {
+		t.Fatalf("structured MCP validation result = %#v, want valid deploy-web", result)
 	}
 }
 
@@ -64,7 +66,7 @@ func TestAssistantHostedMCPToolRespectsMCPEnabledFlag(t *testing.T) {
 	disabled := false
 	app := &App{
 		cfg:      &config.Config{Assistant: config.AssistantConfig{MCP: config.AssistantMCPConfig{Enabled: &disabled}}},
-		aaaLocal: allowActionsForAssistantTest("pipeline.create"),
+		aaaLocal: allowActionsForAssistantTest("pipeline.read"),
 	}
 
 	call := app.runAssistantHostedMCPTool(
@@ -72,8 +74,8 @@ func TestAssistantHostedMCPToolRespectsMCPEnabledFlag(t *testing.T) {
 		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
 		"user:viewer",
 		uuid.New(),
-		"nopsai.generate_pipeline",
-		map[string]any{"name": "deploy-web"},
+		"nopsai.validate_pipeline",
+		map[string]any{"yaml": assistantValidPipelineYAMLForTest},
 	)
 	if call.Status != assistantToolStatusDenied || !strings.Contains(assistantOutputString(call.Output, "error"), "disabled") {
 		t.Fatalf("call = %#v, want disabled denial", call)
@@ -347,71 +349,6 @@ func TestAssistantAIUsageReplyExplainsEmptyInvestigation(t *testing.T) {
 	}
 }
 
-func TestAssistantAIUsageInvestigationRetriesAndCollectsContext(t *testing.T) {
-	plan := assistantTurnPlan{Intent: "ai_token_usage", AIUsageFilters: map[string]any{"model": "qwen"}}
-	calls := []assistantToolActivity{}
-	(&App{}).runAIUsageInvestigation(plan, func(name string, args map[string]any) assistantToolActivity {
-		call := assistantToolActivity{Name: name, Input: args, Status: assistantToolStatusSuccess, Output: map[string]any{}}
-		switch name {
-		case "nopsai.get_monitoring_ai_usage":
-			call.Output = map[string]any{"total_tokens": 0}
-		case "nopsai.get_monitoring_summary":
-			call.Output = map[string]any{"total_runs": 4}
-		case "nopsai.list_pipeline_runs":
-			call.Output = map[string]any{"runs": []map[string]any{{"run_id": "run-1"}}}
-		}
-		calls = append(calls, call)
-		return call
-	})
-
-	names := []string{}
-	for _, call := range calls {
-		names = append(names, call.Name)
-		if strings.HasPrefix(call.Name, "nopsai.get_monitoring_") && call.Input["model"] != "qwen" {
-			t.Fatalf("monitoring call missing model filter: %#v", call)
-		}
-	}
-	want := []string{
-		"nopsai.get_monitoring_ai_usage",
-		"nopsai.get_monitoring_ai_usage",
-		"nopsai.get_monitoring_ai_usage",
-		"nopsai.get_monitoring_efficiency",
-		"nopsai.get_monitoring_summary",
-		"nopsai.list_pipeline_runs",
-		"nopsai.get_llm_profiles",
-	}
-	if strings.Join(names, ",") != strings.Join(want, ",") {
-		t.Fatalf("calls = %#v, want %#v", names, want)
-	}
-}
-
-func TestAssistantAIUsageInvestigationStopsWhenFallbackFindsEvents(t *testing.T) {
-	plan := assistantTurnPlan{Intent: "ai_token_usage", AIUsageFilters: map[string]any{}}
-	usageCalls := 0
-	calls := []assistantToolActivity{}
-	(&App{}).runAIUsageInvestigation(plan, func(name string, args map[string]any) assistantToolActivity {
-		call := assistantToolActivity{Name: name, Input: args, Status: assistantToolStatusSuccess, Output: map[string]any{}}
-		if name == "nopsai.get_monitoring_ai_usage" {
-			usageCalls++
-			call.Output = map[string]any{"total_tokens": 0}
-			if usageCalls == 2 {
-				call.Output = map[string]any{"total_tokens": 100, "by_pipeline": []map[string]any{{"label": "deploy-api", "tokens": 100}}}
-			}
-		}
-		calls = append(calls, call)
-		return call
-	})
-
-	if usageCalls != 2 {
-		t.Fatalf("usage calls = %d, want 2", usageCalls)
-	}
-	for _, call := range calls {
-		if call.Name == "nopsai.list_pipeline_runs" || call.Name == "nopsai.get_llm_profiles" {
-			t.Fatalf("unexpected no-event diagnostic call after usage was found: %#v", calls)
-		}
-	}
-}
-
 func TestAssistantOrchestrationSynthesizesReplyWithLLMProfile(t *testing.T) {
 	credentialRef := "credential://system/llm/standard"
 	requestCount := 0
@@ -484,9 +421,12 @@ func TestAssistantOrchestrationSynthesizesReplyWithLLMProfile(t *testing.T) {
 		t.Fatalf("reply = %q, want quality-safe LLM answer", result.Reply)
 	}
 	if !strings.Contains(plannerPrompt, "available_tools") ||
-		!strings.Contains(plannerPrompt, "feature_catalog") ||
+		!strings.Contains(plannerPrompt, "input_schema") ||
 		!strings.Contains(plannerPrompt, "nopsai.get_feature_capabilities") {
-		t.Fatalf("planner prompt missing tool catalog: %s", plannerPrompt)
+		t.Fatalf("planner prompt missing live tool schema catalog: %s", plannerPrompt)
+	}
+	if strings.Contains(plannerPrompt, "feature_catalog") || strings.Contains(plannerPrompt, "request_requirements") {
+		t.Fatalf("planner prompt should not include static routing catalogs: %s", plannerPrompt)
 	}
 	if !strings.Contains(synthesisPrompt, "nopsai.get_feature_capabilities") || !strings.Contains(synthesisPrompt, "No changes were applied") {
 		t.Fatalf("synthesis prompt missing tool evidence: %s", synthesisPrompt)
@@ -508,7 +448,7 @@ func TestAssistantOrchestrationFallsBackWhenLLMClaimsUnappliedChange(t *testing.
 		w.Header().Set("Content-Type", "application/json")
 		switch requestCount {
 		case 1:
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"goal\":\"Generate pipeline YAML named deploy-web\",\"intent\":\"generate_pipeline\",\"steps\":[{\"tool\":\"nopsai.generate_pipeline\",\"args\":{\"name\":\"deploy-web\",\"goal\":\"Generate pipeline YAML named deploy-web\"},\"reason\":\"Draft proposal YAML only.\"}],\"success_criteria\":\"Return a GitOps-safe YAML proposal without applying it.\",\"needs_more_tools\":false,\"final_answer\":\"\",\"clarifying_question\":\"\"}"}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`)
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"goal\":\"Prepare pipeline YAML named deploy-web\",\"intent\":\"propose_pipeline_create\",\"steps\":[{\"tool\":\"nopsai.propose_pipeline_create\",\"args\":{\"name\":\"deploy-web\",\"yaml\":\"name: deploy-web\\ncontainer_image: alpine:3.20\\nsteps:\\n  - name: plan\\n    script: echo ok\\n\",\"message\":\"Create NopsAI pipeline deploy-web\"},\"reason\":\"Validate the LLM-drafted YAML and produce a GitOps file plan.\"}],\"success_criteria\":\"Return a GitOps-ready pipeline create plan without applying it.\",\"needs_more_tools\":false,\"final_answer\":\"\",\"clarifying_question\":\"\"}"}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`)
 		default:
 			fmt.Fprint(w, `{"choices":[{"message":{"content":"I applied the pipeline change."}}],"usage":{"prompt_tokens":9,"completion_tokens":5,"total_tokens":14}}`)
 		}
@@ -544,7 +484,7 @@ func TestAssistantOrchestrationFallsBackWhenLLMClaimsUnappliedChange(t *testing.
 	if requestCount != 2 {
 		t.Fatalf("LLM requests = %d, want planner and synthesis", requestCount)
 	}
-	if !strings.Contains(result.Reply, "I drafted a GitOps-safe pipeline proposal") || !strings.Contains(result.Reply, "No changes were applied") {
+	if !strings.Contains(result.Reply, "I prepared a GitOps-ready pipeline write plan") || !strings.Contains(result.Reply, "No changes were applied") {
 		t.Fatalf("reply should fall back to deterministic proposal-safe summary: %q", result.Reply)
 	}
 	call := assistantFirstToolCall(result.ToolCalls, assistantLLMToolName)
@@ -553,7 +493,7 @@ func TestAssistantOrchestrationFallsBackWhenLLMClaimsUnappliedChange(t *testing.
 	}
 }
 
-func TestAssistantOrchestrationReportsPlannerUnavailableWhenLLMProviderFails(t *testing.T) {
+func TestAssistantOrchestrationFailsClosedWhenLLMProviderFails(t *testing.T) {
 	credentialRef := "credential://system/llm/standard"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "provider unavailable", http.StatusBadGateway)
@@ -586,13 +526,8 @@ func TestAssistantOrchestrationReportsPlannerUnavailableWhenLLMProviderFails(t *
 		"standard",
 	)
 
-	if !strings.Contains(result.Reply, "assistant LLM planner was unavailable") || !strings.Contains(result.Reply, "No changes were applied") {
-		t.Fatalf("reply did not fail closed on planner error: %q", result.Reply)
-	}
-	for _, call := range result.ToolCalls {
-		if call.Name == "nopsai.generate_pipeline" {
-			t.Fatalf("tool should not run without a validated planner result: %#v", call)
-		}
+	if !strings.Contains(result.Reply, "assistant LLM planner was unavailable or returned an invalid plan") || !strings.Contains(result.Reply, "No changes were applied") {
+		t.Fatalf("reply should fail closed without a static fallback: %q", result.Reply)
 	}
 	call := assistantFirstToolCall(result.ToolCalls, assistantLLMPlannerToolName)
 	if call.Status != assistantToolStatusError {
@@ -600,6 +535,11 @@ func TestAssistantOrchestrationReportsPlannerUnavailableWhenLLMProviderFails(t *
 	}
 	if assistantOutputString(call.Output, "fallback_reason") == "" {
 		t.Fatalf("fallback reason missing: %#v", call.Output)
+	}
+	for _, toolCall := range result.ToolCalls {
+		if strings.HasPrefix(toolCall.Name, "nopsai.") && toolCall.Name != assistantLLMPlannerToolName {
+			t.Fatalf("unexpected hosted MCP tool call after planner failure: %#v", toolCall)
+		}
 	}
 }
 
@@ -668,9 +608,12 @@ func TestAssistantLLMPlannerExecutesValidatedToolPlan(t *testing.T) {
 		t.Fatalf("LLM requests = %d, want planner and synthesis", requestCount)
 	}
 	if !strings.Contains(plannerPrompt, "available_tools") ||
-		!strings.Contains(plannerPrompt, "feature_catalog") ||
+		!strings.Contains(plannerPrompt, "input_schema") ||
 		!strings.Contains(plannerPrompt, "nopsai.get_feature_capabilities") {
-		t.Fatalf("planner prompt missing tool catalog: %s", plannerPrompt)
+		t.Fatalf("planner prompt missing live tool schema catalog: %s", plannerPrompt)
+	}
+	if strings.Contains(plannerPrompt, "feature_catalog") || strings.Contains(plannerPrompt, "request_requirements") {
+		t.Fatalf("planner prompt should not include static routing catalogs: %s", plannerPrompt)
 	}
 	if !strings.Contains(synthesisPrompt, "nopsai.get_feature_capabilities") {
 		t.Fatalf("synthesis prompt missing tool evidence: %s", synthesisPrompt)
@@ -689,36 +632,8 @@ func TestAssistantLLMPlannerExecutesValidatedToolPlan(t *testing.T) {
 	}
 }
 
-func TestAssistantPlannerPromptRequiresAIUsageEvidenceForRunTokenQuestion(t *testing.T) {
-	runID := "e3850cec-550f-456a-bec8-e67777d71d24"
-	app := &App{aaaLocal: allowActionsForAssistantTest("pipeline_run.list", "pipeline_run.read", "pipeline_run.read_logs")}
-	plan := assistantBaseTurnPlan("how many token is used by "+runID+" pipelinerun", assistantConversationMemory{})
-
-	prompt := app.buildAssistantPlannerPrompt(
-		context.Background(),
-		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
-		assistantConversation{ID: uuid.New(), DocsVersion: "auto"},
-		plan.Goal,
-		plan,
-		nil,
-		assistantMaxPlanToolCalls,
-		1,
-	)
-
-	for _, want := range []string{
-		`"ai_token_usage_evidence_required": true`,
-		`"required_tool": "nopsai.get_monitoring_ai_usage"`,
-		runID,
-		"Pipeline run status, logs, and failure-analysis tools do not report token counts",
-	} {
-		if !strings.Contains(prompt, want) {
-			t.Fatalf("planner prompt missing %q:\n%s", want, prompt)
-		}
-	}
-}
-
-func TestAssistantPlannerPromptRequiresPipelineGenerationEvidence(t *testing.T) {
-	app := &App{aaaLocal: allowActionsForAssistantTest("pipeline.create")}
+func TestAssistantPlannerPromptUsesLiveToolSchemasWithoutStaticRouting(t *testing.T) {
+	app := &App{aaaLocal: allowActionsForAssistantTest("pipeline.read", "pipeline.create", "system.read")}
 	content := "give me a pipeline that has 4 step and last one is approval, pipeline goal is to build and publish docker image based on DDD standards"
 	plan := assistantBaseTurnPlan(content, assistantConversationMemory{})
 
@@ -734,267 +649,105 @@ func TestAssistantPlannerPromptRequiresPipelineGenerationEvidence(t *testing.T) 
 	)
 
 	for _, want := range []string{
-		`"id": "pipeline_generation"`,
-		`"required_any_tools": [`,
-		`"nopsai.generate_pipeline"`,
-		"For pipeline draft requests, use nopsai.generate_pipeline",
-		"docker-ddd-publish-approval",
+		"available_tools",
+		"input_schema",
+		"nopsai.validate_pipeline",
+		"nopsai.propose_pipeline_create",
+		"Use only tool names from available_tools",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("planner prompt missing %q:\n%s", want, prompt)
 		}
 	}
-}
-
-func TestAssistantRequestContractsRejectWrongFeatureEvidence(t *testing.T) {
-	tests := []struct {
-		name      string
-		message   string
-		wrongTool string
-		args      map[string]any
-		wantErr   string
-	}{
-		{
-			name:      "feature policy requires capability catalog",
-			message:   "do we have any policy to prevent showing envs?",
-			wrongTool: "nopsai.search_docs",
-			args:      map[string]any{"query": "env policy"},
-			wantErr:   "nopsai.get_feature_capabilities",
-		},
-		{
-			name:      "repetitive variables require metadata analyzer",
-			message:   "how many repetitive variables are used in all scopes?",
-			wrongTool: "nopsai.list_variables_metadata",
-			args:      map[string]any{},
-			wantErr:   "nopsai.analyze_variable_usage",
-		},
-		{
-			name:      "scope secret counts require secret scope metadata",
-			message:   "how many scope do we have and for each how many secrets",
-			wrongTool: "nopsai.list_scopes",
-			args:      map[string]any{"limit": 200},
-			wantErr:   "nopsai.list_secret_scopes",
-		},
-		{
-			name:      "approval pipeline question requires search",
-			message:   "give me a pipeline that has approval step",
-			wrongTool: "nopsai.list_pipelines",
-			args:      map[string]any{"limit": 20},
-			wantErr:   "nopsai.search_pipelines",
-		},
-		{
-			name:      "pipeline generation requires generator",
-			message:   "give me a pipeline that has 4 step and last one is approval, pipeline goal is to build and publish docker image based on DDD standards",
-			wrongTool: "nopsai.search_pipelines",
-			args:      map[string]any{"query": "approval"},
-			wantErr:   "nopsai.generate_pipeline",
-		},
-		{
-			name:      "pasted yaml validation requires validator",
-			message:   "Validate this:\n```yaml\nname: deploy-web\nsteps: []\n```",
-			wrongTool: "nopsai.search_docs",
-			args:      map[string]any{"query": "pipeline validation"},
-			wantErr:   "nopsai.validate_pipeline",
-		},
-		{
-			name:      "explicit api call requires api bridge",
-			message:   "GET /v1/system/status",
-			wrongTool: "nopsai.search_docs",
-			args:      map[string]any{"query": "system status"},
-			wantErr:   "nopsai.call_api",
-		},
-	}
-
-	app := &App{}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			plan := assistantBaseTurnPlan(tt.message, assistantConversationMemory{})
-			plan.Steps = []assistantPlanStep{{ToolName: tt.wrongTool, Args: tt.args}}
-
-			err := app.validateAssistantToolPlan(
-				context.Background(),
-				model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
-				plan,
-			)
-			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Fatalf("err = %v, want contract error containing %q", err, tt.wantErr)
-			}
-		})
-	}
-}
-
-func TestAssistantRequestContractsAllowMatchingEvidence(t *testing.T) {
-	runID := "e3850cec-550f-456a-bec8-e67777d71d24"
-	tests := []struct {
-		name    string
-		message string
-		steps   []assistantPlanStep
-		actions []string
-	}{
-		{
-			name:    "run token usage",
-			message: "how many token is used by " + runID + " pipelinerun",
-			steps: []assistantPlanStep{{
-				ToolName: "nopsai.get_monitoring_ai_usage",
-				Args:     map[string]any{"run_id": runID},
-			}},
-			actions: []string{"pipeline_run.list"},
-		},
-		{
-			name:    "feature policy",
-			message: "do we have any policy to prevent showing envs?",
-			steps: []assistantPlanStep{{
-				ToolName: "nopsai.get_feature_capabilities",
-				Args:     map[string]any{"query": "secret", "area": "secrets"},
-			}},
-			actions: []string{"system.read"},
-		},
-		{
-			name:    "scope secret inventory",
-			message: "how many scope do we have and for each how many secrets",
-			steps: []assistantPlanStep{
-				{ToolName: "nopsai.list_scopes", Args: map[string]any{"limit": 200}},
-				{ToolName: "nopsai.list_secret_scopes", Args: map[string]any{}},
-			},
-			actions: []string{"scope.read", "secret.list_metadata"},
-		},
-		{
-			name:    "approval pipeline search",
-			message: "give me a pipeline that has approval step",
-			steps: []assistantPlanStep{{
-				ToolName: "nopsai.search_pipelines",
-				Args:     map[string]any{"query": "approval", "limit": 20},
-			}},
-			actions: []string{"pipeline.list"},
-		},
-		{
-			name:    "pipeline generation",
-			message: "give me a pipeline that has 4 step and last one is approval, pipeline goal is to build and publish docker image based on DDD standards",
-			steps: []assistantPlanStep{{
-				ToolName: "nopsai.generate_pipeline",
-				Args: map[string]any{
-					"name": "docker-ddd-image",
-					"goal": "build and publish docker image based on DDD standards with 4 steps and the last one approval",
-				},
-			}},
-			actions: []string{"pipeline.create"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			app := &App{aaaLocal: allowActionsForAssistantTest(tt.actions...)}
-			plan := assistantBaseTurnPlan(tt.message, assistantConversationMemory{})
-			plan.Steps = tt.steps
-
-			if err := app.validateAssistantToolPlan(
-				context.Background(),
-				model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
-				plan,
-			); err != nil {
-				t.Fatalf("matching contract evidence should pass: %v", err)
-			}
-		})
-	}
-}
-
-func TestAssistantRequestContractsRejectDirectFinalPipelineGeneration(t *testing.T) {
-	plan := assistantBaseTurnPlan("give me a pipeline that has 4 step and last one is approval, pipeline goal is to build and publish docker image based on DDD standards", assistantConversationMemory{})
-	plan.FinalAnswer = "name: docker-ddd-image\nsteps: []"
-
-	err := assistantValidatePlannerFinalAnswer(plan, nil)
-	if err == nil || !strings.Contains(err.Error(), "nopsai.generate_pipeline") {
-		t.Fatalf("err = %v, want missing pipeline generator evidence", err)
-	}
-}
-
-func TestAssistantRequestContractsRequireAllEvidenceForFinalAnswer(t *testing.T) {
-	plan := assistantBaseTurnPlan("how many scope do we have and for each how many secrets", assistantConversationMemory{})
-	scopeOnly := []assistantToolActivity{{
-		Name:   "nopsai.list_scopes",
-		Status: assistantToolStatusSuccess,
-		Input:  map[string]any{"limit": 200},
-		Output: map[string]any{"scopes": []string{"default", "prod"}},
-	}}
-
-	err := assistantValidatePlannerFinalAnswer(plan, scopeOnly)
-	if err == nil || !strings.Contains(err.Error(), "nopsai.list_secret_scopes") {
-		t.Fatalf("err = %v, want missing secret-scope evidence", err)
-	}
-
-	withSecretScopes := append(scopeOnly, assistantToolActivity{
-		Name:   "nopsai.list_secret_scopes",
-		Status: assistantToolStatusSuccess,
-		Input:  map[string]any{},
-		Output: map[string]any{"secret_scopes": []map[string]any{{"scope": "default", "secret_count": 1}}},
-	})
-	if err := assistantValidatePlannerFinalAnswer(plan, withSecretScopes); err != nil {
-		t.Fatalf("complete evidence should pass: %v", err)
-	}
-}
-
-func TestAssistantLLMPlannerRejectsRunAnalysisForRunTokenUsage(t *testing.T) {
-	credentialRef := "credential://system/llm/standard"
-	runID := "e3850cec-550f-456a-bec8-e67777d71d24"
-	requestCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		requestCount++
-		w.Header().Set("Content-Type", "application/json")
-		switch requestCount {
-		case 1:
-			fmt.Fprintf(w, `{"choices":[{"message":{"content":"{\"goal\":\"Analyze run\",\"intent\":\"analyze_run\",\"steps\":[{\"tool\":\"nopsai.get_pipeline_run\",\"args\":{\"run_id\":\"%s\"},\"reason\":\"Read run status.\"},{\"tool\":\"nopsai.get_pipeline_run_logs\",\"args\":{\"run_id\":\"%s\",\"limit\":120},\"reason\":\"Read logs.\"},{\"tool\":\"nopsai.analyze_pipeline_run_failure\",\"args\":{\"run_id\":\"%s\"},\"reason\":\"Analyze failure.\"}],\"success_criteria\":\"Explain run status.\",\"needs_more_tools\":false,\"final_answer\":\"\",\"clarifying_question\":\"\"}"}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`, runID, runID, runID)
-		default:
-			fmt.Fprint(w, `{"choices":[{"message":{"content":"I could not answer token usage without AI usage analytics evidence. No changes were applied."}}],"usage":{"prompt_tokens":11,"completion_tokens":4,"total_tokens":15}}`)
+	for _, blocked := range []string{
+		"feature_catalog",
+		"request_requirements",
+		"pipeline_generation_templates",
+		"nopsai.generate_pipeline",
+		"docker-ddd-publish-approval",
+		"ai_token_usage_evidence_required",
+	} {
+		if strings.Contains(prompt, blocked) {
+			t.Fatalf("planner prompt includes static routing artifact %q:\n%s", blocked, prompt)
 		}
-	}))
-	defer server.Close()
-
-	app := &App{
-		cfg: &config.Config{
-			LLMDefaultProfile: "standard",
-			LLMProfiles: map[string]config.LLMProfile{
-				"standard": {
-					Provider:      config.LLMProviderOpenAI,
-					Model:         "gpt-test",
-					BaseURL:       server.URL + "/v1",
-					CredentialRef: credentialRef,
-				},
-			},
-		},
-		httpClient:         server.Client(),
-		credentialResolver: staticCredentialResolver{credentialRef: "secret"},
-		aaaLocal:           allowActionsForAssistantTest("pipeline_run.list", "pipeline_run.read", "pipeline_run.read_logs"),
 	}
+}
 
-	result := app.runAssistantConversationTurn(
+func TestAssistantPlannerPromptStaysCompactForFullToolCatalog(t *testing.T) {
+	app := &App{aaaLocal: stubAAAAuthorizer{
+		checkFn: func(context.Context, model.Subject, string, model.ResourceRef, map[string]any) (model.Decision, error) {
+			return model.Decision{Allowed: true}, nil
+		},
+	}}
+	plan := assistantBaseTurnPlan("how many pipelines we have", assistantConversationMemory{})
+
+	prompt := app.buildAssistantPlannerPrompt(
 		context.Background(),
 		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
-		"user:viewer",
-		assistantConversation{ID: uuid.New(), DocsVersion: "auto", SelectedLLMProfile: "standard"},
-		"how many token is used by "+runID+" pipelinerun",
-		"standard",
+		assistantConversation{ID: uuid.New(), DocsVersion: "auto"},
+		plan.Goal,
+		plan,
+		nil,
+		assistantMaxPlanToolCalls,
+		1,
 	)
 
-	for _, call := range result.ToolCalls {
-		switch call.Name {
-		case "nopsai.get_pipeline_run", "nopsai.get_pipeline_run_logs", "nopsai.analyze_pipeline_run_failure":
-			t.Fatalf("run-analysis tool should not execute for token usage request: %#v", call)
-		}
+	if len(prompt) > 60000 {
+		t.Fatalf("planner prompt length = %d bytes, want <= 60000", len(prompt))
 	}
-	denial, ok := assistantFirstPlanDenial(result.ToolCalls)
-	if !ok {
-		t.Fatalf("missing semantic plan denial: %#v", result.ToolCalls)
-	}
-	if !strings.Contains(assistantOutputString(denial.Output, "error"), "ai_token_usage") ||
-		!strings.Contains(assistantOutputString(denial.Output, "error"), "nopsai.get_monitoring_ai_usage") {
-		t.Fatalf("denial should explain token usage evidence requirement: %#v", denial.Output)
-	}
-	if !strings.Contains(result.Reply, "No changes were applied") {
-		t.Fatalf("reply should remain fail-closed: %q", result.Reply)
+	if strings.Contains(prompt, "additionalProperties") {
+		t.Fatalf("planner prompt should use compact schema summaries, not full JSON schemas")
 	}
 }
 
-func TestAssistantLLMPlannerRejectsFinalTokenAnswerWithoutUsageEvidence(t *testing.T) {
+func TestAssistantPlanValidationChecksToolInputSchema(t *testing.T) {
+	app := &App{aaaLocal: allowActionsForAssistantTest("pipeline.read")}
+	plan := assistantTurnPlan{
+		Intent: "validate_pipeline",
+		Goal:   "Validate pipeline YAML",
+		Steps: []assistantPlanStep{{
+			ToolName: "nopsai.validate_pipeline",
+			Args:     map[string]any{"yaml": 42},
+		}},
+	}
+
+	err := app.validateAssistantToolPlan(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		plan,
+	)
+	if err == nil || !strings.Contains(err.Error(), "yaml must be string") {
+		t.Fatalf("err = %v, want schema type validation", err)
+	}
+}
+
+func TestAssistantValidatePlannerFinalAnswerRequiresSuccessfulEvidence(t *testing.T) {
+	plan := assistantBaseTurnPlan("What changed?", assistantConversationMemory{})
+
+	if err := assistantValidatePlannerFinalAnswer(plan, nil); err == nil {
+		t.Fatal("final answer without evidence should fail")
+	}
+
+	erroredEvidence := []assistantToolActivity{{
+		Name:   "nopsai.search_docs",
+		Status: assistantToolStatusError,
+		Output: map[string]any{"error": "docs unavailable"},
+	}}
+	if err := assistantValidatePlannerFinalAnswer(plan, erroredEvidence); err == nil {
+		t.Fatal("final answer with only failed evidence should fail")
+	}
+
+	successfulEvidence := []assistantToolActivity{{
+		Name:   "nopsai.search_docs",
+		Status: assistantToolStatusSuccess,
+		Output: map[string]any{"results": []map[string]any{}},
+	}}
+	if err := assistantValidatePlannerFinalAnswer(plan, successfulEvidence); err != nil {
+		t.Fatalf("final answer with successful MCP evidence should pass: %v", err)
+	}
+}
+
+func TestAssistantLLMPlannerRejectsFinalAnswerWithoutToolEvidence(t *testing.T) {
 	credentialRef := "credential://system/llm/standard"
 	runID := "e3850cec-550f-456a-bec8-e67777d71d24"
 	requestCount := 0
@@ -1043,8 +796,7 @@ func TestAssistantLLMPlannerRejectsFinalTokenAnswerWithoutUsageEvidence(t *testi
 	if !ok {
 		t.Fatalf("missing plan denial for unsupported final answer: %#v", result.ToolCalls)
 	}
-	if !strings.Contains(assistantOutputString(denial.Output, "error"), "without successful evidence from") ||
-		!strings.Contains(assistantOutputString(denial.Output, "error"), "nopsai.get_monitoring_ai_usage") {
+	if !strings.Contains(assistantOutputString(denial.Output, "error"), "without successful hosted MCP evidence") {
 		t.Fatalf("denial output = %#v", denial.Output)
 	}
 }

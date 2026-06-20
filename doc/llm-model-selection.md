@@ -44,7 +44,9 @@ Profile fields:
   Hosted providers require it. LM Studio and Ollama can omit it when the
   endpoint does not require authentication.
 - `allowed_scopes`: scopes where this profile can run. Empty means allowed everywhere.
-- `reasoning`: optional LM Studio reasoning level: `off`, `low`, `medium`, `high`, or `on`.
+- `reasoning`: optional LM Studio reasoning level: `off`, `low`, `medium`,
+  `high`, or `on`. When omitted, Nopsai sends `off` for LM Studio so JSON
+  planning and action generation do not depend on a model-specific default.
 - `thinking`: optional LM Studio shortcut. When `reasoning` is omitted, `thinking: true` maps to reasoning `on` and `thinking: false` maps to reasoning `off`.
 - `timeout_seconds`: optional HTTP timeout for provider requests.
 - `max_tokens`: optional completion token limit supported by every built-in

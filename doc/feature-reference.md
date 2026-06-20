@@ -271,15 +271,15 @@ views/alerts/recommendations, credentials, runners, access/admin/audit,
 backups/cleanup, webhook sources, external triggers, reusable steps, scoped
 secrets/variables, UI ownership context, run failure analysis, variable
 repetition analysis, scope/secret counts, AI token investigations, pipeline
-generation, feature coverage questions, and explicit `nopsai.*` hosted MCP
-tool names.
-The assistant can analyze failed runs from status/log excerpts, generate and
-validate template-aware pipeline YAML drafts, prepare GitOps-ready pipeline
+authoring proposals, feature coverage questions, and explicit `nopsai.*`
+hosted MCP tool names.
+The assistant can analyze failed runs from status/log excerpts, validate
+LLM-drafted pipeline YAML, prepare GitOps-ready pipeline
 create/update file plans, validate pasted pipeline YAML, traverse pipeline
 knowledge context, search pipelines, manage reusable-step plans, review
 dispatcher/runner health, review monitoring analytics, statistics, cost and
 design signals, and inspect triggers, schedules, scopes, pipelines, profiles,
-docs, setup state, access, credentials, and system status. Generated YAML and
+docs, setup state, access, credentials, and system status. Drafted YAML and
 GitOps write plans are proposals only; confirmed runtime/admin tools still go
 through the existing API, approval, AAA, and audit flows.
 Planner-selected MCP tools handle common chat aliases such as `pipelineruns`,
@@ -306,7 +306,7 @@ runs, triggers, schedules, scopes, cost/statistics, and system profile/status
 resources, including dispatcher/runner status and `nopsai://features`. Hosted
 tools can list/read managed knowledge documents, search pipelines across
 metadata and readable YAML definitions, walk pipeline-, step-, and task-level
-knowledge refs, validate pipeline YAML, generate template-aware pipeline
+knowledge refs, validate pipeline YAML, prepare GitOps-ready pipeline
 proposals, read dispatcher and runner health, and return commit-ready GitOps
 file payloads for pipeline, reusable-step, schedule, knowledge, webhook-source,
 external-trigger, notification, scoped secret/variable, and credential
