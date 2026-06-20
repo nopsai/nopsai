@@ -19,8 +19,8 @@ For a user-facing capability catalog with example chat prompts, see
 [assistant-capabilities.md](./assistant-capabilities.md).
 
 The assistant LLM planner maps normal-language requests to first-party MCP
-tools from the live permission-filtered tool list plus the hosted MCP feature
-catalog when the target is clear, and asks a clarifying question before tool
+tools from the live permission-filtered tool list, descriptions, and input
+schemas when the target is clear, and asks a clarifying question before tool
 execution when a broad term such as "usage" could mean AI/LLM tokens, runner
 cost, pipeline runs, variables, or another product area. In addition to
 specialist intents, the planner covers setup, config repositories, notification
@@ -30,25 +30,18 @@ reusable steps, scoped secrets/variables, and explicit `nopsai.*` tool names.
 Assistant conversation turns do not use static normal-language routing. If the
 LLM planner is unavailable or returns an invalid plan, NopsAI executes no
 hosted MCP tools and reports that no changes were applied.
-AI/LLM usage requests use an investigation loop: the assistant checks the
-default monitoring window, retries broader windows when results are empty,
-gathers summary/efficiency context, and explains likely recording or permission
-gaps with evidence instead of returning a bare zero.
-When a token-usage request names a run ID, planner validation requires
-`nopsai.get_monitoring_ai_usage` with that run filter; run status/log/failure
-tools are rejected because they do not expose token counts.
+AI/LLM usage requests are answered through planner-selected monitoring tools
+such as `nopsai.get_monitoring_ai_usage` and supporting summary/efficiency
+reads when more context is needed. Empty usage answers should explain the
+evidence and likely recording or permission gaps instead of returning a bare
+zero.
 
 Every planned turn is validated against the current AAA subject, available
-hosted MCP tools, a bounded tool-call count, bounded argument shape, and
-explicit user confirmation for mutating tools before any planned step runs.
-Planner validation also applies feature-specific request contracts for
-high-signal prompts. These contracts do not route requests themselves; they
-reject plans that use the wrong evidence surface, such as answering capability
-questions without `nopsai.get_feature_capabilities`, repeated-variable
-questions without `nopsai.analyze_variable_usage`, scope/secret count questions
-without secret-scope metadata, pipeline-search questions without
-`nopsai.search_pipelines`, YAML validation without `nopsai.validate_pipeline`,
-or explicit REST route requests without `nopsai.call_api`.
+hosted MCP tools, tool input schemas, a bounded tool-call count, bounded
+argument shape, and explicit user confirmation for mutating tools before any
+planned step runs. Final planner answers require successful hosted MCP evidence
+from the current turn; NopsAI does not use static request contracts to
+reinterpret intent or route tools.
 Final LLM synthesis is also quality-gated: if the model claims unapplied
 changes or misses required proposal-safe wording, NopsAI falls back to the
 deterministic MCP-grounded summary.
@@ -71,7 +64,8 @@ Coverage states:
 Current first-class coverage includes setup status/preflight/template planning
 and confirmed bootstrap, pipeline inventory/search, pipeline YAML inspection and
 validation, reusable step GitOps plans, pipeline knowledge-context traversal,
-GitOps-ready pipeline create/update proposals, managed knowledge reads and write
+LLM-drafted YAML checked by validation/proposal tools, GitOps-ready pipeline
+create/update proposals, managed knowledge reads and write
 plans, run/log analysis with explicit run-status and bounded-log chaining,
 confirmed run mutations, schedule inventory and GitOps write plans, webhook
 source and external trigger plans, webhook-ingress policy explanations, config
@@ -81,8 +75,6 @@ pipeline/schedule/run/model/profile/feature/step/task, schedule/pipeline
 comparison aliases, pipeline health explanations, optimization opportunity
 discovery, data backup/cleanup operations, scope inventory, secret/variable
 metadata and repeated variable-name analysis plus safe write/GitOps plans,
-template-aware pipeline YAML generation for common deployment domains,
-Docker image publishing with DDD boundary checks and approval gates,
 cost/statistics, LLM/MCP profile reads, system status,
 credential metadata/rotation/GitOps plans, runner install/dispatch operations,
 AAA/access/audit/admin workflows, and dispatcher/runner health.

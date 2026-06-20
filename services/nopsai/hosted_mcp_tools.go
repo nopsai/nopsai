@@ -42,7 +42,6 @@ func allHostedMCPTools() []hostedMCPTool {
 		toolDef("nopsai.get_pipeline", "Read a pipeline YAML definition.", "pipeline.read", "pipeline", "*", objectSchema(map[string]any{"pipeline": stringSchema(), "path": stringSchema(), "name": stringSchema()})),
 		toolDef("nopsai.get_pipeline_knowledge_context", "Resolve knowledge context references used by a stored or supplied pipeline.", "pipeline.read", "pipeline", "*", objectSchema(map[string]any{"pipeline": stringSchema(), "path": stringSchema(), "name": stringSchema(), "yaml": stringSchema(), "include_content": booleanSchema()})),
 		toolDef("nopsai.validate_pipeline", "Validate pipeline YAML without saving it.", "pipeline.read", "pipeline", "*", objectSchema(map[string]any{"yaml": stringSchema()})),
-		toolDef("nopsai.generate_pipeline", "Generate a pipeline YAML draft without applying changes.", "pipeline.create", "pipeline", "*", objectSchema(map[string]any{"name": stringSchema(), "goal": stringSchema(), "scope": stringSchema()})),
 		toolDef("nopsai.propose_pipeline_create", "Validate pipeline YAML and return a GitOps-ready create file plan without applying changes.", "pipeline.create", "pipeline", "*", objectSchema(map[string]any{"pipeline": stringSchema(), "path": stringSchema(), "name": stringSchema(), "yaml": stringSchema(), "message": stringSchema()})),
 		toolDef("nopsai.propose_pipeline_update", "Validate pipeline YAML and return a GitOps-ready update file plan without applying changes.", "pipeline.update", "pipeline", "*", objectSchema(map[string]any{"pipeline": stringSchema(), "path": stringSchema(), "name": stringSchema(), "yaml": stringSchema(), "message": stringSchema()})),
 		toolDef("nopsai.list_pipeline_runs", "List recent pipeline runs visible to the current user.", "pipeline_run.list", "pipeline_run", "*", objectSchema(map[string]any{"limit": numberSchema()})),
@@ -165,8 +164,7 @@ func assistantToolRequiresActionExecution(tool hostedMCPTool) bool {
 	}
 	if strings.HasPrefix(name, "nopsai.propose_") ||
 		strings.HasPrefix(name, "nopsai.plan_") ||
-		strings.HasPrefix(name, "nopsai.preview_") ||
-		name == "nopsai.generate_pipeline" {
+		strings.HasPrefix(name, "nopsai.preview_") {
 		return false
 	}
 	if properties, _ := tool.InputSchema["properties"].(map[string]any); properties != nil {
@@ -213,8 +211,7 @@ func assistantFeatureForTool(name string) string {
 		strings.Contains(name, "backup") ||
 		strings.Contains(name, "maintenance"):
 		return "maintenance_recommendations"
-	case name == "nopsai.generate_pipeline" ||
-		name == "nopsai.validate_pipeline" ||
+	case name == "nopsai.validate_pipeline" ||
 		strings.HasPrefix(name, "nopsai.propose_pipeline_") ||
 		strings.HasPrefix(name, "nopsai.propose_schedule_") ||
 		strings.HasPrefix(name, "nopsai.propose_trigger_") ||
@@ -342,8 +339,6 @@ func (a *App) executeHostedMCPTool(ctx context.Context, subject aaamodel.Subject
 		return a.hostedMCPGetPipelineKnowledgeContext(ctx, subject, args)
 	case "nopsai.validate_pipeline":
 		return hostedMCPValidatePipeline(args)
-	case "nopsai.generate_pipeline":
-		return hostedMCPGeneratePipeline(args), nil
 	case "nopsai.propose_pipeline_create":
 		return hostedMCPProposePipelineWrite(args, "create")
 	case "nopsai.propose_pipeline_update":
@@ -541,35 +536,6 @@ func hostedMCPParseValidPipelineYAML(raw string) (models.Pipeline, map[string]an
 	}
 	pipeline.Version = normalizePipelineVersion(pipeline.Version)
 	return pipeline, validationResult, true
-}
-
-func hostedMCPGeneratePipeline(args map[string]any) map[string]any {
-	name := strings.TrimSpace(stringArg(args, "name"))
-	if name == "" {
-		name = "generated-pipeline"
-	}
-	goal := strings.TrimSpace(stringArg(args, "goal"))
-	if goal == "" {
-		goal = "Describe the desired automation goal here."
-	}
-	scope := strings.Trim(strings.TrimSpace(stringArg(args, "scope")), "/")
-	result := renderGeneratedPipeline(pipelineGenerationRequest{
-		Name:  name,
-		Goal:  goal,
-		Scope: scope,
-	})
-	validation := hostedMCPValidatePipelineYAML(result.YAML)
-	return map[string]any{
-		"proposal_type":      "pipeline_yaml",
-		"applies":            false,
-		"template_id":        result.TemplateID,
-		"assumptions":        result.Assumptions,
-		"required_variables": result.RequiredVars,
-		"required_secrets":   result.RequiredSecrets,
-		"yaml":               result.YAML,
-		"validation":         validation,
-		"valid":              boolValue(validation["valid"]),
-	}
 }
 
 func hostedMCPProposePipelineWrite(args map[string]any, mode string) (map[string]any, error) {

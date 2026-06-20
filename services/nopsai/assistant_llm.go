@@ -127,7 +127,7 @@ func (a *App) resolveAssistantLLMProfile(ctx context.Context, conversation assis
 	if scope == "" {
 		scope = strings.Trim(strings.TrimSpace(conversation.Scope), "/")
 	}
-	if !config.LLMProfileAllowedInScope(profile, scope) {
+	if scope != "" && !config.LLMProfileAllowedInScope(profile, scope) {
 		return profileName, profile, false, fmt.Sprintf("LLM profile %q is not allowed in scope %q", profileName, scope)
 	}
 	return profileName, profile, true, ""
@@ -329,7 +329,9 @@ func assistantTruncateForPrompt(value string) string {
 
 func assistantHTTPClient(a *App) *http.Client {
 	if a != nil && a.httpClient != nil {
-		return a.httpClient
+		client := *a.httpClient
+		client.Timeout = 0
+		return &client
 	}
 	return http.DefaultClient
 }

@@ -172,9 +172,9 @@ High-value hosted tools include:
   `nopsai.list_pipelines`, `nopsai.search_pipelines`,
   `nopsai.get_pipeline`, and `nopsai.get_pipeline_knowledge_context`
 - pipeline authoring proposals:
-  `nopsai.generate_pipeline`, `nopsai.validate_pipeline`,
-  `nopsai.propose_pipeline_create`, `nopsai.propose_pipeline_update`, and
-  reusable step create/update/delete GitOps plans
+  `nopsai.validate_pipeline`, `nopsai.propose_pipeline_create`,
+  `nopsai.propose_pipeline_update`, and reusable step create/update/delete
+  GitOps plans
 - run investigation:
   `nopsai.list_pipeline_runs`, `nopsai.get_pipeline_run`,
   `nopsai.get_pipeline_run_logs`, and

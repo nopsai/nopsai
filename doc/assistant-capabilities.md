@@ -12,22 +12,20 @@ operations as the current authenticated user.
 - The selected/default assistant LLM acts as a feature-wide planner. It creates
   a structured turn plan with goal, intent, tool steps, and success criteria
   before execution from the live permission-filtered hosted MCP tool list and a
-  compact feature catalog.
+  compact catalog of tool descriptions and input schemas.
 - Assistant conversation turns do not use static normal-language routing. If
-  the LLM planner is unavailable or returns an invalid plan, NopsAI executes no
-  hosted MCP tools and replies that no changes were applied.
+  the LLM planner is unavailable or returns an invalid plan, no hosted MCP tools
+  run and the assistant replies that no changes were applied.
 - The planner routes clear normal-language requests across the full NopsAI MCP
   surface, including setup, config repositories, notifications, monitoring
   extras, credentials, runners, access/admin, backups/cleanup, webhook sources,
   external triggers, reusable steps, and explicit `nopsai.*` tool names.
 - NopsAI validates planned tools against the current user's available hosted
-  MCP tools, bounded tool-call and argument limits, and mutation confirmation
-  requirements before running the plan.
-- Feature-specific request contracts validate that the plan uses evidence
-  appropriate to the user's intent. For example, token counts must come from AI
-  usage analytics, capability/policy questions from the capability catalog,
-  repeated-variable questions from metadata analysis, and YAML validation from
-  the pipeline validator.
+  MCP tools, tool input schemas, bounded tool-call and argument limits, and
+  mutation confirmation requirements before running the plan.
+- Final answers from the planner require successful hosted MCP evidence from
+  the current turn. The deterministic validator does not reinterpret natural
+  language intent with static routing rules.
 - Tool lists, resources, and tool calls are permission-filtered. If a user
   cannot use a route or resource in NopsAI, the assistant cannot bypass that.
 - Enterprise feature flags under `assistant.features` decide which broad
@@ -164,21 +162,22 @@ Main MCP coverage: `nopsai.get_setup_status`, `nopsai.get_setup_preflight`,
 
 ### Pipelines And YAML Authoring
 
-The assistant can list/search pipelines, read pipeline definitions, generate
-pipeline YAML, validate pasted YAML, prepare GitOps create/update plans, and
-prepare reusable-step create/update/delete plans. Generated pipeline YAML is
-template-aware for common deployment domains such as Go services deployed to
-AWS ECS through ECR and Docker image publishing with Domain-Driven Design
-boundary checks, and includes assumptions plus required variables/secrets so
-the proposal can be reviewed through GitOps.
+The assistant can list/search pipelines, read pipeline definitions, validate
+pasted or LLM-drafted YAML, prepare GitOps create/update plans, and prepare
+reusable-step create/update/delete plans. Pipeline YAML drafting happens in the
+LLM planner/synthesis layer and must be checked through the hosted MCP
+validation or proposal tools before it is presented as evidence-backed output.
+There is no static pipeline generator or template selector in the assistant
+tool path.
 
 Ask:
 
 - "Search pipelines that mention Kubernetes runners."
 - "Give me a pipeline that has an approval step."
 - "Open pipeline `platform/deploy-api` and summarize its steps."
-- "Generate a pipeline for build, test, approval, and deploy to staging."
-- "Create steps to build, test, and deploy a Golang app to AWS ECS."
+- "Draft and validate a pipeline for build, test, approval, and deploy to
+  staging."
+- "Prepare a GitOps create plan for a Golang service deploy pipeline."
 - "Give me a pipeline that has 4 steps and the last one is approval; the goal
   is to build and publish a Docker image based on DDD standards."
 - "Validate this YAML and identify unsafe task settings."
@@ -188,8 +187,7 @@ Ask:
 - "Delete reusable step `shared/old-login` through GitOps."
 
 Main MCP coverage: `nopsai.list_pipelines`, `nopsai.search_pipelines`,
-`nopsai.get_pipeline`, `nopsai.generate_pipeline`,
-`nopsai.validate_pipeline`, `nopsai.propose_pipeline_create`,
+`nopsai.get_pipeline`, `nopsai.validate_pipeline`, `nopsai.propose_pipeline_create`,
 `nopsai.propose_pipeline_update`, `nopsai.propose_reusable_step_create`,
 `nopsai.propose_reusable_step_update`, and
 `nopsai.propose_reusable_step_delete`.

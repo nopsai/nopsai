@@ -993,6 +993,9 @@ func EffectiveLLMProfileReasoning(profile LLMProfile) string {
 		return reasoning
 	}
 	if profile.Thinking == nil {
+		if NormalizeLLMProvider(profile.Provider) == LLMProviderLMStudio {
+			return "off"
+		}
 		return ""
 	}
 	if *profile.Thinking {
