@@ -247,6 +247,13 @@ validation or proposal tools before it is presented as evidence-backed output.
 When a pipeline create proposal includes an explicit target name, the proposal
 tool can use that target as the YAML top-level `name` if the drafted YAML omitted
 it, while still rejecting mismatches between the target and YAML names.
+Every drafted pipeline step must include exactly one execution method:
+`include`, `tasks`, `goal`, `script`, or `approval`. For the common generated
+Docker workflow of clone repository, build Docker image, and push image to a
+registry, the proposal tool completes name-only generated steps with concrete
+shell scripts, workspace defaults, required runtime variables, and step
+dependencies before validation. Other name-only steps remain invalid and are
+reported by validation instead of being guessed.
 There is no static pipeline generator or template selector in the assistant
 tool path.
 
