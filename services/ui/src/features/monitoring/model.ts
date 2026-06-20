@@ -335,6 +335,8 @@ export type MonitoringAIUsage = {
   estimated_tokens?: number;
   exact_token_events?: number;
   estimated_token_events?: number;
+  assistant_chat_tokens?: number;
+  assistant_chat_messages?: number;
   by_pipeline?: MonitoringNamedCount[];
   by_step?: MonitoringNamedCount[];
   by_task?: MonitoringNamedCount[];

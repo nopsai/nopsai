@@ -111,6 +111,23 @@ func TestAssistantDedicatedConfigProfileWinsDefaultPickerProfile(t *testing.T) {
 	}
 }
 
+func TestAssistantDefaultLLMProfileUsesConfiguredDefault(t *testing.T) {
+	app := &App{cfg: &config.Config{
+		LLMDefaultProfile: "standard",
+		LLMProfiles: map[string]config.LLMProfile{
+			"standard": {
+				Provider: config.LLMProviderLMStudio,
+				BaseURL:  "http://lmstudio:1234",
+				Model:    "qwen",
+			},
+		},
+	}}
+
+	if got := app.assistantDefaultLLMProfile(context.Background()); got != "standard" {
+		t.Fatalf("assistantDefaultLLMProfile() = %q, want standard", got)
+	}
+}
+
 func TestAssistantHTTPClientDoesNotInheritInternalTimeout(t *testing.T) {
 	transport := http.DefaultTransport
 	internal := &http.Client{

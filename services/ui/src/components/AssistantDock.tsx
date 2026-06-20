@@ -44,7 +44,7 @@ export function AssistantDock() {
             aria-label="Close assistant overlay"
             onClick={() => setOpen(false)}
           />
-          <aside className="absolute right-0 top-0 h-full w-full max-w-[460px] border-l border-[var(--border-primary)] bg-[var(--bg-primary)] shadow-xl">
+          <aside className="absolute right-0 top-0 h-full w-full max-w-[420px] border-l border-[var(--border-primary)] bg-[var(--bg-primary)] shadow-xl">
             <AssistantPanel
               variant="dock"
               onClose={() => setOpen(false)}

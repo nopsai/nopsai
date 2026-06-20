@@ -13,6 +13,7 @@ import {
   assistantConversationClipboardText,
   assistantLastUserMessage,
   assistantMessageClipboardText,
+  emptyAssistantMessageUsage,
   type AssistantConfig,
   type AssistantConversation,
   type AssistantLLMProfile,
@@ -298,6 +299,7 @@ function buildPendingAssistantMessage(conversationID: string, content: string): 
     role: 'user',
     content,
     tool_calls: [],
+    usage: emptyAssistantMessageUsage,
     created_at: new Date().toISOString(),
   };
 }

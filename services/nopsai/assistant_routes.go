@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -93,6 +94,9 @@ func (a *App) handleCreateAssistantConversation(w http.ResponseWriter, r *http.R
 	}
 	cfg := a.assistantConfig()
 	req = normalizeAssistantConversationRequest(req, cfg)
+	if req.SelectedLLMProfile == "" {
+		req.SelectedLLMProfile = a.assistantDefaultLLMProfile(r.Context())
+	}
 	if err := a.validateAssistantLLMProfile(r.Context(), req.SelectedLLMProfile); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -273,6 +277,9 @@ func (a *App) handleCreateAssistantMessage(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	selectedProfile := firstNonEmpty(req.SelectedLLMProfile, conversation.SelectedLLMProfile)
+	if selectedProfile == "" {
+		selectedProfile = a.assistantDefaultLLMProfile(r.Context())
+	}
 
 	tx, err := a.db.Begin(r.Context())
 	if err != nil {
@@ -281,7 +288,7 @@ func (a *App) handleCreateAssistantMessage(w http.ResponseWriter, r *http.Reques
 	}
 	defer tx.Rollback(r.Context())
 
-	userMessage, err := insertAssistantMessageTx(r.Context(), tx, conversationID, assistantRoleUser, req.Content, nil)
+	userMessage, err := insertAssistantMessageTx(r.Context(), tx, conversationID, assistantRoleUser, req.Content, nil, assistantUsageForUserMessage(req.Content))
 	if err != nil {
 		http.Error(w, "failed to append assistant message", http.StatusInternalServerError)
 		return
@@ -296,7 +303,7 @@ func (a *App) handleCreateAssistantMessage(w http.ResponseWriter, r *http.Reques
 			selected_llm_profile = CASE WHEN $2 <> '' THEN $2 ELSE selected_llm_profile END,
 			updated_at = NOW()
 		WHERE id = $3 AND user_id = $4
-	`, nextTitle, req.SelectedLLMProfile, conversationID, userID)
+	`, nextTitle, selectedProfile, conversationID, userID)
 	if err != nil {
 		http.Error(w, "failed to update assistant conversation", http.StatusInternalServerError)
 		return
@@ -307,11 +314,13 @@ func (a *App) handleCreateAssistantMessage(w http.ResponseWriter, r *http.Reques
 	}
 
 	conversation.Title = nextTitle
-	if req.SelectedLLMProfile != "" {
-		conversation.SelectedLLMProfile = req.SelectedLLMProfile
+	if selectedProfile != "" {
+		conversation.SelectedLLMProfile = selectedProfile
 	}
+	turnStarted := time.Now()
 	orchestration := a.runAssistantConversationTurn(r.Context(), subject, userID, conversation, req.Content, selectedProfile)
-	reply, err := insertAssistantMessageTx(r.Context(), a.db, conversationID, assistantRoleAssistant, orchestration.Reply, orchestration.ToolCalls)
+	replyUsage := assistantUsageForAssistantReply(orchestration.Reply, orchestration.ToolCalls, time.Since(turnStarted))
+	reply, err := insertAssistantMessageTx(r.Context(), a.db, conversationID, assistantRoleAssistant, orchestration.Reply, orchestration.ToolCalls, replyUsage)
 	if err != nil {
 		http.Error(w, "failed to append assistant reply", http.StatusInternalServerError)
 		return
@@ -429,6 +438,7 @@ func (a *App) loadAssistantConversation(ctx context.Context, userID string, conv
 			return assistantConversation{}, err
 		}
 		conversation.Messages = messages
+		conversation.Usage = assistantConversationUsageFromMessages(messages)
 	}
 	memory, err := a.loadAssistantMemory(ctx, conversationID)
 	if err == nil {
@@ -441,7 +451,9 @@ func (a *App) loadAssistantConversation(ctx context.Context, userID string, conv
 
 func (a *App) loadAssistantMessages(ctx context.Context, conversationID uuid.UUID) ([]assistantMessage, error) {
 	rows, err := a.db.Query(ctx, `
-		SELECT id, conversation_id, role, content, tool_calls, created_at
+		SELECT id, conversation_id, role, content, tool_calls,
+		       content_tokens, prompt_tokens, completion_tokens, total_tokens,
+		       usage_estimated, duration_ms, llm_calls, created_at
 		FROM assistant_messages
 		WHERE conversation_id = $1
 		ORDER BY created_at ASC
@@ -463,6 +475,13 @@ func (a *App) loadAssistantMessages(ctx context.Context, conversationID uuid.UUI
 			&message.Role,
 			&message.Content,
 			&toolCallsRaw,
+			&message.Usage.ContentTokens,
+			&message.Usage.PromptTokens,
+			&message.Usage.CompletionTokens,
+			&message.Usage.TotalTokens,
+			&message.Usage.Estimated,
+			&message.Usage.DurationMS,
+			&message.Usage.LLMCalls,
 			&message.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -487,25 +506,41 @@ type assistantMessageTx interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-func insertAssistantMessageTx(ctx context.Context, tx assistantMessageTx, conversationID uuid.UUID, role, content string, toolCalls []assistantToolActivity) (assistantMessage, error) {
+func insertAssistantMessageTx(ctx context.Context, tx assistantMessageTx, conversationID uuid.UUID, role, content string, toolCalls []assistantToolActivity, usage assistantMessageUsage) (assistantMessage, error) {
 	if toolCalls == nil {
 		toolCalls = []assistantToolActivity{}
 	}
+	usage = normalizeAssistantMessageUsage(content, usage)
 	raw, err := json.Marshal(toolCalls)
 	if err != nil {
 		return assistantMessage{}, err
 	}
 	var message assistantMessage
 	err = tx.QueryRow(ctx, `
-		INSERT INTO assistant_messages (conversation_id, role, content, tool_calls)
-		VALUES ($1, $2, $3, $4::jsonb)
-		RETURNING id, conversation_id, role, content, tool_calls, created_at
-	`, conversationID, role, content, string(raw)).Scan(
+		INSERT INTO assistant_messages (
+			conversation_id, role, content, tool_calls,
+			content_tokens, prompt_tokens, completion_tokens, total_tokens,
+			usage_estimated, duration_ms, llm_calls
+		)
+		VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11)
+		RETURNING id, conversation_id, role, content, tool_calls,
+		          content_tokens, prompt_tokens, completion_tokens, total_tokens,
+		          usage_estimated, duration_ms, llm_calls, created_at
+	`, conversationID, role, content, string(raw),
+		usage.ContentTokens, usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens,
+		usage.Estimated, usage.DurationMS, usage.LLMCalls).Scan(
 		&message.ID,
 		&message.ConversationID,
 		&message.Role,
 		&message.Content,
 		&raw,
+		&message.Usage.ContentTokens,
+		&message.Usage.PromptTokens,
+		&message.Usage.CompletionTokens,
+		&message.Usage.TotalTokens,
+		&message.Usage.Estimated,
+		&message.Usage.DurationMS,
+		&message.Usage.LLMCalls,
 		&message.CreatedAt,
 	)
 	if err != nil {

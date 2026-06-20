@@ -1,14 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
 import {
   assistantConversationClipboardText,
+  assistantConversationUsageLabel,
   assistantLastUserMessage,
+  assistantMessageUsageLabel,
   assistantVisibleToolActivity,
   normalizeAssistantConfig,
   normalizeAssistantConversation,
   normalizeAssistantConversationsPayload,
   normalizeAssistantLLMProfilesPayload,
   normalizeAssistantMessagePayload,
-} from './model';
+  proposedChangesFromMessages,
+} from './model.js';
 
 describe('assistant model', () => {
   it('normalizes conversations with memory and messages', () => {
@@ -26,6 +30,15 @@ describe('assistant model', () => {
           id: 'm1',
           role: 'assistant',
           content: 'ready',
+          usage: {
+            content_tokens: 2,
+            prompt_tokens: 10,
+            completion_tokens: 4,
+            total_tokens: 14,
+            estimated: false,
+            duration_ms: 1200,
+            llm_calls: 1,
+          },
           tool_calls: [{
             name: 'nopsai.get_pipeline_run',
             input: { run_id: 'run-1' },
@@ -37,21 +50,23 @@ describe('assistant model', () => {
       ],
     });
 
-    expect(conversation.docs_version).toBe('auto');
-    expect(conversation.memory.summary).toBe('Investigating run failure');
-    expect(conversation.memory.open_tasks).toEqual(['fix yaml']);
-    expect(conversation.messages[0].tool_calls[0].name).toBe('nopsai.get_pipeline_run');
-    expect(conversation.messages[0].tool_calls[0].input.run_id).toBe('run-1');
-    expect(conversation.messages[0].tool_calls[0].output.status).toBe('failure');
+    assert.equal(conversation.docs_version, 'auto');
+    assert.equal(conversation.memory.summary, 'Investigating run failure');
+    assert.deepEqual(conversation.memory.open_tasks, ['fix yaml']);
+    assert.equal(conversation.messages[0].tool_calls[0].name, 'nopsai.get_pipeline_run');
+    assert.equal(conversation.messages[0].tool_calls[0].input.run_id, 'run-1');
+    assert.equal(conversation.messages[0].tool_calls[0].output.status, 'failure');
+    assert.equal(assistantMessageUsageLabel(conversation.messages[0]), '14 LLM tokens · 1.2s');
+    assert.equal(assistantConversationUsageLabel(conversation), '14 tokens · 1 message · 1.2s');
   });
 
   it('normalizes list and message response payloads', () => {
-    expect(normalizeAssistantConversationsPayload({ conversations: [{ id: 'c1' }] }).conversations).toHaveLength(1);
-    expect(normalizeAssistantMessagePayload({
+    assert.equal(normalizeAssistantConversationsPayload({ conversations: [{ id: 'c1' }] }).conversations.length, 1);
+    assert.equal(normalizeAssistantMessagePayload({
       conversation: { id: 'c1' },
       user_message: { role: 'user', content: 'why failed?' },
       reply: { role: 'assistant', content: 'checking' },
-    }).reply.content).toBe('checking');
+    }).reply.content, 'checking');
   });
 
   it('normalizes assistant LLM profile picker payloads without admin-only fields', () => {
@@ -78,9 +93,9 @@ describe('assistant model', () => {
       ],
     });
 
-    expect(payload.default_profile).toBe('standard');
-    expect(payload.profiles.map(profile => profile.name)).toEqual(['blocked', 'standard']);
-    expect(payload.profiles[0]).toEqual({
+    assert.equal(payload.default_profile, 'standard');
+    assert.deepEqual(payload.profiles.map(profile => profile.name), ['blocked', 'standard']);
+    assert.deepEqual(payload.profiles[0], {
       name: 'blocked',
       provider: 'openai',
       model: 'gpt-test',
@@ -89,7 +104,7 @@ describe('assistant model', () => {
       allowed_in_scope: false,
       disabled_reason: 'not allowed',
     });
-    expect('credential_ref' in payload.profiles[0]).toBe(false);
+    assert.equal('credential_ref' in payload.profiles[0], false);
   });
 
   it('normalizes safe assistant config without credential material', () => {
@@ -111,17 +126,17 @@ describe('assistant model', () => {
       },
     });
 
-    expect(config.enabled).toBe(true);
-    expect(config.provider).toBe('gemini');
-    expect(config.default_docs_version).toBe('2026.06');
-    expect(config.credential_configured).toBe(true);
-    expect(config.features.docs).toBe(false);
-    expect(config.features.pipeline_debugging).toBe(true);
-    expect(config.features.config_generation).toBe(true);
-    expect(config.features.action_execution).toBe(false);
-    expect(config.actions.require_confirmation).toBe(true);
-    expect('credential_ref' in config).toBe(false);
-    expect('api_key_secret' in config).toBe(false);
+    assert.equal(config.enabled, true);
+    assert.equal(config.provider, 'gemini');
+    assert.equal(config.default_docs_version, '2026.06');
+    assert.equal(config.credential_configured, true);
+    assert.equal(config.features.docs, false);
+    assert.equal(config.features.pipeline_debugging, true);
+    assert.equal(config.features.config_generation, true);
+    assert.equal(config.features.action_execution, false);
+    assert.equal(config.actions.require_confirmation, true);
+    assert.equal('credential_ref' in config, false);
+    assert.equal('api_key_secret' in config, false);
   });
 
   it('keeps retry/export helpers focused on user-visible chat content and evidence tools', () => {
@@ -137,14 +152,21 @@ describe('assistant model', () => {
             { name: 'nopsai.llm.plan', status: 'success', resource_uris: ['nopsai://features'] },
             { name: 'nopsai.get_pipeline', status: 'success', resource_uris: ['nopsai://pipelines'] },
             { name: 'nopsai.llm.complete', status: 'success', resource_uris: ['nopsai://system/llm-profiles'] },
+            { name: 'nopsai.propose_pipeline_update', status: 'success', output: { proposal_type: 'pipeline_update', yaml: 'name: deploy', applies: false } },
           ],
         },
         { id: 'm3', role: 'user', content: 'validate it' },
       ],
     });
 
-    expect(assistantLastUserMessage(conversation.messages)?.content).toBe('validate it');
-    expect(assistantConversationClipboardText(conversation)).toContain('Assistant:\nPipeline loaded');
-    expect(assistantVisibleToolActivity(conversation.messages).map(tool => tool.name)).toEqual(['nopsai.get_pipeline']);
+    assert.equal(assistantLastUserMessage(conversation.messages)?.content, 'validate it');
+    assert.match(assistantConversationClipboardText(conversation), /Assistant:\nPipeline loaded/);
+    assert.deepEqual(assistantVisibleToolActivity(conversation.messages).map(tool => tool.name), ['nopsai.get_pipeline', 'nopsai.propose_pipeline_update']);
+    assert.deepEqual(proposedChangesFromMessages(conversation.messages), [{
+      key: 'm2-nopsai.propose_pipeline_update-3',
+      title: 'Pipeline Update',
+      body: 'name: deploy',
+      note: 'Proposal only. No changes were applied.',
+    }]);
   });
 });

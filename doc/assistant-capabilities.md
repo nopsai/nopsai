@@ -119,18 +119,45 @@ Examples:
 
 ## Chat UI Controls
 
-The assistant UI keeps conversation content separate from audit/evidence
-metadata.
+The assistant UI keeps conversation content first while making audit/evidence
+metadata available on demand.
 
+- Empty conversations open on a welcoming workspace: "Hi, I'm NopsAI. What are
+  we solving today?" with starter prompts for failed-run analysis, pipeline
+  improvement, system health, and rollout planning. Starters prefill the
+  composer so users can edit before sending.
+- The composer is a rounded ask bar with a goal-oriented placeholder, visible
+  Send label, `Cmd/Ctrl + Enter` shortcut hint, and a draggable top border for
+  vertical resizing.
+- The visible session line stays human-readable: "Ready · changes always need
+  your review." MCP, memory, confirmation policy, and chat-level LLM profile
+  selection are available in a compact Session details disclosure. New
+  conversations default to the configured assistant/default LLM profile unless
+  the user chooses another chat profile.
 - Message bubbles show only user/assistant content plus compact actions such as
   copy and retry. Raw internal planner and synthesis calls are not rendered
   under each message.
+- Assistant messages render a safe markdown subset for headings, bullets,
+  inline code, fenced code blocks, and HTTPS citations. Operational LLM
+  synthesis is instructed to prefer Summary, Evidence, and Recommended next
+  step sections when supported by the current turn's tool evidence.
+- Each message records content-token estimates and, for assistant replies,
+  provider-reported or estimated planner/synthesis prompt, completion, total
+  token counts, LLM call count, and response duration. Conversation detail
+  panels show rollups for monitoring and troubleshooting. Prometheus exports
+  assistant token, duration, and LLM-call counters from the same stored message
+  usage fields.
 - The full assistant view keeps NopsAI evidence in the context panel, filtering
   out internal `nopsai.llm.plan` and `nopsai.llm.complete` entries so product
-  evidence remains scannable.
-- Users can refresh assistant state, start a new conversation, copy a message,
-  copy the conversation transcript, retry the last user prompt, and delete an
-  owned assistant conversation.
+  evidence remains scannable. Evidence is progressive disclosure: the default
+  row shows tool, status, and resources, while "View details" reveals bounded
+  input/output JSON for deeper investigation.
+- Conversation memory, NopsAI evidence, usage, and proposed changes live in
+  collapsible detail sections. The dock stays lightweight and leaves deep
+  evidence/configuration to the full assistant page.
+- The left rail focuses on conversations and conversation deletion. Chat-level
+  actions stay close to the relevant message or session detail, avoiding
+  duplicate new/copy controls in the conversation header.
 - Conversation deletion uses the authenticated user's assistant subject and
   removes the conversation, messages, and memory through the existing database
   cascade. It does not modify GitOps-managed product configuration.
@@ -413,9 +440,12 @@ views, alert rules, alert events, and recommendations. AI/LLM usage prompts
 inspect before answering: empty default-window results are retried against
 broader windows, combined with summary/efficiency context, and explained with a
 recording/permission diagnosis when no events are visible.
-Run-level token questions are answered from `nopsai.get_monitoring_ai_usage`
-with the run ID as a filter; run status, log, and failure-analysis tools do not
-provide token counts.
+Global AI usage includes assistant chat message tokens as the
+`assistant_chat` feature, so monitoring can explain how much chat consumed as
+well as pipeline/run LLM work. Run-level token questions are answered from
+`nopsai.get_monitoring_ai_usage` with the run ID as a filter; those run-scoped
+answers stay limited to run AI usage events, and run status, log, and
+failure-analysis tools do not provide token counts.
 
 Ask:
 
