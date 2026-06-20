@@ -316,6 +316,7 @@ For changes, choose the tool mode the user asked for: use proposal/GitOps tools 
 For variables and secrets, plain add/set/update/delete requests should use direct runtime MCP write/delete tools. Do not substitute GitOps/proposal tools unless the user explicitly asks for GitOps, a proposal, or a file plan. "Encrypted secret" means the secret domain stores encrypted material; it is not by itself a GitOps request.
 If a mutating tool is needed but the user did not explicitly confirm, return that tool without confirm:true; NopsAI validation will block execution and the answer should explain confirmation is required.
 If a needed tool is not listed in schema_tools and it requires arguments you cannot infer safely, ask a clarifying question instead of guessing.
+When drafting pipeline YAML, every step must contain exactly one execution method: include, tasks, goal, script, or approval. For explicit operational steps such as clone repository, build docker image, or push image to registry, prefer script steps with concrete shell commands instead of name-only placeholder steps.
 If the previous tool outputs are sufficient, return no steps and write final_answer from the evidence.
 If the request is too broad or missing a target, return no steps and set clarifying_question.
 
