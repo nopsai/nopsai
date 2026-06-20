@@ -27,6 +27,7 @@ type assistantPlanStep struct {
 type assistantAnswerQuality struct {
 	HasDirectAnswer      bool
 	UsedRelevantTools    bool
+	PipelineGrounded     bool
 	EmptyResultExplained bool
 	SuggestedNextStep    bool
 	NoFakeData           bool
@@ -251,15 +252,20 @@ func assistantAssessAnswerQuality(plan assistantTurnPlan, toolCalls []assistantT
 	quality := assistantAnswerQuality{
 		HasDirectAnswer:      reply != "",
 		UsedRelevantTools:    plan.Intent == "clarify" || plan.FinalAnswer != "" || len(assistantEvidenceToolCalls(toolCalls)) > 0 || assistantHasPlanDenial(toolCalls),
+		PipelineGrounded:     true,
 		EmptyResultExplained: true,
 		SuggestedNextStep:    true,
 		NoFakeData:           !assistantReplyClaimsApplied(lower) || assistantAnyToolApplied(toolCalls),
+	}
+	if assistantPlanRequiresPipelineGrounding(plan, toolCalls) {
+		quality.PipelineGrounded = assistantHasSuccessfulPipelineEvidence(toolCalls)
 	}
 	if plan.Intent == "ai_token_usage" && !assistantAnyAIUsageCallHasEvents(assistantToolCallsByName(toolCalls, "nopsai.get_monitoring_ai_usage")) {
 		quality.EmptyResultExplained = containsAny(lower, "no visible ai usage", "no visible usage", "no visible token", "0 tokens", "zero")
 	}
 	if assistantPlanNeedsProposalSafetyLanguage(plan) {
-		quality.SuggestedNextStep = containsAny(lower, "no changes were applied", "review", "commit", "gitops", "confirm", "proposal")
+		quality.SuggestedNextStep = containsAny(lower, "no changes were applied") &&
+			containsAny(lower, "review", "commit", "gitops", "confirm", "proposal", "write plan")
 	}
 	return quality
 }
@@ -272,9 +278,58 @@ func assistantHasPlanDenial(toolCalls []assistantToolActivity) bool {
 func assistantAnswerQualityPasses(quality assistantAnswerQuality) bool {
 	return quality.HasDirectAnswer &&
 		quality.UsedRelevantTools &&
+		quality.PipelineGrounded &&
 		quality.EmptyResultExplained &&
 		quality.SuggestedNextStep &&
 		quality.NoFakeData
+}
+
+func assistantPlanRequiresPipelineGrounding(plan assistantTurnPlan, toolCalls []assistantToolActivity) bool {
+	switch plan.Intent {
+	case "pipeline", "search_pipelines", "validate_pipeline", "propose_pipeline_create", "propose_pipeline_update", "pipeline_knowledge_context":
+		return true
+	}
+	if plan.PipelineID != "" || (plan.PipelineName != "" && plan.PipelineName != "generated-pipeline") || plan.YAML != "" {
+		return true
+	}
+	for _, step := range plan.Steps {
+		if assistantToolProvidesPipelineEvidence(step.ToolName) {
+			return true
+		}
+	}
+	for _, call := range assistantEvidenceToolCalls(toolCalls) {
+		if assistantToolProvidesPipelineEvidence(call.Name) {
+			return true
+		}
+	}
+	return false
+}
+
+func assistantHasSuccessfulPipelineEvidence(toolCalls []assistantToolActivity) bool {
+	for _, call := range assistantEvidenceToolCalls(toolCalls) {
+		if call.Status == assistantToolStatusSuccess && assistantToolProvidesPipelineEvidence(call.Name) {
+			return true
+		}
+	}
+	return false
+}
+
+func assistantToolProvidesPipelineEvidence(name string) bool {
+	switch strings.TrimSpace(name) {
+	case "nopsai.list_pipelines",
+		"nopsai.search_pipelines",
+		"nopsai.get_pipeline",
+		"nopsai.validate_pipeline",
+		"nopsai.propose_pipeline_create",
+		"nopsai.propose_pipeline_update",
+		"nopsai.get_pipeline_knowledge_context",
+		"nopsai.propose_reusable_step_create",
+		"nopsai.propose_reusable_step_update",
+		"nopsai.propose_reusable_step_delete":
+		return true
+	default:
+		return false
+	}
 }
 
 func assistantPlanNeedsProposalSafetyLanguage(plan assistantTurnPlan) bool {

@@ -1,7 +1,12 @@
 import { useEffect, useRef, type FormEvent, type KeyboardEvent } from 'react';
-import { Loader2, Maximize2, Plus, Send, X } from 'lucide-react';
+import { Check, Copy, Loader2, Maximize2, Plus, RefreshCw, RotateCcw, Send, Trash2, X } from 'lucide-react';
 import { ObjectIcon } from '../../components/ObjectIcon.js';
-import type { AssistantMessage } from './model.js';
+import {
+  assistantMessageAuthorLabel,
+  assistantVisibleToolActivity,
+  type AssistantConversation,
+  type AssistantMessage,
+} from './model.js';
 import { useAssistantController } from './useAssistantController.js';
 
 export function AssistantPanel({
@@ -49,6 +54,36 @@ export function AssistantPanel({
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-primary)] hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => void assistant.load()}
+            disabled={assistant.loading || assistant.sending}
+            aria-label="Refresh assistant"
+            title="Refresh"
+          >
+            <RefreshCw className={`h-4 w-4 ${assistant.loading ? 'animate-spin' : ''}`} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-primary)] hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => void assistant.retryLastUserMessage()}
+            disabled={!assistant.enabled || !assistant.canRetry || assistant.sending || assistant.loading}
+            aria-label="Retry last prompt"
+            title="Retry last prompt"
+          >
+            <RotateCcw className={`h-4 w-4 ${assistant.retrying ? 'animate-spin' : ''}`} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-primary)] text-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-red-950/30"
+            onClick={() => void assistant.deleteConversation()}
+            disabled={!assistant.activeConversation || assistant.sending || assistant.loading || Boolean(assistant.deletingConversationID)}
+            aria-label="Delete conversation"
+            title="Delete conversation"
+          >
+            {assistant.deletingConversationID === assistant.activeConversation?.id ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Trash2 className="h-4 w-4" aria-hidden="true" />}
+          </button>
           {onExpand && (
             <button
               type="button"
@@ -110,15 +145,29 @@ export function AssistantPanel({
                 <p className="rounded-md border border-dashed border-[var(--border-primary)] px-3 py-2 text-sm text-[var(--text-secondary)]">No conversations yet.</p>
               )}
               {assistant.conversations.map(conversation => (
-                <button
+                <div
                   key={conversation.id}
-                  type="button"
-                  className={`w-full rounded-md border px-3 py-2 text-left text-sm hover:bg-[var(--bg-tertiary)] ${assistant.activeConversation?.id === conversation.id ? 'border-[var(--border-accent)] bg-[var(--bg-tertiary)]' : 'border-[var(--border-primary)]'}`}
-                  onClick={() => void assistant.selectConversation(conversation.id)}
+                  className={`group flex items-center gap-2 rounded-md border px-2 py-2 text-sm hover:bg-[var(--bg-tertiary)] ${assistant.activeConversation?.id === conversation.id ? 'border-[var(--border-accent)] bg-[var(--bg-tertiary)]' : 'border-[var(--border-primary)]'}`}
                 >
-                  <span className="block truncate font-medium text-[var(--text-primary)]">{conversation.title || 'Untitled conversation'}</span>
-                  <span className="block truncate text-xs text-[var(--text-secondary)]">{conversation.selected_llm_profile || 'No profile selected'}</span>
-                </button>
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left"
+                    onClick={() => void assistant.selectConversation(conversation.id)}
+                  >
+                    <span className="block truncate font-medium text-[var(--text-primary)]">{conversation.title || 'Untitled conversation'}</span>
+                    <span className="block truncate text-xs text-[var(--text-secondary)]">{conversation.selected_llm_profile || 'No profile selected'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] opacity-0 hover:bg-red-50 hover:text-red-600 focus:opacity-100 group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-red-950/30"
+                    onClick={() => void assistant.deleteConversation(conversation.id)}
+                    disabled={assistant.sending || assistant.deletingConversationID === conversation.id}
+                    aria-label={`Delete conversation ${conversation.title || conversation.id}`}
+                    title="Delete"
+                  >
+                    {assistant.deletingConversationID === conversation.id ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Trash2 className="h-4 w-4" aria-hidden="true" />}
+                  </button>
+                </div>
               ))}
             </div>
           )}
@@ -130,6 +179,23 @@ export function AssistantPanel({
               {assistant.error}
             </div>
           )}
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-primary)] px-4 py-2 text-xs text-[var(--text-secondary)]">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <span className="rounded-md bg-[var(--bg-tertiary)] px-2 py-1">{assistant.config?.mcp.enabled ? 'MCP on' : 'MCP off'}</span>
+              <span className="rounded-md bg-[var(--bg-tertiary)] px-2 py-1">{assistant.config?.memory.enabled ? 'Memory on' : 'Memory off'}</span>
+              <span className="rounded-md bg-[var(--bg-tertiary)] px-2 py-1">{assistant.config?.actions.require_confirmation !== false ? 'Confirm required' : 'Confirm policy relaxed'}</span>
+            </div>
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-primary)] hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => void assistant.copyConversation()}
+              disabled={!assistant.activeConversation || assistant.activeMessages.length === 0}
+              aria-label="Copy conversation"
+              title="Copy conversation"
+            >
+              {assistant.conversationCopied ? <Check className="h-4 w-4 text-emerald-500" aria-hidden="true" /> : <Copy className="h-4 w-4" aria-hidden="true" />}
+            </button>
+          </div>
           <div ref={transcriptRef} className="min-h-0 flex-1 space-y-3 overflow-auto px-4 py-4" aria-live="polite">
             {assistant.config && !assistant.enabled ? (
               <div className="rounded-md border border-dashed border-[var(--border-primary)] p-4 text-sm text-[var(--text-secondary)]">
@@ -143,7 +209,16 @@ export function AssistantPanel({
               </div>
             ) : (
               <>
-                {assistant.activeMessages.map(message => <AssistantMessageBubble key={message.id} message={message} />)}
+                {assistant.activeMessages.map(message => (
+                  <AssistantMessageBubble
+                    key={message.id}
+                    message={message}
+                    copied={assistant.copiedMessageID === message.id}
+                    retryDisabled={!assistant.enabled || assistant.sending || assistant.loading}
+                    onCopy={() => void assistant.copyMessage(message)}
+                    onRetry={message.role === 'user' ? () => void assistant.retryLastUserMessage() : undefined}
+                  />
+                ))}
                 {assistant.sending && <AssistantThinkingBubble />}
               </>
             )}
@@ -158,7 +233,7 @@ export function AssistantPanel({
               disabled={!assistant.enabled || assistant.loading}
             />
             <div className="mt-2 flex items-center justify-between gap-3">
-              <span className="text-xs text-[var(--text-secondary)]">{assistant.config?.actions.require_confirmation !== false ? 'Actions require confirmation' : 'Confirmation can be relaxed by policy'}</span>
+              <span className="text-xs text-[var(--text-secondary)]">Current-user AAA</span>
               <button
                 type="submit"
                 className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-[var(--border-accent)] text-white disabled:cursor-not-allowed disabled:opacity-60"
@@ -182,25 +257,50 @@ export function AssistantPanel({
   );
 }
 
-function AssistantMessageBubble({ message }: { message: AssistantMessage }) {
+function AssistantMessageBubble({
+  message,
+  copied,
+  retryDisabled,
+  onCopy,
+  onRetry,
+}: {
+  message: AssistantMessage;
+  copied: boolean;
+  retryDisabled: boolean;
+  onCopy: () => void;
+  onRetry?: () => void;
+}) {
   const isUser = message.role === 'user';
   return (
     <article className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div className={`max-w-[820px] rounded-md border px-3 py-2 text-sm shadow-sm ${isUser ? 'border-[var(--border-accent)] bg-[var(--border-accent)] text-white' : 'border-[var(--border-primary)] bg-[var(--bg-secondary)] text-[var(--text-primary)]'}`}>
-        <div className={`mb-1 text-xs font-semibold uppercase tracking-wide ${isUser ? 'text-white/75' : 'text-[var(--text-secondary)]'}`}>{isUser ? 'You' : 'Assistant'}</div>
-        <p className="whitespace-pre-wrap">{message.content}</p>
-        {message.tool_calls.length > 0 && (
-          <div className="mt-2 space-y-1 border-t border-[var(--border-primary)] pt-2">
-            {message.tool_calls.map(tool => (
-              <div key={`${message.id}-${tool.name}`} className="text-xs text-[var(--text-secondary)]">
-                <span>{tool.name} {tool.status ? `(${tool.status})` : ''}</span>
-                {tool.resource_uris.length > 0 && (
-                  <span className="block truncate">{tool.resource_uris.join(', ')}</span>
-                )}
-              </div>
-            ))}
+        <div className="mb-1 flex items-center justify-between gap-3">
+          <div className={`text-xs font-semibold uppercase tracking-wide ${isUser ? 'text-white/75' : 'text-[var(--text-secondary)]'}`}>{assistantMessageAuthorLabel(message)}</div>
+          <div className="flex items-center gap-1">
+            {onRetry && (
+              <button
+                type="button"
+                className={`inline-flex h-7 w-7 items-center justify-center rounded-md ${isUser ? 'text-white/80 hover:bg-white/15' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'}`}
+                onClick={onRetry}
+                disabled={retryDisabled}
+                aria-label="Retry this prompt"
+                title="Retry"
+              >
+                <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            )}
+            <button
+              type="button"
+              className={`inline-flex h-7 w-7 items-center justify-center rounded-md ${isUser ? 'text-white/80 hover:bg-white/15' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'}`}
+              onClick={onCopy}
+              aria-label="Copy message"
+              title="Copy"
+            >
+              {copied ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : <Copy className="h-3.5 w-3.5" aria-hidden="true" />}
+            </button>
           </div>
-        )}
+        </div>
+        <p className="whitespace-pre-wrap">{message.content}</p>
       </div>
     </article>
   );
@@ -221,11 +321,11 @@ function AssistantContextPanel({
   conversation,
   messages,
 }: {
-  conversation: ReturnType<typeof useAssistantController>['activeConversation'];
+  conversation: AssistantConversation | null;
   messages: AssistantMessage[];
 }) {
   const memory = conversation?.memory;
-  const toolCalls = messages.flatMap(message => message.tool_calls);
+  const toolCalls = assistantVisibleToolActivity(messages);
   const proposedChanges = proposedChangesFromMessages(messages);
   return (
     <div className="space-y-5">
@@ -241,15 +341,19 @@ function AssistantContextPanel({
       </section>
 
       <section>
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Tool activity</h2>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">NopsAI evidence</h2>
+          {toolCalls.length > 0 && <span className="rounded-md bg-[var(--bg-tertiary)] px-2 py-1 text-xs text-[var(--text-secondary)]">{toolCalls.length}</span>}
+        </div>
         {toolCalls.length === 0 ? (
-          <p className="mt-2 rounded-md border border-dashed border-[var(--border-primary)] p-3 text-sm text-[var(--text-secondary)]">No tools used yet.</p>
+          <p className="mt-2 rounded-md border border-dashed border-[var(--border-primary)] p-3 text-sm text-[var(--text-secondary)]">No evidence tools used yet.</p>
         ) : (
           <ul className="mt-2 space-y-2">
             {toolCalls.map((tool, index) => (
               <li key={`${tool.name}-${index}`} className="rounded-md border border-[var(--border-primary)] p-2 text-sm">
                 <span className="block font-medium text-[var(--text-primary)]">{tool.name}</span>
                 <span className="block text-xs text-[var(--text-secondary)]">{tool.status || 'completed'}</span>
+                {tool.resource_uris.length > 0 && <span className="block truncate text-xs text-[var(--text-secondary)]">{tool.resource_uris.join(', ')}</span>}
               </li>
             ))}
           </ul>

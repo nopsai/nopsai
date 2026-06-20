@@ -18,9 +18,10 @@ const (
 )
 
 type assistantPlannerResult struct {
-	Plan      assistantTurnPlan
-	ToolCalls []assistantToolActivity
-	Handled   bool
+	Plan          assistantTurnPlan
+	ToolCalls     []assistantToolActivity
+	Handled       bool
+	SkipSynthesis bool
 }
 
 type assistantPlannerDecision struct {
@@ -65,6 +66,7 @@ func (a *App) runAssistantLLMPlannedTurn(
 	plan := assistantBaseTurnPlan(content, conversation.Memory)
 	toolCalls := []assistantToolActivity{}
 	remainingToolCalls := assistantMaxPlanToolCalls
+	skipSynthesis := false
 	for iteration := 1; iteration <= assistantMaxPlannerIterations; iteration++ {
 		decision, activity, ok := a.requestAssistantPlannerDecision(ctx, subject, conversation, content, plan, toolCalls, remainingToolCalls, iteration, profileName, profile, client)
 		toolCalls = append(toolCalls, activity)
@@ -104,6 +106,10 @@ func (a *App) runAssistantLLMPlannedTurn(
 				break
 			}
 		}
+		if assistantPlanHasTerminalEvidence(plan, toolCalls) {
+			skipSynthesis = true
+			break
+		}
 		if remainingToolCalls <= 0 {
 			break
 		}
@@ -112,7 +118,7 @@ func (a *App) runAssistantLLMPlannedTurn(
 		}
 	}
 	plan.Steps = nil
-	return assistantPlannerResult{Plan: plan, ToolCalls: toolCalls, Handled: true}
+	return assistantPlannerResult{Plan: plan, ToolCalls: toolCalls, Handled: true, SkipSynthesis: skipSynthesis}
 }
 
 func (a *App) requestAssistantPlannerDecision(
@@ -234,6 +240,8 @@ func assistantTurnPlanFromPlannerDecision(base assistantTurnPlan, decision assis
 	}
 	if assistantPlanIncludesTool(plan, "nopsai.get_monitoring_ai_usage") {
 		plan.Intent = "ai_token_usage"
+	} else if assistantPlanIncludesTool(plan, "nopsai.analyze_pipeline_run_failure") {
+		plan.Intent = "analyze_run"
 	}
 	if assistantPlanIncludesTool(plan, "nopsai.propose_pipeline_create") {
 		plan.Intent = "propose_pipeline_create"
@@ -245,6 +253,19 @@ func assistantTurnPlanFromPlannerDecision(base assistantTurnPlan, decision assis
 		plan.Intent = "search_pipelines"
 	}
 	return plan
+}
+
+func assistantPlanHasTerminalEvidence(plan assistantTurnPlan, toolCalls []assistantToolActivity) bool {
+	for _, step := range plan.Steps {
+		switch strings.TrimSpace(step.ToolName) {
+		case "nopsai.analyze_pipeline_run_failure":
+			call := assistantFirstToolCall(toolCalls, step.ToolName)
+			if call.Status == assistantToolStatusSuccess {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (a *App) buildAssistantPlannerPrompt(ctx context.Context, subject aaamodel.Subject, conversation assistantConversation, content string, plan assistantTurnPlan, toolCalls []assistantToolActivity, remainingToolCalls int, iteration int) string {
@@ -279,6 +300,7 @@ Use only tool names from available_tools. Select tools from their descriptions a
 Prefer first-party analytics tools over stitching raw data manually.
 For reads, choose the smallest evidence set that can answer the question.
 For pipeline YAML, config, or API validation, use the relevant MCP validation/API/doc tools and schemas instead of relying on memory.
+For pipeline generation or edits, route YAML through nopsai.validate_pipeline or a nopsai.propose_pipeline_* tool before answering.
 For changes, prefer nopsai.propose_* or nopsai.plan_* tools. Do not apply changes unless the user explicitly confirmed the mutation and the tool accepts confirm:true.
 If a mutating tool is needed but the user did not explicitly confirm, return that tool without confirm:true; NopsAI validation will block execution and the answer should explain confirmation is required.
 If the previous tool outputs are sufficient, return no steps and write final_answer from the evidence.
