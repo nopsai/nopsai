@@ -45,7 +45,7 @@ test('renders clean chat messages without inline tool-call details', async () =>
   const user = userEvent.setup();
   const copyMessage = vi.fn();
   const deleteConversation = vi.fn();
-  const retryLastUserMessage = vi.fn();
+  const retryMessage = vi.fn();
   const messages = [
     assistantMessage('m1', 'user', 'show pipeline'),
     {
@@ -82,7 +82,8 @@ test('renders clean chat messages without inline tool-call details', async () =>
     selectConversation: vi.fn(),
     startConversation: vi.fn(),
     deleteConversation,
-    retryLastUserMessage,
+    retryMessage,
+    retryLastUserMessage: vi.fn(),
     copyMessage,
     copyConversation: vi.fn(),
     submitMessage: vi.fn(),
@@ -104,7 +105,7 @@ test('renders clean chat messages without inline tool-call details', async () =>
   expect(copyMessage).toHaveBeenCalledWith(messages[1]);
 
   await user.click(screen.getByRole('button', { name: 'Retry this prompt' }));
-  expect(retryLastUserMessage).toHaveBeenCalledOnce();
+  expect(retryMessage).toHaveBeenCalledWith(messages[0]);
   expect(deleteConversation).not.toHaveBeenCalled();
 });
 
@@ -136,6 +137,7 @@ test('renders welcome starters that prefill the composer', async () => {
     selectConversation: vi.fn(),
     startConversation: vi.fn(),
     deleteConversation: vi.fn(),
+    retryMessage: vi.fn(),
     retryLastUserMessage: vi.fn(),
     copyMessage: vi.fn(),
     copyConversation: vi.fn(),
@@ -216,6 +218,7 @@ test('renders assistant markdown and toggles usage details in the full page', as
     selectConversation: vi.fn(),
     startConversation: vi.fn(),
     deleteConversation: vi.fn(),
+    retryMessage: vi.fn(),
     retryLastUserMessage: vi.fn(),
     copyMessage: vi.fn(),
     copyConversation: vi.fn(),

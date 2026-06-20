@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { Check, Copy, Loader2, Maximize2, Menu, Plus, RotateCcw, Send, Trash2, X } from 'lucide-react';
+import { Check, Copy, Loader2, Maximize2, Plus, RotateCcw, Send, Trash2, X } from 'lucide-react';
 import { ObjectIcon } from '../../components/ObjectIcon.js';
 import {
   assistantConversationUsageLabel,
@@ -75,13 +75,13 @@ export function AssistantPanel({
           {!compact && (
             <button
               type="button"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-primary)] hover:bg-[var(--bg-tertiary)]"
+              className="inline-flex h-8 items-center justify-center rounded-md border border-[var(--border-primary)] px-3 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
               onClick={() => setDetailsOpen(current => !current)}
               aria-label={detailsOpen ? 'Hide details' : 'Show details'}
               aria-pressed={detailsOpen}
               title={detailsOpen ? 'Hide details' : 'Show details'}
             >
-              <Menu className="h-4 w-4" aria-hidden="true" />
+              {detailsOpen ? 'Hide details' : 'Details'}
             </button>
           )}
           {onExpand && (
@@ -159,7 +159,7 @@ export function AssistantPanel({
                     copied={assistant.copiedMessageID === message.id}
                     retryDisabled={!assistant.enabled || assistant.sending || assistant.loading}
                     onCopy={() => void assistant.copyMessage(message)}
-                    onRetry={message.role === 'user' ? () => void assistant.retryLastUserMessage() : undefined}
+                    onRetry={message.role === 'user' ? () => void assistant.retryMessage(message) : undefined}
                   />
                 ))}
                 {assistant.sending && (

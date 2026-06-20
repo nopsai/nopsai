@@ -568,7 +568,7 @@ func TestAssistantOrchestrationFallsBackWhenLLMClaimsUnappliedChange(t *testing.
 		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
 		"user:viewer",
 		assistantConversation{ID: uuid.New(), DocsVersion: "auto", SelectedLLMProfile: "standard"},
-		"Generate pipeline YAML named deploy-web",
+		"Prepare a GitOps create plan for pipeline YAML named deploy-web",
 		"standard",
 	)
 
@@ -741,14 +741,21 @@ func TestAssistantPlannerPromptUsesLiveToolSchemasWithoutStaticRouting(t *testin
 
 	for _, want := range []string{
 		"available_tools",
+		"schema_tools",
 		"input_schema",
 		"nopsai.validate_pipeline",
-		"nopsai.propose_pipeline_create",
 		"Use only tool names from available_tools",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("planner prompt missing %q:\n%s", want, prompt)
 		}
+	}
+	schemaNames := assistantPlannerSchemaToolNamesForTest(t, prompt)
+	if !schemaNames["nopsai.validate_pipeline"] {
+		t.Fatalf("pipeline draft prompt should include pipeline validation schema: %#v", schemaNames)
+	}
+	if schemaNames["nopsai.propose_pipeline_create"] || schemaNames["nopsai.propose_pipeline_update"] {
+		t.Fatalf("generic pipeline draft prompt should not include GitOps proposal schemas: %#v", schemaNames)
 	}
 	for _, blocked := range []string{
 		"feature_catalog",
@@ -761,6 +768,243 @@ func TestAssistantPlannerPromptUsesLiveToolSchemasWithoutStaticRouting(t *testin
 		if strings.Contains(prompt, blocked) {
 			t.Fatalf("planner prompt includes static routing artifact %q:\n%s", blocked, prompt)
 		}
+	}
+}
+
+func TestAssistantPlannerPromptNarrowsSchemasForVariableRequests(t *testing.T) {
+	enabled := true
+	app := &App{
+		cfg:      &config.Config{Assistant: config.AssistantConfig{Features: config.AssistantFeaturesConfig{ActionExecution: &enabled}}},
+		aaaLocal: allowActionsForAssistantTest("variable.list_metadata", "variable.write_value", "variable.read_value", "scope.read", "pipeline.read"),
+	}
+	content := "set TEST_VAR = check check in scope prod"
+	plan := assistantBaseTurnPlan(content, assistantConversationMemory{})
+
+	prompt := app.buildAssistantPlannerPrompt(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		assistantConversation{ID: uuid.New(), DocsVersion: "auto"},
+		plan.Goal,
+		plan,
+		nil,
+		assistantMaxPlanToolCalls,
+		1,
+	)
+
+	schema := assistantPlannerSchemaToolForTest(t, prompt, "nopsai.write_variable_value")
+	inputSchema, _ := schema["input_schema"].(map[string]any)
+	properties, _ := inputSchema["properties"].(map[string]any)
+	if _, ok := properties["variable_name"]; !ok {
+		t.Fatalf("variable write schema missing variable_name property: %#v", schema)
+	}
+	schemaNames := assistantPlannerSchemaToolNamesForTest(t, prompt)
+	if schemaNames["nopsai.propose_variable_gitops_write"] {
+		t.Fatalf("direct variable set prompt should not include GitOps variable proposal schema: %#v", schemaNames)
+	}
+	if schemaNames["nopsai.propose_credential_gitops"] {
+		t.Fatalf("variable planner prompt should not include unrelated credential schema: %#v", schemaNames)
+	}
+}
+
+func TestAssistantPlannerPromptUsesGitOpsSchemaOnlyWhenAsked(t *testing.T) {
+	enabled := true
+	app := &App{
+		cfg:      &config.Config{Assistant: config.AssistantConfig{Features: config.AssistantFeaturesConfig{ActionExecution: &enabled}}},
+		aaaLocal: allowActionsForAssistantTest("variable.write_value", "variable.list_metadata", "scope.read"),
+	}
+	content := "Create a GitOps plan to add variable DEPLOY_REGION=eu-west-1 to prod scope"
+	plan := assistantBaseTurnPlan(content, assistantConversationMemory{})
+
+	prompt := app.buildAssistantPlannerPrompt(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		assistantConversation{ID: uuid.New(), DocsVersion: "auto"},
+		plan.Goal,
+		plan,
+		nil,
+		assistantMaxPlanToolCalls,
+		1,
+	)
+
+	schemaNames := assistantPlannerSchemaToolNamesForTest(t, prompt)
+	if !schemaNames["nopsai.propose_variable_gitops_write"] {
+		t.Fatalf("GitOps variable prompt should include variable proposal schema: %#v", schemaNames)
+	}
+	if schemaNames["nopsai.write_variable_value"] {
+		t.Fatalf("GitOps variable prompt should not include direct variable write schema: %#v", schemaNames)
+	}
+}
+
+func TestAssistantPlannerPromptUsesDirectSecretSchemaForDirectSecretRequest(t *testing.T) {
+	enabled := true
+	app := &App{
+		cfg:      &config.Config{Assistant: config.AssistantConfig{Features: config.AssistantFeaturesConfig{ActionExecution: &enabled}}},
+		aaaLocal: allowActionsForAssistantTest("secret.write_value", "secret.list_metadata", "scope.read"),
+	}
+	content := "add encrypted NEW=aaasderfdfhjbd I want to add it to secret prod"
+	plan := assistantBaseTurnPlan(content, assistantConversationMemory{})
+
+	prompt := app.buildAssistantPlannerPrompt(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		assistantConversation{ID: uuid.New(), DocsVersion: "auto"},
+		plan.Goal,
+		plan,
+		nil,
+		assistantMaxPlanToolCalls,
+		1,
+	)
+
+	schema := assistantPlannerSchemaToolForTest(t, prompt, "nopsai.write_secret_value")
+	inputSchema, _ := schema["input_schema"].(map[string]any)
+	properties, _ := inputSchema["properties"].(map[string]any)
+	for _, want := range []string{"secret_name", "value", "scope", "confirm"} {
+		if _, ok := properties[want]; !ok {
+			t.Fatalf("direct secret write schema missing %q property: %#v", want, schema)
+		}
+	}
+	schemaNames := assistantPlannerSchemaToolNamesForTest(t, prompt)
+	if schemaNames["nopsai.propose_secret_gitops_write"] || schemaNames["nopsai.encrypt_secret_for_gitops"] {
+		t.Fatalf("direct encrypted secret wording should not include GitOps secret schemas: %#v", schemaNames)
+	}
+}
+
+func TestAssistantPlannerPromptDoesNotFallbackToGitOpsSchemaWhenDirectSecretToolUnavailable(t *testing.T) {
+	app := &App{aaaLocal: allowActionsForAssistantTest("secret.write_value", "secret.list_metadata", "scope.read")}
+	content := "add encrypted NEW=aaasderfdfhjbd I want to add it to secret prod"
+	plan := assistantBaseTurnPlan(content, assistantConversationMemory{})
+
+	prompt := app.buildAssistantPlannerPrompt(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		assistantConversation{ID: uuid.New(), DocsVersion: "auto"},
+		plan.Goal,
+		plan,
+		nil,
+		assistantMaxPlanToolCalls,
+		1,
+	)
+
+	schemaNames := assistantPlannerSchemaToolNamesForTest(t, prompt)
+	if schemaNames["nopsai.write_secret_value"] {
+		t.Fatalf("direct secret write schema should be unavailable when action execution is disabled: %#v", schemaNames)
+	}
+	if schemaNames["nopsai.propose_secret_gitops_write"] || schemaNames["nopsai.encrypt_secret_for_gitops"] {
+		t.Fatalf("direct secret request should not silently fall back to GitOps schemas: %#v", schemaNames)
+	}
+}
+
+func TestAssistantDirectSecretWriteAsksForConfirmationAndStoresPending(t *testing.T) {
+	enabled := true
+	app := &App{
+		cfg:      &config.Config{Assistant: config.AssistantConfig{Features: config.AssistantFeaturesConfig{ActionExecution: &enabled}}},
+		aaaLocal: allowActionsForAssistantTest("secret.write_value", "secret.list_metadata", "scope.read"),
+	}
+	conversation := assistantConversation{ID: uuid.New(), DocsVersion: "auto"}
+
+	result := app.runAssistantConversationTurn(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		"user:viewer",
+		conversation,
+		"add encrypted NEW=aaasderfdfhjbd I want to add it to secret prod",
+		"",
+	)
+
+	if len(result.ToolCalls) != 0 {
+		t.Fatalf("direct secret write should wait for confirmation before tool calls: %#v", result.ToolCalls)
+	}
+	for _, want := range []string{"Please confirm", "direct MCP change", "Name: NEW", "Scope: prod", "Value: provided, not shown", "No changes were applied"} {
+		if !strings.Contains(result.Reply, want) {
+			t.Fatalf("reply missing %q:\n%s", want, result.Reply)
+		}
+	}
+	pending, ok := assistantPendingConfirmationFromMemory(result.Memory)
+	if !ok {
+		t.Fatalf("pending confirmation missing from memory: %#v", result.Memory.Entities)
+	}
+	if pending.Tool != "nopsai.write_secret_value" ||
+		stringArg(pending.Args, "secret_name") != "NEW" ||
+		stringArg(pending.Args, "value") != "aaasderfdfhjbd" ||
+		stringArg(pending.Args, "scope") != "prod" {
+		t.Fatalf("pending confirmation = %#v", pending)
+	}
+
+	conversation.Memory = result.Memory
+	followUp := app.runAssistantConversationTurn(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		"user:viewer",
+		conversation,
+		"NEW aaasderfdfhjbd prod",
+		"",
+	)
+	if len(followUp.ToolCalls) != 0 {
+		t.Fatalf("detail-only follow-up should still wait for explicit confirmation: %#v", followUp.ToolCalls)
+	}
+	if strings.Contains(followUp.Reply, "schema_tools") || strings.Contains(followUp.Reply, "planner selected") {
+		t.Fatalf("follow-up leaked internal planner detail: %q", followUp.Reply)
+	}
+	if !strings.Contains(followUp.Reply, "Reply `confirm` to apply") {
+		t.Fatalf("follow-up should ask for explicit confirmation: %q", followUp.Reply)
+	}
+}
+
+func TestAssistantPlannerPromptKeepsTokenUsageAwayFromCredentialSchemas(t *testing.T) {
+	app := &App{aaaLocal: stubAAAAuthorizer{
+		checkFn: func(context.Context, model.Subject, string, model.ResourceRef, map[string]any) (model.Decision, error) {
+			return model.Decision{Allowed: true}, nil
+		},
+	}}
+	plan := assistantBaseTurnPlan("how much token did assistant chat use today", assistantConversationMemory{})
+
+	prompt := app.buildAssistantPlannerPrompt(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		assistantConversation{ID: uuid.New(), DocsVersion: "auto"},
+		plan.Goal,
+		plan,
+		nil,
+		assistantMaxPlanToolCalls,
+		1,
+	)
+
+	schemaNames := assistantPlannerSchemaToolNamesForTest(t, prompt)
+	if !schemaNames["nopsai.get_monitoring_ai_usage"] {
+		t.Fatalf("token usage prompt should include AI usage monitoring schema: %#v", schemaNames)
+	}
+	if schemaNames["nopsai.propose_credential_gitops"] || schemaNames["nopsai.create_credential"] {
+		t.Fatalf("token usage prompt should not include credential schemas: %#v", schemaNames)
+	}
+}
+
+func TestAssistantPlannerPromptKeepsBroadRolloutSchemasLean(t *testing.T) {
+	app := &App{aaaLocal: stubAAAAuthorizer{
+		checkFn: func(context.Context, model.Subject, string, model.ResourceRef, map[string]any) (model.Decision, error) {
+			return model.Decision{Allowed: true}, nil
+		},
+	}}
+	plan := assistantBaseTurnPlan("Help me plan a rollout", assistantConversationMemory{})
+
+	prompt := app.buildAssistantPlannerPrompt(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		assistantConversation{ID: uuid.New(), DocsVersion: "auto"},
+		plan.Goal,
+		plan,
+		nil,
+		assistantMaxPlanToolCalls,
+		1,
+	)
+
+	if !strings.Contains(prompt, "available_tools") || !strings.Contains(prompt, "schema_tools") {
+		t.Fatalf("planner prompt missing efficient catalog sections:\n%s", prompt)
+	}
+	if count := len(assistantPlannerSchemaToolNamesForTest(t, prompt)); count > 8 {
+		t.Fatalf("broad rollout prompt included %d schemas, want a lean schema subset:\n%s", count, prompt)
+	}
+	if len(prompt) > 30000 {
+		t.Fatalf("broad rollout prompt length = %d bytes, want <= 30000", len(prompt))
 	}
 }
 
@@ -783,11 +1027,14 @@ func TestAssistantPlannerPromptStaysCompactForFullToolCatalog(t *testing.T) {
 		1,
 	)
 
-	if len(prompt) > 60000 {
-		t.Fatalf("planner prompt length = %d bytes, want <= 60000", len(prompt))
+	if len(prompt) > 30000 {
+		t.Fatalf("planner prompt length = %d bytes, want <= 30000", len(prompt))
 	}
 	if strings.Contains(prompt, "additionalProperties") {
 		t.Fatalf("planner prompt should use compact schema summaries, not full JSON schemas")
+	}
+	if count := len(assistantPlannerSchemaToolNamesForTest(t, prompt)); count > assistantMaxPlannerSchemaTools {
+		t.Fatalf("planner prompt included %d schemas, max is %d", count, assistantMaxPlannerSchemaTools)
 	}
 }
 
@@ -997,6 +1244,64 @@ func TestAssistantLLMPlannerBlocksUnconfirmedMutation(t *testing.T) {
 	}
 }
 
+func TestAssistantLLMPlannerRejectsToolOutsideSchemaSubset(t *testing.T) {
+	credentialRef := "credential://system/llm/standard"
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requestCount++
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"goal\":\"Add secret NEW in prod\",\"intent\":\"secret_write\",\"steps\":[{\"tool\":\"nopsai.propose_secret_gitops_write\",\"args\":{\"encrypted_value\":\"aaasderfdfhjbd\",\"scope\":\"prod\"},\"reason\":\"Prepare a GitOps secret proposal.\"}],\"success_criteria\":\"Secret proposal prepared.\",\"needs_more_tools\":false,\"final_answer\":\"\",\"clarifying_question\":\"\"}"}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`)
+	}))
+	defer server.Close()
+
+	app := &App{
+		cfg: &config.Config{
+			LLMDefaultProfile: "standard",
+			LLMProfiles: map[string]config.LLMProfile{
+				"standard": {
+					Provider:      config.LLMProviderOpenAI,
+					Model:         "gpt-test",
+					BaseURL:       server.URL + "/v1",
+					CredentialRef: credentialRef,
+				},
+			},
+		},
+		httpClient:         server.Client(),
+		credentialResolver: staticCredentialResolver{credentialRef: "secret"},
+		aaaLocal:           allowActionsForAssistantTest("secret.write_value", "secret.list_metadata", "scope.read"),
+	}
+
+	result := app.runAssistantConversationTurn(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		"user:viewer",
+		assistantConversation{ID: uuid.New(), DocsVersion: "auto", SelectedLLMProfile: "standard"},
+		"please add a secret to prod",
+		"standard",
+	)
+
+	if requestCount != 1 {
+		t.Fatalf("LLM requests = %d, want planner only after schema-subset rejection", requestCount)
+	}
+	if call := assistantFirstToolCall(result.ToolCalls, "nopsai.propose_secret_gitops_write"); call.Status != "" {
+		t.Fatalf("GitOps proposal tool should not execute when omitted from schema_tools: %#v", call)
+	}
+	planner := assistantFirstToolCall(result.ToolCalls, assistantLLMPlannerToolName)
+	if planner.Status != assistantToolStatusError {
+		t.Fatalf("planner status = %q, want schema-subset error", planner.Status)
+	}
+	if reason := assistantOutputString(planner.Output, "fallback_reason"); !strings.Contains(reason, "schema_tools") {
+		t.Fatalf("planner fallback reason = %q, want schema_tools rejection", reason)
+	}
+	if strings.Contains(result.Reply, "schema_tools") || strings.Contains(result.Reply, "planner step") {
+		t.Fatalf("reply leaked internal schema validation details: %q", result.Reply)
+	}
+	if !strings.Contains(result.Reply, "direct MCP secret write tool is not available") ||
+		!strings.Contains(result.Reply, "No changes were applied") {
+		t.Fatalf("reply = %q", result.Reply)
+	}
+}
+
 func TestAssistantPlanValidationFailsClosedForUnavailableTool(t *testing.T) {
 	app := &App{aaaLocal: allowActionsForAssistantTest("pipeline_run.list")}
 	plan := assistantTurnPlan{
@@ -1097,4 +1402,61 @@ func assistantToolNamesForTest(tools []hostedMCPTool) map[string]bool {
 		names[tool.Name] = true
 	}
 	return names
+}
+
+func assistantPlannerPromptContextForTest(t *testing.T, prompt string) map[string]any {
+	t.Helper()
+	const marker = "Context:\n"
+	idx := strings.LastIndex(prompt, marker)
+	if idx < 0 {
+		t.Fatalf("planner prompt missing context marker:\n%s", prompt)
+	}
+	raw := strings.TrimSpace(prompt[idx+len(marker):])
+	var context map[string]any
+	if err := json.Unmarshal([]byte(raw), &context); err != nil {
+		t.Fatalf("planner prompt context JSON error = %v\n%s", err, raw)
+	}
+	return context
+}
+
+func assistantPlannerSchemaToolNamesForTest(t *testing.T, prompt string) map[string]bool {
+	t.Helper()
+	context := assistantPlannerPromptContextForTest(t, prompt)
+	items, ok := context["schema_tools"].([]any)
+	if !ok {
+		t.Fatalf("planner context schema_tools has unexpected shape: %#v", context["schema_tools"])
+	}
+	names := map[string]bool{}
+	for _, item := range items {
+		schemaTool, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("planner schema tool has unexpected shape: %#v", item)
+		}
+		name, _ := schemaTool["name"].(string)
+		if name == "" {
+			t.Fatalf("planner schema tool missing name: %#v", schemaTool)
+		}
+		names[name] = true
+	}
+	return names
+}
+
+func assistantPlannerSchemaToolForTest(t *testing.T, prompt, name string) map[string]any {
+	t.Helper()
+	context := assistantPlannerPromptContextForTest(t, prompt)
+	items, ok := context["schema_tools"].([]any)
+	if !ok {
+		t.Fatalf("planner context schema_tools has unexpected shape: %#v", context["schema_tools"])
+	}
+	for _, item := range items {
+		schemaTool, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("planner schema tool has unexpected shape: %#v", item)
+		}
+		if schemaTool["name"] == name {
+			return schemaTool
+		}
+	}
+	t.Fatalf("planner prompt missing schema tool %q; available: %#v", name, assistantPlannerSchemaToolNamesForTest(t, prompt))
+	return nil
 }
