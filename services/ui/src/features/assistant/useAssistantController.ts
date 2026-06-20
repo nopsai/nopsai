@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { copyTextToClipboard } from '../../lib/clipboard.js';
 import {
+  deleteAssistantConversation,
   fetchAssistantConfig,
   createAssistantConversation,
   fetchAssistantConversation,
@@ -7,7 +9,15 @@ import {
   fetchAssistantLLMProfiles,
   sendAssistantMessage,
 } from './api.js';
-import type { AssistantConfig, AssistantConversation, AssistantLLMProfile, AssistantMessage } from './model.js';
+import {
+  assistantConversationClipboardText,
+  assistantLastUserMessage,
+  assistantMessageClipboardText,
+  type AssistantConfig,
+  type AssistantConversation,
+  type AssistantLLMProfile,
+  type AssistantMessage,
+} from './model.js';
 
 export function useAssistantController({ autoload = true }: { autoload?: boolean } = {}) {
   const [config, setConfig] = useState<AssistantConfig | null>(null);
@@ -19,7 +29,12 @@ export function useAssistantController({ autoload = true }: { autoload?: boolean
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(autoload);
   const [sending, setSending] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [deletingConversationID, setDeletingConversationID] = useState('');
+  const [copiedMessageID, setCopiedMessageID] = useState('');
+  const [conversationCopied, setConversationCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const copyResetRef = useRef<number | undefined>(undefined);
   const profileOptions = useMemo(() => selectableAssistantProfileNames(profiles), [profiles]);
 
   const load = useCallback(async () => {
@@ -65,6 +80,10 @@ export function useAssistantController({ autoload = true }: { autoload?: boolean
     void load();
   }, [autoload, load]);
 
+  useEffect(() => () => {
+    if (copyResetRef.current) window.clearTimeout(copyResetRef.current);
+  }, []);
+
   const selectConversation = useCallback(async (conversationID: string) => {
     setLoading(true);
     setError(null);
@@ -101,6 +120,69 @@ export function useAssistantController({ autoload = true }: { autoload?: boolean
       setSending(false);
     }
   }, [config?.default_docs_version, config?.enabled, selectedProfile]);
+
+  const finishCopyFeedback = useCallback((messageID = '') => {
+    if (copyResetRef.current) window.clearTimeout(copyResetRef.current);
+    copyResetRef.current = window.setTimeout(() => {
+      setCopiedMessageID(current => (messageID && current === messageID ? '' : current));
+      setConversationCopied(false);
+    }, 1600);
+  }, []);
+
+  const copyMessage = useCallback(async (message: AssistantMessage) => {
+    const text = assistantMessageClipboardText(message);
+    if (!text) return;
+    setError(null);
+    try {
+      await copyTextToClipboard(text);
+      setConversationCopied(false);
+      setCopiedMessageID(message.id);
+      finishCopyFeedback(message.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to copy message');
+    }
+  }, [finishCopyFeedback]);
+
+  const copyConversation = useCallback(async () => {
+    const text = assistantConversationClipboardText(activeConversation);
+    if (!text) return;
+    setError(null);
+    try {
+      await copyTextToClipboard(text);
+      setCopiedMessageID('');
+      setConversationCopied(true);
+      finishCopyFeedback();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to copy conversation');
+    }
+  }, [activeConversation, finishCopyFeedback]);
+
+  const deleteConversation = useCallback(async (conversationID = activeConversation?.id || '') => {
+    if (!conversationID || sending) return;
+    const remaining = conversations.filter(conversation => conversation.id !== conversationID);
+    setDeletingConversationID(conversationID);
+    setError(null);
+    try {
+      await deleteAssistantConversation(conversationID);
+      setConversations(remaining);
+      setPendingMessage(null);
+      if (activeConversation?.id === conversationID) {
+        if (remaining[0]) {
+          const nextConversation = await fetchAssistantConversation(remaining[0].id);
+          setActiveConversation(nextConversation);
+          if (nextConversation.selected_llm_profile && profileOptions.includes(nextConversation.selected_llm_profile)) {
+            setSelectedProfile(nextConversation.selected_llm_profile);
+          }
+        } else {
+          setActiveConversation(null);
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to delete conversation');
+    } finally {
+      setDeletingConversationID('');
+    }
+  }, [activeConversation?.id, conversations, profileOptions, sending]);
 
   const submitMessage = useCallback(async () => {
     const content = draft.trim();
@@ -143,10 +225,40 @@ export function useAssistantController({ autoload = true }: { autoload?: boolean
     }
   }, [activeConversation, config?.default_docs_version, config?.enabled, draft, selectedProfile, sending]);
 
+  const retryLastUserMessage = useCallback(async () => {
+    if (sending || retrying || config?.enabled !== true || !activeConversation) return;
+    const lastUserMessage = assistantLastUserMessage(activeConversation.messages);
+    if (!lastUserMessage) return;
+    setPendingMessage(buildPendingAssistantMessage(activeConversation.id, lastUserMessage.content));
+    setSending(true);
+    setRetrying(true);
+    setError(null);
+    try {
+      const payload = await sendAssistantMessage({
+        conversation_id: activeConversation.id,
+        content: lastUserMessage.content,
+        selected_llm_profile: selectedProfile,
+      });
+      setPendingMessage(null);
+      setActiveConversation(payload.conversation);
+      setConversations(current => [
+        payload.conversation,
+        ...current.filter(item => item.id !== payload.conversation.id),
+      ]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to retry message');
+      setPendingMessage(null);
+    } finally {
+      setRetrying(false);
+      setSending(false);
+    }
+  }, [activeConversation, config?.enabled, retrying, selectedProfile, sending]);
+
   const activeMessages = useMemo(() => {
     const messages = activeConversation?.messages || [];
     return pendingMessage ? [...messages, pendingMessage] : messages;
   }, [activeConversation?.messages, pendingMessage]);
+  const canRetry = Boolean(activeConversation && assistantLastUserMessage(activeConversation.messages));
 
   return {
     conversations,
@@ -160,12 +272,21 @@ export function useAssistantController({ autoload = true }: { autoload?: boolean
     setDraft,
     loading,
     sending,
+    retrying,
+    deletingConversationID,
+    copiedMessageID,
+    conversationCopied,
     error,
     config,
     enabled: config?.enabled === true,
+    canRetry,
     load,
     selectConversation,
     startConversation,
+    deleteConversation,
+    retryLastUserMessage,
+    copyMessage,
+    copyConversation,
     submitMessage,
   };
 }

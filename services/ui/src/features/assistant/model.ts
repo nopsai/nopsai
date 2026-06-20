@@ -235,6 +235,42 @@ export function normalizeAssistantMemory(value: unknown): AssistantMemory {
   };
 }
 
+export function assistantLastUserMessage(messages: AssistantMessage[]): AssistantMessage | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role === 'user' && message.content.trim()) return message;
+  }
+  return null;
+}
+
+export function assistantMessageClipboardText(message: AssistantMessage): string {
+  return message.content.trim();
+}
+
+export function assistantConversationClipboardText(conversation: AssistantConversation | null): string {
+  if (!conversation) return '';
+  return conversation.messages
+    .map(message => `${assistantMessageAuthorLabel(message)}:\n${message.content.trim()}`)
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+export function assistantVisibleToolActivity(messages: AssistantMessage[]): AssistantToolActivity[] {
+  return messages
+    .flatMap(message => message.tool_calls)
+    .filter(tool => !assistantToolActivityIsInternal(tool));
+}
+
+export function assistantToolActivityIsInternal(tool: AssistantToolActivity): boolean {
+  return tool.name === 'nopsai.llm.plan' || tool.name === 'nopsai.llm.complete';
+}
+
+export function assistantMessageAuthorLabel(message: AssistantMessage): string {
+  if (message.role === 'user') return 'You';
+  if (message.role === 'assistant') return 'Assistant';
+  return message.role || 'System';
+}
+
 function normalizeAssistantStringArray(value: unknown): string[] {
   const seen = new Set<string>();
   const normalized: string[] = [];

@@ -49,7 +49,7 @@ func (a *App) runAssistantConversationTurn(
 		memory := assistantMemoryForTurn(conversation, planned.Plan)
 		memory = assistantMemoryAfterTools(memory, planned.Plan, planned.ToolCalls)
 		reply := composeAssistantReply(planned.Plan, selectedProfile, planned.ToolCalls)
-		if planned.Plan.Intent == "clarify" || planned.Plan.FinalAnswer != "" {
+		if assistantTurnReplyIsCompleteWithoutSynthesis(planned) {
 			return assistantOrchestrationResult{
 				Reply:     reply,
 				ToolCalls: planned.ToolCalls,
@@ -82,6 +82,10 @@ func (a *App) runAssistantConversationTurn(
 		ToolCalls: planned.ToolCalls,
 		Memory:    normalizeAssistantMemory(memory),
 	}
+}
+
+func assistantTurnReplyIsCompleteWithoutSynthesis(planned assistantPlannerResult) bool {
+	return planned.Plan.Intent == "clarify" || planned.Plan.FinalAnswer != "" || planned.SkipSynthesis
 }
 
 type assistantTurnPlan struct {
@@ -426,6 +430,9 @@ func composeRunAnalysisReply(toolCalls []assistantToolActivity) string {
 		lines = append(lines, "Recorded failure: "+reason)
 	}
 	logs := assistantMapSlice(logsCall.Output["logs"])
+	if len(logs) == 0 {
+		logs = assistantMapSlice(analysis.Output["log_excerpt"])
+	}
 	if len(logs) > 0 {
 		lines = append(lines, fmt.Sprintf("Log lines reviewed: %d", len(logs)))
 		if assistantOutputBool(logsCall.Output, "bytes_truncated") {

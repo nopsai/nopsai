@@ -22,6 +22,7 @@ func (a *App) registerAssistantRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/assistant/conversations", a.handleCreateAssistantConversation)
 	mux.HandleFunc("GET /v1/assistant/conversations", a.handleListAssistantConversations)
 	mux.HandleFunc("GET /v1/assistant/conversations/{id}", a.handleGetAssistantConversation)
+	mux.HandleFunc("DELETE /v1/assistant/conversations/{id}", a.handleDeleteAssistantConversation)
 	mux.HandleFunc("POST /v1/assistant/conversations/{id}/messages", a.handleCreateAssistantMessage)
 	mux.HandleFunc("POST /v1/assistant/conversations/{id}/summarize-memory", a.handleSummarizeAssistantMemory)
 }
@@ -200,6 +201,34 @@ func (a *App) handleGetAssistantConversation(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	_ = httpapi.WriteJSON(w, http.StatusOK, conversation)
+}
+
+func (a *App) handleDeleteAssistantConversation(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAssistantEnabled(w) {
+		return
+	}
+	userID, ok := a.requireAssistantUserID(w, r)
+	if !ok {
+		return
+	}
+	conversationID, err := uuid.Parse(strings.TrimSpace(r.PathValue("id")))
+	if err != nil {
+		http.Error(w, "assistant conversation id is invalid", http.StatusBadRequest)
+		return
+	}
+	tag, err := a.db.Exec(r.Context(), `
+		DELETE FROM assistant_conversations
+		WHERE id = $1 AND user_id = $2
+	`, conversationID, userID)
+	if err != nil {
+		http.Error(w, "failed to delete assistant conversation", http.StatusInternalServerError)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		http.Error(w, "assistant conversation not found", http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *App) handleCreateAssistantMessage(w http.ResponseWriter, r *http.Request) {
