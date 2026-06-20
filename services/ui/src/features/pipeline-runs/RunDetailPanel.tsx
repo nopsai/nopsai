@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom';
 import { ArrowRight, BarChart3, FileText, RefreshCw, Square, Trash2, Workflow, X } from 'lucide-react';
-import type { PipelineDefinition, RunListItem, StepDetail } from './contracts';
+import type { PipelineDefinition, PipelineRunFinalOutput, RunListItem, StepDetail } from './contracts';
 import { BranchIcon, CommitIcon, RunIdIcon, StatusBadge, ZapIcon } from './PipelineRunCards';
+import { RunFinalOutputs } from './RunFinalOutputs';
 import { StepsGraph } from './RunGraph';
 import {
   buildPipelineLink,
@@ -21,6 +22,7 @@ type RunDetail = {
   steps: StepDetail[];
   pipeline_definition?: PipelineDefinition;
   pipeline_definition_yaml?: string;
+  final_outputs?: PipelineRunFinalOutput[];
   child_runs: RunListItem[];
   parent_run_info?: ParentRunInfo | null;
   approvals?: PipelineApproval[];
@@ -346,6 +348,8 @@ export function RunDetailView({
           <div className="mt-2 font-mono text-xs whitespace-pre-wrap break-words">{run.failure_reason}</div>
         </div>
       )}
+
+      <RunFinalOutputs runID={run.run_id} outputs={detail.final_outputs} />
 
       {approvals.length > 0 && (
         <div className="border border-[var(--border-primary)] rounded-2xl bg-white dark:bg-slate-950 p-4 space-y-3 shadow-sm">

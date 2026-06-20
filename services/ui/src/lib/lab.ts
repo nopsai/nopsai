@@ -30,6 +30,7 @@ export const PIPELINE_DIRECTIVES: LabDirective[] = [
   { key: 'runtime_pool', hint: 'Kubernetes runtime pool for steps' },
   { key: 'affinity_enabled', hint: 'Keep Kubernetes step pods on the agent node' },
   { key: 'knowledge_context', hint: 'Knowledge documents for goals' },
+  { key: 'output', hint: 'Pipeline final outputs' },
   { key: 'llm_output_sharing', hint: 'Share LLM outputs across steps' },
   { key: 'llm_content_sharing', hint: 'Share LLM prompts across steps' },
   { key: 'llm_content_include', hint: 'Only share matching paths with LLM' },
@@ -84,7 +85,7 @@ export const DIRECTIVE_VALUE_METADATA: Record<string, { values: string[]; title:
 
 export const LIST_KEYS_WITH_NAME_TEMPLATE = new Set(['steps', 'tasks']);
 export const LIST_KEYS_SIMPLE = new Set(['secrets', 'volumes', 'depends_on', 'artifacts', 'variables', 'mcp_profiles', 'llm_content_include', 'llm_content_ignore']);
-export const ARRAY_KEYS = new Set(['steps', 'tasks', 'variables', 'secrets', 'volumes', 'depends_on', 'artifacts', 'mcp_profiles', 'knowledge_context', 'llm_content_include', 'llm_content_ignore']);
+export const ARRAY_KEYS = new Set(['steps', 'tasks', 'items', 'variables', 'secrets', 'volumes', 'depends_on', 'artifacts', 'mcp_profiles', 'knowledge_context', 'llm_content_include', 'llm_content_ignore']);
 
 const OVERRIDE_KEY_PATTERN = /^[A-Za-z0-9_.-]+$/;
 export const DEFAULT_PIPELINE_NAME = 'ad-hoc-pipeline';
@@ -235,6 +236,7 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'runtime_pool',
     'affinity_enabled',
     'knowledge_context',
+    'output',
     'llm_content_sharing',
     'llm_output_sharing',
     'llm_content_include',
@@ -275,6 +277,8 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'knowledge_context',
     'llm_output_sharing',
   ]);
+  const knownOutputKeys = new Set(['llm_profile', 'items']);
+  const knownOutputItemKeys = new Set(['name', 'type', 'when', 'prompt', 'llm_profile']);
   const knownDisplayOptionsKeys = new Set(['github_view']);
 
   const createError = (message: string, pathHints: string[] = []): LabValidationError => {
@@ -314,6 +318,13 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     if (pipeline.display_options) {
       allUnknown = allUnknown.concat(findUnknownKeys(pipeline.display_options, knownDisplayOptionsKeys, 'display_options'));
     }
+    if (pipeline.output) {
+      allUnknown = allUnknown.concat(findUnknownKeys(pipeline.output, knownOutputKeys, 'output'));
+      const outputItems = isPlainObject(pipeline.output) && Array.isArray(pipeline.output.items) ? pipeline.output.items : [];
+      outputItems.forEach((item: unknown, index: number) => {
+        allUnknown = allUnknown.concat(findUnknownKeys(item, knownOutputItemKeys, `output.items[${index}]`));
+      });
+    }
 
     const steps = Array.isArray(pipeline.steps) ? pipeline.steps : [];
     steps.forEach((step, index) => {
@@ -348,6 +359,59 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
       return { errors: [createError("Validation Error: 'llm_enabled' must be true or false.", ['llm_enabled'])] };
     }
     const llmEnabled = typeof llmEnabledValue === 'boolean' ? llmEnabledValue : true;
+
+    if (hasOwn(pipeline, 'output')) {
+      if (!isPlainObject(pipeline.output)) {
+        return { errors: [createError("Validation Error: 'output' must be an object.", ['output'])] };
+      }
+      const output = pipeline.output as Record<string, unknown>;
+      if (hasOwn(output, 'llm_profile') && typeof output.llm_profile !== 'string') {
+        return { errors: [createError("Validation Error: 'output.llm_profile' must be a string.", ['output.llm_profile', 'output'])] };
+      }
+      const outputItems = Array.isArray(output.items) ? output.items : [];
+      if (!hasOwn(output, 'items') || outputItems.length === 0) {
+        return { errors: [createError("Validation Error: 'output.items' must contain at least one final output.", ['output.items', 'output'])] };
+      }
+      const outputNames = new Set<string>();
+      const allowedOutputTypes = new Set(['markdown', 'pdf', 'excel', 'json', 'html']);
+      const allowedOutputWhen = new Set(['always', 'success', 'failure']);
+      for (let index = 0; index < outputItems.length; index += 1) {
+        const itemPath = `output.items[${index}]`;
+        const item = outputItems[index] as unknown;
+        if (!isPlainObject(item)) {
+          return { errors: [createError('Validation Error: A final output item is not a valid object.', [itemPath])] };
+        }
+        const outputName = safeString(item.name).trim();
+        if (!outputName) {
+          return { errors: [createError('Validation Error: Final output item requires a name.', [`${itemPath}.name`, itemPath])] };
+        }
+        const outputNameKey = outputName.toLowerCase();
+        if (outputNames.has(outputNameKey)) {
+          return { errors: [createError(`Validation Error: Final output '${outputName}' is defined more than once.`, [`${itemPath}.name`, itemPath])] };
+        }
+        outputNames.add(outputNameKey);
+        const outputType = safeString(item.type).trim().toLowerCase();
+        if (!outputType) {
+          return { errors: [createError(`Validation Error: Final output '${outputName}' requires a type.`, [`${itemPath}.type`, itemPath])] };
+        }
+        if (!allowedOutputTypes.has(outputType)) {
+          return { errors: [createError(`Validation Error: Final output '${outputName}' has unsupported type '${safeString(item.type)}'.`, [`${itemPath}.type`, itemPath])] };
+        }
+        const outputWhen = safeString(item.when).trim().toLowerCase();
+        if (outputWhen && !allowedOutputWhen.has(outputWhen)) {
+          return { errors: [createError(`Validation Error: Final output '${outputName}' has unsupported when '${safeString(item.when)}'.`, [`${itemPath}.when`, itemPath])] };
+        }
+        if (!safeString(item.prompt).trim()) {
+          return { errors: [createError(`Validation Error: Final output '${outputName}' requires a prompt.`, [`${itemPath}.prompt`, itemPath])] };
+        }
+        if (hasOwn(item, 'llm_profile') && typeof item.llm_profile !== 'string') {
+          return { errors: [createError(`Validation Error: Final output '${outputName}' llm_profile must be a string.`, [`${itemPath}.llm_profile`, itemPath])] };
+        }
+      }
+      if (!llmEnabled) {
+        return { errors: [createError('Validation Error: Pipeline has LLM disabled but defines final outputs.', ['output'])] };
+      }
+    }
 
     const pipelineName = safeString(pipeline.name);
     if (!pipelineName) return { errors: [createError("Validation Error: 'name' is a required field.", ['name'])] };

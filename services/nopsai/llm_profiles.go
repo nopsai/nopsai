@@ -228,6 +228,22 @@ func collectResolvedLLMProfiles(pipeline *models.Pipeline, defaultProfile string
 	if pipelineProfile != "" {
 		used[pipelineProfile] = true
 	}
+	outputProfile := strings.TrimSpace(pipeline.Output.LLMProfile)
+	if outputProfile == "" {
+		outputProfile = pipelineProfile
+	}
+	if outputProfile != "" && len(pipeline.Output.Items) > 0 {
+		used[outputProfile] = true
+	}
+	for _, item := range pipeline.Output.Items {
+		itemProfile := strings.TrimSpace(item.LLMProfile)
+		if itemProfile == "" {
+			itemProfile = outputProfile
+		}
+		if itemProfile != "" {
+			used[itemProfile] = true
+		}
+	}
 	for _, step := range pipeline.Steps {
 		stepProfile := strings.TrimSpace(step.GetLLMProfile())
 		if stepProfile == "" {
@@ -256,6 +272,18 @@ func collectExplicitLLMProfileReferencesFromPipeline(pipeline *models.Pipeline, 
 	}
 	if strings.EqualFold(strings.TrimSpace(pipeline.LLMProfile), profileName) {
 		refs = append(refs, prefix)
+	}
+	if strings.EqualFold(strings.TrimSpace(pipeline.Output.LLMProfile), profileName) {
+		refs = append(refs, prefix+" output")
+	}
+	for _, item := range pipeline.Output.Items {
+		itemName := strings.TrimSpace(item.Name)
+		if itemName == "" {
+			itemName = "unknown"
+		}
+		if strings.EqualFold(strings.TrimSpace(item.LLMProfile), profileName) {
+			refs = append(refs, fmt.Sprintf("%s output %q", prefix, itemName))
+		}
 	}
 	for _, step := range pipeline.Steps {
 		stepName := strings.TrimSpace(step.GetName())

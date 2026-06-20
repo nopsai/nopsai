@@ -30,6 +30,7 @@ type DetailBuildInput struct {
 	StepAIUsage            map[string]models.AIUsageSummary
 	TaskAIUsage            map[string]models.AIUsageSummary
 	KnowledgeContexts      []models.KnowledgeContextSnapshot
+	FinalOutputs           []models.PipelineRunFinalOutput
 	ParentRunInfo          *models.ParentRunInfo
 }
 
@@ -277,6 +278,42 @@ func LoadAIUsageByTask(ctx context.Context, db Queryer, runID string) (map[strin
 	return usageByTask, nil
 }
 
+func LoadFinalOutputs(ctx context.Context, db Queryer, runID string) ([]models.PipelineRunFinalOutput, error) {
+	rows, err := db.Query(ctx, `
+		SELECT id::text, name, type, status, content, error, llm_profile, created_at, updated_at
+		FROM pipeline_run_outputs
+		WHERE run_id = $1
+		ORDER BY item_index ASC, created_at ASC
+	`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	outputs := []models.PipelineRunFinalOutput{}
+	for rows.Next() {
+		var output models.PipelineRunFinalOutput
+		if err := rows.Scan(
+			&output.ID,
+			&output.Name,
+			&output.Type,
+			&output.Status,
+			&output.Content,
+			&output.Error,
+			&output.LLMProfile,
+			&output.CreatedAt,
+			&output.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		outputs = append(outputs, output)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return outputs, nil
+}
+
 func BuildDetail(input DetailBuildInput) models.RunDetail {
 	run := ApplyChildRunStatus(input.Run, input.ChildRuns)
 	return models.RunDetail{
@@ -285,6 +322,7 @@ func BuildDetail(input DetailBuildInput) models.RunDetail {
 		PipelineDefinition:     input.OriginalPipeline,
 		PipelineDefinitionYAML: input.PipelineDefinitionYAML,
 		KnowledgeContexts:      input.KnowledgeContexts,
+		FinalOutputs:           input.FinalOutputs,
 		ChildRuns:              input.ChildRuns,
 		ParentRunInfo:          input.ParentRunInfo,
 	}
@@ -412,6 +450,9 @@ func FinalizeRunDetailTasksForDisplay(tasks []models.TaskDetail, runStatus, step
 		}
 
 		if finalized[i].StartedAt.IsZero() {
+			if normalizedRun == "success" {
+				finalized[i].Status = "success"
+			}
 			if normalizedRun == "failure" || normalizedRun == "failure (ignored)" || normalizedRun == "cancelled" || normalizedRun == "rejected" {
 				finalized[i].Status = "skipped"
 			}
@@ -419,6 +460,8 @@ func FinalizeRunDetailTasksForDisplay(tasks []models.TaskDetail, runStatus, step
 		}
 
 		switch normalizedRun {
+		case "success":
+			finalized[i].Status = "success"
 		case "cancelled", "rejected":
 			finalized[i].Status = "cancelled"
 		case "failure", "failure (ignored)":
@@ -449,7 +492,7 @@ func IsTerminalRunDetailTaskStatus(status string) bool {
 	}
 }
 
-func BuildRunDetailETag(run models.RunListItem, childRuns []models.RunListItem, tasksByStep map[string][]models.TaskDetail, stepAIUsage map[string]models.AIUsageSummary, taskAIUsage map[string]models.AIUsageSummary) string {
+func BuildRunDetailETag(run models.RunListItem, childRuns []models.RunListItem, tasksByStep map[string][]models.TaskDetail, stepAIUsage map[string]models.AIUsageSummary, taskAIUsage map[string]models.AIUsageSummary, finalOutputs []models.PipelineRunFinalOutput) string {
 	hasher := sha256.New()
 	fmt.Fprintf(
 		hasher,
@@ -511,6 +554,21 @@ func BuildRunDetailETag(run models.RunListItem, childRuns []models.RunListItem, 
 
 	writeAIUsageMapToHash(hasher, "step_usage", stepAIUsage)
 	writeAIUsageMapToHash(hasher, "task_usage", taskAIUsage)
+	for _, output := range finalOutputs {
+		fmt.Fprintf(
+			hasher,
+			"output|%s|%s|%s|%s|%s|%s|%s|%d|%d|",
+			output.ID,
+			strings.TrimSpace(output.Name),
+			strings.TrimSpace(output.Type),
+			strings.TrimSpace(output.Status),
+			strings.TrimSpace(output.Content),
+			strings.TrimSpace(output.Error),
+			strings.TrimSpace(output.LLMProfile),
+			output.CreatedAt.UnixNano(),
+			output.UpdatedAt.UnixNano(),
+		)
+	}
 
 	return fmt.Sprintf(`W/"%x"`, hasher.Sum(nil))
 }

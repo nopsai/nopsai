@@ -50,11 +50,28 @@ var supportedKnowledgeContextKinds = map[string]struct{}{
 	"example":      {},
 }
 
+var supportedPipelineOutputTypes = map[string]struct{}{
+	"markdown": {},
+	"pdf":      {},
+	"excel":    {},
+	"json":     {},
+	"html":     {},
+}
+
+var supportedPipelineOutputWhen = map[string]struct{}{
+	"always":  {},
+	"success": {},
+	"failure": {},
+}
+
 func ValidatePipeline(pipeline *models.Pipeline) error {
 	if pipeline.Name == "" {
 		return fmt.Errorf("'name' is a required field")
 	}
 	if err := validatePipelineLLMSettings(pipeline); err != nil {
+		return err
+	}
+	if err := validatePipelineOutput(pipeline.Output); err != nil {
 		return err
 	}
 	if !regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`).MatchString(pipeline.Name) {
@@ -218,6 +235,9 @@ func validatePipelineLLMSettings(pipeline *models.Pipeline) error {
 	if models.PipelineLLMEnabled(pipeline) {
 		return nil
 	}
+	if len(pipeline.Output.Items) > 0 {
+		return fmt.Errorf("pipeline has LLM disabled but defines final outputs")
+	}
 	for _, step := range pipeline.Steps {
 		stepName := step.GetName()
 		if stepName == "" {
@@ -237,6 +257,46 @@ func validatePipelineLLMSettings(pipeline *models.Pipeline) error {
 			if strings.TrimSpace(task.Goal) != "" {
 				return fmt.Errorf("pipeline has LLM disabled but task %q in step %q defines goal", taskName, stepName)
 			}
+		}
+	}
+	return nil
+}
+
+func validatePipelineOutput(output models.PipelineOutput) error {
+	outputProfile := strings.TrimSpace(output.LLMProfile)
+	if len(output.Items) == 0 {
+		if outputProfile != "" {
+			return fmt.Errorf("output.llm_profile requires at least one output item")
+		}
+		return nil
+	}
+	seenNames := map[string]bool{}
+	for idx, item := range output.Items {
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			return fmt.Errorf("output.items[%d] name is required", idx)
+		}
+		nameKey := strings.ToLower(name)
+		if seenNames[nameKey] {
+			return fmt.Errorf("output item %q is defined more than once", name)
+		}
+		seenNames[nameKey] = true
+
+		outputType := strings.ToLower(strings.TrimSpace(item.Type))
+		if outputType == "" {
+			return fmt.Errorf("output item %q type is required", name)
+		}
+		if _, ok := supportedPipelineOutputTypes[outputType]; !ok {
+			return fmt.Errorf("output item %q has unsupported type %q", name, item.Type)
+		}
+		when := strings.ToLower(strings.TrimSpace(item.When))
+		if when != "" {
+			if _, ok := supportedPipelineOutputWhen[when]; !ok {
+				return fmt.Errorf("output item %q has unsupported when %q", name, item.When)
+			}
+		}
+		if strings.TrimSpace(item.Prompt) == "" {
+			return fmt.Errorf("output item %q prompt is required", name)
 		}
 	}
 	return nil
@@ -411,6 +471,22 @@ func ValidatePipelineLLMProfiles(pipeline *models.Pipeline, opts LLMProfileValid
 	}
 	if pipelineProfile == "" {
 		pipelineProfile = defaultProfile
+	}
+
+	if strings.TrimSpace(pipeline.Output.LLMProfile) != "" {
+		if err := validateProfile(pipeline.Output.LLMProfile, "pipeline output"); err != nil {
+			return err
+		}
+	}
+	outputProfile := firstNonEmpty(pipeline.Output.LLMProfile, pipelineProfile)
+	for _, item := range pipeline.Output.Items {
+		itemName := strings.TrimSpace(item.Name)
+		if itemName == "" {
+			itemName = "unknown"
+		}
+		if err := validateProfile(firstNonEmpty(item.LLMProfile, outputProfile), fmt.Sprintf("output item %q", itemName)); err != nil {
+			return err
+		}
 	}
 
 	for _, step := range pipeline.Steps {

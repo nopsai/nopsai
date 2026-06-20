@@ -97,6 +97,7 @@ Examples:
 - "Validate this pipeline YAML and return a GitOps create plan for
   `platform/deploy-api`."
 - "Analyze run `run_123` and explain the most likely failure from logs."
+- "Show the final outputs for run `run_123`."
 - "Cancel run `run_123`; I confirm."
 - "Create a GitOps plan to rotate the GitHub deploy credential. Do not expose
   the secret value."
@@ -113,7 +114,7 @@ Examples:
 | Intent | Ask like this | Assistant behavior |
 | --- | --- | --- |
 | Discover access | "What assistant capabilities do I have in this folder?" | Lists feature coverage, tools, resources, and missing AAA actions. |
-| Investigate | "Why did run `run_123` fail?" | Reads run status/logs and summarizes likely cause and next checks. |
+| Investigate | "Why did run `run_123` fail?" | Reads run status, final outputs, and logs, then summarizes likely cause and next checks. |
 | Draft GitOps | "Create a GitOps plan for a nightly schedule on `platform/deploy`." | Returns proposed files and commit message; does not apply. |
 | Validate | "Validate this pipeline YAML before I commit it." | Parses and reports schema/semantic issues. |
 | Confirm action | "Rerun `run_123`; I confirm." | Executes the dedicated mutation tool as the current user. |
@@ -281,16 +282,18 @@ Main MCP coverage: `nopsai.list_pipelines`, `nopsai.search_pipelines`,
 
 ### Runs, Logs, Approvals, And Run Mutations
 
-The assistant can investigate pipeline runs, inspect logs, analyze failures,
-start runs, list approvals, approve/reject gates, rerun, cancel, and delete
-runs. Run investigation uses a hosted MCP chain: run metadata, bounded recent
-logs, then failure analysis. Mutations require confirmation.
+The assistant can investigate pipeline runs, inspect final outputs and logs,
+analyze failures, start runs, list approvals, approve/reject gates, rerun,
+cancel, and delete runs. Run investigation uses a hosted MCP chain: run
+metadata, final output summaries when available, bounded recent logs, then
+failure analysis. Mutations require confirmation.
 
 Ask:
 
 - "List recent failed runs for `platform/deploy-api`."
 - "List of pipelineruns."
 - "Analyze failure for run `run_123` and include relevant log excerpts."
+- "Read the `Executive summary` final output for run `run_123`."
 - "Start `platform/deploy-api` with variable `env=staging`; I confirm."
 - "List pending approvals for run `run_123`."
 - "Approve approval `approval_456` on run `run_123` with comment
@@ -301,8 +304,9 @@ Ask:
 - "Delete run `run_123`; I confirm."
 
 Main MCP coverage: `nopsai.list_pipeline_runs`, `nopsai.get_pipeline_run`,
-`nopsai.get_pipeline_run_logs`, `nopsai.analyze_pipeline_run_failure`,
-`nopsai.run_pipeline`, `nopsai.list_run_approvals`,
+`nopsai.get_pipeline_run_output`, `nopsai.get_pipeline_run_logs`,
+`nopsai.analyze_pipeline_run_failure`, `nopsai.run_pipeline`,
+`nopsai.list_run_approvals`,
 `nopsai.approve_run_approval`, `nopsai.reject_run_approval`,
 `nopsai.rerun_pipeline_run`, `nopsai.cancel_pipeline_run`, and
 `nopsai.delete_pipeline_run`.
@@ -469,7 +473,8 @@ broader windows, combined with summary/efficiency context, and explained with a
 recording/permission diagnosis when no events are visible.
 Global AI usage includes assistant chat message tokens as the
 `assistant_chat` feature, so monitoring can explain how much chat consumed as
-well as pipeline/run LLM work. Run-level token questions are answered from
+well as pipeline/run LLM work. Pipeline final output generation is recorded as
+the `pipeline_final_output` feature. Run-level token questions are answered from
 `nopsai.get_monitoring_ai_usage` with the run ID as a filter; those run-scoped
 answers stay limited to run AI usage events, and run status, log, and
 failure-analysis tools do not provide token counts.
