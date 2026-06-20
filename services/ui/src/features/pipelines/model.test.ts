@@ -25,6 +25,63 @@ steps:
   assert.equal(result.errors[0]?.message, "'container_image' is required when steps do not specify their own image.");
 });
 
+test('validates pipeline final outputs without unknown-field errors', () => {
+  const result = validatePipelineYaml(`
+name: deploy
+container_image: alpine:3.20
+output:
+  llm_profile: report-writer
+  items:
+    - name: Executive summary
+      type: markdown
+      when: success
+      prompt: |
+        Summarize the run for leadership.
+steps:
+  - name: build
+    script: echo "ok"
+`);
+
+  assert.deepEqual(result.errors, []);
+});
+
+test('validates pipeline final output item shape', () => {
+  const result = validatePipelineYaml(`
+name: deploy
+container_image: alpine:3.20
+output:
+  items:
+    - name: Executive summary
+      type: archive
+      prompt: |
+        Summarize the run for leadership.
+steps:
+  - name: build
+    script: echo "ok"
+`);
+
+  assert.match(result.errors[0]?.message || '', /unsupported type 'archive'/);
+});
+
+test('validates pipeline final output when values', () => {
+  const result = validatePipelineYaml(`
+name: deploy
+container_image: alpine:3.20
+output:
+  items:
+    - name: Executive summary
+      type: markdown
+      when: manual
+      prompt: |
+        Summarize the run for leadership.
+steps:
+  - name: build
+    script: echo "ok"
+`);
+
+  assert.match(result.errors[0]?.message || '', /unsupported when 'manual'/);
+});
+
 test('parses pipeline details, includes, variables, and dependency edges', () => {
   const detail = parsePipelineYaml(
     `

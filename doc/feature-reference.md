@@ -57,6 +57,9 @@ Supported pipeline features:
 - per-step secret declaration
 - ignored failures
 - LLM content and output sharing controls
+- pipeline-level final outputs under `output.items` for Markdown, PDF, Excel,
+  JSON, or HTML deliverables generated from the completed run context; each
+  output can set `when: success`, `when: failure`, or `when: always`
 - pipeline- and step-level Agent Profile selection through `agent_profile`
 - knowledge context references for architecture docs, guardrails, policies, ADRs, guidelines, runbooks, references, and examples
 - GitHub display options
@@ -64,6 +67,25 @@ Supported pipeline features:
 Example coverage:
 
 - `sample-pipeline/5-pipeline.yaml` demonstrates LLM goals, scripts, secret usage, volumes, conditions, child pipelines, reusable-step inclusion, and knowledge context.
+
+Final output example:
+
+```yaml
+output:
+  llm_profile: report-writer
+  items:
+    - name: Executive summary
+      type: markdown
+      when: success
+      prompt: |
+        Summarize the whole pipeline result for management.
+    - name: Comparison report
+      type: pdf
+      when: failure
+      prompt: |
+        Explain the failed run, include the main evidence, and recommend the
+        next action.
+```
 
 Approval step example:
 
@@ -98,6 +120,8 @@ The runtime supports:
 - pipeline-level timeout handling
 - task-level secret masking in output/history
 - pre-dispatch knowledge context resolution and run snapshots
+- post-finalization output generation that stores polished run-owned
+  deliverables separately from step logs and task internals
 
 ## Pipeline Scheduling
 
@@ -402,8 +426,8 @@ Pipeline notifications include:
 
 - Prometheus-friendly `GET /metrics` with DB-backed pipeline run, duration,
   queue duration, end-to-end duration, active/pending/approval, step, task,
-  external trigger, LLM usage, runner capacity, approval wait, audit, and
-  notification delivery metrics
+  final output, external trigger, LLM usage, runner capacity, approval wait,
+  audit, and notification delivery metrics
 - backend-computed monitoring analytics under **Monitoring** with tabs for
   Overview, Runs, Pipelines, Steps & Tasks, Triggers, External Triggers,
   Runners, LLM Usage, Reliability, Efficiency, and Security
@@ -469,6 +493,7 @@ Core run-management capabilities:
 - list runs for a selected group/folder including descendant folders and apps
 - list root runs that are not assigned to any group
 - fetch run details
+- preview, copy, and download run-level final outputs
 - fetch run status
 - list run approvals
 - approve or reject pending run approvals

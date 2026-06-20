@@ -189,6 +189,13 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		log.Warn().Err(err).Str("run_id", runID).Msg("Failed to load run knowledge context snapshots")
 	}
 
+	finalOutputs, err := runquery.LoadFinalOutputs(r.Context(), a.db, runID)
+	if err != nil {
+		log.Error().Err(err).Str("run_id", runID).Msg("Failed to query final outputs for run")
+		http.Error(w, "Failed to retrieve run final outputs", http.StatusInternalServerError)
+		return
+	}
+
 	response := runquery.BuildDetail(runquery.DetailBuildInput{
 		Run:                    run,
 		PipelineDefinitionYAML: record.PipelineDefinitionYAML,
@@ -199,10 +206,11 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 		StepAIUsage:            stepAIUsage,
 		TaskAIUsage:            taskAIUsage,
 		KnowledgeContexts:      knowledgeContexts,
+		FinalOutputs:           finalOutputs,
 		ParentRunInfo:          parentRunInfo,
 	})
 
-	etag := runquery.BuildRunDetailETag(run, childRuns, tasksByStep, stepAIUsage, taskAIUsage)
+	etag := runquery.BuildRunDetailETag(run, childRuns, tasksByStep, stepAIUsage, taskAIUsage, finalOutputs)
 	w.Header().Set("ETag", etag)
 	if match := r.Header.Get("If-None-Match"); match == etag {
 		w.WriteHeader(http.StatusNotModified)
@@ -211,6 +219,46 @@ func (a *App) handleGetRunDetails(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+func (a *App) handleDownloadRunFinalOutput(w http.ResponseWriter, r *http.Request) {
+	setNoStoreHeaders(w)
+	runID := strings.TrimSpace(r.PathValue("runID"))
+	outputID := strings.TrimSpace(r.PathValue("outputID"))
+	if runID == "" || outputID == "" {
+		http.Error(w, "Run ID and output ID are required", http.StatusBadRequest)
+		return
+	}
+	authorized, err := a.canReadRunOrApprove(r, runID)
+	if err != nil {
+		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if !authorized {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	output, err := a.loadPipelineFinalOutputForDownload(r.Context(), runID, outputID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "Final output not found", http.StatusNotFound)
+			return
+		}
+		log.Error().Err(err).Str("run_id", runID).Str("output_id", outputID).Msg("Failed to load final output")
+		http.Error(w, "Failed to load final output", http.StatusInternalServerError)
+		return
+	}
+	payload, contentType, filename, err := renderPipelineFinalOutputDownload(output)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(payload)
 }
 
 type runRequestPayload struct {

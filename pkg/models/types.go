@@ -98,12 +98,25 @@ type ParentRunInfo struct {
 	PipelineVersion string `json:"pipeline_version"`
 }
 
+type PipelineRunFinalOutput struct {
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	Type       string    `json:"type"`
+	Status     string    `json:"status"`
+	Content    string    `json:"content,omitempty"`
+	Error      string    `json:"error,omitempty"`
+	LLMProfile string    `json:"llm_profile,omitempty"`
+	CreatedAt  time.Time `json:"created_at,omitempty"`
+	UpdatedAt  time.Time `json:"updated_at,omitempty"`
+}
+
 type RunDetail struct {
 	RunInfo                RunListItem                `json:"run_info"`
 	Steps                  []StepDetail               `json:"steps"`
 	PipelineDefinition     Pipeline                   `json:"pipeline_definition"`
 	PipelineDefinitionYAML string                     `json:"pipeline_definition_yaml"`
 	KnowledgeContexts      []KnowledgeContextSnapshot `json:"knowledge_contexts,omitempty"`
+	FinalOutputs           []PipelineRunFinalOutput   `json:"final_outputs,omitempty"`
 	ChildRuns              []RunListItem              `json:"child_runs"`
 	ParentRunInfo          *ParentRunInfo             `json:"parent_run_info,omitempty"`
 }

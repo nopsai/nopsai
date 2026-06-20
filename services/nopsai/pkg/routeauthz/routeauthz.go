@@ -240,6 +240,8 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		return "pipeline_run.read", model.ResourceRef{Type: "pipeline_run", ID: runIDFromRequest(r)}, false, nil
 	case strings.HasPrefix(path, "/v1/runs/") && strings.HasSuffix(path, "/logs"):
 		return "pipeline_run.read_logs", model.ResourceRef{Type: "pipeline_run", ID: runIDFromRequest(r)}, false, nil
+	case strings.HasPrefix(path, "/v1/runs/") && strings.Contains(path, "/outputs/") && strings.HasSuffix(path, "/download"):
+		return "", model.ResourceRef{Type: "pipeline_run", ID: runIDFromRequest(r)}, false, nil
 	case strings.HasPrefix(path, "/v1/runs/") && r.Method == http.MethodGet:
 		return "", model.ResourceRef{Type: "pipeline_run", ID: runIDFromRequest(r)}, false, nil
 	case strings.HasPrefix(path, "/v1/runs/") && r.Method == http.MethodDelete:

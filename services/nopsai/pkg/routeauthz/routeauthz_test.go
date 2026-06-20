@@ -57,6 +57,7 @@ func TestMapRequestDefersApprovalAwareRunReadsToHandler(t *testing.T) {
 	}{
 		{name: "run detail", path: "/v1/runs/run-123"},
 		{name: "run approvals", path: "/v1/runs/run-123/approvals"},
+		{name: "run final output download", path: "/v1/runs/run-123/outputs/output-1/download"},
 	}
 
 	for _, tt := range tests {

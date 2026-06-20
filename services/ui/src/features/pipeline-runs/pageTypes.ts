@@ -1,4 +1,4 @@
-import type { PipelineDefinition, RunListItem, StepDetail } from './contracts';
+import type { PipelineDefinition, PipelineRunFinalOutput, RunListItem, StepDetail } from './contracts';
 import type { ParentRunInfo } from './runPresentation';
 
 export type PipelineRunsTabKey = 'main' | 'recent' | 'events';
@@ -8,6 +8,7 @@ export type PipelineRunDetail = {
   steps: StepDetail[];
   pipeline_definition?: PipelineDefinition;
   pipeline_definition_yaml?: string;
+  final_outputs?: PipelineRunFinalOutput[];
   child_runs: RunListItem[];
   parent_run_info?: ParentRunInfo | null;
   approvals?: PipelineApproval[];

@@ -116,7 +116,7 @@ func TestBuildRunDetailETagChangesWhenTaskOrChildStatusChanges(t *testing.T) {
 		},
 	}
 
-	baseETag := runquery.BuildRunDetailETag(run, baseChildRuns, baseTasks, nil, nil)
+	baseETag := runquery.BuildRunDetailETag(run, baseChildRuns, baseTasks, nil, nil, nil)
 
 	taskUpdated := map[string][]TaskDetail{
 		"prepare": {
@@ -132,7 +132,7 @@ func TestBuildRunDetailETagChangesWhenTaskOrChildStatusChanges(t *testing.T) {
 			},
 		},
 	}
-	taskETag := runquery.BuildRunDetailETag(run, baseChildRuns, taskUpdated, nil, nil)
+	taskETag := runquery.BuildRunDetailETag(run, baseChildRuns, taskUpdated, nil, nil, nil)
 	if taskETag == baseETag {
 		t.Fatalf("expected task status change to alter ETag, but both were %q", taskETag)
 	}
@@ -145,7 +145,7 @@ func TestBuildRunDetailETagChangesWhenTaskOrChildStatusChanges(t *testing.T) {
 			StartedAt:      start,
 		},
 	}
-	childETag := runquery.BuildRunDetailETag(run, childUpdated, baseTasks, nil, nil)
+	childETag := runquery.BuildRunDetailETag(run, childUpdated, baseTasks, nil, nil, nil)
 	if childETag == baseETag {
 		t.Fatalf("expected child run status change to alter ETag, but both were %q", childETag)
 	}
