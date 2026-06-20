@@ -63,6 +63,10 @@ operations as the current authenticated user.
 - Secret and credential workflows are metadata-, reference-, encrypted-payload-,
   or explicit-write-oriented. Plaintext secret reads are not part of ordinary
   assistant context.
+- Direct MCP writes/deletes that require confirmation become pending
+  confirmations. The assistant asks the user to confirm the exact action and
+  applies it only after an explicit confirmation such as `confirm`; detail-only
+  follow-ups update the pending action but do not execute it.
 - Internal runner callbacks, public webhook delivery ingress, and UI rendering
   are intentionally not assistant mutation surfaces. The assistant can explain
   those boundaries and point to safe alternatives.
@@ -147,6 +151,19 @@ metadata available on demand.
   panels show rollups for monitoring and troubleshooting. Prometheus exports
   assistant token, duration, and LLM-call counters from the same stored message
   usage fields.
+- Planner prompts keep the live hosted MCP tool list visible, but include
+  compact input schemas only for tools that look relevant to the request,
+  extracted context, or previous evidence. This keeps planning grounded in
+  current AAA/tool availability without sending every tool schema on every
+  turn. Schema selection is mode-specific: read/check requests receive the
+  domain read or validation schema, direct confirmed changes receive runtime
+  write/delete schemas, and GitOps/proposal schemas are included only when the
+  user asks for a GitOps/proposal/file-plan workflow. For example, "add
+  encrypted secret" is treated as a direct secret-domain MCP write request;
+  it is not routed to GitOps unless the user explicitly asks for GitOps or a
+  proposal. If the LLM still tries to pick a tool outside the selected schema
+  subset, NopsAI blocks the tool before execution and returns user-facing
+  guidance instead of exposing planner internals.
 - The full assistant view keeps NopsAI evidence in the context panel, filtering
   out internal `nopsai.llm.plan` and `nopsai.llm.complete` entries so product
   evidence remains scannable. Evidence is progressive disclosure: the default
@@ -227,6 +244,9 @@ pasted or LLM-drafted YAML, prepare GitOps create/update plans, and prepare
 reusable-step create/update/delete plans. Pipeline YAML drafting happens in the
 LLM planner/synthesis layer and must be checked through the hosted MCP
 validation or proposal tools before it is presented as evidence-backed output.
+When a pipeline create proposal includes an explicit target name, the proposal
+tool can use that target as the YAML top-level `name` if the drafted YAML omitted
+it, while still rejecting mismatches between the target and YAML names.
 There is no static pipeline generator or template selector in the assistant
 tool path.
 

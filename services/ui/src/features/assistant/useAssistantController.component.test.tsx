@@ -197,6 +197,41 @@ test('retries the last user message without changing the draft', async () => {
   expect(result.current.activeMessages.at(-1)?.content).toBe('Still the image tag.');
 });
 
+test('retries a selected earlier user message as a new chat turn', async () => {
+  const conversation = assistantConversation('c1', [
+    assistantMessage('m1', 'c1', 'user', 'create pipeline assistant-test'),
+    assistantMessage('m2', 'c1', 'assistant', 'The proposal was invalid.'),
+    assistantMessage('m3', 'c1', 'user', 'show system health'),
+    assistantMessage('m4', 'c1', 'assistant', 'System health is ready.'),
+  ]);
+  const retried = assistantConversation('c1', [
+    ...conversation.messages,
+    assistantMessage('m5', 'c1', 'user', 'create pipeline assistant-test'),
+    assistantMessage('m6', 'c1', 'assistant', 'Pipeline proposal is ready.'),
+  ]);
+  fetchAssistantConversationsMock.mockResolvedValue({ conversations: [conversation] });
+  fetchAssistantConversationMock.mockResolvedValue(conversation);
+  sendAssistantMessageMock.mockResolvedValue({
+    conversation: retried,
+    user_message: retried.messages[4],
+    reply: retried.messages[5],
+  });
+
+  const { result } = renderHook(() => useAssistantController());
+  await waitFor(() => expect(result.current.activeConversation?.id).toBe('c1'));
+
+  await act(async () => {
+    await result.current.retryMessage(conversation.messages[0]);
+  });
+
+  expect(sendAssistantMessageMock).toHaveBeenCalledWith({
+    conversation_id: 'c1',
+    content: 'create pipeline assistant-test',
+    selected_llm_profile: 'assistant',
+  });
+  expect(result.current.activeMessages.map(message => message.id)).toEqual(['m1', 'm2', 'm3', 'm4', 'm5', 'm6']);
+});
+
 test('copies individual messages and the whole conversation transcript', async () => {
   const conversation = assistantConversation('c1', [
     assistantMessage('m1', 'c1', 'user', 'show pipeline'),

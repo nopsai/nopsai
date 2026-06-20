@@ -226,18 +226,18 @@ export function useAssistantController({ autoload = true }: { autoload?: boolean
     }
   }, [activeConversation, config?.default_docs_version, config?.enabled, draft, selectedProfile, sending]);
 
-  const retryLastUserMessage = useCallback(async () => {
+  const retryMessage = useCallback(async (message?: AssistantMessage | null) => {
     if (sending || retrying || config?.enabled !== true || !activeConversation) return;
-    const lastUserMessage = assistantLastUserMessage(activeConversation.messages);
-    if (!lastUserMessage) return;
-    setPendingMessage(buildPendingAssistantMessage(activeConversation.id, lastUserMessage.content));
+    const sourceMessage = message?.role === 'user' ? message : assistantLastUserMessage(activeConversation.messages);
+    if (!sourceMessage) return;
+    setPendingMessage(buildPendingAssistantMessage(activeConversation.id, sourceMessage.content));
     setSending(true);
     setRetrying(true);
     setError(null);
     try {
       const payload = await sendAssistantMessage({
         conversation_id: activeConversation.id,
-        content: lastUserMessage.content,
+        content: sourceMessage.content,
         selected_llm_profile: selectedProfile,
       });
       setPendingMessage(null);
@@ -254,6 +254,10 @@ export function useAssistantController({ autoload = true }: { autoload?: boolean
       setSending(false);
     }
   }, [activeConversation, config?.enabled, retrying, selectedProfile, sending]);
+
+  const retryLastUserMessage = useCallback(async () => {
+    await retryMessage();
+  }, [retryMessage]);
 
   const activeMessages = useMemo(() => {
     const messages = activeConversation?.messages || [];
@@ -285,6 +289,7 @@ export function useAssistantController({ autoload = true }: { autoload?: boolean
     selectConversation,
     startConversation,
     deleteConversation,
+    retryMessage,
     retryLastUserMessage,
     copyMessage,
     copyConversation,

@@ -2,6 +2,7 @@ package nopsai
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -475,6 +476,25 @@ func TestHostedMCPProposePipelineUpdateRejectsTargetNameMismatch(t *testing.T) {
 	validation, ok := result["validation"].(map[string]any)
 	if !ok || validation["error"] == "" {
 		t.Fatalf("validation error missing: %#v", result)
+	}
+}
+
+func TestHostedMCPProposePipelineCreateUsesTargetNameWhenYAMLOmitsName(t *testing.T) {
+	result, err := hostedMCPProposePipelineWrite(map[string]any{
+		"name": "assistant-test",
+		"yaml": "container_image: alpine:3.20\nsteps:\n" +
+			"  - name: clone\n    script: git clone example\n" +
+			"  - name: build\n    script: go build ./...\n" +
+			"  - name: push\n    script: echo push\n",
+	}, "create")
+	if err != nil {
+		t.Fatalf("hostedMCPProposePipelineWrite() error = %v", err)
+	}
+	if result["valid"] != true || result["name"] != "assistant-test" {
+		t.Fatalf("result = %#v, want valid assistant-test proposal", result)
+	}
+	if yamlText := fmt.Sprint(result["yaml"]); !strings.Contains(yamlText, "name: assistant-test") {
+		t.Fatalf("yaml = %q, want injected top-level name", yamlText)
 	}
 }
 
