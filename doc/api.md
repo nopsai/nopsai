@@ -161,10 +161,25 @@ For a user-facing guide to assistant capabilities and example chat prompts, see
 - `GET /v1/assistant/llm-profiles` lists safe, selectable LLM profile metadata for the authenticated assistant user without exposing credential refs, base URLs, or provider extras.
 - `POST /v1/assistant/conversations` creates a persistent assistant conversation for the authenticated subject.
 - `GET /v1/assistant/conversations` lists the subject's conversations.
-- `GET /v1/assistant/conversations/{id}` reads a conversation, messages, and conversation-scoped memory.
-- `POST /v1/assistant/conversations/{id}/messages` appends a user message, asks the selected/default LLM profile for a structured hosted MCP plan, validates the plan against current-user AAA, tool availability, argument limits, and mutation confirmation rules, executes allowed hosted MCP tools, quality-gates final LLM synthesis against MCP evidence, records tool and LLM activity, updates memory, and returns an assistant reply. Assistant turns do not use static normal-language routing: if the LLM planner is unavailable or returns an invalid plan, no hosted MCP tools run and no changes are applied. Generated YAML and trigger/schedule edits are proposals only.
+- `GET /v1/assistant/conversations/{id}` reads a conversation, messages, conversation-scoped memory, and assistant usage rollups.
+- `POST /v1/assistant/conversations/{id}/messages` appends a user message, asks the selected/default LLM profile for a structured hosted MCP plan, validates the plan against current-user AAA, tool availability, argument limits, and mutation confirmation rules, executes allowed hosted MCP tools, quality-gates final LLM synthesis against MCP evidence, records tool and LLM activity plus per-message token/duration usage, updates memory, and returns an assistant reply. Assistant turns do not use static normal-language routing: if the LLM planner is unavailable or returns an invalid plan, no hosted MCP tools run and no changes are applied. Generated YAML and trigger/schedule edits are proposals only.
 - `POST /v1/assistant/conversations/{id}/summarize-memory` updates conversation-scoped memory.
 - `POST /v1/mcp` exposes Nopsai-hosted MCP JSON-RPC operations: `initialize`, `tools/list`, `tools/call`, `resources/list`, and `resources/read`.
+
+Assistant message payloads include a `usage` object with estimated visible
+`content_tokens`, LLM `prompt_tokens`, `completion_tokens`, `total_tokens`,
+`estimated`, `duration_ms`, and `llm_calls`. User messages use content-token
+estimates. Assistant replies sum planner/synthesis provider usage when
+available and fall back to estimates when the provider omits usage metadata.
+Conversation payloads include matching usage rollups for monitoring views.
+The Prometheus exporter also exposes `nopsai_assistant_tokens_total`,
+`nopsai_assistant_message_duration_seconds_total`, and
+`nopsai_assistant_llm_calls_total`.
+Global monitoring AI usage also adds assistant chat message usage from these
+stored fields as the `assistant_chat` feature, with
+`assistant_chat_tokens` and `assistant_chat_messages` in the response. Run,
+pipeline, step, task, schedule, provider, and model-scoped AI usage filters
+remain scoped to recorded run AI usage events.
 
 The hosted MCP is first-party and permission-bound. It is separate from the
 external MCP registry under `setting/system/mcp.yaml`, which defines
@@ -441,7 +456,7 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - `GET /v1/monitoring/runs/analytics` returns runs over time, status split, duration/queue/end-to-end percentiles, longest runs, rerun/timeout counts, failure groups, heatmap cells, and a recent run table.
 - `GET /v1/monitoring/pipelines/performance`, `/steps/performance`, and `/tasks/performance` return backend-computed average, median, p95, p99, max, total duration, success/failure rates, and queue-time metrics where applicable.
 - `GET /v1/monitoring/triggers/analytics` and `/external-triggers/analytics` return trigger-source reliability plus external trigger invocation, caller, idempotency, last-fired, rate-limit violation, and error aggregates.
-- `GET /v1/monitoring/ai-usage`, `/reliability`, `/efficiency`, and `/security` return LLM usage with exact/estimated token splits, incident/reliability, token efficiency, and governance aggregates for the same filtered run set. The LLM Usage response includes totals plus `by_pipeline`, `by_step`, `by_task`, `by_feature`, `by_profile`, `by_model`, `by_subject`, trend, and top-token-run rows. Efficiency recommendations are also persisted into `monitoring_recommendations`.
+- `GET /v1/monitoring/ai-usage`, `/reliability`, `/efficiency`, and `/security` return LLM usage with exact/estimated token splits, incident/reliability, token efficiency, and governance aggregates for the same filtered run set. The LLM Usage response includes totals plus `by_pipeline`, `by_step`, `by_task`, `by_feature`, `by_profile`, `by_model`, `by_subject`, trend, and top-token-run rows. Global AI usage adds assistant chat message tokens as the `assistant_chat` feature and exposes `assistant_chat_tokens`/`assistant_chat_messages`; run-scoped drilldowns stay limited to run AI usage events. Efficiency recommendations are also persisted into `monitoring_recommendations`.
 - `GET|POST|PUT|DELETE /v1/monitoring/views` manages owner-scoped saved views. Updating a config-repo-managed view stores a database override, and deleting one removes the database row; the next GitOps sync can replace or recreate it unless the change is pushed to GitOps.
 - `GET|POST|PUT|DELETE /v1/monitoring/alert-rules`, `POST /v1/monitoring/alert-rules/{ruleID}/evaluate`, and `GET /v1/monitoring/alert-events` manage alert rules and persisted evaluation events. Updating a config-repo-managed alert rule stores a database override, and deleting one removes the database row; the next GitOps sync can replace or recreate it unless the change is pushed to GitOps. The first evaluator supports `failure_rate`, `p95_duration_seconds`, `queued_jobs`, `runner_utilization`, `ai_tokens`, and `external_trigger_failures`.
 - `GET /v1/monitoring/recommendations`, `POST /v1/monitoring/recommendations/{recommendationID}/acknowledge`, and `POST /v1/monitoring/recommendations/{recommendationID}/resolve` manage persisted recommendation workflow status.

@@ -149,6 +149,81 @@ func TestMonitoringAIUsageTotalsQuerySplitsExactAndEstimatedTokens(t *testing.T)
 	}
 }
 
+func TestMonitoringAssistantChatUsageAllowedOnlyForGlobalChatCompatibleFilters(t *testing.T) {
+	base := monitoringAnalyticsFilters{}
+	if !monitoringAssistantChatUsageAllowed(base) {
+		t.Fatal("assistant chat usage should be included for global AI usage")
+	}
+	if !monitoringAssistantChatUsageAllowed(monitoringAnalyticsFilters{Feature: "assistant_chat"}) {
+		t.Fatal("assistant_chat feature filter should include assistant chat usage")
+	}
+	if monitoringAssistantChatUsageAllowed(monitoringAnalyticsFilters{Feature: "log_analysis"}) {
+		t.Fatal("pipeline feature filter should not include assistant chat usage")
+	}
+	if monitoringAssistantChatUsageAllowed(monitoringAnalyticsFilters{RunID: "run-1"}) {
+		t.Fatal("run-scoped usage should not include unrelated assistant chat")
+	}
+	if monitoringAssistantChatUsageAllowed(monitoringAnalyticsFilters{Model: "qwen"}) {
+		t.Fatal("model-scoped usage should not include assistant chat without stored model metadata")
+	}
+}
+
+func TestMonitoringAssistantChatUsageQueriesUseStoredMessages(t *testing.T) {
+	totals := monitoringAssistantChatUsageTotalsQuery()
+	for _, fragment := range []string{
+		"FROM assistant_messages am",
+		"JOIN assistant_conversations ac ON ac.id = am.conversation_id",
+		"COALESCE(SUM(am.total_tokens), 0)::bigint",
+		"COUNT(*)::bigint",
+		"LOWER(COALESCE(ac.selected_llm_profile, '')) = LOWER($3)",
+		"SPLIT_PART(ac.user_id, ':', 1)",
+	} {
+		if !strings.Contains(totals, fragment) {
+			t.Fatalf("assistant chat totals query missing %q:\n%s", fragment, totals)
+		}
+	}
+
+	group := monitoringAssistantChatUsageGroupQuery("ac.user_id")
+	if !strings.Contains(group, "COUNT(*)::bigint") || !strings.Contains(group, "COALESCE(SUM(am.total_tokens), 0)::bigint") {
+		t.Fatalf("assistant chat group query should expose message count and tokens:\n%s", group)
+	}
+}
+
+func TestMonitoringAIUsageResponseAddsAssistantChatUsage(t *testing.T) {
+	resp := monitoringAIUsageResponse{
+		TotalPromptTokens: 100,
+		TotalTokens:       150,
+		ByFeature:         []monitoringNamedCount{{Key: "log_analysis", Label: "log_analysis", Count: 1, Tokens: 150}},
+		ByProfile:         []monitoringNamedCount{{Key: "standard", Label: "standard", Count: 1, Tokens: 150}},
+		Trend:             []monitoringTimeBucket{{Key: "2026-06-20", Label: "2026-06-20", Runs: 150}},
+	}
+
+	resp.addAssistantChatUsage(monitoringAssistantChatUsage{
+		PromptTokens:     25,
+		CompletionTokens: 10,
+		TotalTokens:      35,
+		EstimatedTokens:  35,
+		EstimatedEvents:  2,
+		MessageCount:     2,
+		ByProfile:        []monitoringNamedCount{{Key: "standard", Label: "standard", Count: 2, Tokens: 35}},
+		BySubject:        []monitoringNamedCount{{Key: "user:viewer", Label: "user:viewer", Count: 2, Tokens: 35}},
+		Trend:            []monitoringTimeBucket{{Key: "2026-06-20", Label: "2026-06-20", Runs: 35}},
+	})
+
+	if resp.TotalPromptTokens != 125 || resp.TotalCompletionTokens != 10 || resp.TotalTokens != 185 {
+		t.Fatalf("totals = %#v, want pipeline and assistant chat sums", resp)
+	}
+	if resp.AssistantChatTokens != 35 || resp.AssistantChatMessages != 2 || resp.EstimatedTokenEvents != 2 {
+		t.Fatalf("assistant chat metadata = %#v", resp)
+	}
+	if len(resp.ByFeature) != 2 || resp.ByFeature[1].Key != "assistant_chat" {
+		t.Fatalf("by_feature = %#v, want assistant_chat merged", resp.ByFeature)
+	}
+	if resp.ByProfile[0].Tokens != 185 || resp.Trend[0].Runs != 185 {
+		t.Fatalf("profile/trend merge failed: profiles=%#v trend=%#v", resp.ByProfile, resp.Trend)
+	}
+}
+
 func TestMonitoringAITopTokenRunsQueryOrdersBySelectedColumns(t *testing.T) {
 	query := monitoringAITopTokenRunsQuery()
 	if strings.Contains(query, "ORDER BY 6") {

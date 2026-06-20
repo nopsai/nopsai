@@ -147,6 +147,17 @@ func (a *App) assistantLLMProfiles(ctx context.Context) (string, map[string]conf
 	return assistantLLMProfilesWithDedicatedConfig(defaultProfile, profiles, cfg)
 }
 
+func (a *App) assistantDefaultLLMProfile(ctx context.Context) string {
+	defaultProfile, profiles := a.assistantLLMProfiles(ctx)
+	defaultProfile = config.NormalizeLLMProfileName(defaultProfile)
+	if defaultProfile != "" {
+		if _, ok := profiles[defaultProfile]; ok {
+			return defaultProfile
+		}
+	}
+	return ""
+}
+
 func assistantLLMProfilesWithDedicatedConfig(defaultProfile string, profiles map[string]config.LLMProfile, cfg config.AssistantConfig) (string, map[string]config.LLMProfile) {
 	profiles = config.NormalizeLLMProfiles(profiles)
 	if profiles == nil {
@@ -246,6 +257,7 @@ Use only the provided JSON context and tool outputs. Do not invent pipeline runs
 When discussing pipelines, use only pipeline definitions, validation results, GitOps plans, or search results returned by the tool outputs.
 Generated pipeline YAML, trigger edits, and schedule edits are proposals only. Never say a change was applied unless the tool output explicitly says it was applied.
 Mention denied or unavailable tools plainly when they affect the answer. Keep the answer concise and operational.
+For operational answers, prefer short markdown sections named Summary, Evidence, and Recommended next step when those sections fit the available tool evidence.
 
 Context:
 ` + string(raw))

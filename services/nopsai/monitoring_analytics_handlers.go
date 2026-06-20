@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -236,6 +237,8 @@ type monitoringAIUsageResponse struct {
 	EstimatedTokens       int64                    `json:"estimated_tokens"`
 	ExactTokenEvents      int64                    `json:"exact_token_events"`
 	EstimatedTokenEvents  int64                    `json:"estimated_token_events"`
+	AssistantChatTokens   int64                    `json:"assistant_chat_tokens"`
+	AssistantChatMessages int64                    `json:"assistant_chat_messages"`
 	ByPipeline            []monitoringNamedCount   `json:"by_pipeline"`
 	BySchedule            []monitoringNamedCount   `json:"by_schedule"`
 	LowestTokenSchedules  []monitoringNamedCount   `json:"lowest_token_schedules"`
@@ -1330,64 +1333,73 @@ func (a *App) loadMonitoringExternalTriggerLastFired(ctx context.Context, trigge
 
 func (a *App) loadMonitoringAIUsage(ctx context.Context, filters monitoringAnalyticsFilters, runIDs []string) (monitoringAIUsageResponse, error) {
 	resp := monitoringAIUsageResponse{Window: windowResponse(filters)}
-	if len(runIDs) == 0 {
-		return resp, nil
-	}
-	queryArgs := monitoringAIUsageQueryArgs(runIDs, filters)
-	if err := a.db.QueryRow(ctx, monitoringAIUsageTotalsQuery(), queryArgs...).Scan(
-		&resp.TotalPromptTokens,
-		&resp.TotalCompletionTokens,
-		&resp.TotalTokens,
-		&resp.ExactTokens,
-		&resp.EstimatedTokens,
-		&resp.ExactTokenEvents,
-		&resp.EstimatedTokenEvents,
-	); err != nil {
-		return resp, err
-	}
 	var err error
-	resp.ByPipeline, err = a.loadMonitoringTokenCounts(ctx, monitoringAIUsageByPipelineQuery(), queryArgs...)
-	if err != nil {
-		return resp, err
+	if len(runIDs) > 0 {
+		queryArgs := monitoringAIUsageQueryArgs(runIDs, filters)
+		if err := a.db.QueryRow(ctx, monitoringAIUsageTotalsQuery(), queryArgs...).Scan(
+			&resp.TotalPromptTokens,
+			&resp.TotalCompletionTokens,
+			&resp.TotalTokens,
+			&resp.ExactTokens,
+			&resp.EstimatedTokens,
+			&resp.ExactTokenEvents,
+			&resp.EstimatedTokenEvents,
+		); err != nil {
+			return resp, err
+		}
+		resp.ByPipeline, err = a.loadMonitoringTokenCounts(ctx, monitoringAIUsageByPipelineQuery(), queryArgs...)
+		if err != nil {
+			return resp, err
+		}
+		resp.BySchedule, err = a.loadMonitoringTokenCounts(ctx, monitoringAIUsageByScheduleQuery(false), queryArgs...)
+		if err != nil {
+			return resp, err
+		}
+		resp.LowestTokenSchedules, err = a.loadMonitoringTokenCounts(ctx, monitoringAIUsageByScheduleQuery(true), queryArgs...)
+		if err != nil {
+			return resp, err
+		}
+		resp.ByStep, err = a.loadAIUsageGroup(ctx, runIDs, filters, "step_name")
+		if err != nil {
+			return resp, err
+		}
+		resp.ByTask, err = a.loadMonitoringTokenCounts(ctx, monitoringAIUsageByTaskQuery(), queryArgs...)
+		if err != nil {
+			return resp, err
+		}
+		resp.ByFeature, err = a.loadAIUsageGroup(ctx, runIDs, filters, "feature")
+		if err != nil {
+			return resp, err
+		}
+		resp.ByProfile, err = a.loadAIUsageGroup(ctx, runIDs, filters, "llm_profile")
+		if err != nil {
+			return resp, err
+		}
+		resp.ByModel, err = a.loadAIUsageGroup(ctx, runIDs, filters, "provider || '/' || model")
+		if err != nil {
+			return resp, err
+		}
+		resp.BySubject, err = a.loadAIUsageGroup(ctx, runIDs, filters, "effective_subject_type || ':' || effective_subject_id")
+		if err != nil {
+			return resp, err
+		}
+		resp.Trend, err = a.loadAIUsageTrend(ctx, runIDs, filters)
+		if err != nil {
+			return resp, err
+		}
+		resp.TopTokenRuns, err = a.loadMonitoringTokenCounts(ctx, monitoringAITopTokenRunsQuery(), queryArgs...)
+		if err != nil {
+			return resp, err
+		}
 	}
-	resp.BySchedule, err = a.loadMonitoringTokenCounts(ctx, monitoringAIUsageByScheduleQuery(false), queryArgs...)
-	if err != nil {
-		return resp, err
+	if monitoringAssistantChatUsageAllowed(filters) {
+		assistantUsage, err := a.loadMonitoringAssistantChatUsage(ctx, filters)
+		if err != nil {
+			return resp, err
+		}
+		resp.addAssistantChatUsage(assistantUsage)
 	}
-	resp.LowestTokenSchedules, err = a.loadMonitoringTokenCounts(ctx, monitoringAIUsageByScheduleQuery(true), queryArgs...)
-	if err != nil {
-		return resp, err
-	}
-	resp.ByStep, err = a.loadAIUsageGroup(ctx, runIDs, filters, "step_name")
-	if err != nil {
-		return resp, err
-	}
-	resp.ByTask, err = a.loadMonitoringTokenCounts(ctx, monitoringAIUsageByTaskQuery(), queryArgs...)
-	if err != nil {
-		return resp, err
-	}
-	resp.ByFeature, err = a.loadAIUsageGroup(ctx, runIDs, filters, "feature")
-	if err != nil {
-		return resp, err
-	}
-	resp.ByProfile, err = a.loadAIUsageGroup(ctx, runIDs, filters, "llm_profile")
-	if err != nil {
-		return resp, err
-	}
-	resp.ByModel, err = a.loadAIUsageGroup(ctx, runIDs, filters, "provider || '/' || model")
-	if err != nil {
-		return resp, err
-	}
-	resp.BySubject, err = a.loadAIUsageGroup(ctx, runIDs, filters, "effective_subject_type || ':' || effective_subject_id")
-	if err != nil {
-		return resp, err
-	}
-	resp.Trend, err = a.loadAIUsageTrend(ctx, runIDs, filters)
-	if err != nil {
-		return resp, err
-	}
-	resp.TopTokenRuns, err = a.loadMonitoringTokenCounts(ctx, monitoringAITopTokenRunsQuery(), queryArgs...)
-	return resp, err
+	return resp, nil
 }
 
 func (a *App) loadMonitoringReliability(ctx context.Context, filters monitoringAnalyticsFilters, runIDs []string) (monitoringReliabilityResponse, error) {
@@ -1848,6 +1860,252 @@ func (a *App) loadAIUsageTrend(ctx context.Context, runIDs []string, filters mon
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+type monitoringAssistantChatUsage struct {
+	PromptTokens     int64
+	CompletionTokens int64
+	TotalTokens      int64
+	ExactTokens      int64
+	EstimatedTokens  int64
+	ExactEvents      int64
+	EstimatedEvents  int64
+	MessageCount     int64
+	ByProfile        []monitoringNamedCount
+	BySubject        []monitoringNamedCount
+	Trend            []monitoringTimeBucket
+}
+
+func (a *App) loadMonitoringAssistantChatUsage(ctx context.Context, filters monitoringAnalyticsFilters) (monitoringAssistantChatUsage, error) {
+	var usage monitoringAssistantChatUsage
+	args := monitoringAssistantChatUsageQueryArgs(filters)
+	if err := a.db.QueryRow(ctx, monitoringAssistantChatUsageTotalsQuery(), args...).Scan(
+		&usage.PromptTokens,
+		&usage.CompletionTokens,
+		&usage.TotalTokens,
+		&usage.ExactTokens,
+		&usage.EstimatedTokens,
+		&usage.ExactEvents,
+		&usage.EstimatedEvents,
+		&usage.MessageCount,
+	); err != nil {
+		return usage, err
+	}
+	var err error
+	usage.ByProfile, err = a.loadMonitoringTokenCounts(ctx, monitoringAssistantChatUsageGroupQuery("COALESCE(NULLIF(ac.selected_llm_profile, ''), 'default')"), args...)
+	if err != nil {
+		return usage, err
+	}
+	usage.BySubject, err = a.loadMonitoringTokenCounts(ctx, monitoringAssistantChatUsageGroupQuery("ac.user_id"), args...)
+	if err != nil {
+		return usage, err
+	}
+	usage.Trend, err = a.loadMonitoringAssistantChatUsageTrend(ctx, filters)
+	return usage, err
+}
+
+func (a *App) loadMonitoringAssistantChatUsageTrend(ctx context.Context, filters monitoringAnalyticsFilters) ([]monitoringTimeBucket, error) {
+	rows, err := a.db.Query(ctx, monitoringAssistantChatUsageTrendQuery(), monitoringAssistantChatUsageQueryArgs(filters)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []monitoringTimeBucket{}
+	for rows.Next() {
+		var item monitoringTimeBucket
+		if err := rows.Scan(&item.Key, &item.Label, &item.Runs, &item.Failures, &item.AverageDurationSeconds, &item.TotalDurationSeconds); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (resp *monitoringAIUsageResponse) addAssistantChatUsage(usage monitoringAssistantChatUsage) {
+	if usage.TotalTokens == 0 && usage.MessageCount == 0 {
+		return
+	}
+	resp.TotalPromptTokens += usage.PromptTokens
+	resp.TotalCompletionTokens += usage.CompletionTokens
+	resp.TotalTokens += usage.TotalTokens
+	resp.ExactTokens += usage.ExactTokens
+	resp.EstimatedTokens += usage.EstimatedTokens
+	resp.ExactTokenEvents += usage.ExactEvents
+	resp.EstimatedTokenEvents += usage.EstimatedEvents
+	resp.AssistantChatTokens = usage.TotalTokens
+	resp.AssistantChatMessages = usage.MessageCount
+	resp.ByFeature = mergeMonitoringTokenCounts(resp.ByFeature, []monitoringNamedCount{{
+		Key:    "assistant_chat",
+		Label:  "Assistant chat",
+		Count:  usage.MessageCount,
+		Tokens: usage.TotalTokens,
+	}})
+	resp.ByProfile = mergeMonitoringTokenCounts(resp.ByProfile, usage.ByProfile)
+	resp.BySubject = mergeMonitoringTokenCounts(resp.BySubject, usage.BySubject)
+	resp.Trend = mergeMonitoringTimeBuckets(resp.Trend, usage.Trend)
+}
+
+func monitoringAssistantChatUsageAllowed(filters monitoringAnalyticsFilters) bool {
+	if filters.GroupID != nil || filters.RootGroup || filters.PipelinePath != "" || filters.PipelineName != "" ||
+		filters.Repo != "" || filters.RunID != "" || filters.Ref != "" || filters.CommitSHA != "" ||
+		filters.TriggerSource != "" || filters.Status != "" || filters.ExternalTriggerID != "" ||
+		filters.ScheduleID != "" || filters.MinDurationSeconds != nil || filters.MaxDurationSeconds != nil {
+		return false
+	}
+	if filters.Provider != "" || filters.Model != "" || filters.StepName != "" || filters.TaskName != "" {
+		return false
+	}
+	return filters.Feature == "" || strings.EqualFold(filters.Feature, "assistant_chat")
+}
+
+func monitoringAssistantChatUsageQueryArgs(filters monitoringAnalyticsFilters) []any {
+	return []any{
+		filters.From,
+		filters.To,
+		filters.LLMProfile,
+		filters.RequestedByType,
+		filters.RequestedByID,
+		filters.EffectiveSubjectType,
+		filters.EffectiveSubjectID,
+	}
+}
+
+func monitoringAssistantChatUserIDPredicate() string {
+	return `
+		  AND ($4::text = '' OR LOWER(SPLIT_PART(ac.user_id, ':', 1)) = LOWER($4))
+		  AND ($5::text = '' OR LOWER(ac.user_id) = LOWER($5) OR LOWER(CASE WHEN POSITION(':' IN ac.user_id) > 0 THEN SUBSTRING(ac.user_id FROM POSITION(':' IN ac.user_id) + 1) ELSE ac.user_id END) = LOWER($5))
+		  AND ($6::text = '' OR LOWER(SPLIT_PART(ac.user_id, ':', 1)) = LOWER($6))
+		  AND ($7::text = '' OR LOWER(ac.user_id) = LOWER($7) OR LOWER(CASE WHEN POSITION(':' IN ac.user_id) > 0 THEN SUBSTRING(ac.user_id FROM POSITION(':' IN ac.user_id) + 1) ELSE ac.user_id END) = LOWER($7))`
+}
+
+func monitoringAssistantChatUsageTotalsQuery() string {
+	estimatedPredicate := `am.usage_estimated`
+	return `
+		SELECT COALESCE(SUM(am.prompt_tokens), 0)::bigint, COALESCE(SUM(am.completion_tokens), 0)::bigint,
+		       COALESCE(SUM(am.total_tokens), 0)::bigint,
+		       COALESCE(SUM(am.total_tokens) FILTER (WHERE NOT (` + estimatedPredicate + `)), 0)::bigint,
+		       COALESCE(SUM(am.total_tokens) FILTER (WHERE ` + estimatedPredicate + `), 0)::bigint,
+		       (COUNT(*) FILTER (WHERE NOT (` + estimatedPredicate + `)))::bigint,
+		       (COUNT(*) FILTER (WHERE ` + estimatedPredicate + `))::bigint,
+		       COUNT(*)::bigint
+		FROM assistant_messages am
+		JOIN assistant_conversations ac ON ac.id = am.conversation_id
+		WHERE am.created_at >= $1 AND am.created_at <= $2
+		  AND ($3::text = '' OR LOWER(COALESCE(ac.selected_llm_profile, '')) = LOWER($3))` + monitoringAssistantChatUserIDPredicate()
+}
+
+func monitoringAssistantChatUsageGroupQuery(expression string) string {
+	return `
+		SELECT COALESCE(NULLIF(` + expression + `, ''), 'unknown'), COALESCE(NULLIF(` + expression + `, ''), 'Unknown'),
+		       COUNT(*)::bigint, COALESCE(SUM(am.total_tokens), 0)::bigint, 0::float8
+		FROM assistant_messages am
+		JOIN assistant_conversations ac ON ac.id = am.conversation_id
+		WHERE am.created_at >= $1 AND am.created_at <= $2
+		  AND ($3::text = '' OR LOWER(COALESCE(ac.selected_llm_profile, '')) = LOWER($3))` + monitoringAssistantChatUserIDPredicate() + `
+		GROUP BY 1,2
+		ORDER BY 4 DESC, 2
+		LIMIT 20`
+}
+
+func monitoringAssistantChatUsageTrendQuery() string {
+	return `
+		SELECT TO_CHAR(DATE_TRUNC('day', am.created_at), 'YYYY-MM-DD'),
+		       TO_CHAR(DATE_TRUNC('day', am.created_at), 'YYYY-MM-DD'),
+		       COALESCE(SUM(am.total_tokens), 0)::bigint,
+		       0::bigint,
+		       0::float8,
+		       0::float8
+		FROM assistant_messages am
+		JOIN assistant_conversations ac ON ac.id = am.conversation_id
+		WHERE am.created_at >= $1 AND am.created_at <= $2
+		  AND ($3::text = '' OR LOWER(COALESCE(ac.selected_llm_profile, '')) = LOWER($3))` + monitoringAssistantChatUserIDPredicate() + `
+		GROUP BY 1,2
+		ORDER BY 1`
+}
+
+func mergeMonitoringTokenCounts(base, additions []monitoringNamedCount) []monitoringNamedCount {
+	if len(additions) == 0 {
+		return base
+	}
+	merged := make(map[string]monitoringNamedCount, len(base)+len(additions))
+	order := make([]string, 0, len(base)+len(additions))
+	for _, item := range append(append([]monitoringNamedCount{}, base...), additions...) {
+		key := strings.TrimSpace(item.Key)
+		if key == "" {
+			key = strings.TrimSpace(item.Label)
+		}
+		if key == "" {
+			continue
+		}
+		item.Key = key
+		if existing, ok := merged[key]; ok {
+			existing.Count += item.Count
+			existing.Failed += item.Failed
+			existing.Tokens += item.Tokens
+			existing.Seconds += item.Seconds
+			existing.CostUSD += item.CostUSD
+			if existing.Label == "" || existing.Label == "Unknown" {
+				existing.Label = item.Label
+			}
+			merged[key] = existing
+			continue
+		}
+		merged[key] = item
+		order = append(order, key)
+	}
+	out := make([]monitoringNamedCount, 0, len(order))
+	for _, key := range order {
+		out = append(out, merged[key])
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Tokens != out[j].Tokens {
+			return out[i].Tokens > out[j].Tokens
+		}
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Label < out[j].Label
+	})
+	if len(out) > 20 {
+		return out[:20]
+	}
+	return out
+}
+
+func mergeMonitoringTimeBuckets(base, additions []monitoringTimeBucket) []monitoringTimeBucket {
+	if len(additions) == 0 {
+		return base
+	}
+	merged := make(map[string]monitoringTimeBucket, len(base)+len(additions))
+	for _, item := range append(append([]monitoringTimeBucket{}, base...), additions...) {
+		key := strings.TrimSpace(item.Key)
+		if key == "" {
+			key = strings.TrimSpace(item.Label)
+		}
+		if key == "" {
+			continue
+		}
+		item.Key = key
+		if existing, ok := merged[key]; ok {
+			existing.Runs += item.Runs
+			existing.Failures += item.Failures
+			existing.TotalDurationSeconds += item.TotalDurationSeconds
+			if existing.Label == "" {
+				existing.Label = item.Label
+			}
+			merged[key] = existing
+			continue
+		}
+		merged[key] = item
+	}
+	out := make([]monitoringTimeBucket, 0, len(merged))
+	for _, item := range merged {
+		out = append(out, item)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].Key < out[j].Key
+	})
+	return out
 }
 
 func monitoringAIUsageQueryArgs(runIDs []string, filters monitoringAnalyticsFilters) []any {

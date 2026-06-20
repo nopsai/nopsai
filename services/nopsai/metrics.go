@@ -125,6 +125,21 @@ func (a *App) buildPrometheusMetrics(ctx context.Context) (string, error) {
 	if err := a.appendAIUsageTokenTotals(ctx, &out); err != nil {
 		return "", err
 	}
+	writeMetricHelp(&out, "nopsai_assistant_tokens_total", "Assistant chat token usage by message role, token type, and estimate state.")
+	writeMetricType(&out, "nopsai_assistant_tokens_total", "counter")
+	if err := a.appendAssistantTokenTotals(ctx, &out); err != nil {
+		return "", err
+	}
+	writeMetricHelp(&out, "nopsai_assistant_message_duration_seconds_total", "Assistant chat message processing duration by message role.")
+	writeMetricType(&out, "nopsai_assistant_message_duration_seconds_total", "counter")
+	if err := a.appendAssistantMessageDurationTotals(ctx, &out); err != nil {
+		return "", err
+	}
+	writeMetricHelp(&out, "nopsai_assistant_llm_calls_total", "Assistant chat LLM calls by message role.")
+	writeMetricType(&out, "nopsai_assistant_llm_calls_total", "counter")
+	if err := a.appendAssistantLLMCallTotals(ctx, &out); err != nil {
+		return "", err
+	}
 	writeMetricHelp(&out, "nopsai_approval_wait_duration_seconds", "Pending approval wait duration in seconds.")
 	writeMetricType(&out, "nopsai_approval_wait_duration_seconds", "histogram")
 	if err := a.appendApprovalWaitDurationHistogram(ctx, &out); err != nil {
@@ -739,6 +754,94 @@ func (a *App) appendAIUsageTokenTotals(ctx context.Context, out *strings.Builder
 			labels["token_type"] = tokenType
 			writeMetricLine(out, "nopsai_ai_tokens_total", labels, value)
 		}
+	}
+	return rows.Err()
+}
+
+func (a *App) appendAssistantTokenTotals(ctx context.Context, out *strings.Builder) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT role, usage_estimated,
+		       COALESCE(SUM(content_tokens), 0)::float8,
+		       COALESCE(SUM(prompt_tokens), 0)::float8,
+		       COALESCE(SUM(completion_tokens), 0)::float8,
+		       COALESCE(SUM(total_tokens), 0)::float8
+		FROM assistant_messages
+		GROUP BY role, usage_estimated
+		ORDER BY role, usage_estimated
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var role string
+		var estimated bool
+		var contentTokens, promptTokens, completionTokens, totalTokens float64
+		if err := rows.Scan(&role, &estimated, &contentTokens, &promptTokens, &completionTokens, &totalTokens); err != nil {
+			return err
+		}
+		base := map[string]string{
+			"role":      normalizeMetricLabel(role),
+			"estimated": normalizeMetricLabel(fmt.Sprintf("%t", estimated)),
+		}
+		for tokenType, value := range map[string]float64{
+			"content":    contentTokens,
+			"prompt":     promptTokens,
+			"completion": completionTokens,
+			"total":      totalTokens,
+		} {
+			labels := cloneMetricLabels(base)
+			labels["token_type"] = tokenType
+			writeMetricLine(out, "nopsai_assistant_tokens_total", labels, value)
+		}
+	}
+	return rows.Err()
+}
+
+func (a *App) appendAssistantMessageDurationTotals(ctx context.Context, out *strings.Builder) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT role, COALESCE(SUM(duration_ms), 0)::float8 / 1000
+		FROM assistant_messages
+		GROUP BY role
+		ORDER BY role
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var role string
+		var seconds float64
+		if err := rows.Scan(&role, &seconds); err != nil {
+			return err
+		}
+		writeMetricLine(out, "nopsai_assistant_message_duration_seconds_total", map[string]string{
+			"role": normalizeMetricLabel(role),
+		}, seconds)
+	}
+	return rows.Err()
+}
+
+func (a *App) appendAssistantLLMCallTotals(ctx context.Context, out *strings.Builder) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT role, COALESCE(SUM(llm_calls), 0)::float8
+		FROM assistant_messages
+		GROUP BY role
+		ORDER BY role
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var role string
+		var llmCalls float64
+		if err := rows.Scan(&role, &llmCalls); err != nil {
+			return err
+		}
+		writeMetricLine(out, "nopsai_assistant_llm_calls_total", map[string]string{
+			"role": normalizeMetricLabel(role),
+		}, llmCalls)
 	}
 	return rows.Err()
 }
