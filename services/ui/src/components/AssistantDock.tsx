@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { fetchAssistantConfig } from '../features/assistant/api.js';
 import { AssistantPanel } from '../features/assistant/AssistantPanel.js';
 import { ObjectIcon } from './ObjectIcon.js';
@@ -7,9 +7,15 @@ import { ObjectIcon } from './ObjectIcon.js';
 export function AssistantDock() {
   const [open, setOpen] = useState(false);
   const [enabled, setEnabled] = useState(false);
+  const location = useLocation();
   const navigate = useNavigate();
+  const isAssistantPage = location.pathname === '/assistant' || location.pathname.startsWith('/assistant/');
 
   useEffect(() => {
+    if (isAssistantPage) {
+      setOpen(false);
+      return;
+    }
     let active = true;
     fetchAssistantConfig()
       .then(config => {
@@ -21,9 +27,9 @@ export function AssistantDock() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [isAssistantPage]);
 
-  if (!enabled) return null;
+  if (!enabled || isAssistantPage) return null;
 
   return (
     <>

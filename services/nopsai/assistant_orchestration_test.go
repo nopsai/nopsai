@@ -745,6 +745,7 @@ func TestAssistantPlannerPromptUsesLiveToolSchemasWithoutStaticRouting(t *testin
 		"input_schema",
 		"nopsai.validate_pipeline",
 		"Use only tool names from available_tools",
+		"every step must contain exactly one execution method",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("planner prompt missing %q:\n%s", want, prompt)

@@ -551,6 +551,7 @@ func hostedMCPProposePipelineWrite(args map[string]any, mode string) (map[string
 	if expectedName != "" {
 		raw = hostedMCPPipelineYAMLWithFallbackName(raw, expectedName)
 	}
+	raw = hostedMCPCompleteGeneratedDockerPipelineYAML(raw)
 	pipeline, validationResult, ok := hostedMCPParseValidPipelineYAML(raw)
 	if !ok {
 		return map[string]any{

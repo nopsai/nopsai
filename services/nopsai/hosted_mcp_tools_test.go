@@ -498,6 +498,58 @@ func TestHostedMCPProposePipelineCreateUsesTargetNameWhenYAMLOmitsName(t *testin
 	}
 }
 
+func TestHostedMCPProposePipelineCreateCompletesGeneratedDockerWorkflow(t *testing.T) {
+	result, err := hostedMCPProposePipelineWrite(map[string]any{
+		"name": "assistant-test",
+		"yaml": "steps:\n" +
+			"  - name: clone repository\n" +
+			"  - name: build docker image\n" +
+			"  - name: push image to registry\n",
+	}, "create")
+	if err != nil {
+		t.Fatalf("hostedMCPProposePipelineWrite() error = %v", err)
+	}
+	if result["valid"] != true || result["pipeline_id"] != "assistant-test" {
+		t.Fatalf("result = %#v, want valid assistant-test proposal", result)
+	}
+	yamlText := fmt.Sprint(result["yaml"])
+	for _, want := range []string{
+		"name: assistant-test",
+		"container_image: docker:27-cli",
+		"working_directory: /workspace",
+		"- REPOSITORY_URL",
+		"- IMAGE_NAME",
+		"git clone \"$REPOSITORY_URL\" .",
+		"docker build -t \"${IMAGE_NAME}:${IMAGE_TAG:-latest}\" .",
+		"docker push \"${IMAGE_NAME}:${IMAGE_TAG:-latest}\"",
+		"depends_on:",
+		"- clone repository",
+		"- build docker image",
+	} {
+		if !strings.Contains(yamlText, want) {
+			t.Fatalf("yaml missing %q:\n%s", want, yamlText)
+		}
+	}
+}
+
+func TestHostedMCPProposePipelineCreateKeepsUnrecognizedInvalidYAMLInvalid(t *testing.T) {
+	result, err := hostedMCPProposePipelineWrite(map[string]any{
+		"name": "assistant-test",
+		"yaml": "name: assistant-test\ncontainer_image: alpine:3.20\nsteps:\n" +
+			"  - name: run tests\n",
+	}, "create")
+	if err != nil {
+		t.Fatalf("hostedMCPProposePipelineWrite() error = %v", err)
+	}
+	if result["valid"] != false {
+		t.Fatalf("result = %#v, want invalid proposal", result)
+	}
+	validation, ok := result["validation"].(map[string]any)
+	if !ok || !strings.Contains(fmt.Sprint(validation["error"]), "must contain") {
+		t.Fatalf("validation = %#v, want missing execution error", validation)
+	}
+}
+
 func TestHostedMCPPipelineWriteAuthorizationUsesYAMLName(t *testing.T) {
 	var checked model.ResourceRef
 	app := &App{aaaLocal: stubAAAAuthorizer{
