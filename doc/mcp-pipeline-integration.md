@@ -225,8 +225,10 @@ surfaces.
 
 Pipeline, reusable-step, schedule, knowledge-context, webhook-source,
 external-trigger, notification, scoped secret/variable, and credential GitOps
-tools validate input and return commit-ready file plans. A pipeline create
-response looks like:
+tools validate input and return commit-ready file plans. For pipeline create
+proposals, the explicit target `name` can fill a missing top-level YAML `name`;
+if both are provided and disagree, validation still rejects the proposal. A
+pipeline create response looks like:
 
 ```json
 {

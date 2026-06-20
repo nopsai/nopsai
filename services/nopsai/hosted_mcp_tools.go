@@ -547,6 +547,10 @@ func hostedMCPProposePipelineWrite(args map[string]any, mode string) (map[string
 	if mode != "create" && mode != "update" {
 		return nil, fmt.Errorf("unsupported pipeline write mode %q", mode)
 	}
+	pathPart, expectedName := splitPipelineArg(args)
+	if expectedName != "" {
+		raw = hostedMCPPipelineYAMLWithFallbackName(raw, expectedName)
+	}
 	pipeline, validationResult, ok := hostedMCPParseValidPipelineYAML(raw)
 	if !ok {
 		return map[string]any{
@@ -557,7 +561,6 @@ func hostedMCPProposePipelineWrite(args map[string]any, mode string) (map[string
 			"note":          "No write plan was produced because the pipeline YAML did not pass validation.",
 		}, nil
 	}
-	pathPart, expectedName := splitPipelineArg(args)
 	if expectedName != "" && expectedName != pipeline.Name {
 		errText := fmt.Sprintf("target pipeline name %q does not match YAML name %q", expectedName, pipeline.Name)
 		return map[string]any{
@@ -1330,6 +1333,26 @@ func splitPipelineArg(args map[string]any) (string, string) {
 func pipelineArgID(args map[string]any) string {
 	pathPart, namePart := splitPipelineArg(args)
 	return aaamodel.BuildPipelineID(pathPart, namePart)
+}
+
+func hostedMCPPipelineYAMLWithFallbackName(raw, fallbackName string) string {
+	fallbackName = strings.TrimSpace(fallbackName)
+	if fallbackName == "" {
+		return raw
+	}
+	var payload map[string]any
+	if err := yaml.Unmarshal([]byte(raw), &payload); err != nil || payload == nil {
+		return raw
+	}
+	if existing := strings.TrimSpace(fmt.Sprint(payload["name"])); existing != "" && existing != "<nil>" {
+		return raw
+	}
+	payload["name"] = fallbackName
+	encoded, err := yaml.Marshal(payload)
+	if err != nil {
+		return raw
+	}
+	return string(encoded)
 }
 
 func hostedMCPPipelineMatchFields(query, path, name, version, source, visibility, definition string) []string {

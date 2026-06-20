@@ -44,10 +44,26 @@ func (a *App) runAssistantConversationTurn(
 	content string,
 	selectedProfile string,
 ) assistantOrchestrationResult {
+	if result, ok := a.handleAssistantPendingConfirmation(ctx, subject, userID, conversation, content); ok {
+		return result
+	}
+	if result, ok := a.handleAssistantDirectValueConfirmation(ctx, subject, conversation, content); ok {
+		return result
+	}
+
 	planned := a.runAssistantLLMPlannedTurn(ctx, subject, userID, conversation, content, selectedProfile)
 	if planned.Handled {
 		memory := assistantMemoryForTurn(conversation, planned.Plan)
 		memory = assistantMemoryAfterTools(memory, planned.Plan, planned.ToolCalls)
+		if pending, ok := a.assistantPendingConfirmationFromDeniedPlan(ctx, subject, planned.Plan, planned.ToolCalls); ok {
+			memory = assistantSetPendingConfirmation(memory, pending)
+			memory.Summary = "Waiting for explicit confirmation before applying a direct MCP change."
+			return assistantOrchestrationResult{
+				Reply:     assistantPendingConfirmationPrompt(pending),
+				ToolCalls: planned.ToolCalls,
+				Memory:    normalizeAssistantMemory(memory),
+			}
+		}
 		reply := composeAssistantReply(planned.Plan, selectedProfile, planned.ToolCalls)
 		if assistantTurnReplyIsCompleteWithoutSynthesis(planned) {
 			return assistantOrchestrationResult{
@@ -73,10 +89,7 @@ func (a *App) runAssistantConversationTurn(
 		plan = assistantBaseTurnPlan(content, conversation.Memory)
 	}
 	memory := assistantMemoryForTurn(conversation, plan)
-	reply := "I could not create a validated NopsAI tool plan for that request because the assistant LLM planner was unavailable or returned an invalid plan. No changes were applied."
-	if reason := assistantPlannerFailureReason(planned.ToolCalls); reason != "" {
-		reply = "I could not create a validated NopsAI tool plan for that request because the assistant LLM planner was unavailable or returned an invalid plan: " + reason + ". No changes were applied."
-	}
+	reply := a.assistantPlannerFailureReply(ctx, subject, content, plan, planned.ToolCalls)
 	return assistantOrchestrationResult{
 		Reply:     reply,
 		ToolCalls: planned.ToolCalls,
@@ -1163,6 +1176,62 @@ func assistantPlannerFailureReason(toolCalls []assistantToolActivity) string {
 		}
 	}
 	return ""
+}
+
+func (a *App) assistantPlannerFailureReply(ctx context.Context, subject model.Subject, content string, plan assistantTurnPlan, toolCalls []assistantToolActivity) string {
+	reason := assistantPlannerFailureReason(toolCalls)
+	if assistantPlannerFailureIsSchemaSubset(reason) {
+		if reply := a.assistantSchemaSubsetFailureReply(ctx, subject, content, plan); reply != "" {
+			return reply
+		}
+		return "I did not run that because the planner selected a tool that is not valid for this request mode. Please choose direct MCP execution with confirmation, or explicitly ask for a GitOps proposal. No changes were applied."
+	}
+	reply := "I could not create a validated NopsAI tool plan for that request because the assistant LLM planner was unavailable or returned an invalid plan. No changes were applied."
+	if reason != "" {
+		reply = "I could not create a validated NopsAI tool plan for that request because the assistant LLM planner was unavailable or returned an invalid plan: " + reason + ". No changes were applied."
+	}
+	return reply
+}
+
+func assistantPlannerFailureIsSchemaSubset(reason string) bool {
+	reason = strings.ToLower(strings.TrimSpace(reason))
+	return strings.Contains(reason, "schema_tools") && strings.Contains(reason, "selected")
+}
+
+func (a *App) assistantSchemaSubsetFailureReply(ctx context.Context, subject model.Subject, content string, plan assistantTurnPlan) string {
+	if strings.TrimSpace(plan.LowerContent) == "" {
+		plan = assistantBaseTurnPlan(content, assistantConversationMemory{})
+	}
+	lower := strings.ToLower(strings.TrimSpace(content))
+	if lower == "" {
+		lower = plan.LowerContent
+	}
+	if assistantPlannerWantsGitOpsProposalSchema(lower) || !assistantPlannerWantsChangeSchema(lower) {
+		return ""
+	}
+	kind := ""
+	switch {
+	case assistantTextHasAny(lower, "secret", "secrets"):
+		kind = "secret"
+	case assistantTextHasAny(lower, "env var", "environment variable", "variable", "variables", "var ", "_var"):
+		kind = "variable"
+	default:
+		return ""
+	}
+	action := "write"
+	if assistantPlannerWantsDeleteSchema(lower) {
+		action = "delete"
+	}
+	directTool := "nopsai.write_" + kind + "_value"
+	if action == "delete" {
+		directTool = "nopsai.delete_" + kind + "_value"
+	}
+	availableTools := a.hostedMCPToolsForSubject(ctx, subject)
+	schemaToolNames := assistantPlannerSchemaToolNames(content, plan, nil, availableTools)
+	if schemaToolNames[directTool] {
+		return fmt.Sprintf("I did not use GitOps because you did not ask for a GitOps proposal. This should be a direct MCP %s %s, and NopsAI requires explicit confirmation before applying it. Please confirm the direct %s %s with the name, value, and scope. No changes were applied.", kind, action, kind, action)
+	}
+	return fmt.Sprintf("I did not use GitOps because you did not ask for a GitOps proposal. The direct MCP %s %s tool is not available in this session, likely because assistant action execution or AAA permission is disabled. Enable direct action execution/permission, or explicitly ask for a GitOps proposal if that is the workflow you want. No changes were applied.", kind, action)
 }
 
 func composeAssistantPlanDeniedReply(call assistantToolActivity) string {
