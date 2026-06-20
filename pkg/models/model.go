@@ -689,6 +689,19 @@ type KnowledgeContextSnapshot struct {
 	ResolvedAt            time.Time `json:"resolved_at,omitempty"`
 }
 
+type PipelineOutput struct {
+	LLMProfile string               `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
+	Items      []PipelineOutputItem `yaml:"items,omitempty" json:"items,omitempty"`
+}
+
+type PipelineOutputItem struct {
+	Name       string `yaml:"name" json:"name"`
+	Type       string `yaml:"type" json:"type"`
+	When       string `yaml:"when,omitempty" json:"when,omitempty"`
+	Prompt     string `yaml:"prompt" json:"prompt"`
+	LLMProfile string `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
+}
+
 type Pipeline struct {
 	Name              string                `yaml:"name" json:"name"`
 	Version           string                `yaml:"version,omitempty" json:"version,omitempty"`
@@ -706,6 +719,7 @@ type Pipeline struct {
 	RuntimePool       string                `yaml:"runtime_pool,omitempty" json:"runtime_pool,omitempty"`
 	AffinityEnabled   *bool                 `yaml:"affinity_enabled,omitempty" json:"affinity_enabled,omitempty"`
 	KnowledgeContext  []KnowledgeContextRef `yaml:"knowledge_context,omitempty" json:"knowledge_context,omitempty"`
+	Output            PipelineOutput        `yaml:"output,omitempty" json:"output,omitempty"`
 	LlmContentSharing *bool                 `yaml:"llm_content_sharing,omitempty" json:"llm_content_sharing,omitempty"`
 	LlmOutputSharing  *bool                 `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
 	LlmContentInclude []string              `yaml:"llm_content_include,omitempty" json:"llm_content_include,omitempty"`

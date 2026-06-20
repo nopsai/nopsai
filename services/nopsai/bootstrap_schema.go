@@ -43,6 +43,7 @@ func databaseBootstrapSteps(cfg *config.Config) []databaseBootstrapStep {
 		{name: "agent profile schema", run: ensureAgentProfileSchema},
 		{name: "MCP schema", run: ensureMCPSchema},
 		{name: "assistant schema", run: ensureAssistantSchema},
+		{name: "pipeline final output schema", run: ensurePipelineFinalOutputSchema},
 		{name: "setup schema", run: ensureSetupSchema},
 		{name: "approval schema", run: ensureApprovalSchema},
 		{name: "notification schema", run: ensureNotificationSchema},

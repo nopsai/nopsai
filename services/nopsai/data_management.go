@@ -44,6 +44,7 @@ var runBackupTables = []string{
 	"pipeline_approvals",
 	"pipeline_run_logs",
 	"pipeline_run_knowledge_contexts",
+	"pipeline_run_outputs",
 	"external_trigger_invocations",
 	"git_webhook_deliveries",
 }

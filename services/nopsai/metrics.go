@@ -95,6 +95,11 @@ func (a *App) buildPrometheusMetrics(ctx context.Context) (string, error) {
 	if err := a.appendPipelineTaskTotals(ctx, &out); err != nil {
 		return "", err
 	}
+	writeMetricHelp(&out, "nopsai_pipeline_final_outputs_total", "Pipeline final outputs by status, type, and pipeline.")
+	writeMetricType(&out, "nopsai_pipeline_final_outputs_total", "counter")
+	if err := a.appendPipelineFinalOutputTotals(ctx, &out); err != nil {
+		return "", err
+	}
 	writeMetricHelp(&out, "nopsai_notifications_sent_total", "Sent notification deliveries by channel and event type.")
 	writeMetricType(&out, "nopsai_notifications_sent_total", "counter")
 	if err := a.appendNotificationDeliveryStatusTotals(ctx, &out, "nopsai_notifications_sent_total", "sent"); err != nil {
@@ -539,6 +544,39 @@ func (a *App) appendPipelineTaskTotals(ctx context.Context, out *strings.Builder
 			"task":     normalizeMetricLabel(task),
 			"pipeline": normalizeMetricLabel(pipeline),
 			"path":     normalizeMetricLabel(path),
+		}, count)
+	}
+	return rows.Err()
+}
+
+func (a *App) appendPipelineFinalOutputTotals(ctx context.Context, out *strings.Builder) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT COALESCE(pro.status, ''), COALESCE(pro.type, ''),
+		       COALESCE(pr.pipeline_path, ''), COALESCE(pr.pipeline_name, ''),
+		       COALESCE(g.name, ''),
+		       COUNT(*)::float8
+		FROM pipeline_run_outputs pro
+		JOIN pipeline_runs pr ON pr.run_id = pro.run_id
+		LEFT JOIN groups g ON g.id = pr.group_id
+		GROUP BY 1,2,3,4,5
+		ORDER BY 1,2,3,4,5
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var status, outputType, path, pipeline, group string
+		var count float64
+		if err := rows.Scan(&status, &outputType, &path, &pipeline, &group, &count); err != nil {
+			return err
+		}
+		writeMetricLine(out, "nopsai_pipeline_final_outputs_total", map[string]string{
+			"status":   normalizeMetricLabel(status),
+			"type":     normalizeMetricLabel(outputType),
+			"pipeline": normalizeMetricLabel(pipeline),
+			"path":     normalizeMetricLabel(path),
+			"group":    normalizeMetricLabel(group),
 		}, count)
 	}
 	return rows.Err()

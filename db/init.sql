@@ -476,6 +476,25 @@ CREATE TABLE pipeline_run_knowledge_contexts (
 
 CREATE INDEX idx_pipeline_run_knowledge_contexts_run_id ON pipeline_run_knowledge_contexts(run_id);
 
+CREATE TABLE pipeline_run_outputs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id UUID NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
+    item_index INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('markdown', 'pdf', 'excel', 'json', 'html')),
+    prompt TEXT NOT NULL DEFAULT '',
+    llm_profile TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'generating', 'success', 'failure')),
+    content TEXT NOT NULL DEFAULT '',
+    error TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(run_id, item_index)
+);
+
+CREATE INDEX idx_pipeline_run_outputs_run ON pipeline_run_outputs(run_id, item_index);
+CREATE INDEX idx_pipeline_run_outputs_status ON pipeline_run_outputs(status, updated_at DESC);
+
 CREATE TABLE users (
     id UUID PRIMARY KEY,
     sub TEXT UNIQUE NOT NULL,

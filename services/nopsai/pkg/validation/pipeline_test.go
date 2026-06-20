@@ -136,6 +136,104 @@ func TestValidatePipelineRejectsGoalWhenLLMDisabled(t *testing.T) {
 	}
 }
 
+func TestValidatePipelineFinalOutputs(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "valid-pipeline",
+		ContainerImage: "ubuntu:latest",
+		Output: models.PipelineOutput{
+			LLMProfile: "report-writer",
+			Items: []models.PipelineOutputItem{{
+				Name:   "Executive summary",
+				Type:   "markdown",
+				Prompt: "Summarize the run for management.",
+			}},
+		},
+		Steps: []models.PipelineStep{{
+			Step: &models.TaskStep{
+				BaseStep: models.BaseStep{Name: "step1"},
+				Tasks:    []models.Task{{Name: "task1", Script: "echo ok"}},
+			},
+		}},
+	}
+
+	if err := ValidatePipeline(p); err != nil {
+		t.Fatalf("expected final outputs to validate, got %v", err)
+	}
+}
+
+func TestValidatePipelineFinalOutputsRejectUnsupportedType(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "invalid-pipeline",
+		ContainerImage: "ubuntu:latest",
+		Output: models.PipelineOutput{
+			Items: []models.PipelineOutputItem{{
+				Name:   "Archive",
+				Type:   "zip",
+				Prompt: "Package everything.",
+			}},
+		},
+		Steps: []models.PipelineStep{{
+			Step: &models.TaskStep{
+				BaseStep: models.BaseStep{Name: "step1"},
+				Tasks:    []models.Task{{Name: "task1", Script: "echo ok"}},
+			},
+		}},
+	}
+
+	err := ValidatePipeline(p)
+	if err == nil || !strings.Contains(err.Error(), `unsupported type "zip"`) {
+		t.Fatalf("ValidatePipeline() error = %v, want unsupported type", err)
+	}
+}
+
+func TestValidatePipelineFinalOutputsRejectUnsupportedWhen(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "test-pipeline",
+		ContainerImage: "alpine:3.20",
+		Output: models.PipelineOutput{Items: []models.PipelineOutputItem{{
+			Name:   "Summary",
+			Type:   "markdown",
+			When:   "manual",
+			Prompt: "Summarize the run.",
+		}}},
+		Steps: []models.PipelineStep{
+			{Step: &models.ScriptStep{BaseStep: models.BaseStep{Name: "build"}, Script: "echo ok"}},
+		},
+	}
+
+	err := ValidatePipeline(p)
+	if err == nil || !strings.Contains(err.Error(), "unsupported when") {
+		t.Fatalf("ValidatePipeline() error = %v, want unsupported when", err)
+	}
+}
+
+func TestValidatePipelineRejectsFinalOutputsWhenLLMDisabled(t *testing.T) {
+	disabled := false
+	p := &models.Pipeline{
+		Name:           "invalid-pipeline",
+		ContainerImage: "ubuntu:latest",
+		LLMEnabled:     &disabled,
+		Output: models.PipelineOutput{
+			Items: []models.PipelineOutputItem{{
+				Name:   "Summary",
+				Type:   "markdown",
+				Prompt: "Summarize.",
+			}},
+		},
+		Steps: []models.PipelineStep{{
+			Step: &models.TaskStep{
+				BaseStep: models.BaseStep{Name: "step1"},
+				Tasks:    []models.Task{{Name: "task1", Script: "echo ok"}},
+			},
+		}},
+	}
+
+	err := ValidatePipeline(p)
+	if err == nil || !strings.Contains(err.Error(), "defines final outputs") {
+		t.Fatalf("ValidatePipeline() error = %v, want LLM-disabled output error", err)
+	}
+}
+
 func TestValidatePipelineRejectsConditionWhenLLMDisabled(t *testing.T) {
 	disabled := false
 	p := &models.Pipeline{
@@ -375,6 +473,40 @@ func TestValidatePipelineLLMProfilesTaskOverrideAllowed(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("expected task profile to be allowed in dev, got %v", err)
+	}
+}
+
+func TestValidatePipelineLLMProfilesFinalOutputOverride(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "valid-name",
+		ContainerImage: "ubuntu",
+		LLMProfile:     "standard",
+		Output: models.PipelineOutput{
+			LLMProfile: "report-writer",
+			Items: []models.PipelineOutputItem{{
+				Name:   "Executive summary",
+				Type:   "markdown",
+				Prompt: "Summarize.",
+			}},
+		},
+		Steps: []models.PipelineStep{{
+			Step: &models.TaskStep{
+				BaseStep: models.BaseStep{Name: "deep"},
+				Tasks:    []models.Task{{Name: "review", Goal: "Review"}},
+			},
+		}},
+	}
+
+	err := ValidatePipelineLLMProfiles(p, LLMProfileValidationOptions{
+		DefaultProfile: "standard",
+		Scope:          "prod",
+		Profiles: map[string]LLMProfileDefinition{
+			"standard":      {AllowedScopes: []string{"prod"}},
+			"report-writer": {AllowedScopes: []string{"dev"}},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), `LLM profile "report-writer" is not allowed in scope "prod"`) {
+		t.Fatalf("ValidatePipelineLLMProfiles() error = %v, want output profile scope error", err)
 	}
 }
 

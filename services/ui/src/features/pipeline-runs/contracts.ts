@@ -107,6 +107,16 @@ export type PipelineDefinition = {
   mcp_profiles?: string[];
   runtime_pool?: string;
   affinity_enabled?: boolean;
+  output?: {
+    llm_profile?: string;
+    items?: Array<{
+      name: string;
+      type: 'markdown' | 'pdf' | 'excel' | 'json' | 'html' | string;
+      when?: 'always' | 'success' | 'failure' | string;
+      prompt: string;
+      llm_profile?: string;
+    }>;
+  };
   steps?: Array<{
     name: string;
     description?: string;
@@ -120,6 +130,18 @@ export type PipelineDefinition = {
     runtime_pool?: string;
     llm_output_sharing?: boolean;
   }>;
+};
+
+export type PipelineRunFinalOutput = {
+  id: string;
+  name: string;
+  type: 'markdown' | 'pdf' | 'excel' | 'json' | 'html' | string;
+  status: 'pending' | 'generating' | 'success' | 'failure' | string;
+  content?: string;
+  error?: string;
+  llm_profile?: string;
+  created_at?: string;
+  updated_at?: string;
 };
 
 export type GraphStatus = 'success' | 'failed' | 'running' | 'pending' | 'skipped' | 'cancelled';

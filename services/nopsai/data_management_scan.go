@@ -114,7 +114,8 @@ func runCleanupCountSQL(candidateCTE string) string {
 			(SELECT COUNT(*) FROM pipeline_run_logs WHERE run_id IN (SELECT run_id FROM candidate_runs)),
 			(SELECT COUNT(*) FROM pipeline_run_checkpoints WHERE run_id IN (SELECT run_id FROM candidate_runs)),
 			(SELECT COUNT(*) FROM pipeline_approvals WHERE run_id IN (SELECT run_id FROM candidate_runs)),
-			(SELECT COUNT(*) FROM pipeline_run_knowledge_contexts WHERE run_id IN (SELECT run_id FROM candidate_runs))
+			(SELECT COUNT(*) FROM pipeline_run_knowledge_contexts WHERE run_id IN (SELECT run_id FROM candidate_runs)),
+			(SELECT COUNT(*) FROM pipeline_run_outputs WHERE run_id IN (SELECT run_id FROM candidate_runs))
 	`
 }
 
@@ -130,7 +131,7 @@ func runCleanupDeleteSQL(candidateCTE string) string {
 }
 
 func scanRunCleanupCounts(row pgx.Row) (map[string]int64, error) {
-	var pipelineRuns, taskRuns, stepRuns, logs, checkpoints, approvals, knowledgeContexts int64
+	var pipelineRuns, taskRuns, stepRuns, logs, checkpoints, approvals, knowledgeContexts, outputs int64
 	err := row.Scan(
 		&pipelineRuns,
 		&taskRuns,
@@ -139,6 +140,7 @@ func scanRunCleanupCounts(row pgx.Row) (map[string]int64, error) {
 		&checkpoints,
 		&approvals,
 		&knowledgeContexts,
+		&outputs,
 	)
 	if err != nil {
 		return nil, err
@@ -151,6 +153,7 @@ func scanRunCleanupCounts(row pgx.Row) (map[string]int64, error) {
 		"pipeline_run_checkpoints":        checkpoints,
 		"pipeline_approvals":              approvals,
 		"pipeline_run_knowledge_contexts": knowledgeContexts,
+		"pipeline_run_outputs":            outputs,
 	}, nil
 }
 

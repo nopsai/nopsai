@@ -196,6 +196,34 @@ func TestFinalizeRunDetailTasksForDisplaySkipsNeverStartedWorkAndBoundsFailedWor
 	}
 }
 
+func TestFinalizeRunDetailTasksForDisplayClosesSuccessfulRunWork(t *testing.T) {
+	start := time.Unix(1_700_000_000, 0).UTC()
+	finished := start.Add(30 * time.Second)
+	tasks := []models.TaskDetail{
+		{
+			TaskID:    "task-1",
+			StepName:  "build",
+			TaskName:  "compile",
+			Status:    "running",
+			StartedAt: start,
+		},
+		{
+			TaskID:   "task-2",
+			StepName: "build",
+			TaskName: "package",
+			Status:   "pending",
+		},
+	}
+
+	got := FinalizeRunDetailTasksForDisplay(tasks, "success", "success", finished)
+	if got[0].Status != "success" || got[1].Status != "success" {
+		t.Fatalf("task statuses = %q/%q, want success/success", got[0].Status, got[1].Status)
+	}
+	if got[0].FinishedAt != finished {
+		t.Fatalf("first task finished_at = %s, want %s", got[0].FinishedAt, finished)
+	}
+}
+
 func TestBuildStepDetailsForRunAttachesAIUsageByStepAndTask(t *testing.T) {
 	pipeline := models.Pipeline{
 		Steps: []models.PipelineStep{{
@@ -275,8 +303,8 @@ func TestBuildRunDetailETagChangesWhenTaskStatusChanges(t *testing.T) {
 		},
 	}
 
-	baseETag := BuildRunDetailETag(run, nil, baseTasks, nil, nil)
-	taskETag := BuildRunDetailETag(run, nil, taskUpdated, nil, nil)
+	baseETag := BuildRunDetailETag(run, nil, baseTasks, nil, nil, nil)
+	taskETag := BuildRunDetailETag(run, nil, taskUpdated, nil, nil, nil)
 	if taskETag == baseETag {
 		t.Fatalf("expected task status change to alter ETag, but both were %q", taskETag)
 	}
@@ -294,9 +322,32 @@ func TestBuildRunDetailETagChangesWhenAIUsageChanges(t *testing.T) {
 		}},
 	}
 
-	baseETag := BuildRunDetailETag(run, nil, tasks, map[string]models.AIUsageSummary{"plan": {TotalTokens: 10}}, nil)
-	updatedETag := BuildRunDetailETag(run, nil, tasks, map[string]models.AIUsageSummary{"plan": {TotalTokens: 11}}, nil)
+	baseETag := BuildRunDetailETag(run, nil, tasks, map[string]models.AIUsageSummary{"plan": {TotalTokens: 10}}, nil, nil)
+	updatedETag := BuildRunDetailETag(run, nil, tasks, map[string]models.AIUsageSummary{"plan": {TotalTokens: 11}}, nil, nil)
 	if updatedETag == baseETag {
 		t.Fatalf("expected AI usage change to alter ETag, but both were %q", updatedETag)
+	}
+}
+
+func TestBuildRunDetailETagChangesWhenFinalOutputContentChanges(t *testing.T) {
+	run := models.RunListItem{RunID: "run-1", Status: "success", IsComplete: true}
+	tasks := map[string][]models.TaskDetail{}
+
+	baseETag := BuildRunDetailETag(run, nil, tasks, nil, nil, []models.PipelineRunFinalOutput{{
+		ID:      "output-1",
+		Name:    "Executive summary",
+		Type:    "markdown",
+		Status:  "generating",
+		Content: "",
+	}})
+	updatedETag := BuildRunDetailETag(run, nil, tasks, nil, nil, []models.PipelineRunFinalOutput{{
+		ID:      "output-1",
+		Name:    "Executive summary",
+		Type:    "markdown",
+		Status:  "success",
+		Content: "Done",
+	}})
+	if updatedETag == baseETag {
+		t.Fatalf("expected final output change to alter ETag, but both were %q", updatedETag)
 	}
 }

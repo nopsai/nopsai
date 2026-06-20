@@ -18,6 +18,7 @@ export const PIPELINE_DIRECTIVES = [
   'runtime_pool',
   'affinity_enabled',
   'knowledge_context',
+  'output',
   'llm_output_sharing',
   'llm_content_sharing',
   'llm_content_include',

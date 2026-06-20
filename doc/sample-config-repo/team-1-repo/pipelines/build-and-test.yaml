@@ -24,6 +24,25 @@ knowledge_context:
   - kind: architecture
     ref: team-1/backend
     required: true
+output:
+  items:
+    - name: Executive summary
+      type: markdown
+      when: success
+      prompt: |
+        Summarize the build-and-test run for engineering leadership.
+        Include the result, notable evidence, and recommended next action.
+    - name: Test data table
+      type: excel
+      when: success
+      prompt: |
+        Create a table with each step, status, key evidence, and recommendation.
+    - name: Failure analysis
+      type: pdf
+      when: failure
+      prompt: |
+        Explain why the build-and-test run failed.
+        Include the failed step, key evidence, risk, and recommended fix.
 steps:
   - name: checkout
     include: step:team-1/shared/checkout

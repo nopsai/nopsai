@@ -221,6 +221,12 @@ func (a *App) handleFinalizeRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := a.preparePipelineFinalOutputRecords(context.Background(), runID); err != nil {
+		log.Warn().Err(err).Str("run_id", runID).Msg("Failed to prepare final outputs after run finalization")
+	} else {
+		go a.generatePipelineFinalOutputs(context.Background(), runID)
+	}
+
 	if gitContext["repo_owner"] != "" {
 		// Run git-bot notification in background to prevent agent hang
 		go a.notifyGitBotOfFinalStatus(finalStatus, failedStep, failedTask, failureReason, gitContext)

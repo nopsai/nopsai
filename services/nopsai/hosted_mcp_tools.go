@@ -46,6 +46,7 @@ func allHostedMCPTools() []hostedMCPTool {
 		toolDef("nopsai.propose_pipeline_update", "Validate pipeline YAML and return a GitOps-ready update file plan without applying changes.", "pipeline.update", "pipeline", "*", objectSchema(map[string]any{"pipeline": stringSchema(), "path": stringSchema(), "name": stringSchema(), "yaml": stringSchema(), "message": stringSchema()})),
 		toolDef("nopsai.list_pipeline_runs", "List recent pipeline runs visible to the current user.", "pipeline_run.list", "pipeline_run", "*", objectSchema(map[string]any{"limit": numberSchema()})),
 		toolDef("nopsai.get_pipeline_run", "Read pipeline run status and metadata.", "pipeline_run.read", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema()})),
+		toolDef("nopsai.get_pipeline_run_output", "Read a generated final output for a pipeline run.", "pipeline_run.read", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema(), "output_id": stringSchema(), "name": stringSchema()})),
 		toolDef("nopsai.get_pipeline_run_logs", "Read recent pipeline run logs.", "pipeline_run.read_logs", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema(), "limit": numberSchema()})),
 		toolDef("nopsai.analyze_pipeline_run_failure", "Analyze a failed pipeline run from status and log excerpts.", "pipeline_run.read_logs", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema()})),
 		toolDef("nopsai.list_triggers", "List repository triggers.", "trigger.read", "trigger", "*", objectSchema(map[string]any{"limit": numberSchema()})),
@@ -293,7 +294,7 @@ func (a *App) authorizeHostedMCPToolCall(ctx context.Context, subject aaamodel.S
 		permission.Resource.ID = pipelineWritePlanResourceID(args)
 	case "nopsai.get_knowledge_context":
 		permission.Resource.ID = a.knowledgeContextArgID(ctx, args)
-	case "nopsai.get_pipeline_run", "nopsai.get_pipeline_run_logs", "nopsai.analyze_pipeline_run_failure", "nopsai.get_lab_item", "nopsai.explain_lab_result":
+	case "nopsai.get_pipeline_run", "nopsai.get_pipeline_run_output", "nopsai.get_pipeline_run_logs", "nopsai.analyze_pipeline_run_failure", "nopsai.get_lab_item", "nopsai.explain_lab_result":
 		permission.Resource.ID = stringArg(args, "run_id")
 	case "nopsai.get_trigger", "nopsai.propose_trigger_change":
 		permission.Resource.ID = stringArg(args, "repository")
@@ -347,6 +348,8 @@ func (a *App) executeHostedMCPTool(ctx context.Context, subject aaamodel.Subject
 		return a.hostedMCPListPipelineRuns(ctx, args)
 	case "nopsai.get_pipeline_run", "nopsai.get_lab_item":
 		return a.hostedMCPGetPipelineRun(ctx, args)
+	case "nopsai.get_pipeline_run_output":
+		return a.hostedMCPGetPipelineRunOutput(ctx, args)
 	case "nopsai.get_pipeline_run_logs":
 		return a.hostedMCPGetPipelineRunLogs(ctx, args)
 	case "nopsai.analyze_pipeline_run_failure", "nopsai.explain_lab_result":
@@ -666,6 +669,10 @@ func (a *App) hostedMCPGetPipelineRun(ctx context.Context, args map[string]any) 
 	if err != nil {
 		return nil, err
 	}
+	outputs, err := a.hostedMCPPipelineRunOutputSummaries(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
 	return map[string]any{
 		"run_id":              runID,
 		"pipeline_id":         aaamodel.BuildPipelineID(path, name),
@@ -681,6 +688,95 @@ func (a *App) hostedMCPGetPipelineRun(ctx context.Context, args map[string]any) 
 		"created_at":          createdAt,
 		"started_at":          hostedMCPNullableTime(startedAt),
 		"finished_at":         hostedMCPNullableTime(finishedAt),
+		"final_outputs":       outputs,
+	}, nil
+}
+
+func (a *App) hostedMCPPipelineRunOutputSummaries(ctx context.Context, runID string) ([]map[string]any, error) {
+	rows, err := a.db.Query(ctx, `
+		SELECT id::text, name, type, status, error, llm_profile, updated_at
+		FROM pipeline_run_outputs
+		WHERE run_id::text = $1
+		ORDER BY item_index ASC, created_at ASC
+	`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	outputs := []map[string]any{}
+	for rows.Next() {
+		var id, name, outputType, status, errorText, profile string
+		var updatedAt time.Time
+		if err := rows.Scan(&id, &name, &outputType, &status, &errorText, &profile, &updatedAt); err != nil {
+			return nil, err
+		}
+		outputs = append(outputs, map[string]any{
+			"id":          id,
+			"name":        name,
+			"type":        outputType,
+			"status":      status,
+			"error":       errorText,
+			"llm_profile": profile,
+			"updated_at":  updatedAt,
+		})
+	}
+	return outputs, rows.Err()
+}
+
+func (a *App) hostedMCPGetPipelineRunOutput(ctx context.Context, args map[string]any) (map[string]any, error) {
+	runID := stringArg(args, "run_id")
+	if runID == "" {
+		return nil, fmt.Errorf("run_id is required")
+	}
+	outputID := strings.TrimSpace(stringArg(args, "output_id"))
+	outputName := strings.TrimSpace(stringArg(args, "name"))
+	if outputID == "" && outputName == "" {
+		return nil, fmt.Errorf("output_id or name is required")
+	}
+
+	query := `
+		SELECT id::text, name, type, status, content, error, llm_profile, created_at, updated_at
+		FROM pipeline_run_outputs
+		WHERE run_id::text = $1 AND `
+	argsList := []any{runID}
+	if outputID != "" {
+		query += `id::text = $2`
+		argsList = append(argsList, outputID)
+	} else {
+		query += `LOWER(name) = LOWER($2)`
+		argsList = append(argsList, outputName)
+	}
+	query += ` ORDER BY item_index ASC LIMIT 1`
+
+	var output models.PipelineRunFinalOutput
+	err := a.db.QueryRow(ctx, query, argsList...).Scan(
+		&output.ID,
+		&output.Name,
+		&output.Type,
+		&output.Status,
+		&output.Content,
+		&output.Error,
+		&output.LLMProfile,
+		&output.CreatedAt,
+		&output.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"run_id": runID,
+		"output": map[string]any{
+			"id":          output.ID,
+			"name":        output.Name,
+			"type":        output.Type,
+			"status":      output.Status,
+			"content":     output.Content,
+			"error":       output.Error,
+			"llm_profile": output.LLMProfile,
+			"created_at":  output.CreatedAt,
+			"updated_at":  output.UpdatedAt,
+		},
 	}, nil
 }
 
