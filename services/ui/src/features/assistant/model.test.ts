@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  assistantConversationClipboardText,
+  assistantLastUserMessage,
+  assistantVisibleToolActivity,
   normalizeAssistantConfig,
   normalizeAssistantConversation,
   normalizeAssistantConversationsPayload,
@@ -119,5 +122,29 @@ describe('assistant model', () => {
     expect(config.actions.require_confirmation).toBe(true);
     expect('credential_ref' in config).toBe(false);
     expect('api_key_secret' in config).toBe(false);
+  });
+
+  it('keeps retry/export helpers focused on user-visible chat content and evidence tools', () => {
+    const conversation = normalizeAssistantConversation({
+      id: 'c1',
+      messages: [
+        { id: 'm1', role: 'user', content: 'show pipeline' },
+        {
+          id: 'm2',
+          role: 'assistant',
+          content: 'Pipeline loaded',
+          tool_calls: [
+            { name: 'nopsai.llm.plan', status: 'success', resource_uris: ['nopsai://features'] },
+            { name: 'nopsai.get_pipeline', status: 'success', resource_uris: ['nopsai://pipelines'] },
+            { name: 'nopsai.llm.complete', status: 'success', resource_uris: ['nopsai://system/llm-profiles'] },
+          ],
+        },
+        { id: 'm3', role: 'user', content: 'validate it' },
+      ],
+    });
+
+    expect(assistantLastUserMessage(conversation.messages)?.content).toBe('validate it');
+    expect(assistantConversationClipboardText(conversation)).toContain('Assistant:\nPipeline loaded');
+    expect(assistantVisibleToolActivity(conversation.messages).map(tool => tool.name)).toEqual(['nopsai.get_pipeline']);
   });
 });

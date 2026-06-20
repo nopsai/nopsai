@@ -1,7 +1,9 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
+import { copyTextToClipboard } from '../../lib/clipboard.js';
 import {
   createAssistantConversation,
+  deleteAssistantConversation,
   fetchAssistantConfig,
   fetchAssistantConversation,
   fetchAssistantConversations,
@@ -14,6 +16,7 @@ import { useAssistantController } from './useAssistantController.js';
 
 vi.mock('./api.js', () => ({
   createAssistantConversation: vi.fn(),
+  deleteAssistantConversation: vi.fn(),
   fetchAssistantConfig: vi.fn(),
   fetchAssistantConversation: vi.fn(),
   fetchAssistantConversations: vi.fn(),
@@ -21,12 +24,18 @@ vi.mock('./api.js', () => ({
   sendAssistantMessage: vi.fn(),
 }));
 
+vi.mock('../../lib/clipboard.js', () => ({
+  copyTextToClipboard: vi.fn(),
+}));
+
 const fetchAssistantConfigMock = vi.mocked(fetchAssistantConfig);
 const fetchAssistantConversationsMock = vi.mocked(fetchAssistantConversations);
 const fetchAssistantConversationMock = vi.mocked(fetchAssistantConversation);
 const fetchAssistantLLMProfilesMock = vi.mocked(fetchAssistantLLMProfiles);
 const createAssistantConversationMock = vi.mocked(createAssistantConversation);
+const deleteAssistantConversationMock = vi.mocked(deleteAssistantConversation);
 const sendAssistantMessageMock = vi.mocked(sendAssistantMessage);
+const copyTextToClipboardMock = vi.mocked(copyTextToClipboard);
 
 const enabledConfig: AssistantConfig = {
   enabled: true,
@@ -60,7 +69,9 @@ beforeEach(() => {
   fetchAssistantConversationMock.mockReset();
   fetchAssistantLLMProfilesMock.mockReset();
   createAssistantConversationMock.mockReset();
+  deleteAssistantConversationMock.mockReset();
   sendAssistantMessageMock.mockReset();
+  copyTextToClipboardMock.mockReset();
 
   fetchAssistantConfigMock.mockResolvedValue(enabledConfig);
   fetchAssistantConversationsMock.mockResolvedValue({ conversations: [] });
@@ -68,6 +79,7 @@ beforeEach(() => {
     default_profile: 'assistant',
     profiles: [{ name: 'assistant', provider: 'openai', model: 'gpt-test', status: 'valid', allowed_in_scope: true }],
   });
+  copyTextToClipboardMock.mockResolvedValue(undefined);
 });
 
 test('clears the draft immediately and shows a pending message while sending', async () => {
@@ -127,6 +139,86 @@ test('restores the draft if sending fails after optimistic clear', async () => {
   expect(result.current.draft).toBe('check variable duplicates');
   expect(result.current.activeMessages).toEqual([]);
   expect(result.current.error).toBe('assistant unavailable');
+});
+
+test('deletes the active conversation and selects the next chat', async () => {
+  const first = assistantConversation('c1', [assistantMessage('m1', 'c1', 'user', 'first')]);
+  const second = assistantConversation('c2', [assistantMessage('m2', 'c2', 'user', 'second')]);
+  fetchAssistantConversationsMock.mockResolvedValue({ conversations: [first, second] });
+  fetchAssistantConversationMock
+    .mockResolvedValueOnce(first)
+    .mockResolvedValueOnce(second);
+  deleteAssistantConversationMock.mockResolvedValue(undefined);
+
+  const { result } = renderHook(() => useAssistantController());
+  await waitFor(() => expect(result.current.activeConversation?.id).toBe('c1'));
+
+  await act(async () => {
+    await result.current.deleteConversation('c1');
+  });
+
+  expect(deleteAssistantConversationMock).toHaveBeenCalledWith('c1');
+  expect(result.current.conversations.map(conversation => conversation.id)).toEqual(['c2']);
+  expect(result.current.activeConversation?.id).toBe('c2');
+});
+
+test('retries the last user message without changing the draft', async () => {
+  const conversation = assistantConversation('c1', [
+    assistantMessage('m1', 'c1', 'user', 'why did the deploy fail?'),
+    assistantMessage('m2', 'c1', 'assistant', 'The image tag was invalid.'),
+  ]);
+  const retried = assistantConversation('c1', [
+    ...conversation.messages,
+    assistantMessage('m3', 'c1', 'user', 'why did the deploy fail?'),
+    assistantMessage('m4', 'c1', 'assistant', 'Still the image tag.'),
+  ]);
+  fetchAssistantConversationsMock.mockResolvedValue({ conversations: [conversation] });
+  fetchAssistantConversationMock.mockResolvedValue(conversation);
+  sendAssistantMessageMock.mockResolvedValue({
+    conversation: retried,
+    user_message: retried.messages[2],
+    reply: retried.messages[3],
+  });
+
+  const { result } = renderHook(() => useAssistantController());
+  await waitFor(() => expect(result.current.activeConversation?.id).toBe('c1'));
+
+  act(() => result.current.setDraft('new draft'));
+  await act(async () => {
+    await result.current.retryLastUserMessage();
+  });
+
+  expect(sendAssistantMessageMock).toHaveBeenCalledWith({
+    conversation_id: 'c1',
+    content: 'why did the deploy fail?',
+    selected_llm_profile: 'assistant',
+  });
+  expect(result.current.draft).toBe('new draft');
+  expect(result.current.activeMessages.at(-1)?.content).toBe('Still the image tag.');
+});
+
+test('copies individual messages and the whole conversation transcript', async () => {
+  const conversation = assistantConversation('c1', [
+    assistantMessage('m1', 'c1', 'user', 'show pipeline'),
+    assistantMessage('m2', 'c1', 'assistant', 'Pipeline loaded.'),
+  ]);
+  fetchAssistantConversationsMock.mockResolvedValue({ conversations: [conversation] });
+  fetchAssistantConversationMock.mockResolvedValue(conversation);
+
+  const { result } = renderHook(() => useAssistantController());
+  await waitFor(() => expect(result.current.activeConversation?.id).toBe('c1'));
+
+  await act(async () => {
+    await result.current.copyMessage(conversation.messages[1]);
+  });
+  expect(copyTextToClipboardMock).toHaveBeenLastCalledWith('Pipeline loaded.');
+  expect(result.current.copiedMessageID).toBe('m2');
+
+  await act(async () => {
+    await result.current.copyConversation();
+  });
+  expect(copyTextToClipboardMock).toHaveBeenLastCalledWith('You:\nshow pipeline\n\nAssistant:\nPipeline loaded.');
+  expect(result.current.conversationCopied).toBe(true);
 });
 
 function assistantConversation(id: string, messages: ReturnType<typeof assistantMessage>[]): AssistantConversation {

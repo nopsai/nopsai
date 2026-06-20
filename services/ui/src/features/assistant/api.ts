@@ -70,6 +70,16 @@ export async function fetchAssistantConversation(id: string): Promise<AssistantC
   return normalizeAssistantConversation(await response.json());
 }
 
+export async function deleteAssistantConversation(id: string): Promise<void> {
+  const response = await apiClient.fetch(`/v1/assistant/conversations/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    cache: 'no-store',
+  });
+  if (!response.ok) {
+    throw new Error(await responseError(response, `Failed to delete conversation (${response.status})`));
+  }
+}
+
 export async function sendAssistantMessage(input: {
   conversation_id: string;
   content: string;

@@ -200,6 +200,97 @@ func TestAssistantRunAnalysisReplyIncludesMCPChainAndLogHint(t *testing.T) {
 	}
 }
 
+func TestAssistantRunAnalysisReplyUsesAnalyzerEmbeddedLogExcerpt(t *testing.T) {
+	runID := uuid.NewString()
+	reply := composeRunAnalysisReply([]assistantToolActivity{{
+		Name:   "nopsai.analyze_pipeline_run_failure",
+		Status: assistantToolStatusSuccess,
+		Output: map[string]any{
+			"run": map[string]any{
+				"run_id":      runID,
+				"pipeline_id": "platform/deploy-api",
+				"status":      "failure",
+			},
+			"log_excerpt": []map[string]any{
+				{"line": "fatal: not a git repository"},
+			},
+			"root_cause_hint": "fatal: not a git repository",
+		},
+	}})
+
+	for _, want := range []string{"platform/deploy-api", "Log lines reviewed: 1", "fatal: not a git repository", "No changes were applied"} {
+		if !strings.Contains(reply, want) {
+			t.Fatalf("reply missing %q:\n%s", want, reply)
+		}
+	}
+}
+
+func TestAssistantPlannerCanonicalizesPipelineFailureAnalysisIntent(t *testing.T) {
+	plan := assistantTurnPlanFromPlannerDecision(assistantBaseTurnPlan(
+		"why this pipelinerun failed f04424d3-e33d-4334-9459-7d4a8b334719",
+		assistantConversationMemory{},
+	), assistantPlannerDecision{
+		Goal:   "Analyze why the pipeline run failed",
+		Intent: "analyze_pipeline_failure",
+		Steps: []assistantPlannerStep{{
+			Tool: "nopsai.analyze_pipeline_run_failure",
+			Args: map[string]any{"run_id": "f04424d3-e33d-4334-9459-7d4a8b334719"},
+		}},
+	})
+
+	if plan.Intent != "analyze_run" {
+		t.Fatalf("intent = %q, want analyze_run", plan.Intent)
+	}
+	if !assistantPlanHasTerminalEvidence(plan, []assistantToolActivity{{
+		Name:   "nopsai.analyze_pipeline_run_failure",
+		Status: assistantToolStatusSuccess,
+		Output: map[string]any{"root_cause_hint": "fatal: not a git repository"},
+	}}) {
+		t.Fatal("successful pipeline failure analysis should be terminal evidence")
+	}
+}
+
+func TestAssistantPlannerTerminalEvidenceRequiresSuccessfulAnalysis(t *testing.T) {
+	plan := assistantTurnPlan{
+		Intent: "analyze_run",
+		Steps: []assistantPlanStep{{
+			ToolName: "nopsai.analyze_pipeline_run_failure",
+			Args:     map[string]any{"run_id": uuid.NewString()},
+		}},
+	}
+
+	if assistantPlanHasTerminalEvidence(plan, []assistantToolActivity{{
+		Name:   "nopsai.analyze_pipeline_run_failure",
+		Status: assistantToolStatusError,
+		Output: map[string]any{"error": "not allowed"},
+	}}) {
+		t.Fatal("errored failure analysis should not be terminal evidence")
+	}
+	if assistantPlanHasTerminalEvidence(assistantTurnPlan{
+		Intent: "search_pipelines",
+		Steps:  []assistantPlanStep{{ToolName: "nopsai.search_pipelines"}},
+	}, []assistantToolActivity{{
+		Name:   "nopsai.search_pipelines",
+		Status: assistantToolStatusSuccess,
+	}}) {
+		t.Fatal("non-analysis tools should not short-circuit planner iteration")
+	}
+}
+
+func TestAssistantTerminalEvidenceSkipsFinalLLMSynthesis(t *testing.T) {
+	if !assistantTurnReplyIsCompleteWithoutSynthesis(assistantPlannerResult{
+		Plan:          assistantTurnPlan{Intent: "analyze_run"},
+		SkipSynthesis: true,
+	}) {
+		t.Fatal("terminal evidence should skip final LLM synthesis")
+	}
+	if assistantTurnReplyIsCompleteWithoutSynthesis(assistantPlannerResult{
+		Plan: assistantTurnPlan{Intent: "llm_planned"},
+	}) {
+		t.Fatal("ordinary planned turns should still allow final LLM synthesis")
+	}
+}
+
 func TestAssistantVariableUsageReplyStaysMetadataOnly(t *testing.T) {
 	reply := composeVariableUsageReply([]assistantToolActivity{{
 		Name:   "nopsai.analyze_variable_usage",
@@ -718,6 +809,49 @@ func TestAssistantPlanValidationChecksToolInputSchema(t *testing.T) {
 	)
 	if err == nil || !strings.Contains(err.Error(), "yaml must be string") {
 		t.Fatalf("err = %v, want schema type validation", err)
+	}
+}
+
+func TestAssistantAnswerQualityRequiresPipelineEvidenceForPipelineReplies(t *testing.T) {
+	plan := assistantTurnPlan{
+		Intent: "pipeline",
+		Goal:   "Show me a deploy pipeline",
+	}
+
+	quality := assistantAssessAnswerQuality(plan, nil, "Here is a deploy pipeline. No changes were applied.")
+	if quality.PipelineGrounded || assistantAnswerQualityPasses(quality) {
+		t.Fatalf("pipeline answer without successful NopsAI evidence should fail quality: %#v", quality)
+	}
+
+	quality = assistantAssessAnswerQuality(plan, []assistantToolActivity{{
+		Name:   "nopsai.get_pipeline",
+		Status: assistantToolStatusSuccess,
+		Output: map[string]any{"id": "platform/deploy-api"},
+	}}, "I loaded pipeline platform/deploy-api from NopsAI. No changes were applied.")
+	if !quality.PipelineGrounded || !assistantAnswerQualityPasses(quality) {
+		t.Fatalf("pipeline answer with successful NopsAI evidence should pass quality: %#v", quality)
+	}
+}
+
+func TestAssistantAnswerQualityRequiresGitOpsSafetyLanguageForPipelineProposals(t *testing.T) {
+	plan := assistantTurnPlan{
+		Intent: "propose_pipeline_create",
+		Goal:   "Draft a deploy pipeline",
+	}
+	toolCalls := []assistantToolActivity{{
+		Name:   "nopsai.propose_pipeline_create",
+		Status: assistantToolStatusSuccess,
+		Output: map[string]any{"valid": true, "pipeline_id": "deploy-web"},
+	}}
+
+	quality := assistantAssessAnswerQuality(plan, toolCalls, "The pipeline is ready. No changes were applied.")
+	if quality.SuggestedNextStep || assistantAnswerQualityPasses(quality) {
+		t.Fatalf("pipeline proposal without review/GitOps language should fail quality: %#v", quality)
+	}
+
+	quality = assistantAssessAnswerQuality(plan, toolCalls, "I prepared a GitOps-ready pipeline proposal for review. No changes were applied.")
+	if !quality.SuggestedNextStep || !assistantAnswerQualityPasses(quality) {
+		t.Fatalf("pipeline proposal with review/GitOps language should pass quality: %#v", quality)
 	}
 }
 

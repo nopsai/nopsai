@@ -26,6 +26,15 @@ operations as the current authenticated user.
 - Final answers from the planner require successful hosted MCP evidence from
   the current turn. The deterministic validator does not reinterpret natural
   language intent with static routing rules.
+- Pipeline-specific answers are additionally grounded in successful NopsAI
+  pipeline evidence. Generated or edited pipeline YAML must go through
+  `nopsai.validate_pipeline` or a `nopsai.propose_pipeline_*` tool before the
+  assistant can present it as a valid NopsAI pipeline or GitOps plan.
+- Some high-level evidence tools are terminal for the planner loop. For
+  example, a successful `nopsai.analyze_pipeline_run_failure` call already
+  includes run metadata, bounded logs, a root-cause hint, and next steps, so the
+  assistant can render the deterministic run-analysis answer without asking a
+  slower local LLM profile to re-process the same evidence.
 - Tool lists, resources, and tool calls are permission-filtered. If a user
   cannot use a route or resource in NopsAI, the assistant cannot bypass that.
 - Enterprise feature flags under `assistant.features` decide which broad
@@ -45,6 +54,12 @@ operations as the current authenticated user.
 - Final LLM synthesis is quality-gated against the validated plan and hosted
   MCP evidence. If the model claims unapplied changes or omits required
   proposal-safe wording, NopsAI falls back to the deterministic tool summary.
+- Pipeline proposal synthesis also requires review/GitOps-safe language. If
+  the model omits the review path or implies an unverified pipeline, NopsAI
+  falls back to the deterministic validation/proposal summary.
+- The packaged UI nginx proxy keeps API connections open long enough for local
+  LLM-backed assistant turns, while the assistant still avoids unnecessary
+  planner/synthesis passes when a validated MCP tool result is sufficient.
 - Secret and credential workflows are metadata-, reference-, encrypted-payload-,
   or explicit-write-oriented. Plaintext secret reads are not part of ordinary
   assistant context.
@@ -101,6 +116,24 @@ Examples:
 | Feature action | "Show notification mail settings" or "List credentials metadata." | Routes to the matching first-party MCP tool and summarizes the result safely. |
 | Explain policy | "Why can't the assistant ingest runner logs directly?" | Explains the safe boundary and supported alternatives. |
 | Use API bridge | "Call the existing API to list my auth sessions." | Uses guarded `/v1` routes when no dedicated tool is needed. |
+
+## Chat UI Controls
+
+The assistant UI keeps conversation content separate from audit/evidence
+metadata.
+
+- Message bubbles show only user/assistant content plus compact actions such as
+  copy and retry. Raw internal planner and synthesis calls are not rendered
+  under each message.
+- The full assistant view keeps NopsAI evidence in the context panel, filtering
+  out internal `nopsai.llm.plan` and `nopsai.llm.complete` entries so product
+  evidence remains scannable.
+- Users can refresh assistant state, start a new conversation, copy a message,
+  copy the conversation transcript, retry the last user prompt, and delete an
+  owned assistant conversation.
+- Conversation deletion uses the authenticated user's assistant subject and
+  removes the conversation, messages, and memory through the existing database
+  cascade. It does not modify GitOps-managed product configuration.
 
 ## Capability Catalog
 
