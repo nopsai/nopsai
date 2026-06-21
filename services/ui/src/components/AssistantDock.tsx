@@ -1,21 +1,26 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, type NavigateFunction } from 'react-router-dom';
 import { fetchAssistantConfig } from '../features/assistant/api.js';
 import { AssistantPanel } from '../features/assistant/AssistantPanel.js';
 import { ObjectIcon } from './ObjectIcon.js';
 
 export function AssistantDock() {
-  const [open, setOpen] = useState(false);
-  const [enabled, setEnabled] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const isAssistantPage = location.pathname === '/assistant' || location.pathname.startsWith('/assistant/');
 
+  // Unmounting the dock on the full-page assistant route resets its local state
+  // without scheduling a second render from an effect.
+  if (isAssistantPage) return null;
+
+  return <AssistantDockContent navigate={navigate} />;
+}
+
+function AssistantDockContent({ navigate }: { navigate: NavigateFunction }) {
+  const [open, setOpen] = useState(false);
+  const [enabled, setEnabled] = useState(false);
+
   useEffect(() => {
-    if (isAssistantPage) {
-      setOpen(false);
-      return;
-    }
     let active = true;
     fetchAssistantConfig()
       .then(config => {
@@ -27,9 +32,9 @@ export function AssistantDock() {
     return () => {
       active = false;
     };
-  }, [isAssistantPage]);
+  }, []);
 
-  if (!enabled || isAssistantPage) return null;
+  if (!enabled) return null;
 
   return (
     <>
