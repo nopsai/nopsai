@@ -3,6 +3,8 @@ import { AlertCircle, CheckCircle2, Clipboard, Download, Eye, FileText, Loader2 
 import { apiClient } from '../../lib/api';
 import { copyTextToClipboard } from '../../lib/clipboard';
 import type { PipelineRunFinalOutput } from './contracts';
+import { FinalOutputPreview } from './final-output-preview/FinalOutputPreview';
+import { documentSpecToText, parseDocumentSpec, parseSpreadsheetSpec, spreadsheetSpecToText } from './final-output-preview/finalOutputSpecs';
 
 type RunFinalOutputsProps = {
   runID: string;
@@ -37,7 +39,7 @@ export function RunFinalOutputs({ runID, outputs = [] }: RunFinalOutputsProps) {
   if (outputs.length === 0) return null;
 
   const handleCopy = async (output: PipelineRunFinalOutput) => {
-    const content = output.content || '';
+    const content = copyableFinalOutputContent(output);
     if (!content) return;
     const key = `copy:${output.id}`;
     setPendingAction(key);
@@ -123,11 +125,7 @@ export function RunFinalOutputs({ runID, outputs = [] }: RunFinalOutputsProps) {
               </div>
               {expanded && ready && (
                 <div className="mt-3 rounded-lg border border-[var(--border-primary)] bg-white dark:bg-black/20 p-3">
-                  {output.type === 'html' ? (
-                    <iframe title={`${output.name} preview`} sandbox="" srcDoc={output.content} className="h-64 w-full rounded-lg bg-white" />
-                  ) : (
-                    <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-[var(--text-primary)]">{output.content}</pre>
-                  )}
+                  <FinalOutputPreview runID={runID} output={output} />
                 </div>
               )}
             </div>
@@ -137,6 +135,19 @@ export function RunFinalOutputs({ runID, outputs = [] }: RunFinalOutputsProps) {
       {message && <div className="text-xs text-[var(--text-secondary)]">{message}</div>}
     </section>
   );
+}
+
+function copyableFinalOutputContent(output: PipelineRunFinalOutput) {
+  const content = output.content || '';
+  if (output.type === 'pdf' || output.type === 'html') {
+    const document = parseDocumentSpec(content);
+    if (document) return documentSpecToText(document);
+  }
+  if (output.type === 'excel') {
+    const spreadsheet = parseSpreadsheetSpec(content);
+    if (spreadsheet) return spreadsheetSpecToText(spreadsheet);
+  }
+  return content;
 }
 
 function FinalOutputStatus({ status }: { status: string }) {

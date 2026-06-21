@@ -76,31 +76,36 @@ func New(options Options) *Client {
 }
 
 func (c *Client) Complete(ctx context.Context, prompt string) (Completion, error) {
+	return c.CompleteWithSystem(ctx, "", prompt)
+}
+
+func (c *Client) CompleteWithSystem(ctx context.Context, systemInstruction, prompt string) (Completion, error) {
+	systemInstruction = strings.TrimSpace(systemInstruction)
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
 		return Completion{}, fmt.Errorf("prompt is required")
 	}
 	switch c.options.Provider {
 	case config.LLMProviderGemini:
-		return c.completeGemini(ctx, prompt)
+		return c.completeGemini(ctx, systemInstruction, prompt)
 	case config.LLMProviderLMStudio:
-		return c.completeLMStudio(ctx, prompt)
+		return c.completeLMStudio(ctx, systemInstruction, prompt)
 	case config.LLMProviderOpenAI,
 		config.LLMProviderGroq,
 		config.LLMProviderMistral,
 		config.LLMProviderOllama,
 		config.LLMProviderOpenRouter:
-		return c.completeOpenAICompatible(ctx, prompt)
+		return c.completeOpenAICompatible(ctx, systemInstruction, prompt)
 	case config.LLMProviderAnthropic:
-		return c.completeAnthropic(ctx, prompt)
+		return c.completeAnthropic(ctx, systemInstruction, prompt)
 	case config.LLMProviderAzureOpenAI:
-		return c.completeAzureOpenAI(ctx, prompt)
+		return c.completeAzureOpenAI(ctx, systemInstruction, prompt)
 	default:
 		return Completion{}, fmt.Errorf("unsupported llm provider: %s", c.options.Provider)
 	}
 }
 
-func (c *Client) completeOpenAICompatible(ctx context.Context, prompt string) (Completion, error) {
+func (c *Client) completeOpenAICompatible(ctx context.Context, systemInstruction, prompt string) (Completion, error) {
 	baseURL := c.options.BaseURL
 	if baseURL == "" {
 		baseURL = config.DefaultLLMProviderBaseURL(c.options.Provider)
@@ -125,10 +130,10 @@ func (c *Client) completeOpenAICompatible(ctx context.Context, prompt string) (C
 			headers["X-Title"] = value
 		}
 	}
-	return c.completeOpenAIChat(ctx, buildOpenAIChatCompletionsURL(baseURL), headers, c.options.Model, prompt)
+	return c.completeOpenAIChat(ctx, buildOpenAIChatCompletionsURL(baseURL), headers, c.options.Model, systemInstruction, prompt)
 }
 
-func (c *Client) completeAzureOpenAI(ctx context.Context, prompt string) (Completion, error) {
+func (c *Client) completeAzureOpenAI(ctx context.Context, systemInstruction, prompt string) (Completion, error) {
 	model := c.options.Model
 	if deployment := c.options.Extra["deployment"]; deployment != "" {
 		model = deployment
@@ -138,14 +143,20 @@ func (c *Client) completeAzureOpenAI(ctx context.Context, prompt string) (Comple
 		buildAzureOpenAIChatCompletionsURL(c.options.BaseURL, c.options.Extra["deployment"], c.options.Extra["api_version"]),
 		map[string]string{"api-key": c.options.APIKey},
 		model,
+		systemInstruction,
 		prompt,
 	)
 }
 
-func (c *Client) completeOpenAIChat(ctx context.Context, endpoint string, headers map[string]string, model, prompt string) (Completion, error) {
+func (c *Client) completeOpenAIChat(ctx context.Context, endpoint string, headers map[string]string, model, systemInstruction, prompt string) (Completion, error) {
+	messages := make([]openAIChatMessage, 0, 2)
+	if systemInstruction != "" {
+		messages = append(messages, openAIChatMessage{Role: "system", Content: systemInstruction})
+	}
+	messages = append(messages, openAIChatMessage{Role: "user", Content: prompt})
 	payload := openAIChatRequest{
 		Model:       model,
-		Messages:    []openAIChatMessage{{Role: "user", Content: prompt}},
+		Messages:    messages,
 		Temperature: c.options.Temperature,
 	}
 	maxTokens := c.maxTokens()
@@ -175,7 +186,7 @@ func (c *Client) completeOpenAIChat(ctx context.Context, endpoint string, header
 			c.options.Provider,
 			model,
 			c.options.Profile,
-			prompt,
+			completionPrompt(systemInstruction, prompt),
 			text,
 			response.Usage.PromptTokens,
 			response.Usage.CompletionTokens,
@@ -184,7 +195,7 @@ func (c *Client) completeOpenAIChat(ctx context.Context, endpoint string, header
 	}, nil
 }
 
-func (c *Client) completeAnthropic(ctx context.Context, prompt string) (Completion, error) {
+func (c *Client) completeAnthropic(ctx context.Context, systemInstruction, prompt string) (Completion, error) {
 	baseURL := c.options.BaseURL
 	if baseURL == "" {
 		baseURL = config.DefaultLLMProviderBaseURL(c.options.Provider)
@@ -197,11 +208,13 @@ func (c *Client) completeAnthropic(ctx context.Context, prompt string) (Completi
 		Model       string              `json:"model"`
 		MaxTokens   int                 `json:"max_tokens"`
 		Temperature *float64            `json:"temperature,omitempty"`
+		System      string              `json:"system,omitempty"`
 		Messages    []openAIChatMessage `json:"messages"`
 	}{
 		Model:       c.options.Model,
 		MaxTokens:   c.maxTokens(),
 		Temperature: c.options.Temperature,
+		System:      systemInstruction,
 		Messages:    []openAIChatMessage{{Role: "user", Content: prompt}},
 	}
 	body, err := c.postJSON(ctx, buildAnthropicMessagesURL(baseURL), map[string]string{
@@ -240,7 +253,7 @@ func (c *Client) completeAnthropic(ctx context.Context, prompt string) (Completi
 			c.options.Provider,
 			c.options.Model,
 			c.options.Profile,
-			prompt,
+			completionPrompt(systemInstruction, prompt),
 			text,
 			response.Usage.InputTokens,
 			response.Usage.OutputTokens,
@@ -249,13 +262,16 @@ func (c *Client) completeAnthropic(ctx context.Context, prompt string) (Completi
 	}, nil
 }
 
-func (c *Client) completeGemini(ctx context.Context, prompt string) (Completion, error) {
+func (c *Client) completeGemini(ctx context.Context, systemInstruction, prompt string) (Completion, error) {
 	baseURL := strings.TrimRight(c.options.BaseURL, "/")
 	if baseURL == "" {
 		baseURL = defaultGeminiHost
 	}
 	endpoint := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", baseURL, url.PathEscape(c.options.Model), url.QueryEscape(c.options.APIKey))
 	payload := models.GeminiRequest{Contents: []models.Content{{Parts: []models.Part{{Text: prompt}}}}}
+	if systemInstruction != "" {
+		payload.SystemInstruction = &models.Content{Parts: []models.Part{{Text: systemInstruction}}}
+	}
 	if c.options.MaxTokens > 0 || c.options.Temperature != nil {
 		payload.GenerationConfig = &models.GeminiGenerationConfig{
 			MaxOutputTokens: c.options.MaxTokens,
@@ -283,7 +299,7 @@ func (c *Client) completeGemini(ctx context.Context, prompt string) (Completion,
 			c.options.Provider,
 			c.options.Model,
 			c.options.Profile,
-			prompt,
+			completionPrompt(systemInstruction, prompt),
 			text,
 			response.UsageMetadata.PromptTokenCount,
 			response.UsageMetadata.CandidatesTokenCount,
@@ -292,7 +308,7 @@ func (c *Client) completeGemini(ctx context.Context, prompt string) (Completion,
 	}, nil
 }
 
-func (c *Client) completeLMStudio(ctx context.Context, prompt string) (Completion, error) {
+func (c *Client) completeLMStudio(ctx context.Context, systemInstruction, prompt string) (Completion, error) {
 	model, err := c.resolveLMStudioModel(ctx)
 	if err != nil {
 		return Completion{}, err
@@ -303,6 +319,7 @@ func (c *Client) completeLMStudio(ctx context.Context, prompt string) (Completio
 	payload := struct {
 		Model           string   `json:"model"`
 		Input           string   `json:"input"`
+		SystemPrompt    string   `json:"system_prompt,omitempty"`
 		Reasoning       string   `json:"reasoning,omitempty"`
 		MaxOutputTokens int      `json:"max_output_tokens,omitempty"`
 		Temperature     *float64 `json:"temperature,omitempty"`
@@ -310,6 +327,7 @@ func (c *Client) completeLMStudio(ctx context.Context, prompt string) (Completio
 	}{
 		Model:           model,
 		Input:           prompt,
+		SystemPrompt:    systemInstruction,
 		Reasoning:       c.options.Reasoning,
 		MaxOutputTokens: c.options.MaxTokens,
 		Temperature:     c.options.Temperature,
@@ -363,7 +381,7 @@ func (c *Client) completeLMStudio(ctx context.Context, prompt string) (Completio
 			c.options.Provider,
 			model,
 			c.options.Profile,
-			prompt,
+			completionPrompt(systemInstruction, prompt),
 			text,
 			promptTokens,
 			completionTokens,
@@ -544,6 +562,13 @@ func (c *Client) maxTokens() int {
 		return c.options.MaxTokens
 	}
 	return defaultMaxTokens
+}
+
+func completionPrompt(systemInstruction, prompt string) string {
+	if strings.TrimSpace(systemInstruction) == "" {
+		return prompt
+	}
+	return systemInstruction + "\n\n" + prompt
 }
 
 type openAIChatRequest struct {

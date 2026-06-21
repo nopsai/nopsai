@@ -79,7 +79,7 @@ test('renders provider labels and applies provider-aware profile defaults', asyn
   await user.selectOptions(provider, 'ollama');
   expect(screen.getByLabelText('Model')).toHaveValue('qwen2.5-coder:14b');
   expect(screen.getByLabelText('Base URL *')).toHaveValue('http://ollama:11434/v1');
-  expect(screen.getByLabelText('Credential reference')).toHaveValue('credential://system/llm/standard');
+  expect(screen.getByLabelText(/Credential reference/)).toHaveValue('credential://system/llm/standard');
 
   await user.selectOptions(provider, 'lmstudio');
   expect(screen.getByTitle(

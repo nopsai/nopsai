@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 
 type ResourceSource = 'git' | 'database' | 'draft' | string;
 

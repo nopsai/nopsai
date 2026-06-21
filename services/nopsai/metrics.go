@@ -100,6 +100,31 @@ func (a *App) buildPrometheusMetrics(ctx context.Context) (string, error) {
 	if err := a.appendPipelineFinalOutputTotals(ctx, &out); err != nil {
 		return "", err
 	}
+	writeMetricHelp(&out, "nopsai_pipeline_final_output_generation_attempts_total", "LLM generation attempts for pipeline final outputs by type and pipeline.")
+	writeMetricType(&out, "nopsai_pipeline_final_output_generation_attempts_total", "counter")
+	if err := a.appendPipelineFinalOutputGenerationTotals(ctx, &out, "nopsai_pipeline_final_output_generation_attempts_total", "generation_attempts"); err != nil {
+		return "", err
+	}
+	writeMetricHelp(&out, "nopsai_pipeline_final_output_contract_violations_total", "Rejected pipeline final output responses by type and pipeline.")
+	writeMetricType(&out, "nopsai_pipeline_final_output_contract_violations_total", "counter")
+	if err := a.appendPipelineFinalOutputGenerationTotals(ctx, &out, "nopsai_pipeline_final_output_contract_violations_total", "contract_violations"); err != nil {
+		return "", err
+	}
+	writeMetricHelp(&out, "nopsai_pipeline_final_output_retries_total", "Pipeline final output retry attempts by type and pipeline.")
+	writeMetricType(&out, "nopsai_pipeline_final_output_retries_total", "counter")
+	if err := a.appendPipelineFinalOutputGenerationTotals(ctx, &out, "nopsai_pipeline_final_output_retries_total", "retries"); err != nil {
+		return "", err
+	}
+	writeMetricHelp(&out, "nopsai_pipeline_final_output_render_attempts_total", "Final output artifact render attempts by type and pipeline.")
+	writeMetricType(&out, "nopsai_pipeline_final_output_render_attempts_total", "counter")
+	if err := a.appendPipelineFinalOutputGenerationTotals(ctx, &out, "nopsai_pipeline_final_output_render_attempts_total", "render_attempts"); err != nil {
+		return "", err
+	}
+	writeMetricHelp(&out, "nopsai_pipeline_final_output_render_failures_total", "Failed final output artifact renders by type and pipeline.")
+	writeMetricType(&out, "nopsai_pipeline_final_output_render_failures_total", "counter")
+	if err := a.appendPipelineFinalOutputGenerationTotals(ctx, &out, "nopsai_pipeline_final_output_render_failures_total", "render_failures"); err != nil {
+		return "", err
+	}
 	writeMetricHelp(&out, "nopsai_notifications_sent_total", "Sent notification deliveries by channel and event type.")
 	writeMetricType(&out, "nopsai_notifications_sent_total", "counter")
 	if err := a.appendNotificationDeliveryStatusTotals(ctx, &out, "nopsai_notifications_sent_total", "sent"); err != nil {
@@ -580,6 +605,60 @@ func (a *App) appendPipelineFinalOutputTotals(ctx context.Context, out *strings.
 		}, count)
 	}
 	return rows.Err()
+}
+
+func (a *App) appendPipelineFinalOutputGenerationTotals(
+	ctx context.Context,
+	out *strings.Builder,
+	metricName string,
+	valueKind string,
+) error {
+	valueExpression := pipelineFinalOutputGenerationValueExpression(valueKind)
+	rows, err := a.db.Query(ctx, fmt.Sprintf(`
+		SELECT COALESCE(pro.type, ''),
+		       COALESCE(pr.pipeline_path, ''), COALESCE(pr.pipeline_name, ''),
+		       COALESCE(g.name, ''),
+		       COALESCE(SUM(%s), 0)::float8
+		FROM pipeline_run_outputs pro
+		JOIN pipeline_runs pr ON pr.run_id = pro.run_id
+		LEFT JOIN groups g ON g.id = pr.group_id
+		GROUP BY 1,2,3,4
+		HAVING COALESCE(SUM(%s), 0) > 0
+		ORDER BY 1,2,3,4
+	`, valueExpression, valueExpression))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var outputType, path, pipeline, group string
+		var count float64
+		if err := rows.Scan(&outputType, &path, &pipeline, &group, &count); err != nil {
+			return err
+		}
+		writeMetricLine(out, metricName, map[string]string{
+			"type":     normalizeMetricLabel(outputType),
+			"pipeline": normalizeMetricLabel(pipeline),
+			"path":     normalizeMetricLabel(path),
+			"group":    normalizeMetricLabel(group),
+		}, count)
+	}
+	return rows.Err()
+}
+
+func pipelineFinalOutputGenerationValueExpression(valueKind string) string {
+	switch valueKind {
+	case "contract_violations":
+		return "pro.contract_violations"
+	case "retries":
+		return "GREATEST(pro.generation_attempts - 1, 0)"
+	case "render_attempts":
+		return "pro.render_attempts"
+	case "render_failures":
+		return "pro.render_failures"
+	default:
+		return "pro.generation_attempts"
+	}
 }
 
 func (a *App) appendNotificationDeliveryStatusTotals(ctx context.Context, out *strings.Builder, metricName, status string) error {

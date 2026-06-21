@@ -1,8 +1,9 @@
 import { afterEach, assert, test, vi } from 'vitest';
-import { copyTextToClipboard } from './clipboard.js';
+import { copyTextToClipboard } from './clipboard';
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 test('copies with navigator clipboard when available', async () => {

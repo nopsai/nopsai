@@ -216,6 +216,11 @@ Hosted MCP is always user-scoped: `tools/list`, `resources/list`, and
 `tools/call` evaluate against the authenticated subject from the request. Tool
 calls re-check the concrete resource when arguments identify one, and audit
 records are written under the same subject/conversation.
+Pipeline final output reads stay on the existing `pipeline_run.read` boundary.
+The output tool exposes stored contract-validated content together with
+generation and render audit counts; PDF/HTML return `DocumentSpec` and Excel
+returns `SpreadsheetSpec`. It does not render artifacts or bypass run
+authorization.
 The API bridge rejects public/provider ingress and internal service routes, and
 blocks default plaintext secret reads so secret/credential workflows stay
 metadata-, reference-, encryption-, or explicit-write-oriented.

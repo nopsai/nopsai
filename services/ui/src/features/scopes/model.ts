@@ -1,4 +1,4 @@
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 import { insertGroupPath } from '../../lib/resourceGroups.js';
 
 export type ScopeEntry = {

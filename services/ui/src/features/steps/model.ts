@@ -1,4 +1,4 @@
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 import { findLineNumberForKey, findLineNumberForTaskName, parseYamlWithLocation } from '../../lib/yamlValidation.js';
 
 export const STEP_NAME_PATTERN = /^[a-zA-Z0-9_.-]+$/;

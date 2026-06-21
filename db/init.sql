@@ -487,8 +487,22 @@ CREATE TABLE pipeline_run_outputs (
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'generating', 'success', 'failure')),
     content TEXT NOT NULL DEFAULT '',
     error TEXT NOT NULL DEFAULT '',
+    generation_attempts INTEGER NOT NULL DEFAULT 0,
+    contract_violations INTEGER NOT NULL DEFAULT 0,
+    render_attempts INTEGER NOT NULL DEFAULT 0,
+    render_failures INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT pipeline_run_outputs_generation_audit_check CHECK (
+        generation_attempts >= 0
+        AND contract_violations >= 0
+        AND contract_violations <= generation_attempts
+    ),
+    CONSTRAINT pipeline_run_outputs_render_audit_check CHECK (
+        render_attempts >= 0
+        AND render_failures >= 0
+        AND render_failures <= render_attempts
+    ),
     UNIQUE(run_id, item_index)
 );
 

@@ -161,6 +161,14 @@ Key files:
 - `services/nopsai/pipeline_handlers.go`
 - `services/nopsai/knowledge_context.go`
 - `services/nopsai/knowledge_context_schema.go`
+- `services/nopsai/pipeline_final_output_contract.go`
+- `services/nopsai/pipeline_final_output_specs.go`
+- `services/nopsai/pipeline_final_outputs.go`
+- `services/nopsai/pipeline_final_outputs_render.go`
+- `services/nopsai/pipeline_final_outputs_document.go`
+- `services/nopsai/pipeline_final_outputs_pdf.go`
+- `services/nopsai/pipeline_final_outputs_spreadsheet.go`
+- `services/nopsai/pipeline_final_outputs_schema.go`
 - `services/nopsai/metrics.go`
 - `services/nopsai/monitoring_handlers.go`
 - `services/nopsai/monitoring_analytics_handlers.go`

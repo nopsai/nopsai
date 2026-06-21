@@ -46,7 +46,7 @@ func allHostedMCPTools() []hostedMCPTool {
 		toolDef("nopsai.propose_pipeline_update", "Validate pipeline YAML and return a GitOps-ready update file plan without applying changes.", "pipeline.update", "pipeline", "*", objectSchema(map[string]any{"pipeline": stringSchema(), "path": stringSchema(), "name": stringSchema(), "yaml": stringSchema(), "message": stringSchema()})),
 		toolDef("nopsai.list_pipeline_runs", "List recent pipeline runs visible to the current user.", "pipeline_run.list", "pipeline_run", "*", objectSchema(map[string]any{"limit": numberSchema()})),
 		toolDef("nopsai.get_pipeline_run", "Read pipeline run status and metadata.", "pipeline_run.read", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema()})),
-		toolDef("nopsai.get_pipeline_run_output", "Read a generated final output for a pipeline run.", "pipeline_run.read", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema(), "output_id": stringSchema(), "name": stringSchema()})),
+		toolDef("nopsai.get_pipeline_run_output", "Read a contract-validated final output, its structured source when applicable, and generation/render audit counts for a pipeline run.", "pipeline_run.read", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema(), "output_id": stringSchema(), "name": stringSchema()})),
 		toolDef("nopsai.get_pipeline_run_logs", "Read recent pipeline run logs.", "pipeline_run.read_logs", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema(), "limit": numberSchema()})),
 		toolDef("nopsai.analyze_pipeline_run_failure", "Analyze a failed pipeline run from status and log excerpts.", "pipeline_run.read_logs", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema()})),
 		toolDef("nopsai.list_triggers", "List repository triggers.", "trigger.read", "trigger", "*", objectSchema(map[string]any{"limit": numberSchema()})),
@@ -694,7 +694,8 @@ func (a *App) hostedMCPGetPipelineRun(ctx context.Context, args map[string]any) 
 
 func (a *App) hostedMCPPipelineRunOutputSummaries(ctx context.Context, runID string) ([]map[string]any, error) {
 	rows, err := a.db.Query(ctx, `
-		SELECT id::text, name, type, status, error, llm_profile, updated_at
+		SELECT id::text, name, type, status, error, llm_profile,
+		       generation_attempts, contract_violations, render_attempts, render_failures, updated_at
 		FROM pipeline_run_outputs
 		WHERE run_id::text = $1
 		ORDER BY item_index ASC, created_at ASC
@@ -707,18 +708,35 @@ func (a *App) hostedMCPPipelineRunOutputSummaries(ctx context.Context, runID str
 	outputs := []map[string]any{}
 	for rows.Next() {
 		var id, name, outputType, status, errorText, profile string
+		var generationAttempts, contractViolations, renderAttempts, renderFailures int
 		var updatedAt time.Time
-		if err := rows.Scan(&id, &name, &outputType, &status, &errorText, &profile, &updatedAt); err != nil {
+		if err := rows.Scan(
+			&id,
+			&name,
+			&outputType,
+			&status,
+			&errorText,
+			&profile,
+			&generationAttempts,
+			&contractViolations,
+			&renderAttempts,
+			&renderFailures,
+			&updatedAt,
+		); err != nil {
 			return nil, err
 		}
 		outputs = append(outputs, map[string]any{
-			"id":          id,
-			"name":        name,
-			"type":        outputType,
-			"status":      status,
-			"error":       errorText,
-			"llm_profile": profile,
-			"updated_at":  updatedAt,
+			"id":                  id,
+			"name":                name,
+			"type":                outputType,
+			"status":              status,
+			"error":               errorText,
+			"llm_profile":         profile,
+			"generation_attempts": generationAttempts,
+			"contract_violations": contractViolations,
+			"render_attempts":     renderAttempts,
+			"render_failures":     renderFailures,
+			"updated_at":          updatedAt,
 		})
 	}
 	return outputs, rows.Err()
@@ -736,7 +754,9 @@ func (a *App) hostedMCPGetPipelineRunOutput(ctx context.Context, args map[string
 	}
 
 	query := `
-		SELECT id::text, name, type, status, content, error, llm_profile, created_at, updated_at
+		SELECT id::text, name, type, status, content, error, llm_profile,
+		       generation_attempts, contract_violations, render_attempts, render_failures,
+		       created_at, updated_at
 		FROM pipeline_run_outputs
 		WHERE run_id::text = $1 AND `
 	argsList := []any{runID}
@@ -758,6 +778,10 @@ func (a *App) hostedMCPGetPipelineRunOutput(ctx context.Context, args map[string
 		&output.Content,
 		&output.Error,
 		&output.LLMProfile,
+		&output.GenerationAttempts,
+		&output.ContractViolations,
+		&output.RenderAttempts,
+		&output.RenderFailures,
 		&output.CreatedAt,
 		&output.UpdatedAt,
 	)
@@ -767,15 +791,19 @@ func (a *App) hostedMCPGetPipelineRunOutput(ctx context.Context, args map[string
 	return map[string]any{
 		"run_id": runID,
 		"output": map[string]any{
-			"id":          output.ID,
-			"name":        output.Name,
-			"type":        output.Type,
-			"status":      output.Status,
-			"content":     output.Content,
-			"error":       output.Error,
-			"llm_profile": output.LLMProfile,
-			"created_at":  output.CreatedAt,
-			"updated_at":  output.UpdatedAt,
+			"id":                  output.ID,
+			"name":                output.Name,
+			"type":                output.Type,
+			"status":              output.Status,
+			"content":             output.Content,
+			"error":               output.Error,
+			"llm_profile":         output.LLMProfile,
+			"generation_attempts": output.GenerationAttempts,
+			"contract_violations": output.ContractViolations,
+			"render_attempts":     output.RenderAttempts,
+			"render_failures":     output.RenderFailures,
+			"created_at":          output.CreatedAt,
+			"updated_at":          output.UpdatedAt,
 		},
 	}, nil
 }

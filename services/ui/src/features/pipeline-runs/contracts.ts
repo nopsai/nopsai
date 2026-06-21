@@ -140,6 +140,10 @@ export type PipelineRunFinalOutput = {
   content?: string;
   error?: string;
   llm_profile?: string;
+  generation_attempts?: number;
+  contract_violations?: number;
+  render_attempts?: number;
+  render_failures?: number;
   created_at?: string;
   updated_at?: string;
 };

@@ -53,6 +53,22 @@ func TestHostedMCPToolsAreFilteredByAAA(t *testing.T) {
 	}
 }
 
+func TestHostedMCPPipelineRunOutputKeepsReadOnlyAAABoundary(t *testing.T) {
+	for _, tool := range allHostedMCPTools() {
+		if tool.Name != "nopsai.get_pipeline_run_output" {
+			continue
+		}
+		if tool.Action != "pipeline_run.read" ||
+			tool.Resource.Type != "pipeline_run" ||
+			tool.Resource.ID != "*" ||
+			tool.AuthenticatedOnly {
+			t.Fatalf("tool = %#v", tool)
+		}
+		return
+	}
+	t.Fatal("nopsai.get_pipeline_run_output is missing")
+}
+
 func TestHostedMCPEmptyCurlDefaultsToToolsList(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/mcp", nil)
 	decoded, err := decodeHostedMCPRequest(req)

@@ -280,7 +280,9 @@ func LoadAIUsageByTask(ctx context.Context, db Queryer, runID string) (map[strin
 
 func LoadFinalOutputs(ctx context.Context, db Queryer, runID string) ([]models.PipelineRunFinalOutput, error) {
 	rows, err := db.Query(ctx, `
-		SELECT id::text, name, type, status, content, error, llm_profile, created_at, updated_at
+		SELECT id::text, name, type, status, content, error, llm_profile,
+		       generation_attempts, contract_violations, render_attempts, render_failures,
+		       created_at, updated_at
 		FROM pipeline_run_outputs
 		WHERE run_id = $1
 		ORDER BY item_index ASC, created_at ASC
@@ -301,6 +303,10 @@ func LoadFinalOutputs(ctx context.Context, db Queryer, runID string) ([]models.P
 			&output.Content,
 			&output.Error,
 			&output.LLMProfile,
+			&output.GenerationAttempts,
+			&output.ContractViolations,
+			&output.RenderAttempts,
+			&output.RenderFailures,
 			&output.CreatedAt,
 			&output.UpdatedAt,
 		); err != nil {
@@ -557,7 +563,7 @@ func BuildRunDetailETag(run models.RunListItem, childRuns []models.RunListItem, 
 	for _, output := range finalOutputs {
 		fmt.Fprintf(
 			hasher,
-			"output|%s|%s|%s|%s|%s|%s|%s|%d|%d|",
+			"output|%s|%s|%s|%s|%s|%s|%s|%d|%d|%d|%d|%d|%d|",
 			output.ID,
 			strings.TrimSpace(output.Name),
 			strings.TrimSpace(output.Type),
@@ -565,6 +571,10 @@ func BuildRunDetailETag(run models.RunListItem, childRuns []models.RunListItem, 
 			strings.TrimSpace(output.Content),
 			strings.TrimSpace(output.Error),
 			strings.TrimSpace(output.LLMProfile),
+			output.GenerationAttempts,
+			output.ContractViolations,
+			output.RenderAttempts,
+			output.RenderFailures,
 			output.CreatedAt.UnixNano(),
 			output.UpdatedAt.UnixNano(),
 		)
