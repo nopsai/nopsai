@@ -10,38 +10,33 @@ import {
   filterCredentials,
   groupCredentials,
   parseCredentialReference,
+  type CredentialRecord,
 } from './credentials/model';
 import { useCredentials } from './credentials/useCredentials';
+
+type CredentialsController = ReturnType<typeof useCredentials>;
+
+type CredentialsPanelBodyProps = {
+  canManage: boolean;
+  controller: CredentialsController;
+  linkedCredentialRef: string;
+  onCloseCredentialDetails: () => void;
+  onSelectCredential: (credential: CredentialRecord) => void;
+  onStartCreate: () => void;
+};
 
 function CredentialsPanel({ canManage }: { canManage: boolean }) {
   const controller = useCredentials({ canManage });
   const [searchParams, setSearchParams] = useSearchParams();
-  const [query, setQuery] = useState('');
-  const [status, setStatus] = useState('all');
-  const [namespace, setNamespace] = useState('all');
   const linkedCredentialRef = (searchParams.get('credential') || '').trim();
-  const summary = useMemo(() => credentialSummary(controller.credentials), [controller.credentials]);
-  const namespaces = useMemo(() => credentialNamespaces(controller.credentials), [controller.credentials]);
-  const groups = useMemo(
-    () => groupCredentials(filterCredentials(controller.credentials, query, status, namespace)),
-    [controller.credentials, namespace, query, status]
-  );
-  const showSidePanel = controller.creating || Boolean(controller.selected);
 
   useEffect(() => {
-    if (!linkedCredentialRef || controller.loading) return;
-    setQuery(linkedCredentialRef);
-    setStatus('all');
+    if (!linkedCredentialRef || controller.loading || controller.creating) return;
     const match = controller.credentials.find(credential => credential.reference === linkedCredentialRef);
-    if (!match) {
-      setNamespace('all');
-      return;
-    }
-    setNamespace(parseCredentialReference(match.reference).namespace);
-    if (controller.selected?.id !== match.id) void controller.selectCredential(match);
-  }, [controller.credentials, controller.loading, controller.selected?.id, controller.selectCredential, linkedCredentialRef]);
+    if (match && controller.selected?.id !== match.id) void controller.selectCredential(match);
+  }, [controller.credentials, controller.creating, controller.loading, controller.selected?.id, controller.selectCredential, linkedCredentialRef]);
 
-  const selectCredential = (credential: Parameters<typeof controller.selectCredential>[0]) => {
+  const selectCredential = (credential: CredentialRecord) => {
     const next = new URLSearchParams(searchParams);
     next.set('credential', credential.reference);
     setSearchParams(next, { replace: true });
@@ -54,6 +49,52 @@ function CredentialsPanel({ canManage }: { canManage: boolean }) {
     setSearchParams(next, { replace: true });
     controller.closeDetails();
   };
+
+  const startCreate = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete('credential');
+    setSearchParams(next, { replace: true });
+    controller.startCreate();
+  };
+
+  // A new linked credential gets a fresh filter view. This models URL state as
+  // render input instead of copying it into state from an effect.
+  return (
+    <CredentialsPanelBody
+      key={linkedCredentialRef}
+      canManage={canManage}
+      controller={controller}
+      linkedCredentialRef={linkedCredentialRef}
+      onCloseCredentialDetails={closeCredentialDetails}
+      onSelectCredential={selectCredential}
+      onStartCreate={startCreate}
+    />
+  );
+}
+
+function CredentialsPanelBody({
+  canManage,
+  controller,
+  linkedCredentialRef,
+  onCloseCredentialDetails,
+  onSelectCredential,
+  onStartCreate,
+}: CredentialsPanelBodyProps) {
+  const [query, setQuery] = useState(() => linkedCredentialRef);
+  const [status, setStatus] = useState('all');
+  const [namespaceOverride, setNamespaceOverride] = useState<string | null>(null);
+  const linkedCredential = useMemo(
+    () => controller.credentials.find(credential => credential.reference === linkedCredentialRef),
+    [controller.credentials, linkedCredentialRef]
+  );
+  const namespace = namespaceOverride ?? (linkedCredential ? parseCredentialReference(linkedCredential.reference).namespace : 'all');
+  const summary = useMemo(() => credentialSummary(controller.credentials), [controller.credentials]);
+  const namespaces = useMemo(() => credentialNamespaces(controller.credentials), [controller.credentials]);
+  const groups = useMemo(
+    () => groupCredentials(filterCredentials(controller.credentials, query, status, namespace)),
+    [controller.credentials, namespace, query, status]
+  );
+  const showSidePanel = controller.creating || Boolean(controller.selected);
 
   return (
     <div id="system-credentials-section" className="space-y-6 pb-24">
@@ -77,7 +118,7 @@ function CredentialsPanel({ canManage }: { canManage: boolean }) {
               Reload
             </button>
             {canManage && (
-              <button type="button" className="glass-button-primary" onClick={controller.startCreate} disabled={controller.saving}>
+              <button type="button" className="glass-button-primary" onClick={onStartCreate} disabled={controller.saving}>
                 <Plus className="h-4 w-4" aria-hidden="true" />
                 New credential
               </button>
@@ -115,8 +156,8 @@ function CredentialsPanel({ canManage }: { canManage: boolean }) {
           loading={controller.loading}
           onQueryChange={setQuery}
           onStatusChange={setStatus}
-          onNamespaceChange={setNamespace}
-          onSelect={selectCredential}
+          onNamespaceChange={setNamespaceOverride}
+          onSelect={onSelectCredential}
         />
 
         {controller.creating && (
@@ -142,7 +183,7 @@ function CredentialsPanel({ canManage }: { canManage: boolean }) {
             onEnable={() => void controller.enableSelected()}
             onDisable={() => void controller.disableSelected()}
             onDelete={() => void controller.deleteSelected()}
-            onClose={closeCredentialDetails}
+            onClose={onCloseCredentialDetails}
           />
         )}
       </div>
