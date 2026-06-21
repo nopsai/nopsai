@@ -249,9 +249,26 @@ func (a *App) handleDownloadRunFinalOutput(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "Failed to load final output", http.StatusInternalServerError)
 		return
 	}
-	payload, contentType, filename, err := renderPipelineFinalOutputDownload(output)
+	if strings.TrimSpace(output.Status) != finalOutputStatusSuccess || strings.TrimSpace(output.Content) == "" {
+		_, _, _, renderErr := renderPipelineFinalOutputDownload(r.Context(), output, nil)
+		http.Error(w, renderErr.Error(), http.StatusConflict)
+		return
+	}
+	var pdfConverter pipelinePDFConverter
+	if normalizePipelineFinalOutputType(output.Type) == "pdf" {
+		pdfConverter, err = a.pipelineFinalOutputPDFConverter()
+		if err != nil {
+			a.recordPipelineFinalOutputRenderResult(r.Context(), output.ID, false)
+			log.Error().Err(err).Str("run_id", runID).Str("output_id", outputID).Msg("PDF renderer is unavailable")
+			http.Error(w, "PDF renderer is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+	}
+	payload, contentType, filename, err := renderPipelineFinalOutputDownload(r.Context(), output, pdfConverter)
+	a.recordPipelineFinalOutputRenderResult(r.Context(), output.ID, err == nil)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
+		log.Error().Err(err).Str("run_id", runID).Str("output_id", outputID).Str("output_type", output.Type).Msg("Failed to render final output")
+		http.Error(w, "Failed to render final output", http.StatusServiceUnavailable)
 		return
 	}
 

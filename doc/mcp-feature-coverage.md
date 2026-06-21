@@ -87,6 +87,9 @@ Important enterprise boundaries:
 
 - Hosted MCP does not elevate to admin. It uses the user's AAA subject, scoped
   grants, resource visibility, and route-compatible permissions.
+- `nopsai.get_pipeline_run_output` remains guarded by `pipeline_run.read` and
+  returns contract-validated `DocumentSpec`/`SpreadsheetSpec` source where
+  applicable, plus generation and render counts for operational auditing.
 - Pipeline, schedule, knowledge, webhook source, external trigger, and
   notification write-plan tools return `applies:false` plus GitOps file plans;
   they do not directly mutate product state.

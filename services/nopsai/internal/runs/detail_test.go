@@ -351,3 +351,38 @@ func TestBuildRunDetailETagChangesWhenFinalOutputContentChanges(t *testing.T) {
 		t.Fatalf("expected final output change to alter ETag, but both were %q", updatedETag)
 	}
 }
+
+func TestBuildRunDetailETagChangesWhenFinalOutputAuditChanges(t *testing.T) {
+	run := models.RunListItem{RunID: "run-1", Status: "success", IsComplete: true}
+	tasks := map[string][]models.TaskDetail{}
+	base := models.PipelineRunFinalOutput{
+		ID:                 "output-1",
+		Name:               "Executive summary",
+		Type:               "markdown",
+		Status:             "success",
+		Content:            "Done",
+		GenerationAttempts: 1,
+	}
+	updated := base
+	updated.GenerationAttempts = 2
+	updated.ContractViolations = 1
+
+	baseETag := BuildRunDetailETag(run, nil, tasks, nil, nil, []models.PipelineRunFinalOutput{base})
+	updatedETag := BuildRunDetailETag(run, nil, tasks, nil, nil, []models.PipelineRunFinalOutput{updated})
+	if updatedETag == baseETag {
+		t.Fatalf("expected final output audit change to alter ETag, but both were %q", updatedETag)
+	}
+}
+
+func TestBuildRunDetailETagChangesWhenFinalOutputRenderAuditChanges(t *testing.T) {
+	run := models.RunListItem{RunID: "run-1", Status: "success", IsComplete: true}
+	base := models.PipelineRunFinalOutput{ID: "output-1", Name: "Report", Type: "pdf", Status: "success", Content: "{}"}
+	updated := base
+	updated.RenderAttempts = 2
+	updated.RenderFailures = 1
+	baseETag := BuildRunDetailETag(run, nil, nil, nil, nil, []models.PipelineRunFinalOutput{base})
+	updatedETag := BuildRunDetailETag(run, nil, nil, nil, nil, []models.PipelineRunFinalOutput{updated})
+	if updatedETag == baseETag {
+		t.Fatalf("expected render audit change to alter ETag, but both were %q", updatedETag)
+	}
+}

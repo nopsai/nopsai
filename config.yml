@@ -19,6 +19,12 @@
 # deployment secrets or the service environment. Docker Compose defines the
 # minimal local-dev service addresses needed before GitOps can be loaded.
 
+# Deployment-owned rich output renderer settings. Docker Compose supplies these
+# through environment variables; other runtimes should point to their internal
+# Gotenberg service.
+final_output_pdf_renderer_url: ""
+final_output_pdf_timeout_seconds: 45
+
 # Local bootstrap default. A GitOps runtime settings file with an explicit
 # assistant block still overrides this value.
 assistant:

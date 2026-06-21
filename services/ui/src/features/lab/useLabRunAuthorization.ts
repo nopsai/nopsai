@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 import { apiClient } from '../../lib/api';
 import { DEFAULT_PIPELINE_NAME } from '../../lib/lab';
 

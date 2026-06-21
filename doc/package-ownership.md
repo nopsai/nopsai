@@ -108,6 +108,26 @@ Enterprise authentication follows the same split:
 - UI rendering for Identity Providers lives in
   `services/ui/src/features/system/access/IdentityProvidersWorkspace.tsx`.
 
+## Pipeline Final Output Ownership
+
+- Provider-specific system instruction transport lives in `pkg/llmclient`.
+- Versioned `DocumentSpec` and `SpreadsheetSpec` DTOs live in
+  `pkg/models/final_output_specs.go`; strict schema and size rules live in
+  `services/nopsai/pipeline_final_output_specs.go`.
+- Final-output envelope extraction, schema dispatch, and retry rules live in
+  `services/nopsai/pipeline_final_output_contract.go`.
+- Generation orchestration, persistence transitions, and AI usage reporting
+  live in `services/nopsai/pipeline_final_outputs.go`.
+- Download dispatch lives in `pipeline_final_outputs_render.go`; server HTML,
+  Gotenberg PDF transport, and Excelize workbook construction live in
+  `pipeline_final_outputs_document.go`, `pipeline_final_outputs_pdf.go`, and
+  `pipeline_final_outputs_spreadsheet.go`.
+- Final-output schema evolution lives in
+  `services/nopsai/pipeline_final_outputs_schema.go` and `db/init.sql`.
+- Run-detail persistence reads live in `services/nopsai/internal/runs`.
+- UI actions live in `RunFinalOutputs.tsx`; format parsing/rendering lives in
+  `final-output-preview/`; route composition remains in `RunDetailPanel.tsx`.
+
 ## Git Webhook Source Ownership
 
 Provider-neutral Git webhook triggering follows the same split:
