@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"nopsai/internal/cli/platform"
+	"nopsai/pkg/compatibility"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -44,7 +45,7 @@ func newPlatformPlanKubernetesCommand(root *rootOptions) *cobra.Command {
 			return renderDeploymentPlan(command, plan, options.output, false, "")
 		},
 	}
-	addPlatformReleaseFlags(command, options, false)
+	addPlatformReleaseFlags(command, options, false, defaultPlatformVersion(root))
 	return command
 }
 
@@ -72,12 +73,31 @@ func newPlatformDeployKubernetesCommand(root *rootOptions) *cobra.Command {
 			return renderDeploymentPlan(command, plan, options.output, true, lockPath)
 		},
 	}
-	addPlatformReleaseFlags(command, options, true)
+	addPlatformReleaseFlags(command, options, true, defaultPlatformVersion(root))
 	return command
 }
 
-func addPlatformReleaseFlags(command *cobra.Command, options *platformReleaseOptions, deploy bool) {
-	command.Flags().StringVar(&options.version, "version", "", "platform bundle version")
+// defaultPlatformVersion returns the generated version embedded in a released
+// CLI. Development builds keep --version mandatory because values such as dev
+// are deliberately not deployable semantic versions.
+func defaultPlatformVersion(root *rootOptions) string {
+	if root == nil {
+		return ""
+	}
+	version := strings.TrimSpace(root.dependencies.BuildInfo.Version)
+	if _, err := compatibility.ParseVersion(version); err != nil {
+		return ""
+	}
+	return version
+}
+
+func addPlatformReleaseFlags(command *cobra.Command, options *platformReleaseOptions, deploy bool, defaultVersion string) {
+	defaultVersion = strings.TrimSpace(defaultVersion)
+	versionHelp := "platform bundle version"
+	if defaultVersion != "" {
+		versionHelp += " (defaults to this CLI build version)"
+	}
+	command.Flags().StringVar(&options.version, "version", defaultVersion, versionHelp)
 	command.Flags().StringVar(&options.manifest, "manifest", "", "local path or HTTPS release manifest override")
 	command.Flags().StringVar(&options.manifestDigest, "manifest-digest", "", "expected release manifest SHA-256")
 	command.Flags().StringArrayVarP(&options.values, "values", "f", nil, "Helm values file (repeatable)")
@@ -88,7 +108,9 @@ func addPlatformReleaseFlags(command *cobra.Command, options *platformReleaseOpt
 		command.Flags().BoolVar(&options.wait, "wait", false, "wait for Kubernetes resources to become ready")
 		command.Flags().StringVar(&options.lockFile, "lock-file", platform.DefaultLockFile, "deployment release lock path")
 	}
-	_ = command.MarkFlagRequired("version")
+	if defaultVersion == "" {
+		_ = command.MarkFlagRequired("version")
+	}
 }
 
 func (o platformReleaseOptions) kubernetesOptions() platform.KubernetesOptions {
