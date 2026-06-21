@@ -37,6 +37,7 @@ export type Permission =
   | 'system.config_repos.write'
   | 'system.dispatcher.read'
   | 'system.dispatcher.write'
+  | 'system.logs.read'
   | 'system.access';
 
 export type SystemPagePermissions = {
@@ -59,6 +60,7 @@ export type SystemPagePermissions = {
   canManageGlobalConfigRepo: boolean;
   canViewDispatcher: boolean;
   canManageDispatcher: boolean;
+  canViewLogs: boolean;
   canViewAccess: boolean;
 };
 
@@ -101,6 +103,7 @@ export type AppAccess = {
   canManageSystemCredentials: boolean;
   canViewSystemDispatcher: boolean;
   canManageSystemDispatcher: boolean;
+  canViewSystemLogs: boolean;
   canViewSystemAccess: boolean;
   canViewAnySystem: boolean;
   preferredSystemPath: string;
@@ -152,6 +155,7 @@ const normalizeSystemCapabilities = (value: unknown): SystemCapabilities | undef
     configReposWrite: Boolean(record.config_repos_write),
     dispatcherRead: Boolean(record.dispatcher_read),
     dispatcherWrite: Boolean(record.dispatcher_write),
+    logsRead: Boolean(record.logs_read),
     access: Boolean(record.access),
   };
 };
@@ -257,6 +261,8 @@ export function can(user: CurrentUser | null | undefined, permission: Permission
       return Boolean(capabilities?.system?.dispatcherRead);
     case 'system.dispatcher.write':
       return Boolean(capabilities?.system?.dispatcherWrite);
+    case 'system.logs.read':
+      return Boolean(capabilities?.system?.logsRead);
     case 'system.access':
       return Boolean(capabilities?.system?.access);
     default:
@@ -272,6 +278,7 @@ export function getPreferredSystemPath(permissions: SystemPagePermissions): stri
   if (permissions.canViewMCP) return '/system/mcp';
   if (permissions.canViewCredentials) return '/system/credentials';
   if (permissions.canViewDispatcher) return '/system/dispatcher';
+  if (permissions.canViewLogs) return '/system/logs';
   if (permissions.canViewAccess) return '/system/access';
   return '/system/config';
 }
@@ -302,6 +309,7 @@ export function getSystemPagePermissions(user: CurrentUser | null | undefined): 
     canManageGlobalConfigRepo,
     canViewDispatcher: can(user, 'system.dispatcher.read'),
     canManageDispatcher: can(user, 'system.dispatcher.write'),
+    canViewLogs: can(user, 'system.logs.read'),
     canViewAccess: can(user, 'system.access'),
   };
 }
@@ -322,6 +330,7 @@ export function getAppAccess(user: CurrentUser | null | undefined, session: Auth
     systemPermissions.canViewMCP ||
     systemPermissions.canViewCredentials ||
     systemPermissions.canViewDispatcher ||
+    systemPermissions.canViewLogs ||
     systemPermissions.canViewAccess;
 
   return {
@@ -363,6 +372,7 @@ export function getAppAccess(user: CurrentUser | null | undefined, session: Auth
     canManageSystemCredentials: systemPermissions.canManageCredentials,
     canViewSystemDispatcher: systemPermissions.canViewDispatcher,
     canManageSystemDispatcher: systemPermissions.canManageDispatcher,
+    canViewSystemLogs: systemPermissions.canViewLogs,
     canViewSystemAccess: systemPermissions.canViewAccess,
     canViewAnySystem,
     preferredSystemPath: getPreferredSystemPath(systemPermissions),

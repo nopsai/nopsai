@@ -3,16 +3,15 @@ package app
 import (
 	"os"
 	"strings"
-	"time"
 
 	"nopsai/config"
 	"nopsai/pkg/serviceauth"
+	"nopsai/pkg/servicelog"
 	"nopsai/pkg/servicetls"
 	"nopsai/pkg/startupgates"
 	"nopsai/services/docker-runner/internal/service"
 
 	"github.com/moby/moby/client"
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -90,14 +89,9 @@ func Run() {
 }
 
 func configureLogging(cfg *config.Config) {
-	logLevel, err := zerolog.ParseLevel(cfg.LogLevel)
-	if err != nil {
-		logLevel = zerolog.InfoLevel
+	if err := servicelog.Configure(cfg.LogLevel, cfg.LogFormat); err != nil {
+		log.Warn().Str("log_level", cfg.LogLevel).Msg("Invalid log level; defaulting to info")
 	}
-	if cfg.LogFormat == "console" {
-		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
-	}
-	zerolog.SetGlobalLevel(logLevel)
 }
 
 func dockerNetworkFromConfig(cfg *config.Config) (string, bool) {

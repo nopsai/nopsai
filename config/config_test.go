@@ -549,3 +549,34 @@ func TestNormalizeRuntimePools(t *testing.T) {
 		t.Fatalf("pool not normalized: %#v", pool)
 	}
 }
+
+func TestSystemLogsConfigurationRequiresAnExplicitProvider(t *testing.T) {
+	cfg := Config{}
+	if cfg.SystemLogsEnabled() {
+		t.Fatal("SystemLogsEnabled() = true without a provider")
+	}
+	cfg.SystemLogs.DockerHost = "tcp://gitops-proxy:2375"
+	if !cfg.SystemLogsEnabled() || cfg.EffectiveSystemLogsDockerHost() != "tcp://gitops-proxy:2375" {
+		t.Fatalf("nested system log config not applied: %#v", cfg.SystemLogs)
+	}
+	cfg.SystemLogsDockerHost = "tcp://environment-proxy:2375"
+	if cfg.EffectiveSystemLogsDockerHost() != "tcp://environment-proxy:2375" {
+		t.Fatalf("environment Docker host did not override GitOps config")
+	}
+	disabled := false
+	cfg.SystemLogs.Enabled = &disabled
+	if cfg.SystemLogsEnabled() {
+		t.Fatal("explicit disabled flag should override configured provider")
+	}
+}
+
+func TestLoadConfigAppliesSystemLogsDockerHostEnvironment(t *testing.T) {
+	t.Setenv("SYSTEM_LOGS_DOCKER_HOST", "tcp://proxy.internal:2375")
+	cfg, err := LoadConfig("../config.yml")
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if !cfg.SystemLogsEnabled() || cfg.EffectiveSystemLogsDockerHost() != "tcp://proxy.internal:2375" {
+		t.Fatalf("system log environment not applied: %#v", cfg.SystemLogs)
+	}
+}

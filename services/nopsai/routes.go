@@ -81,6 +81,9 @@ func (a *App) registerGroupRoutes(mux *http.ServeMux) {
 }
 
 func (a *App) registerSystemRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /v1/system/logs/sources", a.handleListSystemLogSources)
+	mux.HandleFunc("GET /v1/system/logs/sources/{sourceID}/tail", a.handleTailSystemLogs)
+	mux.HandleFunc("GET /v1/system/logs/sources/{sourceID}/stream", a.handleStreamSystemLogs)
 	mux.HandleFunc("GET /v1/system/credentials", a.handleListCredentials)
 	mux.HandleFunc("POST /v1/system/credentials", a.handleCreateCredential)
 	mux.HandleFunc("GET /v1/system/credentials/{credentialID}", a.handleGetCredential)

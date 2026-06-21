@@ -69,6 +69,8 @@ func hostedMCPFinalTools() []hostedMCPTool {
 	})
 
 	return []hostedMCPTool{
+		toolDef("nopsai.list_system_log_sources", "List allow-listed platform log sources visible to the current subject.", "system_log.read", "system_log", "*", objectSchema(map[string]any{})),
+		toolDef("nopsai.tail_system_logs", "Read a bounded, server-redacted tail of one allow-listed platform log source.", "system_log.read", "system_log", "*", objectSchema(map[string]any{"source_id": stringSchema(), "lines": numberSchema()})),
 		toolDef("nopsai.get_setup_status", "Read first-install setup status, starter profile state, counts, and health checks.", "system.read", "system", "config", objectSchema(map[string]any{})),
 		toolDef("nopsai.get_setup_preflight", "Run public first-install setup preflight checks.", "system.read", "system", "config", objectSchema(map[string]any{})),
 		toolDef("nopsai.get_setup_templates", "Generate starter GitOps setup templates for a setup profile.", "system.read", "system", "config", objectSchema(map[string]any{"profile": stringSchema(), "repositories": objectSchema(map[string]any{}), "repository_groups": objectSchema(map[string]any{}), "include_llm": booleanSchema(), "include_mcp": booleanSchema(), "llm_profile": objectSchema(map[string]any{}), "users": objectSchema(map[string]any{})})),
@@ -167,6 +169,9 @@ func hostedMCPFinalTools() []hostedMCPTool {
 
 func (a *App) authorizeHostedMCPFinalToolCall(ctx context.Context, subject aaamodel.Subject, tool hostedMCPTool, args map[string]any) (bool, error) {
 	permission := hostedMCPToolPermission(tool)
+	if tool.Name == "nopsai.list_system_log_sources" && a.hostedMCPAnySystemLogAllowed(ctx, subject) {
+		return true, nil
+	}
 	switch tool.Name {
 	case "nopsai.propose_reusable_step_create", "nopsai.propose_reusable_step_update", "nopsai.propose_reusable_step_delete":
 		permission.Resource.ID = hostedMCPReusableStepArgID(args)
@@ -188,6 +193,8 @@ func (a *App) authorizeHostedMCPFinalToolCall(ctx context.Context, subject aaamo
 		permission.Resource.ID = firstNonEmptyString(stringArg(args, "run_id"), "*")
 	case "nopsai.explain_webhook_ingress_policy":
 		permission.Resource.ID = firstNonEmptyString(stringArg(args, "source_id"), stringArg(args, "repository"), "*")
+	case "nopsai.tail_system_logs":
+		permission.Resource.ID = stringArg(args, "source_id")
 	default:
 		if !hostedMCPFinalToolName(tool.Name) {
 			return false, nil
@@ -204,6 +211,13 @@ func (a *App) authorizeHostedMCPFinalToolCall(ctx context.Context, subject aaamo
 
 func (a *App) executeHostedMCPFinalTool(ctx context.Context, subject aaamodel.Subject, name string, args map[string]any) (map[string]any, bool, error) {
 	switch name {
+	case "nopsai.list_system_log_sources":
+		return a.hostedMCPFinalAPITool(ctx, subject, http.MethodGet, "/v1/system/logs/sources", nil, false, false, false, ""), true, nil
+	case "nopsai.tail_system_logs":
+		sourceID := hostedMCPPathTail(stringArg(args, "source_id"))
+		lines := intArg(args, "lines", 500, 2000)
+		path := fmt.Sprintf("/v1/system/logs/sources/%s/tail?lines=%d", sourceID, lines)
+		return a.hostedMCPFinalAPITool(ctx, subject, http.MethodGet, path, nil, false, false, false, ""), true, nil
 	case "nopsai.get_setup_status":
 		return a.hostedMCPFinalAPITool(ctx, subject, http.MethodGet, "/v1/setup/status", nil, false, false, false, ""), true, nil
 	case "nopsai.get_setup_preflight":

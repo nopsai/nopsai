@@ -12,12 +12,12 @@ import (
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/proxyhttp"
 	"nopsai/pkg/serviceauth"
+	"nopsai/pkg/servicelog"
 	"nopsai/pkg/startupgates"
 	"nopsai/services/git-bot/internal/service"
 
 	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/google/go-github/v53/github"
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -123,13 +123,7 @@ func newGitBotAppFromBootstrap(
 }
 
 func configureLogging(cfg *config.Config) {
-	logLevel, err := zerolog.ParseLevel(cfg.LogLevel)
-	if err != nil {
+	if err := servicelog.Configure(cfg.LogLevel, cfg.LogFormat); err != nil {
 		log.Warn().Msgf("Invalid log level '%s', defaulting to 'info'", cfg.LogLevel)
-		logLevel = zerolog.InfoLevel
 	}
-	if cfg.LogFormat == "console" {
-		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
-	}
-	zerolog.SetGlobalLevel(logLevel)
 }

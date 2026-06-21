@@ -118,6 +118,8 @@ type loggingResponseWriter struct {
 	length int
 }
 
+func (lrw *loggingResponseWriter) Unwrap() http.ResponseWriter { return lrw.ResponseWriter }
+
 func (lrw *loggingResponseWriter) WriteHeader(code int) {
 	lrw.status = code
 	lrw.ResponseWriter.WriteHeader(code)
@@ -322,6 +324,8 @@ type auditRecorder struct {
 	http.ResponseWriter
 	status int
 }
+
+func (a *auditRecorder) Unwrap() http.ResponseWriter { return a.ResponseWriter }
 
 func (a *auditRecorder) WriteHeader(code int) {
 	a.status = code

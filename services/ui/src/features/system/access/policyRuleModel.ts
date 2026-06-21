@@ -110,6 +110,22 @@ export const AAA_RESOURCE_TYPE_CONFIGS: AAAResourceTypeConfig[] = [
     customPlaceholder: 'status',
   },
   {
+    value: 'system_log',
+    label: 'System log',
+    targetLabel: 'Source',
+    allowAll: true,
+    allLabel: 'All system log sources',
+    presets: [
+      { value: 'nopsai', label: 'NopsAI API' },
+      { value: 'aaa', label: 'AAA' },
+      { value: 'dispatcher', label: 'Dispatcher' },
+      { value: 'git-bot', label: 'Git bot' },
+      { value: 'ui', label: 'UI' },
+      { value: 'docker-runner', label: 'Docker runner' },
+    ],
+    customPlaceholder: 'dispatcher',
+  },
+  {
     value: 'folder',
     label: 'Group',
     targetLabel: 'Group',
@@ -215,6 +231,7 @@ const AAA_ALL_ACTION_OPTION_GROUPS: AAAOptionGroup[] = [
     options: [
       { value: 'system.read', label: 'read' },
       { value: 'system.update', label: 'update' },
+      { value: 'system_log.read', label: 'read system logs' },
     ],
   },
   {
@@ -325,6 +342,7 @@ const AAA_ACTION_OPTION_GROUPS_BY_SELECTOR: Record<string, AAAOptionGroup[]> = {
   'system:steps': [{ label: 'System actions', options: [{ value: 'system.read', label: 'read' }, { value: 'system.update', label: 'update' }] }],
   'dispatcher:status': [{ label: 'Dispatcher actions', options: [{ value: 'system.read', label: 'read' }] }],
   'dispatcher:runners': [{ label: 'Dispatcher actions', options: [{ value: 'system.update', label: 'update' }] }],
+  'system_log:*': [{ label: 'System log actions', options: [{ value: 'system_log.read', label: 'read' }] }],
   'repository:*': [{ label: 'Repository actions', options: [{ value: 'system.read', label: 'read' }] }],
 };
 
@@ -340,6 +358,7 @@ const AAA_ACTION_OPTION_GROUPS_BY_RESOURCE_TYPE: Record<string, AAAOptionGroup[]
   secret: [{ label: 'Secret actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Secrets')?.options || [] }],
   variable: [{ label: 'Variable actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Variables')?.options || [] }],
   system: [{ label: 'System actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'System')?.options || [] }],
+  system_log: [{ label: 'System log actions', options: [{ value: 'system_log.read', label: 'read' }] }],
   repository: [{ label: 'Repository actions', options: [{ value: 'system.read', label: 'read' }] }],
   audit: [{ label: 'Audit actions', options: [{ value: 'audit.read', label: 'read' }] }],
   iam: [{ label: 'IAM actions', options: [{ value: 'iam.admin', label: 'admin' }] }],

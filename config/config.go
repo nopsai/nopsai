@@ -83,6 +83,17 @@ type RunnerLimits struct {
 	MaxPendingTasks          int `yaml:"max_pending_tasks" json:"max_pending_tasks,omitempty"`
 }
 
+type SystemLogsConfig struct {
+	Enabled             *bool  `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	DockerHost          string `yaml:"docker_host,omitempty" json:"docker_host,omitempty"`
+	BufferLines         int    `yaml:"buffer_lines,omitempty" json:"buffer_lines,omitempty"`
+	BufferAgeMinutes    int    `yaml:"buffer_age_minutes,omitempty" json:"buffer_age_minutes,omitempty"`
+	MaxTailLines        int    `yaml:"max_tail_lines,omitempty" json:"max_tail_lines,omitempty"`
+	MaxLineBytes        int    `yaml:"max_line_bytes,omitempty" json:"max_line_bytes,omitempty"`
+	MaxStreams          int    `yaml:"max_streams,omitempty" json:"max_streams,omitempty"`
+	MaxStreamsPerSource int    `yaml:"max_streams_per_source,omitempty" json:"max_streams_per_source,omitempty"`
+}
+
 type AuthConfig struct {
 	LocalEnabled *bool          `yaml:"local_enabled,omitempty" json:"local_enabled,omitempty"`
 	OIDC         OIDCAuthConfig `yaml:"oidc,omitempty" json:"oidc,omitempty"`
@@ -246,6 +257,8 @@ type Config struct {
 	Assistant                    AssistantConfig              `yaml:"assistant" env:"-"`
 	FinalOutputPDFRendererURL    string                       `yaml:"final_output_pdf_renderer_url" env:"FINAL_OUTPUT_PDF_RENDERER_URL"`
 	FinalOutputPDFTimeoutSeconds int                          `yaml:"final_output_pdf_timeout_seconds" env:"FINAL_OUTPUT_PDF_TIMEOUT_SECONDS"`
+	SystemLogs                   SystemLogsConfig             `yaml:"system_logs" env:"-"`
+	SystemLogsDockerHost         string                       `yaml:"-" env:"SYSTEM_LOGS_DOCKER_HOST" json:"-"`
 
 	// Addresses for services to listen on
 	NopsaiListenAddress     string `yaml:"nopsai_listen_address" env:"NOPSAI_LISTEN_ADDRESS"`
@@ -286,6 +299,26 @@ type Config struct {
 	RunnerID          string                 `yaml:"runner_id" env:"RUNNER_ID"`
 	RunnerScopes      string                 `yaml:"runner_scopes" env:"RUNNER_SCOPES"`
 	RunnerCapacity    int                    `yaml:"runner_capacity" env:"RUNNER_CAPACITY"`
+}
+
+func (c *Config) EffectiveSystemLogsDockerHost() string {
+	if c == nil {
+		return ""
+	}
+	if host := strings.TrimSpace(c.SystemLogsDockerHost); host != "" {
+		return host
+	}
+	return strings.TrimSpace(c.SystemLogs.DockerHost)
+}
+
+func (c *Config) SystemLogsEnabled() bool {
+	if c == nil {
+		return false
+	}
+	if c.SystemLogs.Enabled != nil {
+		return *c.SystemLogs.Enabled
+	}
+	return c.EffectiveSystemLogsDockerHost() != ""
 }
 
 func LoadConfig(path string) (*Config, error) {

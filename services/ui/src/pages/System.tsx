@@ -15,13 +15,15 @@ import SystemConfig from '../features/system/SystemConfig';
 import AccessPanel from '../features/system/AccessPanel';
 import { useSystemAccess } from '../features/system/access/useSystemAccess';
 import { useSystemConfig } from '../features/system/config/useSystemConfig';
+import SystemLogsPanel from '../features/system/logs/SystemLogsPanel';
 
-type SystemTab = 'config' | 'setup' | 'llm-profiles' | 'agent-profiles' | 'mcp' | 'credentials' | 'data-management' | 'dispatcher' | 'access';
+type SystemTab = 'config' | 'setup' | 'llm-profiles' | 'agent-profiles' | 'mcp' | 'credentials' | 'data-management' | 'dispatcher' | 'logs' | 'access';
 
 function resolveSystemTab(tab?: string): SystemTab {
   if (
     tab === 'setup' ||
     tab === 'dispatcher' ||
+    tab === 'logs' ||
     tab === 'access' ||
     tab === 'llm-profiles' ||
     tab === 'agent-profiles' ||
@@ -49,6 +51,7 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     if (permissions.canViewCredentials) tabs.push('credentials');
     if (permissions.canViewDataManagement) tabs.push('data-management');
     if (permissions.canViewDispatcher) tabs.push('dispatcher');
+    if (permissions.canViewLogs) tabs.push('logs');
     if (permissions.canViewAccess) tabs.push('access');
     return tabs;
   }, [
@@ -56,6 +59,7 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     permissions.canViewConfig,
     permissions.canViewDataManagement,
     permissions.canViewDispatcher,
+    permissions.canViewLogs,
     permissions.canViewAgentProfiles,
     permissions.canViewLLMProfiles,
     permissions.canViewMCP,
@@ -145,6 +149,7 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
           onSaveConfig={systemConfig.panelProps.onSave}
         />
       )}
+      {visibleTab === 'logs' && <SystemLogsPanel />}
       {visibleTab === 'access' && (
         <AccessPanel {...accessPanel} />
       )}

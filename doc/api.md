@@ -433,6 +433,14 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" http://localhost:8080/v1/monitorin
 # Prometheus scrape endpoint
 curl http://localhost:8080/metrics
 
+# Allow-listed platform log sources and a bounded redacted tail
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" http://localhost:8080/v1/system/logs/sources
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" "http://localhost:8080/v1/system/logs/sources/dispatcher/tail?lines=500"
+
+# Authenticated SSE (use fetch streaming in browser clients)
+curl -N -H "Authorization: Bearer $NOPSAI_TOKEN" -H "Accept: text/event-stream" \
+  "http://localhost:8080/v1/system/logs/sources/dispatcher/stream?tail=500"
+
 # Scope choices for the runner install UI
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
   http://localhost:8080/v1/system/dispatcher/scopes
@@ -463,7 +471,8 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - Agents record LLM usage with `POST /v1/internal/runs/{runID}/ai-usage` using an agent service JWT. The endpoint stores run, step, task, provider, model, LLM profile, token totals, metadata, and a per-run usage summary. Run list/detail responses expose that summary as `ai_usage`, while detail step/task rows include their own `ai_usage` totals for API compatibility. Provider token metadata is used when available; otherwise the agent records an estimated token count with `metadata.estimated_tokens=true`. Pipeline final output generation is recorded as the `pipeline_final_output` feature.
 - Monitoring aggregate endpoints accept shared query parameters: `from`, `to`, `groupId`, `pipelinePath`, `pipelineName`, `repo`, `runId`, `branch`/`ref`, `commitSHA`, `triggerSource`, `status`, `requestedByType`, `requestedById`, `effectiveSubjectType`, `effectiveSubjectId`, `externalTriggerId`, `scheduleId`, `minDurationSeconds`, `maxDurationSeconds`, and `compare=previous_period`. The UI fetches the shifted previous window and renders regression deltas on Monitoring tabs when comparison is enabled. Pipeline Runs usage links open Monitoring with `tab=ai-usage&runId=<pipeline-run-id>` and use an all-time window for that run-scoped drilldown.
 - Monitoring aggregate endpoints first load candidate run IDs in Postgres, filter them through AAA with `pipeline_run.list`, then aggregate only visible run IDs. External trigger analytics also filters trigger-only rows with `external_trigger.read` so failed invocations that did not create runs are still governed.
-- `GET /metrics` emits Prometheus text format. Metrics are DB-backed and include pipeline run counters, final output status/generation-attempt/contract-violation/retry/render-attempt/render-failure counters by type and pipeline, duration, queue-duration and end-to-end histograms, active/pending/approval gauges, step/task counters, notification delivery counters, external trigger invocation counters, LLM token counters, runner capacity/job/heartbeat gauges, pending approval wait histograms, and audit event counters by provider/action/result.
+- `GET /metrics` emits Prometheus text format. Metrics include DB-backed pipeline, output, duration, notification, trigger, LLM, runner, approval, and audit series plus in-memory System Logs active/opened streams, provider reconnect/error, redaction, and dropped-line counters.
+- System Logs source discovery is AAA-filtered with `system_log.read` on `system_log:<sourceID>`. Tail and stream endpoints accept registry IDs only. SSE emits `status`, signed-cursor `log`, and `reset` events; stream heartbeats are comments. See [system-logs.md](./system-logs.md).
 - `GET /v1/system/dispatcher/scopes` returns existing scope names from runner defaults, dispatcher routing, variables, secrets, and run history. It is used by the runner install UI for multi-select scope choices.
 - `GET /v1/internal/dispatcher/routing` is dispatcher-internal. The live dispatcher polls it with a service-auth JWT and updates its in-memory routing table without a restart.
 - Runner install command generation, Kubernetes manifest generation, and runner dispatch pause/resume remain under `System > Dispatcher` and require dispatcher runner management access.

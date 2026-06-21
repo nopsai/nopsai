@@ -75,6 +75,7 @@ export type SystemCapabilities = {
   configReposWrite?: boolean;
   dispatcherRead?: boolean;
   dispatcherWrite?: boolean;
+  logsRead?: boolean;
   access?: boolean;
 };
 
