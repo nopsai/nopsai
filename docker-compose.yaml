@@ -90,6 +90,8 @@ services:
         condition: service_started
       gotenberg:
         condition: service_healthy
+      docker-socket-proxy:
+        condition: service_started
       base:
         condition: service_completed_successfully
     environment:
@@ -102,6 +104,26 @@ services:
       AAA_SHARED_INTERNAL_TOKEN: ${AAA_SHARED_INTERNAL_TOKEN:-local-dev-aaa-token-change-me-please-rotate}
       FINAL_OUTPUT_PDF_RENDERER_URL: http://gotenberg:3000
       FINAL_OUTPUT_PDF_TIMEOUT_SECONDS: ${FINAL_OUTPUT_PDF_TIMEOUT_SECONDS:-45}
+      SYSTEM_LOGS_DOCKER_HOST: tcp://docker-socket-proxy:2375
+    networks:
+      - nopsai-net
+
+  docker-socket-proxy:
+    container_name: nopsai-docker-socket-proxy
+    image: hoseindocker/nopsai-docker-socket-proxy
+    build:
+      context: .
+      dockerfile: container/Dockerfile.socket-proxy
+    restart: always
+    environment:
+      ALLOWED_CONTAINERS: nopsai,nopsai-aaa,nopsai-dispatcher,nopsai-git-bot,nopsai-ui,nopsai-docker-runner
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     networks:
       - nopsai-net
 

@@ -21,6 +21,7 @@ test('normalizes API capability payloads into UI capabilities', () => {
         mcp_write: true,
         credentials_read: true,
         credentials_write: false,
+        logs_read: true,
         access: true,
       },
     },
@@ -41,6 +42,7 @@ test('normalizes API capability payloads into UI capabilities', () => {
   assert.equal(can(user, 'system.mcp.write'), true);
   assert.equal(can(user, 'system.credentials.read'), true);
   assert.equal(can(user, 'system.credentials.write'), false);
+  assert.equal(can(user, 'system.logs.read'), true);
 });
 
 test('derives app and system access from normalized capabilities', () => {

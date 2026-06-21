@@ -183,7 +183,31 @@ func (a *App) buildPrometheusMetrics(ctx context.Context) (string, error) {
 	if status, err := a.fetchDispatcherStatus(ctx); err == nil {
 		appendRunnerPrometheusMetrics(&out, status)
 	}
+	a.appendSystemLogMetrics(&out)
 	return out.String(), nil
+}
+
+func (a *App) appendSystemLogMetrics(out *strings.Builder) {
+	if a == nil || a.systemLogs == nil {
+		return
+	}
+	snapshot := a.systemLogs.Metrics().Snapshot()
+	metrics := []struct {
+		name, help, metricType string
+		value                  float64
+	}{
+		{name: "nopsai_system_log_streams_active", help: "Currently active system log SSE streams.", metricType: "gauge", value: float64(snapshot.ActiveStreams)},
+		{name: "nopsai_system_log_streams_opened_total", help: "System log SSE streams opened.", metricType: "counter", value: float64(snapshot.OpenedStreams)},
+		{name: "nopsai_system_log_reconnects_total", help: "System log provider follow reconnects.", metricType: "counter", value: float64(snapshot.Reconnects)},
+		{name: "nopsai_system_log_redacted_lines_total", help: "System log lines changed by best-effort redaction.", metricType: "counter", value: float64(snapshot.RedactedLines)},
+		{name: "nopsai_system_log_dropped_lines_total", help: "System log fan-out lines dropped for slow consumers.", metricType: "counter", value: float64(snapshot.DroppedLines)},
+		{name: "nopsai_system_log_provider_errors_total", help: "System log provider errors.", metricType: "counter", value: float64(snapshot.ProviderErrors)},
+	}
+	for _, metric := range metrics {
+		writeMetricHelp(out, metric.name, metric.help)
+		writeMetricType(out, metric.name, metric.metricType)
+		writeMetricLine(out, metric.name, nil, metric.value)
+	}
 }
 
 func (a *App) appendPipelineRunTotals(ctx context.Context, out *strings.Builder) error {

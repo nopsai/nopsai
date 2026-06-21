@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"nopsai/services/aaa/pkg/model"
+	"nopsai/services/nopsai/internal/systemlogs"
 	"nopsai/services/nopsai/pkg/auth"
 )
 
@@ -111,6 +112,19 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 	configReposWrite := a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "config-repos"})
 	dispatcherRead := a.checkCapability(subject, "system.read", model.ResourceRef{Type: "dispatcher", ID: "status"})
 	dispatcherWrite := a.checkCapability(subject, "system.update", model.ResourceRef{Type: "dispatcher", ID: "runners"})
+	systemLogsRead := false
+	registry := systemlogs.DefaultRegistry()
+	if a.checkCapability(subject, "system_log.read", model.ResourceRef{Type: "system_log", ID: "*"}) {
+		systemLogsRead = true
+	} else {
+		for _, source := range registry.Sources() {
+			if !a.checkCapability(subject, "system_log.read", model.ResourceRef{Type: "system_log", ID: source.ID}) {
+				continue
+			}
+			systemLogsRead = true
+			break
+		}
+	}
 	triggerRead := a.checkCapabilityOrScopedGrant(ctx, subject, "trigger.read", model.ResourceRef{Type: "trigger", ID: "*"})
 	triggerWrite := a.checkCapabilityOrScopedGrant(ctx, subject, "trigger.update", model.ResourceRef{Type: "trigger", ID: "*"})
 	triggerDelete := a.checkCapabilityOrScopedGrant(ctx, subject, "trigger.delete", model.ResourceRef{Type: "trigger", ID: "*"})
@@ -195,6 +209,7 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 			ConfigReposWrite:   configReposWrite,
 			DispatcherRead:     dispatcherRead,
 			DispatcherWrite:    dispatcherWrite,
+			LogsRead:           systemLogsRead,
 			Access:             a.checkCapability(subject, "iam.admin", model.ResourceRef{Type: "iam", ID: "admin"}),
 		},
 	}

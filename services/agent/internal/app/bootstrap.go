@@ -11,9 +11,9 @@ import (
 
 	appconfig "nopsai/config"
 	"nopsai/pkg/models"
+	"nopsai/pkg/servicelog"
 
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
 )
 
@@ -84,12 +84,7 @@ func (e LoadError) Unwrap() error {
 }
 
 func ConfigureLogging(logFormat string) {
-	if strings.EqualFold(strings.TrimSpace(logFormat), "console") {
-		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
-	} else {
-		zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	}
-	zerolog.SetGlobalLevel(zerolog.TraceLevel)
+	servicelog.ConfigureLevel(zerolog.TraceLevel, logFormat)
 }
 
 func LoadRuntimeConfig(lookup EnvLookup) (RuntimeConfig, []Warning, error) {

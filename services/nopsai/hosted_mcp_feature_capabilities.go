@@ -827,6 +827,7 @@ func hostedMCPFeatureCapabilityCatalog() []hostedMCPFeatureCapability {
 				"Dispatcher status",
 				"Runner status",
 				"Runner dispatch pause/resume",
+				"Live system logs",
 				"Local login",
 				"Access token flow",
 				"Refresh token flow",
@@ -863,6 +864,8 @@ func hostedMCPFeatureCapabilityCatalog() []hostedMCPFeatureCapability {
 				"nopsai.generate_runner_bootstrap_command",
 				"nopsai.generate_kubernetes_runner_bootstrap_command",
 				"nopsai.update_runner_dispatch",
+				"nopsai.list_system_log_sources",
+				"nopsai.tail_system_logs",
 			},
 			Resources: []string{
 				"nopsai://system/llm-profiles",
@@ -899,6 +902,9 @@ func hostedMCPFeatureCapabilityCatalog() []hostedMCPFeatureCapability {
 				"GET /v1/system/dispatcher/kubernetes-runner-bootstrap-command",
 				"GET /v1/system/dispatcher/kubernetes-runner-manifest",
 				"POST /v1/system/dispatcher/runners/{runnerID}/dispatch",
+				"GET /v1/system/logs/sources",
+				"GET /v1/system/logs/sources/{sourceID}/tail",
+				"GET /v1/system/logs/sources/{sourceID}/stream (UI only)",
 			},
 			Permissions: []hostedMCPPermission{
 				hostedMCPReadPermission("system.read", "system", "config"),
@@ -920,11 +926,13 @@ func hostedMCPFeatureCapabilityCatalog() []hostedMCPFeatureCapability {
 				hostedMCPReadPermission("system.read", "dispatcher", "status"),
 				hostedMCPReadPermission("system.read", "dispatcher", "scopes"),
 				hostedMCPReadPermission("system.update", "dispatcher", "runners"),
+				hostedMCPReadPermission("system_log.read", "system_log", "*"),
 			},
 			Notes: []string{
 				"Auth self-service endpoints stay authenticated-user operations rather than AAA capability tools.",
 				"Credential values should be rotated or referenced, not echoed into assistant context; hosted MCP redacts sensitive credential inputs and outputs from audit.",
 				"Runner bootstrap command tools require include_sensitive_response:true because responses contain one-time bootstrap tokens.",
+				"MCP exposes bounded redacted tails, not long-lived SSE streams; the UI owns live rendering.",
 			},
 		},
 		{

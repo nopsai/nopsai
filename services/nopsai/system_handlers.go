@@ -4,15 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"os"
 	"sort"
 	"strings"
-	"time"
 
 	"nopsai/config"
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
+	"nopsai/pkg/servicelog"
 	"nopsai/services/nopsai/internal/runnerinstall"
 	"nopsai/services/nopsai/internal/systemconfig"
 	"nopsai/services/nopsai/pkg/auth"
@@ -64,20 +63,17 @@ func (a *App) applySystemConfig(payload systemConfigPayload) (config.Config, err
 }
 
 func applyRuntimeProcessSettings(cfg config.Config, payload systemConfigPayload) {
-	if payload.LogFormat != nil {
-		if strings.EqualFold(strings.TrimSpace(cfg.LogFormat), "console") {
-			log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
-		} else {
-			log.Logger = zerolog.New(os.Stderr).With().Timestamp().Logger()
-		}
-	}
+	level := zerolog.GlobalLevel()
 	if payload.LogLevel != nil {
-		level, err := zerolog.ParseLevel(strings.TrimSpace(cfg.LogLevel))
+		configuredLevel, err := servicelog.ParseLevel(cfg.LogLevel)
 		if err != nil {
 			log.Warn().Str("log_level", cfg.LogLevel).Msg("Invalid runtime log level; keeping previous global level")
 			return
 		}
-		zerolog.SetGlobalLevel(level)
+		level = configuredLevel
+	}
+	if payload.LogFormat != nil || payload.LogLevel != nil {
+		servicelog.ConfigureLevel(level, cfg.LogFormat)
 	}
 }
 

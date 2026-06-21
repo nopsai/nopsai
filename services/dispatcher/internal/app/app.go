@@ -9,11 +9,11 @@ import (
 	"nopsai/config"
 	"nopsai/pkg/proto"
 	"nopsai/pkg/serviceauth"
+	"nopsai/pkg/servicelog"
 	"nopsai/pkg/servicetls"
 	"nopsai/pkg/startupgates"
 	"nopsai/services/dispatcher/internal/service"
 
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 )
@@ -110,14 +110,9 @@ func Run() {
 }
 
 func configureLogging(cfg *config.Config) {
-	logLevel, err := zerolog.ParseLevel(cfg.LogLevel)
-	if err != nil {
-		logLevel = zerolog.InfoLevel
+	if err := servicelog.Configure(cfg.LogLevel, cfg.LogFormat); err != nil {
+		log.Warn().Str("log_level", cfg.LogLevel).Msg("Invalid log level; defaulting to info")
 	}
-	if cfg.LogFormat == "console" {
-		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
-	}
-	zerolog.SetGlobalLevel(logLevel)
 }
 
 func dispatcherTLSServerNames(cfg *config.Config, listenAddr string) []string {

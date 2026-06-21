@@ -13,10 +13,10 @@ import (
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/proto"
 	"nopsai/pkg/serviceauth"
+	"nopsai/pkg/servicelog"
 	"nopsai/pkg/servicetls"
 	service "nopsai/services/nopsai"
 
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 )
@@ -139,15 +139,9 @@ func runtimeEnvFilePathFromEnv(lookup func(string) string) string {
 }
 
 func configureLogging(cfg *config.Config) {
-	logLevel, err := zerolog.ParseLevel(cfg.LogLevel)
-	if err != nil {
+	if err := servicelog.Configure(cfg.LogLevel, cfg.LogFormat); err != nil {
 		log.Warn().Msgf("Invalid log level '%s', defaulting to 'info'", cfg.LogLevel)
-		logLevel = zerolog.InfoLevel
 	}
-	if cfg.LogFormat == "console" {
-		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
-	}
-	zerolog.SetGlobalLevel(logLevel)
 }
 
 func newDispatcherConnection(cfg *config.Config) (*grpc.ClientConn, error) {

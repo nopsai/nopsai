@@ -9,13 +9,13 @@ import (
 
 	"nopsai/config"
 	"nopsai/pkg/httpapi"
+	"nopsai/pkg/servicelog"
 	"nopsai/pkg/startupgates"
 	"nopsai/services/aaa/pkg/authz"
 	"nopsai/services/aaa/pkg/server"
 	"nopsai/services/aaa/pkg/store"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -32,14 +32,9 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to load config")
 	}
 
-	logLevel, err := zerolog.ParseLevel(cfg.LogLevel)
-	if err != nil {
-		logLevel = zerolog.InfoLevel
+	if err := servicelog.Configure(cfg.LogLevel, cfg.LogFormat); err != nil {
+		log.Warn().Str("log_level", cfg.LogLevel).Msg("Invalid log level; defaulting to info")
 	}
-	if cfg.LogFormat == "console" {
-		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
-	}
-	zerolog.SetGlobalLevel(logLevel)
 
 	if strings.TrimSpace(cfg.DatabaseURL) == "" {
 		log.Fatal().Msg("DATABASE_URL must be configured for AAA")

@@ -77,7 +77,9 @@ discovery, data backup/cleanup operations, scope inventory, secret/variable
 metadata and repeated variable-name analysis plus safe write/GitOps plans,
 cost/statistics, LLM/MCP profile reads, system status,
 credential metadata/rotation/GitOps plans, runner install/dispatch operations,
-AAA/access/audit/admin workflows, and dispatcher/runner health.
+AAA/access/audit/admin workflows, dispatcher/runner health, and permission-bound
+System Log source discovery plus bounded redacted tails. Long-lived System Log
+SSE remains UI-only.
 Natural-language scope inventory requests can combine visible scope listing with
 metadata-only secret counts by scope without reading plaintext secret values.
 The API bridge remains the compatibility surface for auth self-service and other

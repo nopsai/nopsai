@@ -251,6 +251,23 @@ func TestMapRequestUsesUpdatedLowLevelActions(t *testing.T) {
 			wantID:     "shared/util/archive",
 		},
 		{
+			name:       "system log source list uses resource filtering",
+			method:     http.MethodGet,
+			path:       "/v1/system/logs/sources",
+			wantAction: "system_log.read",
+			wantType:   "system_log",
+			wantID:     "*",
+			wantFilter: true,
+		},
+		{
+			name:       "system log stream uses selected source",
+			method:     http.MethodGet,
+			path:       "/v1/system/logs/sources/dispatcher/stream",
+			wantAction: "system_log.read",
+			wantType:   "system_log",
+			wantID:     "dispatcher",
+		},
+		{
 			name:       "group config repo read uses group path",
 			method:     http.MethodGet,
 			path:       "/v1/groups/team-1/config-repo",

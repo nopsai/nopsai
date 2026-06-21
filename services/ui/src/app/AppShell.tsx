@@ -92,6 +92,7 @@ function AppShell() {
     canViewSystemMCP,
     canViewSystemCredentials,
     canViewSystemDispatcher,
+    canViewSystemLogs,
     canViewSystemAccess,
     canViewAnySystem,
     preferredSystemPath,
@@ -181,10 +182,11 @@ function AppShell() {
         if (item.path === '/system/credentials') return canViewSystemCredentials;
         if (item.path === '/system/data-management') return canViewSystemRuntimeConfig;
         if (item.path === '/system/dispatcher') return canViewSystemDispatcher;
+        if (item.path === '/system/logs') return canViewSystemLogs;
         if (item.path === '/system/access') return canViewSystemAccess;
         return false;
       }),
-    [canViewSystemAccess, canViewSystemAgentProfiles, canViewSystemConfig, canViewSystemCredentials, canViewSystemDispatcher, canViewSystemLLMProfiles, canViewSystemMCP, canViewSystemRuntimeConfig, canViewSystemSetup]
+    [canViewSystemAccess, canViewSystemAgentProfiles, canViewSystemConfig, canViewSystemCredentials, canViewSystemDispatcher, canViewSystemLogs, canViewSystemLLMProfiles, canViewSystemMCP, canViewSystemRuntimeConfig, canViewSystemSetup]
   );
 
   useInitialSetupRedirect({
