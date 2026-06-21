@@ -116,6 +116,7 @@ func hostedMCPFeatureCapabilityCatalog() []hostedMCPFeatureCapability {
 		{
 			Area: "First-install setup",
 			Features: []string{
+				"Versioned platform bundle compatibility",
 				"Setup status and health checks",
 				"Public setup preflight",
 				"Step-by-step setup modal",
@@ -133,6 +134,7 @@ func hostedMCPFeatureCapabilityCatalog() []hostedMCPFeatureCapability {
 			Mode:     "guided setup status/preflight/templates/plan plus confirmed bootstrap",
 			Tools: []string{
 				"nopsai.call_api",
+				"nopsai.get_platform_version",
 				"nopsai.get_system_status",
 				"nopsai.get_setup_status",
 				"nopsai.get_setup_preflight",
@@ -144,6 +146,7 @@ func hostedMCPFeatureCapabilityCatalog() []hostedMCPFeatureCapability {
 				"nopsai://system/status",
 			},
 			APIRoutes: []string{
+				"GET /version",
 				"GET /v1/setup/status",
 				"GET /v1/setup/preflight",
 				"GET /v1/setup/templates",

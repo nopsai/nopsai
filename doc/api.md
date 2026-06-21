@@ -12,6 +12,35 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" http://localhost:8080/v1/runs
 
 For full JWT behavior, personal-token handling, claims, config, refresh-token storage, and service-token details, see [jwt-authentication.md](./jwt-authentication.md).
 
+Public platform identity is available before and after initial setup:
+
+```bash
+curl http://localhost:8080/version
+```
+
+`GET /version` returns product and API versions, supported CLI and runner
+ranges, capability IDs, and the release-manifest digest. It contains no
+deployment configuration or credentials. Released CLIs use this endpoint to
+reject incompatible mutating requests before sending them. See
+[release-bundles.md](./release-bundles.md).
+
+The `nopsai` CLI provides the same authenticated API surface without embedding
+server behavior:
+
+```bash
+nopsai context add local --api http://localhost:8080
+NOPSAI_TOKEN=nopat_<secret> nopsai api request GET /v1/runs
+nopsai api request POST /v1/system/config/sync --data sync.json
+nopsai api routes --output json
+nopsai api call GET '/v1/runs/{runID}' --path runID=<run-id>
+```
+
+The CLI treats bearer tokens as opaque and all AAA, audit, route, MCP, and
+resource authorization remains enforced by this API. Its generated catalog is
+parity-tested against all registered method/path combinations, including
+public, streaming, download, and internal service routes. See
+[cli.md](./cli.md).
+
 ---
 
 ## Authentication
