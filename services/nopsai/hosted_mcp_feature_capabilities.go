@@ -316,7 +316,7 @@ func hostedMCPFeatureCapabilityCatalog() []hostedMCPFeatureCapability {
 			Notes: []string{
 				"Dispatcher/internal log ingestion, task update, and finalization are service paths, not normal assistant tools.",
 				"Assistant run investigations chain run metadata, bounded recent logs, and failure analysis before answering.",
-				"Pipeline final outputs are configured in pipeline YAML and exposed as run-owned deliverables after finalization.",
+				"Pipeline final outputs are configured in pipeline YAML and exposed as run-owned deliverables after finalization; PDF/HTML use DocumentSpec and Excel uses SpreadsheetSpec structured source.",
 				"Run creation, approval decisions, rerun, cancel, and delete require explicit confirmation before execution.",
 			},
 		},

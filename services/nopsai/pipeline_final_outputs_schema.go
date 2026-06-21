@@ -13,20 +13,66 @@ var pipelineFinalOutputSchemaStatements = []string{
 		run_id UUID NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
 		item_index INTEGER NOT NULL,
 		name TEXT NOT NULL,
-		type TEXT NOT NULL,
-		prompt TEXT NOT NULL DEFAULT '',
-		llm_profile TEXT NOT NULL DEFAULT '',
-		status TEXT NOT NULL DEFAULT 'pending',
-		content TEXT NOT NULL DEFAULT '',
-		error TEXT NOT NULL DEFAULT '',
-		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-		UNIQUE(run_id, item_index)
+			type TEXT NOT NULL,
+			prompt TEXT NOT NULL DEFAULT '',
+			llm_profile TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'pending',
+			content TEXT NOT NULL DEFAULT '',
+			error TEXT NOT NULL DEFAULT '',
+			generation_attempts INTEGER NOT NULL DEFAULT 0,
+			contract_violations INTEGER NOT NULL DEFAULT 0,
+			render_attempts INTEGER NOT NULL DEFAULT 0,
+			render_failures INTEGER NOT NULL DEFAULT 0,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			CONSTRAINT pipeline_run_outputs_generation_audit_check CHECK (
+				generation_attempts >= 0
+				AND contract_violations >= 0
+				AND contract_violations <= generation_attempts
+			),
+			CONSTRAINT pipeline_run_outputs_render_audit_check CHECK (
+				render_attempts >= 0
+				AND render_failures >= 0
+				AND render_failures <= render_attempts
+			),
+			UNIQUE(run_id, item_index)
 	)`,
 	`ALTER TABLE pipeline_run_outputs ADD COLUMN IF NOT EXISTS prompt TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE pipeline_run_outputs ADD COLUMN IF NOT EXISTS llm_profile TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE pipeline_run_outputs ADD COLUMN IF NOT EXISTS content TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE pipeline_run_outputs ADD COLUMN IF NOT EXISTS error TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE pipeline_run_outputs ADD COLUMN IF NOT EXISTS generation_attempts INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE pipeline_run_outputs ADD COLUMN IF NOT EXISTS contract_violations INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE pipeline_run_outputs ADD COLUMN IF NOT EXISTS render_attempts INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE pipeline_run_outputs ADD COLUMN IF NOT EXISTS render_failures INTEGER NOT NULL DEFAULT 0`,
+	`DO $$
+	BEGIN
+		IF NOT EXISTS (
+			SELECT 1 FROM pg_constraint WHERE conname = 'pipeline_run_outputs_generation_audit_check'
+		) THEN
+			ALTER TABLE pipeline_run_outputs
+			ADD CONSTRAINT pipeline_run_outputs_generation_audit_check
+			CHECK (
+				generation_attempts >= 0
+				AND contract_violations >= 0
+				AND contract_violations <= generation_attempts
+			);
+		END IF;
+	END $$`,
+	`DO $$
+	BEGIN
+		IF NOT EXISTS (
+			SELECT 1 FROM pg_constraint WHERE conname = 'pipeline_run_outputs_render_audit_check'
+		) THEN
+			ALTER TABLE pipeline_run_outputs
+			ADD CONSTRAINT pipeline_run_outputs_render_audit_check
+			CHECK (
+				render_attempts >= 0
+				AND render_failures >= 0
+				AND render_failures <= render_attempts
+			);
+		END IF;
+	END $$`,
 	`DO $$
 	BEGIN
 		IF NOT EXISTS (

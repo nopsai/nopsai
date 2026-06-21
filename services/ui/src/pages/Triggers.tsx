@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type UIEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups';
 import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowToastRegion';
 import {

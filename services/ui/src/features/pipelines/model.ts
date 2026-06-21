@@ -1,4 +1,4 @@
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 import { validatePipelineYamlStrict } from '../../lib/lab.js';
 import { findLineNumberForKey, normalizeLineNumber, parseYamlWithLocation } from '../../lib/yamlValidation.js';
 

@@ -99,15 +99,19 @@ type ParentRunInfo struct {
 }
 
 type PipelineRunFinalOutput struct {
-	ID         string    `json:"id"`
-	Name       string    `json:"name"`
-	Type       string    `json:"type"`
-	Status     string    `json:"status"`
-	Content    string    `json:"content,omitempty"`
-	Error      string    `json:"error,omitempty"`
-	LLMProfile string    `json:"llm_profile,omitempty"`
-	CreatedAt  time.Time `json:"created_at,omitempty"`
-	UpdatedAt  time.Time `json:"updated_at,omitempty"`
+	ID                 string    `json:"id"`
+	Name               string    `json:"name"`
+	Type               string    `json:"type"`
+	Status             string    `json:"status"`
+	Content            string    `json:"content,omitempty"`
+	Error              string    `json:"error,omitempty"`
+	LLMProfile         string    `json:"llm_profile,omitempty"`
+	GenerationAttempts int       `json:"generation_attempts,omitempty"`
+	ContractViolations int       `json:"contract_violations,omitempty"`
+	RenderAttempts     int       `json:"render_attempts,omitempty"`
+	RenderFailures     int       `json:"render_failures,omitempty"`
+	CreatedAt          time.Time `json:"created_at,omitempty"`
+	UpdatedAt          time.Time `json:"updated_at,omitempty"`
 }
 
 type RunDetail struct {

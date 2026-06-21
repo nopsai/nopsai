@@ -239,11 +239,13 @@ type Config struct {
 	DispatcherTLSSecret      string     `yaml:"dispatcher_tls_secret" env:"DISPATCHER_TLS_SECRET"`
 	DispatcherTLSServerName  string     `yaml:"dispatcher_tls_server_name" env:"DISPATCHER_TLS_SERVER_NAME"`
 
-	LLMDefaultProfile string                       `yaml:"llm_default_profile" env:"LLM_DEFAULT_PROFILE"`
-	LLMProfiles       map[string]LLMProfile        `yaml:"llm_profiles" env:"LLM_PROFILES"`
-	MCPServers        map[string]models.MCPServer  `yaml:"mcp_servers" env:"MCP_SERVERS"`
-	MCPProfiles       map[string]models.MCPProfile `yaml:"mcp_profiles" env:"MCP_PROFILES"`
-	Assistant         AssistantConfig              `yaml:"assistant" env:"-"`
+	LLMDefaultProfile            string                       `yaml:"llm_default_profile" env:"LLM_DEFAULT_PROFILE"`
+	LLMProfiles                  map[string]LLMProfile        `yaml:"llm_profiles" env:"LLM_PROFILES"`
+	MCPServers                   map[string]models.MCPServer  `yaml:"mcp_servers" env:"MCP_SERVERS"`
+	MCPProfiles                  map[string]models.MCPProfile `yaml:"mcp_profiles" env:"MCP_PROFILES"`
+	Assistant                    AssistantConfig              `yaml:"assistant" env:"-"`
+	FinalOutputPDFRendererURL    string                       `yaml:"final_output_pdf_renderer_url" env:"FINAL_OUTPUT_PDF_RENDERER_URL"`
+	FinalOutputPDFTimeoutSeconds int                          `yaml:"final_output_pdf_timeout_seconds" env:"FINAL_OUTPUT_PDF_TIMEOUT_SECONDS"`
 
 	// Addresses for services to listen on
 	NopsaiListenAddress     string `yaml:"nopsai_listen_address" env:"NOPSAI_LISTEN_ADDRESS"`

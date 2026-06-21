@@ -1,4 +1,4 @@
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 import { apiClient } from '../../lib/api.js';
 import { encodeId, normalizePipelineSource, splitIdentifier, type PipelineListItem } from './model.js';
 

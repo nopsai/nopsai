@@ -59,7 +59,11 @@ Supported pipeline features:
 - LLM content and output sharing controls
 - pipeline-level final outputs under `output.items` for Markdown, PDF, Excel,
   JSON, or HTML deliverables generated from the completed run context; each
-  output can set `when: success`, `when: failure`, or `when: always`
+  output can set `when: success`, `when: failure`, or `when: always`; generated
+  responses use a strict `<final_output>` contract, one corrective retry, and
+  persisted generation/contract/render audit counts; PDF and HTML use validated
+  `DocumentSpec`, Excel uses typed `SpreadsheetSpec`, and the run UI provides
+  format-specific previews
 - pipeline- and step-level Agent Profile selection through `agent_profile`
 - knowledge context references for architecture docs, guardrails, policies, ADRs, guidelines, runbooks, references, and examples
 - GitHub display options
@@ -493,7 +497,10 @@ Core run-management capabilities:
 - list runs for a selected group/folder including descendant folders and apps
 - list root runs that are not assigned to any group
 - fetch run details
-- preview, copy, and download run-level final outputs
+- formatted Markdown/document/spreadsheet previews, inline PDF viewing,
+  readable structured copy, and download of run-level final outputs
+- inspect final-output generation, contract, and render audit counts through
+  authorized REST/MCP reads and Prometheus metrics
 - fetch run status
 - list run approvals
 - approve or reject pending run approvals

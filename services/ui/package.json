@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "check:ui-boundaries": "tsc -p tsconfig.boundaries.json && node node_modules/.tmp/ui-boundary-check/scripts/check-ui-boundaries.js",
     "test": "npm run test:unit && npm run test:component",
-    "test:unit": "tsc -p tsconfig.test.json && node --test \"dist-test/**/*.test.js\"",
+    "test:unit": "node -e \"require('node:fs').rmSync('dist-test',{recursive:true,force:true})\" && tsc -p tsconfig.test.json && node --test \"dist-test/**/*.test.js\"",
     "test:component": "vitest run --coverage --config vitest.config.ts",
     "test:coverage": "npm run test:component",
     "test:e2e": "playwright test",
@@ -21,11 +21,13 @@
   "dependencies": {
     "@xyflow/react": "^12.3.3",
     "dagre": "^0.8.5",
-    "js-yaml": "^4.1.1",
+    "js-yaml": "^5.0.0",
     "lucide-react": "^0.562.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "react-router-dom": "^7.10.1"
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "^7.10.1",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.11.3",

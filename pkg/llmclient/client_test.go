@@ -34,7 +34,7 @@ func TestOpenAICompatibleCompletion(t *testing.T) {
 		Model:     "gpt-test",
 		BaseURL:   server.URL + "/v1",
 		MaxTokens: 123,
-	}).Complete(t.Context(), "hello")
+	}).CompleteWithSystem(t.Context(), "return only the answer", "hello")
 	if err != nil {
 		t.Fatalf("Complete() error = %v", err)
 	}
@@ -44,18 +44,30 @@ func TestOpenAICompatibleCompletion(t *testing.T) {
 	if request.Model != "gpt-test" || request.MaxCompletionTokens != 123 || request.MaxTokens != 0 {
 		t.Fatalf("request = %#v", request)
 	}
+	if len(request.Messages) != 2 ||
+		request.Messages[0] != (openAIChatMessage{Role: "system", Content: "return only the answer"}) ||
+		request.Messages[1] != (openAIChatMessage{Role: "user", Content: "hello"}) {
+		t.Fatalf("messages = %#v", request.Messages)
+	}
 	if completion.Usage.Provider != config.LLMProviderOpenAI || completion.Usage.Profile != "standard" || completion.Usage.TotalTokens != 7 {
 		t.Fatalf("usage = %#v", completion.Usage)
 	}
 }
 
 func TestAnthropicCompletion(t *testing.T) {
+	var request struct {
+		System   string              `json:"system"`
+		Messages []openAIChatMessage `json:"messages"`
+	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/messages" {
 			t.Errorf("path = %q, want /v1/messages", r.URL.Path)
 		}
 		if got := r.Header.Get("x-api-key"); got != "secret" {
 			t.Errorf("x-api-key = %q", got)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
 		}
 		fmt.Fprint(w, `{"content":[{"type":"text","text":"anthropic answer"}],"usage":{"input_tokens":3,"output_tokens":2}}`)
 	}))
@@ -66,12 +78,15 @@ func TestAnthropicCompletion(t *testing.T) {
 		APIKey:   "secret",
 		Model:    "claude-test",
 		BaseURL:  server.URL,
-	}).Complete(t.Context(), "hello")
+	}).CompleteWithSystem(t.Context(), "return only the answer", "hello")
 	if err != nil {
 		t.Fatalf("Complete() error = %v", err)
 	}
 	if completion.Text != "anthropic answer" || completion.Usage.TotalTokens != 5 {
 		t.Fatalf("completion = %#v", completion)
+	}
+	if request.System != "return only the answer" || len(request.Messages) != 1 || request.Messages[0].Content != "hello" {
+		t.Fatalf("request = %#v", request)
 	}
 }
 
@@ -84,6 +99,7 @@ func TestLMStudioCompletion(t *testing.T) {
 			var request struct {
 				Model           string `json:"model"`
 				Input           string `json:"input"`
+				SystemPrompt    string `json:"system_prompt"`
 				Reasoning       string `json:"reasoning"`
 				MaxOutputTokens int    `json:"max_output_tokens"`
 			}
@@ -92,6 +108,7 @@ func TestLMStudioCompletion(t *testing.T) {
 			}
 			if request.Model != "local-model" ||
 				request.Input != "hello" ||
+				request.SystemPrompt != "return only the answer" ||
 				request.Reasoning != "off" ||
 				request.MaxOutputTokens != 0 {
 				t.Errorf("request = %#v", request)
@@ -109,12 +126,77 @@ func TestLMStudioCompletion(t *testing.T) {
 		Model:     "local-model",
 		BaseURL:   server.URL,
 		Reasoning: "off",
-	}).Complete(t.Context(), "hello")
+	}).CompleteWithSystem(t.Context(), "return only the answer", "hello")
 	if err != nil {
 		t.Fatalf("Complete() error = %v", err)
 	}
 	if completion.Text != "local answer" || completion.Usage.TotalTokens != 7 {
 		t.Fatalf("completion = %#v", completion)
+	}
+}
+
+func TestGeminiCompletionUsesSystemInstruction(t *testing.T) {
+	var request struct {
+		Contents []struct {
+			Parts []struct {
+				Text string `json:"text"`
+			} `json:"parts"`
+		} `json:"contents"`
+		SystemInstruction *struct {
+			Parts []struct {
+				Text string `json:"text"`
+			} `json:"parts"`
+		} `json:"systemInstruction"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		fmt.Fprint(w, `{"candidates":[{"content":{"parts":[{"text":"gemini answer"}]}}]}`)
+	}))
+	defer server.Close()
+
+	completion, err := New(Options{
+		Provider: config.LLMProviderGemini,
+		APIKey:   "secret",
+		Model:    "gemini-test",
+		BaseURL:  server.URL,
+	}).CompleteWithSystem(t.Context(), "return only the answer", "hello")
+	if err != nil {
+		t.Fatalf("CompleteWithSystem() error = %v", err)
+	}
+	if completion.Text != "gemini answer" {
+		t.Fatalf("completion = %#v", completion)
+	}
+	if request.SystemInstruction == nil ||
+		len(request.SystemInstruction.Parts) != 1 ||
+		request.SystemInstruction.Parts[0].Text != "return only the answer" ||
+		len(request.Contents) != 1 ||
+		len(request.Contents[0].Parts) != 1 ||
+		request.Contents[0].Parts[0].Text != "hello" {
+		t.Fatalf("request = %#v", request)
+	}
+}
+
+func TestCompleteKeepsSingleUserMessageCompatibility(t *testing.T) {
+	var request openAIChatRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"answer"}}]}`)
+	}))
+	defer server.Close()
+
+	if _, err := New(Options{
+		Provider: config.LLMProviderOpenAI,
+		Model:    "gpt-test",
+		BaseURL:  server.URL,
+	}).Complete(t.Context(), "hello"); err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+	if len(request.Messages) != 1 || request.Messages[0] != (openAIChatMessage{Role: "user", Content: "hello"}) {
+		t.Fatalf("messages = %#v", request.Messages)
 	}
 }
 

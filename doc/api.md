@@ -463,7 +463,7 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - Agents record LLM usage with `POST /v1/internal/runs/{runID}/ai-usage` using an agent service JWT. The endpoint stores run, step, task, provider, model, LLM profile, token totals, metadata, and a per-run usage summary. Run list/detail responses expose that summary as `ai_usage`, while detail step/task rows include their own `ai_usage` totals for API compatibility. Provider token metadata is used when available; otherwise the agent records an estimated token count with `metadata.estimated_tokens=true`. Pipeline final output generation is recorded as the `pipeline_final_output` feature.
 - Monitoring aggregate endpoints accept shared query parameters: `from`, `to`, `groupId`, `pipelinePath`, `pipelineName`, `repo`, `runId`, `branch`/`ref`, `commitSHA`, `triggerSource`, `status`, `requestedByType`, `requestedById`, `effectiveSubjectType`, `effectiveSubjectId`, `externalTriggerId`, `scheduleId`, `minDurationSeconds`, `maxDurationSeconds`, and `compare=previous_period`. The UI fetches the shifted previous window and renders regression deltas on Monitoring tabs when comparison is enabled. Pipeline Runs usage links open Monitoring with `tab=ai-usage&runId=<pipeline-run-id>` and use an all-time window for that run-scoped drilldown.
 - Monitoring aggregate endpoints first load candidate run IDs in Postgres, filter them through AAA with `pipeline_run.list`, then aggregate only visible run IDs. External trigger analytics also filters trigger-only rows with `external_trigger.read` so failed invocations that did not create runs are still governed.
-- `GET /metrics` emits Prometheus text format. Metrics are DB-backed and include pipeline run counters, final output counters by status/type/pipeline, duration, queue-duration and end-to-end histograms, active/pending/approval gauges, step/task counters, notification delivery counters, external trigger invocation counters, LLM token counters, runner capacity/job/heartbeat gauges, pending approval wait histograms, and audit event counters by provider/action/result.
+- `GET /metrics` emits Prometheus text format. Metrics are DB-backed and include pipeline run counters, final output status/generation-attempt/contract-violation/retry/render-attempt/render-failure counters by type and pipeline, duration, queue-duration and end-to-end histograms, active/pending/approval gauges, step/task counters, notification delivery counters, external trigger invocation counters, LLM token counters, runner capacity/job/heartbeat gauges, pending approval wait histograms, and audit event counters by provider/action/result.
 - `GET /v1/system/dispatcher/scopes` returns existing scope names from runner defaults, dispatcher routing, variables, secrets, and run history. It is used by the runner install UI for multi-select scope choices.
 - `GET /v1/internal/dispatcher/routing` is dispatcher-internal. The live dispatcher polls it with a service-auth JWT and updates its in-memory routing table without a restart.
 - Runner install command generation, Kubernetes manifest generation, and runner dispatch pause/resume remain under `System > Dispatcher` and require dispatcher runner management access.
@@ -1601,11 +1601,18 @@ curl -X DELETE \
   `when: success`, `when: failure`, or `when: always` to keep success reports
   and failure reports separate. Run detail responses include
   `final_outputs` with output ID, name, type, status, content, error,
-  LLM profile, and timestamps.
+  LLM profile, `generation_attempts`, `contract_violations`, `render_attempts`,
+  `render_failures`, and timestamps. PDF/HTML content is versioned
+  `DocumentSpec` JSON; Excel content is versioned `SpreadsheetSpec` JSON.
+- Final-output LLM calls use a provider-level system contract requiring one
+  `<final_output>` element. NopsAI stores only the element content, retries one
+  time for missing or invalid contract output, forces temperature `0`, and
+  records AI usage for rejected and accepted attempts.
 - `GET /v1/runs/{runID}/outputs/{outputID}/download` uses the same
   approval-aware run-read authorization as run details and returns rendered
-  Markdown, JSON, sanitized HTML, Markdown-rendered PDF, or Excel-compatible
-  XLSX content for successful final outputs.
+  Markdown, JSON, server-templated HTML, Gotenberg/Chromium PDF, or typed
+  Excelize XLSX content for successful final outputs. Existing pre-schema rich
+  outputs use download-only compatibility adapters.
 - `GET /v1/runs?groupId=<id>` returns runs for a Pipeline Runs group and its
   descendants, grouped by branch for the Main view. `groupId=root` returns runs
   with no group assignment.

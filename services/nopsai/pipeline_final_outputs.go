@@ -3,10 +3,8 @@ package nopsai
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
@@ -38,16 +36,6 @@ type pipelineFinalOutputRunContext struct {
 	Text  string
 	Scope string
 }
-
-var (
-	htmlScriptBlockPattern = regexp.MustCompile(`(?is)<script\b[^>]*>.*?</script>`)
-	htmlFrameBlockPattern  = regexp.MustCompile(`(?is)<iframe\b[^>]*>.*?</iframe>`)
-	htmlObjectBlockPattern = regexp.MustCompile(`(?is)<object\b[^>]*>.*?</object>`)
-	htmlEmbedTagPattern    = regexp.MustCompile(`(?is)</?(script|iframe|object|embed|link|meta)\b[^>]*>`)
-	htmlEventAttrPattern   = regexp.MustCompile(`(?is)\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)`)
-	htmlStyleAttrPattern   = regexp.MustCompile(`(?is)\s+style\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)`)
-	htmlJavascriptPattern  = regexp.MustCompile(`(?is)javascript\s*:`)
-)
 
 func (a *App) preparePipelineFinalOutputRecords(ctx context.Context, runID string) error {
 	record, err := runquery.LoadRunRecord(ctx, a.db, runID)
@@ -96,6 +84,14 @@ func (a *App) preparePipelineFinalOutputRecords(ctx context.Context, runID strin
 					WHEN pipeline_run_outputs.status = 'success' THEN pipeline_run_outputs.error
 					ELSE ''
 				END,
+				generation_attempts = CASE
+					WHEN pipeline_run_outputs.status = 'success' THEN pipeline_run_outputs.generation_attempts
+					ELSE 0
+				END,
+				contract_violations = CASE
+					WHEN pipeline_run_outputs.status = 'success' THEN pipeline_run_outputs.contract_violations
+					ELSE 0
+				END,
 				updated_at = NOW()
 		`, runID, idx, name, outputType, prompt, profileName)
 		if err != nil {
@@ -142,7 +138,9 @@ func (a *App) generatePipelineFinalOutputs(ctx context.Context, runID string) {
 
 func (a *App) loadPipelineFinalOutputsForGeneration(ctx context.Context, runID string) ([]pipelineFinalOutputRecord, error) {
 	rows, err := a.db.Query(ctx, `
-		SELECT id::text, item_index, name, type, prompt, llm_profile, status, content, error, created_at, updated_at
+		SELECT id::text, item_index, name, type, prompt, llm_profile, status, content, error,
+		       generation_attempts, contract_violations, render_attempts, render_failures,
+		       created_at, updated_at
 		FROM pipeline_run_outputs
 		WHERE run_id = $1 AND status <> 'success'
 		ORDER BY item_index ASC, created_at ASC
@@ -165,6 +163,10 @@ func (a *App) loadPipelineFinalOutputsForGeneration(ctx context.Context, runID s
 			&output.Status,
 			&output.Content,
 			&output.Error,
+			&output.GenerationAttempts,
+			&output.ContractViolations,
+			&output.RenderAttempts,
+			&output.RenderFailures,
 			&output.CreatedAt,
 			&output.UpdatedAt,
 		); err != nil {
@@ -190,25 +192,45 @@ func (a *App) generatePipelineFinalOutput(ctx context.Context, runID string, run
 		return err
 	}
 	prompt := buildPipelineFinalOutputPrompt(runContext.Text, output)
-	completion, err := client.Complete(ctx, prompt)
+	result, err := generateValidatedPipelineFinalOutput(ctx, client, output.Type, prompt)
+	a.recordPipelineFinalOutputAttemptUsage(ctx, runID, output, result)
 	if err != nil {
-		_ = a.markPipelineFinalOutputFailure(ctx, output.ID, err)
-		return err
-	}
-	content, err := normalizePipelineFinalOutputContent(output.Type, completion.Text)
-	if err != nil {
-		_ = a.markPipelineFinalOutputFailure(ctx, output.ID, err)
+		_ = a.markPipelineFinalOutputFailureWithResult(ctx, output.ID, err, result)
 		return err
 	}
 	if _, err := a.db.Exec(ctx, `
 		UPDATE pipeline_run_outputs
-		SET status = 'success', content = $2, error = '', updated_at = NOW()
+		SET status = 'success', content = $2, error = '',
+		    generation_attempts = $3, contract_violations = $4, updated_at = NOW()
 		WHERE id = $1
-	`, output.ID, content); err != nil {
+	`, output.ID, result.Content, len(result.Attempts), result.ContractViolations); err != nil {
 		return err
 	}
-	if usage := completion.Usage; usage.PromptTokens > 0 || usage.CompletionTokens > 0 || usage.TotalTokens > 0 {
-		_ = a.recordAIUsage(ctx, runID, models.AIUsageReport{
+	return nil
+}
+
+func (a *App) recordPipelineFinalOutputAttemptUsage(
+	ctx context.Context,
+	runID string,
+	output pipelineFinalOutputRecord,
+	result pipelineFinalOutputGenerationResult,
+) {
+	for _, report := range pipelineFinalOutputAttemptUsageReports(output, result) {
+		_ = a.recordAIUsage(ctx, runID, report)
+	}
+}
+
+func pipelineFinalOutputAttemptUsageReports(
+	output pipelineFinalOutputRecord,
+	result pipelineFinalOutputGenerationResult,
+) []models.AIUsageReport {
+	reports := make([]models.AIUsageReport, 0, len(result.Attempts))
+	for index, attempt := range result.Attempts {
+		usage := attempt.Completion.Usage
+		if usage.PromptTokens == 0 && usage.CompletionTokens == 0 && usage.TotalTokens == 0 {
+			continue
+		}
+		reports = append(reports, models.AIUsageReport{
 			Feature:          pipelineFinalOutputFeature,
 			Provider:         usage.Provider,
 			Model:            usage.Model,
@@ -217,17 +239,34 @@ func (a *App) generatePipelineFinalOutput(ctx context.Context, runID string, run
 			CompletionTokens: usage.CompletionTokens,
 			TotalTokens:      usage.TotalTokens,
 			Metadata: map[string]any{
-				"output_id":   output.ID,
-				"output_name": output.Name,
-				"output_type": output.Type,
-				"estimated":   usage.Estimated,
+				"output_id":      output.ID,
+				"output_name":    output.Name,
+				"output_type":    output.Type,
+				"estimated":      usage.Estimated,
+				"attempt":        index + 1,
+				"retry":          index > 0,
+				"contract_valid": attempt.ContractValid,
 			},
 		})
 	}
-	return nil
+	return reports
 }
 
 func (a *App) markPipelineFinalOutputFailure(ctx context.Context, outputID string, cause error) error {
+	return a.markPipelineFinalOutputFailureWithResult(
+		ctx,
+		outputID,
+		cause,
+		pipelineFinalOutputGenerationResult{},
+	)
+}
+
+func (a *App) markPipelineFinalOutputFailureWithResult(
+	ctx context.Context,
+	outputID string,
+	cause error,
+	result pipelineFinalOutputGenerationResult,
+) error {
 	message := ""
 	if cause != nil {
 		message = strings.TrimSpace(cause.Error())
@@ -235,11 +274,16 @@ func (a *App) markPipelineFinalOutputFailure(ctx context.Context, outputID strin
 	if message == "" {
 		message = "failed to generate final output"
 	}
+	attempts := 0
+	violations := 0
+	attempts = len(result.Attempts)
+	violations = result.ContractViolations
 	_, err := a.db.Exec(ctx, `
 		UPDATE pipeline_run_outputs
-		SET status = 'failure', error = $2, updated_at = NOW()
+		SET status = 'failure', error = $2,
+		    generation_attempts = $3, contract_violations = $4, updated_at = NOW()
 		WHERE id = $1
-	`, outputID, message)
+	`, outputID, message, attempts, violations)
 	return err
 }
 
@@ -295,6 +339,7 @@ func (a *App) pipelineFinalOutputLLMClient(ctx context.Context, profileName, sco
 		}
 		apiKey = value
 	}
+	zeroTemperature := 0.0
 	return llmclient.New(llmclient.Options{
 		Provider:       profile.Provider,
 		Profile:        profileName,
@@ -304,7 +349,7 @@ func (a *App) pipelineFinalOutputLLMClient(ctx context.Context, profileName, sco
 		Reasoning:      config.EffectiveLLMProfileReasoning(profile),
 		TimeoutSeconds: profile.TimeoutSeconds,
 		MaxTokens:      profile.MaxTokens,
-		Temperature:    profile.Temperature,
+		Temperature:    &zeroTemperature,
 		Extra:          cloneStringMap(profile.Extra),
 		HTTPClient:     assistantHTTPClient(a),
 	}), nil
@@ -449,7 +494,7 @@ func buildPipelineFinalOutputPrompt(runContext string, output pipelineFinalOutpu
 	var builder strings.Builder
 	builder.WriteString("You are creating a polished final deliverable for an enterprise pipeline run.\n")
 	builder.WriteString("Use the full run context below, but do not expose secrets, credentials, tokens, or raw environment values.\n")
-	builder.WriteString("Return only the deliverable content. Do not explain how you generated it.\n\n")
+	builder.WriteString("The system output contract defines the required response envelope.\n\n")
 	builder.WriteString("Output name: " + output.Name + "\n")
 	builder.WriteString("Output type: " + output.Type + "\n")
 	builder.WriteString("Format requirements: " + pipelineFinalOutputFormatGuidance(output.Type) + "\n\n")
@@ -463,59 +508,29 @@ func buildPipelineFinalOutputPrompt(runContext string, output pipelineFinalOutpu
 func pipelineFinalOutputFormatGuidance(outputType string) string {
 	switch normalizePipelineFinalOutputType(outputType) {
 	case "markdown":
-		return "Return clean Markdown suitable for preview and copy."
+		return "Inside <final_output>, provide clean Markdown suitable for preview and copy."
 	case "pdf":
-		return "Return a concise Markdown report with headings, bullets, and simple tables; Nopsai will render it as a PDF for download."
+		return pipelineDocumentSpecGuidance("PDF")
 	case "excel":
-		return "Return a single Markdown table or comma-separated table. Keep column names clear and rows business-readable."
+		return `Inside <final_output>, provide only a SpreadsheetSpec JSON object. Use {"version":"1","title":"...","sheets":[{"name":"Summary","columns":[{"key":"name","header":"Name","width":24,"number_format":"text"}],"rows":[{"name":"Example"}],"freeze_header":true,"auto_filter":true}]}. Column keys must start with a letter and contain only letters, numbers, or underscores. Cell values must be JSON strings, numbers, booleans, or null. Supported number_format values are text, integer, decimal, percent, currency_usd, currency_eur, date, datetime, and boolean.`
 	case "json":
-		return "Return valid JSON only, without Markdown fences."
+		return "Inside <final_output>, provide valid JSON without Markdown fences or commentary."
 	case "html":
-		return "Return safe, self-contained HTML body content without scripts."
+		return pipelineDocumentSpecGuidance("HTML")
 	default:
-		return "Return concise business-readable text."
+		return "Inside <final_output>, provide concise business-readable text."
 	}
 }
 
-func normalizePipelineFinalOutputContent(outputType, raw string) (string, error) {
-	content := strings.TrimSpace(raw)
-	content = strings.TrimPrefix(content, "\ufeff")
-	if content == "" {
-		return "", fmt.Errorf("LLM returned empty final output")
-	}
-	if normalizePipelineFinalOutputType(outputType) == "json" {
-		content = stripMarkdownFence(content)
-		if !json.Valid([]byte(content)) {
-			return "", fmt.Errorf("LLM returned invalid JSON for final output")
-		}
-	}
-	if normalizePipelineFinalOutputType(outputType) == "html" {
-		content = sanitizePipelineFinalOutputHTML(content)
-	}
-	return content, nil
-}
-
-func sanitizePipelineFinalOutputHTML(content string) string {
-	content = htmlScriptBlockPattern.ReplaceAllString(content, "")
-	content = htmlFrameBlockPattern.ReplaceAllString(content, "")
-	content = htmlObjectBlockPattern.ReplaceAllString(content, "")
-	content = htmlEmbedTagPattern.ReplaceAllString(content, "")
-	content = htmlEventAttrPattern.ReplaceAllString(content, "")
-	content = htmlStyleAttrPattern.ReplaceAllString(content, "")
-	content = htmlJavascriptPattern.ReplaceAllString(content, "")
-	return strings.TrimSpace(content)
-}
-
-func stripMarkdownFence(content string) string {
-	content = strings.TrimSpace(content)
-	if !strings.HasPrefix(content, "```") {
-		return content
-	}
-	lines := strings.Split(content, "\n")
-	if len(lines) >= 2 && strings.HasPrefix(strings.TrimSpace(lines[0]), "```") && strings.HasPrefix(strings.TrimSpace(lines[len(lines)-1]), "```") {
-		return strings.TrimSpace(strings.Join(lines[1:len(lines)-1], "\n"))
-	}
-	return content
+func pipelineDocumentSpecGuidance(target string) string {
+	return `Inside <final_output>, provide only a DocumentSpec JSON object for ` + target + `. ` +
+		`Use {"version":"1","title":"...","subtitle":"...","metadata":[{"label":"Run","value":"..."}],` +
+		`"sections":[{"title":"Summary","blocks":[...]}]}. ` +
+		`Supported blocks are {"type":"paragraph","text":"..."}, ` +
+		`{"type":"bullet_list","items":["..."]}, {"type":"numbered_list","items":["..."]}, ` +
+		`{"type":"table","table":{"columns":["..."],"rows":[["..."]]}}, and ` +
+		`{"type":"callout","title":"...","tone":"info|success|warning|critical","text":"..."}. ` +
+		`Every section requires a title and at least one block. Do not include Markdown or HTML.`
 }
 
 func resolvePipelineFinalOutputProfileName(defaultProfile string, pipeline models.Pipeline, item models.PipelineOutputItem) string {
@@ -589,7 +604,9 @@ func writeFinalOutputTime(builder *strings.Builder, label string, value time.Tim
 func (a *App) loadPipelineFinalOutputForDownload(ctx context.Context, runID, outputID string) (models.PipelineRunFinalOutput, error) {
 	var output models.PipelineRunFinalOutput
 	err := a.db.QueryRow(ctx, `
-		SELECT id::text, name, type, status, content, error, llm_profile, created_at, updated_at
+		SELECT id::text, name, type, status, content, error, llm_profile,
+		       generation_attempts, contract_violations, render_attempts, render_failures,
+		       created_at, updated_at
 		FROM pipeline_run_outputs
 		WHERE run_id = $1 AND id::text = $2
 	`, runID, outputID).Scan(
@@ -600,6 +617,10 @@ func (a *App) loadPipelineFinalOutputForDownload(ctx context.Context, runID, out
 		&output.Content,
 		&output.Error,
 		&output.LLMProfile,
+		&output.GenerationAttempts,
+		&output.ContractViolations,
+		&output.RenderAttempts,
+		&output.RenderFailures,
 		&output.CreatedAt,
 		&output.UpdatedAt,
 	)
@@ -610,4 +631,22 @@ func (a *App) loadPipelineFinalOutputForDownload(ctx context.Context, runID, out
 		return output, err
 	}
 	return output, nil
+}
+
+func (a *App) recordPipelineFinalOutputRenderResult(ctx context.Context, outputID string, success bool) {
+	if a == nil || a.db == nil || strings.TrimSpace(outputID) == "" {
+		return
+	}
+	failureIncrement := 0
+	if !success {
+		failureIncrement = 1
+	}
+	if _, err := a.db.Exec(ctx, `
+		UPDATE pipeline_run_outputs
+		SET render_attempts = render_attempts + 1,
+		    render_failures = render_failures + $2
+		WHERE id::text = $1
+	`, outputID, failureIncrement); err != nil {
+		log.Warn().Err(err).Str("output_id", outputID).Msg("Failed to record final output render audit")
+	}
 }
