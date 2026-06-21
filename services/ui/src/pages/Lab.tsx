@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import { Check, RefreshCw } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { apiClient } from '../lib/api';
 import { normalizeRuntimePoolNames } from '../features/editor/autocomplete';
 import { YamlValidationPanel } from '../features/editor/YamlValidationPanel';
 import { LabDependencyPanel } from '../features/lab/LabDependencyPanel';
 import { LabRunControls } from '../features/lab/LabRunControls';
 import { LabSuggestionPortals } from '../features/lab/LabSuggestionPortals';
 import { LabVariableOverrides } from '../features/lab/LabVariableOverrides';
-import { fetchLabAgentProfilesMetadata } from '../features/lab/api';
+import {
+  fetchLabAutocompleteMetadata,
+  fetchLabPipelines,
+  fetchLabScopes,
+  type LabPipelineListItem,
+} from '../features/lab/api';
 import { parseLabIncludedDependencies } from '../features/lab/model';
 import {
   buildInlineSuggestionPreview,
@@ -33,7 +37,7 @@ import {
 } from '../lib/lab';
 import { renderYamlHighlight } from '../lib/yamlRenderer';
 
-type PipelineListItem = { id: string; source?: string };
+type PipelineListItem = LabPipelineListItem;
 
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
 
@@ -204,16 +208,15 @@ function LabPage() {
     setAutocompleteMeta(prev => ({ ...prev, loading: true }));
     try {
       const promise = (async () => {
-        const scopeParam = scopeValue ? `?scope=${encodeURIComponent(scopeValue)}` : '';
-        const [secretsResp, varsResp, stepsResp, agentProfilesResp, llmProfilesResp, mcpProfilesResp, runtimeConfigResp] = await Promise.all([
-          apiClient.fetch(`/v1/secrets${scopeParam}`).then(r => (r.ok ? r.json() : [])),
-          apiClient.fetch(`/v1/variables${scopeParam}`).then(r => (r.ok ? r.json() : [])),
-          apiClient.fetch('/v1/steps').then(r => (r.ok ? r.json() : [])),
-          fetchLabAgentProfilesMetadata(),
-          apiClient.fetch(`/v1/system/llm-profiles${scopeParam}`).then(r => (r.ok ? r.json() : null)),
-          apiClient.fetch('/v1/system/mcp/profiles').then(r => (r.ok ? r.json() : null)),
-          apiClient.fetch('/v1/system/config').then(r => (r.ok ? r.json() : null)),
-        ]);
+        const {
+          secrets: secretsResp,
+          variables: varsResp,
+          steps: stepsResp,
+          agentProfiles: agentProfilesResp,
+          llmProfiles: llmProfilesResp,
+          mcpProfiles: mcpProfilesResp,
+          runtimeConfig: runtimeConfigResp,
+        } = await fetchLabAutocompleteMetadata(scopeValue);
 
         setAutocompleteMeta({
           secrets: normalizeLabSuggestionList(secretsResp),
@@ -249,28 +252,7 @@ function LabPage() {
     setPipelinesLoading(true);
     setPipelinesError(null);
     try {
-      const response = await apiClient.fetch('/v1/pipelines?include_source=true');
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Failed to load pipelines (${response.status})`);
-      }
-      const payload = await response.json();
-      const normalized: PipelineListItem[] = Array.isArray(payload)
-        ? payload
-            .map((item: unknown): PipelineListItem | null => {
-              if (typeof item === 'string') return { id: item };
-              if (item && typeof item === 'object') {
-                const record = item as Record<string, unknown>;
-                const id = typeof record.id === 'string' ? record.id : typeof record.identifier === 'string' ? record.identifier : '';
-                const source = typeof record.source === 'string' ? record.source : undefined;
-                return id ? { id, source } : null;
-              }
-              return null;
-            })
-            .filter((item: PipelineListItem | null): item is PipelineListItem => Boolean(item))
-        : [];
-      normalized.sort((a, b) => a.id.localeCompare(b.id));
-      setPipelines(normalized);
+      setPipelines(await fetchLabPipelines());
     } catch (error) {
       console.error('Failed to load Lab pipelines', error);
       setPipelinesError(error instanceof Error ? error.message : 'Unable to load pipelines');
@@ -282,44 +264,7 @@ function LabPage() {
 
   const loadScopes = useCallback(async () => {
     try {
-      const [secretResp, variableResp] = await Promise.all([
-        apiClient.fetch('/v1/secrets/scopes'),
-        apiClient.fetch('/v1/variables/scopes'),
-      ]);
-
-      const secretJson = secretResp.ok ? await secretResp.json() : [];
-      const variableJson = variableResp.ok ? await variableResp.json() : [];
-
-      const scopeSet = new Set<string>();
-      scopeSet.add('');
-
-      if (Array.isArray(secretJson)) {
-        secretJson.forEach(entry => {
-          if (!entry || typeof entry !== 'object') return;
-          const record = entry as Record<string, unknown>;
-          const label = normalizeLabScopeLabel(record.scope);
-          scopeSet.add(label);
-        });
-      }
-
-      if (Array.isArray(variableJson)) {
-        variableJson.forEach(entry => {
-          if (typeof entry === 'string') {
-            scopeSet.add(normalizeLabScopeLabel(entry));
-            return;
-          }
-          if (!entry || typeof entry !== 'object') return;
-          const record = entry as Record<string, unknown>;
-          const label = normalizeLabScopeLabel(record.scope ?? record.name ?? record.value);
-          scopeSet.add(label);
-        });
-      }
-
-      const normalized = Array.from(scopeSet)
-        .map(normalizeLabScopeLabel)
-        .filter(scope => scope !== null)
-        .sort((a, b) => a.localeCompare(b));
-      setScopes(normalized);
+      setScopes(await fetchLabScopes());
     } catch (error) {
       console.warn('Failed to load scopes', error);
       setScopes([]);
