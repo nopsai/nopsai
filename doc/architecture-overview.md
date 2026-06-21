@@ -52,7 +52,7 @@ Feedback flows in the opposite direction:
 - Agent -> dispatcher -> nopsai for logs, task status, and final status
 - nopsai -> aaa for authorization checks and filtered list decisions
 - nopsai -> git-bot for GitHub check-run updates
-- nopsai -> UI through authenticated REST reads and periodic polling
+- nopsai -> UI through authenticated REST reads, periodic polling, and authenticated SSE fetch streams for System Logs
 
 ## Core Runtime Model
 
@@ -69,6 +69,7 @@ The control plane lives mostly in `services/nopsai`, `services/aaa`, `services/g
   They normalize and audit ingress but intentionally do not own provider
   repository reads or status/check APIs.
 - `dispatcher` keeps runners connected over gRPC, chooses an eligible runner, and forwards agent updates back into protected `nopsai` endpoints using a service-auth JWT.
+- System Logs uses a bounded in-memory broker and an allow-listed provider contract. Docker deployments read through a least-privilege socket proxy; the NopsAI API never mounts the Docker socket and platform logs are not persisted in pipeline history.
 
 ### Data plane
 

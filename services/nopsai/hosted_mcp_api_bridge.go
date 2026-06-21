@@ -329,6 +329,8 @@ func hostedMCPAPIRouteAllowed(method, rawPath string) error {
 		return fmt.Errorf("authentication bootstrap/session routes are not exposed through hosted MCP")
 	case method == http.MethodGet && strings.HasPrefix(pathOnly, "/v1/system/data/backups/") && strings.HasSuffix(pathOnly, "/download"):
 		return fmt.Errorf("backup downloads are not exposed through hosted MCP")
+	case method == http.MethodGet && strings.HasPrefix(pathOnly, "/v1/system/logs/sources/") && strings.HasSuffix(pathOnly, "/stream"):
+		return fmt.Errorf("long-lived system log streams are not exposed through hosted MCP; use the bounded tail tool")
 	default:
 		return nil
 	}

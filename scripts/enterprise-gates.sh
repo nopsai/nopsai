@@ -69,6 +69,7 @@ require_tool docker
 run docker build -t nopsai-base:ci -f Dockerfile .
 run docker build -t nopsai-agent:ci -f container/Dockerfile.agent .
 run docker build -t nopsai-aaa:ci -f container/Dockerfile.aaa .
+run docker build -t nopsai-docker-socket-proxy:ci -f container/Dockerfile.socket-proxy .
 run docker build -t nopsai-pipeline:ci -f container/Dockerfile.pipeline .
 run docker build --build-arg BASE_IMAGE=nopsai-base:ci -t nopsai-api:ci -f container/Dockerfile.nopsai .
 run docker build --build-arg BASE_IMAGE=nopsai-base:ci -t nopsai-dispatcher:ci -f container/Dockerfile.dispatcher .

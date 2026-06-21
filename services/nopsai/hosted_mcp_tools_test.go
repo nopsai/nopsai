@@ -814,3 +814,39 @@ func TestHostedMCPUIContextIsContextualOnly(t *testing.T) {
 		t.Fatalf("surfaces = %#v", surfaces)
 	}
 }
+
+func TestHostedMCPSystemLogToolsArePermissionBoundAndBounded(t *testing.T) {
+	app := &App{aaaLocal: allowActionsForAssistantTest("system_log.read")}
+	tools := app.hostedMCPToolsForSubject(context.Background(), model.Subject{Type: model.SubjectTypeUser, Sub: "operator"})
+	available := map[string]bool{}
+	for _, tool := range tools {
+		available[tool.Name] = true
+	}
+	for _, name := range []string{"nopsai.list_system_log_sources", "nopsai.tail_system_logs"} {
+		if !available[name] {
+			t.Fatalf("tool %q missing from filtered tools/list", name)
+		}
+	}
+	if err := hostedMCPAPIRouteAllowed(http.MethodGet, "/v1/system/logs/sources/dispatcher/stream"); err == nil || !strings.Contains(err.Error(), "bounded tail") {
+		t.Fatalf("stream route error = %v, want bounded-tail guidance", err)
+	}
+}
+
+func TestHostedMCPSystemLogToolsSupportSourceScopedPermission(t *testing.T) {
+	app := &App{aaaLocal: stubAAAAuthorizer{checkFn: func(_ context.Context, _ model.Subject, action string, resource model.ResourceRef, _ map[string]any) (model.Decision, error) {
+		return model.Decision{Allowed: action == "system_log.read" && resource.Type == "system_log" && resource.ID == "dispatcher"}, nil
+	}}}
+	tools := app.hostedMCPToolsForSubject(context.Background(), model.Subject{Type: model.SubjectTypeUser, Sub: "operator"})
+	for _, wanted := range []string{"nopsai.list_system_log_sources", "nopsai.tail_system_logs"} {
+		found := false
+		for _, tool := range tools {
+			if tool.Name == wanted {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("source-scoped subject is missing %s", wanted)
+		}
+	}
+}

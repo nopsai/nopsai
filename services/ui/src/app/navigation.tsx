@@ -79,6 +79,7 @@ export const baseSystemSubNav: NavItem[] = [
   { label: 'Credentials', path: '/system/credentials', icon: <ObjectIcon type="credential" /> },
   { label: 'Data Management', path: '/system/data-management', icon: <ObjectIcon type="data-management" /> },
   { label: 'Dispatcher', path: '/system/dispatcher', icon: <ObjectIcon type="dispatcher" /> },
+  { label: 'Logs', path: '/system/logs', icon: <ObjectIcon type="system-logs" /> },
   { label: 'Access', path: '/system/access', icon: <ObjectIcon type="access" /> },
 ];
 

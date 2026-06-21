@@ -4,15 +4,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"nopsai/config"
 	"nopsai/pkg/serviceauth"
+	"nopsai/pkg/servicelog"
 	"nopsai/pkg/servicetls"
 	"nopsai/pkg/startupgates"
 	"nopsai/services/k8s-runner/internal/service"
 
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -98,14 +97,9 @@ func Run() {
 }
 
 func configureLogging(cfg *config.Config) {
-	logLevel, err := zerolog.ParseLevel(cfg.LogLevel)
-	if err != nil {
-		logLevel = zerolog.InfoLevel
+	if err := servicelog.Configure(cfg.LogLevel, cfg.LogFormat); err != nil {
+		log.Warn().Str("log_level", cfg.LogLevel).Msg("Invalid log level; defaulting to info")
 	}
-	if cfg.LogFormat == "console" {
-		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.Kitchen})
-	}
-	zerolog.SetGlobalLevel(logLevel)
 }
 
 func kubernetesRESTConfig() (*rest.Config, error) {

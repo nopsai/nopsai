@@ -19,6 +19,8 @@ NopsAI now has a dedicated AAA service plus an in-process fallback evaluator ins
 
 1. `services/nopsai/pkg/auth` validates the bearer token and places auth claims in the request context.
 2. `services/nopsai/pkg/routeauthz` maps the HTTP route to an action/resource pair such as `pipeline.update` on `pipeline:team/build`.
+
+System Logs uses the dedicated `system_log.read` action on `system_log:<sourceID>`. Source discovery is filtered per resource, so a role can grant one service without exposing the remaining platform source catalog. Stream audit events record actor, source, open/close, and result but never log content.
 3. `nopsai` builds an AAA subject:
    - normal callers become `user` subjects based on JWT `sub` and `email`
    - dispatcher internal calls become `internal_service:dispatcher`

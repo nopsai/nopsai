@@ -108,6 +108,21 @@ Enterprise authentication follows the same split:
 - UI rendering for Identity Providers lives in
   `services/ui/src/features/system/access/IdentityProvidersWorkspace.tsx`.
 
+## System Logs Ownership
+
+- Model, registry, signed cursor, redaction, ring buffer, fan-out, limits, and
+  provider contracts live in `services/nopsai/internal/systemlogs`.
+- Docker list/inspect/log transport and multiplexed stream decoding live in
+  `services/nopsai/internal/systemlogs/docker`.
+- API, SSE heartbeat/reset composition, and content-free stream audit events
+  live in `services/nopsai/system_logs_handlers.go`; route composition remains
+  in `services/nopsai/routes.go` and route authorization in `pkg/routeauthz`.
+- UI transport lives in `services/ui/src/features/system/logs/api.ts`, hook and
+  reconnect orchestration in `useSystemLogs.ts`, data contracts in `types.ts`,
+  and rendering in `SystemLogsPanel.tsx`.
+- Docker proxy topology is deployment-owned in `docker-compose.yaml`; metrics
+  are exposed by the existing `services/nopsai/metrics.go` owner.
+
 ## Pipeline Final Output Ownership
 
 - Provider-specific system instruction transport lives in `pkg/llmclient`.

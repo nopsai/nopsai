@@ -14,9 +14,14 @@ type composeDocument struct {
 
 type composeService struct {
 	ContainerName string            `yaml:"container_name"`
+	Image         string            `yaml:"image"`
 	Hostname      string            `yaml:"hostname"`
 	Environment   map[string]string `yaml:"environment"`
 	EnvFile       []string          `yaml:"env_file"`
+	Volumes       []string          `yaml:"volumes"`
+	ReadOnly      bool              `yaml:"read_only"`
+	SecurityOpt   []string          `yaml:"security_opt"`
+	CapDrop       []string          `yaml:"cap_drop"`
 }
 
 func TestDockerComposeDoesNotDependOnTrackedEnvFile(t *testing.T) {
@@ -126,6 +131,30 @@ func TestDockerComposeProvidesLocalBootstrapTopology(t *testing.T) {
 	assertEnvValue(t, compose, "git-bot", "GIT_BOT_NOPSAI_API_URL", "http://nopsai:8080")
 	assertEnvValue(t, compose, "docker-runner", "DISPATCHER_ADDRESS", "dispatcher:9090")
 	assertEnvValue(t, compose, "docker-runner", "DOCKER_NETWORK_NAME", "nopsai-net")
+	assertEnvValue(t, compose, "nopsai", "SYSTEM_LOGS_DOCKER_HOST", "tcp://docker-socket-proxy:2375")
+}
+
+func TestDockerComposeUsesReadOnlySocketProxyForSystemLogs(t *testing.T) {
+	compose := readCompose(t)
+	proxy, exists := compose.Services["docker-socket-proxy"]
+	if !exists {
+		t.Fatal("docker-socket-proxy service is missing")
+	}
+	if proxy.ContainerName != "nopsai-docker-socket-proxy" || proxy.Image != "hoseindocker/nopsai-docker-socket-proxy" {
+		t.Fatalf("socket proxy identity = %q %q", proxy.ContainerName, proxy.Image)
+	}
+	if !proxy.ReadOnly || !containsString(proxy.SecurityOpt, "no-new-privileges:true") || !containsString(proxy.CapDrop, "ALL") {
+		t.Fatalf("socket proxy hardening is incomplete: %#v", proxy)
+	}
+	if !containsString(proxy.Volumes, "/var/run/docker.sock:/var/run/docker.sock:ro") {
+		t.Fatalf("socket proxy volume = %#v, want read-only Docker socket", proxy.Volumes)
+	}
+	if proxy.Environment["ALLOWED_CONTAINERS"] != "nopsai,nopsai-aaa,nopsai-dispatcher,nopsai-git-bot,nopsai-ui,nopsai-docker-runner" {
+		t.Fatalf("socket proxy allow-list = %q", proxy.Environment["ALLOWED_CONTAINERS"])
+	}
+	if nopsai := compose.Services["nopsai"]; containsSubstring(nopsai.Volumes, "docker.sock") {
+		t.Fatal("nopsai service must not mount the Docker socket")
+	}
 }
 
 func TestProductRuntimeSettingsStayOutOfConfigYAML(t *testing.T) {
@@ -192,4 +221,22 @@ func readCompose(t *testing.T) composeDocument {
 		t.Fatalf("parse docker-compose.yaml: %v", err)
 	}
 	return compose
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsSubstring(values []string, want string) bool {
+	for _, value := range values {
+		if strings.Contains(value, want) {
+			return true
+		}
+	}
+	return false
 }

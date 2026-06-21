@@ -67,8 +67,8 @@ The script runs:
 - `golangci-lint run ./...`
 - `gosec ./...`
 - `govulncheck ./...`
-- Docker build checks for the base image, all Go service images, the pipeline
-  helper image, and the UI image
+- Docker build checks for the base image, all Go service images including the
+  restricted Docker socket proxy, the pipeline helper image, and the UI image
 
 `scripts/test-backend.sh` tests `config`, shared Go packages, and every service
 except `services/ui`. This keeps frontend dependencies under `node_modules`

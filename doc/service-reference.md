@@ -8,6 +8,11 @@ Primary role:
 
 - Main API and control-plane brain.
 
+Operational logging defaults to `info` when `log_level`/`LOG_LEVEL` is omitted
+or blank. Use the explicit `disabled` level when a deployment intentionally
+suppresses service container logs. Routine events (`trace` through `info`) are
+written to stdout; warnings and errors are written to stderr.
+
 Responsibilities:
 
 - Enforces optional enterprise startup gates for production deployments,
@@ -191,6 +196,8 @@ Key files:
 - `services/nopsai/data_management*.go`
 - `services/nopsai/mcp*.go`
 - `services/nopsai/schedules*.go`
+- `services/nopsai/system_logs_handlers.go`
+- `services/nopsai/internal/systemlogs`: Allow-listed source registry, signed cursors, redaction, bounded replay/fan-out broker, metrics, and Docker provider.
 
 Important subpackages:
 
@@ -205,6 +212,7 @@ Important subpackages:
 Inbound interfaces:
 
 - Browser/UI HTTP traffic
+- Authenticated System Logs SSE traffic through the shared API client
 - `git-bot` forwarded GitHub events
 - GitLab, Bitbucket, Gitea, and generic Git webhook deliveries
 - Internal dispatcher-authenticated HTTP calls for logs, task updates, finalization, pipeline fetches, and child pipeline creation

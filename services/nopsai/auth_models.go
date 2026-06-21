@@ -70,6 +70,7 @@ type authSystemCapabilities struct {
 	ConfigReposWrite   bool `json:"config_repos_write"`
 	DispatcherRead     bool `json:"dispatcher_read"`
 	DispatcherWrite    bool `json:"dispatcher_write"`
+	LogsRead           bool `json:"logs_read"`
 	Access             bool `json:"access"`
 }
 

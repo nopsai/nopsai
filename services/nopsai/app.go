@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"nopsai/services/nopsai/internal/systemlogs"
 	"nopsai/services/nopsai/pkg/audit"
 	"nopsai/services/nopsai/pkg/auth"
 	"nopsai/services/nopsai/pkg/authz"
@@ -59,6 +60,8 @@ type App struct {
 	aaaRetryAfter      time.Time
 	authz              *authz.Enforcer
 	auditLogger        *audit.Logger
+	systemLogs         *systemlogs.Broker
+	systemLogLimiter   *systemLogRateLimiter
 	tokenActivity      sync.Map
 
 	runnerBootstrapMu     sync.Mutex

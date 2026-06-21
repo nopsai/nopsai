@@ -10,6 +10,7 @@ import (
 	"nopsai/config"
 	"nopsai/pkg/serviceauth"
 	"nopsai/services/nopsai/internal/credentials"
+	"nopsai/services/nopsai/internal/systemlogs"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -31,6 +32,7 @@ type AppOptions struct {
 	LocalAAAClient       AAAClient
 	ConfigPath           string
 	EnvFilePath          string
+	SystemLogProvider    systemlogs.Provider
 }
 
 func NewApp(ctx context.Context, options AppOptions) (*App, error) {
@@ -65,6 +67,10 @@ func NewApp(ctx context.Context, options AppOptions) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("initialize credential service: %w", err)
 	}
+	systemLogBroker, err := newSystemLogBroker(options.Config, options.SystemLogProvider)
+	if err != nil {
+		return nil, fmt.Errorf("initialize system logs: %w", err)
+	}
 
 	app := &App{
 		db:                 options.Database,
@@ -89,6 +95,8 @@ func NewApp(ctx context.Context, options AppOptions) (*App, error) {
 		aaaLocal:           security.localAAA,
 		authz:              security.authz,
 		auditLogger:        security.auditLogger,
+		systemLogs:         systemLogBroker,
+		systemLogLimiter:   newSystemLogRateLimiter(30, time.Minute),
 		configSyncStatus: ConfigSyncStatus{
 			Status:  "idle",
 			Message: "No configuration sync has been requested yet.",

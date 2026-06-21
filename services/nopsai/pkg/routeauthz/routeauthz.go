@@ -23,6 +23,10 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		return "iam.admin", model.ResourceRef{Type: "iam", ID: "admin"}, false, nil
 	case strings.HasPrefix(path, "/v1/audit"):
 		return "audit.read", model.ResourceRef{Type: "audit", ID: "authz"}, false, nil
+	case path == "/v1/system/logs/sources":
+		return "system_log.read", model.ResourceRef{Type: "system_log", ID: "*"}, true, nil
+	case strings.HasPrefix(path, "/v1/system/logs/sources/"):
+		return "system_log.read", SystemLogResource(pathValueOrSegment(r, "sourceID", 4)), false, nil
 	case path == "/v1/system/credentials":
 		if r.Method == http.MethodGet {
 			return "credential.list_metadata", model.ResourceRef{Type: "credential", ID: "*"}, false, nil
@@ -349,6 +353,10 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 	}
 
 	return "", model.ResourceRef{}, false, nil
+}
+
+func SystemLogResource(sourceID string) model.ResourceRef {
+	return model.ResourceRef{Type: "system_log", ID: strings.TrimSpace(sourceID)}
 }
 
 func PipelineResource(path, name string) model.ResourceRef {

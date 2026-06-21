@@ -18,6 +18,7 @@ import (
 	"nopsai/pkg/models"
 	aaamodel "nopsai/services/aaa/pkg/model"
 	"nopsai/services/nopsai/internal/configsync"
+	"nopsai/services/nopsai/internal/systemlogs"
 	"nopsai/services/nopsai/pkg/validation"
 )
 
@@ -128,11 +129,28 @@ func (a *App) hostedMCPToolsForSubject(ctx context.Context, subject aaamodel.Sub
 			tools = append(tools, tool)
 			continue
 		}
+		if hostedMCPSystemLogTool(tool.Name) && a.hostedMCPAnySystemLogAllowed(ctx, subject) {
+			tools = append(tools, tool)
+			continue
+		}
 		if a.hostedMCPAllowed(ctx, subject, hostedMCPToolPermission(tool)) {
 			tools = append(tools, tool)
 		}
 	}
 	return tools
+}
+
+func hostedMCPSystemLogTool(name string) bool {
+	return name == "nopsai.list_system_log_sources" || name == "nopsai.tail_system_logs"
+}
+
+func (a *App) hostedMCPAnySystemLogAllowed(ctx context.Context, subject aaamodel.Subject) bool {
+	for _, source := range systemlogs.DefaultRegistry().Sources() {
+		if a.hostedMCPAllowed(ctx, subject, hostedMCPReadPermission("system_log.read", "system_log", source.ID)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *App) assistantToolEnabledByConfig(tool hostedMCPTool) bool {
