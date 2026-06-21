@@ -2,83 +2,83 @@ name: Publish versioned container images
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
   workflow_dispatch:
-    inputs:
-      version:
-        description: Exact product version from release/compatibility.yaml (for example, 2.7.0)
-        required: true
-        type: string
 
 concurrency:
-  group: publish-ghcr-${{ github.ref_name }}
+  group: publish-ghcr-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   publish:
-    name: Publish GHCR release images
+    name: Publish commit-versioned images and CLI
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     env:
       REGISTRY: ghcr.io
+      PLATFORMS: linux/amd64,linux/arm64
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The generated patch number is the number of commits reachable from
+          # the exact commit being built, so a shallow checkout is not enough.
+          fetch-depth: 0
 
-      - name: Resolve and verify release metadata
+      - name: Calculate build version and compatibility metadata
+        id: metadata
         shell: bash
         run: |
           set -euo pipefail
 
-          requested_version="${{ inputs.version }}"
-          if [[ -z "${requested_version}" ]]; then
-            if [[ "${GITHUB_REF_TYPE}" != "tag" ]]; then
-              echo "workflow_dispatch must provide a version" >&2
-              exit 1
-            fi
-            requested_version="${GITHUB_REF_NAME#v}"
-          fi
-
-          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" != "v${requested_version}" ]]; then
-            echo "tag ${GITHUB_REF_NAME} does not match requested version ${requested_version}" >&2
-            exit 1
-          fi
-
-          if ! [[ "${requested_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
-            echo "version must be an exact semantic version without build metadata: ${requested_version}" >&2
-            exit 1
-          fi
-
-          export REQUESTED_VERSION="${requested_version}"
           ruby <<'RUBY' > release.env
           require "yaml"
 
           contract = YAML.load_file("release/compatibility.yaml")
-          version = ENV.fetch("REQUESTED_VERSION")
-          declared_version = contract.fetch("cliVersion")
-          abort "requested version #{version} does not match release/compatibility.yaml #{declared_version}" unless version == declared_version
+          baseline = contract.fetch("cliVersion")
+          match = /\A(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)\z/.match(baseline)
+          abort "release/compatibility.yaml cliVersion must be MAJOR.MINOR.PATCH" unless match
+
+          commit_count = `git rev-list --count #{ENV.fetch("GITHUB_SHA")}`.strip
+          abort "could not calculate a numeric commit count" unless /\A\d+\z/.match?(commit_count)
 
           api_versions = Array(contract.fetch("apiCompatibility"))
           abort "release/compatibility.yaml must declare exactly one API version" unless api_versions.length == 1
 
-          variables = {
+          # Keep a strict three-part SemVer: MAJOR.MINOR.<commit-count>.
+          # The commit count is the final numeric component, so generated builds
+          # remain within normal compatibility ranges such as >=2.0.0 <3.0.0.
+          version = "#{match[1]}.#{match[2]}.#{commit_count}"
+          range_for_linker = ->(value) { value.to_s.split.join(",") }
+
+          values = {
+            "BASE_VERSION" => baseline,
+            "COMMIT_COUNT" => commit_count,
             "VERSION" => version,
             "API_VERSION" => api_versions.fetch(0),
             "RUNNER_PROTOCOL_VERSION" => contract.fetch("runnerProtocolVersion").to_s,
-            "CLI_COMPATIBILITY" => contract.fetch("platformCompatibility"),
-            "RUNNER_COMPATIBILITY" => contract.fetch("runnerCompatibility"),
-            "PLATFORM_COMPATIBILITY" => contract.fetch("platformCompatibility"),
+            "CLI_COMPATIBILITY" => range_for_linker.call(contract.fetch("platformCompatibility")),
+            "MANIFEST_CLI_COMPATIBILITY" => contract.fetch("platformCompatibility"),
+            "RUNNER_COMPATIBILITY" => range_for_linker.call(contract.fetch("runnerCompatibility")),
+            "PLATFORM_COMPATIBILITY" => range_for_linker.call(contract.fetch("platformCompatibility")),
             "CAPABILITIES" => Array(contract.fetch("capabilities")).join(",")
           }
-          variables.each { |key, value| puts "#{key}=#{value}" }
+          values.each { |key, value| puts "#{key}=#{value}" }
           RUBY
 
-          cat release.env >> "${GITHUB_ENV}"
-          printf 'IMAGE_PREFIX=%s/%s\n' "${REGISTRY}" "$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')" >> "${GITHUB_ENV}"
-          printf 'BUILD_DATE=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "${GITHUB_ENV}"
-          printf 'SOURCE_COMMIT=%s\n' "${GITHUB_SHA}" >> "${GITHUB_ENV}"
+          cat release.env >> "$GITHUB_ENV"
+          printf 'SOURCE_COMMIT=%s\n' "$GITHUB_SHA" >> "$GITHUB_ENV"
+          printf 'SHORT_COMMIT=%s\n' "${GITHUB_SHA:0:12}" >> "$GITHUB_ENV"
+          printf 'BUILD_DATE=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
+          printf 'IMAGE_PREFIX=%s/%s\n' "$REGISTRY" "$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
+          version="$(sed -n 's/^VERSION=//p' release.env)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Generated version: $version (commit $(sed -n 's/^COMMIT_COUNT=//p' release.env))" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -90,282 +90,120 @@ jobs:
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
-      - name: Publish base image
-        id: base
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ env.IMAGE_PREFIX }}/nopsai-base:${{ env.VERSION }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ env.SOURCE_COMMIT }}
-            org.opencontainers.image.version=${{ env.VERSION }}
-            org.opencontainers.image.created=${{ env.BUILD_DATE }}
-          build-args: |
-            VERSION=${{ env.VERSION }}
-            COMMIT=${{ env.SOURCE_COMMIT }}
-            BUILD_DATE=${{ env.BUILD_DATE }}
-            API_VERSION=${{ env.API_VERSION }}
-            RUNNER_PROTOCOL_VERSION=${{ env.RUNNER_PROTOCOL_VERSION }}
-            CLI_COMPATIBILITY=${{ env.CLI_COMPATIBILITY }}
-            RUNNER_COMPATIBILITY=${{ env.RUNNER_COMPATIBILITY }}
-            PLATFORM_COMPATIBILITY=${{ env.PLATFORM_COMPATIBILITY }}
-            CAPABILITIES=${{ env.CAPABILITIES }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Publish API image
-        id: api
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: container/Dockerfile.nopsai
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ env.IMAGE_PREFIX }}/nopsai-api:${{ env.VERSION }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ env.SOURCE_COMMIT }}
-            org.opencontainers.image.version=${{ env.VERSION }}
-            org.opencontainers.image.created=${{ env.BUILD_DATE }}
-          build-args: |
-            BASE_IMAGE=${{ env.IMAGE_PREFIX }}/nopsai-base:${{ env.VERSION }}
-            VERSION=${{ env.VERSION }}
-            COMMIT=${{ env.SOURCE_COMMIT }}
-            BUILD_DATE=${{ env.BUILD_DATE }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Publish AAA image
-        id: aaa
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: container/Dockerfile.aaa
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ env.IMAGE_PREFIX }}/nopsai-aaa:${{ env.VERSION }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ env.SOURCE_COMMIT }}
-            org.opencontainers.image.version=${{ env.VERSION }}
-            org.opencontainers.image.created=${{ env.BUILD_DATE }}
-          build-args: |
-            VERSION=${{ env.VERSION }}
-            COMMIT=${{ env.SOURCE_COMMIT }}
-            BUILD_DATE=${{ env.BUILD_DATE }}
-            API_VERSION=${{ env.API_VERSION }}
-            RUNNER_PROTOCOL_VERSION=${{ env.RUNNER_PROTOCOL_VERSION }}
-            CLI_COMPATIBILITY=${{ env.CLI_COMPATIBILITY }}
-            RUNNER_COMPATIBILITY=${{ env.RUNNER_COMPATIBILITY }}
-            PLATFORM_COMPATIBILITY=${{ env.PLATFORM_COMPATIBILITY }}
-            CAPABILITIES=${{ env.CAPABILITIES }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Publish agent image
-        id: agent
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: container/Dockerfile.agent
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ env.IMAGE_PREFIX }}/nopsai-agent:${{ env.VERSION }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ env.SOURCE_COMMIT }}
-            org.opencontainers.image.version=${{ env.VERSION }}
-            org.opencontainers.image.created=${{ env.BUILD_DATE }}
-          build-args: |
-            VERSION=${{ env.VERSION }}
-            COMMIT=${{ env.SOURCE_COMMIT }}
-            BUILD_DATE=${{ env.BUILD_DATE }}
-            API_VERSION=${{ env.API_VERSION }}
-            RUNNER_PROTOCOL_VERSION=${{ env.RUNNER_PROTOCOL_VERSION }}
-            CLI_COMPATIBILITY=${{ env.CLI_COMPATIBILITY }}
-            RUNNER_COMPATIBILITY=${{ env.RUNNER_COMPATIBILITY }}
-            PLATFORM_COMPATIBILITY=${{ env.PLATFORM_COMPATIBILITY }}
-            CAPABILITIES=${{ env.CAPABILITIES }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Publish dispatcher image
-        id: dispatcher
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: container/Dockerfile.dispatcher
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ env.IMAGE_PREFIX }}/nopsai-dispatcher:${{ env.VERSION }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ env.SOURCE_COMMIT }}
-            org.opencontainers.image.version=${{ env.VERSION }}
-            org.opencontainers.image.created=${{ env.BUILD_DATE }}
-          build-args: |
-            BASE_IMAGE=${{ env.IMAGE_PREFIX }}/nopsai-base:${{ env.VERSION }}
-            VERSION=${{ env.VERSION }}
-            COMMIT=${{ env.SOURCE_COMMIT }}
-            BUILD_DATE=${{ env.BUILD_DATE }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Publish Git bot image
-        id: git_bot
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: container/Dockerfile.git-bot
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ env.IMAGE_PREFIX }}/nopsai-git-bot:${{ env.VERSION }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ env.SOURCE_COMMIT }}
-            org.opencontainers.image.version=${{ env.VERSION }}
-            org.opencontainers.image.created=${{ env.BUILD_DATE }}
-          build-args: |
-            BASE_IMAGE=${{ env.IMAGE_PREFIX }}/nopsai-base:${{ env.VERSION }}
-            VERSION=${{ env.VERSION }}
-            COMMIT=${{ env.SOURCE_COMMIT }}
-            BUILD_DATE=${{ env.BUILD_DATE }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Publish Docker runner image
-        id: runner
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: container/Dockerfile.docker-runner
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ env.IMAGE_PREFIX }}/nopsai-runner:${{ env.VERSION }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ env.SOURCE_COMMIT }}
-            org.opencontainers.image.version=${{ env.VERSION }}
-            org.opencontainers.image.created=${{ env.BUILD_DATE }}
-          build-args: |
-            BASE_IMAGE=${{ env.IMAGE_PREFIX }}/nopsai-base:${{ env.VERSION }}
-            VERSION=${{ env.VERSION }}
-            COMMIT=${{ env.SOURCE_COMMIT }}
-            BUILD_DATE=${{ env.BUILD_DATE }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Publish Kubernetes runner image
-        id: k8s_runner
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: container/Dockerfile.k8s-runner
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ env.IMAGE_PREFIX }}/nopsai-k8s-runner:${{ env.VERSION }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ env.SOURCE_COMMIT }}
-            org.opencontainers.image.version=${{ env.VERSION }}
-            org.opencontainers.image.created=${{ env.BUILD_DATE }}
-          build-args: |
-            BASE_IMAGE=${{ env.IMAGE_PREFIX }}/nopsai-base:${{ env.VERSION }}
-            VERSION=${{ env.VERSION }}
-            COMMIT=${{ env.SOURCE_COMMIT }}
-            BUILD_DATE=${{ env.BUILD_DATE }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Publish UI image
-        id: ui
-        uses: docker/build-push-action@v6
-        with:
-          context: services/ui
-          file: services/ui/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ env.IMAGE_PREFIX }}/nopsai-ui:${{ env.VERSION }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ env.SOURCE_COMMIT }}
-            org.opencontainers.image.version=${{ env.VERSION }}
-            org.opencontainers.image.created=${{ env.BUILD_DATE }}
-          build-args: |
-            VERSION=${{ env.VERSION }}
-            COMMIT=${{ env.SOURCE_COMMIT }}
-            BUILD_DATE=${{ env.BUILD_DATE }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Publish Docker socket proxy image
-        id: socket_proxy
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: container/Dockerfile.socket-proxy
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ env.IMAGE_PREFIX }}/nopsai-docker-socket-proxy:${{ env.VERSION }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ env.SOURCE_COMMIT }}
-            org.opencontainers.image.version=${{ env.VERSION }}
-            org.opencontainers.image.created=${{ env.BUILD_DATE }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Publish pipeline image
-        id: pipeline
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: container/Dockerfile.pipeline
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ env.IMAGE_PREFIX }}/nopsai-pipeline:${{ env.VERSION }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ env.SOURCE_COMMIT }}
-            org.opencontainers.image.version=${{ env.VERSION }}
-            org.opencontainers.image.created=${{ env.BUILD_DATE }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Write digest-pinned image bundle
+      - name: Build and publish multi-architecture images
         shell: bash
         run: |
           set -euo pipefail
+
+          declare -A DIGESTS
+
+          common_go_args=(
+            "VERSION=$VERSION"
+            "COMMIT=$SOURCE_COMMIT"
+            "BUILD_DATE=$BUILD_DATE"
+            "API_VERSION=$API_VERSION"
+            "RUNNER_PROTOCOL_VERSION=$RUNNER_PROTOCOL_VERSION"
+            "CLI_COMPATIBILITY=$CLI_COMPATIBILITY"
+            "RUNNER_COMPATIBILITY=$RUNNER_COMPATIBILITY"
+            "PLATFORM_COMPATIBILITY=$PLATFORM_COMPATIBILITY"
+            "CAPABILITIES=$CAPABILITIES"
+          )
+          child_args=(
+            "BASE_IMAGE=$IMAGE_PREFIX/nopsai-base:$VERSION"
+            "VERSION=$VERSION"
+            "COMMIT=$SOURCE_COMMIT"
+            "BUILD_DATE=$BUILD_DATE"
+          )
+          ui_args=(
+            "VERSION=$VERSION"
+            "COMMIT=$SOURCE_COMMIT"
+            "BUILD_DATE=$BUILD_DATE"
+          )
+
+          build_and_publish() {
+            local image_name="$1"
+            local dockerfile="$2"
+            local context="$3"
+            shift 3
+
+            local metadata_file
+            metadata_file="$(mktemp)"
+            local -a build_args=()
+            local arg
+            for arg in "$@"; do
+              build_args+=(--build-arg "$arg")
+            done
+
+            docker buildx build \
+              --file "$dockerfile" \
+              --platform "$PLATFORMS" \
+              --push \
+              --tag "$IMAGE_PREFIX/$image_name:$VERSION" \
+              --tag "$IMAGE_PREFIX/$image_name:sha-$SHORT_COMMIT" \
+              --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+              --label "org.opencontainers.image.revision=$SOURCE_COMMIT" \
+              --label "org.opencontainers.image.version=$VERSION" \
+              --label "org.opencontainers.image.created=$BUILD_DATE" \
+              --metadata-file "$metadata_file" \
+              --cache-from "type=gha,scope=$image_name" \
+              --cache-to "type=gha,mode=max,scope=$image_name" \
+              "${build_args[@]}" \
+              "$context"
+
+            local digest
+            digest="$(jq -r '."containerimage.digest" // empty' "$metadata_file")"
+            if [[ ! "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+              echo "did not receive a manifest-list digest for $image_name" >&2
+              cat "$metadata_file" >&2
+              exit 1
+            fi
+            DIGESTS["$image_name"]="$digest"
+          }
+
+          # The base image contains the same nopsai CLI build as the standalone
+          # artifact below. Every child image is built from this exact version tag.
+          build_and_publish nopsai-base Dockerfile . "${common_go_args[@]}"
+          build_and_publish nopsai-api container/Dockerfile.nopsai . "${child_args[@]}"
+          build_and_publish nopsai-aaa container/Dockerfile.aaa . "${common_go_args[@]}"
+          build_and_publish nopsai-agent container/Dockerfile.agent . "${common_go_args[@]}"
+          build_and_publish nopsai-dispatcher container/Dockerfile.dispatcher . "${child_args[@]}"
+          build_and_publish nopsai-git-bot container/Dockerfile.git-bot . "${child_args[@]}"
+          build_and_publish nopsai-runner container/Dockerfile.docker-runner . "${child_args[@]}"
+          build_and_publish nopsai-k8s-runner container/Dockerfile.k8s-runner . "${child_args[@]}"
+          build_and_publish nopsai-ui services/ui/Dockerfile services/ui "${ui_args[@]}"
+          build_and_publish nopsai-docker-socket-proxy container/Dockerfile.socket-proxy .
+          build_and_publish nopsai-pipeline container/Dockerfile.pipeline .
+
           jq -n \
-            --arg version "${VERSION}" \
-            --arg commit "${SOURCE_COMMIT}" \
-            --arg cli "${CLI_COMPATIBILITY}" \
-            --arg api "${API_VERSION}" \
-            --arg runner_protocol "${RUNNER_PROTOCOL_VERSION}" \
-            --arg capabilities "${CAPABILITIES}" \
-            --arg base "${IMAGE_PREFIX}/nopsai-base@${{ steps.base.outputs.digest }}" \
-            --arg aaa "${IMAGE_PREFIX}/nopsai-aaa@${{ steps.aaa.outputs.digest }}" \
-            --arg agent "${IMAGE_PREFIX}/nopsai-agent@${{ steps.agent.outputs.digest }}" \
-            --arg api_image "${IMAGE_PREFIX}/nopsai-api@${{ steps.api.outputs.digest }}" \
-            --arg dispatcher "${IMAGE_PREFIX}/nopsai-dispatcher@${{ steps.dispatcher.outputs.digest }}" \
-            --arg git_bot "${IMAGE_PREFIX}/nopsai-git-bot@${{ steps.git_bot.outputs.digest }}" \
-            --arg k8s_runner "${IMAGE_PREFIX}/nopsai-k8s-runner@${{ steps.k8s_runner.outputs.digest }}" \
-            --arg runner "${IMAGE_PREFIX}/nopsai-runner@${{ steps.runner.outputs.digest }}" \
-            --arg ui "${IMAGE_PREFIX}/nopsai-ui@${{ steps.ui.outputs.digest }}" \
-            --arg socket_proxy "${IMAGE_PREFIX}/nopsai-docker-socket-proxy@${{ steps.socket_proxy.outputs.digest }}" \
-            --arg pipeline "${IMAGE_PREFIX}/nopsai-pipeline@${{ steps.pipeline.outputs.digest }}" \
+            --arg version "$VERSION" \
+            --arg base_version "$BASE_VERSION" \
+            --argjson commit_number "$COMMIT_COUNT" \
+            --arg commit "$SOURCE_COMMIT" \
+            --arg cli "$MANIFEST_CLI_COMPATIBILITY" \
+            --arg api "$API_VERSION" \
+            --argjson runner_protocol "$RUNNER_PROTOCOL_VERSION" \
+            --arg capabilities "$CAPABILITIES" \
+            --arg base "$IMAGE_PREFIX/nopsai-base@${DIGESTS[nopsai-base]}" \
+            --arg aaa "$IMAGE_PREFIX/nopsai-aaa@${DIGESTS[nopsai-aaa]}" \
+            --arg agent "$IMAGE_PREFIX/nopsai-agent@${DIGESTS[nopsai-agent]}" \
+            --arg api_image "$IMAGE_PREFIX/nopsai-api@${DIGESTS[nopsai-api]}" \
+            --arg dispatcher "$IMAGE_PREFIX/nopsai-dispatcher@${DIGESTS[nopsai-dispatcher]}" \
+            --arg git_bot "$IMAGE_PREFIX/nopsai-git-bot@${DIGESTS[nopsai-git-bot]}" \
+            --arg k8s_runner "$IMAGE_PREFIX/nopsai-k8s-runner@${DIGESTS[nopsai-k8s-runner]}" \
+            --arg runner "$IMAGE_PREFIX/nopsai-runner@${DIGESTS[nopsai-runner]}" \
+            --arg ui "$IMAGE_PREFIX/nopsai-ui@${DIGESTS[nopsai-ui]}" \
+            --arg socket_proxy "$IMAGE_PREFIX/nopsai-docker-socket-proxy@${DIGESTS[nopsai-docker-socket-proxy]}" \
+            --arg pipeline "$IMAGE_PREFIX/nopsai-pipeline@${DIGESTS[nopsai-pipeline]}" \
             '{
               schemaVersion: "v1",
               version: $version,
+              versionBase: $base_version,
+              commitNumber: $commit_number,
               sourceCommit: $commit,
               compatibility: {
                 cli: $cli,
                 api: $api,
-                runnerProtocol: ($runner_protocol | tonumber),
+                runnerProtocol: $runner_protocol,
                 capabilities: ($capabilities | split(","))
               },
               images: {
@@ -390,20 +228,110 @@ jobs:
             all(.images[]; test("^ghcr\\.io/.+@sha256:[a-f0-9]{64}$"))
           ' release-images.json >/dev/null
 
-      - name: Publish image bundle artifact
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build and verify CLI artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist
+          ldflags="-s -w"
+          ldflags+=" -X nopsai/pkg/buildinfo.Version=$VERSION"
+          ldflags+=" -X nopsai/pkg/buildinfo.Commit=$SOURCE_COMMIT"
+          ldflags+=" -X nopsai/pkg/buildinfo.BuildDate=$BUILD_DATE"
+          ldflags+=" -X nopsai/pkg/buildinfo.APIVersion=$API_VERSION"
+          ldflags+=" -X nopsai/pkg/buildinfo.RunnerProtocolVersion=$RUNNER_PROTOCOL_VERSION"
+          ldflags+=" -X nopsai/pkg/buildinfo.CLICompatibility=$CLI_COMPATIBILITY"
+          ldflags+=" -X nopsai/pkg/buildinfo.RunnerCompatibility=$RUNNER_COMPATIBILITY"
+          ldflags+=" -X nopsai/pkg/buildinfo.PlatformCompatibility=$PLATFORM_COMPATIBILITY"
+          ldflags+=" -X nopsai/pkg/buildinfo.Capabilities=$CAPABILITIES"
+
+          targets=(
+            linux/amd64
+            linux/arm64
+            darwin/amd64
+            darwin/arm64
+            windows/amd64
+          )
+
+          for target in "${targets[@]}"; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            name="nopsai_${VERSION}_${os}_${arch}"
+            target_dir="dist/$name"
+            mkdir -p "$target_dir"
+
+            binary="nopsai"
+            if [[ "$os" == "windows" ]]; then
+              binary="nopsai.exe"
+            fi
+
+            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
+              go build -trimpath -ldflags "$ldflags" -o "$target_dir/$binary" ./cmd/nopsai-cli
+
+            if [[ "$os" == "windows" ]]; then
+              (cd "$target_dir" && zip -q "../$name.zip" "$binary")
+            else
+              tar -C "$target_dir" -czf "dist/$name.tar.gz" "$binary"
+            fi
+          done
+
+          version_output="$(dist/nopsai_${VERSION}_linux_amd64/nopsai --version)"
+          printf '%s\n' "$version_output" > dist/nopsai-version.txt
+          if [[ "$version_output" != *"$VERSION"* ]]; then
+            echo "CLI version output does not contain generated version $VERSION" >&2
+            cat dist/nopsai-version.txt >&2
+            exit 1
+          fi
+
+          jq -n \
+            --arg version "$VERSION" \
+            --arg base_version "$BASE_VERSION" \
+            --argjson commit_number "$COMMIT_COUNT" \
+            --arg commit "$SOURCE_COMMIT" \
+            --arg build_date "$BUILD_DATE" \
+            '{version: $version, versionBase: $base_version, commitNumber: $commit_number, sourceCommit: $commit, buildDate: $build_date}' \
+            > dist/build-info.json
+
+          (
+            cd dist
+            sha256sum nopsai_*.tar.gz nopsai_*.zip > checksums.txt
+          )
+
+      - name: Publish CLI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nopsai-images-${{ env.VERSION }}
+          name: nopsai-cli-${{ steps.metadata.outputs.version }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
+            dist/build-info.json
+            dist/nopsai-version.txt
+          if-no-files-found: error
+
+      - name: Publish digest-pinned image bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: nopsai-images-${{ steps.metadata.outputs.version }}
           path: release-images.json
           if-no-files-found: error
 
-      - name: Summarize published images
+      - name: Summarize published build
         shell: bash
         run: |
           {
-            echo "## NopsAI ${VERSION} images"
+            echo "## NopsAI $VERSION"
             echo
-            echo "All entries are multi-architecture, version-tagged images with immutable digests:"
+            echo "Generated from commit number $COMMIT_COUNT of $SOURCE_COMMIT."
             echo
+            echo "### CLI artifact"
+            echo "- nopsai-cli-$VERSION (Linux amd64/arm64, macOS amd64/arm64, Windows amd64)"
+            echo
+            echo "### Digest-pinned images"
             jq -r '.images | to_entries[] | "- `\(.key)`: `\(.value)`"' release-images.json
-          } >> "${GITHUB_STEP_SUMMARY}"
+          } >> "$GITHUB_STEP_SUMMARY"
