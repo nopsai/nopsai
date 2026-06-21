@@ -65,6 +65,32 @@ DTOs live at API boundaries:
 Do not leak persistence-only records into public API responses unless that shape
 is intentionally part of the contract.
 
+## Operator CLI Ownership
+
+- Local context and credential model logic and atomic storage live in
+  `internal/cli/config`.
+- Authenticated REST transport, URL construction, headers, and redirect policy
+  live in `internal/cli/client`.
+- Generated API route metadata and path-template expansion live in
+  `internal/cli/apicatalog`; Go AST route discovery is generator/test-only in
+  `internal/cli/apicatalog/internal/discovery`.
+- Platform diagnostic rules, release manifest resolution, compatibility checks,
+  Helm process orchestration, and deployment lock models live in
+  `internal/cli/platform`.
+- Cobra command/hook orchestration and text/JSON/YAML rendering live in
+  `internal/cli/command`.
+- Route composition and process exit behavior live in `cmd/nopsai-cli`.
+
+Typed API and platform features must extend these owners instead of placing
+model, transport, subprocess orchestration, and rendering in one command file.
+Server route additions must regenerate the API catalog; the parity test is the
+contract preventing silent CLI coverage drift.
+
+Shared immutable binary identity lives in `pkg/buildinfo`. Manifest parsing,
+semantic-version ranges, and capability validation live in
+`pkg/compatibility`. The API only renders shared build identity; it does not own
+release model logic.
+
 ## Provider Clients
 
 Provider clients stay behind interfaces:

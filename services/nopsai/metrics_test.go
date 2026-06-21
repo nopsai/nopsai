@@ -1,12 +1,23 @@
 package nopsai
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestEscapePrometheusLabel(t *testing.T) {
 	got := escapePrometheusLabel("repo\\name\"\nnext")
 	want := `repo\\name\"\nnext`
 	if got != want {
 		t.Fatalf("escapePrometheusLabel() = %q, want %q", got, want)
+	}
+}
+
+func TestBuildInfoMetric(t *testing.T) {
+	var output strings.Builder
+	appendBuildInfoMetric(&output)
+	if !strings.Contains(output.String(), "# TYPE nopsai_build_info gauge") || !strings.Contains(output.String(), `api_version="v1"`) {
+		t.Fatalf("metric = %q", output.String())
 	}
 }
 

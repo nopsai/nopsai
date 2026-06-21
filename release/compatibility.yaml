@@ -1,0 +1,15 @@
+cliVersion: 2.7.0
+platformCompatibility: ">=2.0.0 <3.0.0"
+apiCompatibility:
+  - v1
+runnerCompatibility: ">=2.0.0 <3.0.0"
+runnerProtocolVersion: 1
+capabilities:
+  - api.v1
+  - cli.api-catalog.v1
+  - config-sync.v1
+  - mcp.v1
+  - monitoring.v1
+  - platform.helm
+  - runner.docker
+  - runner.kubernetes

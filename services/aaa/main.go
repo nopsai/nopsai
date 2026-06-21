@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"nopsai/config"
+	"nopsai/pkg/buildinfo"
 	"nopsai/pkg/httpapi"
 	"nopsai/pkg/servicelog"
 	"nopsai/pkg/startupgates"
@@ -22,6 +23,10 @@ import (
 const defaultSharedInternalToken = "dev-default-for-local-only"
 
 func main() {
+	if buildinfo.Requested(os.Args[1:]) {
+		_ = buildinfo.WriteVersion(os.Stdout, "nopsai-aaa")
+		return
+	}
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
 		configPath = "config.yml"

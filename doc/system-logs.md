@@ -8,6 +8,24 @@ The browser opens one authenticated `fetch()` stream through `apiClient`. The No
 
 Docker deployments connect NopsAI to `docker-socket-proxy:2375`. Only the proxy mounts `/var/run/docker.sock`, read-only. The repo-owned proxy accepts only ping/version, container list, and allow-listed container inspect/log GET requests; it rejects all mutations, events, archive, stats, non-platform containers, and unknown query parameters. The Docker runner socket is not reused because runners may be remote and own job execution rather than control-plane observability.
 
+Operators can consume the same authenticated SSE contract through the CLI
+without response buffering or byte rewriting:
+
+```bash
+nopsai --timeout 0 api call GET \
+  '/v1/system/logs/sources/{sourceID}/stream' \
+  --path sourceID=dispatcher --accept text/event-stream
+```
+
+The generated route catalog marks this endpoint as streaming. Existing AAA
+source visibility, cursor signing, redaction, audit, and rate limits remain
+server-owned.
+
+Platform identity is monitored separately from logs. Prometheus exports
+`nopsai_build_info` with immutable version, commit, API version, and release
+manifest digest labels so mixed control-plane bundles can be detected without
+parsing log lines.
+
 Allow-listed source IDs are `nopsai`, `aaa`, `dispatcher`, `git-bot`, `ui`, and optional `docker-runner`. Build-only `base`, `agent`, `pipeline`, and `k8s-runner` containers are not registered. Arbitrary container names and IDs are never accepted.
 
 The UI stream label reflects the container's real stdout/stderr file descriptor.

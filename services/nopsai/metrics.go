@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"nopsai/pkg/buildinfo"
+
 	"github.com/rs/zerolog/log"
 
 	"nopsai/pkg/proto"
@@ -40,6 +42,7 @@ func (a *App) handleMetrics(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) buildPrometheusMetrics(ctx context.Context) (string, error) {
 	var out strings.Builder
+	appendBuildInfoMetric(&out)
 	writeMetricHelp(&out, "nopsai_pipeline_runs_total", "Pipeline runs by status, pipeline, group, repository, and trigger source.")
 	writeMetricType(&out, "nopsai_pipeline_runs_total", "counter")
 	if err := a.appendPipelineRunTotals(ctx, &out); err != nil {
@@ -185,6 +188,19 @@ func (a *App) buildPrometheusMetrics(ctx context.Context) (string, error) {
 	}
 	a.appendSystemLogMetrics(&out)
 	return out.String(), nil
+}
+
+func appendBuildInfoMetric(out *strings.Builder) {
+	info := buildinfo.Current()
+	writeMetricHelp(out, "nopsai_build_info", "Static NopsAI release and protocol build information.")
+	writeMetricType(out, "nopsai_build_info", "gauge")
+	writeMetricLine(out, "nopsai_build_info", map[string]string{
+		"version":         info.Version,
+		"commit":          info.Commit,
+		"api_version":     info.APIVersion,
+		"runner_protocol": fmt.Sprintf("%d", info.RunnerProtocolVersion),
+		"manifest_digest": info.ReleaseManifestDigest,
+	}, 1)
 }
 
 func (a *App) appendSystemLogMetrics(out *strings.Builder) {

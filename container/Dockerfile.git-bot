@@ -2,6 +2,14 @@ ARG BASE_IMAGE=hoseindocker/nopsai-base:latest
 FROM ${BASE_IMAGE} AS base
 FROM alpine:latest
 
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
+
+LABEL org.opencontainers.image.version="${VERSION}" \
+  org.opencontainers.image.revision="${COMMIT}" \
+  org.opencontainers.image.created="${BUILD_DATE}"
+
 WORKDIR /app
 COPY --from=base /nopsai-git-bot /usr/local/bin/nopsai-git-bot
 COPY --from=base /app/config.yml .

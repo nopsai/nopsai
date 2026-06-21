@@ -1,9 +1,21 @@
 ARG BASE_IMAGE=hoseindocker/nopsai-base:latest
 FROM ${BASE_IMAGE} AS base
-FROM alpine:latest
+FROM alpine:3.20
+
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
+
+LABEL org.opencontainers.image.version="${VERSION}" \
+  org.opencontainers.image.revision="${COMMIT}" \
+  org.opencontainers.image.created="${BUILD_DATE}"
+
+RUN apk add --no-cache ca-certificates && \
+  addgroup -S nopsai && adduser -S nopsai -G nopsai
 
 WORKDIR /app
-COPY --from=base /nopsai /usr/local/bin/nopsai
+COPY --from=base /nopsai-api /usr/local/bin/nopsai-api
 COPY --from=base /app/config.yml .
 
-ENTRYPOINT ["nopsai"]
+USER nopsai
+ENTRYPOINT ["nopsai-api"]

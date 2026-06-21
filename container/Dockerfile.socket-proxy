@@ -1,12 +1,30 @@
 FROM golang:1.26.4 AS builder
 
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
+ARG RELEASE_MANIFEST_DIGEST=
+ARG API_VERSION=v1
+ARG RUNNER_PROTOCOL_VERSION=1
+ARG CLI_COMPATIBILITY=>=2.0.0,<3.0.0
+ARG RUNNER_COMPATIBILITY=>=2.0.0,<3.0.0
+ARG PLATFORM_COMPATIBILITY=>=2.0.0,<3.0.0
+ARG CAPABILITIES=api.v1,cli.api-catalog.v1,config-sync.v1,mcp.v1,monitoring.v1,platform.helm,runner.docker,runner.kubernetes
+
 WORKDIR /workspace
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/docker-socket-proxy ./services/docker-socket-proxy/cmd/socket-proxy
+RUN BUILD_LDFLAGS="-s -w -X nopsai/pkg/buildinfo.Version=${VERSION} -X nopsai/pkg/buildinfo.Commit=${COMMIT} -X nopsai/pkg/buildinfo.BuildDate=${BUILD_DATE} -X nopsai/pkg/buildinfo.ReleaseManifestDigest=${RELEASE_MANIFEST_DIGEST} -X nopsai/pkg/buildinfo.APIVersion=${API_VERSION} -X nopsai/pkg/buildinfo.RunnerProtocolVersion=${RUNNER_PROTOCOL_VERSION} -X nopsai/pkg/buildinfo.CLICompatibility=${CLI_COMPATIBILITY} -X nopsai/pkg/buildinfo.RunnerCompatibility=${RUNNER_COMPATIBILITY} -X nopsai/pkg/buildinfo.PlatformCompatibility=${PLATFORM_COMPATIBILITY} -X nopsai/pkg/buildinfo.Capabilities=${CAPABILITIES}" && \
+  CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="${BUILD_LDFLAGS}" -o /out/docker-socket-proxy ./services/docker-socket-proxy/cmd/socket-proxy
 
 FROM scratch
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
+LABEL org.opencontainers.image.version="${VERSION}" \
+  org.opencontainers.image.revision="${COMMIT}" \
+  org.opencontainers.image.created="${BUILD_DATE}"
 COPY --from=builder /out/docker-socket-proxy /docker-socket-proxy
 EXPOSE 2375
 ENTRYPOINT ["/docker-socket-proxy"]

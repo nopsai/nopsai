@@ -199,6 +199,10 @@ Key files:
 - `services/nopsai/system_logs_handlers.go`
 - `services/nopsai/internal/systemlogs`: Allow-listed source registry, signed cursors, redaction, bounded replay/fan-out broker, metrics, and Docker provider.
 
+The entrypoint above builds as `nopsai-api`. The user-facing `nopsai` binary is
+owned independently by `cmd/nopsai-cli` and `internal/cli`; it reaches this
+service through authenticated REST and does not import service internals.
+
 Important subpackages:
 
 - `pkg/auth`: Local JWT auth, refresh tokens, password hashing, rate limits, lockout rules.
@@ -234,6 +238,43 @@ Outbound interfaces:
 - HTTP to `git-bot`
 - HTTP to `aaa`
 - Postgres
+
+## Operator CLI
+
+Primary role:
+
+- One user-facing binary for API and platform operations.
+
+Current responsibilities:
+
+- Stores API contexts separately from opaque credentials with restrictive file
+  permissions and atomic replacement.
+- Sends user JWT, personal access, or service-account tokens through the normal
+  bearer authentication and AAA middleware.
+- Provides a generic request escape hatch for all public REST and hosted MCP
+  routes.
+- Compiles a generated, parity-tested catalog of every registered operator,
+  public, internal, streaming, and download route and safely expands route
+  templates for scripted invocation.
+- Checks API preflight, authentication, metrics, dispatcher monitoring, and
+  local platform tools through `platform doctor`.
+- Plans and deploys one compatible Kubernetes release manifest, verifies the
+  OCI chart package digest, pins every image digest, and writes a deployment
+  lock after a successful Helm operation.
+- Supports GitOps/CI use through declarative context files and environment
+  secret injection.
+
+Key files:
+
+- `cmd/nopsai-cli/main.go`
+- `internal/cli/config`
+- `internal/cli/client`
+- `internal/cli/apicatalog`
+- `internal/cli/platform`
+- `internal/cli/command`
+- `pkg/buildinfo`
+- `pkg/compatibility`
+- `release/compatibility.yaml`
 
 ## `services/aaa`
 

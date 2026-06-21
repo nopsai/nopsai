@@ -19,7 +19,21 @@ NopsAI is a Git-aware pipeline orchestration platform built around a control-pla
 - `services/docker-runner`: Long-lived worker that starts agent containers on Docker-capable hosts.
 - `services/agent`: Per-run orchestrator that executes pipeline logic and talks to the configured LLM provider.
 - `services/ui`: Operator UI for runs, pipelines, triggers, scopes, lab runs, steps, knowledge context, and system management.
+- `cmd/nopsai-cli`: Operator entrypoint that builds the `nopsai` binary and composes context, authentication, generic API, and platform diagnostic commands.
+- `internal/cli`: Separated local config, authenticated REST client, platform operations, command orchestration, and output rendering boundaries.
+- `internal/cli/apicatalog`: Generated inventory of every registered API route,
+  with parity tests and safe path-template expansion for complete CLI access.
 - `db/init.sql`: Persistent storage schema for runs, configuration, auth, and audit data.
+
+The control-plane process builds as `nopsai-api`; `nopsai` is reserved for the
+operator CLI. This naming separation does not change the Compose service or DNS
+name (`nopsai`) used by existing internal integrations.
+
+Release identity is shared across every Go binary through `pkg/buildinfo`.
+`pkg/compatibility` owns the strict bundle manifest, semantic-version ranges,
+API and runner protocol contracts, and capability validation. Kubernetes
+planning and deployment consume one digest-pinned manifest and emit a
+GitOps-readable release lock; platform services are not selected independently.
 
 ## High-Level Flow
 
