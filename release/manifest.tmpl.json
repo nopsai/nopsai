@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "v1",
+  "version": "{{VERSION}}",
+  "chart": {
+    "reference": "oci://ghcr.io/hosein-yousefii/charts/nopsai",
+    "version": "{{VERSION}}",
+    "digest": "sha256:{{CHART_SHA256}}"
+  },
+  "images": {
+    "aaa": "ghcr.io/hosein-yousefii/nopsai-aaa@sha256:{{AAA_IMAGE_SHA256}}",
+    "agent": "ghcr.io/hosein-yousefii/nopsai-agent@sha256:{{AGENT_IMAGE_SHA256}}",
+    "api": "ghcr.io/hosein-yousefii/nopsai-api@sha256:{{API_IMAGE_SHA256}}",
+    "dispatcher": "ghcr.io/hosein-yousefii/nopsai-dispatcher@sha256:{{DISPATCHER_IMAGE_SHA256}}",
+    "gitBot": "ghcr.io/hosein-yousefii/nopsai-git-bot@sha256:{{GIT_BOT_IMAGE_SHA256}}",
+    "k8sRunner": "ghcr.io/hosein-yousefii/nopsai-k8s-runner@sha256:{{K8S_RUNNER_IMAGE_SHA256}}",
+    "runner": "ghcr.io/hosein-yousefii/nopsai-runner@sha256:{{RUNNER_IMAGE_SHA256}}",
+    "ui": "ghcr.io/hosein-yousefii/nopsai-ui@sha256:{{UI_IMAGE_SHA256}}"
+  },
+  "compatibility": {
+    "cli": ">=2.0.0 <3.0.0",
+    "api": "v1",
+    "runnerProtocol": 1
+  },
+  "database": {
+    "migrationVersion": 1,
+    "rollbackSafe": false,
+    "rollbackPolicy": "forward-only"
+  },
+  "capabilities": [
+    "api.v1",
+    "cli.api-catalog.v1",
+    "config-sync.v1",
+    "mcp.v1",
+    "monitoring.v1",
+    "platform.helm",
+    "runner.docker",
+    "runner.kubernetes"
+  ]
+}

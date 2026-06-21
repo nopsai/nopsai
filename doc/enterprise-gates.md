@@ -69,11 +69,25 @@ The script runs:
 - `govulncheck ./...`
 - Docker build checks for the base image, all Go service images including the
   restricted Docker socket proxy, the pipeline helper image, and the UI image
+- CLI package and command-contract tests, including authenticated `httptest`
+  requests, context/credential permissions, diagnostics, exact-byte streaming
+  and downloads, and separate `nopsai`/`nopsai-api` build outputs
+- Generated API catalog parity against every Go HTTP route registration, so a
+  new server API cannot land without CLI discovery and template-call support
+- Release compatibility, strict manifest, digest pinning, chart verification,
+  deterministic Helm values, post-success lockfile, `/version`, and binary
+  build-metadata tests
 
-`scripts/test-backend.sh` tests `config`, shared Go packages, and every service
-except `services/ui`. This keeps frontend dependencies under `node_modules`
-outside Go package discovery, including when Docker Compose runs backend and UI
-checks concurrently.
+`scripts/test-backend.sh` tests repository-level packaging contracts, command
+entrypoints, internal CLI packages, `config`, shared Go packages, and every
+service except `services/ui`. This keeps frontend dependencies under
+`node_modules` outside Go package discovery, including when Docker Compose runs
+backend and UI checks concurrently.
+
+The current gate builds but does not publish release artifacts. Public OCI
+chart/image publication, multi-architecture output, SBOM/provenance generation,
+OIDC signing, and promotion require a separate tag-triggered workflow with
+minimal write permissions. See [release-bundles.md](./release-bundles.md).
 
 Run the UI boundary gate from `services/ui` whenever a frontend change touches
 route pages, feature modules, hooks, or shared UI helpers:

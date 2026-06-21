@@ -34,9 +34,27 @@ Routes that need response-level filtering, such as list views, are authorized in
 
 The standalone AAA service listens on `AAA_ADDR`, defaulting to `:8082`. Docker Compose exposes it only inside the compose network as `aaa:8082`.
 
+The `nopsai` CLI is an ordinary API client. It accepts user access JWTs,
+personal access tokens, and service-account tokens, sends them as
+`Authorization: Bearer`, and never calls AAA directly or bypasses route
+authorization. `platform doctor` reports a rejected token as an error and a
+missing dispatcher-read grant as a warning. CLI requests continue to produce
+the same API and AAA audit decisions as browser or automation requests.
+
+`nopsai api routes` includes public, operator, and explicitly internal route
+metadata for complete discovery. Catalog visibility grants no access: `api
+call` and `api request` still traverse bearer authentication, route AAA, and
+resource authorization. `--no-auth` suppresses local token loading and is
+intended for routes declared public by the API; it does not make protected
+routes public. Internal routes require the same internal service identity as
+direct HTTP calls.
+
 Public endpoint:
 
 - `GET /healthz`
+- `GET /version` exposes only immutable build, API compatibility, capability,
+  and release-manifest identity. It is available during setup preflight and
+  does not expose environment state or credentials.
 
 Internal endpoints require the `X-Internal-Token` header, configured with `AAA_SHARED_INTERNAL_TOKEN`:
 

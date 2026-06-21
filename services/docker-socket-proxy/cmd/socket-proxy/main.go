@@ -7,10 +7,15 @@ import (
 	"strings"
 	"time"
 
+	"nopsai/pkg/buildinfo"
 	"nopsai/services/docker-socket-proxy/internal/proxy"
 )
 
 func main() {
+	if buildinfo.Requested(os.Args[1:]) {
+		_ = buildinfo.WriteVersion(os.Stdout, "nopsai-docker-socket-proxy")
+		return
+	}
 	listenAddress := strings.TrimSpace(os.Getenv("LISTEN_ADDRESS"))
 	if listenAddress == "" {
 		listenAddress = ":2375"

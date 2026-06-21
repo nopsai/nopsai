@@ -85,6 +85,30 @@ metadata-only secret counts by scope without reading plaintext secret values.
 The API bridge remains the compatibility surface for auth self-service and other
 guarded `/v1` routes when the current user has the matching AAA permissions.
 
+The operator CLI adds a second client-side compatibility path without changing
+hosted MCP authorization or tool schemas:
+
+```bash
+printf '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | \
+  nopsai api request POST /v1/mcp --data -
+```
+
+This uses the selected CLI context and bearer token. The hosted MCP server still
+resolves the caller subject and permissions through the existing API/AAA
+middleware; the CLI introduces no privileged MCP transport.
+
+`POST /v1/mcp` is also included in the generated CLI route catalog, so route
+parity protects hosted MCP transport availability alongside the rest of the API:
+
+```bash
+nopsai api describe POST /v1/mcp
+```
+
+`nopsai.get_platform_version` returns the public `/version` build and
+compatibility payload through authenticated hosted MCP. It has no arguments and
+does not expose runtime configuration. This keeps assistant-side deployment
+advice capability-aware without granting a new permission path.
+
 Important enterprise boundaries:
 
 - Hosted MCP does not elevate to admin. It uses the user's AAA subject, scoped

@@ -34,6 +34,7 @@ type hostedMCPTool struct {
 func allHostedMCPTools() []hostedMCPTool {
 	tools := []hostedMCPTool{
 		authenticatedToolDef("nopsai.call_api", "Call an allowed NopsAI REST API route as the current authenticated subject. Mutating calls require confirm:true and route/resource AAA checks still apply.", objectSchema(map[string]any{"method": stringSchema(), "path": stringSchema(), "query": objectSchema(map[string]any{}), "body": objectSchema(map[string]any{}), "headers": objectSchema(map[string]any{}), "confirm": booleanSchema(), "include_sensitive_response": booleanSchema()})),
+		authenticatedToolDef("nopsai.get_platform_version", "Read the public platform version, compatibility ranges, protocols, capabilities, and release manifest digest.", objectSchema(map[string]any{})),
 		toolDef("nopsai.search_docs", "Search Nopsai knowledge and docs.", "knowledge_context.read", "knowledge_context", "*", objectSchema(map[string]any{"query": stringSchema(), "limit": numberSchema()})),
 		toolDef("nopsai.read_doc", "Read a Nopsai knowledge document by id.", "knowledge_context.read", "knowledge_context", "*", objectSchema(map[string]any{"id": stringSchema()})),
 		toolDef("nopsai.list_knowledge_contexts", "List managed Nopsai knowledge context documents with optional filters.", "knowledge_context.read", "knowledge_context", "*", objectSchema(map[string]any{"kind": stringSchema(), "group": stringSchema(), "query": stringSchema(), "used_by_pipeline": stringSchema(), "limit": numberSchema()})),
@@ -340,6 +341,8 @@ func (a *App) executeHostedMCPTool(ctx context.Context, subject aaamodel.Subject
 	switch name {
 	case "nopsai.call_api":
 		return a.hostedMCPCallAPI(ctx, subject, args)
+	case "nopsai.get_platform_version":
+		return versionInfoMap(), nil
 	case "nopsai.search_docs":
 		return a.hostedMCPSearchDocs(ctx, args)
 	case "nopsai.read_doc":
