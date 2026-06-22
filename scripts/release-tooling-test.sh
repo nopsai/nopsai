@@ -5,6 +5,16 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 temp_dir="$(mktemp -d)"
 trap 'rm -rf "$temp_dir"' EXIT
 
+require_text() {
+  local pattern="$1"
+  local file="$2"
+  local description="$3"
+  if ! grep -F "$pattern" "$file" >/dev/null; then
+    printf '%s is missing %s\n' "$file" "$description" >&2
+    return 1
+  fi
+}
+
 commit_count="$(git -C "$ROOT_DIR" rev-list --count HEAD)"
 expected="2.7.$((commit_count + 2))"
 actual="$("$ROOT_DIR/scripts/release-version.sh" --offset 2)"
@@ -17,8 +27,18 @@ if "$ROOT_DIR/scripts/release-version.sh" --offset invalid >/dev/null 2>&1; then
   exit 1
 fi
 
+"$ROOT_DIR/scripts/sign-notarize-macos-cli.sh" --help >"$temp_dir/macos-signing-help.txt"
+require_text \
+  "APPLE_DEVELOPER_ID_P12_BASE64" \
+  "$temp_dir/macos-signing-help.txt" \
+  "the Developer ID credential contract"
+if "$ROOT_DIR/scripts/sign-notarize-macos-cli.sh" --binary >/dev/null 2>&1; then
+  printf 'macOS signing accepted an incomplete binary argument\n' >&2
+  exit 1
+fi
+
 "$ROOT_DIR/scripts/generate-changelog.sh" "$actual" "$temp_dir/CHANGELOG.md"
-grep -F "# NopsAI $actual" "$temp_dir/CHANGELOG.md" >/dev/null
+require_text "# NopsAI $actual" "$temp_dir/CHANGELOG.md" "the generated release heading"
 
 "$ROOT_DIR/scripts/render-release-bundle.sh" \
   --output "$temp_dir/bundle" \
@@ -27,15 +47,17 @@ grep -F "# NopsAI $actual" "$temp_dir/CHANGELOG.md" >/dev/null
   --commit "$(git -C "$ROOT_DIR" rev-parse HEAD)" \
   --build-date 2026-06-22T00:00:00Z
 
-grep -F "NOPSAI_VERSION=$actual" "$temp_dir/bundle/.env" >/dev/null
-grep -F "ghcr.io/hosein-yousefii/nopsai-api:$actual" "$temp_dir/bundle/.env" >/dev/null
+require_text "NOPSAI_VERSION=$actual" "$temp_dir/bundle/.env" "the release version"
+require_text "ghcr.io/hosein-yousefii/nopsai-api:$actual" "$temp_dir/bundle/.env" "the versioned API image"
 chart_file="$temp_dir/bundle/nopsai-$actual.tgz"
 test -s "$chart_file"
 test ! -e "$temp_dir/bundle/kubernetes-values.yaml"
-helm show chart "$chart_file" | grep -F "version: $actual" >/dev/null
-helm show chart "$chart_file" | grep -F "appVersion: $actual" >/dev/null
-helm show values "$chart_file" | grep -F "releaseVersion: $actual" >/dev/null
-helm show values "$chart_file" | grep -F "repository: ghcr.io/hosein-yousefii/nopsai-api" >/dev/null
+helm show chart "$chart_file" >"$temp_dir/chart-metadata.yaml"
+require_text "version: $actual" "$temp_dir/chart-metadata.yaml" "the chart version"
+require_text "appVersion: $actual" "$temp_dir/chart-metadata.yaml" "the chart application version"
+helm show values "$chart_file" >"$temp_dir/chart-values.yaml"
+require_text "releaseVersion: $actual" "$temp_dir/chart-values.yaml" "the release version"
+require_text "repository: ghcr.io/hosein-yousefii/nopsai-api" "$temp_dir/chart-values.yaml" "the API image repository"
 test -s "$temp_dir/bundle/db/init.sql"
 (
   cd "$temp_dir/bundle"
@@ -76,8 +98,10 @@ done
   --digest-dir "$temp_dir/digests"
 
 for image_name in "${image_names[@]}"; do
-  grep -F "ghcr.io/hosein-yousefii/$image_name@sha256:" \
-    "$temp_dir/digest-bundle/.env" >/dev/null
+  require_text \
+    "ghcr.io/hosein-yousefii/$image_name@sha256:" \
+    "$temp_dir/digest-bundle/.env" \
+    "the digest-pinned $image_name image"
 done
 if grep -F '{{' \
   "$temp_dir/digest-bundle/.env" \
@@ -102,18 +126,24 @@ if ! jq -e --arg file "nopsai-$actual.tgz" \
 fi
 helm show values "$digest_chart" >"$temp_dir/digest-chart-values.yaml"
 for image_name in "${image_names[@]}"; do
-  grep -F "repository: ghcr.io/hosein-yousefii/$image_name" \
-    "$temp_dir/digest-chart-values.yaml" >/dev/null
+  require_text \
+    "repository: ghcr.io/hosein-yousefii/$image_name" \
+    "$temp_dir/digest-chart-values.yaml" \
+    "the $image_name repository"
 done
 if [[ "$(grep -c 'digest: sha256:' "$temp_dir/digest-chart-values.yaml")" -ne 11 ]]; then
   printf 'packaged Helm chart does not contain all image digests\n' >&2
   exit 1
 fi
 helm template nopsai "$digest_chart" --namespace nopsai >"$temp_dir/digest-chart-manifests.yaml"
-grep -F 'image: "ghcr.io/hosein-yousefii/nopsai-api@sha256:' \
-  "$temp_dir/digest-chart-manifests.yaml" >/dev/null
-grep -F 'image: "ghcr.io/hosein-yousefii/nopsai-agent@sha256:' \
-  "$temp_dir/digest-chart-manifests.yaml" >/dev/null
+require_text \
+  'image: "ghcr.io/hosein-yousefii/nopsai-api@sha256:' \
+  "$temp_dir/digest-chart-manifests.yaml" \
+  "the digest-pinned API workload image"
+require_text \
+  'name: AGENT_IMAGE, value: "ghcr.io/hosein-yousefii/nopsai-agent@sha256:' \
+  "$temp_dir/digest-chart-manifests.yaml" \
+  "the digest-pinned dynamic agent image"
 (
   cd "$temp_dir/digest-bundle"
   export SERVICE_JWT_SIGNING_KEY=test-service-signing-key-at-least-32-characters

@@ -20,6 +20,12 @@ tools. Linux and macOS archives contain `nopsai`; Windows archives contain
 `nopsai.exe`. Asset names include the exact platform version, operating system,
 and architecture, and `SHA256SUMS` covers every published archive.
 
+macOS CLI binaries are built on a macOS runner, signed with a Developer ID
+Application certificate, and accepted by Apple's notarization service before
+publication. Gatekeeper assessment is part of the release job. This applies to
+new releases; an older unsigned archive is not retroactively notarized and
+should be replaced with a current release.
+
 ## Contexts And Authentication
 
 ```bash

@@ -198,7 +198,7 @@ jobs:
   build-cli:
     needs: metadata
     if: ${{ needs.metadata.outputs.eligible == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
     strategy:
@@ -207,14 +207,19 @@ jobs:
         include:
           - goos: linux
             goarch: amd64
+            runner: ubuntu-latest
           - goos: linux
             goarch: arm64
+            runner: ubuntu-latest
           - goos: darwin
             goarch: amd64
+            runner: macos-14
           - goos: darwin
             goarch: arm64
+            runner: macos-14
           - goos: windows
             goarch: amd64
+            runner: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -239,9 +244,24 @@ jobs:
           asset="nopsai_${VERSION}_${GOOS}_${GOARCH}"
           if [[ "$GOOS" == "windows" ]]; then
             (cd package && zip -9 "../dist/${asset}.zip" "$binary")
-          else
+          elif [[ "$GOOS" == "linux" ]]; then
             tar -C package -czf "dist/${asset}.tar.gz" "$binary"
           fi
+      - name: Sign and notarize macOS CLI
+        if: ${{ matrix.goos == 'darwin' }}
+        env:
+          APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
+          APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+          APPLE_DEVELOPER_ID_IDENTITY: ${{ secrets.APPLE_DEVELOPER_ID_IDENTITY }}
+          APPLE_NOTARY_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_KEY_P8_BASE64 }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          scripts/sign-notarize-macos-cli.sh \
+            --binary package/nopsai \
+            --archive "dist/nopsai_${VERSION}_darwin_${GOARCH}.zip"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: cli-${{ matrix.goos }}-${{ matrix.goarch }}

@@ -123,6 +123,50 @@ func TestOnlyPlatformReleasePublishesImagesAndCLIFromMain(t *testing.T) {
 	}
 }
 
+func TestDarwinCLIReleaseIsSignedAndNotarizedOnMacOS(t *testing.T) {
+	workflowBytes, err := os.ReadFile("../.github/workflows/platform-release.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := string(workflowBytes)
+	for _, required := range []string{
+		"runs-on: ${{ matrix.runner }}",
+		"runner: macos-14",
+		"scripts/sign-notarize-macos-cli.sh",
+		"APPLE_DEVELOPER_ID_P12_BASE64",
+		"APPLE_NOTARY_KEY_P8_BASE64",
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Errorf("platform release workflow is missing macOS release contract %q", required)
+		}
+	}
+
+	scriptPath := "../scripts/sign-notarize-macos-cli.sh"
+	scriptBytes, err := os.ReadFile(scriptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(scriptBytes)
+	for _, required := range []string{
+		"codesign",
+		"--options runtime",
+		"--timestamp",
+		"xcrun notarytool submit",
+		"spctl --assess --type execute",
+	} {
+		if !strings.Contains(script, required) {
+			t.Errorf("macOS signing script is missing %q", required)
+		}
+	}
+	info, err := os.Stat(scriptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&0o111 == 0 {
+		t.Fatal("macOS signing script is not executable")
+	}
+}
+
 func TestManifestTemplateDeclaresEveryPinnedPlatformArtifact(t *testing.T) {
 	contents, err := os.ReadFile("manifest.tmpl.json")
 	if err != nil {

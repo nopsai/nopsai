@@ -109,6 +109,26 @@ Each successful release publishes:
 - one deployment bundle whose `.env`, Compose file, Helm package, and image
   index all identify the same version and source commit
 
+Darwin CLI matrix entries run on `macos-14`. The release imports an Apple
+Developer ID Application certificate into an ephemeral keychain, applies a
+hardened-runtime timestamped signature, notarizes the ZIP with an App Store
+Connect API key, and runs a Gatekeeper assessment before uploading the asset.
+The keychain and decoded credentials are deleted before the job ends.
+
+Configure these encrypted GitHub Actions secrets before enabling main-branch
+publication:
+
+- `APPLE_DEVELOPER_ID_P12_BASE64`: base64-encoded Developer ID Application P12
+- `APPLE_DEVELOPER_ID_P12_PASSWORD`: password protecting the P12
+- `APPLE_DEVELOPER_ID_IDENTITY`: full signing identity, including Team ID
+- `APPLE_NOTARY_KEY_P8_BASE64`: base64-encoded App Store Connect API private key
+- `APPLE_NOTARY_KEY_ID`: App Store Connect API key ID
+- `APPLE_NOTARY_ISSUER_ID`: App Store Connect API issuer ID
+
+Missing or rejected Apple credentials fail the Darwin matrix jobs and prevent
+the unified release from being published. They never fall back to an unsigned
+CLI artifact.
+
 `scripts/generate-changelog.sh` groups commits since the most recent semantic
 version tag into breaking, added, fixed, and changed sections. The generated
 file is used as the GitHub Release body and shipped as an asset; release
