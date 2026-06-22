@@ -101,7 +101,8 @@ release model logic.
   rendering.
 - `scripts/render-release-bundle.sh` owns deployment artifact composition and
   image-lock rendering.
-- `deploy/` owns deployment-only Compose and Kubernetes image templates.
+- `deploy/` owns deployment-only Compose, the NopsAI Helm chart, and the
+  release image overlay used to create digest-pinned chart packages.
 - `.github/workflows/enterprise-gates.yml` owns unprivileged validation and
   preview composition; `.github/workflows/platform-release.yml` owns gated
   publication only.

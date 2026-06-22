@@ -1,0 +1,11 @@
+apiVersion: v2
+name: nopsai
+description: Enterprise NopsAI control plane and Kubernetes runner
+type: application
+version: 0.1.0
+appVersion: "dev"
+kubeVersion: ">=1.27.0-0"
+home: https://github.com/hosein-yousefii/NopsAI
+icon: https://raw.githubusercontent.com/hosein-yousefii/NopsAI/main/services/ui/public/brand/nopsai-app-icon.png
+sources:
+  - https://github.com/hosein-yousefii/NopsAI

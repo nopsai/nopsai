@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nopsai-api
+  labels:
+    {{- include "nopsai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.api.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "nopsai.selectorLabels" (dict "root" . "component" "api") | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/release: {{ printf "%s:%s" .Values.global.releaseVersion .Values.global.sourceCommit | sha256sum }}
+        {{- with .Values.global.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "nopsai.selectorLabels" (dict "root" . "component" "api") | nindent 8 }}
+        {{- with .Values.global.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: api
+          image: {{ include "nopsai.image" .Values.api.image | quote }}
+          imagePullPolicy: {{ .Values.api.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - {name: NOPSAI_ENVIRONMENT, value: {{ .Values.global.environment | quote }}}
+            - {name: NOPSAI_LISTEN_ADDRESS, value: "0.0.0.0:8080"}
+            - {name: AAA_API_URL, value: "http://aaa:8082"}
+            - {name: NOPSAI_GIT_BOT_API_URL, value: "http://git-bot:8081"}
+            - {name: AGENT_NOPSAI_API_URL, value: "http://nopsai:8080"}
+            - {name: DISPATCHER_ADDRESS, value: "dispatcher:9090"}
+            - {name: AGENT_IMAGE, value: {{ include "nopsai.image" .Values.agent.image | quote }}}
+            {{- if .Values.gotenberg.enabled }}
+            - {name: FINAL_OUTPUT_PDF_RENDERER_URL, value: "http://gotenberg:3000"}
+            {{- end }}
+            - name: DATABASE_URL
+              valueFrom: {secretKeyRef: {name: {{ include "nopsai.secretName" . }}, key: {{ .Values.secrets.keys.databaseURL }}}}
+            - name: NOPSAI_MASTER_KEY
+              valueFrom: {secretKeyRef: {name: {{ include "nopsai.secretName" . }}, key: {{ .Values.secrets.keys.masterKey }}}}
+            - name: JWT_SIGNING_KEY
+              valueFrom: {secretKeyRef: {name: {{ include "nopsai.secretName" . }}, key: {{ .Values.secrets.keys.jwtSigningKey }}}}
+            - name: SERVICE_JWT_SIGNING_KEY
+              valueFrom: {secretKeyRef: {name: {{ include "nopsai.secretName" . }}, key: {{ .Values.secrets.keys.serviceJWTSigningKey }}}}
+            - name: AAA_SHARED_INTERNAL_TOKEN
+              valueFrom: {secretKeyRef: {name: {{ include "nopsai.secretName" . }}, key: {{ .Values.secrets.keys.aaaSharedInternalToken }}}}
+          readinessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 5, periodSeconds: 10}
+          livenessProbe: {httpGet: {path: /healthz, port: http}, initialDelaySeconds: 15, periodSeconds: 20}
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nopsai
+  labels:
+    {{- include "nopsai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+  {{- with .Values.api.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.api.service.type }}
+  selector:
+    {{- include "nopsai.selectorLabels" (dict "root" . "component" "api") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.api.service.port }}
+      targetPort: http
