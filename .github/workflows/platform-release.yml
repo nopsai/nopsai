@@ -6,12 +6,6 @@ on:
     types: [completed]
     branches: [main]
   workflow_dispatch:
-    inputs:
-      ref:
-        description: Main-branch commit or ref to release
-        required: true
-        default: main
-        type: string
 
 permissions:
   contents: read
@@ -37,7 +31,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.ref }}
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || 'main' }}
       - name: Validate release source and calculate version
         id: metadata
         env:
@@ -48,15 +42,11 @@ jobs:
           source_commit=$(git rev-parse HEAD)
           main_commit=$(git rev-parse origin/main)
           eligible=true
-          if [[ "$EVENT_NAME" == "workflow_run" && "$source_commit" != "$main_commit" ]]; then
-            echo "Skipping superseded successful gate run $source_commit; main is $main_commit"
+          if [[ "$source_commit" != "$main_commit" ]]; then
+            echo "Skipping stale release source $source_commit; current main is $main_commit"
             eligible=false
           fi
-          if ! git merge-base --is-ancestor "$source_commit" "$main_commit"; then
-            echo "Release source $source_commit is not on main" >&2
-            exit 1
-          fi
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+          if [[ "$EVENT_NAME" == "workflow_dispatch" && "$eligible" == "true" ]]; then
             gate_conclusion=$(gh api --method GET \
               "repos/$GITHUB_REPOSITORY/actions/workflows/enterprise-gates.yml/runs" \
               -f "head_sha=$source_commit" \
@@ -113,6 +103,8 @@ jobs:
             BUILD_DATE=${{ needs.metadata.outputs.build_date }}
           provenance: mode=max
           sbom: true
+          cache-from: type=gha,scope=nopsai-base
+          cache-to: type=gha,mode=max,scope=nopsai-base
       - name: Save base digest
         run: |
           mkdir -p digest
@@ -191,6 +183,8 @@ jobs:
             BUILD_DATE=${{ needs.metadata.outputs.build_date }}
           provenance: mode=max
           sbom: true
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
       - name: Save image digest
         run: |
           mkdir -p digest
