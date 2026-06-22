@@ -18,8 +18,7 @@ service image copies and starts only `nopsai-api`, as a non-root user.
 Released CLI builds are standalone GitHub Release assets, not container-only
 tools. Linux and macOS archives contain `nopsai`; Windows archives contain
 `nopsai.exe`. Asset names include the exact platform version, operating system,
-and architecture, and `SHA256SUMS` plus GitHub artifact attestations cover every
-archive.
+and architecture, and `SHA256SUMS` covers every published archive.
 
 ## Contexts And Authentication
 

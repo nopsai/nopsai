@@ -39,7 +39,7 @@ func TestDeploymentTemplatesOwnEveryReleasedImage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	valuesBytes, err := os.ReadFile("../deploy/kubernetes/values.images.yaml.tmpl")
+	valuesBytes, err := os.ReadFile("../deploy/helm/release-images.yaml.tmpl")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,12 +51,39 @@ func TestDeploymentTemplatesOwnEveryReleasedImage(t *testing.T) {
 	}
 	for _, required := range []string{"API", "AAA", "AGENT", "DISPATCHER", "GIT_BOT", "RUNNER", "K8S_RUNNER", "UI"} {
 		if !strings.Contains(values, "{{"+required+"_DIGEST}}") {
-			t.Errorf("Kubernetes values template is missing %s digest", required)
+			t.Errorf("Helm release values template is missing %s digest", required)
 		}
 	}
 	for _, template := range []string{compose, values} {
 		if strings.Contains(template, "nopsai-api:latest") || strings.Contains(template, "nopsai-agent:latest") {
 			t.Fatal("release deployment template contains a floating NopsAI image")
+		}
+	}
+}
+
+func TestHelmChartOwnsControlPlaneAndRunnerResources(t *testing.T) {
+	for _, chartFile := range []string{
+		"../deploy/helm/nopsai/Chart.yaml",
+		"../deploy/helm/nopsai/values.yaml",
+		"../deploy/helm/nopsai/templates/api.yaml",
+		"../deploy/helm/nopsai/templates/aaa.yaml",
+		"../deploy/helm/nopsai/templates/dispatcher.yaml",
+		"../deploy/helm/nopsai/templates/git-bot.yaml",
+		"../deploy/helm/nopsai/templates/ui.yaml",
+		"../deploy/helm/nopsai/templates/k8s-runner.yaml",
+	} {
+		if info, err := os.Stat(chartFile); err != nil || info.Size() == 0 {
+			t.Errorf("required Helm chart file %s is missing or empty", chartFile)
+		}
+	}
+	workflowBytes, err := os.ReadFile("../.github/workflows/platform-release.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := string(workflowBytes)
+	for _, required := range []string{"helm push", "nopsai-$VERSION.tgz", "oci://ghcr.io/"} {
+		if !strings.Contains(workflow, required) {
+			t.Errorf("platform release workflow is missing Helm publication contract %q", required)
 		}
 	}
 }

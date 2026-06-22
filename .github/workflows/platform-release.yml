@@ -254,6 +254,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      packages: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       VERSION: ${{ needs.metadata.outputs.version }}
@@ -265,6 +266,9 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ needs.metadata.outputs.source_commit }}
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: v3.17.3
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: image-digest-*
@@ -296,14 +300,32 @@ jobs:
             jq --arg name "$asset_name" --arg checksum "sha256:$checksum" '.cli[$name] = $checksum' "$index_file" >"$temp_index"
             mv "$temp_index" "$index_file"
           done
+          echo "$GH_TOKEN" | helm registry login ghcr.io \
+            --username "$GITHUB_ACTOR" \
+            --password-stdin
+          chart_repository="oci://ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/charts"
+          chart_reference="$chart_repository/nopsai"
+          chart_push_output=$(helm push "dist/release/nopsai-$VERSION.tgz" "$chart_repository")
+          printf '%s\n' "$chart_push_output"
+          chart_digest=$(printf '%s\n' "$chart_push_output" | sed -n 's/^Digest: //p' | tail -1)
+          if [[ ! "$chart_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo "Helm did not return a valid OCI chart digest" >&2
+            exit 1
+          fi
+          jq \
+            --arg reference "$chart_reference" \
+            --arg digest "$chart_digest" \
+            '.chart.ociReference=$reference | .chart.digest=$digest' \
+            "$index_file" >"$temp_index"
+          mv "$temp_index" "$index_file"
           (
             cd dist/release
-            shasum -a 256 .env db/init.sql docker-compose.yaml kubernetes-values.yaml release-index.json >checksums.txt
+            shasum -a 256 .env db/init.sql docker-compose.yaml "nopsai-$VERSION.tgz" release-index.json >checksums.txt
           )
           cp dist/cli/* dist/assets/
           cp dist/release/CHANGELOG.md dist/assets/
           cp dist/release/docker-compose.yaml dist/assets/nopsai-docker-compose.yaml
-          cp dist/release/kubernetes-values.yaml dist/assets/nopsai-kubernetes-values.yaml
+          cp "dist/release/nopsai-$VERSION.tgz" dist/assets/
           cp dist/release/release-index.json dist/assets/
           tar -C dist/release -czf "dist/assets/nopsai_${VERSION}_deployment-bundle.tar.gz" .
           (

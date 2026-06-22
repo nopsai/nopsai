@@ -1,0 +1,117 @@
+{{- if .Values.k8sRunner.enabled }}
+{{- if .Values.k8sRunner.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "nopsai.runnerServiceAccountName" . }}
+  labels:
+    {{- include "nopsai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: k8s-runner
+  {{- with .Values.k8sRunner.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- with .Values.global.imagePullSecrets }}
+imagePullSecrets:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+---
+{{- end }}
+{{- if .Values.k8sRunner.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: nopsai-k8s-runner
+  labels:
+    {{- include "nopsai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: k8s-runner
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch, create, delete]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [get, create]
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    verbs: [get, list, watch, create, delete]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nopsai-k8s-runner
+  labels:
+    {{- include "nopsai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: k8s-runner
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "nopsai.runnerServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nopsai-k8s-runner
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nopsai-k8s-runner
+  labels:
+    {{- include "nopsai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: k8s-runner
+    nopsai.io/runner-id: {{ .Values.k8sRunner.runnerID | quote }}
+spec:
+  replicas: {{ .Values.k8sRunner.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "nopsai.selectorLabels" (dict "root" . "component" "k8s-runner") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nopsai.selectorLabels" (dict "root" . "component" "k8s-runner") | nindent 8 }}
+        nopsai.io/runner-id: {{ .Values.k8sRunner.runnerID | quote }}
+    spec:
+      serviceAccountName: {{ include "nopsai.runnerServiceAccountName" . }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: runner
+          image: {{ include "nopsai.image" .Values.k8sRunner.image | quote }}
+          imagePullPolicy: {{ .Values.k8sRunner.imagePullPolicy }}
+          env:
+            - {name: NOPSAI_ENVIRONMENT, value: {{ .Values.global.environment | quote }}}
+            - {name: RUNTIME, value: kubernetes}
+            - {name: RUNNER_ID, value: {{ .Values.k8sRunner.runnerID | quote }}}
+            - {name: RUNNER_SCOPES, value: {{ .Values.k8sRunner.scopes | quote }}}
+            - {name: RUNNER_CAPACITY, value: {{ .Values.k8sRunner.capacity | quote }}}
+            - {name: RUNNER_SERVICE_ID, value: {{ .Values.k8sRunner.serviceID | quote }}}
+            - {name: AGENT_IMAGE, value: {{ include "nopsai.image" .Values.agent.image | quote }}}
+            - {name: DISPATCHER_ADDRESS, value: "dispatcher:9090"}
+            - {name: KUBERNETES_NAMESPACE, valueFrom: {fieldRef: {fieldPath: metadata.namespace}}}
+            - {name: KUBERNETES_SERVICE_ACCOUNT, value: {{ include "nopsai.runnerServiceAccountName" . | quote }}}
+            - {name: KUBERNETES_DEFAULT_IMAGE_PULL_POLICY, value: {{ .Values.k8sRunner.imagePullPolicy | quote }}}
+            - {name: KUBERNETES_DEFAULT_WORKSPACE_SIZE, value: {{ .Values.k8sRunner.workspace.size | quote }}}
+            - {name: KUBERNETES_DEFAULT_WORKSPACE_ACCESS_MODE, value: {{ .Values.k8sRunner.workspace.accessMode | quote }}}
+            - {name: KUBERNETES_WORKSPACE_VOLUME_MODE, value: {{ .Values.k8sRunner.workspace.volumeMode | quote }}}
+            - {name: KUBERNETES_DEFAULT_TASK_TIMEOUT, value: {{ .Values.k8sRunner.defaultTaskTimeout | quote }}}
+            - {name: KUBERNETES_DEFAULT_RUN_TIMEOUT, value: {{ .Values.k8sRunner.defaultRunTimeout | quote }}}
+            - {name: KUBERNETES_AFFINITY_ENABLED, value: {{ .Values.k8sRunner.affinityEnabled | quote }}}
+            - {name: KUBERNETES_CLEANUP_FINISHED_PODS, value: {{ .Values.k8sRunner.cleanupFinishedPods | quote }}}
+            {{- with .Values.k8sRunner.workspace.existingPVC }}
+            - {name: KUBERNETES_EXISTING_WORKSPACE_PVC, value: {{ . | quote }}}
+            {{- end }}
+            {{- with .Values.k8sRunner.workspace.storageClass }}
+            - {name: KUBERNETES_STORAGE_CLASS, value: {{ . | quote }}}
+            {{- end }}
+            - name: SERVICE_JWT_SIGNING_KEY
+              valueFrom: {secretKeyRef: {name: {{ include "nopsai.secretName" . }}, key: {{ .Values.secrets.keys.serviceJWTSigningKey }}}}
+          resources: {{ toYaml .Values.k8sRunner.resources | nindent 12 }}
+{{- end }}

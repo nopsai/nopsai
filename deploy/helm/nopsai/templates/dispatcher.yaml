@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nopsai-dispatcher
+  labels:
+    {{- include "nopsai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dispatcher
+spec:
+  replicas: {{ .Values.dispatcher.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "nopsai.selectorLabels" (dict "root" . "component" "dispatcher") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nopsai.selectorLabels" (dict "root" . "component" "dispatcher") | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: dispatcher
+          image: {{ include "nopsai.image" .Values.dispatcher.image | quote }}
+          imagePullPolicy: {{ .Values.dispatcher.imagePullPolicy }}
+          ports: [{name: grpc, containerPort: 9090}]
+          env:
+            - {name: NOPSAI_ENVIRONMENT, value: {{ .Values.global.environment | quote }}}
+            - {name: DISPATCHER_LISTEN_ADDRESS, value: ":9090"}
+            - {name: AGENT_NOPSAI_API_URL, value: "http://nopsai:8080"}
+            - name: SERVICE_JWT_SIGNING_KEY
+              valueFrom: {secretKeyRef: {name: {{ include "nopsai.secretName" . }}, key: {{ .Values.secrets.keys.serviceJWTSigningKey }}}}
+          readinessProbe: {tcpSocket: {port: grpc}, initialDelaySeconds: 5, periodSeconds: 10}
+          livenessProbe: {tcpSocket: {port: grpc}, initialDelaySeconds: 15, periodSeconds: 20}
+          resources: {{ toYaml .Values.dispatcher.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dispatcher
+  labels:
+    {{- include "nopsai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dispatcher
+spec:
+  selector:
+    {{- include "nopsai.selectorLabels" (dict "root" . "component" "dispatcher") | nindent 4 }}
+  ports: [{name: grpc, port: {{ .Values.dispatcher.service.port }}, targetPort: grpc}]

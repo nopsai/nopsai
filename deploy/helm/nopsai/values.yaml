@@ -1,0 +1,127 @@
+global:
+  releaseVersion: dev
+  sourceCommit: unknown
+  environment: production
+  imagePullSecrets: []
+  podAnnotations: {}
+  podLabels: {}
+
+secrets:
+  existingSecret: nopsai-secrets
+  keys:
+    databaseURL: database-url
+    masterKey: master-key
+    jwtSigningKey: jwt-signing-key
+    serviceJWTSigningKey: service-jwt-signing-key
+    aaaSharedInternalToken: aaa-shared-internal-token
+
+base:
+  image: {repository: ghcr.io/hosein-yousefii/nopsai-base, tag: dev, digest: ""}
+
+api:
+  replicaCount: 1
+  image: {repository: ghcr.io/hosein-yousefii/nopsai-api, tag: dev, digest: ""}
+  imagePullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8080
+    annotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/path: /metrics
+      prometheus.io/port: "8080"
+  resources: {}
+
+aaa:
+  replicaCount: 1
+  image: {repository: ghcr.io/hosein-yousefii/nopsai-aaa, tag: dev, digest: ""}
+  imagePullPolicy: IfNotPresent
+  service:
+    port: 8082
+  resources: {}
+
+agent:
+  image: {repository: ghcr.io/hosein-yousefii/nopsai-agent, tag: dev, digest: ""}
+
+dispatcher:
+  replicaCount: 1
+  image: {repository: ghcr.io/hosein-yousefii/nopsai-dispatcher, tag: dev, digest: ""}
+  imagePullPolicy: IfNotPresent
+  service:
+    port: 9090
+  resources: {}
+
+gitBot:
+  replicaCount: 1
+  image: {repository: ghcr.io/hosein-yousefii/nopsai-git-bot, tag: dev, digest: ""}
+  imagePullPolicy: IfNotPresent
+  service:
+    port: 8081
+  resources: {}
+
+runner:
+  image: {repository: ghcr.io/hosein-yousefii/nopsai-runner, tag: dev, digest: ""}
+
+k8sRunner:
+  enabled: true
+  replicaCount: 1
+  image: {repository: ghcr.io/hosein-yousefii/nopsai-k8s-runner, tag: dev, digest: ""}
+  imagePullPolicy: IfNotPresent
+  runnerID: k8s-runner-1
+  scopes: ""
+  capacity: 10
+  serviceID: runner
+  serviceAccount:
+    create: true
+    name: nopsai-runner
+    annotations: {}
+  rbac:
+    create: true
+  workspace:
+    size: 10Gi
+    accessMode: ReadWriteOnce
+    volumeMode: pvc
+    existingPVC: ""
+    storageClass: ""
+  defaultTaskTimeout: 30m
+  defaultRunTimeout: 2h
+  affinityEnabled: true
+  cleanupFinishedPods: true
+  resources: {}
+
+dockerSocketProxy:
+  image: {repository: ghcr.io/hosein-yousefii/nopsai-docker-socket-proxy, tag: dev, digest: ""}
+
+ui:
+  replicaCount: 1
+  image: {repository: ghcr.io/hosein-yousefii/nopsai-ui, tag: dev, digest: ""}
+  imagePullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 80
+  resources: {}
+
+pipeline:
+  image: {repository: ghcr.io/hosein-yousefii/pipeline-image, tag: dev, digest: ""}
+
+gotenberg:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: gotenberg/gotenberg
+    tag: 8.32.0
+    digest: ""
+  imagePullPolicy: IfNotPresent
+  service:
+    port: 3000
+  resources: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: nopsai.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []

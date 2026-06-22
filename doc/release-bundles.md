@@ -84,10 +84,9 @@ invalid compatibility ranges, mismatched chart versions, and undeclared
 migration policy. The optional manifest digest supplied to the CLI is checked
 against the downloaded bytes before parsing.
 
-The container workflow also creates `release-index.json`. This is the image and
-CLI artifact lock for one commit-count release; it is separate from the Helm
-release manifest above because chart publication remains an independently
-owned input to `nopsai platform deploy`.
+The container workflow also creates `release-index.json`. This is the image,
+CLI, and Helm artifact lock for one commit-count release. It records the chart
+package checksum plus the OCI chart reference, version, and registry digest.
 
 ## Automated Publication
 
@@ -103,11 +102,12 @@ Each successful release publishes:
   `ghcr.io/<owner>` for the base, API, AAA, agent, dispatcher, git-bot, Docker
   runner, Kubernetes runner, socket proxy, UI, and pipeline helper
 - standalone CLI archives for Linux, macOS, and Windows
-- SBOM/provenance output and GitHub artifact attestations
+- SBOM and provenance output for published OCI images
 - a digest-pinned image index, `SHA256SUMS`, generated changelog, deployment
-  Compose file, and Kubernetes image values
-- one deployment bundle whose `.env`, Compose file, Kubernetes values, and
-  image index all identify the same version and source commit
+  Compose file, and `nopsai-<version>.tgz` Helm package
+- the same Helm chart published to `oci://ghcr.io/<owner>/charts/nopsai`
+- one deployment bundle whose `.env`, Compose file, Helm package, and image
+  index all identify the same version and source commit
 
 `scripts/generate-changelog.sh` groups commits since the most recent semantic
 version tag into breaking, added, fixed, and changed sections. The generated
@@ -162,15 +162,24 @@ runners.
 The generated deployment bundle has a deployment-only `docker-compose.yaml`
 and `.env` with digest-pinned NopsAI image references. Operators add production
 secrets through their secret manager, then run `docker compose config` and
-`docker compose up -d`. `nopsai-kubernetes-values.yaml` provides the same
-repositories, tags, and digests for the separately published OCI Helm chart.
+`docker compose up -d`. `nopsai-<version>.tgz` is a deployable chart containing
+the same digest-pinned images. Kubernetes installations must create the Secret
+named by `secrets.existingSecret` before installing the chart; PostgreSQL stays
+externally managed.
+
+```bash
+helm upgrade --install nopsai \
+  oci://ghcr.io/<owner>/charts/nopsai \
+  --version <version> \
+  --namespace nopsai \
+  --create-namespace \
+  --set secrets.existingSecret=nopsai-secrets
+```
 
 ## Release Boundary
 
-The repository now owns commit-count image and CLI publication, SBOM/provenance
-generation, attestations, deployment image locks, and changelog generation.
-Public OCI chart publication, release-manifest signing, release-candidate
-promotion, package-manager distribution, upgrade/status/rollback commands, and
-Kind smoke deployment remain separate work. Until chart publication is brought
-into this repository, operators must supply the trusted version-matched chart
-and its release manifest to `nopsai platform deploy`.
+The repository now owns commit-count image, CLI, and Helm publication,
+SBOM/provenance generation, deployment image locks, and changelog generation.
+Release-manifest signing, release-candidate promotion, package-manager
+distribution, upgrade/status/rollback commands, and Kind smoke deployment
+remain separate work.

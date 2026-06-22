@@ -113,8 +113,25 @@ for spec in "${image_specs[@]}"; do
   )
 done
 
-sed "${sed_args[@]}" "$ROOT_DIR/deploy/kubernetes/values.images.yaml.tmpl" >"$output/kubernetes-values.yaml"
+release_values="$output/.helm-release-values.yaml"
+sed "${sed_args[@]}" "$ROOT_DIR/deploy/helm/release-images.yaml.tmpl" >"$release_values"
+"$ROOT_DIR/scripts/package-helm-chart.sh" \
+  --values "$release_values" \
+  --output "$output" \
+  --version "$version" >/dev/null
+rm "$release_values"
+
+chart_name="nopsai-$version.tgz"
+chart_checksum="$(shasum -a 256 "$output/$chart_name" | awk '{print $1}')"
+temp_index="$index_file.tmp"
+jq \
+  --arg file "$chart_name" \
+  --arg version "$version" \
+  --arg checksum "sha256:$chart_checksum" \
+  '.chart = {file:$file,version:$version,sha256:$checksum}' \
+  "$index_file" >"$temp_index"
+mv "$temp_index" "$index_file"
 (
   cd "$output"
-  shasum -a 256 .env db/init.sql docker-compose.yaml kubernetes-values.yaml release-index.json >checksums.txt
+  shasum -a 256 .env db/init.sql docker-compose.yaml "$chart_name" release-index.json >checksums.txt
 )

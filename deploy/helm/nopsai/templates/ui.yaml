@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nopsai-ui
+  labels:
+    {{- include "nopsai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ui
+spec:
+  replicas: {{ .Values.ui.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "nopsai.selectorLabels" (dict "root" . "component" "ui") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nopsai.selectorLabels" (dict "root" . "component" "ui") | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: ui
+          image: {{ include "nopsai.image" .Values.ui.image | quote }}
+          imagePullPolicy: {{ .Values.ui.imagePullPolicy }}
+          ports: [{name: http, containerPort: 80}]
+          readinessProbe: {httpGet: {path: /, port: http}, initialDelaySeconds: 3, periodSeconds: 10}
+          livenessProbe: {httpGet: {path: /, port: http}, initialDelaySeconds: 10, periodSeconds: 20}
+          resources: {{ toYaml .Values.ui.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nopsai-ui
+  labels:
+    {{- include "nopsai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ui
+spec:
+  type: {{ .Values.ui.service.type }}
+  selector:
+    {{- include "nopsai.selectorLabels" (dict "root" . "component" "ui") | nindent 4 }}
+  ports: [{name: http, port: {{ .Values.ui.service.port }}, targetPort: http}]
