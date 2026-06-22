@@ -1,0 +1,11 @@
+NopsAI {{ .Chart.AppVersion }} was installed in namespace {{ .Release.Namespace }}.
+
+The chart expects Secret {{ include "nopsai.secretName" . }} with these keys:
+  {{ .Values.secrets.keys.databaseURL }}
+  {{ .Values.secrets.keys.masterKey }}
+  {{ .Values.secrets.keys.jwtSigningKey }}
+  {{ .Values.secrets.keys.serviceJWTSigningKey }}
+  {{ .Values.secrets.keys.aaaSharedInternalToken }}
+
+Port-forward the UI when ingress is disabled:
+  kubectl -n {{ .Release.Namespace }} port-forward service/nopsai-ui 8080:80

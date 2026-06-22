@@ -76,10 +76,11 @@ The script runs:
 - Generated API catalog parity against every Go HTTP route registration, so a
   new server API cannot land without CLI discovery and template-call support
 - Release compatibility, strict manifest, digest pinning, chart verification,
-  deterministic Helm values, post-success lockfile, `/version`, and binary
+  deterministic Helm overrides, post-success lockfile, `/version`, and binary
   build-metadata tests
 - Commit-count version calculation, PR `+2` forecasts, changelog generation,
-  deployment-only Compose rendering, Kubernetes image values, and checksums
+  deployment-only Compose rendering, Helm lint/package/render validation, and
+  checksums
 
 `scripts/test-backend.sh` tests repository-level packaging contracts, command
 entrypoints, internal CLI packages, `config`, shared Go packages, and every
@@ -91,8 +92,8 @@ The gate itself has read-only repository permissions and never publishes PR
 artifacts to a registry. It uploads a release preview with the forecast version.
 After a successful gate run for the current main commit,
 `.github/workflows/platform-release.yml` performs the privileged GHCR, CLI, and
-GitHub Release publication with job-scoped package, attestation, and content
-permissions. See [release-bundles.md](./release-bundles.md).
+GitHub Release publication with job-scoped package and content permissions. See
+[release-bundles.md](./release-bundles.md).
 
 Run the UI boundary gate from `services/ui` whenever a frontend change touches
 route pages, feature modules, hooks, or shared UI helpers:
@@ -119,6 +120,9 @@ workflow dialogs, editor autocomplete, graph interaction, and populated logs.
 Set `SKIP_DOCKER_BUILDS=1` when validating Go/lint/security gates without
 local Docker builds.
 
+Helm 3.17 or newer is required for release chart linting, packaging, and
+template validation. CI pins Helm 3.17.3 through `azure/setup-helm`.
+
 `golangci-lint` must be built with the same Go major/minor version as the
 module target in `go.mod` or newer. If the local binary was built with an older
 Go toolchain, upgrade it before running the gates:
@@ -140,8 +144,9 @@ go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
 `.github/workflows/platform-release.yml` is chained from a successful main
 `Enterprise Gates` run. It re-checks that the tested SHA is still current main,
 builds without PR caches, publishes version-only GHCR tags and standalone CLI
-archives, and creates the changelog-backed GitHub Release only after every image
-and CLI target succeeds.
+archives, publishes the versioned OCI Helm chart, and creates the
+changelog-backed GitHub Release only after every image, CLI target, and chart
+stage succeeds.
 
 `.github/workflows/ui-live-smoke.yml` provides the post-deployment UI gate. It
 can be called by a deployment workflow or dispatched manually against a

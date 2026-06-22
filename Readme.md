@@ -229,7 +229,7 @@ docker compose -f docker-compose.yaml down -v
 For a published version, use the GitHub Release deployment bundle instead of
 rebuilding from a moving branch. Its `.env` pins every NopsAI container by
 digest, its Compose file includes the matching database bootstrap, and its
-Kubernetes values contain the same repositories, tags, and digests. Supply
+versioned Helm package contains the same repositories, tags, and digests. Supply
 production secrets through your secret manager before running `docker compose
 config` and `docker compose up -d`.
 

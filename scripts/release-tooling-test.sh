@@ -29,7 +29,13 @@ grep -F "# NopsAI $actual" "$temp_dir/CHANGELOG.md" >/dev/null
 
 grep -F "NOPSAI_VERSION=$actual" "$temp_dir/bundle/.env" >/dev/null
 grep -F "ghcr.io/hosein-yousefii/nopsai-api:$actual" "$temp_dir/bundle/.env" >/dev/null
-grep -F "releaseVersion: \"$actual\"" "$temp_dir/bundle/kubernetes-values.yaml" >/dev/null
+chart_file="$temp_dir/bundle/nopsai-$actual.tgz"
+test -s "$chart_file"
+test ! -e "$temp_dir/bundle/kubernetes-values.yaml"
+helm show chart "$chart_file" | grep -F "version: $actual" >/dev/null
+helm show chart "$chart_file" | grep -F "appVersion: $actual" >/dev/null
+helm show values "$chart_file" | grep -F "releaseVersion: $actual" >/dev/null
+helm show values "$chart_file" | grep -F "repository: ghcr.io/hosein-yousefii/nopsai-api" >/dev/null
 test -s "$temp_dir/bundle/db/init.sql"
 (
   cd "$temp_dir/bundle"
@@ -73,7 +79,10 @@ for image_name in "${image_names[@]}"; do
   grep -F "ghcr.io/hosein-yousefii/$image_name@sha256:" \
     "$temp_dir/digest-bundle/.env" >/dev/null
 done
-if grep -R -F '{{' "$temp_dir/digest-bundle" >/dev/null; then
+if grep -F '{{' \
+  "$temp_dir/digest-bundle/.env" \
+  "$temp_dir/digest-bundle/docker-compose.yaml" \
+  "$temp_dir/digest-bundle/release-index.json" >/dev/null; then
   printf 'digest release bundle contains an unresolved placeholder\n' >&2
   exit 1
 fi
@@ -84,6 +93,27 @@ else
   printf 'release index does not contain all digest-pinned images\n' >&2
   exit 1
 fi
+digest_chart="$temp_dir/digest-bundle/nopsai-$actual.tgz"
+if ! jq -e --arg file "nopsai-$actual.tgz" \
+  '.chart.file == $file and (.chart.sha256 | test("^sha256:[a-f0-9]{64}$"))' \
+  "$temp_dir/digest-bundle/release-index.json" >/dev/null; then
+  printf 'release index does not contain the packaged Helm chart\n' >&2
+  exit 1
+fi
+helm show values "$digest_chart" >"$temp_dir/digest-chart-values.yaml"
+for image_name in "${image_names[@]}"; do
+  grep -F "repository: ghcr.io/hosein-yousefii/$image_name" \
+    "$temp_dir/digest-chart-values.yaml" >/dev/null
+done
+if [[ "$(grep -c 'digest: sha256:' "$temp_dir/digest-chart-values.yaml")" -ne 11 ]]; then
+  printf 'packaged Helm chart does not contain all image digests\n' >&2
+  exit 1
+fi
+helm template nopsai "$digest_chart" --namespace nopsai >"$temp_dir/digest-chart-manifests.yaml"
+grep -F 'image: "ghcr.io/hosein-yousefii/nopsai-api@sha256:' \
+  "$temp_dir/digest-chart-manifests.yaml" >/dev/null
+grep -F 'image: "ghcr.io/hosein-yousefii/nopsai-agent@sha256:' \
+  "$temp_dir/digest-chart-manifests.yaml" >/dev/null
 (
   cd "$temp_dir/digest-bundle"
   export SERVICE_JWT_SIGNING_KEY=test-service-signing-key-at-least-32-characters
