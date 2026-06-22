@@ -19,13 +19,21 @@ x-local-topology-env: &local-topology-env
   DISPATCHER_ADDRESS: dispatcher:9090
   DOCKER_NETWORK_NAME: nopsai-net
 
+x-release-build-args: &release-build-args
+  VERSION: ${NOPSAI_VERSION:-dev}
+  COMMIT: ${NOPSAI_COMMIT:-unknown}
+  BUILD_DATE: ${NOPSAI_BUILD_DATE:-unknown}
+  RELEASE_MANIFEST_DIGEST: ${NOPSAI_RELEASE_MANIFEST_DIGEST:-}
+
 services:
   base:
     container_name: nopsai-base
-    image: hoseindocker/nopsai-base
+    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-base:${NOPSAI_VERSION:-dev}
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        <<: *release-build-args
     entrypoint: 'true'
 
   backend-test:
@@ -76,10 +84,13 @@ services:
 
   nopsai:
     container_name: nopsai
-    image: hoseindocker/nopsai
+    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-api:${NOPSAI_VERSION:-dev}
     build:
       context: .
       dockerfile: container/Dockerfile.nopsai
+      args:
+        <<: *release-build-args
+        BASE_IMAGE: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-base:${NOPSAI_VERSION:-dev}
     restart: always
     ports:
       - "8080:8080"
@@ -110,10 +121,12 @@ services:
 
   docker-socket-proxy:
     container_name: nopsai-docker-socket-proxy
-    image: hoseindocker/nopsai-docker-socket-proxy
+    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-docker-socket-proxy:${NOPSAI_VERSION:-dev}
     build:
       context: .
       dockerfile: container/Dockerfile.socket-proxy
+      args:
+        <<: *release-build-args
     restart: always
     environment:
       ALLOWED_CONTAINERS: nopsai,nopsai-aaa,nopsai-dispatcher,nopsai-git-bot,nopsai-ui,nopsai-docker-runner
@@ -150,10 +163,12 @@ services:
 
   aaa:
     container_name: nopsai-aaa
-    image: hoseindocker/nopsai-aaa
+    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-aaa:${NOPSAI_VERSION:-dev}
     build:
       context: .
       dockerfile: container/Dockerfile.aaa
+      args:
+        <<: *release-build-args
     restart: always
     expose:
       - "8082"
@@ -168,10 +183,13 @@ services:
 
   dispatcher:
     container_name: nopsai-dispatcher
-    image: hoseindocker/nopsai-dispatcher
+    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-dispatcher:${NOPSAI_VERSION:-dev}
     build:
       context: .
       dockerfile: container/Dockerfile.dispatcher
+      args:
+        <<: *release-build-args
+        BASE_IMAGE: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-base:${NOPSAI_VERSION:-dev}
     restart: always
     ports:
       - "9090:9090"
@@ -185,10 +203,13 @@ services:
 
   git-bot:
     container_name: nopsai-git-bot
-    image: hoseindocker/nopsai-git-bot
+    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-git-bot:${NOPSAI_VERSION:-dev}
     build:
       context: .
       dockerfile: container/Dockerfile.git-bot
+      args:
+        <<: *release-build-args
+        BASE_IMAGE: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-base:${NOPSAI_VERSION:-dev}
     restart: always
     ports:
       - "8081:8081"
@@ -204,11 +225,14 @@ services:
 
   nopsai-ui:
     container_name: nopsai-ui
-    image: hoseindocker/nopsai-ui
+    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-ui:${NOPSAI_VERSION:-dev}
     build:
       context: ./services/ui
       dockerfile: Dockerfile
       args:
+        VERSION: ${NOPSAI_VERSION:-dev}
+        COMMIT: ${NOPSAI_COMMIT:-unknown}
+        BUILD_DATE: ${NOPSAI_BUILD_DATE:-unknown}
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
     restart: always
     ports:
@@ -226,10 +250,12 @@ services:
   
   agent:
     container_name: nopsai-agent
-    image: hoseindocker/nopsai-agent
+    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-agent:${NOPSAI_VERSION:-dev}
     build:
       context: .
       dockerfile: container/Dockerfile.agent
+      args:
+        <<: *release-build-args
     depends_on:
       - base
     entrypoint: 'true'
@@ -237,10 +263,13 @@ services:
   docker-runner:
     container_name: nopsai-docker-runner
     hostname: docker-runner
-    image: hoseindocker/nopsai-runner
+    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-runner:${NOPSAI_VERSION:-dev}
     build:
       context: .
       dockerfile: container/Dockerfile.docker-runner
+      args:
+        <<: *release-build-args
+        BASE_IMAGE: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-base:${NOPSAI_VERSION:-dev}
     restart: always
     depends_on:
       - dispatcher
@@ -255,22 +284,27 @@ services:
 
   k8s-runner:
     container_name: nopsai-k8s-runner-image
-    image: hoseindocker/nopsai-k8s-runner
+    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-k8s-runner:${NOPSAI_VERSION:-dev}
     build:
       context: .
       dockerfile: container/Dockerfile.k8s-runner
       args:
-        BASE_IMAGE: hoseindocker/nopsai-base:latest
+        <<: *release-build-args
+        BASE_IMAGE: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-base:${NOPSAI_VERSION:-dev}
     depends_on:
       - base
     entrypoint: 'true'
 
   pipeline:
     container_name: pipeline-image
-    image: hoseindocker/pipeline-image
+    image: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/pipeline-image:${NOPSAI_VERSION:-dev}
     build:
       context: .
       dockerfile: container/Dockerfile.pipeline
+      args:
+        VERSION: ${NOPSAI_VERSION:-dev}
+        COMMIT: ${NOPSAI_COMMIT:-unknown}
+        BUILD_DATE: ${NOPSAI_BUILD_DATE:-unknown}
     depends_on:
       - base
     entrypoint: 'true'

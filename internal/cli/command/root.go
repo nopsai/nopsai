@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -96,13 +97,14 @@ func (o *rootOptions) resolveSessionWithToken(requireContext, loadToken bool) (s
 	if err != nil {
 		return session{}, err
 	}
-	contextName, apiURL := "", strings.TrimSpace(o.apiURL)
+	contextName, contextAPI, apiURL := "", "", strings.TrimSpace(o.apiURL)
 	if contextName = strings.TrimSpace(o.contextName); contextName != "" || apiURL == "" || requireContext {
 		resolvedName, ctx, resolveErr := store.ResolveContext(contextName)
 		if resolveErr != nil {
 			return session{}, resolveErr
 		}
 		contextName = resolvedName
+		contextAPI = ctx.API
 		if apiURL == "" {
 			apiURL = ctx.API
 		}
@@ -117,7 +119,7 @@ func (o *rootOptions) resolveSessionWithToken(requireContext, loadToken bool) (s
 	token := ""
 	if loadToken {
 		token = strings.TrimSpace(o.dependencies.Getenv("NOPSAI_TOKEN"))
-		if token == "" && contextName != "" {
+		if token == "" && contextName != "" && sameAPIOrigin(normalizedAPI, contextAPI) {
 			token, err = store.Token(contextName)
 			if err != nil {
 				return session{}, err
@@ -145,6 +147,15 @@ func (o *rootOptions) resolveSessionWithToken(requireContext, loadToken bool) (s
 		return session{}, err
 	}
 	return session{ContextName: contextName, API: normalizedAPI, Token: token, Client: apiClient}, nil
+}
+
+func sameAPIOrigin(left, right string) bool {
+	leftURL, leftErr := url.Parse(strings.TrimSpace(left))
+	rightURL, rightErr := url.Parse(strings.TrimSpace(right))
+	if leftErr != nil || rightErr != nil {
+		return false
+	}
+	return strings.EqualFold(leftURL.Scheme, rightURL.Scheme) && strings.EqualFold(leftURL.Host, rightURL.Host)
 }
 
 func withDependencyDefaults(dependencies Dependencies) Dependencies {

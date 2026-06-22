@@ -88,7 +88,7 @@ func TestKubernetesPlanAndDeployUseVerifiedBundleAndWriteLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lock.Version != plan.Version || lock.ManifestDigest != plan.ManifestDigest || lock.MigrationVersion != 1 || !lock.DeployedAt.Equal(time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)) {
+	if lock.Version != plan.Version || lock.ManifestDigest != plan.ManifestDigest || lock.MigrationVersion != 1 || lock.RollbackPolicy != "forward-only" || !lock.DeployedAt.Equal(time.Date(2026, 6, 21, 12, 0, 0, 0, time.UTC)) {
 		t.Fatalf("lock = %#v", lock)
 	}
 	lockContents, err := os.ReadFile(options.LockFile)
@@ -107,6 +107,114 @@ func TestKubernetesPlanAndDeployUseVerifiedBundleAndWriteLock(t *testing.T) {
 	}
 	if !runner.sawUpgradeWait || !runner.sawDigestAssignment {
 		t.Fatalf("helm calls = %#v", runner.calls)
+	}
+}
+
+func TestKubernetesDeployBlocksForwardOnlyDowngradeBeforeUpgrade(t *testing.T) {
+	chart := []byte("chart")
+	manifestPath, _, _ := writeReleaseFixture(t, chart)
+	lockPath := filepath.Join(t.TempDir(), "release.lock")
+	if err := WriteReleaseLock(lockPath, ReleaseLock{
+		SchemaVersion:    "v1",
+		Version:          "2.8.0",
+		ReleaseName:      DefaultReleaseName,
+		Namespace:        DefaultNamespace,
+		MigrationVersion: 1,
+		RollbackPolicy:   "forward-only",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeHelmRunner{t: t, chart: chart}
+	deployer := KubernetesDeployer{Resolver: ManifestResolver{}, Runner: runner.Run, CLI: releaseCLIInfo("2.7.0")}
+	_, _, err := deployer.Deploy(context.Background(), KubernetesOptions{Version: "2.7.0", ManifestSource: manifestPath, LockFile: lockPath})
+	if err == nil || !strings.Contains(err.Error(), "forward-only") {
+		t.Fatalf("downgrade error = %v", err)
+	}
+	if runner.sawUpgrade {
+		t.Fatalf("unsafe transition reached helm upgrade: %#v", runner.calls)
+	}
+}
+
+func TestDeploymentTransitionValidatesLockIdentityPolicyAndMigration(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), "release.lock")
+	plan := DeploymentPlan{
+		Version:     "2.7.0",
+		ReleaseName: DefaultReleaseName,
+		Namespace:   DefaultNamespace,
+		Database:    compatibility.DatabaseContract{MigrationVersion: 2, RollbackSafe: true, RollbackPolicy: "rollback-safe"},
+	}
+	if err := validateDeploymentTransition(lockPath, plan); err != nil {
+		t.Fatalf("missing lock = %v", err)
+	}
+	legacy := ReleaseLock{SchemaVersion: "v1", Version: "2.8.0", ReleaseName: DefaultReleaseName, Namespace: DefaultNamespace, MigrationVersion: 2}
+	if err := WriteReleaseLock(lockPath, legacy); err != nil {
+		t.Fatal(err)
+	}
+	loaded, found, err := ReadReleaseLock(lockPath)
+	if err != nil || !found || loaded.RollbackPolicy != "forward-only" {
+		t.Fatalf("legacy lock = %#v, %v, %v", loaded, found, err)
+	}
+	if err := validateDeploymentTransition(lockPath, plan); err == nil || !strings.Contains(err.Error(), "forward-only") {
+		t.Fatalf("legacy downgrade error = %v", err)
+	}
+
+	legacy.RollbackPolicy = "rollback-safe"
+	if err := WriteReleaseLock(lockPath, legacy); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateDeploymentTransition(lockPath, plan); err != nil {
+		t.Fatalf("rollback-safe downgrade = %v", err)
+	}
+	regression := plan
+	regression.Version = "2.9.0"
+	regression.Database.MigrationVersion = 1
+	if err := validateDeploymentTransition(lockPath, regression); err == nil || !strings.Contains(err.Error(), "migration regression") {
+		t.Fatalf("migration regression error = %v", err)
+	}
+	wrongRelease := plan
+	wrongRelease.ReleaseName = "other"
+	if err := validateDeploymentTransition(lockPath, wrongRelease); err == nil || !strings.Contains(err.Error(), "release lock belongs") {
+		t.Fatalf("lock identity error = %v", err)
+	}
+	invalidVersion := plan
+	invalidVersion.Version = "invalid"
+	if err := validateDeploymentTransition(lockPath, invalidVersion); err == nil || !strings.Contains(err.Error(), "invalid deployment version") {
+		t.Fatalf("target version error = %v", err)
+	}
+}
+
+func TestReadReleaseLockRejectsMalformedContracts(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "release.lock")
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{"invalid JSON", `{`, "decode release lock"},
+		{"unknown field", `{"schemaVersion":"v1","version":"2.7.0","unknown":true}`, "unknown field"},
+		{"trailing content", `{"schemaVersion":"v1","version":"2.7.0"} {}`, "trailing JSON"},
+		{"unsupported schema", `{"schemaVersion":"v2","version":"2.7.0"}`, "unsupported release lock schema"},
+		{"invalid version", `{"schemaVersion":"v1","version":"bad"}`, "invalid release lock version"},
+		{"negative migration", `{"schemaVersion":"v1","version":"2.7.0","migrationVersion":-1}`, "cannot be negative"},
+		{"invalid policy", `{"schemaVersion":"v1","version":"2.7.0","rollbackPolicy":"sometimes"}`, "invalid release lock rollback policy"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := os.WriteFile(path, []byte(test.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := ReadReleaseLock(path); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("ReadReleaseLock error = %v, want %q", err, test.want)
+			}
+		})
+	}
+	directoryPath := filepath.Join(dir, "lock-directory")
+	if err := os.Mkdir(directoryPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ReadReleaseLock(directoryPath); err == nil || !strings.Contains(err.Error(), "regular file") {
+		t.Fatalf("directory lock error = %v", err)
 	}
 }
 
@@ -145,6 +253,7 @@ type fakeHelmRunner struct {
 	t                   *testing.T
 	chart               []byte
 	calls               [][]string
+	sawUpgrade          bool
 	sawUpgradeWait      bool
 	sawDigestAssignment bool
 }
@@ -166,6 +275,7 @@ func (r *fakeHelmRunner) Run(_ context.Context, name string, args []string, stdo
 		_, err := io.WriteString(stdout, "apiVersion: apps/v1\nkind: Deployment\n")
 		return err
 	case "upgrade":
+		r.sawUpgrade = true
 		r.sawUpgradeWait = containsArgument(args, "--wait")
 		for _, value := range args {
 			if strings.Contains(value, ".image.digest=sha256:") {

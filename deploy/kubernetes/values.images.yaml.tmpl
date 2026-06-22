@@ -1,0 +1,26 @@
+global:
+  releaseVersion: "{{VERSION}}"
+  sourceCommit: "{{COMMIT}}"
+
+base:
+  image: {repository: "{{BASE_REPOSITORY}}", tag: "{{BASE_TAG}}", digest: "{{BASE_DIGEST}}"}
+api:
+  image: {repository: "{{API_REPOSITORY}}", tag: "{{API_TAG}}", digest: "{{API_DIGEST}}"}
+aaa:
+  image: {repository: "{{AAA_REPOSITORY}}", tag: "{{AAA_TAG}}", digest: "{{AAA_DIGEST}}"}
+agent:
+  image: {repository: "{{AGENT_REPOSITORY}}", tag: "{{AGENT_TAG}}", digest: "{{AGENT_DIGEST}}"}
+dispatcher:
+  image: {repository: "{{DISPATCHER_REPOSITORY}}", tag: "{{DISPATCHER_TAG}}", digest: "{{DISPATCHER_DIGEST}}"}
+gitBot:
+  image: {repository: "{{GIT_BOT_REPOSITORY}}", tag: "{{GIT_BOT_TAG}}", digest: "{{GIT_BOT_DIGEST}}"}
+runner:
+  image: {repository: "{{RUNNER_REPOSITORY}}", tag: "{{RUNNER_TAG}}", digest: "{{RUNNER_DIGEST}}"}
+k8sRunner:
+  image: {repository: "{{K8S_RUNNER_REPOSITORY}}", tag: "{{K8S_RUNNER_TAG}}", digest: "{{K8S_RUNNER_DIGEST}}"}
+dockerSocketProxy:
+  image: {repository: "{{DOCKER_SOCKET_PROXY_REPOSITORY}}", tag: "{{DOCKER_SOCKET_PROXY_TAG}}", digest: "{{DOCKER_SOCKET_PROXY_DIGEST}}"}
+ui:
+  image: {repository: "{{UI_REPOSITORY}}", tag: "{{UI_TAG}}", digest: "{{UI_DIGEST}}"}
+pipeline:
+  image: {repository: "{{PIPELINE_REPOSITORY}}", tag: "{{PIPELINE_TAG}}", digest: "{{PIPELINE_DIGEST}}"}

@@ -27,6 +27,15 @@ func TestPipelineNotificationSubjectIncludesFailureAndProgress(t *testing.T) {
 	}
 }
 
+func TestPipelineNotificationBrandingUsesBundledAppIcon(t *testing.T) {
+	app := App{cfg: &config.Config{PublicURL: "https://ci.example.com/"}}
+
+	branding := app.pipelineNotificationBranding()
+	if branding.LogoURL != "https://ci.example.com/brand/nopsai-app-icon.png" {
+		t.Fatalf("LogoURL = %q, want bundled app icon", branding.LogoURL)
+	}
+}
+
 func TestParsePipelineNotificationLogEntryRedactsSecrets(t *testing.T) {
 	raw := `2026-06-08T06:07:27Z {"level":"error","step":"deploy","task":"publish","error":"api_key=topsecret Bearer abc.def","message":"Publish failed"}`
 	entry, ok := parsePipelineNotificationLogEntry(raw)

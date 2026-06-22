@@ -330,7 +330,7 @@ func (a *App) pipelineNotificationBranding() pipelineNotificationBranding {
 	}
 	logoURL := normalizeNotificationHTTPURL(cfg.NotificationMailLogoURL)
 	if logoURL == "" && publicURL != "" {
-		logoURL = strings.TrimRight(publicURL, "/") + "/brand/nopsai-logo-light.png"
+		logoURL = strings.TrimRight(publicURL, "/") + "/brand/nopsai-app-icon.png"
 	}
 	return pipelineNotificationBranding{
 		Name:       branding.Name,

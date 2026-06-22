@@ -47,6 +47,7 @@ import { useAuth } from '../auth/AuthContext';
 import { buildLoginRedirectState, resolvePostLoginPath } from '../auth/authRedirect';
 import AppHelp from '../components/AppHelp';
 import AssistantDock from '../components/AssistantDock';
+import BrandIdentity from '../components/BrandIdentity';
 import { logoutCurrentSession } from '../lib/api';
 import { currentUserDisplayName } from './userIdentity';
 
@@ -756,12 +757,7 @@ function Sidebar({
         style={{ width, minWidth: SIDEBAR_MIN_WIDTH, maxWidth: SIDEBAR_MAX_WIDTH }}
       >
         <div className="flex items-center justify-between px-6 h-16 border-b border-[var(--border-primary)] flex-shrink-0">
-          <div className="sidebar-brand" aria-label="NopsAI">
-            <span className="sr-only">NopsAI</span>
-            <img className="brand-mark brand-mark--light" src="/brand/nopsai-mark-light.png" alt="" aria-hidden="true" />
-            <img className="brand-mark brand-mark--dark" src="/brand/nopsai-mark-dark.png" alt="" aria-hidden="true" />
-            <span className="sidebar-brand__name" aria-hidden="true">NopsAI</span>
-          </div>
+          <BrandIdentity className="sidebar-brand" />
           <button
             id="close-sidebar-btn"
             className="sm:hidden text-[var(--text-secondary)] hover:text-[var(--text-primary)]"

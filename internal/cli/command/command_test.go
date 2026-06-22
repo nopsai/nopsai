@@ -110,6 +110,58 @@ func TestAPIRequestSupportsAPIOverrideAndReportsHTTPFailure(t *testing.T) {
 	}
 }
 
+func TestAPIOverrideDoesNotForwardStoredTokenAcrossOrigins(t *testing.T) {
+	var authorization string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+	dir := t.TempDir()
+	store, _ := clconfig.NewStore(dir)
+	_, _ = store.AddContext("prod", "https://api.example.invalid")
+	_ = store.SaveToken("prod", "stored-token")
+
+	output, err := executeCommand(testDependencies(server.Client(), nil),
+		"--config-dir", dir, "--context", "prod", "--api", server.URL,
+		"api", "request", "GET", "/v1/runs",
+	)
+	if err != nil || output != "ok" {
+		t.Fatalf("cross-origin override = %q, %v", output, err)
+	}
+	if authorization != "" {
+		t.Fatalf("cross-origin override forwarded stored credential: %q", authorization)
+	}
+}
+
+func TestAPIOverrideKeepsStoredTokenOnSameOrigin(t *testing.T) {
+	var authorization, path string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization = r.Header.Get("Authorization")
+		path = r.URL.Path
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+	dir := t.TempDir()
+	store, _ := clconfig.NewStore(dir)
+	_, _ = store.AddContext("prod", server.URL+"/primary")
+	_ = store.SaveToken("prod", "stored-token")
+
+	output, err := executeCommand(testDependencies(server.Client(), nil),
+		"--config-dir", dir, "--context", "prod", "--api", server.URL+"/alternate",
+		"api", "request", "GET", "/v1/runs",
+	)
+	if err != nil || output != "ok" {
+		t.Fatalf("same-origin override = %q, %v", output, err)
+	}
+	if authorization != "Bearer stored-token" || path != "/alternate/v1/runs" {
+		t.Fatalf("same-origin auth/path = %q / %q", authorization, path)
+	}
+	if sameAPIOrigin("://invalid", server.URL) {
+		t.Fatal("invalid API URL matched a valid origin")
+	}
+}
+
 func TestAPIRequestReadsStdinAndValidatesHeaders(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)

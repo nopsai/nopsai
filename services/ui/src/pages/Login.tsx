@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { resolvePostLoginPath } from '../auth/authRedirect';
 import { isEmailLikeIdentifier, shouldUseLocalPasswordForIdentifier } from '../auth/loginIdentifier';
+import BrandIdentity from '../components/BrandIdentity';
 import {
   apiClient,
   buildOIDCStartUrl,
@@ -208,11 +209,7 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
       <div className={`w-full grid gap-5 ${showReadiness ? 'max-w-4xl lg:grid-cols-[1fr_0.85fr]' : 'max-w-md'}`}>
         {showReadiness && (
           <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-6 shadow-lg">
-            <div className="login-brand mb-5" aria-label="NopsAI">
-              <span className="sr-only">NopsAI</span>
-              <img className="brand-logo brand-logo--light" src="/brand/nopsai-logo-light.png" alt="" aria-hidden="true" />
-              <img className="brand-logo brand-logo--dark" src="/brand/nopsai-logo-dark.png" alt="" aria-hidden="true" />
-            </div>
+            <BrandIdentity className="login-brand mb-5" />
             <h1 className="text-2xl font-semibold text-[var(--text-primary)]">Installation readiness</h1>
             <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
               NopsAI needs the database, master encryption key, and JWT signing key before the authenticated workspace can open.
@@ -251,11 +248,7 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
 
         <div className="w-full bg-[var(--bg-secondary)] rounded-xl shadow-lg border border-[var(--border-primary)] p-8 space-y-6 self-start">
         <div className="text-center space-y-2">
-          <div className="login-brand" aria-label="NopsAI">
-            <span className="sr-only">NopsAI</span>
-            <img className="brand-logo brand-logo--light" src="/brand/nopsai-logo-light.png" alt="" aria-hidden="true" />
-            <img className="brand-logo brand-logo--dark" src="/brand/nopsai-logo-dark.png" alt="" aria-hidden="true" />
-          </div>
+          <BrandIdentity className="login-brand" />
           <h1 className="text-2xl font-semibold text-[var(--text-primary)]">Sign in</h1>
           <p className="text-sm text-[var(--text-secondary)]">
             {ssoEnabled ? 'Use SSO or your local account to continue' : 'Use your local account to continue'}
