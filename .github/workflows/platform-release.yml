@@ -85,8 +85,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-      attestations: write
-      id-token: write
     outputs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
@@ -115,12 +113,6 @@ jobs:
             BUILD_DATE=${{ needs.metadata.outputs.build_date }}
           provenance: mode=max
           sbom: true
-      - name: Attest base image
-        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4
-        with:
-          subject-name: ${{ needs.metadata.outputs.registry }}/nopsai-base
-          subject-digest: ${{ steps.build.outputs.digest }}
-          push-to-registry: true
       - name: Save base digest
         run: |
           mkdir -p digest
@@ -138,8 +130,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-      attestations: write
-      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -201,12 +191,6 @@ jobs:
             BUILD_DATE=${{ needs.metadata.outputs.build_date }}
           provenance: mode=max
           sbom: true
-      - name: Attest ${{ matrix.name }}
-        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4
-        with:
-          subject-name: ${{ needs.metadata.outputs.registry }}/${{ matrix.name }}
-          subject-digest: ${{ steps.build.outputs.digest }}
-          push-to-registry: true
       - name: Save image digest
         run: |
           mkdir -p digest
@@ -223,8 +207,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      attestations: write
-      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -266,10 +248,6 @@ jobs:
           else
             tar -C package -czf "dist/${asset}.tar.gz" "$binary"
           fi
-      - name: Attest CLI archive
-        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4
-        with:
-          subject-path: dist/*
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: cli-${{ matrix.goos }}-${{ matrix.goarch }}
@@ -282,8 +260,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      attestations: write
-      id-token: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       VERSION: ${{ needs.metadata.outputs.version }}
@@ -353,10 +329,6 @@ jobs:
           EOF
           docker compose --env-file dist/release/.env -f dist/release/docker-compose.yaml config --quiet
           mv dist/release/.env.images dist/release/.env
-      - name: Attest release assets
-        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4
-        with:
-          subject-path: dist/assets/*
       - name: Upload complete release bundle
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
