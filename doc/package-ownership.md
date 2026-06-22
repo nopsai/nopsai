@@ -91,6 +91,24 @@ semantic-version ranges, and capability validation live in
 `pkg/compatibility`. The API only renders shared build identity; it does not own
 release model logic.
 
+## Release Automation Ownership
+
+- `release/version.txt` owns the release major/minor series; Git history owns
+  the patch number.
+- `scripts/release-version.sh` owns version calculation, including PR forecast
+  offsets.
+- `scripts/generate-changelog.sh` owns deterministic history-to-Markdown
+  rendering.
+- `scripts/render-release-bundle.sh` owns deployment artifact composition and
+  image-lock rendering.
+- `deploy/` owns deployment-only Compose and Kubernetes image templates.
+- `.github/workflows/enterprise-gates.yml` owns unprivileged validation and
+  preview composition; `.github/workflows/platform-release.yml` owns gated
+  publication only.
+
+Workflow YAML should orchestrate these owners rather than duplicate their model
+or rendering logic inline.
+
 ## Provider Clients
 
 Provider clients stay behind interfaces:

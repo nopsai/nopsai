@@ -106,6 +106,13 @@ func (s *Store) AddContext(name, api string) (Context, error) {
 	if err != nil {
 		return Context{}, err
 	}
+	if existing, ok := cfg.Contexts[name]; ok && existing.API != normalizedAPI {
+		// Remove the old credential first so a failed config write cannot leave
+		// it attached to a different API endpoint.
+		if err := s.DeleteToken(name); err != nil {
+			return Context{}, fmt.Errorf("remove credential for changed context: %w", err)
+		}
+	}
 	ctx := Context{API: normalizedAPI}
 	cfg.Contexts[name] = ctx
 	if cfg.CurrentContext == "" {

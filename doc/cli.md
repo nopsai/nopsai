@@ -15,6 +15,12 @@ go build -o nopsai-api ./services/nopsai/cmd/nopsai
 The base container image also publishes `/nopsai` and `/nopsai-api`. The API
 service image copies and starts only `nopsai-api`, as a non-root user.
 
+Released CLI builds are standalone GitHub Release assets, not container-only
+tools. Linux and macOS archives contain `nopsai`; Windows archives contain
+`nopsai.exe`. Asset names include the exact platform version, operating system,
+and architecture, and `SHA256SUMS` plus GitHub artifact attestations cover every
+archive.
+
 ## Contexts And Authentication
 
 ```bash
@@ -37,6 +43,10 @@ different directory.
 - `credentials.yaml` contains opaque tokens separately.
 - Both are atomically written with `0600` permissions in a `0700` directory.
 - Credential files with group or world permissions are rejected.
+- Stored credentials are removed when a context moves to a different API URL.
+- An `--api` override reuses a stored context credential only when the override
+  has the same scheme and host. Set `NOPSAI_TOKEN` explicitly for a different
+  origin.
 - `nopsai logout` deletes the local token; it does not revoke the server-side
   personal or service-account token.
 
@@ -140,6 +150,10 @@ and CLI compatibility, verify the downloaded OCI Helm chart package digest,
 and render digest-pinned values for every platform image. `plan` runs `helm
 template` and can emit text, JSON, or YAML. `deploy` runs `helm upgrade
 --install` and writes `.nopsai/release.lock` atomically only after success.
+Before deployment, an existing lock is checked for release identity, migration
+regressions, and forward-only downgrade restrictions. Keep the lock with the
+environment's GitOps state; older locks without rollback metadata are treated as
+forward-only.
 
 Use `--manifest-digest sha256:...` to pin the manifest bytes as well as its
 contents. Without `--manifest`, the CLI uses the release URL template; set

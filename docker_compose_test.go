@@ -140,7 +140,7 @@ func TestDockerComposeUsesReadOnlySocketProxyForSystemLogs(t *testing.T) {
 	if !exists {
 		t.Fatal("docker-socket-proxy service is missing")
 	}
-	if proxy.ContainerName != "nopsai-docker-socket-proxy" || proxy.Image != "hoseindocker/nopsai-docker-socket-proxy" {
+	if proxy.ContainerName != "nopsai-docker-socket-proxy" || !strings.Contains(proxy.Image, "nopsai-docker-socket-proxy:${NOPSAI_VERSION:-dev}") {
 		t.Fatalf("socket proxy identity = %q %q", proxy.ContainerName, proxy.Image)
 	}
 	if !proxy.ReadOnly || !containsString(proxy.SecurityOpt, "no-new-privileges:true") || !containsString(proxy.CapDrop, "ALL") {

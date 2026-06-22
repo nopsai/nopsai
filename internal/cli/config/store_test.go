@@ -43,6 +43,18 @@ func TestStoreContextAndCredentialLifecycle(t *testing.T) {
 	if token, err := store.Token("staging"); err != nil || token != "nopat_secret" {
 		t.Fatalf("Token = %q, %v", token, err)
 	}
+	if _, err := store.AddContext("staging", "http://staging.example.com/"); err != nil {
+		t.Fatal(err)
+	}
+	if token, err := store.Token("staging"); err != nil || token != "nopat_secret" {
+		t.Fatalf("same-endpoint update removed token = %q, %v", token, err)
+	}
+	if _, err := store.AddContext("staging", "https://new-staging.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if token, err := store.Token("staging"); err != nil || token != "" {
+		t.Fatalf("changed-endpoint token = %q, %v", token, err)
+	}
 	configBytes, err := os.ReadFile(store.ConfigPath())
 	if err != nil {
 		t.Fatal(err)
@@ -123,6 +135,32 @@ func TestStoreRejectsNonRegularFiles(t *testing.T) {
 	}
 	if _, err := store.Load(); err == nil {
 		t.Fatal("expected non-regular config error")
+	}
+}
+
+func TestContextEndpointChangeFailsClosedWhenCredentialCannotBeRead(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file permissions are platform-dependent")
+	}
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddContext("prod", "https://api.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveToken("prod", "secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(store.CredentialsPath(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddContext("prod", "https://other.example.com"); err == nil {
+		t.Fatal("context endpoint changed without safely removing its credential")
+	}
+	_, ctx, err := store.ResolveContext("prod")
+	if err != nil || ctx.API != "https://api.example.com" {
+		t.Fatalf("context changed after credential failure = %#v, %v", ctx, err)
 	}
 }
 

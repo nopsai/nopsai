@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="services/ui/public/brand/nopsai-logo-dark.png">
-    <img src="services/ui/public/brand/nopsai-logo-light.png" alt="NopsAI" width="420">
+    <source media="(prefers-color-scheme: dark)" srcset="services/ui/public/brand/nopsai-banner-dark.png">
+    <img src="services/ui/public/brand/nopsai-banner-light.png" alt="NopsAI" width="1086">
   </picture>
 </p>
 
@@ -226,6 +226,13 @@ To stop and remove local state:
 docker compose -f docker-compose.yaml down -v
 ```
 
+For a published version, use the GitHub Release deployment bundle instead of
+rebuilding from a moving branch. Its `.env` pins every NopsAI container by
+digest, its Compose file includes the matching database bootstrap, and its
+Kubernetes values contain the same repositories, tags, and digests. Supply
+production secrets through your secret manager before running `docker compose
+config` and `docker compose up -d`.
+
 ## Configuration Model
 
 NopsAI supports both database-managed and Git-managed configuration.
@@ -289,7 +296,7 @@ the pipeline and run status, failed step/task, step and task progress, repositor
 metadata, deep links, and a short redacted error excerpt. Configure
 `public_url` in **System > Config** or `setting/system/runner.yaml` with the
 browser-reachable NopsAI URL to enable **View run** links and the default
-`/brand/nopsai-logo-light.png` mail logo. Footer branding can be configured
+`/brand/nopsai-app-icon.png` mail mark. Footer branding can be configured
 with `notification_mail_logo_url`, `notification_mail_website_url`,
 `notification_mail_support_url`, and `notification_mail_footer_address`. Use
 absolute `http` or `https` URLs; invalid or missing URLs are omitted rather
