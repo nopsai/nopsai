@@ -93,7 +93,7 @@ owned input to `nopsai platform deploy`.
 
 `.github/workflows/platform-release.yml` runs only after a successful
 push-triggered `Enterprise Gates` run on the current main commit, or through an
-explicit manual retry for a commit already contained in main. It does not
+explicit manual retry of the current main commit. It does not
 consume PR gate runs, caches, or artifacts. A superseded gate run and an
 existing version tag are skipped.
 
