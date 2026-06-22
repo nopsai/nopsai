@@ -63,6 +63,7 @@ The script runs:
 
 - `scripts/test-backend.sh`
 - `scripts/test-backend.sh -race`
+- `scripts/release-tooling-test.sh`
 - `go vet ./...`
 - `golangci-lint run ./...`
 - `gosec ./...`
@@ -77,6 +78,8 @@ The script runs:
 - Release compatibility, strict manifest, digest pinning, chart verification,
   deterministic Helm values, post-success lockfile, `/version`, and binary
   build-metadata tests
+- Commit-count version calculation, PR `+2` forecasts, changelog generation,
+  deployment-only Compose rendering, Kubernetes image values, and checksums
 
 `scripts/test-backend.sh` tests repository-level packaging contracts, command
 entrypoints, internal CLI packages, `config`, shared Go packages, and every
@@ -84,10 +87,12 @@ service except `services/ui`. This keeps frontend dependencies under
 `node_modules` outside Go package discovery, including when Docker Compose runs
 backend and UI checks concurrently.
 
-The current gate builds but does not publish release artifacts. Public OCI
-chart/image publication, multi-architecture output, SBOM/provenance generation,
-OIDC signing, and promotion require a separate tag-triggered workflow with
-minimal write permissions. See [release-bundles.md](./release-bundles.md).
+The gate itself has read-only repository permissions and never publishes PR
+artifacts to a registry. It uploads a release preview with the forecast version.
+After a successful gate run for the current main commit,
+`.github/workflows/platform-release.yml` performs the privileged GHCR, CLI, and
+GitHub Release publication with job-scoped package, attestation, and content
+permissions. See [release-bundles.md](./release-bundles.md).
 
 Run the UI boundary gate from `services/ui` whenever a frontend change touches
 route pages, feature modules, hooks, or shared UI helpers:
@@ -129,6 +134,14 @@ go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
 - Go test, race test, vet, lint, gosec, and govulncheck
 - Docker build checks for service images and the UI image
 - UI lint, boundary checks, unit/component tests, and production build
+- release-contract validation and a downloadable predicted/actual release
+  preview
+
+`.github/workflows/platform-release.yml` is chained from a successful main
+`Enterprise Gates` run. It re-checks that the tested SHA is still current main,
+builds without PR caches, publishes version-only GHCR tags and standalone CLI
+archives, and creates the changelog-backed GitHub Release only after every image
+and CLI target succeeds.
 
 `.github/workflows/ui-live-smoke.yml` provides the post-deployment UI gate. It
 can be called by a deployment workflow or dispatched manually against a

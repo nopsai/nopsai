@@ -6,12 +6,26 @@ artifacts deployed to an environment must come from one release manifest.
 Production deployment must not combine floating tags or artifacts from
 different product versions.
 
+## Commit-Count Versions
+
+`release/version.txt` owns the `major.minor` release series. The patch number is
+the repository commit count for the released main-branch commit. For example,
+commit count `537` in series `2.7` produces `2.7.537`, image tag `2.7.537`, and
+GitHub tag `v2.7.537`.
+
+Pull requests calculate a forecast with `HEAD commit count + 2`, reserving one
+final PR commit and one merge commit. The forecast is used only for CI image
+metadata and the downloadable release preview. Main is authoritative;
+if other changes merge first, its actual commit count wins and no forecast tag
+is published.
+
 ## Compatibility Baseline
 
 The repository baseline is declared in `release/compatibility.yaml`. It owns
-the product version, CLI and platform support ranges, API version, runner
-protocol version, and required capability IDs. Breaking API, CLI, runner
-protocol, or deployment changes require a new major version.
+the compatibility floor, CLI and platform support ranges, API version, runner
+protocol version, and required capability IDs. `release/version.txt` owns the
+active major/minor series. Breaking API, CLI, runner protocol, or deployment
+changes require a new major version.
 
 Every Go binary supports `--version` and receives the following values through
 linker flags:
@@ -70,6 +84,41 @@ invalid compatibility ranges, mismatched chart versions, and undeclared
 migration policy. The optional manifest digest supplied to the CLI is checked
 against the downloaded bytes before parsing.
 
+The container workflow also creates `release-index.json`. This is the image and
+CLI artifact lock for one commit-count release; it is separate from the Helm
+release manifest above because chart publication remains an independently
+owned input to `nopsai platform deploy`.
+
+## Automated Publication
+
+`.github/workflows/platform-release.yml` runs only after a successful
+push-triggered `Enterprise Gates` run on the current main commit, or through an
+explicit manual retry for a commit already contained in main. It does not
+consume PR gate runs, caches, or artifacts. A superseded gate run and an
+existing version tag are skipped.
+
+Each successful release publishes:
+
+- multi-architecture `linux/amd64` and `linux/arm64` images under
+  `ghcr.io/<owner>` for the base, API, AAA, agent, dispatcher, git-bot, Docker
+  runner, Kubernetes runner, socket proxy, UI, and pipeline helper
+- standalone CLI archives for Linux, macOS, and Windows
+- SBOM/provenance output and GitHub artifact attestations
+- a digest-pinned image index, `SHA256SUMS`, generated changelog, deployment
+  Compose file, and Kubernetes image values
+- one deployment bundle whose `.env`, Compose file, Kubernetes values, and
+  image index all identify the same version and source commit
+
+`scripts/generate-changelog.sh` groups commits since the most recent semantic
+version tag into breaking, added, fixed, and changed sections. The generated
+file is used as the GitHub Release body and shipped as an asset; release
+automation never commits generated version or changelog files back to main, so
+the act of releasing cannot change its own version.
+
+The GHCR packages must be readable by the deployment environment. Public
+installations can expose the packages publicly; private installations should
+authenticate Docker, containerd, and Kubernetes with a package read token.
+
 ## Plan And Deploy
 
 ```bash
@@ -102,13 +151,26 @@ manifest and chart digests, exact images, deterministic values hash, namespace,
 release name, and deployment time. It contains no credentials and is not
 written after a failed deployment.
 
+The lock is also the deployment transition guard. Before Helm changes the
+cluster, the CLI rejects a lock for another release or namespace, any database
+migration regression, and a version downgrade unless both the deployed and
+target bundles declare `rollback-safe`. Locks written before rollback policy was
+recorded are treated as `forward-only`. Preserve the lock in the environment's
+GitOps repository so these checks remain effective across operators and CI
+runners.
+
+The generated deployment bundle has a deployment-only `docker-compose.yaml`
+and `.env` with digest-pinned NopsAI image references. Operators add production
+secrets through their secret manager, then run `docker compose config` and
+`docker compose up -d`. `nopsai-kubernetes-values.yaml` provides the same
+repositories, tags, and digests for the separately published OCI Helm chart.
+
 ## Release Boundary
 
-This first slice establishes build identity, compatibility validation, the
-manifest contract, and deterministic Helm plan/deploy behavior. Public OCI
-chart publication, multi-architecture artifact publishing, SBOMs, provenance,
-OIDC signing, release-candidate promotion, package-manager distribution,
-upgrade/status/rollback commands, and Kind smoke deployment belong to the
-dedicated release workflow slice. Until that workflow exists, operators must
-supply a manifest whose chart and artifacts already exist in their trusted
-registry.
+The repository now owns commit-count image and CLI publication, SBOM/provenance
+generation, attestations, deployment image locks, and changelog generation.
+Public OCI chart publication, release-manifest signing, release-candidate
+promotion, package-manager distribution, upgrade/status/rollback commands, and
+Kind smoke deployment remain separate work. Until chart publication is brought
+into this repository, operators must supply the trusted version-matched chart
+and its release manifest to `nopsai platform deploy`.

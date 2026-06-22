@@ -28,6 +28,7 @@ const (
 	DefaultLockFile            = ".nopsai/release.lock"
 	maxManifestBytes           = 2 << 20
 	maxValuesFileBytes         = 10 << 20
+	maxReleaseLockBytes        = 1 << 20
 )
 
 type ProcessRunner = func(ctx context.Context, name string, args []string, stdout, stderr io.Writer) error
@@ -83,6 +84,7 @@ type ReleaseLock struct {
 	Images           map[string]string `json:"images" yaml:"images"`
 	ValuesHash       string            `json:"valuesHash" yaml:"valuesHash"`
 	MigrationVersion int               `json:"migrationVersion" yaml:"migrationVersion"`
+	RollbackPolicy   string            `json:"rollbackPolicy" yaml:"rollbackPolicy"`
 	DeployedAt       time.Time         `json:"deployedAt" yaml:"deployedAt"`
 }
 
@@ -227,6 +229,13 @@ func (d KubernetesDeployer) Deploy(ctx context.Context, options KubernetesOption
 	if err := d.render(ctx, prepared); err != nil {
 		return DeploymentPlan{}, ReleaseLock{}, err
 	}
+	lockPath := strings.TrimSpace(options.LockFile)
+	if lockPath == "" {
+		lockPath = DefaultLockFile
+	}
+	if err := validateDeploymentTransition(lockPath, prepared.plan); err != nil {
+		return DeploymentPlan{}, ReleaseLock{}, err
+	}
 	args := []string{"upgrade", "--install", prepared.plan.ReleaseName, prepared.chartPath}
 	args = append(args, prepared.common...)
 	args = append(args, "--create-namespace")
@@ -251,16 +260,83 @@ func (d KubernetesDeployer) Deploy(ctx context.Context, options KubernetesOption
 		Images:           cloneStrings(prepared.plan.Images),
 		ValuesHash:       prepared.plan.ValuesHash,
 		MigrationVersion: prepared.plan.Database.MigrationVersion,
+		RollbackPolicy:   prepared.plan.Database.RollbackPolicy,
 		DeployedAt:       now,
-	}
-	lockPath := strings.TrimSpace(options.LockFile)
-	if lockPath == "" {
-		lockPath = DefaultLockFile
 	}
 	if err := WriteReleaseLock(lockPath, lock); err != nil {
 		return DeploymentPlan{}, ReleaseLock{}, err
 	}
 	return prepared.plan, lock, nil
+}
+
+func ReadReleaseLock(path string) (ReleaseLock, bool, error) {
+	file, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return ReleaseLock{}, false, nil
+	}
+	if err != nil {
+		return ReleaseLock{}, false, fmt.Errorf("open release lock: %w", err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return ReleaseLock{}, false, fmt.Errorf("inspect release lock: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Size() > maxReleaseLockBytes {
+		return ReleaseLock{}, false, errors.New("release lock must be a regular file no larger than 1 MiB")
+	}
+	var lock ReleaseLock
+	decoder := json.NewDecoder(io.LimitReader(file, maxReleaseLockBytes+1))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&lock); err != nil {
+		return ReleaseLock{}, false, fmt.Errorf("decode release lock: %w", err)
+	}
+	if decoder.Decode(&struct{}{}) != io.EOF {
+		return ReleaseLock{}, false, errors.New("decode release lock: trailing JSON content")
+	}
+	if lock.SchemaVersion != "v1" {
+		return ReleaseLock{}, false, fmt.Errorf("unsupported release lock schema %q", lock.SchemaVersion)
+	}
+	if _, err := compatibility.ParseVersion(lock.Version); err != nil {
+		return ReleaseLock{}, false, fmt.Errorf("invalid release lock version: %w", err)
+	}
+	if lock.MigrationVersion < 0 {
+		return ReleaseLock{}, false, errors.New("release lock migration version cannot be negative")
+	}
+	lock.RollbackPolicy = strings.TrimSpace(lock.RollbackPolicy)
+	if lock.RollbackPolicy == "" {
+		// Locks created before this field existed remain conservative.
+		lock.RollbackPolicy = "forward-only"
+	}
+	if lock.RollbackPolicy != "forward-only" && lock.RollbackPolicy != "rollback-safe" {
+		return ReleaseLock{}, false, fmt.Errorf("invalid release lock rollback policy %q", lock.RollbackPolicy)
+	}
+	return lock, true, nil
+}
+
+func validateDeploymentTransition(lockPath string, next DeploymentPlan) error {
+	current, found, err := ReadReleaseLock(lockPath)
+	if err != nil {
+		return fmt.Errorf("validate deployment transition: %w", err)
+	}
+	if !found {
+		return nil
+	}
+	if current.ReleaseName != next.ReleaseName || current.Namespace != next.Namespace {
+		return fmt.Errorf("release lock belongs to %s in namespace %s, not %s in namespace %s", current.ReleaseName, current.Namespace, next.ReleaseName, next.Namespace)
+	}
+	currentVersion, _ := compatibility.ParseVersion(current.Version)
+	nextVersion, err := compatibility.ParseVersion(next.Version)
+	if err != nil {
+		return fmt.Errorf("invalid deployment version: %w", err)
+	}
+	if next.Database.MigrationVersion < current.MigrationVersion {
+		return fmt.Errorf("database migration regression from %d to %d is not allowed", current.MigrationVersion, next.Database.MigrationVersion)
+	}
+	if nextVersion.Compare(currentVersion) < 0 && (current.RollbackPolicy != "rollback-safe" || next.Database.RollbackPolicy != "rollback-safe") {
+		return fmt.Errorf("downgrade from %s to %s is blocked by forward-only rollback policy", current.Version, next.Version)
+	}
+	return nil
 }
 
 func (d KubernetesDeployer) prepare(ctx context.Context, options KubernetesOptions) (*preparedRelease, error) {

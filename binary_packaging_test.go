@@ -36,6 +36,7 @@ func TestServiceImagesCarrySharedOCIReleaseLabels(t *testing.T) {
 		"container/Dockerfile.git-bot",
 		"container/Dockerfile.docker-runner",
 		"container/Dockerfile.k8s-runner",
+		"container/Dockerfile.pipeline",
 		"container/Dockerfile.socket-proxy",
 		"services/ui/Dockerfile",
 	} {

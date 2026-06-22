@@ -1,3 +1,11 @@
 FROM alpine/git
 
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
+
+LABEL org.opencontainers.image.version="${VERSION}" \
+  org.opencontainers.image.revision="${COMMIT}" \
+  org.opencontainers.image.created="${BUILD_DATE}"
+
 RUN apk add docker-cli
