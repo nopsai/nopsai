@@ -22,6 +22,10 @@ api:
   replicaCount: 1
   image: {repository: ghcr.io/hosein-yousefii/nopsai-api, tag: dev, digest: ""}
   imagePullPolicy: IfNotPresent
+  serviceAccount:
+    create: true
+    name: nopsai-api
+    annotations: {}
   service:
     type: ClusterIP
     port: 8080
@@ -90,6 +94,15 @@ k8sRunner:
 
 dockerSocketProxy:
   image: {repository: ghcr.io/hosein-yousefii/nopsai-docker-socket-proxy, tag: dev, digest: ""}
+
+systemLogs:
+  enabled: true
+  provider: kubernetes
+  kubernetes:
+    labelSelector: ""
+    container: ""
+    rbac:
+      create: true
 
 ui:
   replicaCount: 1

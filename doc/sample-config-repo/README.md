@@ -269,7 +269,7 @@ one file. The canonical path is `setting/system/runner.yaml`; `runner.yaml` is
 the only accepted settings file name for this runner/dispatcher GitOps surface.
 
 ```yaml
-dispatcher_address: dispatcher:9090
+dispatcher_grpc_address: dispatcher:9090
 
 # Defaults used when generating a new runner install command
 runner_id: runner-general
@@ -343,8 +343,7 @@ A system/global config repo can define GitHub App and git-bot runtime settings
 in `setting/system/github.yaml`:
 
 ```yaml
-git_bot_nopsai_api_url: http://nopsai:8080
-nopsai_git_bot_api_url: http://git-bot:8081
+git_bot_api_url: http://git-bot:8081
 
 github_app_id: "123456"
 github_installation_id: "987654"

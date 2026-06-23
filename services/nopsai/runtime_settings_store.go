@@ -89,7 +89,7 @@ func runtimeSettingsPayloadFromFile(file runtimeSettingsSnapshotFile) systemConf
 		NotificationMailSupportURL:    file.NotificationMailSupportURL,
 		NotificationMailFooterAddress: file.NotificationMailFooterAddress,
 		RequireProductionGates:        file.RequireProductionGates,
-		AgentNopsaiAPIURL:             file.AgentNopsaiAPIURL,
+		NopsaiAPIURL:                  file.NopsaiAPIURL,
 		DispatcherAddress:             file.DispatcherAddress,
 		AgentImage:                    file.AgentImage,
 		DockerNetworkName:             file.DockerNetworkName,
@@ -105,8 +105,7 @@ func runtimeSettingsPayloadFromFile(file runtimeSettingsSnapshotFile) systemConf
 		Limits:                        file.Limits,
 		RuntimePools:                  file.RuntimePools,
 		Assistant:                     file.Assistant,
-		GitBotNopsaiAPIURL:            file.GitBotNopsaiAPIURL,
-		NopsaiGitBotAPIURL:            file.NopsaiGitBotAPIURL,
+		GitBotAPIURL:                  file.GitBotAPIURL,
 		GitHubAppID:                   file.GitHubAppID,
 		GitHubInstallationID:          file.GitHubInstallationID,
 		GitHubPrivateKeyRef:           file.GitHubPrivateKeyRef,
@@ -155,14 +154,13 @@ func applySystemConfigToConfig(cfg *config.Config, payload systemConfigPayload) 
 	if payload.RequireProductionGates != nil {
 		cfg.RequireProductionGates = *payload.RequireProductionGates
 	}
-	if payload.AgentNopsaiAPIURL != nil {
-		cfg.AgentNopsaiAPIURL = strings.TrimSpace(*payload.AgentNopsaiAPIURL)
+	if payload.NopsaiAPIURL != nil {
+		cfg.NopsaiAPIURL = strings.TrimSpace(*payload.NopsaiAPIURL)
+		cfg.AgentNopsaiAPIURL = cfg.NopsaiAPIURL
+		cfg.GitBotNopsaiAPIURL = cfg.NopsaiAPIURL
 	}
-	if payload.GitBotNopsaiAPIURL != nil {
-		cfg.GitBotNopsaiAPIURL = strings.TrimSpace(*payload.GitBotNopsaiAPIURL)
-	}
-	if payload.NopsaiGitBotAPIURL != nil {
-		cfg.NopsaiGitBotAPIURL = strings.TrimSpace(*payload.NopsaiGitBotAPIURL)
+	if payload.GitBotAPIURL != nil {
+		cfg.NopsaiGitBotAPIURL = strings.TrimSpace(*payload.GitBotAPIURL)
 	}
 	if payload.DispatcherAddress != nil {
 		cfg.DispatcherAddress = strings.TrimSpace(*payload.DispatcherAddress)
@@ -221,6 +219,7 @@ func applySystemConfigToConfig(cfg *config.Config, payload systemConfigPayload) 
 	if payload.Assistant != nil {
 		cfg.Assistant = config.NormalizeAssistantConfig(*payload.Assistant)
 	}
+	cfg.NormalizeServiceTopology()
 
 	return *cfg, nil
 }

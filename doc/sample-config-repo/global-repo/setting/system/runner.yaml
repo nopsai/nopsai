@@ -1,4 +1,4 @@
-dispatcher_address: dispatcher:9090
+dispatcher_grpc_address: dispatcher:9090
 
 # Defaults used when generating a new runner install command
 runner_id: runner-general

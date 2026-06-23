@@ -102,8 +102,8 @@ func buildInstallSpec(cfg config.Config, r *http.Request) (installSpec, error) {
 	}
 	if adapted {
 		warnings = append(warnings, "The configured dispatcher address is local to the NopsAI stack, so this template uses an external dispatcher host derived from the current request host and dispatcher port. Confirm that endpoint is reachable from the new runner host.")
-		if LooksInternalAddress(cfg.AgentNopsaiAPIURL) {
-			warnings = append(warnings, fmt.Sprintf("agent_nopsai_api_url is %q. Remote agent containers may need System > Config to use a URL reachable outside the Docker network.", cfg.AgentNopsaiAPIURL))
+		if LooksInternalAddress(cfg.EffectiveNopsaiAPIURL()) {
+			warnings = append(warnings, fmt.Sprintf("nopsai_api_url is %q. Remote agent containers may need System > Config to use a URL reachable outside the Docker network.", cfg.EffectiveNopsaiAPIURL()))
 		}
 	}
 	networkMode := strings.ToLower(strings.TrimSpace(query.Get("runner_network_mode")))
@@ -133,7 +133,7 @@ func buildInstallSpec(cfg config.Config, r *http.Request) (installSpec, error) {
 		{"RUNNER_ID", runnerID},
 		{"RUNNER_SCOPES", runnerScopes},
 		{"RUNNER_CAPACITY", strconv.Itoa(runnerCapacity)},
-		{"DISPATCHER_ADDRESS", dispatcherAddress},
+		{"DISPATCHER_GRPC_ADDRESS", dispatcherAddress},
 		{serviceauth.EnvSigningKey, serviceJWTSigningKey},
 		{serviceauth.EnvIssuer, cfg.EffectiveServiceJWTIssuer()},
 		{serviceauth.EnvAudience, cfg.EffectiveServiceJWTAudience()},

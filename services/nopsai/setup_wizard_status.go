@@ -269,7 +269,7 @@ func (a *App) countRows(ctx context.Context, query string) (int, error) {
 func (a *App) setupGitHubInfo() setupGitHubInfo {
 	cfg := a.getConfigSnapshot()
 	gitBotServiceURL := strings.TrimRight(strings.TrimSpace(cfg.NopsaiGitBotAPIURL), "/")
-	nopsaiAPIURL := strings.TrimRight(strings.TrimSpace(cfg.GitBotNopsaiAPIURL), "/")
+	nopsaiAPIURL := strings.TrimRight(strings.TrimSpace(cfg.EffectiveNopsaiAPIURL()), "/")
 	webhookURL := ""
 	if gitBotServiceURL != "" {
 		if joined, err := url.JoinPath(gitBotServiceURL, "webhook"); err == nil {

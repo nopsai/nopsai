@@ -15,8 +15,8 @@ x-service-auth-env: &service-auth-env
   SERVICE_JWT_SIGNING_KEY: ${SERVICE_JWT_SIGNING_KEY:-local-dev-service-jwt-key-change-me-please-rotate}
 
 x-local-topology-env: &local-topology-env
-  AGENT_NOPSAI_API_URL: http://nopsai:8080
-  DISPATCHER_ADDRESS: dispatcher:9090
+  NOPSAI_API_URL: http://nopsai:8080
+  DISPATCHER_GRPC_ADDRESS: dispatcher:9090
   DOCKER_NETWORK_NAME: nopsai-net
 
 x-release-build-args: &release-build-args
@@ -108,7 +108,7 @@ services:
     environment:
       <<: [*service-auth-env, *local-topology-env]
       DATABASE_URL: ${DATABASE_URL:-postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_db}
-      NOPSAI_GIT_BOT_API_URL: http://nopsai-git-bot:8081
+      GIT_BOT_API_URL: http://nopsai-git-bot:8081
       NOPSAI_MASTER_KEY: ${NOPSAI_MASTER_KEY:-4Ns627gVMolptxqC1tePPpOR3FFr04zi3Lk3iHuEV/g=}
       JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:-local-dev-jwt-signing-key-change-me-please-rotate}
       AAA_API_URL: http://aaa:8082
@@ -129,7 +129,7 @@ services:
         <<: *release-build-args
     restart: always
     environment:
-      ALLOWED_CONTAINERS: nopsai,nopsai-aaa,nopsai-dispatcher,nopsai-git-bot,nopsai-ui,nopsai-docker-runner
+      ALLOWED_CONTAINERS: nopsai,nopsai-aaa,nopsai-dispatcher,nopsai-git-bot,nopsai-ui,nopsai-docker-runner,nopsai-k8s-runner
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     read_only: true
@@ -169,6 +169,7 @@ services:
       dockerfile: container/Dockerfile.aaa
       args:
         <<: *release-build-args
+        BASE_IMAGE: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-base:${NOPSAI_VERSION:-dev}
     restart: always
     expose:
       - "8082"
@@ -197,7 +198,7 @@ services:
       - base
     environment:
       <<: *service-auth-env
-      AGENT_NOPSAI_API_URL: http://nopsai:8080
+      NOPSAI_API_URL: http://nopsai:8080
     networks:
       - nopsai-net
 
@@ -219,7 +220,7 @@ services:
     environment:
       <<: *service-auth-env
       GIT_BOT_LISTEN_ADDRESS: 0.0.0.0:8081
-      GIT_BOT_NOPSAI_API_URL: http://nopsai:8080
+      NOPSAI_API_URL: http://nopsai:8080
     networks:
       - nopsai-net
 
@@ -256,6 +257,7 @@ services:
       dockerfile: container/Dockerfile.agent
       args:
         <<: *release-build-args
+        BASE_IMAGE: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-base:${NOPSAI_VERSION:-dev}
     depends_on:
       - base
     entrypoint: 'true'
@@ -275,7 +277,7 @@ services:
       - dispatcher
     environment:
       <<: *service-auth-env
-      DISPATCHER_ADDRESS: dispatcher:9090
+      DISPATCHER_GRPC_ADDRESS: dispatcher:9090
       DOCKER_NETWORK_NAME: nopsai-net
     networks:
       - nopsai-net

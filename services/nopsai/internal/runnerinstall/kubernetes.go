@@ -85,7 +85,7 @@ func BuildKubernetesManifestResponse(cfg config.Config, r *http.Request) (Kubern
 		"RUNNER_CAPACITY":                          strconv.Itoa(runnerCapacity),
 		"RUNNER_SERVICE_ID":                        cfg.EffectiveRunnerServiceID(),
 		"AGENT_IMAGE":                              agentImage,
-		"DISPATCHER_ADDRESS":                       dispatcherAddress,
+		"DISPATCHER_GRPC_ADDRESS":                  dispatcherAddress,
 		serviceauth.EnvIssuer:                      cfg.EffectiveServiceJWTIssuer(),
 		serviceauth.EnvAudience:                    cfg.EffectiveServiceJWTAudience(),
 		servicetls.EnvMode:                         tlsMode,

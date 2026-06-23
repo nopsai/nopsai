@@ -17,8 +17,7 @@ import (
 const runtimeSettingsGitOpsPath = "system/runner.yaml"
 
 var runtimeSettingsForbiddenGitHubKeys = []string{
-	"git_bot_nopsai_api_url",
-	"nopsai_git_bot_api_url",
+	"git_bot_api_url",
 	"github_app_id",
 	"github_installation_id",
 	"github_private_key_credential_ref",
@@ -50,8 +49,8 @@ type runtimeSettingsGitOpsFile struct {
 	NotificationMailSupportURL    *string                       `json:"notification_mail_support_url" yaml:"notification_mail_support_url,omitempty"`
 	NotificationMailFooterAddress *string                       `json:"notification_mail_footer_address" yaml:"notification_mail_footer_address,omitempty"`
 	RequireProductionGates        *bool                         `json:"require_production_gates" yaml:"require_production_gates,omitempty"`
-	AgentNopsaiAPIURL             *string                       `json:"agent_nopsai_api_url" yaml:"agent_nopsai_api_url,omitempty"`
-	DispatcherAddress             *string                       `json:"dispatcher_address" yaml:"dispatcher_address,omitempty"`
+	NopsaiAPIURL                  *string                       `json:"nopsai_api_url" yaml:"nopsai_api_url,omitempty"`
+	DispatcherAddress             *string                       `json:"dispatcher_grpc_address" yaml:"dispatcher_grpc_address,omitempty"`
 	AgentImage                    *string                       `json:"agent_image" yaml:"agent_image,omitempty"`
 	DockerNetworkName             *string                       `json:"docker_network_name" yaml:"docker_network_name,omitempty"`
 	AutoRemovalAgentContainer     *bool                         `json:"auto_removal_agent_container" yaml:"auto_removal_agent_container,omitempty"`
@@ -137,7 +136,7 @@ func parseGitOpsRuntimeSettingsFile(content, sourcePath string) (*gitOpsRuntimeS
 		NotificationMailSupportURL:    file.NotificationMailSupportURL,
 		NotificationMailFooterAddress: file.NotificationMailFooterAddress,
 		RequireProductionGates:        file.RequireProductionGates,
-		AgentNopsaiAPIURL:             file.AgentNopsaiAPIURL,
+		NopsaiAPIURL:                  file.NopsaiAPIURL,
 		DispatcherAddress:             file.DispatcherAddress,
 		AgentImage:                    file.AgentImage,
 		DockerNetworkName:             file.DockerNetworkName,
@@ -180,7 +179,7 @@ func buildRuntimeSettingsGitOpsFile(cfg config.Config) runtimeSettingsGitOpsFile
 		NotificationMailSupportURL:    stringPtr(cfg.NotificationMailSupportURL),
 		NotificationMailFooterAddress: stringPtr(cfg.NotificationMailFooterAddress),
 		RequireProductionGates:        boolPtr(cfg.RequireProductionGates),
-		AgentNopsaiAPIURL:             stringPtr(cfg.AgentNopsaiAPIURL),
+		NopsaiAPIURL:                  stringPtr(cfg.EffectiveNopsaiAPIURL()),
 		DispatcherAddress:             stringPtr(cfg.DispatcherAddress),
 		AgentImage:                    stringPtr(cfg.AgentImage),
 		DockerNetworkName:             stringPtr(cfg.DockerNetworkName),

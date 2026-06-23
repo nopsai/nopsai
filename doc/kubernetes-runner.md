@@ -44,17 +44,17 @@ dispatcher, so a namespace runner can be dedicated to production, a region, a
 team, or a workload class. Routing updates from the UI or the system GitOps repo
 are applied to the live dispatcher for new scheduling decisions.
 
-Agent pods must also receive an `agent_nopsai_api_url` that is reachable from
-inside the Kubernetes cluster. Docker Compose names such as `http://nopsai:8080`
-work for Docker runners, but Kubernetes runners usually need an externally
+Agent pods must also receive a `NOPSAI_API_URL` that is reachable from inside
+the Kubernetes cluster. Docker Compose names such as `http://nopsai:8080` work
+for Docker runners, but Kubernetes runners usually need an externally
 resolvable service DNS name or ingress URL.
 
 The generated runner install commands never expose long-lived secrets directly.
 They download a one-time bootstrap script through the NopsAI HTTP API. When
-the configured `dispatcher_address` is an internal stack name such as
+the configured `dispatcher_grpc_address` is an internal stack name such as
 `dispatcher:9090`, NopsAI derives an external dispatcher endpoint from the
-request host and dispatcher port. For Docker/OrbStack-style service hosts such
-as `nopsai-ui.<env>`, it uses the sibling dispatcher host
+request host and dispatcher port and emits `DISPATCHER_GRPC_ADDRESS`. For
+Docker/OrbStack-style service hosts such as `nopsai-ui.<env>`, it uses the sibling dispatcher host
 `nopsai-dispatcher.<env>:9090` instead of the UI host. The Dispatcher runner
 install panel also lets operators override the dispatcher address for a single
 generated command without changing the persisted runtime config.

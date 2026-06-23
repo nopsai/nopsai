@@ -10,7 +10,7 @@ import (
 
 func TestLoadDispatcherClientConfigUsesEnterpriseFallbacks(t *testing.T) {
 	env := map[string]string{
-		"DISPATCHER_ADDRESS":      " dispatcher:9090 ",
+		"DISPATCHER_GRPC_ADDRESS": " dispatcher:9090 ",
 		"AGENT_SERVICE_ID":        "agent-fallback",
 		serviceauth.EnvSigningKey: "jwt-secret",
 		serviceauth.EnvIssuer:     "issuer",
@@ -37,9 +37,24 @@ func TestLoadDispatcherClientConfigUsesEnterpriseFallbacks(t *testing.T) {
 	}
 }
 
+func TestLoadDispatcherClientConfigAcceptsCanonicalAddress(t *testing.T) {
+	env := map[string]string{
+		"DISPATCHER_GRPC_ADDRESS": " dispatcher.pre-nopsai:9090 ",
+		serviceauth.EnvSigningKey: "jwt-secret",
+	}
+
+	cfg, err := LoadDispatcherClientConfig(func(key string) string { return env[key] })
+	if err != nil {
+		t.Fatalf("LoadDispatcherClientConfig() error = %v", err)
+	}
+	if cfg.Address != "dispatcher.pre-nopsai:9090" {
+		t.Fatalf("address = %q, want canonical address", cfg.Address)
+	}
+}
+
 func TestLoadDispatcherClientConfigRequiresAddress(t *testing.T) {
 	_, err := LoadDispatcherClientConfig(func(key string) string { return "" })
-	if err == nil || !strings.Contains(err.Error(), "DISPATCHER_ADDRESS") {
+	if err == nil || !strings.Contains(err.Error(), "DISPATCHER_GRPC_ADDRESS") {
 		t.Fatalf("error = %v, want missing dispatcher address", err)
 	}
 }

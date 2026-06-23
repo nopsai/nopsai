@@ -625,9 +625,10 @@ System administrators with `system_log.read` can open **System > Logs** for one
 allow-listed platform service at a time. The panel uses authenticated SSE fetch
 streaming with signed replay cursors, pause/unseen retention, stdout/stderr and
 text filters, line wrapping, copy/download, reconnect and cursor-gap status, and
-container restart markers. Server-side best-effort redaction occurs before
-bounded in-memory buffering; Docker access is isolated behind a read-only socket
-proxy. See [system-logs.md](./system-logs.md).
+container or pod restart markers. Server-side best-effort redaction occurs
+before bounded in-memory buffering; Docker access is isolated behind a
+read-only socket proxy, and Kubernetes access uses read-only pod/log RBAC. See
+[system-logs.md](./system-logs.md).
 
 ## Current Constraints To Be Aware Of
 

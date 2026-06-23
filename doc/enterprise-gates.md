@@ -164,6 +164,9 @@ and serializes runs per deployment environment.
 
 Service Dockerfiles that depend on the base image accept `BASE_IMAGE`, so CI can
 build from the local `nopsai-base:ci` image instead of pulling a published base.
+AAA and agent images copy their binaries from that shared artifact path. The
+Docker socket proxy intentionally remains a separate scratch-based image because
+it exposes only the minimal read-only Docker API surface for System Logs.
 CI uses `golangci/golangci-lint-action@v7` and pins the `golangci-lint`
 binary to `v2.12.2`, which is built with a Go 1.26 toolchain and is compatible
 with the repository's `go 1.26.4` module target.

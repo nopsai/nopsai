@@ -25,10 +25,30 @@ app.kubernetes.io/component: {{ .component }}
 {{ required "secrets.existingSecret must name a Secret containing the NopsAI deployment keys" .Values.secrets.existingSecret }}
 {{- end }}
 
+{{- define "nopsai.apiServiceAccountName" -}}
+{{- if .Values.api.serviceAccount.create -}}
+{{ .Values.api.serviceAccount.name | default "nopsai-api" }}
+{{- else -}}
+{{ required "api.serviceAccount.name is required when API service-account creation is disabled" .Values.api.serviceAccount.name }}
+{{- end -}}
+{{- end }}
+
 {{- define "nopsai.runnerServiceAccountName" -}}
 {{- if .Values.k8sRunner.serviceAccount.create -}}
 {{ .Values.k8sRunner.serviceAccount.name | default "nopsai-runner" }}
 {{- else -}}
 {{ required "k8sRunner.serviceAccount.name is required when service-account creation is disabled" .Values.k8sRunner.serviceAccount.name }}
+{{- end -}}
+{{- end }}
+
+{{- define "nopsai.systemLogsKubernetesEnabled" -}}
+{{- if and .Values.systemLogs.enabled (or (eq .Values.systemLogs.provider "kubernetes") (eq .Values.systemLogs.provider "k8s")) -}}true{{- else -}}false{{- end -}}
+{{- end }}
+
+{{- define "nopsai.systemLogsKubernetesLabelSelector" -}}
+{{- if .Values.systemLogs.kubernetes.labelSelector -}}
+{{ .Values.systemLogs.kubernetes.labelSelector }}
+{{- else -}}
+app.kubernetes.io/name=nopsai,app.kubernetes.io/instance={{ .Release.Name }}
 {{- end -}}
 {{- end }}

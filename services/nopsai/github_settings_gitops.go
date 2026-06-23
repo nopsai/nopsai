@@ -25,8 +25,8 @@ var githubSettingsForbiddenRuntimeKeys = []string{
 	"notification_mail_support_url",
 	"notification_mail_footer_address",
 	"require_production_gates",
-	"agent_nopsai_api_url",
-	"dispatcher_address",
+	"nopsai_api_url",
+	"dispatcher_grpc_address",
 	"agent_image",
 	"docker_network_name",
 	"auto_removal_agent_container",
@@ -48,8 +48,7 @@ type gitOpsGitHubSettingsPlan struct {
 }
 
 type githubSettingsGitOpsFile struct {
-	GitBotNopsaiAPIURL   *string `json:"git_bot_nopsai_api_url" yaml:"git_bot_nopsai_api_url,omitempty"`
-	NopsaiGitBotAPIURL   *string `json:"nopsai_git_bot_api_url" yaml:"nopsai_git_bot_api_url,omitempty"`
+	GitBotAPIURL         *string `json:"git_bot_api_url" yaml:"git_bot_api_url,omitempty"`
 	GitHubAppID          *string `json:"github_app_id" yaml:"github_app_id,omitempty"`
 	GitHubInstallationID *string `json:"github_installation_id" yaml:"github_installation_id,omitempty"`
 	GitHubPrivateKeyRef  *string `json:"github_private_key_credential_ref" yaml:"github_private_key_credential_ref,omitempty"`
@@ -116,8 +115,7 @@ func parseGitOpsGitHubSettingsFile(content, sourcePath string) (*gitOpsGitHubSet
 
 func gitHubSettingsPayloadFromFile(file githubSettingsGitOpsFile) systemConfigPayload {
 	return systemConfigPayload{
-		GitBotNopsaiAPIURL:   file.GitBotNopsaiAPIURL,
-		NopsaiGitBotAPIURL:   file.NopsaiGitBotAPIURL,
+		GitBotAPIURL:         file.GitBotAPIURL,
 		GitHubAppID:          file.GitHubAppID,
 		GitHubInstallationID: file.GitHubInstallationID,
 		GitHubPrivateKeyRef:  file.GitHubPrivateKeyRef,
@@ -127,8 +125,7 @@ func gitHubSettingsPayloadFromFile(file githubSettingsGitOpsFile) systemConfigPa
 
 func buildGitHubSettingsGitOpsFile(cfg config.Config) githubSettingsGitOpsFile {
 	return githubSettingsGitOpsFile{
-		GitBotNopsaiAPIURL:   stringPtr(cfg.GitBotNopsaiAPIURL),
-		NopsaiGitBotAPIURL:   stringPtr(cfg.NopsaiGitBotAPIURL),
+		GitBotAPIURL:         stringPtr(cfg.NopsaiGitBotAPIURL),
 		GitHubAppID:          stringPtr(cfg.GitHubAppID),
 		GitHubInstallationID: stringPtr(cfg.GitHubInstallID),
 		GitHubPrivateKeyRef:  stringPtr(cfg.GitHubPrivateKeyCredentialRef),

@@ -140,7 +140,7 @@ func TestBuildSystemConfigResponseDoesNotExposeConfigRepoURL(t *testing.T) {
 func TestBuildRunnerComposeResponseUsesLiveSecretsAndAdaptsDispatcherAddress(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/runner-compose?runner_id=runner-cloud-1&runner_scopes=prod&runner_capacity=3", nil)
 	resp, err := runnerinstall.BuildComposeResponse(config.Config{
-		AgentNopsaiAPIURL:       "http://nopsai:8080",
+		NopsaiAPIURL:            "http://nopsai:8080",
 		DispatcherAddress:       "dispatcher:9090",
 		DispatcherListenAddress: ":9090",
 		ServiceJWTSigningKey:    "service-secret",
@@ -170,7 +170,7 @@ func TestBuildRunnerComposeResponseUsesLiveSecretsAndAdaptsDispatcherAddress(t *
 		`RUNNER_ID: "runner-cloud-1"`,
 		`RUNNER_SCOPES: "prod"`,
 		`RUNNER_CAPACITY: "3"`,
-		`DISPATCHER_ADDRESS: "nopsai.example.com:9090"`,
+		`DISPATCHER_GRPC_ADDRESS: "nopsai.example.com:9090"`,
 		`SERVICE_JWT_SIGNING_KEY: "service-secret"`,
 		`SERVICE_JWT_ISSUER: "issuer"`,
 		`SERVICE_JWT_AUDIENCE: "audience"`,
@@ -196,7 +196,7 @@ func TestBuildRunnerBootstrapCommandResponseUsesOneTimeToken(t *testing.T) {
 	app := App{}
 	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/runner-bootstrap-command?runner_id=runner-cloud-1&runner_scopes=prod&runner_capacity=3", nil)
 	resp, err := runnerinstall.BuildBootstrapCommandResponse(config.Config{
-		AgentNopsaiAPIURL:       "http://nopsai:8080",
+		NopsaiAPIURL:            "http://nopsai:8080",
 		DispatcherAddress:       "dispatcher:9090",
 		DispatcherListenAddress: ":9090",
 		ServiceJWTSigningKey:    "service-secret",
@@ -252,7 +252,7 @@ func TestBuildKubernetesRunnerManifestResponseIncludesRuntimeRBACAndPVCSettings(
 	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/kubernetes-runner-manifest?runner_id=k8s-runner-ams-1&runner_scopes=production,eu-west&runner_capacity=30&namespace=nopsai-runs&service_account=nopsai-runner&storage_class=fast-rwo", nil)
 	affinity := true
 	resp, err := runnerinstall.BuildKubernetesManifestResponse(config.Config{
-		AgentNopsaiAPIURL:       "http://nopsai:8080",
+		NopsaiAPIURL:            "http://nopsai:8080",
 		DispatcherAddress:       "dispatcher:9090",
 		DispatcherListenAddress: ":9090",
 		ServiceJWTSigningKey:    "service-secret",
@@ -310,7 +310,7 @@ func TestBuildKubernetesRunnerManifestResponseIncludesRuntimeRBACAndPVCSettings(
 }
 
 func TestBuildKubernetesRunnerManifestResponseUsesDispatcherAddressOverride(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "http://nopsai-ui.pre-nopsai.orb.local/v1/system/dispatcher/kubernetes-runner-manifest?runner_id=k8s-runner-ams-1&dispatcher_address=nopsai-dispatcher.pre-nopsai.orb.local%3A9090", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://nopsai-ui.pre-nopsai.orb.local/v1/system/dispatcher/kubernetes-runner-manifest?runner_id=k8s-runner-ams-1&dispatcher_grpc_address=nopsai-dispatcher.pre-nopsai.orb.local%3A9090", nil)
 	resp, err := runnerinstall.BuildKubernetesManifestResponse(config.Config{
 		DispatcherAddress:       "dispatcher:9090",
 		DispatcherListenAddress: ":9090",
@@ -325,8 +325,8 @@ func TestBuildKubernetesRunnerManifestResponseUsesDispatcherAddressOverride(t *t
 	if resp.DispatcherAddress != "nopsai-dispatcher.pre-nopsai.orb.local:9090" {
 		t.Fatalf("dispatcher address = %q, want explicit override", resp.DispatcherAddress)
 	}
-	if !strings.Contains(resp.Manifest, "DISPATCHER_ADDRESS: nopsai-dispatcher.pre-nopsai.orb.local:9090") {
-		t.Fatalf("manifest missing explicit dispatcher address:\n%s", resp.Manifest)
+	if !strings.Contains(resp.Manifest, "DISPATCHER_GRPC_ADDRESS: nopsai-dispatcher.pre-nopsai.orb.local:9090") {
+		t.Fatalf("manifest missing canonical dispatcher address:\n%s", resp.Manifest)
 	}
 	if len(resp.Warnings) == 0 {
 		t.Fatal("warnings should explain dispatcher address override")
@@ -337,7 +337,7 @@ func TestBuildKubernetesRunnerBootstrapCommandResponseUsesOneTimeScriptToken(t *
 	app := App{}
 	req := httptest.NewRequest(http.MethodGet, "http://nopsai.example.com/v1/system/dispatcher/kubernetes-runner-bootstrap-command?runner_id=k8s-runner-ams-1&runner_scopes=production,eu-west&runner_capacity=30&namespace=nopsai-runs&service_account=nopsai-runner&storage_class=fast-rwo", nil)
 	resp, err := runnerinstall.BuildKubernetesBootstrapCommandResponse(config.Config{
-		AgentNopsaiAPIURL:       "http://nopsai:8080",
+		NopsaiAPIURL:            "http://nopsai:8080",
 		DispatcherAddress:       "dispatcher:9090",
 		DispatcherListenAddress: ":9090",
 		ServiceJWTSigningKey:    "service-secret",

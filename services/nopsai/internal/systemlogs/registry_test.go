@@ -4,12 +4,12 @@ import "testing"
 
 func TestDefaultRegistryContainsOnlyPlatformServices(t *testing.T) {
 	registry := DefaultRegistry()
-	for _, id := range []string{"nopsai", "aaa", "dispatcher", "git-bot", "ui", "docker-runner"} {
+	for _, id := range []string{"nopsai", "aaa", "dispatcher", "git-bot", "ui", "docker-runner", "k8s-runner"} {
 		if _, ok := registry.Resolve(id); !ok {
 			t.Fatalf("default registry missing %q", id)
 		}
 	}
-	for _, id := range []string{"base", "agent", "pipeline", "k8s-runner", "db"} {
+	for _, id := range []string{"base", "agent", "pipeline", "db"} {
 		if _, ok := registry.Resolve(id); ok {
 			t.Fatalf("default registry unexpectedly contains %q", id)
 		}

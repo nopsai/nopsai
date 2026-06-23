@@ -84,14 +84,22 @@ type RunnerLimits struct {
 }
 
 type SystemLogsConfig struct {
-	Enabled             *bool  `yaml:"enabled,omitempty" json:"enabled,omitempty"`
-	DockerHost          string `yaml:"docker_host,omitempty" json:"docker_host,omitempty"`
-	BufferLines         int    `yaml:"buffer_lines,omitempty" json:"buffer_lines,omitempty"`
-	BufferAgeMinutes    int    `yaml:"buffer_age_minutes,omitempty" json:"buffer_age_minutes,omitempty"`
-	MaxTailLines        int    `yaml:"max_tail_lines,omitempty" json:"max_tail_lines,omitempty"`
-	MaxLineBytes        int    `yaml:"max_line_bytes,omitempty" json:"max_line_bytes,omitempty"`
-	MaxStreams          int    `yaml:"max_streams,omitempty" json:"max_streams,omitempty"`
-	MaxStreamsPerSource int    `yaml:"max_streams_per_source,omitempty" json:"max_streams_per_source,omitempty"`
+	Enabled             *bool                      `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	Provider            string                     `yaml:"provider,omitempty" json:"provider,omitempty"`
+	DockerHost          string                     `yaml:"docker_host,omitempty" json:"docker_host,omitempty"`
+	Kubernetes          SystemLogsKubernetesConfig `yaml:"kubernetes,omitempty" json:"kubernetes,omitempty"`
+	BufferLines         int                        `yaml:"buffer_lines,omitempty" json:"buffer_lines,omitempty"`
+	BufferAgeMinutes    int                        `yaml:"buffer_age_minutes,omitempty" json:"buffer_age_minutes,omitempty"`
+	MaxTailLines        int                        `yaml:"max_tail_lines,omitempty" json:"max_tail_lines,omitempty"`
+	MaxLineBytes        int                        `yaml:"max_line_bytes,omitempty" json:"max_line_bytes,omitempty"`
+	MaxStreams          int                        `yaml:"max_streams,omitempty" json:"max_streams,omitempty"`
+	MaxStreamsPerSource int                        `yaml:"max_streams_per_source,omitempty" json:"max_streams_per_source,omitempty"`
+}
+
+type SystemLogsKubernetesConfig struct {
+	Namespace     string `yaml:"namespace,omitempty" json:"namespace,omitempty"`
+	LabelSelector string `yaml:"label_selector,omitempty" json:"label_selector,omitempty"`
+	Container     string `yaml:"container,omitempty" json:"container,omitempty"`
 }
 
 type AuthConfig struct {
@@ -264,13 +272,14 @@ type Config struct {
 	NopsaiListenAddress     string `yaml:"nopsai_listen_address" env:"NOPSAI_LISTEN_ADDRESS"`
 	GitBotListenAddress     string `yaml:"git_bot_listen_address" env:"GIT_BOT_LISTEN_ADDRESS"`
 	DispatcherListenAddress string `yaml:"dispatcher_listen_address" env:"DISPATCHER_LISTEN_ADDRESS"`
-	AAAAddr                 string `yaml:"aaa_addr" env:"AAA_ADDR"`
+	AAAAddr                 string `yaml:"aaa_listen_address" env:"AAA_LISTEN_ADDRESS"`
 
 	// Addresses for services to connect to each other
 	AgentLlmAgentAddress string `yaml:"agent_llm_agent_address" env:"AGENT_LLM_AGENT_ADDRESS"`
-	AgentNopsaiAPIURL    string `yaml:"agent_nopsai_api_url" env:"AGENT_NOPSAI_API_URL"`
-	GitBotNopsaiAPIURL   string `yaml:"git_bot_nopsai_api_url" env:"GIT_BOT_NOPSAI_API_URL"`
-	DispatcherAddress    string `yaml:"dispatcher_address" env:"DISPATCHER_ADDRESS"`
+	NopsaiAPIURL         string `yaml:"nopsai_api_url" env:"NOPSAI_API_URL"`
+	AgentNopsaiAPIURL    string `yaml:"-" env:"-" json:"-"`
+	GitBotNopsaiAPIURL   string `yaml:"-" env:"-" json:"-"`
+	DispatcherAddress    string `yaml:"dispatcher_grpc_address" env:"DISPATCHER_GRPC_ADDRESS"`
 	AAAAPIURL            string `yaml:"aaa_api_url" env:"AAA_API_URL"`
 	AAASharedToken       string `yaml:"aaa_shared_internal_token" env:"AAA_SHARED_INTERNAL_TOKEN"`
 
@@ -279,7 +288,7 @@ type Config struct {
 	GitHubPrivateKeyCredentialRef string `yaml:"github_private_key_credential_ref" env:"GITHUB_PRIVATE_KEY_CREDENTIAL_REF"`
 	GitHubAppID                   string `yaml:"github_app_id" env:"GITHUB_APP_ID"`
 	GitHubInstallID               string `yaml:"github_installation_id" env:"GITHUB_INSTALLATION_ID"`
-	NopsaiGitBotAPIURL            string `yaml:"nopsai_git_bot_api_url" env:"NOPSAI_GIT_BOT_API_URL"`
+	NopsaiGitBotAPIURL            string `yaml:"git_bot_api_url" env:"GIT_BOT_API_URL"`
 	LegacyGitHubWebhookSecret     string `yaml:"github_webhook_secret,omitempty" env:"GITHUB_WEBHOOK_SECRET" json:"-"`
 	LegacyGitHubPrivateKeyPath    string `yaml:"github_private_key_path,omitempty" env:"GITHUB_PRIVATE_KEY_PATH" json:"-"`
 	LegacyGitHubPrivateKey        string `yaml:"github_private_key,omitempty" env:"GITHUB_PRIVATE_KEY" json:"-"`
@@ -311,6 +320,26 @@ func (c *Config) EffectiveSystemLogsDockerHost() string {
 	return strings.TrimSpace(c.SystemLogs.DockerHost)
 }
 
+func (c *Config) EffectiveSystemLogsProvider() string {
+	if c == nil {
+		return ""
+	}
+	provider := strings.ToLower(strings.TrimSpace(c.SystemLogs.Provider))
+	switch provider {
+	case "k8s":
+		return "kubernetes"
+	case "docker", "kubernetes":
+		return provider
+	}
+	if c.EffectiveSystemLogsDockerHost() != "" {
+		return "docker"
+	}
+	if c.SystemLogs.Kubernetes.Enabled() {
+		return "kubernetes"
+	}
+	return ""
+}
+
 func (c *Config) SystemLogsEnabled() bool {
 	if c == nil {
 		return false
@@ -318,7 +347,13 @@ func (c *Config) SystemLogsEnabled() bool {
 	if c.SystemLogs.Enabled != nil {
 		return *c.SystemLogs.Enabled
 	}
-	return c.EffectiveSystemLogsDockerHost() != ""
+	return c.EffectiveSystemLogsProvider() != ""
+}
+
+func (c SystemLogsKubernetesConfig) Enabled() bool {
+	return strings.TrimSpace(c.Namespace) != "" ||
+		strings.TrimSpace(c.LabelSelector) != "" ||
+		strings.TrimSpace(c.Container) != ""
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -377,7 +412,9 @@ func LoadConfig(path string) (*Config, error) {
 	config.Assistant = NormalizeAssistantConfig(config.Assistant)
 	config.Runtime = NormalizeRuntime(config.Runtime)
 	config.Kubernetes = NormalizeKubernetesConfig(config.Kubernetes)
+	config.SystemLogs = NormalizeSystemLogsConfig(config.SystemLogs)
 	config.RuntimePools = NormalizeRuntimePools(config.RuntimePools)
+	config.NormalizeServiceTopology()
 
 	return config, nil
 }
@@ -413,7 +450,6 @@ func applyNestedEnvOverrides(config *Config) {
 			}
 		}
 	}
-
 	setStringEnv("KUBERNETES_NAMESPACE", &config.Kubernetes.Namespace)
 	setStringEnv("KUBERNETES_SERVICE_ACCOUNT", &config.Kubernetes.ServiceAccount)
 	setStringEnv("KUBERNETES_DEFAULT_IMAGE_PULL_POLICY", &config.Kubernetes.DefaultImagePullPolicy)
@@ -433,6 +469,33 @@ func applyNestedEnvOverrides(config *Config) {
 	setIntEnv("LIMITS_MAX_CONCURRENT_TASKS", &config.Limits.MaxConcurrentTasks)
 	setIntEnv("LIMITS_MAX_CONCURRENT_TASKS_PER_RUN", &config.Limits.MaxConcurrentTasksPerRun)
 	setIntEnv("LIMITS_MAX_PENDING_TASKS", &config.Limits.MaxPendingTasks)
+
+	setStringEnv("SYSTEM_LOGS_PROVIDER", &config.SystemLogs.Provider)
+	setStringEnv("SYSTEM_LOGS_KUBERNETES_NAMESPACE", &config.SystemLogs.Kubernetes.Namespace)
+	setStringEnv("SYSTEM_LOGS_KUBERNETES_LABEL_SELECTOR", &config.SystemLogs.Kubernetes.LabelSelector)
+	setStringEnv("SYSTEM_LOGS_KUBERNETES_CONTAINER", &config.SystemLogs.Kubernetes.Container)
+}
+
+func (c *Config) NormalizeServiceTopology() {
+	if c == nil {
+		return
+	}
+	nopsaiAPIURL := c.EffectiveNopsaiAPIURL()
+	c.NopsaiAPIURL = nopsaiAPIURL
+	c.AgentNopsaiAPIURL = nopsaiAPIURL
+	c.GitBotNopsaiAPIURL = nopsaiAPIURL
+	c.DispatcherAddress = strings.TrimSpace(c.DispatcherAddress)
+	c.AAAAddr = strings.TrimSpace(c.AAAAddr)
+	c.NopsaiGitBotAPIURL = strings.TrimSpace(c.NopsaiGitBotAPIURL)
+}
+
+func (c Config) EffectiveNopsaiAPIURL() string {
+	for _, candidate := range []string{c.NopsaiAPIURL, c.AgentNopsaiAPIURL, c.GitBotNopsaiAPIURL} {
+		if value := strings.TrimSpace(candidate); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func NormalizeRuntime(raw string) string {
@@ -744,6 +807,18 @@ func NormalizeKubernetesConfig(k KubernetesConfig) KubernetesConfig {
 	k.PodLabels = normalizeStringMap(k.PodLabels)
 	k.PodAnnotations = normalizeStringMap(k.PodAnnotations)
 	return k
+}
+
+func NormalizeSystemLogsConfig(cfg SystemLogsConfig) SystemLogsConfig {
+	cfg.Provider = strings.ToLower(strings.TrimSpace(cfg.Provider))
+	if cfg.Provider == "k8s" {
+		cfg.Provider = "kubernetes"
+	}
+	cfg.DockerHost = strings.TrimSpace(cfg.DockerHost)
+	cfg.Kubernetes.Namespace = strings.TrimSpace(cfg.Kubernetes.Namespace)
+	cfg.Kubernetes.LabelSelector = strings.TrimSpace(cfg.Kubernetes.LabelSelector)
+	cfg.Kubernetes.Container = strings.TrimSpace(cfg.Kubernetes.Container)
+	return cfg
 }
 
 func NormalizeRuntimePools(pools map[string]RuntimePool) map[string]RuntimePool {

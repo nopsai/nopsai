@@ -32,8 +32,8 @@ func fetchGitHubBootstrap(
 	credentials *serviceauth.Credentials,
 ) (gitHubBootstrap, error) {
 	var result gitHubBootstrap
-	if cfg == nil || strings.TrimSpace(cfg.GitBotNopsaiAPIURL) == "" {
-		return result, fmt.Errorf("GIT_BOT_NOPSAI_API_URL is required")
+	if cfg == nil || strings.TrimSpace(cfg.EffectiveNopsaiAPIURL()) == "" {
+		return result, fmt.Errorf("NOPSAI_API_URL is required")
 	}
 	if httpClient == nil {
 		httpClient = http.DefaultClient
@@ -41,7 +41,7 @@ func fetchGitHubBootstrap(
 	if credentials == nil {
 		return result, fmt.Errorf("git-bot service credentials are required")
 	}
-	url := strings.TrimRight(strings.TrimSpace(cfg.GitBotNopsaiAPIURL), "/") + "/v1/internal/git-bot/bootstrap"
+	url := strings.TrimRight(strings.TrimSpace(cfg.EffectiveNopsaiAPIURL()), "/") + "/v1/internal/git-bot/bootstrap"
 	var lastErr error
 	for attempt := 1; attempt <= 20; attempt++ {
 		result, lastErr = requestGitHubBootstrap(ctx, cfg, httpClient, credentials, url)
