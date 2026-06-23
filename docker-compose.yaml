@@ -88,9 +88,11 @@ services:
     build:
       context: .
       dockerfile: container/Dockerfile.nopsai
+      additional_contexts:
+        base: service:base
       args:
         <<: *release-build-args
-        BASE_IMAGE: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-base:${NOPSAI_VERSION:-dev}
+        BASE_IMAGE: base
     restart: always
     ports:
       - "8080:8080"
@@ -167,9 +169,11 @@ services:
     build:
       context: .
       dockerfile: container/Dockerfile.aaa
+      additional_contexts:
+        base: service:base
       args:
         <<: *release-build-args
-        BASE_IMAGE: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-base:${NOPSAI_VERSION:-dev}
+        BASE_IMAGE: base
     restart: always
     expose:
       - "8082"
@@ -188,9 +192,11 @@ services:
     build:
       context: .
       dockerfile: container/Dockerfile.dispatcher
+      additional_contexts:
+        base: service:base
       args:
         <<: *release-build-args
-        BASE_IMAGE: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-base:${NOPSAI_VERSION:-dev}
+        BASE_IMAGE: base
     restart: always
     ports:
       - "9090:9090"
@@ -208,9 +214,11 @@ services:
     build:
       context: .
       dockerfile: container/Dockerfile.git-bot
+      additional_contexts:
+        base: service:base
       args:
         <<: *release-build-args
-        BASE_IMAGE: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-base:${NOPSAI_VERSION:-dev}
+        BASE_IMAGE: base
     restart: always
     ports:
       - "8081:8081"
@@ -255,9 +263,11 @@ services:
     build:
       context: .
       dockerfile: container/Dockerfile.agent
+      additional_contexts:
+        base: service:base
       args:
         <<: *release-build-args
-        BASE_IMAGE: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-base:${NOPSAI_VERSION:-dev}
+        BASE_IMAGE: base
     depends_on:
       - base
     entrypoint: 'true'
@@ -269,9 +279,11 @@ services:
     build:
       context: .
       dockerfile: container/Dockerfile.docker-runner
+      additional_contexts:
+        base: service:base
       args:
         <<: *release-build-args
-        BASE_IMAGE: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-base:${NOPSAI_VERSION:-dev}
+        BASE_IMAGE: base
     restart: always
     depends_on:
       - dispatcher
@@ -290,9 +302,11 @@ services:
     build:
       context: .
       dockerfile: container/Dockerfile.k8s-runner
+      additional_contexts:
+        base: service:base
       args:
         <<: *release-build-args
-        BASE_IMAGE: ${NOPSAI_IMAGE_REGISTRY:-ghcr.io/hosein-yousefii}/nopsai-base:${NOPSAI_VERSION:-dev}
+        BASE_IMAGE: base
     depends_on:
       - base
     entrypoint: 'true'

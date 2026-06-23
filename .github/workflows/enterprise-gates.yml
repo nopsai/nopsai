@@ -119,8 +119,8 @@ jobs:
         run: |
           release_args=(--build-arg "VERSION=$VERSION" --build-arg "COMMIT=$SOURCE_COMMIT" --build-arg "BUILD_DATE=$BUILD_DATE")
           base_args=(--build-arg "BASE_IMAGE=nopsai-base:$VERSION" "${release_args[@]}")
-          docker build "${release_args[@]}" -t "nopsai-agent:$VERSION" -f container/Dockerfile.agent .
-          docker build "${release_args[@]}" -t "nopsai-aaa:$VERSION" -f container/Dockerfile.aaa .
+          docker build "${base_args[@]}" -t "nopsai-agent:$VERSION" -f container/Dockerfile.agent .
+          docker build "${base_args[@]}" -t "nopsai-aaa:$VERSION" -f container/Dockerfile.aaa .
           docker build "${release_args[@]}" -t "nopsai-docker-socket-proxy:$VERSION" -f container/Dockerfile.socket-proxy .
           docker build "${release_args[@]}" -t "pipeline-image:$VERSION" -f container/Dockerfile.pipeline .
           docker build "${base_args[@]}" -t "nopsai-api:$VERSION" -f container/Dockerfile.nopsai .

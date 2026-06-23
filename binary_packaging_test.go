@@ -94,3 +94,41 @@ func TestAAAAndAgentImagesConsumeBaseImageArtifacts(t *testing.T) {
 		}
 	}
 }
+
+func TestEnterpriseDockerBuildsPassLocalBaseImageToAllBaseConsumers(t *testing.T) {
+	contents, err := os.ReadFile("scripts/enterprise-gates.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(contents)
+	for _, required := range []string{
+		"docker build --build-arg BASE_IMAGE=nopsai-base:ci -t nopsai-agent:ci -f container/Dockerfile.agent .",
+		"docker build --build-arg BASE_IMAGE=nopsai-base:ci -t nopsai-aaa:ci -f container/Dockerfile.aaa .",
+		"docker build --build-arg BASE_IMAGE=nopsai-base:ci -t nopsai-api:ci -f container/Dockerfile.nopsai .",
+		"docker build --build-arg BASE_IMAGE=nopsai-base:ci -t nopsai-dispatcher:ci -f container/Dockerfile.dispatcher .",
+		"docker build --build-arg BASE_IMAGE=nopsai-base:ci -t nopsai-git-bot:ci -f container/Dockerfile.git-bot .",
+		"docker build --build-arg BASE_IMAGE=nopsai-base:ci -t nopsai-runner:ci -f container/Dockerfile.docker-runner .",
+		"docker build --build-arg BASE_IMAGE=nopsai-base:ci -t nopsai-k8s-runner:ci -f container/Dockerfile.k8s-runner .",
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("enterprise-gates.sh does not contain %q", required)
+		}
+	}
+}
+
+func TestEnterpriseWorkflowPassesLocalBaseImageToAAAAndAgent(t *testing.T) {
+	contents, err := os.ReadFile(".github/workflows/enterprise-gates.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(contents)
+	for _, required := range []string{
+		`base_args=(--build-arg "BASE_IMAGE=nopsai-base:$VERSION" "${release_args[@]}")`,
+		`docker build "${base_args[@]}" -t "nopsai-agent:$VERSION" -f container/Dockerfile.agent .`,
+		`docker build "${base_args[@]}" -t "nopsai-aaa:$VERSION" -f container/Dockerfile.aaa .`,
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("enterprise-gates workflow does not contain %q", required)
+		}
+	}
+}
