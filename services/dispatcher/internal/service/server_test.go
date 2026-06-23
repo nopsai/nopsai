@@ -288,7 +288,7 @@ func TestPrepareJobForRunnerAppliesRunnerOverridesWithoutMutatingInput(t *testin
 		t.Fatalf("original job runtime variables mutated to %v", job.Env)
 	}
 	gotRuntimeVars := strings.Join(prepared.Env, ",")
-	for _, want := range []string{"KEEP=1", "DOCKER_NETWORK_NAME=runner-network", "DISPATCHER_ADDRESS=dispatcher:7443", "RUNNER_ID=runner-prepare"} {
+	for _, want := range []string{"KEEP=1", "DOCKER_NETWORK_NAME=runner-network", "DISPATCHER_GRPC_ADDRESS=dispatcher:7443", "RUNNER_ID=runner-prepare"} {
 		if !strings.Contains(gotRuntimeVars, want) {
 			t.Fatalf("prepared runtime variables = %v, want entry %q", prepared.Env, want)
 		}

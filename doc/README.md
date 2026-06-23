@@ -25,7 +25,7 @@ Start here when you want to understand the system from different angles:
 - [knowledge-context.md](./knowledge-context.md): Project knowledge documents for LLM-backed pipeline steps, GitOps layout, runtime snapshots, and access checks.
 - [agent-profiles.md](./agent-profiles.md): AI role/persona selection for pipelines and steps, GitOps management, AAA, and runtime prompt behavior.
 - [final-output-rendering.md](./final-output-rendering.md): Final-output generation contracts, retry/audit behavior, current renderers, and the structured-document rendering roadmap.
-- [system-logs.md](./system-logs.md): Live allow-listed platform logs, Docker socket proxy, SSE replay, AAA, redaction, limits, GitOps configuration, and monitoring.
+- [system-logs.md](./system-logs.md): Live allow-listed platform logs, Docker and Kubernetes providers, SSE replay, AAA, redaction, limits, GitOps configuration, and monitoring.
 
 Existing focused docs:
 

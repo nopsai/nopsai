@@ -26,7 +26,7 @@ spec:
           env:
             - {name: NOPSAI_ENVIRONMENT, value: {{ .Values.global.environment | quote }}}
             - {name: DISPATCHER_LISTEN_ADDRESS, value: ":9090"}
-            - {name: AGENT_NOPSAI_API_URL, value: "http://nopsai:8080"}
+            - {name: NOPSAI_API_URL, value: "http://nopsai:8080"}
             - name: SERVICE_JWT_SIGNING_KEY
               valueFrom: {secretKeyRef: {name: {{ include "nopsai.secretName" . }}, key: {{ .Values.secrets.keys.serviceJWTSigningKey }}}}
           readinessProbe: {tcpSocket: {port: grpc}, initialDelaySeconds: 5, periodSeconds: 10}

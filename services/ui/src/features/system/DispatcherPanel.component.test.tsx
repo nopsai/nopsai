@@ -45,7 +45,7 @@ test('loads runner scopes and generates an install command through the dispatche
           runner_id: 'runner-test',
           runner_scopes: 'prod',
           runner_capacity: '2',
-          dispatcher_address: 'nopsai-dispatcher.pre-nopsai.orb.local:9090',
+          dispatcher_grpc_address: 'nopsai-dispatcher.pre-nopsai.orb.local:9090',
         } as ConfigFormState}
         config={{ dispatcher_routing: {} } as ConfigFormState}
         fieldMetadata={{}}

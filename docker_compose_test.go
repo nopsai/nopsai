@@ -82,7 +82,7 @@ func TestTrackedEnvFileIsDocumentationOnly(t *testing.T) {
 func TestProductRuntimeSettingsStayOutOfComposeEnvironment(t *testing.T) {
 	compose := readCompose(t)
 	runtimeManagedKeys := []string{
-		"AAA_ADDR",
+		"AAA_LISTEN_ADDRESS",
 		"AGENT_IMAGE",
 		"AUTO_REMOVAL_AGENT_CONTAINER",
 		"AUTH_PROVIDER_LOCAL_ENABLED",
@@ -123,13 +123,13 @@ func TestProductRuntimeSettingsStayOutOfComposeEnvironment(t *testing.T) {
 
 func TestDockerComposeProvidesLocalBootstrapTopology(t *testing.T) {
 	compose := readCompose(t)
-	assertEnvValue(t, compose, "nopsai", "AGENT_NOPSAI_API_URL", "http://nopsai:8080")
-	assertEnvValue(t, compose, "nopsai", "DISPATCHER_ADDRESS", "dispatcher:9090")
+	assertEnvValue(t, compose, "nopsai", "NOPSAI_API_URL", "http://nopsai:8080")
+	assertEnvValue(t, compose, "nopsai", "DISPATCHER_GRPC_ADDRESS", "dispatcher:9090")
 	assertEnvValue(t, compose, "nopsai", "DOCKER_NETWORK_NAME", "nopsai-net")
-	assertEnvValue(t, compose, "nopsai", "NOPSAI_GIT_BOT_API_URL", "http://nopsai-git-bot:8081")
-	assertEnvValue(t, compose, "dispatcher", "AGENT_NOPSAI_API_URL", "http://nopsai:8080")
-	assertEnvValue(t, compose, "git-bot", "GIT_BOT_NOPSAI_API_URL", "http://nopsai:8080")
-	assertEnvValue(t, compose, "docker-runner", "DISPATCHER_ADDRESS", "dispatcher:9090")
+	assertEnvValue(t, compose, "nopsai", "GIT_BOT_API_URL", "http://nopsai-git-bot:8081")
+	assertEnvValue(t, compose, "dispatcher", "NOPSAI_API_URL", "http://nopsai:8080")
+	assertEnvValue(t, compose, "git-bot", "NOPSAI_API_URL", "http://nopsai:8080")
+	assertEnvValue(t, compose, "docker-runner", "DISPATCHER_GRPC_ADDRESS", "dispatcher:9090")
 	assertEnvValue(t, compose, "docker-runner", "DOCKER_NETWORK_NAME", "nopsai-net")
 	assertEnvValue(t, compose, "nopsai", "SYSTEM_LOGS_DOCKER_HOST", "tcp://docker-socket-proxy:2375")
 }
@@ -149,7 +149,7 @@ func TestDockerComposeUsesReadOnlySocketProxyForSystemLogs(t *testing.T) {
 	if !containsString(proxy.Volumes, "/var/run/docker.sock:/var/run/docker.sock:ro") {
 		t.Fatalf("socket proxy volume = %#v, want read-only Docker socket", proxy.Volumes)
 	}
-	if proxy.Environment["ALLOWED_CONTAINERS"] != "nopsai,nopsai-aaa,nopsai-dispatcher,nopsai-git-bot,nopsai-ui,nopsai-docker-runner" {
+	if proxy.Environment["ALLOWED_CONTAINERS"] != "nopsai,nopsai-aaa,nopsai-dispatcher,nopsai-git-bot,nopsai-ui,nopsai-docker-runner,nopsai-k8s-runner" {
 		t.Fatalf("socket proxy allow-list = %q", proxy.Environment["ALLOWED_CONTAINERS"])
 	}
 	if nopsai := compose.Services["nopsai"]; containsSubstring(nopsai.Volumes, "docker.sock") {
@@ -169,10 +169,9 @@ func TestProductRuntimeSettingsStayOutOfConfigYAML(t *testing.T) {
 
 	for _, key := range []string{
 		"agent_image",
-		"agent_nopsai_api_url",
 		"auto_removal_agent_container",
 		"default_pipeline_timeout",
-		"dispatcher_address",
+		"dispatcher_grpc_address",
 		"dispatcher_routing",
 		"docker_network_name",
 		"github_app_id",
@@ -180,11 +179,11 @@ func TestProductRuntimeSettingsStayOutOfConfigYAML(t *testing.T) {
 		"github_private_key",
 		"github_private_key_path",
 		"github_webhook_secret",
-		"git_bot_nopsai_api_url",
+		"git_bot_api_url",
 		"llm_agent_timeout",
 		"log_format",
 		"log_level",
-		"nopsai_git_bot_api_url",
+		"nopsai_api_url",
 		"public_url",
 		"runner_capacity",
 		"runner_id",

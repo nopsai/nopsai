@@ -443,7 +443,7 @@ function RunnerDeploymentGuide({ canManageDispatcher, runnerDefaults }: { canMan
                   className="pipelines-input w-full font-mono text-xs sm:text-sm"
                   value={dispatcherAddress}
                   onChange={event => setDispatcherAddress(event.target.value)}
-                  placeholder={runnerDefaults.dispatcher_address ? `auto from ${runnerDefaults.dispatcher_address}` : 'auto from system config or current host'}
+                  placeholder={runnerDefaults.dispatcher_grpc_address ? `auto from ${runnerDefaults.dispatcher_grpc_address}` : 'auto from system config or current host'}
                 />
               </label>
               <div className="space-y-1.5 text-sm dispatcher-install-grid__wide">

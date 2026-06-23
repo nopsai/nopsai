@@ -15,14 +15,13 @@ export type ConfigFormState = {
   default_pipeline_timeout: string;
   llm_agent_timeout: string;
   auto_removal_agent_container: boolean;
-  agent_nopsai_api_url: string;
-  git_bot_nopsai_api_url: string;
-  nopsai_git_bot_api_url: string;
+  nopsai_api_url: string;
+  git_bot_api_url: string;
   github_app_id: string;
   github_installation_id: string;
   github_private_key_credential_ref: string;
   github_webhook_credential_ref: string;
-  dispatcher_address: string;
+  dispatcher_grpc_address: string;
   dispatcher_routing: Record<string, string[]>;
   runner_id: string;
   runner_scopes: string;
@@ -119,14 +118,13 @@ export const initialConfig: ConfigFormState = {
   default_pipeline_timeout: '',
   llm_agent_timeout: '',
   auto_removal_agent_container: true,
-  agent_nopsai_api_url: '',
-  git_bot_nopsai_api_url: '',
-  nopsai_git_bot_api_url: '',
+  nopsai_api_url: '',
+  git_bot_api_url: '',
   github_app_id: '',
   github_installation_id: '',
   github_private_key_credential_ref: '',
   github_webhook_credential_ref: '',
-  dispatcher_address: '',
+  dispatcher_grpc_address: '',
   dispatcher_routing: {},
   runner_id: '',
   runner_scopes: '',
@@ -174,14 +172,13 @@ export function normalizeSystemConfigPayload(payload: unknown): { config: Config
       default_pipeline_timeout: readString(record.default_pipeline_timeout),
       llm_agent_timeout: readString(record.llm_agent_timeout),
       auto_removal_agent_container: Boolean(record.auto_removal_agent_container),
-      agent_nopsai_api_url: readString(record.agent_nopsai_api_url),
-      git_bot_nopsai_api_url: readString(record.git_bot_nopsai_api_url),
-      nopsai_git_bot_api_url: readString(record.nopsai_git_bot_api_url),
+      nopsai_api_url: readString(record.nopsai_api_url),
+      git_bot_api_url: readString(record.git_bot_api_url),
       github_app_id: readString(record.github_app_id),
       github_installation_id: readString(record.github_installation_id),
       github_private_key_credential_ref: readString(record.github_private_key_credential_ref),
       github_webhook_credential_ref: readString(record.github_webhook_credential_ref),
-      dispatcher_address: readString(record.dispatcher_address),
+      dispatcher_grpc_address: readString(record.dispatcher_grpc_address),
       dispatcher_routing: normalizeRouting(record.dispatcher_routing),
       runner_id: readString(record.runner_id),
       runner_scopes: readString(record.runner_scopes),
@@ -209,14 +206,13 @@ export function systemConfigPayloadFromForm(config: ConfigFormState) {
     default_pipeline_timeout: config.default_pipeline_timeout.trim(),
     llm_agent_timeout: config.llm_agent_timeout.trim(),
     auto_removal_agent_container: Boolean(config.auto_removal_agent_container),
-    agent_nopsai_api_url: config.agent_nopsai_api_url.trim(),
-    git_bot_nopsai_api_url: config.git_bot_nopsai_api_url.trim(),
-    nopsai_git_bot_api_url: config.nopsai_git_bot_api_url.trim(),
+    nopsai_api_url: config.nopsai_api_url.trim(),
+    git_bot_api_url: config.git_bot_api_url.trim(),
     github_app_id: config.github_app_id.trim(),
     github_installation_id: config.github_installation_id.trim(),
     github_private_key_credential_ref: config.github_private_key_credential_ref.trim(),
     github_webhook_credential_ref: config.github_webhook_credential_ref.trim(),
-    dispatcher_address: config.dispatcher_address.trim(),
+    dispatcher_grpc_address: config.dispatcher_grpc_address.trim(),
     dispatcher_routing: config.dispatcher_routing,
     runner_id: config.runner_id.trim(),
     runner_scopes: config.runner_scopes.trim(),

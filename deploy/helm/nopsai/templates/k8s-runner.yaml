@@ -94,7 +94,7 @@ spec:
             - {name: RUNNER_CAPACITY, value: {{ .Values.k8sRunner.capacity | quote }}}
             - {name: RUNNER_SERVICE_ID, value: {{ .Values.k8sRunner.serviceID | quote }}}
             - {name: AGENT_IMAGE, value: {{ include "nopsai.image" .Values.agent.image | quote }}}
-            - {name: DISPATCHER_ADDRESS, value: "dispatcher:9090"}
+            - {name: DISPATCHER_GRPC_ADDRESS, value: "dispatcher:9090"}
             - {name: KUBERNETES_NAMESPACE, valueFrom: {fieldRef: {fieldPath: metadata.namespace}}}
             - {name: KUBERNETES_SERVICE_ACCOUNT, value: {{ include "nopsai.runnerServiceAccountName" . | quote }}}
             - {name: KUBERNETES_DEFAULT_IMAGE_PULL_POLICY, value: {{ .Values.k8sRunner.imagePullPolicy | quote }}}

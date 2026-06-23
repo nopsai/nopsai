@@ -59,7 +59,7 @@ func LoadDispatcherClientConfig(lookup EnvLookup) (DispatcherClientConfig, error
 	}
 
 	cfg := DispatcherClientConfig{
-		Address:       strings.TrimSpace(lookup("DISPATCHER_ADDRESS")),
+		Address:       strings.TrimSpace(lookup("DISPATCHER_GRPC_ADDRESS")),
 		ServiceID:     strings.TrimSpace(lookup(serviceauth.EnvServiceID)),
 		SigningKey:    lookup(serviceauth.EnvSigningKey),
 		Issuer:        lookup(serviceauth.EnvIssuer),
@@ -69,7 +69,7 @@ func LoadDispatcherClientConfig(lookup EnvLookup) (DispatcherClientConfig, error
 		TLSServerName: lookup(servicetls.EnvServerName),
 	}
 	if cfg.Address == "" {
-		return cfg, fmt.Errorf("DISPATCHER_ADDRESS is not configured")
+		return cfg, fmt.Errorf("DISPATCHER_GRPC_ADDRESS is not configured")
 	}
 	if cfg.ServiceID == "" {
 		cfg.ServiceID = strings.TrimSpace(lookup("AGENT_SERVICE_ID"))

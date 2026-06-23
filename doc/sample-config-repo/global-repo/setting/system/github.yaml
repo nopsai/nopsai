@@ -1,5 +1,4 @@
-git_bot_nopsai_api_url: http://nopsai:8080
-nopsai_git_bot_api_url: http://git-bot:8081
+git_bot_api_url: http://git-bot:8081
 
 github_app_id: "123456"
 github_installation_id: "987654"

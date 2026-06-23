@@ -159,13 +159,16 @@ Enterprise authentication follows the same split:
   provider contracts live in `services/nopsai/internal/systemlogs`.
 - Docker list/inspect/log transport and multiplexed stream decoding live in
   `services/nopsai/internal/systemlogs/docker`.
+- Kubernetes pod discovery, label-to-source mapping, and `pods/log` streaming
+  live in `services/nopsai/internal/systemlogs/kubernetes`.
 - API, SSE heartbeat/reset composition, and content-free stream audit events
   live in `services/nopsai/system_logs_handlers.go`; route composition remains
   in `services/nopsai/routes.go` and route authorization in `pkg/routeauthz`.
 - UI transport lives in `services/ui/src/features/system/logs/api.ts`, hook and
   reconnect orchestration in `useSystemLogs.ts`, data contracts in `types.ts`,
   and rendering in `SystemLogsPanel.tsx`.
-- Docker proxy topology is deployment-owned in `docker-compose.yaml`; metrics
+- Docker proxy topology is deployment-owned in `docker-compose.yaml`; Kubernetes
+  RBAC and provider env wiring are deployment-owned in the Helm chart. Metrics
   are exposed by the existing `services/nopsai/metrics.go` owner.
 
 ## Pipeline Final Output Ownership

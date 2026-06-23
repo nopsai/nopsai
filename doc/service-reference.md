@@ -2,6 +2,19 @@
 
 This document explains what each service does, which interfaces it owns, and where its main implementation lives.
 
+## Service Topology Naming
+
+Use `*_LISTEN_ADDRESS` for the socket a service binds inside its own container
+or pod, and use `*_URL` or `*_GRPC_ADDRESS` for the endpoint other services
+dial. For example, the API can listen on `0.0.0.0:8080` while agents and
+git-bot use `NOPSAI_API_URL=http://nopsai:8080` in Compose or a cluster DNS name
+such as `http://nopsai.pre-nopsai:8080` in Kubernetes. The dispatcher similarly
+listens on `DISPATCHER_LISTEN_ADDRESS` and is reached through
+`DISPATCHER_GRPC_ADDRESS`.
+
+The service-topology config contract uses `NOPSAI_API_URL`,
+`DISPATCHER_GRPC_ADDRESS`, `GIT_BOT_API_URL`, and `AAA_LISTEN_ADDRESS`.
+
 ## `services/nopsai`
 
 Primary role:
@@ -197,7 +210,7 @@ Key files:
 - `services/nopsai/mcp*.go`
 - `services/nopsai/schedules*.go`
 - `services/nopsai/system_logs_handlers.go`
-- `services/nopsai/internal/systemlogs`: Allow-listed source registry, signed cursors, redaction, bounded replay/fan-out broker, metrics, and Docker provider.
+- `services/nopsai/internal/systemlogs`: Allow-listed source registry, signed cursors, redaction, bounded replay/fan-out broker, metrics, Docker provider, and Kubernetes provider.
 
 The entrypoint above builds as `nopsai-api`. The user-facing `nopsai` binary is
 owned independently by `cmd/nopsai-cli` and `internal/cli`; it reaches this

@@ -41,7 +41,7 @@ export async function fetchDockerRunnerTemplate(input: DockerRunnerTemplateInput
     runner_network_mode: input.networkMode,
     runner_image: input.runnerImage.trim() || 'hoseindocker/nopsai-runner:latest',
   });
-  if (input.dispatcherAddress.trim()) params.set('dispatcher_address', input.dispatcherAddress.trim());
+  if (input.dispatcherAddress.trim()) params.set('dispatcher_grpc_address', input.dispatcherAddress.trim());
   const payload = await fetchSystemJson(`/v1/system/dispatcher/runner-bootstrap-command?${params.toString()}`, {
     cache: 'no-store',
   });
@@ -60,7 +60,7 @@ export async function fetchKubernetesRunnerTemplate(
     runner_image: input.runnerImage.trim() || 'hoseindocker/nopsai-k8s-runner:latest',
     affinity_enabled: String(input.affinityEnabled),
   });
-  if (input.dispatcherAddress.trim()) params.set('dispatcher_address', input.dispatcherAddress.trim());
+  if (input.dispatcherAddress.trim()) params.set('dispatcher_grpc_address', input.dispatcherAddress.trim());
   if (input.storageClass.trim()) params.set('storage_class', input.storageClass.trim());
   const payload = await fetchSystemJson(
     `/v1/system/dispatcher/kubernetes-runner-bootstrap-command?${params.toString()}`,

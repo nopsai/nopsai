@@ -212,7 +212,7 @@ func buildRuntimeConfigSnapshot(cfg config.Config, service string) runtimeConfig
 				"github_installation_id",
 				"github_private_key_credential_ref",
 				"github_webhook_credential_ref",
-				"git_bot_nopsai_api_url",
+				"nopsai_api_url",
 			},
 			values: map[string]any{
 				"github_app_id":                     strings.TrimSpace(cfg.GitHubAppID),
@@ -222,7 +222,7 @@ func buildRuntimeConfigSnapshot(cfg config.Config, service string) runtimeConfig
 				"github_webhook_secret_ref":         strings.TrimSpace(cfg.GitHubWebhookCredentialRef),
 				"github_private_key_credential_ref": strings.TrimSpace(cfg.GitHubPrivateKeyCredentialRef),
 				"github_webhook_credential_ref":     strings.TrimSpace(cfg.GitHubWebhookCredentialRef),
-				"git_bot_nopsai_api_url":            strings.TrimSpace(cfg.GitBotNopsaiAPIURL),
+				"nopsai_api_url":                    strings.TrimSpace(cfg.EffectiveNopsaiAPIURL()),
 			},
 		}
 	case "dispatcher":
@@ -230,12 +230,12 @@ func buildRuntimeConfigSnapshot(cfg config.Config, service string) runtimeConfig
 			service:    "dispatcher",
 			reloadMode: config.ConfigScopeRuntimeLive,
 			fields: []string{
-				"agent_nopsai_api_url",
+				"nopsai_api_url",
 				"dispatcher_routing",
 			},
 			values: map[string]any{
-				"agent_nopsai_api_url": strings.TrimSpace(cfg.AgentNopsaiAPIURL),
-				"dispatcher_routing":   systemconfig.CloneDispatcherRouting(cfg.DispatcherRouting),
+				"nopsai_api_url":     strings.TrimSpace(cfg.EffectiveNopsaiAPIURL()),
+				"dispatcher_routing": systemconfig.CloneDispatcherRouting(cfg.DispatcherRouting),
 			},
 		}
 	case "runner":
@@ -246,21 +246,21 @@ func buildRuntimeConfigSnapshot(cfg config.Config, service string) runtimeConfig
 				"runner_id",
 				"runner_scopes",
 				"runner_capacity",
-				"dispatcher_address",
+				"dispatcher_grpc_address",
 				"docker_network_name",
 				"runtime",
 				"runtime_pools",
 				"limits",
 			},
 			values: map[string]any{
-				"runner_id":           strings.TrimSpace(cfg.RunnerID),
-				"runner_scopes":       strings.TrimSpace(cfg.RunnerScopes),
-				"runner_capacity":     cfg.RunnerCapacity,
-				"dispatcher_address":  strings.TrimSpace(cfg.DispatcherAddress),
-				"docker_network_name": strings.TrimSpace(cfg.DockerNetworkName),
-				"runtime":             config.NormalizeRuntime(cfg.Runtime),
-				"runtime_pools":       config.NormalizeRuntimePools(cfg.RuntimePools),
-				"limits":              cfg.Limits,
+				"runner_id":               strings.TrimSpace(cfg.RunnerID),
+				"runner_scopes":           strings.TrimSpace(cfg.RunnerScopes),
+				"runner_capacity":         cfg.RunnerCapacity,
+				"dispatcher_grpc_address": strings.TrimSpace(cfg.DispatcherAddress),
+				"docker_network_name":     strings.TrimSpace(cfg.DockerNetworkName),
+				"runtime":                 config.NormalizeRuntime(cfg.Runtime),
+				"runtime_pools":           config.NormalizeRuntimePools(cfg.RuntimePools),
+				"limits":                  cfg.Limits,
 			},
 		}
 	case "agent":
@@ -268,12 +268,12 @@ func buildRuntimeConfigSnapshot(cfg config.Config, service string) runtimeConfig
 			service:    "agent",
 			reloadMode: config.ConfigScopeNextRunOnly,
 			fields: []string{
-				"agent_nopsai_api_url",
+				"nopsai_api_url",
 				"default_pipeline_timeout",
 				"llm_agent_timeout",
 			},
 			values: map[string]any{
-				"agent_nopsai_api_url":     strings.TrimSpace(cfg.AgentNopsaiAPIURL),
+				"nopsai_api_url":           strings.TrimSpace(cfg.EffectiveNopsaiAPIURL()),
 				"default_pipeline_timeout": strings.TrimSpace(cfg.DefaultPipelineTimeout),
 				"llm_agent_timeout":        strings.TrimSpace(cfg.LLMAgentTimeout),
 			},
@@ -292,7 +292,7 @@ func buildRuntimeConfigSnapshot(cfg config.Config, service string) runtimeConfig
 				"notification_mail_support_url",
 				"notification_mail_footer_address",
 				"require_production_gates",
-				"nopsai_git_bot_api_url",
+				"git_bot_api_url",
 				"runtime",
 				"runtime_pools",
 				"limits",
@@ -307,7 +307,7 @@ func buildRuntimeConfigSnapshot(cfg config.Config, service string) runtimeConfig
 				"notification_mail_support_url":    strings.TrimSpace(cfg.NotificationMailSupportURL),
 				"notification_mail_footer_address": strings.TrimSpace(cfg.NotificationMailFooterAddress),
 				"require_production_gates":         cfg.RequireProductionGates,
-				"nopsai_git_bot_api_url":           strings.TrimSpace(cfg.NopsaiGitBotAPIURL),
+				"git_bot_api_url":                  strings.TrimSpace(cfg.NopsaiGitBotAPIURL),
 				"runtime":                          config.NormalizeRuntime(cfg.Runtime),
 				"runtime_pools":                    config.NormalizeRuntimePools(cfg.RuntimePools),
 				"limits":                           cfg.Limits,

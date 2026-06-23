@@ -53,7 +53,7 @@ func requestedDispatcherAddress(r *http.Request) string {
 	if r == nil {
 		return ""
 	}
-	raw := strings.TrimSpace(r.URL.Query().Get("dispatcher_address"))
+	raw := strings.TrimSpace(r.URL.Query().Get("dispatcher_grpc_address"))
 	if raw == "" {
 		return ""
 	}

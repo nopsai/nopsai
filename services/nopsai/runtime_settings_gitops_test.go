@@ -24,7 +24,7 @@ func TestParseGitOpsRuntimeSettingsPlan(t *testing.T) {
 			root: "setting",
 			files: map[string]string{
 				"setting/system/runner.yaml": `
-dispatcher_address: dispatcher:9090
+dispatcher_grpc_address: dispatcher:9090
 dispatcher_routing:
   prod:
     - runner-prod-1
@@ -129,8 +129,8 @@ func TestParseGitOpsRuntimeSettingsPlanRejectsNonSystemRepo(t *testing.T) {
 
 func TestParseGitOpsRuntimeSettingsFileMapsAllFieldsAndRejectsInvalidCapacity(t *testing.T) {
 	plan, err := parseGitOpsRuntimeSettingsFile(`
-agent_nopsai_api_url: http://nopsai:8080
-dispatcher_address: dispatcher:9090
+nopsai_api_url: http://nopsai:8080
+dispatcher_grpc_address: dispatcher:9090
 agent_image: nopsai-agent:dev
 docker_network_name: nopsai-net
 auto_removal_agent_container: false
@@ -145,8 +145,8 @@ runner_capacity: 3
 	if err != nil {
 		t.Fatalf("parseGitOpsRuntimeSettingsFile() error = %v", err)
 	}
-	if plan.payload.AgentNopsaiAPIURL == nil || *plan.payload.AgentNopsaiAPIURL != "http://nopsai:8080" {
-		t.Fatalf("agent URL = %#v", plan.payload.AgentNopsaiAPIURL)
+	if plan.payload.NopsaiAPIURL == nil || *plan.payload.NopsaiAPIURL != "http://nopsai:8080" {
+		t.Fatalf("nopsai URL = %#v", plan.payload.NopsaiAPIURL)
 	}
 	if plan.payload.DispatcherAddress == nil || *plan.payload.DispatcherAddress != "dispatcher:9090" {
 		t.Fatalf("dispatcher address = %#v", plan.payload.DispatcherAddress)
@@ -196,7 +196,7 @@ func TestParseGitOpsRuntimeSettingsFileRejectsGitHubFields(t *testing.T) {
 	_, err := parseGitOpsRuntimeSettingsFile(`
 runner_id: runner-a
 github_app_id: "123456"
-git_bot_nopsai_api_url: http://nopsai:8080
+git_bot_api_url: http://git-bot:8081
 `, "setting/system/runner.yaml")
 	if err == nil || !strings.Contains(err.Error(), "setting/system/github.yaml") {
 		t.Fatalf("expected move-to-github error, got %v", err)
@@ -297,7 +297,7 @@ func TestHandleInternalRuntimeConfigRequiresMatchingServiceRole(t *testing.T) {
 		GitHubInstallID:               "987654",
 		GitHubPrivateKeyCredentialRef: "credential://system/github/app-private-key",
 		GitHubWebhookCredentialRef:    "credential://system/github/webhook-secret",
-		GitBotNopsaiAPIURL:            "http://nopsai:8080",
+		NopsaiAPIURL:                  "http://nopsai:8080",
 	}}
 
 	req := httptest.NewRequest(http.MethodGet, "/internal/v1/runtime-config/git-bot", nil)
@@ -402,7 +402,7 @@ func TestApplyRuntimeSettingsGitOpsPlanUsesDatabaseWithoutBootstrapFileMirroring
 			DatabaseURL:            "postgres://keep",
 			RunnerCapacity:         9,
 			DispatcherRouting:      map[string][]string{"old": {"old-runner"}},
-			AgentNopsaiAPIURL:      "http://old-nopsai",
+			NopsaiAPIURL:           "http://old-nopsai",
 			DockerNetworkName:      "old-net",
 			DefaultPipelineTimeout: "20m",
 		},
@@ -410,7 +410,7 @@ func TestApplyRuntimeSettingsGitOpsPlanUsesDatabaseWithoutBootstrapFileMirroring
 	plan := &gitOpsRuntimeSettingsPlan{
 		sourcePath: "setting/system/runner.yaml",
 		payload: systemConfigPayload{
-			AgentNopsaiAPIURL:         stringPtr(" http://nopsai.example.com "),
+			NopsaiAPIURL:              stringPtr(" http://nopsai.example.com "),
 			DispatcherAddress:         stringPtr(" dispatcher:9090 "),
 			AutoRemovalAgentContainer: boolPtr(false),
 			DefaultPipelineTimeout:    stringPtr(" 45m "),
@@ -426,8 +426,7 @@ func TestApplyRuntimeSettingsGitOpsPlanUsesDatabaseWithoutBootstrapFileMirroring
 	githubPlan := &gitOpsGitHubSettingsPlan{
 		sourcePath: "setting/system/github.yaml",
 		payload: systemConfigPayload{
-			GitBotNopsaiAPIURL:   stringPtr(" http://nopsai:8080 "),
-			NopsaiGitBotAPIURL:   stringPtr(" http://git-bot:8081 "),
+			GitBotAPIURL:         stringPtr(" http://git-bot:8081 "),
 			GitHubAppID:          stringPtr(" 123456 "),
 			GitHubInstallationID: stringPtr(" 987654 "),
 			GitHubPrivateKeyRef:  stringPtr(" credential://system/github/app-private-key "),
@@ -440,8 +439,8 @@ func TestApplyRuntimeSettingsGitOpsPlanUsesDatabaseWithoutBootstrapFileMirroring
 	}
 
 	cfg := app.getConfigSnapshot()
-	if cfg.AgentNopsaiAPIURL != "http://nopsai.example.com" {
-		t.Fatalf("AgentNopsaiAPIURL = %q", cfg.AgentNopsaiAPIURL)
+	if cfg.NopsaiAPIURL != "http://nopsai.example.com" || cfg.AgentNopsaiAPIURL != "http://nopsai.example.com" || cfg.GitBotNopsaiAPIURL != "http://nopsai.example.com" {
+		t.Fatalf("NopsaiAPIURL = (%q, %q, %q)", cfg.NopsaiAPIURL, cfg.AgentNopsaiAPIURL, cfg.GitBotNopsaiAPIURL)
 	}
 	if cfg.DispatcherAddress != "dispatcher:9090" {
 		t.Fatalf("DispatcherAddress = %q", cfg.DispatcherAddress)
@@ -461,8 +460,8 @@ func TestApplyRuntimeSettingsGitOpsPlanUsesDatabaseWithoutBootstrapFileMirroring
 		cfg.GitHubWebhookCredentialRef != "credential://system/github/webhook-secret" {
 		t.Fatalf("github settings = (%q, %q, %q, %q)", cfg.GitHubAppID, cfg.GitHubInstallID, cfg.GitHubPrivateKeyCredentialRef, cfg.GitHubWebhookCredentialRef)
 	}
-	if cfg.GitBotNopsaiAPIURL != "http://nopsai:8080" || cfg.NopsaiGitBotAPIURL != "http://git-bot:8081" {
-		t.Fatalf("git-bot URLs = (%q, %q)", cfg.GitBotNopsaiAPIURL, cfg.NopsaiGitBotAPIURL)
+	if cfg.NopsaiGitBotAPIURL != "http://git-bot:8081" {
+		t.Fatalf("git-bot URL = %q", cfg.NopsaiGitBotAPIURL)
 	}
 }
 
@@ -470,7 +469,7 @@ func TestPersistRuntimeSettingsSnapshotStoresDurableGitOpsPayload(t *testing.T) 
 	repoID := int64(42)
 	db := &runtimeSettingsFakeQuerier{}
 	cfg := config.Config{
-		AgentNopsaiAPIURL:         "http://nopsai.example.com",
+		NopsaiAPIURL:              "http://nopsai.example.com",
 		DispatcherAddress:         "dispatcher:9090",
 		AutoRemovalAgentContainer: false,
 		DefaultPipelineTimeout:    "45m",
@@ -529,7 +528,7 @@ func TestLoadRuntimeSettingsRecordAppliesPersistedGitOpsSnapshot(t *testing.T) {
 	repoID := int64(42)
 	updatedAt := sql.NullTime{Valid: true}
 	raw := []byte(`{
-		"dispatcher_address": "dispatcher-gitops:9090",
+		"dispatcher_grpc_address": "dispatcher-gitops:9090",
 		"auto_removal_agent_container": false,
 		"dispatcher_routing": {" prod ": [" runner-prod ", ""]},
 		"runner_id": " runner-prod ",

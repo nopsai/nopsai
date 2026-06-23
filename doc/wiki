@@ -37,9 +37,9 @@ Flow: GitHub event or user request → Nopsai authenticates and checks AAA → N
    per-service `environment` blocks in `docker-compose.yaml` for bootstrap
    values. Override real secrets from your shell or deployment secret manager.
    Key additions:
-   - `DISPATCHER_LISTEN_ADDRESS` (default `:9090`), `DISPATCHER_ADDRESS` (what clients dial, default `dispatcher:9090`).
+   - `DISPATCHER_LISTEN_ADDRESS` (default `:9090`), `DISPATCHER_GRPC_ADDRESS` (what clients dial, default `dispatcher:9090`).
    - `SERVICE_JWT_SIGNING_KEY` for internal REST and dispatcher gRPC service authentication. Optional: `SERVICE_JWT_ISSUER`, `SERVICE_JWT_AUDIENCE`, `NOPSAI_SERVICE_ID`, `RUNNER_SERVICE_ID`, `AGENT_SERVICE_ID`.
-   - `AAA_ADDR` (default `:8082`), `AAA_API_URL` (default `http://aaa:8082`), and `AAA_SHARED_INTERNAL_TOKEN` for Nopsai-to-AAA calls.
+   - `AAA_LISTEN_ADDRESS` (default `:8082`), `AAA_API_URL` (default `http://aaa:8082`), and `AAA_SHARED_INTERNAL_TOKEN` for Nopsai-to-AAA calls.
    - `DISPATCHER_ROUTING` (YAML in `config.yml`) maps scope → allowed runner IDs; per-runner `RUNNER_ID`, `RUNNER_SCOPES` (comma list), and `RUNNER_CAPACITY` belong on generated runner installs, not the local control-plane containers.
    - Existing fields still apply: DB URL, Gemini model/key, service listen addresses, Docker network name, agent image, log format/level, GitBot URLs, config repo URL, defaults for timeouts.
 3. **Compose up**:
@@ -58,10 +58,10 @@ Flow: GitHub event or user request → Nopsai authenticates and checks AAA → N
 ## Config Reference (selected)
 
 - **Networking**: `nopsai_listen_address`, `git_bot_listen_address`, `dispatcher_listen_address`.
-- **Service-to-service URLs**: `agent_nopsai_api_url`, `git_bot_nopsai_api_url`, `nopsai_git_bot_api_url`, `dispatcher_address`, `aaa_api_url`.
+- **Service-to-service URLs**: use deployment env `NOPSAI_API_URL`, `GIT_BOT_API_URL`, `DISPATCHER_GRPC_ADDRESS`, and `AAA_API_URL`; GitOps fields are `nopsai_api_url`, `git_bot_api_url`, `dispatcher_grpc_address`, and `aaa_api_url`.
 - **Service auth**: `service_jwt_signing_key` signs internal REST and dispatcher gRPC service tokens for `nopsai`, `dispatcher`, `runner`, and `agent` callers. `service_jwt_issuer` and `service_jwt_audience` default to internal dispatcher values.
 - **JWT details**: See `doc/jwt-authentication.md` for user/API tokens, refresh tokens, internal REST service JWTs, and dispatcher gRPC service JWTs.
-- **AAA**: `aaa_addr`, `aaa_shared_internal_token`; protected AAA endpoints require `X-Internal-Token`.
+- **AAA**: `aaa_listen_address`, `aaa_shared_internal_token`; protected AAA endpoints require `X-Internal-Token`.
 - **Dispatcher routing**: In `config.yml`:
   ```yaml
   dispatcher_routing:

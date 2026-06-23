@@ -32,10 +32,9 @@ type systemConfigPayload struct {
 	NotificationMailSupportURL    *string                       `json:"notification_mail_support_url"`
 	NotificationMailFooterAddress *string                       `json:"notification_mail_footer_address"`
 	RequireProductionGates        *bool                         `json:"require_production_gates"`
-	AgentNopsaiAPIURL             *string                       `json:"agent_nopsai_api_url"`
-	GitBotNopsaiAPIURL            *string                       `json:"git_bot_nopsai_api_url"`
-	NopsaiGitBotAPIURL            *string                       `json:"nopsai_git_bot_api_url"`
-	DispatcherAddress             *string                       `json:"dispatcher_address"`
+	NopsaiAPIURL                  *string                       `json:"nopsai_api_url"`
+	GitBotAPIURL                  *string                       `json:"git_bot_api_url"`
+	DispatcherAddress             *string                       `json:"dispatcher_grpc_address"`
 	AgentImage                    *string                       `json:"agent_image"`
 	DockerNetworkName             *string                       `json:"docker_network_name"`
 	AutoRemovalAgentContainer     *bool                         `json:"auto_removal_agent_container"`

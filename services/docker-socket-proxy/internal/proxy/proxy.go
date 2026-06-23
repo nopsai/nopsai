@@ -26,7 +26,7 @@ type Handler struct {
 	allowedContainers map[string]struct{}
 }
 
-var DefaultAllowedContainers = []string{"nopsai", "nopsai-aaa", "nopsai-dispatcher", "nopsai-git-bot", "nopsai-ui", "nopsai-docker-runner"}
+var DefaultAllowedContainers = []string{"nopsai", "nopsai-aaa", "nopsai-dispatcher", "nopsai-git-bot", "nopsai-ui", "nopsai-docker-runner", "nopsai-k8s-runner"}
 
 func New(socketPath string, allowedContainers ...string) *Handler {
 	if len(allowedContainers) == 0 {

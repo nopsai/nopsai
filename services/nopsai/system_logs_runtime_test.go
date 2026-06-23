@@ -27,7 +27,28 @@ func TestNewSystemLogBrokerUsesUnavailableProviderWhenDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSources() error = %v", err)
 	}
-	if len(sources) != 6 || sources[0].Available || sources[0].State != "unavailable" {
+	if len(sources) != 7 || sources[0].Available || sources[0].State != "unavailable" {
 		t.Fatalf("ListSources() = %#v", sources)
+	}
+}
+
+func TestNewSystemLogBrokerUsesUnavailableProviderWhenEnabledWithoutProvider(t *testing.T) {
+	enabled := true
+	broker, err := newSystemLogBroker(&config.Config{MasterKey: "test-key", SystemLogs: config.SystemLogsConfig{Enabled: &enabled}}, nil)
+	if err != nil {
+		t.Fatalf("newSystemLogBroker() error = %v", err)
+	}
+	sources, err := broker.ListSources(context.Background())
+	if err != nil {
+		t.Fatalf("ListSources() error = %v", err)
+	}
+	if len(sources) != 7 || sources[0].Available || sources[0].Status == "" {
+		t.Fatalf("ListSources() = %#v", sources)
+	}
+}
+
+func TestEffectiveSystemLogsKubernetesNamespace(t *testing.T) {
+	if got := effectiveSystemLogsKubernetesNamespace(" nopsai "); got != "nopsai" {
+		t.Fatalf("effective namespace = %q, want configured namespace", got)
 	}
 }

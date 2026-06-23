@@ -18,8 +18,10 @@ func TestBaseImageBuildsSeparateCLIAndAPIBinaries(t *testing.T) {
 		"nopsai/pkg/buildinfo.ReleaseManifestDigest=${RELEASE_MANIFEST_DIGEST}",
 		"-o /out/nopsai ./cmd/nopsai-cli",
 		"-o /out/nopsai-api ./services/nopsai/cmd/nopsai",
+		"-o /out/nopsai-aaa ./services/aaa",
 		"COPY --from=builder /out/nopsai /nopsai",
 		"COPY --from=builder /out/nopsai-api /nopsai-api",
+		"COPY --from=builder /out/nopsai-aaa /nopsai-aaa",
 	} {
 		if !strings.Contains(text, required) {
 			t.Errorf("Dockerfile does not contain %q", required)
@@ -66,5 +68,29 @@ func TestAPIImageRunsRenamedBinaryAsNonRoot(t *testing.T) {
 	}
 	if strings.Contains(text, `ENTRYPOINT ["nopsai"]`) {
 		t.Fatal("API image still starts the CLI binary name")
+	}
+}
+
+func TestAAAAndAgentImagesConsumeBaseImageArtifacts(t *testing.T) {
+	for _, tt := range []struct {
+		path     string
+		artifact string
+	}{
+		{path: "container/Dockerfile.aaa", artifact: "/nopsai-aaa /usr/local/bin/nopsai-aaa"},
+		{path: "container/Dockerfile.agent", artifact: "/nopsai-agent /usr/local/bin/nopsai-agent"},
+	} {
+		contents, err := os.ReadFile(tt.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(contents)
+		for _, required := range []string{"ARG BASE_IMAGE=", "FROM ${BASE_IMAGE} AS base", "COPY --from=base " + tt.artifact} {
+			if !strings.Contains(text, required) {
+				t.Errorf("%s does not contain %q", tt.path, required)
+			}
+		}
+		if strings.Contains(text, "go build") || strings.Contains(text, "go mod download") {
+			t.Errorf("%s should copy from nopsai-base instead of rebuilding Go sources", tt.path)
+		}
 	}
 }

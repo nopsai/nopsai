@@ -373,49 +373,37 @@ function SystemConfig({
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <label className="flex flex-col gap-1 text-sm">
-              {labelWithApply('Agent ↔ Server API URL', 'agent_nopsai_api_url')}
+              {labelWithApply('NopsAI API URL', 'nopsai_api_url')}
               <input
-                id="system-agent-api"
+                id="system-nopsai-api"
                 type="text"
                 className="pipelines-input"
-                value={config.agent_nopsai_api_url}
-                onChange={handleChange('agent_nopsai_api_url')}
-                placeholder="http://agent:8080"
+                value={config.nopsai_api_url}
+                onChange={handleChange('nopsai_api_url')}
+                placeholder="http://nopsai:8080"
                 disabled={!canManageRuntimeConfig || configLoading || saving}
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              {labelWithApply('GitBot ↔ Server API URL', 'git_bot_nopsai_api_url')}
+              {labelWithApply('GitBot API URL', 'git_bot_api_url')}
               <input
                 id="system-gitbot-api"
                 type="text"
                 className="pipelines-input"
-                value={config.git_bot_nopsai_api_url}
-                onChange={handleChange('git_bot_nopsai_api_url')}
-                placeholder="http://gitbot:8080"
+                value={config.git_bot_api_url}
+                onChange={handleChange('git_bot_api_url')}
+                placeholder="http://git-bot:8081"
                 disabled={!canManageRuntimeConfig || configLoading || saving}
               />
             </label>
             <label className="flex flex-col gap-1 text-sm md:col-span-2">
-              {labelWithApply('NopsAI ↔ GitBot API URL', 'nopsai_git_bot_api_url')}
-              <input
-                id="system-nopsai-gitbot-api"
-                type="text"
-                className="pipelines-input"
-                value={config.nopsai_git_bot_api_url}
-                onChange={handleChange('nopsai_git_bot_api_url')}
-                placeholder="http://nopsai-gitbot:8080"
-                disabled={!canManageRuntimeConfig || configLoading || saving}
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm md:col-span-2">
-              {labelWithApply('Dispatcher address', 'dispatcher_address')}
+              {labelWithApply('Dispatcher gRPC address', 'dispatcher_grpc_address')}
               <input
                 id="system-dispatcher-address"
                 type="text"
                 className="pipelines-input"
-                value={config.dispatcher_address}
-                onChange={handleChange('dispatcher_address')}
+                value={config.dispatcher_grpc_address}
+                onChange={handleChange('dispatcher_grpc_address')}
                 placeholder="dispatcher:9090"
                 disabled={!canManageRuntimeConfig || configLoading || saving}
               />

@@ -25,7 +25,7 @@ spec:
           ports: [{name: http, containerPort: 8082}]
           env:
             - {name: NOPSAI_ENVIRONMENT, value: {{ .Values.global.environment | quote }}}
-            - {name: AAA_ADDR, value: ":8082"}
+            - {name: AAA_LISTEN_ADDRESS, value: ":8082"}
             - name: DATABASE_URL
               valueFrom: {secretKeyRef: {name: {{ include "nopsai.secretName" . }}, key: {{ .Values.secrets.keys.databaseURL }}}}
             - name: AAA_SHARED_INTERNAL_TOKEN
