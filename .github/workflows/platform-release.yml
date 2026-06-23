@@ -177,7 +177,7 @@ jobs:
           push: true
           tags: ${{ needs.metadata.outputs.registry }}/${{ matrix.name }}:${{ needs.metadata.outputs.version }}
           build-args: |
-            BASE_IMAGE=${{ needs.metadata.outputs.registry }}/nopsai-base:${{ needs.metadata.outputs.version }}
+            BASE_IMAGE=${{ needs.metadata.outputs.registry }}/nopsai-base@${{ needs.publish-base.outputs.digest }}
             VERSION=${{ needs.metadata.outputs.version }}
             COMMIT=${{ needs.metadata.outputs.source_commit }}
             BUILD_DATE=${{ needs.metadata.outputs.build_date }}

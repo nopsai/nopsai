@@ -15,6 +15,7 @@ type composeDocument struct {
 type composeService struct {
 	ContainerName string            `yaml:"container_name"`
 	Image         string            `yaml:"image"`
+	Build         composeBuild      `yaml:"build"`
 	Hostname      string            `yaml:"hostname"`
 	Environment   map[string]string `yaml:"environment"`
 	EnvFile       []string          `yaml:"env_file"`
@@ -22,6 +23,11 @@ type composeService struct {
 	ReadOnly      bool              `yaml:"read_only"`
 	SecurityOpt   []string          `yaml:"security_opt"`
 	CapDrop       []string          `yaml:"cap_drop"`
+}
+
+type composeBuild struct {
+	AdditionalContexts map[string]string `yaml:"additional_contexts"`
+	Args               map[string]string `yaml:"args"`
 }
 
 func TestDockerComposeDoesNotDependOnTrackedEnvFile(t *testing.T) {
@@ -132,6 +138,22 @@ func TestDockerComposeProvidesLocalBootstrapTopology(t *testing.T) {
 	assertEnvValue(t, compose, "docker-runner", "DISPATCHER_GRPC_ADDRESS", "dispatcher:9090")
 	assertEnvValue(t, compose, "docker-runner", "DOCKER_NETWORK_NAME", "nopsai-net")
 	assertEnvValue(t, compose, "nopsai", "SYSTEM_LOGS_DOCKER_HOST", "tcp://docker-socket-proxy:2375")
+}
+
+func TestDockerComposeBuildsBaseConsumersFromBaseServiceContext(t *testing.T) {
+	compose := readCompose(t)
+	for _, serviceName := range []string{"nopsai", "aaa", "dispatcher", "git-bot", "agent", "docker-runner", "k8s-runner"} {
+		service, exists := compose.Services[serviceName]
+		if !exists {
+			t.Fatalf("compose service %q is missing", serviceName)
+		}
+		if got := service.Build.Args["BASE_IMAGE"]; got != "base" {
+			t.Fatalf("service %q BASE_IMAGE = %q, want BuildKit service context", serviceName, got)
+		}
+		if got := service.Build.AdditionalContexts["base"]; got != "service:base" {
+			t.Fatalf("service %q base build context = %q, want service:base", serviceName, got)
+		}
+	}
 }
 
 func TestDockerComposeUsesReadOnlySocketProxyForSystemLogs(t *testing.T) {

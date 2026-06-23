@@ -156,7 +156,13 @@ func TestOnlyPlatformReleasePublishesImagesAndCLIFromMain(t *testing.T) {
 	if len(publishers) != 1 || publishers[0] != "platform-release.yml" {
 		t.Fatalf("package-publishing workflows = %v, want only platform-release.yml", publishers)
 	}
-	for _, required := range []string{"branches: [main]", "./cmd/nopsai-cli", "docker/build-push-action"} {
+	for _, required := range []string{
+		"branches: [main]",
+		"./cmd/nopsai-cli",
+		"docker/build-push-action",
+		"needs: [metadata, publish-base]",
+		"BASE_IMAGE=${{ needs.metadata.outputs.registry }}/nopsai-base@${{ needs.publish-base.outputs.digest }}",
+	} {
 		if !strings.Contains(platformWorkflow, required) {
 			t.Errorf("platform release workflow is missing %q", required)
 		}
