@@ -365,7 +365,7 @@ func (r *kubernetesRunner) handleJob(ctx context.Context, dispatcher proto.Dispa
 
 func (r *kubernetesRunner) agentRuntimeVars(job *proto.JobRequest, workspacePVC string) []string {
 	runtimeVars := append([]string(nil), job.Env...)
-	runtimeVars = upsertRuntimeVar(runtimeVars, "DISPATCHER_ADDRESS", strings.TrimSpace(r.dispatcherAddr))
+	runtimeVars = upsertRuntimeVar(runtimeVars, "DISPATCHER_GRPC_ADDRESS", strings.TrimSpace(r.dispatcherAddr))
 	runtimeVars = upsertRuntimeVar(runtimeVars, "RUNNER_ID", r.id)
 	runtimeVars = upsertRuntimeVar(runtimeVars, "NOPSAI_RUNTIME", kubernetesRuntimeName)
 	runtimeVars = upsertRuntimeVar(runtimeVars, "SHARED_VOLUME_NAME", workspacePVC)

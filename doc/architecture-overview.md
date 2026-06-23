@@ -83,7 +83,7 @@ The control plane lives mostly in `services/nopsai`, `services/aaa`, `services/g
   They normalize and audit ingress but intentionally do not own provider
   repository reads or status/check APIs.
 - `dispatcher` keeps runners connected over gRPC, chooses an eligible runner, and forwards agent updates back into protected `nopsai` endpoints using a service-auth JWT.
-- System Logs uses a bounded in-memory broker and an allow-listed provider contract. Docker deployments read through a least-privilege socket proxy; the NopsAI API never mounts the Docker socket and platform logs are not persisted in pipeline history.
+- System Logs uses a bounded in-memory broker and an allow-listed provider contract. Docker deployments read through a least-privilege socket proxy; Kubernetes deployments read label-selected pods through read-only `pods`/`pods/log` RBAC. Platform logs are not persisted in pipeline history.
 
 ### Data plane
 

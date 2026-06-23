@@ -281,11 +281,11 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
       'DISPATCHER_TLS_SECRET=<generate-strong-value>',
     ];
     const nopsaiLines = [
-      `NOPSAI_GIT_BOT_API_URL=${gitBotServiceURL.trim() || currentRuntimeDefaults.gitBotServiceURL}`,
+      `GIT_BOT_API_URL=${gitBotServiceURL.trim() || currentRuntimeDefaults.gitBotServiceURL}`,
       runtimeImplementation === 'docker' ? 'DOCKER_NETWORK_NAME=nopsai-net' : '# Kubernetes runtime is under construction.',
     ];
     const gitBotLines = [
-      `GIT_BOT_NOPSAI_API_URL=${nopsaiAPIURL.trim() || currentRuntimeDefaults.nopsaiAPIURL}`,
+      `NOPSAI_API_URL=${nopsaiAPIURL.trim() || currentRuntimeDefaults.nopsaiAPIURL}`,
       'GIT_BOT_SERVICE_ID=git-bot',
     ];
     return [

@@ -37,6 +37,7 @@ func DefaultRegistry() *Registry {
 		{ID: "git-bot", DisplayName: "Git bot", ContainerName: "nopsai-git-bot"},
 		{ID: "ui", DisplayName: "UI", ContainerName: "nopsai-ui"},
 		{ID: "docker-runner", DisplayName: "Docker runner", ContainerName: "nopsai-docker-runner", Optional: true},
+		{ID: "k8s-runner", DisplayName: "Kubernetes runner", ContainerName: "nopsai-k8s-runner", Optional: true},
 	})
 }
 

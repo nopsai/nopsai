@@ -476,15 +476,15 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 
 # Generate a one-time runner install command
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
-  "http://localhost:8080/v1/system/dispatcher/runner-bootstrap-command?runner_id=runner-prod-1&runner_scopes=prod,dev&runner_capacity=2&dispatcher_address=nopsai-dispatcher.example.com:9090"
+  "http://localhost:8080/v1/system/dispatcher/runner-bootstrap-command?runner_id=runner-prod-1&runner_scopes=prod,dev&runner_capacity=2&dispatcher_grpc_address=nopsai-dispatcher.example.com:9090"
 
 # Generate a one-time Kubernetes runner install command
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
-  "http://localhost:8080/v1/system/dispatcher/kubernetes-runner-bootstrap-command?runner_id=k8s-runner-prod-1&runner_scopes=prod&runner_capacity=10&namespace=nopsai-runs&dispatcher_address=nopsai-dispatcher.example.com:9090"
+  "http://localhost:8080/v1/system/dispatcher/kubernetes-runner-bootstrap-command?runner_id=k8s-runner-prod-1&runner_scopes=prod&runner_capacity=10&namespace=nopsai-runs&dispatcher_grpc_address=nopsai-dispatcher.example.com:9090"
 
 # Generate raw Kubernetes runner YAML for GitOps automation
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
-  "http://localhost:8080/v1/system/dispatcher/kubernetes-runner-manifest?runner_id=k8s-runner-prod-1&runner_scopes=prod&runner_capacity=10&namespace=nopsai-runs&dispatcher_address=nopsai-dispatcher.example.com:9090"
+  "http://localhost:8080/v1/system/dispatcher/kubernetes-runner-manifest?runner_id=k8s-runner-prod-1&runner_scopes=prod&runner_capacity=10&namespace=nopsai-runs&dispatcher_grpc_address=nopsai-dispatcher.example.com:9090"
 ```
 
 - `GET /v1/monitoring/dispatcher` is authenticated. It returns dispatcher-backed service status, runner totals, sanitized runner rows, queue depth, and active runs. Active run entries are filtered with `pipeline_run.list`, so users only see runs they can list through their group/repository access.
@@ -506,7 +506,7 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - `GET /v1/internal/dispatcher/routing` is dispatcher-internal. The live dispatcher polls it with a service-auth JWT and updates its in-memory routing table without a restart.
 - Runner install command generation, Kubernetes manifest generation, and runner dispatch pause/resume remain under `System > Dispatcher` and require dispatcher runner management access.
 - Docker and Kubernetes install commands use single-use download tokens. Both bootstrap-command endpoints download shell scripts; the Kubernetes script writes the generated YAML to a temporary file before `kubectl apply`.
-- Runner install endpoints accept optional `dispatcher_address` to override the dispatcher endpoint for that generated command or manifest without changing persisted runtime config. Kubernetes install commands wait for rollout and print pod/deployment/log diagnostics when the runner does not become ready.
+- Runner install endpoints accept optional `dispatcher_grpc_address` to override the dispatcher endpoint for that generated command or manifest without changing persisted runtime config. Kubernetes install commands wait for rollout and print pod/deployment/log diagnostics when the runner does not become ready.
 
 ---
 
@@ -1113,7 +1113,8 @@ This endpoint is the product-facing explanation layer on top of the existing AAA
 
 ## Internal AAA Service
 
-The standalone `aaa` service is internal to the stack and listens on `AAA_ADDR`, defaulting to `:8082`.
+The standalone `aaa` service is internal to the stack and listens on
+`AAA_LISTEN_ADDRESS`, defaulting to `:8082`.
 
 ```bash
 # From another container on the compose network
@@ -1533,7 +1534,7 @@ Example `git-bot` response:
     "github_installation_id": "987654",
     "github_private_key_ref": "credential://system/github/app-private-key",
     "github_webhook_secret_ref": "credential://system/github/webhook-secret",
-    "git_bot_nopsai_api_url": "http://nopsai:8080"
+    "nopsai_api_url": "http://nopsai:8080"
   }
 }
 ```

@@ -167,7 +167,7 @@ func (d *dispatcherServer) prepareJobForRunner(job *proto.JobRequest, runner *ru
 			runtimeVars = upsertRuntimeVar(runtimeVars, "DOCKER_NETWORK_NAME", copyJob.DockerNetwork)
 		}
 		if addr, ok := runner.metadata["dispatcher_addr"]; ok {
-			runtimeVars = upsertRuntimeVar(runtimeVars, "DISPATCHER_ADDRESS", strings.TrimSpace(addr))
+			runtimeVars = upsertRuntimeVar(runtimeVars, "DISPATCHER_GRPC_ADDRESS", strings.TrimSpace(addr))
 		}
 		runtimeVars = upsertRuntimeVar(runtimeVars, "RUNNER_ID", runner.id)
 	}

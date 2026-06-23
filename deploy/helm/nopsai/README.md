@@ -28,3 +28,11 @@ Private GHCR installations should attach a registry credential through
 `global.imagePullSecrets`. The Kubernetes runner ServiceAccount inherits those
 credentials so dynamically created agent and step pods can pull the same
 release images.
+
+System Logs defaults to the Kubernetes provider in this chart. The API
+Deployment runs as the `api.serviceAccount.name` service account and receives
+read-only namespace Role permissions for `pods` and `pods/log` when
+`systemLogs.enabled=true`, `systemLogs.provider=kubernetes`, and
+`systemLogs.kubernetes.rbac.create=true`. Set
+`systemLogs.kubernetes.labelSelector` to override the default release-scoped
+selector.

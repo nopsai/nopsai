@@ -47,7 +47,7 @@ func TestExternalDispatcherAddressAdaptsUIServiceHostToDispatcherServiceHost(t *
 }
 
 func TestExternalDispatcherAddressUsesRequestOverride(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "http://nopsai-ui.pre-nopsai.orb.local/v1/system/dispatcher/kubernetes-runner-bootstrap-command?dispatcher_address=nopsai-dispatcher.pre-nopsai.orb.local%3A9443", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://nopsai-ui.pre-nopsai.orb.local/v1/system/dispatcher/kubernetes-runner-bootstrap-command?dispatcher_grpc_address=nopsai-dispatcher.pre-nopsai.orb.local%3A9443", nil)
 
 	got, adapted, warnings := ExternalDispatcherAddress(config.Config{
 		DispatcherAddress:       "dispatcher:9090",

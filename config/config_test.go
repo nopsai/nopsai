@@ -570,6 +570,29 @@ func TestSystemLogsConfigurationRequiresAnExplicitProvider(t *testing.T) {
 	}
 }
 
+func TestSystemLogsConfigurationSupportsKubernetesProvider(t *testing.T) {
+	cfg := Config{SystemLogs: NormalizeSystemLogsConfig(SystemLogsConfig{
+		Provider: " k8s ",
+		Kubernetes: SystemLogsKubernetesConfig{
+			Namespace:     " nopsai ",
+			LabelSelector: " app.kubernetes.io/name=nopsai ",
+			Container:     " api ",
+		},
+	})}
+
+	if got := cfg.EffectiveSystemLogsProvider(); got != "kubernetes" {
+		t.Fatalf("EffectiveSystemLogsProvider() = %q, want kubernetes", got)
+	}
+	if !cfg.SystemLogsEnabled() {
+		t.Fatal("SystemLogsEnabled() = false, want true for Kubernetes provider")
+	}
+	if cfg.SystemLogs.Kubernetes.Namespace != "nopsai" ||
+		cfg.SystemLogs.Kubernetes.LabelSelector != "app.kubernetes.io/name=nopsai" ||
+		cfg.SystemLogs.Kubernetes.Container != "api" {
+		t.Fatalf("Kubernetes system log config not normalized: %#v", cfg.SystemLogs.Kubernetes)
+	}
+}
+
 func TestLoadConfigAppliesSystemLogsDockerHostEnvironment(t *testing.T) {
 	t.Setenv("SYSTEM_LOGS_DOCKER_HOST", "tcp://proxy.internal:2375")
 	cfg, err := LoadConfig("../config.yml")
@@ -578,5 +601,29 @@ func TestLoadConfigAppliesSystemLogsDockerHostEnvironment(t *testing.T) {
 	}
 	if !cfg.SystemLogsEnabled() || cfg.EffectiveSystemLogsDockerHost() != "tcp://proxy.internal:2375" {
 		t.Fatalf("system log environment not applied: %#v", cfg.SystemLogs)
+	}
+}
+
+func TestLoadConfigAppliesCanonicalServiceEndpoints(t *testing.T) {
+	t.Setenv("NOPSAI_API_URL", " http://nopsai-api.pre-nopsai:8080 ")
+	t.Setenv("DISPATCHER_GRPC_ADDRESS", " dispatcher.pre-nopsai:9090 ")
+	t.Setenv("AAA_LISTEN_ADDRESS", " 0.0.0.0:8082 ")
+	t.Setenv("GIT_BOT_API_URL", " http://git-bot.pre-nopsai:8081 ")
+	t.Setenv("SYSTEM_LOGS_PROVIDER", " kubernetes ")
+	t.Setenv("SYSTEM_LOGS_KUBERNETES_NAMESPACE", " nopsai ")
+	t.Setenv("SYSTEM_LOGS_KUBERNETES_LABEL_SELECTOR", " app.kubernetes.io/name=nopsai ")
+
+	cfg, err := LoadConfig("../config.yml")
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.NopsaiAPIURL != "http://nopsai-api.pre-nopsai:8080" || cfg.AgentNopsaiAPIURL != "http://nopsai-api.pre-nopsai:8080" || cfg.GitBotNopsaiAPIURL != "http://nopsai-api.pre-nopsai:8080" {
+		t.Fatalf("NopsAI API endpoint = (%q, %q, %q)", cfg.NopsaiAPIURL, cfg.AgentNopsaiAPIURL, cfg.GitBotNopsaiAPIURL)
+	}
+	if cfg.DispatcherAddress != "dispatcher.pre-nopsai:9090" || cfg.AAAAddr != "0.0.0.0:8082" || cfg.NopsaiGitBotAPIURL != "http://git-bot.pre-nopsai:8081" {
+		t.Fatalf("service endpoints not applied: dispatcher=%q aaa=%q git-bot=%q", cfg.DispatcherAddress, cfg.AAAAddr, cfg.NopsaiGitBotAPIURL)
+	}
+	if cfg.EffectiveSystemLogsProvider() != "kubernetes" || cfg.SystemLogs.Kubernetes.Namespace != "nopsai" {
+		t.Fatalf("system log Kubernetes env aliases not applied: %#v", cfg.SystemLogs)
 	}
 }

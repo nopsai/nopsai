@@ -39,9 +39,9 @@ func Run() {
 		listenAddr = ":9090"
 	}
 
-	nopsaiBase := strings.TrimSpace(cfg.AgentNopsaiAPIURL)
+	nopsaiBase := strings.TrimSpace(cfg.EffectiveNopsaiAPIURL())
 	if nopsaiBase == "" {
-		log.Fatal().Msg("Agent Nopsai API URL (agent_nopsai_api_url) must be configured for dispatcher")
+		log.Fatal().Msg("NopsAI API URL (nopsai_api_url or NOPSAI_API_URL) must be configured for dispatcher")
 	}
 
 	internalCredentials, err := serviceauth.NewCredentials(serviceauth.Config{

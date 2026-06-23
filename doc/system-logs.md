@@ -8,6 +8,10 @@ The browser opens one authenticated `fetch()` stream through `apiClient`. The No
 
 Docker deployments connect NopsAI to `docker-socket-proxy:2375`. Only the proxy mounts `/var/run/docker.sock`, read-only. The repo-owned proxy accepts only ping/version, container list, and allow-listed container inspect/log GET requests; it rejects all mutations, events, archive, stats, non-platform containers, and unknown query parameters. The Docker runner socket is not reused because runners may be remote and own job execution rather than control-plane observability.
 
+Kubernetes deployments use the same provider contract with label-selected pods
+and read-only `pods`/`pods/log` RBAC on the API service account. The Helm chart
+enables this provider by default with a release-scoped selector.
+
 Operators can consume the same authenticated SSE contract through the CLI
 without response buffering or byte rewriting:
 
@@ -26,7 +30,7 @@ Platform identity is monitored separately from logs. Prometheus exports
 manifest digest labels so mixed control-plane bundles can be detected without
 parsing log lines.
 
-Allow-listed source IDs are `nopsai`, `aaa`, `dispatcher`, `git-bot`, `ui`, and optional `docker-runner`. Build-only `base`, `agent`, `pipeline`, and `k8s-runner` containers are not registered. Arbitrary container names and IDs are never accepted.
+Allow-listed source IDs are `nopsai`, `aaa`, `dispatcher`, `git-bot`, `ui`, and optional `docker-runner` and `k8s-runner`. Build-only `base`, `agent`, and `pipeline` containers are not registered. Arbitrary container names, pod names, and IDs are never accepted.
 
 The UI stream label reflects the container's real stdout/stderr file descriptor.
 NopsAI Go services route `trace`, `debug`, and `info` events to stdout and route
@@ -52,11 +56,12 @@ Redaction masks common authorization headers, tokens, passwords, API keys, clien
 
 ## GitOps and deployment configuration
 
-Compose declares the socket proxy and sets `SYSTEM_LOGS_DOCKER_HOST=tcp://docker-socket-proxy:2375`. Other deployments can configure the feature declaratively in the mounted NopsAI YAML:
+Compose declares the socket proxy and sets `SYSTEM_LOGS_DOCKER_HOST=tcp://docker-socket-proxy:2375`. Other Docker deployments can configure the feature declaratively in the mounted NopsAI YAML:
 
 ```yaml
 system_logs:
   enabled: true
+  provider: docker
   docker_host: tcp://docker-socket-proxy:2375
   buffer_lines: 10000
   buffer_age_minutes: 15
@@ -66,8 +71,28 @@ system_logs:
   max_streams_per_source: 10
 ```
 
-`SYSTEM_LOGS_DOCKER_HOST` overrides the YAML host for deployment topology. Omitting a host disables collection while leaving source status visible as unavailable. Kubernetes collection should implement the same provider interface with label-selected pods and read-only `pods`/`pods/log` RBAC; it is not enabled in this release.
+`SYSTEM_LOGS_DOCKER_HOST` overrides the YAML host for deployment topology.
+Omitting a host disables Docker collection while leaving source status visible
+as unavailable.
+
+Kubernetes deployments select the Kubernetes provider instead:
+
+```yaml
+system_logs:
+  enabled: true
+  provider: kubernetes
+  kubernetes:
+    namespace: nopsai
+    label_selector: app.kubernetes.io/name=nopsai,app.kubernetes.io/instance=nopsai
+```
+
+Equivalent deployment-owned environment variables are
+`SYSTEM_LOGS_PROVIDER=kubernetes`, `SYSTEM_LOGS_KUBERNETES_NAMESPACE`,
+`SYSTEM_LOGS_KUBERNETES_LABEL_SELECTOR`, and optional
+`SYSTEM_LOGS_KUBERNETES_CONTAINER`. Helm sets the provider, namespace from the
+pod metadata, and a release-scoped label selector. GitOps can still own the same
+`system_logs` YAML block for non-Helm deployments.
 
 ## Monitoring
 
-`/metrics` exports active/opened stream counts, provider reconnects/errors, redacted lines, and slow-consumer drops under the `nopsai_system_log_*` namespace. Alert on sustained provider errors or dropped lines, and investigate frequent reconnects alongside container restart boundaries shown in the UI.
+`/metrics` exports active/opened stream counts, provider reconnects/errors, redacted lines, and slow-consumer drops under the `nopsai_system_log_*` namespace. Alert on sustained provider errors or dropped lines, and investigate frequent reconnects alongside container or pod restart boundaries shown in the UI.

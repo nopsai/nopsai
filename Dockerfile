@@ -32,6 +32,7 @@ RUN BUILD_LDFLAGS="-s -w -X nopsai/pkg/buildinfo.Version=${VERSION} -X nopsai/pk
   go build -ldflags="${BUILD_LDFLAGS}" -o /out/nopsai-git-bot ./services/git-bot/cmd/git-bot && \
   go build -ldflags="${BUILD_LDFLAGS}" -o /out/nopsai ./cmd/nopsai-cli && \
   go build -ldflags="${BUILD_LDFLAGS}" -o /out/nopsai-api ./services/nopsai/cmd/nopsai && \
+  go build -ldflags="${BUILD_LDFLAGS}" -o /out/nopsai-aaa ./services/aaa && \
   go build -ldflags="${BUILD_LDFLAGS}" -o /out/nopsai-dispatcher ./services/dispatcher/cmd/dispatcher && \
   go build -ldflags="${BUILD_LDFLAGS}" -o /out/nopsai-runner ./services/docker-runner/cmd/docker-runner && \
   go build -ldflags="${BUILD_LDFLAGS}" -o /out/nopsai-k8s-runner ./services/k8s-runner/cmd/k8s-runner
@@ -54,6 +55,7 @@ COPY --from=builder /out/nopsai-agent /nopsai-agent
 COPY --from=builder /out/nopsai-git-bot /nopsai-git-bot
 COPY --from=builder /out/nopsai /nopsai
 COPY --from=builder /out/nopsai-api /nopsai-api
+COPY --from=builder /out/nopsai-aaa /nopsai-aaa
 COPY --from=builder /out/nopsai-dispatcher /nopsai-dispatcher
 COPY --from=builder /out/nopsai-runner /nopsai-runner
 COPY --from=builder /out/nopsai-k8s-runner /nopsai-k8s-runner

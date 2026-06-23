@@ -83,9 +83,9 @@ func dispatcherChecks(cfg *config.Config) []Check {
 	checks := commonServiceChecks(cfg, strict)
 	checks = append(checks, Check{
 		ID:       "dispatcher_nopsai_api_url",
-		Passed:   strings.TrimSpace(valueOrEmpty(cfg, func(c *config.Config) string { return c.AgentNopsaiAPIURL })) != "",
+		Passed:   strings.TrimSpace(valueOrEmpty(cfg, func(c *config.Config) string { return c.EffectiveNopsaiAPIURL() })) != "",
 		Required: strict,
-		Message:  "AGENT_NOPSAI_API_URL must be configured so dispatcher callbacks reach NopsAI",
+		Message:  "NOPSAI_API_URL must be configured so dispatcher callbacks reach NopsAI",
 	})
 	return checks
 }
@@ -101,10 +101,10 @@ func gitBotChecks(cfg *config.Config) []Check {
 			Message:  "GIT_BOT_SERVICE_ID must identify git-bot for service authentication",
 		},
 		Check{
-			ID:       "git_bot_nopsai_api_url",
-			Passed:   strings.TrimSpace(valueOrEmpty(cfg, func(c *config.Config) string { return c.GitBotNopsaiAPIURL })) != "",
+			ID:       "nopsai_api_url",
+			Passed:   strings.TrimSpace(valueOrEmpty(cfg, func(c *config.Config) string { return c.EffectiveNopsaiAPIURL() })) != "",
 			Required: strict,
-			Message:  "GIT_BOT_NOPSAI_API_URL must be configured so git-bot can forward webhook events",
+			Message:  "NOPSAI_API_URL must be configured so git-bot can forward webhook events",
 		},
 	)
 }
@@ -131,10 +131,10 @@ func runnerChecks(cfg *config.Config) []Check {
 	strict := requiresProductionGates(cfg)
 	checks := commonServiceChecks(cfg, strict)
 	checks = append(checks, Check{
-		ID:       "runner_dispatcher_address",
+		ID:       "runner_dispatcher_grpc_address",
 		Passed:   strings.TrimSpace(valueOrEmpty(cfg, func(c *config.Config) string { return c.DispatcherAddress })) != "",
 		Required: strict,
-		Message:  "DISPATCHER_ADDRESS must be configured explicitly for production runners",
+		Message:  "DISPATCHER_GRPC_ADDRESS must be configured explicitly for production runners",
 	})
 	return checks
 }
@@ -156,10 +156,10 @@ func agentEnvChecks(lookup func(string) string) []Check {
 	}
 	return []Check{
 		{
-			ID:       "agent_dispatcher_address",
-			Passed:   strings.TrimSpace(lookup("DISPATCHER_ADDRESS")) != "",
+			ID:       "agent_dispatcher_grpc_address",
+			Passed:   strings.TrimSpace(lookup("DISPATCHER_GRPC_ADDRESS")) != "",
 			Required: strict,
-			Message:  "DISPATCHER_ADDRESS must be configured for agent",
+			Message:  "DISPATCHER_GRPC_ADDRESS must be configured for agent",
 		},
 		{
 			ID:       "agent_service_id",

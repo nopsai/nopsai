@@ -13,7 +13,7 @@ type ComposeResponse struct {
 	RunnerID          string   `json:"runner_id"`
 	RunnerScopes      string   `json:"runner_scopes"`
 	RunnerCapacity    int      `json:"runner_capacity"`
-	DispatcherAddress string   `json:"dispatcher_address"`
+	DispatcherAddress string   `json:"dispatcher_grpc_address"`
 	NetworkMode       string   `json:"network_mode"`
 	RunnerImage       string   `json:"runner_image"`
 	Compose           string   `json:"compose"`
@@ -25,7 +25,7 @@ type BootstrapCommandResponse struct {
 	RunnerID          string    `json:"runner_id"`
 	RunnerScopes      string    `json:"runner_scopes"`
 	RunnerCapacity    int       `json:"runner_capacity"`
-	DispatcherAddress string    `json:"dispatcher_address"`
+	DispatcherAddress string    `json:"dispatcher_grpc_address"`
 	NetworkMode       string    `json:"network_mode"`
 	RunnerImage       string    `json:"runner_image"`
 	BootstrapCommand  string    `json:"bootstrap_command"`
@@ -39,7 +39,7 @@ type KubernetesManifestResponse struct {
 	RunnerCapacity    int      `json:"runner_capacity"`
 	Namespace         string   `json:"namespace"`
 	ServiceAccount    string   `json:"service_account"`
-	DispatcherAddress string   `json:"dispatcher_address"`
+	DispatcherAddress string   `json:"dispatcher_grpc_address"`
 	RunnerImage       string   `json:"runner_image"`
 	Manifest          string   `json:"manifest"`
 	Command           string   `json:"command"`
@@ -52,7 +52,7 @@ type KubernetesBootstrapCommandResponse struct {
 	RunnerCapacity    int       `json:"runner_capacity"`
 	Namespace         string    `json:"namespace"`
 	ServiceAccount    string    `json:"service_account"`
-	DispatcherAddress string    `json:"dispatcher_address"`
+	DispatcherAddress string    `json:"dispatcher_grpc_address"`
 	RunnerImage       string    `json:"runner_image"`
 	BootstrapCommand  string    `json:"bootstrap_command"`
 	ExpiresAt         time.Time `json:"expires_at"`

@@ -147,9 +147,8 @@ the public webhook URL on the GitHub App.
 
 Install flow:
 
-1. Start the `git-bot` service with `GIT_BOT_NOPSAI_API_URL` pointing at the
-   NopsAI API URL reachable from git-bot, usually `http://nopsai:8080` in
-   Docker Compose.
+1. Start the `git-bot` service with `NOPSAI_API_URL` pointing at the NopsAI API
+   URL reachable from git-bot, usually `http://nopsai:8080` in Docker Compose.
 2. Create or open a GitHub App and set its webhook URL to the public git-bot
    endpoint exposed by your deployment, ending in `/webhook`.
 3. Configure the App ID, installation ID, private-key credential reference, and
@@ -283,6 +282,6 @@ Important response fields:
 
 - **GitHub webhooks do not arrive**: Check the public webhook URL, webhook
   secret, git-bot service networking, and that git-bot can forward to
-  `git_bot_nopsai_api_url`.
+  `nopsai_api_url`.
 - **Starter run cannot execute**: Check dispatcher/runner health, runner
   registration, Docker access, and the configured LLM profile.

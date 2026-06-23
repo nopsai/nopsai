@@ -26,7 +26,7 @@ type httpNopsaiWebhookForwarder struct {
 func newNopsaiWebhookForwarder(cfg *config.Config, httpClient *http.Client, credentials *serviceauth.Credentials) nopsaiWebhookForwarder {
 	baseURL := ""
 	if cfg != nil {
-		baseURL = strings.TrimRight(strings.TrimSpace(cfg.GitBotNopsaiAPIURL), "/")
+		baseURL = strings.TrimRight(strings.TrimSpace(cfg.EffectiveNopsaiAPIURL()), "/")
 	}
 	if httpClient == nil {
 		httpClient = http.DefaultClient

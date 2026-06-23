@@ -32,7 +32,9 @@ Routes that need response-level filtering, such as list views, are authorized in
 
 ## AAA Service Contract
 
-The standalone AAA service listens on `AAA_ADDR`, defaulting to `:8082`. Docker Compose exposes it only inside the compose network as `aaa:8082`.
+The standalone AAA service listens on `AAA_LISTEN_ADDRESS`, defaulting to
+`:8082`. Docker Compose exposes it only inside the compose network as
+`aaa:8082`.
 
 The `nopsai` CLI is an ordinary API client. It accepts user access JWTs,
 personal access tokens, and service-account tokens, sends them as

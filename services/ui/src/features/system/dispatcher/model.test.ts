@@ -15,7 +15,7 @@ test('normalizes dispatcher install templates', () => {
     normalizeRunnerComposeTemplate({
       runner_id: 'runner-1',
       runner_capacity: 3,
-      dispatcher_address: 'dispatcher:9090',
+      dispatcher_grpc_address: 'dispatcher:9090',
       bootstrap_command: 'docker compose up',
       warnings: ['rotate token'],
     }),

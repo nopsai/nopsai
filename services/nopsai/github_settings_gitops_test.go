@@ -15,8 +15,7 @@ func TestParseGitOpsGitHubSettingsPlan(t *testing.T) {
 			root: "setting",
 			files: map[string]string{
 				"setting/system/github.yaml": `
-git_bot_nopsai_api_url: http://nopsai:8080
-nopsai_git_bot_api_url: http://git-bot:8081
+git_bot_api_url: http://git-bot:8081
 github_app_id: "123456"
 github_installation_id: "987654"
 github_private_key_credential_ref: credential://system/github/app-private-key
@@ -35,11 +34,8 @@ github_webhook_credential_ref: credential://system/github/webhook-secret
 	if plan.sourcePath != "setting/system/github.yaml" {
 		t.Fatalf("sourcePath = %q", plan.sourcePath)
 	}
-	if plan.payload.GitBotNopsaiAPIURL == nil || *plan.payload.GitBotNopsaiAPIURL != "http://nopsai:8080" {
-		t.Fatalf("git_bot_nopsai_api_url = %#v", plan.payload.GitBotNopsaiAPIURL)
-	}
-	if plan.payload.NopsaiGitBotAPIURL == nil || *plan.payload.NopsaiGitBotAPIURL != "http://git-bot:8081" {
-		t.Fatalf("nopsai_git_bot_api_url = %#v", plan.payload.NopsaiGitBotAPIURL)
+	if plan.payload.GitBotAPIURL == nil || *plan.payload.GitBotAPIURL != "http://git-bot:8081" {
+		t.Fatalf("git_bot_api_url = %#v", plan.payload.GitBotAPIURL)
 	}
 	if plan.payload.GitHubAppID == nil || *plan.payload.GitHubAppID != "123456" {
 		t.Fatalf("github_app_id = %#v", plan.payload.GitHubAppID)
@@ -81,7 +77,7 @@ func TestParseGitOpsGitHubSettingsFileRejectsRuntimeFields(t *testing.T) {
 	_, err := parseGitOpsGitHubSettingsFile(`
 github_app_id: "123456"
 runner_id: runner-a
-dispatcher_address: dispatcher:9090
+dispatcher_grpc_address: dispatcher:9090
 `, "setting/system/github.yaml")
 	if err == nil || !strings.Contains(err.Error(), "setting/system/runner.yaml") {
 		t.Fatalf("expected move-to-runner error, got %v", err)
@@ -112,18 +108,14 @@ func TestIsGitOpsGitHubSettingsRelativePath(t *testing.T) {
 
 func TestBuildGitHubSettingsGitOpsFile(t *testing.T) {
 	doc := buildGitHubSettingsGitOpsFile(config.Config{
-		GitBotNopsaiAPIURL:            "http://nopsai:8080",
 		NopsaiGitBotAPIURL:            "http://git-bot:8081",
 		GitHubAppID:                   "123456",
 		GitHubInstallID:               "987654",
 		GitHubPrivateKeyCredentialRef: "credential://system/github/app-private-key",
 		GitHubWebhookCredentialRef:    "credential://system/github/webhook-secret",
 	})
-	if doc.GitBotNopsaiAPIURL == nil || *doc.GitBotNopsaiAPIURL != "http://nopsai:8080" {
-		t.Fatalf("git_bot_nopsai_api_url = %#v", doc.GitBotNopsaiAPIURL)
-	}
-	if doc.NopsaiGitBotAPIURL == nil || *doc.NopsaiGitBotAPIURL != "http://git-bot:8081" {
-		t.Fatalf("nopsai_git_bot_api_url = %#v", doc.NopsaiGitBotAPIURL)
+	if doc.GitBotAPIURL == nil || *doc.GitBotAPIURL != "http://git-bot:8081" {
+		t.Fatalf("git_bot_api_url = %#v", doc.GitBotAPIURL)
 	}
 	if doc.GitHubPrivateKeyRef == nil || *doc.GitHubPrivateKeyRef != "credential://system/github/app-private-key" {
 		t.Fatalf("github_private_key_credential_ref = %#v", doc.GitHubPrivateKeyRef)

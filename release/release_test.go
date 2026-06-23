@@ -88,6 +88,51 @@ func TestHelmChartOwnsControlPlaneAndRunnerResources(t *testing.T) {
 	}
 }
 
+func TestHelmChartConfiguresKubernetesSystemLogs(t *testing.T) {
+	valuesBytes, err := os.ReadFile("../deploy/helm/nopsai/values.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	apiTemplateBytes, err := os.ReadFile("../deploy/helm/nopsai/templates/api.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	helpersBytes, err := os.ReadFile("../deploy/helm/nopsai/templates/_helpers.tpl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := string(valuesBytes)
+	apiTemplate := string(apiTemplateBytes)
+	helpers := string(helpersBytes)
+	for _, required := range []string{
+		"systemLogs:",
+		"provider: kubernetes",
+		"serviceAccount:",
+		"name: nopsai-api",
+	} {
+		if !strings.Contains(values, required) {
+			t.Errorf("values.yaml is missing Kubernetes system logs contract %q", required)
+		}
+	}
+	for _, required := range []string{
+		"kind: ServiceAccount",
+		"serviceAccountName: {{ include \"nopsai.apiServiceAccountName\" . }}",
+		"resources: [pods/log]",
+		"verbs: [get]",
+		"SYSTEM_LOGS_PROVIDER",
+		"SYSTEM_LOGS_KUBERNETES_LABEL_SELECTOR",
+	} {
+		if !strings.Contains(apiTemplate, required) {
+			t.Errorf("api.yaml is missing Kubernetes system logs contract %q", required)
+		}
+	}
+	for _, required := range []string{"nopsai.apiServiceAccountName", "nopsai.systemLogsKubernetesEnabled", "nopsai.systemLogsKubernetesLabelSelector"} {
+		if !strings.Contains(helpers, required) {
+			t.Errorf("_helpers.tpl is missing %q", required)
+		}
+	}
+}
+
 func TestOnlyPlatformReleasePublishesImagesAndCLIFromMain(t *testing.T) {
 	workflowPaths, err := filepath.Glob("../.github/workflows/*.yml")
 	if err != nil {
