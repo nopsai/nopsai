@@ -74,6 +74,9 @@ is intentionally part of the contract.
 - Generated API route metadata and path-template expansion live in
   `internal/cli/apicatalog`; Go AST route discovery is generator/test-only in
   `internal/cli/apicatalog/internal/discovery`.
+- Live 10-row selectors, searchable prompts, confirmations, and default-aware
+  stdin/stdout fallback interaction primitives live in
+  `internal/cli/interactive`.
 - Platform diagnostic rules, release manifest resolution, compatibility checks,
   Helm process orchestration, and deployment lock models live in
   `internal/cli/platform`.

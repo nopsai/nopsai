@@ -221,20 +221,42 @@ func (d KubernetesDeployer) Plan(ctx context.Context, options KubernetesOptions)
 }
 
 func (d KubernetesDeployer) Deploy(ctx context.Context, options KubernetesOptions) (DeploymentPlan, ReleaseLock, error) {
+	plan, lock, _, err := d.PlanAndDeploy(ctx, options, nil)
+	return plan, lock, err
+}
+
+func (d KubernetesDeployer) PlanAndDeploy(ctx context.Context, options KubernetesOptions, approve func(DeploymentPlan) (bool, error)) (DeploymentPlan, ReleaseLock, bool, error) {
 	prepared, err := d.prepare(ctx, options)
 	if err != nil {
-		return DeploymentPlan{}, ReleaseLock{}, err
+		return DeploymentPlan{}, ReleaseLock{}, false, err
 	}
 	defer prepared.cleanup()
 	if err := d.render(ctx, prepared); err != nil {
-		return DeploymentPlan{}, ReleaseLock{}, err
+		return DeploymentPlan{}, ReleaseLock{}, false, err
 	}
+	if approve != nil {
+		approved, err := approve(prepared.plan)
+		if err != nil {
+			return DeploymentPlan{}, ReleaseLock{}, false, err
+		}
+		if !approved {
+			return prepared.plan, ReleaseLock{}, false, nil
+		}
+	}
+	lock, err := d.deployPrepared(ctx, prepared, options)
+	if err != nil {
+		return DeploymentPlan{}, ReleaseLock{}, true, err
+	}
+	return prepared.plan, lock, true, nil
+}
+
+func (d KubernetesDeployer) deployPrepared(ctx context.Context, prepared *preparedRelease, options KubernetesOptions) (ReleaseLock, error) {
 	lockPath := strings.TrimSpace(options.LockFile)
 	if lockPath == "" {
 		lockPath = DefaultLockFile
 	}
 	if err := validateDeploymentTransition(lockPath, prepared.plan); err != nil {
-		return DeploymentPlan{}, ReleaseLock{}, err
+		return ReleaseLock{}, err
 	}
 	args := []string{"upgrade", "--install", prepared.plan.ReleaseName, prepared.chartPath}
 	args = append(args, prepared.common...)
@@ -243,7 +265,7 @@ func (d KubernetesDeployer) Deploy(ctx context.Context, options KubernetesOption
 		args = append(args, "--wait")
 	}
 	if err := d.run(ctx, "helm", args, io.Discard); err != nil {
-		return DeploymentPlan{}, ReleaseLock{}, fmt.Errorf("deploy Helm release: %w", err)
+		return ReleaseLock{}, fmt.Errorf("deploy Helm release: %w", err)
 	}
 	now := time.Now().UTC()
 	if d.Now != nil {
@@ -264,9 +286,9 @@ func (d KubernetesDeployer) Deploy(ctx context.Context, options KubernetesOption
 		DeployedAt:       now,
 	}
 	if err := WriteReleaseLock(lockPath, lock); err != nil {
-		return DeploymentPlan{}, ReleaseLock{}, err
+		return ReleaseLock{}, err
 	}
-	return prepared.plan, lock, nil
+	return lock, nil
 }
 
 func ReadReleaseLock(path string) (ReleaseLock, bool, error) {

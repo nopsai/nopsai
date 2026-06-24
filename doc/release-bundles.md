@@ -142,17 +142,17 @@ authenticate Docker, containerd, and Kubernetes with a package read token.
 ## Plan And Deploy
 
 ```bash
-nopsai platform plan kubernetes \
+nopsai platform release kubernetes \
   --version 2.7.0 \
   --manifest ./release-manifest.json \
   --values deploy/production.yaml
 
-nopsai platform deploy kubernetes \
+nopsai platform release kubernetes \
   --version 2.7.0 \
   --manifest ./release-manifest.json \
   --manifest-digest sha256:<digest> \
   --values deploy/production.yaml \
-  --wait
+  --deploy --wait
 ```
 
 Without `--manifest`, the CLI resolves the manifest from the configured release

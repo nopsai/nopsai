@@ -26,6 +26,38 @@ publication. Gatekeeper assessment is part of the release job. This applies to
 new releases; an older unsigned archive is not retroactively notarized and
 should be replaced with a current release.
 
+## Shell Completion
+
+```bash
+nopsai completion bash
+nopsai completion zsh --output-dir ./completion
+nopsai completion fish --stdout
+```
+
+After a shell is selected, the completion command writes a ready-to-copy file in
+the current directory by default:
+
+- bash: `nopsai.bash`
+- zsh: `_nopsai`
+- fish: `nopsai.fish`
+- PowerShell: `nopsai.ps1`
+
+The command prints the exact `cp`/`Copy-Item` instructions for common shell
+completion directories. It does not modify shell startup files automatically.
+Use `--output-dir` to place the generated file somewhere else, or `--stdout`
+when package scripts need the raw completion script.
+
+## Interactive Selection
+
+Interactive list prompts render inline below the command as a compact table.
+They do not switch to an alternate screen or clear the whole terminal window.
+The prompt shows the full matching set through a 10-row viewport. Type to
+filter live, use Up/Down to move through visible and off-screen matches, use
+PgUp/PgDn for larger jumps, and press Enter to select the highlighted row.
+Clearing the search shows every available option again. When stdin or stdout is
+not a terminal, the CLI falls back to numbered prompts so scripted tests and
+piped input stay deterministic.
+
 ## Contexts And Authentication
 
 ```bash
@@ -74,6 +106,10 @@ nopsai api routes --domain monitoring --method GET
 nopsai api routes --audience public --output json
 nopsai api describe GET '/v1/pipelines/{pipelineName...}'
 
+# Search the compiled catalog, select a route, fill parameters, and call it
+nopsai api call
+nopsai api call --interactive
+
 # Safely expand a registered route template and encode query values
 nopsai api call GET '/v1/pipelines/{pipelineName...}' \
   --path pipelineName=delivery/release \
@@ -84,6 +120,14 @@ nopsai api call GET '/v1/pipelines/{pipelineName...}' \
 and slashes in single-segment parameters. Catch-all parameters such as
 `pipelineName...` preserve path segments. Repeated `--query NAME=VALUE` flags
 preserve repeated query keys.
+
+Interactive `api call` searches the compiled catalog locally with the shared
+10-row live selector, then prompts for required path parameters, optional query
+values, request body source for POST/PUT/PATCH routes, response `Accept` header,
+and whether to attach configured credentials. Public routes default to no bearer
+token; private routes default to using the current context or `NOPSAI_TOKEN`.
+The selected route still goes through the same path expansion, compatibility,
+AAA, audit, and MCP/API middleware as the noninteractive command.
 
 Regenerate the catalog after route-composition changes:
 
@@ -130,6 +174,16 @@ cross-origin redirects so bearer credentials cannot be redirected to another
 origin. `--api` and `--context` provide non-persistent overrides;
 `--timeout` controls request duration.
 
+Flag behavior is intentionally explicit:
+
+- `--path NAME=VALUE` fills registered path-template parameters only.
+- `--query NAME=VALUE` appends URL query values and can be repeated for the same
+  name.
+- `--header 'Name: value'` sends additional HTTP headers and rejects newlines.
+- `--content-type` and `--accept` override body and response media negotiation.
+- `--no-auth` avoids loading or attaching local credentials for public calls.
+- `--show-headers` writes status and response headers to stderr before the body.
+
 Both API commands preserve the response body and exit non-zero for non-2xx
 responses. Internal routes remain catalogued for service operators, but they
 still require a valid internal service token and are not elevated by the CLI.
@@ -144,17 +198,33 @@ until release metadata is injected by the build.
 ## Platform Bundles
 
 ```bash
-nopsai platform plan kubernetes --version 2.7.0 \
+# Plan only; renders digest-pinned Kubernetes YAML
+nopsai platform release kubernetes --version 2.7.0 \
   --manifest release-manifest.json --values deploy/production.yaml
-nopsai platform deploy kubernetes --version 2.7.0 \
-  --manifest release-manifest.json --values deploy/production.yaml --wait
+
+# Plan and deploy in one command; works fully noninteractively
+nopsai platform release kubernetes --version 2.7.0 \
+  --manifest release-manifest.json --values deploy/production.yaml \
+  --deploy --wait
+
+# Prompt for target, version, manifest, values, namespace, wait, lock, and apply
+nopsai platform release --interactive
 ```
 
-Both commands require an exact semantic version. They validate the manifest
-and CLI compatibility, verify the downloaded OCI Helm chart package digest,
-and render digest-pinned values for every platform image. `plan` runs `helm
-template` and can emit text, JSON, or YAML. `deploy` runs `helm upgrade
---install` and writes `.nopsai/release.lock` atomically only after success.
+`platform release` is the deployment entry point. It always resolves and
+verifies the selected version before deployment. Without `--deploy` it runs a
+plan and prints the rendered manifests. With `--deploy` it runs the same
+verified plan and then performs `helm upgrade --install`, waiting when `--wait`
+is set. Interactive mode uses the shared 10-row live selector for deployment
+targets, prompts every Kubernetes option, shows the plan, and asks for
+deployment confirmation.
+
+The platform release command requires an exact semantic version. It validates
+the manifest and CLI compatibility, verifies the downloaded OCI Helm chart
+package digest, and renders digest-pinned values for every platform image. Plan
+mode runs `helm template` and can emit text, JSON, or YAML. Deploy mode runs
+`helm upgrade --install` and writes `.nopsai/release.lock` atomically only after
+success.
 Before deployment, an existing lock is checked for release identity, migration
 regressions, and forward-only downgrade restrictions. Keep the lock with the
 environment's GitOps state; older locks without rollback metadata are treated as
@@ -164,6 +234,19 @@ Use `--manifest-digest sha256:...` to pin the manifest bytes as well as its
 contents. Without `--manifest`, the CLI uses the release URL template; set
 `NOPSAI_RELEASE_MANIFEST_URL_TEMPLATE` for a trusted internal HTTPS registry.
 See [release-bundles.md](./release-bundles.md) for the full contract.
+
+Deployment flags:
+
+- `--version` selects the exact release bundle; released CLIs default to their
+  embedded build version.
+- `--manifest` points to a local manifest or trusted HTTPS manifest source.
+- `--manifest-digest` pins the manifest bytes before decoding the release.
+- `--values/-f` repeats Helm values files in GitOps merge order.
+- `--release` and `--namespace` select the Helm release identity.
+- `--lock-file` writes the GitOps-tracked release lock after successful deploy.
+- `--deploy` turns the verified plan into an apply operation.
+- `--interactive` prompts for every deployment level while preserving the same
+  noninteractive flags for automation.
 
 ## Platform Doctor
 
@@ -195,6 +278,7 @@ ingestion.
 - `internal/cli/client`: authenticated HTTP transport and origin controls
 - `internal/cli/apicatalog`: generated route model and path-template rules
 - `internal/cli/apicatalog/internal/discovery`: generator-only Go AST discovery
+- `internal/cli/interactive`: live 10-row selectors, stdin/stdout fallback prompts, confirmations, and defaults
 - `internal/cli/platform`: platform diagnostics, release resolution, compatibility, Helm execution, and release lock models
 - `internal/cli/command`: Cobra routing, hook orchestration, and rendering
 

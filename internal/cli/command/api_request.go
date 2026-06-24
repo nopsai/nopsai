@@ -45,14 +45,14 @@ func newAPIRequestCommand(options *rootOptions) *cobra.Command {
 }
 
 func addAPIRequestFlags(command *cobra.Command, options *apiRequestOptions) {
-	command.Flags().StringVar(&options.dataPath, "data", "", "request body file, or - for stdin")
-	command.Flags().StringVar(&options.dataRaw, "data-raw", "", "literal request body")
-	command.Flags().StringArrayVarP(&options.headers, "header", "H", nil, "additional request header (repeatable)")
-	command.Flags().StringVar(&options.contentType, "content-type", "", "request content type (default: application/json when a body is present)")
-	command.Flags().StringVar(&options.accept, "accept", "", "accepted response content type")
-	command.Flags().StringVarP(&options.outputFile, "output-file", "o", "", "write a successful response body atomically to a file")
-	command.Flags().BoolVar(&options.noAuth, "no-auth", false, "do not attach the configured bearer token")
-	command.Flags().BoolVarP(&options.showHeaders, "show-headers", "i", false, "write response status and headers to stderr")
+	command.Flags().StringVar(&options.dataPath, "data", "", "request body file path; use - to read the body from stdin")
+	command.Flags().StringVar(&options.dataRaw, "data-raw", "", "literal request body bytes; mutually exclusive with --data")
+	command.Flags().StringArrayVarP(&options.headers, "header", "H", nil, "HTTP header as 'Name: value'; repeat for multiple headers")
+	command.Flags().StringVar(&options.contentType, "content-type", "", "request Content-Type header; defaults to application/json when a body is present")
+	command.Flags().StringVar(&options.accept, "accept", "", "request Accept header; use for streams, downloads, YAML, or other non-JSON responses")
+	command.Flags().StringVarP(&options.outputFile, "output-file", "o", "", "write only a 2xx response body atomically to this file; error bodies stay on stdout")
+	command.Flags().BoolVar(&options.noAuth, "no-auth", false, "skip loading or attaching bearer credentials; use for public endpoints")
+	command.Flags().BoolVarP(&options.showHeaders, "show-headers", "i", false, "write response status and headers to stderr before the body")
 	command.MarkFlagsMutuallyExclusive("data", "data-raw")
 }
 
