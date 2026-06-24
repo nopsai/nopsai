@@ -110,6 +110,32 @@ func TestKubernetesPlanAndDeployUseVerifiedBundleAndWriteLock(t *testing.T) {
 	}
 }
 
+func TestKubernetesPlanAndDeployCanBeDeclinedAfterRendering(t *testing.T) {
+	chart := []byte("signed chart archive")
+	manifestPath, _, _ := writeReleaseFixture(t, chart)
+	runner := &fakeHelmRunner{t: t, chart: chart}
+	deployer := KubernetesDeployer{
+		Resolver: ManifestResolver{},
+		Runner:   runner.Run,
+		CLI:      releaseCLIInfo("2.7.0"),
+	}
+	plan, lock, deployed, err := deployer.PlanAndDeploy(context.Background(), KubernetesOptions{
+		Version:        "2.7.0",
+		ManifestSource: manifestPath,
+	}, func(plan DeploymentPlan) (bool, error) {
+		if !strings.Contains(plan.RenderedManifestYAML, "kind: Deployment") {
+			t.Fatalf("approval did not receive rendered plan: %#v", plan)
+		}
+		return false, nil
+	})
+	if err != nil || deployed || lock.Version != "" || plan.Version != "2.7.0" {
+		t.Fatalf("declined deployment = plan %#v lock %#v deployed %v err %v", plan, lock, deployed, err)
+	}
+	if runner.sawUpgrade {
+		t.Fatalf("declined deployment reached helm upgrade: %#v", runner.calls)
+	}
+}
+
 func TestKubernetesDeployBlocksForwardOnlyDowngradeBeforeUpgrade(t *testing.T) {
 	chart := []byte("chart")
 	manifestPath, _, _ := writeReleaseFixture(t, chart)

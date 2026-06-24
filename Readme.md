@@ -101,9 +101,9 @@ step containers + optional child pipelines
 - `services/ui`: Operator UI for runs, pipelines, triggers, Git webhook sources, scopes, access,
   knowledge context, system settings, and first-install setup.
 - `cmd/nopsai-cli`: User-facing `nopsai` operator CLI for contexts,
-  authentication, generated discovery and invocation of every registered API,
-  exact streaming/download transport, and platform diagnostics. The API server
-  builds separately as `nopsai-api`.
+  authentication, interactive/generated invocation of every registered API,
+  exact streaming/download transport, completion files, and platform
+  diagnostics/deployment. The API server builds separately as `nopsai-api`.
 - `db/init.sql`: Postgres schema for durable runtime, configuration, auth,
   access, setup, and audit state.
 
@@ -507,7 +507,7 @@ container/              Service Dockerfiles
 db/                     Postgres schema and seed data
 doc/                    Architecture, API, feature, auth, GitOps, and setup docs
 pkg/                    Shared models, protobuf contracts, service auth, TLS, proxy helpers
-internal/cli/            CLI config, REST client, platform, command, and rendering owners
+internal/cli/            CLI config, REST client, API catalog, prompts, platform, command, and rendering owners
 services/aaa            Authorization decision service
 services/agent          Per-run pipeline orchestrator
 services/dispatcher     Scheduler and runner bridge
@@ -527,13 +527,14 @@ go build -o nopsai ./cmd/nopsai-cli
 go build -o nopsai-api ./services/nopsai/cmd/nopsai
 ```
 
-See [doc/cli.md](doc/cli.md) for contexts, token handling, API requests,
-GitOps-safe automation, and `platform doctor`.
+See [doc/cli.md](doc/cli.md) for contexts, token handling, interactive API
+requests, completion files, GitOps-safe automation, and `platform doctor`.
 
 NopsAI deployments consume one versioned, digest-pinned platform manifest.
-`nopsai platform plan/deploy kubernetes --version` verifies compatibility and
-the OCI chart digest, pins every service image, and writes a GitOps release
-lock after deployment. See [doc/release-bundles.md](doc/release-bundles.md).
+`nopsai platform release kubernetes --version ... --deploy` verifies
+compatibility and the OCI chart digest, pins every service image, and writes a
+GitOps release lock after deployment. See
+[doc/release-bundles.md](doc/release-bundles.md).
 
 Run backend tests:
 
