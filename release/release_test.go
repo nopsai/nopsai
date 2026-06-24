@@ -174,6 +174,28 @@ func TestOnlyPlatformReleasePublishesImagesAndCLIFromMain(t *testing.T) {
 	}
 }
 
+func TestPlatformReleasePublishesCLIArtifactsAndParsesHelmDigest(t *testing.T) {
+	workflowBytes, err := os.ReadFile("../.github/workflows/platform-release.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := string(workflowBytes)
+	for _, required := range []string{
+		"name: cli-${{ matrix.goos }}-${{ matrix.goarch }}",
+		"path: dist/*",
+		"pattern: cli-*",
+		"shopt -s nullglob",
+		"cli_assets=(dist/cli/*)",
+		"No CLI release artifacts were downloaded into dist/cli",
+		`grep -Eo 'sha256:[a-f0-9]{64}'`,
+		`cp "${cli_assets[@]}" dist/assets/`,
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Errorf("platform release workflow is missing %q", required)
+		}
+	}
+}
+
 func TestManifestTemplateDeclaresEveryPinnedPlatformArtifact(t *testing.T) {
 	contents, err := os.ReadFile("manifest.tmpl.json")
 	if err != nil {
