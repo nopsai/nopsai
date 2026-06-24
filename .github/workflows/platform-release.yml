@@ -244,9 +244,14 @@ jobs:
           asset="nopsai_${VERSION}_${GOOS}_${GOARCH}"
           if [[ "$GOOS" == "windows" ]]; then
             (cd package && zip -9 "../dist/${asset}.zip" "$binary")
-          elif [[ "$GOOS" == "linux" ]]; then
+          else
             tar -C package -czf "dist/${asset}.tar.gz" "$binary"
           fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cli-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
 
   publish-release:
     needs: [metadata, publish-base, publish-images, build-cli]
@@ -294,7 +299,13 @@ jobs:
           temp_index="$index_file.tmp"
           jq '.cli = {}' "$index_file" >"$temp_index"
           mv "$temp_index" "$index_file"
-          for asset in dist/cli/*; do
+          shopt -s nullglob
+          cli_assets=(dist/cli/*)
+          if (( ${#cli_assets[@]} == 0 )); then
+            echo "No CLI release artifacts were downloaded into dist/cli" >&2
+            exit 1
+          fi
+          for asset in "${cli_assets[@]}"; do
             asset_name=$(basename "$asset")
             checksum=$(shasum -a 256 "$asset" | awk '{print $1}')
             jq --arg name "$asset_name" --arg checksum "sha256:$checksum" '.cli[$name] = $checksum' "$index_file" >"$temp_index"
@@ -307,7 +318,7 @@ jobs:
           chart_reference="$chart_repository/nopsai"
           chart_push_output=$(helm push "dist/release/nopsai-$VERSION.tgz" "$chart_repository")
           printf '%s\n' "$chart_push_output"
-          chart_digest=$(printf '%s\n' "$chart_push_output" | sed -n 's/^Digest: //p' | tail -1)
+          chart_digest=$(printf '%s\n' "$chart_push_output" | tr -d '\r' | grep -Eo 'sha256:[a-f0-9]{64}' | tail -1)
           if [[ ! "$chart_digest" =~ ^sha256:[a-f0-9]{64}$ ]]; then
             echo "Helm did not return a valid OCI chart digest" >&2
             exit 1
@@ -322,7 +333,7 @@ jobs:
             cd dist/release
             shasum -a 256 .env db/init.sql docker-compose.yaml "nopsai-$VERSION.tgz" release-index.json >checksums.txt
           )
-          cp dist/cli/* dist/assets/
+          cp "${cli_assets[@]}" dist/assets/
           cp dist/release/CHANGELOG.md dist/assets/
           cp dist/release/docker-compose.yaml dist/assets/nopsai-docker-compose.yaml
           cp "dist/release/nopsai-$VERSION.tgz" dist/assets/
