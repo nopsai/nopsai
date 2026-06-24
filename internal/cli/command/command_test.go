@@ -204,6 +204,26 @@ func TestAPICallExpandsRegisteredRouteAndPreservesQueryValues(t *testing.T) {
 	}
 }
 
+func TestAPICallInteractiveSelectsPublicRoute(t *testing.T) {
+	var authorization, path string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization = r.Header.Get("Authorization")
+		path = r.URL.Path
+		_, _ = w.Write([]byte(`{"providers":[]}`))
+	}))
+	defer server.Close()
+	dependencies := testDependencies(server.Client(), map[string]string{"NOPSAI_TOKEN": "secret"})
+	dependencies.In = strings.NewReader("auth providers\n1\n\n\n\n")
+
+	output, err := executeCommand(dependencies, "--api", server.URL, "api", "call", "--interactive")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/v1/auth/providers" || authorization != "" || !strings.Contains(output, `{"providers":[]}`) {
+		t.Fatalf("interactive call path/auth/output = %q / %q / %q", path, authorization, output)
+	}
+}
+
 func TestAPIRequestSupportsRawContentPublicCallsHeadersAndDownloads(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -310,7 +330,7 @@ func TestReleasedCLIValidatesVersionBeforeMutation(t *testing.T) {
 	}
 }
 
-func TestPlatformPlanAndDeployCommands(t *testing.T) {
+func TestPlatformReleasePlansWithJSONOutput(t *testing.T) {
 	chart := []byte("chart archive")
 	manifestPath := writeCommandReleaseManifest(t, chart)
 	valuesPath := filepath.Join(t.TempDir(), "values.yaml")
@@ -337,7 +357,7 @@ func TestPlatformPlanAndDeployCommands(t *testing.T) {
 		}
 	}
 	output, err := executeCommand(dependencies,
-		"platform", "plan", "kubernetes", "--version", "2.7.0", "--manifest", manifestPath, "--values", valuesPath, "--output", "json",
+		"platform", "release", "kubernetes", "--version", "2.7.0", "--manifest", manifestPath, "--values", valuesPath, "--output", "json",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -346,15 +366,101 @@ func TestPlatformPlanAndDeployCommands(t *testing.T) {
 	if err := json.Unmarshal([]byte(output), &plan); err != nil || plan.Version != "2.7.0" || !strings.Contains(plan.RenderedManifestYAML, "Deployment") {
 		t.Fatalf("plan = %#v, %v", plan, err)
 	}
+	if _, err := executeCommand(dependencies, "platform", "plan"); err == nil || !strings.Contains(err.Error(), "unknown command") {
+		t.Fatalf("legacy platform plan command still available: %v", err)
+	}
+}
+
+func TestPlatformReleaseCommandDeploysWithSingleFlag(t *testing.T) {
+	chart := []byte("chart archive")
+	manifestPath := writeCommandReleaseManifest(t, chart)
 	lockPath := filepath.Join(t.TempDir(), ".nopsai", "release.lock")
-	output, err = executeCommand(dependencies,
-		"platform", "deploy", "kubernetes", "--version", "2.7.0", "--manifest", manifestPath, "--lock-file", lockPath, "--wait",
+	var sawUpgrade bool
+	dependencies := testDependencies(nil, nil)
+	dependencies.BuildInfo = commandBuildInfo("2.7.0")
+	dependencies.RunProcess = func(_ context.Context, name string, args []string, stdout, _ io.Writer) error {
+		if name != "helm" {
+			return errors.New("unexpected process")
+		}
+		switch args[0] {
+		case "pull":
+			destination := commandArgumentValue(args, "--destination")
+			return os.WriteFile(filepath.Join(destination, "nopsai-2.7.0.tgz"), chart, 0o600)
+		case "template":
+			_, err := io.WriteString(stdout, "kind: Deployment\n")
+			return err
+		case "upgrade":
+			sawUpgrade = true
+			if !containsCommandArgument(args, "--wait") {
+				t.Fatal("release --deploy did not pass --wait to helm upgrade")
+			}
+			return nil
+		default:
+			return errors.New("unexpected helm command")
+		}
+	}
+	output, err := executeCommand(dependencies,
+		"platform", "release", "kubernetes", "--version", "2.7.0", "--manifest", manifestPath, "--deploy", "--wait", "--lock-file", lockPath,
 	)
-	if err != nil || !strings.Contains(output, "Deployed NopsAI 2.7.0") {
-		t.Fatalf("deploy = %q, %v", output, err)
+	if err != nil || !strings.Contains(output, "Deployed NopsAI 2.7.0") || !sawUpgrade {
+		t.Fatalf("platform release deploy = %q, %v, sawUpgrade=%v", output, err, sawUpgrade)
 	}
 	if _, err := os.Stat(lockPath); err != nil {
 		t.Fatalf("release lock: %v", err)
+	}
+}
+
+func TestPlatformReleaseInteractiveCanPlanWithoutDeploying(t *testing.T) {
+	chart := []byte("chart archive")
+	manifestPath := writeCommandReleaseManifest(t, chart)
+	lockPath := filepath.Join(t.TempDir(), ".nopsai", "release.lock")
+	var sawUpgrade bool
+	dependencies := testDependencies(nil, nil)
+	dependencies.BuildInfo = commandBuildInfo("2.7.0")
+	dependencies.In = strings.NewReader("kub\n\n\n" + manifestPath + "\n\n\n\n\n\n" + lockPath + "\nn\n")
+	dependencies.RunProcess = func(_ context.Context, name string, args []string, stdout, _ io.Writer) error {
+		if name != "helm" {
+			return errors.New("unexpected process")
+		}
+		switch args[0] {
+		case "pull":
+			destination := commandArgumentValue(args, "--destination")
+			return os.WriteFile(filepath.Join(destination, "nopsai-2.7.0.tgz"), chart, 0o600)
+		case "template":
+			_, err := io.WriteString(stdout, "kind: Deployment\n")
+			return err
+		case "upgrade":
+			sawUpgrade = true
+			return nil
+		default:
+			return errors.New("unexpected helm command")
+		}
+	}
+	output, err := executeCommand(dependencies, "platform", "release", "--interactive")
+	if err != nil || !strings.Contains(output, "Plan NopsAI 2.7.0") {
+		t.Fatalf("interactive platform release = %q, %v", output, err)
+	}
+	if sawUpgrade {
+		t.Fatal("interactive plan deployed after the operator declined confirmation")
+	}
+	if _, err := os.Stat(lockPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("declined deployment wrote lock: %v", err)
+	}
+}
+
+func TestCompletionWritesShellFileAndSupportsStdout(t *testing.T) {
+	outputDir := t.TempDir()
+	output, err := executeCommand(testDependencies(nil, nil), "completion", "bash", "--output-dir", outputDir)
+	if err != nil || !strings.Contains(output, "Wrote bash completion") || !strings.Contains(output, "cp ") {
+		t.Fatalf("completion file output = %q, %v", output, err)
+	}
+	contents, err := os.ReadFile(filepath.Join(outputDir, "nopsai.bash"))
+	if err != nil || !strings.Contains(string(contents), "bash completion") {
+		t.Fatalf("completion file = %q, %v", contents, err)
+	}
+	output, err = executeCommand(testDependencies(nil, nil), "completion", "fish", "--stdout")
+	if err != nil || !strings.Contains(output, "fish completion") {
+		t.Fatalf("completion stdout = %q, %v", output, err)
 	}
 }
 
@@ -529,6 +635,15 @@ func commandArgumentValue(args []string, name string) string {
 		}
 	}
 	return ""
+}
+
+func containsCommandArgument(args []string, name string) bool {
+	for _, arg := range args {
+		if arg == name {
+			return true
+		}
+	}
+	return false
 }
 
 func executeCommand(dependencies Dependencies, args ...string) (string, error) {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"nopsai/internal/cli/interactive"
 	"nopsai/internal/cli/platform"
 	"nopsai/pkg/compatibility"
 
@@ -23,57 +24,53 @@ type platformReleaseOptions struct {
 	output         string
 	wait           bool
 	lockFile       string
+	deploy         bool
+	interactive    bool
 }
 
-func newPlatformPlanCommand(root *rootOptions) *cobra.Command {
-	command := &cobra.Command{Use: "plan", Short: "Preview a versioned platform deployment"}
-	command.AddCommand(newPlatformPlanKubernetesCommand(root))
-	return command
-}
-
-func newPlatformPlanKubernetesCommand(root *rootOptions) *cobra.Command {
+func newPlatformReleaseCommand(root *rootOptions) *cobra.Command {
 	options := &platformReleaseOptions{}
 	command := &cobra.Command{
-		Use:   "kubernetes",
-		Short: "Resolve, verify, and render a Kubernetes platform bundle",
-		Args:  cobra.NoArgs,
-		RunE: func(command *cobra.Command, _ []string) error {
-			plan, err := kubernetesDeployer(root, command).Plan(command.Context(), options.kubernetesOptions())
-			if err != nil {
-				return err
+		Use:   "release [kubernetes]",
+		Short: "Plan and optionally deploy a versioned platform bundle",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			var prompter *interactive.Prompter
+			if options.interactive {
+				prompter = interactive.NewPrompter(command.InOrStdin(), command.OutOrStdout())
 			}
-			return renderDeploymentPlan(command, plan, options.output, false, "")
+			target := "kubernetes"
+			if len(args) == 1 {
+				target = strings.ToLower(strings.TrimSpace(args[0]))
+			}
+			if options.interactive && len(args) == 0 {
+				selected, err := prompter.Choose("Deployment target", []interactive.Choice{
+					{Label: "kubernetes", Description: "Helm-based NopsAI platform deployment", SearchText: "helm k8s cluster"},
+				})
+				if err != nil {
+					return err
+				}
+				if selected == 0 {
+					target = "kubernetes"
+				}
+			}
+			if target != "kubernetes" {
+				return fmt.Errorf("unsupported deployment target %q; expected kubernetes", target)
+			}
+			if options.interactive {
+				if err := resolveInteractiveKubernetesOptions(prompter, options, defaultPlatformVersion(root)); err != nil {
+					return err
+				}
+			}
+			if strings.TrimSpace(options.version) == "" {
+				return fmt.Errorf("--version is required when this CLI build does not embed a release version")
+			}
+			return executePlatformRelease(command, root, options, prompter)
 		},
 	}
-	addPlatformReleaseFlags(command, options, false, defaultPlatformVersion(root))
-	return command
-}
-
-func newPlatformDeployCommand(root *rootOptions) *cobra.Command {
-	command := &cobra.Command{Use: "deploy", Short: "Deploy a versioned platform bundle"}
-	command.AddCommand(newPlatformDeployKubernetesCommand(root))
-	return command
-}
-
-func newPlatformDeployKubernetesCommand(root *rootOptions) *cobra.Command {
-	options := &platformReleaseOptions{}
-	command := &cobra.Command{
-		Use:   "kubernetes",
-		Short: "Deploy an exact digest-pinned Kubernetes platform bundle",
-		Args:  cobra.NoArgs,
-		RunE: func(command *cobra.Command, _ []string) error {
-			plan, _, err := kubernetesDeployer(root, command).Deploy(command.Context(), options.kubernetesOptions())
-			if err != nil {
-				return err
-			}
-			lockPath := strings.TrimSpace(options.lockFile)
-			if lockPath == "" {
-				lockPath = platform.DefaultLockFile
-			}
-			return renderDeploymentPlan(command, plan, options.output, true, lockPath)
-		},
-	}
-	addPlatformReleaseFlags(command, options, true, defaultPlatformVersion(root))
+	addPlatformReleaseFlags(command, options, defaultPlatformVersion(root))
+	command.Flags().BoolVar(&options.deploy, "deploy", false, "after a successful plan, run Helm upgrade --install and write the release lock")
+	command.Flags().BoolVar(&options.interactive, "interactive", false, "prompt for target, version, manifest, values, namespace, wait, lock, and deployment confirmation")
 	return command
 }
 
@@ -91,26 +88,21 @@ func defaultPlatformVersion(root *rootOptions) string {
 	return version
 }
 
-func addPlatformReleaseFlags(command *cobra.Command, options *platformReleaseOptions, deploy bool, defaultVersion string) {
+func addPlatformReleaseFlags(command *cobra.Command, options *platformReleaseOptions, defaultVersion string) {
 	defaultVersion = strings.TrimSpace(defaultVersion)
-	versionHelp := "platform bundle version"
+	versionHelp := "exact semantic platform bundle version to resolve and verify"
 	if defaultVersion != "" {
 		versionHelp += " (defaults to this CLI build version)"
 	}
 	command.Flags().StringVar(&options.version, "version", defaultVersion, versionHelp)
-	command.Flags().StringVar(&options.manifest, "manifest", "", "local path or HTTPS release manifest override")
-	command.Flags().StringVar(&options.manifestDigest, "manifest-digest", "", "expected release manifest SHA-256")
-	command.Flags().StringArrayVarP(&options.values, "values", "f", nil, "Helm values file (repeatable)")
-	command.Flags().StringVar(&options.releaseName, "release", platform.DefaultReleaseName, "Helm release name")
-	command.Flags().StringVar(&options.namespace, "namespace", platform.DefaultNamespace, "Kubernetes namespace")
-	command.Flags().StringVarP(&options.output, "output", "o", "text", "output format: text, json, or yaml")
-	if deploy {
-		command.Flags().BoolVar(&options.wait, "wait", false, "wait for Kubernetes resources to become ready")
-		command.Flags().StringVar(&options.lockFile, "lock-file", platform.DefaultLockFile, "deployment release lock path")
-	}
-	if defaultVersion == "" {
-		_ = command.MarkFlagRequired("version")
-	}
+	command.Flags().StringVar(&options.manifest, "manifest", "", "release manifest source as a local file path or trusted HTTPS URL")
+	command.Flags().StringVar(&options.manifestDigest, "manifest-digest", "", "expected SHA-256 digest for the release manifest bytes")
+	command.Flags().StringArrayVarP(&options.values, "values", "f", nil, "Helm values file to merge; repeat in the same order used by GitOps")
+	command.Flags().StringVar(&options.releaseName, "release", platform.DefaultReleaseName, "Helm release name to install or upgrade")
+	command.Flags().StringVar(&options.namespace, "namespace", platform.DefaultNamespace, "Kubernetes namespace for all rendered and deployed resources")
+	command.Flags().StringVarP(&options.output, "output", "o", "text", "output format for plans and deployment summaries: text, json, or yaml")
+	command.Flags().BoolVar(&options.wait, "wait", false, "wait for Kubernetes resources to become ready before writing the release lock")
+	command.Flags().StringVar(&options.lockFile, "lock-file", platform.DefaultLockFile, "GitOps-tracked release lock path written after successful deployment")
 }
 
 func (o platformReleaseOptions) kubernetesOptions() platform.KubernetesOptions {
@@ -124,6 +116,107 @@ func (o platformReleaseOptions) kubernetesOptions() platform.KubernetesOptions {
 		Wait:                   o.wait,
 		LockFile:               o.lockFile,
 	}
+}
+
+func executePlatformRelease(command *cobra.Command, root *rootOptions, options *platformReleaseOptions, prompter *interactive.Prompter) error {
+	output := strings.ToLower(strings.TrimSpace(options.output))
+	if options.interactive && output != "" && output != "text" {
+		return fmt.Errorf("--interactive supports text output only")
+	}
+	deployer := kubernetesDeployer(root, command)
+	if options.deploy || options.interactive {
+		if prompter == nil {
+			prompter = interactive.NewPrompter(command.InOrStdin(), command.OutOrStdout())
+		}
+		plan, _, deployed, err := deployer.PlanAndDeploy(command.Context(), options.kubernetesOptions(), func(plan platform.DeploymentPlan) (bool, error) {
+			if !options.interactive {
+				return true, nil
+			}
+			if err := renderDeploymentPlan(command, plan, options.output, false, ""); err != nil {
+				return false, err
+			}
+			if options.deploy {
+				return true, nil
+			}
+			return prompter.Confirm("Deploy this plan now", false)
+		})
+		if err != nil {
+			return err
+		}
+		if !deployed {
+			return nil
+		}
+		return renderDeploymentPlan(command, plan, options.output, true, releaseLockPath(*options))
+	}
+	plan, err := deployer.Plan(command.Context(), options.kubernetesOptions())
+	if err != nil {
+		return err
+	}
+	return renderDeploymentPlan(command, plan, options.output, false, "")
+}
+
+func resolveInteractiveKubernetesOptions(prompter *interactive.Prompter, options *platformReleaseOptions, defaultVersion string) error {
+	versionDefault := strings.TrimSpace(options.version)
+	if versionDefault == "" {
+		versionDefault = strings.TrimSpace(defaultVersion)
+	}
+	version, err := prompter.AskRequired("Platform version", versionDefault)
+	if err != nil {
+		return err
+	}
+	options.version = strings.TrimSpace(version)
+	manifest, err := prompter.Ask("Release manifest path or HTTPS URL", options.manifest)
+	if err != nil {
+		return err
+	}
+	options.manifest = strings.TrimSpace(manifest)
+	manifestDigest, err := prompter.Ask("Expected manifest digest (sha256:, blank to trust source)", options.manifestDigest)
+	if err != nil {
+		return err
+	}
+	options.manifestDigest = strings.TrimSpace(manifestDigest)
+	values, err := prompter.Ask("Helm values files (comma-separated, blank for none)", strings.Join(options.values, ","))
+	if err != nil {
+		return err
+	}
+	options.values = splitPromptList(values)
+	releaseName, err := prompter.AskRequired("Helm release name", valueOrDefault(options.releaseName, platform.DefaultReleaseName))
+	if err != nil {
+		return err
+	}
+	options.releaseName = strings.TrimSpace(releaseName)
+	namespace, err := prompter.AskRequired("Kubernetes namespace", valueOrDefault(options.namespace, platform.DefaultNamespace))
+	if err != nil {
+		return err
+	}
+	options.namespace = strings.TrimSpace(namespace)
+	wait, err := prompter.Confirm("Wait for resources to become ready", options.wait)
+	if err != nil {
+		return err
+	}
+	options.wait = wait
+	lockFile, err := prompter.Ask("Release lock file", valueOrDefault(options.lockFile, platform.DefaultLockFile))
+	if err != nil {
+		return err
+	}
+	options.lockFile = strings.TrimSpace(lockFile)
+	return nil
+}
+
+func releaseLockPath(options platformReleaseOptions) string {
+	lockPath := strings.TrimSpace(options.lockFile)
+	if lockPath == "" {
+		return platform.DefaultLockFile
+	}
+	return lockPath
+}
+
+func valueOrDefault(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 func kubernetesDeployer(root *rootOptions, command *cobra.Command) platform.KubernetesDeployer {

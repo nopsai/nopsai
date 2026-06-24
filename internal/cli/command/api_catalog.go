@@ -3,10 +3,12 @@ package command
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 
 	"nopsai/internal/cli/apicatalog"
+	"nopsai/internal/cli/interactive"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -16,42 +18,136 @@ func newAPICallCommand(options *rootOptions) *cobra.Command {
 	requestOptions := &apiRequestOptions{}
 	var pathValues []string
 	var queryValues []string
+	var interactiveMode bool
 	command := &cobra.Command{
-		Use:   "call METHOD ROUTE_TEMPLATE",
+		Use:   "call [METHOD ROUTE_TEMPLATE]",
 		Short: "Invoke a registered route with safe path-template expansion",
-		Args:  cobra.ExactArgs(2),
+		Args: func(command *cobra.Command, args []string) error {
+			if interactiveMode || len(args) == 0 {
+				if len(args) != 0 {
+					return fmt.Errorf("--interactive does not accept METHOD or ROUTE_TEMPLATE arguments")
+				}
+				return nil
+			}
+			return cobra.ExactArgs(2)(command, args)
+		},
 		RunE: func(command *cobra.Command, args []string) error {
-			method := strings.ToUpper(args[0])
-			route, ok := apicatalog.Find(method, args[1])
-			if !ok {
-				return fmt.Errorf("route %s %s is not registered; use `nopsai api routes`", method, args[1])
+			if interactiveMode || len(args) == 0 {
+				return executeInteractiveAPICall(command, options, requestOptions)
 			}
-			parameters, err := parseUniqueAssignments(pathValues, "path parameter")
-			if err != nil {
-				return err
-			}
-			path, err := route.Expand(parameters)
-			if err != nil {
-				return err
-			}
-			query, err := parseQueryAssignments(queryValues)
-			if err != nil {
-				return err
-			}
-			if encoded := query.Encode(); encoded != "" {
-				path += "?" + encoded
-			}
-			session, err := options.resolveSessionWithToken(false, !requestOptions.noAuth)
-			if err != nil {
-				return err
-			}
-			return executeAPIRequest(command, session, route.Method, path, *requestOptions, options.dependencies.BuildInfo)
+			return executeCatalogAPICall(command, options, strings.ToUpper(args[0]), args[1], pathValues, queryValues, *requestOptions)
 		},
 	}
-	command.Flags().StringArrayVarP(&pathValues, "path", "p", nil, "path parameter NAME=VALUE (repeatable)")
-	command.Flags().StringArrayVarP(&queryValues, "query", "q", nil, "query parameter NAME=VALUE (repeatable; duplicate names are preserved)")
+	command.Flags().BoolVar(&interactiveMode, "interactive", false, "search the API catalog, select a route, and prompt for parameters before calling it")
+	command.Flags().StringArrayVarP(&pathValues, "path", "p", nil, "path template value as NAME=VALUE; repeat for every route parameter")
+	command.Flags().StringArrayVarP(&queryValues, "query", "q", nil, "query string value as NAME=VALUE; repeat to preserve duplicate names")
 	addAPIRequestFlags(command, requestOptions)
 	return command
+}
+
+func executeCatalogAPICall(command *cobra.Command, options *rootOptions, method, pathTemplate string, pathValues, queryValues []string, requestOptions apiRequestOptions) error {
+	route, ok := apicatalog.Find(method, pathTemplate)
+	if !ok {
+		return fmt.Errorf("route %s %s is not registered; use `nopsai api routes`", method, pathTemplate)
+	}
+	parameters, err := parseUniqueAssignments(pathValues, "path parameter")
+	if err != nil {
+		return err
+	}
+	path, err := route.Expand(parameters)
+	if err != nil {
+		return err
+	}
+	query, err := parseQueryAssignments(queryValues)
+	if err != nil {
+		return err
+	}
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	session, err := options.resolveSessionWithToken(false, !requestOptions.noAuth)
+	if err != nil {
+		return err
+	}
+	return executeAPIRequest(command, session, route.Method, path, requestOptions, options.dependencies.BuildInfo)
+}
+
+func executeInteractiveAPICall(command *cobra.Command, options *rootOptions, requestOptions *apiRequestOptions) error {
+	prompter := interactive.NewPrompter(command.InOrStdin(), command.OutOrStdout())
+	routes := apicatalog.Routes()
+	selected, err := prompter.Choose("API route", apiRouteChoices(routes))
+	if err != nil {
+		return err
+	}
+	route := routes[selected]
+	parameters := make([]string, 0, len(route.PathParameters))
+	for _, parameter := range route.PathParameters {
+		label := "Path parameter " + parameter.Name
+		if parameter.CatchAll {
+			label += " (may include /)"
+		}
+		value, err := prompter.AskRequired(label, "")
+		if err != nil {
+			return err
+		}
+		parameters = append(parameters, parameter.Name+"="+value)
+	}
+	queryRaw, err := prompter.Ask("Query parameters (comma-separated NAME=VALUE)", "")
+	if err != nil {
+		return err
+	}
+	queryValues := splitPromptList(queryRaw)
+	if routeAllowsRequestBody(route.Method) {
+		dataPath, err := prompter.Ask("Request body file (- for stdin, blank for none)", requestOptions.dataPath)
+		if err != nil {
+			return err
+		}
+		requestOptions.dataPath = strings.TrimSpace(dataPath)
+		if requestOptions.dataPath == "" {
+			dataRaw, err := prompter.Ask("Literal request body (blank for none)", requestOptions.dataRaw)
+			if err != nil {
+				return err
+			}
+			requestOptions.dataRaw = dataRaw
+		}
+	}
+	accept, err := prompter.Ask("Accept header (blank for default application/json)", requestOptions.accept)
+	if err != nil {
+		return err
+	}
+	requestOptions.accept = strings.TrimSpace(accept)
+	attachTokenDefault := !route.Public
+	attachToken, err := prompter.Confirm("Attach configured bearer token", attachTokenDefault)
+	if err != nil {
+		return err
+	}
+	requestOptions.noAuth = !attachToken
+	return executeCatalogAPICall(command, options, route.Method, route.Path, parameters, queryValues, *requestOptions)
+}
+
+func apiRouteChoices(routes []apicatalog.Route) []interactive.Choice {
+	choices := make([]interactive.Choice, 0, len(routes))
+	for _, route := range routes {
+		flags := routeFlags(route)
+		description := "domain=" + route.Domain
+		if flags != "" {
+			description += ", " + flags
+		}
+		choices = append(choices, interactive.Choice{
+			Label:       fmt.Sprintf("%-7s %s", route.Method, route.Path),
+			Description: description,
+			SearchText:  strings.Join([]string{route.Method, route.Path, route.Domain, flags, parameterSearchText(route.PathParameters)}, " "),
+		})
+	}
+	return choices
+}
+
+func parameterSearchText(parameters []apicatalog.Parameter) string {
+	names := make([]string, 0, len(parameters))
+	for _, parameter := range parameters {
+		names = append(names, parameter.Name)
+	}
+	return strings.Join(names, " ")
 }
 
 func newAPIRoutesCommand() *cobra.Command {
@@ -204,4 +300,25 @@ func parseQueryAssignments(values []string) (url.Values, error) {
 		query.Add(name, value)
 	}
 	return query, nil
+}
+
+func splitPromptList(raw string) []string {
+	parts := strings.Split(raw, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			values = append(values, part)
+		}
+	}
+	return values
+}
+
+func routeAllowsRequestBody(method string) bool {
+	switch strings.ToUpper(strings.TrimSpace(method)) {
+	case http.MethodPost, http.MethodPut, http.MethodPatch:
+		return true
+	default:
+		return false
+	}
 }

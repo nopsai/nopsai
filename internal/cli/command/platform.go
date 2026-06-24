@@ -13,10 +13,16 @@ import (
 )
 
 func newPlatformCommand(options *rootOptions) *cobra.Command {
-	command := &cobra.Command{Use: "platform", Short: "Operate NopsAI deployments"}
+	command := &cobra.Command{
+		Use:   "platform",
+		Short: "Operate NopsAI deployments",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			return command.Help()
+		},
+	}
 	command.AddCommand(newPlatformDoctorCommand(options))
-	command.AddCommand(newPlatformPlanCommand(options))
-	command.AddCommand(newPlatformDeployCommand(options))
+	command.AddCommand(newPlatformReleaseCommand(options))
 	return command
 }
 

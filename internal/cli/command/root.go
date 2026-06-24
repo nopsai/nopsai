@@ -55,25 +55,27 @@ func NewRootCommand(dependencies Dependencies) *cobra.Command {
 	dependencies.Version = version
 	options := &rootOptions{dependencies: dependencies, timeout: 30 * time.Second}
 	root := &cobra.Command{
-		Use:           "nopsai",
-		Short:         "Operate the NopsAI platform and API",
-		Version:       version,
-		SilenceUsage:  true,
-		SilenceErrors: true,
+		Use:               "nopsai",
+		Short:             "Operate the NopsAI platform and API",
+		Version:           version,
+		SilenceUsage:      true,
+		SilenceErrors:     true,
+		CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
 	}
 	root.SetIn(dependencies.In)
 	root.SetOut(dependencies.Out)
 	root.SetErr(dependencies.Err)
-	root.PersistentFlags().StringVar(&options.configDir, "config-dir", "", "configuration directory (default: $NOPSAI_CONFIG_DIR or user config directory)")
-	root.PersistentFlags().StringVar(&options.contextName, "context", "", "context to use instead of the current context")
-	root.PersistentFlags().StringVar(&options.apiURL, "api", "", "API URL override")
-	root.PersistentFlags().DurationVar(&options.timeout, "timeout", options.timeout, "request timeout")
+	root.PersistentFlags().StringVar(&options.configDir, "config-dir", "", "directory for CLI contexts and credentials (default: $NOPSAI_CONFIG_DIR or the OS user config directory)")
+	root.PersistentFlags().StringVar(&options.contextName, "context", "", "named context to use for this command instead of the saved current context")
+	root.PersistentFlags().StringVar(&options.apiURL, "api", "", "absolute NopsAI API URL for this command; overrides the context API without saving it")
+	root.PersistentFlags().DurationVar(&options.timeout, "timeout", options.timeout, "HTTP request timeout; use 0 for streams and other long-running requests")
 
 	root.AddCommand(newContextCommand(options))
 	root.AddCommand(newLoginCommand(options))
 	root.AddCommand(newLogoutCommand(options))
 	root.AddCommand(newAPICommand(options))
 	root.AddCommand(newPlatformCommand(options))
+	root.AddCommand(newCompletionCommand(root))
 	return root
 }
 
