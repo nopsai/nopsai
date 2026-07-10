@@ -104,17 +104,24 @@ func collectResolvedMCPProfiles(pipeline *models.Pipeline) map[string]bool {
 }
 
 func (a *App) buildRuntimeMCPRegistry(pipeline *models.Pipeline, scope string) (runtimeMCPRegistry, error) {
+	return a.buildRuntimeMCPRegistryForTeam(context.Background(), pipeline, scope, nil)
+}
+
+func (a *App) buildRuntimeMCPRegistryForTeam(ctx context.Context, pipeline *models.Pipeline, scope string, teamID *int) (runtimeMCPRegistry, error) {
 	if !models.PipelineLLMEnabled(pipeline) {
 		return runtimeMCPRegistry{}, nil
 	}
 	cfg := a.getConfigSnapshot()
 	allServers := cfg.EffectiveMCPServers()
-	allProfiles := cfg.EffectiveMCPProfiles()
+	allProfiles, err := a.effectiveMCPProfilesForTeam(ctx, cfg, teamID)
+	if err != nil {
+		return runtimeMCPRegistry{}, err
+	}
 	usedProfiles := collectResolvedMCPProfiles(pipeline)
 	if len(usedProfiles) == 0 {
 		return runtimeMCPRegistry{}, nil
 	}
-	toolsByServer, err := a.loadMCPToolsByServer(context.Background())
+	toolsByServer, err := a.loadMCPToolsByServer(ctx)
 	if err != nil {
 		return runtimeMCPRegistry{}, err
 	}
@@ -144,13 +151,13 @@ func (a *App) buildRuntimeMCPRegistry(pipeline *models.Pipeline, scope string) (
 			if !models.MCPAllowedInScope(server.AllowedScopes, scope) {
 				return runtimeMCPRegistry{}, fmt.Errorf("MCP server %q is not allowed in scope %q", ref.ServerName, strings.TrimSpace(scope))
 			}
-			authValue, err := a.resolveMCPAuthCredential(context.Background(), server)
+			authValue, err := a.resolveMCPAuthCredential(ctx, server)
 			if err != nil {
 				return runtimeMCPRegistry{}, fmt.Errorf("resolve MCP credential for server %q: %w", ref.ServerName, err)
 			}
 			registry.Servers[ref.ServerName] = runtimeMCPServer{MCPServer: server, AuthValue: authValue}
 			if mcpregistry.ProfileRefSelectsAllTools(ref) && len(toolsByServer[ref.ServerName]) == 0 {
-				discovered, err := a.discoverAndStoreMCPServerTools(context.Background(), server)
+				discovered, err := a.discoverAndStoreMCPServerTools(ctx, server)
 				if err != nil {
 					return runtimeMCPRegistry{}, fmt.Errorf("discover MCP tools for wildcard profile %q on server %q: %w", profileName, ref.ServerName, err)
 				}

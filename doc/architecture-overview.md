@@ -150,6 +150,11 @@ Main tables from `db/init.sql`:
 
 ### Run Organization Model
 
+The target redesign for separating first-class Teams from Pipeline Runs and
+for adding team-scoped LLM, Agent, and MCP profiles is tracked in
+[team-resource-ownership-design.md](./team-resource-ownership-design.md).
+The rest of this section describes the current implementation.
+
 The canonical navigation model for enterprise pipeline activity is:
 
 ```text

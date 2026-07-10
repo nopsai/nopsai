@@ -60,6 +60,9 @@ func configRepositoryRelativeGitPath(basePath, filePath string) (string, bool) {
 }
 
 func isConfigRepositoryDriftPath(filePath string) bool {
+	if isGitOpsTeamAIProfilesPath(filePath) {
+		return true
+	}
 	return configsync.IsDriftPath(filePath, configRepositoryDriftPathOptions())
 }
 

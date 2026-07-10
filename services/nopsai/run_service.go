@@ -192,12 +192,23 @@ func (s *runService) preparePipelineRun(ctx context.Context, req preparePipeline
 		s.failRun(ctx, req.RunID, errMsg, req.GitContext)
 		return nil, runPrepError(http.StatusBadRequest, errMsg)
 	}
-	if err := s.app.validatePipelineLLMProfiles(resolvedPipeline, req.Scope); err != nil {
+	teamID, err := s.app.teamIDForRunProfileOwner(ctx, req.RunID.String())
+	if err != nil {
+		errMsg := fmt.Sprintf("Pipeline validation failed%s: %v", req.ErrorContext, err)
+		s.failRun(ctx, req.RunID, errMsg, req.GitContext)
+		return nil, runPrepError(http.StatusInternalServerError, errMsg)
+	}
+	if err := s.app.validatePipelineLLMProfilesForTeam(ctx, resolvedPipeline, req.Scope, teamID); err != nil {
 		errMsg := fmt.Sprintf("Pipeline validation failed%s: %v", req.ErrorContext, err)
 		s.failRun(ctx, req.RunID, errMsg, req.GitContext)
 		return nil, runPrepError(http.StatusBadRequest, errMsg)
 	}
-	if err := s.app.validatePipelineMCPProfiles(resolvedPipeline, req.Scope); err != nil {
+	if err := s.app.validatePipelineAgentProfilesForTeam(ctx, resolvedPipeline, teamID); err != nil {
+		errMsg := fmt.Sprintf("Pipeline validation failed%s: %v", req.ErrorContext, err)
+		s.failRun(ctx, req.RunID, errMsg, req.GitContext)
+		return nil, runPrepError(http.StatusBadRequest, errMsg)
+	}
+	if err := s.app.validatePipelineMCPProfilesForTeam(ctx, resolvedPipeline, req.Scope, teamID); err != nil {
 		errMsg := fmt.Sprintf("Pipeline validation failed%s: %v", req.ErrorContext, err)
 		s.failRun(ctx, req.RunID, errMsg, req.GitContext)
 		return nil, runPrepError(http.StatusBadRequest, errMsg)

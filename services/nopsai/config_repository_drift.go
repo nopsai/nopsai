@@ -135,6 +135,21 @@ func (a *App) loadConfigRepositoryGitFiles(repo models.ConfigRepository) (map[st
 		} else if !errors.Is(err, errNotificationGitOpsNotFound) {
 			return nil, err
 		}
+		for _, rootPath := range []string{
+			configsync.RepoJoinPath(repo.BasePath, "ai-profiles.yaml"),
+			configsync.RepoJoinPath(repo.BasePath, "ai-profiles.yml"),
+		} {
+			content, err := a.requestGitBotFile(owner, name, repo.Branch, rootPath, errTeamAIProfilesGitOpsNotFound)
+			if err == nil {
+				if rel, ok := configRepositoryRelativeGitPath(repo.BasePath, rootPath); ok && isConfigRepositoryDriftPath(rel) {
+					result[rel] = normalizeConfigRepositoryFileContent(content)
+				}
+				continue
+			}
+			if !errors.Is(err, errTeamAIProfilesGitOpsNotFound) {
+				return nil, err
+			}
+		}
 	}
 	return result, nil
 }
@@ -277,6 +292,9 @@ func (a *App) exportConfigRepositoryFiles(ctx context.Context, repo models.Confi
 		return nil, err
 	}
 	if err := a.exportConfigRepositoryMCPRegistry(ctx, repo, files); err != nil {
+		return nil, err
+	}
+	if err := a.exportConfigRepositoryTeamAIProfiles(ctx, repo, files); err != nil {
 		return nil, err
 	}
 	if err := a.exportConfigRepositoryAuthSettings(ctx, repo, files); err != nil {

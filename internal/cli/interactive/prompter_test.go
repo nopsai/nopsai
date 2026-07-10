@@ -30,8 +30,19 @@ func TestPrompterAskRequiredConfirmAndChoose(t *testing.T) {
 	if err != nil || selected != 1 {
 		t.Fatalf("Choose() = %d, %v", selected, err)
 	}
-	if text := output.String(); !strings.Contains(text, "Enter y or n.") || !strings.Contains(text, "GET /v1/auth/providers") {
+	if text := output.String(); !strings.Contains(text, "Enter y or n.") || !strings.Contains(text, "No.  Option") || !strings.Contains(text, "GET /v1/auth/providers") {
 		t.Fatalf("prompt output = %q", text)
+	}
+}
+
+func TestPrompterAskSeparatesPromptWhenInputDoesNotEcho(t *testing.T) {
+	var output bytes.Buffer
+	prompter := NewPrompter(strings.NewReader("value\n"), &output)
+	if value, err := prompter.Ask("Value", ""); err != nil || value != "value" {
+		t.Fatalf("Ask() = %q, %v", value, err)
+	}
+	if text := output.String(); !strings.Contains(text, "Value: \n") {
+		t.Fatalf("prompt was not separated from following output: %q", text)
 	}
 }
 
@@ -45,7 +56,7 @@ func TestPrompterChooseCanSearchAgainAndReportsEOF(t *testing.T) {
 	if err != nil || selected != 0 {
 		t.Fatalf("Choose() = %d, %v", selected, err)
 	}
-	if !strings.Contains(output.String(), "No matches") {
+	if !strings.Contains(output.String(), "No matches") || !strings.Contains(output.String(), "Type search terms") {
 		t.Fatalf("missing search feedback in %q", output.String())
 	}
 
@@ -127,7 +138,7 @@ func TestLiveChoiceViewportAndRendering(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := output.String()
-	if !strings.Contains(text, "Showing 2-11 of 12 matches") || !strings.Contains(text, "> 11  choice-k") || strings.Contains(text, "choice-l") {
+	if !strings.Contains(text, "Matches: 2-11 of 12") || !strings.Contains(text, ">     11  choice-k") || strings.Contains(text, "choice-l") {
 		t.Fatalf("rendered viewport = %q", text)
 	}
 	if strings.Contains(text, "\x1b[2J") || strings.Contains(text, "\x1b[?1049") {
@@ -162,6 +173,29 @@ func TestChoiceSearchIgnoresDisplayOnlyDescriptions(t *testing.T) {
 	}
 }
 
+func TestChoiceTableAlignsDetails(t *testing.T) {
+	choices := []Choice{
+		{Label: "GET /healthz", Description: "domain=platform"},
+		{Label: "POST /v1/auth/login", Description: "domain=auth, public"},
+	}
+	lines := choiceTableLines(choices, []int{0, 1}, 1, 0, 2, 80, true)
+	if len(lines) != 4 {
+		t.Fatalf("table lines = %#v", lines)
+	}
+	detailsColumn := strings.Index(lines[0], "Details")
+	if detailsColumn < 0 {
+		t.Fatalf("missing details header: %#v", lines)
+	}
+	for _, line := range lines[2:] {
+		if index := strings.Index(line, "domain="); index != detailsColumn {
+			t.Fatalf("details column = %d, want %d in %q", index, detailsColumn, line)
+		}
+	}
+	if !strings.HasPrefix(lines[3], ">") {
+		t.Fatalf("selected row was not marked: %#v", lines)
+	}
+}
+
 func TestRunLiveChoiceSelectorFiltersAndNavigates(t *testing.T) {
 	choices := []Choice{
 		{Label: "GET /healthz", SearchText: "platform"},
@@ -173,7 +207,7 @@ func TestRunLiveChoiceSelectorFiltersAndNavigates(t *testing.T) {
 	if err != nil || selected != 2 {
 		t.Fatalf("filtered selector = %d, %v", selected, err)
 	}
-	if text := output.String(); !strings.Contains(text, "Search: login") || !strings.Contains(text, ">  1  POST /v1/auth/login") || strings.Contains(text, "\x1b[2J") || strings.Contains(text, "\x1b[?1049") {
+	if text := output.String(); !strings.Contains(text, "Search: login") || !strings.Contains(text, ">      1  POST /v1/auth/login") || strings.Contains(text, "\x1b[2J") || strings.Contains(text, "\x1b[?1049") {
 		t.Fatalf("filtered render = %q", text)
 	}
 
@@ -186,7 +220,7 @@ func TestRunLiveChoiceSelectorFiltersAndNavigates(t *testing.T) {
 	if err != nil || selected != 11 {
 		t.Fatalf("navigated selector = %d, %v", selected, err)
 	}
-	if !strings.Contains(output.String(), "Showing 3-12 of 12 matches") {
+	if !strings.Contains(output.String(), "Matches: 3-12 of 12") {
 		t.Fatalf("navigation did not scroll viewport: %q", output.String())
 	}
 
@@ -201,7 +235,7 @@ func TestRunLiveChoiceSelectorFiltersAndNavigates(t *testing.T) {
 	if err != nil || selected != 0 {
 		t.Fatalf("no-match recovery selector = %d, %v", selected, err)
 	}
-	if !strings.Contains(output.String(), "No matches.") {
+	if !strings.Contains(output.String(), "No matches for") {
 		t.Fatalf("no-match state was not rendered: %q", output.String())
 	}
 

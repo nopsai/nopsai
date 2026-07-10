@@ -30,12 +30,3 @@ export async function fetchRunLogs<T>(runID: string, sinceLine: number): Promise
   const payload = (await response.json()) as T[] | null;
   return Array.isArray(payload) ? payload : [];
 }
-
-export async function fetchGroupConfigRepository(folderPath: string): Promise<unknown | null> {
-  const response = await apiClient.fetch(`/v1/groups/${encodeURIComponent(folderPath)}/config-repo`, { cache: 'no-store' });
-  if (response.status === 404) return null;
-  if (!response.ok) {
-    throw new Error(await responseError(response, `Unable to load config repository (${response.status})`));
-  }
-  return response.json();
-}

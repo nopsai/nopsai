@@ -113,11 +113,41 @@ func (a *App) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(context.Background(), "SELECT id, name, COALESCE(kind, 'group'), parent_id, description, COALESCE(repo_url, ''), COALESCE(repository_full_name, '') FROM groups")
+	filtered, _, err := a.visibleGroupsForRequest(r)
+	if err != nil {
+		http.Error(w, err.message, err.status)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(filtered)
+}
+
+type groupListError struct {
+	status  int
+	message string
+	err     error
+}
+
+func (e *groupListError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.err != nil {
+		return e.err.Error()
+	}
+	return e.message
+}
+
+func groupListStatusError(status int, message string, err error) *groupListError {
+	return &groupListError{status: status, message: message, err: err}
+}
+
+func (a *App) visibleGroupsForRequest(r *http.Request) ([]Group, map[int]groupPathRecord, *groupListError) {
+	rows, err := a.db.Query(r.Context(), "SELECT id, name, COALESCE(kind, 'group'), parent_id, description, COALESCE(repo_url, ''), COALESCE(repository_full_name, '') FROM groups")
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query groups from database")
-		http.Error(w, "Failed to retrieve groups", http.StatusInternalServerError)
-		return
+		return nil, nil, groupListStatusError(http.StatusInternalServerError, "Failed to retrieve groups", err)
 	}
 	defer rows.Close()
 
@@ -130,8 +160,7 @@ func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
 		var description sql.NullString
 		if err := rows.Scan(&g.ID, &g.Name, &g.Kind, &parentID, &description, &g.RepoURL, &g.RepositoryFullName); err != nil {
 			log.Error().Err(err).Msg("Failed to scan group row")
-			http.Error(w, "Error processing groups", http.StatusInternalServerError)
-			return
+			return nil, nil, groupListStatusError(http.StatusInternalServerError, "Error processing groups", err)
 		}
 		if parentID.Valid {
 			pid := int(parentID.Int32)
@@ -160,8 +189,7 @@ func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
 	}
 	if rows.Err() != nil {
 		log.Error().Err(rows.Err()).Msg("Error iterating over group rows")
-		http.Error(w, "Error retrieving groups", http.StatusInternalServerError)
-		return
+		return nil, nil, groupListStatusError(http.StatusInternalServerError, "Error retrieving groups", rows.Err())
 	}
 
 	for i := range allGroups {
@@ -170,8 +198,7 @@ func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
 
 	pathRecords, err := a.folderPathRecords(r.Context())
 	if err != nil {
-		http.Error(w, "Failed to resolve folder paths", http.StatusInternalServerError)
-		return
+		return nil, nil, groupListStatusError(http.StatusInternalServerError, "Failed to resolve folder paths", err)
 	}
 
 	resources := make([]model.ResourceRef, 0, len(allGroups))
@@ -186,8 +213,7 @@ func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
 
 	allowedSet, err := a.allowedResourceSet(r, "folder.list", resources)
 	if err != nil {
-		http.Error(w, "Authorization unavailable", http.StatusServiceUnavailable)
-		return
+		return nil, nil, groupListStatusError(http.StatusServiceUnavailable, "Authorization unavailable", err)
 	}
 	visibleGroupIDs, directAllowedGroupIDs := visibleFolderGroupIDs(allGroups, pathRecords, allowedSet)
 
@@ -197,7 +223,7 @@ func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
         JOIN pipeline_runs r ON g.id = r.group_id
         GROUP BY g.id
     `
-	runRows, err := a.db.Query(context.Background(), query)
+	runRows, err := a.db.Query(r.Context(), query)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query last run times for groups")
 	} else {
@@ -228,8 +254,7 @@ func (a *App) handleGetGroups(w http.ResponseWriter, r *http.Request) {
 		filtered = append(filtered, group)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(filtered)
+	return filtered, pathRecords, nil
 }
 
 func visibleFolderGroupIDs(allGroups []Group, pathRecords map[int]groupPathRecord, allowedSet map[string]struct{}) (map[int]struct{}, map[int]struct{}) {

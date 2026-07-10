@@ -412,6 +412,7 @@ Sync behavior:
   master key; otherwise keep the secret key with no value
 - sync system/global config repositories before group config repositories, so group bindings defined in Git can be picked up during the same sync-all run
 - group config repositories are authoritative for resources under their group path; parent repos prune their own managed resources in delegated groups
+- team-scoped LLM, Agent, and MCP profile rows carry config repository metadata; Teams exposes profile editors, team config repositories import/export root `ai-profiles.yaml`, and run launch merges team profiles over the system catalog while system profile GitOps remains under `setting/system/*`
 - config repository bindings can enable Git push to a review branch with `write_enabled` and `write_branch`
 - config repository drift compares both directions across syncable declarative resources: pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, notification routes, run group/config-repository structure, access manifests, Agent Profiles, LLM profiles, MCP registry files, auth settings, mail settings, runtime settings, and encrypted credential envelopes. UI-side Access dialog changes for pipelines, reusable steps, scopes, and knowledge contexts are exported back into embedded GitOps `access:` blocks; pipeline run rows remain runtime/audit state.
 - config sync can adopt matching database-owned resources inside the syncing repo scope after the generated files are present in the sync branch, then mark them as GitOps-managed
@@ -476,14 +477,14 @@ Pipeline notifications include:
   `GET|PUT|DELETE /v1/groups/{group}/notifications`
 - GitOps support for global `config-repositories/groups/<group>/notifications.yaml`
   files and delegated group-repo `notifications.yaml` files at the configured
-  repository base path; review drift from the Pipeline Runs group settings so
-  the repository that owns the group performs the export
+  repository base path; review drift from Teams so the repository that owns the
+  group performs the export
 - one or more named routes per group policy, each with same-group recipients,
   explicit users/groups, excludes, event selection, pipeline/repository/branch
   filters, mail channels, and dedupe/max-per-run throttling
 - explicit schedule and external-trigger `run_group_path` selection so runtime
   notifications can target the operational group even when the pipeline is
-  defined elsewhere; selectable groups come from the Pipeline Runs hierarchy
+  defined elsewhere; selectable groups come from the team hierarchy
 - asynchronous mail delivery for running, pending, success, failure, cancelled,
   approval requested, approval approved, and approval rejected events when a
   saved or GitOps-managed route exists for the run group
@@ -517,12 +518,18 @@ Run organization behavior:
 
 - folder/group path is the stable product boundary for pipelines, schedules,
   external triggers, repositories, and runs
-- the Pipeline Runs root shows top-level groups, top-level applications, and
-  runs without a group assignment
+- Teams owns create/delete, application placement, GitOps repository settings,
+  and notification routing for the current group hierarchy
+- Teams exposes delegated LLM, Agent, and MCP profile APIs for callers with
+  `folder.read` or `folder.update` on the selected team
+- Pipeline Runs shows runtime history for selected groups/applications and runs
+  without a group assignment
 - pipeline path is used as the run owner when a run has no repository or
   explicit group path
 - repository metadata remains a source/runtime identity for Git-triggered runs,
   not a mandatory parent for every pipeline
+- repository-triggered runs do not create application/group records when no
+  existing owner can be resolved
 - scope remains a runtime environment/context attribute and filter; it is not a
   navigation parent under pipeline runs
 

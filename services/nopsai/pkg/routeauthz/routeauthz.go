@@ -167,6 +167,57 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		case http.MethodDelete:
 			return "", model.ResourceRef{}, false, nil
 		}
+	case strings.HasPrefix(path, "/v1/teams/") && strings.HasSuffix(path, "/config-repository/sync"):
+		resource = model.ResourceRef{Type: "folder", ID: teamIDFromConfigPath(path, "/config-repository/sync")}
+		if r.Method == http.MethodGet {
+			return "config_repo.read", resource, false, nil
+		}
+		return "config_repo.sync", resource, false, nil
+	case strings.HasPrefix(path, "/v1/teams/") && strings.HasSuffix(path, "/config-repository/write"):
+		return "config_repo.manage", model.ResourceRef{Type: "folder", ID: teamIDFromConfigPath(path, "/config-repository/write")}, false, nil
+	case strings.HasPrefix(path, "/v1/teams/") && strings.HasSuffix(path, "/config-repository/drift"):
+		return "config_repo.read", model.ResourceRef{Type: "folder", ID: teamIDFromConfigPath(path, "/config-repository/drift")}, false, nil
+	case strings.HasPrefix(path, "/v1/teams/") && strings.HasSuffix(path, "/config-repository"):
+		resource = model.ResourceRef{Type: "folder", ID: teamIDFromConfigPath(path, "/config-repository")}
+		switch r.Method {
+		case http.MethodGet:
+			return "config_repo.read", resource, false, nil
+		case http.MethodPut, http.MethodPatch, http.MethodDelete:
+			return "config_repo.manage", resource, false, nil
+		}
+	case strings.HasPrefix(path, "/v1/teams/") && strings.HasSuffix(path, "/notifications"):
+		resource = model.ResourceRef{Type: "folder", ID: teamIDFromConfigPath(path, "/notifications")}
+		if r.Method == http.MethodGet {
+			return "config_repo.read", resource, false, nil
+		}
+		return "config_repo.manage", resource, false, nil
+	case isTeamScopedProfilePath(path):
+		resource = model.ResourceRef{Type: "folder", ID: teamIDFromProfilePath(path)}
+		if r.Method == http.MethodGet {
+			return "folder.read", resource, false, nil
+		}
+		return "folder.update", resource, false, nil
+	case path == "/v1/teams":
+		switch r.Method {
+		case http.MethodGet:
+			return "folder.list", model.ResourceRef{Type: "folder", ID: "*"}, true, nil
+		case http.MethodPost:
+			return "", model.ResourceRef{}, false, nil
+		}
+	case strings.HasPrefix(path, "/v1/teams/") && strings.Contains(path, "/applications"):
+		switch r.Method {
+		case http.MethodGet:
+			return "folder.read", model.ResourceRef{Type: "folder", ID: teamIDFromApplicationsPath(path)}, false, nil
+		case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+			return "", model.ResourceRef{}, false, nil
+		}
+	case strings.HasPrefix(path, "/v1/teams/"):
+		switch r.Method {
+		case http.MethodGet:
+			return "folder.read", model.ResourceRef{Type: "folder", ID: teamIDFromTeamPath(path)}, false, nil
+		case http.MethodPut, http.MethodPatch, http.MethodDelete:
+			return "", model.ResourceRef{}, false, nil
+		}
 	case path == "/v1/pipelines" && r.Method == http.MethodGet:
 		return "pipeline.list", model.ResourceRef{Type: "pipeline", ID: "*"}, true, nil
 	case path == "/v1/schedules" && r.Method == http.MethodGet:
@@ -551,6 +602,57 @@ func folderIDFromConfigRepoPath(path, suffix string) string {
 		folderID = decoded
 	}
 	return normalizePathIdentifier(folderID)
+}
+
+func teamIDFromConfigPath(path, suffix string) string {
+	teamID := strings.TrimSpace(path)
+	teamID = strings.TrimPrefix(teamID, "/v1/teams/")
+	teamID = strings.TrimSuffix(teamID, suffix)
+	if decoded, err := url.PathUnescape(teamID); err == nil {
+		teamID = decoded
+	}
+	return normalizePathIdentifier(teamID)
+}
+
+func teamIDFromTeamPath(path string) string {
+	teamID := strings.TrimPrefix(strings.TrimSpace(path), "/v1/teams/")
+	if decoded, err := url.PathUnescape(teamID); err == nil {
+		teamID = decoded
+	}
+	return normalizePathIdentifier(teamID)
+}
+
+func teamIDFromApplicationsPath(path string) string {
+	teamID := strings.TrimPrefix(strings.TrimSpace(path), "/v1/teams/")
+	teamID = strings.SplitN(teamID, "/applications", 2)[0]
+	if decoded, err := url.PathUnescape(teamID); err == nil {
+		teamID = decoded
+	}
+	return normalizePathIdentifier(teamID)
+}
+
+func isTeamScopedProfilePath(path string) bool {
+	if !strings.HasPrefix(path, "/v1/teams/") {
+		return false
+	}
+	return strings.Contains(path, "/llm-profiles") ||
+		strings.Contains(path, "/agent-profiles") ||
+		strings.Contains(path, "/mcp-profiles") ||
+		strings.Contains(path, "/mcp/profiles")
+}
+
+func teamIDFromProfilePath(path string) string {
+	teamID := strings.TrimPrefix(strings.TrimSpace(path), "/v1/teams/")
+	for _, marker := range []string{"/llm-profiles", "/agent-profiles", "/mcp-profiles", "/mcp/profiles"} {
+		if index := strings.Index(teamID, marker); index >= 0 {
+			teamID = teamID[:index]
+			break
+		}
+	}
+	if decoded, err := url.PathUnescape(teamID); err == nil {
+		teamID = decoded
+	}
+	return normalizePathIdentifier(teamID)
 }
 
 func normalizeStepIdentifier(value string) string {

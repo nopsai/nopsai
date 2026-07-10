@@ -56,7 +56,8 @@ check covers pipelines, reusable steps, schedules, trigger manifests, Git
 webhook sources, scopes,
 knowledge contexts, run group/config-repository structure, notification routes,
 access manifests, Agent Profiles, LLM profiles, MCP registry files, auth
-settings, mail settings, runtime settings, and encrypted credential envelopes.
+settings, mail settings, runtime settings, team `ai-profiles.yaml` files, and
+encrypted credential envelopes.
 Pipeline run records themselves are runtime audit state, so they are not
 exported as Git-owned objects. For pipeline, reusable step, scope, and knowledge context Access dialog
 changes, the generated diff updates the embedded `access:` block in that
@@ -91,6 +92,7 @@ knowledge/             Managed knowledge context markdown documents
 config-repositories/   Group config repo bindings, group structure, and colocated notifications
 access/                Users, service accounts, advanced roles, policies, and basic role grants
 setting/               System settings such as auth, mail, Agent Profiles, LLM, MCP, runtime settings, and encrypted credentials
+ai-profiles.yaml       Team-owned LLM, Agent, and MCP profiles in group config repositories
 ```
 
 Scope files use separate `variables:` and `secrets:` sections. Variables must be
@@ -429,10 +431,10 @@ or repo-relative IDs that sync can normalize under the bound group. A
 `run_group_path` controls where scheduled runs appear and which notification
 routes receive their events. Use `run_group_path: root` to keep runs at the
 Pipeline Runs root without assigning them to a group.
-Repository-triggered runs that do not set an explicit run group are grouped by
-the matching repository/app folder first, then by the pipeline path. This keeps
-AAA visibility aligned with app ownership when a child-folder repository invokes
-a shared parent-folder pipeline.
+Repository-triggered runs that do not set an explicit run group are assigned to
+an existing matching repository/application owner when one exists. Runtime
+ingestion does not create or rewrite team/application records; unmatched
+repository runs stay ungrouped until a team/application owner is configured.
 
 Group notification policies control who receives pipeline event notifications for
 a run group. A system/global repo can define policies at
@@ -447,10 +449,10 @@ approval_approved, approval_rejected, cancelled, and skipped. Branch, pipeline,
 and repository filters use glob-style patterns, and delivery currently supports
 the `mail` channel. Policies apply to their group subtree, with the nearest
 policy in the run group's ancestry taking precedence. Schedules and external
-triggers can set `run_group_path` from the Pipeline Runs hierarchy when their run
-events should be routed to a notification group that differs from the target
-pipeline's group. The reserved `root` value always means the Pipeline Runs root,
-not a group named `root`.
+triggers can set `run_group_path` from the Teams hierarchy when their run events
+should be routed to a notification group that differs from the target pipeline's
+group. The reserved `root` value always means the Pipeline Runs root, not a
+group named `root`.
 
 Nopsai reads every `.yaml` and `.yml` file under `access/`; file names such as
 `all.yaml` or `grants.yaml` are only examples, so teams can split manifests by

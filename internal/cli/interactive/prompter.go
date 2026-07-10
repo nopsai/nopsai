@@ -63,6 +63,9 @@ func (p *Prompter) Ask(label, defaultValue string) (string, error) {
 		_, _ = fmt.Fprintf(p.out, "%s: ", label)
 	}
 	line, err := p.reader.ReadString('\n')
+	if !p.promptEchoesToOutput() {
+		_, _ = fmt.Fprintln(p.out)
+	}
 	if err != nil && !errors.Is(err, io.EOF) {
 		return "", err
 	}
@@ -127,9 +130,19 @@ func (p *Prompter) canUseLiveSelector() bool {
 		isTerminal(int(p.outFile.Fd()))
 }
 
+func (p *Prompter) promptEchoesToOutput() bool {
+	return p.inFile != nil &&
+		p.outFile != nil &&
+		isTerminal(int(p.inFile.Fd())) &&
+		isTerminal(int(p.outFile.Fd()))
+}
+
 func (p *Prompter) chooseLine(label string, choices []Choice) (int, error) {
+	label = strings.TrimSpace(label)
 	for {
-		query, err := p.Ask(label+" search", "")
+		_, _ = fmt.Fprintln(p.out, label)
+		_, _ = fmt.Fprintln(p.out, "Type search terms, or press Enter to list every option.")
+		query, err := p.Ask("Search", "")
 		if err != nil {
 			return -1, err
 		}
@@ -142,11 +155,12 @@ func (p *Prompter) chooseLine(label string, choices []Choice) (int, error) {
 		if limit > choiceViewportSize {
 			limit = choiceViewportSize
 		}
-		for index := 0; index < limit; index++ {
-			_, _ = fmt.Fprintf(p.out, "%2d) %s\n", index+1, choiceText(choices[matches[index]]))
+		_, _ = fmt.Fprintf(p.out, "Matches: 1-%d of %d\n", limit, len(matches))
+		for _, line := range choiceTableLines(choices, matches, -1, 0, limit, fallbackChoiceTerminalWidth, false) {
+			_, _ = fmt.Fprintln(p.out, line)
 		}
 		if len(matches) > limit {
-			_, _ = fmt.Fprintf(p.out, "Showing %d of %d matches; enter s to search again.\n", limit, len(matches))
+			_, _ = fmt.Fprintf(p.out, "Showing first %d of %d matches. Enter s to search again.\n", limit, len(matches))
 		}
 		for {
 			raw, err := p.Ask("Select number", "1")
@@ -390,16 +404,24 @@ func renderLiveChoices(writer io.Writer, label string, choices []Choice, query s
 		return lines, err
 	}
 	lines++
-	if err := writeChoiceLine(writer, width, "Search: %s", query); err != nil {
+	searchText := query
+	if searchText == "" {
+		searchText = "type to filter"
+	}
+	if err := writeChoiceLine(writer, width, "Search: %s", searchText); err != nil {
 		return lines, err
 	}
 	lines++
-	if err := writeChoiceLine(writer, width, "Keys: Up/Down move | PgUp/PgDn jump | Enter select | Ctrl+C cancel"); err != nil {
+	if err := writeChoiceLine(writer, width, "Keys: type filter | Up/Down move | PgUp/PgDn jump | Enter | Ctrl+C"); err != nil {
 		return lines, err
 	}
 	lines++
 	if len(matches) == 0 {
-		if err := writeChoiceLine(writer, width, "No matches. Keep typing or backspace to widen the search."); err != nil {
+		if err := writeChoiceLine(writer, width, "No matches for %q.", query); err != nil {
+			return lines, err
+		}
+		lines++
+		if err := writeChoiceLine(writer, width, "Keep typing, or use Backspace to widen the search."); err != nil {
 			return lines, err
 		}
 		lines++
@@ -415,32 +437,12 @@ func renderLiveChoices(writer io.Writer, label string, choices []Choice, query s
 	if end > len(matches) {
 		end = len(matches)
 	}
-	if err := writeChoiceLine(writer, width, "Showing %d-%d of %d matches", offset+1, end, len(matches)); err != nil {
+	if err := writeChoiceLine(writer, width, "Matches: %d-%d of %d", offset+1, end, len(matches)); err != nil {
 		return lines, err
 	}
 	lines++
-	if err := writeChoiceLine(writer, width, "Sel  #   Option"); err != nil {
-		return lines, err
-	}
-	lines++
-	if err := writeChoiceLine(writer, width, "---  --  ------"); err != nil {
-		return lines, err
-	}
-	lines++
-	for row := 0; row < choiceViewportSize; row++ {
-		index := offset + row
-		if index >= end {
-			if err := writeChoiceLine(writer, width, ""); err != nil {
-				return lines, err
-			}
-			lines++
-			continue
-		}
-		prefix := " "
-		if index == selected {
-			prefix = ">"
-		}
-		if err := writeChoiceLine(writer, width, "%s %2d  %s", prefix, index+1, choiceText(choices[matches[index]])); err != nil {
+	for _, line := range choiceTableLines(choices, matches, selected, offset, choiceViewportSize, width, true) {
+		if err := writeChoiceLine(writer, width, "%s", line); err != nil {
 			return lines, err
 		}
 		lines++
@@ -516,14 +518,6 @@ func ensureChoiceOffset(selected, offset, total int) int {
 		return 0
 	}
 	return offset
-}
-
-func choiceText(choice Choice) string {
-	description := strings.TrimSpace(choice.Description)
-	if description == "" {
-		return choice.Label
-	}
-	return choice.Label + " - " + description
 }
 
 func matchChoices(choices []Choice, query string) []int {

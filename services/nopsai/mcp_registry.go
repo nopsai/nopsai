@@ -27,6 +27,10 @@ func (a *App) setMCPRegistry(servers map[string]models.MCPServer, profiles map[s
 
 func (a *App) mcpCatalogForValidation(cfg config.Config) map[string]validation.MCPProfileDefinition {
 	profiles := cfg.EffectiveMCPProfiles()
+	return mcpCatalogForProfiles(profiles)
+}
+
+func mcpCatalogForProfiles(profiles map[string]models.MCPProfile) map[string]validation.MCPProfileDefinition {
 	catalog := make(map[string]validation.MCPProfileDefinition, len(profiles))
 	for name, profile := range profiles {
 		catalog[name] = validation.MCPProfileDefinition{
@@ -38,12 +42,20 @@ func (a *App) mcpCatalogForValidation(cfg config.Config) map[string]validation.M
 }
 
 func (a *App) validatePipelineMCPProfiles(pipeline *models.Pipeline, scope string) error {
+	return a.validatePipelineMCPProfilesForTeam(context.Background(), pipeline, scope, nil)
+}
+
+func (a *App) validatePipelineMCPProfilesForTeam(ctx context.Context, pipeline *models.Pipeline, scope string, teamID *int) error {
 	if !models.PipelineLLMEnabled(pipeline) {
 		return nil
 	}
 	cfg := a.getConfigSnapshot()
+	profiles, err := a.effectiveMCPProfilesForTeam(ctx, cfg, teamID)
+	if err != nil {
+		return err
+	}
 	if err := validation.ValidatePipelineMCPProfiles(pipeline, validation.MCPProfileValidationOptions{
-		Profiles: a.mcpCatalogForValidation(cfg),
+		Profiles: mcpCatalogForProfiles(profiles),
 		Scope:    scope,
 	}); err != nil {
 		return err

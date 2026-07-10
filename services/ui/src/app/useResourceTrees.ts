@@ -11,7 +11,6 @@ import {
 } from './resourceTrees';
 import { apiClient } from '../lib/api';
 import { PIPELINE_DRAFTS_CHANGED_EVENT, getPipelineDraftStorageKey, loadPipelineDrafts } from '../lib/pipelineDrafts';
-import { fetchResourceGroupPaths } from '../lib/resourceGroups';
 import { STEP_DRAFTS_CHANGED_EVENT, getStepDraftStorageKey, loadStepDrafts } from '../lib/stepDrafts';
 
 type UseResourceTreesOptions = {
@@ -59,7 +58,6 @@ export function useResourceTrees({
 
   const [knowledgeContexts, setKnowledgeContexts] = useState<string[]>([]);
   const [knowledgeContextTreeOpen, setKnowledgeContextTreeOpen] = useState<Set<string>>(new Set());
-  const [resourceGroupPaths, setResourceGroupPaths] = useState<string[]>([]);
 
   const onToggleKnowledgeContextNode = useCallback((id: string) => {
     setKnowledgeContextTreeOpen(prev => toggleOpenSet(prev, id));
@@ -80,30 +78,6 @@ export function useResourceTrees({
   const onToggleTriggerNode = useCallback((id: string) => {
     setTriggerTreeOpen(prev => toggleOpenSet(prev, id));
   }, []);
-
-  useEffect(() => {
-    if (!isAuthenticated) {
-      const handle = window.setTimeout(() => setResourceGroupPaths([]), 0);
-      return () => window.clearTimeout(handle);
-    }
-    let cancelled = false;
-    const loadResourceGroups = () => {
-      void fetchResourceGroupPaths()
-        .then(paths => {
-          if (!cancelled) setResourceGroupPaths(paths);
-        })
-        .catch(error => {
-          console.warn('Failed to load groups for resource trees', error);
-          if (!cancelled) setResourceGroupPaths([]);
-        });
-    };
-    loadResourceGroups();
-    window.addEventListener('nopsai-resource-groups-changed', loadResourceGroups);
-    return () => {
-      cancelled = true;
-      window.removeEventListener('nopsai-resource-groups-changed', loadResourceGroups);
-    };
-  }, [isAuthenticated]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -312,13 +286,13 @@ export function useResourceTrees({
   }, [canWriteSteps, draftScope, pathname]);
 
   const knowledgeContextTree = useMemo(
-    () => buildKnowledgeContextTree(knowledgeContexts, resourceGroupPaths),
-    [knowledgeContexts, resourceGroupPaths]
+    () => buildKnowledgeContextTree(knowledgeContexts, []),
+    [knowledgeContexts]
   );
-  const pipelineTree = useMemo(() => buildPipelineTree(pipelines, resourceGroupPaths), [pipelines, resourceGroupPaths]);
-  const scopeTree = useMemo(() => buildScopeTree(scopes, resourceGroupPaths), [resourceGroupPaths, scopes]);
-  const stepTree = useMemo(() => buildStepTree(steps, resourceGroupPaths), [resourceGroupPaths, steps]);
-  const triggerTree = useMemo(() => buildTriggerTree(triggers, resourceGroupPaths), [resourceGroupPaths, triggers]);
+  const pipelineTree = useMemo(() => buildPipelineTree(pipelines, []), [pipelines]);
+  const scopeTree = useMemo(() => buildScopeTree(scopes, []), [scopes]);
+  const stepTree = useMemo(() => buildStepTree(steps, []), [steps]);
+  const triggerTree = useMemo(() => buildTriggerTree(triggers, []), [triggers]);
 
   return {
     knowledgeContextTree,

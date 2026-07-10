@@ -20,6 +20,7 @@ type configSyncPlan struct {
 	llmProfilePlan                       *gitOpsLLMProfilePlan
 	agentProfilePlan                     *gitOpsAgentProfilePlan
 	mcpRegistryPlan                      *mcpregistry.GitOpsPlan
+	teamAIProfilePlan                    *gitOpsTeamAIProfilePlan
 	authSettingsPlan                     *gitOpsAuthSettingsPlan
 	credentialPlan                       *gitOpsCredentialPlan
 	runtimeSettingsPlan                  *gitOpsRuntimeSettingsPlan
@@ -179,6 +180,10 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 		binding,
 		mcpregistry.GitOpsDirectory{Root: settingDir, Files: files.setting},
 	)
+	if err != nil {
+		return configSyncPlan{}, err
+	}
+	plan.teamAIProfilePlan, err = parseGitOpsTeamAIProfilePlan(binding, repoCtx, files.teamAIProfiles)
 	if err != nil {
 		return configSyncPlan{}, err
 	}

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, KeyRound, Plus, Search, X } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { fetchResourceGroupPaths } from '../lib/resourceGroups';
 import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowToastRegion';
 import { ScopeCollectionList } from '../features/scopes/ScopeCollectionList';
 import { ScopeDetailView } from '../features/scopes/ScopeDetailView';
@@ -63,7 +62,6 @@ function ScopesPage({
   const [activeFolder, setActiveFolder] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
-  const [resourceGroupPaths, setResourceGroupPaths] = useState<string[]>([]);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const [selectedScope, setSelectedScope] = useState<string | null>(null);
@@ -395,21 +393,6 @@ function ScopesPage({
   }, [loadScopes]);
 
   useEffect(() => {
-    let cancelled = false;
-    void fetchResourceGroupPaths()
-      .then(paths => {
-        if (!cancelled) setResourceGroupPaths(paths);
-      })
-      .catch(error => {
-        console.warn('Failed to load groups for scope tree', error);
-        if (!cancelled) setResourceGroupPaths([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
     if (!scopes.length) return;
     const tasks: Array<() => Promise<void>> = [];
     scopes.forEach(scope => {
@@ -546,7 +529,7 @@ function ScopesPage({
     return entries;
   }, [scopeDataByScope]);
 
-  const scopeTree = useMemo(() => buildScopeTree(scopes, resourceGroupPaths), [resourceGroupPaths, scopes]);
+  const scopeTree = useMemo(() => buildScopeTree(scopes, []), [scopes]);
 
   const filteredScopes = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
