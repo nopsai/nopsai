@@ -91,7 +91,10 @@ func TestNewConfigSyncRepositoryContextRequiresFolderScopeID(t *testing.T) {
 
 func TestFetchConfigSyncRepositoryFilesAddsFolderNotificationRoot(t *testing.T) {
 	reader := &fakeConfigSyncGitReader{
-		files: map[string]string{"config/notifications.yaml": "routes: []\n"},
+		files: map[string]string{
+			"config/notifications.yaml": "routes: []\n",
+			"config/ai-profiles.yaml":   "llm_profiles: []\n",
+		},
 	}
 	binding := models.ConfigRepository{
 		ScopeType: models.ConfigRepositoryScopeFolder,
@@ -113,11 +116,19 @@ func TestFetchConfigSyncRepositoryFilesAddsFolderNotificationRoot(t *testing.T) 
 	if got := files.notifications["config/notifications.yaml"]; got != "routes: []\n" {
 		t.Fatalf("root notification content = %q, want fetched route", got)
 	}
+	if got := files.teamAIProfiles["config/ai-profiles.yaml"]; got != "llm_profiles: []\n" {
+		t.Fatalf("team AI profile content = %q, want fetched profile file", got)
+	}
 	if len(reader.accessChecks) != 1 || reader.accessChecks[0] != "acme/platform-config" {
 		t.Fatalf("access checks = %#v, want one acme/platform-config check", reader.accessChecks)
 	}
-	if len(reader.requestedFiles) != 1 || reader.requestedFiles[0] != "acme/platform-config@release:config/notifications.yaml" {
-		t.Fatalf("requested files = %#v, want folder root notification fetch", reader.requestedFiles)
+	wantRequestedFiles := []string{
+		"acme/platform-config@release:config/notifications.yaml",
+		"acme/platform-config@release:config/ai-profiles.yaml",
+		"acme/platform-config@release:config/ai-profiles.yml",
+	}
+	if !sameStringSet(reader.requestedFiles, wantRequestedFiles) {
+		t.Fatalf("requested files = %#v, want %#v", reader.requestedFiles, wantRequestedFiles)
 	}
 	if !containsString(reader.requestedDirs, "acme/platform-config@release:config/pipelines") {
 		t.Fatalf("requested dirs = %#v, want pipeline directory request", reader.requestedDirs)
@@ -142,6 +153,9 @@ func TestFetchConfigSyncRepositoryFilesIgnoresMissingFolderNotificationRoot(t *t
 	}
 	if _, ok := files.notifications["config/notifications.yaml"]; ok {
 		t.Fatalf("root notification should not be added when git-bot reports not found")
+	}
+	if len(files.teamAIProfiles) != 0 {
+		t.Fatalf("team AI profiles should not be added when git-bot reports not found")
 	}
 }
 
@@ -174,4 +188,16 @@ func containsString(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func sameStringSet(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for _, value := range want {
+		if !containsString(got, value) {
+			return false
+		}
+	}
+	return true
 }

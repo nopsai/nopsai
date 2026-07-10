@@ -5,6 +5,7 @@ import { PermissionGuard } from '../auth/permissionGuards';
 import type { CurrentUser } from './types';
 
 const PipelineRunsPage = lazy(() => import('../pages/PipelineRuns'));
+const TeamsPage = lazy(() => import('../pages/Teams'));
 const PipelinesPage = lazy(() => import('../pages/Pipelines'));
 const SchedulesPage = lazy(() => import('../pages/Schedules'));
 const TriggersPage = lazy(() => import('../pages/Triggers'));
@@ -47,6 +48,7 @@ export function AppRoutes({
         <Route path="/" element={<Navigate to="/pipelineruns/main" replace />} />
         <Route path="/pipelineruns/:tab?" element={<PipelineRunsPage />} />
         <Route path="/monitoring" element={<MonitoringPage />} />
+        <Route path="/teams" element={<TeamsPage />} />
         <Route path="/assistant" element={<AssistantPage />} />
         <Route path="/docs" element={<ProductDocsPage />} />
         <Route

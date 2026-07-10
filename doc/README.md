@@ -9,6 +9,7 @@ Start here when you want to understand the system from different angles:
 - [cli.md](./cli.md): Operator CLI contexts, credentials, interactive REST access, completion files, platform diagnostics, GitOps deployment, and binary separation.
 - [release-bundles.md](./release-bundles.md): Shared build identity, compatibility contracts, digest-pinned release manifests, unified Helm release flow, and GitOps release locks.
 - [runtime-flows.md](./runtime-flows.md): Step-by-step execution flows for request authorization, webhooks, manual runs, dispatching, agent execution, child pipelines, cancellation, and config sync.
+- [team-resource-ownership-design.md](./team-resource-ownership-design.md): Target design for separating Teams from Pipeline Runs and adding team-scoped LLM, Agent, and MCP profiles.
 - [kubernetes-runner.md](./kubernetes-runner.md): Kubernetes runner runtime, namespace deployment, agent-owned PVC workspace behavior, node affinity, GitOps settings, one-time install commands, and GitOps manifests.
 - [feature-reference.md](./feature-reference.md): Functional capabilities exposed by the codebase and UI.
 - [assistant-capabilities.md](./assistant-capabilities.md): User-facing assistant capabilities and example chat prompts for each NopsAI feature area.

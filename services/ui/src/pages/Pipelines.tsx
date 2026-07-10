@@ -7,7 +7,6 @@ import {
   loadPipelineDrafts,
   upsertPipelineDraft,
 } from '../lib/pipelineDrafts';
-import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups';
 import { applyEnterIndent } from '../lib/lab';
 import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowToastRegion';
 import { fetchEditorAutocompleteMetadata } from '../features/editor/autocomplete';
@@ -85,7 +84,6 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   const [listError, setListError] = useState<string | null>(null);
   const [activeFolder, setActiveFolder] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [resourceGroupPaths, setResourceGroupPaths] = useState<string[]>([]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedIdRef = useRef<string | null>(null);
@@ -447,21 +445,6 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   }, [loadPipelines]);
 
   useEffect(() => {
-    let cancelled = false;
-    void fetchResourceGroupPaths()
-      .then(paths => {
-        if (!cancelled) setResourceGroupPaths(paths);
-      })
-      .catch(error => {
-        console.warn('Failed to load groups for pipeline tree', error);
-        if (!cancelled) setResourceGroupPaths([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
     if (listLoading || listError) return;
     const activeId = selectedIdRef.current;
     if (!activeId) return;
@@ -559,9 +542,6 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
 
   const buildTree = useMemo(() => {
     const root: TreeNode = { id: '__root__', name: '', fullPath: '', children: [], pipelineIds: [] };
-    resourceGroupPaths.forEach(path => {
-      insertGroupPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], pipelineIds: [] }));
-    });
     pipelines.forEach(item => {
       const parts = item.id.split('/').filter(Boolean);
       const pipelineName = parts.pop();
@@ -582,7 +562,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       current.pipelineIds.sort((a, b) => a.localeCompare(b));
     });
     return root;
-  }, [pipelines, resourceGroupPaths]);
+  }, [pipelines]);
 
   const activeFolderNode = useMemo(() => {
     if (!activeFolder) return buildTree;

@@ -74,3 +74,63 @@ triggers:
 		t.Fatalf("trigger = %#v, want original manifest definition", trigger)
 	}
 }
+
+func TestParseConfigSyncPlanLoadsTeamAIProfiles(t *testing.T) {
+	binding := models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeFolder,
+		ScopeID:   "team-1",
+		RepoURL:   "https://github.com/acme/platform-config",
+		BasePath:  "config",
+	}
+	repoCtx, err := newConfigSyncRepositoryContext(binding)
+	if err != nil {
+		t.Fatalf("newConfigSyncRepositoryContext() error = %v", err)
+	}
+
+	files := configSyncRepositoryFiles{
+		teamAIProfiles: map[string]string{
+			"config/ai-profiles.yaml": `
+llm_default_profile: review
+llm_profiles:
+  - name: review
+    provider: openai
+    model: gpt-4.1
+    credential_ref: ref://secret/llm-openai
+agent_default_profile: release-reviewer
+agent_profiles:
+  - id: release-reviewer
+    display_name: Release Reviewer
+    instructions: Review release risk.
+mcp_profiles:
+  - name: readonly-github
+    enabled: true
+    servers:
+      - server: github
+        tools: ["*"]
+`,
+		},
+	}
+
+	plan, err := (&App{}).parseConfigSyncPlan(binding, repoCtx, files)
+	if err != nil {
+		t.Fatalf("parseConfigSyncPlan() error = %v", err)
+	}
+	if plan.teamAIProfilePlan == nil {
+		t.Fatalf("teamAIProfilePlan = nil, want parsed plan")
+	}
+	if plan.teamAIProfilePlan.teamPath != "team-1" {
+		t.Fatalf("team path = %q, want team-1", plan.teamAIProfilePlan.teamPath)
+	}
+	if plan.teamAIProfilePlan.llmDefaultProfile == nil || *plan.teamAIProfilePlan.llmDefaultProfile != "review" {
+		t.Fatalf("llm default = %#v, want review", plan.teamAIProfilePlan.llmDefaultProfile)
+	}
+	if _, ok := plan.teamAIProfilePlan.llmProfiles["review"]; !ok {
+		t.Fatalf("llm profiles = %#v, want review", plan.teamAIProfilePlan.llmProfiles)
+	}
+	if plan.teamAIProfilePlan.agentDefaultProfile == nil || *plan.teamAIProfilePlan.agentDefaultProfile != "release-reviewer" {
+		t.Fatalf("agent default = %#v, want release-reviewer", plan.teamAIProfilePlan.agentDefaultProfile)
+	}
+	if _, ok := plan.teamAIProfilePlan.mcpProfiles["readonly-github"]; !ok {
+		t.Fatalf("mcp profiles = %#v, want readonly-github", plan.teamAIProfilePlan.mcpProfiles)
+	}
+}

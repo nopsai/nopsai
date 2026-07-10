@@ -20,6 +20,8 @@ type configRepositoryAgentProfilesExportDocument struct {
 	AgentProfiles  []agentProfileForm `yaml:"agent_profiles"`
 }
 
+type configRepositoryTeamAIProfilesExportDocument = teamAIProfilesGitOpsFile
+
 func (a *App) exportConfigRepositoryLLMProfiles(ctx context.Context, repo models.ConfigRepository, files map[string]string) error {
 	if repo.ScopeType != models.ConfigRepositoryScopeSystem {
 		return nil
@@ -133,6 +135,88 @@ func (a *App) exportConfigRepositoryMCPRegistry(ctx context.Context, repo models
 		return err
 	}
 	files[configRepositoryMCPRegistryPath] = string(content)
+	return nil
+}
+
+func (a *App) exportConfigRepositoryTeamAIProfiles(ctx context.Context, repo models.ConfigRepository, files map[string]string) error {
+	if repo.ScopeType != models.ConfigRepositoryScopeFolder {
+		return nil
+	}
+	record, status, err := a.resolveTeamRecord(ctx, repo.ScopeID, false)
+	if err != nil {
+		if status == 404 {
+			return nil
+		}
+		return err
+	}
+
+	llmDefault, err := a.loadTeamProfileSetting(ctx, record.ID, teamLLMDefaultProfileSetting)
+	if err != nil {
+		return err
+	}
+	_, llmProfiles, err := a.loadTeamLLMProfilesFromDB(ctx, record.ID)
+	if err != nil {
+		return err
+	}
+	agentDefault, err := a.loadTeamProfileSetting(ctx, record.ID, teamAgentDefaultProfileSetting)
+	if err != nil {
+		return err
+	}
+	agentProfiles, err := a.loadTeamAgentProfilesFromDB(ctx, record.ID)
+	if err != nil {
+		return err
+	}
+	mcpProfiles, err := a.loadTeamMCPProfilesFromDB(ctx, record.ID)
+	if err != nil {
+		return err
+	}
+	if len(llmProfiles) == 0 && len(agentProfiles) == 0 && len(mcpProfiles) == 0 && strings.TrimSpace(llmDefault) == "" && strings.TrimSpace(agentDefault) == "" {
+		return nil
+	}
+
+	doc := configRepositoryTeamAIProfilesExportDocument{}
+	llmDefault = config.NormalizeLLMProfileName(llmDefault)
+	if llmDefault != "" {
+		doc.LLMDefaultProfile = &llmDefault
+	}
+	llmNames := make([]string, 0, len(llmProfiles))
+	for name := range llmProfiles {
+		llmNames = append(llmNames, name)
+	}
+	sort.Strings(llmNames)
+	for _, name := range llmNames {
+		doc.LLMProfiles = append(doc.LLMProfiles, profileFormFromConfig(name, llmProfiles[name]))
+	}
+
+	agentDefault = normalizeAgentProfileDefault(agentDefault)
+	if agentDefault != "" {
+		doc.AgentDefaultProfile = &agentDefault
+	}
+	agentNames := make([]string, 0, len(agentProfiles))
+	for name := range agentProfiles {
+		agentNames = append(agentNames, name)
+	}
+	sort.Strings(agentNames)
+	for _, name := range agentNames {
+		doc.AgentProfiles = append(doc.AgentProfiles, agentProfileFormFromModel(agentProfiles[name]))
+	}
+
+	mcpNames := make([]string, 0, len(mcpProfiles))
+	for name := range mcpProfiles {
+		mcpNames = append(mcpNames, name)
+	}
+	sort.Strings(mcpNames)
+	for _, name := range mcpNames {
+		profile := models.NormalizeMCPProfile(mcpProfiles[name])
+		profile.Name = name
+		doc.MCPProfiles = append(doc.MCPProfiles, profile)
+	}
+
+	content, err := marshalConfigRepositoryYAML(doc)
+	if err != nil {
+		return err
+	}
+	files[configRepositoryTeamAIProfilesPath] = string(content)
 	return nil
 }
 

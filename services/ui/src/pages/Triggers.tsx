@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type UIEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import * as yaml from 'js-yaml';
-import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups';
 import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowToastRegion';
 import {
   buildTriggerEditorSuggestion,
@@ -57,7 +56,6 @@ function TriggersPage({
   const [activeFolder, setActiveFolder] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
-  const [resourceGroupPaths, setResourceGroupPaths] = useState<string[]>([]);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
@@ -560,21 +558,6 @@ function TriggersPage({
   }, [loadTriggers]);
 
   useEffect(() => {
-    let cancelled = false;
-    void fetchResourceGroupPaths()
-      .then(paths => {
-        if (!cancelled) setResourceGroupPaths(paths);
-      })
-      .catch(error => {
-        console.warn('Failed to load groups for trigger tree', error);
-        if (!cancelled) setResourceGroupPaths([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
     const segments = location.pathname.split('/').filter(Boolean);
     if (segments[0] !== 'triggers') return;
     if (segments.length > 1) {
@@ -671,9 +654,6 @@ function TriggersPage({
 
   const buildTree = useMemo(() => {
     const root: TriggerTreeNode = { id: '__root__', name: '', fullPath: '', children: [], triggerSlugs: [] };
-    resourceGroupPaths.forEach(path => {
-      insertGroupPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], triggerSlugs: [] }));
-    });
     serverTriggers.forEach(item => {
       const parts = item.slug.split('/').filter(Boolean);
       const triggerName = parts.pop();
@@ -694,7 +674,7 @@ function TriggersPage({
       current.triggerSlugs.sort((a, b) => a.localeCompare(b));
     });
     return root;
-  }, [resourceGroupPaths, serverTriggers]);
+  }, [serverTriggers]);
 
   const activeFolderNode = useMemo(() => {
     if (!activeFolder) return buildTree;

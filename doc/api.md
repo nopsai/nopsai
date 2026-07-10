@@ -181,6 +181,59 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - Encrypted system credential envelopes can be managed in the global config repo at `setting/system/credentials.yaml`.
 - Managed knowledge context markdown files can be synced from `knowledge/<kind>/<group>/<document>.md`.
 
+## Teams
+
+Teams own applications, GitOps bindings, notification policies, and
+team-scoped AI profiles. The current implementation stores teams and
+applications in the compatibility `groups` table, but clients should use
+`/v1/teams` for team administration.
+
+```bash
+# List teams and applications
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  'http://localhost:8080/v1/teams?include=applications'
+
+# Create a team under root
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"platform","description":"Platform engineering"}' \
+  http://localhost:8080/v1/teams
+
+# Create an application under a team
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"runner-api","repo_url":"https://github.com/acme/runner-api"}' \
+  http://localhost:8080/v1/teams/platform/applications
+```
+
+Team config repository and notification endpoints mirror the legacy group
+routes:
+
+- `GET|PUT|DELETE /v1/teams/{teamID}/config-repository`
+- `GET|POST /v1/teams/{teamID}/config-repository/sync`
+- `GET /v1/teams/{teamID}/config-repository/drift`
+- `POST /v1/teams/{teamID}/config-repository/write`
+- `GET|PUT|DELETE /v1/teams/{teamID}/notifications`
+
+Team-scoped AI profile APIs let delegated team owners define LLM, Agent, and
+MCP profiles without taking over the system-owned catalogs:
+
+- `GET|PUT /v1/teams/{teamID}/llm-profiles`
+- `PUT /v1/teams/{teamID}/llm-profiles/default`
+- `PUT|DELETE /v1/teams/{teamID}/llm-profiles/{profileName}`
+- `GET|POST /v1/teams/{teamID}/agent-profiles`
+- `PUT /v1/teams/{teamID}/agent-profiles/default`
+- `GET|PUT|DELETE /v1/teams/{teamID}/agent-profiles/{profileID}`
+- `GET|POST /v1/teams/{teamID}/mcp-profiles`
+- `GET|PUT|DELETE /v1/teams/{teamID}/mcp-profiles/{profileName}`
+
+Reads require `folder.read` on the resolved team folder. Mutations require
+`folder.update`. Team profile rows carry config-repository metadata columns and
+team config repositories import/export root `ai-profiles.yaml`; system profile
+GitOps remains under `setting/system/*` today. Run preparation and agent launch
+merge team profile definitions over the system catalogs when a run belongs to
+that team or one of its applications.
+
 ## Assistant and Hosted MCP
 
 For a user-facing guide to assistant capabilities and example chat prompts, see
@@ -1418,13 +1471,13 @@ prefix on runtime references means the root hierarchy, not a group named
 
 ---
 
-## Pipeline Run Structure
+## Team And Run Structure
 
-- The GitOps config repository can define the group and app hierarchy for the Pipeline Runs UI via scoped files such as `config-repositories/groups/team-1/structure.yaml`.
+- The GitOps config repository can define the compatibility group and app hierarchy now administered from Teams via scoped files such as `config-repositories/groups/team-1/structure.yaml`.
 - Each top-level key is a group. Nest groups by adding child keys, assign apps under a group with an `apps:` list, and optionally delegate a group with a `config:` block.
 - Schedule and external-trigger `run_group_path` values should reference groups
-  from this Pipeline Runs hierarchy, or `root` for ungrouped root runs; their UI
-  selectors are populated from Pipeline Runs groups.
+  from this team hierarchy, or `root` for ungrouped root runs; their UI
+  selectors are populated from Teams.
 - App entries require `name` and `repo_url`; NopsAI normalizes that URL to the repository identity used by triggers and run metadata.
 - Group repo bindings under `config-repositories/groups/...` always create matching group shells.
 - Structure files colocated under `config-repositories/groups` are merged into those group shells, so repository placement can live next to the group binding.
@@ -1491,7 +1544,7 @@ curl -X POST -H "Content-Type: application/json" \
 - System- and group-scoped repos may define pipeline schedules under `schedules/`.
 - System- and group-scoped repos may define managed knowledge context markdown under `knowledge/`.
 - System-scoped repos may define group pipeline notification policies with named routes under `config-repositories/groups/<group>/notifications.yaml`. Group repos can use root `notifications.yaml` for their bound group.
-- The system/global repo may define Agent Profiles and `default_profile` under `setting/system/agent-profiles.yaml`; group repos may reference approved profile IDs but cannot define the catalog.
+- The system/global repo may define Agent Profiles and `default_profile` under `setting/system/agent-profiles.yaml`. Team-scoped Agent, LLM, and MCP profiles are managed through `/v1/teams/{teamID}/...` APIs, can be imported/exported by team config repositories in root `ai-profiles.yaml`, and are merged into run launch for runs owned by that team.
 - The system/global repo may define local-login and OIDC SSO settings under `setting/system/auth.yaml`; providers bind credential references whose encrypted values can be stored in `setting/system/credentials.yaml`.
 - The system/global repo may define GitHub App IDs, credential references, and git-bot URLs under `setting/system/github.yaml`.
 - The system/global repo may define runtime runner defaults and dispatcher routing under `setting/system/runner.yaml`; dispatcher routing changes are synced into `nopsai` and applied by the live dispatcher.
@@ -1503,7 +1556,10 @@ curl -X POST -H "Content-Type: application/json" \
 - After generated files are merged into the sync branch, config sync can adopt matching database-owned resources inside the repository scope and mark them as GitOps-managed. Resources already owned by an unrelated config repo remain protected by config-repo precedence.
 - Group repositories use the same drift and write endpoint shape at `GET /v1/groups/<group-path>/config-repo/drift` and `POST /v1/groups/<group-path>/config-repo/write`. File paths are relative to the configured `base_path`.
 - Nested groups are represented by nested paths, for example `config-repositories/groups/team-2/platform.yaml` creates a binding for `team-2/platform`.
-- Group bindings also create matching group shells used by the Pipelines, Steps, Triggers, Scopes, and Pipeline Runs views.
+- Group bindings create matching team/application shells for Teams and Pipeline
+  Runs compatibility. Pipelines, Steps, Triggers, Scopes, and Knowledge Context
+  pages build trees from actual resources by default rather than showing empty
+  team shells.
 - Schedule paths can use those same group shells; `run_group_path` controls the
   Pipeline Runs group and notification route used by schedule and external
   trigger executions when it should differ from the resource path or target
@@ -1655,6 +1711,9 @@ curl -X DELETE \
 - `GET /v1/runs?groupId=<id>` returns runs for a Pipeline Runs group and its
   descendants, grouped by branch for the Main view. `groupId=root` returns runs
   with no group assignment.
+- Repository-triggered runs resolve an existing group/application owner when
+  one matches the repository, but runtime ingestion does not create or rewrite
+  group/application records.
 - Scheduled runs set `trigger_source: "schedule"` and include schedule metadata when the run came from a pipeline schedule.
 - Run log access is authorized separately from run-detail access in the low-level AAA layer.
 - Branch cleanup removes historical runs for the specified branch while leaving the repository intact.
@@ -1662,6 +1721,10 @@ curl -X DELETE \
 ---
 
 ## Run Groups
+
+The compatibility Run Groups API is still `/v1/groups`. In the UI, group and
+application administration now lives under **Teams**; Pipeline Runs uses these
+records only for runtime filtering and drilldown.
 
 ```bash
 curl -X POST -H 'Content-Type: application/json' \

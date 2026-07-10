@@ -22,6 +22,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 	llmProfilePlan := plan.llmProfilePlan
 	agentProfilePlan := plan.agentProfilePlan
 	mcpRegistryPlan := plan.mcpRegistryPlan
+	teamAIProfilePlan := plan.teamAIProfilePlan
 	authSettingsPlan := plan.authSettingsPlan
 	credentialPlan := plan.credentialPlan
 	runtimeSettingsPlan := plan.runtimeSettingsPlan
@@ -60,6 +61,17 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 				credentialMetadata("api_key", "LLM API key for "+name, llmProfilePlan.sourcePath),
 			); err != nil {
 				return fmt.Errorf("prepare LLM credential metadata for %q: %w", name, err)
+			}
+		}
+	}
+	if teamAIProfilePlan != nil {
+		for name, profile := range teamAIProfilePlan.llmProfiles {
+			if err := a.ensureCredentialReferenceMetadata(
+				ctx,
+				profile.CredentialRef,
+				credentialMetadata("api_key", "Team LLM API key for "+name, teamAIProfilePlan.sourcePath),
+			); err != nil {
+				return fmt.Errorf("prepare team LLM credential metadata for %q: %w", name, err)
 			}
 		}
 	}
@@ -1036,6 +1048,14 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 
 	if err := a.syncAccessConfiguration(ctx, tx, binding, accessPlan, commitSHA, details); err != nil {
 		return err
+	}
+	if teamAIProfilePlan != nil {
+		if err := a.persistTeamAIProfilesToTx(ctx, tx, binding, teamAIProfilePlan, commitSHA); err != nil {
+			return fmt.Errorf("failed to sync team AI profiles from '%s': %w", teamAIProfilePlan.sourcePath, err)
+		}
+		details["team_llm_profiles_synced"] = len(teamAIProfilePlan.llmProfiles)
+		details["team_agent_profiles_synced"] = len(teamAIProfilePlan.agentProfiles)
+		details["team_mcp_profiles_synced"] = len(teamAIProfilePlan.mcpProfiles)
 	}
 	if llmProfilePlan != nil {
 		if err := persistLLMProfilesToTx(ctx, tx, llmProfilePlan.defaultProfile, llmProfilePlan.profiles); err != nil {

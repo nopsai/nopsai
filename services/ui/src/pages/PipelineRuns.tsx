@@ -15,16 +15,9 @@ import { PipelineRunsPageView } from '../features/pipeline-runs/PipelineRunsPage
 import type {
   PipelineApproval,
   PipelineRunDetail as RunDetail,
-  PipelineRunsNewFolderPayload as NewFolderPayload,
   PipelineRunsTabKey as TabKey,
   PipelineRunsTriggerGroup as TriggerGroup,
 } from '../features/pipeline-runs/pageTypes';
-import { useFolderConfigRepositoryController } from '../features/pipeline-runs/useFolderConfigRepositoryController';
-
-function isReservedRootGroupName(name: string) {
-  const normalized = name.trim().replace(/^\/+|\/+$/g, '').toLowerCase();
-  return normalized === 'root' || normalized === '__general__';
-}
 
 const RECENT_FETCH_SIZE = 60;
 const RECENT_INITIAL_BATCH = 30;
@@ -69,9 +62,6 @@ function PipelineRunsPage() {
   const [recentLoadingMore, setRecentLoadingMore] = useState(false);
   const [runsLoading, setRunsLoading] = useState(false);
   const [runsError, setRunsError] = useState<string | null>(null);
-  const [newFolderOpen, setNewFolderOpen] = useState(false);
-  const [newFolderError, setNewFolderError] = useState<string | null>(null);
-  const [newFolderPending, setNewFolderPending] = useState(false);
   const [selectedRunIds, setSelectedRunIds] = useState<Set<string>>(new Set());
   const [repoSummaries, setRepoSummaries] = useState<Map<number, RepoSummary>>(new Map());
 
@@ -195,22 +185,6 @@ function PipelineRunsPage() {
     async <T,>(path: string, options?: RequestInit): Promise<T> => requestPipelineRunsJson<T>(path, options),
     []
   );
-
-  const checkAccessPermission = useCallback(async (action: string, resourceType: string, resourceID: string) => {
-    const params = new URLSearchParams({
-      action,
-      resource_type: resourceType,
-      resource_id: resourceID,
-    });
-    try {
-      const payload = await fetchJson<{ allowed?: boolean }>(`/v1/access/effective-permissions?${params.toString()}`);
-      return Boolean(payload?.allowed);
-    } catch {
-      return false;
-    }
-  }, [fetchJson]);
-
-  const folderConfig = useFolderConfigRepositoryController({ groups, fetchJson, checkAccessPermission });
 
   useLayoutEffect(() => {
     // Capture the scrollable wrapper used by the app layout so we can attach listeners there too.
@@ -505,7 +479,6 @@ function PipelineRunsPage() {
   }, [activeTab, recentRunsAll, recentVisibleCount, searchTerm]);
 
   const activeGroupPath = useMemo(() => buildGroupPath(activeGroupId, groups), [activeGroupId, groups]);
-  const activeGroupLabel = activeGroupPath.length ? activeGroupPath[activeGroupPath.length - 1].name : 'Root';
 
   useEffect(() => {
     // reset collapse state when switching tabs/groups
@@ -591,22 +564,6 @@ function PipelineRunsPage() {
     setLogsStepFilter(null);
   }, [updateSearchParams]);
 
-  const handleDeleteFolder = useCallback(
-    async (groupId: number) => {
-      if (!window.confirm('Delete this group? Runs will remain attached to the repository.')) return;
-      try {
-        await fetchJson(`/v1/groups/${groupId}`, { method: 'DELETE' });
-        if (activeGroupId === groupId) updateSearchParams({ group: null });
-        await Promise.all([loadGroups(), loadRuns()]);
-        window.dispatchEvent(new Event('nopsai-resource-groups-changed'));
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unable to delete group';
-        alert(message);
-      }
-    },
-    [activeGroupId, fetchJson, loadGroups, loadRuns, updateSearchParams]
-  );
-
   const handleDeleteRun = useCallback(
     async (runId: string) => {
       if (!window.confirm('Delete this pipeline run?')) return;
@@ -637,55 +594,6 @@ function PipelineRunsPage() {
       alert(message);
     }
   }, [clearSelection, fetchJson, loadRuns, selectedRunIds]);
-
-  const handleNewFolder = useCallback(() => {
-    setNewFolderError(null);
-    setNewFolderOpen(true);
-  }, []);
-
-  const submitNewFolder = useCallback(
-    async ({ kind, name, description, repoURL }: NewFolderPayload) => {
-      const trimmedName = name.trim();
-      const trimmedDescription = description.trim();
-      const trimmedRepoURL = repoURL.trim();
-      if (!trimmedName) {
-        setNewFolderError(kind === 'app' ? 'App name is required.' : 'Group name is required.');
-        return;
-      }
-      if (kind === 'group' && isReservedRootGroupName(trimmedName)) {
-        setNewFolderError('Root is reserved and cannot be used as a group name.');
-        return;
-      }
-      if (kind === 'app' && !trimmedRepoURL) {
-        setNewFolderError('Repository URL is required for apps.');
-        return;
-      }
-      setNewFolderPending(true);
-      setNewFolderError(null);
-      try {
-        await fetchJson('/v1/groups', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            kind,
-            name: trimmedName,
-            description: kind === 'group' ? trimmedDescription || undefined : undefined,
-            repo_url: kind === 'app' ? trimmedRepoURL : undefined,
-            parent_id: activeGroupId,
-          }),
-        });
-        setNewFolderOpen(false);
-        setNewFolderPending(false);
-        await loadGroups();
-        window.dispatchEvent(new Event('nopsai-resource-groups-changed'));
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unable to create group';
-        setNewFolderError(message);
-        setNewFolderPending(false);
-      }
-    },
-    [activeGroupId, fetchJson, loadGroups]
-  );
 
   const handleCancelRun = useCallback(
     async (runId: string) => {
@@ -771,14 +679,12 @@ function PipelineRunsPage() {
 
   const isViewingDetail = Boolean(runDetail && activeRunId);
   const showSelectionBar = selectedRunIds.size > 0;
-  const trimmedSearch = searchTerm.trim();
 
   return (
     <PipelineRunsPageView
       activeTab={activeTab}
       activeGroupId={activeGroupId}
       activeGroupPath={activeGroupPath}
-      activeGroupLabel={activeGroupLabel}
       activeRunId={activeRunId}
       searchTerm={searchTerm}
       searchOpen={searchOpen}
@@ -791,11 +697,9 @@ function PipelineRunsPage() {
       mainContentRef={mainContentRef}
       isViewingDetail={isViewingDetail}
       showSelectionBar={showSelectionBar}
-      trimmedSearch={trimmedSearch}
       selectedRunIds={selectedRunIds}
       clearSelection={clearSelection}
       handleBulkDelete={handleBulkDelete}
-      handleNewFolder={handleNewFolder}
       groups={groups}
       groupsLoading={groupsLoading}
       groupsError={groupsError}
@@ -807,7 +711,6 @@ function PipelineRunsPage() {
       repoSummaries={repoSummaries}
       fetchRepoSummary={fetchRepoSummary}
       onSelectGroup={onSelectGroup}
-      handleDeleteFolder={handleDeleteFolder}
       handleOpenRun={handleOpenRun}
       handleRunSelect={handleRunSelect}
       collapsedEvents={collapsedEvents}
@@ -838,14 +741,6 @@ function PipelineRunsPage() {
       logsStepFilter={logsStepFilter}
       logsSearchFilter={logsSearchFilter}
       stepDetailName={stepDetailName}
-      newFolderOpen={newFolderOpen}
-      newFolderError={newFolderError}
-      newFolderPending={newFolderPending}
-      setNewFolderOpen={setNewFolderOpen}
-      setNewFolderError={setNewFolderError}
-      setNewFolderPending={setNewFolderPending}
-      submitNewFolder={submitNewFolder}
-      folderConfig={folderConfig}
     />
   );
 }

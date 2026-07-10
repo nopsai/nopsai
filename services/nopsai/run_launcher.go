@@ -146,23 +146,30 @@ func (a *App) buildAgentLaunchPayload(ctx context.Context, req AgentRunLaunchReq
 		}
 	}
 
-	if err := a.validatePipelineLLMProfiles(&req.Pipeline, req.Scope); err != nil {
+	teamID, err := a.teamIDForRunProfileOwner(ctx, req.RunID)
+	if err != nil {
+		reason := fmt.Sprintf("Failed to resolve team profile owner: %v", err)
+		log.Error().Err(err).Str("run_id", req.RunID).Msg("Failed to resolve team profile owner")
+		return nil, agentLaunchFailed(reason, false)
+	}
+
+	if err := a.validatePipelineLLMProfilesForTeam(ctx, &req.Pipeline, req.Scope, teamID); err != nil {
 		reason := err.Error()
 		log.Error().Str("run_id", req.RunID).Msg(reason)
 		return nil, agentLaunchFailed(reason, true)
 	}
-	if err := a.validatePipelineAgentProfiles(&req.Pipeline); err != nil {
+	if err := a.validatePipelineAgentProfilesForTeam(ctx, &req.Pipeline, teamID); err != nil {
 		reason := err.Error()
 		log.Error().Str("run_id", req.RunID).Msg(reason)
 		return nil, agentLaunchFailed(reason, true)
 	}
-	if err := a.validatePipelineMCPProfiles(&req.Pipeline, req.Scope); err != nil {
+	if err := a.validatePipelineMCPProfilesForTeam(ctx, &req.Pipeline, req.Scope, teamID); err != nil {
 		reason := err.Error()
 		log.Error().Str("run_id", req.RunID).Msg(reason)
 		return nil, agentLaunchFailed(reason, true)
 	}
 
-	runtimeProfiles, err := a.buildRuntimeLLMProfiles(ctx, cfg)
+	runtimeProfiles, err := a.buildRuntimeLLMProfilesForTeam(ctx, cfg, teamID)
 	if err != nil {
 		reason := fmt.Sprintf("Failed to prepare LLM profiles: %v", err)
 		log.Error().Err(err).Str("run_id", req.RunID).Msg("Failed to prepare LLM profiles")
@@ -174,7 +181,7 @@ func (a *App) buildAgentLaunchPayload(ctx context.Context, req AgentRunLaunchReq
 		log.Error().Err(err).Str("run_id", req.RunID).Msg(reason)
 		return nil, agentLaunchFailed(reason, false)
 	}
-	runtimeAgentProfiles, err := a.buildRuntimeAgentProfiles(ctx)
+	runtimeAgentProfiles, err := a.buildRuntimeAgentProfilesForTeam(ctx, teamID)
 	if err != nil {
 		reason := fmt.Sprintf("Failed to prepare agent profiles: %v", err)
 		log.Error().Err(err).Str("run_id", req.RunID).Msg("Failed to prepare agent profiles")
@@ -187,7 +194,7 @@ func (a *App) buildAgentLaunchPayload(ctx context.Context, req AgentRunLaunchReq
 		return nil, agentLaunchFailed(reason, false)
 	}
 
-	runtimeMCPRegistry, err := a.buildRuntimeMCPRegistry(&req.Pipeline, req.Scope)
+	runtimeMCPRegistry, err := a.buildRuntimeMCPRegistryForTeam(ctx, &req.Pipeline, req.Scope, teamID)
 	if err != nil {
 		reason := fmt.Sprintf("Failed to prepare MCP registry: %v", err)
 		log.Error().Err(err).Str("run_id", req.RunID).Msg("Failed to prepare MCP registry")

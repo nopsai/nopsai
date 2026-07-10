@@ -189,11 +189,22 @@ func (a *App) llmProfileCatalogForValidation(cfg config.Config) (string, map[str
 }
 
 func (a *App) validatePipelineLLMProfiles(pipeline *models.Pipeline, scope string) error {
+	return a.validatePipelineLLMProfilesForTeam(context.Background(), pipeline, scope, nil)
+}
+
+func (a *App) validatePipelineLLMProfilesForTeam(ctx context.Context, pipeline *models.Pipeline, scope string, teamID *int) error {
 	if !models.PipelineLLMEnabled(pipeline) {
 		return nil
 	}
 	cfg := a.getConfigSnapshot()
-	defaultProfile, profiles := a.llmProfileCatalogForValidation(cfg)
+	defaultProfile, effectiveProfiles, err := a.effectiveLLMProfilesForTeam(ctx, cfg, teamID)
+	if err != nil {
+		return err
+	}
+	profiles := make(map[string]validation.LLMProfileDefinition, len(effectiveProfiles))
+	for name, profile := range effectiveProfiles {
+		profiles[name] = validation.LLMProfileDefinition{AllowedScopes: append([]string(nil), profile.AllowedScopes...)}
+	}
 	if err := validation.ValidatePipelineLLMProfiles(pipeline, validation.LLMProfileValidationOptions{
 		DefaultProfile: defaultProfile,
 		Profiles:       profiles,
@@ -202,10 +213,9 @@ func (a *App) validatePipelineLLMProfiles(pipeline *models.Pipeline, scope strin
 		return err
 	}
 
-	effectiveProfiles := cfg.EffectiveLLMProfiles()
 	for name := range collectResolvedLLMProfiles(pipeline, defaultProfile) {
 		profile := effectiveProfiles[name]
-		status, message := a.validateLLMProfileConfiguration(context.Background(), name, profile)
+		status, message := a.validateLLMProfileConfiguration(ctx, name, profile)
 		if status != "valid" {
 			if message == "" {
 				message = fmt.Sprintf("LLM profile %q is invalid", name)
@@ -992,8 +1002,14 @@ func llmProfileHasCredential(profile config.LLMProfile) bool {
 }
 
 func (a *App) buildRuntimeLLMProfiles(ctx context.Context, cfg config.Config) (runtimeLLMProfiles, error) {
-	defaultProfile := cfg.EffectiveLLMDefaultProfile()
-	effectiveProfiles := cfg.EffectiveLLMProfiles()
+	return a.buildRuntimeLLMProfilesForTeam(ctx, cfg, nil)
+}
+
+func (a *App) buildRuntimeLLMProfilesForTeam(ctx context.Context, cfg config.Config, teamID *int) (runtimeLLMProfiles, error) {
+	defaultProfile, effectiveProfiles, err := a.effectiveLLMProfilesForTeam(ctx, cfg, teamID)
+	if err != nil {
+		return runtimeLLMProfiles{}, err
+	}
 	profiles := make(map[string]runtimeLLMProfile, len(effectiveProfiles))
 	for name, profile := range effectiveProfiles {
 		normalized := config.NormalizeLLMProfile(profile)

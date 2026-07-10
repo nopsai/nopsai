@@ -22,6 +22,13 @@ var credentialReferenceQueries = []struct {
 			ORDER BY name`,
 	},
 	{
+		label: "team LLM profile",
+		query: `SELECT team_id::text || '/' || name
+			FROM team_llm_profiles
+			WHERE credential_ref = $1
+			ORDER BY team_id, name`,
+	},
+	{
 		label: "MCP server",
 		query: `SELECT name
 			FROM mcp_servers

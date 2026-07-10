@@ -389,11 +389,11 @@ func (a *App) persistAgentProfileDefaultToDB(ctx context.Context, defaultProfile
 }
 
 func (a *App) agentProfileCatalogForValidation(ctx context.Context) (string, map[string]validation.AgentProfileDefinition, error) {
-	profiles, _, err := a.effectiveAgentProfiles(ctx)
-	if err != nil {
-		return "", nil, err
-	}
-	defaultProfile, err := a.effectiveAgentProfileDefault(ctx, profiles)
+	return a.agentProfileCatalogForValidationForTeam(ctx, nil)
+}
+
+func (a *App) agentProfileCatalogForValidationForTeam(ctx context.Context, teamID *int) (string, map[string]validation.AgentProfileDefinition, error) {
+	profiles, defaultProfile, err := a.effectiveAgentProfilesForTeam(ctx, teamID)
 	if err != nil {
 		return "", nil, err
 	}
@@ -405,7 +405,11 @@ func (a *App) agentProfileCatalogForValidation(ctx context.Context) (string, map
 }
 
 func (a *App) validatePipelineAgentProfiles(pipeline *models.Pipeline) error {
-	defaultProfile, catalog, err := a.agentProfileCatalogForValidation(context.Background())
+	return a.validatePipelineAgentProfilesForTeam(context.Background(), pipeline, nil)
+}
+
+func (a *App) validatePipelineAgentProfilesForTeam(ctx context.Context, pipeline *models.Pipeline, teamID *int) error {
+	defaultProfile, catalog, err := a.agentProfileCatalogForValidationForTeam(ctx, teamID)
 	if err != nil {
 		return err
 	}
@@ -652,11 +656,11 @@ func parseGitOpsAgentProfileFile(content, sourcePath string) (*gitOpsAgentProfil
 }
 
 func (a *App) buildRuntimeAgentProfiles(ctx context.Context) (runtimeAgentProfiles, error) {
-	effectiveProfiles, _, err := a.effectiveAgentProfiles(ctx)
-	if err != nil {
-		return runtimeAgentProfiles{}, err
-	}
-	defaultProfile, err := a.effectiveAgentProfileDefault(ctx, effectiveProfiles)
+	return a.buildRuntimeAgentProfilesForTeam(ctx, nil)
+}
+
+func (a *App) buildRuntimeAgentProfilesForTeam(ctx context.Context, teamID *int) (runtimeAgentProfiles, error) {
+	effectiveProfiles, defaultProfile, err := a.effectiveAgentProfilesForTeam(ctx, teamID)
 	if err != nil {
 		return runtimeAgentProfiles{}, err
 	}

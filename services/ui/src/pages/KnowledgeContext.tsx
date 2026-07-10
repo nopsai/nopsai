@@ -46,7 +46,6 @@ import {
   type KnowledgeFormModalState,
 } from '../features/knowledge-context/KnowledgeContextModals';
 import { formatKnowledgeDate, kindIcon } from '../features/knowledge-context/presentation';
-import { fetchResourceGroupPaths } from '../lib/resourceGroups';
 
 type KnowledgeContextPageProps = {
   canWriteKnowledge: boolean;
@@ -64,7 +63,6 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
   const [items, setItems] = useState<KnowledgeContextListItem[]>([]);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
-  const [resourceGroupPaths, setResourceGroupPaths] = useState<string[]>([]);
   const [detail, setDetail] = useState<KnowledgeContextDetail | null>(null);
   const [editorValue, setEditorValue] = useState('');
   const [detailLoading, setDetailLoading] = useState(false);
@@ -103,21 +101,6 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
   useEffect(() => {
     void loadList();
   }, [loadList]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const loadGroups = async () => {
-      const paths = await fetchResourceGroupPaths();
-      if (!cancelled) setResourceGroupPaths(paths);
-    };
-    void loadGroups();
-    const handleGroupsChanged = () => void loadGroups();
-    window.addEventListener('nopsai-resource-groups-changed', handleGroupsChanged);
-    return () => {
-      cancelled = true;
-      window.removeEventListener('nopsai-resource-groups-changed', handleGroupsChanged);
-    };
-  }, []);
 
   useEffect(() => {
     if (!selectedID) {
@@ -191,7 +174,7 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
   }, [items, search]);
 
   const activeFolder = useMemo(() => normalizeFolderPath(new URLSearchParams(location.search).get('folder') || ''), [location.search]);
-  const knowledgeTree = useMemo(() => buildKnowledgeTree(items, resourceGroupPaths), [items, resourceGroupPaths]);
+  const knowledgeTree = useMemo(() => buildKnowledgeTree(items, []), [items]);
   const activeFolderNode = useMemo(() => findKnowledgeFolder(knowledgeTree, activeFolder), [activeFolder, knowledgeTree]);
   const visibleDocuments = useMemo(() => {
     if (search.trim()) return filteredItems;

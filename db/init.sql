@@ -440,6 +440,77 @@ CREATE TABLE mcp_profiles (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE team_profile_settings (
+    team_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (team_id, key)
+);
+
+CREATE TABLE team_llm_profiles (
+    team_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL DEFAULT '',
+    base_url TEXT NOT NULL DEFAULT '',
+    credential_ref TEXT NOT NULL DEFAULT '',
+    allowed_scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
+    reasoning TEXT NOT NULL DEFAULT '',
+    thinking BOOLEAN,
+    timeout_seconds INTEGER NOT NULL DEFAULT 0,
+    max_tokens INTEGER NOT NULL DEFAULT 0,
+    temperature DOUBLE PRECISION,
+    extra JSONB NOT NULL DEFAULT '{}'::jsonb,
+    source TEXT NOT NULL DEFAULT 'ui',
+    config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
+    config_source_path TEXT NOT NULL DEFAULT '',
+    config_source_commit_sha TEXT NOT NULL DEFAULT '',
+    managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (team_id, name)
+);
+
+CREATE TABLE team_agent_profiles (
+    team_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    id TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    instructions TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    source TEXT NOT NULL DEFAULT 'ui',
+    config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
+    config_source_path TEXT NOT NULL DEFAULT '',
+    config_source_commit_sha TEXT NOT NULL DEFAULT '',
+    managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (team_id, id)
+);
+
+CREATE TABLE team_mcp_profiles (
+    team_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    server_refs JSONB NOT NULL DEFAULT '[]'::jsonb,
+    allowed_scopes JSONB NOT NULL DEFAULT '[]'::jsonb,
+    source TEXT NOT NULL DEFAULT 'ui',
+    config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
+    config_source_path TEXT NOT NULL DEFAULT '',
+    config_source_commit_sha TEXT NOT NULL DEFAULT '',
+    managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (team_id, name)
+);
+
+CREATE INDEX idx_team_llm_profiles_config_repo ON team_llm_profiles(config_repo_id);
+CREATE INDEX idx_team_agent_profiles_config_repo ON team_agent_profiles(config_repo_id);
+CREATE INDEX idx_team_mcp_profiles_config_repo ON team_mcp_profiles(config_repo_id);
+
 CREATE TABLE resource_visibility (
     resource_type TEXT NOT NULL,
     resource_id TEXT NOT NULL,

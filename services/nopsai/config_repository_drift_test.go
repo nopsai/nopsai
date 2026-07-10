@@ -153,6 +153,8 @@ func TestConfigRepositoryDriftPathIncludesSyncableResourceFamilies(t *testing.T)
 	for _, path := range []string{
 		"access/all.yaml",
 		"access/grants.yaml",
+		"ai-profiles.yaml",
+		"ai-profiles.yml",
 		"config-repositories/groups/team-1/notifications.yaml",
 		"config-repositories/groups/team-1/structure.yaml",
 		"setting/system/auth.yaml",

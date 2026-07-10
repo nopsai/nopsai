@@ -1,22 +1,18 @@
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Grid2X2, List, Plus, Search, X } from 'lucide-react';
-import { ConfigRepositoryDriftModal } from '../../components/ConfigRepositoryDriftModal';
+import { Grid2X2, List, Search, X } from 'lucide-react';
 import type { RunListItem } from './contracts';
 import type { Group, RepoSummary } from './runPresentation';
 import { PipelineRunsDashboard } from './PipelineRunsDashboard';
 import { RunDetailView } from './RunDetailPanel';
 import { PipelineDefinitionModal, StepDetailModal } from './RunGraphModals';
 import { RunLogsModal as LogsModal } from './RunLogsModal';
-import { FolderConfigRepositoryModal, NewFolderModal } from './PipelineRunsModals';
 import type {
   PipelineApproval,
   PipelineRunDetail,
-  PipelineRunsNewFolderPayload,
   PipelineRunsTabKey,
   PipelineRunsTriggerGroup,
 } from './pageTypes';
-import type { FolderConfigRepositoryController } from './useFolderConfigRepositoryController';
 
 type SearchUpdateValue = string | number | null | undefined;
 
@@ -24,7 +20,6 @@ type PipelineRunsPageViewProps = {
   activeTab: PipelineRunsTabKey;
   activeGroupId: number | null;
   activeGroupPath: Group[];
-  activeGroupLabel: string;
   activeRunId: string | null;
   searchTerm: string;
   searchOpen: boolean;
@@ -37,11 +32,9 @@ type PipelineRunsPageViewProps = {
   mainContentRef: RefObject<HTMLDivElement | null>;
   isViewingDetail: boolean;
   showSelectionBar: boolean;
-  trimmedSearch: string;
   selectedRunIds: Set<string>;
   clearSelection: () => void;
   handleBulkDelete: () => Promise<void>;
-  handleNewFolder: () => void;
   groups: Group[];
   groupsLoading: boolean;
   groupsError: string | null;
@@ -53,7 +46,6 @@ type PipelineRunsPageViewProps = {
   repoSummaries: Map<number, RepoSummary>;
   fetchRepoSummary: (groupId: number) => Promise<void>;
   onSelectGroup: (groupId: number | null) => void;
-  handleDeleteFolder: (groupId: number) => Promise<void>;
   handleOpenRun: (runId: string) => void;
   handleRunSelect: (runId: string) => void;
   collapsedEvents: Set<string>;
@@ -84,14 +76,6 @@ type PipelineRunsPageViewProps = {
   logsStepFilter: string | null;
   logsSearchFilter: string | null;
   stepDetailName: string | null;
-  newFolderOpen: boolean;
-  newFolderError: string | null;
-  newFolderPending: boolean;
-  setNewFolderOpen: Dispatch<SetStateAction<boolean>>;
-  setNewFolderError: Dispatch<SetStateAction<string | null>>;
-  setNewFolderPending: Dispatch<SetStateAction<boolean>>;
-  submitNewFolder: (payload: PipelineRunsNewFolderPayload) => Promise<void>;
-  folderConfig: FolderConfigRepositoryController;
 };
 
 const tabs: Array<{ id: PipelineRunsTabKey; label: string }> = [
@@ -104,7 +88,6 @@ export function PipelineRunsPageView({
   activeTab,
   activeGroupId,
   activeGroupPath,
-  activeGroupLabel,
   activeRunId,
   searchTerm,
   searchOpen,
@@ -117,11 +100,9 @@ export function PipelineRunsPageView({
   mainContentRef,
   isViewingDetail,
   showSelectionBar,
-  trimmedSearch,
   selectedRunIds,
   clearSelection,
   handleBulkDelete,
-  handleNewFolder,
   groups,
   groupsLoading,
   groupsError,
@@ -133,7 +114,6 @@ export function PipelineRunsPageView({
   repoSummaries,
   fetchRepoSummary,
   onSelectGroup,
-  handleDeleteFolder,
   handleOpenRun,
   handleRunSelect,
   collapsedEvents,
@@ -164,50 +144,7 @@ export function PipelineRunsPageView({
   logsStepFilter,
   logsSearchFilter,
   stepDetailName,
-  newFolderOpen,
-  newFolderError,
-  newFolderPending,
-  setNewFolderOpen,
-  setNewFolderError,
-  setNewFolderPending,
-  submitNewFolder,
-  folderConfig,
 }: PipelineRunsPageViewProps) {
-  const {
-    configRepoFolder,
-    configRepo,
-    configRepoForm,
-    configRepoLoading,
-    configRepoSaving,
-    configRepoSyncing,
-    configRepoError,
-    configRepoDriftOpen,
-    configRepoDrift,
-    configRepoDriftLoading,
-    configRepoDriftError,
-    configRepoPushing,
-    configRepoPushResult,
-    configRepoManageAllowed,
-    configRepoSyncAllowed,
-    notificationRoute,
-    notificationRouteForm,
-    notificationRouteLoading,
-    notificationRouteSaving,
-    notificationRouteError,
-    setConfigRepoForm,
-    setNotificationRouteForm,
-    setConfigRepoDriftOpen,
-    openFolderConfigRepository,
-    closeFolderConfigRepository,
-    saveFolderConfigRepository,
-    deleteFolderConfigRepository,
-    syncFolderConfigRepository,
-    checkFolderConfigRepositoryDrift,
-    pushFolderConfigRepositoryDrift,
-    saveFolderNotificationRoute,
-    deleteFolderNotificationRoute,
-  } = folderConfig;
-
   return (
     <div data-page="pipelineruns" className="active min-h-screen flex flex-col overflow-x-hidden overflow-y-auto">
       <div className="px-6 pt-6 flex-shrink-0 tabs-nav-wrapper">
@@ -277,18 +214,6 @@ export function PipelineRunsPageView({
                     </button>
                   )}
                 </div>
-                {activeTab === 'main' && (
-                  <button
-                    type="button"
-                    className="pipelines-icon-only"
-                    onClick={handleNewFolder}
-                    aria-label="New group or app"
-                    disabled={Boolean(trimmedSearch)}
-                    title={trimmedSearch ? 'Clear search to create an item' : 'New group or app'}
-                  >
-                    <Plus className="h-4 w-4" aria-hidden="true" />
-                  </button>
-                )}
               </div>
             )}
           </div>
@@ -368,8 +293,6 @@ export function PipelineRunsPageView({
               searchTerm={searchTerm}
               repoSummaries={repoSummaries}
               fetchRepoSummary={fetchRepoSummary}
-              onDeleteFolder={handleDeleteFolder}
-              onOpenConfigRepository={openFolderConfigRepository}
               onOpenRun={handleOpenRun}
               onSelectRun={handleRunSelect}
               selectedRunIds={selectedRunIds}
@@ -424,64 +347,6 @@ export function PipelineRunsPageView({
         />
       )}
 
-      {newFolderOpen && (
-        <NewFolderModal
-          open={newFolderOpen}
-          parentLabel={activeGroupLabel}
-          error={newFolderError}
-          pending={newFolderPending}
-          onClose={() => {
-            setNewFolderOpen(false);
-            setNewFolderError(null);
-            setNewFolderPending(false);
-          }}
-          onSubmit={submitNewFolder}
-        />
-      )}
-
-      {configRepoFolder && (
-        <FolderConfigRepositoryModal
-          folderLabel={configRepoFolder.folderPath}
-          repo={configRepo}
-          form={configRepoForm}
-          loading={configRepoLoading}
-          saving={configRepoSaving}
-          syncing={configRepoSyncing}
-          error={configRepoError}
-          driftLoading={configRepoDriftLoading}
-          notificationRoute={notificationRoute}
-          notificationForm={notificationRouteForm}
-          notificationLoading={notificationRouteLoading}
-          notificationSaving={notificationRouteSaving}
-          notificationError={notificationRouteError}
-          canManage={configRepoManageAllowed}
-          canSync={configRepoSyncAllowed}
-          onChange={setConfigRepoForm}
-          onNotificationChange={setNotificationRouteForm}
-          onSave={saveFolderConfigRepository}
-          onDelete={deleteFolderConfigRepository}
-          onSync={syncFolderConfigRepository}
-          onCheckDrift={checkFolderConfigRepositoryDrift}
-          onSaveNotification={saveFolderNotificationRoute}
-          onDeleteNotification={deleteFolderNotificationRoute}
-          onClose={closeFolderConfigRepository}
-        />
-      )}
-
-      {configRepoFolder && configRepoDriftOpen && (
-        <ConfigRepositoryDriftModal
-          title={`${configRepoFolder.folderPath} config repository`}
-          drift={configRepoDrift}
-          loading={configRepoDriftLoading}
-          error={configRepoDriftError}
-          pushing={configRepoPushing}
-          pushResult={configRepoPushResult}
-          canPush={configRepoManageAllowed && Boolean(configRepoDrift?.can_push)}
-          onClose={() => setConfigRepoDriftOpen(false)}
-          onRefresh={checkFolderConfigRepositoryDrift}
-          onPush={pushFolderConfigRepositoryDrift}
-        />
-      )}
     </div>
   );
 
