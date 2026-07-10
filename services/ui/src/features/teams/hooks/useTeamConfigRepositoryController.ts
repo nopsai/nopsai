@@ -1,6 +1,27 @@
 import { useCallback, useEffect, useState } from 'react';
-import { fetchGroupConfigRepository } from './api';
-import { buildGroupPath, type Group } from './runPresentation';
+import { buildGroupPath, type Group } from '../../../lib/teamGroups';
+import {
+  createTeamAgentProfile,
+  createTeamMCPProfile,
+  deleteTeamAgentProfile,
+  deleteTeamLLMProfile,
+  deleteTeamMCPProfile,
+  fetchTeamAgentProfiles,
+  fetchTeamConfigRepository,
+  fetchTeamLLMProfiles,
+  fetchTeamMCPProfiles,
+  setTeamDefaultAgentProfile,
+  setTeamDefaultLLMProfile,
+  upsertTeamAgentProfile,
+  upsertTeamLLMProfile,
+  upsertTeamMCPProfile,
+  type TeamAgentProfilePayload,
+  type TeamAgentProfilesResponse,
+  type TeamLLMProfilePayload,
+  type TeamLLMProfilesResponse,
+  type TeamMCPProfilePayload,
+  type TeamMCPProfilesResponse,
+} from '../api';
 import {
   createEmptyNotificationRouteForm,
   defaultNotificationRouteDefinition,
@@ -9,12 +30,12 @@ import {
   notificationRoutePayloadFromForm,
   type NotificationRouteFormState,
   type NotificationRouteRecord,
-} from './notificationRoutes';
+} from '../notificationRoutes';
 import {
   buildConfigRepositoryWriteFiles,
   type ConfigRepositoryCommitResponse,
   type ConfigRepositoryDriftResponse,
-} from '../../lib/configRepositoryDrift';
+} from '../../../lib/configRepositoryDrift';
 
 export type PipelineRunsConfigRepository = {
   id: number;
@@ -49,7 +70,7 @@ type FolderConfigRepositorySelection = {
 
 type FetchJson = <T>(path: string, options?: RequestInit) => Promise<T>;
 
-type UseFolderConfigRepositoryControllerOptions = {
+type UseTeamConfigRepositoryControllerOptions = {
   groups: Group[];
   fetchJson: FetchJson;
   checkAccessPermission: (action: string, resourceType: string, resourceID: string) => Promise<boolean>;
@@ -92,11 +113,11 @@ function normalizeNotificationRoute(payload: unknown): NotificationRouteRecord {
   return normalizeNotificationRouteRecord(payload);
 }
 
-export function useFolderConfigRepositoryController({
+export function useTeamConfigRepositoryController({
   groups,
   fetchJson,
   checkAccessPermission,
-}: UseFolderConfigRepositoryControllerOptions) {
+}: UseTeamConfigRepositoryControllerOptions) {
   const [configRepoFolder, setConfigRepoFolder] = useState<FolderConfigRepositorySelection | null>(null);
   const [configRepo, setConfigRepo] = useState<PipelineRunsConfigRepository | null>(null);
   const [configRepoForm, setConfigRepoForm] = useState<PipelineRunsConfigRepositoryFormState>(emptyConfigRepositoryForm);
@@ -112,11 +133,18 @@ export function useFolderConfigRepositoryController({
   const [configRepoPushResult, setConfigRepoPushResult] = useState<ConfigRepositoryCommitResponse | null>(null);
   const [configRepoManageAllowed, setConfigRepoManageAllowed] = useState(false);
   const [configRepoSyncAllowed, setConfigRepoSyncAllowed] = useState(false);
+  const [teamProfileManageAllowed, setTeamProfileManageAllowed] = useState(false);
   const [notificationRoute, setNotificationRoute] = useState<NotificationRouteRecord | null>(null);
   const [notificationRouteForm, setNotificationRouteForm] = useState<NotificationRouteFormState>(emptyNotificationRouteForm);
   const [notificationRouteLoading, setNotificationRouteLoading] = useState(false);
   const [notificationRouteSaving, setNotificationRouteSaving] = useState(false);
   const [notificationRouteError, setNotificationRouteError] = useState<string | null>(null);
+  const [teamLLMProfiles, setTeamLLMProfiles] = useState<TeamLLMProfilesResponse | null>(null);
+  const [teamAgentProfiles, setTeamAgentProfiles] = useState<TeamAgentProfilesResponse | null>(null);
+  const [teamMCPProfiles, setTeamMCPProfiles] = useState<TeamMCPProfilesResponse | null>(null);
+  const [teamProfilesLoading, setTeamProfilesLoading] = useState(false);
+  const [teamProfilesSaving, setTeamProfilesSaving] = useState(false);
+  const [teamProfilesError, setTeamProfilesError] = useState<string | null>(null);
 
   const loadFolderConfigRepository = useCallback(
     async (folderPath: string, opts?: { quiet?: boolean }) => {
@@ -125,7 +153,7 @@ export function useFolderConfigRepositoryController({
         setConfigRepoError(null);
       }
       try {
-        const payload = await fetchGroupConfigRepository(folderPath);
+        const payload = await fetchTeamConfigRepository(folderPath);
         if (!payload) {
           setConfigRepo(null);
           setConfigRepoForm(emptyConfigRepositoryForm);
@@ -161,7 +189,7 @@ export function useFolderConfigRepositoryController({
       }
       try {
         const route = normalizeNotificationRoute(
-          await fetchJson<NotificationRouteRecord>(`/v1/groups/${encodeURIComponent(folderPath)}/notifications`)
+          await fetchJson<NotificationRouteRecord>(`/v1/teams/${encodeURIComponent(folderPath)}/notifications`)
         );
         setNotificationRoute(route);
         setNotificationRouteForm(notificationRouteFormFromDefinition(route.definition));
@@ -177,27 +205,58 @@ export function useFolderConfigRepositoryController({
     [fetchJson]
   );
 
+  const loadFolderTeamProfiles = useCallback(
+    async (folderPath: string, opts?: { quiet?: boolean }) => {
+      if (!opts?.quiet) {
+        setTeamProfilesLoading(true);
+        setTeamProfilesError(null);
+      }
+      try {
+        const [llm, agent, mcp] = await Promise.all([
+          fetchTeamLLMProfiles(folderPath),
+          fetchTeamAgentProfiles(folderPath),
+          fetchTeamMCPProfiles(folderPath),
+        ]);
+        setTeamLLMProfiles(llm);
+        setTeamAgentProfiles(agent);
+        setTeamMCPProfiles(mcp);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unable to load team AI profiles';
+        setTeamProfilesError(message);
+      } finally {
+        if (!opts?.quiet) {
+          setTeamProfilesLoading(false);
+        }
+      }
+    },
+    []
+  );
+
   useEffect(() => {
     if (!configRepoFolder) return undefined;
     let cancelled = false;
     setConfigRepoManageAllowed(false);
     setConfigRepoSyncAllowed(false);
+    setTeamProfileManageAllowed(false);
 
     void Promise.all([
       loadFolderConfigRepository(configRepoFolder.folderPath),
       loadFolderNotificationRoute(configRepoFolder.folderPath),
+      loadFolderTeamProfiles(configRepoFolder.folderPath),
       checkAccessPermission('config_repo.manage', 'folder', configRepoFolder.folderPath),
       checkAccessPermission('config_repo.sync', 'folder', configRepoFolder.folderPath),
-    ]).then(([, , manageAllowed, syncAllowed]) => {
+      checkAccessPermission('folder.update', 'folder', configRepoFolder.folderPath),
+    ]).then(([, , , manageAllowed, syncAllowed, profileManageAllowed]) => {
       if (cancelled) return;
       setConfigRepoManageAllowed(manageAllowed);
       setConfigRepoSyncAllowed(syncAllowed);
+      setTeamProfileManageAllowed(profileManageAllowed);
     });
 
     return () => {
       cancelled = true;
     };
-  }, [checkAccessPermission, configRepoFolder, loadFolderConfigRepository, loadFolderNotificationRoute]);
+  }, [checkAccessPermission, configRepoFolder, loadFolderConfigRepository, loadFolderNotificationRoute, loadFolderTeamProfiles]);
 
   useEffect(() => {
     if (!configRepoFolder || configRepo?.last_sync_status !== 'running') return undefined;
@@ -224,6 +283,11 @@ export function useFolderConfigRepositoryController({
       setConfigRepoPushResult(null);
       setConfigRepoManageAllowed(false);
       setConfigRepoSyncAllowed(false);
+      setTeamProfileManageAllowed(false);
+      setTeamLLMProfiles(null);
+      setTeamAgentProfiles(null);
+      setTeamMCPProfiles(null);
+      setTeamProfilesError(null);
     },
     [groups]
   );
@@ -246,6 +310,13 @@ export function useFolderConfigRepositoryController({
     setConfigRepoPushing(false);
     setNotificationRouteSaving(false);
     setNotificationRouteLoading(false);
+    setTeamProfileManageAllowed(false);
+    setTeamLLMProfiles(null);
+    setTeamAgentProfiles(null);
+    setTeamMCPProfiles(null);
+    setTeamProfilesError(null);
+    setTeamProfilesSaving(false);
+    setTeamProfilesLoading(false);
   }, []);
 
   const saveFolderConfigRepository = useCallback(async () => {
@@ -258,7 +329,7 @@ export function useFolderConfigRepositoryController({
     setConfigRepoSaving(true);
     setConfigRepoError(null);
     try {
-      const repo = await fetchJson<PipelineRunsConfigRepository>(`/v1/groups/${encodeURIComponent(configRepoFolder.folderPath)}/config-repo`, {
+      const repo = await fetchJson<PipelineRunsConfigRepository>(`/v1/teams/${encodeURIComponent(configRepoFolder.folderPath)}/config-repository`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -294,11 +365,11 @@ export function useFolderConfigRepositoryController({
 
   const deleteFolderConfigRepository = useCallback(async () => {
     if (!configRepoFolder || !configRepoManageAllowed || configRepoSaving) return;
-    if (!window.confirm('Remove the config repository from this group? Synced resources will remain available.')) return;
+    if (!window.confirm('Remove the config repository from this team? Synced resources will remain available.')) return;
     setConfigRepoSaving(true);
     setConfigRepoError(null);
     try {
-      await fetchJson<void>(`/v1/groups/${encodeURIComponent(configRepoFolder.folderPath)}/config-repo`, { method: 'DELETE' });
+      await fetchJson<void>(`/v1/teams/${encodeURIComponent(configRepoFolder.folderPath)}/config-repository`, { method: 'DELETE' });
       setConfigRepo(null);
       setConfigRepoForm(emptyConfigRepositoryForm);
       setConfigRepoDriftOpen(false);
@@ -317,7 +388,7 @@ export function useFolderConfigRepositoryController({
     setConfigRepoSyncing(true);
     setConfigRepoError(null);
     try {
-      await fetchJson(`/v1/groups/${encodeURIComponent(configRepoFolder.folderPath)}/config-repo/sync`, { method: 'POST' });
+      await fetchJson(`/v1/teams/${encodeURIComponent(configRepoFolder.folderPath)}/config-repository/sync`, { method: 'POST' });
       setConfigRepo(prev => prev ? {
         ...prev,
         last_sync_status: 'running',
@@ -343,7 +414,7 @@ export function useFolderConfigRepositoryController({
     setConfigRepoDriftError(null);
     setConfigRepoPushResult(null);
     try {
-      const payload = await fetchJson<ConfigRepositoryDriftResponse>(`/v1/groups/${encodeURIComponent(configRepoFolder.folderPath)}/config-repo/drift`);
+      const payload = await fetchJson<ConfigRepositoryDriftResponse>(`/v1/teams/${encodeURIComponent(configRepoFolder.folderPath)}/config-repository/drift`);
       setConfigRepoDrift(payload);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to check config repository drift';
@@ -364,7 +435,7 @@ export function useFolderConfigRepositoryController({
     setConfigRepoPushing(true);
     setConfigRepoDriftError(null);
     try {
-      const result = await fetchJson<ConfigRepositoryCommitResponse>(`/v1/groups/${encodeURIComponent(configRepoFolder.folderPath)}/config-repo/write`, {
+      const result = await fetchJson<ConfigRepositoryCommitResponse>(`/v1/teams/${encodeURIComponent(configRepoFolder.folderPath)}/config-repository/write`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -387,7 +458,7 @@ export function useFolderConfigRepositoryController({
     setNotificationRouteError(null);
     try {
       const route = normalizeNotificationRoute(
-        await fetchJson<NotificationRouteRecord>(`/v1/groups/${encodeURIComponent(configRepoFolder.folderPath)}/notifications`, {
+        await fetchJson<NotificationRouteRecord>(`/v1/teams/${encodeURIComponent(configRepoFolder.folderPath)}/notifications`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(notificationRoutePayloadFromForm(notificationRouteForm)),
@@ -415,11 +486,11 @@ export function useFolderConfigRepositoryController({
   const deleteFolderNotificationRoute = useCallback(async () => {
     if (!configRepoFolder || !configRepoManageAllowed || notificationRouteSaving || notificationRoute?.managed_by_config_repo) return;
     if (!notificationRoute?.id) return;
-    if (!window.confirm('Remove the notification policy from this group?')) return;
+    if (!window.confirm('Remove the notification policy from this team?')) return;
     setNotificationRouteSaving(true);
     setNotificationRouteError(null);
     try {
-      await fetchJson<void>(`/v1/groups/${encodeURIComponent(configRepoFolder.folderPath)}/notifications`, { method: 'DELETE' });
+      await fetchJson<void>(`/v1/teams/${encodeURIComponent(configRepoFolder.folderPath)}/notifications`, { method: 'DELETE' });
       const definition = defaultNotificationRouteDefinition();
       setNotificationRoute({
         group_path: configRepoFolder.folderPath,
@@ -438,6 +509,166 @@ export function useFolderConfigRepositoryController({
     }
   }, [configRepoFolder, configRepoManageAllowed, fetchJson, notificationRoute?.id, notificationRoute?.managed_by_config_repo, notificationRouteSaving]);
 
+  const saveTeamLLMProfile = useCallback(async (profileName: string, payload: TeamLLMProfilePayload) => {
+    if (!configRepoFolder || !teamProfileManageAllowed || teamProfilesSaving) return;
+    const name = profileName.trim();
+    if (!name) {
+      setTeamProfilesError('LLM profile name is required.');
+      return;
+    }
+    setTeamProfilesSaving(true);
+    setTeamProfilesError(null);
+    try {
+      const response = await upsertTeamLLMProfile(configRepoFolder.folderPath, name, payload);
+      setTeamLLMProfiles(response);
+      setConfigRepoDrift(null);
+      setConfigRepoPushResult(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to save LLM profile';
+      setTeamProfilesError(message);
+    } finally {
+      setTeamProfilesSaving(false);
+    }
+  }, [configRepoFolder, teamProfileManageAllowed, teamProfilesSaving]);
+
+  const saveTeamDefaultLLMProfile = useCallback(async (profileName: string) => {
+    if (!configRepoFolder || !teamProfileManageAllowed || teamProfilesSaving) return;
+    setTeamProfilesSaving(true);
+    setTeamProfilesError(null);
+    try {
+      const response = await setTeamDefaultLLMProfile(configRepoFolder.folderPath, profileName);
+      setTeamLLMProfiles(response);
+      setConfigRepoDrift(null);
+      setConfigRepoPushResult(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to save default LLM profile';
+      setTeamProfilesError(message);
+    } finally {
+      setTeamProfilesSaving(false);
+    }
+  }, [configRepoFolder, teamProfileManageAllowed, teamProfilesSaving]);
+
+  const removeTeamLLMProfile = useCallback(async (profileName: string) => {
+    if (!configRepoFolder || !teamProfileManageAllowed || teamProfilesSaving) return;
+    if (!window.confirm(`Remove LLM profile "${profileName}" from this team?`)) return;
+    setTeamProfilesSaving(true);
+    setTeamProfilesError(null);
+    try {
+      await deleteTeamLLMProfile(configRepoFolder.folderPath, profileName);
+      await loadFolderTeamProfiles(configRepoFolder.folderPath, { quiet: true });
+      setConfigRepoDrift(null);
+      setConfigRepoPushResult(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to remove LLM profile';
+      setTeamProfilesError(message);
+    } finally {
+      setTeamProfilesSaving(false);
+    }
+  }, [configRepoFolder, loadFolderTeamProfiles, teamProfileManageAllowed, teamProfilesSaving]);
+
+  const saveTeamAgentProfile = useCallback(async (profileID: string, payload: TeamAgentProfilePayload) => {
+    if (!configRepoFolder || !teamProfileManageAllowed || teamProfilesSaving) return;
+    const id = profileID.trim();
+    if (!id) {
+      setTeamProfilesError('Agent profile id is required.');
+      return;
+    }
+    setTeamProfilesSaving(true);
+    setTeamProfilesError(null);
+    try {
+      const exists = Boolean(teamAgentProfiles?.profiles.some(profile => profile.id === id));
+      const response = exists
+        ? await upsertTeamAgentProfile(configRepoFolder.folderPath, id, payload)
+        : await createTeamAgentProfile(configRepoFolder.folderPath, { ...payload, id });
+      setTeamAgentProfiles(response);
+      setConfigRepoDrift(null);
+      setConfigRepoPushResult(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to save agent profile';
+      setTeamProfilesError(message);
+    } finally {
+      setTeamProfilesSaving(false);
+    }
+  }, [configRepoFolder, teamAgentProfiles?.profiles, teamProfileManageAllowed, teamProfilesSaving]);
+
+  const saveTeamDefaultAgentProfile = useCallback(async (profileID: string) => {
+    if (!configRepoFolder || !teamProfileManageAllowed || teamProfilesSaving) return;
+    setTeamProfilesSaving(true);
+    setTeamProfilesError(null);
+    try {
+      const response = await setTeamDefaultAgentProfile(configRepoFolder.folderPath, profileID);
+      setTeamAgentProfiles(response);
+      setConfigRepoDrift(null);
+      setConfigRepoPushResult(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to save default agent profile';
+      setTeamProfilesError(message);
+    } finally {
+      setTeamProfilesSaving(false);
+    }
+  }, [configRepoFolder, teamProfileManageAllowed, teamProfilesSaving]);
+
+  const removeTeamAgentProfile = useCallback(async (profileID: string) => {
+    if (!configRepoFolder || !teamProfileManageAllowed || teamProfilesSaving) return;
+    if (!window.confirm(`Remove agent profile "${profileID}" from this team?`)) return;
+    setTeamProfilesSaving(true);
+    setTeamProfilesError(null);
+    try {
+      await deleteTeamAgentProfile(configRepoFolder.folderPath, profileID);
+      await loadFolderTeamProfiles(configRepoFolder.folderPath, { quiet: true });
+      setConfigRepoDrift(null);
+      setConfigRepoPushResult(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to remove agent profile';
+      setTeamProfilesError(message);
+    } finally {
+      setTeamProfilesSaving(false);
+    }
+  }, [configRepoFolder, loadFolderTeamProfiles, teamProfileManageAllowed, teamProfilesSaving]);
+
+  const saveTeamMCPProfile = useCallback(async (profileName: string, payload: TeamMCPProfilePayload) => {
+    if (!configRepoFolder || !teamProfileManageAllowed || teamProfilesSaving) return;
+    const name = profileName.trim();
+    if (!name) {
+      setTeamProfilesError('MCP profile name is required.');
+      return;
+    }
+    setTeamProfilesSaving(true);
+    setTeamProfilesError(null);
+    try {
+      const exists = Boolean(teamMCPProfiles?.profiles.some(profile => profile.name === name));
+      const response = exists
+        ? await upsertTeamMCPProfile(configRepoFolder.folderPath, name, payload)
+        : await createTeamMCPProfile(configRepoFolder.folderPath, { ...payload, name });
+      setTeamMCPProfiles(response);
+      setConfigRepoDrift(null);
+      setConfigRepoPushResult(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to save MCP profile';
+      setTeamProfilesError(message);
+    } finally {
+      setTeamProfilesSaving(false);
+    }
+  }, [configRepoFolder, teamMCPProfiles?.profiles, teamProfileManageAllowed, teamProfilesSaving]);
+
+  const removeTeamMCPProfile = useCallback(async (profileName: string) => {
+    if (!configRepoFolder || !teamProfileManageAllowed || teamProfilesSaving) return;
+    if (!window.confirm(`Remove MCP profile "${profileName}" from this team?`)) return;
+    setTeamProfilesSaving(true);
+    setTeamProfilesError(null);
+    try {
+      await deleteTeamMCPProfile(configRepoFolder.folderPath, profileName);
+      await loadFolderTeamProfiles(configRepoFolder.folderPath, { quiet: true });
+      setConfigRepoDrift(null);
+      setConfigRepoPushResult(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to remove MCP profile';
+      setTeamProfilesError(message);
+    } finally {
+      setTeamProfilesSaving(false);
+    }
+  }, [configRepoFolder, loadFolderTeamProfiles, teamProfileManageAllowed, teamProfilesSaving]);
+
   return {
     configRepoFolder,
     configRepo,
@@ -454,11 +685,18 @@ export function useFolderConfigRepositoryController({
     configRepoPushResult,
     configRepoManageAllowed,
     configRepoSyncAllowed,
+    teamProfileManageAllowed,
     notificationRoute,
     notificationRouteForm,
     notificationRouteLoading,
     notificationRouteSaving,
     notificationRouteError,
+    teamLLMProfiles,
+    teamAgentProfiles,
+    teamMCPProfiles,
+    teamProfilesLoading,
+    teamProfilesSaving,
+    teamProfilesError,
     setConfigRepoForm,
     setNotificationRouteForm,
     setConfigRepoDriftOpen,
@@ -471,7 +709,15 @@ export function useFolderConfigRepositoryController({
     pushFolderConfigRepositoryDrift,
     saveFolderNotificationRoute,
     deleteFolderNotificationRoute,
+    saveTeamLLMProfile,
+    saveTeamDefaultLLMProfile,
+    removeTeamLLMProfile,
+    saveTeamAgentProfile,
+    saveTeamDefaultAgentProfile,
+    removeTeamAgentProfile,
+    saveTeamMCPProfile,
+    removeTeamMCPProfile,
   };
 }
 
-export type FolderConfigRepositoryController = ReturnType<typeof useFolderConfigRepositoryController>;
+export type TeamConfigRepositoryController = ReturnType<typeof useTeamConfigRepositoryController>;

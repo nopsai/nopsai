@@ -8,7 +8,6 @@ import {
   loadStepDrafts,
   upsertStepDraft,
 } from '../lib/stepDrafts';
-import { fetchResourceGroupPaths, insertGroupPath } from '../lib/resourceGroups';
 import { applyEnterIndent, findParentBlock } from '../lib/lab';
 import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowToastRegion';
 import { fetchEditorAutocompleteMetadata } from '../features/editor/autocomplete';
@@ -76,7 +75,6 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
 
   const [activeFolder, setActiveFolder] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [resourceGroupPaths, setResourceGroupPaths] = useState<string[]>([]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedIdRef = useRef<string | null>(null);
@@ -520,21 +518,6 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
   }, [loadSteps]);
 
   useEffect(() => {
-    let cancelled = false;
-    void fetchResourceGroupPaths()
-      .then(paths => {
-        if (!cancelled) setResourceGroupPaths(paths);
-      })
-      .catch(error => {
-        console.warn('Failed to load groups for step tree', error);
-        if (!cancelled) setResourceGroupPaths([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
     if (listLoading || listError) return;
     const activeId = selectedIdRef.current;
     if (!activeId) return;
@@ -628,9 +611,6 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
 
   const buildTree = useMemo(() => {
     const root: TreeNode = { id: '__root__', name: '', fullPath: '', children: [], stepIds: [] };
-    resourceGroupPaths.forEach(path => {
-      insertGroupPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], stepIds: [] }));
-    });
     steps.forEach(item => {
       const parts = item.id.split('/').filter(Boolean);
       const leafName = parts.pop();
@@ -651,7 +631,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
       current.stepIds.sort((a, b) => a.localeCompare(b));
     });
     return root;
-  }, [resourceGroupPaths, steps]);
+  }, [steps]);
 
   const activeFolderNode = useMemo(() => {
     if (!activeFolder) return buildTree;

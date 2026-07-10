@@ -49,13 +49,14 @@ when package scripts need the raw completion script.
 
 ## Interactive Selection
 
-Interactive list prompts render inline below the command as a compact table.
-They do not switch to an alternate screen or clear the whole terminal window.
-The prompt shows the full matching set through a 10-row viewport. Type to
-filter live, use Up/Down to move through visible and off-screen matches, use
-PgUp/PgDn for larger jumps, and press Enter to select the highlighted row.
-Clearing the search shows every available option again. When stdin or stdout is
-not a terminal, the CLI falls back to numbered prompts so scripted tests and
+Interactive list prompts render inline below the command as an aligned table
+with selection, number, option, and detail columns. They do not switch to an
+alternate screen or clear the whole terminal window. The prompt shows the full
+matching set through a 10-row viewport. Type to filter live, use Up/Down to move
+through visible and off-screen matches, use PgUp/PgDn for larger jumps, and
+press Enter to select the highlighted row. Clearing the search shows every
+available option again. When stdin or stdout is not a terminal, the CLI uses the
+same numbered table shape with an explicit search prompt so scripted tests and
 piped input stay deterministic.
 
 ## Contexts And Authentication

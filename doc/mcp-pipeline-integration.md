@@ -95,6 +95,24 @@ Only system/global config repositories may define the MCP registry. Group config
 repositories can reference approved `mcp_profiles` in their pipelines, but they
 cannot define new MCP servers.
 
+Team-scoped MCP profile storage and REST APIs are available at
+`GET|POST /v1/teams/{teamID}/mcp-profiles` and
+`GET|PUT|DELETE /v1/teams/{teamID}/mcp-profiles/{profileName}` for callers with
+`folder.read` or `folder.update` on the team. Team profiles compose approved
+system MCP servers. Run preparation and agent launch merge team profiles over
+the system catalog when the run belongs to that team. Team config repositories
+manage team-owned profiles in root `ai-profiles.yaml`:
+
+```yaml
+mcp_profiles:
+  - name: github-pr-readonly
+    description: Read-only GitHub PR context
+    enabled: true
+    servers:
+      - server: github
+        tools: ["*"]
+```
+
 Create the referenced bearer token under **System > Credentials** or sync its
 encrypted envelope from `setting/system/credentials.yaml`. GitOps owns the
 binding; plaintext remains write-only in the API/UI.

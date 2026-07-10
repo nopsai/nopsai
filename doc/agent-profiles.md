@@ -33,7 +33,7 @@ steps:
     script: ./deploy.sh
 ```
 
-Resolution order:
+Current runtime resolution order:
 
 1. Step `agent_profile`
 2. Pipeline `agent_profile`
@@ -72,15 +72,27 @@ To change only the default to a built-in profile, the file can be as small as:
 default_profile: sre
 ```
 
-Only system/global config repositories may define Agent Profiles. Group config
-repositories may reference approved profile IDs from their pipeline or reusable
-step YAML, but they cannot define or override the profile catalog.
+Only system/global config repositories may define system Agent Profiles.
+Team-scoped Agent Profile storage and REST APIs are available for delegated
+ownership, and run preparation/agent launch merge team profiles over the system
+catalog when the run belongs to that team. Team config repositories manage
+team-owned profiles in root `ai-profiles.yaml`:
+
+```yaml
+agent_default_profile: release-reviewer
+agent_profiles:
+  - id: release-reviewer
+    display_name: Release Reviewer
+    enabled: true
+    instructions: Review release risk, rollback readiness, and audit evidence.
+```
 
 ## UI And API
 
-The UI manages profiles under **System -> Agent Profiles**.
+The UI manages system profiles under **System -> Agent Profiles** and team
+profiles under **Teams -> Team Settings -> AI profiles**.
 
-Routes:
+System routes:
 
 - `GET /v1/system/agent-profiles`
 - `POST /v1/system/agent-profiles`
@@ -91,10 +103,21 @@ Routes:
 - `DELETE /v1/system/agent-profiles/{profileID}`
 - `GET /v1/system/agent-profiles/{profileID}/usage`
 
+Team-scoped routes:
+
+- `GET /v1/teams/{teamID}/agent-profiles`
+- `POST /v1/teams/{teamID}/agent-profiles`
+- `PUT /v1/teams/{teamID}/agent-profiles/default`
+- `GET /v1/teams/{teamID}/agent-profiles/{profileID}`
+- `PUT /v1/teams/{teamID}/agent-profiles/{profileID}`
+- `DELETE /v1/teams/{teamID}/agent-profiles/{profileID}`
+
 AAA resources:
 
 - Reads require `system.read` on `system:agent-profiles`.
 - Mutations require `system.update` on `system:agent-profiles`.
+- Team-scoped reads require `folder.read` on the resolved team folder.
+- Team-scoped mutations require `folder.update` on the resolved team folder.
 
 ## Runtime Contract
 

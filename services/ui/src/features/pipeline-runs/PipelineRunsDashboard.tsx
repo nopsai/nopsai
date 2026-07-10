@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import type { ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Activity,
   ArrowUpRight,
@@ -9,9 +10,7 @@ import {
   FolderTree,
   GitBranch,
   PlayCircle,
-  Settings,
   Timer,
-  Trash2,
   User,
   Webhook,
 } from 'lucide-react';
@@ -83,8 +82,6 @@ export function PipelineRunsDashboard({
   searchTerm,
   repoSummaries,
   fetchRepoSummary,
-  onDeleteFolder,
-  onOpenConfigRepository,
   onOpenRun,
   onSelectRun,
   selectedRunIds,
@@ -112,8 +109,6 @@ export function PipelineRunsDashboard({
   searchTerm: string;
   repoSummaries: Map<number, RepoSummary>;
   fetchRepoSummary: (groupId: number) => Promise<void>;
-  onDeleteFolder: (id: number) => void;
-  onOpenConfigRepository: (group: Group) => void;
   onOpenRun: (id: string) => void;
   onSelectRun: (id: string) => void;
   selectedRunIds: Set<string>;
@@ -200,9 +195,9 @@ export function PipelineRunsDashboard({
                 type="button"
                 className="runner-pill runner-pill--muted"
                 onClick={() => onSelectGroup(null)}
-                aria-label="Back to root groups"
+                aria-label="Back to root teams"
               >
-                All groups
+                All teams
               </button>
               {activeGroupPath.map((group: Group) => (
                 <div key={group.id} className="flex items-center gap-2">
@@ -217,14 +212,10 @@ export function PipelineRunsDashboard({
                 </div>
               ))}
             </div>
-            {activeFolder && !isAppGroup(activeFolder) && !activeFolder.navigation_only && (
-              <button
-                type="button"
-                className="glass-button-subtle"
-                onClick={() => onOpenConfigRepository(activeFolder)}
-              >
-                Config Repository
-              </button>
+            {activeFolder && (
+              <Link className="glass-button-subtle" to={`/teams?team=${encodeURIComponent(String(activeFolder.id))}`}>
+                Manage team
+              </Link>
             )}
           </div>
         )}
@@ -236,10 +227,10 @@ export function PipelineRunsDashboard({
         ) : (
           <div className="space-y-7">
             <DashboardPanel
-              title="Subgroups"
+              title="Teams"
               count={folderGroups.length}
               icon={<FolderTree className="h-4 w-4" />}
-              emptyLabel="No subgroups."
+              emptyLabel="No teams."
             >
               <GroupGrid
                 groups={folderGroups}
@@ -247,8 +238,6 @@ export function PipelineRunsDashboard({
                 activeGroupId={activeGroupId}
                 repoSummaries={repoSummaries}
                 onSelect={onSelectGroup}
-                onDelete={onDeleteFolder}
-                onOpenConfigRepository={onOpenConfigRepository}
               />
             </DashboardPanel>
 
@@ -264,8 +253,6 @@ export function PipelineRunsDashboard({
                 activeGroupId={activeGroupId}
                 repoSummaries={repoSummaries}
                 onSelect={onSelectGroup}
-                onDelete={onDeleteFolder}
-                onOpenConfigRepository={onOpenConfigRepository}
               />
             </DashboardPanel>
 
@@ -473,23 +460,18 @@ function GroupGrid({
   activeGroupId,
   repoSummaries,
   onSelect,
-  onDelete,
-  onOpenConfigRepository,
 }: {
   groups: Group[];
   allGroups: Group[];
   activeGroupId: number | null;
   repoSummaries: Map<number, RepoSummary>;
   onSelect: (id: number) => void;
-  onDelete: (id: number) => void;
-  onOpenConfigRepository: (group: Group) => void;
 }) {
   if (!groups.length) return null;
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
       {groups.map(group => {
         const isRepo = isAppGroup(group);
-        const navigationOnly = Boolean(group.navigation_only);
         const description = (group.description || '').trim();
         const isActive = activeGroupId === group.id;
         const summary = repoSummaries.get(group.id);
@@ -510,19 +492,6 @@ function GroupGrid({
               }}
               className={`relative group bg-[var(--bg-secondary)] p-4 rounded-md hover:bg-[var(--bg-tertiary)] transition-colors duration-200 border border-[var(--border-primary)] hover:border-[var(--border-accent)] shadow-sm hover:shadow-lg flex flex-col justify-between min-h-[220px] ${isActive ? 'run-link-highlight' : ''}`}
             >
-              {!navigationOnly && (
-                <button
-                  type="button"
-                  className="delete-group-btn absolute top-2 right-2 text-[var(--text-secondary)] hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity z-10"
-                  aria-label={`Delete ${displayName}`}
-                  onClick={event => {
-                    event.stopPropagation();
-                    onDelete(group.id);
-                  }}
-                >
-                  <Trash2 className="h-5 w-5" aria-hidden="true" />
-                </button>
-              )}
               <div className="flex items-center">
                 <svg className="h-8 w-8 text-[var(--text-accent)] mr-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <circle cx="8" cy="7" r="2.2" fill="currentColor" />
@@ -594,34 +563,6 @@ function GroupGrid({
                 <span className="pipeline-folder-chevron" aria-hidden="true">
                   <ChevronRight className="h-4 w-4" />
                 </span>
-                {!navigationOnly && (
-                  <>
-                    <button
-                      className="pipelines-delete-button pipeline-folder-delete-btn"
-                      type="button"
-                      title="Config repository"
-                      aria-label={`Config repository for ${displayName}`}
-                      onClick={event => {
-                        event.stopPropagation();
-                        onOpenConfigRepository(group);
-                      }}
-                    >
-                      <Settings className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                    <button
-                      className="pipelines-delete-button pipeline-folder-delete-btn delete-group-btn"
-                      type="button"
-                      title="Delete group"
-                      aria-label={`Delete ${displayName}`}
-                      onClick={event => {
-                        event.stopPropagation();
-                        onDelete(group.id);
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                  </>
-                )}
               </div>
             </div>
             {description && <p className="pipeline-folder-description" title={description}>{description}</p>}
@@ -631,7 +572,7 @@ function GroupGrid({
                 <span className="pipeline-folder-meta-value">{applications}</span>
               </div>
               <div className="pipeline-folder-meta-row">
-                <span className="pipeline-folder-meta-label">Sub groups:</span>
+                <span className="pipeline-folder-meta-label">Teams:</span>
                 <span className="pipeline-folder-meta-value">{subfolders}</span>
               </div>
             </div>

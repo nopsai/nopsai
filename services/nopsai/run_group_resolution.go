@@ -7,10 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"nopsai/services/nopsai/internal/configsync"
 	runquery "nopsai/services/nopsai/internal/runs"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/rs/zerolog/log"
 )
 
@@ -42,43 +40,18 @@ func (a *App) resolveGroupIDForRepo(repoOwner, repoName string) (sql.NullInt32, 
 		return groupID, err
 	}
 	if len(matches) > 0 {
-		groupID.Int32 = int32(matches[0].ID)
-		groupID.Valid = true
-		return groupID, nil
+		return repositoryGroupIDFromMatches(matches), nil
 	}
 
-	var existingID int32
-	repoURL := configsync.CanonicalRepositoryURL(fullRepoName)
-	err = a.db.QueryRow(context.Background(), "SELECT id FROM groups WHERE repository_full_name = $1 OR name = $1", fullRepoName).Scan(&existingID)
-	if err == pgx.ErrNoRows {
-		if repoOwner != "" {
-			err = a.db.QueryRow(context.Background(), "SELECT id FROM groups WHERE name = $1", repoName).Scan(&existingID)
-			if err == nil {
-				log.Info().Str("old_name", repoName).Str("repository", fullRepoName).Msg("Found matching app folder, attaching repository metadata.")
-				if _, updateErr := a.db.Exec(context.Background(), "UPDATE groups SET kind = 'app', repo_url = $1, repository_full_name = $2, updated_at = NOW() WHERE id = $3", repoURL, fullRepoName, existingID); updateErr != nil {
-					log.Error().Err(updateErr).Msg("Failed to rename existing folder to claim it.")
-					existingID = 0
-				}
-			} else if err == pgx.ErrNoRows {
-				log.Info().Str("repo", fullRepoName).Msg("No existing app found. Creating a new one at the root.")
-				err = a.db.QueryRow(context.Background(), `INSERT INTO groups (name, kind, parent_id, repo_url, repository_full_name) VALUES ($1, 'app', NULL, $2, $3) RETURNING id`, fullRepoName, repoURL, fullRepoName).Scan(&existingID)
-			}
-		} else {
-			log.Info().Str("repo", repoName).Msg("No existing app found. Creating a new one at the root.")
-			err = a.db.QueryRow(context.Background(), `INSERT INTO groups (name, kind, parent_id, repo_url, repository_full_name) VALUES ($1, 'app', NULL, $2, $3) RETURNING id`, repoName, configsync.CanonicalRepositoryURL(repoName), repoName).Scan(&existingID)
-		}
-	}
-	if err == nil && existingID != 0 && fullRepoName != "" {
-		_, _ = a.db.Exec(context.Background(), "UPDATE groups SET kind = 'app', repo_url = CASE WHEN repo_url = '' THEN $1 ELSE repo_url END, repository_full_name = $2, updated_at = NOW() WHERE id = $3", repoURL, fullRepoName, existingID)
-	}
-	if err != nil && err != pgx.ErrNoRows {
-		return groupID, err
-	}
-	if existingID != 0 {
-		groupID.Int32 = existingID
-		groupID.Valid = true
-	}
+	log.Debug().Str("repo", fullRepoName).Msg("No existing app/team found for repository run; leaving run ungrouped.")
 	return groupID, nil
+}
+
+func repositoryGroupIDFromMatches(matches []repositoryGroupMatch) sql.NullInt32 {
+	if len(matches) == 0 {
+		return sql.NullInt32{}
+	}
+	return sql.NullInt32{Int32: int32(matches[0].ID), Valid: true}
 }
 
 func (a *App) resolveGroupIDForRun(ctx context.Context, explicitGroupPath, pipelinePath string, gitContext map[string]string) (sql.NullInt32, error) {

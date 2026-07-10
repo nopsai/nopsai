@@ -97,7 +97,7 @@ export const NOTIFICATION_EVENTS: Array<{ key: NotificationEventKey; label: stri
   { key: 'skipped', label: 'Skipped' },
 ];
 
-export function folderNotificationGitOpsTarget(basePath: string): string {
+export function teamNotificationGitOpsTarget(basePath: string): string {
   const normalizedBasePath = basePath.trim().replaceAll('\\', '/').replace(/^\/+|\/+$/g, '');
   return normalizedBasePath ? `${normalizedBasePath}/notifications.yaml` : 'notifications.yaml';
 }

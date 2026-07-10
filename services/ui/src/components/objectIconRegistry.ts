@@ -19,6 +19,7 @@ import {
   Settings,
   ShieldCheck,
   SlidersHorizontal,
+  UsersRound,
   Webhook,
   Workflow,
   Zap,
@@ -28,6 +29,7 @@ import {
 export const objectIconTypes = [
   'pipeline-run',
   'monitoring',
+  'team',
   'pipeline',
   'schedule',
   'trigger',
@@ -64,6 +66,7 @@ export type ObjectIconType = (typeof objectIconTypes)[number];
 export const objectIconRegistry = {
   'pipeline-run': Play,
   monitoring: Activity,
+  team: UsersRound,
   pipeline: Workflow,
   schedule: CalendarClock,
   trigger: Bell,

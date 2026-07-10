@@ -159,6 +159,29 @@ path. Existing deployments can use the legacy route by setting
 The canonical GitOps path is `setting/system/llm_profile.yaml`. Group-scoped
 config repositories cannot manage system LLM profiles.
 
+Team-scoped LLM profile storage and REST APIs are available at
+`GET|PUT /v1/teams/{teamID}/llm-profiles` and
+`PUT /v1/teams/{teamID}/llm-profiles/default`,
+`PUT|DELETE /v1/teams/{teamID}/llm-profiles/{profileName}` for callers with
+`folder.read` or `folder.update` on the team. The Teams settings modal exposes
+these controls under **AI profiles**.
+
+Team config repositories can manage the same team-owned LLM entries in root
+`ai-profiles.yaml`:
+
+```yaml
+llm_default_profile: release-review
+llm_profiles:
+  - name: release-review
+    provider: openai
+    model: gpt-4.1
+    credential_ref: credential://team/platform/llm/openai
+    allowed_scopes: ["platform/prod"]
+```
+
+Run preparation and agent launch merge team profiles over the system catalog
+when the run belongs to that team.
+
 ## Pipeline Usage
 
 Pipelines, steps, and tasks can select a profile with `llm_profile`.

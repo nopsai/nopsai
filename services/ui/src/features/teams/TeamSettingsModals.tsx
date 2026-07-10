@@ -1,10 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Dispatch, FormEvent, SetStateAction } from 'react';
 import { Plus, Trash2, X } from 'lucide-react';
-import { formatConfigRepoTimestamp } from './runPresentation';
+import { formatConfigRepoTimestamp } from '../../lib/teamGroups';
+import type {
+  TeamAgentProfilePayload,
+  TeamAgentProfilesResponse,
+  TeamLLMProfilePayload,
+  TeamLLMProfilesResponse,
+  TeamMCPProfilePayload,
+  TeamMCPProfilesResponse,
+} from './api';
+import { TeamAIProfilesPanel } from './TeamAIProfilesPanel';
 import {
   NOTIFICATION_EVENTS,
-  folderNotificationGitOpsTarget,
+  teamNotificationGitOpsTarget,
   notificationRouteFormAddRoute,
   notificationRouteFormRemoveSelectedRoute,
   notificationRouteFormSelectRoute,
@@ -38,14 +47,14 @@ type ConfigRepositoryFormState = {
   write_branch: string;
 };
 
-type NewFolderPayload = {
+type NewTeamItemPayload = {
   kind: 'group' | 'app';
   name: string;
   description: string;
   repoURL: string;
 };
 
-export function NewFolderModal({
+export function NewTeamItemModal({
   open,
   parentLabel,
   error,
@@ -58,7 +67,7 @@ export function NewFolderModal({
   error: string | null;
   pending: boolean;
   onClose: () => void;
-  onSubmit: (payload: NewFolderPayload) => Promise<void>;
+  onSubmit: (payload: NewTeamItemPayload) => Promise<void>;
 }) {
   const [kind, setKind] = useState<'group' | 'app'>('group');
   const [name, setName] = useState('');
@@ -89,10 +98,15 @@ export function NewFolderModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] px-4">
-      <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-[var(--border-primary)] overflow-hidden">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="team-item-modal-title"
+        className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-[var(--border-primary)] overflow-hidden"
+      >
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-primary)]">
           <div>
-            <h3 className="text-lg font-semibold text-[var(--text-primary)]">Create New Item</h3>
+            <h3 id="team-item-modal-title" className="text-lg font-semibold text-[var(--text-primary)]">Create Team Item</h3>
             <p className="text-xs text-[var(--text-secondary)]">Parent: {parentLabel || 'Root'}</p>
           </div>
           <button type="button" className="pipelines-icon-only" aria-label="Close" onClick={onClose}>
@@ -112,13 +126,13 @@ export function NewFolderModal({
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
               >
-                {option === 'group' ? 'Group' : 'App'}
+                  {option === 'group' ? 'Team' : 'Application'}
               </button>
             ))}
           </div>
           <div className="space-y-2">
             <label htmlFor="new-folder-name" className="text-sm font-medium text-[var(--text-primary)]">
-              {kind === 'app' ? 'App Name' : 'Group Name'}
+              {kind === 'app' ? 'Application Name' : 'Team Name'}
             </label>
             <input
               ref={nameInputRef}
@@ -160,7 +174,7 @@ export function NewFolderModal({
                 onChange={event => setDescription(event.target.value)}
                 rows={3}
                 className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)]"
-                placeholder="Add a short summary for this group"
+                placeholder="Add a short summary for this team"
               />
             </div>
           )}
@@ -179,7 +193,7 @@ export function NewFolderModal({
   );
 }
 
-export function FolderConfigRepositoryModal({
+export function TeamConfigRepositoryModal({
   folderLabel,
   repo,
   form,
@@ -193,8 +207,15 @@ export function FolderConfigRepositoryModal({
   notificationLoading,
   notificationSaving,
   notificationError,
+  llmProfiles,
+  agentProfiles,
+  mcpProfiles,
+  aiProfilesLoading,
+  aiProfilesSaving,
+  aiProfilesError,
   canManage,
   canSync,
+  canManageProfiles,
   onChange,
   onNotificationChange,
   onSave,
@@ -203,6 +224,14 @@ export function FolderConfigRepositoryModal({
   onCheckDrift,
   onSaveNotification,
   onDeleteNotification,
+  onSaveLLMProfile,
+  onSetDefaultLLMProfile,
+  onDeleteLLMProfile,
+  onSaveAgentProfile,
+  onSetDefaultAgentProfile,
+  onDeleteAgentProfile,
+  onSaveMCPProfile,
+  onDeleteMCPProfile,
   onClose,
 }: {
   folderLabel: string;
@@ -218,8 +247,15 @@ export function FolderConfigRepositoryModal({
   notificationLoading: boolean;
   notificationSaving: boolean;
   notificationError: string | null;
+  llmProfiles: TeamLLMProfilesResponse | null;
+  agentProfiles: TeamAgentProfilesResponse | null;
+  mcpProfiles: TeamMCPProfilesResponse | null;
+  aiProfilesLoading: boolean;
+  aiProfilesSaving: boolean;
+  aiProfilesError: string | null;
   canManage: boolean;
   canSync: boolean;
+  canManageProfiles: boolean;
   onChange: Dispatch<SetStateAction<ConfigRepositoryFormState>>;
   onNotificationChange: Dispatch<SetStateAction<NotificationRouteFormState>>;
   onSave: () => Promise<void>;
@@ -228,6 +264,14 @@ export function FolderConfigRepositoryModal({
   onCheckDrift: () => Promise<void>;
   onSaveNotification: () => Promise<void>;
   onDeleteNotification: () => Promise<void>;
+  onSaveLLMProfile: (profileName: string, payload: TeamLLMProfilePayload) => Promise<void>;
+  onSetDefaultLLMProfile: (profileName: string) => Promise<void>;
+  onDeleteLLMProfile: (profileName: string) => Promise<void>;
+  onSaveAgentProfile: (profileID: string, payload: TeamAgentProfilePayload) => Promise<void>;
+  onSetDefaultAgentProfile: (profileID: string) => Promise<void>;
+  onDeleteAgentProfile: (profileID: string) => Promise<void>;
+  onSaveMCPProfile: (profileName: string, payload: TeamMCPProfilePayload) => Promise<void>;
+  onDeleteMCPProfile: (profileName: string) => Promise<void>;
   onClose: () => void;
 }) {
   const inputClass = 'pipelines-input w-full text-sm disabled:cursor-not-allowed disabled:opacity-70';
@@ -246,40 +290,40 @@ export function FolderConfigRepositoryModal({
   const notificationSourceLabel = notificationManaged ? 'GitOps' : notificationRoute?.id ? 'Database' : 'Default';
   const notificationSaveDisabled = !notificationCanEdit;
   const notificationDeleteDisabled = !notificationCanEdit || !notificationRoute?.id;
-  const notificationGitOpsTarget = repo ? folderNotificationGitOpsTarget(repo.base_path) : '';
-  const [activeSettingsTab, setActiveSettingsTab] = useState<'sync' | 'notifications'>('sync');
-  const settingsTabClass = (tab: 'sync' | 'notifications') =>
+  const notificationGitOpsTarget = repo ? teamNotificationGitOpsTarget(repo.base_path) : '';
+  const aiProfilesGitOpsTarget = repo ? teamAIProfilesGitOpsTarget(repo.base_path) : '';
+  const [activeSettingsTab, setActiveSettingsTab] = useState<'sync' | 'notifications' | 'ai'>('sync');
+  const settingsTabClass = (tab: 'sync' | 'notifications' | 'ai') =>
     `inline-flex min-h-[38px] items-center justify-center rounded-md px-4 py-2 text-sm font-semibold transition ${
       activeSettingsTab === tab
         ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-sm border border-[var(--border-primary)]'
         : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
     }`;
 
-  const handleSubmit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (activeSettingsTab !== 'sync') return;
-    await onSave();
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] px-4">
-      <div className="w-full max-w-5xl max-h-[90vh] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-[var(--border-primary)] overflow-y-auto">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="team-settings-modal-title"
+        className="w-full max-w-5xl max-h-[90vh] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-[var(--border-primary)] overflow-y-auto"
+      >
         <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)]/70">
           <div>
-            <p className="text-xs uppercase tracking-wide text-[var(--text-secondary)] font-semibold">Group Settings</p>
-            <h3 className="text-lg font-semibold text-[var(--text-primary)]">Config & Notifications</h3>
+            <p className="text-xs uppercase tracking-wide text-[var(--text-secondary)] font-semibold">Team Settings</p>
+            <h3 id="team-settings-modal-title" className="text-lg font-semibold text-[var(--text-primary)]">Config, Notifications & AI</h3>
             <p className="text-xs text-[var(--text-secondary)] break-all">{folderLabel}</p>
           </div>
           <div className="flex items-center gap-2">
-            {!canManage && <span className="runner-pill runner-pill--muted">Read-only</span>}
+            {!canManage && !canManageProfiles && <span className="runner-pill runner-pill--muted">Read-only</span>}
             <button type="button" className="pipelines-icon-only" aria-label="Close" onClick={onClose}>
               <X className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} noValidate={activeSettingsTab !== 'sync'} className="p-5 space-y-5">
-          <div className="inline-flex rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-1" role="tablist" aria-label="Group settings sections">
+        <div className="p-5 space-y-5">
+          <div className="inline-flex rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-1" role="tablist" aria-label="Team settings sections">
             <button
               type="button"
               role="tab"
@@ -297,6 +341,15 @@ export function FolderConfigRepositoryModal({
               onClick={() => setActiveSettingsTab('notifications')}
             >
               Notifications
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeSettingsTab === 'ai'}
+              className={settingsTabClass('ai')}
+              onClick={() => setActiveSettingsTab('ai')}
+            >
+              AI profiles
             </button>
           </div>
 
@@ -443,7 +496,7 @@ export function FolderConfigRepositoryModal({
                   Close
                 </button>
                 {canManage && (
-                  <button type="submit" className="glass-button-primary" disabled={!canEdit}>
+                  <button type="button" className="glass-button-primary" onClick={() => void onSave()} disabled={!canEdit}>
                     {saving ? 'Saving...' : repo ? 'Save Repository' : 'Connect Repository'}
                   </button>
                 )}
@@ -566,7 +619,7 @@ export function FolderConfigRepositoryModal({
                               onChange={event => onNotificationChange(prev => ({ ...prev, includeSameGroup: event.target.checked }))}
                               disabled={!notificationCanEdit}
                             />
-                            Same group
+                            Same team
                           </label>
                           <label htmlFor="notification-include-users" className={fieldClass}>
                             <span>People</span>
@@ -580,7 +633,7 @@ export function FolderConfigRepositoryModal({
                             />
                           </label>
                           <label htmlFor="notification-include-groups" className={fieldClass}>
-                            <span>Groups</span>
+                            <span>Teams / groups</span>
                             <textarea
                               id="notification-include-groups"
                               value={notificationForm.includeGroups}
@@ -608,7 +661,7 @@ export function FolderConfigRepositoryModal({
                             />
                           </label>
                           <label htmlFor="notification-exclude-groups" className={fieldClass}>
-                            <span>Excluded groups</span>
+                            <span>Excluded teams / groups</span>
                             <textarea
                               id="notification-exclude-groups"
                               value={notificationForm.excludeGroups}
@@ -741,10 +794,37 @@ export function FolderConfigRepositoryModal({
               </div>
             </div>
           )}
-        </form>
+
+          {activeSettingsTab === 'ai' && (
+            <TeamAIProfilesPanel
+              llmProfiles={llmProfiles}
+              agentProfiles={agentProfiles}
+              mcpProfiles={mcpProfiles}
+              loading={aiProfilesLoading}
+              saving={aiProfilesSaving}
+              error={aiProfilesError}
+              canManage={canManageProfiles}
+              gitOpsTarget={aiProfilesGitOpsTarget}
+              onSaveLLM={onSaveLLMProfile}
+              onSetDefaultLLM={onSetDefaultLLMProfile}
+              onDeleteLLM={onDeleteLLMProfile}
+              onSaveAgent={onSaveAgentProfile}
+              onSetDefaultAgent={onSetDefaultAgentProfile}
+              onDeleteAgent={onDeleteAgentProfile}
+              onSaveMCP={onSaveMCPProfile}
+              onDeleteMCP={onDeleteMCPProfile}
+              onCheckDrift={onCheckDrift}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
+}
+
+function teamAIProfilesGitOpsTarget(basePath: string): string {
+  const normalized = basePath.trim().replace(/^\/+|\/+$/g, '');
+  return normalized ? `${normalized}/ai-profiles.yaml` : 'ai-profiles.yaml';
 }
 
 function NotificationPatternInputs({

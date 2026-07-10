@@ -37,10 +37,3 @@ export type PipelineRunsTriggerGroup = {
   status: string;
   latestRun?: RunListItem;
 };
-
-export type PipelineRunsNewFolderPayload = {
-  kind: 'group' | 'app';
-  name: string;
-  description: string;
-  repoURL: string;
-};

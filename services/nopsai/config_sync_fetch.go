@@ -36,6 +36,7 @@ type configSyncRepositoryFiles struct {
 	access             map[string]string
 	knowledge          map[string]string
 	notifications      map[string]string
+	teamAIProfiles     map[string]string
 	setting            map[string]string
 }
 
@@ -117,6 +118,7 @@ func fetchConfigSyncRepositoryFiles(reader configSyncGitReader, repoCtx configSy
 		return configSyncRepositoryFiles{}, err
 	}
 	files.notifications = map[string]string{}
+	files.teamAIProfiles = map[string]string{}
 	if binding.ScopeType == models.ConfigRepositoryScopeFolder {
 		rootRoutePath := configsync.RepoJoinPath(repoCtx.basePath, "notifications.yaml")
 		content, err := reader.requestGitBotFile(repoCtx.owner, repoCtx.repo, repoCtx.branch, rootRoutePath, errNotificationGitOpsNotFound)
@@ -124,6 +126,19 @@ func fetchConfigSyncRepositoryFiles(reader configSyncGitReader, repoCtx configSy
 			files.notifications[rootRoutePath] = content
 		} else if !errors.Is(err, errNotificationGitOpsNotFound) {
 			return configSyncRepositoryFiles{}, fmt.Errorf("failed to fetch notification route '%s': %w", rootRoutePath, err)
+		}
+		for _, rootProfilePath := range []string{
+			configsync.RepoJoinPath(repoCtx.basePath, "ai-profiles.yaml"),
+			configsync.RepoJoinPath(repoCtx.basePath, "ai-profiles.yml"),
+		} {
+			content, err := reader.requestGitBotFile(repoCtx.owner, repoCtx.repo, repoCtx.branch, rootProfilePath, errTeamAIProfilesGitOpsNotFound)
+			if err == nil {
+				files.teamAIProfiles[rootProfilePath] = content
+				continue
+			}
+			if !errors.Is(err, errTeamAIProfilesGitOpsNotFound) {
+				return configSyncRepositoryFiles{}, fmt.Errorf("failed to fetch team AI profiles '%s': %w", rootProfilePath, err)
+			}
 		}
 	}
 	if files.setting, err = fetchDir(repoCtx.dirs.setting, "system settings"); err != nil {
