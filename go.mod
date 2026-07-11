@@ -1,6 +1,6 @@
 module nopsai
 
-go 1.26.4
+go 1.26.5
 
 require (
 	github.com/bradleyfalzon/ghinstallation/v2 v2.16.0
@@ -16,7 +16,7 @@ require (
 	github.com/rs/zerolog v1.33.0
 	github.com/spf13/cobra v1.10.2
 	github.com/xuri/excelize/v2 v2.10.1
-	github.com/yuin/goldmark v1.7.13
+	github.com/yuin/goldmark v1.7.17
 	golang.org/x/crypto v0.52.0
 	golang.org/x/term v0.43.0
 	google.golang.org/grpc v1.81.1

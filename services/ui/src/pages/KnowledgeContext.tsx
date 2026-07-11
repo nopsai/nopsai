@@ -56,7 +56,7 @@ type KnowledgeContextPageProps = {
 export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowledge }: KnowledgeContextPageProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const routeSegments = location.pathname.split('/').filter(Boolean);
+  const routeSegments = useMemo(() => location.pathname.split('/').filter(Boolean), [location.pathname]);
   const isTeamRoute = routeSegments[1] === TEAM_ROUTE_SEGMENT;
   const selectedID = isTeamRoute ? '' : decodeKnowledgeRouteID(location.pathname);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -179,7 +179,7 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
   const activeTeam = useMemo(() => {
     const routeTeam = isTeamRoute ? decodeTeamRouteSegments(routeSegments.slice(2)) : '';
     return normalizeTeamPath(routeTeam || new URLSearchParams(location.search).get('team') || '');
-  }, [isTeamRoute, location.pathname, location.search]);
+  }, [isTeamRoute, location.search, routeSegments]);
   const knowledgeTree = useMemo(() => buildKnowledgeTree(items, []), [items]);
   const activeTeamNode = useMemo(() => findKnowledgeTeam(knowledgeTree, activeTeam), [activeTeam, knowledgeTree]);
   const visibleDocuments = useMemo(() => {

@@ -437,7 +437,14 @@ func hostedMCPSetupTemplatesQueryArgs(args map[string]any) map[string]any {
 		if len(users) > 0 {
 			values := make([]string, 0, len(users))
 			for _, user := range users {
-				if payload, err := json.Marshal(user); err == nil {
+				payloadUser := map[string]string{
+					"sub":      user.Sub,
+					"email":    user.Email,
+					"role":     user.Role,
+					"team":     user.Team,
+					"password": user.Password,
+				}
+				if payload, err := json.Marshal(payloadUser); err == nil {
 					values = append(values, string(payload))
 				}
 			}

@@ -795,7 +795,7 @@ func TestHostedMCPSetupTemplatesPathUsesRepositoryTeams(t *testing.T) {
 			map[string]any{"name": "platform", "repositories": []any{"acme/api"}},
 		},
 		"users": []any{
-			map[string]any{"sub": "alice@example.com", "team": "platform"},
+			map[string]any{"sub": "alice@example.com", "team": "platform", "password": "temporary-password"},
 		},
 	})
 	parsed, err := url.Parse(path)
@@ -805,7 +805,7 @@ func TestHostedMCPSetupTemplatesPathUsesRepositoryTeams(t *testing.T) {
 	if got := parsed.Query()["repository_team"]; len(got) != 1 || got[0] != "platform:acme/api" {
 		t.Fatalf("repository_team query = %#v", got)
 	}
-	if got := parsed.Query()["setup_user"]; len(got) != 1 || !strings.Contains(got[0], `"team":"platform"`) {
+	if got := parsed.Query()["setup_user"]; len(got) != 1 || !strings.Contains(got[0], `"team":"platform"`) || !strings.Contains(got[0], `"password":"temporary-password"`) {
 		t.Fatalf("setup_user query = %#v", got)
 	}
 }

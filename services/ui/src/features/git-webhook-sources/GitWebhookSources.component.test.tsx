@@ -53,7 +53,7 @@ test('renders source details and audited deliveries', async () => {
   );
 
   expect(await screen.findByRole('heading', { name: 'GitLab Platform' })).toBeVisible();
-  const list = screen.getByTestId('git-webhook-source-card-list');
+  const list = await screen.findByTestId('git-webhook-source-card-list');
   expect(list).toHaveClass('compact-resource-grid');
   const cards = Array.from(list.querySelectorAll('.compact-resource-card'));
   expect(cards).toHaveLength(1);
