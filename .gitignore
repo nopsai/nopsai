@@ -1,0 +1,12 @@
+# Local build and test artifacts
+/coverage.out
+/dist/
+/package/
+
+# Locally built CLI/API binaries and generated shell completions
+/nopsai
+/nopsai-api
+/_nopsai
+
+# OS/editor noise
+.DS_Store
