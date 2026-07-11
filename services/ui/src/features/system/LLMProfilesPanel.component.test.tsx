@@ -40,14 +40,18 @@ test('renders provider labels and applies provider-aware profile defaults', asyn
     </MemoryRouter>
   );
 
-  expect(await screen.findByText('OpenAI / ChatGPT')).toBeVisible();
+  expect((await screen.findAllByText('OpenAI / ChatGPT'))[0]).toBeVisible();
   expect(screen.getByRole('link', { name: 'credential://system/llm/openai' })).toHaveAttribute(
     'href',
     '/system/credentials?credential=credential%3A%2F%2Fsystem%2Fllm%2Fopenai'
   );
-  expect(screen.getByText('30s / 2048 tokens')).toBeVisible();
+  expect(screen.getByText('30s')).toBeVisible();
+  expect(screen.getByText('2048 tokens')).toBeVisible();
+  expect(screen.queryByRole('button', { name: /more actions/i })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Access' })).toHaveClass('ai-resource-icon-action');
+  expect(screen.getByRole('button', { name: /edit profile/i })).toHaveClass('ai-resource-icon-action');
 
-  await user.click(screen.getByRole('button', { name: 'Test' }));
+  await user.click(screen.getByRole('button', { name: /test connection/i }));
   await waitFor(() => expect(apiMocks.testLLMProfile).toHaveBeenCalledWith('hosted'));
   expect(await screen.findByText('hosted: ok')).toBeVisible();
 

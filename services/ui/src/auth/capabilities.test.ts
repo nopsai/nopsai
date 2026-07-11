@@ -78,7 +78,7 @@ test('derives app and system access from normalized capabilities', () => {
   assert.equal(access.systemPermissions.canManageDataManagement, false);
 });
 
-test('prefers Agent Profiles when only that system capability is granted', () => {
+test('keeps profile-only capabilities out of the System area', () => {
   const user = normalizeCurrentUser({
     sub: 'operator',
     capabilities: {
@@ -91,8 +91,8 @@ test('prefers Agent Profiles when only that system capability is granted', () =>
 
   const access = getAppAccess(user, { sub: 'operator' });
 
-  assert.equal(access.canViewAnySystem, true);
-  assert.equal(access.preferredSystemPath, '/system/agent-profiles');
+  assert.equal(access.canViewAnySystem, false);
+  assert.equal(access.preferredSystemPath, '/system/config');
   assert.equal(access.canViewSystemAgentProfiles, true);
   assert.equal(access.canManageSystemAgentProfiles, true);
 });

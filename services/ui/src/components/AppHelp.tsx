@@ -189,10 +189,10 @@ const HELP_TOPICS: Record<string, HelpTopic> = {
       },
     ],
   },
-  'system/llm-profiles': {
+  'llm-profiles': {
     title: 'LLM Profiles',
     summary: 'Define model providers, models, keys, and scope limits for AI steps.',
-    docsPath: 'system/llm-profiles',
+    docsPath: 'llm-profiles',
     sections: [
       {
         title: 'What this page covers',
@@ -200,10 +200,21 @@ const HELP_TOPICS: Record<string, HelpTopic> = {
       },
     ],
   },
-  'system/mcp': {
+  'agent-profiles': {
+    title: 'Agent Profiles',
+    summary: 'Define reusable AI roles, instructions, sources, defaults, and usage checks.',
+    docsPath: 'agent-profiles',
+    sections: [
+      {
+        title: 'What this page covers',
+        body: 'Agent profiles cover reusable agent instructions, defaults, built-in profiles, GitOps-managed profiles, usage, and source inspection.',
+      },
+    ],
+  },
+  mcp: {
     title: 'MCP',
     summary: 'Register external tool servers and assemble reusable MCP profiles.',
-    docsPath: 'system/mcp',
+    docsPath: 'mcp',
     sections: [
       {
         title: 'What this page covers',

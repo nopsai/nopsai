@@ -226,6 +226,9 @@ func TestProductRolePermissions(t *testing.T) {
 		assertAction(t, actions, "runner.use", true)
 		assertAction(t, actions, "config_repo.read", true)
 		assertAction(t, actions, "config_repo.use", true)
+		assertAction(t, actions, "llm_profile.use", true)
+		assertAction(t, actions, "agent_profile.use", true)
+		assertAction(t, actions, "mcp_profile.use", true)
 		assertAction(t, actions, "config_repo.manage", false)
 		assertAction(t, actions, "config_repo.sync", false)
 		assertAction(t, actions, "secret.read_value", false)
@@ -260,6 +263,10 @@ func TestProductRolePermissions(t *testing.T) {
 		assertAction(t, actions, "config_repo.read", true)
 		assertAction(t, actions, "config_repo.manage", true)
 		assertAction(t, actions, "config_repo.sync", true)
+		assertAction(t, actions, "llm_profile.manage_acl", true)
+		assertAction(t, actions, "agent_profile.manage_acl", true)
+		assertAction(t, actions, "mcp_server.manage_acl", true)
+		assertAction(t, actions, "mcp_profile.manage_acl", true)
 	})
 
 	t.Run("pipeline run", func(t *testing.T) {
@@ -406,6 +413,26 @@ func TestNormalizeAccessGrantResourceTypeSupportsGitWebhookSource(t *testing.T) 
 	}
 	if got != grantResourceGitWebhookSource {
 		t.Fatalf("normalizeAccessGrantResourceType() = %q, want %q", got, grantResourceGitWebhookSource)
+	}
+}
+
+func TestNormalizeAccessGrantResourceTypeSupportsAIProfiles(t *testing.T) {
+	tests := map[string]string{
+		"llm_profile":   grantResourceLLMProfile,
+		"agent_profile": grantResourceAgentProfile,
+		"mcp_server":    grantResourceMCPServer,
+		"mcp_profile":   grantResourceMCPProfile,
+	}
+	for raw, want := range tests {
+		t.Run(raw, func(t *testing.T) {
+			got, err := normalizeAccessGrantResourceType(raw)
+			if err != nil {
+				t.Fatalf("normalizeAccessGrantResourceType() error = %v", err)
+			}
+			if got != want {
+				t.Fatalf("normalizeAccessGrantResourceType() = %q, want %q", got, want)
+			}
+		})
 	}
 }
 
@@ -890,6 +917,22 @@ func TestKnowledgeContextGrantManagementUsesManageAccessAction(t *testing.T) {
 	}
 	if resource.Type != grantResourceKnowledgeContext || resource.ID != "guardrail/payments/repo-check" {
 		t.Fatalf("resource = %#v, want knowledge_context:guardrail/payments/repo-check", resource)
+	}
+}
+
+func TestAIProfileGrantManagementUsesManageACLAction(t *testing.T) {
+	action, resource, err := managementActionForGrantResource(accessGrantResource{
+		Type: grantResourceMCPProfile,
+		ID:   "github-pr-review",
+	})
+	if err != nil {
+		t.Fatalf("managementActionForGrantResource() error = %v", err)
+	}
+	if action != "mcp_profile.manage_acl" {
+		t.Fatalf("action = %q, want mcp_profile.manage_acl", action)
+	}
+	if resource.Type != grantResourceMCPProfile || resource.ID != "github-pr-review" {
+		t.Fatalf("resource = %#v, want mcp_profile:github-pr-review", resource)
 	}
 }
 

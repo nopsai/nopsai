@@ -1,26 +1,25 @@
-import { useEffect, useRef } from 'react';
-import { Edit3, Plus, RefreshCw, Trash2, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type ReactNode, type SetStateAction } from 'react';
+import { Boxes, Cable, CheckCircle2, Edit3, ExternalLink, Plus, RefreshCw, Trash2, Wrench, X } from 'lucide-react';
 import { useMCPRegistry } from './mcp/useMCPRegistry';
 import { CredentialReferenceLink } from './credentials/CredentialReferenceLink';
-
-function PlusIcon() {
-  return <Plus className="h-4 w-4" strokeWidth={2} aria-hidden="true" />;
-}
-
-function TrashIcon() {
-  return <Trash2 className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />;
-}
-
-function EditIcon() {
-  return <Edit3 className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />;
-}
-
-function RefreshIcon() {
-  return <RefreshCw className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />;
-}
+import {
+  AIResourceEmptyState,
+  AIResourceIconAction,
+  AIResourceTableHeader,
+} from './AIResourcePanel';
+import {
+  formatFilteredCount,
+  matchesAIResourceSearch,
+} from './aiResourcePresentation';
+import type { MCPProfileFormState, MCPProfileRecord, MCPServerFormState, MCPServerRecord } from './mcp/model';
+import ResourceAccessCard from '../../components/ResourceAccessCard';
 
 function MCPPanel({ canManage }: { canManage: boolean }) {
   const mcpPanelRef = useRef<HTMLElement | null>(null);
+  const [serverSearchTerm, setServerSearchTerm] = useState('');
+  const [profileSearchTerm, setProfileSearchTerm] = useState('');
+  const [selectedServerName, setSelectedServerName] = useState<string | null>(null);
+  const [selectedProfileName, setSelectedProfileName] = useState<string | null>(null);
   const {
     innerTab,
     setInnerTab,
@@ -67,250 +66,674 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
     });
   }, [editingProfile, editingServer, innerTab, panelMode]);
 
-  const showServerPanel = panelMode === 'server-create' || panelMode === 'server-edit';
-  const showProfilePanel = panelMode === 'profile-create' || panelMode === 'profile-edit';
+  const discoveredTools = servers.reduce((total, server) => total + server.tools.length, 0);
+  const enabledServers = servers.filter(server => server.enabled).length;
+  const hasConnectionStatus = servers.some(server => Boolean(server.last_test_status));
+  const connectedServers = servers.filter(isServerConnected).length;
+  const enabledProfiles = profiles.filter(profile => profile.enabled).length;
+  const profileTools = profiles.reduce((total, profile) => total + profile.servers.reduce((profileTotal, ref) => profileTotal + ref.tools.length, 0), 0);
+  const visibleServers = useMemo(
+    () => servers.filter(server => matchesAIResourceSearch(
+      serverSearchTerm,
+      server.name,
+      server.display_name,
+      server.provider,
+      server.transport,
+      server.url,
+      server.auth_type,
+      server.credential_ref,
+      server.allowed_scopes.join(', '),
+      server.enabled ? 'enabled' : 'disabled',
+      server.last_test_status,
+      server.last_test_message,
+      server.tools.length
+    )),
+    [serverSearchTerm, servers]
+  );
+  const visibleProfiles = useMemo(
+    () => profiles.filter(profile => matchesAIResourceSearch(
+      profileSearchTerm,
+      profile.name,
+      profile.description,
+      profile.enabled ? 'enabled' : 'disabled',
+      profile.allowed_scopes.join(', '),
+      profile.servers.map(ref => ref.server).join(', '),
+      profile.servers.flatMap(ref => ref.tools).join(', '),
+      profile.servers.reduce((total, ref) => total + ref.tools.length, 0)
+    )),
+    [profileSearchTerm, profiles]
+  );
+  const selectedServer = useMemo(
+    () => visibleServers.find(server => server.name === selectedServerName) ?? visibleServers[0] ?? null,
+    [selectedServerName, visibleServers]
+  );
+  const selectedProfile = useMemo(
+    () => visibleProfiles.find(profile => profile.name === selectedProfileName) ?? visibleProfiles[0] ?? null,
+    [selectedProfileName, visibleProfiles]
+  );
+  const showServerForm = panelMode === 'server-create' || panelMode === 'server-edit';
+  const showProfileForm = panelMode === 'profile-create' || panelMode === 'profile-edit';
+  const activeCount = innerTab === 'servers' ? servers.length : profiles.length;
+  const activeTools = innerTab === 'servers' ? discoveredTools : profileTools;
+  const activeHealthValue = innerTab === 'servers'
+    ? `${hasConnectionStatus ? connectedServers : enabledServers} of ${servers.length}`
+    : `${enabledProfiles} of ${profiles.length}`;
+  const activeHealthLabel = innerTab === 'servers' ? (hasConnectionStatus ? 'Connected' : 'Enabled') : 'Enabled';
 
   return (
-    <div id="system-mcp-section" className="space-y-6 pb-24">
-      <section className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex rounded-lg border border-[var(--border-primary)] overflow-hidden w-fit">
-            <button type="button" className={`px-4 py-2 text-sm ${innerTab === 'servers' ? 'bg-[var(--surface-elevated)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`} onClick={() => setInnerTab('servers')}>
-              MCP Servers
+    <div id="system-mcp-section" className="ai-resource-panel space-y-5 pb-24">
+      <div className="ai-resource-page-header">
+        <div>
+          <h2>MCP</h2>
+          <p>Manage servers, discovered tools, approved profiles, and access.</p>
+        </div>
+        <div className="ai-resource-page-actions">
+          {!canManage && <span className="runner-pill runner-pill--muted">Read-only</span>}
+          <button type="button" className="ai-resource-icon-button" onClick={() => void loadMCP()} disabled={loading || saving} aria-label="Reload">
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
+          </button>
+          {canManage && innerTab === 'servers' && (
+            <button type="button" className="ai-resource-primary-button" onClick={startServerCreate} disabled={saving}>
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              New server
             </button>
-            <button type="button" className={`px-4 py-2 text-sm border-l border-[var(--border-primary)] ${innerTab === 'profiles' ? 'bg-[var(--surface-elevated)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`} onClick={() => setInnerTab('profiles')}>
-              MCP Profiles
+          )}
+          {canManage && innerTab === 'profiles' && (
+            <button type="button" className="ai-resource-primary-button" onClick={startProfileCreate} disabled={saving}>
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              New profile
             </button>
-          </div>
-          <div className="flex items-center gap-2">
-            {!canManage && <span className="runner-pill runner-pill--muted">Read-only</span>}
-            <button type="button" className="glass-button-ghost" onClick={() => void loadMCP()} disabled={loading || saving}>
-              <RefreshIcon />
-              Reload
+          )}
+        </div>
+      </div>
+
+      <div className="ai-resource-summary-band">
+        <div className="ai-resource-summary-item">
+          <span>View</span>
+          <div className="ai-resource-segmented" role="tablist" aria-label="MCP view">
+            <button
+              type="button"
+              onClick={() => { setInnerTab('servers'); setPanelMode(null); }}
+              role="tab"
+              aria-selected={innerTab === 'servers'}
+            >
+              Servers
             </button>
-            {canManage && innerTab === 'servers' && (
-              <button type="button" className="glass-button-primary" onClick={startServerCreate} disabled={saving}>
-                <PlusIcon />
-                New server
-              </button>
-            )}
-            {canManage && innerTab === 'profiles' && (
-              <button type="button" className="glass-button-primary" onClick={startProfileCreate} disabled={saving}>
-                <PlusIcon />
-                New profile
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => { setInnerTab('profiles'); setPanelMode(null); }}
+              role="tab"
+              aria-selected={innerTab === 'profiles'}
+            >
+              Profiles
+            </button>
           </div>
         </div>
-        {error && <div className="rounded-lg border border-red-500/30 px-4 py-3 text-sm text-red-500 whitespace-pre-wrap">{error}</div>}
-        {message && <div className="rounded-lg border border-[var(--border-primary)] px-4 py-3 text-sm text-[var(--text-secondary)]">{message}</div>}
-      </section>
+        <div className="ai-resource-summary-item">
+          <span>{innerTab === 'servers' ? 'Servers' : 'Profiles'}</span>
+          <strong>{activeCount}</strong>
+        </div>
+        <div className="ai-resource-summary-item">
+          <span>{innerTab === 'servers' ? 'Tools discovered' : 'Tools approved'}</span>
+          <strong>{activeTools}</strong>
+        </div>
+        <div className="ai-resource-summary-item">
+          <span>{activeHealthLabel}</span>
+          <strong className={(innerTab === 'servers' ? (hasConnectionStatus ? connectedServers : enabledServers) === servers.length : enabledProfiles === profiles.length) ? 'text-emerald-600' : undefined}>
+            {activeHealthValue}
+          </strong>
+        </div>
+      </div>
+
+      {error && <div className="ai-resource-alert ai-resource-alert--error whitespace-pre-wrap">{error}</div>}
+      {message && <div className="ai-resource-alert">{message}</div>}
 
       {innerTab === 'servers' ? (
-        <div className={`grid gap-6 ${showServerPanel ? 'xl:grid-cols-[minmax(0,1.3fr)_minmax(360px,0.7fr)]' : ''}`}>
-          <section className="glass-card border border-[var(--border-primary)] rounded-xl overflow-hidden">
-            <div className="p-4 border-b border-[var(--border-primary)] flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-[var(--text-primary)]">Servers</h3>
-              {loading && <span className="text-sm text-[var(--text-secondary)]">Loading…</span>}
-            </div>
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead className="text-left text-xs uppercase text-[var(--text-secondary)] border-b border-[var(--border-primary)]">
-                  <tr>
-                    <th className="px-4 py-3">Name</th>
-                    <th className="px-4 py-3">Provider</th>
-                    <th className="px-4 py-3">URL</th>
-                    <th className="px-4 py-3">Credential</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Tools</th>
-                    <th className="px-4 py-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {servers.map(server => (
-                    <tr key={server.name} className="border-b border-[var(--border-primary)] last:border-b-0">
-                      <td className="px-4 py-3 font-semibold text-[var(--text-primary)]">
-                        {server.display_name || server.name}
-                        <div className="text-xs text-[var(--text-secondary)]">{server.name}</div>
-                      </td>
-                      <td className="px-4 py-3">{server.provider || '-'}</td>
-                      <td className="px-4 py-3 max-w-[260px] truncate" title={server.url}>{server.url || '-'}</td>
-                      <td className="px-4 py-3">
-                        {server.credential_ref ? (
-                          <CredentialReferenceLink reference={server.credential_ref} className="break-all font-mono text-xs underline decoration-dotted underline-offset-4 hover:text-[var(--accent-primary)]" />
-                        ) : '-'}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`runner-pill ${server.enabled ? 'runner-pill--ok' : 'runner-pill--muted'}`}>{server.enabled ? 'Enabled' : 'Disabled'}</span>
-                        {server.last_test_status && <div className="text-xs text-[var(--text-secondary)] mt-1">{server.last_test_status}</div>}
-                      </td>
-                      <td className="px-4 py-3">{server.tools.length}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-2">
-                          <button type="button" className="glass-button-ghost" onClick={() => void discoverServer(server.name)} disabled={Boolean(testing)}>
-                            {testing === server.name ? 'Testing…' : 'Discover'}
-                          </button>
-                          <button type="button" className="glass-button-subtle" onClick={() => startServerEdit(server)}>
-                            <EditIcon />
-                            Edit
-                          </button>
-                          <button type="button" className="glass-button-danger" onClick={() => void deleteServer(server.name)} disabled={!canManage || saving}>
-                            <TrashIcon />
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                  {!loading && servers.length === 0 && (
-                    <tr><td className="px-4 py-6 text-[var(--text-secondary)]" colSpan={7}>No MCP servers configured.</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          {showServerPanel && (
-            <aside ref={mcpPanelRef} className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs text-[var(--text-secondary)]">{panelMode === 'server-edit' ? 'Edit server' : 'Create server'}</p>
-                  <h3 className="text-lg font-semibold text-[var(--text-primary)]">{panelMode === 'server-edit' ? editingServer : 'New MCP server'}</h3>
-                </div>
-                <button type="button" className="glass-button-ghost !px-2" aria-label="Close server form" onClick={() => setPanelMode(null)}>
-                  <X className="h-4 w-4" aria-hidden="true" />
-                </button>
+        <section className="ai-resource-table-card ai-resource-split-card">
+          <div className="ai-resource-split">
+            <div className="ai-resource-split__list">
+              <AIResourceTableHeader
+                title="Servers"
+                count={formatFilteredCount(visibleServers.length, servers.length, serverSearchTerm)}
+                loading={loading}
+                searchLabel="Search MCP servers"
+                searchPlaceholder="Search servers..."
+                searchValue={serverSearchTerm}
+                onSearchChange={setServerSearchTerm}
+              />
+              <div className="ai-resource-profile-list">
+                {visibleServers.map(server => {
+                  const isActive = selectedServer?.name === server.name && !showServerForm;
+                  return (
+                    <button
+                      key={server.name}
+                      type="button"
+                      className={`ai-resource-profile-option ${isActive ? 'ai-resource-profile-option--active' : ''}`}
+                      onClick={() => {
+                        setSelectedServerName(server.name);
+                        setPanelMode(null);
+                      }}
+                    >
+                      <span className="ai-resource-provider-glyph" aria-hidden="true">
+                        <Cable className="h-4 w-4" />
+                      </span>
+                      <span className="ai-resource-profile-option__body">
+                        <span className="ai-resource-profile-option__title">{server.display_name || server.name}</span>
+                        <span className="ai-resource-profile-option__provider">{server.provider || server.transport || 'MCP server'}</span>
+                        <span className="ai-resource-profile-option__model">{server.tools.length} tools</span>
+                      </span>
+                      <span className={`ai-resource-status-dot ${server.enabled ? 'ai-resource-status-dot--ok' : 'ai-resource-status-dot--muted'}`} aria-label={server.enabled ? 'Enabled' : 'Disabled'} />
+                    </button>
+                  );
+                })}
+                {!loading && visibleServers.length === 0 && (
+                  <AIResourceEmptyState>{servers.length === 0 ? 'No MCP servers configured.' : 'No MCP servers match your search.'}</AIResourceEmptyState>
+                )}
               </div>
-              <form className="space-y-4" onSubmit={saveServer}>
-                <label className="flex flex-col gap-1 text-sm"><span>Name</span><input data-mcp-autofocus className="pipelines-input" value={serverForm.name} onChange={event => setServerForm(prev => ({ ...prev, name: event.target.value }))} disabled={!canManage || Boolean(editingServer)} placeholder="github" /></label>
-                <label className="flex flex-col gap-1 text-sm"><span>Display name</span><input className="pipelines-input" value={serverForm.display_name} onChange={event => setServerForm(prev => ({ ...prev, display_name: event.target.value }))} disabled={!canManage} placeholder="GitHub MCP" /></label>
-                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={serverForm.enabled} onChange={event => setServerForm(prev => ({ ...prev, enabled: event.target.checked }))} disabled={!canManage} /> Enabled</label>
-                <label className="flex flex-col gap-1 text-sm"><span>Provider</span><input className="pipelines-input" value={serverForm.provider} onChange={event => setServerForm(prev => ({ ...prev, provider: event.target.value }))} disabled={!canManage} placeholder="github" /></label>
-                <label className="flex flex-col gap-1 text-sm"><span>Transport</span><select className="pipelines-input" value={serverForm.transport} onChange={event => setServerForm(prev => ({ ...prev, transport: event.target.value }))} disabled={!canManage}><option value="streamable_http">streamable_http</option><option value="http">http</option></select></label>
-                <label className="flex flex-col gap-1 text-sm"><span>URL</span><input className="pipelines-input" value={serverForm.url} onChange={event => setServerForm(prev => ({ ...prev, url: event.target.value }))} disabled={!canManage} placeholder="https://api.githubcopilot.com/mcp/x/all/readonly" /></label>
-                <label className="flex flex-col gap-1 text-sm"><span>Auth type</span><select className="pipelines-input" value={serverForm.auth_type} onChange={event => setServerForm(prev => ({ ...prev, auth_type: event.target.value }))} disabled={!canManage}><option value="none">none</option><option value="bearer_token">bearer_token</option></select></label>
-                <label className="flex flex-col gap-1 text-sm">
-                  <span className="flex flex-wrap items-center gap-2">
-                    <span>Credential reference</span>
-                    <CredentialReferenceLink reference={serverForm.credential_ref} className="text-xs underline decoration-dotted underline-offset-4 hover:text-[var(--accent-primary)]">
-                      Open credential
-                    </CredentialReferenceLink>
-                  </span>
-                  <input className="pipelines-input" value={serverForm.credential_ref} onChange={event => setServerForm(prev => ({ ...prev, credential_ref: event.target.value }))} disabled={!canManage} placeholder="credential://system/mcp/github-readonly" />
-                </label>
-                <div className="rounded-lg border border-[var(--border-primary)] p-3 space-y-3">
-                  <p className="text-sm font-semibold text-[var(--text-primary)]">Extra configuration</p>
-                  <label className="flex flex-col gap-1 text-sm">
-                    <span>Headers JSON</span>
-                    <textarea
-                      className="pipelines-input min-h-[112px] font-mono text-xs"
-                      value={serverForm.headers_json}
-                      onChange={event => setServerForm(prev => ({ ...prev, headers_json: event.target.value }))}
-                      disabled={!canManage}
-                      placeholder={'{"X-MCP-Toolsets":"repos,issues","X-MCP-Readonly":"true"}'}
-                      spellCheck={false}
-                    />
-                  </label>
-                </div>
-                <label className="flex flex-col gap-1 text-sm"><span>Timeout</span><input className="pipelines-input" value={serverForm.timeout} onChange={event => setServerForm(prev => ({ ...prev, timeout: event.target.value }))} disabled={!canManage} placeholder="30s" /></label>
-                <label className="flex flex-col gap-1 text-sm"><span>Allowed scopes</span><input className="pipelines-input" value={serverForm.allowed_scopes} onChange={event => setServerForm(prev => ({ ...prev, allowed_scopes: event.target.value }))} disabled={!canManage} placeholder="dev, prod" /></label>
-                <button type="submit" className="glass-button-primary w-full justify-center" disabled={!canManage || saving}>{saving ? 'Saving…' : 'Save server'}</button>
-              </form>
+            </div>
+
+            <aside ref={mcpPanelRef} className="ai-resource-split__detail">
+              {showServerForm ? (
+                <MCPServerForm
+                  canManage={canManage}
+                  saving={saving}
+                  editingServer={editingServer}
+                  serverForm={serverForm}
+                  setServerForm={setServerForm}
+                  onSubmit={saveServer}
+                  onClose={() => setPanelMode(null)}
+                />
+              ) : selectedServer ? (
+                <MCPServerDetail
+                  server={selectedServer}
+                  canManage={canManage}
+                  saving={saving}
+                  testing={testing}
+                  onDiscover={discoverServer}
+                  onEdit={startServerEdit}
+                  onDelete={deleteServer}
+                />
+              ) : (
+                <AIResourceEmptyState>Select an MCP server to inspect.</AIResourceEmptyState>
+              )}
             </aside>
-          )}
-        </div>
+          </div>
+        </section>
       ) : (
-        <div className={`grid gap-6 ${showProfilePanel ? 'xl:grid-cols-[minmax(0,1.2fr)_minmax(420px,0.8fr)]' : ''}`}>
-          <section className="glass-card border border-[var(--border-primary)] rounded-xl overflow-hidden">
-            <div className="p-4 border-b border-[var(--border-primary)] flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-[var(--text-primary)]">Profiles</h3>
-              {loading && <span className="text-sm text-[var(--text-secondary)]">Loading…</span>}
-            </div>
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead className="text-left text-xs uppercase text-[var(--text-secondary)] border-b border-[var(--border-primary)]">
-                  <tr><th className="px-4 py-3">Name</th><th className="px-4 py-3">Servers</th><th className="px-4 py-3">Tools</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Actions</th></tr>
-                </thead>
-                <tbody>
-                  {profiles.map(profile => (
-                    <tr key={profile.name} className="border-b border-[var(--border-primary)] last:border-b-0">
-                      <td className="px-4 py-3 font-semibold text-[var(--text-primary)]">{profile.name}<div className="text-xs text-[var(--text-secondary)]">{profile.description || '-'}</div></td>
-                      <td className="px-4 py-3">{profile.servers.map(ref => ref.server).join(', ') || '-'}</td>
-                      <td className="px-4 py-3">{profile.servers.reduce((total, ref) => total + ref.tools.length, 0)}</td>
-                      <td className="px-4 py-3"><span className={`runner-pill ${profile.enabled ? 'runner-pill--ok' : 'runner-pill--muted'}`}>{profile.enabled ? 'Enabled' : 'Disabled'}</span></td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-2">
-                          <button type="button" className="glass-button-ghost" onClick={() => void testProfile(profile.name)} disabled={Boolean(testing)}>{testing === profile.name ? 'Testing…' : 'Test'}</button>
-                          <button type="button" className="glass-button-subtle" onClick={() => startProfileEdit(profile)}><EditIcon />Edit</button>
-                          <button type="button" className="glass-button-danger" onClick={() => void deleteProfile(profile.name)} disabled={!canManage || saving}><TrashIcon />Delete</button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                  {!loading && profiles.length === 0 && (
-                    <tr><td className="px-4 py-6 text-[var(--text-secondary)]" colSpan={5}>No MCP profiles configured.</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          {showProfilePanel && (
-            <aside ref={mcpPanelRef} className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs text-[var(--text-secondary)]">{panelMode === 'profile-edit' ? 'Edit profile' : 'Create profile'}</p>
-                  <h3 className="text-lg font-semibold text-[var(--text-primary)]">{panelMode === 'profile-edit' ? editingProfile : 'New MCP profile'}</h3>
-                </div>
-                <button type="button" className="glass-button-ghost !px-2" aria-label="Close profile form" onClick={() => setPanelMode(null)}>
-                  <X className="h-4 w-4" aria-hidden="true" />
-                </button>
+        <section className="ai-resource-table-card ai-resource-split-card">
+          <div className="ai-resource-split">
+            <div className="ai-resource-split__list">
+              <AIResourceTableHeader
+                title="Profiles"
+                count={formatFilteredCount(visibleProfiles.length, profiles.length, profileSearchTerm)}
+                loading={loading}
+                searchLabel="Search MCP profiles"
+                searchPlaceholder="Search MCP profiles..."
+                searchValue={profileSearchTerm}
+                onSearchChange={setProfileSearchTerm}
+              />
+              <div className="ai-resource-profile-list">
+                {visibleProfiles.map(profile => {
+                  const toolCount = countProfileTools(profile);
+                  const isActive = selectedProfile?.name === profile.name && !showProfileForm;
+                  return (
+                    <button
+                      key={profile.name}
+                      type="button"
+                      className={`ai-resource-profile-option ${isActive ? 'ai-resource-profile-option--active' : ''}`}
+                      onClick={() => {
+                        setSelectedProfileName(profile.name);
+                        setPanelMode(null);
+                      }}
+                    >
+                      <span className="ai-resource-provider-glyph" aria-hidden="true">
+                        <Boxes className="h-4 w-4" />
+                      </span>
+                      <span className="ai-resource-profile-option__body">
+                        <span className="ai-resource-profile-option__title">{profile.name}</span>
+                        <span className="ai-resource-profile-option__provider">{profile.servers.length} servers</span>
+                        <span className="ai-resource-profile-option__model">{toolCount} approved tools</span>
+                      </span>
+                      <span className={`ai-resource-status-dot ${profile.enabled ? 'ai-resource-status-dot--ok' : 'ai-resource-status-dot--muted'}`} aria-label={profile.enabled ? 'Enabled' : 'Disabled'} />
+                    </button>
+                  );
+                })}
+                {!loading && visibleProfiles.length === 0 && (
+                  <AIResourceEmptyState>{profiles.length === 0 ? 'No MCP profiles configured.' : 'No MCP profiles match your search.'}</AIResourceEmptyState>
+                )}
               </div>
-              <form className="space-y-4" onSubmit={saveProfile}>
-                <label className="flex flex-col gap-1 text-sm"><span>Name</span><input data-mcp-autofocus className="pipelines-input" value={profileForm.name} onChange={event => setProfileForm(prev => ({ ...prev, name: event.target.value }))} disabled={!canManage || Boolean(editingProfile)} placeholder="github-pr-review" /></label>
-                <label className="flex flex-col gap-1 text-sm"><span>Description</span><input className="pipelines-input" value={profileForm.description} onChange={event => setProfileForm(prev => ({ ...prev, description: event.target.value }))} disabled={!canManage} placeholder="Read-only GitHub PR review tools" /></label>
-                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={profileForm.enabled} onChange={event => setProfileForm(prev => ({ ...prev, enabled: event.target.checked }))} disabled={!canManage} /> Enabled</label>
-                <div className="space-y-3">
-                  <p className="text-sm font-semibold text-[var(--text-primary)]">Tools</p>
-                  {servers.map(server => (
-                    <div key={server.name} className="rounded-lg border border-[var(--border-primary)] p-3 space-y-2">
-                      <div className="font-semibold text-sm text-[var(--text-primary)]">{server.display_name || server.name}</div>
-                      <label className="flex flex-col gap-1 text-sm">
-                        <span>Selected tools</span>
-                        <textarea
-                          className="pipelines-input min-h-[84px] font-mono text-xs"
-                          value={profileForm.tool_text[server.name] ?? (profileForm.selected_tools[server.name] || []).join('\n')}
-                          onChange={event => setProfileServerTools(server.name, event.target.value)}
-                          disabled={!canManage}
-                          placeholder={'*\nissues_list\nrepos_get'}
-                          spellCheck={false}
-                        />
-                      </label>
-                      {server.tools.length === 0 ? (
-                        <p className="text-xs text-[var(--text-secondary)]">No discovered tools cached for this server.</p>
-                      ) : (
-                        <div className="grid gap-2">
-                          {server.tools.map(tool => (
-                            <label key={`${server.name}-${tool.name}`} className="flex items-start gap-2 text-sm">
-                              <input type="checkbox" checked={(profileForm.selected_tools[server.name] || []).includes(tool.name)} onChange={() => toggleProfileTool(server.name, tool.name)} disabled={!canManage} />
-                              <span><span className="font-mono">{tool.name}</span>{tool.description ? <span className="block text-xs text-[var(--text-secondary)]">{tool.description}</span> : null}</span>
-                            </label>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                <label className="flex flex-col gap-1 text-sm"><span>Allowed scopes</span><input className="pipelines-input" value={profileForm.allowed_scopes} onChange={event => setProfileForm(prev => ({ ...prev, allowed_scopes: event.target.value }))} disabled={!canManage} placeholder="dev, prod" /></label>
-                <button type="submit" className="glass-button-primary w-full justify-center" disabled={!canManage || saving}>{saving ? 'Saving…' : 'Save profile'}</button>
-              </form>
+            </div>
+
+            <aside ref={mcpPanelRef} className="ai-resource-split__detail">
+              {showProfileForm ? (
+                <MCPProfileForm
+                  canManage={canManage}
+                  saving={saving}
+                  editingProfile={editingProfile}
+                  profileForm={profileForm}
+                  setProfileForm={setProfileForm}
+                  servers={servers}
+                  toggleProfileTool={toggleProfileTool}
+                  setProfileServerTools={setProfileServerTools}
+                  onSubmit={saveProfile}
+                  onClose={() => setPanelMode(null)}
+                />
+              ) : selectedProfile ? (
+                <MCPProfileDetail
+                  profile={selectedProfile}
+                  canManage={canManage}
+                  saving={saving}
+                  testing={testing}
+                  onTest={testProfile}
+                  onEdit={startProfileEdit}
+                  onDelete={deleteProfile}
+                />
+              ) : (
+                <AIResourceEmptyState>Select an MCP profile to inspect.</AIResourceEmptyState>
+              )}
             </aside>
-          )}
-        </div>
+          </div>
+        </section>
       )}
     </div>
   );
 }
 
+function MCPServerForm({
+  canManage,
+  saving,
+  editingServer,
+  serverForm,
+  setServerForm,
+  onSubmit,
+  onClose,
+}: {
+  canManage: boolean;
+  saving: boolean;
+  editingServer: string | null;
+  serverForm: MCPServerFormState;
+  setServerForm: Dispatch<SetStateAction<MCPServerFormState>>;
+  onSubmit: (event: FormEvent) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="ai-resource-detail">
+      <div className="ai-resource-detail__header">
+        <div>
+          <p className="text-xs text-[var(--text-secondary)]">{editingServer ? 'Edit server' : 'Create server'}</p>
+          <h3 className="text-lg font-semibold text-[var(--text-primary)]">{editingServer || 'New MCP server'}</h3>
+        </div>
+        <button type="button" className="glass-button-ghost !px-2" aria-label="Close server form" onClick={onClose}>
+          <X className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </div>
+      <form className="space-y-4" onSubmit={onSubmit}>
+        <label className="flex flex-col gap-1 text-sm"><span>Name</span><input data-mcp-autofocus className="pipelines-input" value={serverForm.name} onChange={event => setServerForm(prev => ({ ...prev, name: event.target.value }))} disabled={!canManage || Boolean(editingServer)} placeholder="github" /></label>
+        <label className="flex flex-col gap-1 text-sm"><span>Display name</span><input className="pipelines-input" value={serverForm.display_name} onChange={event => setServerForm(prev => ({ ...prev, display_name: event.target.value }))} disabled={!canManage} placeholder="GitHub MCP" /></label>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={serverForm.enabled} onChange={event => setServerForm(prev => ({ ...prev, enabled: event.target.checked }))} disabled={!canManage} /> Enabled</label>
+        <label className="flex flex-col gap-1 text-sm"><span>Provider</span><input className="pipelines-input" value={serverForm.provider} onChange={event => setServerForm(prev => ({ ...prev, provider: event.target.value }))} disabled={!canManage} placeholder="github" /></label>
+        <label className="flex flex-col gap-1 text-sm"><span>Transport</span><select className="pipelines-input" value={serverForm.transport} onChange={event => setServerForm(prev => ({ ...prev, transport: event.target.value }))} disabled={!canManage}><option value="streamable_http">streamable_http</option><option value="http">http</option></select></label>
+        <label className="flex flex-col gap-1 text-sm"><span>URL</span><input className="pipelines-input" value={serverForm.url} onChange={event => setServerForm(prev => ({ ...prev, url: event.target.value }))} disabled={!canManage} placeholder="https://api.githubcopilot.com/mcp/x/all/readonly" /></label>
+        <label className="flex flex-col gap-1 text-sm"><span>Auth type</span><select className="pipelines-input" value={serverForm.auth_type} onChange={event => setServerForm(prev => ({ ...prev, auth_type: event.target.value }))} disabled={!canManage}><option value="none">none</option><option value="bearer_token">bearer_token</option></select></label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="flex flex-wrap items-center gap-2">
+            <span>Credential reference</span>
+            <CredentialReferenceLink reference={serverForm.credential_ref} className="text-xs underline decoration-dotted underline-offset-4 hover:text-[var(--accent-primary)]">
+              Open credential
+            </CredentialReferenceLink>
+          </span>
+          <input className="pipelines-input" value={serverForm.credential_ref} onChange={event => setServerForm(prev => ({ ...prev, credential_ref: event.target.value }))} disabled={!canManage} placeholder="credential://system/mcp/github-readonly" />
+        </label>
+        <div className="rounded-lg border border-[var(--border-primary)] p-3 space-y-3">
+          <p className="text-sm font-semibold text-[var(--text-primary)]">Extra configuration</p>
+          <label className="flex flex-col gap-1 text-sm">
+            <span>Headers JSON</span>
+            <textarea
+              className="pipelines-input min-h-[112px] font-mono text-xs"
+              value={serverForm.headers_json}
+              onChange={event => setServerForm(prev => ({ ...prev, headers_json: event.target.value }))}
+              disabled={!canManage}
+              placeholder={'{"X-MCP-Toolsets":"repos,issues","X-MCP-Readonly":"true"}'}
+              spellCheck={false}
+            />
+          </label>
+        </div>
+        <label className="flex flex-col gap-1 text-sm"><span>Timeout</span><input className="pipelines-input" value={serverForm.timeout} onChange={event => setServerForm(prev => ({ ...prev, timeout: event.target.value }))} disabled={!canManage} placeholder="30s" /></label>
+        <label className="flex flex-col gap-1 text-sm"><span>Allowed scopes</span><input className="pipelines-input" value={serverForm.allowed_scopes} onChange={event => setServerForm(prev => ({ ...prev, allowed_scopes: event.target.value }))} disabled={!canManage} placeholder="dev, prod" /></label>
+        <button type="submit" className="glass-button-primary w-full justify-center" disabled={!canManage || saving}>{saving ? 'Saving...' : 'Save server'}</button>
+      </form>
+    </div>
+  );
+}
+
+function MCPProfileForm({
+  canManage,
+  saving,
+  editingProfile,
+  profileForm,
+  setProfileForm,
+  servers,
+  toggleProfileTool,
+  setProfileServerTools,
+  onSubmit,
+  onClose,
+}: {
+  canManage: boolean;
+  saving: boolean;
+  editingProfile: string | null;
+  profileForm: MCPProfileFormState;
+  setProfileForm: Dispatch<SetStateAction<MCPProfileFormState>>;
+  servers: MCPServerRecord[];
+  toggleProfileTool: (serverName: string, toolName: string) => void;
+  setProfileServerTools: (serverName: string, value: string) => void;
+  onSubmit: (event: FormEvent) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="ai-resource-detail">
+      <div className="ai-resource-detail__header">
+        <div>
+          <p className="text-xs text-[var(--text-secondary)]">{editingProfile ? 'Edit profile' : 'Create profile'}</p>
+          <h3 className="text-lg font-semibold text-[var(--text-primary)]">{editingProfile || 'New MCP profile'}</h3>
+        </div>
+        <button type="button" className="glass-button-ghost !px-2" aria-label="Close profile form" onClick={onClose}>
+          <X className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </div>
+      <form className="space-y-4" onSubmit={onSubmit}>
+        <label className="flex flex-col gap-1 text-sm"><span>Name</span><input data-mcp-autofocus className="pipelines-input" value={profileForm.name} onChange={event => setProfileForm(prev => ({ ...prev, name: event.target.value }))} disabled={!canManage || Boolean(editingProfile)} placeholder="github-pr-review" /></label>
+        <label className="flex flex-col gap-1 text-sm"><span>Description</span><input className="pipelines-input" value={profileForm.description} onChange={event => setProfileForm(prev => ({ ...prev, description: event.target.value }))} disabled={!canManage} placeholder="Read-only GitHub PR review tools" /></label>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={profileForm.enabled} onChange={event => setProfileForm(prev => ({ ...prev, enabled: event.target.checked }))} disabled={!canManage} /> Enabled</label>
+        <div className="space-y-3">
+          <p className="text-sm font-semibold text-[var(--text-primary)]">Tools</p>
+          {servers.map(server => (
+            <div key={server.name} className="rounded-lg border border-[var(--border-primary)] p-3 space-y-2">
+              <div className="font-semibold text-sm text-[var(--text-primary)]">{server.display_name || server.name}</div>
+              <label className="flex flex-col gap-1 text-sm">
+                <span>Selected tools</span>
+                <textarea
+                  className="pipelines-input min-h-[84px] font-mono text-xs"
+                  value={profileForm.tool_text[server.name] ?? (profileForm.selected_tools[server.name] || []).join('\n')}
+                  onChange={event => setProfileServerTools(server.name, event.target.value)}
+                  disabled={!canManage}
+                  placeholder={'*\nissues_list\nrepos_get'}
+                  spellCheck={false}
+                />
+              </label>
+              {server.tools.length === 0 ? (
+                <p className="text-xs text-[var(--text-secondary)]">No discovered tools cached for this server.</p>
+              ) : (
+                <div className="grid gap-2">
+                  {server.tools.map(tool => (
+                    <label key={`${server.name}-${tool.name}`} className="flex items-start gap-2 text-sm">
+                      <input type="checkbox" checked={(profileForm.selected_tools[server.name] || []).includes(tool.name)} onChange={() => toggleProfileTool(server.name, tool.name)} disabled={!canManage} />
+                      <span><span className="font-mono">{tool.name}</span>{tool.description ? <span className="block text-xs text-[var(--text-secondary)]">{tool.description}</span> : null}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+        <label className="flex flex-col gap-1 text-sm"><span>Allowed scopes</span><input className="pipelines-input" value={profileForm.allowed_scopes} onChange={event => setProfileForm(prev => ({ ...prev, allowed_scopes: event.target.value }))} disabled={!canManage} placeholder="dev, prod" /></label>
+        <button type="submit" className="glass-button-primary w-full justify-center" disabled={!canManage || saving}>{saving ? 'Saving...' : 'Save profile'}</button>
+      </form>
+    </div>
+  );
+}
+
+function MCPServerDetail({
+  server,
+  canManage,
+  saving,
+  testing,
+  onDiscover,
+  onEdit,
+  onDelete,
+}: {
+  server: MCPServerRecord;
+  canManage: boolean;
+  saving: boolean;
+  testing: string | null;
+  onDiscover: (name: string) => void | Promise<void>;
+  onEdit: (server: MCPServerRecord) => void;
+  onDelete: (name: string) => void | Promise<void>;
+}) {
+  const connected = isServerConnected(server);
+  const statusLabel = server.last_test_status || (server.enabled ? 'Enabled' : 'Disabled');
+
+  return (
+    <div className="ai-resource-detail">
+      <div className="ai-resource-detail__header">
+        <div>
+          <div className="ai-resource-detail__title">
+            <h3>{server.display_name || server.name}</h3>
+            <span className={`runner-pill ${server.enabled ? 'runner-pill--ok' : 'runner-pill--muted'}`}>{server.enabled ? 'Enabled' : 'Disabled'}</span>
+            <span className={`ai-resource-health ${connected ? 'ai-resource-health--ok' : 'ai-resource-health--muted'}`}>
+              <span aria-hidden="true" />
+              {statusLabel}
+            </span>
+          </div>
+          <div className="ai-resource-detail__provider">
+            <span className="ai-resource-provider-glyph" aria-hidden="true">
+              <Cable className="h-3.5 w-3.5" />
+            </span>
+            {server.provider || 'MCP server'}
+          </div>
+        </div>
+        <div className="ai-resource-detail__actions">
+          <AIResourceIconAction label={testing === server.name ? 'Discovering tools' : 'Discover tools'} tone="primary" onClick={() => void onDiscover(server.name)} disabled={Boolean(testing)}>
+            <Wrench className="h-4 w-4" aria-hidden="true" />
+          </AIResourceIconAction>
+          {canManage && (
+            <AIResourceIconAction label="Edit server" tone="accent" onClick={() => onEdit(server)} disabled={saving}>
+              <Edit3 className="h-4 w-4" aria-hidden="true" />
+            </AIResourceIconAction>
+          )}
+          <ResourceAccessCard
+            resourceType="mcp_server"
+            resourceID={server.name}
+            label="MCP server"
+            buttonClassName="ai-resource-icon-action"
+            iconOnly
+          />
+        </div>
+      </div>
+
+      <MCPDetailSection
+        title="Connection"
+        rows={[
+          { label: 'Name', value: server.name, mono: true },
+          { label: 'URL', value: server.url || '-', mono: true },
+          { label: 'Transport', value: server.transport || '-' },
+          { label: 'Auth type', value: server.auth_type || 'none' },
+          {
+            label: 'Credential',
+            value: server.credential_ref ? (
+              <span className="ai-resource-detail-link">
+                <CredentialReferenceLink reference={server.credential_ref} className="ai-resource-ref-link underline decoration-dotted underline-offset-4 hover:text-[var(--accent-primary)]" />
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+              </span>
+            ) : '-',
+          },
+        ]}
+      />
+
+      <MCPDetailSection
+        title="Runtime"
+        rows={[
+          { label: 'Timeout', value: server.timeout || '30s' },
+          { label: 'Allowed scopes', value: formatScopes(server.allowed_scopes) },
+          { label: 'Headers', value: `${Object.keys(server.headers).length} configured` },
+          { label: 'Tools', value: server.tools.length },
+        ]}
+      />
+
+      <MCPDetailSection
+        title="Discovery"
+        rows={[
+          { label: 'Last status', value: server.last_test_status || '-' },
+          { label: 'Message', value: server.last_test_message || '-', full: true },
+          { label: 'Last tested', value: formatTimestamp(server.last_tested_at) },
+          { label: 'Last discovered', value: formatTimestamp(server.last_discovered_at) },
+          { label: 'Protocol', value: server.discovered_protocol || '-' },
+          { label: 'Version', value: server.discovered_version || '-' },
+        ]}
+      />
+
+      <section className="ai-resource-detail-section">
+        <h4>Tools</h4>
+        {server.tools.length > 0 ? (
+          <div className="ai-resource-tool-list">
+            {server.tools.map(tool => (
+              <div key={`${tool.server_name}-${tool.name}`}>
+                <strong>{tool.name}</strong>
+                {tool.description && <span>{tool.description}</span>}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="ai-resource-detail-copy">No tools discovered yet.</p>
+        )}
+      </section>
+
+      <div className="ai-resource-detail__footer">
+        <button type="button" className="ai-resource-delete-link" onClick={() => void onDelete(server.name)} disabled={!canManage || saving}>
+          <Trash2 className="h-4 w-4" aria-hidden="true" />
+          Delete server
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MCPProfileDetail({
+  profile,
+  canManage,
+  saving,
+  testing,
+  onTest,
+  onEdit,
+  onDelete,
+}: {
+  profile: MCPProfileRecord;
+  canManage: boolean;
+  saving: boolean;
+  testing: string | null;
+  onTest: (name: string) => void | Promise<void>;
+  onEdit: (profile: MCPProfileRecord) => void;
+  onDelete: (name: string) => void | Promise<void>;
+}) {
+  const toolCount = countProfileTools(profile);
+
+  return (
+    <div className="ai-resource-detail">
+      <div className="ai-resource-detail__header">
+        <div>
+          <div className="ai-resource-detail__title">
+            <h3>{profile.name}</h3>
+            <span className={`ai-resource-health ${profile.enabled ? 'ai-resource-health--ok' : 'ai-resource-health--muted'}`}>
+              <span aria-hidden="true" />
+              {profile.enabled ? 'Enabled' : 'Disabled'}
+            </span>
+          </div>
+          <div className="ai-resource-detail__provider">
+            <span className="ai-resource-provider-glyph" aria-hidden="true">
+              <Boxes className="h-3.5 w-3.5" />
+            </span>
+            MCP profile
+          </div>
+        </div>
+        <div className="ai-resource-detail__actions">
+          <AIResourceIconAction label={testing === profile.name ? 'Testing profile' : 'Test profile'} tone="primary" onClick={() => void onTest(profile.name)} disabled={Boolean(testing)}>
+            <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+          </AIResourceIconAction>
+          {canManage && (
+            <AIResourceIconAction label="Edit profile" tone="accent" onClick={() => onEdit(profile)} disabled={saving}>
+              <Edit3 className="h-4 w-4" aria-hidden="true" />
+            </AIResourceIconAction>
+          )}
+          <ResourceAccessCard
+            resourceType="mcp_profile"
+            resourceID={profile.name}
+            label="MCP profile"
+            buttonClassName="ai-resource-icon-action"
+            iconOnly
+          />
+        </div>
+      </div>
+
+      <p className="ai-resource-detail-copy">{profile.description || 'No description provided.'}</p>
+
+      <MCPDetailSection
+        title="Access"
+        rows={[
+          { label: 'Allowed scopes', value: formatScopes(profile.allowed_scopes) },
+          { label: 'Servers', value: profile.servers.length },
+          { label: 'Approved tools', value: toolCount },
+        ]}
+      />
+
+      <section className="ai-resource-detail-section">
+        <h4>Server tools</h4>
+        {profile.servers.length > 0 ? (
+          <div className="ai-resource-tool-list">
+            {profile.servers.map(ref => (
+              <div key={ref.server}>
+                <strong>{ref.server}</strong>
+                <span>{ref.tools.length ? ref.tools.join(', ') : 'No tools selected'}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="ai-resource-detail-copy">No server tools approved yet.</p>
+        )}
+      </section>
+
+      <div className="ai-resource-detail__footer">
+        <button type="button" className="ai-resource-delete-link" onClick={() => void onDelete(profile.name)} disabled={!canManage || saving}>
+          <Trash2 className="h-4 w-4" aria-hidden="true" />
+          Delete profile
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MCPDetailSection({ title, rows }: { title: string; rows: Array<{ label: string; value: ReactNode; mono?: boolean; full?: boolean }> }) {
+  return (
+    <section className="ai-resource-detail-section">
+      <h4>{title}</h4>
+      <dl>
+        {rows.map(row => (
+          <div key={row.label} className={`ai-resource-detail-row ${row.full ? 'ai-resource-detail-row--full' : ''}`}>
+            {!row.full && <dt>{row.label}</dt>}
+            <dd className={row.mono ? 'ai-resource-detail-row__mono' : undefined}>{row.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+function isServerConnected(server: MCPServerRecord) {
+  const status = (server.last_test_status || '').toLowerCase();
+  return status.includes('connected') || status.includes('success') || status === 'ok';
+}
+
+function countProfileTools(profile: MCPProfileRecord) {
+  return profile.servers.reduce((total, ref) => total + ref.tools.length, 0);
+}
+
+function formatScopes(scopes: string[]) {
+  return scopes.length > 0 ? scopes.join(', ') : 'All scopes';
+}
+
+function formatTimestamp(value?: string) {
+  if (!value) return '-';
+  const time = new Date(value);
+  if (Number.isNaN(time.getTime())) return value;
+  return time.toLocaleString();
+}
 
 export default MCPPanel;

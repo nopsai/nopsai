@@ -34,12 +34,25 @@ type ResourceAccess = {
   overridden_at?: string;
 };
 
+export type ResourceAccessResourceType =
+  | 'pipeline'
+  | 'scope'
+  | 'step'
+  | 'runner'
+  | 'config_repo'
+  | 'knowledge_context'
+  | 'llm_profile'
+  | 'agent_profile'
+  | 'mcp_server'
+  | 'mcp_profile';
+
 type ResourceAccessCardProps = {
-  resourceType: 'pipeline' | 'scope' | 'step' | 'runner' | 'config_repo' | 'knowledge_context';
+  resourceType: ResourceAccessResourceType;
   resourceID: string;
   label: string;
   sensitive?: boolean;
   buttonClassName?: string;
+  iconOnly?: boolean;
   onAccessChange?: (access: ResourceAccess) => void;
 };
 
@@ -121,7 +134,15 @@ async function readResponseError(response: Response, fallback: string) {
   return text.trim() || fallback;
 }
 
-export default function ResourceAccessCard({ resourceType, resourceID, label, sensitive = false, buttonClassName = 'glass-button-ghost', onAccessChange }: ResourceAccessCardProps) {
+export default function ResourceAccessCard({
+  resourceType,
+  resourceID,
+  label,
+  sensitive = false,
+  buttonClassName = 'glass-button-ghost',
+  iconOnly = false,
+  onAccessChange,
+}: ResourceAccessCardProps) {
   const [open, setOpen] = useState(false);
   const [access, setAccess] = useState<ResourceAccess | null>(null);
   const [loading, setLoading] = useState(false);
@@ -277,11 +298,13 @@ export default function ResourceAccessCard({ resourceType, resourceID, label, se
     [endpoint, loadAccess, saving]
   );
 
+  const openerLabel = access?.access_overridden ? 'Access overridden' : 'Access';
+
   return (
     <>
-      <button className={buttonClassName} type="button" onClick={() => setOpen(true)} title="Access">
-        <Users className="h-4 w-4" />
-        <span>{access?.access_overridden ? 'Access overridden' : 'Access'}</span>
+      <button className={buttonClassName} type="button" onClick={() => setOpen(true)} title={openerLabel} aria-label={iconOnly ? openerLabel : undefined}>
+        <Users className="h-4 w-4" aria-hidden="true" />
+        <span className={iconOnly ? 'sr-only' : undefined}>{openerLabel}</span>
       </button>
 
       {open ? (
