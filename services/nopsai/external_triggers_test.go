@@ -10,13 +10,13 @@ import (
 func TestNormalizeExternalTriggerInput(t *testing.T) {
 	enabled := false
 	got, err := normalizeExternalTriggerInput(externalTriggerInput{
-		Name:         "Deploy Prod",
-		Enabled:      &enabled,
-		Pipeline:     ".nopsai/pipelines/platform/deploy.yaml",
-		Scope:        "/prod/",
-		RunGroupPath: "/platform/prod/",
+		Name:        "Deploy Prod",
+		Enabled:     &enabled,
+		Pipeline:    ".nopsai/pipelines/platform/deploy.yaml",
+		Scope:       "/prod/",
+		RunTeamPath: "/platform/prod/",
 		AllowedCallers: []externalTriggerAllowedCaller{
-			{Type: "group", ID: "platform-ops"},
+			{Type: "team", ID: "platform-ops"},
 			{Type: "service_account", ID: "servicenow-prod"},
 		},
 		VariableMapping: map[string]string{
@@ -35,23 +35,23 @@ func TestNormalizeExternalTriggerInput(t *testing.T) {
 	if got.Scope != "prod" {
 		t.Fatalf("Scope = %q, want prod", got.Scope)
 	}
-	if got.RunGroupPath != "platform/prod" {
-		t.Fatalf("RunGroupPath = %q, want platform/prod", got.RunGroupPath)
+	if got.RunTeamPath != "platform/prod" {
+		t.Fatalf("RunTeamPath = %q, want platform/prod", got.RunTeamPath)
 	}
 	if got.Enabled {
 		t.Fatal("Enabled = true, want false")
 	}
-	if len(got.AllowedCallers) != 2 || got.AllowedCallers[0].Type != "auth_group" || got.AllowedCallers[1].Type != "service_account" {
-		t.Fatalf("AllowedCallers = %#v, want normalized auth_group and service_account", got.AllowedCallers)
+	if len(got.AllowedCallers) != 2 || got.AllowedCallers[0].Type != "auth_team" || got.AllowedCallers[1].Type != "service_account" {
+		t.Fatalf("AllowedCallers = %#v, want normalized auth_team and service_account", got.AllowedCallers)
 	}
 }
 
 func TestNormalizeExternalTriggerInputTreatsRootAsRootScope(t *testing.T) {
 	got, err := normalizeExternalTriggerInput(externalTriggerInput{
-		Name:         "Deploy Root",
-		Pipeline:     "pipelines/root/platform/deploy.yaml",
-		Scope:        "root/prod",
-		RunGroupPath: "root",
+		Name:        "Deploy Root",
+		Pipeline:    "pipelines/root/platform/deploy.yaml",
+		Scope:       "root/prod",
+		RunTeamPath: "root",
 	}, "")
 	if err != nil {
 		t.Fatalf("normalizeExternalTriggerInput() error = %v", err)
@@ -62,8 +62,8 @@ func TestNormalizeExternalTriggerInputTreatsRootAsRootScope(t *testing.T) {
 	if got.Scope != "prod" {
 		t.Fatalf("Scope = %q, want prod", got.Scope)
 	}
-	if got.RunGroupPath != "root" {
-		t.Fatalf("RunGroupPath = %q, want root", got.RunGroupPath)
+	if got.RunTeamPath != "root" {
+		t.Fatalf("RunTeamPath = %q, want root", got.RunTeamPath)
 	}
 }
 
@@ -135,14 +135,14 @@ func TestExternalTriggerRateLimitCountExceededAllowsCurrentAuditRow(t *testing.T
 	}
 }
 
-func TestParseGitOpsExternalTriggersNormalizesFolderReferences(t *testing.T) {
+func TestParseGitOpsExternalTriggersNormalizesTeamReferences(t *testing.T) {
 	enabled := true
 	triggers, err := parseGitOpsExternalTriggers(map[string]string{
 		"external-triggers/deploy-prod.yaml": `
 name: Deploy prod
 pipeline: platform-maintenance
 scope: prod
-run_group_path: prod/webhooks
+run_team_path: prod/webhooks
 enabled: true
 allowed_callers:
   - type: service_account
@@ -157,7 +157,7 @@ rate_limit:
   per_minute: 10
 `,
 	}, "external-triggers", models.ConfigRepository{
-		ScopeType: models.ConfigRepositoryScopeFolder,
+		ScopeType: models.ConfigRepositoryScopeTeam,
 		ScopeID:   "team-1",
 	}, "team-1")
 	if err != nil {
@@ -176,8 +176,8 @@ rate_limit:
 	if got.input.Scope != "team-1/prod" {
 		t.Fatalf("Scope = %q, want team-1/prod", got.input.Scope)
 	}
-	if got.input.RunGroupPath != "team-1/prod/webhooks" {
-		t.Fatalf("RunGroupPath = %q, want team-1/prod/webhooks", got.input.RunGroupPath)
+	if got.input.RunTeamPath != "team-1/prod/webhooks" {
+		t.Fatalf("RunTeamPath = %q, want team-1/prod/webhooks", got.input.RunTeamPath)
 	}
 	if len(got.input.AllowedCallers) != 1 || got.input.AllowedCallers[0].ID != "servicenow-prod" {
 		t.Fatalf("AllowedCallers = %#v, want servicenow-prod", got.input.AllowedCallers)
@@ -187,16 +187,16 @@ rate_limit:
 	}
 }
 
-func TestParseGitOpsExternalTriggersKeepsRootRunGroupForFolderRepo(t *testing.T) {
+func TestParseGitOpsExternalTriggersKeepsRootRunTeamForTeamRepo(t *testing.T) {
 	triggers, err := parseGitOpsExternalTriggers(map[string]string{
 		"external-triggers/deploy-prod.yaml": `
 name: Deploy prod
 pipeline: root/platform-maintenance
 scope: root
-run_group_path: root
+run_team_path: root
 `,
 	}, "external-triggers", models.ConfigRepository{
-		ScopeType: models.ConfigRepositoryScopeFolder,
+		ScopeType: models.ConfigRepositoryScopeTeam,
 		ScopeID:   "team-1",
 	}, "team-1")
 	if err != nil {
@@ -212,17 +212,17 @@ run_group_path: root
 	if got.input.Pipeline != "platform-maintenance" {
 		t.Fatalf("Pipeline = %q, want platform-maintenance", got.input.Pipeline)
 	}
-	if got.input.RunGroupPath != "root" {
-		t.Fatalf("RunGroupPath = %q, want root", got.input.RunGroupPath)
+	if got.input.RunTeamPath != "root" {
+		t.Fatalf("RunTeamPath = %q, want root", got.input.RunTeamPath)
 	}
 }
 
-func TestExternalTriggerConfigScopePrefersRunGroup(t *testing.T) {
+func TestExternalTriggerConfigScopePrefersRunTeam(t *testing.T) {
 	got := externalTriggerConfigScope(externalTriggerRecord{
-		ID:           "deploy-prod",
-		Pipeline:     "shared/platform/deploy",
-		Scope:        "shared/prod",
-		RunGroupPath: "team-1/prod",
+		ID:          "deploy-prod",
+		Pipeline:    "shared/platform/deploy",
+		Scope:       "shared/prod",
+		RunTeamPath: "team-1/prod",
 	})
 	if got != "team-1/prod" {
 		t.Fatalf("externalTriggerConfigScope() = %q, want team-1/prod", got)
@@ -234,6 +234,6 @@ func TestExternalTriggerConfigScopePrefersRunGroup(t *testing.T) {
 		Scope:    "shared/prod",
 	})
 	if got != "root" {
-		t.Fatalf("externalTriggerConfigScope() without run group = %q, want root", got)
+		t.Fatalf("externalTriggerConfigScope() without run team = %q, want root", got)
 	}
 }

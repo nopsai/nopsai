@@ -201,27 +201,27 @@ func validateApprovalDefinition(approval models.ApprovalDefinition, stepName str
 	if !regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`).MatchString(approvalType) {
 		return fmt.Errorf("approval step '%s' approval.type can only contain alphanumeric characters, underscores, dots, and hyphens", stepName)
 	}
-	groups := trimmedStrings(approval.Groups)
-	if len(groups) == 0 {
-		return fmt.Errorf("approval step '%s' must assign at least one approval group", stepName)
+	teams := trimmedStrings(approval.Teams)
+	if len(teams) == 0 {
+		return fmt.Errorf("approval step '%s' must assign at least one approval team", stepName)
 	}
-	seen := make(map[string]bool, len(groups))
-	for _, group := range groups {
-		normalized := strings.Trim(strings.ReplaceAll(group, "\\", "/"), "/")
+	seen := make(map[string]bool, len(teams))
+	for _, team := range teams {
+		normalized := strings.Trim(strings.ReplaceAll(team, "\\", "/"), "/")
 		if normalized == "" {
-			return fmt.Errorf("approval step '%s' contains an empty approval group", stepName)
+			return fmt.Errorf("approval step '%s' contains an empty approval team", stepName)
 		}
-		if filepath.IsAbs(group) || strings.HasPrefix(strings.TrimSpace(group), "~") {
-			return fmt.Errorf("approval step '%s' approval group %q must be a relative folder path", stepName, group)
+		if filepath.IsAbs(team) || strings.HasPrefix(strings.TrimSpace(team), "~") {
+			return fmt.Errorf("approval step '%s' approval team %q must be a relative team path", stepName, team)
 		}
 		for _, segment := range strings.Split(normalized, "/") {
 			if segment == "" || segment == "." || segment == ".." {
-				return fmt.Errorf("approval step '%s' approval group %q contains invalid path segments", stepName, group)
+				return fmt.Errorf("approval step '%s' approval team %q contains invalid path segments", stepName, team)
 			}
 		}
 		key := strings.ToLower(normalized)
 		if seen[key] {
-			return fmt.Errorf("approval step '%s' repeats approval group %q", stepName, group)
+			return fmt.Errorf("approval step '%s' repeats approval team %q", stepName, team)
 		}
 		seen[key] = true
 	}
@@ -333,7 +333,7 @@ func validateKnowledgeContextRef(ref models.KnowledgeContextRef) error {
 		}
 		parts := strings.Split(strings.Trim(ref.Ref, "/"), "/")
 		if len(parts) < 2 {
-			return fmt.Errorf("ref must use group/document format")
+			return fmt.Errorf("ref must use team/document format")
 		}
 	}
 	if hasPath {

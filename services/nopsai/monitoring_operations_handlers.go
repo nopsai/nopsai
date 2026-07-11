@@ -26,7 +26,7 @@ type monitoringSavedViewRecord struct {
 	OwnerSubjectType    string         `json:"owner_subject_type"`
 	OwnerSubjectID      string         `json:"owner_subject_id"`
 	Visibility          string         `json:"visibility"`
-	GroupID             *int           `json:"group_id,omitempty"`
+	TeamID              *int           `json:"team_id,omitempty"`
 	Filters             map[string]any `json:"filters"`
 	Columns             []string       `json:"columns"`
 	Source              string         `json:"source"`
@@ -38,7 +38,7 @@ type monitoringSavedViewRecord struct {
 type monitoringSavedViewInput struct {
 	Name       string         `json:"name"`
 	Visibility string         `json:"visibility"`
-	GroupID    *int           `json:"group_id"`
+	TeamID     *int           `json:"team_id"`
 	Filters    map[string]any `json:"filters"`
 	Columns    []string       `json:"columns"`
 }
@@ -109,7 +109,7 @@ func (a *App) handleListMonitoringSavedViews(w http.ResponseWriter, r *http.Requ
 	}
 	ownerType, ownerID := monitoringSubjectOwner(subject)
 	rows, err := a.db.Query(r.Context(), `
-		SELECT id::text, name, owner_subject_type, owner_subject_id, visibility, group_id,
+		SELECT id::text, name, owner_subject_type, owner_subject_id, visibility, team_id,
 		       filters, columns, source, managed_by_config_repo, created_at, updated_at
 		FROM monitoring_saved_views
 		WHERE visibility = 'workspace'
@@ -499,13 +499,13 @@ func (a *App) updateMonitoringRecommendationStatus(w http.ResponseWriter, r *htt
 func (a *App) insertMonitoringSavedView(ctx context.Context, input monitoringSavedViewInput, ownerType, ownerID string, filtersJSON, columnsJSON []byte) (monitoringSavedViewRecord, error) {
 	row := a.db.QueryRow(ctx, `
 		INSERT INTO monitoring_saved_views (
-			name, owner_subject_type, owner_subject_id, visibility, group_id,
+			name, owner_subject_type, owner_subject_id, visibility, team_id,
 			filters, columns, source, managed_by_config_repo
 		)
 		VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,'database',FALSE)
-		RETURNING id::text, name, owner_subject_type, owner_subject_id, visibility, group_id,
+		RETURNING id::text, name, owner_subject_type, owner_subject_id, visibility, team_id,
 		          filters, columns, source, managed_by_config_repo, created_at, updated_at
-	`, input.Name, ownerType, ownerID, input.Visibility, input.GroupID, string(filtersJSON), string(columnsJSON))
+	`, input.Name, ownerType, ownerID, input.Visibility, input.TeamID, string(filtersJSON), string(columnsJSON))
 	return scanMonitoringSavedView(row)
 }
 
@@ -514,7 +514,7 @@ func (a *App) updateMonitoringSavedView(ctx context.Context, viewID string, inpu
 		UPDATE monitoring_saved_views
 			SET name = $2,
 			    visibility = $3,
-			    group_id = $4,
+			    team_id = $4,
 			    filters = $5::jsonb,
 			    columns = $6::jsonb,
 			    source = 'database',
@@ -528,9 +528,9 @@ func (a *App) updateMonitoringSavedView(ctx context.Context, viewID string, inpu
 			      (owner_subject_type = $7 AND owner_subject_id = $8)
 			      OR managed_by_config_repo = TRUE
 			  )
-		RETURNING id::text, name, owner_subject_type, owner_subject_id, visibility, group_id,
+		RETURNING id::text, name, owner_subject_type, owner_subject_id, visibility, team_id,
 		          filters, columns, source, managed_by_config_repo, created_at, updated_at
-	`, viewID, input.Name, input.Visibility, input.GroupID, string(filtersJSON), string(columnsJSON), ownerType, ownerID)
+	`, viewID, input.Name, input.Visibility, input.TeamID, string(filtersJSON), string(columnsJSON), ownerType, ownerID)
 	return scanMonitoringSavedView(row)
 }
 
@@ -784,15 +784,15 @@ type monitoringScanner interface {
 
 func scanMonitoringSavedView(row monitoringScanner) (monitoringSavedViewRecord, error) {
 	var item monitoringSavedViewRecord
-	var groupID sql.NullInt64
+	var teamID sql.NullInt64
 	var filtersJSON, columnsJSON []byte
-	if err := row.Scan(&item.ID, &item.Name, &item.OwnerSubjectType, &item.OwnerSubjectID, &item.Visibility, &groupID,
+	if err := row.Scan(&item.ID, &item.Name, &item.OwnerSubjectType, &item.OwnerSubjectID, &item.Visibility, &teamID,
 		&filtersJSON, &columnsJSON, &item.Source, &item.ManagedByConfigRepo, &item.CreatedAt, &item.UpdatedAt); err != nil {
 		return item, err
 	}
-	if groupID.Valid {
-		id := int(groupID.Int64)
-		item.GroupID = &id
+	if teamID.Valid {
+		id := int(teamID.Int64)
+		item.TeamID = &id
 	}
 	item.Filters = map[string]any{}
 	item.Columns = []string{}
@@ -949,7 +949,7 @@ func normalizeMonitoringAlertRuleInput(input *monitoringAlertRuleInput) error {
 
 func normalizeMonitoringVisibility(value, fallback string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "private", "group", "workspace":
+	case "private", "team", "workspace":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
 		return fallback
@@ -1018,16 +1018,16 @@ func monitoringAlertRuleFilters(rule monitoringAlertRuleRecord, now time.Time) (
 		}
 		text := strings.TrimSpace(monitoringStringFromAny(value))
 		switch key {
-		case "groupId":
+		case "teamId", "team_id":
 			if strings.EqualFold(text, rootGrantID) {
-				filters.RootGroup = true
+				filters.RootTeam = true
 				continue
 			}
 			parsed, err := monitoringIntFromAny(value)
 			if err != nil {
-				return filters, fmt.Errorf("invalid groupId")
+				return filters, fmt.Errorf("invalid teamId")
 			}
-			filters.GroupID = &parsed
+			filters.TeamID = &parsed
 		case "pipelinePath":
 			filters.PipelinePath = text
 		case "pipelineName":

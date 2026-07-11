@@ -72,7 +72,7 @@ export type CredentialSummary = {
   pending: number;
 };
 
-export type CredentialGroup = {
+export type CredentialTeam = {
   key: string;
   namespace: string;
   category: string;
@@ -197,24 +197,24 @@ export function filterCredentials(
   });
 }
 
-export function groupCredentials(credentials: CredentialRecord[]): CredentialGroup[] {
-  const groups = new Map<string, CredentialGroup>();
+export function teamCredentials(credentials: CredentialRecord[]): CredentialTeam[] {
+  const teams = new Map<string, CredentialTeam>();
   credentials.forEach(credential => {
     const reference = parseCredentialReference(credential.reference);
     const key = `${reference.namespace}/${reference.category}`;
-    const group = groups.get(key) || {
+    const team = teams.get(key) || {
       key,
       namespace: reference.namespace,
       category: reference.category,
       credentials: [],
     };
-    group.credentials.push(credential);
-    groups.set(key, group);
+    team.credentials.push(credential);
+    teams.set(key, team);
   });
-  return [...groups.values()]
-    .map(group => ({
-      ...group,
-      credentials: [...group.credentials].sort((left, right) =>
+  return [...teams.values()]
+    .map(team => ({
+      ...team,
+      credentials: [...team.credentials].sort((left, right) =>
         parseCredentialReference(left.reference).name.localeCompare(parseCredentialReference(right.reference).name)
       ),
     }))

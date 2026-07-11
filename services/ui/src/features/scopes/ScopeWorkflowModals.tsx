@@ -107,7 +107,7 @@ function ScopeCreateDialog({
               data-dialog-initial-focus
             />
             <p className="text-xs text-[var(--text-secondary)] mt-1">
-              Only letters, numbers, dots, underscores, and hyphens are allowed. Use slashes for nested groups.
+              Only letters, numbers, dots, underscores, and hyphens are allowed. Use slashes for nested teams.
             </p>
           </div>
           <div className="space-y-2 bg-[var(--bg-tertiary)] rounded-md p-3 text-xs text-[var(--text-secondary)]">

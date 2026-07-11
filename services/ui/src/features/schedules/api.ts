@@ -1,5 +1,5 @@
 import { apiClient } from '../../lib/api';
-import { fetchPipelineRunGroupPaths } from '../../lib/resourceGroups';
+import { fetchPipelineRunTeamPaths } from '../../lib/resourceTeams';
 import {
   normalizeScheduleMetadata,
   scheduleRequestFromForm,
@@ -29,13 +29,13 @@ export async function fetchSchedules(pipelineFilter = ''): Promise<PipelineSched
 }
 
 export async function fetchScheduleMetadata(): Promise<ScheduleMetadata> {
-  const [pipelinePayload, groupPayload, secretScopes, variableScopes] = await Promise.all([
+  const [pipelinePayload, teamPayload, secretScopes, variableScopes] = await Promise.all([
     requestJson<Array<PipelineListItem | string>>('/v1/pipelines').catch(() => []),
-    fetchPipelineRunGroupPaths().catch(() => []),
+    fetchPipelineRunTeamPaths().catch(() => []),
     requestJson<Array<string | { scope?: string; name?: string }>>('/v1/secrets/scopes').catch(() => []),
     requestJson<Array<string | { scope?: string; name?: string }>>('/v1/variables/scopes').catch(() => []),
   ]);
-  return normalizeScheduleMetadata(pipelinePayload, groupPayload, secretScopes, variableScopes);
+  return normalizeScheduleMetadata(pipelinePayload, teamPayload, secretScopes, variableScopes);
 }
 
 export function saveSchedule(form: ScheduleFormState, schedule?: PipelineSchedule): Promise<PipelineSchedule> {

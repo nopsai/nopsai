@@ -1,12 +1,12 @@
 import { Trash2 } from 'lucide-react';
 import { ObjectIcon } from '../../components/ObjectIcon';
 import {
-  countFolderDocs,
+  countTeamDocs,
   isGitManagedDocument,
   normalizeKnowledgeSource,
   splitKnowledgePath,
   type KnowledgeContextListItem,
-  type KnowledgeFolderNode,
+  type KnowledgeTeamNode,
 } from './model';
 import { kindIconType, kindPlural, kindTitle } from './presentation';
 
@@ -15,11 +15,11 @@ type KnowledgeContextCollectionListProps = {
   listError: string | null;
   search: string;
   visibleDocuments: KnowledgeContextListItem[];
-  visibleFolders: KnowledgeFolderNode[];
+  visibleTeams: KnowledgeTeamNode[];
   selectedID: string;
   canWriteKnowledge: boolean;
   canDeleteKnowledge: boolean;
-  onOpenFolder: (folder: string) => void;
+  onOpenTeam: (team: string) => void;
   onSelectDocument: (id: string) => void;
   onDeleteDocument: (document: KnowledgeContextListItem) => void;
 };
@@ -29,11 +29,11 @@ export function KnowledgeContextCollectionList({
   listError,
   search,
   visibleDocuments,
-  visibleFolders,
+  visibleTeams,
   selectedID,
   canWriteKnowledge,
   canDeleteKnowledge,
-  onOpenFolder,
+  onOpenTeam,
   onSelectDocument,
   onDeleteDocument,
 }: KnowledgeContextCollectionListProps) {
@@ -67,19 +67,19 @@ export function KnowledgeContextCollectionList({
               </div>
             ) : null}
 
-            {search.trim() ? null : visibleFolders.length ? (
+            {search.trim() ? null : visibleTeams.length ? (
               <div className="pipelines-card-grid pipelines-card-grid--pipelines mt-4">
-                {visibleFolders.map(folder => (
-                  <KnowledgeFolderCard key={`folder-${folder.id}`} folder={folder} onOpenFolder={onOpenFolder} />
+                {visibleTeams.map(team => (
+                  <KnowledgeTeamCard key={`team-${team.id}`} team={team} onOpenTeam={onOpenTeam} />
                 ))}
               </div>
             ) : null}
 
-            {!visibleDocuments.length && !visibleFolders.length ? (
+            {!visibleDocuments.length && !visibleTeams.length ? (
               <div id="knowledge-context-empty" className="pipelines-empty">
                 <h3 className="text-base font-semibold text-[var(--text-primary)]">No knowledge contexts found</h3>
                 <p className="text-sm text-[var(--text-secondary)]">
-                  {canWriteKnowledge ? 'Create a new document or adjust your filters.' : 'Adjust your filters or browse another group.'}
+                  {canWriteKnowledge ? 'Create a new document or adjust your filters.' : 'Adjust your filters or browse another team.'}
                 </p>
               </div>
             ) : null}
@@ -90,15 +90,15 @@ export function KnowledgeContextCollectionList({
   );
 }
 
-function KnowledgeFolderCard({ folder, onOpenFolder }: { folder: KnowledgeFolderNode; onOpenFolder: (folder: string) => void }) {
-  const folderDepth = folder.fullPath.split('/').filter(Boolean).length;
-  const iconType = folderDepth === 1 ? kindIconType(folder.name) : 'folder';
-  const folderName = folderDepth === 1 ? kindPlural(folder.name) : folder.name;
+function KnowledgeTeamCard({ team, onOpenTeam }: { team: KnowledgeTeamNode; onOpenTeam: (team: string) => void }) {
+  const teamDepth = team.fullPath.split('/').filter(Boolean).length;
+  const iconType = teamDepth === 1 ? kindIconType(team.name) : 'team';
+  const teamName = teamDepth === 1 ? kindPlural(team.name) : team.name;
 
   return (
     <article
-      className="glass-card pipeline-card kc-folder-card border border-[var(--border-primary)] rounded-xl p-4"
-      onClick={() => onOpenFolder(folder.fullPath)}
+      className="glass-card pipeline-card kc-team-card border border-[var(--border-primary)] rounded-xl p-4"
+      onClick={() => onOpenTeam(team.fullPath)}
     >
       <div className="pipeline-card-header">
         <div className="pipeline-card-info">
@@ -106,21 +106,21 @@ function KnowledgeFolderCard({ folder, onOpenFolder }: { folder: KnowledgeFolder
             <ObjectIcon type={iconType} />
           </span>
           <div className="pipeline-card-text">
-            <h3 className="pipeline-card-title">{folderName}</h3>
-            <p className="pipeline-card-path">{folder.fullPath || 'root'}</p>
-            <p className="pipeline-card-description">Knowledge folder</p>
+            <h3 className="pipeline-card-title">{teamName}</h3>
+            <p className="pipeline-card-path">{team.fullPath || 'root'}</p>
+            <p className="pipeline-card-description">Knowledge team</p>
           </div>
         </div>
-        <span className="pipeline-folder-chevron">›</span>
+        <span className="pipeline-team-chevron">›</span>
       </div>
       <div className="pipeline-card-meta">
         <div className="pipeline-card-meta-row">
           <span className="pipeline-card-meta-label">Documents</span>
-          <span className="pipeline-card-meta-value">{countFolderDocs(folder)}</span>
+          <span className="pipeline-card-meta-value">{countTeamDocs(team)}</span>
         </div>
         <div className="pipeline-card-meta-row">
-          <span className="pipeline-card-meta-label">Sub groups</span>
-          <span className="pipeline-card-meta-value">{folder.children.length}</span>
+          <span className="pipeline-card-meta-label">Sub teams</span>
+          <span className="pipeline-card-meta-value">{team.children.length}</span>
         </div>
       </div>
     </article>
@@ -141,7 +141,7 @@ function KnowledgeDocumentCard({
   onDeleteDocument: (document: KnowledgeContextListItem) => void;
 }) {
   const iconType = kindIconType(document.kind);
-  const { folder } = splitKnowledgePath(document.id);
+  const { team } = splitKnowledgePath(document.id);
   const canDeleteThisDocument = canDeleteKnowledge;
 
   return (
@@ -156,7 +156,7 @@ function KnowledgeDocumentCard({
           </span>
           <div className="pipeline-card-text">
             <h3 className="pipeline-card-title">{document.name}</h3>
-            <p className="pipeline-card-path">{folder || 'root'}</p>
+            <p className="pipeline-card-path">{team || 'root'}</p>
             <p className="pipeline-card-description">{document.description || `${kindTitle(document.kind)} knowledge context.`}</p>
           </div>
         </div>

@@ -270,7 +270,7 @@ func (a *App) upsertManagedResourceUseGrant(ctx context.Context, tx pgx.Tx, bind
 		}
 	}
 
-	if subject.Type != grantSubjectGroup {
+	if subject.Type != grantSubjectTeam {
 		for _, action := range actions {
 			if err := aaastore.UpsertResourceACL(ctx, tx, aaastore.ResourceACL{
 				ResourceType:  resource.Type,

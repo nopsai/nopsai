@@ -13,7 +13,6 @@ export type NotificationEventKey =
 export type NotificationRecipientSet = {
   teams?: string[];
   users?: string[];
-  groups?: string[];
 };
 
 export type NotificationPatternFilter = {
@@ -54,8 +53,8 @@ export type NotificationRouteDefinition = {
 
 export type NotificationRouteRecord = {
   id?: number;
-  group_id?: number;
-  group_path?: string;
+  team_id?: number;
+  team_path?: string;
   definition: NotificationRouteDefinition;
   source?: string;
   config_source_path?: string;
@@ -68,11 +67,11 @@ export type NotificationRouteFormState = {
   selectedRouteIndex: number;
   routes: NotificationRouteRule[];
   enabled: boolean;
-  includeSameGroup: boolean;
+  includeSameTeam: boolean;
   includeUsers: string;
-  includeGroups: string;
+  includeTeams: string;
   excludeUsers: string;
-  excludeGroups: string;
+  excludeTeams: string;
   events: Record<NotificationEventKey, boolean>;
   pipelineInclude: string;
   pipelineExclude: string;
@@ -118,13 +117,13 @@ export function defaultNotificationEventState(): Record<NotificationEventKey, bo
 }
 
 export function defaultNotificationRouteRule(name: string): NotificationRouteRule {
-  return {
-    name,
-    enabled: true,
-    recipients: {
-      include: { teams: ['same_group'], users: [], groups: [] },
-      exclude: { users: [], groups: [] },
-    },
+	return {
+		name,
+		enabled: true,
+		recipients: {
+			include: { teams: ['same_team'], users: [] },
+			exclude: { users: [], teams: [] },
+		},
     events: defaultNotificationEventState(),
     filters: {
       pipelines: { include: ['*'], exclude: [] },
@@ -159,11 +158,11 @@ export function createEmptyNotificationRouteForm(): NotificationRouteFormState {
     selectedRouteIndex: 0,
     routes: [defaultNotificationRouteRule('default')],
     enabled: true,
-    includeSameGroup: true,
+    includeSameTeam: true,
     includeUsers: '',
-    includeGroups: '',
+    includeTeams: '',
     excludeUsers: '',
-    excludeGroups: '',
+    excludeTeams: '',
     events: defaultNotificationEventState(),
     pipelineInclude: '*',
     pipelineExclude: '',
@@ -182,11 +181,11 @@ export function normalizeNotificationRouteRecord(payload: unknown): Notification
   }
   const record = payload as Record<string, unknown>;
   const id = typeof record.id === 'number' ? record.id : Number(record.id);
-  const groupID = typeof record.group_id === 'number' ? record.group_id : Number(record.group_id);
+  const teamID = typeof record.team_id === 'number' ? record.team_id : Number(record.team_id);
   return {
     id: Number.isFinite(id) && id > 0 ? id : undefined,
-    group_id: Number.isFinite(groupID) && groupID > 0 ? groupID : undefined,
-    group_path: typeof record.group_path === 'string' ? record.group_path : undefined,
+    team_id: Number.isFinite(teamID) && teamID > 0 ? teamID : undefined,
+    team_path: typeof record.team_path === 'string' ? record.team_path : undefined,
     definition: normalizeNotificationRouteDefinition(record.definition),
     source: typeof record.source === 'string' ? record.source : 'database',
     config_source_path: typeof record.config_source_path === 'string' ? record.config_source_path : undefined,
@@ -315,12 +314,12 @@ function notificationRouteFormFromRule(
     routeName: route.name || `route-${safeIndex + 1}`,
     selectedRouteIndex: safeIndex,
     routes,
-    enabled: route.enabled,
-    includeSameGroup: (include.teams || []).includes('same_group'),
-    includeUsers: notificationListToText(include.users),
-    includeGroups: notificationListToText(include.groups),
-    excludeUsers: notificationListToText(exclude.users),
-    excludeGroups: notificationListToText(exclude.groups),
+		enabled: route.enabled,
+		includeSameTeam: (include.teams || []).includes('same_team'),
+		includeUsers: notificationListToText(include.users),
+		includeTeams: notificationListToText((include.teams || []).filter(team => team !== 'same_team')),
+		excludeUsers: notificationListToText(exclude.users),
+		excludeTeams: notificationListToText(exclude.teams),
     events,
     pipelineInclude: notificationListToText(route.filters.pipelines?.include || ['*']),
     pipelineExclude: notificationListToText(route.filters.pipelines?.exclude),
@@ -346,18 +345,20 @@ function notificationRouteRuleFromForm(form: NotificationRouteFormState): Notifi
   NOTIFICATION_EVENTS.forEach(option => {
     events[option.key] = Boolean(form.events[option.key]);
   });
-  return {
-    name: form.routeName.trim() || `route-${form.selectedRouteIndex + 1}`,
-    enabled: form.enabled,
-    recipients: {
-      include: {
-        teams: form.includeSameGroup ? ['same_group'] : [],
-        users: notificationTextToList(form.includeUsers),
-        groups: notificationTextToList(form.includeGroups),
-      },
+	return {
+		name: form.routeName.trim() || `route-${form.selectedRouteIndex + 1}`,
+		enabled: form.enabled,
+		recipients: {
+			include: {
+				users: notificationTextToList(form.includeUsers),
+				teams: [
+					...(form.includeSameTeam ? ['same_team'] : []),
+					...notificationTextToList(form.includeTeams),
+				],
+			},
       exclude: {
         users: notificationTextToList(form.excludeUsers),
-        groups: notificationTextToList(form.excludeGroups),
+        teams: notificationTextToList(form.excludeTeams),
       },
     },
     events,
@@ -381,7 +382,6 @@ function normalizeNotificationRecipientSet(payload: unknown): NotificationRecipi
   return {
     teams: normalizeStringArray(record.teams),
     users: normalizeStringArray(record.users),
-    groups: normalizeStringArray(record.groups),
   };
 }
 

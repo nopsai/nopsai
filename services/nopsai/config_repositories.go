@@ -89,13 +89,13 @@ func (a *App) handleWriteGlobalConfigRepository(w http.ResponseWriter, r *http.R
 	a.handleWriteConfigRepositoryFiles(w, r, repo)
 }
 
-func (a *App) handleGetFolderConfigRepository(w http.ResponseWriter, r *http.Request) {
-	resource, ok := a.requireFolderConfigRepositoryDecision(w, r, "config_repo.read")
+func (a *App) handleGetTeamConfigRepository(w http.ResponseWriter, r *http.Request) {
+	resource, ok := a.requireTeamConfigRepositoryDecision(w, r, "config_repo.read")
 	if !ok {
 		return
 	}
 
-	repo, err := a.store.GetConfigRepositoryByScope(r.Context(), models.ConfigRepositoryScopeFolder, resource.ID)
+	repo, err := a.store.GetConfigRepositoryByScope(r.Context(), models.ConfigRepositoryScopeTeam, resource.ID)
 	if err != nil {
 		writeConfigRepositoryStoreError(w, err, "failed to load config repository")
 		return
@@ -103,8 +103,8 @@ func (a *App) handleGetFolderConfigRepository(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, repo)
 }
 
-func (a *App) handleUpsertFolderConfigRepository(w http.ResponseWriter, r *http.Request) {
-	resource, ok := a.requireFolderConfigRepositoryDecision(w, r, "config_repo.manage")
+func (a *App) handleUpsertTeamConfigRepository(w http.ResponseWriter, r *http.Request) {
+	resource, ok := a.requireTeamConfigRepositoryDecision(w, r, "config_repo.manage")
 	if !ok {
 		return
 	}
@@ -114,7 +114,7 @@ func (a *App) handleUpsertFolderConfigRepository(w http.ResponseWriter, r *http.
 		http.Error(w, "Invalid request payload", http.StatusBadRequest)
 		return
 	}
-	input, err := configsync.BuildRepositoryInput(req, models.ConfigRepositoryScopeFolder, resource.ID, actorIDFromRequest(r))
+	input, err := configsync.BuildRepositoryInput(req, models.ConfigRepositoryScopeTeam, resource.ID, actorIDFromRequest(r))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -128,26 +128,26 @@ func (a *App) handleUpsertFolderConfigRepository(w http.ResponseWriter, r *http.
 	writeJSON(w, http.StatusOK, repo)
 }
 
-func (a *App) handleDeleteFolderConfigRepository(w http.ResponseWriter, r *http.Request) {
-	resource, ok := a.requireFolderConfigRepositoryDecision(w, r, "config_repo.manage")
+func (a *App) handleDeleteTeamConfigRepository(w http.ResponseWriter, r *http.Request) {
+	resource, ok := a.requireTeamConfigRepositoryDecision(w, r, "config_repo.manage")
 	if !ok {
 		return
 	}
 
-	if err := a.store.DeleteConfigRepositoryByScope(r.Context(), models.ConfigRepositoryScopeFolder, resource.ID); err != nil {
+	if err := a.store.DeleteConfigRepositoryByScope(r.Context(), models.ConfigRepositoryScopeTeam, resource.ID); err != nil {
 		writeConfigRepositoryStoreError(w, err, "failed to delete config repository")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (a *App) handleGetFolderConfigRepositorySyncStatus(w http.ResponseWriter, r *http.Request) {
-	resource, ok := a.requireFolderConfigRepositoryDecision(w, r, "config_repo.read")
+func (a *App) handleGetTeamConfigRepositorySyncStatus(w http.ResponseWriter, r *http.Request) {
+	resource, ok := a.requireTeamConfigRepositoryDecision(w, r, "config_repo.read")
 	if !ok {
 		return
 	}
 
-	repo, err := a.store.GetConfigRepositoryByScope(r.Context(), models.ConfigRepositoryScopeFolder, resource.ID)
+	repo, err := a.store.GetConfigRepositoryByScope(r.Context(), models.ConfigRepositoryScopeTeam, resource.ID)
 	if err != nil {
 		writeConfigRepositoryStoreError(w, err, "failed to load config repository")
 		return
@@ -155,24 +155,24 @@ func (a *App) handleGetFolderConfigRepositorySyncStatus(w http.ResponseWriter, r
 	writeJSON(w, http.StatusOK, syncStatusFromConfigRepository(repo))
 }
 
-func (a *App) handleSyncFolderConfigRepository(w http.ResponseWriter, r *http.Request) {
-	resource, ok := a.requireFolderConfigRepositoryDecision(w, r, "config_repo.sync")
+func (a *App) handleSyncTeamConfigRepository(w http.ResponseWriter, r *http.Request) {
+	resource, ok := a.requireTeamConfigRepositoryDecision(w, r, "config_repo.sync")
 	if !ok {
 		return
 	}
-	if !a.requireFolderConfigRepositoryOwner(w, r, resource.ID) {
+	if !a.requireTeamConfigRepositoryOwner(w, r, resource.ID) {
 		return
 	}
-	a.handleSyncConfigRepositoryByScope(w, r, models.ConfigRepositoryScopeFolder, resource.ID)
+	a.handleSyncConfigRepositoryByScope(w, r, models.ConfigRepositoryScopeTeam, resource.ID)
 }
 
-func (a *App) handleWriteFolderConfigRepository(w http.ResponseWriter, r *http.Request) {
-	resource, ok := a.requireFolderConfigRepositoryDecision(w, r, "config_repo.manage")
+func (a *App) handleWriteTeamConfigRepository(w http.ResponseWriter, r *http.Request) {
+	resource, ok := a.requireTeamConfigRepositoryDecision(w, r, "config_repo.manage")
 	if !ok {
 		return
 	}
 
-	repo, err := a.store.GetConfigRepositoryByScope(r.Context(), models.ConfigRepositoryScopeFolder, resource.ID)
+	repo, err := a.store.GetConfigRepositoryByScope(r.Context(), models.ConfigRepositoryScopeTeam, resource.ID)
 	if err != nil {
 		writeConfigRepositoryStoreError(w, err, "failed to load config repository")
 		return
@@ -285,8 +285,8 @@ func (a *App) handleSyncAllConfigRepositories(w http.ResponseWriter, r *http.Req
 	a.handleConfigSync(w, r)
 }
 
-func (a *App) requireFolderConfigRepositoryDecision(w http.ResponseWriter, r *http.Request, action string) (accessGrantResource, bool) {
-	resource, err := a.folderConfigRepositoryResource(r.Context(), r.PathValue("folderID"))
+func (a *App) requireTeamConfigRepositoryDecision(w http.ResponseWriter, r *http.Request, action string) (accessGrantResource, bool) {
+	resource, err := a.teamConfigRepositoryResource(r.Context(), r.PathValue("teamID"))
 	if err != nil {
 		status := http.StatusBadRequest
 		if strings.Contains(err.Error(), "not found") {
@@ -295,31 +295,31 @@ func (a *App) requireFolderConfigRepositoryDecision(w http.ResponseWriter, r *ht
 		http.Error(w, err.Error(), status)
 		return accessGrantResource{}, false
 	}
-	if !a.requireAAADecision(w, r, action, model.ResourceRef{Type: grantResourceFolder, ID: resource.ID}) {
+	if !a.requireAAADecision(w, r, action, model.ResourceRef{Type: grantResourceTeam, ID: resource.ID}) {
 		return accessGrantResource{}, false
 	}
 	return resource, true
 }
 
-func (a *App) folderConfigRepositoryResource(ctx context.Context, raw string) (accessGrantResource, error) {
-	return resolveAccessGrantFolder(ctx, a.db, raw, true)
+func (a *App) teamConfigRepositoryResource(ctx context.Context, raw string) (accessGrantResource, error) {
+	return resolveAccessGrantTeam(ctx, a.db, raw, true)
 }
 
-func (a *App) requireFolderConfigRepositoryOwner(w http.ResponseWriter, r *http.Request, folderID string) bool {
-	allowed, err := a.isFolderConfigRepositoryOwner(r.Context(), r, folderID)
+func (a *App) requireTeamConfigRepositoryOwner(w http.ResponseWriter, r *http.Request, teamID string) bool {
+	allowed, err := a.isTeamConfigRepositoryOwner(r.Context(), r, teamID)
 	if err != nil {
-		log.Error().Err(err).Str("folder_id", folderID).Msg("Failed to check config repository ownership")
+		log.Error().Err(err).Str("team_path", teamID).Msg("Failed to check config repository ownership")
 		http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
 		return false
 	}
 	if !allowed {
-		http.Error(w, "only group owners can sync this config repository", http.StatusForbidden)
+		http.Error(w, "only team owners can sync this config repository", http.StatusForbidden)
 		return false
 	}
 	return true
 }
 
-func (a *App) isFolderConfigRepositoryOwner(ctx context.Context, r *http.Request, folderID string) (bool, error) {
+func (a *App) isTeamConfigRepositoryOwner(ctx context.Context, r *http.Request, teamID string) (bool, error) {
 	if a == nil || a.db == nil {
 		return false, fmt.Errorf("database unavailable")
 	}
@@ -343,13 +343,13 @@ func (a *App) isFolderConfigRepositoryOwner(ctx context.Context, r *http.Request
 	}
 	if introspection != nil {
 		addSubject(model.SubjectTypeUser, introspection.ID)
-		for _, group := range introspection.AuthGroups {
-			addSubject(model.SubjectTypeAuthGroup, group.ID)
+		for _, team := range introspection.AuthTeams {
+			addSubject(model.SubjectTypeAuthTeam, team.ID)
 		}
 	}
 	addSubject(subject.Type, subject.ID)
 
-	resourceIDs := folderOwnerGuardResourceIDs(folderID)
+	resourceIDs := teamOwnerGuardResourceIDs(teamID)
 	if len(resourceIDs) == 0 || len(subjects) == 0 {
 		return false, nil
 	}
@@ -359,7 +359,7 @@ func (a *App) isFolderConfigRepositoryOwner(ctx context.Context, r *http.Request
 		FROM resource_ownership
 		WHERE resource_type = $1
 		  AND resource_id = ANY($2)
-	`, grantResourceFolder, resourceIDs)
+	`, grantResourceTeam, resourceIDs)
 	if err != nil {
 		return false, err
 	}

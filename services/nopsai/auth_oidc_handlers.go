@@ -402,9 +402,9 @@ func (a *App) handleUpsertAdminIdentityProvider(w http.ResponseWriter, r *http.R
 		ClientCredentialRef:   strings.TrimSpace(req.ClientCredentialRef),
 		Scopes:                normalizeOIDCScopes(req.Scopes),
 		AllowedEmailDomains:   normalizeOIDCEmailDomains(req.AllowedEmailDomains),
-		GroupClaim:            strings.TrimSpace(req.GroupClaim),
+		TeamClaim:             strings.TrimSpace(req.TeamClaim),
 		RoleMapping:           normalizeOIDCRoleMapping(req.RoleMapping),
-		GroupMapping:          normalizeOIDCGroupMapping(req.GroupMapping),
+		TeamMapping:           normalizeOIDCTeamMapping(req.TeamMapping),
 		BasicRoleMapping:      normalizeOIDCBasicRoleMapping(req.BasicRoleMapping),
 		EntitlementSync:       entitlementSync,
 		AutoCreateUsers:       req.AutoCreateUsers,
@@ -425,8 +425,8 @@ func (a *App) handleUpsertAdminIdentityProvider(w http.ResponseWriter, r *http.R
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := reconcileOIDCAuthGroupMappings(r.Context(), a.db); err != nil {
-		http.Error(w, "failed to reconcile identity provider group mappings", http.StatusInternalServerError)
+	if err := reconcileOIDCAuthTeamMappings(r.Context(), a.db); err != nil {
+		http.Error(w, "failed to reconcile identity provider team mappings", http.StatusInternalServerError)
 		return
 	}
 	if err := reconcileOIDCBasicRoleMappings(r.Context(), a.db); err != nil {

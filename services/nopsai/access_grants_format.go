@@ -36,7 +36,7 @@ func accessGrantResponseFromRecord(record accessGrantRecord) accessGrantResponse
 		ConfigSourceCommitSHA:     record.ConfigSourceCommitSHA,
 		ManagedByIdentityProvider: record.ManagedByIdentityProvider,
 		IdentityProviderID:        record.IdentityProviderID,
-		ExternalGroupName:         record.ExternalGroupName,
+		ExternalTeamName:          record.ExternalTeamName,
 		Source:                    source,
 		InheritedFromResourceType: record.InheritedFromResourceType,
 		InheritedFromResourceID:   inheritedFromResourceID,
@@ -45,13 +45,13 @@ func accessGrantResponseFromRecord(record accessGrantRecord) accessGrantResponse
 }
 
 func externalGrantResourceID(resourceType, display, internalID string) string {
-	if resourceType == grantResourceFolder && internalID == generalGrantID {
+	if resourceType == grantResourceTeam && internalID == generalGrantID {
 		return rootGrantID
 	}
 	if strings.TrimSpace(display) != "" {
 		return display
 	}
-	if resourceType == grantResourceFolder {
+	if resourceType == grantResourceTeam {
 		return "/" + strings.Trim(strings.TrimSpace(internalID), "/")
 	}
 	if resourceType == grantResourcePlatform {
@@ -73,10 +73,10 @@ func parseAccessGrantID(raw string) (int64, error) {
 func formatSubjectLabel(subjectType, subjectID string) string {
 	subjectID = strings.TrimSpace(subjectID)
 	switch subjectType {
-	case grantSubjectGroup:
-		return "group " + subjectID
-	case model.SubjectTypeAuthGroup:
-		return "group " + subjectID
+	case grantSubjectTeam:
+		return "team " + subjectID
+	case model.SubjectTypeAuthTeam:
+		return "team " + subjectID
 	case model.SubjectTypeRepository:
 		return "repository " + subjectID
 	case model.SubjectTypeTrigger:
@@ -101,10 +101,10 @@ func formatResourceLabel(resourceType, resourceID string) string {
 	if resourceType == grantResourceScope && resourceID == "" {
 		resourceID = "default"
 	}
-	if resourceType == grantResourceFolder && resourceID == generalGrantID {
+	if resourceType == grantResourceTeam && resourceID == generalGrantID {
 		resourceID = rootGrantID
 	}
-	if resourceType == grantResourceFolder && resourceID != "" && resourceID != rootGrantID && !strings.HasPrefix(resourceID, "/") {
+	if resourceType == grantResourceTeam && resourceID != "" && resourceID != rootGrantID && !strings.HasPrefix(resourceID, "/") {
 		resourceID = "/" + strings.Trim(resourceID, "/")
 	}
 	return resourceType + ":" + resourceID

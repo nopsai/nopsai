@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Dispatch, FormEvent, SetStateAction } from 'react';
 import { Plus, Trash2, X } from 'lucide-react';
-import { formatConfigRepoTimestamp } from '../../lib/teamGroups';
+import { formatConfigRepoTimestamp } from '../../lib/teamModels';
 import type {
   TeamAgentProfilePayload,
   TeamAgentProfilesResponse,
@@ -48,7 +48,7 @@ type ConfigRepositoryFormState = {
 };
 
 type NewTeamItemPayload = {
-  kind: 'group' | 'app';
+  kind: 'team' | 'app';
   name: string;
   description: string;
   repoURL: string;
@@ -69,7 +69,7 @@ export function NewTeamItemModal({
   onClose: () => void;
   onSubmit: (payload: NewTeamItemPayload) => Promise<void>;
 }) {
-  const [kind, setKind] = useState<'group' | 'app'>('group');
+  const [kind, setKind] = useState<'team' | 'app'>('team');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [repoURL, setRepoURL] = useState('');
@@ -78,7 +78,7 @@ export function NewTeamItemModal({
   useEffect(() => {
     if (open) {
       const handle = window.setTimeout(() => {
-        setKind('group');
+        setKind('team');
         setName('');
         setDescription('');
         setRepoURL('');
@@ -115,7 +115,7 @@ export function NewTeamItemModal({
         </div>
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           <div className="inline-flex rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-1">
-            {(['group', 'app'] as const).map(option => (
+            {(['team', 'app'] as const).map(option => (
               <button
                 key={option}
                 type="button"
@@ -126,18 +126,18 @@ export function NewTeamItemModal({
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
               >
-                  {option === 'group' ? 'Team' : 'Application'}
+                  {option === 'team' ? 'Team' : 'Application'}
               </button>
             ))}
           </div>
           <div className="space-y-2">
-            <label htmlFor="new-folder-name" className="text-sm font-medium text-[var(--text-primary)]">
+            <label htmlFor="new-team-name" className="text-sm font-medium text-[var(--text-primary)]">
               {kind === 'app' ? 'Application Name' : 'Team Name'}
             </label>
             <input
               ref={nameInputRef}
-              id="new-folder-name"
-              name="new-folder-name"
+              id="new-team-name"
+              name="new-team-name"
               type="text"
               required
               value={name}
@@ -148,12 +148,12 @@ export function NewTeamItemModal({
           </div>
           {kind === 'app' ? (
             <div className="space-y-2">
-              <label htmlFor="new-folder-repo-url" className="text-sm font-medium text-[var(--text-primary)]">
+              <label htmlFor="new-team-repo-url" className="text-sm font-medium text-[var(--text-primary)]">
                 Repository URL
               </label>
               <input
-                id="new-folder-repo-url"
-                name="new-folder-repo-url"
+                id="new-team-repo-url"
+                name="new-team-repo-url"
                 type="text"
                 required
                 value={repoURL}
@@ -164,12 +164,12 @@ export function NewTeamItemModal({
             </div>
           ) : (
             <div className="space-y-2">
-              <label htmlFor="new-folder-description" className="text-sm font-medium text-[var(--text-primary)]">
+              <label htmlFor="new-team-description" className="text-sm font-medium text-[var(--text-primary)]">
                 Description <span className="text-[var(--text-secondary)]">(optional)</span>
               </label>
               <textarea
-                id="new-folder-description"
-                name="new-folder-description"
+                id="new-team-description"
+                name="new-team-description"
                 value={description}
                 onChange={event => setDescription(event.target.value)}
                 rows={3}
@@ -194,7 +194,7 @@ export function NewTeamItemModal({
 }
 
 export function TeamConfigRepositoryModal({
-  folderLabel,
+  teamLabel,
   repo,
   form,
   loading,
@@ -234,7 +234,7 @@ export function TeamConfigRepositoryModal({
   onDeleteMCPProfile,
   onClose,
 }: {
-  folderLabel: string;
+  teamLabel: string;
   repo: ConfigRepository | null;
   form: ConfigRepositoryFormState;
   loading: boolean;
@@ -312,7 +312,7 @@ export function TeamConfigRepositoryModal({
           <div>
             <p className="text-xs uppercase tracking-wide text-[var(--text-secondary)] font-semibold">Team Settings</p>
             <h3 id="team-settings-modal-title" className="text-lg font-semibold text-[var(--text-primary)]">Config, Notifications & AI</h3>
-            <p className="text-xs text-[var(--text-secondary)] break-all">{folderLabel}</p>
+            <p className="text-xs text-[var(--text-secondary)] break-all">{teamLabel}</p>
           </div>
           <div className="flex items-center gap-2">
             {!canManage && !canManageProfiles && <span className="runner-pill runner-pill--muted">Read-only</span>}
@@ -395,10 +395,10 @@ export function TeamConfigRepositoryModal({
 
               <div className={`${sectionClass} space-y-4`}>
                 <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(220px,260px)] gap-4 items-end">
-                  <label htmlFor="folder-config-repo-url" className={`${fieldClass} lg:col-span-2`}>
+                  <label htmlFor="team-config-repo-url" className={`${fieldClass} lg:col-span-2`}>
                     <span>Repository URL</span>
                     <input
-                      id="folder-config-repo-url"
+                      id="team-config-repo-url"
                       type="url"
                       required={canManage}
                       value={form.repo_url}
@@ -409,10 +409,10 @@ export function TeamConfigRepositoryModal({
                     />
                   </label>
 
-                  <label htmlFor="folder-config-repo-branch" className={fieldClass}>
+                  <label htmlFor="team-config-repo-branch" className={fieldClass}>
                     <span>Branch</span>
                     <input
-                      id="folder-config-repo-branch"
+                      id="team-config-repo-branch"
                       value={form.branch}
                       onChange={event => onChange(prev => ({ ...prev, branch: event.target.value }))}
                       disabled={!canEdit}
@@ -420,10 +420,10 @@ export function TeamConfigRepositoryModal({
                       placeholder="main"
                     />
                   </label>
-                  <label htmlFor="folder-config-repo-base-path" className={fieldClass}>
+                  <label htmlFor="team-config-repo-base-path" className={fieldClass}>
                     <span>Base path</span>
                     <input
-                      id="folder-config-repo-base-path"
+                      id="team-config-repo-base-path"
                       value={form.base_path}
                       onChange={event => onChange(prev => ({ ...prev, base_path: event.target.value }))}
                       disabled={!canEdit}
@@ -448,7 +448,7 @@ export function TeamConfigRepositoryModal({
                   <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,220px)_1fr] gap-4 items-end">
                     <label className={toggleClass}>
                       <input
-                        id="folder-config-repo-write-enabled"
+                        id="team-config-repo-write-enabled"
                         type="checkbox"
                         className={checkboxClass}
                         checked={form.write_enabled}
@@ -457,10 +457,10 @@ export function TeamConfigRepositoryModal({
                       />
                       Enable Git push
                     </label>
-                    <label htmlFor="folder-config-repo-write-branch" className={fieldClass}>
+                    <label htmlFor="team-config-repo-write-branch" className={fieldClass}>
                       <span>Push branch</span>
                       <input
-                        id="folder-config-repo-write-branch"
+                        id="team-config-repo-write-branch"
                         value={form.write_branch}
                         onChange={event => onChange(prev => ({ ...prev, write_branch: event.target.value }))}
                         disabled={!canEdit || !form.write_enabled}
@@ -615,8 +615,8 @@ export function TeamConfigRepositoryModal({
                             <input
                               type="checkbox"
                               className={checkboxClass}
-                              checked={notificationForm.includeSameGroup}
-                              onChange={event => onNotificationChange(prev => ({ ...prev, includeSameGroup: event.target.checked }))}
+                              checked={notificationForm.includeSameTeam}
+                              onChange={event => onNotificationChange(prev => ({ ...prev, includeSameTeam: event.target.checked }))}
                               disabled={!notificationCanEdit}
                             />
                             Same team
@@ -632,12 +632,12 @@ export function TeamConfigRepositoryModal({
                               placeholder="release@example.com"
                             />
                           </label>
-                          <label htmlFor="notification-include-groups" className={fieldClass}>
-                            <span>Teams / groups</span>
+                          <label htmlFor="notification-include-teams" className={fieldClass}>
+                            <span>Teams</span>
                             <textarea
-                              id="notification-include-groups"
-                              value={notificationForm.includeGroups}
-                              onChange={event => onNotificationChange(prev => ({ ...prev, includeGroups: event.target.value }))}
+                              id="notification-include-teams"
+                              value={notificationForm.includeTeams}
+                              onChange={event => onNotificationChange(prev => ({ ...prev, includeTeams: event.target.value }))}
                               disabled={!notificationCanEdit}
                               className={textareaClass}
                               placeholder="team-1/platform"
@@ -660,12 +660,12 @@ export function TeamConfigRepositoryModal({
                               placeholder="quiet@example.com"
                             />
                           </label>
-                          <label htmlFor="notification-exclude-groups" className={fieldClass}>
-                            <span>Excluded teams / groups</span>
+                          <label htmlFor="notification-exclude-teams" className={fieldClass}>
+                            <span>Excluded teams</span>
                             <textarea
-                              id="notification-exclude-groups"
-                              value={notificationForm.excludeGroups}
-                              onChange={event => onNotificationChange(prev => ({ ...prev, excludeGroups: event.target.value }))}
+                              id="notification-exclude-teams"
+                              value={notificationForm.excludeTeams}
+                              onChange={event => onNotificationChange(prev => ({ ...prev, excludeTeams: event.target.value }))}
                               disabled={!notificationCanEdit}
                               className={textareaClass}
                               placeholder="team-1/noisy-workloads"

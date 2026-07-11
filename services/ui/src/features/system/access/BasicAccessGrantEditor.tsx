@@ -81,7 +81,7 @@ export function BasicAccessGrantEditor({
           </select>
         </label>
         <label className="access-minimal-label">
-          <span>Group target</span>
+          <span>Team target</span>
           <select
             className="pipelines-input"
             value={adminSelected ? 'platform' : draft.scope}
@@ -121,7 +121,7 @@ export function BasicAccessGrantEditor({
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className={`access-chip ${toneClassForRole(grant.role)}`}>{grant.role}</span>
                   <span className="access-chip access-chip--muted">{accessGrantResourceSummary(grant)}</span>
-                  {grant.inherit && grant.resourceType === 'folder' && !isRootAccessScopeID(grant.resourceID) && (
+                  {grant.inherit && grant.resourceType === 'team' && !isRootAccessScopeID(grant.resourceID) && (
                     <span className="access-chip access-chip--muted">Includes children</span>
                   )}
                 </div>

@@ -2,6 +2,7 @@ package nopsai
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -22,8 +23,8 @@ func hostedMCPFinalTools() []hostedMCPTool {
 	monitoringSchema := objectSchema(map[string]any{
 		"from":                   stringSchema(),
 		"to":                     stringSchema(),
-		"groupId":                stringSchema(),
-		"group_id":               stringSchema(),
+		"teamId":                 stringSchema(),
+		"team_id":                stringSchema(),
 		"pipelinePath":           stringSchema(),
 		"pipeline_path":          stringSchema(),
 		"pipelineName":           stringSchema(),
@@ -73,9 +74,9 @@ func hostedMCPFinalTools() []hostedMCPTool {
 		toolDef("nopsai.tail_system_logs", "Read a bounded, server-redacted tail of one allow-listed platform log source.", "system_log.read", "system_log", "*", objectSchema(map[string]any{"source_id": stringSchema(), "lines": numberSchema()})),
 		toolDef("nopsai.get_setup_status", "Read first-install setup status, starter profile state, counts, and health checks.", "system.read", "system", "config", objectSchema(map[string]any{})),
 		toolDef("nopsai.get_setup_preflight", "Run public first-install setup preflight checks.", "system.read", "system", "config", objectSchema(map[string]any{})),
-		toolDef("nopsai.get_setup_templates", "Generate starter GitOps setup templates for a setup profile.", "system.read", "system", "config", objectSchema(map[string]any{"profile": stringSchema(), "repositories": objectSchema(map[string]any{}), "repository_groups": objectSchema(map[string]any{}), "include_llm": booleanSchema(), "include_mcp": booleanSchema(), "llm_profile": objectSchema(map[string]any{}), "users": objectSchema(map[string]any{})})),
-		toolDef("nopsai.plan_first_install_setup", "Return a guided first-install setup plan and GitOps starter template bundle without applying changes.", "system.read", "system", "config", objectSchema(map[string]any{"profile": stringSchema(), "repositories": objectSchema(map[string]any{}), "repository_groups": objectSchema(map[string]any{}), "include_llm": booleanSchema(), "include_mcp": booleanSchema(), "llm_profile": objectSchema(map[string]any{}), "users": objectSchema(map[string]any{})})),
-		toolDef("nopsai.bootstrap_first_install_setup", "Run first-install bootstrap as the current subject. High-impact operation requiring confirm:true.", "system.update", "system", "config", objectSchema(map[string]any{"profile": stringSchema(), "generate_secrets": booleanSchema(), "seed_starter_database": booleanSchema(), "seed_llm_profile": booleanSchema(), "mcp_examples": booleanSchema(), "production_acknowledged": booleanSchema(), "sync_config_repository": booleanSchema(), "config_repository": objectSchema(map[string]any{}), "repository_groups": objectSchema(map[string]any{}), "repositories": objectSchema(map[string]any{}), "llm_profile": objectSchema(map[string]any{}), "users": objectSchema(map[string]any{}), "confirm": booleanSchema()})),
+		toolDef("nopsai.get_setup_templates", "Generate starter GitOps setup templates for a setup profile.", "system.read", "system", "config", objectSchema(map[string]any{"profile": stringSchema(), "repositories": objectSchema(map[string]any{}), "repository_teams": objectSchema(map[string]any{}), "include_llm": booleanSchema(), "include_mcp": booleanSchema(), "llm_profile": objectSchema(map[string]any{}), "users": objectSchema(map[string]any{})})),
+		toolDef("nopsai.plan_first_install_setup", "Return a guided first-install setup plan and GitOps starter template bundle without applying changes.", "system.read", "system", "config", objectSchema(map[string]any{"profile": stringSchema(), "repositories": objectSchema(map[string]any{}), "repository_teams": objectSchema(map[string]any{}), "include_llm": booleanSchema(), "include_mcp": booleanSchema(), "llm_profile": objectSchema(map[string]any{}), "users": objectSchema(map[string]any{})})),
+		toolDef("nopsai.bootstrap_first_install_setup", "Run first-install bootstrap as the current subject. High-impact operation requiring confirm:true.", "system.update", "system", "config", objectSchema(map[string]any{"profile": stringSchema(), "generate_secrets": booleanSchema(), "seed_starter_database": booleanSchema(), "seed_llm_profile": booleanSchema(), "mcp_examples": booleanSchema(), "production_acknowledged": booleanSchema(), "sync_config_repository": booleanSchema(), "config_repository": objectSchema(map[string]any{}), "repository_teams": objectSchema(map[string]any{}), "repositories": objectSchema(map[string]any{}), "llm_profile": objectSchema(map[string]any{}), "users": objectSchema(map[string]any{}), "confirm": booleanSchema()})),
 
 		toolDef("nopsai.propose_reusable_step_create", "Validate reusable step YAML and return a GitOps-ready create file plan without applying changes.", "step.create", "step", "*", objectSchema(map[string]any{"step": stringSchema(), "path": stringSchema(), "name": stringSchema(), "yaml": stringSchema(), "definition": stringSchema(), "message": stringSchema()})),
 		toolDef("nopsai.propose_reusable_step_update", "Validate reusable step YAML and return a GitOps-ready update file plan without applying changes.", "step.update", "step", "*", objectSchema(map[string]any{"step": stringSchema(), "path": stringSchema(), "name": stringSchema(), "yaml": stringSchema(), "definition": stringSchema(), "message": stringSchema()})),
@@ -228,7 +229,7 @@ func (a *App) executeHostedMCPFinalTool(ctx context.Context, subject aaamodel.Su
 		result, err := hostedMCPPlanFirstInstallSetup(args)
 		return result, true, err
 	case "nopsai.bootstrap_first_install_setup":
-		return a.hostedMCPFinalAPITool(ctx, subject, http.MethodPost, "/v1/setup/bootstrap", hostedMCPBodyWithout(args, "confirm"), boolArg(args, "confirm", false), false, true, "First-install bootstrap can create users, credentials, repositories, groups, example resources, and local secrets."), true, nil
+		return a.hostedMCPFinalAPITool(ctx, subject, http.MethodPost, "/v1/setup/bootstrap", hostedMCPBootstrapSetupBody(args), boolArg(args, "confirm", false), false, true, "First-install bootstrap can create users, credentials, repositories, teams, example resources, and local secrets."), true, nil
 	case "nopsai.propose_reusable_step_create":
 		result, err := hostedMCPProposeReusableStep(args, "create")
 		return result, true, err
@@ -411,33 +412,83 @@ func hostedMCPSetupTemplatesPath(args map[string]any) string {
 	if boolArg(args, "include_mcp", false) {
 		query["include_mcp"] = "true"
 	}
-	return hostedMCPPathWithQuery("/v1/setup/templates", mergeStringQuery(args, query), map[string]string{})
+	return hostedMCPPathWithQuery("/v1/setup/templates", mergeStringQuery(hostedMCPSetupTemplatesQueryArgs(args), query), map[string]string{})
+}
+
+func hostedMCPSetupTemplatesQueryArgs(args map[string]any) map[string]any {
+	queryArgs := hostedMCPBodyWithout(args, "repository_teams", "users", "llm_profile")
+	repositories := hostedMCPStringSliceArg(args, "repositories")
+
+	var teams []setupRepositoryTeamInput
+	if err := hostedMCPDecodeObject(args["repository_teams"], &teams); err == nil {
+		teams = normalizeSetupRepositoryTeams(teams, repositories)
+		if len(teams) > 0 {
+			values := make([]string, 0, len(teams))
+			for _, team := range teams {
+				values = append(values, team.Name+":"+strings.Join(team.Repositories, ","))
+			}
+			queryArgs["repository_team"] = values
+		}
+	}
+
+	var users []setupUserInput
+	if err := hostedMCPDecodeObject(args["users"], &users); err == nil {
+		users = normalizeSetupUsers(users)
+		if len(users) > 0 {
+			values := make([]string, 0, len(users))
+			for _, user := range users {
+				if payload, err := json.Marshal(user); err == nil {
+					values = append(values, string(payload))
+				}
+			}
+			queryArgs["setup_user"] = values
+		}
+	}
+
+	var llm setupLLMProfileInput
+	if err := hostedMCPDecodeObject(args["llm_profile"], &llm); err == nil {
+		if strings.TrimSpace(llm.Provider) != "" {
+			queryArgs["llm_provider"] = llm.Provider
+		}
+		if strings.TrimSpace(llm.Model) != "" {
+			queryArgs["llm_model"] = llm.Model
+		}
+		if strings.TrimSpace(llm.BaseURL) != "" {
+			queryArgs["llm_base_url"] = llm.BaseURL
+		}
+		if strings.TrimSpace(llm.CredentialRef) != "" {
+			queryArgs["llm_credential_ref"] = llm.CredentialRef
+		}
+	}
+
+	return queryArgs
 }
 
 func hostedMCPPlanFirstInstallSetup(args map[string]any) (map[string]any, error) {
 	profile := normalizeSetupProfile(stringArg(args, "profile"))
 	repositories := normalizeSetupRepositories(hostedMCPStringSliceArg(args, "repositories"))
-	var groups []setupRepositoryGroupInput
-	if err := hostedMCPDecodeObject(args["repository_groups"], &groups); err != nil {
+	var teams []setupRepositoryTeamInput
+	if err := hostedMCPDecodeObject(args["repository_teams"], &teams); err != nil {
 		return nil, err
 	}
-	groups = normalizeSetupRepositoryGroups(groups, repositories)
-	repositories = setupRepositoriesFromGroups(groups)
+	teams = normalizeSetupRepositoryTeams(teams, repositories)
+	repositories = setupRepositoriesFromTeams(teams)
 
 	var users []setupUserInput
 	if err := hostedMCPDecodeObject(args["users"], &users); err != nil {
 		return nil, err
 	}
+	users = normalizeSetupUsers(users)
 	var llm setupLLMProfileInput
 	if err := hostedMCPDecodeObject(args["llm_profile"], &llm); err != nil {
 		return nil, err
 	}
 	options := setupTemplateOptions{
-		RepositoryGroups: groups,
-		Users:            users,
-		IncludeLLM:       boolArg(args, "include_llm", true),
-		IncludeMCP:       boolArg(args, "include_mcp", profile != setupProfileProduction && profile != setupProfileEmpty),
-		LLMProfile:       llm,
+		RepositoryTeams: teams,
+		Users:           users,
+		IncludeLLM:      boolArg(args, "include_llm", true),
+		IncludeMCP:      boolArg(args, "include_mcp", profile != setupProfileProduction && profile != setupProfileEmpty),
+		LLMProfile:      llm,
 	}
 	files := setupStarterTemplatesWithOptions(profile, repositories, options)
 	paths := make([]string, 0, len(files))
@@ -715,7 +766,7 @@ func hostedMCPMonitoringAnalyticsBasePath(toolName string) string {
 
 func hostedMCPMonitoringAnalyticsAliases() map[string]string {
 	return map[string]string{
-		"group_id":               "groupId",
+		"team_id":                "teamId",
 		"pipeline_path":          "pipelinePath",
 		"pipeline_name":          "pipelineName",
 		"run_id":                 "runId",
@@ -1024,6 +1075,10 @@ func hostedMCPBodyWithout(args map[string]any, keys ...string) map[string]any {
 		out[key] = value
 	}
 	return out
+}
+
+func hostedMCPBootstrapSetupBody(args map[string]any) map[string]any {
+	return hostedMCPBodyWithout(args, "confirm")
 }
 
 func mergeStringQuery(args map[string]any, values map[string]string) map[string]any {

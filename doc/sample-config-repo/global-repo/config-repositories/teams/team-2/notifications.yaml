@@ -5,7 +5,7 @@ routes:
     recipients:
       include:
         teams:
-          - same_group
+          - same_team
         users:
           - platform-release@example.com
       exclude:
@@ -46,7 +46,7 @@ routes:
     enabled: true
     recipients:
       include:
-        groups:
+        teams:
           - team-2/release-approvers
       exclude:
         users:

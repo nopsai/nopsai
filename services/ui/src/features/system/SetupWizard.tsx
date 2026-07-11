@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Bot,
-  FolderTree,
   GitBranch,
   KeyRound,
   PlayCircle,
@@ -24,15 +23,15 @@ import {
   buildSetupGitOpsStructurePreview,
   defaultCredentialRef,
   deriveGitBotBaseURL,
-  initialRepositoryGroups,
+  initialRepositoryTeams,
   isLikelyPublicURL,
   makeID,
-  normalizeGroupName,
+  normalizeTeamName,
   parseRepositories,
   runtimeDefaults,
   statusClasses,
   type BootstrapResponse,
-  type RepositoryGroupDraft,
+  type RepositoryTeamDraft,
   type RuntimeEnvSection,
   type RuntimeImplementation,
   type SetupStatus,
@@ -54,7 +53,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
   const [basePath, setBasePath] = useState('');
   const [syncConfigRepository, setSyncConfigRepository] = useState(false);
   const [repositoryEnabled, setRepositoryEnabled] = useState(true);
-  const [repositoryGroups, setRepositoryGroups] = useState<RepositoryGroupDraft[]>(() => initialRepositoryGroups());
+  const [repositoryTeams, setRepositoryTeams] = useState<RepositoryTeamDraft[]>(() => initialRepositoryTeams());
   const [aiEnabled, setAIEnabled] = useState(true);
   const [llmProvider, setLLMProvider] = useState('lmstudio');
   const [llmModel, setLLMModel] = useState('qwen3-coder');
@@ -72,24 +71,24 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
   const [wizardStepIndex, setWizardStepIndex] = useState(0);
 
   const currentWizardStep = WIZARD_STEPS[Math.min(wizardStepIndex, WIZARD_STEPS.length - 1)];
-  const normalizedRepositoryGroups = useMemo(
+  const normalizedRepositoryTeams = useMemo(
     () =>
       repositoryEnabled
-        ? repositoryGroups
-            .map(group => ({
-              name: normalizeGroupName(group.name),
-              repositories: parseRepositories(group.repositoriesText),
+        ? repositoryTeams
+            .map(team => ({
+              name: normalizeTeamName(team.name),
+              repositories: parseRepositories(team.repositoriesText),
             }))
-            .filter(group => group.name)
+            .filter(team => team.name)
         : [],
-    [repositoryEnabled, repositoryGroups]
+    [repositoryEnabled, repositoryTeams]
   );
   const repositories = useMemo(
-    () => Array.from(new Set(normalizedRepositoryGroups.flatMap(group => group.repositories))).sort(),
-    [normalizedRepositoryGroups]
+    () => Array.from(new Set(normalizedRepositoryTeams.flatMap(team => team.repositories))).sort(),
+    [normalizedRepositoryTeams]
   );
-  const groupOptions = useMemo(() => normalizedRepositoryGroups.map(group => group.name), [normalizedRepositoryGroups]);
-  const userGroupOptions = useMemo(() => (groupOptions.length > 0 ? groupOptions : ['']), [groupOptions]);
+  const teamOptions = useMemo(() => normalizedRepositoryTeams.map(team => team.name), [normalizedRepositoryTeams]);
+  const userTeamOptions = useMemo(() => (teamOptions.length > 0 ? teamOptions : ['']), [teamOptions]);
   const templatePaths = useMemo(() => (templates ? Object.keys(templates.files).sort() : []), [templates]);
   const selectedTemplate = selectedTemplatePath && templates ? templates.files[selectedTemplatePath] : '';
   const requiredHealthErrors = (status?.checks || []).filter(check => check.blocking && check.status === 'error');
@@ -148,22 +147,22 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
     }
   }, [status?.completed]);
 
-  const addRepositoryGroup = () => {
-    if (repositoryGroups.length >= 2) return;
-    const next = { id: makeID('group'), name: 'services', repositoriesText: '' };
-    setRepositoryGroups(current => [...current, next]);
+  const addRepositoryTeam = () => {
+    if (repositoryTeams.length >= 2) return;
+    const next = { id: makeID('team'), name: 'services', repositoriesText: '' };
+    setRepositoryTeams(current => [...current, next]);
   };
 
-  const updateRepositoryGroup = (id: string, updates: Partial<RepositoryGroupDraft>) => {
+  const updateRepositoryTeam = (id: string, updates: Partial<RepositoryTeamDraft>) => {
     setRepositoryEnabled(true);
-    setRepositoryGroups(current => current.map(group => (group.id === id ? { ...group, ...updates } : group)));
+    setRepositoryTeams(current => current.map(team => (team.id === id ? { ...team, ...updates } : team)));
     setTemplates(null);
   };
 
-  const removeRepositoryGroup = (id: string) => {
-    setRepositoryGroups(current => {
-      const next = current.filter(group => group.id !== id);
-      return next.length > 0 ? next : initialRepositoryGroups().slice(0, 1);
+  const removeRepositoryTeam = (id: string) => {
+    setRepositoryTeams(current => {
+      const next = current.filter(team => team.id !== id);
+      return next.length > 0 ? next : initialRepositoryTeams().slice(0, 1);
     });
     setTemplates(null);
   };
@@ -177,7 +176,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
         email: '',
         password: '',
         role: 'developer',
-        group: groupOptions[0] || '',
+        team: teamOptions[0] || '',
       },
     ]);
   };
@@ -194,8 +193,8 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
   const buildTemplateParams = useCallback(() => {
     const params = new URLSearchParams({ profile: 'team' });
     if (repositories.length > 0) params.set('repositories', repositories.join(','));
-    normalizedRepositoryGroups.forEach(group => {
-      params.append('repository_group', `${group.name}:${group.repositories.join(',')}`);
+    normalizedRepositoryTeams.forEach(team => {
+      params.append('repository_team', `${team.name}:${team.repositories.join(',')}`);
     });
     if (usersEnabled) {
       users
@@ -203,7 +202,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
           sub: user.email.trim(),
           email: user.email.trim(),
           role: user.role,
-          group: user.group,
+          team: user.team,
         }))
         .filter(user => user.sub)
         .forEach(user => params.append('setup_user', JSON.stringify(user)));
@@ -217,7 +216,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
       if (llmProviderDefinition.baseURLMode !== 'hidden' && llmBaseURL.trim()) params.set('llm_base_url', llmBaseURL.trim());
     }
     return params;
-  }, [aiEnabled, llmBaseURL, llmModel, llmProvider, llmProviderDefinition.apiKeyMode, llmProviderDefinition.baseURLMode, llmReference, mcpExamples, normalizedRepositoryGroups, repositories, users, usersEnabled]);
+  }, [aiEnabled, llmBaseURL, llmModel, llmProvider, llmProviderDefinition.apiKeyMode, llmProviderDefinition.baseURLMode, llmReference, mcpExamples, normalizedRepositoryTeams, repositories, users, usersEnabled]);
 
   const loadTemplates = useCallback(async () => {
     setTemplateLoading(true);
@@ -262,11 +261,11 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
         ? users
             .map(user => ({
               sub: user.email.trim(),
-              email: user.email.trim(),
-              role: user.role,
-              password: user.password,
-              group: user.group,
-            }))
+          email: user.email.trim(),
+          role: user.role,
+          password: user.password,
+          team: user.team,
+        }))
             .filter(user => user.email)
         : [],
     [users, usersEnabled]
@@ -307,17 +306,17 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
   );
 
   const gitOpsStructureSnippet = useMemo(
-    () => buildSetupGitOpsStructurePreview(normalizedRepositoryGroups),
-    [normalizedRepositoryGroups]
+    () => buildSetupGitOpsStructurePreview(normalizedRepositoryTeams),
+    [normalizedRepositoryTeams]
   );
 
   const gitOpsFiles = useMemo(
     () =>
-      buildSetupGitOpsFileList(normalizedRepositoryGroups, repositories, {
+      buildSetupGitOpsFileList(normalizedRepositoryTeams, repositories, {
         includeLLM: aiEnabled,
         includeMCP: aiEnabled && mcpExamples,
       }),
-    [aiEnabled, mcpExamples, normalizedRepositoryGroups, repositories]
+    [aiEnabled, mcpExamples, normalizedRepositoryTeams, repositories]
   );
 
   const canContinueWizard = (() => {
@@ -372,7 +371,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
           base_path: basePath.trim(),
           enabled: true,
         },
-        repository_groups: normalizedRepositoryGroups,
+        repository_teams: normalizedRepositoryTeams,
         repositories,
         llm_profile: {
           name: 'standard',
@@ -407,7 +406,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
     llmProviderDefinition.baseURLMode,
     llmReference,
     mcpExamples,
-    normalizedRepositoryGroups,
+    normalizedRepositoryTeams,
     repositories,
     repoURL,
     saving,
@@ -486,7 +485,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
         return (
           <div className="space-y-4">
             <StepIntro title="Connect a GitOps source of truth" icon={<GitBranch className="h-4 w-4" />}>
-              The global config repository stores reviewable workspace definitions: folders, starter pipeline, reusable step, repository triggers, scopes, access grants, knowledge docs, LLM profile, and MCP examples. You can skip this for a quick introduction and connect GitOps later.
+              The global config repository stores reviewable workspace definitions: teams, starter pipeline, reusable step, repository triggers, scopes, access grants, knowledge docs, LLM profile, and MCP examples. You can skip this for a quick introduction and connect GitOps later.
             </StepIntro>
             <div className="grid gap-3 lg:grid-cols-3">
               <label className="space-y-1 text-sm">
@@ -511,36 +510,36 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
       case 'repositories':
         return (
           <div className="space-y-4">
-            <StepIntro title="Create one or two repository groups" icon={<FolderTree className="h-4 w-4" />}>
-              This is an introduction, not a full migration. Create one or two folder groups and add app repositories as GitHub `owner/repo` names, for example `acme/service-api`. NopsAI uses the repository URL identity for starter triggers, pipeline-run navigation, and user access assignments.
+            <StepIntro title="Create one or two repository teams" icon={<Users className="h-4 w-4" />}>
+              This is an introduction, not a full migration. Create one or two teams and add app repositories as GitHub `owner/repo` names, for example `acme/service-api`. NopsAI uses the repository URL identity for starter triggers, pipeline-run navigation, and user access assignments.
             </StepIntro>
             <label className="flex items-center gap-2 rounded-md border border-[var(--border-primary)] p-3 text-sm">
               <input type="checkbox" checked={repositoryEnabled} onChange={event => setRepositoryEnabled(event.target.checked)} disabled={!canManage} />
-              Create starter repository groups
+              Create starter repository teams
             </label>
             <div className="grid gap-3 lg:grid-cols-2">
-              {repositoryGroups.map(group => (
-                <div key={group.id} className="rounded-lg border border-[var(--border-primary)] p-3">
+              {repositoryTeams.map(team => (
+                <div key={team.id} className="rounded-lg border border-[var(--border-primary)] p-3">
                   <div className="mb-3 flex items-center justify-between gap-2">
                     <label className="min-w-0 flex-1 space-y-1">
-                      <span className="text-xs text-[var(--text-secondary)]">Group folder name</span>
-                      <input className="w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm" value={group.name} onChange={event => updateRepositoryGroup(group.id, { name: event.target.value })} disabled={!canManage || !repositoryEnabled} />
+                      <span className="text-xs text-[var(--text-secondary)]">Team name</span>
+                      <input className="w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm" value={team.name} onChange={event => updateRepositoryTeam(team.id, { name: event.target.value })} disabled={!canManage || !repositoryEnabled} />
                     </label>
-                    <button className="rounded-md border border-[var(--border-primary)] p-2 disabled:opacity-50" onClick={() => removeRepositoryGroup(group.id)} disabled={!canManage || repositoryGroups.length <= 1} title="Remove group">
+                    <button className="rounded-md border border-[var(--border-primary)] p-2 disabled:opacity-50" onClick={() => removeRepositoryTeam(team.id)} disabled={!canManage || repositoryTeams.length <= 1} title="Remove team">
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
                   <label className="space-y-1">
                     <span className="text-xs text-[var(--text-secondary)]">Repositories, one GitHub `owner/repo` per line</span>
-                    <textarea className="min-h-32 w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 font-mono text-xs" value={group.repositoriesText} onChange={event => updateRepositoryGroup(group.id, { repositoriesText: event.target.value })} placeholder="acme/service-api&#10;acme/web-app" disabled={!canManage || !repositoryEnabled} />
+                    <textarea className="min-h-32 w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 font-mono text-xs" value={team.repositoriesText} onChange={event => updateRepositoryTeam(team.id, { repositoriesText: event.target.value })} placeholder="acme/service-api&#10;acme/web-app" disabled={!canManage || !repositoryEnabled} />
                     <span className="block text-[11px] leading-5 text-[var(--text-secondary)]">HTTPS and SSH GitHub URLs are accepted; generated structure stores apps with a repository URL.</span>
                   </label>
                 </div>
               ))}
             </div>
-            <button className="inline-flex items-center gap-2 rounded-md border border-[var(--border-primary)] px-3 py-2 text-sm disabled:opacity-50" onClick={addRepositoryGroup} disabled={!canManage || repositoryGroups.length >= 2}>
+            <button className="inline-flex items-center gap-2 rounded-md border border-[var(--border-primary)] px-3 py-2 text-sm disabled:opacity-50" onClick={addRepositoryTeam} disabled={!canManage || repositoryTeams.length >= 2}>
               <Plus className="h-4 w-4" />
-              Add group
+              Add team
             </button>
           </div>
         );
@@ -603,8 +602,8 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
       case 'users':
         return (
           <div className="space-y-4">
-            <StepIntro title="Create starter users and assign group roles" icon={<Users className="h-4 w-4" />}>
-              Add a small set of users for the groups above. Each user gets a product role on the selected group. Passwords are temporary and users must change them on first login; leave a password blank when you want NopsAI to generate one.
+            <StepIntro title="Create starter users and assign team roles" icon={<Users className="h-4 w-4" />}>
+              Add a small set of users for the teams above. Each user gets a product role on the selected team. Passwords are temporary and users must change them on first login; leave a password blank when you want NopsAI to generate one.
             </StepIntro>
             <label className="flex items-center gap-2 rounded-md border border-[var(--border-primary)] p-3 text-sm">
               <input type="checkbox" checked={usersEnabled} onChange={event => setUsersEnabled(event.target.checked)} disabled={!canManage} />
@@ -620,8 +619,8 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
                     <option value="developer">Developer</option>
                     <option value="viewer">Viewer</option>
                   </select>
-                  <select className="rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm" value={user.group} onChange={event => updateUser(user.id, { group: event.target.value })} disabled={!canManage || !usersEnabled}>
-                    {userGroupOptions.map(group => <option key={group || 'workspace'} value={group}>{group || 'workspace'}</option>)}
+                  <select className="rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm" value={user.team} onChange={event => updateUser(user.id, { team: event.target.value })} disabled={!canManage || !usersEnabled}>
+                    {userTeamOptions.map(team => <option key={team || 'workspace'} value={team}>{team || 'workspace'}</option>)}
                   </select>
                   <button className="rounded-md border border-[var(--border-primary)] p-2 disabled:opacity-50" onClick={() => removeUser(user.id)} disabled={!canManage} title="Remove user">
                     <Trash2 className="h-4 w-4" />
@@ -639,7 +638,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
         return (
           <SetupReviewOutput
             aiEnabled={aiEnabled}
-            normalizedRepositoryGroups={normalizedRepositoryGroups}
+            normalizedRepositoryTeams={normalizedRepositoryTeams}
             repositories={repositories}
             userCount={userPayload.length}
             runtimeEnvSections={runtimeEnvSections}
@@ -714,7 +713,7 @@ function SetupWizard({ canManage }: { canManage: boolean }) {
         <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
             <div className="text-sm font-semibold">Setup details</div>
-            <div className="mt-1 text-xs text-[var(--text-secondary)]">Review every setup step, generated env group, and GitOps file preview anytime.</div>
+            <div className="mt-1 text-xs text-[var(--text-secondary)]">Review every setup step, generated env block, and GitOps file preview anytime.</div>
           </div>
           <div className="text-sm text-[var(--text-secondary)]">Step {wizardStepIndex + 1} of {WIZARD_STEPS.length}</div>
         </div>

@@ -8,7 +8,7 @@ import {
   defaultCredentialRef,
   deriveGitBotBaseURL,
   isLikelyPublicURL,
-  normalizeGroupName,
+  normalizeTeamName,
   parseRepositories,
   runtimeDefaults,
   secretPlaceholder,
@@ -25,7 +25,7 @@ test('defines setup wizard steps and skip warning copy', () => {
 
 test('normalizes setup repository input', () => {
   assert.deepEqual(parseRepositories('acme/api\nacme/web, acme/api'), ['acme/api', 'acme/web']);
-  assert.equal(normalizeGroupName('/Platform Services/'), 'Platform-Services');
+  assert.equal(normalizeTeamName('/Platform Services/'), 'Platform-Services');
 });
 
 test('derives runtime and GitHub integration defaults', () => {
@@ -57,18 +57,18 @@ test('formats setup status classes and secret placeholders', () => {
   assert.equal(secretPlaceholder(false, '<fallback>'), '<fallback>');
 });
 
-test('builds canonical per-group GitOps structure previews', () => {
+test('builds canonical per-team GitOps structure previews', () => {
   const preview = buildSetupGitOpsStructurePreview([
     { name: 'platform', repositories: ['acme/api'] },
     { name: 'apps', repositories: [] },
   ]);
 
-  assert.match(preview, /# config-repositories\/groups\/platform\/structure\.yaml/);
+  assert.match(preview, /# config-repositories\/teams\/platform\/structure\.yaml/);
   assert.match(preview, /name: api/);
   assert.match(preview, /repo_url: https:\/\/github\.com\/acme\/api/);
-  assert.match(preview, /# config-repositories\/groups\/apps\/structure\.yaml/);
+  assert.match(preview, /# config-repositories\/teams\/apps\/structure\.yaml/);
   assert.match(preview, /apps: \[\]/);
-  assert.doesNotMatch(preview, /groups\/structure\.yaml/);
+  assert.doesNotMatch(preview, /teams\/structure\.yaml/);
   assert.equal(buildSetupGitOpsStructurePreview([]), '{}');
 });
 
@@ -82,10 +82,10 @@ test('lists canonical setup GitOps files without legacy aggregate structure', ()
     { includeLLM: true, includeMCP: true }
   );
 
-  assert.ok(files.includes('config-repositories/groups/platform/structure.yaml'));
+  assert.ok(files.includes('config-repositories/teams/platform/structure.yaml'));
   assert.ok(files.includes('setting/system/llm_profile.yaml'));
   assert.ok(files.includes('setting/system/mcp.yaml'));
   assert.ok(files.includes('triggers/acme/api.yaml'));
-  assert.equal(files.filter(file => file === 'config-repositories/groups/platform/structure.yaml').length, 1);
-  assert.ok(!files.includes('config-repositories/groups/structure.yaml'));
+  assert.equal(files.filter(file => file === 'config-repositories/teams/platform/structure.yaml').length, 1);
+  assert.ok(!files.includes('config-repositories/teams/structure.yaml'));
 });

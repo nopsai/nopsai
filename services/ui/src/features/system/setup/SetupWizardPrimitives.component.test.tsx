@@ -21,7 +21,7 @@ test('renders setup wizard primitives and delegates step navigation', async () =
   expect(screen.getByText('Review runtime secrets before saving.')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: /readiness required/i })).toHaveAttribute('aria-current', 'step');
 
-  await user.click(screen.getByRole('button', { name: /groups optional/i }));
+  await user.click(screen.getByRole('button', { name: /teams optional/i }));
 
   expect(onSelectStep).toHaveBeenCalledWith(3);
 });

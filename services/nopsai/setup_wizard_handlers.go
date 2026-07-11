@@ -74,8 +74,9 @@ func (a *App) handleBootstrapSetup(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Profile = normalizeSetupProfile(req.Profile)
 	req.Repositories = normalizeSetupRepositories(req.Repositories)
-	req.RepositoryGroups = normalizeSetupRepositoryGroups(req.RepositoryGroups, req.Repositories)
-	req.Repositories = setupRepositoriesFromGroups(req.RepositoryGroups)
+	req.RepositoryTeams = normalizeSetupRepositoryTeams(req.RepositoryTeams, req.Repositories)
+	req.Repositories = setupRepositoriesFromTeams(req.RepositoryTeams)
+	req.Users = normalizeSetupUsers(req.Users)
 
 	if err := a.validateSetupBootstrapRequest(req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

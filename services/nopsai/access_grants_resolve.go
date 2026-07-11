@@ -27,8 +27,8 @@ func normalizeAccessGrantSubjectType(raw string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case grantSubjectUser:
 		return model.SubjectTypeUser, nil
-	case model.SubjectTypeAuthGroup, "group":
-		return model.SubjectTypeAuthGroup, nil
+	case model.SubjectTypeAuthTeam:
+		return model.SubjectTypeAuthTeam, nil
 	case grantSubjectRepository:
 		return model.SubjectTypeRepository, nil
 	case grantSubjectTrigger:
@@ -38,14 +38,14 @@ func normalizeAccessGrantSubjectType(raw string) (string, error) {
 	case grantSubjectService, model.SubjectTypeInternalService:
 		return model.SubjectTypeInternalService, nil
 	default:
-		return "", fmt.Errorf("subject_type must be user, auth_group, repository, trigger, service_account, or internal_service")
+		return "", fmt.Errorf("subject_type must be user, auth_team, repository, trigger, service_account, or internal_service")
 	}
 }
 
 func normalizeAccessGrantResourceType(raw string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case grantResourceFolder, grantResourceTeam:
-		return grantResourceFolder, nil
+	case grantResourceTeam:
+		return grantResourceTeam, nil
 	case grantResourcePipeline:
 		return grantResourcePipeline, nil
 	case grantResourceRun:
@@ -94,8 +94,8 @@ func resolveAccessGrantSubject(ctx context.Context, runner queryRunner, rawType,
 	switch subjectType {
 	case model.SubjectTypeUser:
 		return resolveAccessGrantUser(ctx, runner, rawID)
-	case model.SubjectTypeAuthGroup:
-		return resolveAccessGrantAuthGroup(ctx, runner, rawID)
+	case model.SubjectTypeAuthTeam:
+		return resolveAccessGrantAuthTeam(ctx, runner, rawID)
 	case model.SubjectTypeRepository, model.SubjectTypeTrigger:
 		return resolveAccessGrantNamedSubject(subjectType, rawID)
 	case model.SubjectTypeServiceAccount:
@@ -186,16 +186,16 @@ func resolveAccessGrantServiceAccount(ctx context.Context, runner queryRunner, r
 	return subject, nil
 }
 
-func resolveAccessGrantAuthGroup(ctx context.Context, runner queryRunner, rawID string) (accessGrantSubject, error) {
-	groupID := strings.TrimSpace(rawID)
-	if groupID == "" {
+func resolveAccessGrantAuthTeam(ctx context.Context, runner queryRunner, rawID string) (accessGrantSubject, error) {
+	teamID := strings.TrimSpace(rawID)
+	if teamID == "" {
 		return accessGrantSubject{}, fmt.Errorf("subject_id is required")
 	}
 
 	var subject accessGrantSubject
 	query := `
 		SELECT id::text, name
-		FROM auth_groups
+		FROM auth_teams
 		WHERE %s
 		LIMIT 1
 	`
@@ -203,12 +203,12 @@ func resolveAccessGrantAuthGroup(ctx context.Context, runner queryRunner, rawID 
 		lookup string
 		args   []any
 	)
-	if _, err := uuid.Parse(groupID); err == nil {
+	if _, err := uuid.Parse(teamID); err == nil {
 		lookup = "id::text = $1"
-		args = []any{groupID}
+		args = []any{teamID}
 	} else {
 		lookup = "name = $1"
-		args = []any{groupID}
+		args = []any{teamID}
 	}
 
 	err := runner.QueryRow(ctx, fmt.Sprintf(query, lookup), args...).Scan(&subject.ID, &subject.Display)
@@ -218,7 +218,7 @@ func resolveAccessGrantAuthGroup(ctx context.Context, runner queryRunner, rawID 
 		}
 		return accessGrantSubject{}, err
 	}
-	subject.Type = model.SubjectTypeAuthGroup
+	subject.Type = model.SubjectTypeAuthTeam
 	return subject, nil
 }
 
@@ -290,8 +290,8 @@ func resolveAccessGrantResource(ctx context.Context, runner queryRunner, rawType
 			ID:      platformGrantID,
 			Display: "platform",
 		}, nil
-	case grantResourceFolder:
-		return resolveAccessGrantFolder(ctx, runner, rawID, requireExists)
+	case grantResourceTeam:
+		return resolveAccessGrantTeam(ctx, runner, rawID, requireExists)
 	case grantResourcePipeline:
 		return resolvePipelineOrStepGrantResource(ctx, runner, grantResourcePipeline, rawID, requireExists, "pipelines")
 	case grantResourceRun:
@@ -391,7 +391,7 @@ func resolveAccessGrantResource(ctx context.Context, runner queryRunner, rawType
 			err := runner.QueryRow(ctx, `
 				SELECT 1
 				FROM (
-					SELECT name AS value FROM groups WHERE name = $1
+					SELECT name AS value FROM teams WHERE name = $1
 					UNION
 					SELECT repository_name AS value FROM triggers WHERE repository_name = $1
 					UNION
@@ -424,7 +424,7 @@ func resolveAccessGrantResource(ctx context.Context, runner queryRunner, rawType
 			return accessGrantResource{}, fmt.Errorf("resource_id is required")
 		}
 		if requireExists && resourceID != "*" {
-			kind, group, name, err := splitKnowledgeContextIdentifier(resourceID)
+			kind, team, name, err := splitKnowledgeContextIdentifier(resourceID)
 			if err != nil {
 				return accessGrantResource{}, err
 			}
@@ -432,9 +432,9 @@ func resolveAccessGrantResource(ctx context.Context, runner queryRunner, rawType
 			err = runner.QueryRow(ctx, `
 				SELECT 1
 				FROM knowledge_contexts
-				WHERE kind = $1 AND group_path = $2 AND name = $3
+				WHERE kind = $1 AND team_path = $2 AND name = $3
 				LIMIT 1
-			`, kind, group, name).Scan(&exists)
+			`, kind, team, name).Scan(&exists)
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
 					return accessGrantResource{}, fmt.Errorf("resource not found")
@@ -482,11 +482,11 @@ func normalizeScopeGrantResourceID(rawID string) (id, lookup, display string) {
 	}
 }
 
-func resolveAccessGrantFolder(ctx context.Context, runner queryRunner, rawID string, requireExists bool) (accessGrantResource, error) {
+func resolveAccessGrantTeam(ctx context.Context, runner queryRunner, rawID string, requireExists bool) (accessGrantResource, error) {
 	rawID = strings.TrimSpace(rawID)
 	if isRootGrantResourceID(rawID) {
 		return accessGrantResource{
-			Type:    grantResourceFolder,
+			Type:    grantResourceTeam,
 			ID:      generalGrantID,
 			Display: rootGrantID,
 		}, nil
@@ -496,7 +496,7 @@ func resolveAccessGrantFolder(ctx context.Context, runner queryRunner, rawID str
 	}
 
 	if numericID, err := strconv.Atoi(rawID); err == nil {
-		pathRecords, loadErr := loadGroupPathRecords(ctx, runner)
+		pathRecords, loadErr := loadTeamPathRecords(ctx, runner)
 		if loadErr != nil {
 			return accessGrantResource{}, loadErr
 		}
@@ -505,7 +505,7 @@ func resolveAccessGrantFolder(ctx context.Context, runner queryRunner, rawID str
 			return accessGrantResource{}, fmt.Errorf("resource not found")
 		}
 		return accessGrantResource{
-			Type:    grantResourceFolder,
+			Type:    grantResourceTeam,
 			ID:      record.Path,
 			Display: "/" + record.Path,
 		}, nil
@@ -516,14 +516,14 @@ func resolveAccessGrantFolder(ctx context.Context, runner queryRunner, rawID str
 		return accessGrantResource{}, fmt.Errorf("resource_id is required")
 	}
 	if requireExists {
-		pathRecords, err := loadGroupPathRecords(ctx, runner)
+		pathRecords, err := loadTeamPathRecords(ctx, runner)
 		if err != nil {
 			return accessGrantResource{}, err
 		}
 		for _, record := range pathRecords {
 			if record.Path == normalized {
 				return accessGrantResource{
-					Type:    grantResourceFolder,
+					Type:    grantResourceTeam,
 					ID:      normalized,
 					Display: "/" + normalized,
 				}, nil
@@ -533,7 +533,7 @@ func resolveAccessGrantFolder(ctx context.Context, runner queryRunner, rawID str
 	}
 
 	return accessGrantResource{
-		Type:    grantResourceFolder,
+		Type:    grantResourceTeam,
 		ID:      normalized,
 		Display: "/" + normalized,
 	}, nil
@@ -587,17 +587,17 @@ func namedResourceWhereArgs(resourceID string) []any {
 	}
 }
 
-func loadGroupPathRecords(ctx context.Context, runner queryRunner) (map[int]groupPathRecord, error) {
-	rows, err := runner.Query(ctx, `SELECT id, name, COALESCE(kind, 'group'), parent_id, COALESCE(description, ''), COALESCE(repo_url, ''), COALESCE(repository_full_name, '') FROM groups`)
+func loadTeamPathRecords(ctx context.Context, runner queryRunner) (map[int]teamPathRecord, error) {
+	rows, err := runner.Query(ctx, `SELECT id, name, COALESCE(kind, 'team'), parent_id, COALESCE(description, ''), COALESCE(repo_url, ''), COALESCE(repository_full_name, '') FROM teams`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	records := make(map[int]groupPathRecord)
+	records := make(map[int]teamPathRecord)
 	for rows.Next() {
 		var (
-			record      groupPathRecord
+			record      teamPathRecord
 			parentIDSQL sql.NullInt32
 		)
 		if err := rows.Scan(&record.ID, &record.Name, &record.Kind, &parentIDSQL, &record.Description, &record.RepoURL, &record.RepositoryFullName); err != nil {
@@ -624,7 +624,7 @@ func loadGroupPathRecords(ctx context.Context, runner queryRunner) (map[int]grou
 		}
 		record, ok := records[id]
 		if !ok {
-			return "", fmt.Errorf("group %d not found", id)
+			return "", fmt.Errorf("team %d not found", id)
 		}
 		if record.ParentID == nil {
 			cache[id] = record.Name
@@ -649,18 +649,18 @@ func loadGroupPathRecords(ctx context.Context, runner queryRunner) (map[int]grou
 	return records, nil
 }
 
-func (a *App) folderGrantResourceByGroupID(ctx context.Context, groupID int) (accessGrantResource, error) {
+func (a *App) teamGrantResourceByTeamID(ctx context.Context, teamID int) (accessGrantResource, error) {
 	if a == nil || a.db == nil {
 		return accessGrantResource{}, fmt.Errorf("database unavailable")
 	}
-	return resolveAccessGrantFolder(ctx, a.db, strconv.Itoa(groupID), true)
+	return resolveAccessGrantTeam(ctx, a.db, strconv.Itoa(teamID), true)
 }
 
-func (a *App) folderPathRecords(ctx context.Context) (map[int]groupPathRecord, error) {
+func (a *App) teamPathRecords(ctx context.Context) (map[int]teamPathRecord, error) {
 	if a == nil || a.db == nil {
 		return nil, fmt.Errorf("database unavailable")
 	}
-	return loadGroupPathRecords(ctx, a.db)
+	return loadTeamPathRecords(ctx, a.db)
 }
 
 func authorizeGrantOperation(ctx context.Context, subject model.Subject, resource accessGrantResource, roleName string, checker func(context.Context, model.Subject, string, model.ResourceRef, map[string]any) (model.Decision, error), requestContext map[string]any) error {
@@ -691,8 +691,8 @@ func authorizeGrantOperation(ctx context.Context, subject model.Subject, resourc
 
 func managementActionForGrantResource(resource accessGrantResource) (string, model.ResourceRef, error) {
 	switch resource.Type {
-	case grantResourceFolder:
-		return "folder.manage_acl", model.ResourceRef{Type: grantResourceFolder, ID: resource.ID}, nil
+	case grantResourceTeam:
+		return "team.manage_acl", model.ResourceRef{Type: grantResourceTeam, ID: resource.ID}, nil
 	case grantResourcePipeline:
 		return "pipeline.manage_acl", model.ResourceRef{Type: grantResourcePipeline, ID: resource.ID}, nil
 	case grantResourceSchedule:

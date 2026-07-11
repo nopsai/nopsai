@@ -15,13 +15,13 @@ type StepCollectionListProps = {
   listLoading: boolean;
   listError: string | null;
   visibleSteps: StepListItem[];
-  activeFolderNode: StepTreeNode;
+  activeTeamNode: StepTreeNode;
   searchTerm: string;
   canCreateStepHere: boolean;
   canUseStepDrafts: boolean;
   canDeleteSteps: boolean;
   onSelectStep: (id: string) => void;
-  onOpenFolder: (path: string) => void;
+  onOpenTeam: (path: string) => void;
   onDeleteStep: (id: string, name: string) => void;
 };
 
@@ -29,13 +29,13 @@ export function StepCollectionList({
   listLoading,
   listError,
   visibleSteps,
-  activeFolderNode,
+  activeTeamNode,
   searchTerm,
   canCreateStepHere,
   canUseStepDrafts,
   canDeleteSteps,
   onSelectStep,
-  onOpenFolder,
+  onOpenTeam,
   onDeleteStep,
 }: StepCollectionListProps) {
   return (
@@ -62,15 +62,15 @@ export function StepCollectionList({
               </div>
             ) : null}
 
-            {searchTerm.trim() ? null : activeFolderNode.children.length ? (
+            {searchTerm.trim() ? null : activeTeamNode.children.length ? (
               <div className="pipelines-card-grid pipelines-card-grid--pipelines mt-4">
-                {activeFolderNode.children.map(child => (
-                  <StepFolderCard key={`folder-${child.id}`} node={child} onOpenFolder={onOpenFolder} />
+                {activeTeamNode.children.map(child => (
+                  <StepTeamCard key={`team-${child.id}`} node={child} onOpenTeam={onOpenTeam} />
                 ))}
               </div>
             ) : null}
 
-            {!visibleSteps.length && !activeFolderNode.children.length && (
+            {!visibleSteps.length && !activeTeamNode.children.length && (
               <div id="steps-empty" className="pipelines-empty">
                 <h3 className="text-base font-semibold text-[var(--text-primary)]">No steps found</h3>
                 <p className="text-sm text-[var(--text-secondary)]">
@@ -142,30 +142,30 @@ function StepCard({
   );
 }
 
-function StepFolderCard({ node, onOpenFolder }: { node: StepTreeNode; onOpenFolder: (path: string) => void }) {
+function StepTeamCard({ node, onOpenTeam }: { node: StepTreeNode; onOpenTeam: (path: string) => void }) {
   return (
     <article
       className="glass-card pipeline-card border border-[var(--border-primary)] rounded-xl p-4"
-      onClick={() => onOpenFolder(node.fullPath)}
+      onClick={() => onOpenTeam(node.fullPath)}
     >
       <div className="pipeline-card-header">
         <div className="pipeline-card-info">
           <span className="pipeline-card-icon" aria-hidden="true">
-            <ObjectIcon type="folder" />
+            <ObjectIcon type="team" />
           </span>
           <div className="pipeline-card-text">
             <h3 className="pipeline-card-title">{node.name}</h3>
           </div>
         </div>
-        <span className="pipeline-folder-chevron">›</span>
+        <span className="pipeline-team-chevron">›</span>
       </div>
-      <div className="pipeline-folder-meta">
-        <div className="pipeline-folder-meta-row">
+      <div className="pipeline-team-meta">
+        <div className="pipeline-team-meta-row">
           <span className="pipeline-card-meta-label">Steps:</span>
           <span className="pipeline-card-meta-value">{node.stepIds.length}</span>
         </div>
-        <div className="pipeline-folder-meta-row">
-          <span className="pipeline-card-meta-label">Sub groups:</span>
+        <div className="pipeline-team-meta-row">
+          <span className="pipeline-card-meta-label">Sub teams:</span>
           <span className="pipeline-card-meta-value">{node.children.length}</span>
         </div>
       </div>

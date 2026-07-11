@@ -510,7 +510,7 @@ func (a *App) configRepositoryBasicRoleGrantExports(ctx context.Context, repo mo
 		if !setConfigRepositoryBasicRoleSubjectExport(&grant, subjectType, subjectID) {
 			continue
 		}
-		defaultInherit := resourceType == grantResourceFolder
+		defaultInherit := resourceType == grantResourceTeam
 		if inherit != defaultInherit {
 			next := inherit
 			grant.Inherit = &next
@@ -546,8 +546,11 @@ func setConfigRepositoryBasicRoleSubjectExport(grant *configRepositoryBasicRoleE
 func configRepositoryBasicRoleResourceExport(resourceType, resourceID string) string {
 	resourceType = strings.TrimSpace(resourceType)
 	resourceID = strings.Trim(strings.TrimSpace(resourceID), "/")
-	if resourceType == grantResourceFolder && resourceID == generalGrantID {
+	if resourceType == grantResourceTeam && resourceID == generalGrantID {
 		resourceID = rootGrantID
+	}
+	if resourceType == grantResourceTeam {
+		resourceType = grantResourceTeam
 	}
 	return resourceType + ":" + resourceID
 }

@@ -17,7 +17,6 @@ const (
 	productRoleOwner     = "owner"
 	productRoleAdmin     = "admin"
 
-	grantResourceFolder           = "folder"
 	grantResourceTeam             = "team"
 	grantResourcePipeline         = "pipeline"
 	grantResourceRun              = "pipeline_run"
@@ -38,18 +37,18 @@ const (
 
 	grantSubjectService        = "service"
 	grantSubjectUser           = "user"
-	grantSubjectGroup          = "group"
+	grantSubjectTeam           = "team"
 	grantSubjectRepository     = "repository"
 	grantSubjectTrigger        = "trigger"
 	grantSubjectServiceAccount = "service_account"
 
 	platformGrantID = "default"
-	generalGrantID  = model.FolderGeneralID
+	generalGrantID  = model.TeamGeneralID
 	rootGrantID     = "root"
 )
 
 var (
-	errEveryFolderMustRetainOwner           = errors.New("every folder must retain at least one owner")
+	errEveryTeamMustRetainOwner             = errors.New("every team must retain at least one owner")
 	errExternallyManagedUserRoleAssignments = errors.New("user role assignments are managed by the identity provider")
 )
 
@@ -75,7 +74,7 @@ type accessGrantRecord struct {
 	ConfigSourceCommitSHA        string
 	ManagedByIdentityProvider    bool
 	IdentityProviderID           string
-	ExternalGroupName            string
+	ExternalTeamName             string
 	InheritedFromResourceType    string
 	InheritedFromResourceID      string
 	InheritedFromResourceDisplay string
@@ -116,7 +115,7 @@ type accessGrantResponse struct {
 	ConfigSourceCommitSHA     string    `json:"config_source_commit_sha,omitempty"`
 	ManagedByIdentityProvider bool      `json:"managed_by_identity_provider"`
 	IdentityProviderID        string    `json:"identity_provider_id,omitempty"`
-	ExternalGroupName         string    `json:"external_group_name,omitempty"`
+	ExternalTeamName          string    `json:"external_team_name,omitempty"`
 	Source                    string    `json:"source"`
 	InheritedFromResourceType string    `json:"inherited_from_resource_type,omitempty"`
 	InheritedFromResourceID   string    `json:"inherited_from_resource_id,omitempty"`
@@ -137,7 +136,7 @@ type effectivePermissionResponse struct {
 	MatchedPolicy        map[string]any `json:"matched_policy,omitempty"`
 }
 
-type groupPathRecord struct {
+type teamPathRecord struct {
 	ID                 int
 	Name               string
 	Kind               string
@@ -172,10 +171,10 @@ type execRunner interface {
 
 var productRoleDefinitions = map[string]productRoleDefinition{
 	productRoleViewer: {
-		Description: "Read-only access to folders, pipelines, runs, schedules, triggers, steps, scope metadata, repositories, secrets, and variables.",
+		Description: "Read-only access to teams, pipelines, runs, schedules, triggers, steps, scope metadata, repositories, secrets, and variables.",
 		Actions: []string{
-			"folder.list",
-			"folder.read",
+			"team.list",
+			"team.read",
 			"pipeline.list",
 			"pipeline.read",
 			"pipeline_run.list",
@@ -198,8 +197,8 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 	productRoleDeveloper: {
 		Description: "Viewer access plus non-destructive create, update, and execution capabilities.",
 		Actions: []string{
-			"folder.list",
-			"folder.read",
+			"team.list",
+			"team.read",
 			"pipeline.list",
 			"pipeline.read",
 			"pipeline_run.list",
@@ -247,8 +246,8 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 	productRoleOwner: {
 		Description: "Developer access plus deletes, secret reads, and permission management inside the owned scope.",
 		Actions: []string{
-			"folder.list",
-			"folder.read",
+			"team.list",
+			"team.read",
 			"pipeline.list",
 			"pipeline.read",
 			"pipeline_run.list",
@@ -296,11 +295,11 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"knowledge_context.update",
 			"knowledge_context.delete",
 			"knowledge_context.manage_access",
-			"folder.create",
-			"folder.update",
-			"folder.move",
-			"folder.delete",
-			"folder.manage_acl",
+			"team.create",
+			"team.update",
+			"team.move",
+			"team.delete",
+			"team.manage_acl",
 			"config_repo.manage",
 			"config_repo.sync",
 			"pipeline.delete",

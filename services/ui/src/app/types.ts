@@ -103,10 +103,10 @@ export type CurrentUser = {
 
 export type AuthSession = StoredSession;
 
-export type RunGroup = {
+export type RunTeam = {
   id: number;
   name: string;
-  kind?: 'group' | 'app' | string;
+  kind?: 'team' | 'app' | string;
   parent_id?: number | null;
   description?: string;
   repo_url?: string;

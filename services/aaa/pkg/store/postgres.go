@@ -38,7 +38,7 @@ func (s *PGStore) ResolveSubject(ctx context.Context, subject model.Subject) (*m
 			Provider:    "internal-service",
 			Status:      "active",
 			DirectRoles: s.fetchBindingRoles(ctx, model.SubjectTypeInternalService, subjectID),
-			AuthGroups:  s.fetchSubjectGroups(ctx, model.SubjectTypeInternalService, subjectID),
+			AuthTeams:   s.fetchSubjectTeams(ctx, model.SubjectTypeInternalService, subjectID),
 		}
 		return resolved, nil
 	case model.SubjectTypeRepository, model.SubjectTypeTrigger, model.SubjectTypeServiceAccount:
@@ -55,22 +55,22 @@ func (s *PGStore) ResolveSubject(ctx context.Context, subject model.Subject) (*m
 			Provider:    "nopsai",
 			Status:      "active",
 			DirectRoles: s.fetchBindingRoles(ctx, subjectType, subjectID),
-			AuthGroups:  s.fetchSubjectGroups(ctx, subjectType, subjectID),
+			AuthTeams:   s.fetchSubjectTeams(ctx, subjectType, subjectID),
 		}
 		return resolved, nil
-	case model.SubjectTypeAuthGroup:
-		groupID := strings.TrimSpace(subject.ID)
-		if groupID == "" {
+	case model.SubjectTypeAuthTeam:
+		teamID := strings.TrimSpace(subject.ID)
+		if teamID == "" {
 			return nil, ErrSubjectNotFound
 		}
 		resolved := &model.ResolvedSubject{
 			Subject: model.Subject{
-				Type: model.SubjectTypeAuthGroup,
-				ID:   groupID,
+				Type: model.SubjectTypeAuthTeam,
+				ID:   teamID,
 			},
 			Provider:    "aaa",
 			Status:      "active",
-			DirectRoles: s.fetchBindingRoles(ctx, model.SubjectTypeAuthGroup, groupID),
+			DirectRoles: s.fetchBindingRoles(ctx, model.SubjectTypeAuthTeam, teamID),
 		}
 		return resolved, nil
 	case model.SubjectTypeRole:
@@ -121,7 +121,7 @@ func (s *PGStore) resolveUserSubject(ctx context.Context, subject model.Subject)
 	}
 	resolved.Subject.Type = model.SubjectTypeUser
 	resolved.DirectRoles = s.fetchUserRoles(ctx, resolved.Subject.ID)
-	resolved.AuthGroups = s.fetchSubjectGroups(ctx, model.SubjectTypeUser, resolved.Subject.ID)
+	resolved.AuthTeams = s.fetchSubjectTeams(ctx, model.SubjectTypeUser, resolved.Subject.ID)
 
 	if !strings.EqualFold(resolved.Status, "active") {
 		return resolved, ErrSubjectInactive
@@ -208,16 +208,16 @@ func scanRoleList(rows pgx.Rows) []string {
 	return roles
 }
 
-func (s *PGStore) fetchSubjectGroups(ctx context.Context, subjectType, subjectID string) []model.AuthGroupInfo {
+func (s *PGStore) fetchSubjectTeams(ctx context.Context, subjectType, subjectID string) []model.AuthTeamInfo {
 	if strings.TrimSpace(subjectType) == "" || strings.TrimSpace(subjectID) == "" {
 		return nil
 	}
 	rows, err := s.db.Query(ctx, `
 		SELECT g.id::text, g.name, COALESCE(rb.role_name, '')
-		FROM auth_group_members m
-		JOIN auth_groups g ON g.id = m.group_id
+		FROM auth_team_members m
+		JOIN auth_teams g ON g.id = m.team_id
 		LEFT JOIN auth_role_bindings rb
-			ON rb.subject_type = 'auth_group' AND rb.subject_id = g.id::text
+			ON rb.subject_type = 'auth_team' AND rb.subject_id = g.id::text
 		WHERE m.subject_type = $1 AND m.subject_id = $2
 		ORDER BY g.name ASC, rb.role_name ASC
 	`, subjectType, subjectID)
@@ -226,31 +226,31 @@ func (s *PGStore) fetchSubjectGroups(ctx context.Context, subjectType, subjectID
 	}
 	defer rows.Close()
 
-	groupByID := make(map[string]*model.AuthGroupInfo)
-	var groupOrder []string
+	teamByID := make(map[string]*model.AuthTeamInfo)
+	var teamOrder []string
 	for rows.Next() {
-		var groupID, groupName, roleName string
-		if err := rows.Scan(&groupID, &groupName, &roleName); err != nil {
+		var teamID, teamName, roleName string
+		if err := rows.Scan(&teamID, &teamName, &roleName); err != nil {
 			return nil
 		}
-		group := groupByID[groupID]
-		if group == nil {
-			group = &model.AuthGroupInfo{ID: groupID, Name: groupName}
-			groupByID[groupID] = group
-			groupOrder = append(groupOrder, groupID)
+		team := teamByID[teamID]
+		if team == nil {
+			team = &model.AuthTeamInfo{ID: teamID, Name: teamName}
+			teamByID[teamID] = team
+			teamOrder = append(teamOrder, teamID)
 		}
 		roleName = strings.TrimSpace(roleName)
-		if roleName != "" && !containsString(group.Roles, roleName) {
-			group.Roles = append(group.Roles, roleName)
+		if roleName != "" && !containsString(team.Roles, roleName) {
+			team.Roles = append(team.Roles, roleName)
 		}
 	}
 
-	groups := make([]model.AuthGroupInfo, 0, len(groupOrder))
-	for _, groupID := range groupOrder {
-		group := groupByID[groupID]
-		groups = append(groups, *group)
+	teams := make([]model.AuthTeamInfo, 0, len(teamOrder))
+	for _, teamID := range teamOrder {
+		team := teamByID[teamID]
+		teams = append(teams, *team)
 	}
-	return groups
+	return teams
 }
 
 func containsString(values []string, needle string) bool {
@@ -519,7 +519,7 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 	switch strings.TrimSpace(resource.Type) {
 	case "pipeline_run":
 		var pipelinePath, pipelineName, repoOwner, repoName, scope string
-		var groupID sql.NullInt64
+		var teamID sql.NullInt64
 		err := s.db.QueryRow(ctx, `
 			SELECT
 				COALESCE(pipeline_path, ''),
@@ -527,10 +527,10 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 				COALESCE(git_repo_owner, ''),
 				COALESCE(git_repo_name, ''),
 				COALESCE(scope, ''),
-				group_id
+				team_id
 			FROM pipeline_runs
 			WHERE run_id::text = $1
-		`, resource.ID).Scan(&pipelinePath, &pipelineName, &repoOwner, &repoName, &scope, &groupID)
+		`, resource.ID).Scan(&pipelinePath, &pipelineName, &repoOwner, &repoName, &scope, &teamID)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil, ErrResourceNotFound
@@ -545,12 +545,12 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 			})
 		}
 
-		if groupID.Valid {
-			groupAncestors, err := s.groupFolderAncestors(ctx, int(groupID.Int64))
+		if teamID.Valid {
+			teamAncestors, err := s.teamHierarchyAncestors(ctx, int(teamID.Int64))
 			if err != nil {
 				return nil, err
 			}
-			out = appendInheritedResources(out, groupAncestors)
+			out = appendInheritedResources(out, teamAncestors)
 		}
 
 		if repoID := repositoryResourceID(repoOwner, repoName); repoID != "" {
@@ -558,11 +558,11 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 				Resource: model.ResourceRef{Type: "repository", ID: repoID},
 				Reason:   "repository_inheritance",
 			})
-			folderAncestors, err := s.repositoryFolderAncestors(ctx, repoID)
+			teamAncestors, err := s.repositoryTeamAncestors(ctx, repoID)
 			if err != nil {
 				return nil, err
 			}
-			out = appendInheritedResources(out, folderAncestors)
+			out = appendInheritedResources(out, teamAncestors)
 		}
 
 		if strings.TrimSpace(scope) != "" {
@@ -570,23 +570,23 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 				Resource: model.ResourceRef{Type: "scope", ID: strings.Trim(strings.TrimSpace(scope), "/")},
 				Reason:   "scope_inheritance",
 			})
-			out = appendInheritedResources(out, scopeFolderAncestors(scope))
+			out = appendInheritedResources(out, scopeTeamAncestors(scope))
 		}
 
 		if strings.TrimSpace(pipelinePath) == "" {
-			return appendInheritedResources(out, generalFolderAncestors()), nil
+			return appendInheritedResources(out, generalTeamAncestors()), nil
 		}
-		folderAncestors, err := s.containingFolderAncestors(ctx, pipelinePath)
+		teamAncestors, err := s.containingTeamAncestors(ctx, pipelinePath)
 		if err != nil {
 			return nil, err
 		}
-		return appendInheritedResources(out, folderAncestors), nil
+		return appendInheritedResources(out, teamAncestors), nil
 	case "pipeline":
 		pipelinePath, _ := model.SplitPipelineID(resource.ID)
 		if strings.TrimSpace(pipelinePath) == "" {
-			return generalFolderAncestors(), nil
+			return generalTeamAncestors(), nil
 		}
-		return s.containingFolderAncestors(ctx, pipelinePath)
+		return s.containingTeamAncestors(ctx, pipelinePath)
 	case "pipeline_schedule":
 		var schedulePath string
 		err := s.db.QueryRow(ctx, `
@@ -602,24 +602,24 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 			return nil, err
 		}
 		if strings.TrimSpace(schedulePath) == "" {
-			return generalFolderAncestors(), nil
+			return generalTeamAncestors(), nil
 		}
-		return s.containingFolderAncestors(ctx, schedulePath)
-	case "folder":
-		if strings.TrimSpace(resource.ID) == model.FolderGeneralID {
+		return s.containingTeamAncestors(ctx, schedulePath)
+	case "team":
+		if strings.TrimSpace(resource.ID) == model.TeamGeneralID {
 			return nil, nil
 		}
-		return s.folderAncestors(ctx, resource.ID)
+		return s.teamAncestors(ctx, resource.ID)
 	case "step":
 		stepPath, _ := model.SplitPipelineID(resource.ID)
 		if strings.TrimSpace(stepPath) == "" {
-			return generalFolderAncestors(), nil
+			return generalTeamAncestors(), nil
 		}
-		return s.containingFolderAncestors(ctx, stepPath)
+		return s.containingTeamAncestors(ctx, stepPath)
 	case "scope":
-		return scopeFolderAncestors(resource.ID), nil
+		return scopeTeamAncestors(resource.ID), nil
 	case "repository":
-		return s.repositoryFolderAncestors(ctx, resource.ID)
+		return s.repositoryTeamAncestors(ctx, resource.ID)
 	case "trigger":
 		repoID := strings.TrimSpace(resource.ID)
 		if repoID == "" {
@@ -629,11 +629,11 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 			Resource: model.ResourceRef{Type: "repository", ID: repoID},
 			Reason:   "repository_inheritance",
 		}}
-		folderAncestors, err := s.repositoryFolderAncestors(ctx, repoID)
+		teamAncestors, err := s.repositoryTeamAncestors(ctx, repoID)
 		if err != nil {
 			return nil, err
 		}
-		return append(out, folderAncestors...), nil
+		return append(out, teamAncestors...), nil
 	case "external_trigger", "git_webhook_source":
 		triggerID := strings.Trim(strings.TrimSpace(resource.ID), "/")
 		if triggerID == "" {
@@ -641,19 +641,19 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 		}
 		triggerPath, _ := model.SplitPipelineID(triggerID)
 		if strings.TrimSpace(triggerPath) == "" {
-			return generalFolderAncestors(), nil
+			return generalTeamAncestors(), nil
 		}
-		return s.containingFolderAncestors(ctx, triggerPath)
+		return s.containingTeamAncestors(ctx, triggerPath)
 	case "knowledge_context":
 		parts := strings.Split(strings.Trim(strings.TrimSpace(resource.ID), "/"), "/")
 		if len(parts) < 3 {
 			return nil, nil
 		}
-		groupPath := strings.Trim(strings.Join(parts[1:len(parts)-1], "/"), "/")
-		if groupPath == "" {
-			return generalFolderAncestors(), nil
+		teamPath := strings.Trim(strings.Join(parts[1:len(parts)-1], "/"), "/")
+		if teamPath == "" {
+			return generalTeamAncestors(), nil
 		}
-		return s.containingFolderAncestors(ctx, groupPath)
+		return s.containingTeamAncestors(ctx, teamPath)
 	case "secret", "variable":
 		repoName, scope, _ := model.ParseNamedResourceID(resource.ID)
 		var out []model.InheritedResource
@@ -662,22 +662,22 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 				Resource: model.ResourceRef{Type: "repository", ID: repoName},
 				Reason:   "repository_inheritance",
 			})
-			folderAncestors, err := s.repositoryFolderAncestors(ctx, repoName)
+			teamAncestors, err := s.repositoryTeamAncestors(ctx, repoName)
 			if err != nil {
 				return nil, err
 			}
-			out = append(out, folderAncestors...)
+			out = append(out, teamAncestors...)
 		}
 		if scope != "" {
 			out = append(out, model.InheritedResource{
 				Resource: model.ResourceRef{Type: "scope", ID: scope},
 				Reason:   "scope_inheritance",
 			})
-			out = append(out, scopeFolderAncestors(scope)...)
+			out = append(out, scopeTeamAncestors(scope)...)
 		}
 		if repoName == "" {
 			if scope == "" {
-				out = append(out, generalFolderAncestors()...)
+				out = append(out, generalTeamAncestors()...)
 			}
 		}
 		return out, nil
@@ -720,22 +720,22 @@ func appendInheritedResource(out []model.InheritedResource, resource model.Inher
 	return append(out, resource)
 }
 
-func scopeFolderAncestors(scope string) []model.InheritedResource {
+func scopeTeamAncestors(scope string) []model.InheritedResource {
 	scope = strings.Trim(strings.TrimSpace(scope), "/")
 	if scope == "" {
-		return generalFolderAncestors()
+		return generalTeamAncestors()
 	}
-	return prefixFolderResources(strings.Split(scope, "/"), true)
+	return prefixTeamResources(strings.Split(scope, "/"), true)
 }
 
-func generalFolderAncestors() []model.InheritedResource {
+func generalTeamAncestors() []model.InheritedResource {
 	return []model.InheritedResource{{
-		Resource: model.ResourceRef{Type: "folder", ID: model.FolderGeneralID},
-		Reason:   "folder_inheritance",
+		Resource: model.ResourceRef{Type: "team", ID: model.TeamGeneralID},
+		Reason:   "team_inheritance",
 	}}
 }
 
-func (s *PGStore) folderAncestors(ctx context.Context, path string) ([]model.InheritedResource, error) {
+func (s *PGStore) teamAncestors(ctx context.Context, path string) ([]model.InheritedResource, error) {
 	path = strings.Trim(strings.TrimSpace(path), "/")
 	if path == "" {
 		return nil, nil
@@ -745,29 +745,29 @@ func (s *PGStore) folderAncestors(ctx context.Context, path string) ([]model.Inh
 		return nil, nil
 	}
 
-	if ok, err := s.folderPathExists(ctx, segments); err != nil {
+	if ok, err := s.teamPathExists(ctx, segments); err != nil {
 		return nil, err
 	} else if !ok {
-		return prefixFolderAncestors(segments), nil
+		return prefixTeamAncestors(segments), nil
 	}
 
-	return prefixFolderAncestors(segments), nil
+	return prefixTeamAncestors(segments), nil
 }
 
-func (s *PGStore) containingFolderAncestors(ctx context.Context, path string) ([]model.InheritedResource, error) {
+func (s *PGStore) containingTeamAncestors(ctx context.Context, path string) ([]model.InheritedResource, error) {
 	path = strings.Trim(strings.TrimSpace(path), "/")
 	if path == "" {
 		return nil, nil
 	}
 	segments := strings.Split(path, "/")
 
-	if _, err := s.folderPathExists(ctx, segments); err != nil {
+	if _, err := s.teamPathExists(ctx, segments); err != nil {
 		return nil, err
 	}
-	return prefixFolderResources(segments, true), nil
+	return prefixTeamResources(segments, true), nil
 }
 
-func (s *PGStore) folderPathExists(ctx context.Context, segments []string) (bool, error) {
+func (s *PGStore) teamPathExists(ctx context.Context, segments []string) (bool, error) {
 	if len(segments) == 0 {
 		return false, nil
 	}
@@ -779,7 +779,7 @@ func (s *PGStore) folderPathExists(ctx context.Context, segments []string) (bool
 	)
 	if err := s.db.QueryRow(ctx, `
 		SELECT id, parent_id, name
-		FROM groups
+		FROM teams
 		WHERE name = $1
 	`, segments[len(segments)-1]).Scan(&currentID, &parentID, &name); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -798,7 +798,7 @@ func (s *PGStore) folderPathExists(ctx context.Context, segments []string) (bool
 		var nextParentID *int
 		if err := s.db.QueryRow(ctx, `
 			SELECT parent_id, name
-			FROM groups
+			FROM teams
 			WHERE id = $1
 		`, *parentID).Scan(&nextParentID, &name); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -814,11 +814,11 @@ func (s *PGStore) folderPathExists(ctx context.Context, segments []string) (bool
 	return true, nil
 }
 
-func prefixFolderAncestors(segments []string) []model.InheritedResource {
-	return prefixFolderResources(segments, false)
+func prefixTeamAncestors(segments []string) []model.InheritedResource {
+	return prefixTeamResources(segments, false)
 }
 
-func prefixFolderResources(segments []string, includeSelf bool) []model.InheritedResource {
+func prefixTeamResources(segments []string, includeSelf bool) []model.InheritedResource {
 	start := len(segments) - 1
 	if includeSelf {
 		start = len(segments)
@@ -830,46 +830,46 @@ func prefixFolderResources(segments []string, includeSelf bool) []model.Inherite
 	out := make([]model.InheritedResource, 0, start)
 	for i := start; i > 0; i-- {
 		out = append(out, model.InheritedResource{
-			Resource: model.ResourceRef{Type: "folder", ID: strings.Join(segments[:i], "/")},
-			Reason:   "folder_inheritance",
+			Resource: model.ResourceRef{Type: "team", ID: strings.Join(segments[:i], "/")},
+			Reason:   "team_inheritance",
 		})
 	}
 	return out
 }
 
-func (s *PGStore) repositoryFolderAncestors(ctx context.Context, repoID string) ([]model.InheritedResource, error) {
+func (s *PGStore) repositoryTeamAncestors(ctx context.Context, repoID string) ([]model.InheritedResource, error) {
 	repoID = strings.TrimSpace(repoID)
 	if repoID == "" {
 		return nil, nil
 	}
 
-	parentID, name, ok, err := s.repositoryGroupByMetadata(ctx, repoID)
+	parentID, name, ok, err := s.repositoryTeamByMetadata(ctx, repoID)
 	if err != nil {
 		return nil, err
 	}
 	if !ok {
-		parentID, name, ok, err = s.repositoryGroupByPathSuffix(ctx, repoID)
+		parentID, name, ok, err = s.repositoryTeamByPathSuffix(ctx, repoID)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if !ok {
-		return repositoryIDFolderAncestors(repoID), nil
+		return repositoryIDTeamAncestors(repoID), nil
 	}
 
-	parentAncestors, err := s.groupParentFolderAncestors(ctx, parentID)
+	parentAncestors, err := s.teamParentTeamAncestors(ctx, parentID)
 	if err != nil {
 		return nil, err
 	}
-	return groupSelfAndParentFolderAncestors(name, parentAncestors), nil
+	return teamSelfAndParentTeamAncestors(name, parentAncestors), nil
 }
 
-func (s *PGStore) repositoryGroupByMetadata(ctx context.Context, repoID string) (*int, string, bool, error) {
+func (s *PGStore) repositoryTeamByMetadata(ctx context.Context, repoID string) (*int, string, bool, error) {
 	var parentID *int
 	var name string
 	if err := s.db.QueryRow(ctx, `
 		SELECT parent_id, name
-		FROM groups
+		FROM teams
 		WHERE name = $1 OR LOWER(repository_full_name) = LOWER($1)
 		ORDER BY
 			CASE
@@ -887,17 +887,17 @@ func (s *PGStore) repositoryGroupByMetadata(ctx context.Context, repoID string) 
 	return parentID, name, true, nil
 }
 
-func (s *PGStore) repositoryGroupByPathSuffix(ctx context.Context, repoID string) (*int, string, bool, error) {
+func (s *PGStore) repositoryTeamByPathSuffix(ctx context.Context, repoID string) (*int, string, bool, error) {
 	var parentID *int
 	var name string
 	if err := s.db.QueryRow(ctx, `
-		WITH RECURSIVE group_paths AS (
+		WITH RECURSIVE team_paths AS (
 			SELECT
 				id,
 				parent_id,
 				name,
 				TRIM(BOTH '/' FROM name)::text AS path
-			FROM groups
+			FROM teams
 			WHERE parent_id IS NULL
 			UNION ALL
 			SELECT
@@ -910,11 +910,11 @@ func (s *PGStore) repositoryGroupByPathSuffix(ctx context.Context, repoID string
 						ELSE gp.path || '/' || g.name
 					END
 				)::text AS path
-			FROM groups g
-			JOIN group_paths gp ON g.parent_id = gp.id
+			FROM teams g
+			JOIN team_paths gp ON g.parent_id = gp.id
 		)
 		SELECT parent_id, name
-		FROM group_paths
+		FROM team_paths
 		WHERE path = $1 OR RIGHT(path, LENGTH($1) + 1) = '/' || $1
 		ORDER BY LENGTH(path) DESC, path ASC
 		LIMIT 1
@@ -927,8 +927,8 @@ func (s *PGStore) repositoryGroupByPathSuffix(ctx context.Context, repoID string
 	return parentID, name, true, nil
 }
 
-func (s *PGStore) groupFolderAncestors(ctx context.Context, groupID int) ([]model.InheritedResource, error) {
-	if groupID <= 0 {
+func (s *PGStore) teamHierarchyAncestors(ctx context.Context, teamID int) ([]model.InheritedResource, error) {
+	if teamID <= 0 {
 		return nil, nil
 	}
 
@@ -936,35 +936,35 @@ func (s *PGStore) groupFolderAncestors(ctx context.Context, groupID int) ([]mode
 	var name string
 	if err := s.db.QueryRow(ctx, `
 		SELECT parent_id, name
-		FROM groups
+		FROM teams
 		WHERE id = $1
-	`, groupID).Scan(&parentID, &name); err != nil {
+	`, teamID).Scan(&parentID, &name); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
 	}
 
-	parentAncestors, err := s.groupParentFolderAncestors(ctx, parentID)
+	parentAncestors, err := s.teamParentTeamAncestors(ctx, parentID)
 	if err != nil {
 		return nil, err
 	}
-	return groupSelfAndParentFolderAncestors(name, parentAncestors), nil
+	return teamSelfAndParentTeamAncestors(name, parentAncestors), nil
 }
 
-func repositoryIDFolderAncestors(repoID string) []model.InheritedResource {
+func repositoryIDTeamAncestors(repoID string) []model.InheritedResource {
 	repoID = strings.Trim(strings.TrimSpace(repoID), "/")
 	if repoID == "" {
-		return generalFolderAncestors()
+		return generalTeamAncestors()
 	}
 	segments := strings.Split(repoID, "/")
 	if len(segments) <= 1 {
-		return generalFolderAncestors()
+		return generalTeamAncestors()
 	}
-	return prefixFolderResources(segments[:len(segments)-1], true)
+	return prefixTeamResources(segments[:len(segments)-1], true)
 }
 
-func (s *PGStore) groupParentFolderAncestors(ctx context.Context, parentID *int) ([]model.InheritedResource, error) {
+func (s *PGStore) teamParentTeamAncestors(ctx context.Context, parentID *int) ([]model.InheritedResource, error) {
 	if parentID == nil {
 		return nil, nil
 	}
@@ -978,7 +978,7 @@ func (s *PGStore) groupParentFolderAncestors(ctx context.Context, parentID *int)
 		)
 		if err := s.db.QueryRow(ctx, `
 			SELECT name, parent_id
-			FROM groups
+			FROM teams
 			WHERE id = $1
 		`, currentID).Scan(&name, &nextParentID); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -1008,14 +1008,14 @@ func (s *PGStore) groupParentFolderAncestors(ctx context.Context, parentID *int)
 	out := make([]model.InheritedResource, 0, len(names))
 	for i := len(names); i > 0; i-- {
 		out = append(out, model.InheritedResource{
-			Resource: model.ResourceRef{Type: "folder", ID: strings.Join(names[:i], "/")},
-			Reason:   "folder_inheritance",
+			Resource: model.ResourceRef{Type: "team", ID: strings.Join(names[:i], "/")},
+			Reason:   "team_inheritance",
 		})
 	}
 	return out, nil
 }
 
-func groupSelfAndParentFolderAncestors(name string, parentAncestors []model.InheritedResource) []model.InheritedResource {
+func teamSelfAndParentTeamAncestors(name string, parentAncestors []model.InheritedResource) []model.InheritedResource {
 	name = strings.Trim(strings.TrimSpace(name), "/")
 	if name == "" {
 		return parentAncestors
@@ -1028,8 +1028,8 @@ func groupSelfAndParentFolderAncestors(name string, parentAncestors []model.Inhe
 		}
 	}
 	out := []model.InheritedResource{{
-		Resource: model.ResourceRef{Type: "folder", ID: selfPath},
-		Reason:   "folder_inheritance",
+		Resource: model.ResourceRef{Type: "team", ID: selfPath},
+		Reason:   "team_inheritance",
 	}}
 	return appendInheritedResources(out, parentAncestors)
 }

@@ -308,11 +308,11 @@ export default function ProfilePage({ user, loading, onLogout, onUserUpdated, mu
                 <dt className="text-[var(--text-secondary)] whitespace-nowrap">Email</dt>
                 <dd>
                   {!editingEmail ? (
-                    <div className="flex items-center gap-2 group">
+                    <div className="flex items-center gap-2 team">
                       <span className="text-[var(--text-primary)] truncate flex-1">{email || '—'}</span>
                       <button
                         type="button"
-                        className="glass-button-subtle whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="glass-button-subtle whitespace-nowrap opacity-0 team-hover:opacity-100 transition-opacity"
                         onClick={() => {
                           setEditingEmail(true);
                           setEmailDraft(email);

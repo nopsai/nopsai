@@ -71,11 +71,11 @@ func (a *App) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	folderID := input.Path
-	if folderID == "" {
-		folderID = generalGrantID
+	teamID := input.Path
+	if teamID == "" {
+		teamID = generalGrantID
 	}
-	if !a.requireAAADecision(w, r, "pipeline_schedule.create", aaamodel.ResourceRef{Type: grantResourceFolder, ID: folderID}) {
+	if !a.requireAAADecision(w, r, "pipeline_schedule.create", aaamodel.ResourceRef{Type: grantResourceTeam, ID: teamID}) {
 		return
 	}
 	pipeline, _, err := a.validateScheduleRuntimeAccess(r.Context(), r, input)

@@ -25,7 +25,7 @@ export async function saveKnowledgeContext(detail: KnowledgeContextDetail, conte
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       kind: detail.kind,
-      group: detail.group,
+      team: detail.team,
       name: detail.name,
       description: detail.description || '',
       content,

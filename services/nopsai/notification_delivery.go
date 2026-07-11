@@ -24,8 +24,8 @@ type pipelineNotificationContext struct {
 	PipelinePath           string
 	PipelineDefinitionYAML string
 	Status                 string
-	GroupID                int
-	GroupPath              string
+	TeamID                 int
+	TeamPath               string
 	RepoOwner              string
 	RepoName               string
 	RepoURL                string
@@ -94,7 +94,7 @@ func (a *App) deliverPipelineRunNotification(ctx context.Context, runID, eventTy
 		if !notificationChannelEnabled(route.Delivery.Channels, "mail") {
 			continue
 		}
-		recipients, err := a.resolveNotificationRecipients(ctx, route.Recipients, notificationCtx.GroupPath)
+		recipients, err := a.resolveNotificationRecipients(ctx, route.Recipients, notificationCtx.TeamPath)
 		if err != nil {
 			return err
 		}
@@ -115,7 +115,7 @@ func (a *App) loadPipelineNotificationContext(ctx context.Context, runID string)
 		       COALESCE(pr.pipeline_name, ''),
 		       COALESCE(NULLIF(pr.pipeline_path, ''), COALESCE(pr.pipeline_name, '')),
 		       COALESCE(pr.status, ''),
-		       pr.group_id,
+		       pr.team_id,
 		       COALESCE(pr.git_repo_owner, ''),
 		       COALESCE(pr.git_repo_name, ''),
 		       COALESCE(g.repo_url, ''),
@@ -128,15 +128,15 @@ func (a *App) loadPipelineNotificationContext(ctx context.Context, runID string)
 		       pr.finished_at,
 		       COALESCE(pr.pipeline_definition, '')
 		FROM pipeline_runs pr
-		LEFT JOIN groups g ON g.id = pr.group_id
+		LEFT JOIN teams g ON g.id = pr.team_id
 		WHERE pr.run_id = $1::uuid
-		  AND pr.group_id IS NOT NULL
+		  AND pr.team_id IS NOT NULL
 	`, runID).Scan(
 		&out.RunID,
 		&out.PipelineName,
 		&out.PipelinePath,
 		&out.Status,
-		&out.GroupID,
+		&out.TeamID,
 		&out.RepoOwner,
 		&out.RepoName,
 		&out.RepoURL,
@@ -166,12 +166,12 @@ func (a *App) loadPipelineNotificationContext(ctx context.Context, runID string)
 		out.Duration = finished.Sub(out.StartedAt).Round(time.Second).String()
 	}
 
-	groupRecords, err := loadGroupPathRecords(ctx, a.db)
+	teamRecords, err := loadTeamPathRecords(ctx, a.db)
 	if err != nil {
 		return pipelineNotificationContext{}, err
 	}
-	var groupLineage []int
-	out.GroupPath, groupLineage, err = notificationGroupLineage(groupRecords, out.GroupID)
+	var teamLineage []int
+	out.TeamPath, teamLineage, err = notificationTeamLineage(teamRecords, out.TeamID)
 	if err != nil {
 		return pipelineNotificationContext{}, err
 	}
@@ -180,10 +180,10 @@ func (a *App) loadPipelineNotificationContext(ctx context.Context, runID string)
 	err = a.db.QueryRow(ctx, `
 		SELECT id, definition::text
 		FROM notification_routes
-		WHERE group_id = ANY($1::int[])
-		ORDER BY array_position($1::int[], group_id)
+		WHERE team_id = ANY($1::int[])
+		ORDER BY array_position($1::int[], team_id)
 		LIMIT 1
-	`, groupLineage).Scan(&out.RouteID, &definitionRaw)
+	`, teamLineage).Scan(&out.RouteID, &definitionRaw)
 	if err != nil {
 		return pipelineNotificationContext{}, err
 	}
@@ -199,10 +199,10 @@ func (a *App) loadPipelineNotificationContext(ctx context.Context, runID string)
 	return out, nil
 }
 
-func notificationGroupLineage(records map[int]groupPathRecord, groupID int) (string, []int, error) {
-	record, ok := records[groupID]
+func notificationTeamLineage(records map[int]teamPathRecord, teamID int) (string, []int, error) {
+	record, ok := records[teamID]
 	if !ok {
-		return "", nil, fmt.Errorf("notification group %d not found", groupID)
+		return "", nil, fmt.Errorf("notification team %d not found", teamID)
 	}
 
 	lineage := make([]int, 0, 4)
@@ -210,7 +210,7 @@ func notificationGroupLineage(records map[int]groupPathRecord, groupID int) (str
 	current := record
 	for {
 		if _, exists := visited[current.ID]; exists {
-			return "", nil, fmt.Errorf("notification group hierarchy contains a cycle at group %d", current.ID)
+			return "", nil, fmt.Errorf("notification team hierarchy contains a cycle at team %d", current.ID)
 		}
 		visited[current.ID] = struct{}{}
 		lineage = append(lineage, current.ID)
@@ -219,14 +219,14 @@ func notificationGroupLineage(records map[int]groupPathRecord, groupID int) (str
 		}
 		parent, exists := records[*current.ParentID]
 		if !exists {
-			return "", nil, fmt.Errorf("notification parent group %d not found", *current.ParentID)
+			return "", nil, fmt.Errorf("notification parent team %d not found", *current.ParentID)
 		}
 		current = parent
 	}
 	return record.Path, lineage, nil
 }
 
-func (a *App) resolveNotificationRecipients(ctx context.Context, recipients notificationRecipientsFile, groupPath string) ([]string, error) {
+func (a *App) resolveNotificationRecipients(ctx context.Context, recipients notificationRecipientsFile, teamPath string) ([]string, error) {
 	include := map[string]struct{}{}
 	exclude := map[string]struct{}{}
 	for _, email := range recipients.Include.Users {
@@ -235,14 +235,14 @@ func (a *App) resolveNotificationRecipients(ctx context.Context, recipients noti
 		}
 	}
 	for _, team := range recipients.Include.Teams {
-		if strings.EqualFold(strings.TrimSpace(team), "same_group") {
-			if err := a.addNotificationGroupRecipients(ctx, include, groupPath); err != nil {
+		if strings.EqualFold(strings.TrimSpace(team), "same_team") {
+			if err := a.addNotificationTeamRecipients(ctx, include, teamPath); err != nil {
 				return nil, err
 			}
 		}
 	}
-	for _, group := range recipients.Include.Groups {
-		if err := a.addNotificationGroupRecipients(ctx, include, group); err != nil {
+	for _, team := range recipients.Include.Teams {
+		if err := a.addNotificationTeamRecipients(ctx, include, team); err != nil {
 			return nil, err
 		}
 	}
@@ -251,12 +251,12 @@ func (a *App) resolveNotificationRecipients(ctx context.Context, recipients noti
 			exclude[normalized] = struct{}{}
 		}
 	}
-	for _, group := range recipients.Exclude.Groups {
-		groupRecipients := map[string]struct{}{}
-		if err := a.addNotificationGroupRecipients(ctx, groupRecipients, group); err != nil {
+	for _, team := range recipients.Exclude.Teams {
+		teamRecipients := map[string]struct{}{}
+		if err := a.addNotificationTeamRecipients(ctx, teamRecipients, team); err != nil {
 			return nil, err
 		}
-		for email := range groupRecipients {
+		for email := range teamRecipients {
 			exclude[email] = struct{}{}
 		}
 	}
@@ -271,9 +271,9 @@ func (a *App) resolveNotificationRecipients(ctx context.Context, recipients noti
 	return out, nil
 }
 
-func (a *App) addNotificationGroupRecipients(ctx context.Context, recipients map[string]struct{}, groupPath string) error {
-	groupPath = normalizeNotificationGroupPath(groupPath)
-	if groupPath == "" {
+func (a *App) addNotificationTeamRecipients(ctx context.Context, recipients map[string]struct{}, teamPath string) error {
+	teamPath = normalizeNotificationTeamPath(teamPath)
+	if teamPath == "" {
 		return nil
 	}
 	rows, err := a.db.Query(ctx, `
@@ -281,11 +281,11 @@ func (a *App) addNotificationGroupRecipients(ctx context.Context, recipients map
 		FROM access_grants ag
 		JOIN users u ON ag.subject_type = 'user'
 		 AND (ag.subject_id = u.id::text OR ag.subject_id = u.sub OR ag.subject_id = u.email)
-		WHERE ag.resource_type = 'folder'
+		WHERE ag.resource_type = 'team'
 		  AND ag.resource_id = $1
 		  AND u.status = 'active'
 		  AND COALESCE(u.email, '') <> ''
-	`, groupPath)
+	`, teamPath)
 	if err != nil {
 		return err
 	}
@@ -461,7 +461,7 @@ func pipelineNotificationBody(notificationCtx pipelineNotificationContext, event
 		fmt.Sprintf("Run ID: %s", notificationCtx.RunID),
 		fmt.Sprintf("Pipeline: %s", pipelineNotificationDisplayName(notificationCtx)),
 		fmt.Sprintf("Status: %s", notificationCtx.Status),
-		fmt.Sprintf("Group: %s", firstNonEmptyString(notificationCtx.GroupPath, "-")),
+		fmt.Sprintf("Team: %s", firstNonEmptyString(notificationCtx.TeamPath, "-")),
 	}
 	repo := strings.Trim(strings.Join([]string{notificationCtx.RepoOwner, notificationCtx.RepoName}, "/"), "/")
 	if repo != "" {

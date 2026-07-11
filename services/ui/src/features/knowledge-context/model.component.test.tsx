@@ -3,16 +3,16 @@ import {
   buildKnowledgeID,
   buildKnowledgeTree,
   clearKnowledgeDraft,
-  countFolderDocs,
+  countTeamDocs,
   decodeKnowledgeRouteID,
-  deriveIdentityFromFolder,
+  deriveIdentityFromTeam,
   encodeKnowledgeID,
-  findKnowledgeFolder,
+  findKnowledgeTeam,
   isGitManagedDocument,
   loadKnowledgeDraft,
-  normalizeFolderPath,
+  normalizeTeamPath,
   normalizeKnowledgeSource,
-  parentFolder,
+  parentTeam,
   saveKnowledgeDraft,
   sourceLabel,
   splitKnowledgeContentForPreview,
@@ -25,9 +25,9 @@ const documents: KnowledgeContextListItem[] = [
   {
     id: 'runbook/platform/restart',
     kind: 'runbook',
-    group: 'platform',
+    team: 'platform',
     name: 'restart',
-    visibility: 'group',
+    visibility: 'team',
     source: 'database',
   },
 ];
@@ -38,28 +38,28 @@ afterEach(() => {
 });
 
 describe('Knowledge Context model', () => {
-  it('builds and navigates knowledge trees with empty enterprise groups', () => {
+  it('builds and navigates knowledge trees with empty enterprise teams', () => {
     const tree = buildKnowledgeTree(documents, ['platform/security']);
-    const runbooks = findKnowledgeFolder(tree, 'runbook');
+    const runbooks = findKnowledgeTeam(tree, 'runbook');
 
     expect(runbooks.children.find(child => child.name === 'platform')?.docs[0]?.name).toBe('restart');
-    expect(findKnowledgeFolder(tree, 'runbook/platform/security').docs).toHaveLength(0);
-    expect(findKnowledgeFolder(tree, 'missing')).toBe(tree);
-    expect(countFolderDocs(tree)).toBe(1);
+    expect(findKnowledgeTeam(tree, 'runbook/platform/security').docs).toHaveLength(0);
+    expect(findKnowledgeTeam(tree, 'missing')).toBe(tree);
+    expect(countTeamDocs(tree)).toBe(1);
   });
 
-  it('normalizes identities, routes, sources, and folder paths', () => {
+  it('normalizes identities, routes, sources, and team paths', () => {
     expect(encodeKnowledgeID('runbook/platform/restart service')).toBe('runbook/platform/restart%20service');
     expect(buildKnowledgeID(' runbook ', '/platform/', ' restart ')).toBe('runbook/platform/restart');
-    expect(splitKnowledgePath('runbook/platform/restart')).toEqual({ name: 'restart', folder: 'runbook/platform' });
-    expect(normalizeFolderPath(' /runbook//platform/ ')).toBe('runbook/platform');
-    expect(parentFolder('runbook/platform')).toBe('runbook');
+    expect(splitKnowledgePath('runbook/platform/restart')).toEqual({ name: 'restart', team: 'runbook/platform' });
+    expect(normalizeTeamPath(' /runbook//platform/ ')).toBe('runbook/platform');
+    expect(parentTeam('runbook/platform')).toBe('runbook');
     expect(decodeKnowledgeRouteID('/knowledge-context/runbook/platform/restart%20service')).toBe(
       'runbook/platform/restart service'
     );
     expect(decodeKnowledgeRouteID('/pipelines')).toBe('');
-    expect(deriveIdentityFromFolder('runbook/platform')).toEqual({ kind: 'runbook', group: 'platform' });
-    expect(deriveIdentityFromFolder('platform')).toEqual({ kind: 'architecture', group: 'platform' });
+    expect(deriveIdentityFromTeam('runbook/platform')).toEqual({ kind: 'runbook', team: 'platform' });
+    expect(deriveIdentityFromTeam('platform')).toEqual({ kind: 'architecture', team: 'platform' });
     expect(sourceLabel('git-repository')).toBe('GitOps');
     expect(normalizeKnowledgeSource('git-repository')).toBe('git');
     expect(isGitManagedDocument({ source: 'database', managed_by_config_repo: true })).toBe(true);
@@ -99,7 +99,7 @@ describe('Knowledge Context model', () => {
 
   it('validates supported, unique, path-safe document identities', () => {
     expect(validateKnowledgeIdentity('unsupported', 'platform', 'new', documents)).toBe('Choose a supported kind.');
-    expect(validateKnowledgeIdentity('runbook', '', 'new', documents)).toBe('Group is required.');
+    expect(validateKnowledgeIdentity('runbook', '', 'new', documents)).toBe('Team is required.');
     expect(validateKnowledgeIdentity('runbook', '../platform', 'new', documents)).toMatch(/invalid path segments/);
     expect(validateKnowledgeIdentity('runbook', 'platform', '', documents)).toBe('Document name is required.');
     expect(validateKnowledgeIdentity('runbook', 'platform', 'bad name', documents)).toMatch(/only contain/);

@@ -23,4 +23,4 @@ advanced_roles:
 basic_roles:
   - user: alice
     role: owner
-    resource: folder:team-1
+    resource: team:team-1

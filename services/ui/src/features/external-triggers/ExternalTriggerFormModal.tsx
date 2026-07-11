@@ -15,7 +15,7 @@ type ExternalTriggerFormModalProps = {
   gitOpsManaged?: boolean;
   pipelineOptions: string[];
   scopeOptions: string[];
-  runGroupOptions: string[];
+  runTeamOptions: string[];
   callerDraft: AllowedCaller;
   activeCallerOptions: SelectOption[];
   onClose: () => void;
@@ -39,7 +39,7 @@ export function ExternalTriggerFormModal({
   gitOpsManaged = false,
   pipelineOptions,
   scopeOptions,
-  runGroupOptions,
+  runTeamOptions,
   callerDraft,
   activeCallerOptions,
   onClose,
@@ -143,14 +143,14 @@ export function ExternalTriggerFormModal({
               </select>
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              <span>Run group</span>
+              <span>Run team</span>
               <select
                 className="pipelines-input"
-                value={form.runGroupPath}
-                onChange={event => onFormChange({ runGroupPath: event.target.value })}
+                value={form.runTeamPath}
+                onChange={event => onFormChange({ runTeamPath: event.target.value })}
               >
-                {runGroupOptions.map(group => (
-                  <option key={group} value={group}>{group === 'root' ? 'Root' : group}</option>
+                {runTeamOptions.map(team => (
+                  <option key={team} value={team}>{team === 'root' ? 'Root' : team}</option>
                 ))}
               </select>
             </label>
@@ -178,7 +178,7 @@ export function ExternalTriggerFormModal({
               >
                 <option value="service_account">Service account</option>
                 <option value="user">User</option>
-                <option value="auth_group">Group</option>
+                <option value="auth_team">Team</option>
               </select>
               <select
                 className="pipelines-input min-w-[220px] flex-1"

@@ -36,7 +36,7 @@ const onScopeCreated = vi.fn();
 function renderMutations(overrides: Partial<Parameters<typeof useScopeModalMutations>[0]> = {}) {
   return renderHook(() =>
     useScopeModalMutations({
-      activeFolder: 'team',
+      activeTeam: 'team',
       scopesByLabel: new Map([['team/existing', {}]]),
       scopeDataByScope: {
         team: {

@@ -88,7 +88,7 @@ profiles:
 
 func TestParseGitOpsAgentProfilePlanRequiresSystemRepository(t *testing.T) {
 	_, err := parseGitOpsAgentProfilePlan(
-		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"},
+		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"},
 		gitOpsAgentProfileDirectory{
 			root: "setting",
 			files: map[string]string{

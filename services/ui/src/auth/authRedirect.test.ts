@@ -5,11 +5,11 @@ import { buildLoginRedirectState, resolvePostLoginPath } from './authRedirect.js
 test('preserves a pipeline run deep link through login', () => {
   const state = buildLoginRedirectState(
     '/pipelineruns/main',
-    '?group=3&run=0ca1f669-5ae5-4b3b-be6a-66a0dc03c99e'
+    '?team=3&run=0ca1f669-5ae5-4b3b-be6a-66a0dc03c99e'
   );
   assert.equal(
     resolvePostLoginPath(state),
-    '/pipelineruns/main?group=3&run=0ca1f669-5ae5-4b3b-be6a-66a0dc03c99e'
+    '/pipelineruns/main?team=3&run=0ca1f669-5ae5-4b3b-be6a-66a0dc03c99e'
   );
 });
 

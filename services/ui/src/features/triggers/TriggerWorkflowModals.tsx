@@ -77,7 +77,7 @@ function TriggerRepositoryDialog({
         </>
       )}
     >
-      <div className="trigger-modal-field-group">
+      <div className="trigger-modal-field-team">
         <label htmlFor={inputId} className="block text-sm font-medium text-[var(--text-secondary)]">
           {isCreate ? 'Repository' : 'Target repository'}
         </label>
@@ -98,7 +98,7 @@ function TriggerRepositoryDialog({
         </p>
       </div>
       {isCreate && 'yamlPreview' in modal ? (
-        <div className="trigger-modal-field-group">
+        <div className="trigger-modal-field-team">
           <p className="block text-sm font-medium text-[var(--text-secondary)]">Template</p>
           <div className="glass-card border border-[var(--border-primary)] rounded-xl overflow-hidden">
             <pre className="p-3 text-xs overflow-auto max-h-52">{modal.yamlPreview}</pre>

@@ -41,13 +41,13 @@ around that balance:
 | AI-assisted pipelines | YAML pipelines with scripts, natural language goals, reusable steps, child pipelines, dependency ordering, conditions, timeouts, volumes, and failure tolerance. |
 | GitHub automation | GitHub App webhooks, signed webhook validation, repository file access, trigger manifests, check-run creation, check-run updates, reruns, and stale-check cancellation. |
 | Generic Git webhooks | Managed GitLab, Bitbucket, Gitea, and generic sources with credential-backed authentication, repository allowlists, normalized events, changed-file filters, delivery idempotency, rate limits, and audit history. |
-| GitOps configuration | Sync pipelines, reusable steps, schedules, triggers, Git webhook sources, scopes, access rules, knowledge documents, notification routes, LLM profiles, MCP settings, auth settings, mail settings, runtime runner/dispatcher settings, and group config repository bindings from Git. |
-| Enterprise access control | Local auth, JWTs, refresh tokens, personal access tokens, predefined product roles, inherited folder grants, AAA checks, deny-before-allow evaluation, and audit logs. |
+| GitOps configuration | Sync pipelines, reusable steps, schedules, triggers, Git webhook sources, scopes, access rules, knowledge documents, notification routes, LLM profiles, MCP settings, auth settings, mail settings, runtime runner/dispatcher settings, and team config repository bindings from Git. |
+| Enterprise access control | Local auth, JWTs, refresh tokens, personal access tokens, predefined product roles, inherited team grants, AAA checks, deny-before-allow evaluation, and audit logs. |
 | Secrets and scopes | Encrypted secrets, plaintext scoped variables, strict scope isolation, repository-specific overrides, cross-scope references, and runtime authorization checks. |
 | Knowledge context | Managed or repo-local markdown context for architecture docs, guardrails, policies, ADRs, runbooks, references, examples, and guidelines injected into LLM tasks. |
 | Runner-based execution | Dispatcher-managed Docker and Kubernetes runners, per-run agents, per-step containers or pods, scope routing, affinity, capacity controls, cancellation, and durable logs. |
 | Nopsai AI Assistant | Docked and full-page assistant that uses existing LLM profiles, conversation memory, and permission-bound hosted MCP tools to analyze runs, draft/validate pipeline YAML, synthesize answers with configured providers, inspect platform context, and keep changes proposal-only for GitOps review. |
-| First-install bootstrap | UI wizard for empty databases, generated runtime configuration, starter repository groups, starter templates, user bootstrap, and setup guardrails. |
+| First-install bootstrap | UI wizard for empty databases, generated runtime configuration, starter repository teams, starter templates, user bootstrap, and setup guardrails. |
 | MCP integration | System-managed MCP server and profile registry with optional profile examples and scope-aware enablement. |
 
 ## Architecture
@@ -137,12 +137,12 @@ working workspace. Before login, the UI checks `/v1/setup/preflight` and shows
 required database, master-key, and JWT guidance when the authenticated API is
 not ready yet. After the default admin changes the first-login password, the UI
 opens **System > Setup** once when setup is incomplete. After completion,
-**System > Setup** stays available for reviewing runtime env groups, GitOps
+**System > Setup** stays available for reviewing runtime env blocks, GitOps
 downloads, generated file previews, and setup guidance.
 
 After starting the stack, open the UI and go to **System > Setup**. The wizard
 uses one guided setup path: required readiness and runtime steps must be
-completed, while GitOps, repository groups, AI, MCP examples, and user
+completed, while GitOps, repository teams, AI, MCP examples, and user
 bootstrap can be skipped and configured later.
 
 The wizard can:
@@ -153,12 +153,12 @@ The wizard can:
 - generate missing local keys and tokens
 - create or connect the global GitOps config repository
 - preview starter GitOps templates
-- create one or two starter repository groups and generate trigger/config
+- create one or two starter repository teams and generate trigger/config
   entries for selected repositories
 - seed starter resources directly into the database for the introduction
 - configure a default LLM profile with one API key field
 - seed disabled MCP examples
-- seed local users with group role assignment and forced password change
+- seed local users with team role assignment and forced password change
 - produce final runtime variables and GitOps file guidance
 - block insecure bootstrap defaults
 
@@ -217,7 +217,7 @@ Prerequisites:
    Credentials** or `setting/system/credentials.yaml`, and set the public
    webhook URL on the GitHub App.
 
-7. Create one or two starter repository groups, apply setup, and run the starter
+7. Create one or two starter repository teams, apply setup, and run the starter
    `setup/first-run` pipeline to verify runner, agent, LLM, logs, and UI.
 
 To stop and remove local state:
@@ -246,7 +246,7 @@ GitOps sync can import:
 - `scopes/`: scoped variables and GitOps secret keys
 - `knowledge/`: managed knowledge documents
 - `access/`: users, roles, policies, bindings, and basic product role grants
-- `config-repositories/`: global and group config repository bindings, per-group hierarchy, and notification routing
+- `config-repositories/`: global and team config repository bindings, per-team hierarchy, and notification routing
 - `setting/system/auth.yaml`: local-login and OIDC SSO settings from the global config repo
 - `setting/system/github.yaml`: GitHub App IDs, credential references, and git-bot URLs from the global config repo
 - `setting/system/mail.yaml`: mail notification SMTP settings from the global config repo
@@ -306,18 +306,18 @@ The **Send test** action uses a matching branded multipart message. It confirms
 the SMTP endpoint, TLS mode, authentication configuration, sender, recipient,
 environment, and generation time without including passwords or secret values.
 
-Group notification routing lives next to the group config repository controls.
-The global repo defines `config-repositories/groups/<group>/notifications.yaml`;
-a group repo defines `notifications.yaml` for its bound group. Each policy can
-contain one or more named routes that select recipients (`same_group`, explicit
-users, groups, and excludes), event types such as
+Team notification routing lives next to the team config repository controls.
+The global repo defines `config-repositories/teams/<team>/notifications.yaml`;
+a team repo defines `notifications.yaml` for its bound team. Each policy can
+contain one or more named routes that select recipients (`same_team`, explicit
+users, teams, and excludes), event types such as
 `failure`, `success`, `pending`, `waiting_approval`, approval decisions, and
 `cancelled`, plus optional pipeline/repo/branch filters and mail delivery
-throttling. Policies apply to their group subtree; the closest policy in the
-run group's ancestry wins, so an application-specific policy overrides its
-parent group policy. Schedules and external triggers can set `run_group_path`
-from the Pipeline Runs hierarchy when the runtime notification group should
-differ from the target pipeline's group.
+throttling. Policies apply to their team subtree; the closest policy in the
+run team's ancestry wins, so an application-specific policy overrides its
+parent team policy. Schedules and external triggers can set `run_team_path`
+from the Teams hierarchy when the runtime notification team should
+differ from the target pipeline's team.
 
 Scope files keep variables and secrets in separate sections. Define every
 plaintext scoped variable under `variables:`; flat top-level variable entries are
@@ -385,7 +385,7 @@ NopsAI is designed for controlled self-hosted operation:
   login rate limits, and personal access tokens.
 - Product roles: `viewer`, `developer`, `owner`, and `admin`.
 - AAA-backed authorization with deny-before-allow semantics.
-- Folder-level access inheritance for child resources.
+- Team access inheritance for child resources.
 - Runtime resource-use checks for manual runs, Git-triggered runs, and child
   pipelines.
 - Resource visibility modes for reusable pipelines, steps, scopes, and
@@ -492,7 +492,7 @@ Before production use:
   production resources.
 - Use GitOps from **System > Setup** as the source of truth before onboarding
   production automation.
-- Review product role grants and folder inheritance.
+- Review product role grants and team inheritance.
 - Restrict runner scopes and capacity according to environment.
 - Check dispatcher, runner, git-bot, LLM, and config sync health checks.
 - Back up Postgres and protect access to the Docker socket on runner hosts.

@@ -5,22 +5,22 @@ import (
 	"time"
 )
 
-func TestTeamResponseFromGroupUsesCompatibilityFields(t *testing.T) {
+func TestTeamResponseFromTeamUsesCompatibilityFields(t *testing.T) {
 	parent := 7
 	now := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
-	group := Group{
+	team := Team{
 		ID:          8,
 		Name:        "platform",
-		Kind:        "group",
+		Kind:        "team",
 		ParentID:    &parent,
 		Description: "Platform team",
 		LastRunAt:   &now,
 	}
-	records := map[int]groupPathRecord{
+	records := map[int]teamPathRecord{
 		8: {ID: 8, Name: "platform", Path: "engineering/platform"},
 	}
 
-	got := teamResponseFromGroup(group, records, []int{10, 11})
+	got := teamResponseFromTeam(team, records, []int{10, 11})
 	if got.Kind != "team" || got.Name != "platform" || got.DisplayName != "platform" {
 		t.Fatalf("team response identity = %#v", got)
 	}
@@ -38,9 +38,9 @@ func TestTeamResponseFromGroupUsesCompatibilityFields(t *testing.T) {
 	}
 }
 
-func TestApplicationResponseFromGroupUsesRepositoryDisplayName(t *testing.T) {
+func TestApplicationResponseFromTeamUsesRepositoryDisplayName(t *testing.T) {
 	parent := 8
-	group := Group{
+	team := Team{
 		ID:                 12,
 		Name:               "acme/payments-api",
 		Kind:               "app",
@@ -48,12 +48,12 @@ func TestApplicationResponseFromGroupUsesRepositoryDisplayName(t *testing.T) {
 		RepoURL:            "https://github.com/acme/payments-api",
 		RepositoryFullName: "acme/payments-api",
 	}
-	records := map[int]groupPathRecord{
+	records := map[int]teamPathRecord{
 		8:  {ID: 8, Name: "platform", Path: "platform"},
 		12: {ID: 12, Name: "payments-api", Path: "platform/payments-api"},
 	}
 
-	got := applicationResponseFromGroup(group, records)
+	got := applicationResponseFromTeam(team, records)
 	if got.Kind != "application" || got.DisplayName != "payments-api" {
 		t.Fatalf("application identity = %#v", got)
 	}

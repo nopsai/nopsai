@@ -2,7 +2,7 @@ export type EditorAutocompleteSuggestion = {
   title: string;
   items: string[];
   activeIndex: number;
-  groupedSections?: Array<{ label: string; items: string[]; totalCount: number }>;
+  teamedSections?: Array<{ label: string; items: string[]; totalCount: number }>;
 };
 
 export function EditorAutocompleteMenu({
@@ -39,8 +39,8 @@ export function EditorAutocompleteMenu({
         <div className="scope-suggestion-body">
           {suggestion.items.length ? (
             <div className="scope-suggestion-list">
-              {suggestion.groupedSections?.length
-                ? suggestion.groupedSections.map(section => {
+              {suggestion.teamedSections?.length
+                ? suggestion.teamedSections.map(section => {
                     const startIndex = runningIndex;
                     runningIndex += section.items.length;
                     const remaining = Math.max(0, section.totalCount - section.items.length);

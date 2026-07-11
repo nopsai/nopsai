@@ -4,13 +4,13 @@ import ResourceAccessCard from '../../components/ResourceAccessCard';
 import {
   createInitialScopeData,
   formatScopeDisplay,
-  groupScopedItems,
+  teamScopedItems,
   isEditableScopeSource,
   isGitOpsScopeSource,
   normalizeScopeLabel,
   scopeSourceLabel,
   scopeSourcePillClass,
-  type GroupedScopedItem,
+  type TeamedScopedItem,
   type ScopeData,
   type ScopePipelineMeta,
   type ScopeTriggerDescriptor,
@@ -83,8 +83,8 @@ export function ScopeDetailView({
   const scopeLabel = normalizeScopeLabel(selectedScope);
   const scopeDisplay = formatScopeDisplay(scopeLabel);
   const data = scopeDataByScope[scopeLabel] || createInitialScopeData();
-  const variableGroups = groupScopedItems(data.variables);
-  const secretGroups = groupScopedItems(data.secrets);
+  const variableTeams = teamScopedItems(data.variables);
+  const secretTeams = teamScopedItems(data.secrets);
   const variableMeta = selectedVariable ? data.variableMeta[selectedVariable] : undefined;
   const secretMeta = selectedSecret ? data.secretMeta[selectedSecret] : undefined;
   const relatedVariablePipelines = selectedVariable ? Array.from(pipelineVariableIndex.get(selectedVariable) || []) : [];
@@ -136,10 +136,10 @@ export function ScopeDetailView({
             canWrite={canWriteVariablesInSelectedScope}
             onCreate={() => onCreateVariable(scopeLabel)}
           >
-            {variableGroups.global.length ? (
+            {variableTeams.global.length ? (
               <VariableSection
                 title="Global"
-                items={variableGroups.global}
+                items={variableTeams.global}
                 scopeLabel={scopeLabel}
                 data={data}
                 selectedVariable={selectedVariable}
@@ -155,11 +155,11 @@ export function ScopeDetailView({
                 onDeleteValue={onDeleteValue}
               />
             ) : null}
-            {variableGroups.repositories.map(group => (
+            {variableTeams.repositories.map(team => (
               <VariableSection
-                key={`var-section-${group.repo}`}
-                title={group.repo}
-                items={group.items}
+                key={`var-section-${team.repo}`}
+                title={team.repo}
+                items={team.items}
                 scopeLabel={scopeLabel}
                 data={data}
                 selectedVariable={selectedVariable}
@@ -187,10 +187,10 @@ export function ScopeDetailView({
             canWrite={canWriteSecretsInSelectedScope}
             onCreate={() => onCreateSecret(scopeLabel)}
           >
-            {secretGroups.global.length ? (
+            {secretTeams.global.length ? (
               <SecretSection
                 title="Global"
-                items={secretGroups.global}
+                items={secretTeams.global}
                 scopeLabel={scopeLabel}
                 data={data}
                 selectedSecret={selectedSecret}
@@ -202,11 +202,11 @@ export function ScopeDetailView({
                 onDeleteValue={onDeleteValue}
               />
             ) : null}
-            {secretGroups.repositories.map(group => (
+            {secretTeams.repositories.map(team => (
               <SecretSection
-                key={`secret-section-${group.repo}`}
-                title={group.repo}
-                items={group.items}
+                key={`secret-section-${team.repo}`}
+                title={team.repo}
+                items={team.items}
                 scopeLabel={scopeLabel}
                 data={data}
                 selectedSecret={selectedSecret}
@@ -294,7 +294,7 @@ function VariableSection({
   onDeleteValue,
 }: {
   title: string;
-  items: GroupedScopedItem[];
+  items: TeamedScopedItem[];
   scopeLabel: string;
   data: ScopeData;
   selectedVariable: string | null;
@@ -440,7 +440,7 @@ function SecretSection({
   onDeleteValue,
 }: {
   title: string;
-  items: GroupedScopedItem[];
+  items: TeamedScopedItem[];
   scopeLabel: string;
   data: ScopeData;
   selectedSecret: string | null;

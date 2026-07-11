@@ -139,7 +139,7 @@ func (a *App) exportConfigRepositoryMCPRegistry(ctx context.Context, repo models
 }
 
 func (a *App) exportConfigRepositoryTeamAIProfiles(ctx context.Context, repo models.ConfigRepository, files map[string]string) error {
-	if repo.ScopeType != models.ConfigRepositoryScopeFolder {
+	if repo.ScopeType != models.ConfigRepositoryScopeTeam {
 		return nil
 	}
 	record, status, err := a.resolveTeamRecord(ctx, repo.ScopeID, false)

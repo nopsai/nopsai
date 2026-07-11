@@ -37,9 +37,9 @@ smtp:
 	}
 }
 
-func TestParseGitOpsMailSettingsPlanRejectsGroupRepo(t *testing.T) {
+func TestParseGitOpsMailSettingsPlanRejectsTeamRepo(t *testing.T) {
 	_, err := parseGitOpsMailSettingsPlan(
-		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"},
+		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"},
 		gitOpsRuntimeSettingsDirectory{
 			root: "setting",
 			files: map[string]string{

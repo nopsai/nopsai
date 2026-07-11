@@ -37,7 +37,7 @@ type setupCounts struct {
 	Pipelines          int `json:"pipelines"`
 	Steps              int `json:"steps"`
 	Triggers           int `json:"triggers"`
-	Groups             int `json:"groups"`
+	Teams              int `json:"teams"`
 	AccessGrants       int `json:"access_grants"`
 	LLMProfiles        int `json:"llm_profiles"`
 	MCPServers         int `json:"mcp_servers"`
@@ -94,7 +94,7 @@ type setupLLMProfileInput struct {
 	Extra          map[string]string `json:"extra,omitempty"`
 }
 
-type setupRepositoryGroupInput struct {
+type setupRepositoryTeamInput struct {
 	Name         string   `json:"name"`
 	Repositories []string `json:"repositories"`
 }
@@ -104,7 +104,7 @@ type setupUserInput struct {
 	Email    string `json:"email"`
 	Role     string `json:"role"`
 	Password string `json:"password"`
-	Group    string `json:"group"`
+	Team     string `json:"team"`
 }
 
 type setupBootstrapRequest struct {
@@ -116,7 +116,7 @@ type setupBootstrapRequest struct {
 	ProductionAcknowledged bool                        `json:"production_acknowledged"`
 	SyncConfigRepository   bool                        `json:"sync_config_repository"`
 	ConfigRepository       *setupConfigRepositoryInput `json:"config_repository"`
-	RepositoryGroups       []setupRepositoryGroupInput `json:"repository_groups"`
+	RepositoryTeams        []setupRepositoryTeamInput  `json:"repository_teams"`
 	Repositories           []string                    `json:"repositories"`
 	LLMProfile             setupLLMProfileInput        `json:"llm_profile"`
 	Users                  []setupUserInput            `json:"users"`
@@ -145,11 +145,11 @@ type setupTemplatesResponse struct {
 }
 
 type setupTemplateOptions struct {
-	RepositoryGroups []setupRepositoryGroupInput
-	Users            []setupUserInput
-	IncludeLLM       bool
-	IncludeMCP       bool
-	LLMProfile       setupLLMProfileInput
+	RepositoryTeams []setupRepositoryTeamInput
+	Users           []setupUserInput
+	IncludeLLM      bool
+	IncludeMCP      bool
+	LLMProfile      setupLLMProfileInput
 }
 
 func (req setupBootstrapRequest) shouldSeedLLMProfile() bool {

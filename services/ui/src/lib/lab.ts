@@ -527,39 +527,39 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
           };
         }
 
-        const groups = Array.isArray(approval.groups) ? approval.groups : [];
-        if (groups.length === 0) {
-          return { errors: [createError(`Validation Error: Approval step '${stepName}' must assign at least one approval group.`, [`${stepPath}.approval.groups`, `${stepPath}.approval`, stepPath])] };
+        const teams = Array.isArray(approval.teams) ? approval.teams : [];
+        if (teams.length === 0) {
+          return { errors: [createError(`Validation Error: Approval step '${stepName}' must assign at least one approval team.`, [`${stepPath}.approval.teams`, `${stepPath}.approval`, stepPath])] };
         }
-        const seenGroups = new Set<string>();
-        for (const rawGroup of groups) {
-          const group = typeof rawGroup === 'string' ? rawGroup.trim() : '';
-          const normalizedGroup = group.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
-          const segments = normalizedGroup.split('/');
-          if (!group || group.startsWith('/') || group.startsWith('~') || segments.some(segment => !segment || segment === '.' || segment === '..')) {
+        const seenTeams = new Set<string>();
+        for (const rawTeam of teams) {
+          const team = typeof rawTeam === 'string' ? rawTeam.trim() : '';
+          const normalizedTeam = team.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+          const segments = normalizedTeam.split('/');
+          if (!team || team.startsWith('/') || team.startsWith('~') || segments.some(segment => !segment || segment === '.' || segment === '..')) {
             return {
               errors: [
-                createError(`Validation Error: Approval step '${stepName}' approval group '${group || '<empty>'}' must be a relative folder path.`, [
-                  `${stepPath}.approval.groups`,
+                createError(`Validation Error: Approval step '${stepName}' approval team '${team || '<empty>'}' must be a relative team path.`, [
+                  `${stepPath}.approval.teams`,
                   `${stepPath}.approval`,
                   stepPath,
                 ]),
               ],
             };
           }
-          const groupKey = normalizedGroup.toLowerCase();
-          if (seenGroups.has(groupKey)) {
+          const teamKey = normalizedTeam.toLowerCase();
+          if (seenTeams.has(teamKey)) {
             return {
               errors: [
-                createError(`Validation Error: Approval step '${stepName}' repeats approval group '${group}'.`, [
-                  `${stepPath}.approval.groups`,
+                createError(`Validation Error: Approval step '${stepName}' repeats approval team '${team}'.`, [
+                  `${stepPath}.approval.teams`,
                   `${stepPath}.approval`,
                   stepPath,
                 ]),
               ],
             };
           }
-          seenGroups.add(groupKey);
+          seenTeams.add(teamKey);
         }
         if (hasOwn(approval, 'allow_self_approval') && typeof approval.allow_self_approval !== 'boolean') {
           return {

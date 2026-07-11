@@ -1,6 +1,14 @@
 package nopsai
 
-import "testing"
+import (
+	"context"
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+)
 
 func TestParseResourceAccessPath(t *testing.T) {
 	tests := []struct {
@@ -90,6 +98,39 @@ func TestResolveDefaultScopeGrantResourceDoesNotRequireRows(t *testing.T) {
 	}
 }
 
+func TestListAccessAuthTeamsQueriesAuthTeamsOnly(t *testing.T) {
+	runner := &accessAuthTeamsQueryRunner{
+		rows: &accessAuthTeamRows{
+			rows: []accessAuthTeamResponse{
+				{ID: " team-b ", Name: " Beta "},
+				{ID: "", Name: "missing-id"},
+				{ID: "team-a", Name: ""},
+				{ID: "team-c", Name: "Alpha"},
+			},
+		},
+	}
+
+	got, err := listAccessAuthTeams(context.Background(), runner)
+	if err != nil {
+		t.Fatalf("listAccessAuthTeams() error = %v", err)
+	}
+	if !strings.Contains(runner.query, "FROM auth_teams") {
+		t.Fatalf("query = %q, want auth_teams source", runner.query)
+	}
+	want := []accessAuthTeamResponse{
+		{ID: "team-b", Name: "Beta"},
+		{ID: "team-c", Name: "Alpha"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("listAccessAuthTeams() = %#v, want %#v", got, want)
+	}
+	for idx := range want {
+		if got[idx] != want[idx] {
+			t.Fatalf("listAccessAuthTeams() = %#v, want %#v", got, want)
+		}
+	}
+}
+
 func TestValidateResourceVisibilityPolicy(t *testing.T) {
 	if err := validateResourceVisibilityPolicy(grantResourcePipeline, resourceVisibilityWorkspace); err != nil {
 		t.Fatalf("pipeline workspace visibility error = %v", err)
@@ -126,15 +167,82 @@ func TestNormalizeUseGrantActions(t *testing.T) {
 	}
 }
 
-func TestInheritedAccessParentFoldersForPipeline(t *testing.T) {
-	got := inheritedAccessParentFolders(accessGrantResource{Type: grantResourcePipeline, ID: "team-1/dev/deploy"})
+func TestInheritedAccessParentTeamsForPipeline(t *testing.T) {
+	got := inheritedAccessParentTeams(accessGrantResource{Type: grantResourcePipeline, ID: "team-1/dev/deploy"})
 	want := []string{"team-1", "team-1/dev"}
 	if len(got) != len(want) {
-		t.Fatalf("parent folders = %#v, want %#v", got, want)
+		t.Fatalf("parent teams = %#v, want %#v", got, want)
 	}
 	for idx := range want {
 		if got[idx] != want[idx] {
-			t.Fatalf("parent folders = %#v, want %#v", got, want)
+			t.Fatalf("parent teams = %#v, want %#v", got, want)
 		}
 	}
+}
+
+type accessAuthTeamsQueryRunner struct {
+	rows  pgx.Rows
+	query string
+}
+
+func (r *accessAuthTeamsQueryRunner) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, fmt.Errorf("unexpected exec")
+}
+
+func (r *accessAuthTeamsQueryRunner) Query(_ context.Context, query string, _ ...any) (pgx.Rows, error) {
+	r.query = query
+	return r.rows, nil
+}
+
+func (r *accessAuthTeamsQueryRunner) QueryRow(context.Context, string, ...any) pgx.Row {
+	return fakeScanRow{err: fmt.Errorf("unexpected query row")}
+}
+
+type accessAuthTeamRows struct {
+	rows  []accessAuthTeamResponse
+	index int
+}
+
+func (r *accessAuthTeamRows) Close() {}
+
+func (r *accessAuthTeamRows) Err() error {
+	return nil
+}
+
+func (r *accessAuthTeamRows) CommandTag() pgconn.CommandTag {
+	return pgconn.CommandTag{}
+}
+
+func (r *accessAuthTeamRows) FieldDescriptions() []pgconn.FieldDescription {
+	return nil
+}
+
+func (r *accessAuthTeamRows) Next() bool {
+	if r.index >= len(r.rows) {
+		return false
+	}
+	r.index++
+	return true
+}
+
+func (r *accessAuthTeamRows) Scan(dest ...any) error {
+	if len(dest) != 2 {
+		return fmt.Errorf("expected two scan destinations, got %d", len(dest))
+	}
+	row := r.rows[r.index-1]
+	*(dest[0].(*string)) = row.ID
+	*(dest[1].(*string)) = row.Name
+	return nil
+}
+
+func (r *accessAuthTeamRows) Values() ([]any, error) {
+	return nil, nil
+}
+
+func (r *accessAuthTeamRows) RawValues() [][]byte {
+	return nil
+}
+
+func (r *accessAuthTeamRows) Conn() *pgx.Conn {
+	return nil
 }

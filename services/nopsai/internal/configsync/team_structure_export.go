@@ -7,19 +7,19 @@ import (
 	"nopsai/pkg/models"
 )
 
-type GroupStructureExportNode struct {
+type TeamStructureExportNode struct {
 	Description string
-	Config      *GroupStructureBindingExport
-	Apps        []GroupStructureAppExport
-	Children    map[string]*GroupStructureExportNode
+	Config      *TeamStructureBindingExport
+	Apps        []TeamStructureAppExport
+	Children    map[string]*TeamStructureExportNode
 }
 
-type GroupStructureAppExport struct {
+type TeamStructureAppExport struct {
 	Name    string `yaml:"name"`
 	RepoURL string `yaml:"repo_url"`
 }
 
-type GroupStructureBindingExport struct {
+type TeamStructureBindingExport struct {
 	RepoURL      string `yaml:"repo_url"`
 	Branch       string `yaml:"branch,omitempty"`
 	BasePath     string `yaml:"base_path,omitempty"`
@@ -28,7 +28,7 @@ type GroupStructureBindingExport struct {
 	WriteBranch  string `yaml:"write_branch,omitempty"`
 }
 
-func GroupStructureIncludesPath(repo models.ConfigRepository, path string) bool {
+func TeamStructureIncludesPath(repo models.ConfigRepository, path string) bool {
 	path = strings.Trim(strings.TrimSpace(path), "/")
 	if path == "" {
 		return false
@@ -39,10 +39,10 @@ func GroupStructureIncludesPath(repo models.ConfigRepository, path string) bool 
 	return ResourceUnderScope(path, repo.ScopeID)
 }
 
-func EnsureGroupStructureExportPath(structure map[string]*GroupStructureExportNode, path string) *GroupStructureExportNode {
+func EnsureTeamStructureExportPath(structure map[string]*TeamStructureExportNode, path string) *TeamStructureExportNode {
 	parts := strings.Split(strings.Trim(strings.TrimSpace(path), "/"), "/")
 	children := structure
-	var current *GroupStructureExportNode
+	var current *TeamStructureExportNode
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		if part == "" {
@@ -50,19 +50,19 @@ func EnsureGroupStructureExportPath(structure map[string]*GroupStructureExportNo
 		}
 		current = children[part]
 		if current == nil {
-			current = &GroupStructureExportNode{Children: map[string]*GroupStructureExportNode{}}
+			current = &TeamStructureExportNode{Children: map[string]*TeamStructureExportNode{}}
 			children[part] = current
 		}
 		if current.Children == nil {
-			current.Children = map[string]*GroupStructureExportNode{}
+			current.Children = map[string]*TeamStructureExportNode{}
 		}
 		children = current.Children
 	}
 	return current
 }
 
-func BuildGroupStructureAppExport(name, repoURL, repositoryFullName string) (GroupStructureAppExport, bool) {
-	app := GroupStructureAppExport{
+func BuildTeamStructureAppExport(name, repoURL, repositoryFullName string) (TeamStructureAppExport, bool) {
+	app := TeamStructureAppExport{
 		Name:    strings.TrimSpace(name),
 		RepoURL: strings.TrimSpace(repoURL),
 	}
@@ -76,7 +76,7 @@ func BuildGroupStructureAppExport(name, repoURL, repositoryFullName string) (Gro
 	return app, app.Name != "" && app.RepoURL != ""
 }
 
-func GroupStructureExportMap(structure map[string]*GroupStructureExportNode) map[string]any {
+func TeamStructureExportMap(structure map[string]*TeamStructureExportNode) map[string]any {
 	out := map[string]any{}
 	names := make([]string, 0, len(structure))
 	for name := range structure {
@@ -84,16 +84,16 @@ func GroupStructureExportMap(structure map[string]*GroupStructureExportNode) map
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		out[name] = groupStructureNodeExportMap(structure[name])
+		out[name] = teamStructureNodeExportMap(structure[name])
 	}
 	return out
 }
 
-func GroupStructureExportNodeMap(node *GroupStructureExportNode) map[string]any {
-	return groupStructureNodeExportMap(node)
+func TeamStructureExportNodeMap(node *TeamStructureExportNode) map[string]any {
+	return teamStructureNodeExportMap(node)
 }
 
-func groupStructureNodeExportMap(node *GroupStructureExportNode) map[string]any {
+func teamStructureNodeExportMap(node *TeamStructureExportNode) map[string]any {
 	out := map[string]any{}
 	if node == nil {
 		return out
@@ -110,7 +110,7 @@ func groupStructureNodeExportMap(node *GroupStructureExportNode) map[string]any 
 		})
 		out["apps"] = node.Apps
 	}
-	for name, child := range GroupStructureExportMap(node.Children) {
+	for name, child := range TeamStructureExportMap(node.Children) {
 		out[name] = child
 	}
 	return out

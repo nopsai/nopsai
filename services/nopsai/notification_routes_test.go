@@ -7,13 +7,13 @@ import (
 	"nopsai/pkg/models"
 )
 
-func TestParseGitOpsNotificationRoutesGroupRepoRootFile(t *testing.T) {
+func TestParseGitOpsNotificationRoutesTeamRepoRootFile(t *testing.T) {
 	routes, err := parseGitOpsNotificationRoutes(map[string]string{
 		"notifications.yaml": `
 enabled: true
 recipients:
   include:
-    teams: [same_group]
+    teams: [same_team]
     users:
       - Alice@Example.com
   exclude:
@@ -33,7 +33,7 @@ delivery:
     max_per_run: 3
 `,
 	}, "", models.ConfigRepository{
-		ScopeType: models.ConfigRepositoryScopeFolder,
+		ScopeType: models.ConfigRepositoryScopeTeam,
 		ScopeID:   "team-1",
 	}, "team-1")
 	if err != nil {
@@ -57,9 +57,9 @@ delivery:
 	}
 }
 
-func TestParseGitOpsNotificationRoutesConfigRepositoryGroupPath(t *testing.T) {
+func TestParseGitOpsNotificationRoutesConfigRepositoryTeamPath(t *testing.T) {
 	routes, err := parseGitOpsConfigRepositoryNotificationRoutes(map[string]string{
-		"config-repositories/groups/team-1/platform/notifications.yaml": `
+		"config-repositories/teams/team-1/platform/notifications.yaml": `
 enabled: true
 events:
   waiting-approval: true
@@ -75,7 +75,7 @@ events:
 	if !ok {
 		t.Fatalf("missing colocated route: %#v", routes)
 	}
-	if route.sourcePath != "config-repositories/groups/team-1/platform/notifications.yaml" {
+	if route.sourcePath != "config-repositories/teams/team-1/platform/notifications.yaml" {
 		t.Fatalf("source path = %q, want colocated notification path", route.sourcePath)
 	}
 	if !route.definition.Events["waiting_approval"] {
@@ -90,7 +90,7 @@ func TestParseConfigSyncPlanSkipsColocatedNotificationAsBinding(t *testing.T) {
 		dirs: configRepositoryGitDirsForBasePath(""),
 	}, configSyncRepositoryFiles{
 		configRepositories: map[string]string{
-			"config-repositories/groups/team-1/notifications.yaml": `
+			"config-repositories/teams/team-1/notifications.yaml": `
 enabled: true
 routes:
   - name: failures
@@ -102,7 +102,7 @@ routes:
 	if err != nil {
 		t.Fatalf("parseConfigSyncPlan() error = %v", err)
 	}
-	if _, ok := plan.configRepositories["folder/team-1/notifications"]; ok {
+	if _, ok := plan.configRepositories["team/team-1/notifications"]; ok {
 		t.Fatal("colocated notification policy was parsed as a config repository binding")
 	}
 	if _, ok := plan.notificationRoutes["team-1"]; !ok {
@@ -112,7 +112,7 @@ routes:
 
 func TestParseGitOpsNotificationRoutesMultiRoutePolicy(t *testing.T) {
 	routes, err := parseGitOpsConfigRepositoryNotificationRoutes(map[string]string{
-		"config-repositories/groups/team-1/notifications.yaml": `
+		"config-repositories/teams/team-1/notifications.yaml": `
 enabled: true
 routes:
   - name: ops failures
@@ -127,7 +127,7 @@ routes:
       approval_requested: true
     recipients:
       include:
-        groups: [team-1/release]
+        teams: [team-1/release]
 `,
 	}, "config-repositories", models.ConfigRepository{
 		ScopeType: models.ConfigRepositoryScopeSystem,
@@ -153,7 +153,7 @@ routes:
 
 func TestParseGitOpsNotificationRoutesRejectsUnknownEvent(t *testing.T) {
 	_, err := parseGitOpsConfigRepositoryNotificationRoutes(map[string]string{
-		"config-repositories/groups/team-1/notifications.yaml": `
+		"config-repositories/teams/team-1/notifications.yaml": `
 events:
   maybe: true
 `,

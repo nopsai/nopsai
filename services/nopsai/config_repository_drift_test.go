@@ -155,8 +155,8 @@ func TestConfigRepositoryDriftPathIncludesSyncableResourceFamilies(t *testing.T)
 		"access/grants.yaml",
 		"ai-profiles.yaml",
 		"ai-profiles.yml",
-		"config-repositories/groups/team-1/notifications.yaml",
-		"config-repositories/groups/team-1/structure.yaml",
+		"config-repositories/teams/team-1/notifications.yaml",
+		"config-repositories/teams/team-1/structure.yaml",
 		"setting/system/auth.yaml",
 		"setting/system/credentials.yaml",
 		"setting/system/github.yaml",
@@ -173,7 +173,7 @@ func TestConfigRepositoryDriftPathIncludesSyncableResourceFamilies(t *testing.T)
 	if isConfigRepositoryDriftPath("access/readme.md") {
 		t.Fatal("non-YAML access files should not be included in drift")
 	}
-	for _, path := range []string{"notifications/groups/team-1.yaml", "pipelineruns/structure.yaml", "settings/system/runner.yaml"} {
+	for _, path := range []string{"notifications/teams/team-1.yaml", "pipelineruns/structure.yaml", "settings/system/runner.yaml"} {
 		if isConfigRepositoryDriftPath(path) {
 			t.Fatalf("legacy path %q should not be included in drift", path)
 		}
@@ -182,87 +182,87 @@ func TestConfigRepositoryDriftPathIncludesSyncableResourceFamilies(t *testing.T)
 
 func TestConfigRepositoryNotificationRoutePathUsesColocatedSystemPath(t *testing.T) {
 	repo := models.ConfigRepository{ID: 7, ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID}
-	got, ok := configRepositoryNotificationRoutePath(repo, "team-1/dev", "config-repositories/groups/team-1/dev/notifications.yaml", true, sql.NullInt64{Int64: 7, Valid: true})
-	if !ok || got != "config-repositories/groups/team-1/dev/notifications.yaml" {
+	got, ok := configRepositoryNotificationRoutePath(repo, "team-1/dev", "config-repositories/teams/team-1/dev/notifications.yaml", true, sql.NullInt64{Int64: 7, Valid: true})
+	if !ok || got != "config-repositories/teams/team-1/dev/notifications.yaml" {
 		t.Fatalf("notification route path = %q, %t; want colocated team-1/dev path", got, ok)
 	}
 }
 
-func TestConfigRepositoryNotificationRoutePathUsesRootFileForBoundFolder(t *testing.T) {
-	repo := models.ConfigRepository{ID: 7, ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"}
+func TestConfigRepositoryNotificationRoutePathUsesRootFileForBoundTeam(t *testing.T) {
+	repo := models.ConfigRepository{ID: 7, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
 	got, ok := configRepositoryNotificationRoutePath(repo, "team-1", "", false, sql.NullInt64{})
 	if !ok || got != "notifications.yaml" {
-		t.Fatalf("notification route path = %q, %t; want group root notifications.yaml", got, ok)
+		t.Fatalf("notification route path = %q, %t; want team root notifications.yaml", got, ok)
 	}
 	got, ok = configRepositoryNotificationRoutePath(repo, "team-1/dev", "", false, sql.NullInt64{})
-	if !ok || got != "config-repositories/groups/dev/notifications.yaml" {
+	if !ok || got != "config-repositories/teams/dev/notifications.yaml" {
 		t.Fatalf("child notification route path = %q, %t; want colocated child path", got, ok)
 	}
 }
 
-func TestNotificationRouteGroupPathUsesResolvedHierarchy(t *testing.T) {
-	records := map[int]groupPathRecord{
+func TestNotificationRouteTeamPathUsesResolvedHierarchy(t *testing.T) {
+	records := map[int]teamPathRecord{
 		2: {ID: 2, Name: "dev", Path: "team-1/dev"},
 	}
-	got, err := notificationRouteGroupPath(records, 2)
+	got, err := notificationRouteTeamPath(records, 2)
 	if err != nil {
-		t.Fatalf("notificationRouteGroupPath() error = %v", err)
+		t.Fatalf("notificationRouteTeamPath() error = %v", err)
 	}
 	if got != "team-1/dev" {
-		t.Fatalf("notificationRouteGroupPath() = %q, want team-1/dev", got)
+		t.Fatalf("notificationRouteTeamPath() = %q, want team-1/dev", got)
 	}
-	if _, err := notificationRouteGroupPath(records, 99); err == nil {
-		t.Fatal("notificationRouteGroupPath() should reject an unknown group")
+	if _, err := notificationRouteTeamPath(records, 99); err == nil {
+		t.Fatal("notificationRouteTeamPath() should reject an unknown team")
 	}
 }
 
-func TestConfigRepositoryGroupStructureFilesUseScopedPaths(t *testing.T) {
-	structure := map[string]*configsync.GroupStructureExportNode{
+func TestConfigRepositoryTeamStructureFilesUseScopedPaths(t *testing.T) {
+	structure := map[string]*configsync.TeamStructureExportNode{
 		"team-1": {
 			Description: "Team 1",
-			Apps: []configsync.GroupStructureAppExport{
+			Apps: []configsync.TeamStructureAppExport{
 				{Name: "api", RepoURL: "https://github.com/acme/api"},
 			},
-			Children: map[string]*configsync.GroupStructureExportNode{},
+			Children: map[string]*configsync.TeamStructureExportNode{},
 		},
 		"team-2": {
 			Description: "Team 2",
-			Children:    map[string]*configsync.GroupStructureExportNode{},
+			Children:    map[string]*configsync.TeamStructureExportNode{},
 		},
 	}
 
-	files, err := configRepositoryGroupStructureFiles(
+	files, err := configRepositoryTeamStructureFiles(
 		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID},
 		structure,
 	)
 	if err != nil {
-		t.Fatalf("configRepositoryGroupStructureFiles() error = %v", err)
+		t.Fatalf("configRepositoryTeamStructureFiles() error = %v", err)
 	}
-	if _, ok := files["config-repositories/groups/structure.yaml"]; ok {
+	if _, ok := files["config-repositories/teams/structure.yaml"]; ok {
 		t.Fatalf("aggregate structure file should not be exported: %#v", files)
 	}
-	team1 := files["config-repositories/groups/team-1/structure.yaml"]
+	team1 := files["config-repositories/teams/team-1/structure.yaml"]
 	if !strings.Contains(team1, "description: Team 1") || strings.Contains(team1, "team-1:") {
 		t.Fatalf("team-1 scoped structure = %q, want node content without wrapper", team1)
 	}
-	if _, ok := files["config-repositories/groups/team-2/structure.yaml"]; !ok {
+	if _, ok := files["config-repositories/teams/team-2/structure.yaml"]; !ok {
 		t.Fatalf("missing team-2 scoped structure file: %#v", files)
 	}
 }
 
-func TestConfigRepositoryExportPathForFolderScope(t *testing.T) {
-	repo := models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"}
+func TestConfigRepositoryExportPathForTeamScope(t *testing.T) {
+	repo := models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
 	got, ok := configRepositoryExportPath(repo, "team-1/services/api/deploy", "", "pipelines", ".yaml", false, sql.NullInt64{})
 	if !ok || got != "pipelines/services/api/deploy.yaml" {
 		t.Fatalf("export path = %q, %t; want pipelines/services/api/deploy.yaml, true", got, ok)
 	}
 	if _, ok := configRepositoryExportPath(repo, "team-2/services/api/deploy", "", "pipelines", ".yaml", false, sql.NullInt64{}); ok {
-		t.Fatal("resource outside folder scope was accepted")
+		t.Fatal("resource outside team scope was accepted")
 	}
 }
 
 func TestConfigRepositoryExportPathStripsBasePathFromManagedSource(t *testing.T) {
-	repo := models.ConfigRepository{ID: 7, ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1", BasePath: "configs/team-1"}
+	repo := models.ConfigRepository{ID: 7, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1", BasePath: "configs/team-1"}
 	got, ok := configRepositoryExportPath(repo, "team-1/services/api/deploy", "configs/team-1/pipelines/services/api/deploy.yaml", "pipelines", ".yaml", true, sql.NullInt64{Int64: 7, Valid: true})
 	if !ok || got != "pipelines/services/api/deploy.yaml" {
 		t.Fatalf("managed export path = %q, %t; want pipelines/services/api/deploy.yaml, true", got, ok)
@@ -278,47 +278,47 @@ func TestConfigRepositoryIncludesResourceSkipsDelegatedScopes(t *testing.T) {
 	delegatedScopes := []string{"team-1"}
 
 	if configRepositoryIncludesResource(systemRepo, "team-1/test", "database", sql.NullInt64{}, false, delegatedScopes) {
-		t.Fatal("system repo should not include database resource under delegated folder")
+		t.Fatal("system repo should not include database resource under delegated team")
 	}
 	if configRepositoryIncludesResource(systemRepo, "team-1/test", "git", sql.NullInt64{Int64: 1, Valid: true}, true, delegatedScopes) {
-		t.Fatal("system repo should not keep claiming managed resource under delegated folder")
+		t.Fatal("system repo should not keep claiming managed resource under delegated team")
 	}
 	if !configRepositoryIncludesResource(systemRepo, "team-10/test", "database", sql.NullInt64{}, false, delegatedScopes) {
-		t.Fatal("similarly named but unrelated folder should remain in system repo")
+		t.Fatal("similarly named but unrelated team should remain in system repo")
 	}
 	if !configRepositoryIncludesResource(systemRepo, "platform/test", "database", sql.NullInt64{}, false, delegatedScopes) {
 		t.Fatal("unrelated system resource should remain in system repo")
 	}
 }
 
-func TestConfigRepositoryIncludesResourceSkipsChildDelegatedScopesForFolderRepo(t *testing.T) {
-	parentRepo := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"}
+func TestConfigRepositoryIncludesResourceSkipsChildDelegatedScopesForTeamRepo(t *testing.T) {
+	parentRepo := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
 	delegatedScopes := []string{"team-1/dev"}
 
 	if configRepositoryIncludesResource(parentRepo, "team-1/dev/deploy", "database", sql.NullInt64{}, false, delegatedScopes) {
-		t.Fatal("parent folder repo should not include database resource under child delegated folder")
+		t.Fatal("parent team repo should not include database resource under child delegated team")
 	}
 	if !configRepositoryIncludesResource(parentRepo, "team-1/deploy", "database", sql.NullInt64{}, false, delegatedScopes) {
-		t.Fatal("parent folder repo should still include resources directly under its scope")
+		t.Fatal("parent team repo should still include resources directly under its scope")
 	}
 }
 
 func TestConfigRepositoryIncludesBasicRoleGrantKeepsSystemDelegatedScopeGrant(t *testing.T) {
 	systemRepo := models.ConfigRepository{ID: 1, ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID}
-	if !configRepositoryIncludesBasicRoleGrant(systemRepo, grantResourceFolder, "team-1", []string{"team-1"}) {
-		t.Fatal("system basic role grant should remain exportable even when the target folder has a delegated config repo")
+	if !configRepositoryIncludesBasicRoleGrant(systemRepo, grantResourceTeam, "team-1", []string{"team-1"}) {
+		t.Fatal("system basic role grant should remain exportable even when the target team has a delegated config repo")
 	}
 }
 
-func TestConfigRepositoryIncludesBasicRoleGrantSkipsChildDelegatedScopeForFolderRepo(t *testing.T) {
-	parentRepo := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"}
+func TestConfigRepositoryIncludesBasicRoleGrantSkipsChildDelegatedScopeForTeamRepo(t *testing.T) {
+	parentRepo := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
 	delegatedScopes := []string{"team-1/dev"}
 
-	if !configRepositoryIncludesBasicRoleGrant(parentRepo, grantResourceFolder, "team-1", delegatedScopes) {
-		t.Fatal("parent folder basic role grant should remain exportable")
+	if !configRepositoryIncludesBasicRoleGrant(parentRepo, grantResourceTeam, "team-1", delegatedScopes) {
+		t.Fatal("parent team basic role grant should remain exportable")
 	}
-	if configRepositoryIncludesBasicRoleGrant(parentRepo, grantResourceFolder, "team-1/dev", delegatedScopes) {
-		t.Fatal("child delegated folder basic role grant should not be exported by parent folder repo")
+	if configRepositoryIncludesBasicRoleGrant(parentRepo, grantResourceTeam, "team-1/dev", delegatedScopes) {
+		t.Fatal("child delegated team basic role grant should not be exported by parent team repo")
 	}
 }
 
@@ -455,7 +455,7 @@ func TestConfigRepositoryAccessExportDocumentRendersServiceAccounts(t *testing.T
 }
 
 func TestConfigRepositoryBasicRoleExportUsesSubjectShortcuts(t *testing.T) {
-	userGrant := configRepositoryBasicRoleExport{Role: productRoleOwner, Resource: configRepositoryBasicRoleResourceExport(grantResourceFolder, generalGrantID)}
+	userGrant := configRepositoryBasicRoleExport{Role: productRoleOwner, Resource: configRepositoryBasicRoleResourceExport(grantResourceTeam, generalGrantID)}
 	if !setConfigRepositoryBasicRoleSubjectExport(&userGrant, grantSubjectUser, "alice") {
 		t.Fatal("expected user subject export to succeed")
 	}
@@ -473,7 +473,7 @@ func TestConfigRepositoryBasicRoleExportUsesSubjectShortcuts(t *testing.T) {
 	rendered := string(content)
 	for _, want := range []string{
 		"user: alice",
-		"resource: folder:root",
+		"resource: team:root",
 		"service_account: webhook-deployer",
 		"resource: pipeline:platform-maintenance",
 	} {

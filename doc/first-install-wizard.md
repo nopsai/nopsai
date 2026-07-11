@@ -35,10 +35,10 @@ There are no starter profiles in the UI. The wizard is a single guided flow:
 
 - required readiness and runtime configuration steps
 - optional GitOps repository connection and sync kickoff
-- optional repository groups, limited to one or two starter groups for an
+- optional repository teams, limited to one or two starter teams for an
   introduction
 - optional default AI setup with one API key field
-- optional user creation with group, role, and temporary password assignment
+- optional user creation with team, role, and temporary password assignment
 - final generated output for runtime variables, service/container environment,
   and GitOps files
 
@@ -59,8 +59,8 @@ There are no starter profiles in the UI. The wizard is a single guided flow:
    service discovery. The final step prints variables that can be applied as
    container environment, secret-manager values, or an environment file.
 6. Optionally connect a global GitOps config repository and start sync.
-7. Create one or two repository groups and place selected repositories under
-   them. These groups drive starter trigger generation, run navigation, and
+7. Create one or two repository teams and place selected repositories under
+   them. These teams drive starter trigger generation, run navigation, and
    initial access assignments.
 8. Optionally configure the default LLM profile. For local development, the
    default is LM Studio at `http://lmstudio:1234` with model `qwen3-coder`.
@@ -68,23 +68,23 @@ There are no starter profiles in the UI. The wizard is a single guided flow:
    Mistral, OpenRouter, Ollama, and Azure OpenAI. Hosted providers use one API
    key field, stored as a NopsAI secret.
 9. Optionally seed disabled MCP examples for later activation.
-10. Optionally create starter users, assign them to a group with owner,
+10. Optionally create starter users, assign them to a team with owner,
     developer, or viewer role, and set or generate temporary passwords. Created
     local users must change password on first login.
-11. Review generated runtime variables, GitOps folder/file layout, and
+11. Review generated runtime variables, GitOps team/file layout, and
     post-setup instructions.
 12. Apply setup, then run the starter `setup/first-run` pipeline to verify the
     runner, agent, LLM path, logs, and UI.
 
 The setup modal is step-by-step. Optional steps such as GitOps, repository
-groups, AI, MCP examples, and users can be skipped and completed later. The
-review step summarises generated variables, GitOps files, repository groups,
+teams, AI, MCP examples, and users can be skipped and completed later. The
+review step summarises generated variables, GitOps files, repository teams,
 selected repositories, AI settings, and user assignments before anything is
 applied.
 
 After setup is completed, **System > Setup** remains available as an operator
 reference page. The page keeps the same step navigation and opens on the output
-step by default so runtime env groups, GitOps zip download, and generated file
+step by default so runtime env blocks, GitOps zip download, and generated file
 preview can be inspected again later.
 
 ## Preflight Mode
@@ -170,7 +170,7 @@ Required GitHub App permissions:
 - `pull_requests`: read
 - `checks`: read and write
 
-Repository groups are entered manually as GitHub `owner/repo` names or GitHub
+Repository teams are entered manually as GitHub `owner/repo` names or GitHub
 URLs. Starter GitOps structure stores each app with a `repo_url`, which NopsAI
 normalizes for trigger-to-app matching. If a repository does not trigger later,
 verify the GitHub App ID, installation ID, private key, webhook secret, public
@@ -193,7 +193,7 @@ knowledge/guideline/platform/setup-run.md
 access/bootstrap.yaml
 setting/system/llm_profile.yaml
 setting/system/mcp.yaml
-config-repositories/groups/<group>/structure.yaml
+config-repositories/teams/<team>/structure.yaml
 ```
 
 The wizard can seed equivalent starter resources directly into the database for
@@ -243,7 +243,7 @@ curl -X POST \
       "base_path": "",
       "enabled": true
     },
-    "repository_groups": [
+    "repository_teams": [
       {"name": "platform", "repositories": ["acme/service-api"]},
       {"name": "applications", "repositories": ["acme/web-app"]}
     ],
@@ -260,7 +260,7 @@ curl -X POST \
         "sub": "alice@example.com",
         "email": "alice@example.com",
         "role": "owner",
-        "group": "platform",
+        "team": "platform",
         "password": "temporary-password"
       }
     ]

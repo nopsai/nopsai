@@ -26,45 +26,45 @@ func markRunRunning(ctx context.Context, runner execRunner, runID string) error 
 	return err
 }
 
-func (a *App) resolveGroupIDForRepo(repoOwner, repoName string) (sql.NullInt32, error) {
-	var groupID sql.NullInt32
+func (a *App) resolveTeamIDForRepo(repoOwner, repoName string) (sql.NullInt32, error) {
+	var teamID sql.NullInt32
 	repoName = strings.TrimSpace(repoName)
 	if repoName == "" {
-		return groupID, nil
+		return teamID, nil
 	}
 
 	repoOwner = strings.TrimSpace(repoOwner)
 	fullRepoName := repositoryFullName(repoOwner, repoName)
-	matches, err := a.repositoryGroupMatches(context.Background(), repoOwner, repoName)
+	matches, err := a.repositoryTeamMatches(context.Background(), repoOwner, repoName)
 	if err != nil {
-		return groupID, err
+		return teamID, err
 	}
 	if len(matches) > 0 {
-		return repositoryGroupIDFromMatches(matches), nil
+		return repositoryTeamIDFromMatches(matches), nil
 	}
 
-	log.Debug().Str("repo", fullRepoName).Msg("No existing app/team found for repository run; leaving run ungrouped.")
-	return groupID, nil
+	log.Debug().Str("repo", fullRepoName).Msg("No existing app/team found for repository run; leaving run unteamed.")
+	return teamID, nil
 }
 
-func repositoryGroupIDFromMatches(matches []repositoryGroupMatch) sql.NullInt32 {
+func repositoryTeamIDFromMatches(matches []repositoryTeamMatch) sql.NullInt32 {
 	if len(matches) == 0 {
 		return sql.NullInt32{}
 	}
 	return sql.NullInt32{Int32: int32(matches[0].ID), Valid: true}
 }
 
-func (a *App) resolveGroupIDForRun(ctx context.Context, explicitGroupPath, pipelinePath string, gitContext map[string]string) (sql.NullInt32, error) {
-	for _, candidate := range runquery.GroupResolutionCandidates(explicitGroupPath, pipelinePath, gitContext) {
+func (a *App) resolveTeamIDForRun(ctx context.Context, explicitTeamPath, pipelinePath string, gitContext map[string]string) (sql.NullInt32, error) {
+	for _, candidate := range runquery.TeamResolutionCandidates(explicitTeamPath, pipelinePath, gitContext) {
 		switch candidate.Kind {
-		case runquery.GroupResolutionPath:
-			groupID, err := a.resolveGroupIDForPath(ctx, candidate.Value)
-			if err != nil || groupID.Valid || candidate.Required {
-				return groupID, err
+		case runquery.TeamResolutionPath:
+			teamID, err := a.resolveTeamIDForPath(ctx, candidate.Value)
+			if err != nil || teamID.Valid || candidate.Required {
+				return teamID, err
 			}
-		case runquery.GroupResolutionRepo:
+		case runquery.TeamResolutionRepo:
 			repoOwner, repoName := splitRepositoryFullName(candidate.Value)
-			return a.resolveGroupIDForRepo(repoOwner, repoName)
+			return a.resolveTeamIDForRepo(repoOwner, repoName)
 		}
 	}
 	return sql.NullInt32{}, nil

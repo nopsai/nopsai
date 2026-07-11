@@ -127,58 +127,18 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		return "system.update", model.ResourceRef{Type: "dispatcher", ID: "runners"}, false, nil
 	case strings.HasPrefix(path, "/v1/system/dispatcher/runners/"):
 		return "system.update", model.ResourceRef{Type: "dispatcher", ID: "runners"}, false, nil
-	case strings.HasPrefix(path, "/v1/groups/") && strings.HasSuffix(path, "/config-repo/sync"):
-		resource = model.ResourceRef{Type: "folder", ID: folderIDFromConfigRepoPath(path, "/config-repo/sync")}
-		if r.Method == http.MethodGet {
-			return "config_repo.read", resource, false, nil
-		}
-		return "config_repo.sync", resource, false, nil
-	case strings.HasPrefix(path, "/v1/groups/") && strings.HasSuffix(path, "/config-repo/write"):
-		return "config_repo.manage", model.ResourceRef{Type: "folder", ID: folderIDFromConfigRepoPath(path, "/config-repo/write")}, false, nil
-	case strings.HasPrefix(path, "/v1/groups/") && strings.HasSuffix(path, "/config-repo/drift"):
-		return "config_repo.read", model.ResourceRef{Type: "folder", ID: folderIDFromConfigRepoPath(path, "/config-repo/drift")}, false, nil
-	case strings.HasPrefix(path, "/v1/groups/") && strings.HasSuffix(path, "/config-repo"):
-		resource = model.ResourceRef{Type: "folder", ID: folderIDFromConfigRepoPath(path, "/config-repo")}
-		switch r.Method {
-		case http.MethodGet:
-			return "config_repo.read", resource, false, nil
-		case http.MethodPut, http.MethodPatch, http.MethodDelete:
-			return "config_repo.manage", resource, false, nil
-		}
-	case strings.HasPrefix(path, "/v1/groups/") && strings.HasSuffix(path, "/notifications"):
-		resource = model.ResourceRef{Type: "folder", ID: folderIDFromConfigRepoPath(path, "/notifications")}
-		if r.Method == http.MethodGet {
-			return "config_repo.read", resource, false, nil
-		}
-		return "config_repo.manage", resource, false, nil
-	case path == "/v1/groups":
-		switch r.Method {
-		case http.MethodGet:
-			return "folder.list", model.ResourceRef{Type: "folder", ID: "*"}, true, nil
-		case http.MethodPost:
-			return "", model.ResourceRef{}, false, nil
-		}
-	case strings.HasPrefix(path, "/v1/groups/") && strings.HasSuffix(path, "/move"):
-		return "", model.ResourceRef{}, false, nil
-	case strings.HasPrefix(path, "/v1/groups/"):
-		switch r.Method {
-		case http.MethodPut, http.MethodPatch:
-			return "", model.ResourceRef{}, false, nil
-		case http.MethodDelete:
-			return "", model.ResourceRef{}, false, nil
-		}
 	case strings.HasPrefix(path, "/v1/teams/") && strings.HasSuffix(path, "/config-repository/sync"):
-		resource = model.ResourceRef{Type: "folder", ID: teamIDFromConfigPath(path, "/config-repository/sync")}
+		resource = model.ResourceRef{Type: "team", ID: teamIDFromConfigPath(path, "/config-repository/sync")}
 		if r.Method == http.MethodGet {
 			return "config_repo.read", resource, false, nil
 		}
 		return "config_repo.sync", resource, false, nil
 	case strings.HasPrefix(path, "/v1/teams/") && strings.HasSuffix(path, "/config-repository/write"):
-		return "config_repo.manage", model.ResourceRef{Type: "folder", ID: teamIDFromConfigPath(path, "/config-repository/write")}, false, nil
+		return "config_repo.manage", model.ResourceRef{Type: "team", ID: teamIDFromConfigPath(path, "/config-repository/write")}, false, nil
 	case strings.HasPrefix(path, "/v1/teams/") && strings.HasSuffix(path, "/config-repository/drift"):
-		return "config_repo.read", model.ResourceRef{Type: "folder", ID: teamIDFromConfigPath(path, "/config-repository/drift")}, false, nil
+		return "config_repo.read", model.ResourceRef{Type: "team", ID: teamIDFromConfigPath(path, "/config-repository/drift")}, false, nil
 	case strings.HasPrefix(path, "/v1/teams/") && strings.HasSuffix(path, "/config-repository"):
-		resource = model.ResourceRef{Type: "folder", ID: teamIDFromConfigPath(path, "/config-repository")}
+		resource = model.ResourceRef{Type: "team", ID: teamIDFromConfigPath(path, "/config-repository")}
 		switch r.Method {
 		case http.MethodGet:
 			return "config_repo.read", resource, false, nil
@@ -186,35 +146,35 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 			return "config_repo.manage", resource, false, nil
 		}
 	case strings.HasPrefix(path, "/v1/teams/") && strings.HasSuffix(path, "/notifications"):
-		resource = model.ResourceRef{Type: "folder", ID: teamIDFromConfigPath(path, "/notifications")}
+		resource = model.ResourceRef{Type: "team", ID: teamIDFromConfigPath(path, "/notifications")}
 		if r.Method == http.MethodGet {
 			return "config_repo.read", resource, false, nil
 		}
 		return "config_repo.manage", resource, false, nil
 	case isTeamScopedProfilePath(path):
-		resource = model.ResourceRef{Type: "folder", ID: teamIDFromProfilePath(path)}
+		resource = model.ResourceRef{Type: "team", ID: teamIDFromProfilePath(path)}
 		if r.Method == http.MethodGet {
-			return "folder.read", resource, false, nil
+			return "team.read", resource, false, nil
 		}
-		return "folder.update", resource, false, nil
+		return "team.update", resource, false, nil
 	case path == "/v1/teams":
 		switch r.Method {
 		case http.MethodGet:
-			return "folder.list", model.ResourceRef{Type: "folder", ID: "*"}, true, nil
+			return "team.list", model.ResourceRef{Type: "team", ID: "*"}, true, nil
 		case http.MethodPost:
 			return "", model.ResourceRef{}, false, nil
 		}
 	case strings.HasPrefix(path, "/v1/teams/") && strings.Contains(path, "/applications"):
 		switch r.Method {
 		case http.MethodGet:
-			return "folder.read", model.ResourceRef{Type: "folder", ID: teamIDFromApplicationsPath(path)}, false, nil
+			return "team.read", model.ResourceRef{Type: "team", ID: teamIDFromApplicationsPath(path)}, false, nil
 		case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
 			return "", model.ResourceRef{}, false, nil
 		}
 	case strings.HasPrefix(path, "/v1/teams/"):
 		switch r.Method {
 		case http.MethodGet:
-			return "folder.read", model.ResourceRef{Type: "folder", ID: teamIDFromTeamPath(path)}, false, nil
+			return "team.read", model.ResourceRef{Type: "team", ID: teamIDFromTeamPath(path)}, false, nil
 		case http.MethodPut, http.MethodPatch, http.MethodDelete:
 			return "", model.ResourceRef{}, false, nil
 		}
@@ -592,16 +552,6 @@ func pathSegments(path string) []string {
 		segments = append(segments, part)
 	}
 	return segments
-}
-
-func folderIDFromConfigRepoPath(path, suffix string) string {
-	folderID := strings.TrimSpace(path)
-	folderID = strings.TrimPrefix(folderID, "/v1/groups/")
-	folderID = strings.TrimSuffix(folderID, suffix)
-	if decoded, err := url.PathUnescape(folderID); err == nil {
-		folderID = decoded
-	}
-	return normalizePathIdentifier(folderID)
 }
 
 func teamIDFromConfigPath(path, suffix string) string {

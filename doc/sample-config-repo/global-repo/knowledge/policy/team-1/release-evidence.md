@@ -4,7 +4,7 @@ kind: policy
 description: Mandatory evidence rules for release readiness reports.
 access:
   visibility: restricted
-  groups:
+  teams:
     - team-1
   repositories:
     - hosein-yousefii/test-app

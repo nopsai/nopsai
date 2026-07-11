@@ -59,9 +59,9 @@ func seedOIDCConfigProviders(ctx context.Context, db *pgxpool.Pool, cfg *config.
 			ClientCredentialRef:   strings.TrimSpace(providerCfg.ClientCredentialRef),
 			Scopes:                normalizeOIDCScopes(providerCfg.Scopes),
 			AllowedEmailDomains:   normalizeOIDCEmailDomains(providerCfg.AllowedEmailDomains),
-			GroupClaim:            strings.TrimSpace(providerCfg.GroupClaim),
+			TeamClaim:             strings.TrimSpace(providerCfg.TeamClaim),
 			RoleMapping:           normalizeOIDCRoleMapping(providerCfg.RoleMapping),
-			GroupMapping:          normalizeOIDCGroupMapping(providerCfg.GroupMapping),
+			TeamMapping:           normalizeOIDCTeamMapping(providerCfg.TeamMapping),
 			BasicRoleMapping:      normalizeOIDCBasicRoleMapping(basicRoleMappingFromConfig(providerCfg.BasicRoleMapping)),
 			EntitlementSync:       normalizeOIDCEntitlementSync(entitlementSyncFromConfig(providerCfg.EntitlementSync)),
 			AutoCreateUsers:       providerCfg.AutoCreateUsers,
@@ -147,8 +147,8 @@ func basicRoleMappingFromConfig(mapping map[string]config.OIDCBasicRoleGrantConf
 		return nil
 	}
 	out := make(map[string]oidcBasicRoleGrantMapping, len(mapping))
-	for group, grant := range mapping {
-		out[group] = oidcBasicRoleGrantMapping{
+	for team, grant := range mapping {
+		out[team] = oidcBasicRoleGrantMapping{
 			Role:         grant.Role,
 			Resource:     grant.Resource,
 			ResourceType: grant.ResourceType,
@@ -170,7 +170,7 @@ func entitlementSyncFromConfig(sync config.OIDCEntitlementSyncConfig) oidcEntitl
 		AdminPasswordCredentialRef: sync.AdminPasswordCredentialRef,
 		ClientID:                   sync.ClientID,
 		TargetResourceType:         sync.TargetResourceType,
-		GroupPathPrefix:            sync.GroupPathPrefix,
+		TeamPathPrefix:             sync.TeamPathPrefix,
 	}
 }
 
@@ -180,7 +180,7 @@ func listOIDCProviders(ctx context.Context, db *pgxpool.Pool, enabledOnly bool) 
 	}
 	query := `
 		SELECT id, type, display_name, issuer, authorization_endpoint, token_endpoint, jwks_uri, userinfo_endpoint,
-		       client_id, client_credential_ref, scopes, allowed_email_domains, group_claim, role_mapping, group_mapping, basic_role_mapping, entitlement_sync,
+		       client_id, client_credential_ref, scopes, allowed_email_domains, team_claim, role_mapping, team_mapping, basic_role_mapping, entitlement_sync,
 		       auto_create_users, default_role, allow_email_linking, enabled, config_source, created_at, updated_at
 		FROM auth_identity_providers`
 	if enabledOnly {
@@ -210,7 +210,7 @@ func getOIDCProvider(ctx context.Context, db *pgxpool.Pool, providerID string) (
 	}
 	row := db.QueryRow(ctx, `
 		SELECT id, type, display_name, issuer, authorization_endpoint, token_endpoint, jwks_uri, userinfo_endpoint,
-		       client_id, client_credential_ref, scopes, allowed_email_domains, group_claim, role_mapping, group_mapping, basic_role_mapping, entitlement_sync,
+		       client_id, client_credential_ref, scopes, allowed_email_domains, team_claim, role_mapping, team_mapping, basic_role_mapping, entitlement_sync,
 		       auto_create_users, default_role, allow_email_linking, enabled, config_source, created_at, updated_at
 		FROM auth_identity_providers
 		WHERE id = $1
@@ -224,7 +224,7 @@ type oidcProviderScanner interface {
 
 func scanOIDCProvider(scanner oidcProviderScanner) (oidcProviderRecord, error) {
 	var provider oidcProviderRecord
-	var scopesJSON, domainsJSON, mappingJSON, groupMappingJSON, basicRoleMappingJSON, entitlementSyncJSON []byte
+	var scopesJSON, domainsJSON, mappingJSON, teamMappingJSON, basicRoleMappingJSON, entitlementSyncJSON []byte
 	var autoCreate, allowLink sql.NullBool
 	if err := scanner.Scan(
 		&provider.ID,
@@ -239,9 +239,9 @@ func scanOIDCProvider(scanner oidcProviderScanner) (oidcProviderRecord, error) {
 		&provider.ClientCredentialRef,
 		&scopesJSON,
 		&domainsJSON,
-		&provider.GroupClaim,
+		&provider.TeamClaim,
 		&mappingJSON,
-		&groupMappingJSON,
+		&teamMappingJSON,
 		&basicRoleMappingJSON,
 		&entitlementSyncJSON,
 		&autoCreate,
@@ -257,13 +257,13 @@ func scanOIDCProvider(scanner oidcProviderScanner) (oidcProviderRecord, error) {
 	_ = json.Unmarshal(scopesJSON, &provider.Scopes)
 	_ = json.Unmarshal(domainsJSON, &provider.AllowedEmailDomains)
 	_ = json.Unmarshal(mappingJSON, &provider.RoleMapping)
-	_ = json.Unmarshal(groupMappingJSON, &provider.GroupMapping)
+	_ = json.Unmarshal(teamMappingJSON, &provider.TeamMapping)
 	_ = json.Unmarshal(basicRoleMappingJSON, &provider.BasicRoleMapping)
 	_ = json.Unmarshal(entitlementSyncJSON, &provider.EntitlementSync)
 	provider.Scopes = normalizeOIDCScopes(provider.Scopes)
 	provider.AllowedEmailDomains = normalizeOIDCEmailDomains(provider.AllowedEmailDomains)
 	provider.RoleMapping = normalizeOIDCRoleMapping(provider.RoleMapping)
-	provider.GroupMapping = normalizeOIDCGroupMapping(provider.GroupMapping)
+	provider.TeamMapping = normalizeOIDCTeamMapping(provider.TeamMapping)
 	provider.BasicRoleMapping = normalizeOIDCBasicRoleMapping(provider.BasicRoleMapping)
 	provider.EntitlementSync = normalizeOIDCEntitlementSync(provider.EntitlementSync)
 	if autoCreate.Valid {
@@ -288,7 +288,7 @@ func upsertOIDCProvider(ctx context.Context, db *pgxpool.Pool, provider oidcProv
 	provider.Scopes = normalizeOIDCScopes(provider.Scopes)
 	provider.AllowedEmailDomains = normalizeOIDCEmailDomains(provider.AllowedEmailDomains)
 	provider.RoleMapping = normalizeOIDCRoleMapping(provider.RoleMapping)
-	provider.GroupMapping = normalizeOIDCGroupMapping(provider.GroupMapping)
+	provider.TeamMapping = normalizeOIDCTeamMapping(provider.TeamMapping)
 	provider.BasicRoleMapping = normalizeOIDCBasicRoleMapping(provider.BasicRoleMapping)
 	provider.EntitlementSync = normalizeOIDCEntitlementSync(provider.EntitlementSync)
 	provider.ConfigSource = firstNonEmpty(strings.TrimSpace(provider.ConfigSource), authProviderSourceDatabase)
@@ -315,7 +315,7 @@ func upsertOIDCProvider(ctx context.Context, db *pgxpool.Pool, provider oidcProv
 	scopesJSON, _ := json.Marshal(provider.Scopes)
 	domainsJSON, _ := json.Marshal(provider.AllowedEmailDomains)
 	mappingJSON, _ := json.Marshal(provider.RoleMapping)
-	groupMappingJSON, _ := json.Marshal(provider.GroupMapping)
+	teamMappingJSON, _ := json.Marshal(provider.TeamMapping)
 	basicRoleMappingJSON, _ := json.Marshal(provider.BasicRoleMapping)
 	entitlementSyncJSON, _ := json.Marshal(provider.EntitlementSync)
 	args := []any{
@@ -331,9 +331,9 @@ func upsertOIDCProvider(ctx context.Context, db *pgxpool.Pool, provider oidcProv
 		provider.ClientCredentialRef,
 		scopesJSON,
 		domainsJSON,
-		provider.GroupClaim,
+		provider.TeamClaim,
 		mappingJSON,
-		groupMappingJSON,
+		teamMappingJSON,
 		basicRoleMappingJSON,
 		entitlementSyncJSON,
 		provider.AutoCreateUsers,
@@ -349,7 +349,7 @@ func upsertOIDCProvider(ctx context.Context, db *pgxpool.Pool, provider oidcProv
 	_, err := db.Exec(ctx, `
 		INSERT INTO auth_identity_providers (
 			id, type, display_name, issuer, authorization_endpoint, token_endpoint, jwks_uri, userinfo_endpoint,
-			client_id, client_credential_ref, scopes, allowed_email_domains, group_claim, role_mapping, group_mapping, basic_role_mapping, entitlement_sync,
+			client_id, client_credential_ref, scopes, allowed_email_domains, team_claim, role_mapping, team_mapping, basic_role_mapping, entitlement_sync,
 			auto_create_users, default_role, allow_email_linking, enabled, config_source, updated_at
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, NOW())
@@ -365,9 +365,9 @@ func upsertOIDCProvider(ctx context.Context, db *pgxpool.Pool, provider oidcProv
 		    `+credentialRefSet+`,
 		    scopes = EXCLUDED.scopes,
 		    allowed_email_domains = EXCLUDED.allowed_email_domains,
-		    group_claim = EXCLUDED.group_claim,
+		    team_claim = EXCLUDED.team_claim,
 		    role_mapping = EXCLUDED.role_mapping,
-		    group_mapping = EXCLUDED.group_mapping,
+		    team_mapping = EXCLUDED.team_mapping,
 		    basic_role_mapping = EXCLUDED.basic_role_mapping,
 		    entitlement_sync = EXCLUDED.entitlement_sync,
 		    auto_create_users = EXCLUDED.auto_create_users,
@@ -590,7 +590,7 @@ func resolveOIDCUser(ctx context.Context, db *pgxpool.Pool, settings oidcSetting
 		if err := touchExternalIdentity(ctx, tx, existingUserID, provider, identity); err != nil {
 			return result, err
 		}
-		if err := syncOIDCRolesAndGroups(ctx, tx, existingUserID, provider, settings, identity); err != nil {
+		if err := syncOIDCRolesAndTeams(ctx, tx, existingUserID, provider, settings, identity); err != nil {
 			return result, err
 		}
 		return result, tx.Commit(ctx)
@@ -611,7 +611,7 @@ func resolveOIDCUser(ctx context.Context, db *pgxpool.Pool, settings oidcSetting
 			if err := pruneSupersededExternalIdentities(ctx, tx, existingUserID, provider, identity); err != nil {
 				return result, err
 			}
-			if err := syncOIDCRolesAndGroups(ctx, tx, existingUserID, provider, settings, identity); err != nil {
+			if err := syncOIDCRolesAndTeams(ctx, tx, existingUserID, provider, settings, identity); err != nil {
 				return result, err
 			}
 			return result, tx.Commit(ctx)
@@ -651,7 +651,7 @@ func resolveOIDCUser(ctx context.Context, db *pgxpool.Pool, settings oidcSetting
 	if err := insertExternalIdentity(ctx, tx, userID, provider, identity); err != nil {
 		return result, err
 	}
-	if err := syncOIDCRolesAndGroups(ctx, tx, userID, provider, settings, identity); err != nil {
+	if err := syncOIDCRolesAndTeams(ctx, tx, userID, provider, settings, identity); err != nil {
 		return result, err
 	}
 	return result, tx.Commit(ctx)
@@ -702,7 +702,7 @@ func pruneSupersededExternalIdentities(ctx context.Context, tx oidcTx, userID uu
 	return err
 }
 
-func reconcileOIDCAuthGroupMappings(ctx context.Context, db *pgxpool.Pool) error {
+func reconcileOIDCAuthTeamMappings(ctx context.Context, db *pgxpool.Pool) error {
 	if db == nil {
 		return nil
 	}
@@ -710,13 +710,13 @@ func reconcileOIDCAuthGroupMappings(ctx context.Context, db *pgxpool.Pool) error
 		SELECT
 			ei.user_id,
 			ei.provider_id,
-			COALESCE(eg.group_name, ''),
-			ip.group_mapping
+			COALESCE(eg.team_name, ''),
+			ip.team_mapping
 		FROM auth_external_identities ei
 		JOIN auth_identity_providers ip ON ip.id = ei.provider_id
-		LEFT JOIN auth_external_group_memberships eg
+		LEFT JOIN auth_external_team_memberships eg
 		  ON eg.user_id = ei.user_id AND eg.provider_id = ei.provider_id
-		ORDER BY ei.user_id, ei.provider_id, eg.group_name
+		ORDER BY ei.user_id, ei.provider_id, eg.team_name
 	`)
 	if err != nil {
 		return err
@@ -730,9 +730,9 @@ func reconcileOIDCAuthGroupMappings(ctx context.Context, db *pgxpool.Pool) error
 	desiredByKey := map[syncKey]map[string]string{}
 	for rows.Next() {
 		var userID uuid.UUID
-		var providerID, externalGroup string
+		var providerID, externalTeam string
 		var rawMapping []byte
-		if err := rows.Scan(&userID, &providerID, &externalGroup, &rawMapping); err != nil {
+		if err := rows.Scan(&userID, &providerID, &externalTeam, &rawMapping); err != nil {
 			return err
 		}
 		key := syncKey{userID: userID, providerID: strings.TrimSpace(providerID)}
@@ -741,9 +741,9 @@ func reconcileOIDCAuthGroupMappings(ctx context.Context, db *pgxpool.Pool) error
 		}
 		var mapping map[string]string
 		_ = json.Unmarshal(rawMapping, &mapping)
-		mapping = normalizeOIDCGroupMapping(mapping)
-		if authGroup := strings.TrimSpace(mapping[strings.TrimSpace(externalGroup)]); authGroup != "" {
-			desiredByKey[key][strings.TrimSpace(externalGroup)] = authGroup
+		mapping = normalizeOIDCTeamMapping(mapping)
+		if authTeam := strings.TrimSpace(mapping[strings.TrimSpace(externalTeam)]); authTeam != "" {
+			desiredByKey[key][strings.TrimSpace(externalTeam)] = authTeam
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -759,7 +759,7 @@ func reconcileOIDCAuthGroupMappings(ctx context.Context, db *pgxpool.Pool) error
 	}
 	defer tx.Rollback(ctx)
 	for key, desired := range desiredByKey {
-		if err := syncOIDCAuthGroupMemberships(ctx, tx, key.userID, key.providerID, desired); err != nil {
+		if err := syncOIDCAuthTeamMemberships(ctx, tx, key.userID, key.providerID, desired); err != nil {
 			return err
 		}
 	}
@@ -774,13 +774,13 @@ func reconcileOIDCBasicRoleMappings(ctx context.Context, db *pgxpool.Pool) error
 		SELECT
 			ei.user_id,
 			ei.provider_id,
-			COALESCE(eg.group_name, ''),
+			COALESCE(eg.team_name, ''),
 			ip.basic_role_mapping
 		FROM auth_external_identities ei
 		JOIN auth_identity_providers ip ON ip.id = ei.provider_id
-		LEFT JOIN auth_external_group_memberships eg
+		LEFT JOIN auth_external_team_memberships eg
 		  ON eg.user_id = ei.user_id AND eg.provider_id = ei.provider_id
-		ORDER BY ei.user_id, ei.provider_id, eg.group_name
+		ORDER BY ei.user_id, ei.provider_id, eg.team_name
 	`)
 	if err != nil {
 		return err
@@ -793,14 +793,14 @@ func reconcileOIDCBasicRoleMappings(ctx context.Context, db *pgxpool.Pool) error
 	}
 	type syncState struct {
 		mapping map[string]oidcBasicRoleGrantMapping
-		groups  []string
+		teams   []string
 	}
 	stateByKey := map[syncKey]*syncState{}
 	for rows.Next() {
 		var userID uuid.UUID
-		var providerID, externalGroup string
+		var providerID, externalTeam string
 		var rawMapping []byte
-		if err := rows.Scan(&userID, &providerID, &externalGroup, &rawMapping); err != nil {
+		if err := rows.Scan(&userID, &providerID, &externalTeam, &rawMapping); err != nil {
 			return err
 		}
 		key := syncKey{userID: userID, providerID: strings.TrimSpace(providerID)}
@@ -813,9 +813,9 @@ func reconcileOIDCBasicRoleMappings(ctx context.Context, db *pgxpool.Pool) error
 			_ = json.Unmarshal(rawMapping, &state.mapping)
 			state.mapping = normalizeOIDCBasicRoleMapping(state.mapping)
 		}
-		externalGroup = strings.TrimSpace(externalGroup)
-		if externalGroup != "" {
-			state.groups = append(state.groups, externalGroup)
+		externalTeam = strings.TrimSpace(externalTeam)
+		if externalTeam != "" {
+			state.teams = append(state.teams, externalTeam)
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -831,43 +831,43 @@ func reconcileOIDCBasicRoleMappings(ctx context.Context, db *pgxpool.Pool) error
 	}
 	defer tx.Rollback(ctx)
 	for key, state := range stateByKey {
-		if err := syncOIDCBasicRoleGrants(ctx, tx, key.userID, key.providerID, oidcBasicRoleGrantSetForGroups(state.mapping, state.groups)); err != nil {
+		if err := syncOIDCBasicRoleGrants(ctx, tx, key.userID, key.providerID, oidcBasicRoleGrantSetForTeams(state.mapping, state.teams)); err != nil {
 			return err
 		}
 	}
 	return tx.Commit(ctx)
 }
 
-func syncOIDCRolesAndGroups(ctx context.Context, tx oidcTx, userID uuid.UUID, provider oidcProviderRecord, settings oidcSettings, identity oidcVerifiedIdentity) error {
-	groupSet := map[string]bool{}
-	authGroupSet := map[string]string{}
+func syncOIDCRolesAndTeams(ctx context.Context, tx oidcTx, userID uuid.UUID, provider oidcProviderRecord, settings oidcSettings, identity oidcVerifiedIdentity) error {
+	teamSet := map[string]bool{}
+	authTeamSet := map[string]string{}
 	roleSet := oidcDesiredAccessRoleSet(provider, settings, identity)
-	groups := identity.Groups
-	for _, group := range groups {
-		group = strings.TrimSpace(group)
-		if group == "" {
+	teams := identity.Teams
+	for _, team := range teams {
+		team = strings.TrimSpace(team)
+		if team == "" {
 			continue
 		}
-		groupSet[group] = true
+		teamSet[team] = true
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO auth_external_group_memberships (user_id, provider_id, group_name, last_seen_at)
+			INSERT INTO auth_external_team_memberships (user_id, provider_id, team_name, last_seen_at)
 			VALUES ($1, $2, $3, NOW())
-			ON CONFLICT (user_id, provider_id, group_name) DO UPDATE
+			ON CONFLICT (user_id, provider_id, team_name) DO UPDATE
 			SET last_seen_at = NOW()
-		`, userID, provider.ID, group); err != nil {
+		`, userID, provider.ID, team); err != nil {
 			return err
 		}
-		if authGroup := strings.TrimSpace(provider.GroupMapping[group]); authGroup != "" {
-			authGroupSet[group] = authGroup
+		if authTeam := strings.TrimSpace(provider.TeamMapping[team]); authTeam != "" {
+			authTeamSet[team] = authTeam
 		}
 	}
-	if err := pruneStaleExternalGroupMemberships(ctx, tx, userID, provider.ID, groupSet); err != nil {
+	if err := pruneStaleExternalTeamMemberships(ctx, tx, userID, provider.ID, teamSet); err != nil {
 		return err
 	}
-	if err := syncOIDCAuthGroupMemberships(ctx, tx, userID, provider.ID, authGroupSet); err != nil {
+	if err := syncOIDCAuthTeamMemberships(ctx, tx, userID, provider.ID, authTeamSet); err != nil {
 		return err
 	}
-	desiredBasicRoles := oidcBasicRoleGrantSetForGroups(provider.BasicRoleMapping, groups)
+	desiredBasicRoles := oidcBasicRoleGrantSetForTeams(provider.BasicRoleMapping, teams)
 	desiredBasicRoles = mergeOIDCBasicRoleGrantSets(desiredBasicRoles, oidcBasicRoleGrantSetFromGrants(identity.BasicRoles))
 	if err := syncOIDCBasicRoleGrants(ctx, tx, userID, provider.ID, desiredBasicRoles); err != nil {
 		return err
@@ -910,8 +910,8 @@ func oidcDesiredAccessRoleSet(provider oidcProviderRecord, settings oidcSettings
 	if defaultRole := firstNonEmpty(strings.TrimSpace(provider.DefaultRole), strings.TrimSpace(settings.DefaultRole)); defaultRole != "" {
 		roleSet[defaultRole] = true
 	}
-	for _, group := range identity.Groups {
-		if role := strings.TrimSpace(provider.RoleMapping[strings.TrimSpace(group)]); role != "" {
+	for _, team := range identity.Teams {
+		if role := strings.TrimSpace(provider.RoleMapping[strings.TrimSpace(team)]); role != "" {
 			roleSet[role] = true
 		}
 	}
@@ -924,7 +924,7 @@ func oidcDesiredAccessRoleSet(provider oidcProviderRecord, settings oidcSettings
 }
 
 type oidcDesiredBasicRoleGrant struct {
-	ExternalGroup         string
+	ExternalTeam          string
 	Role                  string
 	ResourceType          string
 	ResourceID            string
@@ -932,17 +932,17 @@ type oidcDesiredBasicRoleGrant struct {
 	RequireResourceExists bool
 }
 
-func oidcBasicRoleGrantSetForGroups(mapping map[string]oidcBasicRoleGrantMapping, groups []string) map[string]oidcDesiredBasicRoleGrant {
-	if len(mapping) == 0 || len(groups) == 0 {
+func oidcBasicRoleGrantSetForTeams(mapping map[string]oidcBasicRoleGrantMapping, teams []string) map[string]oidcDesiredBasicRoleGrant {
+	if len(mapping) == 0 || len(teams) == 0 {
 		return nil
 	}
 	desired := map[string]oidcDesiredBasicRoleGrant{}
-	for _, group := range groups {
-		group = strings.TrimSpace(group)
-		if group == "" {
+	for _, team := range teams {
+		team = strings.TrimSpace(team)
+		if team == "" {
 			continue
 		}
-		grant, ok := mapping[group]
+		grant, ok := mapping[team]
 		if !ok {
 			continue
 		}
@@ -963,11 +963,11 @@ func oidcBasicRoleGrantSetForGroups(mapping map[string]oidcBasicRoleGrantMapping
 		}
 		key := strings.ToLower(strings.TrimSpace(resourceType)) + ":" + strings.Trim(strings.TrimSpace(resourceID), "/")
 		next := oidcDesiredBasicRoleGrant{
-			ExternalGroup: group,
-			Role:          role,
-			ResourceType:  resourceType,
-			ResourceID:    resourceID,
-			Inherit:       true,
+			ExternalTeam: team,
+			Role:         role,
+			ResourceType: resourceType,
+			ResourceID:   resourceID,
+			Inherit:      true,
 		}
 		if existing, ok := desired[key]; ok && productRoleRank(existing.Role) >= productRoleRank(next.Role) {
 			continue
@@ -1053,7 +1053,7 @@ func syncOIDCBasicRoleGrants(ctx context.Context, tx oidcTx, userID uuid.UUID, p
 	keptGrantIDs := make([]int64, 0, len(desiredKeys))
 	for _, key := range desiredKeys {
 		grant := desired[key]
-		grant.ExternalGroup = strings.TrimSpace(grant.ExternalGroup)
+		grant.ExternalTeam = strings.TrimSpace(grant.ExternalTeam)
 		roleName, err := normalizeProductRoleName(grant.Role)
 		if err != nil || roleName == productRoleAdmin {
 			continue
@@ -1063,7 +1063,7 @@ func syncOIDCBasicRoleGrants(ctx context.Context, tx oidcTx, userID uuid.UUID, p
 			if grant.RequireResourceExists && strings.Contains(strings.ToLower(err.Error()), "not found") {
 				log.Warn().
 					Str("provider", providerID).
-					Str("external_group", grant.ExternalGroup).
+					Str("external_team", grant.ExternalTeam).
 					Str("role", roleName).
 					Str("resource_type", grant.ResourceType).
 					Str("resource_id", grant.ResourceID).
@@ -1088,7 +1088,7 @@ func syncOIDCBasicRoleGrants(ctx context.Context, tx oidcTx, userID uuid.UUID, p
 			INSERT INTO access_grants (
 				subject_type, subject_id, subject_display, role_name,
 				resource_type, resource_id, resource_display, inherit, granted_by,
-				managed_by_identity_provider, identity_provider_id, external_group_name
+				managed_by_identity_provider, identity_provider_id, external_team_name
 			)
 			VALUES ('user', $1, $2, $3, $4, $5, $6, $7, $8, TRUE, $9, $10)
 			ON CONFLICT (subject_type, subject_id, resource_type, resource_id) DO UPDATE
@@ -1099,9 +1099,9 @@ func syncOIDCBasicRoleGrants(ctx context.Context, tx oidcTx, userID uuid.UUID, p
 			    granted_by = EXCLUDED.granted_by,
 			    managed_by_identity_provider = TRUE,
 			    identity_provider_id = EXCLUDED.identity_provider_id,
-			    external_group_name = EXCLUDED.external_group_name
+			    external_team_name = EXCLUDED.external_team_name
 			RETURNING id
-		`, subjectID, subjectDisplay, roleName, resource.Type, resource.ID, resource.Display, grant.Inherit, "sso:"+providerID, providerID, grant.ExternalGroup).Scan(&grantID); err != nil {
+		`, subjectID, subjectDisplay, roleName, resource.Type, resource.ID, resource.Display, grant.Inherit, "sso:"+providerID, providerID, grant.ExternalTeam).Scan(&grantID); err != nil {
 			return err
 		}
 		if err := rebuildAccessGrantExpansion(ctx, tx, grantID, grantSubjectUser, subjectID, roleName, resource); err != nil {
@@ -1166,59 +1166,59 @@ func rebuildAccessGrantExpansion(ctx context.Context, tx oidcTx, grantID int64, 
 	return nil
 }
 
-func syncOIDCAuthGroupMemberships(ctx context.Context, tx oidcTx, userID uuid.UUID, providerID string, desired map[string]string) error {
+func syncOIDCAuthTeamMemberships(ctx context.Context, tx oidcTx, userID uuid.UUID, providerID string, desired map[string]string) error {
 	providerID = strings.TrimSpace(providerID)
 	subjectID := userID.String()
-	externalGroups := make([]string, 0, len(desired))
-	for externalGroup := range desired {
-		externalGroups = append(externalGroups, externalGroup)
+	externalTeams := make([]string, 0, len(desired))
+	for externalTeam := range desired {
+		externalTeams = append(externalTeams, externalTeam)
 	}
-	sort.Strings(externalGroups)
+	sort.Strings(externalTeams)
 
-	for _, externalGroup := range externalGroups {
-		authGroupName := strings.TrimSpace(desired[externalGroup])
-		if authGroupName == "" {
+	for _, externalTeam := range externalTeams {
+		authTeamName := strings.TrimSpace(desired[externalTeam])
+		if authTeamName == "" {
 			continue
 		}
 		description := fmt.Sprintf("Managed by OIDC provider %s", providerID)
 		if _, err := tx.Exec(ctx, `
-			WITH group_record AS (
-				INSERT INTO auth_groups (name, description)
+			WITH team_record AS (
+				INSERT INTO auth_teams (name, description)
 				VALUES ($1, $2)
 				ON CONFLICT (name) DO UPDATE
-				SET updated_at = auth_groups.updated_at
+				SET updated_at = auth_teams.updated_at
 				RETURNING id
 			)
-			INSERT INTO auth_group_members (
-				group_id, subject_type, subject_id, managed_by_identity_provider,
-				identity_provider_id, external_group_name, auth_group_name
+			INSERT INTO auth_team_members (
+				team_id, subject_type, subject_id, managed_by_identity_provider,
+				identity_provider_id, external_team_name, auth_team_name
 			)
 			SELECT id, 'user', $3, TRUE, $4, $5, $1
-			FROM group_record
-			ON CONFLICT (group_id, subject_type, subject_id) DO UPDATE
+			FROM team_record
+			ON CONFLICT (team_id, subject_type, subject_id) DO UPDATE
 			SET managed_by_identity_provider = TRUE,
 			    identity_provider_id = EXCLUDED.identity_provider_id,
-			    external_group_name = EXCLUDED.external_group_name,
-			    auth_group_name = EXCLUDED.auth_group_name
-		`, authGroupName, description, subjectID, providerID, externalGroup); err != nil {
+			    external_team_name = EXCLUDED.external_team_name,
+			    auth_team_name = EXCLUDED.auth_team_name
+		`, authTeamName, description, subjectID, providerID, externalTeam); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			DELETE FROM auth_group_members
+			DELETE FROM auth_team_members
 			WHERE subject_type = 'user'
 			  AND subject_id = $1
 			  AND managed_by_identity_provider = TRUE
 			  AND identity_provider_id = $2
-			  AND external_group_name = $3
-			  AND auth_group_name <> $4
-		`, subjectID, providerID, externalGroup, authGroupName); err != nil {
+			  AND external_team_name = $3
+			  AND auth_team_name <> $4
+		`, subjectID, providerID, externalTeam, authTeamName); err != nil {
 			return err
 		}
 	}
 
-	if len(externalGroups) == 0 {
+	if len(externalTeams) == 0 {
 		if _, err := tx.Exec(ctx, `
-			DELETE FROM auth_group_members
+			DELETE FROM auth_team_members
 			WHERE subject_type = 'user'
 			  AND subject_id = $1
 			  AND managed_by_identity_provider = TRUE
@@ -1227,18 +1227,18 @@ func syncOIDCAuthGroupMemberships(ctx context.Context, tx oidcTx, userID uuid.UU
 			return err
 		}
 	} else if _, err := tx.Exec(ctx, `
-		DELETE FROM auth_group_members
+		DELETE FROM auth_team_members
 		WHERE subject_type = 'user'
 		  AND subject_id = $1
 		  AND managed_by_identity_provider = TRUE
 		  AND identity_provider_id = $2
-		  AND NOT (external_group_name = ANY($3::text[]))
-	`, subjectID, providerID, externalGroups); err != nil {
+		  AND NOT (external_team_name = ANY($3::text[]))
+	`, subjectID, providerID, externalTeams); err != nil {
 		return err
 	}
 
 	_, err := tx.Exec(ctx, `
-		DELETE FROM auth_group_members
+		DELETE FROM auth_team_members
 		WHERE subject_type = 'user'
 		  AND subject_id = $1
 		  AND managed_by_identity_provider = FALSE
@@ -1246,10 +1246,10 @@ func syncOIDCAuthGroupMemberships(ctx context.Context, tx oidcTx, userID uuid.UU
 	return err
 }
 
-func pruneStaleExternalGroupMemberships(ctx context.Context, tx oidcTx, userID uuid.UUID, providerID string, desired map[string]bool) error {
+func pruneStaleExternalTeamMemberships(ctx context.Context, tx oidcTx, userID uuid.UUID, providerID string, desired map[string]bool) error {
 	rows, err := tx.Query(ctx, `
-		SELECT group_name
-		FROM auth_external_group_memberships
+		SELECT team_name
+		FROM auth_external_team_memberships
 		WHERE user_id = $1 AND provider_id = $2
 	`, userID, providerID)
 	if err != nil {
@@ -1258,22 +1258,22 @@ func pruneStaleExternalGroupMemberships(ctx context.Context, tx oidcTx, userID u
 	defer rows.Close()
 	var stale []string
 	for rows.Next() {
-		var group string
-		if err := rows.Scan(&group); err != nil {
+		var team string
+		if err := rows.Scan(&team); err != nil {
 			return err
 		}
-		if !desired[group] {
-			stale = append(stale, group)
+		if !desired[team] {
+			stale = append(stale, team)
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	for _, group := range stale {
+	for _, team := range stale {
 		if _, err := tx.Exec(ctx, `
-			DELETE FROM auth_external_group_memberships
-			WHERE user_id = $1 AND provider_id = $2 AND group_name = $3
-		`, userID, providerID, group); err != nil {
+			DELETE FROM auth_external_team_memberships
+			WHERE user_id = $1 AND provider_id = $2 AND team_name = $3
+		`, userID, providerID, team); err != nil {
 			return err
 		}
 	}

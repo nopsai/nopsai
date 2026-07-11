@@ -6,12 +6,12 @@ import {
   AAA_RESOURCE_TYPE_CONFIGS,
   buildAAANamedResourceSelector,
   buildAAAResourceSelector,
-  buildAAAResourceTargetOptionGroups,
+  buildAAAResourceTargetOptionTeams,
   customAAAActionPlaceholder,
   denormalizeAAAScopeOptionValue,
-  flattenAAAOptionGroups,
+  flattenAAAOptionTeams,
   formatAAAActionValue,
-  getAAAActionOptionGroups,
+  getAAAActionOptionTeams,
   getAAAResourceTypeConfig,
   normalizeAAAActionForResource,
   normalizeAAAScopeOptionValue,
@@ -46,9 +46,9 @@ export function AccessPolicyRuleFields({
       : resourceTypeConfig?.value === 'variable'
         ? resourceCatalog.variableScopeOptions
         : [];
-  const resourceTargetOptionGroups =
-    resourceTypeConfig && !isNamedScopedResourceType ? buildAAAResourceTargetOptionGroups(resourceTypeConfig, resourceCatalog) : [];
-  const resourceTargetOptions = flattenAAAOptionGroups(resourceTargetOptionGroups);
+  const resourceTargetOptionTeams =
+    resourceTypeConfig && !isNamedScopedResourceType ? buildAAAResourceTargetOptionTeams(resourceTypeConfig, resourceCatalog) : [];
+  const resourceTargetOptions = flattenAAAOptionTeams(resourceTargetOptionTeams);
   const selectedResourceTarget =
     isNamedScopedResourceType
       ? ''
@@ -71,7 +71,7 @@ export function AccessPolicyRuleFields({
   const selectedResourceTypeValue = resourceTypeConfig?.value || '';
   const selectedNamedScopeValue = namedResourceParts.scope;
   const selectedNamedScopeHasScope = namedResourceParts.hasScope;
-  const actionOptions = getAAAActionOptionGroups(normalizedResource);
+  const actionOptions = getAAAActionOptionTeams(normalizedResource);
   const selectedAction = selectValueForAAAOptions(actionOptions, parsedAction.action);
   const customResourceDraft =
     selectedResourceType === AAA_CUSTOM_VALUE
@@ -271,9 +271,9 @@ export function AccessPolicyRuleFields({
                 });
               }}
             >
-              {resourceTargetOptionGroups.map(group => (
-                <optgroup key={`resource-target-group-${resourceTypeConfig?.value}-${group.label}`} label={group.label}>
-                  {group.options.map(option => (
+              {resourceTargetOptionTeams.map(team => (
+                <optgroup key={`resource-target-team-${resourceTypeConfig?.value}-${team.label}`} label={team.label}>
+                  {team.options.map(option => (
                     <option key={`resource-target-${resourceTypeConfig?.value}-${option.value}`} value={option.value}>
                       {option.label}
                     </option>
@@ -330,10 +330,10 @@ export function AccessPolicyRuleFields({
               onChange({ name: policy.name, obj: policy.obj, act: formatAAAActionValue(parsedAction.effect, value) });
             }}
           >
-            {actionOptions.map(group => (
-              <optgroup key={`action-${group.label}`} label={group.label}>
-                {group.options.map(option => (
-                  <option key={`action-${group.label}-${option.value}`} value={option.value}>
+            {actionOptions.map(team => (
+              <optgroup key={`action-${team.label}`} label={team.label}>
+                {team.options.map(option => (
+                  <option key={`action-${team.label}-${option.value}`} value={option.value}>
                     {option.label}
                   </option>
                 ))}
@@ -355,4 +355,3 @@ export function AccessPolicyRuleFields({
     </>
   );
 }
-

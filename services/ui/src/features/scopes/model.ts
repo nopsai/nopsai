@@ -1,10 +1,10 @@
 import * as yaml from 'js-yaml';
-import { insertGroupPath } from '../../lib/resourceGroups.js';
+import { insertTeamPath } from '../../lib/resourceTeams.js';
 
 export type ScopeEntry = {
   scope: string;
   label: string;
-  folderPath: string;
+  teamPath: string;
   description: string;
   secretCountHint: number;
 };
@@ -63,10 +63,10 @@ export type ScopeTriggerDescriptor = {
   tags: string[];
 };
 
-export type GroupedScopedItem = { full: string; display: string };
-export type GroupedScopedList = {
-  global: GroupedScopedItem[];
-  repositories: { repo: string; items: GroupedScopedItem[] }[];
+export type TeamedScopedItem = { full: string; display: string };
+export type TeamedScopedList = {
+  global: TeamedScopedItem[];
+  repositories: { repo: string; items: TeamedScopedItem[] }[];
 };
 
 export function normalizeSourceKey(raw: unknown): SourceKey {
@@ -149,10 +149,10 @@ export function decodeScopeFromRoute(segments: string[]): string {
   return decoded.join('/');
 }
 
-export function buildScopeTree(scopes: ScopeEntry[], groupPaths: string[] = []): ScopeTreeNode {
+export function buildScopeTree(scopes: ScopeEntry[], teamPaths: string[] = []): ScopeTreeNode {
   const root: ScopeTreeNode = { id: '__root__', name: 'All scopes', fullPath: '', children: [], scopes: [] };
-  groupPaths.forEach(path => {
-    insertGroupPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], scopes: [] }));
+  teamPaths.forEach(path => {
+    insertTeamPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], scopes: [] }));
   });
   scopes.forEach(scope => {
     const normalized = normalizeScopeLabel(scope.scope);
@@ -275,7 +275,7 @@ export function createInitialScopeData(): ScopeData {
   };
 }
 
-export function parentScopeFolder(path: string): string {
+export function parentScopeTeam(path: string): string {
   const cleaned = normalizeScopeLabel(path);
   if (!cleaned) return '';
   const parts = cleaned.split('/').filter(Boolean);
@@ -308,9 +308,9 @@ export function isGitOpsScopeSource(source: SourceKey | undefined): boolean {
   return normalizeSourceKey(source) === 'git';
 }
 
-export function groupScopedItems(items: string[]): GroupedScopedList {
-  const global: GroupedScopedItem[] = [];
-  const repoMap = new Map<string, GroupedScopedItem[]>();
+export function teamScopedItems(items: string[]): TeamedScopedList {
+  const global: TeamedScopedItem[] = [];
+  const repoMap = new Map<string, TeamedScopedItem[]>();
 
   items.forEach(entry => {
     const trimmed = String(entry || '').trim();

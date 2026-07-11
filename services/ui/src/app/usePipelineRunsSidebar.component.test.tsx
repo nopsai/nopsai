@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import {
   fetchRunSidebarDetail,
-  fetchRunSidebarGroups,
+  fetchRunSidebarTeams,
   fetchRunSidebarRecentRuns,
   fetchRunSidebarRepositoryRuns,
 } from './runSidebarApi';
@@ -11,13 +11,13 @@ import type { RunListItem } from './types';
 
 vi.mock('./runSidebarApi', () => ({
   fetchRunSidebarDetail: vi.fn(),
-  fetchRunSidebarGroups: vi.fn(),
+  fetchRunSidebarTeams: vi.fn(),
   fetchRunSidebarRecentRuns: vi.fn(),
   fetchRunSidebarRepositoryRuns: vi.fn(),
 }));
 
 const fetchDetailMock = vi.mocked(fetchRunSidebarDetail);
-const fetchGroupsMock = vi.mocked(fetchRunSidebarGroups);
+const fetchTeamsMock = vi.mocked(fetchRunSidebarTeams);
 const fetchRecentRunsMock = vi.mocked(fetchRunSidebarRecentRuns);
 const fetchRepositoryRunsMock = vi.mocked(fetchRunSidebarRepositoryRuns);
 
@@ -29,7 +29,7 @@ const runItem = (runID: string): RunListItem => ({
 });
 
 beforeEach(() => {
-  fetchGroupsMock.mockResolvedValue([]);
+  fetchTeamsMock.mockResolvedValue([]);
   fetchRecentRunsMock.mockResolvedValue([]);
   fetchRepositoryRunsMock.mockResolvedValue({});
   fetchDetailMock.mockResolvedValue(null);
@@ -42,7 +42,7 @@ test('loads and deduplicates paginated recent runs', async () => {
   ));
 
   const { result } = renderHook(() => usePipelineRunsSidebar({
-    activeGroupId: null,
+    activeTeamId: null,
     activeRunId: null,
     tab: 'recent',
   }));
@@ -62,8 +62,8 @@ test('loads and deduplicates paginated recent runs', async () => {
 });
 
 test('loads repository runs and expands the active run branch', async () => {
-  fetchGroupsMock.mockResolvedValue([
-    { id: 1, name: 'Engineering', kind: 'group' },
+  fetchTeamsMock.mockResolvedValue([
+    { id: 1, name: 'Engineering', kind: 'team' },
     {
       id: 2,
       name: 'platform/api',
@@ -92,24 +92,24 @@ test('loads repository runs and expands the active run branch', async () => {
   });
 
   const { result } = renderHook(() => usePipelineRunsSidebar({
-    activeGroupId: 2,
+    activeTeamId: 2,
     activeRunId: 'active-run',
     tab: 'main',
   }));
 
   await waitFor(() => {
-    expect(result.current.groupsLoading).toBe(false);
+    expect(result.current.teamsLoading).toBe(false);
     expect(result.current.repoRunsCache.get(2)?.main).toHaveLength(1);
-    expect(result.current.expandedGroups).toEqual(new Set([1, 2]));
+    expect(result.current.expandedTeams).toEqual(new Set([1, 2]));
     expect(result.current.expandedBranches.has('2:main')).toBe(true);
   });
 
   act(() => result.current.toggleBranch(2, 'main'));
   expect(result.current.expandedBranches.has('2:main')).toBe(false);
 
-  act(() => result.current.toggleGroup(result.current.groups[1]));
-  expect(result.current.expandedGroups.has(2)).toBe(false);
-  act(() => result.current.toggleGroup(result.current.groups[1]));
-  expect(result.current.expandedGroups.has(2)).toBe(true);
+  act(() => result.current.toggleTeam(result.current.teams[1]));
+  expect(result.current.expandedTeams.has(2)).toBe(false);
+  act(() => result.current.toggleTeam(result.current.teams[1]));
+  expect(result.current.expandedTeams.has(2)).toBe(true);
   await waitFor(() => expect(fetchRepositoryRunsMock.mock.calls.length).toBeGreaterThan(1));
 });

@@ -3,7 +3,7 @@ import { ChevronLeft, Plus, RefreshCw, Search, X } from 'lucide-react';
 
 type ResourceCollectionToolbarProps = {
   resourceLabel: string;
-  activeFolder?: string;
+  activeTeam?: string;
   searchTerm: string;
   canCreate: boolean;
   onBack?: () => void;
@@ -20,7 +20,7 @@ type ResourceCollectionToolbarProps = {
 
 export function ResourceCollectionToolbar({
   resourceLabel,
-  activeFolder,
+  activeTeam,
   searchTerm,
   canCreate,
   onBack,
@@ -49,7 +49,7 @@ export function ResourceCollectionToolbar({
             className="glass-button-ghost"
             aria-label="Back"
             onClick={onBack}
-            disabled={!activeFolder}
+            disabled={!activeTeam}
           >
             <ChevronLeft className="h-4 w-4" aria-hidden="true" />
           </button>

@@ -10,12 +10,12 @@ type ScopeCollectionListProps = {
   listLoading: boolean;
   listError: string | null;
   searchTerm: string;
-  activeFolderNode: ScopeTreeNode;
+  activeTeamNode: ScopeTreeNode;
   filteredScopes: ScopeEntry[];
   scopesByLabel: Map<string, ScopeEntry>;
   scopeDataByScope: Record<string, ScopeData>;
   canCreateScopeHere: boolean;
-  onOpenFolder: (path: string) => void;
+  onOpenTeam: (path: string) => void;
   onSelectScope: (scopeLabel: string) => void;
 };
 
@@ -23,17 +23,17 @@ export function ScopeCollectionList({
   listLoading,
   listError,
   searchTerm,
-  activeFolderNode,
+  activeTeamNode,
   filteredScopes,
   scopesByLabel,
   scopeDataByScope,
   canCreateScopeHere,
-  onOpenFolder,
+  onOpenTeam,
   onSelectScope,
 }: ScopeCollectionListProps) {
   const hasSearch = Boolean(searchTerm.trim());
-  const folders = hasSearch ? [] : activeFolderNode.children;
-  const scopeLabels = hasSearch ? [] : activeFolderNode.scopes;
+  const teams = hasSearch ? [] : activeTeamNode.children;
+  const scopeLabels = hasSearch ? [] : activeTeamNode.scopes;
   const scopeEntries = hasSearch
     ? filteredScopes
     : scopeLabels.map(label => scopesByLabel.get(label)).filter((item): item is ScopeEntry => Boolean(item));
@@ -60,23 +60,23 @@ export function ScopeCollectionList({
               </div>
             ) : null}
 
-            {!hasSearch && folders.length ? (
+            {!hasSearch && teams.length ? (
               <div className="pipelines-card-grid pipelines-card-grid--pipelines mt-4">
-                {folders.map(child => (
-                  <ScopeFolderCard key={`folder-${child.id}`} node={child} onOpenFolder={onOpenFolder} />
+                {teams.map(child => (
+                  <ScopeTeamCard key={`team-${child.id}`} node={child} onOpenTeam={onOpenTeam} />
                 ))}
               </div>
             ) : null}
 
-            {!scopeEntries.length && !folders.length && (
+            {!scopeEntries.length && !teams.length && (
               <div id="scopes-empty" className="pipelines-empty">
                 <h3 className="text-base font-semibold text-[var(--text-primary)]">No scopes found</h3>
                 <p className="text-sm text-[var(--text-secondary)]">
                   {hasSearch
-                    ? `No scope groups matched “${searchTerm.trim()}”.`
+                    ? `No scope teams matched “${searchTerm.trim()}”.`
                     : canCreateScopeHere
                       ? 'Create a new scope or adjust your filters.'
-                      : 'Adjust your filters or browse another group.'}
+                      : 'Adjust your filters or browse another team.'}
                 </p>
               </div>
             )}
@@ -87,32 +87,32 @@ export function ScopeCollectionList({
   );
 }
 
-function ScopeFolderCard({ node, onOpenFolder }: { node: ScopeTreeNode; onOpenFolder: (path: string) => void }) {
+function ScopeTeamCard({ node, onOpenTeam }: { node: ScopeTreeNode; onOpenTeam: (path: string) => void }) {
   const totalScopes = countScopesRecursive(node);
   return (
     <article
       className="glass-card pipeline-card border border-[var(--border-primary)] rounded-xl p-4"
-      onClick={() => onOpenFolder(node.fullPath)}
+      onClick={() => onOpenTeam(node.fullPath)}
     >
       <div className="pipeline-card-header">
         <div className="pipeline-card-info">
           <span className="pipeline-card-icon" aria-hidden="true">
-            <ObjectIcon type="folder" />
+            <ObjectIcon type="team" />
           </span>
           <div className="pipeline-card-text">
             <h3 className="pipeline-card-title">{node.name}</h3>
             <p className="pipeline-card-path">{node.fullPath ? `/${node.fullPath}` : '/'}</p>
           </div>
         </div>
-        <span className="pipeline-folder-chevron">›</span>
+        <span className="pipeline-team-chevron">›</span>
       </div>
-      <div className="pipeline-folder-meta">
-        <div className="pipeline-folder-meta-row">
+      <div className="pipeline-team-meta">
+        <div className="pipeline-team-meta-row">
           <span className="pipeline-card-meta-label">Scopes:</span>
           <span className="pipeline-card-meta-value">{totalScopes}</span>
         </div>
-        <div className="pipeline-folder-meta-row">
-          <span className="pipeline-card-meta-label">Sub groups:</span>
+        <div className="pipeline-team-meta-row">
+          <span className="pipeline-card-meta-label">Sub teams:</span>
           <span className="pipeline-card-meta-value">{node.children.length}</span>
         </div>
       </div>

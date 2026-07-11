@@ -18,7 +18,7 @@ import {
 } from './runPresentation';
 import { STATUS_META, getStatusMeta, normalizeStatus } from './statusPresentation';
 
-type BranchEventGroup = {
+type BranchEventTeam = {
   id: string;
   runs: RunListItem[];
   status: string;
@@ -109,7 +109,7 @@ export function BranchRunsSection({
   const latestStatus = normalizeStatus(latestRun?.status, latestRun?.is_complete);
   const latestTime = latestRun ? timeAgo(latestRun.started_at || latestRun.finished_at) : '—';
 
-  const events = useMemo<BranchEventGroup[]>(() => {
+  const events = useMemo<BranchEventTeam[]>(() => {
     const bucket = new Map<string, RunListItem[]>();
     sortedRuns.forEach(run => {
       const key = run.trigger_event_id || run.run_id || 'unknown';
@@ -263,7 +263,7 @@ function BranchEventCard({
   onSelectRun,
   selectedRunIds,
 }: {
-  event: BranchEventGroup;
+  event: BranchEventTeam;
   onOpenRun: (id: string) => void;
   onSelectRun: (id: string) => void;
   selectedRunIds: Set<string>;

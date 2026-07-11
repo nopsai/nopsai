@@ -53,7 +53,7 @@ func (f *fakeConfigSyncGitReader) requestGitBotFile(owner, repo, ref, path strin
 
 func TestNewConfigSyncRepositoryContextNormalizesBinding(t *testing.T) {
 	ctx, err := newConfigSyncRepositoryContext(models.ConfigRepository{
-		ScopeType: models.ConfigRepositoryScopeFolder,
+		ScopeType: models.ConfigRepositoryScopeTeam,
 		ScopeID:   " /team-1/platform/ ",
 		RepoURL:   " https://github.com/acme/platform-config.git ",
 		BasePath:  " config\\prod/ ",
@@ -71,25 +71,25 @@ func TestNewConfigSyncRepositoryContextNormalizesBinding(t *testing.T) {
 	if ctx.basePath != "config/prod" {
 		t.Fatalf("basePath = %q, want config/prod", ctx.basePath)
 	}
-	if ctx.boundFolder != "team-1/platform" {
-		t.Fatalf("boundFolder = %q, want team-1/platform", ctx.boundFolder)
+	if ctx.boundTeam != "team-1/platform" {
+		t.Fatalf("boundTeam = %q, want team-1/platform", ctx.boundTeam)
 	}
 	if ctx.dirs.pipeline != "config/prod/pipelines" || ctx.dirs.configRepository != "config/prod/config-repositories" {
 		t.Fatalf("dirs = %#v, want base-path-qualified pipeline and config repository dirs", ctx.dirs)
 	}
 }
 
-func TestNewConfigSyncRepositoryContextRequiresFolderScopeID(t *testing.T) {
+func TestNewConfigSyncRepositoryContextRequiresTeamScopeID(t *testing.T) {
 	_, err := newConfigSyncRepositoryContext(models.ConfigRepository{
-		ScopeType: models.ConfigRepositoryScopeFolder,
+		ScopeType: models.ConfigRepositoryScopeTeam,
 		RepoURL:   "https://github.com/acme/platform-config",
 	})
-	if err == nil || !strings.Contains(err.Error(), "group-scoped config repository is missing its scope_id") {
+	if err == nil || !strings.Contains(err.Error(), "team-scoped config repository is missing its scope_id") {
 		t.Fatalf("newConfigSyncRepositoryContext() error = %v, want missing scope_id error", err)
 	}
 }
 
-func TestFetchConfigSyncRepositoryFilesAddsFolderNotificationRoot(t *testing.T) {
+func TestFetchConfigSyncRepositoryFilesAddsTeamNotificationRoot(t *testing.T) {
 	reader := &fakeConfigSyncGitReader{
 		files: map[string]string{
 			"config/notifications.yaml": "routes: []\n",
@@ -97,7 +97,7 @@ func TestFetchConfigSyncRepositoryFilesAddsFolderNotificationRoot(t *testing.T) 
 		},
 	}
 	binding := models.ConfigRepository{
-		ScopeType: models.ConfigRepositoryScopeFolder,
+		ScopeType: models.ConfigRepositoryScopeTeam,
 		ScopeID:   "team-1",
 		RepoURL:   "https://github.com/acme/platform-config",
 		Branch:    "release",
@@ -135,9 +135,9 @@ func TestFetchConfigSyncRepositoryFilesAddsFolderNotificationRoot(t *testing.T) 
 	}
 }
 
-func TestFetchConfigSyncRepositoryFilesIgnoresMissingFolderNotificationRoot(t *testing.T) {
+func TestFetchConfigSyncRepositoryFilesIgnoresMissingTeamNotificationRoot(t *testing.T) {
 	binding := models.ConfigRepository{
-		ScopeType: models.ConfigRepositoryScopeFolder,
+		ScopeType: models.ConfigRepositoryScopeTeam,
 		ScopeID:   "team-1",
 		RepoURL:   "https://github.com/acme/platform-config",
 		BasePath:  "config",

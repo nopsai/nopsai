@@ -199,8 +199,8 @@ func assistantBaseTurnPlan(content string, memory assistantConversationMemory) a
 		YAML:          assistantYAMLFromMessage(content),
 		PipelineName:  assistantPipelineNameFromMessage(content),
 		PipelineID:    assistantPipelineIDFromMessage(content),
-		Repository:    assistantFirstPatternGroup(assistantRepositoryPattern, content),
-		ScheduleID:    assistantFirstPatternGroup(assistantScheduleIDPattern, content),
+		Repository:    assistantFirstPatternTeam(assistantRepositoryPattern, content),
+		ScheduleID:    assistantFirstPatternTeam(assistantScheduleIDPattern, content),
 		Scope:         assistantScopeFromMessage(content),
 		UserConfirmed: assistantFeatureConfirmed(lower),
 	}

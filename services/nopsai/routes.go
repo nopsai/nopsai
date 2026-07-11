@@ -48,8 +48,8 @@ func (a *App) registerAccessRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/access/grants", a.handleCreateAccessGrant)
 	mux.HandleFunc("GET /v1/access/grants", a.handleListAccessGrants)
 	mux.HandleFunc("DELETE /v1/access/grants/{grantID}", a.handleDeleteAccessGrant)
-	mux.HandleFunc("GET /v1/access/groups", a.handleListAccessGroups)
-	mux.HandleFunc("GET /v1/access/auth-groups", a.handleListAccessGroups)
+	mux.HandleFunc("GET /v1/access/auth-teams", a.handleListAccessAuthTeams)
+	mux.HandleFunc("GET /v1/access/teams", a.handleListAccessTeams)
 	mux.HandleFunc("GET /v1/access/effective-permissions", a.handleGetEffectivePermissions)
 	mux.HandleFunc("POST /v1/authz/resource-use/check", a.handleResourceUseCheck)
 	mux.HandleFunc("POST /v1/authz/resource-use/batch-check", a.handleResourceUseBatchCheck)
@@ -70,14 +70,6 @@ func (a *App) registerGitWebhookSourceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /v1/git-webhook-sources/{sourceID}", a.handleUpdateGitWebhookSource)
 	mux.HandleFunc("DELETE /v1/git-webhook-sources/{sourceID}", a.handleDeleteGitWebhookSource)
 	mux.HandleFunc("GET /v1/git-webhook-sources/{sourceID}/deliveries", a.handleListGitWebhookDeliveries)
-}
-
-func (a *App) registerGroupRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /v1/groups", a.handleCreateGroup)
-	mux.HandleFunc("GET /v1/groups", a.handleGetGroups)
-	mux.HandleFunc("PUT /v1/groups/{groupID}", a.handleUpdateGroup)
-	mux.HandleFunc("DELETE /v1/groups/{groupID}", a.handleDeleteGroup)
-	mux.HandleFunc("PUT /v1/groups/{groupID}/move", a.handleMoveGroup)
 }
 
 func (a *App) registerTeamRoutes(mux *http.ServeMux) {
@@ -244,19 +236,6 @@ func (a *App) registerSetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/setup/bootstrap", a.handleBootstrapSetup)
 }
 
-func (a *App) registerFolderConfigRepositoryRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /v1/groups/{folderID}/config-repo", a.handleGetFolderConfigRepository)
-	mux.HandleFunc("PUT /v1/groups/{folderID}/config-repo", a.handleUpsertFolderConfigRepository)
-	mux.HandleFunc("DELETE /v1/groups/{folderID}/config-repo", a.handleDeleteFolderConfigRepository)
-	mux.HandleFunc("GET /v1/groups/{folderID}/config-repo/sync", a.handleGetFolderConfigRepositorySyncStatus)
-	mux.HandleFunc("POST /v1/groups/{folderID}/config-repo/sync", a.handleSyncFolderConfigRepository)
-	mux.HandleFunc("GET /v1/groups/{folderID}/config-repo/drift", a.handleGetFolderConfigRepositoryDrift)
-	mux.HandleFunc("POST /v1/groups/{folderID}/config-repo/write", a.handleWriteFolderConfigRepository)
-	mux.HandleFunc("GET /v1/groups/{folderID}/notifications", a.handleGetFolderNotificationRoute)
-	mux.HandleFunc("PUT /v1/groups/{folderID}/notifications", a.handleUpsertFolderNotificationRoute)
-	mux.HandleFunc("DELETE /v1/groups/{folderID}/notifications", a.handleDeleteFolderNotificationRoute)
-}
-
 func (a *App) registerPipelineRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/pipelines", a.handleListPipelines)
 	mux.HandleFunc("GET /v1/pipelines/{pipelineName...}", a.handleGetPipeline)
@@ -354,13 +333,11 @@ func (a *App) buildHTTPHandler() http.Handler {
 	a.registerAuthRoutes(mux)
 	a.registerAccessRoutes(mux)
 	a.registerGitHubRoutes(mux)
-	a.registerGroupRoutes(mux)
 	a.registerTeamRoutes(mux)
 	a.registerSystemRoutes(mux)
 	a.registerMonitoringRoutes(mux)
 	a.registerAssistantRoutes(mux)
 	a.registerHostedMCPRoutes(mux)
-	a.registerFolderConfigRepositoryRoutes(mux)
 	a.registerPipelineRoutes(mux)
 	a.registerScheduleRoutes(mux)
 	a.registerExternalTriggerRoutes(mux)

@@ -1,5 +1,5 @@
 import { apiClient } from '../../lib/api.js';
-import type { Group } from '../../lib/teamGroups.js';
+import type { Team } from '../../lib/teamModels.js';
 
 async function responseError(response: Response, fallback: string) {
   const text = await response.text();
@@ -133,14 +133,14 @@ export type TeamMCPProfilesResponse = {
   profiles: TeamMCPProfile[];
 };
 
-export async function fetchTeamGroups(): Promise<Group[]> {
-  const payload = await requestTeamsJson<TeamListResponse | Group[]>('/v1/teams?include=applications');
+export async function fetchTeams(): Promise<Team[]> {
+  const payload = await requestTeamsJson<TeamListResponse | Team[]>('/v1/teams?include=applications');
   if (Array.isArray(payload)) return payload;
   const teams = Array.isArray(payload?.teams) ? payload.teams : [];
   const applications = Array.isArray(payload?.applications) ? payload.applications : [];
   return [
-    ...teams.map(teamRecordToGroup),
-    ...applications.map(applicationRecordToGroup),
+    ...teams.map(teamRecordToTeam),
+    ...applications.map(applicationRecordToTeam),
   ];
 }
 
@@ -260,11 +260,11 @@ function teamRoute(teamID: number | string): string {
   return `/v1/teams/${encodeURIComponent(String(teamID))}`;
 }
 
-function teamRecordToGroup(record: TeamRecord): Group {
+function teamRecordToTeam(record: TeamRecord): Team {
   return {
     id: record.id,
     name: record.name || record.slug || record.display_name || '',
-    kind: 'group',
+    kind: 'team',
     parent_id: record.parent_team_id ?? record.parent_id ?? null,
     description: record.description || '',
     last_run_at: record.last_run_at,
@@ -272,7 +272,7 @@ function teamRecordToGroup(record: TeamRecord): Group {
   };
 }
 
-function applicationRecordToGroup(record: ApplicationRecord): Group {
+function applicationRecordToTeam(record: ApplicationRecord): Team {
   return {
     id: record.id,
     name: record.name || record.slug || record.display_name || record.repository_full_name || '',

@@ -3,7 +3,7 @@ name: pipeline-report-style
 kind: guideline
 description: Recommended style for pipeline summaries and reports.
 access:
-  visibility: group
+  visibility: team
 content: |
   # Pipeline Report Style Guideline
 

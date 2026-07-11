@@ -8,7 +8,7 @@ describe('ResourceAccessCard', () => {
   beforeEach(() => {
     vi.spyOn(apiClient, 'fetch').mockImplementation(async (input, init) => {
       const path = String(input);
-      if (path === '/v1/groups' || path === '/v1/admin/service-accounts') {
+      if (path === '/v1/teams?include=applications' || path === '/v1/admin/service-accounts') {
         return Response.json([]);
       }
       if (path.endsWith('/grants') && init?.method === 'POST') {

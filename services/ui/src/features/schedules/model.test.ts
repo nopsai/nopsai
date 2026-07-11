@@ -23,7 +23,7 @@ test('builds one-time and recurring schedule requests', () => {
       name: ' Nightly ',
       pipeline: '.nopsai/pipelines/platform/deploy.yaml',
       scope: 'default',
-      runGroupPath: '',
+      runTeamPath: '',
       variablesText: 'ENV=prod\nRETRIES=3',
     }),
     {
@@ -37,7 +37,7 @@ test('builds one-time and recurring schedule requests', () => {
       timezone: 'UTC',
       enabled: true,
       scope: '',
-      run_group_path: 'root',
+      run_team_path: 'root',
       variables: { ENV: 'prod', RETRIES: '3' },
     }
   );
@@ -67,7 +67,7 @@ test('normalizes schedule metadata payloads', () => {
     ),
     {
       pipelines: ['platform/deploy', 'shared/build'],
-      groups: ['platform', 'shared'],
+      teams: ['platform', 'shared'],
       scopes: ['', 'platform/dev', 'prod'],
     }
   );
@@ -90,6 +90,6 @@ const baseForm = {
   timezone: 'UTC',
   enabled: true,
   scope: '',
-  runGroupPath: 'root',
+  runTeamPath: 'root',
   variablesText: '',
 };

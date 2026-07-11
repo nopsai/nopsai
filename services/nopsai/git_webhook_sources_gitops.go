@@ -24,7 +24,7 @@ func parseGitOpsGitWebhookSources(
 	files map[string]string,
 	sourceDir string,
 	binding models.ConfigRepository,
-	boundFolder string,
+	boundTeam string,
 ) (map[string]storedGitWebhookSource, error) {
 	sources := map[string]storedGitWebhookSource{}
 	for path, content := range files {
@@ -40,8 +40,8 @@ func parseGitOpsGitWebhookSources(
 		id := strings.TrimSpace(doc.ID)
 		if id == "" {
 			id = strings.TrimSuffix(strings.Trim(filepath.ToSlash(rel), "/"), filepath.Ext(rel))
-			if binding.ScopeType == models.ConfigRepositoryScopeFolder {
-				id = externalTriggerGitOpsSlug(strings.Trim(boundFolder, "/") + "/" + id)
+			if binding.ScopeType == models.ConfigRepositoryScopeTeam {
+				id = externalTriggerGitOpsSlug(strings.Trim(boundTeam, "/") + "/" + id)
 			} else {
 				id = externalTriggerGitOpsSlug(id)
 			}

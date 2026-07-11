@@ -137,13 +137,13 @@ Main tables from `db/init.sql`:
 - `pipeline_run_logs`: Durable log lines ingested from runner/agent activity.
 - `pipelines`, `steps`, `triggers`: Stored configuration and overrides. Pipelines and reusable steps also carry resource visibility for runtime sharing.
 - `variables`, `secrets`: Runtime configuration data, with secrets encrypted before storage.
-- `knowledge_contexts`: Managed markdown knowledge documents grouped by kind/group/name, with GitOps source metadata.
+- `knowledge_contexts`: Managed markdown knowledge documents teamed by kind/team/name, with GitOps source metadata.
 - `pipeline_run_knowledge_contexts`: Per-run snapshots of resolved knowledge content.
-- `groups`: Folder/repository tree used by the UI’s pipeline-runs organization.
+- `teams`: Compatibility table backing the Teams/application tree used by Pipeline Runs organization.
 - `users`, `user_roles`, `role_permissions`, `refresh_tokens`, `personal_access_tokens`, `service_account_tokens`, `audit_logs`: Local auth, legacy RBAC metadata, session, personal API credentials, service account credentials, and audit data.
 - `credentials`, `credential_versions`, `credential_access_logs`: Encrypted,
   versioned system integration credentials and purpose-bound consumer audit.
-- `auth_groups`, `auth_group_members`, `auth_roles`, `auth_role_bindings`, `auth_role_permissions`: AAA-owned policy data used by the policy engine; product access grants can target users, auth groups, repositories, triggers, service accounts, and internal services.
+- `auth_teams`, `auth_team_members`, `auth_roles`, `auth_role_bindings`, `auth_role_permissions`: AAA-owned policy data used by the policy engine; product access grants can target users, auth teams, repositories, triggers, service accounts, and internal services.
 - `resource_visibility`: Visibility settings for reusable resources, including knowledge contexts.
 - `access_grants`, `resource_ownership`: Product-owned grant intent and ownership metadata used by the access UI/API.
 - `resource_acl`, `authz_decision_logs`: AAA-owned expanded ACL rows and authorization decision audit logs.
@@ -159,7 +159,7 @@ The canonical navigation model for enterprise pipeline activity is:
 
 ```text
 Workspace
-  -> folder/team/product area
+  -> team/product area
       -> pipelines
       -> schedules
       -> external triggers
@@ -168,47 +168,47 @@ Workspace
       -> scopes, secrets, variables, and access
 ```
 
-In the current schema, `groups.kind = 'group'` represents folder/team/product
-area nodes and `groups.kind = 'app'` represents application or repository
-nodes. The stable product boundary is the folder/group path. Repositories are
+In the current schema, `teams.kind = 'team'` represents team/product
+area nodes and `teams.kind = 'app'` represents application or repository
+nodes. The stable product boundary is the team path. Repositories are
 one possible source of code or events, and one possible runtime identity; they
 are not required parents for pipelines. A pipeline without a repository should
 still have a logical path such as `platform/prod/deploy-prod`, with
-`platform/prod` as the owning folder.
+`platform/prod` as the owning team path.
 
-`pipeline_runs.group_id` points at the best existing owner for the run. Run
+`pipeline_runs.team_id` points at the best existing owner for the run. Run
 creation resolves that owner in this order:
 
-1. explicit `X-Nopsai-Group-Path`, used by schedules and other first-class
+1. explicit `X-Nopsai-Team-Path`, used by schedules and other first-class
    owners
 2. the pipeline path, so manual, schedule, external-trigger, and repo-less runs
-   still attach to a product folder
+   still attach to a product team
 3. repository metadata, for raw Git-sourced runs without a logical pipeline
    path
 
-Selecting a folder in the run list includes runs attached to that folder and
-all descendants, so parent folders act as dashboards rather than empty
+Selecting a team in the run list includes runs attached to that team and
+all descendants, so parent teams act as dashboards rather than empty
 navigation shells.
 
 `pipeline_runs.scope` is separate from this hierarchy. A scope is the runtime
 environment or context for a run, such as `dev`, `staging`, `prod`,
 `customer-a`, or `region-eu`; it should be exposed as a run attribute and
-filter, not as a folder under pipeline runs.
+filter, not as a team under pipeline runs.
 
 Pipeline run rows are runtime/audit records and should not create the
 navigation structure. Config repositories, setup, or explicit UI/API actions
-define folders, apps, schedules, triggers, and pipeline paths; runs then
+define teams, apps, schedules, triggers, and pipeline paths; runs then
 reference that structure:
 
-- manual pipeline runs use the pipeline path/folder and the user subject
-- GitHub webhook runs use the owning folder plus repository metadata, with the
+- manual pipeline runs use the pipeline team path and the user subject
+- GitHub webhook runs use the owning team plus repository metadata, with the
   repository as runtime identity
 - generic Git webhook runs use synchronized trigger/pipeline configuration plus
   repository metadata, with the repository as runtime identity
-- schedule runs use the schedule group path and schedule service account
-- external-trigger runs use the target pipeline or trigger group path and the
+- schedule runs use the schedule team path and schedule service account
+- external-trigger runs use the target pipeline or trigger team path and the
   allowed user/service account caller
-- runs with no path, repository, schedule, or trigger owner remain ungrouped
+- runs with no path, repository, schedule, or trigger owner remain unassigned
   until the UI presents source-based buckets
 
 ## Authorization Model
@@ -224,17 +224,17 @@ Important evaluator properties that remain unchanged:
 - deny before allow
 - direct role permissions
 - direct resource ACLs
-- auth-group expansion
+- auth-team expansion
 - resource inheritance
 - audit logging for denied and sensitive allowed decisions
 
 Important product-layer properties:
 
-- Folder grants are stored once at the parent folder path and inherited by child folders, pipelines, runs, repositories, scoped secrets, scoped variables, triggers, reusable steps, and knowledge contexts.
+- Team grants are stored once at the parent team path and inherited by child teams, pipelines, runs, repositories, scoped secrets, scoped variables, triggers, reusable steps, and knowledge contexts.
 - Product grants do not require evaluator-specific awareness; `nopsai` records grant intent and delegates low-level role, binding, permission, and ACL mutations to `services/aaa/pkg/store`.
 - Platform admin still flows through normal `Check` decisions, so sensitive admin actions remain visible in audit logs.
 - Runtime resource-use authorization is caller-based: manual runs use the user, Git-triggered runs use the repository, and internal dispatcher calls do not gain permissions from resource owners.
-- Reusable resources can be `group`, `restricted`, or `workspace` visible. The UI labels workspace visibility as `Public`, but callers still need the appropriate use action and related resources such as scopes and secrets are checked separately.
+- Reusable resources can be `team`, `restricted`, or `workspace` visible. The UI labels workspace visibility as `Public`, but callers still need the appropriate use action and related resources such as scopes and secrets are checked separately.
 
 ## Configuration Sources
 

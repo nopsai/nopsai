@@ -1,4 +1,4 @@
-export type Group = {
+export type Team = {
   id: number;
   name: string;
   parent_id?: number | null;
@@ -80,8 +80,8 @@ export type RunnerSummary = {
   queuedJobs: number;
 };
 
-export type GroupMetric = {
-  group: Group;
+export type TeamMetric = {
+  team: Team;
   label: string;
   depth: number;
   totalRuns: number;
@@ -106,7 +106,7 @@ export type SummaryMetric = {
 export type PipelineMetric = {
   id: string;
   pipelineName: string;
-  groupLabel: string;
+  teamLabel: string;
   totalRuns: number;
   failedRuns: number;
   successRate: number;
@@ -159,7 +159,7 @@ export type MonitoringRunRef = {
 };
 
 export type MonitoringRunRow = MonitoringRunRef & {
-  group_name?: string;
+  team_name?: string;
   repo?: string;
   ref?: string;
   commit_sha?: string;
@@ -366,11 +366,11 @@ export type MonitoringEfficiency = {
   total_runner_minutes?: number;
   total_ai_tokens?: number;
   token_by_pipeline?: MonitoringNamedCount[];
-  token_by_group?: MonitoringNamedCount[];
+  token_by_team?: MonitoringNamedCount[];
   token_by_step?: MonitoringNamedCount[];
   token_heavy_low_success_pipelines?: MonitoringPerformanceRow[];
   frequent_reruns?: MonitoringPerformanceRow[];
-  high_queue_groups?: MonitoringNamedCount[];
+  high_queue_teams?: MonitoringNamedCount[];
   recommendations?: string[];
 };
 
@@ -388,8 +388,8 @@ export type MonitoringSavedView = {
   name: string;
   owner_subject_type?: string;
   owner_subject_id?: string;
-  visibility?: 'private' | 'group' | 'workspace';
-  group_id?: number;
+  visibility?: 'private' | 'team' | 'workspace';
+  team_id?: number;
   filters?: Record<string, unknown>;
   columns?: string[];
   source?: string;
@@ -414,7 +414,7 @@ export type MonitoringAlertRule = {
   name: string;
   description?: string;
   enabled?: boolean;
-  visibility?: 'private' | 'group' | 'workspace';
+  visibility?: 'private' | 'team' | 'workspace';
   severity?: 'info' | 'warning' | 'critical';
   metric?: string;
   comparator?: string;
@@ -469,40 +469,40 @@ export function flattenBranchRuns(branchMap: RunBranchMap): RunListItem[] {
   return runs.sort((a, b) => getRunTime(b) - getRunTime(a));
 }
 
-export function buildGroupContext(groups: Group[]) {
-  const groupById = new Map(groups.map(group => [group.id, group]));
-  const childrenByParent = new Map<number | null, Group[]>();
-  groups.forEach(group => {
-    const parentId = group.parent_id ?? null;
+export function buildTeamContext(teams: Team[]) {
+  const teamById = new Map(teams.map(team => [team.id, team]));
+  const childrenByParent = new Map<number | null, Team[]>();
+  teams.forEach(team => {
+    const parentId = team.parent_id ?? null;
     const children = childrenByParent.get(parentId) || [];
-    children.push(group);
+    children.push(team);
     childrenByParent.set(parentId, children);
   });
 
   const labels = new Map<number, string>();
   const depths = new Map<number, number>();
-  groups.forEach(group => {
+  teams.forEach(team => {
     const path: string[] = [];
     const visited = new Set<number>();
-    let current: Group | undefined = group;
+    let current: Team | undefined = team;
     while (current && !visited.has(current.id)) {
       visited.add(current.id);
       path.unshift(current.name);
       const parentId: number | null = current.parent_id ?? null;
-      current = parentId == null ? undefined : groupById.get(parentId);
+      current = parentId == null ? undefined : teamById.get(parentId);
     }
-    labels.set(group.id, path.join('/'));
-    depths.set(group.id, Math.max(0, path.length - 1));
+    labels.set(team.id, path.join('/'));
+    depths.set(team.id, Math.max(0, path.length - 1));
   });
 
   return { childrenByParent, labels, depths };
 }
 
-export function allDirectRuns(runsByGroup: Record<number, RunListItem[]>): RunListItem[] {
+export function allDirectRuns(runsByTeam: Record<number, RunListItem[]>): RunListItem[] {
   const seen = new Set<string>();
   const runs: RunListItem[] = [];
-  Object.values(runsByGroup).forEach(groupRuns => {
-    groupRuns.forEach(run => {
+  Object.values(runsByTeam).forEach(teamRuns => {
+    teamRuns.forEach(run => {
       if (!run.run_id || seen.has(run.run_id)) return;
       seen.add(run.run_id);
       runs.push(run);
@@ -511,23 +511,23 @@ export function allDirectRuns(runsByGroup: Record<number, RunListItem[]>): RunLi
   return runs;
 }
 
-export function runsForGroupAndDescendants(groupId: number, runsByGroup: Record<number, RunListItem[]>, childrenByParent: Map<number | null, Group[]>): RunListItem[] {
-  const groupIds = new Set<number>([groupId]);
-  const queue = [groupId];
+export function runsForTeamAndDescendants(teamId: number, runsByTeam: Record<number, RunListItem[]>, childrenByParent: Map<number | null, Team[]>): RunListItem[] {
+  const teamIds = new Set<number>([teamId]);
+  const queue = [teamId];
   while (queue.length) {
     const current = queue.shift();
     if (current == null) continue;
     (childrenByParent.get(current) || []).forEach(child => {
-      if (groupIds.has(child.id)) return;
-      groupIds.add(child.id);
+      if (teamIds.has(child.id)) return;
+      teamIds.add(child.id);
       queue.push(child.id);
     });
   }
 
   const seen = new Set<string>();
   const runs: RunListItem[] = [];
-  groupIds.forEach(id => {
-    (runsByGroup[id] || []).forEach(run => {
+  teamIds.forEach(id => {
+    (runsByTeam[id] || []).forEach(run => {
       if (!run.run_id || seen.has(run.run_id)) return;
       seen.add(run.run_id);
       runs.push(run);
@@ -542,10 +542,10 @@ export function filterRunsByWindow(runs: RunListItem[], days: number): RunListIt
   return runs.filter(run => getRunTime(run) >= cutoff);
 }
 
-export function buildGroupMetric(group: Group, label: string, depth: number, runs: RunListItem[]): GroupMetric {
+export function buildTeamMetric(team: Team, label: string, depth: number, runs: RunListItem[]): TeamMetric {
   const summary = summarizeRuns(runs);
   return {
-    group,
+    team,
     label,
     depth,
     totalRuns: summary.totalRuns,
@@ -600,14 +600,14 @@ export function statusCountsFromSummary(summary: SummaryMetric): Record<RunStatu
 
 export function buildPipelineMetrics(
   runs: RunListItem[],
-  groups: Group[],
-  runsByGroup: Record<number, RunListItem[]>,
-  groupLabels: Map<number, string>
+  teams: Team[],
+  runsByTeam: Record<number, RunListItem[]>,
+  teamLabels: Map<number, string>
 ): PipelineMetric[] {
-  const groupForRun = new Map<string, string>();
-  groups.forEach(group => {
-    (runsByGroup[group.id] || []).forEach(run => {
-      groupForRun.set(run.run_id, groupLabels.get(group.id) || group.name);
+  const teamForRun = new Map<string, string>();
+  teams.forEach(team => {
+    (runsByTeam[team.id] || []).forEach(run => {
+      teamForRun.set(run.run_id, teamLabels.get(team.id) || team.name);
     });
   });
 
@@ -626,7 +626,7 @@ export function buildPipelineMetrics(
       return {
         id,
         pipelineName: latestRun?.pipeline_name || id,
-        groupLabel: latestRun ? groupForRun.get(latestRun.run_id) || 'Unassigned' : 'Unassigned',
+        teamLabel: latestRun ? teamForRun.get(latestRun.run_id) || 'Unassigned' : 'Unassigned',
         totalRuns: summary.totalRuns,
         failedRuns: summary.failedRuns,
         successRate: summary.successRate,

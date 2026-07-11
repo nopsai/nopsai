@@ -149,8 +149,8 @@ export function UsersWorkspace({
                     <h5 className="access-editor-title">{displayName}</h5>
                     <p className="access-editor-text">
                       {externalManaged
-                        ? `This user's role assignments are managed by ${providerLabel}. Change groups in ${providerLabel} to update NopsAI access.`
-                        : "Manage account details, access roles, and group-scoped basic roles."}
+                        ? `This user's role assignments are managed by ${providerLabel}. Change teams in ${providerLabel} to update NopsAI access.`
+                        : "Manage account details, access roles, and team-scoped basic roles."}
                     </p>
                   </div>
                   <button

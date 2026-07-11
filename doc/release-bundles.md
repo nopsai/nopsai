@@ -129,7 +129,7 @@ Missing or rejected Apple credentials fail the Darwin matrix jobs and prevent
 the unified release from being published. They never fall back to an unsigned
 CLI artifact.
 
-`scripts/generate-changelog.sh` groups commits since the most recent semantic
+`scripts/generate-changelog.sh` teams commits since the most recent semantic
 version tag into breaking, added, fixed, and changed sections. The generated
 file is used as the GitHub Release body and shipped as an asset; release
 automation never commits generated version or changelog files back to main, so

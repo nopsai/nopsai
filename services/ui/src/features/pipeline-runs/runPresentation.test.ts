@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { RunListItem } from './contracts.js';
 import {
-  buildGroupPath,
+  buildTeamPath,
   buildPipelineLink,
   buildRunMonitoringLink,
-  buildRunSourceGroups,
+  buildRunSourceTeams,
   buildStatusTimeline,
   extractLatestRunSummary,
   formatAIUsageBreakdown,
@@ -14,8 +14,8 @@ import {
   formatTokenCount,
   formatTriggerId,
   getRunSourceKind,
-  groupDisplayName,
-  groupRepositoryURL,
+  teamDisplayName,
+  teamRepositoryURL,
   repositoryBrowserURL,
   runMatchesSearch,
   summarizeStatus,
@@ -31,16 +31,16 @@ function run(overrides: Partial<RunListItem> = {}): RunListItem {
   };
 }
 
-test('normalizes repository groups and browser links', () => {
-  assert.equal(groupDisplayName({ name: 'platform/api', kind: 'app' }), 'api');
+test('normalizes repository teams and browser links', () => {
+  assert.equal(teamDisplayName({ name: 'platform/api', kind: 'app' }), 'api');
   assert.equal(
-    groupRepositoryURL({ name: 'platform/api', repo_url: 'git@github.com:acme/api.git' }),
+    teamRepositoryURL({ name: 'platform/api', repo_url: 'git@github.com:acme/api.git' }),
     'https://github.com/acme/api'
   );
   assert.equal(repositoryBrowserURL('github.com/acme/web.git', ''), 'https://github.com/acme/web');
 });
 
-test('groups run sources in stable product order and retains repository branches', () => {
+test('teams run sources in stable product order and retains repository branches', () => {
   const repository = run({ run_id: 'repo', git_repo_owner: 'acme', git_repo_name: 'api' });
   const scheduled = run({ run_id: 'scheduled', trigger_source: 'schedule', schedule_id: 'nightly' });
   const external = run({ run_id: 'external', external_trigger_id: 'hook-1' });
@@ -48,18 +48,18 @@ test('groups run sources in stable product order and retains repository branches
 
   assert.equal(getRunSourceKind(repository), 'repository');
   assert.deepEqual(
-    buildRunSourceGroups({ main: [manual, repository], nightly: [scheduled, external] }).map(group => group.kind),
+    buildRunSourceTeams({ main: [manual, repository], nightly: [scheduled, external] }).map(team => team.kind),
     ['repository', 'schedule', 'external', 'manual']
   );
-  assert.deepEqual(buildRunSourceGroups({ main: [repository] })[0].branches?.main, [repository]);
+  assert.deepEqual(buildRunSourceTeams({ main: [repository] })[0].branches?.main, [repository]);
 });
 
-test('builds bounded group paths even when malformed data contains a cycle', () => {
-  const groups = [
+test('builds bounded team paths even when malformed data contains a cycle', () => {
+  const teams = [
     { id: 1, name: 'one', parent_id: 2 },
     { id: 2, name: 'two', parent_id: 1 },
   ];
-  assert.deepEqual(buildGroupPath(1, groups).map(group => group.id), [2, 1]);
+  assert.deepEqual(buildTeamPath(1, teams).map(team => team.id), [2, 1]);
 });
 
 test('formats, searches, and links run metadata', () => {

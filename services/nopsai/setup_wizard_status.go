@@ -231,7 +231,7 @@ func (a *App) setupCounts(ctx context.Context) (setupCounts, error) {
 	if counts.Triggers, err = a.countRows(ctx, "SELECT COUNT(*) FROM triggers"); err != nil {
 		return counts, err
 	}
-	if counts.Groups, err = a.countRows(ctx, "SELECT COUNT(*) FROM groups"); err != nil {
+	if counts.Teams, err = a.countRows(ctx, "SELECT COUNT(*) FROM teams"); err != nil {
 		return counts, err
 	}
 	if counts.AccessGrants, err = a.countRows(ctx, "SELECT COUNT(*) FROM access_grants"); err != nil {

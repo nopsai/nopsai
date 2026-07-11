@@ -33,7 +33,7 @@ test('renders setup review output and delegates preview, zip, and env downloads'
   render(
     <SetupReviewOutput
       aiEnabled={false}
-      normalizedRepositoryGroups={[{ name: 'platform', repositories: ['acme/api'] }]}
+      normalizedRepositoryTeams={[{ name: 'platform', repositories: ['acme/api'] }]}
       repositories={['acme/api']}
       userCount={2}
       runtimeEnvSections={[

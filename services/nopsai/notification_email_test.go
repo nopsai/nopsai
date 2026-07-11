@@ -66,8 +66,8 @@ func TestRenderPipelineNotificationMailIncludesLinksAndEscapesLogs(t *testing.T)
 		PipelineName:  "deploy",
 		PipelinePath:  "production",
 		Status:        "failure",
-		GroupID:       3,
-		GroupPath:     "team-1/test-app",
+		TeamID:        3,
+		TeamPath:      "team-1/test-app",
 		RepoOwner:     "acme",
 		RepoName:      "service-api",
 		RepoURL:       "https://github.com/acme/service-api",
@@ -95,7 +95,7 @@ func TestRenderPipelineNotificationMailIncludesLinksAndEscapesLogs(t *testing.T)
 		t.Fatalf("renderPipelineNotificationMail() error = %v", err)
 	}
 	for _, want := range []string{
-		"https://ci.example.com/#/pipelineruns/main?group=3&amp;run=8569e07f-42f4-4e8d-b0a9-992907a56276",
+		"https://ci.example.com/#/pipelineruns/main?run=8569e07f-42f4-4e8d-b0a9-992907a56276&amp;team=3",
 		"https://cdn.example.com/nopsai-logo.png",
 		"Example Corp, Amsterdam",
 		"1 of 2 tasks passed",
@@ -108,7 +108,7 @@ func TestRenderPipelineNotificationMailIncludesLinksAndEscapesLogs(t *testing.T)
 	if strings.Contains(message.HTMLBody, "ZgotmplZ") {
 		t.Fatal("HTML body contains a template sanitization placeholder")
 	}
-	if !strings.Contains(message.TextBody, "View run: https://ci.example.com/#/pipelineruns/main?group=3&run=") {
+	if !strings.Contains(message.TextBody, "View run: https://ci.example.com/#/pipelineruns/main?run=") || !strings.Contains(message.TextBody, "&team=3") {
 		t.Fatal("plain-text body is missing the run link")
 	}
 }

@@ -121,7 +121,7 @@ func TestAuthzMiddlewareFailsClosedWhenAAAUnavailable(t *testing.T) {
 	}
 }
 
-func TestAuthzMiddlewareDefersFolderListAuthorizationToHandlerFiltering(t *testing.T) {
+func TestAuthzMiddlewareDefersTeamListAuthorizationToHandlerFiltering(t *testing.T) {
 	remoteCalls := 0
 	localCalls := 0
 	app := &App{
@@ -137,11 +137,11 @@ func TestAuthzMiddlewareDefersFolderListAuthorizationToHandlerFiltering(t *testi
 				if subject.Sub != "admin" {
 					t.Fatalf("subject sub = %q, want admin", subject.Sub)
 				}
-				if action != "folder.list" {
-					t.Fatalf("action = %q, want folder.list", action)
+				if action != "team.list" {
+					t.Fatalf("action = %q, want team.list", action)
 				}
-				if resource.Type != "folder" || resource.ID != "*" {
-					t.Fatalf("resource = %#v, want folder:*", resource)
+				if resource.Type != "team" || resource.ID != "*" {
+					t.Fatalf("resource = %#v, want team:*", resource)
 				}
 				return model.Decision{Allowed: true, Reason: "fallback"}, nil
 			},
@@ -154,7 +154,7 @@ func TestAuthzMiddlewareDefersFolderListAuthorizationToHandlerFiltering(t *testi
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
-	req := withClaimsRequest(http.MethodGet, "/v1/groups", ``, &auth.Claims{Sub: "admin", Email: "admin@example.com", Provider: "local"})
+	req := withClaimsRequest(http.MethodGet, "/v1/teams", ``, &auth.Claims{Sub: "admin", Email: "admin@example.com", Provider: "local"})
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -162,7 +162,7 @@ func TestAuthzMiddlewareDefersFolderListAuthorizationToHandlerFiltering(t *testi
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
 	}
 	if !nextCalled {
-		t.Fatal("next handler was not called for filtered folder list request")
+		t.Fatal("next handler was not called for filtered team list request")
 	}
 	if remoteCalls != 0 || localCalls != 0 {
 		t.Fatalf("remote/local calls = %d/%d, want 0/0 until handler filtering", remoteCalls, localCalls)

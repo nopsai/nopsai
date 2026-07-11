@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { EditorAutocompleteMenu } from './EditorAutocompleteMenu';
 
 describe('EditorAutocompleteMenu', () => {
-  it('renders grouped metadata and inserts the selected suggestion', async () => {
+  it('renders teamed metadata and inserts the selected suggestion', async () => {
     const onSelect = vi.fn();
     render(
       <EditorAutocompleteMenu
@@ -13,7 +13,7 @@ describe('EditorAutocompleteMenu', () => {
           title: 'Variables',
           items: ['DEPLOY_ENV', 'RETRIES'],
           activeIndex: 1,
-          groupedSections: [{ label: '/platform', items: ['DEPLOY_ENV', 'RETRIES'], totalCount: 4 }],
+          teamedSections: [{ label: '/platform', items: ['DEPLOY_ENV', 'RETRIES'], totalCount: 4 }],
         }}
         onSelect={onSelect}
       />

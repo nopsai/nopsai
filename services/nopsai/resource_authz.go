@@ -17,19 +17,19 @@ import (
 )
 
 const (
-	resourceVisibilityGroup      = "group"
+	resourceVisibilityTeam       = "team"
 	resourceVisibilityRestricted = "restricted"
 	resourceVisibilityWorkspace  = "workspace"
 
 	resourceUseReasonDirectGrant     = "explicit_grant"
-	resourceUseReasonSameGroup       = "same_group"
+	resourceUseReasonSameTeam        = "same_team"
 	resourceUseReasonWorkspacePublic = "workspace_public"
 	resourceUseReasonScopeAccess     = "scope_access"
 	resourceUseReasonAuthError       = "authorization_error"
 	resourceUseReasonDenied          = "denied"
 )
 
-type GroupRef struct {
+type TeamRef struct {
 	ID    int    `json:"id,omitempty"`
 	Path  string `json:"path,omitempty"`
 	Valid bool   `json:"valid"`
@@ -56,8 +56,8 @@ type ResourceUseAuthResult struct {
 	ResourceID      string `json:"resource_id,omitempty"`
 	MatchedGrantID  string `json:"matched_grant_id,omitempty"`
 	MatchedResource string `json:"matched_resource,omitempty"`
-	CallerGroup     string `json:"caller_group,omitempty"`
-	ResourceGroup   string `json:"resource_group,omitempty"`
+	CallerTeam      string `json:"caller_team,omitempty"`
+	ResourceTeam    string `json:"resource_team,omitempty"`
 	Visibility      string `json:"visibility,omitempty"`
 	EventType       string `json:"event_type,omitempty"`
 	Ref             string `json:"ref,omitempty"`
@@ -147,42 +147,42 @@ func (a *App) AuthorizeResourceUse(ctx context.Context, input ResourceUseAuthInp
 		return result, nil
 	}
 
-	callerGroup, _ := a.ResolveCallerGroup(ctx, callerType, callerID)
-	resourceGroup, _ := a.ResolveResourceGroup(ctx, resourceType, resourceID)
-	if callerGroup.Valid {
-		result.CallerGroup = callerGroup.Path
+	callerTeam, _ := a.ResolveCallerTeam(ctx, callerType, callerID)
+	resourceTeam, _ := a.ResolveResourceTeam(ctx, resourceType, resourceID)
+	if callerTeam.Valid {
+		result.CallerTeam = callerTeam.Path
 	}
-	if resourceGroup.Valid {
-		result.ResourceGroup = resourceGroup.Path
+	if resourceTeam.Valid {
+		result.ResourceTeam = resourceTeam.Path
 	}
-	if callerGroup.Valid && resourceGroup.Valid && IsSameGroupBoundary(callerGroup.Path, resourceGroup.Path) {
-		if sameGroupResourceUseAllowed(resourceType, visibility) {
+	if callerTeam.Valid && resourceTeam.Valid && IsSameTeamBoundary(callerTeam.Path, resourceTeam.Path) {
+		if sameTeamResourceUseAllowed(resourceType, visibility) {
 			result.Allowed = true
-			result.Reason = resourceUseReasonSameGroup
-			result.MatchedResource = formatResourceLabel(grantResourceFolder, resourceGroup.Path)
+			result.Reason = resourceUseReasonSameTeam
+			result.MatchedResource = formatResourceLabel(grantResourceTeam, resourceTeam.Path)
 			return result, nil
 		}
-		if folderAllowed, folderDecision, checkErr := a.callerHasFolderAction(ctx, subject, action, resourceGroup.Path); checkErr != nil {
+		if teamAllowed, teamDecision, checkErr := a.callerHasTeamAction(ctx, subject, action, resourceTeam.Path); checkErr != nil {
 			return result, checkErr
-		} else if folderAllowed {
+		} else if teamAllowed {
 			result.Allowed = true
-			result.Reason = resourceUseReasonSameGroup
-			result.MatchedGrantID = a.matchedGrantIDFromDecision(ctx, folderDecision)
-			result.MatchedResource = matchedResourceLabel(folderDecision, model.ResourceRef{Type: grantResourceFolder, ID: resourceGroup.Path})
+			result.Reason = resourceUseReasonSameTeam
+			result.MatchedGrantID = a.matchedGrantIDFromDecision(ctx, teamDecision)
+			result.MatchedResource = matchedResourceLabel(teamDecision, model.ResourceRef{Type: grantResourceTeam, ID: resourceTeam.Path})
 			if result.MatchedResource == "" {
-				result.MatchedResource = formatResourceLabel(grantResourceFolder, resourceGroup.Path)
+				result.MatchedResource = formatResourceLabel(grantResourceTeam, resourceTeam.Path)
 			}
 			return result, nil
 		}
 	}
 
-	if groupAllowed, grantID, grantGroup, checkErr := a.callerHasExplicitGroupUseGrant(ctx, subject, action, resourceType, resourceID, callerGroup); checkErr != nil {
+	if teamAllowed, grantID, grantTeam, checkErr := a.callerHasExplicitTeamUseGrant(ctx, subject, action, resourceType, resourceID, callerTeam); checkErr != nil {
 		return result, checkErr
-	} else if groupAllowed {
+	} else if teamAllowed {
 		result.Allowed = true
 		result.Reason = resourceUseReasonDirectGrant
 		result.MatchedGrantID = formatAccessGrantID(grantID)
-		result.MatchedResource = formatResourceLabel(grantResourceFolder, grantGroup)
+		result.MatchedResource = formatResourceLabel(grantResourceTeam, grantTeam)
 		return result, nil
 	}
 
@@ -208,11 +208,11 @@ func (a *App) AuthorizeResourceUse(ctx context.Context, input ResourceUseAuthInp
 			if result.MatchedResource == "" {
 				result.MatchedResource = formatResourceLabel(grantResourceScope, scopeID)
 			}
-			if result.CallerGroup == "" {
-				result.CallerGroup = scopeResult.CallerGroup
+			if result.CallerTeam == "" {
+				result.CallerTeam = scopeResult.CallerTeam
 			}
-			if result.ResourceGroup == "" {
-				result.ResourceGroup = scopeResult.ResourceGroup
+			if result.ResourceTeam == "" {
+				result.ResourceTeam = scopeResult.ResourceTeam
 			}
 			return result, nil
 		}
@@ -228,9 +228,9 @@ func (a *App) AuthorizeResourceUse(ctx context.Context, input ResourceUseAuthInp
 	return result, nil
 }
 
-func sameGroupResourceUseAllowed(resourceType, visibility string) bool {
+func sameTeamResourceUseAllowed(resourceType, visibility string) bool {
 	switch normalizeResourceVisibility(visibility) {
-	case resourceVisibilityGroup, resourceVisibilityRestricted:
+	case resourceVisibilityTeam, resourceVisibilityRestricted:
 	default:
 		return false
 	}
@@ -284,11 +284,11 @@ func normalizeResourceUseResourceID(resourceType, raw string) (string, error) {
 		resourceID = runtimeNamedResourceIDForResource(resourceID)
 	}
 	if resourceType == grantResourceKnowledgeContext {
-		kind, group, name, err := splitKnowledgeContextIdentifier(resourceID)
+		kind, team, name, err := splitKnowledgeContextIdentifier(resourceID)
 		if err != nil {
 			return "", err
 		}
-		resourceID = buildKnowledgeContextIdentifier(kind, group, name)
+		resourceID = buildKnowledgeContextIdentifier(kind, team, name)
 	}
 	if resourceID == "" {
 		return "", fmt.Errorf("resource_id is required")
@@ -300,8 +300,8 @@ func normalizeResourceUseCallerType(raw string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case model.SubjectTypeUser:
 		return model.SubjectTypeUser, nil
-	case model.SubjectTypeAuthGroup, "group":
-		return model.SubjectTypeAuthGroup, nil
+	case model.SubjectTypeAuthTeam:
+		return model.SubjectTypeAuthTeam, nil
 	case grantSubjectRepository:
 		return model.SubjectTypeRepository, nil
 	case grantSubjectTrigger:
@@ -311,7 +311,7 @@ func normalizeResourceUseCallerType(raw string) (string, error) {
 	case grantSubjectService, model.SubjectTypeInternalService:
 		return model.SubjectTypeInternalService, nil
 	default:
-		return "", fmt.Errorf("caller_type must be user, auth_group, repository, trigger, service_account, or internal_service")
+		return "", fmt.Errorf("caller_type must be user, auth_team, repository, trigger, service_account, or internal_service")
 	}
 }
 
@@ -370,108 +370,108 @@ func uuidParse(value string) (string, error) {
 func (a *App) resourceUseAllowReason(ctx context.Context, callerType, callerID string, resource model.ResourceRef, decision model.Decision) string {
 	matchedType, _ := decision.MatchedPolicy["resource_type"].(string)
 	matchedID, _ := decision.MatchedPolicy["resource_id"].(string)
-	if strings.TrimSpace(matchedType) != grantResourceFolder {
+	if strings.TrimSpace(matchedType) != grantResourceTeam {
 		return resourceUseReasonDirectGrant
 	}
 
-	callerGroup, _ := a.ResolveCallerGroup(ctx, callerType, callerID)
-	resourceGroup, _ := a.ResolveResourceGroup(ctx, resource.Type, resource.ID)
-	if callerGroup.Valid && resourceGroup.Valid && IsSameGroupBoundary(callerGroup.Path, resourceGroup.Path) {
-		return resourceUseReasonSameGroup
+	callerTeam, _ := a.ResolveCallerTeam(ctx, callerType, callerID)
+	resourceTeam, _ := a.ResolveResourceTeam(ctx, resource.Type, resource.ID)
+	if callerTeam.Valid && resourceTeam.Valid && IsSameTeamBoundary(callerTeam.Path, resourceTeam.Path) {
+		return resourceUseReasonSameTeam
 	}
-	if matchedID != "" && resourceGroup.Valid && IsSameGroupBoundary(matchedID, resourceGroup.Path) {
-		return resourceUseReasonSameGroup
+	if matchedID != "" && resourceTeam.Valid && IsSameTeamBoundary(matchedID, resourceTeam.Path) {
+		return resourceUseReasonSameTeam
 	}
 	return resourceUseReasonDirectGrant
 }
 
-func decisionMatchedFolder(decision model.Decision) bool {
+func decisionMatchedTeam(decision model.Decision) bool {
 	if decision.MatchedPolicy == nil {
 		return false
 	}
 	matchedType, _ := decision.MatchedPolicy["resource_type"].(string)
-	return strings.TrimSpace(matchedType) == grantResourceFolder
+	return strings.TrimSpace(matchedType) == grantResourceTeam
 }
 
-func (a *App) ResolveCallerGroup(ctx context.Context, callerType, callerID string) (GroupRef, error) {
+func (a *App) ResolveCallerTeam(ctx context.Context, callerType, callerID string) (TeamRef, error) {
 	callerType = strings.TrimSpace(callerType)
 	callerID = strings.Trim(strings.TrimSpace(callerID), "/")
 	if callerID == "" || a == nil || a.db == nil {
-		return GroupRef{}, nil
+		return TeamRef{}, nil
 	}
 	switch callerType {
 	case model.SubjectTypeRepository:
-		return a.resolveRepositoryGroupRef(ctx, callerID)
+		return a.resolveRepositoryTeamRef(ctx, callerID)
 	case model.SubjectTypeTrigger:
 		var repositoryName string
 		err := a.db.QueryRow(ctx, `SELECT repository_name FROM triggers WHERE repository_name = $1 LIMIT 1`, callerID).Scan(&repositoryName)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
-			return GroupRef{}, err
+			return TeamRef{}, err
 		}
 		if repositoryName == "" {
 			repositoryName = callerID
 		}
-		return a.resolveRepositoryGroupRef(ctx, repositoryName)
+		return a.resolveRepositoryTeamRef(ctx, repositoryName)
 	default:
-		return GroupRef{}, nil
+		return TeamRef{}, nil
 	}
 }
 
-func (a *App) ResolveResourceGroup(ctx context.Context, resourceType, resourceID string) (GroupRef, error) {
+func (a *App) ResolveResourceTeam(ctx context.Context, resourceType, resourceID string) (TeamRef, error) {
 	resourceType = strings.TrimSpace(resourceType)
 	resourceID = strings.Trim(strings.TrimSpace(resourceID), "/")
 	switch resourceType {
 	case grantResourcePipeline, grantResourceStep:
 		path, _ := model.SplitPipelineID(resourceID)
-		return groupRefFromPath(path), nil
+		return teamRefFromPath(path), nil
 	case grantResourceScope:
-		return groupRefFromPath(resourceID), nil
-	case grantResourceFolder:
-		return groupRefFromPath(resourceID), nil
+		return teamRefFromPath(resourceID), nil
+	case grantResourceTeam:
+		return teamRefFromPath(resourceID), nil
 	case grantResourceRepo, grantResourceTrigger:
 		if a == nil || a.db == nil {
-			return groupRefFromPath(repositoryParentPath(resourceID)), nil
+			return teamRefFromPath(repositoryParentPath(resourceID)), nil
 		}
-		ref, err := a.resolveRepositoryGroupRef(ctx, resourceID)
+		ref, err := a.resolveRepositoryTeamRef(ctx, resourceID)
 		if err != nil || ref.Valid {
 			return ref, err
 		}
-		return groupRefFromPath(repositoryParentPath(resourceID)), nil
+		return teamRefFromPath(repositoryParentPath(resourceID)), nil
 	case grantResourceSecret, grantResourceVariable:
 		repoName, scope, _ := model.ParseNamedResourceID(resourceID)
 		if scope != "" {
-			return groupRefFromPath(scope), nil
+			return teamRefFromPath(scope), nil
 		}
-		return groupRefFromPath(repositoryParentPath(repoName)), nil
+		return teamRefFromPath(repositoryParentPath(repoName)), nil
 	case grantResourceKnowledgeContext:
-		_, group, _, err := splitKnowledgeContextIdentifier(resourceID)
+		_, team, _, err := splitKnowledgeContextIdentifier(resourceID)
 		if err != nil {
-			return GroupRef{}, err
+			return TeamRef{}, err
 		}
-		return groupRefFromPath(group), nil
+		return teamRefFromPath(team), nil
 	default:
-		return GroupRef{}, nil
+		return TeamRef{}, nil
 	}
 }
 
-func (a *App) resolveRepositoryGroupRef(ctx context.Context, repositoryID string) (GroupRef, error) {
+func (a *App) resolveRepositoryTeamRef(ctx context.Context, repositoryID string) (TeamRef, error) {
 	owner, repo := splitRepositoryID(repositoryID)
-	matches, err := a.repositoryGroupMatches(ctx, owner, repo)
+	matches, err := a.repositoryTeamMatches(ctx, owner, repo)
 	if err != nil {
-		return GroupRef{}, err
+		return TeamRef{}, err
 	}
 	if len(matches) == 0 {
-		return groupRefFromPath(repositoryID), nil
+		return teamRefFromPath(repositoryID), nil
 	}
-	return GroupRef{ID: matches[0].ID, Path: strings.Trim(matches[0].Path, "/"), Valid: true}, nil
+	return TeamRef{ID: matches[0].ID, Path: strings.Trim(matches[0].Path, "/"), Valid: true}, nil
 }
 
-func groupRefFromPath(path string) GroupRef {
+func teamRefFromPath(path string) TeamRef {
 	path = strings.Trim(strings.TrimSpace(path), "/")
 	if path == "" || path == generalGrantID {
-		return GroupRef{Path: generalGrantID, Valid: path == generalGrantID}
+		return TeamRef{Path: generalGrantID, Valid: path == generalGrantID}
 	}
-	return GroupRef{Path: path, Valid: true}
+	return TeamRef{Path: path, Valid: true}
 }
 
 func splitRepositoryID(repositoryID string) (string, string) {
@@ -495,19 +495,19 @@ func repositoryParentPath(repositoryID string) string {
 	return strings.Join(parts[:len(parts)-2], "/")
 }
 
-func IsSameGroupBoundary(callerGroup, resourceGroup string) bool {
-	callerGroup = strings.Trim(strings.TrimSpace(callerGroup), "/")
-	resourceGroup = strings.Trim(strings.TrimSpace(resourceGroup), "/")
-	if callerGroup == "" || resourceGroup == "" || callerGroup == generalGrantID || resourceGroup == generalGrantID {
+func IsSameTeamBoundary(callerTeam, resourceTeam string) bool {
+	callerTeam = strings.Trim(strings.TrimSpace(callerTeam), "/")
+	resourceTeam = strings.Trim(strings.TrimSpace(resourceTeam), "/")
+	if callerTeam == "" || resourceTeam == "" || callerTeam == generalGrantID || resourceTeam == generalGrantID {
 		return false
 	}
-	if callerGroup == resourceGroup {
+	if callerTeam == resourceTeam {
 		return true
 	}
-	if strings.HasPrefix(resourceGroup, callerGroup+"/") || strings.HasPrefix(callerGroup, resourceGroup+"/") {
+	if strings.HasPrefix(resourceTeam, callerTeam+"/") || strings.HasPrefix(callerTeam, resourceTeam+"/") {
 		return true
 	}
-	return firstPathSegment(callerGroup) == firstPathSegment(resourceGroup)
+	return firstPathSegment(callerTeam) == firstPathSegment(resourceTeam)
 }
 
 func firstPathSegment(path string) string {
@@ -521,24 +521,24 @@ func firstPathSegment(path string) string {
 	return path
 }
 
-func (a *App) callerHasFolderAction(ctx context.Context, subject model.Subject, action, folderPath string) (bool, model.Decision, error) {
-	folderPath = strings.Trim(strings.TrimSpace(folderPath), "/")
-	if folderPath == "" {
-		folderPath = generalGrantID
+func (a *App) callerHasTeamAction(ctx context.Context, subject model.Subject, action, teamPath string) (bool, model.Decision, error) {
+	teamPath = strings.Trim(strings.TrimSpace(teamPath), "/")
+	if teamPath == "" {
+		teamPath = generalGrantID
 	}
-	decision, err := a.aaaCheck(ctx, subject, action, model.ResourceRef{Type: grantResourceFolder, ID: folderPath}, map[string]any{"resource_use_check": "same_group"})
+	decision, err := a.aaaCheck(ctx, subject, action, model.ResourceRef{Type: grantResourceTeam, ID: teamPath}, map[string]any{"resource_use_check": "same_team"})
 	if err != nil {
 		return false, model.Decision{}, err
 	}
 	return decision.Allowed, decision, nil
 }
 
-func (a *App) callerHasExplicitGroupUseGrant(ctx context.Context, subject model.Subject, action, resourceType, resourceID string, callerGroup GroupRef) (bool, int64, string, error) {
-	if a == nil || a.db == nil || !callerGroup.Valid {
+func (a *App) callerHasExplicitTeamUseGrant(ctx context.Context, subject model.Subject, action, resourceType, resourceID string, callerTeam TeamRef) (bool, int64, string, error) {
+	if a == nil || a.db == nil || !callerTeam.Valid {
 		return false, 0, "", nil
 	}
-	callerGroup.Path = strings.Trim(strings.TrimSpace(callerGroup.Path), "/")
-	if callerGroup.Path == "" || callerGroup.Path == generalGrantID {
+	callerTeam.Path = strings.Trim(strings.TrimSpace(callerTeam.Path), "/")
+	if callerTeam.Path == "" || callerTeam.Path == generalGrantID {
 		return false, 0, "", nil
 	}
 
@@ -550,7 +550,7 @@ func (a *App) callerHasExplicitGroupUseGrant(ctx context.Context, subject model.
 		  AND resource_id = $3
 		  AND role_name = $4
 		ORDER BY id ASC
-	`, grantSubjectGroup, resourceType, resourceID, customUseGrantRole)
+	`, grantSubjectTeam, resourceType, resourceID, customUseGrantRole)
 	if err != nil {
 		return false, 0, "", err
 	}
@@ -558,17 +558,17 @@ func (a *App) callerHasExplicitGroupUseGrant(ctx context.Context, subject model.
 
 	for rows.Next() {
 		var (
-			grantID    int64
-			grantGroup string
+			grantID   int64
+			grantTeam string
 		)
-		if err := rows.Scan(&grantID, &grantGroup); err != nil {
+		if err := rows.Scan(&grantID, &grantTeam); err != nil {
 			return false, 0, "", err
 		}
-		grantGroup = strings.Trim(strings.TrimSpace(grantGroup), "/")
-		if !groupGrantIncludesCallerGroup(grantGroup, callerGroup.Path) {
+		grantTeam = strings.Trim(strings.TrimSpace(grantTeam), "/")
+		if !teamGrantIncludesCallerTeam(grantTeam, callerTeam.Path) {
 			continue
 		}
-		return true, grantID, grantGroup, nil
+		return true, grantID, grantTeam, nil
 	}
 	if err := rows.Err(); err != nil {
 		return false, 0, "", err
@@ -576,18 +576,18 @@ func (a *App) callerHasExplicitGroupUseGrant(ctx context.Context, subject model.
 	return false, 0, "", nil
 }
 
-func groupGrantIncludesCallerGroup(grantGroup, callerGroup string) bool {
-	grantGroup = strings.Trim(strings.TrimSpace(grantGroup), "/")
-	callerGroup = strings.Trim(strings.TrimSpace(callerGroup), "/")
-	if grantGroup == "" || callerGroup == "" || grantGroup == generalGrantID || callerGroup == generalGrantID {
+func teamGrantIncludesCallerTeam(grantTeam, callerTeam string) bool {
+	grantTeam = strings.Trim(strings.TrimSpace(grantTeam), "/")
+	callerTeam = strings.Trim(strings.TrimSpace(callerTeam), "/")
+	if grantTeam == "" || callerTeam == "" || grantTeam == generalGrantID || callerTeam == generalGrantID {
 		return false
 	}
-	return callerGroup == grantGroup || strings.HasPrefix(callerGroup, grantGroup+"/")
+	return callerTeam == grantTeam || strings.HasPrefix(callerTeam, grantTeam+"/")
 }
 
 func (a *App) resourceVisibility(ctx context.Context, resourceType, resourceID string) (string, error) {
 	if a == nil || a.db == nil {
-		return resourceVisibilityGroup, nil
+		return resourceVisibilityTeam, nil
 	}
 	resourceType = strings.TrimSpace(resourceType)
 	resourceID = strings.Trim(strings.TrimSpace(resourceID), "/")
@@ -637,7 +637,7 @@ func (a *App) resourceVisibility(ctx context.Context, resourceType, resourceID s
 	`, resourceType, resourceID).Scan(&visibility)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
-			return resourceVisibilityGroup, nil
+			return resourceVisibilityTeam, nil
 		}
 		return "", err
 	}
@@ -646,12 +646,14 @@ func (a *App) resourceVisibility(ctx context.Context, resourceType, resourceID s
 
 func normalizeResourceVisibility(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case resourceVisibilityTeam:
+		return resourceVisibilityTeam
 	case resourceVisibilityRestricted:
 		return resourceVisibilityRestricted
 	case resourceVisibilityWorkspace:
 		return resourceVisibilityWorkspace
 	default:
-		return resourceVisibilityGroup
+		return resourceVisibilityTeam
 	}
 }
 
@@ -861,11 +863,11 @@ func resourceUseDeniedMessage(callerType, callerID string, result ResourceUseAut
 	resource := formatResourceLabel(result.ResourceType, result.ResourceID)
 	switch result.ResourceType {
 	case grantResourcePipeline:
-		return fmt.Sprintf("%s is not allowed to use pipeline %s. Ask the pipeline owner to share it with this repository or group.", subject, result.ResourceID)
+		return fmt.Sprintf("%s is not allowed to use pipeline %s. Ask the pipeline owner to share it with this repository or team.", subject, result.ResourceID)
 	case grantResourceScope:
-		return fmt.Sprintf("%s is not allowed to use %s. Ask the scope owner to share it with this repository or group.", subject, resource)
+		return fmt.Sprintf("%s is not allowed to use %s. Ask the scope owner to share it with this repository or team.", subject, resource)
 	case grantResourceStep:
-		return fmt.Sprintf("%s is not allowed to use step %s. Ask the step owner to share it with this repository or group.", subject, result.ResourceID)
+		return fmt.Sprintf("%s is not allowed to use step %s. Ask the step owner to share it with this repository or team.", subject, result.ResourceID)
 	default:
 		return fmt.Sprintf("%s is not allowed to use %s.", subject, resource)
 	}
@@ -914,11 +916,11 @@ func resourceUseDecisionDetails(callerType, callerID string, result ResourceUseA
 	if ref := strings.TrimSpace(result.Ref); ref != "" {
 		lines = append(lines, "Ref: "+ref)
 	}
-	if callerGroup := strings.Trim(strings.TrimSpace(result.CallerGroup), "/"); callerGroup != "" {
-		lines = append(lines, "Caller group: "+callerGroup)
+	if callerTeam := strings.Trim(strings.TrimSpace(result.CallerTeam), "/"); callerTeam != "" {
+		lines = append(lines, "Caller team: "+callerTeam)
 	}
-	if resourceGroup := strings.Trim(strings.TrimSpace(result.ResourceGroup), "/"); resourceGroup != "" {
-		lines = append(lines, "Resource group: "+resourceGroup)
+	if resourceTeam := strings.Trim(strings.TrimSpace(result.ResourceTeam), "/"); resourceTeam != "" {
+		lines = append(lines, "Resource team: "+resourceTeam)
 	}
 	if visibility := strings.TrimSpace(result.Visibility); visibility != "" {
 		lines = append(lines, "Visibility: "+resourceUseVisibilityLabel(visibility))
@@ -952,8 +954,8 @@ func resourceUseVisibilityLabel(visibility string) string {
 		return "public"
 	case resourceVisibilityRestricted:
 		return "restricted"
-	case resourceVisibilityGroup:
-		return "group"
+	case resourceVisibilityTeam:
+		return "team"
 	default:
 		return strings.TrimSpace(visibility)
 	}
@@ -967,8 +969,8 @@ func resourceUseDenialExplanation(result ResourceUseAuthResult, authErr error) s
 		return ""
 	}
 	visibility := strings.TrimSpace(result.Visibility)
-	callerGroup := strings.Trim(strings.TrimSpace(result.CallerGroup), "/")
-	resourceGroup := strings.Trim(strings.TrimSpace(result.ResourceGroup), "/")
+	callerTeam := strings.Trim(strings.TrimSpace(result.CallerTeam), "/")
+	resourceTeam := strings.Trim(strings.TrimSpace(result.ResourceTeam), "/")
 	action := strings.TrimSpace(result.Action)
 	if action == "" {
 		action = "this action"
@@ -978,12 +980,12 @@ func resourceUseDenialExplanation(result ResourceUseAuthResult, authErr error) s
 		return "restricted resources require an explicit grant, and no matching grant was found"
 	case visibility == resourceVisibilityWorkspace:
 		return "an explicit deny policy blocked this public resource"
-	case callerGroup != "" && resourceGroup != "" && IsSameGroupBoundary(callerGroup, resourceGroup):
-		return fmt.Sprintf("same-group availability still requires %s, and no matching role or grant was found", action)
-	case callerGroup != "" && resourceGroup != "":
-		return fmt.Sprintf("cross-group use from %s to %s requires an explicit grant or public visibility", callerGroup, resourceGroup)
+	case callerTeam != "" && resourceTeam != "" && IsSameTeamBoundary(callerTeam, resourceTeam):
+		return fmt.Sprintf("same-team availability still requires %s, and no matching role or grant was found", action)
+	case callerTeam != "" && resourceTeam != "":
+		return fmt.Sprintf("cross-team use from %s to %s requires an explicit grant or public visibility", callerTeam, resourceTeam)
 	default:
-		return "no direct permission, same-group permission, explicit grant, or public visibility matched this request"
+		return "no direct permission, same-team permission, explicit grant, or public visibility matched this request"
 	}
 }
 

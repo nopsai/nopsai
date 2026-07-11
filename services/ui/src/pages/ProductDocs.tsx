@@ -101,13 +101,13 @@ const sections: DocSection[] = [
     icon: Rocket,
     owner: 'Product enablement',
     articles: [
-      { id: 'overview', title: 'Product overview', level: 'Start', summary: 'Core concepts: pipeline runs, pipelines, scopes, steps, triggers, schedules, knowledge context, monitoring, and system administration.', bullets: ['Map the UI to product capabilities.', 'Understand how groups and repositories organize resources.', 'Explain the difference between Git-managed resources, database resources, and local drafts.'] },
-      { id: 'quickstart', title: 'Quickstart path', level: 'Start', summary: 'Create a group, connect a repository, define a scope, create a pipeline, run it from Lab, and review the run output.', bullets: ['Create an admin and baseline access roles.', 'Run a sample pipeline.', 'Inspect logs, graph, duration, and generated artifacts.'] },
-      { id: 'concepts', title: 'Core concepts glossary', level: 'Reference', summary: 'Definitions and relationships for enterprise users and support teams.', bullets: ['Run group, app group, resource group, scope, context, trigger event, dispatcher, runner, MCP profile, LLM profile.', 'Common status names and failure states.', 'Ownership and inheritance model.'] },
+      { id: 'overview', title: 'Product overview', level: 'Start', summary: 'Core concepts: pipeline runs, pipelines, scopes, steps, triggers, schedules, knowledge context, monitoring, and system administration.', bullets: ['Map the UI to product capabilities.', 'Understand how teams and repositories organize resources.', 'Explain the difference between Git-managed resources, database resources, and local drafts.'] },
+      { id: 'quickstart', title: 'Quickstart path', level: 'Start', summary: 'Create a team, connect a repository, define a scope, create a pipeline, run it from Lab, and review the run output.', bullets: ['Create an admin and baseline access roles.', 'Run a sample pipeline.', 'Inspect logs, graph, duration, and generated artifacts.'] },
+      { id: 'concepts', title: 'Core concepts glossary', level: 'Reference', summary: 'Definitions and relationships for enterprise users and support teams.', bullets: ['Team, application, resource scope, context, trigger event, dispatcher, runner, MCP profile, LLM profile.', 'Common status names and failure states.', 'Ownership and inheritance model.'] },
     ],
     config: [
       { key: 'NOPS_PUBLIC_URL', area: 'Runtime', description: 'Canonical product URL used for callbacks, links, docs, and webhooks.', example: 'https://nopsai.example.com' },
-      { key: 'workspace.default_group', area: 'Workspace', description: 'Default resource group for starter content and first-run examples.', example: 'platform' },
+      { key: 'workspace.default_team', area: 'Workspace', description: 'Default resource team for starter content and first-run examples.', example: 'platform' },
     ],
     runbooks: ['First admin creation', 'Starter workspace verification', 'Sample pipeline validation'],
   },
@@ -197,13 +197,13 @@ const sections: DocSection[] = [
     icon: ShieldCheck,
     owner: 'Security administrators',
     articles: [
-      { id: 'rbac', title: 'RBAC and resource access', level: 'Admin', summary: 'Users, roles, policies, folders, inheritance, resource visibility, and advanced access rules.', bullets: ['Explain viewer, developer, owner, and admin roles.', 'Document inheritance behavior.', 'Show restricted resource sharing.'] },
+      { id: 'rbac', title: 'RBAC and resource access', level: 'Admin', summary: 'Users, roles, policies, teams, inheritance, resource visibility, and advanced access rules.', bullets: ['Explain viewer, developer, owner, and admin roles.', 'Document inheritance behavior.', 'Show restricted resource sharing.'] },
       { id: 'tokens', title: 'Tokens and service accounts', level: 'Admin', summary: 'Personal access tokens, service accounts, rotation, expiration, and automation-safe permissions.', bullets: ['Create least-privilege service accounts.', 'Rotate tokens.', 'Audit token usage.'] },
       { id: 'secrets', title: 'Secrets and sensitive data', level: 'Reference', summary: 'Secret providers, encrypted config values, masking, redaction, support bundles, and log safety.', bullets: ['Mask logs and prompts.', 'Redact support bundles.', 'Separate operational secrets by scope.'] },
       { id: 'compliance', title: 'Compliance checklist', level: 'Admin', summary: 'Controls for data residency, retention, auditability, change management, backup testing, and break-glass access.', bullets: ['Document control owners.', 'Review access regularly.', 'Validate restore and incident response.'] },
     ],
     config: [
-      { key: 'access.default_visibility', area: 'Access', description: 'Default visibility for new resources.', example: 'group' },
+      { key: 'access.default_visibility', area: 'Access', description: 'Default visibility for new resources.', example: 'team' },
       { key: 'audit.enabled', area: 'Audit', description: 'Enables security and configuration audit events.', example: 'true' },
       { key: 'audit.redaction', area: 'Audit', description: 'Redaction policy for logs, prompts, and support bundles.', example: 'strict' },
       { key: 'token.max_age_days', area: 'Tokens', description: 'Maximum lifetime for personal or service tokens.', example: '90' },
@@ -217,7 +217,7 @@ const sections: DocSection[] = [
     icon: Activity,
     owner: 'SRE and operations',
     articles: [
-      { id: 'monitoring', title: 'Monitoring dashboard', level: 'Operate', summary: 'Run counts, status trends, duration averages, longest runs, runners, services, group activity, pipeline metrics, and usage signals.', bullets: ['Interpret run duration and failure rate.', 'Review runner health and capacity.', 'Identify expensive or slow pipelines.'] },
+      { id: 'monitoring', title: 'Monitoring dashboard', level: 'Operate', summary: 'Run counts, status trends, duration averages, longest runs, runners, services, team activity, pipeline metrics, and usage signals.', bullets: ['Interpret run duration and failure rate.', 'Review runner health and capacity.', 'Identify expensive or slow pipelines.'] },
       { id: 'backup-restore', title: 'Backup and restore', level: 'Operate', summary: 'Database, artifacts, config repo, secrets metadata, restore drills, RPO, RTO, and validation.', bullets: ['Create repeatable backups.', 'Test restore per release.', 'Document ownership and retention.'] },
       { id: 'incident-response', title: 'Incident response', level: 'Troubleshoot', summary: 'Triage failed runs, stuck runners, trigger storms, broken config sync, LLM errors, MCP failures, and degraded services.', bullets: ['Use run timeline and logs.', 'Compare recent config changes.', 'Escalate with redacted support bundle.'] },
       { id: 'cost-efficiency', title: 'Cost and efficiency', level: 'Operate', summary: 'Track token usage, runner utilization, queue time, retry volume, slow pipelines, and suggested optimization paths.', bullets: ['Set monthly token budgets.', 'Review longest runs.', 'Optimize duplicate or idle automation.'] },
@@ -239,7 +239,7 @@ const sections: DocSection[] = [
     articles: [
       { id: 'rest-api', title: 'REST API reference', level: 'Reference', summary: 'Document auth, pagination, errors, resource endpoints, run endpoints, monitoring endpoints, and admin APIs.', bullets: ['Use examples for curl and SDK clients.', 'Document error codes.', 'Describe rate limits.'] },
       { id: 'webhooks', title: 'Webhook and event contracts', level: 'Reference', summary: 'Incoming Git and external events, payload schemas, signature verification, retry behavior, and audit metadata.', bullets: ['Document payload examples.', 'Verify signatures.', 'Replay and debug failed events.'] },
-      { id: 'cli', title: 'CLI reference', level: 'Reference', summary: 'Setup, validation, export, backup, support, and diagnostic commands.', bullets: ['Group commands by use case.', 'Provide examples.', 'Show required permissions.'] },
+      { id: 'cli', title: 'CLI reference', level: 'Reference', summary: 'Setup, validation, export, backup, support, and diagnostic commands.', bullets: ['Organize commands by use case.', 'Provide examples.', 'Show required permissions.'] },
       { id: 'support', title: 'Support diagnostics', level: 'Troubleshoot', summary: 'Health checks, support bundle collection, redaction, log locations, version info, and safe escalation data.', bullets: ['Collect minimal safe evidence.', 'Redact secrets.', 'Attach version and deployment profile.'] },
     ],
     config: [
@@ -452,7 +452,7 @@ export default function ProductDocsPage() {
             <Card className="p-6">
               <h3 className="flex items-center gap-2 text-base font-semibold text-[var(--text-primary)]"><PackageCheck className="h-5 w-5 text-[var(--text-accent)]" /> Documentation governance model</h3>
               <div className="mt-4 grid gap-4 md:grid-cols-3">
-                <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-primary)] p-4"><Database className="h-5 w-5 text-[var(--text-accent)]" /><p className="mt-3 font-semibold">Versioned sources</p><p className="mt-2 text-sm text-[var(--text-secondary)]">Docs should be sourced from version folders, generated schema references, and release-owned runbooks.</p></div>
+                <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-primary)] p-4"><Database className="h-5 w-5 text-[var(--text-accent)]" /><p className="mt-3 font-semibold">Versioned sources</p><p className="mt-2 text-sm text-[var(--text-secondary)]">Docs should be sourced from versioned directories, generated schema references, and release-owned runbooks.</p></div>
                 <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-primary)] p-4"><KeyRound className="h-5 w-5 text-[var(--text-accent)]" /><p className="mt-3 font-semibold">Access-aware content</p><p className="mt-2 text-sm text-[var(--text-secondary)]">Sensitive admin, secret, and support content can be capability-filtered later if required.</p></div>
                 <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-primary)] p-4"><Network className="h-5 w-5 text-[var(--text-accent)]" /><p className="mt-3 font-semibold">Assistant-ready</p><p className="mt-2 text-sm text-[var(--text-secondary)]">The same structure can feed the internal assistant with version, article, owner, and runbook metadata.</p></div>
               </div>

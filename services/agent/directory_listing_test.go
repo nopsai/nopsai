@@ -28,7 +28,7 @@ func TestGetDirectoryListingIncludeLimitsSharedFiles(t *testing.T) {
 	}
 }
 
-func TestGetDirectoryListingIncludeFolderWithoutTrailingSlash(t *testing.T) {
+func TestGetDirectoryListingIncludeDirectoryWithoutTrailingSlash(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "src/main.go", "package main")
 	writeTestFile(t, root, "README.md", "root docs")
@@ -37,7 +37,7 @@ func TestGetDirectoryListingIncludeFolderWithoutTrailingSlash(t *testing.T) {
 	listing := getDirectoryListing(&logger, root, []string{"src"}, nil)
 
 	if _, ok := listing["src/main.go"]; !ok {
-		t.Fatalf("expected files under included folder, got %#v", listing)
+		t.Fatalf("expected files under included directory, got %#v", listing)
 	}
 	if _, ok := listing["README.md"]; ok {
 		t.Fatalf("did not expect README.md in directory listing: %#v", listing)

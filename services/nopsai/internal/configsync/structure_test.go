@@ -13,10 +13,11 @@ func TestParseBindingPath(t *testing.T) {
 		wantScopeID   string
 		wantErr       bool
 	}{
-		{name: "group binding", relPath: "groups/data-team.yaml", wantScopeType: "folder", wantScopeID: "data-team"},
-		{name: "nested group binding", relPath: "groups/data-team/platform.yml", wantScopeType: "folder", wantScopeID: "data-team/platform"},
+		{name: "team binding", relPath: "teams/data-team.yaml", wantScopeType: "team", wantScopeID: "data-team"},
+		{name: "nested team binding", relPath: "teams/data-team/platform.yml", wantScopeType: "team", wantScopeID: "data-team/platform"},
+		{name: "unsupported team binding path rejected", relPath: "team/data-team.yaml", wantErr: true},
 		{name: "unsupported scope", relPath: "system/global.yaml", wantErr: true},
-		{name: "escaping path", relPath: "groups/data-team/../prod.yaml", wantErr: true},
+		{name: "escaping path", relPath: "teams/data-team/../prod.yaml", wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -43,23 +44,23 @@ func TestValidateBindingFile(t *testing.T) {
 		RepoURL:     "git@github.com:acme/config.git",
 		WriteBranch: "nopsai/data-team-ui",
 	}
-	if err := ValidateBindingFile(valid, "folder", "data-team", "groups/data-team.yaml"); err != nil {
+	if err := ValidateBindingFile(valid, "team", "data-team", "teams/data-team.yaml"); err != nil {
 		t.Fatalf("ValidateBindingFile() error = %v", err)
 	}
 
-	if err := ValidateBindingFile(BindingFile{RepoURL: "git@github.com:acme/config.git", ScopeID: "other"}, "folder", "data-team", "groups/data-team.yaml"); err == nil {
+	if err := ValidateBindingFile(BindingFile{RepoURL: "git@github.com:acme/config.git", ScopeID: "other"}, "team", "data-team", "teams/data-team.yaml"); err == nil {
 		t.Fatal("ValidateBindingFile() accepted mismatched scope_id")
 	}
-	if err := ValidateBindingFile(BindingFile{RepoURL: "git@github.com:acme/config.git", WriteBranch: "refs/heads/main"}, "folder", "data-team", "groups/data-team.yaml"); err == nil {
+	if err := ValidateBindingFile(BindingFile{RepoURL: "git@github.com:acme/config.git", WriteBranch: "refs/heads/main"}, "team", "data-team", "teams/data-team.yaml"); err == nil {
 		t.Fatal("ValidateBindingFile() accepted ref path write_branch")
 	}
-	if err := ValidateBindingFile(BindingFile{}, "folder", "data-team", "groups/data-team.yaml"); err == nil {
+	if err := ValidateBindingFile(BindingFile{}, "team", "data-team", "teams/data-team.yaml"); err == nil {
 		t.Fatal("ValidateBindingFile() accepted missing repo_url")
 	}
 }
 
-func TestParseConfigRepositoryGroupPipelineRunStructureApps(t *testing.T) {
-	structure, ok, err := ParseConfigRepositoryGroupPipelineRunStructure("groups/team-1/structure.yaml", `
+func TestParseConfigRepositoryTeamPipelineRunStructureApps(t *testing.T) {
+	structure, ok, err := ParseConfigRepositoryTeamPipelineRunStructure("teams/team-1/structure.yaml", `
 description: Team 1 apps
 apps:
   - name: api
@@ -71,10 +72,10 @@ dev:
       repo_url: https://github.com/acme/dev-api
 `)
 	if err != nil {
-		t.Fatalf("ParseConfigRepositoryGroupPipelineRunStructure() error = %v", err)
+		t.Fatalf("ParseConfigRepositoryTeamPipelineRunStructure() error = %v", err)
 	}
 	if !ok {
-		t.Fatal("expected groups/team-1/structure.yaml to be treated as a group structure file")
+		t.Fatal("expected teams/team-1/structure.yaml to be treated as a team structure file")
 	}
 
 	team := structure["team-1"]
@@ -99,8 +100,20 @@ dev:
 	}
 }
 
-func TestParseConfigRepositoryGroupPipelineRunStructureRejectsReposShortcut(t *testing.T) {
-	_, _, err := ParseConfigRepositoryGroupPipelineRunStructure("groups/team-1/structure.yaml", `
+func TestParseConfigRepositoryTeamPipelineRunStructureIgnoresUnmatchedPath(t *testing.T) {
+	structure, ok, err := ParseConfigRepositoryTeamPipelineRunStructure("repositories/team-1/structure.yaml", `
+description: Unmatched team path
+`)
+	if err != nil {
+		t.Fatalf("ParseConfigRepositoryTeamPipelineRunStructure() error = %v", err)
+	}
+	if ok || structure != nil {
+		t.Fatalf("ParseConfigRepositoryTeamPipelineRunStructure() = (%#v, %v), want ignored legacy path", structure, ok)
+	}
+}
+
+func TestParseConfigRepositoryTeamPipelineRunStructureRejectsReposShortcut(t *testing.T) {
+	_, _, err := ParseConfigRepositoryTeamPipelineRunStructure("teams/team-1/structure.yaml", `
 repos:
   - acme/service-api
 `)
@@ -109,20 +122,20 @@ repos:
 	}
 }
 
-func TestParseConfigRepositoryGroupPipelineRunStructureRejectsAggregateFile(t *testing.T) {
-	_, ok, err := ParseConfigRepositoryGroupPipelineRunStructure("groups/structure.yaml", `
+func TestParseConfigRepositoryTeamPipelineRunStructureRejectsAggregateFile(t *testing.T) {
+	_, ok, err := ParseConfigRepositoryTeamPipelineRunStructure("teams/structure.yaml", `
 team-1:
   description: Team 1
 `)
 	if !ok {
 		t.Fatal("expected aggregate structure path to be recognized and rejected")
 	}
-	if err == nil || !strings.Contains(err.Error(), "aggregate group structure file is not supported") {
+	if err == nil || !strings.Contains(err.Error(), "aggregate team structure file is not supported") {
 		t.Fatalf("error = %v, want aggregate structure rejection", err)
 	}
 }
 
-func TestNormalizePipelineRunStructureForFolder(t *testing.T) {
+func TestNormalizePipelineRunStructureForTeam(t *testing.T) {
 	structure := map[string]*PipelineRunStructureNode{
 		"dev": {
 			Description: "Development",
@@ -145,13 +158,13 @@ func TestNormalizePipelineRunStructureForFolder(t *testing.T) {
 		},
 	}
 
-	got, err := NormalizePipelineRunStructureForFolder("team-1", structure)
+	got, err := NormalizePipelineRunStructureForTeam("team-1", structure)
 	if err != nil {
-		t.Fatalf("NormalizePipelineRunStructureForFolder() error = %v", err)
+		t.Fatalf("NormalizePipelineRunStructureForTeam() error = %v", err)
 	}
 	team, ok := got["team-1"]
 	if !ok {
-		t.Fatal("expected team-1 root group")
+		t.Fatal("expected team-1 root team")
 	}
 	if _, ok := team.Children["dev"]; !ok {
 		t.Fatal("expected dev to be nested under team-1")
@@ -160,7 +173,7 @@ func TestNormalizePipelineRunStructureForFolder(t *testing.T) {
 		t.Fatalf("dev repos = %#v, want acme/app", gotRepos)
 	}
 	if _, ok := team.Children["platform"]; !ok {
-		t.Fatal("expected already scoped platform group to remain under team-1")
+		t.Fatal("expected already scoped platform team to remain under team-1")
 	}
 	if _, duplicated := team.Children["team-1"]; duplicated {
 		t.Fatal("did not expect duplicated team-1 child")
@@ -177,7 +190,7 @@ func TestRepositoryFullNameFromURLUsesRepositoryRoot(t *testing.T) {
 	}
 }
 
-func TestNormalizeStructureNameRejectsReservedRootGroupName(t *testing.T) {
+func TestNormalizeStructureNameRejectsReservedRootTeamName(t *testing.T) {
 	tests := []string{"root", " Root ", "/root/", "__general__"}
 	for _, name := range tests {
 		if _, err := NormalizeStructureName(name); err == nil {

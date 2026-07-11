@@ -32,7 +32,7 @@ var notificationSchemaStatements = []string{
 	`ALTER TABLE notification_mail_settings ADD COLUMN IF NOT EXISTS managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE`,
 	`CREATE TABLE IF NOT EXISTS notification_routes (
 		id BIGSERIAL PRIMARY KEY,
-		group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+		team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
 		definition JSONB NOT NULL DEFAULT '{}'::jsonb,
 		source TEXT NOT NULL DEFAULT 'database',
 		config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
@@ -41,8 +41,43 @@ var notificationSchemaStatements = []string{
 		managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE,
 		updated_by TEXT NOT NULL DEFAULT '',
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-		UNIQUE(group_id)
+		UNIQUE(team_id)
 	)`,
+	`DO $$
+	BEGIN
+		IF to_regclass('notification_routes') IS NOT NULL THEN
+			IF EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_schema = 'public' AND table_name = 'notification_routes' AND column_name = 'group_id'
+			) AND NOT EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_schema = 'public' AND table_name = 'notification_routes' AND column_name = 'team_id'
+			) THEN
+				ALTER TABLE notification_routes RENAME COLUMN group_id TO team_id;
+			END IF;
+		END IF;
+	END $$`,
+	`ALTER TABLE notification_routes ADD COLUMN IF NOT EXISTS team_id INTEGER`,
+	`ALTER TABLE notification_routes ALTER COLUMN team_id SET NOT NULL`,
+	`ALTER TABLE notification_routes DROP CONSTRAINT IF EXISTS notification_routes_group_id_fkey`,
+	`ALTER TABLE notification_routes DROP CONSTRAINT IF EXISTS notification_routes_group_id_key`,
+	`DO $$
+	BEGIN
+		IF NOT EXISTS (
+			SELECT 1 FROM pg_constraint
+			WHERE conrelid = 'notification_routes'::regclass AND conname = 'notification_routes_team_id_fkey'
+		) THEN
+			ALTER TABLE notification_routes
+			ADD CONSTRAINT notification_routes_team_id_fkey FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE;
+		END IF;
+		IF NOT EXISTS (
+			SELECT 1 FROM pg_constraint
+			WHERE conrelid = 'notification_routes'::regclass AND conname = 'notification_routes_team_id_key'
+		) THEN
+			ALTER TABLE notification_routes
+			ADD CONSTRAINT notification_routes_team_id_key UNIQUE(team_id);
+		END IF;
+	END $$`,
 	`CREATE TABLE IF NOT EXISTS notification_deliveries (
 		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 		run_id UUID REFERENCES pipeline_runs(run_id) ON DELETE SET NULL,
@@ -56,7 +91,8 @@ var notificationSchemaStatements = []string{
 		sent_at TIMESTAMPTZ,
 		UNIQUE(dedupe_key)
 	)`,
-	`CREATE INDEX IF NOT EXISTS idx_notification_routes_group ON notification_routes(group_id)`,
+	`DROP INDEX IF EXISTS idx_notification_routes_group`,
+	`CREATE INDEX IF NOT EXISTS idx_notification_routes_team ON notification_routes(team_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_notification_routes_config_repo ON notification_routes(config_repo_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_notification_deliveries_run ON notification_deliveries(run_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_notification_deliveries_status ON notification_deliveries(status, created_at DESC)`,

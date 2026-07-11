@@ -80,7 +80,7 @@ directory.
 1. An external system calls `POST /v1/external-triggers/{id}/invoke` with a user bearer token or service-account token.
 2. The normal authentication middleware validates the token. Service-account tokens authorize as AAA `service_account` subjects.
 3. `nopsai` loads the external trigger, creates an invocation record, and rejects disabled triggers.
-4. The caller must match the trigger's `allowed_callers` list and pass `external_trigger.invoke` on that trigger resource, for example `external_trigger:deploy-prod`. The list supports direct users, service accounts, and auth groups.
+4. The caller must match the trigger's `allowed_callers` list and pass `external_trigger.invoke` on that trigger resource, for example `external_trigger:deploy-prod`. The list supports direct users, service accounts, and auth teams.
 5. If an idempotency key is present, `nopsai` checks prior active invocations for the same trigger and caller. A queued duplicate returns the original run response; an in-flight duplicate returns `409`. Failed pre-run attempts remain in the audit log but do not reserve the key forever.
 6. Rate limits and the trigger payload schema are evaluated before a run is started.
 7. Request variables are merged with `variable_mapping` values derived from `payload`, `variables`, or `event_type`.
@@ -283,8 +283,8 @@ Rerun:
 
 ## 12. Config Sync From Git
 
-1. A group owner calls `POST /v1/groups/{groupPath}/config-repo/sync`, or an admin calls `POST /v1/system/config-repos/sync`.
-2. `nopsai` loads the scoped config repository binding and validates group ownership for group-scoped sync.
+1. A team owner calls `POST /v1/teams/{teamPath}/config-repository/sync`, or an admin calls `POST /v1/system/config-repos/sync`.
+2. `nopsai` loads the scoped config repository binding and validates team ownership for team-scoped sync.
 3. It asks `git-bot` to verify repository access.
 4. It fetches directories from the config repo under the binding base path:
    - `pipelines/`
@@ -302,10 +302,10 @@ Rerun:
    - scope files turn `variables:` entries into scoped variables and `secrets:`
      entries into GitOps secret keys
    - knowledge markdown files are turned into `knowledge_contexts`
-   - `config-repositories/groups/<group>.yaml` becomes a group config repo binding and group shell
-   - `config-repositories/groups/<group>/structure.yaml` places apps under group shells with `name` and `repo_url`, and can define inline group repo `config:` blocks
+   - `config-repositories/teams/<team>.yaml` becomes a team config repo binding and team shell
+   - `config-repositories/teams/<team>/structure.yaml` places apps under team shells with `name` and `repo_url`, and can define inline team repo `config:` blocks
    - `access/*.yaml` declares GitOps-managed users, service accounts, advanced roles, policies, role bindings, and scoped product-role grants; service-account token material is created at runtime, not synced from Git
-   - `config-repositories/groups/<group>/notifications.yaml` in a system repo, or `notifications.yaml` in a group repo, becomes a pipeline notification policy with one or more named routes for that run group
+   - `config-repositories/teams/<team>/notifications.yaml` in a system repo, or `notifications.yaml` in a team repo, becomes a pipeline notification policy with one or more named routes for that run team
    - `setting/system/llm_profile.yaml` becomes the system LLM profile registry, only from a system/global config repo
    - `setting/system/agent-profiles.yaml` becomes the system Agent Profile persona registry and default profile setting, only from a system/global config repo
    - `setting/system/mcp.yaml` becomes the system MCP server/profile registry, only from a system/global config repo
@@ -314,18 +314,18 @@ Rerun:
    - `setting/system/runner.yaml` becomes runner install defaults, runtime defaults, and dispatcher routing, only from a system/global config repo
    - `setting/system/mail.yaml` becomes SMTP mail notification settings, only from a system/global config repo, with password plaintext kept out of the mail file
    - `setting/system/credentials.yaml` becomes encrypted system credential envelopes, only from a system/global config repo
-6. System/global repositories are synced before group repositories during sync-all, so newly defined group bindings can be used immediately.
-7. Group-scoped resources are normalized under the bound group before writing.
+6. System/global repositories are synced before team repositories during sync-all, so newly defined team bindings can be used immediately.
+7. Team-scoped resources are normalized under the bound team before writing.
 8. It adopts matching database-owned resources that are inside the syncing repository scope, then marks them GitOps-managed; resources already managed by an unrelated config repository remain protected by config-repo precedence.
 9. It upserts rows with config-source metadata into Postgres.
 
-For Git push, `nopsai` loads the same system or group config repository binding,
+For Git push, `nopsai` loads the same system or team config repository binding,
 validates that `write_enabled` and `write_branch` are set, prefixes requested
 file paths with the binding `base_path`, and asks `git-bot` to commit those
 files to the review branch. The sync branch is not updated directly. The drift
 endpoint exports the current declarative Nopsai config and compares it with the
 sync branch so the UI can show exact changes for pipelines, steps, schedules,
-triggers, scopes, knowledge contexts, run group/config-repository structure,
+triggers, scopes, knowledge contexts, run team/config-repository structure,
 notification routes, access manifests, Agent Profiles, LLM profiles, MCP
 registry files, auth settings, mail settings, runtime settings, and encrypted
 credential envelopes before
@@ -344,7 +344,7 @@ versioned snapshots from
 `/internal/v1/runtime-config/{service}` or long-poll
 `/internal/v1/runtime-config/{service}/watch?version=<n>`.
 10. It prunes rows managed by the same config repository that disappeared from the repo.
-11. It does not prune user-created groups, even when syncing the run-group structure.
+11. It does not prune user-created teams, even when syncing the run-team structure.
 12. It records sync status per config repository for the UI.
 
 ## 13. Failure Boundaries

@@ -20,7 +20,7 @@ more pipelines.
 6. NopsAI records an idempotent delivery audit row and applies the source rate
    limit.
 7. The database trigger override for the repository, including an applicable
-   repository-group override, is matched.
+   repository-team override, is matched.
 8. Matched pipeline definitions are loaded from the NopsAI database and started
    through the normal run path with the repository as runtime caller.
 9. The delivery is finalized as `processed`, `partial`, `no_match`, or `failed`

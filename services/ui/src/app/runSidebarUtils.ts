@@ -1,5 +1,5 @@
 import { STATUS_PRIORITY } from './constants';
-import type { RunGroup, RunListItem } from './types';
+import type { RunTeam, RunListItem } from './types';
 
 export function getSidebarStatusTone(status: string) {
   const normalized = normalizeRunStatus(status, true);
@@ -93,20 +93,20 @@ export function timeAgoShort(dateInput?: string) {
   return `${days}d ago`;
 }
 
-export function isRunAppGroup(group: Pick<RunGroup, 'kind' | 'name' | 'repo_url' | 'repository_full_name'>) {
-  return group.kind === 'app' || Boolean(group.repo_url || group.repository_full_name) || group.name.includes('/');
+export function isRunAppTeam(team: Pick<RunTeam, 'kind' | 'name' | 'repo_url' | 'repository_full_name'>) {
+  return team.kind === 'app' || Boolean(team.repo_url || team.repository_full_name) || team.name.includes('/');
 }
 
-export function runGroupDisplayName(group: Pick<RunGroup, 'kind' | 'name' | 'repo_url' | 'repository_full_name'>) {
-  if (!isRunAppGroup(group)) return group.name;
-  if (group.kind === 'app' && group.name && !group.name.includes('/')) return group.name;
-  const fullName = group.repository_full_name || group.name;
-  return fullName.split('/').filter(Boolean).pop() || group.name;
+export function runTeamDisplayName(team: Pick<RunTeam, 'kind' | 'name' | 'repo_url' | 'repository_full_name'>) {
+  if (!isRunAppTeam(team)) return team.name;
+  if (team.kind === 'app' && team.name && !team.name.includes('/')) return team.name;
+  const fullName = team.repository_full_name || team.name;
+  return fullName.split('/').filter(Boolean).pop() || team.name;
 }
 
-export function runGroupRepositoryURL(group: Pick<RunGroup, 'name' | 'repo_url' | 'repository_full_name'>) {
-  const fullName = (group.repository_full_name || group.name).trim().replace(/^\/+|\/+$/g, '');
-  if (group.repo_url) return repositoryBrowserURL(group.repo_url, fullName);
+export function runTeamRepositoryURL(team: Pick<RunTeam, 'name' | 'repo_url' | 'repository_full_name'>) {
+  const fullName = (team.repository_full_name || team.name).trim().replace(/^\/+|\/+$/g, '');
+  if (team.repo_url) return repositoryBrowserURL(team.repo_url, fullName);
   return fullName.includes('/') ? `https://github.com/${fullName}` : '';
 }
 
@@ -122,20 +122,20 @@ export function repositoryBrowserURL(rawURL: string, fallbackFullName: string) {
   return fallbackFullName.includes('/') ? `https://github.com/${fallbackFullName}` : trimmed;
 }
 
-export function runGroupMatchesRepository(group: RunGroup, repoName: string) {
+export function runTeamMatchesRepository(team: RunTeam, repoName: string) {
   const normalizedRepo = repoName.trim().replace(/^\/+|\/+$/g, '').toLowerCase();
   if (!normalizedRepo) return false;
-  const fullName = (group.repository_full_name || '').trim().replace(/^\/+|\/+$/g, '').toLowerCase();
+  const fullName = (team.repository_full_name || '').trim().replace(/^\/+|\/+$/g, '').toLowerCase();
   if (fullName && fullName === normalizedRepo) return true;
-  return group.name.trim().replace(/^\/+|\/+$/g, '').toLowerCase() === normalizedRepo;
+  return team.name.trim().replace(/^\/+|\/+$/g, '').toLowerCase() === normalizedRepo;
 }
 
-export function buildGroupPath(groupId: number | null, groups: RunGroup[]): RunGroup[] {
-  if (!groupId) return [];
-  const map = new Map<number, RunGroup>();
-  groups.forEach(group => map.set(group.id, group));
-  const path: RunGroup[] = [];
-  let current = map.get(groupId) || null;
+export function buildTeamPath(teamId: number | null, teams: RunTeam[]): RunTeam[] {
+  if (!teamId) return [];
+  const map = new Map<number, RunTeam>();
+  teams.forEach(team => map.set(team.id, team));
+  const path: RunTeam[] = [];
+  let current = map.get(teamId) || null;
   const visited = new Set<number>();
   while (current && !visited.has(current.id)) {
     visited.add(current.id);

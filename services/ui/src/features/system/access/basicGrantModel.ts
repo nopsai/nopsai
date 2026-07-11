@@ -22,7 +22,7 @@ export function createEditableBasicGrant(draft: BasicGrantDraft, localID: string
   return {
     localID,
     role,
-    resourceType: role === BASIC_ROLE_ADMIN ? 'platform' : 'folder',
+    resourceType: role === BASIC_ROLE_ADMIN ? 'platform' : 'team',
     resourceID: role === BASIC_ROLE_ADMIN ? 'platform' : draft.scope || ROOT_ACCESS_SCOPE,
     inherit: role !== BASIC_ROLE_ADMIN,
   };

@@ -15,7 +15,7 @@ var monitoringAnalyticsSchemaStatements = []string{
 		task_name TEXT NOT NULL DEFAULT '',
 		pipeline_path TEXT NOT NULL DEFAULT '',
 		pipeline_name TEXT NOT NULL DEFAULT '',
-		group_id INTEGER REFERENCES groups(id) ON DELETE SET NULL,
+		team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL,
 		feature TEXT NOT NULL DEFAULT '',
 		provider TEXT NOT NULL DEFAULT '',
 		model TEXT NOT NULL DEFAULT '',
@@ -33,9 +33,32 @@ var monitoringAnalyticsSchemaStatements = []string{
 		metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
+	`DO $$
+	BEGIN
+		IF to_regclass('ai_usage_events') IS NOT NULL THEN
+			IF EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_schema = 'public' AND table_name = 'ai_usage_events' AND column_name = 'group_id'
+			) AND NOT EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_schema = 'public' AND table_name = 'ai_usage_events' AND column_name = 'team_id'
+			) THEN
+				ALTER TABLE ai_usage_events RENAME COLUMN group_id TO team_id;
+			END IF;
+		END IF;
+	END $$`,
+	`ALTER TABLE ai_usage_events ADD COLUMN IF NOT EXISTS team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL`,
+	`DO $$
+	BEGIN
+		IF EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'ai_usage_events'::regclass AND conname = 'ai_usage_events_group_id_fkey')
+		   AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'ai_usage_events'::regclass AND conname = 'ai_usage_events_team_id_fkey') THEN
+			ALTER TABLE ai_usage_events RENAME CONSTRAINT ai_usage_events_group_id_fkey TO ai_usage_events_team_id_fkey;
+		END IF;
+	END $$`,
 	`CREATE INDEX IF NOT EXISTS idx_ai_usage_events_run ON ai_usage_events(run_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_ai_usage_events_pipeline_created ON ai_usage_events(pipeline_path, pipeline_name, created_at DESC)`,
-	`CREATE INDEX IF NOT EXISTS idx_ai_usage_events_group_created ON ai_usage_events(group_id, created_at DESC)`,
+	`DROP INDEX IF EXISTS idx_ai_usage_events_group_created`,
+	`CREATE INDEX IF NOT EXISTS idx_ai_usage_events_team_created ON ai_usage_events(team_id, created_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_ai_usage_events_feature_created ON ai_usage_events(feature, created_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_ai_usage_events_subject_created ON ai_usage_events(effective_subject_type, effective_subject_id, created_at DESC)`,
 
@@ -74,8 +97,8 @@ var monitoringAnalyticsSchemaStatements = []string{
 		name TEXT NOT NULL,
 		owner_subject_type TEXT NOT NULL DEFAULT '',
 		owner_subject_id TEXT NOT NULL DEFAULT '',
-		visibility TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('private', 'group', 'workspace')),
-		group_id INTEGER REFERENCES groups(id) ON DELETE SET NULL,
+		visibility TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('private', 'team', 'workspace')),
+		team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL,
 		filters JSONB NOT NULL DEFAULT '{}'::jsonb,
 		columns JSONB NOT NULL DEFAULT '[]'::jsonb,
 		source TEXT NOT NULL DEFAULT 'database',
@@ -86,6 +109,31 @@ var monitoringAnalyticsSchemaStatements = []string{
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
+	`DO $$
+	BEGIN
+		IF to_regclass('monitoring_saved_views') IS NOT NULL THEN
+			IF EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_schema = 'public' AND table_name = 'monitoring_saved_views' AND column_name = 'group_id'
+			) AND NOT EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_schema = 'public' AND table_name = 'monitoring_saved_views' AND column_name = 'team_id'
+			) THEN
+				ALTER TABLE monitoring_saved_views RENAME COLUMN group_id TO team_id;
+			END IF;
+		END IF;
+	END $$`,
+	`ALTER TABLE monitoring_saved_views ADD COLUMN IF NOT EXISTS team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL`,
+	`ALTER TABLE monitoring_saved_views DROP CONSTRAINT IF EXISTS monitoring_saved_views_visibility_check`,
+	`UPDATE monitoring_saved_views SET visibility = 'team' WHERE visibility = 'group'`,
+	`ALTER TABLE monitoring_saved_views ADD CONSTRAINT monitoring_saved_views_visibility_check CHECK (visibility IN ('private', 'team', 'workspace'))`,
+	`DO $$
+	BEGIN
+		IF EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'monitoring_saved_views'::regclass AND conname = 'monitoring_saved_views_group_id_fkey')
+		   AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'monitoring_saved_views'::regclass AND conname = 'monitoring_saved_views_team_id_fkey') THEN
+			ALTER TABLE monitoring_saved_views RENAME CONSTRAINT monitoring_saved_views_group_id_fkey TO monitoring_saved_views_team_id_fkey;
+		END IF;
+	END $$`,
 	`CREATE INDEX IF NOT EXISTS idx_monitoring_saved_views_owner ON monitoring_saved_views(owner_subject_type, owner_subject_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_monitoring_saved_views_config_repo ON monitoring_saved_views(config_repo_id)`,
 
@@ -96,7 +144,7 @@ var monitoringAnalyticsSchemaStatements = []string{
 		enabled BOOLEAN NOT NULL DEFAULT TRUE,
 		owner_subject_type TEXT NOT NULL DEFAULT '',
 		owner_subject_id TEXT NOT NULL DEFAULT '',
-		visibility TEXT NOT NULL DEFAULT 'workspace' CHECK (visibility IN ('private', 'group', 'workspace')),
+		visibility TEXT NOT NULL DEFAULT 'workspace' CHECK (visibility IN ('private', 'team', 'workspace')),
 		severity TEXT NOT NULL DEFAULT 'warning',
 		metric TEXT NOT NULL,
 		comparator TEXT NOT NULL DEFAULT 'gt',
@@ -115,6 +163,9 @@ var monitoringAnalyticsSchemaStatements = []string{
 	`ALTER TABLE monitoring_alert_rules ADD COLUMN IF NOT EXISTS owner_subject_type TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE monitoring_alert_rules ADD COLUMN IF NOT EXISTS owner_subject_id TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE monitoring_alert_rules ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'workspace'`,
+	`ALTER TABLE monitoring_alert_rules DROP CONSTRAINT IF EXISTS monitoring_alert_rules_visibility_check`,
+	`UPDATE monitoring_alert_rules SET visibility = 'team' WHERE visibility = 'group'`,
+	`ALTER TABLE monitoring_alert_rules ADD CONSTRAINT monitoring_alert_rules_visibility_check CHECK (visibility IN ('private', 'team', 'workspace'))`,
 	`CREATE INDEX IF NOT EXISTS idx_monitoring_alert_rules_enabled ON monitoring_alert_rules(enabled)`,
 	`CREATE INDEX IF NOT EXISTS idx_monitoring_alert_rules_owner ON monitoring_alert_rules(owner_subject_type, owner_subject_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_monitoring_alert_rules_config_repo ON monitoring_alert_rules(config_repo_id)`,

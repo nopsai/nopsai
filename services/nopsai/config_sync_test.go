@@ -56,72 +56,72 @@ func TestStartConfigSyncAllowsOnlyOneConcurrentStart(t *testing.T) {
 	}
 }
 
-func TestNormalizeConfigPathForFolder(t *testing.T) {
+func TestNormalizeConfigPathForTeam(t *testing.T) {
 	tests := []struct {
-		name        string
-		boundFolder string
-		relPath     string
-		want        string
-		wantErr     bool
+		name      string
+		boundTeam string
+		relPath   string
+		want      string
+		wantErr   bool
 	}{
 		{
-			name:        "pipeline path joins folder",
-			boundFolder: "team-1",
-			relPath:     "pipelines/build.yaml",
-			want:        "team-1/build",
+			name:      "pipeline path joins team",
+			boundTeam: "team-1",
+			relPath:   "pipelines/build.yaml",
+			want:      "team-1/build",
 		},
 		{
-			name:        "duplicated bound folder is stripped",
-			boundFolder: "team-1",
-			relPath:     "pipelines/team-1/build.yaml",
-			want:        "team-1/build",
+			name:      "duplicated bound team is stripped",
+			boundTeam: "team-1",
+			relPath:   "pipelines/team-1/build.yaml",
+			want:      "team-1/build",
 		},
 		{
-			name:        "nested bound folder is stripped",
-			boundFolder: "team-1/platform",
-			relPath:     "steps/team-1/platform/deploy.yml",
-			want:        "team-1/platform/deploy",
+			name:      "nested bound team is stripped",
+			boundTeam: "team-1/platform",
+			relPath:   "steps/team-1/platform/deploy.yml",
+			want:      "team-1/platform/deploy",
 		},
 		{
-			name:        "root prefix is absolute",
-			boundFolder: "team-1",
-			relPath:     "pipelines/root/platform/build.yaml",
-			want:        "platform/build",
+			name:      "root prefix is absolute",
+			boundTeam: "team-1",
+			relPath:   "pipelines/root/platform/build.yaml",
+			want:      "platform/build",
 		},
 		{
-			name:        "root only is absolute root",
-			boundFolder: "team-1",
-			relPath:     "root",
-			want:        "",
+			name:      "root only is absolute root",
+			boundTeam: "team-1",
+			relPath:   "root",
+			want:      "",
 		},
 		{
-			name:        "dot dot path is rejected",
-			boundFolder: "team-1",
-			relPath:     "pipelines/../build.yaml",
-			wantErr:     true,
+			name:      "dot dot path is rejected",
+			boundTeam: "team-1",
+			relPath:   "pipelines/../build.yaml",
+			wantErr:   true,
 		},
 		{
-			name:        "escaping path is rejected",
-			boundFolder: "team-1",
-			relPath:     "../build.yaml",
-			wantErr:     true,
+			name:      "escaping path is rejected",
+			boundTeam: "team-1",
+			relPath:   "../build.yaml",
+			wantErr:   true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := configsync.NormalizePathForFolder(tt.boundFolder, tt.relPath)
+			got, err := configsync.NormalizePathForTeam(tt.boundTeam, tt.relPath)
 			if tt.wantErr {
 				if err == nil {
-					t.Fatalf("configsync.NormalizePathForFolder() error = nil, want error")
+					t.Fatalf("configsync.NormalizePathForTeam() error = nil, want error")
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("configsync.NormalizePathForFolder() error = %v", err)
+				t.Fatalf("configsync.NormalizePathForTeam() error = %v", err)
 			}
 			if got != tt.want {
-				t.Fatalf("configsync.NormalizePathForFolder() = %q, want %q", got, tt.want)
+				t.Fatalf("configsync.NormalizePathForTeam() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -396,7 +396,7 @@ func TestBuildKubernetesRunnerBootstrapCommandResponseUsesOneTimeScriptToken(t *
 func TestBuildConfigRepositoryInputDefaultsAndValidation(t *testing.T) {
 	input, err := configsync.BuildRepositoryInput(configsync.RepositoryInputRequest{
 		RepoURL: " https://github.com/acme/configs.git ",
-	}, models.ConfigRepositoryScopeFolder, " team-1/ ", "user-1")
+	}, models.ConfigRepositoryScopeTeam, " team-1/ ", "user-1")
 	if err != nil {
 		t.Fatalf("buildConfigRepositoryInput() error = %v", err)
 	}
@@ -419,14 +419,14 @@ func TestBuildConfigRepositoryInputDefaultsAndValidation(t *testing.T) {
 	if _, err := configsync.BuildRepositoryInput(configsync.RepositoryInputRequest{
 		RepoURL:  "https://github.com/acme/configs.git",
 		BasePath: "../outside",
-	}, models.ConfigRepositoryScopeFolder, "team-1", "user-1"); err == nil {
+	}, models.ConfigRepositoryScopeTeam, "team-1", "user-1"); err == nil {
 		t.Fatal("buildConfigRepositoryInput() accepted escaping base_path")
 	}
 
 	input, err = configsync.BuildRepositoryInput(configsync.RepositoryInputRequest{
 		RepoURL:      "https://github.com/acme/configs.git",
 		WriteEnabled: boolPointer(true),
-	}, models.ConfigRepositoryScopeFolder, "team-1", "user-1")
+	}, models.ConfigRepositoryScopeTeam, "team-1", "user-1")
 	if err != nil {
 		t.Fatalf("buildConfigRepositoryInput() with write enabled error = %v", err)
 	}
@@ -437,7 +437,7 @@ func TestBuildConfigRepositoryInputDefaultsAndValidation(t *testing.T) {
 	if _, err := configsync.BuildRepositoryInput(configsync.RepositoryInputRequest{
 		RepoURL:     "https://github.com/acme/configs.git",
 		WriteBranch: "bad branch",
-	}, models.ConfigRepositoryScopeFolder, "team-1", "user-1"); err == nil {
+	}, models.ConfigRepositoryScopeTeam, "team-1", "user-1"); err == nil {
 		t.Fatal("buildConfigRepositoryInput() accepted invalid write_branch")
 	}
 }
@@ -464,16 +464,21 @@ func TestParseConfigRepositoryBindingPath(t *testing.T) {
 		wantErr       bool
 	}{
 		{
-			name:          "top level group",
-			relPath:       "groups/team-1.yaml",
-			wantScopeType: models.ConfigRepositoryScopeFolder,
+			name:          "top level team",
+			relPath:       "teams/team-1.yaml",
+			wantScopeType: models.ConfigRepositoryScopeTeam,
 			wantScopeID:   "team-1",
 		},
 		{
-			name:          "nested group",
-			relPath:       "groups/team-1/platform.yaml",
-			wantScopeType: models.ConfigRepositoryScopeFolder,
+			name:          "nested team",
+			relPath:       "teams/team-1/platform.yaml",
+			wantScopeType: models.ConfigRepositoryScopeTeam,
 			wantScopeID:   "team-1/platform",
+		},
+		{
+			name:    "unsupported team path rejected",
+			relPath: "team/team-1.yaml",
+			wantErr: true,
 		},
 		{
 			name:    "unsupported scope",
@@ -482,7 +487,7 @@ func TestParseConfigRepositoryBindingPath(t *testing.T) {
 		},
 		{
 			name:    "escaping path",
-			relPath: "groups/team-1/../prod.yaml",
+			relPath: "teams/team-1/../prod.yaml",
 			wantErr: true,
 		},
 	}
@@ -506,7 +511,7 @@ func TestParseConfigRepositoryBindingPath(t *testing.T) {
 	}
 }
 
-func TestNormalizePipelineRunStructureForFolder(t *testing.T) {
+func TestNormalizePipelineRunStructureForTeam(t *testing.T) {
 	structure := map[string]*configsync.PipelineRunStructureNode{
 		"dev": {
 			Description: "Development",
@@ -529,13 +534,13 @@ func TestNormalizePipelineRunStructureForFolder(t *testing.T) {
 		},
 	}
 
-	got, err := configsync.NormalizePipelineRunStructureForFolder("team-1", structure)
+	got, err := configsync.NormalizePipelineRunStructureForTeam("team-1", structure)
 	if err != nil {
-		t.Fatalf("configsync.NormalizePipelineRunStructureForFolder() error = %v", err)
+		t.Fatalf("configsync.NormalizePipelineRunStructureForTeam() error = %v", err)
 	}
 	team, ok := got["team-1"]
 	if !ok {
-		t.Fatal("expected team-1 root group")
+		t.Fatal("expected team-1 root team")
 	}
 	if _, ok := team.Children["dev"]; !ok {
 		t.Fatal("expected dev to be nested under team-1")
@@ -544,7 +549,7 @@ func TestNormalizePipelineRunStructureForFolder(t *testing.T) {
 		t.Fatalf("dev repos = %#v, want acme/app", gotRepos)
 	}
 	if _, ok := team.Children["platform"]; !ok {
-		t.Fatal("expected already scoped platform group to remain under team-1")
+		t.Fatal("expected already scoped platform team to remain under team-1")
 	}
 	if _, duplicated := team.Children["team-1"]; duplicated {
 		t.Fatal("did not expect duplicated team-1 child")
@@ -553,55 +558,55 @@ func TestNormalizePipelineRunStructureForFolder(t *testing.T) {
 
 func TestConfigRepositoryPrecedence(t *testing.T) {
 	systemRepo := models.ConfigRepository{ID: 1, ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID}
-	parentRepo := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"}
-	childRepo := models.ConfigRepository{ID: 3, ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1/dev"}
-	otherRepo := models.ConfigRepository{ID: 4, ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-2"}
+	parentRepo := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
+	childRepo := models.ConfigRepository{ID: 3, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1/dev"}
+	otherRepo := models.ConfigRepository{ID: 4, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-2"}
 
 	if !configsync.CanRepositoryWriteOver(parentRepo, systemRepo, "team-1/build") {
-		t.Fatal("group repo should be able to take over parent-managed global resources")
+		t.Fatal("team repo should be able to take over parent-managed global resources")
 	}
 	if !configsync.CanRepositoryWriteOver(childRepo, parentRepo, "team-1/dev/deploy") {
-		t.Fatal("child group repo should be able to take over parent group resources in its subtree")
+		t.Fatal("child team repo should be able to take over parent team resources in its subtree")
 	}
 	if configsync.CanRepositoryWriteOver(parentRepo, childRepo, "team-1/dev/deploy") {
-		t.Fatal("parent group repo should not take over child group resources")
+		t.Fatal("parent team repo should not take over child team resources")
 	}
 	if !configsync.RepositoryShadowsCurrent(childRepo, parentRepo, "team-1/dev/deploy") {
-		t.Fatal("child group repo should shadow parent group repo in its subtree")
+		t.Fatal("child team repo should shadow parent team repo in its subtree")
 	}
 	if configsync.CanRepositoryWriteOver(otherRepo, parentRepo, "team-1/build") {
-		t.Fatal("unrelated group repo should not take over another group")
+		t.Fatal("unrelated team repo should not take over another team")
 	}
 }
 
 func TestConfigRepositoryAdoptsOnlyInScopeDatabaseResources(t *testing.T) {
 	systemRepo := models.ConfigRepository{ID: 1, ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID}
-	folderRepo := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"}
+	teamRepo := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
 
 	if !configsync.CanRepositoryAdoptUnmanagedResource(systemRepo, "platform/deploy") {
 		t.Fatal("system config repo should be able to adopt database resources")
 	}
-	if !configsync.CanRepositoryAdoptUnmanagedResource(folderRepo, "team-1/deploy") {
-		t.Fatal("group config repo should be able to adopt database resources inside its group")
+	if !configsync.CanRepositoryAdoptUnmanagedResource(teamRepo, "team-1/deploy") {
+		t.Fatal("team config repo should be able to adopt database resources inside its team")
 	}
-	if !configsync.CanRepositoryAdoptUnmanagedResource(folderRepo, "team-1/dev/deploy") {
-		t.Fatal("group config repo should be able to adopt database resources inside child groups")
+	if !configsync.CanRepositoryAdoptUnmanagedResource(teamRepo, "team-1/dev/deploy") {
+		t.Fatal("team config repo should be able to adopt database resources inside child teams")
 	}
-	if configsync.CanRepositoryAdoptUnmanagedResource(folderRepo, "team-2/deploy") {
-		t.Fatal("group config repo should not adopt database resources outside its group")
+	if configsync.CanRepositoryAdoptUnmanagedResource(teamRepo, "team-2/deploy") {
+		t.Fatal("team config repo should not adopt database resources outside its team")
 	}
 }
 
-func TestEffectivePipelineRunStructureForSystemUsesConfigRepositoryGroups(t *testing.T) {
+func TestEffectivePipelineRunStructureForSystemUsesConfigRepositoryTeams(t *testing.T) {
 	binding := models.ConfigRepository{ID: 1, ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID}
 	configRepositories := map[string]storedConfigRepository{
-		"folder/team-1": {
-			scopeType: models.ConfigRepositoryScopeFolder,
+		"team/team-1": {
+			scopeType: models.ConfigRepositoryScopeTeam,
 			scopeID:   "team-1",
 			enabled:   true,
 		},
-		"folder/team-2/platform": {
-			scopeType: models.ConfigRepositoryScopeFolder,
+		"team/team-2/platform": {
+			scopeType: models.ConfigRepositoryScopeTeam,
 			scopeID:   "team-2/platform",
 			enabled:   true,
 		},
@@ -627,11 +632,11 @@ func TestEffectivePipelineRunStructureForSystemUsesConfigRepositoryGroups(t *tes
 	}
 }
 
-func TestEffectivePipelineRunStructureForGroupUsesConfigRepositoryStructure(t *testing.T) {
-	binding := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"}
+func TestEffectivePipelineRunStructureForTeamUsesConfigRepositoryStructure(t *testing.T) {
+	binding := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
 	configRepositories := map[string]storedConfigRepository{
-		"folder/team-1/platform": {
-			scopeType: models.ConfigRepositoryScopeFolder,
+		"team/team-1/platform": {
+			scopeType: models.ConfigRepositoryScopeTeam,
 			scopeID:   "team-1/platform",
 			enabled:   true,
 		},
@@ -652,7 +657,7 @@ func TestEffectivePipelineRunStructureForGroupUsesConfigRepositoryStructure(t *t
 	}
 	team1, ok := got["team-1"]
 	if !ok {
-		t.Fatal("expected team-1 root group")
+		t.Fatal("expected team-1 root team")
 	}
 	if team1.Description != "Owned by team-1 repo" {
 		t.Fatalf("team-1 description = %q", team1.Description)
@@ -669,16 +674,16 @@ func TestEffectivePipelineRunStructureForGroupUsesConfigRepositoryStructure(t *t
 	}
 }
 
-func TestConfigRepositoryGroupStructureAppliesInsideDelegatedGroup(t *testing.T) {
+func TestConfigRepositoryTeamStructureAppliesInsideDelegatedTeam(t *testing.T) {
 	binding := models.ConfigRepository{ID: 1, ScopeType: models.ConfigRepositoryScopeSystem, ScopeID: models.ConfigRepositorySystemGlobalID}
 	configRepositories := map[string]storedConfigRepository{
-		"folder/team-1": {
-			scopeType: models.ConfigRepositoryScopeFolder,
+		"team/team-1": {
+			scopeType: models.ConfigRepositoryScopeTeam,
 			scopeID:   "team-1",
 			enabled:   true,
 		},
 	}
-	groupStructure, ok, err := configsync.ParseConfigRepositoryGroupPipelineRunStructure("groups/team-1/structure.yaml", `
+	teamStructure, ok, err := configsync.ParseConfigRepositoryTeamPipelineRunStructure("teams/team-1/structure.yaml", `
 description: Team 1 apps
 apps:
   - name: test-app
@@ -689,19 +694,19 @@ dev:
       repo_url: https://github.com/hosein-yousefii/dev-app
 `)
 	if err != nil {
-		t.Fatalf("configsync.ParseConfigRepositoryGroupPipelineRunStructure() error = %v", err)
+		t.Fatalf("configsync.ParseConfigRepositoryTeamPipelineRunStructure() error = %v", err)
 	}
 	if !ok {
-		t.Fatal("expected groups/team-1/structure.yaml to be treated as a group structure file")
+		t.Fatal("expected teams/team-1/structure.yaml to be treated as a team structure file")
 	}
 
-	got, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, groupStructure)
+	got, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, teamStructure)
 	if err != nil {
 		t.Fatalf("effectivePipelineRunStructureForConfigSync() error = %v", err)
 	}
 	team1, ok := got["team-1"]
 	if !ok {
-		t.Fatal("expected team-1 root group")
+		t.Fatal("expected team-1 root team")
 	}
 	if team1.Description != "Team 1 apps" {
 		t.Fatalf("team-1 description = %q", team1.Description)
@@ -711,15 +716,15 @@ dev:
 	}
 	dev, ok := team1.Children["dev"]
 	if !ok {
-		t.Fatal("expected team-1/dev from config-repositories group structure")
+		t.Fatal("expected team-1/dev from config-repositories team structure")
 	}
 	if len(dev.Apps) != 1 || dev.Apps[0].RepositoryFullName != "hosein-yousefii/dev-app" {
 		t.Fatalf("team-1/dev apps = %#v, want hosein-yousefii/dev-app", dev.Apps)
 	}
 }
 
-func TestConfigRepositoryGroupStructureCollectsInlineConfig(t *testing.T) {
-	structure, ok, err := configsync.ParseConfigRepositoryGroupPipelineRunStructure("groups/data-team/structure.yaml", `
+func TestConfigRepositoryTeamStructureCollectsInlineConfig(t *testing.T) {
+	structure, ok, err := configsync.ParseConfigRepositoryTeamPipelineRunStructure("teams/data-team/structure.yaml", `
 description: Owns data-team scoped configuration
 config:
   repo_url: git@github.com:hosein-yousefii/nopsai-data-team-config.git
@@ -730,22 +735,22 @@ config:
   write_branch: nopsai/data-team-ui
 `)
 	if err != nil {
-		t.Fatalf("configsync.ParseConfigRepositoryGroupPipelineRunStructure() error = %v", err)
+		t.Fatalf("configsync.ParseConfigRepositoryTeamPipelineRunStructure() error = %v", err)
 	}
 	if !ok {
-		t.Fatal("expected groups/data-team/structure.yaml to be treated as a group structure file")
+		t.Fatal("expected teams/data-team/structure.yaml to be treated as a team structure file")
 	}
 
-	bindings, err := configRepositoryBindingsFromPipelineRunStructure(structure, "config-repositories/groups/data-team/structure.yaml")
+	bindings, err := configRepositoryBindingsFromPipelineRunStructure(structure, "config-repositories/teams/data-team/structure.yaml")
 	if err != nil {
 		t.Fatalf("configRepositoryBindingsFromPipelineRunStructure() error = %v", err)
 	}
-	binding, ok := bindings["folder/data-team"]
+	binding, ok := bindings["team/data-team"]
 	if !ok {
 		t.Fatal("expected inline data-team config repository binding")
 	}
-	if binding.scopeType != models.ConfigRepositoryScopeFolder || binding.scopeID != "data-team" {
-		t.Fatalf("binding scope = (%q, %q), want (folder, data-team)", binding.scopeType, binding.scopeID)
+	if binding.scopeType != models.ConfigRepositoryScopeTeam || binding.scopeID != "data-team" {
+		t.Fatalf("binding scope = (%q, %q), want (team, data-team)", binding.scopeType, binding.scopeID)
 	}
 	if binding.repoURL != "git@github.com:hosein-yousefii/nopsai-data-team-config.git" {
 		t.Fatalf("repoURL = %q", binding.repoURL)
@@ -758,8 +763,8 @@ config:
 	}
 }
 
-func TestConfigRepositoryGroupStructureParsesAppsWithRepositoryURLs(t *testing.T) {
-	structure, ok, err := configsync.ParseConfigRepositoryGroupPipelineRunStructure("groups/team-1/structure.yaml", `
+func TestConfigRepositoryTeamStructureParsesAppsWithRepositoryURLs(t *testing.T) {
+	structure, ok, err := configsync.ParseConfigRepositoryTeamPipelineRunStructure("teams/team-1/structure.yaml", `
 description: Team 1 apps
 apps:
   - name: api
@@ -768,10 +773,10 @@ apps:
     repo_url: git@github.com:acme/worker.git
 `)
 	if err != nil {
-		t.Fatalf("configsync.ParseConfigRepositoryGroupPipelineRunStructure() error = %v", err)
+		t.Fatalf("configsync.ParseConfigRepositoryTeamPipelineRunStructure() error = %v", err)
 	}
 	if !ok {
-		t.Fatal("expected groups/team-1/structure.yaml to be treated as a group structure file")
+		t.Fatal("expected teams/team-1/structure.yaml to be treated as a team structure file")
 	}
 	team1 := structure["team-1"]
 	if team1 == nil {
@@ -817,8 +822,8 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 		{repo: "hosein-yousefii/test-app", scopePath: "prod", name: "DEPLOY_TOKEN"}:          {},
 	}
 	externalTriggers := map[string]storedExternalTrigger{
-		"data-team-deploy": {input: externalTriggerRecord{ID: "data-team-deploy", Pipeline: "data-team/deploy", Scope: "data-team/dev", RunGroupPath: "data-team/dev"}},
-		"prod-deploy":      {input: externalTriggerRecord{ID: "prod-deploy", Pipeline: "platform/deploy", Scope: "prod", RunGroupPath: "root"}},
+		"data-team-deploy": {input: externalTriggerRecord{ID: "data-team-deploy", Pipeline: "data-team/deploy", Scope: "data-team/dev", RunTeamPath: "data-team/dev"}},
+		"prod-deploy":      {input: externalTriggerRecord{ID: "prod-deploy", Pipeline: "platform/deploy", Scope: "prod", RunTeamPath: "root"}},
 	}
 
 	filterDelegatedConfigResources(

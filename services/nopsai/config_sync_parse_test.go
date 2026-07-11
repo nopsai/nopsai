@@ -7,9 +7,9 @@ import (
 	"nopsai/pkg/models"
 )
 
-func TestParseConfigSyncPlanNormalizesFolderResources(t *testing.T) {
+func TestParseConfigSyncPlanNormalizesTeamResources(t *testing.T) {
 	binding := models.ConfigRepository{
-		ScopeType: models.ConfigRepositoryScopeFolder,
+		ScopeType: models.ConfigRepositoryScopeTeam,
 		ScopeID:   "team-1",
 		RepoURL:   "https://github.com/acme/platform-config",
 		BasePath:  "config",
@@ -77,7 +77,7 @@ triggers:
 
 func TestParseConfigSyncPlanLoadsTeamAIProfiles(t *testing.T) {
 	binding := models.ConfigRepository{
-		ScopeType: models.ConfigRepositoryScopeFolder,
+		ScopeType: models.ConfigRepositoryScopeTeam,
 		ScopeID:   "team-1",
 		RepoURL:   "https://github.com/acme/platform-config",
 		BasePath:  "config",

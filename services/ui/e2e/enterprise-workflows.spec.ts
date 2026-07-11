@@ -28,7 +28,7 @@ const localKeycloakProvider = {
   id: 'keycloak',
   type: 'oidc',
   display_name: 'Local Keycloak',
-  scopes: ['openid', 'email', 'profile', 'groups'],
+  scopes: ['openid', 'email', 'profile', 'teams'],
   allowed_email_domains: ['example.com'],
 };
 
@@ -182,7 +182,7 @@ async function installApiMocks(
           pipelines: 1,
           steps: 0,
           triggers: 0,
-          groups: 1,
+          teams: 1,
           access_grants: 0,
           llm_profiles: 0,
           mcp_servers: 0,
@@ -213,7 +213,7 @@ async function installApiMocks(
     if (path === '/v1/access/effective-permissions') {
       return fulfillJson(route, { allowed: true });
     }
-    if (path === '/v1/groups') return fulfillJson(route, []);
+    if (path === '/v1/teams') return fulfillJson(route, []);
     if (path === '/v1/runs/run-1/approvals') return fulfillJson(route, []);
     if (path === '/v1/runs/run-1/logs') {
       return fulfillJson(route, [
@@ -230,7 +230,7 @@ async function installApiMocks(
       ]);
     }
     if (path === '/v1/runs/run-1') return fulfillJson(route, populatedRunDetail);
-    if (path === '/v1/runs') return fulfillJson(route, url.searchParams.has('groupId') ? {} : []);
+    if (path === '/v1/runs') return fulfillJson(route, url.searchParams.has('teamId') ? {} : []);
     if (path === '/v1/overrides') return fulfillJson(route, []);
     if (path === '/v1/secrets/scopes' || path === '/v1/variables/scopes') return fulfillJson(route, []);
     if (path === '/v1/steps' || path === '/v1/knowledge-contexts') return fulfillJson(route, []);

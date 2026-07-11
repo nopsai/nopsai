@@ -22,7 +22,7 @@ func configRepositoryOverrideScopes(ctx context.Context, tx pgx.Tx, binding mode
 		if scope == "" {
 			return
 		}
-		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
 			boundScope := strings.Trim(strings.TrimSpace(binding.ScopeID), "/")
 			if scope == boundScope || !configsync.ResourceUnderScope(scope, boundScope) {
 				return
@@ -32,7 +32,7 @@ func configRepositoryOverrideScopes(ctx context.Context, tx pgx.Tx, binding mode
 	}
 
 	for _, repo := range parsed {
-		if repo.enabled && repo.scopeType == models.ConfigRepositoryScopeFolder {
+		if repo.enabled && repo.scopeType == models.ConfigRepositoryScopeTeam {
 			addScope(repo.scopeID)
 		}
 	}
@@ -43,7 +43,7 @@ func configRepositoryOverrideScopes(ctx context.Context, tx pgx.Tx, binding mode
 		WHERE scope_type = $1
 		  AND enabled = TRUE
 		  AND id <> $2
-	`, models.ConfigRepositoryScopeFolder, binding.ID)
+	`, models.ConfigRepositoryScopeTeam, binding.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load delegated config repository scopes: %w", err)
 	}
@@ -72,7 +72,7 @@ func effectivePipelineRunStructureForConfigSync(
 	configRepositories map[string]storedConfigRepository,
 	configRepositoryPipelineRunStructure map[string]*configsync.PipelineRunStructureNode,
 ) (map[string]*configsync.PipelineRunStructureNode, error) {
-	effective, err := configRepositoryGroupStructure(binding, configRepositories)
+	effective, err := configRepositoryTeamStructure(binding, configRepositories)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +80,7 @@ func effectivePipelineRunStructureForConfigSync(
 	return effective, nil
 }
 
-func configRepositoryGroupStructure(binding models.ConfigRepository, configRepositories map[string]storedConfigRepository) (map[string]*configsync.PipelineRunStructureNode, error) {
+func configRepositoryTeamStructure(binding models.ConfigRepository, configRepositories map[string]storedConfigRepository) (map[string]*configsync.PipelineRunStructureNode, error) {
 	result := map[string]*configsync.PipelineRunStructureNode{}
 	addPath := func(path string) error {
 		segments, err := configsync.CleanPathSegments(path, false)
@@ -91,17 +91,17 @@ func configRepositoryGroupStructure(binding models.ConfigRepository, configRepos
 		return nil
 	}
 
-	if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+	if binding.ScopeType == models.ConfigRepositoryScopeTeam {
 		if err := addPath(binding.ScopeID); err != nil {
-			return nil, fmt.Errorf("invalid group-scoped config repository group path %q: %w", binding.ScopeID, err)
+			return nil, fmt.Errorf("invalid team-scoped config repository team path %q: %w", binding.ScopeID, err)
 		}
 	}
 	for _, repo := range configRepositories {
-		if repo.scopeType != models.ConfigRepositoryScopeFolder {
+		if repo.scopeType != models.ConfigRepositoryScopeTeam {
 			continue
 		}
 		if err := addPath(repo.scopeID); err != nil {
-			return nil, fmt.Errorf("invalid config repository group path %q: %w", repo.scopeID, err)
+			return nil, fmt.Errorf("invalid config repository team path %q: %w", repo.scopeID, err)
 		}
 	}
 	return result, nil
@@ -156,7 +156,7 @@ func filterDelegatedConfigResources(
 		}
 	}
 	for key, knowledge := range knowledgeContexts {
-		scope := knowledge.group
+		scope := knowledge.team
 		if scope == "" {
 			scope = key
 		}
@@ -245,7 +245,7 @@ func ensureConfigResourceWritable(ctx context.Context, tx pgx.Tx, tableName, res
 	return false, fmt.Errorf("%s %s is already managed by config repository %s", resourceKind, resourceID, owner)
 }
 
-type groupRecord struct {
+type teamRecord struct {
 	ID                 int
 	Name               string
 	Kind               string
@@ -255,37 +255,37 @@ type groupRecord struct {
 	RepositoryFullName string
 }
 
-type groupRecordSet struct {
-	byName map[string]*groupRecord
-	byRepo map[string]*groupRecord
+type teamRecordSet struct {
+	byName map[string]*teamRecord
+	byRepo map[string]*teamRecord
 }
 
-func loadExistingGroupRecords(ctx context.Context, tx pgx.Tx) (groupRecordSet, error) {
-	rows, err := tx.Query(ctx, "SELECT id, name, COALESCE(kind, 'group'), parent_id, description, COALESCE(repo_url, ''), COALESCE(repository_full_name, '') FROM groups")
+func loadExistingTeamRecords(ctx context.Context, tx pgx.Tx) (teamRecordSet, error) {
+	rows, err := tx.Query(ctx, "SELECT id, name, COALESCE(kind, 'team'), parent_id, description, COALESCE(repo_url, ''), COALESCE(repository_full_name, '') FROM teams")
 	if err != nil {
-		return groupRecordSet{}, err
+		return teamRecordSet{}, err
 	}
 	defer rows.Close()
 
-	result := groupRecordSet{
-		byName: make(map[string]*groupRecord),
-		byRepo: make(map[string]*groupRecord),
+	result := teamRecordSet{
+		byName: make(map[string]*teamRecord),
+		byRepo: make(map[string]*teamRecord),
 	}
 	for rows.Next() {
 		var (
-			record      groupRecord
+			record      teamRecord
 			parentID    sql.NullInt32
 			description sql.NullString
 		)
 		if err := rows.Scan(&record.ID, &record.Name, &record.Kind, &parentID, &description, &record.RepoURL, &record.RepositoryFullName); err != nil {
-			return groupRecordSet{}, err
+			return teamRecordSet{}, err
 		}
 		key, err := configsync.NormalizeStructureName(record.Name)
 		if err != nil {
-			return groupRecordSet{}, err
+			return teamRecordSet{}, err
 		}
 		if _, exists := result.byName[key]; exists {
-			return groupRecordSet{}, fmt.Errorf("duplicate group name '%s' detected in database", key)
+			return teamRecordSet{}, fmt.Errorf("duplicate team name '%s' detected in database", key)
 		}
 		record.Name = key
 		record.ParentID = pointerFromNullInt(parentID)
@@ -296,13 +296,13 @@ func loadExistingGroupRecords(ctx context.Context, tx pgx.Tx) (groupRecordSet, e
 		if record.RepositoryFullName != "" {
 			repoKey := strings.ToLower(record.RepositoryFullName)
 			if _, exists := result.byRepo[repoKey]; exists {
-				return groupRecordSet{}, fmt.Errorf("duplicate repository app '%s' detected in database", record.RepositoryFullName)
+				return teamRecordSet{}, fmt.Errorf("duplicate repository app '%s' detected in database", record.RepositoryFullName)
 			}
 			result.byRepo[repoKey] = &record
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return groupRecordSet{}, err
+		return teamRecordSet{}, err
 	}
 
 	return result, nil
@@ -366,72 +366,72 @@ func normalizePipelineRunStructureApp(app configsync.PipelineRunStructureApp) (c
 	}, nil
 }
 
-func (a *App) syncPipelineRunGroups(ctx context.Context, tx pgx.Tx, structure map[string]*configsync.PipelineRunStructureNode, details map[string]int) error {
+func (a *App) syncPipelineRunTeams(ctx context.Context, tx pgx.Tx, structure map[string]*configsync.PipelineRunStructureNode, details map[string]int) error {
 	if len(structure) == 0 {
 		return nil
 	}
 
-	existingGroups, err := loadExistingGroupRecords(ctx, tx)
+	existingTeams, err := loadExistingTeamRecords(ctx, tx)
 	if err != nil {
-		return fmt.Errorf("failed to load existing pipeline run folders: %w", err)
+		return fmt.Errorf("failed to load existing pipeline run teams: %w", err)
 	}
 
-	registerGroupRecord := func(record *groupRecord) {
+	registerTeamRecord := func(record *teamRecord) {
 		if record == nil {
 			return
 		}
-		existingGroups.byName[record.Name] = record
+		existingTeams.byName[record.Name] = record
 		if record.RepositoryFullName != "" {
-			existingGroups.byRepo[strings.ToLower(record.RepositoryFullName)] = record
+			existingTeams.byRepo[strings.ToLower(record.RepositoryFullName)] = record
 		}
 	}
 
-	var ensureFolder func(name string, parentID *int, description string) (int, error)
-	ensureFolder = func(name string, parentID *int, description string) (int, error) {
+	var ensureTeam func(name string, parentID *int, description string) (int, error)
+	ensureTeam = func(name string, parentID *int, description string) (int, error) {
 		normalized, err := configsync.NormalizeStructureName(name)
 		if err != nil {
 			return 0, err
 		}
 		description = strings.TrimSpace(description)
-		if record, ok := existingGroups.byName[normalized]; ok {
+		if record, ok := existingTeams.byName[normalized]; ok {
 			if record.Kind == "app" || record.RepositoryFullName != "" {
-				return 0, fmt.Errorf("folder '%s' conflicts with an existing app", normalized)
+				return 0, fmt.Errorf("team '%s' conflicts with an existing app", normalized)
 			}
 			parentChanged := !parentPointersEqual(record.ParentID, parentID)
 			descChanged := strings.TrimSpace(record.Description) != description
-			kindChanged := record.Kind != "group" || record.RepoURL != "" || record.RepositoryFullName != ""
+			kindChanged := record.Kind != "team" || record.RepoURL != "" || record.RepositoryFullName != ""
 			if parentChanged || descChanged || kindChanged {
-				if _, err := tx.Exec(ctx, "UPDATE groups SET kind = 'group', parent_id = $1, description = $2, repo_url = '', repository_full_name = '', updated_at = NOW() WHERE id = $3", parentID, description, record.ID); err != nil {
-					return 0, fmt.Errorf("failed to update folder '%s': %w", normalized, err)
+				if _, err := tx.Exec(ctx, "UPDATE teams SET kind = 'team', parent_id = $1, description = $2, repo_url = '', repository_full_name = '', updated_at = NOW() WHERE id = $3", parentID, description, record.ID); err != nil {
+					return 0, fmt.Errorf("failed to update team '%s': %w", normalized, err)
 				}
-				delete(existingGroups.byRepo, strings.ToLower(record.RepositoryFullName))
-				record.Kind = "group"
+				delete(existingTeams.byRepo, strings.ToLower(record.RepositoryFullName))
+				record.Kind = "team"
 				record.ParentID = copyIntPointer(parentID)
 				record.Description = description
 				record.RepoURL = ""
 				record.RepositoryFullName = ""
-				details["run_groups_updated"]++
+				details["run_teams_updated"]++
 			}
 			return record.ID, nil
 		}
 
 		var newID int
-		if err := tx.QueryRow(ctx, "INSERT INTO groups (name, kind, parent_id, description) VALUES ($1, 'group', $2, $3) RETURNING id", normalized, parentID, description).Scan(&newID); err != nil {
+		if err := tx.QueryRow(ctx, "INSERT INTO teams (name, kind, parent_id, description) VALUES ($1, 'team', $2, $3) RETURNING id", normalized, parentID, description).Scan(&newID); err != nil {
 			var pgErr *pgconn.PgError
 			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-				refreshed, loadErr := loadExistingGroupRecords(ctx, tx)
+				refreshed, loadErr := loadExistingTeamRecords(ctx, tx)
 				if loadErr != nil {
-					return 0, fmt.Errorf("failed to reload folders after conflict: %w", loadErr)
+					return 0, fmt.Errorf("failed to reload teams after conflict: %w", loadErr)
 				}
-				existingGroups = refreshed
-				if _, ok := existingGroups.byName[normalized]; ok {
-					return ensureFolder(normalized, parentID, description)
+				existingTeams = refreshed
+				if _, ok := existingTeams.byName[normalized]; ok {
+					return ensureTeam(normalized, parentID, description)
 				}
 			}
-			return 0, fmt.Errorf("failed to create folder '%s': %w", normalized, err)
+			return 0, fmt.Errorf("failed to create team '%s': %w", normalized, err)
 		}
-		registerGroupRecord(&groupRecord{ID: newID, Name: normalized, Kind: "group", ParentID: copyIntPointer(parentID), Description: description})
-		details["run_groups_created"]++
+		registerTeamRecord(&teamRecord{ID: newID, Name: normalized, Kind: "team", ParentID: copyIntPointer(parentID), Description: description})
+		details["run_teams_created"]++
 		return newID, nil
 	}
 
@@ -446,11 +446,11 @@ func (a *App) syncPipelineRunGroups(ctx context.Context, tx pgx.Tx, structure ma
 		fullName := normalizedApp.RepositoryFullName
 		repoKey := strings.ToLower(fullName)
 
-		record := existingGroups.byRepo[repoKey]
+		record := existingTeams.byRepo[repoKey]
 		if record == nil {
-			if existingByName, ok := existingGroups.byName[name]; ok {
+			if existingByName, ok := existingTeams.byName[name]; ok {
 				if existingByName.Kind != "app" && existingByName.RepositoryFullName == "" {
-					return 0, fmt.Errorf("app '%s' conflicts with an existing folder", name)
+					return 0, fmt.Errorf("app '%s' conflicts with an existing team", name)
 				}
 				if existingByName.RepositoryFullName != "" && !strings.EqualFold(existingByName.RepositoryFullName, fullName) {
 					return 0, fmt.Errorf("app '%s' conflicts with repository '%s'", name, existingByName.RepositoryFullName)
@@ -465,44 +465,44 @@ func (a *App) syncPipelineRunGroups(ctx context.Context, tx pgx.Tx, structure ma
 			descChanged := strings.TrimSpace(record.Description) != ""
 			repoChanged := strings.TrimSpace(record.RepoURL) != repoURL || !strings.EqualFold(record.RepositoryFullName, fullName)
 			if parentChanged || nameChanged || kindChanged || descChanged || repoChanged {
-				if _, err := tx.Exec(ctx, "UPDATE groups SET name = $1, kind = 'app', parent_id = $2, description = '', repo_url = $3, repository_full_name = $4, updated_at = NOW() WHERE id = $5", name, parentID, repoURL, fullName, record.ID); err != nil {
+				if _, err := tx.Exec(ctx, "UPDATE teams SET name = $1, kind = 'app', parent_id = $2, description = '', repo_url = $3, repository_full_name = $4, updated_at = NOW() WHERE id = $5", name, parentID, repoURL, fullName, record.ID); err != nil {
 					return 0, fmt.Errorf("failed to update app '%s': %w", name, err)
 				}
-				delete(existingGroups.byName, record.Name)
-				delete(existingGroups.byRepo, strings.ToLower(record.RepositoryFullName))
+				delete(existingTeams.byName, record.Name)
+				delete(existingTeams.byRepo, strings.ToLower(record.RepositoryFullName))
 				record.Name = name
 				record.Kind = "app"
 				record.ParentID = copyIntPointer(parentID)
 				record.Description = ""
 				record.RepoURL = repoURL
 				record.RepositoryFullName = fullName
-				registerGroupRecord(record)
-				details["run_groups_updated"]++
+				registerTeamRecord(record)
+				details["run_teams_updated"]++
 			}
 			return record.ID, nil
 		}
 
 		var newID int
-		if err := tx.QueryRow(ctx, "INSERT INTO groups (name, kind, parent_id, description, repo_url, repository_full_name) VALUES ($1, 'app', $2, '', $3, $4) RETURNING id", name, parentID, repoURL, fullName).Scan(&newID); err != nil {
+		if err := tx.QueryRow(ctx, "INSERT INTO teams (name, kind, parent_id, description, repo_url, repository_full_name) VALUES ($1, 'app', $2, '', $3, $4) RETURNING id", name, parentID, repoURL, fullName).Scan(&newID); err != nil {
 			var pgErr *pgconn.PgError
 			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-				refreshed, loadErr := loadExistingGroupRecords(ctx, tx)
+				refreshed, loadErr := loadExistingTeamRecords(ctx, tx)
 				if loadErr != nil {
 					return 0, fmt.Errorf("failed to reload apps after conflict: %w", loadErr)
 				}
-				existingGroups = refreshed
+				existingTeams = refreshed
 				return ensureApp(normalizedApp, parentID)
 			}
 			return 0, fmt.Errorf("failed to create app '%s': %w", name, err)
 		}
-		registerGroupRecord(&groupRecord{ID: newID, Name: name, Kind: "app", ParentID: copyIntPointer(parentID), RepoURL: repoURL, RepositoryFullName: fullName})
-		details["run_groups_created"]++
+		registerTeamRecord(&teamRecord{ID: newID, Name: name, Kind: "app", ParentID: copyIntPointer(parentID), RepoURL: repoURL, RepositoryFullName: fullName})
+		details["run_teams_created"]++
 		return newID, nil
 	}
 
 	var applyNode func(name string, node *configsync.PipelineRunStructureNode, parentID *int) error
 	applyNode = func(name string, node *configsync.PipelineRunStructureNode, parentID *int) error {
-		groupID, err := ensureFolder(name, parentID, node.Description)
+		teamID, err := ensureTeam(name, parentID, node.Description)
 		if err != nil {
 			return err
 		}
@@ -513,12 +513,12 @@ func (a *App) syncPipelineRunGroups(ctx context.Context, tx pgx.Tx, structure ma
 			}
 		}
 		for _, app := range apps {
-			if _, err := ensureApp(app, &groupID); err != nil {
+			if _, err := ensureApp(app, &teamID); err != nil {
 				return err
 			}
 		}
 		for childName, childNode := range node.Children {
-			if err := applyNode(childName, childNode, &groupID); err != nil {
+			if err := applyNode(childName, childNode, &teamID); err != nil {
 				return err
 			}
 		}
@@ -530,7 +530,7 @@ func (a *App) syncPipelineRunGroups(ctx context.Context, tx pgx.Tx, structure ma
 			node = &configsync.PipelineRunStructureNode{Children: map[string]*configsync.PipelineRunStructureNode{}}
 		}
 		if err := applyNode(name, node, nil); err != nil {
-			return fmt.Errorf("failed to sync folder '%s': %w", name, err)
+			return fmt.Errorf("failed to sync team '%s': %w", name, err)
 		}
 	}
 

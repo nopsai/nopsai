@@ -41,19 +41,19 @@ func ParsePipelineRunStructure(content string) (map[string]*PipelineRunStructure
 			return nil, err
 		}
 		if _, exists := result[normalized]; exists {
-			return nil, fmt.Errorf("duplicate folder '%s' in pipelinerun structure", normalized)
+			return nil, fmt.Errorf("duplicate team '%s' in pipelinerun structure", normalized)
 		}
 		node, err := decodePipelineRunStructureNode(value)
 		if err != nil {
-			return nil, fmt.Errorf("folder '%s': %w", normalized, err)
+			return nil, fmt.Errorf("team '%s': %w", normalized, err)
 		}
 		result[normalized] = node
 	}
 	return result, nil
 }
 
-func ParseConfigRepositoryGroupPipelineRunStructure(rel, content string) (map[string]*PipelineRunStructureNode, bool, error) {
-	scope, ok, err := configRepositoryGroupStructureFileScope(rel)
+func ParseConfigRepositoryTeamPipelineRunStructure(rel, content string) (map[string]*PipelineRunStructureNode, bool, error) {
+	scope, ok, err := configRepositoryTeamStructureFileScope(rel)
 	if err != nil || !ok {
 		return nil, ok, err
 	}
@@ -89,11 +89,11 @@ func ParsePipelineRunStructureNode(content string) (*PipelineRunStructureNode, e
 	return decodePipelineRunStructureNode(raw)
 }
 
-func NormalizePipelineRunStructureForFolder(boundFolder string, structure map[string]*PipelineRunStructureNode) (map[string]*PipelineRunStructureNode, error) {
+func NormalizePipelineRunStructureForTeam(boundTeam string, structure map[string]*PipelineRunStructureNode) (map[string]*PipelineRunStructureNode, error) {
 	if len(structure) == 0 {
 		return structure, nil
 	}
-	boundSegments, err := CleanPathSegments(boundFolder, false)
+	boundSegments, err := CleanPathSegments(boundTeam, false)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +120,7 @@ func NormalizePipelineRunStructureForFolder(boundFolder string, structure map[st
 
 	var mergeNode func(path []string, node *PipelineRunStructureNode) error
 	mergeNode = func(path []string, node *PipelineRunStructureNode) error {
-		normalizedPath, err := NormalizePathForFolder(boundFolder, strings.Join(path, "/"))
+		normalizedPath, err := NormalizePathForTeam(boundTeam, strings.Join(path, "/"))
 		if err != nil {
 			return err
 		}
@@ -267,26 +267,26 @@ func FilterPipelineRunStructureByScopes(structure map[string]*PipelineRunStructu
 func NormalizeStructureName(name string) (string, error) {
 	trimmed := strings.TrimSpace(name)
 	if trimmed == "" {
-		return "", fmt.Errorf("pipelinerun structure contains an empty folder or repository name")
+		return "", fmt.Errorf("pipeline run structure contains an empty team or repository name")
 	}
-	if IsReservedRootGroupName(trimmed) {
-		return "", fmt.Errorf("root is reserved and cannot be used as a group name")
+	if IsReservedRootTeamName(trimmed) {
+		return "", fmt.Errorf("root is reserved and cannot be used as a team name")
 	}
 	return trimmed, nil
 }
 
-func IsReservedRootGroupName(name string) bool {
+func IsReservedRootTeamName(name string) bool {
 	normalized := strings.ToLower(strings.Trim(strings.TrimSpace(name), "/"))
-	return normalized == "root" || normalized == strings.ToLower(aaamodel.FolderGeneralID)
+	return normalized == "root" || normalized == strings.ToLower(aaamodel.TeamGeneralID)
 }
 
-func configRepositoryGroupStructureFileScope(rel string) (string, bool, error) {
+func configRepositoryTeamStructureFileScope(rel string) (string, bool, error) {
 	path := strings.Trim(strings.ReplaceAll(filepath.ToSlash(rel), "\\", "/"), "/")
 	if path == "" || !isYAMLFile(path) {
 		return "", false, nil
 	}
 	parts := strings.Split(path, "/")
-	if len(parts) < 2 || parts[0] != "groups" {
+	if len(parts) < 2 || parts[0] != "teams" {
 		return "", false, nil
 	}
 	fileName := strings.ToLower(parts[len(parts)-1])
@@ -294,7 +294,7 @@ func configRepositoryGroupStructureFileScope(rel string) (string, bool, error) {
 		return "", false, nil
 	}
 	if len(parts) == 2 {
-		return "", true, fmt.Errorf("aggregate group structure file is not supported; use groups/<group>/structure.yaml")
+		return "", true, fmt.Errorf("aggregate team structure file is not supported; use teams/<team>/structure.yaml")
 	}
 	scope := strings.Trim(strings.Join(parts[1:len(parts)-1], "/"), "/")
 	if _, err := CleanPathSegments(scope, false); err != nil {
@@ -316,7 +316,7 @@ func decodePipelineRunStructureNode(value interface{}) (*PipelineRunStructureNod
 	case map[string]interface{}:
 		return decodePipelineRunStructureMap(node, typed)
 	default:
-		return nil, fmt.Errorf("expected mapping or description for folder, got %T", value)
+		return nil, fmt.Errorf("expected mapping or description for team, got %T", value)
 	}
 }
 
@@ -324,7 +324,7 @@ func decodePipelineRunStructureMap(node *PipelineRunStructureNode, childMap map[
 	for key, raw := range childMap {
 		switch key {
 		case "repos":
-			return nil, fmt.Errorf("repos is not supported in group structure; use apps with name and repo_url")
+			return nil, fmt.Errorf("repos is not supported in team structure; use apps with name and repo_url")
 		case "apps":
 			apps, err := parseStructureAppList(raw)
 			if err != nil {
@@ -354,11 +354,11 @@ func decodePipelineRunStructureMap(node *PipelineRunStructureNode, childMap map[
 				return nil, err
 			}
 			if _, exists := node.Children[childName]; exists {
-				return nil, fmt.Errorf("duplicate folder '%s' detected", childName)
+				return nil, fmt.Errorf("duplicate team '%s' detected", childName)
 			}
 			childNode, err := decodePipelineRunStructureNode(raw)
 			if err != nil {
-				return nil, fmt.Errorf("folder '%s': %w", childName, err)
+				return nil, fmt.Errorf("team '%s': %w", childName, err)
 			}
 			node.Children[childName] = childNode
 		}

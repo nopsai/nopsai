@@ -14,10 +14,10 @@ import {
   formatTriggerLabel,
   getSidebarStatusTone,
   getStatusDotClass,
-  isRunAppGroup,
+  isRunAppTeam,
   normalizeRunStatus,
-  runGroupDisplayName,
-  runGroupRepositoryURL,
+  runTeamDisplayName,
+  runTeamRepositoryURL,
   runMatchesSearch,
   summarizeStatus,
   timeAgoShort,
@@ -28,7 +28,7 @@ import type {
   KnowledgeContextTreeNode,
   NavItem,
   PipelineTreeNode,
-  RunGroup,
+  RunTeam,
   RunListItem,
   RunTabKey,
   ScopeTreeNode,
@@ -255,11 +255,11 @@ function AppShell() {
               locationPathname={location.pathname}
               locationSearch={location.search}
               navigateTo={navigate}
-              onSelectPipelineFolder={path => navigate(path ? `/pipelines?folder=${encodeURIComponent(path)}` : '/pipelines')}
-              onSelectTriggerFolder={path => navigate(path ? `/triggers?folder=${encodeURIComponent(path)}` : '/triggers')}
-              onSelectStepFolder={path => navigate(path ? `/steps?folder=${encodeURIComponent(path)}` : '/steps')}
-              onSelectScopeFolder={path => navigate(path ? `/scopes?folder=${encodeURIComponent(path)}` : '/scopes')}
-              onSelectKnowledgeContextFolder={path => navigate(path ? `/knowledge-context?folder=${encodeURIComponent(path)}` : '/knowledge-context')}
+              onSelectPipelineTeam={path => navigate(path ? `/pipelines?team=${encodeURIComponent(path)}` : '/pipelines')}
+              onSelectTriggerTeam={path => navigate(path ? `/triggers?team=${encodeURIComponent(path)}` : '/triggers')}
+              onSelectStepTeam={path => navigate(path ? `/steps?team=${encodeURIComponent(path)}` : '/steps')}
+              onSelectScopeTeam={path => navigate(path ? `/scopes?team=${encodeURIComponent(path)}` : '/scopes')}
+              onSelectKnowledgeContextTeam={path => navigate(path ? `/knowledge-context?team=${encodeURIComponent(path)}` : '/knowledge-context')}
             />
             <div
               id="sidebar-resizer"
@@ -332,11 +332,11 @@ function Sidebar({
   locationPathname,
   locationSearch,
   navigateTo,
-  onSelectPipelineFolder,
-  onSelectTriggerFolder,
-  onSelectStepFolder,
-  onSelectScopeFolder,
-  onSelectKnowledgeContextFolder,
+  onSelectPipelineTeam,
+  onSelectTriggerTeam,
+  onSelectStepTeam,
+  onSelectScopeTeam,
+  onSelectKnowledgeContextTeam,
 }: {
   navItems: NavItem[];
   systemSubNav: NavItem[];
@@ -362,11 +362,11 @@ function Sidebar({
   locationPathname: string;
   locationSearch: string;
   navigateTo: (path: string) => void;
-  onSelectPipelineFolder: (path: string) => void;
-  onSelectTriggerFolder: (path: string) => void;
-  onSelectStepFolder: (path: string) => void;
-  onSelectScopeFolder: (path: string) => void;
-  onSelectKnowledgeContextFolder: (path: string) => void;
+  onSelectPipelineTeam: (path: string) => void;
+  onSelectTriggerTeam: (path: string) => void;
+  onSelectStepTeam: (path: string) => void;
+  onSelectScopeTeam: (path: string) => void;
+  onSelectKnowledgeContextTeam: (path: string) => void;
 }) {
   const isPipelinesRoute = locationPathname.startsWith('/pipelines');
   const isTriggersRoute = locationPathname.startsWith('/triggers');
@@ -377,7 +377,7 @@ function Sidebar({
   const searchParams = useMemo(() => new URLSearchParams(locationSearch), [locationSearch]);
   const pipelineRunsTab: RunTabKey =
     locationPathname.startsWith('/pipelineruns/recent') ? 'recent' : locationPathname.startsWith('/pipelineruns/events') ? 'events' : 'main';
-  const activeFolder = searchParams.get('folder') || '';
+  const activeTeam = searchParams.get('team') || '';
   const encodeKnowledgeContextRoute = (id: string) => `/knowledge-context/${id.split('/').filter(Boolean).map(encodeURIComponent).join('/')}`;
   const activeKnowledgeContextID = (() => {
     const prefix = '/knowledge-context/';
@@ -399,7 +399,7 @@ function Sidebar({
   const renderPipelineTreeNode = (node: PipelineTreeNode) => {
     const isOpen = pipelineTreeOpen.has(node.id);
     const isRoot = node.id === '__root__';
-    const isActiveFolder = activeFolder === node.fullPath;
+    const isActiveTeam = activeTeam === node.fullPath;
     return (
       <li key={node.id} className="pipeline-tree-row">
         {!isRoot && (
@@ -407,7 +407,7 @@ function Sidebar({
             <button
               className="pipeline-tree-toggle inline-flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
               onClick={() => onTogglePipelineNode(node.id)}
-              aria-label="Toggle group"
+              aria-label="Toggle team"
             >
               <svg
                 className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`}
@@ -422,10 +422,10 @@ function Sidebar({
               </svg>
             </button>
             <button
-              className={`pipeline-tree-folder flex items-center gap-2 flex-1 min-w-0 text-left text-[var(--text-primary)] hover:text-[var(--text-primary)] px-2 py-1 rounded-md hover:bg-[var(--bg-tertiary)] ${isActiveFolder ? 'active' : ''}`}
+              className={`pipeline-tree-team flex items-center gap-2 flex-1 min-w-0 text-left text-[var(--text-primary)] hover:text-[var(--text-primary)] px-2 py-1 rounded-md hover:bg-[var(--bg-tertiary)] ${isActiveTeam ? 'active' : ''}`}
               onClick={() => {
                 if (!isOpen) onTogglePipelineNode(node.id);
-                onSelectPipelineFolder(node.fullPath);
+                onSelectPipelineTeam(node.fullPath);
               }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -465,7 +465,7 @@ function Sidebar({
   const renderTriggerTreeNode = (node: TriggerTreeNode) => {
     const isOpen = triggerTreeOpen.has(node.id);
     const isRoot = node.id === '__root__';
-    const isActiveFolder = activeFolder === node.fullPath;
+    const isActiveTeam = activeTeam === node.fullPath;
     return (
       <li key={`tr-${node.id}`} className="pipeline-tree-row">
         {!isRoot && (
@@ -473,7 +473,7 @@ function Sidebar({
             <button
               className="pipeline-tree-toggle inline-flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
               onClick={() => onToggleTriggerNode(node.id)}
-              aria-label="Toggle group"
+              aria-label="Toggle team"
             >
               <svg
                 className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`}
@@ -488,10 +488,10 @@ function Sidebar({
               </svg>
             </button>
             <button
-              className={`pipeline-tree-folder flex items-center gap-2 flex-1 min-w-0 text-left text-[var(--text-primary)] hover:text-[var(--text-primary)] px-2 py-1 rounded-md hover:bg-[var(--bg-tertiary)] ${isActiveFolder ? 'active' : ''}`}
+              className={`pipeline-tree-team flex items-center gap-2 flex-1 min-w-0 text-left text-[var(--text-primary)] hover:text-[var(--text-primary)] px-2 py-1 rounded-md hover:bg-[var(--bg-tertiary)] ${isActiveTeam ? 'active' : ''}`}
               onClick={() => {
                 if (!isOpen) onToggleTriggerNode(node.id);
-                onSelectTriggerFolder(node.fullPath);
+                onSelectTriggerTeam(node.fullPath);
               }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -530,7 +530,7 @@ function Sidebar({
   const renderStepTreeNode = (node: StepTreeNode) => {
     const isOpen = stepTreeOpen.has(node.id);
     const isRoot = node.id === '__root__';
-    const isActiveFolder = activeFolder === node.fullPath;
+    const isActiveTeam = activeTeam === node.fullPath;
     return (
       <li key={`step-${node.id}`} className="pipeline-tree-row">
         {!isRoot && (
@@ -538,7 +538,7 @@ function Sidebar({
             <button
               className="pipeline-tree-toggle inline-flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
               onClick={() => onToggleStepNode(node.id)}
-              aria-label="Toggle group"
+              aria-label="Toggle team"
             >
               <svg
                 className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`}
@@ -553,10 +553,10 @@ function Sidebar({
               </svg>
             </button>
             <button
-              className={`pipeline-tree-folder flex items-center gap-2 flex-1 min-w-0 text-left text-[var(--text-primary)] hover:text-[var(--text-primary)] px-2 py-1 rounded-md hover:bg-[var(--bg-tertiary)] ${isActiveFolder ? 'active' : ''}`}
+              className={`pipeline-tree-team flex items-center gap-2 flex-1 min-w-0 text-left text-[var(--text-primary)] hover:text-[var(--text-primary)] px-2 py-1 rounded-md hover:bg-[var(--bg-tertiary)] ${isActiveTeam ? 'active' : ''}`}
               onClick={() => {
                 if (!isOpen) onToggleStepNode(node.id);
-                onSelectStepFolder(node.fullPath);
+                onSelectStepTeam(node.fullPath);
               }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -607,7 +607,7 @@ function Sidebar({
   const renderScopeTreeNode = (node: ScopeTreeNode) => {
     const isOpen = scopeTreeOpen.has(node.id);
     const isRoot = node.id === '__root__';
-    const isActiveFolder = activeFolder === node.fullPath;
+    const isActiveTeam = activeTeam === node.fullPath;
     return (
       <li key={`scope-${node.id}`} className="pipeline-tree-row">
         {!isRoot && (
@@ -615,7 +615,7 @@ function Sidebar({
             <button
               className="pipeline-tree-toggle inline-flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
               onClick={() => onToggleScopeNode(node.id)}
-              aria-label="Toggle group"
+              aria-label="Toggle team"
             >
               <svg
                 className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`}
@@ -630,10 +630,10 @@ function Sidebar({
               </svg>
             </button>
             <button
-              className={`pipeline-tree-folder flex items-center gap-2 flex-1 min-w-0 text-left text-[var(--text-primary)] hover:text-[var(--text-primary)] px-2 py-1 rounded-md hover:bg-[var(--bg-tertiary)] ${isActiveFolder ? 'active' : ''}`}
+              className={`pipeline-tree-team flex items-center gap-2 flex-1 min-w-0 text-left text-[var(--text-primary)] hover:text-[var(--text-primary)] px-2 py-1 rounded-md hover:bg-[var(--bg-tertiary)] ${isActiveTeam ? 'active' : ''}`}
               onClick={() => {
                 if (!isOpen) onToggleScopeNode(node.id);
-                onSelectScopeFolder(node.fullPath);
+                onSelectScopeTeam(node.fullPath);
               }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -655,7 +655,7 @@ function Sidebar({
                   <NavLink
                     className="pipeline-tree-leaf-btn"
                     to={`/scopes/${encodeScopeForRoute(scopeLabel)}`}
-                    onClick={() => onSelectScopeFolder(node.fullPath)}
+                    onClick={() => onSelectScopeTeam(node.fullPath)}
                   >
                     <span className="pipeline-tree-leaf-icon" aria-hidden="true">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -680,7 +680,7 @@ function Sidebar({
   const renderKnowledgeContextTreeNode = (node: KnowledgeContextTreeNode) => {
     const isOpen = knowledgeContextTreeOpen.has(node.id);
     const isRoot = node.id === '__root__';
-    const isActiveFolder = activeFolder === node.fullPath;
+    const isActiveTeam = activeTeam === node.fullPath;
     return (
       <li key={`knowledge-${node.id}`} className="pipeline-tree-row">
         {!isRoot && (
@@ -688,7 +688,7 @@ function Sidebar({
             <button
               className="pipeline-tree-toggle inline-flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
               onClick={() => onToggleKnowledgeContextNode(node.id)}
-              aria-label="Toggle group"
+              aria-label="Toggle team"
             >
               <svg
                 className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`}
@@ -703,10 +703,10 @@ function Sidebar({
               </svg>
             </button>
             <button
-              className={`pipeline-tree-folder flex items-center gap-2 flex-1 min-w-0 text-left text-[var(--text-primary)] hover:text-[var(--text-primary)] px-2 py-1 rounded-md hover:bg-[var(--bg-tertiary)] ${isActiveFolder ? 'active' : ''}`}
+              className={`pipeline-tree-team flex items-center gap-2 flex-1 min-w-0 text-left text-[var(--text-primary)] hover:text-[var(--text-primary)] px-2 py-1 rounded-md hover:bg-[var(--bg-tertiary)] ${isActiveTeam ? 'active' : ''}`}
               onClick={() => {
                 if (!isOpen) onToggleKnowledgeContextNode(node.id);
-                onSelectKnowledgeContextFolder(node.fullPath);
+                onSelectKnowledgeContextTeam(node.fullPath);
               }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -840,31 +840,31 @@ function PipelineRunsSidebarContent({
   const autoScrolledRunIdRef = useRef<string | null>(null);
   const searchTerm = (searchParams.get('q') || '').trim().toLowerCase();
   const activeRunId = searchParams.get('run');
-  const activeGroupId = useMemo(() => {
-    const raw = Number(searchParams.get('group'));
+  const activeTeamId = useMemo(() => {
+    const raw = Number(searchParams.get('team'));
     return Number.isFinite(raw) ? raw : null;
   }, [searchParams]);
   const {
-    groups,
-    groupsLoading,
+    teams,
+    teamsLoading,
     recentRuns,
     runsLoading,
     recentHasMore,
     recentLoadingMore,
-    expandedGroups,
+    expandedTeams,
     expandedBranches,
     repoRunsCache,
     loadingRepos,
     loadMoreRecentRuns,
-    toggleGroup,
+    toggleTeam,
     toggleBranch,
-  } = usePipelineRunsSidebar({ activeGroupId, activeRunId, tab });
+  } = usePipelineRunsSidebar({ activeTeamId, activeRunId, tab });
 
-  const handleSelectGroup = useCallback(
-    (groupId: number | null) => {
+  const handleSelectTeam = useCallback(
+    (teamId: number | null) => {
       const params = new URLSearchParams(searchParams);
-      if (groupId === null) params.delete('group');
-      else params.set('group', String(groupId));
+      if (teamId === null) params.delete('team');
+      else params.set('team', String(teamId));
       params.delete('run');
       const base = tab === 'recent' ? '/pipelineruns/recent' : tab === 'events' ? '/pipelineruns/events' : '/pipelineruns/main';
       navigateTo(`${base}${params.toString() ? `?${params.toString()}` : ''}`);
@@ -874,9 +874,9 @@ function PipelineRunsSidebarContent({
   );
 
   const handleOpenRun = useCallback(
-    (runId: string, groupId?: number | null) => {
+    (runId: string, teamId?: number | null) => {
       const params = new URLSearchParams(searchParams);
-      if (groupId) params.set('group', String(groupId));
+      if (teamId) params.set('team', String(teamId));
       params.set('run', runId);
       const base = tab === 'recent' ? '/pipelineruns/recent' : tab === 'events' ? '/pipelineruns/events' : '/pipelineruns/main';
       navigateTo(`${base}?${params.toString()}`);
@@ -900,7 +900,7 @@ function PipelineRunsSidebarContent({
     return () => container.removeEventListener('scroll', handleScroll);
   }, [loadMoreRecentRuns, tab]);
 
-  const rootGroups = useMemo(() => groups.filter(g => (g.parent_id ?? null) === null), [groups]);
+  const rootTeams = useMemo(() => teams.filter(g => (g.parent_id ?? null) === null), [teams]);
   const filteredRecent = useMemo(() => {
     if (tab !== 'recent') return [];
     if (!searchTerm) return recentRuns;
@@ -928,17 +928,17 @@ function PipelineRunsSidebarContent({
     return () => window.clearTimeout(id);
   }, [activeRunId, repoRunsCache, recentRuns]);
 
-  const renderRunRow = (run: RunListItem, groupId?: number | null) => (
+  const renderRunRow = (run: RunListItem, teamId?: number | null) => (
     <RunSidebarRow
       key={run.run_id}
       run={run}
       active={activeRunId === run.run_id}
-      onOpen={() => handleOpenRun(run.run_id, groupId)}
+      onOpen={() => handleOpenRun(run.run_id, teamId)}
     />
   );
 
-  const renderBranchRuns = (groupId: number, branch: string, runs: RunListItem[]) => {
-    const key = `${groupId}:${branch}`;
+  const renderBranchRuns = (teamId: number, branch: string, runs: RunListItem[]) => {
+    const key = `${teamId}:${branch}`;
     const expanded = expandedBranches.has(key);
     const filteredRuns = searchTerm ? runs.filter(run => runMatchesSearch(run, searchTerm)) : runs;
     if (searchTerm && filteredRuns.length === 0) return null;
@@ -947,7 +947,7 @@ function PipelineRunsSidebarContent({
       <div key={key} className="border border-[var(--border-primary)] rounded-lg overflow-hidden bg-[var(--bg-primary)]">
         <button
           type="button"
-          onClick={() => toggleBranch(groupId, branch)}
+          onClick={() => toggleBranch(teamId, branch)}
           className="flex items-center justify-between w-full px-3 py-2 text-left hover:bg-[var(--bg-tertiary)] transition-colors"
         >
           <div className="flex items-center gap-2 min-w-0">
@@ -976,7 +976,7 @@ function PipelineRunsSidebarContent({
               <div className="divide-y divide-[var(--border-primary)]">
                 {filteredRuns.map(run => (
                   <div key={run.run_id} className="px-3 py-2">
-                    {renderRunRow(run, groupId)}
+                    {renderRunRow(run, teamId)}
                   </div>
                 ))}
               </div>
@@ -987,21 +987,21 @@ function PipelineRunsSidebarContent({
     );
   };
 
-  const renderGroupNode = (group: RunGroup) => {
-    const isRepo = isRunAppGroup(group);
-    const expanded = expandedGroups.has(group.id);
-    const children = groups.filter(child => (child.parent_id ?? null) === group.id);
-    const label = runGroupDisplayName(group);
-    const repoURL = runGroupRepositoryURL(group);
-    const repoRuns = repoRunsCache.get(group.id);
-    const isLoadingRepo = loadingRepos.has(group.id);
+  const renderTeamNode = (team: RunTeam) => {
+    const isRepo = isRunAppTeam(team);
+    const expanded = expandedTeams.has(team.id);
+    const children = teams.filter(child => (child.parent_id ?? null) === team.id);
+    const label = runTeamDisplayName(team);
+    const repoURL = runTeamRepositoryURL(team);
+    const repoRuns = repoRunsCache.get(team.id);
+    const isLoadingRepo = loadingRepos.has(team.id);
 
     return (
-      <div key={group.id} className="space-y-2">
+      <div key={team.id} className="space-y-2">
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => toggleGroup(group)}
+            onClick={() => toggleTeam(team)}
             aria-label={expanded ? 'Collapse sidebar item' : 'Expand sidebar item'}
             className="inline-flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
           >
@@ -1020,9 +1020,9 @@ function PipelineRunsSidebarContent({
           <button
             type="button"
             className="flex items-center gap-2 flex-1 min-w-0 text-left"
-            onClick={() => handleSelectGroup(group.id)}
+            onClick={() => handleSelectTeam(team.id)}
             aria-expanded={expanded}
-            title={isRepo ? 'Open in main view' : 'Open group in main view'}
+            title={isRepo ? 'Open in main view' : 'Open team in main view'}
           >
             <span className={`h-4 w-4 flex items-center justify-center ${isRepo ? 'text-[var(--text-accent)]' : 'text-[var(--text-secondary)]'}`}>
               {isRepo ? (
@@ -1039,7 +1039,7 @@ function PipelineRunsSidebarContent({
                 </svg>
               )}
             </span>
-            <span className="text-sm text-[var(--text-primary)] truncate" title={group.name}>
+            <span className="text-sm text-[var(--text-primary)] truncate" title={team.name}>
               {label}
             </span>
           </button>
@@ -1070,12 +1070,12 @@ function PipelineRunsSidebarContent({
                 {repoRuns &&
                   Object.entries(repoRuns)
                     .sort(([a], [b]) => a.localeCompare(b))
-                    .map(([branch, runs]) => renderBranchRuns(group.id, branch, runs))}
+                    .map(([branch, runs]) => renderBranchRuns(team.id, branch, runs))}
               </>
             ) : (
               children
                 .sort((a, b) => a.name.localeCompare(b.name))
-                .map(child => renderGroupNode(child))
+                .map(child => renderTeamNode(child))
             )}
           </div>
         )}
@@ -1112,14 +1112,14 @@ function PipelineRunsSidebarContent({
             <button
               type="button"
               className="text-xs text-[var(--text-link)] hover:underline"
-              onClick={() => handleSelectGroup(null)}
+              onClick={() => handleSelectTeam(null)}
           >
             Root
           </button>
         </div>
-          {groupsLoading && <div className="text-xs text-[var(--text-secondary)]">Loading groups…</div>}
-          {!groupsLoading && rootGroups.length === 0 && <div className="text-xs text-[var(--text-secondary)]">No groups defined yet.</div>}
-          {!groupsLoading && rootGroups.map(group => renderGroupNode(group))}
+          {teamsLoading && <div className="text-xs text-[var(--text-secondary)]">Loading teams...</div>}
+          {!teamsLoading && rootTeams.length === 0 && <div className="text-xs text-[var(--text-secondary)]">No teams defined yet.</div>}
+          {!teamsLoading && rootTeams.map(team => renderTeamNode(team))}
         </>
       )}
     </div>

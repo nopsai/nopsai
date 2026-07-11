@@ -1,10 +1,10 @@
-import { insertGroupPath } from '../../lib/resourceGroups.js';
+import { insertTeamPath } from '../../lib/resourceTeams.js';
 
 export type KnowledgeContextListItem = {
   id: string;
   uuid?: string;
   kind: string;
-  group: string;
+  team: string;
   name: string;
   description?: string;
   visibility: string;
@@ -22,11 +22,11 @@ export type KnowledgeContextDetail = KnowledgeContextListItem & {
   managed_by_config_repo?: boolean;
 };
 
-export type KnowledgeFolderNode = {
+export type KnowledgeTeamNode = {
   id: string;
   name: string;
   fullPath: string;
-  children: KnowledgeFolderNode[];
+  children: KnowledgeTeamNode[];
   docs: KnowledgeContextListItem[];
 };
 
@@ -43,9 +43,9 @@ export const kindOrder = ['architecture', 'guardrail', 'policy', 'adr', 'guideli
 export const emptyKnowledgeDraft: KnowledgeContextDetail = {
   id: 'architecture/team-1/new-document',
   kind: 'architecture',
-  group: 'team-1',
+  team: 'team-1',
   name: 'new-document',
-  visibility: 'group',
+  visibility: 'team',
   source: 'database',
   content: '',
 };
@@ -56,8 +56,8 @@ export function encodeKnowledgeID(id: string) {
   return id.split('/').map(encodeURIComponent).join('/');
 }
 
-export function buildKnowledgeID(kind: string, group: string, name: string) {
-  return [kind, group, name]
+export function buildKnowledgeID(kind: string, team: string, name: string) {
+  return [kind, team, name]
     .map(part => part.trim().replace(/^\/+|\/+$/g, ''))
     .filter(Boolean)
     .join('/');
@@ -100,30 +100,30 @@ export function clearKnowledgeDraft(id: string) {
 export function splitKnowledgePath(id: string) {
   const parts = id.split('/').filter(Boolean);
   const name = parts.pop() || '';
-  return { name, folder: parts.join('/') };
+  return { name, team: parts.join('/') };
 }
 
-export function normalizeFolderPath(value: string) {
+export function normalizeTeamPath(value: string) {
   return value.trim().replace(/^\/+|\/+$/g, '').replace(/\/+/g, '/');
 }
 
-export function parentFolder(path: string) {
-  const parts = normalizeFolderPath(path).split('/').filter(Boolean);
+export function parentTeam(path: string) {
+  const parts = normalizeTeamPath(path).split('/').filter(Boolean);
   parts.pop();
   return parts.join('/');
 }
 
-export function buildKnowledgeTree(items: KnowledgeContextListItem[], groupPaths: string[]): KnowledgeFolderNode {
-  const root: KnowledgeFolderNode = { id: 'root', name: 'Knowledge Context', fullPath: '', children: [], docs: [] };
-  const nodes = new Map<string, KnowledgeFolderNode>([['', root]]);
+export function buildKnowledgeTree(items: KnowledgeContextListItem[], teamPaths: string[]): KnowledgeTeamNode {
+  const root: KnowledgeTeamNode = { id: 'root', name: 'Knowledge Context', fullPath: '', children: [], docs: [] };
+  const nodes = new Map<string, KnowledgeTeamNode>([['', root]]);
 
-  const ensureNode = (fullPath: string): KnowledgeFolderNode => {
-    const normalized = normalizeFolderPath(fullPath);
+  const ensureNode = (fullPath: string): KnowledgeTeamNode => {
+    const normalized = normalizeTeamPath(fullPath);
     const existing = nodes.get(normalized);
     if (existing) return existing;
-    const parent = ensureNode(parentFolder(normalized));
+    const parent = ensureNode(parentTeam(normalized));
     const name = normalized.split('/').filter(Boolean).pop() || 'root';
-    const node: KnowledgeFolderNode = { id: normalized || 'root', name, fullPath: normalized, children: [], docs: [] };
+    const node: KnowledgeTeamNode = { id: normalized || 'root', name, fullPath: normalized, children: [], docs: [] };
     parent.children.push(node);
     nodes.set(normalized, node);
     return node;
@@ -131,11 +131,11 @@ export function buildKnowledgeTree(items: KnowledgeContextListItem[], groupPaths
 
   kindOrder.forEach(kind => ensureNode(kind));
   kindOrder.forEach(kind => {
-    groupPaths.forEach(groupPath => {
-      const normalizedGroup = normalizeFolderPath(groupPath);
-      if (!normalizedGroup) return;
-      insertGroupPath(root, `${kind}/${normalizedGroup}`, (id, name, fullPath) => {
-        const node: KnowledgeFolderNode = { id, name, fullPath, children: [], docs: [] };
+    teamPaths.forEach(teamPath => {
+      const normalizedTeam = normalizeTeamPath(teamPath);
+      if (!normalizedTeam) return;
+      insertTeamPath(root, `${kind}/${normalizedTeam}`, (id, name, fullPath) => {
+        const node: KnowledgeTeamNode = { id, name, fullPath, children: [], docs: [] };
         nodes.set(fullPath, node);
         return node;
       });
@@ -143,7 +143,7 @@ export function buildKnowledgeTree(items: KnowledgeContextListItem[], groupPaths
   });
 
   items.forEach(item => {
-    ensureNode(splitKnowledgePath(item.id).folder).docs.push(item);
+    ensureNode(splitKnowledgePath(item.id).team).docs.push(item);
   });
 
   nodes.forEach(node => {
@@ -157,8 +157,8 @@ export function buildKnowledgeTree(items: KnowledgeContextListItem[], groupPaths
   return root;
 }
 
-export function findKnowledgeFolder(root: KnowledgeFolderNode, fullPath: string) {
-  const normalized = normalizeFolderPath(fullPath);
+export function findKnowledgeTeam(root: KnowledgeTeamNode, fullPath: string) {
+  const normalized = normalizeTeamPath(fullPath);
   if (!normalized) return root;
   let current = root;
   for (const segment of normalized.split('/').filter(Boolean)) {
@@ -169,8 +169,8 @@ export function findKnowledgeFolder(root: KnowledgeFolderNode, fullPath: string)
   return current;
 }
 
-export function countFolderDocs(node: KnowledgeFolderNode): number {
-  return node.docs.length + node.children.reduce((total, child) => total + countFolderDocs(child), 0);
+export function countTeamDocs(node: KnowledgeTeamNode): number {
+  return node.docs.length + node.children.reduce((total, child) => total + countTeamDocs(child), 0);
 }
 
 export function decodeKnowledgeRouteID(pathname: string) {
@@ -192,12 +192,12 @@ export function sourceLabel(source: string) {
   return 'UI';
 }
 
-export function deriveIdentityFromFolder(activeFolder: string) {
-  const parts = normalizeFolderPath(activeFolder).split('/').filter(Boolean);
+export function deriveIdentityFromTeam(activeTeam: string) {
+  const parts = normalizeTeamPath(activeTeam).split('/').filter(Boolean);
   const first = parts[0] || '';
   return kindOrder.includes(first)
-    ? { kind: first, group: parts.slice(1).join('/') || 'team-1' }
-    : { kind: 'architecture', group: parts.join('/') || 'team-1' };
+    ? { kind: first, team: parts.slice(1).join('/') || 'team-1' }
+    : { kind: 'architecture', team: parts.join('/') || 'team-1' };
 }
 
 export function normalizeKnowledgeSource(source: string) {
@@ -295,20 +295,20 @@ function removeCommonIndent(content: string) {
 
 export function validateKnowledgeIdentity(
   kind: string,
-  group: string,
+  team: string,
   name: string,
   existingItems: KnowledgeContextListItem[],
   currentID?: string
 ) {
   const normalizedKind = kind.trim();
-  const normalizedGroup = normalizeFolderPath(group);
+  const normalizedTeam = normalizeTeamPath(team);
   const normalizedName = name.trim().replace(/\.(yaml|yml)$/i, '');
   if (!kindOrder.includes(normalizedKind)) return 'Choose a supported kind.';
-  if (!normalizedGroup) return 'Group is required.';
-  if (normalizedGroup.split('/').some(part => !part || part === '.' || part === '..')) return 'Group contains invalid path segments.';
+  if (!normalizedTeam) return 'Team is required.';
+  if (normalizedTeam.split('/').some(part => !part || part === '.' || part === '..')) return 'Team contains invalid path segments.';
   if (!normalizedName) return 'Document name is required.';
   if (!/^[a-zA-Z0-9_.-]+$/.test(normalizedName)) return 'Document name can only contain letters, numbers, dots, underscores, and hyphens.';
-  const id = buildKnowledgeID(normalizedKind, normalizedGroup, normalizedName);
+  const id = buildKnowledgeID(normalizedKind, normalizedTeam, normalizedName);
   if (id !== currentID && existingItems.some(item => item.id === id)) return 'A knowledge context with that identifier already exists.';
   return '';
 }

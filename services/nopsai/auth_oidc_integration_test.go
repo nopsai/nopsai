@@ -22,7 +22,7 @@ type localOIDCTestIdentity struct {
 	Subject string
 	Email   string
 	Nonce   string
-	Groups  []string
+	Teams   []string
 }
 
 type localOIDCTestProvider struct {
@@ -160,7 +160,7 @@ func (p *localOIDCTestProvider) signIDToken(audience string, identity localOIDCT
 		"nonce":          identity.Nonce,
 		"email":          identity.Email,
 		"email_verified": true,
-		"groups":         identity.Groups,
+		"teams":          identity.Teams,
 	})
 	token.Header["kid"] = kid
 	return token.SignedString(key)
@@ -200,9 +200,9 @@ func TestOIDCFlowWithLocalProviderAndRotatingJWKS(t *testing.T) {
 		Issuer:              idp.issuer(),
 		ClientID:            "nopsai",
 		ClientCredentialRef: "credential://system/oidc/keycloak/client-secret",
-		Scopes:              []string{"openid", "email", "profile", "groups"},
+		Scopes:              []string{"openid", "email", "profile", "teams"},
 		AllowedEmailDomains: []string{"example.com"},
-		GroupClaim:          "groups",
+		TeamClaim:           "teams",
 	}
 
 	metadata, err := app.discoverOIDCMetadata(ctx, provider)
@@ -217,7 +217,7 @@ func TestOIDCFlowWithLocalProviderAndRotatingJWKS(t *testing.T) {
 		Subject: "keycloak-admin",
 		Email:   "sso-admin@example.com",
 		Nonce:   "nonce-admin",
-		Groups:  []string{"nopsai-admins", "nopsai-viewers"},
+		Teams:   []string{"nopsai-admins", "nopsai-viewers"},
 	})
 	firstToken, err := app.exchangeOIDCCode(ctx, provider, metadata, "admin-code", "verifier-admin", "http://nopsai.test/callback")
 	if err != nil {
@@ -230,8 +230,8 @@ func TestOIDCFlowWithLocalProviderAndRotatingJWKS(t *testing.T) {
 	if adminIdentity.Email != "sso-admin@example.com" || adminIdentity.Subject != "keycloak-admin" {
 		t.Fatalf("admin identity = %#v, want Keycloak admin subject/email", adminIdentity)
 	}
-	if !reflect.DeepEqual(adminIdentity.Groups, []string{"nopsai-admins", "nopsai-viewers"}) {
-		t.Fatalf("admin groups = %#v, want mapped groups", adminIdentity.Groups)
+	if !reflect.DeepEqual(adminIdentity.Teams, []string{"nopsai-admins", "nopsai-viewers"}) {
+		t.Fatalf("admin teams = %#v, want mapped teams", adminIdentity.Teams)
 	}
 
 	idp.rotateKey("oidc-key-2")
@@ -239,7 +239,7 @@ func TestOIDCFlowWithLocalProviderAndRotatingJWKS(t *testing.T) {
 		Subject: "keycloak-operator",
 		Email:   "sso-operator@example.com",
 		Nonce:   "nonce-operator",
-		Groups:  []string{"nopsai-operators"},
+		Teams:   []string{"nopsai-operators"},
 	})
 	secondToken, err := app.exchangeOIDCCode(ctx, provider, metadata, "operator-code", "verifier-operator", "http://nopsai.test/callback")
 	if err != nil {
@@ -249,7 +249,7 @@ func TestOIDCFlowWithLocalProviderAndRotatingJWKS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verifyOIDCIDToken(second) error = %v", err)
 	}
-	if operatorIdentity.Subject != "keycloak-operator" || !reflect.DeepEqual(operatorIdentity.Groups, []string{"nopsai-operators"}) {
+	if operatorIdentity.Subject != "keycloak-operator" || !reflect.DeepEqual(operatorIdentity.Teams, []string{"nopsai-operators"}) {
 		t.Fatalf("operator identity = %#v, want identity from rotated signing key", operatorIdentity)
 	}
 

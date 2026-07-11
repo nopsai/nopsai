@@ -132,12 +132,12 @@ Enterprise authentication follows the same split:
 
 - Config model logic lives in `config/config.go`.
 - OIDC persistence, provider records, state, login-code, external identity, and
-  group-membership logic live in `services/nopsai/auth_oidc_store.go`.
+  team-membership logic live in `services/nopsai/auth_oidc_store.go`.
 - OIDC provider HTTP behavior, metadata discovery, token exchange, JWKS
   verification, PKCE, nonce, and safe redirect rules live in
   `services/nopsai/auth_oidc_flow.go`.
 - Provider-specific entitlement lookups, such as Keycloak Admin API role and
-  group-role reads, live in `services/nopsai/auth_keycloak_entitlements.go`.
+  team-role reads, live in `services/nopsai/auth_keycloak_entitlements.go`.
 - REST request/response DTOs and transport handlers live in
   `services/nopsai/auth_oidc_models.go` and
   `services/nopsai/auth_oidc_handlers.go`.

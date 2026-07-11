@@ -53,7 +53,7 @@ function TriggersPage({
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
 
-  const [activeFolder, setActiveFolder] = useState('');
+  const [activeTeam, setActiveTeam] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -438,24 +438,24 @@ function TriggersPage({
     [loadMoreRuns, recentRuns.length],
   );
 
-  const parentFolder = (path: string) => {
+  const parentTeam = (path: string) => {
     const parts = path.split('/').filter(Boolean);
     parts.pop();
     return parts.join('/');
   };
 
-  const folderForSlug = (slug: string) => {
+  const teamForSlug = (slug: string) => {
     const parts = slug.split('/').filter(Boolean);
     parts.pop();
     return parts.join('/');
   };
 
-  const openFolder = (path: string) => {
+  const openTeam = (path: string) => {
     const cleaned = path.trim().replace(/^\/+|\/+$/g, '');
-    setActiveFolder(cleaned);
+    setActiveTeam(cleaned);
     setSelectedSlug(null);
     selectedSlugRef.current = null;
-    navigate(cleaned ? `/triggers?folder=${encodeURIComponent(cleaned)}` : '/triggers');
+    navigate(cleaned ? `/triggers?team=${encodeURIComponent(cleaned)}` : '/triggers');
   };
 
   const handleSelectSlug = useCallback((slug: string) => {
@@ -469,14 +469,14 @@ function TriggersPage({
       navigate('/triggers');
       return;
     }
-    openFolder(folderForSlug(detail.slug));
+    openTeam(teamForSlug(detail.slug));
   };
 
-  const permissionFolder = selectedSlug ? folderForSlug(selectedSlug) : activeFolder;
+  const permissionTeam = selectedSlug ? teamForSlug(selectedSlug) : activeTeam;
   const {
     canCreateTriggerHere,
     canUpdateSelectedTrigger,
-  } = useTriggerPermissions(permissionFolder, selectedSlug);
+  } = useTriggerPermissions(permissionTeam, selectedSlug);
 
   const handleTriggerSaved = useCallback((updated: TriggerDetail) => {
     setDetail(updated);
@@ -515,7 +515,7 @@ function TriggersPage({
     canCreateTriggerHere,
     canUpdateSelectedTrigger,
     canDeleteTriggers,
-    permissionFolder,
+    permissionTeam,
     detail,
     editorValue,
     validationErrorCount: validation.errors.length,
@@ -572,8 +572,8 @@ function TriggersPage({
     }
 
     const params = new URLSearchParams(location.search);
-    const folder = params.get('folder') || '';
-    setActiveFolder(folder);
+    const team = params.get('team') || '';
+    setActiveTeam(team);
   }, [location.pathname, location.search]);
 
   useEffect(() => {
@@ -648,9 +648,9 @@ function TriggersPage({
   const visibleTriggers = useMemo(() => {
     const list = searchTerm.trim()
       ? filteredTriggers
-      : filteredTriggers.filter(item => triggerSlugLabel(item.slug).path === (activeFolder || 'root'));
+      : filteredTriggers.filter(item => triggerSlugLabel(item.slug).path === (activeTeam || 'root'));
     return [...list].sort((a, b) => a.slug.localeCompare(b.slug, undefined, { sensitivity: 'base' }));
-  }, [filteredTriggers, searchTerm, activeFolder]);
+  }, [filteredTriggers, searchTerm, activeTeam]);
 
   const buildTree = useMemo(() => {
     const root: TriggerTreeNode = { id: '__root__', name: '', fullPath: '', children: [], triggerSlugs: [] };
@@ -676,9 +676,9 @@ function TriggersPage({
     return root;
   }, [serverTriggers]);
 
-  const activeFolderNode = useMemo(() => {
-    if (!activeFolder) return buildTree;
-    const segments = activeFolder.split('/').filter(Boolean);
+  const activeTeamNode = useMemo(() => {
+    if (!activeTeam) return buildTree;
+    const segments = activeTeam.split('/').filter(Boolean);
     let current: TriggerTreeNode | null = buildTree;
     for (const segment of segments) {
       const nextNode: TriggerTreeNode | undefined = current?.children.find(child => child.name === segment);
@@ -686,7 +686,7 @@ function TriggersPage({
       current = nextNode;
     }
     return current || buildTree;
-  }, [activeFolder, buildTree]);
+  }, [activeTeam, buildTree]);
 
   const handleIndentTab = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const el = event.currentTarget;
@@ -744,12 +744,12 @@ function TriggersPage({
     <div data-page="triggers" className="active h-full flex flex-col">
       {!selectedSlug && (
         <TriggerCollectionToolbar
-          activeFolder={activeFolder}
+          activeTeam={activeTeam}
           searchTerm={searchTerm}
           searchOpen={searchOpen}
           searchInputRef={searchInputRef}
           canCreateTriggerHere={canCreateTriggerHere}
-          onBack={() => openFolder(parentFolder(activeFolder))}
+          onBack={() => openTeam(parentTeam(activeTeam))}
           onSearchTermChange={setSearchTerm}
           onSearchOpenChange={setSearchOpen}
           onCreate={openCreateModal}
@@ -762,13 +762,13 @@ function TriggersPage({
             listLoading={listLoading}
             listError={listError}
             visibleTriggers={visibleTriggers}
-            activeFolderNode={activeFolderNode}
+            activeTeamNode={activeTeamNode}
             searchTerm={searchTerm}
             selectedSlug={selectedSlug}
             canCreateTriggerHere={canCreateTriggerHere}
             canDeleteTriggers={canDeleteTriggers}
             onSelectTrigger={handleSelectSlug}
-            onOpenFolder={openFolder}
+            onOpenTeam={openTeam}
             onDeleteTrigger={openDeleteModal}
           />
         ) : detailLoading ? (

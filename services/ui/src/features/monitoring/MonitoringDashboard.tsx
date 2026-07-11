@@ -285,7 +285,7 @@ function TriggersTab({ analytics, previousAnalytics, loading }: { analytics: Mon
         <MetricCard icon={<Zap />} label="Trigger runs" value={formatNumber(currentInvocations)} detail={`${formatNumber((analytics?.trigger_sources || []).length)} sources`} delta={deltaValue(currentInvocations, previousInvocations)} tone="blue" loading={loading} />
         <MetricCard icon={<XCircle />} label="Trigger failures" value={formatNumber(currentFailures)} detail="failed runs" delta={deltaValue(currentFailures, previousFailures)} tone="red" loading={loading} />
         <MetricCard icon={<Bot />} label="Trigger tokens" value={formatNumber(currentTokens)} detail="LLM token usage" delta={deltaValue(currentTokens, previousTokens)} tone="amber" loading={loading} />
-        <MetricCard icon={<CheckCircle2 />} label="Reliability groups" value={formatNumber((analytics?.trigger_source_reliability || []).length)} detail="tracked sources" delta={deltaValue((analytics?.trigger_source_reliability || []).length, (previousAnalytics?.trigger_source_reliability || []).length)} positiveIsGood tone="green" loading={loading} />
+        <MetricCard icon={<CheckCircle2 />} label="Reliability teams" value={formatNumber((analytics?.trigger_source_reliability || []).length)} detail="tracked sources" delta={deltaValue((analytics?.trigger_source_reliability || []).length, (previousAnalytics?.trigger_source_reliability || []).length)} positiveIsGood tone="green" loading={loading} />
       </section>
       <section className="grid gap-4 xl:grid-cols-3">
         <Panel title="Source Split" icon={<Zap className="h-4 w-4" />}>
@@ -452,15 +452,15 @@ function EfficiencyTab({ efficiency, previousEfficiency, loading }: { efficiency
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={<Clock3 />} label="Runtime" value={formatDurationSeconds(efficiency?.total_runtime_seconds)} detail={`${formatNumber(efficiency?.total_runner_minutes)} runner minutes`} delta={deltaValue(efficiency?.total_runtime_seconds, previousEfficiency?.total_runtime_seconds)} deltaFormat="duration" tone="blue" loading={loading} />
         <MetricCard icon={<Bot />} label="LLM tokens" value={formatNumber(efficiency?.total_ai_tokens)} detail="recorded usage" delta={deltaValue(efficiency?.total_ai_tokens, previousEfficiency?.total_ai_tokens)} tone="amber" loading={loading} />
-        <MetricCard icon={<GitBranch />} label="Rerun groups" value={formatNumber(efficiency?.frequent_reruns?.length)} detail="pipelines with reruns" delta={deltaValue(efficiency?.frequent_reruns?.length, previousEfficiency?.frequent_reruns?.length)} tone="green" loading={loading} />
-        <MetricCard icon={<Gauge />} label="High queue groups" value={formatNumber(efficiency?.high_queue_groups?.length)} detail="capacity pressure" delta={deltaValue(efficiency?.high_queue_groups?.length, previousEfficiency?.high_queue_groups?.length)} tone="red" loading={loading} />
+        <MetricCard icon={<GitBranch />} label="Rerun teams" value={formatNumber(efficiency?.frequent_reruns?.length)} detail="pipelines with reruns" delta={deltaValue(efficiency?.frequent_reruns?.length, previousEfficiency?.frequent_reruns?.length)} tone="green" loading={loading} />
+        <MetricCard icon={<Gauge />} label="High queue teams" value={formatNumber(efficiency?.high_queue_teams?.length)} detail="capacity pressure" delta={deltaValue(efficiency?.high_queue_teams?.length, previousEfficiency?.high_queue_teams?.length)} tone="red" loading={loading} />
       </section>
       <section className="grid gap-4 xl:grid-cols-3">
         <Panel title="Tokens By Pipeline" icon={<Workflow className="h-4 w-4" />}>
           <NamedCountList items={efficiency?.token_by_pipeline || []} loading={loading} value="tokens" linkForItem={pipelineNamedCountHref} />
         </Panel>
-        <Panel title="Tokens By Group" icon={<Layers className="h-4 w-4" />}>
-          <NamedCountList items={efficiency?.token_by_group || []} loading={loading} value="tokens" />
+        <Panel title="Tokens By Team" icon={<Layers className="h-4 w-4" />}>
+          <NamedCountList items={efficiency?.token_by_team || []} loading={loading} value="tokens" />
         </Panel>
         <Panel title="Tokens By Step" icon={<Bot className="h-4 w-4" />}>
           <NamedCountList items={efficiency?.token_by_step || []} loading={loading} value="tokens" />
@@ -468,7 +468,7 @@ function EfficiencyTab({ efficiency, previousEfficiency, loading }: { efficiency
       </section>
       <section className="grid gap-4 xl:grid-cols-3">
         <Panel title="Queue Pressure" icon={<Gauge className="h-4 w-4" />}>
-          <NamedCountList items={efficiency?.high_queue_groups || []} loading={loading} value="seconds" />
+          <NamedCountList items={efficiency?.high_queue_teams || []} loading={loading} value="seconds" />
         </Panel>
         <Panel title="Token Heavy Low Success" icon={<AlertTriangle className="h-4 w-4" />}>
           <PerformanceTable rows={efficiency?.token_heavy_low_success_pipelines || []} loading={loading} compact />

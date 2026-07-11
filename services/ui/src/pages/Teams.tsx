@@ -3,46 +3,46 @@ import {
   ArrowUpRight,
   Boxes,
   ChevronRight,
-  Folder,
   GitBranch,
   Plus,
   RefreshCw,
   Search,
   Settings,
   Trash2,
+  Users,
   X,
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { ConfigRepositoryDriftModal } from '../components/ConfigRepositoryDriftModal';
-import { fetchTeamGroups, requestTeamsJson } from '../features/teams/api';
+import { fetchTeams, requestTeamsJson } from '../features/teams/api';
 import { NewTeamItemModal, TeamConfigRepositoryModal } from '../features/teams/TeamSettingsModals';
 import { useTeamConfigRepositoryController } from '../features/teams/hooks/useTeamConfigRepositoryController';
 import {
-  buildGroupPath,
-  groupDisplayName,
-  groupRepositoryLabel,
-  groupRepositoryURL,
-  isAppGroup,
-  type Group,
-} from '../lib/teamGroups';
+  buildTeamPath,
+  teamDisplayName,
+  teamRepositoryLabel,
+  teamRepositoryURL,
+  isAppTeam,
+  type Team,
+} from '../lib/teamModels';
 
 type TeamItemPayload = {
-  kind: 'group' | 'app';
+  kind: 'team' | 'app';
   name: string;
   description: string;
   repoURL: string;
 };
 
-function isReservedRootGroupName(name: string) {
+function isReservedRootTeamName(name: string) {
   const normalized = name.trim().replace(/^\/+|\/+$/g, '').toLowerCase();
   return normalized === 'root' || normalized === '__general__';
 }
 
 export default function TeamsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [groupsLoading, setGroupsLoading] = useState(false);
-  const [groupsError, setGroupsError] = useState<string | null>(null);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [teamsLoading, setTeamsLoading] = useState(false);
+  const [teamsError, setTeamsError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -56,10 +56,10 @@ export default function TeamsPage() {
     return Number.isFinite(parsed) ? parsed : null;
   }, [searchParams]);
 
-  const activeTeamPath = useMemo(() => buildGroupPath(activeTeamId, groups), [activeTeamId, groups]);
+  const activeTeamPath = useMemo(() => buildTeamPath(activeTeamId, teams), [activeTeamId, teams]);
   const activeTeam = activeTeamPath.length ? activeTeamPath[activeTeamPath.length - 1] : null;
   const selectedTeamId = activeTeam?.id ?? null;
-  const activeTeamLabel = activeTeam ? groupDisplayName(activeTeam) : 'Root';
+  const activeTeamLabel = activeTeam ? teamDisplayName(activeTeam) : 'Root';
 
   const fetchJson = useCallback(
     async <T,>(path: string, options?: RequestInit): Promise<T> => requestTeamsJson<T>(path, options),
@@ -80,24 +80,24 @@ export default function TeamsPage() {
     }
   }, [fetchJson]);
 
-  const config = useTeamConfigRepositoryController({ groups, fetchJson, checkAccessPermission });
+  const config = useTeamConfigRepositoryController({ teams, fetchJson, checkAccessPermission });
 
-  const loadGroups = useCallback(async () => {
-    setGroupsLoading(true);
-    setGroupsError(null);
+  const loadTeams = useCallback(async () => {
+    setTeamsLoading(true);
+    setTeamsError(null);
     try {
-      const payload = await fetchTeamGroups();
-      setGroups(payload);
+      const payload = await fetchTeams();
+      setTeams(payload);
     } catch (error) {
-      setGroupsError(error instanceof Error ? error.message : 'Unable to load teams');
+      setTeamsError(error instanceof Error ? error.message : 'Unable to load teams');
     } finally {
-      setGroupsLoading(false);
+      setTeamsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void loadGroups();
-  }, [loadGroups]);
+    void loadTeams();
+  }, [loadTeams]);
 
   const selectTeam = useCallback(
     (id: number | null) => {
@@ -110,28 +110,28 @@ export default function TeamsPage() {
   );
 
   const currentChildren = useMemo(
-    () => groups.filter(group => (group.parent_id ?? null) === selectedTeamId),
-    [groups, selectedTeamId]
+    () => teams.filter(team => (team.parent_id ?? null) === selectedTeamId),
+    [teams, selectedTeamId]
   );
 
-  const visibleGroups = useMemo(() => {
+  const visibleTeams = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
-    const base = term ? groups : currentChildren;
+    const base = term ? teams : currentChildren;
     if (!term) return base;
-    return base.filter(group =>
-      [group.name, group.description, group.repository_full_name, group.repo_url]
+    return base.filter(team =>
+      [team.name, team.description, team.repository_full_name, team.repo_url]
         .filter(Boolean)
         .join(' ')
         .toLowerCase()
         .includes(term)
     );
-  }, [currentChildren, groups, searchTerm]);
+  }, [currentChildren, teams, searchTerm]);
 
-  const teams = useMemo(() => visibleGroups.filter(group => !isAppGroup(group)), [visibleGroups]);
-  const applications = useMemo(() => visibleGroups.filter(group => isAppGroup(group)), [visibleGroups]);
-  const stats = useMemo(() => buildTeamStats(groups, selectedTeamId), [groups, selectedTeamId]);
-  const showTeamWorkspace = groups.length > 0 || searchTerm.trim().length > 0;
-  const showEmptySelectionState = showTeamWorkspace && !groupsLoading && !groupsError && !searchTerm.trim() && currentChildren.length === 0;
+  const teamItems = useMemo(() => visibleTeams.filter(team => !isAppTeam(team)), [visibleTeams]);
+  const applications = useMemo(() => visibleTeams.filter(team => isAppTeam(team)), [visibleTeams]);
+  const stats = useMemo(() => buildTeamStats(teams, selectedTeamId), [teams, selectedTeamId]);
+  const showTeamWorkspace = teamItems.length > 0 || applications.length > 0 || searchTerm.trim().length > 0;
+  const showEmptySelectionState = Boolean(activeTeam) && !teamsLoading && !teamsError && !searchTerm.trim() && currentChildren.length === 0;
 
   const submitNewTeamItem = useCallback(
     async ({ kind, name, description, repoURL }: TeamItemPayload) => {
@@ -142,7 +142,7 @@ export default function TeamsPage() {
         setCreateError(kind === 'app' ? 'Application name is required.' : 'Team name is required.');
         return;
       }
-      if (kind === 'group' && isReservedRootGroupName(trimmedName)) {
+      if (kind === 'team' && isReservedRootTeamName(trimmedName)) {
         setCreateError('Root is reserved and cannot be used as a team name.');
         return;
       }
@@ -153,7 +153,7 @@ export default function TeamsPage() {
       setCreatePending(true);
       setCreateError(null);
       try {
-        const endpoint = kind === 'group'
+        const endpoint = kind === 'team'
           ? '/v1/teams'
           : `/v1/teams/${encodeURIComponent(selectedTeamId == null ? 'root' : String(selectedTeamId))}/applications`;
         await fetchJson(endpoint, {
@@ -161,61 +161,60 @@ export default function TeamsPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             name: trimmedName,
-            description: kind === 'group' ? trimmedDescription || undefined : undefined,
+            description: kind === 'team' ? trimmedDescription || undefined : undefined,
             repo_url: kind === 'app' ? trimmedRepoURL : undefined,
-            parent_team_id: kind === 'group' ? selectedTeamId : undefined,
+            parent_team_id: kind === 'team' ? selectedTeamId : undefined,
           }),
         });
         setCreateOpen(false);
-        await loadGroups();
-        window.dispatchEvent(new Event('nopsai-resource-groups-changed'));
+        await loadTeams();
+        window.dispatchEvent(new Event('nopsai-resource-teams-changed'));
       } catch (error) {
         setCreateError(error instanceof Error ? error.message : 'Unable to create team item');
       } finally {
         setCreatePending(false);
       }
     },
-    [fetchJson, loadGroups, selectedTeamId]
+    [fetchJson, loadTeams, selectedTeamId]
   );
 
   const deleteTeamItem = useCallback(
-    async (group: Group) => {
-      const label = groupDisplayName(group);
-      const noun = isAppGroup(group) ? 'application' : 'team';
+    async (team: Team) => {
+      const label = teamDisplayName(team);
+      const noun = isAppTeam(team) ? 'application' : 'team';
       if (!window.confirm(`Delete ${noun} "${label}"? Runs remain in history.`)) return;
       try {
-        const endpoint = isAppGroup(group)
-          ? `/v1/teams/${encodeURIComponent(group.parent_id == null ? 'root' : String(group.parent_id))}/applications/${encodeURIComponent(String(group.id))}`
-          : `/v1/teams/${encodeURIComponent(String(group.id))}`;
+        const endpoint = isAppTeam(team)
+          ? `/v1/teams/${encodeURIComponent(team.parent_id == null ? 'root' : String(team.parent_id))}/applications/${encodeURIComponent(String(team.id))}`
+          : `/v1/teams/${encodeURIComponent(String(team.id))}`;
         await fetchJson<void>(endpoint, { method: 'DELETE' });
-        if (selectedTeamId === group.id) selectTeam(null);
-        await loadGroups();
-        window.dispatchEvent(new Event('nopsai-resource-groups-changed'));
+        if (selectedTeamId === team.id) selectTeam(null);
+        await loadTeams();
+        window.dispatchEvent(new Event('nopsai-resource-teams-changed'));
       } catch (error) {
         alert(error instanceof Error ? error.message : `Unable to delete ${noun}`);
       }
     },
-    [fetchJson, loadGroups, selectTeam, selectedTeamId]
+    [fetchJson, loadTeams, selectTeam, selectedTeamId]
   );
 
   return (
     <div data-page="teams" className="active min-h-full p-6 space-y-5">
       <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-[var(--text-primary)]">Teams</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-[var(--text-secondary)]">
             <button type="button" className="runner-pill runner-pill--muted" onClick={() => selectTeam(null)}>
               Root
             </button>
-            {activeTeamPath.map(group => (
-              <div key={group.id} className="flex items-center gap-2">
+            {activeTeamPath.map(team => (
+              <div key={team.id} className="flex items-center gap-2">
                 <ChevronRight className="h-3.5 w-3.5 text-[var(--border-primary)]" aria-hidden="true" />
                 <button
                   type="button"
-                  className={`runner-pill ${group.id === activeTeamId ? 'runner-pill--muted' : 'runner-pill--ghost'}`}
-                  onClick={() => selectTeam(group.id)}
+                  className={`runner-pill ${team.id === activeTeamId ? 'runner-pill--muted' : 'runner-pill--ghost'}`}
+                  onClick={() => selectTeam(team.id)}
                 >
-                  {groupDisplayName(group)}
+                  {teamDisplayName(team)}
                 </button>
               </div>
             ))}
@@ -245,8 +244,8 @@ export default function TeamsPage() {
               </button>
             )}
           </div>
-          <button type="button" className="pipelines-icon-only" title="Refresh" aria-label="Refresh teams" onClick={() => void loadGroups()}>
-            <RefreshCw className={`h-4 w-4 ${groupsLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
+          <button type="button" className="pipelines-icon-only" title="Refresh" aria-label="Refresh teams" onClick={() => void loadTeams()}>
+            <RefreshCw className={`h-4 w-4 ${teamsLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -263,24 +262,24 @@ export default function TeamsPage() {
       </header>
 
       <section className="grid gap-4 md:grid-cols-4">
-        <MetricCard label="Teams" value={stats.teams} icon={<Folder className="h-4 w-4" />} />
+        <MetricCard label="Teams" value={stats.teams} icon={<Users className="h-4 w-4" />} />
         <MetricCard label="Applications" value={stats.applications} icon={<Boxes className="h-4 w-4" />} />
         <MetricCard label="Direct Children" value={currentChildren.length} icon={<GitBranch className="h-4 w-4" />} />
         <MetricCard label="Selected" value={activeTeam ? 1 : 0} icon={<Settings className="h-4 w-4" />} />
       </section>
 
-      {groupsError && (
+      {teamsError && (
         <TeamsStatusPanel
           tone="error"
           icon={<RefreshCw className="h-5 w-5" aria-hidden="true" />}
           title="Teams could not load"
-          message={groupsError}
+          message={teamsError}
           actionLabel="Retry"
-          onAction={() => void loadGroups()}
+          onAction={() => void loadTeams()}
         />
       )}
 
-      {groupsLoading && groups.length === 0 && !groupsError && (
+      {teamsLoading && teams.length === 0 && !teamsError && (
         <TeamsStatusPanel
           icon={<RefreshCw className="h-5 w-5 animate-spin" aria-hidden="true" />}
           title="Loading teams"
@@ -288,11 +287,11 @@ export default function TeamsPage() {
         />
       )}
 
-      {!groupsLoading && !groupsError && groups.length === 0 && (
+      {!teamsLoading && !teamsError && teams.length === 0 && (
         <TeamsStatusPanel
-          icon={<Folder className="h-5 w-5" aria-hidden="true" />}
+          icon={<Users className="h-5 w-5" aria-hidden="true" />}
           title="No visible teams"
-          message="Teams appear here after a team is created or when your account has folder.list access to existing teams."
+          message="Teams appear here after a team is created or when your account has access to existing teams."
           actionLabel="Create team"
           onAction={() => {
             setCreateError(null);
@@ -303,7 +302,7 @@ export default function TeamsPage() {
 
       {showEmptySelectionState && (
         <TeamsStatusPanel
-          icon={activeTeam && isAppGroup(activeTeam) ? <Boxes className="h-5 w-5" aria-hidden="true" /> : <Folder className="h-5 w-5" aria-hidden="true" />}
+          icon={activeTeam && isAppTeam(activeTeam) ? <Boxes className="h-5 w-5" aria-hidden="true" /> : <Users className="h-5 w-5" aria-hidden="true" />}
           title={activeTeam ? 'No child items' : 'No root items'}
           message={activeTeam ? `${activeTeamLabel} has no child teams or applications.` : 'There are no teams or applications at the root level.'}
           actionLabel={activeTeam ? 'Back to root' : 'Create team'}
@@ -321,17 +320,17 @@ export default function TeamsPage() {
       {showTeamWorkspace && (
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="space-y-5">
-            <TeamSection title={searchTerm.trim() ? 'Matching Teams' : 'Teams'} count={teams.length} emptyLabel="No teams.">
+            <TeamSection title={searchTerm.trim() ? 'Matching Teams' : 'Teams'} count={teamItems.length} emptyLabel="No teams.">
               <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
-                {teams.map(group => (
+                {teamItems.map(team => (
                   <TeamCard
-                    key={group.id}
-                    group={group}
-                    groups={groups}
-                    active={selectedTeamId === group.id}
-                    onSelect={() => selectTeam(group.id)}
-                    onDelete={() => void deleteTeamItem(group)}
-                    onOpenConfig={() => config.openFolderConfigRepository(group)}
+                    key={team.id}
+                    team={team}
+                    teams={teams}
+                    active={selectedTeamId === team.id}
+                    onSelect={() => selectTeam(team.id)}
+                    onDelete={() => void deleteTeamItem(team)}
+                    onOpenConfig={() => config.openTeamConfigRepository(team)}
                   />
                 ))}
               </div>
@@ -339,15 +338,15 @@ export default function TeamsPage() {
 
             <TeamSection title={searchTerm.trim() ? 'Matching Applications' : 'Applications'} count={applications.length} emptyLabel="No applications.">
               <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
-                {applications.map(group => (
+                {applications.map(team => (
                   <TeamCard
-                    key={group.id}
-                    group={group}
-                    groups={groups}
-                    active={selectedTeamId === group.id}
-                    onSelect={() => selectTeam(group.id)}
-                    onDelete={() => void deleteTeamItem(group)}
-                    onOpenConfig={() => config.openFolderConfigRepository(group)}
+                    key={team.id}
+                    team={team}
+                    teams={teams}
+                    active={selectedTeamId === team.id}
+                    onSelect={() => selectTeam(team.id)}
+                    onDelete={() => void deleteTeamItem(team)}
+                    onOpenConfig={() => config.openTeamConfigRepository(team)}
                   />
                 ))}
               </div>
@@ -358,7 +357,7 @@ export default function TeamsPage() {
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
-                  {activeTeam && isAppGroup(activeTeam) ? 'Application' : 'Team'}
+                  {activeTeam && isAppTeam(activeTeam) ? 'Application' : 'Team'}
                 </p>
                 <h2 className="mt-1 truncate text-lg font-semibold text-[var(--text-primary)]">{activeTeamLabel}</h2>
               </div>
@@ -375,8 +374,8 @@ export default function TeamsPage() {
               )}
             </div>
             {activeTeam?.description && <p className="mt-3 text-sm text-[var(--text-secondary)]">{activeTeam.description}</p>}
-            {activeTeam && isAppGroup(activeTeam) && (
-              <RepositoryLink group={activeTeam} className="mt-3" />
+            {activeTeam && isAppTeam(activeTeam) && (
+              <RepositoryLink team={activeTeam} className="mt-3" />
             )}
             <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
               <div className="rounded-md bg-[var(--bg-primary)] p-3 border border-[var(--border-primary)]">
@@ -388,11 +387,11 @@ export default function TeamsPage() {
                 <p className="mt-1 text-lg font-semibold text-[var(--text-primary)]">{stats.applications}</p>
               </div>
             </div>
-            {activeTeam && !isAppGroup(activeTeam) && !activeTeam.navigation_only && (
+            {activeTeam && !isAppTeam(activeTeam) && !activeTeam.navigation_only && (
               <button
                 type="button"
                 className="mt-4 glass-button-primary w-full inline-flex items-center justify-center gap-2"
-                onClick={() => config.openFolderConfigRepository(activeTeam)}
+                onClick={() => config.openTeamConfigRepository(activeTeam)}
               >
                 <Settings className="h-4 w-4" aria-hidden="true" />
                 GitOps & Notifications
@@ -417,9 +416,9 @@ export default function TeamsPage() {
         />
       )}
 
-      {config.configRepoFolder && (
+      {config.configRepoTeam && (
         <TeamConfigRepositoryModal
-          folderLabel={config.configRepoFolder.folderPath}
+          teamLabel={config.configRepoTeam.teamPath}
           repo={config.configRepo}
           form={config.configRepoForm}
           loading={config.configRepoLoading}
@@ -443,12 +442,12 @@ export default function TeamsPage() {
           canManageProfiles={config.teamProfileManageAllowed}
           onChange={config.setConfigRepoForm}
           onNotificationChange={config.setNotificationRouteForm}
-          onSave={config.saveFolderConfigRepository}
-          onDelete={config.deleteFolderConfigRepository}
-          onSync={config.syncFolderConfigRepository}
-          onCheckDrift={config.checkFolderConfigRepositoryDrift}
-          onSaveNotification={config.saveFolderNotificationRoute}
-          onDeleteNotification={config.deleteFolderNotificationRoute}
+          onSave={config.saveTeamConfigRepository}
+          onDelete={config.deleteTeamConfigRepository}
+          onSync={config.syncTeamConfigRepository}
+          onCheckDrift={config.checkTeamConfigRepositoryDrift}
+          onSaveNotification={config.saveTeamNotificationRoute}
+          onDeleteNotification={config.deleteTeamNotificationRoute}
           onSaveLLMProfile={config.saveTeamLLMProfile}
           onSetDefaultLLMProfile={config.saveTeamDefaultLLMProfile}
           onDeleteLLMProfile={config.removeTeamLLMProfile}
@@ -457,13 +456,13 @@ export default function TeamsPage() {
           onDeleteAgentProfile={config.removeTeamAgentProfile}
           onSaveMCPProfile={config.saveTeamMCPProfile}
           onDeleteMCPProfile={config.removeTeamMCPProfile}
-          onClose={config.closeFolderConfigRepository}
+          onClose={config.closeTeamConfigRepository}
         />
       )}
 
-      {config.configRepoFolder && config.configRepoDriftOpen && (
+      {config.configRepoTeam && config.configRepoDriftOpen && (
         <ConfigRepositoryDriftModal
-          title={`${config.configRepoFolder.folderPath} config repository`}
+          title={`${config.configRepoTeam.teamPath} config repository`}
           drift={config.configRepoDrift}
           loading={config.configRepoDriftLoading}
           error={config.configRepoDriftError}
@@ -471,28 +470,28 @@ export default function TeamsPage() {
           pushResult={config.configRepoPushResult}
           canPush={config.configRepoManageAllowed && Boolean(config.configRepoDrift?.can_push)}
           onClose={() => config.setConfigRepoDriftOpen(false)}
-          onRefresh={config.checkFolderConfigRepositoryDrift}
-          onPush={config.pushFolderConfigRepositoryDrift}
+          onRefresh={config.checkTeamConfigRepositoryDrift}
+          onPush={config.pushTeamConfigRepositoryDrift}
         />
       )}
     </div>
   );
 }
 
-function buildTeamStats(groups: Group[], activeTeamId: number | null) {
+function buildTeamStats(teams: Team[], activeTeamId: number | null) {
   const descendants = new Set<number>();
   const visit = (parentId: number | null) => {
-    groups.forEach(group => {
-      if ((group.parent_id ?? null) !== parentId) return;
-      descendants.add(group.id);
-      visit(group.id);
+    teams.forEach(team => {
+      if ((team.parent_id ?? null) !== parentId) return;
+      descendants.add(team.id);
+      visit(team.id);
     });
   };
   visit(activeTeamId);
-  const scoped = activeTeamId == null ? groups : groups.filter(group => descendants.has(group.id));
+  const scoped = activeTeamId == null ? teams : teams.filter(team => descendants.has(team.id));
   return {
-    teams: scoped.filter(group => !isAppGroup(group)).length,
-    applications: scoped.filter(group => isAppGroup(group)).length,
+    teams: scoped.filter(team => !isAppTeam(team)).length,
+    applications: scoped.filter(team => isAppTeam(team)).length,
   };
 }
 
@@ -571,24 +570,24 @@ function TeamSection({
 }
 
 function TeamCard({
-  group,
-  groups,
+  team,
+  teams,
   active,
   onSelect,
   onDelete,
   onOpenConfig,
 }: {
-  group: Group;
-  groups: Group[];
+  team: Team;
+  teams: Team[];
   active: boolean;
   onSelect: () => void;
   onDelete: () => void;
   onOpenConfig: () => void;
 }) {
-  const app = isAppGroup(group);
-  const displayName = groupDisplayName(group);
-  const childTeams = groups.filter(child => (child.parent_id ?? null) === group.id && !isAppGroup(child)).length;
-  const childApplications = groups.filter(child => (child.parent_id ?? null) === group.id && isAppGroup(child)).length;
+  const app = isAppTeam(team);
+  const displayName = teamDisplayName(team);
+  const childTeams = teams.filter(child => (child.parent_id ?? null) === team.id && !isAppTeam(child)).length;
+  const childApplications = teams.filter(child => (child.parent_id ?? null) === team.id && isAppTeam(child)).length;
   return (
     <div
       role="button"
@@ -597,17 +596,17 @@ function TeamCard({
       onKeyDown={event => {
         if (event.key === 'Enter') onSelect();
       }}
-      className={`pipeline-folder-card border border-[var(--border-primary)] ${active ? 'run-link-highlight' : ''}`}
+      className={`pipeline-team-card border border-[var(--border-primary)] ${active ? 'run-link-highlight' : ''}`}
     >
-      <div className="pipeline-folder-card-header">
-        <span className="pipeline-folder-icon">
-          {app ? <Boxes className="h-6 w-6" aria-hidden="true" /> : <Folder className="h-6 w-6" aria-hidden="true" />}
+      <div className="pipeline-team-card-header">
+        <span className="pipeline-team-icon">
+          {app ? <Boxes className="h-6 w-6" aria-hidden="true" /> : <Users className="h-6 w-6" aria-hidden="true" />}
         </span>
-        <h3 className="pipeline-folder-title" title={displayName}>{displayName}</h3>
-        <div className="pipeline-folder-actions">
-          {!app && !group.navigation_only && (
+        <h3 className="pipeline-team-title" title={displayName}>{displayName}</h3>
+        <div className="pipeline-team-actions">
+          {!app && !team.navigation_only && (
             <button
-              className="pipelines-delete-button pipeline-folder-delete-btn"
+              className="pipelines-delete-button pipeline-team-delete-btn"
               type="button"
               title="GitOps and notifications"
               aria-label={`GitOps and notifications for ${displayName}`}
@@ -619,9 +618,9 @@ function TeamCard({
               <Settings className="h-4 w-4" aria-hidden="true" />
             </button>
           )}
-          {!group.navigation_only && (
+          {!team.navigation_only && (
             <button
-              className="pipelines-delete-button pipeline-folder-delete-btn"
+              className="pipelines-delete-button pipeline-team-delete-btn"
               type="button"
               title="Delete"
               aria-label={`Delete ${displayName}`}
@@ -635,29 +634,29 @@ function TeamCard({
           )}
         </div>
       </div>
-      {group.description && <p className="pipeline-folder-description" title={group.description}>{group.description}</p>}
+      {team.description && <p className="pipeline-team-description" title={team.description}>{team.description}</p>}
       {app ? (
-        <RepositoryLink group={group} className="mt-3" />
+        <RepositoryLink team={team} className="mt-3" />
       ) : (
-        <div className="pipeline-folder-meta">
-          <div className="pipeline-folder-meta-row">
-            <span className="pipeline-folder-meta-label">Teams:</span>
-            <span className="pipeline-folder-meta-value">{childTeams}</span>
+        <div className="pipeline-team-meta">
+          <div className="pipeline-team-meta-row">
+            <span className="pipeline-team-meta-label">Teams:</span>
+            <span className="pipeline-team-meta-value">{childTeams}</span>
           </div>
-          <div className="pipeline-folder-meta-row">
-            <span className="pipeline-folder-meta-label">Applications:</span>
-            <span className="pipeline-folder-meta-value">{childApplications}</span>
+          <div className="pipeline-team-meta-row">
+            <span className="pipeline-team-meta-label">Applications:</span>
+            <span className="pipeline-team-meta-value">{childApplications}</span>
           </div>
         </div>
       )}
-      {group.last_run_at && <p className="mt-2 text-[11px] text-[var(--text-secondary)]">Last run {new Date(group.last_run_at).toLocaleString()}</p>}
+      {team.last_run_at && <p className="mt-2 text-[11px] text-[var(--text-secondary)]">Last run {new Date(team.last_run_at).toLocaleString()}</p>}
     </div>
   );
 }
 
-function RepositoryLink({ group, className = '' }: { group: Group; className?: string }) {
-  const repoURL = groupRepositoryURL(group);
-  const repoLabel = groupRepositoryLabel(group);
+function RepositoryLink({ team, className = '' }: { team: Team; className?: string }) {
+  const repoURL = teamRepositoryURL(team);
+  const repoLabel = teamRepositoryLabel(team);
   if (!repoURL) return <p className={`text-sm text-[var(--text-secondary)] ${className}`}>No repository URL.</p>;
   return (
     <a

@@ -104,7 +104,7 @@ export function AccessUsersCatalog({
     return (
       <CatalogEmptyState
         title="No people match this search"
-        detail="Try a username, email address, role, or group path."
+        detail="Try a username, email address, role, or team path."
       />
     );
   }
@@ -203,27 +203,27 @@ export function AccessUsersCatalog({
               </div>
             </div>
             {externalManaged &&
-              ((user.external_groups || []).length ||
-                (user.external_auth_groups || []).length) && (
+              ((user.external_teams || []).length ||
+                (user.external_auth_teams || []).length) && (
                 <div className="space-y-2">
-                  <p className="access-card__label">Identity groups</p>
+                  <p className="access-card__label">Identity teams</p>
                   <div className="flex flex-wrap gap-2">
-                    {(user.external_groups || []).slice(0, 3).map((group) => (
+                    {(user.external_teams || []).slice(0, 3).map((team) => (
                       <span
-                        key={`${user.id}-external-${group}`}
+                        key={`${user.id}-external-${team}`}
                         className="access-chip access-chip--muted"
                       >
-                        Keycloak: {group}
+                        Keycloak: {team}
                       </span>
                     ))}
-                    {(user.external_auth_groups || [])
+                    {(user.external_auth_teams || [])
                       .slice(0, 3)
-                      .map((group) => (
+                      .map((team) => (
                         <span
-                          key={`${user.id}-auth-${group.id || group.name}`}
+                          key={`${user.id}-auth-${team.id || team.name}`}
                           className="access-chip access-chip--accent"
                         >
-                          NopsAI: {group.name}
+                          NopsAI: {team.name}
                         </span>
                       ))}
                   </div>
@@ -314,7 +314,7 @@ export function AccessServiceAccountsCatalog({
     return (
       <CatalogEmptyState
         title="No service accounts match this search"
-        detail="Try a service account ID, contact email, role, or group path."
+        detail="Try a service account ID, contact email, role, or team path."
       />
     );
   }

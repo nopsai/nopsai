@@ -32,7 +32,7 @@ func databaseBootstrapSteps(cfg *config.Config) []databaseBootstrapStep {
 		{name: "config repository schema", run: ensureConfigRepositorySchema},
 		{name: "runtime settings schema", run: ensureRuntimeSettingsSchema},
 		{name: "credential schema", run: ensureCredentialSchema},
-		{name: "group schema", run: ensureGroupSchema},
+		{name: "team schema", run: ensureTeamSchema},
 		{name: "product access roles", run: ensureProductAccessBootstrap},
 		{name: "knowledge context schema", run: ensureKnowledgeContextSchema},
 		{name: "resource authorization schema", run: ensureResourceAuthorizationSchema},
@@ -56,7 +56,7 @@ func databaseBootstrapSteps(cfg *config.Config) []databaseBootstrapStep {
 		{name: "auth oidc config", run: func(ctx context.Context, db *pgxpool.Pool) error {
 			return seedOIDCConfigProviders(ctx, db, cfg)
 		}},
-		{name: "oidc auth group mappings", run: reconcileOIDCAuthGroupMappings},
+		{name: "oidc auth team mappings", run: reconcileOIDCAuthTeamMappings},
 		{name: "oidc basic role mappings", run: reconcileOIDCBasicRoleMappings},
 	}
 }

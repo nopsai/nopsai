@@ -16,12 +16,12 @@ type configSyncGitReader interface {
 }
 
 type configSyncRepositoryContext struct {
-	owner       string
-	repo        string
-	branch      string
-	basePath    string
-	boundFolder string
-	dirs        configRepositoryGitDirs
+	owner     string
+	repo      string
+	branch    string
+	basePath  string
+	boundTeam string
+	dirs      configRepositoryGitDirs
 }
 
 type configSyncRepositoryFiles struct {
@@ -50,9 +50,9 @@ func newConfigSyncRepositoryContext(binding models.ConfigRepository) (configSync
 		branch = "main"
 	}
 	basePath := configsync.NormalizeRepositoryBasePathValue(binding.BasePath)
-	boundFolder := strings.Trim(strings.TrimSpace(binding.ScopeID), "/")
-	if binding.ScopeType == models.ConfigRepositoryScopeFolder && boundFolder == "" {
-		return configSyncRepositoryContext{}, fmt.Errorf("group-scoped config repository is missing its scope_id")
+	boundTeam := strings.Trim(strings.TrimSpace(binding.ScopeID), "/")
+	if binding.ScopeType == models.ConfigRepositoryScopeTeam && boundTeam == "" {
+		return configSyncRepositoryContext{}, fmt.Errorf("team-scoped config repository is missing its scope_id")
 	}
 
 	owner, repo, err := configsync.ParseGitHubRepoURL(repoURL)
@@ -61,12 +61,12 @@ func newConfigSyncRepositoryContext(binding models.ConfigRepository) (configSync
 	}
 
 	return configSyncRepositoryContext{
-		owner:       owner,
-		repo:        repo,
-		branch:      branch,
-		basePath:    basePath,
-		boundFolder: boundFolder,
-		dirs:        configRepositoryGitDirsForBasePath(basePath),
+		owner:     owner,
+		repo:      repo,
+		branch:    branch,
+		basePath:  basePath,
+		boundTeam: boundTeam,
+		dirs:      configRepositoryGitDirsForBasePath(basePath),
 	}, nil
 }
 
@@ -119,7 +119,7 @@ func fetchConfigSyncRepositoryFiles(reader configSyncGitReader, repoCtx configSy
 	}
 	files.notifications = map[string]string{}
 	files.teamAIProfiles = map[string]string{}
-	if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+	if binding.ScopeType == models.ConfigRepositoryScopeTeam {
 		rootRoutePath := configsync.RepoJoinPath(repoCtx.basePath, "notifications.yaml")
 		content, err := reader.requestGitBotFile(repoCtx.owner, repoCtx.repo, repoCtx.branch, rootRoutePath, errNotificationGitOpsNotFound)
 		if err == nil {
