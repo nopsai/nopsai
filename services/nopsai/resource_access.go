@@ -627,6 +627,9 @@ func inheritedAccessParentTeams(resource accessGrantResource) []string {
 	case grantResourceKnowledgeContext:
 		_, team, _, _ := splitKnowledgeContextIdentifier(resource.ID)
 		return teamPathPrefixes(team)
+	case grantResourceLLMProfile, grantResourceAgentProfile, grantResourceMCPServer, grantResourceMCPProfile:
+		path, _ := model.SplitPipelineID(resource.ID)
+		return teamPathPrefixes(path)
 	case grantResourceSecret, grantResourceVariable:
 		repoName, scope, _ := model.ParseNamedResourceID(resource.ID)
 		if scope != "" {
@@ -777,7 +780,8 @@ func validateResourceVisibilityPolicy(resourceType, visibility string) error {
 		return nil
 	}
 	switch resourceType {
-	case grantResourcePipeline, grantResourceStep, grantResourceConfig, grantResourceKnowledgeContext:
+	case grantResourcePipeline, grantResourceStep, grantResourceConfig, grantResourceKnowledgeContext,
+		grantResourceLLMProfile, grantResourceAgentProfile, grantResourceMCPServer, grantResourceMCPProfile:
 		return nil
 	case grantResourceScope, grantResourceSecret, grantResourceVariable, grantResourceRunner:
 		return fmt.Errorf("workspace visibility is not available for this resource yet")
@@ -840,6 +844,14 @@ func defaultUseActionForResource(resourceType string) (string, error) {
 		return "config_repo.use", nil
 	case grantResourceKnowledgeContext:
 		return "knowledge_context.use", nil
+	case grantResourceLLMProfile:
+		return "llm_profile.use", nil
+	case grantResourceAgentProfile:
+		return "agent_profile.use", nil
+	case grantResourceMCPServer:
+		return "mcp_server.use", nil
+	case grantResourceMCPProfile:
+		return "mcp_profile.use", nil
 	default:
 		return "", fmt.Errorf("use grants are not supported for %s", resourceType)
 	}

@@ -24,6 +24,21 @@ export const baseNavItems: NavItem[] = [
     icon: <ObjectIcon type="assistant" />,
   },
   {
+    label: 'LLM Profiles',
+    path: '/llm-profiles',
+    icon: <ObjectIcon type="llm-profile" />,
+  },
+  {
+    label: 'Agent Profiles',
+    path: '/agent-profiles',
+    icon: <ObjectIcon type="agent-profile" />,
+  },
+  {
+    label: 'MCP',
+    path: '/mcp',
+    icon: <ObjectIcon type="mcp-profile" />,
+  },
+  {
     label: 'Pipelines',
     path: '/pipelines',
     icon: <ObjectIcon type="pipeline" />,
@@ -78,9 +93,6 @@ export const baseNavItems: NavItem[] = [
 export const baseSystemSubNav: NavItem[] = [
   { label: 'Config', path: '/system/config', icon: <ObjectIcon type="system-config" /> },
   { label: 'Setup', path: '/system/setup', icon: <ObjectIcon type="setup" /> },
-  { label: 'LLM Profiles', path: '/system/llm-profiles', icon: <ObjectIcon type="llm-profile" /> },
-  { label: 'Agent Profiles', path: '/system/agent-profiles', icon: <ObjectIcon type="agent-profile" /> },
-  { label: 'MCP', path: '/system/mcp', icon: <ObjectIcon type="mcp-profile" /> },
   { label: 'Credentials', path: '/system/credentials', icon: <ObjectIcon type="credential" /> },
   { label: 'Data Management', path: '/system/data-management', icon: <ObjectIcon type="data-management" /> },
   { label: 'Dispatcher', path: '/system/dispatcher', icon: <ObjectIcon type="dispatcher" /> },
@@ -93,6 +105,9 @@ export const titleMap: Record<string, string> = {
   monitoring: 'Monitoring',
   teams: 'Teams',
   assistant: 'Assistant',
+  'llm-profiles': 'LLM Profiles',
+  'agent-profiles': 'Agent Profiles',
+  mcp: 'MCP',
   docs: 'Docs',
   pipelines: 'Pipelines',
   schedules: 'Schedules',

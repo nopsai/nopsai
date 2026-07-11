@@ -32,6 +32,10 @@ const (
 	grantResourceRunner           = "runner"
 	grantResourceConfig           = "config_repo"
 	grantResourceKnowledgeContext = "knowledge_context"
+	grantResourceLLMProfile       = "llm_profile"
+	grantResourceAgentProfile     = "agent_profile"
+	grantResourceMCPServer        = "mcp_server"
+	grantResourceMCPProfile       = "mcp_profile"
 	grantResourceCompany          = "company"
 	grantResourcePlatform         = "platform"
 
@@ -192,6 +196,10 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"step.read",
 			"config_repo.read",
 			"knowledge_context.read",
+			"llm_profile.read",
+			"agent_profile.read",
+			"mcp_server.read",
+			"mcp_profile.read",
 		},
 	},
 	productRoleDeveloper: {
@@ -241,6 +249,10 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"runner.use",
 			"config_repo.use",
 			"knowledge_context.use",
+			"llm_profile.use",
+			"agent_profile.use",
+			"mcp_server.use",
+			"mcp_profile.use",
 		},
 	},
 	productRoleOwner: {
@@ -261,6 +273,10 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"step.read",
 			"config_repo.read",
 			"knowledge_context.read",
+			"llm_profile.read",
+			"agent_profile.read",
+			"mcp_server.read",
+			"mcp_profile.read",
 			"pipeline.create",
 			"pipeline.update",
 			"pipeline.execute",
@@ -291,10 +307,18 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"runner.use",
 			"config_repo.use",
 			"knowledge_context.use",
+			"llm_profile.use",
+			"agent_profile.use",
+			"mcp_server.use",
+			"mcp_profile.use",
 			"knowledge_context.create",
 			"knowledge_context.update",
 			"knowledge_context.delete",
 			"knowledge_context.manage_access",
+			"llm_profile.manage_acl",
+			"agent_profile.manage_acl",
+			"mcp_server.manage_acl",
+			"mcp_profile.manage_acl",
 			"team.create",
 			"team.update",
 			"team.move",

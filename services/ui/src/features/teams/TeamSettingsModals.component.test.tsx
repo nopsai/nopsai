@@ -1,0 +1,162 @@
+import { useState } from 'react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
+import { NewTeamItemModal, TeamConfigRepositoryModal } from './TeamSettingsModals';
+import { createEmptyNotificationRouteForm, defaultNotificationRouteDefinition } from './notificationRoutes';
+
+const configRepo = {
+  id: 7,
+  scope_type: 'team',
+  scope_id: 'platform',
+  repo_url: 'https://github.com/acme/platform-config',
+  branch: 'main',
+  base_path: 'teams/platform',
+  enabled: true,
+  write_enabled: true,
+  write_branch: 'nopsai/team-updates',
+  last_sync_status: 'success',
+  last_sync_message: 'Synced',
+  last_sync_started_at: '2026-07-10T10:00:00Z',
+  last_sync_completed_at: '2026-07-10T10:01:00Z',
+  last_sync_commit_sha: 'abc123',
+};
+
+function createSettingsHandlers() {
+  return {
+    onSave: vi.fn().mockResolvedValue(undefined),
+    onDelete: vi.fn().mockResolvedValue(undefined),
+    onSync: vi.fn().mockResolvedValue(undefined),
+    onCheckDrift: vi.fn().mockResolvedValue(undefined),
+    onSaveNotification: vi.fn().mockResolvedValue(undefined),
+    onDeleteNotification: vi.fn().mockResolvedValue(undefined),
+    onSaveLLMProfile: vi.fn().mockResolvedValue(undefined),
+    onSetDefaultLLMProfile: vi.fn().mockResolvedValue(undefined),
+    onDeleteLLMProfile: vi.fn().mockResolvedValue(undefined),
+    onSaveAgentProfile: vi.fn().mockResolvedValue(undefined),
+    onSetDefaultAgentProfile: vi.fn().mockResolvedValue(undefined),
+    onDeleteAgentProfile: vi.fn().mockResolvedValue(undefined),
+    onSaveMCPProfile: vi.fn().mockResolvedValue(undefined),
+    onDeleteMCPProfile: vi.fn().mockResolvedValue(undefined),
+    onClose: vi.fn(),
+  };
+}
+
+function ConfigModalHarness({ handlers }: { handlers: ReturnType<typeof createSettingsHandlers> }) {
+  const [form, setForm] = useState({
+    repo_url: configRepo.repo_url,
+    branch: configRepo.branch,
+    base_path: configRepo.base_path,
+    enabled: configRepo.enabled,
+    write_enabled: configRepo.write_enabled,
+    write_branch: configRepo.write_branch,
+  });
+  const [notificationForm, setNotificationForm] = useState(createEmptyNotificationRouteForm());
+
+  return (
+    <TeamConfigRepositoryModal
+      teamLabel="platform"
+      repo={configRepo}
+      form={form}
+      loading={false}
+      saving={false}
+      syncing={false}
+      error={null}
+      driftLoading={false}
+      notificationRoute={{
+        id: 22,
+        team_id: 1,
+        team_path: 'platform',
+        definition: defaultNotificationRouteDefinition(),
+        source: 'database',
+        managed_by_config_repo: false,
+      }}
+      notificationForm={notificationForm}
+      notificationLoading={false}
+      notificationSaving={false}
+      notificationError={null}
+      llmProfiles={null}
+      agentProfiles={null}
+      mcpProfiles={null}
+      aiProfilesLoading={false}
+      aiProfilesSaving={false}
+      aiProfilesError={null}
+      canManage
+      canSync
+      canManageProfiles
+      onChange={setForm}
+      onNotificationChange={setNotificationForm}
+      onSave={() => handlers.onSave(form)}
+      onDelete={handlers.onDelete}
+      onSync={handlers.onSync}
+      onCheckDrift={handlers.onCheckDrift}
+      onSaveNotification={() => handlers.onSaveNotification(notificationForm)}
+      onDeleteNotification={handlers.onDeleteNotification}
+      onSaveLLMProfile={handlers.onSaveLLMProfile}
+      onSetDefaultLLMProfile={handlers.onSetDefaultLLMProfile}
+      onDeleteLLMProfile={handlers.onDeleteLLMProfile}
+      onSaveAgentProfile={handlers.onSaveAgentProfile}
+      onSetDefaultAgentProfile={handlers.onSetDefaultAgentProfile}
+      onDeleteAgentProfile={handlers.onDeleteAgentProfile}
+      onSaveMCPProfile={handlers.onSaveMCPProfile}
+      onDeleteMCPProfile={handlers.onDeleteMCPProfile}
+      onClose={handlers.onClose}
+    />
+  );
+}
+
+describe('TeamSettingsModals', () => {
+  it('submits new team payloads from the creation modal', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <NewTeamItemModal
+        open
+        parentLabel="platform"
+        error={null}
+        pending={false}
+        onClose={vi.fn()}
+        onSubmit={onSubmit}
+      />
+    );
+
+    await user.type(screen.getByLabelText('Team Name'), 'security');
+    await user.type(screen.getByLabelText(/Description/), 'Security engineering');
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({
+      kind: 'team',
+      name: 'security',
+      description: 'Security engineering',
+      repoURL: '',
+    }));
+  });
+
+  it('keeps config, notification, and AI settings tabs interactive', async () => {
+    const user = userEvent.setup();
+    const handlers = createSettingsHandlers();
+    render(<ConfigModalHarness handlers={handlers} />);
+
+    await user.clear(screen.getByLabelText('Repository URL'));
+    await user.type(screen.getByLabelText('Repository URL'), 'https://github.com/acme/new-config');
+    await user.click(screen.getByRole('button', { name: 'Save Repository' }));
+    expect(handlers.onSave).toHaveBeenCalledWith(expect.objectContaining({
+      repo_url: 'https://github.com/acme/new-config',
+    }));
+
+    await user.click(screen.getByRole('tab', { name: 'Notifications' }));
+    await user.click(screen.getByRole('button', { name: 'Add route' }));
+    await user.clear(screen.getByLabelText('Route name'));
+    await user.type(screen.getByLabelText('Route name'), 'release failures');
+    await user.click(screen.getByRole('button', { name: 'Save Notifications' }));
+    expect(handlers.onSaveNotification).toHaveBeenCalledWith(expect.objectContaining({
+      routeName: 'release failures',
+    }));
+
+    await user.click(screen.getByRole('tab', { name: 'AI profiles' }));
+    expect(screen.getByText('GitOps target: teams/platform/ai-profiles.yaml')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Review GitOps drift' }));
+    expect(handlers.onCheckDrift).toHaveBeenCalled();
+  });
+});

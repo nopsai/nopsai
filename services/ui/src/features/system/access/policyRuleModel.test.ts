@@ -19,7 +19,9 @@ test('round-trips supported Access resource selectors', () => {
     resourceID: 'agent-profiles',
   });
   assert.equal(buildAAAResourceSelector('pipeline', '*'), 'pipeline:*');
+  assert.equal(buildAAAResourceSelector('llm_profile', 'hosted'), 'llm_profile:hosted');
   assert.equal(formatAccessResourceSummary('secret:*'), 'all secret');
+  assert.equal(formatAccessResourceSummary('mcp_profile:github-pr-review'), 'mcp profile github-pr-review');
   assert.equal(formatAccessResourceSummary('system:agent-profiles'), 'system agent-profiles');
   assert.equal(formatAccessResourceSummary('git_webhook_source:gitlab-platform'), 'git webhook source gitlab-platform');
 });
@@ -37,5 +39,9 @@ test('normalizes Access actions for the selected resource and effect', () => {
   assert.equal(
     normalizeAAAActionForResource('git_webhook_source:gitlab-platform', 'pipeline.read', 'allow'),
     'git_webhook_source.read'
+  );
+  assert.equal(
+    normalizeAAAActionForResource('agent_profile:sre', 'pipeline.read', 'allow'),
+    'agent_profile.read'
   );
 });

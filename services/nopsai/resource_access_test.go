@@ -138,6 +138,13 @@ func TestValidateResourceVisibilityPolicy(t *testing.T) {
 	if err := validateResourceVisibilityPolicy(grantResourceStep, resourceVisibilityWorkspace); err != nil {
 		t.Fatalf("step workspace visibility error = %v", err)
 	}
+	for _, resourceType := range []string{grantResourceLLMProfile, grantResourceAgentProfile, grantResourceMCPServer, grantResourceMCPProfile} {
+		t.Run(resourceType, func(t *testing.T) {
+			if err := validateResourceVisibilityPolicy(resourceType, resourceVisibilityWorkspace); err != nil {
+				t.Fatalf("validateResourceVisibilityPolicy(%q, workspace) error = %v", resourceType, err)
+			}
+		})
+	}
 	for _, resourceType := range []string{grantResourceScope, grantResourceSecret, grantResourceVariable, grantResourceRunner} {
 		t.Run(resourceType, func(t *testing.T) {
 			if err := validateResourceVisibilityPolicy(resourceType, resourceVisibilityWorkspace); err == nil {
@@ -158,6 +165,13 @@ func TestNormalizeUseGrantActions(t *testing.T) {
 	if len(actions) != 1 || actions[0] != "pipeline.use" {
 		t.Fatalf("normalizeUseGrantActions() = %#v, want pipeline.use", actions)
 	}
+	actions, err = normalizeUseGrantActions(grantResourceLLMProfile, nil)
+	if err != nil {
+		t.Fatalf("normalizeUseGrantActions(llm_profile) error = %v", err)
+	}
+	if len(actions) != 1 || actions[0] != "llm_profile.use" {
+		t.Fatalf("normalizeUseGrantActions(llm_profile) = %#v, want llm_profile.use", actions)
+	}
 
 	if _, err := normalizeUseGrantActions(grantResourcePipeline, []string{"pipeline.execute"}); err == nil {
 		t.Fatal("normalizeUseGrantActions() accepted non-use action")
@@ -165,10 +179,29 @@ func TestNormalizeUseGrantActions(t *testing.T) {
 	if _, err := normalizeUseGrantActions(grantResourcePipeline, []string{"scope.use"}); err == nil {
 		t.Fatal("normalizeUseGrantActions() accepted mismatched use action")
 	}
+	if _, err := normalizeUseGrantActions(grantResourceMCPProfile, []string{"llm_profile.use"}); err == nil {
+		t.Fatal("normalizeUseGrantActions() accepted mismatched AI profile use action")
+	}
 }
 
 func TestInheritedAccessParentTeamsForPipeline(t *testing.T) {
 	got := inheritedAccessParentTeams(accessGrantResource{Type: grantResourcePipeline, ID: "team-1/dev/deploy"})
+	want := []string{"team-1", "team-1/dev"}
+	if len(got) != len(want) {
+		t.Fatalf("parent teams = %#v, want %#v", got, want)
+	}
+	for idx := range want {
+		if got[idx] != want[idx] {
+			t.Fatalf("parent teams = %#v, want %#v", got, want)
+		}
+	}
+}
+
+func TestInheritedAccessParentTeamsForGlobalAIProfile(t *testing.T) {
+	if got := inheritedAccessParentTeams(accessGrantResource{Type: grantResourceLLMProfile, ID: "hosted"}); len(got) != 0 {
+		t.Fatalf("parent teams = %#v, want none for global profile name", got)
+	}
+	got := inheritedAccessParentTeams(accessGrantResource{Type: grantResourceMCPProfile, ID: "team-1/dev/github"})
 	want := []string{"team-1", "team-1/dev"}
 	if len(got) != len(want) {
 		t.Fatalf("parent teams = %#v, want %#v", got, want)
