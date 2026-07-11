@@ -40,7 +40,7 @@ type scheduleRequest struct {
 	Timezone        string            `json:"timezone" yaml:"timezone"`
 	Enabled         *bool             `json:"enabled" yaml:"enabled"`
 	Scope           string            `json:"scope" yaml:"scope"`
-	RunGroupPath    string            `json:"run_group_path" yaml:"run_group_path"`
+	RunTeamPath     string            `json:"run_team_path" yaml:"run_team_path"`
 	Variables       map[string]string `json:"variables" yaml:"variables"`
 }
 
@@ -57,7 +57,7 @@ type scheduleInput struct {
 	Timezone        string
 	Enabled         bool
 	Scope           string
-	RunGroupPath    string
+	RunTeamPath     string
 	Variables       map[string]string
 	NextRunAt       *time.Time
 }
@@ -81,7 +81,7 @@ type scheduleRecord struct {
 	Timezone              string
 	Enabled               bool
 	Scope                 string
-	RunGroupPath          string
+	RunTeamPath           string
 	Variables             map[string]string
 	NextRunAt             *time.Time
 	LastRunAt             *time.Time
@@ -125,7 +125,7 @@ type scheduleResponse struct {
 	Timezone              string              `json:"timezone"`
 	Enabled               bool                `json:"enabled"`
 	Scope                 string              `json:"scope,omitempty"`
-	RunGroupPath          string              `json:"run_group_path,omitempty"`
+	RunTeamPath           string              `json:"run_team_path,omitempty"`
 	Variables             map[string]string   `json:"variables,omitempty"`
 	NextRunAt             *time.Time          `json:"next_run_at,omitempty"`
 	LastRunAt             *time.Time          `json:"last_run_at,omitempty"`
@@ -179,7 +179,7 @@ func scheduleResponseFromRecord(record scheduleRecord) scheduleResponse {
 		Timezone:              record.Timezone,
 		Enabled:               record.Enabled,
 		Scope:                 record.Scope,
-		RunGroupPath:          record.RunGroupPath,
+		RunTeamPath:           record.RunTeamPath,
 		Variables:             record.Variables,
 		NextRunAt:             record.NextRunAt,
 		LastRunAt:             record.LastRunAt,
@@ -276,9 +276,9 @@ func normalizeScheduleInput(req scheduleRequest) (scheduleInput, error) {
 		nextRunAt = &next
 	}
 	scope := normalizeScheduleScope(req.Scope)
-	runGroupPath, err := normalizeRunGroupPath(req.RunGroupPath)
+	runTeamPath, err := normalizeRunTeamPath(req.RunTeamPath)
 	if err != nil {
-		return scheduleInput{}, fmt.Errorf("invalid run_group_path: %w", err)
+		return scheduleInput{}, fmt.Errorf("invalid run_team_path: %w", err)
 	}
 	variables, err := normalizeScheduleVariables(req.Variables)
 	if err != nil {
@@ -299,13 +299,13 @@ func normalizeScheduleInput(req scheduleRequest) (scheduleInput, error) {
 		Timezone:        timezone,
 		Enabled:         enabled,
 		Scope:           scope,
-		RunGroupPath:    runGroupPath,
+		RunTeamPath:     runTeamPath,
 		Variables:       variables,
 		NextRunAt:       nextRunAt,
 	}, nil
 }
 
-func parseGitOpsSchedules(files map[string]string, scheduleDir string, binding models.ConfigRepository, boundFolder string) (map[string]storedSchedule, error) {
+func parseGitOpsSchedules(files map[string]string, scheduleDir string, binding models.ConfigRepository, boundTeam string) (map[string]storedSchedule, error) {
 	schedules := make(map[string]storedSchedule)
 	for path, content := range files {
 		normalized := filepath.ToSlash(path)
@@ -321,10 +321,10 @@ func parseGitOpsSchedules(files map[string]string, scheduleDir string, binding m
 		if err != nil {
 			return nil, fmt.Errorf("invalid schedule path '%s': %w", normalized, err)
 		}
-		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
-			targetID, err := configsync.NormalizePathForFolder(boundFolder, rel)
+		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
+			targetID, err := configsync.NormalizePathForTeam(boundTeam, rel)
 			if err != nil {
-				return nil, fmt.Errorf("invalid group-scoped schedule path '%s': %w", normalized, err)
+				return nil, fmt.Errorf("invalid team-scoped schedule path '%s': %w", normalized, err)
 			}
 			schedulePath, fileBase, _, err = configsync.SplitPipelineIdentifier(targetID)
 			if err != nil {
@@ -341,9 +341,9 @@ func parseGitOpsSchedules(files map[string]string, scheduleDir string, binding m
 		}
 		req.Path = schedulePath
 		req.Name = fileBase
-		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
-			if err := normalizeScheduleRuntimeRefsForFolder(boundFolder, &req); err != nil {
-				return nil, fmt.Errorf("invalid group-scoped schedule '%s': %w", normalized, err)
+		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
+			if err := normalizeScheduleRuntimeRefsForTeam(boundTeam, &req); err != nil {
+				return nil, fmt.Errorf("invalid team-scoped schedule '%s': %w", normalized, err)
 			}
 		}
 		input, err := normalizeScheduleInput(req)
@@ -359,19 +359,19 @@ func parseGitOpsSchedules(files map[string]string, scheduleDir string, binding m
 	return schedules, nil
 }
 
-func normalizeScheduleRuntimeRefsForFolder(boundFolder string, req *scheduleRequest) error {
+func normalizeScheduleRuntimeRefsForTeam(boundTeam string, req *scheduleRequest) error {
 	if req == nil {
 		return nil
 	}
 	if strings.TrimSpace(req.Pipeline) != "" {
 		pipeline, rootQualified, err := configsync.NormalizePipelineIdentifierReference(configsync.StripResourcePrefix(req.Pipeline))
 		if err != nil {
-			pipeline, err = configsync.NormalizePathForFolder(boundFolder, req.Pipeline)
+			pipeline, err = configsync.NormalizePathForTeam(boundTeam, req.Pipeline)
 			if err != nil {
 				return err
 			}
 		} else if !rootQualified {
-			pipeline, err = configsync.NormalizePathForFolder(boundFolder, req.Pipeline)
+			pipeline, err = configsync.NormalizePathForTeam(boundTeam, req.Pipeline)
 			if err != nil {
 				return err
 			}
@@ -381,12 +381,12 @@ func normalizeScheduleRuntimeRefsForFolder(boundFolder string, req *scheduleRequ
 		pipelineID := configsync.BuildPipelineIdentifier(req.PipelinePath, req.PipelineName)
 		pipeline, rootQualified, err := configsync.NormalizePipelineIdentifierReference(pipelineID)
 		if err != nil {
-			pipeline, err = configsync.NormalizePathForFolder(boundFolder, pipelineID)
+			pipeline, err = configsync.NormalizePathForTeam(boundTeam, pipelineID)
 			if err != nil {
 				return err
 			}
 		} else if !rootQualified {
-			pipeline, err = configsync.NormalizePathForFolder(boundFolder, pipelineID)
+			pipeline, err = configsync.NormalizePathForTeam(boundTeam, pipelineID)
 			if err != nil {
 				return err
 			}
@@ -402,23 +402,23 @@ func normalizeScheduleRuntimeRefsForFolder(boundFolder string, req *scheduleRequ
 		if _, rootOnly := stripRootPathPrefix(scope); rootOnly {
 			req.Scope = ""
 		} else {
-			normalized, err := configsync.NormalizePathForFolder(boundFolder, scope)
+			normalized, err := configsync.NormalizePathForTeam(boundTeam, scope)
 			if err != nil {
 				return err
 			}
 			req.Scope = normalized
 		}
 	}
-	if groupPath := strings.Trim(strings.TrimSpace(req.RunGroupPath), "/"); groupPath != "" {
-		if _, rootOnly := stripRootPathPrefix(groupPath); rootOnly {
-			req.RunGroupPath = rootGrantID
+	if teamPath := strings.Trim(strings.TrimSpace(req.RunTeamPath), "/"); teamPath != "" {
+		if _, rootOnly := stripRootPathPrefix(teamPath); rootOnly {
+			req.RunTeamPath = rootGrantID
 			return nil
 		}
-		normalized, err := configsync.NormalizePathForFolder(boundFolder, groupPath)
+		normalized, err := configsync.NormalizePathForTeam(boundTeam, teamPath)
 		if err != nil {
 			return err
 		}
-		req.RunGroupPath = normalized
+		req.RunTeamPath = normalized
 	}
 	return nil
 }
@@ -462,7 +462,7 @@ func normalizeScheduleScope(raw string) string {
 	return scope
 }
 
-func normalizeRunGroupPath(raw string) (string, error) {
+func normalizeRunTeamPath(raw string) (string, error) {
 	path := strings.Trim(strings.TrimSpace(raw), "/")
 	if path == "" {
 		return rootGrantID, nil

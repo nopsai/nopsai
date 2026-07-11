@@ -53,7 +53,7 @@ export type TaskDefinition = {
 
 export type ApprovalDefinition = {
   type?: string;
-  groups?: string[];
+  teams?: string[];
   allow_self_approval?: boolean;
 };
 

@@ -25,18 +25,18 @@ func ParseBindingPath(rel string) (string, string, error) {
 	}
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 	if len(parts) == 0 || parts[0] == "" {
-		return "", "", fmt.Errorf("binding path must start with groups/")
+		return "", "", fmt.Errorf("binding path must start with teams/")
 	}
 	switch parts[0] {
-	case "groups":
+	case "teams":
 		scopeID := strings.Trim(strings.Join(append(parts[1:], name), "/"), "/")
 		if scopeID == "" {
-			return "", "", fmt.Errorf("group binding is missing a group path")
+			return "", "", fmt.Errorf("team binding is missing a team path")
 		}
 		if _, err := CleanPathSegments(scopeID, false); err != nil {
 			return "", "", err
 		}
-		return models.ConfigRepositoryScopeFolder, scopeID, nil
+		return models.ConfigRepositoryScopeTeam, scopeID, nil
 	default:
 		return "", "", fmt.Errorf("unsupported config repository binding scope %q", parts[0])
 	}

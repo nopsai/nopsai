@@ -26,8 +26,8 @@ type monitoringAnalyticsFilters struct {
 	From                  time.Time
 	To                    time.Time
 	ComparePreviousPeriod bool
-	GroupID               *int
-	RootGroup             bool
+	TeamID                *int
+	RootTeam              bool
 	PipelinePath          string
 	PipelineName          string
 	Repo                  string
@@ -79,7 +79,7 @@ type monitoringRunRow struct {
 	PipelinePath      string     `json:"pipeline_path"`
 	PipelineName      string     `json:"pipeline_name"`
 	Status            string     `json:"status"`
-	GroupName         string     `json:"group_name,omitempty"`
+	TeamName          string     `json:"team_name,omitempty"`
 	Repo              string     `json:"repo,omitempty"`
 	Ref               string     `json:"ref,omitempty"`
 	CommitSHA         string     `json:"commit_sha,omitempty"`
@@ -270,11 +270,11 @@ type monitoringEfficiencyResponse struct {
 	TotalRunnerMinutes            float64                    `json:"total_runner_minutes"`
 	TotalAITokens                 int64                      `json:"total_ai_tokens"`
 	TokenByPipeline               []monitoringNamedCount     `json:"token_by_pipeline"`
-	TokenByGroup                  []monitoringNamedCount     `json:"token_by_group"`
+	TokenByTeam                   []monitoringNamedCount     `json:"token_by_team"`
 	TokenByStep                   []monitoringNamedCount     `json:"token_by_step"`
 	TokenHeavyLowSuccessPipelines []monitoringPerformanceRow `json:"token_heavy_low_success_pipelines"`
 	FrequentReruns                []monitoringPerformanceRow `json:"frequent_reruns"`
-	HighQueueGroups               []monitoringNamedCount     `json:"high_queue_groups"`
+	HighQueueTeams                []monitoringNamedCount     `json:"high_queue_teams"`
 	Recommendations               []string                   `json:"recommendations"`
 }
 
@@ -487,15 +487,15 @@ func parseMonitoringAnalyticsFilters(r *http.Request) (monitoringAnalyticsFilter
 		return filters, fmt.Errorf("to must be after from")
 	}
 
-	if raw := strings.TrimSpace(values.Get("groupId")); raw != "" {
+	if raw := strings.TrimSpace(firstMonitoringText(values.Get("teamId"), values.Get("team_id"))); raw != "" {
 		if strings.EqualFold(raw, rootGrantID) {
-			filters.RootGroup = true
+			filters.RootTeam = true
 		} else {
 			parsed, err := strconv.Atoi(raw)
 			if err != nil {
-				return filters, fmt.Errorf("invalid groupId")
+				return filters, fmt.Errorf("invalid teamId")
 			}
-			filters.GroupID = &parsed
+			filters.TeamID = &parsed
 		}
 	}
 
@@ -610,20 +610,20 @@ func buildMonitoringCandidateRunIDsQuery(filters monitoringAnalyticsFilters) (st
 	conditions := []string{"pr.created_at >= $1", "pr.created_at <= $2"}
 	withClause := ""
 
-	if filters.GroupID != nil {
-		args = append(args, *filters.GroupID)
+	if filters.TeamID != nil {
+		args = append(args, *filters.TeamID)
 		withClause = fmt.Sprintf(`
-			WITH RECURSIVE selected_groups AS (
-				SELECT id FROM groups WHERE id = $%d
+			WITH RECURSIVE selected_teams AS (
+				SELECT id FROM teams WHERE id = $%d
 				UNION ALL
 				SELECT g.id
-				FROM groups g
-				JOIN selected_groups sg ON g.parent_id = sg.id
+				FROM teams g
+				JOIN selected_teams sg ON g.parent_id = sg.id
 			)
 		`, len(args))
-		conditions = append(conditions, "pr.group_id IN (SELECT id FROM selected_groups)")
-	} else if filters.RootGroup {
-		conditions = append(conditions, "pr.group_id IS NULL")
+		conditions = append(conditions, "pr.team_id IN (SELECT id FROM selected_teams)")
+	} else if filters.RootTeam {
+		conditions = append(conditions, "pr.team_id IS NULL")
 	}
 
 	addTextCondition := func(column, value string) {
@@ -1359,7 +1359,7 @@ func (a *App) loadMonitoringAIUsage(ctx context.Context, filters monitoringAnaly
 		if err != nil {
 			return resp, err
 		}
-		resp.ByStep, err = a.loadAIUsageGroup(ctx, runIDs, filters, "step_name")
+		resp.ByStep, err = a.loadAIUsageTeam(ctx, runIDs, filters, "step_name")
 		if err != nil {
 			return resp, err
 		}
@@ -1367,19 +1367,19 @@ func (a *App) loadMonitoringAIUsage(ctx context.Context, filters monitoringAnaly
 		if err != nil {
 			return resp, err
 		}
-		resp.ByFeature, err = a.loadAIUsageGroup(ctx, runIDs, filters, "feature")
+		resp.ByFeature, err = a.loadAIUsageTeam(ctx, runIDs, filters, "feature")
 		if err != nil {
 			return resp, err
 		}
-		resp.ByProfile, err = a.loadAIUsageGroup(ctx, runIDs, filters, "llm_profile")
+		resp.ByProfile, err = a.loadAIUsageTeam(ctx, runIDs, filters, "llm_profile")
 		if err != nil {
 			return resp, err
 		}
-		resp.ByModel, err = a.loadAIUsageGroup(ctx, runIDs, filters, "provider || '/' || model")
+		resp.ByModel, err = a.loadAIUsageTeam(ctx, runIDs, filters, "provider || '/' || model")
 		if err != nil {
 			return resp, err
 		}
-		resp.BySubject, err = a.loadAIUsageGroup(ctx, runIDs, filters, "effective_subject_type || ':' || effective_subject_id")
+		resp.BySubject, err = a.loadAIUsageTeam(ctx, runIDs, filters, "effective_subject_type || ':' || effective_subject_id")
 		if err != nil {
 			return resp, err
 		}
@@ -1529,11 +1529,11 @@ func (a *App) loadMonitoringEfficiency(ctx context.Context, filters monitoringAn
 	if err != nil {
 		return resp, err
 	}
-	resp.TokenByGroup, err = a.loadMonitoringTokenCounts(ctx, `
+	resp.TokenByTeam, err = a.loadMonitoringTokenCounts(ctx, `
 		SELECT COALESCE(g.id::text, 'root'), COALESCE(g.name, 'Root'), COUNT(DISTINCT pr.run_id),
 		       COALESCE(SUM(au.total_tokens), 0)::bigint, 0::float8
 		FROM pipeline_runs pr
-		LEFT JOIN groups g ON g.id = pr.group_id
+		LEFT JOIN teams g ON g.id = pr.team_id
 		JOIN ai_usage_events au ON au.run_id = pr.run_id
 			AND au.created_at >= $2 AND au.created_at <= $3
 		WHERE pr.run_id::text = ANY($1)
@@ -1574,12 +1574,12 @@ func (a *App) loadMonitoringEfficiency(ctx context.Context, filters monitoringAn
 	if err != nil {
 		return resp, err
 	}
-	resp.HighQueueGroups, err = a.loadMonitoringNamedCounts(ctx, `
+	resp.HighQueueTeams, err = a.loadMonitoringNamedCounts(ctx, `
 		SELECT COALESCE(g.id::text, 'root'), COALESCE(g.name, 'Root'), COUNT(*), 0::bigint,
 		       COALESCE(AVG(EXTRACT(EPOCH FROM pr.started_at - pr.created_at)) FILTER (WHERE pr.started_at IS NOT NULL AND pr.started_at >= pr.created_at), 0)::float8,
 		       0::float8
 		FROM pipeline_runs pr
-		LEFT JOIN groups g ON g.id = pr.group_id
+		LEFT JOIN teams g ON g.id = pr.team_id
 		WHERE pr.run_id::text = ANY($1)
 		GROUP BY g.id, g.name
 		ORDER BY 5 DESC
@@ -1779,7 +1779,7 @@ func (a *App) loadMonitoringRunRows(ctx context.Context, runIDs []string, suffix
 		       CASE WHEN pr.finished_at IS NOT NULL AND pr.finished_at >= pr.created_at
 		            THEN EXTRACT(EPOCH FROM pr.finished_at - pr.created_at)::float8 ELSE 0 END
 		FROM pipeline_runs pr
-		LEFT JOIN groups g ON g.id = pr.group_id
+		LEFT JOIN teams g ON g.id = pr.team_id
 		LEFT JOIN external_trigger_invocations eti ON eti.id::text = pr.trigger_event_id OR eti.run_id = pr.run_id
 		WHERE pr.run_id::text = ANY($1) ` + suffix
 	rows, err := a.db.Query(ctx, query, runIDs)
@@ -1801,7 +1801,7 @@ func (a *App) loadMonitoringRunRows(ctx context.Context, runIDs []string, suffix
 func scanMonitoringRunRow(scanner interface{ Scan(dest ...any) error }) (monitoringRunRow, error) {
 	var item monitoringRunRow
 	var startedAt, finishedAt sql.NullTime
-	if err := scanner.Scan(&item.RunID, &item.PipelinePath, &item.PipelineName, &item.Status, &item.GroupName, &item.Repo, &item.Ref,
+	if err := scanner.Scan(&item.RunID, &item.PipelinePath, &item.PipelineName, &item.Status, &item.TeamName, &item.Repo, &item.Ref,
 		&item.CommitSHA, &item.TriggerSource, &item.ExternalTriggerID, &item.ScheduleID, &item.FailureReason, &item.CreatedAt,
 		&startedAt, &finishedAt, &item.QueueSeconds, &item.DurationSeconds, &item.EndToEndSeconds); err != nil {
 		return item, err
@@ -1841,8 +1841,8 @@ func (a *App) loadMonitoringHeatmap(ctx context.Context, runIDs []string) ([]mon
 	return items, rows.Err()
 }
 
-func (a *App) loadAIUsageGroup(ctx context.Context, runIDs []string, filters monitoringAnalyticsFilters, expression string) ([]monitoringNamedCount, error) {
-	return a.loadMonitoringTokenCounts(ctx, monitoringAIUsageGroupQuery(expression), monitoringAIUsageQueryArgs(runIDs, filters)...)
+func (a *App) loadAIUsageTeam(ctx context.Context, runIDs []string, filters monitoringAnalyticsFilters, expression string) ([]monitoringNamedCount, error) {
+	return a.loadMonitoringTokenCounts(ctx, monitoringAIUsageTeamQuery(expression), monitoringAIUsageQueryArgs(runIDs, filters)...)
 }
 
 func (a *App) loadAIUsageTrend(ctx context.Context, runIDs []string, filters monitoringAnalyticsFilters) ([]monitoringTimeBucket, error) {
@@ -1892,11 +1892,11 @@ func (a *App) loadMonitoringAssistantChatUsage(ctx context.Context, filters moni
 		return usage, err
 	}
 	var err error
-	usage.ByProfile, err = a.loadMonitoringTokenCounts(ctx, monitoringAssistantChatUsageGroupQuery("COALESCE(NULLIF(ac.selected_llm_profile, ''), 'default')"), args...)
+	usage.ByProfile, err = a.loadMonitoringTokenCounts(ctx, monitoringAssistantChatUsageTeamQuery("COALESCE(NULLIF(ac.selected_llm_profile, ''), 'default')"), args...)
 	if err != nil {
 		return usage, err
 	}
-	usage.BySubject, err = a.loadMonitoringTokenCounts(ctx, monitoringAssistantChatUsageGroupQuery("ac.user_id"), args...)
+	usage.BySubject, err = a.loadMonitoringTokenCounts(ctx, monitoringAssistantChatUsageTeamQuery("ac.user_id"), args...)
 	if err != nil {
 		return usage, err
 	}
@@ -1946,7 +1946,7 @@ func (resp *monitoringAIUsageResponse) addAssistantChatUsage(usage monitoringAss
 }
 
 func monitoringAssistantChatUsageAllowed(filters monitoringAnalyticsFilters) bool {
-	if filters.GroupID != nil || filters.RootGroup || filters.PipelinePath != "" || filters.PipelineName != "" ||
+	if filters.TeamID != nil || filters.RootTeam || filters.PipelinePath != "" || filters.PipelineName != "" ||
 		filters.Repo != "" || filters.RunID != "" || filters.Ref != "" || filters.CommitSHA != "" ||
 		filters.TriggerSource != "" || filters.Status != "" || filters.ExternalTriggerID != "" ||
 		filters.ScheduleID != "" || filters.MinDurationSeconds != nil || filters.MaxDurationSeconds != nil {
@@ -1994,7 +1994,7 @@ func monitoringAssistantChatUsageTotalsQuery() string {
 		  AND ($3::text = '' OR LOWER(COALESCE(ac.selected_llm_profile, '')) = LOWER($3))` + monitoringAssistantChatUserIDPredicate()
 }
 
-func monitoringAssistantChatUsageGroupQuery(expression string) string {
+func monitoringAssistantChatUsageTeamQuery(expression string) string {
 	return `
 		SELECT COALESCE(NULLIF(` + expression + `, ''), 'unknown'), COALESCE(NULLIF(` + expression + `, ''), 'Unknown'),
 		       COUNT(*)::bigint, COALESCE(SUM(am.total_tokens), 0)::bigint, 0::float8
@@ -2211,7 +2211,7 @@ func monitoringAIUsageByTaskQuery() string {
 		LIMIT 20`
 }
 
-func monitoringAIUsageGroupQuery(expression string) string {
+func monitoringAIUsageTeamQuery(expression string) string {
 	return `
 		SELECT COALESCE(NULLIF(` + expression + `, ''), 'unknown'), COALESCE(NULLIF(` + expression + `, ''), 'Unknown'),
 		       COUNT(*), COALESCE(SUM(total_tokens), 0)::bigint, 0::float8
@@ -2276,9 +2276,9 @@ func monitoringEfficiencyRecommendations(resp monitoringEfficiencyResponse) []st
 		item := resp.TokenHeavyLowSuccessPipelines[0]
 		recommendations = append(recommendations, fmt.Sprintf("Pipeline %s has a %.0f%% success rate across %d runs.", item.Key, item.SuccessRate*100, item.TotalRuns))
 	}
-	if len(resp.HighQueueGroups) > 0 && resp.HighQueueGroups[0].Seconds > 300 {
-		item := resp.HighQueueGroups[0]
-		recommendations = append(recommendations, fmt.Sprintf("Group %s has average queue time above five minutes.", item.Label))
+	if len(resp.HighQueueTeams) > 0 && resp.HighQueueTeams[0].Seconds > 300 {
+		item := resp.HighQueueTeams[0]
+		recommendations = append(recommendations, fmt.Sprintf("Team %s has average queue time above five minutes.", item.Label))
 	}
 	if resp.TotalAITokens > 0 && len(resp.TokenByPipeline) > 0 {
 		item := resp.TokenByPipeline[0]

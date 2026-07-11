@@ -2,7 +2,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { apiClient } from '../lib/api';
 import {
   fetchRunSidebarDetail,
-  fetchRunSidebarGroups,
+  fetchRunSidebarTeams,
   fetchRunSidebarRecentRuns,
   fetchRunSidebarRepositoryRuns,
 } from './runSidebarApi';
@@ -24,10 +24,10 @@ test('returns empty sidebar data when requests fail or responses are invalid', a
     headers: { 'content-type': 'application/json' },
   }));
 
-  await expect(fetchRunSidebarGroups()).resolves.toEqual([]);
+  await expect(fetchRunSidebarTeams()).resolves.toEqual([]);
   await expect(fetchRunSidebarRecentRuns(0, 200)).resolves.toEqual([]);
   await expect(fetchRunSidebarRepositoryRuns(7)).resolves.toBeNull();
-  await expect(fetchRunSidebarGroups()).resolves.toEqual([]);
+  await expect(fetchRunSidebarTeams()).resolves.toEqual([]);
 });
 
 test('uses encoded run routes and returns successful sidebar payloads', async () => {
@@ -48,5 +48,5 @@ test('uses encoded run routes and returns successful sidebar payloads', async ()
   });
   await expect(fetchRunSidebarRepositoryRuns(42)).resolves.toEqual({ main: [] });
   expect(fetchMock).toHaveBeenNthCalledWith(1, '/v1/runs/run%2Fwith%20space', { cache: 'no-store' });
-  expect(fetchMock).toHaveBeenNthCalledWith(2, '/v1/runs?groupId=42', { cache: 'no-store' });
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/v1/runs?teamId=42', { cache: 'no-store' });
 });

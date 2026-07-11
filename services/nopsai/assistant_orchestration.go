@@ -541,11 +541,11 @@ func composeAIUsageReply(plan assistantTurnPlan, toolCalls []assistantToolActivi
 		}
 	}
 	if assistantPlanAsksScheduleLowTokens(plan) {
-		lines = assistantAppendTokenGroup(lines, "Lowest token schedules:", call.Output["lowest_token_schedules"], 10)
+		lines = assistantAppendTokenTeam(lines, "Lowest token schedules:", call.Output["lowest_token_schedules"], 10)
 	} else {
-		lines = assistantAppendTokenGroup(lines, "Highest token schedules:", call.Output["by_schedule"], 10)
+		lines = assistantAppendTokenTeam(lines, "Highest token schedules:", call.Output["by_schedule"], 10)
 	}
-	lines = assistantAppendTokenGroups(lines, call)
+	lines = assistantAppendTokenTeams(lines, call)
 	if !assistantAnyAIUsageCallHasEvents(usageCalls) {
 		lines = append(lines, "", "Investigation evidence:")
 		for idx, usageCall := range usageCalls {
@@ -1051,8 +1051,8 @@ func composeDocsReply(toolCalls []assistantToolActivity) string {
 	lines := []string{"Relevant docs:"}
 	for _, doc := range docs {
 		line := "- " + assistantOutputString(doc, "name")
-		if group := assistantOutputString(doc, "group_path"); group != "" {
-			line += " (" + group + ")"
+		if team := assistantOutputString(doc, "team_path"); team != "" {
+			line += " (" + team + ")"
 		}
 		if desc := assistantOutputString(doc, "description"); desc != "" {
 			line += ": " + desc
@@ -1243,10 +1243,10 @@ func composeAssistantPlanDeniedReply(call assistantToolActivity) string {
 }
 
 func assistantFirstUUID(content string) string {
-	return assistantFirstPatternGroup(assistantUUIDPattern, content)
+	return assistantFirstPatternTeam(assistantUUIDPattern, content)
 }
 
-func assistantFirstPatternGroup(pattern *regexp.Regexp, content string) string {
+func assistantFirstPatternTeam(pattern *regexp.Regexp, content string) string {
 	match := pattern.FindStringSubmatch(content)
 	if len(match) == 0 {
 		return ""
@@ -1290,7 +1290,7 @@ func assistantLooksLikePipelineYAML(content string) bool {
 }
 
 func assistantPipelineIDFromMessage(content string) string {
-	id := assistantFirstPatternGroup(assistantPipelineIDPattern, content)
+	id := assistantFirstPatternTeam(assistantPipelineIDPattern, content)
 	switch strings.ToLower(strings.Trim(strings.TrimSpace(id), "/")) {
 	case "", "a", "an", "the", "that", "which", "who", "where", "has", "have", "having", "with", "through", "via", "yaml", "context", "knowledge", "runs", "run", "logs", "called", "named", "name", "approval", "step", "steps", "use", "uses", "using", "highest", "llm", "tokens":
 		return ""
@@ -1300,7 +1300,7 @@ func assistantPipelineIDFromMessage(content string) string {
 }
 
 func assistantScopeFromMessage(content string) string {
-	scope := strings.Trim(strings.TrimSpace(assistantFirstPatternGroup(assistantScopePattern, content)), "/")
+	scope := strings.Trim(strings.TrimSpace(assistantFirstPatternTeam(assistantScopePattern, content)), "/")
 	scope = strings.Trim(scope, ".,;:!?\"'")
 	if assistantScopeCandidateIsGrammar(scope) {
 		return ""
@@ -1357,7 +1357,7 @@ func assistantCapabilityPolicyNotes(output map[string]any) []string {
 }
 
 func assistantPipelineNameFromMessage(content string) string {
-	name := assistantFirstPatternGroup(assistantPipelineNamePattern, content)
+	name := assistantFirstPatternTeam(assistantPipelineNamePattern, content)
 	if name == "" {
 		return ""
 	}

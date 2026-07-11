@@ -11,7 +11,7 @@ const setupStatus: SetupStatus = {
     pipelines: 1,
     steps: 3,
     triggers: 4,
-    groups: 1,
+    teams: 1,
     access_grants: 2,
     llm_profiles: 1,
     mcp_servers: 0,

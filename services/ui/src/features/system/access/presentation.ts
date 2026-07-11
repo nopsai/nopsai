@@ -10,7 +10,7 @@ export const ACCESS_ROLE_PRESETS: Array<{
   {
     id: 'viewer',
     label: 'Viewer',
-    description: 'Read-only access to groups, pipelines, runs, logs, triggers, and metadata.',
+    description: 'Read-only access to teams, pipelines, runs, logs, triggers, and metadata.',
   },
   {
     id: 'developer',

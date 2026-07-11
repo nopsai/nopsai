@@ -3,8 +3,8 @@ import {
   allDirectRuns,
   asRecord,
   buildDailyBuckets,
-  buildGroupContext,
-  buildGroupMetric,
+  buildTeamContext,
+  buildTeamMetric,
   buildPipelineMetrics,
   filterRunsByWindow,
   flattenBranchRuns,
@@ -22,10 +22,10 @@ import {
   parseDateMs,
   parseGoDurationMs,
   readOptionalString,
-  runsForGroupAndDescendants,
+  runsForTeamAndDescendants,
   statusCountsFromSummary,
   summarizeRuns,
-  type Group,
+  type Team,
   type RunListItem,
 } from './model';
 
@@ -33,7 +33,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-const groups: Group[] = [
+const teams: Team[] = [
   { id: 1, name: 'Platform' },
   { id: 2, name: 'Release', parent_id: 1 },
 ];
@@ -58,10 +58,10 @@ const failed: RunListItem = {
 };
 
 describe('Monitoring model', () => {
-  it('aggregates runs across group and branch boundaries', () => {
-    const runsByGroup = { 1: [successful], 2: [failed, successful] };
-    const context = buildGroupContext(groups);
-    const runs = runsForGroupAndDescendants(1, runsByGroup, context.childrenByParent);
+  it('aggregates runs across team and branch boundaries', () => {
+    const runsByTeam = { 1: [successful], 2: [failed, successful] };
+    const context = buildTeamContext(teams);
+    const runs = runsForTeamAndDescendants(1, runsByTeam, context.childrenByParent);
     const summary = summarizeRuns(runs);
 
     expect(context.labels.get(2)).toBe('Platform/Release');
@@ -69,8 +69,8 @@ describe('Monitoring model', () => {
     expect(runs).toHaveLength(2);
     expect(summary).toMatchObject({ totalRuns: 2, successRuns: 1, failedRuns: 1, totalDurationMs: 180000 });
     expect(statusCountsFromSummary(summary)).toMatchObject({ success: 1, failure: 1 });
-    expect(buildGroupMetric(groups[0], 'Platform', 0, runs).totalRuns).toBe(2);
-    expect(allDirectRuns(runsByGroup)).toHaveLength(2);
+    expect(buildTeamMetric(teams[0], 'Platform', 0, runs).totalRuns).toBe(2);
+    expect(allDirectRuns(runsByTeam)).toHaveLength(2);
     expect(flattenBranchRuns({ main: [successful], release: [failed, successful] }).map(run => run.run_id)).toEqual([
       'run-child',
       'run-parent',
@@ -80,11 +80,11 @@ describe('Monitoring model', () => {
   it('builds pipeline and daily metrics', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-09T12:00:00Z'));
-    const runsByGroup = { 1: [successful], 2: [failed] };
-    const context = buildGroupContext(groups);
-    const metrics = buildPipelineMetrics([successful, failed], groups, runsByGroup, context.labels);
+    const runsByTeam = { 1: [successful], 2: [failed] };
+    const context = buildTeamContext(teams);
+    const metrics = buildPipelineMetrics([successful, failed], teams, runsByTeam, context.labels);
 
-    expect(metrics[0]).toMatchObject({ id: 'platform/release', failedRuns: 1, groupLabel: 'Platform/Release' });
+    expect(metrics[0]).toMatchObject({ id: 'platform/release', failedRuns: 1, teamLabel: 'Platform/Release' });
     expect(buildDailyBuckets([successful, failed], 2).reduce((total, bucket) => total + bucket.runs, 0)).toBe(2);
     expect(filterRunsByWindow([successful, failed], 0)).toHaveLength(2);
     expect(filterRunsByWindow([successful, failed], 1)).toHaveLength(0);

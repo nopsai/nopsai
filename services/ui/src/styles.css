@@ -225,10 +225,10 @@ body {
   touch-action: none;            /* prevent browser scrolling while panning */
   overscroll-behavior: contain;  /* avoid viewport scrolling on edges */
 }
-.group-header-container:hover .delete-group-btn, .group-card:hover .delete-group-btn { opacity: 1; }
+.team-header-container:hover .delete-team-btn, .team-card:hover .delete-team-btn { opacity: 1; }
 .chevron { transition: transform 0.2s ease-in-out; }
 .expanded .chevron { transform: rotate(90deg); }
-.group-tree-description {
+.team-tree-description {
     font-size: 0.72rem;
     color: var(--text-secondary);
     line-height: 1.1;
@@ -895,7 +895,7 @@ html.dark .task-node-box { fill: var(--bg-tertiary); }
 .task-graph-mini-container svg { max-width: 100%; max-height: 100%; display: block; }
 .step-cluster { cursor: pointer; }
 
-/* Visual grouping for expanded task clusters in Steps view */
+/* Visual teaming for expanded task clusters in Steps view */
 .step-cluster-box {
   fill: var(--bg-secondary);
   stroke: var(--border-primary);
@@ -1143,7 +1143,7 @@ html.dark .kc-library__header {
 .kc-panel-header--compact,
 .kc-doc-row__main,
 .kc-doc-row__meta,
-.kc-library-group p,
+.kc-library-team p,
 .kc-info,
 .kc-usage-list li {
     display: flex;
@@ -1346,7 +1346,7 @@ html.dark .kc-select option {
 
 .kc-library__sections,
 .kc-library-section,
-.kc-library-group,
+.kc-library-team,
 .kc-side-stack,
 .kc-definition-list,
 .kc-usage-list {
@@ -1359,7 +1359,7 @@ html.dark .kc-select option {
 }
 
 .kc-library-section,
-.kc-library-group {
+.kc-library-team {
     gap: 8px;
 }
 
@@ -1420,7 +1420,7 @@ html.dark .kc-select option {
     color: var(--text-accent);
 }
 
-.kc-library-group p {
+.kc-library-team p {
     gap: 6px;
     margin: 3px 2px 0;
     color: var(--text-tertiary);
@@ -1429,7 +1429,7 @@ html.dark .kc-select option {
     min-width: 0;
 }
 
-.kc-library-group p span {
+.kc-library-team p span {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2824,7 +2824,7 @@ html.dark .recent-run-card {
     color: #f97316;
 }
 
-.pipeline-folder-card {
+.pipeline-team-card {
     position: relative;
     display: flex;
     flex-direction: column;
@@ -2900,50 +2900,50 @@ html.dark .recent-run-card {
     font-size: 0.86rem;
 }
 
-.pipeline-folder-actions {
+.pipeline-team-actions {
     display: flex;
     align-items: center;
     gap: 0.35rem;
     margin-left: auto;
 }
 
-.pipeline-folder-delete-btn {
+.pipeline-team-delete-btn {
     opacity: 0;
     transform: translateY(-4px);
     transition: opacity 0.18s ease, transform 0.18s ease;
 }
 
-.pipeline-folder-card:hover .pipeline-folder-delete-btn,
-.pipeline-folder-card:focus-within .pipeline-folder-delete-btn {
+.pipeline-team-card:hover .pipeline-team-delete-btn,
+.pipeline-team-card:focus-within .pipeline-team-delete-btn {
     opacity: 1;
     transform: translateY(0);
 }
 
-.pipeline-folder-delete-btn:focus-visible {
+.pipeline-team-delete-btn:focus-visible {
     outline: 2px solid var(--border-accent);
     outline-offset: 2px;
 }
 
-.pipeline-folder-card:hover,
-.pipeline-folder-card:focus-visible {
+.pipeline-team-card:hover,
+.pipeline-team-card:focus-visible {
     border-color: rgba(250, 204, 21, 0.45);
     box-shadow: inset 0 0 0 2px rgba(250, 204, 21, 0.28), 0 12px 28px rgba(250, 204, 21, 0.16);
     outline: none;
 }
 
-.pipeline-folder-card-header {
+.pipeline-team-card-header {
     display: flex;
     align-items: center;
     gap: 0.6rem;
 }
 
-.pipeline-folder-icon {
+.pipeline-team-icon {
     display: inline-flex;
     align-items: center;
     justify-content: center;
 }
 
-.pipeline-folder-info {
+.pipeline-team-info {
     display: flex;
     flex-direction: column;
     gap: 0.18rem;
@@ -2951,7 +2951,7 @@ html.dark .recent-run-card {
     flex: 1;
 }
 
-.pipeline-folder-title {
+.pipeline-team-title {
     font-weight: 600;
     font-size: 0.92rem;
     white-space: nowrap;
@@ -2961,17 +2961,17 @@ html.dark .recent-run-card {
     margin: 0;
 }
 
-.pipeline-folder-description {
+.pipeline-team-description {
     font-size: 0.75rem;
     color: var(--text-secondary);
     margin-top: 0.5rem;
 }
 
-.pipeline-sidebar-folder-row {
+.pipeline-sidebar-team-row {
     transition: background-color 0.18s ease, color 0.18s ease;
 }
 
-.pipeline-sidebar-folder-row:hover {
+.pipeline-sidebar-team-row:hover {
     background-color: var(--bg-tertiary);
 }
 
@@ -3012,7 +3012,7 @@ html.dark .pipeline-tree-item {
     justify-content: center;
 }
 
-.pipeline-tree-folder {
+.pipeline-tree-team {
     background: none;
     border: none;
     color: var(--text-primary);
@@ -3026,12 +3026,12 @@ html.dark .pipeline-tree-item {
     border-radius: 8px;
 }
 
-.pipeline-tree-folder.active {
+.pipeline-tree-team.active {
     color: var(--text-accent);
     font-weight: 500;
 }
 
-.pipeline-tree-item:hover .pipeline-tree-folder:not(.active) {
+.pipeline-tree-item:hover .pipeline-tree-team:not(.active) {
     background: var(--bg-tertiary);
 }
 
@@ -3108,7 +3108,7 @@ html.dark .pipeline-card-icon {
 }
 
 .pipeline-sidebar-toggle,
-.pipeline-sidebar-folder {
+.pipeline-sidebar-team {
     background: none;
     border: none;
     padding: 0;
@@ -3123,7 +3123,7 @@ html.dark .pipeline-card-icon {
     cursor: pointer;
 }
 
-.pipeline-sidebar-folder {
+.pipeline-sidebar-team {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
@@ -3131,14 +3131,14 @@ html.dark .pipeline-card-icon {
 }
 
 .pipeline-sidebar-toggle:focus-visible,
-.pipeline-sidebar-folder:focus-visible,
+.pipeline-sidebar-team:focus-visible,
 #pipelines-sidebar-tree .sidebar-link:focus-visible,
 #triggers-sidebar-tree .sidebar-link:focus-visible {
     outline: none;
     text-decoration: underline;
 }
 
-.pipeline-folder-chevron {
+.pipeline-team-chevron {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -3146,7 +3146,7 @@ html.dark .pipeline-card-icon {
     margin-left: auto;
 }
 
-.pipeline-folder-meta {
+.pipeline-team-meta {
     margin-top: auto;
     padding-top: 0.7rem;
     border-top: 1px solid var(--border-primary);
@@ -3157,25 +3157,25 @@ html.dark .pipeline-card-icon {
     color: var(--text-secondary);
 }
 
-.pipeline-folder-meta-row {
+.pipeline-team-meta-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 0.6rem;
 }
 
-.pipeline-folder-meta-label {
+.pipeline-team-meta-label {
     text-transform: uppercase;
     letter-spacing: 0.08em;
     font-weight: 600;
 }
 
-.pipeline-folder-meta-value {
+.pipeline-team-meta-value {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
     color: var(--text-primary);
 }
 
-.pipeline-folder-breadcrumb {
+.pipeline-team-breadcrumb {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
@@ -3350,7 +3350,7 @@ html.dark .pipeline-card-icon {
     padding-bottom: 0.25rem;
 }
 
-.access-title-group {
+.access-title-team {
     display: flex;
     align-items: center;
     min-width: 0;
@@ -4623,7 +4623,7 @@ html.dark .access-modal-header--minimal {
 }
 
 .dispatcher-runtime-switch button,
-.dispatcher-choice-group button {
+.dispatcher-choice-team button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -4643,13 +4643,13 @@ html.dark .access-modal-header--minimal {
 }
 
 .dispatcher-runtime-switch button:hover,
-.dispatcher-choice-group button:hover {
+.dispatcher-choice-team button:hover {
     color: var(--text-primary);
     background: var(--bg-tertiary);
 }
 
 .dispatcher-runtime-switch button.is-active,
-.dispatcher-choice-group button.is-active {
+.dispatcher-choice-team button.is-active {
     color: var(--text-primary);
     background: var(--bg-tertiary);
     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
@@ -4683,7 +4683,7 @@ html.dark .access-modal-header--minimal {
     padding: 9px;
 }
 
-.dispatcher-choice-group {
+.dispatcher-choice-team {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     min-height: 46px;
@@ -5692,7 +5692,7 @@ html.dark .access-modal-header--minimal {
     font-size: 0.72rem;
 }
 
-.pipeline-folder-crumb {
+.pipeline-team-crumb {
     background: none;
     border: none;
     padding: 0;
@@ -5703,27 +5703,27 @@ html.dark .access-modal-header--minimal {
     transition: color 0.18s ease;
 }
 
-.pipeline-folder-crumb:hover {
+.pipeline-team-crumb:hover {
     color: var(--text-primary);
 }
 
-.pipeline-folder-crumb:focus-visible {
+.pipeline-team-crumb:focus-visible {
     outline: none;
     text-decoration: underline;
     color: var(--text-primary);
 }
 
-.pipeline-folder-crumb--current {
+.pipeline-team-crumb--current {
     font-weight: 600;
     color: var(--text-primary);
     cursor: default;
 }
 
-.pipeline-folder-crumb--current:hover {
+.pipeline-team-crumb--current:hover {
     color: var(--text-primary);
 }
 
-.pipeline-folder-crumb-separator {
+.pipeline-team-crumb-separator {
     color: rgba(148,163,184,0.6);
 }
 
@@ -5732,7 +5732,7 @@ html.dark .access-modal-header--minimal {
     to { transform: rotate(360deg); }
 }
 
-.pipeline-folder-empty-state {
+.pipeline-team-empty-state {
     font-size: 0.9rem;
     color: var(--text-secondary);
     padding: 0.5rem 0;
@@ -7090,7 +7090,7 @@ html.dark .scope-variable-btn--active {
     color: var(--text-secondary);
 }
 
-.scope-action-group {
+.scope-action-team {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -7541,7 +7541,7 @@ html.dark .trigger-modal-icon {
     padding-top: 0.75rem;
 }
 
-.trigger-modal-field-group {
+.trigger-modal-field-team {
     display: flex;
     flex-direction: column;
     gap: 0.4rem;
@@ -7686,7 +7686,7 @@ html.dark .pipelines-run-row {
     min-height: 100%;
 }
 
-.triggers-folder-nav {
+.triggers-team-nav {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -7733,14 +7733,14 @@ html.dark .triggers-breadcrumb--active {
     color: var(--text-secondary);
 }
 
-.triggers-folder-up {
+.triggers-team-up {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
     font-size: 0.8rem;
 }
 
-.triggers-folder-up svg {
+.triggers-team-up svg {
     flex-shrink: 0;
 }
 
@@ -9150,11 +9150,11 @@ html.dark .kc-empty-state {
     }
 }
 
-.kc-shell--folders {
+.kc-shell--teams {
     grid-template-columns: minmax(0, 1fr);
 }
 
-.kc-folder-browser {
+.kc-team-browser {
     display: flex;
     flex-direction: column;
     gap: 1rem;
@@ -9206,15 +9206,15 @@ html.dark .kc-browser-header {
     flex-wrap: wrap;
 }
 
-.kc-folder-browser .kc-library__stats {
+.kc-team-browser .kc-library__stats {
     max-width: 720px;
 }
 
-.kc-folder-browser .kc-search {
+.kc-team-browser .kc-search {
     max-width: 520px;
 }
 
-.kc-folder-card,
+.kc-team-card,
 .kc-document-card {
     min-height: 200px;
 }
@@ -9224,7 +9224,7 @@ html.dark .kc-browser-header {
     box-shadow: inset 0 0 0 2px rgba(250, 204, 21, 0.35), 0 12px 28px rgba(250, 204, 21, 0.18);
 }
 
-.kc-folder-card .pipeline-card-icon svg,
+.kc-team-card .pipeline-card-icon svg,
 .kc-document-card .pipeline-card-icon svg {
     width: 18px;
     height: 18px;

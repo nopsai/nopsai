@@ -35,7 +35,7 @@ Responsibilities:
   through `pkg/startupgates`.
 - Uses shared HTTP server timeout defaults from `pkg/httpapi` for production
   request hardening.
-- Exposes REST endpoints for auth, runs, pipelines, steps, triggers, Git webhook sources, knowledge contexts, notifications, metrics, secrets, variables, groups, and system operations.
+- Exposes REST endpoints for auth, runs, pipelines, steps, triggers, Git webhook sources, knowledge contexts, notifications, metrics, secrets, variables, teams, and system operations.
 - Exposes product access-management endpoints for role grants and effective-permission inspection.
 - Stores and reads all durable state from Postgres.
 - Validates pipelines and resolves reusable `step:` includes.
@@ -73,9 +73,9 @@ Responsibilities:
   through a focused security-runtime constructor instead of keeping that wiring
   in the app assembly path.
 - Shares config-sync path normalization, repository identifier parsing,
-  pipeline-run group-structure parsing, binding-file validation/defaults,
+  pipeline-run team-structure parsing, binding-file validation/defaults,
   config-repository request shaping, write-path validation, and
-  config-repository drift ownership/path, file-diffing, and group-structure
+  config-repository drift ownership/path, file-diffing, and team-structure
   export rules through a dedicated internal config-sync package.
 - Starts Git-backed config repository sync through a dedicated
   `config_sync_runner.go` runner/status boundary, a shared
@@ -83,10 +83,10 @@ Responsibilities:
   `config_sync_fetch.go` repository discovery boundary, a
   `config_sync_parse.go` parse-plan boundary, a `config_sync.go` coordinator
   boundary, and a `config_sync_apply.go` transactional apply/prune boundary,
-  with scope-entry parsing and delegated group synchronization split into
+  with scope-entry parsing and delegated team synchronization split into
   separate files.
 - Exports config repository desired state through separate drift, resource,
-  scope, knowledge, group-structure, access, embedded resource-access,
+  scope, knowledge, team-structure, access, embedded resource-access,
   path-rule, and runtime/settings export boundaries.
 - Keeps high-churn NopsAI product domains in focused file families for access
   grants, config access, setup wizard, data management, MCP, auth/admin, and
@@ -143,11 +143,11 @@ Key files:
 - `services/nopsai/git_webhook_orchestrator.go`
 - `services/nopsai/internal/gitwebhook`
 - `pkg/gittrigger`
-- `services/nopsai/run_group_resolution.go`
+- `services/nopsai/run_team_resolution.go`
 - `services/nopsai/run_failure_records.go`
 - `services/nopsai/run_lifecycle_handlers.go`
 - `services/nopsai/run_internal_handlers.go`
-- `services/nopsai/group_handlers.go`
+- `services/nopsai/team_store_handlers.go`
 - `services/nopsai/config_sync_runner.go`
 - `services/nopsai/config_repository_git_paths.go`
 - `services/nopsai/config_sync_fetch.go`
@@ -155,13 +155,13 @@ Key files:
 - `services/nopsai/config_sync.go`
 - `services/nopsai/config_sync_apply.go`
 - `services/nopsai/config_sync_scope_entries.go`
-- `services/nopsai/config_sync_groups.go`
+- `services/nopsai/config_sync_teams.go`
 - `services/nopsai/config_repository_drift.go`
 - `services/nopsai/config_repository_paths.go`
 - `services/nopsai/config_repository_resource_export.go`
 - `services/nopsai/config_repository_scope_export.go`
 - `services/nopsai/config_repository_knowledge_export.go`
-- `services/nopsai/config_repository_group_export.go`
+- `services/nopsai/config_repository_team_export.go`
 - `services/nopsai/config_repository_access_export.go`
 - `services/nopsai/config_repository_resource_access.go`
 - `services/nopsai/config_repository_settings_export.go`
@@ -240,7 +240,7 @@ Authorization notes:
 - Access grants are recorded as product intent; low-level role, binding,
   permission, and ACL rows are mutated through AAA-owned store helpers instead
   of product-service SQL.
-- Folder-targeted grants inherit by path to child resources.
+- Team-targeted grants inherit by path to child resources.
 - Runtime resource-use checks are caller-based, so Git runs are authorized as repositories, manual runs as users, and dispatcher calls do not inherit resource-owner permissions.
 - Managed knowledge context references are checked with `knowledge_context.use` before dispatch.
 - Sensitive allowed actions and all denied actions are written to authorization decision logs.
@@ -298,8 +298,8 @@ Primary role:
 Responsibilities:
 
 - Serves internal HTTP endpoints for subject introspection, single checks, batch checks, resource filtering, and audit recording.
-- Enforces deny-before-allow behavior across direct roles, auth-group roles, direct ACLs, auth-group ACLs, and inherited ACLs.
-- Resolves users, groups, roles, resource ACLs, ownership, and inheritance from Postgres.
+- Enforces deny-before-allow behavior across direct roles, auth-team roles, direct ACLs, auth-team ACLs, and inherited ACLs.
+- Resolves users, teams, roles, resource ACLs, ownership, and inheritance from Postgres.
 - Owns the AAA policy schema and table-specific policy mutation helpers used by
   product workflows.
 - Writes authorization decision logs for denied decisions and sensitive allowed decisions.
@@ -611,7 +611,7 @@ Responsibilities:
   dispatcher, and access keep the route page focused on data loading and
   mutation orchestration.
 - Access-grant management for product roles and effective-permission inspection
-- Resource Access dialogs on pipelines, scopes, reusable steps, and knowledge contexts for use visibility and group/repository sharing
+- Resource Access dialogs on pipelines, scopes, reusable steps, and knowledge contexts for use visibility and team/repository sharing
 - Profile page for email and password changes
 
 Key files:
@@ -638,7 +638,7 @@ Primary role:
 
 Responsibilities:
 
-- Stores runs, tasks, logs, configuration, knowledge context, groups, users, roles, refresh tokens, audit logs, backup records, and cleanup job/schedule history.
+- Stores runs, tasks, logs, configuration, knowledge context, teams (in the compatibility `teams` table), users, roles, refresh tokens, audit logs, backup records, and cleanup job/schedule history.
 - Stores product grant metadata, resource visibility, ownership metadata, run authorization snapshots, and AAA policy data; AAA owns the policy schema and policy-table mutations.
 - Stores LLM usage events and per-run usage summaries for monitoring and Prometheus token metrics.
 - Keeps the execution record durable even though agents and step containers are ephemeral.

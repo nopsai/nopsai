@@ -90,7 +90,7 @@ export type PipelineGraphTaskDefinition = {
 
 export type PipelineGraphApprovalDefinition = {
   type?: string;
-  groups?: string[];
+  teams?: string[];
   allow_self_approval?: boolean;
 };
 
@@ -288,7 +288,7 @@ function normalizeApproval(value: unknown): PipelineGraphApprovalDefinition | un
   const record = value as Record<string, unknown>;
   return {
     type: typeof record.type === 'string' ? record.type : undefined,
-    groups: normalizeStringArray(record.groups),
+    teams: normalizeStringArray(record.teams),
     allow_self_approval: typeof record.allow_self_approval === 'boolean' ? record.allow_self_approval : undefined,
   };
 }

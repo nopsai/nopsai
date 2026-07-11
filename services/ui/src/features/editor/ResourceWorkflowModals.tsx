@@ -89,7 +89,7 @@ function ResourceFormDialog({
           onChange={event => onChangeForm({ path: event.target.value })}
           data-dialog-initial-focus
         />
-        <p className="text-xs text-[var(--text-secondary)] mt-1">Optional group path. Leave blank for root.</p>
+        <p className="text-xs text-[var(--text-secondary)] mt-1">Optional team path. Leave blank for root.</p>
       </div>
       <div>
         <label htmlFor={nameInputId} className="block text-sm font-medium text-[var(--text-secondary)]">

@@ -88,7 +88,7 @@ func (a *App) createSchedule(ctx context.Context, input scheduleInput, pipeline 
 		INSERT INTO pipeline_schedules (
 			path, name, description, pipeline_path, pipeline_name, pipeline_version,
 			schedule_kind, cron_expression, run_at, timezone, enabled, scope, variables, next_run_at,
-			run_group_path, source, config_source_path, config_source_commit_sha, managed_by_config_repo,
+			run_team_path, source, config_source_path, config_source_commit_sha, managed_by_config_repo,
 			created_by, updated_by
 		) VALUES (
 			$1, $2, $3, $4, $5, $6,
@@ -99,7 +99,7 @@ func (a *App) createSchedule(ctx context.Context, input scheduleInput, pipeline 
 		RETURNING id::text
 	`, input.Path, input.Name, input.Description, input.PipelinePath, input.PipelineName, input.PipelineVersion,
 		input.ScheduleKind, input.CronExpression, input.RunAt, input.Timezone, input.Enabled, input.Scope, string(variablesJSON), input.NextRunAt,
-		input.RunGroupPath, source, sourcePath, commitSHA, strings.EqualFold(source, "git"), actor).Scan(&scheduleID)
+		input.RunTeamPath, source, sourcePath, commitSHA, strings.EqualFold(source, "git"), actor).Scan(&scheduleID)
 	if err != nil {
 		return scheduleRecord{}, err
 	}
@@ -139,7 +139,7 @@ func (a *App) updateSchedule(ctx context.Context, scheduleID string, input sched
 			scope = $13,
 			variables = $14::jsonb,
 			next_run_at = $15,
-			run_group_path = $16,
+			run_team_path = $16,
 			source = 'database',
 			config_repo_id = NULL,
 			config_source_path = '',
@@ -149,7 +149,7 @@ func (a *App) updateSchedule(ctx context.Context, scheduleID string, input sched
 			updated_at = NOW()
 		WHERE id::text = $1
 	`, scheduleID, input.Path, input.Name, input.Description, input.PipelinePath, input.PipelineName, input.PipelineVersion,
-		input.ScheduleKind, input.CronExpression, input.RunAt, input.Timezone, input.Enabled, input.Scope, string(variablesJSON), input.NextRunAt, input.RunGroupPath, actor)
+		input.ScheduleKind, input.CronExpression, input.RunAt, input.Timezone, input.Enabled, input.Scope, string(variablesJSON), input.NextRunAt, input.RunTeamPath, actor)
 	if err != nil {
 		return scheduleRecord{}, err
 	}
@@ -293,9 +293,9 @@ func baseScheduleSelect() string {
 			s.id::text, s.path, s.name, s.description,
 			s.pipeline_path, s.pipeline_name, s.pipeline_version,
 			COALESCE(s.schedule_kind, 'cron'), s.cron_expression, s.run_at,
-			s.timezone, s.enabled, s.scope, COALESCE(s.run_group_path, ''), s.variables::text,
+			s.timezone, s.enabled, s.scope, COALESCE(s.run_team_path, ''), s.variables::text,
 			s.next_run_at, s.last_run_at, COALESCE(s.last_run_id::text, ''),
-			COALESCE(s.last_status, ''), COALESCE(s.source, 'database'), COALESCE(s.visibility, 'group'),
+			COALESCE(s.last_status, ''), COALESCE(s.source, 'database'), COALESCE(s.visibility, 'team'),
 			s.config_repo_id, COALESCE(s.config_source_path, ''), COALESCE(s.config_source_commit_sha, ''),
 			s.managed_by_config_repo, COALESCE(s.created_by, ''), COALESCE(s.updated_by, ''),
 			s.created_at, s.updated_at,
@@ -326,7 +326,7 @@ func scanScheduleRecord(scanner scheduleScanner) (scheduleRecord, error) {
 		&record.ID, &record.Path, &record.Name, &record.Description,
 		&record.PipelinePath, &record.PipelineName, &record.PipelineVersion,
 		&record.ScheduleKind, &record.CronExpression, &runAt,
-		&record.Timezone, &record.Enabled, &record.Scope, &record.RunGroupPath, &variablesRaw,
+		&record.Timezone, &record.Enabled, &record.Scope, &record.RunTeamPath, &variablesRaw,
 		&nextRunAt, &lastRunAt, &record.LastRunID, &record.LastStatus, &record.Source, &record.Visibility,
 		&record.ConfigRepoID, &record.ConfigSourcePath, &record.ConfigSourceCommitSHA,
 		&record.ManagedByConfigRepo, &record.CreatedBy, &record.UpdatedBy, &record.CreatedAt, &record.UpdatedAt,
@@ -413,19 +413,19 @@ func looksLikeUUID(value string) bool {
 	return err == nil
 }
 
-func (a *App) resolveGroupIDForPath(ctx context.Context, groupPath string) (sql.NullInt32, error) {
+func (a *App) resolveTeamIDForPath(ctx context.Context, teamPath string) (sql.NullInt32, error) {
 	var out sql.NullInt32
-	groupPath = strings.Trim(strings.TrimSpace(groupPath), "/")
-	groupPath, rootOnly := stripRootPathPrefix(groupPath)
-	if rootOnly || groupPath == "" {
+	teamPath = strings.Trim(strings.TrimSpace(teamPath), "/")
+	teamPath, rootOnly := stripRootPathPrefix(teamPath)
+	if rootOnly || teamPath == "" {
 		return out, nil
 	}
-	records, err := loadGroupPathRecords(ctx, a.db)
+	records, err := loadTeamPathRecords(ctx, a.db)
 	if err != nil {
 		return out, err
 	}
 	for _, record := range records {
-		if record.Path == groupPath {
+		if record.Path == teamPath {
 			out.Int32 = int32(record.ID)
 			out.Valid = true
 			return out, nil

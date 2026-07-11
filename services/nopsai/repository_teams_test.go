@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestRepositoryTriggerOverrideKeysPreferGroupedRepository(t *testing.T) {
+func TestRepositoryTriggerOverrideKeysPreferTeamedRepository(t *testing.T) {
 	specific, ownerWide := repositoryTriggerOverrideKeys("hosein-yousefii", "test-app", []string{
 		"team-1/hosein-yousefii/test-app",
 	})

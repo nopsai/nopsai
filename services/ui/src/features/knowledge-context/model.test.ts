@@ -12,14 +12,14 @@ const documents: KnowledgeContextListItem[] = [
   {
     id: 'runbook/platform/restart',
     kind: 'runbook',
-    group: 'platform',
+    team: 'platform',
     name: 'restart',
-    visibility: 'group',
+    visibility: 'team',
     source: 'database',
   },
 ];
 
-test('builds knowledge trees with empty enterprise group folders', () => {
+test('builds knowledge trees with empty enterprise team teams', () => {
   const tree = buildKnowledgeTree(documents, ['platform/security']);
   const runbooks = tree.children.find(child => child.name === 'runbook');
   assert.equal(runbooks?.children.find(child => child.name === 'platform')?.docs[0]?.name, 'restart');

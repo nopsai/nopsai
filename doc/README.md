@@ -1,6 +1,6 @@
 # NopsAI Documentation Map
 
-This folder now has a code-grounded documentation set for the current repository shape.
+This team now has a code-grounded documentation set for the current repository shape.
 
 Start here when you want to understand the system from different angles:
 
@@ -13,7 +13,7 @@ Start here when you want to understand the system from different angles:
 - [kubernetes-runner.md](./kubernetes-runner.md): Kubernetes runner runtime, namespace deployment, agent-owned PVC workspace behavior, node affinity, GitOps settings, one-time install commands, and GitOps manifests.
 - [feature-reference.md](./feature-reference.md): Functional capabilities exposed by the codebase and UI.
 - [assistant-capabilities.md](./assistant-capabilities.md): User-facing assistant capabilities and example chat prompts for each NopsAI feature area.
-- [first-install-wizard.md](./first-install-wizard.md): UI bootstrap flow for an empty database, starter profiles, secret generation, GitOps seeding, repository groups, and production guardrails.
+- [first-install-wizard.md](./first-install-wizard.md): UI bootstrap flow for an empty database, starter profiles, secret generation, GitOps seeding, repository teams, and production guardrails.
 - [enterprise-gates.md](./enterprise-gates.md): Production startup gates, local/CI verification commands, Docker build checks, and integration coverage baseline.
 - [enterprise-refactor-roadmap.md](./enterprise-refactor-roadmap.md): Enterprise feature ownership, SSO follow-up status, and remaining refactor targets.
 - [credential-management.md](./credential-management.md): Implemented single credential interface, encrypted registry, bootstrap boundary, GitOps references and encrypted envelopes, AAA, rotation, and migration behavior.
@@ -22,7 +22,7 @@ Start here when you want to understand the system from different angles:
 - [decision-architecture.md](./decision-architecture.md): The main architectural decisions, why they exist, and the tradeoffs they introduce.
 - [access-control.md](./access-control.md): Current AAA service, product roles, access grants, route authorization, and audit behavior.
 - [jwt-authentication.md](./jwt-authentication.md): Local auth, Enterprise SSO/OIDC, User/API JWTs, refresh tokens, internal REST service JWTs, and dispatcher gRPC service JWTs.
-- [local-keycloak-sso.md](./local-keycloak-sso.md): Local Keycloak fixture with seeded users, groups, and OIDC settings for SSO testing.
+- [local-keycloak-sso.md](./local-keycloak-sso.md): Local Keycloak fixture with seeded users, teams, and OIDC settings for SSO testing.
 - [knowledge-context.md](./knowledge-context.md): Project knowledge documents for LLM-backed pipeline steps, GitOps layout, runtime snapshots, and access checks.
 - [agent-profiles.md](./agent-profiles.md): AI role/persona selection for pipelines and steps, GitOps management, AAA, and runtime prompt behavior.
 - [final-output-rendering.md](./final-output-rendering.md): Final-output generation contracts, retry/audit behavior, current renderers, and the structured-document rendering roadmap.

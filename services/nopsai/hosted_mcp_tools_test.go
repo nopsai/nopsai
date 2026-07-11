@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -271,7 +272,7 @@ func TestHostedMCPPipelineSearchMatchFieldsAndSnippet(t *testing.T) {
 		"release",
 		"latest",
 		"database",
-		"group",
+		"team",
 		"steps:\n  - name: deploy\n",
 	)
 	if len(fields) != 1 || fields[0] != "definition" {
@@ -294,7 +295,7 @@ func TestHostedMCPPipelineSearchTokenizesApprovalStepQuery(t *testing.T) {
 		"release",
 		"latest",
 		"git",
-		"group",
+		"team",
 		definition,
 	)
 	if len(fields) != 1 || fields[0] != "definition" {
@@ -433,7 +434,7 @@ func TestHostedMCPProposeKnowledgeContextCreateReturnsGitOpsPlan(t *testing.T) {
 	app := &App{}
 	result, err := app.hostedMCPProposeKnowledgeContext(context.Background(), map[string]any{
 		"kind":        "runbook",
-		"group":       "team-1",
+		"team":        "team-1",
 		"name":        "release",
 		"description": "Release runbook",
 		"content":     "Ship carefully.",
@@ -752,7 +753,7 @@ func TestHostedMCPAuditRedactsSensitiveDedicatedTools(t *testing.T) {
 
 func TestHostedMCPMonitoringAnalyticsPathUsesAliases(t *testing.T) {
 	path := hostedMCPMonitoringAnalyticsPath("nopsai.get_monitoring_summary", map[string]any{
-		"group_id":                   "42",
+		"team_id":                    "42",
 		"pipeline_path":              "platform",
 		"llm_profile":                "standard",
 		"step_name":                  "plan",
@@ -760,11 +761,65 @@ func TestHostedMCPMonitoringAnalyticsPathUsesAliases(t *testing.T) {
 		"min_duration_seconds":       5,
 		"include_sensitive_response": true,
 	})
-	if !strings.Contains(path, "groupId=42") || !strings.Contains(path, "pipelinePath=platform") || !strings.Contains(path, "llmProfile=standard") || !strings.Contains(path, "stepName=plan") || !strings.Contains(path, "taskName=summarize") || !strings.Contains(path, "minDurationSeconds=5") {
+	if !strings.Contains(path, "teamId=42") || !strings.Contains(path, "pipelinePath=platform") || !strings.Contains(path, "llmProfile=standard") || !strings.Contains(path, "stepName=plan") || !strings.Contains(path, "taskName=summarize") || !strings.Contains(path, "minDurationSeconds=5") {
 		t.Fatalf("path = %q", path)
 	}
 	if strings.Contains(path, "include_sensitive_response") {
 		t.Fatalf("path leaked control argument: %q", path)
+	}
+}
+
+func TestHostedMCPConfigRepoPathUsesTeamEndpoint(t *testing.T) {
+	path := hostedMCPConfigRepoPath(map[string]any{"team_path": "team-1/platform"}, "/drift")
+	if path != "/v1/teams/team-1%2Fplatform/config-repository/drift" {
+		t.Fatalf("path = %q, want encoded team config repository route", path)
+	}
+}
+
+func TestHostedMCPNotificationRouteProposalUsesTeamGitOpsPath(t *testing.T) {
+	result, err := hostedMCPProposeNotificationRoute(map[string]any{"team_path": "team-1/platform"}, "delete")
+	if err != nil {
+		t.Fatalf("hostedMCPProposeNotificationRoute() error = %v", err)
+	}
+	gitops := result["gitops"].(map[string]any)
+	files := gitops["files"].([]map[string]any)
+	if got := files[0]["path"]; got != "config-repositories/teams/team-1/platform/notifications.yaml" {
+		t.Fatalf("notification route path = %v", got)
+	}
+}
+
+func TestHostedMCPSetupTemplatesPathUsesRepositoryTeams(t *testing.T) {
+	path := hostedMCPSetupTemplatesPath(map[string]any{
+		"profile": "team",
+		"repository_teams": []any{
+			map[string]any{"name": "platform", "repositories": []any{"acme/api"}},
+		},
+		"users": []any{
+			map[string]any{"sub": "alice@example.com", "team": "platform"},
+		},
+	})
+	parsed, err := url.Parse(path)
+	if err != nil {
+		t.Fatalf("url.Parse() error = %v", err)
+	}
+	if got := parsed.Query()["repository_team"]; len(got) != 1 || got[0] != "platform:acme/api" {
+		t.Fatalf("repository_team query = %#v", got)
+	}
+	if got := parsed.Query()["setup_user"]; len(got) != 1 || !strings.Contains(got[0], `"team":"platform"`) {
+		t.Fatalf("setup_user query = %#v", got)
+	}
+}
+
+func TestHostedMCPBootstrapSetupBodyAcceptsRepositoryTeams(t *testing.T) {
+	body := hostedMCPBootstrapSetupBody(map[string]any{
+		"profile": "team",
+		"confirm": true,
+		"repository_teams": []any{
+			map[string]any{"name": "platform", "repositories": []any{"acme/api"}},
+		},
+	})
+	if body["repository_teams"] == nil {
+		t.Fatalf("body missing repository_teams: %#v", body)
 	}
 }
 

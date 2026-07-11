@@ -18,15 +18,15 @@ type Queryer interface {
 }
 
 type ListFilter struct {
-	GroupID   *int
-	RootGroup bool
-	Branch    string
-	Limit     int
-	Offset    int
+	TeamID   *int
+	RootTeam bool
+	Branch   string
+	Limit    int
+	Offset   int
 }
 
 func List(ctx context.Context, db Queryer, filter ListFilter) ([]models.RunListItem, error) {
-	query, args := BuildListRunsQuery(filter.GroupID, filter.RootGroup, filter.Branch, filter.Limit, filter.Offset)
+	query, args := BuildListRunsQuery(filter.TeamID, filter.RootTeam, filter.Branch, filter.Limit, filter.Offset)
 	rows, err := db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -112,7 +112,7 @@ func ApplyDirectChildRunStatuses(ctx context.Context, db Queryer, runs []models.
 	return runs, nil
 }
 
-func BuildListRunsQuery(groupID *int, rootGroup bool, branchName string, limit, offset int) (string, []any) {
+func BuildListRunsQuery(teamID *int, rootTeam bool, branchName string, limit, offset int) (string, []any) {
 	query := `
 		SELECT
 		    pr.run_id, pr.pipeline_name, pr.pipeline_path, pr.pipeline_version, pr.status, COALESCE(pr.git_commit_sha, ''),
@@ -134,20 +134,20 @@ func BuildListRunsQuery(groupID *int, rootGroup bool, branchName string, limit, 
 	var conditions []string
 	withClause := ""
 
-	if groupID != nil {
-		args = append(args, *groupID)
+	if teamID != nil {
+		args = append(args, *teamID)
 		withClause = fmt.Sprintf(`
-			WITH RECURSIVE selected_groups AS (
-				SELECT id FROM groups WHERE id = $%d
+			WITH RECURSIVE selected_teams AS (
+				SELECT id FROM teams WHERE id = $%d
 				UNION ALL
 				SELECT g.id
-				FROM groups g
-				JOIN selected_groups sg ON g.parent_id = sg.id
+				FROM teams g
+				JOIN selected_teams sg ON g.parent_id = sg.id
 			)
 		`, len(args))
-		conditions = append(conditions, "pr.group_id IN (SELECT id FROM selected_groups)")
-	} else if rootGroup {
-		conditions = append(conditions, "pr.group_id IS NULL")
+		conditions = append(conditions, "pr.team_id IN (SELECT id FROM selected_teams)")
+	} else if rootTeam {
+		conditions = append(conditions, "pr.team_id IS NULL")
 	}
 
 	if branchName != "" {
@@ -163,7 +163,7 @@ func BuildListRunsQuery(groupID *int, rootGroup bool, branchName string, limit, 
 	return query, args
 }
 
-func GroupByBranch(items []models.RunListItem) map[string][]models.RunListItem {
+func TeamByBranch(items []models.RunListItem) map[string][]models.RunListItem {
 	out := make(map[string][]models.RunListItem)
 	for _, run := range items {
 		branch := "Others"

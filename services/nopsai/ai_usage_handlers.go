@@ -92,19 +92,19 @@ func (a *App) recordAIUsage(ctx context.Context, runID string, report models.AIU
 	var (
 		pipelinePath         string
 		pipelineName         string
-		groupID              sql.NullInt64
+		teamID               sql.NullInt64
 		requestedByType      sql.NullString
 		requestedByID        sql.NullString
 		effectiveSubjectType sql.NullString
 		effectiveSubjectID   sql.NullString
 	)
 	if err := a.db.QueryRow(ctx, `
-		SELECT COALESCE(pipeline_path, ''), COALESCE(pipeline_name, ''), group_id,
+		SELECT COALESCE(pipeline_path, ''), COALESCE(pipeline_name, ''), team_id,
 		       COALESCE(requested_by_type, ''), COALESCE(requested_by_id, ''),
 		       COALESCE(effective_subject_type, ''), COALESCE(effective_subject_id, '')
 		FROM pipeline_runs
 		WHERE run_id = $1
-	`, runID).Scan(&pipelinePath, &pipelineName, &groupID, &requestedByType, &requestedByID, &effectiveSubjectType, &effectiveSubjectID); err != nil {
+	`, runID).Scan(&pipelinePath, &pipelineName, &teamID, &requestedByType, &requestedByID, &effectiveSubjectType, &effectiveSubjectID); err != nil {
 		return fmt.Errorf("load run metadata: %w", err)
 	}
 	metadataJSON, err := json.Marshal(report.Metadata)
@@ -120,14 +120,14 @@ func (a *App) recordAIUsage(ctx context.Context, runID string, report models.AIU
 
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO ai_usage_events (
-			run_id, step_name, task_name, pipeline_path, pipeline_name, group_id,
+			run_id, step_name, task_name, pipeline_path, pipeline_name, team_id,
 			feature, provider, model, llm_profile,
 			prompt_tokens, completion_tokens, total_tokens,
 			input_cost_usd, output_cost_usd, total_cost_usd,
 			requested_by_type, requested_by_id, effective_subject_type, effective_subject_id, metadata
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21::jsonb)
-	`, runID, report.StepName, report.TaskName, pipelinePath, pipelineName, nullableGroupID(groupID),
+	`, runID, report.StepName, report.TaskName, pipelinePath, pipelineName, nullableTeamID(teamID),
 		report.Feature, report.Provider, report.Model, report.LLMProfile,
 		report.PromptTokens, report.CompletionTokens, report.TotalTokens,
 		report.InputCostUSD, report.OutputCostUSD, report.TotalCostUSD,
@@ -152,9 +152,9 @@ func (a *App) recordAIUsage(ctx context.Context, runID string, report models.AIU
 	return tx.Commit(ctx)
 }
 
-func nullableGroupID(groupID sql.NullInt64) any {
-	if !groupID.Valid {
+func nullableTeamID(teamID sql.NullInt64) any {
+	if !teamID.Valid {
 		return nil
 	}
-	return groupID.Int64
+	return teamID.Int64
 }

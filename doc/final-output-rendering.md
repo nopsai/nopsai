@@ -145,7 +145,7 @@ fields. Prometheus exports:
 - `nopsai_pipeline_final_output_render_attempts_total`
 - `nopsai_pipeline_final_output_render_failures_total`
 
-Labels are bounded to output type, pipeline path/name, and group.
+Labels are bounded to output type, pipeline path/name, and team.
 
 ## Code Ownership
 

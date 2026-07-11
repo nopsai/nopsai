@@ -12,7 +12,7 @@ import (
 var configRepositorySchemaStatements = []string{
 	`CREATE TABLE IF NOT EXISTS config_repositories (
 		id BIGSERIAL PRIMARY KEY,
-		scope_type TEXT NOT NULL CHECK (scope_type IN ('folder', 'system')),
+		scope_type TEXT NOT NULL CHECK (scope_type IN ('team', 'system')),
 		scope_id TEXT NOT NULL,
 		repo_url TEXT NOT NULL,
 		branch TEXT NOT NULL DEFAULT 'main',

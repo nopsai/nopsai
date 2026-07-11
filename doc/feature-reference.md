@@ -17,19 +17,19 @@ Supported setup capabilities:
 - step-by-step setup modal with required gates and skippable optional steps, shown
   after the first admin password change
 - persistent setup reference page after completion, including generated runtime
-  env groups, GitOps zip download, and starter file preview
+  env blocks, GitOps zip download, and starter file preview
 - local generation of missing signing, AAA, and dispatcher secret values
 - global GitOps config repository creation and optional sync kickoff
 - generated runtime variable output for container environment, secret-manager
   entries, or environment files
 - starter GitOps template preview for pipelines, reusable steps, scopes,
   triggers, access bootstrap, knowledge docs, Agent Profiles, LLM profiles, MCP
-  settings, and run group structure
-- direct starter database seeding for groups, starter pipeline, reusable step,
+  settings, and run team structure
+- direct starter database seeding for teams, starter pipeline, reusable step,
   triggers, variables, knowledge context, optional LLM profile, optional MCP
   examples, and optional users
-- one or two starter repository groups with selected repositories underneath
-- starter users with group role assignment, password creation, and forced first
+- one or two starter repository teams with selected repositories underneath
+- starter users with team role assignment, password creation, and forced first
   password change
 - guardrails that flag insecure default admin state and missing runtime
   prerequisites
@@ -48,7 +48,7 @@ Supported pipeline features:
 - multi-task steps
 - single-task `goal` steps
 - single-task `script` steps
-- approval steps with `approval.type`, assigned `approval.groups`, and optional `approval.allow_self_approval`
+- approval steps with `approval.type`, assigned `approval.teams`, and optional `approval.allow_self_approval`
 - reusable step inclusion with `step:<identifier>`
 - child pipeline inclusion with `pipeline:<identifier>`
 - conditional execution with `condition`
@@ -99,12 +99,12 @@ steps:
     depends_on: [build]
     approval:
       type: production-deploy
-      groups:
+      teams:
         - platform/prod
       allow_self_approval: false
 ```
 
-Approval group paths are relative folder paths. Any assigned group where the caller has `approval.approve` can approve or reject the pending gate. Pending approval runs are visible to assigned approvers even when the pipeline itself belongs to another folder, so approval queues do not depend on broad pipeline ownership.
+Approval team paths are relative team paths. Any assigned team where the caller has `approval.approve` can approve or reject the pending gate. Pending approval runs are visible to assigned approvers even when the pipeline itself belongs to another team, so approval queues do not depend on broad pipeline ownership.
 
 ## Execution Semantics
 
@@ -132,7 +132,7 @@ The runtime supports:
 Pipeline schedules are first-class resources for time-based automation:
 
 - schedules target stored pipelines and do not require a Git repository event
-- each schedule has a resource group path, optional run group path, schedule
+- each schedule has a resource team path, optional run team path, schedule
   kind, cron expression or one-time timestamp, timezone, enabled state,
   optional scope, and optional variable overrides
 - the schedule page lists visible schedules with next run time, latest run
@@ -152,10 +152,10 @@ Pipeline schedules are first-class resources for time-based automation:
 - execution uses a schedule-owned service account with explicit pipeline,
   scope, reusable-step, and child-pipeline grants
 
-Schedule resource grouping is organizational. A path such as `prod/scheduled`
-is a good way to present production automation, while `run_group_path` controls
+Schedule resource teaming is organizational. A path such as `prod/scheduled`
+is a good way to present production automation, while `run_team_path` controls
 where scheduled runs appear in Pipeline Runs and which notification policy
-lineage receives their events. The nearest policy on the run group or one of
+lineage receives their events. The nearest policy on the run team or one of
 its ancestors wins.
 
 ## Knowledge Context
@@ -246,7 +246,7 @@ GitOps-style configuration sync supports:
 - `scopes/` -> scoped variables declared under `variables:` and GitOps secret
   keys declared under `secrets:`
 - `knowledge/` -> managed knowledge context markdown documents
-- `config-repositories/` -> group config repo bindings, group shells, colocated group structure files, and system-repo group notification policies
+- `config-repositories/` -> team config repo bindings, team shells, colocated team structure files, and system-repo team notification policies
 - `setting/system/auth.yaml` -> local-login and OIDC SSO settings from a global config repo
 - `setting/system/mail.yaml` -> SMTP mail notification settings from a global config repo
 - `setting/system/llm_profile.yaml` -> system LLM profile registry from a global config repo
@@ -405,18 +405,18 @@ Sync behavior:
 
 - upsert Git-sourced items into the database
 - prune Git-sourced items removed from the config repo
-- preserve non-Git groups to avoid deleting user-managed structure
+- preserve non-Git teams to avoid deleting user-managed structure
 - reject flat top-level variable entries in scope files; scoped variables must
   be nested under `variables:`
 - import GitOps secret values only when they decrypt with the current NopsAI
   master key; otherwise keep the secret key with no value
-- sync system/global config repositories before group config repositories, so group bindings defined in Git can be picked up during the same sync-all run
-- group config repositories are authoritative for resources under their group path; parent repos prune their own managed resources in delegated groups
+- sync system/global config repositories before team config repositories, so team bindings defined in Git can be picked up during the same sync-all run
+- team config repositories are authoritative for resources under their team path; parent repos prune their own managed resources in delegated teams
 - team-scoped LLM, Agent, and MCP profile rows carry config repository metadata; Teams exposes profile editors, team config repositories import/export root `ai-profiles.yaml`, and run launch merges team profiles over the system catalog while system profile GitOps remains under `setting/system/*`
 - config repository bindings can enable Git push to a review branch with `write_enabled` and `write_branch`
-- config repository drift compares both directions across syncable declarative resources: pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, notification routes, run group/config-repository structure, access manifests, Agent Profiles, LLM profiles, MCP registry files, auth settings, mail settings, runtime settings, and encrypted credential envelopes. UI-side Access dialog changes for pipelines, reusable steps, scopes, and knowledge contexts are exported back into embedded GitOps `access:` blocks; pipeline run rows remain runtime/audit state.
+- config repository drift compares both directions across syncable declarative resources: pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, notification routes, run team/config-repository structure, access manifests, Agent Profiles, LLM profiles, MCP registry files, auth settings, mail settings, runtime settings, and encrypted credential envelopes. UI-side Access dialog changes for pipelines, reusable steps, scopes, and knowledge contexts are exported back into embedded GitOps `access:` blocks; pipeline run rows remain runtime/audit state.
 - config sync can adopt matching database-owned resources inside the syncing repo scope after the generated files are present in the sync branch, then mark them as GitOps-managed
-- `config-repositories/groups/<group>/structure.yaml` can place apps under group shells with `name` and `repo_url`; these files can also include inline `config:` blocks for group repo bindings
+- `config-repositories/teams/<team>/structure.yaml` can place apps under team shells with `name` and `repo_url`; these files can also include inline `config:` blocks for team repo bindings
 - auth settings GitOps is system/global only and binds provider credential references
 - runtime settings GitOps is system/global only; `dispatcher_routing` changes are persisted and applied by the live dispatcher through the control-plane sync path
 - mail settings GitOps is system/global only and stores `smtp.password_credential_ref` rather than the SMTP password plaintext
@@ -436,11 +436,11 @@ Pipeline notifications include:
 - backend-computed monitoring analytics under **Monitoring** with tabs for
   Overview, Runs, Pipelines, Steps & Tasks, Triggers, External Triggers,
   Runners, LLM Usage, Reliability, Efficiency, and Security
-- monitoring step analytics fall back to task-run grouping for historical runs
+- monitoring step analytics fall back to task-run aggregation for historical runs
   that do not have explicit `step_runs`, and monitoring tables link supported
   object references back to pipelines, pipeline runs, external triggers, and
   dispatcher runner status
-- shared monitoring filters for time range, group, pipeline, repository,
+- shared monitoring filters for time range, team, pipeline, repository,
   pipeline run ID, trigger source, status, subject identity, external trigger,
   schedule, duration range, and previous-period comparison with tab-level
   regression deltas
@@ -473,21 +473,21 @@ Pipeline notifications include:
 - multipart HTML and plain-text pipeline mail with glanceable status headers,
   failed step/task details, step/task progress, repository/run links, optional
   NopsAI footer branding, and bounded redacted error excerpts
-- group-level notification routing under
-  `GET|PUT|DELETE /v1/groups/{group}/notifications`
-- GitOps support for global `config-repositories/groups/<group>/notifications.yaml`
-  files and delegated group-repo `notifications.yaml` files at the configured
+- team-level notification routing under
+  `GET|PUT|DELETE /v1/teams/{team}/notifications`
+- GitOps support for global `config-repositories/teams/<team>/notifications.yaml`
+  files and delegated team-repo `notifications.yaml` files at the configured
   repository base path; review drift from Teams so the repository that owns the
-  group performs the export
-- one or more named routes per group policy, each with same-group recipients,
-  explicit users/groups, excludes, event selection, pipeline/repository/branch
+  team performs the export
+- one or more named routes per team policy, each with same-team recipients,
+  explicit users/teams, excludes, event selection, pipeline/repository/branch
   filters, mail channels, and dedupe/max-per-run throttling
-- explicit schedule and external-trigger `run_group_path` selection so runtime
-  notifications can target the operational group even when the pipeline is
-  defined elsewhere; selectable groups come from the team hierarchy
+- explicit schedule and external-trigger `run_team_path` selection so runtime
+  notifications can target the operational team even when the pipeline is
+  defined elsewhere; selectable teams come from the team hierarchy
 - asynchronous mail delivery for running, pending, success, failure, cancelled,
   approval requested, approval approved, and approval rejected events when a
-  saved or GitOps-managed route exists for the run group
+  saved or GitOps-managed route exists for the run team
 
 ## API And Run Management
 
@@ -495,8 +495,8 @@ Core run-management capabilities:
 
 - create run
 - list runs
-- list runs for a selected group/folder including descendant folders and apps
-- list root runs that are not assigned to any group
+- list runs for a selected team including descendant teams and apps
+- list root runs that are not assigned to any team
 - fetch run details
 - formatted Markdown/document/spreadsheet previews, inline PDF viewing,
   readable structured copy, and download of run-level final outputs
@@ -516,19 +516,19 @@ Core run-management capabilities:
 
 Run organization behavior:
 
-- folder/group path is the stable product boundary for pipelines, schedules,
+- team path is the stable product boundary for pipelines, schedules,
   external triggers, repositories, and runs
 - Teams owns create/delete, application placement, GitOps repository settings,
-  and notification routing for the current group hierarchy
+  and notification routing for the current team hierarchy
 - Teams exposes delegated LLM, Agent, and MCP profile APIs for callers with
-  `folder.read` or `folder.update` on the selected team
-- Pipeline Runs shows runtime history for selected groups/applications and runs
-  without a group assignment
+  `team.read` or `team.update` on the selected team
+- Pipeline Runs shows runtime history for selected teams/applications and runs
+  without a team assignment
 - pipeline path is used as the run owner when a run has no repository or
-  explicit group path
+  explicit team path
 - repository metadata remains a source/runtime identity for Git-triggered runs,
   not a mandatory parent for every pipeline
-- repository-triggered runs do not create application/group records when no
+- repository-triggered runs do not create application/team records when no
   existing owner can be resolved
 - scope remains a runtime environment/context attribute and filter; it is not a
   navigation parent under pipeline runs
@@ -570,8 +570,8 @@ Current auth/access features:
 - schedule resources with `pipeline_schedule.list/read/create/update/execute/delete/manage_acl`
 - per-resource Access controls for pipeline, reusable step, scope, and knowledge context usage
 - caller-based runtime use checks for manual, Git-triggered, and child-pipeline runs
-- resource visibility modes: group, restricted, and UI-labeled Public
-- group-path inheritance for child pipelines, runs, repository-associated apps, triggers, secrets, variables, steps, and knowledge contexts
+- resource visibility modes: team, restricted, and UI-labeled Public
+- team-path inheritance for child pipelines, runs, repository-associated apps, triggers, secrets, variables, steps, and knowledge contexts
 - deny-before-allow evaluation
 - effective-permission introspection with human-readable reasons
 - legacy Casbin-backed RBAC metadata compatibility
@@ -592,8 +592,8 @@ Important behavior:
 
 Pages present in the current UI:
 
-- `Pipeline runs`: subgroup/application/run panels, source-grouped runs, recent runs, event grouping, details, logs, rerun, cancel, branch cleanup
-- `Pipeline runs`: pending approval records with assigned groups and approve/reject actions inside run details
+- `Pipeline runs`: team/application/run panels, source-aggregated runs, recent runs, event aggregation, details, logs, rerun, cancel, branch cleanup
+- `Pipeline runs`: pending approval records with assigned teams and approve/reject actions inside run details
 - `Pipelines`: pipeline browser/editor, drafts, validation, dependency graphing, and Execute handoff to Lab
 - `Pipelines`: configured Kubernetes runtime pool suggestions for pipeline-level and step-level `runtime_pool` values
 - `Schedules`: schedule browser, pipeline-filtered schedule view, enable/disable, run now, latest-run link, and GitOps markers
@@ -602,7 +602,7 @@ Pages present in the current UI:
 - `Lab`: ad-hoc YAML editing, runtime pool suggestions, preselected pipeline handoff, and direct run execution
 - `Steps`: reusable step library, usage inspection, and step use-access controls
 - `Steps`: reusable step YAML validation and autocomplete for Kubernetes `runtime_pool` selection
-- `Knowledge Context`: kind/group/document browser, markdown editor/preview, source metadata, access settings, and usage inspection
+- `Knowledge Context`: kind/team/document browser, markdown editor/preview, source metadata, access settings, and usage inspection
 - `System`: config, data management, dispatcher, runner controls, runtime pool management, user/role/access management
 - `Profile`: email and password management
 - `Login`: local authentication entrypoint

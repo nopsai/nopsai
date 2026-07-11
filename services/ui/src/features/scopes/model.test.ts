@@ -13,14 +13,14 @@ import {
   extractTriggerPipelines,
   formatScopeDisplay,
   getScopeTreeNode,
-  groupScopedItems,
+  teamScopedItems,
   isEditableScopeSource,
   normalizeItemListPayload,
   normalizeRepositorySlug,
   normalizeScopePipelineList,
   normalizeScopeLabel,
   normalizeTriggerOverrideSlugs,
-  parentScopeFolder,
+  parentScopeTeam,
   parseScopedIdentity,
   parseScopeYamlSafe,
   scopeSourceLabel,
@@ -52,9 +52,9 @@ test('normalizes scoped item metadata and clone names', () => {
   assert.equal(suggestCloneName(['acme/app/token_copy'], 'acme/app', 'token'), 'token_copy_2');
 });
 
-test('builds scope trees with empty enterprise group folders', () => {
+test('builds scope trees with empty enterprise team teams', () => {
   const root = buildScopeTree(
-    [{ scope: '', label: 'Default', folderPath: '', description: '', secretCountHint: 0 }],
+    [{ scope: '', label: 'Default', teamPath: '', description: '', secretCountHint: 0 }],
     ['teams/platform']
   );
   assert.deepEqual(root.scopes, ['']);
@@ -62,11 +62,11 @@ test('builds scope trees with empty enterprise group folders', () => {
   assert.equal(root.children[0]?.children[0]?.fullPath, 'teams/platform');
   assert.equal(countScopesRecursive(root), 1);
   assert.equal(getScopeTreeNode(root, 'teams/platform')?.fullPath, 'teams/platform');
-  assert.equal(parentScopeFolder('teams/platform'), 'teams');
+  assert.equal(parentScopeTeam('teams/platform'), 'teams');
 });
 
-test('groups scoped items and preserves GitOps source behavior', () => {
-  assert.deepEqual(groupScopedItems(['GLOBAL_TOKEN', 'acme/api/API_KEY', 'acme/api/DB_URL']), {
+test('teams scoped items and preserves GitOps source behavior', () => {
+  assert.deepEqual(teamScopedItems(['GLOBAL_TOKEN', 'acme/api/API_KEY', 'acme/api/DB_URL']), {
     global: [{ full: 'GLOBAL_TOKEN', display: 'GLOBAL_TOKEN' }],
     repositories: [
       {

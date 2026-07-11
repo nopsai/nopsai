@@ -34,7 +34,7 @@ func TestCallbackRedirectURLUsesHashRouterLoginRoute(t *testing.T) {
 
 func TestHandleAuthOIDCCallbackReportsProviderAuthorizationError(t *testing.T) {
 	app := &App{}
-	req := httptest.NewRequest(http.MethodGet, "/v1/auth/oidc/nopsai/callback?error=invalid_scope&error_description=Invalid+scopes%3A+openid+email+profile+groups&state=state", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/auth/oidc/nopsai/callback?error=invalid_scope&error_description=Invalid+scopes%3A+openid+email+profile+teams&state=state", nil)
 	req.SetPathValue("provider", "nopsai")
 	rr := httptest.NewRecorder()
 
@@ -67,15 +67,15 @@ func TestNormalizeOIDCDomainMappings(t *testing.T) {
 	}
 }
 
-func TestNormalizeOIDCGroupMapping(t *testing.T) {
-	got := normalizeOIDCGroupMapping(map[string]string{
+func TestNormalizeOIDCTeamMapping(t *testing.T) {
+	got := normalizeOIDCTeamMapping(map[string]string{
 		" nopsai-admins ": " SSO Admins ",
 		" ":               "ignored",
 		"ignored":         " ",
 	})
 	want := map[string]string{"nopsai-admins": "SSO Admins"}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("normalizeOIDCGroupMapping() = %#v, want %#v", got, want)
+		t.Fatalf("normalizeOIDCTeamMapping() = %#v, want %#v", got, want)
 	}
 }
 
@@ -83,7 +83,7 @@ func TestNormalizeOIDCBasicRoleMapping(t *testing.T) {
 	got := normalizeOIDCBasicRoleMapping(map[string]oidcBasicRoleGrantMapping{
 		" team-1-owner ": {
 			Role:     " Owner ",
-			Resource: " folder:team-1 ",
+			Resource: " team:team-1 ",
 		},
 		"platform-admin": {
 			Role:     "admin",
@@ -96,8 +96,8 @@ func TestNormalizeOIDCBasicRoleMapping(t *testing.T) {
 	want := map[string]oidcBasicRoleGrantMapping{
 		"team-1-owner": {
 			Role:         "owner",
-			Resource:     "folder:team-1",
-			ResourceType: "folder",
+			Resource:     "team:team-1",
+			ResourceType: "team",
 			ResourceID:   "team-1",
 		},
 	}

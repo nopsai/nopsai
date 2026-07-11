@@ -31,7 +31,7 @@ function buildOptions(overrides: Partial<Parameters<typeof useYamlResourceMutati
     editorValue: '',
     validationErrorCount: 0,
     validationMessage: 'Fix validation errors before saving.',
-    permissionFolder: 'team',
+    permissionTeam: 'team',
     draftScope: 'user-1',
     canCreate: true,
     canUpdate: true,

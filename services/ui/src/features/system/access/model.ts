@@ -22,7 +22,7 @@ export type UserRole = {
   role: string;
 };
 
-export type UserAuthGroupSummary = {
+export type UserAuthTeamSummary = {
   id: string;
   name: string;
 };
@@ -47,8 +47,8 @@ export type UserSummary = {
   external_provider_id?: string;
   external_provider_name?: string;
   external_subject?: string;
-  external_groups?: string[];
-  external_auth_groups?: UserAuthGroupSummary[];
+  external_teams?: string[];
+  external_auth_teams?: UserAuthTeamSummary[];
   external_roles?: string[];
 };
 
@@ -94,9 +94,9 @@ export type IdentityProviderRecord = {
   client_credential_ref?: string;
   scopes: string[];
   allowed_email_domains: string[];
-  group_claim?: string;
+  team_claim?: string;
   role_mapping: Record<string, string>;
-  group_mapping: Record<string, string>;
+  team_mapping: Record<string, string>;
   basic_role_mapping: Record<string, IdentityProviderBasicRoleMapping>;
   auto_create_users?: boolean;
   default_role?: string;
@@ -132,9 +132,9 @@ export type IdentityProviderFormState = {
   client_credential_ref: string;
   scopes: string;
   allowed_email_domains: string;
-  group_claim: string;
+  team_claim: string;
   role_mapping: string;
-  group_mapping: string;
+  team_mapping: string;
   basic_role_mapping: string;
   auto_create_users: string;
   default_role: string;
@@ -156,7 +156,7 @@ export type AccessGrantRecord = {
   managedByConfigRepo?: boolean;
   managedByIdentityProvider?: boolean;
   identityProviderID?: string;
-  externalGroupName?: string;
+  externalTeamName?: string;
   source?: string;
 };
 
@@ -328,7 +328,7 @@ export const basicAccessGrantDescription = (
     return "This basic role gives platform-wide administrator access.";
   }
   if (label === "Root") {
-    return `This ${grant.role} basic role applies to items that are not inside any group.`;
+    return `This ${grant.role} basic role applies to items that are not inside any team.`;
   }
   return `This ${grant.role} basic role applies to ${label} and anything nested below it.`;
 };
@@ -341,12 +341,12 @@ export const normalizedAccessGrantResourceKey = (
 ) => {
   const resourceType = (grant.resourceType || "").trim().toLowerCase();
   const resourceID = (grant.resourceID || "").trim();
-  if (resourceType === "folder") {
-    const folderID = resourceID.replace(/^\/+|\/+$/g, "");
-    if (isRootAccessScopeID(folderID)) {
+  if (resourceType === "team") {
+    const teamID = resourceID.replace(/^\/+|\/+$/g, "");
+    if (isRootAccessScopeID(teamID)) {
       return { resourceType, resourceID: ROOT_ACCESS_SCOPE };
     }
-    return { resourceType, resourceID: folderID };
+    return { resourceType, resourceID: teamID };
   }
   if (resourceType === "platform") {
     return { resourceType, resourceID: "platform" };
@@ -391,7 +391,7 @@ export const normalizeBasicGrantInputs = (
         role,
         resourceType,
         resourceID:
-          resourceType === "folder"
+          resourceType === "team"
             ? normalizedAccessGrantResourceKey({ resourceType, resourceID })
                 .resourceID
             : resourceID,
@@ -418,7 +418,7 @@ export const isBasicAccessGrant = (grant: AccessGrantRecord) => {
   const role = (grant.role || "").trim().toLowerCase();
   const resourceType = (grant.resourceType || "").trim();
   return (
-    (resourceType === "folder" || resourceType === "platform") &&
+    (resourceType === "team" || resourceType === "platform") &&
     (role === BASIC_ROLE_VIEWER ||
       role === BASIC_ROLE_DEVELOPER ||
       role === BASIC_ROLE_OWNER ||
@@ -433,9 +433,9 @@ export const accessGrantMatchesUser = (
   const subjectType = (grant.subjectType || "").trim();
   const subjectID = (grant.subjectID || "").trim();
   if (!subjectID) return false;
-  if (subjectType === "auth_group" || subjectType === "group") {
-    return (user.external_auth_groups || []).some(
-      (group) => subjectID === group.id || subjectID === group.name,
+  if (subjectType === "auth_team" || subjectType === "team") {
+    return (user.external_auth_teams || []).some(
+      (team) => subjectID === team.id || subjectID === team.name,
     );
   }
   if (subjectType !== "user") return false;
@@ -495,9 +495,9 @@ export const emptyIdentityProviderForm = (): IdentityProviderFormState => ({
   client_credential_ref: "",
   scopes: "openid, email, profile",
   allowed_email_domains: "",
-  group_claim: "groups",
+  team_claim: "teams",
   role_mapping: "",
-  group_mapping: "",
+  team_mapping: "",
   basic_role_mapping: "",
   auto_create_users: "inherit",
   default_role: "",
@@ -521,15 +521,15 @@ export function identityProviderFormFromRecord(
     client_credential_ref: record.client_credential_ref || "",
     scopes: (record.scopes || []).join(", "),
     allowed_email_domains: (record.allowed_email_domains || []).join(", "),
-    group_claim: record.group_claim || "groups",
+    team_claim: record.team_claim || "teams",
     role_mapping: Object.entries(record.role_mapping || {})
-      .map(([group, role]) => `${group}: ${role}`)
+      .map(([team, role]) => `${team}: ${role}`)
       .join("\n"),
-    group_mapping: Object.entries(record.group_mapping || {})
-      .map(([group, authGroup]) => `${group}: ${authGroup}`)
+    team_mapping: Object.entries(record.team_mapping || {})
+      .map(([team, authTeam]) => `${team}: ${authTeam}`)
       .join("\n"),
     basic_role_mapping: Object.entries(record.basic_role_mapping || {})
-      .map(([group, grant]) => `${group}: ${grant.role} ${grant.resource || `${grant.resource_type || ""}:${grant.resource_id || ""}`}`)
+      .map(([team, grant]) => `${team}: ${grant.role} ${grant.resource || `${grant.resource_type || ""}:${grant.resource_id || ""}`}`)
       .join("\n"),
     auto_create_users:
       typeof record.auto_create_users === "boolean"
@@ -562,9 +562,9 @@ export function identityProviderPayloadFromForm(
     client_credential_ref: form.client_credential_ref.trim(),
     scopes: splitCSV(form.scopes),
     allowed_email_domains: splitCSV(form.allowed_email_domains),
-    group_claim: form.group_claim.trim(),
+    team_claim: form.team_claim.trim(),
     role_mapping: parseRoleMapping(form.role_mapping),
-    group_mapping: parseRoleMapping(form.group_mapping),
+    team_mapping: parseRoleMapping(form.team_mapping),
     basic_role_mapping: parseBasicRoleMapping(form.basic_role_mapping),
     auto_create_users: optionalBool(form.auto_create_users),
     default_role: form.default_role.trim(),
@@ -626,9 +626,9 @@ function normalizeIdentityProviderRecord(
           .map((item) => String(item || "").trim())
           .filter(Boolean)
       : [],
-    group_claim: readOptionalString(record.group_claim),
+    team_claim: readOptionalString(record.team_claim),
     role_mapping: normalizeRoleMappingRecord(record.role_mapping),
-    group_mapping: normalizeRoleMappingRecord(record.group_mapping),
+    team_mapping: normalizeRoleMappingRecord(record.team_mapping),
     basic_role_mapping: normalizeBasicRoleMappingRecord(record.basic_role_mapping),
     auto_create_users:
       typeof record.auto_create_users === "boolean"
@@ -660,9 +660,9 @@ function parseRoleMapping(value: string): Record<string, string> {
     const separator = trimmed.includes(":") ? ":" : "=";
     const index = trimmed.indexOf(separator);
     if (index <= 0) return;
-    const group = trimmed.slice(0, index).trim();
+    const team = trimmed.slice(0, index).trim();
     const role = trimmed.slice(index + 1).trim();
-    if (group && role) entries.push([group, role]);
+    if (team && role) entries.push([team, role]);
   });
   return Object.fromEntries(entries);
 }
@@ -676,14 +676,14 @@ function parseBasicRoleMapping(value: string): Record<string, IdentityProviderBa
     const equalsIndex = trimmed.indexOf("=");
     const index = equalsIndex >= 0 && (colonIndex < 0 || equalsIndex < colonIndex) ? equalsIndex : colonIndex;
     if (index <= 0) return;
-    const group = trimmed.slice(0, index).trim();
+    const team = trimmed.slice(0, index).trim();
     const value = trimmed.slice(index + 1).trim();
     const [role = "", resource = ""] = value.split(/\s+/, 2);
     const normalizedRole = role.trim().toLowerCase();
     const normalizedResource = resource.trim();
-    if (!group || !normalizedRole || !normalizedResource) return;
+    if (!team || !normalizedRole || !normalizedResource) return;
     entries.push([
-      group,
+      team,
       {
         role: normalizedRole,
         resource: normalizedResource,
@@ -698,10 +698,10 @@ function normalizeBasicRoleMappingRecord(value: unknown): Record<string, Identit
   if (!record) return {};
   return Object.fromEntries(
     Object.entries(record)
-      .map(([group, rawGrant]) => {
+      .map(([team, rawGrant]) => {
         const grant = asRecord(rawGrant);
         return [
-          group.trim(),
+          team.trim(),
           {
             role: readString(grant?.role).toLowerCase(),
             resource: readOptionalString(grant?.resource),
@@ -710,8 +710,8 @@ function normalizeBasicRoleMappingRecord(value: unknown): Record<string, Identit
           },
         ] as const;
       })
-      .filter(([group, grant]) =>
-        Boolean(group && grant.role && (grant.resource || (grant.resource_type && grant.resource_id))),
+      .filter(([team, grant]) =>
+        Boolean(team && grant.role && (grant.resource || (grant.resource_type && grant.resource_id))),
       ),
   );
 }
@@ -721,8 +721,8 @@ function normalizeRoleMappingRecord(value: unknown): Record<string, string> {
   if (!record) return {};
   return Object.fromEntries(
     Object.entries(record)
-      .map(([group, role]) => [group.trim(), String(role || "").trim()])
-      .filter(([group, role]) => group && role),
+      .map(([team, role]) => [team.trim(), String(role || "").trim()])
+      .filter(([team, role]) => team && role),
   );
 }
 
@@ -747,7 +747,7 @@ export function normalizeAccessGrantRecord(
     managedByConfigRepo: Boolean(record.managed_by_config_repo),
     managedByIdentityProvider: Boolean(record.managed_by_identity_provider),
     identityProviderID: readOptionalString(record.identity_provider_id),
-    externalGroupName: readOptionalString(record.external_group_name),
+    externalTeamName: readOptionalString(record.external_team_name),
     source: readOptionalString(record.source),
   };
 }

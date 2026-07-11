@@ -18,7 +18,7 @@ import {
   formFromSchedule,
   normalizeIdentifier,
   normalizeScopeOption,
-  uniqueRunGroupOptions,
+  uniqueRunTeamOptions,
   type PipelineSchedule,
   type ScheduleFormState,
   type ScheduleModalState,
@@ -37,7 +37,7 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
 
   const [schedules, setSchedules] = useState<PipelineSchedule[]>([]);
   const [pipelines, setPipelines] = useState<string[]>([]);
-  const [groups, setGroups] = useState<string[]>([]);
+  const [teams, setTeams] = useState<string[]>([]);
   const [scopes, setScopes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -73,12 +73,12 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
         const metadata = await fetchScheduleMetadata();
         if (cancelled) return;
         setPipelines(metadata.pipelines);
-        setGroups(metadata.groups);
+        setTeams(metadata.teams);
         setScopes(metadata.scopes);
       } catch {
         if (!cancelled) {
           setPipelines([]);
-          setGroups([]);
+          setTeams([]);
           setScopes(['']);
         }
       }
@@ -89,7 +89,7 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
     };
   }, []);
 
-  const runGroupOptions = useMemo(() => uniqueRunGroupOptions(groups), [groups]);
+  const runTeamOptions = useMemo(() => uniqueRunTeamOptions(teams), [teams]);
 
   const scopeOptions = useMemo(() => {
     const values = new Set(scopes.map(normalizeScopeOption));
@@ -127,10 +127,10 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
   }, [searchParams, setSearchParams]);
 
   const openCreate = useCallback(() => {
-    setForm(createEmptyForm(pipelineFilter, runGroupOptions));
+    setForm(createEmptyForm(pipelineFilter, runTeamOptions));
     setFormError(null);
     setModal({ mode: 'create' });
-  }, [pipelineFilter, runGroupOptions]);
+  }, [pipelineFilter, runTeamOptions]);
 
   const openEdit = useCallback((schedule: PipelineSchedule) => {
     setForm(formFromSchedule(schedule));
@@ -285,7 +285,7 @@ export default function SchedulesPage({ canWriteSchedules, canDeleteSchedules }:
           formError={formError}
           saving={saving}
           pipelines={pipelines}
-          runGroups={runGroupOptions}
+          runTeams={runTeamOptions}
           scopes={scopeOptions}
           canSubmit={canWriteSchedules}
           onChange={setForm}

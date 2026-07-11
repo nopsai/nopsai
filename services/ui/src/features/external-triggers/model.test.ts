@@ -1,18 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  externalTriggerGroupLabel,
+  externalTriggerTeamLabel,
   externalTriggerRelativeLabel,
   externalTriggerScopeLabel,
 } from './model.js';
 
-test('formats external trigger scope and group labels', () => {
+test('formats external trigger scope and team labels', () => {
   assert.equal(externalTriggerScopeLabel(), 'default');
   assert.equal(externalTriggerScopeLabel('default'), 'default');
   assert.equal(externalTriggerScopeLabel('.nopsai/pipelines/platform.yaml'), 'platform');
-  assert.equal(externalTriggerGroupLabel(), 'Root');
-  assert.equal(externalTriggerGroupLabel('root'), 'Root');
-  assert.equal(externalTriggerGroupLabel('platform/prod'), 'platform/prod');
+  assert.equal(externalTriggerTeamLabel(), 'Root');
+  assert.equal(externalTriggerTeamLabel('root'), 'Root');
+  assert.equal(externalTriggerTeamLabel('platform/prod'), 'platform/prod');
 });
 
 test('formats external trigger relative timestamps', () => {

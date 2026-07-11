@@ -26,14 +26,14 @@ const (
 
 var teamProfileSchemaStatements = []string{
 	`CREATE TABLE IF NOT EXISTS team_profile_settings (
-		team_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+		team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
 		key TEXT NOT NULL,
 		value TEXT NOT NULL DEFAULT '',
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		PRIMARY KEY (team_id, key)
 	)`,
 	`CREATE TABLE IF NOT EXISTS team_llm_profiles (
-		team_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+		team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
 		name TEXT NOT NULL,
 		provider TEXT NOT NULL,
 		model TEXT NOT NULL DEFAULT '',
@@ -56,7 +56,7 @@ var teamProfileSchemaStatements = []string{
 		PRIMARY KEY (team_id, name)
 	)`,
 	`CREATE TABLE IF NOT EXISTS team_agent_profiles (
-		team_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+		team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
 		id TEXT NOT NULL,
 		display_name TEXT NOT NULL,
 		role TEXT NOT NULL DEFAULT '',
@@ -73,7 +73,7 @@ var teamProfileSchemaStatements = []string{
 		PRIMARY KEY (team_id, id)
 	)`,
 	`CREATE TABLE IF NOT EXISTS team_mcp_profiles (
-		team_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+		team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
 		name TEXT NOT NULL,
 		description TEXT NOT NULL DEFAULT '',
 		enabled BOOLEAN NOT NULL DEFAULT TRUE,
@@ -560,24 +560,24 @@ func (a *App) handleDeleteTeamMCPProfile(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (a *App) resolveAuthorizedTeamProfile(w http.ResponseWriter, r *http.Request, write bool) (groupPathRecord, bool) {
+func (a *App) resolveAuthorizedTeamProfile(w http.ResponseWriter, r *http.Request, write bool) (teamPathRecord, bool) {
 	record, status, err := a.resolveTeamRecord(r.Context(), r.PathValue("teamID"), false)
 	if err != nil {
 		http.Error(w, err.Error(), status)
-		return groupPathRecord{}, false
+		return teamPathRecord{}, false
 	}
-	action := "folder.read"
+	action := "team.read"
 	if write {
-		action = "folder.update"
+		action = "team.update"
 	}
 	if !a.authorizeTeamProfileAccess(w, r, record.ID, action) {
-		return groupPathRecord{}, false
+		return teamPathRecord{}, false
 	}
 	return record, true
 }
 
 func (a *App) authorizeTeamProfileAccess(w http.ResponseWriter, r *http.Request, teamID int, action string) bool {
-	resource, err := a.folderGrantResourceByGroupID(r.Context(), teamID)
+	resource, err := a.teamGrantResourceByTeamID(r.Context(), teamID)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if strings.Contains(err.Error(), "not found") {
@@ -586,7 +586,7 @@ func (a *App) authorizeTeamProfileAccess(w http.ResponseWriter, r *http.Request,
 		http.Error(w, err.Error(), status)
 		return false
 	}
-	return a.requireAAADecision(w, r, action, model.ResourceRef{Type: grantResourceFolder, ID: resource.ID})
+	return a.requireAAADecision(w, r, action, model.ResourceRef{Type: grantResourceTeam, ID: resource.ID})
 }
 
 func parseTeamLLMProfilesPayload(payload llmProfilesRequest) (string, map[string]config.LLMProfile, error) {
@@ -625,7 +625,7 @@ func parseTeamLLMProfilesPayload(payload llmProfilesRequest) (string, map[string
 	return defaultProfile, profiles, nil
 }
 
-func (a *App) buildTeamLLMProfilesResponse(ctx context.Context, record groupPathRecord) (teamLLMProfilesResponse, error) {
+func (a *App) buildTeamLLMProfilesResponse(ctx context.Context, record teamPathRecord) (teamLLMProfilesResponse, error) {
 	defaultProfile, profiles, err := a.loadTeamLLMProfilesFromDB(ctx, record.ID)
 	if err != nil {
 		return teamLLMProfilesResponse{}, err
@@ -821,7 +821,7 @@ func upsertTeamLLMProfileTxWithSource(ctx context.Context, tx pgx.Tx, teamID int
 	return nil
 }
 
-func (a *App) buildTeamAgentProfilesResponse(ctx context.Context, record groupPathRecord) (teamAgentProfilesResponse, error) {
+func (a *App) buildTeamAgentProfilesResponse(ctx context.Context, record teamPathRecord) (teamAgentProfilesResponse, error) {
 	defaultProfile, err := a.loadTeamProfileSetting(ctx, record.ID, teamAgentDefaultProfileSetting)
 	if err != nil {
 		return teamAgentProfilesResponse{}, err
@@ -936,7 +936,7 @@ func upsertTeamAgentProfileTx(ctx context.Context, tx pgx.Tx, teamID int, profil
 	return nil
 }
 
-func (a *App) buildTeamMCPProfilesResponse(ctx context.Context, record groupPathRecord) (teamMCPProfilesResponse, error) {
+func (a *App) buildTeamMCPProfilesResponse(ctx context.Context, record teamPathRecord) (teamMCPProfilesResponse, error) {
 	profiles, err := a.loadTeamMCPProfilesFromDB(ctx, record.ID)
 	if err != nil {
 		return teamMCPProfilesResponse{}, err

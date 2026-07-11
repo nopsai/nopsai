@@ -22,7 +22,7 @@ type keycloakClientRepresentation struct {
 	ClientID string `json:"clientId"`
 }
 
-type keycloakGroupRepresentation struct {
+type keycloakTeamRepresentation struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Path string `json:"path"`
@@ -34,7 +34,7 @@ type keycloakRoleRepresentation struct {
 
 func (a *App) enrichOIDCIdentityEntitlements(ctx context.Context, provider oidcProviderRecord, identity oidcVerifiedIdentity) (oidcVerifiedIdentity, error) {
 	sync := normalizeOIDCEntitlementSync(provider.EntitlementSync)
-	if sync.Mode != "keycloak_group_roles" {
+	if sync.Mode != "keycloak_team_roles" {
 		return identity, nil
 	}
 	if sync.AdminBaseURL == "" || sync.Realm == "" {
@@ -64,31 +64,31 @@ func (a *App) enrichOIDCIdentityEntitlements(ctx context.Context, provider oidcP
 		}
 	}
 
-	groups, err := a.keycloakUserGroups(ctx, sync, adminToken, identity.Subject)
+	teams, err := a.keycloakUserTeams(ctx, sync, adminToken, identity.Subject)
 	if err != nil {
 		return identity, err
 	}
-	for _, group := range groups {
-		if strings.TrimSpace(group.ID) == "" {
-			identity.Groups = appendOIDCGroup(identity.Groups, firstNonEmptyString(group.Path, group.Name))
-			log.Warn().Str("provider", provider.ID).Str("group", group.Name).Str("path", group.Path).Msg("Skipping Keycloak group entitlement with empty group ID.")
+	for _, team := range teams {
+		if strings.TrimSpace(team.ID) == "" {
+			identity.Teams = appendOIDCTeam(identity.Teams, firstNonEmptyString(team.Path, team.Name))
+			log.Warn().Str("provider", provider.ID).Str("team", team.Name).Str("path", team.Path).Msg("Skipping Keycloak team entitlement with empty team ID.")
 			continue
 		}
-		if strings.TrimSpace(group.Path) == "" {
-			detail, err := a.keycloakGroup(ctx, sync, adminToken, group.ID)
+		if strings.TrimSpace(team.Path) == "" {
+			detail, err := a.keycloakTeam(ctx, sync, adminToken, team.ID)
 			if err != nil {
 				return identity, err
 			}
-			group = mergeKeycloakGroupRepresentation(group, detail)
+			team = mergeKeycloakTeamRepresentation(team, detail)
 		}
-		identity.Groups = appendOIDCGroup(identity.Groups, firstNonEmptyString(group.Path, group.Name))
-		roles, err := a.keycloakGroupClientRoles(ctx, sync, adminToken, group.ID, clientUUID)
+		identity.Teams = appendOIDCTeam(identity.Teams, firstNonEmptyString(team.Path, team.Name))
+		roles, err := a.keycloakTeamClientRoles(ctx, sync, adminToken, team.ID, clientUUID)
 		if err != nil {
 			return identity, err
 		}
-		target := keycloakGroupTarget(sync, group)
+		target := keycloakTeamTarget(sync, team)
 		if target == "" {
-			log.Warn().Str("provider", provider.ID).Str("group", group.Name).Str("path", group.Path).Msg("Skipping Keycloak group entitlement with empty NopsAI target.")
+			log.Warn().Str("provider", provider.ID).Str("team", team.Name).Str("path", team.Path).Msg("Skipping Keycloak team entitlement with empty NopsAI target.")
 			continue
 		}
 		for _, role := range roles {
@@ -97,11 +97,11 @@ func (a *App) enrichOIDCIdentityEntitlements(ctx context.Context, provider oidcP
 				continue
 			}
 			identity.BasicRoles = append(identity.BasicRoles, oidcDesiredBasicRoleGrant{
-				ExternalGroup: firstNonEmptyString(group.Path, group.Name),
-				Role:          basicRole,
-				ResourceType:  sync.TargetResourceType,
-				ResourceID:    target,
-				Inherit:       true,
+				ExternalTeam: firstNonEmptyString(team.Path, team.Name),
+				Role:         basicRole,
+				ResourceType: sync.TargetResourceType,
+				ResourceID:   target,
+				Inherit:      true,
 			})
 		}
 	}
@@ -194,34 +194,34 @@ func (a *App) keycloakUserClientRoles(ctx context.Context, sync oidcEntitlementS
 	return roles, nil
 }
 
-func (a *App) keycloakUserGroups(ctx context.Context, sync oidcEntitlementSyncConfig, token, userID string) ([]keycloakGroupRepresentation, error) {
-	var groups []keycloakGroupRepresentation
+func (a *App) keycloakUserTeams(ctx context.Context, sync oidcEntitlementSyncConfig, token, userID string) ([]keycloakTeamRepresentation, error) {
+	var teams []keycloakTeamRepresentation
 	path := "/admin/realms/" + url.PathEscape(sync.Realm) + "/users/" + url.PathEscape(userID) + "/groups?briefRepresentation=false"
-	if err := a.keycloakAdminGET(ctx, sync, token, path, &groups); err != nil {
+	if err := a.keycloakAdminGET(ctx, sync, token, path, &teams); err != nil {
 		return nil, err
 	}
-	return groups, nil
+	return teams, nil
 }
 
-func (a *App) keycloakGroup(ctx context.Context, sync oidcEntitlementSyncConfig, token, groupID string) (keycloakGroupRepresentation, error) {
-	var group keycloakGroupRepresentation
-	path := "/admin/realms/" + url.PathEscape(sync.Realm) + "/groups/" + url.PathEscape(groupID)
-	if err := a.keycloakAdminGET(ctx, sync, token, path, &group); err != nil {
-		return keycloakGroupRepresentation{}, err
+func (a *App) keycloakTeam(ctx context.Context, sync oidcEntitlementSyncConfig, token, teamID string) (keycloakTeamRepresentation, error) {
+	var team keycloakTeamRepresentation
+	path := "/admin/realms/" + url.PathEscape(sync.Realm) + "/groups/" + url.PathEscape(teamID)
+	if err := a.keycloakAdminGET(ctx, sync, token, path, &team); err != nil {
+		return keycloakTeamRepresentation{}, err
 	}
-	return group, nil
+	return team, nil
 }
 
-func (a *App) keycloakGroupClientRoles(ctx context.Context, sync oidcEntitlementSyncConfig, token, groupID, clientUUID string) ([]keycloakRoleRepresentation, error) {
+func (a *App) keycloakTeamClientRoles(ctx context.Context, sync oidcEntitlementSyncConfig, token, teamID, clientUUID string) ([]keycloakRoleRepresentation, error) {
 	var roles []keycloakRoleRepresentation
-	path := "/admin/realms/" + url.PathEscape(sync.Realm) + "/groups/" + url.PathEscape(groupID) + "/role-mappings/clients/" + url.PathEscape(clientUUID) + "/composite"
+	path := "/admin/realms/" + url.PathEscape(sync.Realm) + "/groups/" + url.PathEscape(teamID) + "/role-mappings/clients/" + url.PathEscape(clientUUID) + "/composite"
 	if err := a.keycloakAdminGET(ctx, sync, token, path, &roles); err != nil {
 		return nil, err
 	}
 	return roles, nil
 }
 
-func mergeKeycloakGroupRepresentation(base, detail keycloakGroupRepresentation) keycloakGroupRepresentation {
+func mergeKeycloakTeamRepresentation(base, detail keycloakTeamRepresentation) keycloakTeamRepresentation {
 	if strings.TrimSpace(base.ID) == "" {
 		base.ID = detail.ID
 	}
@@ -252,9 +252,9 @@ func (a *App) keycloakAdminGET(ctx context.Context, sync oidcEntitlementSyncConf
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-func keycloakGroupTarget(sync oidcEntitlementSyncConfig, group keycloakGroupRepresentation) string {
-	target := strings.Trim(strings.TrimSpace(firstNonEmptyString(group.Path, group.Name)), "/")
-	prefix := strings.Trim(strings.TrimSpace(sync.GroupPathPrefix), "/")
+func keycloakTeamTarget(sync oidcEntitlementSyncConfig, team keycloakTeamRepresentation) string {
+	target := strings.Trim(strings.TrimSpace(firstNonEmptyString(team.Path, team.Name)), "/")
+	prefix := strings.Trim(strings.TrimSpace(sync.TeamPathPrefix), "/")
 	if prefix != "" {
 		if target == prefix {
 			return ""
@@ -264,17 +264,17 @@ func keycloakGroupTarget(sync oidcEntitlementSyncConfig, group keycloakGroupRepr
 	return strings.Trim(target, "/")
 }
 
-func appendOIDCGroup(groups []string, group string) []string {
-	group = strings.TrimSpace(group)
-	if group == "" {
-		return groups
+func appendOIDCTeam(teams []string, team string) []string {
+	team = strings.TrimSpace(team)
+	if team == "" {
+		return teams
 	}
-	for _, existing := range groups {
-		if strings.TrimSpace(existing) == group {
-			return groups
+	for _, existing := range teams {
+		if strings.TrimSpace(existing) == team {
+			return teams
 		}
 	}
-	return append(groups, group)
+	return append(teams, team)
 }
 
 func normalizeExternalAccessRoleName(raw string) (string, bool) {

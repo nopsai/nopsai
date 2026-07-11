@@ -13,7 +13,7 @@ func boolPtr(value bool) *bool {
 func TestBuildRepositoryInputDefaultsAndValidation(t *testing.T) {
 	input, err := BuildRepositoryInput(RepositoryInputRequest{
 		RepoURL: " https://github.com/acme/configs.git ",
-	}, models.ConfigRepositoryScopeFolder, " team-1/ ", "user-1")
+	}, models.ConfigRepositoryScopeTeam, " team-1/ ", "user-1")
 	if err != nil {
 		t.Fatalf("BuildRepositoryInput() error = %v", err)
 	}
@@ -36,14 +36,14 @@ func TestBuildRepositoryInputDefaultsAndValidation(t *testing.T) {
 	if _, err := BuildRepositoryInput(RepositoryInputRequest{
 		RepoURL:  "https://github.com/acme/configs.git",
 		BasePath: "../outside",
-	}, models.ConfigRepositoryScopeFolder, "team-1", "user-1"); err == nil {
+	}, models.ConfigRepositoryScopeTeam, "team-1", "user-1"); err == nil {
 		t.Fatal("BuildRepositoryInput() accepted escaping base_path")
 	}
 
 	input, err = BuildRepositoryInput(RepositoryInputRequest{
 		RepoURL:      "https://github.com/acme/configs.git",
 		WriteEnabled: boolPtr(true),
-	}, models.ConfigRepositoryScopeFolder, "team-1", "user-1")
+	}, models.ConfigRepositoryScopeTeam, "team-1", "user-1")
 	if err != nil {
 		t.Fatalf("BuildRepositoryInput() with write enabled error = %v", err)
 	}
@@ -54,7 +54,7 @@ func TestBuildRepositoryInputDefaultsAndValidation(t *testing.T) {
 	if _, err := BuildRepositoryInput(RepositoryInputRequest{
 		RepoURL:     "https://github.com/acme/configs.git",
 		WriteBranch: "bad branch",
-	}, models.ConfigRepositoryScopeFolder, "team-1", "user-1"); err == nil {
+	}, models.ConfigRepositoryScopeTeam, "team-1", "user-1"); err == nil {
 		t.Fatal("BuildRepositoryInput() accepted invalid write_branch")
 	}
 }

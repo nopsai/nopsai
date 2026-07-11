@@ -134,22 +134,22 @@ curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \
 
 curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"id":"corporate","type":"oidc","display_name":"Company SSO","issuer":"https://idp.company.com","client_id":"client-id","client_credential_ref":"credential://system/oidc/corporate/client-secret","scopes":["openid","email","profile"],"allowed_email_domains":["company.com"],"group_claim":"groups","entitlement_sync":{"mode":"keycloak_group_roles","admin_base_url":"https://keycloak.example.com","realm":"company","admin_client_id":"nopsai-admin","admin_client_credential_ref":"credential://system/oidc/corporate/admin-client-secret","client_id":"nopsai","target_resource_type":"folder"},"enabled":true}' \
+  -d '{"id":"corporate","type":"oidc","display_name":"Company SSO","issuer":"https://idp.company.com","client_id":"client-id","client_credential_ref":"credential://system/oidc/corporate/client-secret","scopes":["openid","email","profile"],"allowed_email_domains":["company.com"],"team_claim":"teams","entitlement_sync":{"mode":"keycloak_team_roles","admin_base_url":"https://keycloak.example.com","realm":"company","admin_client_id":"nopsai-admin","admin_client_credential_ref":"credential://system/oidc/corporate/admin-client-secret","client_id":"nopsai","target_resource_type":"team"},"enabled":true}' \
   http://localhost:8080/v1/admin/identity-providers/corporate
 ```
 
-For local SSO testing against real users and groups, see
+For local SSO testing against real users and teams, see
 [local-keycloak-sso.md](./local-keycloak-sso.md). The fixture provides a
 Keycloak realm, a confidential `nopsai` client, and seeded `admin`, `owner`,
 and `viewer` client-role mappings.
 
 OIDC-created or linked users are marked with `external_managed` in
 `GET /v1/admin/users`. Their `display_name`, external provider, subject,
-external groups, mapped NopsAI auth groups, and externally sourced roles are
+external teams, mapped NopsAI auth teams, and externally sourced roles are
 returned for administration views. Local user-role and basic-role mutation
 endpoints reject those users because the identity provider owns their direct
 role assignments. With Keycloak entitlement sync, direct client roles drive
-global access roles and group client roles drive provider-managed scoped Basic
+global access roles and team client roles drive provider-managed scoped Basic
 roles.
 Leave `default_role` empty for least-privilege SSO providers; set it only when
 every auto-created SSO user should intentionally receive the same global role.
@@ -179,13 +179,13 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - GitHub App IDs, credential references, and git-bot URLs can be managed in the global config repo at `setting/system/github.yaml`.
 - Runner defaults, runtime defaults, dispatcher routing, and assistant settings can be managed in the global config repo at `setting/system/runner.yaml`.
 - Encrypted system credential envelopes can be managed in the global config repo at `setting/system/credentials.yaml`.
-- Managed knowledge context markdown files can be synced from `knowledge/<kind>/<group>/<document>.md`.
+- Managed knowledge context markdown files can be synced from `knowledge/<kind>/<team>/<document>.md`.
 
 ## Teams
 
 Teams own applications, GitOps bindings, notification policies, and
 team-scoped AI profiles. The current implementation stores teams and
-applications in the compatibility `groups` table, but clients should use
+applications in the compatibility `teams` table, but clients should use
 `/v1/teams` for team administration.
 
 ```bash
@@ -206,7 +206,7 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
   http://localhost:8080/v1/teams/platform/applications
 ```
 
-Team config repository and notification endpoints mirror the legacy group
+Team config repository and notification endpoints mirror the legacy team
 routes:
 
 - `GET|PUT|DELETE /v1/teams/{teamID}/config-repository`
@@ -227,8 +227,8 @@ MCP profiles without taking over the system-owned catalogs:
 - `GET|POST /v1/teams/{teamID}/mcp-profiles`
 - `GET|PUT|DELETE /v1/teams/{teamID}/mcp-profiles/{profileName}`
 
-Reads require `folder.read` on the resolved team folder. Mutations require
-`folder.update`. Team profile rows carry config-repository metadata columns and
+Reads require `team.read` on the resolved team resource. Mutations require
+`team.update`. Team profile rows carry config-repository metadata columns and
 team config repositories import/export root `ai-profiles.yaml`; system profile
 GitOps remains under `setting/system/*` today. Run preparation and agent launch
 merge team profile definitions over the system catalogs when a run belongs to
@@ -366,7 +366,7 @@ curl -X POST \
       "base_path": "",
       "enabled": true
     },
-    "repository_groups": [
+    "repository_teams": [
       {"name": "platform", "repositories": ["acme/service-api"]},
       {"name": "applications", "repositories": ["acme/web-app"]}
     ],
@@ -382,7 +382,7 @@ curl -X POST \
       {
         "email": "alice@example.com",
         "role": "owner",
-        "group": "platform",
+        "team": "platform",
         "password": "temporary-password"
       }
     ]
@@ -391,8 +391,8 @@ curl -X POST \
 ```
 
 The UI sends `profile: "team"` as a compatibility value, but the operator
-experience no longer asks for a starter profile. Repository groups are used for
-starter run folders and user role assignment. If `seed_llm_profile` is false,
+experience no longer asks for a starter profile. Repository teams are used for
+starter run teams and user role assignment. If `seed_llm_profile` is false,
 the bootstrap response includes a warning that AI-enabled pipelines may not work
 until an LLM profile is configured. For the full operator flow, see
 [first-install-wizard.md](./first-install-wizard.md).
@@ -484,7 +484,7 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 
 # Access-filtered monitoring aggregates
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
-  "http://localhost:8080/v1/monitoring/summary?from=2026-06-01T00:00:00Z&to=2026-06-11T00:00:00Z&groupId=42"
+  "http://localhost:8080/v1/monitoring/summary?from=2026-06-01T00:00:00Z&to=2026-06-11T00:00:00Z&teamId=42"
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
   "http://localhost:8080/v1/monitoring/runs/analytics?status=failure&repo=acme/app"
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
@@ -540,10 +540,10 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
   "http://localhost:8080/v1/system/dispatcher/kubernetes-runner-manifest?runner_id=k8s-runner-prod-1&runner_scopes=prod&runner_capacity=10&namespace=nopsai-runs&dispatcher_grpc_address=nopsai-dispatcher.example.com:9090"
 ```
 
-- `GET /v1/monitoring/dispatcher` is authenticated. It returns dispatcher-backed service status, runner totals, sanitized runner rows, queue depth, and active runs. Active run entries are filtered with `pipeline_run.list`, so users only see runs they can list through their group/repository access.
+- `GET /v1/monitoring/dispatcher` is authenticated. It returns dispatcher-backed service status, runner totals, sanitized runner rows, queue depth, and active runs. Active run entries are filtered with `pipeline_run.list`, so users only see runs they can list through their team/repository access.
 - `GET /v1/monitoring/summary` returns executive totals: run status counts, success/failure rates, duration percentiles, longest run, runtime consumed, step/task counts, external trigger invocations, notification failures, LLM token totals, and runner utilization.
 - `GET /v1/monitoring/runners/history` returns hourly runner capacity, active-job, inflight-job, queued-job, and utilization buckets from `runner_metric_snapshots`. Snapshots are sampled opportunistically when Monitoring reads dispatcher status or the summary endpoint.
-- `GET /v1/monitoring/runs/analytics` returns runs over time, status split, duration/queue/end-to-end percentiles, longest runs, rerun/timeout counts, failure groups, heatmap cells, and a recent run table.
+- `GET /v1/monitoring/runs/analytics` returns runs over time, status split, duration/queue/end-to-end percentiles, longest runs, rerun/timeout counts, failure buckets, heatmap cells, and a recent run table.
 - `GET /v1/monitoring/pipelines/performance`, `/steps/performance`, and `/tasks/performance` return backend-computed average, median, p95, p99, max, total duration, success/failure rates, and queue-time metrics where applicable.
 - `GET /v1/monitoring/triggers/analytics` and `/external-triggers/analytics` return trigger-source reliability plus external trigger invocation, caller, idempotency, last-fired, rate-limit violation, and error aggregates.
 - `GET /v1/monitoring/ai-usage`, `/reliability`, `/efficiency`, and `/security` return LLM usage with exact/estimated token splits, incident/reliability, token efficiency, and governance aggregates for the same filtered run set. The LLM Usage response includes totals plus `by_pipeline`, `by_step`, `by_task`, `by_feature`, `by_profile`, `by_model`, `by_subject`, trend, and top-token-run rows. Global AI usage adds assistant chat message tokens as the `assistant_chat` feature and exposes `assistant_chat_tokens`/`assistant_chat_messages`; run-scoped drilldowns stay limited to run AI usage events. Efficiency recommendations are also persisted into `monitoring_recommendations`.
@@ -551,7 +551,7 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - `GET|POST|PUT|DELETE /v1/monitoring/alert-rules`, `POST /v1/monitoring/alert-rules/{ruleID}/evaluate`, and `GET /v1/monitoring/alert-events` manage alert rules and persisted evaluation events. Updating a config-repo-managed alert rule stores a database override, and deleting one removes the database row; the next GitOps sync can replace or recreate it unless the change is pushed to GitOps. The first evaluator supports `failure_rate`, `p95_duration_seconds`, `queued_jobs`, `runner_utilization`, `ai_tokens`, and `external_trigger_failures`.
 - `GET /v1/monitoring/recommendations`, `POST /v1/monitoring/recommendations/{recommendationID}/acknowledge`, and `POST /v1/monitoring/recommendations/{recommendationID}/resolve` manage persisted recommendation workflow status.
 - Agents record LLM usage with `POST /v1/internal/runs/{runID}/ai-usage` using an agent service JWT. The endpoint stores run, step, task, provider, model, LLM profile, token totals, metadata, and a per-run usage summary. Run list/detail responses expose that summary as `ai_usage`, while detail step/task rows include their own `ai_usage` totals for API compatibility. Provider token metadata is used when available; otherwise the agent records an estimated token count with `metadata.estimated_tokens=true`. Pipeline final output generation is recorded as the `pipeline_final_output` feature.
-- Monitoring aggregate endpoints accept shared query parameters: `from`, `to`, `groupId`, `pipelinePath`, `pipelineName`, `repo`, `runId`, `branch`/`ref`, `commitSHA`, `triggerSource`, `status`, `requestedByType`, `requestedById`, `effectiveSubjectType`, `effectiveSubjectId`, `externalTriggerId`, `scheduleId`, `minDurationSeconds`, `maxDurationSeconds`, and `compare=previous_period`. The UI fetches the shifted previous window and renders regression deltas on Monitoring tabs when comparison is enabled. Pipeline Runs usage links open Monitoring with `tab=ai-usage&runId=<pipeline-run-id>` and use an all-time window for that run-scoped drilldown.
+- Monitoring aggregate endpoints accept shared query parameters: `from`, `to`, `teamId`, `pipelinePath`, `pipelineName`, `repo`, `runId`, `branch`/`ref`, `commitSHA`, `triggerSource`, `status`, `requestedByType`, `requestedById`, `effectiveSubjectType`, `effectiveSubjectId`, `externalTriggerId`, `scheduleId`, `minDurationSeconds`, `maxDurationSeconds`, and `compare=previous_period`. The UI fetches the shifted previous window and renders regression deltas on Monitoring tabs when comparison is enabled. Pipeline Runs usage links open Monitoring with `tab=ai-usage&runId=<pipeline-run-id>` and use an all-time window for that run-scoped drilldown.
 - Monitoring aggregate endpoints first load candidate run IDs in Postgres, filter them through AAA with `pipeline_run.list`, then aggregate only visible run IDs. External trigger analytics also filters trigger-only rows with `external_trigger.read` so failed invocations that did not create runs are still governed.
 - `GET /metrics` emits Prometheus text format. Metrics include DB-backed pipeline, output, duration, notification, trigger, LLM, runner, approval, and audit series plus in-memory System Logs active/opened streams, provider reconnect/error, redaction, and dropped-line counters.
 - System Logs source discovery is AAA-filtered with `system_log.read` on `system_log:<sourceID>`. Tail and stream endpoints accept registry IDs only. SSE emits `status`, signed-cursor `log`, and `reset` events; stream heartbeats are comments. See [system-logs.md](./system-logs.md).
@@ -619,7 +619,7 @@ Only absolute `http` and `https` URLs are rendered. When no public URL is
 configured, the message remains complete but omits the run link and remote
 logo.
 
-Group notification routes:
+Team notification routes:
 
 ```bash
 curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \
@@ -632,7 +632,7 @@ curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \
         "enabled": true,
         "recipients": {
           "include": {
-            "teams": ["same_group"],
+            "teams": ["same_team"],
             "users": ["release@example.com"]
           },
           "exclude": {
@@ -667,7 +667,7 @@ curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \
         "enabled": true,
         "recipients": {
           "include": {
-            "groups": ["team-1/release-approvers"]
+            "teams": ["team-1/release-approvers"]
           }
         },
         "events": {
@@ -690,15 +690,15 @@ curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \
       }
     ]
   }' \
-  http://localhost:8080/v1/groups/team-1/notifications
+  http://localhost:8080/v1/teams/team-1/notifications
 ```
 
 GitOps:
 
 - The global config repo may define `setting/system/auth.yaml`.
 - The global config repo may define `setting/system/mail.yaml`.
-- The global config repo may define group notification policies with one or more named routes at `config-repositories/groups/<group>/notifications.yaml`.
-- A group-scoped config repo may define `notifications.yaml` with one or more named routes for its bound group.
+- The global config repo may define team notification policies with one or more named routes at `config-repositories/teams/<team>/notifications.yaml`.
+- A team-scoped config repo may define `notifications.yaml` with one or more named routes for its bound team.
 - SMTP passwords are never stored in GitOps; only
   `smtp.password_credential_ref` is synced.
 
@@ -710,7 +710,7 @@ NopsAI calls the internal AAA service for authorization decisions and layers pro
 
 Predefined product roles:
 
-- `viewer`: read-only access to group metadata, pipelines, schedules, runs, logs, triggers, repository metadata, step metadata, knowledge context metadata/content, config repository metadata, secret metadata, and variable metadata
+- `viewer`: read-only access to team metadata, pipelines, schedules, runs, logs, triggers, repository metadata, step metadata, knowledge context metadata/content, config repository metadata, secret metadata, and variable metadata
 - `developer`: viewer permissions plus pipeline create/update/execute, schedule create/update/execute, runtime `*.use` permissions, run approval, rerun/cancel, trigger updates, secret value writes, variable writes, repository updates, scope updates, reusable step usage, knowledge context usage, runner usage, and config repository usage
 - `owner`: developer and viewer permissions plus all scoped non-admin actions, delete operations, secret and variable value reads, and permission management inside the owned scope
 - `admin`: platform-wide access through the normal AAA `Check` path, with sensitive actions still audited
@@ -718,9 +718,9 @@ Predefined product roles:
 Important behavior:
 
 - Product roles are expanded to low-level AAA permissions when the grant is created.
-- Group grants inherit to child groups, app folders, pipelines, schedules, runs, repository-associated runs, triggers, repositories, scoped secrets, scoped variables, reusable steps, and knowledge contexts under that group path. Repository-associated runs are resolved through app `repository_full_name` metadata and the run `group_id` when present.
+- Team grants inherit to child teams, apps, pipelines, schedules, runs, repository-associated runs, triggers, repositories, scoped secrets, scoped variables, reusable steps, and knowledge contexts under that team path. Repository-associated runs are resolved through app `repository_full_name` metadata and the run `team_id` when present.
 - Runtime resource use is checked with the original caller identity: manual runs use the user, Git-triggered runs use the repository, and internal dispatcher calls do not inherit pipeline-owner permissions.
-- Approval decisions check `approval.approve` against the folder groups assigned by the approval step. Pending approval runs are listable/readable by assigned approvers for decision-making without granting log read or unrelated pipeline ownership.
+- Approval decisions check `approval.approve` against the teams assigned by the approval step. Pending approval runs are listable/readable by assigned approvers for decision-making without granting log read or unrelated pipeline ownership.
 - `developer` can write secret values but cannot read them.
 - `developer` and `viewer` cannot manage ACLs.
 - `owner` cannot grant `admin`.
@@ -732,13 +732,13 @@ Important behavior:
 Supported access-grant subject types:
 
 - `user`
-- `auth_group`
+- `auth_team`
 - `repository`
 - `trigger`
 - `service_account`
 - `internal_service`
 
-Group grants use the internal `folder` resource type and target group paths, not numeric `group_id` values. Example: `/payments/backend`.
+Team grants may use `resource_type: "team"` and target team paths, not numeric `team_id` values. Example: `/payments/backend`.
 
 ---
 
@@ -809,7 +809,7 @@ curl -X POST \
     "enabled":true,
     "pipeline":"platform/prod/platform-maintenance",
     "scope":"prod",
-    "run_group_path":"platform/prod",
+    "run_team_path":"platform/prod",
     "allowed_callers":[{"type":"service_account","id":"servicenow-prod"}],
     "variable_mapping":{"VERSION":"payload.version"},
     "payload_schema":{
@@ -862,7 +862,7 @@ name: Deploy prod from ServiceNow
 enabled: true
 pipeline: platform/prod/platform-maintenance
 scope: prod
-run_group_path: platform/prod
+run_team_path: platform/prod
 allowed_callers:
   - type: service_account
     id: servicenow-prod
@@ -890,10 +890,10 @@ Authorization and controls:
 
 - Management uses `external_trigger.read`, `external_trigger.create`, `external_trigger.update`, and `external_trigger.delete`.
 - Invocation requires a valid bearer token, a matching `allowed_callers` entry, `external_trigger.invoke` on the trigger, `pipeline.execute` for the selected pipeline, and runtime `*.use` checks for the selected pipeline, scope, reusable steps, child pipelines, knowledge contexts, secrets, variables, and runners.
-- `allowed_callers` supports `user`, `auth_group`, and `service_account`; use service accounts for external systems.
-- `run_group_path` selects the Pipeline Runs group for invoked runs so group
+- `allowed_callers` supports `user`, `auth_team`, and `service_account`; use service accounts for external systems.
+- `run_team_path` selects the Pipeline Runs team for invoked runs so team
   notification routes can deliver external-trigger run events. Use `root` for
-  root runs with no group assignment; omitted or empty values normalize to
+  root runs with no team assignment; omitted or empty values normalize to
   `root`.
 - Idempotency keys are scoped to trigger, caller type, and caller id. A repeated successful key returns the original run response; an in-flight key returns `409`.
 - `payload_schema` supports object schemas with `required` and simple `properties.<name>.type` validation.
@@ -958,21 +958,21 @@ the generic payload contract, path-filter semantics, and operations guidance.
 Use these endpoints to assign product roles to subjects on resources.
 
 ```bash
-# Grant developer to a user on a group subtree
+# Grant developer to a user on a team subtree
 curl -X POST \
   -H "Content-Type: application/json" \
   -d '{
     "subject_type":"user",
     "subject_id":"alice",
     "role":"developer",
-    "resource_type":"folder",
+    "resource_type":"team",
     "resource_id":"/payments",
     "inherit":true
   }' \
   http://localhost:8080/v1/access/grants
 
-# List grants for a group
-curl "http://localhost:8080/v1/access/grants?resource_type=folder&resource_id=/payments"
+# List grants for a team
+curl "http://localhost:8080/v1/access/grants?resource_type=team&resource_id=/payments"
 
 # Delete a grant
 curl -X DELETE http://localhost:8080/v1/access/grants/grant_123
@@ -980,12 +980,12 @@ curl -X DELETE http://localhost:8080/v1/access/grants/grant_123
 
 Grant request fields:
 
-- `subject_type`: `user`, `auth_group`, `repository`, `trigger`, `service_account`, or `internal_service`
-- `subject_id`: user subject/email/UUID, auth group id/name, repository `owner/repo`, trigger id, service-account id, or service id
+- `subject_type`: `user`, `auth_team`, `repository`, `trigger`, `service_account`, or `internal_service`
+- `subject_id`: user subject/email/UUID, auth team id/name, repository `owner/repo`, trigger id, service-account id, or service id
 - `role`: `viewer`, `developer`, `owner`, or `admin`
-- `resource_type`: `folder` for groups, `pipeline`, `pipeline_schedule`, `trigger`, `external_trigger`, `git_webhook_source`, `secret`, `variable`, `scope`, `repository`, `step`, `knowledge_context`, `runner`, `config_repo`, or `platform`
-- `resource_id`: group path such as `/payments`, pipeline id such as `team-1/dev/build`, repository id such as `owner/repo`, or `platform`
-- `inherit`: required for group subtree grants; group grants should normally use `true`
+- `resource_type`: `team` for teams, `pipeline`, `pipeline_schedule`, `trigger`, `external_trigger`, `git_webhook_source`, `secret`, `variable`, `scope`, `repository`, `step`, `knowledge_context`, `runner`, `config_repo`, or `platform`
+- `resource_id`: team path such as `/payments`, pipeline id such as `team-1/dev/build`, repository id such as `owner/repo`, or `platform`
+- `inherit`: required for team subtree grants; team grants should normally use `true`
 
 Example response:
 
@@ -995,7 +995,7 @@ Example response:
   "subject_type": "user",
   "subject_id": "alice",
   "role": "developer",
-  "resource_type": "folder",
+  "resource_type": "team",
   "resource_id": "/payments",
   "inherit": true,
   "granted_by": "admin"
@@ -1005,9 +1005,11 @@ Example response:
 Validation and guardrails:
 
 - The target subject and resource must already exist.
-- Every group must retain at least one `owner`.
+- Every team must retain at least one `owner`.
 - Only `owner` or `admin` can manage grants.
 - `admin` grants are only valid on `platform`.
+- `GET /v1/access/auth-teams` lists persisted SSO/AAA auth teams from `auth_teams` for subject selectors.
+- `GET /v1/access/teams` lists product team resources for team sharing and resource selectors.
 
 ---
 
@@ -1017,8 +1019,8 @@ Pipeline, reusable step, scope, and knowledge context pages expose an `Access` d
 
 Visibility modes:
 
-- `group`: only callers in the same group boundary can use the resource, and only when they already have the required use action
-- `restricted`: same-group use still works, and selected groups, repositories, or service accounts can also be granted use access
+- `team`: only callers in the same team boundary can use the resource, and only when they already have the required use action
+- `restricted`: same-team use still works, and selected teams, repositories, or service accounts can also be granted use access
 - `workspace`: shown as `Public` in the UI; authorized callers across the workspace can use the resource, but related scopes, secrets, variables, and runners are still checked separately
 
 Resource access endpoints:
@@ -1045,17 +1047,17 @@ curl -X POST \
   -d '{"subject_type":"repository","subject_id":"hosein-yousefii/test-app","actions":["knowledge_context.use"]}' \
   http://localhost:8080/v1/resources/knowledge_context/guardrail/security/repo-check/grants
 
-# Share with an existing group path
+# Share with an existing team path
 curl -X POST \
   -H "Content-Type: application/json" \
-  -d '{"subject_type":"group","subject_id":"team-1/app","actions":["pipeline.use"]}' \
+  -d '{"subject_type":"team","subject_id":"team-1/app","actions":["pipeline.use"]}' \
   http://localhost:8080/v1/resources/pipeline/team-1/build/grants
 
 # Delete a sharing grant
 curl -X DELETE http://localhost:8080/v1/resources/pipeline/team-1/build/grants/grant_123
 ```
 
-The group dropdown in the UI is populated from `GET /v1/groups`, using resolved group paths rather than numeric group IDs. The default scope is addressed as `/v1/resources/scope/default/access`; secret and variable rows store the default scope as `default`.
+The team dropdown in the UI is populated from `GET /v1/access/teams`, using resolved team paths rather than numeric team IDs. The default scope is addressed as `/v1/resources/scope/default/access`; secret and variable rows store the default scope as `default`.
 
 Resource-use check endpoints:
 
@@ -1088,7 +1090,7 @@ ADRs, runbooks, references, and examples to LLM-backed pipeline steps.
 # List readable documents
 curl http://localhost:8080/v1/knowledge-contexts
 
-# Inspect a document by kind/group/name
+# Inspect a document by kind/team/name
 curl http://localhost:8080/v1/knowledge-contexts/guardrail/security/repo-check
 
 # Upsert a UI-managed document
@@ -1096,7 +1098,7 @@ curl -X PUT \
   -H "Content-Type: application/json" \
   -d '{
     "kind":"guardrail",
-    "group":"security",
+    "team":"security",
     "name":"repo-check",
     "description":"Baseline repository safety rules",
     "content":"# Repository Check Guardrail\n\n- Do not expose secrets in logs.\n"
@@ -1150,12 +1152,12 @@ Example response:
   "allowed": true,
   "action": "pipeline.update",
   "resource": "pipeline:payments/deploy-api",
-  "reason": "user alice has developer on folder:/payments, inherited by pipeline:payments/deploy-api",
+  "reason": "user alice has developer on team:/payments, inherited by pipeline:payments/deploy-api",
   "matched_role": "developer",
   "matched_subject": "user alice",
-  "matched_resource": "folder:/payments",
+  "matched_resource": "team:/payments",
   "inherited": true,
-  "source_parent_resource": "folder:/payments",
+  "source_parent_resource": "team:/payments",
   "low_level_permission": "pipeline.update"
 }
 ```
@@ -1269,7 +1271,7 @@ curl -X PUT \
 
 - Repository endpoints also accept `?scope=` to target scoped values.
 - Omitting `?scope=` targets the default scope and stores `scope = 'default'`.
-- Repository-scoped entries returned by `GET /v1/secrets` are prefixed with `owner/repo/SECRET`, so the UI can group them under the same scope as global secrets.
+- Repository-scoped entries returned by `GET /v1/secrets` are prefixed with `owner/repo/SECRET`, so the UI can team them under the same scope as global secrets.
 - `GET /v1/secrets/scopes` reports only scopes (default, prod, etc.) to mirror the Scopes page.
 - Secrets resolve in the following order for the requested scope: repo+scope -> global+scope. Default/unscoped runs resolve repo+default -> global+default.
 - Pipeline YAML can reference a different scope with `scope:SECRET_NAME`, for example `dev:TEST_SECRET`; the step receives `TEST_SECRET`.
@@ -1326,10 +1328,10 @@ curl -X PUT \
 curl -X DELETE http://localhost:8080/v1/pipelines/team-1/dev/main-pipeline
 ```
 
-- Paths containing slashes map to nested groups (e.g. `team-1/dev`).
+- Paths containing slashes map to nested teams (e.g. `team-1/dev`).
 - Pipeline responses include metadata such as version, description, steps, tasks, timeout, container image, and LLM controls.
 - Pipeline YAML may declare `knowledge_context` at pipeline, step, or task level.
-- Group-level product grants inherit to pipelines below that group path.
+- Team-level product grants inherit to pipelines below that team path.
 
 ---
 
@@ -1337,7 +1339,7 @@ curl -X DELETE http://localhost:8080/v1/pipelines/team-1/dev/main-pipeline
 
 Schedules are first-class resources that run stored pipelines on one-time
 timestamps or recurring cron expressions without requiring a Git repository
-event. They are grouped by `path`, protected by `pipeline_schedule.*` actions,
+event. They are teamed by `path`, protected by `pipeline_schedule.*` actions,
 and execute through a
 schedule-owned service account that receives only the pipeline, scope, reusable
 step, and child-pipeline permissions needed for that schedule.
@@ -1360,7 +1362,7 @@ curl -X POST \
     "timezone":"UTC",
     "enabled":false,
     "scope":"team-1/prod",
-    "run_group_path":"team-1/prod",
+    "run_team_path":"team-1/prod",
     "variables":{"RELEASE_CHANNEL":"nightly"}
   }' \
   http://localhost:8080/v1/schedules
@@ -1375,7 +1377,7 @@ curl -X POST \
     "run_at":"2030-03-15T09:45",
     "timezone":"Europe/Amsterdam",
     "scope":"team-1/prod",
-    "run_group_path":"team-1/prod"
+    "run_team_path":"team-1/prod"
   }' \
   http://localhost:8080/v1/schedules
 
@@ -1398,11 +1400,11 @@ Schedule payload fields:
 
 - `path`: optional schedule resource path. If omitted, the schedule uses the
   target pipeline path. The UI uses this default; API and GitOps flows can still
-  use paths such as `prod/scheduled` when an operational subgroup is useful.
-- `run_group_path`: optional Pipeline Runs group for runs started by the
-  schedule. Use `root` for root runs with no group assignment; omitted or empty
-  values normalize to `root`. Use a concrete group when the schedule should
-  notify or appear under an operational group that is different from the
+  use paths such as `prod/scheduled` when an operational subteam is useful.
+- `run_team_path`: optional Pipeline Runs team for runs started by the
+  schedule. Use `root` for root runs with no team assignment; omitted or empty
+  values normalize to `root`. Use a concrete team when the schedule should
+  notify or appear under an operational team that is different from the
   pipeline definition path.
 - `name`: schedule name, unique within `path`.
 - `pipeline` or `pipeline_path` plus `pipeline_name`: target stored pipeline.
@@ -1439,7 +1441,7 @@ cron_expression: "0 2 * * *"
 timezone: UTC
 enabled: false
 scope: prod
-run_group_path: prod
+run_team_path: prod
 variables:
   RELEASE_CHANNEL: nightly
 ```
@@ -1455,40 +1457,40 @@ run_at: "2030-03-15T09:45"
 timezone: Europe/Amsterdam
 enabled: true
 scope: prod
-run_group_path: prod
+run_team_path: prod
 ```
 
-In a group-scoped config repository, schedule file paths and runtime references
-are normalized under the bound group. For example,
+In a team-scoped config repository, schedule file paths and runtime references
+are normalized under the bound team. For example,
 `schedules/prod/scheduled/nightly-api-deploy.yaml` in the `team-1` repo becomes
 schedule `team-1/prod/scheduled/nightly-api-deploy`, and `pipeline:
-services/api/deploy`, `scope: prod`, and `run_group_path: prod` become
+services/api/deploy`, `scope: prod`, and `run_team_path: prod` become
 `team-1/services/api/deploy`, `team-1/prod`, and `team-1/prod`.
-Use `run_group_path: root` when the resulting scheduled run should stay at the
-Pipeline Runs root instead of being assigned to a group. A leading `root/`
-prefix on runtime references means the root hierarchy, not a group named
+Use `run_team_path: root` when the resulting scheduled run should stay at the
+Pipeline Runs root instead of being assigned to a team. A leading `root/`
+prefix on runtime references means the root hierarchy, not a team named
 `root`.
 
 ---
 
 ## Team And Run Structure
 
-- The GitOps config repository can define the compatibility group and app hierarchy now administered from Teams via scoped files such as `config-repositories/groups/team-1/structure.yaml`.
-- Each top-level key is a group. Nest groups by adding child keys, assign apps under a group with an `apps:` list, and optionally delegate a group with a `config:` block.
-- Schedule and external-trigger `run_group_path` values should reference groups
-  from this team hierarchy, or `root` for ungrouped root runs; their UI
+- The GitOps config repository can define the team and app hierarchy administered from Teams via scoped files such as `config-repositories/teams/team-1/structure.yaml`.
+- Each top-level key is a team. Nest teams by adding child keys, assign apps under a team with an `apps:` list, and optionally delegate a team with a `config:` block.
+- Schedule and external-trigger `run_team_path` values should reference teams
+  from this team hierarchy, or `root` for unassigned root runs; their UI
   selectors are populated from Teams.
 - App entries require `name` and `repo_url`; NopsAI normalizes that URL to the repository identity used by triggers and run metadata.
-- Group repo bindings under `config-repositories/groups/...` always create matching group shells.
-- Structure files colocated under `config-repositories/groups` are merged into those group shells, so repository placement can live next to the group binding.
-- In a group-scoped repo, `structure.yaml` may define groups inside the bound group, except for nested groups that have their own config repo binding.
+- Team repo bindings under `config-repositories/teams/...` always create matching team shells.
+- Structure files colocated under `config-repositories/teams` are merged into those team shells, so repository placement can live next to the team binding.
+- In a team-scoped repo, `structure.yaml` may define teams inside the bound team, except for nested teams that have their own config repo binding.
 - Example:
 
 ```yaml
 platform:
   description: Shared platform workflows
 team-1:
-  description: Description for team-1 group
+  description: Team 1 workspace
   config:
     repo_url: git@github.com:hosein-yousefii/nopsai-team-1-config.git
     branch: main
@@ -1512,7 +1514,7 @@ team-2:
         repo_url: https://github.com/hosein-yousefii/all-app
 ```
 
-- Running config sync ingests this file, creating or updating groups in the `groups` table and assigning apps to their Git-defined parents by normalized repository URL. Existing manual groups not referenced in the file are left untouched.
+- Running config sync ingests this file, creating or updating teams in the compatibility `teams` table and assigning apps to their Git-defined parents by normalized repository URL. Existing manual teams not referenced in the file are left untouched.
 
 ---
 
@@ -1527,7 +1529,7 @@ curl -X PUT -H "Content-Type: application/json" \
 # Sync only the global/system config repo
 curl -X POST http://localhost:8080/v1/system/config-repo/sync
 
-# Sync all enabled config repos; system repos run first, then group repos
+# Sync all enabled config repos; system repos run first, then team repos
 curl -X POST http://localhost:8080/v1/system/config-repos/sync
 
 # Compare Nopsai's current config with the sync branch before pushing
@@ -1540,10 +1542,10 @@ curl -X POST -H "Content-Type: application/json" \
 ```
 
 - The global repo uses `scope_type=system` and `scope_id=global`.
-- System- and group-scoped repos may define group repo bindings under `config-repositories/groups/<group>.yaml`.
-- System- and group-scoped repos may define pipeline schedules under `schedules/`.
-- System- and group-scoped repos may define managed knowledge context markdown under `knowledge/`.
-- System-scoped repos may define group pipeline notification policies with named routes under `config-repositories/groups/<group>/notifications.yaml`. Group repos can use root `notifications.yaml` for their bound group.
+- System- and team-scoped repos may define team repo bindings under `config-repositories/teams/<team>.yaml`.
+- System- and team-scoped repos may define pipeline schedules under `schedules/`.
+- System- and team-scoped repos may define managed knowledge context markdown under `knowledge/`.
+- System-scoped repos may define team pipeline notification policies with named routes under `config-repositories/teams/<team>/notifications.yaml`. Team repos can use root `notifications.yaml` for their bound team.
 - The system/global repo may define Agent Profiles and `default_profile` under `setting/system/agent-profiles.yaml`. Team-scoped Agent, LLM, and MCP profiles are managed through `/v1/teams/{teamID}/...` APIs, can be imported/exported by team config repositories in root `ai-profiles.yaml`, and are merged into run launch for runs owned by that team.
 - The system/global repo may define local-login and OIDC SSO settings under `setting/system/auth.yaml`; providers bind credential references whose encrypted values can be stored in `setting/system/credentials.yaml`.
 - The system/global repo may define GitHub App IDs, credential references, and git-bot URLs under `setting/system/github.yaml`.
@@ -1552,19 +1554,19 @@ curl -X POST -H "Content-Type: application/json" \
 - The system/global repo may define encrypted system credential envelopes under `setting/system/credentials.yaml`; plaintext is never exported.
 - A binding file contains `repo_url`, optional `branch`, optional `base_path`, optional `enabled`, optional `write_enabled`, and optional `write_branch`.
 - `branch` remains the read/sync source. When `write_enabled` is true, Nopsai can push generated GitOps changes to `write_branch` so they can be reviewed in GitHub before merging back to the sync branch. The GitHub App needs `contents: read and write`.
-- Drift compares the sync branch with Nopsai's current declarative state for pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, run group/config-repository structure, notification routes, access manifests, Agent Profiles, LLM profiles, MCP registry files, auth settings, mail settings, runtime settings, and encrypted credential envelopes. UI-side resource Access changes for pipelines, reusable steps, scopes, and knowledge contexts are exported as embedded `access:` updates in the affected GitOps files. Pipeline run rows remain runtime/audit records rather than Git-owned resources.
+- Drift compares the sync branch with Nopsai's current declarative state for pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, run team/config-repository structure, notification routes, access manifests, Agent Profiles, LLM profiles, MCP registry files, auth settings, mail settings, runtime settings, and encrypted credential envelopes. UI-side resource Access changes for pipelines, reusable steps, scopes, and knowledge contexts are exported as embedded `access:` updates in the affected GitOps files. Pipeline run rows remain runtime/audit records rather than Git-owned resources.
 - After generated files are merged into the sync branch, config sync can adopt matching database-owned resources inside the repository scope and mark them as GitOps-managed. Resources already owned by an unrelated config repo remain protected by config-repo precedence.
-- Group repositories use the same drift and write endpoint shape at `GET /v1/groups/<group-path>/config-repo/drift` and `POST /v1/groups/<group-path>/config-repo/write`. File paths are relative to the configured `base_path`.
-- Nested groups are represented by nested paths, for example `config-repositories/groups/team-2/platform.yaml` creates a binding for `team-2/platform`.
-- Group bindings create matching team/application shells for Teams and Pipeline
+- Team repositories use the same drift and write endpoint shape at `GET /v1/teams/<team-path>/config-repository/drift` and `POST /v1/teams/<team-path>/config-repository/write`. File paths are relative to the configured `base_path`.
+- Nested teams are represented by nested paths, for example `config-repositories/teams/team-2/platform.yaml` creates a binding for `team-2/platform`.
+- Team bindings create matching team/application shells for Teams and Pipeline
   Runs compatibility. Pipelines, Steps, Triggers, Scopes, and Knowledge Context
   pages build trees from actual resources by default rather than showing empty
   team shells.
-- Schedule paths can use those same group shells; `run_group_path` controls the
-  Pipeline Runs group and notification route used by schedule and external
+- Schedule paths can use those same team shells; `run_team_path` controls the
+  Pipeline Runs team and notification route used by schedule and external
   trigger executions when it should differ from the resource path or target
   pipeline path.
-- Once a group repo is assigned and synced, it is authoritative for resources under that group path. Parent or global repos skip and prune their own managed resources inside delegated groups.
+- Once a team repo is assigned and synced, it is authoritative for resources under that team path. Parent or global repos skip and prune their own managed resources inside delegated teams.
 
 ## Internal Runtime Config
 
@@ -1599,7 +1601,7 @@ The endpoint returns credential references and non-secret runtime values only.
 Plaintext secret values remain behind the credential registry and existing
 sealed bootstrap/credential resolution flows, even when encrypted envelopes are
 GitOps-managed in `setting/system/credentials.yaml`.
-- Only owners of the target group, including inherited parent owners, can sync that group repo.
+- Only owners of the target team, including inherited parent owners, can sync that team repo.
 - Complete examples live under `doc/sample-config-repo`.
 
 ---
@@ -1657,7 +1659,7 @@ curl -X POST http://localhost:8080/v1/run/team-1/dev/main-pipeline
 
 # Fetch runs and details
 curl http://localhost:8080/v1/runs
-curl "http://localhost:8080/v1/runs?groupId=root"
+curl "http://localhost:8080/v1/runs?teamId=root"
 curl http://localhost:8080/v1/runs/<run-id>
 curl http://localhost:8080/v1/runs/<run-id>/status
 curl http://localhost:8080/v1/runs/<run-id>/logs
@@ -1708,45 +1710,44 @@ curl -X DELETE \
   Markdown, JSON, server-templated HTML, Gotenberg/Chromium PDF, or typed
   Excelize XLSX content for successful final outputs. Existing pre-schema rich
   outputs use download-only compatibility adapters.
-- `GET /v1/runs?groupId=<id>` returns runs for a Pipeline Runs group and its
-  descendants, grouped by branch for the Main view. `groupId=root` returns runs
-  with no group assignment.
-- Repository-triggered runs resolve an existing group/application owner when
+- `GET /v1/runs?teamId=<id>` returns runs for a Pipeline Runs team and its
+  descendants, teamed by branch for the Main view. `teamId=root` returns runs
+  with no team assignment.
+- Repository-triggered runs resolve an existing team/application owner when
   one matches the repository, but runtime ingestion does not create or rewrite
-  group/application records.
+  team/application records.
 - Scheduled runs set `trigger_source: "schedule"` and include schedule metadata when the run came from a pipeline schedule.
 - Run log access is authorized separately from run-detail access in the low-level AAA layer.
 - Branch cleanup removes historical runs for the specified branch while leaving the repository intact.
 
 ---
 
-## Run Groups
+## Teams
 
-The compatibility Run Groups API is still `/v1/groups`. In the UI, group and
-application administration now lives under **Teams**; Pipeline Runs uses these
-records only for runtime filtering and drilldown.
+Team and application administration lives under **Teams**. Pipeline Runs uses
+the same team records for runtime filtering and drilldown.
 
 ```bash
 curl -X POST -H 'Content-Type: application/json' \
   -d '{"name":"team-1", "parent_id":null}' \
-  http://localhost:8080/v1/groups
+  http://localhost:8080/v1/teams
 
-curl http://localhost:8080/v1/groups
+curl http://localhost:8080/v1/teams
 
 curl -X PUT -H 'Content-Type: application/json' \
   -d '{"name":"team-1/platform"}' \
-  http://localhost:8080/v1/groups/<group-id>
+  http://localhost:8080/v1/teams/<team-id>
 
 curl -X PUT -H 'Content-Type: application/json' \
   -d '{"parent_id":42}' \
-  http://localhost:8080/v1/groups/<group-id>/move
+  http://localhost:8080/v1/teams/<team-id>
 
-curl -X DELETE http://localhost:8080/v1/groups/<group-id>
+curl -X DELETE http://localhost:8080/v1/teams/<team-id>
 ```
 
-- Groups power the “Main” dashboard hierarchy. Each run card can be assigned to a group path.
-- Access grants should target the resolved group path, not the numeric `group_id`.
-- `GET /v1/groups` is filtered by the caller’s group visibility.
+- Teams power the “Main” dashboard hierarchy. Each run card can be assigned to a team path.
+- Access grants should target the resolved team path, not numeric IDs.
+- `GET /v1/teams` is filtered by the caller’s team visibility.
 
 ---
 

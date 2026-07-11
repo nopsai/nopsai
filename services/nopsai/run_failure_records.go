@@ -24,9 +24,9 @@ func (a *App) recordMissingPipelineRun(identifier string, pipelineVersion string
 		namePart = "missing-pipeline"
 	}
 
-	groupID, groupErr := a.resolveGroupIDForRun(context.Background(), "", pathPart, gitContext)
-	if groupErr != nil {
-		log.Error().Err(groupErr).Str("pipeline", identifier).Msg("Failed to resolve group for missing pipeline run")
+	teamID, teamErr := a.resolveTeamIDForRun(context.Background(), "", pathPart, gitContext)
+	if teamErr != nil {
+		log.Error().Err(teamErr).Str("pipeline", identifier).Msg("Failed to resolve team for missing pipeline run")
 	}
 
 	var triggerEventIDSQL sql.NullString
@@ -53,7 +53,7 @@ func (a *App) recordMissingPipelineRun(identifier string, pipelineVersion string
 			pipeline_definition, git_repo_owner, git_repo_name, git_clone_url, git_ssh_url,
 			git_ref, git_target_ref, git_commit_sha, git_commit_url, git_commit_message,
 			git_commit_author_name, git_commit_author_email, git_commit_author_username,
-			git_pusher_name, git_pusher_email, git_check_run_id, group_id, trigger_event_id,
+			git_pusher_name, git_pusher_email, git_check_run_id, team_id, trigger_event_id,
 			scope, pipeline_source, started_at, finished_at, failure_reason
 		) VALUES (
 			$1, $2, $3, $4, 'failure', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
@@ -79,7 +79,7 @@ func (a *App) recordMissingPipelineRun(identifier string, pipelineVersion string
 		gitContext["pusher_name"],
 		gitContext["pusher_email"],
 		checkRunIDSQL,
-		groupID,
+		teamID,
 		triggerEventIDSQL,
 		scopeValue,
 		pipelineSource,
@@ -108,9 +108,9 @@ func (a *App) recordAuthorizationDeniedPipelineRun(identifier string, pipelineVe
 		namePart = "authorization-denied"
 	}
 
-	groupID, groupErr := a.resolveGroupIDForRun(context.Background(), "", pathPart, gitContext)
-	if groupErr != nil {
-		log.Error().Err(groupErr).Str("pipeline", identifier).Msg("Failed to resolve group for authorization denied pipeline run")
+	teamID, teamErr := a.resolveTeamIDForRun(context.Background(), "", pathPart, gitContext)
+	if teamErr != nil {
+		log.Error().Err(teamErr).Str("pipeline", identifier).Msg("Failed to resolve team for authorization denied pipeline run")
 	}
 
 	var triggerEventIDSQL sql.NullString
@@ -142,7 +142,7 @@ func (a *App) recordAuthorizationDeniedPipelineRun(identifier string, pipelineVe
 			pipeline_definition, git_repo_owner, git_repo_name, git_clone_url, git_ssh_url,
 			git_ref, git_target_ref, git_commit_sha, git_commit_url, git_commit_message,
 			git_commit_author_name, git_commit_author_email, git_commit_author_username,
-			git_pusher_name, git_pusher_email, git_check_run_id, group_id, trigger_event_id,
+			git_pusher_name, git_pusher_email, git_check_run_id, team_id, trigger_event_id,
 			scope, pipeline_source, trigger_source, requested_by_type, requested_by_id,
 			effective_subject_type, effective_subject_id, authorization_snapshot, started_at,
 			finished_at, failure_reason
@@ -171,7 +171,7 @@ func (a *App) recordAuthorizationDeniedPipelineRun(identifier string, pipelineVe
 		gitContext["pusher_name"],
 		gitContext["pusher_email"],
 		checkRunIDSQL,
-		groupID,
+		teamID,
 		triggerEventIDSQL,
 		scopeValue,
 		pipelineSource,

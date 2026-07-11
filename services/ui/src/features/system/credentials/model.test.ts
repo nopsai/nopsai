@@ -7,7 +7,7 @@ import {
   credentialReferenceRoute,
   credentialSummary,
   filterCredentials,
-  groupCredentials,
+  teamCredentials,
   isCredentialReference,
   normalizeCredential,
   normalizeCredentialsPayload,
@@ -84,7 +84,7 @@ test('builds deep links for credential references', () => {
   );
 });
 
-test('summarizes, filters, and groups credentials by namespace and integration category', () => {
+test('summarizes, filters, and teams credentials by namespace and integration category', () => {
   const credentials = normalizeCredentialsPayload({
     credentials: [
       { id: '1', reference: 'credential://system/llm/openai', kind: 'api_key', status: 'active' },
@@ -100,7 +100,7 @@ test('summarizes, filters, and groups credentials by namespace and integration c
     ['2']
   );
   assert.deepEqual(
-    groupCredentials(credentials).map(group => [group.key, group.credentials.length]),
+    teamCredentials(credentials).map(team => [team.key, team.credentials.length]),
     [['system/llm', 1], ['system/mail', 1], ['tenant/llm', 1]]
   );
 });

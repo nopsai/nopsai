@@ -18,7 +18,7 @@ import (
 )
 
 func (a *App) executeSchedule(ctx context.Context, record scheduleRecord) (string, error) {
-	runGroupPath := effectiveScheduleRunGroupPath(record)
+	runTeamPath := effectiveScheduleRunTeamPath(record)
 	payload := runRequestPayload{
 		Pipeline:  record.pipelineIdentifier(),
 		Scope:     record.Scope,
@@ -39,8 +39,8 @@ func (a *App) executeSchedule(ctx context.Context, record scheduleRecord) (strin
 	if strings.TrimSpace(record.Scope) != "" {
 		req.Header.Set("X-Nopsai-Scope", record.Scope)
 	}
-	if strings.TrimSpace(runGroupPath) != "" {
-		req.Header.Set("X-Nopsai-Group-Path", runGroupPath)
+	if strings.TrimSpace(runTeamPath) != "" {
+		req.Header.Set("X-Nopsai-Team-Path", runTeamPath)
 	}
 	req = req.WithContext(withAAASubject(req.Context(), aaamodel.Subject{
 		Type: aaamodel.SubjectTypeServiceAccount,
@@ -74,16 +74,16 @@ func (a *App) executeSchedule(ctx context.Context, record scheduleRecord) (strin
 		return "", fmt.Errorf("schedule execution did not return a run id")
 	}
 
-	groupID, groupErr := a.resolveGroupIDForPath(ctx, runGroupPath)
-	if groupErr != nil {
-		log.Warn().Err(groupErr).Str("schedule_id", record.ID).Str("group_path", runGroupPath).Msg("Failed to resolve schedule run group")
+	teamID, teamErr := a.resolveTeamIDForPath(ctx, runTeamPath)
+	if teamErr != nil {
+		log.Warn().Err(teamErr).Str("schedule_id", record.ID).Str("team_path", runTeamPath).Msg("Failed to resolve schedule run team")
 	}
 	if _, err := a.db.Exec(ctx, `
 		UPDATE pipeline_runs
 		SET schedule_id = $2,
-			group_id = CASE WHEN $3::boolean THEN $4::integer ELSE group_id END
+			team_id = CASE WHEN $3::boolean THEN $4::integer ELSE team_id END
 		WHERE run_id::text = $1
-	`, response.RunID, record.ID, groupID.Valid, groupID); err != nil {
+	`, response.RunID, record.ID, teamID.Valid, teamID); err != nil {
 		return "", err
 	}
 	if _, err := a.db.Exec(ctx, `
@@ -99,9 +99,9 @@ func (a *App) executeSchedule(ctx context.Context, record scheduleRecord) (strin
 	return response.RunID, nil
 }
 
-func effectiveScheduleRunGroupPath(record scheduleRecord) string {
-	if groupPath := strings.Trim(strings.TrimSpace(record.RunGroupPath), "/"); groupPath != "" {
-		return groupPath
+func effectiveScheduleRunTeamPath(record scheduleRecord) string {
+	if teamPath := strings.Trim(strings.TrimSpace(record.RunTeamPath), "/"); teamPath != "" {
+		return teamPath
 	}
 	return rootGrantID
 }

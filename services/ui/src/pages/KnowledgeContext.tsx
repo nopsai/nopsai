@@ -23,15 +23,15 @@ import {
   buildKnowledgeTree,
   clearKnowledgeDraft,
   decodeKnowledgeRouteID,
-  deriveIdentityFromFolder,
+  deriveIdentityFromTeam,
   emptyKnowledgeDraft,
   encodeKnowledgeID,
-  findKnowledgeFolder,
+  findKnowledgeTeam,
   isGitManagedDocument,
   loadKnowledgeDraft,
-  normalizeFolderPath,
+  normalizeTeamPath,
   normalizeKnowledgeSource,
-  parentFolder,
+  parentTeam,
   saveKnowledgeDraft,
   splitKnowledgeContentForPreview,
   splitKnowledgePath,
@@ -170,17 +170,17 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
   const filteredItems = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return items;
-    return items.filter(item => [item.kind, item.group, item.name, item.description].some(value => (value || '').toLowerCase().includes(term)));
+    return items.filter(item => [item.kind, item.team, item.name, item.description].some(value => (value || '').toLowerCase().includes(term)));
   }, [items, search]);
 
-  const activeFolder = useMemo(() => normalizeFolderPath(new URLSearchParams(location.search).get('folder') || ''), [location.search]);
+  const activeTeam = useMemo(() => normalizeTeamPath(new URLSearchParams(location.search).get('team') || ''), [location.search]);
   const knowledgeTree = useMemo(() => buildKnowledgeTree(items, []), [items]);
-  const activeFolderNode = useMemo(() => findKnowledgeFolder(knowledgeTree, activeFolder), [activeFolder, knowledgeTree]);
+  const activeTeamNode = useMemo(() => findKnowledgeTeam(knowledgeTree, activeTeam), [activeTeam, knowledgeTree]);
   const visibleDocuments = useMemo(() => {
     if (search.trim()) return filteredItems;
-    return activeFolderNode.docs;
-  }, [activeFolderNode.docs, filteredItems, search]);
-  const visibleFolders = search.trim() ? [] : activeFolderNode.children;
+    return activeTeamNode.docs;
+  }, [activeTeamNode.docs, filteredItems, search]);
+  const visibleTeams = search.trim() ? [] : activeTeamNode.children;
   const previewDocument = useMemo(() => splitKnowledgeContentForPreview(editorValue), [editorValue]);
   const previewContent = previewDocument.content;
 
@@ -193,10 +193,10 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
     };
   }, [previewContent]);
 
-  const openFolder = useCallback(
-    (folder: string) => {
-      const normalized = normalizeFolderPath(folder);
-      navigate(normalized ? `/knowledge-context?folder=${encodeURIComponent(normalized)}` : '/knowledge-context');
+  const openTeam = useCallback(
+    (team: string) => {
+      const normalized = normalizeTeamPath(team);
+      navigate(normalized ? `/knowledge-context?team=${encodeURIComponent(normalized)}` : '/knowledge-context');
     },
     [navigate]
   );
@@ -209,25 +209,25 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
   );
 
   const handleBackToList = useCallback(() => {
-    const folder = detail ? splitKnowledgePath(detail.id).folder : activeFolder;
-    openFolder(folder);
-  }, [activeFolder, detail, openFolder]);
+    const team = detail ? splitKnowledgePath(detail.id).team : activeTeam;
+    openTeam(team);
+  }, [activeTeam, detail, openTeam]);
 
   const openCreateModal = useCallback(() => {
     if (!canWriteKnowledge) {
       addToast('You have read-only access to knowledge contexts.', 'info');
       return;
     }
-    const identity = deriveIdentityFromFolder(activeFolder);
+    const identity = deriveIdentityFromTeam(activeTeam);
     setFormModal({
       mode: 'create',
       kind: identity.kind,
-      group: identity.group,
+      team: identity.team,
       name: '',
       content: '',
       pending: false,
     });
-  }, [activeFolder, addToast, canWriteKnowledge]);
+  }, [activeTeam, addToast, canWriteKnowledge]);
 
   const openCloneModal = useCallback(() => {
     if (!detail) {
@@ -240,14 +240,14 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
     }
     let candidateName = `${detail.name || 'document'}-copy`;
     let suffix = 2;
-    while (items.some(item => item.id === buildKnowledgeID(detail.kind, detail.group, candidateName))) {
+    while (items.some(item => item.id === buildKnowledgeID(detail.kind, detail.team, candidateName))) {
       candidateName = `${detail.name || 'document'}-copy-${suffix}`;
       suffix += 1;
     }
     setFormModal({
       mode: 'clone',
       kind: detail.kind,
-      group: detail.group,
+      team: detail.team,
       name: candidateName,
       content: editorValue,
       pending: false,
@@ -256,24 +256,24 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
 
   const submitFormModal = useCallback(() => {
     if (!formModal) return;
-    const error = validateKnowledgeIdentity(formModal.kind, formModal.group, formModal.name, items);
+    const error = validateKnowledgeIdentity(formModal.kind, formModal.team, formModal.name, items);
     if (error) {
       setFormModal(prev => (prev ? { ...prev, error } : prev));
       return;
     }
     const kind = formModal.kind.trim();
-    const group = normalizeFolderPath(formModal.group);
+    const team = normalizeTeamPath(formModal.team);
     const name = formModal.name.trim().replace(/\.(yaml|yml)$/i, '');
-    const id = buildKnowledgeID(kind, group, name);
+    const id = buildKnowledgeID(kind, team, name);
     const content = formModal.content || '';
     const draft: KnowledgeContextDetail = {
       ...emptyKnowledgeDraft,
       id,
       kind,
-      group,
+      team,
       name,
       description: '',
-      visibility: 'group',
+      visibility: 'team',
       source: 'database',
       content,
       managed_by_config_repo: false,
@@ -320,7 +320,7 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
   const saveDetail = useCallback(async () => {
     if (!detail || !canWriteKnowledge || saving) return;
     const isGitManaged = isGitManagedDocument(detail);
-    const validationError = validateKnowledgeIdentity(detail.kind, detail.group, detail.name, items, draftID || detail.id);
+    const validationError = validateKnowledgeIdentity(detail.kind, detail.team, detail.name, items, draftID || detail.id);
     if (validationError) {
       setDetailError(validationError);
       addToast('Resolve the document identity before saving.', 'error');
@@ -397,7 +397,7 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
         'success'
       );
       if (detail?.id === deleteModal.id) {
-        openFolder(splitKnowledgePath(deleteModal.id).folder);
+        openTeam(splitKnowledgePath(deleteModal.id).team);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unable to delete document';
@@ -406,7 +406,7 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
     } finally {
       setSaving(false);
     }
-  }, [addToast, deleteModal, detail?.id, detail?.uuid, draftID, loadList, openFolder]);
+  }, [addToast, deleteModal, detail?.id, detail?.uuid, draftID, loadList, openTeam]);
 
   const handleCopy = useCallback(async () => {
     if (!detail) return;
@@ -488,8 +488,8 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
                       <dd>{detail.kind}</dd>
                     </div>
                     <div>
-                      <dt>Group</dt>
-                      <dd>{detail.group || 'Root'}</dd>
+                      <dt>Team</dt>
+                      <dd>{detail.team || 'Root'}</dd>
                     </div>
                     <div>
                       <dt>Source</dt>
@@ -651,8 +651,8 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
               type="button"
               className="glass-button-ghost"
               aria-label="Back"
-              onClick={() => openFolder(parentFolder(activeFolder))}
-              disabled={!activeFolder}
+              onClick={() => openTeam(parentTeam(activeTeam))}
+              disabled={!activeTeam}
             >
               <ArrowLeft className="h-4 w-4" />
             </button>
@@ -714,11 +714,11 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
             listError={listError}
             search={search}
             visibleDocuments={visibleDocuments}
-            visibleFolders={visibleFolders}
+            visibleTeams={visibleTeams}
             selectedID={selectedID}
             canWriteKnowledge={canWriteKnowledge}
             canDeleteKnowledge={canDeleteKnowledge}
-            onOpenFolder={openFolder}
+            onOpenTeam={openTeam}
             onSelectDocument={handleSelectDocument}
             onDeleteDocument={openDeleteModal}
           />

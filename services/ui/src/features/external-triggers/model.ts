@@ -1,5 +1,5 @@
 export type AllowedCaller = {
-  type: 'user' | 'service_account' | 'auth_group';
+  type: 'user' | 'service_account' | 'auth_team';
   id: string;
 };
 
@@ -10,7 +10,7 @@ export type ExternalTrigger = {
   enabled: boolean;
   pipeline: string;
   scope?: string;
-  run_group_path?: string;
+  run_team_path?: string;
   allowed_callers?: AllowedCaller[];
   variable_mapping?: Record<string, string>;
   payload_schema?: Record<string, unknown>;
@@ -30,7 +30,7 @@ export type ExternalTriggerForm = {
   description: string;
   pipeline: string;
   scope: string;
-  runGroupPath: string;
+  runTeamPath: string;
   enabled: boolean;
   allowedCallers: AllowedCaller[];
   variableMappingText: string;
@@ -53,7 +53,7 @@ export function externalTriggerScopeLabel(scope?: string) {
   return normalized.toLowerCase() === 'default' || !normalized ? 'default' : normalized;
 }
 
-export function externalTriggerGroupLabel(path?: string) {
+export function externalTriggerTeamLabel(path?: string) {
   const normalized = normalizeExternalTriggerIdentifier(path);
   return normalized === 'root' || !normalized ? 'Root' : normalized;
 }

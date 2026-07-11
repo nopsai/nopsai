@@ -156,7 +156,7 @@ func accessGrantResourceInConfigBindingScope(resourceType, resourceID string, bi
 	switch binding.ScopeType {
 	case models.ConfigRepositoryScopeSystem:
 		return true
-	case models.ConfigRepositoryScopeFolder:
+	case models.ConfigRepositoryScopeTeam:
 		return accessGrantResourceUnderBindingScope(resourceType, resourceID, binding.ScopeID)
 	default:
 		return false

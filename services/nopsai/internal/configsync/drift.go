@@ -24,7 +24,7 @@ func IncludesResource(repo models.ConfigRepository, identifier, source string, c
 	if !strings.EqualFold(strings.TrimSpace(source), "database") {
 		return false
 	}
-	if repo.ScopeType == models.ConfigRepositoryScopeFolder {
+	if repo.ScopeType == models.ConfigRepositoryScopeTeam {
 		_, ok := RelativeResourceIdentifier(repo, identifier)
 		return ok
 	}
@@ -72,7 +72,7 @@ func ManagedSourcePath(repo models.ConfigRepository, sourcePath string, options 
 
 func RelativeResourceIdentifier(repo models.ConfigRepository, identifier string) (string, bool) {
 	identifier = strings.Trim(strings.TrimSpace(strings.ReplaceAll(identifier, "\\", "/")), "/")
-	if repo.ScopeType != models.ConfigRepositoryScopeFolder {
+	if repo.ScopeType != models.ConfigRepositoryScopeTeam {
 		return identifier, identifier != ""
 	}
 	scopeID := strings.Trim(strings.TrimSpace(repo.ScopeID), "/")

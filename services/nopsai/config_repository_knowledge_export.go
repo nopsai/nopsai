@@ -12,9 +12,9 @@ import (
 
 func (a *App) exportConfigRepositoryKnowledge(ctx context.Context, repo models.ConfigRepository, delegatedScopes []string, resourceAccess map[resourceAccessPlanKey]configRepositoryResourceAccessState, files map[string]string) error {
 	rows, err := a.db.Query(ctx, `
-		SELECT kind, group_path, name, description, content, COALESCE(source, 'database'), config_repo_id, managed_by_config_repo, config_source_path
+		SELECT kind, team_path, name, description, content, COALESCE(source, 'database'), config_repo_id, managed_by_config_repo, config_source_path
 		FROM knowledge_contexts
-		ORDER BY kind ASC, group_path ASC, name ASC
+		ORDER BY kind ASC, team_path ASC, name ASC
 	`)
 	if err != nil {
 		return err
@@ -22,14 +22,14 @@ func (a *App) exportConfigRepositoryKnowledge(ctx context.Context, repo models.C
 	defer rows.Close()
 
 	for rows.Next() {
-		var kind, groupPath, name, description, content, source, sourcePath string
+		var kind, teamPath, name, description, content, source, sourcePath string
 		var configRepoID sql.NullInt64
 		var managed bool
-		if err := rows.Scan(&kind, &groupPath, &name, &description, &content, &source, &configRepoID, &managed, &sourcePath); err != nil {
+		if err := rows.Scan(&kind, &teamPath, &name, &description, &content, &source, &configRepoID, &managed, &sourcePath); err != nil {
 			return err
 		}
-		identifier := buildKnowledgeContextIdentifier(kind, groupPath, name)
-		if !configRepositoryIncludesResource(repo, groupPath, source, configRepoID, managed, delegatedScopes) {
+		identifier := buildKnowledgeContextIdentifier(kind, teamPath, name)
+		if !configRepositoryIncludesResource(repo, teamPath, source, configRepoID, managed, delegatedScopes) {
 			continue
 		}
 		filePath := strings.TrimSpace(sourcePath)
@@ -40,11 +40,11 @@ func (a *App) exportConfigRepositoryKnowledge(ctx context.Context, repo models.C
 				continue
 			}
 		} else {
-			relGroup, ok := configRepositoryRelativeResourceIdentifier(repo, groupPath)
+			relTeam, ok := configRepositoryRelativeResourceIdentifier(repo, teamPath)
 			if !ok {
 				continue
 			}
-			relID := strings.Trim(strings.Trim(relGroup, "/")+"/"+strings.Trim(name, "/"), "/")
+			relID := strings.Trim(strings.Trim(relTeam, "/")+"/"+strings.Trim(name, "/"), "/")
 			if relID == "" {
 				continue
 			}

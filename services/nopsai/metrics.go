@@ -43,7 +43,7 @@ func (a *App) handleMetrics(w http.ResponseWriter, r *http.Request) {
 func (a *App) buildPrometheusMetrics(ctx context.Context) (string, error) {
 	var out strings.Builder
 	appendBuildInfoMetric(&out)
-	writeMetricHelp(&out, "nopsai_pipeline_runs_total", "Pipeline runs by status, pipeline, group, repository, and trigger source.")
+	writeMetricHelp(&out, "nopsai_pipeline_runs_total", "Pipeline runs by status, pipeline, team, repository, and trigger source.")
 	writeMetricType(&out, "nopsai_pipeline_runs_total", "counter")
 	if err := a.appendPipelineRunTotals(ctx, &out); err != nil {
 		return "", err
@@ -63,12 +63,12 @@ func (a *App) buildPrometheusMetrics(ctx context.Context) (string, error) {
 	if err := a.appendPipelineRunIntervalHistogram(ctx, &out, "nopsai_pipeline_run_end_to_end_duration_seconds", "pr.finished_at - pr.created_at", "pr.finished_at IS NOT NULL AND pr.finished_at >= pr.created_at"); err != nil {
 		return "", err
 	}
-	writeMetricHelp(&out, "nopsai_pipeline_run_failures_total", "Failed pipeline runs by reason, pipeline, group, repository, and trigger source.")
+	writeMetricHelp(&out, "nopsai_pipeline_run_failures_total", "Failed pipeline runs by reason, pipeline, team, repository, and trigger source.")
 	writeMetricType(&out, "nopsai_pipeline_run_failures_total", "counter")
 	if err := a.appendPipelineRunFailureTotals(ctx, &out); err != nil {
 		return "", err
 	}
-	writeMetricHelp(&out, "nopsai_pipeline_reruns_total", "Pipeline reruns by pipeline, group, repository, and trigger source.")
+	writeMetricHelp(&out, "nopsai_pipeline_reruns_total", "Pipeline reruns by pipeline, team, repository, and trigger source.")
 	writeMetricType(&out, "nopsai_pipeline_reruns_total", "counter")
 	if err := a.appendPipelineRerunTotals(ctx, &out); err != nil {
 		return "", err
@@ -277,22 +277,22 @@ func pipelineRunMetricsQuery(where string) string {
 			COALESCE(pr.trigger_source, ''),
 			COUNT(*)::float8
 		FROM pipeline_runs pr
-		LEFT JOIN groups g ON g.id = pr.group_id` + where + `
+		LEFT JOIN teams g ON g.id = pr.team_id` + where + `
 		GROUP BY 1,2,3,4,5,6
 		ORDER BY 1,2,3,4,5,6`
 }
 
 func scanPipelineRunMetricRow(row interface{ Scan(dest ...any) error }) (map[string]string, float64, error) {
-	var status, path, pipeline, group, repo, triggerSource string
+	var status, path, pipeline, team, repo, triggerSource string
 	var value float64
-	if err := row.Scan(&status, &path, &pipeline, &group, &repo, &triggerSource, &value); err != nil {
+	if err := row.Scan(&status, &path, &pipeline, &team, &repo, &triggerSource, &value); err != nil {
 		return nil, 0, err
 	}
 	return map[string]string{
 		"status":         normalizeMetricLabel(status),
 		"pipeline":       normalizeMetricLabel(pipeline),
 		"path":           normalizeMetricLabel(path),
-		"group":          normalizeMetricLabel(group),
+		"team":           normalizeMetricLabel(team),
 		"repo":           normalizeMetricLabel(repo),
 		"trigger_source": normalizeMetricLabel(triggerSource),
 	}, value, nil
@@ -313,7 +313,7 @@ func (a *App) appendPipelineRunDurationHistogram(ctx context.Context, out *strin
 			COALESCE(pr.trigger_source, ''),
 			EXTRACT(EPOCH FROM pr.finished_at - pr.started_at)::float8
 		FROM pipeline_runs pr
-		LEFT JOIN groups g ON g.id = pr.group_id
+		LEFT JOIN teams g ON g.id = pr.team_id
 		WHERE pr.started_at IS NOT NULL
 		  AND pr.finished_at IS NOT NULL
 		  AND pr.finished_at >= pr.started_at
@@ -331,9 +331,9 @@ func (a *App) appendPipelineRunDurationHistogram(ctx context.Context, out *strin
 	}
 	histograms := map[string]*histogram{}
 	for rows.Next() {
-		var status, path, pipeline, group, repo, triggerSource string
+		var status, path, pipeline, team, repo, triggerSource string
 		var duration sql.NullFloat64
-		if err := rows.Scan(&status, &path, &pipeline, &group, &repo, &triggerSource, &duration); err != nil {
+		if err := rows.Scan(&status, &path, &pipeline, &team, &repo, &triggerSource, &duration); err != nil {
 			return err
 		}
 		if !duration.Valid {
@@ -343,7 +343,7 @@ func (a *App) appendPipelineRunDurationHistogram(ctx context.Context, out *strin
 			"status":         normalizeMetricLabel(status),
 			"pipeline":       normalizeMetricLabel(pipeline),
 			"path":           normalizeMetricLabel(path),
-			"group":          normalizeMetricLabel(group),
+			"team":           normalizeMetricLabel(team),
 			"repo":           normalizeMetricLabel(repo),
 			"trigger_source": normalizeMetricLabel(triggerSource),
 		}
@@ -401,7 +401,7 @@ func (a *App) appendPipelineRunIntervalHistogram(ctx context.Context, out *strin
 			COALESCE(pr.trigger_source, ''),
 			EXTRACT(EPOCH FROM %s)::float8
 		FROM pipeline_runs pr
-		LEFT JOIN groups g ON g.id = pr.group_id
+		LEFT JOIN teams g ON g.id = pr.team_id
 		WHERE %s
 	`, expression, predicate))
 	if err != nil {
@@ -417,9 +417,9 @@ func (a *App) appendPipelineRunIntervalHistogram(ctx context.Context, out *strin
 	}
 	histograms := map[string]*histogram{}
 	for rows.Next() {
-		var status, path, pipeline, group, repo, triggerSource string
+		var status, path, pipeline, team, repo, triggerSource string
 		var duration sql.NullFloat64
-		if err := rows.Scan(&status, &path, &pipeline, &group, &repo, &triggerSource, &duration); err != nil {
+		if err := rows.Scan(&status, &path, &pipeline, &team, &repo, &triggerSource, &duration); err != nil {
 			return err
 		}
 		if !duration.Valid {
@@ -429,7 +429,7 @@ func (a *App) appendPipelineRunIntervalHistogram(ctx context.Context, out *strin
 			"status":         normalizeMetricLabel(status),
 			"pipeline":       normalizeMetricLabel(pipeline),
 			"path":           normalizeMetricLabel(path),
-			"group":          normalizeMetricLabel(group),
+			"team":           normalizeMetricLabel(team),
 			"repo":           normalizeMetricLabel(repo),
 			"trigger_source": normalizeMetricLabel(triggerSource),
 		}
@@ -486,7 +486,7 @@ func (a *App) appendPipelineRunFailureTotals(ctx context.Context, out *strings.B
 			COALESCE(NULLIF(pr.failure_reason, ''), 'unknown'),
 			COUNT(*)::float8
 		FROM pipeline_runs pr
-		LEFT JOIN groups g ON g.id = pr.group_id
+		LEFT JOIN teams g ON g.id = pr.team_id
 		WHERE LOWER(pr.status) IN ('failure', 'failed')
 		GROUP BY 1,2,3,4,5,6
 		ORDER BY 1,2,3,4,5,6
@@ -496,15 +496,15 @@ func (a *App) appendPipelineRunFailureTotals(ctx context.Context, out *strings.B
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var path, pipeline, group, repo, triggerSource, reason string
+		var path, pipeline, team, repo, triggerSource, reason string
 		var count float64
-		if err := rows.Scan(&path, &pipeline, &group, &repo, &triggerSource, &reason, &count); err != nil {
+		if err := rows.Scan(&path, &pipeline, &team, &repo, &triggerSource, &reason, &count); err != nil {
 			return err
 		}
 		writeMetricLine(out, "nopsai_pipeline_run_failures_total", map[string]string{
 			"pipeline":       normalizeMetricLabel(pipeline),
 			"path":           normalizeMetricLabel(path),
-			"group":          normalizeMetricLabel(group),
+			"team":           normalizeMetricLabel(team),
 			"repo":           normalizeMetricLabel(repo),
 			"trigger_source": normalizeMetricLabel(triggerSource),
 			"reason":         normalizeMetricLabel(reason),
@@ -527,7 +527,7 @@ func (a *App) appendPipelineRerunTotals(ctx context.Context, out *strings.Builde
 			COALESCE(pr.trigger_source, ''),
 			COUNT(*)::float8
 		FROM pipeline_runs pr
-		LEFT JOIN groups g ON g.id = pr.group_id
+		LEFT JOIN teams g ON g.id = pr.team_id
 		WHERE pr.parent_run_id IS NOT NULL
 		GROUP BY 1,2,3,4,5
 		ORDER BY 1,2,3,4,5
@@ -537,15 +537,15 @@ func (a *App) appendPipelineRerunTotals(ctx context.Context, out *strings.Builde
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var path, pipeline, group, repo, triggerSource string
+		var path, pipeline, team, repo, triggerSource string
 		var count float64
-		if err := rows.Scan(&path, &pipeline, &group, &repo, &triggerSource, &count); err != nil {
+		if err := rows.Scan(&path, &pipeline, &team, &repo, &triggerSource, &count); err != nil {
 			return err
 		}
 		writeMetricLine(out, "nopsai_pipeline_reruns_total", map[string]string{
 			"pipeline":       normalizeMetricLabel(pipeline),
 			"path":           normalizeMetricLabel(path),
-			"group":          normalizeMetricLabel(group),
+			"team":           normalizeMetricLabel(team),
 			"repo":           normalizeMetricLabel(repo),
 			"trigger_source": normalizeMetricLabel(triggerSource),
 		}, count)
@@ -622,7 +622,7 @@ func (a *App) appendPipelineFinalOutputTotals(ctx context.Context, out *strings.
 		       COUNT(*)::float8
 		FROM pipeline_run_outputs pro
 		JOIN pipeline_runs pr ON pr.run_id = pro.run_id
-		LEFT JOIN groups g ON g.id = pr.group_id
+		LEFT JOIN teams g ON g.id = pr.team_id
 		GROUP BY 1,2,3,4,5
 		ORDER BY 1,2,3,4,5
 	`)
@@ -631,9 +631,9 @@ func (a *App) appendPipelineFinalOutputTotals(ctx context.Context, out *strings.
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var status, outputType, path, pipeline, group string
+		var status, outputType, path, pipeline, team string
 		var count float64
-		if err := rows.Scan(&status, &outputType, &path, &pipeline, &group, &count); err != nil {
+		if err := rows.Scan(&status, &outputType, &path, &pipeline, &team, &count); err != nil {
 			return err
 		}
 		writeMetricLine(out, "nopsai_pipeline_final_outputs_total", map[string]string{
@@ -641,7 +641,7 @@ func (a *App) appendPipelineFinalOutputTotals(ctx context.Context, out *strings.
 			"type":     normalizeMetricLabel(outputType),
 			"pipeline": normalizeMetricLabel(pipeline),
 			"path":     normalizeMetricLabel(path),
-			"group":    normalizeMetricLabel(group),
+			"team":     normalizeMetricLabel(team),
 		}, count)
 	}
 	return rows.Err()
@@ -661,7 +661,7 @@ func (a *App) appendPipelineFinalOutputGenerationTotals(
 		       COALESCE(SUM(%s), 0)::float8
 		FROM pipeline_run_outputs pro
 		JOIN pipeline_runs pr ON pr.run_id = pro.run_id
-		LEFT JOIN groups g ON g.id = pr.group_id
+		LEFT JOIN teams g ON g.id = pr.team_id
 		GROUP BY 1,2,3,4
 		HAVING COALESCE(SUM(%s), 0) > 0
 		ORDER BY 1,2,3,4
@@ -671,16 +671,16 @@ func (a *App) appendPipelineFinalOutputGenerationTotals(
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var outputType, path, pipeline, group string
+		var outputType, path, pipeline, team string
 		var count float64
-		if err := rows.Scan(&outputType, &path, &pipeline, &group, &count); err != nil {
+		if err := rows.Scan(&outputType, &path, &pipeline, &team, &count); err != nil {
 			return err
 		}
 		writeMetricLine(out, metricName, map[string]string{
 			"type":     normalizeMetricLabel(outputType),
 			"pipeline": normalizeMetricLabel(pipeline),
 			"path":     normalizeMetricLabel(path),
-			"group":    normalizeMetricLabel(group),
+			"team":     normalizeMetricLabel(team),
 		}, count)
 	}
 	return rows.Err()

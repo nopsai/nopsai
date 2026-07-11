@@ -37,7 +37,7 @@ ul, ol { margin: 0 0 14px; padding-left: 24px; }
 li { margin: 0 0 5px; }
 .table-wrap { margin: 14px 0 18px; overflow: visible; }
 table { border-collapse: collapse; font-size: 8.5pt; table-layout: auto; width: 100%; }
-thead { display: table-header-group; }
+thead { display: table-header-team; }
 tr { break-inside: avoid; }
 th { background: #e8eef8; border: 1px solid #aebbd0; color: #172033; font-weight: 700; padding: 7px 8px; text-align: left; vertical-align: top; }
 td { border: 1px solid #cbd5e1; overflow-wrap: anywhere; padding: 7px 8px; vertical-align: top; }

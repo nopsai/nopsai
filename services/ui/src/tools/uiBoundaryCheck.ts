@@ -145,7 +145,7 @@ export function analyzeUiBoundaries(
 
     if (isPageOrFeatureFile(filePath)) {
       for (const match of collectMatches(code, WINDOW_API_PATTERN)) {
-        const api = match.groups[0] || 'unknown';
+        const api = match.teams[0] || 'unknown';
         const key = `${filePath}:${api}`;
         const current = browserApiUsageByKey.get(key);
         if (current) current.count += 1;
@@ -260,15 +260,15 @@ function countLines(contents: string): number {
   return normalized.endsWith('\n') ? lines - 1 : lines;
 }
 
-function collectMatches(contents: string, pattern: RegExp): Array<{ line: number; groups: string[] }> {
-  const matches: Array<{ line: number; groups: string[] }> = [];
+function collectMatches(contents: string, pattern: RegExp): Array<{ line: number; teams: string[] }> {
+  const matches: Array<{ line: number; teams: string[] }> = [];
   const lines = contents.split(/\r\n|\r|\n/);
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
     const line = lines[lineIndex];
     pattern.lastIndex = 0;
     let match = pattern.exec(line);
     while (match) {
-      matches.push({ line: lineIndex + 1, groups: match.slice(1).filter(Boolean) });
+      matches.push({ line: lineIndex + 1, teams: match.slice(1).filter(Boolean) });
       if (match[0].length === 0) pattern.lastIndex += 1;
       match = pattern.exec(line);
     }

@@ -123,13 +123,13 @@ knowledge/guardrail/security/repo-check.md
 The GitOps path shape is:
 
 ```text
-knowledge/<kind>/<group>/<file>.yaml
-knowledge/<kind>/<group>/<file>.md
+knowledge/<kind>/<team>/<file>.yaml
+knowledge/<kind>/<team>/<file>.md
 ```
 
-For group-scoped config repositories, document groups are normalized under the
-bound group in the same way as pipelines, reusable steps, scopes, and triggers.
-When a group has a delegated config repository, manage that group's knowledge
+For team-scoped config repositories, document teams are normalized under the
+bound team in the same way as pipelines, reusable steps, scopes, and triggers.
+When a team has a delegated config repository, manage that team's knowledge
 documents in the delegated repository.
 
 ## GitOps Document Format
@@ -143,7 +143,7 @@ name: repo-check
 kind: guardrail
 access:
   visibility: restricted
-  groups:
+  teams:
     - team-1
   repositories:
     - hosein-yousefii/test-app
@@ -159,7 +159,7 @@ name: repo-check
 kind: guardrail
 access:
   visibility: restricted
-  groups:
+  teams:
     - team-1
   repositories:
     - hosein-yousefii/test-app
@@ -175,7 +175,7 @@ Document fields:
 - `name`: required resource name; it defines the document identity and may differ from the file name
 - `kind`: optional, must match the path kind when present
 - `description`: optional UI/API summary
-- `access.visibility`: `group`, `restricted`, or `workspace`/`public`
+- `access.visibility`: `team`, `restricted`, or `workspace`/`public`
 - `access`: optional embedded resource-access config and grants
 - `content`: reusable document text; required for every GitOps knowledge document
 
@@ -190,8 +190,8 @@ text. New GitOps documents should use `access` for sharing.
 
 Config sync creates, updates, and prunes `knowledge_contexts` rows for files
 under `knowledge/`, just like it does for other Git-managed resources.
-The UI mirrors existing run groups under every supported knowledge kind, so a
-group such as `team-1/platform` is available as a folder under `guardrail`,
+The UI mirrors existing teams under every supported knowledge kind, so a
+team such as `team-1/platform` is available as a team path under `guardrail`,
 `policy`, `guideline`, and the other kinds even before it has a document.
 
 ## Repo-Local Knowledge
@@ -256,15 +256,15 @@ Actions:
 Runtime checks use `knowledge_context.use`. For example, a Git-triggered run
 from `repository:hosein-yousefii/test-app` can use
 `knowledge_context:guardrail/security/repo-check` only if that repository has
-the required use permission through its group, visibility, or an explicit
+the required use permission through its team, visibility, or an explicit
 resource-access grant.
 
 ## UI And API
 
-The UI has a `Knowledge Context` page grouped as:
+The UI has a `Knowledge Context` page teamed as:
 
 ```text
-kind -> group -> document
+kind -> team -> document
 ```
 
 The page supports browsing, text editing/preview, access settings, and usage by
@@ -278,7 +278,7 @@ curl http://localhost:8080/v1/knowledge-contexts/guardrail/security/repo-check
 
 curl -X PUT \
   -H "Content-Type: application/json" \
-  -d '{"kind":"guardrail","group":"security","name":"repo-check","content":"# Repository Check Guardrail\n"}' \
+  -d '{"kind":"guardrail","team":"security","name":"repo-check","content":"# Repository Check Guardrail\n"}' \
   http://localhost:8080/v1/knowledge-contexts/guardrail/security/repo-check
 
 curl -X DELETE \

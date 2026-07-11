@@ -37,9 +37,9 @@ type oidcProviderRecord struct {
 	ClientCredentialRef   string                               `json:"client_credential_ref,omitempty"`
 	Scopes                []string                             `json:"scopes"`
 	AllowedEmailDomains   []string                             `json:"allowed_email_domains"`
-	GroupClaim            string                               `json:"group_claim,omitempty"`
+	TeamClaim             string                               `json:"team_claim,omitempty"`
 	RoleMapping           map[string]string                    `json:"role_mapping,omitempty"`
-	GroupMapping          map[string]string                    `json:"group_mapping,omitempty"`
+	TeamMapping           map[string]string                    `json:"team_mapping,omitempty"`
 	BasicRoleMapping      map[string]oidcBasicRoleGrantMapping `json:"basic_role_mapping,omitempty"`
 	EntitlementSync       oidcEntitlementSyncConfig            `json:"entitlement_sync,omitempty"`
 	AutoCreateUsers       *bool                                `json:"auto_create_users,omitempty"`
@@ -111,9 +111,9 @@ type oidcProviderRequest struct {
 	ClientCredentialRef   string                               `json:"client_credential_ref"`
 	Scopes                []string                             `json:"scopes"`
 	AllowedEmailDomains   []string                             `json:"allowed_email_domains"`
-	GroupClaim            string                               `json:"group_claim"`
+	TeamClaim             string                               `json:"team_claim"`
 	RoleMapping           map[string]string                    `json:"role_mapping"`
-	GroupMapping          map[string]string                    `json:"group_mapping"`
+	TeamMapping           map[string]string                    `json:"team_mapping"`
 	BasicRoleMapping      map[string]oidcBasicRoleGrantMapping `json:"basic_role_mapping"`
 	EntitlementSync       oidcEntitlementSyncConfig            `json:"entitlement_sync"`
 	AutoCreateUsers       *bool                                `json:"auto_create_users"`
@@ -136,7 +136,7 @@ type oidcVerifiedIdentity struct {
 	Subject       string
 	Email         string
 	EmailVerified bool
-	Groups        []string
+	Teams         []string
 	AccessRoles   []string
 	BasicRoles    []oidcDesiredBasicRoleGrant
 }
@@ -159,7 +159,7 @@ type oidcEntitlementSyncConfig struct {
 	AdminPasswordCredentialRef string `json:"admin_password_credential_ref,omitempty"`
 	ClientID                   string `json:"client_id,omitempty"`
 	TargetResourceType         string `json:"target_resource_type,omitempty"`
-	GroupPathPrefix            string `json:"group_path_prefix,omitempty"`
+	TeamPathPrefix             string `json:"team_path_prefix,omitempty"`
 }
 
 type oidcUserResolution struct {
@@ -252,13 +252,13 @@ func normalizeOIDCScopes(scopes []string) []string {
 
 func normalizeOIDCRoleMapping(mapping map[string]string) map[string]string {
 	out := make(map[string]string, len(mapping))
-	for group, role := range mapping {
-		group = strings.TrimSpace(group)
+	for team, role := range mapping {
+		team = strings.TrimSpace(team)
 		role = strings.TrimSpace(role)
-		if group == "" || role == "" {
+		if team == "" || role == "" {
 			continue
 		}
-		out[group] = role
+		out[team] = role
 	}
 	if len(out) == 0 {
 		return nil
@@ -266,15 +266,15 @@ func normalizeOIDCRoleMapping(mapping map[string]string) map[string]string {
 	return out
 }
 
-func normalizeOIDCGroupMapping(mapping map[string]string) map[string]string {
+func normalizeOIDCTeamMapping(mapping map[string]string) map[string]string {
 	out := make(map[string]string, len(mapping))
-	for externalGroup, authGroup := range mapping {
-		externalGroup = strings.TrimSpace(externalGroup)
-		authGroup = strings.TrimSpace(authGroup)
-		if externalGroup == "" || authGroup == "" {
+	for externalTeam, authTeam := range mapping {
+		externalTeam = strings.TrimSpace(externalTeam)
+		authTeam = strings.TrimSpace(authTeam)
+		if externalTeam == "" || authTeam == "" {
 			continue
 		}
-		out[externalGroup] = authGroup
+		out[externalTeam] = authTeam
 	}
 	if len(out) == 0 {
 		return nil
@@ -284,13 +284,13 @@ func normalizeOIDCGroupMapping(mapping map[string]string) map[string]string {
 
 func normalizeOIDCBasicRoleMapping(mapping map[string]oidcBasicRoleGrantMapping) map[string]oidcBasicRoleGrantMapping {
 	out := make(map[string]oidcBasicRoleGrantMapping, len(mapping))
-	for externalGroup, grant := range mapping {
-		externalGroup = strings.TrimSpace(externalGroup)
+	for externalTeam, grant := range mapping {
+		externalTeam = strings.TrimSpace(externalTeam)
 		grant.Role = strings.ToLower(strings.TrimSpace(grant.Role))
 		grant.Resource = strings.TrimSpace(grant.Resource)
 		grant.ResourceType = strings.TrimSpace(grant.ResourceType)
 		grant.ResourceID = strings.TrimSpace(grant.ResourceID)
-		if externalGroup == "" || grant.Role == "" {
+		if externalTeam == "" || grant.Role == "" {
 			continue
 		}
 		if grant.Resource == "" && (grant.ResourceType == "" || grant.ResourceID == "") {
@@ -311,7 +311,7 @@ func normalizeOIDCBasicRoleMapping(mapping map[string]oidcBasicRoleGrantMapping)
 		if strings.TrimSpace(grant.ResourceType) == "" || strings.TrimSpace(grant.ResourceID) == "" {
 			continue
 		}
-		out[externalGroup] = grant
+		out[externalTeam] = grant
 	}
 	if len(out) == 0 {
 		return nil
@@ -321,9 +321,6 @@ func normalizeOIDCBasicRoleMapping(mapping map[string]oidcBasicRoleGrantMapping)
 
 func normalizeOIDCEntitlementSync(sync oidcEntitlementSyncConfig) oidcEntitlementSyncConfig {
 	sync.Mode = strings.ToLower(strings.TrimSpace(sync.Mode))
-	if sync.Mode == "keycloak" {
-		sync.Mode = "keycloak_group_roles"
-	}
 	sync.AdminBaseURL = strings.TrimRight(strings.TrimSpace(sync.AdminBaseURL), "/")
 	sync.Realm = strings.TrimSpace(sync.Realm)
 	sync.AdminRealm = strings.TrimSpace(sync.AdminRealm)
@@ -340,9 +337,9 @@ func normalizeOIDCEntitlementSync(sync oidcEntitlementSyncConfig) oidcEntitlemen
 	sync.ClientID = strings.TrimSpace(sync.ClientID)
 	sync.TargetResourceType = strings.TrimSpace(sync.TargetResourceType)
 	if sync.TargetResourceType == "" {
-		sync.TargetResourceType = grantResourceFolder
+		sync.TargetResourceType = grantResourceTeam
 	}
-	sync.GroupPathPrefix = strings.Trim(strings.TrimSpace(sync.GroupPathPrefix), "/")
+	sync.TeamPathPrefix = strings.Trim(strings.TrimSpace(sync.TeamPathPrefix), "/")
 	if sync.Mode == "" && sync.AdminBaseURL == "" {
 		return oidcEntitlementSyncConfig{}
 	}

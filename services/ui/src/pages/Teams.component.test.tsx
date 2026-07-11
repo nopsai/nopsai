@@ -5,11 +5,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '../lib/api';
 import TeamsPage from './Teams';
 
-const groups = [
+const teams = [
   {
     id: 1,
     name: 'platform',
-    kind: 'group',
+    kind: 'team',
     description: 'Platform engineering',
     parent_id: null,
   },
@@ -24,8 +24,8 @@ const groups = [
 ];
 
 const teamsPayload = {
-  teams: [groups[0]],
-  applications: [groups[1]],
+  teams: [teams[0]],
+  applications: [teams[1]],
 };
 
 function renderTeams(initialEntry = '/teams') {
@@ -46,10 +46,9 @@ describe('TeamsPage', () => {
 
     renderTeams('/teams?team=1');
 
-    expect(await screen.findByRole('heading', { name: 'Teams', level: 1 })).toBeVisible();
+    expect(await screen.findByText('service-api')).toBeVisible();
     expect(document.querySelector('[data-page="teams"]')).toHaveClass('active');
     expect(screen.getAllByText('platform').length).toBeGreaterThan(0);
-    expect(screen.getByText('service-api')).toBeVisible();
     expect(screen.getByRole('link', { name: 'acme/service-api' })).toHaveAttribute(
       'href',
       'https://github.com/acme/service-api'
@@ -62,7 +61,7 @@ describe('TeamsPage', () => {
     renderTeams();
 
     expect(await screen.findByRole('heading', { name: 'No visible teams' })).toBeVisible();
-    expect(screen.getByText(/folder.list access/)).toBeVisible();
+    expect(screen.getByText(/Teams appear here/)).toBeVisible();
     expect(screen.getByRole('button', { name: 'Create team' })).toBeVisible();
     expect(screen.queryByText('No teams.')).not.toBeInTheDocument();
   });
@@ -72,7 +71,7 @@ describe('TeamsPage', () => {
 
     renderTeams('/teams?team=999');
 
-    expect(await screen.findByRole('heading', { name: 'Teams', level: 1 })).toBeVisible();
+    await screen.findByText('platform');
     expect(screen.getAllByText('platform').length).toBeGreaterThan(0);
     expect(screen.queryByRole('heading', { name: 'No visible teams' })).not.toBeInTheDocument();
   });

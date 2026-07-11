@@ -75,12 +75,17 @@ type parsedResourceAccessPath struct {
 	GrantID      string
 }
 
-type accessGroupResponse struct {
+type accessTeamResponse struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 
-func (a *App) handleListAccessGroups(w http.ResponseWriter, r *http.Request) {
+type accessAuthTeamResponse struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+func (a *App) handleListAccessAuthTeams(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -89,9 +94,56 @@ func (a *App) handleListAccessGroups(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	records, err := loadGroupPathRecords(r.Context(), a.db)
+	teams, err := listAccessAuthTeams(r.Context(), a.db)
 	if err != nil {
-		http.Error(w, "failed to list groups", http.StatusInternalServerError)
+		http.Error(w, "failed to list auth teams", http.StatusInternalServerError)
+		return
+	}
+	_ = httpapi.WriteJSON(w, http.StatusOK, teams)
+}
+
+func listAccessAuthTeams(ctx context.Context, runner queryRunner) ([]accessAuthTeamResponse, error) {
+	rows, err := runner.Query(ctx, `
+		SELECT id::text, name
+		FROM auth_teams
+		ORDER BY LOWER(name), name, id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	teams := make([]accessAuthTeamResponse, 0)
+	for rows.Next() {
+		var team accessAuthTeamResponse
+		if err := rows.Scan(&team.ID, &team.Name); err != nil {
+			return nil, err
+		}
+		team.ID = strings.TrimSpace(team.ID)
+		team.Name = strings.TrimSpace(team.Name)
+		if team.ID == "" || team.Name == "" {
+			continue
+		}
+		teams = append(teams, team)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return teams, nil
+}
+
+func (a *App) handleListAccessTeams(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if _, ok := a.currentAAASubject(r); !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	records, err := loadTeamPathRecords(r.Context(), a.db)
+	if err != nil {
+		http.Error(w, "failed to list teams", http.StatusInternalServerError)
 		return
 	}
 	resources := make([]model.ResourceRef, 0, len(records))
@@ -99,29 +151,29 @@ func (a *App) handleListAccessGroups(w http.ResponseWriter, r *http.Request) {
 		if strings.TrimSpace(record.Path) == "" {
 			continue
 		}
-		resources = append(resources, model.ResourceRef{Type: grantResourceFolder, ID: record.Path})
+		resources = append(resources, model.ResourceRef{Type: grantResourceTeam, ID: record.Path})
 	}
-	allowedSet, err := a.allowedResourceSet(r, "folder.list", resources)
+	allowedSet, err := a.allowedResourceSet(r, "team.list", resources)
 	if err != nil {
 		http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	groups := make([]accessGroupResponse, 0, len(records))
+	teams := make([]accessTeamResponse, 0, len(records))
 	for _, record := range records {
 		path := strings.Trim(strings.TrimSpace(record.Path), "/")
 		if path == "" {
 			continue
 		}
-		resource := model.ResourceRef{Type: grantResourceFolder, ID: path}
+		resource := model.ResourceRef{Type: grantResourceTeam, ID: path}
 		if _, ok := allowedSet[resourceKey(resource)]; !ok {
 			continue
 		}
-		groups = append(groups, accessGroupResponse{ID: path, Name: "/" + path})
+		teams = append(teams, accessTeamResponse{ID: path, Name: "/" + path})
 	}
-	sort.Slice(groups, func(i, j int) bool {
-		return strings.ToLower(groups[i].Name) < strings.ToLower(groups[j].Name)
+	sort.Slice(teams, func(i, j int) bool {
+		return strings.ToLower(teams[i].Name) < strings.ToLower(teams[j].Name)
 	})
-	_ = httpapi.WriteJSON(w, http.StatusOK, groups)
+	_ = httpapi.WriteJSON(w, http.StatusOK, teams)
 }
 
 func (a *App) handleResourceAccessRoute(w http.ResponseWriter, r *http.Request) {
@@ -439,7 +491,7 @@ func (a *App) listResourceAccessGrants(ctx context.Context, resource accessGrant
 			config_source_commit_sha,
 			managed_by_identity_provider,
 			identity_provider_id,
-			external_group_name
+			external_team_name
 		FROM access_grants
 		WHERE resource_type = $1 AND resource_id = $2
 		ORDER BY role_name ASC, subject_type ASC, subject_display ASC, subject_id ASC
@@ -469,7 +521,7 @@ func (a *App) listResourceAccessGrants(ctx context.Context, resource accessGrant
 			&record.ConfigSourceCommitSHA,
 			&record.ManagedByIdentityProvider,
 			&record.IdentityProviderID,
-			&record.ExternalGroupName,
+			&record.ExternalTeamName,
 		); err != nil {
 			return nil, err
 		}
@@ -488,8 +540,8 @@ func (a *App) listResourceAccessGrants(ctx context.Context, resource accessGrant
 }
 
 func (a *App) listInheritedResourceAccessGrants(ctx context.Context, resource accessGrantResource) ([]accessGrantResponse, error) {
-	parentFolders := inheritedAccessParentFolders(resource)
-	if len(parentFolders) == 0 {
+	parentTeams := inheritedAccessParentTeams(resource)
+	if len(parentTeams) == 0 {
 		return nil, nil
 	}
 	rows, err := a.db.Query(ctx, `
@@ -510,13 +562,13 @@ func (a *App) listInheritedResourceAccessGrants(ctx context.Context, resource ac
 			config_source_commit_sha,
 			managed_by_identity_provider,
 			identity_provider_id,
-			external_group_name
+			external_team_name
 		FROM access_grants
 		WHERE resource_type = $1
 		  AND resource_id = ANY($2)
 		  AND inherit = TRUE
 		ORDER BY resource_id ASC, role_name ASC, subject_type ASC, subject_display ASC, subject_id ASC
-	`, grantResourceFolder, parentFolders)
+	`, grantResourceTeam, parentTeams)
 	if err != nil {
 		return nil, err
 	}
@@ -542,7 +594,7 @@ func (a *App) listInheritedResourceAccessGrants(ctx context.Context, resource ac
 			&record.ConfigSourceCommitSHA,
 			&record.ManagedByIdentityProvider,
 			&record.IdentityProviderID,
-			&record.ExternalGroupName,
+			&record.ExternalTeamName,
 		); err != nil {
 			return nil, err
 		}
@@ -557,36 +609,36 @@ func (a *App) listInheritedResourceAccessGrants(ctx context.Context, resource ac
 	return grants, rows.Err()
 }
 
-func inheritedAccessParentFolders(resource accessGrantResource) []string {
+func inheritedAccessParentTeams(resource accessGrantResource) []string {
 	switch resource.Type {
 	case grantResourcePipeline, grantResourceStep:
 		path, _ := model.SplitPipelineID(resource.ID)
-		return folderPathPrefixes(path)
+		return teamPathPrefixes(path)
 	case grantResourceScope:
-		return folderPathPrefixes(resource.ID)
-	case grantResourceFolder:
-		prefixes := folderPathPrefixes(resource.ID)
+		return teamPathPrefixes(resource.ID)
+	case grantResourceTeam:
+		prefixes := teamPathPrefixes(resource.ID)
 		if len(prefixes) == 0 {
 			return nil
 		}
 		return prefixes[:len(prefixes)-1]
 	case grantResourceRepo, grantResourceTrigger:
-		return folderPathPrefixes(repositoryParentPath(resource.ID))
+		return teamPathPrefixes(repositoryParentPath(resource.ID))
 	case grantResourceKnowledgeContext:
-		_, group, _, _ := splitKnowledgeContextIdentifier(resource.ID)
-		return folderPathPrefixes(group)
+		_, team, _, _ := splitKnowledgeContextIdentifier(resource.ID)
+		return teamPathPrefixes(team)
 	case grantResourceSecret, grantResourceVariable:
 		repoName, scope, _ := model.ParseNamedResourceID(resource.ID)
 		if scope != "" {
-			return folderPathPrefixes(scope)
+			return teamPathPrefixes(scope)
 		}
-		return folderPathPrefixes(repositoryParentPath(repoName))
+		return teamPathPrefixes(repositoryParentPath(repoName))
 	default:
 		return nil
 	}
 }
 
-func folderPathPrefixes(path string) []string {
+func teamPathPrefixes(path string) []string {
 	path = strings.Trim(strings.TrimSpace(path), "/")
 	if path == "" || path == generalGrantID {
 		return nil
@@ -698,25 +750,25 @@ func setResourceVisibilityWithRunner(ctx context.Context, runner execRunner, res
 
 func normalizeResourceVisibilityUpdate(raw string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "", resourceVisibilityGroup, "only_this_group", "group_only":
-		return resourceVisibilityGroup, nil
-	case resourceVisibilityRestricted, "specific", "specific_groups_or_repositories":
+	case "", resourceVisibilityTeam, "only_this_team", "team_only":
+		return resourceVisibilityTeam, nil
+	case resourceVisibilityRestricted, "specific", "specific_teams_or_repositories":
 		return resourceVisibilityRestricted, nil
 	case resourceVisibilityWorkspace, "everyone_in_workspace", "public":
 		return resourceVisibilityWorkspace, nil
 	default:
-		return "", fmt.Errorf("visibility must be group, restricted, or workspace")
+		return "", fmt.Errorf("visibility must be team, restricted, or workspace")
 	}
 }
 
 func resourceAccessModeForVisibility(visibility string) string {
 	switch normalizeResourceVisibility(visibility) {
 	case resourceVisibilityRestricted:
-		return "specific_groups_or_repositories"
+		return "specific_teams_or_repositories"
 	case resourceVisibilityWorkspace:
 		return "everyone_in_workspace"
 	default:
-		return "only_this_group"
+		return "only_this_team"
 	}
 }
 
@@ -903,7 +955,7 @@ func (a *App) CreateResourceUseGrant(ctx context.Context, input createResourceUs
 		return accessGrantRecord{}, err
 	}
 
-	if subject.Type != grantSubjectGroup {
+	if subject.Type != grantSubjectTeam {
 		for _, action := range actions {
 			if err := aaastore.UpsertResourceACL(ctx, tx, aaastore.ResourceACL{
 				ResourceType:  resource.Type,
@@ -927,15 +979,15 @@ func (a *App) CreateResourceUseGrant(ctx context.Context, input createResourceUs
 
 func resolveResourceUseGrantSubject(ctx context.Context, runner queryRunner, rawType, rawID string) (accessGrantSubject, error) {
 	switch strings.ToLower(strings.TrimSpace(rawType)) {
-	case grantSubjectGroup, grantResourceFolder, "resource_group":
-		group, err := resolveAccessGrantFolder(ctx, runner, rawID, true)
+	case grantSubjectTeam:
+		team, err := resolveAccessGrantTeam(ctx, runner, rawID, true)
 		if err != nil {
 			return accessGrantSubject{}, err
 		}
-		if group.ID == generalGrantID {
-			return accessGrantSubject{}, fmt.Errorf("group grants require a concrete group")
+		if team.ID == generalGrantID {
+			return accessGrantSubject{}, fmt.Errorf("team grants require a concrete team")
 		}
-		return accessGrantSubject{Type: grantSubjectGroup, ID: group.ID, Display: group.Display}, nil
+		return accessGrantSubject{Type: grantSubjectTeam, ID: team.ID, Display: team.Display}, nil
 	default:
 		return resolveAccessGrantSubject(ctx, runner, rawType, rawID)
 	}

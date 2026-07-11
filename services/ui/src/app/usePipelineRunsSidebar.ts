@@ -2,64 +2,64 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { SIDEBAR_RECENT_PAGE_SIZE } from './constants';
 import {
   fetchRunSidebarDetail,
-  fetchRunSidebarGroups,
+  fetchRunSidebarTeams,
   fetchRunSidebarRecentRuns,
   fetchRunSidebarRepositoryRuns,
 } from './runSidebarApi';
-import { buildGroupPath, formatBranch, isRunAppGroup, runGroupMatchesRepository } from './runSidebarUtils';
-import type { RunGroup, RunListItem, RunTabKey } from './types';
+import { buildTeamPath, formatBranch, isRunAppTeam, runTeamMatchesRepository } from './runSidebarUtils';
+import type { RunTeam, RunListItem, RunTabKey } from './types';
 
 type PipelineRunsSidebarOptions = {
-  activeGroupId: number | null;
+  activeTeamId: number | null;
   activeRunId: string | null;
   tab: RunTabKey;
 };
 
-export function usePipelineRunsSidebar({ activeGroupId, activeRunId, tab }: PipelineRunsSidebarOptions) {
-  const [groups, setGroups] = useState<RunGroup[]>([]);
-  const [groupsLoading, setGroupsLoading] = useState(false);
+export function usePipelineRunsSidebar({ activeTeamId, activeRunId, tab }: PipelineRunsSidebarOptions) {
+  const [teams, setTeams] = useState<RunTeam[]>([]);
+  const [teamsLoading, setTeamsLoading] = useState(false);
   const [recentRuns, setRecentRuns] = useState<RunListItem[]>([]);
   const [runsLoading, setRunsLoading] = useState(false);
   const [recentHasMore, setRecentHasMore] = useState(true);
   const [recentLoadingMore, setRecentLoadingMore] = useState(false);
-  const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
+  const [expandedTeams, setExpandedTeams] = useState<Set<number>>(new Set());
   const [expandedBranches, setExpandedBranches] = useState<Set<string>>(new Set());
   const [repoRunsCache, setRepoRunsCache] = useState<Map<number, Record<string, RunListItem[]>>>(new Map());
   const [loadingRepos, setLoadingRepos] = useState<Set<number>>(new Set());
-  const groupsRef = useRef(groups);
+  const teamsRef = useRef(teams);
   const recentRunsRef = useRef(recentRuns);
-  const expandedGroupsRef = useRef(expandedGroups);
-  const activeGroupIdRef = useRef(activeGroupId);
+  const expandedTeamsRef = useRef(expandedTeams);
+  const activeTeamIdRef = useRef(activeTeamId);
   const repoRunsCacheRef = useRef(repoRunsCache);
   const loadingReposRef = useRef(loadingRepos);
   const pollRef = useRef<number | null>(null);
 
   useEffect(() => {
-    groupsRef.current = groups;
+    teamsRef.current = teams;
     recentRunsRef.current = recentRuns;
-    expandedGroupsRef.current = expandedGroups;
-    activeGroupIdRef.current = activeGroupId;
-  }, [activeGroupId, expandedGroups, groups, recentRuns]);
+    expandedTeamsRef.current = expandedTeams;
+    activeTeamIdRef.current = activeTeamId;
+  }, [activeTeamId, expandedTeams, teams, recentRuns]);
 
-  const ensureRepoRuns = useCallback(async (groupId: number, options?: { force?: boolean }) => {
+  const ensureRepoRuns = useCallback(async (teamId: number, options?: { force?: boolean }) => {
     const force = options?.force ?? false;
-    if ((!force && repoRunsCacheRef.current.has(groupId)) || loadingReposRef.current.has(groupId)) return;
+    if ((!force && repoRunsCacheRef.current.has(teamId)) || loadingReposRef.current.has(teamId)) return;
     setLoadingRepos(previous => {
       const next = new Set(previous);
-      next.add(groupId);
+      next.add(teamId);
       loadingReposRef.current = next;
       return next;
     });
-    const data = await fetchRunSidebarRepositoryRuns(groupId);
+    const data = await fetchRunSidebarRepositoryRuns(teamId);
     setRepoRunsCache(previous => {
       const next = new Map(previous);
-      next.set(groupId, data || {});
+      next.set(teamId, data || {});
       repoRunsCacheRef.current = next;
       return next;
     });
     setLoadingRepos(previous => {
       const next = new Set(previous);
-      next.delete(groupId);
+      next.delete(teamId);
       loadingReposRef.current = next;
       return next;
     });
@@ -67,14 +67,14 @@ export function usePipelineRunsSidebar({ activeGroupId, activeRunId, tab }: Pipe
 
   useEffect(() => {
     let cancelled = false;
-    const loadGroups = async () => {
-      setGroupsLoading(true);
-      const data = await fetchRunSidebarGroups();
+    const loadTeams = async () => {
+      setTeamsLoading(true);
+      const data = await fetchRunSidebarTeams();
       if (cancelled) return;
-      setGroups(data);
-      setGroupsLoading(false);
+      setTeams(data);
+      setTeamsLoading(false);
     };
-    void loadGroups();
+    void loadTeams();
     return () => {
       cancelled = true;
     };
@@ -119,28 +119,28 @@ export function usePipelineRunsSidebar({ activeGroupId, activeRunId, tab }: Pipe
   }, []);
 
   const refreshVisibleRepoRuns = useCallback(async () => {
-    const groupsById = new Map(groupsRef.current.map(group => [group.id, group]));
-    const targetGroupIds = new Set<number>();
-    const activeGroup = activeGroupIdRef.current !== null ? groupsById.get(activeGroupIdRef.current) : null;
-    if (activeGroup && isRunAppGroup(activeGroup)) targetGroupIds.add(activeGroup.id);
-    expandedGroupsRef.current.forEach(groupId => {
-      const group = groupsById.get(groupId);
-      if (group && isRunAppGroup(group)) targetGroupIds.add(groupId);
+    const teamsById = new Map(teamsRef.current.map(team => [team.id, team]));
+    const targetTeamIds = new Set<number>();
+    const activeTeam = activeTeamIdRef.current !== null ? teamsById.get(activeTeamIdRef.current) : null;
+    if (activeTeam && isRunAppTeam(activeTeam)) targetTeamIds.add(activeTeam.id);
+    expandedTeamsRef.current.forEach(teamId => {
+      const team = teamsById.get(teamId);
+      if (team && isRunAppTeam(team)) targetTeamIds.add(teamId);
     });
 
-    const idsToRefresh = Array.from(targetGroupIds).filter(groupId => !loadingReposRef.current.has(groupId));
+    const idsToRefresh = Array.from(targetTeamIds).filter(teamId => !loadingReposRef.current.has(teamId));
     const responses = await Promise.all(
-      idsToRefresh.map(async groupId => ({
-        groupId,
-        data: await fetchRunSidebarRepositoryRuns(groupId),
+      idsToRefresh.map(async teamId => ({
+        teamId,
+        data: await fetchRunSidebarRepositoryRuns(teamId),
       }))
     );
     setRepoRunsCache(previous => {
       let next: Map<number, Record<string, RunListItem[]>> | null = null;
-      responses.forEach(({ groupId, data }) => {
+      responses.forEach(({ teamId, data }) => {
         if (!data) return;
         if (!next) next = new Map(previous);
-        next.set(groupId, data);
+        next.set(teamId, data);
       });
       if (!next) return previous;
       repoRunsCacheRef.current = next;
@@ -149,24 +149,24 @@ export function usePipelineRunsSidebar({ activeGroupId, activeRunId, tab }: Pipe
   }, []);
 
   useEffect(() => {
-    if (!activeGroupId || !groups.length) return;
-    const path = buildGroupPath(activeGroupId, groups);
+    if (!activeTeamId || !teams.length) return;
+    const path = buildTeamPath(activeTeamId, teams);
     if (!path.length) return;
     const handle = window.setTimeout(() => {
-      setExpandedGroups(previous => {
+      setExpandedTeams(previous => {
         const next = new Set(previous);
-        path.forEach(group => next.add(group.id));
+        path.forEach(team => next.add(team.id));
         return next;
       });
     }, 0);
     return () => window.clearTimeout(handle);
-  }, [activeGroupId, groups]);
+  }, [activeTeamId, teams]);
 
   useEffect(() => {
-    if (tab !== 'main' || !activeGroupId) return;
-    const group = groups.find(candidate => candidate.id === activeGroupId);
-    if (group && isRunAppGroup(group)) void ensureRepoRuns(group.id, { force: true });
-  }, [activeGroupId, ensureRepoRuns, groups, tab]);
+    if (tab !== 'main' || !activeTeamId) return;
+    const team = teams.find(candidate => candidate.id === activeTeamId);
+    if (team && isRunAppTeam(team)) void ensureRepoRuns(team.id, { force: true });
+  }, [activeTeamId, ensureRepoRuns, teams, tab]);
 
   useEffect(() => {
     if (!activeRunId) return;
@@ -176,26 +176,26 @@ export function usePipelineRunsSidebar({ activeGroupId, activeRunId, tab }: Pipe
       const info = detail?.run_info;
       if (!info) return;
       const repoName = info.git_repo_owner && info.git_repo_name ? `${info.git_repo_owner}/${info.git_repo_name}` : '';
-      const repoGroup = repoName ? groups.find(group => runGroupMatchesRepository(group, repoName)) : null;
-      if (!repoGroup) return;
-      const path = buildGroupPath(repoGroup.id, groups);
+      const repoTeam = repoName ? teams.find(team => runTeamMatchesRepository(team, repoName)) : null;
+      if (!repoTeam) return;
+      const path = buildTeamPath(repoTeam.id, teams);
       if (cancelled) return;
-      setExpandedGroups(previous => {
+      setExpandedTeams(previous => {
         const next = new Set(previous);
-        path.forEach(group => next.add(group.id));
+        path.forEach(team => next.add(team.id));
         return next;
       });
-      await ensureRepoRuns(repoGroup.id, { force: true });
+      await ensureRepoRuns(repoTeam.id, { force: true });
       if (cancelled) return;
       const branchName = formatBranch(info.git_ref);
       if (branchName) {
-        setExpandedBranches(previous => new Set(previous).add(`${repoGroup.id}:${branchName}`));
+        setExpandedBranches(previous => new Set(previous).add(`${repoTeam.id}:${branchName}`));
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [activeRunId, ensureRepoRuns, groups]);
+  }, [activeRunId, ensureRepoRuns, teams]);
 
   useEffect(() => {
     if (pollRef.current) window.clearTimeout(pollRef.current);
@@ -214,15 +214,15 @@ export function usePipelineRunsSidebar({ activeGroupId, activeRunId, tab }: Pipe
     };
   }, [refreshRecentRuns, refreshVisibleRepoRuns, tab]);
 
-  const toggleGroup = useCallback(
-    (group: RunGroup) => {
-      const isRepository = isRunAppGroup(group);
-      setExpandedGroups(previous => {
+  const toggleTeam = useCallback(
+    (team: RunTeam) => {
+      const isRepository = isRunAppTeam(team);
+      setExpandedTeams(previous => {
         const next = new Set(previous);
-        if (next.has(group.id)) next.delete(group.id);
+        if (next.has(team.id)) next.delete(team.id);
         else {
-          next.add(group.id);
-          if (isRepository) void ensureRepoRuns(group.id, { force: true });
+          next.add(team.id);
+          if (isRepository) void ensureRepoRuns(team.id, { force: true });
         }
         return next;
       });
@@ -230,8 +230,8 @@ export function usePipelineRunsSidebar({ activeGroupId, activeRunId, tab }: Pipe
     [ensureRepoRuns]
   );
 
-  const toggleBranch = useCallback((groupId: number, branch: string) => {
-    const key = `${groupId}:${branch}`;
+  const toggleBranch = useCallback((teamId: number, branch: string) => {
+    const key = `${teamId}:${branch}`;
     setExpandedBranches(previous => {
       const next = new Set(previous);
       if (next.has(key)) next.delete(key);
@@ -241,18 +241,18 @@ export function usePipelineRunsSidebar({ activeGroupId, activeRunId, tab }: Pipe
   }, []);
 
   return {
-    groups,
-    groupsLoading,
+    teams,
+    teamsLoading,
     recentRuns,
     runsLoading,
     recentHasMore,
     recentLoadingMore,
-    expandedGroups,
+    expandedTeams,
     expandedBranches,
     repoRunsCache,
     loadingRepos,
     loadMoreRecentRuns,
-    toggleGroup,
+    toggleTeam,
     toggleBranch,
   };
 }

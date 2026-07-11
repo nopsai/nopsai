@@ -94,7 +94,7 @@ runner_id: runner-a
 
 func TestParseGitOpsRuntimeSettingsPlanReturnsNilWhenNoRuntimeFile(t *testing.T) {
 	plan, err := parseGitOpsRuntimeSettingsPlan(
-		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"},
+		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"},
 		gitOpsRuntimeSettingsDirectory{
 			root: "setting",
 			files: map[string]string{
@@ -114,7 +114,7 @@ func TestParseGitOpsRuntimeSettingsPlanReturnsNilWhenNoRuntimeFile(t *testing.T)
 
 func TestParseGitOpsRuntimeSettingsPlanRejectsNonSystemRepo(t *testing.T) {
 	_, err := parseGitOpsRuntimeSettingsPlan(
-		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"},
+		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"},
 		gitOpsRuntimeSettingsDirectory{
 			root: "setting",
 			files: map[string]string{

@@ -16,20 +16,20 @@ beforeEach(() => {
 test('coordinates step create and update permissions', async () => {
   checkPermissionMock.mockImplementation(async action => action === 'step.create');
   const { result, rerender } = renderHook(
-    ({ selectedID, folder }) => useStepPermissions(selectedID, folder),
-    { initialProps: { selectedID: 'platform/build', folder: '' } }
+    ({ selectedID, team }) => useStepPermissions(selectedID, team),
+    { initialProps: { selectedID: 'platform/build', team: '' } }
   );
 
   await waitFor(() => {
     expect(result.current).toEqual({
-      permissionFolder: 'platform',
+      permissionTeam: 'platform',
       canCreateStepHere: true,
       canUpdateSelectedStep: false,
     });
   });
 
-  rerender({ selectedID: null, folder: 'shared' });
-  await waitFor(() => expect(result.current.permissionFolder).toBe('shared'));
+  rerender({ selectedID: null, team: 'shared' });
+  await waitFor(() => expect(result.current.permissionTeam).toBe('shared'));
   expect(checkPermissionMock).toHaveBeenCalledWith(
     'step.create',
     'shared/__nopsai_permission_probe__'

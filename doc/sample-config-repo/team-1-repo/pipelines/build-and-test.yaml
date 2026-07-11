@@ -12,7 +12,7 @@ access:
     grants:
       - subject_type: repository
         subject_id: hosein-yousefii/test-app
-      - subject_type: group
+      - subject_type: team
         subject_id: data-team
 variables:
   - API_VERSION

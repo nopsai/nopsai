@@ -82,7 +82,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   const [serverPipelines, setServerPipelines] = useState<PipelineListItem[]>([]);
   const [listLoading, setListLoading] = useState<boolean>(true);
   const [listError, setListError] = useState<string | null>(null);
-  const [activeFolder, setActiveFolder] = useState('');
+  const [activeTeam, setActiveTeam] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -101,11 +101,11 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editorValue, setEditorValue] = useState('');
   const {
-    permissionFolder,
+    permissionTeam,
     canCreatePipelineHere,
     canUpdateSelectedPipeline,
     canExecuteSelectedPipeline,
-  } = usePipelinePermissions(selectedId, activeFolder);
+  } = usePipelinePermissions(selectedId, activeTeam);
   const canUsePipelineDrafts = canCreatePipelineHere || canUpdateSelectedPipeline;
   const {
     drafts: draftPipelines,
@@ -323,18 +323,18 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     }, 3200);
   }, []);
 
-  const parentFolder = (path: string) => {
+  const parentTeam = (path: string) => {
     const parts = path.split('/').filter(Boolean);
     parts.pop();
     return parts.join('/');
   };
 
-  const openFolder = (path: string) => {
+  const openTeam = (path: string) => {
     const cleaned = path.trim().replace(/^\/+|\/+$/g, '');
-    setActiveFolder(cleaned);
+    setActiveTeam(cleaned);
     setSelectedId(null);
     selectedIdRef.current = null;
-    navigate(cleaned ? `/pipelines?folder=${encodeURIComponent(cleaned)}` : '/pipelines');
+    navigate(cleaned ? `/pipelines?team=${encodeURIComponent(cleaned)}` : '/pipelines');
   };
 
   const loadRecentRuns = useCallback(
@@ -469,8 +469,8 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       selectedIdRef.current = null;
     }
     const params = new URLSearchParams(location.search);
-    const folder = params.get('folder') || '';
-    setActiveFolder(folder);
+    const team = params.get('team') || '';
+    setActiveTeam(team);
   }, [location.pathname, location.search]);
 
   useEffect(() => {
@@ -536,9 +536,9 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   const visiblePipelines = useMemo(() => {
     const list = searchTerm.trim()
       ? filteredPipelines
-      : filteredPipelines.filter(item => splitIdentifier(item.id).path === activeFolder);
+      : filteredPipelines.filter(item => splitIdentifier(item.id).path === activeTeam);
     return [...list].sort((a, b) => a.id.localeCompare(b.id));
-  }, [activeFolder, filteredPipelines, searchTerm]);
+  }, [activeTeam, filteredPipelines, searchTerm]);
 
   const buildTree = useMemo(() => {
     const root: TreeNode = { id: '__root__', name: '', fullPath: '', children: [], pipelineIds: [] };
@@ -564,9 +564,9 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     return root;
   }, [pipelines]);
 
-  const activeFolderNode = useMemo(() => {
-    if (!activeFolder) return buildTree;
-    const segments = activeFolder.split('/').filter(Boolean);
+  const activeTeamNode = useMemo(() => {
+    if (!activeTeam) return buildTree;
+    const segments = activeTeam.split('/').filter(Boolean);
     let current: TreeNode | null = buildTree;
     for (const segment of segments) {
       const nextNode: TreeNode | undefined = current?.children.find(child => child.name === segment);
@@ -574,7 +574,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       current = nextNode;
     }
     return current || buildTree;
-  }, [activeFolder, buildTree]);
+  }, [activeTeam, buildTree]);
 
   const handleSelect = useCallback((id: string) => {
     selectedIdRef.current = id;
@@ -614,7 +614,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     editorValue,
     validationErrorCount: validation.errors.length,
     validationMessage: 'Resolve validation errors before saving.',
-    permissionFolder,
+    permissionTeam,
     draftScope,
     canCreate: canCreatePipelineHere,
     canUpdate: canUpdateSelectedPipeline,
@@ -691,10 +691,10 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       {!selectedId && (
         <ResourceCollectionToolbar
           resourceLabel="pipeline"
-          activeFolder={activeFolder}
+          activeTeam={activeTeam}
           searchTerm={searchTerm}
           canCreate={canCreatePipelineHere}
-          onBack={() => openFolder(parentFolder(activeFolder))}
+          onBack={() => openTeam(parentTeam(activeTeam))}
           onSearchTermChange={setSearchTerm}
           onCreate={openCreateModal}
         />
@@ -705,13 +705,13 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
             listLoading={listLoading}
             listError={listError}
             visiblePipelines={visiblePipelines}
-            activeFolderNode={activeFolderNode}
+            activeTeamNode={activeTeamNode}
             searchTerm={searchTerm}
             canCreatePipelineHere={canCreatePipelineHere}
             canUsePipelineDrafts={canUsePipelineDrafts}
             canDeletePipelines={canDeletePipelines}
             onSelectPipeline={handleSelect}
-            onOpenFolder={openFolder}
+            onOpenTeam={openTeam}
             onDeletePipeline={openDeleteModal}
           />
         ) : detailLoading ? (

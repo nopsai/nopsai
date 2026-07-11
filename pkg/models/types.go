@@ -176,7 +176,7 @@ type FinalizeRequest struct {
 	FailureReason string `json:"failure_reason,omitempty"`
 }
 
-type Group struct {
+type Team struct {
 	ID                 int        `json:"id"`
 	Name               string     `json:"name"`
 	Kind               string     `json:"kind,omitempty"`
@@ -184,7 +184,7 @@ type Group struct {
 	Description        string     `json:"description,omitempty"`
 	RepoURL            string     `json:"repo_url,omitempty"`
 	RepositoryFullName string     `json:"repository_full_name,omitempty"`
-	Children           []Group    `json:"children"`
+	Children           []Team     `json:"children"`
 	LastRunAt          *time.Time `json:"last_run_at,omitempty"`
 	NavigationOnly     bool       `json:"navigation_only,omitempty"`
 }

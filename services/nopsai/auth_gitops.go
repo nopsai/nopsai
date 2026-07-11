@@ -160,9 +160,9 @@ func oidcProviderRecordFromConfig(id string, providerCfg config.OIDCProviderConf
 		ClientCredentialRef:   strings.TrimSpace(providerCfg.ClientCredentialRef),
 		Scopes:                normalizeOIDCScopes(providerCfg.Scopes),
 		AllowedEmailDomains:   normalizeOIDCEmailDomains(providerCfg.AllowedEmailDomains),
-		GroupClaim:            strings.TrimSpace(providerCfg.GroupClaim),
+		TeamClaim:             strings.TrimSpace(providerCfg.TeamClaim),
 		RoleMapping:           normalizeOIDCRoleMapping(providerCfg.RoleMapping),
-		GroupMapping:          normalizeOIDCGroupMapping(providerCfg.GroupMapping),
+		TeamMapping:           normalizeOIDCTeamMapping(providerCfg.TeamMapping),
 		BasicRoleMapping:      normalizeOIDCBasicRoleMapping(basicRoleMappingFromConfig(providerCfg.BasicRoleMapping)),
 		EntitlementSync:       normalizeOIDCEntitlementSync(entitlementSyncFromConfig(providerCfg.EntitlementSync)),
 		AutoCreateUsers:       providerCfg.AutoCreateUsers,
@@ -227,7 +227,7 @@ func (a *App) applyAuthSettingsGitOpsPlan(ctx context.Context, plan *gitOpsAuthS
 		}
 	}
 
-	if err := reconcileOIDCAuthGroupMappings(ctx, a.db); err != nil {
+	if err := reconcileOIDCAuthTeamMappings(ctx, a.db); err != nil {
 		return err
 	}
 	return reconcileOIDCBasicRoleMappings(ctx, a.db)
@@ -277,9 +277,9 @@ func oidcProviderConfigFromRecord(provider oidcProviderRecord) config.OIDCProvid
 		ClientCredentialRef:   strings.TrimSpace(provider.ClientCredentialRef),
 		Scopes:                normalizeOIDCScopes(provider.Scopes),
 		AllowedEmailDomains:   normalizeOIDCEmailDomains(provider.AllowedEmailDomains),
-		GroupClaim:            strings.TrimSpace(provider.GroupClaim),
+		TeamClaim:             strings.TrimSpace(provider.TeamClaim),
 		RoleMapping:           normalizeOIDCRoleMapping(provider.RoleMapping),
-		GroupMapping:          normalizeOIDCGroupMapping(provider.GroupMapping),
+		TeamMapping:           normalizeOIDCTeamMapping(provider.TeamMapping),
 		BasicRoleMapping:      basicRoleMappingToConfig(provider.BasicRoleMapping),
 		EntitlementSync:       entitlementSyncToConfig(entitlementSync),
 		AutoCreateUsers:       provider.AutoCreateUsers,
@@ -299,8 +299,8 @@ func basicRoleMappingToConfig(mapping map[string]oidcBasicRoleGrantMapping) map[
 		return nil
 	}
 	out := make(map[string]config.OIDCBasicRoleGrantConfig, len(mapping))
-	for group, grant := range mapping {
-		out[group] = config.OIDCBasicRoleGrantConfig{
+	for team, grant := range mapping {
+		out[team] = config.OIDCBasicRoleGrantConfig{
 			Role:         grant.Role,
 			Resource:     grant.Resource,
 			ResourceType: grant.ResourceType,
@@ -322,7 +322,7 @@ func entitlementSyncToConfig(sync oidcEntitlementSyncConfig) config.OIDCEntitlem
 		AdminPasswordCredentialRef: sync.AdminPasswordCredentialRef,
 		ClientID:                   sync.ClientID,
 		TargetResourceType:         sync.TargetResourceType,
-		GroupPathPrefix:            sync.GroupPathPrefix,
+		TeamPathPrefix:             sync.TeamPathPrefix,
 	}
 }
 

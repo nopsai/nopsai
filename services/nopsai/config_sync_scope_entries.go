@@ -76,7 +76,7 @@ func (a *App) addScopeConfigEntries(
 	scopePath string,
 	sourcePath string,
 	binding models.ConfigRepository,
-	boundFolder string,
+	boundTeam string,
 ) (bool, error) {
 	hasEmbeddedScopeAccess := false
 	for key, value := range raw {
@@ -95,7 +95,7 @@ func (a *App) addScopeConfigEntries(
 				return false, fmt.Errorf("scope variables section in '%s' must be a map of variable names to string values", sourcePath)
 			}
 			for variableKey, variableValue := range variables {
-				if err := addScopeVariableConfigEntry(generalScopeVars, repoScopeVars, scopePath, variableKey, variableValue, sourcePath, binding, boundFolder); err != nil {
+				if err := addScopeVariableConfigEntry(generalScopeVars, repoScopeVars, scopePath, variableKey, variableValue, sourcePath, binding, boundTeam); err != nil {
 					return false, err
 				}
 			}
@@ -105,7 +105,7 @@ func (a *App) addScopeConfigEntries(
 				return false, fmt.Errorf("scope secrets section in '%s' must be a map of secret names to encrypted string values or null placeholders", sourcePath)
 			}
 			for secretKey, secretValue := range secrets {
-				if err := a.addScopeSecretConfigEntry(generalScopeSecrets, repoScopeSecrets, scopePath, secretKey, secretValue, sourcePath, binding, boundFolder); err != nil {
+				if err := a.addScopeSecretConfigEntry(generalScopeSecrets, repoScopeSecrets, scopePath, secretKey, secretValue, sourcePath, binding, boundTeam); err != nil {
 					return false, err
 				}
 			}
@@ -143,7 +143,7 @@ func addScopeVariableConfigEntry(
 	value any,
 	sourcePath string,
 	binding models.ConfigRepository,
-	boundFolder string,
+	boundTeam string,
 ) error {
 	trimmedKey := strings.TrimSpace(rawKey)
 	if trimmedKey == "" {
@@ -168,10 +168,10 @@ func addScopeVariableConfigEntry(
 		if repoName == "" || varName == "" {
 			return fmt.Errorf("invalid repository-scoped variable key '%s' in '%s'", trimmedKey, sourcePath)
 		}
-		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
-			normalizedRepoName, err := configsync.NormalizePathForFolder(boundFolder, repoName)
+		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
+			normalizedRepoName, err := configsync.NormalizePathForTeam(boundTeam, repoName)
 			if err != nil {
-				return fmt.Errorf("invalid group-scoped repository variable key '%s' in '%s': %w", trimmedKey, sourcePath, err)
+				return fmt.Errorf("invalid team-scoped repository variable key '%s' in '%s': %w", trimmedKey, sourcePath, err)
 			}
 			repoName = normalizedRepoName
 		}
@@ -194,7 +194,7 @@ func (a *App) addScopeSecretConfigEntry(
 	value any,
 	sourcePath string,
 	binding models.ConfigRepository,
-	boundFolder string,
+	boundTeam string,
 ) error {
 	trimmedKey := strings.TrimSpace(rawKey)
 	if trimmedKey == "" {
@@ -219,10 +219,10 @@ func (a *App) addScopeSecretConfigEntry(
 		if repoName == "" || secretName == "" {
 			return fmt.Errorf("invalid repository-scoped secret key '%s' in '%s'", trimmedKey, sourcePath)
 		}
-		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
-			normalizedRepoName, err := configsync.NormalizePathForFolder(boundFolder, repoName)
+		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
+			normalizedRepoName, err := configsync.NormalizePathForTeam(boundTeam, repoName)
 			if err != nil {
-				return fmt.Errorf("invalid group-scoped repository secret key '%s' in '%s': %w", trimmedKey, sourcePath, err)
+				return fmt.Errorf("invalid team-scoped repository secret key '%s' in '%s': %w", trimmedKey, sourcePath, err)
 			}
 			repoName = normalizedRepoName
 		}
@@ -271,13 +271,13 @@ func configRepositoryBindingsFromPipelineRunStructure(structure map[string]*conf
 		scopeID := strings.Trim(strings.Join(path, "/"), "/")
 		if node.Config != nil {
 			if scopeID == "" {
-				return fmt.Errorf("config repository binding '%s' is missing a group path", sourcePath)
+				return fmt.Errorf("config repository binding '%s' is missing a team path", sourcePath)
 			}
 			if _, err := configsync.CleanPathSegments(scopeID, false); err != nil {
 				return fmt.Errorf("invalid config repository binding '%s': %w", sourcePath, err)
 			}
 			file := *node.Config
-			if err := configsync.ValidateBindingFile(file, models.ConfigRepositoryScopeFolder, scopeID, sourcePath); err != nil {
+			if err := configsync.ValidateBindingFile(file, models.ConfigRepositoryScopeTeam, scopeID, sourcePath); err != nil {
 				return err
 			}
 			basePath, err := configsync.NormalizeRepositoryBasePathForRequest(file.BasePath)
@@ -294,12 +294,12 @@ func configRepositoryBindingsFromPipelineRunStructure(structure map[string]*conf
 				branch = "main"
 			}
 
-			key := models.ConfigRepositoryScopeFolder + "/" + scopeID
+			key := models.ConfigRepositoryScopeTeam + "/" + scopeID
 			if _, exists := result[key]; exists {
 				return fmt.Errorf("duplicate config repository binding for '%s' detected", key)
 			}
 			result[key] = storedConfigRepository{
-				scopeType:    models.ConfigRepositoryScopeFolder,
+				scopeType:    models.ConfigRepositoryScopeTeam,
 				scopeID:      scopeID,
 				repoURL:      strings.TrimSpace(file.RepoURL),
 				branch:       branch,

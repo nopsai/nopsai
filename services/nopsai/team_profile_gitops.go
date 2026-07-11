@@ -60,7 +60,7 @@ func parseGitOpsTeamAIProfilePlan(binding models.ConfigRepository, repoCtx confi
 	if len(candidates) == 0 {
 		return nil, nil
 	}
-	if binding.ScopeType != models.ConfigRepositoryScopeFolder {
+	if binding.ScopeType != models.ConfigRepositoryScopeTeam {
 		return nil, fmt.Errorf("team AI profiles can only be configured from a team config repository")
 	}
 	if len(candidates) > 1 {
@@ -71,7 +71,7 @@ func parseGitOpsTeamAIProfilePlan(binding models.ConfigRepository, repoCtx confi
 		sort.Strings(paths)
 		return nil, fmt.Errorf("multiple team AI profile GitOps files found: %s", strings.Join(paths, ", "))
 	}
-	teamPath := strings.Trim(strings.TrimSpace(repoCtx.boundFolder), "/")
+	teamPath := strings.Trim(strings.TrimSpace(repoCtx.boundTeam), "/")
 	if teamPath == "" {
 		teamPath = strings.Trim(strings.TrimSpace(binding.ScopeID), "/")
 	}
@@ -196,7 +196,7 @@ func (a *App) persistTeamAIProfilesToTx(ctx context.Context, tx pgx.Tx, binding 
 	if plan == nil {
 		return nil
 	}
-	teamID, err := resolveTeamAIProfileGroupID(ctx, tx, plan.teamPath)
+	teamID, err := resolveTeamAIProfileTeamID(ctx, tx, plan.teamPath)
 	if err != nil {
 		return err
 	}
@@ -212,18 +212,18 @@ func (a *App) persistTeamAIProfilesToTx(ctx context.Context, tx pgx.Tx, binding 
 	return nil
 }
 
-func resolveTeamAIProfileGroupID(ctx context.Context, tx pgx.Tx, teamPath string) (int, error) {
+func resolveTeamAIProfileTeamID(ctx context.Context, tx pgx.Tx, teamPath string) (int, error) {
 	teamPath = strings.Trim(strings.TrimSpace(teamPath), "/")
 	if teamPath == "" {
 		return 0, fmt.Errorf("team AI profile scope is required")
 	}
 	var (
-		groupID int
-		kind    string
+		teamID int
+		kind   string
 	)
 	if err := tx.QueryRow(ctx, `
-		SELECT id, COALESCE(kind, 'group') FROM groups WHERE name = $1
-	`, teamPath).Scan(&groupID, &kind); err != nil {
+		SELECT id, COALESCE(kind, 'team') FROM teams WHERE name = $1
+	`, teamPath).Scan(&teamID, &kind); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, fmt.Errorf("team AI profiles reference missing team '%s'", teamPath)
 		}
@@ -232,7 +232,7 @@ func resolveTeamAIProfileGroupID(ctx context.Context, tx pgx.Tx, teamPath string
 	if strings.EqualFold(kind, "app") {
 		return 0, fmt.Errorf("team AI profiles must be attached to a team, not application '%s'", teamPath)
 	}
-	return groupID, nil
+	return teamID, nil
 }
 
 func (a *App) persistGitOpsTeamLLMProfilesToTx(ctx context.Context, tx pgx.Tx, teamID int, configRepoID int64, plan *gitOpsTeamAIProfilePlan, commitSHA string) error {

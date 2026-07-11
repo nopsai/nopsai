@@ -10,14 +10,14 @@ import (
 	"nopsai/services/aaa/pkg/model"
 )
 
-func TestIsSameGroupBoundaryExamples(t *testing.T) {
+func TestIsSameTeamBoundaryExamples(t *testing.T) {
 	tests := []struct {
 		name     string
 		caller   string
 		resource string
 		want     bool
 	}{
-		{name: "same group", caller: "team-1", resource: "team-1", want: true},
+		{name: "same team", caller: "team-1", resource: "team-1", want: true},
 		{name: "child resource", caller: "team-1", resource: "team-1/shared", want: true},
 		{name: "sibling under team", caller: "team-1/app", resource: "team-1/shared", want: true},
 		{name: "other team", caller: "team-1", resource: "team-2", want: false},
@@ -26,33 +26,33 @@ func TestIsSameGroupBoundaryExamples(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := IsSameGroupBoundary(tt.caller, tt.resource)
+			got := IsSameTeamBoundary(tt.caller, tt.resource)
 			if got != tt.want {
-				t.Fatalf("IsSameGroupBoundary(%q, %q) = %t, want %t", tt.caller, tt.resource, got, tt.want)
+				t.Fatalf("IsSameTeamBoundary(%q, %q) = %t, want %t", tt.caller, tt.resource, got, tt.want)
 			}
 		})
 	}
 }
 
-func TestGroupGrantIncludesCallerGroup(t *testing.T) {
+func TestTeamGrantIncludesCallerTeam(t *testing.T) {
 	tests := []struct {
-		name        string
-		grantGroup  string
-		callerGroup string
-		want        bool
+		name       string
+		grantTeam  string
+		callerTeam string
+		want       bool
 	}{
-		{name: "same group", grantGroup: "team-1", callerGroup: "team-1", want: true},
-		{name: "child caller", grantGroup: "team-1", callerGroup: "team-1/app", want: true},
-		{name: "sibling caller excluded", grantGroup: "team-1/shared", callerGroup: "team-1/app", want: false},
-		{name: "other team", grantGroup: "team-1", callerGroup: "team-2/app", want: false},
-		{name: "general excluded", grantGroup: generalGrantID, callerGroup: "team-1", want: false},
+		{name: "same team", grantTeam: "team-1", callerTeam: "team-1", want: true},
+		{name: "child caller", grantTeam: "team-1", callerTeam: "team-1/app", want: true},
+		{name: "sibling caller excluded", grantTeam: "team-1/shared", callerTeam: "team-1/app", want: false},
+		{name: "other team", grantTeam: "team-1", callerTeam: "team-2/app", want: false},
+		{name: "general excluded", grantTeam: generalGrantID, callerTeam: "team-1", want: false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := groupGrantIncludesCallerGroup(tt.grantGroup, tt.callerGroup)
+			got := teamGrantIncludesCallerTeam(tt.grantTeam, tt.callerTeam)
 			if got != tt.want {
-				t.Fatalf("groupGrantIncludesCallerGroup(%q, %q) = %t, want %t", tt.grantGroup, tt.callerGroup, got, tt.want)
+				t.Fatalf("teamGrantIncludesCallerTeam(%q, %q) = %t, want %t", tt.grantTeam, tt.callerTeam, got, tt.want)
 			}
 		})
 	}
@@ -228,26 +228,26 @@ func TestParentScopeForRuntimeResourceUse(t *testing.T) {
 	}
 }
 
-func TestSameGroupResourceUseAllowed(t *testing.T) {
+func TestSameTeamResourceUseAllowed(t *testing.T) {
 	tests := []struct {
 		name         string
 		resourceType string
 		visibility   string
 		want         bool
 	}{
-		{name: "knowledge context group", resourceType: grantResourceKnowledgeContext, visibility: resourceVisibilityGroup, want: true},
+		{name: "knowledge context team", resourceType: grantResourceKnowledgeContext, visibility: resourceVisibilityTeam, want: true},
 		{name: "knowledge context restricted", resourceType: grantResourceKnowledgeContext, visibility: resourceVisibilityRestricted, want: true},
-		{name: "pipeline group", resourceType: grantResourcePipeline, visibility: resourceVisibilityGroup, want: true},
-		{name: "scope group", resourceType: grantResourceScope, visibility: resourceVisibilityGroup, want: true},
-		{name: "secret group", resourceType: grantResourceSecret, visibility: resourceVisibilityGroup, want: false},
+		{name: "pipeline team", resourceType: grantResourcePipeline, visibility: resourceVisibilityTeam, want: true},
+		{name: "scope team", resourceType: grantResourceScope, visibility: resourceVisibilityTeam, want: true},
+		{name: "secret team", resourceType: grantResourceSecret, visibility: resourceVisibilityTeam, want: false},
 		{name: "knowledge context public", resourceType: grantResourceKnowledgeContext, visibility: resourceVisibilityWorkspace, want: false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := sameGroupResourceUseAllowed(tt.resourceType, tt.visibility)
+			got := sameTeamResourceUseAllowed(tt.resourceType, tt.visibility)
 			if got != tt.want {
-				t.Fatalf("sameGroupResourceUseAllowed(%q, %q) = %t, want %t", tt.resourceType, tt.visibility, got, tt.want)
+				t.Fatalf("sameTeamResourceUseAllowed(%q, %q) = %t, want %t", tt.resourceType, tt.visibility, got, tt.want)
 			}
 		})
 	}
@@ -335,17 +335,17 @@ func TestAuthorizeResourceUseAllowsDefaultSecretThroughDefaultScopeUse(t *testin
 
 func TestResourceUseFailureSummaryIncludesDecisionDetails(t *testing.T) {
 	result := ResourceUseAuthResult{
-		Allowed:       false,
-		Reason:        resourceUseReasonDenied,
-		Action:        "pipeline.use",
-		ResourceType:  grantResourcePipeline,
-		ResourceID:    "platform/shared/deploy",
-		CallerGroup:   "team-1",
-		ResourceGroup: "platform",
-		Visibility:    resourceVisibilityGroup,
-		EventType:     "push",
-		Ref:           "refs/heads/main",
-		Repo:          "hosein-yousefii/test-app",
+		Allowed:      false,
+		Reason:       resourceUseReasonDenied,
+		Action:       "pipeline.use",
+		ResourceType: grantResourcePipeline,
+		ResourceID:   "platform/shared/deploy",
+		CallerTeam:   "team-1",
+		ResourceTeam: "platform",
+		Visibility:   resourceVisibilityTeam,
+		EventType:    "push",
+		Ref:          "refs/heads/main",
+		Repo:         "hosein-yousefii/test-app",
 	}
 
 	got := resourceUseFailureSummary(model.SubjectTypeRepository, "hosein-yousefii/test-app", result, nil)
@@ -357,11 +357,11 @@ func TestResourceUseFailureSummaryIncludesDecisionDetails(t *testing.T) {
 	assertContains(t, got, "Resource: pipeline:platform/shared/deploy")
 	assertContains(t, got, "Event: push")
 	assertContains(t, got, "Ref: refs/heads/main")
-	assertContains(t, got, "Caller group: team-1")
-	assertContains(t, got, "Resource group: platform")
-	assertContains(t, got, "Visibility: group")
+	assertContains(t, got, "Caller team: team-1")
+	assertContains(t, got, "Resource team: platform")
+	assertContains(t, got, "Visibility: team")
 	assertContains(t, got, "Decision reason: denied")
-	assertContains(t, got, "Why: cross-group use from team-1 to platform requires an explicit grant or public visibility")
+	assertContains(t, got, "Why: cross-team use from team-1 to platform requires an explicit grant or public visibility")
 }
 
 func TestResourceUseFailureSummaryIncludesAuthorizationError(t *testing.T) {

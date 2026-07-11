@@ -91,7 +91,7 @@ func TestGitWebhookRepositoryAllowed(t *testing.T) {
 	}
 }
 
-func TestParseGitOpsGitWebhookSourcesNormalizesFolderID(t *testing.T) {
+func TestParseGitOpsGitWebhookSourcesNormalizesTeamID(t *testing.T) {
 	sources, err := parseGitOpsGitWebhookSources(map[string]string{
 		"git-webhook-sources/gitlab-main.yaml": `
 name: GitLab main
@@ -104,7 +104,7 @@ rate_limit:
   per_minute: 50
 `,
 	}, "git-webhook-sources", models.ConfigRepository{
-		ScopeType: models.ConfigRepositoryScopeFolder,
+		ScopeType: models.ConfigRepositoryScopeTeam,
 		ScopeID:   "team-1",
 	}, "team-1")
 	if err != nil {

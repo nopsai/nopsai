@@ -38,8 +38,8 @@ func TestIsDriftPathIncludesSyncableResourceFamilies(t *testing.T) {
 		"access/service-accounts.yaml",
 		"access/all.yaml",
 		"access/grants.yaml",
-		"config-repositories/groups/team-1/notifications.yaml",
-		"config-repositories/groups/team-1/structure.yaml",
+		"config-repositories/teams/team-1/notifications.yaml",
+		"config-repositories/teams/team-1/structure.yaml",
 		"external-triggers/webhook.yaml",
 		"git-webhook-sources/gitlab-platform.yaml",
 		"setting/system/mail.yaml",
@@ -56,26 +56,26 @@ func TestIsDriftPathIncludesSyncableResourceFamilies(t *testing.T) {
 	if IsDriftPath("access/readme.md", options) {
 		t.Fatal("non-YAML access files should not be included in drift")
 	}
-	for _, path := range []string{"notifications/groups/team-1.yaml", "pipelineruns/structure.yaml", "settings/system/runner.yaml"} {
+	for _, path := range []string{"notifications/teams/team-1.yaml", "pipelineruns/structure.yaml", "settings/system/runner.yaml"} {
 		if IsDriftPath(path, options) {
 			t.Fatalf("legacy path %q should not be included in drift", path)
 		}
 	}
 }
 
-func TestExportPathForFolderScope(t *testing.T) {
-	repo := models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"}
+func TestExportPathForTeamScope(t *testing.T) {
+	repo := models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
 	got, ok := ExportPath(repo, "team-1/services/api/deploy", "", "pipelines", ".yaml", false, sql.NullInt64{}, testDriftOptions())
 	if !ok || got != "pipelines/services/api/deploy.yaml" {
 		t.Fatalf("ExportPath() = %q, %t; want pipelines/services/api/deploy.yaml, true", got, ok)
 	}
 	if _, ok := ExportPath(repo, "team-2/services/api/deploy", "", "pipelines", ".yaml", false, sql.NullInt64{}, testDriftOptions()); ok {
-		t.Fatal("resource outside folder scope was accepted")
+		t.Fatal("resource outside team scope was accepted")
 	}
 }
 
 func TestExportPathStripsBasePathFromManagedSource(t *testing.T) {
-	repo := models.ConfigRepository{ID: 7, ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1", BasePath: "configs/team-1"}
+	repo := models.ConfigRepository{ID: 7, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1", BasePath: "configs/team-1"}
 	got, ok := ExportPath(repo, "team-1/services/api/deploy", "configs/team-1/pipelines/services/api/deploy.yaml", "pipelines", ".yaml", true, sql.NullInt64{Int64: 7, Valid: true}, testDriftOptions())
 	if !ok || got != "pipelines/services/api/deploy.yaml" {
 		t.Fatalf("managed ExportPath() = %q, %t; want pipelines/services/api/deploy.yaml, true", got, ok)
@@ -91,13 +91,13 @@ func TestIncludesResourceSkipsDelegatedScopes(t *testing.T) {
 	delegatedScopes := []string{"team-1"}
 
 	if IncludesResource(systemRepo, "team-1/test", "database", sql.NullInt64{}, false, delegatedScopes) {
-		t.Fatal("system repo should not include database resource under delegated folder")
+		t.Fatal("system repo should not include database resource under delegated team")
 	}
 	if IncludesResource(systemRepo, "team-1/test", "git", sql.NullInt64{Int64: 1, Valid: true}, true, delegatedScopes) {
-		t.Fatal("system repo should not keep claiming managed resource under delegated folder")
+		t.Fatal("system repo should not keep claiming managed resource under delegated team")
 	}
 	if !IncludesResource(systemRepo, "team-10/test", "database", sql.NullInt64{}, false, delegatedScopes) {
-		t.Fatal("similarly named but unrelated folder should remain in system repo")
+		t.Fatal("similarly named but unrelated team should remain in system repo")
 	}
 	if !IncludesResource(systemRepo, "platform/test", "database", sql.NullInt64{}, false, delegatedScopes) {
 		t.Fatal("unrelated system resource should remain in system repo")

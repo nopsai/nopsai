@@ -301,8 +301,8 @@ func TestValidatePipelineAllowsApprovalStepWithoutImage(t *testing.T) {
 				Step: &models.ApprovalStep{
 					BaseStep: models.BaseStep{Name: "prod-gate"},
 					Approval: models.ApprovalDefinition{
-						Type:   "production-deploy",
-						Groups: []string{"platform/prod"},
+						Type:  "production-deploy",
+						Teams: []string{"platform/prod"},
 					},
 				},
 			},
@@ -320,12 +320,12 @@ func TestValidatePipelineRejectsInvalidApprovalDefinition(t *testing.T) {
 		approval models.ApprovalDefinition
 		want     string
 	}{
-		{name: "missing type", approval: models.ApprovalDefinition{Groups: []string{"platform/prod"}}, want: "must define approval.type"},
-		{name: "invalid type", approval: models.ApprovalDefinition{Type: "prod deploy", Groups: []string{"platform/prod"}}, want: "approval.type can only contain"},
-		{name: "missing groups", approval: models.ApprovalDefinition{Type: "prod-deploy"}, want: "must assign at least one approval group"},
-		{name: "absolute group", approval: models.ApprovalDefinition{Type: "prod-deploy", Groups: []string{"/platform/prod"}}, want: "must be a relative folder path"},
-		{name: "escaping group", approval: models.ApprovalDefinition{Type: "prod-deploy", Groups: []string{"../prod"}}, want: "contains invalid path segments"},
-		{name: "duplicate group", approval: models.ApprovalDefinition{Type: "prod-deploy", Groups: []string{"platform/prod", "platform/prod"}}, want: "repeats approval group"},
+		{name: "missing type", approval: models.ApprovalDefinition{Teams: []string{"platform/prod"}}, want: "must define approval.type"},
+		{name: "invalid type", approval: models.ApprovalDefinition{Type: "prod deploy", Teams: []string{"platform/prod"}}, want: "approval.type can only contain"},
+		{name: "missing teams", approval: models.ApprovalDefinition{Type: "prod-deploy"}, want: "must assign at least one approval team"},
+		{name: "absolute team", approval: models.ApprovalDefinition{Type: "prod-deploy", Teams: []string{"/platform/prod"}}, want: "must be a relative team path"},
+		{name: "escaping team", approval: models.ApprovalDefinition{Type: "prod-deploy", Teams: []string{"../prod"}}, want: "contains invalid path segments"},
+		{name: "duplicate team", approval: models.ApprovalDefinition{Type: "prod-deploy", Teams: []string{"platform/prod", "platform/prod"}}, want: "repeats approval team"},
 	}
 
 	for _, tt := range tests {

@@ -14,13 +14,13 @@ type PipelineCollectionListProps = {
   listLoading: boolean;
   listError: string | null;
   visiblePipelines: PipelineListItem[];
-  activeFolderNode: PipelineTreeNode;
+  activeTeamNode: PipelineTreeNode;
   searchTerm: string;
   canCreatePipelineHere: boolean;
   canUsePipelineDrafts: boolean;
   canDeletePipelines: boolean;
   onSelectPipeline: (id: string) => void;
-  onOpenFolder: (path: string) => void;
+  onOpenTeam: (path: string) => void;
   onDeletePipeline: (id: string, name: string) => void;
 };
 
@@ -28,13 +28,13 @@ export function PipelineCollectionList({
   listLoading,
   listError,
   visiblePipelines,
-  activeFolderNode,
+  activeTeamNode,
   searchTerm,
   canCreatePipelineHere,
   canUsePipelineDrafts,
   canDeletePipelines,
   onSelectPipeline,
-  onOpenFolder,
+  onOpenTeam,
   onDeletePipeline,
 }: PipelineCollectionListProps) {
   return (
@@ -61,15 +61,15 @@ export function PipelineCollectionList({
               </div>
             ) : null}
 
-            {searchTerm.trim() ? null : activeFolderNode.children.length ? (
+            {searchTerm.trim() ? null : activeTeamNode.children.length ? (
               <div className="pipelines-card-grid pipelines-card-grid--pipelines mt-4">
-                {activeFolderNode.children.map(child => (
-                  <PipelineFolderCard key={`folder-${child.id}`} node={child} onOpenFolder={onOpenFolder} />
+                {activeTeamNode.children.map(child => (
+                  <PipelineTeamCard key={`team-${child.id}`} node={child} onOpenTeam={onOpenTeam} />
                 ))}
               </div>
             ) : null}
 
-            {!visiblePipelines.length && !activeFolderNode.children.length && (
+            {!visiblePipelines.length && !activeTeamNode.children.length && (
               <div id="pipelines-empty" className="pipelines-empty">
                 <h3 className="text-base font-semibold text-[var(--text-primary)]">No pipelines found</h3>
                 <p className="text-sm text-[var(--text-secondary)]">
@@ -145,30 +145,30 @@ function PipelineCard({
   );
 }
 
-function PipelineFolderCard({ node, onOpenFolder }: { node: PipelineTreeNode; onOpenFolder: (path: string) => void }) {
+function PipelineTeamCard({ node, onOpenTeam }: { node: PipelineTreeNode; onOpenTeam: (path: string) => void }) {
   return (
     <article
       className="glass-card pipeline-card border border-[var(--border-primary)] rounded-xl p-4"
-      onClick={() => onOpenFolder(node.fullPath)}
+      onClick={() => onOpenTeam(node.fullPath)}
     >
       <div className="pipeline-card-header">
         <div className="pipeline-card-info">
           <span className="pipeline-card-icon" aria-hidden="true">
-            <ObjectIcon type="folder" />
+            <ObjectIcon type="team" />
           </span>
           <div className="pipeline-card-text">
             <h3 className="pipeline-card-title">{node.name}</h3>
           </div>
         </div>
-        <span className="pipeline-folder-chevron">›</span>
+        <span className="pipeline-team-chevron">›</span>
       </div>
-      <div className="pipeline-folder-meta">
-        <div className="pipeline-folder-meta-row">
+      <div className="pipeline-team-meta">
+        <div className="pipeline-team-meta-row">
           <span className="pipeline-card-meta-label">Pipelines:</span>
           <span className="pipeline-card-meta-value">{node.pipelineIds.length}</span>
         </div>
-        <div className="pipeline-folder-meta-row">
-          <span className="pipeline-card-meta-label">Sub groups:</span>
+        <div className="pipeline-team-meta-row">
+          <span className="pipeline-card-meta-label">Sub teams:</span>
           <span className="pipeline-card-meta-value">{node.children.length}</span>
         </div>
       </div>

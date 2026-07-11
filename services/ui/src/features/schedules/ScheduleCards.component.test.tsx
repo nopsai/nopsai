@@ -14,7 +14,7 @@ const schedule: PipelineSchedule = {
   cron_expression: '0 2 * * *',
   timezone: 'UTC',
   scope: 'production',
-  run_group_path: 'platform/prod',
+  run_team_path: 'platform/prod',
   enabled: true,
   source: 'database',
   next_run_at: '2026-06-16T02:00:00Z',

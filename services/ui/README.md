@@ -41,7 +41,7 @@ npm run test:e2e:live
 - `src/features/editor/useDraftCollection.ts` and `useYamlResourceMutations.ts` own pipeline/step draft autosave and save/create/clone/delete lifecycles without changing routes or API contracts.
 - `src/features/lab/useLabSession.ts` and `useLabRunMutation.ts` own Lab session persistence, protected pipeline switching, overrides, and authorized scoped-run submission.
 - `src/features/monitoring/model.ts` and `MonitoringDashboard.tsx` own Monitoring normalization, aggregation, formatting, and dashboard presentation.
-- `src/features/pipeline-runs` owns run transport/contracts, dashboard and run-card presentation, selected-run detail, notification and folder dialogs, notification route normalization, graph rendering/layout/dialogs, and the incremental log dialog/polling/filter state.
+- `src/features/pipeline-runs` owns run transport/contracts, dashboard and run-card presentation, selected-run detail, notification and team dialogs, notification route normalization, graph rendering/layout/dialogs, and the incremental log dialog/polling/filter state.
 - `src/features/pipelines/PipelineActivityPanels.tsx` and `src/features/steps/StepUsagePanel.tsx` own focused activity and usage presentation for their route shells.
 - `src/features/editor/YamlValidationPanel.tsx` owns shared accessible YAML validation presentation across pipeline, step, trigger, and Lab editors.
 - `src/features/editor/ResourceCollectionToolbar.tsx` and `src/components/WorkflowToastRegion.tsx` own shared pipeline/step collection controls and accessible workflow notifications.

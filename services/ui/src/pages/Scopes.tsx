@@ -32,7 +32,7 @@ import {
   normalizeScopePipelineList,
   normalizeScopeLabel,
   normalizeTriggerOverrideSlugs,
-  parentScopeFolder,
+  parentScopeTeam,
   parseScopedIdentity,
   parseScopeYamlSafe,
   runWithConcurrencyLimit,
@@ -59,7 +59,7 @@ function ScopesPage({
   const scopeVariablesPromiseRef = useRef<Map<string, Promise<void>>>(new Map());
   const scopeSecretsPromiseRef = useRef<Map<string, Promise<void>>>(new Map());
 
-  const [activeFolder, setActiveFolder] = useState('');
+  const [activeTeam, setActiveTeam] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -155,14 +155,14 @@ function ScopesPage({
           return {
             scope: normalized,
             label,
-            folderPath: normalized,
+            teamPath: normalized,
             description,
             secretCountHint: secretCounts.get(normalized) || 0,
           };
         })
         .sort((a, b) => {
-          const folderCompare = (a.folderPath || '').localeCompare(b.folderPath || '', undefined, { sensitivity: 'base' });
-          if (folderCompare !== 0) return folderCompare;
+          const teamCompare = (a.teamPath || '').localeCompare(b.teamPath || '', undefined, { sensitivity: 'base' });
+          if (teamCompare !== 0) return teamCompare;
           return (a.label || '').localeCompare(b.label || '', undefined, { sensitivity: 'base' });
         });
 
@@ -424,7 +424,7 @@ function ScopesPage({
     }
 
     const params = new URLSearchParams(location.search);
-    setActiveFolder(params.get('folder') || '');
+    setActiveTeam(params.get('team') || '');
   }, [location.pathname, location.search]);
 
   useEffect(() => {
@@ -476,7 +476,7 @@ function ScopesPage({
     canCreateScopeHere,
     canWriteVariablesInSelectedScope,
     canWriteSecretsInSelectedScope,
-  } = useScopePermissions(activeFolder, selectedScope);
+  } = useScopePermissions(activeTeam, selectedScope);
 
   const scopesByLabel = useMemo(() => {
     const map = new Map<string, ScopeEntry>();
@@ -542,17 +542,17 @@ function ScopesPage({
     });
   }, [scopes, searchTerm]);
 
-  const activeFolderNode = useMemo(() => {
-    const node = getScopeTreeNode(scopeTree, activeFolder);
+  const activeTeamNode = useMemo(() => {
+    const node = getScopeTreeNode(scopeTree, activeTeam);
     return node || scopeTree;
-  }, [activeFolder, scopeTree]);
+  }, [activeTeam, scopeTree]);
 
-  const openFolder = (path: string) => {
+  const openTeam = (path: string) => {
     const cleaned = normalizeScopeLabel(path);
-    setActiveFolder(cleaned);
+    setActiveTeam(cleaned);
     selectedScopeRef.current = null;
     setSelectedScope(null);
-    navigate(cleaned ? `/scopes?folder=${encodeURIComponent(cleaned)}` : '/scopes');
+    navigate(cleaned ? `/scopes?team=${encodeURIComponent(cleaned)}` : '/scopes');
   };
 
   const handleSelectScope = (scopeLabel: string) => {
@@ -564,7 +564,7 @@ function ScopesPage({
 
   const handleBackToList = () => {
     if (selectedScope != null) {
-      navigate(parentScopeFolder(selectedScope) ? `/scopes?folder=${encodeURIComponent(parentScopeFolder(selectedScope))}` : '/scopes');
+      navigate(parentScopeTeam(selectedScope) ? `/scopes?team=${encodeURIComponent(parentScopeTeam(selectedScope))}` : '/scopes');
       return;
     }
     navigate('/scopes');
@@ -603,7 +603,7 @@ function ScopesPage({
     updateVariableModal,
     variableModal,
   } = useScopeModalMutations({
-    activeFolder,
+    activeTeam,
     scopesByLabel,
     scopeDataByScope,
     canCreateScopeHere,
@@ -682,8 +682,8 @@ function ScopesPage({
               type="button"
               className="glass-button-ghost"
               aria-label="Back"
-              onClick={() => openFolder(parentScopeFolder(activeFolder))}
-              disabled={!activeFolder}
+              onClick={() => openTeam(parentScopeTeam(activeTeam))}
+              disabled={!activeTeam}
             >
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
             </button>
@@ -763,12 +763,12 @@ function ScopesPage({
             listLoading={listLoading}
             listError={listError}
             searchTerm={searchTerm}
-            activeFolderNode={activeFolderNode}
+            activeTeamNode={activeTeamNode}
             filteredScopes={filteredScopes}
             scopesByLabel={scopesByLabel}
             scopeDataByScope={scopeDataByScope}
             canCreateScopeHere={canCreateScopeHere}
-            onOpenFolder={openFolder}
+            onOpenTeam={openTeam}
             onSelectScope={handleSelectScope}
           />
         ) : (

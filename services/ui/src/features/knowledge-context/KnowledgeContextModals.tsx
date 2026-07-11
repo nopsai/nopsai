@@ -4,7 +4,7 @@ import { kindOrder } from './model';
 export type KnowledgeFormModalState = {
   mode: 'create' | 'clone';
   kind: string;
-  group: string;
+  team: string;
   name: string;
   content: string;
   pending: boolean;
@@ -80,12 +80,12 @@ export function KnowledgeContextModals({
                 </select>
               </label>
               <label className="block text-sm font-medium text-[var(--text-secondary)]">
-                Group
+                Team
                 <input
                   className="pipelines-input w-full mt-1"
                   placeholder="team-1"
-                  value={formModal.group}
-                  onChange={event => onUpdateForm({ group: event.target.value })}
+                  value={formModal.team}
+                  onChange={event => onUpdateForm({ team: event.target.value })}
                 />
               </label>
             </div>

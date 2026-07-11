@@ -15,7 +15,7 @@ import {
 type CatalogSourceKey = keyof AccessResourceCatalogSources;
 
 const CATALOG_REQUESTS: Array<{ key: CatalogSourceKey; path: string }> = [
-  { key: 'groups', path: '/v1/groups' },
+  { key: 'teams', path: '/v1/teams?include=applications' },
   { key: 'pipelines', path: '/v1/pipelines' },
   { key: 'triggers', path: '/v1/overrides' },
   { key: 'externalTriggers', path: '/v1/external-triggers' },
@@ -27,7 +27,7 @@ const CATALOG_REQUESTS: Array<{ key: CatalogSourceKey; path: string }> = [
 export async function fetchAccessResourceCatalog(): Promise<AccessResourceCatalog> {
   const results = await Promise.allSettled(CATALOG_REQUESTS.map(request => fetchSystemJson(request.path)));
   const sources: AccessResourceCatalogSources = {
-    groups: [],
+    teams: [],
     pipelines: [],
     triggers: [],
     externalTriggers: [],
@@ -42,10 +42,35 @@ export async function fetchAccessResourceCatalog(): Promise<AccessResourceCatalo
       console.error(`Failed to load Access resource catalog source ${request.path}`, result.reason);
       return;
     }
+    if (request.key === 'teams') {
+      sources.teams = normalizeTeamCatalogPayload(result.value);
+      return;
+    }
     sources[request.key] = Array.isArray(result.value) ? result.value : [];
   });
 
   return buildAccessResourceCatalog(sources);
+}
+
+function normalizeTeamCatalogPayload(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  const record = value && typeof value === 'object' ? value as { teams?: unknown[]; applications?: unknown[] } : null;
+  const teams = Array.isArray(record?.teams) ? record.teams : [];
+  const applications = Array.isArray(record?.applications) ? record.applications : [];
+  return [
+    ...teams.map(team => normalizeTeamCatalogEntry(team, false)),
+    ...applications.map(application => normalizeTeamCatalogEntry(application, true)),
+  ].filter(Boolean);
+}
+
+function normalizeTeamCatalogEntry(value: unknown, application: boolean): unknown {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  return {
+    id: record.id,
+    name: record.slug || record.name || record.display_name || record.repository_full_name,
+    parent_id: application ? record.team_id ?? record.parent_id : record.parent_team_id ?? record.parent_id,
+  };
 }
 
 export async function fetchIdentityProvidersState(): Promise<IdentityProvidersState> {

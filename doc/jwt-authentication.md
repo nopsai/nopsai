@@ -82,18 +82,18 @@ oidc:
       scopes: ["openid", "email", "profile"]
       allowed_email_domains: ["company.com"]
       # Keycloak-only entitlement sync. Direct client roles become global
-      # access roles; group client roles become scoped Basic roles.
+      # access roles; team client roles become scoped Basic roles.
       entitlement_sync:
-        mode: keycloak_group_roles
+        mode: keycloak_team_roles
         admin_base_url: https://keycloak.example.com
         realm: company
         admin_client_id: nopsai-admin
         admin_client_credential_ref: credential://system/oidc/corporate/admin-client-secret
         client_id: nopsai
-        target_resource_type: folder
+        target_resource_type: team
 ```
 
-For a runnable local IdP with users and groups, use the Keycloak fixture in
+For a runnable local IdP with users and teams, use the Keycloak fixture in
 [local-keycloak-sso.md](./local-keycloak-sso.md). It starts behind the Compose
 `sso` profile and seeds admin, operator, and viewer SSO users.
 
@@ -202,11 +202,11 @@ SSO users remain normal Nopsai users:
 - `users.password_hash = NULL`
 - `users.must_change_password = false`
 - `auth_external_identities` links provider issuer/subject to `users.id`
-- `auth_external_group_memberships` stores last-seen external groups
-- `auth_external_role_assignments` tracks roles derived from external groups so
+- `auth_external_team_memberships` stores last-seen external teams
+- `auth_external_role_assignments` tracks roles derived from external teams so
   stale mapped roles can be pruned on later logins
 - Keycloak entitlement sync can also read direct client roles as global access
-  roles and group client roles as provider-managed scoped Basic roles
+  roles and team client roles as provider-managed scoped Basic roles
 - If `default_role` is empty, NopsAI does not add a baseline global role such as
   `viewer`; roles must come from direct mappings, direct Keycloak client roles,
   or scoped Basic-role grants.

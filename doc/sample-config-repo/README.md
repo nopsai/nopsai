@@ -10,11 +10,11 @@ of seeding starter resources directly into the database.
 There are two repositories represented here:
 
 - `global-repo`: a system/global config repository, bound as `scope_type=system`, `scope_id=global`, and `base_path=""`.
-- `team-1-repo`: a group-owned config repository, bound to group `team-1` by the global repo.
+- `team-1-repo`: a team-owned config repository, bound to team `team-1` by the global repo.
 
-The global repo can sync every shared config type and can define group config
-repo bindings. Group repos then become authoritative for everything under their
-group path.
+The global repo can sync every shared config type and can define team config
+repo bindings. Team repos then become authoritative for everything under their
+team path.
 
 ## Global repo binding
 
@@ -54,7 +54,7 @@ Drift is bidirectional for syncable resources: Git-only changes appear as files
 to import or delete, and UI-side changes appear as generated GitOps updates. The
 check covers pipelines, reusable steps, schedules, trigger manifests, Git
 webhook sources, scopes,
-knowledge contexts, run group/config-repository structure, notification routes,
+knowledge contexts, run team/config-repository structure, notification routes,
 access manifests, Agent Profiles, LLM profiles, MCP registry files, auth
 settings, mail settings, runtime settings, team `ai-profiles.yaml` files, and
 encrypted credential envelopes.
@@ -89,10 +89,10 @@ external-triggers/     Authenticated external trigger endpoints
 git-webhook-sources/   GitLab, Bitbucket, Gitea, and generic Git event sources
 scopes/                Scope variable and secret key files
 knowledge/             Managed knowledge context markdown documents
-config-repositories/   Group config repo bindings, group structure, and colocated notifications
+config-repositories/   Team config repo bindings, team structure, and colocated notifications
 access/                Users, service accounts, advanced roles, policies, and basic role grants
 setting/               System settings such as auth, mail, Agent Profiles, LLM, MCP, runtime settings, and encrypted credentials
-ai-profiles.yaml       Team-owned LLM, Agent, and MCP profiles in group config repositories
+ai-profiles.yaml       Team-owned LLM, Agent, and MCP profiles in team config repositories
 ```
 
 Scope files use separate `variables:` and `secrets:` sections. Variables must be
@@ -104,8 +104,8 @@ keys with no value.
 
 Pipeline, reusable step, scope, and knowledge context files may also include an
 `access:` block. That block maps to the same resource Access UI controls:
-`visibility` controls Only this group / selected subjects /
-Public, and `use_access` lists the groups, repositories, or service accounts
+`visibility` controls Only this team / selected subjects /
+Public, and `use_access` lists teams, repositories, or service accounts
 that can use a restricted resource. When Access is changed in the UI, config
 repository drift exports the current Access state back into these same embedded
 blocks.
@@ -130,7 +130,7 @@ global-repo/triggers/acme/deploy-webhook.yaml
 
 global-repo/external-triggers/deploy-prod.yaml
   -> authenticated external trigger for ServiceNow-style production deploy approvals,
-     with invoked runs grouped under platform/prod
+     with invoked runs teamed under platform/prod
 
 global-repo/git-webhook-sources/gitlab-platform.yaml
   -> GitLab source with a credential reference, repository allowlist, and rate limit
@@ -156,20 +156,20 @@ global-repo/knowledge/guideline/team-1/pipeline-report-style.md
 global-repo/knowledge/architecture/team-1/backend.md
   -> knowledge context architecture/team-1/backend
 
-global-repo/config-repositories/groups/team-2/platform.yaml
-  -> config repo binding and group shell for group team-2/platform
+global-repo/config-repositories/teams/team-2/platform.yaml
+  -> config repo binding and team shell for team team-2/platform
 
-global-repo/config-repositories/groups/team-1/structure.yaml
-  -> Pipeline Runs group structure, apps with repository URLs under the team-1 group shell, and inline group config repo binding
+global-repo/config-repositories/teams/team-1/structure.yaml
+  -> Pipeline Runs team structure, apps with repository URLs under the team-1 team shell, and inline team config repo binding
 
-global-repo/config-repositories/groups/data-team/structure.yaml
-  -> Pipeline Runs group structure and inline group config repo binding for data-team
+global-repo/config-repositories/teams/data-team/structure.yaml
+  -> Pipeline Runs team structure and inline team config repo binding for data-team
 
-global-repo/config-repositories/groups/team-2/structure.yaml
-  -> Pipeline Runs group structure and inline group config repo binding for the team-2 subtree
+global-repo/config-repositories/teams/team-2/structure.yaml
+  -> Pipeline Runs team structure and inline team config repo binding for the team-2 subtree
 
-global-repo/config-repositories/groups/platform/structure.yaml
-  -> Pipeline Runs group structure for platform automation
+global-repo/config-repositories/teams/platform/structure.yaml
+  -> Pipeline Runs team structure for platform automation
 
 global-repo/access/*.yaml
   -> global users, service accounts, advanced roles, policies, advanced role bindings, and basic role grants
@@ -177,8 +177,8 @@ global-repo/access/*.yaml
 global-repo/access/service-accounts.yaml
   -> service account identities webhook-deployer and servicenow-prod, plus scoped webhook grants and a least-privilege external trigger runner role
 
-global-repo/config-repositories/groups/team-2/notifications.yaml
-  -> group notification policy with named routes for team-2 pipeline events
+global-repo/config-repositories/teams/team-2/notifications.yaml
+  -> team notification policy with named routes for team-2 pipeline events
 
 global-repo/setting/system/llm_profile.yaml
   -> system LLM profile registry
@@ -379,15 +379,15 @@ smtp:
   password_credential_ref: credential://system/mail/smtp-primary
 ```
 
-When the global repo defines group bindings under `config-repositories/groups`,
-those bindings create the group shells. Put app placement next to those bindings
-in scoped files such as `config-repositories/groups/team-1/structure.yaml`.
-A group node can include `apps:` entries with `name` and `repo_url`, plus
+When the global repo defines team bindings under `config-repositories/teams`,
+those bindings create the team shells. Put app placement next to those bindings
+in scoped files such as `config-repositories/teams/team-1/structure.yaml`.
+A team node can include `apps:` entries with `name` and `repo_url`, plus
 `config:` with the same fields as a standalone binding file.
 
-## Group Repo File Map
+## Team Repo File Map
 
-When `team-1-repo` is bound to group `team-1`, Nopsai prefixes synced
+When `team-1-repo` is bound to team `team-1`, NopsAI prefixes synced
 resources with `team-1`:
 
 ```text
@@ -399,11 +399,11 @@ team-1-repo/pipelines/services/api/deploy.yaml
 
 team-1-repo/schedules/prod/scheduled/nightly-api-deploy.yaml
   -> schedule team-1/prod/scheduled/nightly-api-deploy, targeting team-1/services/api/deploy,
-     with runs grouped under team-1 for notification routing
+     with runs teamed under team-1 for notification routing
 
 team-1-repo/schedules/prod/scheduled/release-window.yaml
   -> one-time schedule team-1/prod/scheduled/release-window, targeting team-1/services/api/deploy,
-     with runs grouped under team-1 for notification routing
+     with runs routed under team-1 for notification routing
 
 team-1-repo/steps/shared/checkout.yaml
   -> reusable step team-1/shared/checkout
@@ -412,7 +412,7 @@ team-1-repo/triggers/service-api.yaml
   -> trigger override team-1/service-api
 
 team-1-repo/notifications.yaml
-  -> notification policy with named routes for group team-1, owned by the delegated group repo
+  -> notification policy with named routes for team team-1, owned by the delegated team repo
 
 team-1-repo/scopes/prod/scope.yaml
   -> variables and secret key placeholders in scope team-1/prod with restricted scope use access
@@ -424,56 +424,56 @@ team-1-repo/access/*.yaml
   -> basic role grants scoped to team-1
 ```
 
-Pipeline and step file names must match their `name` fields. Group repo trigger
-manifests, schedules, and includes should reference the final group-prefixed IDs
-or repo-relative IDs that sync can normalize under the bound group. A
-`prod/scheduled` schedule folder is useful for presentation, while
-`run_group_path` controls where scheduled runs appear and which notification
-routes receive their events. Use `run_group_path: root` to keep runs at the
-Pipeline Runs root without assigning them to a group.
-Repository-triggered runs that do not set an explicit run group are assigned to
+Pipeline and step file names must match their `name` fields. Team repo trigger
+manifests, schedules, and includes should reference the final team-prefixed IDs
+or repo-relative IDs that sync can normalize under the bound team. A
+`prod/scheduled` schedule team path is useful for presentation, while
+`run_team_path` controls where scheduled runs appear and which notification
+routes receive their events. Use `run_team_path: root` to keep runs at the
+Pipeline Runs root without assigning them to a team.
+Repository-triggered runs that do not set an explicit run team are assigned to
 an existing matching repository/application owner when one exists. Runtime
 ingestion does not create or rewrite team/application records; unmatched
-repository runs stay ungrouped until a team/application owner is configured.
+repository runs stay unassigned until a team/application owner is configured.
 
-Group notification policies control who receives pipeline event notifications for
-a run group. A system/global repo can define policies at
-`config-repositories/groups/<group>/notifications.yaml` beside that group's
-structure file. A delegated group repo can define `notifications.yaml` for the
-group it owns. Each file can contain one or more named `routes`, so teams can
+Team notification policies control who receives pipeline event notifications for
+a run team. A system/global repo can define policies at
+`config-repositories/teams/<team>/notifications.yaml` beside that team's
+structure file. A delegated team repo can define `notifications.yaml` for the
+team it owns. Each file can contain one or more named `routes`, so teams can
 split failure, approval, and success notifications without creating competing
-GitOps files for the same group. Recipients can include direct users, groups, and
-the reserved `same_group` team. Exclusions are applied after includes. Event keys
+GitOps files for the same team. Recipients can include direct users, teams, and
+the reserved `same_team` team. Exclusions are applied after includes. Event keys
 support failure, success, pending, running, waiting_approval, approval_requested,
 approval_approved, approval_rejected, cancelled, and skipped. Branch, pipeline,
 and repository filters use glob-style patterns, and delivery currently supports
-the `mail` channel. Policies apply to their group subtree, with the nearest
-policy in the run group's ancestry taking precedence. Schedules and external
-triggers can set `run_group_path` from the Teams hierarchy when their run events
-should be routed to a notification group that differs from the target pipeline's
-group. The reserved `root` value always means the Pipeline Runs root, not a
-group named `root`.
+the `mail` channel. Policies apply to their team subtree, with the nearest
+policy in the run team's ancestry taking precedence. Schedules and external
+triggers can set `run_team_path` from the Teams hierarchy when their run events
+should be routed to a notification team that differs from the target pipeline's
+team. The reserved `root` value always means the Pipeline Runs root, not a
+team named `root`.
 
 Nopsai reads every `.yaml` and `.yml` file under `access/`; file names such as
 `all.yaml` or `grants.yaml` are only examples, so teams can split manifests by
 owner, environment, or workflow.
 
-Global config repos may manage basic role grants even when the target group has
-its own delegated config repo. Group-owned config repos may manage basic role
-grants for their own group subtree. User, advanced-role, policy, and direct
-advanced-role-binding management remain global-repo only. In group repos, grant
-resource IDs are prefixed with the bound group automatically, so
-`resource: folder:dev` in the `team-1` repo targets `folder:team-1/dev`.
+Global config repos may manage basic role grants even when the target team has
+its own delegated config repo. Team-owned config repos may manage basic role
+grants for their own team subtree. User, advanced-role, policy, and direct
+advanced-role-binding management remain global-repo only. In team repos, grant
+resource IDs are prefixed with the bound team automatically, so
+`resource: team:dev` in the `team-1` repo targets `team:team-1/dev`.
 
 User `advanced_roles` are global access-role assignments and may reference
 custom roles or protected built-in bundles such as `viewer`, `developer`,
 `owner`, and `admin`. Use `basic_roles` when those same product role names
-should be scoped to a folder/group target. Prefer `user: alice` and
+should be scoped to a team target. Prefer `user: alice` and
 `service_account: webhook-deployer` in `basic_roles`; drift exports those
 shorthands and sync resolves them to the canonical runtime subject IDs. GitOps
 basic roles may point at pipelines, triggers, or scopes that are created later
-by a delegated group repo during the same sync-all run. Global drift still
-exports product `basic_roles` for delegated folders from `access/all.yaml` or
+by a delegated team repo during the same sync-all run. Global drift still
+exports product `basic_roles` for delegated teams from `access/all.yaml` or
 `access/service-accounts.yaml`; embedded resource access is exported with the
 repo that owns the resource file.
 
@@ -484,12 +484,12 @@ Use embedded `access:` for the per-object Access dialog settings:
 ```yaml
 name: deploy
 access:
-  visibility: restricted # group, restricted, or public/workspace
+  visibility: restricted # team, restricted, or public/workspace
   use_access:
     grants:
       - subject_type: repository
         subject_id: hosein-yousefii/test-app
-      - subject_type: group
+      - subject_type: team
         subject_id: data-team
 steps:
   - name: deploy
@@ -500,18 +500,18 @@ For the common UI subjects, the shorter form is also accepted:
 
 ```yaml
 access:
-  groups: [data-team]
+  teams: [data-team]
   repositories: [hosein-yousefii/test-app]
 ```
 
 When grants are present and `visibility` is omitted, Nopsai treats the resource
-as `restricted`. Scopes are sensitive, so they support `group` and `restricted`
+as `restricted`. Scopes are sensitive, so they support `team` and `restricted`
 visibility only; `public` is accepted for pipelines, reusable steps, and
 knowledge contexts.
 
 ## Knowledge context documents
 
-Managed knowledge context files live under `knowledge/<kind>/<group>/<name>.md`
+Managed knowledge context files live under `knowledge/<kind>/<team>/<name>.md`
 or `.yaml`/`.yml`.
 Supported kinds are `architecture`, `guardrail`, `policy`, `adr`,
 `guideline`, `runbook`, `reference`, and `example`.
@@ -540,8 +540,8 @@ knowledge_context:
     required: true
 ```
 
-In a group-scoped config repository, the document group is normalized under the
-bound group, so `knowledge/runbook/deploy/api.md` in the `team-1` repo becomes
-`runbook/team-1/deploy/api`. If the first group segment already matches the
-bound group, it is not duplicated; `knowledge/guardrail/team-1/check.yaml` in a
+In a team-scoped config repository, the document team is normalized under the
+bound team, so `knowledge/runbook/deploy/api.md` in the `team-1` repo becomes
+`runbook/team-1/deploy/api`. If the first team segment already matches the
+bound team, it is not duplicated; `knowledge/guardrail/team-1/check.yaml` in a
 `team-1` repo still becomes `guardrail/team-1/check`.

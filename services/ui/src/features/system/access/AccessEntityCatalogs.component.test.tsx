@@ -22,7 +22,7 @@ test("renders user assignments and delegates edit and delete actions", async () 
     subjectType: "user",
     subjectID: "user-1",
     role: "viewer",
-    resourceType: "folder",
+    resourceType: "team",
     resourceID: "platform",
     inherit: true,
   };
@@ -66,8 +66,8 @@ test("renders externally managed users with friendly identity labels", async () 
     external_provider_id: "nopsai",
     external_provider_name: "Local Keycloak",
     external_subject: "7e9b8422-a701-4b4a-bf36-60b973fa98c6",
-    external_groups: ["nopsai-admin"],
-    external_auth_groups: [{ id: "group-1", name: "sso-admins" }],
+    external_teams: ["nopsai-admin"],
+    external_auth_teams: [{ id: "team-1", name: "sso-admins" }],
   };
 
   render(

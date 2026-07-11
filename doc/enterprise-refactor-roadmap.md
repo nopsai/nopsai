@@ -43,17 +43,17 @@ Enterprise SSO is separated into:
   roles are resynced on login, local role/basic-role writes are rejected, and
   System Access renders friendly external identity labels instead of raw OIDC
   subjects.
-- Added Keycloak-to-NopsAI auth-group mapping so identity-provider groups can
-  drive NopsAI group-scoped/basic grants while membership remains externally
+- Added Keycloak-to-NopsAI auth-team mapping so identity-provider teams can
+  drive NopsAI team-scoped/basic grants while membership remains externally
   owned.
 - Added Keycloak entitlement sync so direct client roles become global NopsAI
-  access roles and group client roles become scoped Basic roles on matching
-  folder targets.
+  access roles and team client roles become scoped Basic roles on matching
+  team targets.
 - Moved System Access provider admin API calls into
   `services/ui/src/features/system/access/api.ts` while shared login/session
   behavior remains in `services/ui/src/lib/api.ts`.
-- Added a Compose Keycloak fixture with a seeded realm, users, groups, role
-  mappings, and auth-group mappings for local end-to-end SSO testing.
+- Added a Compose Keycloak fixture with a seeded realm, users, teams, role
+  mappings, and auth-team mappings for local end-to-end SSO testing.
 - Implemented the single encrypted credential registry, management API/UI,
   AAA actions, versioning, audit/access records, and deletion safeguards.
 - Migrated OIDC, mail, LLM, MCP, and GitHub integrations to stable credential

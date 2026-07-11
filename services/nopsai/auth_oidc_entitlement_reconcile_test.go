@@ -7,7 +7,7 @@ func TestKeycloakEntitlementProvidersByIDFiltersAndNormalizes(t *testing.T) {
 		{
 			ID: " Local Keycloak ",
 			EntitlementSync: oidcEntitlementSyncConfig{
-				Mode:         "keycloak",
+				Mode:         "keycloak_team_roles",
 				AdminBaseURL: " http://keycloak:8080/ ",
 				Realm:        "nopsai",
 			},
@@ -22,8 +22,8 @@ func TestKeycloakEntitlementProvidersByIDFiltersAndNormalizes(t *testing.T) {
 	if !ok {
 		t.Fatalf("providers = %#v, want normalized local-keycloak entry", providers)
 	}
-	if provider.EntitlementSync.Mode != "keycloak_group_roles" {
-		t.Fatalf("mode = %q, want keycloak_group_roles", provider.EntitlementSync.Mode)
+	if provider.EntitlementSync.Mode != "keycloak_team_roles" {
+		t.Fatalf("mode = %q, want keycloak_team_roles", provider.EntitlementSync.Mode)
 	}
 	if provider.EntitlementSync.AdminBaseURL != "http://keycloak:8080" {
 		t.Fatalf("admin base URL = %q, want trimmed URL", provider.EntitlementSync.AdminBaseURL)

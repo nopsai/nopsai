@@ -1,7 +1,7 @@
 # Local Keycloak SSO
 
 This repo includes a development-only Keycloak realm so Enterprise SSO can be
-tested with real OIDC redirects, users, and groups.
+tested with real OIDC redirects, users, and teams.
 
 ## Start Keycloak
 
@@ -39,19 +39,22 @@ Seeded users:
 | `sso-admin@example.com` | `qazwsx123456` | direct client role `nopsai-admin` | global `nopsai-admin` |
 | `sso-operator@example.com` | `qazwsx123456` | direct client role `owner` | global `owner` |
 | `sso-viewer@example.com` | `qazwsx123456` | direct client role `viewer` | global `viewer` |
-| `alice@example.com` | `qazwsx123456` | group `/team-1` with client role `owner` | scoped `owner` on `folder:team-1` |
-| `jip@example.com` | `qazwsx123456` | group `/team-1/dev` with client role `owner` | scoped `owner` on `folder:team-1/dev` |
+| `alice@example.com` | `qazwsx123456` | team `/team-1` with client role `owner` | scoped `owner` on `team:team-1` |
+| `jip@example.com` | `qazwsx123456` | team `/team-1/dev` with client role `owner` | scoped `owner` on `team:team-1/dev` |
 
 Pipeline run visibility follows AAA inheritance. For the local fixture, `jip`
-can see runs that inherit from `folder:team-1/dev`, including repository
+can see runs that inherit from `team:team-1/dev`, including repository
 triggered runs from an app/repository registered under `team-1/dev`, even when
-the triggered pipeline definition itself lives in the parent `team-1` folder.
-NopsAI may show parent folder shells such as `/team-1` so scoped users can
-navigate to their allowed child folders; those shells do not grant parent-folder
+the triggered pipeline definition itself lives in the parent `team-1` team.
+NopsAI may show parent team shells such as `/team-1` so scoped users can
+navigate to their allowed child teams; those shells do not grant parent-team
 operations or unrelated sibling visibility.
 
 The realm fixture lives at `dev/keycloak/nopsai-realm.json`. It includes a
-groups mapper that places Keycloak group names in the OIDC `groups` claim.
+teams mapper that places Keycloak team names in the OIDC `teams` claim.
+Keycloak stores those team records in its built-in group model, so the realm
+JSON field, protocol mapper implementation, and Admin API paths still use
+Keycloak's `groups` vocabulary even though NopsAI treats them only as teams.
 Users created or linked through OIDC are externally managed in NopsAI: their
 access-role and basic-role assignments are read-only in System Access and are
 resynced from Keycloak on login and by the OIDC entitlement sync worker.
@@ -69,19 +72,19 @@ There are two SSO authorization lanes:
 - Direct Keycloak client roles on the `nopsai` client become global NopsAI
   access roles. Use this for platform-wide `nopsai-admin`, `admin`, `owner`,
   `developer`, or `viewer` access.
-- Keycloak group client roles on the `nopsai` client become scoped NopsAI
-  Basic roles. The Keycloak group path is mapped to the NopsAI folder target,
-  so group `/team-1/dev` with client role `owner` becomes `owner` on
-  `folder:team-1/dev`.
+- Keycloak team client roles on the `nopsai` client become scoped NopsAI
+  Basic roles. The Keycloak team path is mapped to the NopsAI team target,
+  so team `/team-1/dev` with client role `owner` becomes `owner` on
+  `team:team-1/dev`.
 - The local fixture does not set an OIDC default role. Users without direct
   client roles should not receive global `viewer` access automatically.
 
-NopsAI uses `entitlement_sync.mode: keycloak_group_roles` for this fixture.
+NopsAI uses `entitlement_sync.mode: keycloak_team_roles` for this fixture.
 That sync calls the Keycloak Admin API after OIDC login and from a periodic
-worker so it can keep the role-to-group pairing. A plain OIDC token claim such
-as `groups: ["team-1"]` and `roles: ["owner"]` cannot reliably say which role
-belongs to which group. Keycloak authorization is managed through client roles
-and group role mappings in the Keycloak UI.
+worker so it can keep the role-to-team pairing. A plain OIDC token claim such
+as `teams: ["team-1"]` and `roles: ["owner"]` cannot reliably say which role
+belongs to which team. Keycloak authorization is managed through client roles
+and team role mappings in the Keycloak UI.
 
 ## Configure NopsAI
 
@@ -112,7 +115,7 @@ oidc:
       allowed_email_domains: ["example.com"]
       allow_email_linking: true
       entitlement_sync:
-        mode: keycloak_group_roles
+        mode: keycloak_team_roles
         admin_base_url: http://keycloak:8080
         realm: nopsai
         admin_realm: master
@@ -120,7 +123,7 @@ oidc:
         admin_username: admin
         admin_password_credential_ref: credential://system/oidc/nopsai/admin-password
         client_id: nopsai
-        target_resource_type: folder
+        target_resource_type: team
 ```
 
 `config.yml` still accepts the legacy nested `auth:` key for bootstrap-only or
@@ -140,8 +143,8 @@ URIs above.
 The callback path includes the NopsAI provider ID:
 `/v1/auth/oidc/{provider-id}/callback`. If the provider ID is `nopsai`,
 Keycloak must allow the `.../oidc/nopsai/callback` redirect URI.
-Keep `groups` out of the requested scopes for this fixture. Keycloak emits the
-`groups` claim through the client protocol mapper for visibility. Scoped Basic
+Keep `teams` out of the requested scopes for this fixture. Keycloak emits the
+`teams` claim through the client protocol mapper for visibility. Scoped Basic
 roles come from the Keycloak Admin API sync above.
 Leave `default_role` empty for this fixture so Keycloak remains the source of
 truth for global access roles. Set it only when a provider should intentionally
@@ -154,7 +157,7 @@ production, enable this only for trusted providers that assert verified email
 ownership.
 
 For production Keycloak, prefer a dedicated confidential admin client with
-service-account permissions to read users, groups, clients, and role mappings.
+service-account permissions to read users, teams, clients, and role mappings.
 Then use `admin_client_id` with `admin_client_credential_ref` instead of
 `admin_username` with `admin_password_credential_ref`.
 
@@ -164,21 +167,21 @@ To manage roles in the Keycloak UI:
    `owner`, and `nopsai-admin`.
 2. Assign `nopsai-admin`, `owner`, `developer`, or `viewer` directly to a user
    when the role should be global in NopsAI.
-3. Create or open a Keycloak group such as `/team-1` or `/team-1/dev`.
+3. Create or open a Keycloak team such as `/team-1` or `/team-1/dev`.
 4. Assign `viewer`, `developer`, or `owner` from the `nopsai` client to that
-   group when the role should be scoped to the matching NopsAI folder.
+   team when the role should be scoped to the matching NopsAI team.
 
 Membership comes from Keycloak. NopsAI writes provider-managed `basic_roles`
 for linked users during OIDC login, on entitlement worker startup, and every
-five minutes after that. It prunes those grants when the Keycloak group role
+five minutes after that. It prunes those grants when the Keycloak team role
 mapping no longer applies. The scoped grant can be stored before the matching
-NopsAI folder exists, so Keycloak and GitOps changes do not have to be applied
+NopsAI team exists, so Keycloak and GitOps changes do not have to be applied
 in a strict order.
 
 SSO-managed users and their provider-managed grants are runtime identity state,
 not GitOps state. Config repository export and drift skip linked OIDC users,
 their `oidc:*` subjects, and Keycloak-managed role grants; keep those users and
-group mappings in Keycloak, while GitOps owns the provider settings in
+team mappings in Keycloak, while GitOps owns the provider settings in
 `setting/system/auth.yaml` plus local users and service accounts.
 
 When NopsAI runs directly on the host instead of in Compose, use
@@ -201,7 +204,7 @@ When NopsAI runs directly on the host instead of in Compose, use
    value. For `sso-admin@example.com`, `sso-operator@example.com`, and
    `sso-viewer@example.com`, System Access should show the global access role.
    For `alice@example.com` and `jip@example.com`, System Access should show a
-   provider-managed Basic role on the matching folder target.
+   provider-managed Basic role on the matching team target.
 
 If Keycloak was already started before the realm file changed, recreate it:
 
@@ -217,11 +220,11 @@ exact callback URL in the browser request. The callback includes the NopsAI
 provider ID, for example `.../oidc/nopsai/callback`, so add that exact URL to
 the Keycloak client redirect URIs.
 
-`invalid_scope` with `Invalid scopes: openid email profile groups` means the
-NopsAI provider requested `groups` as an OAuth scope, but this Keycloak client
-does not define a client scope named `groups`. Use only `openid`, `email`, and
-`profile` as requested scopes for this fixture. Keep `group_claim: groups` and
-the Keycloak protocol mapper so role mapping still receives group names.
+`invalid_scope` with `Invalid scopes: openid email profile teams` means the
+NopsAI provider requested `teams` as an OAuth scope, but this Keycloak client
+does not define a client scope named `teams`. Use only `openid`, `email`, and
+`profile` as requested scopes for this fixture. Keep `team_claim: teams` and
+the Keycloak protocol mapper so role mapping still receives team names.
 
 `oidc id token validation failed` after a successful Keycloak login usually
 means the stored provider issuer does not exactly match the Keycloak realm

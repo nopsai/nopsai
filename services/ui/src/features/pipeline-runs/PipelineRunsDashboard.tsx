@@ -6,12 +6,11 @@ import {
   ArrowUpRight,
   Boxes,
   ChevronRight,
-  Folder,
-  FolderTree,
   GitBranch,
   PlayCircle,
   Timer,
   User,
+  UsersRound,
   Webhook,
 } from 'lucide-react';
 import type { RunListItem } from './contracts';
@@ -24,28 +23,28 @@ import {
   RunStatusIcon,
 } from './PipelineRunCards';
 import {
-  buildRunSourceGroups,
+  buildRunSourceTeams,
   formatBranch,
   formatBranchDisplay,
   formatRepoLabel,
   formatTriggerId,
-  groupDisplayName,
-  groupRepositoryLabel,
-  groupRepositoryURL,
-  isAppGroup,
+  teamDisplayName,
+  teamRepositoryLabel,
+  teamRepositoryURL,
+  isAppTeam,
   runMatchesSearch,
   runTimestamp,
   timeAgo,
-  type Group,
+  type Team,
   type RepoSummary,
-  type RunSourceGroup,
+  type RunSourceTeam,
   type RunSourceKind,
 } from './runPresentation';
 import { getStatusMeta, normalizeStatus } from './statusPresentation';
 
 type TabKey = 'main' | 'recent' | 'events';
 
-type TriggerGroup = {
+type TriggerTeam = {
   id: string;
   runs: RunListItem[];
   status: string;
@@ -67,15 +66,15 @@ function runSourceIcon(kind: RunSourceKind) {
 
 export function PipelineRunsDashboard({
   activeTab,
-  groups,
-  groupsLoading,
-  groupsError,
-  onSelectGroup,
-  activeGroupId,
-  activeGroupPath,
+  teams,
+  teamsLoading,
+  teamsError,
+  onSelectTeam,
+  activeTeamId,
+  activeTeamPath,
   runsByBranch,
   recentRuns,
-  groupedEvents,
+  teamedEvents,
   viewMode,
   runsLoading,
   runsError,
@@ -86,7 +85,7 @@ export function PipelineRunsDashboard({
   onSelectRun,
   selectedRunIds,
   collapsedEvents,
-  onToggleEventGroup,
+  onToggleEventTeam,
   onCollapseAllEvents,
   onExpandAllEvents,
   collapsedBranches,
@@ -94,26 +93,26 @@ export function PipelineRunsDashboard({
   onDeleteBranch,
 }: {
   activeTab: TabKey;
-  groups: Group[];
-  groupsLoading: boolean;
-  groupsError: string | null;
-  onSelectGroup: (id: number | null) => void;
-  activeGroupId: number | null;
-  activeGroupPath: Group[];
+  teams: Team[];
+  teamsLoading: boolean;
+  teamsError: string | null;
+  onSelectTeam: (id: number | null) => void;
+  activeTeamId: number | null;
+  activeTeamPath: Team[];
   runsByBranch: Record<string, RunListItem[]>;
   recentRuns: RunListItem[];
-  groupedEvents: TriggerGroup[];
+  teamedEvents: TriggerTeam[];
   viewMode: 'grid' | 'list';
   runsLoading: boolean;
   runsError: string | null;
   searchTerm: string;
   repoSummaries: Map<number, RepoSummary>;
-  fetchRepoSummary: (groupId: number) => Promise<void>;
+  fetchRepoSummary: (teamId: number) => Promise<void>;
   onOpenRun: (id: string) => void;
   onSelectRun: (id: string) => void;
   selectedRunIds: Set<string>;
   collapsedEvents: Set<string>;
-  onToggleEventGroup: (id: string) => void;
+  onToggleEventTeam: (id: string) => void;
   onCollapseAllEvents: () => void;
   onExpandAllEvents: () => void;
   collapsedBranches: Set<string>;
@@ -123,25 +122,25 @@ export function PipelineRunsDashboard({
   const term = searchTerm.trim().toLowerCase();
   const effectiveViewMode = activeTab === 'main' ? 'grid' : viewMode;
 
-  const childGroups = useMemo(() => {
-    if (activeTab !== 'main') return [] as Group[];
-    return groups.filter(g => (g.parent_id ?? null) === (activeGroupId ?? null));
-  }, [activeGroupId, activeTab, groups]);
+  const childTeams = useMemo(() => {
+    if (activeTab !== 'main') return [] as Team[];
+    return teams.filter(g => (g.parent_id ?? null) === (activeTeamId ?? null));
+  }, [activeTeamId, activeTab, teams]);
 
-  const visibleGroups = useMemo(() => {
-    if (activeTab !== 'main') return [] as Group[];
-    if (!term) return childGroups;
-    return childGroups.filter(group =>
-      [group.name, group.repository_full_name, group.repo_url]
+  const visibleTeams = useMemo(() => {
+    if (activeTab !== 'main') return [] as Team[];
+    if (!term) return childTeams;
+    return childTeams.filter(team =>
+      [team.name, team.repository_full_name, team.repo_url]
         .filter(Boolean)
         .join(' ')
         .toLowerCase()
         .includes(term)
     );
-  }, [activeTab, childGroups, term]);
+  }, [activeTab, childTeams, term]);
 
-  const repoGroups = useMemo(() => visibleGroups.filter(group => isAppGroup(group)), [visibleGroups]);
-  const folderGroups = useMemo(() => visibleGroups.filter(group => !isAppGroup(group)), [visibleGroups]);
+  const repoTeams = useMemo(() => visibleTeams.filter(team => isAppTeam(team)), [visibleTeams]);
+  const teamTeams = useMemo(() => visibleTeams.filter(team => !isAppTeam(team)), [visibleTeams]);
 
   const filteredRunsByBranch = useMemo(() => {
     if (activeTab !== 'main') return runsByBranch;
@@ -160,19 +159,19 @@ export function PipelineRunsDashboard({
       .sort((a, b) => runTimestamp(b) - runTimestamp(a));
   }, [activeTab, filteredRunsByBranch]);
 
-  const runSourceGroups = useMemo(
-    () => buildRunSourceGroups(filteredRunsByBranch),
+  const runSourceTeams = useMemo(
+    () => buildRunSourceTeams(filteredRunsByBranch),
     [filteredRunsByBranch]
   );
 
   useEffect(() => {
     if (activeTab !== 'main') return;
-    visibleGroups.forEach(group => {
-      if (isAppGroup(group) && !repoSummaries.has(group.id)) {
-        void fetchRepoSummary(group.id);
+    visibleTeams.forEach(team => {
+      if (isAppTeam(team) && !repoSummaries.has(team.id)) {
+        void fetchRepoSummary(team.id);
       }
     });
-  }, [activeTab, fetchRepoSummary, repoSummaries, visibleGroups]);
+  }, [activeTab, fetchRepoSummary, repoSummaries, visibleTeams]);
 
   if (runsError) {
     return <div className="text-red-500 text-sm">{runsError}</div>;
@@ -182,38 +181,38 @@ export function PipelineRunsDashboard({
     const hasSearch = Boolean(term);
     const mainSearchRuns = hasSearch ? recentRuns : [];
 
-    const activeFolder = activeGroupPath.length ? activeGroupPath[activeGroupPath.length - 1] : null;
+    const activeTeam = activeTeamPath.length ? activeTeamPath[activeTeamPath.length - 1] : null;
 
     return (
       <div className="space-y-4">
-        {groupsError && <div className="text-red-500 text-sm">{groupsError}</div>}
+        {teamsError && <div className="text-red-500 text-sm">{teamsError}</div>}
 
-        {activeGroupPath.length > 0 && (
+        {activeTeamPath.length > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center flex-wrap gap-2 text-sm text-[var(--text-secondary)]">
               <button
                 type="button"
                 className="runner-pill runner-pill--muted"
-                onClick={() => onSelectGroup(null)}
+                onClick={() => onSelectTeam(null)}
                 aria-label="Back to root teams"
               >
                 All teams
               </button>
-              {activeGroupPath.map((group: Group) => (
-                <div key={group.id} className="flex items-center gap-2">
+              {activeTeamPath.map((team: Team) => (
+                <div key={team.id} className="flex items-center gap-2">
                   <span className="text-[var(--border-primary)]">/</span>
                   <button
                     type="button"
-                    className={`runner-pill ${group.id === activeGroupId ? 'runner-pill--muted' : 'runner-pill--ghost'}`}
-                    onClick={() => onSelectGroup(group.id)}
+                    className={`runner-pill ${team.id === activeTeamId ? 'runner-pill--muted' : 'runner-pill--ghost'}`}
+                    onClick={() => onSelectTeam(team.id)}
                   >
-                    {group.name}
+                    {team.name}
                   </button>
                 </div>
               ))}
             </div>
-            {activeFolder && (
-              <Link className="glass-button-subtle" to={`/teams?team=${encodeURIComponent(String(activeFolder.id))}`}>
+            {activeTeam && (
+              <Link className="glass-button-subtle" to={`/teams?team=${encodeURIComponent(String(activeTeam.id))}`}>
                 Manage team
               </Link>
             )}
@@ -222,37 +221,37 @@ export function PipelineRunsDashboard({
 
         {hasSearch ? (
           <RunCollection runs={mainSearchRuns} viewMode={viewMode} onOpenRun={onOpenRun} onSelectRun={onSelectRun} selectedRunIds={selectedRunIds} />
-        ) : groupsLoading && !groups.length ? (
-          <div className="text-sm text-[var(--text-secondary)]">Loading groups…</div>
+        ) : teamsLoading && !teams.length ? (
+          <div className="text-sm text-[var(--text-secondary)]">Loading teams...</div>
         ) : (
           <div className="space-y-7">
             <DashboardPanel
               title="Teams"
-              count={folderGroups.length}
-              icon={<FolderTree className="h-4 w-4" />}
+              count={teamTeams.length}
+              icon={<UsersRound className="h-4 w-4" />}
               emptyLabel="No teams."
             >
-              <GroupGrid
-                groups={folderGroups}
-                allGroups={groups}
-                activeGroupId={activeGroupId}
+              <TeamGrid
+                teams={teamTeams}
+                allTeams={teams}
+                activeTeamId={activeTeamId}
                 repoSummaries={repoSummaries}
-                onSelect={onSelectGroup}
+                onSelect={onSelectTeam}
               />
             </DashboardPanel>
 
             <DashboardPanel
               title="Applications"
-              count={repoGroups.length}
+              count={repoTeams.length}
               icon={<Boxes className="h-4 w-4" />}
               emptyLabel="No applications."
             >
-              <GroupGrid
-                groups={repoGroups}
-                allGroups={groups}
-                activeGroupId={activeGroupId}
+              <TeamGrid
+                teams={repoTeams}
+                allTeams={teams}
+                activeTeamId={activeTeamId}
                 repoSummaries={repoSummaries}
-                onSelect={onSelectGroup}
+                onSelect={onSelectTeam}
               />
             </DashboardPanel>
 
@@ -263,7 +262,7 @@ export function PipelineRunsDashboard({
               emptyLabel="No runs."
             >
               <RunSourcesView
-                groups={runSourceGroups}
+                teams={runSourceTeams}
                 viewMode={viewMode}
                 onOpenRun={onOpenRun}
                 onSelectRun={onSelectRun}
@@ -292,16 +291,16 @@ export function PipelineRunsDashboard({
           </button>
         </div>
         {runsLoading && <div className="text-sm text-[var(--text-secondary)]">Loading runs…</div>}
-        {groupedEvents.length === 0 && !runsLoading ? (
+        {teamedEvents.length === 0 && !runsLoading ? (
           <div className="text-sm text-[var(--text-secondary)]">No trigger events yet.</div>
         ) : (
           <div className="space-y-3">
-            {groupedEvents.map(group => (
+            {teamedEvents.map(team => (
               <EventCard
-                key={group.id}
-                group={group}
-                collapsed={collapsedEvents.has(group.id)}
-                onToggle={() => onToggleEventGroup(group.id)}
+                key={team.id}
+                team={team}
+                collapsed={collapsedEvents.has(team.id)}
+                onToggle={() => onToggleEventTeam(team.id)}
                 onOpenRun={onOpenRun}
               />
             ))}
@@ -353,7 +352,7 @@ function DashboardPanel({
 }
 
 function RunSourcesView({
-  groups,
+  teams,
   viewMode,
   onOpenRun,
   onSelectRun,
@@ -362,7 +361,7 @@ function RunSourcesView({
   onToggleBranch,
   onDeleteBranch,
 }: {
-  groups: RunSourceGroup[];
+  teams: RunSourceTeam[];
   viewMode: 'grid' | 'list';
   onOpenRun: (id: string) => void;
   onSelectRun: (id: string) => void;
@@ -371,13 +370,13 @@ function RunSourcesView({
   onToggleBranch: (branch: string, scrollIntoView?: boolean) => void;
   onDeleteBranch: (branch: string) => void;
 }) {
-  if (!groups.length) return null;
+  if (!teams.length) return null;
   return (
     <div className="space-y-5">
-      {groups.map(group => (
+      {teams.map(team => (
         <RunSourceSection
-          key={group.kind}
-          group={group}
+          key={team.kind}
+          team={team}
           viewMode={viewMode}
           onOpenRun={onOpenRun}
           onSelectRun={onSelectRun}
@@ -392,7 +391,7 @@ function RunSourcesView({
 }
 
 function RunSourceSection({
-  group,
+  team,
   viewMode,
   onOpenRun,
   onSelectRun,
@@ -401,7 +400,7 @@ function RunSourceSection({
   onToggleBranch,
   onDeleteBranch,
 }: {
-  group: RunSourceGroup;
+  team: RunSourceTeam;
   viewMode: 'grid' | 'list';
   onOpenRun: (id: string) => void;
   onSelectRun: (id: string) => void;
@@ -410,19 +409,19 @@ function RunSourceSection({
   onToggleBranch: (branch: string, scrollIntoView?: boolean) => void;
   onDeleteBranch: (branch: string) => void;
 }) {
-  const icon = runSourceIcon(group.kind);
-  const branches = group.branches || {};
+  const icon = runSourceIcon(team.kind);
+  const branches = team.branches || {};
   const branchEntries = Object.entries(branches).sort(([a], [b]) => a.localeCompare(b));
-  const sortedRuns = useMemo(() => [...group.runs].sort((a, b) => runTimestamp(b) - runTimestamp(a)), [group.runs]);
+  const sortedRuns = useMemo(() => [...team.runs].sort((a, b) => runTimestamp(b) - runTimestamp(a)), [team.runs]);
 
   return (
     <section className="pipeline-run-source-section">
       <header className="pipeline-run-source-header">
         <div className="pipeline-run-source-title">
           <span className="pipeline-run-source-icon" aria-hidden="true">{icon}</span>
-          <h3>{group.label}</h3>
+          <h3>{team.label}</h3>
         </div>
-        <span className="runner-pill runner-pill--muted">{group.runs.length}</span>
+        <span className="runner-pill runner-pill--muted">{team.runs.length}</span>
       </header>
 
       {branchEntries.length > 0 ? (
@@ -454,43 +453,43 @@ function RunSourceSection({
   );
 }
 
-function GroupGrid({
-  groups,
-  allGroups,
-  activeGroupId,
+function TeamGrid({
+  teams,
+  allTeams,
+  activeTeamId,
   repoSummaries,
   onSelect,
 }: {
-  groups: Group[];
-  allGroups: Group[];
-  activeGroupId: number | null;
+  teams: Team[];
+  allTeams: Team[];
+  activeTeamId: number | null;
   repoSummaries: Map<number, RepoSummary>;
   onSelect: (id: number) => void;
 }) {
-  if (!groups.length) return null;
+  if (!teams.length) return null;
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-      {groups.map(group => {
-        const isRepo = isAppGroup(group);
-        const description = (group.description || '').trim();
-        const isActive = activeGroupId === group.id;
-        const summary = repoSummaries.get(group.id);
-        const applications = allGroups.filter(child => (child.parent_id ?? null) === group.id && isAppGroup(child)).length;
-        const subfolders = allGroups.filter(child => (child.parent_id ?? null) === group.id && !isAppGroup(child)).length;
-        const displayName = groupDisplayName(group);
-        const repoURL = groupRepositoryURL(group);
-        const repoLabel = groupRepositoryLabel(group);
+      {teams.map(team => {
+        const isRepo = isAppTeam(team);
+        const description = (team.description || '').trim();
+        const isActive = activeTeamId === team.id;
+        const summary = repoSummaries.get(team.id);
+        const applications = allTeams.filter(child => (child.parent_id ?? null) === team.id && isAppTeam(child)).length;
+        const subteams = allTeams.filter(child => (child.parent_id ?? null) === team.id && !isAppTeam(child)).length;
+        const displayName = teamDisplayName(team);
+        const repoURL = teamRepositoryURL(team);
+        const repoLabel = teamRepositoryLabel(team);
         if (isRepo) {
           return (
             <div
-              key={group.id}
+              key={team.id}
               role="button"
               tabIndex={0}
-              onClick={() => onSelect(group.id)}
+              onClick={() => onSelect(team.id)}
               onKeyDown={event => {
-                if (event.key === 'Enter') onSelect(group.id);
+                if (event.key === 'Enter') onSelect(team.id);
               }}
-              className={`relative group bg-[var(--bg-secondary)] p-4 rounded-md hover:bg-[var(--bg-tertiary)] transition-colors duration-200 border border-[var(--border-primary)] hover:border-[var(--border-accent)] shadow-sm hover:shadow-lg flex flex-col justify-between min-h-[220px] ${isActive ? 'run-link-highlight' : ''}`}
+              className={`relative team bg-[var(--bg-secondary)] p-4 rounded-md hover:bg-[var(--bg-tertiary)] transition-colors duration-200 border border-[var(--border-primary)] hover:border-[var(--border-accent)] shadow-sm hover:shadow-lg flex flex-col justify-between min-h-[220px] ${isActive ? 'run-link-highlight' : ''}`}
             >
               <div className="flex items-center">
                 <svg className="h-8 w-8 text-[var(--text-accent)] mr-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -543,41 +542,41 @@ function GroupGrid({
 
         return (
           <div
-            key={group.id}
+            key={team.id}
             role="button"
             tabIndex={0}
-            onClick={() => onSelect(group.id)}
+            onClick={() => onSelect(team.id)}
             onKeyDown={event => {
-              if (event.key === 'Enter') onSelect(group.id);
+              if (event.key === 'Enter') onSelect(team.id);
             }}
-            className={`pipeline-folder-card border border-[var(--border-primary)] ${isActive ? 'run-link-highlight' : ''}`}
+            className={`pipeline-team-card border border-[var(--border-primary)] ${isActive ? 'run-link-highlight' : ''}`}
           >
-            <div className="pipeline-folder-card-header">
-              <span className="pipeline-folder-icon">
-                <Folder className="h-6 w-6" aria-hidden="true" />
+            <div className="pipeline-team-card-header">
+              <span className="pipeline-team-icon">
+                <UsersRound className="h-6 w-6" aria-hidden="true" />
               </span>
-              <h3 className="pipeline-folder-title" title={displayName}>
+              <h3 className="pipeline-team-title" title={displayName}>
                 {displayName}
               </h3>
-              <div className="pipeline-folder-actions">
-                <span className="pipeline-folder-chevron" aria-hidden="true">
+              <div className="pipeline-team-actions">
+                <span className="pipeline-team-chevron" aria-hidden="true">
                   <ChevronRight className="h-4 w-4" />
                 </span>
               </div>
             </div>
-            {description && <p className="pipeline-folder-description" title={description}>{description}</p>}
-            <div className="pipeline-folder-meta">
-              <div className="pipeline-folder-meta-row">
-                <span className="pipeline-folder-meta-label">Applications:</span>
-                <span className="pipeline-folder-meta-value">{applications}</span>
+            {description && <p className="pipeline-team-description" title={description}>{description}</p>}
+            <div className="pipeline-team-meta">
+              <div className="pipeline-team-meta-row">
+                <span className="pipeline-team-meta-label">Applications:</span>
+                <span className="pipeline-team-meta-value">{applications}</span>
               </div>
-              <div className="pipeline-folder-meta-row">
-                <span className="pipeline-folder-meta-label">Teams:</span>
-                <span className="pipeline-folder-meta-value">{subfolders}</span>
+              <div className="pipeline-team-meta-row">
+                <span className="pipeline-team-meta-label">Teams:</span>
+                <span className="pipeline-team-meta-value">{subteams}</span>
               </div>
             </div>
-            {group.last_run_at && (
-              <p className="mt-2 text-[11px] text-[var(--text-secondary)]">Last run {timeAgo(group.last_run_at)}</p>
+            {team.last_run_at && (
+              <p className="mt-2 text-[11px] text-[var(--text-secondary)]">Last run {timeAgo(team.last_run_at)}</p>
             )}
           </div>
         );
@@ -587,19 +586,19 @@ function GroupGrid({
 }
 
 function EventCard({
-  group,
+  team,
   collapsed,
   onToggle,
   onOpenRun,
 }: {
-  group: TriggerGroup;
+  team: TriggerTeam;
   collapsed: boolean;
   onToggle: () => void;
   onOpenRun: (id: string) => void;
 }) {
-  const meta = getStatusMeta(group.status, group.status === 'success');
-  const latestRun = group.latestRun || group.runs[0];
-  const triggerLabel = formatTriggerId(group.id);
+  const meta = getStatusMeta(team.status, team.status === 'success');
+  const latestRun = team.latestRun || team.runs[0];
+  const triggerLabel = formatTriggerId(team.id);
   const eventDisplay = (triggerLabel.full || triggerLabel.display).slice(0, 8);
   const branchLabel = latestRun ? formatBranchDisplay(latestRun.git_ref, latestRun.git_target_ref) : '—';
   const commitLabel = latestRun?.git_commit_sha ? latestRun.git_commit_sha.slice(0, 8) : '—';
@@ -676,10 +675,10 @@ function EventCard({
           </span>
           <div className="flex items-center justify-end gap-2 whitespace-nowrap">
             <span className="px-2 py-[3px] text-[11px] rounded-full bg-[var(--bg-primary)] border border-[var(--border-primary)] text-[var(--text-secondary)] text-center">
-              {group.runs.length} {group.runs.length === 1 ? 'Pipeline' : 'Pipelines'}
+              {team.runs.length} {team.runs.length === 1 ? 'Pipeline' : 'Pipelines'}
             </span>
             <div className="flex items-center gap-1">
-              {group.runs.slice(0, 6).map(run => (
+              {team.runs.slice(0, 6).map(run => (
                 <span key={run.run_id} className={`h-2.5 w-2.5 rounded-full ${statusDotClass(run.status, run.is_complete)}`} />
               ))}
             </div>
@@ -689,7 +688,7 @@ function EventCard({
       {!collapsed && (
         <div className="p-4 border-t border-[var(--border-primary)] bg-[var(--bg-primary)]">
           <div className="grid gap-4 md:grid-cols-4 xl:grid-cols-4">
-            {group.runs.map(run => (
+            {team.runs.map(run => (
               <EventRunRow key={run.run_id} run={run} onOpenRun={onOpenRun} />
             ))}
           </div>

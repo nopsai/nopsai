@@ -23,8 +23,8 @@ test('builds stable named resource identifiers', () => {
 test('coordinates scope and value-write permissions', async () => {
   checkPermissionMock.mockImplementation(async action => action !== 'secret.write_value');
   const { result, rerender } = renderHook(
-    ({ folder, scope }) => useScopePermissions(folder, scope),
-    { initialProps: { folder: 'platform', scope: 'production' as string | null } }
+    ({ team, scope }) => useScopePermissions(team, scope),
+    { initialProps: { team: 'platform', scope: 'production' as string | null } }
   );
 
   await waitFor(() => {
@@ -40,7 +40,7 @@ test('coordinates scope and value-write permissions', async () => {
     'platform/__nopsai_permission_probe__'
   );
 
-  rerender({ folder: '', scope: null });
+  rerender({ team: '', scope: null });
   await waitFor(() => {
     expect(result.current.canWriteVariablesInSelectedScope).toBe(false);
     expect(result.current.canWriteSecretsInSelectedScope).toBe(false);

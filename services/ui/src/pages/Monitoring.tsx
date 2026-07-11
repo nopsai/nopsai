@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Bell, CheckCircle2, Download, Play, RefreshCw, Save, ShieldCheck, Trash2 } from 'lucide-react';
 import { MonitoringDashboard } from '../features/monitoring/MonitoringDashboard';
 import {
-  buildGroupContext,
+  buildTeamContext,
   emptyRunnerSummary,
   formatShortDateTime,
   normalizeMonitoringRunner,
@@ -10,7 +10,7 @@ import {
   normalizeServiceStatus,
   readOptionalString,
   type DispatcherStatusPayload,
-  type Group,
+  type Team,
   type MonitoringAlertEvent,
   type MonitoringAlertRule,
   type MonitoringAIUsage,
@@ -31,6 +31,7 @@ import {
   type ServiceStatus,
 } from '../features/monitoring/model';
 import { requestMonitoringJson, sendMonitoringJson } from '../features/monitoring/api';
+import { fetchTeams } from '../features/teams/api';
 
 const WINDOW_OPTIONS = [
   { label: '7 days', days: 7 },
@@ -71,7 +72,7 @@ type MonitoringData = {
 };
 
 type SavedMonitoringView = {
-  selectedGroupId?: number | 'all';
+  selectedTeamId?: number | 'all';
   windowDays?: number;
   pipelineFilter?: string;
   repoFilter?: string;
@@ -108,7 +109,7 @@ const emptyMonitoringData: MonitoringData = {
 function MonitoringPage() {
   const savedView = useMemo(readSavedMonitoringView, []);
   const linkedRunId = useMemo(readInitialMonitoringRunID, []);
-  const [groups, setGroups] = useState<Group[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
   const [services, setServices] = useState<ServiceStatus[]>([]);
   const [runners, setRunners] = useState<MonitoringRunner[]>([]);
   const [runnerSummary, setRunnerSummary] = useState<RunnerSummary>(emptyRunnerSummary);
@@ -123,7 +124,7 @@ function MonitoringPage() {
   const [error, setError] = useState<string | null>(null);
   const [workflowError, setWorkflowError] = useState<string | null>(null);
   const [workflowBusy, setWorkflowBusy] = useState(false);
-  const [selectedGroupId, setSelectedGroupId] = useState<number | 'all'>(savedView.selectedGroupId ?? 'all');
+  const [selectedTeamId, setSelectedTeamId] = useState<number | 'all'>(savedView.selectedTeamId ?? savedView.selectedTeamId ?? 'all');
   const [windowDays, setWindowDays] = useState(linkedRunId ? 0 : savedView.windowDays ?? 30);
   const [runIdFilter] = useState(linkedRunId);
   const [pipelineFilter, setPipelineFilter] = useState(savedView.pipelineFilter ?? '');
@@ -241,37 +242,37 @@ function MonitoringPage() {
   }, [fetchJson]);
 
   const monitoringQuery = useMemo(
-    () => buildMonitoringQuery({ selectedGroupId, windowDays, pipelineFilter, repoFilter, triggerSourceFilter, statusFilter, comparePrevious, runIdFilter }),
-    [comparePrevious, pipelineFilter, repoFilter, runIdFilter, selectedGroupId, statusFilter, triggerSourceFilter, windowDays]
+    () => buildMonitoringQuery({ selectedTeamId, windowDays, pipelineFilter, repoFilter, triggerSourceFilter, statusFilter, comparePrevious, runIdFilter }),
+    [comparePrevious, pipelineFilter, repoFilter, runIdFilter, selectedTeamId, statusFilter, triggerSourceFilter, windowDays]
   );
 
   const previousMonitoringQuery = useMemo(
     () => (comparePrevious && windowDays > 0 && !runIdFilter
-      ? buildMonitoringQuery({ selectedGroupId, windowDays, pipelineFilter, repoFilter, triggerSourceFilter, statusFilter, comparePrevious: false, runIdFilter }, 1)
+      ? buildMonitoringQuery({ selectedTeamId, windowDays, pipelineFilter, repoFilter, triggerSourceFilter, statusFilter, comparePrevious: false, runIdFilter }, 1)
       : ''),
-    [comparePrevious, pipelineFilter, repoFilter, runIdFilter, selectedGroupId, statusFilter, triggerSourceFilter, windowDays]
+    [comparePrevious, pipelineFilter, repoFilter, runIdFilter, selectedTeamId, statusFilter, triggerSourceFilter, windowDays]
   );
 
   const loadMonitoringData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [groupPayload, currentData, previousWindowData, runtime] = await Promise.all([
-        fetchJson<Group[]>('/v1/groups'),
+      const [teamPayload, currentData, previousWindowData, runtime] = await Promise.all([
+        fetchTeams(),
         fetchMonitoringAnalyticsSet(monitoringQuery),
         previousMonitoringQuery ? fetchMonitoringAnalyticsSet(previousMonitoringQuery) : Promise.resolve(null),
         fetchMonitoringRuntime(),
       ]);
 
-      const accessibleGroups = Array.isArray(groupPayload) ? groupPayload : [];
-      setGroups(accessibleGroups);
+      const accessibleTeams = Array.isArray(teamPayload) ? teamPayload : [];
+      setTeams(accessibleTeams);
       setData(currentData);
       setPreviousData(previousWindowData);
       setServices(runtime.services);
       setRunners(runtime.runners);
       setRunnerSummary(currentData.summary?.runner_summary || runtime.runnerSummary);
       setRuntimeUnavailable(currentData.summary?.dispatcher_error || runtime.unavailable);
-      setSelectedGroupId(current => (current !== 'all' && !accessibleGroups.some(group => group.id === current) ? 'all' : current));
+      setSelectedTeamId(current => (current !== 'all' && !accessibleTeams.some(team => team.id === current) ? 'all' : current));
       setRefreshedAt(new Date().toISOString());
       void fetchMonitoringWorkflows().catch(err => {
         setWorkflowError(err instanceof Error ? err.message : 'Failed to load monitoring workflows');
@@ -281,7 +282,7 @@ function MonitoringPage() {
     } finally {
       setLoading(false);
     }
-  }, [fetchJson, fetchMonitoringAnalyticsSet, fetchMonitoringRuntime, fetchMonitoringWorkflows, monitoringQuery, previousMonitoringQuery]);
+  }, [fetchMonitoringAnalyticsSet, fetchMonitoringRuntime, fetchMonitoringWorkflows, monitoringQuery, previousMonitoringQuery]);
 
   useEffect(() => {
     void loadMonitoringData();
@@ -297,11 +298,11 @@ function MonitoringPage() {
     syncMonitoringTabToURL(activeTab);
   }, [activeTab]);
 
-  const groupContext = useMemo(() => buildGroupContext(groups), [groups]);
-  const selectedGroupLabel = selectedGroupId === 'all' ? 'All accessible groups' : groupContext.labels.get(selectedGroupId) || 'Selected group';
+  const teamContext = useMemo(() => buildTeamContext(teams), [teams]);
+  const selectedTeamLabel = selectedTeamId === 'all' ? 'All accessible teams' : teamContext.labels.get(selectedTeamId) || 'Selected team';
 
   const saveView = () => {
-    writeSavedMonitoringView({ selectedGroupId, windowDays, pipelineFilter, repoFilter, triggerSourceFilter, statusFilter, comparePrevious, activeTab });
+    writeSavedMonitoringView({ selectedTeamId, windowDays, pipelineFilter, repoFilter, triggerSourceFilter, statusFilter, comparePrevious, activeTab });
     setSavedAt(new Date().toISOString());
   };
 
@@ -322,7 +323,7 @@ function MonitoringPage() {
   };
 
   const currentSavedViewFilters = () => ({
-    selectedGroupId,
+    selectedTeamId,
     windowDays,
     pipelineFilter,
     repoFilter,
@@ -334,7 +335,7 @@ function MonitoringPage() {
 
   const currentAlertFilters = () => {
     const filters: Record<string, unknown> = {};
-    if (selectedGroupId !== 'all') filters.groupId = selectedGroupId;
+    if (selectedTeamId !== 'all') filters.teamId = selectedTeamId;
     const pipeline = pipelineFilter.trim();
     if (pipeline) {
       const parts = pipeline.split('/').filter(Boolean);
@@ -377,9 +378,9 @@ function MonitoringPage() {
 
   const applyServerView = (view: MonitoringSavedView) => {
     const filters = view.filters || {};
-    const groupValue = filters.selectedGroupId;
+    const teamValue = filters.selectedTeamId ?? filters.selectedTeamId;
     const savedWindowDays = Number(filters.windowDays);
-    setSelectedGroupId(typeof groupValue === 'number' ? groupValue : 'all');
+    setSelectedTeamId(typeof teamValue === 'number' ? teamValue : 'all');
     setWindowDays(Number.isFinite(savedWindowDays) ? savedWindowDays : 30);
     setPipelineFilter(String(filters.pipelineFilter || ''));
     setRepoFilter(String(filters.repoFilter || ''));
@@ -489,7 +490,7 @@ function MonitoringPage() {
               Access-filtered
             </div>
             <p className="mt-3 text-sm text-[var(--text-secondary)]">
-              {selectedGroupLabel}
+              {selectedTeamLabel}
               {refreshedAt ? ` - refreshed ${formatShortDateTime(refreshedAt)}` : ''}
               {savedAt ? ` - view saved ${formatShortDateTime(savedAt)}` : ''}
             </p>
@@ -511,10 +512,10 @@ function MonitoringPage() {
         </div>
 
         <section className="grid gap-2 rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-2 shadow-sm md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
-          <select value={String(selectedGroupId)} onChange={event => setSelectedGroupId(event.target.value === 'all' ? 'all' : Number(event.target.value))} className="h-9 min-w-0 rounded-md border border-[var(--border-input)] bg-[var(--bg-primary)] px-2.5 text-sm text-[var(--text-primary)]">
-            <option value="all">All accessible groups</option>
-            {groups.map(group => (
-              <option key={group.id} value={group.id}>{groupContext.labels.get(group.id) || group.name}</option>
+          <select value={String(selectedTeamId)} onChange={event => setSelectedTeamId(event.target.value === 'all' ? 'all' : Number(event.target.value))} className="h-9 min-w-0 rounded-md border border-[var(--border-input)] bg-[var(--bg-primary)] px-2.5 text-sm text-[var(--text-primary)]">
+            <option value="all">All accessible teams</option>
+            {teams.map(team => (
+              <option key={team.id} value={team.id}>{teamContext.labels.get(team.id) || team.name}</option>
             ))}
           </select>
           <div className="inline-flex h-9 overflow-hidden rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] xl:col-span-2">
@@ -806,7 +807,7 @@ function WorkflowEmpty({ label, compact = false }: { label: string; compact?: bo
 }
 
 function buildMonitoringQuery(filters: {
-  selectedGroupId: number | 'all';
+  selectedTeamId: number | 'all';
   windowDays: number;
   pipelineFilter: string;
   repoFilter: string;
@@ -825,7 +826,7 @@ function buildMonitoringQuery(filters: {
     params.set('from', '1970-01-01T00:00:00.000Z');
   }
   params.set('to', to.toISOString());
-  if (filters.selectedGroupId !== 'all') params.set('groupId', String(filters.selectedGroupId));
+  if (filters.selectedTeamId !== 'all') params.set('teamId', String(filters.selectedTeamId));
   const pipeline = filters.pipelineFilter.trim();
   if (pipeline) {
     const parts = pipeline.split('/').filter(Boolean);
@@ -899,7 +900,7 @@ function csvForMonitoringTab(activeTab: MonitoringTab, data: MonitoringData): st
   if (activeTab === 'efficiency') {
     const tokenRows = [
       ...(data.efficiency?.token_by_pipeline || []).map(item => ['pipeline', item.label, item.count, item.tokens]),
-      ...(data.efficiency?.token_by_group || []).map(item => ['group', item.label, item.count, item.tokens]),
+      ...(data.efficiency?.token_by_team || []).map(item => ['team', item.label, item.count, item.tokens]),
       ...(data.efficiency?.token_by_step || []).map(item => ['step', item.label, item.count, item.tokens]),
     ];
     return rowsToCSV(['dimension', 'label', 'count', 'tokens'], tokenRows);

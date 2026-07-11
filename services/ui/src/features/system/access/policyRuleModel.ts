@@ -33,7 +33,7 @@ export type AAAEffect = 'allow' | 'deny';
 
 type AAAOption = AccessResourceOption;
 
-type AAAOptionGroup = {
+type AAAOptionTeam = {
   label: string;
   options: AAAOption[];
 };
@@ -126,12 +126,12 @@ export const AAA_RESOURCE_TYPE_CONFIGS: AAAResourceTypeConfig[] = [
     customPlaceholder: 'dispatcher',
   },
   {
-    value: 'folder',
-    label: 'Group',
-    targetLabel: 'Group',
+    value: 'team',
+    label: 'Team',
+    targetLabel: 'Team',
     allowAll: true,
-    allLabel: 'All groups',
-    dynamicSource: 'folderOptions',
+    allLabel: 'All teams',
+    dynamicSource: 'teamOptions',
     customPlaceholder: 'team/platform',
   },
   {
@@ -214,7 +214,7 @@ export const AAA_RESOURCE_TYPE_CONFIGS: AAAResourceTypeConfig[] = [
   },
 ];
 
-const AAA_ALL_ACTION_OPTION_GROUPS: AAAOptionGroup[] = [
+const AAA_ALL_ACTION_OPTION_TEAMS: AAAOptionTeam[] = [
   {
     label: 'Global',
     options: [{ value: '*', label: 'All actions (*)' }],
@@ -235,13 +235,13 @@ const AAA_ALL_ACTION_OPTION_GROUPS: AAAOptionGroup[] = [
     ],
   },
   {
-    label: 'Groups',
+    label: 'Teams',
     options: [
-      { value: 'folder.list', label: 'list' },
-      { value: 'folder.create', label: 'create' },
-      { value: 'folder.move', label: 'move' },
-      { value: 'folder.update', label: 'update' },
-      { value: 'folder.delete', label: 'delete' },
+      { value: 'team.list', label: 'list' },
+      { value: 'team.create', label: 'create' },
+      { value: 'team.move', label: 'move' },
+      { value: 'team.update', label: 'update' },
+      { value: 'team.delete', label: 'delete' },
       { value: 'config_repo.read', label: 'read config repo' },
       { value: 'config_repo.manage', label: 'manage config repo' },
       { value: 'config_repo.sync', label: 'sync config repo' },
@@ -331,8 +331,8 @@ const AAA_ALL_ACTION_OPTION_GROUPS: AAAOptionGroup[] = [
   },
 ];
 
-const AAA_ACTION_OPTION_GROUPS_BY_SELECTOR: Record<string, AAAOptionGroup[]> = {
-  '*:*': AAA_ALL_ACTION_OPTION_GROUPS,
+const AAA_ACTION_OPTION_TEAMS_BY_SELECTOR: Record<string, AAAOptionTeam[]> = {
+  '*:*': AAA_ALL_ACTION_OPTION_TEAMS,
   'iam:admin': [{ label: 'IAM actions', options: [{ value: 'iam.admin', label: 'admin' }] }],
   'audit:authz': [{ label: 'Audit actions', options: [{ value: 'audit.read', label: 'read' }] }],
   'system:config': [{ label: 'System actions', options: [{ value: 'system.read', label: 'read' }, { value: 'system.update', label: 'update' }] }],
@@ -346,18 +346,18 @@ const AAA_ACTION_OPTION_GROUPS_BY_SELECTOR: Record<string, AAAOptionGroup[]> = {
   'repository:*': [{ label: 'Repository actions', options: [{ value: 'system.read', label: 'read' }] }],
 };
 
-const AAA_ACTION_OPTION_GROUPS_BY_RESOURCE_TYPE: Record<string, AAAOptionGroup[]> = {
-  '*': AAA_ALL_ACTION_OPTION_GROUPS,
-  folder: [{ label: 'Group actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Groups')?.options || [] }],
-  pipeline: [{ label: 'Pipeline actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Pipelines')?.options || [] }],
-  pipeline_run: [{ label: 'Pipeline run actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Pipeline Runs')?.options || [] }],
-  scope: [{ label: 'Scope actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Scopes')?.options || [] }],
-  trigger: [{ label: 'Trigger actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Triggers')?.options || [] }],
-  external_trigger: [{ label: 'External trigger actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'External Triggers')?.options || [] }],
-  git_webhook_source: [{ label: 'Git webhook source actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Git Webhook Sources')?.options || [] }],
-  secret: [{ label: 'Secret actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Secrets')?.options || [] }],
-  variable: [{ label: 'Variable actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'Variables')?.options || [] }],
-  system: [{ label: 'System actions', options: AAA_ALL_ACTION_OPTION_GROUPS.find(group => group.label === 'System')?.options || [] }],
+const AAA_ACTION_OPTION_TEAMS_BY_RESOURCE_TYPE: Record<string, AAAOptionTeam[]> = {
+  '*': AAA_ALL_ACTION_OPTION_TEAMS,
+  team: [{ label: 'Team actions', options: AAA_ALL_ACTION_OPTION_TEAMS.find(team => team.label === 'Teams')?.options || [] }],
+  pipeline: [{ label: 'Pipeline actions', options: AAA_ALL_ACTION_OPTION_TEAMS.find(team => team.label === 'Pipelines')?.options || [] }],
+  pipeline_run: [{ label: 'Pipeline run actions', options: AAA_ALL_ACTION_OPTION_TEAMS.find(team => team.label === 'Pipeline Runs')?.options || [] }],
+  scope: [{ label: 'Scope actions', options: AAA_ALL_ACTION_OPTION_TEAMS.find(team => team.label === 'Scopes')?.options || [] }],
+  trigger: [{ label: 'Trigger actions', options: AAA_ALL_ACTION_OPTION_TEAMS.find(team => team.label === 'Triggers')?.options || [] }],
+  external_trigger: [{ label: 'External trigger actions', options: AAA_ALL_ACTION_OPTION_TEAMS.find(team => team.label === 'External Triggers')?.options || [] }],
+  git_webhook_source: [{ label: 'Git webhook source actions', options: AAA_ALL_ACTION_OPTION_TEAMS.find(team => team.label === 'Git Webhook Sources')?.options || [] }],
+  secret: [{ label: 'Secret actions', options: AAA_ALL_ACTION_OPTION_TEAMS.find(team => team.label === 'Secrets')?.options || [] }],
+  variable: [{ label: 'Variable actions', options: AAA_ALL_ACTION_OPTION_TEAMS.find(team => team.label === 'Variables')?.options || [] }],
+  system: [{ label: 'System actions', options: AAA_ALL_ACTION_OPTION_TEAMS.find(team => team.label === 'System')?.options || [] }],
   system_log: [{ label: 'System log actions', options: [{ value: 'system_log.read', label: 'read' }] }],
   repository: [{ label: 'Repository actions', options: [{ value: 'system.read', label: 'read' }] }],
   audit: [{ label: 'Audit actions', options: [{ value: 'audit.read', label: 'read' }] }],
@@ -377,9 +377,9 @@ const dedupeAAAOptions = (options: AAAOption[]) => {
   });
 };
 
-const hasAAAOptionValue = (groups: AAAOptionGroup[], value: string) => {
+const hasAAAOptionValue = (teams: AAAOptionTeam[], value: string) => {
   const normalized = (value || '').trim();
-  return groups.some(group => group.options.some(option => option.value === normalized));
+  return teams.some(team => team.options.some(option => option.value === normalized));
 };
 
 export const parseAAAResourceSelector = (value: string): { resourceType: string; resourceID: string } => {
@@ -413,7 +413,7 @@ export const buildAAAResourceSelector = (resourceType: string, resourceID: strin
   return `${normalizedType}:${normalizedID}`;
 };
 
-export const flattenAAAOptionGroups = (groups: AAAOptionGroup[]) => groups.flatMap(group => group.options);
+export const flattenAAAOptionTeams = (teams: AAAOptionTeam[]) => teams.flatMap(team => team.options);
 
 export const normalizeAAAScopeOptionValue = (scope: string) => {
   const normalized = (scope || '').trim().replace(/^\/+|\/+$/g, '');
@@ -462,8 +462,8 @@ const buildAAANamedResourceID = ({ repoName, scope, name, hasScope }: AAANamedRe
 export const buildAAANamedResourceSelector = (resourceType: string, parts: AAANamedResourceDraft) =>
   buildAAAResourceSelector(resourceType, buildAAANamedResourceID(parts));
 
-const buildAAAParentPathOptionGroups = (options: AAAOption[], labels: { root: string; parentPrefix: string }) => {
-  const groups = new Map<string, { sortKey: string; label: string; options: AAAOption[] }>();
+const buildAAAParentPathOptionTeams = (options: AAAOption[], labels: { root: string; parentPrefix: string }) => {
+  const teams = new Map<string, { sortKey: string; label: string; options: AAAOption[] }>();
 
   options.forEach(option => {
     const normalizedValue = option.value.trim();
@@ -472,36 +472,36 @@ const buildAAAParentPathOptionGroups = (options: AAAOption[], labels: { root: st
     const lastSlash = normalizedValue.lastIndexOf('/');
     const parentPath = lastSlash >= 0 ? normalizedValue.slice(0, lastSlash) : '';
     const itemLabel = lastSlash >= 0 ? normalizedValue.slice(lastSlash + 1) : normalizedValue;
-    const groupKey = parentPath || '';
-    const groupLabel = parentPath ? `${labels.parentPrefix}${parentPath}` : labels.root;
-    const existing = groups.get(groupKey);
+    const teamKey = parentPath || '';
+    const teamLabel = parentPath ? `${labels.parentPrefix}${parentPath}` : labels.root;
+    const existing = teams.get(teamKey);
 
     if (existing) {
       existing.options.push({ value: normalizedValue, label: itemLabel || option.label || normalizedValue });
       return;
     }
 
-    groups.set(groupKey, {
-      sortKey: groupKey,
-      label: groupLabel,
+    teams.set(teamKey, {
+      sortKey: teamKey,
+      label: teamLabel,
       options: [{ value: normalizedValue, label: itemLabel || option.label || normalizedValue }],
     });
   });
 
-  return Array.from(groups.values())
+  return Array.from(teams.values())
     .sort((a, b) => {
       if (!a.sortKey) return -1;
       if (!b.sortKey) return 1;
       return a.sortKey.localeCompare(b.sortKey);
     })
-    .map(group => ({
-      label: group.label,
-      options: group.options.sort((a, b) => a.label.localeCompare(b.label)),
+    .map(team => ({
+      label: team.label,
+      options: team.options.sort((a, b) => a.label.localeCompare(b.label)),
     }));
 };
 
-const buildAAARepositoryOptionGroups = (options: AAAOption[], labels: { root: string; ownerPrefix: string }) => {
-  const groups = new Map<string, { sortKey: string; label: string; options: AAAOption[] }>();
+const buildAAARepositoryOptionTeams = (options: AAAOption[], labels: { root: string; ownerPrefix: string }) => {
+  const teams = new Map<string, { sortKey: string; label: string; options: AAAOption[] }>();
 
   options.forEach(option => {
     const normalizedValue = option.value.trim();
@@ -510,36 +510,36 @@ const buildAAARepositoryOptionGroups = (options: AAAOption[], labels: { root: st
     const separatorIndex = normalizedValue.indexOf('/');
     const owner = separatorIndex >= 0 ? normalizedValue.slice(0, separatorIndex) : '';
     const repoName = separatorIndex >= 0 ? normalizedValue.slice(separatorIndex + 1) : normalizedValue;
-    const groupKey = owner || '';
-    const groupLabel = owner ? `${labels.ownerPrefix}${owner}` : labels.root;
-    const existing = groups.get(groupKey);
+    const teamKey = owner || '';
+    const teamLabel = owner ? `${labels.ownerPrefix}${owner}` : labels.root;
+    const existing = teams.get(teamKey);
 
     if (existing) {
       existing.options.push({ value: normalizedValue, label: repoName || option.label || normalizedValue });
       return;
     }
 
-    groups.set(groupKey, {
-      sortKey: groupKey,
-      label: groupLabel,
+    teams.set(teamKey, {
+      sortKey: teamKey,
+      label: teamLabel,
       options: [{ value: normalizedValue, label: repoName || option.label || normalizedValue }],
     });
   });
 
-  return Array.from(groups.values())
+  return Array.from(teams.values())
     .sort((a, b) => {
       if (!a.sortKey) return -1;
       if (!b.sortKey) return 1;
       return a.sortKey.localeCompare(b.sortKey);
     })
-    .map(group => ({
-      label: group.label,
-      options: group.options.sort((a, b) => a.label.localeCompare(b.label)),
+    .map(team => ({
+      label: team.label,
+      options: team.options.sort((a, b) => a.label.localeCompare(b.label)),
     }));
 };
 
-export const buildAAAResourceTargetOptionGroups = (config: AAAResourceTypeConfig, catalog: AAAResourceCatalog) => {
-  const groups: AAAOptionGroup[] = [];
+export const buildAAAResourceTargetOptionTeams = (config: AAAResourceTypeConfig, catalog: AAAResourceCatalog) => {
+  const teams: AAAOptionTeam[] = [];
   const scopeOptions: AAAOption[] = [];
   if (config.allowAll) {
     scopeOptions.push({ value: '*', label: config.allLabel || 'All' });
@@ -550,7 +550,7 @@ export const buildAAAResourceTargetOptionGroups = (config: AAAResourceTypeConfig
 
   const normalizedScopeOptions = dedupeAAAOptions(scopeOptions);
   if (normalizedScopeOptions.length > 0) {
-    groups.push({
+    teams.push({
       label: config.dynamicSource ? 'Scope' : 'Available targets',
       options: normalizedScopeOptions,
     });
@@ -559,43 +559,43 @@ export const buildAAAResourceTargetOptionGroups = (config: AAAResourceTypeConfig
   if (config.dynamicSource) {
     const dynamicOptions = dedupeAAAOptions(catalog[config.dynamicSource]);
     switch (config.dynamicSource) {
-      case 'folderOptions':
-        groups.push(...buildAAAParentPathOptionGroups(dynamicOptions, { root: 'Top-level groups', parentPrefix: 'Inside /' }));
+      case 'teamOptions':
+        teams.push(...buildAAAParentPathOptionTeams(dynamicOptions, { root: 'Top-level teams', parentPrefix: 'Inside /' }));
         break;
       case 'pipelineOptions':
-        groups.push(...buildAAAParentPathOptionGroups(dynamicOptions, { root: 'Top-level pipelines', parentPrefix: 'Group /' }));
+        teams.push(...buildAAAParentPathOptionTeams(dynamicOptions, { root: 'Top-level pipelines', parentPrefix: 'Team /' }));
         break;
       case 'scopeOptions':
-        groups.push(...buildAAAParentPathOptionGroups(dynamicOptions, { root: 'Top-level scopes', parentPrefix: 'Group /' }));
+        teams.push(...buildAAAParentPathOptionTeams(dynamicOptions, { root: 'Top-level scopes', parentPrefix: 'Team /' }));
         break;
       case 'triggerOptions':
-        groups.push(...buildAAARepositoryOptionGroups(dynamicOptions, { root: 'Ungrouped triggers', ownerPrefix: 'Owner ' }));
+        teams.push(...buildAAARepositoryOptionTeams(dynamicOptions, { root: 'Unteamed triggers', ownerPrefix: 'Owner ' }));
         break;
       case 'externalTriggerOptions':
-        groups.push(...buildAAAParentPathOptionGroups(dynamicOptions, { root: 'External triggers', parentPrefix: 'Group /' }));
+        teams.push(...buildAAAParentPathOptionTeams(dynamicOptions, { root: 'External triggers', parentPrefix: 'Team /' }));
         break;
       case 'repositoryOptions':
-        groups.push(...buildAAARepositoryOptionGroups(dynamicOptions, { root: 'Ungrouped repositories', ownerPrefix: 'Owner ' }));
+        teams.push(...buildAAARepositoryOptionTeams(dynamicOptions, { root: 'Unteamed repositories', ownerPrefix: 'Owner ' }));
         break;
       default:
         if (dynamicOptions.length > 0) {
-          groups.push({ label: 'Known targets', options: dynamicOptions });
+          teams.push({ label: 'Known targets', options: dynamicOptions });
         }
         break;
     }
   }
 
-  return groups;
+  return teams;
 };
 
-export const getAAAActionOptionGroups = (resourceSelector: string): AAAOptionGroup[] => {
+export const getAAAActionOptionTeams = (resourceSelector: string): AAAOptionTeam[] => {
   const normalized = (resourceSelector || '').trim();
   if (!normalized) return [];
-  if (AAA_ACTION_OPTION_GROUPS_BY_SELECTOR[normalized]) {
-    return AAA_ACTION_OPTION_GROUPS_BY_SELECTOR[normalized];
+  if (AAA_ACTION_OPTION_TEAMS_BY_SELECTOR[normalized]) {
+    return AAA_ACTION_OPTION_TEAMS_BY_SELECTOR[normalized];
   }
   const { resourceType } = parseAAAResourceSelector(normalized);
-  return AAA_ACTION_OPTION_GROUPS_BY_RESOURCE_TYPE[resourceType] || [];
+  return AAA_ACTION_OPTION_TEAMS_BY_RESOURCE_TYPE[resourceType] || [];
 };
 
 const actionLabelFromAAAValue = (value: string) => {
@@ -619,7 +619,7 @@ const actionLabelFromAAAValue = (value: string) => {
 };
 
 export const normalizeAAAActionForResource = (resourceSelector: string, actionValue: string, effect: AAAEffect) => {
-  const options = flattenAAAOptionGroups(getAAAActionOptionGroups(resourceSelector));
+  const options = flattenAAAOptionTeams(getAAAActionOptionTeams(resourceSelector));
   if (options.length === 0) return formatAAAActionValue(effect, actionValue);
   const trimmed = (actionValue || '').trim();
   if (trimmed && options.some(option => option.value === trimmed)) {
@@ -636,7 +636,7 @@ export const normalizeAAAActionForResource = (resourceSelector: string, actionVa
 };
 
 export const customAAAActionPlaceholder = (resourceSelector: string) => {
-  const options = flattenAAAOptionGroups(getAAAActionOptionGroups(resourceSelector));
+  const options = flattenAAAOptionTeams(getAAAActionOptionTeams(resourceSelector));
   if (options.length > 0) return options[0].value;
   const { resourceType } = parseAAAResourceSelector(resourceSelector);
   if (!resourceType || resourceType === '*') return 'pipeline.read';
@@ -661,5 +661,5 @@ export const formatAAAActionValue = (effect: AAAEffect, action: string) => {
   return effect === 'deny' ? `deny ${trimmed}` : trimmed;
 };
 
-export const selectValueForAAAOptions = (groups: AAAOptionGroup[], value: string) =>
-  hasAAAOptionValue(groups, value) ? (value || '').trim() : AAA_CUSTOM_VALUE;
+export const selectValueForAAAOptions = (teams: AAAOptionTeam[], value: string) =>
+  hasAAAOptionValue(teams, value) ? (value || '').trim() : AAA_CUSTOM_VALUE;

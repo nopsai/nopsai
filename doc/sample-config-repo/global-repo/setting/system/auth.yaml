@@ -21,11 +21,11 @@ oidc:
       allowed_email_domains: ["example.com"]
       allow_email_linking: true
       entitlement_sync:
-        mode: keycloak_group_roles
+        mode: keycloak_team_roles
         admin_base_url: https://sso.example.com
         realm: nopsai
         admin_realm: master
         admin_client_id: admin-cli
         admin_client_credential_ref: credential://system/oidc/nopsai/admin-client-secret
         client_id: nopsai
-        target_resource_type: folder
+        target_resource_type: team

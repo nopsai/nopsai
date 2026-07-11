@@ -41,7 +41,7 @@ type configSyncPlan struct {
 
 func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx configSyncRepositoryContext, files configSyncRepositoryFiles) (configSyncPlan, error) {
 	basePath := repoCtx.basePath
-	boundFolder := repoCtx.boundFolder
+	boundTeam := repoCtx.boundTeam
 	pipelineDir := repoCtx.dirs.pipeline
 	stepDir := repoCtx.dirs.step
 	triggerDir := repoCtx.dirs.trigger
@@ -74,20 +74,20 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 		if rel == "" || strings.HasSuffix(rel, "/") || !isYAMLFile(rel) {
 			continue
 		}
-		if _, ok, err := configRepositoryGroupNotificationRoutePath(rel); err != nil {
+		if _, ok, err := configRepositoryTeamNotificationRoutePath(rel); err != nil {
 			return configSyncPlan{}, fmt.Errorf("invalid notification route path '%s': %w", normalized, err)
 		} else if ok {
 			continue
 		}
-		structure, isStructureFile, err := configsync.ParseConfigRepositoryGroupPipelineRunStructure(rel, content)
+		structure, isStructureFile, err := configsync.ParseConfigRepositoryTeamPipelineRunStructure(rel, content)
 		if err != nil {
-			return configSyncPlan{}, fmt.Errorf("failed to parse config repository group structure '%s': %w", normalized, err)
+			return configSyncPlan{}, fmt.Errorf("failed to parse config repository team structure '%s': %w", normalized, err)
 		}
 		if isStructureFile {
-			if binding.ScopeType == models.ConfigRepositoryScopeFolder {
-				structure, err = configsync.NormalizePipelineRunStructureForFolder(boundFolder, structure)
+			if binding.ScopeType == models.ConfigRepositoryScopeTeam {
+				structure, err = configsync.NormalizePipelineRunStructureForTeam(boundTeam, structure)
 				if err != nil {
-					return configSyncPlan{}, fmt.Errorf("failed to normalize config repository group structure '%s': %w", normalized, err)
+					return configSyncPlan{}, fmt.Errorf("failed to normalize config repository team structure '%s': %w", normalized, err)
 				}
 			}
 			inlineConfigRepositories, err := configRepositoryBindingsFromPipelineRunStructure(structure, normalized)
@@ -116,10 +116,10 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 		if err := configsync.ValidateBindingFile(file, scopeType, scopeID, normalized); err != nil {
 			return configSyncPlan{}, err
 		}
-		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
-			scopeID, err = configsync.NormalizePathForFolder(boundFolder, scopeID)
+		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
+			scopeID, err = configsync.NormalizePathForTeam(boundTeam, scopeID)
 			if err != nil {
-				return configSyncPlan{}, fmt.Errorf("invalid group-scoped config repository binding '%s': %w", normalized, err)
+				return configSyncPlan{}, fmt.Errorf("invalid team-scoped config repository binding '%s': %w", normalized, err)
 			}
 		}
 		basePath, err := configsync.NormalizeRepositoryBasePathForRequest(file.BasePath)
@@ -153,11 +153,11 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 		}
 	}
 
-	accessPlan, err := parseAccessSyncPlan(files.access, accessDir, binding, boundFolder)
+	accessPlan, err := parseAccessSyncPlan(files.access, accessDir, binding, boundTeam)
 	if err != nil {
 		return configSyncPlan{}, err
 	}
-	knowledgeContexts, err := parseGitOpsKnowledgeContexts(files.knowledge, knowledgeDir, binding, boundFolder, accessPlan)
+	knowledgeContexts, err := parseGitOpsKnowledgeContexts(files.knowledge, knowledgeDir, binding, boundTeam, accessPlan)
 	if err != nil {
 		return configSyncPlan{}, err
 	}
@@ -222,29 +222,29 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 	if err != nil {
 		return configSyncPlan{}, err
 	}
-	plan.schedules, err = parseGitOpsSchedules(files.schedules, scheduleDir, binding, boundFolder)
+	plan.schedules, err = parseGitOpsSchedules(files.schedules, scheduleDir, binding, boundTeam)
 	if err != nil {
 		return configSyncPlan{}, err
 	}
-	plan.externalTriggers, err = parseGitOpsExternalTriggers(files.externalTriggers, externalTriggerDir, binding, boundFolder)
+	plan.externalTriggers, err = parseGitOpsExternalTriggers(files.externalTriggers, externalTriggerDir, binding, boundTeam)
 	if err != nil {
 		return configSyncPlan{}, err
 	}
-	plan.gitWebhookSources, err = parseGitOpsGitWebhookSources(files.gitWebhookSources, repoCtx.dirs.gitWebhookSource, binding, boundFolder)
+	plan.gitWebhookSources, err = parseGitOpsGitWebhookSources(files.gitWebhookSources, repoCtx.dirs.gitWebhookSource, binding, boundTeam)
 	if err != nil {
 		return configSyncPlan{}, err
 	}
-	plan.notificationRoutes, err = parseGitOpsNotificationRoutes(files.notifications, basePath, binding, boundFolder)
+	plan.notificationRoutes, err = parseGitOpsNotificationRoutes(files.notifications, basePath, binding, boundTeam)
 	if err != nil {
 		return configSyncPlan{}, err
 	}
-	colocatedNotificationRoutes, err := parseGitOpsConfigRepositoryNotificationRoutes(files.configRepositories, configRepositoryDir, binding, boundFolder)
+	colocatedNotificationRoutes, err := parseGitOpsConfigRepositoryNotificationRoutes(files.configRepositories, configRepositoryDir, binding, boundTeam)
 	if err != nil {
 		return configSyncPlan{}, err
 	}
 	for key, route := range colocatedNotificationRoutes {
 		if _, exists := plan.notificationRoutes[key]; exists {
-			return configSyncPlan{}, fmt.Errorf("duplicate notification route for group '%s' detected", route.groupPath)
+			return configSyncPlan{}, fmt.Errorf("duplicate notification route for team '%s' detected", route.teamPath)
 		}
 		plan.notificationRoutes[key] = route
 	}
@@ -275,10 +275,10 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 			return configSyncPlan{}, fmt.Errorf("pipeline '%s' name '%s' must match file name '%s'", normalized, pipeline.Name, fileBase)
 		}
 
-		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
-			targetID, err := configsync.NormalizePathForFolder(boundFolder, rel)
+		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
+			targetID, err := configsync.NormalizePathForTeam(boundTeam, rel)
 			if err != nil {
-				return configSyncPlan{}, fmt.Errorf("invalid group-scoped pipeline path '%s': %w", normalized, err)
+				return configSyncPlan{}, fmt.Errorf("invalid team-scoped pipeline path '%s': %w", normalized, err)
 			}
 			pipelinePath, fileBase, _, err = configsync.SplitPipelineIdentifier(targetID)
 			if err != nil {
@@ -290,7 +290,7 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 		if _, exists := plan.pipelines[key]; exists {
 			return configSyncPlan{}, fmt.Errorf("duplicate pipeline '%s' detected in config repository", key)
 		}
-		if err := accessPlan.addEmbeddedResourceAccess(content, normalized, grantResourcePipeline, key, binding, boundFolder); err != nil {
+		if err := accessPlan.addEmbeddedResourceAccess(content, normalized, grantResourcePipeline, key, binding, boundTeam); err != nil {
 			return configSyncPlan{}, fmt.Errorf("invalid pipeline access '%s': %w", normalized, err)
 		}
 
@@ -330,10 +330,10 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 			return configSyncPlan{}, fmt.Errorf("reusable step '%s' name '%s' must match file name '%s'", normalized, stepName, fileBase)
 		}
 
-		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
-			targetID, err := configsync.NormalizePathForFolder(boundFolder, rel)
+		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
+			targetID, err := configsync.NormalizePathForTeam(boundTeam, rel)
 			if err != nil {
-				return configSyncPlan{}, fmt.Errorf("invalid group-scoped reusable step path '%s': %w", normalized, err)
+				return configSyncPlan{}, fmt.Errorf("invalid team-scoped reusable step path '%s': %w", normalized, err)
 			}
 			stepPath, fileBase, _, err = configsync.SplitStepIdentifier(targetID)
 			if err != nil {
@@ -345,7 +345,7 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 		if _, exists := plan.steps[key]; exists {
 			return configSyncPlan{}, fmt.Errorf("duplicate reusable step '%s' detected in config repository", key)
 		}
-		if err := accessPlan.addEmbeddedResourceAccess(content, normalized, grantResourceStep, key, binding, boundFolder); err != nil {
+		if err := accessPlan.addEmbeddedResourceAccess(content, normalized, grantResourceStep, key, binding, boundTeam); err != nil {
 			return configSyncPlan{}, fmt.Errorf("invalid reusable step access '%s': %w", normalized, err)
 		}
 
@@ -374,10 +374,10 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 		if !ok {
 			continue
 		}
-		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
-			scopePath, err = configsync.NormalizePathForFolder(boundFolder, scopePath)
+		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
+			scopePath, err = configsync.NormalizePathForTeam(boundTeam, scopePath)
 			if err != nil {
-				return configSyncPlan{}, fmt.Errorf("invalid group-scoped scope path '%s': %w", normalized, err)
+				return configSyncPlan{}, fmt.Errorf("invalid team-scoped scope path '%s': %w", normalized, err)
 			}
 		}
 
@@ -395,13 +395,13 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 			scopePath,
 			normalized,
 			binding,
-			boundFolder,
+			boundTeam,
 		)
 		if err != nil {
 			return configSyncPlan{}, err
 		}
 		if hasEmbeddedScopeAccess {
-			if err := accessPlan.addEmbeddedResourceAccess(content, normalized, grantResourceScope, scopePath, binding, boundFolder); err != nil {
+			if err := accessPlan.addEmbeddedResourceAccess(content, normalized, grantResourceScope, scopePath, binding, boundTeam); err != nil {
 				return configSyncPlan{}, fmt.Errorf("invalid scope access '%s': %w", normalized, err)
 			}
 		}
@@ -426,10 +426,10 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 			return configSyncPlan{}, fmt.Errorf("trigger file '%s' contains invalid path segments", normalized)
 		}
 		repoKey = filepath.ToSlash(repoKey)
-		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
-			repoKey, err = configsync.NormalizePathForFolder(boundFolder, repoKey)
+		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
+			repoKey, err = configsync.NormalizePathForTeam(boundTeam, repoKey)
 			if err != nil {
-				return configSyncPlan{}, fmt.Errorf("invalid group-scoped trigger path '%s': %w", normalized, err)
+				return configSyncPlan{}, fmt.Errorf("invalid team-scoped trigger path '%s': %w", normalized, err)
 			}
 		}
 

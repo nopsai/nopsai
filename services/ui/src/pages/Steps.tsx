@@ -73,7 +73,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
 
-  const [activeFolder, setActiveFolder] = useState('');
+  const [activeTeam, setActiveTeam] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -89,10 +89,10 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editorValue, setEditorValue] = useState('');
   const {
-    permissionFolder,
+    permissionTeam,
     canCreateStepHere,
     canUpdateSelectedStep,
-  } = useStepPermissions(selectedId, activeFolder);
+  } = useStepPermissions(selectedId, activeTeam);
   const canUseStepDrafts = canCreateStepHere || canUpdateSelectedStep;
   const {
     drafts: draftSteps,
@@ -144,7 +144,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     replaceStart: number;
     replaceEnd: number;
     appendColon: boolean;
-    groupedSections?: Array<{ label: string; items: string[]; totalCount: number }>;
+    teamedSections?: Array<{ label: string; items: string[]; totalCount: number }>;
   }>(null);
 
   const [toasts, setToasts] = useState<WorkflowToast[]>([]);
@@ -267,7 +267,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
       let title = 'Suggestions';
       let pool: string[] = [];
       let appendColon = false;
-      let groupedSections: Array<{ label: string; items: string[]; totalCount: number }> | undefined;
+      let teamedSections: Array<{ label: string; items: string[]; totalCount: number }> | undefined;
 
       if (includeValueContext) {
         title = 'Reusable steps';
@@ -284,7 +284,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
           ? autocompleteMeta.secretScopes
           : [{ scope: '', items: autocompleteMeta.secrets }];
         let remaining = 50;
-        groupedSections = base
+        teamedSections = base
           .map(entry => {
             const filteredItems = entry.items.filter(item => item.toLowerCase().startsWith(prefix.toLowerCase()));
             if (!filteredItems.length) return null;
@@ -297,7 +297,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
             };
           })
           .filter(Boolean) as Array<{ label: string; items: string[]; totalCount: number }>;
-        pool = groupedSections.flatMap(section => section.items);
+        pool = teamedSections.flatMap(section => section.items);
       } else if (ancestorKey === 'depends_on') {
         title = 'Task dependencies';
         pool = resolveTaskNames();
@@ -307,7 +307,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
           ? autocompleteMeta.variableScopes
           : [{ scope: '', items: autocompleteMeta.variables }];
         let remaining = 50;
-        groupedSections = base
+        teamedSections = base
           .map(entry => {
             const filteredItems = entry.items.filter(item => item.toLowerCase().startsWith(prefix.toLowerCase()));
             if (!filteredItems.length) return null;
@@ -320,7 +320,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
             };
           })
           .filter(Boolean) as Array<{ label: string; items: string[]; totalCount: number }>;
-        pool = groupedSections.flatMap(section => section.items);
+        pool = teamedSections.flatMap(section => section.items);
         appendColon = true;
       } else {
         appendColon = true;
@@ -357,7 +357,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
         replaceStart,
         replaceEnd,
         appendColon,
-        groupedSections,
+        teamedSections,
       });
     },
     [autocompleteMeta.agentProfiles, autocompleteMeta.reusableSteps, autocompleteMeta.runtimePools, autocompleteMeta.secrets, autocompleteMeta.secretScopes, autocompleteMeta.variableScopes, autocompleteMeta.variables, editorValue]
@@ -543,7 +543,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     }
 
     const params = new URLSearchParams(location.search);
-    setActiveFolder(params.get('folder') || '');
+    setActiveTeam(params.get('team') || '');
   }, [location.pathname, location.search]);
 
   useEffect(() => {
@@ -605,9 +605,9 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
   const visibleSteps = useMemo(() => {
     const list = searchTerm.trim()
       ? filteredSteps
-      : filteredSteps.filter(item => splitIdentifier(item.id).path === activeFolder);
+      : filteredSteps.filter(item => splitIdentifier(item.id).path === activeTeam);
     return [...list].sort((a, b) => a.id.localeCompare(b.id));
-  }, [activeFolder, filteredSteps, searchTerm]);
+  }, [activeTeam, filteredSteps, searchTerm]);
 
   const buildTree = useMemo(() => {
     const root: TreeNode = { id: '__root__', name: '', fullPath: '', children: [], stepIds: [] };
@@ -633,9 +633,9 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     return root;
   }, [steps]);
 
-  const activeFolderNode = useMemo(() => {
-    if (!activeFolder) return buildTree;
-    const segments = activeFolder.split('/').filter(Boolean);
+  const activeTeamNode = useMemo(() => {
+    if (!activeTeam) return buildTree;
+    const segments = activeTeam.split('/').filter(Boolean);
     let current: TreeNode | null = buildTree;
     for (const segment of segments) {
       const nextNode: TreeNode | undefined = current?.children.find(child => child.name === segment);
@@ -643,20 +643,20 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
       current = nextNode;
     }
     return current || buildTree;
-  }, [activeFolder, buildTree]);
+  }, [activeTeam, buildTree]);
 
-  const parentFolder = (path: string) => {
+  const parentTeam = (path: string) => {
     const parts = path.split('/').filter(Boolean);
     parts.pop();
     return parts.join('/');
   };
 
-  const openFolder = (path: string) => {
+  const openTeam = (path: string) => {
     const cleaned = path.trim().replace(/^\/+|\/+$/g, '');
-    setActiveFolder(cleaned);
+    setActiveTeam(cleaned);
     setSelectedId(null);
     selectedIdRef.current = null;
-    navigate(cleaned ? `/steps?folder=${encodeURIComponent(cleaned)}` : '/steps');
+    navigate(cleaned ? `/steps?team=${encodeURIComponent(cleaned)}` : '/steps');
   };
 
   const handleSelect = useCallback((id: string) => {
@@ -703,7 +703,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     editorValue,
     validationErrorCount: validation.errors.length,
     validationMessage: 'Fix validation errors before saving.',
-    permissionFolder,
+    permissionTeam,
     draftScope,
     canCreate: canCreateStepHere,
     canUpdate: canUpdateSelectedStep,
@@ -728,8 +728,8 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
 
   const handleBackToList = () => {
     if (detail) {
-      const folder = splitIdentifier(detail.id).path;
-      navigate(folder ? `/steps?folder=${encodeURIComponent(folder)}` : '/steps');
+      const team = splitIdentifier(detail.id).path;
+      navigate(team ? `/steps?team=${encodeURIComponent(team)}` : '/steps');
       return;
     }
     navigate('/steps');
@@ -765,10 +765,10 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
       {!selectedId && (
         <ResourceCollectionToolbar
           resourceLabel="step"
-          activeFolder={activeFolder}
+          activeTeam={activeTeam}
           searchTerm={searchTerm}
           canCreate={canCreateStepHere}
-          onBack={() => openFolder(parentFolder(activeFolder))}
+          onBack={() => openTeam(parentTeam(activeTeam))}
           onSearchTermChange={setSearchTerm}
           onCreate={openCreateModal}
         />
@@ -780,13 +780,13 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
             listLoading={listLoading}
             listError={listError}
             visibleSteps={visibleSteps}
-            activeFolderNode={activeFolderNode}
+            activeTeamNode={activeTeamNode}
             searchTerm={searchTerm}
             canCreateStepHere={canCreateStepHere}
             canUseStepDrafts={canUseStepDrafts}
             canDeleteSteps={canDeleteSteps}
             onSelectStep={handleSelect}
-            onOpenFolder={openFolder}
+            onOpenTeam={openTeam}
             onDeleteStep={openDeleteModal}
           />
         ) : detailLoading ? (

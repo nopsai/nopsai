@@ -46,13 +46,13 @@ func RelativePath(path, dir string) (string, bool) {
 	return strings.TrimPrefix(path, prefix), true
 }
 
-func NormalizePathForFolder(boundFolder string, repoRelativePath string) (string, error) {
-	boundSegments, err := CleanPathSegments(boundFolder, false)
+func NormalizePathForTeam(boundTeam string, repoRelativePath string) (string, error) {
+	boundSegments, err := CleanPathSegments(boundTeam, false)
 	if err != nil {
-		return "", fmt.Errorf("invalid bound folder: %w", err)
+		return "", fmt.Errorf("invalid bound team: %w", err)
 	}
 	if len(boundSegments) == 0 {
-		return "", fmt.Errorf("bound folder is required")
+		return "", fmt.Errorf("bound team is required")
 	}
 
 	relative := strings.Trim(strings.ReplaceAll(filepath.ToSlash(repoRelativePath), "\\", "/"), "/")
@@ -159,9 +159,9 @@ func CanRepositoryWriteOver(current, existing models.ConfigRepository, resourceS
 	if !ResourceUnderBindingScope(resourceScope, current) {
 		return false
 	}
-	if current.ScopeType == models.ConfigRepositoryScopeFolder {
+	if current.ScopeType == models.ConfigRepositoryScopeTeam {
 		return existing.ScopeType == models.ConfigRepositoryScopeSystem ||
-			(existing.ScopeType == models.ConfigRepositoryScopeFolder &&
+			(existing.ScopeType == models.ConfigRepositoryScopeTeam &&
 				ResourceUnderScope(current.ScopeID, existing.ScopeID))
 	}
 	return false
@@ -178,9 +178,9 @@ func RepositoryShadowsCurrent(existing, current models.ConfigRepository, resourc
 	if !ResourceUnderBindingScope(resourceScope, existing) {
 		return false
 	}
-	if existing.ScopeType == models.ConfigRepositoryScopeFolder {
+	if existing.ScopeType == models.ConfigRepositoryScopeTeam {
 		return current.ScopeType == models.ConfigRepositoryScopeSystem ||
-			(current.ScopeType == models.ConfigRepositoryScopeFolder &&
+			(current.ScopeType == models.ConfigRepositoryScopeTeam &&
 				ResourceUnderScope(existing.ScopeID, current.ScopeID))
 	}
 	return false
@@ -190,7 +190,7 @@ func ResourceUnderBindingScope(resourceScope string, binding models.ConfigReposi
 	switch binding.ScopeType {
 	case models.ConfigRepositoryScopeSystem:
 		return true
-	case models.ConfigRepositoryScopeFolder:
+	case models.ConfigRepositoryScopeTeam:
 		return ResourceUnderScope(resourceScope, binding.ScopeID)
 	default:
 		return false

@@ -32,7 +32,7 @@ advanced_roles:
 basic_roles:
   - user: alice
     role: owner
-    resource: folder:team-1
+    resource: team:team-1
 `,
 	}
 
@@ -163,10 +163,10 @@ basic_roles:
 	}
 }
 
-func TestParseAccessSyncPlanRejectsAuthGroupDefinitions(t *testing.T) {
+func TestParseAccessSyncPlanRejectsAuthTeamDefinitions(t *testing.T) {
 	files := map[string]string{
-		"access/groups.yaml": `
-groups:
+		"access/teams.yaml": `
+teams:
   - name: team-1-developers
     members:
       - user: bob
@@ -178,17 +178,17 @@ groups:
 		ScopeID:   models.ConfigRepositorySystemGlobalID,
 	}, "")
 	if err == nil {
-		t.Fatal("expected access manifest auth groups to be rejected")
+		t.Fatal("expected access manifest auth teams to be rejected")
 	}
 }
 
-func TestParseAccessSyncPlanSupportsAuthGroupSubjects(t *testing.T) {
+func TestParseAccessSyncPlanSupportsAuthTeamSubjects(t *testing.T) {
 	files := map[string]string{
 		"access/grants.yaml": `
 basic_roles:
-  - group: team-1-developers
+  - team: team-1-developers
     role: developer
-    resource: folder:team-1
+    resource: team:team-1
 `,
 	}
 
@@ -201,13 +201,13 @@ basic_roles:
 	}
 
 	key := accessGrantPlanKey{
-		subjectType:  model.SubjectTypeAuthGroup,
+		subjectType:  model.SubjectTypeAuthTeam,
 		subjectID:    "team-1-developers",
-		resourceType: grantResourceFolder,
+		resourceType: grantResourceTeam,
 		resourceID:   "team-1",
 	}
 	if _, ok := plan.grants[key]; !ok {
-		t.Fatalf("expected auth group grant key %#v, got %#v", key, plan.grants)
+		t.Fatalf("expected auth team grant key %#v, got %#v", key, plan.grants)
 	}
 }
 
@@ -221,7 +221,7 @@ roles:
 grants:
   - user: alice
     role: owner
-    resource: folder:team-1
+    resource: team:team-1
 `,
 		"user roles": `
 users:
@@ -258,7 +258,7 @@ users:
 basic_roles:
   - user: oidc:nopsai:alice
     role: viewer
-    resource: folder:team-1
+    resource: team:team-1
 `,
 		"advanced role binding user": `
 advanced_role_bindings:
@@ -296,19 +296,19 @@ func TestNormalizeEmbeddedResourceUseGrantRejectsSSOManagedUser(t *testing.T) {
 	}
 }
 
-func TestParseAccessSyncPlanGroupRepoNormalizesScopedFolderGrant(t *testing.T) {
+func TestParseAccessSyncPlanTeamRepoNormalizesScopedTeamGrant(t *testing.T) {
 	files := map[string]string{
 		"access/grants.yaml": `
 basic_roles:
   - user: bob
     role: developer
-    resource_type: folder
+    resource_type: team
     resource_id: dev
 `,
 	}
 
 	plan, err := parseAccessSyncPlan(files, "access", models.ConfigRepository{
-		ScopeType: models.ConfigRepositoryScopeFolder,
+		ScopeType: models.ConfigRepositoryScopeTeam,
 		ScopeID:   "team-1",
 	}, "team-1")
 	if err != nil {
@@ -318,7 +318,7 @@ basic_roles:
 	key := accessGrantPlanKey{
 		subjectType:  model.SubjectTypeUser,
 		subjectID:    "bob",
-		resourceType: grantResourceFolder,
+		resourceType: grantResourceTeam,
 		resourceID:   "team-1/dev",
 	}
 	if _, ok := plan.grants[key]; !ok {
@@ -326,18 +326,18 @@ basic_roles:
 	}
 }
 
-func TestParseAccessSyncPlanGroupRepoDefaultsFolderGrantToBoundGroup(t *testing.T) {
+func TestParseAccessSyncPlanTeamRepoDefaultsTeamGrantToBoundTeam(t *testing.T) {
 	files := map[string]string{
 		"access/grants.yaml": `
 basic_roles:
   - user: bob
     role: developer
-    resource_type: folder
+    resource_type: team
 `,
 	}
 
 	plan, err := parseAccessSyncPlan(files, "access", models.ConfigRepository{
-		ScopeType: models.ConfigRepositoryScopeFolder,
+		ScopeType: models.ConfigRepositoryScopeTeam,
 		ScopeID:   "team-1",
 	}, "team-1")
 	if err != nil {
@@ -347,15 +347,15 @@ basic_roles:
 	key := accessGrantPlanKey{
 		subjectType:  model.SubjectTypeUser,
 		subjectID:    "bob",
-		resourceType: grantResourceFolder,
+		resourceType: grantResourceTeam,
 		resourceID:   "team-1",
 	}
 	if _, ok := plan.grants[key]; !ok {
-		t.Fatalf("expected bound-group grant key %#v, got %#v", key, plan.grants)
+		t.Fatalf("expected bound-team grant key %#v, got %#v", key, plan.grants)
 	}
 }
 
-func TestParseAccessSyncPlanGroupRepoRejectsGlobalIAM(t *testing.T) {
+func TestParseAccessSyncPlanTeamRepoRejectsGlobalIAM(t *testing.T) {
 	files := map[string]string{
 		"access/roles.yaml": `
 advanced_roles:
@@ -364,15 +364,15 @@ advanced_roles:
 	}
 
 	_, err := parseAccessSyncPlan(files, "access", models.ConfigRepository{
-		ScopeType: models.ConfigRepositoryScopeFolder,
+		ScopeType: models.ConfigRepositoryScopeTeam,
 		ScopeID:   "team-1",
 	}, "team-1")
 	if err == nil {
-		t.Fatal("expected group-scoped repo to reject global role management")
+		t.Fatal("expected team-scoped repo to reject global role management")
 	}
 }
 
-func TestParseAccessSyncPlanGroupRepoRejectsServiceAccounts(t *testing.T) {
+func TestParseAccessSyncPlanTeamRepoRejectsServiceAccounts(t *testing.T) {
 	files := map[string]string{
 		"access/service-accounts.yaml": `
 service_accounts:
@@ -381,15 +381,15 @@ service_accounts:
 	}
 
 	_, err := parseAccessSyncPlan(files, "access", models.ConfigRepository{
-		ScopeType: models.ConfigRepositoryScopeFolder,
+		ScopeType: models.ConfigRepositoryScopeTeam,
 		ScopeID:   "team-1",
 	}, "team-1")
 	if err == nil {
-		t.Fatal("expected group-scoped repo to reject service account management")
+		t.Fatal("expected team-scoped repo to reject service account management")
 	}
 }
 
-func TestParseAccessSyncPlanGroupRepoRejectsPlatformGrant(t *testing.T) {
+func TestParseAccessSyncPlanTeamRepoRejectsPlatformGrant(t *testing.T) {
 	files := map[string]string{
 		"access/grants.yaml": `
 basic_roles:
@@ -400,15 +400,15 @@ basic_roles:
 	}
 
 	_, err := parseAccessSyncPlan(files, "access", models.ConfigRepository{
-		ScopeType: models.ConfigRepositoryScopeFolder,
+		ScopeType: models.ConfigRepositoryScopeTeam,
 		ScopeID:   "team-1",
 	}, "team-1")
 	if err == nil {
-		t.Fatal("expected group-scoped repo to reject platform admin grant")
+		t.Fatal("expected team-scoped repo to reject platform admin grant")
 	}
 }
 
-func TestParseAccessSyncPlanGroupRepoNormalizesRepositoryGrantIntoScope(t *testing.T) {
+func TestParseAccessSyncPlanTeamRepoNormalizesRepositoryGrantIntoScope(t *testing.T) {
 	files := map[string]string{
 		"access/grants.yaml": `
 basic_roles:
@@ -420,7 +420,7 @@ basic_roles:
 	}
 
 	plan, err := parseAccessSyncPlan(files, "access", models.ConfigRepository{
-		ScopeType: models.ConfigRepositoryScopeFolder,
+		ScopeType: models.ConfigRepositoryScopeTeam,
 		ScopeID:   "team-1",
 	}, "team-1")
 	if err != nil {
@@ -434,7 +434,7 @@ basic_roles:
 		resourceID:   "team-1/other-team/service",
 	}
 	if _, ok := plan.grants[key]; !ok {
-		t.Fatalf("expected repository path to be normalized into group scope, got %#v", plan.grants)
+		t.Fatalf("expected repository path to be normalized into team scope, got %#v", plan.grants)
 	}
 }
 
@@ -449,11 +449,11 @@ access:
   visibility: restricted
   use_access:
     grants:
-      - subject_type: group
+      - subject_type: team
         subject_id: data-team
       - repository: hosein-yousefii/test-app
 `, "pipelines/deploy.yaml", grantResourcePipeline, "team-1/deploy", models.ConfigRepository{
-		ScopeType: models.ConfigRepositoryScopeFolder,
+		ScopeType: models.ConfigRepositoryScopeTeam,
 		ScopeID:   "team-1",
 	}, "team-1")
 	if err != nil {
@@ -469,18 +469,18 @@ access:
 		t.Fatalf("visibility = (%v, %q), want restricted", access.visibilitySet, access.visibility)
 	}
 
-	groupKey := accessGrantPlanKey{
-		subjectType:  grantSubjectGroup,
+	teamKey := accessGrantPlanKey{
+		subjectType:  grantSubjectTeam,
 		subjectID:    "data-team",
 		resourceType: grantResourcePipeline,
 		resourceID:   "team-1/deploy",
 	}
-	groupGrant, ok := plan.grants[groupKey]
+	teamGrant, ok := plan.grants[teamKey]
 	if !ok {
-		t.Fatalf("expected group use grant key %#v, got %#v", groupKey, plan.grants)
+		t.Fatalf("expected team use grant key %#v, got %#v", teamKey, plan.grants)
 	}
-	if groupGrant.role != customUseGrantRole || len(groupGrant.actions) != 1 || groupGrant.actions[0] != "pipeline.use" {
-		t.Fatalf("group grant = %#v, want pipeline use grant", groupGrant)
+	if teamGrant.role != customUseGrantRole || len(teamGrant.actions) != 1 || teamGrant.actions[0] != "pipeline.use" {
+		t.Fatalf("team grant = %#v, want pipeline use grant", teamGrant)
 	}
 
 	repoKey := accessGrantPlanKey{
@@ -500,7 +500,7 @@ func TestEmbeddedAccessDefaultsToRestrictedWhenGrantsArePresent(t *testing.T) {
 name: checkout
 script: git status
 access:
-  groups:
+  teams:
     - data-team
 `, "steps/shared/checkout.yaml", grantResourceStep, "shared/checkout", models.ConfigRepository{
 		ScopeType: models.ConfigRepositoryScopeSystem,
@@ -522,7 +522,7 @@ func TestEmbeddedScopeAccessRejectsWorkspaceVisibility(t *testing.T) {
 access:
   visibility: public
 `, "scopes/prod/scope.yaml", grantResourceScope, "team-1/prod", models.ConfigRepository{
-		ScopeType: models.ConfigRepositoryScopeFolder,
+		ScopeType: models.ConfigRepositoryScopeTeam,
 		ScopeID:   "team-1",
 	}, "team-1")
 	if err == nil {
@@ -535,20 +535,20 @@ func TestFilterDelegatedAccessResourcesRemovesChildScopedGrant(t *testing.T) {
 	parentKey := accessGrantPlanKey{
 		subjectType:  model.SubjectTypeUser,
 		subjectID:    "alice",
-		resourceType: grantResourceFolder,
+		resourceType: grantResourceTeam,
 		resourceID:   "team-1",
 	}
 	childKey := accessGrantPlanKey{
 		subjectType:  model.SubjectTypeUser,
 		subjectID:    "bob",
-		resourceType: grantResourceFolder,
+		resourceType: grantResourceTeam,
 		resourceID:   "team-1/dev",
 	}
-	plan.grants[parentKey] = storedAccessGrant{resourceType: grantResourceFolder, resourceID: "team-1"}
-	plan.grants[childKey] = storedAccessGrant{resourceType: grantResourceFolder, resourceID: "team-1/dev"}
+	plan.grants[parentKey] = storedAccessGrant{resourceType: grantResourceTeam, resourceID: "team-1"}
+	plan.grants[childKey] = storedAccessGrant{resourceType: grantResourceTeam, resourceID: "team-1/dev"}
 
 	filterDelegatedAccessResources(plan, models.ConfigRepository{
-		ScopeType: models.ConfigRepositoryScopeFolder,
+		ScopeType: models.ConfigRepositoryScopeTeam,
 		ScopeID:   "team-1",
 	}, []string{"team-1/dev"})
 
@@ -568,7 +568,7 @@ func TestFilterDelegatedAccessResourcesRemovesChildResourceAccess(t *testing.T) 
 	plan.resourceAccess[childKey] = storedResourceAccess{resourceType: grantResourcePipeline, resourceID: "team-1/dev/deploy", visibility: resourceVisibilityWorkspace, visibilitySet: true}
 
 	filterDelegatedAccessResources(plan, models.ConfigRepository{
-		ScopeType: models.ConfigRepositoryScopeFolder,
+		ScopeType: models.ConfigRepositoryScopeTeam,
 		ScopeID:   "team-1",
 	}, []string{"team-1/dev"})
 
@@ -585,10 +585,10 @@ func TestFilterDelegatedAccessResourcesKeepsSystemGrant(t *testing.T) {
 	key := accessGrantPlanKey{
 		subjectType:  model.SubjectTypeUser,
 		subjectID:    "alice",
-		resourceType: grantResourceFolder,
+		resourceType: grantResourceTeam,
 		resourceID:   "team-1",
 	}
-	plan.grants[key] = storedAccessGrant{resourceType: grantResourceFolder, resourceID: "team-1"}
+	plan.grants[key] = storedAccessGrant{resourceType: grantResourceTeam, resourceID: "team-1"}
 
 	filterDelegatedAccessResources(plan, models.ConfigRepository{
 		ScopeType: models.ConfigRepositoryScopeSystem,
@@ -596,7 +596,7 @@ func TestFilterDelegatedAccessResourcesKeepsSystemGrant(t *testing.T) {
 	}, []string{"team-1"})
 
 	if _, ok := plan.grants[key]; !ok {
-		t.Fatal("system access grant should remain even when the target folder has a delegated config repo")
+		t.Fatal("system access grant should remain even when the target team has a delegated config repo")
 	}
 }
 
@@ -647,11 +647,11 @@ func TestAccessGrantResourceInConfigBindingScope(t *testing.T) {
 		t.Fatal("system config repo should cover platform access grants")
 	}
 
-	groupBinding := models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"}
-	if !accessGrantResourceInConfigBindingScope(grantResourceFolder, "team-1/dev", groupBinding) {
-		t.Fatal("group config repo should cover access grants in its folder subtree")
+	teamBinding := models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
+	if !accessGrantResourceInConfigBindingScope(grantResourceTeam, "team-1/dev", teamBinding) {
+		t.Fatal("team config repo should cover access grants in its team subtree")
 	}
-	if accessGrantResourceInConfigBindingScope(grantResourceFolder, "team-2", groupBinding) {
-		t.Fatal("group config repo should not cover access grants outside its folder subtree")
+	if accessGrantResourceInConfigBindingScope(grantResourceTeam, "team-2", teamBinding) {
+		t.Fatal("team config repo should not cover access grants outside its team subtree")
 	}
 }

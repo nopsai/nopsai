@@ -35,10 +35,10 @@ oidc:
       basic_role_mapping:
         /team-1/dev:
           role: owner
-          resource_type: folder
+          resource_type: team
           resource_id: team-1/dev
       entitlement_sync:
-        mode: keycloak
+        mode: keycloak_team_roles
         admin_base_url: http://keycloak:8080/
         realm: nopsai
         client_id: nopsai
@@ -72,10 +72,10 @@ oidc:
 		t.Fatalf("allowed domains = %#v, want normalized example.com", provider.AllowedEmailDomains)
 	}
 	grant := provider.BasicRoleMapping["/team-1/dev"]
-	if grant.Role != productRoleOwner || grant.ResourceType != grantResourceFolder || grant.ResourceID != "team-1/dev" {
-		t.Fatalf("basic role mapping = %#v, want owner folder team-1/dev", provider.BasicRoleMapping)
+	if grant.Role != productRoleOwner || grant.ResourceType != grantResourceTeam || grant.ResourceID != "team-1/dev" {
+		t.Fatalf("basic role mapping = %#v, want owner team team-1/dev", provider.BasicRoleMapping)
 	}
-	if provider.EntitlementSync.Mode != "keycloak_group_roles" || provider.EntitlementSync.AdminBaseURL != "http://keycloak:8080" {
+	if provider.EntitlementSync.Mode != "keycloak_team_roles" || provider.EntitlementSync.AdminBaseURL != "http://keycloak:8080" {
 		t.Fatalf("entitlement sync = %#v, want normalized keycloak sync", provider.EntitlementSync)
 	}
 }
@@ -98,9 +98,9 @@ auth:
 	}
 }
 
-func TestParseGitOpsAuthSettingsPlanRejectsGroupRepo(t *testing.T) {
+func TestParseGitOpsAuthSettingsPlanRejectsTeamRepo(t *testing.T) {
 	_, err := parseGitOpsAuthSettingsPlan(
-		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"},
+		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"},
 		gitOpsRuntimeSettingsDirectory{
 			root: "setting",
 			files: map[string]string{
@@ -193,7 +193,7 @@ func TestBuildAuthSettingsGitOpsFileExportsCredentialReferences(t *testing.T) {
 				ClientCredentialRef: "credential://system/oidc/nopsai/client-secret",
 				Enabled:             false,
 				EntitlementSync: oidcEntitlementSyncConfig{
-					Mode:                       "keycloak_group_roles",
+					Mode:                       "keycloak_team_roles",
 					AdminBaseURL:               "http://keycloak:8080",
 					AdminClientCredentialRef:   "credential://system/oidc/nopsai/admin-client-secret",
 					AdminPasswordCredentialRef: "credential://system/oidc/nopsai/admin-password",

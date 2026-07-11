@@ -50,13 +50,13 @@ func (a *App) handleGetGlobalConfigRepositoryDrift(w http.ResponseWriter, r *htt
 	a.handleGetConfigRepositoryDrift(w, r, repo)
 }
 
-func (a *App) handleGetFolderConfigRepositoryDrift(w http.ResponseWriter, r *http.Request) {
-	resource, ok := a.requireFolderConfigRepositoryDecision(w, r, "config_repo.read")
+func (a *App) handleGetTeamConfigRepositoryDrift(w http.ResponseWriter, r *http.Request) {
+	resource, ok := a.requireTeamConfigRepositoryDecision(w, r, "config_repo.read")
 	if !ok {
 		return
 	}
 
-	repo, err := a.store.GetConfigRepositoryByScope(r.Context(), models.ConfigRepositoryScopeFolder, resource.ID)
+	repo, err := a.store.GetConfigRepositoryByScope(r.Context(), models.ConfigRepositoryScopeTeam, resource.ID)
 	if err != nil {
 		writeConfigRepositoryStoreError(w, err, "failed to load config repository")
 		return
@@ -125,7 +125,7 @@ func (a *App) loadConfigRepositoryGitFiles(repo models.ConfigRepository) (map[st
 			result[rel] = normalizeConfigRepositoryFileContent(content)
 		}
 	}
-	if repo.ScopeType == models.ConfigRepositoryScopeFolder {
+	if repo.ScopeType == models.ConfigRepositoryScopeTeam {
 		rootPath := configsync.RepoJoinPath(repo.BasePath, "notifications.yaml")
 		content, err := a.requestGitBotFile(owner, name, repo.Branch, rootPath, errNotificationGitOpsNotFound)
 		if err == nil {
@@ -223,7 +223,7 @@ func parseKnowledgeContextDriftPath(filePath string) (string, string, string, er
 	rel = strings.TrimPrefix(rel, "knowledge/")
 	parts := strings.Split(rel, "/")
 	if len(parts) < 3 {
-		return "", "", "", fmt.Errorf("knowledge document path must use kind/group/document")
+		return "", "", "", fmt.Errorf("knowledge document path must use kind/team/document")
 	}
 	kind, err := normalizeKnowledgeContextKind(parts[0])
 	if err != nil {
@@ -233,11 +233,11 @@ func parseKnowledgeContextDriftPath(filePath string) (string, string, string, er
 	if err != nil {
 		return "", "", "", err
 	}
-	group, err := normalizeKnowledgeContextGroup(strings.Join(parts[1:len(parts)-1], "/"))
+	team, err := normalizeKnowledgeContextTeam(strings.Join(parts[1:len(parts)-1], "/"))
 	if err != nil {
 		return "", "", "", err
 	}
-	return kind, group, name, nil
+	return kind, team, name, nil
 }
 
 func (a *App) exportConfigRepositoryFiles(ctx context.Context, repo models.ConfigRepository) (map[string]string, error) {
@@ -279,7 +279,7 @@ func (a *App) exportConfigRepositoryFiles(ctx context.Context, repo models.Confi
 	if err := a.exportConfigRepositoryKnowledge(ctx, repo, delegatedScopes, resourceAccess, files); err != nil {
 		return nil, err
 	}
-	if err := a.exportConfigRepositoryGroupStructure(ctx, repo, files); err != nil {
+	if err := a.exportConfigRepositoryTeamStructure(ctx, repo, files); err != nil {
 		return nil, err
 	}
 	if err := a.exportConfigRepositoryAccess(ctx, repo, delegatedScopes, files); err != nil {
@@ -322,7 +322,7 @@ func (a *App) configRepositoryDelegatedScopes(ctx context.Context, repo models.C
 		if scope == "" {
 			return
 		}
-		if repo.ScopeType == models.ConfigRepositoryScopeFolder {
+		if repo.ScopeType == models.ConfigRepositoryScopeTeam {
 			boundScope := strings.Trim(strings.TrimSpace(repo.ScopeID), "/")
 			if scope == boundScope || !configsync.ResourceUnderScope(scope, boundScope) {
 				return
@@ -337,7 +337,7 @@ func (a *App) configRepositoryDelegatedScopes(ctx context.Context, repo models.C
 		WHERE scope_type = $1
 		  AND enabled = TRUE
 		  AND id <> $2
-	`, models.ConfigRepositoryScopeFolder, repo.ID)
+	`, models.ConfigRepositoryScopeTeam, repo.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load delegated config repository scopes: %w", err)
 	}

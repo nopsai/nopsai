@@ -232,7 +232,7 @@ export function AccessPanelView({
 
   const accessSearchPlaceholder =
     accessMode === "basic"
-      ? "Search by username, email, role, or group"
+      ? "Search by username, email, role, or team"
       : sectionContent.searchPlaceholder;
   const accessSearchControl = (
     <div
@@ -386,7 +386,7 @@ export function AccessPanelView({
     <div className="access-layout pb-24" data-access-build={ACCESS_UI_BUILD_ID}>
       <div className="access-shell">
         <div className="access-header">
-          <div className="access-title-group">
+          <div className="access-title-team">
             <h3 className="access-header__title">Access</h3>
           </div>
           <div className="access-header__actions">

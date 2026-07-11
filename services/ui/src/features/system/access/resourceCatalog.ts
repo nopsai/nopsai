@@ -6,7 +6,7 @@ export type AccessResourceOption = {
 };
 
 export type AccessResourceCatalog = {
-  folderOptions: AccessResourceOption[];
+  teamOptions: AccessResourceOption[];
   pipelineOptions: AccessResourceOption[];
   scopeOptions: AccessResourceOption[];
   triggerOptions: AccessResourceOption[];
@@ -18,7 +18,7 @@ export type AccessResourceCatalog = {
 };
 
 export type AccessResourceCatalogSources = {
-  groups: unknown[];
+  teams: unknown[];
   pipelines: unknown[];
   triggers: unknown[];
   externalTriggers: unknown[];
@@ -27,7 +27,7 @@ export type AccessResourceCatalogSources = {
   variableScopes: unknown[];
 };
 
-type ResourceGroup = {
+type ResourceTeam = {
   id: number;
   name: string;
   parent_id?: number | null;
@@ -37,7 +37,7 @@ const DEFAULT_SCOPE_VALUE = '__default_scope__';
 
 export function createEmptyAccessResourceCatalog(): AccessResourceCatalog {
   return {
-    folderOptions: [],
+    teamOptions: [],
     pipelineOptions: [],
     scopeOptions: [],
     triggerOptions: [],
@@ -50,7 +50,7 @@ export function createEmptyAccessResourceCatalog(): AccessResourceCatalog {
 }
 
 export function buildAccessResourceCatalog(sources: AccessResourceCatalogSources): AccessResourceCatalog {
-  const groups = sources.groups.map(normalizeResourceGroup).filter(Boolean) as ResourceGroup[];
+  const teams = sources.teams.map(normalizeResourceTeam).filter(Boolean) as ResourceTeam[];
   const pipelines = normalizeStringValues(sources.pipelines);
   const triggers = normalizeStringValues(sources.triggers);
   const externalTriggers = sources.externalTriggers
@@ -71,7 +71,7 @@ export function buildAccessResourceCatalog(sources: AccessResourceCatalogSources
   const namedScopeOptions = buildNamedScopeOptions([...secretScopes, ...variableScopes]);
 
   return {
-    folderOptions: buildGroupOptions(groups),
+    teamOptions: buildTeamOptions(teams),
     pipelineOptions: buildStringOptions(pipelines),
     scopeOptions: buildStringOptions([...secretScopes, ...variableScopes]),
     triggerOptions,
@@ -83,7 +83,7 @@ export function buildAccessResourceCatalog(sources: AccessResourceCatalogSources
   };
 }
 
-function normalizeResourceGroup(value: unknown): ResourceGroup | null {
+function normalizeResourceTeam(value: unknown): ResourceTeam | null {
   const record = asRecord(value);
   if (!record) return null;
   const id = Number(record.id);
@@ -120,23 +120,23 @@ function dedupeOptions(options: AccessResourceOption[]): AccessResourceOption[] 
   });
 }
 
-function buildGroupOptions(groups: ResourceGroup[]): AccessResourceOption[] {
-  const byID = new Map(groups.map(group => [group.id, group]));
+function buildTeamOptions(teams: ResourceTeam[]): AccessResourceOption[] {
+  const byID = new Map(teams.map(team => [team.id, team]));
 
-  const buildPath = (group: ResourceGroup, trail = new Set<number>()): string => {
-    if (trail.has(group.id)) return "";
+  const buildPath = (team: ResourceTeam, trail = new Set<number>()): string => {
+    if (trail.has(team.id)) return "";
     const nextTrail = new Set(trail);
-    nextTrail.add(group.id);
-    const parentID = group.parent_id ?? null;
-    if (parentID == null) return group.name;
+    nextTrail.add(team.id);
+    const parentID = team.parent_id ?? null;
+    if (parentID == null) return team.name;
     const parent = byID.get(parentID);
-    if (!parent) return group.name;
+    if (!parent) return team.name;
     const parentPath = buildPath(parent, nextTrail);
-    return parentPath ? `${parentPath}/${group.name}` : group.name;
+    return parentPath ? `${parentPath}/${team.name}` : team.name;
   };
 
-  return dedupeOptions(groups.map(group => {
-    const path = buildPath(group);
+  return dedupeOptions(teams.map(team => {
+    const path = buildPath(team);
     return { value: path, label: `/${path}` };
   })).sort((a, b) => a.value.localeCompare(b.value));
 }

@@ -25,7 +25,7 @@ func newAccessSyncPlan() accessSyncPlan {
 	}
 }
 
-func parseAccessSyncPlan(files map[string]string, accessDir string, binding models.ConfigRepository, boundFolder string) (accessSyncPlan, error) {
+func parseAccessSyncPlan(files map[string]string, accessDir string, binding models.ConfigRepository, boundTeam string) (accessSyncPlan, error) {
 	plan := newAccessSyncPlan()
 	for path, content := range files {
 		normalized := filepath.ToSlash(path)
@@ -40,7 +40,7 @@ func parseAccessSyncPlan(files map[string]string, accessDir string, binding mode
 		if err := yaml.Unmarshal([]byte(content), &doc); err != nil {
 			return plan, fmt.Errorf("failed to parse access manifest '%s': %w", normalized, err)
 		}
-		if err := plan.addPayload(doc.effectivePayload(), binding, boundFolder, normalized); err != nil {
+		if err := plan.addPayload(doc.effectivePayload(), binding, boundTeam, normalized); err != nil {
 			return plan, fmt.Errorf("invalid access manifest '%s': %w", normalized, err)
 		}
 	}
@@ -50,9 +50,9 @@ func parseAccessSyncPlan(files map[string]string, accessDir string, binding mode
 	return plan, nil
 }
 
-func (p accessSyncPlan) addPayload(payload accessConfigPayload, binding models.ConfigRepository, boundFolder, sourcePath string) error {
-	if payload.Groups != nil || payload.AuthGroups != nil {
-		return fmt.Errorf("access manifests do not support auth groups; grant users or services to folder resources instead")
+func (p accessSyncPlan) addPayload(payload accessConfigPayload, binding models.ConfigRepository, boundTeam, sourcePath string) error {
+	if payload.Teams != nil || payload.AuthTeams != nil {
+		return fmt.Errorf("access manifests do not support auth teams; grant users or services to team resources instead")
 	}
 	if payload.Roles != nil {
 		return fmt.Errorf("access manifests use advanced_roles for advanced role definitions")
@@ -182,7 +182,7 @@ func (p accessSyncPlan) addPayload(payload accessConfigPayload, binding models.C
 	}
 
 	for _, raw := range payload.BasicRoles {
-		grant, err := normalizeAccessGrant(raw, binding, boundFolder, sourcePath)
+		grant, err := normalizeAccessGrant(raw, binding, boundTeam, sourcePath)
 		if err != nil {
 			return err
 		}
@@ -208,8 +208,8 @@ func (p accessSyncPlan) addGrant(grant storedAccessGrant) error {
 	return nil
 }
 
-func (p accessSyncPlan) addEmbeddedResourceAccess(content, sourcePath, resourceType, resourceID string, binding models.ConfigRepository, boundFolder string) error {
-	resourceAccess, grants, ok, err := parseEmbeddedResourceAccess(content, sourcePath, resourceType, resourceID, binding, boundFolder)
+func (p accessSyncPlan) addEmbeddedResourceAccess(content, sourcePath, resourceType, resourceID string, binding models.ConfigRepository, boundTeam string) error {
+	resourceAccess, grants, ok, err := parseEmbeddedResourceAccess(content, sourcePath, resourceType, resourceID, binding, boundTeam)
 	if err != nil {
 		return err
 	}
@@ -393,7 +393,7 @@ func normalizeAccessPolicy(raw accessPolicyFile, sourcePath string) (storedAcces
 }
 
 func normalizeAccessRoleBinding(raw accessRoleBindingFile, sourcePath string) (storedAccessRoleBinding, error) {
-	subjectType, subjectID, err := normalizeAccessSubject(raw.SubjectType, raw.SubjectID, raw.User, raw.Group, raw.Service, raw.ServiceAccount)
+	subjectType, subjectID, err := normalizeAccessSubject(raw.SubjectType, raw.SubjectID, raw.User, raw.Team, raw.Service, raw.ServiceAccount)
 	if err != nil {
 		return storedAccessRoleBinding{}, err
 	}
@@ -405,16 +405,16 @@ func normalizeAccessRoleBinding(raw accessRoleBindingFile, sourcePath string) (s
 	}, nil
 }
 
-func normalizeAccessSubject(subjectType, subjectID, userID, groupID, serviceID, serviceAccountID string) (string, string, error) {
+func normalizeAccessSubject(subjectType, subjectID, userID, teamID, serviceID, serviceAccountID string) (string, string, error) {
 	subjectType = strings.TrimSpace(subjectType)
 	subjectID = strings.TrimSpace(subjectID)
 	switch {
 	case strings.TrimSpace(userID) != "":
 		subjectType = model.SubjectTypeUser
 		subjectID = strings.TrimSpace(userID)
-	case strings.TrimSpace(groupID) != "":
-		subjectType = model.SubjectTypeAuthGroup
-		subjectID = strings.TrimSpace(groupID)
+	case strings.TrimSpace(teamID) != "":
+		subjectType = model.SubjectTypeAuthTeam
+		subjectID = strings.TrimSpace(teamID)
 	case strings.TrimSpace(serviceAccountID) != "":
 		subjectType = model.SubjectTypeServiceAccount
 		subjectID = strings.TrimSpace(serviceAccountID)
@@ -435,8 +435,8 @@ func normalizeAccessSubject(subjectType, subjectID, userID, groupID, serviceID, 
 	return normalizedType, subjectID, nil
 }
 
-func normalizeAccessGrant(raw accessGrantFile, binding models.ConfigRepository, boundFolder, sourcePath string) (storedAccessGrant, error) {
-	subjectType, subjectID, err := normalizeAccessSubject(raw.SubjectType, raw.SubjectID, raw.User, raw.Group, raw.Service, raw.ServiceAccount)
+func normalizeAccessGrant(raw accessGrantFile, binding models.ConfigRepository, boundTeam, sourcePath string) (storedAccessGrant, error) {
+	subjectType, subjectID, err := normalizeAccessSubject(raw.SubjectType, raw.SubjectID, raw.User, raw.Team, raw.Service, raw.ServiceAccount)
 	if err != nil {
 		return storedAccessGrant{}, err
 	}
@@ -463,21 +463,21 @@ func normalizeAccessGrant(raw accessGrantFile, binding models.ConfigRepository, 
 	if err != nil {
 		return storedAccessGrant{}, err
 	}
-	resourceID, err = normalizeAccessGrantResourceIDForBinding(resourceType, resourceID, binding, boundFolder)
+	resourceID, err = normalizeAccessGrantResourceIDForBinding(resourceType, resourceID, binding, boundTeam)
 	if err != nil {
 		return storedAccessGrant{}, err
 	}
 
-	inherit := resourceType == grantResourceFolder
+	inherit := resourceType == grantResourceTeam
 	if raw.Inherit != nil {
 		inherit = *raw.Inherit
 	}
-	if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+	if binding.ScopeType == models.ConfigRepositoryScopeTeam {
 		if roleName == productRoleAdmin || resourceType == grantResourcePlatform {
-			return storedAccessGrant{}, fmt.Errorf("group-scoped config repositories cannot grant platform admin access")
+			return storedAccessGrant{}, fmt.Errorf("team-scoped config repositories cannot grant platform admin access")
 		}
-		if !accessGrantResourceUnderBindingScope(resourceType, resourceID, boundFolder) {
-			return storedAccessGrant{}, fmt.Errorf("access grant target %s:%s is outside group scope %q", resourceType, resourceID, boundFolder)
+		if !accessGrantResourceUnderBindingScope(resourceType, resourceID, boundTeam) {
+			return storedAccessGrant{}, fmt.Errorf("access grant target %s:%s is outside team scope %q", resourceType, resourceID, boundTeam)
 		}
 	}
 
@@ -492,7 +492,7 @@ func normalizeAccessGrant(raw accessGrantFile, binding models.ConfigRepository, 
 	}, nil
 }
 
-func parseEmbeddedResourceAccess(content, sourcePath, resourceType, resourceID string, binding models.ConfigRepository, boundFolder string) (storedResourceAccess, []storedAccessGrant, bool, error) {
+func parseEmbeddedResourceAccess(content, sourcePath, resourceType, resourceID string, binding models.ConfigRepository, boundTeam string) (storedResourceAccess, []storedAccessGrant, bool, error) {
 	var doc embeddedResourceAccessDocument
 	if err := yaml.Unmarshal([]byte(content), &doc); err != nil {
 		return storedResourceAccess{}, nil, false, fmt.Errorf("failed to parse embedded access: %w", err)
@@ -535,9 +535,9 @@ func parseEmbeddedResourceAccess(content, sourcePath, resourceType, resourceID s
 		if err != nil {
 			return storedResourceAccess{}, nil, true, err
 		}
-		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
-			if !accessGrantResourceUnderBindingScope(grant.resourceType, grant.resourceID, boundFolder) {
-				return storedResourceAccess{}, nil, true, fmt.Errorf("resource access target %s:%s is outside group scope %q", grant.resourceType, grant.resourceID, boundFolder)
+		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
+			if !accessGrantResourceUnderBindingScope(grant.resourceType, grant.resourceID, boundTeam) {
+				return storedResourceAccess{}, nil, true, fmt.Errorf("resource access target %s:%s is outside team scope %q", grant.resourceType, grant.resourceID, boundTeam)
 			}
 		}
 		grants = append(grants, grant)
@@ -556,16 +556,16 @@ func embeddedResourceUseAccessMode(useAccess *embeddedResourceUseAccessFile) str
 func embeddedResourceAccessGrants(access embeddedResourceAccessFile) []embeddedResourceUseGrantFile {
 	var grants []embeddedResourceUseGrantFile
 	grants = append(grants, access.Grants...)
-	for _, group := range access.Groups.values() {
-		grants = append(grants, embeddedResourceUseGrantFile{Group: group})
+	for _, team := range access.Teams.values() {
+		grants = append(grants, embeddedResourceUseGrantFile{Team: team})
 	}
 	for _, repo := range access.Repositories.values() {
 		grants = append(grants, embeddedResourceUseGrantFile{Repository: repo})
 	}
 	if access.UseAccess != nil {
 		grants = append(grants, access.UseAccess.Grants...)
-		for _, group := range access.UseAccess.Groups.values() {
-			grants = append(grants, embeddedResourceUseGrantFile{Group: group})
+		for _, team := range access.UseAccess.Teams.values() {
+			grants = append(grants, embeddedResourceUseGrantFile{Team: team})
 		}
 		for _, repo := range access.UseAccess.Repositories.values() {
 			grants = append(grants, embeddedResourceUseGrantFile{Repository: repo})
@@ -618,7 +618,7 @@ func normalizeEmbeddedResourceUseGrantSubject(raw embeddedResourceUseGrantFile) 
 		subjectType string
 		subjectID   string
 	}{
-		{grantSubjectGroup, raw.Group},
+		{grantSubjectTeam, raw.Team},
 		{model.SubjectTypeRepository, firstNonEmptyString(raw.Repository, raw.Repo)},
 		{model.SubjectTypeUser, raw.User},
 		{model.SubjectTypeTrigger, raw.Trigger},
@@ -638,8 +638,8 @@ func normalizeEmbeddedResourceUseGrantSubject(raw embeddedResourceUseGrantFile) 
 		return "", "", fmt.Errorf("resource access grant is missing subject_id")
 	}
 	switch strings.ToLower(strings.TrimSpace(subjectType)) {
-	case grantSubjectGroup, grantResourceFolder, grantResourceTeam, "resource_group":
-		return grantSubjectGroup, subjectID, nil
+	case grantSubjectTeam:
+		return grantSubjectTeam, subjectID, nil
 	default:
 		normalizedType, err := normalizeAccessGrantSubjectType(subjectType)
 		if err != nil {
@@ -659,30 +659,30 @@ func rejectSSOManagedGitOpsSubject(subjectType, subjectID string) error {
 	return nil
 }
 
-func normalizeAccessGrantResourceIDForBinding(resourceType, resourceID string, binding models.ConfigRepository, boundFolder string) (string, error) {
+func normalizeAccessGrantResourceIDForBinding(resourceType, resourceID string, binding models.ConfigRepository, boundTeam string) (string, error) {
 	resourceID = strings.Trim(strings.TrimSpace(resourceID), "/")
 	if resourceType == grantResourcePlatform {
 		return platformGrantID, nil
 	}
 	if resourceType == grantResourceKnowledgeContext {
-		kind, group, name, err := splitKnowledgeContextIdentifier(resourceID)
+		kind, team, name, err := splitKnowledgeContextIdentifier(resourceID)
 		if err != nil {
 			return "", err
 		}
-		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
-			group, err = configsync.NormalizePathForFolder(boundFolder, group)
+		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
+			team, err = configsync.NormalizePathForTeam(boundTeam, team)
 			if err != nil {
 				return "", err
 			}
 		}
-		return buildKnowledgeContextIdentifier(kind, group, name), nil
+		return buildKnowledgeContextIdentifier(kind, team, name), nil
 	}
 	if resourceType == grantResourceSecret || resourceType == grantResourceVariable {
 		if !strings.Contains(resourceID, "=") {
 			resourceID = model.BuildNamedResourceID("", "", resourceID)
 		}
 		resourceID = runtimeNamedResourceIDForResource(resourceID)
-		if binding.ScopeType != models.ConfigRepositoryScopeFolder {
+		if binding.ScopeType != models.ConfigRepositoryScopeTeam {
 			return resourceID, nil
 		}
 		repoName, scope, name := model.ParseNamedResourceID(resourceID)
@@ -691,47 +691,47 @@ func normalizeAccessGrantResourceIDForBinding(resourceType, resourceID string, b
 		}
 		var err error
 		if repoName != "" {
-			repoName, err = configsync.NormalizePathForFolder(boundFolder, repoName)
+			repoName, err = configsync.NormalizePathForTeam(boundTeam, repoName)
 			if err != nil {
 				return "", err
 			}
 		}
 		if scope != "" {
-			scope, err = configsync.NormalizePathForFolder(boundFolder, scope)
+			scope, err = configsync.NormalizePathForTeam(boundTeam, scope)
 			if err != nil {
 				return "", err
 			}
 		}
 		return model.BuildNamedResourceID(repoName, scope, name), nil
 	}
-	if binding.ScopeType != models.ConfigRepositoryScopeFolder {
+	if binding.ScopeType != models.ConfigRepositoryScopeTeam {
 		return resourceID, nil
 	}
 	if isRootGrantResourceID(resourceID) {
 		return generalGrantID, nil
 	}
-	return configsync.NormalizePathForFolder(boundFolder, resourceID)
+	return configsync.NormalizePathForTeam(boundTeam, resourceID)
 }
 
 func validateAccessPlanForBinding(plan accessSyncPlan, binding models.ConfigRepository) error {
-	if binding.ScopeType != models.ConfigRepositoryScopeFolder {
+	if binding.ScopeType != models.ConfigRepositoryScopeTeam {
 		return nil
 	}
 	if len(plan.users) > 0 {
-		return fmt.Errorf("group-scoped config repositories cannot manage users")
+		return fmt.Errorf("team-scoped config repositories cannot manage users")
 	}
 	if len(plan.serviceAccounts) > 0 {
-		return fmt.Errorf("group-scoped config repositories cannot manage service accounts")
+		return fmt.Errorf("team-scoped config repositories cannot manage service accounts")
 	}
 	if len(plan.roles) > 0 || len(plan.policies) > 0 || len(plan.roleBindings) > 0 {
-		return fmt.Errorf("group-scoped config repositories cannot manage global roles, policies, or role bindings")
+		return fmt.Errorf("team-scoped config repositories cannot manage global roles, policies, or role bindings")
 	}
 	return nil
 }
 
-func accessGrantResourceUnderBindingScope(resourceType, resourceID, boundFolder string) bool {
-	boundFolder = strings.Trim(strings.TrimSpace(boundFolder), "/")
-	if boundFolder == "" {
+func accessGrantResourceUnderBindingScope(resourceType, resourceID, boundTeam string) bool {
+	boundTeam = strings.Trim(strings.TrimSpace(boundTeam), "/")
+	if boundTeam == "" {
 		return false
 	}
 	switch resourceType {
@@ -743,24 +743,24 @@ func accessGrantResourceUnderBindingScope(resourceType, resourceID, boundFolder 
 		checked := false
 		if repoName != "" {
 			checked = true
-			if !configsync.ResourceUnderScope(repoName, boundFolder) {
+			if !configsync.ResourceUnderScope(repoName, boundTeam) {
 				return false
 			}
 		}
 		if scope != "" {
 			checked = true
-			if !configsync.ResourceUnderScope(scope, boundFolder) {
+			if !configsync.ResourceUnderScope(scope, boundTeam) {
 				return false
 			}
 		}
 		return checked
 	case grantResourceKnowledgeContext:
-		_, group, _, err := splitKnowledgeContextIdentifier(resourceID)
-		return err == nil && configsync.ResourceUnderScope(group, boundFolder)
+		_, team, _, err := splitKnowledgeContextIdentifier(resourceID)
+		return err == nil && configsync.ResourceUnderScope(team, boundTeam)
 	case grantResourcePlatform:
 		return false
 	default:
-		return configsync.ResourceUnderScope(resourceID, boundFolder)
+		return configsync.ResourceUnderScope(resourceID, boundTeam)
 	}
 }
 
@@ -779,8 +779,8 @@ func accessGrantResourceIntersectsAnyScope(resourceType, resourceID string, scop
 				return true
 			}
 		case grantResourceKnowledgeContext:
-			_, group, _, err := splitKnowledgeContextIdentifier(resourceID)
-			if err == nil && configsync.ResourceUnderScope(group, scope) {
+			_, team, _, err := splitKnowledgeContextIdentifier(resourceID)
+			if err == nil && configsync.ResourceUnderScope(team, scope) {
 				return true
 			}
 		default:
@@ -797,7 +797,7 @@ func filterDelegatedAccessResources(plan accessSyncPlan, binding models.ConfigRe
 		return
 	}
 	for key, grant := range plan.grants {
-		if (binding.ScopeType == models.ConfigRepositoryScopeFolder || grant.role == customUseGrantRole) &&
+		if (binding.ScopeType == models.ConfigRepositoryScopeTeam || grant.role == customUseGrantRole) &&
 			accessGrantResourceIntersectsAnyScope(grant.resourceType, grant.resourceID, overrideScopes) {
 			delete(plan.grants, key)
 		}

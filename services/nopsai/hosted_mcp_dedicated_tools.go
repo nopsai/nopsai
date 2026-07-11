@@ -17,22 +17,22 @@ func hostedMCPDedicatedTools() []hostedMCPTool {
 	return []hostedMCPTool{
 		toolDef("nopsai.run_pipeline", "Start a pipeline run as the current subject. Requires confirm:true.", "pipeline.execute", "pipeline", "*", objectSchema(map[string]any{"pipeline": stringSchema(), "path": stringSchema(), "name": stringSchema(), "scope": stringSchema(), "variables": objectSchema(map[string]any{}), "definition": stringSchema(), "confirm": booleanSchema()})),
 		toolDef("nopsai.list_run_approvals", "List approvals for a pipeline run when the current subject can read or approve the run.", "pipeline_run.read", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema()})),
-		toolDef("nopsai.approve_run_approval", "Approve a pending run approval as the current subject. Requires confirm:true.", "approval.approve", "folder", "*", objectSchema(map[string]any{"run_id": stringSchema(), "approval_id": stringSchema(), "comment": stringSchema(), "confirm": booleanSchema()})),
-		toolDef("nopsai.reject_run_approval", "Reject a pending run approval as the current subject. Requires confirm:true.", "approval.approve", "folder", "*", objectSchema(map[string]any{"run_id": stringSchema(), "approval_id": stringSchema(), "comment": stringSchema(), "confirm": booleanSchema()})),
+		toolDef("nopsai.approve_run_approval", "Approve a pending run approval as the current subject. Requires confirm:true.", "approval.approve", "team", "*", objectSchema(map[string]any{"run_id": stringSchema(), "approval_id": stringSchema(), "comment": stringSchema(), "confirm": booleanSchema()})),
+		toolDef("nopsai.reject_run_approval", "Reject a pending run approval as the current subject. Requires confirm:true.", "approval.approve", "team", "*", objectSchema(map[string]any{"run_id": stringSchema(), "approval_id": stringSchema(), "comment": stringSchema(), "confirm": booleanSchema()})),
 		toolDef("nopsai.rerun_pipeline_run", "Rerun a completed pipeline run. Requires confirm:true.", "pipeline_run.rerun", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema(), "confirm": booleanSchema()})),
 		toolDef("nopsai.cancel_pipeline_run", "Cancel an in-progress pipeline run. Requires confirm:true.", "pipeline_run.cancel", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema(), "confirm": booleanSchema()})),
 		toolDef("nopsai.delete_pipeline_run", "Delete a pipeline run. Requires confirm:true.", "pipeline_run.delete", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema(), "confirm": booleanSchema()})),
 
-		toolDef("nopsai.propose_schedule_create", "Return a GitOps-ready schedule create file plan without applying changes.", "pipeline_schedule.create", "pipeline_schedule", "*", objectSchema(map[string]any{"schedule": objectSchema(map[string]any{}), "path": stringSchema(), "name": stringSchema(), "pipeline": stringSchema(), "schedule_kind": stringSchema(), "cron_expression": stringSchema(), "run_at": stringSchema(), "timezone": stringSchema(), "enabled": booleanSchema(), "scope": stringSchema(), "run_group_path": stringSchema(), "variables": objectSchema(map[string]any{}), "message": stringSchema()})),
-		toolDef("nopsai.propose_schedule_update", "Return a GitOps-ready schedule update file plan without applying changes.", "pipeline_schedule.update", "pipeline_schedule", "*", objectSchema(map[string]any{"schedule_id": stringSchema(), "schedule": objectSchema(map[string]any{}), "path": stringSchema(), "name": stringSchema(), "pipeline": stringSchema(), "schedule_kind": stringSchema(), "cron_expression": stringSchema(), "run_at": stringSchema(), "timezone": stringSchema(), "enabled": booleanSchema(), "scope": stringSchema(), "run_group_path": stringSchema(), "variables": objectSchema(map[string]any{}), "message": stringSchema()})),
+		toolDef("nopsai.propose_schedule_create", "Return a GitOps-ready schedule create file plan without applying changes.", "pipeline_schedule.create", "pipeline_schedule", "*", objectSchema(map[string]any{"schedule": objectSchema(map[string]any{}), "path": stringSchema(), "name": stringSchema(), "pipeline": stringSchema(), "schedule_kind": stringSchema(), "cron_expression": stringSchema(), "run_at": stringSchema(), "timezone": stringSchema(), "enabled": booleanSchema(), "scope": stringSchema(), "run_team_path": stringSchema(), "variables": objectSchema(map[string]any{}), "message": stringSchema()})),
+		toolDef("nopsai.propose_schedule_update", "Return a GitOps-ready schedule update file plan without applying changes.", "pipeline_schedule.update", "pipeline_schedule", "*", objectSchema(map[string]any{"schedule_id": stringSchema(), "schedule": objectSchema(map[string]any{}), "path": stringSchema(), "name": stringSchema(), "pipeline": stringSchema(), "schedule_kind": stringSchema(), "cron_expression": stringSchema(), "run_at": stringSchema(), "timezone": stringSchema(), "enabled": booleanSchema(), "scope": stringSchema(), "run_team_path": stringSchema(), "variables": objectSchema(map[string]any{}), "message": stringSchema()})),
 		toolDef("nopsai.propose_schedule_delete", "Return a GitOps-ready schedule delete file plan without applying changes.", "pipeline_schedule.delete", "pipeline_schedule", "*", objectSchema(map[string]any{"schedule_id": stringSchema(), "path": stringSchema(), "name": stringSchema(), "message": stringSchema()})),
 		toolDef("nopsai.propose_schedule_enable", "Return a GitOps-ready schedule enable file plan without applying changes.", "pipeline_schedule.update", "pipeline_schedule", "*", objectSchema(map[string]any{"schedule_id": stringSchema(), "message": stringSchema()})),
 		toolDef("nopsai.propose_schedule_disable", "Return a GitOps-ready schedule disable file plan without applying changes.", "pipeline_schedule.update", "pipeline_schedule", "*", objectSchema(map[string]any{"schedule_id": stringSchema(), "message": stringSchema()})),
 		toolDef("nopsai.run_schedule_now", "Run a schedule immediately as the current subject. Requires confirm:true.", "pipeline_schedule.execute", "pipeline_schedule", "*", objectSchema(map[string]any{"schedule_id": stringSchema(), "confirm": booleanSchema()})),
 
-		toolDef("nopsai.propose_knowledge_context_create", "Return a GitOps-ready knowledge context create file plan without applying changes.", "knowledge_context.create", "knowledge_context", "*", objectSchema(map[string]any{"kind": stringSchema(), "group": stringSchema(), "name": stringSchema(), "description": stringSchema(), "content": stringSchema(), "message": stringSchema()})),
-		toolDef("nopsai.propose_knowledge_context_update", "Return a GitOps-ready knowledge context update file plan without applying changes.", "knowledge_context.update", "knowledge_context", "*", objectSchema(map[string]any{"id": stringSchema(), "kind": stringSchema(), "group": stringSchema(), "name": stringSchema(), "description": stringSchema(), "content": stringSchema(), "message": stringSchema()})),
-		toolDef("nopsai.propose_knowledge_context_delete", "Return a GitOps-ready knowledge context delete file plan without applying changes.", "knowledge_context.delete", "knowledge_context", "*", objectSchema(map[string]any{"id": stringSchema(), "kind": stringSchema(), "group": stringSchema(), "name": stringSchema(), "message": stringSchema()})),
+		toolDef("nopsai.propose_knowledge_context_create", "Return a GitOps-ready knowledge context create file plan without applying changes.", "knowledge_context.create", "knowledge_context", "*", objectSchema(map[string]any{"kind": stringSchema(), "team": stringSchema(), "team_path": stringSchema(), "name": stringSchema(), "description": stringSchema(), "content": stringSchema(), "message": stringSchema()})),
+		toolDef("nopsai.propose_knowledge_context_update", "Return a GitOps-ready knowledge context update file plan without applying changes.", "knowledge_context.update", "knowledge_context", "*", objectSchema(map[string]any{"id": stringSchema(), "kind": stringSchema(), "team": stringSchema(), "team_path": stringSchema(), "name": stringSchema(), "description": stringSchema(), "content": stringSchema(), "message": stringSchema()})),
+		toolDef("nopsai.propose_knowledge_context_delete", "Return a GitOps-ready knowledge context delete file plan without applying changes.", "knowledge_context.delete", "knowledge_context", "*", objectSchema(map[string]any{"id": stringSchema(), "kind": stringSchema(), "team": stringSchema(), "team_path": stringSchema(), "name": stringSchema(), "message": stringSchema()})),
 
 		toolDef("nopsai.list_git_webhook_sources", "List Git webhook sources visible to the current subject.", "git_webhook_source.read", "git_webhook_source", "*", objectSchema(map[string]any{})),
 		toolDef("nopsai.get_git_webhook_source", "Read a Git webhook source.", "git_webhook_source.read", "git_webhook_source", "*", objectSchema(map[string]any{"source_id": stringSchema()})),
@@ -44,26 +44,26 @@ func hostedMCPDedicatedTools() []hostedMCPTool {
 		toolDef("nopsai.list_external_triggers", "List external triggers visible to the current subject.", "external_trigger.read", "external_trigger", "*", objectSchema(map[string]any{})),
 		toolDef("nopsai.get_external_trigger", "Read an external trigger.", "external_trigger.read", "external_trigger", "*", objectSchema(map[string]any{"trigger_id": stringSchema()})),
 		toolDef("nopsai.list_external_trigger_invocations", "List recent invocations for an external trigger.", "external_trigger.read", "external_trigger", "*", objectSchema(map[string]any{"trigger_id": stringSchema()})),
-		toolDef("nopsai.propose_external_trigger_create", "Return a GitOps-ready external trigger create file plan without applying changes.", "external_trigger.create", "external_trigger", "*", objectSchema(map[string]any{"trigger": objectSchema(map[string]any{}), "id": stringSchema(), "name": stringSchema(), "pipeline": stringSchema(), "enabled": booleanSchema(), "scope": stringSchema(), "run_group_path": stringSchema(), "message": stringSchema()})),
+		toolDef("nopsai.propose_external_trigger_create", "Return a GitOps-ready external trigger create file plan without applying changes.", "external_trigger.create", "external_trigger", "*", objectSchema(map[string]any{"trigger": objectSchema(map[string]any{}), "id": stringSchema(), "name": stringSchema(), "pipeline": stringSchema(), "enabled": booleanSchema(), "scope": stringSchema(), "run_team_path": stringSchema(), "message": stringSchema()})),
 		toolDef("nopsai.propose_external_trigger_update", "Return a GitOps-ready external trigger update file plan without applying changes.", "external_trigger.update", "external_trigger", "*", objectSchema(map[string]any{"trigger_id": stringSchema(), "trigger": objectSchema(map[string]any{}), "message": stringSchema()})),
 		toolDef("nopsai.propose_external_trigger_delete", "Return a GitOps-ready external trigger delete file plan without applying changes.", "external_trigger.delete", "external_trigger", "*", objectSchema(map[string]any{"trigger_id": stringSchema(), "message": stringSchema()})),
 		toolDef("nopsai.invoke_external_trigger", "Invoke an external trigger as the current subject. Requires confirm:true.", "external_trigger.read", "external_trigger", "*", objectSchema(map[string]any{"trigger_id": stringSchema(), "event_type": stringSchema(), "idempotency_key": stringSchema(), "variables": objectSchema(map[string]any{}), "payload": objectSchema(map[string]any{}), "confirm": booleanSchema()})),
 
 		toolDef("nopsai.get_config_sync_status", "Read system config sync status.", "system.read", "system", "config-sync", objectSchema(map[string]any{})),
 		toolDef("nopsai.sync_system_config", "Run system config sync. Requires confirm:true.", "system.update", "system", "config-sync", objectSchema(map[string]any{"confirm": booleanSchema()})),
-		toolDef("nopsai.get_config_repo", "Read the global or folder config repository binding.", "system.read", "system", "config-repos", objectSchema(map[string]any{"folder_id": stringSchema()})),
-		toolDef("nopsai.get_config_repo_drift", "Read global or folder config repository drift.", "system.read", "system", "config-repos", objectSchema(map[string]any{"folder_id": stringSchema()})),
-		toolDef("nopsai.sync_config_repo", "Sync the global or folder config repository. Requires confirm:true.", "system.update", "system", "config-repos", objectSchema(map[string]any{"folder_id": stringSchema(), "confirm": booleanSchema()})),
-		toolDef("nopsai.write_config_repo", "Write files to the global or folder config repository through the existing GitOps workflow. Requires confirm:true.", "system.update", "system", "config-repos", objectSchema(map[string]any{"folder_id": stringSchema(), "body": objectSchema(map[string]any{}), "files": objectSchema(map[string]any{}), "commit_message": stringSchema(), "confirm": booleanSchema()})),
+		toolDef("nopsai.get_config_repo", "Read the global or team config repository binding.", "system.read", "system", "config-repos", objectSchema(map[string]any{"team_id": stringSchema(), "team_path": stringSchema()})),
+		toolDef("nopsai.get_config_repo_drift", "Read global or team config repository drift.", "system.read", "system", "config-repos", objectSchema(map[string]any{"team_id": stringSchema(), "team_path": stringSchema()})),
+		toolDef("nopsai.sync_config_repo", "Sync the global or team config repository. Requires confirm:true.", "system.update", "system", "config-repos", objectSchema(map[string]any{"team_id": stringSchema(), "team_path": stringSchema(), "confirm": booleanSchema()})),
+		toolDef("nopsai.write_config_repo", "Write files to the global or team config repository through the existing GitOps workflow. Requires confirm:true.", "system.update", "system", "config-repos", objectSchema(map[string]any{"team_id": stringSchema(), "team_path": stringSchema(), "body": objectSchema(map[string]any{}), "files": objectSchema(map[string]any{}), "commit_message": stringSchema(), "confirm": booleanSchema()})),
 		toolDef("nopsai.list_config_repos", "List configured config repositories.", "system.read", "system", "config-repos", objectSchema(map[string]any{})),
 		toolDef("nopsai.sync_all_config_repos", "Sync all configured config repositories. Requires confirm:true.", "system.update", "system", "config-repos", objectSchema(map[string]any{"confirm": booleanSchema()})),
 
 		toolDef("nopsai.get_notification_mail_settings", "Read notification mail settings.", "system.read", "system", "notifications", objectSchema(map[string]any{})),
 		toolDef("nopsai.propose_notification_mail_settings", "Return a GitOps-ready notification mail settings file plan without applying changes.", "system.update", "system", "notifications", objectSchema(map[string]any{"settings": objectSchema(map[string]any{}), "enabled": booleanSchema(), "from": stringSchema(), "smtp": objectSchema(map[string]any{}), "message": stringSchema()})),
 		toolDef("nopsai.test_notification_mail_settings", "Send a test notification email. Requires confirm:true.", "system.update", "system", "notifications", objectSchema(map[string]any{"to": stringSchema(), "subject": stringSchema(), "body": stringSchema(), "confirm": booleanSchema()})),
-		toolDef("nopsai.get_notification_route", "Read a folder notification route.", "config_repo.read", "folder", "*", objectSchema(map[string]any{"folder_id": stringSchema()})),
-		toolDef("nopsai.propose_notification_route_update", "Return a GitOps-ready notification route file plan without applying changes.", "config_repo.manage", "folder", "*", objectSchema(map[string]any{"folder_id": stringSchema(), "group_path": stringSchema(), "definition": objectSchema(map[string]any{}), "message": stringSchema()})),
-		toolDef("nopsai.propose_notification_route_delete", "Return a GitOps-ready notification route delete file plan without applying changes.", "config_repo.manage", "folder", "*", objectSchema(map[string]any{"folder_id": stringSchema(), "group_path": stringSchema(), "message": stringSchema()})),
+		toolDef("nopsai.get_notification_route", "Read a team notification route.", "config_repo.read", "team", "*", objectSchema(map[string]any{"team_id": stringSchema(), "team_path": stringSchema()})),
+		toolDef("nopsai.propose_notification_route_update", "Return a GitOps-ready notification route file plan without applying changes.", "config_repo.manage", "team", "*", objectSchema(map[string]any{"team_id": stringSchema(), "team_path": stringSchema(), "definition": objectSchema(map[string]any{}), "message": stringSchema()})),
+		toolDef("nopsai.propose_notification_route_delete", "Return a GitOps-ready notification route delete file plan without applying changes.", "config_repo.manage", "team", "*", objectSchema(map[string]any{"team_id": stringSchema(), "team_path": stringSchema(), "message": stringSchema()})),
 
 		toolDef("nopsai.list_monitoring_views", "List monitoring saved views visible to the current subject.", "pipeline_run.list", "pipeline_run", "*", objectSchema(map[string]any{})),
 		toolDef("nopsai.create_monitoring_view", "Create a monitoring saved view for the current subject. Requires confirm:true.", "pipeline_run.list", "pipeline_run", "*", objectSchema(map[string]any{"view": objectSchema(map[string]any{}), "confirm": booleanSchema()})),
@@ -123,11 +123,11 @@ func (a *App) authorizeHostedMCPDedicatedToolCall(ctx context.Context, subject a
 	case "nopsai.invoke_external_trigger":
 		permission.Resource.ID = firstNonEmptyString(stringArg(args, "trigger_id"), stringArg(args, "id"))
 	case "nopsai.get_notification_route", "nopsai.propose_notification_route_update", "nopsai.propose_notification_route_delete":
-		permission.Resource.ID = firstNonEmptyString(stringArg(args, "folder_id"), stringArg(args, "group_path"))
+		permission.Resource.ID = hostedMCPTeamArg(args)
 	case "nopsai.get_config_repo", "nopsai.get_config_repo_drift", "nopsai.sync_config_repo", "nopsai.write_config_repo":
-		if folderID := strings.Trim(strings.TrimSpace(stringArg(args, "folder_id")), "/"); folderID != "" {
-			permission.Resource.Type = "folder"
-			permission.Resource.ID = folderID
+		if teamID := hostedMCPTeamArg(args); teamID != "" {
+			permission.Resource.Type = "team"
+			permission.Resource.ID = teamID
 			if tool.Name == "nopsai.sync_config_repo" {
 				permission.Action = "config_repo.sync"
 			} else if tool.Name == "nopsai.write_config_repo" {
@@ -246,7 +246,7 @@ func (a *App) executeHostedMCPDedicatedTool(ctx context.Context, subject aaamode
 	case "nopsai.test_notification_mail_settings":
 		return a.hostedMCPAPITool(ctx, subject, http.MethodPost, "/v1/system/notifications/mail/test", hostedMCPNotificationMailTestBody(args), boolArg(args, "confirm", false), true, "SMTP testing sends an external email."), true, nil
 	case "nopsai.get_notification_route":
-		return a.hostedMCPAPITool(ctx, subject, http.MethodGet, hostedMCPGroupPath(args, "/notifications"), nil, false, false, ""), true, nil
+		return a.hostedMCPAPITool(ctx, subject, http.MethodGet, hostedMCPTeamPath(args, "/notifications"), nil, false, false, ""), true, nil
 	case "nopsai.propose_notification_route_update":
 		result, err := hostedMCPProposeNotificationRoute(args, "update")
 		return result, true, err
@@ -433,7 +433,7 @@ func (a *App) hostedMCPScheduleInputForMutation(ctx context.Context, args map[st
 		Timezone:        record.Timezone,
 		Enabled:         record.Enabled,
 		Scope:           record.Scope,
-		RunGroupPath:    record.RunGroupPath,
+		RunTeamPath:     record.RunTeamPath,
 		Variables:       record.Variables,
 		NextRunAt:       record.NextRunAt,
 	}, nil
@@ -495,8 +495,8 @@ func hostedMCPApplyScheduleArgs(req *scheduleRequest, args map[string]any) {
 	if value := stringArg(args, "scope"); value != "" {
 		req.Scope = value
 	}
-	if value := stringArg(args, "run_group_path"); value != "" {
-		req.RunGroupPath = value
+	if value := stringArg(args, "run_team_path"); value != "" {
+		req.RunTeamPath = value
 	}
 	if variables := hostedMCPStringMapArg(args, "variables"); len(variables) > 0 {
 		req.Variables = variables
@@ -515,7 +515,7 @@ func hostedMCPScheduleRequestFromInput(input scheduleInput) scheduleRequest {
 		Timezone:        input.Timezone,
 		Enabled:         &input.Enabled,
 		Scope:           input.Scope,
-		RunGroupPath:    input.RunGroupPath,
+		RunTeamPath:     input.RunTeamPath,
 		Variables:       input.Variables,
 	}
 	if input.RunAt != nil {
@@ -553,14 +553,14 @@ func hostedMCPSchedulePlan(mode string, input scheduleInput, message string) map
 
 func hostedMCPScheduleYAML(input scheduleInput) (string, error) {
 	doc := configRepositoryScheduleDocument{
-		Name:         input.Name,
-		Description:  strings.TrimSpace(input.Description),
-		Pipeline:     configsync.BuildPipelineIdentifier(input.PipelinePath, input.PipelineName),
-		Timezone:     input.Timezone,
-		Enabled:      input.Enabled,
-		Scope:        input.Scope,
-		RunGroupPath: input.RunGroupPath,
-		Variables:    input.Variables,
+		Name:        input.Name,
+		Description: strings.TrimSpace(input.Description),
+		Pipeline:    configsync.BuildPipelineIdentifier(input.PipelinePath, input.PipelineName),
+		Timezone:    input.Timezone,
+		Enabled:     input.Enabled,
+		Scope:       input.Scope,
+		RunTeamPath: input.RunTeamPath,
+		Variables:   input.Variables,
 	}
 	if normalizeScheduleKindValue(input.ScheduleKind) == scheduleKindOnce {
 		doc.ScheduleKind = scheduleKindOnce
@@ -601,12 +601,12 @@ func (a *App) hostedMCPScheduleArgID(ctx context.Context, args map[string]any) s
 }
 
 func (a *App) hostedMCPProposeKnowledgeContext(ctx context.Context, args map[string]any, mode string) (map[string]any, error) {
-	kind, group, name, err := a.hostedMCPKnowledgeContextParts(ctx, args)
+	kind, team, name, err := a.hostedMCPKnowledgeContextParts(ctx, args)
 	if err != nil {
 		return nil, err
 	}
-	id := buildKnowledgeContextIdentifier(kind, group, name)
-	path := hostedMCPKnowledgeContextGitOpsPath(kind, group, name)
+	id := buildKnowledgeContextIdentifier(kind, team, name)
+	path := hostedMCPKnowledgeContextGitOpsPath(kind, team, name)
 	message := stringArg(args, "message")
 	if message == "" {
 		message = strings.Title(mode) + " NopsAI knowledge context " + id
@@ -644,10 +644,10 @@ func (a *App) hostedMCPKnowledgeContextParts(ctx context.Context, args map[strin
 			return splitKnowledgeContextIdentifier(id)
 		}
 		if a != nil && a.db != nil {
-			var kind, group, name string
-			err := a.db.QueryRow(ctx, `SELECT kind, group_path, name FROM knowledge_contexts WHERE id::text = $1`, id).Scan(&kind, &group, &name)
+			var kind, team, name string
+			err := a.db.QueryRow(ctx, `SELECT kind, team_path, name FROM knowledge_contexts WHERE id::text = $1`, id).Scan(&kind, &team, &name)
 			if err == nil {
-				return kind, group, name, nil
+				return kind, team, name, nil
 			}
 		}
 	}
@@ -655,7 +655,7 @@ func (a *App) hostedMCPKnowledgeContextParts(ctx context.Context, args map[strin
 	if err != nil {
 		return "", "", "", err
 	}
-	group, err := normalizeKnowledgeContextGroup(firstNonEmptyString(stringArg(args, "group"), stringArg(args, "group_path")))
+	team, err := normalizeKnowledgeContextTeam(hostedMCPKnowledgeContextTeamArg(args))
 	if err != nil {
 		return "", "", "", err
 	}
@@ -663,12 +663,19 @@ func (a *App) hostedMCPKnowledgeContextParts(ctx context.Context, args map[strin
 	if err != nil {
 		return "", "", "", err
 	}
-	return kind, group, name, nil
+	return kind, team, name, nil
 }
 
-func hostedMCPKnowledgeContextGitOpsPath(kind, group, name string) string {
-	relID := strings.Trim(strings.Trim(group, "/")+"/"+strings.Trim(name, "/"), "/")
+func hostedMCPKnowledgeContextGitOpsPath(kind, team, name string) string {
+	relID := strings.Trim(strings.Trim(team, "/")+"/"+strings.Trim(name, "/"), "/")
 	return filepath.ToSlash(filepath.Join("knowledge", kind, relID+".md"))
+}
+
+func hostedMCPKnowledgeContextTeamArg(args map[string]any) string {
+	return firstNonEmptyString(
+		stringArg(args, "team"),
+		stringArg(args, "team_path"),
+	)
 }
 
 func hostedMCPProposeGitWebhookSource(args map[string]any, mode string) (map[string]any, error) {
@@ -754,7 +761,7 @@ func hostedMCPProposeExternalTrigger(args map[string]any, mode string) (map[stri
 		Enabled:         &trigger.Enabled,
 		Pipeline:        trigger.Pipeline,
 		Scope:           trigger.Scope,
-		RunGroupPath:    trigger.RunGroupPath,
+		RunTeamPath:     trigger.RunTeamPath,
 		AllowedCallers:  trigger.AllowedCallers,
 		VariableMapping: trigger.VariableMapping,
 		PayloadSchema:   trigger.PayloadSchema,
@@ -792,8 +799,8 @@ func hostedMCPExternalTriggerInputFromArgs(args map[string]any, id string) (exte
 	if value := stringArg(args, "scope"); value != "" {
 		input.Scope = value
 	}
-	if value := stringArg(args, "run_group_path"); value != "" {
-		input.RunGroupPath = value
+	if value := stringArg(args, "run_team_path"); value != "" {
+		input.RunTeamPath = value
 	}
 	if value := hostedMCPStringMapArg(args, "variable_mapping"); len(value) > 0 {
 		input.VariableMapping = value
@@ -823,16 +830,23 @@ func (a *App) hostedMCPInvokeExternalTrigger(ctx context.Context, subject aaamod
 }
 
 func hostedMCPConfigRepoPath(args map[string]any, suffix string) string {
-	folderID := strings.Trim(strings.TrimSpace(stringArg(args, "folder_id")), "/")
-	if folderID == "" {
+	teamID := hostedMCPTeamArg(args)
+	if teamID == "" {
 		return "/v1/system/config-repo" + suffix
 	}
-	return "/v1/groups/" + hostedMCPPathTail(folderID) + "/config-repo" + suffix
+	return "/v1/teams/" + hostedMCPPathSegment(teamID) + "/config-repository" + suffix
 }
 
-func hostedMCPGroupPath(args map[string]any, suffix string) string {
-	folderID := strings.Trim(strings.TrimSpace(firstNonEmptyString(stringArg(args, "folder_id"), stringArg(args, "group_path"))), "/")
-	return "/v1/groups/" + hostedMCPPathTail(folderID) + suffix
+func hostedMCPTeamPath(args map[string]any, suffix string) string {
+	teamID := hostedMCPTeamArg(args)
+	return "/v1/teams/" + hostedMCPPathSegment(teamID) + suffix
+}
+
+func hostedMCPTeamArg(args map[string]any) string {
+	return strings.Trim(strings.TrimSpace(firstNonEmptyString(
+		stringArg(args, "team_id"),
+		stringArg(args, "team_path"),
+	)), "/")
 }
 
 func hostedMCPConfigRepoWriteBody(args map[string]any) any {
@@ -888,13 +902,13 @@ func hostedMCPNotificationMailTestBody(args map[string]any) map[string]any {
 }
 
 func hostedMCPProposeNotificationRoute(args map[string]any, mode string) (map[string]any, error) {
-	groupPath := strings.Trim(strings.TrimSpace(firstNonEmptyString(stringArg(args, "group_path"), stringArg(args, "folder_id"))), "/")
-	if groupPath == "" {
-		return nil, fmt.Errorf("group_path or folder_id is required")
+	teamPath := hostedMCPTeamArg(args)
+	if teamPath == "" {
+		return nil, fmt.Errorf("team_id or team_path is required")
 	}
-	path := filepath.ToSlash(filepath.Join("config-repositories", "groups", groupPath, "notifications.yaml"))
+	path := filepath.ToSlash(filepath.Join("config-repositories", "teams", teamPath, "notifications.yaml"))
 	if mode == "delete" {
-		return hostedMCPDeleteFilePlan("notification_route_delete", groupPath, path, stringArg(args, "message")), nil
+		return hostedMCPDeleteFilePlan("notification_route_delete", teamPath, path, stringArg(args, "message")), nil
 	}
 	var input notificationRouteDefinitionFile
 	if err := hostedMCPDecodeObject(firstNonNil(args["definition"], args["body"]), &input); err != nil {
@@ -908,7 +922,7 @@ func hostedMCPProposeNotificationRoute(args map[string]any, mode string) (map[st
 	if err != nil {
 		return nil, err
 	}
-	return hostedMCPFilePlan("notification_route_update", groupPath, path, string(content), false, stringArg(args, "message")), nil
+	return hostedMCPFilePlan("notification_route_update", teamPath, path, string(content), false, stringArg(args, "message")), nil
 }
 
 func hostedMCPDataCleanupBody(args map[string]any) map[string]any {
@@ -1054,6 +1068,14 @@ func hostedMCPPathTail(value string) string {
 		parts[i] = url.PathEscape(part)
 	}
 	return strings.Join(parts, "/")
+}
+
+func hostedMCPPathSegment(value string) string {
+	value = strings.Trim(strings.TrimSpace(filepath.ToSlash(value)), "/")
+	if value == "" {
+		return ""
+	}
+	return url.PathEscape(value)
 }
 
 func firstNonNil(values ...any) any {

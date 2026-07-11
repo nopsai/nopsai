@@ -18,7 +18,7 @@ import (
 
 func setupProfiles() []setupStarterProfile {
 	return []setupStarterProfile{
-		{ID: setupProfileDev, Label: "Dev", Description: "Local evaluation with starter folders, a smoke pipeline, and generated local values."},
+		{ID: setupProfileDev, Label: "Dev", Description: "Local evaluation with starter teams, a smoke pipeline, and generated local values."},
 		{ID: setupProfileTeam, Label: "Team", Description: "Shared workspace defaults for owners, developers, viewers, repository triggers, and GitOps handoff."},
 		{ID: setupProfileProduction, Label: "Production", Description: "GitOps-first setup with stricter guardrails and no direct database starter seed."},
 		{ID: setupProfileEmpty, Label: "Empty", Description: "Only validate prerequisites and leave resources for manual configuration."},
@@ -70,10 +70,10 @@ func setupTemplateOptionsFromQuery(values url.Values) setupTemplateOptions {
 	includeLLM := queryBoolDefault(values, "include_llm", true)
 	includeMCP := queryBoolDefault(values, "mcp_examples", true)
 	return setupTemplateOptions{
-		RepositoryGroups: setupRepositoryGroupsFromQuery(values),
-		Users:            setupUsersFromQuery(values),
-		IncludeLLM:       includeLLM,
-		IncludeMCP:       includeMCP,
+		RepositoryTeams: setupRepositoryTeamsFromQuery(values),
+		Users:           setupUsersFromQuery(values),
+		IncludeLLM:      includeLLM,
+		IncludeMCP:      includeMCP,
 		LLMProfile: setupLLMProfileInput{
 			Name:          "standard",
 			Provider:      values.Get("llm_provider"),
@@ -103,9 +103,10 @@ func queryBoolDefault(values url.Values, key string, defaultValue bool) bool {
 	}
 }
 
-func setupRepositoryGroupsFromQuery(values url.Values) []setupRepositoryGroupInput {
-	var groups []setupRepositoryGroupInput
-	for _, raw := range values["repository_group"] {
+func setupRepositoryTeamsFromQuery(values url.Values) []setupRepositoryTeamInput {
+	var teams []setupRepositoryTeamInput
+	rawTeams := append([]string{}, values["repository_team"]...)
+	for _, raw := range rawTeams {
 		raw = strings.TrimSpace(raw)
 		if raw == "" {
 			continue
@@ -121,12 +122,12 @@ func setupRepositoryGroupsFromQuery(values url.Values) []setupRepositoryGroupInp
 		for _, repo := range strings.Split(reposText, ",") {
 			repositories = append(repositories, repo)
 		}
-		groups = append(groups, setupRepositoryGroupInput{
+		teams = append(teams, setupRepositoryTeamInput{
 			Name:         name,
 			Repositories: repositories,
 		})
 	}
-	return normalizeSetupRepositoryGroups(groups, nil)
+	return normalizeSetupRepositoryTeams(teams, nil)
 }
 
 func setupUsersFromQuery(values url.Values) []setupUserInput {
@@ -140,10 +141,18 @@ func setupUsersFromQuery(values url.Values) []setupUserInput {
 		if err := json.Unmarshal([]byte(raw), &user); err != nil {
 			continue
 		}
+		users = append(users, user)
+	}
+	return normalizeSetupUsers(users)
+}
+
+func normalizeSetupUsers(raw []setupUserInput) []setupUserInput {
+	users := make([]setupUserInput, 0, len(raw))
+	for _, user := range raw {
 		user.Sub = strings.TrimSpace(user.Sub)
 		user.Email = strings.TrimSpace(user.Email)
 		user.Role = strings.TrimSpace(user.Role)
-		user.Group = normalizeSetupRepositoryGroupName(user.Group)
+		user.Team = normalizeSetupRepositoryTeamName(user.Team)
 		if user.Sub == "" {
 			user.Sub = user.Email
 		}
@@ -187,34 +196,34 @@ func normalizeSetupRepositories(raw []string) []string {
 	return repositories
 }
 
-func normalizeSetupRepositoryGroups(raw []setupRepositoryGroupInput, legacyRepositories []string) []setupRepositoryGroupInput {
+func normalizeSetupRepositoryTeams(raw []setupRepositoryTeamInput, legacyRepositories []string) []setupRepositoryTeamInput {
 	if len(raw) == 0 && len(legacyRepositories) > 0 {
-		raw = []setupRepositoryGroupInput{{
+		raw = []setupRepositoryTeamInput{{
 			Name:         "applications",
 			Repositories: legacyRepositories,
 		}}
 	}
 
-	groupsByName := map[string][]string{}
-	var groupOrder []string
-	for _, group := range raw {
-		name := normalizeSetupRepositoryGroupName(group.Name)
+	teamsByName := map[string][]string{}
+	var teamOrder []string
+	for _, team := range raw {
+		name := normalizeSetupRepositoryTeamName(team.Name)
 		if name == "" {
 			continue
 		}
-		if _, exists := groupsByName[name]; !exists {
-			groupOrder = append(groupOrder, name)
+		if _, exists := teamsByName[name]; !exists {
+			teamOrder = append(teamOrder, name)
 		}
-		groupsByName[name] = append(groupsByName[name], normalizeSetupRepositories(group.Repositories)...)
+		teamsByName[name] = append(teamsByName[name], normalizeSetupRepositories(team.Repositories)...)
 	}
-	if len(groupsByName) == 0 {
+	if len(teamsByName) == 0 {
 		return nil
 	}
 
-	result := make([]setupRepositoryGroupInput, 0, len(groupOrder))
+	result := make([]setupRepositoryTeamInput, 0, len(teamOrder))
 	seenRepositories := map[string]bool{}
-	for _, name := range groupOrder {
-		repositories := normalizeSetupRepositories(groupsByName[name])
+	for _, name := range teamOrder {
+		repositories := normalizeSetupRepositories(teamsByName[name])
 		filtered := make([]string, 0, len(repositories))
 		for _, repo := range repositories {
 			key := strings.ToLower(repo)
@@ -224,12 +233,12 @@ func normalizeSetupRepositoryGroups(raw []setupRepositoryGroupInput, legacyRepos
 			seenRepositories[key] = true
 			filtered = append(filtered, repo)
 		}
-		result = append(result, setupRepositoryGroupInput{Name: name, Repositories: filtered})
+		result = append(result, setupRepositoryTeamInput{Name: name, Repositories: filtered})
 	}
 	return result
 }
 
-func normalizeSetupRepositoryGroupName(raw string) string {
+func normalizeSetupRepositoryTeamName(raw string) string {
 	name := strings.Trim(strings.TrimSpace(raw), "/")
 	name = strings.ReplaceAll(name, "\\", "-")
 	name = strings.ReplaceAll(name, "/", "-")
@@ -240,10 +249,10 @@ func normalizeSetupRepositoryGroupName(raw string) string {
 	return name
 }
 
-func setupRepositoriesFromGroups(groups []setupRepositoryGroupInput) []string {
+func setupRepositoriesFromTeams(teams []setupRepositoryTeamInput) []string {
 	var repositories []string
-	for _, group := range groups {
-		repositories = append(repositories, group.Repositories...)
+	for _, team := range teams {
+		repositories = append(repositories, team.Repositories...)
 	}
 	return normalizeSetupRepositories(repositories)
 }
@@ -264,12 +273,12 @@ func setupStarterTemplates(profile string, repositories []string) map[string]str
 
 func setupStarterTemplatesWithOptions(profile string, repositories []string, options setupTemplateOptions) map[string]string {
 	profile = normalizeSetupProfile(profile)
-	repositoryGroups := normalizeSetupRepositoryGroups(options.RepositoryGroups, repositories)
-	if len(repositoryGroups) > 0 {
-		repositories = setupRepositoriesFromGroups(repositoryGroups)
+	repositoryTeams := normalizeSetupRepositoryTeams(options.RepositoryTeams, repositories)
+	if len(repositoryTeams) > 0 {
+		repositories = setupRepositoriesFromTeams(repositoryTeams)
 	} else {
 		repositories = normalizeSetupRepositories(repositories)
-		repositoryGroups = normalizeSetupRepositoryGroups(nil, repositories)
+		repositoryTeams = normalizeSetupRepositoryTeams(nil, repositories)
 	}
 	files := map[string]string{
 		"README.md":                                 setupReadme(profile),
@@ -277,9 +286,9 @@ func setupStarterTemplatesWithOptions(profile string, repositories []string, opt
 		"steps/setup/announce.yaml":                 setupReusableStepYAML(),
 		"scopes/dev/scope.yaml":                     setupScopeYAML(profile, "dev"),
 		"knowledge/guideline/platform/setup-run.md": setupKnowledgeMarkdown(profile),
-		"access/bootstrap.yaml":                     setupAccessYAML(profile, repositoryGroups, options.Users),
+		"access/bootstrap.yaml":                     setupAccessYAML(profile, repositoryTeams, options.Users),
 	}
-	for path, content := range setupConfigRepositoryStructureFiles(repositoryGroups, repositories) {
+	for path, content := range setupConfigRepositoryStructureFiles(repositoryTeams, repositories) {
 		files[path] = content
 	}
 	if options.IncludeLLM {
@@ -297,16 +306,16 @@ func setupStarterTemplatesWithOptions(profile string, repositories []string, opt
 	return files
 }
 
-func setupPipelineRunStructure(profile string, repositoryGroups []setupRepositoryGroupInput, repositories []string) map[string]*configsync.PipelineRunStructureNode {
-	root := setupAccessFolder(profile)
+func setupPipelineRunStructure(profile string, repositoryTeams []setupRepositoryTeamInput, repositories []string) map[string]*configsync.PipelineRunStructureNode {
+	root := setupAccessTeam(profile)
 	node := &configsync.PipelineRunStructureNode{
 		Description: "Starter workspace",
 		Children:    map[string]*configsync.PipelineRunStructureNode{},
 	}
-	repositoryGroups = normalizeSetupRepositoryGroups(repositoryGroups, repositories)
-	for _, group := range repositoryGroups {
-		child := &configsync.PipelineRunStructureNode{Description: "Repository group " + group.Name, Children: map[string]*configsync.PipelineRunStructureNode{}}
-		for _, repo := range group.Repositories {
+	repositoryTeams = normalizeSetupRepositoryTeams(repositoryTeams, repositories)
+	for _, team := range repositoryTeams {
+		child := &configsync.PipelineRunStructureNode{Description: "Repository team " + team.Name, Children: map[string]*configsync.PipelineRunStructureNode{}}
+		for _, repo := range team.Repositories {
 			parts := strings.Split(repo, "/")
 			if len(parts) != 2 {
 				continue
@@ -318,12 +327,12 @@ func setupPipelineRunStructure(profile string, repositoryGroups []setupRepositor
 			})
 			child.Repos = append(child.Repos, repo)
 		}
-		node.Children[group.Name] = child
+		node.Children[team.Name] = child
 	}
 	return map[string]*configsync.PipelineRunStructureNode{root: node}
 }
 
-func setupAccessFolder(profile string) string {
+func setupAccessTeam(profile string) string {
 	switch normalizeSetupProfile(profile) {
 	case setupProfileTeam:
 		return "workspace"
@@ -335,7 +344,7 @@ func setupAccessFolder(profile string) string {
 }
 
 func setupScopeVariables(profile string) map[string]map[string]string {
-	workspace := setupAccessFolder(profile)
+	workspace := setupAccessTeam(profile)
 	values := map[string]map[string]string{
 		"dev": {
 			"NOPSAI_SETUP_WORKSPACE": workspace,
@@ -353,7 +362,7 @@ func setupScopeVariables(profile string) map[string]map[string]string {
 
 type setupKnowledgeContextSeed struct {
 	kind        string
-	group       string
+	team        string
 	name        string
 	description string
 	content     string
@@ -362,10 +371,10 @@ type setupKnowledgeContextSeed struct {
 func setupKnowledgeContexts(profile string) []setupKnowledgeContextSeed {
 	return []setupKnowledgeContextSeed{{
 		kind:        "guideline",
-		group:       "platform",
+		team:        "platform",
 		name:        "setup-run",
 		description: "Starter pipeline run expectations",
-		content:     fmt.Sprintf("Use the starter pipeline in %s to verify runner connectivity, log streaming, and optional LLM execution before attaching production repositories.", setupAccessFolder(profile)),
+		content:     fmt.Sprintf("Use the starter pipeline in %s to verify runner connectivity, log streaming, and optional LLM execution before attaching production repositories.", setupAccessTeam(profile)),
 	}}
 }
 
@@ -448,19 +457,19 @@ variables:
   NOPSAI_SETUP_SCOPE: %s
 secrets:
   GEMINI_API_KEY:
-`, setupAccessFolder(profile), scope)) + "\n"
+`, setupAccessTeam(profile), scope)) + "\n"
 }
 
 func setupReadme(profile string) string {
-	return fmt.Sprintf("# NopsAI starter config\n\nWorkspace: `%s`\n\nThis repository contains starter resources for the first NopsAI workspace bootstrap. Keep plaintext secrets outside this repository. Scope files define plaintext scoped values under `variables:` and may define secret keys under `secrets:` with `null` placeholders or encrypted values generated by this NopsAI instance.\n", setupAccessFolder(profile))
+	return fmt.Sprintf("# NopsAI starter config\n\nWorkspace: `%s`\n\nThis repository contains starter resources for the first NopsAI workspace bootstrap. Keep plaintext secrets outside this repository. Scope files define plaintext scoped values under `variables:` and may define secret keys under `secrets:` with `null` placeholders or encrypted values generated by this NopsAI instance.\n", setupAccessTeam(profile))
 }
 
 func setupKnowledgeMarkdown(profile string) string {
-	return fmt.Sprintf("---\ndescription: Starter setup run expectations\n---\n\nUse the %s starter workspace to prove runner connectivity, logs, repository triggers, and optional LLM execution before onboarding production automation.\n", setupAccessFolder(profile))
+	return fmt.Sprintf("---\ndescription: Starter setup run expectations\n---\n\nUse the %s starter workspace to prove runner connectivity, logs, repository triggers, and optional LLM execution before onboarding production automation.\n", setupAccessTeam(profile))
 }
 
-func setupAccessYAML(profile string, repositoryGroups []setupRepositoryGroupInput, users []setupUserInput) string {
-	folders := setupAccessGrantFolders(profile, repositoryGroups)
+func setupAccessYAML(profile string, repositoryTeams []setupRepositoryTeamInput, users []setupUserInput) string {
+	teams := setupAccessGrantTeams(profile, repositoryTeams)
 	var builder strings.Builder
 	if len(users) == 0 {
 		builder.WriteString("users: []\n")
@@ -480,10 +489,10 @@ func setupAccessYAML(profile string, repositoryGroups []setupRepositoryGroupInpu
 		}
 	}
 	builder.WriteString("\nbasic_roles:\n")
-	for _, folder := range folders {
+	for _, team := range teams {
 		builder.WriteString("  - user: admin\n")
 		builder.WriteString("    role: owner\n")
-		builder.WriteString(fmt.Sprintf("    resource: folder:%s\n", folder))
+		builder.WriteString(fmt.Sprintf("    resource: team:%s\n", team))
 	}
 	for _, user := range users {
 		sub := strings.TrimSpace(firstNonEmptyString(user.Sub, user.Email))
@@ -497,32 +506,32 @@ func setupAccessYAML(profile string, repositoryGroups []setupRepositoryGroupInpu
 		if normalizedRole, err := normalizeProductRoleName(role); err == nil {
 			role = normalizedRole
 		}
-		folder := normalizeSetupRepositoryGroupName(user.Group)
-		if folder == "" {
-			folder = folders[0]
+		team := normalizeSetupRepositoryTeamName(user.Team)
+		if team == "" {
+			team = teams[0]
 		}
 		builder.WriteString(fmt.Sprintf("  - user: %q\n", sub))
 		builder.WriteString(fmt.Sprintf("    role: %s\n", role))
-		builder.WriteString(fmt.Sprintf("    resource: folder:%s\n", folder))
+		builder.WriteString(fmt.Sprintf("    resource: team:%s\n", team))
 	}
 	return builder.String()
 }
 
-func setupAccessGrantFolders(profile string, repositoryGroups []setupRepositoryGroupInput) []string {
+func setupAccessGrantTeams(profile string, repositoryTeams []setupRepositoryTeamInput) []string {
 	seen := map[string]bool{}
-	var folders []string
-	for _, group := range repositoryGroups {
-		name := normalizeSetupRepositoryGroupName(group.Name)
+	var teams []string
+	for _, team := range repositoryTeams {
+		name := normalizeSetupRepositoryTeamName(team.Name)
 		if name == "" || seen[name] {
 			continue
 		}
 		seen[name] = true
-		folders = append(folders, name)
+		teams = append(teams, name)
 	}
-	if len(folders) == 0 {
-		folders = append(folders, setupAccessFolder(profile))
+	if len(teams) == 0 {
+		teams = append(teams, setupAccessTeam(profile))
 	}
-	return folders
+	return teams
 }
 
 func setupLLMProfileYAML(input setupLLMProfileInput) string {
@@ -602,24 +611,24 @@ mcp_profiles:
 `) + "\n"
 }
 
-func setupConfigRepositoryStructureFiles(repositoryGroups []setupRepositoryGroupInput, repositories []string) map[string]string {
+func setupConfigRepositoryStructureFiles(repositoryTeams []setupRepositoryTeamInput, repositories []string) map[string]string {
 	files := map[string]string{}
-	repositoryGroups = normalizeSetupRepositoryGroups(repositoryGroups, repositories)
-	for _, group := range repositoryGroups {
-		files[configRepositoryGroupStructurePathForScope(group.Name)] = setupConfigRepositoryGroupStructureYAML(group)
+	repositoryTeams = normalizeSetupRepositoryTeams(repositoryTeams, repositories)
+	for _, team := range repositoryTeams {
+		files[configRepositoryTeamStructurePathForScope(team.Name)] = setupConfigRepositoryTeamStructureYAML(team)
 	}
 	return files
 }
 
-func setupConfigRepositoryGroupStructureYAML(group setupRepositoryGroupInput) string {
+func setupConfigRepositoryTeamStructureYAML(team setupRepositoryTeamInput) string {
 	var builder strings.Builder
-	builder.WriteString("description: Repository group\n")
-	if len(group.Repositories) == 0 {
+	builder.WriteString("description: Repository team\n")
+	if len(team.Repositories) == 0 {
 		builder.WriteString("apps: []\n")
 		return builder.String()
 	}
 	builder.WriteString("apps:\n")
-	for _, repo := range group.Repositories {
+	for _, repo := range team.Repositories {
 		builder.WriteString(fmt.Sprintf("  - name: %s\n", configsync.RepositoryDisplayNameFromFullName(repo)))
 		builder.WriteString(fmt.Sprintf("    repo_url: %s\n", configsync.CanonicalRepositoryURL(repo)))
 	}

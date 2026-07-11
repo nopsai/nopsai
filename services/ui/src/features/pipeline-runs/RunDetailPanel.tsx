@@ -34,7 +34,7 @@ type PipelineApproval = {
   step_name: string;
   task_name: string;
   approval_type: string;
-  assigned_groups: string[];
+  assigned_teams: string[];
   allow_self_approval: boolean;
   status: string;
   requested_at: string;
@@ -374,9 +374,9 @@ export function RunDetailView({
                         <span className="runner-pill runner-pill--muted">{approval.approval_type}</span>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {approval.assigned_groups.map(group => (
-                          <span key={group} className="runner-pill runner-pill--muted">
-                            {group}
+                        {approval.assigned_teams.map(team => (
+                          <span key={team} className="runner-pill runner-pill--muted">
+                            {team}
                           </span>
                         ))}
                       </div>

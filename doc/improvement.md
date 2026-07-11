@@ -7,7 +7,7 @@ This document captures the current feature set and hardening work that has lande
 - **AAA integration**: Maps routes to action/resource pairs, calls the internal AAA service, filters list responses, and falls back to a local evaluator during short AAA outages.
 - **Dispatcher handoff**: Creates run records and submits jobs to the dispatcher instead of launching agent containers directly.
 - **Secrets & scope resolution**: Derives scoped secrets and scope variables (global, scope-specific, repo-specific) and encrypts secrets at rest with the `NOPSAI_MASTER_KEY` before persisting them.
-- **Pipeline & trigger APIs**: Exposes CRUD endpoints for pipelines, reusable steps, trigger overrides, run groups, run logs, reruns, cancellations, and branch-level clean-up.
+- **Pipeline & trigger APIs**: Exposes CRUD endpoints for pipelines, reusable steps, trigger overrides, run teams, run logs, reruns, cancellations, and branch-level clean-up.
 - **Git-driven orchestration**: Receives Git events, ensures the config repository is synced (pipelines, steps, scopes, triggers), and coordinates with the git-bot for GitHub check updates.
 
 ### AAA (`services/aaa`)
@@ -28,8 +28,8 @@ This document captures the current feature set and hardening work that has lande
 - **Developer utilities**: Provides endpoints for repo access checks, file/directory content resolution, pipeline source retrieval, child check-run creation, and stale check-run cancellation.
 
 ### Web UI (`services/ui`)
-- **Run dashboards**: Uses authenticated REST polling for run lists, details, grouped views, and recent activity.
-- **Run explorer**: Offers branch-aware run cards, group/folder organisation, inline branch clean-up, selection-driven bulk actions, and deep links that preserve UI state in the hash.
+- **Run dashboards**: Uses authenticated REST polling for run lists, details, teamed views, and recent activity.
+- **Run explorer**: Offers branch-aware run cards, team organization, inline branch clean-up, selection-driven bulk actions, and deep links that preserve UI state in the hash.
 - **Pipeline graph**: Visualises pipeline steps and intra-step tasks with pan/zoom support, expandable nodes, and live status colouring.
 - **Log experience**: Ships an on-demand log modal with level filters, agent-only toggle, structured/short views, search with navigation, clipboard/download helpers, and follow mode, powered by incremental REST log polling.
 - **Access management**: Adds system-page controls for users, roles, product grants, and effective-permission inspection.

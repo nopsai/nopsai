@@ -108,7 +108,7 @@ func TestBuildGitOpsCredentialDocumentExportsEncryptedVersions(t *testing.T) {
 
 func TestParseGitOpsCredentialPlanRequiresSystemRepository(t *testing.T) {
 	_, err := parseGitOpsCredentialPlan(
-		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"},
+		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"},
 		gitOpsCredentialDirectory{
 			root: "setting",
 			files: map[string]string{

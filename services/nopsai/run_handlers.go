@@ -49,27 +49,27 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var groupID *int
-	rootGroup := false
-	if groupIDStr := r.URL.Query().Get("groupId"); groupIDStr != "" {
-		if strings.EqualFold(groupIDStr, rootGrantID) {
-			rootGroup = true
+	var teamID *int
+	rootTeam := false
+	if teamIDStr := r.URL.Query().Get("teamId"); teamIDStr != "" {
+		if strings.EqualFold(teamIDStr, rootGrantID) {
+			rootTeam = true
 		} else {
-			parsedGroupID, err := strconv.Atoi(groupIDStr)
+			parsedTeamID, err := strconv.Atoi(teamIDStr)
 			if err != nil {
-				http.Error(w, "Invalid group ID", http.StatusBadRequest)
+				http.Error(w, "Invalid team ID", http.StatusBadRequest)
 				return
 			}
-			groupID = &parsedGroupID
+			teamID = &parsedTeamID
 		}
 	}
 
 	allRuns, err := runquery.List(r.Context(), a.db, runquery.ListFilter{
-		GroupID:   groupID,
-		RootGroup: rootGroup,
-		Branch:    r.URL.Query().Get("branch"),
-		Limit:     limit,
-		Offset:    offset,
+		TeamID:   teamID,
+		RootTeam: rootTeam,
+		Branch:   r.URL.Query().Get("branch"),
+		Limit:    limit,
+		Offset:   offset,
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query runs from database")
@@ -103,9 +103,9 @@ func (a *App) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		filteredRuns = append(filteredRuns, run)
 	}
 
-	if groupID != nil || rootGroup {
+	if teamID != nil || rootTeam {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(runquery.GroupByBranch(filteredRuns))
+		json.NewEncoder(w).Encode(runquery.TeamByBranch(filteredRuns))
 	} else {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -457,7 +457,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	groupPathForRun := strings.Trim(strings.TrimSpace(r.Header.Get("X-Nopsai-Group-Path")), "/")
+	teamPathForRun := strings.Trim(strings.TrimSpace(r.Header.Get("X-Nopsai-Team-Path")), "/")
 	runs := newRunService(a)
 	record, err := runs.createPendingRun(r.Context(), createPendingRunRequest{
 		Pipeline:           pipeline,
@@ -471,7 +471,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		CallerType:         callerType,
 		CallerID:           callerID,
 		GitContext:         gitContext,
-		GroupPath:          groupPathForRun,
+		TeamPath:           teamPathForRun,
 		AuthSnapshot:       authSnapshot,
 	})
 	if err != nil {

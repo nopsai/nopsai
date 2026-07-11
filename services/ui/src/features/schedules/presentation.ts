@@ -1,5 +1,5 @@
 import {
-  effectiveScheduleRunGroupPath,
+  effectiveScheduleRunTeamPath,
   friendlyCronLabel,
   normalizeIdentifier,
   normalizeScheduleKind,
@@ -58,7 +58,7 @@ export function formatScope(scope?: string) {
   return normalized || 'default';
 }
 
-export function formatGroupPath(path?: string) {
+export function formatTeamPath(path?: string) {
   const normalized = normalizeIdentifier(path);
   return normalized === 'root' || !normalized ? 'Root' : normalized;
 }
@@ -70,6 +70,6 @@ export function friendlyScheduleLabel(schedule: PipelineSchedule) {
   return friendlyCronLabel(schedule.cron_expression || schedule.cron);
 }
 
-export function scheduleRunGroupLabel(schedule: PipelineSchedule) {
-  return formatGroupPath(effectiveScheduleRunGroupPath(schedule));
+export function scheduleRunTeamLabel(schedule: PipelineSchedule) {
+  return formatTeamPath(effectiveScheduleRunTeamPath(schedule));
 }

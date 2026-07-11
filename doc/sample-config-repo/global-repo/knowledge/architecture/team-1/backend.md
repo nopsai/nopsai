@@ -2,7 +2,7 @@
 name: backend
 kind: architecture
 access:
-  visibility: group
+  visibility: team
 content: |
   # Team 1 Backend Architecture
 

@@ -6,7 +6,7 @@ import type {
   StepTreeNode,
   TriggerTreeNode,
 } from './types.js';
-import { insertGroupPath } from '../lib/resourceGroups.js';
+import { insertTeamPath } from '../lib/resourceTeams.js';
 
 export function normalizeScopeLabel(value: unknown): string {
   if (value == null) return '';
@@ -23,10 +23,10 @@ export function splitIdentifier(id: string): { name: string; path: string } {
   return { name, path };
 }
 
-export function buildPipelineTree(pipelines: string[], resourceGroupPaths: string[]): PipelineTreeNode {
+export function buildPipelineTree(pipelines: string[], resourceTeamPaths: string[]): PipelineTreeNode {
   const root: PipelineTreeNode = { id: '__root__', name: 'All pipelines', fullPath: '', children: [], pipelineIds: [] };
-  resourceGroupPaths.forEach(path => {
-    insertGroupPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], pipelineIds: [] }));
+  resourceTeamPaths.forEach(path => {
+    insertTeamPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], pipelineIds: [] }));
   });
   pipelines.forEach(id => {
     const parts = id.split('/').filter(Boolean);
@@ -50,10 +50,10 @@ export function buildPipelineTree(pipelines: string[], resourceGroupPaths: strin
   return root;
 }
 
-export function buildTriggerTree(triggers: string[], resourceGroupPaths: string[]): TriggerTreeNode {
+export function buildTriggerTree(triggers: string[], resourceTeamPaths: string[]): TriggerTreeNode {
   const root: TriggerTreeNode = { id: '__root__', name: 'All triggers', fullPath: '', children: [], triggerSlugs: [] };
-  resourceGroupPaths.forEach(path => {
-    insertGroupPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], triggerSlugs: [] }));
+  resourceTeamPaths.forEach(path => {
+    insertTeamPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], triggerSlugs: [] }));
   });
   triggers.forEach(slug => {
     const parts = slug.split('/').filter(Boolean);
@@ -77,10 +77,10 @@ export function buildTriggerTree(triggers: string[], resourceGroupPaths: string[
   return root;
 }
 
-export function buildStepTree(steps: string[], resourceGroupPaths: string[]): StepTreeNode {
+export function buildStepTree(steps: string[], resourceTeamPaths: string[]): StepTreeNode {
   const root: StepTreeNode = { id: '__root__', name: 'All steps', fullPath: '', children: [], stepIds: [] };
-  resourceGroupPaths.forEach(path => {
-    insertGroupPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], stepIds: [] }));
+  resourceTeamPaths.forEach(path => {
+    insertTeamPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], stepIds: [] }));
   });
   steps.forEach(id => {
     const parts = id.split('/').filter(Boolean);
@@ -104,10 +104,10 @@ export function buildStepTree(steps: string[], resourceGroupPaths: string[]): St
   return root;
 }
 
-export function buildScopeTree(scopes: string[], resourceGroupPaths: string[]): ScopeTreeNode {
+export function buildScopeTree(scopes: string[], resourceTeamPaths: string[]): ScopeTreeNode {
   const root: ScopeTreeNode = { id: '__root__', name: 'All scopes', fullPath: '', children: [], scopes: [] };
-  resourceGroupPaths.forEach(path => {
-    insertGroupPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], scopes: [] }));
+  resourceTeamPaths.forEach(path => {
+    insertTeamPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], scopes: [] }));
   });
   scopes.forEach(scope => {
     const normalized = normalizeScopeLabel(scope);
@@ -136,15 +136,15 @@ export function buildScopeTree(scopes: string[], resourceGroupPaths: string[]): 
 
 export function buildKnowledgeContextTree(
   knowledgeContexts: string[],
-  resourceGroupPaths: string[]
+  resourceTeamPaths: string[]
 ): KnowledgeContextTreeNode {
   const root: KnowledgeContextTreeNode = { id: '__root__', name: 'knowledge contexts', fullPath: '', children: [], knowledgeContextIds: [] };
-  const folderRank = (name: string) => {
+  const teamRank = (name: string) => {
     const index = KNOWLEDGE_CONTEXT_KIND_ORDER.indexOf(name);
     return index < 0 ? KNOWLEDGE_CONTEXT_KIND_ORDER.length : index;
   };
   const sortChildren = (node: KnowledgeContextTreeNode) => {
-    node.children.sort((a, b) => folderRank(a.name) - folderRank(b.name) || a.name.localeCompare(b.name));
+    node.children.sort((a, b) => teamRank(a.name) - teamRank(b.name) || a.name.localeCompare(b.name));
     node.knowledgeContextIds.sort((a, b) => a.localeCompare(b));
     node.children.forEach(sortChildren);
   };
@@ -161,10 +161,10 @@ export function buildKnowledgeContextTree(
     ensureChild(root, kind, kind);
   });
   KNOWLEDGE_CONTEXT_KIND_ORDER.forEach(kind => {
-    resourceGroupPaths.forEach(groupPath => {
-      const normalizedGroup = groupPath.split('/').map(part => part.trim()).filter(Boolean).join('/');
-      if (!normalizedGroup) return;
-      insertGroupPath(root, `${kind}/${normalizedGroup}`, (id, name, fullPath) => ({ id, name, fullPath, children: [], knowledgeContextIds: [] }));
+    resourceTeamPaths.forEach(teamPath => {
+      const normalizedTeam = teamPath.split('/').map(part => part.trim()).filter(Boolean).join('/');
+      if (!normalizedTeam) return;
+      insertTeamPath(root, `${kind}/${normalizedTeam}`, (id, name, fullPath) => ({ id, name, fullPath, children: [], knowledgeContextIds: [] }));
     });
   });
 

@@ -2,7 +2,7 @@ import type { Dispatch, RefObject, SetStateAction } from 'react';
 import { NavLink } from 'react-router-dom';
 import { Grid2X2, List, Search, X } from 'lucide-react';
 import type { RunListItem } from './contracts';
-import type { Group, RepoSummary } from './runPresentation';
+import type { Team, RepoSummary } from './runPresentation';
 import { PipelineRunsDashboard } from './PipelineRunsDashboard';
 import { RunDetailView } from './RunDetailPanel';
 import { PipelineDefinitionModal, StepDetailModal } from './RunGraphModals';
@@ -11,15 +11,15 @@ import type {
   PipelineApproval,
   PipelineRunDetail,
   PipelineRunsTabKey,
-  PipelineRunsTriggerGroup,
+  PipelineRunsTriggerTeam,
 } from './pageTypes';
 
 type SearchUpdateValue = string | number | null | undefined;
 
 type PipelineRunsPageViewProps = {
   activeTab: PipelineRunsTabKey;
-  activeGroupId: number | null;
-  activeGroupPath: Group[];
+  activeTeamId: number | null;
+  activeTeamPath: Team[];
   activeRunId: string | null;
   searchTerm: string;
   searchOpen: boolean;
@@ -35,21 +35,21 @@ type PipelineRunsPageViewProps = {
   selectedRunIds: Set<string>;
   clearSelection: () => void;
   handleBulkDelete: () => Promise<void>;
-  groups: Group[];
-  groupsLoading: boolean;
-  groupsError: string | null;
+  teams: Team[];
+  teamsLoading: boolean;
+  teamsError: string | null;
   runsByBranch: Record<string, RunListItem[]>;
   filteredRecentRuns: RunListItem[];
-  groupedEvents: PipelineRunsTriggerGroup[];
+  teamedEvents: PipelineRunsTriggerTeam[];
   runsLoading: boolean;
   runsError: string | null;
   repoSummaries: Map<number, RepoSummary>;
-  fetchRepoSummary: (groupId: number) => Promise<void>;
-  onSelectGroup: (groupId: number | null) => void;
+  fetchRepoSummary: (teamId: number) => Promise<void>;
+  onSelectTeam: (teamId: number | null) => void;
   handleOpenRun: (runId: string) => void;
   handleRunSelect: (runId: string) => void;
   collapsedEvents: Set<string>;
-  toggleEventGroup: (id: string) => void;
+  toggleEventTeam: (id: string) => void;
   collapseAllEvents: () => void;
   expandAllEvents: () => void;
   collapsedBranches: Set<string>;
@@ -86,8 +86,8 @@ const tabs: Array<{ id: PipelineRunsTabKey; label: string }> = [
 
 export function PipelineRunsPageView({
   activeTab,
-  activeGroupId,
-  activeGroupPath,
+  activeTeamId,
+  activeTeamPath,
   activeRunId,
   searchTerm,
   searchOpen,
@@ -103,21 +103,21 @@ export function PipelineRunsPageView({
   selectedRunIds,
   clearSelection,
   handleBulkDelete,
-  groups,
-  groupsLoading,
-  groupsError,
+  teams,
+  teamsLoading,
+  teamsError,
   runsByBranch,
   filteredRecentRuns,
-  groupedEvents,
+  teamedEvents,
   runsLoading,
   runsError,
   repoSummaries,
   fetchRepoSummary,
-  onSelectGroup,
+  onSelectTeam,
   handleOpenRun,
   handleRunSelect,
   collapsedEvents,
-  toggleEventGroup,
+  toggleEventTeam,
   collapseAllEvents,
   expandAllEvents,
   collapsedBranches,
@@ -159,7 +159,7 @@ export function PipelineRunsPageView({
                   aria-selected={activeTab === tab.id}
                   className={({ isActive }) => `tabs-nav__link ${isActive ? 'tabs-nav__link--active' : ''}`}
                   onClick={() => {
-                    updateSearchParams({ run: null, group: activeGroupId, q: searchTerm || null });
+                    updateSearchParams({ run: null, team: activeTeamId, q: searchTerm || null });
                     clearSelection();
                   }}
                 >
@@ -278,15 +278,15 @@ export function PipelineRunsPageView({
           ) : (
             <PipelineRunsDashboard
               activeTab={activeTab}
-              groups={groups}
-              groupsLoading={groupsLoading}
-              groupsError={groupsError}
-              onSelectGroup={onSelectGroup}
-              activeGroupId={activeGroupId}
-              activeGroupPath={activeGroupPath}
+              teams={teams}
+              teamsLoading={teamsLoading}
+              teamsError={teamsError}
+              onSelectTeam={onSelectTeam}
+              activeTeamId={activeTeamId}
+              activeTeamPath={activeTeamPath}
               runsByBranch={runsByBranch}
               recentRuns={filteredRecentRuns}
-              groupedEvents={groupedEvents}
+              teamedEvents={teamedEvents}
               viewMode={viewMode}
               runsLoading={runsLoading}
               runsError={runsError}
@@ -297,7 +297,7 @@ export function PipelineRunsPageView({
               onSelectRun={handleRunSelect}
               selectedRunIds={selectedRunIds}
               collapsedEvents={collapsedEvents}
-              onToggleEventGroup={toggleEventGroup}
+              onToggleEventTeam={toggleEventTeam}
               onCollapseAllEvents={collapseAllEvents}
               onExpandAllEvents={expandAllEvents}
               collapsedBranches={collapsedBranches}
@@ -355,7 +355,7 @@ export function PipelineRunsPageView({
 function ViewToggle({ viewMode, onChange }: { viewMode: 'grid' | 'list'; onChange: (mode: 'grid' | 'list') => void }) {
   const isGrid = viewMode !== 'list';
   return (
-    <div className="runs-view-toggle" role="group" aria-label="Pipeline run layout">
+    <div className="runs-view-toggle" role="team" aria-label="Pipeline run layout">
       <button
         type="button"
         className={`runs-view-toggle__btn ${isGrid ? 'runs-view-toggle__btn--active' : ''}`}

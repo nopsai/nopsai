@@ -39,9 +39,8 @@ var (
 )
 
 type notificationRecipientSetFile struct {
-	Teams  []string `json:"teams" yaml:"teams,omitempty"`
-	Users  []string `json:"users" yaml:"users,omitempty"`
-	Groups []string `json:"groups" yaml:"groups,omitempty"`
+	Teams []string `json:"teams" yaml:"teams,omitempty"`
+	Users []string `json:"users" yaml:"users,omitempty"`
 }
 
 type notificationRecipientsFile struct {
@@ -108,8 +107,8 @@ type notificationRouteDefinition struct {
 
 type notificationRouteRecord struct {
 	ID                    int64                       `json:"id,omitempty"`
-	GroupID               int                         `json:"group_id"`
-	GroupPath             string                      `json:"group_path"`
+	TeamID                int                         `json:"team_id"`
+	TeamPath              string                      `json:"team_path"`
 	Definition            notificationRouteDefinition `json:"definition"`
 	Source                string                      `json:"source"`
 	ConfigRepoID          *int64                      `json:"config_repo_id,omitempty"`
@@ -121,7 +120,7 @@ type notificationRouteRecord struct {
 }
 
 type storedNotificationRoute struct {
-	groupPath  string
+	teamPath   string
 	definition notificationRouteDefinition
 	sourcePath string
 }
@@ -142,7 +141,7 @@ func defaultNotificationRouteRule(name string) notificationRouteRule {
 	return notificationRouteDefinition{
 		Enabled: true,
 		Recipients: notificationRecipientsFile{
-			Include: notificationRecipientSetFile{Teams: []string{"same_group"}},
+			Include: notificationRecipientSetFile{Teams: []string{"same_team"}},
 		},
 		Events: defaultNotificationEvents(),
 		Filters: notificationRouteFiltersFile{
@@ -326,9 +325,8 @@ func notificationRouteRuleFilesFromRules(routes []notificationRouteRule) []notif
 
 func normalizeNotificationRecipientSet(input notificationRecipientSetFile) notificationRecipientSetFile {
 	return notificationRecipientSetFile{
-		Teams:  normalizeNotificationStrings(input.Teams, normalizeNotificationGroupPath),
-		Users:  normalizeNotificationStrings(input.Users, normalizeNotificationEmail),
-		Groups: normalizeNotificationStrings(input.Groups, normalizeNotificationGroupPath),
+		Teams: normalizeNotificationStrings(input.Teams, normalizeNotificationTeamPath),
+		Users: normalizeNotificationStrings(input.Users, normalizeNotificationEmail),
 	}
 }
 
@@ -344,7 +342,7 @@ func normalizeNotificationEmail(value string) string {
 	return strings.ToLower(strings.TrimSpace(parsed.Address))
 }
 
-func normalizeNotificationGroupPath(value string) string {
+func normalizeNotificationTeamPath(value string) string {
 	value = strings.Trim(strings.TrimSpace(value), "/")
 	value = filepath.ToSlash(value)
 	if strings.Contains(value, "..") {
@@ -465,7 +463,7 @@ func parseNotificationRouteDefinition(content, sourcePath string) (notificationR
 	return definition, nil
 }
 
-func parseGitOpsNotificationRoutes(files map[string]string, basePath string, binding models.ConfigRepository, boundFolder string) (map[string]storedNotificationRoute, error) {
+func parseGitOpsNotificationRoutes(files map[string]string, basePath string, binding models.ConfigRepository, boundTeam string) (map[string]storedNotificationRoute, error) {
 	routes := map[string]storedNotificationRoute{}
 	basePath = filepath.ToSlash(strings.Trim(basePath, "/"))
 	rootRoutePath := configsync.RepoJoinPath(basePath, "notifications.yaml")
@@ -476,27 +474,27 @@ func parseGitOpsNotificationRoutes(files map[string]string, basePath string, bin
 			continue
 		}
 
-		if binding.ScopeType != models.ConfigRepositoryScopeFolder || normalized != rootRoutePath {
+		if binding.ScopeType != models.ConfigRepositoryScopeTeam || normalized != rootRoutePath {
 			continue
 		}
-		groupPath := boundFolder
-		groupPath = normalizeNotificationGroupPath(groupPath)
-		if groupPath == "" {
-			return nil, fmt.Errorf("notification route '%s' must target a group path", normalized)
+		teamPath := boundTeam
+		teamPath = normalizeNotificationTeamPath(teamPath)
+		if teamPath == "" {
+			return nil, fmt.Errorf("notification route '%s' must target a team path", normalized)
 		}
-		if binding.ScopeType == models.ConfigRepositoryScopeFolder && !configsync.ResourceUnderScope(groupPath, boundFolder) {
-			return nil, fmt.Errorf("notification route '%s' targets group '%s' outside bound group '%s'", normalized, groupPath, boundFolder)
+		if binding.ScopeType == models.ConfigRepositoryScopeTeam && !configsync.ResourceUnderScope(teamPath, boundTeam) {
+			return nil, fmt.Errorf("notification route '%s' targets team '%s' outside bound team '%s'", normalized, teamPath, boundTeam)
 		}
 		definition, err := parseNotificationRouteDefinition(content, normalized)
 		if err != nil {
 			return nil, err
 		}
-		key := strings.ToLower(groupPath)
+		key := strings.ToLower(teamPath)
 		if _, exists := routes[key]; exists {
-			return nil, fmt.Errorf("duplicate notification route for group '%s' detected", groupPath)
+			return nil, fmt.Errorf("duplicate notification route for team '%s' detected", teamPath)
 		}
 		routes[key] = storedNotificationRoute{
-			groupPath:  groupPath,
+			teamPath:   teamPath,
 			definition: definition,
 			sourcePath: normalized,
 		}
@@ -504,7 +502,7 @@ func parseGitOpsNotificationRoutes(files map[string]string, basePath string, bin
 	return routes, nil
 }
 
-func parseGitOpsConfigRepositoryNotificationRoutes(files map[string]string, configRepositoryDir string, binding models.ConfigRepository, boundFolder string) (map[string]storedNotificationRoute, error) {
+func parseGitOpsConfigRepositoryNotificationRoutes(files map[string]string, configRepositoryDir string, binding models.ConfigRepository, boundTeam string) (map[string]storedNotificationRoute, error) {
 	routes := map[string]storedNotificationRoute{}
 	configRepositoryDir = filepath.ToSlash(strings.Trim(configRepositoryDir, "/"))
 
@@ -514,36 +512,36 @@ func parseGitOpsConfigRepositoryNotificationRoutes(files map[string]string, conf
 		if !ok {
 			continue
 		}
-		groupPath, ok, err := configRepositoryGroupNotificationRoutePath(rel)
+		teamPath, ok, err := configRepositoryTeamNotificationRoutePath(rel)
 		if err != nil {
 			return nil, fmt.Errorf("invalid notification route path '%s': %w", normalized, err)
 		}
 		if !ok {
 			continue
 		}
-		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
-			groupPath, err = configsync.NormalizePathForFolder(boundFolder, groupPath)
+		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
+			teamPath, err = configsync.NormalizePathForTeam(boundTeam, teamPath)
 			if err != nil {
 				return nil, fmt.Errorf("invalid notification route path '%s': %w", normalized, err)
 			}
 		}
-		groupPath = normalizeNotificationGroupPath(groupPath)
-		if groupPath == "" {
-			return nil, fmt.Errorf("notification route '%s' must target a group path", normalized)
+		teamPath = normalizeNotificationTeamPath(teamPath)
+		if teamPath == "" {
+			return nil, fmt.Errorf("notification route '%s' must target a team path", normalized)
 		}
-		if binding.ScopeType == models.ConfigRepositoryScopeFolder && !configsync.ResourceUnderScope(groupPath, boundFolder) {
-			return nil, fmt.Errorf("notification route '%s' targets group '%s' outside bound group '%s'", normalized, groupPath, boundFolder)
+		if binding.ScopeType == models.ConfigRepositoryScopeTeam && !configsync.ResourceUnderScope(teamPath, boundTeam) {
+			return nil, fmt.Errorf("notification route '%s' targets team '%s' outside bound team '%s'", normalized, teamPath, boundTeam)
 		}
 		definition, err := parseNotificationRouteDefinition(content, normalized)
 		if err != nil {
 			return nil, err
 		}
-		key := strings.ToLower(groupPath)
+		key := strings.ToLower(teamPath)
 		if _, exists := routes[key]; exists {
-			return nil, fmt.Errorf("duplicate notification route for group '%s' detected", groupPath)
+			return nil, fmt.Errorf("duplicate notification route for team '%s' detected", teamPath)
 		}
 		routes[key] = storedNotificationRoute{
-			groupPath:  groupPath,
+			teamPath:   teamPath,
 			definition: definition,
 			sourcePath: normalized,
 		}
@@ -551,46 +549,46 @@ func parseGitOpsConfigRepositoryNotificationRoutes(files map[string]string, conf
 	return routes, nil
 }
 
-func configRepositoryGroupNotificationRoutePath(rel string) (string, bool, error) {
+func configRepositoryTeamNotificationRoutePath(rel string) (string, bool, error) {
 	path := strings.Trim(strings.ReplaceAll(filepath.ToSlash(rel), "\\", "/"), "/")
 	if path == "" || !isYAMLFile(path) {
 		return "", false, nil
 	}
 	parts := strings.Split(path, "/")
-	if len(parts) < 3 || parts[0] != "groups" {
+	if len(parts) < 3 || parts[0] != "teams" {
 		return "", false, nil
 	}
 	fileName := strings.ToLower(parts[len(parts)-1])
 	if fileName != "notifications.yaml" && fileName != "notifications.yml" {
 		return "", false, nil
 	}
-	groupPath := strings.Trim(strings.Join(parts[1:len(parts)-1], "/"), "/")
-	if _, err := configsync.CleanPathSegments(groupPath, false); err != nil {
+	teamPath := strings.Trim(strings.Join(parts[1:len(parts)-1], "/"), "/")
+	if _, err := configsync.CleanPathSegments(teamPath, false); err != nil {
 		return "", true, err
 	}
-	return groupPath, true, nil
+	return teamPath, true, nil
 }
 
 func notificationRouteResourceScope(route storedNotificationRoute) string {
-	return route.groupPath
+	return route.teamPath
 }
 
-func (a *App) handleGetFolderNotificationRoute(w http.ResponseWriter, r *http.Request) {
-	resource, ok := a.requireFolderConfigRepositoryDecision(w, r, "config_repo.read")
+func (a *App) handleGetTeamNotificationRoute(w http.ResponseWriter, r *http.Request) {
+	resource, ok := a.requireTeamConfigRepositoryDecision(w, r, "config_repo.read")
 	if !ok {
 		return
 	}
-	groupID, err := notificationRouteGroupIDForPath(r.Context(), a.db, resource.ID)
+	teamID, err := notificationRouteTeamIDForPath(r.Context(), a.db, resource.ID)
 	if err != nil {
-		http.Error(w, "group not found", http.StatusNotFound)
+		http.Error(w, "team not found", http.StatusNotFound)
 		return
 	}
-	record, err := a.loadNotificationRouteByGroupID(r.Context(), groupID)
+	record, err := a.loadNotificationRouteByTeamID(r.Context(), teamID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
 			writeJSON(w, http.StatusOK, notificationRouteRecord{
-				GroupID:    groupID,
-				GroupPath:  resource.ID,
+				TeamID:     teamID,
+				TeamPath:   resource.ID,
 				Definition: defaultNotificationRouteDefinition(),
 				Source:     "database",
 				UpdatedAt:  time.Now(),
@@ -603,14 +601,14 @@ func (a *App) handleGetFolderNotificationRoute(w http.ResponseWriter, r *http.Re
 	writeJSON(w, http.StatusOK, record)
 }
 
-func (a *App) handleUpsertFolderNotificationRoute(w http.ResponseWriter, r *http.Request) {
-	resource, ok := a.requireFolderConfigRepositoryDecision(w, r, "config_repo.manage")
+func (a *App) handleUpsertTeamNotificationRoute(w http.ResponseWriter, r *http.Request) {
+	resource, ok := a.requireTeamConfigRepositoryDecision(w, r, "config_repo.manage")
 	if !ok {
 		return
 	}
-	groupID, err := notificationRouteGroupIDForPath(r.Context(), a.db, resource.ID)
+	teamID, err := notificationRouteTeamIDForPath(r.Context(), a.db, resource.ID)
 	if err != nil {
-		http.Error(w, "group not found", http.StatusNotFound)
+		http.Error(w, "team not found", http.StatusNotFound)
 		return
 	}
 	var req notificationRouteDefinitionFile
@@ -623,7 +621,7 @@ func (a *App) handleUpsertFolderNotificationRoute(w http.ResponseWriter, r *http
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	record, err := a.upsertNotificationRoute(r.Context(), groupID, definition, "database", nil, "", "", false, actorIDFromRequest(r))
+	record, err := a.upsertNotificationRoute(r.Context(), teamID, definition, "database", nil, "", "", false, actorIDFromRequest(r))
 	if err != nil {
 		http.Error(w, "failed to save notification route", http.StatusInternalServerError)
 		return
@@ -631,45 +629,45 @@ func (a *App) handleUpsertFolderNotificationRoute(w http.ResponseWriter, r *http
 	writeJSON(w, http.StatusOK, record)
 }
 
-func (a *App) handleDeleteFolderNotificationRoute(w http.ResponseWriter, r *http.Request) {
-	resource, ok := a.requireFolderConfigRepositoryDecision(w, r, "config_repo.manage")
+func (a *App) handleDeleteTeamNotificationRoute(w http.ResponseWriter, r *http.Request) {
+	resource, ok := a.requireTeamConfigRepositoryDecision(w, r, "config_repo.manage")
 	if !ok {
 		return
 	}
-	groupID, err := notificationRouteGroupIDForPath(r.Context(), a.db, resource.ID)
+	teamID, err := notificationRouteTeamIDForPath(r.Context(), a.db, resource.ID)
 	if err != nil {
-		http.Error(w, "group not found", http.StatusNotFound)
+		http.Error(w, "team not found", http.StatusNotFound)
 		return
 	}
-	if _, err := a.db.Exec(r.Context(), "DELETE FROM notification_routes WHERE group_id = $1", groupID); err != nil {
+	if _, err := a.db.Exec(r.Context(), "DELETE FROM notification_routes WHERE team_id = $1", teamID); err != nil {
 		http.Error(w, "failed to delete notification route", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (a *App) loadNotificationRouteByGroupID(ctx context.Context, groupID int) (notificationRouteRecord, error) {
+func (a *App) loadNotificationRouteByTeamID(ctx context.Context, teamID int) (notificationRouteRecord, error) {
 	return scanNotificationRoute(a.db.QueryRow(ctx, `
-		SELECT nr.id, nr.group_id, g.name, nr.definition::text, COALESCE(nr.source, 'database'),
+		SELECT nr.id, nr.team_id, g.name, nr.definition::text, COALESCE(nr.source, 'database'),
 		       nr.config_repo_id, COALESCE(nr.config_source_path, ''), COALESCE(nr.config_source_commit_sha, ''),
 		       nr.managed_by_config_repo, COALESCE(nr.updated_by, ''), nr.updated_at
 		FROM notification_routes nr
-		JOIN groups g ON g.id = nr.group_id
-		WHERE nr.group_id = $1
-	`, groupID))
+		JOIN teams g ON g.id = nr.team_id
+		WHERE nr.team_id = $1
+	`, teamID))
 }
 
-func (a *App) upsertNotificationRoute(ctx context.Context, groupID int, definition notificationRouteDefinition, source string, configRepoID *int64, sourcePath, commitSHA string, managed bool, actor string) (notificationRouteRecord, error) {
+func (a *App) upsertNotificationRoute(ctx context.Context, teamID int, definition notificationRouteDefinition, source string, configRepoID *int64, sourcePath, commitSHA string, managed bool, actor string) (notificationRouteRecord, error) {
 	definitionJSON, err := json.Marshal(definition)
 	if err != nil {
 		return notificationRouteRecord{}, err
 	}
 	record, err := scanNotificationRoute(a.db.QueryRow(ctx, `
 		INSERT INTO notification_routes (
-			group_id, definition, source, config_repo_id, config_source_path,
+			team_id, definition, source, config_repo_id, config_source_path,
 			config_source_commit_sha, managed_by_config_repo, updated_by, updated_at
 		) VALUES ($1, $2::jsonb, $3, $4, $5, $6, $7, $8, NOW())
-		ON CONFLICT (group_id) DO UPDATE SET
+		ON CONFLICT (team_id) DO UPDATE SET
 			definition = EXCLUDED.definition,
 			source = EXCLUDED.source,
 			config_repo_id = EXCLUDED.config_repo_id,
@@ -678,10 +676,10 @@ func (a *App) upsertNotificationRoute(ctx context.Context, groupID int, definiti
 			managed_by_config_repo = EXCLUDED.managed_by_config_repo,
 			updated_by = EXCLUDED.updated_by,
 			updated_at = NOW()
-		RETURNING id, group_id, (SELECT name FROM groups WHERE id = $1), definition::text,
+		RETURNING id, team_id, (SELECT name FROM teams WHERE id = $1), definition::text,
 		          COALESCE(source, 'database'), config_repo_id, COALESCE(config_source_path, ''),
 		          COALESCE(config_source_commit_sha, ''), managed_by_config_repo, COALESCE(updated_by, ''), updated_at
-	`, groupID, string(definitionJSON), source, configRepoID, sourcePath, commitSHA, managed, actor))
+	`, teamID, string(definitionJSON), source, configRepoID, sourcePath, commitSHA, managed, actor))
 	return record, err
 }
 
@@ -691,8 +689,8 @@ func scanNotificationRoute(row interface{ Scan(dest ...any) error }) (notificati
 	var configRepoID sql.NullInt64
 	err := row.Scan(
 		&record.ID,
-		&record.GroupID,
-		&record.GroupPath,
+		&record.TeamID,
+		&record.TeamPath,
 		&definitionRaw,
 		&record.Source,
 		&configRepoID,
@@ -721,18 +719,18 @@ func scanNotificationRoute(row interface{ Scan(dest ...any) error }) (notificati
 	return record, nil
 }
 
-func notificationRouteGroupIDForPath(ctx context.Context, runner interface {
+func notificationRouteTeamIDForPath(ctx context.Context, runner interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
-}, groupPath string) (int, error) {
-	groupPath = normalizeNotificationGroupPath(groupPath)
-	if groupPath == "" {
-		return 0, fmt.Errorf("group path is required")
+}, teamPath string) (int, error) {
+	teamPath = normalizeNotificationTeamPath(teamPath)
+	if teamPath == "" {
+		return 0, fmt.Errorf("team path is required")
 	}
-	var groupID int
-	if err := runner.QueryRow(ctx, "SELECT id FROM groups WHERE name = $1", groupPath).Scan(&groupID); err != nil {
+	var teamID int
+	if err := runner.QueryRow(ctx, "SELECT id FROM teams WHERE name = $1", teamPath).Scan(&teamID); err != nil {
 		return 0, err
 	}
-	return groupID, nil
+	return teamID, nil
 }
 
 func sortedNotificationRoutes(routes map[string]storedNotificationRoute) []storedNotificationRoute {
@@ -741,11 +739,11 @@ func sortedNotificationRoutes(routes map[string]storedNotificationRoute) []store
 		out = append(out, route)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		return strings.ToLower(out[i].groupPath) < strings.ToLower(out[j].groupPath)
+		return strings.ToLower(out[i].teamPath) < strings.ToLower(out[j].teamPath)
 	})
 	return out
 }
 
-func notificationRouteResourceRef(groupPath string) aaamodel.ResourceRef {
-	return aaamodel.ResourceRef{Type: grantResourceFolder, ID: normalizeNotificationGroupPath(groupPath)}
+func notificationRouteResourceRef(teamPath string) aaamodel.ResourceRef {
+	return aaamodel.ResourceRef{Type: grantResourceTeam, ID: normalizeNotificationTeamPath(teamPath)}
 }

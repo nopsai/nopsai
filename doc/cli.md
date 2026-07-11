@@ -74,13 +74,13 @@ reads stdin, hiding terminal input. The token is verified against
 `GET /v1/auth/me` before it is stored.
 
 By default files live under the operating system user config directory in a
-`nopsai` folder. Set `NOPSAI_CONFIG_DIR` or pass `--config-dir` to select a
+`nopsai` team. Set `NOPSAI_CONFIG_DIR` or pass `--config-dir` to select a
 different directory.
 
 - `config.yaml` contains context names, API URLs, and the current context.
 - `credentials.yaml` contains opaque tokens separately.
 - Both are atomically written with `0600` permissions in a `0700` directory.
-- Credential files with group or world permissions are rejected.
+- Credential files with team or world permissions are rejected.
 - Stored credentials are removed when a context moves to a different API URL.
 - An `--api` override reuses a stored context credential only when the override
   has the same scheme and host. Set `NOPSAI_TOKEN` explicitly for a different

@@ -38,7 +38,7 @@ type YamlResourceMutationOptions<TDetail extends ResourceDetail> = {
   editorValue: string;
   validationErrorCount: number;
   validationMessage: string;
-  permissionFolder: string;
+  permissionTeam: string;
   draftScope: string;
   canCreate: boolean;
   canUpdate: boolean;
@@ -82,7 +82,7 @@ export function useYamlResourceMutations<TDetail extends ResourceDetail>({
   editorValue,
   validationErrorCount,
   validationMessage,
-  permissionFolder,
+  permissionTeam,
   draftScope,
   canCreate,
   canUpdate,
@@ -127,11 +127,11 @@ export function useYamlResourceMutations<TDetail extends ResourceDetail>({
     }
     setFormModal({
       mode: 'create',
-      path: permissionFolder,
+      path: permissionTeam,
       name: '',
       pending: false,
     });
-  }, [addToast, canCreate, permissionFolder, resourcePlural]);
+  }, [addToast, canCreate, permissionTeam, resourcePlural]);
 
   const openCloneModal = useCallback(() => {
     if (!canCreate) {

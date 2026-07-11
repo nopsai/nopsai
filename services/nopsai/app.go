@@ -83,4 +83,4 @@ type VariableValueResponse = models.VariableValueResponse
 type PipelineRequest = models.PipelineRequest
 type TriggerOverrideRequest = models.TriggerOverrideRequest
 type FinalizeRequest = models.FinalizeRequest
-type Group = models.Group
+type Team = models.Team

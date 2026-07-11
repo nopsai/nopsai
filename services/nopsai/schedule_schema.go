@@ -22,14 +22,14 @@ var scheduleSchemaStatements = []string{
 		timezone TEXT NOT NULL DEFAULT 'UTC',
 		enabled BOOLEAN NOT NULL DEFAULT TRUE,
 		scope TEXT NOT NULL DEFAULT '',
-		run_group_path TEXT NOT NULL DEFAULT '',
+		run_team_path TEXT NOT NULL DEFAULT '',
 		variables JSONB NOT NULL DEFAULT '{}'::jsonb,
 		next_run_at TIMESTAMPTZ,
 		last_run_at TIMESTAMPTZ,
 		last_run_id UUID REFERENCES pipeline_runs(run_id) ON DELETE SET NULL,
 		last_status TEXT NOT NULL DEFAULT '',
 		source TEXT NOT NULL DEFAULT 'database',
-		visibility TEXT NOT NULL DEFAULT 'group' CHECK (visibility IN ('group', 'restricted', 'workspace')),
+		visibility TEXT NOT NULL DEFAULT 'team' CHECK (visibility IN ('team', 'restricted', 'workspace')),
 		config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
 		config_source_path TEXT NOT NULL DEFAULT '',
 		config_source_commit_sha TEXT NOT NULL DEFAULT '',
@@ -45,8 +45,22 @@ var scheduleSchemaStatements = []string{
 	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS schedule_kind TEXT NOT NULL DEFAULT 'cron'`,
 	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS run_at TIMESTAMPTZ`,
 	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS variables JSONB NOT NULL DEFAULT '{}'::jsonb`,
-	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS run_group_path TEXT NOT NULL DEFAULT ''`,
-	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'group'`,
+	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS run_team_path TEXT NOT NULL DEFAULT ''`,
+	`DO $$
+	BEGIN
+		IF EXISTS (
+			SELECT 1 FROM information_schema.columns
+			WHERE table_schema = 'public' AND table_name = 'pipeline_schedules' AND column_name = 'run_group_path'
+		) THEN
+			UPDATE pipeline_schedules
+			SET run_team_path = run_group_path
+			WHERE run_team_path = ''
+			  AND run_group_path <> '';
+
+			ALTER TABLE pipeline_schedules DROP COLUMN run_group_path;
+		END IF;
+	END $$`,
+	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'team'`,
 	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL`,
 	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS config_source_path TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS config_source_commit_sha TEXT NOT NULL DEFAULT ''`,
@@ -56,7 +70,8 @@ var scheduleSchemaStatements = []string{
 	`ALTER TABLE pipeline_schedules DROP CONSTRAINT IF EXISTS pipeline_schedules_kind_check`,
 	`ALTER TABLE pipeline_schedules ADD CONSTRAINT pipeline_schedules_kind_check CHECK (schedule_kind IN ('cron', 'once'))`,
 	`ALTER TABLE pipeline_schedules DROP CONSTRAINT IF EXISTS pipeline_schedules_visibility_check`,
-	`ALTER TABLE pipeline_schedules ADD CONSTRAINT pipeline_schedules_visibility_check CHECK (visibility IN ('group', 'restricted', 'workspace'))`,
+	`UPDATE pipeline_schedules SET visibility = 'team' WHERE visibility = 'group'`,
+	`ALTER TABLE pipeline_schedules ADD CONSTRAINT pipeline_schedules_visibility_check CHECK (visibility IN ('team', 'restricted', 'workspace'))`,
 	`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS schedule_id UUID REFERENCES pipeline_schedules(id) ON DELETE SET NULL`,
 	`CREATE INDEX IF NOT EXISTS idx_pipeline_schedules_config_repo_id ON pipeline_schedules(config_repo_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_pipeline_schedules_next_run ON pipeline_schedules(enabled, next_run_at)`,

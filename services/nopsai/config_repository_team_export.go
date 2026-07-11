@@ -10,29 +10,29 @@ import (
 	"nopsai/services/nopsai/internal/configsync"
 )
 
-func (a *App) exportConfigRepositoryGroupStructure(ctx context.Context, repo models.ConfigRepository, files map[string]string) error {
-	records, err := loadGroupPathRecords(ctx, a.db)
+func (a *App) exportConfigRepositoryTeamStructure(ctx context.Context, repo models.ConfigRepository, files map[string]string) error {
+	records, err := loadTeamPathRecords(ctx, a.db)
 	if err != nil {
 		return err
 	}
-	structure := map[string]*configsync.GroupStructureExportNode{}
+	structure := map[string]*configsync.TeamStructureExportNode{}
 	for _, record := range records {
 		path := strings.Trim(strings.TrimSpace(record.Path), "/")
-		if path == "" || !configsync.GroupStructureIncludesPath(repo, path) {
+		if path == "" || !configsync.TeamStructureIncludesPath(repo, path) {
 			continue
 		}
 		if record.Kind == "app" || record.RepositoryFullName != "" {
-			parentPath := groupItemParentPath(path)
-			if parentPath == "" || !configsync.GroupStructureIncludesPath(repo, parentPath) {
+			parentPath := teamItemParentPath(path)
+			if parentPath == "" || !configsync.TeamStructureIncludesPath(repo, parentPath) {
 				continue
 			}
-			parent := configsync.EnsureGroupStructureExportPath(structure, parentPath)
-			if app, ok := configsync.BuildGroupStructureAppExport(record.Name, record.RepoURL, record.RepositoryFullName); ok {
+			parent := configsync.EnsureTeamStructureExportPath(structure, parentPath)
+			if app, ok := configsync.BuildTeamStructureAppExport(record.Name, record.RepoURL, record.RepositoryFullName); ok {
 				parent.Apps = append(parent.Apps, app)
 			}
 			continue
 		}
-		node := configsync.EnsureGroupStructureExportPath(structure, path)
+		node := configsync.EnsureTeamStructureExportPath(structure, path)
 		node.Description = strings.TrimSpace(record.Description)
 	}
 
@@ -43,7 +43,7 @@ func (a *App) exportConfigRepositoryGroupStructure(ctx context.Context, repo mod
 		WHERE scope_type = $1
 		  AND id <> $2
 		ORDER BY scope_id ASC
-	`, models.ConfigRepositoryScopeFolder, repo.ID)
+	`, models.ConfigRepositoryScopeTeam, repo.ID)
 	if err != nil {
 		return err
 	}
@@ -56,7 +56,7 @@ func (a *App) exportConfigRepositoryGroupStructure(ctx context.Context, repo mod
 			return err
 		}
 		scopeID = strings.Trim(strings.TrimSpace(scopeID), "/")
-		if scopeID == "" || !configsync.GroupStructureIncludesPath(repo, scopeID) {
+		if scopeID == "" || !configsync.TeamStructureIncludesPath(repo, scopeID) {
 			continue
 		}
 		if managed && (!configRepoID.Valid || configRepoID.Int64 != repo.ID) {
@@ -67,8 +67,8 @@ func (a *App) exportConfigRepositoryGroupStructure(ctx context.Context, repo mod
 		}
 		enabledValue := enabled
 		writeEnabledValue := writeEnabled
-		node := configsync.EnsureGroupStructureExportPath(structure, scopeID)
-		node.Config = &configsync.GroupStructureBindingExport{
+		node := configsync.EnsureTeamStructureExportPath(structure, scopeID)
+		node.Config = &configsync.TeamStructureBindingExport{
 			RepoURL:      strings.TrimSpace(repoURL),
 			Branch:       strings.TrimSpace(branch),
 			BasePath:     strings.TrimSpace(basePath),
@@ -83,7 +83,7 @@ func (a *App) exportConfigRepositoryGroupStructure(ctx context.Context, repo mod
 	if len(structure) == 0 {
 		return nil
 	}
-	structureFiles, err := configRepositoryGroupStructureFiles(repo, structure)
+	structureFiles, err := configRepositoryTeamStructureFiles(repo, structure)
 	if err != nil {
 		return err
 	}
@@ -93,45 +93,45 @@ func (a *App) exportConfigRepositoryGroupStructure(ctx context.Context, repo mod
 	return nil
 }
 
-func configRepositoryGroupStructureFiles(repo models.ConfigRepository, structure map[string]*configsync.GroupStructureExportNode) (map[string]string, error) {
+func configRepositoryTeamStructureFiles(repo models.ConfigRepository, structure map[string]*configsync.TeamStructureExportNode) (map[string]string, error) {
 	files := map[string]string{}
 	switch repo.ScopeType {
-	case models.ConfigRepositoryScopeFolder:
+	case models.ConfigRepositoryScopeTeam:
 		scope := strings.Trim(strings.TrimSpace(repo.ScopeID), "/")
 		if scope == "" {
 			return files, nil
 		}
-		node := configRepositoryGroupStructureNodeAtPath(structure, scope)
+		node := configRepositoryTeamStructureNodeAtPath(structure, scope)
 		if node == nil {
 			return files, nil
 		}
-		content, err := marshalConfigRepositoryGroupStructureNode(node)
+		content, err := marshalConfigRepositoryTeamStructureNode(node)
 		if err != nil {
 			return nil, err
 		}
-		files[configRepositoryGroupStructurePathForScope(scope)] = content
+		files[configRepositoryTeamStructurePathForScope(scope)] = content
 	default:
 		for name, node := range structure {
 			scope := strings.Trim(strings.TrimSpace(name), "/")
 			if scope == "" {
 				continue
 			}
-			content, err := marshalConfigRepositoryGroupStructureNode(node)
+			content, err := marshalConfigRepositoryTeamStructureNode(node)
 			if err != nil {
 				return nil, err
 			}
-			files[configRepositoryGroupStructurePathForScope(scope)] = content
+			files[configRepositoryTeamStructurePathForScope(scope)] = content
 		}
 	}
 	return files, nil
 }
 
-func configRepositoryGroupStructureNodeAtPath(structure map[string]*configsync.GroupStructureExportNode, scope string) *configsync.GroupStructureExportNode {
+func configRepositoryTeamStructureNodeAtPath(structure map[string]*configsync.TeamStructureExportNode, scope string) *configsync.TeamStructureExportNode {
 	parts := strings.Split(strings.Trim(strings.TrimSpace(scope), "/"), "/")
 	if len(parts) == 0 || parts[0] == "" {
 		return nil
 	}
-	var node *configsync.GroupStructureExportNode
+	var node *configsync.TeamStructureExportNode
 	children := structure
 	for _, part := range parts {
 		node = children[part]
@@ -143,14 +143,14 @@ func configRepositoryGroupStructureNodeAtPath(structure map[string]*configsync.G
 	return node
 }
 
-func marshalConfigRepositoryGroupStructureNode(node *configsync.GroupStructureExportNode) (string, error) {
-	content, err := marshalConfigRepositoryYAML(configsync.GroupStructureExportNodeMap(node))
+func marshalConfigRepositoryTeamStructureNode(node *configsync.TeamStructureExportNode) (string, error) {
+	content, err := marshalConfigRepositoryYAML(configsync.TeamStructureExportNodeMap(node))
 	if err != nil {
 		return "", err
 	}
 	return string(content), nil
 }
 
-func configRepositoryGroupStructurePathForScope(scope string) string {
-	return filepath.ToSlash(filepath.Join("config-repositories", "groups", strings.Trim(strings.TrimSpace(scope), "/"), "structure.yaml"))
+func configRepositoryTeamStructurePathForScope(scope string) string {
+	return filepath.ToSlash(filepath.Join("config-repositories", "teams", strings.Trim(strings.TrimSpace(scope), "/"), "structure.yaml"))
 }

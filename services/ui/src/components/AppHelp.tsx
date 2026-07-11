@@ -21,24 +21,24 @@ type HelpTopic = {
 const HELP_TOPICS: Record<string, HelpTopic> = {
   'pipelineruns/main': {
     title: 'Pipeline Runs',
-    summary: 'Watch automation work move through groups, inspect failures, and clean up completed runs.',
+    summary: 'Watch automation work move through teams, inspect failures, and clean up completed runs.',
     docsPath: 'pipeline-runs',
     sections: [
       {
         title: 'What this page covers',
         body: 'Pipeline Runs is the operational entry point for run history, status, graph inspection, logs, child runs, source metadata, trigger events, and troubleshooting.',
-        items: ['Browse by group or repository.', 'Open run details for graph, YAML, tasks, logs, and timing.', 'Search by pipeline, repository, branch, commit, actor, status, or run ID.'],
+        items: ['Browse by team or repository.', 'Open run details for graph, YAML, tasks, logs, and timing.', 'Search by pipeline, repository, branch, commit, actor, status, or run ID.'],
       },
     ],
   },
   'pipelineruns/recent': {
     title: 'Recent Runs',
-    summary: 'Review the newest executions across the workspace without choosing a folder first.',
+    summary: 'Review the newest executions across the workspace without choosing a team first.',
     docsPath: 'pipeline-runs/recent',
     sections: [
       {
         title: 'What this page covers',
-        body: 'Recent Runs is useful for status scanning, broad troubleshooting, and comparing pipeline activity across groups.',
+        body: 'Recent Runs is useful for status scanning, broad troubleshooting, and comparing pipeline activity across teams.',
         items: ['Switch between grid and list views.', 'Search by status, pipeline, repository, branch, or run ID.', 'Open any run for full operational detail.'],
       },
     ],
@@ -50,7 +50,7 @@ const HELP_TOPICS: Record<string, HelpTopic> = {
     sections: [
       {
         title: 'What this page covers',
-        body: 'Events group related executions by repository event, commit, branch, and pusher so teams can investigate one change across all affected pipelines.',
+        body: 'Events correlate related executions by repository event, commit, branch, and pusher so teams can investigate one change across all affected pipelines.',
       },
     ],
   },
@@ -185,7 +185,7 @@ const HELP_TOPICS: Record<string, HelpTopic> = {
     sections: [
       {
         title: 'What this page covers',
-        body: 'Setup covers preflight checks, runtime settings, repository groups, LLM defaults, users, and generated installation output.',
+        body: 'Setup covers preflight checks, runtime settings, repository teams, LLM defaults, users, and generated installation output.',
       },
     ],
   },
@@ -240,7 +240,7 @@ const HELP_TOPICS: Record<string, HelpTopic> = {
     sections: [
       {
         title: 'What this page covers',
-        body: 'Access covers users, basic roles, advanced policy rules, resource grants, service accounts, and inheritance across folders.',
+        body: 'Access covers users, basic roles, advanced policy rules, resource grants, service accounts, and inheritance across teams.',
       },
     ],
   },

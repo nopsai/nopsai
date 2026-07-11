@@ -9,11 +9,11 @@ NopsAI now has a dedicated AAA service plus an in-process fallback evaluator ins
 - `services/aaa` owns the HTTP authorization service, the policy-store schema, and the table-specific mutation helpers for roles, bindings, permissions, and ACL rows.
 - `services/nopsai` authenticates users, maps API routes to low-level actions, calls AAA, exposes product-facing access-grant APIs, and performs runtime resource-use checks before pipeline execution.
 - Product roles are stored by `nopsai` as user-friendly `access_grants`, then expanded through AAA-owned policy writer helpers instead of direct product-service SQL against AAA ACL tables.
-- The evaluator stays generic: it checks roles, direct ACLs, auth-group membership, resource inheritance, and deny-before-allow rules.
+- The evaluator stays generic: it checks roles, direct ACLs, auth-team membership, resource inheritance, and deny-before-allow rules.
 
 ## Ownership Boundary
 
-`nopsai` owns product intent and UX-facing records: users, service-account credentials, `access_grants`, `resource_ownership`, visibility settings, and GitOps manifests. `aaa` owns the low-level policy representation used by the evaluator: `auth_roles`, `auth_role_bindings`, `auth_role_permissions`, `resource_acl`, auth-group policy membership, and authorization decision logs. When product workflows need to seed roles, bind an admin role, or expand a product grant into ACL rows, they call `services/aaa/pkg/store` helpers so schema-specific writes stay in the AAA package.
+`nopsai` owns product intent and UX-facing records: users, service-account credentials, `access_grants`, `resource_ownership`, visibility settings, and GitOps manifests. `aaa` owns the low-level policy representation used by the evaluator: `auth_roles`, `auth_role_bindings`, `auth_role_permissions`, `resource_acl`, auth-team policy membership, and authorization decision logs. When product workflows need to seed roles, bind an admin role, or expand a product grant into ACL rows, they call `services/aaa/pkg/store` helpers so schema-specific writes stay in the AAA package.
 
 ## Request Authorization Flow
 
@@ -72,19 +72,19 @@ Internal endpoints require the `X-Internal-Token` header, configured with `AAA_S
 
 The product roles are templates seeded by `nopsai` startup:
 
-- `viewer`: read/list access for groups, pipelines, schedules, runs, logs, triggers, Git webhook sources, repositories, steps, scopes, knowledge contexts, secret metadata, variable metadata, and config repository metadata.
+- `viewer`: read/list access for teams, pipelines, schedules, runs, logs, triggers, Git webhook sources, repositories, steps, scopes, knowledge contexts, secret metadata, variable metadata, and config repository metadata.
 - `developer`: includes all viewer access plus non-destructive creation, updates, pipeline and schedule execution, `*.use` runtime permissions, rerun/cancel, trigger and Git webhook source updates, secret writes, variable writes, repository updates, scope updates, reusable step usage, knowledge context usage, runner usage, and config repository usage.
 - `owner`: includes all developer and viewer access plus all scoped non-admin actions, deletes, secret and variable value reads, ownership, and ACL management inside the owned scope.
 - `admin`: platform-wide access through the normal AAA `Check` path.
 
-The `admin` role can only be granted on the `platform` resource. Group grants must inherit.
+The `admin` role can only be granted on the `platform` resource. Team grants must inherit.
 
 ## Subjects And Resources
 
 Supported grant subjects:
 
 - `user`
-- `auth_group`
+- `auth_team`
 - `repository`
 - `trigger`
 - `external_trigger`
@@ -94,7 +94,7 @@ Supported grant subjects:
 
 Supported grant resources:
 
-- `folder` (the internal resource type for UI groups)
+- `team`
 - `pipeline`
 - `pipeline_schedule`
 - `pipeline_run`
@@ -109,11 +109,11 @@ Supported grant resources:
 - `config_repo`
 - `platform`
 
-Group grant requests use the internal `folder` resource type and may use paths with a leading slash, such as `/payments/backend`; the stored internal ID is normalized without the leading slash. Use `root` for the root folder scope; new groups cannot be named `root`.
+Team grant requests use the internal `team` resource type and may use paths with a leading slash, such as `/payments/backend`; the stored internal ID is normalized without the leading slash. Use `root` for the root team scope; new teams cannot be named `root`.
 
 Named secret and variable resources use query-style internal IDs built from repository, scope, and name. The public grant API accepts the same logical IDs shown in the UI.
 
-Runtime resource-sharing grants use a separate `group` subject type for existing resource groups/folders. That `group` subject is only used by the resource Access UI/API to share a resource with a group path; it is not the same as an AAA `auth_group`.
+Runtime resource-sharing grants use a separate `team` subject type for existing team paths. That `team` subject is only used by the resource Access UI/API to share a resource with a team path; it is not the same as an AAA `auth_team`.
 
 Pipeline schedules use `pipeline_schedule` as the resource type. `viewer`
 grants include `pipeline_schedule.list` and `pipeline_schedule.read`;
@@ -163,7 +163,7 @@ Pipeline execution uses a second authorization pass for resources that a run wan
 - other automation runs should use the trigger identity or an administrator-created service account token
 - dispatcher/internal calls only execute after the original caller has already been authorized
 
-Pipeline runs inherit from their pipeline path, scope path, repository metadata, and, when present, the app/group selected by `pipeline_runs.group_id`. This lets an owner of `folder:team-1` see runs placed under `team-1/test-app`, including runs whose Git metadata resolves through the app's `repository_full_name`.
+Pipeline runs inherit from their pipeline path, scope path, repository metadata, and, when present, the app/team selected by `pipeline_runs.team_id`. This lets an owner of `team:team-1` see runs placed under `team-1/test-app`, including runs whose Git metadata resolves through the app's `repository_full_name`.
 
 Supported low-level use actions include:
 
@@ -176,21 +176,22 @@ Supported low-level use actions include:
 - `config_repo.use`
 - `knowledge_context.use`
 
-The main rule is that same-group resources remain naturally available according to visibility. Cross-group use requires an explicit resource-use grant or public visibility.
+The main rule is that same-team resources remain naturally available according to visibility. Cross-team use requires an explicit resource-use grant or public visibility.
 
-Approval visibility is intentionally narrower than normal run ownership. A pending approval run can appear for a user with `approval.approve` on at least one assigned approval group, subject to `allow_self_approval`, so approvers can make the decision without receiving unrelated pipeline or log permissions.
+Approval visibility is intentionally narrower than normal run ownership. A pending approval run can appear for a user with `approval.approve` on at least one assigned approval team, subject to `allow_self_approval`, so approvers can make the decision without receiving unrelated pipeline or log permissions.
 
 Resource visibility values:
 
-- `group`: default; usable inside the same group boundary
-- `restricted`: same group still works, and selected groups, repositories, or service accounts can also be granted use access
-- `workspace`: shown in the UI as `Public`; usable by authorized callers outside the group, but still does not grant access to scopes, secrets, variables, or runners
+- `team`: default; usable inside the same team boundary
+- `restricted`: same team still works, and selected teams, repositories, or service accounts can also be granted use access
+- `workspace`: shown in the UI as `Public`; usable by authorized callers outside the team, but still does not grant access to scopes, secrets, variables, or runners
 
 Current resource Access UI behavior:
 
 - Pipeline, step, scope, and knowledge context pages show an `Access` button next to the normal action buttons.
-- The Access dialog offers `Only this group`, `This group and selected subjects`, and, for non-sensitive resources, `Public`.
-- Group sharing uses existing resource groups from `GET /v1/groups`.
+- The Access dialog offers `Only this team`, `This team and selected subjects`, and, for non-sensitive resources, `Public`.
+- Team sharing uses existing Teams entries from `GET /v1/access/teams`.
+- Auth-team subject pickers use SSO/AAA entries from `GET /v1/access/auth-teams`.
 - Repository sharing accepts canonical repository IDs such as `hosein-yousefii/test-app`.
 - Sensitive resources such as scopes do not expose `Public`.
 - The default scope is addressed as `scope:default` in the API/UI. Secret and variable rows store it only as `scope = 'default'`; runtime lookups do not fall back to `NULL` or empty scope values.
@@ -204,7 +205,7 @@ Resource Access API:
 - `POST /v1/authz/resource-use/check`
 - `POST /v1/authz/resource-use/batch-check`
 
-Resource-use grant requests accept `subject_type: "repository"` with `subject_id: "owner/repo"` or `subject_type: "group"` with a group path such as `team-1`. Group use grants are stored in `access_grants` for audit and UI display; they do not write broad ACL rows that would elevate every member of the group. At check time, the original caller must resolve into the granted group boundary.
+Resource-use grant requests accept `subject_type: "repository"` with `subject_id: "owner/repo"` or `subject_type: "team"` with a team path such as `team-1`. Team use grants are stored in `access_grants` for audit and UI display; they do not write broad ACL rows that would elevate every member of the team. At check time, the original caller must resolve into the granted team boundary.
 
 `pipeline_runs` stores the run authorization context in `trigger_source`, `requested_by_type`, `requested_by_id`, `effective_subject_type`, `effective_subject_id`, and `authorization_snapshot`. The snapshot records the caller and the resource-use checks that were allowed for the created run.
 
@@ -242,7 +243,7 @@ advanced_roles:
 basic_roles:
   - user: alice
     role: owner
-    resource: folder:team-1
+    resource: team:team-1
   - subject_type: service_account
     subject_id: webhook-deployer
     role: developer
@@ -251,34 +252,34 @@ basic_roles:
 
 Global config repositories can manage users, service accounts, advanced role
 definitions, policies, advanced role bindings, and basic role grants, including
-grants that target delegated groups/folders. Group-scoped config repositories
-can manage `basic_roles` only for their own group subtree; user,
+grants that target delegated teams. Team-scoped config repositories
+can manage `basic_roles` only for their own team subtree; user,
 service-account, advanced-role, policy, and direct advanced-role-binding
 management remains global.
-In a group repo, grant resource IDs are normalized under the bound group, so a
-grant with `resource_type: folder` in the `team-1` repo targets `folder:team-1`.
+In a team repo, grant resource IDs are normalized under the bound team, so a
+grant with `resource_type: team` in the `team-1` repo targets `team:team-1`.
 
 User- and service-account-level `advanced_roles` assignments can reference
 custom roles from the manifest or protected built-in role bundles such as
 `viewer`, `developer`, `owner`, and `admin`. These assignments are global
 access-role bindings. In SSO, direct Keycloak client roles on the NopsAI client
 map to this same global lane. Use `basic_roles` when the same product role name
-should be scoped to a folder/group target.
+should be scoped to a team target.
 
 GitOps `basic_roles` use the same product roles as the API: `viewer`,
-`developer`, `owner`, and `admin`. The group/folder is the grant target, not a
+`developer`, `owner`, and `admin`. The team is the grant target, not a
 separate subject type. Non-admin basic roles are expanded through AAA-owned
 policy helpers into `resource_acl`; owner grants also write
 `resource_ownership`. `admin` grants remain
-platform-only and are rejected in group-scoped config repositories.
-OIDC providers can also sync scoped basic roles directly from SSO groups with
-`entitlement_sync.mode: keycloak_group_roles`. In that mode, direct Keycloak
-client roles become global access roles, while Keycloak group client roles
-become scoped Basic roles. For example, Keycloak group `/team-1` with client
-role `owner` becomes a provider-managed `owner` grant on `folder:team-1`.
+platform-only and are rejected in team-scoped config repositories.
+OIDC providers can also sync scoped basic roles directly from SSO teams with
+`entitlement_sync.mode: keycloak_team_roles`. In that mode, direct Keycloak
+client roles become global access roles, while Keycloak team client roles
+become scoped Basic roles. For example, Keycloak team `/team-1` with client
+role `owner` becomes a provider-managed `owner` grant on `team:team-1`.
 NopsAI reconciles those provider-managed grants on OIDC login, entitlement
-worker startup, and periodic worker runs. SSO-sourced folder grants can be
-stored before the folder exists, which keeps Keycloak and GitOps rollout order
+worker startup, and periodic worker runs. SSO-sourced team grants can be
+stored before the team exists, which keeps Keycloak and GitOps rollout order
 flexible.
 Use the shorthand subject fields `user:`, `service_account:`, or `service:` for
 editable GitOps manifests. The canonical `subject_type` plus `subject_id` form
@@ -287,9 +288,9 @@ their canonical runtime IDs before writing grants; drift exports users by `sub`
 and service accounts by `sub`.
 GitOps access sync accepts resource IDs declared by the repository even when the
 target pipeline, trigger, or scope is created later in the same sync-all run by
-a delegated group repository. Direct UI/API grant creation still requires the
+a delegated team repository. Direct UI/API grant creation still requires the
 target resource to exist. Global drift keeps exporting product `basic_roles`
-for users and service accounts even when the target folder also has a delegated
+for users and service accounts even when the target team also has a delegated
 config repository; embedded resource access remains owned by the repository that
 owns the resource file.
 
@@ -298,7 +299,7 @@ advanced roles, policies, advanced role bindings, and basic product grants back
 into access manifests so they can be pushed to the review branch. Service
 account identities and service-account basic grants are written to
 `access/service-accounts.yaml`;
-other global IAM records are written to `access/all.yaml`, and group-scoped
+other global IAM records are written to `access/all.yaml`, and team-scoped
 repos write scoped grants to `access/grants.yaml`. Exported files include
 identity metadata and roles only; passwords and `nopsat_` token values are never
 exported.
@@ -317,27 +318,27 @@ access:
     grants:
       - subject_type: repository
         subject_id: hosein-yousefii/test-app
-      - subject_type: group
+      - subject_type: team
         subject_id: data-team
 steps:
   - name: deploy
     script: echo deploy
 ```
 
-Supported `visibility` values are `group`, `restricted`, and
+Supported `visibility` values are `team`, `restricted`, and
 `workspace`/`public`. `public` is only allowed for non-sensitive resources such
 as pipelines, reusable steps, and knowledge contexts; scopes remain sensitive
-and can only be `group` or `restricted`. If a resource declares grants without a
+and can only be `team` or `restricted`. If a resource declares grants without a
 visibility, sync treats it as `restricted`.
 
 The grant subjects match the Access UI. Use `repository:` with a canonical
-repository ID, `service_account:` with a service-account sub, or `group:` with a
-resource group path. The canonical `subject_type` plus `subject_id` form is
+repository ID, `service_account:` with a service-account sub, or `team:` with a
+team path. The canonical `subject_type` plus `subject_id` form is
 also accepted.
 
 ```yaml
 access:
-  groups: [data-team]
+  teams: [data-team]
   repositories: [hosein-yousefii/test-app]
   use_access:
     grants:
@@ -357,17 +358,17 @@ branch.
 
 ## Inheritance
 
-The evaluator resolves parent resources before checking ACLs. A group grant can authorize:
+The evaluator resolves parent resources before checking ACLs. A team grant can authorize:
 
-- child groups
-- pipelines and runs under the group path
-- pipeline schedules under the group path
-- repositories assigned under the group path
-- runs associated with repositories under the group path
+- child teams
+- pipelines and runs under the team path
+- pipeline schedules under the team path
+- repositories assigned under the team path
+- runs associated with repositories under the team path
 - triggers for inherited repositories
 - scoped secrets and variables
-- reusable steps under the group path
-- knowledge contexts under the group path
+- reusable steps under the team path
+- knowledge contexts under the team path
 
 Specific deny policies still win before inherited allow policies.
 
@@ -378,7 +379,7 @@ Authorization decisions are written to `authz_decision_logs` when:
 - the decision is denied
 - the decision is allowed for a sensitive action
 
-Sensitive actions include ACL management, admin/system operations, pipeline execution or deletion, run rerun/cancel/delete, trigger writes, secret value access, variable writes/deletes, group moves, repository deletes, step deletes, and knowledge context use/delete/manage-access operations.
+Sensitive actions include ACL management, admin/system operations, pipeline execution or deletion, run rerun/cancel/delete, trigger writes, secret value access, variable writes/deletes, team moves, repository deletes, step deletes, and knowledge context use/delete/manage-access operations.
 
 The normal request audit trail still writes to `audit_logs`.
 

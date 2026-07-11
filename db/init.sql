@@ -1,13 +1,13 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
-CREATE TABLE groups (
+CREATE TABLE teams (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
-    kind TEXT NOT NULL DEFAULT 'group' CHECK (kind IN ('group', 'app')),
+    kind TEXT NOT NULL DEFAULT 'team' CHECK (kind IN ('team', 'app')),
     description TEXT NOT NULL DEFAULT '',
     repo_url TEXT NOT NULL DEFAULT '',
     repository_full_name TEXT NOT NULL DEFAULT '',
-    parent_id INTEGER REFERENCES groups(id) ON DELETE CASCADE,
+    parent_id INTEGER REFERENCES teams(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(name)
@@ -43,7 +43,7 @@ CREATE TABLE pipeline_runs (
     git_pusher_name VARCHAR(255),
     git_pusher_email VARCHAR(255),
     git_check_run_id BIGINT,
-    group_id INTEGER REFERENCES groups(id) ON DELETE SET NULL,
+    team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL,
     scope VARCHAR(255),
     failure_reason TEXT,
     trigger_source TEXT,
@@ -88,7 +88,7 @@ CREATE TABLE pipeline_approvals (
     step_name TEXT NOT NULL,
     task_name TEXT NOT NULL,
     approval_type TEXT NOT NULL,
-    assigned_groups JSONB NOT NULL DEFAULT '[]'::jsonb,
+    assigned_teams JSONB NOT NULL DEFAULT '[]'::jsonb,
     allow_self_approval BOOLEAN NOT NULL DEFAULT FALSE,
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
     requested_by_type TEXT NOT NULL DEFAULT '',
@@ -120,7 +120,7 @@ CREATE TABLE triggers (
     repository_name VARCHAR(255) UNIQUE NOT NULL,
     trigger_definition TEXT NOT NULL,
     source VARCHAR(32) NOT NULL DEFAULT 'database',
-    visibility TEXT NOT NULL DEFAULT 'group' CHECK (visibility IN ('group', 'restricted', 'workspace')),
+    visibility TEXT NOT NULL DEFAULT 'team' CHECK (visibility IN ('team', 'restricted', 'workspace')),
     config_repo_id BIGINT,
     config_source_path TEXT NOT NULL DEFAULT '',
     config_source_commit_sha TEXT NOT NULL DEFAULT '',
@@ -130,7 +130,7 @@ CREATE TABLE triggers (
 
 CREATE TABLE IF NOT EXISTS config_repositories (
     id BIGSERIAL PRIMARY KEY,
-    scope_type TEXT NOT NULL CHECK (scope_type IN ('folder', 'system')),
+    scope_type TEXT NOT NULL CHECK (scope_type IN ('team', 'system')),
     scope_id TEXT NOT NULL,
     repo_url TEXT NOT NULL,
     branch TEXT NOT NULL DEFAULT 'main',
@@ -138,7 +138,7 @@ CREATE TABLE IF NOT EXISTS config_repositories (
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     write_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     write_branch TEXT NOT NULL DEFAULT '',
-    visibility TEXT NOT NULL DEFAULT 'group' CHECK (visibility IN ('group', 'restricted', 'workspace')),
+    visibility TEXT NOT NULL DEFAULT 'team' CHECK (visibility IN ('team', 'restricted', 'workspace')),
     config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
     config_source_path TEXT NOT NULL DEFAULT '',
     config_source_commit_sha TEXT NOT NULL DEFAULT '',
@@ -181,7 +181,7 @@ CREATE TABLE pipelines (
     version VARCHAR(255) NOT NULL DEFAULT 'latest',
     definition TEXT NOT NULL,
     source VARCHAR(32) NOT NULL DEFAULT 'database',
-    visibility TEXT NOT NULL DEFAULT 'group' CHECK (visibility IN ('group', 'restricted', 'workspace')),
+    visibility TEXT NOT NULL DEFAULT 'team' CHECK (visibility IN ('team', 'restricted', 'workspace')),
     config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
     config_source_path TEXT NOT NULL DEFAULT '',
     config_source_commit_sha TEXT NOT NULL DEFAULT '',
@@ -205,14 +205,14 @@ CREATE TABLE pipeline_schedules (
     timezone TEXT NOT NULL DEFAULT 'UTC',
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     scope TEXT NOT NULL DEFAULT '',
-    run_group_path TEXT NOT NULL DEFAULT '',
+    run_team_path TEXT NOT NULL DEFAULT '',
     variables JSONB NOT NULL DEFAULT '{}'::jsonb,
     next_run_at TIMESTAMPTZ,
     last_run_at TIMESTAMPTZ,
     last_run_id UUID REFERENCES pipeline_runs(run_id) ON DELETE SET NULL,
     last_status TEXT NOT NULL DEFAULT '',
     source TEXT NOT NULL DEFAULT 'database',
-    visibility TEXT NOT NULL DEFAULT 'group' CHECK (visibility IN ('group', 'restricted', 'workspace')),
+    visibility TEXT NOT NULL DEFAULT 'team' CHECK (visibility IN ('team', 'restricted', 'workspace')),
     config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
     config_source_path TEXT NOT NULL DEFAULT '',
     config_source_commit_sha TEXT NOT NULL DEFAULT '',
@@ -233,7 +233,7 @@ CREATE TABLE steps (
     name VARCHAR(255) NOT NULL,
     definition TEXT NOT NULL,
     source VARCHAR(32) NOT NULL DEFAULT 'database',
-    visibility TEXT NOT NULL DEFAULT 'group' CHECK (visibility IN ('group', 'restricted', 'workspace')),
+    visibility TEXT NOT NULL DEFAULT 'team' CHECK (visibility IN ('team', 'restricted', 'workspace')),
     config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
     config_source_path TEXT NOT NULL DEFAULT '',
     config_source_commit_sha TEXT NOT NULL DEFAULT '',
@@ -246,7 +246,7 @@ CREATE TABLE steps (
 CREATE TABLE knowledge_contexts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     kind TEXT NOT NULL,
-    group_path TEXT NOT NULL DEFAULT '',
+    team_path TEXT NOT NULL DEFAULT '',
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     content TEXT NOT NULL DEFAULT '',
@@ -257,7 +257,7 @@ CREATE TABLE knowledge_contexts (
     managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(kind, group_path, name)
+    UNIQUE(kind, team_path, name)
 );
 
 CREATE TABLE secrets (
@@ -441,7 +441,7 @@ CREATE TABLE mcp_profiles (
 );
 
 CREATE TABLE team_profile_settings (
-    team_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
     key TEXT NOT NULL,
     value TEXT NOT NULL DEFAULT '',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -449,7 +449,7 @@ CREATE TABLE team_profile_settings (
 );
 
 CREATE TABLE team_llm_profiles (
-    team_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     provider TEXT NOT NULL,
     model TEXT NOT NULL DEFAULT '',
@@ -473,7 +473,7 @@ CREATE TABLE team_llm_profiles (
 );
 
 CREATE TABLE team_agent_profiles (
-    team_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
     id TEXT NOT NULL,
     display_name TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT '',
@@ -491,7 +491,7 @@ CREATE TABLE team_agent_profiles (
 );
 
 CREATE TABLE team_mcp_profiles (
-    team_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
@@ -514,7 +514,7 @@ CREATE INDEX idx_team_mcp_profiles_config_repo ON team_mcp_profiles(config_repo_
 CREATE TABLE resource_visibility (
     resource_type TEXT NOT NULL,
     resource_id TEXT NOT NULL,
-    visibility TEXT NOT NULL DEFAULT 'group' CHECK (visibility IN ('group', 'restricted', 'workspace')),
+    visibility TEXT NOT NULL DEFAULT 'team' CHECK (visibility IN ('team', 'restricted', 'workspace')),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (resource_type, resource_id)
 );
@@ -532,7 +532,7 @@ CREATE TABLE pipeline_run_knowledge_contexts (
     run_id UUID NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
     knowledge_context_id UUID REFERENCES knowledge_contexts(id) ON DELETE SET NULL,
     kind TEXT NOT NULL,
-    group_path TEXT NOT NULL DEFAULT '',
+    team_path TEXT NOT NULL DEFAULT '',
     name TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT '',
     ref TEXT NOT NULL DEFAULT '',
@@ -625,7 +625,7 @@ CREATE TABLE external_triggers (
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     pipeline TEXT NOT NULL,
     scope TEXT NOT NULL DEFAULT '',
-    run_group_path TEXT NOT NULL DEFAULT '',
+    run_team_path TEXT NOT NULL DEFAULT '',
     allowed_callers JSONB NOT NULL DEFAULT '[]'::jsonb,
     variable_mapping JSONB NOT NULL DEFAULT '{}'::jsonb,
     payload_schema JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -735,7 +735,7 @@ CREATE TABLE notification_mail_settings (
 
 CREATE TABLE notification_routes (
     id BIGSERIAL PRIMARY KEY,
-    group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
     definition JSONB NOT NULL DEFAULT '{}'::jsonb,
     source TEXT NOT NULL DEFAULT 'database',
     config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
@@ -744,7 +744,7 @@ CREATE TABLE notification_routes (
     managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE,
     updated_by TEXT NOT NULL DEFAULT '',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(group_id)
+    UNIQUE(team_id)
 );
 
 CREATE TABLE notification_deliveries (
@@ -761,7 +761,7 @@ CREATE TABLE notification_deliveries (
     UNIQUE(dedupe_key)
 );
 
-CREATE INDEX idx_notification_routes_group ON notification_routes(group_id);
+CREATE INDEX idx_notification_routes_team ON notification_routes(team_id);
 CREATE INDEX idx_notification_routes_config_repo ON notification_routes(config_repo_id);
 CREATE INDEX idx_notification_deliveries_run ON notification_deliveries(run_id);
 CREATE INDEX idx_notification_deliveries_status ON notification_deliveries(status, created_at DESC);
@@ -773,7 +773,7 @@ CREATE TABLE ai_usage_events (
     task_name TEXT NOT NULL DEFAULT '',
     pipeline_path TEXT NOT NULL DEFAULT '',
     pipeline_name TEXT NOT NULL DEFAULT '',
-    group_id INTEGER REFERENCES groups(id) ON DELETE SET NULL,
+    team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL,
     feature TEXT NOT NULL DEFAULT '',
     provider TEXT NOT NULL DEFAULT '',
     model TEXT NOT NULL DEFAULT '',
@@ -794,7 +794,7 @@ CREATE TABLE ai_usage_events (
 
 CREATE INDEX idx_ai_usage_events_run ON ai_usage_events(run_id);
 CREATE INDEX idx_ai_usage_events_pipeline_created ON ai_usage_events(pipeline_path, pipeline_name, created_at DESC);
-CREATE INDEX idx_ai_usage_events_group_created ON ai_usage_events(group_id, created_at DESC);
+CREATE INDEX idx_ai_usage_events_team_created ON ai_usage_events(team_id, created_at DESC);
 CREATE INDEX idx_ai_usage_events_feature_created ON ai_usage_events(feature, created_at DESC);
 CREATE INDEX idx_ai_usage_events_subject_created ON ai_usage_events(effective_subject_type, effective_subject_id, created_at DESC);
 
@@ -835,8 +835,8 @@ CREATE TABLE monitoring_saved_views (
     name TEXT NOT NULL,
     owner_subject_type TEXT NOT NULL DEFAULT '',
     owner_subject_id TEXT NOT NULL DEFAULT '',
-    visibility TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('private', 'group', 'workspace')),
-    group_id INTEGER REFERENCES groups(id) ON DELETE SET NULL,
+    visibility TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('private', 'team', 'workspace')),
+    team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL,
     filters JSONB NOT NULL DEFAULT '{}'::jsonb,
     columns JSONB NOT NULL DEFAULT '[]'::jsonb,
     source TEXT NOT NULL DEFAULT 'database',
@@ -858,7 +858,7 @@ CREATE TABLE monitoring_alert_rules (
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     owner_subject_type TEXT NOT NULL DEFAULT '',
     owner_subject_id TEXT NOT NULL DEFAULT '',
-    visibility TEXT NOT NULL DEFAULT 'workspace' CHECK (visibility IN ('private', 'group', 'workspace')),
+    visibility TEXT NOT NULL DEFAULT 'workspace' CHECK (visibility IN ('private', 'team', 'workspace')),
     severity TEXT NOT NULL DEFAULT 'warning',
     metric TEXT NOT NULL,
     comparator TEXT NOT NULL DEFAULT 'gt',
@@ -950,7 +950,7 @@ CREATE TABLE service_account_tokens (
 CREATE INDEX idx_service_account_tokens_account ON service_account_tokens(service_account_id);
 CREATE INDEX idx_service_account_tokens_expiry ON service_account_tokens(expires_at);
 
-CREATE TABLE auth_groups (
+CREATE TABLE auth_teams (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT UNIQUE NOT NULL,
     description TEXT NOT NULL DEFAULT '',
@@ -958,16 +958,16 @@ CREATE TABLE auth_groups (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE auth_group_members (
-    group_id UUID NOT NULL REFERENCES auth_groups(id) ON DELETE CASCADE,
+CREATE TABLE auth_team_members (
+    team_id UUID NOT NULL REFERENCES auth_teams(id) ON DELETE CASCADE,
     subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'repository', 'trigger', 'service_account', 'internal_service')),
     subject_id TEXT NOT NULL,
     managed_by_identity_provider BOOLEAN NOT NULL DEFAULT FALSE,
     identity_provider_id TEXT NOT NULL DEFAULT '',
-    external_group_name TEXT NOT NULL DEFAULT '',
-    auth_group_name TEXT NOT NULL DEFAULT '',
+    external_team_name TEXT NOT NULL DEFAULT '',
+    auth_team_name TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (group_id, subject_type, subject_id)
+    PRIMARY KEY (team_id, subject_type, subject_id)
 );
 
 CREATE TABLE auth_roles (
@@ -984,7 +984,7 @@ CREATE TABLE auth_roles (
 CREATE TABLE auth_role_bindings (
     id BIGSERIAL PRIMARY KEY,
     role_name TEXT NOT NULL REFERENCES auth_roles(name) ON DELETE CASCADE,
-    subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_group', 'repository', 'trigger', 'service_account', 'internal_service')),
+    subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_team', 'repository', 'trigger', 'service_account', 'internal_service')),
     subject_id TEXT NOT NULL,
     config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
     config_source_path TEXT NOT NULL DEFAULT '',
@@ -1011,7 +1011,7 @@ CREATE TABLE auth_role_permissions (
 
 CREATE TABLE access_grants (
     id BIGSERIAL PRIMARY KEY,
-    subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_group', 'group', 'repository', 'trigger', 'service_account', 'internal_service')),
+    subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_team', 'team', 'repository', 'trigger', 'service_account', 'internal_service')),
     subject_id TEXT NOT NULL,
     subject_display TEXT NOT NULL DEFAULT '',
     role_name TEXT NOT NULL,
@@ -1028,7 +1028,7 @@ CREATE TABLE resource_acl (
     id BIGSERIAL PRIMARY KEY,
     resource_type TEXT NOT NULL,
     resource_id TEXT NOT NULL,
-    subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_group', 'repository', 'trigger', 'service_account', 'internal_service')),
+    subject_type TEXT NOT NULL CHECK (subject_type IN ('user', 'auth_team', 'repository', 'trigger', 'service_account', 'internal_service')),
     subject_id TEXT NOT NULL,
     access_grant_id BIGINT REFERENCES access_grants(id) ON DELETE CASCADE,
     action TEXT NOT NULL,
@@ -1041,7 +1041,7 @@ CREATE TABLE resource_ownership (
     id BIGSERIAL PRIMARY KEY,
     resource_type TEXT NOT NULL,
     resource_id TEXT NOT NULL,
-    owner_subject_type TEXT NOT NULL CHECK (owner_subject_type IN ('user', 'auth_group', 'repository', 'trigger', 'service_account', 'internal_service')),
+    owner_subject_type TEXT NOT NULL CHECK (owner_subject_type IN ('user', 'auth_team', 'repository', 'trigger', 'service_account', 'internal_service')),
     owner_subject_id TEXT NOT NULL,
     access_grant_id BIGINT REFERENCES access_grants(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -1133,8 +1133,8 @@ ALTER TABLE data_cleanup_schedules
     ADD CONSTRAINT data_cleanup_schedules_last_job_id_fkey
     FOREIGN KEY (last_job_id) REFERENCES data_cleanup_jobs(id) ON DELETE SET NULL;
 
-CREATE INDEX idx_auth_group_members_subject ON auth_group_members(subject_type, subject_id);
-CREATE INDEX idx_auth_group_members_identity_provider ON auth_group_members(identity_provider_id, external_group_name) WHERE managed_by_identity_provider = TRUE;
+CREATE INDEX idx_auth_team_members_subject ON auth_team_members(subject_type, subject_id);
+CREATE INDEX idx_auth_team_members_identity_provider ON auth_team_members(identity_provider_id, external_team_name) WHERE managed_by_identity_provider = TRUE;
 CREATE INDEX idx_auth_role_bindings_subject ON auth_role_bindings(subject_type, subject_id);
 CREATE INDEX idx_auth_role_permissions_role_name ON auth_role_permissions(role_name);
 CREATE INDEX idx_auth_role_permissions_resource_lookup ON auth_role_permissions(resource_type, resource_id, action);
@@ -1147,9 +1147,9 @@ CREATE INDEX idx_resource_acl_resource_lookup ON resource_acl(resource_type, res
 CREATE INDEX idx_resource_acl_subject_lookup ON resource_acl(subject_type, subject_id);
 CREATE INDEX idx_authz_decision_logs_created_at ON authz_decision_logs(created_at);
 CREATE INDEX idx_authz_decision_logs_request_id ON authz_decision_logs(request_id);
-CREATE INDEX idx_groups_kind ON groups(kind);
-CREATE INDEX idx_groups_repository_full_name ON groups(repository_full_name) WHERE repository_full_name <> '';
-CREATE UNIQUE INDEX idx_groups_repository_full_name_unique ON groups(LOWER(repository_full_name)) WHERE repository_full_name <> '';
+CREATE INDEX idx_teams_kind ON teams(kind);
+CREATE INDEX idx_teams_repository_full_name ON teams(repository_full_name) WHERE repository_full_name <> '';
+CREATE UNIQUE INDEX idx_teams_repository_full_name_unique ON teams(LOWER(repository_full_name)) WHERE repository_full_name <> '';
 CREATE INDEX idx_config_repositories_scope ON config_repositories(scope_type, scope_id);
 CREATE INDEX idx_config_repositories_config_repo_id ON config_repositories(config_repo_id);
 CREATE INDEX idx_pipelines_config_repo_id ON pipelines(config_repo_id);
