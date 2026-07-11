@@ -1,18 +1,22 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { requestPipelineRunsJson } from '../features/pipeline-runs/api';
 import { fetchTeams } from '../features/teams/api';
 import type { RunListItem } from '../features/pipeline-runs/contracts';
 import {
   buildTeamPath,
   extractLatestRunSummary,
+  findTeamByURLValue,
   formatBranch,
+  normalizeTeamURLValue,
   runMatchesSearch,
   summarizeStatus,
+  teamPathForURL,
   type Team,
   type RepoSummary,
 } from '../features/pipeline-runs/runPresentation';
 import { PipelineRunsPageView } from '../features/pipeline-runs/PipelineRunsPageView';
+import { buildPipelineRunsRoute, extractTeamPathFromRoute } from '../lib/teamRoutes';
 import type {
   PipelineApproval,
   PipelineRunDetail as RunDetail,
@@ -25,6 +29,8 @@ const RECENT_INITIAL_BATCH = 30;
 const RECENT_BATCH_SIZE = 20;
 
 function PipelineRunsPage() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const { tab: tabParam } = useParams<{ tab?: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -43,16 +49,17 @@ function PipelineRunsPage() {
     return stored === 'list' ? 'list' : 'grid';
   });
 
-  const activeTeamId = useMemo(() => {
-    const raw = searchParams.get('team');
-    if (!raw) return null;
-    const parsed = Number(raw);
-    return Number.isFinite(parsed) ? parsed : null;
-  }, [searchParams]);
+  const routeTeamValue = useMemo(
+    () => normalizeTeamURLValue(extractTeamPathFromRoute(location.pathname, 'pipelineruns')),
+    [location.pathname]
+  );
+  const queryTeamValue = useMemo(() => normalizeTeamURLValue(searchParams.get('team')), [searchParams]);
+  const activeTeamValue = routeTeamValue || queryTeamValue;
 
   const activeRunId = searchParams.get('run');
 
   const [teams, setTeams] = useState<Team[]>([]);
+  const [teamsLoaded, setTeamsLoaded] = useState(false);
   const [teamsLoading, setTeamsLoading] = useState(false);
   const [teamsError, setTeamsError] = useState<string | null>(null);
 
@@ -177,6 +184,7 @@ function PipelineRunsPage() {
           params.set(key, String(value));
         }
       });
+      params.delete('team');
       setSearchParams(params, { replace: true });
     },
     [searchParams, setSearchParams]
@@ -238,6 +246,7 @@ function PipelineRunsPage() {
   );
 
   const loadTeams = useCallback(async () => {
+    setTeamsLoaded(false);
     setTeamsLoading(true);
     setTeamsError(null);
     try {
@@ -247,11 +256,34 @@ function PipelineRunsPage() {
       const message = error instanceof Error ? error.message : 'Unable to load teams';
       setTeamsError(message);
     } finally {
+      setTeamsLoaded(true);
       setTeamsLoading(false);
     }
   }, []);
 
+  const activeTeam = useMemo(() => findTeamByURLValue(activeTeamValue, teams), [activeTeamValue, teams]);
+  const activeTeamId = activeTeam?.id ?? null;
+  const activeTeamURLValue = useMemo(
+    () => (activeTeam ? teamPathForURL(activeTeam, teams) : ''),
+    [activeTeam, teams]
+  );
+
+  useEffect(() => {
+    if ((!routeTeamValue && !queryTeamValue) || !teamsLoaded) return;
+    const params = new URLSearchParams(searchParams);
+    params.delete('team');
+    if (activeTeamURLValue) {
+      if (!queryTeamValue && routeTeamValue === activeTeamURLValue) return;
+      const search = params.toString();
+      navigate(`${buildPipelineRunsRoute(activeTab, activeTeamURLValue)}${search ? `?${search}` : ''}`, { replace: true });
+    } else {
+      const search = params.toString();
+      navigate(`/pipelineruns/${activeTab}${search ? `?${search}` : ''}`, { replace: true });
+    }
+  }, [activeTab, activeTeamURLValue, navigate, queryTeamValue, routeTeamValue, searchParams, teamsLoaded]);
+
   const loadRuns = useCallback(async () => {
+    if (activeTab === 'main' && activeTeamValue && !teamsLoaded) return;
     setRunsLoading(true);
     setRunsError(null);
     try {
@@ -275,7 +307,7 @@ function PipelineRunsPage() {
     } finally {
       setRunsLoading(false);
     }
-  }, [activeTeamId, activeTab, fetchJson, fetchRecentPage, searchTerm]);
+  }, [activeTeamId, activeTab, activeTeamValue, fetchJson, fetchRecentPage, searchTerm, teamsLoaded]);
 
   const loadRunDetail = useCallback(async () => {
     if (!activeRunId) {
@@ -670,12 +702,18 @@ function PipelineRunsPage() {
 
   const onSelectTeam = useCallback(
     (teamId: number | null) => {
-      updateSearchParams({ team: teamId, run: null });
+      const team = teamId == null ? null : teams.find(item => item.id === teamId) || null;
+      const params = new URLSearchParams(searchParams);
+      params.delete('team');
+      params.delete('run');
+      const teamRoute = buildPipelineRunsRoute(activeTab, team ? teamPathForURL(team, teams) : '');
+      const search = params.toString();
+      navigate(`${teamRoute}${search ? `?${search}` : ''}`, { replace: true });
       setSelectedRunIds(new Set());
       setRunDetail(null);
       scrollMainToTop();
     },
-    [scrollMainToTop, updateSearchParams]
+    [activeTab, navigate, scrollMainToTop, searchParams, teams]
   );
 
   const isViewingDetail = Boolean(runDetail && activeRunId);
@@ -686,6 +724,7 @@ function PipelineRunsPage() {
       activeTab={activeTab}
       activeTeamId={activeTeamId}
       activeTeamPath={activeTeamPath}
+      activeTeamURLValue={activeTeamURLValue}
       activeRunId={activeRunId}
       searchTerm={searchTerm}
       searchOpen={searchOpen}

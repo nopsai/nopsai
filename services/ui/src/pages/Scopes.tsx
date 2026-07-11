@@ -41,6 +41,7 @@ import {
   type ScopePipelineMeta,
   type ScopeTriggerDescriptor,
 } from '../features/scopes/model';
+import { TEAM_ROUTE_SEGMENT, decodeTeamRouteSegments, teamScopedRoute } from '../lib/teamRoutes';
 
 function ScopesPage({
   canDeleteScopes = false,
@@ -412,7 +413,11 @@ function ScopesPage({
   useEffect(() => {
     const segments = location.pathname.split('/').filter(Boolean);
     if (segments[0] !== 'scopes') return;
-    if (segments.length > 1) {
+    const isTeamRoute = segments[1] === TEAM_ROUTE_SEGMENT;
+    if (isTeamRoute) {
+      selectedScopeRef.current = null;
+      setSelectedScope(null);
+    } else if (segments.length > 1) {
       const scopeLabel = normalizeScopeLabel(decodeScopeFromRoute(segments.slice(1)));
       if (scopeLabel !== selectedScopeRef.current) {
         selectedScopeRef.current = scopeLabel;
@@ -424,8 +429,13 @@ function ScopesPage({
     }
 
     const params = new URLSearchParams(location.search);
-    setActiveTeam(params.get('team') || '');
-  }, [location.pathname, location.search]);
+    const routeTeam = isTeamRoute ? decodeTeamRouteSegments(segments.slice(2)) : '';
+    const team = routeTeam || params.get('team') || '';
+    setActiveTeam(team);
+    if (!isTeamRoute && segments.length === 1 && params.get('team')) {
+      navigate(teamScopedRoute('/scopes', team), { replace: true });
+    }
+  }, [location.pathname, location.search, navigate]);
 
   useEffect(() => {
     if (listLoading || listError) return;
@@ -552,7 +562,7 @@ function ScopesPage({
     setActiveTeam(cleaned);
     selectedScopeRef.current = null;
     setSelectedScope(null);
-    navigate(cleaned ? `/scopes?team=${encodeURIComponent(cleaned)}` : '/scopes');
+    navigate(teamScopedRoute('/scopes', cleaned));
   };
 
   const handleSelectScope = (scopeLabel: string) => {
@@ -564,7 +574,7 @@ function ScopesPage({
 
   const handleBackToList = () => {
     if (selectedScope != null) {
-      navigate(parentScopeTeam(selectedScope) ? `/scopes?team=${encodeURIComponent(parentScopeTeam(selectedScope))}` : '/scopes');
+      navigate(teamScopedRoute('/scopes', parentScopeTeam(selectedScope)));
       return;
     }
     navigate('/scopes');

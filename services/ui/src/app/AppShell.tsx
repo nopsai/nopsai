@@ -15,8 +15,10 @@ import {
   getSidebarStatusTone,
   getStatusDotClass,
   isRunAppTeam,
+  normalizeRunTeamURLValue,
   normalizeRunStatus,
   runTeamDisplayName,
+  runTeamPathForURL,
   runTeamRepositoryURL,
   runMatchesSearch,
   summarizeStatus,
@@ -49,6 +51,7 @@ import AppHelp from '../components/AppHelp';
 import AssistantDock from '../components/AssistantDock';
 import BrandIdentity from '../components/BrandIdentity';
 import { logoutCurrentSession } from '../lib/api';
+import { buildPipelineRunsRoute, extractTeamPathFromRoute, teamScopedRoute } from '../lib/teamRoutes';
 import { currentUserDisplayName } from './userIdentity';
 
 const LoginPage = lazy(() => import('../pages/Login'));
@@ -255,11 +258,11 @@ function AppShell() {
               locationPathname={location.pathname}
               locationSearch={location.search}
               navigateTo={navigate}
-              onSelectPipelineTeam={path => navigate(path ? `/pipelines?team=${encodeURIComponent(path)}` : '/pipelines')}
-              onSelectTriggerTeam={path => navigate(path ? `/triggers?team=${encodeURIComponent(path)}` : '/triggers')}
-              onSelectStepTeam={path => navigate(path ? `/steps?team=${encodeURIComponent(path)}` : '/steps')}
-              onSelectScopeTeam={path => navigate(path ? `/scopes?team=${encodeURIComponent(path)}` : '/scopes')}
-              onSelectKnowledgeContextTeam={path => navigate(path ? `/knowledge-context?team=${encodeURIComponent(path)}` : '/knowledge-context')}
+              onSelectPipelineTeam={path => navigate(teamScopedRoute('/pipelines', path))}
+              onSelectTriggerTeam={path => navigate(teamScopedRoute('/triggers', path))}
+              onSelectStepTeam={path => navigate(teamScopedRoute('/steps', path))}
+              onSelectScopeTeam={path => navigate(teamScopedRoute('/scopes', path))}
+              onSelectKnowledgeContextTeam={path => navigate(teamScopedRoute('/knowledge-context', path))}
             />
             <div
               id="sidebar-resizer"
@@ -377,7 +380,22 @@ function Sidebar({
   const searchParams = useMemo(() => new URLSearchParams(locationSearch), [locationSearch]);
   const pipelineRunsTab: RunTabKey =
     locationPathname.startsWith('/pipelineruns/recent') ? 'recent' : locationPathname.startsWith('/pipelineruns/events') ? 'events' : 'main';
-  const activeTeam = searchParams.get('team') || '';
+  const activeTeam = useMemo(() => {
+    const root = isPipelinesRoute
+      ? 'pipelines'
+      : isTriggersRoute
+        ? 'triggers'
+        : isStepsRoute
+          ? 'steps'
+          : isScopesRoute
+            ? 'scopes'
+            : isKnowledgeContextRoute
+              ? 'knowledge-context'
+              : isPipelineRunsRoute
+                ? 'pipelineruns'
+                : '';
+    return (root ? extractTeamPathFromRoute(locationPathname, root) : '') || searchParams.get('team') || '';
+  }, [isKnowledgeContextRoute, isPipelineRunsRoute, isPipelinesRoute, isScopesRoute, isStepsRoute, isTriggersRoute, locationPathname, searchParams]);
   const encodeKnowledgeContextRoute = (id: string) => `/knowledge-context/${id.split('/').filter(Boolean).map(encodeURIComponent).join('/')}`;
   const activeKnowledgeContextID = (() => {
     const prefix = '/knowledge-context/';
@@ -774,6 +792,7 @@ function Sidebar({
               <PipelineRunsSidebarContent
                 tab={pipelineRunsTab}
                 searchParams={searchParams}
+                locationPathname={locationPathname}
                 navigateTo={navigateTo}
                 onClose={onClose}
               />
@@ -829,21 +848,23 @@ function Sidebar({
 function PipelineRunsSidebarContent({
   tab,
   searchParams,
+  locationPathname,
   navigateTo,
   onClose,
 }: {
   tab: RunTabKey;
   searchParams: URLSearchParams;
+  locationPathname: string;
   navigateTo: (path: string) => void;
   onClose?: () => void;
 }) {
   const autoScrolledRunIdRef = useRef<string | null>(null);
   const searchTerm = (searchParams.get('q') || '').trim().toLowerCase();
   const activeRunId = searchParams.get('run');
-  const activeTeamId = useMemo(() => {
-    const raw = Number(searchParams.get('team'));
-    return Number.isFinite(raw) ? raw : null;
-  }, [searchParams]);
+  const activeTeamValue = useMemo(
+    () => normalizeRunTeamURLValue(extractTeamPathFromRoute(locationPathname, 'pipelineruns') || searchParams.get('team')),
+    [locationPathname, searchParams]
+  );
   const {
     teams,
     teamsLoading,
@@ -858,31 +879,37 @@ function PipelineRunsSidebarContent({
     loadMoreRecentRuns,
     toggleTeam,
     toggleBranch,
-  } = usePipelineRunsSidebar({ activeTeamId, activeRunId, tab });
+  } = usePipelineRunsSidebar({ activeTeamValue, activeRunId, tab });
 
   const handleSelectTeam = useCallback(
     (teamId: number | null) => {
       const params = new URLSearchParams(searchParams);
-      if (teamId === null) params.delete('team');
-      else params.set('team', String(teamId));
+      const team = teamId === null ? null : teams.find(item => item.id === teamId) || null;
+      const teamPath = team ? runTeamPathForURL(team, teams) : '';
+      params.delete('team');
       params.delete('run');
-      const base = tab === 'recent' ? '/pipelineruns/recent' : tab === 'events' ? '/pipelineruns/events' : '/pipelineruns/main';
+      const base = buildPipelineRunsRoute(tab, teamPath);
       navigateTo(`${base}${params.toString() ? `?${params.toString()}` : ''}`);
       onClose?.();
     },
-    [navigateTo, onClose, searchParams, tab]
+    [navigateTo, onClose, searchParams, tab, teams]
   );
 
   const handleOpenRun = useCallback(
     (runId: string, teamId?: number | null) => {
       const params = new URLSearchParams(searchParams);
-      if (teamId) params.set('team', String(teamId));
+      let teamPath = activeTeamValue;
+      if (teamId) {
+        const team = teams.find(item => item.id === teamId) || null;
+        if (team) teamPath = runTeamPathForURL(team, teams);
+      }
+      params.delete('team');
       params.set('run', runId);
-      const base = tab === 'recent' ? '/pipelineruns/recent' : tab === 'events' ? '/pipelineruns/events' : '/pipelineruns/main';
+      const base = buildPipelineRunsRoute(tab, teamPath);
       navigateTo(`${base}?${params.toString()}`);
       onClose?.();
     },
-    [navigateTo, onClose, searchParams, tab]
+    [activeTeamValue, navigateTo, onClose, searchParams, tab, teams]
   );
 
   useEffect(() => {

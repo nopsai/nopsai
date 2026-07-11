@@ -36,6 +36,7 @@ import {
   type TriggerListItem,
   type TriggerRun,
 } from '../features/triggers/model';
+import { TEAM_ROUTE_SEGMENT, buildPipelineRunsRoute, decodeTeamRouteSegments, teamScopedRoute } from '../lib/teamRoutes';
 
 const INITIAL_RECENT_RUNS = 5;
 const RUNS_PAGE_SIZE = 10;
@@ -455,7 +456,7 @@ function TriggersPage({
     setActiveTeam(cleaned);
     setSelectedSlug(null);
     selectedSlugRef.current = null;
-    navigate(cleaned ? `/triggers?team=${encodeURIComponent(cleaned)}` : '/triggers');
+    navigate(teamScopedRoute('/triggers', cleaned));
   };
 
   const handleSelectSlug = useCallback((slug: string) => {
@@ -560,7 +561,11 @@ function TriggersPage({
   useEffect(() => {
     const segments = location.pathname.split('/').filter(Boolean);
     if (segments[0] !== 'triggers') return;
-    if (segments.length > 1) {
+    const isTeamRoute = segments[1] === TEAM_ROUTE_SEGMENT;
+    if (isTeamRoute) {
+      setSelectedSlug(null);
+      selectedSlugRef.current = null;
+    } else if (segments.length > 1) {
       const slug = segments.slice(1).map(decodeURIComponent).join('/');
       if (slug !== selectedSlugRef.current) {
         setSelectedSlug(slug);
@@ -572,9 +577,13 @@ function TriggersPage({
     }
 
     const params = new URLSearchParams(location.search);
-    const team = params.get('team') || '';
+    const routeTeam = isTeamRoute ? decodeTeamRouteSegments(segments.slice(2)) : '';
+    const team = routeTeam || params.get('team') || '';
     setActiveTeam(team);
-  }, [location.pathname, location.search]);
+    if (!isTeamRoute && segments.length === 1 && params.get('team')) {
+      navigate(teamScopedRoute('/triggers', team), { replace: true });
+    }
+  }, [location.pathname, location.search, navigate]);
 
   useEffect(() => {
     if (listLoading || listError) return;
@@ -801,7 +810,10 @@ function TriggersPage({
             onBack={handleBackToList}
             onOpenScope={scope => navigate(`/scopes/${scope ? encodeURIComponent(scope) : 'default'}`)}
             onOpenPipeline={identifier => navigate(`/pipelines/${identifier.split('/').map(encodeURIComponent).join('/')}`)}
-            onOpenRun={runId => navigate(`/pipelineruns/recent/${encodeURIComponent(runId)}`)}
+            onOpenRun={runId => {
+              const team = detail ? teamForSlug(detail.slug) : activeTeam;
+              navigate(`${buildPipelineRunsRoute('recent', team)}?run=${encodeURIComponent(runId)}`);
+            }}
             onRecentRunsScroll={handleRecentRunsScroll}
             onCopy={() => void handleCopyYaml()}
             onDownload={handleDownloadYaml}
