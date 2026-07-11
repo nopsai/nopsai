@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { Pencil, Save, Star, Trash2 } from 'lucide-react';
 import type {
   TeamAgentProfile,
@@ -42,6 +42,8 @@ type MCPFormState = {
   allowed_scopes: string;
 };
 
+type FormStateUpdate<T> = T | ((previous: T) => T);
+
 const emptyLLMForm: LLMFormState = {
   name: '',
   provider: 'openai',
@@ -71,6 +73,10 @@ const emptyMCPForm: MCPFormState = {
   servers: '',
   allowed_scopes: '',
 };
+
+function applyFormStateUpdate<T>(previous: T, update: FormStateUpdate<T>): T {
+  return typeof update === 'function' ? (update as (previous: T) => T)(previous) : update;
+}
 
 export function TeamAIProfilesPanel({
   llmProfiles,
@@ -110,9 +116,9 @@ export function TeamAIProfilesPanel({
   onCheckDrift: () => Promise<void>;
 }) {
   const [activeProfileTab, setActiveProfileTab] = useState<'llm' | 'agent' | 'mcp'>('llm');
-  const [llmForm, setLLMForm] = useState<LLMFormState>(emptyLLMForm);
-  const [agentForm, setAgentForm] = useState<AgentFormState>(emptyAgentForm);
-  const [mcpForm, setMCPForm] = useState<MCPFormState>(emptyMCPForm);
+  const [llmFormDraft, setLLMFormDraft] = useState<LLMFormState | null>(null);
+  const [agentFormDraft, setAgentFormDraft] = useState<AgentFormState | null>(null);
+  const [mcpFormDraft, setMCPFormDraft] = useState<MCPFormState | null>(null);
   const canEdit = canManage && !saving && !loading;
   const inputClass = 'pipelines-input w-full text-sm disabled:cursor-not-allowed disabled:opacity-70';
   const textareaClass = `${inputClass} min-h-[92px] resize-y`;
@@ -130,17 +136,15 @@ export function TeamAIProfilesPanel({
   const sortedAgentProfiles = useMemo(() => [...(agentProfiles?.profiles ?? [])].sort((a, b) => a.id.localeCompare(b.id)), [agentProfiles]);
   const sortedMCPProfiles = useMemo(() => [...(mcpProfiles?.profiles ?? [])].sort((a, b) => a.name.localeCompare(b.name)), [mcpProfiles]);
 
-  useEffect(() => {
-    if (!llmForm.name && sortedLLMProfiles[0]) setLLMForm(llmProfileToForm(sortedLLMProfiles[0]));
-  }, [llmForm.name, sortedLLMProfiles]);
-
-  useEffect(() => {
-    if (!agentForm.id && sortedAgentProfiles[0]) setAgentForm(agentProfileToForm(sortedAgentProfiles[0]));
-  }, [agentForm.id, sortedAgentProfiles]);
-
-  useEffect(() => {
-    if (!mcpForm.name && sortedMCPProfiles[0]) setMCPForm(mcpProfileToForm(sortedMCPProfiles[0]));
-  }, [mcpForm.name, sortedMCPProfiles]);
+  const defaultLLMForm = useMemo(() => sortedLLMProfiles[0] ? llmProfileToForm(sortedLLMProfiles[0]) : emptyLLMForm, [sortedLLMProfiles]);
+  const defaultAgentForm = useMemo(() => sortedAgentProfiles[0] ? agentProfileToForm(sortedAgentProfiles[0]) : emptyAgentForm, [sortedAgentProfiles]);
+  const defaultMCPForm = useMemo(() => sortedMCPProfiles[0] ? mcpProfileToForm(sortedMCPProfiles[0]) : emptyMCPForm, [sortedMCPProfiles]);
+  const llmForm = llmFormDraft ?? defaultLLMForm;
+  const agentForm = agentFormDraft ?? defaultAgentForm;
+  const mcpForm = mcpFormDraft ?? defaultMCPForm;
+  const setLLMForm = (update: FormStateUpdate<LLMFormState>) => setLLMFormDraft(previous => applyFormStateUpdate(previous ?? defaultLLMForm, update));
+  const setAgentForm = (update: FormStateUpdate<AgentFormState>) => setAgentFormDraft(previous => applyFormStateUpdate(previous ?? defaultAgentForm, update));
+  const setMCPForm = (update: FormStateUpdate<MCPFormState>) => setMCPFormDraft(previous => applyFormStateUpdate(previous ?? defaultMCPForm, update));
 
   if (loading) {
     return <div className="text-sm text-[var(--text-secondary)]">Loading AI profiles...</div>;

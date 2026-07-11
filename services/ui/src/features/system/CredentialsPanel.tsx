@@ -29,32 +29,41 @@ function CredentialsPanel({ canManage }: { canManage: boolean }) {
   const controller = useCredentials({ canManage });
   const [searchParams, setSearchParams] = useSearchParams();
   const linkedCredentialRef = (searchParams.get('credential') || '').trim();
+  const {
+    closeDetails,
+    creating,
+    credentials,
+    loading,
+    selectCredential: selectControllerCredential,
+    selected,
+    startCreate: startControllerCreate,
+  } = controller;
 
   useEffect(() => {
-    if (!linkedCredentialRef || controller.loading || controller.creating) return;
-    const match = controller.credentials.find(credential => credential.reference === linkedCredentialRef);
-    if (match && controller.selected?.id !== match.id) void controller.selectCredential(match);
-  }, [controller.credentials, controller.creating, controller.loading, controller.selected?.id, controller.selectCredential, linkedCredentialRef]);
+    if (!linkedCredentialRef || loading || creating) return;
+    const match = credentials.find(credential => credential.reference === linkedCredentialRef);
+    if (match && selected?.id !== match.id) void selectControllerCredential(match);
+  }, [credentials, creating, linkedCredentialRef, loading, selectControllerCredential, selected?.id]);
 
   const selectCredential = (credential: CredentialRecord) => {
     const next = new URLSearchParams(searchParams);
     next.set('credential', credential.reference);
     setSearchParams(next, { replace: true });
-    void controller.selectCredential(credential);
+    void selectControllerCredential(credential);
   };
 
   const closeCredentialDetails = () => {
     const next = new URLSearchParams(searchParams);
     next.delete('credential');
     setSearchParams(next, { replace: true });
-    controller.closeDetails();
+    closeDetails();
   };
 
   const startCreate = () => {
     const next = new URLSearchParams(searchParams);
     next.delete('credential');
     setSearchParams(next, { replace: true });
-    controller.startCreate();
+    startControllerCreate();
   };
 
   // A new linked credential gets a fresh filter view. This models URL state as
