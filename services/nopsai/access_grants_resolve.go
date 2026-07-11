@@ -74,6 +74,14 @@ func normalizeAccessGrantResourceType(raw string) (string, error) {
 		return grantResourceConfig, nil
 	case grantResourceKnowledgeContext:
 		return grantResourceKnowledgeContext, nil
+	case grantResourceLLMProfile:
+		return grantResourceLLMProfile, nil
+	case grantResourceAgentProfile:
+		return grantResourceAgentProfile, nil
+	case grantResourceMCPServer:
+		return grantResourceMCPServer, nil
+	case grantResourceMCPProfile:
+		return grantResourceMCPProfile, nil
 	case grantResourceCompany, grantResourcePlatform:
 		return grantResourcePlatform, nil
 	default:
@@ -443,6 +451,14 @@ func resolveAccessGrantResource(ctx context.Context, runner queryRunner, rawType
 			}
 		}
 		return accessGrantResource{Type: resourceType, ID: resourceID, Display: resourceID}, nil
+	case grantResourceLLMProfile:
+		return resolveNamedTableGrantResource(ctx, runner, resourceType, rawID, requireExists, "llm_profiles", "name")
+	case grantResourceAgentProfile:
+		return resolveNamedTableGrantResource(ctx, runner, resourceType, rawID, requireExists, "agent_profiles", "id")
+	case grantResourceMCPServer:
+		return resolveNamedTableGrantResource(ctx, runner, resourceType, rawID, requireExists, "mcp_servers", "name")
+	case grantResourceMCPProfile:
+		return resolveNamedTableGrantResource(ctx, runner, resourceType, rawID, requireExists, "mcp_profiles", "name")
 	case grantResourceSecret, grantResourceVariable:
 		if rawID == "" {
 			return accessGrantResource{}, fmt.Errorf("resource_id is required")
@@ -466,6 +482,24 @@ func resolveAccessGrantResource(ctx context.Context, runner queryRunner, rawType
 	default:
 		return accessGrantResource{}, fmt.Errorf("unsupported resource_type")
 	}
+}
+
+func resolveNamedTableGrantResource(ctx context.Context, runner queryRunner, resourceType, rawID string, requireExists bool, tableName, columnName string) (accessGrantResource, error) {
+	resourceID := strings.Trim(strings.TrimSpace(rawID), "/")
+	if resourceID == "" {
+		return accessGrantResource{}, fmt.Errorf("resource_id is required")
+	}
+	if requireExists && resourceID != "*" {
+		var exists int
+		err := runner.QueryRow(ctx, fmt.Sprintf(`SELECT 1 FROM %s WHERE %s = $1 LIMIT 1`, tableName, columnName), resourceID).Scan(&exists)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+				return accessGrantResource{}, fmt.Errorf("resource not found")
+			}
+			return accessGrantResource{}, err
+		}
+	}
+	return accessGrantResource{Type: resourceType, ID: resourceID, Display: resourceID}, nil
 }
 
 func isDefaultScopeGrantResource(id, display string) bool {
@@ -715,6 +749,14 @@ func managementActionForGrantResource(resource accessGrantResource) (string, mod
 		return "step.manage_acl", model.ResourceRef{Type: grantResourceStep, ID: resource.ID}, nil
 	case grantResourceKnowledgeContext:
 		return "knowledge_context.manage_access", model.ResourceRef{Type: grantResourceKnowledgeContext, ID: resource.ID}, nil
+	case grantResourceLLMProfile:
+		return "llm_profile.manage_acl", model.ResourceRef{Type: grantResourceLLMProfile, ID: resource.ID}, nil
+	case grantResourceAgentProfile:
+		return "agent_profile.manage_acl", model.ResourceRef{Type: grantResourceAgentProfile, ID: resource.ID}, nil
+	case grantResourceMCPServer:
+		return "mcp_server.manage_acl", model.ResourceRef{Type: grantResourceMCPServer, ID: resource.ID}, nil
+	case grantResourceMCPProfile:
+		return "mcp_profile.manage_acl", model.ResourceRef{Type: grantResourceMCPProfile, ID: resource.ID}, nil
 	case grantResourceRunner:
 		return "system.update", model.ResourceRef{Type: "dispatcher", ID: "runners"}, nil
 	case grantResourceConfig:

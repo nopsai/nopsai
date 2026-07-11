@@ -166,6 +166,9 @@ function AppShell() {
       })
       .filter(item => {
         if (item.path.startsWith('/system')) return canViewAnySystem;
+        if (item.path === '/llm-profiles') return canViewSystemLLMProfiles;
+        if (item.path === '/agent-profiles') return canViewSystemAgentProfiles;
+        if (item.path === '/mcp') return canViewSystemMCP;
         if (item.path === '/schedules') return canViewSchedules;
         if (item.path === '/triggers') return canViewTriggers;
         if (item.path === '/external-triggers') return canViewExternalTriggers;
@@ -174,15 +177,12 @@ function AppShell() {
         if (item.path === '/knowledge-context') return canViewKnowledge;
         return true;
       });
-  }, [canViewAnySystem, canViewExternalTriggers, canViewGitWebhookSources, canViewKnowledge, canViewSchedules, canViewScopes, canViewTriggers, location.pathname, preferredSystemPath]);
+  }, [canViewAnySystem, canViewExternalTriggers, canViewGitWebhookSources, canViewKnowledge, canViewSchedules, canViewScopes, canViewSystemAgentProfiles, canViewSystemLLMProfiles, canViewSystemMCP, canViewTriggers, location.pathname, preferredSystemPath]);
   const systemSubNav = useMemo(
     () =>
       baseSystemSubNav.filter(item => {
         if (item.path === '/system/config') return canViewSystemConfig;
         if (item.path === '/system/setup') return canViewSystemSetup;
-        if (item.path === '/system/llm-profiles') return canViewSystemLLMProfiles;
-        if (item.path === '/system/agent-profiles') return canViewSystemAgentProfiles;
-        if (item.path === '/system/mcp') return canViewSystemMCP;
         if (item.path === '/system/credentials') return canViewSystemCredentials;
         if (item.path === '/system/data-management') return canViewSystemRuntimeConfig;
         if (item.path === '/system/dispatcher') return canViewSystemDispatcher;
@@ -190,7 +190,7 @@ function AppShell() {
         if (item.path === '/system/access') return canViewSystemAccess;
         return false;
       }),
-    [canViewSystemAccess, canViewSystemAgentProfiles, canViewSystemConfig, canViewSystemCredentials, canViewSystemDispatcher, canViewSystemLogs, canViewSystemLLMProfiles, canViewSystemMCP, canViewSystemRuntimeConfig, canViewSystemSetup]
+    [canViewSystemAccess, canViewSystemConfig, canViewSystemCredentials, canViewSystemDispatcher, canViewSystemLogs, canViewSystemRuntimeConfig, canViewSystemSetup]
   );
 
   useInitialSetupRedirect({
@@ -770,11 +770,11 @@ function Sidebar({
       ></div>
       <aside
         id="sidebar"
-        className={`bg-[var(--bg-secondary)] border-r border-[var(--border-primary)] flex-shrink-0 flex flex-col transition-transform duration-300 ease-in-out h-full z-20 w-80 sidebar-scrollbar overflow-hidden
+        className={`app-sidebar-shell bg-[var(--bg-secondary)] border-r border-[var(--border-primary)] flex-shrink-0 flex flex-col transition-transform duration-300 ease-in-out h-full z-20 w-80 sidebar-scrollbar overflow-hidden
           ${open ? 'translate-x-0' : '-translate-x-full'} sm:translate-x-0 fixed sm:static`}
         style={{ width, minWidth: SIDEBAR_MIN_WIDTH, maxWidth: SIDEBAR_MAX_WIDTH }}
       >
-        <div className="flex items-center justify-between px-6 h-16 border-b border-[var(--border-primary)] flex-shrink-0">
+        <div className="app-sidebar-brand-row flex items-center justify-between px-6 h-16 border-b border-[var(--border-primary)] flex-shrink-0">
           <BrandIdentity className="sidebar-brand" />
           <button
             id="close-sidebar-btn"
@@ -787,7 +787,7 @@ function Sidebar({
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto sidebar-scrollbar">
           <BaseSidebarNavigation navItems={navItems} systemSubNav={systemSubNav} locationPathname={locationPathname} />
-          <nav id="sidebar-details-nav" className="border-t border-[var(--border-primary)] px-4 py-4 space-y-2" aria-label="Contextual">
+          <nav id="sidebar-details-nav" className="sidebar-context-nav border-t border-[var(--border-primary)] px-4 py-4 space-y-2" aria-label="Contextual">
             {isPipelineRunsRoute ? (
               <PipelineRunsSidebarContent
                 tab={pipelineRunsTab}

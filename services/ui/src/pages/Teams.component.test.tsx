@@ -49,7 +49,7 @@ describe('TeamsPage', () => {
 
     renderTeams('/teams/team/platform');
 
-    expect(await screen.findByText('service-api')).toBeVisible();
+    expect((await screen.findAllByText('service-api'))[0]).toBeVisible();
     expect(document.querySelector('[data-page="teams"]')).toHaveClass('active');
     expect(screen.getAllByText('platform').length).toBeGreaterThan(0);
     expect(screen.getByRole('link', { name: 'acme/service-api' })).toHaveAttribute(
@@ -74,7 +74,7 @@ describe('TeamsPage', () => {
 
     renderTeams('/teams/team/missing/team');
 
-    await screen.findByText('platform');
+    await screen.findAllByText('platform');
     expect(screen.getAllByText('platform').length).toBeGreaterThan(0);
     expect(screen.queryByRole('heading', { name: 'No visible teams' })).not.toBeInTheDocument();
   });
@@ -114,8 +114,8 @@ describe('TeamsPage', () => {
     const user = userEvent.setup();
     renderTeams('/teams/team/platform');
 
-    await screen.findByText('service-api');
-    await user.click(screen.getByRole('button', { name: 'New' }));
+    await screen.findAllByText('service-api');
+    await user.click(screen.getAllByRole('button', { name: 'New' })[0]);
     expect(screen.getByRole('dialog', { name: 'Create Team Item' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Application' }));
     await user.type(screen.getByLabelText('Application Name'), 'worker');

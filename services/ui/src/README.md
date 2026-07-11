@@ -58,6 +58,24 @@ truth; this file is the source-adjacent placement guide.
 - GitOps secret encryption must remain compatible with config-repository
   workflows and avoid exposing plaintext after encryption.
 
+### Teams
+
+- `pages/Teams.tsx` owns URL-level selection, Teams API loading, create/delete
+  mutation handlers, and modal composition for GitOps, notifications, AI
+  profiles, and drift review.
+- `features/teams/model.ts` owns pure hierarchy, subtree metric, filtering,
+  timestamp, parent, and kind-label rules for the Teams workspace.
+- `features/teams/workspaceModel.ts` owns UI-only tab metadata and table copy
+  helpers for the Teams workspace.
+- `features/teams/TeamsWorkspace.tsx` owns master-detail composition, toolbar,
+  tree navigation, high-level summary cards, and responsive layout hooks.
+- `features/teams/TeamsWorkspacePanels.tsx` owns detail-tab panels, scoped
+  activity cards, resource tables, empty states, and table copy helpers.
+- `features/teams/teams.css` owns the scoped Teams workspace styling.
+- Team settings, notification routes, AI profile editors, and config repository
+  orchestration remain in their existing `features/teams` modules so GitOps and
+  AAA behavior stay compatible with the rest of the enterprise UI.
+
 ### Pipeline Runs
 
 - Run list presentation, selected-run detail, graph rendering, graph dialogs,
@@ -83,8 +101,21 @@ truth; this file is the source-adjacent placement guide.
 - Access-specific catalogs, policy fields, grant editors, token panels,
   confirmation dialogs, resource catalogs, and presentation helpers belong under
   `features/system/access`.
-- Runtime config, dispatcher, data management, setup, LLM profile, and MCP
-  behavior should stay in their existing system subfeatures.
+- Runtime config, dispatcher, data management, credentials, setup, access, and
+  logs stay under the System route.
+- LLM profiles, agent profiles, and MCP are first-class workspace routes. Their
+  model/API/hook/panel code can remain under `features/system` while the route
+  wrappers live in `pages/`, because the backend capabilities still use the
+  existing system profile permissions.
+- `features/system/AIResourcePanel.tsx`, `features/system/aiResourcePanel.css`,
+  and `features/system/aiResourcePresentation.ts` own the shared hero, stats,
+  search, count, labeled resource rows, compact icon actions, split profile
+  detail layouts, and responsive presentation for LLM, agent, and MCP resource
+  pages; domain panels still own filtering inputs, mutations, and side-panel
+  rendering.
+- Individual LLM profiles, agent profiles, MCP servers, and MCP profiles share
+  access through `ResourceAccessCard` with `llm_profile`, `agent_profile`,
+  `mcp_server`, and `mcp_profile` resource types.
 - System workflows that generate GitOps commands or deployment snippets must
   preserve copyable, deterministic output.
 

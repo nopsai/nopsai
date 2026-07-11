@@ -212,6 +212,38 @@ export const AAA_RESOURCE_TYPE_CONFIGS: AAAResourceTypeConfig[] = [
     allLabel: 'All variables',
     customPlaceholder: 'repo=owner/repo&scope=prod&name=TIMEOUT',
   },
+  {
+    value: 'llm_profile',
+    label: 'LLM profile',
+    targetLabel: 'Profile',
+    allowAll: true,
+    allLabel: 'All LLM profiles',
+    customPlaceholder: 'hosted',
+  },
+  {
+    value: 'agent_profile',
+    label: 'Agent profile',
+    targetLabel: 'Profile',
+    allowAll: true,
+    allLabel: 'All agent profiles',
+    customPlaceholder: 'sre',
+  },
+  {
+    value: 'mcp_server',
+    label: 'MCP server',
+    targetLabel: 'Server',
+    allowAll: true,
+    allLabel: 'All MCP servers',
+    customPlaceholder: 'github',
+  },
+  {
+    value: 'mcp_profile',
+    label: 'MCP profile',
+    targetLabel: 'Profile',
+    allowAll: true,
+    allLabel: 'All MCP profiles',
+    customPlaceholder: 'github-pr-review',
+  },
 ];
 
 const AAA_ALL_ACTION_OPTION_TEAMS: AAAOptionTeam[] = [
@@ -329,6 +361,23 @@ const AAA_ALL_ACTION_OPTION_TEAMS: AAAOptionTeam[] = [
       { value: 'variable.delete', label: 'delete' },
     ],
   },
+  {
+    label: 'AI Profiles',
+    options: [
+      { value: 'llm_profile.read', label: 'read LLM profile' },
+      { value: 'llm_profile.use', label: 'use LLM profile' },
+      { value: 'llm_profile.manage_acl', label: 'manage LLM access' },
+      { value: 'agent_profile.read', label: 'read agent profile' },
+      { value: 'agent_profile.use', label: 'use agent profile' },
+      { value: 'agent_profile.manage_acl', label: 'manage agent access' },
+      { value: 'mcp_server.read', label: 'read MCP server' },
+      { value: 'mcp_server.use', label: 'use MCP server' },
+      { value: 'mcp_server.manage_acl', label: 'manage MCP server access' },
+      { value: 'mcp_profile.read', label: 'read MCP profile' },
+      { value: 'mcp_profile.use', label: 'use MCP profile' },
+      { value: 'mcp_profile.manage_acl', label: 'manage MCP profile access' },
+    ],
+  },
 ];
 
 const AAA_ACTION_OPTION_TEAMS_BY_SELECTOR: Record<string, AAAOptionTeam[]> = {
@@ -346,6 +395,9 @@ const AAA_ACTION_OPTION_TEAMS_BY_SELECTOR: Record<string, AAAOptionTeam[]> = {
   'repository:*': [{ label: 'Repository actions', options: [{ value: 'system.read', label: 'read' }] }],
 };
 
+const aiProfileActionOptions = (prefix: string) =>
+  AAA_ALL_ACTION_OPTION_TEAMS.find(team => team.label === 'AI Profiles')?.options.filter(option => option.value.startsWith(prefix)) || [];
+
 const AAA_ACTION_OPTION_TEAMS_BY_RESOURCE_TYPE: Record<string, AAAOptionTeam[]> = {
   '*': AAA_ALL_ACTION_OPTION_TEAMS,
   team: [{ label: 'Team actions', options: AAA_ALL_ACTION_OPTION_TEAMS.find(team => team.label === 'Teams')?.options || [] }],
@@ -357,6 +409,10 @@ const AAA_ACTION_OPTION_TEAMS_BY_RESOURCE_TYPE: Record<string, AAAOptionTeam[]> 
   git_webhook_source: [{ label: 'Git webhook source actions', options: AAA_ALL_ACTION_OPTION_TEAMS.find(team => team.label === 'Git Webhook Sources')?.options || [] }],
   secret: [{ label: 'Secret actions', options: AAA_ALL_ACTION_OPTION_TEAMS.find(team => team.label === 'Secrets')?.options || [] }],
   variable: [{ label: 'Variable actions', options: AAA_ALL_ACTION_OPTION_TEAMS.find(team => team.label === 'Variables')?.options || [] }],
+  llm_profile: [{ label: 'LLM profile actions', options: aiProfileActionOptions('llm_profile.') }],
+  agent_profile: [{ label: 'Agent profile actions', options: aiProfileActionOptions('agent_profile.') }],
+  mcp_server: [{ label: 'MCP server actions', options: aiProfileActionOptions('mcp_server.') }],
+  mcp_profile: [{ label: 'MCP profile actions', options: aiProfileActionOptions('mcp_profile.') }],
   system: [{ label: 'System actions', options: AAA_ALL_ACTION_OPTION_TEAMS.find(team => team.label === 'System')?.options || [] }],
   system_log: [{ label: 'System log actions', options: [{ value: 'system_log.read', label: 'read' }] }],
   repository: [{ label: 'Repository actions', options: [{ value: 'system.read', label: 'read' }] }],

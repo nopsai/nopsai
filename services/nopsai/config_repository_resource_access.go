@@ -367,6 +367,14 @@ func resourceTypeForUseActions(actions []string) string {
 			return grantResourceScope
 		case strings.HasPrefix(action, "knowledge_context."):
 			return grantResourceKnowledgeContext
+		case strings.HasPrefix(action, "llm_profile."):
+			return grantResourceLLMProfile
+		case strings.HasPrefix(action, "agent_profile."):
+			return grantResourceAgentProfile
+		case strings.HasPrefix(action, "mcp_server."):
+			return grantResourceMCPServer
+		case strings.HasPrefix(action, "mcp_profile."):
+			return grantResourceMCPProfile
 		}
 	}
 	return ""

@@ -426,8 +426,9 @@ function mcpProfileToForm(profile: TeamMCPProfile): MCPFormState {
 
 async function submitLLMForm(event: FormEvent, form: LLMFormState, onSave: (profileName: string, payload: TeamLLMProfilePayload) => Promise<void>) {
   event.preventDefault();
-  await onSave(form.name, {
-    name: form.name.trim(),
+  const name = form.name.trim();
+  await onSave(name, {
+    name,
     provider: form.provider.trim(),
     model: form.model.trim(),
     base_url: form.base_url.trim(),
@@ -442,8 +443,9 @@ async function submitLLMForm(event: FormEvent, form: LLMFormState, onSave: (prof
 
 async function submitAgentForm(event: FormEvent, form: AgentFormState, onSave: (profileID: string, payload: TeamAgentProfilePayload) => Promise<void>) {
   event.preventDefault();
-  await onSave(form.id, {
-    id: form.id.trim(),
+  const id = form.id.trim();
+  await onSave(id, {
+    id,
     display_name: form.display_name.trim(),
     role: form.role.trim(),
     description: form.description.trim(),
@@ -454,8 +456,9 @@ async function submitAgentForm(event: FormEvent, form: AgentFormState, onSave: (
 
 async function submitMCPForm(event: FormEvent, form: MCPFormState, onSave: (profileName: string, payload: TeamMCPProfilePayload) => Promise<void>) {
   event.preventDefault();
-  await onSave(form.name, {
-    name: form.name.trim(),
+  const name = form.name.trim();
+  await onSave(name, {
+    name,
     description: form.description.trim(),
     enabled: form.enabled,
     servers: parseServerRefs(form.servers),

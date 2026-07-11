@@ -1,12 +1,13 @@
 import type { KeyboardEvent, RefObject, UIEvent } from 'react';
 import { Copy, Download } from 'lucide-react';
 import ResourceAccessCard from '../../components/ResourceAccessCard';
+import type { ResourceAccessResourceType } from '../../components/ResourceAccessCard';
 import { renderYamlHighlight, renderYamlLines } from '../../lib/yamlRenderer';
 import { EditorAutocompleteMenu, type EditorAutocompleteSuggestion } from './EditorAutocompleteMenu';
 import { YamlValidationPanel, type YamlValidationError } from './YamlValidationPanel';
 
 type ResourceYamlAccess = {
-  resourceType: 'pipeline' | 'scope' | 'step' | 'runner' | 'config_repo' | 'knowledge_context';
+  resourceType: ResourceAccessResourceType;
   resourceID: string;
   label: string;
 } | null;

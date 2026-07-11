@@ -18,6 +18,9 @@ const KnowledgeContextPage = lazy(() => import('../pages/KnowledgeContext'));
 const ProductDocsPage = lazy(() => import('../pages/ProductDocs'));
 const MonitoringPage = lazy(() => import('../pages/Monitoring'));
 const AssistantPage = lazy(() => import('../pages/Assistant'));
+const LLMProfilesPage = lazy(() => import('../pages/LLMProfiles'));
+const AgentProfilesPage = lazy(() => import('../pages/AgentProfiles'));
+const MCPPage = lazy(() => import('../pages/MCP'));
 const SystemPage = lazy(() => import('../pages/System'));
 const ProfilePage = lazy(() => import('../pages/Profile'));
 
@@ -51,6 +54,30 @@ export function AppRoutes({
         <Route path="/monitoring" element={<MonitoringPage />} />
         <Route path="/teams/*" element={<TeamsPage />} />
         <Route path="/assistant" element={<AssistantPage />} />
+        <Route
+          path="/llm-profiles"
+          element={
+            <PermissionGuard allowed={access.canViewSystemLLMProfiles} loading={currentUserLoading}>
+              <LLMProfilesPage canManage={access.canManageSystemLLMProfiles} />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="/agent-profiles"
+          element={
+            <PermissionGuard allowed={access.canViewSystemAgentProfiles} loading={currentUserLoading}>
+              <AgentProfilesPage canManage={access.canManageSystemAgentProfiles} />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="/mcp"
+          element={
+            <PermissionGuard allowed={access.canViewSystemMCP} loading={currentUserLoading}>
+              <MCPPage canManage={access.canManageSystemMCP} />
+            </PermissionGuard>
+          }
+        />
         <Route path="/docs" element={<ProductDocsPage />} />
         <Route
           path="/pipelines/*"
@@ -131,6 +158,9 @@ export function AppRoutes({
             </PermissionGuard>
           }
         />
+        <Route path="/system/llm-profiles" element={<Navigate to="/llm-profiles" replace />} />
+        <Route path="/system/agent-profiles" element={<Navigate to="/agent-profiles" replace />} />
+        <Route path="/system/mcp" element={<Navigate to="/mcp" replace />} />
         <Route
           path="/system/:tab?"
           element={

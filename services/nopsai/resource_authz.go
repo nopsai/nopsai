@@ -236,7 +236,8 @@ func sameTeamResourceUseAllowed(resourceType, visibility string) bool {
 	}
 
 	switch strings.TrimSpace(resourceType) {
-	case grantResourcePipeline, grantResourceScope, grantResourceStep, grantResourceKnowledgeContext:
+	case grantResourcePipeline, grantResourceScope, grantResourceStep, grantResourceKnowledgeContext,
+		grantResourceLLMProfile, grantResourceAgentProfile, grantResourceMCPServer, grantResourceMCPProfile:
 		return true
 	default:
 		return false
@@ -449,6 +450,9 @@ func (a *App) ResolveResourceTeam(ctx context.Context, resourceType, resourceID 
 			return TeamRef{}, err
 		}
 		return teamRefFromPath(team), nil
+	case grantResourceLLMProfile, grantResourceAgentProfile, grantResourceMCPServer, grantResourceMCPProfile:
+		path, _ := model.SplitPipelineID(resourceID)
+		return teamRefFromPath(path), nil
 	default:
 		return TeamRef{}, nil
 	}

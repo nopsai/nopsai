@@ -1,9 +1,19 @@
-import { useEffect, useRef } from 'react';
-import { Edit3, Plus, RefreshCw, Trash2, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Bot, CheckCircle2, Edit3, ExternalLink, Plus, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
 import { LLM_PROVIDERS, getLLMProvider, replaceProviderDefault } from './llmProviders';
 import { type LLMProfileFormState, type LLMProfileRecord } from './llm-profiles/model';
 import { useLLMProfiles } from './llm-profiles/useLLMProfiles';
 import { CredentialReferenceLink } from './credentials/CredentialReferenceLink';
+import {
+  AIResourceEmptyState,
+  AIResourceIconAction,
+  AIResourceTableHeader,
+} from './AIResourcePanel';
+import {
+  formatFilteredCount,
+  matchesAIResourceSearch,
+} from './aiResourcePresentation';
+import ResourceAccessCard from '../../components/ResourceAccessCard';
 
 function PlusIcon() {
   return <Plus className="h-4 w-4" strokeWidth={2} aria-hidden="true" />;
@@ -11,10 +21,6 @@ function PlusIcon() {
 
 function TrashIcon() {
   return <Trash2 className="h-4 w-4" strokeWidth={1.9} aria-hidden="true" />;
-}
-
-function EditIcon() {
-  return <Edit3 className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />;
 }
 
 function RefreshIcon() {
@@ -25,8 +31,43 @@ function OptionLabel({ children, help }: { children: string; help: string }) {
   return <span title={help}>{children}</span>;
 }
 
+function ProviderGlyph({ providerID }: { providerID: string }) {
+  const Icon = providerID === 'gemini' ? Sparkles : Bot;
+  return (
+    <span className="ai-resource-provider-glyph" aria-hidden="true">
+      <Icon className="h-4 w-4" strokeWidth={2} />
+    </span>
+  );
+}
+
+function profileThinkingText(profile: LLMProfileRecord) {
+  const provider = getLLMProvider(profile.provider);
+  if (provider.supportsThinking) {
+    return profile.reasoning || (profile.thinking === undefined ? 'Provider default' : profile.thinking ? 'On' : 'Off');
+  }
+  return profile.reasoning || '-';
+}
+
+function profileTimeoutText(profile: LLMProfileRecord) {
+  return profile.timeout_seconds > 0 ? `${profile.timeout_seconds}s` : 'Provider default';
+}
+
+function profileMaxTokensText(profile: LLMProfileRecord) {
+  return profile.max_tokens > 0 ? `${profile.max_tokens} tokens` : 'Provider default';
+}
+
+function profileTemperatureText(profile: LLMProfileRecord) {
+  return profile.temperature === undefined ? 'Provider default' : String(profile.temperature);
+}
+
+function isProfileHealthy(profile: LLMProfileRecord) {
+  return profile.status === 'valid';
+}
+
 function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
   const profilePanelRef = useRef<HTMLElement | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedProfileName, setSelectedProfileName] = useState('');
   const {
     payload,
     loading,
@@ -68,132 +109,135 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
   const showProfilePanel = panelMode !== null || deleteBlocker !== null;
   const showProfileForm = panelMode === 'create' || panelMode === 'edit';
   const formProvider = getLLMProvider(form.provider);
+  const providerCount = useMemo(() => new Set(payload.profiles.map(profile => getLLMProvider(profile.provider).id)).size, [payload.profiles]);
+  const validCount = payload.profiles.filter(profile => profile.status === 'valid').length;
+  const visibleProfiles = useMemo(
+    () => payload.profiles.filter(profile => {
+      const provider = getLLMProvider(profile.provider);
+      return matchesAIResourceSearch(
+        searchTerm,
+        profile.name,
+        provider.label,
+        profile.provider,
+        profile.model,
+        profile.base_url,
+        profile.credential_ref,
+        profile.allowed_scopes.join(', '),
+        profile.status,
+        profile.validation,
+        profile.disabled_reason
+      );
+    }),
+    [payload.profiles, searchTerm]
+  );
+  const selectedProfile = useMemo(() => {
+    if (visibleProfiles.length === 0) return null;
+    return visibleProfiles.find(profile => profile.name === selectedProfileName) ??
+      visibleProfiles.find(profile => profile.name === payload.default_profile) ??
+      visibleProfiles[0] ??
+      null;
+  }, [payload.default_profile, selectedProfileName, visibleProfiles]);
+  const emptyProfilesMessage = payload.profiles.length === 0 ? 'No LLM profiles configured.' : 'No LLM profiles match your search.';
 
   return (
-    <div id="system-llm-profiles-section" className="space-y-6 pb-24">
-      <section className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <label className="flex flex-col gap-1 text-sm min-w-[220px]">
-            <span>Default profile</span>
-            <select
-              className="pipelines-input"
-              value={payload.default_profile}
-              onChange={event => void saveDefaultProfile(event.target.value)}
-              disabled={!canManage || loading || saving}
-            >
-              {payload.profiles.map(profile => (
-                <option key={profile.name} value={profile.name}>
-                  {profile.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="flex items-center gap-2">
-            {!canManage && <span className="runner-pill runner-pill--muted">Read-only</span>}
-            <button type="button" className="glass-button-ghost" onClick={() => void loadProfiles()} disabled={loading || saving}>
-              <RefreshIcon />
-              Reload
-            </button>
-            {canManage && (
-              <button type="button" className="glass-button-primary" onClick={startCreate} disabled={saving}>
-                <PlusIcon />
-                New profile
-              </button>
-            )}
-          </div>
+    <div id="system-llm-profiles-section" className="ai-resource-panel space-y-6 pb-24">
+      <div className="ai-resource-page-header">
+        <div>
+          <h2>LLM Profiles</h2>
+          <p>Manage model connections and runtime defaults.</p>
         </div>
-        {error && <div className="rounded-lg border border-red-500/30 px-4 py-3 text-sm text-red-500">{error}</div>}
-        {testResult && <div className="rounded-lg border border-[var(--border-primary)] px-4 py-3 text-sm text-[var(--text-secondary)]">{testResult}</div>}
+        <div className="ai-resource-page-actions">
+          {!canManage && <span className="runner-pill runner-pill--muted">Read-only</span>}
+          <button type="button" className="ai-resource-icon-button" onClick={() => void loadProfiles()} disabled={loading || saving} aria-label="Reload">
+            <RefreshIcon />
+          </button>
+          {canManage && (
+            <button type="button" className="ai-resource-primary-button" onClick={startCreate} disabled={saving}>
+              <PlusIcon />
+              New profile
+            </button>
+          )}
+        </div>
+      </div>
+      <section className="ai-resource-summary-band" aria-label="LLM profile summary">
+        <label className="ai-resource-summary-item">
+          <span>Default</span>
+          <select
+            className="ai-resource-summary-select"
+            value={payload.default_profile}
+            onChange={event => void saveDefaultProfile(event.target.value)}
+            disabled={!canManage || loading || saving}
+          >
+            {payload.profiles.map(profile => (
+              <option key={profile.name} value={profile.name}>
+                {profile.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="ai-resource-summary-item">
+          <span>Profiles</span>
+          <strong>{payload.profiles.length}</strong>
+        </div>
+        <div className="ai-resource-summary-item">
+          <span>Providers</span>
+          <strong>{providerCount}</strong>
+        </div>
+        <div className="ai-resource-summary-item">
+          <span>Healthy</span>
+          <strong className={validCount === payload.profiles.length ? 'text-emerald-600' : 'text-amber-600'}>{validCount} of {payload.profiles.length}</strong>
+        </div>
       </section>
+      {error && <div className="ai-resource-alert ai-resource-alert--error">{error}</div>}
 
-      <div className={`grid gap-6 ${showProfilePanel ? 'xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]' : ''}`}>
-        <section className="glass-card border border-[var(--border-primary)] rounded-xl overflow-hidden">
-          <div className="p-4 border-b border-[var(--border-primary)] flex items-center justify-between gap-3">
-            <h3 className="text-lg font-semibold text-[var(--text-primary)]">Profiles</h3>
-            {loading && <span className="text-sm text-[var(--text-secondary)]">Loading…</span>}
+      <section className="ai-resource-table-card ai-resource-split-card">
+        <div className="ai-resource-split">
+          <div className="ai-resource-split__list">
+            <AIResourceTableHeader
+              title="Profiles"
+              count={formatFilteredCount(visibleProfiles.length, payload.profiles.length, searchTerm)}
+              loading={loading}
+              searchLabel="Search LLM profiles"
+              searchPlaceholder="Search profiles..."
+              searchValue={searchTerm}
+              onSearchChange={setSearchTerm}
+            />
+            <div className="ai-resource-profile-list" aria-label="LLM profiles">
+              {visibleProfiles.map(profile => {
+                const provider = getLLMProvider(profile.provider);
+                const selected = selectedProfile?.name === profile.name;
+                return (
+                  <button
+                    key={profile.name}
+                    type="button"
+                    className={`ai-resource-profile-option ${selected ? 'ai-resource-profile-option--active' : ''}`}
+                    onClick={() => {
+                      setSelectedProfileName(profile.name);
+                      setDeleteBlocker(null);
+                      setPanelMode(null);
+                    }}
+                    aria-pressed={selected}
+                  >
+                    <ProviderGlyph providerID={provider.id} />
+                    <span className="ai-resource-profile-option__body">
+                      <span className="ai-resource-profile-option__title">
+                        <span>{profile.name}</span>
+                        {profile.name === payload.default_profile && <span className="runner-pill runner-pill--ok">Default</span>}
+                      </span>
+                      <span className="ai-resource-profile-option__provider">{provider.label}</span>
+                      <span className="ai-resource-profile-option__model">{profile.model || '-'}</span>
+                    </span>
+                    <span className={`ai-resource-status-dot ${isProfileHealthy(profile) ? 'ai-resource-status-dot--ok' : 'ai-resource-status-dot--error'}`} aria-label={isProfileHealthy(profile) ? 'Healthy' : 'Needs attention'} />
+                  </button>
+                );
+              })}
+              {!loading && visibleProfiles.length === 0 && (
+                <AIResourceEmptyState>{emptyProfilesMessage}</AIResourceEmptyState>
+              )}
+            </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="text-left text-xs uppercase text-[var(--text-secondary)] border-b border-[var(--border-primary)]">
-                <tr>
-                  <th className="px-4 py-3">Name</th>
-                  <th className="px-4 py-3">Provider</th>
-                  <th className="px-4 py-3">Model</th>
-                  <th className="px-4 py-3">Base URL</th>
-                  <th className="px-4 py-3">Credential ref</th>
-                  <th className="px-4 py-3">Allowed scopes</th>
-                  <th className="px-4 py-3">Limits</th>
-                  <th className="px-4 py-3">Thinking</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {payload.profiles.map(profile => (
-                  <tr key={profile.name} className="border-b border-[var(--border-primary)] last:border-b-0">
-                    <td className="px-4 py-3 font-semibold text-[var(--text-primary)]">
-                      {profile.name}
-                      {profile.name === payload.default_profile && <span className="ml-2 runner-pill runner-pill--ok">Default</span>}
-                    </td>
-                    <td className="px-4 py-3">{getLLMProvider(profile.provider).label}</td>
-                    <td className="px-4 py-3 max-w-[220px] truncate" title={profile.model}>{profile.model || '-'}</td>
-                    <td className="px-4 py-3 max-w-[220px] truncate" title={profile.base_url}>{profile.base_url || '-'}</td>
-                    <td className="px-4 py-3">
-                      {profile.credential_ref ? (
-                        <CredentialReferenceLink reference={profile.credential_ref} className="break-all font-mono text-xs underline decoration-dotted underline-offset-4 hover:text-[var(--accent-primary)]" />
-                      ) : '-'}
-                    </td>
-                    <td className="px-4 py-3">{profile.allowed_scopes.length ? profile.allowed_scopes.join(', ') : 'All'}</td>
-                    <td className="px-4 py-3 text-xs text-[var(--text-secondary)]">
-                      {profile.timeout_seconds > 0 ? `${profile.timeout_seconds}s` : 'Default'}
-                      {profile.max_tokens > 0 ? ` / ${profile.max_tokens} tokens` : ''}
-                    </td>
-                    <td className="px-4 py-3">
-                      {getLLMProvider(profile.provider).supportsThinking
-                        ? profile.reasoning || (profile.thinking === undefined ? 'Default' : profile.thinking ? 'On' : 'Off')
-                        : '-'}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="space-y-1">
-                        <span className={`runner-pill ${profile.status === 'valid' ? 'runner-pill--ok' : 'runner-pill--error'}`} title={profile.validation || profile.disabled_reason || ''}>
-                          {profile.status || 'unknown'}
-                        </span>
-                        {(profile.validation || profile.disabled_reason) && (
-                          <p className="text-xs text-[var(--text-secondary)] max-w-[220px]">{profile.validation || profile.disabled_reason}</p>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-2">
-                        <button type="button" className="glass-button-ghost" onClick={() => void testProfile(profile.name)} disabled={Boolean(testing)}>
-                          {testing === profile.name ? 'Testing…' : 'Test'}
-                        </button>
-                        <button type="button" className="glass-button-subtle" onClick={() => startEdit(profile)}>
-                          <EditIcon />
-                          Edit
-                        </button>
-                        <button type="button" className="glass-button-danger" onClick={() => void deleteProfile(profile.name)} disabled={!canDelete(profile) || saving}>
-                          <TrashIcon />
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {!loading && payload.profiles.length === 0 && (
-                  <tr>
-                    <td className="px-4 py-6 text-[var(--text-secondary)]" colSpan={10}>
-                      No LLM profiles configured.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
 
-        {showProfilePanel && (
-          <aside ref={profilePanelRef} className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
+          <section ref={profilePanelRef} className="ai-resource-split__detail">
             {showProfileForm && (
               <>
                 <div className="flex items-start justify-between gap-3">
@@ -347,12 +391,163 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
                 </div>
               </div>
             )}
-          </aside>
-        )}
+            {!showProfilePanel && selectedProfile && (
+              <LLMProfileDetail
+                profile={selectedProfile}
+                isDefault={selectedProfile.name === payload.default_profile}
+                canDelete={canDelete(selectedProfile)}
+                canManage={canManage}
+                saving={saving}
+                testing={testing}
+                testResult={testResult}
+                onEdit={() => startEdit(selectedProfile)}
+                onDelete={() => void deleteProfile(selectedProfile.name)}
+                onTest={() => void testProfile(selectedProfile.name)}
+              />
+            )}
+            {!showProfilePanel && !selectedProfile && (
+              <AIResourceEmptyState>{emptyProfilesMessage}</AIResourceEmptyState>
+            )}
+          </section>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function LLMProfileDetail({
+  profile,
+  isDefault,
+  canDelete,
+  canManage,
+  saving,
+  testing,
+  testResult,
+  onEdit,
+  onDelete,
+  onTest,
+}: {
+  profile: LLMProfileRecord;
+  isDefault: boolean;
+  canDelete: boolean;
+  canManage: boolean;
+  saving: boolean;
+  testing: string | null;
+  testResult: string | null;
+  onEdit: () => void;
+  onDelete: () => void;
+  onTest: () => void;
+}) {
+  const provider = getLLMProvider(profile.provider);
+  const healthy = isProfileHealthy(profile);
+  const scopedTestResult = testResult?.startsWith(`${profile.name}:`) ? testResult : null;
+
+  return (
+    <div className="ai-resource-detail">
+      <div className="ai-resource-detail__header">
+        <div>
+          <div className="ai-resource-detail__title">
+            <h3>{profile.name}</h3>
+            {isDefault && <span className="runner-pill runner-pill--ok">Default</span>}
+            <span className={`ai-resource-health ${healthy ? 'ai-resource-health--ok' : 'ai-resource-health--error'}`}>
+              <span aria-hidden="true" />
+              {healthy ? 'Healthy' : profile.status || 'Needs attention'}
+            </span>
+          </div>
+          <div className="ai-resource-detail__provider">
+            <ProviderGlyph providerID={provider.id} />
+            {provider.label}
+          </div>
+        </div>
+        <div className="ai-resource-detail__actions">
+          <AIResourceIconAction label={testing === profile.name ? 'Testing connection' : 'Test connection'} tone="primary" onClick={onTest} disabled={Boolean(testing)}>
+            {testing === profile.name ? <RefreshIcon /> : <CheckCircle2 className="h-4 w-4" aria-hidden="true" />}
+          </AIResourceIconAction>
+          <AIResourceIconAction label="Edit profile" tone="accent" onClick={onEdit} disabled={!canManage || saving}>
+            <Edit3 className="h-4 w-4" aria-hidden="true" />
+          </AIResourceIconAction>
+          <ResourceAccessCard
+            resourceType="llm_profile"
+            resourceID={profile.name}
+            label="LLM profile"
+            buttonClassName="ai-resource-icon-action"
+            iconOnly
+          />
+        </div>
+      </div>
+
+      <LLMDetailSection
+        title="Connection"
+        rows={[
+          { label: 'Model', value: profile.model || '-' },
+          { label: 'Base URL', value: profile.base_url || '-', mono: true },
+          {
+            label: 'Credential',
+            value: profile.credential_ref ? (
+              <span className="ai-resource-detail-link">
+                <CredentialReferenceLink reference={profile.credential_ref} className="ai-resource-ref-link underline decoration-dotted underline-offset-4 hover:text-[var(--accent-primary)]" />
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+              </span>
+            ) : '-',
+            mono: true,
+          },
+        ]}
+      />
+      <LLMDetailSection
+        title="Runtime behavior"
+        rows={[
+          { label: 'Thinking', value: profileThinkingText(profile) },
+          { label: 'Timeout', value: profileTimeoutText(profile) },
+          { label: 'Max tokens', value: profileMaxTokensText(profile) },
+          { label: 'Temperature', value: profileTemperatureText(profile) },
+        ]}
+      />
+      <LLMDetailSection
+        title="Access"
+        rows={[
+          { label: 'Allowed scopes', value: profile.allowed_scopes.length ? profile.allowed_scopes.join(', ') : 'All scopes' },
+        ]}
+      />
+      <LLMDetailSection
+        title="Recent test"
+        rows={[
+          {
+            label: '',
+            value: (
+              <span className={`ai-resource-test-result ${healthy ? 'ai-resource-test-result--ok' : 'ai-resource-test-result--error'}`}>
+                <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                {scopedTestResult || profile.validation || profile.disabled_reason || (healthy ? 'Connection ready' : 'Test recommended')}
+              </span>
+            ),
+          },
+        ]}
+      />
+
+      <div className="ai-resource-detail__footer">
+        <button type="button" className="ai-resource-delete-link" onClick={onDelete} disabled={!canDelete || saving}>
+          <TrashIcon />
+          Delete profile
+        </button>
+        {isDefault && <p>Default profiles cannot be deleted.</p>}
       </div>
     </div>
   );
 }
 
+function LLMDetailSection({ title, rows }: { title: string; rows: Array<{ label: string; value: ReactNode; mono?: boolean }> }) {
+  return (
+    <section className="ai-resource-detail-section">
+      <h4>{title}</h4>
+      <dl>
+        {rows.map(row => (
+          <div key={`${title}-${row.label || 'result'}`} className={`ai-resource-detail-row ${row.label ? '' : 'ai-resource-detail-row--full'}`}>
+            {row.label && <dt>{row.label}</dt>}
+            <dd className={row.mono ? 'ai-resource-detail-row__mono' : undefined}>{row.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
 
 export default LLMProfilesPanel;
