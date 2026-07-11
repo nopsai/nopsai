@@ -8,14 +8,14 @@ import (
 )
 
 func TestParseMonitoringAnalyticsFilters(t *testing.T) {
-	req := httptest.NewRequest("GET", "/v1/monitoring/summary?from=2026-06-01&to=2026-06-11&groupId=42&pipelinePath=platform&pipelineName=release&repo=acme/app&runId=00000000-0000-0000-0000-000000000002&branch=main&triggerSource=schedule&status=failure&compare=previous_period&provider=openai&model=gpt-4.1&llm_profile=standard&feature=goal_resolution&step_name=plan&task_name=summarize&minDurationSeconds=5&maxDurationSeconds=60", nil)
+	req := httptest.NewRequest("GET", "/v1/monitoring/summary?from=2026-06-01&to=2026-06-11&teamId=42&pipelinePath=platform&pipelineName=release&repo=acme/app&runId=00000000-0000-0000-0000-000000000002&branch=main&triggerSource=schedule&status=failure&compare=previous_period&provider=openai&model=gpt-4.1&llm_profile=standard&feature=goal_resolution&step_name=plan&task_name=summarize&minDurationSeconds=5&maxDurationSeconds=60", nil)
 
 	filters, err := parseMonitoringAnalyticsFilters(req)
 	if err != nil {
 		t.Fatalf("parseMonitoringAnalyticsFilters() error = %v", err)
 	}
-	if filters.GroupID == nil || *filters.GroupID != 42 {
-		t.Fatalf("GroupID = %#v, want 42", filters.GroupID)
+	if filters.TeamID == nil || *filters.TeamID != 42 {
+		t.Fatalf("TeamID = %#v, want 42", filters.TeamID)
 	}
 	if filters.PipelinePath != "platform" || filters.PipelineName != "release" {
 		t.Fatalf("pipeline filters = %q/%q, want platform/release", filters.PipelinePath, filters.PipelineName)
@@ -37,15 +37,27 @@ func TestParseMonitoringAnalyticsFilters(t *testing.T) {
 	}
 }
 
+func TestParseMonitoringAnalyticsFiltersAcceptsTeamID(t *testing.T) {
+	req := httptest.NewRequest("GET", "/v1/monitoring/summary?from=2026-06-01&to=2026-06-11&teamId=42", nil)
+
+	filters, err := parseMonitoringAnalyticsFilters(req)
+	if err != nil {
+		t.Fatalf("parseMonitoringAnalyticsFilters() error = %v", err)
+	}
+	if filters.TeamID == nil || *filters.TeamID != 42 {
+		t.Fatalf("TeamID = %#v, want 42", filters.TeamID)
+	}
+}
+
 func TestBuildMonitoringCandidateRunIDsQueryUsesParameterizedFilters(t *testing.T) {
-	req := httptest.NewRequest("GET", "/v1/monitoring/summary?from=2026-06-01T00:00:00Z&to=2026-06-11T00:00:00Z&groupId=42&repo=acme/app&runId=00000000-0000-0000-0000-000000000002&externalTriggerId=deploy&scheduleId=00000000-0000-0000-0000-000000000001", nil)
+	req := httptest.NewRequest("GET", "/v1/monitoring/summary?from=2026-06-01T00:00:00Z&to=2026-06-11T00:00:00Z&teamId=42&repo=acme/app&runId=00000000-0000-0000-0000-000000000002&externalTriggerId=deploy&scheduleId=00000000-0000-0000-0000-000000000001", nil)
 	filters, err := parseMonitoringAnalyticsFilters(req)
 	if err != nil {
 		t.Fatalf("parseMonitoringAnalyticsFilters() error = %v", err)
 	}
 
 	query, args := buildMonitoringCandidateRunIDsQuery(filters)
-	for _, fragment := range []string{"WITH RECURSIVE selected_groups", "pr.group_id IN (SELECT id FROM selected_groups)", "LOWER(COALESCE(pr.run_id::text, '')) = LOWER($4)", "LOWER(COALESCE(eti.trigger_id, '')) = LOWER($6)", "pr.schedule_id::text = $7"} {
+	for _, fragment := range []string{"WITH RECURSIVE selected_teams", "pr.team_id IN (SELECT id FROM selected_teams)", "LOWER(COALESCE(pr.run_id::text, '')) = LOWER($4)", "LOWER(COALESCE(eti.trigger_id, '')) = LOWER($6)", "pr.schedule_id::text = $7"} {
 		if !strings.Contains(query, fragment) {
 			t.Fatalf("query missing %q:\n%s", fragment, query)
 		}
@@ -90,8 +102,8 @@ func TestMonitoringAIUsageQueriesCastTokenSumsForIntegerScans(t *testing.T) {
 		"lowest by schedule": monitoringAIUsageByScheduleQuery(true),
 		"by task":            monitoringAIUsageByTaskQuery(),
 		"top token runs":     monitoringAITopTokenRunsQuery(),
-		"by feature":         monitoringAIUsageGroupQuery("feature"),
-		"by profile":         monitoringAIUsageGroupQuery("llm_profile"),
+		"by feature":         monitoringAIUsageTeamQuery("feature"),
+		"by profile":         monitoringAIUsageTeamQuery("llm_profile"),
 		"trend":              monitoringAIUsageTrendQuery(),
 	}
 	for name, query := range queries {
@@ -183,9 +195,9 @@ func TestMonitoringAssistantChatUsageQueriesUseStoredMessages(t *testing.T) {
 		}
 	}
 
-	group := monitoringAssistantChatUsageGroupQuery("ac.user_id")
-	if !strings.Contains(group, "COUNT(*)::bigint") || !strings.Contains(group, "COALESCE(SUM(am.total_tokens), 0)::bigint") {
-		t.Fatalf("assistant chat group query should expose message count and tokens:\n%s", group)
+	team := monitoringAssistantChatUsageTeamQuery("ac.user_id")
+	if !strings.Contains(team, "COUNT(*)::bigint") || !strings.Contains(team, "COALESCE(SUM(am.total_tokens), 0)::bigint") {
+		t.Fatalf("assistant chat team query should expose message count and tokens:\n%s", team)
 	}
 }
 
@@ -255,7 +267,7 @@ func TestMonitoringEfficiencyRecommendations(t *testing.T) {
 			SuccessRate: 0.38,
 			TotalRuns:   8,
 		}},
-		HighQueueGroups: []monitoringNamedCount{{Label: "Platform", Seconds: 420}},
+		HighQueueTeams:  []monitoringNamedCount{{Label: "Platform", Seconds: 420}},
 		TokenByPipeline: []monitoringNamedCount{{Label: "platform/release", Tokens: 4200}},
 	})
 	if len(recommendations) != 3 {
@@ -292,7 +304,7 @@ func TestMonitoringAlertRuleFilters(t *testing.T) {
 	filters, err := monitoringAlertRuleFilters(monitoringAlertRuleRecord{
 		WindowSeconds: 3600,
 		Filters: map[string]any{
-			"groupId":            float64(42),
+			"teamId":             float64(42),
 			"pipelinePath":       "platform",
 			"pipelineName":       "release",
 			"repo":               "acme/app",
@@ -308,8 +320,8 @@ func TestMonitoringAlertRuleFilters(t *testing.T) {
 	if !filters.From.Equal(now.Add(-time.Hour)) || !filters.To.Equal(now) {
 		t.Fatalf("window = %s/%s, want previous hour", filters.From, filters.To)
 	}
-	if filters.GroupID == nil || *filters.GroupID != 42 {
-		t.Fatalf("GroupID = %#v, want 42", filters.GroupID)
+	if filters.TeamID == nil || *filters.TeamID != 42 {
+		t.Fatalf("TeamID = %#v, want 42", filters.TeamID)
 	}
 	if filters.PipelinePath != "platform" || filters.PipelineName != "release" || filters.Repo != "acme/app" {
 		t.Fatalf("filters = %#v", filters)
@@ -319,6 +331,22 @@ func TestMonitoringAlertRuleFilters(t *testing.T) {
 	}
 	if filters.MinDurationSeconds == nil || *filters.MinDurationSeconds != 5 {
 		t.Fatalf("MinDurationSeconds = %#v, want 5", filters.MinDurationSeconds)
+	}
+}
+
+func TestMonitoringAlertRuleFiltersAcceptsTeamID(t *testing.T) {
+	now := time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC)
+	filters, err := monitoringAlertRuleFilters(monitoringAlertRuleRecord{
+		WindowSeconds: 3600,
+		Filters: map[string]any{
+			"team_id": float64(42),
+		},
+	}, now)
+	if err != nil {
+		t.Fatalf("monitoringAlertRuleFilters() error = %v", err)
+	}
+	if filters.TeamID == nil || *filters.TeamID != 42 {
+		t.Fatalf("TeamID = %#v, want 42", filters.TeamID)
 	}
 }
 

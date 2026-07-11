@@ -73,9 +73,9 @@ mcp_profiles:
 	}
 }
 
-func TestParseGitOpsMCPRegistryPlanRejectsGroupScopedRepo(t *testing.T) {
+func TestParseGitOpsMCPRegistryPlanRejectsTeamScopedRepo(t *testing.T) {
 	_, err := mcpregistry.ParseGitOpsPlan(
-		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"},
+		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"},
 		mcpregistry.GitOpsDirectory{
 			Root: "setting",
 			Files: map[string]string{

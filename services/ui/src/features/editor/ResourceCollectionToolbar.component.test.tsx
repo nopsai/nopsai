@@ -9,7 +9,7 @@ function ToolbarHarness({ onBack, onCreate }: { onBack: () => void; onCreate: ()
   return (
     <ResourceCollectionToolbar
       resourceLabel="pipeline"
-      activeFolder="platform"
+      activeTeam="platform"
       searchTerm={searchTerm}
       canCreate
       onBack={onBack}
@@ -47,13 +47,13 @@ test('delegates navigation and creation while owning collection search behavior'
   expect(onCreate).toHaveBeenCalledOnce();
 });
 
-test('hides creation and disables folder navigation when access or context is missing', () => {
+test('hides creation and disables team navigation when access or context is missing', () => {
   const onBack = vi.fn();
   const onCreate = vi.fn();
   render(
     <ResourceCollectionToolbar
       resourceLabel="step"
-      activeFolder=""
+      activeTeam=""
       searchTerm=""
       canCreate={false}
       onBack={onBack}

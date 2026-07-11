@@ -198,7 +198,7 @@ export function IdentityProvidersWorkspace({
               <ProviderInput label="Token endpoint" value={form.token_endpoint} onChange={value => onFormChange(prev => ({ ...prev, token_endpoint: value }))} />
               <ProviderInput label="JWKS URI" value={form.jwks_uri} onChange={value => onFormChange(prev => ({ ...prev, jwks_uri: value }))} />
               <ProviderInput label="UserInfo endpoint" value={form.userinfo_endpoint} onChange={value => onFormChange(prev => ({ ...prev, userinfo_endpoint: value }))} />
-              <ProviderInput label="Group claim" value={form.group_claim} onChange={value => onFormChange(prev => ({ ...prev, group_claim: value }))} placeholder="groups" />
+              <ProviderInput label="Team claim" value={form.team_claim} onChange={value => onFormChange(prev => ({ ...prev, team_claim: value }))} placeholder="teams" />
               <ProviderInput label="Default role" value={form.default_role} onChange={value => onFormChange(prev => ({ ...prev, default_role: value }))} placeholder="viewer" />
               <label className="access-minimal-label">
                 <span>Auto-create users</span>
@@ -234,15 +234,15 @@ export function IdentityProvidersWorkspace({
               />
             </label>
             <label className="access-minimal-label">
-              <span>Auth group mappings</span>
+              <span>Auth team mappings</span>
               <textarea
                 className="pipelines-input min-h-24"
-                value={form.group_mapping}
-                onChange={event => onFormChange(prev => ({ ...prev, group_mapping: event.target.value }))}
+                value={form.team_mapping}
+                onChange={event => onFormChange(prev => ({ ...prev, team_mapping: event.target.value }))}
                 placeholder={'engineering: Engineering\nrelease-managers: Release Managers'}
               />
               <p className="text-xs text-[var(--text-secondary)]">
-                Maps identity-provider groups to NopsAI auth groups for basic/scoped grants.
+                Maps identity-provider teams to NopsAI auth teams for basic/scoped grants.
               </p>
             </label>
             <label className="access-minimal-label">
@@ -251,10 +251,10 @@ export function IdentityProvidersWorkspace({
                 className="pipelines-input min-h-24"
                 value={form.basic_role_mapping}
                 onChange={event => onFormChange(prev => ({ ...prev, basic_role_mapping: event.target.value }))}
-                placeholder={'team-1-owner: owner folder:team-1\nteam-1-dev-viewer: viewer folder:team-1/dev'}
+                placeholder={'team-1-owner: owner team:team-1\nteam-1-dev-viewer: viewer team:team-1/dev'}
               />
               <p className="text-xs text-[var(--text-secondary)]">
-                Syncs identity-provider groups directly into scoped NopsAI basic roles.
+                Syncs identity-provider teams directly into scoped NopsAI basic roles.
               </p>
             </label>
             <div className="access-editor-footer">

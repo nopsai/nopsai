@@ -47,7 +47,7 @@ truth; this file is the source-adjacent placement guide.
 
 ### Scopes And Triggers
 
-- Scope and trigger route identifiers, grouping, source labels, usage indexes,
+- Scope and trigger route identifiers, teaming, source labels, usage indexes,
   manifest validation, and modal mutation state belong in their feature modules.
 - GitOps-managed trigger manifests use the same database-override behavior as
   pipelines and steps. Clone paths remain available for draft workflows.
@@ -90,9 +90,9 @@ truth; this file is the source-adjacent placement guide.
 
 ### Knowledge Context, Monitoring, And Schedules
 
-- Knowledge Context model rules own document identifiers, folder trees, draft
+- Knowledge Context model rules own document identifiers, team trees, draft
   handling, GitOps source labels, and route encoding.
-- Monitoring model rules own metric normalization and display grouping.
+- Monitoring model rules own metric normalization and display teaming.
 - Schedules model/API files own cron mode normalization, schedule request
   shaping, metadata normalization, and schedule transport.
 - New route-level growth in these areas should first look for a tested

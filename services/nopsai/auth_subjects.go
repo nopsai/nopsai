@@ -277,7 +277,7 @@ func (a *App) scopedGrantSubjectRefs(ctx context.Context, subject model.Subject)
 			return nil
 		}
 		subjectID = resolvedID
-	case model.SubjectTypeAuthGroup, model.SubjectTypeInternalService:
+	case model.SubjectTypeAuthTeam, model.SubjectTypeInternalService:
 		if subjectID == "" {
 			return nil
 		}
@@ -287,10 +287,10 @@ func (a *App) scopedGrantSubjectRefs(ctx context.Context, subject model.Subject)
 
 	refs := []model.SubjectRef{{Type: subjectType, ID: subjectID}}
 	rows, err := a.db.Query(ctx, `
-		SELECT group_id::text
-		FROM auth_group_members
+		SELECT team_id::text
+		FROM auth_team_members
 		WHERE subject_type = $1 AND subject_id = $2
-		ORDER BY group_id ASC
+		ORDER BY team_id ASC
 	`, subjectType, subjectID)
 	if err != nil {
 		return refs
@@ -298,15 +298,15 @@ func (a *App) scopedGrantSubjectRefs(ctx context.Context, subject model.Subject)
 	defer rows.Close()
 
 	for rows.Next() {
-		var groupID string
-		if err := rows.Scan(&groupID); err != nil {
+		var teamID string
+		if err := rows.Scan(&teamID); err != nil {
 			return refs
 		}
-		groupID = strings.TrimSpace(groupID)
-		if groupID == "" {
+		teamID = strings.TrimSpace(teamID)
+		if teamID == "" {
 			continue
 		}
-		refs = append(refs, model.SubjectRef{Type: model.SubjectTypeAuthGroup, ID: groupID})
+		refs = append(refs, model.SubjectRef{Type: model.SubjectTypeAuthTeam, ID: teamID})
 	}
 	return refs
 }

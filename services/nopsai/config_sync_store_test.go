@@ -18,13 +18,13 @@ func TestSyncAllConfigRepositoriesUsesInjectedStore(t *testing.T) {
 		t.Fatalf("sync status = %q, want success", status.Status)
 	}
 	if len(store.listCalls) != 2 {
-		t.Fatalf("list calls = %#v, want system and folder scopes", store.listCalls)
+		t.Fatalf("list calls = %#v, want system and team scopes", store.listCalls)
 	}
 	if store.listCalls[0].ScopeType != models.ConfigRepositoryScopeSystem {
 		t.Fatalf("first scope = %q, want system", store.listCalls[0].ScopeType)
 	}
-	if store.listCalls[1].ScopeType != models.ConfigRepositoryScopeFolder {
-		t.Fatalf("second scope = %q, want folder", store.listCalls[1].ScopeType)
+	if store.listCalls[1].ScopeType != models.ConfigRepositoryScopeTeam {
+		t.Fatalf("second scope = %q, want team", store.listCalls[1].ScopeType)
 	}
 	if len(store.statusUpdates) != 0 {
 		t.Fatalf("status updates = %#v, want none for empty repository list", store.statusUpdates)

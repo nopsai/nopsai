@@ -258,11 +258,11 @@ func buildKubernetesManifest(namespace, serviceAccount, runnerID, runnerImage st
 				"labels":    labels,
 			},
 			"rules": []map[string]interface{}{
-				{"apiGroups": []string{""}, "resources": []string{"pods"}, "verbs": []string{"get", "list", "watch", "create", "delete"}},
-				{"apiGroups": []string{""}, "resources": []string{"pods/log"}, "verbs": []string{"get", "list", "watch"}},
-				{"apiGroups": []string{""}, "resources": []string{"pods/exec"}, "verbs": []string{"get", "create"}},
-				{"apiGroups": []string{""}, "resources": []string{"persistentvolumeclaims"}, "verbs": []string{"get", "list", "watch", "create", "delete"}},
-				{"apiGroups": []string{""}, "resources": []string{"events"}, "verbs": []string{"get", "list", "watch"}},
+				{"apiTeams": []string{""}, "resources": []string{"pods"}, "verbs": []string{"get", "list", "watch", "create", "delete"}},
+				{"apiTeams": []string{""}, "resources": []string{"pods/log"}, "verbs": []string{"get", "list", "watch"}},
+				{"apiTeams": []string{""}, "resources": []string{"pods/exec"}, "verbs": []string{"get", "create"}},
+				{"apiTeams": []string{""}, "resources": []string{"persistentvolumeclaims"}, "verbs": []string{"get", "list", "watch", "create", "delete"}},
+				{"apiTeams": []string{""}, "resources": []string{"events"}, "verbs": []string{"get", "list", "watch"}},
 			},
 		},
 		map[string]interface{}{
@@ -279,9 +279,9 @@ func buildKubernetesManifest(namespace, serviceAccount, runnerID, runnerImage st
 				"namespace": namespace,
 			}},
 			"roleRef": map[string]string{
-				"apiGroup": "rbac.authorization.k8s.io",
-				"kind":     "Role",
-				"name":     appName,
+				"apiTeam": "rbac.authorization.k8s.io",
+				"kind":    "Role",
+				"name":    appName,
 			},
 		},
 		map[string]interface{}{

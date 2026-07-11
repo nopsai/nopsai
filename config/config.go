@@ -129,9 +129,9 @@ type OIDCProviderConfig struct {
 	LegacyClientSecret    string                              `yaml:"client_secret,omitempty" json:"-"`
 	Scopes                []string                            `yaml:"scopes,omitempty" json:"scopes,omitempty"`
 	AllowedEmailDomains   []string                            `yaml:"allowed_email_domains,omitempty" json:"allowed_email_domains,omitempty"`
-	GroupClaim            string                              `yaml:"group_claim,omitempty" json:"group_claim,omitempty"`
+	TeamClaim             string                              `yaml:"team_claim,omitempty" json:"team_claim,omitempty"`
 	RoleMapping           map[string]string                   `yaml:"role_mapping,omitempty" json:"role_mapping,omitempty"`
-	GroupMapping          map[string]string                   `yaml:"group_mapping,omitempty" json:"group_mapping,omitempty"`
+	TeamMapping           map[string]string                   `yaml:"team_mapping,omitempty" json:"team_mapping,omitempty"`
 	BasicRoleMapping      map[string]OIDCBasicRoleGrantConfig `yaml:"basic_role_mapping,omitempty" json:"basic_role_mapping,omitempty"`
 	EntitlementSync       OIDCEntitlementSyncConfig           `yaml:"entitlement_sync,omitempty" json:"entitlement_sync,omitempty"`
 	AutoCreateUsers       *bool                               `yaml:"auto_create_users,omitempty" json:"auto_create_users,omitempty"`
@@ -160,7 +160,7 @@ type OIDCEntitlementSyncConfig struct {
 	LegacyAdminPassword        string `yaml:"admin_password,omitempty" json:"-"`
 	ClientID                   string `yaml:"client_id,omitempty" json:"client_id,omitempty"`
 	TargetResourceType         string `yaml:"target_resource_type,omitempty" json:"target_resource_type,omitempty"`
-	GroupPathPrefix            string `yaml:"group_path_prefix,omitempty" json:"group_path_prefix,omitempty"`
+	TeamPathPrefix             string `yaml:"team_path_prefix,omitempty" json:"team_path_prefix,omitempty"`
 }
 
 type AssistantMemoryConfig struct {
@@ -641,9 +641,9 @@ func normalizeOIDCProviders(providers map[string]OIDCProviderConfig) map[string]
 		provider.LegacyClientSecret = strings.TrimSpace(provider.LegacyClientSecret)
 		provider.Scopes = normalizeOIDCScopes(provider.Scopes)
 		provider.AllowedEmailDomains = normalizeEmailDomains(provider.AllowedEmailDomains)
-		provider.GroupClaim = strings.TrimSpace(provider.GroupClaim)
+		provider.TeamClaim = strings.TrimSpace(provider.TeamClaim)
 		provider.RoleMapping = normalizeStringMap(provider.RoleMapping)
-		provider.GroupMapping = normalizeStringMap(provider.GroupMapping)
+		provider.TeamMapping = normalizeStringMap(provider.TeamMapping)
 		provider.BasicRoleMapping = normalizeOIDCBasicRoleMapping(provider.BasicRoleMapping)
 		provider.EntitlementSync = normalizeOIDCEntitlementSync(provider.EntitlementSync)
 		provider.DefaultRole = strings.TrimSpace(provider.DefaultRole)
@@ -660,19 +660,19 @@ func normalizeOIDCBasicRoleMapping(mapping map[string]OIDCBasicRoleGrantConfig) 
 		return nil
 	}
 	out := make(map[string]OIDCBasicRoleGrantConfig, len(mapping))
-	for group, grant := range mapping {
-		group = strings.TrimSpace(group)
+	for team, grant := range mapping {
+		team = strings.TrimSpace(team)
 		grant.Role = strings.ToLower(strings.TrimSpace(grant.Role))
 		grant.Resource = strings.TrimSpace(grant.Resource)
 		grant.ResourceType = strings.TrimSpace(grant.ResourceType)
 		grant.ResourceID = strings.TrimSpace(grant.ResourceID)
-		if group == "" || grant.Role == "" {
+		if team == "" || grant.Role == "" {
 			continue
 		}
 		if grant.Resource == "" && (grant.ResourceType == "" || grant.ResourceID == "") {
 			continue
 		}
-		out[group] = grant
+		out[team] = grant
 	}
 	if len(out) == 0 {
 		return nil
@@ -682,9 +682,6 @@ func normalizeOIDCBasicRoleMapping(mapping map[string]OIDCBasicRoleGrantConfig) 
 
 func normalizeOIDCEntitlementSync(sync OIDCEntitlementSyncConfig) OIDCEntitlementSyncConfig {
 	sync.Mode = strings.ToLower(strings.TrimSpace(sync.Mode))
-	if sync.Mode == "keycloak" {
-		sync.Mode = "keycloak_group_roles"
-	}
 	sync.AdminBaseURL = strings.TrimRight(strings.TrimSpace(sync.AdminBaseURL), "/")
 	sync.Realm = strings.TrimSpace(sync.Realm)
 	sync.AdminRealm = strings.TrimSpace(sync.AdminRealm)
@@ -703,9 +700,9 @@ func normalizeOIDCEntitlementSync(sync OIDCEntitlementSyncConfig) OIDCEntitlemen
 	sync.ClientID = strings.TrimSpace(sync.ClientID)
 	sync.TargetResourceType = strings.TrimSpace(sync.TargetResourceType)
 	if sync.TargetResourceType == "" {
-		sync.TargetResourceType = "folder"
+		sync.TargetResourceType = "team"
 	}
-	sync.GroupPathPrefix = strings.Trim(strings.TrimSpace(sync.GroupPathPrefix), "/")
+	sync.TeamPathPrefix = strings.Trim(strings.TrimSpace(sync.TeamPathPrefix), "/")
 	if sync.Mode == "" && sync.AdminBaseURL == "" {
 		return OIDCEntitlementSyncConfig{}
 	}

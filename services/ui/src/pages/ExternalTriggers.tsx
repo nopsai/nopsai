@@ -17,7 +17,7 @@ import { ResourceCollectionToolbar } from '../features/editor/ResourceCollection
 import { ExternalTriggerFormModal } from '../features/external-triggers/ExternalTriggerFormModal';
 import { ExternalTriggerCards } from '../features/external-triggers/ExternalTriggerCards';
 import {
-  externalTriggerGroupLabel,
+  externalTriggerTeamLabel,
   externalTriggerRelativeLabel,
   externalTriggerScopeLabel,
   type AllowedCaller,
@@ -27,7 +27,7 @@ import {
   type SelectOption,
 } from '../features/external-triggers/model';
 import { apiClient, buildApiUrl } from '../lib/api';
-import { fetchPipelineRunGroupPaths } from '../lib/resourceGroups';
+import { fetchPipelineRunTeamPaths } from '../lib/resourceTeams';
 
 type ExternalTriggerInvocation = {
   id: string;
@@ -67,7 +67,7 @@ type ServiceAccountListItem = {
   status?: string;
 };
 
-type GroupListItem = {
+type TeamListItem = {
   id?: string;
   name?: string;
 };
@@ -83,7 +83,7 @@ const emptyForm: ExternalTriggerForm = {
   description: '',
   pipeline: '',
   scope: '',
-  runGroupPath: 'root',
+  runTeamPath: 'root',
   enabled: true,
   allowedCallers: [],
   variableMappingText: '{\n  "VERSION": "payload.version"\n}',
@@ -101,10 +101,10 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
   const [invocations, setInvocations] = useState<ExternalTriggerInvocation[]>([]);
   const [pipelines, setPipelines] = useState<string[]>([]);
   const [scopes, setScopes] = useState<string[]>([]);
-  const [runGroups, setRunGroups] = useState<string[]>([]);
+  const [runTeams, setRunTeams] = useState<string[]>([]);
   const [users, setUsers] = useState<UserListItem[]>([]);
   const [serviceAccounts, setServiceAccounts] = useState<ServiceAccountListItem[]>([]);
-  const [groups, setGroups] = useState<GroupListItem[]>([]);
+  const [teams, setTeams] = useState<TeamListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [invocationsLoading, setInvocationsLoading] = useState(false);
@@ -132,7 +132,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
       trigger.description,
       trigger.pipeline,
       trigger.scope,
-      trigger.run_group_path,
+      trigger.run_team_path,
       trigger.source,
       ...(trigger.allowed_callers || []).flatMap(caller => [caller.type, caller.id]),
     ].join(' ').toLowerCase().includes(term));
@@ -163,9 +163,9 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
     [form.scope, scopes]
   );
 
-  const runGroupOptions = useMemo(
-    () => uniqueRunGroupOptions([...runGroups, form.runGroupPath]),
-    [form.runGroupPath, runGroups]
+  const runTeamOptions = useMemo(
+    () => uniqueRunTeamOptions([...runTeams, form.runTeamPath]),
+    [form.runTeamPath, runTeams]
   );
 
   const callerOptions = useMemo<Record<AllowedCaller['type'], SelectOption[]>>(
@@ -178,11 +178,11 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
         .filter(user => user.status !== 'disabled')
         .map(user => ({ value: user.sub || user.id || user.email || '', label: identityLabel(user.sub, user.email, user.id) }))
         .filter(option => Boolean(option.value)),
-      auth_group: groups
-        .map(group => ({ value: group.id || group.name || '', label: group.name || group.id || '' }))
+      auth_team: teams
+        .map(team => ({ value: team.id || team.name || '', label: team.name || team.id || '' }))
         .filter(option => Boolean(option.value)),
     }),
-    [groups, serviceAccounts, users]
+    [teams, serviceAccounts, users]
   );
 
   const activeCallerOptions = callerOptions[callerDraft.type] || [];
@@ -217,15 +217,15 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
   }, [fetchJson, routeSelectedID]);
 
   const loadReferenceData = useCallback(async () => {
-    const [pipelineData, runtimeScopeData, secretScopeData, variableScopeData, runGroupData, userData, serviceAccountData, groupData] = await Promise.all([
+    const [pipelineData, runtimeScopeData, secretScopeData, variableScopeData, runTeamData, userData, serviceAccountData, teamData] = await Promise.all([
       fetchJson<Array<string | PipelineListItem>>('/v1/pipelines?include_source=true').catch(() => []),
       fetchJson<Array<string | ScopeListItem>>('/v1/system/dispatcher/scopes').catch(() => []),
       fetchJson<Array<string | ScopeListItem>>('/v1/secrets/scopes').catch(() => []),
       fetchJson<Array<string | ScopeListItem>>('/v1/variables/scopes').catch(() => []),
-      fetchPipelineRunGroupPaths().catch(() => []),
+      fetchPipelineRunTeamPaths().catch(() => []),
       fetchJson<UserListItem[]>('/v1/admin/users').catch(() => []),
       fetchJson<ServiceAccountListItem[]>('/v1/admin/service-accounts').catch(() => []),
-      fetchJson<GroupListItem[]>('/v1/access/auth-groups').catch(() => []),
+      fetchJson<TeamListItem[]>('/v1/access/auth-teams').catch(() => []),
     ]);
 
     const pipelineIDs = (Array.isArray(pipelineData) ? pipelineData : [])
@@ -238,10 +238,10 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
       .map(item => (typeof item === 'string' ? item : item.scope || item.name || ''))
       .map(normalizeScopeOption);
     setScopes(uniqueSortedStrings(['', ...scopeIDs]));
-    setRunGroups(uniqueRunGroupOptions((Array.isArray(runGroupData) ? runGroupData : []).map(normalizeIdentifier)));
+    setRunTeams(uniqueRunTeamOptions((Array.isArray(runTeamData) ? runTeamData : []).map(normalizeIdentifier)));
     setUsers(Array.isArray(userData) ? userData : []);
     setServiceAccounts(Array.isArray(serviceAccountData) ? serviceAccountData : []);
-    setGroups(Array.isArray(groupData) ? groupData : []);
+    setTeams(Array.isArray(teamData) ? teamData : []);
   }, [fetchJson]);
 
   const loadSelected = useCallback(async (id: string) => {
@@ -309,8 +309,8 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
     if (!canWriteExternalTriggers) return;
     const pipeline = pipelines[0] || '';
     const pipelineParent = parentPathFromIdentifier(pipeline);
-    const defaultRunGroup = pipelineParent && runGroups.includes(pipelineParent) ? pipelineParent : 'root';
-    setForm({ ...emptyForm, pipeline, runGroupPath: defaultRunGroup });
+    const defaultRunTeam = pipelineParent && runTeams.includes(pipelineParent) ? pipelineParent : 'root';
+    setForm({ ...emptyForm, pipeline, runTeamPath: defaultRunTeam });
     setCallerDraft({ type: 'service_account', id: callerOptions.service_account[0]?.value || '' });
     setFormError('');
     setModal({ mode: 'create' });
@@ -323,7 +323,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
       description: trigger.description || '',
       pipeline: trigger.pipeline || '',
       scope: normalizeScopeOption(trigger.scope),
-      runGroupPath: normalizeIdentifier(trigger.run_group_path) || 'root',
+      runTeamPath: normalizeIdentifier(trigger.run_team_path) || 'root',
       enabled: Boolean(trigger.enabled),
       allowedCallers: Array.isArray(trigger.allowed_callers) ? trigger.allowed_callers : [],
       variableMappingText: JSON.stringify(trigger.variable_mapping || {}, null, 2),
@@ -380,7 +380,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
       description: form.description.trim(),
       pipeline: normalizeIdentifier(form.pipeline),
       scope: normalizeScopeOption(form.scope),
-      run_group_path: normalizeIdentifier(form.runGroupPath) || 'root',
+      run_team_path: normalizeIdentifier(form.runTeamPath) || 'root',
       enabled: form.enabled,
       allowed_callers: form.allowedCallers,
       variable_mapping: variableMapping,
@@ -428,7 +428,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
       description: trigger.description || '',
       pipeline: trigger.pipeline,
       scope: normalizeScopeOption(trigger.scope),
-      run_group_path: normalizeIdentifier(trigger.run_group_path) || 'root',
+      run_team_path: normalizeIdentifier(trigger.run_team_path) || 'root',
       enabled: trigger.enabled,
       allowed_callers: trigger.allowed_callers || [],
       variable_mapping: trigger.variable_mapping || {},
@@ -550,7 +550,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
                 <dl className="grid grid-cols-2 gap-3 text-sm">
                   <Meta label="Pipeline" value={selectedTrigger.pipeline} />
                   <Meta label="Scope" value={externalTriggerScopeLabel(selectedTrigger.scope)} />
-                  <Meta label="Run group" value={externalTriggerGroupLabel(selectedTrigger.run_group_path)} />
+                  <Meta label="Run team" value={externalTriggerTeamLabel(selectedTrigger.run_team_path)} />
                   <Meta label="Created by" value={selectedTrigger.created_by || '-'} />
                   <Meta label="Last used" value={formatDate(selectedTrigger.last_used_at)} />
                   <Meta label="Source" value={selectedTrigger.managed_by_config_repo ? `GitOps ${selectedTrigger.config_source_path || ''}`.trim() : selectedTrigger.source || 'database'} />
@@ -633,7 +633,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
           gitOpsManaged={Boolean(modal.mode === 'edit' && modal.trigger?.managed_by_config_repo)}
           pipelineOptions={pipelineOptions}
           scopeOptions={scopeOptions}
-          runGroupOptions={runGroupOptions}
+          runTeamOptions={runTeamOptions}
           callerDraft={callerDraft}
           activeCallerOptions={activeCallerOptions}
           onClose={closeModal}
@@ -642,13 +642,13 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
           onPipelineChange={value => {
             const pipeline = normalizeIdentifier(value);
             const pipelineParent = parentPathFromIdentifier(pipeline);
-            const defaultRunGroup = pipelineParent && runGroups.includes(pipelineParent) ? pipelineParent : 'root';
+            const defaultRunTeam = pipelineParent && runTeams.includes(pipelineParent) ? pipelineParent : 'root';
             setForm(current => ({
               ...current,
               pipeline,
-              runGroupPath: current.runGroupPath && current.runGroupPath !== 'root'
-                ? current.runGroupPath
-                : defaultRunGroup,
+              runTeamPath: current.runTeamPath && current.runTeamPath !== 'root'
+                ? current.runTeamPath
+                : defaultRunTeam,
             }));
           }}
           onCallerTypeChange={type => {
@@ -704,7 +704,7 @@ function normalizeScopeOption(value?: string) {
   return normalized.toLowerCase() === 'default' ? '' : normalized;
 }
 
-function uniqueRunGroupOptions(values: string[]) {
+function uniqueRunTeamOptions(values: string[]) {
   return uniqueSortedStrings(['root', ...values.map(normalizeIdentifier).filter(Boolean)]);
 }
 

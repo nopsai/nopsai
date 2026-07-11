@@ -2,7 +2,7 @@ import type { RefObject } from 'react';
 import { ArrowLeft, Plus, Search, X } from 'lucide-react';
 
 type TriggerCollectionToolbarProps = {
-  activeFolder: string;
+  activeTeam: string;
   searchTerm: string;
   searchOpen: boolean;
   searchInputRef: RefObject<HTMLInputElement | null>;
@@ -14,7 +14,7 @@ type TriggerCollectionToolbarProps = {
 };
 
 export function TriggerCollectionToolbar({
-  activeFolder,
+  activeTeam,
   searchTerm,
   searchOpen,
   searchInputRef,
@@ -32,7 +32,7 @@ export function TriggerCollectionToolbar({
           className="glass-button-ghost"
           aria-label="Back"
           onClick={onBack}
-          disabled={!activeFolder}
+          disabled={!activeTeam}
         >
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
         </button>

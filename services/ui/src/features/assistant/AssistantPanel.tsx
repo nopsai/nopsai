@@ -263,7 +263,7 @@ function AssistantSidebar({
         {conversations.map(conversation => (
           <div
             key={conversation.id}
-            className={`group flex items-center gap-2 rounded-md border px-2 py-2 text-sm hover:bg-[var(--bg-tertiary)] ${activeConversation?.id === conversation.id ? 'border-[var(--border-accent)] bg-[var(--bg-tertiary)]' : 'border-[var(--border-primary)]'}`}
+            className={`team flex items-center gap-2 rounded-md border px-2 py-2 text-sm hover:bg-[var(--bg-tertiary)] ${activeConversation?.id === conversation.id ? 'border-[var(--border-accent)] bg-[var(--bg-tertiary)]' : 'border-[var(--border-primary)]'}`}
           >
             <button
               type="button"
@@ -274,7 +274,7 @@ function AssistantSidebar({
             </button>
             <button
               type="button"
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] opacity-0 hover:bg-red-50 hover:text-red-600 focus:opacity-100 group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-red-950/30"
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] opacity-0 hover:bg-red-50 hover:text-red-600 focus:opacity-100 team-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-red-950/30"
               onClick={() => onDeleteConversation(conversation.id)}
               disabled={sending || deletingConversationID === conversation.id}
               aria-label={`Delete conversation ${conversation.title || conversation.id}`}

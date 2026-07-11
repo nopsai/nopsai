@@ -1,20 +1,20 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  buildGroupContext,
+  buildTeamContext,
   normalizeMonitoringRunner,
-  runsForGroupAndDescendants,
+  runsForTeamAndDescendants,
   summarizeRuns,
-  type Group,
+  type Team,
   type RunListItem,
 } from './model.js';
 
-test('aggregates runs across a selected group hierarchy', () => {
-  const groups: Group[] = [
+test('aggregates runs across a selected team hierarchy', () => {
+  const teams: Team[] = [
     { id: 1, name: 'Platform' },
     { id: 2, name: 'Release', parent_id: 1 },
   ];
-  const runsByGroup: Record<number, RunListItem[]> = {
+  const runsByTeam: Record<number, RunListItem[]> = {
     1: [
       {
         run_id: 'run-parent',
@@ -37,8 +37,8 @@ test('aggregates runs across a selected group hierarchy', () => {
     ],
   };
 
-  const context = buildGroupContext(groups);
-  const runs = runsForGroupAndDescendants(1, runsByGroup, context.childrenByParent);
+  const context = buildTeamContext(teams);
+  const runs = runsForTeamAndDescendants(1, runsByTeam, context.childrenByParent);
   const summary = summarizeRuns(runs);
 
   assert.deepEqual(context.labels.get(2), 'Platform/Release');

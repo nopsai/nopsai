@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-type repositoryGroupMatch struct {
+type repositoryTeamMatch struct {
 	ID                 int
 	Path               string
 	RepositoryFullName string
@@ -24,19 +24,19 @@ func repositoryFullName(owner, repo string) string {
 	return owner + "/" + repo
 }
 
-func (a *App) repositoryGroupMatches(ctx context.Context, owner, repo string) ([]repositoryGroupMatch, error) {
+func (a *App) repositoryTeamMatches(ctx context.Context, owner, repo string) ([]repositoryTeamMatch, error) {
 	fullName := repositoryFullName(owner, repo)
 	if fullName == "" || a == nil || a.db == nil {
 		return nil, nil
 	}
 
-	records, err := loadGroupPathRecords(ctx, a.db)
+	records, err := loadTeamPathRecords(ctx, a.db)
 	if err != nil {
 		return nil, err
 	}
 
 	suffix := "/" + fullName
-	matches := make([]repositoryGroupMatch, 0, 1)
+	matches := make([]repositoryTeamMatch, 0, 1)
 	for _, record := range records {
 		path := strings.Trim(strings.TrimSpace(record.Path), "/")
 		if path == "" {
@@ -44,11 +44,11 @@ func (a *App) repositoryGroupMatches(ctx context.Context, owner, repo string) ([
 		}
 		recordRepo := strings.Trim(strings.TrimSpace(record.RepositoryFullName), "/")
 		if strings.EqualFold(recordRepo, fullName) {
-			matches = append(matches, repositoryGroupMatch{ID: record.ID, Path: path, RepositoryFullName: recordRepo})
+			matches = append(matches, repositoryTeamMatch{ID: record.ID, Path: path, RepositoryFullName: recordRepo})
 			continue
 		}
 		if path == fullName || strings.HasSuffix(path, suffix) {
-			matches = append(matches, repositoryGroupMatch{ID: record.ID, Path: path, RepositoryFullName: fullName})
+			matches = append(matches, repositoryTeamMatch{ID: record.ID, Path: path, RepositoryFullName: fullName})
 		}
 	}
 
@@ -61,7 +61,7 @@ func (a *App) repositoryGroupMatches(ctx context.Context, owner, repo string) ([
 	return matches, nil
 }
 
-func repositoryTriggerOverrideKeys(owner, repo string, groupPaths []string) ([]string, []string) {
+func repositoryTriggerOverrideKeys(owner, repo string, teamPaths []string) ([]string, []string) {
 	fullName := repositoryFullName(owner, repo)
 	if fullName == "" {
 		return nil, nil
@@ -69,14 +69,14 @@ func repositoryTriggerOverrideKeys(owner, repo string, groupPaths []string) ([]s
 
 	var specific []string
 	var ownerWide []string
-	for _, path := range groupPaths {
+	for _, path := range teamPaths {
 		path = strings.Trim(strings.TrimSpace(path), "/")
 		if path == fullName || strings.HasSuffix(path, "/"+fullName) {
 			specific = appendUniqueString(specific, path)
-			ownerWide = appendUniqueString(ownerWide, groupedOwnerAllTriggerKey(path, owner, repo))
+			ownerWide = appendUniqueString(ownerWide, teamedOwnerAllTriggerKey(path, owner, repo))
 			continue
 		}
-		parentPath := groupItemParentPath(path)
+		parentPath := teamItemParentPath(path)
 		if parentPath != "" {
 			specific = appendUniqueString(specific, strings.Trim(parentPath+"/"+fullName, "/"))
 			ownerWide = appendUniqueString(ownerWide, strings.Trim(parentPath+"/"+repositoryFullName(owner, "all"), "/"))
@@ -88,7 +88,7 @@ func repositoryTriggerOverrideKeys(owner, repo string, groupPaths []string) ([]s
 	return specific, ownerWide
 }
 
-func groupItemParentPath(path string) string {
+func teamItemParentPath(path string) string {
 	path = strings.Trim(strings.TrimSpace(path), "/")
 	if path == "" {
 		return ""
@@ -159,16 +159,16 @@ func (a *App) triggerOverrideKeysEndingWith(ctx context.Context, suffix string) 
 	return keys, nil
 }
 
-func groupedOwnerAllTriggerKey(groupedRepoPath, owner, repo string) string {
-	groupedRepoPath = strings.Trim(strings.TrimSpace(groupedRepoPath), "/")
+func teamedOwnerAllTriggerKey(teamedRepoPath, owner, repo string) string {
+	teamedRepoPath = strings.Trim(strings.TrimSpace(teamedRepoPath), "/")
 	fullName := repositoryFullName(owner, repo)
-	if groupedRepoPath == "" || fullName == "" || groupedRepoPath == fullName {
+	if teamedRepoPath == "" || fullName == "" || teamedRepoPath == fullName {
 		return ""
 	}
 	suffix := "/" + fullName
-	if !strings.HasSuffix(groupedRepoPath, suffix) {
+	if !strings.HasSuffix(teamedRepoPath, suffix) {
 		return ""
 	}
-	prefix := strings.TrimSuffix(groupedRepoPath, suffix)
+	prefix := strings.TrimSuffix(teamedRepoPath, suffix)
 	return strings.Trim(prefix+"/"+repositoryFullName(owner, "all"), "/")
 }

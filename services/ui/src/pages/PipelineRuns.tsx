@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { requestPipelineRunsJson } from '../features/pipeline-runs/api';
+import { fetchTeams } from '../features/teams/api';
 import type { RunListItem } from '../features/pipeline-runs/contracts';
 import {
-  buildGroupPath,
+  buildTeamPath,
   extractLatestRunSummary,
   formatBranch,
   runMatchesSearch,
   summarizeStatus,
-  type Group,
+  type Team,
   type RepoSummary,
 } from '../features/pipeline-runs/runPresentation';
 import { PipelineRunsPageView } from '../features/pipeline-runs/PipelineRunsPageView';
@@ -16,7 +17,7 @@ import type {
   PipelineApproval,
   PipelineRunDetail as RunDetail,
   PipelineRunsTabKey as TabKey,
-  PipelineRunsTriggerGroup as TriggerGroup,
+  PipelineRunsTriggerTeam as TriggerTeam,
 } from '../features/pipeline-runs/pageTypes';
 
 const RECENT_FETCH_SIZE = 60;
@@ -42,8 +43,8 @@ function PipelineRunsPage() {
     return stored === 'list' ? 'list' : 'grid';
   });
 
-  const activeGroupId = useMemo(() => {
-    const raw = searchParams.get('group');
+  const activeTeamId = useMemo(() => {
+    const raw = searchParams.get('team');
     if (!raw) return null;
     const parsed = Number(raw);
     return Number.isFinite(parsed) ? parsed : null;
@@ -51,9 +52,9 @@ function PipelineRunsPage() {
 
   const activeRunId = searchParams.get('run');
 
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [groupsLoading, setGroupsLoading] = useState(false);
-  const [groupsError, setGroupsError] = useState<string | null>(null);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [teamsLoading, setTeamsLoading] = useState(false);
+  const [teamsError, setTeamsError] = useState<string | null>(null);
 
   const [runsByBranch, setRunsByBranch] = useState<Record<string, RunListItem[]>>({});
   const [recentRunsAll, setRecentRunsAll] = useState<RunListItem[]>([]);
@@ -236,33 +237,33 @@ function PipelineRunsPage() {
     [fetchJson]
   );
 
-  const loadGroups = useCallback(async () => {
-    setGroupsLoading(true);
-    setGroupsError(null);
+  const loadTeams = useCallback(async () => {
+    setTeamsLoading(true);
+    setTeamsError(null);
     try {
-      const payload = await fetchJson<Group[]>('/v1/groups');
-      setGroups(Array.isArray(payload) ? payload : []);
+      const payload = await fetchTeams();
+      setTeams(Array.isArray(payload) ? payload : []);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to load groups';
-      setGroupsError(message);
+      const message = error instanceof Error ? error.message : 'Unable to load teams';
+      setTeamsError(message);
     } finally {
-      setGroupsLoading(false);
+      setTeamsLoading(false);
     }
-  }, [fetchJson]);
+  }, []);
 
   const loadRuns = useCallback(async () => {
     setRunsLoading(true);
     setRunsError(null);
     try {
       const hasSearch = Boolean(searchTerm.trim());
-      if (activeTab === 'main' && activeGroupId) {
-        const data = await fetchJson<Record<string, RunListItem[]>>(`/v1/runs?groupId=${activeGroupId}`);
+      if (activeTab === 'main' && activeTeamId) {
+        const data = await fetchJson<Record<string, RunListItem[]>>(`/v1/runs?teamId=${activeTeamId}`);
         setRunsByBranch(data || {});
       } else if (activeTab === 'main' && hasSearch) {
         setRunsByBranch({});
         await fetchRecentPage(0, { replace: true });
       } else if (activeTab === 'main') {
-        const data = await fetchJson<Record<string, RunListItem[]>>('/v1/runs?groupId=root');
+        const data = await fetchJson<Record<string, RunListItem[]>>('/v1/runs?teamId=root');
         setRunsByBranch(data || {});
         setRecentRunsAll([]);
       } else {
@@ -274,7 +275,7 @@ function PipelineRunsPage() {
     } finally {
       setRunsLoading(false);
     }
-  }, [activeGroupId, activeTab, fetchJson, fetchRecentPage, searchTerm]);
+  }, [activeTeamId, activeTab, fetchJson, fetchRecentPage, searchTerm]);
 
   const loadRunDetail = useCallback(async () => {
     if (!activeRunId) {
@@ -301,8 +302,8 @@ function PipelineRunsPage() {
 
 
   useEffect(() => {
-    void loadGroups();
-  }, [loadGroups]);
+    void loadTeams();
+  }, [loadTeams]);
 
   useEffect(() => {
     if (pollingRef.current) {
@@ -324,7 +325,7 @@ function PipelineRunsPage() {
         pollingRef.current = null;
       }
     };
-  }, [activeGroupId, activeTab, loadRuns, searchTerm]);
+  }, [activeTeamId, activeTab, loadRuns, searchTerm]);
 
   useEffect(() => {
     if (detailPollRef.current) {
@@ -349,7 +350,7 @@ function PipelineRunsPage() {
     };
   }, [activeRunId, loadRunDetail]);
 
-  const groupedEvents = useMemo<TriggerGroup[]>(() => {
+  const teamedEvents = useMemo<TriggerTeam[]>(() => {
     if (activeTab !== 'events') return [];
     const term = searchTerm.trim().toLowerCase();
     const runs = !term ? recentRunsAll : recentRunsAll.filter(run => runMatchesSearch(run, term));
@@ -372,9 +373,9 @@ function PipelineRunsPage() {
 
   const collapseAllEvents = useCallback(() => {
     const next = new Set<string>();
-    groupedEvents.forEach(group => next.add(group.id));
+    teamedEvents.forEach(team => next.add(team.id));
     setCollapsedEvents(next);
-  }, [groupedEvents]);
+  }, [teamedEvents]);
 
   const toggleBranchCollapse = useCallback((branch: string, scrollIntoView = false) => {
     setCollapsedBranches(prev => {
@@ -459,7 +460,7 @@ function PipelineRunsPage() {
     scrollMainToTop();
   }, [activeTab, scrollMainToTop, searchTerm]);
 
-  const toggleEventGroup = useCallback((id: string) => {
+  const toggleEventTeam = useCallback((id: string) => {
     setCollapsedEvents(prev => {
       const next = new Set(prev);
       if (next.has(id)) {
@@ -478,13 +479,13 @@ function PipelineRunsPage() {
     return base.slice(0, recentVisibleCount);
   }, [activeTab, recentRunsAll, recentVisibleCount, searchTerm]);
 
-  const activeGroupPath = useMemo(() => buildGroupPath(activeGroupId, groups), [activeGroupId, groups]);
+  const activeTeamPath = useMemo(() => buildTeamPath(activeTeamId, teams), [activeTeamId, teams]);
 
   useEffect(() => {
-    // reset collapse state when switching tabs/groups
+    // reset collapse state when switching tabs/teams
     collapsedInitRef.current = false;
     setCollapsedBranches(new Set());
-  }, [activeTab, activeGroupId]);
+  }, [activeTab, activeTeamId]);
 
   useEffect(() => {
     const triggerId = activeRunId ? runDetail?.run_info?.trigger_event_id || null : null;
@@ -653,23 +654,23 @@ function PipelineRunsPage() {
   );
 
   const fetchRepoSummary = useCallback(
-    async (groupId: number) => {
-      const runsForRepo = await fetchJson<Record<string, RunListItem[]>>(`/v1/runs?groupId=${groupId}`);
+    async (teamId: number) => {
+      const runsForRepo = await fetchJson<Record<string, RunListItem[]>>(`/v1/runs?teamId=${teamId}`);
       const summary = extractLatestRunSummary(runsForRepo);
       if (!summary) return;
       setRepoSummaries(prev => {
-        if (prev.has(groupId)) return prev;
+        if (prev.has(teamId)) return prev;
         const next = new Map(prev);
-        next.set(groupId, summary);
+        next.set(teamId, summary);
         return next;
       });
     },
     [fetchJson]
   );
 
-  const onSelectGroup = useCallback(
-    (groupId: number | null) => {
-      updateSearchParams({ group: groupId, run: null });
+  const onSelectTeam = useCallback(
+    (teamId: number | null) => {
+      updateSearchParams({ team: teamId, run: null });
       setSelectedRunIds(new Set());
       setRunDetail(null);
       scrollMainToTop();
@@ -683,8 +684,8 @@ function PipelineRunsPage() {
   return (
     <PipelineRunsPageView
       activeTab={activeTab}
-      activeGroupId={activeGroupId}
-      activeGroupPath={activeGroupPath}
+      activeTeamId={activeTeamId}
+      activeTeamPath={activeTeamPath}
       activeRunId={activeRunId}
       searchTerm={searchTerm}
       searchOpen={searchOpen}
@@ -700,21 +701,21 @@ function PipelineRunsPage() {
       selectedRunIds={selectedRunIds}
       clearSelection={clearSelection}
       handleBulkDelete={handleBulkDelete}
-      groups={groups}
-      groupsLoading={groupsLoading}
-      groupsError={groupsError}
+      teams={teams}
+      teamsLoading={teamsLoading}
+      teamsError={teamsError}
       runsByBranch={runsByBranch}
       filteredRecentRuns={filteredRecentRuns}
-      groupedEvents={groupedEvents}
+      teamedEvents={teamedEvents}
       runsLoading={runsLoading}
       runsError={runsError}
       repoSummaries={repoSummaries}
       fetchRepoSummary={fetchRepoSummary}
-      onSelectGroup={onSelectGroup}
+      onSelectTeam={onSelectTeam}
       handleOpenRun={handleOpenRun}
       handleRunSelect={handleRunSelect}
       collapsedEvents={collapsedEvents}
-      toggleEventGroup={toggleEventGroup}
+      toggleEventTeam={toggleEventTeam}
       collapseAllEvents={collapseAllEvents}
       expandAllEvents={expandAllEvents}
       collapsedBranches={collapsedBranches}

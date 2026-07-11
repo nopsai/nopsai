@@ -126,7 +126,7 @@ function SystemLogsPanel() {
 
       <div className="flex flex-wrap items-center gap-2">
         <input aria-label="Search system logs" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search lines" className="min-w-56 flex-1 rounded border bg-[var(--bg-primary)] px-3 py-2 text-sm" />
-        <div role="group" aria-label="Log stream filters" className="flex items-center gap-2">
+        <div role="team" aria-label="Log stream filters" className="flex items-center gap-2">
           {(['stdout', 'stderr'] as const).map(stream => {
             const selected = streams.has(stream);
             return (

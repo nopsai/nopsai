@@ -4,7 +4,7 @@ import { buildAccessResourceCatalog } from './resourceCatalog.js';
 
 test('builds and sorts Access resource options from API catalog sources', () => {
   const catalog = buildAccessResourceCatalog({
-    groups: [
+    teams: [
       { id: 2, name: 'payments', parent_id: 1 },
       { id: 1, name: 'platform' },
     ],
@@ -16,7 +16,7 @@ test('builds and sorts Access resource options from API catalog sources', () => 
     variableScopes: [{ scope: 'staging' }, { scope: 'default' }],
   });
 
-  assert.deepEqual(catalog.folderOptions, [
+  assert.deepEqual(catalog.teamOptions, [
     { value: 'platform', label: '/platform' },
     { value: 'platform/payments', label: '/platform/payments' },
   ]);
@@ -28,9 +28,9 @@ test('builds and sorts Access resource options from API catalog sources', () => 
   assert.strictEqual(catalog.repositoryOptions, catalog.triggerOptions);
 });
 
-test('ignores malformed catalog records and breaks cyclic group paths', () => {
+test('ignores malformed catalog records and breaks cyclic team paths', () => {
   const catalog = buildAccessResourceCatalog({
-    groups: [
+    teams: [
       { id: 1, name: 'one', parent_id: 2 },
       { id: 2, name: 'two', parent_id: 1 },
       { id: 'bad', name: 'ignored' },
@@ -43,7 +43,7 @@ test('ignores malformed catalog records and breaks cyclic group paths', () => {
     variableScopes: [],
   });
 
-  assert.deepEqual(catalog.folderOptions.map(option => option.value), ['one/two', 'two/one']);
+  assert.deepEqual(catalog.teamOptions.map(option => option.value), ['one/two', 'two/one']);
   assert.deepEqual(catalog.pipelineOptions.map(option => option.value), ['valid']);
   assert.deepEqual(catalog.externalTriggerOptions, []);
   assert.deepEqual(catalog.gitWebhookSourceOptions, []);

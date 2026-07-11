@@ -4,8 +4,8 @@ import { normalizeScopeLabel } from './model';
 
 const SCOPE_PERMISSION_PROBE_NAME = '__nopsai_permission_probe__';
 
-function buildScopePermissionProbe(folder: string) {
-  const cleaned = normalizeScopeLabel(folder);
+function buildScopePermissionProbe(team: string) {
+  const cleaned = normalizeScopeLabel(team);
   return cleaned ? `${cleaned}/${SCOPE_PERMISSION_PROBE_NAME}` : SCOPE_PERMISSION_PROBE_NAME;
 }
 
@@ -17,8 +17,8 @@ export function buildNamedResourceID(repoName: string, scope: string, name: stri
   return params.toString();
 }
 
-export function useScopePermissions(activeFolder: string, selectedScope: string | null) {
-  const [createPermission, setCreatePermission] = useState<{ folder: string; allowed: boolean } | null>(null);
+export function useScopePermissions(activeTeam: string, selectedScope: string | null) {
+  const [createPermission, setCreatePermission] = useState<{ team: string; allowed: boolean } | null>(null);
   const [valuePermissions, setValuePermissions] = useState<{
     scope: string;
     canWriteVariables: boolean;
@@ -27,17 +27,17 @@ export function useScopePermissions(activeFolder: string, selectedScope: string 
 
   useEffect(() => {
     let cancelled = false;
-    void checkScopePermission('scope.update', 'scope', buildScopePermissionProbe(activeFolder))
+    void checkScopePermission('scope.update', 'scope', buildScopePermissionProbe(activeTeam))
       .then(allowed => {
-        if (!cancelled) setCreatePermission({ folder: activeFolder, allowed });
+        if (!cancelled) setCreatePermission({ team: activeTeam, allowed });
       })
       .catch(() => {
-        if (!cancelled) setCreatePermission({ folder: activeFolder, allowed: false });
+        if (!cancelled) setCreatePermission({ team: activeTeam, allowed: false });
       });
     return () => {
       cancelled = true;
     };
-  }, [activeFolder]);
+  }, [activeTeam]);
 
   useEffect(() => {
     let cancelled = false;
@@ -79,7 +79,7 @@ export function useScopePermissions(activeFolder: string, selectedScope: string 
 
   return {
     canCreateScopeHere: Boolean(
-      createPermission?.folder === activeFolder && createPermission.allowed
+      createPermission?.team === activeTeam && createPermission.allowed
     ),
     canWriteVariablesInSelectedScope: Boolean(
       selectedScope != null &&

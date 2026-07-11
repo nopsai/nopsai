@@ -191,7 +191,7 @@ func (s *ScriptStep) AsScriptStep() (*ScriptStep, bool) { return s, true }
 // ApprovalDefinition configures a human approval checkpoint in a pipeline.
 type ApprovalDefinition struct {
 	Type              string   `yaml:"type,omitempty" json:"type,omitempty"`
-	Groups            []string `yaml:"groups" json:"groups"`
+	Teams             []string `yaml:"teams" json:"teams"`
 	AllowSelfApproval bool     `yaml:"allow_self_approval,omitempty" json:"allow_self_approval,omitempty"`
 }
 
@@ -676,7 +676,7 @@ type KnowledgeContextSnapshot struct {
 	ID                    string    `json:"id,omitempty"`
 	KnowledgeContextID    string    `json:"knowledge_context_id,omitempty"`
 	Kind                  string    `json:"kind"`
-	Group                 string    `json:"group,omitempty"`
+	Team                  string    `json:"team,omitempty"`
 	Name                  string    `json:"name,omitempty"`
 	Description           string    `json:"description,omitempty"`
 	Ref                   string    `json:"ref,omitempty"`

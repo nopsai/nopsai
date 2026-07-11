@@ -3,7 +3,7 @@ name: repo-check
 kind: guardrail
 access:
   visibility: restricted
-  groups:
+  teams:
     - security
   repositories:
     - hosein-yousefii/test-app

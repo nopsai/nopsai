@@ -196,9 +196,9 @@ profiles:
 	}
 }
 
-func TestParseGitOpsLLMProfilePlanRejectsGroupScopedRepo(t *testing.T) {
+func TestParseGitOpsLLMProfilePlanRejectsTeamScopedRepo(t *testing.T) {
 	_, err := parseGitOpsLLMProfilePlan(
-		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"},
+		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"},
 		gitOpsLLMProfileDirectory{
 			root: "setting",
 			files: map[string]string{

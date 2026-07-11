@@ -14,13 +14,13 @@ type TriggerCollectionListProps = {
   listLoading: boolean;
   listError: string | null;
   visibleTriggers: TriggerListItem[];
-  activeFolderNode: TriggerTreeNode;
+  activeTeamNode: TriggerTreeNode;
   searchTerm: string;
   selectedSlug: string | null;
   canCreateTriggerHere: boolean;
   canDeleteTriggers: boolean;
   onSelectTrigger: (slug: string) => void;
-  onOpenFolder: (path: string) => void;
+  onOpenTeam: (path: string) => void;
   onDeleteTrigger: (slug: string) => void;
 };
 
@@ -28,13 +28,13 @@ export function TriggerCollectionList({
   listLoading,
   listError,
   visibleTriggers,
-  activeFolderNode,
+  activeTeamNode,
   searchTerm,
   selectedSlug,
   canCreateTriggerHere,
   canDeleteTriggers,
   onSelectTrigger,
-  onOpenFolder,
+  onOpenTeam,
   onDeleteTrigger,
 }: TriggerCollectionListProps) {
   return (
@@ -67,19 +67,19 @@ export function TriggerCollectionList({
               </div>
             ) : null}
 
-            {searchTerm.trim() ? null : activeFolderNode.children.length ? (
+            {searchTerm.trim() ? null : activeTeamNode.children.length ? (
               <div className="pipelines-card-grid pipelines-card-grid--pipelines mt-4">
-                {activeFolderNode.children.map(child => (
-                  <TriggerFolderCard key={`folder-${child.id}`} node={child} onOpenFolder={onOpenFolder} />
+                {activeTeamNode.children.map(child => (
+                  <TriggerTeamCard key={`team-${child.id}`} node={child} onOpenTeam={onOpenTeam} />
                 ))}
               </div>
             ) : null}
 
-            {!visibleTriggers.length && !activeFolderNode.children.length && (
+            {!visibleTriggers.length && !activeTeamNode.children.length && (
               <div id="triggers-empty" className="pipelines-empty">
                 <h3 className="text-base font-semibold text-[var(--text-primary)]">No triggers found</h3>
                 <p className="text-sm text-[var(--text-secondary)]">
-                  {canCreateTriggerHere ? 'Create a new trigger or adjust your filters.' : 'Adjust your filters or browse another group.'}
+                  {canCreateTriggerHere ? 'Create a new trigger or adjust your filters.' : 'Adjust your filters or browse another team.'}
                 </p>
               </div>
             )}
@@ -90,30 +90,30 @@ export function TriggerCollectionList({
   );
 }
 
-function TriggerFolderCard({ node, onOpenFolder }: { node: TriggerTreeNode; onOpenFolder: (path: string) => void }) {
+function TriggerTeamCard({ node, onOpenTeam }: { node: TriggerTreeNode; onOpenTeam: (path: string) => void }) {
   return (
     <article
       className="glass-card pipeline-card border border-[var(--border-primary)] rounded-xl p-4"
-      onClick={() => onOpenFolder(node.fullPath)}
+      onClick={() => onOpenTeam(node.fullPath)}
     >
       <div className="pipeline-card-header">
         <div className="pipeline-card-info">
           <span className="pipeline-card-icon" aria-hidden="true">
-            <ObjectIcon type="folder" />
+            <ObjectIcon type="team" />
           </span>
           <div className="pipeline-card-text">
             <h3 className="pipeline-card-title">{node.name}</h3>
           </div>
         </div>
-        <span className="pipeline-folder-chevron">›</span>
+        <span className="pipeline-team-chevron">›</span>
       </div>
-      <div className="pipeline-folder-meta">
-        <div className="pipeline-folder-meta-row">
+      <div className="pipeline-team-meta">
+        <div className="pipeline-team-meta-row">
           <span className="pipeline-card-meta-label">Triggers:</span>
           <span className="pipeline-card-meta-value">{countTriggersRecursive(node)}</span>
         </div>
-        <div className="pipeline-folder-meta-row">
-          <span className="pipeline-card-meta-label">Sub groups:</span>
+        <div className="pipeline-team-meta-row">
+          <span className="pipeline-card-meta-label">Sub teams:</span>
           <span className="pipeline-card-meta-value">{node.children.length}</span>
         </div>
       </div>

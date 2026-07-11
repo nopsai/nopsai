@@ -1,7 +1,7 @@
 import { CompactResourceCard } from '../../components/CompactResourceCard';
 import { ObjectIcon } from '../../components/ObjectIcon';
 import {
-  externalTriggerGroupLabel,
+  externalTriggerTeamLabel,
   externalTriggerScopeLabel,
   type ExternalTrigger,
 } from './model';
@@ -48,7 +48,7 @@ export function ExternalTriggerCards({
             )}
             facts={[
               { label: 'Pipeline', value: trigger.pipeline, mono: true, title: trigger.pipeline },
-              { label: 'Run group', value: externalTriggerGroupLabel(trigger.run_group_path) },
+              { label: 'Run team', value: externalTriggerTeamLabel(trigger.run_team_path) },
               {
                 label: 'Access',
                 value: `${externalTriggerScopeLabel(trigger.scope)} · ${callerTypes}`,

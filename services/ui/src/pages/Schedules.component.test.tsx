@@ -42,7 +42,7 @@ describe('SchedulesPage modal flows', () => {
     api.fetchSchedules.mockResolvedValue([schedule]);
     api.fetchScheduleMetadata.mockResolvedValue({
       pipelines: ['platform/deploy'],
-      groups: ['platform'],
+      teams: ['platform'],
       scopes: [''],
     });
     api.saveSchedule.mockResolvedValue({ ...schedule, id: 'schedule-2', name: 'Morning deploy' });
@@ -63,7 +63,7 @@ describe('SchedulesPage modal flows', () => {
     expect(list.querySelectorAll('.compact-resource-card')).toHaveLength(1);
     expect(screen.getByRole('button', { name: 'Search schedules' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Refresh schedules' })).toBeVisible();
-    expect(screen.queryByLabelText('Filter by group')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Filter by team')).not.toBeInTheDocument();
     expect(screen.queryByText('Show disabled')).not.toBeInTheDocument();
     expect(screen.queryByText('1 total')).not.toBeInTheDocument();
     const opener = screen.getByRole('button', { name: 'New schedule' });

@@ -77,7 +77,7 @@ Good assistant requests usually include four things:
 
 - The intent: inspect, explain, draft a GitOps plan, validate, execute, or
   confirm an action.
-- The target: pipeline path/name, run ID, schedule ID, scope, group path,
+- The target: pipeline path/name, run ID, schedule ID, scope, team path,
   config repo, credential ID, runner ID, or resource type/resource ID.
 - The mode: read-only, proposal only, GitOps-ready, or confirmed execution.
 - The constraints: environment, repository, branch, approval comment, retention
@@ -101,7 +101,7 @@ Examples:
 - "Cancel run `run_123`; I confirm."
 - "Create a GitOps plan to rotate the GitHub deploy credential. Do not expose
   the secret value."
-- "Check config repo drift for folder `platform`."
+- "Check config repo drift for team `platform`."
 - "Generate a Kubernetes runner manifest for runner `runner-prod`."
 - "List Git webhook deliveries for source `gitlab-main`."
 - "Create a data backup; I confirm."
@@ -113,7 +113,7 @@ Examples:
 
 | Intent | Ask like this | Assistant behavior |
 | --- | --- | --- |
-| Discover access | "What assistant capabilities do I have in this folder?" | Lists feature coverage, tools, resources, and missing AAA actions. |
+| Discover access | "What assistant capabilities do I have in this team?" | Lists feature coverage, tools, resources, and missing AAA actions. |
 | Investigate | "Why did run `run_123` fail?" | Reads run status, final outputs, and logs, then summarizes likely cause and next checks. |
 | Draft GitOps | "Create a GitOps plan for a nightly schedule on `platform/deploy`." | Returns proposed files and commit message; does not apply. |
 | Validate | "Validate this pipeline YAML before I commit it." | Parses and reports schema/semantic issues. |
@@ -195,7 +195,7 @@ Ask:
 - "Why can I read this pipeline but not update it?"
 - "Do we have any policy to prevent showing envs or secrets?"
 - "Explain why internal run finalization is not an assistant tool."
-- "Can this user execute `pipeline.update` on `folder:platform`?"
+- "Can this user execute `pipeline.update` on `team:platform`?"
 
 Main MCP coverage: `nopsai.get_feature_capabilities`,
 `nopsai.get_effective_permissions`, `nopsai.check_resource_use`,
@@ -341,7 +341,7 @@ GitOps-ready plans.
 
 Ask:
 
-- "Create a knowledge context named `release-policy` for group `platform` with
+- "Create a knowledge context named `release-policy` for team `platform` with
   this content, as a GitOps plan."
 - "Update knowledge context `kc_123` to add the new rollback policy."
 - "Delete knowledge context `kc_123` through GitOps."
@@ -442,7 +442,7 @@ Main MCP coverage: `nopsai.list_scopes`, `nopsai.get_scope`,
 ### Notifications
 
 The assistant can inspect mail settings, prepare GitOps mail settings, send a
-test SMTP notification with confirmation, inspect folder notification routes,
+test SMTP notification with confirmation, inspect team notification routes,
 and prepare route update/delete plans.
 
 Ask:
@@ -450,7 +450,7 @@ Ask:
 - "Show current notification mail settings."
 - "Create a GitOps plan to enable SMTP from `nopsai@example.com`."
 - "Send a test notification to `ops@example.com`; I confirm."
-- "Show the notification route for folder `platform`."
+- "Show the notification route for team `platform`."
 - "Create a GitOps plan to route failed production runs to
   `ops@example.com`."
 - "Delete the notification route for `platform/legacy` through GitOps."
@@ -594,8 +594,8 @@ and the user's existing admin permissions.
 
 Ask:
 
-- "List access grants for folder `platform`."
-- "Grant `maintainer` on folder `platform` to user `user_123`; I confirm."
+- "List access grants for team `platform`."
+- "Grant `maintainer` on team `platform` to user `user_123`; I confirm."
 - "Remove access grant `grant_123`; I confirm."
 - "Show resource access settings for pipeline `platform/deploy-api`."
 - "Update resource access visibility to `private`; I confirm."

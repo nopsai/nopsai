@@ -66,7 +66,7 @@ type pipelineApprovalResponse struct {
 	StepName          string     `json:"step_name"`
 	TaskName          string     `json:"task_name"`
 	ApprovalType      string     `json:"approval_type"`
-	AssignedGroups    []string   `json:"assigned_groups"`
+	AssignedTeams     []string   `json:"assigned_teams"`
 	AllowSelfApproval bool       `json:"allow_self_approval"`
 	Status            string     `json:"status"`
 	RequestedByType   string     `json:"requested_by_type,omitempty"`
@@ -90,7 +90,7 @@ type approvalDecisionRecord struct {
 	StepName          string
 	TaskName          string
 	ApprovalType      string
-	AssignedGroups    []string
+	AssignedTeams     []string
 	AllowSelfApproval bool
 	Status            string
 	RequestedByType   string
@@ -110,7 +110,7 @@ type approvalDecisionRecord struct {
 
 type pendingApprovalVisibility struct {
 	RunID             string
-	AssignedGroups    []string
+	AssignedTeams     []string
 	AllowSelfApproval bool
 	RequestedByType   string
 	RequestedByID     string
@@ -168,9 +168,9 @@ func (a *App) handlePauseRunForApproval(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Approval step not found in pipeline definition", http.StatusBadRequest)
 		return
 	}
-	assignedGroups := normalizeApprovalGroups(approvalConfig.Groups)
-	if len(assignedGroups) == 0 {
-		http.Error(w, "Approval step must assign at least one group", http.StatusBadRequest)
+	assignedTeams := normalizeApprovalTeams(approvalConfig.Teams)
+	if len(assignedTeams) == 0 {
+		http.Error(w, "Approval step must assign at least one team", http.StatusBadRequest)
 		return
 	}
 
@@ -181,7 +181,7 @@ func (a *App) handlePauseRunForApproval(w http.ResponseWriter, r *http.Request) 
 	}
 	completedTasks := normalizeCompletedTaskKeys(req.CompletedTasks)
 	completedTasksJSON, _ := json.Marshal(completedTasks)
-	assignedGroupsJSON, _ := json.Marshal(assignedGroups)
+	assignedTeamsJSON, _ := json.Marshal(assignedTeams)
 	variables := req.Variables
 	if variables == nil {
 		variables = map[string]string{}
@@ -230,18 +230,18 @@ func (a *App) handlePauseRunForApproval(w http.ResponseWriter, r *http.Request) 
 	if existingErr == pgx.ErrNoRows {
 		err = tx.QueryRow(r.Context(), `
 			INSERT INTO pipeline_approvals (
-				run_id, step_name, task_name, approval_type, assigned_groups,
+				run_id, step_name, task_name, approval_type, assigned_teams,
 				allow_self_approval, requested_by_type, requested_by_id, checkpoint_id
 			)
 			VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)
 			RETURNING id
-		`, runID, req.StepName, req.TaskName, strings.TrimSpace(approvalConfig.Type), string(assignedGroupsJSON), approvalConfig.AllowSelfApproval, requestedByType.String, requestedByID.String, checkpointID).Scan(&approvalID)
+		`, runID, req.StepName, req.TaskName, strings.TrimSpace(approvalConfig.Type), string(assignedTeamsJSON), approvalConfig.AllowSelfApproval, requestedByType.String, requestedByID.String, checkpointID).Scan(&approvalID)
 	} else {
 		err = tx.QueryRow(r.Context(), `
 			UPDATE pipeline_approvals
 			SET task_name = $3,
 			    approval_type = $4,
-			    assigned_groups = $5::jsonb,
+			    assigned_teams = $5::jsonb,
 			    allow_self_approval = $6,
 			    requested_by_type = $7,
 			    requested_by_id = $8,
@@ -249,7 +249,7 @@ func (a *App) handlePauseRunForApproval(w http.ResponseWriter, r *http.Request) 
 			    checkpoint_id = $9
 			WHERE run_id = $1 AND step_name = $2
 			RETURNING id
-		`, runID, req.StepName, req.TaskName, strings.TrimSpace(approvalConfig.Type), string(assignedGroupsJSON), approvalConfig.AllowSelfApproval, requestedByType.String, requestedByID.String, checkpointID).Scan(&approvalID)
+		`, runID, req.StepName, req.TaskName, strings.TrimSpace(approvalConfig.Type), string(assignedTeamsJSON), approvalConfig.AllowSelfApproval, requestedByType.String, requestedByID.String, checkpointID).Scan(&approvalID)
 	}
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to upsert approval")
@@ -352,7 +352,7 @@ func (a *App) handleGetRunCheckpoint(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleListRunApprovals(w http.ResponseWriter, r *http.Request) {
 	runID := strings.TrimSpace(r.PathValue("runID"))
 	rows, err := a.db.Query(r.Context(), `
-		SELECT id::text, run_id::text, step_name, task_name, approval_type, assigned_groups,
+		SELECT id::text, run_id::text, step_name, task_name, approval_type, assigned_teams,
 		       allow_self_approval, status, requested_by_type, requested_by_id, requested_at,
 		       decided_by_type, decided_by_id, decided_by_email, decided_at, decision_comment,
 		       COALESCE(checkpoint_id::text, '')
@@ -561,7 +561,7 @@ func (a *App) handleApprovalDecision(w http.ResponseWriter, r *http.Request, app
 
 func (a *App) loadApprovalForDecision(ctx context.Context, runID, approvalID string) (approvalDecisionRecord, error) {
 	var record approvalDecisionRecord
-	var groupsBytes, variablesBytes []byte
+	var teamsBytes, variablesBytes []byte
 	var pipelineDefCheckpoint, pipelineDefRun sql.NullString
 	var checkpointID, parentRunID, runnerID, scope sql.NullString
 	var repoOwner, repoName, cloneURL, sshURL, ref, targetRef, commitSHA, commitURL, commitMessage sql.NullString
@@ -569,7 +569,7 @@ func (a *App) loadApprovalForDecision(ctx context.Context, runID, approvalID str
 	err := a.db.QueryRow(ctx, `
 		SELECT
 			pa.id::text, pa.run_id::text, pa.step_name, pa.task_name, pa.approval_type,
-			pa.assigned_groups, pa.allow_self_approval, pa.status, pa.requested_by_type,
+			pa.assigned_teams, pa.allow_self_approval, pa.status, pa.requested_by_type,
 			pa.requested_by_id, COALESCE(pa.checkpoint_id::text, ''),
 			pr.status, pr.pipeline_name, pr.pipeline_path, pr.pipeline_version,
 			COALESCE(pr.parent_run_id::text, ''), COALESCE(pr.scope, ''),
@@ -588,7 +588,7 @@ func (a *App) loadApprovalForDecision(ctx context.Context, runID, approvalID str
 		WHERE pa.run_id = $1 AND pa.id = $2
 	`, runID, approvalID).Scan(
 		&record.ID, &record.RunID, &record.StepName, &record.TaskName, &record.ApprovalType,
-		&groupsBytes, &record.AllowSelfApproval, &record.Status, &record.RequestedByType,
+		&teamsBytes, &record.AllowSelfApproval, &record.Status, &record.RequestedByType,
 		&record.RequestedByID, &checkpointID,
 		&record.RunStatus, &record.PipelineName, &record.PipelinePath, &record.PipelineVersion,
 		&parentRunID, &scope,
@@ -605,7 +605,7 @@ func (a *App) loadApprovalForDecision(ctx context.Context, runID, approvalID str
 	record.Scope = scope.String
 	record.RunnerID = runnerID.String
 	record.PipelineDef = []byte(firstNonEmptyString(pipelineDefCheckpoint.String, pipelineDefRun.String))
-	record.AssignedGroups = decodeApprovalGroups(groupsBytes)
+	record.AssignedTeams = decodeApprovalTeams(teamsBytes)
 	record.Variables = map[string]string{}
 	if len(variablesBytes) > 0 {
 		_ = json.Unmarshal(variablesBytes, &record.Variables)
@@ -648,8 +648,8 @@ func (a *App) authorizeApprovalDecision(w http.ResponseWriter, r *http.Request, 
 		http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
 		return false
 	}
-	for _, group := range record.AssignedGroups {
-		resource := aaamodel.ResourceRef{Type: grantResourceFolder, ID: group}
+	for _, team := range record.AssignedTeams {
+		resource := aaamodel.ResourceRef{Type: grantResourceTeam, ID: team}
 		decision, err := a.aaaCheck(r.Context(), subject, approvalActionApprove, resource, a.aaaRequestContext(r))
 		if err != nil {
 			http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
@@ -715,7 +715,7 @@ func (a *App) approvableRunSetForSubject(ctx context.Context, subject aaamodel.S
 
 func (a *App) approvableRunSetFromApprovals(ctx context.Context, subject aaamodel.Subject, requestContext map[string]any, approvals []pendingApprovalVisibility) (map[string]struct{}, error) {
 	out := map[string]struct{}{}
-	groupDecisionCache := map[string]bool{}
+	teamDecisionCache := map[string]bool{}
 	subjectID := approvalSubjectID(subject)
 	for _, approval := range approvals {
 		if !approval.AllowSelfApproval &&
@@ -723,16 +723,16 @@ func (a *App) approvableRunSetFromApprovals(ctx context.Context, subject aaamode
 			strings.EqualFold(approval.RequestedByID, subjectID) {
 			continue
 		}
-		for _, group := range approval.AssignedGroups {
-			cacheKey := strings.ToLower(strings.TrimSpace(group))
-			allowed, ok := groupDecisionCache[cacheKey]
+		for _, team := range approval.AssignedTeams {
+			cacheKey := strings.ToLower(strings.TrimSpace(team))
+			allowed, ok := teamDecisionCache[cacheKey]
 			if !ok {
-				decision, err := a.aaaCheck(ctx, subject, approvalActionApprove, aaamodel.ResourceRef{Type: grantResourceFolder, ID: group}, requestContext)
+				decision, err := a.aaaCheck(ctx, subject, approvalActionApprove, aaamodel.ResourceRef{Type: grantResourceTeam, ID: team}, requestContext)
 				if err != nil {
 					return nil, err
 				}
 				allowed = decision.Allowed
-				groupDecisionCache[cacheKey] = allowed
+				teamDecisionCache[cacheKey] = allowed
 			}
 			if allowed {
 				out[resourceKey(routeauthz.RunResource(approval.RunID))] = struct{}{}
@@ -765,7 +765,7 @@ func (a *App) loadPendingApprovalVisibility(ctx context.Context, runResources []
 	}
 
 	rows, err := a.db.Query(ctx, `
-		SELECT pa.run_id::text, pa.assigned_groups, pa.allow_self_approval,
+		SELECT pa.run_id::text, pa.assigned_teams, pa.allow_self_approval,
 		       pa.requested_by_type, pa.requested_by_id
 		FROM pipeline_approvals pa
 		JOIN pipeline_runs pr ON pr.run_id = pa.run_id
@@ -781,17 +781,17 @@ func (a *App) loadPendingApprovalVisibility(ctx context.Context, runResources []
 	var approvals []pendingApprovalVisibility
 	for rows.Next() {
 		var approval pendingApprovalVisibility
-		var groupsBytes []byte
+		var teamsBytes []byte
 		if err := rows.Scan(
 			&approval.RunID,
-			&groupsBytes,
+			&teamsBytes,
 			&approval.AllowSelfApproval,
 			&approval.RequestedByType,
 			&approval.RequestedByID,
 		); err != nil {
 			return nil, err
 		}
-		approval.AssignedGroups = decodeApprovalGroups(groupsBytes)
+		approval.AssignedTeams = decodeApprovalTeams(teamsBytes)
 		approvals = append(approvals, approval)
 	}
 	return approvals, rows.Err()
@@ -840,18 +840,18 @@ func (a *App) completedTaskKeysForRun(ctx context.Context, runID string) ([]stri
 
 func scanApprovalResponse(rows pgx.Rows) (pipelineApprovalResponse, error) {
 	var approval pipelineApprovalResponse
-	var groupsBytes []byte
+	var teamsBytes []byte
 	var decidedAt sql.NullTime
 	err := rows.Scan(
 		&approval.ID, &approval.RunID, &approval.StepName, &approval.TaskName, &approval.ApprovalType,
-		&groupsBytes, &approval.AllowSelfApproval, &approval.Status, &approval.RequestedByType,
+		&teamsBytes, &approval.AllowSelfApproval, &approval.Status, &approval.RequestedByType,
 		&approval.RequestedByID, &approval.RequestedAt, &approval.DecidedByType, &approval.DecidedByID,
 		&approval.DecidedByEmail, &decidedAt, &approval.DecisionComment, &approval.CheckpointID,
 	)
 	if err != nil {
 		return approval, err
 	}
-	approval.AssignedGroups = decodeApprovalGroups(groupsBytes)
+	approval.AssignedTeams = decodeApprovalTeams(teamsBytes)
 	if decidedAt.Valid {
 		approval.DecidedAt = &decidedAt.Time
 	}
@@ -868,7 +868,7 @@ func approvalDefinitionForStep(pipeline *models.Pipeline, stepName string) (mode
 		}
 		if approvalStep, ok := step.AsApprovalStep(); ok {
 			approval := approvalStep.Approval
-			approval.Groups = normalizeApprovalGroups(approval.Groups)
+			approval.Teams = normalizeApprovalTeams(approval.Teams)
 			return approval, true
 		}
 	}
@@ -894,11 +894,11 @@ func requireInternalServiceRole(w http.ResponseWriter, r *http.Request, role str
 	return false
 }
 
-func normalizeApprovalGroups(groups []string) []string {
+func normalizeApprovalTeams(teams []string) []string {
 	seen := map[string]struct{}{}
-	out := make([]string, 0, len(groups))
-	for _, group := range groups {
-		normalized := strings.Trim(strings.ReplaceAll(strings.TrimSpace(group), "\\", "/"), "/")
+	out := make([]string, 0, len(teams))
+	for _, team := range teams {
+		normalized := strings.Trim(strings.ReplaceAll(strings.TrimSpace(team), "\\", "/"), "/")
 		if normalized == "" {
 			continue
 		}
@@ -912,12 +912,12 @@ func normalizeApprovalGroups(groups []string) []string {
 	return out
 }
 
-func decodeApprovalGroups(raw []byte) []string {
-	var groups []string
+func decodeApprovalTeams(raw []byte) []string {
+	var teams []string
 	if len(raw) > 0 {
-		_ = json.Unmarshal(raw, &groups)
+		_ = json.Unmarshal(raw, &teams)
 	}
-	return normalizeApprovalGroups(groups)
+	return normalizeApprovalTeams(teams)
 }
 
 func normalizeCompletedTaskKeys(keys []string) []string {

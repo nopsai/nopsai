@@ -15,7 +15,7 @@ const originalViewerGrant: AccessGrantRecord = {
   subjectType: 'user',
   subjectID: 'user-1',
   role: 'viewer',
-  resourceType: 'folder',
+  resourceType: 'team',
   resourceID: 'root',
   inherit: true,
   grantedBy: 'platform-admin',
@@ -75,7 +75,7 @@ test('replaces a role on the same target and adds scoped access', async () => {
   expect(screen.getByTestId('grant-state')).toHaveTextContent('"localID":"grant-viewer"');
 
   await user.selectOptions(screen.getByLabelText('Access level'), 'owner');
-  await user.selectOptions(screen.getByLabelText('Group target'), 'engineering');
+  await user.selectOptions(screen.getByLabelText('Team target'), 'engineering');
   await user.click(screen.getByRole('button', { name: 'Add' }));
 
   expect(screen.getByText('2 listed')).toBeVisible();
@@ -116,7 +116,7 @@ test('builds the delete and create operations for changed grant targets', () => 
         localID: originalViewerGrant.id,
         id: originalViewerGrant.id,
         role: 'owner',
-        resourceType: 'folder',
+        resourceType: 'team',
         resourceID: 'root',
         inherit: true,
       },

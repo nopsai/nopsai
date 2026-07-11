@@ -46,8 +46,8 @@ func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
 			COALESCE(ext.provider_id, '') AS external_provider_id,
 				COALESCE(ext.provider_name, '') AS external_provider_name,
 				COALESCE(ext.subject, '') AS external_subject,
-				COALESCE(ext.external_groups, '[]'::json) AS external_groups,
-				COALESCE(ext.external_auth_groups, '[]'::json) AS external_auth_groups,
+				COALESCE(ext.external_teams, '[]'::json) AS external_teams,
+				COALESCE(ext.external_auth_teams, '[]'::json) AS external_auth_teams,
 				COALESCE(ext.external_roles, '[]'::json) AS external_roles
 		FROM users u
 		LEFT JOIN LATERAL (
@@ -57,25 +57,25 @@ func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
 				COALESCE(NULLIF(ip.display_name, ''), ei.provider_id) AS provider_name,
 				ei.subject,
 					COALESCE((
-						SELECT json_agg(groups.group_name ORDER BY groups.group_name)
+						SELECT json_agg(teams.team_name ORDER BY teams.team_name)
 					FROM (
-						SELECT DISTINCT group_name
-						FROM auth_external_group_memberships
+						SELECT DISTINCT team_name
+						FROM auth_external_team_memberships
 						WHERE user_id = u.id AND provider_id = ei.provider_id
-						) groups
-					), '[]'::json) AS external_groups,
+						) teams
+					), '[]'::json) AS external_teams,
 					COALESCE((
-						SELECT json_agg(json_build_object('id', groups.id, 'name', groups.name) ORDER BY groups.name)
+						SELECT json_agg(json_build_object('id', teams.id, 'name', teams.name) ORDER BY teams.name)
 						FROM (
 							SELECT DISTINCT g.id::text AS id, g.name
-							FROM auth_group_members m
-							JOIN auth_groups g ON g.id = m.group_id
+							FROM auth_team_members m
+							JOIN auth_teams g ON g.id = m.team_id
 							WHERE m.subject_type = 'user'
 							  AND m.subject_id = u.id::text
 							  AND m.managed_by_identity_provider = TRUE
 							  AND m.identity_provider_id = ei.provider_id
-						) groups
-					), '[]'::json) AS external_auth_groups,
+						) teams
+					), '[]'::json) AS external_auth_teams,
 					COALESCE((
 					SELECT json_agg(roles.role_name ORDER BY roles.role_name)
 					FROM (
@@ -103,7 +103,7 @@ func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
 		var u userSummary
 		var rolesJSON []byte
 		var lastLogin sql.NullTime
-		var externalGroupsJSON, externalAuthGroupsJSON, externalRolesJSON []byte
+		var externalTeamsJSON, externalAuthTeamsJSON, externalRolesJSON []byte
 		if err := rows.Scan(
 			&u.ID,
 			&u.Sub,
@@ -117,8 +117,8 @@ func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
 			&u.ExternalProviderID,
 			&u.ExternalProviderName,
 			&u.ExternalSubject,
-			&externalGroupsJSON,
-			&externalAuthGroupsJSON,
+			&externalTeamsJSON,
+			&externalAuthTeamsJSON,
 			&externalRolesJSON,
 		); err != nil {
 			http.Error(w, "failed to scan users", http.StatusInternalServerError)
@@ -131,11 +131,11 @@ func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
 		if len(rolesJSON) > 0 {
 			_ = json.Unmarshal(rolesJSON, &u.Roles)
 		}
-		if len(externalGroupsJSON) > 0 {
-			_ = json.Unmarshal(externalGroupsJSON, &u.ExternalGroups)
+		if len(externalTeamsJSON) > 0 {
+			_ = json.Unmarshal(externalTeamsJSON, &u.ExternalTeams)
 		}
-		if len(externalAuthGroupsJSON) > 0 {
-			_ = json.Unmarshal(externalAuthGroupsJSON, &u.ExternalAuthGroups)
+		if len(externalAuthTeamsJSON) > 0 {
+			_ = json.Unmarshal(externalAuthTeamsJSON, &u.ExternalAuthTeams)
 		}
 		if len(externalRolesJSON) > 0 {
 			_ = json.Unmarshal(externalRolesJSON, &u.ExternalRoles)

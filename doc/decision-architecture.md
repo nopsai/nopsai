@@ -221,7 +221,7 @@ Why:
 
 - The evaluator can stay generic and does not need product-role special cases.
 - Product access management stays understandable for UI users.
-- Folder inheritance works through the same resource inheritance path as other ACLs.
+- Team inheritance works through the same resource inheritance path as other ACLs.
 
 Tradeoffs:
 

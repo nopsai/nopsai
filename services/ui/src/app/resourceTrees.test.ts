@@ -21,7 +21,7 @@ test('splits resource identifiers into display name and path', () => {
   });
 });
 
-test('builds pipeline tree from explicit groups and pipeline ids', () => {
+test('builds pipeline tree from explicit teams and pipeline ids', () => {
   const tree = buildPipelineTree(['platform/payments/deploy', 'platform/search/index'], ['platform/security']);
 
   assert.deepEqual(tree.children.map(child => child.name), ['platform']);
@@ -30,7 +30,7 @@ test('builds pipeline tree from explicit groups and pipeline ids', () => {
   assert.deepEqual(platform.children[0].pipelineIds, ['platform/payments/deploy']);
 });
 
-test('builds scope and knowledge context trees with enterprise folder ordering', () => {
+test('builds scope and knowledge context trees with enterprise team ordering', () => {
   const scopeTree = buildScopeTree(['', 'platform/payments'], ['platform/security']);
   assert.deepEqual(scopeTree.scopes, ['']);
   assert.deepEqual(scopeTree.children[0].children.map(child => child.name), ['payments', 'security']);

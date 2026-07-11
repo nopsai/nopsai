@@ -6,13 +6,13 @@ import {
   WEEKDAY_OPTIONS,
   WEEKDAY_VALUES,
   buildCronExpression,
-  defaultRunGroupForPipeline,
+  defaultRunTeamForPipeline,
   getTimezoneOptions,
   normalizeCronList,
   normalizeIdentifier,
   normalizeScopeOption,
   toggleCronListValue,
-  uniqueRunGroupOptions,
+  uniqueRunTeamOptions,
   type CronFormFields,
   type CronMode,
   type ScheduleFormState,
@@ -27,7 +27,7 @@ type ScheduleFormModalProps = {
   formError: string | null;
   saving: boolean;
   pipelines: string[];
-  runGroups: string[];
+  runTeams: string[];
   scopes: string[];
   canSubmit: boolean;
   onChange: (form: ScheduleFormState) => void;
@@ -41,7 +41,7 @@ export function ScheduleFormModal({
   formError,
   saving,
   pipelines,
-  runGroups,
+  runTeams,
   scopes,
   canSubmit,
   onChange,
@@ -53,7 +53,7 @@ export function ScheduleFormModal({
   const pipelineOptions = Array.from(new Set([...pipelines, form.pipeline].map(normalizeIdentifier).filter(Boolean))).sort((a, b) =>
     a.localeCompare(b)
   );
-  const groupOptions = uniqueRunGroupOptions([...runGroups, form.runGroupPath]);
+  const teamOptions = uniqueRunTeamOptions([...runTeams, form.runTeamPath]);
   const scopeOptions = Array.from(new Set(['', ...scopes, form.scope].map(normalizeScopeOption))).sort((a, b) => a.localeCompare(b));
   const updateCron = (patch: Partial<CronFormFields>) => {
     const next = { ...form, ...patch };
@@ -116,10 +116,10 @@ export function ScheduleFormModal({
                   const pipeline = normalizeIdentifier(event.target.value);
                   update({
                     pipeline,
-                    runGroupPath:
-                      form.runGroupPath && form.runGroupPath !== 'root'
-                        ? form.runGroupPath
-                        : defaultRunGroupForPipeline(pipeline, runGroups),
+                    runTeamPath:
+                      form.runTeamPath && form.runTeamPath !== 'root'
+                        ? form.runTeamPath
+                        : defaultRunTeamForPipeline(pipeline, runTeams),
                   });
                 }}
                 disabled={disabled}
@@ -135,16 +135,16 @@ export function ScheduleFormModal({
               </select>
             </label>
             <label className="space-y-1">
-              <span className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Run group</span>
+              <span className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Run team</span>
               <select
                 className="pipelines-input w-full"
-                value={form.runGroupPath}
-                onChange={event => update({ runGroupPath: event.target.value })}
+                value={form.runTeamPath}
+                onChange={event => update({ runTeamPath: event.target.value })}
                 disabled={disabled}
               >
-                {groupOptions.map(group => (
-                  <option key={group} value={group}>
-                    {group === 'root' ? 'Root' : group}
+                {teamOptions.map(team => (
+                  <option key={team} value={team}>
+                    {team === 'root' ? 'Root' : team}
                   </option>
                 ))}
               </select>

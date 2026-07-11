@@ -82,8 +82,8 @@ func TestRunPipelinePausesForApprovalWithoutFinalStatus(t *testing.T) {
 			{Step: &models.ApprovalStep{
 				BaseStep: models.BaseStep{Name: "approve"},
 				Approval: models.ApprovalDefinition{
-					Type:   "manual",
-					Groups: []string{"platform"},
+					Type:  "manual",
+					Teams: []string{"platform"},
 				},
 			}},
 		},

@@ -8,15 +8,15 @@ import (
 
 const (
 	SubjectTypeUser            = "user"
-	SubjectTypeAuthGroup       = "auth_group"
+	SubjectTypeAuthTeam        = "auth_team"
 	SubjectTypeRole            = "role"
 	SubjectTypeInternalService = "internal_service"
 	SubjectTypeRepository      = "repository"
 	SubjectTypeTrigger         = "trigger"
 	SubjectTypeServiceAccount  = "service_account"
 
-	RoleNameAdmin   = "nopsai-admin"
-	FolderGeneralID = "__general__"
+	RoleNameAdmin = "nopsai-admin"
+	TeamGeneralID = "__general__"
 )
 
 type Subject struct {
@@ -91,20 +91,20 @@ type IntrospectRequest struct {
 	Subject Subject `json:"subject"`
 }
 
-type AuthGroupInfo struct {
+type AuthTeamInfo struct {
 	ID    string   `json:"id"`
 	Name  string   `json:"name"`
 	Roles []string `json:"roles,omitempty"`
 }
 
 type IntrospectResponse struct {
-	ID         string          `json:"id"`
-	Sub        string          `json:"sub"`
-	Email      string          `json:"email,omitempty"`
-	Provider   string          `json:"provider,omitempty"`
-	Status     string          `json:"status"`
-	Roles      []string        `json:"roles,omitempty"`
-	AuthGroups []AuthGroupInfo `json:"auth_groups,omitempty"`
+	ID        string         `json:"id"`
+	Sub       string         `json:"sub"`
+	Email     string         `json:"email,omitempty"`
+	Provider  string         `json:"provider,omitempty"`
+	Status    string         `json:"status"`
+	Roles     []string       `json:"roles,omitempty"`
+	AuthTeams []AuthTeamInfo `json:"auth_teams,omitempty"`
 }
 
 type ResolvedSubject struct {
@@ -112,7 +112,7 @@ type ResolvedSubject struct {
 	Provider    string
 	Status      string
 	DirectRoles []string
-	AuthGroups  []AuthGroupInfo
+	AuthTeams   []AuthTeamInfo
 }
 
 func (s ResolvedSubject) EffectiveRoles() []string {
@@ -129,8 +129,8 @@ func (s ResolvedSubject) EffectiveRoles() []string {
 		seen[role] = struct{}{}
 		roles = append(roles, role)
 	}
-	for _, group := range s.AuthGroups {
-		for _, role := range group.Roles {
+	for _, team := range s.AuthTeams {
+		for _, role := range team.Roles {
 			role = strings.TrimSpace(role)
 			if role == "" {
 				continue
@@ -295,8 +295,13 @@ func IsSensitiveAction(action string) bool {
 		"knowledge_context.delete",
 		"knowledge_context.manage_access",
 		"runner.use",
-		"folder.move",
-		"folder.delete",
+		"team.list",
+		"team.read",
+		"team.create",
+		"team.update",
+		"team.move",
+		"team.delete",
+		"team.manage_acl",
 		"repository.delete",
 		"step.use",
 		"step.delete",

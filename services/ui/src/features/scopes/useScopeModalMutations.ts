@@ -66,7 +66,7 @@ export type ScopedValueDeleteModalState = {
 };
 
 type ScopeModalMutationOptions = {
-  activeFolder: string;
+  activeTeam: string;
   scopesByLabel: Map<string, unknown>;
   scopeDataByScope: Record<string, ScopeCollection | undefined>;
   canCreateScopeHere: boolean;
@@ -109,7 +109,7 @@ function isScopedValueGitOpsManaged(
 }
 
 export function useScopeModalMutations({
-  activeFolder,
+  activeTeam,
   scopesByLabel,
   scopeDataByScope,
   canCreateScopeHere,
@@ -143,11 +143,11 @@ export function useScopeModalMutations({
   const openNewScopeModal = useCallback(() => {
     if (!canCreateScopeHere) return;
     setScopeModal({
-      parent: normalizeScopeLabel(activeFolder),
+      parent: normalizeScopeLabel(activeTeam),
       name: '',
       pending: false,
     });
-  }, [activeFolder, canCreateScopeHere]);
+  }, [activeTeam, canCreateScopeHere]);
 
   const updateScopeName = useCallback((name: string) => {
     setScopeModal(current => applyModalPatch(current, { name }));

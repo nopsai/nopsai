@@ -77,7 +77,7 @@ export function buildPipelineEditorSuggestion({
   let title = 'Suggestions';
   let pool: string[] = [];
   let appendColon = false;
-  let groupedSections: Array<{ label: string; items: string[]; totalCount: number }> | undefined;
+  let teamedSections: Array<{ label: string; items: string[]; totalCount: number }> | undefined;
 
   if (includeValueContext) {
     title = 'Reusable steps';
@@ -96,12 +96,12 @@ export function buildPipelineEditorSuggestion({
     pool = metadata.mcpProfiles;
   } else if (ancestorKey === 'secrets') {
     title = 'Secrets';
-    groupedSections = buildGroupedSections(metadata.secretScopes, metadata.secrets, prefix);
-    pool = groupedSections.flatMap(section => section.items);
+    teamedSections = buildTeamedSections(metadata.secretScopes, metadata.secrets, prefix);
+    pool = teamedSections.flatMap(section => section.items);
   } else if (ancestorKey === 'variables') {
     title = 'Variables';
-    groupedSections = buildGroupedSections(metadata.variableScopes, metadata.variables, prefix);
-    pool = groupedSections.flatMap(section => section.items);
+    teamedSections = buildTeamedSections(metadata.variableScopes, metadata.variables, prefix);
+    pool = teamedSections.flatMap(section => section.items);
   } else if (ancestorKey === 'depends_on') {
     title = 'Step dependencies';
     pool = resolveStepNames(text, detail);
@@ -147,11 +147,11 @@ export function buildPipelineEditorSuggestion({
     replaceStart,
     replaceEnd,
     appendColon,
-    groupedSections,
+    teamedSections,
   };
 }
 
-function buildGroupedSections(
+function buildTeamedSections(
   scopedItems: Array<{ scope: string; items: string[] }>,
   fallbackItems: string[],
   prefix: string

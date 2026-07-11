@@ -866,9 +866,9 @@ export function useAccessPanelController({
   const basicGrantOptions = useMemo(
     () => [
       { value: ROOT_ACCESS_SCOPE, label: "Root" },
-      ...resourceCatalog.folderOptions,
+      ...resourceCatalog.teamOptions,
     ],
-    [resourceCatalog.folderOptions],
+    [resourceCatalog.teamOptions],
   );
   const basicUserGrantMap = useMemo(() => {
     const map = new Map<string, AccessGrantRecord[]>();
@@ -930,9 +930,9 @@ export function useAccessPanelController({
         user.status,
         user.external_provider_name,
         user.external_subject,
-        (user.external_groups || []).join(" "),
-        (user.external_auth_groups || [])
-          .map((group) => `${group.name} ${group.id}`)
+        (user.external_teams || []).join(" "),
+        (user.external_auth_teams || [])
+          .map((team) => `${team.name} ${team.id}`)
           .join(" "),
         (user.roles || []).map((role) => role.role).join(" "),
         grants.map((grant) => basicAccessGrantLabel(grant)).join(" "),
@@ -986,10 +986,10 @@ export function useAccessPanelController({
         provider.client_id,
         (provider.allowed_email_domains || []).join(" "),
         Object.entries(provider.role_mapping || {})
-          .map(([group, role]) => `${group} ${role}`)
+          .map(([team, role]) => `${team} ${role}`)
           .join(" "),
         Object.entries(provider.basic_role_mapping || {})
-          .map(([group, grant]) => `${group} ${grant.role} ${grant.resource || `${grant.resource_type || ""}:${grant.resource_id || ""}`}`)
+          .map(([team, grant]) => `${team} ${grant.role} ${grant.resource || `${grant.resource_type || ""}:${grant.resource_id || ""}`}`)
           .join(" "),
       ),
     );

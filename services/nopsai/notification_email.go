@@ -76,7 +76,7 @@ type pipelineNotificationMailView struct {
 	Steps            []pipelineNotificationStepView
 	Logs             []pipelineNotificationLogEntry
 	RunID            string
-	GroupPath        string
+	TeamPath         string
 	Repository       string
 	Branch           string
 	Commit           string
@@ -361,7 +361,7 @@ func buildPipelineNotificationMailView(notificationCtx pipelineNotificationConte
 	repository := strings.Trim(strings.Join([]string{notificationCtx.RepoOwner, notificationCtx.RepoName}, "/"), "/")
 	repositoryURL := normalizeNotificationHTTPURL(notificationCtx.RepoURL)
 	commitURL := normalizeNotificationHTTPURL(notificationCtx.GitCommitURL)
-	runURL := pipelineNotificationRunURL(branding.PublicURL, notificationCtx.GroupID, notificationCtx.RunID)
+	runURL := pipelineNotificationRunURL(branding.PublicURL, notificationCtx.TeamID, notificationCtx.RunID)
 
 	summary := fmt.Sprintf("%s is %s.", pipeline, strings.ToLower(statusLabel))
 	if failureLocation != "" && statusLabel == "FAILED" {
@@ -416,7 +416,7 @@ func buildPipelineNotificationMailView(notificationCtx pipelineNotificationConte
 		Steps:            steps,
 		Logs:             notificationCtx.LogExcerpt,
 		RunID:            notificationCtx.RunID,
-		GroupPath:        notificationCtx.GroupPath,
+		TeamPath:         notificationCtx.TeamPath,
 		Repository:       repository,
 		Branch:           notificationBranchLabel(notificationCtx.GitRef),
 		Commit:           commit,
@@ -513,7 +513,7 @@ func pipelineNotificationFailureLocationLabel(step, task string) string {
 	}
 }
 
-func pipelineNotificationRunURL(publicURL string, groupID int, runID string) string {
+func pipelineNotificationRunURL(publicURL string, teamID int, runID string) string {
 	publicURL = normalizeNotificationHTTPURL(publicURL)
 	if publicURL == "" || strings.TrimSpace(runID) == "" {
 		return ""
@@ -527,8 +527,8 @@ func pipelineNotificationRunURL(publicURL string, groupID int, runID string) str
 		return ""
 	}
 	query := fragment.Query()
-	if groupID > 0 {
-		query.Set("group", fmt.Sprintf("%d", groupID))
+	if teamID > 0 {
+		query.Set("team", fmt.Sprintf("%d", teamID))
 	}
 	query.Set("run", runID)
 	fragment.RawQuery = query.Encode()
@@ -577,7 +577,7 @@ func buildPipelineNotificationTextBody(view pipelineNotificationMailView) string
 	lines = append(lines, "", "Run details:")
 	for _, item := range []struct{ label, value string }{
 		{"Run ID", view.RunID},
-		{"Group", view.GroupPath},
+		{"Team", view.TeamPath},
 		{"Repository", view.Repository},
 		{"Branch", view.Branch},
 		{"Commit", view.Commit},
@@ -696,7 +696,7 @@ var pipelineNotificationHTMLTemplate = template.Must(template.New("pipeline-noti
                 <h2 style="margin:0 0 10px;font-size:16px;line-height:24px;">Run details</h2>
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="font-size:13px;line-height:20px;">
                   <tr><td style="padding:5px 12px 5px 0;color:#667085;">Run ID</td><td style="padding:5px 0;font-family:SFMono-Regular,Consolas,monospace;word-break:break-all;">{{.RunID}}</td></tr>
-                  {{if .GroupPath}}<tr><td style="padding:5px 12px 5px 0;color:#667085;">Group</td><td style="padding:5px 0;">{{.GroupPath}}</td></tr>{{end}}
+                  {{if .TeamPath}}<tr><td style="padding:5px 12px 5px 0;color:#667085;">Team</td><td style="padding:5px 0;">{{.TeamPath}}</td></tr>{{end}}
                   {{if .Repository}}<tr><td style="padding:5px 12px 5px 0;color:#667085;">Repository</td><td style="padding:5px 0;">{{.Repository}}</td></tr>{{end}}
                   {{if .Branch}}<tr><td style="padding:5px 12px 5px 0;color:#667085;">Branch</td><td style="padding:5px 0;">{{.Branch}}</td></tr>{{end}}
                   {{if .Commit}}<tr><td style="padding:5px 12px 5px 0;color:#667085;">Commit</td><td style="padding:5px 0;font-family:SFMono-Regular,Consolas,monospace;">{{.Commit}}</td></tr>{{end}}

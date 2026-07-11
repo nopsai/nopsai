@@ -8,7 +8,7 @@ import {
   credentialNamespaces,
   credentialSummary,
   filterCredentials,
-  groupCredentials,
+  teamCredentials,
   parseCredentialReference,
   type CredentialRecord,
 } from './credentials/model';
@@ -90,8 +90,8 @@ function CredentialsPanelBody({
   const namespace = namespaceOverride ?? (linkedCredential ? parseCredentialReference(linkedCredential.reference).namespace : 'all');
   const summary = useMemo(() => credentialSummary(controller.credentials), [controller.credentials]);
   const namespaces = useMemo(() => credentialNamespaces(controller.credentials), [controller.credentials]);
-  const groups = useMemo(
-    () => groupCredentials(filterCredentials(controller.credentials, query, status, namespace)),
+  const teams = useMemo(
+    () => teamCredentials(filterCredentials(controller.credentials, query, status, namespace)),
     [controller.credentials, namespace, query, status]
   );
   const showSidePanel = controller.creating || Boolean(controller.selected);
@@ -147,7 +147,7 @@ function CredentialsPanelBody({
 
       <div className={`grid items-start gap-6 ${showSidePanel ? 'xl:grid-cols-[minmax(0,1.25fr)_minmax(390px,0.75fr)]' : ''}`}>
         <CredentialCatalog
-          groups={groups}
+          teams={teams}
           namespaces={namespaces}
           selectedID={controller.selected?.id}
           query={query}

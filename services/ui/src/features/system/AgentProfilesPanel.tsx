@@ -49,18 +49,18 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
   }, [editingID, panelMode]);
 
   const sections = useMemo(() => {
-    const grouped = {
+    const teamed = {
       builtIn: [] as AgentProfileRecord[],
       custom: [] as AgentProfileRecord[],
       gitops: [] as AgentProfileRecord[],
     };
     payload.profiles.forEach(profile => {
       const section = agentProfileSection(profile);
-      if (section === 'built-in') grouped.builtIn.push(profile);
-      else if (section === 'gitops') grouped.gitops.push(profile);
-      else grouped.custom.push(profile);
+      if (section === 'built-in') teamed.builtIn.push(profile);
+      else if (section === 'gitops') teamed.gitops.push(profile);
+      else teamed.custom.push(profile);
     });
-    return grouped;
+    return teamed;
   }, [payload.profiles]);
 
   const showSidePanel = panelMode !== null;

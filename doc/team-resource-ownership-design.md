@@ -2,8 +2,8 @@
 
 This document is a target design for separating teams from Pipeline Runs and
 for adding team-scoped AI profile ownership. It is intentionally written as a
-migration plan because the current implementation still uses `groups` as a
-mixed folder/application tree and `pipeline_runs.group_id` as the run owner.
+migration plan because the current implementation still uses `teams` as a
+mixed team/application tree and `pipeline_runs.team_id` as the run owner.
 
 ## Decision
 
@@ -39,21 +39,21 @@ PipelineRun
 
 ## Implementation Status
 
-The separation is now implemented as a compatibility layer on the current
-`groups` table:
+The separation is now implemented as a team-only API layer on the current
+storage table:
 
 - `/teams` is the UI home for creating teams/applications and managing the
-  existing group-scoped GitOps repository and notification policy.
+  existing team-scoped GitOps repository and notification policy.
 - Pipeline Runs no longer exposes create, delete, or config/notification
-  controls for groups; selected run groups link to Teams for administration.
+  controls for legacy teams; selected run teams link to Teams for administration.
 - Pipelines, Triggers, Steps, Scopes, Knowledge Context, and the global sidebar
-  no longer inject empty group paths into their resource trees by default.
+  no longer inject empty team paths into their resource trees by default.
 - Repository-triggered run resolution no longer creates or rewrites
-  `groups.kind = 'app'` records when no existing owner can be resolved.
-- `/v1/teams` exposes team/application CRUD, team config repository aliases,
-  and notification aliases while `/v1/groups` remains as a compatibility API.
+  `teams.kind = 'app'` records when no existing owner can be resolved.
+- `/v1/teams` exposes team/application CRUD, team config repositories, and
+  notification routes as the only public team hierarchy API.
 - Team-scoped LLM, Agent, and MCP profile tables and APIs are available under
-  `/v1/teams/{teamID}/...` with folder-scoped AAA checks.
+  `/v1/teams/{teamID}/...` with team-scoped AAA checks.
 - Team config repositories can import/export root `ai-profiles.yaml` files,
   and the Teams settings modal has an AI Profiles tab for permission-gated
   LLM, Agent, and MCP profile editing.
@@ -68,32 +68,32 @@ tables and the canonical `teams/<team>/` GitOps layout.
 The repository had three related coupling points that drove the first
 implementation slice.
 
-1. `services/ui/src/pages/PipelineRuns.tsx` owned create/delete group behavior,
-   called `POST /v1/groups`, and passed `parent_id` from the selected Pipeline
-   Runs group. Phase 1 moved this to `/teams`.
-2. `services/ui/src/features/pipeline-runs` owned the group config repository
+1. `services/ui/src/pages/PipelineRuns.tsx` owned create/delete team behavior
+   and passed `parent_id` from the selected Pipeline Runs team. Phase 1 moved
+   this to `/teams`.
+2. `services/ui/src/features/pipeline-runs` owned the team config repository
    and notification modal, even though GitOps and notifications are team
    administration responsibilities. Phase 1 moved those controls under
    `services/ui/src/features/teams`.
-3. `services/nopsai/run_group_resolution.go` could create
-   `groups.kind = 'app'` rows while resolving a repository-triggered run.
+3. `services/nopsai/run_team_resolution.go` could create
+   `teams.kind = 'app'` rows while resolving a repository-triggered run.
    Phase 1 changed runtime resolution to select an existing owner or leave the
    run unassigned.
 
 The backend also stores two domain concepts in one table:
 
 ```text
-groups.kind = 'group' -> folder/team/product area
-groups.kind = 'app'   -> repository/application node
+teams.kind = 'team' -> team/team/product area
+teams.kind = 'app'   -> repository/application node
 ```
 
-`services/nopsai/group_schema.go` still creates `UNIQUE(name)`, which is not a
+`services/nopsai/team_schema.go` still creates `UNIQUE(name)`, which is not a
 valid enterprise hierarchy constraint because two teams should be able to own
 the same child label, for example `payments/backend` and `identity/backend`.
 
-The UI also projected the same group paths into unrelated resource trees
+The UI also projected the same team paths into unrelated resource trees
 through `services/ui/src/app/resourceTrees.ts` and `useResourceTrees.ts`. Phase
-1 stopped loading empty group paths into resource pages by default so teams do
+1 stopped loading empty team paths into resource pages by default so teams do
 not appear under pipelines, triggers, steps, scopes, and knowledge contexts
 unless there is an actual resource in that branch.
 
@@ -197,7 +197,7 @@ Pipeline Runs should only provide runtime workflows:
 
 Remove from Pipeline Runs:
 
-- create team/group
+- create team/team
 - create application/repository node
 - edit team GitOps config repository
 - edit team notification policy
@@ -288,7 +288,7 @@ team to register endpoints for its own namespace.
 
 ## GitOps Layout
 
-Support a new canonical layout while importing legacy group files during
+Support a new canonical layout while importing legacy team files during
 migration:
 
 ```text
@@ -368,8 +368,7 @@ The global repository remains the place for:
 
 ## API And AAA
 
-Add team-oriented APIs and keep `/v1/groups` as a compatibility adapter until
-the UI and GitOps migration are complete.
+Use team-oriented APIs only.
 
 ```text
 GET    /v1/teams
@@ -452,9 +451,9 @@ Keep the feature separated while it is developed:
   import/export, and validation.
 - API logic: new `services/nopsai/team_handlers.go`,
   `team_application_handlers.go`, and `team_ai_profile_handlers.go` instead of
-  expanding `group_handlers.go`.
-- Runtime resolution: replace new work in `run_group_resolution.go` with
-  `run_ownership_resolution.go`; compatibility may read `groups`, but runtime
+  expanding `team_store_handlers.go`.
+- Runtime resolution: replace new work in `run_team_resolution.go` with
+  `run_ownership_resolution.go`; compatibility may read `teams`, but runtime
   should not create teams/apps.
 - Hook orchestration: create `services/ui/src/features/teams/hooks` for team
   data, GitOps, notifications, access, and AI profile state.
@@ -467,7 +466,7 @@ Keep the feature separated while it is developed:
 ## Monitoring, MCP, And CLI
 
 Monitoring should add team/application dimensions while preserving existing
-group filters during compatibility:
+team filters during compatibility:
 
 - AI usage by team, application, profile scope, provider, model, step, and task
 - run reliability by team and application
@@ -483,8 +482,7 @@ matching AAA permissions:
 - read effective LLM/Agent/MCP profile resolution for a pipeline/run
 - keep direct mutations behind existing `confirm:true` semantics
 
-The CLI should add team routes to the route catalog and keep compatibility with
-`/v1/groups` until the adapter is removed:
+The CLI should expose team routes in the route catalog:
 
 ```text
 nopsai teams list
@@ -500,28 +498,27 @@ If the CLI surface is not expanded immediately, `nopsai api describe` and
 
 ### Phase 1: UI Separation, Same Database
 
-- Add `/teams` and move group/app creation, config repository settings, and
+- Add `/teams` and move team/app creation, config repository settings, and
   notifications out of Pipeline Runs.
-- Reuse `/v1/groups` behind a team facade in the UI.
-- Remove group/app create and settings controls from Pipeline Runs.
-- Stop injecting all group paths into resource trees by default.
+- Use `/v1/teams` directly in the UI.
+- Remove team/app create and settings controls from Pipeline Runs.
+- Stop injecting all team paths into resource trees by default.
 - Add team filters to resource and monitoring pages.
 
 ### Phase 2: Team APIs And Compatibility Adapter
 
 - Add `/v1/teams` and `/v1/teams/{teamID}/applications`.
-- Implement adapters from current `groups` rows.
+- Implement team handlers over current storage rows.
 - Add routeauthz and AAA tests for team actions.
-- Keep `/v1/groups` read/write compatible for older UI, CLI, MCP, and GitOps
-  clients.
+- Use only team hierarchy routes in UI, CLI, MCP, and GitOps clients.
 
-Status: implemented as a `groups`-backed adapter. Mutating team/application
-routes perform handler-level AAA checks against the resolved folder resource.
+Status: implemented as a `teams`-backed adapter. Mutating team/application
+routes perform handler-level AAA checks against the resolved team resource.
 
 ### Phase 3: Persistence Split
 
 - Create `teams` and `applications`.
-- Backfill from `groups.kind`.
+- Backfill from `teams.kind`.
 - Replace global `UNIQUE(name)` with scoped uniqueness.
 - Add `team_id` and `application_id` to resources and runs.
 - Change run resolution so repository-triggered runs never auto-create teams.
@@ -543,9 +540,9 @@ remain future work.
 ### Phase 5: Canonical GitOps Rename
 
 - Support `teams/<team>/team.yaml` as canonical.
-- Import legacy `config-repositories/groups/...` files.
+- Reject non-team config repository hierarchy files.
 - Export drift in the new canonical format.
-- Deprecate legacy group layout after a documented transition window.
+- Deprecate legacy team layout after a documented transition window.
 
 ## Test Coverage
 
@@ -556,7 +553,7 @@ Required coverage before enabling the new path by default:
 - API handler tests for team CRUD, app CRUD, GitOps, notifications, and AI
   profiles
 - routeauthz and AAA policy tests for every new action
-- migration/backfill tests from `groups.kind = 'group'|'app'`
+- migration/backfill tests from `teams.kind = 'team'|'app'`
 - run ownership resolution tests proving runs do not create teams/apps
 - config sync and drift tests for `teams/<team>/team.yaml` and
   `ai-profiles.yaml`

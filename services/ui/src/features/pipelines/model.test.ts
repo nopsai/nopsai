@@ -125,8 +125,8 @@ steps:
     depends_on:
       - build
     approval:
-      type: group
-      groups:
+      type: production-deploy
+      teams:
         - sre
       allow_self_approval: false
   - name: deploy
@@ -162,7 +162,7 @@ steps:
     ]
   );
   assert.deepEqual(graph.steps[0]?.configuration?.secrets, ['NPM_TOKEN']);
-  assert.deepEqual(graph.steps[1]?.configuration?.approval?.groups, ['sre']);
+  assert.deepEqual(graph.steps[1]?.configuration?.approval?.teams, ['sre']);
   assert.deepEqual(graph.steps[2]?.configuration?.tasks?.[0]?.variables, { environment: 'prod' });
 });
 

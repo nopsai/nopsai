@@ -50,7 +50,7 @@ func (a *App) GrantProductRole(ctx context.Context, input GrantProductRoleInput)
 	if err := validateGrantShape(roleName, resource, input.Inherit); err != nil {
 		return record, err
 	}
-	if err := validateFolderOwnerGuard(ctx, tx, roleName, resource, 0); err != nil {
+	if err := validateTeamOwnerGuard(ctx, tx, roleName, resource, 0); err != nil {
 		return record, err
 	}
 
@@ -164,7 +164,7 @@ func (a *App) deleteProductRoleGrant(ctx context.Context, grantID int64) (access
 	} else if locked {
 		return record, errExternallyManagedUserRoleAssignments
 	}
-	if err := validateFolderOwnerGuard(ctx, tx, record.RoleName, accessGrantResource{
+	if err := validateTeamOwnerGuard(ctx, tx, record.RoleName, accessGrantResource{
 		Type:    record.ResourceType,
 		ID:      record.ResourceID,
 		Display: record.ResourceDisplay,
@@ -232,7 +232,7 @@ func loadAccessGrantRecord(ctx context.Context, runner queryRunner, grantID int6
 			config_source_commit_sha,
 			managed_by_identity_provider,
 			identity_provider_id,
-			external_group_name
+			external_team_name
 		FROM access_grants
 		WHERE id = $1
 	`, grantID).Scan(
@@ -252,7 +252,7 @@ func loadAccessGrantRecord(ctx context.Context, runner queryRunner, grantID int6
 		&record.ConfigSourceCommitSHA,
 		&record.ManagedByIdentityProvider,
 		&record.IdentityProviderID,
-		&record.ExternalGroupName,
+		&record.ExternalTeamName,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
@@ -354,14 +354,14 @@ func validateGrantShape(roleName string, resource accessGrantResource, inherit b
 	if resource.Type == grantResourcePlatform {
 		return fmt.Errorf("only admin can be granted on platform scope")
 	}
-	if resource.Type == grantResourceFolder && !inherit {
-		return fmt.Errorf("folder grants must inherit")
+	if resource.Type == grantResourceTeam && !inherit {
+		return fmt.Errorf("team grants must inherit")
 	}
 	return nil
 }
 
-func validateFolderOwnerGuard(ctx context.Context, runner queryRunner, roleName string, resource accessGrantResource, excludeGrantID int64) error {
-	if resource.Type != grantResourceFolder {
+func validateTeamOwnerGuard(ctx context.Context, runner queryRunner, roleName string, resource accessGrantResource, excludeGrantID int64) error {
+	if resource.Type != grantResourceTeam {
 		return nil
 	}
 	if resource.ID == generalGrantID {
@@ -372,7 +372,7 @@ func validateFolderOwnerGuard(ctx context.Context, runner queryRunner, roleName 
 	}
 
 	var ownerCount int
-	ownerResourceIDs := folderOwnerGuardResourceIDs(resource.ID)
+	ownerResourceIDs := teamOwnerGuardResourceIDs(resource.ID)
 	err := runner.QueryRow(ctx, `
 		SELECT COUNT(*)
 		FROM access_grants
@@ -380,38 +380,38 @@ func validateFolderOwnerGuard(ctx context.Context, runner queryRunner, roleName 
 		  AND resource_id = ANY($2)
 		  AND role_name = $3
 		  AND id <> $4
-	`, grantResourceFolder, ownerResourceIDs, productRoleOwner, excludeGrantID).Scan(&ownerCount)
+	`, grantResourceTeam, ownerResourceIDs, productRoleOwner, excludeGrantID).Scan(&ownerCount)
 	if err != nil {
 		return err
 	}
 
 	switch {
 	case roleName == productRoleOwner && excludeGrantID > 0 && ownerCount == 0:
-		return errEveryFolderMustRetainOwner
+		return errEveryTeamMustRetainOwner
 	default:
 		return nil
 	}
 }
 
-func validateFolderOwnerUpsert(ctx context.Context, runner queryRunner, previousRole, nextRole string, resource accessGrantResource, existingGrantID int64) error {
+func validateTeamOwnerUpsert(ctx context.Context, runner queryRunner, previousRole, nextRole string, resource accessGrantResource, existingGrantID int64) error {
 	previousRole = strings.ToLower(strings.TrimSpace(previousRole))
 	nextRole = strings.ToLower(strings.TrimSpace(nextRole))
 	if nextRole == productRoleOwner {
 		return nil
 	}
 	if existingGrantID > 0 && previousRole == productRoleOwner {
-		return validateFolderOwnerGuard(ctx, runner, productRoleOwner, resource, existingGrantID)
+		return validateTeamOwnerGuard(ctx, runner, productRoleOwner, resource, existingGrantID)
 	}
-	return validateFolderOwnerGuard(ctx, runner, nextRole, resource, 0)
+	return validateTeamOwnerGuard(ctx, runner, nextRole, resource, 0)
 }
 
-func folderOwnerGuardResourceIDs(folderID string) []string {
-	folderID = strings.Trim(strings.TrimSpace(folderID), "/")
-	if folderID == "" {
+func teamOwnerGuardResourceIDs(teamID string) []string {
+	teamID = strings.Trim(strings.TrimSpace(teamID), "/")
+	if teamID == "" {
 		return nil
 	}
 
-	segments := strings.Split(folderID, "/")
+	segments := strings.Split(teamID, "/")
 	resourceIDs := make([]string, 0, len(segments))
 	for size := len(segments); size >= 1; size-- {
 		resourceID := strings.TrimSpace(strings.Join(segments[:size], "/"))
@@ -482,7 +482,7 @@ func actionAppliesToGrantResource(action, resourceType string) bool {
 	}
 
 	switch resourceType {
-	case grantResourceFolder:
+	case grantResourceTeam:
 		return !strings.HasPrefix(action, "iam.") &&
 			!strings.HasPrefix(action, "audit.") &&
 			!strings.HasPrefix(action, "system.")

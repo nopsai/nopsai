@@ -38,7 +38,7 @@ type configRepositoryEmbeddedUseAccessFile struct {
 type configRepositoryEmbeddedUseGrantFile struct {
 	SubjectType    string   `yaml:"subject_type,omitempty"`
 	SubjectID      string   `yaml:"subject_id,omitempty"`
-	Group          string   `yaml:"group,omitempty"`
+	Team           string   `yaml:"team,omitempty"`
 	Repository     string   `yaml:"repository,omitempty"`
 	User           string   `yaml:"user,omitempty"`
 	Trigger        string   `yaml:"trigger,omitempty"`
@@ -55,7 +55,7 @@ func (a *App) configRepositoryResourceAccess(ctx context.Context, repo models.Co
 	setState := func(key resourceAccessPlanKey, update func(*configRepositoryResourceAccessState)) {
 		state := states[key]
 		if strings.TrimSpace(state.Visibility) == "" {
-			state.Visibility = resourceVisibilityGroup
+			state.Visibility = resourceVisibilityTeam
 		}
 		update(&state)
 		states[key] = state
@@ -104,7 +104,7 @@ func (a *App) configRepositoryResourceAccess(ctx context.Context, repo models.Co
 
 	for key, state := range states {
 		state.Visibility = normalizeResourceVisibility(state.Visibility)
-		if !state.Override && len(state.Grants) == 0 && state.Visibility == resourceVisibilityGroup {
+		if !state.Override && len(state.Grants) == 0 && state.Visibility == resourceVisibilityTeam {
 			delete(states, key)
 			continue
 		}
@@ -261,7 +261,7 @@ func configRepositoryIncludesAccessResource(repo models.ConfigRepository, resour
 }
 
 func configRepositoryIncludesBasicRoleGrant(repo models.ConfigRepository, resourceType, resourceID string, delegatedScopes []string) bool {
-	if repo.ScopeType == models.ConfigRepositoryScopeFolder &&
+	if repo.ScopeType == models.ConfigRepositoryScopeTeam &&
 		accessGrantResourceIntersectsAnyScope(resourceType, resourceID, delegatedScopes) {
 		return false
 	}
@@ -320,8 +320,8 @@ func (state configRepositoryResourceAccessState) exportFile() *configRepositoryE
 		}
 		exportGrant := configRepositoryEmbeddedUseGrantFile{}
 		switch strings.TrimSpace(grant.SubjectType) {
-		case grantSubjectGroup:
-			exportGrant.Group = subjectID
+		case grantSubjectTeam:
+			exportGrant.Team = subjectID
 		case grantSubjectRepository:
 			exportGrant.Repository = subjectID
 		case grantSubjectUser:
@@ -346,7 +346,7 @@ func (state configRepositoryResourceAccessState) exportFile() *configRepositoryE
 		}
 		grants = append(grants, exportGrant)
 	}
-	if visibility == resourceVisibilityGroup && len(grants) == 0 {
+	if visibility == resourceVisibilityTeam && len(grants) == 0 {
 		return nil
 	}
 	file := &configRepositoryEmbeddedAccessFile{Visibility: visibility}
@@ -435,7 +435,7 @@ func canonicalConfigRepositoryAccessString(access *embeddedResourceAccessFile) s
 		visibility = resourceVisibilityRestricted
 	}
 	if visibility == "" {
-		visibility = resourceVisibilityGroup
+		visibility = resourceVisibilityTeam
 	}
 	normalizedVisibility, err := normalizeResourceVisibilityUpdate(visibility)
 	if err != nil {

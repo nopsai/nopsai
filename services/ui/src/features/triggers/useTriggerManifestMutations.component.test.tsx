@@ -47,7 +47,7 @@ function renderMutation(overrides: Partial<Parameters<typeof useTriggerManifestM
       canCreateTriggerHere: true,
       canUpdateSelectedTrigger: true,
       canDeleteTriggers: true,
-      permissionFolder: 'team',
+      permissionTeam: 'team',
       detail,
       editorValue: detail.rawYaml,
       validationErrorCount: 0,
@@ -101,7 +101,7 @@ test('creates trigger manifests with repository templates and action-time author
 });
 
 test('keeps create and clone modal failures local to the modal state', async () => {
-  const { result } = renderMutation({ permissionFolder: '' });
+  const { result } = renderMutation({ permissionTeam: '' });
 
   act(() => {
     result.current.openCreateModal();

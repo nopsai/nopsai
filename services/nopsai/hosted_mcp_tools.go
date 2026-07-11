@@ -37,8 +37,8 @@ func allHostedMCPTools() []hostedMCPTool {
 		authenticatedToolDef("nopsai.get_platform_version", "Read the public platform version, compatibility ranges, protocols, capabilities, and release manifest digest.", objectSchema(map[string]any{})),
 		toolDef("nopsai.search_docs", "Search Nopsai knowledge and docs.", "knowledge_context.read", "knowledge_context", "*", objectSchema(map[string]any{"query": stringSchema(), "limit": numberSchema()})),
 		toolDef("nopsai.read_doc", "Read a Nopsai knowledge document by id.", "knowledge_context.read", "knowledge_context", "*", objectSchema(map[string]any{"id": stringSchema()})),
-		toolDef("nopsai.list_knowledge_contexts", "List managed Nopsai knowledge context documents with optional filters.", "knowledge_context.read", "knowledge_context", "*", objectSchema(map[string]any{"kind": stringSchema(), "group": stringSchema(), "query": stringSchema(), "used_by_pipeline": stringSchema(), "limit": numberSchema()})),
-		toolDef("nopsai.get_knowledge_context", "Read a managed knowledge context document by id, kind/group/name, or kind plus ref.", "knowledge_context.read", "knowledge_context", "*", objectSchema(map[string]any{"id": stringSchema(), "kind": stringSchema(), "group": stringSchema(), "name": stringSchema(), "ref": stringSchema()})),
+		toolDef("nopsai.list_knowledge_contexts", "List managed Nopsai knowledge context documents with optional filters.", "knowledge_context.read", "knowledge_context", "*", objectSchema(map[string]any{"kind": stringSchema(), "team": stringSchema(), "team_path": stringSchema(), "query": stringSchema(), "used_by_pipeline": stringSchema(), "limit": numberSchema()})),
+		toolDef("nopsai.get_knowledge_context", "Read a managed knowledge context document by id, kind/team/name, or kind plus ref.", "knowledge_context.read", "knowledge_context", "*", objectSchema(map[string]any{"id": stringSchema(), "kind": stringSchema(), "team": stringSchema(), "team_path": stringSchema(), "name": stringSchema(), "ref": stringSchema()})),
 		toolDef("nopsai.list_pipelines", "List pipelines visible to the current user.", "pipeline.list", "pipeline", "*", objectSchema(map[string]any{"limit": numberSchema()})),
 		toolDef("nopsai.search_pipelines", "Search pipeline metadata and readable YAML definitions.", "pipeline.list", "pipeline", "*", objectSchema(map[string]any{"query": stringSchema(), "limit": numberSchema(), "include_snippets": booleanSchema()})),
 		toolDef("nopsai.get_pipeline", "Read a pipeline YAML definition.", "pipeline.read", "pipeline", "*", objectSchema(map[string]any{"pipeline": stringSchema(), "path": stringSchema(), "name": stringSchema()})),
@@ -990,15 +990,15 @@ func (a *App) hostedMCPGetSchedule(ctx context.Context, args map[string]any) (ma
 	var variablesRaw []byte
 	row := a.db.QueryRow(ctx, `
 		SELECT id::text, path, name, description, pipeline_path, pipeline_name, pipeline_version,
-		       schedule_kind, cron_expression, run_at, timezone, enabled, scope, run_group_path,
+		       schedule_kind, cron_expression, run_at, timezone, enabled, scope, run_team_path,
 		       variables, next_run_at, last_run_at, COALESCE(last_run_id::text, ''), last_status
 		FROM pipeline_schedules
 		WHERE id::text = $1
 	`, id)
-	var path, name, description, pipelinePath, pipelineName, version, kind, cron, timezoneName, scope, runGroup, lastRunID, lastStatus string
+	var path, name, description, pipelinePath, pipelineName, version, kind, cron, timezoneName, scope, runTeam, lastRunID, lastStatus string
 	var enabled bool
 	var runAt, nextRunAt, lastRunAt sql.NullTime
-	if err := row.Scan(&id, &path, &name, &description, &pipelinePath, &pipelineName, &version, &kind, &cron, &runAt, &timezoneName, &enabled, &scope, &runGroup, &variablesRaw, &nextRunAt, &lastRunAt, &lastRunID, &lastStatus); err != nil {
+	if err := row.Scan(&id, &path, &name, &description, &pipelinePath, &pipelineName, &version, &kind, &cron, &runAt, &timezoneName, &enabled, &scope, &runTeam, &variablesRaw, &nextRunAt, &lastRunAt, &lastRunID, &lastStatus); err != nil {
 		return nil, err
 	}
 	var variables map[string]any
@@ -1016,7 +1016,7 @@ func (a *App) hostedMCPGetSchedule(ctx context.Context, args map[string]any) (ma
 		"timezone":         timezoneName,
 		"enabled":          enabled,
 		"scope":            scope,
-		"run_group_path":   runGroup,
+		"run_team_path":    runTeam,
 		"variables":        variables,
 		"next_run_at":      hostedMCPNullableTime(nextRunAt),
 		"last_run_at":      hostedMCPNullableTime(lastRunAt),
@@ -1089,26 +1089,26 @@ func (a *App) hostedMCPListKnowledgeContexts(ctx context.Context, subject aaamod
 		}
 		kindFilter = kind
 	}
-	groupFilter := strings.Trim(strings.TrimSpace(stringArg(args, "group")), "/")
-	if groupFilter != "" {
-		group, err := normalizeKnowledgeContextGroup(groupFilter)
+	teamFilter := strings.Trim(strings.TrimSpace(hostedMCPKnowledgeContextTeamArg(args)), "/")
+	if teamFilter != "" {
+		team, err := normalizeKnowledgeContextTeam(teamFilter)
 		if err != nil {
 			return nil, err
 		}
-		groupFilter = group
+		teamFilter = team
 	}
 	query := strings.ToLower(strings.TrimSpace(stringArg(args, "query")))
 	usedByPipeline := strings.Trim(strings.TrimSpace(stringArg(args, "used_by_pipeline")), "/")
 
 	rows, err := a.db.Query(ctx, `
-		SELECT id::text, kind, group_path, name, description, source,
+		SELECT id::text, kind, team_path, name, description, source,
 		       managed_by_config_repo, config_source_path, config_source_commit_sha, updated_at
 		FROM knowledge_contexts
 		WHERE ($1 = '' OR kind = $1)
-		  AND ($2 = '' OR group_path = $2 OR group_path LIKE $2 || '/%')
+		  AND ($2 = '' OR team_path = $2 OR team_path LIKE $2 || '/%')
 		  AND ($3 = '' OR LOWER(name || ' ' || description || ' ' || content) LIKE '%' || $3 || '%')
-		ORDER BY kind ASC, group_path ASC, name ASC
-	`, kindFilter, groupFilter, query)
+		ORDER BY kind ASC, team_path ASC, name ASC
+	`, kindFilter, teamFilter, query)
 	if err != nil {
 		return nil, err
 	}
@@ -1120,10 +1120,10 @@ func (a *App) hostedMCPListKnowledgeContexts(ctx context.Context, subject aaamod
 	for rows.Next() {
 		var item knowledgeContextListItem
 		var managed bool
-		if err := rows.Scan(&item.UUID, &item.Kind, &item.Group, &item.Name, &item.Description, &item.Source, &managed, &item.GitOpsPath, &item.GitOpsCommit, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.UUID, &item.Kind, &item.Team, &item.Name, &item.Description, &item.Source, &managed, &item.GitOpsPath, &item.GitOpsCommit, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
-		item.ID = buildKnowledgeContextIdentifier(item.Kind, item.Group, item.Name)
+		item.ID = buildKnowledgeContextIdentifier(item.Kind, item.Team, item.Name)
 		if usedByPipeline != "" && !hostedMCPContainsString(usage[item.ID], usedByPipeline) {
 			continue
 		}
@@ -1214,17 +1214,17 @@ func (a *App) hostedMCPGetPipelineKnowledgeContext(ctx context.Context, subject 
 			}
 			continue
 		}
-		_, group, name, err := knowledgeContextRefToParts(kind, ref.Ref)
+		_, team, name, err := knowledgeContextRefToParts(kind, ref.Ref)
 		if err != nil {
 			unresolved = append(unresolved, map[string]any{"location": entry.Location, "kind": kind, "ref": ref.Ref, "status": "invalid_ref", "error": err.Error()})
 			continue
 		}
-		id := buildKnowledgeContextIdentifier(kind, group, name)
+		id := buildKnowledgeContextIdentifier(kind, team, name)
 		if !a.hostedMCPAllowed(ctx, subject, hostedMCPReadPermission("knowledge_context.read", grantResourceKnowledgeContext, id)) {
 			documents = append(documents, map[string]any{"id": id, "status": "denied", "location": entry.Location})
 			continue
 		}
-		detail, err := a.loadKnowledgeContextDetail(ctx, kind, group, name)
+		detail, err := a.loadKnowledgeContextDetail(ctx, kind, team, name)
 		if err != nil {
 			unresolved = append(unresolved, map[string]any{"location": entry.Location, "id": id, "status": "not_found", "error": err.Error()})
 			continue
@@ -1260,10 +1260,10 @@ func (a *App) hostedMCPSearchDocs(ctx context.Context, args map[string]any) (map
 		return nil, fmt.Errorf("query is required")
 	}
 	rows, err := a.db.Query(ctx, `
-		SELECT id::text, kind, group_path, name, description
+		SELECT id::text, kind, team_path, name, description
 		FROM knowledge_contexts
 		WHERE LOWER(name || ' ' || description || ' ' || content) LIKE LOWER('%' || $1 || '%')
-		ORDER BY kind ASC, group_path ASC, name ASC
+		ORDER BY kind ASC, team_path ASC, name ASC
 		LIMIT $2
 	`, query, limitArg(args, 10, 50))
 	if err != nil {
@@ -1272,11 +1272,11 @@ func (a *App) hostedMCPSearchDocs(ctx context.Context, args map[string]any) (map
 	defer rows.Close()
 	docs := []map[string]any{}
 	for rows.Next() {
-		var id, kind, groupPath, name, description string
-		if err := rows.Scan(&id, &kind, &groupPath, &name, &description); err != nil {
+		var id, kind, teamPath, name, description string
+		if err := rows.Scan(&id, &kind, &teamPath, &name, &description); err != nil {
 			return nil, err
 		}
-		docs = append(docs, map[string]any{"id": id, "kind": kind, "group_path": groupPath, "name": name, "description": description})
+		docs = append(docs, map[string]any{"id": id, "kind": kind, "team": teamPath, "name": name, "description": description})
 	}
 	return map[string]any{"docs": docs}, rows.Err()
 }
@@ -1286,17 +1286,17 @@ func (a *App) hostedMCPReadDoc(ctx context.Context, args map[string]any) (map[st
 	if id == "" {
 		return nil, fmt.Errorf("id is required")
 	}
-	var kind, groupPath, name, description, content string
+	var kind, teamPath, name, description, content string
 	err := a.db.QueryRow(ctx, `
-		SELECT kind, group_path, name, description, content
+		SELECT kind, team_path, name, description, content
 		FROM knowledge_contexts
-		WHERE id::text = $1 OR kind || '/' || CASE WHEN group_path = '' THEN '' ELSE group_path || '/' END || name = $1
+		WHERE id::text = $1 OR kind || '/' || CASE WHEN team_path = '' THEN '' ELSE team_path || '/' END || name = $1
 		LIMIT 1
-	`, id).Scan(&kind, &groupPath, &name, &description, &content)
+	`, id).Scan(&kind, &teamPath, &name, &description, &content)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"id": id, "kind": kind, "group_path": groupPath, "name": name, "description": description, "content": content}, nil
+	return map[string]any{"id": id, "kind": kind, "team": teamPath, "name": name, "description": description, "content": content}, nil
 }
 
 func (a *App) hostedMCPStatistics(ctx context.Context) (map[string]any, error) {
@@ -1651,16 +1651,16 @@ func (a *App) knowledgeContextArgID(ctx context.Context, args map[string]any) st
 	id := strings.Trim(strings.TrimSpace(stringArg(args, "id")), "/")
 	if id != "" {
 		if strings.Contains(id, "/") {
-			kind, group, name, err := splitKnowledgeContextIdentifier(id)
+			kind, team, name, err := splitKnowledgeContextIdentifier(id)
 			if err == nil {
-				return buildKnowledgeContextIdentifier(kind, group, name)
+				return buildKnowledgeContextIdentifier(kind, team, name)
 			}
 		}
 		if a != nil && a.db != nil {
-			var kind, group, name string
-			err := a.db.QueryRow(ctx, `SELECT kind, group_path, name FROM knowledge_contexts WHERE id::text = $1`, id).Scan(&kind, &group, &name)
+			var kind, team, name string
+			err := a.db.QueryRow(ctx, `SELECT kind, team_path, name FROM knowledge_contexts WHERE id::text = $1`, id).Scan(&kind, &team, &name)
 			if err == nil {
-				return buildKnowledgeContextIdentifier(kind, group, name)
+				return buildKnowledgeContextIdentifier(kind, team, name)
 			}
 		}
 		return id
@@ -1668,57 +1668,57 @@ func (a *App) knowledgeContextArgID(ctx context.Context, args map[string]any) st
 	kind := stringArg(args, "kind")
 	ref := stringArg(args, "ref")
 	if kind != "" && ref != "" {
-		kind, group, name, err := knowledgeContextRefToParts(kind, ref)
+		kind, team, name, err := knowledgeContextRefToParts(kind, ref)
 		if err == nil {
-			return buildKnowledgeContextIdentifier(kind, group, name)
+			return buildKnowledgeContextIdentifier(kind, team, name)
 		}
 	}
 	kind = firstNonEmptyString(kind, stringArg(args, "document_kind"))
-	group := firstNonEmptyString(stringArg(args, "group"), stringArg(args, "group_path"))
+	team := hostedMCPKnowledgeContextTeamArg(args)
 	name := stringArg(args, "name")
-	if kind == "" || group == "" || name == "" {
+	if kind == "" || team == "" || name == "" {
 		return ""
 	}
 	kind, kindErr := normalizeKnowledgeContextKind(kind)
-	group, groupErr := normalizeKnowledgeContextGroup(group)
+	team, teamErr := normalizeKnowledgeContextTeam(team)
 	name, nameErr := normalizeKnowledgeContextName(name)
-	if kindErr != nil || groupErr != nil || nameErr != nil {
+	if kindErr != nil || teamErr != nil || nameErr != nil {
 		return ""
 	}
-	return buildKnowledgeContextIdentifier(kind, group, name)
+	return buildKnowledgeContextIdentifier(kind, team, name)
 }
 
 func (a *App) loadHostedMCPKnowledgeContextDetail(ctx context.Context, args map[string]any) (knowledgeContextDetail, error) {
 	id := strings.Trim(strings.TrimSpace(stringArg(args, "id")), "/")
 	if id != "" {
 		if strings.Contains(id, "/") {
-			kind, group, name, err := splitKnowledgeContextIdentifier(id)
+			kind, team, name, err := splitKnowledgeContextIdentifier(id)
 			if err != nil {
 				return knowledgeContextDetail{}, err
 			}
-			return a.loadKnowledgeContextDetail(ctx, kind, group, name)
+			return a.loadKnowledgeContextDetail(ctx, kind, team, name)
 		}
-		var kind, group, name string
-		err := a.db.QueryRow(ctx, `SELECT kind, group_path, name FROM knowledge_contexts WHERE id::text = $1`, id).Scan(&kind, &group, &name)
+		var kind, team, name string
+		err := a.db.QueryRow(ctx, `SELECT kind, team_path, name FROM knowledge_contexts WHERE id::text = $1`, id).Scan(&kind, &team, &name)
 		if err != nil {
 			return knowledgeContextDetail{}, err
 		}
-		return a.loadKnowledgeContextDetail(ctx, kind, group, name)
+		return a.loadKnowledgeContextDetail(ctx, kind, team, name)
 	}
 	kind := stringArg(args, "kind")
 	ref := stringArg(args, "ref")
 	if kind != "" && ref != "" {
-		kind, group, name, err := knowledgeContextRefToParts(kind, ref)
+		kind, team, name, err := knowledgeContextRefToParts(kind, ref)
 		if err != nil {
 			return knowledgeContextDetail{}, err
 		}
-		return a.loadKnowledgeContextDetail(ctx, kind, group, name)
+		return a.loadKnowledgeContextDetail(ctx, kind, team, name)
 	}
 	kind, err := normalizeKnowledgeContextKind(kind)
 	if err != nil {
 		return knowledgeContextDetail{}, err
 	}
-	group, err := normalizeKnowledgeContextGroup(firstNonEmptyString(stringArg(args, "group"), stringArg(args, "group_path")))
+	team, err := normalizeKnowledgeContextTeam(hostedMCPKnowledgeContextTeamArg(args))
 	if err != nil {
 		return knowledgeContextDetail{}, err
 	}
@@ -1726,7 +1726,7 @@ func (a *App) loadHostedMCPKnowledgeContextDetail(ctx context.Context, args map[
 	if err != nil {
 		return knowledgeContextDetail{}, err
 	}
-	return a.loadKnowledgeContextDetail(ctx, kind, group, name)
+	return a.loadKnowledgeContextDetail(ctx, kind, team, name)
 }
 
 func hostedMCPKnowledgeContextListItem(item knowledgeContextListItem) map[string]any {
@@ -1734,7 +1734,7 @@ func hostedMCPKnowledgeContextListItem(item knowledgeContextListItem) map[string
 		"id":                         item.ID,
 		"uuid":                       item.UUID,
 		"kind":                       item.Kind,
-		"group_path":                 item.Group,
+		"team":                       item.Team,
 		"name":                       item.Name,
 		"description":                item.Description,
 		"visibility":                 item.Visibility,

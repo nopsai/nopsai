@@ -156,14 +156,14 @@ path. Existing deployments can use the legacy route by setting
 `extra.deployment` and `extra.api_version`; the adapter then calls
 `/openai/deployments/{deployment}/chat/completions`.
 
-The canonical GitOps path is `setting/system/llm_profile.yaml`. Group-scoped
+The canonical GitOps path is `setting/system/llm_profile.yaml`. Team-scoped
 config repositories cannot manage system LLM profiles.
 
 Team-scoped LLM profile storage and REST APIs are available at
 `GET|PUT /v1/teams/{teamID}/llm-profiles` and
 `PUT /v1/teams/{teamID}/llm-profiles/default`,
 `PUT|DELETE /v1/teams/{teamID}/llm-profiles/{profileName}` for callers with
-`folder.read` or `folder.update` on the team. The Teams settings modal exposes
+`team.read` or `team.update` on the team resource. The Teams settings modal exposes
 these controls under **AI profiles**.
 
 Team config repositories can manage the same team-owned LLM entries in root

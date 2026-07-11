@@ -91,14 +91,14 @@ mcp_profiles:
           - "*"
 ```
 
-Only system/global config repositories may define the MCP registry. Group config
+Only system/global config repositories may define the MCP registry. Team config
 repositories can reference approved `mcp_profiles` in their pipelines, but they
 cannot define new MCP servers.
 
 Team-scoped MCP profile storage and REST APIs are available at
 `GET|POST /v1/teams/{teamID}/mcp-profiles` and
 `GET|PUT|DELETE /v1/teams/{teamID}/mcp-profiles/{profileName}` for callers with
-`folder.read` or `folder.update` on the team. Team profiles compose approved
+`team.read` or `team.update` on the team resource. Team profiles compose approved
 system MCP servers. Run preparation and agent launch merge team profiles over
 the system catalog when the run belongs to that team. Team config repositories
 manage team-owned profiles in root `ai-profiles.yaml`:

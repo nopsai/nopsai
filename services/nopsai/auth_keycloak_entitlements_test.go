@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func TestEnrichOIDCIdentityEntitlementsUsesKeycloakUserAndGroupClientRoles(t *testing.T) {
+func TestEnrichOIDCIdentityEntitlementsUsesKeycloakUserAndTeamClientRoles(t *testing.T) {
 	ctx := context.Background()
 	var tokenForm url.Values
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +44,7 @@ func TestEnrichOIDCIdentityEntitlementsUsesKeycloakUserAndGroupClientRoles(t *te
 				http.Error(w, "unexpected briefRepresentation "+got, http.StatusBadRequest)
 				return
 			}
-			_ = json.NewEncoder(w).Encode([]keycloakGroupRepresentation{
+			_ = json.NewEncoder(w).Encode([]keycloakTeamRepresentation{
 				{ID: "team-1-id", Name: "team-1", Path: "/team-1"},
 				{ID: "team-1-dev-id", Name: "dev"},
 			})
@@ -52,7 +52,7 @@ func TestEnrichOIDCIdentityEntitlementsUsesKeycloakUserAndGroupClientRoles(t *te
 			if !requireKeycloakTestBearer(w, r) {
 				return
 			}
-			_ = json.NewEncoder(w).Encode(keycloakGroupRepresentation{ID: "team-1-dev-id", Name: "dev", Path: "/team-1/dev"})
+			_ = json.NewEncoder(w).Encode(keycloakTeamRepresentation{ID: "team-1-dev-id", Name: "dev", Path: "/team-1/dev"})
 		case "/admin/realms/nopsai/groups/team-1-id/role-mappings/clients/client-uuid/composite":
 			if !requireKeycloakTestBearer(w, r) {
 				return
@@ -79,21 +79,21 @@ func TestEnrichOIDCIdentityEntitlementsUsesKeycloakUserAndGroupClientRoles(t *te
 		ID:       "nopsai",
 		ClientID: "nopsai",
 		EntitlementSync: oidcEntitlementSyncConfig{
-			Mode:                       "keycloak_group_roles",
+			Mode:                       "keycloak_team_roles",
 			AdminBaseURL:               server.URL,
 			Realm:                      "nopsai",
 			AdminRealm:                 "master",
 			AdminClientID:              "admin-cli",
 			AdminUsername:              "admin",
 			AdminPasswordCredentialRef: "credential://system/oidc/nopsai/admin-password",
-			TargetResourceType:         grantResourceFolder,
+			TargetResourceType:         grantResourceTeam,
 		},
 	}
 
 	identity, err := app.enrichOIDCIdentityEntitlements(ctx, provider, oidcVerifiedIdentity{
 		Subject: "user-1",
 		Email:   "alice@example.com",
-		Groups:  []string{"/legacy"},
+		Teams:   []string{"/legacy"},
 	})
 	if err != nil {
 		t.Fatalf("enrichOIDCIdentityEntitlements() error = %v", err)
@@ -104,21 +104,21 @@ func TestEnrichOIDCIdentityEntitlementsUsesKeycloakUserAndGroupClientRoles(t *te
 	if !reflect.DeepEqual(identity.AccessRoles, []string{defaultAdminRole}) {
 		t.Fatalf("access roles = %#v, want direct Keycloak client role as global access role", identity.AccessRoles)
 	}
-	if !reflect.DeepEqual(identity.Groups, []string{"/legacy", "/team-1", "/team-1/dev"}) {
-		t.Fatalf("groups = %#v, want existing groups plus Keycloak group paths", identity.Groups)
+	if !reflect.DeepEqual(identity.Teams, []string{"/legacy", "/team-1", "/team-1/dev"}) {
+		t.Fatalf("teams = %#v, want existing teams plus Keycloak team paths", identity.Teams)
 	}
 
 	grantsByTarget := map[string]oidcDesiredBasicRoleGrant{}
 	for _, grant := range identity.BasicRoles {
 		grantsByTarget[grant.ResourceType+":"+grant.ResourceID] = grant
 	}
-	teamGrant := grantsByTarget["folder:team-1"]
-	if teamGrant.Role != productRoleOwner || teamGrant.ExternalGroup != "/team-1" || teamGrant.RequireResourceExists || !teamGrant.Inherit {
-		t.Fatalf("team grant = %#v, want owner basic role from Keycloak group client role without pre-existing target requirement", teamGrant)
+	teamGrant := grantsByTarget["team:team-1"]
+	if teamGrant.Role != productRoleOwner || teamGrant.ExternalTeam != "/team-1" || teamGrant.RequireResourceExists || !teamGrant.Inherit {
+		t.Fatalf("team grant = %#v, want owner basic role from Keycloak team client role without pre-existing target requirement", teamGrant)
 	}
-	devGrant := grantsByTarget["folder:team-1/dev"]
-	if devGrant.Role != productRoleViewer || devGrant.ExternalGroup != "/team-1/dev" || devGrant.RequireResourceExists || !devGrant.Inherit {
-		t.Fatalf("dev grant = %#v, want viewer basic role from Keycloak subgroup detail path without pre-existing target requirement", devGrant)
+	devGrant := grantsByTarget["team:team-1/dev"]
+	if devGrant.Role != productRoleViewer || devGrant.ExternalTeam != "/team-1/dev" || devGrant.RequireResourceExists || !devGrant.Inherit {
+		t.Fatalf("dev grant = %#v, want viewer basic role from Keycloak subteam detail path without pre-existing target requirement", devGrant)
 	}
 }
 
@@ -161,29 +161,29 @@ func TestKeycloakAdminTokenSupportsClientCredentials(t *testing.T) {
 	}
 }
 
-func TestKeycloakGroupTargetMapsPathsToFolderTargets(t *testing.T) {
-	sync := oidcEntitlementSyncConfig{GroupPathPrefix: "/teams/"}
+func TestKeycloakTeamTargetMapsPathsToTeamTargets(t *testing.T) {
+	sync := oidcEntitlementSyncConfig{TeamPathPrefix: "/teams/"}
 	tests := map[string]struct {
-		group keycloakGroupRepresentation
-		want  string
+		team keycloakTeamRepresentation
+		want string
 	}{
 		"prefixed nested path": {
-			group: keycloakGroupRepresentation{Name: "dev", Path: "/teams/team-1/dev"},
-			want:  "team-1/dev",
+			team: keycloakTeamRepresentation{Name: "dev", Path: "/teams/team-1/dev"},
+			want: "team-1/dev",
 		},
 		"prefix root only": {
-			group: keycloakGroupRepresentation{Name: "teams", Path: "/teams"},
-			want:  "",
+			team: keycloakTeamRepresentation{Name: "teams", Path: "/teams"},
+			want: "",
 		},
 		"name fallback": {
-			group: keycloakGroupRepresentation{Name: "operations"},
-			want:  "operations",
+			team: keycloakTeamRepresentation{Name: "operations"},
+			want: "operations",
 		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			if got := keycloakGroupTarget(sync, tc.group); got != tc.want {
-				t.Fatalf("keycloakGroupTarget() = %q, want %q", got, tc.want)
+			if got := keycloakTeamTarget(sync, tc.team); got != tc.want {
+				t.Fatalf("keycloakTeamTarget() = %q, want %q", got, tc.want)
 			}
 		})
 	}

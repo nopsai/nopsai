@@ -26,7 +26,7 @@ describe('notification routes', () => {
     expect(defaultNotificationRouteDefinition().routes).toHaveLength(1);
     expect(createEmptyNotificationRouteForm()).toMatchObject({
       routeName: 'default',
-      includeSameGroup: true,
+      includeSameTeam: true,
       pipelineInclude: '*',
       maxPerRun: '5',
     });
@@ -35,10 +35,10 @@ describe('notification routes', () => {
   it('normalizes legacy and malformed definitions into route rules', () => {
     const record = normalizeNotificationRouteRecord({
       id: '4',
-      group_id: 7,
+      team_id: 7,
       definition: {
         enabled: true,
-        recipients: { include: { teams: ['same_group'], users: ['ops@example.test'] } },
+        recipients: { include: { teams: ['same_team'], users: ['ops@example.test'] } },
         events: { failure: true, success: true },
         filters: { pipelines: { include: ['deploy/*'] } },
         delivery: { channels: ['mail'], throttle: { dedupe_window: '15m', max_per_run: 3 } },

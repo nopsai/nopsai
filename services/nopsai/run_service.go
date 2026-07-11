@@ -54,7 +54,7 @@ type createPendingRunRequest struct {
 	CallerType         string
 	CallerID           string
 	GitContext         map[string]string
-	GroupPath          string
+	TeamPath           string
 	AuthSnapshot       []byte
 	NewTriggerEventID  bool
 }
@@ -99,10 +99,10 @@ func (s *runService) createPendingRun(ctx context.Context, req createPendingRunR
 	}
 	req.GitContext["trigger_event_id"] = triggerEventID
 
-	groupID, err := s.app.resolveGroupIDForRun(ctx, strings.Trim(strings.TrimSpace(req.GroupPath), "/"), req.PipelinePath, req.GitContext)
+	teamID, err := s.app.resolveTeamIDForRun(ctx, strings.Trim(strings.TrimSpace(req.TeamPath), "/"), req.PipelinePath, req.GitContext)
 	if err != nil {
 		repoFullName := repositoryFullName(req.GitContext["repo_owner"], req.GitContext["repo_name"])
-		log.Error().Err(err).Str("repo", repoFullName).Str("group_path", req.GroupPath).Msg("Failed to resolve group for run")
+		log.Error().Err(err).Str("repo", repoFullName).Str("team_path", req.TeamPath).Msg("Failed to resolve team for run")
 	}
 
 	_, err = s.app.db.Exec(ctx,
@@ -110,7 +110,7 @@ func (s *runService) createPendingRun(ctx context.Context, req createPendingRunR
 			git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref, git_target_ref,
 			git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 			git_commit_author_email, git_commit_author_username, git_pusher_name,
-			git_pusher_email, git_check_run_id, group_id, parent_step_name, trigger_event_id, scope, pipeline_source,
+			git_pusher_email, git_check_run_id, team_id, parent_step_name, trigger_event_id, scope, pipeline_source,
 			trigger_source, requested_by_type, requested_by_id, effective_subject_type, effective_subject_id, authorization_snapshot)
 			VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32::jsonb)`,
 		req.RunID,
@@ -134,7 +134,7 @@ func (s *runService) createPendingRun(ctx context.Context, req createPendingRunR
 		req.GitContext["pusher_name"],
 		req.GitContext["pusher_email"],
 		nullableGitCheckRunID(req.GitContext),
-		groupID,
+		teamID,
 		nullString(req.ParentStepName),
 		nullString(triggerEventID),
 		req.Scope,

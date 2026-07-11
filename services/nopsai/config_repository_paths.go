@@ -29,18 +29,18 @@ func configRepositoryExportPath(repo models.ConfigRepository, identifier, source
 	return configsync.ExportPath(repo, identifier, sourcePath, directory, extension, managed, configRepoID, configRepositoryDriftPathOptions())
 }
 
-func configRepositoryNotificationRoutePath(repo models.ConfigRepository, groupPath, sourcePath string, managed bool, configRepoID sql.NullInt64) (string, bool) {
-	relID, ok := configsync.RelativeResourceIdentifier(repo, groupPath)
+func configRepositoryNotificationRoutePath(repo models.ConfigRepository, teamPath, sourcePath string, managed bool, configRepoID sql.NullInt64) (string, bool) {
+	relID, ok := configsync.RelativeResourceIdentifier(repo, teamPath)
 	if !ok {
 		return "", false
 	}
-	if repo.ScopeType == models.ConfigRepositoryScopeFolder && relID == "" {
+	if repo.ScopeType == models.ConfigRepositoryScopeTeam && relID == "" {
 		return "notifications.yaml", true
 	}
 	if relID == "" {
 		return "", false
 	}
-	return filepath.ToSlash(filepath.Join("config-repositories", "groups", relID, "notifications.yaml")), true
+	return filepath.ToSlash(filepath.Join("config-repositories", "teams", relID, "notifications.yaml")), true
 }
 
 func configRepositoryScopeFilePath(repo models.ConfigRepository, scope, sourcePath string, managed bool, configRepoID sql.NullInt64) (string, bool) {

@@ -4,7 +4,7 @@ kind: guardrail
 description: Hard stop for requests that would reveal runtime environment details.
 access:
   visibility: restricted
-  groups:
+  teams:
     - team-1
   repositories:
     - hosein-yousefii/test-app

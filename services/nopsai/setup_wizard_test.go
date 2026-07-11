@@ -28,19 +28,19 @@ func TestNormalizeSetupRepositories(t *testing.T) {
 	}
 }
 
-func TestNormalizeSetupRepositoryGroups(t *testing.T) {
-	groups := normalizeSetupRepositoryGroups([]setupRepositoryGroupInput{
+func TestNormalizeSetupRepositoryTeams(t *testing.T) {
+	teams := normalizeSetupRepositoryTeams([]setupRepositoryTeamInput{
 		{Name: " Platform Team ", Repositories: []string{"acme/api", "acme/web"}},
 		{Name: "Apps", Repositories: []string{"https://github.com/acme/api.git", "acme/worker"}},
 	}, nil)
-	if len(groups) != 2 {
-		t.Fatalf("groups = %#v, want 2 groups", groups)
+	if len(teams) != 2 {
+		t.Fatalf("teams = %#v, want 2 teams", teams)
 	}
-	if groups[0].Name != "Platform-Team" || len(groups[0].Repositories) != 2 {
-		t.Fatalf("first group = %#v, want Platform-Team with two repos", groups[0])
+	if teams[0].Name != "Platform-Team" || len(teams[0].Repositories) != 2 {
+		t.Fatalf("first team = %#v, want Platform-Team with two repos", teams[0])
 	}
-	if groups[1].Name != "Apps" || len(groups[1].Repositories) != 1 || groups[1].Repositories[0] != "acme/worker" {
-		t.Fatalf("second group = %#v, want Apps with deduplicated worker repo", groups[1])
+	if teams[1].Name != "Apps" || len(teams[1].Repositories) != 1 || teams[1].Repositories[0] != "acme/worker" {
+		t.Fatalf("second team = %#v, want Apps with deduplicated worker repo", teams[1])
 	}
 }
 
@@ -59,26 +59,26 @@ func TestSetupStarterTemplatesUseSecretReferencesOnly(t *testing.T) {
 	}
 }
 
-func TestSetupStarterTemplatesUseSelectedRepositoryGroups(t *testing.T) {
+func TestSetupStarterTemplatesUseSelectedRepositoryTeams(t *testing.T) {
 	files := setupStarterTemplatesWithOptions(setupProfileTeam, nil, setupTemplateOptions{
-		RepositoryGroups: []setupRepositoryGroupInput{
+		RepositoryTeams: []setupRepositoryTeamInput{
 			{Name: "platform", Repositories: []string{"acme/service-api"}},
 			{Name: "apps", Repositories: []string{"acme/web"}},
 		},
 		IncludeLLM: true,
 		IncludeMCP: false,
 	})
-	if _, ok := files["config-repositories/groups/structure.yaml"]; ok {
-		t.Fatal("starter templates should use scoped group structure files, not the aggregate structure file")
+	if _, ok := files["config-repositories/teams/structure.yaml"]; ok {
+		t.Fatal("starter templates should use scoped team structure files, not the aggregate structure file")
 	}
-	platformStructure := files["config-repositories/groups/platform/structure.yaml"]
-	for _, want := range []string{"description: Repository group", "apps:", "name: service-api", "repo_url: https://github.com/acme/service-api"} {
+	platformStructure := files["config-repositories/teams/platform/structure.yaml"]
+	for _, want := range []string{"description: Repository team", "apps:", "name: service-api", "repo_url: https://github.com/acme/service-api"} {
 		if !strings.Contains(platformStructure, want) {
 			t.Fatalf("platform structure missing %q:\n%s", want, platformStructure)
 		}
 	}
-	appsStructure := files["config-repositories/groups/apps/structure.yaml"]
-	for _, want := range []string{"description: Repository group", "apps:", "name: web", "repo_url: https://github.com/acme/web"} {
+	appsStructure := files["config-repositories/teams/apps/structure.yaml"]
+	for _, want := range []string{"description: Repository team", "apps:", "name: web", "repo_url: https://github.com/acme/web"} {
 		if !strings.Contains(appsStructure, want) {
 			t.Fatalf("apps structure missing %q:\n%s", want, appsStructure)
 		}
@@ -90,17 +90,17 @@ func TestSetupStarterTemplatesUseSelectedRepositoryGroups(t *testing.T) {
 
 func TestSetupStarterTemplatesIncludeSelectedUsersInAccess(t *testing.T) {
 	files := setupStarterTemplatesWithOptions(setupProfileTeam, nil, setupTemplateOptions{
-		RepositoryGroups: []setupRepositoryGroupInput{
+		RepositoryTeams: []setupRepositoryTeamInput{
 			{Name: "team-1", Repositories: []string{"acme/service-api"}},
 		},
 		Users: []setupUserInput{
-			{Sub: "alice@example.com", Email: "alice@example.com", Role: "developer", Group: "team-1"},
+			{Sub: "alice@example.com", Email: "alice@example.com", Role: "developer", Team: "team-1"},
 		},
 		IncludeLLM: true,
 		IncludeMCP: false,
 	})
 	access := files["access/bootstrap.yaml"]
-	for _, want := range []string{`sub: "alice@example.com"`, `email: "alice@example.com"`, `role: developer`, `resource: folder:team-1`} {
+	for _, want := range []string{`sub: "alice@example.com"`, `email: "alice@example.com"`, `role: developer`, `resource: team:team-1`} {
 		if !strings.Contains(access, want) {
 			t.Fatalf("access file missing %q:\n%s", want, access)
 		}

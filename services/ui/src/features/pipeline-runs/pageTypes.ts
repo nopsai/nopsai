@@ -20,7 +20,7 @@ export type PipelineApproval = {
   step_name: string;
   task_name: string;
   approval_type: string;
-  assigned_groups: string[];
+  assigned_teams: string[];
   allow_self_approval: boolean;
   status: string;
   requested_at: string;
@@ -31,7 +31,7 @@ export type PipelineApproval = {
   decision_comment?: string;
 };
 
-export type PipelineRunsTriggerGroup = {
+export type PipelineRunsTriggerTeam = {
   id: string;
   runs: RunListItem[];
   status: string;

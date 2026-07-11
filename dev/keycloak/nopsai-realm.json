@@ -9,15 +9,15 @@
       "nopsai": [
         {
           "name": "viewer",
-          "description": "NopsAI global viewer access or scoped folder viewer when assigned to a group."
+          "description": "NopsAI global viewer access or scoped team viewer when assigned to a team."
         },
         {
           "name": "developer",
-          "description": "NopsAI global developer access or scoped folder developer when assigned to a group."
+          "description": "NopsAI global developer access or scoped team developer when assigned to a team."
         },
         {
           "name": "owner",
-          "description": "NopsAI global owner access or scoped folder owner when assigned to a group."
+          "description": "NopsAI global owner access or scoped team owner when assigned to a team."
         },
         {
           "name": "nopsai-admin",
@@ -27,21 +27,6 @@
     }
   },
   "groups": [
-    {
-      "name": "nopsai-admin"
-    },
-    {
-      "name": "owner"
-    },
-    {
-      "name": "team-1-owner"
-    },
-    {
-      "name": "team-1-dev-owner"
-    },
-    {
-      "name": "viewer"
-    },
     {
       "name": "team-1",
       "clientRoles": {
@@ -101,12 +86,12 @@
       },
       "protocolMappers": [
         {
-          "name": "groups",
+          "name": "teams",
           "protocol": "openid-connect",
           "protocolMapper": "oidc-group-membership-mapper",
           "consentRequired": false,
           "config": {
-            "claim.name": "groups",
+            "claim.name": "teams",
             "full.path": "false",
             "id.token.claim": "true",
             "access.token.claim": "true",

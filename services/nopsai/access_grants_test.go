@@ -189,7 +189,7 @@ func (f *fakeGrantBackend) RecordAudit(_ context.Context, entry model.DecisionLo
 
 func TestProductRolePermissions(t *testing.T) {
 	t.Run("viewer", func(t *testing.T) {
-		actions := actionSet(applicableProductRoleActions(productRoleViewer, grantResourceFolder))
+		actions := actionSet(applicableProductRoleActions(productRoleViewer, grantResourceTeam))
 		assertAction(t, actions, "pipeline.read", true)
 		assertAction(t, actions, "pipeline_schedule.list", true)
 		assertAction(t, actions, "pipeline_schedule.read", true)
@@ -206,7 +206,7 @@ func TestProductRolePermissions(t *testing.T) {
 	})
 
 	t.Run("developer", func(t *testing.T) {
-		actions := actionSet(applicableProductRoleActions(productRoleDeveloper, grantResourceFolder))
+		actions := actionSet(applicableProductRoleActions(productRoleDeveloper, grantResourceTeam))
 		assertAction(t, actions, "pipeline.read", true)
 		assertAction(t, actions, "pipeline_schedule.create", true)
 		assertAction(t, actions, "pipeline_schedule.update", true)
@@ -236,8 +236,8 @@ func TestProductRolePermissions(t *testing.T) {
 	})
 
 	t.Run("owner", func(t *testing.T) {
-		actions := actionSet(applicableProductRoleActions(productRoleOwner, grantResourceFolder))
-		assertAction(t, actions, "folder.delete", true)
+		actions := actionSet(applicableProductRoleActions(productRoleOwner, grantResourceTeam))
+		assertAction(t, actions, "team.delete", true)
 		assertAction(t, actions, "pipeline.delete", true)
 		assertAction(t, actions, "pipeline_schedule.delete", true)
 		assertAction(t, actions, "pipeline_schedule.manage_acl", true)
@@ -374,8 +374,8 @@ func TestResolveConfigSyncGrantResourceAllowsFutureGitOpsTargets(t *testing.T) {
 }
 
 func TestProductRoleHierarchy(t *testing.T) {
-	assertRoleIncludesRole(t, productRoleDeveloper, productRoleViewer, grantResourceFolder)
-	assertRoleIncludesRole(t, productRoleOwner, productRoleDeveloper, grantResourceFolder)
+	assertRoleIncludesRole(t, productRoleDeveloper, productRoleViewer, grantResourceTeam)
+	assertRoleIncludesRole(t, productRoleOwner, productRoleDeveloper, grantResourceTeam)
 	assertRoleIncludesRole(t, productRoleOwner, productRoleViewer, grantResourceRepo)
 }
 
@@ -411,8 +411,7 @@ func TestNormalizeAccessGrantResourceTypeSupportsGitWebhookSource(t *testing.T) 
 
 func TestNormalizeAccessGrantSubjectTypeSupportsFirstClassCallers(t *testing.T) {
 	tests := map[string]string{
-		"auth_group":      model.SubjectTypeAuthGroup,
-		"group":           model.SubjectTypeAuthGroup,
+		"auth_team":       model.SubjectTypeAuthTeam,
 		"repository":      model.SubjectTypeRepository,
 		"trigger":         model.SubjectTypeTrigger,
 		"service_account": model.SubjectTypeServiceAccount,
@@ -428,6 +427,12 @@ func TestNormalizeAccessGrantSubjectTypeSupportsFirstClassCallers(t *testing.T) 
 	}
 }
 
+func TestNormalizeAccessGrantSubjectTypeRejectsLegacyTeamAlias(t *testing.T) {
+	if _, err := normalizeAccessGrantSubjectType("team"); err == nil {
+		t.Fatal("expected legacy team subject_type to be rejected")
+	}
+}
+
 func TestAccessGrantResponseUsesInternalSubjectID(t *testing.T) {
 	response := accessGrantResponseFromRecord(accessGrantRecord{
 		ID:             42,
@@ -435,7 +440,7 @@ func TestAccessGrantResponseUsesInternalSubjectID(t *testing.T) {
 		SubjectID:      "user-uuid",
 		SubjectDisplay: "alice",
 		RoleName:       productRoleDeveloper,
-		ResourceType:   grantResourceFolder,
+		ResourceType:   grantResourceTeam,
 		ResourceID:     generalGrantID,
 		Inherit:        true,
 	})
@@ -483,20 +488,20 @@ func TestDeleteUserAccessArtifactsRemovesGrantRows(t *testing.T) {
 	}
 }
 
-func TestProductRoleFolderInheritance(t *testing.T) {
+func TestProductRoleTeamInheritance(t *testing.T) {
 	developerBackend := newUserGrantBackend()
-	developerBackend.aclPolicies = append(developerBackend.aclPolicies, grantACLPolicies(productRoleDeveloper, model.SubjectTypeUser, "user-1", grantResourceFolder, "payments")...)
+	developerBackend.aclPolicies = append(developerBackend.aclPolicies, grantACLPolicies(productRoleDeveloper, model.SubjectTypeUser, "user-1", grantResourceTeam, "payments")...)
 	developerBackend.inheritance[grantResourceKey(model.ResourceRef{Type: "pipeline", ID: "payments/deploy-api"})] = []model.InheritedResource{{
-		Resource: model.ResourceRef{Type: grantResourceFolder, ID: "payments"},
-		Reason:   "folder_inheritance",
+		Resource: model.ResourceRef{Type: grantResourceTeam, ID: "payments"},
+		Reason:   "team_inheritance",
 	}}
 	developerBackend.inheritance[grantResourceKey(model.ResourceRef{Type: "pipeline", ID: "other-team/deploy-api"})] = []model.InheritedResource{{
-		Resource: model.ResourceRef{Type: grantResourceFolder, ID: "other-team"},
-		Reason:   "folder_inheritance",
+		Resource: model.ResourceRef{Type: grantResourceTeam, ID: "other-team"},
+		Reason:   "team_inheritance",
 	}}
 	developerBackend.inheritance[grantResourceKey(model.ResourceRef{Type: "pipeline_run", ID: "run-1"})] = []model.InheritedResource{
 		{Resource: model.ResourceRef{Type: "pipeline", ID: "payments/deploy-api"}, Reason: "pipeline_inheritance"},
-		{Resource: model.ResourceRef{Type: grantResourceFolder, ID: "payments"}, Reason: "folder_inheritance"},
+		{Resource: model.ResourceRef{Type: grantResourceTeam, ID: "payments"}, Reason: "team_inheritance"},
 	}
 
 	developerEvaluator := aaaauthz.NewEvaluator(developerBackend)
@@ -526,41 +531,41 @@ func TestProductRoleFolderInheritance(t *testing.T) {
 	}
 
 	ownerBackend := newUserGrantBackend()
-	ownerBackend.aclPolicies = append(ownerBackend.aclPolicies, grantACLPolicies(productRoleOwner, model.SubjectTypeUser, "user-1", grantResourceFolder, "payments")...)
-	ownerBackend.inheritance[grantResourceKey(model.ResourceRef{Type: grantResourceFolder, ID: "payments/backend"})] = []model.InheritedResource{{
-		Resource: model.ResourceRef{Type: grantResourceFolder, ID: "payments"},
-		Reason:   "folder_inheritance",
+	ownerBackend.aclPolicies = append(ownerBackend.aclPolicies, grantACLPolicies(productRoleOwner, model.SubjectTypeUser, "user-1", grantResourceTeam, "payments")...)
+	ownerBackend.inheritance[grantResourceKey(model.ResourceRef{Type: grantResourceTeam, ID: "payments/backend"})] = []model.InheritedResource{{
+		Resource: model.ResourceRef{Type: grantResourceTeam, ID: "payments"},
+		Reason:   "team_inheritance",
 	}}
-	ownerBackend.inheritance[grantResourceKey(model.ResourceRef{Type: grantResourceFolder, ID: "other-team/backend"})] = []model.InheritedResource{{
-		Resource: model.ResourceRef{Type: grantResourceFolder, ID: "other-team"},
-		Reason:   "folder_inheritance",
+	ownerBackend.inheritance[grantResourceKey(model.ResourceRef{Type: grantResourceTeam, ID: "other-team/backend"})] = []model.InheritedResource{{
+		Resource: model.ResourceRef{Type: grantResourceTeam, ID: "other-team"},
+		Reason:   "team_inheritance",
 	}}
 
 	ownerEvaluator := aaaauthz.NewEvaluator(ownerBackend)
 
-	decision, err = ownerEvaluator.Check(context.Background(), ownerBackend.resolved.Subject, "folder.manage_acl", model.ResourceRef{Type: grantResourceFolder, ID: "payments/backend"}, nil)
+	decision, err = ownerEvaluator.Check(context.Background(), ownerBackend.resolved.Subject, "team.manage_acl", model.ResourceRef{Type: grantResourceTeam, ID: "payments/backend"}, nil)
 	if err != nil {
-		t.Fatalf("folder.manage_acl Check() error = %v", err)
+		t.Fatalf("team.manage_acl Check() error = %v", err)
 	}
 	if !decision.Allowed {
-		t.Fatalf("folder.manage_acl decision = %#v, want allowed", decision)
+		t.Fatalf("team.manage_acl decision = %#v, want allowed", decision)
 	}
 
-	decision, err = ownerEvaluator.Check(context.Background(), ownerBackend.resolved.Subject, "folder.manage_acl", model.ResourceRef{Type: grantResourceFolder, ID: "other-team/backend"}, nil)
+	decision, err = ownerEvaluator.Check(context.Background(), ownerBackend.resolved.Subject, "team.manage_acl", model.ResourceRef{Type: grantResourceTeam, ID: "other-team/backend"}, nil)
 	if err != nil {
-		t.Fatalf("other-team folder.manage_acl Check() error = %v", err)
+		t.Fatalf("other-team team.manage_acl Check() error = %v", err)
 	}
 	if decision.Allowed {
-		t.Fatalf("other-team folder.manage_acl decision = %#v, want denied", decision)
+		t.Fatalf("other-team team.manage_acl decision = %#v, want denied", decision)
 	}
 }
 
-func TestRepositoryRunInheritanceAllowsFolderOwnerToExploreRuns(t *testing.T) {
+func TestRepositoryRunInheritanceAllowsTeamOwnerToExploreRuns(t *testing.T) {
 	backend := newUserGrantBackend()
-	backend.aclPolicies = append(backend.aclPolicies, grantACLPolicies(productRoleOwner, model.SubjectTypeUser, "user-1", grantResourceFolder, "hosein-yousefii")...)
+	backend.aclPolicies = append(backend.aclPolicies, grantACLPolicies(productRoleOwner, model.SubjectTypeUser, "user-1", grantResourceTeam, "hosein-yousefii")...)
 	backend.inheritance[grantResourceKey(model.ResourceRef{Type: "pipeline_run", ID: "run-1"})] = []model.InheritedResource{
 		{Resource: model.ResourceRef{Type: grantResourceRepo, ID: "hosein-yousefii/test-app"}, Reason: "repository_inheritance"},
-		{Resource: model.ResourceRef{Type: grantResourceFolder, ID: "hosein-yousefii"}, Reason: "folder_inheritance"},
+		{Resource: model.ResourceRef{Type: grantResourceTeam, ID: "hosein-yousefii"}, Reason: "team_inheritance"},
 	}
 
 	evaluator := aaaauthz.NewEvaluator(backend)
@@ -569,17 +574,17 @@ func TestRepositoryRunInheritanceAllowsFolderOwnerToExploreRuns(t *testing.T) {
 		t.Fatalf("pipeline run read Check() error = %v", err)
 	}
 	if !decision.Allowed {
-		t.Fatalf("pipeline run read decision = %#v, want allowed through repository folder inheritance", decision)
+		t.Fatalf("pipeline run read decision = %#v, want allowed through repository team inheritance", decision)
 	}
 }
 
-func TestPipelineRunListAllowsChildFolderOwnerThroughRunGroupInheritance(t *testing.T) {
+func TestPipelineRunListAllowsChildTeamOwnerThroughRunTeamInheritance(t *testing.T) {
 	backend := newUserGrantBackend()
-	backend.aclPolicies = append(backend.aclPolicies, grantACLPolicies(productRoleOwner, model.SubjectTypeUser, "user-1", grantResourceFolder, "team-1/dev")...)
+	backend.aclPolicies = append(backend.aclPolicies, grantACLPolicies(productRoleOwner, model.SubjectTypeUser, "user-1", grantResourceTeam, "team-1/dev")...)
 	backend.inheritance[grantResourceKey(model.ResourceRef{Type: "pipeline_run", ID: "run-1"})] = []model.InheritedResource{
-		{Resource: model.ResourceRef{Type: grantResourceFolder, ID: "team-1/dev/t-app"}, Reason: "folder_inheritance"},
-		{Resource: model.ResourceRef{Type: grantResourceFolder, ID: "team-1/dev"}, Reason: "folder_inheritance"},
-		{Resource: model.ResourceRef{Type: grantResourceFolder, ID: "team-1"}, Reason: "folder_inheritance"},
+		{Resource: model.ResourceRef{Type: grantResourceTeam, ID: "team-1/dev/t-app"}, Reason: "team_inheritance"},
+		{Resource: model.ResourceRef{Type: grantResourceTeam, ID: "team-1/dev"}, Reason: "team_inheritance"},
+		{Resource: model.ResourceRef{Type: grantResourceTeam, ID: "team-1"}, Reason: "team_inheritance"},
 	}
 
 	evaluator := aaaauthz.NewEvaluator(backend)
@@ -588,20 +593,20 @@ func TestPipelineRunListAllowsChildFolderOwnerThroughRunGroupInheritance(t *test
 		t.Fatalf("pipeline run list Check() error = %v", err)
 	}
 	if !decision.Allowed {
-		t.Fatalf("pipeline run list decision = %#v, want allowed through child folder inheritance", decision)
+		t.Fatalf("pipeline run list decision = %#v, want allowed through child team inheritance", decision)
 	}
 }
 
-func TestGeneralFolderGrantInheritance(t *testing.T) {
+func TestGeneralTeamGrantInheritance(t *testing.T) {
 	backend := newUserGrantBackend()
-	backend.aclPolicies = append(backend.aclPolicies, grantACLPolicies(productRoleDeveloper, model.SubjectTypeUser, "user-1", grantResourceFolder, model.FolderGeneralID)...)
+	backend.aclPolicies = append(backend.aclPolicies, grantACLPolicies(productRoleDeveloper, model.SubjectTypeUser, "user-1", grantResourceTeam, model.TeamGeneralID)...)
 	backend.inheritance[grantResourceKey(model.ResourceRef{Type: "pipeline", ID: "root-pipeline"})] = []model.InheritedResource{{
-		Resource: model.ResourceRef{Type: grantResourceFolder, ID: model.FolderGeneralID},
-		Reason:   "folder_inheritance",
+		Resource: model.ResourceRef{Type: grantResourceTeam, ID: model.TeamGeneralID},
+		Reason:   "team_inheritance",
 	}}
 	backend.inheritance[grantResourceKey(model.ResourceRef{Type: "pipeline", ID: "dev/root-pipeline"})] = []model.InheritedResource{{
-		Resource: model.ResourceRef{Type: grantResourceFolder, ID: "dev"},
-		Reason:   "folder_inheritance",
+		Resource: model.ResourceRef{Type: grantResourceTeam, ID: "dev"},
+		Reason:   "team_inheritance",
 	}}
 
 	evaluator := aaaauthz.NewEvaluator(backend)
@@ -623,115 +628,115 @@ func TestGeneralFolderGrantInheritance(t *testing.T) {
 	}
 }
 
-func TestResolveAccessGrantFolderRoot(t *testing.T) {
+func TestResolveAccessGrantTeamRoot(t *testing.T) {
 	tests := []string{"root", "/root"}
 	for _, raw := range tests {
-		resource, err := resolveAccessGrantFolder(context.Background(), &noopQueryRunner{}, raw, false)
+		resource, err := resolveAccessGrantTeam(context.Background(), &noopQueryRunner{}, raw, false)
 		if err != nil {
-			t.Fatalf("resolveAccessGrantFolder(%q) error = %v", raw, err)
+			t.Fatalf("resolveAccessGrantTeam(%q) error = %v", raw, err)
 		}
-		if resource.ID != model.FolderGeneralID || resource.Display != "root" {
-			t.Fatalf("resolveAccessGrantFolder(%q) = %#v, want root folder resource", raw, resource)
+		if resource.ID != model.TeamGeneralID || resource.Display != "root" {
+			t.Fatalf("resolveAccessGrantTeam(%q) = %#v, want root team resource", raw, resource)
 		}
 	}
 }
 
-func TestResolveAccessGrantFolderDoesNotTreatLegacyAliasesAsRoot(t *testing.T) {
-	tests := []string{"general", "/general", ".", model.FolderGeneralID}
+func TestResolveAccessGrantTeamDoesNotTreatLegacyAliasesAsRoot(t *testing.T) {
+	tests := []string{"general", "/general", ".", model.TeamGeneralID}
 	for _, raw := range tests {
-		resource, err := resolveAccessGrantFolder(context.Background(), &noopQueryRunner{}, raw, false)
+		resource, err := resolveAccessGrantTeam(context.Background(), &noopQueryRunner{}, raw, false)
 		if err != nil {
-			t.Fatalf("resolveAccessGrantFolder(%q) error = %v", raw, err)
+			t.Fatalf("resolveAccessGrantTeam(%q) error = %v", raw, err)
 		}
 		normalized := strings.Trim(strings.TrimSpace(raw), "/")
 		if resource.ID != normalized || resource.Display != "/"+normalized {
-			t.Fatalf("resolveAccessGrantFolder(%q) = %#v, want concrete folder resource", raw, resource)
+			t.Fatalf("resolveAccessGrantTeam(%q) = %#v, want concrete team resource", raw, resource)
 		}
 	}
 }
 
-func TestValidateFolderOwnerGuardAllowsNonOwnerOnOwnerlessFolder(t *testing.T) {
+func TestValidateTeamOwnerGuardAllowsNonOwnerOnOwnerlessTeam(t *testing.T) {
 	runner := &ownerGuardQueryRunner{}
-	err := validateFolderOwnerGuard(context.Background(), runner, productRoleDeveloper, accessGrantResource{
-		Type:    grantResourceFolder,
+	err := validateTeamOwnerGuard(context.Background(), runner, productRoleDeveloper, accessGrantResource{
+		Type:    grantResourceTeam,
 		ID:      "team-1/dev",
 		Display: "/team-1/dev",
 	}, 0)
 	if err != nil {
-		t.Fatalf("validateFolderOwnerGuard() error = %v, want ownerless folder to allow non-owner grant", err)
+		t.Fatalf("validateTeamOwnerGuard() error = %v, want ownerless team to allow non-owner grant", err)
 	}
 	if len(runner.queriedResourceIDs) != 0 {
 		t.Fatalf("non-owner grant should not query owner count, got %#v", runner.queriedResourceIDs)
 	}
 }
 
-func TestValidateFolderOwnerGuardAllowsNonOwnerWhenOnlyChildOwnerExists(t *testing.T) {
+func TestValidateTeamOwnerGuardAllowsNonOwnerWhenOnlyChildOwnerExists(t *testing.T) {
 	runner := &ownerGuardQueryRunner{ownerCounts: map[string]int{"team-1/dev": 1}}
-	err := validateFolderOwnerGuard(context.Background(), runner, productRoleDeveloper, accessGrantResource{
-		Type:    grantResourceFolder,
+	err := validateTeamOwnerGuard(context.Background(), runner, productRoleDeveloper, accessGrantResource{
+		Type:    grantResourceTeam,
 		ID:      "team-1",
 		Display: "/team-1",
 	}, 0)
 	if err != nil {
-		t.Fatalf("validateFolderOwnerGuard() error = %v, want non-owner grant to be allowed", err)
+		t.Fatalf("validateTeamOwnerGuard() error = %v, want non-owner grant to be allowed", err)
 	}
 }
 
-func TestValidateFolderOwnerGuardAllowsDeletingChildOwnerWhenParentOwnerRemains(t *testing.T) {
+func TestValidateTeamOwnerGuardAllowsDeletingChildOwnerWhenParentOwnerRemains(t *testing.T) {
 	runner := &ownerGuardQueryRunner{ownerCounts: map[string]int{"team-1": 1}}
-	err := validateFolderOwnerGuard(context.Background(), runner, productRoleOwner, accessGrantResource{
-		Type:    grantResourceFolder,
+	err := validateTeamOwnerGuard(context.Background(), runner, productRoleOwner, accessGrantResource{
+		Type:    grantResourceTeam,
 		ID:      "team-1/dev",
 		Display: "/team-1/dev",
 	}, 42)
 	if err != nil {
-		t.Fatalf("validateFolderOwnerGuard() error = %v, want parent owner to satisfy delete guard", err)
+		t.Fatalf("validateTeamOwnerGuard() error = %v, want parent owner to satisfy delete guard", err)
 	}
 }
 
-func TestValidateFolderOwnerUpsertAllowsIdempotentOwnerRefresh(t *testing.T) {
+func TestValidateTeamOwnerUpsertAllowsIdempotentOwnerRefresh(t *testing.T) {
 	runner := &ownerGuardQueryRunner{}
-	err := validateFolderOwnerUpsert(context.Background(), runner, productRoleOwner, productRoleOwner, accessGrantResource{
-		Type:    grantResourceFolder,
+	err := validateTeamOwnerUpsert(context.Background(), runner, productRoleOwner, productRoleOwner, accessGrantResource{
+		Type:    grantResourceTeam,
 		ID:      "team-1",
 		Display: "/team-1",
 	}, 42)
 	if err != nil {
-		t.Fatalf("validateFolderOwnerUpsert() error = %v, want idempotent owner refresh", err)
+		t.Fatalf("validateTeamOwnerUpsert() error = %v, want idempotent owner refresh", err)
 	}
 	if len(runner.queriedResourceIDs) != 0 {
 		t.Fatalf("owner refresh should not query owner count, got %#v", runner.queriedResourceIDs)
 	}
 }
 
-func TestValidateFolderOwnerUpsertAllowsUpgradeToOwner(t *testing.T) {
+func TestValidateTeamOwnerUpsertAllowsUpgradeToOwner(t *testing.T) {
 	runner := &ownerGuardQueryRunner{}
-	err := validateFolderOwnerUpsert(context.Background(), runner, productRoleDeveloper, productRoleOwner, accessGrantResource{
-		Type:    grantResourceFolder,
+	err := validateTeamOwnerUpsert(context.Background(), runner, productRoleDeveloper, productRoleOwner, accessGrantResource{
+		Type:    grantResourceTeam,
 		ID:      "team-1",
 		Display: "/team-1",
 	}, 42)
 	if err != nil {
-		t.Fatalf("validateFolderOwnerUpsert() error = %v, want upgrade to owner", err)
+		t.Fatalf("validateTeamOwnerUpsert() error = %v, want upgrade to owner", err)
 	}
 }
 
-func TestValidateFolderOwnerUpsertRejectsDowngradingLastOwner(t *testing.T) {
+func TestValidateTeamOwnerUpsertRejectsDowngradingLastOwner(t *testing.T) {
 	runner := &ownerGuardQueryRunner{}
-	err := validateFolderOwnerUpsert(context.Background(), runner, productRoleOwner, productRoleDeveloper, accessGrantResource{
-		Type:    grantResourceFolder,
+	err := validateTeamOwnerUpsert(context.Background(), runner, productRoleOwner, productRoleDeveloper, accessGrantResource{
+		Type:    grantResourceTeam,
 		ID:      "team-1",
 		Display: "/team-1",
 	}, 42)
-	if err == nil || err.Error() != "every folder must retain at least one owner" {
-		t.Fatalf("validateFolderOwnerUpsert() error = %v, want last owner downgrade rejection", err)
+	if err == nil || err.Error() != "every team must retain at least one owner" {
+		t.Fatalf("validateTeamOwnerUpsert() error = %v, want last owner downgrade rejection", err)
 	}
 }
 
 func TestExplicitDenyOverridesProductGrant(t *testing.T) {
 	backend := newUserGrantBackend()
-	backend.resolved.AuthGroups = []model.AuthGroupInfo{{ID: "group-1", Name: "payments-devs"}}
-	backend.aclPolicies = append(backend.aclPolicies, grantACLPolicies(productRoleDeveloper, model.SubjectTypeAuthGroup, "group-1", grantResourceFolder, "payments")...)
+	backend.resolved.AuthTeams = []model.AuthTeamInfo{{ID: "team-1", Name: "payments-devs"}}
+	backend.aclPolicies = append(backend.aclPolicies, grantACLPolicies(productRoleDeveloper, model.SubjectTypeAuthTeam, "team-1", grantResourceTeam, "payments")...)
 	backend.aclPolicies = append(backend.aclPolicies, fakeGrantACLPolicy{
 		subjectType:  model.SubjectTypeUser,
 		subjectID:    "user-1",
@@ -741,8 +746,8 @@ func TestExplicitDenyOverridesProductGrant(t *testing.T) {
 		effect:       "deny",
 	})
 	backend.inheritance[grantResourceKey(model.ResourceRef{Type: "pipeline", ID: "payments/deploy-api"})] = []model.InheritedResource{{
-		Resource: model.ResourceRef{Type: grantResourceFolder, ID: "payments"},
-		Reason:   "folder_inheritance",
+		Resource: model.ResourceRef{Type: grantResourceTeam, ID: "payments"},
+		Reason:   "team_inheritance",
 	}}
 
 	evaluator := aaaauthz.NewEvaluator(backend)
@@ -805,9 +810,9 @@ func TestSensitiveAccessDecisionsAreAudited(t *testing.T) {
 
 	t.Run("manage acl allowed logs sensitive", func(t *testing.T) {
 		backend := newUserGrantBackend()
-		backend.aclPolicies = append(backend.aclPolicies, grantACLPolicies(productRoleOwner, model.SubjectTypeUser, "user-1", grantResourceFolder, "payments")...)
+		backend.aclPolicies = append(backend.aclPolicies, grantACLPolicies(productRoleOwner, model.SubjectTypeUser, "user-1", grantResourceTeam, "payments")...)
 		evaluator := aaaauthz.NewEvaluator(backend)
-		decision, err := evaluator.Check(context.Background(), backend.resolved.Subject, "folder.manage_acl", model.ResourceRef{Type: grantResourceFolder, ID: "payments"}, nil)
+		decision, err := evaluator.Check(context.Background(), backend.resolved.Subject, "team.manage_acl", model.ResourceRef{Type: grantResourceTeam, ID: "payments"}, nil)
 		if err != nil {
 			t.Fatalf("Check() error = %v", err)
 		}
@@ -844,7 +849,7 @@ func TestSensitiveAccessDecisionsAreAudited(t *testing.T) {
 }
 
 func TestAdminGrantRequiresPlatformAdmin(t *testing.T) {
-	resource := accessGrantResource{Type: grantResourceFolder, ID: "payments", Display: "/payments"}
+	resource := accessGrantResource{Type: grantResourceTeam, ID: "payments", Display: "/payments"}
 	err := authorizeGrantOperation(context.Background(), model.Subject{Type: model.SubjectTypeUser, ID: "user-1", Sub: "user-1"}, resource, productRoleAdmin, func(_ context.Context, _ model.Subject, action string, _ model.ResourceRef, _ map[string]any) (model.Decision, error) {
 		if action != "iam.admin" {
 			t.Fatalf("action = %q, want iam.admin", action)
@@ -889,35 +894,35 @@ func TestKnowledgeContextGrantManagementUsesManageAccessAction(t *testing.T) {
 }
 
 func TestScopedProductGrantCapabilityUsesGrantRoleDefinition(t *testing.T) {
-	if !productGrantIncludesAction(productRoleDeveloper, grantResourceFolder, "pipeline.create") {
-		t.Fatal("developer folder grant should include pipeline.create")
+	if !productGrantIncludesAction(productRoleDeveloper, grantResourceTeam, "pipeline.create") {
+		t.Fatal("developer team grant should include pipeline.create")
 	}
-	if !productGrantIncludesAction(productRoleDeveloper, grantResourceFolder, "scope.update") {
-		t.Fatal("developer folder grant should include scope.update")
+	if !productGrantIncludesAction(productRoleDeveloper, grantResourceTeam, "scope.update") {
+		t.Fatal("developer team grant should include scope.update")
 	}
-	if !productGrantIncludesAction(productRoleDeveloper, grantResourceFolder, "step.update") {
-		t.Fatal("developer folder grant should include step.update")
+	if !productGrantIncludesAction(productRoleDeveloper, grantResourceTeam, "step.update") {
+		t.Fatal("developer team grant should include step.update")
 	}
-	if productGrantIncludesAction(productRoleViewer, grantResourceFolder, "pipeline.create") {
-		t.Fatal("viewer folder grant should not include pipeline.create")
+	if productGrantIncludesAction(productRoleViewer, grantResourceTeam, "pipeline.create") {
+		t.Fatal("viewer team grant should not include pipeline.create")
 	}
-	if productGrantIncludesAction(productRoleDeveloper, grantResourceFolder, "pipeline.delete") {
-		t.Fatal("developer folder grant should not include pipeline.delete")
+	if productGrantIncludesAction(productRoleDeveloper, grantResourceTeam, "pipeline.delete") {
+		t.Fatal("developer team grant should not include pipeline.delete")
 	}
-	if !productGrantIncludesAction(productRoleOwner, grantResourceFolder, "folder.delete") {
-		t.Fatal("owner folder grant should include folder.delete")
+	if !productGrantIncludesAction(productRoleOwner, grantResourceTeam, "team.delete") {
+		t.Fatal("owner team grant should include team.delete")
 	}
-	if !productGrantIncludesAction(productRoleOwner, grantResourceFolder, "pipeline.delete") {
-		t.Fatal("owner folder grant should include pipeline.delete")
+	if !productGrantIncludesAction(productRoleOwner, grantResourceTeam, "pipeline.delete") {
+		t.Fatal("owner team grant should include pipeline.delete")
 	}
-	if !productGrantIncludesAction(productRoleOwner, grantResourceFolder, "repository.delete") {
-		t.Fatal("owner folder grant should include repository.delete")
+	if !productGrantIncludesAction(productRoleOwner, grantResourceTeam, "repository.delete") {
+		t.Fatal("owner team grant should include repository.delete")
 	}
 }
 
-func TestGroupDeleteAuthorizationTargetFromName(t *testing.T) {
-	action, resource := groupDeleteAuthorizationTargetFromName("acme/widgets", "app", "acme/widgets", accessGrantResource{
-		Type: grantResourceFolder,
+func TestTeamDeleteAuthorizationTargetFromName(t *testing.T) {
+	action, resource := teamDeleteAuthorizationTargetFromName("acme/widgets", "app", "acme/widgets", accessGrantResource{
+		Type: grantResourceTeam,
 		ID:   "platform/acme/widgets",
 	})
 	if action != "repository.delete" {
@@ -927,15 +932,15 @@ func TestGroupDeleteAuthorizationTargetFromName(t *testing.T) {
 		t.Fatalf("resource = %#v, want repository:acme/widgets", resource)
 	}
 
-	action, resource = groupDeleteAuthorizationTargetFromName("platform", "group", "", accessGrantResource{
-		Type: grantResourceFolder,
+	action, resource = teamDeleteAuthorizationTargetFromName("platform", "team", "", accessGrantResource{
+		Type: grantResourceTeam,
 		ID:   "platform",
 	})
-	if action != "folder.delete" {
-		t.Fatalf("action = %q, want folder.delete", action)
+	if action != "team.delete" {
+		t.Fatalf("action = %q, want team.delete", action)
 	}
-	if resource.Type != grantResourceFolder || resource.ID != "platform" {
-		t.Fatalf("resource = %#v, want folder:platform", resource)
+	if resource.Type != grantResourceTeam || resource.ID != "platform" {
+		t.Fatalf("resource = %#v, want team:platform", resource)
 	}
 }
 

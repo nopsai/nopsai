@@ -6,6 +6,6 @@ cron_expression: "0 2 * * *"
 timezone: UTC
 enabled: false
 scope: prod
-run_group_path: team-1
+run_team_path: team-1
 variables:
   RELEASE_CHANNEL: nightly

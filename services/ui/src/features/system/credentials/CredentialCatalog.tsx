@@ -1,11 +1,11 @@
 import { GitBranch, KeyRound, Search } from 'lucide-react';
-import type { CredentialGroup, CredentialRecord } from './model';
+import type { CredentialTeam, CredentialRecord } from './model';
 import { parseCredentialReference } from './model';
 import { formatCredentialLabel } from './presentation';
 import { CredentialStatusBadge } from './CredentialStatusBadge';
 
 type CredentialCatalogProps = {
-  groups: CredentialGroup[];
+  teams: CredentialTeam[];
   namespaces: string[];
   selectedID?: string;
   query: string;
@@ -19,7 +19,7 @@ type CredentialCatalogProps = {
 };
 
 export function CredentialCatalog({
-  groups,
+  teams,
   namespaces,
   selectedID,
   query,
@@ -31,7 +31,7 @@ export function CredentialCatalog({
   onNamespaceChange,
   onSelect,
 }: CredentialCatalogProps) {
-  const resultCount = groups.reduce((count, group) => count + group.credentials.length, 0);
+  const resultCount = teams.reduce((count, team) => count + team.credentials.length, 0);
 
   return (
     <section className="glass-card border border-[var(--border-primary)] rounded-xl overflow-hidden">
@@ -75,17 +75,17 @@ export function CredentialCatalog({
       </div>
 
       <div className="p-4 space-y-6">
-        {groups.map(group => (
-          <section key={group.key} className="space-y-3">
+        {teams.map(team => (
+          <section key={team.key} className="space-y-3">
             <div className="flex items-center gap-2">
               <h4 className="text-sm font-semibold text-[var(--text-primary)]">
-                {formatCredentialLabel(group.category)}
+                {formatCredentialLabel(team.category)}
               </h4>
-              <span className="runner-pill runner-pill--muted">{group.namespace}</span>
-              <span className="text-xs text-[var(--text-secondary)]">{group.credentials.length}</span>
+              <span className="runner-pill runner-pill--muted">{team.namespace}</span>
+              <span className="text-xs text-[var(--text-secondary)]">{team.credentials.length}</span>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
-              {group.credentials.map(credential => {
+              {team.credentials.map(credential => {
                 const reference = parseCredentialReference(credential.reference);
                 const selected = credential.id === selectedID;
                 return (
@@ -133,7 +133,7 @@ export function CredentialCatalog({
           </section>
         ))}
 
-        {!loading && groups.length === 0 && (
+        {!loading && teams.length === 0 && (
           <div className="py-10 text-center">
             <KeyRound className="mx-auto h-8 w-8 text-[var(--text-secondary)]" aria-hidden="true" />
             <p className="mt-3 font-medium text-[var(--text-primary)]">No matching credentials</p>

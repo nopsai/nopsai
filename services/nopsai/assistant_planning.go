@@ -498,16 +498,16 @@ func assistantAIUsageWindowLabel(call assistantToolActivity, idx int) string {
 	return "window from " + from + " to " + to
 }
 
-func assistantAppendTokenGroups(lines []string, call assistantToolActivity) []string {
-	lines = assistantAppendTokenGroup(lines, "Highest token steps:", call.Output["by_step"], 5)
-	lines = assistantAppendTokenGroup(lines, "Highest token tasks:", call.Output["by_task"], 5)
-	lines = assistantAppendTokenGroup(lines, "Usage by model:", call.Output["by_model"], 5)
-	lines = assistantAppendTokenGroup(lines, "Usage by LLM profile:", call.Output["by_profile"], 5)
-	lines = assistantAppendTokenGroup(lines, "Usage by feature:", call.Output["by_feature"], 5)
+func assistantAppendTokenTeams(lines []string, call assistantToolActivity) []string {
+	lines = assistantAppendTokenTeam(lines, "Highest token steps:", call.Output["by_step"], 5)
+	lines = assistantAppendTokenTeam(lines, "Highest token tasks:", call.Output["by_task"], 5)
+	lines = assistantAppendTokenTeam(lines, "Usage by model:", call.Output["by_model"], 5)
+	lines = assistantAppendTokenTeam(lines, "Usage by LLM profile:", call.Output["by_profile"], 5)
+	lines = assistantAppendTokenTeam(lines, "Usage by feature:", call.Output["by_feature"], 5)
 	return lines
 }
 
-func assistantAppendTokenGroup(lines []string, title string, value any, limit int) []string {
+func assistantAppendTokenTeam(lines []string, title string, value any, limit int) []string {
 	items := assistantMapSlice(value)
 	if len(items) == 0 {
 		return lines

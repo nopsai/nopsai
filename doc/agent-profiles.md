@@ -116,8 +116,8 @@ AAA resources:
 
 - Reads require `system.read` on `system:agent-profiles`.
 - Mutations require `system.update` on `system:agent-profiles`.
-- Team-scoped reads require `folder.read` on the resolved team folder.
-- Team-scoped mutations require `folder.update` on the resolved team folder.
+- Team-scoped reads require `team.read` on the resolved team resource.
+- Team-scoped mutations require `team.update` on the resolved team resource.
 
 ## Runtime Contract
 

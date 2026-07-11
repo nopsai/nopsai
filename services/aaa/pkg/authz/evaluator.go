@@ -34,13 +34,13 @@ func (e *Evaluator) Introspect(ctx context.Context, subject model.Subject) (*mod
 		return nil, err
 	}
 	return &model.IntrospectResponse{
-		ID:         resolved.Subject.ID,
-		Sub:        resolved.Subject.Sub,
-		Email:      resolved.Subject.Email,
-		Provider:   resolved.Provider,
-		Status:     resolved.Status,
-		Roles:      resolved.EffectiveRoles(),
-		AuthGroups: resolved.AuthGroups,
+		ID:        resolved.Subject.ID,
+		Sub:       resolved.Subject.Sub,
+		Email:     resolved.Subject.Email,
+		Provider:  resolved.Provider,
+		Status:    resolved.Status,
+		Roles:     resolved.EffectiveRoles(),
+		AuthTeams: resolved.AuthTeams,
 	}, nil
 }
 
@@ -169,11 +169,11 @@ func (e *Evaluator) findDeny(ctx context.Context, resolved *model.ResolvedSubjec
 	} else if match != nil {
 		return model.Decision{Allowed: false, Reason: "direct_role_deny", MatchedPolicy: match.AsMap()}, true, nil
 	}
-	for _, group := range resolved.AuthGroups {
-		if match, err := e.backend.FindRolePermissionMatch(ctx, group.Roles, resource, action, "deny"); err != nil {
+	for _, team := range resolved.AuthTeams {
+		if match, err := e.backend.FindRolePermissionMatch(ctx, team.Roles, resource, action, "deny"); err != nil {
 			return model.Decision{}, false, err
 		} else if match != nil {
-			return model.Decision{Allowed: false, Reason: "auth_group_role_deny", MatchedPolicy: match.AsMap()}, true, nil
+			return model.Decision{Allowed: false, Reason: "auth_team_role_deny", MatchedPolicy: match.AsMap()}, true, nil
 		}
 	}
 
@@ -183,11 +183,11 @@ func (e *Evaluator) findDeny(ctx context.Context, resolved *model.ResolvedSubjec
 	} else if match != nil {
 		return model.Decision{Allowed: false, Reason: "direct_acl_deny", MatchedPolicy: match.AsMap()}, true, nil
 	}
-	for _, group := range resolved.AuthGroups {
-		if match, err := e.backend.FindACLMatch(ctx, model.SubjectRef{Type: model.SubjectTypeAuthGroup, ID: group.ID}, resource, action, "deny"); err != nil {
+	for _, team := range resolved.AuthTeams {
+		if match, err := e.backend.FindACLMatch(ctx, model.SubjectRef{Type: model.SubjectTypeAuthTeam, ID: team.ID}, resource, action, "deny"); err != nil {
 			return model.Decision{}, false, err
 		} else if match != nil {
-			return model.Decision{Allowed: false, Reason: "auth_group_acl_deny", MatchedPolicy: match.AsMap()}, true, nil
+			return model.Decision{Allowed: false, Reason: "auth_team_acl_deny", MatchedPolicy: match.AsMap()}, true, nil
 		}
 	}
 
@@ -197,8 +197,8 @@ func (e *Evaluator) findDeny(ctx context.Context, resolved *model.ResolvedSubjec
 		} else if match != nil {
 			return model.Decision{Allowed: false, Reason: inheritedReason(inheritedResource.Reason, false), MatchedPolicy: match.AsMap()}, true, nil
 		}
-		for _, group := range resolved.AuthGroups {
-			if match, err := e.backend.FindACLMatch(ctx, model.SubjectRef{Type: model.SubjectTypeAuthGroup, ID: group.ID}, inheritedResource.Resource, action, "deny"); err != nil {
+		for _, team := range resolved.AuthTeams {
+			if match, err := e.backend.FindACLMatch(ctx, model.SubjectRef{Type: model.SubjectTypeAuthTeam, ID: team.ID}, inheritedResource.Resource, action, "deny"); err != nil {
 				return model.Decision{}, false, err
 			} else if match != nil {
 				return model.Decision{Allowed: false, Reason: inheritedReason(inheritedResource.Reason, false), MatchedPolicy: match.AsMap()}, true, nil
@@ -219,11 +219,11 @@ func (e *Evaluator) findAllow(ctx context.Context, resolved *model.ResolvedSubje
 	} else if match != nil {
 		return model.Decision{Allowed: true, Reason: "direct_role_allow", MatchedPolicy: match.AsMap()}, true, nil
 	}
-	for _, group := range resolved.AuthGroups {
-		if match, err := e.backend.FindRolePermissionMatch(ctx, group.Roles, resource, action, "allow"); err != nil {
+	for _, team := range resolved.AuthTeams {
+		if match, err := e.backend.FindRolePermissionMatch(ctx, team.Roles, resource, action, "allow"); err != nil {
 			return model.Decision{}, false, err
 		} else if match != nil {
-			return model.Decision{Allowed: true, Reason: "auth_group_role_allow", MatchedPolicy: match.AsMap()}, true, nil
+			return model.Decision{Allowed: true, Reason: "auth_team_role_allow", MatchedPolicy: match.AsMap()}, true, nil
 		}
 	}
 
@@ -233,11 +233,11 @@ func (e *Evaluator) findAllow(ctx context.Context, resolved *model.ResolvedSubje
 	} else if match != nil {
 		return model.Decision{Allowed: true, Reason: "direct_acl_allow", MatchedPolicy: match.AsMap()}, true, nil
 	}
-	for _, group := range resolved.AuthGroups {
-		if match, err := e.backend.FindACLMatch(ctx, model.SubjectRef{Type: model.SubjectTypeAuthGroup, ID: group.ID}, resource, action, "allow"); err != nil {
+	for _, team := range resolved.AuthTeams {
+		if match, err := e.backend.FindACLMatch(ctx, model.SubjectRef{Type: model.SubjectTypeAuthTeam, ID: team.ID}, resource, action, "allow"); err != nil {
 			return model.Decision{}, false, err
 		} else if match != nil {
-			return model.Decision{Allowed: true, Reason: "auth_group_acl_allow", MatchedPolicy: match.AsMap()}, true, nil
+			return model.Decision{Allowed: true, Reason: "auth_team_acl_allow", MatchedPolicy: match.AsMap()}, true, nil
 		}
 	}
 
@@ -247,8 +247,8 @@ func (e *Evaluator) findAllow(ctx context.Context, resolved *model.ResolvedSubje
 		} else if match != nil {
 			return model.Decision{Allowed: true, Reason: inheritedReason(inheritedResource.Reason, true), MatchedPolicy: match.AsMap()}, true, nil
 		}
-		for _, group := range resolved.AuthGroups {
-			if match, err := e.backend.FindACLMatch(ctx, model.SubjectRef{Type: model.SubjectTypeAuthGroup, ID: group.ID}, inheritedResource.Resource, action, "allow"); err != nil {
+		for _, team := range resolved.AuthTeams {
+			if match, err := e.backend.FindACLMatch(ctx, model.SubjectRef{Type: model.SubjectTypeAuthTeam, ID: team.ID}, inheritedResource.Resource, action, "allow"); err != nil {
 				return model.Decision{}, false, err
 			} else if match != nil {
 				return model.Decision{Allowed: true, Reason: inheritedReason(inheritedResource.Reason, true), MatchedPolicy: match.AsMap()}, true, nil
@@ -317,9 +317,9 @@ func inheritedReason(reason string, allowed bool) string {
 		return "scope_acl_inheritance_deny"
 	default:
 		if allowed {
-			return "inherited_folder_acl_allow"
+			return "inherited_team_acl_allow"
 		}
-		return "inherited_folder_acl_deny"
+		return "inherited_team_acl_deny"
 	}
 }
 

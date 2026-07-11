@@ -13,17 +13,17 @@ import (
 	"nopsai/pkg/models"
 )
 
-func TestBuildListRunsQueryFiltersGroupDescendants(t *testing.T) {
-	groupID := 42
+func TestBuildListRunsQueryFiltersTeamDescendants(t *testing.T) {
+	teamID := 42
 
-	query, args := BuildListRunsQuery(&groupID, false, "main", 50, 10)
+	query, args := BuildListRunsQuery(&teamID, false, "main", 50, 10)
 	normalized := normalizeSQLForTest(query)
 
 	for _, want := range []string{
-		"WITH RECURSIVE selected_groups AS",
-		"SELECT id FROM groups WHERE id = $1",
-		"JOIN selected_groups sg ON g.parent_id = sg.id",
-		"pr.group_id IN (SELECT id FROM selected_groups)",
+		"WITH RECURSIVE selected_teams AS",
+		"SELECT id FROM teams WHERE id = $1",
+		"JOIN selected_teams sg ON g.parent_id = sg.id",
+		"pr.team_id IN (SELECT id FROM selected_teams)",
 		"pr.git_ref = $2",
 		"LEFT JOIN pipeline_run_usage_summary prus ON prus.run_id = pr.run_id",
 		"COALESCE(prus.ai_total_tokens, 0)::bigint",
@@ -36,8 +36,8 @@ func TestBuildListRunsQueryFiltersGroupDescendants(t *testing.T) {
 	if len(args) != 2 {
 		t.Fatalf("args = %#v, want 2 args", args)
 	}
-	if args[0] != groupID {
-		t.Fatalf("group arg = %#v, want %d", args[0], groupID)
+	if args[0] != teamID {
+		t.Fatalf("team arg = %#v, want %d", args[0], teamID)
 	}
 	if args[1] != "refs/heads/main" {
 		t.Fatalf("branch arg = %#v, want refs/heads/main", args[1])
@@ -103,15 +103,15 @@ func TestApplyDirectChildRunStatusesAggregatesListStatuses(t *testing.T) {
 	}
 }
 
-func TestGroupResolutionCandidatesPreferRepoBeforePipelinePath(t *testing.T) {
-	got := GroupResolutionCandidates("", "payments/backend", map[string]string{
+func TestTeamResolutionCandidatesPreferRepoBeforePipelinePath(t *testing.T) {
+	got := TeamResolutionCandidates("", "payments/backend", map[string]string{
 		"repo_owner": "acme",
 		"repo_name":  "payments-api",
 	})
 
-	want := []GroupResolutionCandidate{
-		{Kind: GroupResolutionRepo, Value: "acme/payments-api"},
-		{Kind: GroupResolutionPath, Value: "payments/backend"},
+	want := []TeamResolutionCandidate{
+		{Kind: TeamResolutionRepo, Value: "acme/payments-api"},
+		{Kind: TeamResolutionPath, Value: "payments/backend"},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("candidates = %#v, want %#v", got, want)
@@ -123,10 +123,10 @@ func TestGroupResolutionCandidatesPreferRepoBeforePipelinePath(t *testing.T) {
 	}
 }
 
-func TestGroupResolutionCandidatesUsePipelinePathWithoutRepo(t *testing.T) {
-	got := GroupResolutionCandidates("", "payments/backend", nil)
+func TestTeamResolutionCandidatesUsePipelinePathWithoutRepo(t *testing.T) {
+	got := TeamResolutionCandidates("", "payments/backend", nil)
 
-	want := []GroupResolutionCandidate{{Kind: GroupResolutionPath, Value: "payments/backend"}}
+	want := []TeamResolutionCandidate{{Kind: TeamResolutionPath, Value: "payments/backend"}}
 	if len(got) != len(want) || got[0] != want[0] {
 		t.Fatalf("candidates = %#v, want %#v", got, want)
 	}

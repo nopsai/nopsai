@@ -96,7 +96,7 @@ scope/resources.
 
 These are separate checks. A caller in `allowed_callers` still needs an AAA
 policy such as `external_trigger.invoke` on `external_trigger:deploy-prod`
-or, for intentionally broad integrations, `external_trigger:*`. Folder-scoped
+or, for intentionally broad integrations, `external_trigger:*`. Team-scoped
 pipeline access does not automatically grant permission to invoke a standalone
 external trigger.
 

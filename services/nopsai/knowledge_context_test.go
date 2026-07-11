@@ -15,7 +15,7 @@ func TestParseGitOpsKnowledgeContextsStructuredDocument(t *testing.T) {
 kind: adr
 description: Accepted decision for storing pipeline run state in PostgreSQL.
 access:
-  groups:
+  teams:
     - team-1
   repositories:
     - hosein-yousefii/test-app
@@ -56,14 +56,14 @@ content:
 		t.Fatalf("visibility = (%v, %q), want restricted", access.visibilitySet, access.visibility)
 	}
 
-	groupGrant := accessGrantPlanKey{
-		subjectType:  grantSubjectGroup,
+	teamGrant := accessGrantPlanKey{
+		subjectType:  grantSubjectTeam,
 		subjectID:    "team-1",
 		resourceType: grantResourceKnowledgeContext,
 		resourceID:   key,
 	}
-	if _, ok := plan.grants[groupGrant]; !ok {
-		t.Fatalf("expected group access grant %#v, got %#v", groupGrant, plan.grants)
+	if _, ok := plan.grants[teamGrant]; !ok {
+		t.Fatalf("expected team access grant %#v, got %#v", teamGrant, plan.grants)
 	}
 
 	repoGrant := accessGrantPlanKey{
@@ -107,7 +107,7 @@ name: repo-check
 kind: guardrail
 access:
   visibility: restricted
-  groups:
+  teams:
     - team-1
 content: |
   # Repository Check Guardrail
@@ -217,7 +217,7 @@ func TestParseGitOpsKnowledgeContextsYAMLDocumentWithPlainContent(t *testing.T) 
 		"knowledge/guardrail/team-1/repo-check.yaml": `name: repo-check
 kind: guardrail
 access:
-  groups:
+  teams:
     - team-1
   repositories:
     - hosein-yousefii/test-app

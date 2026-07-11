@@ -13,16 +13,16 @@ beforeEach(() => {
   checkPermissionMock.mockReset();
 });
 
-test('coordinates folder, update, and execute permission checks', async () => {
+test('coordinates team, update, and execute permission checks', async () => {
   checkPermissionMock.mockImplementation(async action => action !== 'pipeline.update');
   const { result, rerender } = renderHook(
-    ({ selectedID, folder }) => usePipelinePermissions(selectedID, folder),
-    { initialProps: { selectedID: 'platform/release', folder: 'ignored' } }
+    ({ selectedID, team }) => usePipelinePermissions(selectedID, team),
+    { initialProps: { selectedID: 'platform/release', team: 'ignored' } }
   );
 
   await waitFor(() => {
     expect(result.current).toEqual({
-      permissionFolder: 'platform',
+      permissionTeam: 'platform',
       canCreatePipelineHere: true,
       canUpdateSelectedPipeline: false,
       canExecuteSelectedPipeline: true,
@@ -33,9 +33,9 @@ test('coordinates folder, update, and execute permission checks', async () => {
     'platform/__nopsai_permission_probe__'
   );
 
-  rerender({ selectedID: null, folder: '' });
+  rerender({ selectedID: null, team: '' });
   await waitFor(() => {
-    expect(result.current.permissionFolder).toBe('');
+    expect(result.current.permissionTeam).toBe('');
     expect(result.current.canUpdateSelectedPipeline).toBe(false);
     expect(result.current.canExecuteSelectedPipeline).toBe(false);
   });

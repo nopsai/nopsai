@@ -53,7 +53,7 @@ github_webhook_credential_ref: credential://system/github/webhook-secret
 
 func TestParseGitOpsGitHubSettingsPlanRejectsNonSystemRepo(t *testing.T) {
 	_, err := parseGitOpsGitHubSettingsPlan(
-		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeFolder, ScopeID: "team-1"},
+		models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"},
 		gitOpsRuntimeSettingsDirectory{
 			root: "setting",
 			files: map[string]string{

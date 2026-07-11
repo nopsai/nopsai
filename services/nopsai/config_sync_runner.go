@@ -77,7 +77,7 @@ func (a *App) syncAllConfigRepositories(ctx context.Context, started time.Time) 
 	syncRepos(models.ConfigRepositoryScopeSystem)
 	for {
 		before := len(syncedRepoIDs)
-		syncRepos(models.ConfigRepositoryScopeFolder)
+		syncRepos(models.ConfigRepositoryScopeTeam)
 		if len(syncedRepoIDs) == before {
 			break
 		}

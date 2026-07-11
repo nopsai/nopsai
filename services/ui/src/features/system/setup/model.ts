@@ -11,7 +11,7 @@ export type SetupCounts = {
   pipelines: number;
   steps: number;
   triggers: number;
-  groups: number;
+  teams: number;
   access_grants: number;
   llm_profiles: number;
   mcp_servers: number;
@@ -64,13 +64,13 @@ export type BootstrapResponse = {
   warnings?: string[];
 };
 
-export type RepositoryGroupDraft = {
+export type RepositoryTeamDraft = {
   id: string;
   name: string;
   repositoriesText: string;
 };
 
-export type RepositoryGroupSummary = {
+export type RepositoryTeamSummary = {
   name: string;
   repositories: string[];
 };
@@ -80,7 +80,7 @@ export type UserDraft = {
   email: string;
   password: string;
   role: 'owner' | 'developer' | 'viewer';
-  group: string;
+  team: string;
 };
 
 export type SetupStepID = 'readiness' | 'runtime' | 'gitops' | 'repositories' | 'ai' | 'users' | 'review';
@@ -110,7 +110,7 @@ export type SetupBootstrapRequest = {
     base_path: string;
     enabled: boolean;
   };
-  repository_groups: Array<{ name: string; repositories: string[] }>;
+  repository_teams: Array<{ name: string; repositories: string[] }>;
   repositories: string[];
   llm_profile: {
     name: string;
@@ -126,7 +126,7 @@ export type SetupBootstrapRequest = {
     email: string;
     role: UserDraft['role'];
     password: string;
-    group: string;
+    team: string;
   }>;
 };
 
@@ -134,7 +134,7 @@ export const WIZARD_STEPS: Array<{ id: SetupStepID; label: string; required: boo
   { id: 'readiness', label: 'Readiness', required: true },
   { id: 'runtime', label: 'Runtime', required: true },
   { id: 'gitops', label: 'GitOps', required: false },
-  { id: 'repositories', label: 'Groups', required: false },
+  { id: 'repositories', label: 'Teams', required: false },
   { id: 'ai', label: 'AI', required: false },
   { id: 'users', label: 'Users', required: false },
   { id: 'review', label: 'Output', required: true },
@@ -147,27 +147,27 @@ export function makeID(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function initialRepositoryGroups(): RepositoryGroupDraft[] {
+export function initialRepositoryTeams(): RepositoryTeamDraft[] {
   return [
-    { id: makeID('group'), name: 'platform', repositoriesText: '' },
-    { id: makeID('group'), name: 'applications', repositoriesText: '' },
+    { id: makeID('team'), name: 'platform', repositoriesText: '' },
+    { id: makeID('team'), name: 'applications', repositoriesText: '' },
   ];
 }
 
-export function buildSetupGitOpsStructurePreview(groups: RepositoryGroupSummary[]): string {
-  if (groups.length === 0) return '{}';
+export function buildSetupGitOpsStructurePreview(teams: RepositoryTeamSummary[]): string {
+  if (teams.length === 0) return '{}';
 
-  return groups
-    .map(group => {
+  return teams
+    .map(team => {
       const lines = [
-        `# config-repositories/groups/${group.name}/structure.yaml`,
-        'description: Repository group',
+        `# config-repositories/teams/${team.name}/structure.yaml`,
+        'description: Repository team',
       ];
-      if (group.repositories.length === 0) {
+      if (team.repositories.length === 0) {
         lines.push('apps: []');
       } else {
         lines.push('apps:');
-        group.repositories.forEach(repo => {
+        team.repositories.forEach(repo => {
           const appName = repo.split('/').filter(Boolean).pop() || repo;
           lines.push(`  - name: ${appName}`);
           lines.push(`    repo_url: https://github.com/${repo}`);
@@ -179,12 +179,12 @@ export function buildSetupGitOpsStructurePreview(groups: RepositoryGroupSummary[
 }
 
 export function buildSetupGitOpsFileList(
-  groups: RepositoryGroupSummary[],
+  teams: RepositoryTeamSummary[],
   repositories: string[],
   options: { includeLLM: boolean; includeMCP: boolean }
 ): string[] {
   const files = [
-    ...groups.map(group => `config-repositories/groups/${group.name}/structure.yaml`),
+    ...teams.map(team => `config-repositories/teams/${team.name}/structure.yaml`),
     'pipelines/setup/first-run.yaml',
     'steps/setup/announce.yaml',
     'scopes/dev/scope.yaml',
@@ -209,7 +209,7 @@ export function parseRepositories(value: string): string[] {
   ).sort();
 }
 
-export function normalizeGroupName(value: string): string {
+export function normalizeTeamName(value: string): string {
   return value.trim().replace(/^\/+|\/+$/g, '').replace(/[\\/\s]+/g, '-');
 }
 

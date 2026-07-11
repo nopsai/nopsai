@@ -489,8 +489,8 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 						Str("repository", callerID).
 						Str("pipeline", normalizedPipelineID).
 						Str("auth_reason", authz.Reason).
-						Str("caller_group", authz.CallerGroup).
-						Str("resource_group", authz.ResourceGroup).
+						Str("caller_team", authz.CallerTeam).
+						Str("resource_team", authz.ResourceTeam).
 						Str("visibility", authz.Visibility).
 						Msg("Repository is not authorized to use pipeline")
 					continue
@@ -597,8 +597,8 @@ func (a *App) handleGitEvent(w http.ResponseWriter, r *http.Request) {
 					Str("repository", callerID).
 					Str("scope", effectiveScope).
 					Str("auth_reason", scopeAuthz.Reason).
-					Str("caller_group", scopeAuthz.CallerGroup).
-					Str("resource_group", scopeAuthz.ResourceGroup).
+					Str("caller_team", scopeAuthz.CallerTeam).
+					Str("resource_team", scopeAuthz.ResourceTeam).
 					Str("visibility", scopeAuthz.Visibility).
 					Msg("Repository is not authorized to use scope")
 				continue
@@ -886,15 +886,15 @@ func (a *App) fetchTriggerManifest(owner, repo, commitSHA string) (models.Manife
 func (a *App) loadTriggerManifestOverride(ctx context.Context, owner, repo string) (models.Manifest, string, bool, error) {
 	fullName := repositoryFullName(owner, repo)
 	var manifest models.Manifest
-	matches, err := a.repositoryGroupMatches(ctx, owner, repo)
+	matches, err := a.repositoryTeamMatches(ctx, owner, repo)
 	if err != nil {
 		return manifest, "", false, err
 	}
-	groupPaths := make([]string, 0, len(matches))
+	teamPaths := make([]string, 0, len(matches))
 	for _, match := range matches {
-		groupPaths = append(groupPaths, match.Path)
+		teamPaths = append(teamPaths, match.Path)
 	}
-	specificKeys, ownerWideKeys := repositoryTriggerOverrideKeys(owner, repo, groupPaths)
+	specificKeys, ownerWideKeys := repositoryTriggerOverrideKeys(owner, repo, teamPaths)
 	dbSpecificKeys, err := a.triggerOverrideKeysEndingWith(ctx, fullName)
 	if err != nil {
 		return manifest, "", false, err

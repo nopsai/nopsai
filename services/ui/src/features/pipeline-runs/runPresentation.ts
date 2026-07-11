@@ -1,16 +1,16 @@
 import type { AIUsageSummary, RunListItem } from './contracts.js';
 import { normalizeStatus } from './statusPresentation.js';
 
-export type { Group } from '../../lib/teamGroups.js';
+export type { Team } from '../../lib/teamModels.js';
 export {
-  buildGroupPath,
+  buildTeamPath,
   formatConfigRepoTimestamp,
-  groupDisplayName,
-  groupRepositoryLabel,
-  groupRepositoryURL,
-  isAppGroup,
+  teamDisplayName,
+  teamRepositoryLabel,
+  teamRepositoryURL,
+  isAppTeam,
   repositoryBrowserURL,
-} from '../../lib/teamGroups.js';
+} from '../../lib/teamModels.js';
 
 export type ParentRunInfo = {
   run_id: string;
@@ -21,7 +21,7 @@ export type ParentRunInfo = {
 
 export type RunSourceKind = 'repository' | 'external' | 'schedule' | 'manual';
 
-export type RunSourceGroup = {
+export type RunSourceTeam = {
   kind: RunSourceKind;
   label: string;
   runs: RunListItem[];
@@ -48,7 +48,7 @@ const STATUS_PRIORITY = [
   'success',
 ];
 
-export function buildRunSourceGroups(runsByBranch: Record<string, RunListItem[]>): RunSourceGroup[] {
+export function buildRunSourceTeams(runsByBranch: Record<string, RunListItem[]>): RunSourceTeam[] {
   const buckets = new Map<RunSourceKind, RunListItem[]>();
   const repositoryBranches: Record<string, RunListItem[]> = {};
 
@@ -100,7 +100,7 @@ export function runSourceLabel(kind: RunSourceKind) {
     case 'external':
       return 'External triggers';
     default:
-      return 'Manual / Ungrouped';
+      return 'Manual / Unteamed';
   }
 }
 

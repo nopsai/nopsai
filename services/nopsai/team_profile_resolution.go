@@ -18,32 +18,32 @@ func (a *App) teamIDForRunProfileOwner(ctx context.Context, runID string) (*int,
 	if runID == "" {
 		return nil, nil
 	}
-	var groupID sql.NullInt32
+	var teamID sql.NullInt32
 	err := a.db.QueryRow(ctx, `
-		SELECT group_id FROM pipeline_runs WHERE run_id::text = $1
-	`, runID).Scan(&groupID)
-	if errorsIsNoRows(err) || !groupID.Valid {
+		SELECT team_id FROM pipeline_runs WHERE run_id::text = $1
+	`, runID).Scan(&teamID)
+	if errorsIsNoRows(err) || !teamID.Valid {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("load run profile owner: %w", err)
 	}
-	return a.teamIDForGroupProfileOwner(ctx, int(groupID.Int32))
+	return a.teamIDForTeamProfileOwner(ctx, int(teamID.Int32))
 }
 
-func (a *App) teamIDForGroupProfileOwner(ctx context.Context, groupID int) (*int, error) {
+func (a *App) teamIDForTeamProfileOwner(ctx context.Context, teamID int) (*int, error) {
 	var (
 		kind     string
 		parentID sql.NullInt32
 	)
 	err := a.db.QueryRow(ctx, `
-		SELECT COALESCE(kind, 'group'), parent_id FROM groups WHERE id = $1
-	`, groupID).Scan(&kind, &parentID)
+		SELECT COALESCE(kind, 'team'), parent_id FROM teams WHERE id = $1
+	`, teamID).Scan(&kind, &parentID)
 	if errorsIsNoRows(err) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("load group profile owner: %w", err)
+		return nil, fmt.Errorf("load team profile owner: %w", err)
 	}
 	if strings.EqualFold(kind, "app") {
 		if !parentID.Valid {
@@ -52,8 +52,8 @@ func (a *App) teamIDForGroupProfileOwner(ctx context.Context, groupID int) (*int
 		teamID := int(parentID.Int32)
 		return &teamID, nil
 	}
-	teamID := groupID
-	return &teamID, nil
+	ownerTeamID := teamID
+	return &ownerTeamID, nil
 }
 
 func (a *App) effectiveLLMProfilesForTeam(ctx context.Context, cfg config.Config, teamID *int) (string, map[string]config.LLMProfile, error) {

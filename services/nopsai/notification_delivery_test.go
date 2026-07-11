@@ -66,41 +66,41 @@ func TestNotificationRouteRulesMultiRouteMatching(t *testing.T) {
 	}
 }
 
-func TestNotificationGroupLineageUsesNearestPolicyOrder(t *testing.T) {
+func TestNotificationTeamLineageUsesNearestPolicyOrder(t *testing.T) {
 	teamID := 2
-	records := map[int]groupPathRecord{
+	records := map[int]teamPathRecord{
 		2: {ID: 2, Name: "team-1", Path: "team-1"},
 		3: {ID: 3, Name: "test-app", ParentID: &teamID, Path: "team-1/test-app"},
 	}
 
-	groupPath, lineage, err := notificationGroupLineage(records, 3)
+	teamPath, lineage, err := notificationTeamLineage(records, 3)
 	if err != nil {
-		t.Fatalf("notificationGroupLineage() error = %v", err)
+		t.Fatalf("notificationTeamLineage() error = %v", err)
 	}
-	if groupPath != "team-1/test-app" {
-		t.Fatalf("groupPath = %q, want team-1/test-app", groupPath)
+	if teamPath != "team-1/test-app" {
+		t.Fatalf("teamPath = %q, want team-1/test-app", teamPath)
 	}
 	if len(lineage) != 2 || lineage[0] != 3 || lineage[1] != 2 {
 		t.Fatalf("lineage = %#v, want child before parent", lineage)
 	}
 }
 
-func TestNotificationGroupLineageRejectsInvalidHierarchy(t *testing.T) {
-	t.Run("missing group", func(t *testing.T) {
-		if _, _, err := notificationGroupLineage(nil, 42); err == nil {
-			t.Fatal("notificationGroupLineage() error = nil, want missing group error")
+func TestNotificationTeamLineageRejectsInvalidHierarchy(t *testing.T) {
+	t.Run("missing team", func(t *testing.T) {
+		if _, _, err := notificationTeamLineage(nil, 42); err == nil {
+			t.Fatal("notificationTeamLineage() error = nil, want missing team error")
 		}
 	})
 
 	t.Run("cycle", func(t *testing.T) {
 		firstID := 1
 		secondID := 2
-		records := map[int]groupPathRecord{
+		records := map[int]teamPathRecord{
 			1: {ID: 1, ParentID: &secondID, Path: "one"},
 			2: {ID: 2, ParentID: &firstID, Path: "two"},
 		}
-		if _, _, err := notificationGroupLineage(records, 1); err == nil {
-			t.Fatal("notificationGroupLineage() error = nil, want cycle error")
+		if _, _, err := notificationTeamLineage(records, 1); err == nil {
+			t.Fatal("notificationTeamLineage() error = nil, want cycle error")
 		}
 	})
 }

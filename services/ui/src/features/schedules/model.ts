@@ -29,7 +29,7 @@ export type PipelineSchedule = {
   timezone: string;
   enabled: boolean;
   scope?: string;
-  run_group_path?: string;
+  run_team_path?: string;
   variables?: Record<string, string>;
   next_run_at?: string;
   last_run_at?: string;
@@ -63,7 +63,7 @@ export type ScheduleFormState = {
   timezone: string;
   enabled: boolean;
   scope: string;
-  runGroupPath: string;
+  runTeamPath: string;
   variablesText: string;
 };
 
@@ -88,13 +88,13 @@ export type ScheduleRequest = {
   timezone: string;
   enabled: boolean;
   scope: string;
-  run_group_path: string;
+  run_team_path: string;
   variables: Record<string, string>;
 };
 
 export type ScheduleMetadata = {
   pipelines: string[];
-  groups: string[];
+  teams: string[];
   scopes: string[];
 };
 
@@ -151,7 +151,7 @@ export function normalizeScopeOption(value: unknown): string {
   return normalized.toLowerCase() === 'default' ? '' : normalized;
 }
 
-export function uniqueRunGroupOptions(values: string[]): string[] {
+export function uniqueRunTeamOptions(values: string[]): string[] {
   return Array.from(new Set(['root', ...values.map(normalizeIdentifier).filter(Boolean)])).sort((a, b) => {
     if (a === 'root') return -1;
     if (b === 'root') return 1;
@@ -165,8 +165,8 @@ export function splitIdentifier(identifier: string) {
   return { path: parts.join('/'), name };
 }
 
-export function effectiveScheduleRunGroupPath(schedule: PipelineSchedule) {
-  return normalizeIdentifier(schedule.run_group_path) || 'root';
+export function effectiveScheduleRunTeamPath(schedule: PipelineSchedule) {
+  return normalizeIdentifier(schedule.run_team_path) || 'root';
 }
 
 export function normalizeScheduleKind(kind?: string) {
@@ -447,12 +447,12 @@ export function parseVariablesText(raw: string) {
   return variables;
 }
 
-export function defaultRunGroupForPipeline(pipeline: string, runGroups: string[]) {
+export function defaultRunTeamForPipeline(pipeline: string, runTeams: string[]) {
   const parentPath = splitIdentifier(pipeline).path;
-  return parentPath && runGroups.includes(parentPath) ? parentPath : 'root';
+  return parentPath && runTeams.includes(parentPath) ? parentPath : 'root';
 }
 
-export function createEmptyForm(pipelineFilter: string, runGroups: string[] = []): ScheduleFormState {
+export function createEmptyForm(pipelineFilter: string, runTeams: string[] = []): ScheduleFormState {
   const pipeline = normalizeIdentifier(pipelineFilter);
   const runAt = defaultRunAtFields();
   return {
@@ -466,7 +466,7 @@ export function createEmptyForm(pipelineFilter: string, runGroups: string[] = []
     timezone: DEFAULT_TIMEZONE,
     enabled: true,
     scope: '',
-    runGroupPath: defaultRunGroupForPipeline(pipeline, runGroups),
+    runTeamPath: defaultRunTeamForPipeline(pipeline, runTeams),
     variablesText: '',
   };
 }
@@ -490,7 +490,7 @@ export function formFromSchedule(schedule: PipelineSchedule): ScheduleFormState 
     timezone: schedule.timezone || 'UTC',
     enabled: Boolean(schedule.enabled),
     scope: schedule.scope || '',
-    runGroupPath: effectiveScheduleRunGroupPath(schedule),
+    runTeamPath: effectiveScheduleRunTeamPath(schedule),
     variablesText: variablesToText(schedule.variables),
   };
 }
@@ -509,14 +509,14 @@ export function scheduleRequestFromForm(form: ScheduleFormState): ScheduleReques
     timezone: form.timezone.trim() || 'UTC',
     enabled: form.enabled,
     scope: normalizeScopeOption(form.scope),
-    run_group_path: normalizeIdentifier(form.runGroupPath) || 'root',
+    run_team_path: normalizeIdentifier(form.runTeamPath) || 'root',
     variables: parseVariablesText(form.variablesText),
   };
 }
 
 export function normalizeScheduleMetadata(
   pipelinePayload: Array<PipelineListItem | string>,
-  groupPayload: string[],
+  teamPayload: string[],
   secretScopes: Array<string | { scope?: string; name?: string }>,
   variableScopes: Array<string | { scope?: string; name?: string }>
 ): ScheduleMetadata {
@@ -532,7 +532,7 @@ export function normalizeScheduleMetadata(
   variableScopes.forEach(collectScope);
   return {
     pipelines,
-    groups: groupPayload.map(normalizeIdentifier).filter(Boolean).sort((a, b) => a.localeCompare(b)),
+    teams: teamPayload.map(normalizeIdentifier).filter(Boolean).sort((a, b) => a.localeCompare(b)),
     scopes: Array.from(scopeSet).sort((a, b) => a.localeCompare(b)),
   };
 }

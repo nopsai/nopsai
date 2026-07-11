@@ -3,7 +3,7 @@ package models
 import "time"
 
 const (
-	ConfigRepositoryScopeFolder    = "folder"
+	ConfigRepositoryScopeTeam      = "team"
 	ConfigRepositoryScopeSystem    = "system"
 	ConfigRepositorySystemGlobalID = "global"
 )

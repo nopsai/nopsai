@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { RunListItem } from './contracts';
 import {
-  buildGroupPath,
+  buildTeamPath,
   buildPipelineLink,
   buildRunMonitoringLink,
-  buildRunSourceGroups,
+  buildRunSourceTeams,
   buildStatusTimeline,
   extractLatestRunSummary,
   formatAIUsageBreakdown,
@@ -18,11 +18,11 @@ import {
   getPipelineIdentifier,
   getRunSourceKind,
   getStatusDotClass,
-  groupDisplayName,
-  groupRepositoryLabel,
-  groupRepositoryURL,
+  teamDisplayName,
+  teamRepositoryLabel,
+  teamRepositoryURL,
   hasRepositoryContext,
-  isAppGroup,
+  isAppTeam,
   repositoryBrowserURL,
   runMatchesSearch,
   runSourceLabel,
@@ -42,12 +42,12 @@ function run(overrides: Partial<RunListItem> = {}): RunListItem {
 }
 
 describe('Pipeline Runs presentation', () => {
-  it('normalizes repository groups and browser links', () => {
-    expect(isAppGroup({ name: 'platform', kind: 'group' })).toBe(false);
-    expect(groupDisplayName({ name: 'platform/api', kind: 'app' })).toBe('api');
-    expect(groupDisplayName({ name: 'api', kind: 'app' })).toBe('api');
-    expect(groupRepositoryLabel({ name: ' platform/api ' })).toBe('platform/api');
-    expect(groupRepositoryURL({ name: 'platform/api', repo_url: 'git@github.com:acme/api.git' })).toBe(
+  it('normalizes repository teams and browser links', () => {
+    expect(isAppTeam({ name: 'platform', kind: 'team' })).toBe(false);
+    expect(teamDisplayName({ name: 'platform/api', kind: 'app' })).toBe('api');
+    expect(teamDisplayName({ name: 'api', kind: 'app' })).toBe('api');
+    expect(teamRepositoryLabel({ name: ' platform/api ' })).toBe('platform/api');
+    expect(teamRepositoryURL({ name: 'platform/api', repo_url: 'git@github.com:acme/api.git' })).toBe(
       'https://github.com/acme/api'
     );
     expect(repositoryBrowserURL('github.com/acme/web.git', '')).toBe('https://github.com/acme/web');
@@ -57,7 +57,7 @@ describe('Pipeline Runs presentation', () => {
     expect(repositoryBrowserURL('', 'acme/fallback')).toBe('https://github.com/acme/fallback');
   });
 
-  it('groups sources in stable product order', () => {
+  it('teams sources in stable product order', () => {
     const repository = run({ run_id: 'repo', git_repo_owner: 'acme', git_repo_name: 'api' });
     const scheduled = run({ run_id: 'scheduled', trigger_source: 'schedule', schedule_id: 'nightly' });
     const external = run({ run_id: 'external', external_trigger_id: 'hook-1' });
@@ -65,26 +65,26 @@ describe('Pipeline Runs presentation', () => {
 
     expect(getRunSourceKind(repository)).toBe('repository');
     expect(hasRepositoryContext(repository)).toBe(true);
-    expect(buildRunSourceGroups({ main: [manual, repository], nightly: [scheduled, external] }).map(group => group.kind)).toEqual([
+    expect(buildRunSourceTeams({ main: [manual, repository], nightly: [scheduled, external] }).map(team => team.kind)).toEqual([
       'repository',
       'schedule',
       'external',
       'manual',
     ]);
-    expect(buildRunSourceGroups({ main: [repository] })[0].branches?.main).toEqual([repository]);
+    expect(buildRunSourceTeams({ main: [repository] })[0].branches?.main).toEqual([repository]);
     expect(runSourceLabel('repository')).toBe('Git repositories');
     expect(runSourceLabel('schedule')).toBe('Scheduled runs');
     expect(runSourceLabel('external')).toBe('External triggers');
-    expect(runSourceLabel('manual')).toBe('Manual / Ungrouped');
+    expect(runSourceLabel('manual')).toBe('Manual / Unteamed');
   });
 
-  it('builds bounded group paths and status presentation', () => {
-    const groups = [
+  it('builds bounded team paths and status presentation', () => {
+    const teams = [
       { id: 1, name: 'one', parent_id: 2 },
       { id: 2, name: 'two', parent_id: 1 },
     ];
-    expect(buildGroupPath(1, groups).map(group => group.id)).toEqual([2, 1]);
-    expect(buildGroupPath(null, groups)).toEqual([]);
+    expect(buildTeamPath(1, teams).map(team => team.id)).toEqual([2, 1]);
+    expect(buildTeamPath(null, teams)).toEqual([]);
     expect(getStatusDotClass('success', true)).toBe('bg-emerald-400');
     expect(getStatusDotClass('failure', true)).toBe('bg-red-500');
     expect(getStatusDotClass('running', false)).toBe('bg-blue-400');

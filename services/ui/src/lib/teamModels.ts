@@ -1,7 +1,7 @@
-export type Group = {
+export type Team = {
   id: number;
   name: string;
-  kind?: 'group' | 'app' | string;
+  kind?: 'team' | 'app' | string;
   parent_id?: number | null;
   description?: string;
   repo_url?: string;
@@ -17,25 +17,25 @@ export function formatConfigRepoTimestamp(value?: string) {
   return date.toLocaleString();
 }
 
-export function isAppGroup(group: Pick<Group, 'kind' | 'name' | 'repo_url' | 'repository_full_name'>) {
-  return group.kind === 'app' || Boolean(group.repo_url || group.repository_full_name) || group.name.includes('/');
+export function isAppTeam(team: Pick<Team, 'kind' | 'name' | 'repo_url' | 'repository_full_name'>) {
+  return team.kind === 'app' || Boolean(team.repo_url || team.repository_full_name) || team.name.includes('/');
 }
 
-export function groupDisplayName(group: Pick<Group, 'kind' | 'name' | 'repo_url' | 'repository_full_name'>) {
-  if (!isAppGroup(group)) return group.name;
-  if (group.kind === 'app' && group.name && !group.name.includes('/')) return group.name;
-  const fullName = group.repository_full_name || group.name;
-  return fullName.split('/').filter(Boolean).pop() || group.name;
+export function teamDisplayName(team: Pick<Team, 'kind' | 'name' | 'repo_url' | 'repository_full_name'>) {
+  if (!isAppTeam(team)) return team.name;
+  if (team.kind === 'app' && team.name && !team.name.includes('/')) return team.name;
+  const fullName = team.repository_full_name || team.name;
+  return fullName.split('/').filter(Boolean).pop() || team.name;
 }
 
-export function groupRepositoryURL(group: Pick<Group, 'name' | 'repo_url' | 'repository_full_name'>) {
-  const fullName = (group.repository_full_name || group.name).trim().replace(/^\/+|\/+$/g, '');
-  if (group.repo_url) return repositoryBrowserURL(group.repo_url, fullName);
+export function teamRepositoryURL(team: Pick<Team, 'name' | 'repo_url' | 'repository_full_name'>) {
+  const fullName = (team.repository_full_name || team.name).trim().replace(/^\/+|\/+$/g, '');
+  if (team.repo_url) return repositoryBrowserURL(team.repo_url, fullName);
   return fullName.includes('/') ? `https://github.com/${fullName}` : '';
 }
 
-export function groupRepositoryLabel(group: Pick<Group, 'name' | 'repo_url' | 'repository_full_name'>) {
-  return (group.repository_full_name || group.name).trim().replace(/^\/+|\/+$/g, '');
+export function teamRepositoryLabel(team: Pick<Team, 'name' | 'repo_url' | 'repository_full_name'>) {
+  return (team.repository_full_name || team.name).trim().replace(/^\/+|\/+$/g, '');
 }
 
 export function repositoryBrowserURL(rawURL: string, fallbackFullName: string) {
@@ -50,11 +50,11 @@ export function repositoryBrowserURL(rawURL: string, fallbackFullName: string) {
   return fallbackFullName.includes('/') ? `https://github.com/${fallbackFullName}` : trimmed;
 }
 
-export function buildGroupPath(groupId: number | null, groups: Group[]): Group[] {
-  if (!groupId) return [];
-  const map = new Map(groups.map(group => [group.id, group]));
-  const path: Group[] = [];
-  let current = map.get(groupId) || null;
+export function buildTeamPath(teamId: number | null, teams: Team[]): Team[] {
+  if (!teamId) return [];
+  const map = new Map(teams.map(team => [team.id, team]));
+  const path: Team[] = [];
+  let current = map.get(teamId) || null;
   const visited = new Set<number>();
   while (current && !visited.has(current.id)) {
     visited.add(current.id);

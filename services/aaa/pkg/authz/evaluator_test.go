@@ -226,12 +226,12 @@ func TestEvaluatorExplicitDenyOverridesAllow(t *testing.T) {
 	}
 }
 
-func TestEvaluatorAuthGroupACLAllow(t *testing.T) {
+func TestEvaluatorAuthTeamACLAllow(t *testing.T) {
 	backend := newUserBackend()
-	backend.resolved.AuthGroups = []model.AuthGroupInfo{{ID: "group-1", Name: "ops"}}
+	backend.resolved.AuthTeams = []model.AuthTeamInfo{{ID: "team-1", Name: "ops"}}
 	backend.aclPolicies = append(backend.aclPolicies, fakeACLPolicy{
-		subjectType:  model.SubjectTypeAuthGroup,
-		subjectID:    "group-1",
+		subjectType:  model.SubjectTypeAuthTeam,
+		subjectID:    "team-1",
 		resourceType: "pipeline",
 		resourceID:   "team/build",
 		action:       "pipeline.read",
@@ -243,8 +243,8 @@ func TestEvaluatorAuthGroupACLAllow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Check() error = %v", err)
 	}
-	if !decision.Allowed || decision.Reason != "auth_group_acl_allow" {
-		t.Fatalf("Check() = %#v, want auth group ACL allow", decision)
+	if !decision.Allowed || decision.Reason != "auth_team_acl_allow" {
+		t.Fatalf("Check() = %#v, want auth team ACL allow", decision)
 	}
 }
 
@@ -269,16 +269,16 @@ func TestEvaluatorRoleBindingAllow(t *testing.T) {
 	}
 }
 
-func TestEvaluatorFolderInheritance(t *testing.T) {
+func TestEvaluatorTeamInheritance(t *testing.T) {
 	backend := newUserBackend()
 	backend.inheritance[resourceKey(model.ResourceRef{Type: "pipeline", ID: "team/build"})] = []model.InheritedResource{{
-		Resource: model.ResourceRef{Type: "folder", ID: "team"},
-		Reason:   "folder_inheritance",
+		Resource: model.ResourceRef{Type: "team", ID: "team"},
+		Reason:   "team_inheritance",
 	}}
 	backend.aclPolicies = append(backend.aclPolicies, fakeACLPolicy{
 		subjectType:  model.SubjectTypeUser,
 		subjectID:    "user-1",
-		resourceType: "folder",
+		resourceType: "team",
 		resourceID:   "team",
 		action:       "pipeline.read",
 		effect:       "allow",
@@ -289,8 +289,8 @@ func TestEvaluatorFolderInheritance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Check() error = %v", err)
 	}
-	if !decision.Allowed || decision.Reason != "inherited_folder_acl_allow" {
-		t.Fatalf("Check() = %#v, want folder inheritance allow", decision)
+	if !decision.Allowed || decision.Reason != "inherited_team_acl_allow" {
+		t.Fatalf("Check() = %#v, want team inheritance allow", decision)
 	}
 }
 

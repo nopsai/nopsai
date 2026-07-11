@@ -124,7 +124,7 @@ func keycloakEntitlementProvidersByID(providers []oidcProviderRecord) map[string
 	out := map[string]oidcProviderRecord{}
 	for _, provider := range providers {
 		sync := normalizeOIDCEntitlementSync(provider.EntitlementSync)
-		if sync.Mode != "keycloak_group_roles" {
+		if sync.Mode != "keycloak_team_roles" {
 			continue
 		}
 		provider.ID = normalizeOIDCProviderID(provider.ID)
@@ -190,7 +190,7 @@ func (a *App) syncLinkedOIDCIdentityEntitlements(ctx context.Context, settings o
 	}
 	defer tx.Rollback(ctx)
 
-	if err := syncOIDCRolesAndGroups(ctx, tx, userID, provider, settings, identity); err != nil {
+	if err := syncOIDCRolesAndTeams(ctx, tx, userID, provider, settings, identity); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

@@ -696,7 +696,7 @@ func deleteServiceAccountAccessArtifacts(ctx context.Context, runner execRunner,
 	statements := []string{
 		`DELETE FROM access_grants WHERE subject_type = 'service_account' AND subject_id = $1`,
 		`DELETE FROM resource_ownership WHERE owner_subject_type = 'service_account' AND owner_subject_id = $1`,
-		`DELETE FROM auth_group_members WHERE subject_type = 'service_account' AND subject_id = $1`,
+		`DELETE FROM auth_team_members WHERE subject_type = 'service_account' AND subject_id = $1`,
 	}
 	for _, stmt := range statements {
 		if _, err := runner.Exec(ctx, stmt, serviceAccountID); err != nil {

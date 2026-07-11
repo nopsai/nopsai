@@ -118,7 +118,7 @@ func (a *App) exportConfigRepositoryTriggers(ctx context.Context, repo models.Co
 
 func (a *App) exportConfigRepositoryExternalTriggers(ctx context.Context, repo models.ConfigRepository, delegatedScopes []string, files map[string]string) error {
 	rows, err := a.db.Query(ctx, `
-		SELECT id, name, description, enabled, pipeline, scope, COALESCE(run_group_path, ''), allowed_callers, variable_mapping,
+		SELECT id, name, description, enabled, pipeline, scope, COALESCE(run_team_path, ''), allowed_callers, variable_mapping,
 		       payload_schema, rate_limit, COALESCE(source, 'database'), config_repo_id,
 		       managed_by_config_repo, COALESCE(config_source_path, '')
 		FROM external_triggers
@@ -142,7 +142,7 @@ func (a *App) exportConfigRepositoryExternalTriggers(ctx context.Context, repo m
 			&trigger.Enabled,
 			&trigger.Pipeline,
 			&trigger.Scope,
-			&trigger.RunGroupPath,
+			&trigger.RunTeamPath,
 			&allowedJSON,
 			&mappingJSON,
 			&schemaJSON,
@@ -173,7 +173,7 @@ func (a *App) exportConfigRepositoryExternalTriggers(ctx context.Context, repo m
 			Enabled:         &enabled,
 			Pipeline:        trigger.Pipeline,
 			Scope:           trigger.Scope,
-			RunGroupPath:    trigger.RunGroupPath,
+			RunTeamPath:     trigger.RunTeamPath,
 			AllowedCallers:  trigger.AllowedCallers,
 			VariableMapping: nilIfEmptyStringMap(trigger.VariableMapping),
 			PayloadSchema:   nilIfEmptyAnyMap(trigger.PayloadSchema),
@@ -296,14 +296,14 @@ type configRepositoryScheduleDocument struct {
 	Timezone       string            `yaml:"timezone,omitempty"`
 	Enabled        bool              `yaml:"enabled"`
 	Scope          string            `yaml:"scope,omitempty"`
-	RunGroupPath   string            `yaml:"run_group_path,omitempty"`
+	RunTeamPath    string            `yaml:"run_team_path,omitempty"`
 	Variables      map[string]string `yaml:"variables,omitempty"`
 }
 
 func (a *App) exportConfigRepositorySchedules(ctx context.Context, repo models.ConfigRepository, delegatedScopes []string, files map[string]string) error {
 	rows, err := a.db.Query(ctx, `
 		SELECT path, name, description, pipeline_path, pipeline_name,
-		       COALESCE(schedule_kind, 'cron'), cron_expression, run_at, timezone, enabled, scope, COALESCE(run_group_path, ''), variables::text,
+		       COALESCE(schedule_kind, 'cron'), cron_expression, run_at, timezone, enabled, scope, COALESCE(run_team_path, ''), variables::text,
 		       COALESCE(source, 'database'), config_repo_id, managed_by_config_repo, config_source_path
 		FROM pipeline_schedules
 		ORDER BY path ASC, name ASC
@@ -314,12 +314,12 @@ func (a *App) exportConfigRepositorySchedules(ctx context.Context, repo models.C
 	defer rows.Close()
 
 	for rows.Next() {
-		var pathPart, name, description, pipelinePath, pipelineName, scheduleKind, cronExpression, timezone, scope, runGroupPath, variablesRaw, source, sourcePath string
+		var pathPart, name, description, pipelinePath, pipelineName, scheduleKind, cronExpression, timezone, scope, runTeamPath, variablesRaw, source, sourcePath string
 		var runAt sql.NullTime
 		var enabled bool
 		var configRepoID sql.NullInt64
 		var managed bool
-		if err := rows.Scan(&pathPart, &name, &description, &pipelinePath, &pipelineName, &scheduleKind, &cronExpression, &runAt, &timezone, &enabled, &scope, &runGroupPath, &variablesRaw, &source, &configRepoID, &managed, &sourcePath); err != nil {
+		if err := rows.Scan(&pathPart, &name, &description, &pipelinePath, &pipelineName, &scheduleKind, &cronExpression, &runAt, &timezone, &enabled, &scope, &runTeamPath, &variablesRaw, &source, &configRepoID, &managed, &sourcePath); err != nil {
 			return err
 		}
 		identifier := configsync.BuildPipelineIdentifier(pathPart, name)
@@ -338,14 +338,14 @@ func (a *App) exportConfigRepositorySchedules(ctx context.Context, repo models.C
 			variables = nil
 		}
 		doc := configRepositoryScheduleDocument{
-			Name:         name,
-			Description:  strings.TrimSpace(description),
-			Pipeline:     configsync.BuildPipelineIdentifier(pipelinePath, pipelineName),
-			Timezone:     timezone,
-			Enabled:      enabled,
-			Scope:        scope,
-			RunGroupPath: runGroupPath,
-			Variables:    variables,
+			Name:        name,
+			Description: strings.TrimSpace(description),
+			Pipeline:    configsync.BuildPipelineIdentifier(pipelinePath, pipelineName),
+			Timezone:    timezone,
+			Enabled:     enabled,
+			Scope:       scope,
+			RunTeamPath: runTeamPath,
+			Variables:   variables,
 		}
 		if normalizeScheduleKindValue(scheduleKind) == scheduleKindOnce {
 			doc.ScheduleKind = scheduleKindOnce
@@ -365,16 +365,16 @@ func (a *App) exportConfigRepositorySchedules(ctx context.Context, repo models.C
 }
 
 func (a *App) exportConfigRepositoryNotificationRoutes(ctx context.Context, repo models.ConfigRepository, delegatedScopes []string, files map[string]string) error {
-	groupRecords, err := loadGroupPathRecords(ctx, a.db)
+	teamRecords, err := loadTeamPathRecords(ctx, a.db)
 	if err != nil {
-		return fmt.Errorf("failed to resolve notification group paths: %w", err)
+		return fmt.Errorf("failed to resolve notification team paths: %w", err)
 	}
 
 	rows, err := a.db.Query(ctx, `
 		SELECT nr.definition::text, COALESCE(nr.source, 'database'), nr.config_repo_id,
-		       nr.managed_by_config_repo, COALESCE(nr.config_source_path, ''), nr.group_id
+		       nr.managed_by_config_repo, COALESCE(nr.config_source_path, ''), nr.team_id
 		FROM notification_routes nr
-		ORDER BY nr.group_id ASC
+		ORDER BY nr.team_id ASC
 	`)
 	if err != nil {
 		return err
@@ -385,18 +385,18 @@ func (a *App) exportConfigRepositoryNotificationRoutes(ctx context.Context, repo
 		var definitionRaw, source, sourcePath string
 		var configRepoID sql.NullInt64
 		var managed bool
-		var groupID int
-		if err := rows.Scan(&definitionRaw, &source, &configRepoID, &managed, &sourcePath, &groupID); err != nil {
+		var teamID int
+		if err := rows.Scan(&definitionRaw, &source, &configRepoID, &managed, &sourcePath, &teamID); err != nil {
 			return err
 		}
-		groupPath, err := notificationRouteGroupPath(groupRecords, groupID)
+		teamPath, err := notificationRouteTeamPath(teamRecords, teamID)
 		if err != nil {
 			return err
 		}
-		if !configRepositoryIncludesResource(repo, groupPath, source, configRepoID, managed, delegatedScopes) {
+		if !configRepositoryIncludesResource(repo, teamPath, source, configRepoID, managed, delegatedScopes) {
 			continue
 		}
-		filePath, ok := configRepositoryNotificationRoutePath(repo, groupPath, sourcePath, managed, configRepoID)
+		filePath, ok := configRepositoryNotificationRoutePath(repo, teamPath, sourcePath, managed, configRepoID)
 		if !ok {
 			continue
 		}
@@ -417,14 +417,14 @@ func (a *App) exportConfigRepositoryNotificationRoutes(ctx context.Context, repo
 	return rows.Err()
 }
 
-func notificationRouteGroupPath(records map[int]groupPathRecord, groupID int) (string, error) {
-	record, ok := records[groupID]
+func notificationRouteTeamPath(records map[int]teamPathRecord, teamID int) (string, error) {
+	record, ok := records[teamID]
 	if !ok {
-		return "", fmt.Errorf("notification route references unknown group %d", groupID)
+		return "", fmt.Errorf("notification route references unknown team %d", teamID)
 	}
-	groupPath := strings.Trim(strings.TrimSpace(record.Path), "/")
-	if groupPath == "" {
-		return "", fmt.Errorf("notification route group %d has no resolved path", groupID)
+	teamPath := strings.Trim(strings.TrimSpace(record.Path), "/")
+	if teamPath == "" {
+		return "", fmt.Errorf("notification route team %d has no resolved path", teamID)
 	}
-	return groupPath, nil
+	return teamPath, nil
 }

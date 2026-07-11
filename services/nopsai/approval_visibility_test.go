@@ -8,7 +8,7 @@ import (
 	"nopsai/services/nopsai/pkg/routeauthz"
 )
 
-func TestApprovableRunSetFromApprovalsAllowsAssignedGroupApprover(t *testing.T) {
+func TestApprovableRunSetFromApprovalsAllowsAssignedTeamApprover(t *testing.T) {
 	checks := 0
 	app := &App{
 		aaaLocal: stubAAAAuthorizer{
@@ -20,7 +20,7 @@ func TestApprovableRunSetFromApprovalsAllowsAssignedGroupApprover(t *testing.T) 
 				if action != approvalActionApprove {
 					t.Fatalf("action = %q, want %q", action, approvalActionApprove)
 				}
-				return model.Decision{Allowed: resource.Type == grantResourceFolder && resource.ID == "team-1"}, nil
+				return model.Decision{Allowed: resource.Type == grantResourceTeam && resource.ID == "team-1"}, nil
 			},
 		},
 	}
@@ -31,7 +31,7 @@ func TestApprovableRunSetFromApprovalsAllowsAssignedGroupApprover(t *testing.T) 
 		Sub:  "alice",
 	}, nil, []pendingApprovalVisibility{{
 		RunID:             "run-1",
-		AssignedGroups:    []string{"team-1", "prod"},
+		AssignedTeams:     []string{"team-1", "prod"},
 		AllowSelfApproval: false,
 		RequestedByType:   model.SubjectTypeUser,
 		RequestedByID:     "admin-id",
@@ -64,7 +64,7 @@ func TestApprovableRunSetFromApprovalsHonorsSelfApprovalBlock(t *testing.T) {
 		Sub:  "alice",
 	}, nil, []pendingApprovalVisibility{{
 		RunID:             "run-1",
-		AssignedGroups:    []string{"team-1"},
+		AssignedTeams:     []string{"team-1"},
 		AllowSelfApproval: false,
 		RequestedByType:   model.SubjectTypeUser,
 		RequestedByID:     "alice-id",

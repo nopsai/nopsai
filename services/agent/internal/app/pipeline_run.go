@@ -224,7 +224,7 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 						Str("approval_id", pauseResp.ApprovalID).
 						Str("checkpoint_id", pauseResp.CheckpointID).
 						Str("approval_type", approvalStep.Approval.Type).
-						Strs("groups", approvalStep.Approval.Groups).
+						Strs("teams", approvalStep.Approval.Teams).
 						Msg("Pipeline paused for approval")
 					results <- taskResult{name: runnable.GlobalKey, success: true, paused: true}
 					return

@@ -134,11 +134,9 @@ func (a *App) hostedMCPAPIHandler() http.Handler {
 	a.registerAuthRoutes(mux)
 	a.registerAccessRoutes(mux)
 	a.registerGitHubRoutes(mux)
-	a.registerGroupRoutes(mux)
 	a.registerTeamRoutes(mux)
 	a.registerSystemRoutes(mux)
 	a.registerMonitoringRoutes(mux)
-	a.registerFolderConfigRepositoryRoutes(mux)
 	a.registerPipelineRoutes(mux)
 	a.registerScheduleRoutes(mux)
 	a.registerExternalTriggerRoutes(mux)
@@ -349,8 +347,6 @@ func hostedMCPDeferredAPIRoute(method, rawPath string, resource aaamodel.Resourc
 	case strings.HasPrefix(pathOnly, "/v1/access/") || strings.HasPrefix(pathOnly, "/v1/resources/"):
 		return true
 	case strings.HasPrefix(pathOnly, "/v1/monitoring/"):
-		return true
-	case strings.HasPrefix(pathOnly, "/v1/groups/") || pathOnly == "/v1/groups":
 		return true
 	case strings.HasPrefix(pathOnly, "/v1/teams/") || pathOnly == "/v1/teams":
 		return true

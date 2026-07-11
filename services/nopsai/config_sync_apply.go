@@ -200,7 +200,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 	const scheduleUpsert = `INSERT INTO pipeline_schedules (
 			path, name, description, pipeline_path, pipeline_name, pipeline_version,
 			schedule_kind, cron_expression, run_at, timezone, enabled, scope, variables, next_run_at, source,
-			run_group_path, config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at
+			run_team_path, config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6,
 			$7, $8, $9, $10, $11, $12, $13::jsonb, $14, 'git',
@@ -219,7 +219,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			scope = EXCLUDED.scope,
 			variables = EXCLUDED.variables,
 			next_run_at = EXCLUDED.next_run_at,
-			run_group_path = EXCLUDED.run_group_path,
+			run_team_path = EXCLUDED.run_team_path,
 			source = 'git',
 			config_repo_id = EXCLUDED.config_repo_id,
 			config_source_path = EXCLUDED.config_source_path,
@@ -228,11 +228,11 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			updated_at = NOW()
 		RETURNING id::text`
 	const knowledgeContextUpsert = `INSERT INTO knowledge_contexts (
-			kind, group_path, name, description, content,
+			kind, team_path, name, description, content,
 			source, config_repo_id, config_source_path, config_source_commit_sha,
 			managed_by_config_repo, updated_at
 		) VALUES ($1, $2, $3, $4, $5, 'git', $6, $7, $8, TRUE, NOW())
-		ON CONFLICT (kind, group_path, name) DO UPDATE SET
+		ON CONFLICT (kind, team_path, name) DO UPDATE SET
 			description = EXCLUDED.description,
 			content = EXCLUDED.content,
 			source = 'git',
@@ -277,7 +277,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
 			managed_by_config_repo = TRUE`
 	const externalTriggerUpsert = `INSERT INTO external_triggers (
-			id, name, description, enabled, pipeline, scope, run_group_path, allowed_callers, variable_mapping,
+			id, name, description, enabled, pipeline, scope, run_team_path, allowed_callers, variable_mapping,
 			payload_schema, rate_limit, created_by, source,
 			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at
 		) VALUES (
@@ -291,7 +291,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			enabled = EXCLUDED.enabled,
 			pipeline = EXCLUDED.pipeline,
 			scope = EXCLUDED.scope,
-			run_group_path = EXCLUDED.run_group_path,
+			run_team_path = EXCLUDED.run_team_path,
 			allowed_callers = EXCLUDED.allowed_callers,
 			variable_mapping = EXCLUDED.variable_mapping,
 			payload_schema = EXCLUDED.payload_schema,
@@ -327,7 +327,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			managed_by_config_repo = TRUE,
 			updated_at = NOW()`
 	const notificationRouteUpsert = `INSERT INTO notification_routes (
-			group_id, definition, source,
+			team_id, definition, source,
 			config_repo_id, config_source_path, config_source_commit_sha,
 			managed_by_config_repo, updated_by, updated_at
 		) VALUES (
@@ -335,7 +335,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			$3, $4, $5,
 			TRUE, 'config-repo', NOW()
 		)
-		ON CONFLICT (group_id) DO UPDATE SET
+		ON CONFLICT (team_id) DO UPDATE SET
 			definition = EXCLUDED.definition,
 			source = 'git',
 			config_repo_id = EXCLUDED.config_repo_id,
@@ -437,7 +437,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			stored.input.Scope,
 			string(variablesJSON),
 			stored.input.NextRunAt,
-			stored.input.RunGroupPath,
+			stored.input.RunTeamPath,
 			binding.ID,
 			stored.sourcePath,
 			commitSHA,
@@ -456,14 +456,14 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 
 	// E. Upsert Knowledge Contexts
 	for key, stored := range knowledgeContexts {
-		writable, err := ensureConfigResourceWritable(ctx, tx, "knowledge_contexts", "knowledge context", key, binding, stored.group, "kind = $1 AND group_path = $2 AND name = $3", stored.kind, stored.group, stored.name)
+		writable, err := ensureConfigResourceWritable(ctx, tx, "knowledge_contexts", "knowledge context", key, binding, stored.team, "kind = $1 AND team_path = $2 AND name = $3", stored.kind, stored.team, stored.name)
 		if err != nil {
 			return err
 		}
 		if !writable {
 			continue
 		}
-		if _, err := tx.Exec(ctx, knowledgeContextUpsert, stored.kind, stored.group, stored.name, stored.description, stored.content, binding.ID, stored.sourcePath, commitSHA); err != nil {
+		if _, err := tx.Exec(ctx, knowledgeContextUpsert, stored.kind, stored.team, stored.name, stored.description, stored.content, binding.ID, stored.sourcePath, commitSHA); err != nil {
 			return fmt.Errorf("failed to upsert knowledge context '%s': %w", key, err)
 		}
 		details["knowledge_contexts_synced"]++
@@ -602,7 +602,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			stored.input.Enabled,
 			stored.input.Pipeline,
 			stored.input.Scope,
-			stored.input.RunGroupPath,
+			stored.input.RunTeamPath,
 			string(allowedJSON),
 			string(mappingJSON),
 			string(schemaJSON),
@@ -619,7 +619,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 	// K. Upsert Git Webhook Sources
 	for key, stored := range gitWebhookSources {
 		resourceScope := rootGrantID
-		if binding.ScopeType == models.ConfigRepositoryScopeFolder {
+		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
 			resourceScope = strings.Trim(strings.TrimSpace(binding.ScopeID), "/")
 		}
 		writable, err := ensureConfigResourceWritable(
@@ -817,10 +817,10 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 
 	// 4. Prune Knowledge Contexts
 	{
-		var kinds, groups, names []string
+		var kinds, teams, names []string
 		for _, knowledge := range knowledgeContexts {
 			kinds = append(kinds, knowledge.kind)
-			groups = append(groups, knowledge.group)
+			teams = append(teams, knowledge.team)
 			names = append(names, knowledge.name)
 		}
 		if len(kinds) == 0 {
@@ -835,9 +835,9 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 				AND NOT EXISTS (
 					SELECT 1 FROM unnest($1::text[], $2::text[], $3::text[]) AS t(k, g, n)
 					WHERE knowledge_contexts.kind = t.k
-					  AND knowledge_contexts.group_path = t.g
+					  AND knowledge_contexts.team_path = t.g
 					  AND knowledge_contexts.name = t.n
-				)`, kinds, groups, names, binding.ID); err != nil {
+				)`, kinds, teams, names, binding.ID); err != nil {
 				return fmt.Errorf("failed to prune knowledge contexts: %w", err)
 			}
 		}
@@ -977,45 +977,45 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		}
 	}
 
-	// Sync UI groups. Groups do not have a source column, so we do not prune them to avoid deleting user-created groups.
+	// Sync UI teams. Teams do not have a source column, so we do not prune them to avoid deleting user-created teams.
 	if len(effectivePipelineRunStructure) > 0 {
-		if err := a.syncPipelineRunGroups(ctx, tx, effectivePipelineRunStructure, details); err != nil {
+		if err := a.syncPipelineRunTeams(ctx, tx, effectivePipelineRunStructure, details); err != nil {
 			return err
 		}
 	}
 
 	for _, stored := range sortedNotificationRoutes(notificationRoutes) {
-		groupID, err := notificationRouteGroupIDForPath(ctx, tx, stored.groupPath)
+		teamID, err := notificationRouteTeamIDForPath(ctx, tx, stored.teamPath)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("notification route '%s' references missing group '%s'", stored.sourcePath, stored.groupPath)
+				return fmt.Errorf("notification route '%s' references missing team '%s'", stored.sourcePath, stored.teamPath)
 			}
-			return fmt.Errorf("failed to resolve notification route group '%s': %w", stored.groupPath, err)
+			return fmt.Errorf("failed to resolve notification route team '%s': %w", stored.teamPath, err)
 		}
 		definitionJSON, err := json.Marshal(stored.definition)
 		if err != nil {
-			return fmt.Errorf("failed to marshal notification route '%s': %w", stored.groupPath, err)
+			return fmt.Errorf("failed to marshal notification route '%s': %w", stored.teamPath, err)
 		}
-		if _, err := tx.Exec(ctx, notificationRouteUpsert, groupID, string(definitionJSON), binding.ID, stored.sourcePath, commitSHA); err != nil {
-			return fmt.Errorf("failed to upsert notification route '%s': %w", stored.groupPath, err)
+		if _, err := tx.Exec(ctx, notificationRouteUpsert, teamID, string(definitionJSON), binding.ID, stored.sourcePath, commitSHA); err != nil {
+			return fmt.Errorf("failed to upsert notification route '%s': %w", stored.teamPath, err)
 		}
 		details["notification_routes_synced"]++
 	}
 	{
-		var groupIDs []int
+		var teamIDs []int
 		for _, stored := range notificationRoutes {
-			groupID, err := notificationRouteGroupIDForPath(ctx, tx, stored.groupPath)
+			teamID, err := notificationRouteTeamIDForPath(ctx, tx, stored.teamPath)
 			if err != nil {
-				return fmt.Errorf("failed to resolve notification route group '%s' for pruning: %w", stored.groupPath, err)
+				return fmt.Errorf("failed to resolve notification route team '%s' for pruning: %w", stored.teamPath, err)
 			}
-			groupIDs = append(groupIDs, groupID)
+			teamIDs = append(teamIDs, teamID)
 		}
-		if len(groupIDs) == 0 {
+		if len(teamIDs) == 0 {
 			if _, err := tx.Exec(ctx, "DELETE FROM notification_routes WHERE managed_by_config_repo = TRUE AND config_repo_id = $1", binding.ID); err != nil {
 				return fmt.Errorf("failed to prune notification routes: %w", err)
 			}
 		} else {
-			if _, err := tx.Exec(ctx, "DELETE FROM notification_routes WHERE managed_by_config_repo = TRUE AND config_repo_id = $2 AND group_id != ALL($1)", groupIDs, binding.ID); err != nil {
+			if _, err := tx.Exec(ctx, "DELETE FROM notification_routes WHERE managed_by_config_repo = TRUE AND config_repo_id = $2 AND team_id != ALL($1)", teamIDs, binding.ID); err != nil {
 				return fmt.Errorf("failed to prune notification routes: %w", err)
 			}
 		}

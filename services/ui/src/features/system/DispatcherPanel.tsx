@@ -505,7 +505,7 @@ function RunnerDeploymentGuide({ canManageDispatcher, runnerDefaults }: { canMan
                 <>
                   <div className="space-y-1.5 text-sm">
                     <span className="dispatcher-field-label">Network mode</span>
-                    <div className="dispatcher-choice-group">
+                    <div className="dispatcher-choice-team">
                       {(['host', 'bridge'] as const).map(mode => (
                         <button
                           key={mode}

@@ -65,59 +65,59 @@ func (r recordingOIDCRow) Scan(dest ...any) error {
 	return nil
 }
 
-func TestSyncOIDCAuthGroupMembershipsCreatesAndPrunesProviderGroups(t *testing.T) {
+func TestSyncOIDCAuthTeamMembershipsCreatesAndPrunesProviderTeams(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
 	tx := &recordingOIDCTx{}
 
-	err := syncOIDCAuthGroupMemberships(ctx, tx, userID, "nopsai", map[string]string{
+	err := syncOIDCAuthTeamMemberships(ctx, tx, userID, "nopsai", map[string]string{
 		"keycloak-admins": "NopsAI Admins",
 		"keycloak-devs":   "NopsAI Developers",
 	})
 	if err != nil {
-		t.Fatalf("syncOIDCAuthGroupMemberships() error = %v", err)
+		t.Fatalf("syncOIDCAuthTeamMemberships() error = %v", err)
 	}
 
-	if !recordedOIDCExecContains(tx.execs, "INSERT INTO auth_groups", "NopsAI Admins", "nopsai", "keycloak-admins") {
-		t.Fatalf("execs missing auth group upsert for admins: %#v", tx.execs)
+	if !recordedOIDCExecContains(tx.execs, "INSERT INTO auth_teams", "NopsAI Admins", "nopsai", "keycloak-admins") {
+		t.Fatalf("execs missing auth team upsert for admins: %#v", tx.execs)
 	}
-	if !recordedOIDCExecContains(tx.execs, "auth_group_name <>", "keycloak-admins", "NopsAI Admins") {
+	if !recordedOIDCExecContains(tx.execs, "auth_team_name <>", "keycloak-admins", "NopsAI Admins") {
 		t.Fatalf("execs missing stale remap prune for admins: %#v", tx.execs)
 	}
-	if !recordedOIDCExecContains(tx.execs, "external_group_name = ANY", "nopsai") {
-		t.Fatalf("execs missing provider-managed stale group prune: %#v", tx.execs)
+	if !recordedOIDCExecContains(tx.execs, "external_team_name = ANY", "nopsai") {
+		t.Fatalf("execs missing provider-managed stale team prune: %#v", tx.execs)
 	}
 	if !recordedOIDCExecContains(tx.execs, "managed_by_identity_provider = FALSE", userID.String()) {
-		t.Fatalf("execs missing local group membership prune: %#v", tx.execs)
+		t.Fatalf("execs missing local team membership prune: %#v", tx.execs)
 	}
 }
 
-func TestSyncOIDCAuthGroupMembershipsPrunesWhenMappingEmpty(t *testing.T) {
+func TestSyncOIDCAuthTeamMembershipsPrunesWhenMappingEmpty(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.MustParse("22222222-2222-4222-8222-222222222222")
 	tx := &recordingOIDCTx{}
 
-	if err := syncOIDCAuthGroupMemberships(ctx, tx, userID, "nopsai", nil); err != nil {
-		t.Fatalf("syncOIDCAuthGroupMemberships() error = %v", err)
+	if err := syncOIDCAuthTeamMemberships(ctx, tx, userID, "nopsai", nil); err != nil {
+		t.Fatalf("syncOIDCAuthTeamMemberships() error = %v", err)
 	}
 
 	if !recordedOIDCExecContains(tx.execs, "identity_provider_id = $2", "nopsai") {
-		t.Fatalf("execs missing provider-managed group prune: %#v", tx.execs)
+		t.Fatalf("execs missing provider-managed team prune: %#v", tx.execs)
 	}
 	if !recordedOIDCExecContains(tx.execs, "managed_by_identity_provider = FALSE", userID.String()) {
-		t.Fatalf("execs missing local group membership prune: %#v", tx.execs)
+		t.Fatalf("execs missing local team membership prune: %#v", tx.execs)
 	}
 }
 
-func TestOIDCBasicRoleGrantSetForGroupsUsesStrongestRolePerTarget(t *testing.T) {
-	got := oidcBasicRoleGrantSetForGroups(map[string]oidcBasicRoleGrantMapping{
+func TestOIDCBasicRoleGrantSetForTeamsUsesStrongestRolePerTarget(t *testing.T) {
+	got := oidcBasicRoleGrantSetForTeams(map[string]oidcBasicRoleGrantMapping{
 		"team-1-viewer": {
 			Role:     "viewer",
-			Resource: "folder:team-1",
+			Resource: "team:team-1",
 		},
 		"team-1-owner": {
 			Role:         "owner",
-			ResourceType: "folder",
+			ResourceType: "team",
 			ResourceID:   "team-1",
 		},
 		"platform-admin": {
@@ -129,9 +129,9 @@ func TestOIDCBasicRoleGrantSetForGroupsUsesStrongestRolePerTarget(t *testing.T) 
 	if len(got) != 1 {
 		t.Fatalf("grant set length = %d, want 1: %#v", len(got), got)
 	}
-	grant := got["folder:team-1"]
-	if grant.Role != productRoleOwner || grant.ResourceType != grantResourceFolder || grant.ResourceID != "team-1" || grant.ExternalGroup != "team-1-owner" {
-		t.Fatalf("grant = %#v, want owner folder:team-1 from team-1-owner", grant)
+	grant := got["team:team-1"]
+	if grant.Role != productRoleOwner || grant.ResourceType != grantResourceTeam || grant.ResourceID != "team-1" || grant.ExternalTeam != "team-1-owner" {
+		t.Fatalf("grant = %#v, want owner team:team-1 from team-1-owner", grant)
 	}
 }
 
@@ -143,7 +143,7 @@ func TestOIDCDesiredAccessRoleSetDoesNotAddImplicitViewer(t *testing.T) {
 	}
 
 	got := oidcDesiredAccessRoleSet(provider, oidcSettings{}, oidcVerifiedIdentity{
-		Groups:      []string{"team-1"},
+		Teams:       []string{"team-1"},
 		AccessRoles: []string{"ignored"},
 	})
 	if len(got) != 0 {
@@ -151,7 +151,7 @@ func TestOIDCDesiredAccessRoleSetDoesNotAddImplicitViewer(t *testing.T) {
 	}
 
 	got = oidcDesiredAccessRoleSet(provider, oidcSettings{DefaultRole: " developer "}, oidcVerifiedIdentity{
-		Groups:      []string{"platform-admins"},
+		Teams:       []string{"platform-admins"},
 		AccessRoles: []string{"Owner"},
 	})
 	for _, role := range []string{productRoleDeveloper, defaultAdminRole, productRoleOwner} {
@@ -185,31 +185,31 @@ func TestOIDCSettingsRequestCanClearDefaultRole(t *testing.T) {
 func TestOIDCBasicRoleGrantSetFromGrantsUsesStrongestRolePerTarget(t *testing.T) {
 	got := oidcBasicRoleGrantSetFromGrants([]oidcDesiredBasicRoleGrant{
 		{
-			ExternalGroup:         "/team-1",
+			ExternalTeam:          "/team-1",
 			Role:                  productRoleViewer,
-			ResourceType:          grantResourceFolder,
+			ResourceType:          grantResourceTeam,
 			ResourceID:            "/team-1/",
 			RequireResourceExists: true,
 		},
 		{
-			ExternalGroup:         "/team-1",
+			ExternalTeam:          "/team-1",
 			Role:                  productRoleOwner,
-			ResourceType:          grantResourceFolder,
+			ResourceType:          grantResourceTeam,
 			ResourceID:            "team-1",
 			RequireResourceExists: true,
 		},
 		{
-			ExternalGroup: "/platform-admin",
-			Role:          productRoleAdmin,
-			ResourceType:  grantResourceFolder,
-			ResourceID:    "team-1",
+			ExternalTeam: "/platform-admin",
+			Role:         productRoleAdmin,
+			ResourceType: grantResourceTeam,
+			ResourceID:   "team-1",
 		},
 	})
 
 	if len(got) != 1 {
 		t.Fatalf("grant set length = %d, want 1: %#v", len(got), got)
 	}
-	grant := got["folder:team-1"]
+	grant := got["team:team-1"]
 	if grant.Role != productRoleOwner || grant.ResourceID != "team-1" || !grant.Inherit || !grant.RequireResourceExists {
 		t.Fatalf("grant = %#v, want strongest owner grant with normalized target and existence guard", grant)
 	}
@@ -221,12 +221,12 @@ func TestSyncOIDCBasicRoleGrantsUpsertsExpandsAndPrunes(t *testing.T) {
 	tx := &recordingOIDCTx{}
 
 	err := syncOIDCBasicRoleGrants(ctx, tx, userID, "nopsai", map[string]oidcDesiredBasicRoleGrant{
-		"folder:team-1": {
-			ExternalGroup: "team-1-owner",
-			Role:          productRoleOwner,
-			ResourceType:  grantResourceFolder,
-			ResourceID:    "team-1",
-			Inherit:       true,
+		"team:team-1": {
+			ExternalTeam: "team-1-owner",
+			Role:         productRoleOwner,
+			ResourceType: grantResourceTeam,
+			ResourceID:   "team-1",
+			Inherit:      true,
 		},
 	})
 	if err != nil {
@@ -236,10 +236,10 @@ func TestSyncOIDCBasicRoleGrantsUpsertsExpandsAndPrunes(t *testing.T) {
 	if !recordedOIDCExecContains(tx.execs, "INSERT INTO access_grants", userID.String(), "team-1-owner", "sso:nopsai") {
 		t.Fatalf("execs missing provider-managed access grant upsert: %#v", tx.execs)
 	}
-	if !recordedOIDCExecContains(tx.execs, "INSERT INTO resource_acl", grantResourceFolder, "team-1", "pipeline.read") {
+	if !recordedOIDCExecContains(tx.execs, "INSERT INTO resource_acl", grantResourceTeam, "team-1", "pipeline.read") {
 		t.Fatalf("execs missing expanded resource ACL: %#v", tx.execs)
 	}
-	if !recordedOIDCExecContains(tx.execs, "INSERT INTO resource_ownership", grantResourceFolder, "team-1", userID.String()) {
+	if !recordedOIDCExecContains(tx.execs, "INSERT INTO resource_ownership", grantResourceTeam, "team-1", userID.String()) {
 		t.Fatalf("execs missing owner expansion: %#v", tx.execs)
 	}
 	if !recordedOIDCExecContains(tx.execs, "NOT (id = ANY", "nopsai") {

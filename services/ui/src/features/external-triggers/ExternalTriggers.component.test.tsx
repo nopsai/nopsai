@@ -9,7 +9,7 @@ import type { ExternalTrigger, ExternalTriggerForm } from './model';
 
 const mocks = vi.hoisted(() => ({
   fetch: vi.fn(),
-  fetchPipelineRunGroupPaths: vi.fn(),
+  fetchPipelineRunTeamPaths: vi.fn(),
 }));
 
 vi.mock('../../lib/api', () => ({
@@ -17,14 +17,14 @@ vi.mock('../../lib/api', () => ({
   buildApiUrl: (path: string) => `http://localhost${path}`,
 }));
 
-vi.mock('../../lib/resourceGroups', () => ({
-  fetchPipelineRunGroupPaths: mocks.fetchPipelineRunGroupPaths,
+vi.mock('../../lib/resourceTeams', () => ({
+  fetchPipelineRunTeamPaths: mocks.fetchPipelineRunTeamPaths,
 }));
 
 describe('ExternalTriggersPage create action', () => {
   beforeEach(() => {
     mocks.fetch.mockResolvedValue(Response.json([]));
-    mocks.fetchPipelineRunGroupPaths.mockResolvedValue([]);
+    mocks.fetchPipelineRunTeamPaths.mockResolvedValue([]);
   });
 
   it('opens an accessible feature-owned form for writable users', async () => {
@@ -63,7 +63,7 @@ describe('ExternalTriggersPage create action', () => {
       enabled: true,
       pipeline: 'platform/deploy',
       scope: 'production',
-      run_group_path: 'platform/prod',
+      run_team_path: 'platform/prod',
       allowed_callers: [{ type: 'service_account', id: 'deployer' }],
       source: 'database',
     };
@@ -120,10 +120,10 @@ describe('ExternalTriggerCards', () => {
         enabled: false,
         pipeline: 'platform/deploy',
         scope: 'production',
-        run_group_path: 'platform/prod',
+        run_team_path: 'platform/prod',
         allowed_callers: [
           { type: 'service_account', id: 'deployer' },
-          { type: 'auth_group', id: 'operators' },
+          { type: 'auth_team', id: 'operators' },
         ],
         managed_by_config_repo: true,
       },
@@ -146,7 +146,7 @@ describe('ExternalTriggerCards', () => {
     });
     expect(screen.getByText('Disabled')).toBeVisible();
     expect(screen.getByText('GitOps')).toBeVisible();
-    expect(screen.getByText('production · service_account, auth_group')).toBeVisible();
+    expect(screen.getByText('production · service_account, auth_team')).toBeVisible();
     expect(screen.getAllByText('deploy-dev')).toHaveLength(2);
     expect(screen.getByText('default · none')).toBeVisible();
     const selector = screen.getByRole('button', { name: 'Select external trigger Deploy production' });
@@ -168,7 +168,7 @@ describe('ExternalTriggerFormModal', () => {
     description: 'Authenticated deployment endpoint',
     pipeline: 'platform/deploy',
     scope: '',
-    runGroupPath: 'root',
+    runTeamPath: 'root',
     enabled: true,
     allowedCallers: [{ type: 'service_account', id: 'deployer' }],
     variableMappingText: '{"VERSION":"payload.version"}',
@@ -196,7 +196,7 @@ describe('ExternalTriggerFormModal', () => {
         saving={false}
         pipelineOptions={['platform/deploy', 'platform/rollback']}
         scopeOptions={['', 'production']}
-        runGroupOptions={['root', 'platform']}
+        runTeamOptions={['root', 'platform']}
         callerDraft={{ type: 'service_account', id: 'deployer' }}
         activeCallerOptions={[{ value: 'deployer', label: 'deployer' }]}
         {...callbacks}
@@ -208,7 +208,7 @@ describe('ExternalTriggerFormModal', () => {
     fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Deploy endpoint' } });
     fireEvent.change(screen.getByLabelText('Pipeline'), { target: { value: 'platform/rollback' } });
     fireEvent.change(screen.getByLabelText('Scope'), { target: { value: 'production' } });
-    fireEvent.change(screen.getByLabelText('Run group'), { target: { value: 'platform' } });
+    fireEvent.change(screen.getByLabelText('Run team'), { target: { value: 'platform' } });
     fireEvent.click(screen.getByLabelText('Enabled'));
     fireEvent.change(screen.getByLabelText('Caller type'), { target: { value: 'user' } });
     fireEvent.change(screen.getByLabelText('Caller'), { target: { value: 'deployer' } });
@@ -236,13 +236,13 @@ describe('ExternalTriggerFormModal', () => {
     const onClose = vi.fn();
     const { rerender } = render(
       <ExternalTriggerFormModal
-        modal={{ mode: 'edit', trigger: { ...form, run_group_path: 'root' } }}
+        modal={{ mode: 'edit', trigger: { ...form, run_team_path: 'root' } }}
         form={form}
         formError="Variable mapping must be valid JSON."
         saving={false}
         pipelineOptions={[form.pipeline]}
         scopeOptions={['']}
-        runGroupOptions={['root']}
+        runTeamOptions={['root']}
         callerDraft={{ type: 'service_account', id: '' }}
         activeCallerOptions={[]}
         onClose={onClose}
@@ -271,7 +271,7 @@ describe('ExternalTriggerFormModal', () => {
         saving
         pipelineOptions={[form.pipeline]}
         scopeOptions={['']}
-        runGroupOptions={['root']}
+        runTeamOptions={['root']}
         callerDraft={{ type: 'service_account', id: '' }}
         activeCallerOptions={[]}
         onClose={onClose}

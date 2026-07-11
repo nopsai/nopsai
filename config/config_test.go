@@ -410,23 +410,23 @@ func TestNormalizeAuthConfigNormalizesOIDCProviders(t *testing.T) {
 					RoleMapping: map[string]string{
 						" nopsai-admins ": " admin ",
 					},
-					GroupMapping: map[string]string{
+					TeamMapping: map[string]string{
 						" team-platform ": " Platform Engineers ",
 					},
 					BasicRoleMapping: map[string]OIDCBasicRoleGrantConfig{
 						" team-1-owner ": {
 							Role:     " Owner ",
-							Resource: " folder:team-1 ",
+							Resource: " team:team-1 ",
 						},
 					},
 					EntitlementSync: OIDCEntitlementSyncConfig{
-						Mode:                       "keycloak",
+						Mode:                       "keycloak_team_roles",
 						AdminBaseURL:               " http://keycloak:8080/ ",
 						Realm:                      " nopsai ",
 						AdminUsername:              " admin ",
 						AdminPasswordCredentialRef: " credential://system/oidc/corporate/admin-password ",
 						TargetResourceType:         "",
-						GroupPathPrefix:            " /teams ",
+						TeamPathPrefix:             " /teams ",
 					},
 					AllowEmailLinking: &allowEmailLinking,
 					Enabled:           &enabled,
@@ -454,13 +454,13 @@ func TestNormalizeAuthConfigNormalizesOIDCProviders(t *testing.T) {
 	if provider.RoleMapping["nopsai-admins"] != "admin" {
 		t.Fatalf("role mapping = %#v, want trimmed mapping", provider.RoleMapping)
 	}
-	if provider.GroupMapping["team-platform"] != "Platform Engineers" {
-		t.Fatalf("group mapping = %#v, want trimmed mapping", provider.GroupMapping)
+	if provider.TeamMapping["team-platform"] != "Platform Engineers" {
+		t.Fatalf("team mapping = %#v, want trimmed mapping", provider.TeamMapping)
 	}
-	if provider.BasicRoleMapping["team-1-owner"].Role != "owner" || provider.BasicRoleMapping["team-1-owner"].Resource != "folder:team-1" {
+	if provider.BasicRoleMapping["team-1-owner"].Role != "owner" || provider.BasicRoleMapping["team-1-owner"].Resource != "team:team-1" {
 		t.Fatalf("basic role mapping = %#v, want trimmed scoped grant", provider.BasicRoleMapping)
 	}
-	if provider.EntitlementSync.Mode != "keycloak_group_roles" || provider.EntitlementSync.AdminBaseURL != "http://keycloak:8080" || provider.EntitlementSync.TargetResourceType != "folder" || provider.EntitlementSync.GroupPathPrefix != "teams" {
+	if provider.EntitlementSync.Mode != "keycloak_team_roles" || provider.EntitlementSync.AdminBaseURL != "http://keycloak:8080" || provider.EntitlementSync.TargetResourceType != "team" || provider.EntitlementSync.TeamPathPrefix != "teams" {
 		t.Fatalf("entitlement sync = %#v, want normalized Keycloak sync config", provider.EntitlementSync)
 	}
 	if provider.AllowEmailLinking == nil || !*provider.AllowEmailLinking {

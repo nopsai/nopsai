@@ -77,56 +77,56 @@ func TestRolePermissionSpecificityPrefersMoreSpecificNamedSelector(t *testing.T)
 	}
 }
 
-func TestPrefixFolderResourcesIncludesContainingFolderWhenRequested(t *testing.T) {
-	got := prefixFolderResources([]string{"team-1", "dev"}, true)
+func TestPrefixTeamResourcesIncludesContainingTeamWhenRequested(t *testing.T) {
+	got := prefixTeamResources([]string{"team-1", "dev"}, true)
 	want := []model.InheritedResource{
-		{Resource: model.ResourceRef{Type: "folder", ID: "team-1/dev"}, Reason: "folder_inheritance"},
-		{Resource: model.ResourceRef{Type: "folder", ID: "team-1"}, Reason: "folder_inheritance"},
+		{Resource: model.ResourceRef{Type: "team", ID: "team-1/dev"}, Reason: "team_inheritance"},
+		{Resource: model.ResourceRef{Type: "team", ID: "team-1"}, Reason: "team_inheritance"},
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("prefixFolderResources(includeSelf=true) = %#v, want %#v", got, want)
+		t.Fatalf("prefixTeamResources(includeSelf=true) = %#v, want %#v", got, want)
 	}
 }
 
-func TestScopeFolderAncestorsUsesScopePathAsContainingFolder(t *testing.T) {
-	got := scopeFolderAncestors("team-1/dev")
+func TestScopeTeamAncestorsUsesScopePathAsContainingTeam(t *testing.T) {
+	got := scopeTeamAncestors("team-1/dev")
 	want := []model.InheritedResource{
-		{Resource: model.ResourceRef{Type: "folder", ID: "team-1/dev"}, Reason: "folder_inheritance"},
-		{Resource: model.ResourceRef{Type: "folder", ID: "team-1"}, Reason: "folder_inheritance"},
+		{Resource: model.ResourceRef{Type: "team", ID: "team-1/dev"}, Reason: "team_inheritance"},
+		{Resource: model.ResourceRef{Type: "team", ID: "team-1"}, Reason: "team_inheritance"},
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("scopeFolderAncestors() = %#v, want %#v", got, want)
+		t.Fatalf("scopeTeamAncestors() = %#v, want %#v", got, want)
 	}
 }
 
-func TestScopeFolderAncestorsUsesGeneralFolderForDefaultScope(t *testing.T) {
-	got := scopeFolderAncestors("")
+func TestScopeTeamAncestorsUsesGeneralTeamForDefaultScope(t *testing.T) {
+	got := scopeTeamAncestors("")
 	want := []model.InheritedResource{
-		{Resource: model.ResourceRef{Type: "folder", ID: model.FolderGeneralID}, Reason: "folder_inheritance"},
+		{Resource: model.ResourceRef{Type: "team", ID: model.TeamGeneralID}, Reason: "team_inheritance"},
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("scopeFolderAncestors(default) = %#v, want %#v", got, want)
+		t.Fatalf("scopeTeamAncestors(default) = %#v, want %#v", got, want)
 	}
 }
 
-func TestRepositoryIDFolderAncestorsUsesRepositoryPathPrefix(t *testing.T) {
-	got := repositoryIDFolderAncestors("team-1/dev/app")
+func TestRepositoryIDTeamAncestorsUsesRepositoryPathPrefix(t *testing.T) {
+	got := repositoryIDTeamAncestors("team-1/dev/app")
 	want := []model.InheritedResource{
-		{Resource: model.ResourceRef{Type: "folder", ID: "team-1/dev"}, Reason: "folder_inheritance"},
-		{Resource: model.ResourceRef{Type: "folder", ID: "team-1"}, Reason: "folder_inheritance"},
+		{Resource: model.ResourceRef{Type: "team", ID: "team-1/dev"}, Reason: "team_inheritance"},
+		{Resource: model.ResourceRef{Type: "team", ID: "team-1"}, Reason: "team_inheritance"},
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("repositoryIDFolderAncestors() = %#v, want %#v", got, want)
+		t.Fatalf("repositoryIDTeamAncestors() = %#v, want %#v", got, want)
 	}
 }
 
-func TestRepositoryIDFolderAncestorsUsesGeneralForRootRepository(t *testing.T) {
-	got := repositoryIDFolderAncestors("app")
+func TestRepositoryIDTeamAncestorsUsesGeneralForRootRepository(t *testing.T) {
+	got := repositoryIDTeamAncestors("app")
 	want := []model.InheritedResource{
-		{Resource: model.ResourceRef{Type: "folder", ID: model.FolderGeneralID}, Reason: "folder_inheritance"},
+		{Resource: model.ResourceRef{Type: "team", ID: model.TeamGeneralID}, Reason: "team_inheritance"},
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("repositoryIDFolderAncestors(root) = %#v, want %#v", got, want)
+		t.Fatalf("repositoryIDTeamAncestors(root) = %#v, want %#v", got, want)
 	}
 }
 
@@ -143,45 +143,45 @@ func TestRepositoryResourceIDRequiresRepositoryName(t *testing.T) {
 }
 
 func TestAppendInheritedResourcesDedupesResources(t *testing.T) {
-	folder := model.InheritedResource{Resource: model.ResourceRef{Type: "folder", ID: "team-1"}, Reason: "folder_inheritance"}
-	got := appendInheritedResources([]model.InheritedResource{folder}, []model.InheritedResource{folder})
+	team := model.InheritedResource{Resource: model.ResourceRef{Type: "team", ID: "team-1"}, Reason: "team_inheritance"}
+	got := appendInheritedResources([]model.InheritedResource{team}, []model.InheritedResource{team})
 	if len(got) != 1 {
 		t.Fatalf("appendInheritedResources() len = %d, want 1", len(got))
 	}
 }
 
-func TestGroupSelfAndParentFolderAncestorsIncludesRepositoryLeaf(t *testing.T) {
-	got := groupSelfAndParentFolderAncestors("hosein-yousefii/test-app", []model.InheritedResource{
-		{Resource: model.ResourceRef{Type: "folder", ID: "team-1"}, Reason: "folder_inheritance"},
+func TestTeamSelfAndParentTeamAncestorsIncludesRepositoryLeaf(t *testing.T) {
+	got := teamSelfAndParentTeamAncestors("hosein-yousefii/test-app", []model.InheritedResource{
+		{Resource: model.ResourceRef{Type: "team", ID: "team-1"}, Reason: "team_inheritance"},
 	})
 	want := []model.InheritedResource{
-		{Resource: model.ResourceRef{Type: "folder", ID: "team-1/hosein-yousefii/test-app"}, Reason: "folder_inheritance"},
-		{Resource: model.ResourceRef{Type: "folder", ID: "team-1"}, Reason: "folder_inheritance"},
+		{Resource: model.ResourceRef{Type: "team", ID: "team-1/hosein-yousefii/test-app"}, Reason: "team_inheritance"},
+		{Resource: model.ResourceRef{Type: "team", ID: "team-1"}, Reason: "team_inheritance"},
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("groupSelfAndParentFolderAncestors() = %#v, want %#v", got, want)
+		t.Fatalf("teamSelfAndParentTeamAncestors() = %#v, want %#v", got, want)
 	}
 }
 
-func TestGroupSelfAndParentFolderAncestorsIncludesAppLeaf(t *testing.T) {
-	got := groupSelfAndParentFolderAncestors("test-app", []model.InheritedResource{
-		{Resource: model.ResourceRef{Type: "folder", ID: "team-1"}, Reason: "folder_inheritance"},
+func TestTeamSelfAndParentTeamAncestorsIncludesAppLeaf(t *testing.T) {
+	got := teamSelfAndParentTeamAncestors("test-app", []model.InheritedResource{
+		{Resource: model.ResourceRef{Type: "team", ID: "team-1"}, Reason: "team_inheritance"},
 	})
 	want := []model.InheritedResource{
-		{Resource: model.ResourceRef{Type: "folder", ID: "team-1/test-app"}, Reason: "folder_inheritance"},
-		{Resource: model.ResourceRef{Type: "folder", ID: "team-1"}, Reason: "folder_inheritance"},
+		{Resource: model.ResourceRef{Type: "team", ID: "team-1/test-app"}, Reason: "team_inheritance"},
+		{Resource: model.ResourceRef{Type: "team", ID: "team-1"}, Reason: "team_inheritance"},
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("groupSelfAndParentFolderAncestors() = %#v, want %#v", got, want)
+		t.Fatalf("teamSelfAndParentTeamAncestors() = %#v, want %#v", got, want)
 	}
 }
 
-func TestPrefixFolderAncestorsExcludesCurrentFolder(t *testing.T) {
-	got := prefixFolderAncestors([]string{"team-1", "dev"})
+func TestPrefixTeamAncestorsExcludesCurrentTeam(t *testing.T) {
+	got := prefixTeamAncestors([]string{"team-1", "dev"})
 	want := []model.InheritedResource{
-		{Resource: model.ResourceRef{Type: "folder", ID: "team-1"}, Reason: "folder_inheritance"},
+		{Resource: model.ResourceRef{Type: "team", ID: "team-1"}, Reason: "team_inheritance"},
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("prefixFolderAncestors() = %#v, want %#v", got, want)
+		t.Fatalf("prefixTeamAncestors() = %#v, want %#v", got, want)
 	}
 }

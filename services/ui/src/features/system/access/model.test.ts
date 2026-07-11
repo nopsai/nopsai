@@ -17,13 +17,13 @@ import {
 
 test("normalizes and deduplicates enterprise basic access grants", () => {
   const grants = normalizeBasicGrantInputs([
-    { role: "Owner", resourceType: "folder", resourceID: "/platform/" },
-    { role: "owner", resourceType: "folder", resourceID: "platform" },
+    { role: "Owner", resourceType: "team", resourceID: "/platform/" },
+    { role: "owner", resourceType: "team", resourceID: "platform" },
     { role: "admin", resourceType: "platform", resourceID: "platform" },
   ]);
 
   assert.equal(grants.length, 2);
-  assert.equal(accessGrantEditKey(grants[0]), "owner::folder::platform");
+  assert.equal(accessGrantEditKey(grants[0]), "owner::team::platform");
   assert.equal(accessGrantEditKey(grants[1]), "admin::platform::platform");
   assert.equal(isProtectedAccessRole("NopsAI-Admin"), true);
 });
@@ -35,7 +35,7 @@ test("maps API access grant records into the UI contract", () => {
       subject_type: "service_account",
       subject_id: "deploy-bot",
       role: "developer",
-      resource_type: "folder",
+      resource_type: "team",
       resource_id: "platform",
       inherit: true,
       granted_by: "admin",
@@ -46,7 +46,7 @@ test("maps API access grant records into the UI contract", () => {
       subjectID: "deploy-bot",
       subjectDisplay: undefined,
       role: "developer",
-      resourceType: "folder",
+      resourceType: "team",
       resourceID: "platform",
       inherit: true,
       grantedBy: "admin",
@@ -54,7 +54,7 @@ test("maps API access grant records into the UI contract", () => {
       managedByConfigRepo: false,
       managedByIdentityProvider: false,
       identityProviderID: undefined,
-      externalGroupName: undefined,
+      externalTeamName: undefined,
       source: undefined,
     },
   );
@@ -103,9 +103,9 @@ test("normalizes identity provider state and builds save payloads", () => {
         scopes: ["openid", "email"],
         allowed_email_domains: ["company.com"],
         role_mapping: { "nopsai-admins": "admin" },
-        group_mapping: { "nopsai-admins": "sso-admins" },
+        team_mapping: { "nopsai-admins": "sso-admins" },
         basic_role_mapping: {
-          "team-1-owner": { role: "owner", resource: "folder:team-1" },
+          "team-1-owner": { role: "owner", resource: "team:team-1" },
         },
         client_credential_ref: "credential://system/oidc/corporate/client-secret",
         enabled: true,
@@ -117,11 +117,11 @@ test("normalizes identity provider state and builds save payloads", () => {
   assert.equal(state.settings.local_enabled, false);
   assert.equal(state.settings.default_role, "viewer");
   assert.equal(state.providers[0].display_name, "Company SSO");
-  assert.deepEqual(state.providers[0].group_mapping, { "nopsai-admins": "sso-admins" });
+  assert.deepEqual(state.providers[0].team_mapping, { "nopsai-admins": "sso-admins" });
   assert.deepEqual(state.providers[0].basic_role_mapping, {
     "team-1-owner": {
       role: "owner",
-      resource: "folder:team-1",
+      resource: "team:team-1",
       resource_type: undefined,
       resource_id: undefined,
     },
@@ -142,10 +142,10 @@ test("normalizes identity provider state and builds save payloads", () => {
       client_credential_ref: "credential://system/oidc/corporate/client-secret",
       scopes: "openid, email, profile",
       allowed_email_domains: "company.com",
-      group_claim: "groups",
+      team_claim: "teams",
       role_mapping: "nopsai-admins: admin",
-      group_mapping: "nopsai-admins: sso-admins",
-      basic_role_mapping: "team-1-owner: owner folder:team-1",
+      team_mapping: "nopsai-admins: sso-admins",
+      basic_role_mapping: "team-1-owner: owner team:team-1",
       auto_create_users: "inherit",
       default_role: "viewer",
       allow_email_linking: "false",
@@ -164,11 +164,11 @@ test("normalizes identity provider state and builds save payloads", () => {
       client_credential_ref: "credential://system/oidc/corporate/client-secret",
       scopes: ["openid", "email", "profile"],
       allowed_email_domains: ["company.com"],
-      group_claim: "groups",
+      team_claim: "teams",
       role_mapping: { "nopsai-admins": "admin" },
-      group_mapping: { "nopsai-admins": "sso-admins" },
+      team_mapping: { "nopsai-admins": "sso-admins" },
       basic_role_mapping: {
-        "team-1-owner": { role: "owner", resource: "folder:team-1" },
+        "team-1-owner": { role: "owner", resource: "team:team-1" },
       },
       auto_create_users: undefined,
       default_role: "viewer",
@@ -190,7 +190,7 @@ test("normalizes missing identity provider default role as empty", () => {
   assert.equal(state.settings.default_role, "");
 });
 
-test("matches external users through mapped NopsAI auth groups", () => {
+test("matches external users through mapped NopsAI auth teams", () => {
   const user = {
     id: "user-1",
     sub: "oidc:nopsai:subject",
@@ -198,17 +198,17 @@ test("matches external users through mapped NopsAI auth groups", () => {
     provider: "oidc:nopsai",
     status: "active",
     external_managed: true,
-    external_auth_groups: [{ id: "group-1", name: "sso-owners" }],
+    external_auth_teams: [{ id: "team-1", name: "sso-owners" }],
   };
 
   assert.equal(
     accessGrantMatchesUser(
       {
         id: "grant-1",
-        subjectType: "auth_group",
-        subjectID: "group-1",
+        subjectType: "auth_team",
+        subjectID: "team-1",
         role: "owner",
-        resourceType: "folder",
+        resourceType: "team",
         resourceID: "team-1",
         inherit: true,
       },
@@ -220,10 +220,10 @@ test("matches external users through mapped NopsAI auth groups", () => {
     accessGrantMatchesUser(
       {
         id: "grant-2",
-        subjectType: "auth_group",
+        subjectType: "auth_team",
         subjectID: "sso-viewers",
         role: "viewer",
-        resourceType: "folder",
+        resourceType: "team",
         resourceID: "team-1",
         inherit: true,
       },

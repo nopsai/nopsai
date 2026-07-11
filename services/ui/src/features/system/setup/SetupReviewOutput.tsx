@@ -1,10 +1,10 @@
 import { Download, FileText } from 'lucide-react';
-import { LLM_SKIP_WARNING, type RepositoryGroupSummary, type RuntimeEnvSection } from './model';
+import { LLM_SKIP_WARNING, type RepositoryTeamSummary, type RuntimeEnvSection } from './model';
 import { StepIntro, WarningCallout } from './SetupWizardPrimitives';
 
 type SetupReviewOutputProps = {
   aiEnabled: boolean;
-  normalizedRepositoryGroups: RepositoryGroupSummary[];
+  normalizedRepositoryTeams: RepositoryTeamSummary[];
   repositories: string[];
   userCount: number;
   runtimeEnvSections: RuntimeEnvSection[];
@@ -32,7 +32,7 @@ function downloadTextFile(fileName: string, content: string, mimeType = 'text/pl
 
 export function SetupReviewOutput({
   aiEnabled,
-  normalizedRepositoryGroups,
+  normalizedRepositoryTeams,
   repositories,
   userCount,
   runtimeEnvSections,
@@ -48,13 +48,13 @@ export function SetupReviewOutput({
   return (
     <div className="space-y-4">
       <StepIntro title="Generated setup output" icon={<FileText className="h-4 w-4" />}>
-        Review what will be created now and what should be applied outside the database. Runtime variables are grouped by target container; GitOps starter files can be previewed in the page and downloaded as one zip for the global config repository.
+        Review what will be created now and what should be applied outside the database. Runtime variables are organized by target container; GitOps starter files can be previewed in the page and downloaded as one zip for the global config repository.
       </StepIntro>
       {!aiEnabled && <WarningCallout>{LLM_SKIP_WARNING}</WarningCallout>}
       <div className="grid gap-3 md:grid-cols-3">
         <div className="rounded-md border border-[var(--border-primary)] p-3 text-sm">
-          <div className="text-xs text-[var(--text-secondary)]">Repository groups</div>
-          <div className="mt-1">{normalizedRepositoryGroups.length || 'Skipped'}</div>
+          <div className="text-xs text-[var(--text-secondary)]">Repository teams</div>
+          <div className="mt-1">{normalizedRepositoryTeams.length || 'Skipped'}</div>
         </div>
         <div className="rounded-md border border-[var(--border-primary)] p-3 text-sm">
           <div className="text-xs text-[var(--text-secondary)]">Repositories</div>
@@ -88,14 +88,14 @@ export function SetupReviewOutput({
         </div>
       </div>
       <div>
-        <div className="mb-2 text-sm font-semibold">GitOps group files</div>
+        <div className="mb-2 text-sm font-semibold">GitOps team files</div>
         <pre className="max-h-80 overflow-auto rounded-md border border-[var(--border-primary)] bg-[var(--bg-primary)] p-3 text-xs leading-5">{gitOpsStructureSnippet}</pre>
       </div>
       <div className="rounded-md border border-[var(--border-primary)] p-3 text-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <div className="font-semibold">Files to commit when using GitOps</div>
-            <div className="mt-1 text-xs text-[var(--text-secondary)]">The zip preserves folder paths such as `pipelines/`, `steps/`, `triggers/`, and `setting/system/`.</div>
+            <div className="mt-1 text-xs text-[var(--text-secondary)]">The zip preserves repository paths such as `pipelines/`, `steps/`, `triggers/`, and `setting/system/`.</div>
           </div>
           <button type="button" className="inline-flex items-center gap-2 rounded-md border border-[var(--border-primary)] px-3 py-2 text-sm" onClick={onDownloadGitOpsZip} disabled={downloadingGitOpsZip}>
             <Download className="h-4 w-4" />
@@ -107,7 +107,7 @@ export function SetupReviewOutput({
         </div>
       </div>
       <div className="rounded-md border border-sky-500/30 bg-sky-500/10 p-3 text-sm leading-6 text-sky-700 dark:text-sky-300">
-        Apply each env group to the matching container or secret manager, configure provider webhook settings on the git-bot deployment, commit the GitOps zip if you are using GitOps, restart services that received new runtime values, and run `setup/first-run` to prove runner, agent, logs, and UI are working{aiEnabled ? ', including AI.' : '.'}
+        Apply each env block to the matching container or secret manager, configure provider webhook settings on the git-bot deployment, commit the GitOps zip if you are using GitOps, restart services that received new runtime values, and run `setup/first-run` to prove runner, agent, logs, and UI are working{aiEnabled ? ', including AI.' : '.'}
       </div>
       <div className="flex flex-wrap gap-2">
         <button className="inline-flex items-center gap-2 rounded-md border border-[var(--border-primary)] px-4 py-2 text-sm" onClick={onLoadTemplates} disabled={templateLoading}>

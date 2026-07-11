@@ -74,7 +74,7 @@ type applicationWriteRequest struct {
 }
 
 func (a *App) handleListTeams(w http.ResponseWriter, r *http.Request) {
-	groups, records, listErr := a.visibleGroupsForRequest(r)
+	teams, records, listErr := a.visibleTeamsForRequest(r)
 	if listErr != nil {
 		http.Error(w, listErr.message, listErr.status)
 		return
@@ -88,17 +88,17 @@ func (a *App) handleListTeams(w http.ResponseWriter, r *http.Request) {
 	}
 
 	appIDsByTeam := map[int][]int{}
-	for _, group := range groups {
-		if group.Kind == "app" {
-			if group.ParentID != nil {
-				appIDsByTeam[*group.ParentID] = append(appIDsByTeam[*group.ParentID], group.ID)
+	for _, team := range teams {
+		if team.Kind == "app" {
+			if team.ParentID != nil {
+				appIDsByTeam[*team.ParentID] = append(appIDsByTeam[*team.ParentID], team.ID)
 			}
 			if includeApplications {
-				response.Applications = append(response.Applications, applicationResponseFromGroup(group, records))
+				response.Applications = append(response.Applications, applicationResponseFromTeam(team, records))
 			}
 			continue
 		}
-		response.Teams = append(response.Teams, teamResponseFromGroup(group, records, nil))
+		response.Teams = append(response.Teams, teamResponseFromTeam(team, records, nil))
 	}
 	for index := range response.Teams {
 		if ids := appIDsByTeam[response.Teams[index].ID]; len(ids) > 0 {
@@ -115,12 +115,12 @@ func (a *App) handleGetTeam(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), status)
 		return
 	}
-	group, err := a.groupForRecord(r.Context(), record)
+	team, err := a.teamForRecord(r.Context(), record)
 	if err != nil {
 		http.Error(w, "Failed to load team", http.StatusInternalServerError)
 		return
 	}
-	_ = httpapi.WriteJSON(w, http.StatusOK, teamResponseFromGroup(group, map[int]groupPathRecord{record.ID: record}, nil))
+	_ = httpapi.WriteJSON(w, http.StatusOK, teamResponseFromTeam(team, map[int]teamPathRecord{record.ID: record}, nil))
 }
 
 func (a *App) handleCreateTeam(w http.ResponseWriter, r *http.Request) {
@@ -129,25 +129,25 @@ func (a *App) handleCreateTeam(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	group := Group{
-		Kind:        "group",
+	team := Team{
+		Kind:        "team",
 		Name:        firstNonEmptyString(input.Name, input.Slug, input.DisplayName),
 		Description: input.Description,
 		ParentID:    firstNonNilInt(input.ParentTeamID, input.ParentID),
 	}
-	if err := normalizeGroupForWrite(&group); err != nil {
-		http.Error(w, strings.ReplaceAll(err.Error(), "group", "team"), http.StatusBadRequest)
+	if err := normalizeTeamForWrite(&team); err != nil {
+		http.Error(w, strings.ReplaceAll(err.Error(), "team", "team"), http.StatusBadRequest)
 		return
 	}
-	if !a.authorizeTeamCreate(w, r, group.ParentID) {
+	if !a.authorizeTeamCreate(w, r, team.ParentID) {
 		return
 	}
-	created, err := a.insertGroupRecord(r.Context(), group)
+	created, err := a.insertTeamRecord(r.Context(), team)
 	if err != nil {
-		writeGroupMutationError(w, err, "Failed to create team")
+		writeTeamMutationError(w, err, "Failed to create team")
 		return
 	}
-	_ = httpapi.WriteJSON(w, http.StatusCreated, teamResponseFromGroup(created, nil, nil))
+	_ = httpapi.WriteJSON(w, http.StatusCreated, teamResponseFromTeam(created, nil, nil))
 }
 
 func (a *App) handleUpdateTeam(w http.ResponseWriter, r *http.Request) {
@@ -161,22 +161,22 @@ func (a *App) handleUpdateTeam(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	group := Group{
+	team := Team{
 		ID:          record.ID,
-		Kind:        "group",
+		Kind:        "team",
 		Name:        firstNonEmptyString(input.Name, input.Slug, input.DisplayName, record.Name),
 		Description: input.Description,
 		ParentID:    firstNonNilInt(input.ParentTeamID, input.ParentID),
 	}
-	if err := normalizeGroupForWrite(&group); err != nil {
-		http.Error(w, strings.ReplaceAll(err.Error(), "group", "team"), http.StatusBadRequest)
+	if err := normalizeTeamForWrite(&team); err != nil {
+		http.Error(w, strings.ReplaceAll(err.Error(), "team", "team"), http.StatusBadRequest)
 		return
 	}
 	if !a.authorizeTeamUpdate(w, r, record.ID) {
 		return
 	}
-	if err := a.updateGroupRecord(r.Context(), group); err != nil {
-		writeGroupMutationError(w, err, "Failed to update team")
+	if err := a.updateTeamRecord(r.Context(), team); err != nil {
+		writeTeamMutationError(w, err, "Failed to update team")
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -191,7 +191,7 @@ func (a *App) handleDeleteTeam(w http.ResponseWriter, r *http.Request) {
 	if !a.authorizeTeamDelete(w, r, record.ID) {
 		return
 	}
-	if _, err := a.db.Exec(r.Context(), "DELETE FROM groups WHERE id = $1", record.ID); err != nil {
+	if _, err := a.db.Exec(r.Context(), "DELETE FROM teams WHERE id = $1", record.ID); err != nil {
 		log.Error().Err(err).Msg("Failed to delete team")
 		http.Error(w, "Failed to delete team", http.StatusInternalServerError)
 		return
@@ -205,18 +205,18 @@ func (a *App) handleListTeamApplications(w http.ResponseWriter, r *http.Request)
 		http.Error(w, err.Error(), status)
 		return
 	}
-	groups, _, listErr := a.visibleGroupsForRequest(r)
+	teams, _, listErr := a.visibleTeamsForRequest(r)
 	if listErr != nil {
 		http.Error(w, listErr.message, listErr.status)
 		return
 	}
 	out := []applicationResponse{}
-	for _, group := range groups {
-		if group.Kind != "app" {
+	for _, team := range teams {
+		if team.Kind != "app" {
 			continue
 		}
-		if (group.ParentID == nil && parentID == nil) || (group.ParentID != nil && parentID != nil && *group.ParentID == *parentID) {
-			out = append(out, applicationResponseFromGroup(group, records))
+		if (team.ParentID == nil && parentID == nil) || (team.ParentID != nil && parentID != nil && *team.ParentID == *parentID) {
+			out = append(out, applicationResponseFromTeam(team, records))
 		}
 	}
 	_ = httpapi.WriteJSON(w, http.StatusOK, out)
@@ -233,26 +233,26 @@ func (a *App) handleCreateTeamApplication(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	group := Group{
+	team := Team{
 		Kind:               "app",
 		Name:               firstNonEmptyString(input.Name, input.Slug, input.DisplayName),
 		RepoURL:            input.RepoURL,
 		RepositoryFullName: input.RepositoryFullName,
 		ParentID:           parentID,
 	}
-	if err := normalizeGroupForWrite(&group); err != nil {
-		http.Error(w, strings.ReplaceAll(err.Error(), "group", "application"), http.StatusBadRequest)
+	if err := normalizeTeamForWrite(&team); err != nil {
+		http.Error(w, strings.ReplaceAll(err.Error(), "team", "application"), http.StatusBadRequest)
 		return
 	}
 	if !a.authorizeApplicationCreate(w, r, parentID) {
 		return
 	}
-	created, err := a.insertGroupRecord(r.Context(), group)
+	created, err := a.insertTeamRecord(r.Context(), team)
 	if err != nil {
-		writeGroupMutationError(w, err, "Failed to create application")
+		writeTeamMutationError(w, err, "Failed to create application")
 		return
 	}
-	_ = httpapi.WriteJSON(w, http.StatusCreated, applicationResponseFromGroup(created, nil))
+	_ = httpapi.WriteJSON(w, http.StatusCreated, applicationResponseFromTeam(created, nil))
 }
 
 func (a *App) handleUpdateTeamApplication(w http.ResponseWriter, r *http.Request) {
@@ -275,7 +275,7 @@ func (a *App) handleUpdateTeamApplication(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	group := Group{
+	team := Team{
 		ID:                 appRecord.ID,
 		Kind:               "app",
 		Name:               firstNonEmptyString(input.Name, input.Slug, input.DisplayName, appRecord.Name),
@@ -283,15 +283,15 @@ func (a *App) handleUpdateTeamApplication(w http.ResponseWriter, r *http.Request
 		RepositoryFullName: input.RepositoryFullName,
 		ParentID:           parentID,
 	}
-	if err := normalizeGroupForWrite(&group); err != nil {
-		http.Error(w, strings.ReplaceAll(err.Error(), "group", "application"), http.StatusBadRequest)
+	if err := normalizeTeamForWrite(&team); err != nil {
+		http.Error(w, strings.ReplaceAll(err.Error(), "team", "application"), http.StatusBadRequest)
 		return
 	}
 	if !a.authorizeApplicationUpdate(w, r, appRecord.ID) {
 		return
 	}
-	if err := a.updateGroupRecord(r.Context(), group); err != nil {
-		writeGroupMutationError(w, err, "Failed to update application")
+	if err := a.updateTeamRecord(r.Context(), team); err != nil {
+		writeTeamMutationError(w, err, "Failed to update application")
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -315,7 +315,7 @@ func (a *App) handleDeleteTeamApplication(w http.ResponseWriter, r *http.Request
 	if !a.authorizeApplicationDelete(w, r, appRecord.ID) {
 		return
 	}
-	if _, err := a.db.Exec(r.Context(), "DELETE FROM groups WHERE id = $1", appRecord.ID); err != nil {
+	if _, err := a.db.Exec(r.Context(), "DELETE FROM teams WHERE id = $1", appRecord.ID); err != nil {
 		log.Error().Err(err).Msg("Failed to delete application")
 		http.Error(w, "Failed to delete application", http.StatusInternalServerError)
 		return
@@ -324,14 +324,14 @@ func (a *App) handleDeleteTeamApplication(w http.ResponseWriter, r *http.Request
 }
 
 func (a *App) handleTeamConfigRepository(w http.ResponseWriter, r *http.Request) {
-	if !a.setTeamFolderPathValue(w, r) {
+	if !a.setTeamHierarchyPathValue(w, r) {
 		return
 	}
-	a.handleFolderConfigRepositoryRoute(w, r)
+	a.handleTeamConfigRepositoryRoute(w, r)
 }
 
 func (a *App) handleTeamNotificationRoute(w http.ResponseWriter, r *http.Request) {
-	if !a.setTeamFolderPathValue(w, r) {
+	if !a.setTeamHierarchyPathValue(w, r) {
 		return
 	}
 	a.handleTeamNotificationRouteByMethod(w, r)
@@ -340,38 +340,38 @@ func (a *App) handleTeamNotificationRoute(w http.ResponseWriter, r *http.Request
 func (a *App) handleTeamNotificationRouteByMethod(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		a.handleGetFolderNotificationRoute(w, r)
+		a.handleGetTeamNotificationRoute(w, r)
 	case http.MethodPut:
-		a.handleUpsertFolderNotificationRoute(w, r)
+		a.handleUpsertTeamNotificationRoute(w, r)
 	case http.MethodDelete:
-		a.handleDeleteFolderNotificationRoute(w, r)
+		a.handleDeleteTeamNotificationRoute(w, r)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
-func (a *App) handleFolderConfigRepositoryRoute(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleTeamConfigRepositoryRoute(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case strings.HasSuffix(r.URL.Path, "/sync") && r.Method == http.MethodGet:
-		a.handleGetFolderConfigRepositorySyncStatus(w, r)
+		a.handleGetTeamConfigRepositorySyncStatus(w, r)
 	case strings.HasSuffix(r.URL.Path, "/sync") && r.Method == http.MethodPost:
-		a.handleSyncFolderConfigRepository(w, r)
+		a.handleSyncTeamConfigRepository(w, r)
 	case strings.HasSuffix(r.URL.Path, "/drift") && r.Method == http.MethodGet:
-		a.handleGetFolderConfigRepositoryDrift(w, r)
+		a.handleGetTeamConfigRepositoryDrift(w, r)
 	case strings.HasSuffix(r.URL.Path, "/write") && r.Method == http.MethodPost:
-		a.handleWriteFolderConfigRepository(w, r)
+		a.handleWriteTeamConfigRepository(w, r)
 	case r.Method == http.MethodGet:
-		a.handleGetFolderConfigRepository(w, r)
+		a.handleGetTeamConfigRepository(w, r)
 	case r.Method == http.MethodPut:
-		a.handleUpsertFolderConfigRepository(w, r)
+		a.handleUpsertTeamConfigRepository(w, r)
 	case r.Method == http.MethodDelete:
-		a.handleDeleteFolderConfigRepository(w, r)
+		a.handleDeleteTeamConfigRepository(w, r)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
-func (a *App) setTeamFolderPathValue(w http.ResponseWriter, r *http.Request) bool {
+func (a *App) setTeamHierarchyPathValue(w http.ResponseWriter, r *http.Request) bool {
 	record, status, err := a.resolveTeamRecord(r.Context(), r.PathValue("teamID"), false)
 	if err != nil {
 		http.Error(w, err.Error(), status)
@@ -381,13 +381,13 @@ func (a *App) setTeamFolderPathValue(w http.ResponseWriter, r *http.Request) boo
 	if path == "" {
 		path = record.Name
 	}
-	r.SetPathValue("folderID", path)
+	r.SetPathValue("teamID", path)
 	return true
 }
 
 func (a *App) authorizeTeamCreate(w http.ResponseWriter, r *http.Request, parentID *int) bool {
 	if parentID != nil {
-		parentResource, err := a.folderGrantResourceByGroupID(r.Context(), *parentID)
+		parentResource, err := a.teamGrantResourceByTeamID(r.Context(), *parentID)
 		if err != nil {
 			status := http.StatusInternalServerError
 			if strings.Contains(err.Error(), "not found") {
@@ -396,13 +396,13 @@ func (a *App) authorizeTeamCreate(w http.ResponseWriter, r *http.Request, parent
 			http.Error(w, err.Error(), status)
 			return false
 		}
-		return a.requireAAADecision(w, r, "folder.create", model.ResourceRef{Type: grantResourceFolder, ID: parentResource.ID})
+		return a.requireAAADecision(w, r, "team.create", model.ResourceRef{Type: grantResourceTeam, ID: parentResource.ID})
 	}
-	return a.requireAAADecision(w, r, "folder.create", model.ResourceRef{Type: grantResourceFolder, ID: "*"})
+	return a.requireAAADecision(w, r, "team.create", model.ResourceRef{Type: grantResourceTeam, ID: "*"})
 }
 
-func (a *App) authorizeTeamUpdate(w http.ResponseWriter, r *http.Request, groupID int) bool {
-	resource, err := a.folderGrantResourceByGroupID(r.Context(), groupID)
+func (a *App) authorizeTeamUpdate(w http.ResponseWriter, r *http.Request, teamID int) bool {
+	resource, err := a.teamGrantResourceByTeamID(r.Context(), teamID)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if strings.Contains(err.Error(), "not found") {
@@ -411,11 +411,11 @@ func (a *App) authorizeTeamUpdate(w http.ResponseWriter, r *http.Request, groupI
 		http.Error(w, err.Error(), status)
 		return false
 	}
-	return a.requireAAADecision(w, r, "folder.update", model.ResourceRef{Type: grantResourceFolder, ID: resource.ID})
+	return a.requireAAADecision(w, r, "team.update", model.ResourceRef{Type: grantResourceTeam, ID: resource.ID})
 }
 
-func (a *App) authorizeTeamDelete(w http.ResponseWriter, r *http.Request, groupID int) bool {
-	action, resource, err := a.groupDeleteAuthorizationTarget(r.Context(), groupID)
+func (a *App) authorizeTeamDelete(w http.ResponseWriter, r *http.Request, teamID int) bool {
+	action, resource, err := a.teamDeleteAuthorizationTarget(r.Context(), teamID)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if strings.Contains(err.Error(), "not found") {
@@ -431,16 +431,16 @@ func (a *App) authorizeApplicationCreate(w http.ResponseWriter, r *http.Request,
 	return a.authorizeTeamCreate(w, r, parentID)
 }
 
-func (a *App) authorizeApplicationUpdate(w http.ResponseWriter, r *http.Request, groupID int) bool {
-	return a.authorizeTeamUpdate(w, r, groupID)
+func (a *App) authorizeApplicationUpdate(w http.ResponseWriter, r *http.Request, teamID int) bool {
+	return a.authorizeTeamUpdate(w, r, teamID)
 }
 
-func (a *App) authorizeApplicationDelete(w http.ResponseWriter, r *http.Request, groupID int) bool {
-	return a.authorizeTeamDelete(w, r, groupID)
+func (a *App) authorizeApplicationDelete(w http.ResponseWriter, r *http.Request, teamID int) bool {
+	return a.authorizeTeamDelete(w, r, teamID)
 }
 
-func (a *App) resolveApplicationParent(ctx context.Context, raw string) (*int, map[int]groupPathRecord, int, error) {
-	records, err := a.folderPathRecords(ctx)
+func (a *App) resolveApplicationParent(ctx context.Context, raw string) (*int, map[int]teamPathRecord, int, error) {
+	records, err := a.teamPathRecords(ctx)
 	if err != nil {
 		return nil, nil, http.StatusInternalServerError, fmt.Errorf("failed to resolve teams")
 	}
@@ -456,16 +456,16 @@ func (a *App) resolveApplicationParent(ctx context.Context, raw string) (*int, m
 	return &record.ID, records, http.StatusOK, nil
 }
 
-func (a *App) resolveTeamRecord(ctx context.Context, raw string, wantApplication bool) (groupPathRecord, int, error) {
+func (a *App) resolveTeamRecord(ctx context.Context, raw string, wantApplication bool) (teamPathRecord, int, error) {
 	raw = strings.Trim(strings.TrimSpace(raw), "/")
 	if raw == "" || strings.EqualFold(raw, "root") {
-		return groupPathRecord{}, http.StatusNotFound, fmt.Errorf("team not found")
+		return teamPathRecord{}, http.StatusNotFound, fmt.Errorf("team not found")
 	}
-	records, err := a.folderPathRecords(ctx)
+	records, err := a.teamPathRecords(ctx)
 	if err != nil {
-		return groupPathRecord{}, http.StatusInternalServerError, fmt.Errorf("failed to resolve teams")
+		return teamPathRecord{}, http.StatusInternalServerError, fmt.Errorf("failed to resolve teams")
 	}
-	var record groupPathRecord
+	var record teamPathRecord
 	found := false
 	if id, parseErr := strconv.Atoi(raw); parseErr == nil {
 		record, found = records[id]
@@ -483,58 +483,58 @@ func (a *App) resolveTeamRecord(ctx context.Context, raw string, wantApplication
 		}
 	}
 	if !found {
-		return groupPathRecord{}, http.StatusNotFound, fmt.Errorf("team not found")
+		return teamPathRecord{}, http.StatusNotFound, fmt.Errorf("team not found")
 	}
 	isApplication := record.Kind == "app" || record.RepositoryFullName != "" || record.RepoURL != ""
 	if wantApplication && !isApplication {
-		return groupPathRecord{}, http.StatusNotFound, fmt.Errorf("application not found")
+		return teamPathRecord{}, http.StatusNotFound, fmt.Errorf("application not found")
 	}
 	if !wantApplication && isApplication {
-		return groupPathRecord{}, http.StatusNotFound, fmt.Errorf("team not found")
+		return teamPathRecord{}, http.StatusNotFound, fmt.Errorf("team not found")
 	}
 	return record, http.StatusOK, nil
 }
 
-func (a *App) groupForRecord(ctx context.Context, record groupPathRecord) (Group, error) {
-	var group Group
+func (a *App) teamForRecord(ctx context.Context, record teamPathRecord) (Team, error) {
+	var team Team
 	var parentID sql.NullInt32
 	var description sql.NullString
-	if err := a.db.QueryRow(ctx, "SELECT id, name, COALESCE(kind, 'group'), parent_id, description, COALESCE(repo_url, ''), COALESCE(repository_full_name, '') FROM groups WHERE id = $1", record.ID).Scan(
-		&group.ID,
-		&group.Name,
-		&group.Kind,
+	if err := a.db.QueryRow(ctx, "SELECT id, name, COALESCE(kind, 'team'), parent_id, description, COALESCE(repo_url, ''), COALESCE(repository_full_name, '') FROM teams WHERE id = $1", record.ID).Scan(
+		&team.ID,
+		&team.Name,
+		&team.Kind,
 		&parentID,
 		&description,
-		&group.RepoURL,
-		&group.RepositoryFullName,
+		&team.RepoURL,
+		&team.RepositoryFullName,
 	); err != nil {
-		return Group{}, err
+		return Team{}, err
 	}
 	if parentID.Valid {
 		parent := int(parentID.Int32)
-		group.ParentID = &parent
+		team.ParentID = &parent
 	}
 	if description.Valid {
-		group.Description = description.String
+		team.Description = description.String
 	}
-	return group, nil
+	return team, nil
 }
 
-func (a *App) insertGroupRecord(ctx context.Context, group Group) (Group, error) {
-	query := `INSERT INTO groups (name, kind, parent_id, description, repo_url, repository_full_name) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`
-	if err := a.db.QueryRow(ctx, query, group.Name, group.Kind, group.ParentID, group.Description, group.RepoURL, group.RepositoryFullName).Scan(&group.ID); err != nil {
-		return Group{}, err
+func (a *App) insertTeamRecord(ctx context.Context, team Team) (Team, error) {
+	query := `INSERT INTO teams (name, kind, parent_id, description, repo_url, repository_full_name) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`
+	if err := a.db.QueryRow(ctx, query, team.Name, team.Kind, team.ParentID, team.Description, team.RepoURL, team.RepositoryFullName).Scan(&team.ID); err != nil {
+		return Team{}, err
 	}
-	return group, nil
+	return team, nil
 }
 
-func (a *App) updateGroupRecord(ctx context.Context, group Group) error {
-	query := `UPDATE groups SET name = $1, kind = $2, parent_id = $3, description = $4, repo_url = $5, repository_full_name = $6, updated_at = NOW() WHERE id = $7`
-	_, err := a.db.Exec(ctx, query, group.Name, group.Kind, group.ParentID, group.Description, group.RepoURL, group.RepositoryFullName, group.ID)
+func (a *App) updateTeamRecord(ctx context.Context, team Team) error {
+	query := `UPDATE teams SET name = $1, kind = $2, parent_id = $3, description = $4, repo_url = $5, repository_full_name = $6, updated_at = NOW() WHERE id = $7`
+	_, err := a.db.Exec(ctx, query, team.Name, team.Kind, team.ParentID, team.Description, team.RepoURL, team.RepositoryFullName, team.ID)
 	return err
 }
 
-func writeGroupMutationError(w http.ResponseWriter, err error, fallback string) {
+func writeTeamMutationError(w http.ResponseWriter, err error, fallback string) {
 	if err == nil {
 		return
 	}
@@ -550,67 +550,67 @@ func writeGroupMutationError(w http.ResponseWriter, err error, fallback string) 
 	http.Error(w, fallback, http.StatusInternalServerError)
 }
 
-func teamResponseFromGroup(group Group, records map[int]groupPathRecord, applicationIDs []int) teamResponse {
-	path := groupPathForResponse(group.ID, group.Name, records)
-	lastRunAt := nullableSQLTime(group.LastRunAt)
+func teamResponseFromTeam(team Team, records map[int]teamPathRecord, applicationIDs []int) teamResponse {
+	path := teamPathForResponse(team.ID, team.Name, records)
+	lastRunAt := nullableSQLTime(team.LastRunAt)
 	return teamResponse{
-		ID:             group.ID,
+		ID:             team.ID,
 		Kind:           "team",
-		Name:           group.Name,
-		Slug:           group.Name,
-		DisplayName:    group.Name,
-		Description:    group.Description,
-		ParentTeamID:   group.ParentID,
-		ParentID:       group.ParentID,
+		Name:           team.Name,
+		Slug:           team.Name,
+		DisplayName:    team.Name,
+		Description:    team.Description,
+		ParentTeamID:   team.ParentID,
+		ParentID:       team.ParentID,
 		Path:           path,
 		Source:         "database",
 		LastRunAt:      lastRunAt,
-		NavigationOnly: group.NavigationOnly,
+		NavigationOnly: team.NavigationOnly,
 		Applications:   applicationIDs,
 	}
 }
 
-func applicationResponseFromGroup(group Group, records map[int]groupPathRecord) applicationResponse {
-	path := groupPathForResponse(group.ID, group.Name, records)
+func applicationResponseFromTeam(team Team, records map[int]teamPathRecord) applicationResponse {
+	path := teamPathForResponse(team.ID, team.Name, records)
 	teamPath := ""
-	if group.ParentID != nil && records != nil {
-		teamPath = records[*group.ParentID].Path
+	if team.ParentID != nil && records != nil {
+		teamPath = records[*team.ParentID].Path
 	}
-	lastRunAt := nullableSQLTime(group.LastRunAt)
+	lastRunAt := nullableSQLTime(team.LastRunAt)
 	return applicationResponse{
-		ID:                 group.ID,
+		ID:                 team.ID,
 		Kind:               "application",
-		Name:               group.Name,
-		Slug:               group.Name,
-		DisplayName:        groupDisplayNameForApplication(group),
-		TeamID:             group.ParentID,
-		ParentID:           group.ParentID,
+		Name:               team.Name,
+		Slug:               team.Name,
+		DisplayName:        teamDisplayNameForApplication(team),
+		TeamID:             team.ParentID,
+		ParentID:           team.ParentID,
 		Path:               path,
 		TeamPath:           teamPath,
-		RepoURL:            group.RepoURL,
-		RepositoryFullName: group.RepositoryFullName,
+		RepoURL:            team.RepoURL,
+		RepositoryFullName: team.RepositoryFullName,
 		Source:             "database",
 		LastRunAt:          lastRunAt,
-		NavigationOnly:     group.NavigationOnly,
+		NavigationOnly:     team.NavigationOnly,
 	}
 }
 
-func groupPathForResponse(groupID int, fallback string, records map[int]groupPathRecord) string {
+func teamPathForResponse(teamID int, fallback string, records map[int]teamPathRecord) string {
 	if records != nil {
-		if record, ok := records[groupID]; ok && strings.TrimSpace(record.Path) != "" {
+		if record, ok := records[teamID]; ok && strings.TrimSpace(record.Path) != "" {
 			return record.Path
 		}
 	}
 	return strings.Trim(strings.TrimSpace(fallback), "/")
 }
 
-func groupDisplayNameForApplication(group Group) string {
-	if strings.TrimSpace(group.Name) != "" && !strings.Contains(group.Name, "/") {
-		return group.Name
+func teamDisplayNameForApplication(team Team) string {
+	if strings.TrimSpace(team.Name) != "" && !strings.Contains(team.Name, "/") {
+		return team.Name
 	}
-	fullName := strings.Trim(strings.TrimSpace(group.RepositoryFullName), "/")
+	fullName := strings.Trim(strings.TrimSpace(team.RepositoryFullName), "/")
 	if fullName == "" {
-		fullName = strings.Trim(strings.TrimSpace(group.Name), "/")
+		fullName = strings.Trim(strings.TrimSpace(team.Name), "/")
 	}
 	parts := strings.Split(fullName, "/")
 	for i := len(parts) - 1; i >= 0; i-- {
@@ -618,7 +618,7 @@ func groupDisplayNameForApplication(group Group) string {
 			return strings.TrimSpace(parts[i])
 		}
 	}
-	return group.Name
+	return team.Name
 }
 
 func nullableSQLTime(value *time.Time) *time.Time {

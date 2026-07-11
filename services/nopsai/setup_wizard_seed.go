@@ -19,8 +19,8 @@ import (
 
 func (a *App) seedStarterDatabase(ctx context.Context, req setupBootstrapRequest) (map[string]int, error) {
 	details := map[string]int{
-		"run_groups_created": 0,
-		"run_groups_updated": 0,
+		"run_teams_created": 0,
+		"run_teams_updated": 0,
 	}
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
@@ -28,7 +28,7 @@ func (a *App) seedStarterDatabase(ctx context.Context, req setupBootstrapRequest
 	}
 	defer tx.Rollback(ctx)
 
-	if err := a.syncPipelineRunGroups(ctx, tx, setupPipelineRunStructure(req.Profile, req.RepositoryGroups, req.Repositories), details); err != nil {
+	if err := a.syncPipelineRunTeams(ctx, tx, setupPipelineRunStructure(req.Profile, req.RepositoryTeams, req.Repositories), details); err != nil {
 		return nil, err
 	}
 
@@ -95,15 +95,15 @@ func (a *App) seedStarterDatabase(ctx context.Context, req setupBootstrapRequest
 	knowledge := setupKnowledgeContexts(req.Profile)
 	for _, item := range knowledge {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO knowledge_contexts (kind, group_path, name, description, content, source, updated_at)
+			INSERT INTO knowledge_contexts (kind, team_path, name, description, content, source, updated_at)
 			VALUES ($1, $2, $3, $4, $5, 'setup', NOW())
-			ON CONFLICT (kind, group_path, name) DO UPDATE SET
+			ON CONFLICT (kind, team_path, name) DO UPDATE SET
 				description = EXCLUDED.description,
 				content = EXCLUDED.content,
 				source = 'setup',
 				updated_at = NOW()
-		`, item.kind, item.group, item.name, item.description, item.content); err != nil {
-			return nil, fmt.Errorf("seed knowledge context %s/%s/%s: %w", item.kind, item.group, item.name, err)
+		`, item.kind, item.team, item.name, item.description, item.content); err != nil {
+			return nil, fmt.Errorf("seed knowledge context %s/%s/%s: %w", item.kind, item.team, item.name, err)
 		}
 		details["knowledge_contexts_seeded"]++
 	}
@@ -246,8 +246,8 @@ func (a *App) seedSetupMCPExamples(ctx context.Context) (int, error) {
 }
 
 func (a *App) seedSetupUsers(ctx context.Context, users []setupUserInput, profile, actor string) ([]setupTemporaryCredential, error) {
-	rootFolderID := setupAccessFolder(profile)
-	if err := a.ensureSetupRootFolder(ctx, rootFolderID); err != nil {
+	rootTeamID := setupAccessTeam(profile)
+	if err := a.ensureSetupRootTeam(ctx, rootTeamID); err != nil {
 		return nil, err
 	}
 	created := []setupTemporaryCredential{}
@@ -296,8 +296,8 @@ func (a *App) seedSetupUsers(ctx context.Context, users []setupUserInput, profil
 			return nil, err
 		}
 
-		resourceType := grantResourceFolder
-		resourceID := setupUserAccessFolder(rootFolderID, input.Group)
+		resourceType := grantResourceTeam
+		resourceID := setupUserAccessTeam(rootTeamID, input.Team)
 		if role == productRoleAdmin {
 			resourceType = grantResourcePlatform
 			resourceID = platformGrantID
@@ -318,25 +318,25 @@ func (a *App) seedSetupUsers(ctx context.Context, users []setupUserInput, profil
 	return created, nil
 }
 
-func setupUserAccessFolder(root, group string) string {
+func setupUserAccessTeam(root, team string) string {
 	root = strings.Trim(strings.TrimSpace(root), "/")
-	group = normalizeSetupRepositoryGroupName(group)
+	team = normalizeSetupRepositoryTeamName(team)
 	if root == "" {
-		return group
+		return team
 	}
-	if group == "" {
+	if team == "" {
 		return root
 	}
-	return root + "/" + group
+	return root + "/" + team
 }
 
-func (a *App) ensureSetupRootFolder(ctx context.Context, name string) error {
+func (a *App) ensureSetupRootTeam(ctx context.Context, name string) error {
 	name = strings.Trim(strings.TrimSpace(name), "/")
 	if name == "" {
 		return nil
 	}
 	_, err := a.db.Exec(ctx, `
-		INSERT INTO groups (name, description)
+		INSERT INTO teams (name, description)
 		VALUES ($1, $2)
 		ON CONFLICT (name) DO NOTHING
 	`, name, "Starter setup workspace")

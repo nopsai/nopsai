@@ -21,8 +21,8 @@ type RepositoryInputRequest struct {
 func BuildRepositoryInput(req RepositoryInputRequest, scopeType, scopeID, actor string) (models.ConfigRepositoryInput, error) {
 	scopeType = strings.TrimSpace(scopeType)
 	scopeID = strings.Trim(strings.TrimSpace(scopeID), "/")
-	if scopeType != models.ConfigRepositoryScopeFolder && scopeType != models.ConfigRepositoryScopeSystem {
-		return models.ConfigRepositoryInput{}, fmt.Errorf("scope_type must be folder or system")
+	if scopeType != models.ConfigRepositoryScopeTeam && scopeType != models.ConfigRepositoryScopeSystem {
+		return models.ConfigRepositoryInput{}, fmt.Errorf("scope_type must be team or system")
 	}
 	if scopeID == "" {
 		return models.ConfigRepositoryInput{}, fmt.Errorf("scope_id is required")

@@ -220,9 +220,9 @@ func (a *App) verifyOIDCIDToken(ctx context.Context, provider oidcProviderRecord
 	if email != "" && !emailDomainAllowed(emailDomain(email), provider.AllowedEmailDomains) {
 		return identity, fmt.Errorf("email domain is not allowed for this provider")
 	}
-	groups := stringSliceClaim(claims[provider.GroupClaim])
-	if provider.GroupClaim == "" {
-		groups = stringSliceClaim(claims["groups"])
+	teams := stringSliceClaim(claims[provider.TeamClaim])
+	if provider.TeamClaim == "" {
+		teams = stringSliceClaim(claims["teams"])
 	}
 	return oidcVerifiedIdentity{
 		ProviderID:    provider.ID,
@@ -230,7 +230,7 @@ func (a *App) verifyOIDCIDToken(ctx context.Context, provider oidcProviderRecord
 		Subject:       sub,
 		Email:         email,
 		EmailVerified: emailVerified || !hasEmailVerified,
-		Groups:        groups,
+		Teams:         teams,
 	}, nil
 }
 
