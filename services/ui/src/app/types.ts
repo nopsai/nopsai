@@ -108,6 +108,8 @@ export type RunTeam = {
   name: string;
   kind?: 'team' | 'app' | string;
   parent_id?: number | null;
+  path?: string;
+  team_path?: string;
   description?: string;
   repo_url?: string;
   repository_full_name?: string;

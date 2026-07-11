@@ -42,7 +42,7 @@ test('loads and deduplicates paginated recent runs', async () => {
   ));
 
   const { result } = renderHook(() => usePipelineRunsSidebar({
-    activeTeamId: null,
+    activeTeamValue: '',
     activeRunId: null,
     tab: 'recent',
   }));
@@ -63,12 +63,13 @@ test('loads and deduplicates paginated recent runs', async () => {
 
 test('loads repository runs and expands the active run branch', async () => {
   fetchTeamsMock.mockResolvedValue([
-    { id: 1, name: 'Engineering', kind: 'team' },
+    { id: 1, name: 'Engineering', kind: 'team', path: 'engineering' },
     {
       id: 2,
       name: 'platform/api',
       kind: 'app',
       parent_id: 1,
+      path: 'engineering/platform/api',
       repository_full_name: 'platform/api',
     },
   ]);
@@ -92,7 +93,7 @@ test('loads repository runs and expands the active run branch', async () => {
   });
 
   const { result } = renderHook(() => usePipelineRunsSidebar({
-    activeTeamId: 2,
+    activeTeamValue: 'engineering/platform/api',
     activeRunId: 'active-run',
     tab: 'main',
   }));

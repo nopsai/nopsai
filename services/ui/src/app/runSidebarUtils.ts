@@ -146,6 +146,31 @@ export function buildTeamPath(teamId: number | null, teams: RunTeam[]): RunTeam[
   return path;
 }
 
+export function normalizeRunTeamURLValue(value?: string | null) {
+  return (value || '').trim().replace(/^\/+|\/+$/g, '').replace(/\/+/g, '/');
+}
+
+export function runTeamPathForURL(team: RunTeam | null | undefined, teams: RunTeam[]) {
+  if (!team) return '';
+  const directPath = normalizeRunTeamURLValue(team.path || '');
+  if (directPath) return directPath;
+  return buildTeamPath(team.id, teams)
+    .map(item => normalizeRunTeamURLValue(item.name))
+    .filter(Boolean)
+    .join('/');
+}
+
+export function findRunTeamByURLValue(value: string | null | undefined, teams: RunTeam[]) {
+  const normalized = normalizeRunTeamURLValue(value);
+  if (!normalized) return null;
+  const maybeID = Number(normalized);
+  if (Number.isInteger(maybeID) && maybeID > 0) {
+    return teams.find(team => team.id === maybeID) || null;
+  }
+  const target = normalized.toLowerCase();
+  return teams.find(team => runTeamPathForURL(team, teams).toLowerCase() === target) || null;
+}
+
 export function summarizeStatus(runs: RunListItem[]): string {
   if (!runs.length) return 'pending';
   const ranked = runs

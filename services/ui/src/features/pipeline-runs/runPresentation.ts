@@ -4,8 +4,11 @@ import { normalizeStatus } from './statusPresentation.js';
 export type { Team } from '../../lib/teamModels.js';
 export {
   buildTeamPath,
+  findTeamByURLValue,
   formatConfigRepoTimestamp,
+  normalizeTeamURLValue,
   teamDisplayName,
+  teamPathForURL,
   teamRepositoryLabel,
   teamRepositoryURL,
   isAppTeam,

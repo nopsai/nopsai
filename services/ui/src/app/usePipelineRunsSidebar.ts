@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SIDEBAR_RECENT_PAGE_SIZE } from './constants';
 import {
   fetchRunSidebarDetail,
@@ -6,16 +6,16 @@ import {
   fetchRunSidebarRecentRuns,
   fetchRunSidebarRepositoryRuns,
 } from './runSidebarApi';
-import { buildTeamPath, formatBranch, isRunAppTeam, runTeamMatchesRepository } from './runSidebarUtils';
+import { buildTeamPath, findRunTeamByURLValue, formatBranch, isRunAppTeam, runTeamMatchesRepository } from './runSidebarUtils';
 import type { RunTeam, RunListItem, RunTabKey } from './types';
 
 type PipelineRunsSidebarOptions = {
-  activeTeamId: number | null;
+  activeTeamValue: string;
   activeRunId: string | null;
   tab: RunTabKey;
 };
 
-export function usePipelineRunsSidebar({ activeTeamId, activeRunId, tab }: PipelineRunsSidebarOptions) {
+export function usePipelineRunsSidebar({ activeTeamValue, activeRunId, tab }: PipelineRunsSidebarOptions) {
   const [teams, setTeams] = useState<RunTeam[]>([]);
   const [teamsLoading, setTeamsLoading] = useState(false);
   const [recentRuns, setRecentRuns] = useState<RunListItem[]>([]);
@@ -26,6 +26,8 @@ export function usePipelineRunsSidebar({ activeTeamId, activeRunId, tab }: Pipel
   const [expandedBranches, setExpandedBranches] = useState<Set<string>>(new Set());
   const [repoRunsCache, setRepoRunsCache] = useState<Map<number, Record<string, RunListItem[]>>>(new Map());
   const [loadingRepos, setLoadingRepos] = useState<Set<number>>(new Set());
+  const activeTeam = useMemo(() => findRunTeamByURLValue(activeTeamValue, teams), [activeTeamValue, teams]);
+  const activeTeamId = activeTeam?.id ?? null;
   const teamsRef = useRef(teams);
   const recentRunsRef = useRef(recentRuns);
   const expandedTeamsRef = useRef(expandedTeams);
@@ -254,5 +256,6 @@ export function usePipelineRunsSidebar({ activeTeamId, activeRunId, tab }: Pipel
     loadMoreRecentRuns,
     toggleTeam,
     toggleBranch,
+    activeTeamId,
   };
 }

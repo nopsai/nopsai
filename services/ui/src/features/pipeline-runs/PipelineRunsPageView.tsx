@@ -7,6 +7,7 @@ import { PipelineRunsDashboard } from './PipelineRunsDashboard';
 import { RunDetailView } from './RunDetailPanel';
 import { PipelineDefinitionModal, StepDetailModal } from './RunGraphModals';
 import { RunLogsModal as LogsModal } from './RunLogsModal';
+import { buildPipelineRunsRoute } from '../../lib/teamRoutes';
 import type {
   PipelineApproval,
   PipelineRunDetail,
@@ -20,6 +21,7 @@ type PipelineRunsPageViewProps = {
   activeTab: PipelineRunsTabKey;
   activeTeamId: number | null;
   activeTeamPath: Team[];
+  activeTeamURLValue: string;
   activeRunId: string | null;
   searchTerm: string;
   searchOpen: boolean;
@@ -88,6 +90,7 @@ export function PipelineRunsPageView({
   activeTab,
   activeTeamId,
   activeTeamPath,
+  activeTeamURLValue,
   activeRunId,
   searchTerm,
   searchOpen,
@@ -145,6 +148,14 @@ export function PipelineRunsPageView({
   logsSearchFilter,
   stepDetailName,
 }: PipelineRunsPageViewProps) {
+  const tabRoute = (tab: PipelineRunsTabKey) => {
+    const params = new URLSearchParams();
+    const query = searchTerm.trim();
+    if (query) params.set('q', query);
+    const search = params.toString();
+    return `${buildPipelineRunsRoute(tab, activeTeamURLValue)}${search ? `?${search}` : ''}`;
+  };
+
   return (
     <div data-page="pipelineruns" className="active min-h-screen flex flex-col overflow-x-hidden overflow-y-auto">
       <div className="px-6 pt-6 flex-shrink-0 tabs-nav-wrapper">
@@ -154,12 +165,11 @@ export function PipelineRunsPageView({
               {tabs.map(tab => (
                 <NavLink
                   key={tab.id}
-                  to={`/pipelineruns/${tab.id}`}
+                  to={tabRoute(tab.id)}
                   role="tab"
                   aria-selected={activeTab === tab.id}
                   className={({ isActive }) => `tabs-nav__link ${isActive ? 'tabs-nav__link--active' : ''}`}
                   onClick={() => {
-                    updateSearchParams({ run: null, team: activeTeamId, q: searchTerm || null });
                     clearSelection();
                   }}
                 >
@@ -284,6 +294,7 @@ export function PipelineRunsPageView({
               onSelectTeam={onSelectTeam}
               activeTeamId={activeTeamId}
               activeTeamPath={activeTeamPath}
+              activeTeamURLValue={activeTeamURLValue}
               runsByBranch={runsByBranch}
               recentRuns={filteredRecentRuns}
               teamedEvents={teamedEvents}

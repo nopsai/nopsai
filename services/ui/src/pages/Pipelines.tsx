@@ -44,6 +44,7 @@ import {
   type PipelineListItem,
 } from '../features/pipelines/model';
 import { usePipelinePermissions } from '../features/pipelines/usePipelinePermissions';
+import { TEAM_ROUTE_SEGMENT, decodeTeamRouteSegments, teamScopedRoute } from '../lib/teamRoutes';
 
 const MAX_RECENT_RUNS = 5;
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
@@ -334,7 +335,7 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
     setActiveTeam(cleaned);
     setSelectedId(null);
     selectedIdRef.current = null;
-    navigate(cleaned ? `/pipelines?team=${encodeURIComponent(cleaned)}` : '/pipelines');
+    navigate(teamScopedRoute('/pipelines', cleaned));
   };
 
   const loadRecentRuns = useCallback(
@@ -458,7 +459,11 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
   useEffect(() => {
     const segments = location.pathname.split('/').filter(Boolean);
     if (segments[0] !== 'pipelines') return;
-    if (segments.length > 1) {
+    const isTeamRoute = segments[1] === TEAM_ROUTE_SEGMENT;
+    if (isTeamRoute) {
+      setSelectedId(null);
+      selectedIdRef.current = null;
+    } else if (segments.length > 1) {
       const identifier = segments.slice(1).map(decodeURIComponent).join('/');
       if (identifier !== selectedIdRef.current) {
         setSelectedId(identifier);
@@ -469,9 +474,13 @@ function PipelinesPage({ draftScope, canDeletePipelines }: PipelinesPageProps) {
       selectedIdRef.current = null;
     }
     const params = new URLSearchParams(location.search);
-    const team = params.get('team') || '';
+    const routeTeam = isTeamRoute ? decodeTeamRouteSegments(segments.slice(2)) : '';
+    const team = routeTeam || params.get('team') || '';
     setActiveTeam(team);
-  }, [location.pathname, location.search]);
+    if (!isTeamRoute && segments.length === 1 && params.get('team')) {
+      navigate(teamScopedRoute('/pipelines', team), { replace: true });
+    }
+  }, [location.pathname, location.search, navigate]);
 
   useEffect(() => {
     if (!selectedId) {

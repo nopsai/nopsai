@@ -12,19 +12,23 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ConfigRepositoryDriftModal } from '../components/ConfigRepositoryDriftModal';
 import { fetchTeams, requestTeamsJson } from '../features/teams/api';
 import { NewTeamItemModal, TeamConfigRepositoryModal } from '../features/teams/TeamSettingsModals';
 import { useTeamConfigRepositoryController } from '../features/teams/hooks/useTeamConfigRepositoryController';
 import {
   buildTeamPath,
+  findTeamByURLValue,
   teamDisplayName,
+  normalizeTeamURLValue,
+  teamPathForURL,
   teamRepositoryLabel,
   teamRepositoryURL,
   isAppTeam,
   type Team,
 } from '../lib/teamModels';
+import { extractTeamPathFromRoute, teamScopedRoute } from '../lib/teamRoutes';
 
 type TeamItemPayload = {
   kind: 'team' | 'app';
@@ -39,8 +43,10 @@ function isReservedRootTeamName(name: string) {
 }
 
 export default function TeamsPage() {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [teams, setTeams] = useState<Team[]>([]);
+  const [teamsLoaded, setTeamsLoaded] = useState(false);
   const [teamsLoading, setTeamsLoading] = useState(false);
   const [teamsError, setTeamsError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -49,17 +55,20 @@ export default function TeamsPage() {
   const [createPending, setCreatePending] = useState(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
-  const activeTeamId = useMemo(() => {
-    const raw = searchParams.get('team');
-    if (!raw) return null;
-    const parsed = Number(raw);
-    return Number.isFinite(parsed) ? parsed : null;
-  }, [searchParams]);
+  const activeTeamValue = useMemo(
+    () => normalizeTeamURLValue(extractTeamPathFromRoute(location.pathname, 'teams') || new URLSearchParams(location.search).get('team')),
+    [location.pathname, location.search]
+  );
+  const activeTeam = useMemo(() => findTeamByURLValue(activeTeamValue, teams), [activeTeamValue, teams]);
+  const activeTeamId = activeTeam?.id ?? null;
 
   const activeTeamPath = useMemo(() => buildTeamPath(activeTeamId, teams), [activeTeamId, teams]);
-  const activeTeam = activeTeamPath.length ? activeTeamPath[activeTeamPath.length - 1] : null;
   const selectedTeamId = activeTeam?.id ?? null;
   const activeTeamLabel = activeTeam ? teamDisplayName(activeTeam) : 'Root';
+  const activeTeamURLValue = useMemo(
+    () => (activeTeam ? teamPathForURL(activeTeam, teams) : ''),
+    [activeTeam, teams]
+  );
 
   const fetchJson = useCallback(
     async <T,>(path: string, options?: RequestInit): Promise<T> => requestTeamsJson<T>(path, options),
@@ -83,6 +92,7 @@ export default function TeamsPage() {
   const config = useTeamConfigRepositoryController({ teams, fetchJson, checkAccessPermission });
 
   const loadTeams = useCallback(async () => {
+    setTeamsLoaded(false);
     setTeamsLoading(true);
     setTeamsError(null);
     try {
@@ -91,6 +101,7 @@ export default function TeamsPage() {
     } catch (error) {
       setTeamsError(error instanceof Error ? error.message : 'Unable to load teams');
     } finally {
+      setTeamsLoaded(true);
       setTeamsLoading(false);
     }
   }, []);
@@ -99,14 +110,23 @@ export default function TeamsPage() {
     void loadTeams();
   }, [loadTeams]);
 
+  useEffect(() => {
+    if (!activeTeamValue || !teamsLoaded) return;
+    if (activeTeamURLValue) {
+      const nextPath = teamScopedRoute('/teams', activeTeamURLValue);
+      if (location.pathname === nextPath && !new URLSearchParams(location.search).has('team')) return;
+      navigate(nextPath, { replace: true });
+    } else {
+      navigate('/teams', { replace: true });
+    }
+  }, [activeTeamURLValue, activeTeamValue, location.pathname, location.search, navigate, teamsLoaded]);
+
   const selectTeam = useCallback(
     (id: number | null) => {
-      const params = new URLSearchParams(searchParams);
-      if (id == null) params.delete('team');
-      else params.set('team', String(id));
-      setSearchParams(params, { replace: true });
+      const team = id == null ? null : teams.find(item => item.id === id) || null;
+      navigate(teamScopedRoute('/teams', team ? teamPathForURL(team, teams) : ''), { replace: true });
     },
-    [searchParams, setSearchParams]
+    [navigate, teams]
   );
 
   const currentChildren = useMemo(

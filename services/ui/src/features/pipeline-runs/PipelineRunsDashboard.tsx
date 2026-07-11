@@ -29,6 +29,7 @@ import {
   formatRepoLabel,
   formatTriggerId,
   teamDisplayName,
+  teamPathForURL,
   teamRepositoryLabel,
   teamRepositoryURL,
   isAppTeam,
@@ -41,6 +42,7 @@ import {
   type RunSourceKind,
 } from './runPresentation';
 import { getStatusMeta, normalizeStatus } from './statusPresentation';
+import { teamScopedRoute } from '../../lib/teamRoutes';
 
 type TabKey = 'main' | 'recent' | 'events';
 
@@ -72,6 +74,7 @@ export function PipelineRunsDashboard({
   onSelectTeam,
   activeTeamId,
   activeTeamPath,
+  activeTeamURLValue,
   runsByBranch,
   recentRuns,
   teamedEvents,
@@ -99,6 +102,7 @@ export function PipelineRunsDashboard({
   onSelectTeam: (id: number | null) => void;
   activeTeamId: number | null;
   activeTeamPath: Team[];
+  activeTeamURLValue: string;
   runsByBranch: Record<string, RunListItem[]>;
   recentRuns: RunListItem[];
   teamedEvents: TriggerTeam[];
@@ -212,7 +216,7 @@ export function PipelineRunsDashboard({
               ))}
             </div>
             {activeTeam && (
-              <Link className="glass-button-subtle" to={`/teams?team=${encodeURIComponent(String(activeTeam.id))}`}>
+              <Link className="glass-button-subtle" to={teamScopedRoute('/teams', activeTeamURLValue || teamPathForURL(activeTeam, teams))}>
                 Manage team
               </Link>
             )}

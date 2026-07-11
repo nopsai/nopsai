@@ -1,8 +1,12 @@
+import { normalizeTeamRoutePath } from './teamRoutes.js';
+
 export type Team = {
   id: number;
   name: string;
   kind?: 'team' | 'app' | string;
   parent_id?: number | null;
+  path?: string;
+  team_path?: string;
   description?: string;
   repo_url?: string;
   repository_full_name?: string;
@@ -63,4 +67,31 @@ export function buildTeamPath(teamId: number | null, teams: Team[]): Team[] {
     current = parentId ? map.get(parentId) || null : null;
   }
   return path;
+}
+
+export function normalizeTeamURLValue(value?: string | null) {
+  return normalizeTeamRoutePath(value);
+}
+
+export function teamPathForURL(team: Team | null | undefined, teams: Team[]) {
+  if (!team) return '';
+  const directPath = normalizeTeamURLValue(team.path || '');
+  if (directPath) return directPath;
+  return buildTeamPath(team.id, teams)
+    .map(item => normalizeTeamURLValue(item.name))
+    .filter(Boolean)
+    .join('/');
+}
+
+export function findTeamByURLValue(value: string | null | undefined, teams: Team[]) {
+  const normalized = normalizeTeamURLValue(value);
+  if (!normalized) return null;
+
+  const maybeID = Number(normalized);
+  if (Number.isInteger(maybeID) && maybeID > 0) {
+    return teams.find(team => team.id === maybeID) || null;
+  }
+
+  const target = normalized.toLowerCase();
+  return teams.find(team => teamPathForURL(team, teams).toLowerCase() === target) || null;
 }

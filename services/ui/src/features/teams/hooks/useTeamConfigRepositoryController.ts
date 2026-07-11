@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { buildTeamPath, type Team } from '../../../lib/teamModels';
+import { teamPathForURL, type Team } from '../../../lib/teamModels';
 import {
   createTeamAgentProfile,
   createTeamMCPProfile,
@@ -268,7 +268,7 @@ export function useTeamConfigRepositoryController({
 
   const openTeamConfigRepository = useCallback(
     (team: Team) => {
-      const teamPath = buildTeamPath(team.id, teams).map(item => item.name).join('/');
+      const teamPath = teamPathForURL(team, teams);
       if (!teamPath) return;
       setConfigRepoTeam({ team, teamPath });
       setConfigRepo(null);
