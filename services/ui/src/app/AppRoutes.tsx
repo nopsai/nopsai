@@ -46,9 +46,10 @@ export function AppRoutes({
     <Suspense fallback={<PageLoading />}>
       <Routes>
         <Route path="/" element={<Navigate to="/pipelineruns/main" replace />} />
+        <Route path="/pipelineruns/:tab/team/*" element={<PipelineRunsPage />} />
         <Route path="/pipelineruns/:tab?" element={<PipelineRunsPage />} />
         <Route path="/monitoring" element={<MonitoringPage />} />
-        <Route path="/teams" element={<TeamsPage />} />
+        <Route path="/teams/*" element={<TeamsPage />} />
         <Route path="/assistant" element={<AssistantPage />} />
         <Route path="/docs" element={<ProductDocsPage />} />
         <Route

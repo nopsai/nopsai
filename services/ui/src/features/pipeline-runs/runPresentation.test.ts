@@ -8,6 +8,7 @@ import {
   buildRunSourceTeams,
   buildStatusTimeline,
   extractLatestRunSummary,
+  findTeamByURLValue,
   formatAIUsageBreakdown,
   formatBranchDisplay,
   formatRepoLabel,
@@ -19,6 +20,7 @@ import {
   repositoryBrowserURL,
   runMatchesSearch,
   summarizeStatus,
+  teamPathForURL,
   timeAgo,
 } from './runPresentation.js';
 
@@ -60,6 +62,17 @@ test('builds bounded team paths even when malformed data contains a cycle', () =
     { id: 2, name: 'two', parent_id: 1 },
   ];
   assert.deepEqual(buildTeamPath(1, teams).map(team => team.id), [2, 1]);
+});
+
+test('uses stable team paths for URL selection', () => {
+  const teams = [
+    { id: 1, name: 'finance', kind: 'team', path: 'finance' },
+    { id: 8, name: 'accountant', kind: 'team', parent_id: 1, path: 'finance/accountant' },
+  ];
+
+  assert.equal(teamPathForURL(teams[1], teams), 'finance/accountant');
+  assert.equal(findTeamByURLValue('finance/accountant', teams)?.id, 8);
+  assert.equal(findTeamByURLValue('8', teams)?.id, 8);
 });
 
 test('formats, searches, and links run metadata', () => {

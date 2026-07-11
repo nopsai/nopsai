@@ -10,6 +10,7 @@ const teams = [
     id: 1,
     name: 'platform',
     kind: 'team',
+    path: 'platform',
     description: 'Platform engineering',
     parent_id: null,
   },
@@ -17,6 +18,8 @@ const teams = [
     id: 2,
     name: 'service-api',
     kind: 'app',
+    path: 'platform/service-api',
+    team_path: 'platform',
     parent_id: 1,
     repo_url: 'https://github.com/acme/service-api',
     repository_full_name: 'acme/service-api',
@@ -44,7 +47,7 @@ describe('TeamsPage', () => {
   it('renders teams and applications from the Teams API', async () => {
     vi.spyOn(apiClient, 'fetch').mockResolvedValue(Response.json(teamsPayload));
 
-    renderTeams('/teams?team=1');
+    renderTeams('/teams/team/platform');
 
     expect(await screen.findByText('service-api')).toBeVisible();
     expect(document.querySelector('[data-page="teams"]')).toHaveClass('active');
@@ -66,10 +69,10 @@ describe('TeamsPage', () => {
     expect(screen.queryByText('No teams.')).not.toBeInTheDocument();
   });
 
-  it('falls back to root teams when the selected team id is stale', async () => {
+  it('falls back to root teams when the selected team path is stale', async () => {
     vi.spyOn(apiClient, 'fetch').mockResolvedValue(Response.json(teamsPayload));
 
-    renderTeams('/teams?team=999');
+    renderTeams('/teams/team/missing/team');
 
     await screen.findByText('platform');
     expect(screen.getAllByText('platform').length).toBeGreaterThan(0);
@@ -79,7 +82,7 @@ describe('TeamsPage', () => {
   it('shows a selected leaf state instead of looking blank', async () => {
     vi.spyOn(apiClient, 'fetch').mockResolvedValue(Response.json(teamsPayload));
 
-    renderTeams('/teams?team=2');
+    renderTeams('/teams/team/platform/service-api');
 
     expect(await screen.findByRole('heading', { name: 'No child items' })).toBeVisible();
     expect(screen.getByText('service-api has no child teams or applications.')).toBeVisible();
@@ -109,7 +112,7 @@ describe('TeamsPage', () => {
     });
 
     const user = userEvent.setup();
-    renderTeams('/teams?team=1');
+    renderTeams('/teams/team/platform');
 
     await screen.findByText('service-api');
     await user.click(screen.getByRole('button', { name: 'New' }));

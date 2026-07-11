@@ -25,6 +25,7 @@ type TeamRecord = {
   name?: string;
   slug?: string;
   display_name?: string;
+  path?: string;
   description?: string;
   parent_team_id?: number | null;
   parent_id?: number | null;
@@ -37,6 +38,8 @@ type ApplicationRecord = {
   name?: string;
   slug?: string;
   display_name?: string;
+  path?: string;
+  team_path?: string;
   team_id?: number | null;
   parent_id?: number | null;
   repo_url?: string;
@@ -266,6 +269,7 @@ function teamRecordToTeam(record: TeamRecord): Team {
     name: record.name || record.slug || record.display_name || '',
     kind: 'team',
     parent_id: record.parent_team_id ?? record.parent_id ?? null,
+    path: record.path || '',
     description: record.description || '',
     last_run_at: record.last_run_at,
     navigation_only: Boolean(record.navigation_only),
@@ -278,6 +282,8 @@ function applicationRecordToTeam(record: ApplicationRecord): Team {
     name: record.name || record.slug || record.display_name || record.repository_full_name || '',
     kind: 'app',
     parent_id: record.team_id ?? record.parent_id ?? null,
+    path: record.path || '',
+    team_path: record.team_path || '',
     repo_url: record.repo_url || '',
     repository_full_name: record.repository_full_name || '',
     last_run_at: record.last_run_at,

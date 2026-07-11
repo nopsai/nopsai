@@ -46,6 +46,7 @@ import {
   type KnowledgeFormModalState,
 } from '../features/knowledge-context/KnowledgeContextModals';
 import { formatKnowledgeDate, kindIcon } from '../features/knowledge-context/presentation';
+import { TEAM_ROUTE_SEGMENT, decodeTeamRouteSegments, teamScopedRoute } from '../lib/teamRoutes';
 
 type KnowledgeContextPageProps = {
   canWriteKnowledge: boolean;
@@ -55,7 +56,9 @@ type KnowledgeContextPageProps = {
 export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowledge }: KnowledgeContextPageProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const selectedID = decodeKnowledgeRouteID(location.pathname);
+  const routeSegments = location.pathname.split('/').filter(Boolean);
+  const isTeamRoute = routeSegments[1] === TEAM_ROUTE_SEGMENT;
+  const selectedID = isTeamRoute ? '' : decodeKnowledgeRouteID(location.pathname);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const toastCounterRef = useRef(0);
   const editSessionOriginalRef = useRef<{ detail: KnowledgeContextDetail; content: string } | null>(null);
@@ -173,7 +176,10 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
     return items.filter(item => [item.kind, item.team, item.name, item.description].some(value => (value || '').toLowerCase().includes(term)));
   }, [items, search]);
 
-  const activeTeam = useMemo(() => normalizeTeamPath(new URLSearchParams(location.search).get('team') || ''), [location.search]);
+  const activeTeam = useMemo(() => {
+    const routeTeam = isTeamRoute ? decodeTeamRouteSegments(routeSegments.slice(2)) : '';
+    return normalizeTeamPath(routeTeam || new URLSearchParams(location.search).get('team') || '');
+  }, [isTeamRoute, location.pathname, location.search]);
   const knowledgeTree = useMemo(() => buildKnowledgeTree(items, []), [items]);
   const activeTeamNode = useMemo(() => findKnowledgeTeam(knowledgeTree, activeTeam), [activeTeam, knowledgeTree]);
   const visibleDocuments = useMemo(() => {
@@ -196,10 +202,17 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
   const openTeam = useCallback(
     (team: string) => {
       const normalized = normalizeTeamPath(team);
-      navigate(normalized ? `/knowledge-context?team=${encodeURIComponent(normalized)}` : '/knowledge-context');
+      navigate(teamScopedRoute('/knowledge-context', normalized));
     },
     [navigate]
   );
+
+  useEffect(() => {
+    if (isTeamRoute || selectedID) return;
+    const legacyTeam = normalizeTeamPath(new URLSearchParams(location.search).get('team') || '');
+    if (!legacyTeam) return;
+    navigate(teamScopedRoute('/knowledge-context', legacyTeam), { replace: true });
+  }, [isTeamRoute, location.search, navigate, selectedID]);
 
   const handleSelectDocument = useCallback(
     (id: string) => {

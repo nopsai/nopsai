@@ -1747,6 +1747,7 @@ curl -X DELETE http://localhost:8080/v1/teams/<team-id>
 
 - Teams power the “Main” dashboard hierarchy. Each run card can be assigned to a team path.
 - Access grants should target the resolved team path, not numeric IDs.
+- Browser deep links for team-scoped pages use readable route segments, for example `#/pipelineruns/main/team/team-2/bank/account` or `#/pipelines/team/team-2/bank/account`, rather than numeric database IDs or `team=` query parameters.
 - `GET /v1/teams` is filtered by the caller’s team visibility.
 
 ---

@@ -361,7 +361,7 @@ func buildPipelineNotificationMailView(notificationCtx pipelineNotificationConte
 	repository := strings.Trim(strings.Join([]string{notificationCtx.RepoOwner, notificationCtx.RepoName}, "/"), "/")
 	repositoryURL := normalizeNotificationHTTPURL(notificationCtx.RepoURL)
 	commitURL := normalizeNotificationHTTPURL(notificationCtx.GitCommitURL)
-	runURL := pipelineNotificationRunURL(branding.PublicURL, notificationCtx.TeamID, notificationCtx.RunID)
+	runURL := pipelineNotificationRunURL(branding.PublicURL, notificationCtx.TeamPath, notificationCtx.RunID)
 
 	summary := fmt.Sprintf("%s is %s.", pipeline, strings.ToLower(statusLabel))
 	if failureLocation != "" && statusLabel == "FAILED" {
@@ -513,23 +513,31 @@ func pipelineNotificationFailureLocationLabel(step, task string) string {
 	}
 }
 
-func pipelineNotificationRunURL(publicURL string, teamID int, runID string) string {
+func pipelineNotificationRunURL(publicURL string, teamPath string, runID string) string {
 	publicURL = normalizeNotificationHTTPURL(publicURL)
 	if publicURL == "" || strings.TrimSpace(runID) == "" {
 		return ""
 	}
-	target, err := url.Parse(publicURL + "/#/pipelineruns/main")
+	target, err := url.Parse(publicURL)
 	if err != nil {
 		return ""
 	}
-	fragment, err := url.Parse(target.Fragment)
-	if err != nil {
-		return ""
+	target.Path = strings.TrimRight(target.Path, "/") + "/"
+	fragment := &url.URL{Path: "/pipelineruns/main"}
+	if normalizedTeamPath := strings.Trim(strings.TrimSpace(teamPath), "/"); normalizedTeamPath != "" {
+		var pathSegments []string
+		for _, segment := range strings.Split(normalizedTeamPath, "/") {
+			segment = strings.TrimSpace(segment)
+			if segment == "" {
+				continue
+			}
+			pathSegments = append(pathSegments, segment)
+		}
+		if len(pathSegments) > 0 {
+			fragment.Path += "/team/" + strings.Join(pathSegments, "/")
+		}
 	}
 	query := fragment.Query()
-	if teamID > 0 {
-		query.Set("team", fmt.Sprintf("%d", teamID))
-	}
 	query.Set("run", runID)
 	fragment.RawQuery = query.Encode()
 	target.Fragment = fragment.String()

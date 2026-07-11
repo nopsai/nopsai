@@ -39,6 +39,7 @@ import {
 import { useStepPermissions } from '../features/steps/useStepPermissions';
 import { StepCollectionList } from '../features/steps/StepCollectionList';
 import { StepDetailView } from '../features/steps/StepDetailView';
+import { TEAM_ROUTE_SEGMENT, decodeTeamRouteSegments, teamScopedRoute } from '../lib/teamRoutes';
 
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
 
@@ -531,7 +532,11 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
   useEffect(() => {
     const segments = location.pathname.split('/').filter(Boolean);
     if (segments[0] !== 'steps') return;
-    if (segments.length > 1) {
+    const isTeamRoute = segments[1] === TEAM_ROUTE_SEGMENT;
+    if (isTeamRoute) {
+      setSelectedId(null);
+      selectedIdRef.current = null;
+    } else if (segments.length > 1) {
       const identifier = segments.slice(1).map(decodeURIComponent).join('/');
       if (identifier !== selectedIdRef.current) {
         setSelectedId(identifier);
@@ -543,8 +548,13 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     }
 
     const params = new URLSearchParams(location.search);
-    setActiveTeam(params.get('team') || '');
-  }, [location.pathname, location.search]);
+    const routeTeam = isTeamRoute ? decodeTeamRouteSegments(segments.slice(2)) : '';
+    const team = routeTeam || params.get('team') || '';
+    setActiveTeam(team);
+    if (!isTeamRoute && segments.length === 1 && params.get('team')) {
+      navigate(teamScopedRoute('/steps', team), { replace: true });
+    }
+  }, [location.pathname, location.search, navigate]);
 
   useEffect(() => {
     if (!selectedId) {
@@ -656,7 +666,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
     setActiveTeam(cleaned);
     setSelectedId(null);
     selectedIdRef.current = null;
-    navigate(cleaned ? `/steps?team=${encodeURIComponent(cleaned)}` : '/steps');
+    navigate(teamScopedRoute('/steps', cleaned));
   };
 
   const handleSelect = useCallback((id: string) => {
@@ -729,7 +739,7 @@ function StepsPage({ draftScope, canDeleteSteps }: StepsPageProps) {
   const handleBackToList = () => {
     if (detail) {
       const team = splitIdentifier(detail.id).path;
-      navigate(team ? `/steps?team=${encodeURIComponent(team)}` : '/steps');
+      navigate(teamScopedRoute('/steps', team));
       return;
     }
     navigate('/steps');
