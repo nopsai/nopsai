@@ -58,7 +58,7 @@ func (a *App) hostedMCPCallAPI(ctx context.Context, subject aaamodel.Subject, ar
 	if action == "" && !requiresFilter && !hostedMCPDeferredAPIRoute(call.Method, call.Path, resource) {
 		return nil, fmt.Errorf("route %s %s is not exposed through hosted MCP", call.Method, call.Path)
 	}
-	if action != "" && !requiresFilter && !a.hostedMCPAllowed(ctx, subject, hostedMCPReadPermission(action, resource.Type, resource.ID)) {
+	if action != "" && !a.hostedMCPAllowed(ctx, subject, hostedMCPReadPermission(action, resource.Type, resource.ID)) {
 		return nil, fmt.Errorf("API route %s %s is not allowed for %s:%s with action %s", call.Method, call.Path, resource.Type, resource.ID, action)
 	}
 
@@ -123,7 +123,7 @@ func (a *App) authorizeHostedMCPAPICall(ctx context.Context, subject aaamodel.Su
 	if action == "" && !requiresFilter && !hostedMCPDeferredAPIRoute(call.Method, call.Path, resource) {
 		return fmt.Errorf("route %s %s is not exposed through hosted MCP", call.Method, call.Path)
 	}
-	if action != "" && !requiresFilter && !a.hostedMCPAllowed(ctx, subject, hostedMCPReadPermission(action, resource.Type, resource.ID)) {
+	if action != "" && !a.hostedMCPAllowed(ctx, subject, hostedMCPReadPermission(action, resource.Type, resource.ID)) {
 		return fmt.Errorf("API route %s %s is not allowed for %s:%s with action %s", call.Method, call.Path, resource.Type, resource.ID, action)
 	}
 	return nil

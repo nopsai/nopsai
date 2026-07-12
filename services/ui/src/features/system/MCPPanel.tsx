@@ -13,6 +13,7 @@ import {
 } from './AIResourcePanel';
 import {
   AI_RESOURCE_TEAM_FILTER_ALL,
+  AI_RESOURCE_TEAM_FILTER_GLOBAL,
   aiResourceLocalName,
   aiResourceMatchesTeamFilter,
   aiResourceTeamFilterFromSearch,
@@ -173,12 +174,16 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
   const activeHealthLabel = innerTab === 'servers' ? (hasConnectionStatus ? 'Connected' : 'Enabled') : 'Enabled';
 
   const openServerCreate = () => {
-    setCreateServerTeamPath('');
+    const initialTeamPath = teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL && teamFilter !== AI_RESOURCE_TEAM_FILTER_GLOBAL ? teamFilter : '';
+    setCreateServerTeamPath(initialTeamPath);
     startServerCreate();
+    setServerForm(prev => ({ ...prev, name: buildAIResourceScopedID(initialTeamPath, aiResourceLocalName(prev.name)) }));
   };
   const openProfileCreate = () => {
-    setCreateProfileTeamPath('');
+    const initialTeamPath = teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL && teamFilter !== AI_RESOURCE_TEAM_FILTER_GLOBAL ? teamFilter : '';
+    setCreateProfileTeamPath(initialTeamPath);
     startProfileCreate();
+    setProfileForm(prev => ({ ...prev, name: buildAIResourceScopedID(initialTeamPath, aiResourceLocalName(prev.name)) }));
   };
   const setCreateServerTeam = (teamPath: string) => {
     setCreateServerTeamPath(teamPath);

@@ -48,6 +48,30 @@ func TestParseGitOpsAgentProfileFileAcceptsBuiltInDefaultOnly(t *testing.T) {
 	}
 }
 
+func TestValidateAgentProfileDefinitionAcceptsTeamScopedID(t *testing.T) {
+	err := validateAgentProfileDefinition(models.AgentProfile{
+		ID:           "team-1/security/reviewer",
+		DisplayName:  "Security Reviewer",
+		Instructions: "Review risky changes.",
+		Enabled:      true,
+	})
+	if err != nil {
+		t.Fatalf("validateAgentProfileDefinition() error = %v", err)
+	}
+}
+
+func TestValidateAgentProfileDefinitionRejectsEmptyScopedSegment(t *testing.T) {
+	err := validateAgentProfileDefinition(models.AgentProfile{
+		ID:           "team-1//reviewer",
+		DisplayName:  "Security Reviewer",
+		Instructions: "Review risky changes.",
+		Enabled:      true,
+	})
+	if err == nil {
+		t.Fatal("expected empty scoped segment error")
+	}
+}
+
 func TestParseGitOpsAgentProfileFileRejectsUnknownDefault(t *testing.T) {
 	const raw = `
 default_profile: missing-profile

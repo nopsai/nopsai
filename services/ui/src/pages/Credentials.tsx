@@ -1,9 +1,9 @@
 import CredentialsPanel from '../features/system/CredentialsPanel';
 
-export default function CredentialsPage({ canManage, canManageAccess }: { canManage: boolean; canManageAccess: boolean }) {
+export default function CredentialsPage({ canManage }: { canManage: boolean }) {
   return (
     <div data-page="credentials" className="active p-6 space-y-6">
-      <CredentialsPanel canManage={canManage} canManageAccess={canManageAccess} />
+      <CredentialsPanel canManage={canManage} />
     </div>
   );
 }

@@ -36,6 +36,15 @@ vi.mock('../features/teams/hooks/useTeamOperationsSummary', () => ({
   }),
 }));
 
+vi.mock('../features/teams/hooks/useTeamResourceCatalog', () => ({
+  useTeamResourceCatalog: () => ({
+    teamPath: '',
+    loading: false,
+    error: null,
+    resources: [],
+  }),
+}));
+
 vi.mock('../features/teams/hooks/useTeamConfigRepositoryController', () => ({
   useTeamConfigRepositoryController: () => ({
     configRepoTeam: null,
@@ -162,7 +171,7 @@ describe('TeamsPage', () => {
 
     expect(await screen.findByRole('heading', { name: 'No child items' })).toBeVisible();
     expect(screen.getByText('service-api has no child teams or applications.')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Back to root' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Back to global' })).toBeVisible();
   });
 
   it('shows a retry state when the Teams API fails', async () => {

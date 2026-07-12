@@ -245,6 +245,54 @@ function globalMCPProfilesSummary(payload: Awaited<ReturnType<typeof fetchMCPReg
   };
 }
 
+function mergeTeamLLMProfiles(
+  teamProfiles: TeamLLMProfilesResponse | null,
+  globalProfiles: TeamLLMProfilesResponse | null
+): TeamLLMProfilesResponse | null {
+  if (!teamProfiles) return globalProfiles;
+  if (!globalProfiles) return teamProfiles;
+  const teamNames = new Set(teamProfiles.profiles.map(profile => profile.name));
+  return {
+    ...teamProfiles,
+    profiles: [
+      ...globalProfiles.profiles.filter(profile => !teamNames.has(profile.name)),
+      ...teamProfiles.profiles,
+    ],
+  };
+}
+
+function mergeTeamAgentProfiles(
+  teamProfiles: TeamAgentProfilesResponse | null,
+  globalProfiles: TeamAgentProfilesResponse | null
+): TeamAgentProfilesResponse | null {
+  if (!teamProfiles) return globalProfiles;
+  if (!globalProfiles) return teamProfiles;
+  const teamIDs = new Set(teamProfiles.profiles.map(profile => profile.id));
+  return {
+    ...teamProfiles,
+    profiles: [
+      ...globalProfiles.profiles.filter(profile => !teamIDs.has(profile.id)),
+      ...teamProfiles.profiles,
+    ],
+  };
+}
+
+function mergeTeamMCPProfiles(
+  teamProfiles: TeamMCPProfilesResponse | null,
+  globalProfiles: TeamMCPProfilesResponse | null
+): TeamMCPProfilesResponse | null {
+  if (!teamProfiles) return globalProfiles;
+  if (!globalProfiles) return teamProfiles;
+  const teamNames = new Set(teamProfiles.profiles.map(profile => profile.name));
+  return {
+    ...teamProfiles,
+    profiles: [
+      ...globalProfiles.profiles.filter(profile => !teamNames.has(profile.name)),
+      ...teamProfiles.profiles,
+    ],
+  };
+}
+
 function normalizeConfigRepository(payload: unknown): PipelineRunsConfigRepository | null {
   if (!payload || typeof payload !== 'object') return null;
   const record = payload as Record<string, unknown>;
@@ -351,6 +399,9 @@ export function useTeamOperationsSummary({
         llmResult,
         agentResult,
         mcpResult,
+        globalLLMResult,
+        globalAgentResult,
+        globalMCPResult,
         accessGrantsResult,
         permissionsResult,
       ] = await Promise.allSettled([
@@ -359,6 +410,9 @@ export function useTeamOperationsSummary({
         fetchTeamLLMProfiles(teamPath),
         fetchTeamAgentProfiles(teamPath),
         fetchTeamMCPProfiles(teamPath),
+        fetchLLMProfiles().then(globalLLMProfilesSummary),
+        fetchAgentProfiles().then(globalAgentProfilesSummary),
+        fetchMCPRegistry().then(globalMCPProfilesSummary),
         fetchJson<unknown>(`/v1/access/grants?resource_type=team&resource_id=${encodedTeamPath}`).then(normalizeAccessGrantList),
         Promise.all(
           TEAM_ACCESS_PERMISSION_CHECKS.map(async check => ({
@@ -376,10 +430,10 @@ export function useTeamOperationsSummary({
         configRepoError: resultError(repoResult, 'Unable to load GitOps configuration'),
         notificationRoute: resultValue(notificationResult, null),
         notificationError: resultError(notificationResult, 'Unable to load notification policy'),
-        llmProfiles: resultValue(llmResult, null),
-        agentProfiles: resultValue(agentResult, null),
-        mcpProfiles: resultValue(mcpResult, null),
-        aiProfilesError: [llmResult, agentResult, mcpResult]
+        llmProfiles: mergeTeamLLMProfiles(resultValue(llmResult, null), resultValue(globalLLMResult, null)),
+        agentProfiles: mergeTeamAgentProfiles(resultValue(agentResult, null), resultValue(globalAgentResult, null)),
+        mcpProfiles: mergeTeamMCPProfiles(resultValue(mcpResult, null), resultValue(globalMCPResult, null)),
+        aiProfilesError: [llmResult, agentResult, mcpResult, globalLLMResult, globalAgentResult, globalMCPResult]
           .map(result => resultError(result, 'Unable to load AI profiles'))
           .find(Boolean) || null,
         accessGrants: resultValue(accessGrantsResult, []),

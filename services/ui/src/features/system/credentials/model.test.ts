@@ -48,6 +48,7 @@ test('normalizes and sorts credential versions newest first', () => {
 test('builds a normalized credential create payload', () => {
   const result = credentialPayloadFromForm({
     namespace: ' SYSTEM ',
+    team_path: '',
     name: ' /LLM/Main/ ',
     kind: 'api_key',
     description: ' Primary key ',
@@ -57,6 +58,7 @@ test('builds a normalized credential create payload', () => {
 
   assert.deepEqual(result, {
     reference: 'credential://system/llm/main',
+    team_path: undefined,
     kind: 'api_key',
     description: 'Primary key',
     value: 'secret',
@@ -64,8 +66,30 @@ test('builds a normalized credential create payload', () => {
   });
 });
 
+test('builds a team-scoped credential create payload', () => {
+  const result = credentialPayloadFromForm({
+    namespace: 'system',
+    team_path: ' /Platform/ML/ ',
+    name: ' /LLM/Main/ ',
+    kind: 'api_key',
+    description: ' Team key ',
+    value: 'secret',
+    expires_at: '',
+  });
+
+  assert.deepEqual(result, {
+    reference: 'credential://team/platform/ml/llm/main',
+    team_path: 'platform/ml',
+    kind: 'api_key',
+    description: 'Team key',
+    value: 'secret',
+    expires_at: undefined,
+  });
+});
+
 test('builds and parses references for compact credential presentation', () => {
   assert.equal(buildCredentialReference(' Platform ', '/GitHub/App-Key/'), 'credential://platform/github/app-key');
+  assert.equal(buildCredentialReference('system', 'llm/openai', 'platform/ml'), 'credential://team/platform/ml/llm/openai');
   assert.deepEqual(parseCredentialReference('credential://system/oidc/keycloak/client-secret'), {
     namespace: 'system',
     name: 'oidc/keycloak/client-secret',

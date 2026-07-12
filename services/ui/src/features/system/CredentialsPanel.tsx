@@ -1,6 +1,7 @@
 import { Plus, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useAIResourceTeamPaths } from './useAIResourceTeamPaths';
 import { CredentialCatalog } from './credentials/CredentialCatalog';
 import { CredentialCreateForm } from './credentials/CredentialCreateForm';
 import { CredentialDetail } from './credentials/CredentialDetail';
@@ -18,16 +19,18 @@ type CredentialsController = ReturnType<typeof useCredentials>;
 
 type CredentialsPanelBodyProps = {
   canManage: boolean;
-  canManageAccess: boolean;
   controller: CredentialsController;
   linkedCredentialRef: string;
+  teamPaths: string[];
+  teamPathsLoading: boolean;
   onCloseCredentialDetails: () => void;
   onSelectCredential: (credential: CredentialRecord) => void;
   onStartCreate: () => void;
 };
 
-function CredentialsPanel({ canManage, canManageAccess = false }: { canManage: boolean; canManageAccess?: boolean }) {
+function CredentialsPanel({ canManage }: { canManage: boolean }) {
   const controller = useCredentials({ canManage });
+  const { teamPaths, teamPathsLoading } = useAIResourceTeamPaths();
   const [searchParams, setSearchParams] = useSearchParams();
   const linkedCredentialRef = (searchParams.get('credential') || '').trim();
   const {
@@ -73,9 +76,10 @@ function CredentialsPanel({ canManage, canManageAccess = false }: { canManage: b
     <CredentialsPanelBody
       key={linkedCredentialRef}
       canManage={canManage}
-      canManageAccess={canManageAccess}
       controller={controller}
       linkedCredentialRef={linkedCredentialRef}
+      teamPaths={teamPaths}
+      teamPathsLoading={teamPathsLoading}
       onCloseCredentialDetails={closeCredentialDetails}
       onSelectCredential={selectCredential}
       onStartCreate={startCreate}
@@ -85,9 +89,10 @@ function CredentialsPanel({ canManage, canManageAccess = false }: { canManage: b
 
 function CredentialsPanelBody({
   canManage,
-  canManageAccess,
   controller,
   linkedCredentialRef,
+  teamPaths,
+  teamPathsLoading,
   onCloseCredentialDetails,
   onSelectCredential,
   onStartCreate,
@@ -177,6 +182,8 @@ function CredentialsPanelBody({
             form={controller.form}
             saving={controller.saving}
             setForm={controller.setForm}
+            teamPaths={teamPaths}
+            teamPathsLoading={teamPathsLoading}
             onClose={() => controller.setCreating(false)}
             onSubmit={controller.submitCreate}
           />
@@ -186,7 +193,6 @@ function CredentialsPanelBody({
           <CredentialDetail
             credential={controller.selected}
             canManage={canManage}
-            canManageAccess={canManageAccess}
             saving={controller.saving}
             rotationValue={controller.rotationValue}
             onRotationValueChange={controller.setRotationValue}
