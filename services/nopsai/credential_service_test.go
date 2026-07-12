@@ -466,13 +466,17 @@ func TestCredentialHandlersFilterMetadataToCreatedAndGrantedRecords(t *testing.T
 	store := newMemoryCredentialStore()
 	own := mustStoreCredential(t, store, "credential://system/llm/alice", "alice")
 	shared := mustStoreCredential(t, store, "credential://system/mcp/shared", "bob")
+	teamScoped := mustStoreCredential(t, store, "credential://team/platform/llm/shared", "bob")
 	other := mustStoreCredential(t, store, "credential://system/llm/bob", "bob")
 	allowedResource := credentialRecordResource(shared)
 
 	app := &App{
 		credentialStore: store,
 		aaaLocal: stubAAAAuthorizer{
-			checkFn: func(_ context.Context, _ aaamodel.Subject, _ string, _ aaamodel.ResourceRef, _ map[string]any) (aaamodel.Decision, error) {
+			checkFn: func(_ context.Context, _ aaamodel.Subject, action string, resource aaamodel.ResourceRef, _ map[string]any) (aaamodel.Decision, error) {
+				if action == "team.read" && resource.Type == grantResourceTeam && resource.ID == "platform" {
+					return aaamodel.Decision{Allowed: true}, nil
+				}
 				return aaamodel.Decision{Allowed: false}, nil
 			},
 			filterFn: func(_ context.Context, _ aaamodel.Subject, action string, resources []aaamodel.ResourceRef, _ map[string]any) ([]aaamodel.ResourceRef, error) {
@@ -506,7 +510,7 @@ func TestCredentialHandlersFilterMetadataToCreatedAndGrantedRecords(t *testing.T
 		got = append(got, credential.Reference)
 	}
 	sort.Strings(got)
-	want := []string{own.Reference.String(), shared.Reference.String()}
+	want := []string{own.Reference.String(), shared.Reference.String(), teamScoped.Reference.String()}
 	sort.Strings(want)
 	if !equalStringSlices(got, want) {
 		t.Fatalf("credentials = %#v, want %#v; hidden credential was %s", got, want, other.Reference.String())
@@ -516,11 +520,15 @@ func TestCredentialHandlersFilterMetadataToCreatedAndGrantedRecords(t *testing.T
 func TestCredentialHandlersAllowCreatorDetailsAndDenyUnownedRecords(t *testing.T) {
 	store := newMemoryCredentialStore()
 	own := mustStoreCredential(t, store, "credential://system/llm/alice", "alice")
+	teamScoped := mustStoreCredential(t, store, "credential://team/platform/llm/shared", "bob")
 	other := mustStoreCredential(t, store, "credential://system/llm/bob", "bob")
 	app := &App{
 		credentialStore: store,
 		aaaLocal: stubAAAAuthorizer{
-			checkFn: func(_ context.Context, _ aaamodel.Subject, _ string, _ aaamodel.ResourceRef, _ map[string]any) (aaamodel.Decision, error) {
+			checkFn: func(_ context.Context, _ aaamodel.Subject, action string, resource aaamodel.ResourceRef, _ map[string]any) (aaamodel.Decision, error) {
+				if action == "team.read" && resource.Type == grantResourceTeam && resource.ID == "platform" {
+					return aaamodel.Decision{Allowed: true}, nil
+				}
 				return aaamodel.Decision{Allowed: false}, nil
 			},
 		},
@@ -532,6 +540,14 @@ func TestCredentialHandlersAllowCreatorDetailsAndDenyUnownedRecords(t *testing.T
 	app.handleGetCredential(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("own status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	req = credentialTestRequest(http.MethodGet, "/v1/system/credentials/"+teamScoped.ID.String(), "alice", nil)
+	req.SetPathValue("credentialID", teamScoped.ID.String())
+	rec = httptest.NewRecorder()
+	app.handleGetCredential(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("team scoped status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 
 	req = credentialTestRequest(http.MethodGet, "/v1/system/credentials/"+other.ID.String(), "alice", nil)
@@ -572,6 +588,66 @@ func TestCreateCredentialAllowedByCredentialConsumerWriteCapability(t *testing.T
 	}
 	if created.CreatedBy != "alice" || created.Status != credentials.StatusActive {
 		t.Fatalf("created credential = %#v, want active alice-owned credential", created)
+	}
+}
+
+func TestCreateTeamCredentialRequiresMatchingTeamAccess(t *testing.T) {
+	store := newMemoryCredentialStore()
+	codec, _ := credentials.NewEnvelopeCodec("01234567890123456789012345678901")
+	service, _ := newCredentialService(store, codec, nil)
+	app := &App{
+		credentialStore: store,
+		credentials:     service,
+		aaaLocal: stubAAAAuthorizer{
+			checkFn: func(_ context.Context, _ aaamodel.Subject, action string, resource aaamodel.ResourceRef, _ map[string]any) (aaamodel.Decision, error) {
+				allowed := action == "credential.create" && resource.Type == grantResourceTeam && resource.ID == "platform"
+				return aaamodel.Decision{Allowed: allowed}, nil
+			},
+		},
+	}
+
+	body := bytes.NewBufferString(`{"reference":"credential://team/platform/llm/alice","team_path":"platform","kind":"api_key","value":"secret"}`)
+	req := credentialTestRequest(http.MethodPost, "/v1/system/credentials", "alice", body)
+	rec := httptest.NewRecorder()
+	app.handleCreateCredential(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	created, err := store.GetCredentialByReference(context.Background(), credentials.Reference{Namespace: "team", Name: "platform/llm/alice"})
+	if err != nil {
+		t.Fatalf("created team credential not stored: %v", err)
+	}
+	if created.CreatedBy != "alice" || created.Status != credentials.StatusActive {
+		t.Fatalf("created credential = %#v, want active alice-owned team credential", created)
+	}
+}
+
+func TestCreateTeamCredentialRejectsMissingOrMismatchedTeamPath(t *testing.T) {
+	store := newMemoryCredentialStore()
+	codec, _ := credentials.NewEnvelopeCodec("01234567890123456789012345678901")
+	service, _ := newCredentialService(store, codec, nil)
+	app := &App{
+		credentialStore: store,
+		credentials:     service,
+		aaaLocal: stubAAAAuthorizer{
+			checkFn: func(_ context.Context, _ aaamodel.Subject, _ string, _ aaamodel.ResourceRef, _ map[string]any) (aaamodel.Decision, error) {
+				return aaamodel.Decision{Allowed: true}, nil
+			},
+		},
+	}
+
+	for _, body := range []string{
+		`{"reference":"credential://team/platform/llm/alice","kind":"api_key"}`,
+		`{"reference":"credential://team/platform/llm/alice","team_path":"other","kind":"api_key"}`,
+		`{"reference":"credential://system/llm/alice","team_path":"platform","kind":"api_key"}`,
+	} {
+		req := credentialTestRequest(http.MethodPost, "/v1/system/credentials", "alice", bytes.NewBufferString(body))
+		rec := httptest.NewRecorder()
+		app.handleCreateCredential(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("body %s status = %d, want %d", body, rec.Code, http.StatusBadRequest)
+		}
 	}
 }
 

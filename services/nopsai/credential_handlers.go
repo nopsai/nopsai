@@ -45,15 +45,6 @@ func (a *App) handleCreateCredential(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing authorization subject", http.StatusUnauthorized)
 		return
 	}
-	allowed, err := a.canCreateCredential(r, subject)
-	if err != nil {
-		http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
-		return
-	}
-	if !allowed {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
 	var request credentialCreateRequest
 	if err := httpapi.DecodeJSON(r, &request); err != nil {
 		http.Error(w, "invalid credential payload", http.StatusBadRequest)
@@ -62,6 +53,20 @@ func (a *App) handleCreateCredential(w http.ResponseWriter, r *http.Request) {
 	ref, err := credentials.ParseReference(request.Reference)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	teamPath := normalizeCredentialTeamPath(request.TeamPath)
+	if err := validateCredentialTeamScope(ref, teamPath); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	allowed, err := a.canCreateCredential(r, subject, ref, teamPath)
+	if err != nil {
+		http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if !allowed {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 	record, err := a.credentials.Create(r.Context(), createCredentialInput{
@@ -275,6 +280,12 @@ func (a *App) filterVisibleCredentials(r *http.Request, subject aaamodel.Subject
 			return nil, err
 		} else if allowed {
 			filtered = append(filtered, record)
+			continue
+		}
+		if allowed, err := a.credentialTeamScopeVisibilityAllowed(r, subject, record); err != nil {
+			return nil, err
+		} else if allowed {
+			filtered = append(filtered, record)
 		}
 	}
 	return filtered, nil
@@ -292,7 +303,10 @@ func (a *App) canReadCredentialMetadata(r *http.Request, record credentials.Cred
 	if allowed, err := a.credentialActionAllowed(r, subject, "credential.list_metadata", resource); err != nil || allowed {
 		return allowed, err
 	}
-	return a.credentialAnyVisibilityActionAllowed(r, subject, resource)
+	if allowed, err := a.credentialAnyVisibilityActionAllowed(r, subject, resource); err != nil || allowed {
+		return allowed, err
+	}
+	return a.credentialTeamScopeVisibilityAllowed(r, subject, record)
 }
 
 func (a *App) requireCredentialRecordAction(w http.ResponseWriter, r *http.Request, credentialID uuid.UUID, action string) bool {
@@ -325,16 +339,59 @@ func (a *App) requireLoadedCredentialAction(w http.ResponseWriter, r *http.Reque
 	return true
 }
 
-func (a *App) canCreateCredential(r *http.Request, subject aaamodel.Subject) (bool, error) {
+func (a *App) canCreateCredential(r *http.Request, subject aaamodel.Subject, ref credentials.Reference, teamPath string) (bool, error) {
 	if a.checkCapabilityOrScopedGrant(r.Context(), subject, "credential.create", aaamodel.ResourceRef{Type: "credential", ID: "*"}) {
 		return true, nil
 	}
+	if teamPath != "" {
+		resource := aaamodel.ResourceRef{Type: grantResourceTeam, ID: teamPath}
+		for _, action := range []string{"credential.create", "team.update", "team.manage_acl"} {
+			allowed, err := a.credentialActionAllowed(r, subject, action, resource)
+			if err != nil {
+				return false, err
+			}
+			if allowed {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+	if strings.EqualFold(ref.Namespace, "team") {
+		return false, nil
+	}
 	for _, permission := range credentialConsumerWritePermissions() {
+		if permission.resource.Type == grantResourceTeam {
+			continue
+		}
 		if a.checkCapabilityOrScopedGrant(r.Context(), subject, permission.action, permission.resource) {
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+func validateCredentialTeamScope(ref credentials.Reference, teamPath string) error {
+	if strings.EqualFold(ref.Namespace, "team") {
+		if teamPath == "" {
+			return fmt.Errorf("team_path is required for team credential references")
+		}
+		if !strings.HasPrefix(strings.Trim(ref.Name, "/"), teamPath+"/") {
+			return fmt.Errorf("credential reference must be inside team_path")
+		}
+		return nil
+	}
+	if teamPath != "" {
+		return fmt.Errorf("team_path requires a credential://team/... reference")
+	}
+	return nil
+}
+
+func normalizeCredentialTeamPath(teamPath string) string {
+	normalized := strings.ToLower(strings.Trim(strings.TrimSpace(teamPath), "/"))
+	if normalized == "root" || normalized == "global" {
+		return ""
+	}
+	return normalized
 }
 
 func (a *App) credentialActionAllowed(r *http.Request, subject aaamodel.Subject, action string, resource aaamodel.ResourceRef) (bool, error) {
@@ -359,6 +416,45 @@ func (a *App) credentialAnyVisibilityActionAllowed(r *http.Request, subject aaam
 		}
 	}
 	return false, nil
+}
+
+func (a *App) credentialTeamScopeVisibilityAllowed(r *http.Request, subject aaamodel.Subject, record credentials.Credential) (bool, error) {
+	for _, resource := range credentialTeamScopeResources(record.Reference) {
+		for _, action := range []string{"team.read", "team.update", "team.manage_acl", "credential.create", "credential.use"} {
+			allowed, err := a.credentialActionAllowed(r, subject, action, resource)
+			if err != nil {
+				return false, err
+			}
+			if allowed {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+func credentialTeamScopeResources(ref credentials.Reference) []aaamodel.ResourceRef {
+	if !strings.EqualFold(ref.Namespace, "team") {
+		return nil
+	}
+	parts := strings.Split(strings.Trim(ref.Name, "/"), "/")
+	if len(parts) < 2 {
+		return nil
+	}
+	resources := make([]aaamodel.ResourceRef, 0, len(parts)-1)
+	seen := map[string]struct{}{}
+	for i := len(parts) - 1; i >= 1; i-- {
+		path := strings.Join(parts[:i], "/")
+		if path == "" {
+			continue
+		}
+		if _, exists := seen[path]; exists {
+			continue
+		}
+		seen[path] = struct{}{}
+		resources = append(resources, aaamodel.ResourceRef{Type: grantResourceTeam, ID: path})
+	}
+	return resources
 }
 
 func credentialVisibilityActions() []string {

@@ -10,7 +10,7 @@ import (
 	"nopsai/services/nopsai/internal/configsync"
 )
 
-var namePattern = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
+var namePattern = regexp.MustCompile(`^[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*$`)
 
 func ValidateServerDefinition(server models.MCPServer) error {
 	server = models.NormalizeMCPServer(server)
@@ -18,7 +18,7 @@ func ValidateServerDefinition(server models.MCPServer) error {
 		return fmt.Errorf("MCP server name is required")
 	}
 	if !namePattern.MatchString(server.Name) {
-		return fmt.Errorf("MCP server name can only contain alphanumeric characters, underscores, dots, and hyphens")
+		return fmt.Errorf("MCP server name can only contain slash-separated alphanumeric characters, underscores, dots, and hyphens")
 	}
 	if server.Transport != models.MCPTransportStreamableHTTP && server.Transport != models.MCPTransportHTTP {
 		return fmt.Errorf("MCP server %q uses unsupported transport %q", server.Name, server.Transport)
@@ -47,7 +47,7 @@ func ValidateProfileDefinition(profile models.MCPProfile, servers map[string]mod
 		return fmt.Errorf("MCP profile name is required")
 	}
 	if !namePattern.MatchString(profile.Name) {
-		return fmt.Errorf("MCP profile name can only contain alphanumeric characters, underscores, dots, and hyphens")
+		return fmt.Errorf("MCP profile name can only contain slash-separated alphanumeric characters, underscores, dots, and hyphens")
 	}
 	if len(profile.ServerRefs) == 0 {
 		return fmt.Errorf("MCP profile %q must select at least one server", profile.Name)
@@ -103,7 +103,7 @@ func validateProfileDefinitionWithoutDiscovery(profile models.MCPProfile, server
 		return fmt.Errorf("MCP profile name is required")
 	}
 	if !namePattern.MatchString(profile.Name) {
-		return fmt.Errorf("MCP profile name can only contain alphanumeric characters, underscores, dots, and hyphens")
+		return fmt.Errorf("MCP profile name can only contain slash-separated alphanumeric characters, underscores, dots, and hyphens")
 	}
 	if len(profile.ServerRefs) == 0 {
 		return fmt.Errorf("MCP profile %q must select at least one server", profile.Name)

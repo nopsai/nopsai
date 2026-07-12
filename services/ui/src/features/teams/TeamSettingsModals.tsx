@@ -100,7 +100,7 @@ export function NewTeamItemModal({
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-primary)]">
           <div>
             <h3 id="team-item-modal-title" className="text-lg font-semibold text-[var(--text-primary)]">Create Team Item</h3>
-            <p className="text-xs text-[var(--text-secondary)]">Parent: {parentLabel || 'Root'}</p>
+            <p className="text-xs text-[var(--text-secondary)]">Parent: {parentLabel || 'Global'}</p>
           </div>
           <button type="button" className="pipelines-icon-only" aria-label="Close" onClick={onClose}>
             <X className="h-4 w-4" aria-hidden="true" />

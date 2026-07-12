@@ -34,11 +34,22 @@ const apiMocks = vi.hoisted(() => ({
         references: [],
         last_updated: '2026-07-11T12:00:00Z',
       },
+      {
+        id: 'release-manager',
+        display_name: 'Release Manager',
+        role: 'Senior Release Manager',
+        description: 'Coordinates releases.',
+        instructions: 'Check rollout evidence.',
+        enabled: true,
+        source: 'ui',
+        usage_count: 0,
+        references: [],
+      },
     ],
   })),
   saveAgentProfile: vi.fn(),
   setDefaultAgentProfile: vi.fn(async () => ({
-    default_profile: 'security-reviewer',
+    default_profile: 'release-manager',
     profiles: [],
   })),
 }));
@@ -76,8 +87,10 @@ test('renders agent profiles as a split detail workspace and keeps actions wired
   expect(screen.getByText('platform/ml/security-reviewer-custom')).toBeVisible();
   expect(screen.getByLabelText('Name')).toHaveValue('Security Reviewer Custom');
 
-  await user.selectOptions(screen.getByLabelText('Default agent profile'), 'platform/ml/security-reviewer');
-  await waitFor(() => expect(apiMocks.setDefaultAgentProfile).toHaveBeenCalledWith('platform/ml/security-reviewer'));
+  const defaultSelect = screen.getByLabelText('Default agent profile');
+  expect(defaultSelect).not.toHaveTextContent('Security Reviewer');
+  await user.selectOptions(defaultSelect, 'release-manager');
+  await waitFor(() => expect(apiMocks.setDefaultAgentProfile).toHaveBeenCalledWith('release-manager'));
 });
 
 test('applies the team filter from the route query', async () => {

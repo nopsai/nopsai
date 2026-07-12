@@ -8,6 +8,7 @@ import (
 
 type credentialCreateRequest struct {
 	Reference   string     `json:"reference"`
+	TeamPath    string     `json:"team_path,omitempty"`
 	Kind        string     `json:"kind"`
 	Description string     `json:"description,omitempty"`
 	Value       string     `json:"value,omitempty"`

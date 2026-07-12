@@ -8,6 +8,7 @@ import { TeamConfigRepositoryModal, NewTeamItemModal } from '../features/teams/T
 import { TeamsStatusPanel, TeamsWorkspace } from '../features/teams/TeamsWorkspace';
 import { useTeamConfigRepositoryController } from '../features/teams/hooks/useTeamConfigRepositoryController';
 import { useTeamOperationsSummary } from '../features/teams/hooks/useTeamOperationsSummary';
+import { useTeamResourceCatalog } from '../features/teams/hooks/useTeamResourceCatalog';
 import {
   buildTeamPath,
   findTeamByURLValue,
@@ -52,7 +53,7 @@ export default function TeamsPage() {
   const activeTeam = useMemo(() => findTeamByURLValue(activeTeamValue, teams), [activeTeamValue, teams]);
   const activeTeamID = activeTeam?.id ?? null;
   const activeTeamPath = useMemo(() => buildTeamPath(activeTeamID, teams), [activeTeamID, teams]);
-  const activeTeamLabel = activeTeam ? teamDisplayName(activeTeam) : 'Root';
+  const activeTeamLabel = activeTeam ? teamDisplayName(activeTeam) : 'Global';
   const activeTeamURLValue = useMemo(
     () => (activeTeam ? teamPathForURL(activeTeam, teams) : ''),
     [activeTeam, teams]
@@ -84,6 +85,7 @@ export default function TeamsPage() {
     fetchJson,
     checkAccessPermission,
   });
+  const resourceCatalog = useTeamResourceCatalog({ teamPath: activeTeamURLValue });
 
   const loadTeams = useCallback(async () => {
     setTeamsLoaded(false);
@@ -138,7 +140,7 @@ export default function TeamsPage() {
         return;
       }
       if (kind === 'team' && isReservedRootTeamName(trimmedName)) {
-        setCreateError('Root is reserved and cannot be used as a team name.');
+        setCreateError('Global is reserved and cannot be used as a team name.');
         return;
       }
       if (kind === 'app' && !trimmedRepoURL) {
@@ -240,6 +242,7 @@ export default function TeamsPage() {
           onDeleteTeam={team => void deleteTeamItem(team)}
           onOpenConfig={config.openTeamConfigRepository}
           operationsSummary={operationsSummary}
+          resourceCatalog={resourceCatalog}
           currentUser={currentUser}
         />
       )}

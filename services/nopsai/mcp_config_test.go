@@ -159,6 +159,35 @@ func TestValidateMCPProfileDefinitionAllowsManuallyConfiguredTools(t *testing.T)
 	}
 }
 
+func TestValidateMCPDefinitionsAcceptTeamScopedNames(t *testing.T) {
+	server := models.MCPServer{
+		Name:      "team-1/platform/github",
+		Enabled:   true,
+		Transport: models.MCPTransportStreamableHTTP,
+		URL:       "https://provider.example.com/mcp",
+		AuthType:  models.MCPAuthNone,
+		Timeout:   models.DefaultMCPTimeout,
+	}
+	if err := mcpregistry.ValidateServerDefinition(server); err != nil {
+		t.Fatalf("mcpregistry.ValidateServerDefinition() error = %v", err)
+	}
+
+	err := mcpregistry.ValidateProfileDefinition(
+		models.MCPProfile{
+			Name:    "team-1/platform/review",
+			Enabled: true,
+			ServerRefs: []models.MCPProfileServerRef{
+				{ServerName: "team-1/platform/github", Tools: []string{"actions_list"}},
+			},
+		},
+		map[string]models.MCPServer{"team-1/platform/github": server},
+		map[string][]models.MCPTool{},
+	)
+	if err != nil {
+		t.Fatalf("mcpregistry.ValidateProfileDefinition() error = %v", err)
+	}
+}
+
 func TestValidateMCPProfileDefinitionAllowsWildcardForReadonlyServer(t *testing.T) {
 	err := mcpregistry.ValidateProfileDefinition(
 		models.MCPProfile{

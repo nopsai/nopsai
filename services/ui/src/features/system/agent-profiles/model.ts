@@ -81,8 +81,9 @@ export function normalizeAgentProfilesPayload(value: unknown): AgentProfilesPayl
     .filter(Boolean) as AgentProfileRecord[];
 
   profiles.sort((a, b) => a.display_name.localeCompare(b.display_name));
+  const hasDefaultProfile = Boolean(record && Object.prototype.hasOwnProperty.call(record, 'default_profile'));
   return {
-    default_profile: readString(record?.default_profile).trim() || 'devops-engineer',
+    default_profile: hasDefaultProfile ? readString(record?.default_profile).trim() : 'devops-engineer',
     profiles,
   };
 }
@@ -133,4 +134,3 @@ export function agentProfileSection(profile: AgentProfileRecord): 'built-in' | '
   if (profile.source === 'gitops') return 'gitops';
   return 'custom';
 }
-

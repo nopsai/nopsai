@@ -10,7 +10,7 @@ import {
   type AgentProfileRecord,
 } from './model.js';
 
-test('normalizes agent profile payloads with defaults and stable ordering', () => {
+test('normalizes agent profile payloads with explicit hidden defaults and stable ordering', () => {
   const payload = normalizeAgentProfilesPayload({
     default_profile: '',
     profiles: [
@@ -35,7 +35,7 @@ test('normalizes agent profile payloads with defaults and stable ordering', () =
     ],
   });
 
-  assert.equal(payload.default_profile, 'devops-engineer');
+  assert.equal(payload.default_profile, '');
   assert.deepEqual(
     payload.profiles.map(profile => profile.id),
     ['devops-engineer', 'sre']
@@ -44,6 +44,20 @@ test('normalizes agent profile payloads with defaults and stable ordering', () =
   assert.equal(payload.profiles[1]?.enabled, false);
   assert.equal(payload.profiles[1]?.role, '');
   assert.deepEqual(payload.profiles[1]?.references, ['pipeline deploy']);
+});
+
+test('normalizes agent profile payloads with built-in fallback default when omitted', () => {
+  const payload = normalizeAgentProfilesPayload({
+    profiles: [
+      {
+        id: 'sre',
+        display_name: 'SRE',
+        instructions: 'Protect reliability.',
+      },
+    ],
+  });
+
+  assert.equal(payload.default_profile, 'devops-engineer');
 });
 
 test('builds agent profile form state and API payloads', () => {

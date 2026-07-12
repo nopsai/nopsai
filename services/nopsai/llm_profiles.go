@@ -17,6 +17,7 @@ import (
 
 	"nopsai/config"
 	"nopsai/pkg/models"
+	"nopsai/services/aaa/pkg/model"
 	"nopsai/services/nopsai/internal/configsync"
 	"nopsai/services/nopsai/internal/credentials"
 	"nopsai/services/nopsai/pkg/validation"
@@ -1052,7 +1053,16 @@ func (a *App) handleListLLMProfiles(w http.ResponseWriter, r *http.Request) {
 	sort.Strings(names)
 
 	views := make([]llmProfileView, 0, len(names))
+	visibleNames := make([]string, 0, len(names))
 	for _, name := range names {
+		visible, err := a.aiResourceVisible(r, llmProfileAccessSpec, name)
+		if err != nil {
+			http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if !visible {
+			continue
+		}
 		profile := config.NormalizeLLMProfile(profiles[name])
 		status, message := a.validateLLMProfileConfiguration(r.Context(), name, profile)
 		refs, _ := a.findLLMProfileReferences(name)
@@ -1069,13 +1079,18 @@ func (a *App) handleListLLMProfiles(w http.ResponseWriter, r *http.Request) {
 			AllowedInScope: allowed,
 			DisabledReason: disabledReason,
 		})
+		visibleNames = append(visibleNames, name)
 	}
+	defaultProfile = aiResourceVisibleDefault(defaultProfile, visibleNames)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(llmProfilesResponse{DefaultProfile: defaultProfile, Profiles: views})
 }
 
 func (a *App) handleReplaceLLMProfiles(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAAADecision(w, r, "system.update", model.ResourceRef{Type: "system", ID: "llm-profiles"}) {
+		return
+	}
 	var payload llmProfilesRequest
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, "invalid LLM profile payload", http.StatusBadRequest)
@@ -1139,6 +1154,9 @@ func (a *App) handleUpsertLLMProfile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "profile name in path and payload must match", http.StatusBadRequest)
 		return
 	}
+	if !a.requireAIResourceWrite(w, r, llmProfileAccessSpec, profileName) {
+		return
+	}
 
 	cfg := a.getConfigSnapshot()
 	defaultProfile := cfg.EffectiveLLMDefaultProfile()
@@ -1176,6 +1194,9 @@ func (a *App) handleDeleteLLMProfile(w http.ResponseWriter, r *http.Request) {
 	profiles := cfg.EffectiveLLMProfiles()
 	if _, ok := profiles[profileName]; !ok {
 		http.Error(w, "LLM profile not found", http.StatusNotFound)
+		return
+	}
+	if !a.requireAIResourceWrite(w, r, llmProfileAccessSpec, profileName) {
 		return
 	}
 
@@ -1234,6 +1255,9 @@ func (a *App) handleTestLLMProfile(w http.ResponseWriter, r *http.Request) {
 	profile, ok := profiles[profileName]
 	if !ok {
 		http.Error(w, "LLM profile not found", http.StatusNotFound)
+		return
+	}
+	if !a.requireAIResourceUse(w, r, llmProfileAccessSpec, profileName) {
 		return
 	}
 	if status, message := a.validateLLMProfileConfiguration(r.Context(), profileName, profile); status != "valid" {

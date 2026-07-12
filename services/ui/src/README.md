@@ -67,15 +67,26 @@ truth; this file is the source-adjacent placement guide.
   timestamp, parent, and kind-label rules for the Teams workspace.
 - `features/teams/workspaceModel.ts` owns UI-only tab metadata and table copy
   helpers for the Teams workspace.
+- `features/teams/resourceCatalogModel.ts` owns pure linked-resource
+  normalization, ownership filtering, and route building for resources listed
+  from a Teams overview.
 - `features/teams/TeamsWorkspace.tsx` owns master-detail composition, toolbar,
   tree navigation, high-level summary cards, and responsive layout hooks.
 - `features/teams/TeamsWorkspacePanels.tsx` owns detail-tab panels, scoped
   activity cards, GitOps/notification summaries, read-only access summaries,
   resource tables, empty states, and table copy helpers.
-- `features/teams/TeamAIProfilesPanel.tsx` owns the read-only team AI profile
-  summary and links to the LLM, agent, and MCP owner pages.
 - `features/teams/hooks/useTeamOperationsSummary.ts` owns selected-team
   GitOps, notification, AI profile, and access-grant summary orchestration.
+- `features/teams/hooks/useTeamResourceCatalog.ts` owns selected-scope catalog
+  loading for pipelines, steps, trigger sources, schedules, knowledge context,
+  scopes, and credentials. API responses remain permission-filtered by their
+  owner pages, and Teams only links to visible resources. Public/root resources
+  are included inside team scopes so teams can discover shared resources without
+  duplicating ownership. The Teams overview shows those resource types as
+  category boxes in the Resources section and lists individual items in
+  profile-style summaries below the boxes. Applications and AI profile rows are composed in
+  `TeamsWorkspace.tsx` from the selected team scope and operations summary so
+  the top-level tab strip does not duplicate Applications or AI Profiles.
 - `features/teams/teams.css` owns the scoped Teams workspace styling.
 - Team settings configure GitOps repositories and notification routes only; AI
   profiles and access are summarized from Teams and linked to their owning
@@ -124,12 +135,15 @@ truth; this file is the source-adjacent placement guide.
   under the System route.
 - Credentials are a first-class left-navigation route composed by
   `pages/Credentials.tsx`; model/API/hook/rendering code stays under
-  `features/system/credentials`, and credential access links target System
-  Access with the `credential` resource type.
+  `features/system/credentials`. The create flow derives global credentials as
+  `credential://system/...` and team credentials as
+  `credential://team/<team path>/...` from the selected team scope.
 - LLM profiles, agent profiles, and MCP are first-class workspace routes. Their
   model/API/hook/panel code can remain under `features/system` while the route
-  wrappers live in `pages/`, because the backend capabilities still use the
-  existing system profile permissions.
+  wrappers live in `pages/`. Page visibility is topic-level: global system
+  permissions and scoped team/product grants can show the route, while the
+  backend list handlers filter individual LLM profiles, agent profiles, MCP
+  servers, and MCP profiles by resource access before returning subjects.
 - `features/system/AIResourcePanel.tsx`, `features/system/aiResourcePanel.css`,
   and `features/system/aiResourcePresentation.ts` own the shared hero, stats,
   search, count, labeled resource rows, compact icon actions, team placement
@@ -143,6 +157,10 @@ truth; this file is the source-adjacent placement guide.
   slash path placement as pipelines: `team/subteam/name` belongs to
   `/team/subteam`, inherits parent team access, and remains global when no team
   prefix is present.
+- Global default selectors stay tied to global system profile defaults. When
+  the current default is outside the viewer's allowed resource set, the API
+  returns an explicit empty `default_profile` and the UI renders the value as
+  unavailable instead of guessing that a team-scoped subject is the default.
 - System workflows that generate GitOps commands or deployment snippets must
   preserve copyable, deterministic output.
 

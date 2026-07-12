@@ -101,8 +101,9 @@ export function normalizeLLMProfilesPayload(value: unknown): LLMProfilesPayload 
     .filter(Boolean) as LLMProfileRecord[];
 
   profiles.sort((a, b) => a.name.localeCompare(b.name));
+  const hasDefaultProfile = Boolean(record && Object.prototype.hasOwnProperty.call(record, 'default_profile'));
   return {
-    default_profile: readString(record?.default_profile).trim() || profiles[0]?.name || 'standard',
+    default_profile: hasDefaultProfile ? readString(record?.default_profile).trim() : profiles[0]?.name || 'standard',
     profiles,
   };
 }

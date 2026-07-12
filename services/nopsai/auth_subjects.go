@@ -94,12 +94,14 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 		a.checkCapability(subject, "system.read", model.ResourceRef{Type: "system", ID: "config-sync"})
 	configWrite := a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "config"}) &&
 		a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "config-sync"})
-	llmProfilesRead := a.checkCapability(subject, "system.read", model.ResourceRef{Type: "system", ID: "llm-profiles"})
-	llmProfilesWrite := a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "llm-profiles"})
-	agentProfilesRead := a.checkCapability(subject, "system.read", model.ResourceRef{Type: "system", ID: "agent-profiles"})
-	agentProfilesWrite := a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "agent-profiles"})
-	mcpRead := a.checkCapability(subject, "system.read", model.ResourceRef{Type: "system", ID: "mcp"})
-	mcpWrite := a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "mcp"})
+	llmProfilesRead := a.aiResourceTopicReadAllowed(ctx, subject, llmProfileAccessSpec)
+	llmProfilesWrite := a.aiResourceTopicWriteAllowed(ctx, subject, llmProfileAccessSpec)
+	agentProfilesRead := a.aiResourceTopicReadAllowed(ctx, subject, agentProfileAccessSpec)
+	agentProfilesWrite := a.aiResourceTopicWriteAllowed(ctx, subject, agentProfileAccessSpec)
+	mcpRead := a.aiResourceTopicReadAllowed(ctx, subject, mcpServerAccessSpec) ||
+		a.aiResourceTopicReadAllowed(ctx, subject, mcpProfileAccessSpec)
+	mcpWrite := a.aiResourceTopicWriteAllowed(ctx, subject, mcpServerAccessSpec) ||
+		a.aiResourceTopicWriteAllowed(ctx, subject, mcpProfileAccessSpec)
 	credentialsRead := a.checkCapabilityOrScopedGrant(ctx, subject, "credential.list_metadata", model.ResourceRef{Type: "credential", ID: "*"})
 	credentialsWrite := a.checkCapabilityOrScopedGrant(ctx, subject, "credential.write_value", model.ResourceRef{Type: "credential", ID: "*"}) ||
 		a.checkCapabilityOrScopedGrant(ctx, subject, "credential.create", model.ResourceRef{Type: "credential", ID: "*"}) ||

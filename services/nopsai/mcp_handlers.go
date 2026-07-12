@@ -40,6 +40,14 @@ func (a *App) handleListMCPServers(w http.ResponseWriter, r *http.Request) {
 	sort.Strings(names)
 	views := make([]mcpServerView, 0, len(names))
 	for _, name := range names {
+		visible, err := a.aiResourceVisible(r, mcpServerAccessSpec, name)
+		if err != nil {
+			http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if !visible {
+			continue
+		}
 		views = append(views, mcpServerView{MCPServer: servers[name], Tools: toolsByServer[name]})
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -66,6 +74,9 @@ func (a *App) handleGetMCPServer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "MCP server not found", http.StatusNotFound)
 		return
 	}
+	if !a.requireAIResourceVisible(w, r, mcpServerAccessSpec, name) {
+		return
+	}
 	toolsByServer, err := a.loadMCPToolsByServer(r.Context())
 	if err != nil {
 		http.Error(w, "failed to load MCP tools", http.StatusInternalServerError)
@@ -90,6 +101,13 @@ func (a *App) handleUpsertMCPServer(w http.ResponseWriter, r *http.Request) {
 		server.Name = pathName
 	}
 	server = models.NormalizeMCPServer(server)
+	if server.Name == "" {
+		http.Error(w, "MCP server name is required", http.StatusBadRequest)
+		return
+	}
+	if !a.requireAIResourceWrite(w, r, mcpServerAccessSpec, server.Name) {
+		return
+	}
 	if err := mcpregistry.ValidateServerDefinition(server); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -119,6 +137,9 @@ func (a *App) handleDeleteMCPServer(w http.ResponseWriter, r *http.Request) {
 	name := models.NormalizeMCPServerName(r.PathValue("serverName"))
 	if name == "" {
 		http.Error(w, "MCP server name is required", http.StatusBadRequest)
+		return
+	}
+	if !a.requireAIResourceWrite(w, r, mcpServerAccessSpec, name) {
 		return
 	}
 	profiles, err := a.loadMCPProfilesFromDB(r.Context())
@@ -178,6 +199,9 @@ func (a *App) handleDiscoverMCPServerTools(w http.ResponseWriter, r *http.Reques
 	server, ok := servers[name]
 	if !ok {
 		http.Error(w, "MCP server not found", http.StatusNotFound)
+		return
+	}
+	if !a.requireAIResourceUse(w, r, mcpServerAccessSpec, name) {
 		return
 	}
 	result, err := a.discoverAndStoreMCPServerTools(r.Context(), server)
@@ -282,6 +306,14 @@ func (a *App) handleListMCPProfiles(w http.ResponseWriter, r *http.Request) {
 	sort.Strings(names)
 	response := mcpProfilesResponse{Profiles: make([]models.MCPProfile, 0, len(names))}
 	for _, name := range names {
+		visible, err := a.aiResourceVisible(r, mcpProfileAccessSpec, name)
+		if err != nil {
+			http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if !visible {
+			continue
+		}
 		response.Profiles = append(response.Profiles, profiles[name])
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -308,6 +340,9 @@ func (a *App) handleGetMCPProfile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "MCP profile not found", http.StatusNotFound)
 		return
 	}
+	if !a.requireAIResourceVisible(w, r, mcpProfileAccessSpec, name) {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(profile)
 }
@@ -327,6 +362,13 @@ func (a *App) handleUpsertMCPProfile(w http.ResponseWriter, r *http.Request) {
 		profile.Name = pathName
 	}
 	profile = models.NormalizeMCPProfile(profile)
+	if profile.Name == "" {
+		http.Error(w, "MCP profile name is required", http.StatusBadRequest)
+		return
+	}
+	if !a.requireAIResourceWrite(w, r, mcpProfileAccessSpec, profile.Name) {
+		return
+	}
 	servers, err := a.loadMCPServersFromDB(r.Context())
 	if err != nil {
 		http.Error(w, "failed to load MCP servers", http.StatusInternalServerError)
@@ -340,6 +382,11 @@ func (a *App) handleUpsertMCPProfile(w http.ResponseWriter, r *http.Request) {
 	if err := mcpregistry.ValidateProfileDefinition(profile, servers, toolsByServer); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	for _, ref := range profile.ServerRefs {
+		if !a.requireAIResourceUse(w, r, mcpServerAccessSpec, ref.ServerName) {
+			return
+		}
 	}
 
 	tx, err := a.db.Begin(r.Context())
@@ -367,6 +414,9 @@ func (a *App) handleDeleteMCPProfile(w http.ResponseWriter, r *http.Request) {
 	name := models.NormalizeMCPProfileName(r.PathValue("profileName"))
 	if name == "" {
 		http.Error(w, "MCP profile name is required", http.StatusBadRequest)
+		return
+	}
+	if !a.requireAIResourceWrite(w, r, mcpProfileAccessSpec, name) {
 		return
 	}
 	refs, err := a.findMCPProfileReferences(name)
@@ -415,6 +465,9 @@ func (a *App) handleTestMCPProfile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "MCP profile not found", http.StatusNotFound)
 		return
 	}
+	if !a.requireAIResourceUse(w, r, mcpProfileAccessSpec, name) {
+		return
+	}
 	servers, err := a.loadMCPServersFromDB(r.Context())
 	if err != nil {
 		http.Error(w, "failed to load MCP servers", http.StatusInternalServerError)
@@ -432,6 +485,9 @@ func (a *App) handleTestMCPProfile(w http.ResponseWriter, r *http.Request) {
 
 	var warnings []string
 	for _, ref := range profile.ServerRefs {
+		if !a.requireAIResourceUse(w, r, mcpServerAccessSpec, ref.ServerName) {
+			return
+		}
 		server := servers[ref.ServerName]
 		client, err := a.newMCPClient(r.Context(), server)
 		if err != nil {

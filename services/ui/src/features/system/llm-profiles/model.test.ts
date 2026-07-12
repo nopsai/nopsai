@@ -8,7 +8,7 @@ import {
   type LLMProfileRecord,
 } from './model.js';
 
-test('normalizes LLM profile payloads and selects a stable default', () => {
+test('normalizes LLM profile payloads and preserves an explicit hidden default', () => {
   const payload = normalizeLLMProfilesPayload({
     default_profile: '',
     profiles: [
@@ -34,7 +34,7 @@ test('normalizes LLM profile payloads and selects a stable default', () => {
     ],
   });
 
-  assert.equal(payload.default_profile, 'alpha');
+  assert.equal(payload.default_profile, '');
   assert.deepEqual(
     payload.profiles.map(profile => profile.name),
     ['alpha', 'z-reasoning']
@@ -45,6 +45,17 @@ test('normalizes LLM profile payloads and selects a stable default', () => {
   assert.equal(payload.profiles[1]?.temperature, 0.2);
   assert.deepEqual(payload.profiles[1]?.extra, { deployment: 'review' });
   assert.deepEqual(payload.profiles[1]?.references, ['pipeline:build']);
+});
+
+test('normalizes LLM profile payloads with a stable fallback default when omitted', () => {
+  const payload = normalizeLLMProfilesPayload({
+    profiles: [
+      { name: 'z-reasoning', provider: 'lmstudio', model: 'qwen3-coder' },
+      { name: 'alpha', provider: 'gemini', model: 'gemini-2.5-pro' },
+    ],
+  });
+
+  assert.equal(payload.default_profile, 'alpha');
 });
 
 test('converts LLM profile records into editable form state', () => {

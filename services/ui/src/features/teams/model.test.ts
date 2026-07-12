@@ -95,31 +95,26 @@ test('formats team labels, parent, and timestamps for detail rendering', () => {
   assert.notEqual(formatTeamTimestamp('2026-07-10T10:00:00Z'), '2026-07-10T10:00:00Z');
 });
 
-test('builds Teams workspace table items and copy by active detail tab', () => {
+test('builds Teams workspace table items and copy', () => {
   const directChildren = getTeamDirectChildren(teams, 1);
-  const scopedApplications = [teams[2], teams[3]];
   const visibleItems = [teams[2]];
 
   assert.deepEqual(
     getTeamTableItems({
-      activeDetailTab: 'applications',
       directChildren,
-      scopedApplications,
       searching: false,
       visibleItems,
     }).map(team => team.name),
-    ['checkout-api', 'docs']
+    ['payments', 'docs']
   );
   assert.deepEqual(
     getTeamTableItems({
-      activeDetailTab: 'applications',
       directChildren,
-      scopedApplications,
       searching: true,
       visibleItems,
     }).map(team => team.name),
     ['checkout-api']
   );
-  assert.equal(getTeamTableCopy({ activeDetailTab: 'applications', activeLabel: 'platform', searching: false }).title, 'Scoped Applications');
-  assert.equal(getTeamTableCopy({ activeDetailTab: 'overview', activeLabel: 'platform', searching: true }).title, 'Matching Resources');
+  assert.equal(getTeamTableCopy({ activeLabel: 'platform', searching: false }).title, 'Child Resources');
+  assert.equal(getTeamTableCopy({ activeLabel: 'platform', searching: true }).title, 'Matching Resources');
 });

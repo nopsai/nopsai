@@ -391,6 +391,52 @@ html.dark .teams-tree-count {
   font-size: 13px;
 }
 
+.teams-tree-select {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  text-align: left;
+}
+
+.teams-tree-toggle,
+.teams-tree-toggle-placeholder {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  align-items: center;
+  justify-content: center;
+}
+
+.teams-tree-toggle {
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+}
+
+.teams-tree-toggle:hover {
+  background: rgba(15, 23, 42, 0.08);
+}
+
+html.dark .teams-tree-toggle:hover {
+  background: rgba(148, 163, 184, 0.16);
+}
+
+.teams-tree-toggle svg {
+  transition: transform 140ms ease;
+}
+
+.teams-tree-toggle.expanded svg {
+  transform: rotate(90deg);
+}
+
 html.dark .teams-tree-row {
   color: var(--teams-text);
 }
@@ -855,6 +901,11 @@ a.teams-resource-mini {
   transform: translateY(-1px);
 }
 
+.teams-resource-mini.active {
+  border-color: #8fb7ee;
+  background: rgba(7, 93, 204, 0.08);
+}
+
 html.dark .teams-resource-mini {
   border-color: var(--teams-line);
 }
@@ -877,6 +928,82 @@ html.dark .teams-resource-mini {
   color: var(--teams-text);
   font-size: 20px;
   line-height: 1.1;
+}
+
+.teams-linked-resources {
+  margin-top: 18px;
+  border-top: 1px solid #e7ebf0;
+  padding-top: 16px;
+}
+
+html.dark .teams-linked-resources {
+  border-top-color: var(--teams-line);
+}
+
+.teams-linked-resources__error,
+.teams-linked-resources__empty {
+  margin: 12px 0 0;
+  color: var(--teams-muted);
+  font-size: 12px;
+}
+
+.teams-linked-resources__error {
+  color: var(--teams-red);
+}
+
+.teams-linked-resource-summary {
+  margin-top: 12px;
+}
+
+.teams-linked-resource-row {
+  color: inherit;
+  text-decoration: none;
+}
+
+.teams-linked-resource-row:hover {
+  background: rgba(7, 93, 204, 0.04);
+}
+
+.teams-linked-resource-row__icon {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+}
+
+.teams-linked-resource-row__icon--pipeline {
+  background: rgba(22, 156, 76, 0.1);
+  color: var(--teams-green);
+}
+
+.teams-linked-resource-row__icon--application,
+.teams-linked-resource-row__icon--llm_profile {
+  background: rgba(118, 87, 239, 0.1);
+  color: var(--teams-purple);
+}
+
+.teams-linked-resource-row__icon--agent_profile,
+.teams-linked-resource-row__icon--credential {
+  background: rgba(18, 104, 237, 0.1);
+  color: var(--teams-blue);
+}
+
+.teams-linked-resource-row__icon--mcp_profile {
+  background: rgba(22, 156, 76, 0.1);
+  color: var(--teams-green);
+}
+
+.teams-linked-resource-row__icon--trigger {
+  background: rgba(0, 159, 206, 0.1);
+  color: var(--teams-cyan);
+}
+
+.teams-linked-resource-row__icon--scope {
+  background: rgba(118, 87, 239, 0.1);
+  color: var(--teams-purple);
 }
 
 .teams-table-card {
