@@ -21,25 +21,25 @@ type HelpTopic = {
 const HELP_TOPICS: Record<string, HelpTopic> = {
   'pipelineruns/main': {
     title: 'Pipeline Runs',
-    summary: 'Watch automation work move through teams, inspect failures, and clean up completed runs.',
+    summary: 'Watch automation work move through team and application runs, source filters, failures, and approvals.',
     docsPath: 'pipeline-runs',
     sections: [
       {
         title: 'What this page covers',
         body: 'Pipeline Runs is the operational entry point for run history, status, graph inspection, logs, child runs, source metadata, trigger events, and troubleshooting.',
-        items: ['Browse by team or repository.', 'Open run details for graph, YAML, tasks, logs, and timing.', 'Search by pipeline, repository, branch, commit, actor, status, or run ID.'],
+        items: ['Browse by team, application, source, and status.', 'Open run details for graph, YAML, tasks, logs, and timing.', 'Search by pipeline, repository, branch, commit, actor, status, or run ID.'],
       },
     ],
   },
   'pipelineruns/recent': {
-    title: 'Recent Runs',
+    title: 'All Runs',
     summary: 'Review the newest executions across the workspace without choosing a team first.',
     docsPath: 'pipeline-runs/recent',
     sections: [
       {
         title: 'What this page covers',
-        body: 'Recent Runs is useful for status scanning, broad troubleshooting, and comparing pipeline activity across teams.',
-        items: ['Switch between grid and list views.', 'Search by status, pipeline, repository, branch, or run ID.', 'Open any run for full operational detail.'],
+        body: 'All Runs is useful for status scanning, broad troubleshooting, and comparing pipeline activity across teams.',
+        items: ['Switch between grid and list views.', 'Filter by source and status.', 'Open any run for full operational detail.'],
       },
     ],
   },

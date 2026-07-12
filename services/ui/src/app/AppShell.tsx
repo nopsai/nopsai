@@ -43,6 +43,7 @@ import { useResourceTrees } from './useResourceTrees';
 import { BaseSidebarNavigation } from './BaseSidebarNavigation';
 import { useInitialSetupRedirect } from './useInitialSetupRedirect';
 import { usePipelineRunsSidebar } from './usePipelineRunsSidebar';
+import { shouldShowPipelineRunsSidebarContext } from './pipelineRunsSidebarVisibility';
 import { AppRoutes, PageLoading } from './AppRoutes';
 import { getAppAccess } from '../auth/capabilities';
 import { useAuth } from '../auth/AuthContext';
@@ -380,6 +381,7 @@ function Sidebar({
   const searchParams = useMemo(() => new URLSearchParams(locationSearch), [locationSearch]);
   const pipelineRunsTab: RunTabKey =
     locationPathname.startsWith('/pipelineruns/recent') ? 'recent' : locationPathname.startsWith('/pipelineruns/events') ? 'events' : 'main';
+  const showSidebarContextNav = !isPipelineRunsRoute || shouldShowPipelineRunsSidebarContext(pipelineRunsTab);
   const activeTeam = useMemo(() => {
     const root = isPipelinesRoute
       ? 'pipelines'
@@ -787,58 +789,60 @@ function Sidebar({
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto sidebar-scrollbar">
           <BaseSidebarNavigation navItems={navItems} systemSubNav={systemSubNav} locationPathname={locationPathname} />
-          <nav id="sidebar-details-nav" className="sidebar-context-nav border-t border-[var(--border-primary)] px-4 py-4 space-y-2" aria-label="Contextual">
-            {isPipelineRunsRoute ? (
-              <PipelineRunsSidebarContent
-                tab={pipelineRunsTab}
-                searchParams={searchParams}
-                locationPathname={locationPathname}
-                navigateTo={navigateTo}
-                onClose={onClose}
-              />
-            ) : isPipelinesRoute ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">All pipelines</p>
+          {showSidebarContextNav && (
+            <nav id="sidebar-details-nav" className="sidebar-context-nav border-t border-[var(--border-primary)] px-4 py-4 space-y-2" aria-label="Contextual">
+              {isPipelineRunsRoute ? (
+                <PipelineRunsSidebarContent
+                  tab={pipelineRunsTab}
+                  searchParams={searchParams}
+                  locationPathname={locationPathname}
+                  navigateTo={navigateTo}
+                  onClose={onClose}
+                />
+              ) : isPipelinesRoute ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">All pipelines</p>
+                  </div>
+                  <ul className="pipeline-tree-list">
+                    {renderPipelineTreeNode(pipelineTree)}
+                  </ul>
                 </div>
-                <ul className="pipeline-tree-list">
-                  {renderPipelineTreeNode(pipelineTree)}
-                </ul>
-              </div>
-            ) : isTriggersRoute ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">All triggers</p>
+              ) : isTriggersRoute ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">All triggers</p>
+                  </div>
+                  <ul className="pipeline-tree-list">
+                    {renderTriggerTreeNode(triggerTree)}
+                  </ul>
                 </div>
-                <ul className="pipeline-tree-list">
-                  {renderTriggerTreeNode(triggerTree)}
-                </ul>
-              </div>
-            ) : isStepsRoute ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">All steps</p>
+              ) : isStepsRoute ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">All steps</p>
+                  </div>
+                  <ul className="pipeline-tree-list">{renderStepTreeNode(stepTree)}</ul>
                 </div>
-                <ul className="pipeline-tree-list">{renderStepTreeNode(stepTree)}</ul>
-              </div>
-            ) : isScopesRoute ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">All scopes</p>
+              ) : isScopesRoute ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">All scopes</p>
+                  </div>
+                  <ul className="pipeline-tree-list">{renderScopeTreeNode(scopeTree)}</ul>
                 </div>
-                <ul className="pipeline-tree-list">{renderScopeTreeNode(scopeTree)}</ul>
-              </div>
-            ) : isKnowledgeContextRoute ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">All knowledge contexts</p>
+              ) : isKnowledgeContextRoute ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">All knowledge contexts</p>
+                  </div>
+                  <ul className="pipeline-tree-list">{renderKnowledgeContextTreeNode(knowledgeContextTree)}</ul>
                 </div>
-                <ul className="pipeline-tree-list">{renderKnowledgeContextTreeNode(knowledgeContextTree)}</ul>
-              </div>
-            ) : (
-              <p className="text-xs text-[var(--text-secondary)]">Contextual navigation will appear here as features are migrated.</p>
-            )}
-          </nav>
+              ) : (
+                <p className="text-xs text-[var(--text-secondary)]">Contextual navigation will appear here as features are migrated.</p>
+              )}
+            </nav>
+          )}
         </div>
       </aside>
     </>
@@ -971,7 +975,7 @@ function PipelineRunsSidebarContent({
     if (searchTerm && filteredRuns.length === 0) return null;
     const branchLabel = formatBranch(branch);
     return (
-      <div key={key} className="border border-[var(--border-primary)] rounded-lg overflow-hidden bg-[var(--bg-primary)]">
+      <div key={key} className="pipeline-runs-sidebar-branch border border-[var(--border-primary)] rounded-lg overflow-hidden bg-[var(--bg-primary)]">
         <button
           type="button"
           onClick={() => toggleBranch(teamId, branch)}
@@ -1024,7 +1028,7 @@ function PipelineRunsSidebarContent({
     const isLoadingRepo = loadingRepos.has(team.id);
 
     return (
-      <div key={team.id} className="space-y-2">
+      <div key={team.id} className="pipeline-runs-sidebar-team space-y-2">
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -1111,7 +1115,7 @@ function PipelineRunsSidebarContent({
   };
 
   return (
-    <div className="space-y-3">
+    <div className="pipeline-runs-sidebar-context space-y-3">
       {tab === 'recent' ? (
         <>
           <div className="flex items-center justify-between gap-2">
@@ -1189,7 +1193,7 @@ function RunSidebarRow({ run, active, onOpen }: { run: RunListItem; active: bool
       onClick={onOpen}
       data-trigger-id={run.trigger_event_id || ''}
       data-run-id={run.run_id}
-      className={`w-full text-left rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:border-[var(--border-accent)] transition shadow-sm px-3 py-2 ${
+      className={`sidebar-run-link w-full text-left rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] hover:border-[var(--border-accent)] transition shadow-sm px-3 py-2 ${
         active ? 'run-link-highlight' : ''
       }`}
     >

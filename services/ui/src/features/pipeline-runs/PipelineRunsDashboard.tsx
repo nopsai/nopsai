@@ -1,48 +1,28 @@
-import { useEffect, useMemo } from 'react';
-import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
-import {
-  Activity,
-  ArrowUpRight,
-  Boxes,
-  ChevronRight,
-  GitBranch,
-  PlayCircle,
-  Timer,
-  User,
-  UsersRound,
-  Webhook,
-} from 'lucide-react';
+import { useMemo } from 'react';
+import { ChevronRight } from 'lucide-react';
 import type { RunListItem } from './contracts';
 import {
   BranchIcon,
-  BranchRunsSection,
   CommitIcon,
   RunCard,
   RunCollection,
-  RunStatusIcon,
 } from './PipelineRunCards';
+import { PipelineRunsOverview } from './PipelineRunsOverview';
 import {
-  buildRunSourceTeams,
-  formatBranch,
+  filterPipelineRuns,
+  flattenRunsByBranch,
+  type PipelineRunSourceFilter,
+  type PipelineRunStatusFilter,
+} from './overviewModel';
+import {
   formatBranchDisplay,
   formatRepoLabel,
   formatTriggerId,
-  teamDisplayName,
-  teamPathForURL,
-  teamRepositoryLabel,
-  teamRepositoryURL,
-  isAppTeam,
-  runMatchesSearch,
-  runTimestamp,
+  summarizeStatus,
   timeAgo,
   type Team,
-  type RepoSummary,
-  type RunSourceTeam,
-  type RunSourceKind,
 } from './runPresentation';
 import { getStatusMeta, normalizeStatus } from './statusPresentation';
-import { teamScopedRoute } from '../../lib/teamRoutes';
 
 type TabKey = 'main' | 'recent' | 'events';
 
@@ -53,19 +33,6 @@ type TriggerTeam = {
   latestRun?: RunListItem;
 };
 
-function runSourceIcon(kind: RunSourceKind) {
-  switch (kind) {
-    case 'repository':
-      return <GitBranch className="h-4 w-4" />;
-    case 'schedule':
-      return <Timer className="h-4 w-4" />;
-    case 'external':
-      return <Webhook className="h-4 w-4" />;
-    default:
-      return <PlayCircle className="h-4 w-4" />;
-  }
-}
-
 export function PipelineRunsDashboard({
   activeTab,
   teams,
@@ -73,7 +40,6 @@ export function PipelineRunsDashboard({
   teamsError,
   onSelectTeam,
   activeTeamId,
-  activeTeamPath,
   activeTeamURLValue,
   runsByBranch,
   recentRuns,
@@ -82,8 +48,8 @@ export function PipelineRunsDashboard({
   runsLoading,
   runsError,
   searchTerm,
-  repoSummaries,
-  fetchRepoSummary,
+  sourceFilter,
+  statusFilter,
   onOpenRun,
   onSelectRun,
   selectedRunIds,
@@ -91,9 +57,6 @@ export function PipelineRunsDashboard({
   onToggleEventTeam,
   onCollapseAllEvents,
   onExpandAllEvents,
-  collapsedBranches,
-  onToggleBranch,
-  onDeleteBranch,
 }: {
   activeTab: TabKey;
   teams: Team[];
@@ -101,7 +64,6 @@ export function PipelineRunsDashboard({
   teamsError: string | null;
   onSelectTeam: (id: number | null) => void;
   activeTeamId: number | null;
-  activeTeamPath: Team[];
   activeTeamURLValue: string;
   runsByBranch: Record<string, RunListItem[]>;
   recentRuns: RunListItem[];
@@ -110,8 +72,8 @@ export function PipelineRunsDashboard({
   runsLoading: boolean;
   runsError: string | null;
   searchTerm: string;
-  repoSummaries: Map<number, RepoSummary>;
-  fetchRepoSummary: (teamId: number) => Promise<void>;
+  sourceFilter: PipelineRunSourceFilter;
+  statusFilter: PipelineRunStatusFilter;
   onOpenRun: (id: string) => void;
   onSelectRun: (id: string) => void;
   selectedRunIds: Set<string>;
@@ -119,166 +81,55 @@ export function PipelineRunsDashboard({
   onToggleEventTeam: (id: string) => void;
   onCollapseAllEvents: () => void;
   onExpandAllEvents: () => void;
-  collapsedBranches: Set<string>;
-  onToggleBranch: (branch: string, scrollIntoView?: boolean) => void;
-  onDeleteBranch: (branch: string) => void;
 }) {
-  const term = searchTerm.trim().toLowerCase();
-  const effectiveViewMode = activeTab === 'main' ? 'grid' : viewMode;
-
-  const childTeams = useMemo(() => {
-    if (activeTab !== 'main') return [] as Team[];
-    return teams.filter(g => (g.parent_id ?? null) === (activeTeamId ?? null));
-  }, [activeTeamId, activeTab, teams]);
-
-  const visibleTeams = useMemo(() => {
-    if (activeTab !== 'main') return [] as Team[];
-    if (!term) return childTeams;
-    return childTeams.filter(team =>
-      [team.name, team.repository_full_name, team.repo_url]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-        .includes(term)
-    );
-  }, [activeTab, childTeams, term]);
-
-  const repoTeams = useMemo(() => visibleTeams.filter(team => isAppTeam(team)), [visibleTeams]);
-  const teamTeams = useMemo(() => visibleTeams.filter(team => !isAppTeam(team)), [visibleTeams]);
-
-  const filteredRunsByBranch = useMemo(() => {
-    if (activeTab !== 'main') return runsByBranch;
-    if (!term) return runsByBranch;
-    return Object.entries(runsByBranch).reduce<Record<string, RunListItem[]>>((acc, [branch, runs]) => {
-      const filtered = runs.filter(run => runMatchesSearch(run, term));
-      if (filtered.length) acc[branch] = filtered;
-      return acc;
-    }, {});
-  }, [activeTab, runsByBranch, term]);
-
-  const selectedRuns = useMemo(() => {
-    if (activeTab !== 'main') return [] as RunListItem[];
-    return Object.values(filteredRunsByBranch)
-      .flat()
-      .sort((a, b) => runTimestamp(b) - runTimestamp(a));
-  }, [activeTab, filteredRunsByBranch]);
-
-  const runSourceTeams = useMemo(
-    () => buildRunSourceTeams(filteredRunsByBranch),
-    [filteredRunsByBranch]
+  const flattenedBranchRuns = useMemo(() => flattenRunsByBranch(runsByBranch), [runsByBranch]);
+  const overviewBaseRuns = flattenedBranchRuns.length ? flattenedBranchRuns : recentRuns;
+  const overviewRuns = useMemo(
+    () => filterPipelineRuns(overviewBaseRuns, { searchTerm, sourceFilter, statusFilter }),
+    [overviewBaseRuns, searchTerm, sourceFilter, statusFilter]
   );
-
-  useEffect(() => {
-    if (activeTab !== 'main') return;
-    visibleTeams.forEach(team => {
-      if (isAppTeam(team) && !repoSummaries.has(team.id)) {
-        void fetchRepoSummary(team.id);
-      }
-    });
-  }, [activeTab, fetchRepoSummary, repoSummaries, visibleTeams]);
+  const filteredRecentRuns = useMemo(
+    () => filterPipelineRuns(recentRuns, { sourceFilter, statusFilter }),
+    [recentRuns, sourceFilter, statusFilter]
+  );
+  const filteredEvents = useMemo(
+    () =>
+      teamedEvents
+        .map(team => {
+          const runs = filterPipelineRuns(team.runs, { sourceFilter, statusFilter });
+          return {
+            ...team,
+            runs,
+            status: summarizeStatus(runs),
+            latestRun: runs.find(run => run.started_at) || runs[0],
+          };
+        })
+        .filter(team => team.runs.length > 0),
+    [sourceFilter, statusFilter, teamedEvents]
+  );
 
   if (runsError) {
     return <div className="text-red-500 text-sm">{runsError}</div>;
   }
 
   if (activeTab === 'main') {
-    const hasSearch = Boolean(term);
-    const mainSearchRuns = hasSearch ? recentRuns : [];
-
-    const activeTeam = activeTeamPath.length ? activeTeamPath[activeTeamPath.length - 1] : null;
-
     return (
-      <div className="space-y-4">
-        {teamsError && <div className="text-red-500 text-sm">{teamsError}</div>}
-
-        {activeTeamPath.length > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center flex-wrap gap-2 text-sm text-[var(--text-secondary)]">
-              <button
-                type="button"
-                className="runner-pill runner-pill--muted"
-                onClick={() => onSelectTeam(null)}
-                aria-label="Back to root teams"
-              >
-                All teams
-              </button>
-              {activeTeamPath.map((team: Team) => (
-                <div key={team.id} className="flex items-center gap-2">
-                  <span className="text-[var(--border-primary)]">/</span>
-                  <button
-                    type="button"
-                    className={`runner-pill ${team.id === activeTeamId ? 'runner-pill--muted' : 'runner-pill--ghost'}`}
-                    onClick={() => onSelectTeam(team.id)}
-                  >
-                    {team.name}
-                  </button>
-                </div>
-              ))}
-            </div>
-            {activeTeam && (
-              <Link className="glass-button-subtle" to={teamScopedRoute('/teams', activeTeamURLValue || teamPathForURL(activeTeam, teams))}>
-                Manage team
-              </Link>
-            )}
-          </div>
-        )}
-
-        {hasSearch ? (
-          <RunCollection runs={mainSearchRuns} viewMode={viewMode} onOpenRun={onOpenRun} onSelectRun={onSelectRun} selectedRunIds={selectedRunIds} />
-        ) : teamsLoading && !teams.length ? (
-          <div className="text-sm text-[var(--text-secondary)]">Loading teams...</div>
-        ) : (
-          <div className="space-y-7">
-            <DashboardPanel
-              title="Teams"
-              count={teamTeams.length}
-              icon={<UsersRound className="h-4 w-4" />}
-              emptyLabel="No teams."
-            >
-              <TeamGrid
-                teams={teamTeams}
-                allTeams={teams}
-                activeTeamId={activeTeamId}
-                repoSummaries={repoSummaries}
-                onSelect={onSelectTeam}
-              />
-            </DashboardPanel>
-
-            <DashboardPanel
-              title="Applications"
-              count={repoTeams.length}
-              icon={<Boxes className="h-4 w-4" />}
-              emptyLabel="No applications."
-            >
-              <TeamGrid
-                teams={repoTeams}
-                allTeams={teams}
-                activeTeamId={activeTeamId}
-                repoSummaries={repoSummaries}
-                onSelect={onSelectTeam}
-              />
-            </DashboardPanel>
-
-            <DashboardPanel
-              title="Runs"
-              count={selectedRuns.length}
-              icon={<Activity className="h-4 w-4" />}
-              emptyLabel="No runs."
-            >
-              <RunSourcesView
-                teams={runSourceTeams}
-                viewMode={viewMode}
-                onOpenRun={onOpenRun}
-                onSelectRun={onSelectRun}
-                selectedRunIds={selectedRunIds}
-                collapsedBranches={collapsedBranches}
-                onToggleBranch={onToggleBranch}
-                onDeleteBranch={onDeleteBranch}
-              />
-            </DashboardPanel>
-          </div>
-        )}
-      </div>
+      <PipelineRunsOverview
+        teams={teams}
+        teamsLoading={teamsLoading}
+        teamsError={teamsError}
+        activeTeamId={activeTeamId}
+        activeTeamURLValue={activeTeamURLValue}
+        runs={overviewRuns}
+        runsLoading={runsLoading}
+        searchTerm={searchTerm}
+        sourceFilter={sourceFilter}
+        statusFilter={statusFilter}
+        selectedRunIds={selectedRunIds}
+        onSelectTeam={onSelectTeam}
+        onOpenRun={onOpenRun}
+        onSelectRun={onSelectRun}
+      />
     );
   }
 
@@ -295,11 +146,11 @@ export function PipelineRunsDashboard({
           </button>
         </div>
         {runsLoading && <div className="text-sm text-[var(--text-secondary)]">Loading runs…</div>}
-        {teamedEvents.length === 0 && !runsLoading ? (
+        {filteredEvents.length === 0 && !runsLoading ? (
           <div className="text-sm text-[var(--text-secondary)]">No trigger events yet.</div>
         ) : (
           <div className="space-y-3">
-            {teamedEvents.map(team => (
+            {filteredEvents.map(team => (
               <EventCard
                 key={team.id}
                 team={team}
@@ -318,273 +169,12 @@ export function PipelineRunsDashboard({
     <div className="space-y-3">
       {runsLoading && <div className="text-sm text-[var(--text-secondary)]">Loading runs…</div>}
       <RunCollection
-        runs={recentRuns}
-        viewMode={effectiveViewMode}
+        runs={filteredRecentRuns}
+        viewMode={viewMode}
         onOpenRun={onOpenRun}
         onSelectRun={onSelectRun}
         selectedRunIds={selectedRunIds}
       />
-    </div>
-  );
-}
-
-function DashboardPanel({
-  title,
-  count,
-  icon,
-  emptyLabel,
-  children,
-}: {
-  title: string;
-  count: number;
-  icon: ReactNode;
-  emptyLabel: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="pipeline-dashboard-section">
-      <header className="pipeline-dashboard-section-header">
-        <div className="pipeline-dashboard-section-title">
-          <span className="pipeline-dashboard-section-icon" aria-hidden="true">{icon}</span>
-          <h2>{title}</h2>
-        </div>
-        <span className="runner-pill runner-pill--muted">{count}</span>
-      </header>
-      {count > 0 ? children : <div className="pipeline-dashboard-empty-state">{emptyLabel}</div>}
-    </section>
-  );
-}
-
-function RunSourcesView({
-  teams,
-  viewMode,
-  onOpenRun,
-  onSelectRun,
-  selectedRunIds,
-  collapsedBranches,
-  onToggleBranch,
-  onDeleteBranch,
-}: {
-  teams: RunSourceTeam[];
-  viewMode: 'grid' | 'list';
-  onOpenRun: (id: string) => void;
-  onSelectRun: (id: string) => void;
-  selectedRunIds: Set<string>;
-  collapsedBranches: Set<string>;
-  onToggleBranch: (branch: string, scrollIntoView?: boolean) => void;
-  onDeleteBranch: (branch: string) => void;
-}) {
-  if (!teams.length) return null;
-  return (
-    <div className="space-y-5">
-      {teams.map(team => (
-        <RunSourceSection
-          key={team.kind}
-          team={team}
-          viewMode={viewMode}
-          onOpenRun={onOpenRun}
-          onSelectRun={onSelectRun}
-          selectedRunIds={selectedRunIds}
-          collapsedBranches={collapsedBranches}
-          onToggleBranch={onToggleBranch}
-          onDeleteBranch={onDeleteBranch}
-        />
-      ))}
-    </div>
-  );
-}
-
-function RunSourceSection({
-  team,
-  viewMode,
-  onOpenRun,
-  onSelectRun,
-  selectedRunIds,
-  collapsedBranches,
-  onToggleBranch,
-  onDeleteBranch,
-}: {
-  team: RunSourceTeam;
-  viewMode: 'grid' | 'list';
-  onOpenRun: (id: string) => void;
-  onSelectRun: (id: string) => void;
-  selectedRunIds: Set<string>;
-  collapsedBranches: Set<string>;
-  onToggleBranch: (branch: string, scrollIntoView?: boolean) => void;
-  onDeleteBranch: (branch: string) => void;
-}) {
-  const icon = runSourceIcon(team.kind);
-  const branches = team.branches || {};
-  const branchEntries = Object.entries(branches).sort(([a], [b]) => a.localeCompare(b));
-  const sortedRuns = useMemo(() => [...team.runs].sort((a, b) => runTimestamp(b) - runTimestamp(a)), [team.runs]);
-
-  return (
-    <section className="pipeline-run-source-section">
-      <header className="pipeline-run-source-header">
-        <div className="pipeline-run-source-title">
-          <span className="pipeline-run-source-icon" aria-hidden="true">{icon}</span>
-          <h3>{team.label}</h3>
-        </div>
-        <span className="runner-pill runner-pill--muted">{team.runs.length}</span>
-      </header>
-
-      {branchEntries.length > 0 ? (
-        <div className="space-y-4">
-          {branchEntries.map(([branch, runs]) => (
-            <BranchRunsSection
-              key={branch}
-              branch={branch}
-              runs={runs}
-              onOpenRun={onOpenRun}
-              onSelectRun={onSelectRun}
-              selectedRunIds={selectedRunIds}
-              collapsed={collapsedBranches.has(branch)}
-              onToggleBranch={() => onToggleBranch(branch, collapsedBranches.has(branch))}
-              onDeleteBranch={() => onDeleteBranch(branch)}
-            />
-          ))}
-        </div>
-      ) : (
-        <RunCollection
-          runs={sortedRuns}
-          viewMode={viewMode}
-          onOpenRun={onOpenRun}
-          onSelectRun={onSelectRun}
-          selectedRunIds={selectedRunIds}
-        />
-      )}
-    </section>
-  );
-}
-
-function TeamGrid({
-  teams,
-  allTeams,
-  activeTeamId,
-  repoSummaries,
-  onSelect,
-}: {
-  teams: Team[];
-  allTeams: Team[];
-  activeTeamId: number | null;
-  repoSummaries: Map<number, RepoSummary>;
-  onSelect: (id: number) => void;
-}) {
-  if (!teams.length) return null;
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-      {teams.map(team => {
-        const isRepo = isAppTeam(team);
-        const description = (team.description || '').trim();
-        const isActive = activeTeamId === team.id;
-        const summary = repoSummaries.get(team.id);
-        const applications = allTeams.filter(child => (child.parent_id ?? null) === team.id && isAppTeam(child)).length;
-        const subteams = allTeams.filter(child => (child.parent_id ?? null) === team.id && !isAppTeam(child)).length;
-        const displayName = teamDisplayName(team);
-        const repoURL = teamRepositoryURL(team);
-        const repoLabel = teamRepositoryLabel(team);
-        if (isRepo) {
-          return (
-            <div
-              key={team.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => onSelect(team.id)}
-              onKeyDown={event => {
-                if (event.key === 'Enter') onSelect(team.id);
-              }}
-              className={`relative team bg-[var(--bg-secondary)] p-4 rounded-md hover:bg-[var(--bg-tertiary)] transition-colors duration-200 border border-[var(--border-primary)] hover:border-[var(--border-accent)] shadow-sm hover:shadow-lg flex flex-col justify-between min-h-[220px] ${isActive ? 'run-link-highlight' : ''}`}
-            >
-              <div className="flex items-center">
-                <svg className="h-8 w-8 text-[var(--text-accent)] mr-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                  <circle cx="8" cy="7" r="2.2" fill="currentColor" />
-                  <circle cx="8" cy="17" r="2.2" fill="currentColor" />
-                  <circle cx="16" cy="7" r="2.2" fill="currentColor" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" d="M10.2 7h3.8M8 9v6a4 4 0 004 4h4" />
-                </svg>
-                <span className="text-lg font-medium text-[var(--text-primary)] truncate" title={displayName}>
-                  {displayName}
-                </span>
-              </div>
-              {repoURL && (
-                <a
-                  href={repoURL}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-3 inline-flex min-w-0 items-center gap-1.5 text-xs font-medium text-[var(--text-accent)] hover:underline"
-                  title={repoURL}
-                  onClick={event => event.stopPropagation()}
-                >
-                  <ArrowUpRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                  <span className="truncate">{repoLabel || repoURL}</span>
-                </a>
-              )}
-              {summary ? (
-                <div className="mt-4 pt-3 border-t border-[var(--border-primary)] text-xs text-[var(--text-secondary)] font-mono space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center">
-                      <RunStatusIcon status={summary.status} complete />
-                      <span className="font-semibold text-sm text-[var(--text-primary)] truncate ml-2">{formatBranch(summary.branch)}</span>
-                    </div>
-                    <span className="text-xs text-[var(--text-secondary)] flex-shrink-0 ml-2">{timeAgo(summary.started_at)}</span>
-                  </div>
-                  <div className="flex items-center">
-                    <CommitIcon className="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" />
-                    <span className="truncate">{summary.commit || '—'}</span>
-                  </div>
-                  <div className="flex items-center">
-                    <User className="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" aria-hidden="true" />
-                    <span className="truncate">{summary.pusher || 'N/A'}</span>
-                  </div>
-                </div>
-              ) : (
-                <p className="mt-3 text-sm text-[var(--text-secondary)]">No runs yet.</p>
-              )}
-            </div>
-          );
-        }
-
-        return (
-          <div
-            key={team.id}
-            role="button"
-            tabIndex={0}
-            onClick={() => onSelect(team.id)}
-            onKeyDown={event => {
-              if (event.key === 'Enter') onSelect(team.id);
-            }}
-            className={`pipeline-team-card border border-[var(--border-primary)] ${isActive ? 'run-link-highlight' : ''}`}
-          >
-            <div className="pipeline-team-card-header">
-              <span className="pipeline-team-icon">
-                <UsersRound className="h-6 w-6" aria-hidden="true" />
-              </span>
-              <h3 className="pipeline-team-title" title={displayName}>
-                {displayName}
-              </h3>
-              <div className="pipeline-team-actions">
-                <span className="pipeline-team-chevron" aria-hidden="true">
-                  <ChevronRight className="h-4 w-4" />
-                </span>
-              </div>
-            </div>
-            {description && <p className="pipeline-team-description" title={description}>{description}</p>}
-            <div className="pipeline-team-meta">
-              <div className="pipeline-team-meta-row">
-                <span className="pipeline-team-meta-label">Applications:</span>
-                <span className="pipeline-team-meta-value">{applications}</span>
-              </div>
-              <div className="pipeline-team-meta-row">
-                <span className="pipeline-team-meta-label">Teams:</span>
-                <span className="pipeline-team-meta-value">{subteams}</span>
-              </div>
-            </div>
-            {team.last_run_at && (
-              <p className="mt-2 text-[11px] text-[var(--text-secondary)]">Last run {timeAgo(team.last_run_at)}</p>
-            )}
-          </div>
-        );
-      })}
     </div>
   );
 }

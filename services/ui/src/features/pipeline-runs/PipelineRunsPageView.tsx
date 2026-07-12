@@ -2,7 +2,8 @@ import type { Dispatch, RefObject, SetStateAction } from 'react';
 import { NavLink } from 'react-router-dom';
 import { Grid2X2, List, Search, X } from 'lucide-react';
 import type { RunListItem } from './contracts';
-import type { Team, RepoSummary } from './runPresentation';
+import type { Team } from './runPresentation';
+import type { PipelineRunSourceFilter, PipelineRunStatusFilter } from './overviewModel';
 import { PipelineRunsDashboard } from './PipelineRunsDashboard';
 import { RunDetailView } from './RunDetailPanel';
 import { PipelineDefinitionModal, StepDetailModal } from './RunGraphModals';
@@ -20,7 +21,6 @@ type SearchUpdateValue = string | number | null | undefined;
 type PipelineRunsPageViewProps = {
   activeTab: PipelineRunsTabKey;
   activeTeamId: number | null;
-  activeTeamPath: Team[];
   activeTeamURLValue: string;
   activeRunId: string | null;
   searchTerm: string;
@@ -31,6 +31,10 @@ type PipelineRunsPageViewProps = {
   updateSearchParams: (updates: Record<string, SearchUpdateValue>) => void;
   viewMode: 'grid' | 'list';
   setViewMode: Dispatch<SetStateAction<'grid' | 'list'>>;
+  sourceFilter: PipelineRunSourceFilter;
+  statusFilter: PipelineRunStatusFilter;
+  onSourceFilterChange: (filter: PipelineRunSourceFilter) => void;
+  onStatusFilterChange: (filter: PipelineRunStatusFilter) => void;
   mainContentRef: RefObject<HTMLDivElement | null>;
   isViewingDetail: boolean;
   showSelectionBar: boolean;
@@ -45,8 +49,6 @@ type PipelineRunsPageViewProps = {
   teamedEvents: PipelineRunsTriggerTeam[];
   runsLoading: boolean;
   runsError: string | null;
-  repoSummaries: Map<number, RepoSummary>;
-  fetchRepoSummary: (teamId: number) => Promise<void>;
   onSelectTeam: (teamId: number | null) => void;
   handleOpenRun: (runId: string) => void;
   handleRunSelect: (runId: string) => void;
@@ -54,9 +56,6 @@ type PipelineRunsPageViewProps = {
   toggleEventTeam: (id: string) => void;
   collapseAllEvents: () => void;
   expandAllEvents: () => void;
-  collapsedBranches: Set<string>;
-  toggleBranchCollapse: (branch: string, scrollIntoView?: boolean) => void;
-  handleDeleteBranch: (branch: string) => Promise<void>;
   runDetail: PipelineRunDetail | null;
   runDetailLoading: boolean;
   runDetailError: string | null;
@@ -81,15 +80,32 @@ type PipelineRunsPageViewProps = {
 };
 
 const tabs: Array<{ id: PipelineRunsTabKey; label: string }> = [
-  { id: 'main', label: 'Main' },
-  { id: 'recent', label: 'Recent' },
+  { id: 'main', label: 'Overview' },
+  { id: 'recent', label: 'All runs' },
   { id: 'events', label: 'Events' },
+];
+
+const sourceFilterOptions: Array<{ value: PipelineRunSourceFilter; label: string }> = [
+  { value: 'all', label: 'All sources' },
+  { value: 'repository', label: 'Repository' },
+  { value: 'schedule', label: 'Schedule' },
+  { value: 'external', label: 'External' },
+  { value: 'manual', label: 'Manual' },
+];
+
+const statusFilterOptions: Array<{ value: PipelineRunStatusFilter; label: string }> = [
+  { value: 'all', label: 'Any status' },
+  { value: 'attention', label: 'Needs attention' },
+  { value: 'running', label: 'Running' },
+  { value: 'failure', label: 'Failed' },
+  { value: 'waiting_approval', label: 'Waiting approval' },
+  { value: 'success', label: 'Success' },
+  { value: 'pending', label: 'Pending' },
 ];
 
 export function PipelineRunsPageView({
   activeTab,
   activeTeamId,
-  activeTeamPath,
   activeTeamURLValue,
   activeRunId,
   searchTerm,
@@ -100,6 +116,10 @@ export function PipelineRunsPageView({
   updateSearchParams,
   viewMode,
   setViewMode,
+  sourceFilter,
+  statusFilter,
+  onSourceFilterChange,
+  onStatusFilterChange,
   mainContentRef,
   isViewingDetail,
   showSelectionBar,
@@ -114,8 +134,6 @@ export function PipelineRunsPageView({
   teamedEvents,
   runsLoading,
   runsError,
-  repoSummaries,
-  fetchRepoSummary,
   onSelectTeam,
   handleOpenRun,
   handleRunSelect,
@@ -123,9 +141,6 @@ export function PipelineRunsPageView({
   toggleEventTeam,
   collapseAllEvents,
   expandAllEvents,
-  collapsedBranches,
-  toggleBranchCollapse,
-  handleDeleteBranch,
   runDetail,
   runDetailLoading,
   runDetailError,
@@ -152,12 +167,14 @@ export function PipelineRunsPageView({
     const params = new URLSearchParams();
     const query = searchTerm.trim();
     if (query) params.set('q', query);
+    if (sourceFilter !== 'all') params.set('source', sourceFilter);
+    if (statusFilter !== 'all') params.set('status', statusFilter);
     const search = params.toString();
     return `${buildPipelineRunsRoute(tab, activeTeamURLValue)}${search ? `?${search}` : ''}`;
   };
 
   return (
-    <div data-page="pipelineruns" className="active min-h-screen flex flex-col overflow-x-hidden overflow-y-auto">
+    <div data-page="pipelineruns" className="active h-full min-h-0 flex flex-col overflow-hidden">
       <div className="px-6 pt-6 flex-shrink-0 tabs-nav-wrapper">
         <div className="border-b border-[var(--border-primary)]">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -177,56 +194,70 @@ export function PipelineRunsPageView({
                 </NavLink>
               ))}
             </nav>
-            {!isViewingDetail && (
-              <div className="flex items-center gap-2 flex-shrink-0 order-1 sm:order-2">
-                {activeTab === 'recent' && <ViewToggle viewMode={viewMode} onChange={setViewMode} />}
-                <div className={`pipelines-search-shell ${searchOpen ? 'open' : ''}`}>
+          </div>
+          {!isViewingDetail && (
+            <div className="pipeline-runs-filterbar">
+              <label className={`pipeline-runs-search-field ${searchOpen ? 'pipeline-runs-search-field--active' : ''}`}>
+                <Search className="h-4 w-4" aria-hidden="true" />
+                <span className="sr-only">Search pipeline runs</span>
+                <input
+                  ref={searchInputRef}
+                  id="pipeline-runs-search"
+                  type="text"
+                  placeholder="Search pipeline, branch, commit, or run ID"
+                  value={searchTerm}
+                  onFocus={() => setSearchOpen(true)}
+                  onChange={event => {
+                    setSearchTerm(event.target.value);
+                    if (event.target.value && !searchOpen) setSearchOpen(true);
+                    updateSearchParams({ q: event.target.value || null });
+                  }}
+                  onBlur={() => {
+                    if (!searchTerm.trim()) setSearchOpen(false);
+                  }}
+                />
+                {(searchTerm || searchOpen) && (
                   <button
                     type="button"
-                    className="pipelines-search-toggle"
-                    aria-label="Search pipeline runs"
+                    className="pipeline-runs-search-clear"
                     onClick={() => {
-                      setSearchOpen(true);
-                      requestAnimationFrame(() => searchInputRef.current?.focus());
+                      setSearchTerm('');
+                      setSearchOpen(false);
+                      updateSearchParams({ q: null });
+                      searchInputRef.current?.blur();
                     }}
+                    aria-label="Clear search"
                   >
-                    <Search className="h-4 w-4" aria-hidden="true" />
+                    <X className="h-4 w-4" aria-hidden="true" />
                   </button>
-                  <input
-                    ref={searchInputRef}
-                    id="pipeline-runs-search"
-                    type="text"
-                    placeholder="Search runs"
-                    className="pipelines-search-input"
-                    value={searchTerm}
-                    onChange={event => {
-                      setSearchTerm(event.target.value);
-                      if (event.target.value && !searchOpen) setSearchOpen(true);
-                      updateSearchParams({ q: event.target.value || null });
-                    }}
-                    onBlur={() => {
-                      if (!searchTerm.trim()) setSearchOpen(false);
-                    }}
-                  />
-                  {(searchTerm || searchOpen) && (
-                    <button
-                      type="button"
-                      className="pipelines-search-clear"
-                      onClick={() => {
-                        setSearchTerm('');
-                        setSearchOpen(false);
-                        updateSearchParams({ q: null });
-                        searchInputRef.current?.blur();
-                      }}
-                      aria-label="Clear search"
-                    >
-                      <X className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                  )}
-                </div>
+                )}
+              </label>
+              <div className="pipeline-runs-segmented" role="group" aria-label="Filter by run source">
+                {sourceFilterOptions.map(option => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`pipeline-runs-segment ${sourceFilter === option.value ? 'pipeline-runs-segment--active' : ''}`}
+                    aria-pressed={sourceFilter === option.value}
+                    onClick={() => onSourceFilterChange(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
               </div>
-            )}
-          </div>
+              <select
+                className="pipeline-runs-select"
+                aria-label="Filter by run status"
+                value={statusFilter}
+                onChange={event => onStatusFilterChange(event.target.value as PipelineRunStatusFilter)}
+              >
+                {statusFilterOptions.map(option => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+              {activeTab === 'recent' && <ViewToggle viewMode={viewMode} onChange={setViewMode} />}
+            </div>
+          )}
           {showSelectionBar && (
             <div className="mt-3">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-lg px-4 py-3 text-sm">
@@ -253,8 +284,8 @@ export function PipelineRunsPageView({
         </div>
       </div>
 
-      <div className="flex-1 min-h-0">
-        <main id="main-content-runs" ref={mainContentRef} className="h-full min-h-0 overflow-y-auto p-6 space-y-4">
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <main id="main-content-runs" ref={mainContentRef} className="pipeline-runs-main-scroll h-full min-h-0 overflow-y-auto p-6 space-y-4">
           {runDetail && activeRunId ? (
             <RunDetailView
               detail={runDetail}
@@ -293,7 +324,6 @@ export function PipelineRunsPageView({
               teamsError={teamsError}
               onSelectTeam={onSelectTeam}
               activeTeamId={activeTeamId}
-              activeTeamPath={activeTeamPath}
               activeTeamURLValue={activeTeamURLValue}
               runsByBranch={runsByBranch}
               recentRuns={filteredRecentRuns}
@@ -302,8 +332,8 @@ export function PipelineRunsPageView({
               runsLoading={runsLoading}
               runsError={runsError}
               searchTerm={searchTerm}
-              repoSummaries={repoSummaries}
-              fetchRepoSummary={fetchRepoSummary}
+              sourceFilter={sourceFilter}
+              statusFilter={statusFilter}
               onOpenRun={handleOpenRun}
               onSelectRun={handleRunSelect}
               selectedRunIds={selectedRunIds}
@@ -311,9 +341,6 @@ export function PipelineRunsPageView({
               onToggleEventTeam={toggleEventTeam}
               onCollapseAllEvents={collapseAllEvents}
               onExpandAllEvents={expandAllEvents}
-              collapsedBranches={collapsedBranches}
-              onToggleBranch={toggleBranchCollapse}
-              onDeleteBranch={handleDeleteBranch}
             />
           )}
         </main>
@@ -366,11 +393,12 @@ export function PipelineRunsPageView({
 function ViewToggle({ viewMode, onChange }: { viewMode: 'grid' | 'list'; onChange: (mode: 'grid' | 'list') => void }) {
   const isGrid = viewMode !== 'list';
   return (
-    <div className="runs-view-toggle" role="team" aria-label="Pipeline run layout">
+    <div className="runs-view-toggle" role="group" aria-label="Pipeline run layout">
       <button
         type="button"
         className={`runs-view-toggle__btn ${isGrid ? 'runs-view-toggle__btn--active' : ''}`}
         aria-pressed={isGrid}
+        aria-label="Grid view"
         onClick={() => onChange('grid')}
         title="Grid view"
       >
@@ -380,6 +408,7 @@ function ViewToggle({ viewMode, onChange }: { viewMode: 'grid' | 'list'; onChang
         type="button"
         className={`runs-view-toggle__btn ${!isGrid ? 'runs-view-toggle__btn--active' : ''}`}
         aria-pressed={!isGrid}
+        aria-label="List view"
         onClick={() => onChange('list')}
         title="List view"
       >
