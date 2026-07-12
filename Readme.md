@@ -213,8 +213,8 @@ Prerequisites:
 
 6. Verify the git-bot runtime settings. Configure GitHub App IDs and credential
    references in **System > Config** or `setting/system/github.yaml`, store
-   encrypted private-key and webhook secret envelopes through **System >
-   Credentials** or `setting/system/credentials.yaml`, and set the public
+   encrypted private-key and webhook secret envelopes through **Credentials** or
+   `setting/system/credentials.yaml`, and set the public
    webhook URL on the GitHub App.
 
 7. Create one or two starter repository teams, apply setup, and run the starter
@@ -262,9 +262,10 @@ GitHub credential references live in `setting/system/github.yaml`; they are not
 accepted from `setting/system/runner.yaml`. Keep database URLs, master keys, and
 service JWT bootstrap keys in deployment secrets. Store operational integration
 credential values as encrypted envelopes in `setting/system/credentials.yaml` or
-write them through **System > Credentials** and let drift export the encrypted
-form. Feature files such as auth, GitHub, mail, LLM, MCP, runner, and Git webhook
-sources store only stable
+write them through **Credentials** and let drift export the encrypted form. Team
+credentials are created from the same page by selecting the owning team, which
+emits `credential://team/<team path>/...` references. Feature files such as auth,
+GitHub, mail, LLM, MCP, runner, and Git webhook sources store only stable
 credential references.
 Runtime settings saved from the UI or synced from GitOps are stored in the
 database as the durable source of truth. `config.yml`, `.env`, Docker Compose
@@ -425,7 +426,7 @@ Required GitHub App permissions:
 Manage GitHub App ID, installation ID, private-key credential reference, webhook
 credential reference, and internal git-bot URLs in **System > Config** or
 `setting/system/github.yaml`. Store encrypted private key and webhook secret
-versions in **System > Credentials** or `setting/system/credentials.yaml`; the
+versions in **Credentials** or `setting/system/credentials.yaml`; the
 runtime settings snapshot exposes only non-secret IDs and credential references.
 
 For local webhook simulation, see [doc/triggering.md](doc/triggering.md).
@@ -449,6 +450,11 @@ See [doc/git-webhook-sources.md](doc/git-webhook-sources.md).
 LLM-driven work is configured through system LLM profiles. Profiles can be
 managed in the UI/API or through the global config repository at
 `setting/system/llm_profile.yaml`.
+Team-scoped profiles use slash-separated IDs such as
+`platform/ml/reviewer`; users with matching team product grants can open the
+LLM, Agent Profile, and MCP topics, see only subjects they can read/use/manage,
+and create their own team-scoped subjects without seeing other teams' subjects.
+System-wide default profile changes remain global-system operations.
 
 Supported profile concepts include:
 
@@ -464,6 +470,9 @@ Supported profile concepts include:
 MCP servers and MCP profiles can be managed through system configuration at
 `setting/system/mcp.yaml`. The setup wizard can seed disabled MCP examples so
 operators can review and enable them deliberately.
+MCP server and profile IDs follow the same optional team path convention as LLM
+and agent profiles, so a team owner can manage `team/path/server` resources
+while global MCP subjects stay hidden unless separately granted.
 
 The Nopsai AI Assistant exposes Nopsai itself through a first-party hosted MCP
 endpoint at `POST /v1/mcp`. Tools are filtered through AAA, audited, and kept

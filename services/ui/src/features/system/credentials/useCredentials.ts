@@ -80,8 +80,8 @@ export function useCredentials({ canManage }: { canManage: boolean }) {
   const submitCreate = useCallback(async (event: FormEvent) => {
     event.preventDefault();
     if (!canManage) return;
-    if (!form.namespace.trim() || !form.name.trim() || !form.kind) {
-      setError('Namespace, name, and kind are required.');
+    if (!form.name.trim() || !form.kind) {
+      setError('Name and kind are required.');
       return;
     }
     setSaving(true);

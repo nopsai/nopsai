@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
@@ -6,6 +6,7 @@ import type { Team } from '../../lib/teamModels';
 import { TeamsWorkspace } from './TeamsWorkspace';
 import { defaultNotificationRouteDefinition } from './notificationRoutes';
 import type { TeamOperationsSummaryState } from './hooks/useTeamOperationsSummary';
+import type { TeamResourceCatalogState } from './resourceCatalogModel';
 
 const teams: Team[] = [
   {
@@ -91,16 +92,29 @@ const operationsSummary: TeamOperationsSummaryState = {
     team_id: 1,
     team_path: 'platform',
     default_profile: 'reviewer',
-    profiles: [{
-      id: 'reviewer',
-      display_name: 'Reviewer',
-      role: 'review',
-      instructions: 'Review changes',
-      enabled: true,
-      scope: 'team',
-      team_id: 1,
-      team_path: 'platform',
-    }],
+    profiles: [
+      {
+        id: 'devops-engineer',
+        display_name: 'DevOps Engineer',
+        role: 'operations',
+        instructions: 'Operate deployments',
+        enabled: true,
+        source: 'built-in',
+        scope: 'global',
+        team_id: 0,
+        team_path: '',
+      },
+      {
+        id: 'reviewer',
+        display_name: 'Reviewer',
+        role: 'review',
+        instructions: 'Review changes',
+        enabled: true,
+        scope: 'team',
+        team_id: 1,
+        team_path: 'platform',
+      },
+    ],
   },
   mcpProfiles: {
     team_id: 1,
@@ -203,6 +217,110 @@ const rootOperationsSummary: TeamOperationsSummaryState = {
   permissionsError: null,
 };
 
+const resourceCatalog: TeamResourceCatalogState = {
+  teamPath: 'platform',
+  loading: false,
+  error: null,
+  resources: [
+    {
+      id: 'pipeline:platform/deploy-api',
+      kind: 'pipeline',
+      label: 'deploy-api',
+      description: 'Pipeline in platform',
+      href: '/pipelines/platform/deploy-api',
+      teamPath: 'platform',
+      source: 'git',
+    },
+    {
+      id: 'step:platform/build',
+      kind: 'step',
+      label: 'build',
+      description: 'Step in platform',
+      href: '/steps/platform/build',
+      teamPath: 'platform',
+      source: 'git',
+    },
+    {
+      id: 'trigger:platform/acme/checkout-api',
+      kind: 'trigger',
+      label: 'checkout-api',
+      description: 'Trigger in platform/acme',
+      href: '/triggers/platform/acme/checkout-api',
+      teamPath: 'platform/acme',
+      source: 'database',
+    },
+    {
+      id: 'external_trigger:platform/release',
+      kind: 'external_trigger',
+      label: 'release',
+      description: 'Enabled external trigger / platform/deploy / runs in platform',
+      href: '/external-triggers/platform/release',
+      teamPath: 'platform',
+      source: 'database',
+    },
+    {
+      id: 'git_webhook_source:gitlab-platform',
+      kind: 'git_webhook_source',
+      label: 'GitLab Platform',
+      description: 'Enabled webhook source / gitlab / 1 allowed repos',
+      href: '/git-webhook-sources/gitlab-platform',
+      teamPath: '',
+      source: 'database',
+    },
+    {
+      id: 'schedule:nightly',
+      kind: 'schedule',
+      label: 'Nightly deploy',
+      description: 'Enabled schedule / cron / pipeline platform/deploy / runs in platform',
+      href: '/schedules?pipeline=platform%2Fdeploy',
+      teamPath: 'platform',
+      source: 'git',
+    },
+    {
+      id: 'knowledge_context:runbook/platform/restart',
+      kind: 'knowledge_context',
+      label: 'restart',
+      description: 'runbook / public',
+      href: '/knowledge-context/runbook/platform/restart',
+      teamPath: '',
+      source: 'git',
+    },
+    {
+      id: 'scope:platform/payments',
+      kind: 'scope',
+      label: 'payments',
+      description: '2 secrets in platform/payments',
+      href: '/scopes/platform/payments',
+      teamPath: 'platform/payments',
+    },
+    {
+      id: 'credential:credential://team/platform/openai',
+      kind: 'credential',
+      label: 'openai',
+      description: 'api_key in platform',
+      href: '/credentials?credential=credential%3A%2F%2Fteam%2Fplatform%2Fopenai',
+      teamPath: 'platform',
+      source: 'database',
+    },
+  ],
+};
+
+const rootResourceCatalog: TeamResourceCatalogState = {
+  teamPath: '',
+  loading: false,
+  error: null,
+  resources: [
+    {
+      id: 'scope:default',
+      kind: 'scope',
+      label: 'Default Scope',
+      description: '0 global secrets',
+      href: '/scopes/default',
+      teamPath: '',
+    },
+  ],
+};
+
 function renderWorkspace(overrides: Partial<Parameters<typeof TeamsWorkspace>[0]> = {}) {
   const props = {
     teams,
@@ -217,6 +335,7 @@ function renderWorkspace(overrides: Partial<Parameters<typeof TeamsWorkspace>[0]
     onDeleteTeam: vi.fn(),
     onOpenConfig: vi.fn(),
     operationsSummary,
+    resourceCatalog,
     currentUser: {
       sub: 'alice',
       email: 'alice@example.com',
@@ -241,12 +360,8 @@ describe('TeamsWorkspace', () => {
 
     expect(screen.getAllByRole('button', { name: 'New' })).toHaveLength(1);
     expect(screen.getByRole('tabpanel', { name: 'Overview' })).toBeVisible();
-
-    await user.click(screen.getByRole('tab', { name: 'Applications' }));
-    expect(screen.getByRole('tab', { name: 'Applications' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('heading', { name: 'Application Scope' })).toBeVisible();
-    expect(screen.queryByRole('heading', { name: 'Scoped Applications' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'acme/checkout-api' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Applications' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'AI Profiles' })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('tab', { name: 'GitOps' }));
     expect(screen.getByRole('heading', { name: 'platform GitOps' })).toBeVisible();
@@ -258,13 +373,6 @@ describe('TeamsWorkspace', () => {
     expect(screen.getByRole('heading', { name: 'platform Notifications' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Configure' })).toBeVisible();
     expect(screen.getByText(/GitOps target:/)).toBeVisible();
-
-    await user.click(screen.getByRole('tab', { name: 'AI Profiles' }));
-    expect(screen.getByRole('heading', { name: 'Team AI Profiles' })).toBeVisible();
-    expect(screen.getByRole('link', { name: 'LLM Profiles' })).toHaveAttribute('href', '/llm-profiles?team=platform');
-    expect(screen.getByRole('link', { name: 'Agent Profiles' })).toHaveAttribute('href', '/agent-profiles?team=platform');
-    expect(screen.getByRole('link', { name: 'MCP' })).toHaveAttribute('href', '/mcp?team=platform&view=profiles');
-    expect(screen.getByText('engineering-tools')).toBeVisible();
 
     await user.click(screen.getByRole('tab', { name: 'Access' }));
     expect(screen.getByRole('heading', { name: 'platform Access' })).toBeVisible();
@@ -297,7 +405,7 @@ describe('TeamsWorkspace', () => {
     expect(props.onOpenConfig).toHaveBeenCalledWith(navigationTeam, 'sync');
   });
 
-  it('links root GitOps to the global system config instead of opening team configuration', async () => {
+  it('links global GitOps to the system config instead of opening team configuration', async () => {
     const user = userEvent.setup();
     const props = renderWorkspace({
       activeTeam: null,
@@ -308,7 +416,7 @@ describe('TeamsWorkspace', () => {
     await user.click(screen.getByRole('tab', { name: 'GitOps' }));
 
     expect(screen.getByRole('heading', { name: 'Global GitOps' })).toBeVisible();
-    expect(screen.getByText(/Root uses the global system config repository/)).toBeVisible();
+    expect(screen.getByText(/Global uses the system config repository/)).toBeVisible();
     expect(screen.getByRole('link', { name: 'Open Global Config' })).toHaveAttribute('href', '/system/config');
     expect(screen.getByRole('link', { name: 'System Config' })).toHaveAttribute('href', '/system/config');
     expect(screen.queryByRole('tab', { name: 'Notifications' })).not.toBeInTheDocument();
@@ -322,31 +430,112 @@ describe('TeamsWorkspace', () => {
       activeTeam: null,
       activeTeamPath: [],
       operationsSummary: rootOperationsSummary,
+      resourceCatalog: rootResourceCatalog,
     });
 
     expect(screen.getByText('Organization resources and global automation configuration.')).toBeVisible();
     expect(screen.getByText('Agent Profiles')).toBeVisible();
     expect(screen.queryByText('View scope')).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Open LLM Profiles' })).toHaveAttribute('href', '/llm-profiles?team=global');
-    expect(screen.getByRole('link', { name: 'Open Agent Profiles' })).toHaveAttribute('href', '/agent-profiles?team=global');
-    expect(screen.getByRole('link', { name: 'Open MCP Profiles' })).toHaveAttribute('href', '/mcp?team=global&view=profiles');
+    expect(screen.queryByRole('tab', { name: 'Applications' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'AI Profiles' })).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Applications resources' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Open LLM Profiles' })).toHaveTextContent('1');
+    await user.click(screen.getByRole('button', { name: 'Open LLM Profiles' }));
+    expect(screen.getByRole('region', { name: 'LLM Profiles resources' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Open hosted' })).toHaveAttribute('href', '/llm-profiles?team=global');
 
-    await user.click(screen.getByRole('button', { name: 'Open Applications' }));
-    expect(screen.getByRole('tab', { name: 'Applications' })).toHaveAttribute('aria-selected', 'true');
+    await user.click(screen.getByRole('button', { name: 'Open Agent Profiles' }));
+    expect(screen.getByRole('region', { name: 'Agent Profiles resources' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Open DevOps Engineer' })).toHaveAttribute('href', '/agent-profiles?team=global');
 
-    await user.click(screen.getByRole('tab', { name: 'AI Profiles' }));
-    expect(screen.getByRole('heading', { name: 'Global AI Profiles' })).toBeVisible();
-    expect(screen.getByRole('link', { name: 'LLM Profiles' })).toHaveAttribute('href', '/llm-profiles?team=global');
-    expect(screen.getByRole('link', { name: 'Agent Profiles' })).toHaveAttribute('href', '/agent-profiles?team=global');
-    expect(screen.getByRole('link', { name: 'MCP' })).toHaveAttribute('href', '/mcp?team=global&view=profiles');
-    expect(screen.getByText('hosted')).toBeVisible();
-    expect(screen.getByText('DevOps Engineer')).toBeVisible();
-    expect(screen.getByText('github-global')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Open MCP Profiles' }));
+    expect(screen.getByRole('region', { name: 'MCP Profiles resources' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Open github-global' })).toHaveAttribute('href', '/mcp?team=global&view=profiles');
 
     await user.click(screen.getByRole('tab', { name: 'Access' }));
     expect(screen.getByRole('heading', { name: 'Global Access' })).toBeVisible();
     expect(screen.getByText('Platform Admin')).toBeVisible();
     expect(screen.getByRole('link', { name: 'Open Access' })).toHaveAttribute('href', '/system/access?resource_type=platform&resource_id=platform');
+  });
+
+  it('summarizes linked resource categories and lists the selected resource tab', async () => {
+    const user = userEvent.setup();
+    renderWorkspace();
+
+    expect(screen.queryByRole('button', { name: 'Open Repositories' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Linked Resources' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tablist', { name: 'Linked resource type' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open Applications' })).toHaveTextContent('2');
+    expect(screen.getByRole('button', { name: 'Open LLM Profiles' })).toHaveTextContent('1');
+    expect(screen.getByRole('button', { name: 'Open Agent Profiles' })).toHaveTextContent('2');
+    expect(screen.getByRole('button', { name: 'Open MCP Profiles' })).toHaveTextContent('1');
+    expect(screen.getByRole('button', { name: 'Open Notifications' })).toHaveTextContent('1');
+    expect(screen.getByRole('button', { name: 'Open Pipelines' })).toHaveTextContent('1');
+    expect(screen.getByRole('button', { name: 'Open Steps' })).toHaveTextContent('1');
+    expect(screen.getByRole('button', { name: 'Open Triggers' })).toHaveTextContent('1');
+    expect(screen.getByRole('button', { name: 'Open External Triggers' })).toHaveTextContent('1');
+    expect(screen.getByRole('button', { name: 'Open Git Webhook Sources' })).toHaveTextContent('1');
+    expect(screen.getByRole('button', { name: 'Open Schedules' })).toHaveTextContent('1');
+    expect(screen.getByRole('button', { name: 'Open Knowledge Context' })).toHaveTextContent('1');
+    expect(screen.getByRole('button', { name: 'Open Scopes' })).toHaveTextContent('1');
+    expect(screen.getByRole('button', { name: 'Open Credentials' })).toHaveTextContent('1');
+    const applicationsRegion = screen.getByRole('region', { name: 'Applications resources' });
+    expect(within(applicationsRegion).getByRole('link', { name: 'Open checkout-api' })).toHaveAttribute(
+      'href',
+      '/teams/team/platform/payments/checkout-api'
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Open LLM Profiles' }));
+    expect(screen.getByRole('region', { name: 'LLM Profiles resources' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Open fast' })).toHaveAttribute('href', '/llm-profiles?team=platform');
+
+    await user.click(screen.getByRole('button', { name: 'Open Agent Profiles' }));
+    expect(screen.getByRole('region', { name: 'Agent Profiles resources' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Open DevOps Engineer' })).toHaveAttribute('href', '/agent-profiles?team=global');
+    expect(screen.getByRole('link', { name: 'Open Reviewer' })).toHaveAttribute('href', '/agent-profiles?team=platform');
+
+    await user.click(screen.getByRole('button', { name: 'Open MCP Profiles' }));
+    expect(screen.getByRole('region', { name: 'MCP Profiles resources' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Open engineering-tools' })).toHaveAttribute('href', '/mcp?team=platform&view=profiles');
+
+    await user.click(screen.getByRole('button', { name: 'Open Pipelines' }));
+    expect(screen.getByRole('region', { name: 'Pipelines resources' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Open deploy-api' })).toHaveAttribute('href', '/pipelines/platform/deploy-api');
+
+    await user.click(screen.getByRole('button', { name: 'Open Steps' }));
+    expect(screen.getByRole('region', { name: 'Steps resources' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Open build' })).toHaveAttribute('href', '/steps/platform/build');
+
+    await user.click(screen.getByRole('button', { name: 'Open Triggers' }));
+    expect(screen.getByRole('region', { name: 'Triggers resources' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Open checkout-api' })).toHaveAttribute('href', '/triggers/platform/acme/checkout-api');
+
+    await user.click(screen.getByRole('button', { name: 'Open External Triggers' }));
+    expect(screen.getByRole('region', { name: 'External Triggers resources' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Open release' })).toHaveAttribute('href', '/external-triggers/platform/release');
+
+    await user.click(screen.getByRole('button', { name: 'Open Git Webhook Sources' }));
+    expect(screen.getByRole('region', { name: 'Git Webhook Sources resources' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Open GitLab Platform' })).toHaveAttribute('href', '/git-webhook-sources/gitlab-platform');
+
+    await user.click(screen.getByRole('button', { name: 'Open Schedules' }));
+    expect(screen.getByRole('region', { name: 'Schedules resources' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Open Nightly deploy' })).toHaveAttribute('href', '/schedules?pipeline=platform%2Fdeploy');
+
+    await user.click(screen.getByRole('button', { name: 'Open Knowledge Context' }));
+    expect(screen.getByRole('region', { name: 'Knowledge Context resources' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Open restart' })).toHaveAttribute('href', '/knowledge-context/runbook/platform/restart');
+
+    await user.click(screen.getByRole('button', { name: 'Open Scopes' }));
+    expect(screen.getByRole('region', { name: 'Scopes resources' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Open payments' })).toHaveAttribute('href', '/scopes/platform/payments');
+
+    await user.click(screen.getByRole('button', { name: 'Open Credentials' }));
+    expect(screen.getByRole('region', { name: 'Credentials resources' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Open openai' })).toHaveAttribute(
+      'href',
+      '/credentials?credential=credential%3A%2F%2Fteam%2Fplatform%2Fopenai'
+    );
   });
 
   it('renders search results and routes table actions to the page controller', async () => {
@@ -364,7 +553,27 @@ describe('TeamsWorkspace', () => {
     expect(props.onDeleteTeam).toHaveBeenCalledWith(teams[2]);
   });
 
-  it('shows the selected leaf state and returns to root without a blank panel', async () => {
+  it('collapses team and application branches independently', async () => {
+    const user = userEvent.setup();
+    const props = renderWorkspace({
+      activeTeam: null,
+      activeTeamPath: [],
+      operationsSummary: rootOperationsSummary,
+    });
+
+    expect(screen.getByRole('button', { name: 'checkout-api' })).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'Collapse platform' }));
+    expect(screen.queryByRole('button', { name: 'payments' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open platform' })).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'Expand platform' }));
+    await user.click(screen.getByRole('button', { name: 'Collapse payments' }));
+    expect(screen.queryByRole('button', { name: 'checkout-api' })).not.toBeInTheDocument();
+    expect(props.onSelectTeam).not.toHaveBeenCalled();
+  });
+
+  it('shows the selected leaf state and returns to global without a blank panel', async () => {
     const user = userEvent.setup();
     const props = renderWorkspace({
       activeTeam: teams[2],
@@ -374,7 +583,7 @@ describe('TeamsWorkspace', () => {
     expect(screen.getByRole('heading', { name: 'No child items' })).toBeVisible();
     expect(screen.getByText('checkout-api has no child teams or applications.')).toBeVisible();
 
-    await user.click(screen.getByRole('button', { name: 'Back to root' }));
+    await user.click(screen.getByRole('button', { name: 'Back to global' }));
     expect(props.onSelectTeam).toHaveBeenCalledWith(null);
   });
 });

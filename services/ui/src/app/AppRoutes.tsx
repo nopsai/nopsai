@@ -85,7 +85,7 @@ export function AppRoutes({
           path="/credentials"
           element={
             <PermissionGuard allowed={access.canViewSystemCredentials} loading={currentUserLoading}>
-              <CredentialsPage canManage={access.canManageSystemCredentials} canManageAccess={access.canViewSystemAccess} />
+              <CredentialsPage canManage={access.canManageSystemCredentials} />
             </PermissionGuard>
           }
         />

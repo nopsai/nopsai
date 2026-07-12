@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"nopsai/pkg/models"
+	"nopsai/services/aaa/pkg/model"
 	"nopsai/services/nopsai/internal/configsync"
 	"nopsai/services/nopsai/pkg/validation"
 
@@ -24,7 +25,7 @@ import (
 
 const agentProfilesRuntimeEnv = "NOPSAI_AGENT_PROFILES"
 
-var agentProfileIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
+var agentProfileIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*$`)
 
 var agentProfileSchemaStatements = []string{
 	`CREATE TABLE IF NOT EXISTS agent_profile_settings (
@@ -183,7 +184,7 @@ func validateAgentProfileDefinition(profile models.AgentProfile) error {
 		return fmt.Errorf("agent profile id is required")
 	}
 	if !agentProfileIDPattern.MatchString(profile.ID) {
-		return fmt.Errorf("agent profile %q can only contain letters, numbers, dots, underscores, and hyphens", profile.ID)
+		return fmt.Errorf("agent profile %q can only contain slash-separated letters, numbers, dots, underscores, and hyphens", profile.ID)
 	}
 	if profile.DisplayName == "" {
 		return fmt.Errorf("agent profile %q is missing display_name", profile.ID)
@@ -710,19 +711,46 @@ func (a *App) buildAgentProfileViews(ctx context.Context) ([]agentProfileView, e
 	return views, nil
 }
 
+func (a *App) agentProfileViewVisible(r *http.Request, view agentProfileView) (bool, error) {
+	if view.BuiltIn {
+		return true, nil
+	}
+	return a.aiResourceVisible(r, agentProfileAccessSpec, view.ID)
+}
+
+func builtInAgentProfileID(profileID string) bool {
+	_, ok := models.BuiltInAgentProfiles()[models.NormalizeAgentProfileID(profileID)]
+	return ok
+}
+
 func (a *App) handleListAgentProfiles(w http.ResponseWriter, r *http.Request) {
 	views, err := a.buildAgentProfileViews(r.Context())
 	if err != nil {
 		http.Error(w, "failed to load agent profiles", http.StatusInternalServerError)
 		return
 	}
+	filtered := make([]agentProfileView, 0, len(views))
+	visibleIDs := make([]string, 0, len(views))
+	for _, view := range views {
+		visible, err := a.agentProfileViewVisible(r, view)
+		if err != nil {
+			http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if !visible {
+			continue
+		}
+		filtered = append(filtered, view)
+		visibleIDs = append(visibleIDs, view.ID)
+	}
 	defaultProfile, err := a.effectiveAgentProfileDefault(r.Context(), nil)
 	if err != nil {
 		http.Error(w, "failed to load default agent profile", http.StatusInternalServerError)
 		return
 	}
+	defaultProfile = aiResourceVisibleDefault(defaultProfile, visibleIDs)
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(agentProfilesResponse{DefaultProfile: defaultProfile, Profiles: views})
+	_ = json.NewEncoder(w).Encode(agentProfilesResponse{DefaultProfile: defaultProfile, Profiles: filtered})
 }
 
 func (a *App) handleGetAgentProfile(w http.ResponseWriter, r *http.Request) {
@@ -734,6 +762,9 @@ func (a *App) handleGetAgentProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, view := range views {
 		if view.ID == profileID {
+			if !view.BuiltIn && !a.requireAIResourceVisible(w, r, agentProfileAccessSpec, profileID) {
+				return
+			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(view)
 			return
@@ -751,6 +782,9 @@ func (a *App) handleCreateAgentProfile(w http.ResponseWriter, r *http.Request) {
 	profile := agentProfileFromForm(payload, "ui")
 	if err := validateAgentProfileDefinition(profile); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !a.requireAIResourceWrite(w, r, agentProfileAccessSpec, profile.ID) {
 		return
 	}
 	profiles, _, err := a.effectiveAgentProfiles(r.Context())
@@ -775,14 +809,29 @@ func (a *App) handleCreateAgentProfile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to load agent profiles", http.StatusInternalServerError)
 		return
 	}
+	filtered := make([]agentProfileView, 0, len(views))
+	visibleIDs := make([]string, 0, len(views))
+	for _, view := range views {
+		visible, err := a.agentProfileViewVisible(r, view)
+		if err != nil {
+			http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if !visible {
+			continue
+		}
+		filtered = append(filtered, view)
+		visibleIDs = append(visibleIDs, view.ID)
+	}
 	defaultProfile, err := a.effectiveAgentProfileDefault(r.Context(), nil)
 	if err != nil {
 		http.Error(w, "failed to load default agent profile", http.StatusInternalServerError)
 		return
 	}
+	defaultProfile = aiResourceVisibleDefault(defaultProfile, visibleIDs)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(agentProfilesResponse{DefaultProfile: defaultProfile, Profiles: views})
+	_ = json.NewEncoder(w).Encode(agentProfilesResponse{DefaultProfile: defaultProfile, Profiles: filtered})
 }
 
 func (a *App) handleUpsertAgentProfile(w http.ResponseWriter, r *http.Request) {
@@ -804,6 +853,9 @@ func (a *App) handleUpsertAgentProfile(w http.ResponseWriter, r *http.Request) {
 	profile := agentProfileFromForm(payload, "ui")
 	if err := validateAgentProfileDefinition(profile); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !a.requireAIResourceWrite(w, r, agentProfileAccessSpec, profileID) {
 		return
 	}
 	profiles, _, err := a.effectiveAgentProfiles(r.Context())
@@ -851,6 +903,9 @@ func (a *App) handleDeleteAgentProfile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "agent profile is read-only", http.StatusForbidden)
 		return
 	}
+	if !a.requireAIResourceWrite(w, r, agentProfileAccessSpec, profileID) {
+		return
+	}
 	defaultProfile, err := a.effectiveAgentProfileDefault(r.Context(), profiles)
 	if err != nil {
 		http.Error(w, "failed to inspect default agent profile", http.StatusInternalServerError)
@@ -884,6 +939,9 @@ func (a *App) handleDeleteAgentProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleSetDefaultAgentProfile(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAAADecision(w, r, "system.update", model.ResourceRef{Type: "system", ID: "agent-profiles"}) {
+		return
+	}
 	var payload agentProfileDefaultRequest
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, "invalid default agent profile payload", http.StatusBadRequest)
@@ -915,6 +973,9 @@ func (a *App) handleGetAgentProfileUsage(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "agent profile id is required", http.StatusBadRequest)
 		return
 	}
+	if !builtInAgentProfileID(profileID) && !a.requireAIResourceVisible(w, r, agentProfileAccessSpec, profileID) {
+		return
+	}
 	refs, err := a.findAgentProfileReferences(profileID)
 	if err != nil {
 		http.Error(w, "failed to inspect agent profile usage", http.StatusInternalServerError)
@@ -942,6 +1003,9 @@ func (a *App) handleValidateAgentProfile(w http.ResponseWriter, r *http.Request)
 			"valid": false,
 			"error": err.Error(),
 		})
+		return
+	}
+	if !a.requireAIResourceWrite(w, r, agentProfileAccessSpec, profile.ID) {
 		return
 	}
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"valid": true})

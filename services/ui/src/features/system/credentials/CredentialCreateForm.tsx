@@ -10,6 +10,8 @@ type CredentialCreateFormProps = {
   form: CredentialFormState;
   saving: boolean;
   setForm: Dispatch<SetStateAction<CredentialFormState>>;
+  teamPaths: string[];
+  teamPathsLoading?: boolean;
   onClose: () => void;
   onSubmit: (event: FormEvent) => void;
 };
@@ -18,10 +20,26 @@ export function CredentialCreateForm({
   form,
   saving,
   setForm,
+  teamPaths,
+  teamPathsLoading = false,
   onClose,
   onSubmit,
 }: CredentialCreateFormProps) {
-  const referencePreview = buildCredentialReference(form.namespace, form.name || 'name');
+  const referencePreview = buildCredentialReference(form.namespace, form.name || 'name', form.team_path);
+  const scopeOptions = Array.from(
+    new Set(
+      teamPaths
+        .map(path => path.trim().replace(/^\/+|\/+$/g, ''))
+        .filter(path => path && path.toLowerCase() !== 'root')
+    )
+  ).sort((left, right) => left.localeCompare(right));
+  const updateTeamPath = (teamPath: string) => {
+    setForm(current => ({
+      ...current,
+      team_path: teamPath,
+      namespace: teamPath ? 'team' : 'system',
+    }));
+  };
 
   return (
     <aside className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
@@ -36,15 +54,18 @@ export function CredentialCreateForm({
       </div>
 
       <form className="space-y-4" onSubmit={onSubmit}>
-        <div className="grid gap-3 sm:grid-cols-[minmax(110px,0.35fr)_minmax(0,1fr)]">
+        <div className="grid gap-3 sm:grid-cols-[minmax(150px,0.42fr)_minmax(0,1fr)]">
           <label className="flex flex-col gap-1 text-sm">
-            <span>Namespace</span>
-            <input
+            <span>Team</span>
+            <select
               className="pipelines-input"
-              value={form.namespace}
-              onChange={event => setForm(current => ({ ...current, namespace: event.target.value }))}
-              placeholder="system"
-            />
+              value={form.team_path}
+              onChange={event => updateTeamPath(event.target.value)}
+            >
+              <option value="">Global (system)</option>
+              {scopeOptions.map(path => <option key={path} value={path}>/{path}</option>)}
+            </select>
+            {teamPathsLoading ? <span className="text-xs text-[var(--text-secondary)]">Loading teams...</span> : null}
           </label>
           <label className="flex flex-col gap-1 text-sm">
             <span>Name / path</span>

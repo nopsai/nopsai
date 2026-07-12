@@ -34,6 +34,9 @@ const apiMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('./credentials/api', () => apiMocks);
+vi.mock('../../lib/resourceTeams', () => ({
+  fetchResourceTeamPaths: vi.fn(async () => ['platform/ml']),
+}));
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -74,7 +77,7 @@ test('uses compact references and supports enable plus old-version deletion', as
   await waitFor(() => expect(apiMocks.deleteCredentialVersion).toHaveBeenCalledWith('credential-1', 1));
 });
 
-test('creates credentials using namespace and name fields', async () => {
+test('creates credentials using global and team scope fields', async () => {
   const user = userEvent.setup();
   apiMocks.fetchCredentials.mockResolvedValue([]);
 
@@ -86,9 +89,13 @@ test('creates credentials using namespace and name fields', async () => {
   await screen.findByText('No matching credentials');
   await user.click(screen.getByRole('button', { name: 'New credential' }));
 
-  expect(screen.getByLabelText('Namespace')).toHaveValue('system');
+  expect(screen.getByLabelText('Team')).toHaveValue('');
   await user.type(screen.getByLabelText('Name / path'), 'mail/smtp-primary');
   expect(screen.getByText('credential://system/mail/smtp-primary')).toBeVisible();
+
+  expect(await screen.findByRole('option', { name: '/platform/ml' })).toBeVisible();
+  await user.selectOptions(screen.getByLabelText('Team'), 'platform/ml');
+  expect(screen.getByText('credential://team/platform/ml/mail/smtp-primary')).toBeVisible();
 });
 
 test('opens a credential detail from the credential query parameter', async () => {

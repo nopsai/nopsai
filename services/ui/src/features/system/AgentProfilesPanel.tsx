@@ -16,6 +16,7 @@ import {
 } from './AIResourcePanel';
 import {
   AI_RESOURCE_TEAM_FILTER_ALL,
+  AI_RESOURCE_TEAM_FILTER_GLOBAL,
   aiResourceLocalName,
   aiResourceMatchesTeamFilter,
   aiResourceTeamFilterFromSearch,
@@ -113,12 +114,13 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
 
   const defaultProfileRecord = payload.profiles.find(profile => profile.id === payload.default_profile) || null;
   const defaultProfileOptions = useMemo(() => {
-    const options = payload.profiles.filter(profile => profile.enabled);
-    if (defaultProfileRecord && !options.some(profile => profile.id === defaultProfileRecord.id)) {
+    const options = payload.profiles.filter(profile => profile.enabled && aiResourceTeamScope(profile.id).teamPath === '');
+    if (defaultProfileRecord && aiResourceTeamScope(defaultProfileRecord.id).teamPath === '' && !options.some(profile => profile.id === defaultProfileRecord.id)) {
       options.push(defaultProfileRecord);
     }
     return options;
   }, [defaultProfileRecord, payload.profiles]);
+  const canManageGlobalDefault = canManage && defaultProfileOptions.length > 0;
   const enabledCount = payload.profiles.filter(profile => profile.enabled).length;
   const builtInCount = payload.profiles.filter(profile => profile.source === 'built-in' || profile.built_in).length;
   const teamFilterOptions = useMemo(
@@ -129,8 +131,10 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
   const detailProfile = selectedProfile ?? selectedListProfile;
   const filteredCountToken = searchTerm || (teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL ? teamFilter : '');
   const openCreate = () => {
-    setCreateTeamPath('');
+    const initialTeamPath = teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL && teamFilter !== AI_RESOURCE_TEAM_FILTER_GLOBAL ? teamFilter : '';
+    setCreateTeamPath(initialTeamPath);
     startCreate();
+    setForm(prev => ({ ...prev, id: buildAIResourceScopedID(initialTeamPath, aiResourceLocalName(prev.id)) }));
   };
   const openDuplicate = (profile: AgentProfileRecord) => {
     setCreateTeamPath(aiResourceTeamScope(profile.id).teamPath);
@@ -168,19 +172,23 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
       <div className="ai-resource-summary-band">
         <div className="ai-resource-summary-item">
           <span>Default resolution</span>
-          <select
-            className="ai-resource-summary-select"
-            value={payload.default_profile}
-            onChange={event => void setDefaultProfile(event.target.value)}
-            disabled={!canManage || loading || saving || defaultProfileOptions.length === 0}
-            aria-label="Default agent profile"
-          >
-            {defaultProfileOptions.map(profile => (
-              <option key={profile.id} value={profile.id}>
-                {profile.display_name}
-              </option>
-            ))}
-          </select>
+          {canManageGlobalDefault ? (
+            <select
+              className="ai-resource-summary-select"
+              value={payload.default_profile}
+              onChange={event => void setDefaultProfile(event.target.value)}
+              disabled={loading || saving}
+              aria-label="Default agent profile"
+            >
+              {defaultProfileOptions.map(profile => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.display_name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <strong>{defaultProfileRecord?.display_name || payload.default_profile || '-'}</strong>
+          )}
         </div>
         <div className="ai-resource-summary-item">
           <span>Profiles</span>

@@ -15,9 +15,11 @@ import {
 } from './AIResourcePanel';
 import {
   AI_RESOURCE_TEAM_FILTER_ALL,
+  AI_RESOURCE_TEAM_FILTER_GLOBAL,
   aiResourceLocalName,
   aiResourceMatchesTeamFilter,
   aiResourceTeamFilterFromSearch,
+  aiResourceTeamScope,
   buildAIResourceScopedID,
   collectAIResourceTeamPaths,
   formatAIResourceTeamLabel,
@@ -133,6 +135,11 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
   const showProfileForm = panelMode === 'create' || panelMode === 'edit';
   const formProvider = getLLMProvider(form.provider);
   const providerCount = useMemo(() => new Set(payload.profiles.map(profile => getLLMProvider(profile.provider).id)).size, [payload.profiles]);
+  const defaultProfileOptions = useMemo(
+    () => payload.profiles.filter(profile => aiResourceTeamScope(profile.name).teamPath === ''),
+    [payload.profiles]
+  );
+  const canManageGlobalDefault = canManage && defaultProfileOptions.length > 0;
   const teamFilterOptions = useMemo(
     () => collectAIResourceTeamPaths(payload.profiles.map(profile => profile.name), teamPaths),
     [payload.profiles, teamPaths]
@@ -170,8 +177,10 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
   const emptyProfilesMessage = payload.profiles.length === 0 ? 'No LLM profiles configured.' : 'No LLM profiles match your filters.';
   const filteredCountToken = searchTerm || (teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL ? teamFilter : '');
   const openCreate = () => {
-    setCreateTeamPath('');
+    const initialTeamPath = teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL && teamFilter !== AI_RESOURCE_TEAM_FILTER_GLOBAL ? teamFilter : '';
+    setCreateTeamPath(initialTeamPath);
     startCreate();
+    setForm(prev => ({ ...prev, name: buildAIResourceScopedID(initialTeamPath, aiResourceLocalName(prev.name)) }));
   };
   const setCreateScopedName = (localName: string) => {
     setForm(prev => ({ ...prev, name: buildAIResourceScopedID(createTeamPath, localName) }));
@@ -202,21 +211,25 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
         </div>
       </div>
       <section className="ai-resource-summary-band" aria-label="LLM profile summary">
-        <label className="ai-resource-summary-item">
+        <div className="ai-resource-summary-item">
           <span>Default</span>
-          <select
-            className="ai-resource-summary-select"
-            value={payload.default_profile}
-            onChange={event => void saveDefaultProfile(event.target.value)}
-            disabled={!canManage || loading || saving}
-          >
-            {payload.profiles.map(profile => (
-              <option key={profile.name} value={profile.name}>
-                {profile.name}
-              </option>
-            ))}
-          </select>
-        </label>
+          {canManageGlobalDefault ? (
+            <select
+              className="ai-resource-summary-select"
+              value={payload.default_profile}
+              onChange={event => void saveDefaultProfile(event.target.value)}
+              disabled={loading || saving}
+            >
+              {defaultProfileOptions.map(profile => (
+                <option key={profile.name} value={profile.name}>
+                  {profile.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <strong>{payload.default_profile || '-'}</strong>
+          )}
+        </div>
         <div className="ai-resource-summary-item">
           <span>Profiles</span>
           <strong>{payload.profiles.length}</strong>

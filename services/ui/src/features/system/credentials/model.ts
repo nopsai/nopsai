@@ -41,6 +41,7 @@ export type CredentialRecord = {
 
 export type CredentialFormState = {
   namespace: string;
+  team_path: string;
   name: string;
   kind: CredentialKind;
   description: string;
@@ -50,6 +51,7 @@ export type CredentialFormState = {
 
 export const emptyCredentialForm: CredentialFormState = {
   namespace: 'system',
+  team_path: '',
   name: '',
   kind: 'api_key',
   description: '',
@@ -124,8 +126,10 @@ export function normalizeCredential(value: unknown): CredentialRecord | null {
 }
 
 export function credentialPayloadFromForm(form: CredentialFormState) {
+  const teamPath = normalizeCredentialTeamPath(form.team_path);
   return {
-    reference: buildCredentialReference(form.namespace, form.name),
+    reference: buildCredentialReference(form.namespace, form.name, teamPath),
+    team_path: teamPath || undefined,
     kind: form.kind,
     description: form.description.trim(),
     value: form.value,
@@ -133,10 +137,16 @@ export function credentialPayloadFromForm(form: CredentialFormState) {
   };
 }
 
-export function buildCredentialReference(namespace: string, name: string): string {
-  const normalizedNamespace = namespace.trim().toLowerCase() || 'system';
+export function buildCredentialReference(namespace: string, name: string, teamPath = ''): string {
+  const normalizedTeamPath = normalizeCredentialTeamPath(teamPath);
+  const normalizedNamespace = normalizedTeamPath ? 'team' : namespace.trim().toLowerCase() || 'system';
   const normalizedName = name.trim().toLowerCase().replace(/^\/+|\/+$/g, '');
-  return `credential://${normalizedNamespace}/${normalizedName}`;
+  const scopedName = normalizedTeamPath ? `${normalizedTeamPath}/${normalizedName}` : normalizedName;
+  return `credential://${normalizedNamespace}/${scopedName}`;
+}
+
+export function normalizeCredentialTeamPath(teamPath: string): string {
+  return teamPath.trim().toLowerCase().replace(/^\/+|\/+$/g, '');
 }
 
 export function isCredentialReference(reference: string): boolean {

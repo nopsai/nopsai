@@ -22,7 +22,6 @@ import {
 } from '../../lib/teamModels';
 import type { CurrentUser } from '../../app/types';
 import { formatTeamTimestamp, getTeamDirectChildren, teamKindLabel } from './model';
-import { TeamAIProfilesPanel } from './TeamAIProfilesPanel';
 import { teamNotificationGitOpsTarget, type NotificationRouteRecord } from './notificationRoutes';
 import type { TeamOperationsSummaryState } from './hooks/useTeamOperationsSummary';
 import type { TeamDetailTabID } from './workspaceModel';
@@ -110,7 +109,7 @@ export function TeamChildrenTable({
           </div>
           {showBackToRoot ?? emptySelection ? (
             <button type="button" className="teams-secondary-btn" onClick={onBackToRoot}>
-              Back to root
+              Back to global
             </button>
           ) : null}
         </div>
@@ -151,7 +150,6 @@ export function TeamTabPanel({
   team,
   teams,
   stats,
-  scopedApplications,
   operationsSummary,
   currentUser,
   onOpenConfig,
@@ -160,22 +158,10 @@ export function TeamTabPanel({
   team: Team | null;
   teams: Team[];
   stats: { applications: number; repositories: number; recentRuns: number; teams: number; totalItems: number };
-  scopedApplications: Team[];
   operationsSummary: TeamOperationsSummaryState;
   currentUser?: CurrentUser | null;
   onOpenConfig: (team: Team, tab?: 'sync' | 'notifications') => void;
 }) {
-  if (activeTab === 'applications') {
-    return (
-      <section className="teams-tab-panel" role="tabpanel" id="teams-tabpanel-applications" aria-labelledby="teams-tab-applications">
-        <div className="teams-detail-grid">
-          <TeamApplicationsCard applications={scopedApplications} teams={teams} stats={stats} />
-          <TeamActivityCard team={team} stats={stats} directChildren={scopedApplications} />
-        </div>
-      </section>
-    );
-  }
-
   if (activeTab === 'gitops') {
     return (
       <section className="teams-tab-panel" role="tabpanel" id="teams-tabpanel-gitops" aria-labelledby="teams-tab-gitops">
@@ -192,75 +178,10 @@ export function TeamTabPanel({
     );
   }
 
-  if (activeTab === 'ai') {
-    const gitOpsTarget = operationsSummary.configRepo ? teamAIProfilesGitOpsTarget(operationsSummary.configRepo.base_path) : '';
-    const teamPath = operationsSummary.teamPath || (team ? teamPathForURL(team, teams) : '');
-    return (
-      <section className="teams-tab-panel" role="tabpanel" id="teams-tabpanel-ai" aria-labelledby="teams-tab-ai">
-        <TeamAIProfilesPanel
-          llmProfiles={operationsSummary.llmProfiles}
-          agentProfiles={operationsSummary.agentProfiles}
-          mcpProfiles={operationsSummary.mcpProfiles}
-          loading={operationsSummary.loading}
-          error={operationsSummary.aiProfilesError}
-          teamPath={teamPath}
-          gitOpsTarget={gitOpsTarget}
-        />
-      </section>
-    );
-  }
-
   return (
     <section className="teams-tab-panel" role="tabpanel" id="teams-tabpanel-access" aria-labelledby="teams-tab-access">
       <TeamAccessSummaryCard team={team} teams={teams} summary={operationsSummary} currentUser={currentUser} />
     </section>
-  );
-}
-
-function TeamApplicationsCard({
-  applications,
-  teams,
-  stats,
-}: {
-  applications: Team[];
-  teams: Team[];
-  stats: { applications: number; repositories: number; recentRuns: number };
-}) {
-  const latest = applications.find(application => application.last_run_at);
-  return (
-    <article className="teams-card teams-focus-card">
-      <div className="teams-card-heading">
-        <div>
-          <h3>Application Scope</h3>
-          <p>{applications.length} applications with {stats.repositories} connected repositories.</p>
-        </div>
-        <span className="teams-resource-icon teams-tone-purple" aria-hidden="true">
-          <Boxes className="h-5 w-5" />
-        </span>
-      </div>
-      <dl className="teams-kv-list">
-        <div>
-          <dt>Applications</dt>
-          <dd>{stats.applications}</dd>
-        </div>
-        <div>
-          <dt>Repositories</dt>
-          <dd>{stats.repositories}</dd>
-        </div>
-        <div>
-          <dt>Recent runs</dt>
-          <dd>{stats.recentRuns}</dd>
-        </div>
-        <div>
-          <dt>Latest signal</dt>
-          <dd>{latest ? `${teamDisplayName(latest)} · ${formatTeamTimestamp(latest.last_run_at)}` : 'Never'}</dd>
-        </div>
-        <div>
-          <dt>Primary path</dt>
-          <dd>{applications[0] ? teamPathForURL(applications[0], teams) : '-'}</dd>
-        </div>
-      </dl>
-    </article>
   );
 }
 
@@ -287,7 +208,7 @@ function TeamGitOpsCard({
     ? 'Configuration repository, sync, drift, and write-back controls.'
     : 'Select a regular team to manage GitOps configuration.';
   const description = isRoot
-    ? 'Root uses the global system config repository for platform-wide GitOps settings.'
+    ? 'Global uses the system config repository for platform-wide GitOps settings.'
     : teamDescription;
   const teamRepositoryStatus = repo?.repo_url ? 'Connected' : 'Not connected';
   const repositoryStatus = isRoot ? 'Global repository' : teamRepositoryStatus;
@@ -399,8 +320,8 @@ function TeamNotificationsCard({
 }) {
   const app = team ? isAppTeam(team) : false;
   const canConfigure = Boolean(team && !app);
-  const label = team ? teamDisplayName(team) : 'Root';
-  const teamPath = team ? teamPathForURL(team, teams) : 'root';
+  const label = team ? teamDisplayName(team) : 'Global';
+  const teamPath = team ? teamPathForURL(team, teams) : 'global';
   const route = summary.notificationRoute;
   const routes = notificationRoutes(route);
   const repo = summary.configRepo;
@@ -510,7 +431,7 @@ function TeamAccessSummaryCard({
 }) {
   const isRoot = !team;
   const label = team ? teamDisplayName(team) : 'Global';
-  const teamPath = team ? teamPathForURL(team, teams) : 'root';
+  const teamPath = team ? teamPathForURL(team, teams) : 'global';
   const accessURL = isRoot
     ? '/system/access?resource_type=platform&resource_id=platform'
     : `/system/access?resource_type=team&resource_id=${encodeURIComponent(teamPath)}`;
@@ -664,11 +585,6 @@ function notificationRouteEventCount(route: ReturnType<typeof notificationRoutes
 
 function accessSubjectLabel(grant: TeamOperationsSummaryState['accessGrants'][number]) {
   return grant.subjectDisplay || grant.subjectID || grant.subjectType || 'Subject';
-}
-
-function teamAIProfilesGitOpsTarget(basePath: string): string {
-  const normalized = basePath.trim().replace(/^\/+|\/+$/g, '');
-  return normalized ? `${normalized}/ai-profiles.yaml` : 'ai-profiles.yaml';
 }
 
 function TeamTableRow({
