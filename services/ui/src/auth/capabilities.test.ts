@@ -112,5 +112,6 @@ test('exposes the credential registry only through credential capabilities', () 
 
   assert.equal(access.canViewSystemCredentials, true);
   assert.equal(access.canManageSystemCredentials, true);
-  assert.equal(access.preferredSystemPath, '/system/credentials');
+  assert.equal(access.canViewAnySystem, false);
+  assert.equal(access.preferredSystemPath, '/system/config');
 });

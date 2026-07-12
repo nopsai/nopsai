@@ -36,6 +36,7 @@ const (
 	grantResourceAgentProfile     = "agent_profile"
 	grantResourceMCPServer        = "mcp_server"
 	grantResourceMCPProfile       = "mcp_profile"
+	grantResourceCredential       = "credential"
 	grantResourceCompany          = "company"
 	grantResourcePlatform         = "platform"
 
@@ -175,7 +176,7 @@ type execRunner interface {
 
 var productRoleDefinitions = map[string]productRoleDefinition{
 	productRoleViewer: {
-		Description: "Read-only access to teams, pipelines, runs, schedules, triggers, steps, scope metadata, repositories, secrets, and variables.",
+		Description: "Read-only access to teams, pipelines, runs, schedules, triggers, steps, scope metadata, repositories, credentials, secrets, and variables.",
 		Actions: []string{
 			"team.list",
 			"team.read",
@@ -200,6 +201,7 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"agent_profile.read",
 			"mcp_server.read",
 			"mcp_profile.read",
+			"credential.list_metadata",
 		},
 	},
 	productRoleDeveloper: {
@@ -253,6 +255,11 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"agent_profile.use",
 			"mcp_server.use",
 			"mcp_profile.use",
+			"credential.list_metadata",
+			"credential.create",
+			"credential.write_value",
+			"credential.rotate",
+			"credential.use",
 		},
 	},
 	productRoleOwner: {
@@ -277,6 +284,7 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"agent_profile.read",
 			"mcp_server.read",
 			"mcp_profile.read",
+			"credential.list_metadata",
 			"pipeline.create",
 			"pipeline.update",
 			"pipeline.execute",
@@ -311,6 +319,12 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"agent_profile.use",
 			"mcp_server.use",
 			"mcp_profile.use",
+			"credential.create",
+			"credential.write_value",
+			"credential.rotate",
+			"credential.disable",
+			"credential.enable",
+			"credential.use",
 			"knowledge_context.create",
 			"knowledge_context.update",
 			"knowledge_context.delete",
@@ -348,6 +362,9 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"repository.manage_acl",
 			"step.delete",
 			"step.manage_acl",
+			"credential.delete_version",
+			"credential.delete",
+			"credential.manage_acl",
 		},
 	},
 	productRoleAdmin: {

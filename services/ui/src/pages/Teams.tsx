@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw, UsersRound } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ConfigRepositoryDriftModal } from '../components/ConfigRepositoryDriftModal';
+import { useAuth } from '../auth/AuthContext';
 import { fetchTeams, requestTeamsJson } from '../features/teams/api';
 import { TeamConfigRepositoryModal, NewTeamItemModal } from '../features/teams/TeamSettingsModals';
 import { TeamsStatusPanel, TeamsWorkspace } from '../features/teams/TeamsWorkspace';
 import { useTeamConfigRepositoryController } from '../features/teams/hooks/useTeamConfigRepositoryController';
+import { useTeamOperationsSummary } from '../features/teams/hooks/useTeamOperationsSummary';
 import {
   buildTeamPath,
   findTeamByURLValue,
@@ -32,6 +34,7 @@ function isReservedRootTeamName(name: string) {
 export default function TeamsPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
   const [teams, setTeams] = useState<Team[]>([]);
   const [teamsLoaded, setTeamsLoaded] = useState(false);
   const [teamsLoading, setTeamsLoading] = useState(false);
@@ -75,6 +78,12 @@ export default function TeamsPage() {
   }, [fetchJson]);
 
   const config = useTeamConfigRepositoryController({ teams, fetchJson, checkAccessPermission });
+  const operationsSummary = useTeamOperationsSummary({
+    team: activeTeam,
+    teams,
+    fetchJson,
+    checkAccessPermission,
+  });
 
   const loadTeams = useCallback(async () => {
     setTeamsLoaded(false);
@@ -230,6 +239,8 @@ export default function TeamsPage() {
           onCreate={openCreateModal}
           onDeleteTeam={team => void deleteTeamItem(team)}
           onOpenConfig={config.openTeamConfigRepository}
+          operationsSummary={operationsSummary}
+          currentUser={currentUser}
         />
       )}
 
@@ -263,15 +274,9 @@ export default function TeamsPage() {
           notificationLoading={config.notificationRouteLoading}
           notificationSaving={config.notificationRouteSaving}
           notificationError={config.notificationRouteError}
-          llmProfiles={config.teamLLMProfiles}
-          agentProfiles={config.teamAgentProfiles}
-          mcpProfiles={config.teamMCPProfiles}
-          aiProfilesLoading={config.teamProfilesLoading}
-          aiProfilesSaving={config.teamProfilesSaving}
-          aiProfilesError={config.teamProfilesError}
+          initialTab={config.configRepoInitialTab}
           canManage={config.configRepoManageAllowed}
           canSync={config.configRepoSyncAllowed}
-          canManageProfiles={config.teamProfileManageAllowed}
           onChange={config.setConfigRepoForm}
           onNotificationChange={config.setNotificationRouteForm}
           onSave={config.saveTeamConfigRepository}
@@ -280,14 +285,6 @@ export default function TeamsPage() {
           onCheckDrift={config.checkTeamConfigRepositoryDrift}
           onSaveNotification={config.saveTeamNotificationRoute}
           onDeleteNotification={config.deleteTeamNotificationRoute}
-          onSaveLLMProfile={config.saveTeamLLMProfile}
-          onSetDefaultLLMProfile={config.saveTeamDefaultLLMProfile}
-          onDeleteLLMProfile={config.removeTeamLLMProfile}
-          onSaveAgentProfile={config.saveTeamAgentProfile}
-          onSetDefaultAgentProfile={config.saveTeamDefaultAgentProfile}
-          onDeleteAgentProfile={config.removeTeamAgentProfile}
-          onSaveMCPProfile={config.saveTeamMCPProfile}
-          onDeleteMCPProfile={config.removeTeamMCPProfile}
           onClose={config.closeTeamConfigRepository}
         />
       )}

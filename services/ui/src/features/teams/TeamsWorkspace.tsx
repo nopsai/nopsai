@@ -1,4 +1,5 @@
 import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import {
   ArrowUpRight,
   Bell,
@@ -25,6 +26,7 @@ import {
   teamRepositoryURL,
   type Team,
 } from '../../lib/teamModels';
+import type { CurrentUser } from '../../app/types';
 import {
   buildTeamScopeStats,
   buildTeamTree,
@@ -44,9 +46,10 @@ import {
 import {
   getTeamTableCopy,
   getTeamTableItems,
-  teamDetailTabs,
+  visibleTeamDetailTabs,
   type TeamDetailTabID,
 } from './workspaceModel';
+import type { TeamOperationsSummaryState } from './hooks/useTeamOperationsSummary';
 import './teams.css';
 
 export function TeamsWorkspace({
@@ -61,6 +64,8 @@ export function TeamsWorkspace({
   onCreate,
   onDeleteTeam,
   onOpenConfig,
+  operationsSummary,
+  currentUser,
 }: {
   teams: Team[];
   activeTeam: Team | null;
@@ -72,14 +77,18 @@ export function TeamsWorkspace({
   onRefresh: () => void;
   onCreate: () => void;
   onDeleteTeam: (team: Team) => void;
-  onOpenConfig: (team: Team) => void;
+  onOpenConfig: (team: Team, tab?: 'sync' | 'notifications') => void;
+  operationsSummary: TeamOperationsSummaryState;
+  currentUser?: CurrentUser | null;
 }) {
   const activeTeamID = activeTeam?.id ?? null;
   const [detailTabSelection, setDetailTabSelection] = useState<{ teamID: number | null; tab: TeamDetailTabID }>({
     teamID: activeTeamID,
     tab: 'overview',
   });
-  const activeDetailTab = detailTabSelection.teamID === activeTeamID ? detailTabSelection.tab : 'overview';
+  const detailTabs = visibleTeamDetailTabs(activeTeam);
+  const selectedDetailTab = detailTabSelection.teamID === activeTeamID ? detailTabSelection.tab : 'overview';
+  const activeDetailTab = detailTabs.some(tab => tab.id === selectedDetailTab) ? selectedDetailTab : 'overview';
   const directChildren = getTeamDirectChildren(teams, activeTeamID);
   const visibleItems = getVisibleTeamItems(teams, activeTeamID, searchTerm);
   const scopedItems = useMemo(() => getTeamSubtree(teams, activeTeamID), [activeTeamID, teams]);
@@ -148,9 +157,9 @@ export function TeamsWorkspace({
             team={activeTeam}
             teams={teams}
             stats={stats}
-            onCreate={onCreate}
             onDeleteTeam={onDeleteTeam}
             onOpenConfig={onOpenConfig}
+            detailTabs={detailTabs}
             activeTab={activeDetailTab}
             onTabChange={selectDetailTab}
           />
@@ -160,7 +169,13 @@ export function TeamsWorkspace({
                 <TeamOverviewCard team={activeTeam} teams={teams} stats={stats} onOpenConfig={onOpenConfig} />
                 <TeamActivityCard team={activeTeam} stats={stats} directChildren={directChildren} />
               </div>
-              <TeamResourcesPanel team={activeTeam} stats={stats} onOpenConfig={onOpenConfig} />
+              <TeamResourcesPanel
+                team={activeTeam}
+                teams={teams}
+                stats={stats}
+                operationsSummary={operationsSummary}
+                onTabChange={selectDetailTab}
+              />
             </>
           ) : (
             <TeamTabPanel
@@ -169,23 +184,27 @@ export function TeamsWorkspace({
               teams={teams}
               stats={stats}
               scopedApplications={scopedApplications}
+              operationsSummary={operationsSummary}
+              currentUser={currentUser}
               onOpenConfig={onOpenConfig}
             />
           )}
-          <TeamChildrenTable
-            title={tableCopy.title}
-            items={tableItems}
-            teams={teams}
-            emptySelection={emptySelection}
-            activeLabel={activeLabel}
-            emptyTitle={tableCopy.emptyTitle}
-            emptyMessage={tableCopy.emptyMessage}
-            showBackToRoot={tableCopy.showBackToRoot}
-            onBackToRoot={() => onSelectTeam(null)}
-            onSelectTeam={onSelectTeam}
-            onDeleteTeam={onDeleteTeam}
-            onOpenConfig={onOpenConfig}
-          />
+          {activeDetailTab === 'overview' ? (
+            <TeamChildrenTable
+              title={tableCopy.title}
+              items={tableItems}
+              teams={teams}
+              emptySelection={emptySelection}
+              activeLabel={activeLabel}
+              emptyTitle={tableCopy.emptyTitle}
+              emptyMessage={tableCopy.emptyMessage}
+              showBackToRoot={tableCopy.showBackToRoot}
+              onBackToRoot={() => onSelectTeam(null)}
+              onSelectTeam={onSelectTeam}
+              onDeleteTeam={onDeleteTeam}
+              onOpenConfig={onOpenConfig}
+            />
+          ) : null}
         </section>
       </div>
     </div>
@@ -370,18 +389,18 @@ function TeamDetailHeader({
   team,
   teams,
   stats,
-  onCreate,
   onDeleteTeam,
   onOpenConfig,
+  detailTabs,
   activeTab,
   onTabChange,
 }: {
   team: Team | null;
   teams: Team[];
   stats: { totalItems: number };
-  onCreate: () => void;
   onDeleteTeam: (team: Team) => void;
-  onOpenConfig: (team: Team) => void;
+  onOpenConfig: (team: Team, tab?: 'sync' | 'notifications') => void;
+  detailTabs: Array<{ id: TeamDetailTabID; label: string }>;
   activeTab: TeamDetailTabID;
   onTabChange: (tab: TeamDetailTabID) => void;
 }) {
@@ -405,10 +424,10 @@ function TeamDetailHeader({
         </div>
       </div>
       <div className="teams-detail-actions">
-        {team && !app && !team.navigation_only ? (
+        {team && !app ? (
           <button type="button" className="teams-secondary-btn" onClick={() => onOpenConfig(team)}>
             <Settings className="h-4 w-4" aria-hidden="true" />
-            GitOps & AI
+            GitOps & Notifications
           </button>
         ) : null}
         {team && !team.navigation_only ? (
@@ -416,13 +435,9 @@ function TeamDetailHeader({
             <Trash2 className="h-4 w-4" aria-hidden="true" />
           </button>
         ) : null}
-        <button type="button" className="teams-primary-btn" onClick={onCreate}>
-          <Plus className="h-4 w-4" aria-hidden="true" />
-          New
-        </button>
       </div>
       <div className="teams-tabs" role="tablist" aria-label="Team detail sections">
-        {teamDetailTabs.map(tab => (
+        {detailTabs.map(tab => (
           <button
             key={tab.id}
             id={`teams-tab-${tab.id}`}
@@ -450,7 +465,7 @@ function TeamOverviewCard({
   team: Team | null;
   teams: Team[];
   stats: { teams: number; applications: number; repositories: number; directChildren: number };
-  onOpenConfig: (team: Team) => void;
+  onOpenConfig: (team: Team, tab?: 'sync' | 'notifications') => void;
 }) {
   const parent = getTeamParent(team, teams);
   const app = team ? isAppTeam(team) : false;
@@ -471,7 +486,7 @@ function TeamOverviewCard({
           <h3>{app ? 'Application Overview' : 'Team Overview'}</h3>
           <p>{team?.description || 'Central place for ownership, access, repositories, and automation resources.'}</p>
         </div>
-        {team && !app && !team.navigation_only ? (
+        {team && !app ? (
           <button type="button" className="teams-icon-btn" title="Open team settings" aria-label="Open team settings" onClick={() => onOpenConfig(team)}>
             <Settings className="h-4 w-4" aria-hidden="true" />
           </button>
@@ -506,48 +521,86 @@ function TeamOverviewCard({
 
 function TeamResourcesPanel({
   team,
+  teams,
   stats,
-  onOpenConfig,
+  operationsSummary,
+  onTabChange,
 }: {
   team: Team | null;
+  teams: Team[];
   stats: { teams: number; applications: number; repositories: number };
-  onOpenConfig: (team: Team) => void;
+  operationsSummary: TeamOperationsSummaryState;
+  onTabChange: (tab: TeamDetailTabID) => void;
 }) {
-  const canConfigure = Boolean(team && !isAppTeam(team) && !team.navigation_only);
+  const llmCount = operationsSummary.llmProfiles?.profiles?.length;
+  const agentCount = operationsSummary.agentProfiles?.profiles?.length;
+  const mcpCount = operationsSummary.mcpProfiles?.profiles?.length;
+  const notificationCount = operationsSummary.notificationRoute?.definition?.routes?.length;
+  const teamPath = team ? teamPathForURL(team, teams) : '';
+  const encodedTeam = encodeURIComponent(teamPath);
+  const teamQuery = teamPath ? `?team=${encodedTeam}` : '?team=global';
+  const mcpQuery = teamPath ? `?team=${encodedTeam}&view=profiles` : '?team=global&view=profiles';
+  const description = team
+    ? 'Team-scoped product objects and automation configuration.'
+    : 'Organization resources and global automation configuration.';
   const resources = [
-    { label: 'Teams', value: stats.teams, icon: <UsersRound className="h-4 w-4" />, tone: 'blue' },
-    { label: 'Applications', value: stats.applications, icon: <Boxes className="h-4 w-4" />, tone: 'purple' },
-    { label: 'Repositories', value: stats.repositories, icon: <GitBranch className="h-4 w-4" />, tone: 'green' },
-    { label: 'LLM Profiles', value: 'Team', icon: <Bot className="h-4 w-4" />, tone: 'purple' },
-    { label: 'MCP Profiles', value: 'Tools', icon: <Route className="h-4 w-4" />, tone: 'green' },
-    { label: 'Notifications', value: 'Routes', icon: <Bell className="h-4 w-4" />, tone: 'cyan' },
+    { label: 'Teams', value: stats.teams, icon: <UsersRound className="h-4 w-4" />, tone: 'blue' as const, onClick: () => onTabChange('overview') },
+    { label: 'Applications', value: stats.applications, icon: <Boxes className="h-4 w-4" />, tone: 'purple' as const, onClick: () => onTabChange('applications') },
+    { label: 'Repositories', value: stats.repositories, icon: <GitBranch className="h-4 w-4" />, tone: 'green' as const, onClick: () => onTabChange('gitops') },
+    { label: 'LLM Profiles', value: typeof llmCount === 'number' ? llmCount : '-', icon: <Bot className="h-4 w-4" />, tone: 'purple' as const, to: `/llm-profiles${teamQuery}` },
+    { label: 'Agent Profiles', value: typeof agentCount === 'number' ? agentCount : '-', icon: <ShieldCheck className="h-4 w-4" />, tone: 'blue' as const, to: `/agent-profiles${teamQuery}` },
+    { label: 'MCP Profiles', value: typeof mcpCount === 'number' ? mcpCount : '-', icon: <Route className="h-4 w-4" />, tone: 'green' as const, to: `/mcp${mcpQuery}` },
+    ...(team ? [{ label: 'Notifications', value: typeof notificationCount === 'number' ? notificationCount : '-', icon: <Bell className="h-4 w-4" />, tone: 'cyan' as const, onClick: () => onTabChange('notifications') }] : []),
   ];
   return (
     <article className="teams-card teams-resources-card">
       <div className="teams-card-heading">
         <div>
           <h3>Resources</h3>
-          <p>Team-scoped product objects and automation configuration.</p>
+          <p>{description}</p>
         </div>
       </div>
       <div className="teams-resource-grid">
         {resources.map(resource => (
-          <div key={resource.label} className="teams-resource-mini">
-            <span className={`teams-resource-mini__icon teams-tone-${resource.tone}`} aria-hidden="true">
-              {resource.icon}
-            </span>
-            <p>{resource.label}</p>
-            <strong>{resource.value}</strong>
-            {canConfigure && ['LLM Profiles', 'MCP Profiles', 'Notifications'].includes(resource.label) ? (
-              <button type="button" onClick={() => team && onOpenConfig(team)}>
-                Configure
-              </button>
-            ) : (
-              <span>View scope</span>
-            )}
-          </div>
+          <TeamResourceTile key={resource.label} resource={resource} />
         ))}
       </div>
     </article>
+  );
+}
+
+function TeamResourceTile({
+  resource,
+}: {
+  resource: {
+    label: string;
+    value: number | string;
+    icon: ReactNode;
+    tone: 'blue' | 'purple' | 'green' | 'cyan';
+    to?: string;
+    onClick?: () => void;
+  };
+}) {
+  const content = (
+    <>
+      <span className={`teams-resource-mini__icon teams-tone-${resource.tone}`} aria-hidden="true">
+        {resource.icon}
+      </span>
+      <p>{resource.label}</p>
+      <strong>{resource.value}</strong>
+    </>
+  );
+  const label = `Open ${resource.label}`;
+  if (resource.to) {
+    return (
+      <Link className="teams-resource-mini" to={resource.to} aria-label={label}>
+        {content}
+      </Link>
+    );
+  }
+  return (
+    <button type="button" className="teams-resource-mini" onClick={resource.onClick} aria-label={label}>
+      {content}
+    </button>
   );
 }

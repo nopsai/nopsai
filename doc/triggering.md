@@ -134,7 +134,7 @@ POST /v1/git/webhooks/{sourceID}
 ```
 
 Create the source first and write its referenced secret value through
-**System > Credentials**. The following generic example signs the exact request
+**Credentials**. The following generic example signs the exact request
 body with HMAC-SHA256:
 
 ```bash

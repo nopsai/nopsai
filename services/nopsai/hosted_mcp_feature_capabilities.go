@@ -926,6 +926,7 @@ func hostedMCPFeatureCapabilityCatalog() []hostedMCPFeatureCapability {
 				hostedMCPReadPermission("credential.enable", "credential", "*"),
 				hostedMCPReadPermission("credential.delete_version", "credential", "*"),
 				hostedMCPReadPermission("credential.delete", "credential", "*"),
+				hostedMCPReadPermission("credential.manage_acl", "credential", "*"),
 				hostedMCPReadPermission("system.read", "dispatcher", "status"),
 				hostedMCPReadPermission("system.read", "dispatcher", "scopes"),
 				hostedMCPReadPermission("system.update", "dispatcher", "runners"),

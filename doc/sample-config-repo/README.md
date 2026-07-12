@@ -223,7 +223,7 @@ runtime secrets and are not exported.
 The GitLab source references
 `credential://system/webhooks/gitlab-platform`. Config sync creates pending
 credential metadata when needed. Store the encrypted token envelope through
-**System > Credentials** or by committing a real
+**Credentials** or by committing a real
 `setting/system/credentials.yaml` exported from this NopsAI instance before
 enabling provider delivery.
 
@@ -254,7 +254,7 @@ oidc:
 ```
 
 GitOps feature files store credential references, not provider plaintext.
-Create referenced values in **System > Credentials** or sync encrypted versions
+Create referenced values in **Credentials** or sync encrypted versions
 from `setting/system/credentials.yaml`; sync creates missing metadata in
 `pending` state when no encrypted value is present.
 
@@ -355,7 +355,7 @@ github_webhook_credential_ref: credential://system/github/webhook-secret
 
 The GitHub file stores only stable IDs, internal service URLs, and credential
 references. Store encrypted private-key and webhook-secret versions in
-`setting/system/credentials.yaml` or through **System > Credentials**. These
+`setting/system/credentials.yaml` or through **Credentials**. These
 GitHub settings are not accepted from `setting/system/runner.yaml`.
 
 Keep bootstrap values out of GitOps. Database URLs, master keys, and service JWT

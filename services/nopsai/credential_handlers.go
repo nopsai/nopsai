@@ -3,6 +3,7 @@ package nopsai
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -10,14 +11,25 @@ import (
 	"github.com/google/uuid"
 
 	"nopsai/pkg/httpapi"
+	aaamodel "nopsai/services/aaa/pkg/model"
 	"nopsai/services/nopsai/internal/credentials"
 	"nopsai/services/nopsai/pkg/auth"
 )
 
 func (a *App) handleListCredentials(w http.ResponseWriter, r *http.Request) {
+	subject, ok := a.currentAAASubject(r)
+	if !ok {
+		http.Error(w, "missing authorization subject", http.StatusUnauthorized)
+		return
+	}
 	records, err := a.credentialStore.ListCredentials(r.Context())
 	if err != nil {
 		http.Error(w, "failed to list credentials", http.StatusInternalServerError)
+		return
+	}
+	records, err = a.filterVisibleCredentials(r, subject, records)
+	if err != nil {
+		http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	response := credentialsResponse{Credentials: make([]credentialResponse, 0, len(records))}
@@ -28,6 +40,20 @@ func (a *App) handleListCredentials(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleCreateCredential(w http.ResponseWriter, r *http.Request) {
+	subject, ok := a.currentAAASubject(r)
+	if !ok {
+		http.Error(w, "missing authorization subject", http.StatusUnauthorized)
+		return
+	}
+	allowed, err := a.canCreateCredential(r, subject)
+	if err != nil {
+		http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if !allowed {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	var request credentialCreateRequest
 	if err := httpapi.DecodeJSON(r, &request); err != nil {
 		http.Error(w, "invalid credential payload", http.StatusBadRequest)
@@ -63,6 +89,15 @@ func (a *App) handleGetCredential(w http.ResponseWriter, r *http.Request) {
 		writeCredentialError(w, err)
 		return
 	}
+	allowed, err := a.canReadCredentialMetadata(r, record)
+	if err != nil {
+		http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if !allowed {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	versions, err := a.credentialStore.ListCredentialVersions(r.Context(), credentialID)
 	if err != nil {
 		http.Error(w, "failed to load credential versions", http.StatusInternalServerError)
@@ -76,6 +111,9 @@ func (a *App) handleGetCredential(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleRotateCredential(w http.ResponseWriter, r *http.Request) {
 	credentialID, ok := credentialIDFromRequest(w, r)
 	if !ok {
+		return
+	}
+	if !a.requireCredentialRecordAction(w, r, credentialID, "credential.write_value") {
 		return
 	}
 	var request credentialValueRequest
@@ -99,6 +137,9 @@ func (a *App) handleActivateCredentialVersion(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
+	if !a.requireCredentialRecordAction(w, r, credentialID, "credential.rotate") {
+		return
+	}
 	version, err := strconv.Atoi(strings.TrimSpace(r.PathValue("version")))
 	if err != nil || version <= 0 {
 		http.Error(w, "credential version must be positive", http.StatusBadRequest)
@@ -116,6 +157,9 @@ func (a *App) handleDisableCredential(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !a.requireCredentialRecordAction(w, r, credentialID, "credential.disable") {
+		return
+	}
 	if err := a.credentials.Disable(r.Context(), credentialID, credentialActor(r)); err != nil {
 		writeCredentialError(w, err)
 		return
@@ -128,6 +172,9 @@ func (a *App) handleEnableCredential(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !a.requireCredentialRecordAction(w, r, credentialID, "credential.enable") {
+		return
+	}
 	if err := a.credentials.Enable(r.Context(), credentialID, credentialActor(r)); err != nil {
 		writeCredentialError(w, err)
 		return
@@ -138,6 +185,9 @@ func (a *App) handleEnableCredential(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleDeleteCredentialVersion(w http.ResponseWriter, r *http.Request) {
 	credentialID, ok := credentialIDFromRequest(w, r)
 	if !ok {
+		return
+	}
+	if !a.requireCredentialRecordAction(w, r, credentialID, "credential.delete_version") {
 		return
 	}
 	version, err := strconv.Atoi(strings.TrimSpace(r.PathValue("version")))
@@ -162,6 +212,9 @@ func (a *App) handleDeleteCredential(w http.ResponseWriter, r *http.Request) {
 		writeCredentialError(w, err)
 		return
 	}
+	if !a.requireLoadedCredentialAction(w, r, record, "credential.delete") {
+		return
+	}
 	usages, err := a.credentialReferenceUsages(r.Context(), record.Reference)
 	if err != nil {
 		http.Error(w, "failed to check credential references", http.StatusInternalServerError)
@@ -180,6 +233,205 @@ func (a *App) handleDeleteCredential(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *App) filterVisibleCredentials(r *http.Request, subject aaamodel.Subject, records []credentials.Credential) ([]credentials.Credential, error) {
+	if len(records) == 0 {
+		return records, nil
+	}
+	if allowed, err := a.credentialActionAllowed(r, subject, "credential.list_metadata", aaamodel.ResourceRef{Type: "credential", ID: "*"}); err != nil {
+		return nil, err
+	} else if allowed {
+		return records, nil
+	}
+	for _, action := range credentialVisibilityActions() {
+		if allowed, err := a.credentialActionAllowed(r, subject, action, aaamodel.ResourceRef{Type: "credential", ID: "*"}); err != nil {
+			return nil, err
+		} else if allowed {
+			return records, nil
+		}
+	}
+
+	resources := make([]aaamodel.ResourceRef, 0, len(records))
+	for _, record := range records {
+		resources = append(resources, credentialRecordResource(record))
+	}
+	allowedSet, err := a.allowedResourceSet(r, "credential.list_metadata", resources)
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]credentials.Credential, 0, len(records))
+	for _, record := range records {
+		resource := credentialRecordResource(record)
+		if credentialCreatedBySubject(record, subject) {
+			filtered = append(filtered, record)
+			continue
+		}
+		if _, ok := allowedSet[resourceKey(resource)]; ok {
+			filtered = append(filtered, record)
+			continue
+		}
+		if allowed, err := a.credentialAnyVisibilityActionAllowed(r, subject, resource); err != nil {
+			return nil, err
+		} else if allowed {
+			filtered = append(filtered, record)
+		}
+	}
+	return filtered, nil
+}
+
+func (a *App) canReadCredentialMetadata(r *http.Request, record credentials.Credential) (bool, error) {
+	subject, ok := a.currentAAASubject(r)
+	if !ok {
+		return false, nil
+	}
+	if credentialCreatedBySubject(record, subject) {
+		return true, nil
+	}
+	resource := credentialRecordResource(record)
+	if allowed, err := a.credentialActionAllowed(r, subject, "credential.list_metadata", resource); err != nil || allowed {
+		return allowed, err
+	}
+	return a.credentialAnyVisibilityActionAllowed(r, subject, resource)
+}
+
+func (a *App) requireCredentialRecordAction(w http.ResponseWriter, r *http.Request, credentialID uuid.UUID, action string) bool {
+	record, err := a.credentialStore.GetCredentialByID(r.Context(), credentialID)
+	if err != nil {
+		writeCredentialError(w, err)
+		return false
+	}
+	return a.requireLoadedCredentialAction(w, r, record, action)
+}
+
+func (a *App) requireLoadedCredentialAction(w http.ResponseWriter, r *http.Request, record credentials.Credential, action string) bool {
+	subject, ok := a.currentAAASubject(r)
+	if !ok {
+		http.Error(w, "missing authorization subject", http.StatusUnauthorized)
+		return false
+	}
+	if credentialCreatedBySubject(record, subject) {
+		return true
+	}
+	allowed, err := a.credentialActionAllowed(r, subject, action, credentialRecordResource(record))
+	if err != nil {
+		http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
+		return false
+	}
+	if !allowed {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
+func (a *App) canCreateCredential(r *http.Request, subject aaamodel.Subject) (bool, error) {
+	if a.checkCapabilityOrScopedGrant(r.Context(), subject, "credential.create", aaamodel.ResourceRef{Type: "credential", ID: "*"}) {
+		return true, nil
+	}
+	for _, permission := range credentialConsumerWritePermissions() {
+		if a.checkCapabilityOrScopedGrant(r.Context(), subject, permission.action, permission.resource) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (a *App) credentialActionAllowed(r *http.Request, subject aaamodel.Subject, action string, resource aaamodel.ResourceRef) (bool, error) {
+	if a == nil || !a.aaaAvailable() {
+		return false, fmt.Errorf("authorization unavailable")
+	}
+	decision, err := a.aaaCheck(r.Context(), subject, action, resource, a.aaaRequestContext(r))
+	if err != nil {
+		return false, err
+	}
+	return decision.Allowed, nil
+}
+
+func (a *App) credentialAnyVisibilityActionAllowed(r *http.Request, subject aaamodel.Subject, resource aaamodel.ResourceRef) (bool, error) {
+	for _, action := range credentialVisibilityActions() {
+		allowed, err := a.credentialActionAllowed(r, subject, action, resource)
+		if err != nil {
+			return false, err
+		}
+		if allowed {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func credentialVisibilityActions() []string {
+	return append([]string{
+		"credential.use",
+		"credential.manage_acl",
+	}, credentialManagementActions()...)
+}
+
+func credentialRecordResource(record credentials.Credential) aaamodel.ResourceRef {
+	return aaamodel.ResourceRef{Type: "credential", ID: record.Reference.ResourceID()}
+}
+
+func credentialCreatedBySubject(record credentials.Credential, subject aaamodel.Subject) bool {
+	createdBy := strings.TrimSpace(record.CreatedBy)
+	if createdBy == "" {
+		return false
+	}
+	for _, candidate := range credentialSubjectActorIDs(subject) {
+		if strings.EqualFold(createdBy, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func credentialSubjectActorIDs(subject aaamodel.Subject) []string {
+	candidates := []string{subject.ID, subject.Sub, subject.Email}
+	seen := make(map[string]struct{}, len(candidates))
+	result := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		key := strings.ToLower(candidate)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, candidate)
+	}
+	return result
+}
+
+func credentialManagementActions() []string {
+	return []string{
+		"credential.write_value",
+		"credential.rotate",
+		"credential.disable",
+		"credential.enable",
+		"credential.delete_version",
+		"credential.delete",
+	}
+}
+
+func credentialConsumerWritePermissions() []struct {
+	action   string
+	resource aaamodel.ResourceRef
+} {
+	return []struct {
+		action   string
+		resource aaamodel.ResourceRef
+	}{
+		{action: "system.update", resource: aaamodel.ResourceRef{Type: "system", ID: "llm-profiles"}},
+		{action: "system.update", resource: aaamodel.ResourceRef{Type: "system", ID: "agent-profiles"}},
+		{action: "system.update", resource: aaamodel.ResourceRef{Type: "system", ID: "mcp"}},
+		{action: "system.update", resource: aaamodel.ResourceRef{Type: "system", ID: "config"}},
+		{action: "system.update", resource: aaamodel.ResourceRef{Type: "system", ID: "notifications"}},
+		{action: "git_webhook_source.create", resource: aaamodel.ResourceRef{Type: grantResourceGitWebhookSource, ID: "*"}},
+		{action: "git_webhook_source.update", resource: aaamodel.ResourceRef{Type: grantResourceGitWebhookSource, ID: "*"}},
+		{action: "team.update", resource: aaamodel.ResourceRef{Type: grantResourceTeam, ID: "*"}},
+	}
 }
 
 func credentialIDFromRequest(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {

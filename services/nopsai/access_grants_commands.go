@@ -529,6 +529,8 @@ func actionAppliesToGrantResource(action, resourceType string) bool {
 		return strings.HasPrefix(action, "mcp_server.")
 	case grantResourceMCPProfile:
 		return strings.HasPrefix(action, "mcp_profile.")
+	case grantResourceCredential:
+		return strings.HasPrefix(action, "credential.")
 	default:
 		return false
 	}

@@ -82,6 +82,8 @@ func normalizeAccessGrantResourceType(raw string) (string, error) {
 		return grantResourceMCPServer, nil
 	case grantResourceMCPProfile:
 		return grantResourceMCPProfile, nil
+	case grantResourceCredential:
+		return grantResourceCredential, nil
 	case grantResourceCompany, grantResourcePlatform:
 		return grantResourcePlatform, nil
 	default:
@@ -459,6 +461,31 @@ func resolveAccessGrantResource(ctx context.Context, runner queryRunner, rawType
 		return resolveNamedTableGrantResource(ctx, runner, resourceType, rawID, requireExists, "mcp_servers", "name")
 	case grantResourceMCPProfile:
 		return resolveNamedTableGrantResource(ctx, runner, resourceType, rawID, requireExists, "mcp_profiles", "name")
+	case grantResourceCredential:
+		resourceID := strings.Trim(strings.TrimSpace(rawID), "/")
+		if resourceID == "" {
+			return accessGrantResource{}, fmt.Errorf("resource_id is required")
+		}
+		if requireExists && resourceID != "*" {
+			parts := strings.SplitN(resourceID, "/", 2)
+			if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+				return accessGrantResource{}, fmt.Errorf("credential resource_id must be namespace/name")
+			}
+			var exists int
+			err := runner.QueryRow(ctx, `
+				SELECT 1
+				FROM credentials
+				WHERE namespace = $1 AND name = $2
+				LIMIT 1
+			`, strings.TrimSpace(parts[0]), strings.Trim(strings.TrimSpace(parts[1]), "/")).Scan(&exists)
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+					return accessGrantResource{}, fmt.Errorf("resource not found")
+				}
+				return accessGrantResource{}, err
+			}
+		}
+		return accessGrantResource{Type: resourceType, ID: resourceID, Display: resourceID}, nil
 	case grantResourceSecret, grantResourceVariable:
 		if rawID == "" {
 			return accessGrantResource{}, fmt.Errorf("resource_id is required")
@@ -757,6 +784,8 @@ func managementActionForGrantResource(resource accessGrantResource) (string, mod
 		return "mcp_server.manage_acl", model.ResourceRef{Type: grantResourceMCPServer, ID: resource.ID}, nil
 	case grantResourceMCPProfile:
 		return "mcp_profile.manage_acl", model.ResourceRef{Type: grantResourceMCPProfile, ID: resource.ID}, nil
+	case grantResourceCredential:
+		return "credential.manage_acl", model.ResourceRef{Type: grantResourceCredential, ID: resource.ID}, nil
 	case grantResourceRunner:
 		return "system.update", model.ResourceRef{Type: "dispatcher", ID: "runners"}, nil
 	case grantResourceConfig:

@@ -8,7 +8,7 @@ const apiMocks = vi.hoisted(() => {
   const registry = {
     servers: [
       {
-        name: 'github',
+        name: 'platform/ml/github',
         display_name: 'GitHub MCP',
         enabled: true,
         provider: 'github',
@@ -28,7 +28,7 @@ const apiMocks = vi.hoisted(() => {
         discovered_protocol: '2025-06-18',
         tools: [
           {
-            server_name: 'github',
+            server_name: 'platform/ml/github',
             name: 'issues_list',
             description: 'List issues',
           },
@@ -37,10 +37,10 @@ const apiMocks = vi.hoisted(() => {
     ],
     profiles: [
       {
-        name: 'pr-review',
+        name: 'platform/ml/pr-review',
         description: 'Review pull requests.',
         enabled: true,
-        servers: [{ server: 'github', tools: ['issues_list'] }],
+        servers: [{ server: 'platform/ml/github', tools: ['issues_list'] }],
         allowed_scopes: ['prod'],
       },
     ],
@@ -55,8 +55,12 @@ const apiMocks = vi.hoisted(() => {
     testMCPProfile: vi.fn(async () => 'ok'),
   };
 });
+const teamMocks = vi.hoisted(() => ({
+  fetchResourceTeamPaths: vi.fn(async () => ['platform/ml']),
+}));
 
 vi.mock('./mcp/api', () => apiMocks);
+vi.mock('../../lib/resourceTeams', () => teamMocks);
 
 test('renders MCP servers and profiles in the split detail workspace', async () => {
   Element.prototype.scrollIntoView = vi.fn();
@@ -72,14 +76,15 @@ test('renders MCP servers and profiles in the split detail workspace', async () 
   expect(screen.getByText('https://api.githubcopilot.com/mcp/x/all/readonly')).toBeVisible();
   expect(screen.getByRole('link', { name: 'credential://system/mcp/github' })).toHaveAttribute(
     'href',
-    '/system/credentials?credential=credential%3A%2F%2Fsystem%2Fmcp%2Fgithub'
+    '/credentials?credential=credential%3A%2F%2Fsystem%2Fmcp%2Fgithub'
   );
   expect(screen.queryByRole('button', { name: /more actions/i })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Access' })).toHaveClass('ai-resource-icon-action');
   expect(screen.getByRole('button', { name: /edit server/i })).toHaveClass('ai-resource-icon-action');
+  expect(screen.getAllByText('/platform/ml')[0]).toBeVisible();
 
   await user.click(screen.getByRole('button', { name: /discover tools/i }));
-  await waitFor(() => expect(apiMocks.discoverMCPServer).toHaveBeenCalledWith('github'));
+  await waitFor(() => expect(apiMocks.discoverMCPServer).toHaveBeenCalledWith('platform/ml/github'));
 
   await user.click(screen.getByRole('tab', { name: 'Profiles' }));
   expect(await screen.findByText('Review pull requests.')).toBeVisible();
@@ -88,9 +93,22 @@ test('renders MCP servers and profiles in the split detail workspace', async () 
   expect(screen.getByRole('button', { name: 'Access' })).toHaveClass('ai-resource-icon-action');
 
   await user.click(screen.getByRole('button', { name: /test profile/i }));
-  await waitFor(() => expect(apiMocks.testMCPProfile).toHaveBeenCalledWith('pr-review'));
+  await waitFor(() => expect(apiMocks.testMCPProfile).toHaveBeenCalledWith('platform/ml/pr-review'));
 
   await user.click(screen.getByRole('button', { name: /edit profile/i }));
-  expect(screen.getByLabelText('Name')).toHaveValue('pr-review');
+  expect(screen.getByLabelText('Name')).toHaveValue('platform/ml/pr-review');
   expect(screen.getByLabelText('Allowed scopes')).toHaveValue('prod');
+});
+
+test('applies the team filter and profiles view from the route query', async () => {
+  render(
+    <MemoryRouter initialEntries={['/mcp?team=platform%2Fml&view=profiles']}>
+      <MCPPanel canManage />
+    </MemoryRouter>
+  );
+
+  expect(await screen.findByLabelText('Filter by team')).toHaveValue('platform/ml');
+  await waitFor(() => expect(screen.getByRole('tab', { name: 'Profiles' })).toHaveAttribute('aria-selected', 'true'));
+  expect(screen.getByText('Review pull requests.')).toBeVisible();
+  expect(screen.queryByText('https://api.githubcopilot.com/mcp/x/all/readonly')).not.toBeInTheDocument();
 });

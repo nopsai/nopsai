@@ -5,6 +5,82 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '../lib/api';
 import TeamsPage from './Teams';
 
+vi.mock('../auth/AuthContext', () => ({
+  useAuth: () => ({
+    currentUser: {
+      id: 'user-1',
+      sub: 'user-1',
+      email: 'user@example.test',
+      roles: [],
+      permissions: [],
+    },
+  }),
+}));
+
+vi.mock('../features/teams/hooks/useTeamOperationsSummary', () => ({
+  useTeamOperationsSummary: () => ({
+    teamPath: '',
+    loading: false,
+    configRepo: null,
+    configRepoError: null,
+    notificationRoute: null,
+    notificationError: null,
+    llmProfiles: null,
+    agentProfiles: null,
+    mcpProfiles: null,
+    aiProfilesError: null,
+    accessGrants: [],
+    accessGrantsError: null,
+    permissions: [],
+    permissionsError: null,
+  }),
+}));
+
+vi.mock('../features/teams/hooks/useTeamConfigRepositoryController', () => ({
+  useTeamConfigRepositoryController: () => ({
+    configRepoTeam: null,
+    configRepo: null,
+    configRepoForm: {
+      repo_url: '',
+      branch: 'main',
+      base_path: '',
+      enabled: false,
+      write_enabled: false,
+      write_branch: 'nopsai/ui-changes',
+    },
+    configRepoLoading: false,
+    configRepoSaving: false,
+    configRepoSyncing: false,
+    configRepoError: null,
+    configRepoDriftLoading: false,
+    configRepoDriftOpen: false,
+    configRepoDrift: null,
+    configRepoDriftError: null,
+    configRepoPushing: false,
+    configRepoPushResult: null,
+    configRepoInitialTab: 'sync',
+    configRepoManageAllowed: true,
+    configRepoSyncAllowed: true,
+    notificationRoute: null,
+    notificationRouteForm: { routes: [], selectedRouteID: null },
+    notificationRouteLoading: false,
+    notificationRouteSaving: false,
+    notificationRouteError: null,
+    setConfigRepoForm: () => undefined,
+    setNotificationRouteForm: () => undefined,
+    setConfigRepoDriftOpen: () => undefined,
+    openTeamConfigRepository: () => undefined,
+    closeTeamConfigRepository: () => undefined,
+    saveTeamConfigRepository: async () => undefined,
+    deleteTeamConfigRepository: async () => undefined,
+    syncTeamConfigRepository: async () => undefined,
+    checkTeamConfigRepositoryDrift: async () => undefined,
+    pushTeamConfigRepositoryDrift: async () => undefined,
+    saveTeamNotificationRoute: async () => undefined,
+    deleteTeamNotificationRoute: async () => undefined,
+  }),
+}));
+
 const teams = [
   {
     id: 1,

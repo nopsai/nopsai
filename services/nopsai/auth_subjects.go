@@ -100,14 +100,24 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 	agentProfilesWrite := a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "agent-profiles"})
 	mcpRead := a.checkCapability(subject, "system.read", model.ResourceRef{Type: "system", ID: "mcp"})
 	mcpWrite := a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "mcp"})
-	credentialsRead := a.checkCapability(subject, "credential.list_metadata", model.ResourceRef{Type: "credential", ID: "*"})
-	credentialsWrite := a.checkCapability(subject, "credential.write_value", model.ResourceRef{Type: "credential", ID: "*"}) ||
-		a.checkCapability(subject, "credential.create", model.ResourceRef{Type: "credential", ID: "*"}) ||
-		a.checkCapability(subject, "credential.rotate", model.ResourceRef{Type: "credential", ID: "*"}) ||
-		a.checkCapability(subject, "credential.disable", model.ResourceRef{Type: "credential", ID: "*"}) ||
-		a.checkCapability(subject, "credential.enable", model.ResourceRef{Type: "credential", ID: "*"}) ||
-		a.checkCapability(subject, "credential.delete_version", model.ResourceRef{Type: "credential", ID: "*"}) ||
-		a.checkCapability(subject, "credential.delete", model.ResourceRef{Type: "credential", ID: "*"})
+	credentialsRead := a.checkCapabilityOrScopedGrant(ctx, subject, "credential.list_metadata", model.ResourceRef{Type: "credential", ID: "*"})
+	credentialsWrite := a.checkCapabilityOrScopedGrant(ctx, subject, "credential.write_value", model.ResourceRef{Type: "credential", ID: "*"}) ||
+		a.checkCapabilityOrScopedGrant(ctx, subject, "credential.create", model.ResourceRef{Type: "credential", ID: "*"}) ||
+		a.checkCapabilityOrScopedGrant(ctx, subject, "credential.rotate", model.ResourceRef{Type: "credential", ID: "*"}) ||
+		a.checkCapabilityOrScopedGrant(ctx, subject, "credential.disable", model.ResourceRef{Type: "credential", ID: "*"}) ||
+		a.checkCapabilityOrScopedGrant(ctx, subject, "credential.enable", model.ResourceRef{Type: "credential", ID: "*"}) ||
+		a.checkCapabilityOrScopedGrant(ctx, subject, "credential.delete_version", model.ResourceRef{Type: "credential", ID: "*"}) ||
+		a.checkCapabilityOrScopedGrant(ctx, subject, "credential.delete", model.ResourceRef{Type: "credential", ID: "*"})
+	credentialConsumerWrite := llmProfilesWrite ||
+		agentProfilesWrite ||
+		mcpWrite ||
+		configWrite ||
+		a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "notifications"}) ||
+		a.checkCapabilityOrScopedGrant(ctx, subject, "git_webhook_source.create", model.ResourceRef{Type: grantResourceGitWebhookSource, ID: "*"}) ||
+		a.checkCapabilityOrScopedGrant(ctx, subject, "git_webhook_source.update", model.ResourceRef{Type: grantResourceGitWebhookSource, ID: "*"}) ||
+		a.checkCapabilityOrScopedGrant(ctx, subject, "team.update", model.ResourceRef{Type: grantResourceTeam, ID: "*"})
+	credentialsRead = credentialsRead || credentialsWrite || credentialConsumerWrite
+	credentialsWrite = credentialsWrite || credentialConsumerWrite
 	configReposRead := a.checkCapability(subject, "system.read", model.ResourceRef{Type: "system", ID: "config-repos"})
 	configReposWrite := a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "config-repos"})
 	dispatcherRead := a.checkCapability(subject, "system.read", model.ResourceRef{Type: "dispatcher", ID: "status"})
