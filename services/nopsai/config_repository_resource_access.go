@@ -375,6 +375,8 @@ func resourceTypeForUseActions(actions []string) string {
 			return grantResourceMCPServer
 		case strings.HasPrefix(action, "mcp_profile."):
 			return grantResourceMCPProfile
+		case strings.HasPrefix(action, "credential."):
+			return grantResourceCredential
 		}
 	}
 	return ""

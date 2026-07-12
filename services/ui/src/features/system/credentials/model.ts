@@ -145,7 +145,7 @@ export function isCredentialReference(reference: string): boolean {
 
 export function credentialReferenceRoute(reference: string): string {
   const trimmed = reference.trim();
-  return `/system/credentials?credential=${encodeURIComponent(trimmed)}`;
+  return `/credentials?credential=${encodeURIComponent(trimmed)}`;
 }
 
 export function parseCredentialReference(reference: string): CredentialReferenceParts {

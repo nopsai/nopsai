@@ -113,7 +113,7 @@ mcp_profiles:
         tools: ["*"]
 ```
 
-Create the referenced bearer token under **System > Credentials** or sync its
+Create the referenced bearer token under **Credentials** or sync its
 encrypted envelope from `setting/system/credentials.yaml`. GitOps owns the
 binding; plaintext remains write-only in the API/UI.
 

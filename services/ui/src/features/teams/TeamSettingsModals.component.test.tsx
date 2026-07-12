@@ -30,14 +30,6 @@ function createSettingsHandlers() {
     onCheckDrift: vi.fn().mockResolvedValue(undefined),
     onSaveNotification: vi.fn().mockResolvedValue(undefined),
     onDeleteNotification: vi.fn().mockResolvedValue(undefined),
-    onSaveLLMProfile: vi.fn().mockResolvedValue(undefined),
-    onSetDefaultLLMProfile: vi.fn().mockResolvedValue(undefined),
-    onDeleteLLMProfile: vi.fn().mockResolvedValue(undefined),
-    onSaveAgentProfile: vi.fn().mockResolvedValue(undefined),
-    onSetDefaultAgentProfile: vi.fn().mockResolvedValue(undefined),
-    onDeleteAgentProfile: vi.fn().mockResolvedValue(undefined),
-    onSaveMCPProfile: vi.fn().mockResolvedValue(undefined),
-    onDeleteMCPProfile: vi.fn().mockResolvedValue(undefined),
     onClose: vi.fn(),
   };
 }
@@ -75,15 +67,8 @@ function ConfigModalHarness({ handlers }: { handlers: ReturnType<typeof createSe
       notificationLoading={false}
       notificationSaving={false}
       notificationError={null}
-      llmProfiles={null}
-      agentProfiles={null}
-      mcpProfiles={null}
-      aiProfilesLoading={false}
-      aiProfilesSaving={false}
-      aiProfilesError={null}
       canManage
       canSync
-      canManageProfiles
       onChange={setForm}
       onNotificationChange={setNotificationForm}
       onSave={() => handlers.onSave(form)}
@@ -92,14 +77,6 @@ function ConfigModalHarness({ handlers }: { handlers: ReturnType<typeof createSe
       onCheckDrift={handlers.onCheckDrift}
       onSaveNotification={() => handlers.onSaveNotification(notificationForm)}
       onDeleteNotification={handlers.onDeleteNotification}
-      onSaveLLMProfile={handlers.onSaveLLMProfile}
-      onSetDefaultLLMProfile={handlers.onSetDefaultLLMProfile}
-      onDeleteLLMProfile={handlers.onDeleteLLMProfile}
-      onSaveAgentProfile={handlers.onSaveAgentProfile}
-      onSetDefaultAgentProfile={handlers.onSetDefaultAgentProfile}
-      onDeleteAgentProfile={handlers.onDeleteAgentProfile}
-      onSaveMCPProfile={handlers.onSaveMCPProfile}
-      onDeleteMCPProfile={handlers.onDeleteMCPProfile}
       onClose={handlers.onClose}
     />
   );
@@ -133,7 +110,7 @@ describe('TeamSettingsModals', () => {
     }));
   });
 
-  it('keeps config, notification, and AI settings tabs interactive', async () => {
+  it('keeps GitOps and notification settings tabs interactive', async () => {
     const user = userEvent.setup();
     const handlers = createSettingsHandlers();
     render(<ConfigModalHarness handlers={handlers} />);
@@ -154,9 +131,6 @@ describe('TeamSettingsModals', () => {
       routeName: 'release failures',
     }));
 
-    await user.click(screen.getByRole('tab', { name: 'AI profiles' }));
-    expect(screen.getByText('GitOps target: teams/platform/ai-profiles.yaml')).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Review GitOps drift' }));
-    expect(handlers.onCheckDrift).toHaveBeenCalled();
+    expect(screen.queryByRole('tab', { name: 'AI profiles' })).not.toBeInTheDocument();
   });
 });

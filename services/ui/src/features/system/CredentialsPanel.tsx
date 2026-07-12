@@ -18,6 +18,7 @@ type CredentialsController = ReturnType<typeof useCredentials>;
 
 type CredentialsPanelBodyProps = {
   canManage: boolean;
+  canManageAccess: boolean;
   controller: CredentialsController;
   linkedCredentialRef: string;
   onCloseCredentialDetails: () => void;
@@ -25,7 +26,7 @@ type CredentialsPanelBodyProps = {
   onStartCreate: () => void;
 };
 
-function CredentialsPanel({ canManage }: { canManage: boolean }) {
+function CredentialsPanel({ canManage, canManageAccess = false }: { canManage: boolean; canManageAccess?: boolean }) {
   const controller = useCredentials({ canManage });
   const [searchParams, setSearchParams] = useSearchParams();
   const linkedCredentialRef = (searchParams.get('credential') || '').trim();
@@ -72,6 +73,7 @@ function CredentialsPanel({ canManage }: { canManage: boolean }) {
     <CredentialsPanelBody
       key={linkedCredentialRef}
       canManage={canManage}
+      canManageAccess={canManageAccess}
       controller={controller}
       linkedCredentialRef={linkedCredentialRef}
       onCloseCredentialDetails={closeCredentialDetails}
@@ -83,6 +85,7 @@ function CredentialsPanel({ canManage }: { canManage: boolean }) {
 
 function CredentialsPanelBody({
   canManage,
+  canManageAccess,
   controller,
   linkedCredentialRef,
   onCloseCredentialDetails,
@@ -183,6 +186,7 @@ function CredentialsPanelBody({
           <CredentialDetail
             credential={controller.selected}
             canManage={canManage}
+            canManageAccess={canManageAccess}
             saving={controller.saving}
             rotationValue={controller.rotationValue}
             onRotationValueChange={controller.setRotationValue}

@@ -113,7 +113,7 @@ export function GitWebhookSourceForm({
       </Field>
 
       {form.authMode !== 'none' ? (
-        <Field label="Credential reference" hint="Create or rotate the value in System > Credentials.">
+        <Field label="Credential reference" hint="Create or rotate the value in Credentials.">
           <input
             className="pipelines-input w-full font-mono"
             value={form.credentialRef}

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Activity, Bot, Copy, Edit3, FileText, Plus, Power, RefreshCw, Trash2, X } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 import {
   agentProfileSourceLabel,
   type AgentProfileRecord,
@@ -8,18 +9,37 @@ import { useAgentProfiles } from './agent-profiles/useAgentProfiles';
 import {
   AIResourceEmptyState,
   AIResourceIconAction,
+  AIResourceTeamBadge,
+  AIResourceTeamFilter,
+  AIResourceTeamPlacementField,
   AIResourceTableHeader,
 } from './AIResourcePanel';
+import {
+  AI_RESOURCE_TEAM_FILTER_ALL,
+  aiResourceLocalName,
+  aiResourceMatchesTeamFilter,
+  aiResourceTeamFilterFromSearch,
+  aiResourceTeamScope,
+  buildAIResourceScopedID,
+  collectAIResourceTeamPaths,
+  formatAIResourceTeamLabel,
+} from './aiResourceTeams';
 import {
   formatFilteredCount,
   matchesAIResourceSearch,
 } from './aiResourcePresentation';
+import { useAIResourceTeamPaths } from './useAIResourceTeamPaths';
 import ResourceAccessCard from '../../components/ResourceAccessCard';
 
 function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
   const panelRef = useRef<HTMLElement | null>(null);
+  const location = useLocation();
+  const requestedTeamFilter = useMemo(() => aiResourceTeamFilterFromSearch(location.search), [location.search]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [teamFilter, setTeamFilter] = useState(requestedTeamFilter);
+  const [createTeamPath, setCreateTeamPath] = useState('');
   const [selectedProfileID, setSelectedProfileID] = useState<string | null>(null);
+  const { teamPaths, teamPathsLoading } = useAIResourceTeamPaths();
   const {
     payload,
     loading,
@@ -46,6 +66,10 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
   } = useAgentProfiles({ canManage });
 
   useEffect(() => {
+    setTeamFilter(requestedTeamFilter);
+  }, [requestedTeamFilter]);
+
+  useEffect(() => {
     if (!panelMode) return;
     window.requestAnimationFrame(() => {
       if (window.innerWidth < 1280) {
@@ -63,6 +87,8 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
       searchTerm,
       profile.display_name,
       profile.id,
+      aiResourceLocalName(profile.id),
+      formatAIResourceTeamLabel(profile.id),
       profile.role,
       profile.description,
       profile.instructions,
@@ -71,8 +97,8 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
       profile.usage_count,
       profile.last_updated,
       profile.source_path
-    )),
-    [payload.profiles, searchTerm]
+    ) && aiResourceMatchesTeamFilter(profile.id, teamFilter)),
+    [payload.profiles, searchTerm, teamFilter]
   );
 
   const selectedListProfile = useMemo(() => {
@@ -95,8 +121,28 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
   }, [defaultProfileRecord, payload.profiles]);
   const enabledCount = payload.profiles.filter(profile => profile.enabled).length;
   const builtInCount = payload.profiles.filter(profile => profile.source === 'built-in' || profile.built_in).length;
+  const teamFilterOptions = useMemo(
+    () => collectAIResourceTeamPaths(payload.profiles.map(profile => profile.id), teamPaths),
+    [payload.profiles, teamPaths]
+  );
   const showForm = panelMode === 'create' || panelMode === 'edit';
   const detailProfile = selectedProfile ?? selectedListProfile;
+  const filteredCountToken = searchTerm || (teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL ? teamFilter : '');
+  const openCreate = () => {
+    setCreateTeamPath('');
+    startCreate();
+  };
+  const openDuplicate = (profile: AgentProfileRecord) => {
+    setCreateTeamPath(aiResourceTeamScope(profile.id).teamPath);
+    startDuplicate(profile);
+  };
+  const setCreateTeam = (teamPath: string) => {
+    setCreateTeamPath(teamPath);
+    setForm(prev => ({ ...prev, id: buildAIResourceScopedID(teamPath, aiResourceLocalName(prev.id)) }));
+  };
+  const setCreateScopedID = (localID: string) => {
+    setForm(prev => ({ ...prev, id: buildAIResourceScopedID(createTeamPath, localID) }));
+  };
 
   return (
     <div id="system-agent-profiles-section" className="ai-resource-panel space-y-5 pb-24">
@@ -111,7 +157,7 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
             <RefreshCw className="h-4 w-4" aria-hidden="true" />
           </button>
           {canManage && (
-            <button type="button" className="ai-resource-primary-button" onClick={startCreate} disabled={saving}>
+            <button type="button" className="ai-resource-primary-button" onClick={openCreate} disabled={saving}>
               <Plus className="h-4 w-4" aria-hidden="true" />
               New profile
             </button>
@@ -157,12 +203,20 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
           <div className="ai-resource-split__list">
             <AIResourceTableHeader
               title="Profiles"
-              count={formatFilteredCount(visibleProfiles.length, payload.profiles.length, searchTerm)}
+              count={formatFilteredCount(visibleProfiles.length, payload.profiles.length, filteredCountToken)}
               loading={loading}
               searchLabel="Search agent profiles"
               searchPlaceholder="Search agent profiles..."
               searchValue={searchTerm}
               onSearchChange={setSearchTerm}
+              filters={(
+                <AIResourceTeamFilter
+                  value={teamFilter}
+                  onChange={setTeamFilter}
+                  teamPaths={teamFilterOptions}
+                  disabled={teamPathsLoading && teamFilterOptions.length === 0}
+                />
+              )}
             />
             <div className="ai-resource-profile-list">
               {visibleProfiles.map(profile => {
@@ -186,6 +240,7 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
                       <span className="ai-resource-profile-option__title">
                         {profile.display_name}
                         {isDefault && <span className="runner-pill runner-pill--ok">Default</span>}
+                        <AIResourceTeamBadge resourceID={profile.id} />
                       </span>
                       <span className="ai-resource-profile-option__provider">{agentProfileSourceLabel(profile.source)}</span>
                       <span className="ai-resource-profile-option__model">{profile.role || profile.id}</span>
@@ -195,7 +250,7 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
                 );
               })}
               {!loading && visibleProfiles.length === 0 && (
-                <AIResourceEmptyState>{payload.profiles.length === 0 ? 'No agent profiles configured.' : 'No agent profiles match your search.'}</AIResourceEmptyState>
+                <AIResourceEmptyState>{payload.profiles.length === 0 ? 'No agent profiles configured.' : 'No agent profiles match your filters.'}</AIResourceEmptyState>
               )}
             </div>
           </div>
@@ -208,6 +263,11 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
                 editingID={editingID}
                 form={form}
                 setForm={setForm}
+                createTeamPath={createTeamPath}
+                teamPaths={teamPaths}
+                teamPathsLoading={teamPathsLoading}
+                onCreateTeamPathChange={setCreateTeam}
+                onCreateLocalIDChange={setCreateScopedID}
                 onSubmit={saveProfile}
                 onClose={() => setPanelMode(null)}
               />
@@ -228,7 +288,7 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
                 defaultProfile={payload.default_profile}
                 canManage={canManage}
                 saving={saving}
-                onDuplicate={startDuplicate}
+                onDuplicate={openDuplicate}
                 onEdit={startEdit}
                 onToggleEnabled={toggleProfileEnabled}
                 onDelete={deleteProfile}
@@ -251,6 +311,11 @@ function AgentProfileForm({
   editingID,
   form,
   setForm,
+  createTeamPath,
+  teamPaths,
+  teamPathsLoading,
+  onCreateTeamPathChange,
+  onCreateLocalIDChange,
   onSubmit,
   onClose,
 }: {
@@ -259,9 +324,16 @@ function AgentProfileForm({
   editingID: string | null;
   form: ReturnType<typeof useAgentProfiles>['form'];
   setForm: ReturnType<typeof useAgentProfiles>['setForm'];
+  createTeamPath: string;
+  teamPaths: string[];
+  teamPathsLoading: boolean;
+  onCreateTeamPathChange: (value: string) => void;
+  onCreateLocalIDChange: (value: string) => void;
   onSubmit: (event: FormEvent) => void;
   onClose: () => void;
 }) {
+  const isCreate = !editingID;
+
   return (
     <div className="ai-resource-detail">
       <div className="ai-resource-detail__header">
@@ -274,9 +346,27 @@ function AgentProfileForm({
         </button>
       </div>
       <form className="space-y-4" onSubmit={onSubmit}>
+        {isCreate && (
+          <AIResourceTeamPlacementField
+            teamPath={createTeamPath}
+            onTeamPathChange={onCreateTeamPathChange}
+            teamPaths={teamPaths}
+            teamPathsLoading={teamPathsLoading}
+            localName={aiResourceLocalName(form.id)}
+            resourceLabel="Profile"
+            disabled={!canManage}
+          />
+        )}
         <label className="flex flex-col gap-1 text-sm">
           <span>ID</span>
-          <input data-agent-profile-autofocus className="pipelines-input" value={form.id} onChange={event => setForm(prev => ({ ...prev, id: event.target.value }))} disabled={!canManage || Boolean(editingID)} placeholder="security-reviewer" />
+          <input
+            data-agent-profile-autofocus
+            className="pipelines-input"
+            value={isCreate ? aiResourceLocalName(form.id) : form.id}
+            onChange={event => isCreate ? onCreateLocalIDChange(event.target.value) : setForm(prev => ({ ...prev, id: event.target.value }))}
+            disabled={!canManage || Boolean(editingID)}
+            placeholder="security-reviewer"
+          />
         </label>
         <label className="flex flex-col gap-1 text-sm">
           <span>Name</span>
@@ -397,6 +487,7 @@ function AgentProfileDetail({
       <AgentDetailSection
         title="Profile"
         rows={[
+          { label: 'Team', value: <AIResourceTeamBadge resourceID={profile.id} /> },
           { label: 'ID', value: profile.id, mono: true },
           { label: 'Prompt role', value: profile.role || 'Uses profile name' },
           { label: 'Source', value: sourceLabel },

@@ -80,7 +80,7 @@ test('builds deep links for credential references', () => {
   assert.equal(isCredentialReference('not-a-credential'), false);
   assert.equal(
     credentialReferenceRoute('credential://system/llm/openai'),
-    '/system/credentials?credential=credential%3A%2F%2Fsystem%2Fllm%2Fopenai'
+    '/credentials?credential=credential%3A%2F%2Fsystem%2Fllm%2Fopenai'
   );
 });
 

@@ -29,27 +29,27 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		return "system_log.read", SystemLogResource(pathValueOrSegment(r, "sourceID", 4)), false, nil
 	case path == "/v1/system/credentials":
 		if r.Method == http.MethodGet {
-			return "credential.list_metadata", model.ResourceRef{Type: "credential", ID: "*"}, false, nil
+			return "credential.list_metadata", model.ResourceRef{Type: "credential", ID: "*"}, true, nil
 		}
-		return "credential.create", model.ResourceRef{Type: "credential", ID: "*"}, false, nil
+		return "credential.create", model.ResourceRef{Type: "credential", ID: "*"}, true, nil
 	case strings.HasPrefix(path, "/v1/system/credentials/"):
 		credentialID := pathValueOrSegment(r, "credentialID", 3)
 		resource = model.ResourceRef{Type: "credential", ID: credentialID}
 		switch {
 		case r.Method == http.MethodGet:
-			return "credential.list_metadata", resource, false, nil
+			return "credential.list_metadata", resource, true, nil
 		case r.Method == http.MethodPut && strings.HasSuffix(path, "/value"):
-			return "credential.write_value", resource, false, nil
+			return "credential.write_value", resource, true, nil
 		case r.Method == http.MethodPost && strings.Contains(path, "/versions/") && strings.HasSuffix(path, "/activate"):
-			return "credential.rotate", resource, false, nil
+			return "credential.rotate", resource, true, nil
 		case r.Method == http.MethodDelete && strings.Contains(path, "/versions/"):
-			return "credential.delete_version", resource, false, nil
+			return "credential.delete_version", resource, true, nil
 		case r.Method == http.MethodPost && strings.HasSuffix(path, "/disable"):
-			return "credential.disable", resource, false, nil
+			return "credential.disable", resource, true, nil
 		case r.Method == http.MethodPost && strings.HasSuffix(path, "/enable"):
-			return "credential.enable", resource, false, nil
+			return "credential.enable", resource, true, nil
 		case r.Method == http.MethodDelete:
-			return "credential.delete", resource, false, nil
+			return "credential.delete", resource, true, nil
 		}
 	case path == "/v1/system/config":
 		if r.Method == http.MethodGet {

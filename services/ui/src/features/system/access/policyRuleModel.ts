@@ -244,6 +244,15 @@ export const AAA_RESOURCE_TYPE_CONFIGS: AAAResourceTypeConfig[] = [
     allLabel: 'All MCP profiles',
     customPlaceholder: 'github-pr-review',
   },
+  {
+    value: 'credential',
+    label: 'Credential',
+    targetLabel: 'Credential',
+    allowAll: true,
+    allLabel: 'All credentials',
+    dynamicSource: 'credentialOptions',
+    customPlaceholder: 'system/llm/openai',
+  },
 ];
 
 const AAA_ALL_ACTION_OPTION_TEAMS: AAAOptionTeam[] = [
@@ -344,6 +353,21 @@ const AAA_ALL_ACTION_OPTION_TEAMS: AAAOptionTeam[] = [
     ],
   },
   {
+    label: 'Credentials',
+    options: [
+      { value: 'credential.list_metadata', label: 'list metadata' },
+      { value: 'credential.create', label: 'create' },
+      { value: 'credential.write_value', label: 'write value' },
+      { value: 'credential.rotate', label: 'rotate' },
+      { value: 'credential.disable', label: 'disable' },
+      { value: 'credential.enable', label: 'enable' },
+      { value: 'credential.delete_version', label: 'delete version' },
+      { value: 'credential.delete', label: 'delete' },
+      { value: 'credential.use', label: 'use' },
+      { value: 'credential.manage_acl', label: 'manage access' },
+    ],
+  },
+  {
     label: 'Secrets',
     options: [
       { value: 'secret.list_metadata', label: 'list metadata' },
@@ -413,6 +437,7 @@ const AAA_ACTION_OPTION_TEAMS_BY_RESOURCE_TYPE: Record<string, AAAOptionTeam[]> 
   agent_profile: [{ label: 'Agent profile actions', options: aiProfileActionOptions('agent_profile.') }],
   mcp_server: [{ label: 'MCP server actions', options: aiProfileActionOptions('mcp_server.') }],
   mcp_profile: [{ label: 'MCP profile actions', options: aiProfileActionOptions('mcp_profile.') }],
+  credential: [{ label: 'Credential actions', options: AAA_ALL_ACTION_OPTION_TEAMS.find(team => team.label === 'Credentials')?.options || [] }],
   system: [{ label: 'System actions', options: AAA_ALL_ACTION_OPTION_TEAMS.find(team => team.label === 'System')?.options || [] }],
   system_log: [{ label: 'System log actions', options: [{ value: 'system_log.read', label: 'read' }] }],
   repository: [{ label: 'Repository actions', options: [{ value: 'system.read', label: 'read' }] }],

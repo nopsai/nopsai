@@ -370,6 +370,7 @@ func TestMapRequestUsesUpdatedLowLevelActions(t *testing.T) {
 			wantAction: "credential.list_metadata",
 			wantType:   "credential",
 			wantID:     "*",
+			wantFilter: true,
 		},
 		{
 			name:       "credential create uses create action",
@@ -378,6 +379,7 @@ func TestMapRequestUsesUpdatedLowLevelActions(t *testing.T) {
 			wantAction: "credential.create",
 			wantType:   "credential",
 			wantID:     "*",
+			wantFilter: true,
 		},
 		{
 			name:       "credential rotation uses write value action",
@@ -386,6 +388,7 @@ func TestMapRequestUsesUpdatedLowLevelActions(t *testing.T) {
 			wantAction: "credential.write_value",
 			wantType:   "credential",
 			wantID:     "00000000-0000-0000-0000-000000000001",
+			wantFilter: true,
 		},
 		{
 			name:       "credential version activation uses rotate action",
@@ -394,6 +397,7 @@ func TestMapRequestUsesUpdatedLowLevelActions(t *testing.T) {
 			wantAction: "credential.rotate",
 			wantType:   "credential",
 			wantID:     "00000000-0000-0000-0000-000000000001",
+			wantFilter: true,
 		},
 		{
 			name:       "credential disable uses disable action",
@@ -402,6 +406,7 @@ func TestMapRequestUsesUpdatedLowLevelActions(t *testing.T) {
 			wantAction: "credential.disable",
 			wantType:   "credential",
 			wantID:     "00000000-0000-0000-0000-000000000001",
+			wantFilter: true,
 		},
 		{
 			name:       "credential enable uses enable action",
@@ -410,6 +415,7 @@ func TestMapRequestUsesUpdatedLowLevelActions(t *testing.T) {
 			wantAction: "credential.enable",
 			wantType:   "credential",
 			wantID:     "00000000-0000-0000-0000-000000000001",
+			wantFilter: true,
 		},
 		{
 			name:       "credential version delete uses delete version action",
@@ -418,6 +424,7 @@ func TestMapRequestUsesUpdatedLowLevelActions(t *testing.T) {
 			wantAction: "credential.delete_version",
 			wantType:   "credential",
 			wantID:     "00000000-0000-0000-0000-000000000001",
+			wantFilter: true,
 		},
 		{
 			name:       "credential delete uses delete action",
@@ -426,6 +433,7 @@ func TestMapRequestUsesUpdatedLowLevelActions(t *testing.T) {
 			wantAction: "credential.delete",
 			wantType:   "credential",
 			wantID:     "00000000-0000-0000-0000-000000000001",
+			wantFilter: true,
 		},
 		{
 			name:       "runner compose template uses dispatcher runner update",

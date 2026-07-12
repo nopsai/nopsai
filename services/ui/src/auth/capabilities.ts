@@ -273,7 +273,6 @@ export function can(user: CurrentUser | null | undefined, permission: Permission
 export function getPreferredSystemPath(permissions: SystemPagePermissions): string {
   if (permissions.canViewConfig) return '/system/config';
   if (permissions.canViewSetup) return '/system/setup';
-  if (permissions.canViewCredentials) return '/system/credentials';
   if (permissions.canViewDataManagement) return '/system/data-management';
   if (permissions.canViewDispatcher) return '/system/dispatcher';
   if (permissions.canViewLogs) return '/system/logs';
@@ -323,7 +322,6 @@ export function getAppAccess(user: CurrentUser | null | undefined, session: Auth
   const canViewAnySystem =
     systemPermissions.canViewConfig ||
     systemPermissions.canViewSetup ||
-    systemPermissions.canViewCredentials ||
     systemPermissions.canViewDataManagement ||
     systemPermissions.canViewDispatcher ||
     systemPermissions.canViewLogs ||

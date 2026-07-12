@@ -76,7 +76,7 @@ export type TeamLLMProfilesPayload = {
 
 export type TeamLLMProfile = TeamLLMProfilePayload & {
   name: string;
-  scope: 'team';
+  scope: 'team' | 'global';
   team_id: number;
   team_path: string;
   status?: string;
@@ -102,7 +102,7 @@ export type TeamAgentProfilePayload = {
 
 export type TeamAgentProfile = Required<Pick<TeamAgentProfilePayload, 'id' | 'display_name' | 'instructions'>> &
   Omit<TeamAgentProfilePayload, 'id' | 'display_name' | 'instructions'> & {
-    scope: 'team';
+    scope: 'team' | 'global';
     team_id: number;
     team_path: string;
     source?: string;
@@ -125,7 +125,7 @@ export type TeamMCPProfilePayload = {
 
 export type TeamMCPProfile = TeamMCPProfilePayload & {
   name: string;
-  scope: 'team';
+  scope: 'team' | 'global';
   team_id: number;
   team_path: string;
 };

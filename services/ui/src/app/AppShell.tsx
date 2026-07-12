@@ -169,6 +169,7 @@ function AppShell() {
         if (item.path === '/llm-profiles') return canViewSystemLLMProfiles;
         if (item.path === '/agent-profiles') return canViewSystemAgentProfiles;
         if (item.path === '/mcp') return canViewSystemMCP;
+        if (item.path === '/credentials') return canViewSystemCredentials;
         if (item.path === '/schedules') return canViewSchedules;
         if (item.path === '/triggers') return canViewTriggers;
         if (item.path === '/external-triggers') return canViewExternalTriggers;
@@ -177,20 +178,19 @@ function AppShell() {
         if (item.path === '/knowledge-context') return canViewKnowledge;
         return true;
       });
-  }, [canViewAnySystem, canViewExternalTriggers, canViewGitWebhookSources, canViewKnowledge, canViewSchedules, canViewScopes, canViewSystemAgentProfiles, canViewSystemLLMProfiles, canViewSystemMCP, canViewTriggers, location.pathname, preferredSystemPath]);
+  }, [canViewAnySystem, canViewExternalTriggers, canViewGitWebhookSources, canViewKnowledge, canViewSchedules, canViewScopes, canViewSystemAgentProfiles, canViewSystemCredentials, canViewSystemLLMProfiles, canViewSystemMCP, canViewTriggers, location.pathname, preferredSystemPath]);
   const systemSubNav = useMemo(
     () =>
       baseSystemSubNav.filter(item => {
         if (item.path === '/system/config') return canViewSystemConfig;
         if (item.path === '/system/setup') return canViewSystemSetup;
-        if (item.path === '/system/credentials') return canViewSystemCredentials;
         if (item.path === '/system/data-management') return canViewSystemRuntimeConfig;
         if (item.path === '/system/dispatcher') return canViewSystemDispatcher;
         if (item.path === '/system/logs') return canViewSystemLogs;
         if (item.path === '/system/access') return canViewSystemAccess;
         return false;
       }),
-    [canViewSystemAccess, canViewSystemConfig, canViewSystemCredentials, canViewSystemDispatcher, canViewSystemLogs, canViewSystemRuntimeConfig, canViewSystemSetup]
+    [canViewSystemAccess, canViewSystemConfig, canViewSystemDispatcher, canViewSystemLogs, canViewSystemRuntimeConfig, canViewSystemSetup]
   );
 
   useInitialSetupRedirect({

@@ -538,7 +538,8 @@ Main MCP coverage: `nopsai.get_statistics`, `nopsai.get_cost_summary`,
 The assistant can list credential metadata, inspect a credential, create
 credentials, rotate values, activate versions, enable/disable credentials,
 delete versions, delete credentials, and prepare GitOps credential plans.
-Sensitive values stay out of ordinary assistant context.
+Credential access grants use the `credential` resource type and reference-path
+IDs, while sensitive values stay out of ordinary assistant context.
 
 Ask:
 

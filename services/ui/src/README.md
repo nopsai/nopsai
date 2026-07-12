@@ -61,8 +61,8 @@ truth; this file is the source-adjacent placement guide.
 ### Teams
 
 - `pages/Teams.tsx` owns URL-level selection, Teams API loading, create/delete
-  mutation handlers, and modal composition for GitOps, notifications, AI
-  profiles, and drift review.
+  mutation handlers, selected-team summary loading, and modal composition for
+  GitOps, notifications, and drift review.
 - `features/teams/model.ts` owns pure hierarchy, subtree metric, filtering,
   timestamp, parent, and kind-label rules for the Teams workspace.
 - `features/teams/workspaceModel.ts` owns UI-only tab metadata and table copy
@@ -70,11 +70,30 @@ truth; this file is the source-adjacent placement guide.
 - `features/teams/TeamsWorkspace.tsx` owns master-detail composition, toolbar,
   tree navigation, high-level summary cards, and responsive layout hooks.
 - `features/teams/TeamsWorkspacePanels.tsx` owns detail-tab panels, scoped
-  activity cards, resource tables, empty states, and table copy helpers.
+  activity cards, GitOps/notification summaries, read-only access summaries,
+  resource tables, empty states, and table copy helpers.
+- `features/teams/TeamAIProfilesPanel.tsx` owns the read-only team AI profile
+  summary and links to the LLM, agent, and MCP owner pages.
+- `features/teams/hooks/useTeamOperationsSummary.ts` owns selected-team
+  GitOps, notification, AI profile, and access-grant summary orchestration.
 - `features/teams/teams.css` owns the scoped Teams workspace styling.
-- Team settings, notification routes, AI profile editors, and config repository
-  orchestration remain in their existing `features/teams` modules so GitOps and
-  AAA behavior stay compatible with the rest of the enterprise UI.
+- Team settings configure GitOps repositories and notification routes only; AI
+  profiles and access are summarized from Teams and linked to their owning
+  pages so GitOps, AAA, and profile ownership stay compatible with the rest of
+  the enterprise UI.
+- Navigation-only team nodes are still valid team scopes for GitOps and
+  notifications; application nodes are the scopes that cannot own team config
+  repositories.
+- Teams Access shows current-session access roles, matching scoped basic roles,
+  and effective scope checks separately. Access role editing, basic role grants,
+  advanced role definitions, and policy editing remain owned by System Access.
+- The Teams root links GitOps to `/system/config`; it does not own a separate
+  team-scoped repository from the global system config repository.
+- The Teams root summarizes global LLM, agent, and MCP profiles plus
+  platform-wide admin grants; team rows continue to summarize only their
+  team-scoped profiles and access grants.
+- Notification routes are team-scoped; the Teams root does not show a root
+  notification policy editor.
 
 ### Pipeline Runs
 
@@ -101,21 +120,29 @@ truth; this file is the source-adjacent placement guide.
 - Access-specific catalogs, policy fields, grant editors, token panels,
   confirmation dialogs, resource catalogs, and presentation helpers belong under
   `features/system/access`.
-- Runtime config, dispatcher, data management, credentials, setup, access, and
-  logs stay under the System route.
+- Runtime config, dispatcher, data management, setup, access, and logs stay
+  under the System route.
+- Credentials are a first-class left-navigation route composed by
+  `pages/Credentials.tsx`; model/API/hook/rendering code stays under
+  `features/system/credentials`, and credential access links target System
+  Access with the `credential` resource type.
 - LLM profiles, agent profiles, and MCP are first-class workspace routes. Their
   model/API/hook/panel code can remain under `features/system` while the route
   wrappers live in `pages/`, because the backend capabilities still use the
   existing system profile permissions.
 - `features/system/AIResourcePanel.tsx`, `features/system/aiResourcePanel.css`,
   and `features/system/aiResourcePresentation.ts` own the shared hero, stats,
-  search, count, labeled resource rows, compact icon actions, split profile
-  detail layouts, and responsive presentation for LLM, agent, and MCP resource
-  pages; domain panels still own filtering inputs, mutations, and side-panel
-  rendering.
+  search, count, labeled resource rows, compact icon actions, team placement
+  controls, split profile detail layouts, and responsive presentation for LLM,
+  agent, and MCP resource pages; domain panels still own filtering inputs,
+  mutations, and side-panel rendering.
 - Individual LLM profiles, agent profiles, MCP servers, and MCP profiles share
   access through `ResourceAccessCard` with `llm_profile`, `agent_profile`,
   `mcp_server`, and `mcp_profile` resource types.
+- New LLM profiles, agent profiles, MCP servers, and MCP profiles use the same
+  slash path placement as pipelines: `team/subteam/name` belongs to
+  `/team/subteam`, inherits parent team access, and remains global when no team
+  prefix is present.
 - System workflows that generate GitOps commands or deployment snippets must
   preserve copyable, deterministic output.
 

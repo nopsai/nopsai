@@ -11,6 +11,11 @@ export const teamDetailTabs: Array<{ id: TeamDetailTabID; label: string }> = [
   { id: 'access', label: 'Access' },
 ];
 
+export function visibleTeamDetailTabs(team: Team | null): Array<{ id: TeamDetailTabID; label: string }> {
+  if (team) return teamDetailTabs;
+  return teamDetailTabs.filter(tab => tab.id !== 'notifications');
+}
+
 export function getTeamTableItems({
   activeDetailTab,
   directChildren,

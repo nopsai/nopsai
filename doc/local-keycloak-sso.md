@@ -131,7 +131,7 @@ non-GitOps deployments, but the checked-in local config intentionally leaves
 OIDC out so the config repository remains the source of truth.
 
 Use `setting/system/auth.yaml` for GitOps-managed auth settings. Create the
-referenced client secret and admin password in **System > Credentials**, or sync
+referenced client secret and admin password in **Credentials**, or sync
 their encrypted envelopes from `setting/system/credentials.yaml`, before
 testing login or entitlement sync.
 

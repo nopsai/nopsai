@@ -1,5 +1,6 @@
 import { Power, ShieldAlert, Trash2, X } from 'lucide-react';
 import type { FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import type { CredentialRecord } from './model';
 import { parseCredentialReference } from './model';
 import { formatCredentialDate, formatCredentialLabel } from './presentation';
@@ -8,6 +9,7 @@ import { CredentialStatusBadge } from './CredentialStatusBadge';
 type CredentialDetailProps = {
   credential: CredentialRecord;
   canManage: boolean;
+  canManageAccess: boolean;
   saving: boolean;
   rotationValue: string;
   onRotationValueChange: (value: string) => void;
@@ -23,6 +25,7 @@ type CredentialDetailProps = {
 export function CredentialDetail({
   credential,
   canManage,
+  canManageAccess,
   saving,
   rotationValue,
   onRotationValueChange,
@@ -36,6 +39,7 @@ export function CredentialDetail({
 }: CredentialDetailProps) {
   const reference = parseCredentialReference(credential.reference);
   const canDeleteHistory = credential.versions.length >= 2;
+  const accessHref = `/system/access?resource_type=credential&resource_id=${encodeURIComponent(`${reference.namespace}/${reference.name}`)}`;
 
   return (
     <aside className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-5">
@@ -136,6 +140,11 @@ export function CredentialDetail({
 
       {canManage && (
         <div className="flex flex-wrap gap-2 border-t border-[var(--border-primary)] pt-4">
+          {canManageAccess ? (
+            <Link className="glass-button-subtle" to={accessHref}>
+              Manage access
+            </Link>
+          ) : null}
           {credential.status === 'disabled' ? (
             <button type="button" className="glass-button-subtle" onClick={onEnable} disabled={saving}>
               <Power className="h-4 w-4" aria-hidden="true" />
