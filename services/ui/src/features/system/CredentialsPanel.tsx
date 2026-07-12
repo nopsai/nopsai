@@ -1,16 +1,17 @@
-import { Plus, RefreshCw } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAIResourceTeamPaths } from './useAIResourceTeamPaths';
-import { CredentialCatalog } from './credentials/CredentialCatalog';
+import { CredentialCatalog, type CredentialScopeTab } from './credentials/CredentialCatalog';
 import { CredentialCreateForm } from './credentials/CredentialCreateForm';
+import { CredentialDashboard } from './credentials/CredentialDashboard';
 import { CredentialDetail } from './credentials/CredentialDetail';
 import {
+  credentialCatalogGroups,
   credentialNamespaces,
   credentialSummary,
   filterCredentials,
-  teamCredentials,
   parseCredentialReference,
+  recentlyUpdatedCredentials,
   type CredentialRecord,
 } from './credentials/model';
 import { useCredentials } from './credentials/useCredentials';
@@ -33,6 +34,7 @@ function CredentialsPanel({ canManage }: { canManage: boolean }) {
   const { teamPaths, teamPathsLoading } = useAIResourceTeamPaths();
   const [searchParams, setSearchParams] = useSearchParams();
   const linkedCredentialRef = (searchParams.get('credential') || '').trim();
+  const suppressedLinkedCredentialRef = useRef('');
   const {
     closeDetails,
     creating,
@@ -44,12 +46,24 @@ function CredentialsPanel({ canManage }: { canManage: boolean }) {
   } = controller;
 
   useEffect(() => {
-    if (!linkedCredentialRef || loading || creating) return;
+    if (!linkedCredentialRef) {
+      suppressedLinkedCredentialRef.current = '';
+      return;
+    }
+    if (linkedCredentialRef === suppressedLinkedCredentialRef.current || loading || creating) return;
     const match = credentials.find(credential => credential.reference === linkedCredentialRef);
     if (match && selected?.id !== match.id) void selectControllerCredential(match);
-  }, [credentials, creating, linkedCredentialRef, loading, selectControllerCredential, selected?.id]);
+  }, [
+    credentials,
+    creating,
+    linkedCredentialRef,
+    loading,
+    selectControllerCredential,
+    selected?.id,
+  ]);
 
   const selectCredential = (credential: CredentialRecord) => {
+    suppressedLinkedCredentialRef.current = '';
     const next = new URLSearchParams(searchParams);
     next.set('credential', credential.reference);
     setSearchParams(next, { replace: true });
@@ -57,24 +71,23 @@ function CredentialsPanel({ canManage }: { canManage: boolean }) {
   };
 
   const closeCredentialDetails = () => {
+    suppressedLinkedCredentialRef.current = linkedCredentialRef;
+    closeDetails();
     const next = new URLSearchParams(searchParams);
     next.delete('credential');
     setSearchParams(next, { replace: true });
-    closeDetails();
   };
 
   const startCreate = () => {
+    suppressedLinkedCredentialRef.current = linkedCredentialRef;
+    startControllerCreate();
     const next = new URLSearchParams(searchParams);
     next.delete('credential');
     setSearchParams(next, { replace: true });
-    startControllerCreate();
   };
 
-  // A new linked credential gets a fresh filter view. This models URL state as
-  // render input instead of copying it into state from an effect.
   return (
     <CredentialsPanelBody
-      key={linkedCredentialRef}
       canManage={canManage}
       controller={controller}
       linkedCredentialRef={linkedCredentialRef}
@@ -97,117 +110,122 @@ function CredentialsPanelBody({
   onSelectCredential,
   onStartCreate,
 }: CredentialsPanelBodyProps) {
-  const [query, setQuery] = useState(() => linkedCredentialRef);
+  const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
-  const [namespaceOverride, setNamespaceOverride] = useState<string | null>(null);
+  const [scopeOverride, setScopeOverride] = useState<string | null>(null);
+  const [compact, setCompact] = useState(false);
+  const [activeGroupKey, setActiveGroupKey] = useState<string | null>(null);
   const linkedCredential = useMemo(
     () => controller.credentials.find(credential => credential.reference === linkedCredentialRef),
     [controller.credentials, linkedCredentialRef]
   );
-  const namespace = namespaceOverride ?? (linkedCredential ? parseCredentialReference(linkedCredential.reference).namespace : 'all');
+  const scope = scopeOverride ?? (linkedCredential ? parseCredentialReference(linkedCredential.reference).namespace : 'all');
   const summary = useMemo(() => credentialSummary(controller.credentials), [controller.credentials]);
   const namespaces = useMemo(() => credentialNamespaces(controller.credentials), [controller.credentials]);
-  const teams = useMemo(
-    () => teamCredentials(filterCredentials(controller.credentials, query, status, namespace)),
-    [controller.credentials, namespace, query, status]
+  const filteredCredentials = useMemo(
+    () => filterCredentials(controller.credentials, query, status, scope),
+    [controller.credentials, query, scope, status]
   );
-  const showSidePanel = controller.creating || Boolean(controller.selected);
+  const groups = useMemo(
+    () => credentialCatalogGroups(filteredCredentials, teamPaths),
+    [filteredCredentials, teamPaths]
+  );
+  const selectedGroupKey = activeGroupKey && groups.some(group => group.key === activeGroupKey) ? activeGroupKey : null;
+  const recentCredentials = useMemo(
+    () => recentlyUpdatedCredentials(controller.credentials, 5),
+    [controller.credentials]
+  );
+  const scopeTabs = useMemo(
+    () => buildCredentialScopeTabs(controller.credentials, namespaces),
+    [controller.credentials, namespaces]
+  );
 
   return (
     <div id="system-credentials-section" className="space-y-6 pb-24">
-      <section className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-[var(--text-primary)]">Credential registry</h2>
-            <p className="text-sm text-[var(--text-secondary)]">
-              Manage encrypted, versioned credentials by integration. Values remain write-only.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {!canManage && <span className="runner-pill runner-pill--muted">Read-only</span>}
-            <button
-              type="button"
-              className="glass-button-ghost"
-              onClick={() => void controller.loadCredentials()}
-              disabled={controller.loading || controller.saving}
-            >
-              <RefreshCw className="h-4 w-4" aria-hidden="true" />
-              Reload
-            </button>
-            {canManage && (
-              <button type="button" className="glass-button-primary" onClick={onStartCreate} disabled={controller.saving}>
-                <Plus className="h-4 w-4" aria-hidden="true" />
-                New credential
-              </button>
-            )}
-          </div>
-        </div>
+      <CredentialDashboard
+        canManage={canManage}
+        loading={controller.loading}
+        saving={controller.saving}
+        summary={summary}
+        onReload={() => void controller.loadCredentials()}
+        onStartCreate={onStartCreate}
+      />
 
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {[
-            ['Total', summary.total],
-            ['Active', summary.active],
-            ['Disabled', summary.disabled],
-            ['Pending value', summary.pending],
-          ].map(([label, value]) => (
-            <div key={label} className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-4 py-3">
-              <p className="text-xs text-[var(--text-secondary)]">{label}</p>
-              <p className="text-xl font-semibold text-[var(--text-primary)]">{value}</p>
-            </div>
-          ))}
-        </div>
+      {controller.error && (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-500">{controller.error}</div>
+      )}
 
-        {controller.error && (
-          <div className="rounded-lg border border-red-500/30 px-4 py-3 text-sm text-red-500">{controller.error}</div>
-        )}
-      </section>
+      <CredentialCatalog
+        groups={groups}
+        namespaces={namespaces}
+        recentCredentials={recentCredentials}
+        scopeTabs={scopeTabs}
+        selectedID={controller.selected?.id}
+        query={query}
+        status={status}
+        scope={scope}
+        compact={compact}
+        activeGroupKey={selectedGroupKey}
+        loading={controller.loading}
+        teamPaths={teamPaths}
+        onQueryChange={setQuery}
+        onStatusChange={setStatus}
+        onScopeChange={value => {
+          setScopeOverride(value);
+          setActiveGroupKey(null);
+        }}
+        onCompactChange={setCompact}
+        onGroupChange={setActiveGroupKey}
+        onSelect={onSelectCredential}
+      />
 
-      <div className={`grid items-start gap-6 ${showSidePanel ? 'xl:grid-cols-[minmax(0,1.25fr)_minmax(390px,0.75fr)]' : ''}`}>
-        <CredentialCatalog
-          teams={teams}
-          namespaces={namespaces}
-          selectedID={controller.selected?.id}
-          query={query}
-          status={status}
-          namespace={namespace}
-          loading={controller.loading}
-          onQueryChange={setQuery}
-          onStatusChange={setStatus}
-          onNamespaceChange={setNamespaceOverride}
-          onSelect={onSelectCredential}
+      {controller.selected && !controller.creating && (
+        <CredentialDetail
+          credential={controller.selected}
+          canManage={canManage}
+          saving={controller.saving}
+          teamPaths={teamPaths}
+          rotationValue={controller.rotationValue}
+          onRotationValueChange={controller.setRotationValue}
+          onSubmitRotation={controller.submitRotation}
+          onActivateVersion={version => void controller.activateVersion(version)}
+          onDeleteVersion={version => void controller.deleteVersion(version)}
+          onEnable={() => void controller.enableSelected()}
+          onDisable={() => void controller.disableSelected()}
+          onDelete={() => void controller.deleteSelected()}
+          onClose={onCloseCredentialDetails}
         />
+      )}
 
-        {controller.creating && (
-          <CredentialCreateForm
-            form={controller.form}
-            saving={controller.saving}
-            setForm={controller.setForm}
-            teamPaths={teamPaths}
-            teamPathsLoading={teamPathsLoading}
-            onClose={() => controller.setCreating(false)}
-            onSubmit={controller.submitCreate}
-          />
-        )}
-
-        {controller.selected && !controller.creating && (
-          <CredentialDetail
-            credential={controller.selected}
-            canManage={canManage}
-            saving={controller.saving}
-            rotationValue={controller.rotationValue}
-            onRotationValueChange={controller.setRotationValue}
-            onSubmitRotation={controller.submitRotation}
-            onActivateVersion={version => void controller.activateVersion(version)}
-            onDeleteVersion={version => void controller.deleteVersion(version)}
-            onEnable={() => void controller.enableSelected()}
-            onDisable={() => void controller.disableSelected()}
-            onDelete={() => void controller.deleteSelected()}
-            onClose={onCloseCredentialDetails}
-          />
-        )}
-      </div>
+      {controller.creating && (
+        <CredentialCreateForm
+          form={controller.form}
+          saving={controller.saving}
+          setForm={controller.setForm}
+          teamPaths={teamPaths}
+          teamPathsLoading={teamPathsLoading}
+          onClose={() => controller.setCreating(false)}
+          onSubmit={controller.submitCreate}
+        />
+      )}
     </div>
   );
+}
+
+function buildCredentialScopeTabs(credentials: CredentialRecord[], namespaces: string[]): CredentialScopeTab[] {
+  const teamCount = credentials.filter(credential => parseCredentialReference(credential.reference).namespace === 'team').length;
+  const countForNamespace = (namespace: string) =>
+    credentials.filter(credential => parseCredentialReference(credential.reference).namespace === namespace).length;
+  const tabs: CredentialScopeTab[] = [
+    { value: 'all', label: 'All', count: credentials.length },
+  ];
+  if (teamCount > 0) tabs.push({ value: 'team', label: 'Teams', count: teamCount });
+  namespaces
+    .filter(namespace => namespace !== 'team')
+    .forEach(namespace => {
+      tabs.push({ value: namespace, label: namespace, count: countForNamespace(namespace) });
+    });
+  return tabs;
 }
 
 export default CredentialsPanel;

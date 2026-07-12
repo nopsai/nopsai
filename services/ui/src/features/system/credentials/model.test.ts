@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   buildCredentialReference,
+  credentialCatalogGroups,
   credentialNamespaces,
   credentialPayloadFromForm,
   credentialReferenceRoute,
+  credentialReferenceDisplay,
   credentialSummary,
   filterCredentials,
   teamCredentials,
@@ -12,6 +14,7 @@ import {
   normalizeCredential,
   normalizeCredentialsPayload,
   parseCredentialReference,
+  recentlyUpdatedCredentials,
 } from './model.js';
 
 test('normalizes credential metadata without exposing encrypted fields', () => {
@@ -85,6 +88,11 @@ test('builds a team-scoped credential create payload', () => {
     value: 'secret',
     expires_at: undefined,
   });
+
+  assert.equal(
+    buildCredentialReference('system', 'platform/ml/llm/main', 'platform/ml'),
+    'credential://team/platform/ml/llm/main'
+  );
 });
 
 test('builds and parses references for compact credential presentation', () => {
@@ -97,6 +105,48 @@ test('builds and parses references for compact credential presentation', () => {
     displayName: 'client-secret',
     parentPath: 'keycloak',
   });
+});
+
+test('derives display grouping for team credentials with known team paths', () => {
+  assert.deepEqual(
+    credentialReferenceDisplay('credential://team/platform/ml/mail/smtp-primary', ['platform/ml']),
+    {
+      namespace: 'team',
+      name: 'platform/ml/mail/smtp-primary',
+      category: 'mail',
+      displayName: 'smtp-primary',
+      parentPath: '',
+      scopeKind: 'team',
+      scopePath: 'platform/ml',
+      scopeLabel: 'platform/ml',
+    }
+  );
+  assert.deepEqual(
+    credentialReferenceDisplay('credential://team/platform/openai', []),
+    {
+      namespace: 'team',
+      name: 'platform/openai',
+      category: 'general',
+      displayName: 'openai',
+      parentPath: '',
+      scopeKind: 'team',
+      scopePath: 'platform',
+      scopeLabel: 'platform',
+    }
+  );
+  assert.deepEqual(
+    credentialReferenceDisplay('credential://team/team-1/team-1/test', []),
+    {
+      namespace: 'team',
+      name: 'team-1/team-1/test',
+      category: 'general',
+      displayName: 'test',
+      parentPath: '',
+      scopeKind: 'team',
+      scopePath: 'team-1',
+      scopeLabel: 'team-1',
+    }
+  );
 });
 
 test('builds deep links for credential references', () => {
@@ -127,4 +177,31 @@ test('summarizes, filters, and teams credentials by namespace and integration ca
     teamCredentials(credentials).map(team => [team.key, team.credentials.length]),
     [['system/llm', 1], ['system/mail', 1], ['tenant/llm', 1]]
   );
+});
+
+test('groups catalog cards and sorts recently updated credentials', () => {
+  const credentials = normalizeCredentialsPayload({
+    credentials: [
+      { id: '1', reference: 'credential://system/llm/openai', kind: 'api_key', status: 'active', updated_at: '2026-01-01T00:00:00Z' },
+      { id: '2', reference: 'credential://team/platform/ml/mail/smtp', kind: 'password', status: 'active', updated_at: '2026-01-03T00:00:00Z' },
+      { id: '3', reference: 'credential://global/github/app', kind: 'private_key', status: 'pending', updated_at: '2026-01-02T00:00:00Z' },
+    ],
+  });
+
+  assert.deepEqual(
+    credentialCatalogGroups(credentials, ['platform/ml']).map(group => [
+      group.key,
+      group.scopeKind,
+      group.scopePath,
+      group.categories.map(category => [category.category, category.credentials.map(credential => credential.id)]),
+      group.credentials.map(credential => credential.id),
+    ]),
+    [
+      ['team/platform/ml', 'team', 'platform/ml', [['mail', ['2']]], ['2']],
+      ['shared/global', 'shared', 'global', [['github', ['3']]], ['3']],
+      ['shared/system', 'shared', 'system', [['llm', ['1']]], ['1']],
+    ]
+  );
+  assert.deepEqual(recentlyUpdatedCredentials(credentials, 2).map(credential => credential.id), ['2', '3']);
+  assert.deepEqual(filterCredentials(credentials, '', 'all', 'shared').map(credential => credential.id), ['3', '1']);
 });
