@@ -110,6 +110,31 @@ truth; this file is the source-adjacent placement guide.
 
 - Run list presentation, selected-run detail, graph rendering, graph dialogs,
   notification-route UI, and log dialogs belong under `features/pipeline-runs`.
+- `pages/PipelineRuns.tsx` owns route composition, polling, query
+  synchronization, and run mutation orchestration only. Source/status/search
+  filters remain URL-backed for shareable operations views.
+- `features/pipeline-runs/overviewModel.ts` owns overview metrics, source and
+  status filtering, team/application navigation shaping, and table row shaping.
+- `features/pipeline-runs/PipelineRunsOverview.tsx` owns the redesigned
+  overview rendering: team/application rail, metrics, and run feed. It must
+  consume existing run/team API data rather than sample data.
+- The overview rail should keep its top aligned with the metrics row and
+  preserve the user-controlled team/application expand/collapse tree while
+  switching teams or source/status filters. Metric drill-downs, including Needs
+  attention, must remain URL-backed so operations views are shareable.
+- Selected application scopes can add view-local branch filtering over the
+  already loaded runs; branch option derivation belongs in the overview model.
+- The app shell owns the main sidebar's pipeline-run contextual section. The
+  overview tab should leave that section absent; Recent runs and Events keep the
+  contextual run/team tree. Shared trigger IDs should remain on overview rows so
+  related pipelines highlight consistently with All runs.
+- The app sidebar is always rendered as a dark surface. Pipeline-run sidebar
+  cards and team trees must use `pipeline-runs-sidebar-context` scoped colors
+  instead of page light-mode tokens, and the Pipeline Runs route should keep one
+  owned vertical scroll container under the sticky filter bar.
+- All runs list mode should stay a compact one-line-per-run summary. Keep
+  expanded diagnostics in grid/detail surfaces or row titles so the operations
+  list remains scannable.
 - Legacy run-log hash routes are compatibility contracts. Preserve hydration and
   route synchronization when changing log filters, wrapping, structured view,
   agent/all-source view, or full/short display modes.

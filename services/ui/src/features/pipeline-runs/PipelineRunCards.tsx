@@ -215,7 +215,7 @@ export function RunCollection({
 
   if (viewMode === 'list') {
     return (
-      <div className="flex flex-col gap-3">
+      <div className="run-list-collection flex flex-col gap-2">
         {runs.map(run => (
           <ListRunRow
             key={run.run_id}
@@ -462,11 +462,25 @@ function ListRunRow({ run, selected, onSelect, onOpen }: { run: RunListItem; sel
   const runIdLabel = (run.run_id || 'N/A').slice(0, 8);
   const failurePreview = getFailurePreview(run.failure_reason);
   const aiTokens = aiUsageTotalTokens(run.ai_usage);
+  const failureSummary = failurePreview
+    ? [failurePreview.title, failurePreview.detail].filter(Boolean).join(' - ')
+    : '';
+  const rowTitle = [
+    run.pipeline_name,
+    repoLabel,
+    branchLabel || 'N/A',
+    `Run ${run.run_id || 'N/A'}`,
+    `Commit ${commitLabel}`,
+    `Trigger ${triggerLabel.full || triggerLabel.display}`,
+    aiTokens > 0 ? formatTokenCount(aiTokens) : '',
+    failureSummary,
+  ].filter(Boolean).join(' | ');
   return (
     <div
       className={`run-card run-card--list border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-sm rounded-2xl hover:border-[var(--border-accent)] ${selected ? 'run-link-highlight' : ''}`}
       role="button"
       tabIndex={0}
+      title={rowTitle}
       onClick={onOpen}
       onKeyDown={event => {
         if (event.key === 'Enter') onOpen();
@@ -483,56 +497,56 @@ function ListRunRow({ run, selected, onSelect, onOpen }: { run: RunListItem; sel
             <div className="run-list-title truncate" title={run.pipeline_name}>
               {run.pipeline_name}
             </div>
-            <PipelineBadges run={run} />
+            <PipelineBadges run={run} compact />
           </div>
-          <div className="run-list-chips">
-            <span className="run-list-chip" title={repoLabel}>
-              <svg className="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="8" cy="7" r="2" />
-                <circle cx="8" cy="17" r="2" />
-                <circle cx="16" cy="7" r="2" />
-                <path d="M10 7h4" />
-                <path d="M8 9v6a4 4 0 004 4h4" />
-              </svg>
-              <span className="truncate">{repoLabel}</span>
-            </span>
-            <span className="run-list-chip" title={branchLabel || 'N/A'}>
-              <BranchIcon className="h-3.5 w-3.5 flex-shrink-0" />
-              <span className="truncate">{branchLabel || 'N/A'}</span>
-            </span>
-            <span className="run-list-chip font-mono" title={`Run ${run.run_id || 'N/A'}`}>
-              <RunIdIcon className="h-3.5 w-3.5 flex-shrink-0" />
-              {runIdLabel}
-            </span>
-            {aiTokens > 0 && (
-              <span className="run-list-chip font-mono" title="LLM tokens">
-                <ZapIcon className="h-3.5 w-3.5 flex-shrink-0" />
-                {formatTokenCount(aiTokens)}
-              </span>
-            )}
-          </div>
-          {failurePreview && (
-            <div className="mt-2 max-w-full rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-700/70 dark:bg-red-950/40 dark:text-red-200">
-              <div className="font-semibold truncate" title={failurePreview.title}>{failurePreview.title}</div>
-              {failurePreview.detail && (
-                <div className="mt-1 truncate opacity-90" title={failurePreview.detail}>{failurePreview.detail}</div>
-              )}
-            </div>
-          )}
         </div>
       </div>
       <div className="run-list-cell">
-        <span className="run-list-meta-label">Commit</span>
+        <span className="run-list-cell-icon" aria-hidden="true">
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="8" cy="7" r="2" />
+            <circle cx="8" cy="17" r="2" />
+            <circle cx="16" cy="7" r="2" />
+            <path d="M10 7h4" />
+            <path d="M8 9v6a4 4 0 004 4h4" />
+          </svg>
+        </span>
+        <span className="run-list-meta-value truncate" title={repoLabel}>{repoLabel}</span>
+      </div>
+      <div className="run-list-cell">
+        <BranchIcon className="run-list-cell-icon h-3.5 w-3.5" />
+        <span className="run-list-meta-value truncate" title={branchLabel || 'N/A'}>{branchLabel || 'N/A'}</span>
+      </div>
+      <div className="run-list-cell">
+        <RunIdIcon className="run-list-cell-icon h-3.5 w-3.5" />
+        <span className="run-list-meta-value font-mono" title={`Run ${run.run_id || 'N/A'}`}>{runIdLabel}</span>
+      </div>
+      <div className="run-list-cell">
+        <CommitIcon className="run-list-cell-icon h-3.5 w-3.5" />
         <span className="run-list-meta-value font-mono">{commitLabel}</span>
       </div>
       <div className="run-list-cell">
-        <span className="run-list-meta-label">Trigger</span>
+        <span className="run-list-cell-icon" aria-hidden="true">
+          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 7a1 1 0 011-1h3.586a1 1 0 01.707.293l6.414 6.414a1 1 0 010 1.414l-4.586 4.586a1 1 0 01-1.414 0L7.293 13.707A1 1 0 017 13V9a1 1 0 011-1z" />
+          </svg>
+        </span>
         <span className="run-list-meta-value truncate" title={triggerLabel.full}>
           {triggerLabel.display}
         </span>
       </div>
       <div className="run-list-cell">
-        <span className="run-list-meta-label">Updated</span>
+        {aiTokens > 0 && <ZapIcon className="run-list-cell-icon h-3.5 w-3.5" />}
+        <span className="run-list-meta-value truncate" title={aiTokens > 0 ? `LLM usage: ${formatTokenCount(aiTokens)}` : 'No LLM token usage'}>
+          {aiTokens > 0 ? formatTokenCount(aiTokens) : '—'}
+        </span>
+      </div>
+      <div className="run-list-cell">
+        <span className="run-list-cell-icon" aria-hidden="true">
+          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </span>
         <span className="run-list-meta-value">{timeAgo(timeToDisplay)}</span>
       </div>
       <div className="run-list-cell run-list-cell--actions">
@@ -627,7 +641,7 @@ function RunSelectToggle({ selected, onToggle }: { selected: boolean; onToggle: 
   );
 }
 
-function PipelineBadges({ run }: { run: RunListItem }) {
+function PipelineBadges({ run, compact = false }: { run: RunListItem; compact?: boolean }) {
   const badges: ReactNode[] = [];
   const external = run.trigger_source === 'external_trigger' || Boolean(run.external_trigger_id);
   if (external) {
@@ -668,7 +682,7 @@ function PipelineBadges({ run }: { run: RunListItem }) {
     );
   }
   if (!badges.length) return null;
-  return <div className="flex flex-col items-end gap-1 text-right">{badges}</div>;
+  return <div className={compact ? 'run-badges run-badges--compact' : 'flex flex-col items-end gap-1 text-right'}>{badges}</div>;
 }
 
 export function StatusBadge({ status, complete }: { status: string; complete?: boolean }) {

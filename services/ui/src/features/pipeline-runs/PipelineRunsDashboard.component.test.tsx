@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, test, vi } from 'vitest';
-import { RunCard } from './PipelineRunCards';
+import { RunCard, RunCollection } from './PipelineRunCards';
 
 test('renders run summary and delegates open and selection actions', async () => {
   const onOpen = vi.fn();
@@ -38,4 +38,37 @@ test('renders run summary and delegates open and selection actions', async () =>
   const selectButton = screen.getByRole('button', { name: /select run/i });
   await user.click(selectButton);
   expect(onSelect).toHaveBeenCalledOnce();
+});
+
+test('renders all-runs list entries as compact one-line summaries', () => {
+  render(
+    <RunCollection
+      viewMode="list"
+      runs={[
+        {
+          run_id: 'run-123456789',
+          pipeline_name: 'release',
+          pipeline_path: 'platform',
+          status: 'failed',
+          is_complete: true,
+          trigger_event_id: 'event-123456789',
+          git_repo_owner: 'acme',
+          git_repo_name: 'api',
+          git_ref: 'refs/heads/main',
+          git_commit_sha: 'abcdef123456',
+          failure_reason: 'Deployment failed\nWhy: rollout timed out',
+          ai_usage: { total_tokens: 4200, prompt_tokens: 3000, completion_tokens: 1200 },
+        },
+      ]}
+      selectedRunIds={new Set()}
+      onOpenRun={vi.fn()}
+      onSelectRun={vi.fn()}
+    />
+  );
+
+  const row = screen.getByText('release').closest('.run-card--list');
+  expect(row).not.toBeNull();
+  expect(row?.getAttribute('title')).toContain('Deployment failed');
+  expect(row?.querySelector('.run-list-chips')).toBeNull();
+  expect(screen.queryByText('Deployment failed')).not.toBeInTheDocument();
 });
