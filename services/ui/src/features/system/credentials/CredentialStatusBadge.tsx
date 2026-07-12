@@ -6,5 +6,10 @@ function statusClass(status: string) {
 }
 
 export function CredentialStatusBadge({ status }: { status: string }) {
-  return <span className={statusClass(status)}>{status}</span>;
+  return <span className={statusClass(status)}>{formatStatus(status)}</span>;
+}
+
+function formatStatus(status: string): string {
+  if (!status) return 'Pending';
+  return status.charAt(0).toUpperCase() + status.slice(1);
 }

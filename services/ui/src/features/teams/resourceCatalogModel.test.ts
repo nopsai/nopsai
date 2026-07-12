@@ -130,12 +130,16 @@ test('filters and sorts linked resources for the active team subtree', () => {
   const resources = [
     ...buildPipelineTeamResources([{ id: 'deploy' }, { id: 'platform/payments/deploy' }]),
     ...buildScopeTeamResources({ secrets: [], variables: [{ scope: 'platform' }] }),
-    ...buildCredentialTeamResources([credential('credential://team/platform/openai', 'api_key')]),
+    ...buildCredentialTeamResources([
+      credential('credential://team/platform/openai', 'api_key'),
+      credential('credential://system/llm/openai', 'api_key'),
+    ]),
   ];
 
   assert.deepEqual(filterTeamLinkedResources(resources, '').map(resource => resource.id), [
     'pipeline:deploy',
     'scope:default',
+    'credential:credential://system/llm/openai',
   ]);
   assert.deepEqual(filterTeamLinkedResources(resources, 'platform').map(resource => resource.id), [
     'pipeline:deploy',

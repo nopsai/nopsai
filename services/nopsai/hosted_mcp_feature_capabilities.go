@@ -934,7 +934,7 @@ func hostedMCPFeatureCapabilityCatalog() []hostedMCPFeatureCapability {
 			},
 			Notes: []string{
 				"Auth self-service endpoints stay authenticated-user operations rather than AAA capability tools.",
-				"Credential values should be rotated or referenced, not echoed into assistant context; hosted MCP redacts sensitive credential inputs and outputs from audit.",
+				"Credential values should be rotated or referenced, not echoed into assistant context; hosted MCP redacts sensitive credential inputs and outputs from audit. System credentials are NopsAI-admin only; non-admin credential tools must use team-scoped references with matching team_path.",
 				"Runner bootstrap command tools require include_sensitive_response:true because responses contain one-time bootstrap tokens.",
 				"MCP exposes bounded redacted tails, not long-lived SSE streams; the UI owns live rendering.",
 			},

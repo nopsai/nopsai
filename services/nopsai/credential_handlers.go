@@ -244,39 +244,17 @@ func (a *App) filterVisibleCredentials(r *http.Request, subject aaamodel.Subject
 	if len(records) == 0 {
 		return records, nil
 	}
-	if allowed, err := a.credentialActionAllowed(r, subject, "credential.list_metadata", aaamodel.ResourceRef{Type: "credential", ID: "*"}); err != nil {
+	if allowed, err := a.credentialSubjectIsNopsAIAdmin(r, subject); err != nil {
 		return nil, err
 	} else if allowed {
 		return records, nil
 	}
-	for _, action := range credentialVisibilityActions() {
-		if allowed, err := a.credentialActionAllowed(r, subject, action, aaamodel.ResourceRef{Type: "credential", ID: "*"}); err != nil {
-			return nil, err
-		} else if allowed {
-			return records, nil
-		}
-	}
-
-	resources := make([]aaamodel.ResourceRef, 0, len(records))
-	for _, record := range records {
-		resources = append(resources, credentialRecordResource(record))
-	}
-	allowedSet, err := a.allowedResourceSet(r, "credential.list_metadata", resources)
-	if err != nil {
-		return nil, err
-	}
 	filtered := make([]credentials.Credential, 0, len(records))
 	for _, record := range records {
-		resource := credentialRecordResource(record)
-		if credentialCreatedBySubject(record, subject) {
-			filtered = append(filtered, record)
+		if !credentialReferenceIsTeamScoped(record.Reference) {
 			continue
 		}
-		if _, ok := allowedSet[resourceKey(resource)]; ok {
-			filtered = append(filtered, record)
-			continue
-		}
-		if allowed, err := a.credentialAnyVisibilityActionAllowed(r, subject, resource); err != nil {
+		if allowed, err := a.credentialTeamScopeActionAllowed(r, subject, record, "credential.list_metadata"); err != nil {
 			return nil, err
 		} else if allowed {
 			filtered = append(filtered, record)
@@ -296,14 +274,13 @@ func (a *App) canReadCredentialMetadata(r *http.Request, record credentials.Cred
 	if !ok {
 		return false, nil
 	}
-	if credentialCreatedBySubject(record, subject) {
-		return true, nil
-	}
-	resource := credentialRecordResource(record)
-	if allowed, err := a.credentialActionAllowed(r, subject, "credential.list_metadata", resource); err != nil || allowed {
+	if allowed, err := a.credentialSubjectIsNopsAIAdmin(r, subject); err != nil || allowed {
 		return allowed, err
 	}
-	if allowed, err := a.credentialAnyVisibilityActionAllowed(r, subject, resource); err != nil || allowed {
+	if !credentialReferenceIsTeamScoped(record.Reference) {
+		return false, nil
+	}
+	if allowed, err := a.credentialTeamScopeActionAllowed(r, subject, record, "credential.list_metadata"); err != nil || allowed {
 		return allowed, err
 	}
 	return a.credentialTeamScopeVisibilityAllowed(r, subject, record)
@@ -324,10 +301,17 @@ func (a *App) requireLoadedCredentialAction(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "missing authorization subject", http.StatusUnauthorized)
 		return false
 	}
-	if credentialCreatedBySubject(record, subject) {
+	if allowed, err := a.credentialSubjectIsNopsAIAdmin(r, subject); err != nil {
+		http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
+		return false
+	} else if allowed {
 		return true
 	}
-	allowed, err := a.credentialActionAllowed(r, subject, action, credentialRecordResource(record))
+	if !credentialReferenceIsTeamScoped(record.Reference) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return false
+	}
+	allowed, err := a.credentialTeamScopeActionAllowed(r, subject, record, action)
 	if err != nil {
 		http.Error(w, "authorization unavailable", http.StatusServiceUnavailable)
 		return false
@@ -340,34 +324,31 @@ func (a *App) requireLoadedCredentialAction(w http.ResponseWriter, r *http.Reque
 }
 
 func (a *App) canCreateCredential(r *http.Request, subject aaamodel.Subject, ref credentials.Reference, teamPath string) (bool, error) {
-	if a.checkCapabilityOrScopedGrant(r.Context(), subject, "credential.create", aaamodel.ResourceRef{Type: "credential", ID: "*"}) {
-		return true, nil
+	if allowed, err := a.credentialSubjectIsNopsAIAdmin(r, subject); err != nil || allowed {
+		return allowed, err
 	}
-	if teamPath != "" {
-		resource := aaamodel.ResourceRef{Type: grantResourceTeam, ID: teamPath}
-		for _, action := range []string{"credential.create", "team.update", "team.manage_acl"} {
-			allowed, err := a.credentialActionAllowed(r, subject, action, resource)
-			if err != nil {
-				return false, err
-			}
-			if allowed {
-				return true, nil
-			}
-		}
+	if !strings.EqualFold(ref.Namespace, "team") || teamPath == "" {
 		return false, nil
 	}
-	if strings.EqualFold(ref.Namespace, "team") {
-		return false, nil
-	}
-	for _, permission := range credentialConsumerWritePermissions() {
-		if permission.resource.Type == grantResourceTeam {
-			continue
+	resource := aaamodel.ResourceRef{Type: grantResourceTeam, ID: teamPath}
+	for _, action := range []string{"credential.create", "team.update", "team.manage_acl"} {
+		allowed, err := a.credentialActionAllowed(r, subject, action, resource)
+		if err != nil {
+			return false, err
 		}
-		if a.checkCapabilityOrScopedGrant(r.Context(), subject, permission.action, permission.resource) {
+		if allowed {
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+func (a *App) credentialSubjectIsNopsAIAdmin(r *http.Request, subject aaamodel.Subject) (bool, error) {
+	return a.credentialActionAllowed(r, subject, "iam.admin", aaamodel.ResourceRef{Type: "iam", ID: "admin"})
+}
+
+func credentialReferenceIsTeamScoped(ref credentials.Reference) bool {
+	return strings.EqualFold(ref.Namespace, "team")
 }
 
 func validateCredentialTeamScope(ref credentials.Reference, teamPath string) error {
@@ -405,22 +386,17 @@ func (a *App) credentialActionAllowed(r *http.Request, subject aaamodel.Subject,
 	return decision.Allowed, nil
 }
 
-func (a *App) credentialAnyVisibilityActionAllowed(r *http.Request, subject aaamodel.Subject, resource aaamodel.ResourceRef) (bool, error) {
-	for _, action := range credentialVisibilityActions() {
-		allowed, err := a.credentialActionAllowed(r, subject, action, resource)
-		if err != nil {
-			return false, err
-		}
-		if allowed {
-			return true, nil
-		}
-	}
-	return false, nil
+func (a *App) credentialTeamScopeActionAllowed(r *http.Request, subject aaamodel.Subject, record credentials.Credential, action string) (bool, error) {
+	return a.credentialTeamScopeAnyActionAllowed(r, subject, record, []string{action})
 }
 
 func (a *App) credentialTeamScopeVisibilityAllowed(r *http.Request, subject aaamodel.Subject, record credentials.Credential) (bool, error) {
+	return a.credentialTeamScopeAnyActionAllowed(r, subject, record, credentialTeamScopeVisibilityActions())
+}
+
+func (a *App) credentialTeamScopeAnyActionAllowed(r *http.Request, subject aaamodel.Subject, record credentials.Credential, actions []string) (bool, error) {
 	for _, resource := range credentialTeamScopeResources(record.Reference) {
-		for _, action := range []string{"team.read", "team.update", "team.manage_acl", "credential.create", "credential.use"} {
+		for _, action := range actions {
 			allowed, err := a.credentialActionAllowed(r, subject, action, resource)
 			if err != nil {
 				return false, err
@@ -431,6 +407,10 @@ func (a *App) credentialTeamScopeVisibilityAllowed(r *http.Request, subject aaam
 		}
 	}
 	return false, nil
+}
+
+func credentialTeamScopeVisibilityActions() []string {
+	return []string{"team.read", "team.update", "team.manage_acl", "credential.create", "credential.use"}
 }
 
 func credentialTeamScopeResources(ref credentials.Reference) []aaamodel.ResourceRef {
@@ -455,79 +435,6 @@ func credentialTeamScopeResources(ref credentials.Reference) []aaamodel.Resource
 		resources = append(resources, aaamodel.ResourceRef{Type: grantResourceTeam, ID: path})
 	}
 	return resources
-}
-
-func credentialVisibilityActions() []string {
-	return append([]string{
-		"credential.use",
-		"credential.manage_acl",
-	}, credentialManagementActions()...)
-}
-
-func credentialRecordResource(record credentials.Credential) aaamodel.ResourceRef {
-	return aaamodel.ResourceRef{Type: "credential", ID: record.Reference.ResourceID()}
-}
-
-func credentialCreatedBySubject(record credentials.Credential, subject aaamodel.Subject) bool {
-	createdBy := strings.TrimSpace(record.CreatedBy)
-	if createdBy == "" {
-		return false
-	}
-	for _, candidate := range credentialSubjectActorIDs(subject) {
-		if strings.EqualFold(createdBy, candidate) {
-			return true
-		}
-	}
-	return false
-}
-
-func credentialSubjectActorIDs(subject aaamodel.Subject) []string {
-	candidates := []string{subject.ID, subject.Sub, subject.Email}
-	seen := make(map[string]struct{}, len(candidates))
-	result := make([]string, 0, len(candidates))
-	for _, candidate := range candidates {
-		candidate = strings.TrimSpace(candidate)
-		if candidate == "" {
-			continue
-		}
-		key := strings.ToLower(candidate)
-		if _, exists := seen[key]; exists {
-			continue
-		}
-		seen[key] = struct{}{}
-		result = append(result, candidate)
-	}
-	return result
-}
-
-func credentialManagementActions() []string {
-	return []string{
-		"credential.write_value",
-		"credential.rotate",
-		"credential.disable",
-		"credential.enable",
-		"credential.delete_version",
-		"credential.delete",
-	}
-}
-
-func credentialConsumerWritePermissions() []struct {
-	action   string
-	resource aaamodel.ResourceRef
-} {
-	return []struct {
-		action   string
-		resource aaamodel.ResourceRef
-	}{
-		{action: "system.update", resource: aaamodel.ResourceRef{Type: "system", ID: "llm-profiles"}},
-		{action: "system.update", resource: aaamodel.ResourceRef{Type: "system", ID: "agent-profiles"}},
-		{action: "system.update", resource: aaamodel.ResourceRef{Type: "system", ID: "mcp"}},
-		{action: "system.update", resource: aaamodel.ResourceRef{Type: "system", ID: "config"}},
-		{action: "system.update", resource: aaamodel.ResourceRef{Type: "system", ID: "notifications"}},
-		{action: "git_webhook_source.create", resource: aaamodel.ResourceRef{Type: grantResourceGitWebhookSource, ID: "*"}},
-		{action: "git_webhook_source.update", resource: aaamodel.ResourceRef{Type: grantResourceGitWebhookSource, ID: "*"}},
-		{action: "team.update", resource: aaamodel.ResourceRef{Type: grantResourceTeam, ID: "*"}},
-	}
 }
 
 func credentialIDFromRequest(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {

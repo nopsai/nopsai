@@ -318,8 +318,13 @@ export function filterTeamLinkedResources(
   resources: TeamLinkedResource[],
   activeTeamPath: string
 ): TeamLinkedResource[] {
+  const activePath = normalizeTeamResourcePath(activeTeamPath);
   return resources
-    .filter(resource => teamResourceBelongsToScope(resource.teamPath, activeTeamPath))
+    .filter(resource => {
+      const resourcePath = normalizeTeamResourcePath(resource.teamPath);
+      if (resource.kind === 'credential' && !resourcePath && activePath) return false;
+      return teamResourceBelongsToScope(resourcePath, activePath);
+    })
     .sort(compareTeamLinkedResources);
 }
 

@@ -9,6 +9,7 @@ import {
   credentialReferenceDisplay,
   credentialSummary,
   filterCredentials,
+  isTeamCredentialReference,
   teamCredentials,
   isCredentialReference,
   normalizeCredential,
@@ -152,6 +153,8 @@ test('derives display grouping for team credentials with known team paths', () =
 test('builds deep links for credential references', () => {
   assert.equal(isCredentialReference('credential://system/llm/openai'), true);
   assert.equal(isCredentialReference('not-a-credential'), false);
+  assert.equal(isTeamCredentialReference('credential://team/platform/llm/openai'), true);
+  assert.equal(isTeamCredentialReference('credential://system/llm/openai'), false);
   assert.equal(
     credentialReferenceRoute('credential://system/llm/openai'),
     '/credentials?credential=credential%3A%2F%2Fsystem%2Fllm%2Fopenai'

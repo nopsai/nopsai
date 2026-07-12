@@ -10,17 +10,20 @@ import {
   credentialNamespaces,
   credentialSummary,
   filterCredentials,
+  isTeamCredentialReference,
+  normalizeCredentialTeamPath,
   parseCredentialReference,
-  recentlyUpdatedCredentials,
   type CredentialRecord,
 } from './credentials/model';
 import { useCredentials } from './credentials/useCredentials';
+import './credentials/credentials.css';
 
 type CredentialsController = ReturnType<typeof useCredentials>;
 
 type CredentialsPanelBodyProps = {
   canManage: boolean;
   controller: CredentialsController;
+  isNopsAIAdmin: boolean;
   linkedCredentialRef: string;
   teamPaths: string[];
   teamPathsLoading: boolean;
@@ -29,7 +32,7 @@ type CredentialsPanelBodyProps = {
   onStartCreate: () => void;
 };
 
-function CredentialsPanel({ canManage }: { canManage: boolean }) {
+function CredentialsPanel({ canManage, isNopsAIAdmin = false }: { canManage: boolean; isNopsAIAdmin?: boolean }) {
   const controller = useCredentials({ canManage });
   const { teamPaths, teamPathsLoading } = useAIResourceTeamPaths();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -51,11 +54,15 @@ function CredentialsPanel({ canManage }: { canManage: boolean }) {
       return;
     }
     if (linkedCredentialRef === suppressedLinkedCredentialRef.current || loading || creating) return;
-    const match = credentials.find(credential => credential.reference === linkedCredentialRef);
+    const match = credentials.find(credential =>
+      credential.reference === linkedCredentialRef &&
+      (isNopsAIAdmin || isTeamCredentialReference(credential.reference))
+    );
     if (match && selected?.id !== match.id) void selectControllerCredential(match);
   }, [
     credentials,
     creating,
+    isNopsAIAdmin,
     linkedCredentialRef,
     loading,
     selectControllerCredential,
@@ -81,6 +88,12 @@ function CredentialsPanel({ canManage }: { canManage: boolean }) {
   const startCreate = () => {
     suppressedLinkedCredentialRef.current = linkedCredentialRef;
     startControllerCreate();
+    if (!isNopsAIAdmin) {
+      const defaultTeamPath = normalizeCredentialTeamPath(teamPaths[0] || '');
+      if (defaultTeamPath) {
+        controller.setForm(current => ({ ...current, namespace: 'team', team_path: defaultTeamPath }));
+      }
+    }
     const next = new URLSearchParams(searchParams);
     next.delete('credential');
     setSearchParams(next, { replace: true });
@@ -90,6 +103,7 @@ function CredentialsPanel({ canManage }: { canManage: boolean }) {
     <CredentialsPanelBody
       canManage={canManage}
       controller={controller}
+      isNopsAIAdmin={isNopsAIAdmin}
       linkedCredentialRef={linkedCredentialRef}
       teamPaths={teamPaths}
       teamPathsLoading={teamPathsLoading}
@@ -103,6 +117,7 @@ function CredentialsPanel({ canManage }: { canManage: boolean }) {
 function CredentialsPanelBody({
   canManage,
   controller,
+  isNopsAIAdmin,
   linkedCredentialRef,
   teamPaths,
   teamPathsLoading,
@@ -113,75 +128,86 @@ function CredentialsPanelBody({
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
   const [scopeOverride, setScopeOverride] = useState<string | null>(null);
-  const [compact, setCompact] = useState(false);
-  const [activeGroupKey, setActiveGroupKey] = useState<string | null>(null);
-  const linkedCredential = useMemo(
-    () => controller.credentials.find(credential => credential.reference === linkedCredentialRef),
-    [controller.credentials, linkedCredentialRef]
+  const [grouped, setGrouped] = useState(true);
+  const visibleCredentials = useMemo(
+    () => isNopsAIAdmin
+      ? controller.credentials
+      : controller.credentials.filter(credential => isTeamCredentialReference(credential.reference)),
+    [controller.credentials, isNopsAIAdmin]
   );
-  const scope = scopeOverride ?? (linkedCredential ? parseCredentialReference(linkedCredential.reference).namespace : 'all');
-  const summary = useMemo(() => credentialSummary(controller.credentials), [controller.credentials]);
-  const namespaces = useMemo(() => credentialNamespaces(controller.credentials), [controller.credentials]);
+  const visibleSelected = useMemo(
+    () => controller.selected && visibleCredentials.some(credential => credential.id === controller.selected?.id)
+      ? controller.selected
+      : null,
+    [controller.selected, visibleCredentials]
+  );
+  const linkedCredential = useMemo(
+    () => visibleCredentials.find(credential => credential.reference === linkedCredentialRef),
+    [linkedCredentialRef, visibleCredentials]
+  );
+  const requestedScope = scopeOverride ?? (linkedCredential ? parseCredentialReference(linkedCredential.reference).namespace : 'all');
+  const scope = !isNopsAIAdmin && !['all', 'team'].includes(requestedScope) ? 'team' : requestedScope;
+  const canCreateCredentials = canManage && (isNopsAIAdmin || teamPathsLoading || teamPaths.length > 0);
+  const summary = useMemo(() => credentialSummary(visibleCredentials), [visibleCredentials]);
+  const namespaces = useMemo(() => credentialNamespaces(visibleCredentials), [visibleCredentials]);
   const filteredCredentials = useMemo(
-    () => filterCredentials(controller.credentials, query, status, scope),
-    [controller.credentials, query, scope, status]
+    () => filterCredentials(visibleCredentials, query, status, scope),
+    [query, scope, status, visibleCredentials]
   );
   const groups = useMemo(
     () => credentialCatalogGroups(filteredCredentials, teamPaths),
     [filteredCredentials, teamPaths]
   );
-  const selectedGroupKey = activeGroupKey && groups.some(group => group.key === activeGroupKey) ? activeGroupKey : null;
-  const recentCredentials = useMemo(
-    () => recentlyUpdatedCredentials(controller.credentials, 5),
-    [controller.credentials]
-  );
   const scopeTabs = useMemo(
-    () => buildCredentialScopeTabs(controller.credentials, namespaces),
-    [controller.credentials, namespaces]
+    () => buildCredentialScopeTabs(visibleCredentials, isNopsAIAdmin),
+    [isNopsAIAdmin, visibleCredentials]
   );
 
   return (
-    <div id="system-credentials-section" className="space-y-6 pb-24">
-      <CredentialDashboard
-        canManage={canManage}
-        loading={controller.loading}
-        saving={controller.saving}
-        summary={summary}
-        onReload={() => void controller.loadCredentials()}
-        onStartCreate={onStartCreate}
-      />
+    <div id="system-credentials-section" className="credential-registry">
+      <div className="credential-registry__shell">
+        <CredentialDashboard
+          canManage={canManage}
+          canCreate={canCreateCredentials}
+          loading={controller.loading}
+          saving={controller.saving}
+          scopeDescription={
+            isNopsAIAdmin
+              ? 'Manage encrypted, versioned credentials across teams and global resources.'
+              : 'Manage encrypted, versioned credentials for authorized teams.'
+          }
+          summary={summary}
+          onReload={() => void controller.loadCredentials()}
+          onStartCreate={onStartCreate}
+        />
 
-      {controller.error && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-500">{controller.error}</div>
-      )}
+        {controller.error && (
+          <div className="credential-registry__error">{controller.error}</div>
+        )}
 
-      <CredentialCatalog
-        groups={groups}
-        namespaces={namespaces}
-        recentCredentials={recentCredentials}
-        scopeTabs={scopeTabs}
-        selectedID={controller.selected?.id}
-        query={query}
-        status={status}
-        scope={scope}
-        compact={compact}
-        activeGroupKey={selectedGroupKey}
-        loading={controller.loading}
-        teamPaths={teamPaths}
-        onQueryChange={setQuery}
-        onStatusChange={setStatus}
-        onScopeChange={value => {
-          setScopeOverride(value);
-          setActiveGroupKey(null);
-        }}
-        onCompactChange={setCompact}
-        onGroupChange={setActiveGroupKey}
-        onSelect={onSelectCredential}
-      />
+        <CredentialCatalog
+          groups={groups}
+          isNopsAIAdmin={isNopsAIAdmin}
+          namespaces={namespaces}
+          scopeTabs={scopeTabs}
+          selectedID={visibleSelected?.id}
+          query={query}
+          status={status}
+          scope={scope}
+          grouped={grouped}
+          loading={controller.loading}
+          teamPaths={teamPaths}
+          onQueryChange={setQuery}
+          onStatusChange={setStatus}
+          onScopeChange={value => setScopeOverride(value)}
+          onGroupedChange={setGrouped}
+          onSelect={onSelectCredential}
+        />
+      </div>
 
-      {controller.selected && !controller.creating && (
+      {visibleSelected && !controller.creating && (
         <CredentialDetail
-          credential={controller.selected}
+          credential={visibleSelected}
           canManage={canManage}
           saving={controller.saving}
           teamPaths={teamPaths}
@@ -199,6 +225,7 @@ function CredentialsPanelBody({
 
       {controller.creating && (
         <CredentialCreateForm
+          allowSystemScope={isNopsAIAdmin}
           form={controller.form}
           saving={controller.saving}
           setForm={controller.setForm}
@@ -212,19 +239,14 @@ function CredentialsPanelBody({
   );
 }
 
-function buildCredentialScopeTabs(credentials: CredentialRecord[], namespaces: string[]): CredentialScopeTab[] {
+function buildCredentialScopeTabs(credentials: CredentialRecord[], includeShared: boolean): CredentialScopeTab[] {
   const teamCount = credentials.filter(credential => parseCredentialReference(credential.reference).namespace === 'team').length;
-  const countForNamespace = (namespace: string) =>
-    credentials.filter(credential => parseCredentialReference(credential.reference).namespace === namespace).length;
-  const tabs: CredentialScopeTab[] = [
+  const sharedCount = credentials.length - teamCount;
+  const tabs = [
     { value: 'all', label: 'All', count: credentials.length },
+    { value: 'team', label: 'Teams', count: teamCount },
   ];
-  if (teamCount > 0) tabs.push({ value: 'team', label: 'Teams', count: teamCount });
-  namespaces
-    .filter(namespace => namespace !== 'team')
-    .forEach(namespace => {
-      tabs.push({ value: namespace, label: namespace, count: countForNamespace(namespace) });
-    });
+  if (includeShared) tabs.push({ value: 'shared', label: 'Shared', count: sharedCount });
   return tabs;
 }
 

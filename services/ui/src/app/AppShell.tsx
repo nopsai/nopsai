@@ -223,7 +223,7 @@ function AppShell() {
   const isLoginRoute = location.pathname === '/login';
 
   return (
-    <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
+    <div className="app-root-shell min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
       {isLoginRoute ? (
         <Suspense fallback={<PageLoading />}>
           <LoginPage onLogin={handleLoginSuccess} />
