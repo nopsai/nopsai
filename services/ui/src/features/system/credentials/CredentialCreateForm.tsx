@@ -42,90 +42,105 @@ export function CredentialCreateForm({
   };
 
   return (
-    <aside className="glass-card p-5 border border-[var(--border-primary)] rounded-xl space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs text-[var(--text-secondary)]">Credential registry</p>
-          <h3 className="text-lg font-semibold text-[var(--text-primary)]">New credential</h3>
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-[var(--bg-overlay)] p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="new-credential-heading"
+      onMouseDown={event => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <aside className="glass-card max-h-[calc(100vh-2rem)] w-full max-w-2xl overflow-y-auto rounded-lg border border-[var(--border-primary)] shadow-2xl">
+        <div className="flex items-start justify-between gap-3 border-b border-[var(--border-primary)] p-5">
+          <div>
+            <p className="text-xs text-[var(--text-secondary)]">Credential registry</p>
+            <h3 id="new-credential-heading" className="text-lg font-semibold text-[var(--text-primary)]">New credential</h3>
+          </div>
+          <button type="button" aria-label="Close credential form" className="glass-button-ghost !px-2" onClick={onClose}>
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
         </div>
-        <button type="button" aria-label="Close credential form" className="glass-button-ghost !px-2" onClick={onClose}>
-          <X className="h-4 w-4" aria-hidden="true" />
-        </button>
-      </div>
 
-      <form className="space-y-4" onSubmit={onSubmit}>
-        <div className="grid gap-3 sm:grid-cols-[minmax(150px,0.42fr)_minmax(0,1fr)]">
+        <form className="space-y-4 p-5" onSubmit={onSubmit}>
+          <div className="grid gap-3 sm:grid-cols-[minmax(150px,0.42fr)_minmax(0,1fr)]">
+            <label className="flex flex-col gap-1 text-sm">
+              <span>Team</span>
+              <select
+                className="pipelines-input"
+                value={form.team_path}
+                onChange={event => updateTeamPath(event.target.value)}
+              >
+                <option value="">System / global</option>
+                {scopeOptions.map(path => <option key={path} value={path}>/{path}</option>)}
+              </select>
+              {teamPathsLoading ? <span className="text-xs text-[var(--text-secondary)]">Loading teams...</span> : null}
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span>Name / path</span>
+              <input
+                className="pipelines-input"
+                autoFocus
+                value={form.name}
+                onChange={event => setForm(current => ({ ...current, name: event.target.value }))}
+                placeholder="llm/openai-primary"
+              />
+            </label>
+          </div>
+
+          <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 py-2">
+            <p className="text-xs text-[var(--text-secondary)]">Reference preview</p>
+            <code className="text-xs break-all text-[var(--text-primary)]">{referencePreview}</code>
+          </div>
+
           <label className="flex flex-col gap-1 text-sm">
-            <span>Team</span>
+            <span>Kind</span>
             <select
               className="pipelines-input"
-              value={form.team_path}
-              onChange={event => updateTeamPath(event.target.value)}
+              value={form.kind}
+              onChange={event => setForm(current => ({ ...current, kind: event.target.value as typeof current.kind }))}
             >
-              <option value="">Global (system)</option>
-              {scopeOptions.map(path => <option key={path} value={path}>/{path}</option>)}
+              {CREDENTIAL_KINDS.map(kind => <option key={kind} value={kind}>{kind}</option>)}
             </select>
-            {teamPathsLoading ? <span className="text-xs text-[var(--text-secondary)]">Loading teams...</span> : null}
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            <span>Name / path</span>
+            <span>Description</span>
             <input
               className="pipelines-input"
-              autoFocus
-              value={form.name}
-              onChange={event => setForm(current => ({ ...current, name: event.target.value }))}
-              placeholder="llm/openai-primary"
+              value={form.description}
+              onChange={event => setForm(current => ({ ...current, description: event.target.value }))}
+              placeholder="What uses this credential?"
             />
           </label>
-        </div>
-
-        <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 py-2">
-          <p className="text-xs text-[var(--text-secondary)]">Reference preview</p>
-          <code className="text-xs break-all text-[var(--text-primary)]">{referencePreview}</code>
-        </div>
-
-        <label className="flex flex-col gap-1 text-sm">
-          <span>Kind</span>
-          <select
-            className="pipelines-input"
-            value={form.kind}
-            onChange={event => setForm(current => ({ ...current, kind: event.target.value as typeof current.kind }))}
-          >
-            {CREDENTIAL_KINDS.map(kind => <option key={kind} value={kind}>{kind}</option>)}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span>Description</span>
-          <input
-            className="pipelines-input"
-            value={form.description}
-            onChange={event => setForm(current => ({ ...current, description: event.target.value }))}
-            placeholder="What uses this credential?"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span>Initial value <span className="text-[var(--text-secondary)]">(optional)</span></span>
-          <textarea
-            className="pipelines-input min-h-24"
-            value={form.value}
-            onChange={event => setForm(current => ({ ...current, value: event.target.value }))}
-            autoComplete="new-password"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span>Expires at <span className="text-[var(--text-secondary)]">(optional)</span></span>
-          <input
-            type="datetime-local"
-            className="pipelines-input"
-            value={form.expires_at}
-            onChange={event => setForm(current => ({ ...current, expires_at: event.target.value }))}
-          />
-        </label>
-        <button type="submit" className="glass-button-primary w-full justify-center" disabled={saving}>
-          <KeyRound className="h-4 w-4" aria-hidden="true" />
-          {saving ? 'Creating...' : 'Create credential'}
-        </button>
-      </form>
-    </aside>
+          <label className="flex flex-col gap-1 text-sm">
+            <span>Initial value <span className="text-[var(--text-secondary)]">(optional)</span></span>
+            <textarea
+              className="pipelines-input min-h-24"
+              value={form.value}
+              onChange={event => setForm(current => ({ ...current, value: event.target.value }))}
+              autoComplete="new-password"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span>Expires at <span className="text-[var(--text-secondary)]">(optional)</span></span>
+            <input
+              type="datetime-local"
+              className="pipelines-input"
+              value={form.expires_at}
+              onChange={event => setForm(current => ({ ...current, expires_at: event.target.value }))}
+            />
+          </label>
+          <div className="flex flex-col-reverse gap-2 border-t border-[var(--border-primary)] pt-4 sm:flex-row sm:justify-end">
+            <button type="button" className="glass-button-ghost justify-center" onClick={onClose} disabled={saving}>
+              Cancel
+            </button>
+            <button type="submit" className="glass-button-primary justify-center" disabled={saving}>
+              <KeyRound className="h-4 w-4" aria-hidden="true" />
+              {saving ? 'Creating...' : 'Create credential'}
+            </button>
+          </div>
+        </form>
+      </aside>
+    </div>
   );
 }

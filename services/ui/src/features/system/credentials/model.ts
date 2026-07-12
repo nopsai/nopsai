@@ -81,6 +81,28 @@ export type CredentialTeam = {
   credentials: CredentialRecord[];
 };
 
+export type CredentialReferenceDisplayParts = CredentialReferenceParts & {
+  scopeKind: 'team' | 'shared';
+  scopePath: string;
+  scopeLabel: string;
+};
+
+export type CredentialCatalogGroup = {
+  key: string;
+  namespace: string;
+  scopeKind: 'team' | 'shared';
+  scopePath: string;
+  scopeLabel: string;
+  categories: CredentialCatalogCategory[];
+  credentials: CredentialRecord[];
+};
+
+export type CredentialCatalogCategory = {
+  key: string;
+  category: string;
+  credentials: CredentialRecord[];
+};
+
 export function normalizeCredentialsPayload(value: unknown): CredentialRecord[] {
   const record = asRecord(value);
   const items = record && Array.isArray(record.credentials) ? record.credentials : [];
@@ -141,7 +163,8 @@ export function buildCredentialReference(namespace: string, name: string, teamPa
   const normalizedTeamPath = normalizeCredentialTeamPath(teamPath);
   const normalizedNamespace = normalizedTeamPath ? 'team' : namespace.trim().toLowerCase() || 'system';
   const normalizedName = name.trim().toLowerCase().replace(/^\/+|\/+$/g, '');
-  const scopedName = normalizedTeamPath ? `${normalizedTeamPath}/${normalizedName}` : normalizedName;
+  const teamRelativeName = stripCredentialTeamPathPrefix(normalizedName, normalizedTeamPath);
+  const scopedName = normalizedTeamPath ? `${normalizedTeamPath}/${teamRelativeName}` : normalizedName;
   return `credential://${normalizedNamespace}/${scopedName}`;
 }
 
@@ -170,6 +193,45 @@ export function parseCredentialReference(reference: string): CredentialReference
   return { namespace, name, category, displayName, parentPath };
 }
 
+export function credentialReferenceDisplay(
+  reference: string,
+  teamPaths: string[] = []
+): CredentialReferenceDisplayParts {
+  const base = parseCredentialReference(reference);
+  const segments = base.name.split('/').filter(Boolean);
+  if (base.namespace.toLowerCase() !== 'team') {
+    return {
+      ...base,
+      scopeKind: 'shared',
+      scopePath: base.namespace,
+      scopeLabel: base.namespace,
+    };
+  }
+
+  const knownTeamPath = findMatchingTeamPath(segments, teamPaths);
+  const inferredTeamSegments = knownTeamPath
+    ? knownTeamPath.split('/').filter(Boolean)
+    : segments.length > 1
+      ? segments.slice(0, 1)
+      : [];
+  const credentialSegments = stripRepeatedTeamSegments(segments.slice(inferredTeamSegments.length), inferredTeamSegments);
+  const category = credentialSegments.length > 1 ? credentialSegments[0] : 'general';
+  const displayName = credentialSegments.at(-1) || base.displayName;
+  const parentPath = credentialSegments.slice(1, -1).join(' / ');
+  const scopePath = inferredTeamSegments.join('/');
+
+  return {
+    namespace: base.namespace,
+    name: base.name,
+    category,
+    displayName,
+    parentPath,
+    scopeKind: 'team',
+    scopePath,
+    scopeLabel: scopePath || 'team',
+  };
+}
+
 export function credentialNamespaces(credentials: CredentialRecord[]): string[] {
   return [...new Set(credentials.map(credential => parseCredentialReference(credential.reference).namespace))]
     .sort((left, right) => left.localeCompare(right));
@@ -195,9 +257,12 @@ export function filterCredentials(
   return credentials.filter(credential => {
     const reference = parseCredentialReference(credential.reference);
     if (status !== 'all' && credential.status !== status) return false;
-    if (namespace !== 'all' && reference.namespace !== namespace) return false;
+    if (namespace === 'team' && reference.namespace !== 'team') return false;
+    if (namespace === 'shared' && reference.namespace === 'team') return false;
+    if (!['all', 'team', 'shared'].includes(namespace) && reference.namespace !== namespace) return false;
     if (!normalizedQuery) return true;
     return [
+      credential.reference,
       reference.name,
       reference.displayName,
       credential.kind,
@@ -205,6 +270,38 @@ export function filterCredentials(
       credential.status,
     ].some(value => value.toLowerCase().includes(normalizedQuery));
   });
+}
+
+export function credentialCatalogGroups(
+  credentials: CredentialRecord[],
+  teamPaths: string[] = []
+): CredentialCatalogGroup[] {
+  const groups = new Map<string, CredentialCatalogGroup>();
+  credentials.forEach(credential => {
+    const reference = credentialReferenceDisplay(credential.reference, teamPaths);
+    const key = `${reference.scopeKind}/${reference.scopePath || reference.namespace}`;
+    const group = groups.get(key) || {
+      key,
+      namespace: reference.namespace,
+      scopeKind: reference.scopeKind,
+      scopePath: reference.scopePath,
+      scopeLabel: reference.scopeLabel,
+      categories: [],
+      credentials: [],
+    };
+    group.credentials.push(credential);
+    groups.set(key, group);
+  });
+
+  return [...groups.values()]
+    .map(group => enrichCredentialCatalogGroup(group, teamPaths))
+    .sort(compareCredentialCatalogGroups);
+}
+
+export function recentlyUpdatedCredentials(credentials: CredentialRecord[], limit = 5): CredentialRecord[] {
+  return [...credentials]
+    .sort((left, right) => credentialTimestamp(right) - credentialTimestamp(left))
+    .slice(0, Math.max(0, limit));
 }
 
 export function teamCredentials(credentials: CredentialRecord[]): CredentialTeam[] {
@@ -247,4 +344,89 @@ function normalizeCredentialVersion(value: unknown): CredentialVersionRecord | n
 
 function readNumber(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function findMatchingTeamPath(segments: string[], teamPaths: string[]): string {
+  const normalizedTeamPaths = teamPaths
+    .map(normalizeCredentialTeamPath)
+    .filter(Boolean)
+    .sort((left, right) => right.split('/').length - left.split('/').length || left.localeCompare(right));
+
+  return normalizedTeamPaths.find(teamPath => {
+    const teamSegments = teamPath.split('/').filter(Boolean);
+    if (teamSegments.length > segments.length) return false;
+    return teamSegments.every((segment, index) => segment === segments[index]);
+  }) || '';
+}
+
+function compareCredentialCatalogGroups(left: CredentialCatalogGroup, right: CredentialCatalogGroup): number {
+  if (left.scopeKind !== right.scopeKind) return left.scopeKind === 'team' ? -1 : 1;
+  const scopeComparison = sharedScopeRank(left) - sharedScopeRank(right)
+    || left.scopeLabel.localeCompare(right.scopeLabel);
+  if (scopeComparison !== 0) return scopeComparison;
+  return left.key.localeCompare(right.key);
+}
+
+function sharedScopeRank(group: CredentialCatalogGroup): number {
+  if (group.scopeKind === 'team') return 0;
+  if (group.namespace === 'global') return 1;
+  if (group.namespace === 'system') return 2;
+  return 3;
+}
+
+function enrichCredentialCatalogGroup(group: CredentialCatalogGroup, teamPaths: string[]): CredentialCatalogGroup {
+  const categories = new Map<string, CredentialCatalogCategory>();
+  const sortedCredentials = [...group.credentials].sort((left, right) =>
+    credentialReferenceDisplay(left.reference, teamPaths).displayName.localeCompare(
+      credentialReferenceDisplay(right.reference, teamPaths).displayName
+    )
+  );
+
+  sortedCredentials.forEach(credential => {
+    const reference = credentialReferenceDisplay(credential.reference, teamPaths);
+    const key = `${group.key}/${reference.category}`;
+    const category = categories.get(key) || {
+      key,
+      category: reference.category,
+      credentials: [],
+    };
+    category.credentials.push(credential);
+    categories.set(key, category);
+  });
+
+  return {
+    ...group,
+    credentials: sortedCredentials,
+    categories: [...categories.values()].sort((left, right) => compareCredentialCategories(left, right)),
+  };
+}
+
+function compareCredentialCategories(left: CredentialCatalogCategory, right: CredentialCatalogCategory): number {
+  return credentialCategoryRank(left.category) - credentialCategoryRank(right.category)
+    || left.category.localeCompare(right.category);
+}
+
+function credentialCategoryRank(category: string): number {
+  if (category === 'general') return 99;
+  return 0;
+}
+
+function stripCredentialTeamPathPrefix(name: string, teamPath: string): string {
+  if (!teamPath) return name;
+  if (name === teamPath) return 'credential';
+  const prefix = `${teamPath}/`;
+  return name.startsWith(prefix) ? name.slice(prefix.length) : name;
+}
+
+function stripRepeatedTeamSegments(credentialSegments: string[], teamSegments: string[]): string[] {
+  if (teamSegments.length === 0) return credentialSegments;
+  const hasRepeatedTeam = teamSegments.every((segment, index) => credentialSegments[index] === segment);
+  return hasRepeatedTeam ? credentialSegments.slice(teamSegments.length) : credentialSegments;
+}
+
+function credentialTimestamp(credential: CredentialRecord): number {
+  const updatedAt = Date.parse(credential.updated_at);
+  if (Number.isFinite(updatedAt)) return updatedAt;
+  const createdAt = Date.parse(credential.created_at);
+  return Number.isFinite(createdAt) ? createdAt : 0;
 }

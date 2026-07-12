@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   activateCredentialVersion,
   createCredential,
@@ -21,6 +21,7 @@ export function useCredentials({ canManage }: { canManage: boolean }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const selectionRequestID = useRef(0);
 
   const upsertLocal = useCallback((record: CredentialRecord) => {
     setCredentials(current =>
@@ -53,18 +54,24 @@ export function useCredentials({ canManage }: { canManage: boolean }) {
   }, [loadCredentials]);
 
   const selectCredential = useCallback(async (record: CredentialRecord) => {
+    const requestID = selectionRequestID.current + 1;
+    selectionRequestID.current = requestID;
     setCreating(false);
     setError(null);
     setSelected(record);
     try {
-      setSelected(await fetchCredential(record.id));
+      const detail = await fetchCredential(record.id);
+      if (selectionRequestID.current === requestID) setSelected(detail);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load credential details');
+      if (selectionRequestID.current === requestID) {
+        setError(err instanceof Error ? err.message : 'Unable to load credential details');
+      }
     }
   }, []);
 
   const startCreate = useCallback(() => {
     if (!canManage) return;
+    selectionRequestID.current += 1;
     setSelected(null);
     setForm(emptyCredentialForm);
     setRotationValue('');
@@ -73,7 +80,9 @@ export function useCredentials({ canManage }: { canManage: boolean }) {
   }, [canManage]);
 
   const closeDetails = useCallback(() => {
+    selectionRequestID.current += 1;
     setSelected(null);
+    setRotationValue('');
     setError(null);
   }, []);
 
@@ -178,6 +187,7 @@ export function useCredentials({ canManage }: { canManage: boolean }) {
     try {
       await deleteCredential(selected.id);
       setCredentials(current => current.filter(record => record.id !== selected.id));
+      selectionRequestID.current += 1;
       setSelected(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to delete credential');
