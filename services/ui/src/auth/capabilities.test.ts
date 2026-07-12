@@ -69,6 +69,7 @@ test('derives app and system access from normalized capabilities', () => {
   assert.equal(access.canViewKnowledge, true);
   assert.equal(access.canWriteKnowledge, true);
   assert.equal(access.canViewAnySystem, true);
+  assert.equal(access.isNopsAIAdmin, false);
   assert.equal(access.preferredSystemPath, '/system/config');
   assert.equal(access.systemPermissions.canViewLLMProfiles, true);
   assert.equal(access.systemPermissions.canManageLLMProfiles, false);
@@ -112,6 +113,26 @@ test('exposes the credential registry only through credential capabilities', () 
 
   assert.equal(access.canViewSystemCredentials, true);
   assert.equal(access.canManageSystemCredentials, true);
+  assert.equal(access.isNopsAIAdmin, false);
   assert.equal(access.canViewAnySystem, false);
   assert.equal(access.preferredSystemPath, '/system/config');
+});
+
+test('detects NopsAI admin users independently from credential capabilities', () => {
+  const user = normalizeCurrentUser({
+    sub: 'security-admin',
+    roles: ['nopsai-admin'],
+    capabilities: {
+      system: {
+        credentials_read: true,
+      },
+    },
+  });
+
+  const access = getAppAccess(user, { sub: 'security-admin' });
+
+  assert.equal(access.canViewSystemCredentials, true);
+  assert.equal(access.canManageSystemCredentials, false);
+  assert.equal(access.isNopsAIAdmin, true);
+  assert.equal(access.isInitialAdminUser, true);
 });

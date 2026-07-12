@@ -76,7 +76,7 @@ beforeEach(() => {
   Object.values(apiMocks).forEach(mock => mock.mockReset());
 });
 
-test('uses compact references and supports enable plus old-version deletion', async () => {
+test('uses registry table references and supports enable plus old-version deletion', async () => {
   const user = userEvent.setup();
   vi.spyOn(window, 'confirm').mockReturnValue(true);
   apiMocks.fetchCredentials.mockResolvedValue([disabledCredential]);
@@ -91,14 +91,14 @@ test('uses compact references and supports enable plus old-version deletion', as
 
   render(
     <MemoryRouter>
-      <CredentialsPanel canManage />
+      <CredentialsPanel canManage isNopsAIAdmin />
     </MemoryRouter>
   );
 
   expect((await screen.findAllByText('OpenAI Primary'))[0]).toBeVisible();
   expect(screen.queryByText('credential://system/llm/openai-primary')).not.toBeInTheDocument();
   expect(screen.getByText('LLM')).toBeVisible();
-  expect(screen.getAllByText('system')).not.toHaveLength(0);
+  expect(screen.getAllByText('System')).not.toHaveLength(0);
 
   await user.click(screen.getByRole('button', { name: /openai primary/i }));
   expect(await screen.findByText('credential://system/llm/openai-primary')).toBeVisible();
@@ -116,7 +116,7 @@ test('creates credentials using global and team scope fields', async () => {
 
   render(
     <MemoryRouter>
-      <CredentialsPanel canManage />
+      <CredentialsPanel canManage isNopsAIAdmin />
     </MemoryRouter>
   );
   await screen.findByText('No matching credentials');
@@ -131,7 +131,34 @@ test('creates credentials using global and team scope fields', async () => {
   expect(screen.getByText('credential://team/platform/ml/mail/smtp-primary')).toBeVisible();
 });
 
-test('filters by team scope and toggles compact catalog view', async () => {
+test('filters by team scope and toggles registry grouping', async () => {
+  const user = userEvent.setup();
+  apiMocks.fetchCredentials.mockResolvedValue([disabledCredential, teamCredential]);
+
+  render(
+    <MemoryRouter>
+      <CredentialsPanel canManage isNopsAIAdmin />
+    </MemoryRouter>
+  );
+
+  expect(await screen.findByText('2 credentials shown')).toBeVisible();
+  expect(screen.getByRole('button', { name: /all credentials/i })).toBeVisible();
+  await user.selectOptions(screen.getByLabelText('Filter by scope'), 'team');
+
+  expect(screen.getByText('1 credential shown')).toBeVisible();
+  expect((await screen.findAllByText('Platform / ML'))[0]).toBeVisible();
+  expect(screen.getAllByText('Mail')).not.toHaveLength(0);
+  expect((await screen.findAllByText('SMTP Primary'))[0]).toBeVisible();
+
+  await user.click(screen.getByRole('button', { name: 'Flat list' }));
+  expect(screen.getByRole('button', { name: 'Group by scope' })).toBeVisible();
+
+  await user.type(screen.getByLabelText('Search credentials'), 'does-not-exist');
+  expect(screen.getByText('0 credentials shown')).toBeVisible();
+  expect(screen.getByText('No matching credentials')).toBeVisible();
+});
+
+test('limits non-admin credentials to team scopes and team creation', async () => {
   const user = userEvent.setup();
   apiMocks.fetchCredentials.mockResolvedValue([disabledCredential, teamCredential]);
 
@@ -141,22 +168,18 @@ test('filters by team scope and toggles compact catalog view', async () => {
     </MemoryRouter>
   );
 
-  expect(await screen.findByText('2 credentials shown')).toBeVisible();
-  expect(screen.getByRole('button', { name: /all credentials/i })).toBeVisible();
-  await user.selectOptions(screen.getByLabelText('Filter by scope'), 'team');
+  expect(await screen.findByText('1 credential shown')).toBeVisible();
+  expect(screen.queryByText('OpenAI Primary')).not.toBeInTheDocument();
+  expect(screen.queryByRole('option', { name: 'Shared scopes' })).not.toBeInTheDocument();
 
-  expect(screen.getByText('1 credential shown')).toBeVisible();
-  expect(screen.getByRole('button', { name: /platform \/ ml/i })).toBeVisible();
-  expect((await screen.findAllByText('Platform / ML'))[0]).toBeVisible();
-  expect(screen.getByText('Mail')).toBeVisible();
-  expect((await screen.findAllByText('SMTP Primary'))[0]).toBeVisible();
+  const createButton = screen.getByRole('button', { name: 'New credential' });
+  await waitFor(() => expect(createButton).toBeEnabled());
+  await user.click(createButton);
 
-  await user.click(screen.getByRole('button', { name: 'Compact view' }));
-  expect(screen.getByRole('button', { name: 'Comfortable view' })).toBeVisible();
-
-  await user.type(screen.getByLabelText('Search credentials'), 'does-not-exist');
-  expect(screen.getByText('0 credentials shown')).toBeVisible();
-  expect(screen.getByText('No matching credentials')).toBeVisible();
+  expect(screen.queryByRole('option', { name: 'System / global' })).not.toBeInTheDocument();
+  await waitFor(() => expect(screen.getByLabelText('Team')).toHaveValue('platform/ml'));
+  await user.type(screen.getByLabelText('Name / path'), 'mail/smtp-primary');
+  expect(screen.getByText('credential://team/platform/ml/mail/smtp-primary')).toBeVisible();
 });
 
 test('renders repeated team path credentials under the team once', async () => {
@@ -164,7 +187,7 @@ test('renders repeated team path credentials under the team once', async () => {
 
   render(
     <MemoryRouter>
-      <CredentialsPanel canManage />
+      <CredentialsPanel canManage isNopsAIAdmin />
     </MemoryRouter>
   );
 
@@ -179,7 +202,7 @@ test('opens a credential detail from the credential query parameter', async () =
 
   render(
     <MemoryRouter initialEntries={['/credentials?credential=credential%3A%2F%2Fsystem%2Fllm%2Fopenai-primary']}>
-      <CredentialsPanel canManage />
+      <CredentialsPanel canManage isNopsAIAdmin />
     </MemoryRouter>
   );
 
@@ -197,7 +220,7 @@ test('does not reopen credential details after closing while detail loading is i
 
   render(
     <MemoryRouter>
-      <CredentialsPanel canManage />
+      <CredentialsPanel canManage isNopsAIAdmin />
     </MemoryRouter>
   );
 

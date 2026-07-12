@@ -110,16 +110,7 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 		a.checkCapabilityOrScopedGrant(ctx, subject, "credential.enable", model.ResourceRef{Type: "credential", ID: "*"}) ||
 		a.checkCapabilityOrScopedGrant(ctx, subject, "credential.delete_version", model.ResourceRef{Type: "credential", ID: "*"}) ||
 		a.checkCapabilityOrScopedGrant(ctx, subject, "credential.delete", model.ResourceRef{Type: "credential", ID: "*"})
-	credentialConsumerWrite := llmProfilesWrite ||
-		agentProfilesWrite ||
-		mcpWrite ||
-		configWrite ||
-		a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "notifications"}) ||
-		a.checkCapabilityOrScopedGrant(ctx, subject, "git_webhook_source.create", model.ResourceRef{Type: grantResourceGitWebhookSource, ID: "*"}) ||
-		a.checkCapabilityOrScopedGrant(ctx, subject, "git_webhook_source.update", model.ResourceRef{Type: grantResourceGitWebhookSource, ID: "*"}) ||
-		a.checkCapabilityOrScopedGrant(ctx, subject, "team.update", model.ResourceRef{Type: grantResourceTeam, ID: "*"})
-	credentialsRead = credentialsRead || credentialsWrite || credentialConsumerWrite
-	credentialsWrite = credentialsWrite || credentialConsumerWrite
+	credentialsRead = credentialsRead || credentialsWrite
 	configReposRead := a.checkCapability(subject, "system.read", model.ResourceRef{Type: "system", ID: "config-repos"})
 	configReposWrite := a.checkCapability(subject, "system.update", model.ResourceRef{Type: "system", ID: "config-repos"})
 	dispatcherRead := a.checkCapability(subject, "system.read", model.ResourceRef{Type: "dispatcher", ID: "status"})

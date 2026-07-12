@@ -124,7 +124,7 @@ func hostedMCPFinalTools() []hostedMCPTool {
 
 		toolDef("nopsai.list_credentials_metadata", "List credential metadata only; credential values are never returned.", "credential.list_metadata", "credential", "*", objectSchema(map[string]any{})),
 		toolDef("nopsai.get_credential_metadata", "Read credential metadata and version metadata by credential id.", "credential.list_metadata", "credential", "*", objectSchema(map[string]any{"credential_id": stringSchema()})),
-		toolDef("nopsai.create_credential", "Create credential metadata and optional initial value. Requires confirm:true and redacts values from hosted MCP audit.", "credential.create", "credential", "*", objectSchema(map[string]any{"reference": stringSchema(), "kind": stringSchema(), "description": stringSchema(), "value": stringSchema(), "expires_at": stringSchema(), "confirm": booleanSchema()})),
+		toolDef("nopsai.create_credential", "Create credential metadata and optional initial value. Non-admin users must provide a credential://team/... reference with matching team_path. Requires confirm:true and redacts values from hosted MCP audit.", "credential.create", "credential", "*", objectSchema(map[string]any{"reference": stringSchema(), "team_path": stringSchema(), "kind": stringSchema(), "description": stringSchema(), "value": stringSchema(), "expires_at": stringSchema(), "confirm": booleanSchema()})),
 		toolDef("nopsai.rotate_credential_value", "Rotate a credential value. Requires confirm:true and redacts the value from hosted MCP audit.", "credential.write_value", "credential", "*", objectSchema(map[string]any{"credential_id": stringSchema(), "value": stringSchema(), "confirm": booleanSchema()})),
 		toolDef("nopsai.activate_credential_version", "Activate a credential version. Requires confirm:true.", "credential.rotate", "credential", "*", objectSchema(map[string]any{"credential_id": stringSchema(), "version": numberSchema(), "confirm": booleanSchema()})),
 		toolDef("nopsai.disable_credential", "Disable a credential. Requires confirm:true.", "credential.disable", "credential", "*", objectSchema(map[string]any{"credential_id": stringSchema(), "confirm": booleanSchema()})),
@@ -881,6 +881,9 @@ func hostedMCPCredentialCreateBody(args map[string]any) map[string]any {
 		"reference":   stringArg(args, "reference"),
 		"kind":        stringArg(args, "kind"),
 		"description": stringArg(args, "description"),
+	}
+	if teamPath := stringArg(args, "team_path"); teamPath != "" {
+		body["team_path"] = teamPath
 	}
 	if value := stringArg(args, "value"); value != "" {
 		body["value"] = value

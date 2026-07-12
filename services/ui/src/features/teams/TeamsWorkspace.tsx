@@ -397,7 +397,7 @@ function TeamTreeRow({
         <button type="button" className="teams-tree-select" onClick={() => onSelectTeam(node.team.id)}>
           {app ? <Boxes className="h-4 w-4" aria-hidden="true" /> : <FolderTree className="h-4 w-4" aria-hidden="true" />}
           <span className="truncate">{teamDisplayName(node.team)}</span>
-          {hasChildren ? <span className="teams-tree-count">{node.children.length}</span> : <MoreHorizontal className="ml-auto h-4 w-4" aria-hidden="true" />}
+          {hasChildren ? <span className="teams-tree-count">{node.children.length}</span> : <MoreHorizontal className="teams-tree-more h-4 w-4" aria-hidden="true" />}
         </button>
       </div>
       {hasChildren && !collapsed ? (

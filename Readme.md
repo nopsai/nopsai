@@ -262,11 +262,12 @@ GitHub credential references live in `setting/system/github.yaml`; they are not
 accepted from `setting/system/runner.yaml`. Keep database URLs, master keys, and
 service JWT bootstrap keys in deployment secrets. Store operational integration
 credential values as encrypted envelopes in `setting/system/credentials.yaml` or
-write them through **Credentials** and let drift export the encrypted form. Team
+write them through **Credentials** and let drift export the encrypted form.
+System credentials are visible and mutable only to NopsAI admins. Team
 credentials are created from the same page by selecting the owning team, which
-emits `credential://team/<team path>/...` references. Feature files such as auth,
-GitHub, mail, LLM, MCP, runner, and Git webhook sources store only stable
-credential references.
+emits `credential://team/<team path>/...` references and is authorized through
+the matching team grants. Feature files such as auth, GitHub, mail, LLM, MCP,
+runner, and Git webhook sources store only stable credential references.
 Runtime settings saved from the UI or synced from GitOps are stored in the
 database as the durable source of truth. `config.yml`, `.env`, Docker Compose
 environment blocks, and deployment secrets are bootstrap inputs only. On

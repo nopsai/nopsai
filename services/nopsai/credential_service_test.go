@@ -390,6 +390,12 @@ func TestCredentialMetadataAndBoundDelete(t *testing.T) {
 		cfg:             &config.Config{GitHubWebhookCredentialRef: ref.String()},
 		credentialStore: store,
 		credentials:     service,
+		aaaLocal: stubAAAAuthorizer{
+			checkFn: func(_ context.Context, _ aaamodel.Subject, action string, resource aaamodel.ResourceRef, _ map[string]any) (aaamodel.Decision, error) {
+				allowed := action == "iam.admin" && resource.Type == "iam" && resource.ID == "admin"
+				return aaamodel.Decision{Allowed: allowed}, nil
+			},
+		},
 	}
 	request := credentialTestRequest(http.MethodDelete, "/v1/system/credentials/"+credential.ID.String(), "gitops", nil)
 	request.SetPathValue("credentialID", credential.ID.String())
@@ -462,34 +468,24 @@ func TestLegacyCredentialMigrationHelpersImportAndScrubValues(t *testing.T) {
 	}
 }
 
-func TestCredentialHandlersFilterMetadataToCreatedAndGrantedRecords(t *testing.T) {
+func TestCredentialHandlersFilterMetadataToAdminOrTeamScopedRecords(t *testing.T) {
 	store := newMemoryCredentialStore()
 	own := mustStoreCredential(t, store, "credential://system/llm/alice", "alice")
 	shared := mustStoreCredential(t, store, "credential://system/mcp/shared", "bob")
 	teamScoped := mustStoreCredential(t, store, "credential://team/platform/llm/shared", "bob")
 	other := mustStoreCredential(t, store, "credential://system/llm/bob", "bob")
-	allowedResource := credentialRecordResource(shared)
 
 	app := &App{
 		credentialStore: store,
 		aaaLocal: stubAAAAuthorizer{
-			checkFn: func(_ context.Context, _ aaamodel.Subject, action string, resource aaamodel.ResourceRef, _ map[string]any) (aaamodel.Decision, error) {
+			checkFn: func(_ context.Context, subject aaamodel.Subject, action string, resource aaamodel.ResourceRef, _ map[string]any) (aaamodel.Decision, error) {
+				if subject.Sub == "admin" && action == "iam.admin" && resource.Type == "iam" && resource.ID == "admin" {
+					return aaamodel.Decision{Allowed: true}, nil
+				}
 				if action == "team.read" && resource.Type == grantResourceTeam && resource.ID == "platform" {
 					return aaamodel.Decision{Allowed: true}, nil
 				}
 				return aaamodel.Decision{Allowed: false}, nil
-			},
-			filterFn: func(_ context.Context, _ aaamodel.Subject, action string, resources []aaamodel.ResourceRef, _ map[string]any) ([]aaamodel.ResourceRef, error) {
-				if action != "credential.list_metadata" {
-					t.Fatalf("filter action = %q, want credential.list_metadata", action)
-				}
-				filtered := []aaamodel.ResourceRef{}
-				for _, resource := range resources {
-					if resource == allowedResource {
-						filtered = append(filtered, resource)
-					}
-				}
-				return filtered, nil
 			},
 		},
 	}
@@ -510,14 +506,35 @@ func TestCredentialHandlersFilterMetadataToCreatedAndGrantedRecords(t *testing.T
 		got = append(got, credential.Reference)
 	}
 	sort.Strings(got)
-	want := []string{own.Reference.String(), shared.Reference.String(), teamScoped.Reference.String()}
+	want := []string{teamScoped.Reference.String()}
 	sort.Strings(want)
 	if !equalStringSlices(got, want) {
 		t.Fatalf("credentials = %#v, want %#v; hidden credential was %s", got, want, other.Reference.String())
 	}
+
+	req = credentialTestRequest(http.MethodGet, "/v1/system/credentials", "admin", nil)
+	rec = httptest.NewRecorder()
+	app.handleListCredentials(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	response = credentialsResponse{}
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode admin response: %v", err)
+	}
+	got = got[:0]
+	for _, credential := range response.Credentials {
+		got = append(got, credential.Reference)
+	}
+	sort.Strings(got)
+	want = []string{own.Reference.String(), shared.Reference.String(), teamScoped.Reference.String(), other.Reference.String()}
+	sort.Strings(want)
+	if !equalStringSlices(got, want) {
+		t.Fatalf("admin credentials = %#v, want %#v", got, want)
+	}
 }
 
-func TestCredentialHandlersAllowCreatorDetailsAndDenyUnownedRecords(t *testing.T) {
+func TestCredentialHandlersAllowAdminAndTeamDetailsOnly(t *testing.T) {
 	store := newMemoryCredentialStore()
 	own := mustStoreCredential(t, store, "credential://system/llm/alice", "alice")
 	teamScoped := mustStoreCredential(t, store, "credential://team/platform/llm/shared", "bob")
@@ -525,7 +542,10 @@ func TestCredentialHandlersAllowCreatorDetailsAndDenyUnownedRecords(t *testing.T
 	app := &App{
 		credentialStore: store,
 		aaaLocal: stubAAAAuthorizer{
-			checkFn: func(_ context.Context, _ aaamodel.Subject, action string, resource aaamodel.ResourceRef, _ map[string]any) (aaamodel.Decision, error) {
+			checkFn: func(_ context.Context, subject aaamodel.Subject, action string, resource aaamodel.ResourceRef, _ map[string]any) (aaamodel.Decision, error) {
+				if subject.Sub == "admin" && action == "iam.admin" && resource.Type == "iam" && resource.ID == "admin" {
+					return aaamodel.Decision{Allowed: true}, nil
+				}
 				if action == "team.read" && resource.Type == grantResourceTeam && resource.ID == "platform" {
 					return aaamodel.Decision{Allowed: true}, nil
 				}
@@ -538,8 +558,8 @@ func TestCredentialHandlersAllowCreatorDetailsAndDenyUnownedRecords(t *testing.T
 	req.SetPathValue("credentialID", own.ID.String())
 	rec := httptest.NewRecorder()
 	app.handleGetCredential(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("own status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("own system status = %d, want %d", rec.Code, http.StatusForbidden)
 	}
 
 	req = credentialTestRequest(http.MethodGet, "/v1/system/credentials/"+teamScoped.ID.String(), "alice", nil)
@@ -557,9 +577,17 @@ func TestCredentialHandlersAllowCreatorDetailsAndDenyUnownedRecords(t *testing.T
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("other status = %d, want %d", rec.Code, http.StatusForbidden)
 	}
+
+	req = credentialTestRequest(http.MethodGet, "/v1/system/credentials/"+other.ID.String(), "admin", nil)
+	req.SetPathValue("credentialID", other.ID.String())
+	rec = httptest.NewRecorder()
+	app.handleGetCredential(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin system status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
 }
 
-func TestCreateCredentialAllowedByCredentialConsumerWriteCapability(t *testing.T) {
+func TestCreateSystemCredentialRequiresNopsAIAdmin(t *testing.T) {
 	store := newMemoryCredentialStore()
 	codec, _ := credentials.NewEnvelopeCodec("01234567890123456789012345678901")
 	service, _ := newCredentialService(store, codec, nil)
@@ -567,8 +595,9 @@ func TestCreateCredentialAllowedByCredentialConsumerWriteCapability(t *testing.T
 		credentialStore: store,
 		credentials:     service,
 		aaaLocal: stubAAAAuthorizer{
-			checkFn: func(_ context.Context, _ aaamodel.Subject, action string, resource aaamodel.ResourceRef, _ map[string]any) (aaamodel.Decision, error) {
-				allowed := action == "system.update" && resource.Type == "system" && resource.ID == "llm-profiles"
+			checkFn: func(_ context.Context, subject aaamodel.Subject, action string, resource aaamodel.ResourceRef, _ map[string]any) (aaamodel.Decision, error) {
+				allowed := subject.Sub == "alice" && action == "system.update" && resource.Type == "system" && resource.ID == "llm-profiles"
+				allowed = allowed || subject.Sub == "admin" && action == "iam.admin" && resource.Type == "iam" && resource.ID == "admin"
 				return aaamodel.Decision{Allowed: allowed}, nil
 			},
 		},
@@ -579,15 +608,23 @@ func TestCreateCredentialAllowedByCredentialConsumerWriteCapability(t *testing.T
 	rec := httptest.NewRecorder()
 	app.handleCreateCredential(rec, req)
 
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("non-admin status = %d, want %d: %s", rec.Code, http.StatusForbidden, rec.Body.String())
+	}
+
+	body = bytes.NewBufferString(`{"reference":"credential://system/llm/alice","kind":"api_key","value":"secret"}`)
+	req = credentialTestRequest(http.MethodPost, "/v1/system/credentials", "admin", body)
+	rec = httptest.NewRecorder()
+	app.handleCreateCredential(rec, req)
 	if rec.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusCreated, rec.Body.String())
+		t.Fatalf("admin status = %d, want %d: %s", rec.Code, http.StatusCreated, rec.Body.String())
 	}
 	created, err := store.GetCredentialByReference(context.Background(), credentials.Reference{Namespace: "system", Name: "llm/alice"})
 	if err != nil {
 		t.Fatalf("created credential not stored: %v", err)
 	}
-	if created.CreatedBy != "alice" || created.Status != credentials.StatusActive {
-		t.Fatalf("created credential = %#v, want active alice-owned credential", created)
+	if created.CreatedBy != "admin" || created.Status != credentials.StatusActive {
+		t.Fatalf("created credential = %#v, want active admin-owned credential", created)
 	}
 }
 
@@ -620,6 +657,53 @@ func TestCreateTeamCredentialRequiresMatchingTeamAccess(t *testing.T) {
 	}
 	if created.CreatedBy != "alice" || created.Status != credentials.StatusActive {
 		t.Fatalf("created credential = %#v, want active alice-owned team credential", created)
+	}
+}
+
+func TestTeamCredentialMutationUsesTeamScopedActions(t *testing.T) {
+	store := newMemoryCredentialStore()
+	codec, _ := credentials.NewEnvelopeCodec("01234567890123456789012345678901")
+	service, _ := newCredentialService(store, codec, nil)
+	teamScoped := mustStoreCredential(t, store, "credential://team/platform/llm/shared", "bob")
+	systemScoped := mustStoreCredential(t, store, "credential://system/llm/shared", "bob")
+	app := &App{
+		credentialStore: store,
+		credentials:     service,
+		aaaLocal: stubAAAAuthorizer{
+			checkFn: func(_ context.Context, _ aaamodel.Subject, action string, resource aaamodel.ResourceRef, _ map[string]any) (aaamodel.Decision, error) {
+				if resource.Type == grantResourceTeam && resource.ID == "platform" &&
+					(action == "credential.disable" || action == "team.read") {
+					return aaamodel.Decision{Allowed: true}, nil
+				}
+				if resource.Type == "credential" && resource.ID == systemScoped.Reference.ResourceID() && action == "credential.disable" {
+					return aaamodel.Decision{Allowed: true}, nil
+				}
+				return aaamodel.Decision{Allowed: false}, nil
+			},
+		},
+	}
+
+	req := credentialTestRequest(http.MethodPost, "/v1/system/credentials/"+teamScoped.ID.String()+"/disable", "alice", nil)
+	req.SetPathValue("credentialID", teamScoped.ID.String())
+	rec := httptest.NewRecorder()
+	app.handleDisableCredential(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("team disable status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	updated, err := store.GetCredentialByID(context.Background(), teamScoped.ID)
+	if err != nil {
+		t.Fatalf("load team credential: %v", err)
+	}
+	if updated.Status != credentials.StatusDisabled {
+		t.Fatalf("team credential status = %q, want disabled", updated.Status)
+	}
+
+	req = credentialTestRequest(http.MethodPost, "/v1/system/credentials/"+systemScoped.ID.String()+"/disable", "alice", nil)
+	req.SetPathValue("credentialID", systemScoped.ID.String())
+	rec = httptest.NewRecorder()
+	app.handleDisableCredential(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("system disable status = %d, want %d", rec.Code, http.StatusForbidden)
 	}
 }
 
