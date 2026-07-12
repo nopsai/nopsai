@@ -6,6 +6,7 @@ import {
   useState,
   type FormEvent,
 } from "react";
+import { useLocation } from "react-router-dom";
 import {
   DEFAULT_ADMIN_ROLE,
   POLICY_TEMPLATE_ROLE,
@@ -191,6 +192,22 @@ export type AccessPanelProps = {
   ) => Promise<void>;
 };
 
+function accessResourceSearchFromQuery(search: string) {
+  const params = new URLSearchParams(search);
+  const resourceType = (
+    params.get("resource_type") ||
+    params.get("resourceType") ||
+    ""
+  ).trim();
+  const resourceID = (
+    params.get("resource_id") ||
+    params.get("resourceID") ||
+    ""
+  ).trim().replace(/^\/+|\/+$/g, "");
+  if (!resourceType || !resourceID) return "";
+  return resourceID;
+}
+
 export function useAccessPanelController({
   users,
   loading,
@@ -245,6 +262,11 @@ export function useAccessPanelController({
   onCreateServiceAccountToken,
   onRevokeServiceAccountToken,
 }: AccessPanelProps) {
+  const location = useLocation();
+  const resourceSearchQuery = useMemo(
+    () => accessResourceSearchFromQuery(location.search),
+    [location.search],
+  );
   const [accessMode, setAccessMode] = useState<AccessMode>("basic");
   const [activeSection, setActiveSection] = useState<AccessSection>("users");
   const [showUserModal, setShowUserModal] = useState(false);
@@ -1095,12 +1117,24 @@ export function useAccessPanelController({
   }, [selectedBasicUserGrants]);
 
   useEffect(() => {
-    setSearchTerm("");
-    setSearchOpen(false);
+    if (!resourceSearchQuery) {
+      setSearchTerm("");
+      setSearchOpen(false);
+    }
     setBasicGrantError(null);
     setUserAccessEditor(null);
     setBasicGrantEntries([]);
-  }, [accessMode]);
+  }, [accessMode, resourceSearchQuery]);
+
+  useEffect(() => {
+    if (!resourceSearchQuery) return;
+    setAccessMode("basic");
+    setSearchTerm(resourceSearchQuery);
+    setSearchOpen(true);
+    setBasicGrantError(null);
+    setUserAccessEditor(null);
+    setServiceAccountEditor(null);
+  }, [resourceSearchQuery]);
 
   useEffect(() => {
     setBasicGrantError(null);
@@ -1108,8 +1142,10 @@ export function useAccessPanelController({
   }, [userAccessEditor?.user.id]);
 
   useEffect(() => {
-    setSearchTerm("");
-    setSearchOpen(false);
+    if (!resourceSearchQuery) {
+      setSearchTerm("");
+      setSearchOpen(false);
+    }
     setShowUserModal(false);
     setShowPolicyModal(false);
     setRoleEditor(null);
@@ -1121,7 +1157,7 @@ export function useAccessPanelController({
       setIdentityProviderForm(emptyIdentityProviderForm());
       setSelectedIdentityProviderID("");
     }
-  }, [activeSection]);
+  }, [activeSection, resourceSearchQuery]);
 
   useEffect(() => {
     if (!showUserModal || !awaitingUserCreateReset || !isNewUserPristine)

@@ -2,15 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import type { Dispatch, FormEvent, SetStateAction } from 'react';
 import { Plus, Trash2, X } from 'lucide-react';
 import { formatConfigRepoTimestamp } from '../../lib/teamModels';
-import type {
-  TeamAgentProfilePayload,
-  TeamAgentProfilesResponse,
-  TeamLLMProfilePayload,
-  TeamLLMProfilesResponse,
-  TeamMCPProfilePayload,
-  TeamMCPProfilesResponse,
-} from './api';
-import { TeamAIProfilesPanel } from './TeamAIProfilesPanel';
 import {
   NOTIFICATION_EVENTS,
   teamNotificationGitOpsTarget,
@@ -53,6 +44,8 @@ type NewTeamItemPayload = {
   description: string;
   repoURL: string;
 };
+
+export type TeamSettingsTab = 'sync' | 'notifications';
 
 export function NewTeamItemModal({
   open,
@@ -207,15 +200,9 @@ export function TeamConfigRepositoryModal({
   notificationLoading,
   notificationSaving,
   notificationError,
-  llmProfiles,
-  agentProfiles,
-  mcpProfiles,
-  aiProfilesLoading,
-  aiProfilesSaving,
-  aiProfilesError,
+  initialTab = 'sync',
   canManage,
   canSync,
-  canManageProfiles,
   onChange,
   onNotificationChange,
   onSave,
@@ -224,14 +211,6 @@ export function TeamConfigRepositoryModal({
   onCheckDrift,
   onSaveNotification,
   onDeleteNotification,
-  onSaveLLMProfile,
-  onSetDefaultLLMProfile,
-  onDeleteLLMProfile,
-  onSaveAgentProfile,
-  onSetDefaultAgentProfile,
-  onDeleteAgentProfile,
-  onSaveMCPProfile,
-  onDeleteMCPProfile,
   onClose,
 }: {
   teamLabel: string;
@@ -247,15 +226,9 @@ export function TeamConfigRepositoryModal({
   notificationLoading: boolean;
   notificationSaving: boolean;
   notificationError: string | null;
-  llmProfiles: TeamLLMProfilesResponse | null;
-  agentProfiles: TeamAgentProfilesResponse | null;
-  mcpProfiles: TeamMCPProfilesResponse | null;
-  aiProfilesLoading: boolean;
-  aiProfilesSaving: boolean;
-  aiProfilesError: string | null;
+  initialTab?: TeamSettingsTab;
   canManage: boolean;
   canSync: boolean;
-  canManageProfiles: boolean;
   onChange: Dispatch<SetStateAction<ConfigRepositoryFormState>>;
   onNotificationChange: Dispatch<SetStateAction<NotificationRouteFormState>>;
   onSave: () => Promise<void>;
@@ -264,14 +237,6 @@ export function TeamConfigRepositoryModal({
   onCheckDrift: () => Promise<void>;
   onSaveNotification: () => Promise<void>;
   onDeleteNotification: () => Promise<void>;
-  onSaveLLMProfile: (profileName: string, payload: TeamLLMProfilePayload) => Promise<void>;
-  onSetDefaultLLMProfile: (profileName: string) => Promise<void>;
-  onDeleteLLMProfile: (profileName: string) => Promise<void>;
-  onSaveAgentProfile: (profileID: string, payload: TeamAgentProfilePayload) => Promise<void>;
-  onSetDefaultAgentProfile: (profileID: string) => Promise<void>;
-  onDeleteAgentProfile: (profileID: string) => Promise<void>;
-  onSaveMCPProfile: (profileName: string, payload: TeamMCPProfilePayload) => Promise<void>;
-  onDeleteMCPProfile: (profileName: string) => Promise<void>;
   onClose: () => void;
 }) {
   const inputClass = 'pipelines-input w-full text-sm disabled:cursor-not-allowed disabled:opacity-70';
@@ -291,9 +256,14 @@ export function TeamConfigRepositoryModal({
   const notificationSaveDisabled = !notificationCanEdit;
   const notificationDeleteDisabled = !notificationCanEdit || !notificationRoute?.id;
   const notificationGitOpsTarget = repo ? teamNotificationGitOpsTarget(repo.base_path) : '';
-  const aiProfilesGitOpsTarget = repo ? teamAIProfilesGitOpsTarget(repo.base_path) : '';
-  const [activeSettingsTab, setActiveSettingsTab] = useState<'sync' | 'notifications' | 'ai'>('sync');
-  const settingsTabClass = (tab: 'sync' | 'notifications' | 'ai') =>
+  const settingsTabKey = `${teamLabel}:${initialTab}`;
+  const [settingsTabState, setSettingsTabState] = useState<{ key: string; tab: TeamSettingsTab }>(() => ({
+    key: settingsTabKey,
+    tab: initialTab,
+  }));
+  const activeSettingsTab = settingsTabState.key === settingsTabKey ? settingsTabState.tab : initialTab;
+  const selectSettingsTab = (tab: TeamSettingsTab) => setSettingsTabState({ key: settingsTabKey, tab });
+  const settingsTabClass = (tab: TeamSettingsTab) =>
     `inline-flex min-h-[38px] items-center justify-center rounded-md px-4 py-2 text-sm font-semibold transition ${
       activeSettingsTab === tab
         ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-sm border border-[var(--border-primary)]'
@@ -311,11 +281,11 @@ export function TeamConfigRepositoryModal({
         <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)]/70">
           <div>
             <p className="text-xs uppercase tracking-wide text-[var(--text-secondary)] font-semibold">Team Settings</p>
-            <h3 id="team-settings-modal-title" className="text-lg font-semibold text-[var(--text-primary)]">Config, Notifications & AI</h3>
+            <h3 id="team-settings-modal-title" className="text-lg font-semibold text-[var(--text-primary)]">Config & Notifications</h3>
             <p className="text-xs text-[var(--text-secondary)] break-all">{teamLabel}</p>
           </div>
           <div className="flex items-center gap-2">
-            {!canManage && !canManageProfiles && <span className="runner-pill runner-pill--muted">Read-only</span>}
+            {!canManage && <span className="runner-pill runner-pill--muted">Read-only</span>}
             <button type="button" className="pipelines-icon-only" aria-label="Close" onClick={onClose}>
               <X className="h-4 w-4" aria-hidden="true" />
             </button>
@@ -329,7 +299,7 @@ export function TeamConfigRepositoryModal({
               role="tab"
               aria-selected={activeSettingsTab === 'sync'}
               className={settingsTabClass('sync')}
-              onClick={() => setActiveSettingsTab('sync')}
+              onClick={() => selectSettingsTab('sync')}
             >
               Sync config
             </button>
@@ -338,18 +308,9 @@ export function TeamConfigRepositoryModal({
               role="tab"
               aria-selected={activeSettingsTab === 'notifications'}
               className={settingsTabClass('notifications')}
-              onClick={() => setActiveSettingsTab('notifications')}
+              onClick={() => selectSettingsTab('notifications')}
             >
               Notifications
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeSettingsTab === 'ai'}
-              className={settingsTabClass('ai')}
-              onClick={() => setActiveSettingsTab('ai')}
-            >
-              AI profiles
             </button>
           </div>
 
@@ -795,36 +756,10 @@ export function TeamConfigRepositoryModal({
             </div>
           )}
 
-          {activeSettingsTab === 'ai' && (
-            <TeamAIProfilesPanel
-              llmProfiles={llmProfiles}
-              agentProfiles={agentProfiles}
-              mcpProfiles={mcpProfiles}
-              loading={aiProfilesLoading}
-              saving={aiProfilesSaving}
-              error={aiProfilesError}
-              canManage={canManageProfiles}
-              gitOpsTarget={aiProfilesGitOpsTarget}
-              onSaveLLM={onSaveLLMProfile}
-              onSetDefaultLLM={onSetDefaultLLMProfile}
-              onDeleteLLM={onDeleteLLMProfile}
-              onSaveAgent={onSaveAgentProfile}
-              onSetDefaultAgent={onSetDefaultAgentProfile}
-              onDeleteAgent={onDeleteAgentProfile}
-              onSaveMCP={onSaveMCPProfile}
-              onDeleteMCP={onDeleteMCPProfile}
-              onCheckDrift={onCheckDrift}
-            />
-          )}
         </div>
       </div>
     </div>
   );
-}
-
-function teamAIProfilesGitOpsTarget(basePath: string): string {
-  const normalized = basePath.trim().replace(/^\/+|\/+$/g, '');
-  return normalized ? `${normalized}/ai-profiles.yaml` : 'ai-profiles.yaml';
 }
 
 function NotificationPatternInputs({

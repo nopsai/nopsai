@@ -96,7 +96,7 @@ test('opens a credential detail from the credential query parameter', async () =
   apiMocks.fetchCredential.mockResolvedValue(disabledCredential);
 
   render(
-    <MemoryRouter initialEntries={['/system/credentials?credential=credential%3A%2F%2Fsystem%2Fllm%2Fopenai-primary']}>
+    <MemoryRouter initialEntries={['/credentials?credential=credential%3A%2F%2Fsystem%2Fllm%2Fopenai-primary']}>
       <CredentialsPanel canManage />
     </MemoryRouter>
   );

@@ -40,7 +40,7 @@ Profile fields:
 - `model`: provider model name. LM Studio may omit this to auto-discover the first loaded model.
 - `base_url`: required for LM Studio, Ollama, and Azure OpenAI. Hosted providers
   use provider defaults when it is omitted.
-- `credential_ref`: stable reference to an API key in System > Credentials.
+- `credential_ref`: stable reference to an API key in Credentials.
   Hosted providers require it. LM Studio and Ollama can omit it when the
   endpoint does not require authentication.
 - `allowed_scopes`: scopes where this profile can run. Empty means allowed everywhere.

@@ -72,9 +72,9 @@ Internal endpoints require the `X-Internal-Token` header, configured with `AAA_S
 
 The product roles are templates seeded by `nopsai` startup:
 
-- `viewer`: read/list access for teams, pipelines, schedules, runs, logs, triggers, Git webhook sources, repositories, steps, scopes, knowledge contexts, secret metadata, variable metadata, and config repository metadata.
-- `developer`: includes all viewer access plus non-destructive creation, updates, pipeline and schedule execution, `*.use` runtime permissions, rerun/cancel, trigger and Git webhook source updates, secret writes, variable writes, repository updates, scope updates, reusable step usage, knowledge context usage, runner usage, and config repository usage.
-- `owner`: includes all developer and viewer access plus all scoped non-admin actions, deletes, secret and variable value reads, ownership, and ACL management inside the owned scope.
+- `viewer`: read/list access for teams, pipelines, schedules, runs, logs, triggers, Git webhook sources, repositories, steps, scopes, knowledge contexts, credential metadata, secret metadata, variable metadata, and config repository metadata.
+- `developer`: includes all viewer access plus non-destructive creation, updates, pipeline and schedule execution, `*.use` runtime permissions, rerun/cancel, trigger and Git webhook source updates, credential creation/rotation/use, secret writes, variable writes, repository updates, scope updates, reusable step usage, knowledge context usage, runner usage, and config repository usage.
+- `owner`: includes all developer and viewer access plus all scoped non-admin actions, deletes, credential ACL management, secret and variable value reads, ownership, and ACL management inside the owned scope.
 - `admin`: platform-wide access through the normal AAA `Check` path.
 
 The `admin` role can only be granted on the `platform` resource. Team grants must inherit.
@@ -105,6 +105,7 @@ Supported grant resources:
 - `repository`
 - `step`
 - `knowledge_context`
+- `credential`
 - `runner`
 - `config_repo`
 - `platform`
@@ -126,6 +127,13 @@ Git Webhook Sources use `git_webhook_source`. Viewer grants add
 add delete and `git_webhook_source.manage_acl`. The unauthenticated delivery
 route is protected by the source credential, repository allowlist, payload
 limit, idempotency, and rate limit rather than a user bearer token.
+
+Credentials use the first-class `credential` resource. Resource IDs are the
+stable credential reference path without the `credential://` prefix, such as
+`system/llm/openai`. Viewer grants can see metadata, developer grants can
+create/rotate/use credentials, and owner grants can manage lifecycle and
+`credential.manage_acl`. Credential values remain write-only; there is no
+human-facing value-read action.
 
 Personal access tokens belong to the signed-in user and inherit that user's
 current authorization. Local and OIDC/SSO browser sessions can create, list, and
@@ -175,6 +183,7 @@ Supported low-level use actions include:
 - `runner.use`
 - `config_repo.use`
 - `knowledge_context.use`
+- `credential.use`
 
 The main rule is that same-team resources remain naturally available according to visibility. Cross-team use requires an explicit resource-use grant or public visibility.
 

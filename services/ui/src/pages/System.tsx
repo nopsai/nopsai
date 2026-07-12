@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SystemPagePermissions } from '../auth/capabilities';
 import { ConfigRepositoryDriftModal } from '../components/ConfigRepositoryDriftModal';
 import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowToastRegion';
-import CredentialsPanel from '../features/system/CredentialsPanel';
 import DataManagementPanel from '../features/system/DataManagementPanel';
 import SetupWizard from '../features/system/SetupWizard';
 import DispatcherPanel from '../features/system/DispatcherPanel';
@@ -14,7 +13,7 @@ import { useSystemAccess } from '../features/system/access/useSystemAccess';
 import { useSystemConfig } from '../features/system/config/useSystemConfig';
 import SystemLogsPanel from '../features/system/logs/SystemLogsPanel';
 
-type SystemTab = 'config' | 'setup' | 'credentials' | 'data-management' | 'dispatcher' | 'logs' | 'access';
+type SystemTab = 'config' | 'setup' | 'data-management' | 'dispatcher' | 'logs' | 'access';
 
 function resolveSystemTab(tab?: string): SystemTab {
   if (
@@ -22,7 +21,6 @@ function resolveSystemTab(tab?: string): SystemTab {
     tab === 'dispatcher' ||
     tab === 'logs' ||
     tab === 'access' ||
-    tab === 'credentials' ||
     tab === 'data-management'
   ) {
     return tab;
@@ -39,7 +37,6 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     const tabs: SystemTab[] = [];
     if (permissions.canViewConfig) tabs.push('config');
     if (permissions.canViewSetup) tabs.push('setup');
-    if (permissions.canViewCredentials) tabs.push('credentials');
     if (permissions.canViewDataManagement) tabs.push('data-management');
     if (permissions.canViewDispatcher) tabs.push('dispatcher');
     if (permissions.canViewLogs) tabs.push('logs');
@@ -51,7 +48,6 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
     permissions.canViewDataManagement,
     permissions.canViewDispatcher,
     permissions.canViewLogs,
-    permissions.canViewCredentials,
     permissions.canViewSetup,
   ]);
   const visibleTab = allowedTabs.includes(activeTab) ? activeTab : allowedTabs[0] ?? activeTab;
@@ -106,9 +102,6 @@ function SystemPage({ permissions }: { permissions: SystemPagePermissions }) {
       )}
       {visibleTab === 'setup' && (
         <SetupWizard canManage={permissions.canManageSetup} />
-      )}
-      {visibleTab === 'credentials' && (
-        <CredentialsPanel canManage={permissions.canManageCredentials} />
       )}
       {visibleTab === 'data-management' && (
         <DataManagementPanel canManage={permissions.canManageDataManagement} />

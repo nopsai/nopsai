@@ -422,6 +422,7 @@ func TestNormalizeAccessGrantResourceTypeSupportsAIProfiles(t *testing.T) {
 		"agent_profile": grantResourceAgentProfile,
 		"mcp_server":    grantResourceMCPServer,
 		"mcp_profile":   grantResourceMCPProfile,
+		"credential":    grantResourceCredential,
 	}
 	for raw, want := range tests {
 		t.Run(raw, func(t *testing.T) {
@@ -936,6 +937,22 @@ func TestAIProfileGrantManagementUsesManageACLAction(t *testing.T) {
 	}
 }
 
+func TestCredentialGrantManagementUsesManageACLAction(t *testing.T) {
+	action, resource, err := managementActionForGrantResource(accessGrantResource{
+		Type: grantResourceCredential,
+		ID:   "system/llm/openai",
+	})
+	if err != nil {
+		t.Fatalf("managementActionForGrantResource() error = %v", err)
+	}
+	if action != "credential.manage_acl" {
+		t.Fatalf("action = %q, want credential.manage_acl", action)
+	}
+	if resource.Type != grantResourceCredential || resource.ID != "system/llm/openai" {
+		t.Fatalf("resource = %#v, want credential:system/llm/openai", resource)
+	}
+}
+
 func TestScopedProductGrantCapabilityUsesGrantRoleDefinition(t *testing.T) {
 	if !productGrantIncludesAction(productRoleDeveloper, grantResourceTeam, "pipeline.create") {
 		t.Fatal("developer team grant should include pipeline.create")
@@ -945,6 +962,9 @@ func TestScopedProductGrantCapabilityUsesGrantRoleDefinition(t *testing.T) {
 	}
 	if !productGrantIncludesAction(productRoleDeveloper, grantResourceTeam, "step.update") {
 		t.Fatal("developer team grant should include step.update")
+	}
+	if !productGrantIncludesAction(productRoleDeveloper, grantResourceTeam, "credential.create") {
+		t.Fatal("developer team grant should include credential.create")
 	}
 	if productGrantIncludesAction(productRoleViewer, grantResourceTeam, "pipeline.create") {
 		t.Fatal("viewer team grant should not include pipeline.create")
@@ -960,6 +980,9 @@ func TestScopedProductGrantCapabilityUsesGrantRoleDefinition(t *testing.T) {
 	}
 	if !productGrantIncludesAction(productRoleOwner, grantResourceTeam, "repository.delete") {
 		t.Fatal("owner team grant should include repository.delete")
+	}
+	if !productGrantIncludesAction(productRoleOwner, grantResourceCredential, "credential.manage_acl") {
+		t.Fatal("owner credential grant should include credential.manage_acl")
 	}
 }
 

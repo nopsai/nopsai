@@ -23,7 +23,7 @@ const apiMocks = vi.hoisted(() => ({
         references: ['pipelines/deploy.yaml'],
       },
       {
-        id: 'security-reviewer',
+        id: 'platform/ml/security-reviewer',
         display_name: 'Security Reviewer',
         role: 'Senior Security Reviewer',
         description: 'Reviews security posture.',
@@ -42,8 +42,12 @@ const apiMocks = vi.hoisted(() => ({
     profiles: [],
   })),
 }));
+const teamMocks = vi.hoisted(() => ({
+  fetchResourceTeamPaths: vi.fn(async () => ['platform/ml']),
+}));
 
 vi.mock('./agent-profiles/api', () => apiMocks);
+vi.mock('../../lib/resourceTeams', () => teamMocks);
 
 test('renders agent profiles as a split detail workspace and keeps actions wired', async () => {
   Element.prototype.scrollIntoView = vi.fn();
@@ -65,11 +69,25 @@ test('renders agent profiles as a split detail workspace and keeps actions wired
   await user.click(screen.getByRole('button', { name: /security reviewer/i }));
   expect(screen.getByText('Reviews security posture.')).toBeVisible();
   expect(screen.getByText('Focus on practical risk reduction.')).toBeVisible();
+  expect(screen.getAllByText('/platform/ml')[0]).toBeVisible();
 
   await user.click(screen.getByRole('button', { name: /^duplicate$/i }));
   expect(screen.getByLabelText('ID')).toHaveValue('security-reviewer-custom');
+  expect(screen.getByText('platform/ml/security-reviewer-custom')).toBeVisible();
   expect(screen.getByLabelText('Name')).toHaveValue('Security Reviewer Custom');
 
-  await user.selectOptions(screen.getByLabelText('Default agent profile'), 'security-reviewer');
-  await waitFor(() => expect(apiMocks.setDefaultAgentProfile).toHaveBeenCalledWith('security-reviewer'));
+  await user.selectOptions(screen.getByLabelText('Default agent profile'), 'platform/ml/security-reviewer');
+  await waitFor(() => expect(apiMocks.setDefaultAgentProfile).toHaveBeenCalledWith('platform/ml/security-reviewer'));
+});
+
+test('applies the team filter from the route query', async () => {
+  render(
+    <MemoryRouter initialEntries={['/agent-profiles?team=platform%2Fml']}>
+      <AgentProfilesPanel canManage />
+    </MemoryRouter>
+  );
+
+  expect(await screen.findByLabelText('Filter by team')).toHaveValue('platform/ml');
+  expect(screen.getByRole('button', { name: /security reviewer/i })).toBeVisible();
+  expect(screen.queryByRole('button', { name: /devops engineer/i })).not.toBeInTheDocument();
 });

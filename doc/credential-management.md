@@ -225,11 +225,19 @@ Add a first-class `credential` resource with default-deny actions:
 - `credential.delete_version`
 - `credential.delete`
 - `credential.use`
+- `credential.manage_acl`
 
 Do not add a normal human-facing `credential.read_value` action for system
 credentials. Values are write-only after submission. UI and API responses
 return metadata such as `has_value`, active version, expiry, and last
 rotation time.
+
+The Credentials page is a first-class left-navigation page rather than a
+System sub-tab. Users can see credentials they created themselves and
+credentials whose metadata, use, lifecycle, or ACL actions are granted to them.
+Per-credential access management uses the same product access-grant model as
+pipelines: grant resources use `credential` with IDs formed from the reference
+path, for example `system/llm/openai-primary`.
 
 Service identities receive narrowly scoped `credential.use` grants. Every
 resolution records:
@@ -291,7 +299,8 @@ Keep the implementation separated:
   feature-local credential reference fields plus
   `services/nopsai/credentials_gitops.go`
 - UI API/model/hook/rendering:
-  separate files under `services/ui/src/features/system/credentials`
+  `services/ui/src/pages/Credentials.tsx` for route composition and separate
+  files under `services/ui/src/features/system/credentials`
 
 Provider clients consume a narrow `CredentialResolver` interface. They should
 not query credential tables or decrypt ciphertext directly.

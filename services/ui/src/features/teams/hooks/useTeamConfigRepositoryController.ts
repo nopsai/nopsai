@@ -1,27 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { teamPathForURL, type Team } from '../../../lib/teamModels';
-import {
-  createTeamAgentProfile,
-  createTeamMCPProfile,
-  deleteTeamAgentProfile,
-  deleteTeamLLMProfile,
-  deleteTeamMCPProfile,
-  fetchTeamAgentProfiles,
-  fetchTeamConfigRepository,
-  fetchTeamLLMProfiles,
-  fetchTeamMCPProfiles,
-  setTeamDefaultAgentProfile,
-  setTeamDefaultLLMProfile,
-  upsertTeamAgentProfile,
-  upsertTeamLLMProfile,
-  upsertTeamMCPProfile,
-  type TeamAgentProfilePayload,
-  type TeamAgentProfilesResponse,
-  type TeamLLMProfilePayload,
-  type TeamLLMProfilesResponse,
-  type TeamMCPProfilePayload,
-  type TeamMCPProfilesResponse,
-} from '../api';
+import { fetchTeamConfigRepository } from '../api';
 import {
   createEmptyNotificationRouteForm,
   defaultNotificationRouteDefinition,
@@ -67,6 +46,8 @@ type TeamConfigRepositorySelection = {
   team: Team;
   teamPath: string;
 };
+
+type TeamConfigRepositoryInitialTab = 'sync' | 'notifications';
 
 type FetchJson = <T>(path: string, options?: RequestInit) => Promise<T>;
 
@@ -119,6 +100,7 @@ export function useTeamConfigRepositoryController({
   checkAccessPermission,
 }: UseTeamConfigRepositoryControllerOptions) {
   const [configRepoTeam, setConfigRepoTeam] = useState<TeamConfigRepositorySelection | null>(null);
+  const [configRepoInitialTab, setConfigRepoInitialTab] = useState<TeamConfigRepositoryInitialTab>('sync');
   const [configRepo, setConfigRepo] = useState<PipelineRunsConfigRepository | null>(null);
   const [configRepoForm, setConfigRepoForm] = useState<PipelineRunsConfigRepositoryFormState>(emptyConfigRepositoryForm);
   const [configRepoLoading, setConfigRepoLoading] = useState(false);
@@ -133,18 +115,11 @@ export function useTeamConfigRepositoryController({
   const [configRepoPushResult, setConfigRepoPushResult] = useState<ConfigRepositoryCommitResponse | null>(null);
   const [configRepoManageAllowed, setConfigRepoManageAllowed] = useState(false);
   const [configRepoSyncAllowed, setConfigRepoSyncAllowed] = useState(false);
-  const [teamProfileManageAllowed, setTeamProfileManageAllowed] = useState(false);
   const [notificationRoute, setNotificationRoute] = useState<NotificationRouteRecord | null>(null);
   const [notificationRouteForm, setNotificationRouteForm] = useState<NotificationRouteFormState>(emptyNotificationRouteForm);
   const [notificationRouteLoading, setNotificationRouteLoading] = useState(false);
   const [notificationRouteSaving, setNotificationRouteSaving] = useState(false);
   const [notificationRouteError, setNotificationRouteError] = useState<string | null>(null);
-  const [teamLLMProfiles, setTeamLLMProfiles] = useState<TeamLLMProfilesResponse | null>(null);
-  const [teamAgentProfiles, setTeamAgentProfiles] = useState<TeamAgentProfilesResponse | null>(null);
-  const [teamMCPProfiles, setTeamMCPProfiles] = useState<TeamMCPProfilesResponse | null>(null);
-  const [teamProfilesLoading, setTeamProfilesLoading] = useState(false);
-  const [teamProfilesSaving, setTeamProfilesSaving] = useState(false);
-  const [teamProfilesError, setTeamProfilesError] = useState<string | null>(null);
 
   const loadTeamConfigRepository = useCallback(
     async (teamPath: string, opts?: { quiet?: boolean }) => {
@@ -205,58 +180,27 @@ export function useTeamConfigRepositoryController({
     [fetchJson]
   );
 
-  const loadTeamProfiles = useCallback(
-    async (teamPath: string, opts?: { quiet?: boolean }) => {
-      if (!opts?.quiet) {
-        setTeamProfilesLoading(true);
-        setTeamProfilesError(null);
-      }
-      try {
-        const [llm, agent, mcp] = await Promise.all([
-          fetchTeamLLMProfiles(teamPath),
-          fetchTeamAgentProfiles(teamPath),
-          fetchTeamMCPProfiles(teamPath),
-        ]);
-        setTeamLLMProfiles(llm);
-        setTeamAgentProfiles(agent);
-        setTeamMCPProfiles(mcp);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unable to load team AI profiles';
-        setTeamProfilesError(message);
-      } finally {
-        if (!opts?.quiet) {
-          setTeamProfilesLoading(false);
-        }
-      }
-    },
-    []
-  );
-
   useEffect(() => {
     if (!configRepoTeam) return undefined;
     let cancelled = false;
     setConfigRepoManageAllowed(false);
     setConfigRepoSyncAllowed(false);
-    setTeamProfileManageAllowed(false);
 
     void Promise.all([
       loadTeamConfigRepository(configRepoTeam.teamPath),
       loadTeamNotificationRoute(configRepoTeam.teamPath),
-      loadTeamProfiles(configRepoTeam.teamPath),
       checkAccessPermission('config_repo.manage', 'team', configRepoTeam.teamPath),
       checkAccessPermission('config_repo.sync', 'team', configRepoTeam.teamPath),
-      checkAccessPermission('team.update', 'team', configRepoTeam.teamPath),
-    ]).then(([, , , manageAllowed, syncAllowed, profileManageAllowed]) => {
+    ]).then(([, , manageAllowed, syncAllowed]) => {
       if (cancelled) return;
       setConfigRepoManageAllowed(manageAllowed);
       setConfigRepoSyncAllowed(syncAllowed);
-      setTeamProfileManageAllowed(profileManageAllowed);
     });
 
     return () => {
       cancelled = true;
     };
-  }, [checkAccessPermission, configRepoTeam, loadTeamConfigRepository, loadTeamNotificationRoute, loadTeamProfiles]);
+  }, [checkAccessPermission, configRepoTeam, loadTeamConfigRepository, loadTeamNotificationRoute]);
 
   useEffect(() => {
     if (!configRepoTeam || configRepo?.last_sync_status !== 'running') return undefined;
@@ -267,10 +211,11 @@ export function useTeamConfigRepositoryController({
   }, [configRepo?.last_sync_status, configRepoTeam, loadTeamConfigRepository]);
 
   const openTeamConfigRepository = useCallback(
-    (team: Team) => {
+    (team: Team, initialTab: TeamConfigRepositoryInitialTab = 'sync') => {
       const teamPath = teamPathForURL(team, teams);
       if (!teamPath) return;
       setConfigRepoTeam({ team, teamPath });
+      setConfigRepoInitialTab(initialTab);
       setConfigRepo(null);
       setConfigRepoForm(emptyConfigRepositoryForm);
       setConfigRepoError(null);
@@ -283,17 +228,13 @@ export function useTeamConfigRepositoryController({
       setConfigRepoPushResult(null);
       setConfigRepoManageAllowed(false);
       setConfigRepoSyncAllowed(false);
-      setTeamProfileManageAllowed(false);
-      setTeamLLMProfiles(null);
-      setTeamAgentProfiles(null);
-      setTeamMCPProfiles(null);
-      setTeamProfilesError(null);
     },
     [teams]
   );
 
   const closeTeamConfigRepository = useCallback(() => {
     setConfigRepoTeam(null);
+    setConfigRepoInitialTab('sync');
     setConfigRepo(null);
     setConfigRepoForm(emptyConfigRepositoryForm);
     setConfigRepoError(null);
@@ -310,13 +251,6 @@ export function useTeamConfigRepositoryController({
     setConfigRepoPushing(false);
     setNotificationRouteSaving(false);
     setNotificationRouteLoading(false);
-    setTeamProfileManageAllowed(false);
-    setTeamLLMProfiles(null);
-    setTeamAgentProfiles(null);
-    setTeamMCPProfiles(null);
-    setTeamProfilesError(null);
-    setTeamProfilesSaving(false);
-    setTeamProfilesLoading(false);
   }, []);
 
   const saveTeamConfigRepository = useCallback(async () => {
@@ -509,168 +443,9 @@ export function useTeamConfigRepositoryController({
     }
   }, [configRepoTeam, configRepoManageAllowed, fetchJson, notificationRoute?.id, notificationRoute?.managed_by_config_repo, notificationRouteSaving]);
 
-  const saveTeamLLMProfile = useCallback(async (profileName: string, payload: TeamLLMProfilePayload) => {
-    if (!configRepoTeam || !teamProfileManageAllowed || teamProfilesSaving) return;
-    const name = profileName.trim();
-    if (!name) {
-      setTeamProfilesError('LLM profile name is required.');
-      return;
-    }
-    setTeamProfilesSaving(true);
-    setTeamProfilesError(null);
-    try {
-      const response = await upsertTeamLLMProfile(configRepoTeam.teamPath, name, payload);
-      setTeamLLMProfiles(response);
-      setConfigRepoDrift(null);
-      setConfigRepoPushResult(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to save LLM profile';
-      setTeamProfilesError(message);
-    } finally {
-      setTeamProfilesSaving(false);
-    }
-  }, [configRepoTeam, teamProfileManageAllowed, teamProfilesSaving]);
-
-  const saveTeamDefaultLLMProfile = useCallback(async (profileName: string) => {
-    if (!configRepoTeam || !teamProfileManageAllowed || teamProfilesSaving) return;
-    setTeamProfilesSaving(true);
-    setTeamProfilesError(null);
-    try {
-      const response = await setTeamDefaultLLMProfile(configRepoTeam.teamPath, profileName);
-      setTeamLLMProfiles(response);
-      setConfigRepoDrift(null);
-      setConfigRepoPushResult(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to save default LLM profile';
-      setTeamProfilesError(message);
-    } finally {
-      setTeamProfilesSaving(false);
-    }
-  }, [configRepoTeam, teamProfileManageAllowed, teamProfilesSaving]);
-
-  const removeTeamLLMProfile = useCallback(async (profileName: string) => {
-    if (!configRepoTeam || !teamProfileManageAllowed || teamProfilesSaving) return;
-    if (!window.confirm(`Remove LLM profile "${profileName}" from this team?`)) return;
-    setTeamProfilesSaving(true);
-    setTeamProfilesError(null);
-    try {
-      await deleteTeamLLMProfile(configRepoTeam.teamPath, profileName);
-      await loadTeamProfiles(configRepoTeam.teamPath, { quiet: true });
-      setConfigRepoDrift(null);
-      setConfigRepoPushResult(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to remove LLM profile';
-      setTeamProfilesError(message);
-    } finally {
-      setTeamProfilesSaving(false);
-    }
-  }, [configRepoTeam, loadTeamProfiles, teamProfileManageAllowed, teamProfilesSaving]);
-
-  const saveTeamAgentProfile = useCallback(async (profileID: string, payload: TeamAgentProfilePayload) => {
-    if (!configRepoTeam || !teamProfileManageAllowed || teamProfilesSaving) return;
-    const id = profileID.trim();
-    if (!id) {
-      setTeamProfilesError('Agent profile id is required.');
-      return;
-    }
-    setTeamProfilesSaving(true);
-    setTeamProfilesError(null);
-    try {
-      const exists = Boolean(teamAgentProfiles?.profiles.some(profile => profile.id === id));
-      const response = exists
-        ? await upsertTeamAgentProfile(configRepoTeam.teamPath, id, payload)
-        : await createTeamAgentProfile(configRepoTeam.teamPath, { ...payload, id });
-      setTeamAgentProfiles(response);
-      setConfigRepoDrift(null);
-      setConfigRepoPushResult(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to save agent profile';
-      setTeamProfilesError(message);
-    } finally {
-      setTeamProfilesSaving(false);
-    }
-  }, [configRepoTeam, teamAgentProfiles?.profiles, teamProfileManageAllowed, teamProfilesSaving]);
-
-  const saveTeamDefaultAgentProfile = useCallback(async (profileID: string) => {
-    if (!configRepoTeam || !teamProfileManageAllowed || teamProfilesSaving) return;
-    setTeamProfilesSaving(true);
-    setTeamProfilesError(null);
-    try {
-      const response = await setTeamDefaultAgentProfile(configRepoTeam.teamPath, profileID);
-      setTeamAgentProfiles(response);
-      setConfigRepoDrift(null);
-      setConfigRepoPushResult(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to save default agent profile';
-      setTeamProfilesError(message);
-    } finally {
-      setTeamProfilesSaving(false);
-    }
-  }, [configRepoTeam, teamProfileManageAllowed, teamProfilesSaving]);
-
-  const removeTeamAgentProfile = useCallback(async (profileID: string) => {
-    if (!configRepoTeam || !teamProfileManageAllowed || teamProfilesSaving) return;
-    if (!window.confirm(`Remove agent profile "${profileID}" from this team?`)) return;
-    setTeamProfilesSaving(true);
-    setTeamProfilesError(null);
-    try {
-      await deleteTeamAgentProfile(configRepoTeam.teamPath, profileID);
-      await loadTeamProfiles(configRepoTeam.teamPath, { quiet: true });
-      setConfigRepoDrift(null);
-      setConfigRepoPushResult(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to remove agent profile';
-      setTeamProfilesError(message);
-    } finally {
-      setTeamProfilesSaving(false);
-    }
-  }, [configRepoTeam, loadTeamProfiles, teamProfileManageAllowed, teamProfilesSaving]);
-
-  const saveTeamMCPProfile = useCallback(async (profileName: string, payload: TeamMCPProfilePayload) => {
-    if (!configRepoTeam || !teamProfileManageAllowed || teamProfilesSaving) return;
-    const name = profileName.trim();
-    if (!name) {
-      setTeamProfilesError('MCP profile name is required.');
-      return;
-    }
-    setTeamProfilesSaving(true);
-    setTeamProfilesError(null);
-    try {
-      const exists = Boolean(teamMCPProfiles?.profiles.some(profile => profile.name === name));
-      const response = exists
-        ? await upsertTeamMCPProfile(configRepoTeam.teamPath, name, payload)
-        : await createTeamMCPProfile(configRepoTeam.teamPath, { ...payload, name });
-      setTeamMCPProfiles(response);
-      setConfigRepoDrift(null);
-      setConfigRepoPushResult(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to save MCP profile';
-      setTeamProfilesError(message);
-    } finally {
-      setTeamProfilesSaving(false);
-    }
-  }, [configRepoTeam, teamMCPProfiles?.profiles, teamProfileManageAllowed, teamProfilesSaving]);
-
-  const removeTeamMCPProfile = useCallback(async (profileName: string) => {
-    if (!configRepoTeam || !teamProfileManageAllowed || teamProfilesSaving) return;
-    if (!window.confirm(`Remove MCP profile "${profileName}" from this team?`)) return;
-    setTeamProfilesSaving(true);
-    setTeamProfilesError(null);
-    try {
-      await deleteTeamMCPProfile(configRepoTeam.teamPath, profileName);
-      await loadTeamProfiles(configRepoTeam.teamPath, { quiet: true });
-      setConfigRepoDrift(null);
-      setConfigRepoPushResult(null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to remove MCP profile';
-      setTeamProfilesError(message);
-    } finally {
-      setTeamProfilesSaving(false);
-    }
-  }, [configRepoTeam, loadTeamProfiles, teamProfileManageAllowed, teamProfilesSaving]);
-
   return {
     configRepoTeam,
+    configRepoInitialTab,
     configRepo,
     configRepoForm,
     configRepoLoading,
@@ -685,18 +460,11 @@ export function useTeamConfigRepositoryController({
     configRepoPushResult,
     configRepoManageAllowed,
     configRepoSyncAllowed,
-    teamProfileManageAllowed,
     notificationRoute,
     notificationRouteForm,
     notificationRouteLoading,
     notificationRouteSaving,
     notificationRouteError,
-    teamLLMProfiles,
-    teamAgentProfiles,
-    teamMCPProfiles,
-    teamProfilesLoading,
-    teamProfilesSaving,
-    teamProfilesError,
     setConfigRepoForm,
     setNotificationRouteForm,
     setConfigRepoDriftOpen,
@@ -709,14 +477,6 @@ export function useTeamConfigRepositoryController({
     pushTeamConfigRepositoryDrift,
     saveTeamNotificationRoute,
     deleteTeamNotificationRoute,
-    saveTeamLLMProfile,
-    saveTeamDefaultLLMProfile,
-    removeTeamLLMProfile,
-    saveTeamAgentProfile,
-    saveTeamDefaultAgentProfile,
-    removeTeamAgentProfile,
-    saveTeamMCPProfile,
-    removeTeamMCPProfile,
   };
 }
 

@@ -423,7 +423,7 @@ Sync behavior:
 - credential GitOps is system/global only; `setting/system/credentials.yaml` stores encrypted versions, never plaintext
 - the Dispatcher UI owns `dispatcher_routing` editing while still saving through
   runtime settings, and persisted `credential://...` references link to
-  **System > Credentials** without exposing credential values
+  **Credentials** without exposing credential values
 
 ## Notifications And Metrics
 

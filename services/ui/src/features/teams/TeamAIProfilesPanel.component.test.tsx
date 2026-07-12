@@ -1,6 +1,6 @@
 import { render, screen, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
+import { describe, expect, it } from 'vitest';
 import { TeamAIProfilesPanel } from './TeamAIProfilesPanel';
 import type { TeamAgentProfilesResponse, TeamLLMProfilesResponse, TeamMCPProfilesResponse } from './api';
 
@@ -63,79 +63,93 @@ function renderPanel(overrides: Partial<Parameters<typeof TeamAIProfilesPanel>[0
     agentProfiles,
     mcpProfiles,
     loading: false,
-    saving: false,
     error: null,
-    canManage: true,
+    teamPath: 'platform',
     gitOpsTarget: 'teams/platform/ai-profiles.yaml',
-    onSaveLLM: vi.fn().mockResolvedValue(undefined),
-    onSetDefaultLLM: vi.fn().mockResolvedValue(undefined),
-    onDeleteLLM: vi.fn().mockResolvedValue(undefined),
-    onSaveAgent: vi.fn().mockResolvedValue(undefined),
-    onSetDefaultAgent: vi.fn().mockResolvedValue(undefined),
-    onDeleteAgent: vi.fn().mockResolvedValue(undefined),
-    onSaveMCP: vi.fn().mockResolvedValue(undefined),
-    onDeleteMCP: vi.fn().mockResolvedValue(undefined),
-    onCheckDrift: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 
-  render(<TeamAIProfilesPanel {...props} />);
+  render(
+    <MemoryRouter>
+      <TeamAIProfilesPanel {...props} />
+    </MemoryRouter>
+  );
   return props;
 }
 
 describe('TeamAIProfilesPanel', () => {
-  it('saves LLM profiles with trimmed identifiers and normalized payloads', async () => {
-    const user = userEvent.setup();
-    const props = renderPanel();
+  it('summarizes team AI profile configuration and links to owning pages', () => {
+    renderPanel();
 
-    const editor = screen.getByRole('tabpanel', { name: 'AI profiles' });
-    await user.clear(within(editor).getByLabelText('Name'));
-    await user.type(within(editor).getByLabelText('Name'), '  release-review  ');
-    await user.clear(within(editor).getByLabelText('Allowed scopes'));
-    await user.type(within(editor).getByLabelText('Allowed scopes'), 'pipeline_run, assistant');
-    await user.clear(within(editor).getByLabelText('Timeout seconds'));
-    await user.type(within(editor).getByLabelText('Timeout seconds'), '45');
-    await user.click(within(editor).getByRole('button', { name: 'Save LLM profile' }));
+    expect(screen.getByRole('heading', { name: 'Team AI Profiles' })).toBeVisible();
+    expect(screen.getByText('GitOps target: teams/platform/ai-profiles.yaml')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'LLM Profiles' })).toHaveAttribute('href', '/llm-profiles?team=platform');
+    expect(screen.getByRole('link', { name: 'Agent Profiles' })).toHaveAttribute('href', '/agent-profiles?team=platform');
+    expect(screen.getByRole('link', { name: 'MCP' })).toHaveAttribute('href', '/mcp?team=platform&view=profiles');
 
-    expect(props.onSaveLLM).toHaveBeenCalledWith('release-review', expect.objectContaining({
-      name: 'release-review',
-      allowed_scopes: ['pipeline_run', 'assistant'],
-      timeout_seconds: 45,
-    }));
+    const llmSection = screen.getByRole('region', { name: 'LLM profiles' });
+    expect(within(llmSection).getByText('fast')).toBeVisible();
+    expect(within(llmSection).getByText('openai / gpt-4.1-mini / credential://openai/default')).toBeVisible();
+    expect(within(llmSection).getByText('Default')).toBeVisible();
+
+    expect(screen.getByText('Reviewer')).toBeVisible();
+    expect(screen.getByText('engineering-tools')).toBeVisible();
+    expect(screen.queryByRole('button', { name: /Save/ })).not.toBeInTheDocument();
   });
 
-  it('switches agent and MCP editors and saves canonical profile payloads', async () => {
-    const user = userEvent.setup();
-    const props = renderPanel();
+  it('uses global owner links and copy without a team path', () => {
+    renderPanel({
+      llmProfiles: { ...llmProfiles, team_id: 0, team_path: '', profiles: [] },
+      agentProfiles: { ...agentProfiles, team_id: 0, team_path: '', profiles: [] },
+      mcpProfiles: { ...mcpProfiles, team_id: 0, team_path: '', profiles: [] },
+      teamPath: '',
+      gitOpsTarget: '',
+    });
 
-    await user.click(screen.getByRole('tab', { name: 'Agents' }));
-    await user.click(screen.getByRole('button', { name: 'New' }));
-    await user.type(screen.getByLabelText('ID'), '  deploy-agent  ');
-    await user.type(screen.getByLabelText('Display name'), 'Deploy Agent');
-    await user.type(screen.getByLabelText('Instructions'), '  Ship safely  ');
-    await user.click(screen.getByRole('button', { name: 'Save agent profile' }));
+    expect(screen.getByRole('heading', { name: 'Global AI Profiles' })).toBeVisible();
+    expect(screen.getByText('Global profile defaults and tool access.')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'LLM Profiles' })).toHaveAttribute('href', '/llm-profiles?team=global');
+    expect(screen.getByRole('link', { name: 'Agent Profiles' })).toHaveAttribute('href', '/agent-profiles?team=global');
+    expect(screen.getByRole('link', { name: 'MCP' })).toHaveAttribute('href', '/mcp?team=global&view=profiles');
+    expect(screen.getByText('No global LLM profiles')).toBeVisible();
+    expect(screen.getByText('No global agent profiles')).toBeVisible();
+    expect(screen.getByText('No global MCP profiles')).toBeVisible();
+  });
 
-    expect(props.onSaveAgent).toHaveBeenCalledWith('deploy-agent', expect.objectContaining({
-      id: 'deploy-agent',
-      display_name: 'Deploy Agent',
-      instructions: 'Ship safely',
-      enabled: true,
-    }));
+  it('shows loading and empty states without edit controls', () => {
+    const { rerender } = render(
+      <MemoryRouter>
+        <TeamAIProfilesPanel
+          llmProfiles={null}
+          agentProfiles={null}
+          mcpProfiles={null}
+          loading
+          error={null}
+          teamPath="platform"
+          gitOpsTarget=""
+        />
+      </MemoryRouter>
+    );
 
-    await user.click(screen.getByRole('tab', { name: 'MCP' }));
-    await user.click(screen.getByRole('button', { name: 'New' }));
-    await user.type(screen.getByLabelText('Name'), '  release-tools  ');
-    await user.type(screen.getByLabelText('Allowed scopes'), 'assistant, pipeline_run');
-    await user.type(screen.getByLabelText('Servers'), 'github:issues,pulls\nslack:*');
-    await user.click(screen.getByRole('button', { name: 'Save MCP profile' }));
+    expect(screen.getByText('Loading AI profiles...')).toBeVisible();
 
-    expect(props.onSaveMCP).toHaveBeenCalledWith('release-tools', expect.objectContaining({
-      name: 'release-tools',
-      allowed_scopes: ['assistant', 'pipeline_run'],
-      servers: [
-        { server: 'github', tools: ['issues', 'pulls'] },
-        { server: 'slack', tools: ['*'] },
-      ],
-    }));
+    rerender(
+      <MemoryRouter>
+        <TeamAIProfilesPanel
+          llmProfiles={{ ...llmProfiles, profiles: [] }}
+          agentProfiles={{ ...agentProfiles, profiles: [] }}
+          mcpProfiles={{ ...mcpProfiles, profiles: [] }}
+          loading={false}
+          error="Unable to load team AI profiles"
+          teamPath="platform"
+          gitOpsTarget=""
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText('Unable to load team AI profiles')).toBeVisible();
+    expect(screen.getByText('No team LLM profiles')).toBeVisible();
+    expect(screen.getByText('No team agent profiles')).toBeVisible();
+    expect(screen.getByText('No team MCP profiles')).toBeVisible();
   });
 });

@@ -20,6 +20,7 @@ const CATALOG_REQUESTS: Array<{ key: CatalogSourceKey; path: string }> = [
   { key: 'triggers', path: '/v1/overrides' },
   { key: 'externalTriggers', path: '/v1/external-triggers' },
   { key: 'gitWebhookSources', path: '/v1/git-webhook-sources' },
+  { key: 'credentials', path: '/v1/system/credentials' },
   { key: 'secretScopes', path: '/v1/secrets/scopes' },
   { key: 'variableScopes', path: '/v1/variables/scopes' },
 ];
@@ -32,6 +33,7 @@ export async function fetchAccessResourceCatalog(): Promise<AccessResourceCatalo
     triggers: [],
     externalTriggers: [],
     gitWebhookSources: [],
+    credentials: [],
     secretScopes: [],
     variableScopes: [],
   };
@@ -44,6 +46,11 @@ export async function fetchAccessResourceCatalog(): Promise<AccessResourceCatalo
     }
     if (request.key === 'teams') {
       sources.teams = normalizeTeamCatalogPayload(result.value);
+      return;
+    }
+    if (request.key === 'credentials') {
+      const record = result.value && typeof result.value === 'object' ? result.value as { credentials?: unknown[] } : null;
+      sources.credentials = Array.isArray(record?.credentials) ? record.credentials : [];
       return;
     }
     sources[request.key] = Array.isArray(result.value) ? result.value : [];

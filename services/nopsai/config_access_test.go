@@ -646,6 +646,9 @@ func TestAccessGrantResourceInConfigBindingScope(t *testing.T) {
 	if !accessGrantResourceInConfigBindingScope(grantResourcePlatform, platformGrantID, systemBinding) {
 		t.Fatal("system config repo should cover platform access grants")
 	}
+	if !accessGrantResourceInConfigBindingScope(grantResourceCredential, "system/llm/openai", systemBinding) {
+		t.Fatal("system config repo should cover credential access grants")
+	}
 
 	teamBinding := models.ConfigRepository{ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
 	if !accessGrantResourceInConfigBindingScope(grantResourceTeam, "team-1/dev", teamBinding) {
@@ -653,5 +656,17 @@ func TestAccessGrantResourceInConfigBindingScope(t *testing.T) {
 	}
 	if accessGrantResourceInConfigBindingScope(grantResourceTeam, "team-2", teamBinding) {
 		t.Fatal("team config repo should not cover access grants outside its team subtree")
+	}
+	if !accessGrantResourceInConfigBindingScope(grantResourceCredential, "team-1/llm/openai", teamBinding) {
+		t.Fatal("team config repo should cover credential access grants in its team subtree")
+	}
+	if accessGrantResourceInConfigBindingScope(grantResourceCredential, "team-2/llm/openai", teamBinding) {
+		t.Fatal("team config repo should not cover credential access grants outside its team subtree")
+	}
+}
+
+func TestResourceTypeForUseActionsInfersCredential(t *testing.T) {
+	if got := resourceTypeForUseActions([]string{"credential.use"}); got != grantResourceCredential {
+		t.Fatalf("resourceTypeForUseActions() = %q, want %q", got, grantResourceCredential)
 	}
 }

@@ -1,5 +1,12 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { Search } from 'lucide-react';
+import {
+  AI_RESOURCE_TEAM_FILTER_ALL,
+  AI_RESOURCE_TEAM_FILTER_GLOBAL,
+  buildAIResourceScopedID,
+  formatAIResourceTeamLabel,
+  normalizeAIResourceTeamPath,
+} from './aiResourceTeams';
 import './aiResourcePanel.css';
 
 export type AIResourceStat = {
@@ -44,6 +51,7 @@ export function AIResourceTableHeader({
   searchPlaceholder,
   searchValue,
   onSearchChange,
+  filters,
 }: {
   title: string;
   count: ReactNode;
@@ -52,6 +60,7 @@ export function AIResourceTableHeader({
   searchPlaceholder: string;
   searchValue: string;
   onSearchChange: (value: string) => void;
+  filters?: ReactNode;
 }) {
   return (
     <div className="ai-resource-table-head">
@@ -70,6 +79,7 @@ export function AIResourceTableHeader({
           placeholder={searchPlaceholder}
         />
       </label>
+      {filters}
     </div>
   );
 }
@@ -127,4 +137,103 @@ export function AIResourceField({
 
 export function AIResourceEmptyState({ children }: { children: ReactNode }) {
   return <div className="ai-resource-list-empty">{children}</div>;
+}
+
+export function AIResourceTeamBadge({ resourceID }: { resourceID: string }) {
+  const label = formatAIResourceTeamLabel(resourceID);
+  const isGlobal = label === 'Global';
+  return (
+    <span className={`ai-resource-team-badge ${isGlobal ? 'ai-resource-team-badge--global' : ''}`}>
+      {label}
+    </span>
+  );
+}
+
+export function AIResourceTeamFilter({
+  value,
+  onChange,
+  teamPaths,
+  disabled,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  teamPaths: string[];
+  disabled?: boolean;
+}) {
+  const normalizedTeamPaths = teamPaths.map(normalizeAIResourceTeamPath).filter(Boolean);
+  const selectableTeamPaths = [...new Set(normalizedTeamPaths)];
+  const normalizedValue = normalizeAIResourceTeamPath(value);
+  if (
+    normalizedValue &&
+    normalizedValue !== AI_RESOURCE_TEAM_FILTER_ALL &&
+    normalizedValue !== AI_RESOURCE_TEAM_FILTER_GLOBAL &&
+    !selectableTeamPaths.includes(normalizedValue)
+  ) {
+    selectableTeamPaths.push(normalizedValue);
+  }
+
+  return (
+    <label className="ai-resource-team-filter">
+      <span className="sr-only">Filter by team</span>
+      <select
+        aria-label="Filter by team"
+        value={value}
+        onChange={event => onChange(event.target.value)}
+        disabled={disabled}
+      >
+        <option value={AI_RESOURCE_TEAM_FILTER_ALL}>All teams</option>
+        <option value={AI_RESOURCE_TEAM_FILTER_GLOBAL}>Global</option>
+        {selectableTeamPaths.map(path => (
+          <option key={path} value={path}>
+            /{path}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+export function AIResourceTeamPlacementField({
+  teamPath,
+  onTeamPathChange,
+  teamPaths,
+  teamPathsLoading,
+  localName,
+  resourceLabel,
+  disabled,
+}: {
+  teamPath: string;
+  onTeamPathChange: (value: string) => void;
+  teamPaths: string[];
+  teamPathsLoading?: boolean;
+  localName: string;
+  resourceLabel: string;
+  disabled?: boolean;
+}) {
+  const normalizedTeamPath = normalizeAIResourceTeamPath(teamPath);
+  const finalID = buildAIResourceScopedID(normalizedTeamPath, localName);
+
+  return (
+    <div className="ai-resource-team-placement">
+      <label className="ai-resource-team-placement__field">
+        <span>Team placement</span>
+        <select
+          value={normalizedTeamPath}
+          onChange={event => onTeamPathChange(event.target.value)}
+          disabled={disabled || teamPathsLoading}
+        >
+          <option value="">Global workspace</option>
+          {teamPaths.map(path => (
+            <option key={path} value={path}>
+              /{path}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="ai-resource-team-placement__preview" aria-live="polite">
+        <span>{resourceLabel} ID</span>
+        <strong>{finalID || (normalizedTeamPath ? `${normalizedTeamPath}/...` : 'Enter a name')}</strong>
+      </div>
+    </div>
+  );
 }
