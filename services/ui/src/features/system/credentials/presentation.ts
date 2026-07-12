@@ -10,6 +10,7 @@ export function formatCredentialLabel(value: string): string {
     github: 'GitHub',
     llm: 'LLM',
     mcp: 'MCP',
+    ml: 'ML',
     oidc: 'OIDC',
     openai: 'OpenAI',
     smtp: 'SMTP',
@@ -19,4 +20,17 @@ export function formatCredentialLabel(value: string): string {
     .filter(Boolean)
     .map(part => knownLabels[part.toLowerCase()] || part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
+}
+
+export function formatCredentialPath(value: string): string {
+  return value
+    .split('/')
+    .filter(Boolean)
+    .map(formatCredentialLabel)
+    .join(' / ');
+}
+
+export function formatCredentialScopeLabel(scopeKind: 'team' | 'shared', scopePath: string, namespace: string): string {
+  if (scopeKind === 'team') return scopePath ? formatCredentialPath(scopePath) : 'Unscoped team';
+  return formatCredentialLabel(namespace || 'system');
 }

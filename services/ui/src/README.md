@@ -135,9 +135,22 @@ truth; this file is the source-adjacent placement guide.
   under the System route.
 - Credentials are a first-class left-navigation route composed by
   `pages/Credentials.tsx`; model/API/hook/rendering code stays under
-  `features/system/credentials`. The create flow derives global credentials as
-  `credential://system/...` and team credentials as
-  `credential://team/<team path>/...` from the selected team scope.
+  `features/system/credentials`. `model.ts` owns credential reference parsing,
+  dashboard grouping, filtering, and recent-update sorting; `api.ts` owns the
+  `/v1/system/credentials` contract; `useCredentials.ts` owns load, create,
+  rotate, enable, disable, delete, stale detail-request cancellation, and
+  detail-selection orchestration; renderer
+  files such as `CredentialDashboard.tsx`, `CredentialCatalog.tsx`,
+  `CredentialCreateForm.tsx`, and `CredentialDetail.tsx` own presentation only.
+  The create flow derives global credentials as `credential://system/...` and
+  team credentials as `credential://team/<team path>/...` from the selected team
+  scope, while the catalog uses known team paths to present credentials as
+  scope-first cards (`System`, `Global`, or the team path) with credential
+  categories such as `LLM`, `Mail`, and `GitHub` nested inside. The catalog
+  renderer owns the credentials-local scope sidebar and selected detail drawer,
+  while route composition owns URL selection. Team references that repeat the
+  selected team path are normalized for display and create previews without
+  changing the GitOps-compatible reference format.
 - LLM profiles, agent profiles, and MCP are first-class workspace routes. Their
   model/API/hook/panel code can remain under `features/system` while the route
   wrappers live in `pages/`. Page visibility is topic-level: global system
