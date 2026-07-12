@@ -8,6 +8,12 @@
     --bg-overlay: rgba(17, 24, 39, 0.75); /* gray-900/75 */
     --bg-code: #f3f4f6;        /* gray-100 */
     --bg-code-darker: #e5e7eb;  /* gray-200 */
+    --bg-app: var(--bg-primary);
+    --bg-sidebar: var(--bg-secondary);
+    --bg-panel: var(--bg-secondary);
+    --bg-elevated: var(--bg-tertiary);
+    --bg-input: var(--bg-secondary);
+    --bg-app-background: var(--bg-app);
 
     --text-primary: #1f2937;    /* gray-800 */
     --text-secondary: #6b7280;  /* gray-500 */
@@ -24,6 +30,11 @@
     --border-accent-focus-ring: rgba(99, 102, 241, 0.35);
     --border-input: #d1d5db;    /* gray-300 */
     --border-input-focus: #4f46e5; /* indigo-600 */
+    --border-subtle: var(--border-primary);
+    --border-strong: var(--border-secondary);
+    --accent: #4f46e5;
+    --accent-soft: rgba(79, 70, 229, 0.12);
+    --icon-default: #6b7280;
 
     --scrollbar-thumb: #9ca3af;         /* gray-400 */
     --scrollbar-thumb-hover: #6b7280;   /* gray-500 */
@@ -54,41 +65,55 @@
 
 html.dark {
     /* Dark Theme Color Palette */
-    --bg-primary: #111827;      /* gray-900 */
-    --bg-secondary: #1f2937;    /* gray-800 */
-    --bg-tertiary: #374151;      /* gray-700 */
-    --bg-hover: #374151;      /* gray-700 */
-    --bg-active: #4b5563;      /* gray-600 */
+    --bg-app: #070b14;
+    --bg-sidebar: #0f1728;
+    --bg-panel: #0f1728;
+    --bg-elevated: #121c31;
+    --bg-hover: #16223a;
+    --bg-input: #0e1627;
+    --bg-app-background:
+        radial-gradient(1000px 600px at 62% -10%, rgba(91, 83, 255, 0.16), transparent 55%),
+        radial-gradient(700px 480px at 100% 100%, rgba(34, 211, 238, 0.08), transparent 55%),
+        var(--bg-app);
+    --bg-primary: var(--bg-app);
+    --bg-secondary: var(--bg-panel);
+    --bg-tertiary: var(--bg-elevated);
+    --bg-active: rgba(82, 74, 232, 0.2);
     --bg-overlay: rgba(0, 0, 0, 0.75);
-    --bg-code: #374151;        /* gray-700 */
-    --bg-code-darker: #111827;  /* gray-900 */
+    --bg-code: var(--bg-input);
+    --bg-code-darker: var(--bg-app);
 
-    --text-primary: #f3f4f6;    /* gray-200 */
-    --text-secondary: #9ca3af;  /* gray-400 */
-    --text-tertiary: #6b7280;   /* gray-500 */
-    --text-accent: #818cf8;      /* indigo-400 */
-    --text-inverted: #111827;    /* gray-900 */
-    --text-link: #a5b4fc;      /* indigo-300 */
-    --text-placeholder: #9ca3af; /* gray-400 */
+    --text-primary: #eef3ff;
+    --text-secondary: #bcc5d6;
+    --text-tertiary: #8f9ab0;
+    --text-accent: #918cff;
+    --text-inverted: #070b14;
+    --text-link: #918cff;
+    --text-placeholder: #6f7a91;
     --text-button: #ffffff;
 
-    --border-primary: #374151;  /* gray-700 */
-    --border-secondary: #4b5563;  /* gray-600 */
-    --border-accent: #818cf8;    /* indigo-400 */
-    --border-accent-focus-ring: rgba(129, 140, 248, 0.35);
-    --border-input: #4b5563;    /* gray-600 */
-    --border-input-focus: #818cf8; /* indigo-400 */
+    --border-subtle: rgba(38, 51, 77, 0.72);
+    --border-strong: #26334d;
+    --border-primary: var(--border-subtle);
+    --border-secondary: var(--border-strong);
+    --border-accent: #5147e8;
+    --border-accent-focus-ring: rgba(111, 107, 246, 0.35);
+    --border-input: var(--border-strong);
+    --border-input-focus: #6f6bf6;
+    --accent: #6f6bf6;
+    --accent-soft: rgba(82, 74, 232, 0.2);
+    --icon-default: #8f9ab0;
 
-    --scrollbar-thumb: #4b5563;        /* gray-600 */
-    --scrollbar-thumb-hover: #6b7280;  /* gray-500 */
-    --scrollbar-track: #1f2937;        /* gray-800 */
+    --scrollbar-thumb: #26334d;
+    --scrollbar-thumb-hover: #3b4b6b;
+    --scrollbar-track: var(--bg-sidebar);
 
     --run-highlight-outline: rgba(250, 204, 21, 0.7); /* amber-400 */
     --run-highlight-shadow: rgba(250, 204, 21, 0.3);
     --run-highlight-background: rgba(250, 204, 21, 0.18);
     /* Icon badge colors (dark mode, deeper for contrast) */
-    --icon-info-bg: #4f46e5;      /* indigo-600 */
-    --icon-collapse-bg: #475569;  /* slate-600 */
+    --icon-info-bg: #202b46;
+    --icon-collapse-bg: #1c2639;
     /* --icon-glyph inherits white */
 
     --yaml-base-color: #e0f2fe;
@@ -109,6 +134,11 @@ body {
     background-color: var(--bg-primary);
     color: var(--text-primary);
     transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+html.dark body,
+html.dark .app-root-shell {
+    background: var(--bg-app-background);
 }
 /* Global modern scrollbar styling */
 * { scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; }
@@ -250,14 +280,14 @@ body {
 }
 
 .app-sidebar-shell {
-    background: linear-gradient(180deg, #06182c, #09213b) !important;
-    border-right-color: rgba(255,255,255,0.08) !important;
-    color: #d9e4f0;
-    box-shadow: 10px 0 30px rgba(6, 24, 44, 0.12);
+    background: #0f1728 !important;
+    border-right-color: #26334d !important;
+    color: #bcc5d6;
+    box-shadow: none;
 }
 
 .app-sidebar-brand-row {
-    border-bottom-color: rgba(255,255,255,0.09) !important;
+    border-bottom-color: #26334d !important;
 }
 
 .app-sidebar-shell .brand-identity::before {
@@ -291,28 +321,32 @@ body {
     min-height: 39px;
     padding: 0 11px;
     border-radius: 8px;
-    color: #e2eaf4;
+    color: #bcc5d6;
     font-size: 14px;
     line-height: 1.2;
     transition: background-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
 }
 
 .sidebar-nav-link:hover {
-    background: rgba(255,255,255,0.06);
-    color: #ffffff;
+    background: #16223a;
+    color: #eef3ff;
 }
 
 .sidebar-nav-link.active {
-    background: linear-gradient(90deg, #185cae, #134b90);
-    color: #ffffff;
-    box-shadow: inset 0 0 0 1px rgba(74,147,255,0.12);
+    background: rgba(82, 74, 232, 0.2);
+    color: #eef3ff;
+    box-shadow: inset 3px 0 0 0 #6f6bf6;
 }
 
 .sidebar-nav-icon {
     display: inline-flex;
     flex: 0 0 auto;
-    color: currentColor;
+    color: #8f9ab0;
     opacity: 0.95;
+}
+
+.sidebar-nav-link.active .sidebar-nav-icon {
+    color: currentColor;
 }
 
 .sidebar-nav-icon svg {
@@ -323,12 +357,12 @@ body {
 .sidebar-nav-separator {
     height: 1px;
     margin: 8px 9px 14px;
-    background: rgba(255,255,255,0.1);
+    background: rgba(38, 51, 77, 0.72);
 }
 
 .sidebar-nav-label {
     padding: 0 9px 6px;
-    color: #9eb1c7;
+    color: #8f9ab0;
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.08em;
@@ -336,8 +370,8 @@ body {
 }
 
 .app-sidebar-shell .sidebar-context-nav {
-    border-top-color: rgba(255,255,255,0.09) !important;
-    color: #d9e4f0;
+    border-top-color: #26334d !important;
+    color: #bcc5d6;
 }
 
 .app-sidebar-shell .sidebar-context-nav p,
@@ -349,34 +383,35 @@ body {
 .app-sidebar-shell .pipeline-tree-item,
 .app-sidebar-shell .pipeline-tree-team,
 .app-sidebar-shell .pipeline-tree-leaf-btn {
-    color: #dce7f4;
+    color: #bcc5d6;
 }
 
 .app-sidebar-shell .pipeline-tree-team.active,
 .app-sidebar-shell .pipeline-tree-leaf.active .pipeline-tree-leaf-btn {
-    background: rgba(18,104,237,0.16);
-    border-color: rgba(74,147,255,0.2);
-    color: #8fc0ff;
+    background: rgba(82, 74, 232, 0.2);
+    border-color: transparent;
+    color: #eef3ff;
+    box-shadow: inset 3px 0 0 0 #6f6bf6;
 }
 
 .app-sidebar-shell .pipeline-tree-item:hover,
 .app-sidebar-shell .pipeline-tree-leaf-btn:hover,
 .app-sidebar-shell .pipeline-tree-item:hover .pipeline-tree-team:not(.active) {
-    background: rgba(255,255,255,0.06);
+    background: #16223a;
 }
 
 .app-sidebar-shell .pipeline-runs-sidebar-context {
-    --bg-primary: rgba(8, 31, 56, 0.82);
-    --bg-secondary: rgba(13, 42, 72, 0.72);
-    --bg-tertiary: rgba(255, 255, 255, 0.08);
-    --text-primary: #eef6ff;
-    --text-secondary: #a8bad0;
-    --text-tertiary: #7f94ad;
-    --text-accent: #93c5fd;
-    --text-link: #9cc9ff;
-    --border-primary: rgba(148, 163, 184, 0.22);
-    --border-secondary: rgba(148, 163, 184, 0.3);
-    --border-accent: rgba(96, 165, 250, 0.65);
+    --bg-primary: #0e1627;
+    --bg-secondary: #0f1728;
+    --bg-tertiary: #16223a;
+    --text-primary: #eef3ff;
+    --text-secondary: #bcc5d6;
+    --text-tertiary: #8f9ab0;
+    --text-accent: #918cff;
+    --text-link: #918cff;
+    --border-primary: rgba(38, 51, 77, 0.72);
+    --border-secondary: #26334d;
+    --border-accent: #5147e8;
     color: var(--text-primary);
 }
 
@@ -388,7 +423,7 @@ body {
 
 .app-sidebar-shell .pipeline-runs-sidebar-context .sidebar-run-link:hover,
 .app-sidebar-shell .pipeline-runs-sidebar-context .pipeline-runs-sidebar-branch:hover {
-    background: rgba(14, 50, 84, 0.94) !important;
+    background: #16223a !important;
 }
 
 .app-sidebar-shell .pipeline-runs-sidebar-context .pipeline-runs-sidebar-team button:hover,

@@ -85,7 +85,10 @@ export function AppRoutes({
           path="/credentials"
           element={
             <PermissionGuard allowed={access.canViewSystemCredentials} loading={currentUserLoading}>
-              <CredentialsPage canManage={access.canManageSystemCredentials} />
+              <CredentialsPage
+                canManage={access.canManageSystemCredentials}
+                isNopsAIAdmin={access.isNopsAIAdmin}
+              />
             </PermissionGuard>
           }
         />

@@ -1,4 +1,4 @@
-import { GitBranch, KeyRound, Power, RotateCcw, ShieldAlert, Trash2, X } from 'lucide-react';
+import { Copy, GitBranch, Power, RotateCcw, ShieldAlert, Trash2, X } from 'lucide-react';
 import type { FormEvent, ReactNode } from 'react';
 import type { CredentialRecord } from './model';
 import { credentialReferenceDisplay } from './model';
@@ -38,12 +38,26 @@ export function CredentialDetail({
 }: CredentialDetailProps) {
   const reference = credentialReferenceDisplay(credential.reference, teamPaths);
   const scopeLabel = formatCredentialScopeLabel(reference.scopeKind, reference.scopePath, reference.namespace);
-  const canDeleteHistory = credential.versions.length >= 2;
   const sourceLabel = credential.managed_by_config_repo ? 'GitOps' : 'System';
+  const canDeleteHistory = credential.versions.length >= 2;
+  const detailFields: Array<{ label: string; value: ReactNode }> = [
+    { label: 'Scope', value: scopeLabel },
+    { label: 'Kind', value: formatCredentialLabel(credential.kind) },
+    { label: 'Active version', value: credential.active_version || '-' },
+    { label: 'Source', value: sourceLabel },
+    { label: 'Expires', value: formatCredentialDate(credential.expires_at) },
+    { label: 'Last rotated', value: formatCredentialDate(credential.last_rotated_at) },
+    { label: 'Updated by', value: credential.updated_by || '-' },
+    { label: 'Namespace', value: reference.namespace },
+  ];
+  const copyReference = () => {
+    if (typeof navigator === 'undefined' || !navigator.clipboard) return;
+    void navigator.clipboard.writeText(credential.reference).catch(() => undefined);
+  };
 
   return (
     <div
-      className="fixed inset-0 z-50 flex justify-end bg-[rgba(2,6,23,0.48)]"
+      className="credential-detail__overlay"
       role="dialog"
       aria-modal="true"
       aria-labelledby="credential-detail-heading"
@@ -51,159 +65,141 @@ export function CredentialDetail({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <aside className="flex h-full w-full max-w-[560px] flex-col border-l border-[var(--border-primary)] bg-[var(--bg-primary)] shadow-2xl">
-        <header className="border-b border-[var(--border-primary)] px-5 py-4">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex min-w-0 items-start gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--bg-secondary)] text-[var(--text-accent)]">
-                <KeyRound className="h-5 w-5" aria-hidden="true" />
-              </span>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--text-secondary)]">
-                  <span>{scopeLabel}</span>
-                  <span>{formatCredentialLabel(reference.category)}</span>
-                  <CredentialStatusBadge status={credential.status} />
-                  {credential.managed_by_config_repo && (
-                    <span className="runner-pill runner-pill--muted inline-flex items-center gap-1">
-                      <GitBranch className="h-3 w-3" aria-hidden="true" />
-                      GitOps
-                    </span>
-                  )}
-                </div>
-                <h3 id="credential-detail-heading" className="mt-2 break-words text-xl font-semibold text-[var(--text-primary)]">
-                  {formatCredentialLabel(reference.displayName)}
-                </h3>
-                <p className="mt-1 line-clamp-2 text-sm text-[var(--text-secondary)]">
-                  {credential.description || 'No description'}
-                </p>
+      <aside className="credential-detail__drawer">
+        <header className="credential-detail__header">
+          <div className="credential-detail__headline">
+            <div className="min-w-0">
+              <div className="credential-detail__crumbs">
+                <span className="credential-registry__pill">{scopeLabel}</span>
+                <span className="credential-registry__pill">{formatCredentialLabel(reference.category)}</span>
+                <CredentialStatusBadge status={credential.status} />
+                <span className={`credential-registry__pill ${credential.managed_by_config_repo ? 'credential-registry__pill--good' : ''}`}>
+                  {credential.managed_by_config_repo ? <GitBranch className="h-3 w-3" aria-hidden="true" /> : null}
+                  {sourceLabel}
+                </span>
               </div>
+              <h3 id="credential-detail-heading" className="credential-detail__title">
+                {formatCredentialLabel(reference.displayName)}
+              </h3>
+              <p className="credential-detail__subtitle">{credential.description || 'No description'}</p>
             </div>
-            <button type="button" aria-label="Close credential details" className="glass-button-ghost !rounded-lg !px-2" onClick={onClose}>
+            <button type="button" aria-label="Close credential details" className="credential-detail__close" onClick={onClose}>
               <X className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto">
-          <section className="border-b border-[var(--border-primary)] px-5 py-4">
-            <p className="text-xs text-[var(--text-secondary)]">Reference</p>
-            <code className="mt-2 block break-all rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 py-2 text-xs text-[var(--text-primary)]">
-              {credential.reference}
-            </code>
+        <div className="credential-detail__body">
+          <section>
+            <p className="credential-detail__label">Reference</p>
+            <div className="credential-detail__copybox">
+              <code>{credential.reference}</code>
+              <button type="button" className="credential-detail__copy" aria-label="Copy credential reference" onClick={copyReference}>
+                <Copy className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
           </section>
 
-          <dl className="grid grid-cols-2 border-b border-[var(--border-primary)]">
-            <CredentialDetailField label="Scope" value={scopeLabel} />
-            <CredentialDetailField label="Kind" value={formatCredentialLabel(credential.kind)} />
-            <CredentialDetailField label="Active version" value={credential.active_version || '-'} />
-            <CredentialDetailField label="Source" value={sourceLabel} />
-            <CredentialDetailField label="Expires" value={formatCredentialDate(credential.expires_at)} />
-            <CredentialDetailField label="Last rotated" value={formatCredentialDate(credential.last_rotated_at)} />
-            <CredentialDetailField label="Updated by" value={credential.updated_by || '-'} />
-            <CredentialDetailField label="Namespace" value={reference.namespace} />
+          <dl className="credential-detail__meta-grid">
+            {detailFields.map(field => (
+              <div key={field.label} className="credential-detail__meta">
+                <dt>{field.label}</dt>
+                <dd>{field.value}</dd>
+              </div>
+            ))}
           </dl>
 
           {canManage && (
-            <form className="border-b border-[var(--border-primary)] px-5 py-4" onSubmit={onSubmitRotation}>
-              <div className="mb-3 flex items-center gap-2">
-                <RotateCcw className="h-4 w-4 text-[var(--text-secondary)]" aria-hidden="true" />
-                <h4 className="font-semibold text-[var(--text-primary)]">Rotate value</h4>
+            <form onSubmit={onSubmitRotation}>
+              <div className="credential-detail__section-title">
+                <RotateCcw className="h-4 w-4 text-[var(--credential-muted)]" aria-hidden="true" />
+                <h4>Rotate value</h4>
               </div>
-              <label className="flex flex-col gap-2 text-sm">
+              <label className="block">
                 <span className="sr-only">New credential value</span>
                 <textarea
-                  className="pipelines-input !rounded-lg min-h-28"
+                  className="credential-registry__field"
                   value={rotationValue}
                   onChange={event => onRotationValueChange(event.target.value)}
                   autoComplete="new-password"
                   placeholder="Enter a new write-only value"
                 />
               </label>
-              <button type="submit" className="glass-button-primary !rounded-lg mt-3 w-full justify-center" disabled={saving}>
+              <button type="submit" className="credential-registry__button credential-registry__button--primary mt-3 w-full" disabled={saving}>
                 Rotate credential
               </button>
             </form>
           )}
 
-          <section className="px-5 py-4">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h4 className="font-semibold text-[var(--text-primary)]">Version history</h4>
-              <span className="runner-pill runner-pill--muted">{credential.versions.length} stored</span>
+          <section>
+            <div className="credential-detail__section-title">
+              <h4>Version history</h4>
+              <span className="credential-registry__pill">{credential.versions.length} stored</span>
             </div>
-            <div className="space-y-2">
-              {credential.versions.map(version => {
-                const isActive = version.version === credential.active_version;
-                return (
-                  <div key={version.version} className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 py-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="font-semibold text-[var(--text-primary)]">
-                          Version {version.version}
-                          {isActive && <span className="ml-2 text-xs text-[var(--text-secondary)]">Active</span>}
-                        </p>
-                        <p className="text-xs text-[var(--text-secondary)]">
-                          {formatCredentialDate(version.created_at)} by {version.created_by || 'system'}
-                        </p>
-                      </div>
-                      {canManage && !isActive && (
-                        <div className="flex items-center gap-2">
-                          <button type="button" className="glass-button-subtle !rounded-lg" onClick={() => onActivateVersion(version.version)} disabled={saving}>
-                            Activate
-                          </button>
-                          <button
-                            type="button"
-                            className="glass-button-danger !rounded-lg !px-2"
-                            aria-label={`Delete version ${version.version}`}
-                            title={canDeleteHistory ? `Delete version ${version.version}` : 'At least two versions are required'}
-                            onClick={() => onDeleteVersion(version.version)}
-                            disabled={saving || !canDeleteHistory}
-                          >
-                            <Trash2 className="h-4 w-4" aria-hidden="true" />
-                          </button>
+            {credential.versions.length > 0 ? (
+              <div>
+                {credential.versions.map(version => {
+                  const isActive = version.version === credential.active_version;
+                  return (
+                    <div key={version.version} className="credential-detail__version">
+                      <div className="credential-detail__version-top">
+                        <div>
+                          <p className="credential-detail__version-title">
+                            Version {version.version}
+                            {isActive ? <span className="ml-2 text-xs text-[var(--credential-muted)]">Active</span> : null}
+                          </p>
+                          <p className="credential-detail__version-meta">
+                            {formatCredentialDate(version.created_at)} by {version.created_by || 'system'}
+                          </p>
                         </div>
-                      )}
+                        {canManage && !isActive ? (
+                          <div className="credential-detail__version-actions">
+                            <button type="button" className="credential-registry__button credential-registry__button--ghost credential-registry__button--small" onClick={() => onActivateVersion(version.version)} disabled={saving}>
+                              Activate
+                            </button>
+                            <button
+                              type="button"
+                              className="credential-registry__button credential-registry__button--danger credential-registry__button--small"
+                              aria-label={`Delete version ${version.version}`}
+                              title={canDeleteHistory ? `Delete version ${version.version}` : 'At least two versions are required'}
+                              onClick={() => onDeleteVersion(version.version)}
+                              disabled={saving || !canDeleteHistory}
+                            >
+                              <Trash2 className="h-4 w-4" aria-hidden="true" />
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-              {credential.versions.length === 0 && (
-                <p className="rounded-lg border border-dashed border-[var(--border-primary)] px-4 py-6 text-sm text-[var(--text-secondary)]">
-                  No value has been stored yet.
-                </p>
-              )}
-            </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="credential-detail__empty">No value has been stored yet.</p>
+            )}
           </section>
         </div>
 
         {canManage && (
-          <footer className="grid gap-2 border-t border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4 sm:grid-cols-2">
+          <footer className="credential-detail__footer">
             {credential.status === 'disabled' ? (
-              <button type="button" className="glass-button-subtle !rounded-lg justify-center" onClick={onEnable} disabled={saving}>
+              <button type="button" className="credential-registry__button credential-registry__button--ghost" onClick={onEnable} disabled={saving}>
                 <Power className="h-4 w-4" aria-hidden="true" />
                 Enable
               </button>
             ) : (
-              <button type="button" className="glass-button-subtle !rounded-lg justify-center" onClick={onDisable} disabled={saving}>
+              <button type="button" className="credential-registry__button credential-registry__button--ghost" onClick={onDisable} disabled={saving}>
                 <ShieldAlert className="h-4 w-4" aria-hidden="true" />
                 Disable
               </button>
             )}
-            <button type="button" className="glass-button-danger !rounded-lg justify-center" onClick={onDelete} disabled={saving}>
+            <button type="button" className="credential-registry__button credential-registry__button--danger" onClick={onDelete} disabled={saving}>
               <Trash2 className="h-4 w-4" aria-hidden="true" />
               Delete credential
             </button>
           </footer>
         )}
       </aside>
-    </div>
-  );
-}
-
-function CredentialDetailField({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div className="min-w-0 border-r border-t border-[var(--border-primary)] px-5 py-3 even:border-r-0">
-      <dt className="text-xs text-[var(--text-secondary)]">{label}</dt>
-      <dd className="mt-1 break-words text-sm font-medium text-[var(--text-primary)]">{value}</dd>
     </div>
   );
 }

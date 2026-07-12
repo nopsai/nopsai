@@ -705,6 +705,19 @@ func TestHostedMCPProposeCredentialGitOpsPendingMetadata(t *testing.T) {
 	}
 }
 
+func TestHostedMCPCredentialCreateBodyIncludesTeamPath(t *testing.T) {
+	body := hostedMCPCredentialCreateBody(map[string]any{
+		"reference":   "credential://team/platform/llm/openai-primary",
+		"team_path":   "platform",
+		"kind":        "api_key",
+		"description": "OpenAI production key",
+		"value":       "secret",
+	})
+	if body["team_path"] != "platform" {
+		t.Fatalf("team_path = %#v, want platform in body %#v", body["team_path"], body)
+	}
+}
+
 func TestHostedMCPSetupBootstrapRequiresConfirmation(t *testing.T) {
 	app := &App{aaaLocal: allowActionsForAssistantTest("system.update")}
 	result, err := app.executeHostedMCPTool(context.Background(), model.Subject{Type: model.SubjectTypeUser, Sub: "ops"}, "nopsai.bootstrap_first_install_setup", map[string]any{

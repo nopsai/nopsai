@@ -27,6 +27,10 @@ truth; this file is the source-adjacent placement guide.
   Workflow dialogs, inline alerts, empty states, icon-only commands, focus
   handling, compact resource collection cards, shared object icons, and
   toast/live-region feedback should start here.
+- `styles.css` owns global theme tokens, app-shell dark surfaces, sidebar
+  selected states, and cross-route color aliases. Feature CSS should consume
+  those tokens or define scoped aliases instead of hard-coding a competing dark
+  palette.
 - `tools/` owns local and CI guardrails such as boundary checks. Runtime code
   should not depend on tool-only modules.
 
@@ -167,15 +171,20 @@ truth; this file is the source-adjacent placement guide.
   detail-selection orchestration; renderer
   files such as `CredentialDashboard.tsx`, `CredentialCatalog.tsx`,
   `CredentialCreateForm.tsx`, and `CredentialDetail.tsx` own presentation only.
-  The create flow derives global credentials as `credential://system/...` and
-  team credentials as `credential://team/<team path>/...` from the selected team
-  scope, while the catalog uses known team paths to present credentials as
-  scope-first cards (`System`, `Global`, or the team path) with credential
-  categories such as `LLM`, `Mail`, and `GitHub` nested inside. The catalog
-  renderer owns the credentials-local scope sidebar and selected detail drawer,
-  while route composition owns URL selection. Team references that repeat the
-  selected team path are normalized for display and create previews without
-  changing the GitOps-compatible reference format.
+  The create flow derives admin-only global credentials as
+  `credential://system/...` and team credentials as
+  `credential://team/<team path>/...` from the selected team scope. Non-admin
+  users only render team-scoped credentials returned by the API, and their
+  create form is anchored to available team paths. The catalog uses known team
+  paths to present credentials in a scope-grouped registry table (`System`,
+  `Global`, or the team path) with credential categories such as `LLM`, `Mail`,
+  and `GitHub` surfaced as table metadata. The catalog renderer owns
+  credentials-local filters, tabs, grouping controls, and selected-row
+  presentation; `CredentialDetail.tsx` owns the
+  slide-out detail drawer, rotation form, and version history; route composition
+  owns URL selection. Team references that repeat the selected team path are
+  normalized for display and create previews without changing the
+  GitOps-compatible reference format.
 - LLM profiles, agent profiles, and MCP are first-class workspace routes. Their
   model/API/hook/panel code can remain under `features/system` while the route
   wrappers live in `pages/`. Page visibility is topic-level: global system

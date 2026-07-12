@@ -107,6 +107,7 @@ export type AppAccess = {
   canViewSystemAccess: boolean;
   canViewAnySystem: boolean;
   preferredSystemPath: string;
+  isNopsAIAdmin: boolean;
   isInitialAdminUser: boolean;
   systemPermissions: SystemPagePermissions;
 };
@@ -311,14 +312,19 @@ export function getSystemPagePermissions(user: CurrentUser | null | undefined): 
   };
 }
 
-export function isInitialAdminUser(user: CurrentUser | null | undefined, session: AuthSession): boolean {
+export function isNopsAIAdminUser(user: CurrentUser | null | undefined, session: AuthSession): boolean {
   const sub = (user?.sub || session.sub || '').trim().toLowerCase();
   const roles = user?.roles || session.roles || [];
   return sub === 'admin' || roles.some(role => role === 'nopsai-admin');
 }
 
+export function isInitialAdminUser(user: CurrentUser | null | undefined, session: AuthSession): boolean {
+  return isNopsAIAdminUser(user, session);
+}
+
 export function getAppAccess(user: CurrentUser | null | undefined, session: AuthSession): AppAccess {
   const systemPermissions = getSystemPagePermissions(user);
+  const isNopsAIAdmin = isNopsAIAdminUser(user, session);
   const canViewAnySystem =
     systemPermissions.canViewConfig ||
     systemPermissions.canViewSetup ||
@@ -370,7 +376,8 @@ export function getAppAccess(user: CurrentUser | null | undefined, session: Auth
     canViewSystemAccess: systemPermissions.canViewAccess,
     canViewAnySystem,
     preferredSystemPath: getPreferredSystemPath(systemPermissions),
-    isInitialAdminUser: isInitialAdminUser(user, session),
+    isNopsAIAdmin,
+    isInitialAdminUser: isNopsAIAdmin,
     systemPermissions,
   };
 }

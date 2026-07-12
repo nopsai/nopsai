@@ -176,6 +176,10 @@ export function isCredentialReference(reference: string): boolean {
   return /^credential:\/\/[^/]+\/.+/i.test(reference.trim());
 }
 
+export function isTeamCredentialReference(reference: string): boolean {
+  return parseCredentialReference(reference).namespace.toLowerCase() === 'team';
+}
+
 export function credentialReferenceRoute(reference: string): string {
   const trimmed = reference.trim();
   return `/credentials?credential=${encodeURIComponent(trimmed)}`;
