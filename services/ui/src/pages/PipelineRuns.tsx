@@ -4,17 +4,20 @@ import { requestPipelineRunsJson } from '../features/pipeline-runs/api';
 import { fetchTeams } from '../features/teams/api';
 import type { RunListItem } from '../features/pipeline-runs/contracts';
 import {
-  buildTeamPath,
-  extractLatestRunSummary,
   findTeamByURLValue,
-  formatBranch,
   normalizeTeamURLValue,
   runMatchesSearch,
   summarizeStatus,
   teamPathForURL,
   type Team,
-  type RepoSummary,
 } from '../features/pipeline-runs/runPresentation';
+import {
+  filterPipelineRuns,
+  normalizeRunSourceFilter,
+  normalizeRunStatusFilter,
+  type PipelineRunSourceFilter,
+  type PipelineRunStatusFilter,
+} from '../features/pipeline-runs/overviewModel';
 import { PipelineRunsPageView } from '../features/pipeline-runs/PipelineRunsPageView';
 import { buildPipelineRunsRoute, extractTeamPathFromRoute } from '../lib/teamRoutes';
 import type {
@@ -57,6 +60,14 @@ function PipelineRunsPage() {
   const activeTeamValue = routeTeamValue || queryTeamValue;
 
   const activeRunId = searchParams.get('run');
+  const sourceFilter = useMemo<PipelineRunSourceFilter>(
+    () => normalizeRunSourceFilter(searchParams.get('source')),
+    [searchParams]
+  );
+  const statusFilter = useMemo<PipelineRunStatusFilter>(
+    () => normalizeRunStatusFilter(searchParams.get('status')),
+    [searchParams]
+  );
 
   const [teams, setTeams] = useState<Team[]>([]);
   const [teamsLoaded, setTeamsLoaded] = useState(false);
@@ -71,7 +82,6 @@ function PipelineRunsPage() {
   const [runsLoading, setRunsLoading] = useState(false);
   const [runsError, setRunsError] = useState<string | null>(null);
   const [selectedRunIds, setSelectedRunIds] = useState<Set<string>>(new Set());
-  const [repoSummaries, setRepoSummaries] = useState<Map<number, RepoSummary>>(new Map());
 
   const [runDetail, setRunDetail] = useState<RunDetail | null>(null);
   const [runDetailLoading, setRunDetailLoading] = useState(false);
@@ -86,8 +96,7 @@ function PipelineRunsPage() {
   const [logsSearchFilter, setLogsSearchFilter] = useState<string | null>(null);
   const [stepDetailName, setStepDetailName] = useState<string | null>(null);
   const [collapsedEvents, setCollapsedEvents] = useState<Set<string>>(new Set());
-  const [collapsedBranches, setCollapsedBranches] = useState<Set<string>>(new Set());
-  const collapsedInitRef = useRef(false);
+  const eventCollapseTouchedRef = useRef(false);
 
   const pollingRef = useRef<number | null>(null);
   const detailPollRef = useRef<number | null>(null);
@@ -171,7 +180,7 @@ function PipelineRunsPage() {
     }
     const params = new URLSearchParams(searchParams);
     params.set('view', viewMode);
-    setSearchParams(params, { replace: true });
+    setSearchParams(params, { replace: true, preventScrollReset: true });
   }, [viewMode, searchParams, setSearchParams]);
 
   const updateSearchParams = useCallback(
@@ -185,9 +194,25 @@ function PipelineRunsPage() {
         }
       });
       params.delete('team');
-      setSearchParams(params, { replace: true });
+      setSearchParams(params, { replace: true, preventScrollReset: true });
     },
     [searchParams, setSearchParams]
+  );
+
+  const handleSourceFilterChange = useCallback(
+    (filter: PipelineRunSourceFilter) => {
+      updateSearchParams({ source: filter === 'all' ? null : filter });
+      setSelectedRunIds(new Set());
+    },
+    [updateSearchParams]
+  );
+
+  const handleStatusFilterChange = useCallback(
+    (filter: PipelineRunStatusFilter) => {
+      updateSearchParams({ status: filter === 'all' ? null : filter });
+      setSelectedRunIds(new Set());
+    },
+    [updateSearchParams]
   );
 
   const fetchJson = useCallback(
@@ -275,10 +300,10 @@ function PipelineRunsPage() {
     if (activeTeamURLValue) {
       if (!queryTeamValue && routeTeamValue === activeTeamURLValue) return;
       const search = params.toString();
-      navigate(`${buildPipelineRunsRoute(activeTab, activeTeamURLValue)}${search ? `?${search}` : ''}`, { replace: true });
+      navigate(`${buildPipelineRunsRoute(activeTab, activeTeamURLValue)}${search ? `?${search}` : ''}`, { replace: true, preventScrollReset: true });
     } else {
       const search = params.toString();
-      navigate(`/pipelineruns/${activeTab}${search ? `?${search}` : ''}`, { replace: true });
+      navigate(`/pipelineruns/${activeTab}${search ? `?${search}` : ''}`, { replace: true, preventScrollReset: true });
     }
   }, [activeTab, activeTeamURLValue, navigate, queryTeamValue, routeTeamValue, searchParams, teamsLoaded]);
 
@@ -401,40 +426,40 @@ function PipelineRunsPage() {
     }));
   }, [activeTab, recentRunsAll, searchTerm]);
 
-  const expandAllEvents = useCallback(() => setCollapsedEvents(new Set()), []);
+  const expandAllEvents = useCallback(() => {
+    eventCollapseTouchedRef.current = true;
+    setCollapsedEvents(new Set());
+  }, []);
 
   const collapseAllEvents = useCallback(() => {
+    eventCollapseTouchedRef.current = true;
     const next = new Set<string>();
     teamedEvents.forEach(team => next.add(team.id));
     setCollapsedEvents(next);
   }, [teamedEvents]);
 
-  const toggleBranchCollapse = useCallback((branch: string, scrollIntoView = false) => {
-    setCollapsedBranches(prev => {
-      const next = new Set(prev);
-      if (next.has(branch)) {
-        next.delete(branch);
-      } else {
-        next.add(branch);
-      }
-      return next;
-    });
-    if (scrollIntoView) {
-      requestAnimationFrame(() => {
-        const selector = `[data-branch-row="${(window.CSS && CSS.escape ? CSS.escape(branch) : branch).replace(/"/g, '')}"]`;
-        const el = document.querySelector(selector);
-        if (el && 'scrollIntoView' in el) {
-          (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      });
+  useEffect(() => {
+    if (activeTab !== 'events') {
+      eventCollapseTouchedRef.current = false;
+      setCollapsedEvents(prev => (prev.size ? new Set() : prev));
+      return;
     }
-  }, []);
+    if (eventCollapseTouchedRef.current) return;
+    const next = new Set(teamedEvents.map(team => team.id));
+    setCollapsedEvents(prev => (setsEqual(prev, next) ? prev : next));
+  }, [activeTab, teamedEvents]);
+
+  const effectiveCollapsedEvents = useMemo(() => {
+    if (activeTab === 'events' && !eventCollapseTouchedRef.current) {
+      return new Set(teamedEvents.map(team => team.id));
+    }
+    return collapsedEvents;
+  }, [activeTab, collapsedEvents, teamedEvents]);
 
   const recentFilteredTotal = useMemo(() => {
     if (activeTab !== 'recent') return 0;
-    const term = searchTerm.trim().toLowerCase();
-    return (!term ? recentRunsAll : recentRunsAll.filter(run => runMatchesSearch(run, term))).length;
-  }, [activeTab, recentRunsAll, searchTerm]);
+    return filterPipelineRuns(recentRunsAll, { searchTerm, sourceFilter, statusFilter }).length;
+  }, [activeTab, recentRunsAll, searchTerm, sourceFilter, statusFilter]);
 
   const handleRecentScroll = useCallback((source?: HTMLElement | null) => {
     if (activeTab !== 'recent') return;
@@ -490,9 +515,16 @@ function PipelineRunsPage() {
       setRecentVisibleCount(RECENT_INITIAL_BATCH);
     }
     scrollMainToTop();
-  }, [activeTab, scrollMainToTop, searchTerm]);
+  }, [activeTab, scrollMainToTop]);
+
+  useEffect(() => {
+    if (activeTab === 'recent') {
+      setRecentVisibleCount(RECENT_INITIAL_BATCH);
+    }
+  }, [activeTab, searchTerm, sourceFilter, statusFilter]);
 
   const toggleEventTeam = useCallback((id: string) => {
+    eventCollapseTouchedRef.current = true;
     setCollapsedEvents(prev => {
       const next = new Set(prev);
       if (next.has(id)) {
@@ -506,18 +538,9 @@ function PipelineRunsPage() {
 
   const filteredRecentRuns = useMemo(() => {
     if (activeTab === 'events') return [];
-    const term = searchTerm.trim().toLowerCase();
-    const base = !term ? recentRunsAll : recentRunsAll.filter(run => runMatchesSearch(run, term));
+    const base = filterPipelineRuns(recentRunsAll, { searchTerm, sourceFilter, statusFilter });
     return base.slice(0, recentVisibleCount);
-  }, [activeTab, recentRunsAll, recentVisibleCount, searchTerm]);
-
-  const activeTeamPath = useMemo(() => buildTeamPath(activeTeamId, teams), [activeTeamId, teams]);
-
-  useEffect(() => {
-    // reset collapse state when switching tabs/teams
-    collapsedInitRef.current = false;
-    setCollapsedBranches(new Set());
-  }, [activeTab, activeTeamId]);
+  }, [activeTab, recentRunsAll, recentVisibleCount, searchTerm, sourceFilter, statusFilter]);
 
   useEffect(() => {
     const triggerId = activeRunId ? runDetail?.run_info?.trigger_event_id || null : null;
@@ -532,15 +555,6 @@ function PipelineRunsPage() {
     applyTriggerClass(triggerId, 'trigger-selected', true);
   }, [activeRunId, applyTriggerClass, clearTriggerHighlights, runDetail]);
 
-  useEffect(() => {
-    if (activeTab !== 'main') return;
-    if (collapsedInitRef.current) return;
-    const branches = Object.keys(runsByBranch);
-    if (!branches.length) return;
-    collapsedInitRef.current = true;
-    setCollapsedBranches(new Set(branches));
-  }, [activeTab, runsByBranch]);
-
   const handleRunSelect = useCallback(
     (runId: string) => {
       setSelectedRunIds(prev => {
@@ -554,26 +568,6 @@ function PipelineRunsPage() {
       });
     },
     []
-  );
-
-  const handleDeleteBranch = useCallback(
-    async (branch: string) => {
-      const runs = runsByBranch[branch] || [];
-      const label = formatBranch(branch);
-      if (!runs.length) return;
-      if (!window.confirm(`Delete all runs for branch "${label || branch}"?`)) return;
-      try {
-        await Promise.all(
-          runs.map(run => fetchJson<void>(`/v1/runs/${encodeURIComponent(run.run_id)}`, { method: 'DELETE' }).catch(() => null))
-        );
-        setSelectedRunIds(new Set());
-        await loadRuns();
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to delete branch runs';
-        alert(message);
-      }
-    },
-    [fetchJson, loadRuns, runsByBranch]
   );
 
   const clearSelection = useCallback(() => setSelectedRunIds(new Set()), []);
@@ -685,21 +679,6 @@ function PipelineRunsPage() {
     [fetchJson, loadRuns, updateSearchParams]
   );
 
-  const fetchRepoSummary = useCallback(
-    async (teamId: number) => {
-      const runsForRepo = await fetchJson<Record<string, RunListItem[]>>(`/v1/runs?teamId=${teamId}`);
-      const summary = extractLatestRunSummary(runsForRepo);
-      if (!summary) return;
-      setRepoSummaries(prev => {
-        if (prev.has(teamId)) return prev;
-        const next = new Map(prev);
-        next.set(teamId, summary);
-        return next;
-      });
-    },
-    [fetchJson]
-  );
-
   const onSelectTeam = useCallback(
     (teamId: number | null) => {
       const team = teamId == null ? null : teams.find(item => item.id === teamId) || null;
@@ -708,12 +687,11 @@ function PipelineRunsPage() {
       params.delete('run');
       const teamRoute = buildPipelineRunsRoute(activeTab, team ? teamPathForURL(team, teams) : '');
       const search = params.toString();
-      navigate(`${teamRoute}${search ? `?${search}` : ''}`, { replace: true });
+      navigate(`${teamRoute}${search ? `?${search}` : ''}`, { replace: true, preventScrollReset: true });
       setSelectedRunIds(new Set());
       setRunDetail(null);
-      scrollMainToTop();
     },
-    [activeTab, navigate, scrollMainToTop, searchParams, teams]
+    [activeTab, navigate, searchParams, teams]
   );
 
   const isViewingDetail = Boolean(runDetail && activeRunId);
@@ -723,7 +701,6 @@ function PipelineRunsPage() {
     <PipelineRunsPageView
       activeTab={activeTab}
       activeTeamId={activeTeamId}
-      activeTeamPath={activeTeamPath}
       activeTeamURLValue={activeTeamURLValue}
       activeRunId={activeRunId}
       searchTerm={searchTerm}
@@ -734,6 +711,10 @@ function PipelineRunsPage() {
       updateSearchParams={updateSearchParams}
       viewMode={viewMode}
       setViewMode={setViewMode}
+      sourceFilter={sourceFilter}
+      statusFilter={statusFilter}
+      onSourceFilterChange={handleSourceFilterChange}
+      onStatusFilterChange={handleStatusFilterChange}
       mainContentRef={mainContentRef}
       isViewingDetail={isViewingDetail}
       showSelectionBar={showSelectionBar}
@@ -748,18 +729,13 @@ function PipelineRunsPage() {
       teamedEvents={teamedEvents}
       runsLoading={runsLoading}
       runsError={runsError}
-      repoSummaries={repoSummaries}
-      fetchRepoSummary={fetchRepoSummary}
       onSelectTeam={onSelectTeam}
       handleOpenRun={handleOpenRun}
       handleRunSelect={handleRunSelect}
-      collapsedEvents={collapsedEvents}
+      collapsedEvents={effectiveCollapsedEvents}
       toggleEventTeam={toggleEventTeam}
       collapseAllEvents={collapseAllEvents}
       expandAllEvents={expandAllEvents}
-      collapsedBranches={collapsedBranches}
-      toggleBranchCollapse={toggleBranchCollapse}
-      handleDeleteBranch={handleDeleteBranch}
       runDetail={runDetail}
       runDetailLoading={runDetailLoading}
       runDetailError={runDetailError}
@@ -786,3 +762,11 @@ function PipelineRunsPage() {
 }
 
 export default PipelineRunsPage;
+
+function setsEqual(left: Set<string>, right: Set<string>) {
+  if (left.size !== right.size) return false;
+  for (const value of left) {
+    if (!right.has(value)) return false;
+  }
+  return true;
+}
