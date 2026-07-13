@@ -193,6 +193,8 @@ func TestProductRolePermissions(t *testing.T) {
 		assertAction(t, actions, "pipeline.read", true)
 		assertAction(t, actions, "pipeline_schedule.list", true)
 		assertAction(t, actions, "pipeline_schedule.read", true)
+		assertAction(t, actions, "trigger.read", true)
+		assertAction(t, actions, "external_trigger.read", true)
 		assertAction(t, actions, "git_webhook_source.read", true)
 		assertAction(t, actions, "git_webhook_source.update", false)
 		assertAction(t, actions, "pipeline_schedule.execute", false)
@@ -251,6 +253,8 @@ func TestProductRolePermissions(t *testing.T) {
 		assertAction(t, actions, "pipeline_run.write_logs", true)
 		assertAction(t, actions, "pipeline_run.task_update", true)
 		assertAction(t, actions, "trigger.delete", true)
+		assertAction(t, actions, "external_trigger.delete", true)
+		assertAction(t, actions, "external_trigger.manage_acl", true)
 		assertAction(t, actions, "scope.delete", true)
 		assertAction(t, actions, "pipeline.manage_acl", true)
 		assertAction(t, actions, "secret.read_value", true)
@@ -603,6 +607,70 @@ func TestRepositoryRunInheritanceAllowsTeamOwnerToExploreRuns(t *testing.T) {
 	}
 	if !decision.Allowed {
 		t.Fatalf("pipeline run read decision = %#v, want allowed through repository team inheritance", decision)
+	}
+}
+
+func TestTeamOwnerCanReadAssignedTriggerResources(t *testing.T) {
+	backend := newUserGrantBackend()
+	backend.aclPolicies = append(backend.aclPolicies, grantACLPolicies(productRoleOwner, model.SubjectTypeUser, "user-1", grantResourceTeam, "hosein-yousefii")...)
+
+	tests := []struct {
+		name        string
+		action      string
+		resource    model.ResourceRef
+		inheritance []model.InheritedResource
+	}{
+		{
+			name:     "repository trigger",
+			action:   "trigger.read",
+			resource: model.ResourceRef{Type: grantResourceTrigger, ID: "hosein-yousefii/test-app"},
+			inheritance: []model.InheritedResource{
+				{Resource: model.ResourceRef{Type: grantResourceRepo, ID: "hosein-yousefii/test-app"}, Reason: "repository_inheritance"},
+				{Resource: model.ResourceRef{Type: grantResourceTeam, ID: "hosein-yousefii"}, Reason: "team_inheritance"},
+			},
+		},
+		{
+			name:     "external api trigger",
+			action:   "external_trigger.read",
+			resource: model.ResourceRef{Type: grantResourceExternalTrigger, ID: "production-release-hook"},
+			inheritance: []model.InheritedResource{
+				{Resource: model.ResourceRef{Type: grantResourceTeam, ID: "hosein-yousefii"}, Reason: "team_inheritance"},
+			},
+		},
+		{
+			name:     "git webhook source",
+			action:   "git_webhook_source.read",
+			resource: model.ResourceRef{Type: grantResourceGitWebhookSource, ID: "github-main-source"},
+			inheritance: []model.InheritedResource{
+				{Resource: model.ResourceRef{Type: grantResourceTeam, ID: "hosein-yousefii"}, Reason: "team_inheritance"},
+			},
+		},
+	}
+
+	evaluator := aaaauthz.NewEvaluator(backend)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			backend.inheritance[grantResourceKey(tt.resource)] = tt.inheritance
+			decision, err := evaluator.Check(context.Background(), backend.resolved.Subject, tt.action, tt.resource, nil)
+			if err != nil {
+				t.Fatalf("Check() error = %v", err)
+			}
+			if !decision.Allowed {
+				t.Fatalf("decision = %#v, want team owner to read assigned %s", decision, tt.resource.Type)
+			}
+		})
+	}
+
+	otherTeamResource := model.ResourceRef{Type: grantResourceGitWebhookSource, ID: "github-other-source"}
+	backend.inheritance[grantResourceKey(otherTeamResource)] = []model.InheritedResource{
+		{Resource: model.ResourceRef{Type: grantResourceTeam, ID: "other-team"}, Reason: "team_inheritance"},
+	}
+	decision, err := evaluator.Check(context.Background(), backend.resolved.Subject, "git_webhook_source.read", otherTeamResource, nil)
+	if err != nil {
+		t.Fatalf("other team Check() error = %v", err)
+	}
+	if decision.Allowed {
+		t.Fatalf("other team decision = %#v, want denied", decision)
 	}
 }
 
@@ -977,6 +1045,15 @@ func TestScopedProductGrantCapabilityUsesGrantRoleDefinition(t *testing.T) {
 	}
 	if !productGrantIncludesAction(productRoleOwner, grantResourceTeam, "pipeline.delete") {
 		t.Fatal("owner team grant should include pipeline.delete")
+	}
+	if !productGrantIncludesAction(productRoleOwner, grantResourceTeam, "trigger.read") {
+		t.Fatal("owner team grant should include trigger.read")
+	}
+	if !productGrantIncludesAction(productRoleOwner, grantResourceTeam, "external_trigger.read") {
+		t.Fatal("owner team grant should include external_trigger.read")
+	}
+	if !productGrantIncludesAction(productRoleOwner, grantResourceTeam, "git_webhook_source.read") {
+		t.Fatal("owner team grant should include git_webhook_source.read")
 	}
 	if !productGrantIncludesAction(productRoleOwner, grantResourceTeam, "repository.delete") {
 		t.Fatal("owner team grant should include repository.delete")
