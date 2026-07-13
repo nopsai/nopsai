@@ -45,9 +45,12 @@ npm run test:e2e:live
 - `src/features/pipelines/PipelineActivityPanels.tsx` and `src/features/steps/StepUsagePanel.tsx` own focused activity and usage presentation for their route shells.
 - `src/features/editor/YamlValidationPanel.tsx` owns shared accessible YAML validation presentation across pipeline, step, trigger, and Lab editors.
 - `src/features/editor/ResourceCollectionToolbar.tsx` and `src/components/WorkflowToastRegion.tsx` own shared pipeline/step collection controls and accessible workflow notifications.
+- `src/features/event-automation/EventAutomationSwitch.tsx`, `EventAutomationToolbar.tsx`, `AutomationResourceTree.tsx`, and `resourceTreeModel.ts` own the rendering-only route switch/header and reusable event automation team tree. `src/features/triggers/model.ts`, `triggers/treeModel.ts`, `TriggerExplorerTree.tsx`, `TriggerDetailView.tsx`, `external-triggers/model.ts`, and `git-webhook-sources/model.ts` own collection metrics, resource-specific tree item shaping, persistent selected-resource navigation, and source/search filtering for the redesigned event automation workspaces.
 - `src/components/ObjectIcon.tsx` and `src/components/objectIconRegistry.ts` own the shared lucide-backed object icon renderer and registry for navigation, resource cards, knowledge kinds, GitOps badges, and future first-class resources.
 - `src/components/AppHelp.tsx` and `appHelpModel.ts` own accessible route-specific help rendering plus pure topic and documentation-link resolution.
-- `src/app/BaseSidebarNavigation.tsx` owns stable top-level navigation.
+- `src/app/navigationModel.ts` owns pure sidebar topic grouping rules, and
+  `src/app/BaseSidebarNavigation.tsx` owns stable top-level navigation
+  rendering.
 - `src/features/editor/EditorAutocompleteMenu.tsx` owns reusable editor suggestion rendering.
 
 ## Testing

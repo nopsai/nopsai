@@ -4,6 +4,7 @@ import {
   fetchGitWebhookDeliveries,
   fetchGitWebhookSource,
   fetchGitWebhookSources,
+  fetchGitWebhookSourceTeamPaths,
   saveGitWebhookSource,
 } from './api';
 import {
@@ -26,10 +27,12 @@ export function useGitWebhookSources({
   onSelect: (sourceID: string) => void;
 }) {
   const [sources, setSources] = useState<GitWebhookSource[]>([]);
+  const [teamPaths, setTeamPaths] = useState<string[]>([]);
   const [deliveries, setDeliveries] = useState<GitWebhookDelivery[]>([]);
   const [form, setForm] = useState<GitWebhookSourceFormState>(() => gitWebhookSourceForm());
   const [editing, setEditing] = useState<GitWebhookSource | null | undefined>(undefined);
   const [loading, setLoading] = useState(true);
+  const [teamPathsLoading, setTeamPathsLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +65,25 @@ export function useGitWebhookSources({
     const timeout = window.setTimeout(() => void loadSources(), 0);
     return () => window.clearTimeout(timeout);
   }, [loadSources]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setTeamPathsLoading(true);
+    void fetchGitWebhookSourceTeamPaths()
+      .then(paths => {
+        if (cancelled) return;
+        setTeamPaths(paths);
+      })
+      .catch(() => {
+        if (!cancelled) setTeamPaths([]);
+      })
+      .finally(() => {
+        if (!cancelled) setTeamPathsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!selectedID) {
@@ -171,6 +193,7 @@ export function useGitWebhookSources({
 
   return {
     sources,
+    teamPaths,
     selected,
     deliveries,
     form,
@@ -178,6 +201,7 @@ export function useGitWebhookSources({
     editorOpen: editing !== undefined,
     editing,
     loading,
+    teamPathsLoading,
     detailLoading,
     saving,
     error,

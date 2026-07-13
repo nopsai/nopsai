@@ -6,7 +6,7 @@ import {
   SIDEBAR_MIN_WIDTH,
   SIDEBAR_SCROLL_BUFFER,
 } from './constants';
-import { baseNavItems, baseSystemSubNav, pipelineRunsNavPath, titleMap } from './navigation';
+import { baseNavItems, baseSystemSubNav, eventAutomationNavPath, pipelineRunsNavPath, titleMap } from './navigation';
 import {
   formatBranch,
   formatBranchDisplay,
@@ -63,6 +63,12 @@ const getInitialTheme = (): Theme => {
   if (stored === 'dark' || stored === 'light') return stored;
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 };
+
+function triggerOwnerRoute(path: string) {
+  const owner = path.trim().replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '').replace(/^root$/i, '');
+  if (!owner) return '/triggers';
+  return `/triggers?${new URLSearchParams({ owner }).toString()}`;
+}
 
 function AppShell() {
   const location = useLocation();
@@ -163,6 +169,16 @@ function AppShell() {
       .map(item => {
         if (item.path.startsWith('/system')) return { ...item, path: preferredSystemPath };
         if (item.path.startsWith('/pipelineruns')) return { ...item, path: pipelineRunsNavPath(location.pathname) };
+        if (item.path === '/triggers') {
+          return {
+            ...item,
+            path: eventAutomationNavPath({
+              canViewTriggers,
+              canViewExternalTriggers,
+              canViewGitWebhookSources,
+            }),
+          };
+        }
         return item;
       })
       .filter(item => {
@@ -172,7 +188,7 @@ function AppShell() {
         if (item.path === '/mcp') return canViewSystemMCP;
         if (item.path === '/credentials') return canViewSystemCredentials;
         if (item.path === '/schedules') return canViewSchedules;
-        if (item.path === '/triggers') return canViewTriggers;
+        if (item.label === 'Triggers') return canViewTriggers || canViewExternalTriggers || canViewGitWebhookSources;
         if (item.path === '/external-triggers') return canViewExternalTriggers;
         if (item.path === '/git-webhook-sources') return canViewGitWebhookSources;
         if (item.path === '/scopes') return canViewScopes;
@@ -260,7 +276,7 @@ function AppShell() {
               locationSearch={location.search}
               navigateTo={navigate}
               onSelectPipelineTeam={path => navigate(teamScopedRoute('/pipelines', path))}
-              onSelectTriggerTeam={path => navigate(teamScopedRoute('/triggers', path))}
+              onSelectTriggerTeam={path => navigate(triggerOwnerRoute(path))}
               onSelectStepTeam={path => navigate(teamScopedRoute('/steps', path))}
               onSelectScopeTeam={path => navigate(teamScopedRoute('/scopes', path))}
               onSelectKnowledgeContextTeam={path => navigate(teamScopedRoute('/knowledge-context', path))}

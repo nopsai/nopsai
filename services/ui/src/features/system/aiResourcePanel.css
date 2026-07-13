@@ -181,7 +181,7 @@
   padding: 0 16px;
   border-color: var(--ai-panel-accent);
   background: var(--ai-panel-accent);
-  color: #ffffff;
+  color: var(--text-button);
 }
 
 .ai-resource-icon-button:hover {
@@ -227,13 +227,13 @@
 .ai-resource-icon-action--accent {
   border-color: var(--ai-panel-accent);
   background: var(--ai-panel-accent);
-  color: #ffffff;
+  color: var(--text-button);
 }
 
 .ai-resource-icon-action--accent:hover {
   border-color: var(--ai-panel-accent);
   background: color-mix(in srgb, var(--ai-panel-accent) 88%, #000000);
-  color: #ffffff;
+  color: var(--text-button);
   box-shadow: 0 8px 18px color-mix(in srgb, var(--ai-panel-accent) 22%, transparent);
 }
 

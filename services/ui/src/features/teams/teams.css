@@ -37,9 +37,9 @@ html.dark .teams-page-shell {
   --teams-hover: #16223a;
   --teams-input: #0e1627;
   --teams-tree-bg: #0e1627;
-  --teams-text: #eef3ff;
-  --teams-muted: #bcc5d6;
-  --teams-soft-muted: #8f9ab0;
+  --teams-text: #C5CFDC;
+  --teams-muted: #93A0B2;
+  --teams-soft-muted: #758196;
   --teams-line: rgba(38, 51, 77, 0.72);
   --teams-line-strong: #26334d;
   --teams-table-line: rgba(38, 51, 77, 0.72);
@@ -53,7 +53,7 @@ html.dark .teams-page-shell {
   --teams-accent-soft: rgba(82, 74, 232, 0.2);
   --teams-primary: #5147e8;
   --teams-primary-hover: #6f6bf6;
-  --teams-primary-text: #ffffff;
+  --teams-primary-text: #C5CFDC;
   --teams-icon-default: #8f9ab0;
   --teams-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
 }

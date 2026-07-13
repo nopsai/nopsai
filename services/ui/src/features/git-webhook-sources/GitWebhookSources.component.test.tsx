@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import { expect, test, vi } from 'vitest';
+import { beforeEach, expect, test, vi } from 'vitest';
 import GitWebhookSourcesPage from '../../pages/GitWebhookSources';
 import { GitWebhookSourceForm } from './GitWebhookSourceForm';
 import { GitWebhookSourceCards } from './GitWebhookSourceCards';
@@ -26,10 +26,24 @@ const apiMocks = vi.hoisted(() => ({
   fetchGitWebhookDeliveries: vi.fn(),
   fetchGitWebhookSource: vi.fn(),
   fetchGitWebhookSources: vi.fn(),
+  fetchGitWebhookSourceTeamPaths: vi.fn(),
   saveGitWebhookSource: vi.fn(),
 }));
 
 vi.mock('./api', () => apiMocks);
+
+beforeEach(() => {
+  apiMocks.deleteGitWebhookSource.mockReset();
+  apiMocks.fetchGitWebhookDeliveries.mockReset();
+  apiMocks.fetchGitWebhookSource.mockReset();
+  apiMocks.fetchGitWebhookSources.mockReset();
+  apiMocks.fetchGitWebhookSourceTeamPaths.mockReset();
+  apiMocks.saveGitWebhookSource.mockReset();
+  apiMocks.fetchGitWebhookDeliveries.mockResolvedValue([]);
+  apiMocks.fetchGitWebhookSource.mockResolvedValue(source);
+  apiMocks.fetchGitWebhookSources.mockResolvedValue([]);
+  apiMocks.fetchGitWebhookSourceTeamPaths.mockResolvedValue(['platform', 'platform/prod']);
+});
 
 test('renders source details and audited deliveries', async () => {
   apiMocks.fetchGitWebhookSources.mockResolvedValue([source]);
@@ -53,21 +67,14 @@ test('renders source details and audited deliveries', async () => {
   );
 
   expect(await screen.findByRole('heading', { name: 'GitLab Platform' })).toBeVisible();
-  const list = await screen.findByTestId('git-webhook-source-card-list');
-  expect(list).toHaveClass('compact-resource-grid');
-  const cards = Array.from(list.querySelectorAll('.compact-resource-card'));
-  expect(cards).toHaveLength(1);
-  expect(cards[0]).toHaveClass('compact-resource-card--bordered', 'git-webhook-source-card');
-  expect(screen.getByRole('button', { name: 'Select Git webhook source GitLab Platform' })).toHaveAttribute(
-    'aria-pressed',
-    'true'
-  );
+  expect(screen.getByRole('complementary', { name: 'Team tree' })).toBeVisible();
+  expect(screen.getByRole('link', { name: 'External API' })).toHaveAttribute('href', '/external-triggers');
   expect(await screen.findByText('platform/api')).toBeVisible();
-  expect(screen.getByDisplayValue(/\/v1\/git\/webhooks\/gitlab-platform$/)).toBeVisible();
+  expect(screen.getByText(/\/v1\/git\/webhooks\/gitlab-platform$/)).toBeVisible();
   expect(screen.getByText('processed')).toBeVisible();
 });
 
-test('shows source details only after selecting a card from the list route', async () => {
+test('shows source details after selecting a row from the list route', async () => {
   const user = userEvent.setup();
   apiMocks.fetchGitWebhookSources.mockResolvedValue([source]);
   apiMocks.fetchGitWebhookSource.mockResolvedValue(source);
@@ -79,14 +86,16 @@ test('shows source details only after selecting a card from the list route', asy
     </MemoryRouter>
   );
 
-  expect(await screen.findByText('GitLab Platform')).toBeVisible();
+  expect(await screen.findByRole('button', { name: 'GitLab Platformgitlab-platform' })).toBeVisible();
+  expect(screen.getByRole('complementary', { name: 'Team tree' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'All teams (1)' })).toBeVisible();
   expect(screen.queryByText('Select a webhook source')).not.toBeInTheDocument();
-  expect(screen.queryByText('1 total')).not.toBeInTheDocument();
-  expect(screen.queryByDisplayValue(/\/v1\/git\/webhooks\/gitlab-platform$/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/\/v1\/git\/webhooks\/gitlab-platform$/)).not.toBeInTheDocument();
 
-  await user.click(screen.getByRole('button', { name: 'Select Git webhook source GitLab Platform' }));
+  await user.click(screen.getByRole('button', { name: 'Select webhook source GitLab Platform' }));
 
-  expect(await screen.findByDisplayValue(/\/v1\/git\/webhooks\/gitlab-platform$/)).toBeVisible();
+  expect(await screen.findByText(/\/v1\/git\/webhooks\/gitlab-platform$/)).toBeVisible();
+  expect(screen.getByRole('button', { name: 'List' })).toBeVisible();
 });
 
 test('renders and selects managed webhook sources as compact GitOps cards', async () => {
@@ -129,7 +138,10 @@ test('creates a source through the feature-owned form and API', async () => {
 
   await screen.findByText('No webhook sources found');
   expect(screen.getByRole('button', { name: 'Search webhook sources' })).toBeVisible();
-  expect(screen.getByRole('button', { name: 'Refresh webhook sources' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Refresh Git webhook sources' })).toBeVisible();
+  expect(screen.queryByText('Event automation')).not.toBeInTheDocument();
+  expect(screen.queryByText('Git webhook sources')).not.toBeInTheDocument();
+  expect(screen.queryByText('Connect trusted Git providers, restrict repositories, and monitor webhook deliveries.')).not.toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'New source' }));
   const dialog = screen.getByRole('dialog', { name: 'New Git webhook source' });
   expect(dialog).toBeVisible();
@@ -145,6 +157,7 @@ test('creates a source through the feature-owned form and API', async () => {
   expect(screen.getByLabelText('Source ID')).toHaveFocus();
   await user.type(screen.getByLabelText('Source ID'), 'gitlab-platform');
   await user.selectOptions(screen.getByLabelText('Provider'), 'gitlab');
+  await user.selectOptions(screen.getByRole('combobox', { name: /^Team/ }), 'platform/prod');
   await user.selectOptions(screen.getByLabelText('Authentication'), 'static_token');
   await user.type(
     screen.getByLabelText(/^Credential reference/),
@@ -157,6 +170,7 @@ test('creates a source through the feature-owned form and API', async () => {
   expect(apiMocks.saveGitWebhookSource.mock.calls[0][0]).toMatchObject({
     id: 'gitlab-platform',
     provider: 'gitlab',
+    team_path: 'platform/prod',
     auth_mode: 'static_token',
     repository_allowlist: ['platform/*'],
   });
@@ -173,6 +187,7 @@ test('renders solid edit, validation, and saving states for source forms', () =>
       form={form}
       saving={false}
       error="Repository allowlist is required."
+      teamPaths={['platform', 'platform/prod']}
       onChange={onChange}
       onClose={onClose}
       onSubmit={onSubmit}
@@ -188,6 +203,7 @@ test('renders solid edit, validation, and saving states for source forms', () =>
   expect(dialog).not.toHaveClass('glass-card');
   expect(dialog).toHaveAccessibleDescription('Repository allowlist is required.');
   expect(screen.getByLabelText('Source ID')).toBeDisabled();
+  expect(screen.getByRole('combobox', { name: /^Team/ })).toHaveValue('root');
   expect(screen.getByText(/network-isolated ingress/)).toBeVisible();
 
   fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'GitLab' } });
@@ -210,6 +226,7 @@ test('renders solid edit, validation, and saving states for source forms', () =>
       form={form}
       saving
       error={null}
+      teamPaths={['platform', 'platform/prod']}
       onChange={onChange}
       onClose={onClose}
       onSubmit={onSubmit}

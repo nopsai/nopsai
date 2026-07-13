@@ -12,7 +12,7 @@ import (
 )
 
 const gitWebhookSourceSelect = `
-	SELECT id, name, description, provider, enabled, auth_mode, credential_ref,
+	SELECT id, name, description, provider, enabled, COALESCE(team_path, ''), auth_mode, credential_ref,
 	       repository_allowlist, rate_limit, created_by, created_at, updated_at, last_used_at,
 	       COALESCE(source, 'database'), config_repo_id, COALESCE(config_source_path, ''),
 	       COALESCE(config_source_commit_sha, ''), managed_by_config_repo
@@ -29,6 +29,7 @@ func scanGitWebhookSource(scanner interface{ Scan(...any) error }) (gitWebhookSo
 		&source.Description,
 		&source.Provider,
 		&source.Enabled,
+		&source.TeamPath,
 		&source.AuthMode,
 		&source.CredentialRef,
 		&allowlistJSON,

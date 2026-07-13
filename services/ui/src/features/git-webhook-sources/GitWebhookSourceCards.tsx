@@ -1,6 +1,7 @@
 import { CompactResourceCard } from '../../components/CompactResourceCard';
 import { ObjectIcon } from '../../components/ObjectIcon';
 import {
+  gitWebhookSourceTeamLabel,
   sourceStatusLabel,
   type GitWebhookSource,
 } from './model';
@@ -45,6 +46,7 @@ export function GitWebhookSourceCards({
             )}
             facts={[
               { label: 'Provider', value: source.provider, mono: true },
+              { label: 'Team', value: gitWebhookSourceTeamLabel(source) },
               { label: 'Auth', value: source.auth_mode },
               { label: 'Repositories', value: source.repository_allowlist.length },
             ]}

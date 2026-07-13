@@ -37,7 +37,11 @@ describe('ExternalTriggersPage create action', () => {
 
     const opener = screen.getByRole('button', { name: 'New trigger' });
     expect(screen.getByRole('button', { name: 'Search external triggers' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Refresh external triggers' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Refresh External API triggers' })).toBeVisible();
+    expect(screen.queryByText('Event automation')).not.toBeInTheDocument();
+    expect(screen.queryByText('External API triggers')).not.toBeInTheDocument();
+    expect(screen.queryByText('Authenticated invocation endpoints with caller policy, payload mapping, and audit history.')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Git webhooks' })).toHaveAttribute('href', '/git-webhook-sources');
     await user.click(opener);
 
     const dialog = screen.getByRole('dialog', { name: 'New authenticated endpoint' });
@@ -54,7 +58,7 @@ describe('ExternalTriggersPage create action', () => {
     expect(screen.getByRole('button', { name: 'Create trigger' })).toBeVisible();
   });
 
-  it('keeps details hidden until a card is selected', async () => {
+  it('renders workspace metrics and opens details after selecting a row', async () => {
     const user = userEvent.setup();
     const trigger: ExternalTrigger = {
       id: 'deploy-prod',
@@ -82,14 +86,21 @@ describe('ExternalTriggersPage create action', () => {
     );
 
     expect(await screen.findByText('Deploy production')).toBeVisible();
-    expect(screen.queryByText('Allowed Callers')).not.toBeInTheDocument();
-    expect(screen.queryByText('1 total')).not.toBeInTheDocument();
-    expect(screen.queryByText('1 enabled')).not.toBeInTheDocument();
+    expect(screen.getByText('API endpoints')).toBeVisible();
+    expect(screen.getByText('Caller policies')).toBeVisible();
+    expect(screen.getByRole('complementary', { name: 'Team tree' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'All teams (1)' })).toBeVisible();
+    expect(screen.queryByText('Select an external trigger')).not.toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: 'platform/deploy' })).toBeVisible();
+    expect(screen.getByRole('cell', { name: 'platform/prod' })).toBeVisible();
+    expect(screen.queryByText('Allowed callers')).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Select external trigger Deploy production' }));
+    await user.click(screen.getByRole('button', { name: 'Deploy productiondeploy-prod' }));
 
-    expect(await screen.findByText('Allowed Callers')).toBeVisible();
+    expect(await screen.findByText('Allowed callers')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'List' })).toBeVisible();
     expect(screen.getByText('service_account:deployer')).toBeVisible();
+    expect(screen.getAllByText(/external-triggers\/deploy-prod\/invoke/)).toHaveLength(2);
   });
 
   it('keeps the action visible but disabled when AAA grants read-only access', () => {

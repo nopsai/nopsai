@@ -161,6 +161,7 @@ export function buildGitWebhookSourceTeamResources(items: GitWebhookSource[]): T
   return items
     .map(item => {
       const allowlistCount = item.repository_allowlist?.length ?? 0;
+      const teamPath = publicResourceTeamPath(item.team_path || item.run_team_path || '');
       return {
         id: `git_webhook_source:${item.id}`,
         kind: 'git_webhook_source' as const,
@@ -171,7 +172,7 @@ export function buildGitWebhookSourceTeamResources(items: GitWebhookSource[]): T
           `${allowlistCount} allowed repos`,
         ].filter(Boolean).join(' / '),
         href: `/git-webhook-sources/${encodeURIComponent(item.id)}`,
-        teamPath: '',
+        teamPath,
         source: item.source,
       };
     })
