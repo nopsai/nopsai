@@ -1,6 +1,6 @@
 import { ObjectIcon } from '../components/ObjectIcon.js';
 import type { NavItem } from './types.js';
-export { pipelineRunsNavPath } from './navigationModel.js';
+export { eventAutomationNavPath, pipelineRunsNavPath, sidebarNavItemIsActive } from './navigationModel.js';
 
 export const baseNavItems: NavItem[] = [
   {
@@ -57,16 +57,6 @@ export const baseNavItems: NavItem[] = [
     label: 'Triggers',
     path: '/triggers',
     icon: <ObjectIcon type="trigger" />,
-  },
-  {
-    label: 'External Triggers',
-    path: '/external-triggers',
-    icon: <ObjectIcon type="external-trigger" />,
-  },
-  {
-    label: 'Git Webhook Sources',
-    path: '/git-webhook-sources',
-    icon: <ObjectIcon type="git-webhook-source" />,
   },
   {
     label: 'Scopes',

@@ -42,7 +42,7 @@ type TriggerManifestMutationOptions = {
   canCreateTriggerHere: boolean;
   canUpdateSelectedTrigger: boolean;
   canDeleteTriggers: boolean;
-  permissionTeam: string;
+  permissionOwner: string;
   detail: TriggerDetail | null;
   editorValue: string;
   validationErrorCount: number;
@@ -60,7 +60,7 @@ export function useTriggerManifestMutations({
   canCreateTriggerHere,
   canUpdateSelectedTrigger,
   canDeleteTriggers,
-  permissionTeam,
+  permissionOwner,
   detail,
   editorValue,
   validationErrorCount,
@@ -102,13 +102,13 @@ export function useTriggerManifestMutations({
 
   const openCreateModal = useCallback(() => {
     if (!canCreateTriggerHere) return;
-    const repository = permissionTeam ? `${permissionTeam}/new-repository` : '';
+    const repository = permissionOwner ? `${permissionOwner}/new-repository` : '';
     setCreateModal({
       repository,
       yamlPreview: buildNewTriggerYaml(deriveDefaultPipelinePath(repository)),
       pending: false,
     });
-  }, [canCreateTriggerHere, permissionTeam]);
+  }, [canCreateTriggerHere, permissionOwner]);
 
   const openCloneModal = useCallback(() => {
     if (!canCreateTriggerHere) return;

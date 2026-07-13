@@ -64,10 +64,11 @@ test('builds linked resources with canonical detail links', () => {
       auth_mode: 'hmac',
       repository_allowlist: ['acme/platform'],
       rate_limit: {},
+      team_path: 'platform',
     },
   ]);
   assert.deepEqual(webhookSources.map(resource => [resource.label, resource.teamPath, resource.href]), [
-    ['GitLab Platform', '', '/git-webhook-sources/gitlab-platform'],
+    ['GitLab Platform', 'platform', '/git-webhook-sources/gitlab-platform'],
   ]);
 
   const steps = buildStepTeamResources([{ id: 'platform/build', source: 'git' }]);

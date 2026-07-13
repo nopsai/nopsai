@@ -6,8 +6,9 @@ truth; this file is the source-adjacent placement guide.
 
 ## Placement Rules
 
-- `app/` owns shell composition, route wiring, sidebar state, navigation trees,
-  setup redirect behavior, and run-sidebar orchestration.
+- `app/` owns shell composition, route wiring, sidebar state, top-level
+  navigation topic grouping, navigation trees, setup redirect behavior, and
+  run-sidebar orchestration.
 - `auth/` owns session state, current-user loading, capability normalization,
   route guards, and redirect safety.
 - `lib/api.ts` owns API base URL resolution, token persistence, bearer-token
@@ -30,7 +31,9 @@ truth; this file is the source-adjacent placement guide.
 - `styles.css` owns global theme tokens, app-shell dark surfaces, sidebar
   selected states, and cross-route color aliases. Feature CSS should consume
   those tokens or define scoped aliases instead of hard-coding a competing dark
-  palette.
+  palette. Dark mode uses the softer enterprise palette from `--page-bg`,
+  `--sidebar-bg`, `--card-bg`, `--input-bg`, `--border`, and `--accent`;
+  avoid reintroducing near-black page glows or pure-white primary text.
 - `tools/` owns local and CI guardrails such as boundary checks. Runtime code
   should not depend on tool-only modules.
 
@@ -51,8 +54,38 @@ truth; this file is the source-adjacent placement guide.
 
 ### Scopes And Triggers
 
-- Scope and trigger route identifiers, teaming, source labels, usage indexes,
-  manifest validation, and modal mutation state belong in their feature modules.
+- Scope and trigger route identifiers, repository-owner grouping, source labels,
+  usage indexes, manifest validation, and modal mutation state belong in their
+  feature modules.
+- `features/event-automation/EventAutomationSwitch.tsx`,
+  `EventAutomationToolbar.tsx`, `AutomationResourceTree.tsx`, and
+  `resourceTreeModel.ts` own the rendering-only route switch, shared page
+  header, and reusable team-tree browser between trigger, external API trigger,
+  and Git webhook source pages. These components link to each owning page and
+  must not duplicate API, model, or mutation state.
+- `features/triggers/model.ts` owns trigger collection metrics, source/search
+  filtering, and repository-owner membership rules. `features/triggers/treeModel.ts`
+  owns trigger tree shaping, lookup, and nested counts. `TriggerCollectionToolbar.tsx`,
+  `TriggerExplorerTree.tsx`, `TriggerCollectionList.tsx`, and
+  `TriggerDetailView.tsx` own the demo-style trigger workspace rendering:
+  compact event-automation switch/filter/create toolbar, explorer tree, subtree
+  metrics/table list, and selected-trigger routes that keep the explorer visible
+  while showing overview, definition, and recent runs together on one aligned page.
+  `pages/Triggers.tsx` owns URL selection, hook orchestration, dialog
+  composition, and mutation wiring only.
+- `features/external-triggers/model.ts` owns external trigger metrics,
+  run-team tree item shaping, team membership filtering, and search filtering.
+  `ExternalTriggerWorkspace.tsx` owns the demo-style external API trigger tree,
+  metrics, table list, full-page endpoint detail, caller policy, curl example,
+  and invocation history rendering. `pages/ExternalTriggers.tsx` owns URL
+  selection, reference-data loading, route-local legacy transport, form modal
+  composition, team selection state, and mutation wiring.
+- `features/git-webhook-sources/model.ts` owns Git webhook source metrics,
+  team ownership tree item shaping, global fallback labeling, request shaping,
+  and search filtering. `GitWebhookSourcesWorkspace.tsx` owns the demo-style
+  source tree, metrics, table list, full-page routing/access detail, credential
+  reference, and delivery history rendering. `useGitWebhookSources.ts` owns hook
+  orchestration, team option loading, and mutation state.
 - GitOps-managed trigger manifests use the same database-override behavior as
   pipelines and steps. Clone paths remain available for draft workflows.
 - GitOps-managed scoped variables and secrets follow the same database-override

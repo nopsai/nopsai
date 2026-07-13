@@ -1,47 +1,23 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import {
-  CheckCircle2,
-  Clipboard,
-  Copy,
-  Edit3,
-  History,
-  PauseCircle,
-  PlayCircle,
-  RefreshCw,
-  Shield,
-  Trash2,
-} from 'lucide-react';
 
-import { ResourceCollectionToolbar } from '../features/editor/ResourceCollectionToolbar';
+import { EventAutomationToolbar } from '../features/event-automation/EventAutomationToolbar';
 import { ExternalTriggerFormModal } from '../features/external-triggers/ExternalTriggerFormModal';
-import { ExternalTriggerCards } from '../features/external-triggers/ExternalTriggerCards';
+import { ExternalTriggerWorkspace } from '../features/external-triggers/ExternalTriggerWorkspace';
 import {
-  externalTriggerTeamLabel,
-  externalTriggerRelativeLabel,
-  externalTriggerScopeLabel,
+  buildExternalTriggerTreeItems,
+  externalTriggerBelongsToTeam,
+  externalTriggerTeamPath,
+  filterExternalTriggers,
   type AllowedCaller,
   type ExternalTrigger,
   type ExternalTriggerForm,
+  type ExternalTriggerInvocation,
   type ExternalTriggerModalState,
   type SelectOption,
 } from '../features/external-triggers/model';
 import { apiClient, buildApiUrl } from '../lib/api';
 import { fetchPipelineRunTeamPaths } from '../lib/resourceTeams';
-
-type ExternalTriggerInvocation = {
-  id: string;
-  trigger_id: string;
-  caller_type: string;
-  caller_id: string;
-  status: string;
-  run_id?: string;
-  idempotency_key?: string;
-  event_type?: string;
-  source_ip?: string;
-  created_at?: string;
-  error?: string;
-};
 
 type PipelineListItem = {
   id?: string;
@@ -116,6 +92,7 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
   const [deletePending, setDeletePending] = useState(false);
   const [copyState, setCopyState] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [activeTeamPath, setActiveTeamPath] = useState('');
   const [callerDraft, setCallerDraft] = useState<AllowedCaller>({ type: 'service_account', id: '' });
 
   const selectedTrigger = useMemo(
@@ -124,19 +101,19 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
   );
 
   const filteredTriggers = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase();
-    if (!term) return triggers;
-    return triggers.filter(trigger => [
-      trigger.id,
-      trigger.name,
-      trigger.description,
-      trigger.pipeline,
-      trigger.scope,
-      trigger.run_team_path,
-      trigger.source,
-      ...(trigger.allowed_callers || []).flatMap(caller => [caller.type, caller.id]),
-    ].join(' ').toLowerCase().includes(term));
+    return filterExternalTriggers(triggers, searchTerm);
   }, [searchTerm, triggers]);
+
+  const workspaceTeamPath = selectedTrigger
+    ? externalTriggerTeamPath(selectedTrigger.run_team_path)
+    : activeTeamPath;
+
+  const visibleTriggers = useMemo(() => {
+    if (searchTerm.trim()) return filteredTriggers;
+    return filteredTriggers.filter(trigger => externalTriggerBelongsToTeam(trigger, workspaceTeamPath));
+  }, [filteredTriggers, searchTerm, workspaceTeamPath]);
+
+  const treeItems = useMemo(() => buildExternalTriggerTreeItems(triggers), [triggers]);
 
   const invokeURL = useMemo(() => {
     if (!selectedTrigger) return '';
@@ -186,7 +163,6 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
   );
 
   const activeCallerOptions = callerOptions[callerDraft.type] || [];
-  const selectedManagedByGitOps = Boolean(selectedTrigger?.managed_by_config_repo);
 
   const fetchJson = useCallback(async <T,>(path: string, options?: RequestInit): Promise<T> => {
     const response = await apiClient.fetch(path, { cache: 'no-store', ...options });
@@ -302,7 +278,19 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
 
   const selectTrigger = useCallback((id: string) => {
     setSelectedID(id);
+    const selectedTriggerFromList = triggers.find(trigger => trigger.id === id);
+    if (selectedTriggerFromList) {
+      setActiveTeamPath(externalTriggerTeamPath(selectedTriggerFromList.run_team_path));
+    }
     navigate(id ? `/external-triggers/${encodeRouteIdentifier(id)}` : '/external-triggers');
+  }, [navigate, triggers]);
+
+  const openTeam = useCallback((path: string) => {
+    setActiveTeamPath(externalTriggerTeamPath(path));
+    setSelectedID('');
+    setSelected(null);
+    setInvocations([]);
+    navigate('/external-triggers');
   }, [navigate]);
 
   const openCreate = () => {
@@ -473,8 +461,9 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
 
   return (
     <div data-page="external-triggers" className="active h-full flex flex-col">
-      <ResourceCollectionToolbar
-        resourceLabel="external trigger"
+      <EventAutomationToolbar
+        active="external-triggers"
+        searchLabel="Search external triggers"
         searchTerm={searchTerm}
         canCreate={canWriteExternalTriggers}
         createLabel="New trigger"
@@ -483,145 +472,39 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
         onSearchTermChange={setSearchTerm}
         onCreate={openCreate}
         onRefresh={() => void loadTriggers()}
+        refreshLabel="Refresh External API triggers"
         refreshDisabled={loading || saving}
         filters={!canWriteExternalTriggers ? <span className="runner-pill runner-pill--muted">Read-only</span> : null}
       />
       <div className="flex-1 overflow-auto px-6 pb-8 triggers-content">
         {error && <div className="dispatcher-error mb-4">{error}</div>}
-        <div className={`grid grid-cols-1 gap-5 ${selectedTrigger ? 'xl:grid-cols-[minmax(0,1fr)_440px]' : ''}`}>
-          <section className="min-w-0">
-            {loading ? <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Loading external triggers...</div> : null}
-            {!loading && !filteredTriggers.length ? (
-              <div className="pipelines-empty">
-                <h2 className="text-base font-semibold text-[var(--text-primary)]">No external triggers found</h2>
-                <p className="text-sm text-[var(--text-secondary)]">
-                  {searchTerm.trim() ? 'Adjust your search.' : 'Create an external trigger to expose an authenticated endpoint.'}
-                </p>
-              </div>
-            ) : null}
-            {!loading && filteredTriggers.length ? (
-              <ExternalTriggerCards triggers={filteredTriggers} selectedID={selectedID} onSelect={selectTrigger} />
-            ) : null}
-          </section>
-
-          {selectedTrigger ? (
-            <aside className="glass-card rounded-xl border border-[var(--border-primary)] p-4 min-h-[520px]">
-              <div className="space-y-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h2 className="text-lg font-semibold text-[var(--text-primary)] truncate">{selectedTrigger.name}</h2>
-                    <p className="text-xs font-mono text-[var(--text-secondary)] truncate">{selectedTrigger.id}</p>
-                  </div>
-                  <span className={selectedTrigger.enabled ? 'runner-pill runner-pill--ok' : 'runner-pill runner-pill--muted'}>
-                    {selectedTrigger.enabled ? 'Enabled' : 'Disabled'}
-                  </span>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  {canWriteExternalTriggers && (
-                    <>
-                      <button type="button" className="pipelines-secondary-button" onClick={() => openEdit(selectedTrigger)} title={selectedManagedByGitOps ? 'Save database override; GitOps can replace it on next sync' : 'Edit'}>
-                        <Edit3 className="h-4 w-4" />
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="pipelines-secondary-button"
-                        onClick={() => void updateTrigger(selectedTrigger, { enabled: !selectedTrigger.enabled })}
-                        title={selectedManagedByGitOps ? 'Save database override; GitOps can replace it on next sync' : selectedTrigger.enabled ? 'Disable' : 'Enable'}
-                      >
-                        {selectedTrigger.enabled ? <PauseCircle className="h-4 w-4" /> : <PlayCircle className="h-4 w-4" />}
-                        {selectedTrigger.enabled ? 'Disable' : 'Enable'}
-                      </button>
-                    </>
-                  )}
-                  <button type="button" className="pipelines-secondary-button" onClick={() => void copyText('url', invokeURL)}>
-                    <Copy className="h-4 w-4" />
-                    {copyState === 'url' ? 'Copied' : 'URL'}
-                  </button>
-                  {canDeleteExternalTriggers && (
-                    <button type="button" className="pipelines-danger-button" onClick={() => void deleteTrigger(selectedTrigger)} disabled={deletePending} title={selectedManagedByGitOps ? 'Delete database row; GitOps can recreate it on next sync' : 'Delete'}>
-                      <Trash2 className="h-4 w-4" />
-                      Delete
-                    </button>
-                  )}
-                </div>
-
-                <dl className="grid grid-cols-2 gap-3 text-sm">
-                  <Meta label="Pipeline" value={selectedTrigger.pipeline} />
-                  <Meta label="Scope" value={externalTriggerScopeLabel(selectedTrigger.scope)} />
-                  <Meta label="Run team" value={externalTriggerTeamLabel(selectedTrigger.run_team_path)} />
-                  <Meta label="Created by" value={selectedTrigger.created_by || '-'} />
-                  <Meta label="Last used" value={formatDate(selectedTrigger.last_used_at)} />
-                  <Meta label="Source" value={selectedTrigger.managed_by_config_repo ? `GitOps ${selectedTrigger.config_source_path || ''}`.trim() : selectedTrigger.source || 'database'} />
-                </dl>
-
-                <section className="space-y-2">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)]">
-                    <Shield className="h-4 w-4" />
-                    Allowed Callers
-                  </div>
-                  <div className="space-y-2">
-                    {(selectedTrigger.allowed_callers || []).map(caller => (
-                      <div key={`${caller.type}:${caller.id}`} className="flex items-center justify-between rounded-lg border border-[var(--border-primary)] px-3 py-2">
-                        <span className="text-sm font-mono text-[var(--text-primary)]">{caller.type}:{caller.id}</span>
-                      </div>
-                    ))}
-                    {!(selectedTrigger.allowed_callers || []).length && <p className="text-sm text-[var(--text-secondary)]">No callers configured.</p>}
-                  </div>
-                </section>
-
-                <section className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-[var(--text-primary)]">Example curl</h3>
-                    <button type="button" className="pipelines-icon-only" title="Copy curl" aria-label="Copy curl" onClick={() => void copyText('curl', exampleCurl)}>
-                      {copyState === 'curl' ? <CheckCircle2 className="h-4 w-4" /> : <Clipboard className="h-4 w-4" />}
-                    </button>
-                  </div>
-                  <pre className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-3 text-xs overflow-auto text-[var(--text-primary)]">
-                    {exampleCurl}
-                  </pre>
-                </section>
-
-                <section className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <h3 className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)]">
-                      <History className="h-4 w-4" />
-                      Recent invocations
-                    </h3>
-                    <button type="button" className="pipelines-icon-only" title="Refresh invocations" aria-label="Refresh invocations" onClick={() => void loadInvocations(selectedTrigger.id)}>
-                      <RefreshCw className="h-4 w-4" />
-                    </button>
-                  </div>
-                  {detailLoading || invocationsLoading ? (
-                    <p className="text-sm text-[var(--text-secondary)]">Loading details...</p>
-                  ) : invocations.length ? (
-                    <div className="space-y-2">
-                      {invocations.map(invocation => (
-                        <div key={invocation.id} className="rounded-lg border border-[var(--border-primary)] p-3">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className={invocation.status === 'queued' ? 'runner-pill runner-pill--ok' : invocation.status === 'failed' ? 'runner-pill runner-pill--error' : 'runner-pill runner-pill--muted'}>
-                              {invocation.status}
-                            </span>
-                            <span className="text-xs text-[var(--text-secondary)]">{externalTriggerRelativeLabel(invocation.created_at)}</span>
-                          </div>
-                          <div className="mt-2 text-xs text-[var(--text-secondary)] space-y-1">
-                            <p className="font-mono truncate">{invocation.caller_type}:{invocation.caller_id}</p>
-                            {invocation.event_type && <p className="truncate">Event: {invocation.event_type}</p>}
-                            {invocation.idempotency_key && <p className="truncate">Idempotency: {invocation.idempotency_key}</p>}
-                            {invocation.error && <p className="text-red-500 truncate">Error: {invocation.error}</p>}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-[var(--text-secondary)]">No invocations yet.</p>
-                  )}
-                </section>
-              </div>
-            </aside>
-          ) : null}
-        </div>
+        <ExternalTriggerWorkspace
+          triggers={triggers}
+          visibleTriggers={visibleTriggers}
+          treeItems={treeItems}
+          activeTeamPath={workspaceTeamPath}
+          selectedID={selectedID}
+          selectedTrigger={selectedTrigger}
+          invocations={invocations}
+          loading={loading}
+          detailLoading={detailLoading}
+          invocationsLoading={invocationsLoading}
+          canWrite={canWriteExternalTriggers}
+          canDelete={canDeleteExternalTriggers}
+          deletePending={deletePending}
+          copyState={copyState}
+          invokeURL={invokeURL}
+          exampleCurl={exampleCurl}
+          searchTerm={searchTerm}
+          onOpenTeam={openTeam}
+          onSelect={selectTrigger}
+          onEdit={openEdit}
+          onToggle={trigger => void updateTrigger(trigger, { enabled: !trigger.enabled })}
+          onCopyURL={() => void copyText('url', invokeURL)}
+          onCopyCurl={() => void copyText('curl', exampleCurl)}
+          onDelete={trigger => void deleteTrigger(trigger)}
+          onRefreshInvocations={id => void loadInvocations(id)}
+        />
       </div>
 
       {modal ? (
@@ -660,15 +543,6 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
           onRemoveCaller={removeAllowedCaller}
         />
       ) : null}
-    </div>
-  );
-}
-
-function Meta({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-[var(--border-primary)] px-3 py-2">
-      <dt className="text-xs text-[var(--text-secondary)]">{label}</dt>
-      <dd className="text-sm text-[var(--text-primary)] truncate" title={value}>{value || '-'}</dd>
     </div>
   );
 }
@@ -712,19 +586,6 @@ function parentPathFromIdentifier(identifier?: string) {
   const parts = normalizeIdentifier(identifier).split('/').filter(Boolean);
   parts.pop();
   return parts.join('/');
-}
-
-function formatDate(value?: string) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
 }
 
 function readPerMinute(rateLimit?: Record<string, unknown>) {

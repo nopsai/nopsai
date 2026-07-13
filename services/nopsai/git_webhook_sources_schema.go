@@ -14,6 +14,7 @@ var gitWebhookSourceSchemaStatements = []string{
 		description TEXT NOT NULL DEFAULT '',
 		provider TEXT NOT NULL,
 		enabled BOOLEAN NOT NULL DEFAULT TRUE,
+		team_path TEXT NOT NULL DEFAULT '',
 		auth_mode TEXT NOT NULL,
 		credential_ref TEXT NOT NULL DEFAULT '',
 		repository_allowlist JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -28,8 +29,10 @@ var gitWebhookSourceSchemaStatements = []string{
 		config_source_commit_sha TEXT NOT NULL DEFAULT '',
 		managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE
 	)`,
+	`ALTER TABLE git_webhook_sources ADD COLUMN IF NOT EXISTS team_path TEXT NOT NULL DEFAULT ''`,
 	`CREATE INDEX IF NOT EXISTS idx_git_webhook_sources_enabled ON git_webhook_sources(enabled)`,
 	`CREATE INDEX IF NOT EXISTS idx_git_webhook_sources_provider ON git_webhook_sources(provider)`,
+	`CREATE INDEX IF NOT EXISTS idx_git_webhook_sources_team ON git_webhook_sources(team_path, id)`,
 	`CREATE INDEX IF NOT EXISTS idx_git_webhook_sources_config_repo ON git_webhook_sources(config_repo_id)`,
 	`CREATE TABLE IF NOT EXISTS git_webhook_deliveries (
 		id UUID PRIMARY KEY,

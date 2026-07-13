@@ -1,5 +1,5 @@
 import type { KeyboardEvent, RefObject, UIEvent } from 'react';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, FileCode2, GitBranch, Trash2 } from 'lucide-react';
 import { ResourceYamlDetailPanel } from '../editor/ResourceYamlDetailPanel';
 import type { EditorAutocompleteSuggestion } from '../editor/EditorAutocompleteMenu';
 import type { YamlValidationError } from '../editor/YamlValidationPanel';
@@ -26,6 +26,7 @@ type TriggerDetailViewProps = {
   lineNumbersRef: RefObject<HTMLDivElement | null>;
   canUpdateSelectedTrigger: boolean;
   canCreateTriggerHere: boolean;
+  canDeleteSelectedTrigger: boolean;
   saving: boolean;
   linkedPipelines: PipelineRef[];
   pipelineMetadata: Map<string, PipelineMeta>;
@@ -44,6 +45,7 @@ type TriggerDetailViewProps = {
   onDownload: () => void;
   onEdit: () => void;
   onClone: () => void;
+  onDelete: () => void;
   onDiscard: () => void;
   onSave: () => void;
   onEditorTextChange: (nextValue: string, cursor: number) => void;
@@ -69,6 +71,7 @@ export function TriggerDetailView({
   lineNumbersRef,
   canUpdateSelectedTrigger,
   canCreateTriggerHere,
+  canDeleteSelectedTrigger,
   saving,
   linkedPipelines,
   pipelineMetadata,
@@ -87,6 +90,7 @@ export function TriggerDetailView({
   onDownload,
   onEdit,
   onClone,
+  onDelete,
   onDiscard,
   onSave,
   onEditorTextChange,
@@ -100,88 +104,119 @@ export function TriggerDetailView({
 }: TriggerDetailViewProps) {
   if (!detail) {
     return (
-      <div id="triggers-detail-view" className="pipelines-view">
-        <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Select a trigger to see details.</div>
+      <div id="triggers-detail-view" className="triggers-detail-pane-empty">
+        <span className="triggers-empty-icon" aria-hidden="true">
+          <FileCode2 className="h-5 w-5" />
+        </span>
+        <strong>Select a trigger</strong>
+        <span>No trigger selected.</span>
       </div>
     );
   }
 
   const sourceKey = normalizeSource(detail.source);
   const isGitSource = sourceKey === 'git';
+  const detailName = detail.slug.split('/').filter(Boolean).pop() || detail.slug;
+  const detailOwner = detail.slug.split('/').filter(Boolean).slice(0, -1).join('/') || 'root';
+  const events = detail.summary.events.length ? detail.summary.events : ['N/A'];
+  const branches = detail.summary.branches.length ? detail.summary.branches.join(', ') : 'Any branch';
+  const scopes = detail.summary.scopes.length ? detail.summary.scopes : [''];
 
   return (
-    <div id="triggers-detail-view" className="pipelines-view">
-      <div className="min-w-0 space-y-6">
-        <div className="glass-card p-6">
-          <div className="flex items-start justify-between gap-4 w-full mb-4">
-            <div className="min-w-0">
-              <div className="triggers-detail-heading">
-                <span className="triggers-detail-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-                  </svg>
-                </span>
-                <div className="min-w-0">
-                  <h2 id="triggers-detail-name" className="text-3xl font-bold text-[var(--text-primary)] truncate">
-                    {detail.slug}
-                  </h2>
-                  <div className="triggers-detail-meta">
-                    <dl className="triggers-detail-grid">
-                      <dt className="triggers-detail-label">Source:</dt>
-                      <dd className="triggers-detail-value">{sourceLabel(sourceKey)}</dd>
-                      <dt className="triggers-detail-label">Rules:</dt>
-                      <dd className="triggers-detail-value">{detail.summary.triggerCount}</dd>
-                      <dt className="triggers-detail-label">Events:</dt>
-                      <dd className="triggers-detail-value">
-                        {detail.summary.events.length ? detail.summary.events.join(', ') : 'N/A'}
-                      </dd>
-                      <dt className="triggers-detail-label" style={{ alignSelf: 'flex-start', marginTop: 4 }}>
-                        Scopes:
-                      </dt>
-                      <dd
-                        className="triggers-detail-value flex flex-wrap gap-1.5"
-                        style={{ whiteSpace: 'normal', overflow: 'visible', textOverflow: 'clip' }}
-                      >
-                        {detail.summary.scopes.length ? (
-                          detail.summary.scopes.map(scope => {
-                            const label = scope ? `/${scope}` : 'Default Scope';
-                            return (
-                              <button
-                                key={`scope-${scope || 'default'}`}
-                                type="button"
-                                className="pipelines-tag font-semibold transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-accent)]"
-                                onClick={() => onOpenScope(scope)}
-                              >
-                                {label}
-                              </button>
-                            );
-                          })
-                        ) : (
-                          <button
-                            type="button"
-                            className="pipelines-tag font-semibold transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-accent)]"
-                            onClick={() => onOpenScope('')}
-                          >
-                            Default Scope
-                          </button>
-                        )}
-                      </dd>
-                    </dl>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <button id="triggers-back-btn" type="button" className="glass-button-ghost" onClick={onBack}>
+    <div id="triggers-detail-view" className="triggers-detail-pane">
+      <div className="triggers-detail-scroll">
+        <div className="triggers-detail-head">
+          <span className="triggers-detail-icon" aria-hidden="true">
+            <GitBranch className="h-5 w-5" />
+          </span>
+          <div className="triggers-detail-title">
+            <h2 id="triggers-detail-name">{detailName}</h2>
+            <p>{detail.slug}</p>
+          </div>
+          <span className={`triggers-badge triggers-badge--${sourceKey === 'git' ? 'blue' : 'neutral'}`}>
+            <span className="triggers-badge-dot" aria-hidden="true"></span>
+            {sourceLabel(sourceKey)}
+          </span>
+          <div className="triggers-detail-actions">
+            <button id="triggers-back-btn" type="button" className="triggers-mini-button" onClick={onBack}>
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-              <span>Back to list</span>
+              <span>List</span>
             </button>
+            {canDeleteSelectedTrigger ? (
+              <button
+                type="button"
+                className="triggers-mini-button triggers-mini-button--danger"
+                onClick={onDelete}
+                title={isGitSource ? 'Delete database row; GitOps can recreate it on the next sync' : 'Delete trigger'}
+              >
+                <Trash2 className="h-4 w-4" aria-hidden="true" />
+                <span>Delete</span>
+              </button>
+            ) : null}
           </div>
         </div>
 
-        <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]">
-          <div className="min-w-0 space-y-6">
+        <div className="triggers-detail-page-grid">
+          <div className="triggers-detail-column">
+            <section className="triggers-detail-panel" aria-labelledby="triggers-overview-heading">
+              <div className="triggers-detail-panel-head">
+                <h3 id="triggers-overview-heading">Overview</h3>
+              </div>
+              <div className="triggers-detail-panel-body">
+                <div className="triggers-facts-grid">
+                  <TriggerFact label="Owner" value={detailOwner} />
+                  <TriggerFact label="Rules" value={String(detail.summary.triggerCount)} />
+                  <TriggerFact label="Pipelines" value={String(linkedPipelines.length)} />
+                  <TriggerFact label="Branches" value={branches} />
+                </div>
+
+                <div className="triggers-detail-section">
+                  <div className="triggers-detail-section-title">
+                    <h3>Event binding</h3>
+                  </div>
+                  <div className="triggers-chip-row">
+                    {events.map(event => (
+                      <span key={`event-${event}`} className="triggers-chip">{event}</span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="triggers-detail-section">
+                  <div className="triggers-detail-section-title">
+                    <h3>Scopes</h3>
+                  </div>
+                  <div className="triggers-chip-row">
+                    {scopes.map(scope => (
+                      <button key={`scope-${scope || 'default'}`} type="button" className="triggers-chip triggers-chip--button" onClick={() => onOpenScope(scope)}>
+                        {scope ? `/${scope}` : 'Default'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <LinkedPipelinesPanel
+              linkedPipelines={linkedPipelines}
+              pipelineMetadata={pipelineMetadata}
+              pipelineSourceIndex={pipelineSourceIndex}
+              onOpenPipeline={onOpenPipeline}
+            />
+
+            <TriggerRecentRuns
+              runs={recentRuns}
+              loading={runsLoading}
+              error={runsError}
+              scrollable={runsScrollable}
+              listRef={recentRunsListRef}
+              onScroll={onRecentRunsScroll}
+              onOpenRun={onOpenRun}
+            />
+          </div>
+
+          <div className="triggers-detail-column triggers-detail-column--definition">
             <ResourceYamlDetailPanel
-              title="Trigger Definition (YAML)"
+              title="Trigger definition"
               rawYaml={detail.rawYaml}
               isEditing={isEditing}
               editorValue={editorValue}
@@ -225,27 +260,17 @@ export function TriggerDetailView({
               onAutoIndentEnter={onAutoIndentEnter}
             />
           </div>
-
-          <div className="min-w-0 space-y-6">
-            <LinkedPipelinesPanel
-              linkedPipelines={linkedPipelines}
-              pipelineMetadata={pipelineMetadata}
-              pipelineSourceIndex={pipelineSourceIndex}
-              onOpenPipeline={onOpenPipeline}
-            />
-
-            <TriggerRecentRuns
-              runs={recentRuns}
-              loading={runsLoading}
-              error={runsError}
-              scrollable={runsScrollable}
-              listRef={recentRunsListRef}
-              onScroll={onRecentRunsScroll}
-              onOpenRun={onOpenRun}
-            />
-          </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function TriggerFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="triggers-fact">
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   );
 }
@@ -263,7 +288,7 @@ function LinkedPipelinesPanel({
 }) {
   return (
     <div className="glass-card overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b border-[var(--border-primary)]" style={{ marginTop: '9px' }}>
+      <div className="triggers-linked-pipelines-header flex flex-wrap items-center justify-between gap-3 p-4 border-b border-[var(--border-primary)]">
         <h3 className="text-lg font-semibold text-[var(--text-primary)]">Linked Pipelines</h3>
       </div>
       <div className="p-4">

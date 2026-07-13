@@ -12,6 +12,7 @@ func TestNormalizeGitWebhookSourceInput(t *testing.T) {
 	enabled := false
 	source, err := normalizeGitWebhookSourceInput(gitWebhookSourceInput{
 		Name:          "GitLab Main",
+		TeamPath:      "/platform/webhooks/",
 		Provider:      " GITLAB ",
 		Enabled:       &enabled,
 		AuthMode:      "static_token",
@@ -31,6 +32,9 @@ func TestNormalizeGitWebhookSourceInput(t *testing.T) {
 	}
 	if source.Enabled {
 		t.Fatal("Enabled = true, want false")
+	}
+	if source.TeamPath != "platform/webhooks" {
+		t.Fatalf("TeamPath = %q, want platform/webhooks", source.TeamPath)
 	}
 	if len(source.RepositoryAllowlist) != 2 || source.RepositoryAllowlist[0] != "acme/*" || source.RepositoryAllowlist[1] != "acme/api" {
 		t.Fatalf("RepositoryAllowlist = %#v", source.RepositoryAllowlist)
@@ -116,6 +120,33 @@ rate_limit:
 	}
 	if source.input.Provider != "gitlab" || source.input.CredentialRef != "credential://system/webhooks/gitlab-main" {
 		t.Fatalf("source = %#v", source)
+	}
+	if source.input.TeamPath != "team-1" {
+		t.Fatalf("TeamPath = %q, want team-1", source.input.TeamPath)
+	}
+}
+
+func TestParseGitOpsGitWebhookSourcesNormalizesExplicitTeamPath(t *testing.T) {
+	sources, err := parseGitOpsGitWebhookSources(map[string]string{
+		"git-webhook-sources/gitlab-prod.yaml": `
+name: GitLab prod
+team_path: prod/webhooks
+provider: gitlab
+auth_mode: static_token
+credential_ref: credential://system/webhooks/gitlab-prod
+repository_allowlist:
+  - acme/prod
+`,
+	}, "git-webhook-sources", models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeTeam,
+		ScopeID:   "team-1",
+	}, "team-1")
+	if err != nil {
+		t.Fatalf("parseGitOpsGitWebhookSources() error = %v", err)
+	}
+	source := sources["team-1-gitlab-prod"]
+	if source.input.TeamPath != "team-1/prod/webhooks" {
+		t.Fatalf("TeamPath = %q, want team-1/prod/webhooks", source.input.TeamPath)
 	}
 }
 

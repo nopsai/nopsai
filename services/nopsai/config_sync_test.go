@@ -825,6 +825,10 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 		"data-team-deploy": {input: externalTriggerRecord{ID: "data-team-deploy", Pipeline: "data-team/deploy", Scope: "data-team/dev", RunTeamPath: "data-team/dev"}},
 		"prod-deploy":      {input: externalTriggerRecord{ID: "prod-deploy", Pipeline: "platform/deploy", Scope: "prod", RunTeamPath: "root"}},
 	}
+	gitWebhookSources := map[string]storedGitWebhookSource{
+		"data-team-gitlab": {input: gitWebhookSourceRecord{ID: "data-team-gitlab", TeamPath: "data-team"}},
+		"global-gitlab":    {input: gitWebhookSourceRecord{ID: "global-gitlab", TeamPath: rootGrantID}},
+	}
 
 	filterDelegatedConfigResources(
 		binding,
@@ -833,6 +837,7 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 		map[string]storedStep{},
 		map[string]storedSchedule{},
 		externalTriggers,
+		gitWebhookSources,
 		map[string]storedNotificationRoute{},
 		map[string]storedKnowledgeContext{},
 		generalScopeVars,
@@ -847,6 +852,12 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 	}
 	if _, ok := repoScopeVars[repoScopeVarKey{repo: "hosein-yousefii/test-app", scopePath: "data-team/dev", name: "TEST_SCOPE"}]; ok {
 		t.Fatal("expected delegated repository scope variable to be filtered by scope")
+	}
+	if _, ok := gitWebhookSources["data-team-gitlab"]; ok {
+		t.Fatal("expected delegated git webhook source to be filtered by team path")
+	}
+	if _, ok := gitWebhookSources["global-gitlab"]; !ok {
+		t.Fatal("expected global git webhook source to remain")
 	}
 	if _, ok := generalScopeVars[generalScopeVarKey{scopePath: "prod", name: "API_VERSION"}]; !ok {
 		t.Fatal("expected unrelated general scope variable to remain")

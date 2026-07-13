@@ -6,7 +6,7 @@ import {
   buildTriggerEditorSuggestion,
   type TriggerEditorSuggestion,
 } from '../features/triggers/editorAutocomplete';
-import { TriggerCollectionList, type TriggerTreeNode } from '../features/triggers/TriggerCollectionList';
+import { TriggerCollectionList } from '../features/triggers/TriggerCollectionList';
 import { TriggerCollectionToolbar } from '../features/triggers/TriggerCollectionToolbar';
 import { TriggerDetailView } from '../features/triggers/TriggerDetailView';
 import { TriggerWorkflowModals } from '../features/triggers/TriggerWorkflowModals';
@@ -17,31 +17,63 @@ import {
   fetchTriggerRuns,
   fetchTriggers,
 } from '../features/triggers/api';
+import { TriggerExplorerTree } from '../features/triggers/TriggerExplorerTree';
 import { useTriggerManifestMutations } from '../features/triggers/useTriggerManifestMutations';
 import { useTriggerPermissions } from '../features/triggers/useTriggerPermissions';
 import {
   asRecord,
   buildPipelineIdentifierFromRun,
   encodeTriggerSlug,
+  filterTriggerListItems,
   normalizePipelineIdentifier,
   normalizeScopeLabel,
   normalizeSource,
   sourceLabel,
   splitTriggerSlug,
-  triggerSlugLabel,
+  triggerBelongsToOwner,
   validateTriggerYaml,
   type PipelineMeta,
   type PipelineRef,
   type TriggerDetail,
   type TriggerListItem,
   type TriggerRun,
+  type TriggerSourceFilter,
 } from '../features/triggers/model';
-import { TEAM_ROUTE_SEGMENT, buildPipelineRunsRoute, decodeTeamRouteSegments, teamScopedRoute } from '../lib/teamRoutes';
+import { buildTriggerTree, findTriggerTreeNode } from '../features/triggers/treeModel';
+import { buildPipelineRunsRoute } from '../lib/teamRoutes';
 
 const INITIAL_RECENT_RUNS = 5;
 const RUNS_PAGE_SIZE = 10;
 const RUNS_CACHE_TTL = 60 * 1000;
 const AUTOCOMPLETE_REFRESH_INTERVAL = 5 * 60 * 1000;
+const LEGACY_TRIGGER_TEAM_ROUTE_SEGMENT = 'team';
+
+function normalizeTriggerOwnerPath(value?: string | null) {
+  return (value || '').trim().replace(/^\/+|\/+$/g, '').replace(/\/+/g, '/');
+}
+
+function decodeTriggerOwnerSegments(segments: string[]) {
+  return normalizeTriggerOwnerPath(
+    segments
+      .filter(Boolean)
+      .map(segment => {
+        try {
+          return decodeURIComponent(segment);
+        } catch {
+          return segment;
+        }
+      })
+      .join('/')
+  );
+}
+
+function ownerScopedTriggerRoute(ownerPath?: string | null) {
+  const owner = normalizeTriggerOwnerPath(ownerPath);
+  if (!owner) return '/triggers';
+  const params = new URLSearchParams({ owner });
+  return `/triggers?${params.toString()}`;
+}
+
 function TriggersPage({
   canDeleteTriggers = false,
 }: {
@@ -54,8 +86,9 @@ function TriggersPage({
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
 
-  const [activeTeam, setActiveTeam] = useState('');
+  const [activeOwner, setActiveOwner] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [sourceFilter, setSourceFilter] = useState<TriggerSourceFilter>('all');
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -439,24 +472,18 @@ function TriggersPage({
     [loadMoreRuns, recentRuns.length],
   );
 
-  const parentTeam = (path: string) => {
-    const parts = path.split('/').filter(Boolean);
-    parts.pop();
-    return parts.join('/');
-  };
-
-  const teamForSlug = (slug: string) => {
+  const ownerForSlug = (slug: string) => {
     const parts = slug.split('/').filter(Boolean);
     parts.pop();
     return parts.join('/');
   };
 
-  const openTeam = (path: string) => {
-    const cleaned = path.trim().replace(/^\/+|\/+$/g, '');
-    setActiveTeam(cleaned);
+  const openOwner = (path: string) => {
+    const cleaned = normalizeTriggerOwnerPath(path);
+    setActiveOwner(cleaned);
     setSelectedSlug(null);
     selectedSlugRef.current = null;
-    navigate(teamScopedRoute('/triggers', cleaned));
+    navigate(ownerScopedTriggerRoute(cleaned));
   };
 
   const handleSelectSlug = useCallback((slug: string) => {
@@ -470,14 +497,14 @@ function TriggersPage({
       navigate('/triggers');
       return;
     }
-    openTeam(teamForSlug(detail.slug));
+    openOwner(ownerForSlug(detail.slug));
   };
 
-  const permissionTeam = selectedSlug ? teamForSlug(selectedSlug) : activeTeam;
+  const permissionOwner = selectedSlug ? ownerForSlug(selectedSlug) : activeOwner;
   const {
     canCreateTriggerHere,
     canUpdateSelectedTrigger,
-  } = useTriggerPermissions(permissionTeam, selectedSlug);
+  } = useTriggerPermissions(permissionOwner, selectedSlug);
 
   const handleTriggerSaved = useCallback((updated: TriggerDetail) => {
     setDetail(updated);
@@ -516,7 +543,7 @@ function TriggersPage({
     canCreateTriggerHere,
     canUpdateSelectedTrigger,
     canDeleteTriggers,
-    permissionTeam,
+    permissionOwner,
     detail,
     editorValue,
     validationErrorCount: validation.errors.length,
@@ -561,8 +588,8 @@ function TriggersPage({
   useEffect(() => {
     const segments = location.pathname.split('/').filter(Boolean);
     if (segments[0] !== 'triggers') return;
-    const isTeamRoute = segments[1] === TEAM_ROUTE_SEGMENT;
-    if (isTeamRoute) {
+    const isLegacyTeamRoute = segments[1] === LEGACY_TRIGGER_TEAM_ROUTE_SEGMENT;
+    if (isLegacyTeamRoute) {
       setSelectedSlug(null);
       selectedSlugRef.current = null;
     } else if (segments.length > 1) {
@@ -577,11 +604,11 @@ function TriggersPage({
     }
 
     const params = new URLSearchParams(location.search);
-    const routeTeam = isTeamRoute ? decodeTeamRouteSegments(segments.slice(2)) : '';
-    const team = routeTeam || params.get('team') || '';
-    setActiveTeam(team);
-    if (!isTeamRoute && segments.length === 1 && params.get('team')) {
-      navigate(teamScopedRoute('/triggers', team), { replace: true });
+    const routeOwner = isLegacyTeamRoute ? decodeTriggerOwnerSegments(segments.slice(2)) : '';
+    const owner = normalizeTriggerOwnerPath(routeOwner || params.get('owner') || params.get('team') || '');
+    setActiveOwner(owner);
+    if (isLegacyTeamRoute || (segments.length === 1 && params.get('team'))) {
+      navigate(ownerScopedTriggerRoute(owner), { replace: true });
     }
   }, [location.pathname, location.search, navigate]);
 
@@ -649,53 +676,25 @@ function TriggersPage({
   }, [detail]);
 
   const filteredTriggers = useMemo(() => {
-    const query = searchTerm.trim().toLowerCase();
-    if (!query) return serverTriggers;
-    return serverTriggers.filter(item => item.slug.toLowerCase().includes(query));
-  }, [serverTriggers, searchTerm]);
+    return filterTriggerListItems(serverTriggers, { query: searchTerm, source: sourceFilter });
+  }, [serverTriggers, searchTerm, sourceFilter]);
+
+  const workspaceOwner = selectedSlug ? ownerForSlug(selectedSlug) : activeOwner;
 
   const visibleTriggers = useMemo(() => {
     const list = searchTerm.trim()
       ? filteredTriggers
-      : filteredTriggers.filter(item => triggerSlugLabel(item.slug).path === (activeTeam || 'root'));
+      : filteredTriggers.filter(item => triggerBelongsToOwner(item.slug, workspaceOwner));
     return [...list].sort((a, b) => a.slug.localeCompare(b.slug, undefined, { sensitivity: 'base' }));
-  }, [filteredTriggers, searchTerm, activeTeam]);
+  }, [filteredTriggers, searchTerm, workspaceOwner]);
 
   const buildTree = useMemo(() => {
-    const root: TriggerTreeNode = { id: '__root__', name: '', fullPath: '', children: [], triggerSlugs: [] };
-    serverTriggers.forEach(item => {
-      const parts = item.slug.split('/').filter(Boolean);
-      const triggerName = parts.pop();
-      if (!triggerName) return;
-      let current = root;
-      let pathSoFar = '';
-      parts.forEach(segment => {
-        pathSoFar = pathSoFar ? `${pathSoFar}/${segment}` : segment;
-        let child = current.children.find(c => c.name === segment);
-        if (!child) {
-          child = { id: pathSoFar, name: segment, fullPath: pathSoFar, children: [], triggerSlugs: [] };
-          current.children.push(child);
-          current.children.sort((a, b) => a.name.localeCompare(b.name));
-        }
-        current = child;
-      });
-      current.triggerSlugs.push(item.slug);
-      current.triggerSlugs.sort((a, b) => a.localeCompare(b));
-    });
-    return root;
+    return buildTriggerTree(serverTriggers);
   }, [serverTriggers]);
 
-  const activeTeamNode = useMemo(() => {
-    if (!activeTeam) return buildTree;
-    const segments = activeTeam.split('/').filter(Boolean);
-    let current: TriggerTreeNode | null = buildTree;
-    for (const segment of segments) {
-      const nextNode: TriggerTreeNode | undefined = current?.children.find(child => child.name === segment);
-      if (!nextNode) return buildTree;
-      current = nextNode;
-    }
-    return current || buildTree;
-  }, [activeTeam, buildTree]);
+  const activeOwnerNode = useMemo(() => {
+    return findTriggerTreeNode(buildTree, workspaceOwner);
+  }, [workspaceOwner, buildTree]);
 
   const handleIndentTab = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const el = event.currentTarget;
@@ -751,85 +750,103 @@ function TriggersPage({
 
   return (
     <div data-page="triggers" className="active h-full flex flex-col">
-      {!selectedSlug && (
-        <TriggerCollectionToolbar
-          activeTeam={activeTeam}
-          searchTerm={searchTerm}
-          searchOpen={searchOpen}
-          searchInputRef={searchInputRef}
-          canCreateTriggerHere={canCreateTriggerHere}
-          onBack={() => openTeam(parentTeam(activeTeam))}
-          onSearchTermChange={setSearchTerm}
-          onSearchOpenChange={setSearchOpen}
-          onCreate={openCreateModal}
-        />
-      )}
+      <TriggerCollectionToolbar
+        searchTerm={searchTerm}
+        sourceFilter={sourceFilter}
+        searchOpen={searchOpen}
+        searchInputRef={searchInputRef}
+        canCreateTriggerHere={canCreateTriggerHere}
+        onSearchTermChange={setSearchTerm}
+        onSourceFilterChange={setSourceFilter}
+        onSearchOpenChange={setSearchOpen}
+        onCreate={openCreateModal}
+      />
 
       <div className="flex-1 overflow-auto px-6 pb-8 triggers-content">
-        {!selectedSlug ? (
-          <TriggerCollectionList
-            listLoading={listLoading}
-            listError={listError}
-            visibleTriggers={visibleTriggers}
-            activeTeamNode={activeTeamNode}
-            searchTerm={searchTerm}
-            selectedSlug={selectedSlug}
-            canCreateTriggerHere={canCreateTriggerHere}
-            canDeleteTriggers={canDeleteTriggers}
-            onSelectTrigger={handleSelectSlug}
-            onOpenTeam={openTeam}
-            onDeleteTrigger={openDeleteModal}
-          />
-        ) : detailLoading ? (
-          <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Loading trigger…</div>
-        ) : detailError ? (
-          <div className="glass-card p-5 text-sm text-red-500">Failed to load trigger: {detailError}</div>
+        {selectedSlug ? (
+          <section className="triggers-detail-fullscreen triggers-detail-fullscreen--with-tree" aria-label="Trigger detail">
+            <TriggerExplorerTree
+              rootNode={buildTree}
+              allTriggers={serverTriggers}
+              activeOwner={workspaceOwner}
+              selectedSlug={selectedSlug}
+              onOpenOwner={openOwner}
+              onSelectTrigger={handleSelectSlug}
+            />
+            <div className="triggers-detail-fullscreen-main">
+              {selectedSlug && detailLoading ? (
+                <div className="triggers-detail-pane-empty">Loading trigger...</div>
+              ) : selectedSlug && detailError ? (
+                <div className="triggers-detail-pane-empty triggers-workspace-empty--error">Failed to load trigger: {detailError}</div>
+              ) : (
+                <TriggerDetailView
+                  detail={detail}
+                  isEditing={isEditing}
+                  editorValue={editorValue}
+                  validationErrors={validation.errors}
+                  validationErrorLines={validationErrorLines}
+                  editorSuggestion={editorSuggestion}
+                  autocompleteLoading={autocompleteMeta.loading}
+                  editorRef={editorRef}
+                  highlightContentRef={highlightContentRef}
+                  lineNumbersRef={lineNumbersRef}
+                  canUpdateSelectedTrigger={canUpdateSelectedTrigger}
+                  canCreateTriggerHere={canCreateTriggerHere}
+                  canDeleteSelectedTrigger={canDeleteTriggers}
+                  saving={saving}
+                  linkedPipelines={linkedPipelines}
+                  pipelineMetadata={pipelineMetaCacheRef.current}
+                  pipelineSourceIndex={pipelineSourceIndexRef.current}
+                  recentRuns={recentRuns}
+                  runsLoading={runsLoading}
+                  runsError={runsError}
+                  runsScrollable={recentRuns.length >= INITIAL_RECENT_RUNS}
+                  recentRunsListRef={recentRunsListRef}
+                  onBack={handleBackToList}
+                  onOpenScope={scope => navigate(`/scopes/${scope ? encodeURIComponent(scope) : 'default'}`)}
+                  onOpenPipeline={identifier => navigate(`/pipelines/${identifier.split('/').map(encodeURIComponent).join('/')}`)}
+                  onOpenRun={runId => {
+                    navigate(`${buildPipelineRunsRoute('recent')}?run=${encodeURIComponent(runId)}`);
+                  }}
+                  onRecentRunsScroll={handleRecentRunsScroll}
+                  onCopy={() => void handleCopyYaml()}
+                  onDownload={handleDownloadYaml}
+                  onEdit={() => setIsEditing(true)}
+                  onClone={openCloneModal}
+                  onDelete={() => openDeleteModal(detail?.slug || selectedSlug)}
+                  onDiscard={discardEditorChanges}
+                  onSave={() => void handleSave()}
+                  onEditorTextChange={handleEditorTextChange}
+                  onOpenSuggestion={openEditorSuggestion}
+                  onMoveSuggestion={moveEditorSuggestion}
+                  onDismissSuggestion={() => setEditorSuggestion(null)}
+                  onSelectSuggestion={applyEditorSuggestion}
+                  onEditorScroll={handleEditorScroll}
+                  onIndentTab={handleIndentTab}
+                  onAutoIndentEnter={handleAutoIndentEnter}
+                />
+              )}
+            </div>
+          </section>
         ) : (
-          <TriggerDetailView
-            detail={detail}
-            isEditing={isEditing}
-            editorValue={editorValue}
-            validationErrors={validation.errors}
-            validationErrorLines={validationErrorLines}
-            editorSuggestion={editorSuggestion}
-            autocompleteLoading={autocompleteMeta.loading}
-            editorRef={editorRef}
-            highlightContentRef={highlightContentRef}
-            lineNumbersRef={lineNumbersRef}
-            canUpdateSelectedTrigger={canUpdateSelectedTrigger}
-            canCreateTriggerHere={canCreateTriggerHere}
-            saving={saving}
-            linkedPipelines={linkedPipelines}
-            pipelineMetadata={pipelineMetaCacheRef.current}
-            pipelineSourceIndex={pipelineSourceIndexRef.current}
-            recentRuns={recentRuns}
-            runsLoading={runsLoading}
-            runsError={runsError}
-            runsScrollable={recentRuns.length >= INITIAL_RECENT_RUNS}
-            recentRunsListRef={recentRunsListRef}
-            onBack={handleBackToList}
-            onOpenScope={scope => navigate(`/scopes/${scope ? encodeURIComponent(scope) : 'default'}`)}
-            onOpenPipeline={identifier => navigate(`/pipelines/${identifier.split('/').map(encodeURIComponent).join('/')}`)}
-            onOpenRun={runId => {
-              const team = detail ? teamForSlug(detail.slug) : activeTeam;
-              navigate(`${buildPipelineRunsRoute('recent', team)}?run=${encodeURIComponent(runId)}`);
-            }}
-            onRecentRunsScroll={handleRecentRunsScroll}
-            onCopy={() => void handleCopyYaml()}
-            onDownload={handleDownloadYaml}
-            onEdit={() => setIsEditing(true)}
-            onClone={openCloneModal}
-            onDiscard={discardEditorChanges}
-            onSave={() => void handleSave()}
-            onEditorTextChange={handleEditorTextChange}
-            onOpenSuggestion={openEditorSuggestion}
-            onMoveSuggestion={moveEditorSuggestion}
-            onDismissSuggestion={() => setEditorSuggestion(null)}
-            onSelectSuggestion={applyEditorSuggestion}
-            onEditorScroll={handleEditorScroll}
-            onIndentTab={handleIndentTab}
-            onAutoIndentEnter={handleAutoIndentEnter}
-          />
+          <div className="triggers-workspace-panel triggers-workspace-panel--trigger-browser triggers-workspace-panel--summary">
+            <TriggerCollectionList
+              listLoading={listLoading}
+              listError={listError}
+              allTriggers={serverTriggers}
+              visibleTriggers={visibleTriggers}
+              treeRoot={buildTree}
+              activeOwnerNode={activeOwnerNode}
+              activeOwner={workspaceOwner}
+              searchTerm={searchTerm}
+              selectedSlug={selectedSlug}
+              canCreateTriggerHere={canCreateTriggerHere}
+              canDeleteTriggers={canDeleteTriggers}
+              onSelectTrigger={handleSelectSlug}
+              onOpenOwner={openOwner}
+              onDeleteTrigger={openDeleteModal}
+            />
+          </div>
         )}
       </div>
 

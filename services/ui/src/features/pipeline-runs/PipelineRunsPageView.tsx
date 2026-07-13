@@ -273,7 +273,7 @@ export function PipelineRunsPageView({
                   <button
                     type="button"
                     onClick={() => void handleBulkDelete()}
-                    className="inline-flex items-center px-3 py-1.5 border border-transparent rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="inline-flex items-center px-3 py-1.5 border border-transparent rounded-md text-[var(--text-button)] bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Delete Selected
                   </button>

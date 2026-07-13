@@ -14,6 +14,8 @@ export type GitWebhookSource = {
   credential_ref?: string;
   repository_allowlist: string[];
   rate_limit: Record<string, unknown>;
+  team_path?: string;
+  run_team_path?: string;
   created_by?: string;
   created_at?: string;
   updated_at?: string;
@@ -45,6 +47,7 @@ export type GitWebhookSourceFormState = {
   provider: GitWebhookProvider;
   enabled: boolean;
   authMode: GitWebhookAuthMode;
+  teamPath: string;
   credentialRef: string;
   repositoryAllowlistText: string;
   rateLimitPerMinute: string;
@@ -56,10 +59,25 @@ export type GitWebhookSourceRequest = {
   description: string;
   provider: GitWebhookProvider;
   enabled: boolean;
+  team_path: string;
   auth_mode: GitWebhookAuthMode;
   credential_ref?: string;
   repository_allowlist: string[];
   rate_limit: Record<string, number>;
+};
+
+export type GitWebhookSourceMetrics = {
+  total: number;
+  enabled: number;
+  gitManaged: number;
+  secured: number;
+};
+
+export type GitWebhookSourceTreeItem = {
+  id: string;
+  label: string;
+  path: string;
+  source?: string;
 };
 
 export const emptyGitWebhookSourceForm: GitWebhookSourceFormState = {
@@ -69,10 +87,46 @@ export const emptyGitWebhookSourceForm: GitWebhookSourceFormState = {
   provider: 'generic',
   enabled: true,
   authMode: 'hmac',
+  teamPath: 'root',
   credentialRef: '',
   repositoryAllowlistText: '',
   rateLimitPerMinute: '',
 };
+
+export function buildGitWebhookSourceMetrics(
+  sources: readonly GitWebhookSource[]
+): GitWebhookSourceMetrics {
+  return sources.reduce<GitWebhookSourceMetrics>(
+    (metrics, source) => ({
+      total: metrics.total + 1,
+      enabled: metrics.enabled + (source.enabled ? 1 : 0),
+      gitManaged: metrics.gitManaged + (source.managed_by_config_repo ? 1 : 0),
+      secured: metrics.secured + (source.auth_mode !== 'none' && source.credential_ref ? 1 : 0),
+    }),
+    { total: 0, enabled: 0, gitManaged: 0, secured: 0 }
+  );
+}
+
+export function filterGitWebhookSources(
+  sources: readonly GitWebhookSource[],
+  query: string
+): GitWebhookSource[] {
+  const term = query.trim().toLowerCase();
+  if (!term) return [...sources];
+  return sources.filter(source => [
+    source.id,
+    source.name,
+    source.description,
+    source.provider,
+    source.auth_mode,
+    gitWebhookSourceTeamLabel(source),
+    gitWebhookSourceTeamPath(source),
+    source.credential_ref,
+    source.source,
+    sourceStatusLabel(source),
+    ...source.repository_allowlist,
+  ].join(' ').toLowerCase().includes(term));
+}
 
 export function gitWebhookSourceForm(source?: GitWebhookSource): GitWebhookSourceFormState {
   if (!source) return { ...emptyGitWebhookSourceForm };
@@ -84,6 +138,7 @@ export function gitWebhookSourceForm(source?: GitWebhookSource): GitWebhookSourc
     provider: source.provider,
     enabled: source.enabled,
     authMode: source.auth_mode,
+    teamPath: gitWebhookSourceTeamPath(source) || 'root',
     credentialRef: source.credential_ref || '',
     repositoryAllowlistText: source.repository_allowlist.join('\n'),
     rateLimitPerMinute: perMinute ? String(perMinute) : '',
@@ -123,6 +178,7 @@ export function gitWebhookSourceRequest(form: GitWebhookSourceFormState): GitWeb
     description: form.description.trim(),
     provider: form.provider,
     enabled: form.enabled,
+    team_path: normalizeGitWebhookSourceTeamPath(form.teamPath) || 'root',
     auth_mode: form.authMode,
     credential_ref: form.authMode === 'none' ? undefined : credentialRef,
     repository_allowlist: repositoryAllowlist,
@@ -134,6 +190,37 @@ export function sourceStatusLabel(source: GitWebhookSource): string {
   if (!source.enabled) return 'Disabled';
   if (source.auth_mode !== 'none' && !source.credential_ref) return 'Credential required';
   return 'Enabled';
+}
+
+export function gitWebhookSourceTeamPath(source: GitWebhookSource): string {
+  return normalizeGitWebhookSourceTeamPath(source.team_path || source.run_team_path);
+}
+
+export function gitWebhookSourceTeamLabel(source: GitWebhookSource): string {
+  return gitWebhookSourceTeamPath(source) || 'Global';
+}
+
+export function gitWebhookSourceBelongsToTeam(
+  source: GitWebhookSource,
+  activeTeamPath: string
+): boolean {
+  const active = normalizeGitWebhookSourceTeamPath(activeTeamPath);
+  if (!active) return true;
+  const teamPath = gitWebhookSourceTeamPath(source);
+  return teamPath === active || teamPath.startsWith(`${active}/`);
+}
+
+export function buildGitWebhookSourceTreeItems(
+  sources: readonly GitWebhookSource[]
+): GitWebhookSourceTreeItem[] {
+  return sources
+    .map(source => ({
+      id: source.id,
+      label: source.name || source.id,
+      path: gitWebhookSourceTeamPath(source),
+      source: source.source,
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label, undefined, { sensitivity: 'base' }));
 }
 
 export function deliveryStatusClass(status: string): string {
@@ -171,4 +258,12 @@ function isCredentialReference(value: string): boolean {
   const segmentPattern = /^[a-z0-9][a-z0-9._-]*$/;
   return segmentPattern.test(match[1]) &&
     match[2].split('/').every(segment => segmentPattern.test(segment));
+}
+
+function normalizeGitWebhookSourceTeamPath(value?: string): string {
+  return String(value || '')
+    .trim()
+    .replace(/\/+/g, '/')
+    .replace(/^\/+|\/+$/g, '')
+    .replace(/^root$/i, '');
 }

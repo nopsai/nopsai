@@ -29,7 +29,7 @@ type FileSavePickerWindow = Window & {
 };
 
 const actionClass =
-  'inline-flex items-center gap-2 rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 py-1.5 text-xs font-semibold text-[var(--text-primary)] transition hover:border-indigo-300/60 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10';
+  'inline-flex items-center gap-2 rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 py-1.5 text-xs font-semibold text-[var(--text-primary)] transition hover:border-indigo-300/60 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-white/5 dark:text-[var(--text-primary)] dark:hover:bg-white/10';
 
 export function RunFinalOutputs({ runID, outputs = [] }: RunFinalOutputsProps) {
   const [previewID, setPreviewID] = useState<string | null>(null);

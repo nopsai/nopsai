@@ -114,6 +114,7 @@ func filterDelegatedConfigResources(
 	steps map[string]storedStep,
 	schedules map[string]storedSchedule,
 	externalTriggers map[string]storedExternalTrigger,
+	gitWebhookSources map[string]storedGitWebhookSource,
 	notificationRoutes map[string]storedNotificationRoute,
 	knowledgeContexts map[string]storedKnowledgeContext,
 	generalScopeVars map[generalScopeVarKey]storedScopeVar,
@@ -148,6 +149,11 @@ func filterDelegatedConfigResources(
 	for key, trigger := range externalTriggers {
 		if configsync.ResourceUnderAnyScope(externalTriggerConfigScope(trigger.input), overrideScopes) {
 			delete(externalTriggers, key)
+		}
+	}
+	for key, source := range gitWebhookSources {
+		if configsync.ResourceUnderAnyScope(effectiveGitWebhookSourceTeamPath(source.input), overrideScopes) {
+			delete(gitWebhookSources, key)
 		}
 	}
 	for key, route := range notificationRoutes {

@@ -91,12 +91,12 @@ func (a *App) handleCreateGitWebhookSource(w http.ResponseWriter, r *http.Reques
 	createdBy := formatSubjectLabel(subject.Type, firstNonEmptyString(subject.ID, subject.Sub, subject.Email))
 	_, err = a.db.Exec(r.Context(), `
 		INSERT INTO git_webhook_sources (
-			id, name, description, provider, enabled, auth_mode, credential_ref,
+			id, name, description, provider, enabled, team_path, auth_mode, credential_ref,
 			repository_allowlist, rate_limit, created_by
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10)
-	`, source.ID, source.Name, source.Description, source.Provider, source.Enabled, source.AuthMode,
-		source.CredentialRef, string(allowlistJSON), string(rateLimitJSON), createdBy)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11)
+	`, source.ID, source.Name, source.Description, source.Provider, source.Enabled, source.TeamPath,
+		source.AuthMode, source.CredentialRef, string(allowlistJSON), string(rateLimitJSON), createdBy)
 	if err != nil {
 		if isUniqueViolation(err) {
 			http.Error(w, "git webhook source already exists", http.StatusConflict)
@@ -165,10 +165,11 @@ func (a *App) handleUpdateGitWebhookSource(w http.ResponseWriter, r *http.Reques
 		    description = $3,
 		    provider = $4,
 		    enabled = $5,
-		    auth_mode = $6,
-		    credential_ref = $7,
-		    repository_allowlist = $8::jsonb,
-		    rate_limit = $9::jsonb,
+		    team_path = $6,
+		    auth_mode = $7,
+		    credential_ref = $8,
+		    repository_allowlist = $9::jsonb,
+		    rate_limit = $10::jsonb,
 		    source = 'database',
 		    config_repo_id = NULL,
 		    config_source_path = '',
@@ -176,8 +177,8 @@ func (a *App) handleUpdateGitWebhookSource(w http.ResponseWriter, r *http.Reques
 		    managed_by_config_repo = FALSE,
 		    updated_at = NOW()
 		WHERE id = $1
-	`, id, source.Name, source.Description, source.Provider, source.Enabled, source.AuthMode,
-		source.CredentialRef, string(allowlistJSON), string(rateLimitJSON))
+	`, id, source.Name, source.Description, source.Provider, source.Enabled, source.TeamPath,
+		source.AuthMode, source.CredentialRef, string(allowlistJSON), string(rateLimitJSON))
 	if err != nil {
 		http.Error(w, "failed to update git webhook source", http.StatusInternalServerError)
 		return
