@@ -634,16 +634,10 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 			return nil, err
 		}
 		return append(out, teamAncestors...), nil
-	case "external_trigger", "git_webhook_source":
-		triggerID := strings.Trim(strings.TrimSpace(resource.ID), "/")
-		if triggerID == "" {
-			return nil, nil
-		}
-		triggerPath, _ := model.SplitPipelineID(triggerID)
-		if strings.TrimSpace(triggerPath) == "" {
-			return generalTeamAncestors(), nil
-		}
-		return s.containingTeamAncestors(ctx, triggerPath)
+	case "external_trigger":
+		return s.externalTriggerTeamAncestors(ctx, resource.ID)
+	case "git_webhook_source":
+		return s.gitWebhookSourceTeamAncestors(ctx, resource.ID)
 	case "knowledge_context":
 		parts := strings.Split(strings.Trim(strings.TrimSpace(resource.ID), "/"), "/")
 		if len(parts) < 3 {
@@ -962,6 +956,63 @@ func repositoryIDTeamAncestors(repoID string) []model.InheritedResource {
 		return generalTeamAncestors()
 	}
 	return prefixTeamResources(segments[:len(segments)-1], true)
+}
+
+func (s *PGStore) externalTriggerTeamAncestors(ctx context.Context, triggerID string) ([]model.InheritedResource, error) {
+	triggerID = strings.Trim(strings.TrimSpace(triggerID), "/")
+	if triggerID == "" {
+		return nil, nil
+	}
+
+	var teamPath string
+	if err := s.db.QueryRow(ctx, `
+		SELECT COALESCE(run_team_path, '')
+		FROM external_triggers
+		WHERE id = $1
+	`, triggerID).Scan(&teamPath); err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
+		return s.automationResourceTeamAncestors(ctx, triggerID, "")
+	}
+	return s.automationResourceTeamAncestors(ctx, triggerID, teamPath)
+}
+
+func (s *PGStore) gitWebhookSourceTeamAncestors(ctx context.Context, sourceID string) ([]model.InheritedResource, error) {
+	sourceID = strings.Trim(strings.TrimSpace(sourceID), "/")
+	if sourceID == "" {
+		return nil, nil
+	}
+
+	var teamPath string
+	if err := s.db.QueryRow(ctx, `
+		SELECT COALESCE(team_path, '')
+		FROM git_webhook_sources
+		WHERE id = $1
+	`, sourceID).Scan(&teamPath); err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
+		return s.automationResourceTeamAncestors(ctx, sourceID, "")
+	}
+	return s.automationResourceTeamAncestors(ctx, sourceID, teamPath)
+}
+
+func (s *PGStore) automationResourceTeamAncestors(ctx context.Context, resourceID, teamPath string) ([]model.InheritedResource, error) {
+	teamPath = strings.Trim(strings.TrimSpace(teamPath), "/")
+	if teamPath != "" {
+		return s.containingTeamAncestors(ctx, teamPath)
+	}
+
+	resourceID = strings.Trim(strings.TrimSpace(resourceID), "/")
+	if resourceID == "" {
+		return nil, nil
+	}
+	resourcePath, _ := model.SplitPipelineID(resourceID)
+	if strings.TrimSpace(resourcePath) == "" {
+		return generalTeamAncestors(), nil
+	}
+	return s.containingTeamAncestors(ctx, resourcePath)
 }
 
 func (s *PGStore) teamParentTeamAncestors(ctx context.Context, parentID *int) ([]model.InheritedResource, error) {
