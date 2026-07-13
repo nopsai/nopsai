@@ -16,7 +16,7 @@ export function MarkdownPreview({ content }: { content: string }) {
           a: props => <a className="text-blue-600 underline" target="_blank" rel="noreferrer" {...props} />,
           blockquote: props => <blockquote className="border-l-4 border-blue-300 pl-3 text-[var(--text-secondary)]" {...props} />,
           code: props => <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800" {...props} />,
-          pre: props => <pre className="overflow-auto bg-slate-950 p-3 text-xs text-slate-100" {...props} />,
+          pre: props => <pre className="overflow-auto bg-slate-950 p-3 text-xs text-slate-100 dark:text-[var(--text-primary)]" {...props} />,
           table: props => <table className="min-w-full border-collapse text-left text-xs" {...props} />,
           th: props => <th className="border border-[var(--border-primary)] bg-slate-100 px-3 py-2 font-bold dark:bg-slate-800" {...props} />,
           td: props => <td className="border border-[var(--border-primary)] px-3 py-2 align-top" {...props} />,

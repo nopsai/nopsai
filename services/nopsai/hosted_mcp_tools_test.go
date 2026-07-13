@@ -886,6 +886,33 @@ func TestHostedMCPUIContextIsContextualOnly(t *testing.T) {
 	}
 }
 
+func TestHostedMCPGitWebhookSourceProposalIncludesTeamPath(t *testing.T) {
+	result, err := hostedMCPProposeGitWebhookSource(map[string]any{
+		"id":                   "gitlab-platform",
+		"name":                 "GitLab Platform",
+		"team_path":            "platform/webhooks",
+		"provider":             "gitlab",
+		"auth_mode":            "static_token",
+		"credential_ref":       "credential://system/webhooks/gitlab-platform",
+		"repository_allowlist": []string{"platform/*"},
+	}, "create")
+	if err != nil {
+		t.Fatalf("hostedMCPProposeGitWebhookSource() error = %v", err)
+	}
+	gitops, ok := result["gitops"].(map[string]any)
+	if !ok {
+		t.Fatalf("gitops = %#v", result["gitops"])
+	}
+	files, ok := gitops["files"].([]map[string]any)
+	if !ok || len(files) != 1 {
+		t.Fatalf("files = %#v", gitops["files"])
+	}
+	content, _ := files[0]["content"].(string)
+	if !strings.Contains(content, "team_path: platform/webhooks") {
+		t.Fatalf("proposal content missing team_path:\n%s", content)
+	}
+}
+
 func TestHostedMCPSystemLogToolsArePermissionBoundAndBounded(t *testing.T) {
 	app := &App{aaaLocal: allowActionsForAssistantTest("system_log.read")}
 	tools := app.hostedMCPToolsForSubject(context.Background(), model.Subject{Type: model.SubjectTypeUser, Sub: "operator"})

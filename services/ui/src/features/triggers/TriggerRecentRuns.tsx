@@ -60,7 +60,7 @@ export function TriggerRecentRuns({
   return (
     <div className="glass-card overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b border-[var(--border-primary)]">
-        <h3 className="text-lg font-semibold text-[var(--text-primary)]">Recent PipelineRuns</h3>
+        <h3 className="text-lg font-semibold text-[var(--text-primary)]">Recent runs</h3>
       </div>
       <div className="p-4">
         {loading ? (

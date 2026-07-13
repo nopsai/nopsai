@@ -20,7 +20,7 @@ export function SpreadsheetPreview({ spreadsheet }: { spreadsheet: SpreadsheetSp
       )}
       <div className="max-h-[28rem] overflow-auto border border-[var(--border-primary)]">
         <table className="min-w-full border-collapse text-left text-xs">
-          <thead className="sticky top-0 z-10 bg-blue-50 text-slate-900 dark:bg-slate-800 dark:text-white">
+          <thead className="sticky top-0 z-10 bg-blue-50 text-slate-900 dark:bg-slate-800 dark:text-[var(--text-primary)]">
             <tr>{sheet.columns.map(column => <th key={column.key} className="whitespace-nowrap border-b border-r border-[var(--border-primary)] px-3 py-2 font-bold">{column.header}</th>)}</tr>
           </thead>
           <tbody>{sheet.rows.slice(0, maxPreviewRows).map((row, rowIndex) => <tr key={rowIndex} className="even:bg-slate-50 dark:even:bg-slate-900">{sheet.columns.map(column => <td key={column.key} className="max-w-80 border-b border-r border-[var(--border-primary)] px-3 py-2 align-top whitespace-pre-wrap break-words">{formatCell(row[column.key])}</td>)}</tr>)}</tbody>

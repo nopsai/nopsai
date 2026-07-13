@@ -202,9 +202,23 @@ func configRepositoryIncludesExternalTrigger(repo models.ConfigRepository, trigg
 	return configsync.ResourceUnderBindingScope(resourceScope, repo)
 }
 
-func (a *App) exportConfigRepositoryGitWebhookSources(ctx context.Context, repo models.ConfigRepository, files map[string]string) error {
+func configRepositoryIncludesGitWebhookSource(repo models.ConfigRepository, source gitWebhookSourceRecord, sourceType string, configRepoID sql.NullInt64, managed bool, delegatedScopes []string) bool {
+	resourceScope := effectiveGitWebhookSourceTeamPath(source)
+	if configsync.ResourceUnderAnyScope(resourceScope, delegatedScopes) {
+		return false
+	}
+	if managed && configRepoID.Valid {
+		return configRepoID.Int64 == repo.ID
+	}
+	if !strings.EqualFold(strings.TrimSpace(sourceType), "database") {
+		return false
+	}
+	return configsync.ResourceUnderBindingScope(resourceScope, repo)
+}
+
+func (a *App) exportConfigRepositoryGitWebhookSources(ctx context.Context, repo models.ConfigRepository, delegatedScopes []string, files map[string]string) error {
 	rows, err := a.db.Query(ctx, `
-		SELECT id, name, description, provider, enabled, auth_mode, credential_ref,
+		SELECT id, name, description, provider, enabled, COALESCE(team_path, ''), auth_mode, credential_ref,
 		       repository_allowlist, rate_limit, COALESCE(source, 'database'), config_repo_id,
 		       managed_by_config_repo, COALESCE(config_source_path, '')
 		FROM git_webhook_sources
@@ -227,6 +241,7 @@ func (a *App) exportConfigRepositoryGitWebhookSources(ctx context.Context, repo 
 			&source.Description,
 			&source.Provider,
 			&source.Enabled,
+			&source.TeamPath,
 			&source.AuthMode,
 			&source.CredentialRef,
 			&allowlistJSON,
@@ -238,11 +253,7 @@ func (a *App) exportConfigRepositoryGitWebhookSources(ctx context.Context, repo 
 		); err != nil {
 			return err
 		}
-		if managed && configRepoID.Valid {
-			if configRepoID.Int64 != repo.ID {
-				continue
-			}
-		} else if repo.ScopeType != models.ConfigRepositoryScopeSystem || !strings.EqualFold(strings.TrimSpace(sourceType), "database") {
+		if !configRepositoryIncludesGitWebhookSource(repo, source, sourceType, configRepoID, managed, delegatedScopes) {
 			continue
 		}
 		_ = decodeJSONWithDefault(allowlistJSON, &source.RepositoryAllowlist, []string{})
@@ -258,6 +269,7 @@ func (a *App) exportConfigRepositoryGitWebhookSources(ctx context.Context, repo 
 			Description:         source.Description,
 			Provider:            source.Provider,
 			Enabled:             &enabled,
+			TeamPath:            source.TeamPath,
 			AuthMode:            source.AuthMode,
 			CredentialRef:       source.CredentialRef,
 			RepositoryAllowlist: source.RepositoryAllowlist,

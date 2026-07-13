@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"nopsai/pkg/models"
 	"nopsai/services/nopsai/internal/configsync"
@@ -165,7 +164,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 	if err != nil {
 		return err
 	}
-	filterDelegatedConfigResources(binding, overrideScopes, pipelines, steps, schedules, externalTriggers, notificationRoutes, knowledgeContexts, generalScopeVars, repoScopeVars, generalScopeSecrets, repoScopeSecrets, triggers)
+	filterDelegatedConfigResources(binding, overrideScopes, pipelines, steps, schedules, externalTriggers, gitWebhookSources, notificationRoutes, knowledgeContexts, generalScopeVars, repoScopeVars, generalScopeSecrets, repoScopeSecrets, triggers)
 	filterDelegatedAccessResources(accessPlan, binding, overrideScopes)
 	effectivePipelineRunStructure, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, configRepositoryPipelineRunStructure)
 	if err != nil {
@@ -303,19 +302,20 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			managed_by_config_repo = TRUE,
 			updated_at = NOW()`
 	const gitWebhookSourceUpsert = `INSERT INTO git_webhook_sources (
-			id, name, description, provider, enabled, auth_mode, credential_ref,
+			id, name, description, provider, enabled, team_path, auth_mode, credential_ref,
 			repository_allowlist, rate_limit, created_by, source,
 			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7,
-			$8::jsonb, $9::jsonb, 'config-repo', 'git',
-			$10, $11, $12, TRUE, NOW()
+			$1, $2, $3, $4, $5, $6, $7, $8,
+			$9::jsonb, $10::jsonb, 'config-repo', 'git',
+			$11, $12, $13, TRUE, NOW()
 		)
 		ON CONFLICT (id) DO UPDATE SET
 			name = EXCLUDED.name,
 			description = EXCLUDED.description,
 			provider = EXCLUDED.provider,
 			enabled = EXCLUDED.enabled,
+			team_path = EXCLUDED.team_path,
 			auth_mode = EXCLUDED.auth_mode,
 			credential_ref = EXCLUDED.credential_ref,
 			repository_allowlist = EXCLUDED.repository_allowlist,
@@ -618,10 +618,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 
 	// K. Upsert Git Webhook Sources
 	for key, stored := range gitWebhookSources {
-		resourceScope := rootGrantID
-		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
-			resourceScope = strings.Trim(strings.TrimSpace(binding.ScopeID), "/")
-		}
+		resourceScope := effectiveGitWebhookSourceTeamPath(stored.input)
 		writable, err := ensureConfigResourceWritable(
 			ctx,
 			tx,
@@ -653,6 +650,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			stored.input.Description,
 			stored.input.Provider,
 			stored.input.Enabled,
+			stored.input.TeamPath,
 			stored.input.AuthMode,
 			stored.input.CredentialRef,
 			string(allowlistJSON),

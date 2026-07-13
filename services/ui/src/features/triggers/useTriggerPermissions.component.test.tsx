@@ -13,11 +13,11 @@ beforeEach(() => {
   checkPermissionMock.mockReset();
 });
 
-test('coordinates team and selected trigger permissions', async () => {
+test('coordinates owner and selected trigger permissions', async () => {
   checkPermissionMock.mockImplementation(async (_action, resourceID) => resourceID.includes('acme/'));
   const { result, rerender } = renderHook(
-    ({ team, slug }) => useTriggerPermissions(team, slug),
-    { initialProps: { team: 'acme', slug: 'acme/service' as string | null } }
+    ({ owner, slug }) => useTriggerPermissions(owner, slug),
+    { initialProps: { owner: 'acme', slug: 'acme/service' as string | null } }
   );
 
   await waitFor(() => {
@@ -29,7 +29,7 @@ test('coordinates team and selected trigger permissions', async () => {
     'acme/__nopsai_permission_probe__'
   );
 
-  rerender({ team: '', slug: null });
+  rerender({ owner: '', slug: null });
   await waitFor(() => expect(result.current.canCreateTriggerHere).toBe(false));
   expect(result.current.canUpdateSelectedTrigger).toBe(false);
   expect(checkPermissionMock).toHaveBeenCalledWith('trigger.update', '__nopsai_permission_probe__');

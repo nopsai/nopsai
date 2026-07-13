@@ -264,7 +264,7 @@ func (a *App) exportConfigRepositoryFiles(ctx context.Context, repo models.Confi
 	if err := a.exportConfigRepositoryExternalTriggers(ctx, repo, delegatedScopes, files); err != nil {
 		return nil, err
 	}
-	if err := a.exportConfigRepositoryGitWebhookSources(ctx, repo, files); err != nil {
+	if err := a.exportConfigRepositoryGitWebhookSources(ctx, repo, delegatedScopes, files); err != nil {
 		return nil, err
 	}
 	if err := a.exportConfigRepositorySchedules(ctx, repo, delegatedScopes, files); err != nil {

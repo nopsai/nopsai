@@ -52,7 +52,7 @@ export const STATUS_META: Record<
   },
   pending: {
     text: 'Pending',
-    pillClass: 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800/40 dark:text-gray-200 dark:border-gray-700',
+    pillClass: 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800/40 dark:text-[var(--text-primary)] dark:border-gray-700',
     icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z',
     strokeClass: 'text-gray-500',
     border: 'border-gray-500/60',
@@ -60,7 +60,7 @@ export const STATUS_META: Record<
   },
   skipped: {
     text: 'Skipped',
-    pillClass: 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800/60 dark:text-slate-200 dark:border-slate-700',
+    pillClass: 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800/60 dark:text-[var(--text-primary)] dark:border-slate-700',
     icon: 'M6 12h12M12 3a9 9 0 110 18 9 9 0 010-18z',
     strokeClass: 'text-slate-500',
     border: 'border-slate-500/60',
@@ -87,4 +87,3 @@ export function getStatusMeta(status: string | undefined, complete?: boolean) {
   const normalized = normalizeStatus(status, complete);
   return STATUS_META[normalized] || STATUS_META.pending;
 }
-

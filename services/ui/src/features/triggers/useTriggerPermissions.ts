@@ -3,28 +3,28 @@ import { checkTriggerPermission } from './api';
 
 const TRIGGER_PERMISSION_PROBE_NAME = '__nopsai_permission_probe__';
 
-function buildPermissionProbeRepository(team: string) {
-  const cleaned = team.trim().replace(/^\/+|\/+$/g, '');
+function buildPermissionProbeRepository(owner: string) {
+  const cleaned = owner.trim().replace(/^\/+|\/+$/g, '');
   return cleaned ? `${cleaned}/${TRIGGER_PERMISSION_PROBE_NAME}` : TRIGGER_PERMISSION_PROBE_NAME;
 }
 
-export function useTriggerPermissions(permissionTeam: string, selectedSlug: string | null) {
-  const [createPermission, setCreatePermission] = useState<{ team: string; allowed: boolean } | null>(null);
+export function useTriggerPermissions(permissionOwner: string, selectedSlug: string | null) {
+  const [createPermission, setCreatePermission] = useState<{ owner: string; allowed: boolean } | null>(null);
   const [updatePermission, setUpdatePermission] = useState<{ slug: string; allowed: boolean } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    void checkTriggerPermission('trigger.update', buildPermissionProbeRepository(permissionTeam))
+    void checkTriggerPermission('trigger.update', buildPermissionProbeRepository(permissionOwner))
       .then(allowed => {
-        if (!cancelled) setCreatePermission({ team: permissionTeam, allowed });
+        if (!cancelled) setCreatePermission({ owner: permissionOwner, allowed });
       })
       .catch(() => {
-        if (!cancelled) setCreatePermission({ team: permissionTeam, allowed: false });
+        if (!cancelled) setCreatePermission({ owner: permissionOwner, allowed: false });
       });
     return () => {
       cancelled = true;
     };
-  }, [permissionTeam]);
+  }, [permissionOwner]);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,7 +48,7 @@ export function useTriggerPermissions(permissionTeam: string, selectedSlug: stri
 
   return {
     canCreateTriggerHere: Boolean(
-      createPermission?.team === permissionTeam && createPermission.allowed
+      createPermission?.owner === permissionOwner && createPermission.allowed
     ),
     canUpdateSelectedTrigger: Boolean(
       updatePermission?.slug === selectedSlug && updatePermission.allowed

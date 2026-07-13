@@ -24,6 +24,20 @@ export type ExternalTrigger = {
   config_source_path?: string;
 };
 
+export type ExternalTriggerInvocation = {
+  id: string;
+  trigger_id: string;
+  caller_type: string;
+  caller_id: string;
+  status: string;
+  run_id?: string;
+  idempotency_key?: string;
+  event_type?: string;
+  source_ip?: string;
+  created_at?: string;
+  error?: string;
+};
+
 export type ExternalTriggerForm = {
   id: string;
   name: string;
@@ -48,14 +62,88 @@ export type SelectOption = {
   label: string;
 };
 
+export type ExternalTriggerCollectionMetrics = {
+  total: number;
+  enabled: number;
+  gitManaged: number;
+  callerPolicies: number;
+};
+
+export type ExternalTriggerTreeItem = {
+  id: string;
+  label: string;
+  path: string;
+  source?: string;
+};
+
+export function externalTriggerSourceLabel(trigger: ExternalTrigger) {
+  return trigger.managed_by_config_repo ? 'GitOps' : trigger.source || 'Database';
+}
+
+export function buildExternalTriggerCollectionMetrics(
+  triggers: readonly ExternalTrigger[]
+): ExternalTriggerCollectionMetrics {
+  return triggers.reduce<ExternalTriggerCollectionMetrics>(
+    (metrics, trigger) => ({
+      total: metrics.total + 1,
+      enabled: metrics.enabled + (trigger.enabled ? 1 : 0),
+      gitManaged: metrics.gitManaged + (trigger.managed_by_config_repo ? 1 : 0),
+      callerPolicies: metrics.callerPolicies + ((trigger.allowed_callers || []).length ? 1 : 0),
+    }),
+    { total: 0, enabled: 0, gitManaged: 0, callerPolicies: 0 }
+  );
+}
+
+export function filterExternalTriggers(
+  triggers: readonly ExternalTrigger[],
+  query: string
+): ExternalTrigger[] {
+  const term = query.trim().toLowerCase();
+  if (!term) return [...triggers];
+  return triggers.filter(trigger => [
+    trigger.id,
+    trigger.name,
+    trigger.description,
+    trigger.pipeline,
+    trigger.scope,
+    trigger.run_team_path,
+    externalTriggerSourceLabel(trigger),
+    ...(trigger.allowed_callers || []).flatMap(caller => [caller.type, caller.id]),
+  ].join(' ').toLowerCase().includes(term));
+}
+
 export function externalTriggerScopeLabel(scope?: string) {
   const normalized = normalizeExternalTriggerIdentifier(scope);
   return normalized.toLowerCase() === 'default' || !normalized ? 'default' : normalized;
 }
 
 export function externalTriggerTeamLabel(path?: string) {
+  return externalTriggerTeamPath(path) || 'Root';
+}
+
+export function externalTriggerTeamPath(path?: string) {
   const normalized = normalizeExternalTriggerIdentifier(path);
-  return normalized === 'root' || !normalized ? 'Root' : normalized;
+  return normalized.toLowerCase() === 'root' ? '' : normalized;
+}
+
+export function externalTriggerBelongsToTeam(trigger: ExternalTrigger, activeTeamPath: string) {
+  const active = externalTriggerTeamPath(activeTeamPath);
+  if (!active) return true;
+  const teamPath = externalTriggerTeamPath(trigger.run_team_path);
+  return teamPath === active || teamPath.startsWith(`${active}/`);
+}
+
+export function buildExternalTriggerTreeItems(
+  triggers: readonly ExternalTrigger[]
+): ExternalTriggerTreeItem[] {
+  return triggers
+    .map(trigger => ({
+      id: trigger.id,
+      label: trigger.name || trigger.id,
+      path: externalTriggerTeamPath(trigger.run_team_path),
+      source: trigger.source,
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label, undefined, { sensitivity: 'base' }));
 }
 
 export function externalTriggerRelativeLabel(value?: string, now = Date.now()) {

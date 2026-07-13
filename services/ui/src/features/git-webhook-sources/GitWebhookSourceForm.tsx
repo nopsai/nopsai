@@ -11,6 +11,8 @@ export function GitWebhookSourceForm({
   form,
   saving,
   error,
+  teamPaths,
+  teamPathsLoading = false,
   onChange,
   onClose,
   onSubmit,
@@ -19,6 +21,8 @@ export function GitWebhookSourceForm({
   form: GitWebhookSourceFormState;
   saving: boolean;
   error: string | null;
+  teamPaths: string[];
+  teamPathsLoading?: boolean;
   onChange: (form: GitWebhookSourceFormState) => void;
   onClose: () => void;
   onSubmit: React.FormEventHandler<HTMLFormElement>;
@@ -29,6 +33,7 @@ export function GitWebhookSourceForm({
   ) => onChange({ ...form, [key]: value });
   const titleId = 'git-webhook-source-form-title';
   const errorId = 'git-webhook-source-form-error';
+  const teamOptions = uniqueTeamOptions([...teamPaths, form.teamPath]);
 
   return (
     <WorkflowFormDialog
@@ -87,6 +92,17 @@ export function GitWebhookSourceForm({
           >
             {GIT_WEBHOOK_PROVIDERS.map(provider => (
               <option key={provider} value={provider}>{provider}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Team" hint={teamPathsLoading ? 'Loading teams...' : 'Controls where this source appears and which GitOps repo may own it.'}>
+          <select
+            className="pipelines-input w-full"
+            value={form.teamPath}
+            onChange={event => update('teamPath', event.target.value)}
+          >
+            {teamOptions.map(path => (
+              <option key={path} value={path}>{path === 'root' ? 'Global' : `/${path}`}</option>
             ))}
           </select>
         </Field>
@@ -174,6 +190,18 @@ export function GitWebhookSourceForm({
       ) : null}
     </WorkflowFormDialog>
   );
+}
+
+function uniqueTeamOptions(paths: string[]): string[] {
+  const normalized = paths
+    .map(path => String(path || '').trim().replace(/^\/+|\/+$/g, '').replace(/\/+/g, '/'))
+    .map(path => path && path.toLowerCase() !== 'root' ? path : 'root');
+  return Array.from(new Set(['root', ...normalized]))
+    .sort((left, right) => {
+      if (left === 'root') return -1;
+      if (right === 'root') return 1;
+      return left.localeCompare(right);
+    });
 }
 
 function Field({

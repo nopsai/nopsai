@@ -118,8 +118,8 @@ const HELP_TOPICS: Record<string, HelpTopic> = {
     sections: [
       {
         title: 'What this page covers',
-        body: 'Git webhook sources define provider normalization, authentication, repository allowlists, delivery limits, GitOps ownership, and delivery audit history.',
-        example: 'provider: gitlab\nauth_mode: static_token\ncredential_ref: credential://system/webhooks/gitlab\nrepository_allowlist:\n  - platform/*',
+        body: 'Git webhook sources define provider normalization, team ownership, authentication, repository allowlists, delivery limits, GitOps ownership, and delivery audit history.',
+        example: 'team_path: platform\nprovider: gitlab\nauth_mode: static_token\ncredential_ref: credential://system/webhooks/gitlab\nrepository_allowlist:\n  - platform/*',
       },
     ],
   },

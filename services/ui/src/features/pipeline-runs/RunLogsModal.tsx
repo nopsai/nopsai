@@ -163,7 +163,7 @@ export function RunLogsModal({
     const normalized = level.toLowerCase();
     if (normalized === 'error') return 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-100';
     if (normalized === 'warn' || normalized === 'warning') return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-100';
-    if (normalized === 'debug') return 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200';
+    if (normalized === 'debug') return 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-[var(--text-primary)]';
     if (normalized === 'agent') return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-100';
     return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-100';
   };

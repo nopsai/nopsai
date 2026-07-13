@@ -6,6 +6,7 @@ import {
   fetchGitWebhookDeliveries,
   fetchGitWebhookSource,
   fetchGitWebhookSources,
+  fetchGitWebhookSourceTeamPaths,
   saveGitWebhookSource,
 } from './api.js';
 import type { GitWebhookSourceRequest } from './model.js';
@@ -16,6 +17,7 @@ const request: GitWebhookSourceRequest = {
   description: '',
   provider: 'gitlab',
   enabled: true,
+  team_path: 'platform',
   auth_mode: 'static_token',
   credential_ref: 'credential://system/webhooks/gitlab-platform',
   repository_allowlist: ['platform/*'],
@@ -61,6 +63,20 @@ test('normalizes malformed Git webhook source collection responses', async () =>
   try {
     assert.deepEqual(await fetchGitWebhookSources(), []);
     assert.deepEqual(await fetchGitWebhookDeliveries('source-1'), []);
+  } finally {
+    apiClient.fetch = originalFetch;
+  }
+});
+
+test('loads selectable team paths for Git webhook source ownership', async () => {
+  const originalFetch = apiClient.fetch;
+  apiClient.fetch = async input => {
+    assert.equal(String(input), '/v1/access/teams');
+    return Response.json([{ id: 'platform' }, { name: '/platform/prod' }]);
+  };
+
+  try {
+    assert.deepEqual(await fetchGitWebhookSourceTeamPaths(), ['platform', 'platform/prod']);
   } finally {
     apiClient.fetch = originalFetch;
   }

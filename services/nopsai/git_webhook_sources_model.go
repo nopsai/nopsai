@@ -28,6 +28,7 @@ type gitWebhookSourceRecord struct {
 	Description           string         `json:"description"`
 	Provider              string         `json:"provider"`
 	Enabled               bool           `json:"enabled"`
+	TeamPath              string         `json:"team_path"`
 	AuthMode              string         `json:"auth_mode"`
 	CredentialRef         string         `json:"credential_ref,omitempty"`
 	RepositoryAllowlist   []string       `json:"repository_allowlist"`
@@ -49,6 +50,7 @@ type gitWebhookSourceInput struct {
 	Description         string         `json:"description" yaml:"description,omitempty"`
 	Provider            string         `json:"provider" yaml:"provider"`
 	Enabled             *bool          `json:"enabled" yaml:"enabled,omitempty"`
+	TeamPath            string         `json:"team_path" yaml:"team_path,omitempty"`
 	AuthMode            string         `json:"auth_mode" yaml:"auth_mode"`
 	CredentialRef       string         `json:"credential_ref" yaml:"credential_ref,omitempty"`
 	RepositoryAllowlist []string       `json:"repository_allowlist" yaml:"repository_allowlist"`
@@ -93,6 +95,10 @@ func normalizeGitWebhookSourceInput(input gitWebhookSourceInput, pathID string) 
 	if name == "" {
 		name = id
 	}
+	teamPath, err := normalizeRunTeamPath(input.TeamPath)
+	if err != nil {
+		return gitWebhookSourceRecord{}, fmt.Errorf("invalid team_path: %w", err)
+	}
 	provider := strings.ToLower(strings.TrimSpace(input.Provider))
 	switch provider {
 	case gitwebhook.ProviderGeneric, gitwebhook.ProviderGitLab, gitwebhook.ProviderBitbucket, gitwebhook.ProviderGitea:
@@ -133,6 +139,7 @@ func normalizeGitWebhookSourceInput(input gitWebhookSourceInput, pathID string) 
 		Description:         strings.TrimSpace(input.Description),
 		Provider:            provider,
 		Enabled:             enabled,
+		TeamPath:            teamPath,
 		AuthMode:            authMode,
 		CredentialRef:       credentialRef,
 		RepositoryAllowlist: allowlist,

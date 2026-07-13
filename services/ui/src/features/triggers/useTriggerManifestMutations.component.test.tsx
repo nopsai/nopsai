@@ -47,7 +47,7 @@ function renderMutation(overrides: Partial<Parameters<typeof useTriggerManifestM
       canCreateTriggerHere: true,
       canUpdateSelectedTrigger: true,
       canDeleteTriggers: true,
-      permissionTeam: 'team',
+      permissionOwner: 'owner',
       detail,
       editorValue: detail.rawYaml,
       validationErrorCount: 0,
@@ -79,7 +79,7 @@ test('creates trigger manifests with repository templates and action-time author
   act(() => {
     result.current.openCreateModal();
   });
-  expect(result.current.createModal?.repository).toBe('team/new-repository');
+  expect(result.current.createModal?.repository).toBe('owner/new-repository');
   expect(result.current.createModal?.yamlPreview).toContain('pipelines/new-repository.yaml');
 
   act(() => {
@@ -101,7 +101,7 @@ test('creates trigger manifests with repository templates and action-time author
 });
 
 test('keeps create and clone modal failures local to the modal state', async () => {
-  const { result } = renderMutation({ permissionTeam: '' });
+  const { result } = renderMutation({ permissionOwner: '' });
 
   act(() => {
     result.current.openCreateModal();

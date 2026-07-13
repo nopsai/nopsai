@@ -12,6 +12,15 @@ export const TRIGGER_EVENT_OPTIONS = ['push', 'pull_request', 'schedule'];
 
 export type TriggerListItem = { slug: string; source?: string };
 
+export type TriggerSourceFilter = 'all' | 'git' | 'database';
+
+export type TriggerCollectionMetrics = {
+  total: number;
+  gitManaged: number;
+  databaseManaged: number;
+  ownerCount: number;
+};
+
 export type PipelineRef = {
   identifier: string;
   display: string;
@@ -94,6 +103,25 @@ export function sourceLabel(sourceKey: string): string {
     default:
       return 'Database';
   }
+}
+
+export function filterTriggerListItems(
+  items: readonly TriggerListItem[],
+  {
+    query,
+    source,
+  }: {
+    query: string;
+    source: TriggerSourceFilter;
+  }
+): TriggerListItem[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  return items.filter(item => {
+    const sourceKey = normalizeSource(item.source);
+    if (source !== 'all' && sourceKey !== source) return false;
+    if (!normalizedQuery) return true;
+    return `${item.slug} ${sourceLabel(sourceKey)}`.toLowerCase().includes(normalizedQuery);
+  });
 }
 
 export function normalizePipelineIdentifier(value: unknown): string {
@@ -226,6 +254,39 @@ export function triggerSlugLabel(slug: string): { name: string; path: string } {
   const parts = slug.split('/').filter(Boolean);
   const name = parts.pop() || slug;
   return { name, path: parts.join('/') || 'root' };
+}
+
+export function triggerBelongsToOwner(slug: string, ownerPath: string): boolean {
+  const normalizedOwner = ownerPath.trim().replace(/^\/+|\/+$/g, '');
+  if (!normalizedOwner) return true;
+  const path = triggerSlugLabel(slug).path;
+  return path === normalizedOwner || path.startsWith(`${normalizedOwner}/`);
+}
+
+export function buildTriggerCollectionMetrics(
+  items: readonly TriggerListItem[],
+  ownerPath: string
+): TriggerCollectionMetrics {
+  const scopedItems = items.filter(item => triggerBelongsToOwner(item.slug, ownerPath));
+  const ownerPaths = new Set<string>();
+  let gitManaged = 0;
+  let databaseManaged = 0;
+
+  scopedItems.forEach(item => {
+    const sourceKey = normalizeSource(item.source);
+    if (sourceKey === 'git') gitManaged += 1;
+    else databaseManaged += 1;
+
+    const path = triggerSlugLabel(item.slug).path;
+    if (path !== 'root') ownerPaths.add(path);
+  });
+
+  return {
+    total: scopedItems.length,
+    gitManaged,
+    databaseManaged,
+    ownerCount: ownerPaths.size,
+  };
 }
 
 export function validateTriggerYaml(rawYaml: string): TriggerValidationResult {

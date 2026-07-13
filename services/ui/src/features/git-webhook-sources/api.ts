@@ -1,4 +1,5 @@
 import { apiClient } from '../../lib/api.js';
+import { fetchResourceTeamPaths } from '../../lib/resourceTeams.js';
 import type {
   GitWebhookDelivery,
   GitWebhookSource,
@@ -21,6 +22,10 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 export async function fetchGitWebhookSources(): Promise<GitWebhookSource[]> {
   const payload = await requestJson<GitWebhookSource[]>('/v1/git-webhook-sources');
   return Array.isArray(payload) ? payload : [];
+}
+
+export async function fetchGitWebhookSourceTeamPaths(): Promise<string[]> {
+  return fetchResourceTeamPaths();
 }
 
 export function fetchGitWebhookSource(sourceID: string): Promise<GitWebhookSource> {

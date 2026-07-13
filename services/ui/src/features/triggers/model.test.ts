@@ -2,9 +2,12 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   buildTriggerSummary,
+  buildTriggerCollectionMetrics,
   deriveDefaultPipelinePath,
   encodeTriggerSlug,
+  filterTriggerListItems,
   parseTriggerOverrideList,
+  triggerBelongsToOwner,
   parseTriggerYaml,
   splitTriggerSlug,
   triggerSlugLabel,
@@ -33,6 +36,39 @@ test('normalizes trigger lists and default pipeline paths', () => {
     { slug: 'acme/web', source: 'git' },
   ]);
   assert.equal(deriveDefaultPipelinePath('acme/payment api'), 'pipelines/payment-api.yaml');
+});
+
+test('builds owner-scoped trigger collection metrics', () => {
+  const triggers = [
+    { slug: 'platform/api', source: 'gitops' },
+    { slug: 'platform/web', source: 'database' },
+    { slug: 'platform/apps/checkout', source: 'git' },
+    { slug: 'security/audit', source: 'database' },
+  ];
+
+  assert.equal(triggerBelongsToOwner('platform/apps/checkout', 'platform'), true);
+  assert.equal(triggerBelongsToOwner('security/audit', 'platform'), false);
+  assert.deepEqual(buildTriggerCollectionMetrics(triggers, 'platform'), {
+    total: 3,
+    gitManaged: 2,
+    databaseManaged: 1,
+    ownerCount: 2,
+  });
+});
+
+test('filters trigger list items by query and source label', () => {
+  const triggers = [
+    { slug: 'platform/api', source: 'gitops' },
+    { slug: 'platform/web', source: 'database' },
+    { slug: 'security/audit', source: 'database' },
+  ];
+
+  assert.deepEqual(filterTriggerListItems(triggers, { query: 'git', source: 'all' }), [
+    { slug: 'platform/api', source: 'gitops' },
+  ]);
+  assert.deepEqual(filterTriggerListItems(triggers, { query: 'platform', source: 'database' }), [
+    { slug: 'platform/web', source: 'database' },
+  ]);
 });
 
 test('validates trigger manifests and repository routes', () => {

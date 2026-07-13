@@ -46,6 +46,20 @@ func parseGitOpsGitWebhookSources(
 				id = externalTriggerGitOpsSlug(id)
 			}
 		}
+		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
+			teamPath := strings.Trim(strings.TrimSpace(doc.TeamPath), "/")
+			if teamPath == "" {
+				doc.TeamPath = strings.Trim(strings.TrimSpace(boundTeam), "/")
+			} else if _, rootOnly := stripRootPathPrefix(teamPath); rootOnly {
+				doc.TeamPath = rootGrantID
+			} else {
+				normalizedTeam, err := configsync.NormalizePathForTeam(boundTeam, teamPath)
+				if err != nil {
+					return nil, fmt.Errorf("invalid team-scoped git webhook source team_path %q: %w", normalized, err)
+				}
+				doc.TeamPath = normalizedTeam
+			}
+		}
 		source, err := normalizeGitWebhookSourceInput(doc, id)
 		if err != nil {
 			return nil, fmt.Errorf("invalid git webhook source %q: %w", normalized, err)
@@ -69,12 +83,16 @@ func gitWebhookSourceExportPath(
 	if managed && configRepoIDValid && configRepoID == repo.ID && strings.TrimSpace(sourcePath) != "" {
 		return configRepositoryManagedSourcePath(repo, sourcePath)
 	}
-	if repo.ScopeType != models.ConfigRepositoryScopeSystem {
-		return "", false
-	}
 	id := externalTriggerGitOpsSlug(source.ID)
 	if id == "" {
 		return "", false
 	}
 	return filepath.ToSlash(filepath.Join(gitWebhookSourcesGitOpsDirectory, id+".yaml")), true
+}
+
+func effectiveGitWebhookSourceTeamPath(source gitWebhookSourceRecord) string {
+	if teamPath := strings.Trim(strings.TrimSpace(source.TeamPath), "/"); teamPath != "" {
+		return teamPath
+	}
+	return rootGrantID
 }
