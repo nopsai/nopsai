@@ -35,10 +35,15 @@ test('builds linked resources with canonical detail links', () => {
   ]);
 
   const triggers = buildTriggerTeamResources([
-    { slug: 'platform/payments/acme/checkout-api', source: 'database' },
+    {
+      slug: 'acme/checkout-api',
+      source: 'database',
+      teamPath: 'platform/payments',
+      repositoryForWebhook: 'acme/checkout-api',
+    },
   ]);
   assert.deepEqual(triggers.map(resource => [resource.label, resource.teamPath, resource.href]), [
-    ['checkout-api', 'platform/payments/acme', '/triggers/platform/payments/acme/checkout-api'],
+    ['checkout-api', 'platform/payments', '/triggers/acme/checkout-api'],
   ]);
 
   const externalTriggers = buildExternalTriggerTeamResources([
@@ -131,6 +136,11 @@ test('builds linked resources with canonical detail links', () => {
 test('filters and sorts linked resources for the active team subtree', () => {
   const resources = [
     ...buildPipelineTeamResources([{ id: 'deploy' }, { id: 'platform/payments/deploy' }]),
+    ...buildTriggerTeamResources([
+      { slug: 'platform/root-trigger', source: 'database', teamPath: 'root' },
+      { slug: 'platform/payments/checkout-api', source: 'database', teamPath: 'platform' },
+      { slug: 'team-1/test-app', source: 'database', teamPath: 'workspace' },
+    ]),
     ...buildScopeTeamResources({ secrets: [], variables: [{ scope: 'platform' }] }),
     ...buildCredentialTeamResources([
       credential('credential://team/platform/openai', 'api_key'),
@@ -140,15 +150,21 @@ test('filters and sorts linked resources for the active team subtree', () => {
 
   assert.deepEqual(filterTeamLinkedResources(resources, '').map(resource => resource.id), [
     'pipeline:deploy',
+    'trigger:platform/root-trigger',
     'scope:default',
     'credential:credential://system/llm/openai',
   ]);
   assert.deepEqual(filterTeamLinkedResources(resources, 'platform').map(resource => resource.id), [
     'pipeline:deploy',
     'pipeline:platform/payments/deploy',
+    'trigger:platform/payments/checkout-api',
     'scope:default',
     'scope:platform',
     'credential:credential://team/platform/openai',
+  ]);
+  assert.deepEqual(filterTeamLinkedResources(resources, 'team-1').map(resource => resource.id), [
+    'pipeline:deploy',
+    'scope:default',
   ]);
 });
 
@@ -156,8 +172,18 @@ test('filters application resources by app path and repository identity only', (
   const resources = [
     ...buildPipelineTeamResources([{ id: 'platform/payments/deploy' }, { id: 'platform/payments/checkout-api' }]),
     ...buildTriggerTeamResources([
-      { slug: 'platform/payments/acme/checkout-api', source: 'database' },
-      { slug: 'platform/payments/acme/billing-api', source: 'database' },
+      {
+        slug: 'platform/payments/acme/checkout-api',
+        source: 'database',
+        teamPath: 'platform/payments',
+        repositoryForWebhook: 'acme/checkout-api',
+      },
+      {
+        slug: 'platform/payments/acme/billing-api',
+        source: 'database',
+        teamPath: 'platform/payments',
+        repositoryForWebhook: 'acme/billing-api',
+      },
     ]),
     ...buildScopeTeamResources({
       secrets: [{ scope: 'platform/payments', secret_count: 2 }, { scope: 'platform/payments/checkout-api', secret_count: 1 }],
@@ -181,6 +207,54 @@ test('filters application resources by app path and repository identity only', (
       'scope:platform/payments/checkout-api',
       'credential:credential://team/platform/payments/checkout-api/deploy-token',
     ]
+  );
+});
+
+test('keeps app repository triggers when Git owner differs from team path', () => {
+  const allResources = buildTriggerTeamResources([
+    {
+      slug: 'hosein-yousefii/test-app',
+      source: 'database',
+      teamPath: 'team-1',
+      repositoryForWebhook: 'hosein-yousefii/test-app',
+    },
+    {
+      slug: 'hosein-yousefii/test-app22',
+      source: 'database',
+      teamPath: 'team-1',
+      repositoryForWebhook: 'hosein-yousefii/test-app22',
+    },
+    {
+      slug: 'workspace/test-app22',
+      source: 'database',
+      teamPath: 'workspace',
+      repositoryForWebhook: 'workspace/test-app22',
+    },
+  ]);
+  const teamResources = filterTeamLinkedResources(
+    allResources,
+    'team-1'
+  );
+
+  assert.deepEqual(teamResources.map(resource => [resource.id, resource.teamPath]), [
+    ['trigger:hosein-yousefii/test-app', 'team-1'],
+    ['trigger:hosein-yousefii/test-app22', 'team-1'],
+  ]);
+  assert.deepEqual(
+    filterApplicationLinkedResources(teamResources, {
+      appPath: 'team-1/test-app',
+      appName: 'test-app',
+      repository: 'hosein-yousefii/test-app',
+    }).map(resource => resource.id),
+    ['trigger:hosein-yousefii/test-app']
+  );
+  assert.deepEqual(
+    filterApplicationLinkedResources(allResources, {
+      appPath: 'team-1/t-app',
+      appName: 't-app',
+      repository: 'hosein-yousefii/t-app',
+    }).map(resource => resource.id),
+    []
   );
 });
 
