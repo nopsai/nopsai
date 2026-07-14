@@ -36,8 +36,27 @@ func TestNormalizeGitWebhookSourceInput(t *testing.T) {
 	if source.TeamPath != "platform/webhooks" {
 		t.Fatalf("TeamPath = %q, want platform/webhooks", source.TeamPath)
 	}
+	if source.Visibility != gitWebhookSourceVisibilityTeam {
+		t.Fatalf("Visibility = %q, want team", source.Visibility)
+	}
 	if len(source.RepositoryAllowlist) != 2 || source.RepositoryAllowlist[0] != "acme/*" || source.RepositoryAllowlist[1] != "acme/api" {
 		t.Fatalf("RepositoryAllowlist = %#v", source.RepositoryAllowlist)
+	}
+}
+
+func TestNormalizeGitWebhookSourceInputSupportsWorkspaceVisibility(t *testing.T) {
+	source, err := normalizeGitWebhookSourceInput(gitWebhookSourceInput{
+		ID:                  "gitlab-shared",
+		Provider:            "gitlab",
+		Visibility:          "workspace-shared",
+		AuthMode:            "none",
+		RepositoryAllowlist: []string{"acme/*"},
+	}, "")
+	if err != nil {
+		t.Fatalf("normalizeGitWebhookSourceInput() error = %v", err)
+	}
+	if source.Visibility != gitWebhookSourceVisibilityWorkspace {
+		t.Fatalf("Visibility = %q, want workspace", source.Visibility)
 	}
 }
 

@@ -36,6 +36,11 @@ func (a *App) handleListGitWebhookSources(w http.ResponseWriter, r *http.Request
 			http.Error(w, "failed to read git webhook sources", http.StatusInternalServerError)
 			return
 		}
+		source, err = a.enrichGitWebhookSource(r.Context(), source)
+		if err != nil {
+			http.Error(w, "failed to read git webhook source connections", http.StatusInternalServerError)
+			return
+		}
 		sources = append(sources, source)
 		resources = append(resources, routeauthz.GitWebhookSourceResource(source.ID))
 	}
@@ -91,12 +96,12 @@ func (a *App) handleCreateGitWebhookSource(w http.ResponseWriter, r *http.Reques
 	createdBy := formatSubjectLabel(subject.Type, firstNonEmptyString(subject.ID, subject.Sub, subject.Email))
 	_, err = a.db.Exec(r.Context(), `
 		INSERT INTO git_webhook_sources (
-			id, name, description, provider, enabled, team_path, auth_mode, credential_ref,
+			id, name, description, provider, enabled, team_path, visibility, auth_mode, credential_ref,
 			repository_allowlist, rate_limit, created_by
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12)
 	`, source.ID, source.Name, source.Description, source.Provider, source.Enabled, source.TeamPath,
-		source.AuthMode, source.CredentialRef, string(allowlistJSON), string(rateLimitJSON), createdBy)
+		source.Visibility, source.AuthMode, source.CredentialRef, string(allowlistJSON), string(rateLimitJSON), createdBy)
 	if err != nil {
 		if isUniqueViolation(err) {
 			http.Error(w, "git webhook source already exists", http.StatusConflict)
@@ -110,6 +115,7 @@ func (a *App) handleCreateGitWebhookSource(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "failed to load git webhook source", http.StatusInternalServerError)
 		return
 	}
+	created, _ = a.enrichGitWebhookSource(r.Context(), created)
 	_ = httpapi.WriteJSON(w, http.StatusCreated, created)
 }
 
@@ -121,6 +127,11 @@ func (a *App) handleGetGitWebhookSource(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		http.Error(w, "failed to load git webhook source", http.StatusInternalServerError)
+		return
+	}
+	source, err = a.enrichGitWebhookSource(r.Context(), source)
+	if err != nil {
+		http.Error(w, "failed to load git webhook source connections", http.StatusInternalServerError)
 		return
 	}
 	_ = httpapi.WriteJSON(w, http.StatusOK, source)
@@ -166,19 +177,20 @@ func (a *App) handleUpdateGitWebhookSource(w http.ResponseWriter, r *http.Reques
 		    provider = $4,
 		    enabled = $5,
 		    team_path = $6,
-		    auth_mode = $7,
-		    credential_ref = $8,
-		    repository_allowlist = $9::jsonb,
-		    rate_limit = $10::jsonb,
+		    visibility = $7,
+		    auth_mode = $8,
+		    credential_ref = $9,
+		    repository_allowlist = $10::jsonb,
+		    rate_limit = $11::jsonb,
 		    source = 'database',
 		    config_repo_id = NULL,
 		    config_source_path = '',
 		    config_source_commit_sha = '',
 		    managed_by_config_repo = FALSE,
 		    updated_at = NOW()
-		WHERE id = $1
+	WHERE id = $1
 	`, id, source.Name, source.Description, source.Provider, source.Enabled, source.TeamPath,
-		source.AuthMode, source.CredentialRef, string(allowlistJSON), string(rateLimitJSON))
+		source.Visibility, source.AuthMode, source.CredentialRef, string(allowlistJSON), string(rateLimitJSON))
 	if err != nil {
 		http.Error(w, "failed to update git webhook source", http.StatusInternalServerError)
 		return
@@ -192,6 +204,7 @@ func (a *App) handleUpdateGitWebhookSource(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "failed to load git webhook source", http.StatusInternalServerError)
 		return
 	}
+	updated, _ = a.enrichGitWebhookSource(r.Context(), updated)
 	_ = httpapi.WriteJSON(w, http.StatusOK, updated)
 }
 

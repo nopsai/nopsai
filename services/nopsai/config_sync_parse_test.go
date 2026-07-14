@@ -73,6 +73,9 @@ triggers:
 	if !strings.Contains(trigger.definition, "on: push") {
 		t.Fatalf("trigger = %#v, want original manifest definition", trigger)
 	}
+	if trigger.record.TeamPath != "team-1" || trigger.record.Provider != "github" {
+		t.Fatalf("trigger metadata = %#v, want team-1 GitHub defaults", trigger.record)
+	}
 }
 
 func TestParseConfigSyncPlanLoadsTeamAIProfiles(t *testing.T) {

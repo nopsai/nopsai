@@ -121,6 +121,10 @@ CREATE TABLE triggers (
     trigger_definition TEXT NOT NULL,
     source VARCHAR(32) NOT NULL DEFAULT 'database',
     visibility TEXT NOT NULL DEFAULT 'team' CHECK (visibility IN ('team', 'restricted', 'workspace')),
+    provider TEXT NOT NULL DEFAULT 'github' CHECK (provider IN ('github', 'generic', 'gitlab', 'bitbucket', 'gitea')),
+    team_path TEXT NOT NULL DEFAULT 'root',
+    management TEXT NOT NULL DEFAULT 'nopsai' CHECK (management IN ('nopsai', 'repository')),
+    webhook_source_id TEXT,
     config_repo_id BIGINT,
     config_source_path TEXT NOT NULL DEFAULT '',
     config_source_commit_sha TEXT NOT NULL DEFAULT '',
@@ -674,6 +678,8 @@ CREATE TABLE git_webhook_sources (
     description TEXT NOT NULL DEFAULT '',
     provider TEXT NOT NULL,
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    team_path TEXT NOT NULL DEFAULT '',
+    visibility TEXT NOT NULL DEFAULT 'team' CHECK (visibility IN ('team', 'workspace')),
     auth_mode TEXT NOT NULL,
     credential_ref TEXT NOT NULL DEFAULT '',
     repository_allowlist JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -691,7 +697,17 @@ CREATE TABLE git_webhook_sources (
 
 CREATE INDEX idx_git_webhook_sources_enabled ON git_webhook_sources(enabled);
 CREATE INDEX idx_git_webhook_sources_provider ON git_webhook_sources(provider);
+CREATE INDEX idx_git_webhook_sources_team ON git_webhook_sources(team_path, id);
+CREATE INDEX idx_git_webhook_sources_visibility ON git_webhook_sources(visibility);
 CREATE INDEX idx_git_webhook_sources_config_repo ON git_webhook_sources(config_repo_id);
+
+ALTER TABLE triggers
+    ADD CONSTRAINT triggers_webhook_source_id_fkey
+    FOREIGN KEY (webhook_source_id) REFERENCES git_webhook_sources(id) ON DELETE SET NULL;
+
+CREATE INDEX idx_triggers_provider ON triggers(provider, repository_name);
+CREATE INDEX idx_triggers_team_path ON triggers(team_path, repository_name);
+CREATE INDEX idx_triggers_webhook_source ON triggers(webhook_source_id);
 
 CREATE TABLE git_webhook_deliveries (
     id UUID PRIMARY KEY,

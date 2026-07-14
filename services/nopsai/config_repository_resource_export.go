@@ -218,7 +218,7 @@ func configRepositoryIncludesGitWebhookSource(repo models.ConfigRepository, sour
 
 func (a *App) exportConfigRepositoryGitWebhookSources(ctx context.Context, repo models.ConfigRepository, delegatedScopes []string, files map[string]string) error {
 	rows, err := a.db.Query(ctx, `
-		SELECT id, name, description, provider, enabled, COALESCE(team_path, ''), auth_mode, credential_ref,
+		SELECT id, name, description, provider, enabled, COALESCE(team_path, ''), COALESCE(visibility, 'team'), auth_mode, credential_ref,
 		       repository_allowlist, rate_limit, COALESCE(source, 'database'), config_repo_id,
 		       managed_by_config_repo, COALESCE(config_source_path, '')
 		FROM git_webhook_sources
@@ -242,6 +242,7 @@ func (a *App) exportConfigRepositoryGitWebhookSources(ctx context.Context, repo 
 			&source.Provider,
 			&source.Enabled,
 			&source.TeamPath,
+			&source.Visibility,
 			&source.AuthMode,
 			&source.CredentialRef,
 			&allowlistJSON,
@@ -270,6 +271,7 @@ func (a *App) exportConfigRepositoryGitWebhookSources(ctx context.Context, repo 
 			Provider:            source.Provider,
 			Enabled:             &enabled,
 			TeamPath:            source.TeamPath,
+			Visibility:          source.Visibility,
 			AuthMode:            source.AuthMode,
 			CredentialRef:       source.CredentialRef,
 			RepositoryAllowlist: source.RepositoryAllowlist,

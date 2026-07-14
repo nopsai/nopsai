@@ -68,7 +68,8 @@ LLM-drafted YAML checked by validation/proposal tools, GitOps-ready pipeline
 create/update proposals, managed knowledge reads and write
 plans, run/log analysis with explicit run-status and bounded-log chaining,
 confirmed run mutations, schedule inventory and GitOps write plans, webhook
-source and external trigger plans, webhook-ingress policy explanations, config
+source and external trigger plans, repository trigger provider/team/ingress
+metadata reads, webhook-ingress policy explanations, config
 repo sync/drift/write workflows, notification mail/route plans, monitoring
 analytics/views/alerts/recommendation actions including AI token usage by
 pipeline/schedule/run/model/profile/feature/step/task, schedule/pipeline

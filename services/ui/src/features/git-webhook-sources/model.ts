@@ -1,8 +1,18 @@
 export const GIT_WEBHOOK_PROVIDERS = ['generic', 'gitlab', 'bitbucket', 'gitea'] as const;
 export const GIT_WEBHOOK_AUTH_MODES = ['hmac', 'static_token', 'none'] as const;
+export const GIT_WEBHOOK_VISIBILITIES = ['team', 'workspace'] as const;
 
 export type GitWebhookProvider = (typeof GIT_WEBHOOK_PROVIDERS)[number];
 export type GitWebhookAuthMode = (typeof GIT_WEBHOOK_AUTH_MODES)[number];
+export type GitWebhookVisibility = (typeof GIT_WEBHOOK_VISIBILITIES)[number];
+
+export type GitWebhookConnectedTrigger = {
+  repository_name: string;
+  repository_for_webhook: string;
+  provider: string;
+  team_path: string;
+  management: string;
+};
 
 export type GitWebhookSource = {
   id: string;
@@ -10,10 +20,14 @@ export type GitWebhookSource = {
   description: string;
   provider: GitWebhookProvider;
   enabled: boolean;
+  visibility?: GitWebhookVisibility;
   auth_mode: GitWebhookAuthMode;
   credential_ref?: string;
   repository_allowlist: string[];
   rate_limit: Record<string, unknown>;
+  connected_triggers?: GitWebhookConnectedTrigger[];
+  connected_trigger_count?: number;
+  allowlist_unconfigured_repositories?: string[];
   team_path?: string;
   run_team_path?: string;
   created_by?: string;
@@ -47,6 +61,7 @@ export type GitWebhookSourceFormState = {
   provider: GitWebhookProvider;
   enabled: boolean;
   authMode: GitWebhookAuthMode;
+  visibility: GitWebhookVisibility;
   teamPath: string;
   credentialRef: string;
   repositoryAllowlistText: string;
@@ -60,6 +75,7 @@ export type GitWebhookSourceRequest = {
   provider: GitWebhookProvider;
   enabled: boolean;
   team_path: string;
+  visibility: GitWebhookVisibility;
   auth_mode: GitWebhookAuthMode;
   credential_ref?: string;
   repository_allowlist: string[];
@@ -71,6 +87,7 @@ export type GitWebhookSourceMetrics = {
   enabled: number;
   gitManaged: number;
   secured: number;
+  workspaceShared: number;
 };
 
 export type GitWebhookSourceTreeItem = {
@@ -87,6 +104,7 @@ export const emptyGitWebhookSourceForm: GitWebhookSourceFormState = {
   provider: 'generic',
   enabled: true,
   authMode: 'hmac',
+  visibility: 'team',
   teamPath: 'root',
   credentialRef: '',
   repositoryAllowlistText: '',
@@ -102,8 +120,9 @@ export function buildGitWebhookSourceMetrics(
       enabled: metrics.enabled + (source.enabled ? 1 : 0),
       gitManaged: metrics.gitManaged + (source.managed_by_config_repo ? 1 : 0),
       secured: metrics.secured + (source.auth_mode !== 'none' && source.credential_ref ? 1 : 0),
+      workspaceShared: metrics.workspaceShared + (source.visibility === 'workspace' ? 1 : 0),
     }),
-    { total: 0, enabled: 0, gitManaged: 0, secured: 0 }
+    { total: 0, enabled: 0, gitManaged: 0, secured: 0, workspaceShared: 0 }
   );
 }
 
@@ -121,9 +140,12 @@ export function filterGitWebhookSources(
     source.auth_mode,
     gitWebhookSourceTeamLabel(source),
     gitWebhookSourceTeamPath(source),
+    gitWebhookSourceVisibilityLabel(source.visibility),
     source.credential_ref,
     source.source,
     sourceStatusLabel(source),
+    ...(source.connected_triggers || []).flatMap(trigger => [trigger.repository_name, trigger.repository_for_webhook, trigger.team_path]),
+    ...(source.allowlist_unconfigured_repositories || []),
     ...source.repository_allowlist,
   ].join(' ').toLowerCase().includes(term));
 }
@@ -138,6 +160,7 @@ export function gitWebhookSourceForm(source?: GitWebhookSource): GitWebhookSourc
     provider: source.provider,
     enabled: source.enabled,
     authMode: source.auth_mode,
+    visibility: normalizeGitWebhookSourceVisibility(source.visibility),
     teamPath: gitWebhookSourceTeamPath(source) || 'root',
     credentialRef: source.credential_ref || '',
     repositoryAllowlistText: source.repository_allowlist.join('\n'),
@@ -179,6 +202,7 @@ export function gitWebhookSourceRequest(form: GitWebhookSourceFormState): GitWeb
     provider: form.provider,
     enabled: form.enabled,
     team_path: normalizeGitWebhookSourceTeamPath(form.teamPath) || 'root',
+    visibility: normalizeGitWebhookSourceVisibility(form.visibility),
     auth_mode: form.authMode,
     credential_ref: form.authMode === 'none' ? undefined : credentialRef,
     repository_allowlist: repositoryAllowlist,
@@ -198,6 +222,14 @@ export function gitWebhookSourceTeamPath(source: GitWebhookSource): string {
 
 export function gitWebhookSourceTeamLabel(source: GitWebhookSource): string {
   return gitWebhookSourceTeamPath(source) || 'Global';
+}
+
+export function gitWebhookSourceVisibilityLabel(value?: string): string {
+  return normalizeGitWebhookSourceVisibility(value) === 'workspace' ? 'Workspace-shared' : 'Team';
+}
+
+export function gitWebhookSourceConnectedCount(source: GitWebhookSource): number {
+  return source.connected_trigger_count ?? source.connected_triggers?.length ?? 0;
 }
 
 export function gitWebhookSourceBelongsToTeam(
@@ -266,4 +298,12 @@ function normalizeGitWebhookSourceTeamPath(value?: string): string {
     .replace(/\/+/g, '/')
     .replace(/^\/+|\/+$/g, '')
     .replace(/^root$/i, '');
+}
+
+function normalizeGitWebhookSourceVisibility(value?: string): GitWebhookVisibility {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[-\s]+/g, '_');
+  return normalized === 'workspace' || normalized === 'workspace_shared' ? 'workspace' : 'team';
 }

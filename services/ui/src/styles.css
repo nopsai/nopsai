@@ -8576,6 +8576,12 @@ html.dark .trigger-modal-icon {
     gap: 0.4rem;
 }
 
+.trigger-modal-details-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+}
+
 .trigger-modal-hint {
     font-size: 0.75rem;
     color: var(--text-secondary);
@@ -10109,6 +10115,15 @@ html.dark .triggers-runs-item:focus-within {
     min-width: 520px;
 }
 
+.triggers-resource-table--triggers {
+    min-width: 760px;
+}
+
+.triggers-resource-table--triggers th,
+.triggers-resource-table--triggers td {
+    white-space: nowrap;
+}
+
 .triggers-resource-table--compact th,
 .triggers-resource-table--compact td {
     padding: 8px 9px;
@@ -10526,6 +10541,15 @@ html.dark .triggers-runs-item:focus-within {
     overflow-wrap: anywhere;
 }
 
+.triggers-fact--field strong {
+    font-weight: 600;
+}
+
+.triggers-fact--field .pipelines-input {
+    min-height: 34px;
+    font-size: 0.78rem;
+}
+
 .triggers-detail-section {
     border-top: 1px solid var(--border-primary);
     padding-top: 12px;
@@ -10811,6 +10835,10 @@ html.dark .triggers-explorer {
 
     .triggers-metrics-grid,
     .triggers-facts-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .trigger-modal-details-grid {
         grid-template-columns: 1fr;
     }
 

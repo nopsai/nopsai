@@ -123,7 +123,7 @@ global-repo/steps/shared/announce.yaml
   -> reusable step shared/announce
 
 global-repo/triggers/acme/service-api.yaml
-  -> trigger override acme/service-api
+  -> GitLab repository trigger acme/service-api, assigned to team-1 and gitlab-platform
 
 global-repo/triggers/acme/deploy-webhook.yaml
   -> trigger override acme/deploy-webhook for the webhook-deployer service account sample
@@ -133,7 +133,8 @@ global-repo/external-triggers/deploy-prod.yaml
      with invoked runs teamed under platform/prod
 
 global-repo/git-webhook-sources/gitlab-platform.yaml
-  -> GitLab source with a credential reference, repository allowlist, and rate limit
+  -> workspace-shared GitLab source with owner path, credential reference,
+     repository allowlist, connected trigger counts, and rate limit
 
 global-repo/scopes/dev/scope.yaml
   -> variables and secret key placeholders in scope dev

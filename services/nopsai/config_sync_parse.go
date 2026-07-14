@@ -433,15 +433,27 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 			}
 		}
 
-		if err := yaml.Unmarshal([]byte(content), &models.Manifest{}); err != nil {
+		var manifest models.Manifest
+		if err := yaml.Unmarshal([]byte(content), &manifest); err != nil {
 			return configSyncPlan{}, fmt.Errorf("failed to parse trigger manifest '%s': %w", normalized, err)
+		}
+		fallbackTeamPath := fallbackRepositoryTriggerTeamPath(repoKey)
+		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
+			fallbackTeamPath = boundTeam
+		}
+		record, err := repositoryTriggerRecordFromManifest(repoKey, content, "git", resourceVisibilityTeam, manifest, fallbackTeamPath)
+		if err != nil {
+			return configSyncPlan{}, fmt.Errorf("invalid trigger manifest metadata '%s': %w", normalized, err)
+		}
+		if err := validateRepositoryTriggerForNopsAI(record); err != nil {
+			return configSyncPlan{}, fmt.Errorf("invalid trigger manifest metadata '%s': %w", normalized, err)
 		}
 
 		if _, exists := plan.triggers[repoKey]; exists {
 			return configSyncPlan{}, fmt.Errorf("duplicate trigger manifest for repository '%s' detected", repoKey)
 		}
 
-		plan.triggers[repoKey] = storedTrigger{definition: content, sourcePath: normalized}
+		plan.triggers[repoKey] = storedTrigger{definition: content, sourcePath: normalized, record: record}
 	}
 
 	plan.accessPlan = accessPlan

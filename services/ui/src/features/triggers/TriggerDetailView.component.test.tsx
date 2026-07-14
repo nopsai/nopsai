@@ -7,6 +7,14 @@ import { TriggerDetailView } from './TriggerDetailView';
 const triggerDetail = {
   slug: 'platform/checkout',
   source: 'gitops',
+  provider: 'gitlab',
+  teamPath: 'platform',
+  management: 'nopsai',
+  webhookSourceID: 'corporate-gitlab',
+  webhookSourceName: 'Corporate GitLab',
+  ingress: 'Corporate GitLab',
+  allowlistStatus: 'allowed',
+  repositoryForWebhook: 'acme/checkout',
   rawYaml: 'triggers:\n  - on: push\n    branches:\n      - main\n    pipelines:\n      - pipelines/platform/deploy.yaml\n    scope: production\n',
   summary: {
     triggerCount: 1,
@@ -34,6 +42,7 @@ test('renders trigger detail sections on one page and delegates actions', async 
     onDelete: vi.fn(),
     onDiscard: vi.fn(),
     onSave: vi.fn(),
+    onTriggerDetailsChange: vi.fn(),
     onEditorTextChange: vi.fn(),
     onOpenSuggestion: vi.fn(),
     onMoveSuggestion: vi.fn(),
@@ -60,6 +69,16 @@ test('renders trigger detail sections on one page and delegates actions', async 
       canCreateTriggerHere
       canDeleteSelectedTrigger
       saving={false}
+      triggerDetails={{
+        provider: 'gitlab',
+        teamPath: 'platform',
+        management: 'nopsai',
+        webhookSourceID: 'corporate-gitlab',
+      }}
+      teamPaths={['root', 'platform']}
+      webhookSources={[
+        { id: 'corporate-gitlab', name: 'Corporate GitLab', provider: 'gitlab', teamPath: 'platform', visibility: 'workspace' },
+      ]}
       linkedPipelines={triggerDetail.summary.pipelines}
       pipelineMetadata={new Map([['platform/deploy', { version: 'v1', sourceKey: 'git', sourceLabel: 'Git' }]])}
       pipelineSourceIndex={new Map([['platform/deploy', 'git']])}
@@ -84,6 +103,8 @@ test('renders trigger detail sections on one page and delegates actions', async 
   expect(screen.getByRole('heading', { name: 'checkout' })).toBeVisible();
   expect(screen.getByRole('heading', { name: 'Overview' })).toBeVisible();
   expect(screen.getByText('Owner')).toBeVisible();
+  expect(screen.getByText('Corporate GitLab')).toBeVisible();
+  expect(screen.getByText('Same-team resources')).toBeVisible();
   expect(screen.getByRole('heading', { name: 'Trigger definition' })).toBeVisible();
   expect(screen.getByRole('heading', { name: 'Recent runs' })).toBeVisible();
   expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
@@ -101,4 +122,72 @@ test('renders trigger detail sections on one page and delegates actions', async 
 
   await user.click(screen.getByRole('button', { name: 'Delete' }));
   expect(callbacks.onDelete).toHaveBeenCalledOnce();
+});
+
+test('renders editable trigger detail fields while editing', async () => {
+  const callbacks = {
+    onBack: vi.fn(),
+    onOpenScope: vi.fn(),
+    onOpenPipeline: vi.fn(),
+    onOpenRun: vi.fn(),
+    onRecentRunsScroll: vi.fn(),
+    onCopy: vi.fn(),
+    onDownload: vi.fn(),
+    onEdit: vi.fn(),
+    onClone: vi.fn(),
+    onDelete: vi.fn(),
+    onDiscard: vi.fn(),
+    onSave: vi.fn(),
+    onTriggerDetailsChange: vi.fn(),
+    onEditorTextChange: vi.fn(),
+    onOpenSuggestion: vi.fn(),
+    onMoveSuggestion: vi.fn(),
+    onDismissSuggestion: vi.fn(),
+    onSelectSuggestion: vi.fn(),
+    onEditorScroll: vi.fn(),
+    onIndentTab: vi.fn(),
+    onAutoIndentEnter: vi.fn(),
+  };
+
+  render(
+    <TriggerDetailView
+      detail={triggerDetail}
+      isEditing
+      editorValue={triggerDetail.rawYaml}
+      validationErrors={[]}
+      validationErrorLines={new Set()}
+      editorSuggestion={null}
+      autocompleteLoading={false}
+      editorRef={createRef<HTMLTextAreaElement>()}
+      highlightContentRef={createRef<HTMLPreElement>()}
+      lineNumbersRef={createRef<HTMLDivElement>()}
+      canUpdateSelectedTrigger
+      canCreateTriggerHere
+      canDeleteSelectedTrigger
+      saving={false}
+      triggerDetails={{
+        provider: 'gitlab',
+        teamPath: 'platform',
+        management: 'nopsai',
+        webhookSourceID: 'corporate-gitlab',
+      }}
+      teamPaths={['root', 'platform']}
+      webhookSources={[
+        { id: 'corporate-gitlab', name: 'Corporate GitLab', provider: 'gitlab', teamPath: 'platform', visibility: 'workspace' },
+      ]}
+      linkedPipelines={triggerDetail.summary.pipelines}
+      pipelineMetadata={new Map()}
+      pipelineSourceIndex={new Map()}
+      recentRuns={[]}
+      runsLoading={false}
+      runsError={null}
+      runsScrollable={false}
+      recentRunsListRef={createRef<HTMLUListElement>()}
+      {...callbacks}
+    />
+  );
+
+  expect(screen.getByLabelText('Provider')).toHaveValue('gitlab');
+  expect(screen.getByLabelText('Team')).toHaveValue('platform');
+  expect(screen.getByLabelText('Webhook source')).toHaveValue('corporate-gitlab');
 });

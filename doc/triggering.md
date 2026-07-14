@@ -167,8 +167,23 @@ curl -X POST \
 ```
 
 Before testing, synchronize a trigger override for `platform/api` and every
-pipeline referenced by it. Generic providers do not use the GitHub repository
-file/check-run path.
+pipeline referenced by it. The trigger manifest must set the non-GitHub
+provider and assigned source:
+
+```yaml
+provider: generic
+team: platform
+webhook_source: generic-local
+management: nopsai
+triggers:
+  - on: push
+    branches:
+      - main
+    pipelines:
+      - platform/api-ci
+```
+
+Generic providers do not use the GitHub repository file/check-run path.
 
 Inspect the response and
 `GET /v1/git-webhook-sources/{sourceID}/deliveries`. Reusing

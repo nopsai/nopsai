@@ -37,7 +37,7 @@ func hostedMCPDedicatedTools() []hostedMCPTool {
 		toolDef("nopsai.list_git_webhook_sources", "List Git webhook sources visible to the current subject.", "git_webhook_source.read", "git_webhook_source", "*", objectSchema(map[string]any{})),
 		toolDef("nopsai.get_git_webhook_source", "Read a Git webhook source.", "git_webhook_source.read", "git_webhook_source", "*", objectSchema(map[string]any{"source_id": stringSchema()})),
 		toolDef("nopsai.list_git_webhook_deliveries", "List recent deliveries for a Git webhook source.", "git_webhook_source.read", "git_webhook_source", "*", objectSchema(map[string]any{"source_id": stringSchema()})),
-		toolDef("nopsai.propose_git_webhook_source_create", "Return a GitOps-ready Git webhook source create file plan without applying changes.", "git_webhook_source.create", "git_webhook_source", "*", objectSchema(map[string]any{"source": objectSchema(map[string]any{}), "id": stringSchema(), "name": stringSchema(), "team_path": stringSchema(), "provider": stringSchema(), "auth_mode": stringSchema(), "credential_ref": stringSchema(), "enabled": booleanSchema(), "repository_allowlist": objectSchema(map[string]any{}), "message": stringSchema()})),
+		toolDef("nopsai.propose_git_webhook_source_create", "Return a GitOps-ready Git webhook source create file plan without applying changes.", "git_webhook_source.create", "git_webhook_source", "*", objectSchema(map[string]any{"source": objectSchema(map[string]any{}), "id": stringSchema(), "name": stringSchema(), "team_path": stringSchema(), "visibility": stringSchema(), "provider": stringSchema(), "auth_mode": stringSchema(), "credential_ref": stringSchema(), "enabled": booleanSchema(), "repository_allowlist": objectSchema(map[string]any{}), "message": stringSchema()})),
 		toolDef("nopsai.propose_git_webhook_source_update", "Return a GitOps-ready Git webhook source update file plan without applying changes.", "git_webhook_source.update", "git_webhook_source", "*", objectSchema(map[string]any{"source_id": stringSchema(), "source": objectSchema(map[string]any{}), "message": stringSchema()})),
 		toolDef("nopsai.propose_git_webhook_source_delete", "Return a GitOps-ready Git webhook source delete file plan without applying changes.", "git_webhook_source.delete", "git_webhook_source", "*", objectSchema(map[string]any{"source_id": stringSchema(), "message": stringSchema()})),
 
@@ -718,6 +718,9 @@ func hostedMCPGitWebhookSourceInputFromArgs(args map[string]any, id string) (git
 	}
 	if value := stringArg(args, "team_path"); value != "" {
 		input.TeamPath = value
+	}
+	if value := stringArg(args, "visibility"); value != "" {
+		input.Visibility = value
 	}
 	if value := stringArg(args, "provider"); value != "" {
 		input.Provider = value

@@ -10,6 +10,7 @@ import { TriggerCollectionList } from '../features/triggers/TriggerCollectionLis
 import { TriggerCollectionToolbar } from '../features/triggers/TriggerCollectionToolbar';
 import { TriggerDetailView } from '../features/triggers/TriggerDetailView';
 import { TriggerWorkflowModals } from '../features/triggers/TriggerWorkflowModals';
+import { fetchGitWebhookSources } from '../features/git-webhook-sources/api';
 import {
   fetchTriggerAutocompleteResources,
   fetchTriggerDetail,
@@ -21,25 +22,31 @@ import { TriggerExplorerTree } from '../features/triggers/TriggerExplorerTree';
 import { useTriggerManifestMutations } from '../features/triggers/useTriggerManifestMutations';
 import { useTriggerPermissions } from '../features/triggers/useTriggerPermissions';
 import {
+  applyTriggerDetailsToYaml,
   asRecord,
   buildPipelineIdentifierFromRun,
   encodeTriggerSlug,
   filterTriggerListItems,
+  normalizeTriggerTeamPath,
   normalizePipelineIdentifier,
   normalizeScopeLabel,
   normalizeSource,
   sourceLabel,
   splitTriggerSlug,
+  triggerDetailsFormFromYaml,
   triggerBelongsToOwner,
   validateTriggerYaml,
+  type TriggerDetailsFormState,
   type PipelineMeta,
   type PipelineRef,
   type TriggerDetail,
   type TriggerListItem,
   type TriggerRun,
   type TriggerSourceFilter,
+  type TriggerWebhookSourceOption,
 } from '../features/triggers/model';
 import { buildTriggerTree, findTriggerTreeNode } from '../features/triggers/treeModel';
+import { fetchResourceTeamPaths } from '../lib/resourceTeams';
 import { buildPipelineRunsRoute } from '../lib/teamRoutes';
 
 const INITIAL_RECENT_RUNS = 5;
@@ -83,6 +90,8 @@ function TriggersPage({
   const location = useLocation();
 
   const [serverTriggers, setServerTriggers] = useState<TriggerListItem[]>([]);
+  const [teamPathOptions, setTeamPathOptions] = useState<string[]>(['root']);
+  const [webhookSourceOptions, setWebhookSourceOptions] = useState<TriggerWebhookSourceOption[]>([]);
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
 
@@ -500,7 +509,18 @@ function TriggersPage({
     openOwner(ownerForSlug(detail.slug));
   };
 
+  const openEditModal = useCallback(() => {
+    if (!detail) return;
+    setEditorSuggestion(null);
+    setEditorValue(detail.rawYaml);
+    setIsEditing(true);
+  }, [detail]);
+
   const permissionOwner = selectedSlug ? ownerForSlug(selectedSlug) : activeOwner;
+  const selectedListItem = selectedSlug ? serverTriggers.find(item => item.slug === selectedSlug) : undefined;
+  const workspaceTeamPath = selectedSlug
+    ? normalizeTriggerTeamPath(selectedListItem?.teamPath || detail?.teamPath)
+    : 'root';
   const {
     canCreateTriggerHere,
     canUpdateSelectedTrigger,
@@ -509,6 +529,15 @@ function TriggersPage({
   const handleTriggerSaved = useCallback((updated: TriggerDetail) => {
     setDetail(updated);
     setLinkedPipelines(updated.summary.pipelines);
+  }, []);
+
+  const handleTriggerDetailsChange = useCallback((nextDetails: TriggerDetailsFormState) => {
+    setEditorValue(current => applyTriggerDetailsToYaml(current || detail?.rawYaml || '', nextDetails));
+  }, [detail]);
+
+  const handleEditYamlPreviewChange = useCallback((nextValue: string) => {
+    setEditorSuggestion(null);
+    setEditorValue(nextValue);
   }, []);
 
   const handleTriggerMutationSelect = useCallback((slug: string) => {
@@ -538,7 +567,9 @@ function TriggersPage({
     submitCloneModal,
     submitCreateModal,
     updateCloneRepository,
+    updateCreateDetails,
     updateCreateRepository,
+    updateCreateYamlPreview,
   } = useTriggerManifestMutations({
     canCreateTriggerHere,
     canUpdateSelectedTrigger,
@@ -548,6 +579,7 @@ function TriggersPage({
     editorValue,
     validationErrorCount: validation.errors.length,
     serverTriggers,
+    defaultTeamPath: workspaceTeamPath,
     addToast,
     loadTriggers,
     loadRecentRuns,
@@ -584,6 +616,33 @@ function TriggersPage({
   useEffect(() => {
     void loadTriggers();
   }, [loadTriggers]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([
+      fetchResourceTeamPaths(),
+      fetchGitWebhookSources(),
+    ]).then(([teamPaths, webhookSources]) => {
+      if (cancelled) return;
+      setTeamPathOptions(teamPaths);
+      setWebhookSourceOptions(
+        webhookSources.map(source => ({
+          id: source.id,
+          name: source.name,
+          provider: source.provider,
+          teamPath: source.team_path || source.run_team_path,
+          visibility: source.visibility,
+        }))
+      );
+    }).catch(() => {
+      if (cancelled) return;
+      setTeamPathOptions(['root']);
+      setWebhookSourceOptions([]);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const segments = location.pathname.split('/').filter(Boolean);
@@ -679,7 +738,21 @@ function TriggersPage({
     return filterTriggerListItems(serverTriggers, { query: searchTerm, source: sourceFilter });
   }, [serverTriggers, searchTerm, sourceFilter]);
 
+  const triggerTeamPaths = useMemo(() => {
+    const paths = [...teamPathOptions, ...serverTriggers.map(item => normalizeTriggerTeamPath(item.teamPath))]
+      .filter(Boolean);
+    return Array.from(new Set(['root', ...paths])).sort((left, right) => {
+      if (left === 'root') return -1;
+      if (right === 'root') return 1;
+      return left.localeCompare(right);
+    });
+  }, [serverTriggers, teamPathOptions]);
+
   const workspaceOwner = selectedSlug ? ownerForSlug(selectedSlug) : activeOwner;
+  const triggerDetails = useMemo(
+    () => triggerDetailsFormFromYaml(editorValue || detail?.rawYaml || '', detail),
+    [detail, editorValue]
+  );
 
   const visibleTriggers = useMemo(() => {
     const list = searchTerm.trim()
@@ -781,7 +854,7 @@ function TriggersPage({
               ) : (
                 <TriggerDetailView
                   detail={detail}
-                  isEditing={isEditing}
+                  isEditing={false}
                   editorValue={editorValue}
                   validationErrors={validation.errors}
                   validationErrorLines={validationErrorLines}
@@ -794,6 +867,9 @@ function TriggersPage({
                   canCreateTriggerHere={canCreateTriggerHere}
                   canDeleteSelectedTrigger={canDeleteTriggers}
                   saving={saving}
+                  triggerDetails={triggerDetails}
+                  teamPaths={triggerTeamPaths}
+                  webhookSources={webhookSourceOptions}
                   linkedPipelines={linkedPipelines}
                   pipelineMetadata={pipelineMetaCacheRef.current}
                   pipelineSourceIndex={pipelineSourceIndexRef.current}
@@ -811,11 +887,12 @@ function TriggersPage({
                   onRecentRunsScroll={handleRecentRunsScroll}
                   onCopy={() => void handleCopyYaml()}
                   onDownload={handleDownloadYaml}
-                  onEdit={() => setIsEditing(true)}
+                  onEdit={openEditModal}
                   onClone={openCloneModal}
                   onDelete={() => openDeleteModal(detail?.slug || selectedSlug)}
                   onDiscard={discardEditorChanges}
                   onSave={() => void handleSave()}
+                  onTriggerDetailsChange={handleTriggerDetailsChange}
                   onEditorTextChange={handleEditorTextChange}
                   onOpenSuggestion={openEditorSuggestion}
                   onMoveSuggestion={moveEditorSuggestion}
@@ -852,13 +929,29 @@ function TriggersPage({
 
       <TriggerWorkflowModals
         createModal={createModal}
+        editModal={isEditing && detail ? {
+          slug: detail.slug,
+          details: triggerDetails,
+          yamlPreview: editorValue,
+          validationErrors: validation.errors,
+          pending: saving,
+          gitOpsManaged: normalizeSource(detail.source) === 'git',
+        } : null}
         cloneModal={cloneModal}
         deleteModal={deleteModal}
         canDeleteTriggers={canDeleteTriggers}
         selectedSlug={detail?.slug}
+        teamPaths={triggerTeamPaths}
+        webhookSources={webhookSourceOptions}
         onCloseCreate={closeCreateModal}
         onUpdateCreateRepository={updateCreateRepository}
+        onUpdateCreateDetails={updateCreateDetails}
+        onUpdateCreateYamlPreview={updateCreateYamlPreview}
         onSubmitCreate={() => void submitCreateModal()}
+        onCloseEdit={discardEditorChanges}
+        onUpdateEditDetails={handleTriggerDetailsChange}
+        onUpdateEditYamlPreview={handleEditYamlPreviewChange}
+        onSubmitEdit={() => void handleSave()}
         onCloseClone={closeCloneModal}
         onUpdateCloneRepository={updateCloneRepository}
         onSubmitClone={() => void submitCloneModal()}

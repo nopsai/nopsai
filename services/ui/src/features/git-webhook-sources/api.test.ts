@@ -18,6 +18,7 @@ const request: GitWebhookSourceRequest = {
   provider: 'gitlab',
   enabled: true,
   team_path: 'platform',
+  visibility: 'team',
   auth_mode: 'static_token',
   credential_ref: 'credential://system/webhooks/gitlab-platform',
   repository_allowlist: ['platform/*'],

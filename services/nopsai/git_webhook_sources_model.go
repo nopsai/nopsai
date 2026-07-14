@@ -18,30 +18,37 @@ const (
 	gitWebhookDeliveryNoMatch   = "no_match"
 	gitWebhookDeliveryPartial   = "partial"
 	gitWebhookDeliveryFailed    = "failed"
+
+	gitWebhookSourceVisibilityTeam      = "team"
+	gitWebhookSourceVisibilityWorkspace = "workspace"
 )
 
 var gitWebhookSourceIDPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,160}$`)
 
 type gitWebhookSourceRecord struct {
-	ID                    string         `json:"id"`
-	Name                  string         `json:"name"`
-	Description           string         `json:"description"`
-	Provider              string         `json:"provider"`
-	Enabled               bool           `json:"enabled"`
-	TeamPath              string         `json:"team_path"`
-	AuthMode              string         `json:"auth_mode"`
-	CredentialRef         string         `json:"credential_ref,omitempty"`
-	RepositoryAllowlist   []string       `json:"repository_allowlist"`
-	RateLimit             map[string]any `json:"rate_limit"`
-	CreatedBy             string         `json:"created_by"`
-	CreatedAt             time.Time      `json:"created_at"`
-	UpdatedAt             time.Time      `json:"updated_at"`
-	LastUsedAt            *time.Time     `json:"last_used_at,omitempty"`
-	Source                string         `json:"source"`
-	ConfigRepoID          *int64         `json:"config_repo_id,omitempty"`
-	ConfigSourcePath      string         `json:"config_source_path,omitempty"`
-	ConfigSourceCommitSHA string         `json:"config_source_commit_sha,omitempty"`
-	ManagedByGitOps       bool           `json:"managed_by_config_repo"`
+	ID                    string                       `json:"id"`
+	Name                  string                       `json:"name"`
+	Description           string                       `json:"description"`
+	Provider              string                       `json:"provider"`
+	Enabled               bool                         `json:"enabled"`
+	TeamPath              string                       `json:"team_path"`
+	Visibility            string                       `json:"visibility"`
+	AuthMode              string                       `json:"auth_mode"`
+	CredentialRef         string                       `json:"credential_ref,omitempty"`
+	RepositoryAllowlist   []string                     `json:"repository_allowlist"`
+	RateLimit             map[string]any               `json:"rate_limit"`
+	ConnectedTriggers     []gitWebhookConnectedTrigger `json:"connected_triggers,omitempty"`
+	ConnectedTriggerCount int                          `json:"connected_trigger_count"`
+	AllowlistUnconfigured []string                     `json:"allowlist_unconfigured_repositories,omitempty"`
+	CreatedBy             string                       `json:"created_by"`
+	CreatedAt             time.Time                    `json:"created_at"`
+	UpdatedAt             time.Time                    `json:"updated_at"`
+	LastUsedAt            *time.Time                   `json:"last_used_at,omitempty"`
+	Source                string                       `json:"source"`
+	ConfigRepoID          *int64                       `json:"config_repo_id,omitempty"`
+	ConfigSourcePath      string                       `json:"config_source_path,omitempty"`
+	ConfigSourceCommitSHA string                       `json:"config_source_commit_sha,omitempty"`
+	ManagedByGitOps       bool                         `json:"managed_by_config_repo"`
 }
 
 type gitWebhookSourceInput struct {
@@ -51,10 +58,19 @@ type gitWebhookSourceInput struct {
 	Provider            string         `json:"provider" yaml:"provider"`
 	Enabled             *bool          `json:"enabled" yaml:"enabled,omitempty"`
 	TeamPath            string         `json:"team_path" yaml:"team_path,omitempty"`
+	Visibility          string         `json:"visibility" yaml:"visibility,omitempty"`
 	AuthMode            string         `json:"auth_mode" yaml:"auth_mode"`
 	CredentialRef       string         `json:"credential_ref" yaml:"credential_ref,omitempty"`
 	RepositoryAllowlist []string       `json:"repository_allowlist" yaml:"repository_allowlist"`
 	RateLimit           map[string]any `json:"rate_limit" yaml:"rate_limit,omitempty"`
+}
+
+type gitWebhookConnectedTrigger struct {
+	RepositoryName       string `json:"repository_name"`
+	RepositoryForWebhook string `json:"repository_for_webhook"`
+	Provider             string `json:"provider"`
+	TeamPath             string `json:"team_path"`
+	Management           string `json:"management"`
 }
 
 type gitWebhookDeliveryRecord struct {
@@ -99,6 +115,7 @@ func normalizeGitWebhookSourceInput(input gitWebhookSourceInput, pathID string) 
 	if err != nil {
 		return gitWebhookSourceRecord{}, fmt.Errorf("invalid team_path: %w", err)
 	}
+	visibility := normalizeGitWebhookSourceVisibility(input.Visibility)
 	provider := strings.ToLower(strings.TrimSpace(input.Provider))
 	switch provider {
 	case gitwebhook.ProviderGeneric, gitwebhook.ProviderGitLab, gitwebhook.ProviderBitbucket, gitwebhook.ProviderGitea:
@@ -140,11 +157,23 @@ func normalizeGitWebhookSourceInput(input gitWebhookSourceInput, pathID string) 
 		Provider:            provider,
 		Enabled:             enabled,
 		TeamPath:            teamPath,
+		Visibility:          visibility,
 		AuthMode:            authMode,
 		CredentialRef:       credentialRef,
 		RepositoryAllowlist: allowlist,
 		RateLimit:           normalizeObjectMap(input.RateLimit),
 	}, nil
+}
+
+func normalizeGitWebhookSourceVisibility(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(strings.ReplaceAll(raw, "-", "_"))) {
+	case "", gitWebhookSourceVisibilityTeam, "team_only":
+		return gitWebhookSourceVisibilityTeam
+	case gitWebhookSourceVisibilityWorkspace, "workspace_shared", "shared", "workspace_shared_webhook":
+		return gitWebhookSourceVisibilityWorkspace
+	default:
+		return gitWebhookSourceVisibilityTeam
+	}
 }
 
 func normalizeGitWebhookRepositoryAllowlist(values []string) ([]string, error) {
