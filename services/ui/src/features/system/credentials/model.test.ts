@@ -201,10 +201,11 @@ test('groups catalog cards and sorts recently updated credentials', () => {
     ]),
     [
       ['team/platform/ml', 'team', 'platform/ml', [['mail', ['2']]], ['2']],
-      ['shared/global', 'shared', 'global', [['github', ['3']]], ['3']],
-      ['shared/system', 'shared', 'system', [['llm', ['1']]], ['1']],
+      ['system/system', 'system', 'system', [['llm', ['1']]], ['1']],
+      ['system/global', 'system', 'global', [['github', ['3']]], ['3']],
     ]
   );
   assert.deepEqual(recentlyUpdatedCredentials(credentials, 2).map(credential => credential.id), ['2', '3']);
-  assert.deepEqual(filterCredentials(credentials, '', 'all', 'shared').map(credential => credential.id), ['3', '1']);
+  assert.deepEqual(filterCredentials(credentials, '', 'all', 'system').map(credential => credential.id), ['1']);
+  assert.deepEqual(filterCredentials(credentials, '', 'all', 'global').map(credential => credential.id), ['3']);
 });

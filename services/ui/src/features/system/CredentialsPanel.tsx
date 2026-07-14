@@ -239,14 +239,14 @@ function CredentialsPanelBody({
   );
 }
 
-function buildCredentialScopeTabs(credentials: CredentialRecord[], includeShared: boolean): CredentialScopeTab[] {
+function buildCredentialScopeTabs(credentials: CredentialRecord[], includeSystem: boolean): CredentialScopeTab[] {
   const teamCount = credentials.filter(credential => parseCredentialReference(credential.reference).namespace === 'team').length;
-  const sharedCount = credentials.length - teamCount;
+  const systemCount = credentials.filter(credential => parseCredentialReference(credential.reference).namespace === 'system').length;
   const tabs = [
     { value: 'all', label: 'All', count: credentials.length },
     { value: 'team', label: 'Teams', count: teamCount },
   ];
-  if (includeShared) tabs.push({ value: 'shared', label: 'Shared', count: sharedCount });
+  if (includeSystem) tabs.push({ value: 'system', label: 'System', count: systemCount });
   return tabs;
 }
 

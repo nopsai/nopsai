@@ -106,7 +106,7 @@ func (s *credentialService) EnsureMetadata(ctx context.Context, input createCred
 				existing.Kind,
 			)
 		}
-		if input.ManagedByConfigRepo {
+		if shouldRefreshManagedCredentialMetadata(existing, input) {
 			input.Reference = existing.Reference
 			input.Kind = existing.Kind
 			return s.store.UpsertCredentialMetadata(ctx, credentials.Credential{
@@ -142,6 +142,16 @@ func (s *credentialService) EnsureMetadata(ctx context.Context, input createCred
 		CreatedBy:             actor,
 		UpdatedBy:             actor,
 	})
+}
+
+func shouldRefreshManagedCredentialMetadata(existing credentials.Credential, input createCredentialInput) bool {
+	if !input.ManagedByConfigRepo || !existing.ManagedByConfigRepo {
+		return false
+	}
+	if existing.ConfigRepoID == nil || input.ConfigRepoID == nil {
+		return existing.ConfigRepoID == nil && input.ConfigRepoID == nil
+	}
+	return *existing.ConfigRepoID == *input.ConfigRepoID
 }
 
 func (s *credentialService) PutValue(

@@ -82,7 +82,7 @@ export type CredentialTeam = {
 };
 
 export type CredentialReferenceDisplayParts = CredentialReferenceParts & {
-  scopeKind: 'team' | 'shared';
+  scopeKind: 'team' | 'system';
   scopePath: string;
   scopeLabel: string;
 };
@@ -90,7 +90,7 @@ export type CredentialReferenceDisplayParts = CredentialReferenceParts & {
 export type CredentialCatalogGroup = {
   key: string;
   namespace: string;
-  scopeKind: 'team' | 'shared';
+  scopeKind: 'team' | 'system';
   scopePath: string;
   scopeLabel: string;
   categories: CredentialCatalogCategory[];
@@ -206,7 +206,7 @@ export function credentialReferenceDisplay(
   if (base.namespace.toLowerCase() !== 'team') {
     return {
       ...base,
-      scopeKind: 'shared',
+      scopeKind: 'system',
       scopePath: base.namespace,
       scopeLabel: base.namespace,
     };
@@ -262,8 +262,8 @@ export function filterCredentials(
     const reference = parseCredentialReference(credential.reference);
     if (status !== 'all' && credential.status !== status) return false;
     if (namespace === 'team' && reference.namespace !== 'team') return false;
-    if (namespace === 'shared' && reference.namespace === 'team') return false;
-    if (!['all', 'team', 'shared'].includes(namespace) && reference.namespace !== namespace) return false;
+    if (namespace === 'system' && reference.namespace !== 'system') return false;
+    if (!['all', 'team', 'system'].includes(namespace) && reference.namespace !== namespace) return false;
     if (!normalizedQuery) return true;
     return [
       credential.reference,
@@ -365,16 +365,16 @@ function findMatchingTeamPath(segments: string[], teamPaths: string[]): string {
 
 function compareCredentialCatalogGroups(left: CredentialCatalogGroup, right: CredentialCatalogGroup): number {
   if (left.scopeKind !== right.scopeKind) return left.scopeKind === 'team' ? -1 : 1;
-  const scopeComparison = sharedScopeRank(left) - sharedScopeRank(right)
+  const scopeComparison = systemScopeRank(left) - systemScopeRank(right)
     || left.scopeLabel.localeCompare(right.scopeLabel);
   if (scopeComparison !== 0) return scopeComparison;
   return left.key.localeCompare(right.key);
 }
 
-function sharedScopeRank(group: CredentialCatalogGroup): number {
+function systemScopeRank(group: CredentialCatalogGroup): number {
   if (group.scopeKind === 'team') return 0;
-  if (group.namespace === 'global') return 1;
-  if (group.namespace === 'system') return 2;
+  if (group.namespace === 'system') return 1;
+  if (group.namespace === 'global') return 2;
   return 3;
 }
 
