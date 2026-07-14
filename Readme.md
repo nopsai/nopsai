@@ -558,6 +558,12 @@ Run backend tests:
 scripts/test-backend.sh
 ```
 
+Run the commercial dependency license gate:
+
+```bash
+scripts/license-check.sh
+```
+
 Run the same checks through Docker Compose:
 
 ```bash
@@ -590,6 +596,8 @@ Useful local docs:
 - [doc/runtime-flows.md](doc/runtime-flows.md): runtime flow walkthroughs
 - [doc/decision-architecture.md](doc/decision-architecture.md): architectural
   decisions and tradeoffs
+- [doc/license-compliance.md](doc/license-compliance.md): commercial
+  dependency, container, data, and MCP/plugin license policy
 
 ## Documentation Map
 
