@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestScheduleSchemaMigratesLegacyGroupVisibilityBeforeCheck(t *testing.T) {
+func TestScheduleSchemaSetsVisibilityDefaultBeforeCheck(t *testing.T) {
 	joined := strings.Join(scheduleSchemaStatements, "\n")
 	for _, statement := range []string{
 		"SET run_team_path = run_group_path",
@@ -17,9 +17,18 @@ func TestScheduleSchemaMigratesLegacyGroupVisibilityBeforeCheck(t *testing.T) {
 	}
 
 	drop := strings.Index(joined, "ALTER TABLE pipeline_schedules DROP CONSTRAINT IF EXISTS pipeline_schedules_visibility_check")
-	update := strings.Index(joined, "UPDATE pipeline_schedules SET visibility = 'team' WHERE visibility = 'group'")
+	defaultFix := strings.Index(joined, "ALTER TABLE pipeline_schedules ALTER COLUMN visibility SET DEFAULT 'team'")
 	add := strings.Index(joined, "ALTER TABLE pipeline_schedules ADD CONSTRAINT pipeline_schedules_visibility_check")
-	if drop == -1 || update == -1 || add == -1 || drop > update || update > add {
-		t.Fatalf("pipeline_schedules visibility migration order is wrong; drop index %d update index %d add index %d", drop, update, add)
+	if defaultFix == -1 || drop == -1 || add == -1 || defaultFix > drop || drop > add {
+		t.Fatalf("pipeline_schedules visibility migration order is wrong; default index %d drop index %d add index %d", defaultFix, drop, add)
+	}
+	for _, legacyFragment := range []string{
+		"visibility = 'group'",
+		"BTRIM(visibility)",
+		"LOWER(BTRIM(visibility))",
+	} {
+		if strings.Contains(joined, legacyFragment) {
+			t.Fatalf("pipeline_schedules visibility schema should not keep legacy compatibility fragment %q", legacyFragment)
+		}
 	}
 }

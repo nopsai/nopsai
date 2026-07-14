@@ -61,11 +61,7 @@ func (a *App) upsertManagedProductRoleGrant(ctx context.Context, tx pgx.Tx, bind
 		return resolvedAccessGrantKey{}, err
 	}
 
-	resourceScope := resource.ID
-	if resource.Type == grantResourceSecret || resource.Type == grantResourceVariable {
-		repoName, scope, _ := model.ParseNamedResourceID(resource.ID)
-		resourceScope = firstNonEmptyString(repoName, scope)
-	}
+	resourceScope := configSyncGrantResourceScope(resource)
 	writable, err := ensureAccessGrantConfigWritable(ctx, tx, binding, resourceScope, subject.Type, subject.ID, resource.Type, resource.ID)
 	if err != nil {
 		return resolvedAccessGrantKey{}, err
@@ -194,11 +190,7 @@ func (a *App) upsertManagedResourceUseGrant(ctx context.Context, tx pgx.Tx, bind
 		return resolvedAccessGrantKey{}, err
 	}
 
-	resourceScope := resource.ID
-	if resource.Type == grantResourceSecret || resource.Type == grantResourceVariable {
-		repoName, scope, _ := model.ParseNamedResourceID(resource.ID)
-		resourceScope = firstNonEmptyString(repoName, scope)
-	}
+	resourceScope := configSyncGrantResourceScope(resource)
 	writable, err := ensureAccessGrantConfigWritable(ctx, tx, binding, resourceScope, subject.Type, subject.ID, resource.Type, resource.ID)
 	if err != nil {
 		return resolvedAccessGrantKey{}, err
@@ -305,10 +297,17 @@ func ensureAccessGrantConfigWritable(ctx context.Context, tx pgx.Tx, binding mod
 	case err != nil:
 		return false, err
 	}
+	return accessGrantConfigWritableDecision(ctx, tx, binding, resourceScope, displayID, existingRepoID, managed)
+}
+
+func accessGrantConfigWritableDecision(ctx context.Context, tx pgx.Tx, binding models.ConfigRepository, resourceScope, displayID string, existingRepoID sql.NullInt64, managed bool) (bool, error) {
 	if !managed {
 		return true, nil
 	}
 	if !existingRepoID.Valid {
+		if configsync.CanRepositoryAdoptUnmanagedResource(binding, resourceScope) {
+			return true, nil
+		}
 		return false, fmt.Errorf("access grant %s is already managed by an unknown config repository", displayID)
 	}
 	if existingRepoID.Int64 == binding.ID {
@@ -327,4 +326,18 @@ func ensureAccessGrantConfigWritable(ctx context.Context, tx pgx.Tx, binding mod
 	}
 
 	return false, fmt.Errorf("access grant %s is already managed by config repository %d", displayID, existingRepoID.Int64)
+}
+
+func configSyncGrantResourceScope(resource accessGrantResource) string {
+	switch resource.Type {
+	case grantResourceSecret, grantResourceVariable:
+		repoName, scope, _ := model.ParseNamedResourceID(resource.ID)
+		return firstNonEmptyString(repoName, scope)
+	case grantResourceKnowledgeContext:
+		_, team, _, err := splitKnowledgeContextIdentifier(resource.ID)
+		if err == nil {
+			return team
+		}
+	}
+	return resource.ID
 }
