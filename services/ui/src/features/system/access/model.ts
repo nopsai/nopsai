@@ -302,7 +302,7 @@ export const normalizeBasicGrantResourceLabel = (
   const resourceType = (grant.resourceType || "").trim();
   const resourceID = (grant.resourceID || "").trim().replace(/^\/+|\/+$/g, "");
   if (resourceType === "platform") return "Platform";
-  if (isRootAccessScopeID(resourceID)) return "Root";
+  if (isRootAccessScopeID(resourceID)) return "Global";
   return `/${resourceID}`;
 };
 
@@ -327,7 +327,7 @@ export const basicAccessGrantDescription = (
   if ((grant.resourceType || "").trim() === "platform") {
     return "This basic role gives platform-wide administrator access.";
   }
-  if (label === "Root") {
+  if (label === "Global") {
     return `This ${grant.role} basic role applies to items that are not inside any team.`;
   }
   return `This ${grant.role} basic role applies to ${label} and anything nested below it.`;
