@@ -332,6 +332,7 @@ function renderWorkspace(overrides: Partial<Parameters<typeof TeamsWorkspace>[0]
     onSelectTeam: vi.fn(),
     onRefresh: vi.fn(),
     onCreate: vi.fn(),
+    onEditTeam: vi.fn(),
     onDeleteTeam: vi.fn(),
     onOpenConfig: vi.fn(),
     operationsSummary,
@@ -360,6 +361,19 @@ describe('TeamsWorkspace', () => {
 
     expect(screen.getAllByRole('button', { name: 'New' })).toHaveLength(1);
     expect(screen.getByRole('tabpanel', { name: 'Overview' })).toBeVisible();
+    const overviewCard = screen.getByRole('heading', { name: 'Team Overview' }).closest('article');
+    expect(overviewCard).not.toBeNull();
+    expect(within(overviewCard as HTMLElement).getByText('Applications')).toBeVisible();
+    expect(within(overviewCard as HTMLElement).getAllByText('2').length).toBeGreaterThan(0);
+    expect(within(overviewCard as HTMLElement).queryByText('Repositories')).not.toBeInTheDocument();
+    expect(within(overviewCard as HTMLElement).queryByText('Scoped teams')).not.toBeInTheDocument();
+    expect(within(overviewCard as HTMLElement).queryByText('Recent run signals')).not.toBeInTheDocument();
+    expect(within(overviewCard as HTMLElement).getByText('Owners')).toBeVisible();
+    expect(within(overviewCard as HTMLElement).getByText('Alice Admin')).toBeVisible();
+    expect(within(overviewCard as HTMLElement).getByText('Latest run app')).toBeVisible();
+    expect(within(overviewCard as HTMLElement).getByText(/checkout-api/)).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Team Activity' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Activity range' })).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'Applications' })).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'AI Profiles' })).not.toBeInTheDocument();
 
@@ -549,6 +563,9 @@ describe('TeamsWorkspace', () => {
     await user.click(screen.getByRole('button', { name: 'Open checkout-api' }));
     expect(props.onSelectTeam).toHaveBeenCalledWith(3);
 
+    await user.click(screen.getByRole('button', { name: 'Edit checkout-api' }));
+    expect(props.onEditTeam).toHaveBeenCalledWith(teams[2]);
+
     await user.click(screen.getByRole('button', { name: 'Delete checkout-api' }));
     expect(props.onDeleteTeam).toHaveBeenCalledWith(teams[2]);
   });
@@ -573,17 +590,33 @@ describe('TeamsWorkspace', () => {
     expect(props.onSelectTeam).not.toHaveBeenCalled();
   });
 
-  it('shows the selected leaf state and returns to global without a blank panel', async () => {
-    const user = userEvent.setup();
-    const props = renderWorkspace({
+  it('shows application overview with only app-related resources', () => {
+    renderWorkspace({
       activeTeam: teams[2],
       activeTeamPath: [teams[0], teams[1], teams[2]],
     });
 
-    expect(screen.getByRole('heading', { name: 'No child items' })).toBeVisible();
-    expect(screen.getByText('checkout-api has no child teams or applications.')).toBeVisible();
-
-    await user.click(screen.getByRole('button', { name: 'Back to global' }));
-    expect(props.onSelectTeam).toHaveBeenCalledWith(null);
+    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveClass('active');
+    expect(screen.queryByRole('tab', { name: 'Details' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'checkout-api Overview' })).not.toBeInTheDocument();
+    expect(screen.getByText('acme/checkout-api')).toBeVisible();
+    expect(screen.queryByText('Parent')).not.toBeInTheDocument();
+    expect(screen.getByText('Owner team')).toBeVisible();
+    expect(screen.getByText('Last run')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Related Runs' })).toHaveAttribute('href', '/pipelineruns/main/team/platform/payments/checkout-api');
+    expect(screen.queryByRole('link', { name: 'Recent Runs' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open Repository' })).toHaveAttribute('href', 'https://github.com/acme/checkout-api');
+    expect(screen.queryByRole('heading', { name: 'Application Activity' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'No child items' })).not.toBeInTheDocument();
+    expect(screen.getByText('Application-specific automation and configuration linked by app path or repository identity.')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Open Triggers' })).toHaveTextContent('1');
+    expect(screen.getByRole('region', { name: 'Triggers resources' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Open checkout-api' })).toHaveAttribute('href', '/triggers/platform/acme/checkout-api');
+    expect(screen.queryByRole('button', { name: 'Open Applications' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open LLM Profiles' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open Pipelines' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'GitOps' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Notifications' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Access' })).not.toBeInTheDocument();
   });
 });

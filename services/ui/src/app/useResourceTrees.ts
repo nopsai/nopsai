@@ -5,7 +5,6 @@ import {
   buildPipelineTree,
   buildScopeTree,
   buildStepTree,
-  buildTriggerTree,
   normalizeScopeLabel,
   splitIdentifier,
 } from './resourceTrees';
@@ -46,9 +45,6 @@ export function useResourceTrees({
   const serverPipelinesRef = useRef<string[]>([]);
   const [pipelineTreeOpen, setPipelineTreeOpen] = useState<Set<string>>(new Set());
 
-  const [triggers, setTriggers] = useState<string[]>([]);
-  const [triggerTreeOpen, setTriggerTreeOpen] = useState<Set<string>>(new Set());
-
   const [steps, setSteps] = useState<string[]>([]);
   const serverStepsRef = useRef<string[]>([]);
   const [stepTreeOpen, setStepTreeOpen] = useState<Set<string>>(new Set());
@@ -73,10 +69,6 @@ export function useResourceTrees({
 
   const onToggleStepNode = useCallback((id: string) => {
     setStepTreeOpen(prev => toggleOpenSet(prev, id));
-  }, []);
-
-  const onToggleTriggerNode = useCallback((id: string) => {
-    setTriggerTreeOpen(prev => toggleOpenSet(prev, id));
   }, []);
 
   useEffect(() => {
@@ -156,27 +148,6 @@ export function useResourceTrees({
       void load();
     }
   }, [canWritePipelines, draftScope, isAuthenticated, pathname]);
-
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    const load = async () => {
-      try {
-        const response = await apiClient.fetch('/v1/overrides');
-        if (!response.ok) return;
-        const payload = await response.json();
-        const slugs = Array.isArray(payload)
-          ? payload.map((item: unknown) => (typeof item === 'string' ? item.trim() : '')).filter(Boolean)
-          : [];
-        slugs.sort((a: string, b: string) => a.localeCompare(b));
-        setTriggers(slugs);
-      } catch (error) {
-        console.warn('Failed to load triggers for sidebar', error);
-      }
-    };
-    if (pathname.startsWith('/triggers')) {
-      void load();
-    }
-  }, [isAuthenticated, pathname]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -292,7 +263,6 @@ export function useResourceTrees({
   const pipelineTree = useMemo(() => buildPipelineTree(pipelines, []), [pipelines]);
   const scopeTree = useMemo(() => buildScopeTree(scopes, []), [scopes]);
   const stepTree = useMemo(() => buildStepTree(steps, []), [steps]);
-  const triggerTree = useMemo(() => buildTriggerTree(triggers, []), [triggers]);
 
   return {
     knowledgeContextTree,
@@ -308,8 +278,5 @@ export function useResourceTrees({
     stepTree,
     stepTreeOpen,
     onToggleStepNode,
-    triggerTree,
-    triggerTreeOpen,
-    onToggleTriggerNode,
   };
 }

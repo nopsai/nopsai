@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { NewTeamItemModal, TeamConfigRepositoryModal } from './TeamSettingsModals';
+import { EditTeamItemModal, NewTeamItemModal, TeamConfigRepositoryModal } from './TeamSettingsModals';
 import { createEmptyNotificationRouteForm, defaultNotificationRouteDefinition } from './notificationRoutes';
 
 const configRepo = {
@@ -91,6 +91,12 @@ describe('TeamSettingsModals', () => {
       <NewTeamItemModal
         open
         parentLabel="platform"
+        parentOptions={[
+          { id: null, label: 'Global' },
+          { id: 1, label: '/platform' },
+          { id: 2, label: '/security' },
+        ]}
+        defaultParentID={1}
         error={null}
         pending={false}
         onClose={vi.fn()}
@@ -99,6 +105,7 @@ describe('TeamSettingsModals', () => {
     );
 
     await user.type(screen.getByLabelText('Team Name'), 'security');
+    await user.selectOptions(screen.getByLabelText('Parent team'), '2');
     await user.type(screen.getByLabelText(/Description/), 'Security engineering');
     await user.click(screen.getByRole('button', { name: 'Create' }));
 
@@ -107,6 +114,52 @@ describe('TeamSettingsModals', () => {
       name: 'security',
       description: 'Security engineering',
       repoURL: '',
+      parentID: 2,
+    }));
+  });
+
+  it('submits edited application details and placement', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <EditTeamItemModal
+        open
+        team={{
+          id: 3,
+          name: 'checkout-api',
+          kind: 'app',
+          parent_id: 1,
+          path: 'platform/checkout-api',
+          team_path: 'platform',
+          repo_url: 'https://github.com/acme/checkout-api',
+          repository_full_name: 'acme/checkout-api',
+        }}
+        parentOptions={[
+          { id: null, label: 'Global' },
+          { id: 1, label: '/platform' },
+          { id: 2, label: '/payments' },
+        ]}
+        error={null}
+        pending={false}
+        onClose={vi.fn()}
+        onSubmit={onSubmit}
+      />
+    );
+
+    await waitFor(() => expect(screen.getByLabelText('Application Name')).toHaveValue('checkout-api'));
+    await user.clear(screen.getByLabelText('Application Name'));
+    await user.type(screen.getByLabelText('Application Name'), 'checkout-worker');
+    await user.selectOptions(screen.getByLabelText('Parent team'), '2');
+    await user.clear(screen.getByLabelText('Repository URL'));
+    await user.type(screen.getByLabelText('Repository URL'), 'https://github.com/acme/checkout-worker');
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({
+      name: 'checkout-worker',
+      description: '',
+      repoURL: 'https://github.com/acme/checkout-worker',
+      parentID: 2,
     }));
   });
 

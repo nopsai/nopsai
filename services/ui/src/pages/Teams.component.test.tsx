@@ -164,14 +164,16 @@ describe('TeamsPage', () => {
     expect(screen.queryByRole('heading', { name: 'No visible teams' })).not.toBeInTheDocument();
   });
 
-  it('shows a selected leaf state instead of looking blank', async () => {
+  it('shows selected application overview instead of an empty child-resource state', async () => {
     vi.spyOn(apiClient, 'fetch').mockResolvedValue(Response.json(teamsPayload));
 
     renderTeams('/teams/team/platform/service-api');
 
-    expect(await screen.findByRole('heading', { name: 'No child items' })).toBeVisible();
-    expect(screen.getByText('service-api has no child teams or applications.')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Back to global' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'service-api Overview' })).toBeVisible();
+    expect(screen.getByText('Application ownership, repository identity, and run metadata.')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Related Runs' })).toHaveAttribute('href', '/pipelineruns/main/team/platform/service-api');
+    expect(screen.queryByRole('link', { name: 'Recent Runs' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'No child items' })).not.toBeInTheDocument();
   });
 
   it('shows a retry state when the Teams API fails', async () => {
@@ -211,6 +213,35 @@ describe('TeamsPage', () => {
     expect(created[0]).toEqual({
       name: 'worker',
       repo_url: 'https://github.com/acme/worker',
+    });
+  });
+
+  it('updates and moves an application through the Teams edit modal', async () => {
+    const updated: unknown[] = [];
+    vi.spyOn(apiClient, 'fetch').mockImplementation(async (input, init) => {
+      const path = String(input);
+      if (path === '/v1/teams/root/applications/2' && init?.method === 'PUT') {
+        updated.push(JSON.parse(String(init.body)));
+        return new Response(null, { status: 200 });
+      }
+      if (path === '/v1/teams?include=applications') return Response.json(teamsPayload);
+      return Response.json({ allowed: true });
+    });
+
+    const user = userEvent.setup();
+    renderTeams('/teams/team/platform/service-api');
+
+    expect(await screen.findByRole('heading', { name: 'service-api Overview' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Edit service-api' }));
+    expect(screen.getByRole('dialog', { name: 'Edit Application' })).toBeVisible();
+    await waitFor(() => expect(screen.getByLabelText('Application Name')).toHaveValue('service-api'));
+    await user.selectOptions(screen.getByLabelText('Parent team'), 'root');
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() => expect(updated).toHaveLength(1));
+    expect(updated[0]).toEqual({
+      name: 'service-api',
+      repo_url: 'https://github.com/acme/service-api',
     });
   });
 });

@@ -4,7 +4,6 @@ import type {
   PipelineTreeNode,
   ScopeTreeNode,
   StepTreeNode,
-  TriggerTreeNode,
 } from './types.js';
 import { insertTeamPath } from '../lib/resourceTeams.js';
 
@@ -46,33 +45,6 @@ export function buildPipelineTree(pipelines: string[], resourceTeamPaths: string
     });
     current.pipelineIds.push(id);
     current.pipelineIds.sort((a, b) => a.localeCompare(b));
-  });
-  return root;
-}
-
-export function buildTriggerTree(triggers: string[], resourceTeamPaths: string[]): TriggerTreeNode {
-  const root: TriggerTreeNode = { id: '__root__', name: 'All triggers', fullPath: '', children: [], triggerSlugs: [] };
-  resourceTeamPaths.forEach(path => {
-    insertTeamPath(root, path, (id, name, fullPath) => ({ id, name, fullPath, children: [], triggerSlugs: [] }));
-  });
-  triggers.forEach(slug => {
-    const parts = slug.split('/').filter(Boolean);
-    const repoName = parts.pop();
-    if (!repoName) return;
-    let current = root;
-    let pathSoFar = '';
-    parts.forEach(segment => {
-      pathSoFar = pathSoFar ? `${pathSoFar}/${segment}` : segment;
-      let child = current.children.find(c => c.name === segment);
-      if (!child) {
-        child = { id: pathSoFar, name: segment, fullPath: pathSoFar, children: [], triggerSlugs: [] };
-        current.children.push(child);
-        current.children.sort((a, b) => a.name.localeCompare(b.name));
-      }
-      current = child;
-    });
-    current.triggerSlugs.push(slug);
-    current.triggerSlugs.sort((a, b) => a.localeCompare(b));
   });
   return root;
 }

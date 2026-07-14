@@ -17,14 +17,6 @@ export type PipelineTreeNode = {
   pipelineIds: string[];
 };
 
-export type TriggerTreeNode = {
-  id: string;
-  name: string;
-  fullPath: string;
-  children: TriggerTreeNode[];
-  triggerSlugs: string[];
-};
-
 export type StepTreeNode = {
   id: string;
   name: string;
