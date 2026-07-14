@@ -277,6 +277,10 @@ export function useSystemConfig({
       setGlobalConfigRepoError('Repository URL is required.');
       return;
     }
+    if (globalConfigRepoForm.provider !== 'github' && !globalConfigRepoForm.credential_ref.trim()) {
+      setGlobalConfigRepoError('Credential reference is required for this Git provider.');
+      return;
+    }
     setGlobalConfigRepoSaving(true);
     setGlobalConfigRepoError(null);
     try {

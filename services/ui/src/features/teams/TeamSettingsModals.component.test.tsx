@@ -9,9 +9,11 @@ const configRepo = {
   id: 7,
   scope_type: 'team',
   scope_id: 'platform',
+  provider: 'github' as const,
   repo_url: 'https://github.com/acme/platform-config',
   branch: 'main',
   base_path: 'teams/platform',
+  credential_ref: '',
   enabled: true,
   write_enabled: true,
   write_branch: 'nopsai/team-updates',
@@ -36,9 +38,11 @@ function createSettingsHandlers() {
 
 function ConfigModalHarness({ handlers }: { handlers: ReturnType<typeof createSettingsHandlers> }) {
   const [form, setForm] = useState({
+    provider: configRepo.provider,
     repo_url: configRepo.repo_url,
     branch: configRepo.branch,
     base_path: configRepo.base_path,
+    credential_ref: configRepo.credential_ref,
     enabled: configRepo.enabled,
     write_enabled: configRepo.write_enabled,
     write_branch: configRepo.write_branch,

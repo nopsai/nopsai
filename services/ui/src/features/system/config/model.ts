@@ -1,4 +1,5 @@
 import { asRecord, normalizeNumber, readOptionalString, readString } from '../data.js';
+import { normalizeConfigRepositoryProvider, type ConfigRepositoryProvider } from '../../../lib/configRepositoryProviders.js';
 
 export type ConfigFormState = {
   log_level: string;
@@ -50,9 +51,11 @@ export type ConfigRepository = {
   id: number;
   scope_type: string;
   scope_id: string;
+  provider: ConfigRepositoryProvider;
   repo_url: string;
   branch: string;
   base_path: string;
+  credential_ref: string;
   enabled: boolean;
   write_enabled: boolean;
   write_branch: string;
@@ -66,9 +69,11 @@ export type ConfigRepository = {
 };
 
 export type ConfigRepositoryFormState = {
+  provider: ConfigRepositoryProvider;
   repo_url: string;
   branch: string;
   base_path: string;
+  credential_ref: string;
   enabled: boolean;
   write_enabled: boolean;
   write_branch: string;
@@ -133,9 +138,11 @@ export const initialConfig: ConfigFormState = {
 };
 
 export const emptyConfigRepositoryForm: ConfigRepositoryFormState = {
+  provider: 'github',
   repo_url: '',
   branch: 'main',
   base_path: '',
+  credential_ref: '',
   enabled: true,
   write_enabled: false,
   write_branch: 'nopsai/ui-changes',
@@ -279,9 +286,11 @@ export function normalizeConfigRepository(payload: unknown): ConfigRepository | 
     id,
     scope_type: readString(record.scope_type),
     scope_id: readString(record.scope_id),
+    provider: normalizeConfigRepositoryProvider(record.provider),
     repo_url: readString(record.repo_url),
     branch: readString(record.branch).trim() || 'main',
     base_path: readString(record.base_path),
+    credential_ref: readString(record.credential_ref),
     enabled: Boolean(record.enabled),
     write_enabled: Boolean(record.write_enabled),
     write_branch: readString(record.write_branch).trim() || 'nopsai/ui-changes',
@@ -298,9 +307,11 @@ export function normalizeConfigRepository(payload: unknown): ConfigRepository | 
 export function configRepositoryFormFromRecord(repo: ConfigRepository | null): ConfigRepositoryFormState {
   if (!repo) return emptyConfigRepositoryForm;
   return {
+    provider: repo.provider || 'github',
     repo_url: repo.repo_url,
     branch: repo.branch || 'main',
     base_path: repo.base_path || '',
+    credential_ref: repo.credential_ref || '',
     enabled: repo.enabled,
     write_enabled: repo.write_enabled,
     write_branch: repo.write_branch || 'nopsai/ui-changes',
@@ -309,9 +320,11 @@ export function configRepositoryFormFromRecord(repo: ConfigRepository | null): C
 
 export function configRepositoryPayloadFromForm(form: ConfigRepositoryFormState) {
   return {
+    provider: form.provider,
     repo_url: form.repo_url.trim(),
     branch: form.branch.trim() || 'main',
     base_path: form.base_path.trim(),
+    credential_ref: form.credential_ref.trim(),
     enabled: Boolean(form.enabled),
     write_enabled: Boolean(form.write_enabled),
     write_branch: form.write_branch.trim(),

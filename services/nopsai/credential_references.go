@@ -69,6 +69,13 @@ var credentialReferenceQueries = []struct {
 			WHERE credential_ref = $1
 			ORDER BY id`,
 	},
+	{
+		label: "config repository Git provider",
+		query: `SELECT scope_type || '/' || scope_id
+			FROM config_repositories
+			WHERE credential_ref = $1
+			ORDER BY scope_type, scope_id`,
+	},
 }
 
 func (a *App) ensureCredentialReference(

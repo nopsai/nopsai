@@ -46,15 +46,17 @@ type storedStep struct {
 }
 
 type storedConfigRepository struct {
-	scopeType    string
-	scopeID      string
-	repoURL      string
-	branch       string
-	basePath     string
-	enabled      bool
-	writeEnabled bool
-	writeBranch  string
-	sourcePath   string
+	scopeType     string
+	scopeID       string
+	provider      string
+	repoURL       string
+	branch        string
+	basePath      string
+	credentialRef string
+	enabled       bool
+	writeEnabled  bool
+	writeBranch   string
+	sourcePath    string
 }
 
 type storedScopeVar struct {
@@ -294,21 +296,27 @@ func configRepositoryBindingsFromPipelineRunStructure(structure map[string]*conf
 			if branch == "" {
 				branch = "main"
 			}
+			provider, err := configsync.NormalizeRepositoryProvider(file.Provider, file.RepoURL)
+			if err != nil {
+				return err
+			}
 
 			key := models.ConfigRepositoryScopeTeam + "/" + scopeID
 			if _, exists := result[key]; exists {
 				return fmt.Errorf("duplicate config repository binding for '%s' detected", key)
 			}
 			result[key] = storedConfigRepository{
-				scopeType:    models.ConfigRepositoryScopeTeam,
-				scopeID:      scopeID,
-				repoURL:      strings.TrimSpace(file.RepoURL),
-				branch:       branch,
-				basePath:     basePath,
-				enabled:      enabled,
-				writeEnabled: writeEnabled,
-				writeBranch:  writeBranch,
-				sourcePath:   sourcePath,
+				scopeType:     models.ConfigRepositoryScopeTeam,
+				scopeID:       scopeID,
+				provider:      provider,
+				repoURL:       strings.TrimSpace(file.RepoURL),
+				branch:        branch,
+				basePath:      basePath,
+				credentialRef: strings.TrimSpace(file.CredentialRef),
+				enabled:       enabled,
+				writeEnabled:  writeEnabled,
+				writeBranch:   writeBranch,
+				sourcePath:    sourcePath,
 			}
 		}
 

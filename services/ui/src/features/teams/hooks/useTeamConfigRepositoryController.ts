@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { teamPathForURL, type Team } from '../../../lib/teamModels';
+import { normalizeConfigRepositoryProvider, type ConfigRepositoryProvider } from '../../../lib/configRepositoryProviders.js';
 import { fetchTeamConfigRepository } from '../api';
 import {
   createEmptyNotificationRouteForm,
@@ -20,9 +21,11 @@ export type PipelineRunsConfigRepository = {
   id: number;
   scope_type: string;
   scope_id: string;
+  provider: ConfigRepositoryProvider;
   repo_url: string;
   branch: string;
   base_path: string;
+  credential_ref: string;
   enabled: boolean;
   write_enabled: boolean;
   write_branch: string;
@@ -34,9 +37,11 @@ export type PipelineRunsConfigRepository = {
 };
 
 export type PipelineRunsConfigRepositoryFormState = {
+  provider: ConfigRepositoryProvider;
   repo_url: string;
   branch: string;
   base_path: string;
+  credential_ref: string;
   enabled: boolean;
   write_enabled: boolean;
   write_branch: string;
@@ -58,9 +63,11 @@ type UseTeamConfigRepositoryControllerOptions = {
 };
 
 const emptyConfigRepositoryForm: PipelineRunsConfigRepositoryFormState = {
+  provider: 'github',
   repo_url: '',
   branch: 'main',
   base_path: '',
+  credential_ref: '',
   enabled: true,
   write_enabled: false,
   write_branch: 'nopsai/ui-changes',
@@ -76,9 +83,11 @@ function normalizeConfigRepository(payload: unknown): PipelineRunsConfigReposito
     id: Number.isFinite(id) ? id : 0,
     scope_type: typeof record.scope_type === 'string' ? record.scope_type : '',
     scope_id: typeof record.scope_id === 'string' ? record.scope_id : '',
+    provider: normalizeConfigRepositoryProvider(record.provider),
     repo_url: typeof record.repo_url === 'string' ? record.repo_url : '',
     branch: typeof record.branch === 'string' && record.branch.trim() ? record.branch : 'main',
     base_path: typeof record.base_path === 'string' ? record.base_path : '',
+    credential_ref: typeof record.credential_ref === 'string' ? record.credential_ref : '',
     enabled: Boolean(record.enabled),
     write_enabled: Boolean(record.write_enabled),
     write_branch: typeof record.write_branch === 'string' && record.write_branch.trim() ? record.write_branch : 'nopsai/ui-changes',
@@ -138,8 +147,10 @@ export function useTeamConfigRepositoryController({
         setConfigRepo(repo);
         setConfigRepoForm(repo ? {
           repo_url: repo.repo_url,
+          provider: repo.provider,
           branch: repo.branch || 'main',
           base_path: repo.base_path || '',
+          credential_ref: repo.credential_ref || '',
           enabled: repo.enabled,
           write_enabled: repo.write_enabled,
           write_branch: repo.write_branch || 'nopsai/ui-changes',
@@ -260,6 +271,10 @@ export function useTeamConfigRepositoryController({
       setConfigRepoError('Repository URL is required.');
       return;
     }
+    if (configRepoForm.provider !== 'github' && !configRepoForm.credential_ref.trim()) {
+      setConfigRepoError('Credential reference is required for this Git provider.');
+      return;
+    }
     setConfigRepoSaving(true);
     setConfigRepoError(null);
     try {
@@ -268,8 +283,10 @@ export function useTeamConfigRepositoryController({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           repo_url: repoURL,
+          provider: configRepoForm.provider,
           branch: configRepoForm.branch.trim() || 'main',
           base_path: configRepoForm.base_path.trim(),
+          credential_ref: configRepoForm.credential_ref.trim(),
           enabled: Boolean(configRepoForm.enabled),
           write_enabled: Boolean(configRepoForm.write_enabled),
           write_branch: configRepoForm.write_branch.trim(),
@@ -282,8 +299,10 @@ export function useTeamConfigRepositoryController({
       if (normalized) {
         setConfigRepoForm({
           repo_url: normalized.repo_url,
+          provider: normalized.provider,
           branch: normalized.branch || 'main',
           base_path: normalized.base_path || '',
+          credential_ref: normalized.credential_ref || '',
           enabled: normalized.enabled,
           write_enabled: normalized.write_enabled,
           write_branch: normalized.write_branch || 'nopsai/ui-changes',

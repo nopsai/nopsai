@@ -388,7 +388,9 @@ Main MCP coverage: `nopsai.list_git_webhook_sources`,
 
 The assistant can inspect config repository bindings, check drift, sync one or
 all config repos, and write files through the existing GitOps workflow with
-confirmation.
+confirmation. Config repository bindings include the selected Git provider and
+credential reference when they use GitLab, Bitbucket, Gitea, or token-backed
+GitHub access.
 
 Ask:
 

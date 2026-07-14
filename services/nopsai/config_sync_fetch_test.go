@@ -1,6 +1,7 @@
 package nopsai
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -20,13 +21,13 @@ type fakeConfigSyncGitReader struct {
 	requestedFiles []string
 }
 
-func (f *fakeConfigSyncGitReader) ensureConfigRepoAccessible(owner, repo string) error {
-	f.accessChecks = append(f.accessChecks, owner+"/"+repo)
+func (f *fakeConfigSyncGitReader) EnsureAccessible(_ context.Context) error {
+	f.accessChecks = append(f.accessChecks, "access")
 	return f.accessErr
 }
 
-func (f *fakeConfigSyncGitReader) requestGitBotDirectory(owner, repo, ref, path string) (map[string]string, error) {
-	f.requestedDirs = append(f.requestedDirs, owner+"/"+repo+"@"+ref+":"+path)
+func (f *fakeConfigSyncGitReader) Directory(_ context.Context, ref, path string) (map[string]string, error) {
+	f.requestedDirs = append(f.requestedDirs, ref+":"+path)
 	if err := f.dirErrs[path]; err != nil {
 		return nil, err
 	}
@@ -40,8 +41,8 @@ func (f *fakeConfigSyncGitReader) requestGitBotDirectory(owner, repo, ref, path 
 	return map[string]string{}, nil
 }
 
-func (f *fakeConfigSyncGitReader) requestGitBotFile(owner, repo, ref, path string, notFoundErr error) (string, error) {
-	f.requestedFiles = append(f.requestedFiles, owner+"/"+repo+"@"+ref+":"+path)
+func (f *fakeConfigSyncGitReader) File(_ context.Context, ref, path string, notFoundErr error) (string, error) {
+	f.requestedFiles = append(f.requestedFiles, ref+":"+path)
 	if err := f.fileErrs[path]; err != nil {
 		return "", err
 	}
@@ -64,6 +65,9 @@ func TestNewConfigSyncRepositoryContextNormalizesBinding(t *testing.T) {
 
 	if ctx.owner != "acme" || ctx.repo != "platform-config" {
 		t.Fatalf("repository = %s/%s, want acme/platform-config", ctx.owner, ctx.repo)
+	}
+	if ctx.provider != models.ConfigRepositoryProviderGitHub || ctx.project != "acme/platform-config" {
+		t.Fatalf("provider/project = %s/%s, want github/acme/platform-config", ctx.provider, ctx.project)
 	}
 	if ctx.branch != "main" {
 		t.Fatalf("branch = %q, want main", ctx.branch)
@@ -108,7 +112,7 @@ func TestFetchConfigSyncRepositoryFilesAddsTeamNotificationRoot(t *testing.T) {
 		t.Fatalf("newConfigSyncRepositoryContext() error = %v", err)
 	}
 
-	files, err := fetchConfigSyncRepositoryFiles(reader, repoCtx, binding)
+	files, err := fetchConfigSyncRepositoryFiles(context.Background(), reader, repoCtx, binding)
 	if err != nil {
 		t.Fatalf("fetchConfigSyncRepositoryFiles() error = %v", err)
 	}
@@ -119,18 +123,18 @@ func TestFetchConfigSyncRepositoryFilesAddsTeamNotificationRoot(t *testing.T) {
 	if got := files.teamAIProfiles["config/ai-profiles.yaml"]; got != "llm_profiles: []\n" {
 		t.Fatalf("team AI profile content = %q, want fetched profile file", got)
 	}
-	if len(reader.accessChecks) != 1 || reader.accessChecks[0] != "acme/platform-config" {
-		t.Fatalf("access checks = %#v, want one acme/platform-config check", reader.accessChecks)
+	if len(reader.accessChecks) != 1 || reader.accessChecks[0] != "access" {
+		t.Fatalf("access checks = %#v, want one access check", reader.accessChecks)
 	}
 	wantRequestedFiles := []string{
-		"acme/platform-config@release:config/notifications.yaml",
-		"acme/platform-config@release:config/ai-profiles.yaml",
-		"acme/platform-config@release:config/ai-profiles.yml",
+		"release:config/notifications.yaml",
+		"release:config/ai-profiles.yaml",
+		"release:config/ai-profiles.yml",
 	}
 	if !sameStringSet(reader.requestedFiles, wantRequestedFiles) {
 		t.Fatalf("requested files = %#v, want %#v", reader.requestedFiles, wantRequestedFiles)
 	}
-	if !containsString(reader.requestedDirs, "acme/platform-config@release:config/pipelines") {
+	if !containsString(reader.requestedDirs, "release:config/pipelines") {
 		t.Fatalf("requested dirs = %#v, want pipeline directory request", reader.requestedDirs)
 	}
 }
@@ -147,7 +151,7 @@ func TestFetchConfigSyncRepositoryFilesIgnoresMissingTeamNotificationRoot(t *tes
 		t.Fatalf("newConfigSyncRepositoryContext() error = %v", err)
 	}
 
-	files, err := fetchConfigSyncRepositoryFiles(&fakeConfigSyncGitReader{}, repoCtx, binding)
+	files, err := fetchConfigSyncRepositoryFiles(context.Background(), &fakeConfigSyncGitReader{}, repoCtx, binding)
 	if err != nil {
 		t.Fatalf("fetchConfigSyncRepositoryFiles() error = %v", err)
 	}
@@ -175,7 +179,7 @@ func TestFetchConfigSyncRepositoryFilesWrapsDirectoryErrors(t *testing.T) {
 		t.Fatalf("newConfigSyncRepositoryContext() error = %v", err)
 	}
 
-	_, err = fetchConfigSyncRepositoryFiles(reader, repoCtx, binding)
+	_, err = fetchConfigSyncRepositoryFiles(context.Background(), reader, repoCtx, binding)
 	if !errors.Is(err, dirErr) || !strings.Contains(err.Error(), "failed to fetch reusable steps") {
 		t.Fatalf("fetchConfigSyncRepositoryFiles() error = %v, want wrapped reusable steps error", err)
 	}

@@ -1538,7 +1538,7 @@ team-2:
 ```bash
 # Configure the global/system config repo
 curl -X PUT -H "Content-Type: application/json" \
-  -d '{"repo_url":"https://github.com/acme/nopsai-global-config","branch":"main","base_path":"nopsai","enabled":true,"write_enabled":true,"write_branch":"nopsai/ui-changes"}' \
+  -d '{"provider":"github","repo_url":"https://github.com/acme/nopsai-global-config","branch":"main","base_path":"nopsai","enabled":true,"write_enabled":true,"write_branch":"nopsai/ui-changes"}' \
   http://localhost:8080/v1/system/config-repo
 
 # Sync only the global/system config repo
@@ -1557,6 +1557,7 @@ curl -X POST -H "Content-Type: application/json" \
 ```
 
 - The global repo uses `scope_type=system` and `scope_id=global`.
+- Config repositories support `provider` values `github`, `gitlab`, `bitbucket`, and `gitea`. GitHub without `credential_ref` uses the existing GitHub App/git-bot integration; GitHub with `credential_ref`, GitLab, Bitbucket Cloud-compatible repositories, and Gitea use a bearer-token credential reference for repository contents and commit APIs.
 - System- and team-scoped repos may define team repo bindings under `config-repositories/teams/<team>.yaml`.
 - System- and team-scoped repos may define pipeline schedules under `schedules/`.
 - System- and team-scoped repos may define managed knowledge context markdown under `knowledge/`.
@@ -1567,8 +1568,8 @@ curl -X POST -H "Content-Type: application/json" \
 - The system/global repo may define runtime runner defaults and dispatcher routing under `setting/system/runner.yaml`; dispatcher routing changes are synced into `nopsai` and applied by the live dispatcher.
 - The system/global repo may define SMTP mail notification settings under `setting/system/mail.yaml`; only `smtp.password_credential_ref` is synced for credentials.
 - The system/global repo may define encrypted system credential envelopes under `setting/system/credentials.yaml`; plaintext is never exported.
-- A binding file contains `repo_url`, optional `branch`, optional `base_path`, optional `enabled`, optional `write_enabled`, and optional `write_branch`.
-- `branch` remains the read/sync source. When `write_enabled` is true, Nopsai can push generated GitOps changes to `write_branch` so they can be reviewed in GitHub before merging back to the sync branch. The GitHub App needs `contents: read and write`.
+- A binding file contains `repo_url`, optional `provider`, optional `credential_ref`, optional `branch`, optional `base_path`, optional `enabled`, optional `write_enabled`, and optional `write_branch`. `credential_ref` is required for non-GitHub providers and must point at a `bearer_token` credential.
+- `branch` remains the read/sync source. When `write_enabled` is true, Nopsai can push generated GitOps changes to `write_branch` so they can be reviewed in the configured Git provider before merging back to the sync branch. For the GitHub App path, the app needs `contents: read and write`; token-backed providers need equivalent repository read/write scope.
 - Drift compares the sync branch with Nopsai's current declarative state for pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, run team/config-repository structure, notification routes, access manifests, Agent Profiles, LLM profiles, MCP registry files, auth settings, mail settings, runtime settings, and encrypted credential envelopes. UI-side resource Access changes for pipelines, reusable steps, scopes, and knowledge contexts are exported as embedded `access:` updates in the affected GitOps files. Pipeline run rows remain runtime/audit records rather than Git-owned resources.
 - After generated files are merged into the sync branch, config sync can adopt matching database-owned resources inside the repository scope and mark them as GitOps-managed. Resources already owned by an unrelated config repo remain protected by config-repo precedence.
 - Team repositories use the same drift and write endpoint shape at `GET /v1/teams/<team-path>/config-repository/drift` and `POST /v1/teams/<team-path>/config-repository/write`. File paths are relative to the configured `base_path`.

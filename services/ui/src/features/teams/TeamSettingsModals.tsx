@@ -8,6 +8,7 @@ import {
   teamRepositoryURL,
   type Team,
 } from '../../lib/teamModels';
+import { CONFIG_REPOSITORY_PROVIDER_OPTIONS, type ConfigRepositoryProvider } from '../../lib/configRepositoryProviders.js';
 import type { TeamParentOption } from './model';
 import {
   NOTIFICATION_EVENTS,
@@ -18,14 +19,17 @@ import {
   type NotificationRouteFormState,
   type NotificationRouteRecord,
 } from './notificationRoutes';
+import { CredentialReferenceLink } from '../system/credentials/CredentialReferenceLink';
 
 type ConfigRepository = {
   id: number;
   scope_type: string;
   scope_id: string;
+  provider: ConfigRepositoryProvider;
   repo_url: string;
   branch: string;
   base_path: string;
+  credential_ref: string;
   enabled: boolean;
   write_enabled: boolean;
   write_branch: string;
@@ -37,9 +41,11 @@ type ConfigRepository = {
 };
 
 type ConfigRepositoryFormState = {
+  provider: ConfigRepositoryProvider;
   repo_url: string;
   branch: string;
   base_path: string;
+  credential_ref: string;
   enabled: boolean;
   write_enabled: boolean;
   write_branch: string;
@@ -517,6 +523,10 @@ export function TeamConfigRepositoryModal({
                 <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-4 py-3">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                     <div>
+                      <p className="text-xs text-[var(--text-secondary)]">Provider</p>
+                      <p className="font-semibold text-[var(--text-primary)]">{repo.provider}</p>
+                    </div>
+                    <div>
                       <p className="text-xs text-[var(--text-secondary)]">Status</p>
                       <p className="font-semibold text-[var(--text-primary)]">{repo.last_sync_status || 'Not synced'}</p>
                     </div>
@@ -542,8 +552,22 @@ export function TeamConfigRepositoryModal({
               )}
 
               <div className={`${sectionClass} space-y-4`}>
-                <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(220px,260px)] gap-4 items-end">
-                  <label htmlFor="team-config-repo-url" className={`${fieldClass} lg:col-span-2`}>
+                <div className="grid grid-cols-1 lg:grid-cols-[minmax(180px,220px)_minmax(0,1fr)] gap-4 items-end">
+                  <label htmlFor="team-config-repo-provider" className={fieldClass}>
+                    <span>Provider</span>
+                    <select
+                      id="team-config-repo-provider"
+                      value={form.provider}
+                      onChange={event => onChange(prev => ({ ...prev, provider: event.target.value as ConfigRepositoryProvider }))}
+                      disabled={!canEdit}
+                      className={inputClass}
+                    >
+                      {CONFIG_REPOSITORY_PROVIDER_OPTIONS.map(option => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label htmlFor="team-config-repo-url" className={fieldClass}>
                     <span>Repository URL</span>
                     <input
                       id="team-config-repo-url"
@@ -555,6 +579,21 @@ export function TeamConfigRepositoryModal({
                       className={inputClass}
                       placeholder="https://github.com/org/config-repo"
                     />
+                  </label>
+                  <label htmlFor="team-config-repo-credential-ref" className={`${fieldClass} lg:col-span-2`}>
+                    <span>Credential reference</span>
+                    <input
+                      id="team-config-repo-credential-ref"
+                      value={form.credential_ref}
+                      onChange={event => onChange(prev => ({ ...prev, credential_ref: event.target.value }))}
+                      disabled={!canEdit}
+                      className={inputClass}
+                      placeholder="credential://system/gitops/gitlab-token"
+                      required={canManage && form.provider !== 'github'}
+                    />
+                    <CredentialReferenceLink reference={form.credential_ref} className="text-xs underline decoration-dotted underline-offset-4 hover:text-[var(--accent-primary)]">
+                      Open credential
+                    </CredentialReferenceLink>
                   </label>
 
                   <label htmlFor="team-config-repo-branch" className={fieldClass}>

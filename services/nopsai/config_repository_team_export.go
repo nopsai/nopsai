@@ -37,7 +37,7 @@ func (a *App) exportConfigRepositoryTeamStructure(ctx context.Context, repo mode
 	}
 
 	rows, err := a.db.Query(ctx, `
-		SELECT scope_id, repo_url, branch, base_path, enabled, write_enabled, write_branch,
+		SELECT scope_id, provider, repo_url, branch, base_path, credential_ref, enabled, write_enabled, write_branch,
 		       config_repo_id, managed_by_config_repo
 		FROM config_repositories
 		WHERE scope_type = $1
@@ -49,10 +49,10 @@ func (a *App) exportConfigRepositoryTeamStructure(ctx context.Context, repo mode
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var scopeID, repoURL, branch, basePath, writeBranch string
+		var scopeID, provider, repoURL, branch, basePath, credentialRef, writeBranch string
 		var enabled, writeEnabled, managed bool
 		var configRepoID sql.NullInt64
-		if err := rows.Scan(&scopeID, &repoURL, &branch, &basePath, &enabled, &writeEnabled, &writeBranch, &configRepoID, &managed); err != nil {
+		if err := rows.Scan(&scopeID, &provider, &repoURL, &branch, &basePath, &credentialRef, &enabled, &writeEnabled, &writeBranch, &configRepoID, &managed); err != nil {
 			return err
 		}
 		scopeID = strings.Trim(strings.TrimSpace(scopeID), "/")
@@ -67,14 +67,20 @@ func (a *App) exportConfigRepositoryTeamStructure(ctx context.Context, repo mode
 		}
 		enabledValue := enabled
 		writeEnabledValue := writeEnabled
+		provider = strings.TrimSpace(provider)
+		if provider == models.ConfigRepositoryProviderGitHub {
+			provider = ""
+		}
 		node := configsync.EnsureTeamStructureExportPath(structure, scopeID)
 		node.Config = &configsync.TeamStructureBindingExport{
-			RepoURL:      strings.TrimSpace(repoURL),
-			Branch:       strings.TrimSpace(branch),
-			BasePath:     strings.TrimSpace(basePath),
-			Enabled:      &enabledValue,
-			WriteEnabled: &writeEnabledValue,
-			WriteBranch:  strings.TrimSpace(writeBranch),
+			RepoURL:       strings.TrimSpace(repoURL),
+			Provider:      provider,
+			Branch:        strings.TrimSpace(branch),
+			BasePath:      strings.TrimSpace(basePath),
+			CredentialRef: strings.TrimSpace(credentialRef),
+			Enabled:       &enabledValue,
+			WriteEnabled:  &writeEnabledValue,
+			WriteBranch:   strings.TrimSpace(writeBranch),
 		}
 	}
 	if err := rows.Err(); err != nil {
