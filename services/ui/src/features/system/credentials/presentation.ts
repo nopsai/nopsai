@@ -30,7 +30,7 @@ export function formatCredentialPath(value: string): string {
     .join(' / ');
 }
 
-export function formatCredentialScopeLabel(scopeKind: 'team' | 'shared', scopePath: string, namespace: string): string {
+export function formatCredentialScopeLabel(scopeKind: 'team' | 'system', scopePath: string, namespace: string): string {
   if (scopeKind === 'team') return scopePath ? formatCredentialPath(scopePath) : 'Unscoped team';
   return formatCredentialLabel(namespace || 'system');
 }

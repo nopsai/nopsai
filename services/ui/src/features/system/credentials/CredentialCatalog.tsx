@@ -51,7 +51,7 @@ export function CredentialCatalog({
   const visibleCount = groups.reduce((count, group) => count + group.credentials.length, 0);
   const visibleScopeCount = groups.length;
   const scopeOptions = [...new Set([...namespaces, scope])]
-    .filter(value => value && !['all', 'team', 'shared'].includes(value))
+    .filter(value => value && !['all', 'team', 'system'].includes(value))
     .filter(value => isNopsAIAdmin || value === 'team')
     .sort((left, right) => left.localeCompare(right));
   const allRows = groups.flatMap(group => group.credentials.map(credential => ({ credential, group })));
@@ -75,7 +75,7 @@ export function CredentialCatalog({
             <select className="credential-registry__field" value={scope} onChange={event => onScopeChange(event.target.value)}>
               <option value="all">All scopes</option>
               <option value="team">Teams</option>
-              {isNopsAIAdmin ? <option value="shared">Shared scopes</option> : null}
+              {isNopsAIAdmin ? <option value="system">System</option> : null}
               {scopeOptions.map(value => <option key={value} value={value}>{formatCredentialLabel(value)}</option>)}
             </select>
           </label>
