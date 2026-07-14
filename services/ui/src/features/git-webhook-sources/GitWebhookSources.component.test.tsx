@@ -130,7 +130,16 @@ test('renders and selects managed webhook sources as compact GitOps cards', asyn
 test('creates a source through the feature-owned form and API', async () => {
   const user = userEvent.setup();
   apiMocks.fetchGitWebhookSources.mockResolvedValue([]);
-  apiMocks.saveGitWebhookSource.mockImplementation(async request => ({ ...source, ...request }));
+  apiMocks.saveGitWebhookSource.mockImplementation(async request => ({
+    ...source,
+    ...request,
+    credential_ref: request.credential_ref || 'credential://team/platform/prod/webhooks/gitlab-platform',
+    generated_credential: {
+      reference: request.credential_ref || 'credential://team/platform/prod/webhooks/gitlab-platform',
+      value: 'generated-secret',
+      auth_mode: request.auth_mode,
+    },
+  }));
 
   render(
     <MemoryRouter initialEntries={['/git-webhook-sources']}>
@@ -161,10 +170,6 @@ test('creates a source through the feature-owned form and API', async () => {
   await user.selectOptions(screen.getByLabelText('Provider'), 'gitlab');
   await user.selectOptions(screen.getByRole('combobox', { name: /^Team/ }), 'platform/prod');
   await user.selectOptions(screen.getByLabelText('Authentication'), 'static_token');
-  await user.type(
-    screen.getByLabelText(/^Credential reference/),
-    'credential://system/webhooks/gitlab-platform'
-  );
   await user.type(screen.getByLabelText(/^Repository allowlist/), 'platform/*');
   await user.click(screen.getByRole('button', { name: 'Create source' }));
 
@@ -177,6 +182,9 @@ test('creates a source through the feature-owned form and API', async () => {
     auth_mode: 'static_token',
     repository_allowlist: ['platform/*'],
   });
+  expect(apiMocks.saveGitWebhookSource.mock.calls[0][0]).not.toHaveProperty('credential_ref');
+  expect(await screen.findByText('generated-secret')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Copy generated webhook secret' })).toBeVisible();
 });
 
 test('renders solid edit, validation, and saving states for source forms', () => {

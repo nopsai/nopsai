@@ -99,7 +99,19 @@ type gitWebhookDeliveryResponse struct {
 	Errors             []string `json:"errors,omitempty"`
 }
 
+type gitWebhookSourceNormalizeOptions struct {
+	AllowGeneratedCredential bool
+}
+
 func normalizeGitWebhookSourceInput(input gitWebhookSourceInput, pathID string) (gitWebhookSourceRecord, error) {
+	return normalizeGitWebhookSourceInputWithOptions(input, pathID, gitWebhookSourceNormalizeOptions{})
+}
+
+func normalizeGitWebhookSourceInputWithOptions(
+	input gitWebhookSourceInput,
+	pathID string,
+	options gitWebhookSourceNormalizeOptions,
+) (gitWebhookSourceRecord, error) {
 	id := strings.TrimSpace(firstNonEmptyString(pathID, input.ID))
 	name := strings.TrimSpace(input.Name)
 	if id == "" {
@@ -134,9 +146,10 @@ func normalizeGitWebhookSourceInput(input gitWebhookSourceInput, pathID string) 
 	credentialRef := strings.TrimSpace(input.CredentialRef)
 	if authMode != gitwebhook.AuthModeNone {
 		if credentialRef == "" {
-			return gitWebhookSourceRecord{}, fmt.Errorf("credential_ref is required for %s authentication", authMode)
-		}
-		if _, err := credentials.ParseReference(credentialRef); err != nil {
+			if !options.AllowGeneratedCredential {
+				return gitWebhookSourceRecord{}, fmt.Errorf("credential_ref is required for %s authentication", authMode)
+			}
+		} else if _, err := credentials.ParseReference(credentialRef); err != nil {
 			return gitWebhookSourceRecord{}, fmt.Errorf("invalid credential_ref: %w", err)
 		}
 	} else {

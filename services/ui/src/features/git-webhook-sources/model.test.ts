@@ -36,20 +36,18 @@ test('builds a normalized Git webhook source request', () => {
   assert.equal(request.credential_ref, 'credential://system/webhooks/gitlab-platform');
 });
 
-test('requires an allowlist and credential reference for authenticated sources', () => {
+test('requires an allowlist and validates optional credential references for authenticated sources', () => {
   assert.throws(
     () => gitWebhookSourceRequest({ ...gitWebhookSourceForm(), id: 'source' }),
     /owner\/repository/
   );
-  assert.throws(
-    () => gitWebhookSourceRequest({
-      ...gitWebhookSourceForm(),
-      id: 'source',
-      repositoryAllowlistText: 'owner/repo',
-      credentialRef: '',
-    }),
-    /credential:\/\//
-  );
+  const generatedCredentialRequest = gitWebhookSourceRequest({
+    ...gitWebhookSourceForm(),
+    id: 'source',
+    repositoryAllowlistText: 'owner/repo',
+    credentialRef: '',
+  });
+  assert.equal(generatedCredentialRequest.credential_ref, undefined);
   assert.throws(
     () => gitWebhookSourceRequest({
       ...gitWebhookSourceForm(),

@@ -47,7 +47,7 @@ export function GitWebhookSourceForm({
       size="wide"
       kicker={source ? 'Edit source' : 'New source'}
       title={source ? 'Edit Git webhook source' : 'New Git webhook source'}
-      subtitle="Provider credentials are referenced from the encrypted credential registry."
+      subtitle="Provider credentials use encrypted NopsAI credential references."
       actions={(
         <>
           <button type="button" className="glass-button-ghost" onClick={onClose} disabled={saving}>
@@ -141,13 +141,12 @@ export function GitWebhookSourceForm({
       </Field>
 
       {form.authMode !== 'none' ? (
-        <Field label="Credential reference" hint="Create or rotate the value in Credentials.">
+        <Field label="Credential reference" hint="Leave blank on create to generate a one-time value, or enter an existing reference to reuse it.">
           <input
             className="pipelines-input w-full font-mono"
             value={form.credentialRef}
             onChange={event => update('credentialRef', event.target.value)}
             placeholder="credential://system/webhooks/gitlab-platform"
-            required
           />
         </Field>
       ) : (
