@@ -681,6 +681,10 @@ html.dark .teams-focus-card {
   gap: 14px;
 }
 
+.teams-focus-hero--plain {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
 .teams-focus-hero h3 {
   margin: 0;
   color: var(--teams-text);

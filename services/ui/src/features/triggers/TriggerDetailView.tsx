@@ -339,8 +339,8 @@ export function TriggerDetailView({
               }}
               editorLabel="Trigger YAML editor"
               access={null}
-              canUpdate={canUpdateSelectedTrigger}
-              canCreate={canCreateTriggerHere}
+              canUpdate={isEditing ? canUpdateSelectedTrigger : true}
+              canCreate={isEditing ? canCreateTriggerHere : true}
               isGitSource={isGitSource}
               saving={saving}
               autocompleteWidth={340}

@@ -9,9 +9,11 @@ import type { TriggerSourceFilter } from './model';
 function ToolbarHarness({
   onCreate,
   onSourceFilterChange,
+  canCreateTriggerHere = true,
 }: {
   onCreate: () => void;
   onSourceFilterChange: (value: TriggerSourceFilter) => void;
+  canCreateTriggerHere?: boolean;
 }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -25,7 +27,7 @@ function ToolbarHarness({
         sourceFilter={sourceFilter}
         searchOpen={searchOpen}
         searchInputRef={searchInputRef}
-        canCreateTriggerHere
+        canCreateTriggerHere={canCreateTriggerHere}
         onSearchTermChange={setSearchTerm}
         onSourceFilterChange={value => {
           setSourceFilter(value);
@@ -67,5 +69,21 @@ test('renders the demo-style trigger toolbar and delegates controls', async () =
   await user.click(screen.getByRole('button', { name: 'Create new trigger' }));
 
   expect(onSourceFilterChange).toHaveBeenCalledWith('git');
+  expect(onCreate).toHaveBeenCalledOnce();
+});
+
+test('keeps trigger creation reachable when permission preflight is inconclusive', async () => {
+  const user = userEvent.setup();
+  const onCreate = vi.fn();
+
+  render(
+    <ToolbarHarness
+      canCreateTriggerHere={false}
+      onCreate={onCreate}
+      onSourceFilterChange={vi.fn()}
+    />
+  );
+
+  await user.click(screen.getByRole('button', { name: 'Create new trigger' }));
   expect(onCreate).toHaveBeenCalledOnce();
 });
