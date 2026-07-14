@@ -54,7 +54,47 @@ func repositoryTeamIDFromMatches(matches []repositoryTeamMatch) sql.NullInt32 {
 	return sql.NullInt32{Int32: int32(matches[0].ID), Valid: true}
 }
 
+func repositoryTeamIDFromMatchesUnderPath(matches []repositoryTeamMatch, teamPath string) (sql.NullInt32, bool) {
+	teamPath = strings.Trim(strings.TrimSpace(teamPath), "/")
+	if teamPath == "" || strings.EqualFold(teamPath, rootGrantID) {
+		return repositoryTeamIDFromMatches(matches), len(matches) > 0
+	}
+	for _, match := range matches {
+		path := strings.Trim(strings.TrimSpace(match.Path), "/")
+		if path == teamPath || strings.HasPrefix(path, teamPath+"/") {
+			return sql.NullInt32{Int32: int32(match.ID), Valid: true}, true
+		}
+	}
+	return sql.NullInt32{}, false
+}
+
+func (a *App) resolveRepositoryTeamIDUnderPath(ctx context.Context, teamPath string, gitContext map[string]string) (sql.NullInt32, bool, error) {
+	if gitContext == nil {
+		return sql.NullInt32{}, false, nil
+	}
+	repoName := strings.TrimSpace(gitContext["repo_name"])
+	if repoName == "" {
+		return sql.NullInt32{}, false, nil
+	}
+	matches, err := a.repositoryTeamMatches(ctx, gitContext["repo_owner"], repoName)
+	if err != nil {
+		return sql.NullInt32{}, false, err
+	}
+	teamID, found := repositoryTeamIDFromMatchesUnderPath(matches, teamPath)
+	return teamID, found, nil
+}
+
 func (a *App) resolveTeamIDForRun(ctx context.Context, explicitTeamPath, pipelinePath string, gitContext map[string]string) (sql.NullInt32, error) {
+	explicitTeamPath = strings.Trim(strings.TrimSpace(explicitTeamPath), "/")
+	if strings.EqualFold(explicitTeamPath, rootGrantID) {
+		explicitTeamPath = ""
+	}
+	if explicitTeamPath != "" {
+		if teamID, found, err := a.resolveRepositoryTeamIDUnderPath(ctx, explicitTeamPath, gitContext); err != nil || found {
+			return teamID, err
+		}
+		return a.resolveTeamIDForPath(ctx, explicitTeamPath)
+	}
 	for _, candidate := range runquery.TeamResolutionCandidates(explicitTeamPath, pipelinePath, gitContext) {
 		switch candidate.Kind {
 		case runquery.TeamResolutionPath:

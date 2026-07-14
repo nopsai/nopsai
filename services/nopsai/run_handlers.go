@@ -593,13 +593,14 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	var pipelineDef, pipelineName, pipelinePathDB, pipelineVersionDB, scope, pipelineSourceDB sql.NullString
 	var gitContext = make(map[string]string)
 	var timeoutAt sql.NullTime
+	var originalTeamID sql.NullInt32
 
 	query := `SELECT
 				pipeline_definition, pipeline_name, pipeline_path, pipeline_version, timeout_at, scope, COALESCE(pipeline_source, ''),
 				git_repo_owner, git_repo_name, git_clone_url, git_ssh_url, git_ref, git_target_ref,
 				git_commit_sha, git_commit_url, git_commit_message, git_commit_author_name,
 				git_commit_author_email, git_commit_author_username, git_pusher_name,
-				git_pusher_email, git_check_run_id, trigger_event_id, status
+				git_pusher_email, git_check_run_id, trigger_event_id, status, team_id
 			  FROM pipeline_runs WHERE run_id = $1`
 
 	var repoOwner, repoName, cloneURL, sshURL, ref, targetRef, commitSHA, commitURL, commitMessage,
@@ -610,7 +611,7 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 	err := a.db.QueryRow(context.Background(), query, originalRunID).Scan(
 		&pipelineDef, &pipelineName, &pipelinePathDB, &pipelineVersionDB, &timeoutAt, &scope, &pipelineSourceDB,
 		&repoOwner, &repoName, &cloneURL, &sshURL, &ref, &targetRef, &commitSHA, &commitURL, &commitMessage,
-		&commitAuthorName, &commitAuthorEmail, &commitAuthorUsername, &pusherName, &pusherEmail, &checkRunID, &triggerEventID, &originalStatus,
+		&commitAuthorName, &commitAuthorEmail, &commitAuthorUsername, &pusherName, &pusherEmail, &checkRunID, &triggerEventID, &originalStatus, &originalTeamID,
 	)
 
 	if err != nil {
@@ -713,6 +714,14 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 			timeoutDuration = timeoutAt.Time.Sub(originalCreatedAt)
 		}
 	}
+	teamPathForRerun := ""
+	if originalTeamID.Valid {
+		if records, loadErr := a.teamPathRecords(r.Context()); loadErr == nil {
+			if record, ok := records[int(originalTeamID.Int32)]; ok {
+				teamPathForRerun = record.Path
+			}
+		}
+	}
 
 	runs := newRunService(a)
 	record, err := runs.createPendingRun(r.Context(), createPendingRunRequest{
@@ -725,6 +734,7 @@ func (a *App) handleRerunPipeline(w http.ResponseWriter, r *http.Request) {
 		CallerType:         rerunCallerType,
 		CallerID:           rerunCallerID,
 		GitContext:         gitContext,
+		TeamPath:           teamPathForRerun,
 		AuthSnapshot:       authSnapshot,
 		NewTriggerEventID:  true,
 	})

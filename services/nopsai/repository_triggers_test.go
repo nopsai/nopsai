@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"nopsai/pkg/models"
+	"nopsai/services/nopsai/internal/configsync"
 )
 
 func TestRepositoryTriggerSchemaAddsProviderTeamAndWebhookSource(t *testing.T) {
@@ -65,5 +66,48 @@ func TestRepositoryTriggerValidationRequiresProviderSpecificIngress(t *testing.T
 	}
 	if err := validateRepositoryTriggerForNopsAI(github); err == nil || !strings.Contains(err.Error(), "automatic ingress") {
 		t.Fatalf("validateRepositoryTriggerForNopsAI() error = %v, want automatic ingress requirement", err)
+	}
+}
+
+func TestRepositoryTriggerApplicationFromRecordUsesProviderURL(t *testing.T) {
+	app, ok, err := repositoryTriggerApplicationFromRecord(repositoryTriggerRecord{
+		RepositoryName:       "yousefi.hosein.o/nopsai-config-gitlab",
+		RepositoryForWebhook: "yousefi.hosein.o/nopsai-config-gitlab",
+		Provider:             "gitlab",
+		TeamPath:             "team-1",
+	})
+	if err != nil || !ok {
+		t.Fatalf("repositoryTriggerApplicationFromRecord() = (%#v, %t, %v), want app", app, ok, err)
+	}
+	if app.Name != "nopsai-config-gitlab" || app.TeamPath != "team-1" {
+		t.Fatalf("app identity = %#v", app)
+	}
+	if app.RepoURL != "https://gitlab.com/yousefi.hosein.o/nopsai-config-gitlab" {
+		t.Fatalf("RepoURL = %q", app.RepoURL)
+	}
+}
+
+func TestMergeRepositoryTriggerApplicationsIntoStructure(t *testing.T) {
+	structure := map[string]*configsync.PipelineRunStructureNode{}
+	err := mergeRepositoryTriggerApplicationsIntoStructure(structure, map[string]storedTrigger{
+		"team-1/yousefi.hosein.o/nopsai-config-gitlab": {
+			record: repositoryTriggerRecord{
+				RepositoryName:       "team-1/yousefi.hosein.o/nopsai-config-gitlab",
+				RepositoryForWebhook: "yousefi.hosein.o/nopsai-config-gitlab",
+				Provider:             "gitlab",
+				TeamPath:             "team-1",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("mergeRepositoryTriggerApplicationsIntoStructure() error = %v", err)
+	}
+	node := structure["team-1"]
+	if node == nil || len(node.Apps) != 1 {
+		t.Fatalf("structure = %#v, want one app under team-1", structure)
+	}
+	app := node.Apps[0]
+	if app.Name != "nopsai-config-gitlab" || app.RepositoryFullName != "yousefi.hosein.o/nopsai-config-gitlab" {
+		t.Fatalf("app = %#v", app)
 	}
 }

@@ -22,7 +22,10 @@ more pipelines.
 7. The assigned NopsAI repository trigger is loaded. Missing or unassigned
    triggers finish as `no_match`.
 8. Matched pipeline definitions are loaded from the NopsAI database and started
-   through the normal run path with the repository as runtime caller.
+   through the normal run path with the repository as runtime caller. If the
+   trigger has a team and a matching repository application exists under that
+   team, the run is owned by the application; otherwise it falls back to the
+   trigger team.
 9. The delivery is finalized as `processed`, `partial`, `no_match`, or `failed`
    with its run IDs and error summary.
 
@@ -170,6 +173,10 @@ Rules:
 - A matched rule can start multiple pipelines.
 - `team` associates the repository/app with that team for runtime resource
   authorization.
+- For GitHub, GitLab, and Bitbucket triggers, NopsAI ensures a repository
+  application exists under the trigger team when the trigger is saved or
+  synchronized from GitOps. Existing matching runs under the parent team or
+  root are reassigned to that application.
 - Non-GitHub providers require `webhook_source`.
 - GitHub App triggers must not set `webhook_source`; ingress is automatic.
 - NopsAI-managed triggers take precedence over a repository
