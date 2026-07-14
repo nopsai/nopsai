@@ -1,6 +1,7 @@
 package nopsai
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,14 +11,17 @@ import (
 )
 
 type configSyncGitReader interface {
-	ensureConfigRepoAccessible(owner, repo string) error
-	requestGitBotDirectory(owner, repo, ref, path string) (map[string]string, error)
-	requestGitBotFile(owner, repo, ref, path string, notFoundErr error) (string, error)
+	EnsureAccessible(ctx context.Context) error
+	Directory(ctx context.Context, ref, path string) (map[string]string, error)
+	File(ctx context.Context, ref, path string, notFoundErr error) (string, error)
 }
 
 type configSyncRepositoryContext struct {
+	provider  string
+	host      string
 	owner     string
 	repo      string
+	project   string
 	branch    string
 	basePath  string
 	boundTeam string
@@ -55,14 +59,17 @@ func newConfigSyncRepositoryContext(binding models.ConfigRepository) (configSync
 		return configSyncRepositoryContext{}, fmt.Errorf("team-scoped config repository is missing its scope_id")
 	}
 
-	owner, repo, err := configsync.ParseGitHubRepoURL(repoURL)
+	identity, err := configsync.ParseRepositoryIdentity(repoURL, binding.Provider)
 	if err != nil {
 		return configSyncRepositoryContext{}, fmt.Errorf("failed to parse config repository URL: %w", err)
 	}
 
 	return configSyncRepositoryContext{
-		owner:     owner,
-		repo:      repo,
+		provider:  identity.Provider,
+		host:      identity.Host,
+		owner:     identity.Owner,
+		repo:      identity.Repo,
+		project:   identity.ProjectPath,
 		branch:    branch,
 		basePath:  basePath,
 		boundTeam: boundTeam,
@@ -70,13 +77,13 @@ func newConfigSyncRepositoryContext(binding models.ConfigRepository) (configSync
 	}, nil
 }
 
-func fetchConfigSyncRepositoryFiles(reader configSyncGitReader, repoCtx configSyncRepositoryContext, binding models.ConfigRepository) (configSyncRepositoryFiles, error) {
-	if err := reader.ensureConfigRepoAccessible(repoCtx.owner, repoCtx.repo); err != nil {
+func fetchConfigSyncRepositoryFiles(ctx context.Context, reader configSyncGitReader, repoCtx configSyncRepositoryContext, binding models.ConfigRepository) (configSyncRepositoryFiles, error) {
+	if err := reader.EnsureAccessible(ctx); err != nil {
 		return configSyncRepositoryFiles{}, err
 	}
 
 	fetchDir := func(path, resource string) (map[string]string, error) {
-		files, err := reader.requestGitBotDirectory(repoCtx.owner, repoCtx.repo, repoCtx.branch, path)
+		files, err := reader.Directory(ctx, repoCtx.branch, path)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch %s: %w", resource, err)
 		}
@@ -121,7 +128,7 @@ func fetchConfigSyncRepositoryFiles(reader configSyncGitReader, repoCtx configSy
 	files.teamAIProfiles = map[string]string{}
 	if binding.ScopeType == models.ConfigRepositoryScopeTeam {
 		rootRoutePath := configsync.RepoJoinPath(repoCtx.basePath, "notifications.yaml")
-		content, err := reader.requestGitBotFile(repoCtx.owner, repoCtx.repo, repoCtx.branch, rootRoutePath, errNotificationGitOpsNotFound)
+		content, err := reader.File(ctx, repoCtx.branch, rootRoutePath, errNotificationGitOpsNotFound)
 		if err == nil {
 			files.notifications[rootRoutePath] = content
 		} else if !errors.Is(err, errNotificationGitOpsNotFound) {
@@ -131,7 +138,7 @@ func fetchConfigSyncRepositoryFiles(reader configSyncGitReader, repoCtx configSy
 			configsync.RepoJoinPath(repoCtx.basePath, "ai-profiles.yaml"),
 			configsync.RepoJoinPath(repoCtx.basePath, "ai-profiles.yml"),
 		} {
-			content, err := reader.requestGitBotFile(repoCtx.owner, repoCtx.repo, repoCtx.branch, rootProfilePath, errTeamAIProfilesGitOpsNotFound)
+			content, err := reader.File(ctx, repoCtx.branch, rootProfilePath, errTeamAIProfilesGitOpsNotFound)
 			if err == nil {
 				files.teamAIProfiles[rootProfilePath] = content
 				continue

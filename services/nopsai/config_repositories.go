@@ -13,6 +13,7 @@ import (
 	"nopsai/pkg/models"
 	"nopsai/services/aaa/pkg/model"
 	"nopsai/services/nopsai/internal/configsync"
+	"nopsai/services/nopsai/internal/credentials"
 	"nopsai/services/nopsai/pkg/auth"
 	configstore "nopsai/services/nopsai/pkg/store"
 
@@ -48,6 +49,10 @@ func (a *App) handleUpsertGlobalConfigRepository(w http.ResponseWriter, r *http.
 	input, err := configsync.BuildRepositoryInput(req, models.ConfigRepositoryScopeSystem, models.ConfigRepositorySystemGlobalID, actorIDFromRequest(r))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := a.ensureConfigRepositoryCredentialReference(r.Context(), input); err != nil {
+		writeConfigRepositoryCredentialError(w, err)
 		return
 	}
 
@@ -117,6 +122,10 @@ func (a *App) handleUpsertTeamConfigRepository(w http.ResponseWriter, r *http.Re
 	input, err := configsync.BuildRepositoryInput(req, models.ConfigRepositoryScopeTeam, resource.ID, actorIDFromRequest(r))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := a.ensureConfigRepositoryCredentialReference(r.Context(), input); err != nil {
+		writeConfigRepositoryCredentialError(w, err)
 		return
 	}
 
@@ -223,14 +232,13 @@ func (a *App) handleWriteConfigRepositoryFiles(w http.ResponseWriter, r *http.Re
 		})
 	}
 
-	owner, name, err := configsync.ParseGitHubRepoURL(repo.RepoURL)
+	out, err := a.commitConfigRepositoryFiles(r.Context(), repo, message, files)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	out, err := a.requestGitBotCommitFiles(owner, name, repo.Branch, writeBranch, message, files)
-	if err != nil {
-		log.Error().Err(err).Int64("config_repo_id", repo.ID).Msg("Failed to push config repository changes")
+		log.Error().
+			Err(err).
+			Int64("config_repo_id", repo.ID).
+			Str("git_provider", repo.Provider).
+			Msg("Failed to push config repository changes")
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -389,6 +397,24 @@ func actorIDFromRequest(r *http.Request) string {
 		return strings.TrimSpace(claims.Sub)
 	}
 	return strings.TrimSpace(claims.Email)
+}
+
+func (a *App) ensureConfigRepositoryCredentialReference(ctx context.Context, input models.ConfigRepositoryInput) error {
+	if strings.TrimSpace(input.CredentialRef) == "" {
+		return nil
+	}
+	scopeID := strings.Trim(strings.TrimSpace(input.ScopeID), "/")
+	description := fmt.Sprintf("Git provider token for %s config repository %s", input.ScopeType, scopeID)
+	return a.ensureCredentialReference(ctx, input.CredentialRef, "bearer_token", description, input.Actor)
+}
+
+func writeConfigRepositoryCredentialError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, credentials.ErrUnavailable):
+		http.Error(w, "credential service is unavailable", http.StatusServiceUnavailable)
+	default:
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	}
 }
 
 func syncStatusFromConfigRepository(repo models.ConfigRepository) ConfigSyncStatus {

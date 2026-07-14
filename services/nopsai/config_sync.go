@@ -47,7 +47,12 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	}
 	commitSHA := ""
 
-	files, err := fetchConfigSyncRepositoryFiles(a, repoCtx, binding)
+	client, _, err := a.newConfigRepositoryGitContentClient(ctx, binding)
+	if err != nil {
+		return nil, commitSHA, err
+	}
+
+	files, err := fetchConfigSyncRepositoryFiles(ctx, client, repoCtx, binding)
 	if err != nil {
 		return nil, commitSHA, err
 	}
@@ -62,6 +67,9 @@ func (a *App) syncConfigurationFromGit(ctx context.Context, binding models.Confi
 	}
 
 	log.Info().
+		Str("git_provider", repoCtx.provider).
+		Str("git_host", repoCtx.host).
+		Str("git_project", repoCtx.project).
 		Str("repo_owner", repoCtx.owner).
 		Str("repo_name", repoCtx.repo).
 		Int("pipelines_synced", details["pipelines_synced"]).

@@ -50,9 +50,11 @@ vi.mock('../features/teams/hooks/useTeamConfigRepositoryController', () => ({
     configRepoTeam: null,
     configRepo: null,
     configRepoForm: {
+      provider: 'github',
       repo_url: '',
       branch: 'main',
       base_path: '',
+      credential_ref: '',
       enabled: false,
       write_enabled: false,
       write_branch: 'nopsai/ui-changes',

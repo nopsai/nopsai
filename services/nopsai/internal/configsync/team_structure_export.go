@@ -20,12 +20,14 @@ type TeamStructureAppExport struct {
 }
 
 type TeamStructureBindingExport struct {
-	RepoURL      string `yaml:"repo_url"`
-	Branch       string `yaml:"branch,omitempty"`
-	BasePath     string `yaml:"base_path,omitempty"`
-	Enabled      *bool  `yaml:"enabled,omitempty"`
-	WriteEnabled *bool  `yaml:"write_enabled,omitempty"`
-	WriteBranch  string `yaml:"write_branch,omitempty"`
+	RepoURL       string `yaml:"repo_url"`
+	Provider      string `yaml:"provider,omitempty"`
+	Branch        string `yaml:"branch,omitempty"`
+	BasePath      string `yaml:"base_path,omitempty"`
+	CredentialRef string `yaml:"credential_ref,omitempty"`
+	Enabled       *bool  `yaml:"enabled,omitempty"`
+	WriteEnabled  *bool  `yaml:"write_enabled,omitempty"`
+	WriteBranch   string `yaml:"write_branch,omitempty"`
 }
 
 func TeamStructureIncludesPath(repo models.ConfigRepository, path string) bool {

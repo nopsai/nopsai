@@ -57,6 +57,19 @@ func TestValidateBindingFile(t *testing.T) {
 	if err := ValidateBindingFile(BindingFile{}, "team", "data-team", "teams/data-team.yaml"); err == nil {
 		t.Fatal("ValidateBindingFile() accepted missing repo_url")
 	}
+	if err := ValidateBindingFile(BindingFile{
+		RepoURL:       "https://gitlab.com/acme/platform/config.git",
+		Provider:      "gitlab",
+		CredentialRef: "credential://system/gitops/gitlab",
+	}, "team", "data-team", "teams/data-team.yaml"); err != nil {
+		t.Fatalf("ValidateBindingFile() rejected gitlab binding: %v", err)
+	}
+	if err := ValidateBindingFile(BindingFile{
+		RepoURL:  "https://gitlab.com/acme/config.git",
+		Provider: "gitlab",
+	}, "team", "data-team", "teams/data-team.yaml"); err == nil {
+		t.Fatal("ValidateBindingFile() accepted gitlab binding without credential_ref")
+	}
 }
 
 func TestParseConfigRepositoryTeamPipelineRunStructureApps(t *testing.T) {

@@ -6,15 +6,22 @@ const (
 	ConfigRepositoryScopeTeam      = "team"
 	ConfigRepositoryScopeSystem    = "system"
 	ConfigRepositorySystemGlobalID = "global"
+
+	ConfigRepositoryProviderGitHub    = "github"
+	ConfigRepositoryProviderGitLab    = "gitlab"
+	ConfigRepositoryProviderBitbucket = "bitbucket"
+	ConfigRepositoryProviderGitea     = "gitea"
 )
 
 type ConfigRepository struct {
 	ID                    int64      `json:"id"`
 	ScopeType             string     `json:"scope_type"`
 	ScopeID               string     `json:"scope_id"`
+	Provider              string     `json:"provider"`
 	RepoURL               string     `json:"repo_url"`
 	Branch                string     `json:"branch"`
 	BasePath              string     `json:"base_path"`
+	CredentialRef         string     `json:"credential_ref,omitempty"`
 	Enabled               bool       `json:"enabled"`
 	WriteEnabled          bool       `json:"write_enabled"`
 	WriteBranch           string     `json:"write_branch"`
@@ -34,15 +41,17 @@ type ConfigRepository struct {
 }
 
 type ConfigRepositoryInput struct {
-	ScopeType    string
-	ScopeID      string
-	RepoURL      string
-	Branch       string
-	BasePath     string
-	Enabled      bool
-	WriteEnabled bool
-	WriteBranch  string
-	Actor        string
+	ScopeType     string
+	ScopeID       string
+	Provider      string
+	RepoURL       string
+	Branch        string
+	BasePath      string
+	CredentialRef string
+	Enabled       bool
+	WriteEnabled  bool
+	WriteBranch   string
+	Actor         string
 }
 
 type ConfigRepositoryFilter struct {
