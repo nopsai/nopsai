@@ -32,6 +32,8 @@ export type TriggerCreateModalState = {
 
 export type TriggerCloneModalState = {
   repository: string;
+  details: TriggerDetailsFormState;
+  yamlPreview: string;
   pending: boolean;
   error?: string;
 };
@@ -138,6 +140,37 @@ export function useTriggerManifestMutations({
     setCloneModal(current => (current ? { ...current, repository, error: undefined } : current));
   }, []);
 
+  const updateCloneDetails = useCallback((details: TriggerDetailsFormState) => {
+    setCloneModal(current => {
+      if (!current) return current;
+      const nextDetails = triggerDetailsWithProvider(details, normalizeTriggerProvider(details.provider));
+      return {
+        ...current,
+        details: nextDetails,
+        yamlPreview: applyTriggerDetailsToYaml(current.yamlPreview, nextDetails),
+        error: undefined,
+      };
+    });
+  }, []);
+
+  const updateCloneYamlPreview = useCallback((yamlPreview: string) => {
+    setCloneModal(current =>
+      current
+        ? {
+            ...current,
+            details: triggerDetailsFormFromYaml(yamlPreview, {
+              provider: current.details.provider,
+              teamPath: current.details.teamPath,
+              management: current.details.management,
+              webhookSourceID: current.details.webhookSourceID,
+            }),
+            yamlPreview,
+            error: undefined,
+          }
+        : current
+    );
+  }, []);
+
   const openCreateModal = useCallback(() => {
     const repository = permissionOwner ? `${permissionOwner}/new-repository` : '';
     const details: TriggerDetailsFormState = {
@@ -159,7 +192,16 @@ export function useTriggerManifestMutations({
       addToast('Select a trigger to clone.', 'info');
       return;
     }
-    setCloneModal({ repository: detail.slug, pending: false });
+    const details = {
+      ...triggerDetailsFormFromYaml(detail.rawYaml, detail),
+      management: 'nopsai' as const,
+    };
+    setCloneModal({
+      repository: detail.slug,
+      details,
+      yamlPreview: applyTriggerDetailsToYaml(detail.rawYaml, details),
+      pending: false,
+    });
   }, [addToast, detail]);
 
   const openDeleteModal = useCallback(
@@ -330,7 +372,7 @@ export function useTriggerManifestMutations({
 
     setCloneModal(current => (current ? { ...current, pending: true, error: undefined } : current));
     try {
-      await saveTrigger(normalizedSlug, detail.rawYaml);
+      await saveTrigger(normalizedSlug, applyTriggerDetailsToYaml(cloneModal.yamlPreview, cloneModal.details));
       setCloneModal(null);
       addToast('Trigger cloned.', 'success');
       await loadTriggers();
@@ -400,7 +442,9 @@ export function useTriggerManifestMutations({
     saving,
     submitCloneModal,
     submitCreateModal,
+    updateCloneDetails,
     updateCloneRepository,
+    updateCloneYamlPreview,
     updateCreateDetails,
     updateCreateRepository,
     updateCreateYamlPreview,

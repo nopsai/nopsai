@@ -161,7 +161,9 @@ explorer groups triggers by Git owner and then by NopsAI team, but save/delete
 and webhook matching still use only the provider repository key (`owner/repo`).
 Team assignment is selected from known NopsAI teams. For non-GitHub providers,
 the UI requires choosing an existing compatible Git webhook source; GitHub uses
-automatic GitHub App ingress.
+automatic GitHub App ingress. UI-created, edited, and cloned trigger overrides
+are stored with team resource visibility so they remain compatible with the
+same access and GitOps sync model as repository trigger manifests.
 
 For GitHub repositories without a NopsAI-managed trigger, git-bot reads
 `.nopsai/triggers.yaml` from the repository and treats that file as read-only
