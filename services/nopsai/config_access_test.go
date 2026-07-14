@@ -532,41 +532,6 @@ access:
 	}
 }
 
-func TestEmbeddedPipelineAccessRejectsGroupGrantKey(t *testing.T) {
-	tests := map[string]string{
-		"group shorthand": `
-name: deploy
-access:
-  use_access:
-    grants:
-      - group: data-team
-`,
-		"groups shorthand": `
-name: deploy
-access:
-  use_access:
-    groups:
-      - data-team
-`,
-	}
-
-	for name, content := range tests {
-		t.Run(name, func(t *testing.T) {
-			plan := newAccessSyncPlan()
-			err := plan.addEmbeddedResourceAccess(content, "pipelines/deploy.yaml", grantResourcePipeline, "deploy", models.ConfigRepository{
-				ScopeType: models.ConfigRepositoryScopeSystem,
-				ScopeID:   models.ConfigRepositorySystemGlobalID,
-			}, "")
-			if err == nil {
-				t.Fatal("expected group key to be rejected")
-			}
-			if !strings.Contains(err.Error(), "must use") || !strings.Contains(err.Error(), "team") {
-				t.Fatalf("error = %v, want direct team replacement guidance", err)
-			}
-		})
-	}
-}
-
 func TestEmbeddedAccessDefaultsToRestrictedWhenGrantsArePresent(t *testing.T) {
 	plan := newAccessSyncPlan()
 	err := plan.addEmbeddedResourceAccess(`
@@ -586,6 +551,26 @@ access:
 	access := plan.resourceAccess[resourceAccessPlanKey{resourceType: grantResourceStep, resourceID: "shared/checkout"}]
 	if access.visibility != resourceVisibilityRestricted {
 		t.Fatalf("visibility = %q, want restricted", access.visibility)
+	}
+}
+
+func TestEmbeddedAccessRejectsUnknownGrantKey(t *testing.T) {
+	plan := newAccessSyncPlan()
+	err := plan.addEmbeddedResourceAccess(`
+name: deploy
+access:
+  use_access:
+    grants:
+      - teem: data-team
+`, "pipelines/deploy.yaml", grantResourcePipeline, "deploy", models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeSystem,
+		ScopeID:   models.ConfigRepositorySystemGlobalID,
+	}, "")
+	if err == nil {
+		t.Fatal("expected unknown access grant key to be rejected")
+	}
+	if !strings.Contains(err.Error(), `unsupported resource access grant key "teem"`) {
+		t.Fatalf("error = %v, want unsupported grant key", err)
 	}
 }
 

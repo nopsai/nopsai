@@ -30,27 +30,8 @@ var accessGrantSchemaStatements = []string{
 	`ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS identity_provider_id TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS external_team_name TEXT NOT NULL DEFAULT ''`,
 	`DROP INDEX IF EXISTS idx_access_grants_identity_provider`,
-	`DO $$
-	BEGIN
-		IF EXISTS (
-			SELECT 1 FROM information_schema.columns
-			WHERE table_schema = 'public' AND table_name = 'access_grants' AND column_name = 'external_group_name'
-		) THEN
-			UPDATE access_grants
-			SET external_team_name = external_group_name
-			WHERE external_team_name = ''
-			  AND external_group_name <> '';
-
-			ALTER TABLE access_grants DROP COLUMN external_group_name;
-		END IF;
-	END $$`,
 	`ALTER TABLE resource_ownership ADD COLUMN IF NOT EXISTS access_grant_id BIGINT REFERENCES access_grants(id) ON DELETE CASCADE`,
 	`ALTER TABLE access_grants DROP CONSTRAINT IF EXISTS access_grants_subject_type_check`,
-	`UPDATE access_grants SET subject_type = 'auth_team' WHERE subject_type = 'auth_group'`,
-	`UPDATE access_grants SET subject_type = 'team' WHERE subject_type = 'group'`,
-	`UPDATE access_grants SET resource_type = 'team' WHERE resource_type IN ('group', 'folder')`,
-	`UPDATE resource_ownership SET owner_subject_type = 'auth_team' WHERE owner_subject_type = 'auth_group'`,
-	`UPDATE resource_ownership SET resource_type = 'team' WHERE resource_type IN ('group', 'folder')`,
 	`ALTER TABLE access_grants ADD CONSTRAINT access_grants_subject_type_check CHECK (subject_type IN ('user', 'auth_team', 'team', 'repository', 'trigger', 'service_account', 'internal_service'))`,
 	`ALTER TABLE resource_ownership DROP CONSTRAINT IF EXISTS resource_ownership_owner_subject_type_check`,
 	`ALTER TABLE resource_ownership ADD CONSTRAINT resource_ownership_owner_subject_type_check CHECK (owner_subject_type IN ('user', 'auth_team', 'repository', 'trigger', 'service_account', 'internal_service'))`,

@@ -76,33 +76,6 @@ var authSchemaStatements = []string{
 	`ALTER TABLE auth_identity_providers ADD COLUMN IF NOT EXISTS team_claim TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE auth_identity_providers ADD COLUMN IF NOT EXISTS client_credential_ref TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE auth_identity_providers ADD COLUMN IF NOT EXISTS team_mapping JSONB NOT NULL DEFAULT '{}'::jsonb`,
-	`DO $$
-	BEGIN
-		IF EXISTS (
-			SELECT 1 FROM information_schema.columns
-			WHERE table_schema = 'public' AND table_name = 'auth_identity_providers' AND column_name = 'group_claim'
-		) THEN
-			UPDATE auth_identity_providers
-			SET team_claim = group_claim
-			WHERE team_claim = ''
-			  AND group_claim <> '';
-
-			ALTER TABLE auth_identity_providers DROP COLUMN group_claim;
-		END IF;
-
-		IF EXISTS (
-			SELECT 1 FROM information_schema.columns
-			WHERE table_schema = 'public' AND table_name = 'auth_identity_providers' AND column_name = 'group_mapping'
-		) THEN
-			UPDATE auth_identity_providers
-			SET team_mapping = group_mapping
-			WHERE team_mapping = '{}'::jsonb
-			  AND group_mapping IS NOT NULL
-			  AND group_mapping <> '{}'::jsonb;
-
-			ALTER TABLE auth_identity_providers DROP COLUMN group_mapping;
-		END IF;
-	END $$`,
 	`ALTER TABLE auth_identity_providers ADD COLUMN IF NOT EXISTS basic_role_mapping JSONB NOT NULL DEFAULT '{}'::jsonb`,
 	`ALTER TABLE auth_identity_providers ADD COLUMN IF NOT EXISTS entitlement_sync JSONB NOT NULL DEFAULT '{}'::jsonb`,
 	`CREATE TABLE IF NOT EXISTS auth_oidc_domain_mappings (
@@ -146,74 +119,6 @@ var authSchemaStatements = []string{
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_auth_login_codes_expiry ON auth_login_codes(expires_at)`,
-	`DO $$
-	BEGIN
-		IF to_regclass('auth_external_group_memberships') IS NOT NULL
-		   AND to_regclass('auth_external_team_memberships') IS NULL THEN
-			ALTER TABLE auth_external_group_memberships RENAME TO auth_external_team_memberships;
-		END IF;
-
-		IF to_regclass('auth_external_team_memberships') IS NOT NULL
-		   AND EXISTS (
-			SELECT 1 FROM information_schema.columns
-			WHERE table_schema = 'public' AND table_name = 'auth_external_team_memberships' AND column_name = 'group_name'
-		   )
-		   AND NOT EXISTS (
-			SELECT 1 FROM information_schema.columns
-			WHERE table_schema = 'public' AND table_name = 'auth_external_team_memberships' AND column_name = 'team_name'
-		   ) THEN
-			ALTER TABLE auth_external_team_memberships RENAME COLUMN group_name TO team_name;
-		END IF;
-
-		IF to_regclass('auth_external_team_memberships') IS NOT NULL THEN
-			IF EXISTS (
-				SELECT 1 FROM pg_constraint
-				WHERE conrelid = to_regclass('auth_external_team_memberships')
-				  AND conname = 'auth_external_group_memberships_pkey'
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM pg_constraint
-				WHERE conrelid = to_regclass('auth_external_team_memberships')
-				  AND conname = 'auth_external_team_memberships_pkey'
-			) THEN
-				ALTER TABLE auth_external_team_memberships
-				RENAME CONSTRAINT auth_external_group_memberships_pkey TO auth_external_team_memberships_pkey;
-			END IF;
-
-			IF to_regclass('auth_external_group_memberships_pkey') IS NOT NULL
-			   AND to_regclass('auth_external_team_memberships_pkey') IS NULL THEN
-				ALTER INDEX auth_external_group_memberships_pkey RENAME TO auth_external_team_memberships_pkey;
-			END IF;
-
-			IF EXISTS (
-				SELECT 1 FROM pg_constraint
-				WHERE conrelid = to_regclass('auth_external_team_memberships')
-				  AND conname = 'auth_external_group_memberships_user_id_fkey'
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM pg_constraint
-				WHERE conrelid = to_regclass('auth_external_team_memberships')
-				  AND conname = 'auth_external_team_memberships_user_id_fkey'
-			) THEN
-				ALTER TABLE auth_external_team_memberships
-				RENAME CONSTRAINT auth_external_group_memberships_user_id_fkey TO auth_external_team_memberships_user_id_fkey;
-			END IF;
-
-			IF EXISTS (
-				SELECT 1 FROM pg_constraint
-				WHERE conrelid = to_regclass('auth_external_team_memberships')
-				  AND conname = 'auth_external_group_memberships_provider_id_fkey'
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM pg_constraint
-				WHERE conrelid = to_regclass('auth_external_team_memberships')
-				  AND conname = 'auth_external_team_memberships_provider_id_fkey'
-			) THEN
-				ALTER TABLE auth_external_team_memberships
-				RENAME CONSTRAINT auth_external_group_memberships_provider_id_fkey TO auth_external_team_memberships_provider_id_fkey;
-			END IF;
-		END IF;
-	END $$`,
 	`CREATE TABLE IF NOT EXISTS auth_external_team_memberships (
 		user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		provider_id TEXT NOT NULL REFERENCES auth_identity_providers(id) ON DELETE CASCADE,
@@ -221,32 +126,6 @@ var authSchemaStatements = []string{
 		last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		PRIMARY KEY(user_id, provider_id, team_name)
 	)`,
-	`DO $$
-	BEGIN
-		IF to_regclass('auth_external_group_memberships') IS NOT NULL THEN
-			IF EXISTS (
-				SELECT 1 FROM information_schema.columns
-				WHERE table_schema = 'public' AND table_name = 'auth_external_group_memberships' AND column_name = 'group_name'
-			) THEN
-				INSERT INTO auth_external_team_memberships (user_id, provider_id, team_name, last_seen_at)
-				SELECT user_id, provider_id, group_name, last_seen_at
-				FROM auth_external_group_memberships
-				ON CONFLICT (user_id, provider_id, team_name)
-				DO UPDATE SET last_seen_at = GREATEST(auth_external_team_memberships.last_seen_at, EXCLUDED.last_seen_at);
-			ELSIF EXISTS (
-				SELECT 1 FROM information_schema.columns
-				WHERE table_schema = 'public' AND table_name = 'auth_external_group_memberships' AND column_name = 'team_name'
-			) THEN
-				INSERT INTO auth_external_team_memberships (user_id, provider_id, team_name, last_seen_at)
-				SELECT user_id, provider_id, team_name, last_seen_at
-				FROM auth_external_group_memberships
-				ON CONFLICT (user_id, provider_id, team_name)
-				DO UPDATE SET last_seen_at = GREATEST(auth_external_team_memberships.last_seen_at, EXCLUDED.last_seen_at);
-			END IF;
-
-			DROP TABLE auth_external_group_memberships;
-		END IF;
-	END $$`,
 	`CREATE TABLE IF NOT EXISTS auth_external_role_assignments (
 		user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		provider_id TEXT NOT NULL REFERENCES auth_identity_providers(id) ON DELETE CASCADE,

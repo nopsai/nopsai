@@ -289,6 +289,8 @@ func TestBuildKubernetesRunnerManifestResponseIncludesRuntimeRBACAndPVCSettings(
 	for _, want := range []string{
 		"kind: Deployment",
 		"kind: Role",
+		"apiGroups:",
+		"apiGroup: rbac.authorization.k8s.io",
 		"resources:",
 		"- pods/exec",
 		"RUNNER_ID: k8s-runner-ams-1",

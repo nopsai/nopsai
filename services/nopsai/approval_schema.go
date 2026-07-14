@@ -42,23 +42,8 @@ var approvalSchemaStatements = []string{
 		decision_comment TEXT NOT NULL DEFAULT '',
 		checkpoint_id UUID REFERENCES pipeline_run_checkpoints(id) ON DELETE SET NULL,
 		UNIQUE(run_id, step_name)
-	)`,
+		)`,
 	`ALTER TABLE pipeline_approvals ADD COLUMN IF NOT EXISTS assigned_teams JSONB NOT NULL DEFAULT '[]'::jsonb`,
-	`DO $$
-	BEGIN
-		IF EXISTS (
-			SELECT 1 FROM information_schema.columns
-			WHERE table_schema = 'public' AND table_name = 'pipeline_approvals' AND column_name = 'assigned_groups'
-		) THEN
-			UPDATE pipeline_approvals
-			SET assigned_teams = assigned_groups
-			WHERE assigned_teams = '[]'::jsonb
-			  AND assigned_groups IS NOT NULL
-			  AND assigned_groups <> '[]'::jsonb;
-
-			ALTER TABLE pipeline_approvals DROP COLUMN assigned_groups;
-		END IF;
-	END $$`,
 	`CREATE INDEX IF NOT EXISTS idx_pipeline_approvals_run ON pipeline_approvals(run_id, status, requested_at DESC)`,
 }
 

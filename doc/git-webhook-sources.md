@@ -157,7 +157,7 @@ Rules:
 
 The trigger UI edits the same top-level YAML metadata for provider, team,
 management mode, and webhook source through create/edit workflow dialogs. The
-explorer groups triggers by Git owner and then by NopsAI team, but save/delete
+explorer organizes triggers by Git owner and then by NopsAI team, but save/delete
 and webhook matching still use only the provider repository key (`owner/repo`).
 Team assignment is selected from known NopsAI teams. For non-GitHub providers,
 the UI requires choosing an existing compatible Git webhook source; GitHub uses

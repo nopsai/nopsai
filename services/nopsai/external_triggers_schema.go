@@ -31,20 +31,6 @@ var externalTriggerSchemaStatements = []string{
 		managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE
 	)`,
 	`ALTER TABLE external_triggers ADD COLUMN IF NOT EXISTS run_team_path TEXT NOT NULL DEFAULT ''`,
-	`DO $$
-	BEGIN
-		IF EXISTS (
-			SELECT 1 FROM information_schema.columns
-			WHERE table_schema = 'public' AND table_name = 'external_triggers' AND column_name = 'run_group_path'
-		) THEN
-			UPDATE external_triggers
-			SET run_team_path = run_group_path
-			WHERE run_team_path = ''
-			  AND run_group_path <> '';
-
-			ALTER TABLE external_triggers DROP COLUMN run_group_path;
-		END IF;
-	END $$`,
 	`ALTER TABLE external_triggers ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'database'`,
 	`ALTER TABLE external_triggers ADD COLUMN IF NOT EXISTS config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL`,
 	`ALTER TABLE external_triggers ADD COLUMN IF NOT EXISTS config_source_path TEXT NOT NULL DEFAULT ''`,

@@ -78,7 +78,7 @@ export function TriggerCollectionList({
                 </div>
                 {!searchTerm.trim() && activeOwnerNode.children.length ? (
                   <span className="triggers-badge triggers-badge--neutral">
-                    {activeOwnerNode.children.length} nested group{activeOwnerNode.children.length === 1 ? '' : 's'}
+                    {activeOwnerNode.children.length} nested owner{activeOwnerNode.children.length === 1 ? '' : 's'}
                   </span>
                 ) : null}
               </div>
