@@ -36,14 +36,13 @@ import type {
   ScopeTreeNode,
   StepTreeNode,
   Theme,
-  TriggerTreeNode,
 } from './types';
 import { useSidebarState } from './useSidebarState';
 import { useResourceTrees } from './useResourceTrees';
 import { BaseSidebarNavigation } from './BaseSidebarNavigation';
 import { useInitialSetupRedirect } from './useInitialSetupRedirect';
 import { usePipelineRunsSidebar } from './usePipelineRunsSidebar';
-import { shouldShowPipelineRunsSidebarContext } from './pipelineRunsSidebarVisibility';
+import { shouldShowSidebarContextNav } from './sidebarContextVisibility';
 import { AppRoutes, PageLoading } from './AppRoutes';
 import { getAppAccess } from '../auth/capabilities';
 import { useAuth } from '../auth/AuthContext';
@@ -63,12 +62,6 @@ const getInitialTheme = (): Theme => {
   if (stored === 'dark' || stored === 'light') return stored;
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 };
-
-function triggerOwnerRoute(path: string) {
-  const owner = path.trim().replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '').replace(/^root$/i, '');
-  if (!owner) return '/triggers';
-  return `/triggers?${new URLSearchParams({ owner }).toString()}`;
-}
 
 function AppShell() {
   const location = useLocation();
@@ -259,9 +252,6 @@ function AppShell() {
               pipelineTree={resourceTrees.pipelineTree}
               pipelineTreeOpen={resourceTrees.pipelineTreeOpen}
               onTogglePipelineNode={resourceTrees.onTogglePipelineNode}
-              triggerTree={resourceTrees.triggerTree}
-              triggerTreeOpen={resourceTrees.triggerTreeOpen}
-              onToggleTriggerNode={resourceTrees.onToggleTriggerNode}
               stepTree={resourceTrees.stepTree}
               stepTreeOpen={resourceTrees.stepTreeOpen}
               onToggleStepNode={resourceTrees.onToggleStepNode}
@@ -276,7 +266,6 @@ function AppShell() {
               locationSearch={location.search}
               navigateTo={navigate}
               onSelectPipelineTeam={path => navigate(teamScopedRoute('/pipelines', path))}
-              onSelectTriggerTeam={path => navigate(triggerOwnerRoute(path))}
               onSelectStepTeam={path => navigate(teamScopedRoute('/steps', path))}
               onSelectScopeTeam={path => navigate(teamScopedRoute('/scopes', path))}
               onSelectKnowledgeContextTeam={path => navigate(teamScopedRoute('/knowledge-context', path))}
@@ -336,9 +325,6 @@ function Sidebar({
   pipelineTree,
   pipelineTreeOpen,
   onTogglePipelineNode,
-  triggerTree,
-  triggerTreeOpen,
-  onToggleTriggerNode,
   stepTree,
   stepTreeOpen,
   onToggleStepNode,
@@ -353,7 +339,6 @@ function Sidebar({
   locationSearch,
   navigateTo,
   onSelectPipelineTeam,
-  onSelectTriggerTeam,
   onSelectStepTeam,
   onSelectScopeTeam,
   onSelectKnowledgeContextTeam,
@@ -366,9 +351,6 @@ function Sidebar({
   pipelineTree: PipelineTreeNode;
   pipelineTreeOpen: Set<string>;
   onTogglePipelineNode: (id: string) => void;
-  triggerTree: TriggerTreeNode;
-  triggerTreeOpen: Set<string>;
-  onToggleTriggerNode: (id: string) => void;
   stepTree: StepTreeNode;
   stepTreeOpen: Set<string>;
   onToggleStepNode: (id: string) => void;
@@ -383,7 +365,6 @@ function Sidebar({
   locationSearch: string;
   navigateTo: (path: string) => void;
   onSelectPipelineTeam: (path: string) => void;
-  onSelectTriggerTeam: (path: string) => void;
   onSelectStepTeam: (path: string) => void;
   onSelectScopeTeam: (path: string) => void;
   onSelectKnowledgeContextTeam: (path: string) => void;
@@ -397,7 +378,7 @@ function Sidebar({
   const searchParams = useMemo(() => new URLSearchParams(locationSearch), [locationSearch]);
   const pipelineRunsTab: RunTabKey =
     locationPathname.startsWith('/pipelineruns/recent') ? 'recent' : locationPathname.startsWith('/pipelineruns/events') ? 'events' : 'main';
-  const showSidebarContextNav = !isPipelineRunsRoute || shouldShowPipelineRunsSidebarContext(pipelineRunsTab);
+  const showSidebarContextNav = shouldShowSidebarContextNav(locationPathname, pipelineRunsTab);
   const activeTeam = useMemo(() => {
     const root = isPipelinesRoute
       ? 'pipelines'
@@ -488,71 +469,6 @@ function Sidebar({
                       </svg>
                     </span>
                     <span className="truncate">{name || pid}</span>
-                  </NavLink>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </li>
-    );
-  };
-
-  const renderTriggerTreeNode = (node: TriggerTreeNode) => {
-    const isOpen = triggerTreeOpen.has(node.id);
-    const isRoot = node.id === '__root__';
-    const isActiveTeam = activeTeam === node.fullPath;
-    return (
-      <li key={`tr-${node.id}`} className="pipeline-tree-row">
-        {!isRoot && (
-          <div className="pipeline-tree-item flex items-center gap-2 rounded-md hover:bg-[var(--bg-tertiary)] px-1">
-            <button
-              className="pipeline-tree-toggle inline-flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
-              onClick={() => onToggleTriggerNode(node.id)}
-              aria-label="Toggle team"
-            >
-              <svg
-                className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`}
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-            <button
-              className={`pipeline-tree-team flex items-center gap-2 flex-1 min-w-0 text-left text-[var(--text-primary)] hover:text-[var(--text-primary)] px-2 py-1 rounded-md hover:bg-[var(--bg-tertiary)] ${isActiveTeam ? 'active' : ''}`}
-              onClick={() => {
-                if (!isOpen) onToggleTriggerNode(node.id);
-                onSelectTriggerTeam(node.fullPath);
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 7h5l2 2h11v9a2 2 0 0 1-2 2H3z" />
-                <path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2" />
-              </svg>
-              <span className="truncate">{node.name}</span>
-            </button>
-          </div>
-        )}
-        {(isRoot || isOpen) && (
-          <ul className="pipeline-tree-children">
-            {node.children.map(child => renderTriggerTreeNode(child))}
-            {node.triggerSlugs.map(slug => {
-              const { name } = splitIdentifier(slug);
-              const active = locationPathname.includes(`/triggers/${slug}`);
-              return (
-                <li key={`slug-${slug}`} className={`pipeline-tree-leaf ${active ? 'active' : ''}`}>
-                  <NavLink className="pipeline-tree-leaf-btn" to={`/triggers/${slug.split('/').map(encodeURIComponent).join('/')}`}>
-                    <span className="pipeline-tree-leaf-icon" aria-hidden="true">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-                      </svg>
-                    </span>
-                    <span className="truncate">{name || slug}</span>
                   </NavLink>
                 </li>
               );
@@ -822,15 +738,6 @@ function Sidebar({
                   </div>
                   <ul className="pipeline-tree-list">
                     {renderPipelineTreeNode(pipelineTree)}
-                  </ul>
-                </div>
-              ) : isTriggersRoute ? (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">All triggers</p>
-                  </div>
-                  <ul className="pipeline-tree-list">
-                    {renderTriggerTreeNode(triggerTree)}
                   </ul>
                 </div>
               ) : isStepsRoute ? (

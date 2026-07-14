@@ -1,4 +1,5 @@
 import type { Team } from '../../lib/teamModels.js';
+import { isAppTeam } from '../../lib/teamModels.js';
 
 export type TeamDetailTabID = 'overview' | 'gitops' | 'notifications' | 'access';
 
@@ -9,7 +10,12 @@ export const teamDetailTabs: Array<{ id: TeamDetailTabID; label: string }> = [
   { id: 'access', label: 'Access' },
 ];
 
+export const applicationDetailTabs: Array<{ id: TeamDetailTabID; label: string }> = [
+  { id: 'overview', label: 'Overview' },
+];
+
 export function visibleTeamDetailTabs(team: Team | null): Array<{ id: TeamDetailTabID; label: string }> {
+  if (team && isAppTeam(team)) return applicationDetailTabs;
   if (team) return teamDetailTabs;
   return teamDetailTabs.filter(tab => tab.id !== 'notifications');
 }

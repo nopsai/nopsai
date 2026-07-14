@@ -3,6 +3,7 @@ package nopsai
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -57,12 +58,12 @@ type applicationResponse struct {
 }
 
 type teamWriteRequest struct {
-	Name         string `json:"name"`
-	Slug         string `json:"slug"`
-	DisplayName  string `json:"display_name"`
-	Description  string `json:"description"`
-	ParentTeamID *int   `json:"parent_team_id"`
-	ParentID     *int   `json:"parent_id"`
+	Name         string           `json:"name"`
+	Slug         string           `json:"slug"`
+	DisplayName  string           `json:"display_name"`
+	Description  string           `json:"description"`
+	ParentTeamID optionalIntField `json:"parent_team_id"`
+	ParentID     optionalIntField `json:"parent_id"`
 }
 
 type applicationWriteRequest struct {
@@ -71,6 +72,26 @@ type applicationWriteRequest struct {
 	DisplayName        string `json:"display_name"`
 	RepoURL            string `json:"repo_url"`
 	RepositoryFullName string `json:"repository_full_name"`
+}
+
+type optionalIntField struct {
+	Set   bool
+	Value *int
+}
+
+func (field *optionalIntField) UnmarshalJSON(data []byte) error {
+	field.Set = true
+	raw := strings.TrimSpace(string(data))
+	if raw == "" || raw == "null" {
+		field.Value = nil
+		return nil
+	}
+	var value int
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	field.Value = &value
+	return nil
 }
 
 func (a *App) handleListTeams(w http.ResponseWriter, r *http.Request) {
@@ -133,10 +154,14 @@ func (a *App) handleCreateTeam(w http.ResponseWriter, r *http.Request) {
 		Kind:        "team",
 		Name:        firstNonEmptyString(input.Name, input.Slug, input.DisplayName),
 		Description: input.Description,
-		ParentID:    firstNonNilInt(input.ParentTeamID, input.ParentID),
+		ParentID:    parentIDFromTeamWriteRequest(input, nil),
 	}
 	if err := normalizeTeamForWrite(&team); err != nil {
 		http.Error(w, strings.ReplaceAll(err.Error(), "team", "team"), http.StatusBadRequest)
+		return
+	}
+	if err := a.validateTeamParentForWrite(r.Context(), team.ID, team.ParentID); err != nil {
+		writeTeamParentValidationError(w, err)
 		return
 	}
 	if !a.authorizeTeamCreate(w, r, team.ParentID) {
@@ -166,13 +191,20 @@ func (a *App) handleUpdateTeam(w http.ResponseWriter, r *http.Request) {
 		Kind:        "team",
 		Name:        firstNonEmptyString(input.Name, input.Slug, input.DisplayName, record.Name),
 		Description: input.Description,
-		ParentID:    firstNonNilInt(input.ParentTeamID, input.ParentID),
+		ParentID:    parentIDFromTeamWriteRequest(input, record.ParentID),
 	}
 	if err := normalizeTeamForWrite(&team); err != nil {
 		http.Error(w, strings.ReplaceAll(err.Error(), "team", "team"), http.StatusBadRequest)
 		return
 	}
+	if err := a.validateTeamParentForWrite(r.Context(), team.ID, team.ParentID); err != nil {
+		writeTeamParentValidationError(w, err)
+		return
+	}
 	if !a.authorizeTeamUpdate(w, r, record.ID) {
+		return
+	}
+	if !sameOptionalInt(record.ParentID, team.ParentID) && !a.authorizeTeamCreate(w, r, team.ParentID) {
 		return
 	}
 	if err := a.updateTeamRecord(r.Context(), team); err != nil {
@@ -266,10 +298,6 @@ func (a *App) handleUpdateTeamApplication(w http.ResponseWriter, r *http.Request
 		http.Error(w, err.Error(), status)
 		return
 	}
-	if !sameOptionalInt(appRecord.ParentID, parentID) {
-		http.Error(w, "application does not belong to this team", http.StatusNotFound)
-		return
-	}
 	var input applicationWriteRequest
 	if err := httpapi.DecodeJSON(r, &input); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -288,6 +316,9 @@ func (a *App) handleUpdateTeamApplication(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if !a.authorizeApplicationUpdate(w, r, appRecord.ID) {
+		return
+	}
+	if !sameOptionalInt(appRecord.ParentID, parentID) && !a.authorizeApplicationCreate(w, r, parentID) {
 		return
 	}
 	if err := a.updateTeamRecord(r.Context(), team); err != nil {
@@ -437,6 +468,48 @@ func (a *App) authorizeApplicationUpdate(w http.ResponseWriter, r *http.Request,
 
 func (a *App) authorizeApplicationDelete(w http.ResponseWriter, r *http.Request, teamID int) bool {
 	return a.authorizeTeamDelete(w, r, teamID)
+}
+
+func (a *App) validateTeamParentForWrite(ctx context.Context, teamID int, parentID *int) error {
+	if parentID == nil {
+		return nil
+	}
+	records, err := a.teamPathRecords(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to resolve teams")
+	}
+	return validateTeamParentID(records, teamID, parentID)
+}
+
+func validateTeamParentID(records map[int]teamPathRecord, teamID int, parentID *int) error {
+	if parentID == nil {
+		return nil
+	}
+	if *parentID == teamID && teamID != 0 {
+		return fmt.Errorf("team cannot be its own parent")
+	}
+	visited := map[int]struct{}{}
+	if teamID != 0 {
+		visited[teamID] = struct{}{}
+	}
+	currentID := *parentID
+	for {
+		record, ok := records[currentID]
+		if !ok {
+			return fmt.Errorf("parent team not found")
+		}
+		if record.Kind == "app" || record.RepoURL != "" || record.RepositoryFullName != "" {
+			return fmt.Errorf("parent must be a team")
+		}
+		if _, seen := visited[currentID]; seen {
+			return fmt.Errorf("team parent hierarchy would contain a cycle")
+		}
+		visited[currentID] = struct{}{}
+		if record.ParentID == nil {
+			return nil
+		}
+		currentID = *record.ParentID
+	}
 }
 
 func (a *App) resolveApplicationParent(ctx context.Context, raw string) (*int, map[int]teamPathRecord, int, error) {
@@ -628,13 +701,22 @@ func nullableSQLTime(value *time.Time) *time.Time {
 	return value
 }
 
-func firstNonNilInt(values ...*int) *int {
-	for _, value := range values {
-		if value != nil {
-			return value
-		}
+func parentIDFromTeamWriteRequest(input teamWriteRequest, fallback *int) *int {
+	if input.ParentTeamID.Set {
+		return input.ParentTeamID.Value
 	}
-	return nil
+	if input.ParentID.Set {
+		return input.ParentID.Value
+	}
+	return fallback
+}
+
+func writeTeamParentValidationError(w http.ResponseWriter, err error) {
+	if strings.Contains(err.Error(), "not found") {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	http.Error(w, err.Error(), http.StatusBadRequest)
 }
 
 func sameOptionalInt(a, b *int) bool {

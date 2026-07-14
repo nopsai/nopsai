@@ -10,6 +10,7 @@ import {
   buildScopeTeamResources,
   buildStepTeamResources,
   buildTriggerTeamResources,
+  filterApplicationLinkedResources,
   filterTeamLinkedResources,
   teamResourceBelongsToScope,
 } from './resourceCatalogModel.js';
@@ -149,6 +150,38 @@ test('filters and sorts linked resources for the active team subtree', () => {
     'scope:platform',
     'credential:credential://team/platform/openai',
   ]);
+});
+
+test('filters application resources by app path and repository identity only', () => {
+  const resources = [
+    ...buildPipelineTeamResources([{ id: 'platform/payments/deploy' }, { id: 'platform/payments/checkout-api' }]),
+    ...buildTriggerTeamResources([
+      { slug: 'platform/payments/acme/checkout-api', source: 'database' },
+      { slug: 'platform/payments/acme/billing-api', source: 'database' },
+    ]),
+    ...buildScopeTeamResources({
+      secrets: [{ scope: 'platform/payments', secret_count: 2 }, { scope: 'platform/payments/checkout-api', secret_count: 1 }],
+      variables: [{ scope: 'platform' }],
+    }),
+    ...buildCredentialTeamResources([
+      credential('credential://team/platform/payments/openai', 'api_key'),
+      credential('credential://team/platform/payments/checkout-api/deploy-token', 'api_key'),
+    ]),
+  ];
+
+  assert.deepEqual(
+    filterApplicationLinkedResources(resources, {
+      appPath: 'platform/payments/checkout-api',
+      appName: 'checkout-api',
+      repository: 'acme/checkout-api',
+    }).map(resource => resource.id),
+    [
+      'pipeline:platform/payments/checkout-api',
+      'trigger:platform/payments/acme/checkout-api',
+      'scope:platform/payments/checkout-api',
+      'credential:credential://team/platform/payments/checkout-api/deploy-token',
+    ]
+  );
 });
 
 function credential(reference: string, kind: string) {

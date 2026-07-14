@@ -22,6 +22,11 @@ export type TeamScopeStats = {
   totalItems: number;
 };
 
+export type TeamParentOption = {
+  id: number | null;
+  label: string;
+};
+
 export function compareTeamItems(left: Team, right: Team): number {
   const leftApp = isAppTeam(left);
   const rightApp = isAppTeam(right);
@@ -120,9 +125,49 @@ export function buildTeamScopeStats(teams: Team[], activeTeamID: number | null):
   };
 }
 
+export function getTeamCreateParentOptions(teams: Team[]): TeamParentOption[] {
+  const options: TeamParentOption[] = [{ id: null, label: 'Global' }];
+  teams
+    .filter(team => !isAppTeam(team))
+    .sort((left, right) => teamPathForURL(left, teams).localeCompare(teamPathForURL(right, teams), undefined, { sensitivity: 'base' }))
+    .forEach(team => {
+      const path = teamPathForURL(team, teams);
+      options.push({
+        id: team.id,
+        label: path ? `/${path}` : teamDisplayName(team),
+      });
+    });
+  return options;
+}
+
+export function getLatestRunApplication(teams: Team[], activeTeamID: number | null): Team | null {
+  return getTeamSubtree(teams, activeTeamID)
+    .filter(team => isAppTeam(team) && Boolean(team.last_run_at))
+    .sort((left, right) => teamTimestamp(right.last_run_at) - teamTimestamp(left.last_run_at))[0] || null;
+}
+
 export function getTeamParent(team: Team | null | undefined, teams: Team[]): Team | null {
   if (!team?.parent_id) return null;
   return teams.find(item => item.id === team.parent_id) || null;
+}
+
+export function getTeamMoveParentOptions(teams: Team[], movingTeam: Team): TeamParentOption[] {
+  const excludedIDs = new Set<number>([movingTeam.id]);
+  if (!isAppTeam(movingTeam)) {
+    getTeamSubtree(teams, movingTeam.id).forEach(team => excludedIDs.add(team.id));
+  }
+  const options: TeamParentOption[] = [{ id: null, label: 'Global' }];
+  teams
+    .filter(team => !isAppTeam(team) && !excludedIDs.has(team.id))
+    .sort((left, right) => teamPathForURL(left, teams).localeCompare(teamPathForURL(right, teams), undefined, { sensitivity: 'base' }))
+    .forEach(team => {
+      const path = teamPathForURL(team, teams);
+      options.push({
+        id: team.id,
+        label: path ? `/${path}` : teamDisplayName(team),
+      });
+    });
+  return options;
 }
 
 export function teamKindLabel(team: Team | null | undefined): string {
@@ -135,4 +180,10 @@ export function formatTeamTimestamp(value?: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
+}
+
+function teamTimestamp(value?: string) {
+  if (!value) return 0;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
 }

@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Dispatch, FormEvent, SetStateAction } from 'react';
 import { Plus, Trash2, X } from 'lucide-react';
-import { formatConfigRepoTimestamp } from '../../lib/teamModels';
+import {
+  formatConfigRepoTimestamp,
+  isAppTeam,
+  teamDisplayName,
+  teamRepositoryURL,
+  type Team,
+} from '../../lib/teamModels';
+import type { TeamParentOption } from './model';
 import {
   NOTIFICATION_EVENTS,
   teamNotificationGitOpsTarget,
@@ -43,6 +50,14 @@ type NewTeamItemPayload = {
   name: string;
   description: string;
   repoURL: string;
+  parentID: number | null;
+};
+
+export type TeamItemEditPayload = {
+  name: string;
+  description: string;
+  repoURL: string;
+  parentID: number | null;
 };
 
 export type TeamSettingsTab = 'sync' | 'notifications';
@@ -50,6 +65,8 @@ export type TeamSettingsTab = 'sync' | 'notifications';
 export function NewTeamItemModal({
   open,
   parentLabel,
+  parentOptions,
+  defaultParentID,
   error,
   pending,
   onClose,
@@ -57,6 +74,8 @@ export function NewTeamItemModal({
 }: {
   open: boolean;
   parentLabel: string;
+  parentOptions: TeamParentOption[];
+  defaultParentID: number | null;
   error: string | null;
   pending: boolean;
   onClose: () => void;
@@ -66,28 +85,33 @@ export function NewTeamItemModal({
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [repoURL, setRepoURL] = useState('');
+  const [parentID, setParentID] = useState<number | null>(null);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (open) {
       const handle = window.setTimeout(() => {
+        const defaultOptionID = parentOptions.some(option => option.id === defaultParentID) ? defaultParentID : null;
         setKind('team');
         setName('');
         setDescription('');
         setRepoURL('');
+        setParentID(defaultOptionID);
         requestAnimationFrame(() => nameInputRef.current?.focus());
       }, 0);
       return () => window.clearTimeout(handle);
     }
     return undefined;
-  }, [open]);
+  }, [defaultParentID, open, parentOptions]);
 
   if (!open) return null;
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    await onSubmit({ kind, name, description, repoURL });
+    await onSubmit({ kind, name, description, repoURL, parentID });
   };
+
+  const selectedParentLabel = parentOptions.find(option => option.id === parentID)?.label || parentLabel || 'Global';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] px-4">
@@ -100,7 +124,7 @@ export function NewTeamItemModal({
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-primary)]">
           <div>
             <h3 id="team-item-modal-title" className="text-lg font-semibold text-[var(--text-primary)]">Create Team Item</h3>
-            <p className="text-xs text-[var(--text-secondary)]">Parent: {parentLabel || 'Global'}</p>
+            <p className="text-xs text-[var(--text-secondary)]">Parent: {selectedParentLabel}</p>
           </div>
           <button type="button" className="pipelines-icon-only" aria-label="Close" onClick={onClose}>
             <X className="h-4 w-4" aria-hidden="true" />
@@ -122,6 +146,24 @@ export function NewTeamItemModal({
                   {option === 'team' ? 'Team' : 'Application'}
               </button>
             ))}
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="new-team-parent" className="text-sm font-medium text-[var(--text-primary)]">
+              Parent team
+            </label>
+            <select
+              id="new-team-parent"
+              name="new-team-parent"
+              value={parentID == null ? 'root' : String(parentID)}
+              onChange={event => setParentID(event.target.value === 'root' ? null : Number(event.target.value))}
+              className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)]"
+            >
+              {parentOptions.map(option => (
+                <option key={option.id ?? 'root'} value={option.id == null ? 'root' : String(option.id)}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="space-y-2">
             <label htmlFor="new-team-name" className="text-sm font-medium text-[var(--text-primary)]">
@@ -178,6 +220,151 @@ export function NewTeamItemModal({
             </button>
             <button type="submit" className="glass-button-primary" disabled={pending}>
               {pending ? 'Creating…' : 'Create'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+export function EditTeamItemModal({
+  open,
+  team,
+  parentOptions,
+  error,
+  pending,
+  onClose,
+  onSubmit,
+}: {
+  open: boolean;
+  team: Team | null;
+  parentOptions: TeamParentOption[];
+  error: string | null;
+  pending: boolean;
+  onClose: () => void;
+  onSubmit: (payload: TeamItemEditPayload) => Promise<void>;
+}) {
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [repoURL, setRepoURL] = useState('');
+  const [parentID, setParentID] = useState<number | null>(null);
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const app = team ? isAppTeam(team) : false;
+  const label = team ? teamDisplayName(team) : '';
+  const title = app ? 'Edit Application' : 'Edit Team';
+
+  useEffect(() => {
+    if (!open || !team) return undefined;
+    const handle = window.setTimeout(() => {
+      setName(teamDisplayName(team));
+      setDescription(team.description || '');
+      setRepoURL(team.repo_url || teamRepositoryURL(team));
+      setParentID(team.parent_id ?? null);
+      requestAnimationFrame(() => nameInputRef.current?.focus());
+    }, 0);
+    return () => window.clearTimeout(handle);
+  }, [open, team]);
+
+  if (!open || !team) return null;
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    await onSubmit({ name, description, repoURL, parentID });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] px-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="team-edit-modal-title"
+        className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-[var(--border-primary)] overflow-hidden"
+      >
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-primary)]">
+          <div>
+            <h3 id="team-edit-modal-title" className="text-lg font-semibold text-[var(--text-primary)]">{title}</h3>
+            <p className="text-xs text-[var(--text-secondary)]">{label}</p>
+          </div>
+          <button type="button" className="pipelines-icon-only" aria-label="Close" onClick={onClose}>
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          <div className="space-y-2">
+            <label htmlFor="edit-team-name" className="text-sm font-medium text-[var(--text-primary)]">
+              {app ? 'Application Name' : 'Team Name'}
+            </label>
+            <input
+              ref={nameInputRef}
+              id="edit-team-name"
+              name="edit-team-name"
+              type="text"
+              required
+              value={name}
+              onChange={event => setName(event.target.value)}
+              className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)]"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="edit-team-parent" className="text-sm font-medium text-[var(--text-primary)]">
+              Parent team
+            </label>
+            <select
+              id="edit-team-parent"
+              name="edit-team-parent"
+              value={parentID == null ? 'root' : String(parentID)}
+              onChange={event => setParentID(event.target.value === 'root' ? null : Number(event.target.value))}
+              className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)]"
+            >
+              {parentOptions.map(option => (
+                <option key={option.id ?? 'root'} value={option.id == null ? 'root' : String(option.id)}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {app ? (
+            <div className="space-y-2">
+              <label htmlFor="edit-team-repo-url" className="text-sm font-medium text-[var(--text-primary)]">
+                Repository URL
+              </label>
+              <input
+                id="edit-team-repo-url"
+                name="edit-team-repo-url"
+                type="text"
+                required
+                value={repoURL}
+                onChange={event => setRepoURL(event.target.value)}
+                className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)]"
+                placeholder="https://github.com/acme/service-api"
+              />
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <label htmlFor="edit-team-description" className="text-sm font-medium text-[var(--text-primary)]">
+                Description <span className="text-[var(--text-secondary)]">(optional)</span>
+              </label>
+              <textarea
+                id="edit-team-description"
+                name="edit-team-description"
+                value={description}
+                onChange={event => setDescription(event.target.value)}
+                rows={3}
+                className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)] focus:border-[var(--border-accent)]"
+              />
+            </div>
+          )}
+
+          {error && <div className="text-sm text-red-600">{error}</div>}
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <button type="button" className="glass-button-subtle" onClick={onClose} disabled={pending}>
+              Cancel
+            </button>
+            <button type="submit" className="glass-button-primary" disabled={pending}>
+              {pending ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
         </form>

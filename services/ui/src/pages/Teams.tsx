@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshCw, UsersRound } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ConfigRepositoryDriftModal } from '../components/ConfigRepositoryDriftModal';
 import { useAuth } from '../auth/AuthContext';
-import { fetchTeams, requestTeamsJson } from '../features/teams/api';
-import { TeamConfigRepositoryModal, NewTeamItemModal } from '../features/teams/TeamSettingsModals';
+import { createTeamItem, fetchTeams, requestTeamsJson, updateTeamItem } from '../features/teams/api';
+import { EditTeamItemModal, TeamConfigRepositoryModal, NewTeamItemModal, type TeamItemEditPayload } from '../features/teams/TeamSettingsModals';
 import { TeamsStatusPanel, TeamsWorkspace } from '../features/teams/TeamsWorkspace';
 import { useTeamConfigRepositoryController } from '../features/teams/hooks/useTeamConfigRepositoryController';
 import { useTeamOperationsSummary } from '../features/teams/hooks/useTeamOperationsSummary';
 import { useTeamResourceCatalog } from '../features/teams/hooks/useTeamResourceCatalog';
+import { getTeamCreateParentOptions, getTeamMoveParentOptions } from '../features/teams/model';
 import {
   buildTeamPath,
   findTeamByURLValue,
@@ -25,6 +26,7 @@ type TeamItemPayload = {
   name: string;
   description: string;
   repoURL: string;
+  parentID: number | null;
 };
 
 function isReservedRootTeamName(name: string) {
@@ -44,7 +46,9 @@ export default function TeamsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createPending, setCreatePending] = useState(false);
-  const selectedBeforeCreateRef = useRef<number | null>(null);
+  const [editTeam, setEditTeam] = useState<Team | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editPending, setEditPending] = useState(false);
 
   const activeTeamValue = useMemo(
     () => normalizeTeamURLValue(extractTeamPathFromRoute(location.pathname, 'teams') || new URLSearchParams(location.search).get('team')),
@@ -58,6 +62,12 @@ export default function TeamsPage() {
     () => (activeTeam ? teamPathForURL(activeTeam, teams) : ''),
     [activeTeam, teams]
   );
+  const resourceCatalogPath = useMemo(() => {
+    if (!activeTeam || !isAppTeam(activeTeam)) return activeTeamURLValue;
+    if (activeTeam.team_path) return activeTeam.team_path;
+    const parent = activeTeam.parent_id == null ? null : teams.find(team => team.id === activeTeam.parent_id) || null;
+    return parent ? teamPathForURL(parent, teams) : '';
+  }, [activeTeam, activeTeamURLValue, teams]);
 
   const fetchJson = useCallback(
     async <T,>(path: string, options?: RequestInit): Promise<T> => requestTeamsJson<T>(path, options),
@@ -85,16 +95,19 @@ export default function TeamsPage() {
     fetchJson,
     checkAccessPermission,
   });
-  const resourceCatalog = useTeamResourceCatalog({ teamPath: activeTeamURLValue });
+  const resourceCatalog = useTeamResourceCatalog({ teamPath: resourceCatalogPath });
 
   const loadTeams = useCallback(async () => {
     setTeamsLoaded(false);
     setTeamsLoading(true);
     setTeamsError(null);
     try {
-      setTeams(await fetchTeams());
+      const loadedTeams = await fetchTeams();
+      setTeams(loadedTeams);
+      return loadedTeams;
     } catch (error) {
       setTeamsError(error instanceof Error ? error.message : 'Unable to load teams');
+      return [];
     } finally {
       setTeamsLoaded(true);
       setTeamsLoading(false);
@@ -125,13 +138,24 @@ export default function TeamsPage() {
   );
 
   const openCreateModal = useCallback(() => {
-    selectedBeforeCreateRef.current = activeTeamID;
     setCreateError(null);
     setCreateOpen(true);
-  }, [activeTeamID]);
+  }, []);
+
+  const openEditModal = useCallback((team: Team) => {
+    setEditTeam(team);
+    setEditError(null);
+    setEditPending(false);
+  }, []);
+
+  const closeEditModal = useCallback(() => {
+    setEditTeam(null);
+    setEditError(null);
+    setEditPending(false);
+  }, []);
 
   const submitNewTeamItem = useCallback(
-    async ({ kind, name, description, repoURL }: TeamItemPayload) => {
+    async ({ kind, name, description, repoURL, parentID }: TeamItemPayload) => {
       const trimmedName = name.trim();
       const trimmedDescription = description.trim();
       const trimmedRepoURL = repoURL.trim();
@@ -147,23 +171,15 @@ export default function TeamsPage() {
         setCreateError('Repository URL is required for applications.');
         return;
       }
-
-      const parentID = selectedBeforeCreateRef.current;
       setCreatePending(true);
       setCreateError(null);
       try {
-        const endpoint = kind === 'team'
-          ? '/v1/teams'
-          : `/v1/teams/${encodeURIComponent(parentID == null ? 'root' : String(parentID))}/applications`;
-        await fetchJson(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: trimmedName,
-            description: kind === 'team' ? trimmedDescription || undefined : undefined,
-            repo_url: kind === 'app' ? trimmedRepoURL : undefined,
-            parent_team_id: kind === 'team' ? parentID : undefined,
-          }),
+        await createTeamItem({
+          kind,
+          name: trimmedName,
+          description: kind === 'team' ? trimmedDescription || undefined : undefined,
+          repoURL: kind === 'app' ? trimmedRepoURL : undefined,
+          parentID,
         });
         setCreateOpen(false);
         await loadTeams();
@@ -174,7 +190,7 @@ export default function TeamsPage() {
         setCreatePending(false);
       }
     },
-    [fetchJson, loadTeams]
+    [loadTeams]
   );
 
   const deleteTeamItem = useCallback(
@@ -195,6 +211,64 @@ export default function TeamsPage() {
       }
     },
     [activeTeamID, fetchJson, loadTeams, selectTeam]
+  );
+
+  const submitEditedTeamItem = useCallback(
+    async ({ name, description, repoURL, parentID }: TeamItemEditPayload) => {
+      if (!editTeam) return;
+      const trimmedName = name.trim();
+      const trimmedDescription = description.trim();
+      const trimmedRepoURL = repoURL.trim();
+      const app = isAppTeam(editTeam);
+      if (!trimmedName) {
+        setEditError(app ? 'Application name is required.' : 'Team name is required.');
+        return;
+      }
+      if (!app && isReservedRootTeamName(trimmedName)) {
+        setEditError('Global is reserved and cannot be used as a team name.');
+        return;
+      }
+      if (app && !trimmedRepoURL) {
+        setEditError('Repository URL is required for applications.');
+        return;
+      }
+
+      setEditPending(true);
+      setEditError(null);
+      try {
+        await updateTeamItem(editTeam, {
+          name: trimmedName,
+          description: app ? undefined : trimmedDescription,
+          repoURL: app ? trimmedRepoURL : undefined,
+          parentID,
+        });
+        const loadedTeams = await loadTeams();
+        const updatedTeam = loadedTeams.find(team => team.id === editTeam.id) || null;
+        if (updatedTeam) {
+          navigate(teamScopedRoute('/teams', teamPathForURL(updatedTeam, loadedTeams)), { replace: true });
+        }
+        setEditTeam(null);
+        window.dispatchEvent(new Event('nopsai-resource-teams-changed'));
+      } catch (error) {
+        setEditError(error instanceof Error ? error.message : 'Unable to update team item');
+      } finally {
+        setEditPending(false);
+      }
+    },
+    [editTeam, loadTeams, navigate]
+  );
+
+  const editParentOptions = useMemo(
+    () => (editTeam ? getTeamMoveParentOptions(teams, editTeam) : []),
+    [editTeam, teams]
+  );
+  const createParentOptions = useMemo(() => getTeamCreateParentOptions(teams), [teams]);
+  const defaultCreateParentID = useMemo(
+    () => {
+      if (!activeTeam) return null;
+      return isAppTeam(activeTeam) ? activeTeam.parent_id ?? null : activeTeam.id;
+    },
+    [activeTeam]
   );
 
   return (
@@ -239,6 +313,7 @@ export default function TeamsPage() {
           onSelectTeam={selectTeam}
           onRefresh={() => void loadTeams()}
           onCreate={openCreateModal}
+          onEditTeam={openEditModal}
           onDeleteTeam={team => void deleteTeamItem(team)}
           onOpenConfig={config.openTeamConfigRepository}
           operationsSummary={operationsSummary}
@@ -251,6 +326,8 @@ export default function TeamsPage() {
         <NewTeamItemModal
           open={createOpen}
           parentLabel={activeTeamLabel}
+          parentOptions={createParentOptions}
+          defaultParentID={defaultCreateParentID}
           error={createError}
           pending={createPending}
           onClose={() => {
@@ -259,6 +336,18 @@ export default function TeamsPage() {
             setCreatePending(false);
           }}
           onSubmit={submitNewTeamItem}
+        />
+      )}
+
+      {editTeam && (
+        <EditTeamItemModal
+          open={Boolean(editTeam)}
+          team={editTeam}
+          parentOptions={editParentOptions}
+          error={editError}
+          pending={editPending}
+          onClose={closeEditModal}
+          onSubmit={submitEditedTeamItem}
         />
       )}
 
