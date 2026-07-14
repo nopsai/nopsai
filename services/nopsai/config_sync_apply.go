@@ -13,6 +13,37 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+const configSyncScheduleUpsertSQL = `INSERT INTO pipeline_schedules (
+		path, name, description, pipeline_path, pipeline_name, pipeline_version,
+		schedule_kind, cron_expression, run_at, timezone, enabled, scope, variables, next_run_at, source,
+		visibility, run_team_path, config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at
+	) VALUES (
+		$1, $2, $3, $4, $5, $6,
+		$7, $8, $9, $10, $11, $12, $13::jsonb, $14, 'git',
+		$15, $16, $17, $18, $19, TRUE, NOW()
+	)
+	ON CONFLICT (path, name) DO UPDATE SET
+		description = EXCLUDED.description,
+		pipeline_path = EXCLUDED.pipeline_path,
+		pipeline_name = EXCLUDED.pipeline_name,
+		pipeline_version = EXCLUDED.pipeline_version,
+		schedule_kind = EXCLUDED.schedule_kind,
+		cron_expression = EXCLUDED.cron_expression,
+		run_at = EXCLUDED.run_at,
+		timezone = EXCLUDED.timezone,
+		enabled = EXCLUDED.enabled,
+		scope = EXCLUDED.scope,
+		variables = EXCLUDED.variables,
+		next_run_at = EXCLUDED.next_run_at,
+		run_team_path = EXCLUDED.run_team_path,
+		source = 'git',
+		config_repo_id = EXCLUDED.config_repo_id,
+		config_source_path = EXCLUDED.config_source_path,
+		config_source_commit_sha = EXCLUDED.config_source_commit_sha,
+		managed_by_config_repo = TRUE,
+		updated_at = NOW()
+	RETURNING id::text`
+
 func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepository, plan configSyncPlan, details map[string]int, commitSHA string) error {
 	configRepositoryPipelineRunStructure := plan.configRepositoryPipelineRunStructure
 	configRepositories := plan.configRepositories
@@ -205,36 +236,6 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
 			managed_by_config_repo = TRUE,
 			updated_at = NOW()`
-	const scheduleUpsert = `INSERT INTO pipeline_schedules (
-			path, name, description, pipeline_path, pipeline_name, pipeline_version,
-			schedule_kind, cron_expression, run_at, timezone, enabled, scope, variables, next_run_at, source,
-			run_team_path, config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at
-		) VALUES (
-			$1, $2, $3, $4, $5, $6,
-			$7, $8, $9, $10, $11, $12, $13::jsonb, $14, 'git',
-			$15, $16, $17, $18, TRUE, NOW()
-		)
-		ON CONFLICT (path, name) DO UPDATE SET
-			description = EXCLUDED.description,
-			pipeline_path = EXCLUDED.pipeline_path,
-			pipeline_name = EXCLUDED.pipeline_name,
-			pipeline_version = EXCLUDED.pipeline_version,
-			schedule_kind = EXCLUDED.schedule_kind,
-			cron_expression = EXCLUDED.cron_expression,
-			run_at = EXCLUDED.run_at,
-			timezone = EXCLUDED.timezone,
-			enabled = EXCLUDED.enabled,
-			scope = EXCLUDED.scope,
-			variables = EXCLUDED.variables,
-			next_run_at = EXCLUDED.next_run_at,
-			run_team_path = EXCLUDED.run_team_path,
-			source = 'git',
-			config_repo_id = EXCLUDED.config_repo_id,
-			config_source_path = EXCLUDED.config_source_path,
-			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
-			managed_by_config_repo = TRUE,
-			updated_at = NOW()
-		RETURNING id::text`
 	const knowledgeContextUpsert = `INSERT INTO knowledge_contexts (
 			kind, team_path, name, description, content,
 			source, config_repo_id, config_source_path, config_source_commit_sha,
@@ -439,7 +440,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			return fmt.Errorf("failed to marshal schedule variables '%s': %w", key, err)
 		}
 		var scheduleID string
-		if err := tx.QueryRow(ctx, scheduleUpsert,
+		if err := tx.QueryRow(ctx, configSyncScheduleUpsertSQL,
 			stored.input.Path,
 			stored.input.Name,
 			stored.input.Description,
@@ -454,6 +455,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			stored.input.Scope,
 			string(variablesJSON),
 			stored.input.NextRunAt,
+			scheduleDefaultVisibility,
 			stored.input.RunTeamPath,
 			binding.ID,
 			stored.sourcePath,

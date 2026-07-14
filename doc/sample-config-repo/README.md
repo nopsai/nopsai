@@ -451,7 +451,9 @@ or repo-relative IDs that sync can normalize under the bound team. A
 `prod/scheduled` schedule team path is useful for presentation, while
 `run_team_path` controls where scheduled runs appear and which notification
 routes receive their events. Use `run_team_path: root` to keep runs at the
-Pipeline Runs root without assigning them to a team.
+Pipeline Runs root without assigning them to a team. Pipeline schedules are
+created with team-only visibility by default; GitOps schedule files do not need a
+`visibility` field.
 Repository-triggered runs that do not set an explicit run team are assigned to
 an existing matching repository/application owner when one exists. Runtime
 ingestion does not create or rewrite team/application records; unmatched

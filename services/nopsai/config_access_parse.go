@@ -493,6 +493,10 @@ func normalizeAccessGrant(raw accessGrantFile, binding models.ConfigRepository, 
 }
 
 func parseEmbeddedResourceAccess(content, sourcePath, resourceType, resourceID string, binding models.ConfigRepository, boundTeam string) (storedResourceAccess, []storedAccessGrant, bool, error) {
+	if err := rejectEmbeddedResourceAccessGroupKeys(content); err != nil {
+		return storedResourceAccess{}, nil, true, fmt.Errorf("invalid resource access '%s': %w", sourcePath, err)
+	}
+
 	var doc embeddedResourceAccessDocument
 	if err := yaml.Unmarshal([]byte(content), &doc); err != nil {
 		return storedResourceAccess{}, nil, false, fmt.Errorf("failed to parse embedded access: %w", err)
@@ -544,6 +548,65 @@ func parseEmbeddedResourceAccess(content, sourcePath, resourceType, resourceID s
 	}
 
 	return resourceAccess, grants, true, nil
+}
+
+func rejectEmbeddedResourceAccessGroupKeys(content string) error {
+	var root yaml.Node
+	if err := yaml.Unmarshal([]byte(content), &root); err != nil {
+		return err
+	}
+	if len(root.Content) == 0 {
+		return nil
+	}
+	access := mappingValue(root.Content[0], "access")
+	if access == nil {
+		return nil
+	}
+	return rejectGroupKeysInAccessNode(access)
+}
+
+func rejectGroupKeysInAccessNode(node *yaml.Node) error {
+	if node == nil {
+		return nil
+	}
+	switch node.Kind {
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			key := node.Content[i]
+			value := node.Content[i+1]
+			if key != nil && key.Kind == yaml.ScalarNode {
+				switch strings.TrimSpace(key.Value) {
+				case "group":
+					return fmt.Errorf("resource access grants must use 'team', not 'group'")
+				case "groups":
+					return fmt.Errorf("resource access grants must use 'teams', not 'groups'")
+				}
+			}
+			if err := rejectGroupKeysInAccessNode(value); err != nil {
+				return err
+			}
+		}
+	case yaml.SequenceNode:
+		for _, item := range node.Content {
+			if err := rejectGroupKeysInAccessNode(item); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func mappingValue(node *yaml.Node, key string) *yaml.Node {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		keyNode := node.Content[i]
+		if keyNode != nil && keyNode.Kind == yaml.ScalarNode && keyNode.Value == key {
+			return node.Content[i+1]
+		}
+	}
+	return nil
 }
 
 func embeddedResourceUseAccessMode(useAccess *embeddedResourceUseAccessFile) string {

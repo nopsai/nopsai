@@ -23,6 +23,7 @@ const (
 	scheduleServiceAccountPref = "schedule:"
 	scheduleKindCron           = "cron"
 	scheduleKindOnce           = "once"
+	scheduleDefaultVisibility  = resourceVisibilityTeam
 )
 
 type scheduleRequest struct {
