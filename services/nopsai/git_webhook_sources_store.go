@@ -12,7 +12,7 @@ import (
 )
 
 const gitWebhookSourceSelect = `
-	SELECT id, name, description, provider, enabled, COALESCE(team_path, ''), auth_mode, credential_ref,
+	SELECT id, name, description, provider, enabled, COALESCE(team_path, ''), COALESCE(visibility, 'team'), auth_mode, credential_ref,
 	       repository_allowlist, rate_limit, created_by, created_at, updated_at, last_used_at,
 	       COALESCE(source, 'database'), config_repo_id, COALESCE(config_source_path, ''),
 	       COALESCE(config_source_commit_sha, ''), managed_by_config_repo
@@ -30,6 +30,7 @@ func scanGitWebhookSource(scanner interface{ Scan(...any) error }) (gitWebhookSo
 		&source.Provider,
 		&source.Enabled,
 		&source.TeamPath,
+		&source.Visibility,
 		&source.AuthMode,
 		&source.CredentialRef,
 		&allowlistJSON,
@@ -53,6 +54,7 @@ func scanGitWebhookSource(scanner interface{ Scan(...any) error }) (gitWebhookSo
 		value := configRepoID.Int64
 		source.ConfigRepoID = &value
 	}
+	source.Visibility = normalizeGitWebhookSourceVisibility(source.Visibility)
 	_ = decodeJSONWithDefault(allowlistJSON, &source.RepositoryAllowlist, []string{})
 	_ = decodeJSONWithDefault(rateLimitJSON, &source.RateLimit, map[string]any{})
 	return source, nil
@@ -60,6 +62,89 @@ func scanGitWebhookSource(scanner interface{ Scan(...any) error }) (gitWebhookSo
 
 func (a *App) loadGitWebhookSource(ctx context.Context, id string) (gitWebhookSourceRecord, error) {
 	return scanGitWebhookSource(a.db.QueryRow(ctx, gitWebhookSourceSelect+` WHERE id = $1`, strings.TrimSpace(id)))
+}
+
+func (a *App) enrichGitWebhookSource(ctx context.Context, source gitWebhookSourceRecord) (gitWebhookSourceRecord, error) {
+	if a == nil || a.db == nil || strings.TrimSpace(source.ID) == "" {
+		return source, nil
+	}
+	rows, err := a.db.Query(ctx, `
+		SELECT repository_name, provider, COALESCE(team_path, ''), management
+		FROM triggers
+		WHERE webhook_source_id = $1
+		ORDER BY team_path ASC, repository_name ASC
+	`, source.ID)
+	if err != nil {
+		return source, err
+	}
+	defer rows.Close()
+	connected := []gitWebhookConnectedTrigger{}
+	for rows.Next() {
+		var trigger gitWebhookConnectedTrigger
+		if err := rows.Scan(&trigger.RepositoryName, &trigger.Provider, &trigger.TeamPath, &trigger.Management); err != nil {
+			return source, err
+		}
+		trigger.RepositoryForWebhook = repositoryTriggerProviderRepository(trigger.RepositoryName, trigger.TeamPath)
+		connected = append(connected, trigger)
+	}
+	if err := rows.Err(); err != nil {
+		return source, err
+	}
+	source.ConnectedTriggers = connected
+	source.ConnectedTriggerCount = len(connected)
+	source.AllowlistUnconfigured, err = a.gitWebhookSourceUnconfiguredAllowlist(ctx, source)
+	if err != nil {
+		return source, err
+	}
+	return source, nil
+}
+
+func (a *App) gitWebhookSourceUnconfiguredAllowlist(ctx context.Context, source gitWebhookSourceRecord) ([]string, error) {
+	literals := literalGitWebhookAllowlistRepositories(source.RepositoryAllowlist)
+	if len(literals) == 0 || a == nil || a.db == nil {
+		return nil, nil
+	}
+	rows, err := a.db.Query(ctx, `
+		SELECT repository_name, COALESCE(team_path, '')
+		FROM triggers
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	configured := map[string]struct{}{}
+	for rows.Next() {
+		var repositoryName, teamPath string
+		if err := rows.Scan(&repositoryName, &teamPath); err != nil {
+			return nil, err
+		}
+		providerRepository := repositoryTriggerProviderRepository(repositoryName, teamPath)
+		if providerRepository != "" {
+			configured[strings.ToLower(providerRepository)] = struct{}{}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	unconfigured := []string{}
+	for _, repository := range literals {
+		if _, ok := configured[strings.ToLower(repository)]; !ok {
+			unconfigured = append(unconfigured, repository)
+		}
+	}
+	return unconfigured, nil
+}
+
+func literalGitWebhookAllowlistRepositories(allowlist []string) []string {
+	out := []string{}
+	for _, value := range allowlist {
+		value = strings.ToLower(strings.Trim(strings.TrimSpace(value), "/"))
+		if value == "" || strings.ContainsAny(value, "*?[]") {
+			continue
+		}
+		out = append(out, value)
+	}
+	return out
 }
 
 func (a *App) insertGitWebhookDelivery(ctx context.Context, record gitWebhookDeliveryRecord) (bool, error) {

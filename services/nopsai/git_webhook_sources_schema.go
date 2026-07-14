@@ -15,6 +15,7 @@ var gitWebhookSourceSchemaStatements = []string{
 		provider TEXT NOT NULL,
 		enabled BOOLEAN NOT NULL DEFAULT TRUE,
 		team_path TEXT NOT NULL DEFAULT '',
+		visibility TEXT NOT NULL DEFAULT 'team',
 		auth_mode TEXT NOT NULL,
 		credential_ref TEXT NOT NULL DEFAULT '',
 		repository_allowlist JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -30,9 +31,15 @@ var gitWebhookSourceSchemaStatements = []string{
 		managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE
 	)`,
 	`ALTER TABLE git_webhook_sources ADD COLUMN IF NOT EXISTS team_path TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE git_webhook_sources ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'team'`,
+	`ALTER TABLE git_webhook_sources DROP CONSTRAINT IF EXISTS git_webhook_sources_visibility_check`,
+	`UPDATE git_webhook_sources SET visibility = 'workspace' WHERE visibility IN ('workspace_shared', 'shared')`,
+	`UPDATE git_webhook_sources SET visibility = 'team' WHERE BTRIM(visibility) = ''`,
+	`ALTER TABLE git_webhook_sources ADD CONSTRAINT git_webhook_sources_visibility_check CHECK (visibility IN ('team', 'workspace'))`,
 	`CREATE INDEX IF NOT EXISTS idx_git_webhook_sources_enabled ON git_webhook_sources(enabled)`,
 	`CREATE INDEX IF NOT EXISTS idx_git_webhook_sources_provider ON git_webhook_sources(provider)`,
 	`CREATE INDEX IF NOT EXISTS idx_git_webhook_sources_team ON git_webhook_sources(team_path, id)`,
+	`CREATE INDEX IF NOT EXISTS idx_git_webhook_sources_visibility ON git_webhook_sources(visibility)`,
 	`CREATE INDEX IF NOT EXISTS idx_git_webhook_sources_config_repo ON git_webhook_sources(config_repo_id)`,
 	`CREATE TABLE IF NOT EXISTS git_webhook_deliveries (
 		id UUID PRIMARY KEY,

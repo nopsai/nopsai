@@ -1,12 +1,21 @@
-import type { KeyboardEvent, RefObject, UIEvent } from 'react';
+import type { KeyboardEvent, ReactNode, RefObject, UIEvent } from 'react';
 import { ArrowLeft, FileCode2, GitBranch, Trash2 } from 'lucide-react';
 import { ResourceYamlDetailPanel } from '../editor/ResourceYamlDetailPanel';
 import type { EditorAutocompleteSuggestion } from '../editor/EditorAutocompleteMenu';
 import type { YamlValidationError } from '../editor/YamlValidationPanel';
 import { TriggerRecentRuns } from './TriggerRecentRuns';
 import {
+  TRIGGER_PROVIDERS,
   normalizeSource,
   sourceLabel,
+  triggerDetailsWithProvider,
+  triggerAllowlistStatusLabel,
+  triggerIngressLabel,
+  triggerTeamLabel,
+  triggerWebhookSourceOptionLabel,
+  type TriggerDetailsFormState,
+  type TriggerProvider,
+  type TriggerWebhookSourceOption,
   type PipelineMeta,
   type PipelineRef,
   type TriggerDetail,
@@ -28,6 +37,9 @@ type TriggerDetailViewProps = {
   canCreateTriggerHere: boolean;
   canDeleteSelectedTrigger: boolean;
   saving: boolean;
+  triggerDetails: TriggerDetailsFormState;
+  teamPaths: string[];
+  webhookSources: TriggerWebhookSourceOption[];
   linkedPipelines: PipelineRef[];
   pipelineMetadata: Map<string, PipelineMeta>;
   pipelineSourceIndex: Map<string, string> | null;
@@ -48,6 +60,7 @@ type TriggerDetailViewProps = {
   onDelete: () => void;
   onDiscard: () => void;
   onSave: () => void;
+  onTriggerDetailsChange: (details: TriggerDetailsFormState) => void;
   onEditorTextChange: (nextValue: string, cursor: number) => void;
   onOpenSuggestion: (cursor: number, opts?: { text?: string; force?: boolean }) => void;
   onMoveSuggestion: (direction: 1 | -1) => void;
@@ -73,6 +86,9 @@ export function TriggerDetailView({
   canCreateTriggerHere,
   canDeleteSelectedTrigger,
   saving,
+  triggerDetails,
+  teamPaths,
+  webhookSources,
   linkedPipelines,
   pipelineMetadata,
   pipelineSourceIndex,
@@ -93,6 +109,7 @@ export function TriggerDetailView({
   onDelete,
   onDiscard,
   onSave,
+  onTriggerDetailsChange,
   onEditorTextChange,
   onOpenSuggestion,
   onMoveSuggestion,
@@ -121,6 +138,12 @@ export function TriggerDetailView({
   const events = detail.summary.events.length ? detail.summary.events : ['N/A'];
   const branches = detail.summary.branches.length ? detail.summary.branches.join(', ') : 'Any branch';
   const scopes = detail.summary.scopes.length ? detail.summary.scopes : [''];
+  const provider = (detail.provider || 'github').trim().toLowerCase();
+  const ingress = triggerIngressLabel(detail);
+  const allowlistStatus = triggerAllowlistStatusLabel(detail.allowlistStatus);
+  const showIngressWarning = provider !== 'github' && detail.allowlistStatus !== 'allowed';
+  const teamOptions = uniqueTeamOptions([...teamPaths, triggerDetails.teamPath, detail.teamPath || 'root']);
+  const compatibleWebhookSources = webhookSources.filter(source => source.provider === triggerDetails.provider);
 
   return (
     <div id="triggers-detail-view" className="triggers-detail-pane">
@@ -165,10 +188,76 @@ export function TriggerDetailView({
               <div className="triggers-detail-panel-body">
                 <div className="triggers-facts-grid">
                   <TriggerFact label="Owner" value={detailOwner} />
+                  {isEditing ? (
+                    <TriggerFactField label="Provider">
+                      <select
+                        className="pipelines-input w-full"
+                        value={triggerDetails.provider}
+                        onChange={event =>
+                          onTriggerDetailsChange(triggerDetailsWithProvider(triggerDetails, event.target.value as TriggerProvider))
+                        }
+                        disabled={saving}
+                      >
+                        {TRIGGER_PROVIDERS.map(option => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                      </select>
+                    </TriggerFactField>
+                  ) : (
+                    <TriggerFact label="Provider" value={provider} />
+                  )}
+                  {isEditing ? (
+                    <TriggerFactField label="Team">
+                      <select
+                        className="pipelines-input w-full"
+                        value={triggerDetails.teamPath}
+                        onChange={event => onTriggerDetailsChange({ ...triggerDetails, teamPath: event.target.value })}
+                        disabled={saving}
+                      >
+                        {teamOptions.map(path => (
+                          <option key={path} value={path}>{path === 'root' ? 'Workspace' : path}</option>
+                        ))}
+                      </select>
+                    </TriggerFactField>
+                  ) : (
+                    <TriggerFact label="Team" value={triggerTeamLabel(detail.teamPath)} />
+                  )}
+                  <TriggerFact label="Ingress" value={ingress} />
+                  <TriggerFact label="Allowlist" value={allowlistStatus} />
+                  {isEditing ? (
+                    <TriggerFactField label="Webhook source">
+                      <select
+                        className="pipelines-input w-full font-mono"
+                        value={triggerDetails.webhookSourceID}
+                        onChange={event => onTriggerDetailsChange({ ...triggerDetails, webhookSourceID: event.target.value })}
+                        disabled={saving || triggerDetails.provider === 'github'}
+                        required={triggerDetails.provider !== 'github'}
+                      >
+                        {triggerDetails.provider === 'github' ? (
+                          <option value="">GitHub App automatic</option>
+                        ) : (
+                          <>
+                            <option value="">Select webhook source</option>
+                            {compatibleWebhookSources.map(source => (
+                              <option key={source.id} value={source.id}>{triggerWebhookSourceOptionLabel(source)}</option>
+                            ))}
+                            {triggerDetails.webhookSourceID && !compatibleWebhookSources.some(source => source.id === triggerDetails.webhookSourceID) ? (
+                              <option value={triggerDetails.webhookSourceID}>{triggerDetails.webhookSourceID}</option>
+                            ) : null}
+                          </>
+                        )}
+                      </select>
+                    </TriggerFactField>
+                  ) : null}
                   <TriggerFact label="Rules" value={String(detail.summary.triggerCount)} />
                   <TriggerFact label="Pipelines" value={String(linkedPipelines.length)} />
                   <TriggerFact label="Branches" value={branches} />
                 </div>
+                {showIngressWarning ? (
+                  <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-[var(--text-secondary)]">
+                    Repository webhook events will not start pipelines until the trigger is assigned to a compatible webhook source whose allowlist includes this repository.
+                  </div>
+                ) : null}
 
                 <div className="triggers-detail-section">
                   <div className="triggers-detail-section-title">
@@ -191,6 +280,17 @@ export function TriggerDetailView({
                         {scope ? `/${scope}` : 'Default'}
                       </button>
                     ))}
+                  </div>
+                </div>
+
+                <div className="triggers-detail-section">
+                  <div className="triggers-detail-section-title">
+                    <h3>Authorization</h3>
+                  </div>
+                  <div className="triggers-facts-grid">
+                    <TriggerFact label="Runtime caller" value={detail.repositoryForWebhook || detail.slug} />
+                    <TriggerFact label="Same-team resources" value="Available" />
+                    <TriggerFact label="Cross-team resources" value="Explicit sharing required" />
                   </div>
                 </div>
               </div>
@@ -273,6 +373,26 @@ function TriggerFact({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
+}
+
+function TriggerFactField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="triggers-fact triggers-fact--field">
+      <span>{label}</span>
+      <strong>{children}</strong>
+    </label>
+  );
+}
+
+function uniqueTeamOptions(paths: string[]): string[] {
+  const normalized = paths
+    .map(path => String(path || '').trim().replace(/^\/+|\/+$/g, '').replace(/\/+/g, '/'))
+    .map(path => path && path.toLowerCase() !== 'root' ? path : 'root');
+  return Array.from(new Set(['root', ...normalized])).sort((left, right) => {
+    if (left === 'root') return -1;
+    if (right === 'root') return 1;
+    return left.localeCompare(right);
+  });
 }
 
 function LinkedPipelinesPanel({

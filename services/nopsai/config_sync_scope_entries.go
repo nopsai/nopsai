@@ -258,6 +258,7 @@ func (a *App) gitOpsSecretEncryptedValue(value any, secretKey, sourcePath string
 type storedTrigger struct {
 	definition string
 	sourcePath string
+	record     repositoryTriggerRecord
 }
 
 func configRepositoryBindingsFromPipelineRunStructure(structure map[string]*configsync.PipelineRunStructureNode, sourcePath string) (map[string]storedConfigRepository, error) {

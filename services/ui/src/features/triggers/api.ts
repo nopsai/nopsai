@@ -28,8 +28,30 @@ export async function fetchTriggers(): Promise<TriggerListItem[]> {
 
 export async function fetchTriggerDetail(slug: string, source?: string): Promise<TriggerDetail> {
   const { owner, repo } = splitTriggerSlug(slug);
-  const response = await apiClient.fetch(`/v1/overrides/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`);
+  const response = await apiClient.fetch(
+    `/v1/overrides/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}?format=json`,
+    { headers: { Accept: 'application/json' } }
+  );
   if (!response.ok) throw new Error(await responseError(response, `Failed to load trigger (${response.status})`));
+  const contentType = response.headers.get('Content-Type') || '';
+  if (contentType.includes('application/json')) {
+    const payload = await response.json();
+    const rawYaml = typeof payload.raw_yaml === 'string' ? payload.raw_yaml : '';
+    return {
+      slug: typeof payload.slug === 'string' ? payload.slug : slug,
+      source: typeof payload.source === 'string' ? payload.source : source,
+      provider: typeof payload.provider === 'string' ? payload.provider : undefined,
+      teamPath: typeof payload.team_path === 'string' ? payload.team_path : undefined,
+      management: typeof payload.management === 'string' ? payload.management : undefined,
+      webhookSourceID: typeof payload.webhook_source_id === 'string' ? payload.webhook_source_id : undefined,
+      webhookSourceName: typeof payload.webhook_source_name === 'string' ? payload.webhook_source_name : undefined,
+      ingress: typeof payload.ingress === 'string' ? payload.ingress : undefined,
+      allowlistStatus: typeof payload.allowlist_status === 'string' ? payload.allowlist_status : undefined,
+      repositoryForWebhook: typeof payload.repository_for_webhook === 'string' ? payload.repository_for_webhook : undefined,
+      rawYaml,
+      summary: buildTriggerSummary(parseTriggerYaml(rawYaml)),
+    };
+  }
   const rawYaml = await response.text();
   return { slug, source, rawYaml, summary: buildTriggerSummary(parseTriggerYaml(rawYaml)) };
 }

@@ -905,7 +905,7 @@ func (a *App) hostedMCPAnalyzePipelineRunFailure(ctx context.Context, args map[s
 
 func (a *App) hostedMCPListTriggers(ctx context.Context, args map[string]any) (map[string]any, error) {
 	rows, err := a.db.Query(ctx, `
-		SELECT repository_name, source, visibility, created_at
+		SELECT repository_name, source, visibility, provider, COALESCE(team_path, ''), management, COALESCE(webhook_source_id, ''), created_at
 		FROM triggers
 		ORDER BY repository_name ASC
 		LIMIT $1
@@ -916,12 +916,21 @@ func (a *App) hostedMCPListTriggers(ctx context.Context, args map[string]any) (m
 	defer rows.Close()
 	items := []map[string]any{}
 	for rows.Next() {
-		var repository, source, visibility string
+		var repository, source, visibility, provider, teamPath, management, webhookSourceID string
 		var createdAt time.Time
-		if err := rows.Scan(&repository, &source, &visibility, &createdAt); err != nil {
+		if err := rows.Scan(&repository, &source, &visibility, &provider, &teamPath, &management, &webhookSourceID, &createdAt); err != nil {
 			return nil, err
 		}
-		items = append(items, map[string]any{"repository": repository, "source": source, "visibility": visibility, "created_at": createdAt})
+		items = append(items, map[string]any{
+			"repository":        repository,
+			"source":            source,
+			"visibility":        visibility,
+			"provider":          provider,
+			"team_path":         teamPath,
+			"management":        management,
+			"webhook_source_id": webhookSourceID,
+			"created_at":        createdAt,
+		})
 	}
 	return map[string]any{"triggers": items}, rows.Err()
 }
@@ -931,17 +940,27 @@ func (a *App) hostedMCPGetTrigger(ctx context.Context, args map[string]any) (map
 	if repository == "" {
 		return nil, fmt.Errorf("repository is required")
 	}
-	var definition, source, visibility string
+	var definition, source, visibility, provider, teamPath, management, webhookSourceID string
 	var createdAt time.Time
 	err := a.db.QueryRow(ctx, `
-		SELECT trigger_definition, source, visibility, created_at
+		SELECT trigger_definition, source, visibility, provider, COALESCE(team_path, ''), management, COALESCE(webhook_source_id, ''), created_at
 		FROM triggers
 		WHERE repository_name = $1
-	`, repository).Scan(&definition, &source, &visibility, &createdAt)
+	`, repository).Scan(&definition, &source, &visibility, &provider, &teamPath, &management, &webhookSourceID, &createdAt)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"repository": repository, "definition": definition, "source": source, "visibility": visibility, "created_at": createdAt}, nil
+	return map[string]any{
+		"repository":        repository,
+		"definition":        definition,
+		"source":            source,
+		"visibility":        visibility,
+		"provider":          provider,
+		"team_path":         teamPath,
+		"management":        management,
+		"webhook_source_id": webhookSourceID,
+		"created_at":        createdAt,
+	}, nil
 }
 
 func (a *App) hostedMCPListSchedules(ctx context.Context, args map[string]any) (map[string]any, error) {

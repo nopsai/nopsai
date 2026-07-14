@@ -12,7 +12,9 @@ import {
   buildGitWebhookSourceMetrics,
   deliveryStatusClass,
   formatGitWebhookDate,
+  gitWebhookSourceConnectedCount,
   gitWebhookSourceTeamLabel,
+  gitWebhookSourceVisibilityLabel,
   sourceStatusLabel,
   type GitWebhookDelivery,
   type GitWebhookSource,
@@ -125,6 +127,7 @@ export function GitWebhookSourcesWorkspace({
             <Metric icon={<Activity className="h-4 w-4" aria-hidden="true" />} label="Receiving" value={metrics.enabled} tone="green" />
             <Metric icon={<ObjectIcon type="gitops" />} label="GitOps managed" value={metrics.gitManaged} tone="blue" />
             <Metric icon={<ShieldCheck className="h-4 w-4" aria-hidden="true" />} label="Secured" value={metrics.secured} tone="amber" />
+            <Metric icon={<Webhook className="h-4 w-4" aria-hidden="true" />} label="Workspace-shared" value={metrics.workspaceShared} tone="blue" />
           </div>
 
           <div className="triggers-list-container">
@@ -154,8 +157,10 @@ export function GitWebhookSourcesWorkspace({
                         <tr>
                           <th scope="col">Source</th>
                           <th scope="col">Provider</th>
-                          <th scope="col">Team</th>
-                          <th scope="col">Repositories</th>
+                          <th scope="col">Owner</th>
+                          <th scope="col">Visibility</th>
+                          <th scope="col">Repositories allowed</th>
+                          <th scope="col">Triggers connected</th>
                           <th scope="col">Status</th>
                         </tr>
                       </thead>
@@ -242,7 +247,13 @@ function GitWebhookSourceRow({
         <span className="triggers-mono">{gitWebhookSourceTeamLabel(source)}</span>
       </td>
       <td>
+        <span className="triggers-mono">{gitWebhookSourceVisibilityLabel(source.visibility)}</span>
+      </td>
+      <td>
         <span className="triggers-mono">{source.repository_allowlist.length}</span>
+      </td>
+      <td>
+        <span className="triggers-mono">{gitWebhookSourceConnectedCount(source)}</span>
       </td>
       <td>
         <span className={`triggers-badge triggers-badge--${source.enabled ? 'green' : 'neutral'}`}>
@@ -332,11 +343,19 @@ function GitWebhookSourceDetail({
                 <div className="triggers-facts-grid">
                   <Fact label="Provider" value={source.provider} />
                   <Fact label="Authentication" value={source.auth_mode} />
-                  <Fact label="Team" value={gitWebhookSourceTeamLabel(source)} />
+                  <Fact label="Owner" value={gitWebhookSourceTeamLabel(source)} />
+                  <Fact label="Visibility" value={gitWebhookSourceVisibilityLabel(source.visibility)} />
+                  <Fact label="Repositories allowed" value={String(source.repository_allowlist.length)} />
+                  <Fact label="Triggers connected" value={String(gitWebhookSourceConnectedCount(source))} />
                   <Fact label="Last delivery" value={formatGitWebhookDate(source.last_used_at)} />
                   <Fact label="Rate limit" value={formatRateLimit(source.rate_limit)} />
                   <Fact label="Source" value={managed ? `GitOps ${source.config_source_path || ''}`.trim() : source.source || 'database'} />
                 </div>
+                {source.allowlist_unconfigured_repositories?.length ? (
+                  <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-[var(--text-secondary)]">
+                    Repository allowed, but no NopsAI trigger is configured. Webhook events will not start pipelines.
+                  </div>
+                ) : null}
               </div>
             </section>
 
@@ -367,6 +386,27 @@ function GitWebhookSourceDetail({
                 </div>
               </section>
             ) : null}
+
+            <section className="triggers-detail-panel" aria-labelledby="git-webhook-connected-triggers-heading">
+              <div className="triggers-detail-panel-head">
+                <h3 id="git-webhook-connected-triggers-heading">Connected triggers</h3>
+                <span className="triggers-badge triggers-badge--neutral">{gitWebhookSourceConnectedCount(source)}</span>
+              </div>
+              <div className="triggers-detail-panel-body">
+                {source.connected_triggers?.length ? (
+                  <ul className="space-y-2">
+                    {source.connected_triggers.map(trigger => (
+                      <li key={trigger.repository_name} className="rounded-md border border-[var(--border-primary)] px-3 py-2">
+                        <div className="font-mono text-sm text-[var(--text-primary)]">{trigger.team_path || 'root'} / {trigger.repository_for_webhook || trigger.repository_name}</div>
+                        <div className="mt-1 text-xs text-[var(--text-secondary)]">{trigger.management || 'nopsai'} / {trigger.provider}</div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="description">No repository triggers are assigned to this source.</p>
+                )}
+              </div>
+            </section>
           </div>
 
           <div className="triggers-detail-column triggers-detail-column--definition">

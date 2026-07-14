@@ -3,11 +3,19 @@ import { test } from 'node:test';
 import {
   buildTriggerSummary,
   buildTriggerCollectionMetrics,
+  buildNewTriggerYaml,
   deriveDefaultPipelinePath,
   encodeTriggerSlug,
   filterTriggerListItems,
   parseTriggerOverrideList,
+  triggerAllowlistStatusLabel,
   triggerBelongsToOwner,
+  triggerIngressLabel,
+  triggerManagementLabel,
+  triggerDetailsFormFromYaml,
+  triggerDetailsWithProvider,
+  triggerTeamLabel,
+  applyTriggerDetailsToYaml,
   parseTriggerYaml,
   splitTriggerSlug,
   triggerSlugLabel,
@@ -36,6 +44,51 @@ test('normalizes trigger lists and default pipeline paths', () => {
     { slug: 'acme/web', source: 'git' },
   ]);
   assert.equal(deriveDefaultPipelinePath('acme/payment api'), 'pipelines/payment-api.yaml');
+  assert.deepEqual(parseTriggerOverrideList([{
+    name: 'acme/api',
+    source: 'gitops',
+    provider: 'gitlab',
+    team_path: 'team-1',
+    management: 'nopsai',
+    webhook_source_id: 'corporate-gitlab',
+    webhook_source_name: 'Corporate GitLab',
+    allowlist_status: 'allowed',
+  }]), [{
+    slug: 'acme/api',
+    source: 'git',
+    provider: 'gitlab',
+    teamPath: 'team-1',
+    management: 'nopsai',
+    webhookSourceID: 'corporate-gitlab',
+    webhookSourceName: 'Corporate GitLab',
+    allowlistStatus: 'allowed',
+  }]);
+  assert.equal(triggerManagementLabel('repository'), 'Repository');
+  assert.equal(triggerTeamLabel('root'), 'Workspace');
+  assert.equal(triggerAllowlistStatusLabel('allowed'), 'Allowed');
+  assert.equal(triggerIngressLabel({ provider: 'gitlab', webhookSourceName: 'Corporate GitLab' }), 'Corporate GitLab');
+});
+
+test('edits trigger root details through structured YAML helpers', () => {
+  const raw = buildNewTriggerYaml('pipelines/api.yaml', {
+    provider: 'gitlab',
+    teamPath: 'team-1',
+    management: 'nopsai',
+    webhookSourceID: 'corporate-gitlab',
+  });
+  const details = triggerDetailsFormFromYaml(raw);
+  assert.deepEqual(details, {
+    provider: 'gitlab',
+    teamPath: 'team-1',
+    management: 'nopsai',
+    webhookSourceID: 'corporate-gitlab',
+  });
+
+  const githubDetails = triggerDetailsWithProvider(details, 'github');
+  assert.equal(githubDetails.webhookSourceID, '');
+  const updated = applyTriggerDetailsToYaml(raw, githubDetails);
+  assert.equal(parseTriggerYaml(updated).provider, 'github');
+  assert.equal(parseTriggerYaml(updated).webhook_source, undefined);
 });
 
 test('builds owner-scoped trigger collection metrics', () => {
@@ -77,6 +130,9 @@ test('validates trigger manifests and repository routes', () => {
   assert.deepEqual(triggerSlugLabel('acme/platform/api'), { name: 'api', path: 'acme/platform' });
 
   const valid = validateTriggerYaml(`
+provider: gitlab
+team: team-1
+webhook_source: corporate-gitlab
 triggers:
   - on: push
     branches: [main]

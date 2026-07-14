@@ -5,19 +5,26 @@ import {
   saveTrigger,
 } from './api';
 import {
+  applyTriggerDetailsToYaml,
   buildNewTriggerYaml,
   buildTriggerSummary,
   deriveDefaultPipelinePath,
   normalizeSource,
+  normalizeTriggerProvider,
+  normalizeTriggerTeamPath,
   parseTriggerYaml,
   splitTriggerSlug,
+  triggerDetailsFormFromYaml,
+  triggerDetailsWithProvider,
   type PipelineRef,
   type TriggerDetail,
+  type TriggerDetailsFormState,
   type TriggerListItem,
 } from './model';
 
 export type TriggerCreateModalState = {
   repository: string;
+  details: TriggerDetailsFormState;
   yamlPreview: string;
   pending: boolean;
   error?: string;
@@ -47,6 +54,7 @@ type TriggerManifestMutationOptions = {
   editorValue: string;
   validationErrorCount: number;
   serverTriggers: TriggerListItem[];
+  defaultTeamPath?: string;
   addToast: (message: string, tone?: ToastTone) => void;
   loadTriggers: () => Promise<void>;
   loadRecentRuns: (slug: string, pipelines: PipelineRef[]) => Promise<void>;
@@ -65,6 +73,7 @@ export function useTriggerManifestMutations({
   editorValue,
   validationErrorCount,
   serverTriggers,
+  defaultTeamPath = '',
   addToast,
   loadTriggers,
   loadRecentRuns,
@@ -89,7 +98,38 @@ export function useTriggerManifestMutations({
         ? {
             ...current,
             repository,
-            yamlPreview: buildNewTriggerYaml(pipelinePath),
+            yamlPreview: buildNewTriggerYaml(pipelinePath, current.details),
+            error: undefined,
+          }
+        : current
+    );
+  }, []);
+
+  const updateCreateDetails = useCallback((details: TriggerDetailsFormState) => {
+    setCreateModal(current => {
+      if (!current) return current;
+      const nextDetails = triggerDetailsWithProvider(details, normalizeTriggerProvider(details.provider));
+      return {
+        ...current,
+        details: nextDetails,
+        yamlPreview: applyTriggerDetailsToYaml(current.yamlPreview, nextDetails),
+        error: undefined,
+      };
+    });
+  }, []);
+
+  const updateCreateYamlPreview = useCallback((yamlPreview: string) => {
+    setCreateModal(current =>
+      current
+        ? {
+            ...current,
+            details: triggerDetailsFormFromYaml(yamlPreview, {
+              provider: current.details.provider,
+              teamPath: current.details.teamPath,
+              management: current.details.management,
+              webhookSourceID: current.details.webhookSourceID,
+            }),
+            yamlPreview,
             error: undefined,
           }
         : current
@@ -103,12 +143,19 @@ export function useTriggerManifestMutations({
   const openCreateModal = useCallback(() => {
     if (!canCreateTriggerHere) return;
     const repository = permissionOwner ? `${permissionOwner}/new-repository` : '';
+    const details: TriggerDetailsFormState = {
+      provider: 'github',
+      teamPath: normalizeTriggerTeamPath(defaultTeamPath),
+      management: 'nopsai',
+      webhookSourceID: '',
+    };
     setCreateModal({
       repository,
-      yamlPreview: buildNewTriggerYaml(deriveDefaultPipelinePath(repository)),
+      details,
+      yamlPreview: buildNewTriggerYaml(deriveDefaultPipelinePath(repository), details),
       pending: false,
     });
-  }, [canCreateTriggerHere, permissionOwner]);
+  }, [canCreateTriggerHere, defaultTeamPath, permissionOwner]);
 
   const openCloneModal = useCallback(() => {
     if (!canCreateTriggerHere) return;
@@ -139,6 +186,11 @@ export function useTriggerManifestMutations({
       addToast('Resolve validation errors before saving.', 'error');
       return false;
     }
+    const savedDetails = triggerDetailsFormFromYaml(editorValue, detail);
+    if (savedDetails.provider !== 'github' && !savedDetails.webhookSourceID.trim()) {
+      addToast('Select a webhook source before saving a non-GitHub trigger.', 'error');
+      return false;
+    }
     if (editorValue === detail.rawYaml) {
       onEditingFinished();
       return true;
@@ -148,7 +200,17 @@ export function useTriggerManifestMutations({
     try {
       await saveTrigger(detail.slug, editorValue);
       const summary = buildTriggerSummary(parseTriggerYaml(editorValue));
-      const updated = { ...detail, rawYaml: editorValue, summary, source: isGitSource ? 'database' : detail.source };
+      const updated = {
+        ...detail,
+        rawYaml: editorValue,
+        summary,
+        source: isGitSource ? 'database' : detail.source,
+        provider: savedDetails.provider,
+        teamPath: savedDetails.teamPath,
+        management: savedDetails.management,
+        webhookSourceID: savedDetails.webhookSourceID,
+        ingress: savedDetails.provider === 'github' ? 'GitHub App - automatic' : savedDetails.webhookSourceID,
+      };
       onSaved(updated);
       onEditingFinished();
       addToast(
@@ -197,6 +259,18 @@ export function useTriggerManifestMutations({
       );
       return false;
     }
+    if (createModal.details.provider !== 'github' && !createModal.details.webhookSourceID.trim()) {
+      setCreateModal(current =>
+        current ? { ...current, error: 'Webhook source is required for non-GitHub triggers.' } : current
+      );
+      return false;
+    }
+    if (createModal.details.management === 'repository') {
+      setCreateModal(current =>
+        current ? { ...current, error: 'Repository-managed GitHub triggers are read-only; create NopsAI-managed overrides here.' } : current
+      );
+      return false;
+    }
 
     const normalizedSlug = `${owner}/${repo}`;
     const allowed = await checkTriggerPermission('trigger.update', normalizedSlug);
@@ -211,7 +285,7 @@ export function useTriggerManifestMutations({
 
     setCreateModal(current => (current ? { ...current, pending: true, error: undefined } : current));
     try {
-      await saveTrigger(normalizedSlug, createModal.yamlPreview);
+      await saveTrigger(normalizedSlug, applyTriggerDetailsToYaml(createModal.yamlPreview, createModal.details));
       setCreateModal(null);
       addToast('Trigger created.', 'success');
       await loadTriggers();
@@ -331,6 +405,8 @@ export function useTriggerManifestMutations({
     submitCloneModal,
     submitCreateModal,
     updateCloneRepository,
+    updateCreateDetails,
     updateCreateRepository,
+    updateCreateYamlPreview,
   };
 }

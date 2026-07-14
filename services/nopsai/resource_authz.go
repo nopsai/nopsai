@@ -459,6 +459,14 @@ func (a *App) ResolveResourceTeam(ctx context.Context, resourceType, resourceID 
 }
 
 func (a *App) resolveRepositoryTeamRef(ctx context.Context, repositoryID string) (TeamRef, error) {
+	if teamPath, found, err := a.repositoryTriggerTeamPathForRepository(ctx, repositoryID); err != nil || found {
+		if err != nil {
+			return TeamRef{}, err
+		}
+		if strings.Trim(strings.TrimSpace(teamPath), "/") != rootGrantID {
+			return teamRefFromPath(teamPath), nil
+		}
+	}
 	owner, repo := splitRepositoryID(repositoryID)
 	matches, err := a.repositoryTeamMatches(ctx, owner, repo)
 	if err != nil {
@@ -625,6 +633,15 @@ func (a *App) resourceVisibility(ctx context.Context, resourceType, resourceID s
 			ORDER BY id ASC
 			LIMIT 1
 		`, resourceID).Scan(&visibility)
+		if err == nil {
+			return normalizeResourceVisibility(visibility), nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
+			return "", err
+		}
+	case grantResourceTrigger:
+		var visibility string
+		err := a.db.QueryRow(ctx, `SELECT visibility FROM triggers WHERE repository_name = $1`, resourceID).Scan(&visibility)
 		if err == nil {
 			return normalizeResourceVisibility(visibility), nil
 		}

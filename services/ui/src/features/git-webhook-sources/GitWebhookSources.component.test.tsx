@@ -13,6 +13,7 @@ const source = {
   description: 'Primary GitLab source',
   provider: 'gitlab' as const,
   enabled: true,
+  visibility: 'team' as const,
   auth_mode: 'static_token' as const,
   credential_ref: 'credential://system/webhooks/gitlab-platform',
   repository_allowlist: ['platform/*'],
@@ -70,6 +71,7 @@ test('renders source details and audited deliveries', async () => {
   expect(screen.getByRole('complementary', { name: 'Team tree' })).toBeVisible();
   expect(screen.getByRole('link', { name: 'External API' })).toHaveAttribute('href', '/external-triggers');
   expect(await screen.findByText('platform/api')).toBeVisible();
+  expect(screen.getByText('Triggers connected')).toBeVisible();
   expect(screen.getByText(/\/v1\/git\/webhooks\/gitlab-platform$/)).toBeVisible();
   expect(screen.getByText('processed')).toBeVisible();
 });
@@ -171,6 +173,7 @@ test('creates a source through the feature-owned form and API', async () => {
     id: 'gitlab-platform',
     provider: 'gitlab',
     team_path: 'platform/prod',
+    visibility: 'team',
     auth_mode: 'static_token',
     repository_allowlist: ['platform/*'],
   });

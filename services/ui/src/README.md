@@ -64,15 +64,17 @@ truth; this file is the source-adjacent placement guide.
   and Git webhook source pages. These components link to each owning page and
   must not duplicate API, model, or mutation state.
 - `features/triggers/model.ts` owns trigger collection metrics, source/search
-  filtering, and repository-owner membership rules. `features/triggers/treeModel.ts`
-  owns trigger tree shaping, lookup, and nested counts. `TriggerCollectionToolbar.tsx`,
-  `TriggerExplorerTree.tsx`, `TriggerCollectionList.tsx`, and
-  `TriggerDetailView.tsx` own the demo-style trigger workspace rendering:
+  filtering, repository-owner membership rules, and structured trigger metadata
+  helpers that read/write GitOps-compatible root YAML fields. `features/triggers/treeModel.ts`
+  owns trigger tree shaping, lookup, team-under-owner grouping, and nested counts.
+  `TriggerCollectionToolbar.tsx`, `TriggerExplorerTree.tsx`,
+  `TriggerCollectionList.tsx`, and `TriggerDetailView.tsx` own the demo-style trigger workspace rendering:
   compact event-automation switch/filter/create toolbar, explorer tree, subtree
   metrics/table list, and selected-trigger routes that keep the explorer visible
   while showing overview, definition, and recent runs together on one aligned page.
-  `pages/Triggers.tsx` owns URL selection, hook orchestration, dialog
-  composition, and mutation wiring only.
+  `useTriggerManifestMutations.ts` owns trigger create/save/delete mutation state.
+  `pages/Triggers.tsx` owns URL selection, hook orchestration, dialog composition,
+  and mutation wiring only.
 - `features/external-triggers/model.ts` owns external trigger metrics,
   run-team tree item shaping, team membership filtering, and search filtering.
   `ExternalTriggerWorkspace.tsx` owns the demo-style external API trigger tree,
