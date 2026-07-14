@@ -46,20 +46,6 @@ var scheduleSchemaStatements = []string{
 	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS run_at TIMESTAMPTZ`,
 	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS variables JSONB NOT NULL DEFAULT '{}'::jsonb`,
 	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS run_team_path TEXT NOT NULL DEFAULT ''`,
-	`DO $$
-	BEGIN
-		IF EXISTS (
-			SELECT 1 FROM information_schema.columns
-			WHERE table_schema = 'public' AND table_name = 'pipeline_schedules' AND column_name = 'run_group_path'
-		) THEN
-			UPDATE pipeline_schedules
-			SET run_team_path = run_group_path
-			WHERE run_team_path = ''
-			  AND run_group_path <> '';
-
-			ALTER TABLE pipeline_schedules DROP COLUMN run_group_path;
-		END IF;
-	END $$`,
 	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'team'`,
 	`ALTER TABLE pipeline_schedules ALTER COLUMN visibility SET DEFAULT 'team'`,
 	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL`,

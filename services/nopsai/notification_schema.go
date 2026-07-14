@@ -40,27 +40,11 @@ var notificationSchemaStatements = []string{
 		config_source_commit_sha TEXT NOT NULL DEFAULT '',
 		managed_by_config_repo BOOLEAN NOT NULL DEFAULT FALSE,
 		updated_by TEXT NOT NULL DEFAULT '',
-		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-		UNIQUE(team_id)
-	)`,
-	`DO $$
-	BEGIN
-		IF to_regclass('notification_routes') IS NOT NULL THEN
-			IF EXISTS (
-				SELECT 1 FROM information_schema.columns
-				WHERE table_schema = 'public' AND table_name = 'notification_routes' AND column_name = 'group_id'
-			) AND NOT EXISTS (
-				SELECT 1 FROM information_schema.columns
-				WHERE table_schema = 'public' AND table_name = 'notification_routes' AND column_name = 'team_id'
-			) THEN
-				ALTER TABLE notification_routes RENAME COLUMN group_id TO team_id;
-			END IF;
-		END IF;
-	END $$`,
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			UNIQUE(team_id)
+		)`,
 	`ALTER TABLE notification_routes ADD COLUMN IF NOT EXISTS team_id INTEGER`,
 	`ALTER TABLE notification_routes ALTER COLUMN team_id SET NOT NULL`,
-	`ALTER TABLE notification_routes DROP CONSTRAINT IF EXISTS notification_routes_group_id_fkey`,
-	`ALTER TABLE notification_routes DROP CONSTRAINT IF EXISTS notification_routes_group_id_key`,
 	`DO $$
 	BEGIN
 		IF NOT EXISTS (
@@ -91,7 +75,6 @@ var notificationSchemaStatements = []string{
 		sent_at TIMESTAMPTZ,
 		UNIQUE(dedupe_key)
 	)`,
-	`DROP INDEX IF EXISTS idx_notification_routes_group`,
 	`CREATE INDEX IF NOT EXISTS idx_notification_routes_team ON notification_routes(team_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_notification_routes_config_repo ON notification_routes(config_repo_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_notification_deliveries_run ON notification_deliveries(run_id)`,

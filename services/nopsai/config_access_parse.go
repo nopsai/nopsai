@@ -493,7 +493,7 @@ func normalizeAccessGrant(raw accessGrantFile, binding models.ConfigRepository, 
 }
 
 func parseEmbeddedResourceAccess(content, sourcePath, resourceType, resourceID string, binding models.ConfigRepository, boundTeam string) (storedResourceAccess, []storedAccessGrant, bool, error) {
-	if err := rejectEmbeddedResourceAccessGroupKeys(content); err != nil {
+	if err := validateEmbeddedResourceAccessKeys(content); err != nil {
 		return storedResourceAccess{}, nil, true, fmt.Errorf("invalid resource access '%s': %w", sourcePath, err)
 	}
 
@@ -550,7 +550,36 @@ func parseEmbeddedResourceAccess(content, sourcePath, resourceType, resourceID s
 	return resourceAccess, grants, true, nil
 }
 
-func rejectEmbeddedResourceAccessGroupKeys(content string) error {
+var embeddedResourceAccessKeys = map[string]struct{}{
+	"visibility":   {},
+	"use_access":   {},
+	"grants":       {},
+	"teams":        {},
+	"repositories": {},
+}
+
+var embeddedResourceUseAccessKeys = map[string]struct{}{
+	"mode":         {},
+	"grants":       {},
+	"teams":        {},
+	"repositories": {},
+}
+
+var embeddedResourceUseGrantKeys = map[string]struct{}{
+	"subject_type":    {},
+	"subject_id":      {},
+	"team":            {},
+	"repository":      {},
+	"repo":            {},
+	"user":            {},
+	"trigger":         {},
+	"service":         {},
+	"service_account": {},
+	"actions":         {},
+	"conditions":      {},
+}
+
+func validateEmbeddedResourceAccessKeys(content string) error {
 	var root yaml.Node
 	if err := yaml.Unmarshal([]byte(content), &root); err != nil {
 		return err
@@ -558,45 +587,65 @@ func rejectEmbeddedResourceAccessGroupKeys(content string) error {
 	if len(root.Content) == 0 {
 		return nil
 	}
-	access := mappingValue(root.Content[0], "access")
+	access := yamlMappingValue(root.Content[0], "access")
 	if access == nil {
 		return nil
 	}
-	return rejectGroupKeysInAccessNode(access)
+	return validateEmbeddedResourceAccessNode(access)
 }
 
-func rejectGroupKeysInAccessNode(node *yaml.Node) error {
-	if node == nil {
-		return nil
+func validateEmbeddedResourceAccessNode(node *yaml.Node) error {
+	if err := validateYAMLMappingKeys(node, "resource access", embeddedResourceAccessKeys); err != nil {
+		return err
 	}
-	switch node.Kind {
-	case yaml.MappingNode:
-		for i := 0; i+1 < len(node.Content); i += 2 {
-			key := node.Content[i]
-			value := node.Content[i+1]
-			if key != nil && key.Kind == yaml.ScalarNode {
-				switch strings.TrimSpace(key.Value) {
-				case "group":
-					return fmt.Errorf("resource access grants must use 'team', not 'group'")
-				case "groups":
-					return fmt.Errorf("resource access grants must use 'teams', not 'groups'")
-				}
-			}
-			if err := rejectGroupKeysInAccessNode(value); err != nil {
+	if useAccess := yamlMappingValue(node, "use_access"); useAccess != nil {
+		if err := validateYAMLMappingKeys(useAccess, "resource access use_access", embeddedResourceUseAccessKeys); err != nil {
+			return err
+		}
+		if grants := yamlMappingValue(useAccess, "grants"); grants != nil {
+			if err := validateEmbeddedResourceGrantNodes(grants); err != nil {
 				return err
 			}
 		}
-	case yaml.SequenceNode:
-		for _, item := range node.Content {
-			if err := rejectGroupKeysInAccessNode(item); err != nil {
-				return err
-			}
+	}
+	if grants := yamlMappingValue(node, "grants"); grants != nil {
+		if err := validateEmbeddedResourceGrantNodes(grants); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-func mappingValue(node *yaml.Node, key string) *yaml.Node {
+func validateEmbeddedResourceGrantNodes(node *yaml.Node) error {
+	if node == nil || node.Kind != yaml.SequenceNode {
+		return nil
+	}
+	for _, item := range node.Content {
+		if err := validateYAMLMappingKeys(item, "resource access grant", embeddedResourceUseGrantKeys); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateYAMLMappingKeys(node *yaml.Node, label string, allowed map[string]struct{}) error {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		keyNode := node.Content[i]
+		if keyNode == nil || keyNode.Kind != yaml.ScalarNode {
+			continue
+		}
+		key := strings.TrimSpace(keyNode.Value)
+		if _, ok := allowed[key]; !ok {
+			return fmt.Errorf("unsupported %s key %q", label, key)
+		}
+	}
+	return nil
+}
+
+func yamlMappingValue(node *yaml.Node, key string) *yaml.Node {
 	if node == nil || node.Kind != yaml.MappingNode {
 		return nil
 	}

@@ -52,9 +52,9 @@ operations or unrelated sibling visibility.
 
 The realm fixture lives at `dev/keycloak/nopsai-realm.json`. It includes a
 teams mapper that places Keycloak team names in the OIDC `teams` claim.
-Keycloak stores those team records in its built-in group model, so the realm
-JSON field, protocol mapper implementation, and Admin API paths still use
-Keycloak's `groups` vocabulary even though NopsAI treats them only as teams.
+Keycloak's realm JSON field, protocol mapper implementation, and Admin API
+paths use Keycloak's standard `groups` vocabulary while NopsAI exposes those
+assignments as teams.
 Users created or linked through OIDC are externally managed in NopsAI: their
 access-role and basic-role assignments are read-only in System Access and are
 resynced from Keycloak on login and by the OIDC entitlement sync worker.
