@@ -108,7 +108,10 @@ truth; this file is the source-adjacent placement guide.
   helpers for the Teams workspace.
 - `features/teams/resourceCatalogModel.ts` owns pure linked-resource
   normalization, ownership filtering, and route building for resources listed
-  from a Teams overview.
+  from a Teams overview. Repository-backed resources such as triggers keep
+  repository identity for matching and links, while `teamPath` remains the
+  ownership scope used by team/application catalogs; trigger ownership must not
+  be inferred from the Git `owner/repo` slug.
 - `features/teams/TeamsWorkspace.tsx` owns master-detail composition, toolbar,
   tree navigation, high-level resource cards, and responsive layout hooks.
 - `features/teams/TeamsWorkspacePanels.tsx` owns detail-tab panels,
