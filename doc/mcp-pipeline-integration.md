@@ -95,6 +95,13 @@ Only system/global config repositories may define the MCP registry. Team config
 repositories can reference approved `mcp_profiles` in their pipelines, but they
 cannot define new MCP servers.
 
+MCP server/profile GitOps changes must also pass the commercial license policy
+in [license-compliance.md](./license-compliance.md). A profile may reference a
+customer-provided or externally hosted MCP server, but NopsAI must not bundle
+third-party MCP server code, plugins, prompts, schemas, documentation, or data
+unless the source license or commercial agreement allows enterprise redistribution
+and the required notices are recorded.
+
 Team-scoped MCP profile storage and REST APIs are available at
 `GET|POST /v1/teams/{teamID}/mcp-profiles` and
 `GET|PUT|DELETE /v1/teams/{teamID}/mcp-profiles/{profileName}` for callers with

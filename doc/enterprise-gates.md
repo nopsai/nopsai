@@ -64,6 +64,7 @@ The script runs:
 - `scripts/test-backend.sh`
 - `scripts/test-backend.sh -race`
 - `scripts/release-tooling-test.sh`
+- `scripts/license-check.sh`
 - `go vet ./...`
 - `golangci-lint run ./...`
 - `gosec ./...`
@@ -81,6 +82,9 @@ The script runs:
 - Commit-count version calculation, PR `+2` forecasts, changelog generation,
   deployment-only Compose rendering, Helm lint/package/render validation, and
   checksums
+- Go and UI dependency license compatibility, including blocked-license and
+  unknown-license failures plus review/notice reporting for MPL-2.0,
+  CC-BY-4.0, BlueOak-1.0.0, Python-2.0, and similar obligations
 
 `scripts/test-backend.sh` tests repository-level packaging contracts, command
 entrypoints, internal CLI packages, `config`, shared Go packages, and every
@@ -136,6 +140,7 @@ go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
 `.github/workflows/enterprise-gates.yml` runs the same categories in CI:
 
 - Go test, race test, vet, lint, gosec, and govulncheck
+- Go/UI license compatibility
 - Docker build checks for service images and the UI image
 - UI lint, boundary checks, unit/component tests, and production build
 - release-contract validation and a downloadable predicted/actual release

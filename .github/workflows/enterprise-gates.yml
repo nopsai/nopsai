@@ -98,6 +98,25 @@ jobs:
       - name: govulncheck
         run: govulncheck ./...
 
+  license-compliance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: services/ui/package-lock.json
+      - name: Install UI dependencies
+        working-directory: services/ui
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: License compatibility
+        run: scripts/license-check.sh
+
   docker-builds:
     needs: release-contract
     runs-on: ubuntu-latest
