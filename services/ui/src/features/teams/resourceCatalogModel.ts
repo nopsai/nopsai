@@ -139,14 +139,15 @@ export function buildPipelineTeamResources(items: PipelineListItem[]): TeamLinke
 export function buildTriggerTeamResources(items: TriggerListItem[]): TeamLinkedResource[] {
   return items
     .map(item => {
-      const { name, path } = triggerSlugLabel(item.slug);
-      const teamPath = normalizeTeamResourcePath(path);
+      const { name } = triggerSlugLabel(item.slug);
+      const teamPath = normalizeTeamResourcePath(item.teamPath);
       const label = name || item.slug;
+      const repository = item.repositoryForWebhook || item.slug;
       return {
         id: `trigger:${item.slug}`,
         kind: 'trigger' as const,
         label,
-        description: teamPath ? `Trigger in ${teamPath}` : 'Global trigger',
+        description: teamPath ? `Trigger for ${repository} in ${teamPath}` : `Global trigger for ${repository}`,
         href: `/triggers/${encodeTriggerSlug(item.slug)}`,
         teamPath,
         source: item.source,
@@ -344,6 +345,7 @@ export function filterTeamLinkedResources(
   return resources
     .filter(resource => {
       const resourcePath = normalizeTeamResourcePath(resource.teamPath);
+      if (resource.kind === 'trigger' && activePath && !resourcePath) return false;
       if (resource.kind === 'credential' && !resourcePath && activePath) return false;
       return teamResourceBelongsToScope(resourcePath, activePath);
     })
@@ -356,6 +358,7 @@ export function filterApplicationLinkedResources(
 ): TeamLinkedResource[] {
   const appPath = normalizeApplicationMatchValue(context.appPath);
   const repository = normalizeApplicationMatchValue(context.repository);
+  const ownerPath = inferApplicationOwnerPath(appPath);
   const repositoryName = repository.split('/').filter(Boolean).at(-1) || '';
   const tokens = [
     appPath,
@@ -371,6 +374,7 @@ export function filterApplicationLinkedResources(
     .filter(resource => {
       if (!APPLICATION_RELATED_RESOURCE_KIND_SET.has(resource.kind)) return false;
       const resourcePath = normalizeApplicationMatchValue(resource.teamPath);
+      if (!applicationResourcePathMatches(resourcePath, appPath, ownerPath)) return false;
       if (resourcePath && appPath && resourcePath === appPath) return true;
       const haystack = normalizeApplicationMatchValue([
         resource.id,
@@ -380,7 +384,7 @@ export function filterApplicationLinkedResources(
         resource.teamPath,
         resource.source,
       ].filter(Boolean).join(' '));
-      return tokens.some(token => haystack.includes(token));
+      return tokens.some(token => applicationTokenMatches(haystack, token));
     })
     .sort(compareTeamLinkedResources);
 }
@@ -392,6 +396,25 @@ function normalizeApplicationMatchValue(value?: string) {
   } catch {
     return raw;
   }
+}
+
+function inferApplicationOwnerPath(appPath: string) {
+  const segments = appPath.split('/').filter(Boolean);
+  segments.pop();
+  return segments.join('/');
+}
+
+function applicationResourcePathMatches(resourcePath: string, appPath: string, ownerPath: string) {
+  if (!resourcePath) return true;
+  if (appPath && (resourcePath === appPath || resourcePath.startsWith(`${appPath}/`))) return true;
+  return Boolean(ownerPath && resourcePath === ownerPath);
+}
+
+function applicationTokenMatches(haystack: string, token: string) {
+  if (!token) return false;
+  const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const boundary = '[^a-z0-9._-]';
+  return new RegExp(`(^|${boundary})${escaped}($|${boundary})`).test(haystack);
 }
 
 function credentialTeamPath(namespace: string, name: string): string {
