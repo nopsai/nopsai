@@ -15,6 +15,7 @@ Start here when you want to understand the system from different angles:
 - [assistant-capabilities.md](./assistant-capabilities.md): User-facing assistant capabilities and example chat prompts for each NopsAI feature area.
 - [first-install-wizard.md](./first-install-wizard.md): UI bootstrap flow for an empty database, starter profiles, secret generation, GitOps seeding, repository teams, and production guardrails.
 - [enterprise-gates.md](./enterprise-gates.md): Production startup gates, local/CI verification commands, Docker build checks, and integration coverage baseline.
+- [license-compliance.md](./license-compliance.md): Commercial dependency-license policy, current language dependency audit, container/service review boundaries, and MCP/plugin obligations.
 - [enterprise-refactor-roadmap.md](./enterprise-refactor-roadmap.md): Enterprise feature ownership, SSO follow-up status, and remaining refactor targets.
 - [credential-management.md](./credential-management.md): Implemented single credential interface, encrypted registry, bootstrap boundary, GitOps references and encrypted envelopes, AAA, rotation, and migration behavior.
 - [package-ownership.md](./package-ownership.md): Handler, service, store, domain, DTO, provider-client, and bootstrap ownership rules.
