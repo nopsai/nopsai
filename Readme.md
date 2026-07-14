@@ -267,7 +267,10 @@ System credentials are visible and mutable only to NopsAI admins. Team
 credentials are created from the same page by selecting the owning team, which
 emits `credential://team/<team path>/...` references and is authorized through
 the matching team grants. Feature files such as auth, GitHub, mail, LLM, MCP,
-runner, and Git webhook sources store only stable credential references.
+runner, and Git webhook sources store only stable credential references. During
+config sync, referenced credentials are reused when they already exist; missing
+references are created as pending metadata so an admin can add or rotate the
+value without changing GitOps files.
 Runtime settings saved from the UI or synced from GitOps are stored in the
 database as the durable source of truth. `config.yml`, `.env`, Docker Compose
 environment blocks, and deployment secrets are bootstrap inputs only. On

@@ -363,6 +363,7 @@ func TestCredentialMetadataAndBoundDelete(t *testing.T) {
 		t.Fatalf("credential = %#v, want pending metadata", credential)
 	}
 	configRepoID := int64(42)
+	existingID := credential.ID
 	credential, err = service.EnsureMetadata(ctx, createCredentialInput{
 		Reference:             ref,
 		Kind:                  "webhook_secret",
@@ -375,15 +376,48 @@ func TestCredentialMetadataAndBoundDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureMetadata() ownership error = %v", err)
 	}
-	if !credential.ManagedByConfigRepo || credential.ConfigRepoID == nil ||
-		*credential.ConfigRepoID != configRepoID || credential.ConfigSourceCommitSHA != "abc123" {
-		t.Fatalf("credential provenance = %#v, want GitOps ownership", credential)
+	if credential.ID != existingID || credential.ManagedByConfigRepo || credential.ConfigRepoID != nil {
+		t.Fatalf("credential provenance = %#v, want existing manual credential unchanged", credential)
 	}
 	if _, err := service.EnsureMetadata(ctx, createCredentialInput{
 		Reference: ref,
 		Kind:      "password",
 	}); err == nil {
 		t.Fatal("EnsureMetadata() accepted a conflicting credential kind")
+	}
+
+	managedRef, _ := credentials.ParseReference("credential://system/mcp/github")
+	managed, err := service.EnsureMetadata(ctx, createCredentialInput{
+		Reference:             managedRef,
+		Kind:                  "bearer_token",
+		Actor:                 "gitops",
+		ManagedByConfigRepo:   true,
+		ConfigRepoID:          &configRepoID,
+		ConfigSourcePath:      "setting/system/mcp.yaml",
+		ConfigSourceCommitSHA: "abc123",
+	})
+	if err != nil {
+		t.Fatalf("EnsureMetadata() managed create error = %v", err)
+	}
+	if !managed.ManagedByConfigRepo || managed.ConfigRepoID == nil ||
+		*managed.ConfigRepoID != configRepoID || managed.ConfigSourceCommitSHA != "abc123" {
+		t.Fatalf("managed credential provenance = %#v, want GitOps ownership", managed)
+	}
+	managed, err = service.EnsureMetadata(ctx, createCredentialInput{
+		Reference:             managedRef,
+		Kind:                  "bearer_token",
+		Description:           "updated MCP token",
+		Actor:                 "gitops",
+		ManagedByConfigRepo:   true,
+		ConfigRepoID:          &configRepoID,
+		ConfigSourcePath:      "setting/system/mcp.yaml",
+		ConfigSourceCommitSHA: "def456",
+	})
+	if err != nil {
+		t.Fatalf("EnsureMetadata() managed refresh error = %v", err)
+	}
+	if managed.Description != "updated MCP token" || managed.ConfigSourceCommitSHA != "def456" {
+		t.Fatalf("managed credential metadata = %#v, want refreshed GitOps metadata", managed)
 	}
 
 	app := &App{
