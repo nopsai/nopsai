@@ -1,11 +1,14 @@
 package nopsai
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/go-github/v53/github"
 
 	"nopsai/pkg/models"
+	aaamodel "nopsai/services/aaa/pkg/model"
+	"nopsai/services/nopsai/internal/credentials"
 )
 
 func TestNormalizeGitWebhookSourceInput(t *testing.T) {
@@ -102,6 +105,168 @@ func TestNormalizeGitWebhookSourceInputValidatesSecurityConfiguration(t *testing
 	}
 }
 
+func TestNormalizeGitWebhookSourceInputAllowsGeneratedCredentialForCreate(t *testing.T) {
+	input := gitWebhookSourceInput{
+		ID:                  "gitlab",
+		Provider:            "gitlab",
+		AuthMode:            "hmac",
+		RepositoryAllowlist: []string{"acme/*"},
+	}
+	if _, err := normalizeGitWebhookSourceInput(input, ""); err == nil {
+		t.Fatal("normalizeGitWebhookSourceInput() error = nil, want missing credential error")
+	}
+	source, err := normalizeGitWebhookSourceInputWithOptions(
+		input,
+		"",
+		gitWebhookSourceNormalizeOptions{AllowGeneratedCredential: true},
+	)
+	if err != nil {
+		t.Fatalf("normalizeGitWebhookSourceInputWithOptions() error = %v", err)
+	}
+	if source.CredentialRef != "" || source.AuthMode != "hmac" {
+		t.Fatalf("source = %#v, want generated credential placeholder", source)
+	}
+}
+
+func TestPrepareGitWebhookSourceCredentialGeneratesTeamCredential(t *testing.T) {
+	ctx := context.Background()
+	app, store, service := newGitWebhookCredentialTestApp(t)
+	source := gitWebhookSourceRecord{
+		ID:       "GitLab-Main",
+		AuthMode: "hmac",
+		Provider: "gitlab",
+		TeamPath: "platform",
+	}
+	prepared, generated, credentialID, err := app.prepareGitWebhookSourceCredential(ctx, source, "alice")
+	if err != nil {
+		t.Fatalf("prepareGitWebhookSourceCredential() error = %v", err)
+	}
+	if prepared.CredentialRef != "credential://team/platform/webhooks/gitlab-main" {
+		t.Fatalf("CredentialRef = %q, want generated team reference", prepared.CredentialRef)
+	}
+	if generated == nil || generated.Reference != prepared.CredentialRef || generated.Value == "" {
+		t.Fatalf("generated = %#v, want one-time credential value", generated)
+	}
+	if len(generated.Value) < len("whsec_") || generated.Value[:len("whsec_")] != "whsec_" {
+		t.Fatalf("generated value = %q, want GitLab standard webhook secret prefix", generated.Value)
+	}
+	if credentialID == nil {
+		t.Fatal("credentialID = nil, want created credential ID")
+	}
+	ref, _ := credentials.ParseReference(prepared.CredentialRef)
+	record, err := store.GetCredentialByReference(ctx, ref)
+	if err != nil {
+		t.Fatalf("stored generated credential: %v", err)
+	}
+	if record.Kind != gitWebhookSecretCredentialKind || record.Status != credentials.StatusActive {
+		t.Fatalf("generated credential = %#v, want active webhook_secret", record)
+	}
+	value, err := service.Resolve(ctx, ref, credentials.Purpose{
+		ConsumerService: "nopsai",
+		Operation:       "git_webhook_test",
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if value.Text() != generated.Value {
+		t.Fatalf("resolved value = %q, want generated value", value.Text())
+	}
+
+	preparedAgain, generatedAgain, credentialIDAgain, err := app.prepareGitWebhookSourceCredential(ctx, prepared, "alice")
+	if err != nil {
+		t.Fatalf("second prepareGitWebhookSourceCredential() error = %v", err)
+	}
+	if preparedAgain.CredentialRef != prepared.CredentialRef || generatedAgain != nil || credentialIDAgain != nil {
+		t.Fatalf("second prepare = (%#v, %#v, %#v), want existing credential reuse", preparedAgain, generatedAgain, credentialIDAgain)
+	}
+}
+
+func TestPrepareGitWebhookSourceCredentialUsesExistingCredential(t *testing.T) {
+	ctx := context.Background()
+	app, _, service := newGitWebhookCredentialTestApp(t)
+	ref, _ := credentials.ParseReference("credential://system/webhooks/existing")
+	existing, err := service.Create(ctx, createCredentialInput{
+		Reference:   ref,
+		Kind:        gitWebhookSecretCredentialKind,
+		Description: "existing webhook secret",
+		Value:       []byte("existing-secret"),
+		Actor:       "admin",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	prepared, generated, credentialID, err := app.prepareGitWebhookSourceCredential(ctx, gitWebhookSourceRecord{
+		ID:            "existing",
+		AuthMode:      "static_token",
+		CredentialRef: ref.String(),
+	}, "admin")
+	if err != nil {
+		t.Fatalf("prepareGitWebhookSourceCredential() error = %v", err)
+	}
+	if prepared.CredentialRef != ref.String() || generated != nil || credentialID != nil {
+		t.Fatalf("prepare = (%#v, %#v, %#v), want existing reference reuse", prepared, generated, credentialID)
+	}
+	stillExisting, err := app.credentialStore.GetCredentialByReference(ctx, ref)
+	if err != nil {
+		t.Fatalf("GetCredentialByReference() error = %v", err)
+	}
+	if stillExisting.ID != existing.ID || stillExisting.ActiveVersion != existing.ActiveVersion {
+		t.Fatalf("credential changed from %#v to %#v", existing, stillExisting)
+	}
+}
+
+func TestEnsureGitWebhookCredentialAllowedEnforcesCredentialScope(t *testing.T) {
+	app, _, _ := newGitWebhookCredentialTestApp(t)
+	app.aaaLocal = stubAAAAuthorizer{
+		checkFn: func(_ context.Context, subject aaamodel.Subject, action string, resource aaamodel.ResourceRef, _ map[string]any) (aaamodel.Decision, error) {
+			allowed := subject.Sub == "admin" && action == "iam.admin" && resource.Type == "iam" && resource.ID == "admin"
+			allowed = allowed || action == "credential.create" && resource.Type == grantResourceTeam && resource.ID == "platform"
+			return aaamodel.Decision{Allowed: allowed}, nil
+		},
+	}
+
+	req := credentialTestRequest("POST", "/v1/git-webhook-sources", "alice", nil)
+	subject, _ := app.currentAAASubject(req)
+	err := app.ensureGitWebhookCredentialAllowed(req, subject, gitWebhookSourceRecord{
+		ID:            "system",
+		AuthMode:      "hmac",
+		CredentialRef: "credential://system/webhooks/source",
+	})
+	if err != errGitWebhookCredentialForbidden {
+		t.Fatalf("system credential err = %v, want forbidden", err)
+	}
+
+	err = app.ensureGitWebhookCredentialAllowed(req, subject, gitWebhookSourceRecord{
+		ID:       "team",
+		AuthMode: "hmac",
+		TeamPath: "platform",
+	})
+	if err != nil {
+		t.Fatalf("team generated credential err = %v, want nil", err)
+	}
+
+	req = credentialTestRequest("POST", "/v1/git-webhook-sources", "admin", nil)
+	subject, _ = app.currentAAASubject(req)
+	err = app.ensureGitWebhookCredentialAllowed(req, subject, gitWebhookSourceRecord{
+		ID:            "system",
+		AuthMode:      "hmac",
+		CredentialRef: "credential://system/webhooks/source",
+	})
+	if err != nil {
+		t.Fatalf("admin system credential err = %v, want nil", err)
+	}
+
+	err = app.ensureGitWebhookCredentialAllowed(req, subject, gitWebhookSourceRecord{
+		ID:            "mismatch",
+		AuthMode:      "hmac",
+		TeamPath:      "platform",
+		CredentialRef: "credential://team/other/webhooks/source",
+	})
+	if err == nil {
+		t.Fatal("admin mismatched team credential err = nil, want validation error")
+	}
+}
+
 func TestGitWebhookRepositoryAllowed(t *testing.T) {
 	allowlist := []string{"acme/api", "platform/*", "shared/**"}
 	for _, repository := range []string{"acme/api", "platform/ui", "shared/team/service"} {
@@ -181,4 +346,29 @@ func TestGitHubPushChangedFilesDeduplicatesFiles(t *testing.T) {
 	if len(files) != 3 || files[0] != "a.go" || files[1] != "b.go" || files[2] != "old.go" {
 		t.Fatalf("githubPushChangedFiles() = %#v", files)
 	}
+}
+
+func newGitWebhookCredentialTestApp(t *testing.T) (*App, *memoryCredentialStore, *credentialService) {
+	t.Helper()
+	store := newMemoryCredentialStore()
+	codec, err := credentials.NewEnvelopeCodec("01234567890123456789012345678901")
+	if err != nil {
+		t.Fatalf("NewEnvelopeCodec() error = %v", err)
+	}
+	service, err := newCredentialService(store, codec, nil)
+	if err != nil {
+		t.Fatalf("newCredentialService() error = %v", err)
+	}
+	return &App{
+		credentialStore: store,
+		credentials:     service,
+		aaaLocal: stubAAAAuthorizer{
+			checkFn: func(_ context.Context, _ aaamodel.Subject, action string, resource aaamodel.ResourceRef, _ map[string]any) (aaamodel.Decision, error) {
+				allowed := action == "iam.admin" && resource.Type == "iam" && resource.ID == "admin"
+				allowed = allowed || action == "credential.create" && resource.Type == grantResourceTeam
+				allowed = allowed || action == "credential.use" && resource.Type == grantResourceTeam
+				return aaamodel.Decision{Allowed: allowed}, nil
+			},
+		},
+	}, store, service
 }

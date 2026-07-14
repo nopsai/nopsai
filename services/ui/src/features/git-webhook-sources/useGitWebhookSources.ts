@@ -43,9 +43,8 @@ export function useGitWebhookSources({
 
   const upsertSource = useCallback((source: GitWebhookSource) => {
     setSources(current =>
-      [...current.filter(item => item.id !== source.id), source].sort((left, right) =>
-        left.name.localeCompare(right.name)
-      )
+      [...current.filter(item => item.id !== source.id), mergeGeneratedCredential(source, current)]
+        .sort((left, right) => left.name.localeCompare(right.name))
     );
   }, []);
 
@@ -217,3 +216,13 @@ export function useGitWebhookSources({
 }
 
 export type GitWebhookSourcesController = ReturnType<typeof useGitWebhookSources>;
+
+function mergeGeneratedCredential(
+  source: GitWebhookSource,
+  current: readonly GitWebhookSource[]
+): GitWebhookSource {
+  if (source.generated_credential) return source;
+  const existing = current.find(item => item.id === source.id);
+  if (!existing?.generated_credential) return source;
+  return { ...source, generated_credential: existing.generated_credential };
+}

@@ -270,7 +270,10 @@ the matching team grants. Feature files such as auth, GitHub, mail, LLM, MCP,
 runner, and Git webhook sources store only stable credential references. During
 config sync, referenced credentials are reused when they already exist; missing
 references are created as pending metadata so an admin can add or rotate the
-value without changing GitOps files.
+value without changing GitOps files. UI/API-created Git webhook sources can
+omit the credential reference; NopsAI creates a random webhook credential value
+and shows it once, while supplied existing credential references are reused
+unchanged.
 Runtime settings saved from the UI or synced from GitOps are stored in the
 database as the durable source of truth. `config.yml`, `.env`, Docker Compose
 environment blocks, and deployment secrets are bootstrap inputs only. On

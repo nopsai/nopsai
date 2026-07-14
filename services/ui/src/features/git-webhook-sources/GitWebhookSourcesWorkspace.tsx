@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from 'react';
-import { Activity, ArrowLeft, Edit3, GitBranch, PauseCircle, PlayCircle, ShieldCheck, Trash2, Webhook } from 'lucide-react';
+import { Activity, ArrowLeft, Copy, Edit3, GitBranch, PauseCircle, PlayCircle, ShieldCheck, Trash2, Webhook } from 'lucide-react';
 import { ObjectIcon } from '../../components/ObjectIcon';
 import { buildApiUrl } from '../../lib/api';
 import { AutomationResourceTree } from '../event-automation/AutomationResourceTree';
@@ -373,6 +373,33 @@ function GitWebhookSourceDetail({
               </div>
             </section>
 
+            {source.generated_credential ? (
+              <section className="triggers-detail-panel" aria-labelledby="git-webhook-generated-credential-heading">
+                <div className="triggers-detail-panel-head">
+                  <h3 id="git-webhook-generated-credential-heading">Generated webhook secret</h3>
+                  <ShieldCheck className="h-4 w-4 text-[var(--text-secondary)]" aria-hidden="true" />
+                </div>
+                <div className="triggers-detail-panel-body">
+                  <p className="description">Shown once. Copy this value into the Git provider before leaving this source.</p>
+                  <div className="triggers-endpoint triggers-endpoint--wrap">
+                    <code>{source.generated_credential.value}</code>
+                    <button
+                      type="button"
+                      className="triggers-mini-button"
+                      aria-label="Copy generated webhook secret"
+                      onClick={() => copyText(source.generated_credential?.value || '')}
+                    >
+                      <Copy className="h-4 w-4" aria-hidden="true" />
+                      <span>Copy</span>
+                    </button>
+                  </div>
+                  <p className="triggers-mono break-all text-[var(--text-primary)]">
+                    <CredentialReferenceLink reference={source.generated_credential.reference} />
+                  </p>
+                </div>
+              </section>
+            ) : null}
+
             {source.credential_ref ? (
               <section className="triggers-detail-panel" aria-labelledby="git-webhook-credential-heading">
                 <div className="triggers-detail-panel-head">
@@ -482,4 +509,9 @@ function formatRateLimit(rateLimit: Record<string, unknown>): string {
   if (typeof perMinute === 'number' && Number.isFinite(perMinute) && perMinute > 0) return `${perMinute}/minute`;
   if (typeof perMinute === 'string' && perMinute.trim()) return `${perMinute}/minute`;
   return 'Unlimited';
+}
+
+function copyText(value: string) {
+  if (!value || typeof navigator === 'undefined' || !navigator.clipboard) return;
+  void navigator.clipboard.writeText(value);
 }
