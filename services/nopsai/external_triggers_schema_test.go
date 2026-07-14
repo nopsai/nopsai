@@ -5,14 +5,15 @@ import (
 	"testing"
 )
 
-func TestExternalTriggerSchemaMigratesLegacyRunGroupPath(t *testing.T) {
+func TestExternalTriggerSchemaUsesRunTeamPath(t *testing.T) {
 	joined := strings.Join(externalTriggerSchemaStatements, "\n")
 	for _, statement := range []string{
-		"SET run_team_path = run_group_path",
-		"ALTER TABLE external_triggers DROP COLUMN run_group_path",
+		"run_team_path TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE external_triggers ADD COLUMN IF NOT EXISTS run_team_path TEXT NOT NULL DEFAULT ''",
 	} {
 		if !strings.Contains(joined, statement) {
-			t.Fatalf("external trigger schema missing legacy run team migration %q", statement)
+			t.Fatalf("external trigger schema missing run team statement %q", statement)
 		}
 	}
+	assertTeamOnlySchemaVocabulary(t, joined)
 }

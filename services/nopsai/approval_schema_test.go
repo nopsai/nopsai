@@ -5,14 +5,15 @@ import (
 	"testing"
 )
 
-func TestApprovalSchemaMigratesLegacyAssignedGroups(t *testing.T) {
+func TestApprovalSchemaUsesAssignedTeams(t *testing.T) {
 	joined := strings.Join(approvalSchemaStatements, "\n")
 	for _, statement := range []string{
-		"SET assigned_teams = assigned_groups",
-		"ALTER TABLE pipeline_approvals DROP COLUMN assigned_groups",
+		"assigned_teams JSONB NOT NULL DEFAULT '[]'::jsonb",
+		"ALTER TABLE pipeline_approvals ADD COLUMN IF NOT EXISTS assigned_teams JSONB NOT NULL DEFAULT '[]'::jsonb",
 	} {
 		if !strings.Contains(joined, statement) {
-			t.Fatalf("approval schema missing legacy assigned team migration %q", statement)
+			t.Fatalf("approval schema missing assigned teams statement %q", statement)
 		}
 	}
+	assertTeamOnlySchemaVocabulary(t, joined)
 }

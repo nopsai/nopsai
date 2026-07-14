@@ -9,104 +9,6 @@ import (
 const defaultAdminUserID = "00000000-0000-0000-0000-00000000000a"
 
 var aaaSchemaStatements = []string{
-	`DO $$
-	BEGIN
-		IF to_regclass('auth_groups') IS NOT NULL AND to_regclass('auth_teams') IS NULL THEN
-			ALTER TABLE auth_groups RENAME TO auth_teams;
-		END IF;
-		IF to_regclass('auth_group_members') IS NOT NULL AND to_regclass('auth_team_members') IS NULL THEN
-			ALTER TABLE auth_group_members RENAME TO auth_team_members;
-		END IF;
-	END $$`,
-	`DO $$
-	BEGIN
-		IF to_regclass('auth_team_members') IS NOT NULL THEN
-			IF EXISTS (
-				SELECT 1 FROM information_schema.columns
-				WHERE table_schema = 'public' AND table_name = 'auth_team_members' AND column_name = 'group_id'
-			) THEN
-				ALTER TABLE auth_team_members RENAME COLUMN group_id TO team_id;
-			END IF;
-			IF EXISTS (
-				SELECT 1 FROM information_schema.columns
-				WHERE table_schema = 'public' AND table_name = 'auth_team_members' AND column_name = 'external_group_name'
-			) THEN
-				ALTER TABLE auth_team_members RENAME COLUMN external_group_name TO external_team_name;
-			END IF;
-			IF EXISTS (
-				SELECT 1 FROM information_schema.columns
-				WHERE table_schema = 'public' AND table_name = 'auth_team_members' AND column_name = 'auth_group_name'
-			) THEN
-				ALTER TABLE auth_team_members RENAME COLUMN auth_group_name TO auth_team_name;
-			END IF;
-		END IF;
-	END $$`,
-	`DO $$
-	BEGIN
-		IF to_regclass('auth_teams') IS NOT NULL THEN
-			IF EXISTS (
-				SELECT 1 FROM pg_constraint
-				WHERE conrelid = to_regclass('auth_teams') AND conname = 'auth_groups_pkey'
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM pg_constraint
-				WHERE conrelid = to_regclass('auth_teams') AND conname = 'auth_teams_pkey'
-			) THEN
-				ALTER TABLE auth_teams RENAME CONSTRAINT auth_groups_pkey TO auth_teams_pkey;
-			END IF;
-
-			IF to_regclass('auth_groups_pkey') IS NOT NULL
-			   AND to_regclass('auth_teams_pkey') IS NULL THEN
-				ALTER INDEX auth_groups_pkey RENAME TO auth_teams_pkey;
-			END IF;
-
-			IF EXISTS (
-				SELECT 1 FROM pg_constraint
-				WHERE conrelid = to_regclass('auth_teams') AND conname = 'auth_groups_name_key'
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM pg_constraint
-				WHERE conrelid = to_regclass('auth_teams') AND conname = 'auth_teams_name_key'
-			) THEN
-				ALTER TABLE auth_teams RENAME CONSTRAINT auth_groups_name_key TO auth_teams_name_key;
-			END IF;
-
-			IF to_regclass('auth_groups_name_key') IS NOT NULL
-			   AND to_regclass('auth_teams_name_key') IS NULL THEN
-				ALTER INDEX auth_groups_name_key RENAME TO auth_teams_name_key;
-			END IF;
-		END IF;
-
-		IF to_regclass('auth_team_members') IS NOT NULL THEN
-			IF EXISTS (
-				SELECT 1 FROM pg_constraint
-				WHERE conrelid = to_regclass('auth_team_members') AND conname = 'auth_group_members_pkey'
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM pg_constraint
-				WHERE conrelid = to_regclass('auth_team_members') AND conname = 'auth_team_members_pkey'
-			) THEN
-				ALTER TABLE auth_team_members RENAME CONSTRAINT auth_group_members_pkey TO auth_team_members_pkey;
-			END IF;
-
-			IF to_regclass('auth_group_members_pkey') IS NOT NULL
-			   AND to_regclass('auth_team_members_pkey') IS NULL THEN
-				ALTER INDEX auth_group_members_pkey RENAME TO auth_team_members_pkey;
-			END IF;
-
-			IF EXISTS (
-				SELECT 1 FROM pg_constraint
-				WHERE conrelid = to_regclass('auth_team_members') AND conname = 'auth_group_members_group_id_fkey'
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM pg_constraint
-				WHERE conrelid = to_regclass('auth_team_members') AND conname = 'auth_team_members_team_id_fkey'
-			) THEN
-				ALTER TABLE auth_team_members
-				RENAME CONSTRAINT auth_group_members_group_id_fkey TO auth_team_members_team_id_fkey;
-			END IF;
-		END IF;
-	END $$`,
 	`CREATE TABLE IF NOT EXISTS auth_teams (
 		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 		name TEXT UNIQUE NOT NULL,
@@ -192,20 +94,10 @@ var aaaSchemaStatements = []string{
 	`ALTER TABLE resource_acl ADD COLUMN IF NOT EXISTS access_grant_id BIGINT REFERENCES access_grants(id) ON DELETE CASCADE`,
 	`ALTER TABLE resource_ownership ADD COLUMN IF NOT EXISTS access_grant_id BIGINT REFERENCES access_grants(id) ON DELETE CASCADE`,
 	`ALTER TABLE auth_team_members DROP CONSTRAINT IF EXISTS auth_team_members_subject_type_check`,
-	`ALTER TABLE auth_team_members DROP CONSTRAINT IF EXISTS auth_group_members_subject_type_check`,
 	`ALTER TABLE auth_role_bindings DROP CONSTRAINT IF EXISTS auth_role_bindings_subject_type_check`,
 	`ALTER TABLE access_grants DROP CONSTRAINT IF EXISTS access_grants_subject_type_check`,
 	`ALTER TABLE resource_acl DROP CONSTRAINT IF EXISTS resource_acl_subject_type_check`,
 	`ALTER TABLE resource_ownership DROP CONSTRAINT IF EXISTS resource_ownership_owner_subject_type_check`,
-	`UPDATE auth_role_bindings SET subject_type = 'auth_team' WHERE subject_type = 'auth_group'`,
-	`UPDATE access_grants SET subject_type = 'auth_team' WHERE subject_type = 'auth_group'`,
-	`UPDATE access_grants SET subject_type = 'team' WHERE subject_type = 'group'`,
-	`UPDATE resource_acl SET subject_type = 'auth_team' WHERE subject_type = 'auth_group'`,
-	`UPDATE resource_ownership SET owner_subject_type = 'auth_team' WHERE owner_subject_type = 'auth_group'`,
-	`UPDATE auth_role_permissions SET resource_type = 'team' WHERE resource_type IN ('group', 'folder')`,
-	`UPDATE access_grants SET resource_type = 'team' WHERE resource_type IN ('group', 'folder')`,
-	`UPDATE resource_acl SET resource_type = 'team' WHERE resource_type IN ('group', 'folder')`,
-	`UPDATE resource_ownership SET resource_type = 'team' WHERE resource_type IN ('group', 'folder')`,
 	`ALTER TABLE auth_team_members ADD CONSTRAINT auth_team_members_subject_type_check CHECK (subject_type IN ('user', 'repository', 'trigger', 'service_account', 'internal_service'))`,
 	`ALTER TABLE auth_role_bindings ADD CONSTRAINT auth_role_bindings_subject_type_check CHECK (subject_type IN ('user', 'auth_team', 'repository', 'trigger', 'service_account', 'internal_service'))`,
 	`ALTER TABLE access_grants ADD CONSTRAINT access_grants_subject_type_check CHECK (subject_type IN ('user', 'auth_team', 'team', 'repository', 'trigger', 'service_account', 'internal_service'))`,
@@ -228,8 +120,6 @@ var aaaSchemaStatements = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_auth_team_members_subject ON auth_team_members(subject_type, subject_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_auth_team_members_identity_provider ON auth_team_members(identity_provider_id, external_team_name) WHERE managed_by_identity_provider = TRUE`,
-	`DROP INDEX IF EXISTS idx_auth_group_members_subject`,
-	`DROP INDEX IF EXISTS idx_auth_group_members_identity_provider`,
 	`CREATE INDEX IF NOT EXISTS idx_auth_role_bindings_subject ON auth_role_bindings(subject_type, subject_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_auth_role_permissions_role_name ON auth_role_permissions(role_name)`,
 	`CREATE INDEX IF NOT EXISTS idx_auth_role_permissions_resource_lookup ON auth_role_permissions(resource_type, resource_id, action)`,

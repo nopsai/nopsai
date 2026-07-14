@@ -5,16 +5,16 @@ import (
 	"testing"
 )
 
-func TestResourceAuthorizationSchemaMigratesLegacyGroupVisibilityBeforeChecks(t *testing.T) {
+func TestResourceAuthorizationSchemaUsesTeamVisibility(t *testing.T) {
 	joined := strings.Join(resourceAuthorizationSchemaStatements, "\n")
 	for _, table := range []string{"pipelines", "steps", "triggers", "config_repositories", "resource_visibility"} {
-		update := "UPDATE " + table + " SET visibility = 'team' WHERE visibility = 'group'"
+		update := "UPDATE " + table + " SET visibility = 'team' WHERE visibility = '' OR visibility IS NULL"
 		if !strings.Contains(joined, update) {
-			t.Fatalf("resource authorization schema missing legacy visibility migration %q", update)
+			t.Fatalf("resource authorization schema missing visibility repair %q", update)
 		}
 		defaultRepair := "ALTER TABLE " + table + " ALTER COLUMN visibility SET DEFAULT 'team'"
 		if !strings.Contains(joined, defaultRepair) {
-			t.Fatalf("resource authorization schema missing legacy visibility default repair %q", defaultRepair)
+			t.Fatalf("resource authorization schema missing visibility default repair %q", defaultRepair)
 		}
 	}
 
@@ -23,12 +23,13 @@ func TestResourceAuthorizationSchemaMigratesLegacyGroupVisibilityBeforeChecks(t 
 	assertVisibilityMigrationOrder(t, joined, "triggers")
 	assertVisibilityMigrationOrder(t, joined, "config_repositories")
 	assertVisibilityMigrationOrder(t, joined, "resource_visibility")
+	assertTeamOnlySchemaVocabulary(t, joined)
 }
 
 func assertVisibilityMigrationOrder(t *testing.T, statements, table string) {
 	t.Helper()
 	drop := strings.Index(statements, "ALTER TABLE "+table+" DROP CONSTRAINT IF EXISTS "+table+"_visibility_check")
-	update := strings.Index(statements, "UPDATE "+table+" SET visibility = 'team' WHERE visibility = 'group'")
+	update := strings.Index(statements, "UPDATE "+table+" SET visibility = 'team' WHERE visibility = '' OR visibility IS NULL")
 	defaultRepair := strings.Index(statements, "ALTER TABLE "+table+" ALTER COLUMN visibility SET DEFAULT 'team'")
 	notNull := strings.Index(statements, "ALTER TABLE "+table+" ALTER COLUMN visibility SET NOT NULL")
 	add := strings.Index(statements, "ALTER TABLE "+table+" ADD CONSTRAINT "+table+"_visibility_check")

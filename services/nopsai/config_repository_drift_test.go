@@ -368,9 +368,6 @@ steps:
 			t.Fatalf("updated access block missing %q from %q", want, got)
 		}
 	}
-	if strings.Contains(got, "group: data-team") || strings.Contains(got, "groups:") {
-		t.Fatalf("updated access block should use team keys, got %q", got)
-	}
 	for _, badIndent := range []string{
 		"\n    visibility:",
 		"\n    use_access:",
@@ -465,8 +462,6 @@ func TestConfigRepositoryResourceAccessExportUsesTeamGrantKey(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
-		"group: data-team",
-		"groups:",
 		"subject_type: team",
 		"subject_id: data-team",
 	} {
