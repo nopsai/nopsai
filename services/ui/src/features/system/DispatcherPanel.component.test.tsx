@@ -108,3 +108,55 @@ test('edits dispatcher routing from the dispatcher panel and saves runtime confi
   await user.click(screen.getByRole('button', { name: 'Save routes' }));
   expect(onSaveConfig).toHaveBeenCalled();
 });
+
+test('shows previously registered unreachable runners with a warning', () => {
+  render(
+    <MemoryRouter>
+      <DispatcherPanel
+        loading={false}
+        error={null}
+        status={{
+          queuedJobs: 0,
+          runners: [
+            {
+              runnerId: 'runner-offline',
+              scopes: ['prod'],
+              capacity: 2,
+              activeJobs: 0,
+              inflightJobs: 0,
+              lastHeartbeatUnix: 1_783_000_000,
+              allowDispatch: true,
+              reachable: false,
+              connectionStatus: 'unreachable',
+              metadata: {
+                runtime: 'docker',
+                connection_status: 'unreachable',
+                reachable: 'false',
+                last_disconnected_at: '2026-07-14T10:00:00Z',
+              },
+            },
+          ],
+          routing: { prod: ['runner-offline'] },
+          fetchedAt: Date.parse('2026-07-14T10:01:00Z'),
+        }}
+        pendingActions={new Set()}
+        onRefresh={() => undefined}
+        onToggleRunnerDispatch={async () => undefined}
+        canManageDispatcher
+        canViewRuntimeConfig
+        canManageRuntimeConfig
+        runnerDefaults={{ runner_id: 'runner-test', runner_scopes: 'prod', runner_capacity: '2' } as ConfigFormState}
+        config={{ dispatcher_routing: { prod: ['runner-offline'] } } as ConfigFormState}
+        fieldMetadata={{}}
+        configLoading={false}
+        saving={false}
+        onConfigChange={() => undefined}
+        onSaveConfig={async () => undefined}
+      />
+    </MemoryRouter>
+  );
+
+  expect(screen.getByText('1 unreachable')).toBeVisible();
+  expect(screen.getByText('Unreachable')).toBeVisible();
+  expect(screen.getByText('No live runner scopes.')).toBeVisible();
+});

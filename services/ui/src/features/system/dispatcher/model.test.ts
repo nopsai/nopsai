@@ -3,7 +3,9 @@ import test from 'node:test';
 import {
   dispatcherRoutingConfigSignature,
   dispatcherRoutingRowsToConfig,
+  getRunnerMeta,
   normalizeKubernetesRunnerManifestTemplate,
+  normalizeDispatcherStatus,
   normalizeRunnerComposeTemplate,
   normalizeRuntimeScopeOptions,
   sortRuntimeScopeOptions,
@@ -43,6 +45,39 @@ test('normalizes dispatcher install templates', () => {
   assert.equal(kubernetes.runnerCapacity, 2);
   assert.equal(kubernetes.serviceAccount, 'runner-sa');
   assert.equal(kubernetes.bootstrapCommand, 'kubectl apply -f -');
+});
+
+test('normalizes registered runner reachability metadata', () => {
+  const status = normalizeDispatcherStatus({
+    runners: [
+      {
+        runner_id: 'runner-offline',
+        capacity: 2,
+        allow_dispatch: false,
+        metadata: {
+          connection_status: 'unreachable',
+          reachable: 'false',
+          last_disconnected_at: '2026-07-14T10:00:00Z',
+        },
+      },
+    ],
+  });
+
+  assert.equal(status.runners[0].reachable, false);
+  assert.equal(status.runners[0].connectionStatus, 'unreachable');
+  assert.deepEqual(getRunnerMeta(status.runners[0]), {
+    connectionId: '',
+    hostname: '',
+    network: '',
+    runtime: 'docker',
+    namespace: '',
+    node: '',
+    serviceAccount: '',
+    disconnectedAt: '2026-07-14T10:00:00Z',
+    reachable: false,
+    connectionStatus: 'unreachable',
+    activeRuns: [],
+  });
 });
 
 test('normalizes and sorts dispatcher runtime scopes', () => {

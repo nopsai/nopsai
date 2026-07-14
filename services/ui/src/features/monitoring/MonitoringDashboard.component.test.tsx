@@ -65,7 +65,7 @@ test('renders backend monitoring metrics and switches tabs', async () => {
             activeRuns: [],
           },
         ]}
-        runnerSummary={{ total: 1, online: 1, stale: 0, disabled: 0, unknown: 0, docker: 1, kubernetes: 0, capacity: 2, activeJobs: 1, inflightJobs: 1, queuedJobs: 2 }}
+        runnerSummary={{ total: 1, online: 1, stale: 0, unreachable: 0, disabled: 0, unknown: 0, docker: 1, kubernetes: 0, capacity: 2, activeJobs: 1, inflightJobs: 1, queuedJobs: 2 }}
         runtimeUnavailable={null}
       />
     </MemoryRouter>
@@ -119,7 +119,7 @@ test('renders exact, estimated, and profile LLM token usage separately', () => {
         security={null}
         services={[]}
         runners={[]}
-        runnerSummary={{ total: 0, online: 0, stale: 0, disabled: 0, unknown: 0, docker: 0, kubernetes: 0, capacity: 0, activeJobs: 0, inflightJobs: 0, queuedJobs: 0 }}
+        runnerSummary={{ total: 0, online: 0, stale: 0, unreachable: 0, disabled: 0, unknown: 0, docker: 0, kubernetes: 0, capacity: 0, activeJobs: 0, inflightJobs: 0, queuedJobs: 0 }}
         runtimeUnavailable={null}
       />
     </MemoryRouter>
@@ -173,7 +173,7 @@ test('renders external trigger last-fired and rate-limit analytics', () => {
         security={null}
         services={[]}
         runners={[]}
-        runnerSummary={{ total: 0, online: 0, stale: 0, disabled: 0, unknown: 0, docker: 0, kubernetes: 0, capacity: 0, activeJobs: 0, inflightJobs: 0, queuedJobs: 0 }}
+        runnerSummary={{ total: 0, online: 0, stale: 0, unreachable: 0, disabled: 0, unknown: 0, docker: 0, kubernetes: 0, capacity: 0, activeJobs: 0, inflightJobs: 0, queuedJobs: 0 }}
         runtimeUnavailable={null}
       />
     </MemoryRouter>

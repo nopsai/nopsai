@@ -36,6 +36,7 @@ func (d *dispatcherServer) dispatch(job *proto.JobRequest) string {
 	case runner.sendCh <- &proto.DispatcherMessage{Message: &proto.DispatcherMessage_Job{Job: jobForRunner}}:
 		runner.inflight[job.RunId] = jobForRunner
 		runner.active++
+		d.recordRunnerSnapshotLocked(runner, true, time.Time{})
 		log.Info().
 			Str("run_id", job.RunId).
 			Str("runner_id", runner.id).
@@ -104,6 +105,7 @@ func (d *dispatcherServer) pumpQueue() {
 		case runner.sendCh <- &proto.DispatcherMessage{Message: &proto.DispatcherMessage_Job{Job: jobForRunner}}:
 			runner.inflight[job.RunId] = jobForRunner
 			runner.active++
+			d.recordRunnerSnapshotLocked(runner, true, time.Time{})
 			log.Info().
 				Str("run_id", job.RunId).
 				Str("runner_id", runner.id).

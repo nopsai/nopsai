@@ -6365,6 +6365,10 @@ html.dark .access-modal-header--minimal {
     background: #f59e0b;
 }
 
+.runner-card--unreachable::before {
+    background: #f59e0b;
+}
+
 .runner-card--stale::before {
     background: #ef4444;
 }

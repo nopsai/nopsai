@@ -3,6 +3,8 @@ package nopsai
 import (
 	"strings"
 	"testing"
+
+	"nopsai/pkg/proto"
 )
 
 func TestEscapePrometheusLabel(t *testing.T) {
@@ -18,6 +20,32 @@ func TestBuildInfoMetric(t *testing.T) {
 	appendBuildInfoMetric(&output)
 	if !strings.Contains(output.String(), "# TYPE nopsai_build_info gauge") || !strings.Contains(output.String(), `api_version="v1"`) {
 		t.Fatalf("metric = %q", output.String())
+	}
+}
+
+func TestRunnerMetricsExposeReachability(t *testing.T) {
+	var output strings.Builder
+	appendRunnerPrometheusMetrics(&output, &proto.DispatcherStatus{
+		Runners: []*proto.RunnerInfo{
+			{
+				RunnerId:          "runner-offline",
+				Capacity:          2,
+				LastHeartbeatUnix: 1,
+				AllowDispatch:     true,
+				Metadata: map[string]string{
+					"connection_status": "unreachable",
+					"reachable":         "false",
+				},
+			},
+		},
+	})
+
+	metrics := output.String()
+	if !strings.Contains(metrics, "# TYPE nopsai_runner_reachable gauge") {
+		t.Fatalf("metrics missing runner reachability type: %s", metrics)
+	}
+	if !strings.Contains(metrics, `nopsai_runner_reachable{namespace="",node="",runner_id="runner-offline",runtime="docker",status="unreachable"} 0`) {
+		t.Fatalf("metrics missing unreachable runner sample: %s", metrics)
 	}
 }
 

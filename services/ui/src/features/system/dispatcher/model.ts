@@ -16,6 +16,8 @@ export type Runner = {
   inflightJobs: number;
   lastHeartbeatUnix: number;
   allowDispatch: boolean;
+  reachable: boolean;
+  connectionStatus: string;
   metadata: Record<string, string>;
 };
 
@@ -34,6 +36,9 @@ export type RunnerMeta = {
   namespace: string;
   node: string;
   serviceAccount: string;
+  disconnectedAt?: string;
+  reachable: boolean;
+  connectionStatus: string;
   activeRuns: RunnerActiveRun[];
 };
 
@@ -97,6 +102,7 @@ export function normalizeDispatcherStatus(value: unknown): Omit<DispatcherStatus
 export function getRunnerMeta(runner: Runner): RunnerMeta {
   const meta = runner.metadata || {};
   const runtime = readString(meta.runtime || meta.runner_runtime).toLowerCase();
+  const connectionStatus = normalizeRunnerConnectionStatus(runner.connectionStatus || meta.connection_status, runner.reachable);
   return {
     connectionId: readString(meta.connection_id || meta.instance_id),
     hostname: readString(meta.hostname || meta.host || meta.runner_host),
@@ -105,6 +111,9 @@ export function getRunnerMeta(runner: Runner): RunnerMeta {
     namespace: readString(meta.kubernetes_namespace || meta.namespace),
     node: readString(meta.kubernetes_node || meta.node),
     serviceAccount: readString(meta.kubernetes_service_account || meta.service_account),
+    disconnectedAt: readOptionalString(meta.last_disconnected_at),
+    reachable: runner.reachable,
+    connectionStatus,
     activeRuns: parseActiveRuns(meta),
   };
 }
@@ -209,6 +218,9 @@ export function dispatcherRoutingConfigSignature(routing: Record<string, string[
 
 function normalizeRunner(value: unknown): Runner {
   const record = asRecord(value) || {};
+  const metadata = normalizeStringMap(record.metadata);
+  const connectionStatus = normalizeRunnerConnectionStatus(record.connection_status ?? record.connectionStatus ?? metadata.connection_status);
+  const reachable = normalizeRunnerReachability(record.reachable ?? metadata.reachable, connectionStatus);
   return {
     runnerId: readString(record.runner_id ?? record.runnerId),
     scopes: normalizeStringArray(record.scopes),
@@ -216,9 +228,28 @@ function normalizeRunner(value: unknown): Runner {
     activeJobs: normalizeNumber(record.active_jobs ?? record.activeJobs),
     inflightJobs: normalizeNumber(record.inflight_jobs ?? record.inflightJobs),
     lastHeartbeatUnix: normalizeNumber(record.last_heartbeat_unix ?? record.lastHeartbeatUnix),
-    metadata: normalizeStringMap(record.metadata),
+    metadata,
     allowDispatch: Boolean(record.allow_dispatch ?? record.allowDispatch),
+    reachable,
+    connectionStatus: normalizeRunnerConnectionStatus(connectionStatus, reachable),
   };
+}
+
+function normalizeRunnerConnectionStatus(value: unknown, reachable?: boolean): string {
+  const normalized = readString(value).trim().toLowerCase();
+  if (reachable === false) return 'unreachable';
+  if (['unreachable', 'disconnected', 'offline'].includes(normalized)) return 'unreachable';
+  if (['online', 'connected', 'reachable'].includes(normalized)) return 'online';
+  return normalized || 'online';
+}
+
+function normalizeRunnerReachability(value: unknown, connectionStatus = ''): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  const normalized = readString(value).trim().toLowerCase();
+  if (['false', '0', 'no', 'unreachable', 'offline', 'disconnected'].includes(normalized)) return false;
+  if (['true', '1', 'yes', 'reachable', 'online', 'connected'].includes(normalized)) return true;
+  return normalizeRunnerConnectionStatus(connectionStatus) !== 'unreachable';
 }
 
 function parseActiveRuns(meta: Record<string, string>): RunnerActiveRun[] {
