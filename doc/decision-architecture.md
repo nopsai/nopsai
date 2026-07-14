@@ -25,10 +25,12 @@ Tradeoffs:
 Decision:
 
 - Make runners persistent and agents per-run.
+- Keep a dispatcher-owned registered-runner view so a runner that has checked in remains visible until a future explicit delete path removes it. A disconnected runner is retained as unreachable and is excluded from scheduling.
 
 Why:
 
 - Runners amortize the cost of registration and host-level setup.
+- Operators need to distinguish "not registered" from "registered but not reachable" when debugging capacity, routing, and host health.
 - Agents isolate per-run state, secrets, history, and pipeline definition snapshots.
 - Failed or cancelled runs can be cleaned up without restarting the runner.
 

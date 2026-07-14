@@ -2,9 +2,7 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -39,6 +37,7 @@ type dispatcherServer struct {
 
 	mu                 sync.Mutex
 	runners            map[string]*runnerConn
+	registeredRunners  map[string]*runnerRecord
 	queue              []*proto.JobRequest
 	routing            map[string][]string
 	triggerAssignments map[string]string
@@ -54,6 +53,7 @@ func newDispatcherServer(routing map[string][]string, nopsaiBase string, interna
 	}
 	return &dispatcherServer{
 		runners:            make(map[string]*runnerConn),
+		registeredRunners:  make(map[string]*runnerRecord),
 		routing:            normalizeDispatcherRouting(routing),
 		triggerAssignments: make(map[string]string),
 		nopsai:             newNopsaiHTTPClient(nopsaiBase, credentials),
@@ -327,8 +327,8 @@ func (d *dispatcherServer) GetStatus(ctx context.Context, _ *emptypb.Empty) (*pr
 		QueuedJobs: int32(len(d.queue)),
 	}
 
-	for _, r := range d.runners {
-		if info := d.runnerInfoLocked(r); info != nil {
+	for _, r := range d.registeredRunnerRecordsLocked() {
+		if info := runnerInfoFromRecord(r); info != nil {
 			resp.Runners = append(resp.Runners, info)
 		}
 	}
@@ -337,50 +337,7 @@ func (d *dispatcherServer) GetStatus(ctx context.Context, _ *emptypb.Empty) (*pr
 }
 
 func (d *dispatcherServer) runnerInfoLocked(r *runnerConn) *proto.RunnerInfo {
-	if r == nil {
-		return nil
-	}
-
-	runSummaries := make([]map[string]string, 0, len(r.inflight))
-	for runID, job := range r.inflight {
-		entry := map[string]string{"run_id": runID}
-		if job != nil {
-			if name := strings.TrimSpace(job.PipelineName); name != "" {
-				entry["pipeline"] = name
-			}
-			if trig := strings.TrimSpace(job.TriggerEventId); trig != "" {
-				entry["trigger_event_id"] = trig
-			}
-		}
-		runSummaries = append(runSummaries, entry)
-	}
-	sort.Slice(runSummaries, func(i, j int) bool {
-		return runSummaries[i]["run_id"] < runSummaries[j]["run_id"]
-	})
-
-	var runSummariesJSON string
-	if len(runSummaries) > 0 {
-		if data, err := json.Marshal(runSummaries); err == nil {
-			runSummariesJSON = string(data)
-		}
-	}
-
-	meta := mergeMetadata(r.metadata, r.connectionID)
-	if runSummariesJSON != "" {
-		meta = cloneMetadata(meta)
-		meta["active_runs"] = runSummariesJSON
-	}
-
-	return &proto.RunnerInfo{
-		RunnerId:          r.id,
-		Scopes:            keys(r.scopes),
-		Capacity:          r.capacity,
-		ActiveJobs:        r.active,
-		InflightJobs:      int32(len(r.inflight)),
-		LastHeartbeatUnix: r.lastHeartbeat.Unix(),
-		Metadata:          meta,
-		AllowDispatch:     r.allowDispatch,
-	}
+	return runnerInfoFromRecord(connectedRunnerRecord(r))
 }
 
 func (d *dispatcherServer) UpdateRunnerDispatch(ctx context.Context, req *proto.UpdateRunnerDispatchRequest) (*proto.UpdateRunnerDispatchResponse, error) {
@@ -407,8 +364,15 @@ func (d *dispatcherServer) UpdateRunnerDispatch(ctx context.Context, req *proto.
 		}
 	}
 	if target == nil {
+		record := d.registeredRunners[runnerID]
+		if record == nil {
+			d.mu.Unlock()
+			return nil, status.Error(codes.NotFound, "runner is not registered")
+		}
+		record.allowDispatch = req.AllowDispatch
+		info := runnerInfoFromRecord(record)
 		d.mu.Unlock()
-		return nil, status.Error(codes.NotFound, "runner is not connected")
+		return &proto.UpdateRunnerDispatchResponse{Runner: info}, nil
 	}
 
 	target.allowDispatch = req.AllowDispatch
@@ -422,7 +386,8 @@ func (d *dispatcherServer) UpdateRunnerDispatch(ctx context.Context, req *proto.
 		d.dropTriggerAssignmentsForRunner(target.id)
 	}
 
-	info := d.runnerInfoLocked(target)
+	record := d.recordRunnerSnapshotLocked(target, true, time.Time{})
+	info := runnerInfoFromRecord(record)
 	d.mu.Unlock()
 
 	log.Info().
@@ -508,6 +473,7 @@ func (d *dispatcherServer) handleHeartbeat(connectionID string, hb *proto.Runner
 	}
 	runner.lastHeartbeat = time.Now()
 	runner.active = hb.ActiveJobs
+	d.recordRunnerSnapshotLocked(runner, true, time.Time{})
 	go d.pumpQueue()
 }
 
@@ -549,6 +515,7 @@ func (d *dispatcherServer) handleJobResult(connectionID string, result *proto.Jo
 	default:
 		log.Info().Str("run_id", result.RunId).Str("runner_id", runner.id).Str("status", statusText).Msg("received job update from runner")
 	}
+	d.recordRunnerSnapshotLocked(runner, true, time.Time{})
 }
 
 func (d *dispatcherServer) reportRunnerJobFailure(runID, detail string) {
@@ -574,7 +541,11 @@ func (d *dispatcherServer) reportRunnerJobFailure(runID, detail string) {
 
 func (d *dispatcherServer) addRunner(rc *runnerConn) {
 	d.mu.Lock()
+	if existing := d.registeredRunners[rc.id]; existing != nil {
+		rc.allowDispatch = existing.allowDispatch
+	}
 	d.runners[rc.connectionID] = rc
+	d.recordRunnerSnapshotLocked(rc, true, time.Time{})
 	log.Info().
 		Str("runner_id", rc.id).
 		Str("connection_id", rc.connectionID).
@@ -586,11 +557,23 @@ func (d *dispatcherServer) addRunner(rc *runnerConn) {
 }
 
 func (d *dispatcherServer) removeRunner(connectionID string) {
+	var inflightJobs []*proto.JobRequest
 	d.mu.Lock()
 	runner, ok := d.runners[connectionID]
 	if ok {
 		delete(d.runners, connectionID)
 		d.dropTriggerAssignmentsForRunner(runner.id)
+		for _, job := range runner.inflight {
+			if job == nil {
+				continue
+			}
+			inflightJobs = append(inflightJobs, job)
+			log.Warn().Str("run_id", job.RunId).Str("runner_id", runner.id).Msg("requeuing inflight job after runner disconnect")
+		}
+		runner.inflight = make(map[string]*proto.JobRequest)
+		runner.active = 0
+		d.queue = append(d.queue, inflightJobs...)
+		d.markRunnerUnreachableLocked(runner, time.Now())
 	}
 	d.mu.Unlock()
 
@@ -607,26 +590,9 @@ func (d *dispatcherServer) removeRunner(connectionID string) {
 		Str("runner_id", runner.id).
 		Str("connection_id", runner.connectionID).
 		Msg("runner disconnected")
-	d.requeueInflight(runner)
-}
-
-func (d *dispatcherServer) requeueInflight(runner *runnerConn) {
-	if runner == nil {
-		return
+	if len(inflightJobs) > 0 {
+		go d.pumpQueue()
 	}
-	if len(runner.inflight) == 0 {
-		return
-	}
-
-	d.mu.Lock()
-	for _, job := range runner.inflight {
-		log.Warn().Str("run_id", job.RunId).Str("runner_id", runner.id).Msg("requeuing inflight job after runner disconnect")
-		d.queue = append(d.queue, job)
-	}
-	runner.inflight = make(map[string]*proto.JobRequest)
-	d.mu.Unlock()
-
-	go d.pumpQueue()
 }
 
 func (r *runnerConn) send(msg *proto.DispatcherMessage) {

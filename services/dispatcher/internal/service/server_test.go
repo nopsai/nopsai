@@ -89,6 +89,77 @@ func TestRemoveRunnerCancelsConnection(t *testing.T) {
 	}
 }
 
+func TestDisconnectedRunnerRemainsRegisteredAsUnreachable(t *testing.T) {
+	d := newDispatcherServer(nil, "http://example")
+	rc := newTestRunnerConn("runner-offline", "prod")
+	rc.lastHeartbeat = time.Unix(1_783_000_000, 0)
+	d.addRunner(rc)
+
+	d.removeRunner(rc.connectionID)
+
+	status, err := d.GetStatus(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("GetStatus() error = %v", err)
+	}
+	if len(status.GetRunners()) != 1 {
+		t.Fatalf("runners len = %d, want registered runner", len(status.GetRunners()))
+	}
+	info := status.GetRunners()[0]
+	if info.GetRunnerId() != "runner-offline" {
+		t.Fatalf("runner id = %q, want runner-offline", info.GetRunnerId())
+	}
+	if info.GetActiveJobs() != 0 || info.GetInflightJobs() != 0 {
+		t.Fatalf("disconnected runner load = active %d inflight %d, want 0/0", info.GetActiveJobs(), info.GetInflightJobs())
+	}
+	metadata := info.GetMetadata()
+	if metadata["reachable"] != "false" || metadata["connection_status"] != "unreachable" {
+		t.Fatalf("metadata = %#v, want unreachable registered runner", metadata)
+	}
+}
+
+func TestRegisteredUnreachableRunnerDoesNotReceiveJobs(t *testing.T) {
+	server := newRunStatusServer(map[string]string{"run-queued": "pending"})
+	defer server.Close()
+
+	d := newDispatcherServer(nil, server.URL, newTestDispatcherCredentials(t))
+	d.nopsai.(*nopsaiHTTPClient).setHTTPClient(server.Client())
+	rc := newTestRunnerConn("runner-offline", "prod")
+	d.addRunner(rc)
+	d.removeRunner(rc.connectionID)
+
+	resp, err := d.SubmitJob(context.Background(), &proto.JobRequest{RunId: "run-queued", Scope: "prod"})
+	if err != nil {
+		t.Fatalf("SubmitJob() error = %v", err)
+	}
+	if resp.State != proto.JobState_JOB_STATE_QUEUED {
+		t.Fatalf("SubmitJob() state = %s, want queued", resp.State)
+	}
+	if got := len(d.queue); got != 1 {
+		t.Fatalf("queue len = %d, want job to wait for a reachable runner", got)
+	}
+}
+
+func TestRunnerDispatchFlagPersistsAcrossReconnect(t *testing.T) {
+	d := newDispatcherServer(nil, "http://example")
+	first := newTestRunnerConn("runner-paused", "prod")
+	d.addRunner(first)
+	d.removeRunner(first.connectionID)
+
+	if _, err := d.UpdateRunnerDispatch(context.Background(), &proto.UpdateRunnerDispatchRequest{
+		RunnerId:      "runner-paused",
+		AllowDispatch: false,
+	}); err != nil {
+		t.Fatalf("pause registered runner: %v", err)
+	}
+
+	second := newTestRunnerConn("runner-paused", "prod")
+	second.connectionID = "conn-runner-paused-2"
+	d.addRunner(second)
+	if second.allowDispatch {
+		t.Fatal("reconnected runner allowDispatch = true, want persisted pause")
+	}
+}
+
 func TestRunnerJobFailureFinalizesRun(t *testing.T) {
 	type requestRecord struct {
 		path string

@@ -33,6 +33,7 @@ This document captures the current feature set and hardening work that has lande
 - **Pipeline graph**: Visualises pipeline steps and intra-step tasks with pan/zoom support, expandable nodes, and live status colouring.
 - **Log experience**: Ships an on-demand log modal with level filters, agent-only toggle, structured/short views, search with navigation, clipboard/download helpers, and follow mode, powered by incremental REST log polling.
 - **Access management**: Adds system-page controls for users, roles, product grants, and effective-permission inspection.
+- **Runner visibility**: Shows every runner registered with the dispatcher during its lifetime, marking disconnected records as unreachable while live routing and dispatch only use reachable connections.
 
 ### Configuration & Deployment
 - **Single compose stack**: Docker Compose provisions Postgres, the Go services, the AAA service, the UI (served via nginx), plus build-only helper images (`base`, `agent`, `pipeline`, `k8s-runner`).

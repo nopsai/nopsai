@@ -338,6 +338,7 @@ func (a *App) handleDispatcherStatus(w http.ResponseWriter, r *http.Request) {
 		queuedJobs = status.GetQueuedJobs()
 		runners = make([]map[string]interface{}, 0, len(status.GetRunners()))
 		for _, runner := range status.GetRunners() {
+			metadata := runner.GetMetadata()
 			runners = append(runners, map[string]interface{}{
 				"runner_id":           runner.GetRunnerId(),
 				"scopes":              runner.GetScopes(),
@@ -345,8 +346,10 @@ func (a *App) handleDispatcherStatus(w http.ResponseWriter, r *http.Request) {
 				"active_jobs":         runner.GetActiveJobs(),
 				"inflight_jobs":       runner.GetInflightJobs(),
 				"last_heartbeat_unix": runner.GetLastHeartbeatUnix(),
-				"metadata":            runner.GetMetadata(),
+				"metadata":            metadata,
 				"allow_dispatch":      runner.GetAllowDispatch(),
+				"connection_status":   runnerConnectionStatus(metadata),
+				"reachable":           runnerReachable(metadata),
 			})
 		}
 	}

@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   buildTeamContext,
   normalizeMonitoringRunner,
+  normalizeRunnerSummary,
   runsForTeamAndDescendants,
   summarizeRuns,
   type Team,
@@ -76,4 +77,16 @@ test('normalizes runner runtime and active run metadata', () => {
       triggerId: undefined,
     },
   ]);
+});
+
+test('normalizes unreachable runner status and summary counts', () => {
+  const runner = normalizeMonitoringRunner({
+    runner_id: 'runner-offline',
+    status: 'unreachable',
+    runtime: 'docker',
+    capacity: 2,
+  });
+
+  assert.equal(runner.status, 'unreachable');
+  assert.equal(normalizeRunnerSummary(null, [runner]).unreachable, 1);
 });

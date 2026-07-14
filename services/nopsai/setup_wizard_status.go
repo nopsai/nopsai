@@ -179,6 +179,8 @@ func (a *App) setupHealthChecks(ctx context.Context, counts setupCounts, globalR
 			add("runner", "Runner health", "warning", "Dispatcher status is unavailable.", false)
 		} else if len(status.GetRunners()) == 0 {
 			add("runner", "Runner health", "warning", "No runners have checked in.", false)
+		} else if unreachable := runnerUnreachableCount(status); unreachable > 0 {
+			add("runner", "Runner health", "warning", fmt.Sprintf("%d runner(s) have checked in, %d unreachable.", len(status.GetRunners()), unreachable), false)
 		} else {
 			add("runner", "Runner health", "success", fmt.Sprintf("%d runner(s) are connected.", len(status.GetRunners())), false)
 		}

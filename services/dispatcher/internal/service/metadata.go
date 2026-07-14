@@ -25,6 +25,21 @@ func keys(m map[string]struct{}) []string {
 	return out
 }
 
+func cloneSet(values map[string]struct{}) map[string]struct{} {
+	if len(values) == 0 {
+		return map[string]struct{}{}
+	}
+	out := make(map[string]struct{}, len(values))
+	for key := range values {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		out[key] = struct{}{}
+	}
+	return out
+}
+
 func mergeMetadata(meta map[string]string, connectionID string) map[string]string {
 	if len(meta) == 0 && connectionID == "" {
 		return nil
