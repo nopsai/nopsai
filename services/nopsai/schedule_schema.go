@@ -61,6 +61,7 @@ var scheduleSchemaStatements = []string{
 		END IF;
 	END $$`,
 	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'team'`,
+	`ALTER TABLE pipeline_schedules ALTER COLUMN visibility SET DEFAULT 'team'`,
 	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL`,
 	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS config_source_path TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE pipeline_schedules ADD COLUMN IF NOT EXISTS config_source_commit_sha TEXT NOT NULL DEFAULT ''`,
@@ -70,7 +71,6 @@ var scheduleSchemaStatements = []string{
 	`ALTER TABLE pipeline_schedules DROP CONSTRAINT IF EXISTS pipeline_schedules_kind_check`,
 	`ALTER TABLE pipeline_schedules ADD CONSTRAINT pipeline_schedules_kind_check CHECK (schedule_kind IN ('cron', 'once'))`,
 	`ALTER TABLE pipeline_schedules DROP CONSTRAINT IF EXISTS pipeline_schedules_visibility_check`,
-	`UPDATE pipeline_schedules SET visibility = 'team' WHERE visibility = 'group'`,
 	`ALTER TABLE pipeline_schedules ADD CONSTRAINT pipeline_schedules_visibility_check CHECK (visibility IN ('team', 'restricted', 'workspace'))`,
 	`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS schedule_id UUID REFERENCES pipeline_schedules(id) ON DELETE SET NULL`,
 	`CREATE INDEX IF NOT EXISTS idx_pipeline_schedules_config_repo_id ON pipeline_schedules(config_repo_id)`,

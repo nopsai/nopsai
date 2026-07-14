@@ -1,11 +1,44 @@
 package nopsai
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	"nopsai/pkg/models"
 )
+
+func TestScheduleWriteSQLSetsDefaultVisibility(t *testing.T) {
+	if scheduleDefaultVisibility != resourceVisibilityTeam {
+		t.Fatalf("scheduleDefaultVisibility = %q, want %q", scheduleDefaultVisibility, resourceVisibilityTeam)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		query  string
+		needle string
+	}{
+		{
+			name:   "api create",
+			query:  createScheduleSQL,
+			needle: "source, visibility, config_source_path",
+		},
+		{
+			name:   "gitops",
+			query:  configSyncScheduleUpsertSQL,
+			needle: "source, visibility, run_team_path",
+		},
+	} {
+		query := strings.Join(strings.Fields(tc.query), " ")
+		if !strings.Contains(query, tc.needle) {
+			t.Fatalf("%s schedule write query does not set visibility explicitly:\n%s", tc.name, tc.query)
+		}
+	}
+
+	if strings.Contains(configSyncScheduleUpsertSQL, "visibility = EXCLUDED.visibility") {
+		t.Fatal("gitops schedule update should preserve existing schedule visibility")
+	}
+}
 
 func TestNextScheduleRunAtUsesTimezone(t *testing.T) {
 	from := time.Date(2026, time.June, 1, 9, 30, 0, 0, time.UTC)

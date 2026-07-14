@@ -345,7 +345,11 @@ steps:
 `, &configRepositoryEmbeddedAccessFile{
 		Visibility: resourceVisibilityRestricted,
 		UseAccess: &configRepositoryEmbeddedUseAccessFile{
-			Grants: []configRepositoryEmbeddedUseGrantFile{{Repository: "hosein-yousefii/test-app"}},
+			Grants: []configRepositoryEmbeddedUseGrantFile{
+				{Team: "data-team"},
+				{Repository: "hosein-yousefii/test-app"},
+				{ServiceAccount: "servicenow-prod"},
+			},
 		},
 	})
 	if err != nil {
@@ -354,21 +358,31 @@ steps:
 	if strings.Count("\n"+got, "\naccess:") != 1 {
 		t.Fatalf("access block count in %q, want 1", got)
 	}
-	if !strings.Contains(got, "visibility: restricted") || !strings.Contains(got, "repository: hosein-yousefii/test-app") {
-		t.Fatalf("updated access block missing from %q", got)
+	for _, want := range []string{
+		"visibility: restricted",
+		"team: data-team",
+		"repository: hosein-yousefii/test-app",
+		"service_account: servicenow-prod",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("updated access block missing %q from %q", want, got)
+		}
+	}
+	if strings.Contains(got, "group: data-team") || strings.Contains(got, "groups:") {
+		t.Fatalf("updated access block should use team keys, got %q", got)
 	}
 	for _, badIndent := range []string{
 		"\n    visibility:",
 		"\n    use_access:",
 		"\n        grants:",
-		"\n            - repository:",
+		"\n            - team:",
 	} {
 		if strings.Contains(got, badIndent) {
 			t.Fatalf("access block used 4-space indentation %q in:\n%s", badIndent, got)
 		}
 	}
 	for _, wantIndent := range []string{
-		"\naccess:\n  visibility: restricted\n  use_access:\n    grants:\n      - repository: hosein-yousefii/test-app",
+		"\naccess:\n  visibility: restricted\n  use_access:\n    grants:\n      - team: data-team\n      - repository: hosein-yousefii/test-app\n      - service_account: servicenow-prod",
 		"\nsteps:\n  - name: run\n    script: echo ok",
 	} {
 		if !strings.Contains("\n"+got, wantIndent) {
@@ -407,6 +421,58 @@ func TestConfigRepositoryResourceAccessExportIncludesServiceAccountGrant(t *test
 	}
 	if grant.SubjectType != "" || grant.SubjectID != "" {
 		t.Fatalf("service account grant should use shorthand fields, got %#v", grant)
+	}
+}
+
+func TestConfigRepositoryResourceAccessExportUsesTeamGrantKey(t *testing.T) {
+	access := configRepositoryResourceAccessState{
+		Visibility: resourceVisibilityRestricted,
+		Grants: []configRepositoryResourceUseGrant{
+			{
+				ResourceType: grantResourcePipeline,
+				SubjectType:  grantSubjectTeam,
+				SubjectID:    "data-team",
+				Actions:      []string{"pipeline.use"},
+			},
+			{
+				ResourceType: grantResourcePipeline,
+				SubjectType:  grantSubjectRepository,
+				SubjectID:    "hosein-yousefii/test-app",
+				Actions:      []string{"pipeline.use"},
+			},
+			{
+				ResourceType: grantResourcePipeline,
+				SubjectType:  grantSubjectServiceAccount,
+				SubjectID:    "servicenow-prod",
+				Actions:      []string{"pipeline.use"},
+			},
+		},
+	}.exportFile()
+
+	content, err := marshalConfigRepositoryYAML(access)
+	if err != nil {
+		t.Fatalf("marshalConfigRepositoryYAML() error = %v", err)
+	}
+	rendered := string(content)
+	for _, want := range []string{
+		"visibility: restricted",
+		"team: data-team",
+		"repository: hosein-yousefii/test-app",
+		"service_account: servicenow-prod",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered access export missing %q:\n%s", want, rendered)
+		}
+	}
+	for _, forbidden := range []string{
+		"group: data-team",
+		"groups:",
+		"subject_type: team",
+		"subject_id: data-team",
+	} {
+		if strings.Contains(rendered, forbidden) {
+			t.Fatalf("rendered access export should not contain %q:\n%s", forbidden, rendered)
+		}
 	}
 }
 

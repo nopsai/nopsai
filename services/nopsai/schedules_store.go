@@ -19,6 +19,21 @@ import (
 	"nopsai/services/nopsai/internal/configsync"
 )
 
+const createScheduleSQL = `
+	INSERT INTO pipeline_schedules (
+		path, name, description, pipeline_path, pipeline_name, pipeline_version,
+		schedule_kind, cron_expression, run_at, timezone, enabled, scope, variables, next_run_at,
+		run_team_path, source, visibility, config_source_path, config_source_commit_sha, managed_by_config_repo,
+		created_by, updated_by
+	) VALUES (
+		$1, $2, $3, $4, $5, $6,
+		$7, $8, $9, $10, $11, $12, $13::jsonb, $14,
+		$15, $16, $17, $18, $19, $20,
+		$21, $21
+	)
+	RETURNING id::text
+`
+
 func (a *App) loadSchedulePipeline(ctx context.Context, pipelinePath, pipelineName string) (models.Pipeline, []byte, error) {
 	var definition string
 	if err := a.db.QueryRow(ctx, `SELECT definition FROM pipelines WHERE path = $1 AND name = $2`, pipelinePath, pipelineName).Scan(&definition); err != nil {
@@ -84,22 +99,9 @@ func (a *App) createSchedule(ctx context.Context, input scheduleInput, pipeline 
 		return scheduleRecord{}, err
 	}
 	var scheduleID string
-	err = tx.QueryRow(ctx, `
-		INSERT INTO pipeline_schedules (
-			path, name, description, pipeline_path, pipeline_name, pipeline_version,
-			schedule_kind, cron_expression, run_at, timezone, enabled, scope, variables, next_run_at,
-			run_team_path, source, config_source_path, config_source_commit_sha, managed_by_config_repo,
-			created_by, updated_by
-		) VALUES (
-			$1, $2, $3, $4, $5, $6,
-			$7, $8, $9, $10, $11, $12, $13::jsonb, $14,
-			$15, $16, $17, $18, $19,
-			$20, $20
-		)
-		RETURNING id::text
-	`, input.Path, input.Name, input.Description, input.PipelinePath, input.PipelineName, input.PipelineVersion,
+	err = tx.QueryRow(ctx, createScheduleSQL, input.Path, input.Name, input.Description, input.PipelinePath, input.PipelineName, input.PipelineVersion,
 		input.ScheduleKind, input.CronExpression, input.RunAt, input.Timezone, input.Enabled, input.Scope, string(variablesJSON), input.NextRunAt,
-		input.RunTeamPath, source, sourcePath, commitSHA, strings.EqualFold(source, "git"), actor).Scan(&scheduleID)
+		input.RunTeamPath, source, scheduleDefaultVisibility, sourcePath, commitSHA, strings.EqualFold(source, "git"), actor).Scan(&scheduleID)
 	if err != nil {
 		return scheduleRecord{}, err
 	}

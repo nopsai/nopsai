@@ -1,6 +1,7 @@
 package nopsai
 
 import (
+	"database/sql"
 	"strings"
 	"testing"
 
@@ -284,6 +285,43 @@ advanced_role_bindings:
 	}
 }
 
+func TestAccessGrantConfigWritableAdoptsOrphanManagedGrantInScope(t *testing.T) {
+	binding := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
+	resource := accessGrantResource{Type: grantResourceKnowledgeContext, ID: "guardrail/team-1/repo-check"}
+	writable, err := accessGrantConfigWritableDecision(nil, nil, binding, configSyncGrantResourceScope(resource), "repository:hosein-yousefii/test-app knowledge_context:guardrail/team-1/repo-check", sql.NullInt64{}, true)
+	if err != nil {
+		t.Fatalf("accessGrantConfigWritableDecision() error = %v", err)
+	}
+	if !writable {
+		t.Fatal("team repo should adopt orphaned managed access grant in its scope")
+	}
+}
+
+func TestAccessGrantConfigWritableRejectsOrphanManagedGrantOutsideScope(t *testing.T) {
+	binding := models.ConfigRepository{ID: 2, ScopeType: models.ConfigRepositoryScopeTeam, ScopeID: "team-1"}
+	resource := accessGrantResource{Type: grantResourceKnowledgeContext, ID: "guardrail/team-2/repo-check"}
+	writable, err := accessGrantConfigWritableDecision(nil, nil, binding, configSyncGrantResourceScope(resource), "repository:hosein-yousefii/test-app knowledge_context:guardrail/team-2/repo-check", sql.NullInt64{}, true)
+	if err == nil {
+		t.Fatal("expected out-of-scope orphaned managed access grant to fail")
+	}
+	if writable {
+		t.Fatal("out-of-scope orphaned managed access grant should not be writable")
+	}
+	if !strings.Contains(err.Error(), "unknown config repository") {
+		t.Fatalf("error = %v, want unknown owner message", err)
+	}
+}
+
+func TestConfigSyncGrantResourceScopeUsesKnowledgeContextTeam(t *testing.T) {
+	got := configSyncGrantResourceScope(accessGrantResource{
+		Type: grantResourceKnowledgeContext,
+		ID:   "guardrail/team-1/repo-check",
+	})
+	if got != "team-1" {
+		t.Fatalf("configSyncGrantResourceScope() = %q, want team-1", got)
+	}
+}
+
 func TestNormalizeEmbeddedResourceUseGrantRejectsSSOManagedUser(t *testing.T) {
 	_, _, err := normalizeEmbeddedResourceUseGrantSubject(embeddedResourceUseGrantFile{
 		User: "oidc:nopsai:alice",
@@ -491,6 +529,41 @@ access:
 	}
 	if _, ok := plan.grants[repoKey]; !ok {
 		t.Fatalf("expected repository use grant key %#v, got %#v", repoKey, plan.grants)
+	}
+}
+
+func TestEmbeddedPipelineAccessRejectsGroupGrantKey(t *testing.T) {
+	tests := map[string]string{
+		"group shorthand": `
+name: deploy
+access:
+  use_access:
+    grants:
+      - group: data-team
+`,
+		"groups shorthand": `
+name: deploy
+access:
+  use_access:
+    groups:
+      - data-team
+`,
+	}
+
+	for name, content := range tests {
+		t.Run(name, func(t *testing.T) {
+			plan := newAccessSyncPlan()
+			err := plan.addEmbeddedResourceAccess(content, "pipelines/deploy.yaml", grantResourcePipeline, "deploy", models.ConfigRepository{
+				ScopeType: models.ConfigRepositoryScopeSystem,
+				ScopeID:   models.ConfigRepositorySystemGlobalID,
+			}, "")
+			if err == nil {
+				t.Fatal("expected group key to be rejected")
+			}
+			if !strings.Contains(err.Error(), "must use") || !strings.Contains(err.Error(), "team") {
+				t.Fatalf("error = %v, want direct team replacement guidance", err)
+			}
+		})
 	}
 }
 
