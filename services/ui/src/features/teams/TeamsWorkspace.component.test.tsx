@@ -599,6 +599,8 @@ describe('TeamsWorkspace', () => {
     expect(screen.getByRole('tab', { name: 'Overview' })).toHaveClass('active');
     expect(screen.queryByRole('tab', { name: 'Details' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'checkout-api Overview' })).not.toBeInTheDocument();
+    expect(screen.getByText('checkout-api application details: owner team, repository, app path, and latest run context.')).toBeVisible();
+    expect(screen.queryByText('Application ownership, repository identity, and run metadata.')).not.toBeInTheDocument();
     expect(screen.getByText('acme/checkout-api')).toBeVisible();
     expect(screen.queryByText('Parent')).not.toBeInTheDocument();
     expect(screen.getByText('Owner team')).toBeVisible();

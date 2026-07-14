@@ -100,6 +100,23 @@ test('creates trigger manifests with repository templates and action-time author
   expect(onSelectSlug).toHaveBeenCalledWith('owner/new-repo');
 });
 
+test('opens create and clone modals before permission preflight succeeds', () => {
+  const { result } = renderMutation({
+    canCreateTriggerHere: false,
+    canUpdateSelectedTrigger: false,
+  });
+
+  act(() => {
+    result.current.openCreateModal();
+  });
+  expect(result.current.createModal?.repository).toBe('owner/new-repository');
+
+  act(() => {
+    result.current.openCloneModal();
+  });
+  expect(result.current.cloneModal?.repository).toBe(detail.slug);
+});
+
 test('keeps create and clone modal failures local to the modal state', async () => {
   const { result } = renderMutation({ permissionOwner: '' });
 
@@ -149,6 +166,7 @@ test('saves editable trigger manifests and refreshes dependent runs', async () =
   });
 
   expect(saveTriggerMock).toHaveBeenCalledWith(detail.slug, editorValue);
+  expect(checkTriggerPermissionMock).toHaveBeenCalledWith('trigger.update', detail.slug);
   expect(onSaved).toHaveBeenCalledWith(
     expect.objectContaining({
       slug: detail.slug,

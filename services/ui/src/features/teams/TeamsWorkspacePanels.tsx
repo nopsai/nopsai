@@ -222,6 +222,9 @@ export function TeamApplicationOverviewCard({
   const applicationPath = teamPathForURL(team, teams);
   const repositoryURL = teamRepositoryURL(team);
   const repositoryLabel = teamRepositoryLabel(team);
+  const applicationDescription =
+    team.description ||
+    `${teamDisplayName(team)} application details: owner team, repository, app path, and latest run context.`;
   const rows = [
     ['Type', 'Application'],
     ['Application name', teamDisplayName(team)],
@@ -234,12 +237,9 @@ export function TeamApplicationOverviewCard({
 
   return (
     <article className="teams-card teams-focus-card teams-focus-card--wide">
-      <div className="teams-focus-hero">
-        <span className="teams-resource-icon teams-tone-purple" aria-hidden="true">
-          <Boxes className="h-5 w-5" />
-        </span>
+      <div className="teams-focus-hero teams-focus-hero--plain">
         <div className="teams-focus-copy teams-focus-copy--standalone">
-          <p>{team.description || 'Application ownership, repository identity, and run metadata.'}</p>
+          <p>{applicationDescription}</p>
         </div>
         <div className="teams-focus-actions">
           <Link className="teams-secondary-btn" to={buildPipelineRunsRoute('main', applicationPath)}>
