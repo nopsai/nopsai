@@ -83,19 +83,17 @@ export function TriggerCollectionToolbar({
             <option value="git">GitOps</option>
             <option value="database">Database</option>
           </select>
-          {canCreateTriggerHere && (
-            <button
-              id="triggers-new-btn"
-              type="button"
-              className="glass-button-primary"
-              aria-label="Create new trigger"
-              title="New Trigger"
-              onClick={onCreate}
-            >
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              <span>New trigger</span>
-            </button>
-          )}
+          <button
+            id="triggers-new-btn"
+            type="button"
+            className="glass-button-primary"
+            aria-label="Create new trigger"
+            title={canCreateTriggerHere ? 'New Trigger' : 'Create trigger override'}
+            onClick={onCreate}
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            <span>New trigger</span>
+          </button>
         </div>
       </div>
     </div>

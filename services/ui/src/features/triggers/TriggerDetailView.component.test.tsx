@@ -124,6 +124,77 @@ test('renders trigger detail sections on one page and delegates actions', async 
   expect(callbacks.onDelete).toHaveBeenCalledOnce();
 });
 
+test('keeps edit and clone reachable before action-time authorization', async () => {
+  const user = userEvent.setup();
+  const callbacks = {
+    onBack: vi.fn(),
+    onOpenScope: vi.fn(),
+    onOpenPipeline: vi.fn(),
+    onOpenRun: vi.fn(),
+    onRecentRunsScroll: vi.fn(),
+    onCopy: vi.fn(),
+    onDownload: vi.fn(),
+    onEdit: vi.fn(),
+    onClone: vi.fn(),
+    onDelete: vi.fn(),
+    onDiscard: vi.fn(),
+    onSave: vi.fn(),
+    onTriggerDetailsChange: vi.fn(),
+    onEditorTextChange: vi.fn(),
+    onOpenSuggestion: vi.fn(),
+    onMoveSuggestion: vi.fn(),
+    onDismissSuggestion: vi.fn(),
+    onSelectSuggestion: vi.fn(),
+    onEditorScroll: vi.fn(),
+    onIndentTab: vi.fn(),
+    onAutoIndentEnter: vi.fn(),
+  };
+
+  render(
+    <TriggerDetailView
+      detail={triggerDetail}
+      isEditing={false}
+      editorValue={triggerDetail.rawYaml}
+      validationErrors={[]}
+      validationErrorLines={new Set()}
+      editorSuggestion={null}
+      autocompleteLoading={false}
+      editorRef={createRef<HTMLTextAreaElement>()}
+      highlightContentRef={createRef<HTMLPreElement>()}
+      lineNumbersRef={createRef<HTMLDivElement>()}
+      canUpdateSelectedTrigger={false}
+      canCreateTriggerHere={false}
+      canDeleteSelectedTrigger={false}
+      saving={false}
+      triggerDetails={{
+        provider: 'gitlab',
+        teamPath: 'platform',
+        management: 'nopsai',
+        webhookSourceID: 'corporate-gitlab',
+      }}
+      teamPaths={['root', 'platform']}
+      webhookSources={[
+        { id: 'corporate-gitlab', name: 'Corporate GitLab', provider: 'gitlab', teamPath: 'platform', visibility: 'workspace' },
+      ]}
+      linkedPipelines={triggerDetail.summary.pipelines}
+      pipelineMetadata={new Map()}
+      pipelineSourceIndex={new Map()}
+      recentRuns={[]}
+      runsLoading={false}
+      runsError={null}
+      runsScrollable={false}
+      recentRunsListRef={createRef<HTMLUListElement>()}
+      {...callbacks}
+    />
+  );
+
+  await user.click(screen.getByRole('button', { name: 'Edit' }));
+  expect(callbacks.onEdit).toHaveBeenCalledOnce();
+
+  await user.click(screen.getByRole('button', { name: 'Clone' }));
+  expect(callbacks.onClone).toHaveBeenCalledOnce();
+});
+
 test('renders editable trigger detail fields while editing', async () => {
   const callbacks = {
     onBack: vi.fn(),

@@ -65,8 +65,6 @@ type TriggerManifestMutationOptions = {
 };
 
 export function useTriggerManifestMutations({
-  canCreateTriggerHere,
-  canUpdateSelectedTrigger,
   canDeleteTriggers,
   permissionOwner,
   detail,
@@ -141,7 +139,6 @@ export function useTriggerManifestMutations({
   }, []);
 
   const openCreateModal = useCallback(() => {
-    if (!canCreateTriggerHere) return;
     const repository = permissionOwner ? `${permissionOwner}/new-repository` : '';
     const details: TriggerDetailsFormState = {
       provider: 'github',
@@ -155,16 +152,15 @@ export function useTriggerManifestMutations({
       yamlPreview: buildNewTriggerYaml(deriveDefaultPipelinePath(repository), details),
       pending: false,
     });
-  }, [canCreateTriggerHere, defaultTeamPath, permissionOwner]);
+  }, [defaultTeamPath, permissionOwner]);
 
   const openCloneModal = useCallback(() => {
-    if (!canCreateTriggerHere) return;
     if (!detail) {
       addToast('Select a trigger to clone.', 'info');
       return;
     }
     setCloneModal({ repository: detail.slug, pending: false });
-  }, [addToast, canCreateTriggerHere, detail]);
+  }, [addToast, detail]);
 
   const openDeleteModal = useCallback(
     (slug: string) => {
@@ -176,11 +172,12 @@ export function useTriggerManifestMutations({
   );
 
   const save = useCallback(async () => {
-    if (!canUpdateSelectedTrigger) {
+    if (!detail) return false;
+    const allowed = await checkTriggerPermission('trigger.update', detail.slug);
+    if (!allowed) {
       addToast('You do not have permission to update triggers.', 'error');
       return false;
     }
-    if (!detail) return false;
     const isGitSource = normalizeSource(detail.source) === 'git';
     if (validationErrorCount > 0) {
       addToast('Resolve validation errors before saving.', 'error');
@@ -231,7 +228,6 @@ export function useTriggerManifestMutations({
     }
   }, [
     addToast,
-    canUpdateSelectedTrigger,
     detail,
     editorValue,
     loadRecentRuns,
@@ -242,7 +238,7 @@ export function useTriggerManifestMutations({
   ]);
 
   const submitCreateModal = useCallback(async () => {
-    if (!canCreateTriggerHere || !createModal) return false;
+    if (!createModal) return false;
     const repoSlug = createModal.repository.trim();
     if (!repoSlug) {
       setCreateModal(current => (current ? { ...current, error: 'Repository is required.' } : current));
@@ -300,10 +296,10 @@ export function useTriggerManifestMutations({
     } finally {
       setCreateModal(current => (current ? { ...current, pending: false } : current));
     }
-  }, [addToast, canCreateTriggerHere, createModal, loadTriggers, onSelectSlug]);
+  }, [addToast, createModal, loadTriggers, onSelectSlug]);
 
   const submitCloneModal = useCallback(async () => {
-    if (!canCreateTriggerHere || !cloneModal || !detail) return false;
+    if (!cloneModal || !detail) return false;
     const targetSlug = cloneModal.repository.trim();
     if (!targetSlug) {
       setCloneModal(current => (current ? { ...current, error: 'Repository is required.' } : current));
@@ -349,7 +345,7 @@ export function useTriggerManifestMutations({
     } finally {
       setCloneModal(current => (current ? { ...current, pending: false } : current));
     }
-  }, [addToast, canCreateTriggerHere, cloneModal, detail, loadTriggers, onSelectSlug]);
+  }, [addToast, cloneModal, detail, loadTriggers, onSelectSlug]);
 
   const confirmDelete = useCallback(async () => {
     if (!canDeleteTriggers || !deleteModal) return false;
