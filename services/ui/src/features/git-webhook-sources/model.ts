@@ -14,6 +14,12 @@ export type GitWebhookConnectedTrigger = {
   management: string;
 };
 
+export type GeneratedGitWebhookCredential = {
+  reference: string;
+  value: string;
+  auth_mode: GitWebhookAuthMode;
+};
+
 export type GitWebhookSource = {
   id: string;
   name: string;
@@ -23,6 +29,7 @@ export type GitWebhookSource = {
   visibility?: GitWebhookVisibility;
   auth_mode: GitWebhookAuthMode;
   credential_ref?: string;
+  generated_credential?: GeneratedGitWebhookCredential;
   repository_allowlist: string[];
   rate_limit: Record<string, unknown>;
   connected_triggers?: GitWebhookConnectedTrigger[];
@@ -186,7 +193,7 @@ export function gitWebhookSourceRequest(form: GitWebhookSourceFormState): GitWeb
   }
 
   const credentialRef = form.credentialRef.trim();
-  if (form.authMode !== 'none' && !isCredentialReference(credentialRef)) {
+  if (form.authMode !== 'none' && credentialRef && !isCredentialReference(credentialRef)) {
     throw new Error('Credential reference must use credential://namespace/name.');
   }
 
@@ -204,7 +211,7 @@ export function gitWebhookSourceRequest(form: GitWebhookSourceFormState): GitWeb
     team_path: normalizeGitWebhookSourceTeamPath(form.teamPath) || 'root',
     visibility: normalizeGitWebhookSourceVisibility(form.visibility),
     auth_mode: form.authMode,
-    credential_ref: form.authMode === 'none' ? undefined : credentialRef,
+    credential_ref: form.authMode === 'none' || !credentialRef ? undefined : credentialRef,
     repository_allowlist: repositoryAllowlist,
     rate_limit: rateLimit > 0 ? { per_minute: rateLimit } : {},
   };

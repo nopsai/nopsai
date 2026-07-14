@@ -10623,6 +10623,11 @@ html.dark .triggers-runs-item:focus-within {
     white-space: nowrap;
 }
 
+.triggers-endpoint--wrap code {
+    overflow-wrap: anywhere;
+    white-space: normal;
+}
+
 .triggers-code {
     max-height: 230px;
     overflow: auto;

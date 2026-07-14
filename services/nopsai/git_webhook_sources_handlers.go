@@ -73,7 +73,9 @@ func (a *App) handleCreateGitWebhookSource(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "missing authorization subject", http.StatusUnauthorized)
 		return
 	}
-	source, err := normalizeGitWebhookSourceInput(input, "")
+	source, err := normalizeGitWebhookSourceInputWithOptions(input, "", gitWebhookSourceNormalizeOptions{
+		AllowGeneratedCredential: true,
+	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -81,14 +83,17 @@ func (a *App) handleCreateGitWebhookSource(w http.ResponseWriter, r *http.Reques
 	if !a.requireAAADecision(w, r, "git_webhook_source.create", routeauthz.GitWebhookSourceResource(source.ID)) {
 		return
 	}
-	if err := a.ensureCredentialReference(
+	if err := a.ensureGitWebhookCredentialAllowed(r, subject, source); err != nil {
+		writeGitWebhookCredentialPreparationError(w, err)
+		return
+	}
+	source, generatedCredential, createdCredentialID, err := a.prepareGitWebhookSourceCredential(
 		r.Context(),
-		source.CredentialRef,
-		gitWebhookSecretCredentialKind,
-		"Webhook secret for Git source "+source.ID,
+		source,
 		credentialActor(r),
-	); err != nil {
-		http.Error(w, "failed to prepare webhook credential reference", http.StatusBadRequest)
+	)
+	if err != nil {
+		writeGitWebhookCredentialPreparationError(w, err)
 		return
 	}
 	allowlistJSON, _ := json.Marshal(source.RepositoryAllowlist)
@@ -103,6 +108,9 @@ func (a *App) handleCreateGitWebhookSource(w http.ResponseWriter, r *http.Reques
 	`, source.ID, source.Name, source.Description, source.Provider, source.Enabled, source.TeamPath,
 		source.Visibility, source.AuthMode, source.CredentialRef, string(allowlistJSON), string(rateLimitJSON), createdBy)
 	if err != nil {
+		if createdCredentialID != nil {
+			_ = a.credentials.Delete(r.Context(), *createdCredentialID, credentialActor(r))
+		}
 		if isUniqueViolation(err) {
 			http.Error(w, "git webhook source already exists", http.StatusConflict)
 			return
@@ -116,7 +124,10 @@ func (a *App) handleCreateGitWebhookSource(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	created, _ = a.enrichGitWebhookSource(r.Context(), created)
-	_ = httpapi.WriteJSON(w, http.StatusCreated, created)
+	_ = httpapi.WriteJSON(w, http.StatusCreated, gitWebhookSourceCreateResponse{
+		gitWebhookSourceRecord: created,
+		GeneratedCredential:    generatedCredential,
+	})
 }
 
 func (a *App) handleGetGitWebhookSource(w http.ResponseWriter, r *http.Request) {
@@ -153,9 +164,18 @@ func (a *App) handleUpdateGitWebhookSource(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
+	subject, ok := a.currentAAASubject(r)
+	if !ok {
+		http.Error(w, "missing authorization subject", http.StatusUnauthorized)
+		return
+	}
 	source, err := normalizeGitWebhookSourceInput(input, id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := a.ensureGitWebhookCredentialAllowed(r, subject, source); err != nil {
+		writeGitWebhookCredentialPreparationError(w, err)
 		return
 	}
 	if err := a.ensureCredentialReference(

@@ -95,6 +95,13 @@ Supported authentication modes:
 - `none`: no application-layer authentication. Use only behind a trusted,
   network-isolated ingress.
 
+For GitLab, `static_token` maps to the GitLab webhook **Secret token** field.
+GitLab sends that value in the `X-Gitlab-Token` header, and NopsAI compares it
+with the credential value referenced by the source. GitLab's **signing token**
+and Standard Webhook signature headers are different: use `auth_mode: hmac`
+when the provider sends `webhook-id`, `webhook-timestamp`, and
+`webhook-signature`.
+
 Provider HMAC headers:
 
 - GitLab Standard Webhooks:
@@ -109,6 +116,19 @@ Provider HMAC headers:
 Credential plaintext remains write-only in **Credentials**. Source
 GitOps stores the credential reference, and `setting/system/credentials.yaml`
 can store the encrypted credential envelope for the same reference.
+
+When creating an authenticated source from the UI or REST API, `credential_ref`
+may be omitted. NopsAI generates a random HMAC/token value, stores it as a
+`webhook_secret` credential, and returns the plaintext once in the create
+response so it can be copied into the Git provider. Team-owned sources default
+to `credential://team/<team_path>/webhooks/<source_id>`; global sources default
+to `credential://system/webhooks/<source_id>`. If the request provides a
+credential reference that already exists, NopsAI reuses it without rotating or
+revealing the value. If the provided reference is missing, NopsAI creates it and
+returns the generated value once. System credential references can only be
+created or reused by NopsAI admins; team credential references require matching
+team credential access. GitOps source files remain deterministic and must store
+an explicit `credential_ref`.
 
 ## Repository Allowlist
 
