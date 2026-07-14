@@ -7,10 +7,12 @@ import {
   filterGitWebhookSources,
   formatGitWebhookDate,
   gitWebhookSourceBelongsToTeam,
+  gitWebhookSourceConnectedCount,
   gitWebhookSourceForm,
   gitWebhookSourceRequest,
   gitWebhookSourceTeamLabel,
   gitWebhookSourceTeamPath,
+  gitWebhookSourceVisibilityLabel,
   sourceStatusLabel,
 } from './model.js';
 
@@ -30,6 +32,7 @@ test('builds a normalized Git webhook source request', () => {
   assert.deepEqual(request.repository_allowlist, ['platform/api', 'platform/*']);
   assert.deepEqual(request.rate_limit, { per_minute: 120 });
   assert.equal(request.team_path, 'platform/prod');
+  assert.equal(request.visibility, 'team');
   assert.equal(request.credential_ref, 'credential://system/webhooks/gitlab-platform');
 });
 
@@ -152,6 +155,7 @@ test('builds Git webhook source workspace metrics and filters by source fields',
     enabled: 1,
     gitManaged: 1,
     secured: 1,
+    workspaceShared: 0,
   });
   assert.deepEqual(filterGitWebhookSources(sources, 'platform/*').map(source => source.id), ['gitlab-platform']);
   assert.deepEqual(filterGitWebhookSources(sources, 'disabled').map(source => source.id), ['internal']);
@@ -175,18 +179,23 @@ test('builds Git webhook source team tree items with global fallback', () => {
       description: '',
       provider: 'gitlab' as const,
       enabled: true,
+      visibility: 'workspace' as const,
       auth_mode: 'hmac' as const,
       repository_allowlist: ['platform/*'],
       rate_limit: {},
       team_path: 'platform/prod',
       source: 'git',
+      connected_trigger_count: 2,
     },
   ];
 
   assert.equal(gitWebhookSourceTeamPath(sources[0]), '');
   assert.equal(gitWebhookSourceTeamLabel(sources[0]), 'Global');
   assert.equal(gitWebhookSourceTeamPath(sources[1]), 'platform/prod');
+  assert.equal(gitWebhookSourceVisibilityLabel(sources[1].visibility), 'Workspace-shared');
+  assert.equal(gitWebhookSourceConnectedCount(sources[1]), 2);
   assert.equal(gitWebhookSourceForm(sources[1]).teamPath, 'platform/prod');
+  assert.equal(gitWebhookSourceForm(sources[1]).visibility, 'workspace');
   assert.equal(gitWebhookSourceRequest({
     ...gitWebhookSourceForm(sources[1]),
     credentialRef: 'credential://system/webhooks/platform',

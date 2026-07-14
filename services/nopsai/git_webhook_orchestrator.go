@@ -9,7 +9,10 @@ import (
 	"net/http/httptest"
 	"strings"
 
+	"gopkg.in/yaml.v3"
+
 	"nopsai/pkg/gittrigger"
+	"nopsai/pkg/models"
 	"nopsai/services/aaa/pkg/model"
 	"nopsai/services/nopsai/internal/configsync"
 	"nopsai/services/nopsai/internal/gitwebhook"
@@ -24,7 +27,7 @@ type gitWebhookDispatchResult struct {
 }
 
 func (a *App) dispatchGitWebhookEvent(r *http.Request, source gitWebhookSourceRecord, event gitwebhook.Event) gitWebhookDispatchResult {
-	manifest, _, found, err := a.loadTriggerManifestOverride(r.Context(), event.Owner, event.Repo)
+	trigger, found, err := a.loadRepositoryTriggerOverride(r.Context(), event.Owner, event.Repo)
 	if err != nil {
 		return gitWebhookDispatchResult{
 			Status:     gitWebhookDeliveryFailed,
@@ -33,7 +36,44 @@ func (a *App) dispatchGitWebhookEvent(r *http.Request, source gitWebhookSourceRe
 		}
 	}
 	if !found {
-		return gitWebhookDispatchResult{Status: gitWebhookDeliveryNoMatch}
+		return gitWebhookDispatchResult{
+			Status: gitWebhookDeliveryNoMatch,
+			Errors: []string{
+				"Repository allowed, but no NopsAI trigger is configured. Webhook events will not start pipelines.",
+			},
+		}
+	}
+	if trigger.Provider != source.Provider {
+		return gitWebhookDispatchResult{
+			Status: gitWebhookDeliveryNoMatch,
+			Errors: []string{
+				fmt.Sprintf("trigger provider %s is not served by webhook source provider %s", trigger.Provider, source.Provider),
+			},
+		}
+	}
+	if strings.TrimSpace(trigger.WebhookSourceID) != source.ID {
+		return gitWebhookDispatchResult{
+			Status: gitWebhookDeliveryNoMatch,
+			Errors: []string{
+				"repository trigger is not assigned to this webhook source",
+			},
+		}
+	}
+	if !gitWebhookRepositoryAllowed(trigger.RepositoryForWebhook, source.RepositoryAllowlist) {
+		return gitWebhookDispatchResult{
+			Status: gitWebhookDeliveryNoMatch,
+			Errors: []string{
+				"repository trigger assignment is outside this webhook source allowlist",
+			},
+		}
+	}
+	var manifest models.Manifest
+	if err := yaml.Unmarshal([]byte(trigger.Definition), &manifest); err != nil {
+		return gitWebhookDispatchResult{
+			Status:     gitWebhookDeliveryFailed,
+			HTTPStatus: http.StatusBadRequest,
+			Errors:     []string{"failed to parse trigger manifest"},
+		}
 	}
 	match := gittrigger.Find(manifest, gittrigger.Event{
 		Type:              event.EventType,
@@ -56,7 +96,7 @@ func (a *App) dispatchGitWebhookEvent(r *http.Request, source gitWebhookSourceRe
 	for _, pipeline := range match.Pipelines {
 		identifier := strings.TrimSpace(pipeline.Path)
 		result.MatchedPipelines = append(result.MatchedPipelines, identifier)
-		runID, status, err := a.startGitWebhookRun(r, source, event, identifier, match.Scope)
+		runID, status, err := a.startGitWebhookRun(r, source, trigger, event, identifier, match.Scope)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("%s: %s", identifier, err.Error()))
 			if result.HTTPStatus < 400 {
@@ -78,6 +118,7 @@ func (a *App) dispatchGitWebhookEvent(r *http.Request, source gitWebhookSourceRe
 func (a *App) startGitWebhookRun(
 	original *http.Request,
 	source gitWebhookSourceRecord,
+	trigger repositoryTriggerRecord,
 	event gitwebhook.Event,
 	pipelineID,
 	scope string,
@@ -118,6 +159,9 @@ func (a *App) startGitWebhookRun(
 	req.Header.Set("X-Git-Pusher-Email", event.ActorEmail)
 	req.Header.Set("X-Nopsai-Scope", strings.Trim(strings.TrimSpace(scope), "/"))
 	req.Header.Set("X-Nopsai-Pipeline-Path", pathPart)
+	if triggerTeamPath := strings.Trim(strings.TrimSpace(trigger.TeamPath), "/"); triggerTeamPath != "" && triggerTeamPath != rootGrantID {
+		req.Header.Set("X-Nopsai-Team-Path", triggerTeamPath)
+	}
 	req.Header.Set("X-Nopsai-Pipeline-Source", "git_webhook")
 	req.Header.Set("X-Nopsai-Trigger-Source", "git_webhook_"+source.Provider)
 	req.Header.Set("X-Nopsai-Git-Event-Type", event.EventType)

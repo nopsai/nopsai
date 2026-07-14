@@ -265,12 +265,16 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			managed_by_config_repo = TRUE,
 			updated_at = NOW()`
 	const triggerUpsert = `INSERT INTO triggers (
-			repository_name, trigger_definition, source,
+			repository_name, trigger_definition, source, provider, team_path, management, webhook_source_id,
 			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo
-		) VALUES ($1, $2, 'git', $3, $4, $5, TRUE)
+		) VALUES ($1, $2, 'git', $3, $4, $5, NULLIF($6, ''), $7, $8, $9, TRUE)
 		ON CONFLICT (repository_name) DO UPDATE SET
 			trigger_definition = EXCLUDED.trigger_definition,
 			source = 'git',
+			provider = EXCLUDED.provider,
+			team_path = EXCLUDED.team_path,
+			management = EXCLUDED.management,
+			webhook_source_id = EXCLUDED.webhook_source_id,
 			config_repo_id = EXCLUDED.config_repo_id,
 			config_source_path = EXCLUDED.config_source_path,
 			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
@@ -302,13 +306,13 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			managed_by_config_repo = TRUE,
 			updated_at = NOW()`
 	const gitWebhookSourceUpsert = `INSERT INTO git_webhook_sources (
-			id, name, description, provider, enabled, team_path, auth_mode, credential_ref,
+			id, name, description, provider, enabled, team_path, visibility, auth_mode, credential_ref,
 			repository_allowlist, rate_limit, created_by, source,
 			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8,
-			$9::jsonb, $10::jsonb, 'config-repo', 'git',
-			$11, $12, $13, TRUE, NOW()
+			$1, $2, $3, $4, $5, $6, $7, $8, $9,
+			$10::jsonb, $11::jsonb, 'config-repo', 'git',
+			$12, $13, $14, TRUE, NOW()
 		)
 		ON CONFLICT (id) DO UPDATE SET
 			name = EXCLUDED.name,
@@ -316,6 +320,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			provider = EXCLUDED.provider,
 			enabled = EXCLUDED.enabled,
 			team_path = EXCLUDED.team_path,
+			visibility = EXCLUDED.visibility,
 			auth_mode = EXCLUDED.auth_mode,
 			credential_ref = EXCLUDED.credential_ref,
 			repository_allowlist = EXCLUDED.repository_allowlist,
@@ -543,7 +548,56 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		details["secrets_synced"]++
 	}
 
-	// I. Upsert Triggers
+	// I. Upsert Git Webhook Sources
+	for key, stored := range gitWebhookSources {
+		resourceScope := effectiveGitWebhookSourceTeamPath(stored.input)
+		writable, err := ensureConfigResourceWritable(
+			ctx,
+			tx,
+			"git_webhook_sources",
+			"git webhook source",
+			key,
+			binding,
+			resourceScope,
+			"id = $1",
+			key,
+		)
+		if err != nil {
+			return err
+		}
+		if !writable {
+			continue
+		}
+		allowlistJSON, err := json.Marshal(stored.input.RepositoryAllowlist)
+		if err != nil {
+			return fmt.Errorf("failed to marshal git webhook source allowlist %q: %w", key, err)
+		}
+		rateLimitJSON, err := json.Marshal(stored.input.RateLimit)
+		if err != nil {
+			return fmt.Errorf("failed to marshal git webhook source rate limit %q: %w", key, err)
+		}
+		if _, err := tx.Exec(ctx, gitWebhookSourceUpsert,
+			stored.input.ID,
+			stored.input.Name,
+			stored.input.Description,
+			stored.input.Provider,
+			stored.input.Enabled,
+			stored.input.TeamPath,
+			stored.input.Visibility,
+			stored.input.AuthMode,
+			stored.input.CredentialRef,
+			string(allowlistJSON),
+			string(rateLimitJSON),
+			binding.ID,
+			stored.sourcePath,
+			commitSHA,
+		); err != nil {
+			return fmt.Errorf("failed to upsert git webhook source %q: %w", key, err)
+		}
+		details["git_webhook_sources_synced"]++
+	}
+
+	// J. Upsert Triggers
 	for repoName, stored := range triggers {
 		writable, err := ensureConfigResourceWritable(ctx, tx, "triggers", "trigger", repoName, binding, repoName, "repository_name = $1", repoName)
 		if err != nil {
@@ -552,13 +606,26 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		if !writable {
 			continue
 		}
-		if _, err := tx.Exec(ctx, triggerUpsert, repoName, stored.definition, binding.ID, stored.sourcePath, commitSHA); err != nil {
+		if err := validateRepositoryTriggerWebhookSource(ctx, tx, stored.record); err != nil {
+			return fmt.Errorf("invalid trigger override '%s': %w", repoName, err)
+		}
+		if _, err := tx.Exec(ctx, triggerUpsert,
+			repoName,
+			stored.definition,
+			stored.record.Provider,
+			stored.record.TeamPath,
+			stored.record.Management,
+			stored.record.WebhookSourceID,
+			binding.ID,
+			stored.sourcePath,
+			commitSHA,
+		); err != nil {
 			return fmt.Errorf("failed to upsert trigger override '%s': %w", repoName, err)
 		}
 		details["triggers_synced"]++
 	}
 
-	// J. Upsert External Triggers
+	// K. Upsert External Triggers
 	for key, stored := range externalTriggers {
 		resourceScope := externalTriggerConfigScope(stored.input)
 		writable, err := ensureConfigResourceWritable(ctx, tx, "external_triggers", "external trigger", key, binding, resourceScope, "id = $1", key)
@@ -614,54 +681,6 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			return fmt.Errorf("failed to upsert external trigger '%s': %w", key, err)
 		}
 		details["external_triggers_synced"]++
-	}
-
-	// K. Upsert Git Webhook Sources
-	for key, stored := range gitWebhookSources {
-		resourceScope := effectiveGitWebhookSourceTeamPath(stored.input)
-		writable, err := ensureConfigResourceWritable(
-			ctx,
-			tx,
-			"git_webhook_sources",
-			"git webhook source",
-			key,
-			binding,
-			resourceScope,
-			"id = $1",
-			key,
-		)
-		if err != nil {
-			return err
-		}
-		if !writable {
-			continue
-		}
-		allowlistJSON, err := json.Marshal(stored.input.RepositoryAllowlist)
-		if err != nil {
-			return fmt.Errorf("failed to marshal git webhook source allowlist %q: %w", key, err)
-		}
-		rateLimitJSON, err := json.Marshal(stored.input.RateLimit)
-		if err != nil {
-			return fmt.Errorf("failed to marshal git webhook source rate limit %q: %w", key, err)
-		}
-		if _, err := tx.Exec(ctx, gitWebhookSourceUpsert,
-			stored.input.ID,
-			stored.input.Name,
-			stored.input.Description,
-			stored.input.Provider,
-			stored.input.Enabled,
-			stored.input.TeamPath,
-			stored.input.AuthMode,
-			stored.input.CredentialRef,
-			string(allowlistJSON),
-			string(rateLimitJSON),
-			binding.ID,
-			stored.sourcePath,
-			commitSHA,
-		); err != nil {
-			return fmt.Errorf("failed to upsert git webhook source %q: %w", key, err)
-		}
-		details["git_webhook_sources_synced"]++
 	}
 
 	// --- PRUNING PHASE: Remove items that exist in DB as source='git' but were not in the Git payload ---

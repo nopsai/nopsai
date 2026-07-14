@@ -6,6 +6,8 @@ import {
   buildTriggerCollectionMetrics,
   normalizeSource,
   sourceLabel,
+  triggerAllowlistStatusLabel,
+  triggerIngressLabel,
   triggerSlugLabel,
   type TriggerListItem,
 } from './model';
@@ -76,18 +78,20 @@ export function TriggerCollectionList({
                 </div>
                 {!searchTerm.trim() && activeOwnerNode.children.length ? (
                   <span className="triggers-badge triggers-badge--neutral">
-                    {activeOwnerNode.children.length} nested owner{activeOwnerNode.children.length === 1 ? '' : 's'}
+                    {activeOwnerNode.children.length} nested group{activeOwnerNode.children.length === 1 ? '' : 's'}
                   </span>
                 ) : null}
               </div>
 
               <div className="triggers-resource-table-shell">
                 {visibleTriggers.length ? (
-                  <table className="triggers-resource-table">
+                  <table className="triggers-resource-table triggers-resource-table--triggers">
                     <thead>
                       <tr>
                         <th scope="col">Trigger</th>
-                        <th scope="col">Owner</th>
+                        <th scope="col">Provider</th>
+                        <th scope="col">Ingress</th>
+                        <th scope="col">Allowlist</th>
                         <th scope="col">Source</th>
                         <th scope="col" aria-label="Actions"></th>
                       </tr>
@@ -157,7 +161,7 @@ function TriggerRow({
   onSelectTrigger: (slug: string) => void;
   onDeleteTrigger: (slug: string) => void;
 }) {
-  const { name, path } = triggerSlugLabel(item.slug);
+  const { name } = triggerSlugLabel(item.slug);
   const sourceKey = normalizeSource(item.source);
   const isActive = item.slug === selectedSlug;
 
@@ -176,13 +180,18 @@ function TriggerRow({
             <ObjectIcon type="trigger" />
           </span>
           <span className="triggers-resource-name">
-            <strong>{name || item.slug}</strong>
-            <small>{item.slug}</small>
+            <strong>{item.slug}</strong>
           </span>
         </button>
       </td>
       <td>
-        <span className="triggers-mono">{path === 'root' ? 'root' : path}</span>
+        <span className="triggers-mono">{item.provider || 'github'}</span>
+      </td>
+      <td>
+        <span className="triggers-mono">{triggerIngressLabel(item)}</span>
+      </td>
+      <td>
+        <span className="triggers-mono">{triggerAllowlistStatusLabel(item.allowlistStatus)}</span>
       </td>
       <td>
         <span className={`triggers-badge triggers-badge--${sourceKey === 'git' ? 'blue' : 'neutral'}`}>

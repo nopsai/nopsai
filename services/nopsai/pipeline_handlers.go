@@ -15,6 +15,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
 
+	"nopsai/pkg/httpapi"
 	"nopsai/pkg/models"
 	"nopsai/services/aaa/pkg/model"
 	"nopsai/services/nopsai/internal/configsync"
@@ -96,16 +97,7 @@ func (a *App) handleListPipelines(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleListTriggerOverrides(w http.ResponseWriter, r *http.Request) {
 	includeSource := strings.EqualFold(r.URL.Query().Get("include_source"), "true")
 
-	var (
-		rows pgx.Rows
-		err  error
-	)
-
-	if includeSource {
-		rows, err = a.db.Query(context.Background(), "SELECT repository_name, source FROM triggers ORDER BY repository_name ASC")
-	} else {
-		rows, err = a.db.Query(context.Background(), "SELECT repository_name FROM triggers ORDER BY repository_name ASC")
-	}
+	rows, err := a.db.Query(context.Background(), triggerOverrideListQuery(includeSource))
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query trigger overrides from database")
 		http.Error(w, "Failed to retrieve trigger overrides", http.StatusInternalServerError)
@@ -113,51 +105,52 @@ func (a *App) handleListTriggerOverrides(w http.ResponseWriter, r *http.Request)
 	}
 	defer rows.Close()
 
-	type triggerOverrideItem struct {
-		Name   string `json:"name"`
-		Source string `json:"source"`
-	}
-
 	type triggerEntry struct {
 		name     string
-		source   string
+		item     repositoryTriggerListItem
 		resource model.ResourceRef
 	}
 
 	var (
 		repoNames []string
-		items     []triggerOverrideItem
+		items     []repositoryTriggerListItem
 		entries   []triggerEntry
 	)
 
 	for rows.Next() {
-		var name string
-		var source string
 		if includeSource {
-			if err := rows.Scan(&name, &source); err != nil {
+			record, err := scanRepositoryTrigger(rows)
+			if err != nil {
 				log.Error().Err(err).Msg("Failed to scan trigger override entry")
 				http.Error(w, "Failed to process trigger overrides", http.StatusInternalServerError)
 				return
 			}
-			source = strings.TrimSpace(strings.ToLower(source))
-			switch {
-			case source == "" || source == "db" || source == "database":
-				source = "database"
-			case strings.Contains(source, "git"):
-				source = "git"
-			case strings.Contains(source, "draft"):
-				source = "draft"
-			case strings.Contains(source, "local") || strings.Contains(source, "repo file") || strings.Contains(source, "repository file"):
-				source = "local"
-			default:
-				source = "database"
+			record, err = a.enrichRepositoryTriggerRecord(r.Context(), record)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to enrich trigger override entry")
+				http.Error(w, "Failed to process trigger overrides", http.StatusInternalServerError)
+				return
 			}
 			entries = append(entries, triggerEntry{
-				name:     name,
-				source:   source,
-				resource: routeauthz.BuildTriggerResource("", name),
+				name: record.RepositoryName,
+				item: repositoryTriggerListItem{
+					Name:                 record.RepositoryName,
+					Source:               record.Source,
+					Provider:             record.Provider,
+					TeamPath:             record.TeamPath,
+					Management:           record.Management,
+					WebhookSourceID:      record.WebhookSourceID,
+					WebhookSourceName:    record.WebhookSourceName,
+					Ingress:              record.Ingress,
+					AllowlistStatus:      record.AllowlistStatus,
+					RepositoryForWebhook: record.RepositoryForWebhook,
+					ManagedByConfigRepo:  record.ManagedByConfigRepo,
+					ConfigSourcePath:     record.ConfigSourcePath,
+				},
+				resource: routeauthz.BuildTriggerResource("", record.RepositoryName),
 			})
 		} else {
+			var name string
 			if err := rows.Scan(&name); err != nil {
 				log.Error().Err(err).Msg("Failed to scan repository name")
 				http.Error(w, "Failed to process trigger overrides", http.StatusInternalServerError)
@@ -185,7 +178,7 @@ func (a *App) handleListTriggerOverrides(w http.ResponseWriter, r *http.Request)
 			continue
 		}
 		if includeSource {
-			items = append(items, triggerOverrideItem{Name: entry.name, Source: entry.source})
+			items = append(items, entry.item)
 			continue
 		}
 		repoNames = append(repoNames, entry.name)
@@ -198,6 +191,13 @@ func (a *App) handleListTriggerOverrides(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	json.NewEncoder(w).Encode(repoNames)
+}
+
+func triggerOverrideListQuery(includeSource bool) string {
+	if includeSource {
+		return repositoryTriggerSelect + ` ORDER BY repository_name ASC`
+	}
+	return "SELECT repository_name FROM triggers ORDER BY repository_name ASC"
 }
 
 func (a *App) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
@@ -296,16 +296,36 @@ func (a *App) handleGetTriggerOverride(w http.ResponseWriter, r *http.Request) {
 	repoName := r.PathValue("repoName")
 	fullName := fmt.Sprintf("%s/%s", repoOwner, repoName)
 
-	var triggerDef string
-	err := a.db.QueryRow(context.Background(), "SELECT trigger_definition FROM triggers WHERE repository_name = $1", fullName).Scan(&triggerDef)
-	if err != nil {
+	record, found, err := a.getRepositoryTriggerRecord(r.Context(), fullName)
+	if err != nil || !found {
 		http.NotFound(w, r)
+		return
+	}
+	if strings.EqualFold(r.URL.Query().Get("format"), "json") || strings.Contains(r.Header.Get("Accept"), "application/json") {
+		record, err = a.enrichRepositoryTriggerRecord(r.Context(), record)
+		if err != nil {
+			http.Error(w, "failed to load trigger metadata", http.StatusInternalServerError)
+			return
+		}
+		_ = httpapi.WriteJSON(w, http.StatusOK, repositoryTriggerDetailResponse{
+			Slug:                 record.RepositoryName,
+			Source:               record.Source,
+			Provider:             record.Provider,
+			TeamPath:             record.TeamPath,
+			Management:           record.Management,
+			WebhookSourceID:      record.WebhookSourceID,
+			WebhookSourceName:    record.WebhookSourceName,
+			Ingress:              record.Ingress,
+			AllowlistStatus:      record.AllowlistStatus,
+			RepositoryForWebhook: record.RepositoryForWebhook,
+			RawYAML:              record.Definition,
+		})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/x-yaml")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(triggerDef))
+	w.Write([]byte(record.Definition))
 }
 
 func (a *App) handleCreateOrUpdateTriggerOverride(w http.ResponseWriter, r *http.Request) {
@@ -336,27 +356,46 @@ func (a *App) handleCreateOrUpdateTriggerOverride(w http.ResponseWriter, r *http
 		http.Error(w, errorMsg, http.StatusBadRequest)
 		return
 	}
-
-	var existingSource string
-	lookupErr := a.db.QueryRow(context.Background(), "SELECT source FROM triggers WHERE repository_name = $1", fullName).Scan(&existingSource)
-	if lookupErr != nil && lookupErr != pgx.ErrNoRows {
-		log.Error().Err(lookupErr).Msg("Failed to inspect existing trigger source")
-		http.Error(w, "Failed to save trigger override", http.StatusInternalServerError)
+	triggerRecord, err := repositoryTriggerRecordFromManifest(
+		fullName,
+		string(triggerDef),
+		"database",
+		resourceVisibilityTeam,
+		manifest,
+		fallbackRepositoryTriggerTeamPath(fullName),
+	)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := validateRepositoryTriggerWebhookSource(r.Context(), a.db, triggerRecord); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	query := `INSERT INTO triggers (
-			repository_name, trigger_definition, source,
+			repository_name, trigger_definition, source, provider, team_path, management, webhook_source_id,
 			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo
-		) VALUES ($1, $2, 'database', NULL, '', '', FALSE)
+		) VALUES ($1, $2, 'database', $3, $4, $5, NULLIF($6, ''), NULL, '', '', FALSE)
 		ON CONFLICT (repository_name) DO UPDATE SET
 			trigger_definition = EXCLUDED.trigger_definition,
 			source = 'database',
+			provider = EXCLUDED.provider,
+			team_path = EXCLUDED.team_path,
+			management = EXCLUDED.management,
+			webhook_source_id = EXCLUDED.webhook_source_id,
 			config_repo_id = NULL,
 			config_source_path = '',
 			config_source_commit_sha = '',
 			managed_by_config_repo = FALSE`
-	_, err = a.db.Exec(context.Background(), query, fullName, string(triggerDef))
+	_, err = a.db.Exec(context.Background(), query,
+		fullName,
+		string(triggerDef),
+		triggerRecord.Provider,
+		triggerRecord.TeamPath,
+		triggerRecord.Management,
+		triggerRecord.WebhookSourceID,
+	)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to save trigger override")
 		http.Error(w, "Failed to save trigger override", http.StatusInternalServerError)

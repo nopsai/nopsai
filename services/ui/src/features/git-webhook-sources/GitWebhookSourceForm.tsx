@@ -2,6 +2,7 @@ import { WorkflowFormDialog } from '../../components/WorkflowFormDialog';
 import {
   GIT_WEBHOOK_AUTH_MODES,
   GIT_WEBHOOK_PROVIDERS,
+  GIT_WEBHOOK_VISIBILITIES,
   type GitWebhookSource,
   type GitWebhookSourceFormState,
 } from './model';
@@ -103,6 +104,17 @@ export function GitWebhookSourceForm({
           >
             {teamOptions.map(path => (
               <option key={path} value={path}>{path === 'root' ? 'Global' : `/${path}`}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Visibility" hint="Workspace-shared sources can be assigned across teams.">
+          <select
+            className="pipelines-input w-full"
+            value={form.visibility}
+            onChange={event => update('visibility', event.target.value as GitWebhookSourceFormState['visibility'])}
+          >
+            {GIT_WEBHOOK_VISIBILITIES.map(visibility => (
+              <option key={visibility} value={visibility}>{visibility === 'workspace' ? 'workspace-shared' : 'team'}</option>
             ))}
           </select>
         </Field>

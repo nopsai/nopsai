@@ -3,9 +3,12 @@ name: GitLab Platform
 description: Primary GitLab repository event source.
 provider: gitlab
 enabled: true
+team_path: platform
+visibility: workspace
 auth_mode: static_token
 credential_ref: credential://system/webhooks/gitlab-platform
 repository_allowlist:
+  - acme/service-api
   - platform/*
   - team-1/*
 rate_limit:

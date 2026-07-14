@@ -6,11 +6,27 @@ import {
   parseYamlWithLocation,
 } from '../../lib/yamlValidation.js';
 
-export const TRIGGER_ROOT_KEYS = ['triggers'];
-export const TRIGGER_KEYS = ['on', 'branches', 'skip_branches', 'tags', 'pipelines', 'scope'];
+export const TRIGGER_ROOT_KEYS = ['provider', 'team', 'team_path', 'webhook_source', 'management', 'triggers'];
+export const TRIGGER_KEYS = ['on', 'branches', 'skip_branches', 'tags', 'include_paths', 'exclude_paths', 'pipelines', 'scope'];
 export const TRIGGER_EVENT_OPTIONS = ['push', 'pull_request', 'schedule'];
+export const TRIGGER_PROVIDERS = ['github', 'gitlab', 'bitbucket', 'gitea', 'generic'] as const;
+export const TRIGGER_MANAGEMENT_MODES = ['nopsai', 'repository'] as const;
 
-export type TriggerListItem = { slug: string; source?: string };
+export type TriggerProvider = (typeof TRIGGER_PROVIDERS)[number];
+export type TriggerManagementMode = (typeof TRIGGER_MANAGEMENT_MODES)[number];
+
+export type TriggerListItem = {
+  slug: string;
+  source?: string;
+  provider?: string;
+  teamPath?: string;
+  management?: string;
+  webhookSourceID?: string;
+  webhookSourceName?: string;
+  ingress?: string;
+  allowlistStatus?: string;
+  repositoryForWebhook?: string;
+};
 
 export type TriggerSourceFilter = 'all' | 'git' | 'database';
 
@@ -40,8 +56,31 @@ export type TriggerSummary = {
 export type TriggerDetail = {
   slug: string;
   source?: string;
+  provider?: string;
+  teamPath?: string;
+  management?: string;
+  webhookSourceID?: string;
+  webhookSourceName?: string;
+  ingress?: string;
+  allowlistStatus?: string;
+  repositoryForWebhook?: string;
   rawYaml: string;
   summary: TriggerSummary;
+};
+
+export type TriggerDetailsFormState = {
+  provider: TriggerProvider;
+  teamPath: string;
+  management: TriggerManagementMode;
+  webhookSourceID: string;
+};
+
+export type TriggerWebhookSourceOption = {
+  id: string;
+  name?: string;
+  provider: string;
+  teamPath?: string;
+  visibility?: string;
 };
 
 export type PipelineMeta = {
@@ -105,6 +144,155 @@ export function sourceLabel(sourceKey: string): string {
   }
 }
 
+export function triggerManagementLabel(value?: string): string {
+  switch ((value || '').trim().toLowerCase()) {
+    case 'repository':
+      return 'Repository';
+    default:
+      return 'NopsAI';
+  }
+}
+
+export function triggerTeamLabel(value?: string): string {
+  const normalized = String(value || '').trim().replace(/^\/+|\/+$/g, '');
+  if (!normalized || normalized.toLowerCase() === 'root') return 'Workspace';
+  return normalized;
+}
+
+export function triggerAllowlistStatusLabel(value?: string): string {
+  switch ((value || '').trim().toLowerCase()) {
+    case 'allowed':
+      return 'Allowed';
+    case 'automatic':
+      return 'Automatic';
+    case 'not_assigned':
+      return 'Webhook source required';
+    case 'missing_source':
+      return 'Webhook source missing';
+    case 'denied':
+      return 'Not allowed';
+    case 'no_trigger':
+      return 'No trigger';
+    default:
+      return 'Not required';
+  }
+}
+
+export function triggerIngressLabel(detail: Pick<TriggerDetail, 'provider' | 'ingress' | 'webhookSourceName' | 'webhookSourceID'>): string {
+  const provider = (detail.provider || 'github').trim().toLowerCase();
+  if (provider === 'github') return 'GitHub App - automatic';
+  return detail.ingress || detail.webhookSourceName || detail.webhookSourceID || 'Not assigned';
+}
+
+export function triggerWebhookSourceOptionLabel(option: TriggerWebhookSourceOption): string {
+  const name = option.name && option.name !== option.id ? `${option.name} (${option.id})` : option.id;
+  const owner = option.visibility === 'workspace' ? 'workspace-shared' : triggerTeamLabel(option.teamPath);
+  return `${name} - ${owner}`;
+}
+
+export function normalizeTriggerProvider(value?: string): TriggerProvider {
+  const normalized = String(value || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
+  return TRIGGER_PROVIDERS.includes(normalized as TriggerProvider) ? normalized as TriggerProvider : 'github';
+}
+
+export function normalizeTriggerManagement(value?: string): TriggerManagementMode {
+  const normalized = String(value || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
+  return normalized === 'repository' ? 'repository' : 'nopsai';
+}
+
+export function normalizeTriggerTeamPath(value?: string): string {
+  const normalized = String(value || '')
+    .trim()
+    .replace(/^\/+|\/+$/g, '')
+    .replace(/\/+/g, '/');
+  return normalized && normalized.toLowerCase() !== 'root' ? normalized : 'root';
+}
+
+export function triggerDetailsFormFromYaml(rawYaml: string, detail?: Partial<TriggerDetail> | null): TriggerDetailsFormState {
+  let parsed: Record<string, unknown> | undefined;
+  try {
+    parsed = yaml.load(rawYaml || '') as Record<string, unknown> | undefined;
+  } catch {
+    parsed = undefined;
+  }
+  const root = asRecord(parsed) || {};
+  const provider = normalizeTriggerProvider(
+    typeof root.provider === 'string' ? root.provider : detail?.provider
+  );
+  return {
+    provider,
+    teamPath: normalizeTriggerTeamPath(
+      typeof root.team_path === 'string'
+        ? root.team_path
+        : typeof root.team === 'string'
+          ? root.team
+          : detail?.teamPath
+    ),
+    management: normalizeTriggerManagement(
+      typeof root.management === 'string' ? root.management : detail?.management
+    ),
+    webhookSourceID: provider === 'github'
+      ? ''
+      : String(
+          typeof root.webhook_source === 'string'
+            ? root.webhook_source
+            : detail?.webhookSourceID || ''
+        ).trim(),
+  };
+}
+
+export function triggerDetailsWithProvider(
+  details: TriggerDetailsFormState,
+  provider: TriggerProvider
+): TriggerDetailsFormState {
+  return {
+    ...details,
+    provider,
+    webhookSourceID: provider === details.provider && provider !== 'github' ? details.webhookSourceID : '',
+  };
+}
+
+export function applyTriggerDetailsToYaml(rawYaml: string, details: TriggerDetailsFormState): string {
+  let parsed: Record<string, unknown> | undefined;
+  let parseFailed = false;
+  try {
+    parsed = yaml.load(rawYaml || '') as Record<string, unknown> | undefined;
+  } catch {
+    parseFailed = true;
+    parsed = undefined;
+  }
+  if (parseFailed && rawYaml.trim()) return rawYaml;
+  const root = asRecord(parsed) || {};
+  const provider = normalizeTriggerProvider(details.provider);
+  const teamPath = normalizeTriggerTeamPath(details.teamPath);
+  const management = normalizeTriggerManagement(details.management);
+  const nextRoot: Record<string, unknown> = {
+    provider,
+    team: teamPath,
+  };
+  if (management !== 'nopsai') nextRoot.management = management;
+  const webhookSourceID = String(details.webhookSourceID || '').trim();
+  if (provider !== 'github' && webhookSourceID) {
+    nextRoot.webhook_source = webhookSourceID;
+  }
+  Object.entries(root).forEach(([key, value]) => {
+    if (TRIGGER_ROOT_KEYS.includes(key)) return;
+    nextRoot[key] = value;
+  });
+  nextRoot.triggers = Array.isArray(root.triggers) && root.triggers.length
+    ? root.triggers
+    : [{
+        on: 'push',
+        branches: ['main'],
+        pipelines: ['pipelines/sample-pipeline.yaml'],
+      }];
+  return yaml.dump(nextRoot, {
+    lineWidth: -1,
+    noRefs: true,
+    sortKeys: false,
+  });
+}
+
 export function filterTriggerListItems(
   items: readonly TriggerListItem[],
   {
@@ -120,7 +308,17 @@ export function filterTriggerListItems(
     const sourceKey = normalizeSource(item.source);
     if (source !== 'all' && sourceKey !== source) return false;
     if (!normalizedQuery) return true;
-    return `${item.slug} ${sourceLabel(sourceKey)}`.toLowerCase().includes(normalizedQuery);
+    return [
+      item.slug,
+      sourceLabel(sourceKey),
+      item.provider,
+      item.teamPath,
+      item.management,
+      item.webhookSourceID,
+      item.webhookSourceName,
+      item.ingress,
+      item.allowlistStatus,
+    ].join(' ').toLowerCase().includes(normalizedQuery);
   });
 }
 
@@ -218,7 +416,21 @@ export function parseTriggerOverrideList(payload: unknown): TriggerListItem[] {
     const record = asRecord(entry);
     if (!record) return;
     const slug = String(record.name || record.repository_name || record.slug || record.repo || '').trim();
-    if (slug) items.push({ slug, source: typeof record.source === 'string' ? normalizeSource(record.source) : '' });
+    if (slug) {
+      const item: TriggerListItem = {
+        slug,
+        source: typeof record.source === 'string' ? normalizeSource(record.source) : '',
+      };
+      if (typeof record.provider === 'string') item.provider = record.provider;
+      if (typeof record.team_path === 'string') item.teamPath = record.team_path;
+      if (typeof record.management === 'string') item.management = record.management;
+      if (typeof record.webhook_source_id === 'string') item.webhookSourceID = record.webhook_source_id;
+      if (typeof record.webhook_source_name === 'string') item.webhookSourceName = record.webhook_source_name;
+      if (typeof record.ingress === 'string') item.ingress = record.ingress;
+      if (typeof record.allowlist_status === 'string') item.allowlistStatus = record.allowlist_status;
+      if (typeof record.repository_for_webhook === 'string') item.repositoryForWebhook = record.repository_for_webhook;
+      items.push(item);
+    }
   });
   return items.sort((a, b) => a.slug.localeCompare(b.slug, undefined, { sensitivity: 'base' }));
 }
@@ -233,8 +445,16 @@ export function deriveDefaultPipelinePath(repoSlug: string): string {
   return `pipelines/${sanitized}.yaml`;
 }
 
-export function buildNewTriggerYaml(pipelinePath: string): string {
-  return `triggers:\n  - on: push\n    branches:\n      - main\n    pipelines:\n      - ${pipelinePath || 'pipelines/sample-pipeline.yaml'}\n`;
+export function buildNewTriggerYaml(pipelinePath: string, details?: Partial<TriggerDetailsFormState>): string {
+  return applyTriggerDetailsToYaml(
+    `triggers:\n  - on: push\n    branches:\n      - main\n    pipelines:\n      - ${pipelinePath || 'pipelines/sample-pipeline.yaml'}\n`,
+    {
+      provider: normalizeTriggerProvider(details?.provider),
+      teamPath: normalizeTriggerTeamPath(details?.teamPath),
+      management: normalizeTriggerManagement(details?.management),
+      webhookSourceID: details?.webhookSourceID || '',
+    }
+  );
 }
 
 export function splitTriggerSlug(slug: string) {

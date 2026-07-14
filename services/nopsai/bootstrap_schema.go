@@ -38,6 +38,7 @@ func databaseBootstrapSteps(cfg *config.Config) []databaseBootstrapStep {
 		{name: "resource authorization schema", run: ensureResourceAuthorizationSchema},
 		{name: "external trigger schema", run: ensureExternalTriggerSchema},
 		{name: "git webhook source schema", run: ensureGitWebhookSourceSchema},
+		{name: "repository trigger schema", run: ensureRepositoryTriggerSchema},
 		{name: "schedule schema", run: ensureScheduleSchema},
 		{name: "LLM profile schema", run: ensureLLMProfileSchema},
 		{name: "agent profile schema", run: ensureAgentProfileSchema},

@@ -886,52 +886,15 @@ func (a *App) fetchTriggerManifest(owner, repo, commitSHA string) (models.Manife
 func (a *App) loadTriggerManifestOverride(ctx context.Context, owner, repo string) (models.Manifest, string, bool, error) {
 	fullName := repositoryFullName(owner, repo)
 	var manifest models.Manifest
-	matches, err := a.repositoryTeamMatches(ctx, owner, repo)
-	if err != nil {
+	record, found, err := a.loadRepositoryTriggerOverride(ctx, owner, repo)
+	if err != nil || !found {
 		return manifest, "", false, err
 	}
-	teamPaths := make([]string, 0, len(matches))
-	for _, match := range matches {
-		teamPaths = append(teamPaths, match.Path)
-	}
-	specificKeys, ownerWideKeys := repositoryTriggerOverrideKeys(owner, repo, teamPaths)
-	dbSpecificKeys, err := a.triggerOverrideKeysEndingWith(ctx, fullName)
-	if err != nil {
+	if err := yaml.Unmarshal([]byte(record.Definition), &manifest); err != nil {
 		return manifest, "", false, err
 	}
-	dbOwnerWideKeys, err := a.triggerOverrideKeysEndingWith(ctx, repositoryFullName(owner, "all"))
-	if err != nil {
-		return manifest, "", false, err
-	}
-	specificKeys = sortTriggerKeysBySpecificity(appendUniqueStrings(specificKeys, dbSpecificKeys))
-	ownerWideKeys = sortTriggerKeysBySpecificity(appendUniqueStrings(ownerWideKeys, dbOwnerWideKeys))
-
-	// 1. Try Specific Repo Override
-	for _, key := range specificKeys {
-		if overrideDef, err := a.getTriggerOverride(ctx, key); err != nil {
-			return manifest, "", false, err
-		} else if overrideDef != "" {
-			if err := yaml.Unmarshal([]byte(overrideDef), &manifest); err != nil {
-				return manifest, "", false, err
-			}
-			log.Info().Str("repository", fullName).Str("trigger", key).Msg("Using trigger override from database")
-			return manifest, "database override", true, nil
-		}
-	}
-
-	// 2. Try Owner-Wide "all" Override
-	for _, key := range ownerWideKeys {
-		if overrideDef, err := a.getTriggerOverride(ctx, key); err != nil {
-			return manifest, "", false, err
-		} else if overrideDef != "" {
-			if err := yaml.Unmarshal([]byte(overrideDef), &manifest); err != nil {
-				return manifest, "", false, err
-			}
-			log.Info().Str("repository", fullName).Str("owner_trigger", key).Msg("Using owner-wide trigger override from database")
-			return manifest, "database owner override", true, nil
-		}
-	}
-	return manifest, "", false, nil
+	log.Info().Str("repository", fullName).Str("trigger", record.RepositoryName).Msg("Using trigger override from database")
+	return manifest, "database override", true, nil
 }
 
 func (a *App) ensureCheckRunAsync(runID uuid.UUID, pipeline models.Pipeline, resolvedPipelineDef []byte, gitCtx map[string]string, pipelineSource string, isRerun bool) {

@@ -19,8 +19,8 @@ more pipelines.
 5. The normalized repository must match the source allowlist.
 6. NopsAI records an idempotent delivery audit row and applies the source rate
    limit.
-7. The database trigger override for the repository, including an applicable
-   repository-team override, is matched.
+7. The assigned NopsAI repository trigger is loaded. Missing or unassigned
+   triggers finish as `no_match`.
 8. Matched pipeline definitions are loaded from the NopsAI database and started
    through the normal run path with the repository as runtime caller.
 9. The delivery is finalized as `processed`, `partial`, `no_match`, or `failed`
@@ -29,6 +29,13 @@ more pipelines.
 Generic Git runs use `pipeline_source=git_webhook` and
 `trigger_source=git_webhook_<provider>`. They do not create or update GitHub
 checks.
+
+If an exact allowlist entry has no NopsAI trigger, the source detail UI shows:
+
+```text
+Repository allowed, but no NopsAI trigger is configured.
+Webhook events will not start pipelines.
+```
 
 ## V1 Configuration Boundary
 
@@ -58,6 +65,8 @@ name: GitLab Platform
 description: Primary GitLab repository event source
 provider: gitlab
 enabled: true
+team_path: platform
+visibility: workspace
 auth_mode: static_token
 credential_ref: credential://system/webhooks/gitlab-platform
 repository_allowlist:
@@ -66,6 +75,10 @@ repository_allowlist:
 rate_limit:
   per_minute: 120
 ```
+
+`team_path` is the owner path. `visibility: team` limits assignment to triggers
+in the same team boundary. `visibility: workspace` makes the source
+workspace-shared so any team can assign a compatible repository trigger.
 
 Supported providers:
 
@@ -108,6 +121,51 @@ case-insensitive and supports:
 
 The allowlist is evaluated after signature verification and provider
 normalization, before trigger lookup.
+
+## Repository Triggers
+
+Repository trigger manifests still use the existing `triggers:` rules, with
+optional top-level metadata:
+
+```yaml
+provider: gitlab
+team: team-1
+webhook_source: gitlab-platform
+management: nopsai
+triggers:
+  - on: push
+    branches:
+      - main
+    pipelines:
+      - team-1/build
+      - shared/security-scan
+    scope: team-1/dev
+```
+
+Rules:
+
+- `repository_name` remains unique: one trigger configuration owns one
+  repository key.
+- The trigger can contain multiple event, branch, tag, and path rules.
+- A matched rule can start multiple pipelines.
+- `team` associates the repository/app with that team for runtime resource
+  authorization.
+- Non-GitHub providers require `webhook_source`.
+- GitHub App triggers must not set `webhook_source`; ingress is automatic.
+- NopsAI-managed triggers take precedence over a repository
+  `.nopsai/triggers.yaml` file.
+
+The trigger UI edits the same top-level YAML metadata for provider, team,
+management mode, and webhook source through create/edit workflow dialogs. The
+explorer groups triggers by Git owner and then by NopsAI team, but save/delete
+and webhook matching still use only the provider repository key (`owner/repo`).
+Team assignment is selected from known NopsAI teams. For non-GitHub providers,
+the UI requires choosing an existing compatible Git webhook source; GitHub uses
+automatic GitHub App ingress.
+
+For GitHub repositories without a NopsAI-managed trigger, git-bot reads
+`.nopsai/triggers.yaml` from the repository and treats that file as read-only
+repository-managed configuration in NopsAI.
 
 ## Trigger Path Filters
 
@@ -190,8 +248,13 @@ Management actions are:
 
 Webhook delivery is public at the bearer-token layer because providers cannot
 use NopsAI sessions. Source authentication, the repository allowlist, rate
-limits, payload limits, delivery idempotency, and runtime resource checks form
-the ingress boundary.
+limits, payload limits, delivery idempotency, trigger assignment, and runtime
+resource checks form the ingress boundary.
+
+Runtime authorization checks the repository independently against each resource:
+`pipeline.use`, `scope.use`, reusable `step.use`, and child `pipeline.use`.
+Same-team resources are normally available. Cross-team resources require
+explicit sharing or workspace visibility.
 
 Direct update and delete APIs are allowed when AAA permits. Updating a
 GitOps-managed source stores a database override, and deleting one removes the
@@ -213,5 +276,7 @@ Operational checks:
 - keep unauthenticated sources on private ingress only;
 - review `partial` and `failed` deliveries for missing pipelines, runtime AAA
   denials, or invalid trigger configuration;
+- review `no_match` deliveries for missing triggers, unassigned triggers, or
+  source/trigger provider mismatches;
 - use source-level rate limits in addition to ingress rate limiting;
 - keep trigger overrides and pipelines synchronized before enabling a source.

@@ -1,3 +1,7 @@
+provider: gitlab
+team: team-1
+webhook_source: gitlab-platform
+management: nopsai
 triggers:
   - on: push
     branches:

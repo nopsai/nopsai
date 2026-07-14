@@ -10,7 +10,12 @@ import (
 
 // Manifest represents the structure of the .nopsai.yaml manifest file.
 type Manifest struct {
-	Triggers []Trigger `yaml:"triggers" json:"triggers"`
+	Provider      string    `yaml:"provider,omitempty" json:"provider,omitempty"`
+	Team          string    `yaml:"team,omitempty" json:"team,omitempty"`
+	TeamPath      string    `yaml:"team_path,omitempty" json:"team_path,omitempty"`
+	WebhookSource string    `yaml:"webhook_source,omitempty" json:"webhook_source,omitempty"`
+	Management    string    `yaml:"management,omitempty" json:"management,omitempty"`
+	Triggers      []Trigger `yaml:"triggers" json:"triggers"`
 }
 
 // Trigger defines a rule for when a pipeline should be run.
