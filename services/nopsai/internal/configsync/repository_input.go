@@ -7,15 +7,18 @@ import (
 	"strings"
 
 	"nopsai/pkg/models"
+	"nopsai/services/nopsai/internal/credentials"
 )
 
 type RepositoryInputRequest struct {
-	RepoURL      string `json:"repo_url"`
-	Branch       string `json:"branch"`
-	BasePath     string `json:"base_path"`
-	Enabled      *bool  `json:"enabled"`
-	WriteEnabled *bool  `json:"write_enabled"`
-	WriteBranch  string `json:"write_branch"`
+	RepoURL       string `json:"repo_url"`
+	Provider      string `json:"provider"`
+	Branch        string `json:"branch"`
+	BasePath      string `json:"base_path"`
+	CredentialRef string `json:"credential_ref"`
+	Enabled       *bool  `json:"enabled"`
+	WriteEnabled  *bool  `json:"write_enabled"`
+	WriteBranch   string `json:"write_branch"`
 }
 
 func BuildRepositoryInput(req RepositoryInputRequest, scopeType, scopeID, actor string) (models.ConfigRepositoryInput, error) {
@@ -31,6 +34,19 @@ func BuildRepositoryInput(req RepositoryInputRequest, scopeType, scopeID, actor 
 	repoURL := strings.TrimSpace(req.RepoURL)
 	if repoURL == "" {
 		return models.ConfigRepositoryInput{}, fmt.Errorf("repo_url is required")
+	}
+	provider, err := NormalizeRepositoryProvider(req.Provider, repoURL)
+	if err != nil {
+		return models.ConfigRepositoryInput{}, err
+	}
+	credentialRef := strings.TrimSpace(req.CredentialRef)
+	if credentialRef != "" {
+		if _, err := credentials.ParseReference(credentialRef); err != nil {
+			return models.ConfigRepositoryInput{}, fmt.Errorf("credential_ref is invalid: %w", err)
+		}
+	}
+	if provider != models.ConfigRepositoryProviderGitHub && credentialRef == "" {
+		return models.ConfigRepositoryInput{}, fmt.Errorf("credential_ref is required for %s config repositories", provider)
 	}
 	branch := strings.TrimSpace(req.Branch)
 	if branch == "" {
@@ -59,15 +75,17 @@ func BuildRepositoryInput(req RepositoryInputRequest, scopeType, scopeID, actor 
 	}
 
 	return models.ConfigRepositoryInput{
-		ScopeType:    scopeType,
-		ScopeID:      scopeID,
-		RepoURL:      repoURL,
-		Branch:       branch,
-		BasePath:     basePath,
-		Enabled:      enabled,
-		WriteEnabled: writeEnabled,
-		WriteBranch:  writeBranch,
-		Actor:        actor,
+		ScopeType:     scopeType,
+		ScopeID:       scopeID,
+		Provider:      provider,
+		RepoURL:       repoURL,
+		Branch:        branch,
+		BasePath:      basePath,
+		CredentialRef: credentialRef,
+		Enabled:       enabled,
+		WriteEnabled:  writeEnabled,
+		WriteBranch:   writeBranch,
+		Actor:         actor,
 	}, nil
 }
 

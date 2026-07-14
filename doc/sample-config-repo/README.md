@@ -20,6 +20,7 @@ team path.
 
 ```json
 {
+  "provider": "github",
   "repo_url": "https://github.com/acme/nopsai-global-config",
   "branch": "main",
   "base_path": "",
@@ -34,14 +35,33 @@ Create or update it through:
 ```bash
 curl -X PUT \
   -H "Content-Type: application/json" \
-  -d '{"repo_url":"https://github.com/acme/nopsai-global-config","branch":"main","base_path":"","enabled":true,"write_enabled":true,"write_branch":"nopsai/ui-changes"}' \
+  -d '{"provider":"github","repo_url":"https://github.com/acme/nopsai-global-config","branch":"main","base_path":"","enabled":true,"write_enabled":true,"write_branch":"nopsai/ui-changes"}' \
   http://localhost:8080/v1/system/config-repo
 ```
 
 `branch` is the GitOps sync source. `write_enabled` and `write_branch` let
 Nopsai push generated GitOps changes to a review branch instead of writing
-directly to the sync branch. Configure the GitHub App with `contents: read and
-write` when this is enabled.
+directly to the sync branch. `provider` can be `github`, `gitlab`, `bitbucket`,
+or `gitea`. GitHub can use the existing GitHub App/git-bot path when
+`credential_ref` is omitted; GitHub with `credential_ref`, GitLab, Bitbucket,
+Cloud-compatible repositories, and Gitea use a `bearer_token` credential
+reference for read and write access.
+
+Team bindings use the same provider fields, either as standalone
+`config-repositories/teams/<team>.yaml` files or inline `config:` blocks in a
+team `structure.yaml`:
+
+```yaml
+config:
+  provider: gitlab
+  repo_url: https://gitlab.com/acme/platform/team-1-config.git
+  credential_ref: credential://system/gitops/gitlab-platform
+  branch: main
+  base_path: ""
+  enabled: true
+  write_enabled: true
+  write_branch: nopsai/team-1-ui
+```
 
 The drift endpoint compares Nopsai's current config with the sync branch before
 you push:

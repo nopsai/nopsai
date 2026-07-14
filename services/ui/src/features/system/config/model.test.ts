@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { normalizeRuntimePools, normalizeSystemConfigPayload, systemConfigPayloadFromForm } from './model.js';
+import { configRepositoryFormFromRecord, configRepositoryPayloadFromForm, normalizeConfigRepository, normalizeRuntimePools, normalizeSystemConfigPayload, systemConfigPayloadFromForm } from './model.js';
 
 test('normalizes system runtime config with GitHub App UI ownership', () => {
   const { config, envFilePath, fieldMetadata } = normalizeSystemConfigPayload({
@@ -126,4 +126,35 @@ test('normalizes runtime pool map names, selectors, requests, and limits', () =>
       },
     }
   );
+});
+
+test('normalizes config repository provider credentials and payload', () => {
+  const repo = normalizeConfigRepository({
+    id: 8,
+    scope_type: 'system',
+    scope_id: 'global',
+    provider: 'gitlab',
+    repo_url: 'https://gitlab.com/acme/platform/configs',
+    branch: '',
+    base_path: 'nopsai',
+    credential_ref: 'credential://system/gitops/gitlab',
+    enabled: true,
+    write_enabled: true,
+    write_branch: '',
+    last_sync_status: 'success',
+  });
+
+  assert.ok(repo);
+  assert.equal(repo.provider, 'gitlab');
+  assert.equal(repo.credential_ref, 'credential://system/gitops/gitlab');
+  assert.equal(repo.branch, 'main');
+  assert.equal(repo.write_branch, 'nopsai/ui-changes');
+
+  const form = configRepositoryFormFromRecord(repo);
+  const payload = configRepositoryPayloadFromForm({
+    ...form,
+    credential_ref: ' credential://system/gitops/gitlab-prod ',
+  });
+  assert.equal(payload.provider, 'gitlab');
+  assert.equal(payload.credential_ref, 'credential://system/gitops/gitlab-prod');
 });

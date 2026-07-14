@@ -71,7 +71,7 @@ func (a *App) handleGetConfigRepositoryDrift(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	gitFiles, err := a.loadConfigRepositoryGitFiles(repo)
+	gitFiles, err := a.loadConfigRepositoryGitFiles(r.Context(), repo)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
@@ -93,13 +93,14 @@ func (a *App) handleGetConfigRepositoryDrift(w http.ResponseWriter, r *http.Requ
 	})
 }
 
-func (a *App) loadConfigRepositoryGitFiles(repo models.ConfigRepository) (map[string]string, error) {
-	owner, name, err := configsync.ParseGitHubRepoURL(repo.RepoURL)
+func (a *App) loadConfigRepositoryGitFiles(ctx context.Context, repo models.ConfigRepository) (map[string]string, error) {
+	client, _, err := a.newConfigRepositoryGitContentClient(ctx, repo)
 	if err != nil {
 		return nil, err
 	}
 	result := map[string]string{}
 	dirs := configRepositoryGitDirsForBasePath(repo.BasePath)
+	branch := configRepositoryBranch(repo.Branch)
 	for _, directoryPath := range []string{
 		dirs.pipeline,
 		dirs.step,
@@ -113,7 +114,7 @@ func (a *App) loadConfigRepositoryGitFiles(repo models.ConfigRepository) (map[st
 		dirs.access,
 		dirs.setting,
 	} {
-		files, err := a.requestGitBotDirectory(owner, name, repo.Branch, directoryPath)
+		files, err := client.Directory(ctx, branch, directoryPath)
 		if err != nil {
 			return nil, err
 		}
@@ -127,7 +128,7 @@ func (a *App) loadConfigRepositoryGitFiles(repo models.ConfigRepository) (map[st
 	}
 	if repo.ScopeType == models.ConfigRepositoryScopeTeam {
 		rootPath := configsync.RepoJoinPath(repo.BasePath, "notifications.yaml")
-		content, err := a.requestGitBotFile(owner, name, repo.Branch, rootPath, errNotificationGitOpsNotFound)
+		content, err := client.File(ctx, branch, rootPath, errNotificationGitOpsNotFound)
 		if err == nil {
 			if rel, ok := configRepositoryRelativeGitPath(repo.BasePath, rootPath); ok && isConfigRepositoryDriftPath(rel) {
 				result[rel] = normalizeConfigRepositoryFileContent(content)
@@ -139,7 +140,7 @@ func (a *App) loadConfigRepositoryGitFiles(repo models.ConfigRepository) (map[st
 			configsync.RepoJoinPath(repo.BasePath, "ai-profiles.yaml"),
 			configsync.RepoJoinPath(repo.BasePath, "ai-profiles.yml"),
 		} {
-			content, err := a.requestGitBotFile(owner, name, repo.Branch, rootPath, errTeamAIProfilesGitOpsNotFound)
+			content, err := client.File(ctx, branch, rootPath, errTeamAIProfilesGitOpsNotFound)
 			if err == nil {
 				if rel, ok := configRepositoryRelativeGitPath(repo.BasePath, rootPath); ok && isConfigRepositoryDriftPath(rel) {
 					result[rel] = normalizeConfigRepositoryFileContent(content)

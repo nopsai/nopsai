@@ -152,6 +152,15 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			}
 		}
 	}
+	for key, repo := range configRepositories {
+		if err := a.ensureCredentialReferenceMetadata(
+			ctx,
+			repo.credentialRef,
+			credentialMetadata("bearer_token", "Git provider token for config repository "+key, repo.sourcePath),
+		); err != nil {
+			return fmt.Errorf("prepare config repository credential metadata for %q: %w", key, err)
+		}
+	}
 
 	// --- 3. Database Transaction (Upsert + Prune) ---
 	tx, err := a.db.Begin(ctx)
@@ -351,14 +360,16 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			updated_by = EXCLUDED.updated_by,
 			updated_at = NOW()`
 	const configRepositoryUpsert = `INSERT INTO config_repositories (
-			scope_type, scope_id, repo_url, branch, base_path, enabled, write_enabled, write_branch,
+			scope_type, scope_id, provider, repo_url, branch, base_path, credential_ref, enabled, write_enabled, write_branch,
 			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo,
 			created_by, updated_by
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, TRUE, 'config-repo', 'config-repo')
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, TRUE, 'config-repo', 'config-repo')
 		ON CONFLICT (scope_type, scope_id) DO UPDATE SET
+			provider = EXCLUDED.provider,
 			repo_url = EXCLUDED.repo_url,
 			branch = EXCLUDED.branch,
 			base_path = EXCLUDED.base_path,
+			credential_ref = EXCLUDED.credential_ref,
 			enabled = EXCLUDED.enabled,
 			write_enabled = EXCLUDED.write_enabled,
 			write_branch = EXCLUDED.write_branch,
@@ -378,7 +389,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		if !writable {
 			continue
 		}
-		if _, err := tx.Exec(ctx, configRepositoryUpsert, stored.scopeType, stored.scopeID, stored.repoURL, stored.branch, stored.basePath, stored.enabled, stored.writeEnabled, stored.writeBranch, binding.ID, stored.sourcePath, commitSHA); err != nil {
+		if _, err := tx.Exec(ctx, configRepositoryUpsert, stored.scopeType, stored.scopeID, stored.provider, stored.repoURL, stored.branch, stored.basePath, stored.credentialRef, stored.enabled, stored.writeEnabled, stored.writeBranch, binding.ID, stored.sourcePath, commitSHA); err != nil {
 			return fmt.Errorf("failed to upsert config repository binding '%s': %w", key, err)
 		}
 		details["config_repositories_synced"]++

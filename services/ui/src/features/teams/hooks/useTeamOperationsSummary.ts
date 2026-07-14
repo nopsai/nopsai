@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { isAppTeam, teamPathForURL, type Team } from '../../../lib/teamModels';
+import { normalizeConfigRepositoryProvider } from '../../../lib/configRepositoryProviders.js';
 import {
   fetchTeamAgentProfiles,
   fetchTeamConfigRepository,
@@ -301,9 +302,11 @@ function normalizeConfigRepository(payload: unknown): PipelineRunsConfigReposito
     id: Number.isFinite(id) ? id : 0,
     scope_type: typeof record.scope_type === 'string' ? record.scope_type : '',
     scope_id: typeof record.scope_id === 'string' ? record.scope_id : '',
+    provider: normalizeConfigRepositoryProvider(record.provider),
     repo_url: typeof record.repo_url === 'string' ? record.repo_url : '',
     branch: typeof record.branch === 'string' && record.branch.trim() ? record.branch : 'main',
     base_path: typeof record.base_path === 'string' ? record.base_path : '',
+    credential_ref: typeof record.credential_ref === 'string' ? record.credential_ref : '',
     enabled: Boolean(record.enabled),
     write_enabled: Boolean(record.write_enabled),
     write_branch: typeof record.write_branch === 'string' && record.write_branch.trim() ? record.write_branch : 'nopsai/ui-changes',

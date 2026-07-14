@@ -12,6 +12,7 @@ import { ApplyBadge } from './config/ConfigApplyBadge';
 import GitHubAppSettingsCard from './config/GitHubAppSettingsCard';
 import { RuntimePoolsEditor } from './config/RuntimePoolsEditor';
 import { CredentialReferenceLink } from './credentials/CredentialReferenceLink';
+import { CONFIG_REPOSITORY_PROVIDER_OPTIONS } from '../../lib/configRepositoryProviders.js';
 
 function SystemConfig({
   config,
@@ -117,7 +118,7 @@ function SystemConfig({
     onMailSettingsChange(prev => ({ ...prev, [key]: value } as NotificationMailSettingsFormState));
   };
 
-  const handleGlobalRepoChange = (key: keyof ConfigRepositoryFormState) => (event: ChangeEvent<HTMLInputElement>) => {
+  const handleGlobalRepoChange = (key: keyof ConfigRepositoryFormState) => (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
     onGlobalConfigRepoChange(prev => ({ ...prev, [key]: value } as ConfigRepositoryFormState));
   };
@@ -619,7 +620,11 @@ function SystemConfig({
 
               {globalConfigRepo && (
                 <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-4 py-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-sm">
+                    <div>
+                      <p className="text-xs text-[var(--text-secondary)]">Provider</p>
+                      <p className="font-semibold text-[var(--text-primary)]">{globalConfigRepo.provider}</p>
+                    </div>
                     <div>
                       <p className="text-xs text-[var(--text-secondary)]">Status</p>
                       <p className="font-semibold text-[var(--text-primary)]">{globalConfigRepo.last_sync_status || 'Not synced'}</p>
@@ -646,7 +651,21 @@ function SystemConfig({
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <label className="flex flex-col gap-1 text-sm md:col-span-2">
+                <label className="flex flex-col gap-1 text-sm">
+                  <span>Provider</span>
+                  <select
+                    id="system-global-config-repo-provider"
+                    className="pipelines-input"
+                    value={globalConfigRepoForm.provider}
+                    onChange={handleGlobalRepoChange('provider')}
+                    disabled={!globalRepoCanEdit}
+                  >
+                    {CONFIG_REPOSITORY_PROVIDER_OPTIONS.map(option => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
                   <span>Repository URL</span>
                   <input
                     id="system-global-config-repo-url"
@@ -658,6 +677,22 @@ function SystemConfig({
                     placeholder="https://github.com/org/nopsai-config"
                     disabled={!globalRepoCanEdit}
                   />
+                </label>
+                <label className="flex flex-col gap-1 text-sm md:col-span-2">
+                  <span>Credential reference</span>
+                  <input
+                    id="system-global-config-repo-credential-ref"
+                    type="text"
+                    className="pipelines-input"
+                    value={globalConfigRepoForm.credential_ref}
+                    onChange={handleGlobalRepoChange('credential_ref')}
+                    placeholder="credential://system/gitops/gitlab-token"
+                    required={canManageGlobalConfigRepo && globalConfigRepoForm.provider !== 'github'}
+                    disabled={!globalRepoCanEdit}
+                  />
+                  <CredentialReferenceLink reference={globalConfigRepoForm.credential_ref} className="text-xs underline decoration-dotted underline-offset-4 hover:text-[var(--accent-primary)]">
+                    Open credential
+                  </CredentialReferenceLink>
                 </label>
                 <label className="flex flex-col gap-1 text-sm">
                   <span>Branch</span>

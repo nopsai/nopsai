@@ -5,17 +5,20 @@ import (
 	"strings"
 
 	"nopsai/pkg/models"
+	"nopsai/services/nopsai/internal/credentials"
 )
 
 type BindingFile struct {
-	ScopeType    string `yaml:"scope_type" json:"scope_type"`
-	ScopeID      string `yaml:"scope_id" json:"scope_id"`
-	RepoURL      string `yaml:"repo_url" json:"repo_url"`
-	Branch       string `yaml:"branch" json:"branch"`
-	BasePath     string `yaml:"base_path" json:"base_path"`
-	Enabled      *bool  `yaml:"enabled" json:"enabled"`
-	WriteEnabled *bool  `yaml:"write_enabled" json:"write_enabled"`
-	WriteBranch  string `yaml:"write_branch" json:"write_branch"`
+	ScopeType     string `yaml:"scope_type" json:"scope_type"`
+	ScopeID       string `yaml:"scope_id" json:"scope_id"`
+	Provider      string `yaml:"provider" json:"provider"`
+	RepoURL       string `yaml:"repo_url" json:"repo_url"`
+	Branch        string `yaml:"branch" json:"branch"`
+	BasePath      string `yaml:"base_path" json:"base_path"`
+	CredentialRef string `yaml:"credential_ref" json:"credential_ref"`
+	Enabled       *bool  `yaml:"enabled" json:"enabled"`
+	WriteEnabled  *bool  `yaml:"write_enabled" json:"write_enabled"`
+	WriteBranch   string `yaml:"write_branch" json:"write_branch"`
 }
 
 func ParseBindingPath(rel string) (string, string, error) {
@@ -51,6 +54,18 @@ func ValidateBindingFile(file BindingFile, scopeType, scopeID, sourcePath string
 	}
 	if strings.TrimSpace(file.RepoURL) == "" {
 		return fmt.Errorf("config repository binding '%s' is missing repo_url", sourcePath)
+	}
+	provider, err := NormalizeRepositoryProvider(file.Provider, file.RepoURL)
+	if err != nil {
+		return fmt.Errorf("config repository binding '%s' has invalid provider: %w", sourcePath, err)
+	}
+	if strings.TrimSpace(file.CredentialRef) != "" {
+		if _, err := credentials.ParseReference(file.CredentialRef); err != nil {
+			return fmt.Errorf("config repository binding '%s' has invalid credential_ref: %w", sourcePath, err)
+		}
+	}
+	if provider != models.ConfigRepositoryProviderGitHub && strings.TrimSpace(file.CredentialRef) == "" {
+		return fmt.Errorf("config repository binding '%s' requires credential_ref for provider %s", sourcePath, provider)
 	}
 	if strings.TrimSpace(file.WriteBranch) != "" {
 		if err := ValidateBranchName(file.WriteBranch, "write_branch"); err != nil {

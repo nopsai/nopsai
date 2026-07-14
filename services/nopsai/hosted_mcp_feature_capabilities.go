@@ -606,6 +606,7 @@ func hostedMCPFeatureCapabilityCatalog() []hostedMCPFeatureCapability {
 				"Scope sync",
 				"Knowledge sync",
 				"Config repository sync",
+				"GitHub, GitLab, Bitbucket, and Gitea config repository providers",
 				"Auth settings sync",
 				"Mail settings sync",
 				"LLM profile sync",

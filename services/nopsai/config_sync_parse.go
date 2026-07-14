@@ -135,21 +135,27 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 		if branch == "" {
 			branch = "main"
 		}
+		provider, err := configsync.NormalizeRepositoryProvider(file.Provider, file.RepoURL)
+		if err != nil {
+			return configSyncPlan{}, err
+		}
 
 		key := scopeType + "/" + scopeID
 		if _, exists := plan.configRepositories[key]; exists {
 			return configSyncPlan{}, fmt.Errorf("duplicate config repository binding for '%s' detected", key)
 		}
 		plan.configRepositories[key] = storedConfigRepository{
-			scopeType:    scopeType,
-			scopeID:      scopeID,
-			repoURL:      strings.TrimSpace(file.RepoURL),
-			branch:       branch,
-			basePath:     basePath,
-			enabled:      enabled,
-			writeEnabled: writeEnabled,
-			writeBranch:  writeBranch,
-			sourcePath:   normalized,
+			scopeType:     scopeType,
+			scopeID:       scopeID,
+			provider:      provider,
+			repoURL:       strings.TrimSpace(file.RepoURL),
+			branch:        branch,
+			basePath:      basePath,
+			credentialRef: strings.TrimSpace(file.CredentialRef),
+			enabled:       enabled,
+			writeEnabled:  writeEnabled,
+			writeBranch:   writeBranch,
+			sourcePath:    normalized,
 		}
 	}
 

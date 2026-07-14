@@ -26,6 +26,9 @@ func TestBuildRepositoryInputDefaultsAndValidation(t *testing.T) {
 	if input.ScopeID != "team-1" {
 		t.Fatalf("ScopeID = %q, want team-1", input.ScopeID)
 	}
+	if input.Provider != models.ConfigRepositoryProviderGitHub {
+		t.Fatalf("Provider = %q, want github", input.Provider)
+	}
 	if !input.Enabled {
 		t.Fatal("Enabled = false, want true")
 	}
@@ -56,6 +59,37 @@ func TestBuildRepositoryInputDefaultsAndValidation(t *testing.T) {
 		WriteBranch: "bad branch",
 	}, models.ConfigRepositoryScopeTeam, "team-1", "user-1"); err == nil {
 		t.Fatal("BuildRepositoryInput() accepted invalid write_branch")
+	}
+}
+
+func TestBuildRepositoryInputSupportsCredentialBackedProviders(t *testing.T) {
+	input, err := BuildRepositoryInput(RepositoryInputRequest{
+		RepoURL:       "https://gitlab.com/acme/platform/configs.git",
+		Provider:      "gitlab",
+		CredentialRef: "credential://system/gitops/gitlab",
+	}, models.ConfigRepositoryScopeSystem, models.ConfigRepositorySystemGlobalID, "user-1")
+	if err != nil {
+		t.Fatalf("BuildRepositoryInput() error = %v", err)
+	}
+	if input.Provider != models.ConfigRepositoryProviderGitLab {
+		t.Fatalf("Provider = %q, want gitlab", input.Provider)
+	}
+	if input.CredentialRef != "credential://system/gitops/gitlab" {
+		t.Fatalf("CredentialRef = %q", input.CredentialRef)
+	}
+
+	if _, err := BuildRepositoryInput(RepositoryInputRequest{
+		RepoURL:  "https://gitlab.com/acme/configs.git",
+		Provider: "gitlab",
+	}, models.ConfigRepositoryScopeTeam, "team-1", "user-1"); err == nil {
+		t.Fatal("BuildRepositoryInput() accepted gitlab without credential_ref")
+	}
+	if _, err := BuildRepositoryInput(RepositoryInputRequest{
+		RepoURL:       "https://bitbucket.org/acme/configs",
+		Provider:      "bitbucket",
+		CredentialRef: "not-a-reference",
+	}, models.ConfigRepositoryScopeTeam, "team-1", "user-1"); err == nil {
+		t.Fatal("BuildRepositoryInput() accepted invalid credential_ref")
 	}
 }
 

@@ -285,7 +285,10 @@ Rerun:
 
 1. A team owner calls `POST /v1/teams/{teamPath}/config-repository/sync`, or an admin calls `POST /v1/system/config-repos/sync`.
 2. `nopsai` loads the scoped config repository binding and validates team ownership for team-scoped sync.
-3. It asks `git-bot` to verify repository access.
+3. It verifies repository access through the configured Git provider. GitHub
+   bindings without `credential_ref` use the existing GitHub App/git-bot path;
+   GitHub with `credential_ref`, GitLab, Bitbucket, and Gitea use the referenced
+   bearer-token credential.
 4. It fetches directories from the config repo under the binding base path:
    - `pipelines/`
    - `steps/`
@@ -321,9 +324,9 @@ Rerun:
 
 For Git push, `nopsai` loads the same system or team config repository binding,
 validates that `write_enabled` and `write_branch` are set, prefixes requested
-file paths with the binding `base_path`, and asks `git-bot` to commit those
-files to the review branch. The sync branch is not updated directly. The drift
-endpoint exports the current declarative Nopsai config and compares it with the
+file paths with the binding `base_path`, and commits through the configured Git
+provider to the review branch. The sync branch is not updated directly. The
+drift endpoint exports the current declarative Nopsai config and compares it with the
 sync branch so the UI can show exact changes for pipelines, steps, schedules,
 triggers, scopes, knowledge contexts, run team/config-repository structure,
 notification routes, access manifests, Agent Profiles, LLM profiles, MCP
