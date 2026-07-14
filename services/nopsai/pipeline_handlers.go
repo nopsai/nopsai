@@ -372,6 +372,14 @@ func (a *App) handleCreateOrUpdateTriggerOverride(w http.ResponseWriter, r *http
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	appExists, appParentID, err := repositoryApplicationExists(r.Context(), a.db, triggerRecord)
+	if err != nil {
+		http.Error(w, "Failed to validate trigger application", http.StatusInternalServerError)
+		return
+	}
+	if !appExists && appParentID != nil && !a.authorizeApplicationCreate(w, r, appParentID) {
+		return
+	}
 
 	query := `INSERT INTO triggers (
 			repository_name, trigger_definition, source, visibility, provider, team_path, management, webhook_source_id,
@@ -389,7 +397,13 @@ func (a *App) handleCreateOrUpdateTriggerOverride(w http.ResponseWriter, r *http
 			config_source_path = '',
 			config_source_commit_sha = '',
 			managed_by_config_repo = FALSE`
-	_, err = a.db.Exec(context.Background(), query,
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		http.Error(w, "Failed to save trigger override", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	_, err = tx.Exec(r.Context(), query,
 		fullName,
 		string(triggerDef),
 		triggerRecord.Visibility,
@@ -400,6 +414,20 @@ func (a *App) handleCreateOrUpdateTriggerOverride(w http.ResponseWriter, r *http
 	)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to save trigger override")
+		http.Error(w, "Failed to save trigger override", http.StatusInternalServerError)
+		return
+	}
+	if _, _, err := a.ensureRepositoryTriggerApplication(r.Context(), tx, triggerRecord); err != nil {
+		log.Error().Err(err).Str("repository", fullName).Msg("Failed to ensure trigger application")
+		if strings.Contains(err.Error(), "already belongs") || strings.Contains(err.Error(), "conflicts") {
+			http.Error(w, err.Error(), http.StatusConflict)
+		} else {
+			http.Error(w, "Failed to ensure trigger application", http.StatusInternalServerError)
+		}
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		log.Error().Err(err).Msg("Failed to commit trigger override")
 		http.Error(w, "Failed to save trigger override", http.StatusInternalServerError)
 		return
 	}

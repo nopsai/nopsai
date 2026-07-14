@@ -14,7 +14,7 @@ services:
     # Generic Git webhook sources are handled by nopsai at /v1/git/webhooks/{sourceID}.
     # git-bot only exposes the GitHub App webhook at /webhook and protects other routes
     # with internal service-token authentication.
-    # command: http nopsai:8080 --domain=live-gecko-national.ngrok-free.app
-    command: http nopsai-git-bot:8081 --domain=live-gecko-national.ngrok-free.app
+    command: http nopsai:8080 --domain=live-gecko-national.ngrok-free.app
+    # command: http nopsai-git-bot:8081 --domain=live-gecko-national.ngrok-free.app
     networks:
       - nopsai-net

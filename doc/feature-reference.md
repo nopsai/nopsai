@@ -418,6 +418,9 @@ Sync behavior:
 - config repository drift compares both directions across syncable declarative resources: pipelines, reusable steps, schedules, triggers, scopes, knowledge contexts, notification routes, run team/config-repository structure, access manifests, Agent Profiles, LLM profiles, MCP registry files, auth settings, mail settings, runtime settings, and encrypted credential envelopes. UI-side Access dialog changes for pipelines, reusable steps, scopes, and knowledge contexts are exported back into embedded GitOps `access:` blocks; pipeline run rows remain runtime/audit state.
 - config sync can adopt matching database-owned resources inside the syncing repo scope after the generated files are present in the sync branch, then mark them as GitOps-managed
 - `config-repositories/teams/<team>/structure.yaml` can place apps under team shells with `name` and `repo_url`; these files can also include inline `config:` blocks for team repo bindings
+- repository triggers for GitHub, GitLab, and Bitbucket automatically contribute
+  matching repository apps to the team structure during sync, and matching
+  historical runs under the parent team/root are reassigned to the app
 - auth settings GitOps is system/global only and binds provider credential references
 - runtime settings GitOps is system/global only; `dispatcher_routing` changes are persisted and applied by the live dispatcher through the control-plane sync path
 - mail settings GitOps is system/global only and stores `smtp.password_credential_ref` rather than the SMTP password plaintext
@@ -529,8 +532,9 @@ Run organization behavior:
   explicit team path
 - repository metadata remains a source/runtime identity for Git-triggered runs,
   not a mandatory parent for every pipeline
-- repository-triggered runs do not create application/team records when no
-  existing owner can be resolved
+- repository-triggered runs prefer a matching repository application under the
+  trigger team; saving or syncing supported repository triggers creates the app
+  idempotently when the trigger team already exists or is declared by GitOps
 - scope remains a runtime environment/context attribute and filter; it is not a
   navigation parent under pipeline runs
 
