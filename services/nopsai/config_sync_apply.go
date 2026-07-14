@@ -265,12 +265,13 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			managed_by_config_repo = TRUE,
 			updated_at = NOW()`
 	const triggerUpsert = `INSERT INTO triggers (
-			repository_name, trigger_definition, source, provider, team_path, management, webhook_source_id,
+			repository_name, trigger_definition, source, visibility, provider, team_path, management, webhook_source_id,
 			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo
-		) VALUES ($1, $2, 'git', $3, $4, $5, NULLIF($6, ''), $7, $8, $9, TRUE)
+		) VALUES ($1, $2, 'git', $3, $4, $5, $6, NULLIF($7, ''), $8, $9, $10, TRUE)
 		ON CONFLICT (repository_name) DO UPDATE SET
 			trigger_definition = EXCLUDED.trigger_definition,
 			source = 'git',
+			visibility = EXCLUDED.visibility,
 			provider = EXCLUDED.provider,
 			team_path = EXCLUDED.team_path,
 			management = EXCLUDED.management,
@@ -612,6 +613,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		if _, err := tx.Exec(ctx, triggerUpsert,
 			repoName,
 			stored.definition,
+			stored.record.Visibility,
 			stored.record.Provider,
 			stored.record.TeamPath,
 			stored.record.Management,

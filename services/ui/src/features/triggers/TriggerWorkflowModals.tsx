@@ -37,6 +37,8 @@ type TriggerWorkflowModalsProps = {
   onSubmitEdit: () => void;
   onCloseClone: () => void;
   onUpdateCloneRepository: (repository: string) => void;
+  onUpdateCloneDetails: (details: TriggerDetailsFormState) => void;
+  onUpdateCloneYamlPreview: (yamlPreview: string) => void;
   onSubmitClone: () => void;
   onCloseDelete: () => void;
   onConfirmDelete: () => void;
@@ -81,8 +83,8 @@ function TriggerRepositoryDialog({
   const errorId = `${modalId}-error`;
   const inputId = `${modalId}-repository`;
   const title = isCreate ? 'Create trigger override' : `Clone ${selectedSlug || 'trigger'}`;
-  const createDetails = isCreate && 'details' in modal ? modal.details : null;
-  const teamOptions = uniqueTeamOptions([...(teamPaths || []), createDetails?.teamPath || 'root']);
+  const modalDetails = 'details' in modal ? modal.details : null;
+  const teamOptions = uniqueTeamOptions([...(teamPaths || []), modalDetails?.teamPath || 'root']);
 
   return (
     <WorkflowFormDialog
@@ -132,21 +134,21 @@ function TriggerRepositoryDialog({
         <p id={descriptionId} className="trigger-modal-hint">
           {isCreate
             ? 'Creates or replaces a trigger override stored in the database.'
-            : 'Copies the YAML from the current trigger into the target override.'}
+            : 'Copies the current trigger into an editable target override.'}
         </p>
       </div>
-      {createDetails && onUpdateDetails ? (
+      {modalDetails && onUpdateDetails ? (
         <TriggerMetadataFields
-          details={createDetails}
+          details={modalDetails}
           pending={modal.pending}
           teamPaths={teamOptions}
           webhookSources={webhookSources}
           onUpdate={onUpdateDetails}
         />
       ) : null}
-      {isCreate && 'yamlPreview' in modal ? (
+      {'yamlPreview' in modal ? (
         <div className="trigger-modal-field-repository">
-          <p className="block text-sm font-medium text-[var(--text-secondary)]">Template</p>
+          <p className="block text-sm font-medium text-[var(--text-secondary)]">{isCreate ? 'Template' : 'Definition'}</p>
           <textarea
             className="pipelines-input min-h-52 w-full font-mono text-xs"
             value={modal.yamlPreview}
@@ -325,6 +327,8 @@ export function TriggerWorkflowModals({
   onSubmitEdit,
   onCloseClone,
   onUpdateCloneRepository,
+  onUpdateCloneDetails,
+  onUpdateCloneYamlPreview,
   onSubmitClone,
   onCloseDelete,
   onConfirmDelete,
@@ -362,6 +366,8 @@ export function TriggerWorkflowModals({
           selectedSlug={selectedSlug}
           onClose={onCloseClone}
           onUpdateRepository={onUpdateCloneRepository}
+          onUpdateDetails={onUpdateCloneDetails}
+          onUpdateYamlPreview={onUpdateCloneYamlPreview}
           teamPaths={teamPaths}
           webhookSources={webhookSources}
           onSubmit={onSubmitClone}
