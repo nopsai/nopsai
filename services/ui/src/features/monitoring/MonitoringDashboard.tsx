@@ -346,7 +346,7 @@ function RunnersTab({ services, runners, summary, history, unavailable, loading 
   return (
     <div className="space-y-4">
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard icon={<Server />} label="Online runners" value={formatNumber(summary.online)} detail={`${formatNumber(summary.total)} total`} positiveIsGood tone="green" loading={loading} />
+        <MetricCard icon={<Server />} label="Online runners" value={formatNumber(summary.online)} detail={summary.unreachable ? `${formatNumber(summary.unreachable)} unreachable` : `${formatNumber(summary.total)} total`} positiveIsGood tone="green" loading={loading} />
         <MetricCard icon={<Gauge />} label="Capacity" value={formatNumber(summary.capacity)} detail={`${formatNumber(summary.activeJobs)} active`} positiveIsGood tone="blue" loading={loading} />
         <MetricCard icon={<Activity />} label="Inflight jobs" value={formatNumber(summary.inflightJobs)} detail={`${formatNumber(summary.queuedJobs)} queued`} tone="amber" loading={loading} />
         <MetricCard icon={<Layers />} label="Kubernetes" value={formatNumber(summary.kubernetes)} detail={`${formatNumber(summary.docker)} docker`} tone="red" loading={loading} />
@@ -922,6 +922,7 @@ function RunnerStatusGrid({ runners, summary, unavailable, loading }: { runners:
       <div className="grid grid-cols-2 gap-3">
         <RuntimeMini label="Total" value={formatNumber(summary.total)} />
         <RuntimeMini label="Online" value={formatNumber(summary.online)} />
+        <RuntimeMini label="Unreachable" value={formatNumber(summary.unreachable)} />
         <RuntimeMini label="K8s" value={formatNumber(summary.kubernetes)} />
         <RuntimeMini label="Docker" value={formatNumber(summary.docker)} />
         <RuntimeMini label="Capacity" value={formatNumber(summary.capacity)} />
@@ -1182,6 +1183,7 @@ function formatServiceStatusLabel(status: ServiceStatusValue) {
 
 function runnerStatusPillClass(status: RunnerStatusValue) {
   if (status === 'online') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300';
+  if (status === 'unreachable') return 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300';
   if (status === 'stale') return 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300';
   if (status === 'disabled') return 'border-slate-500/30 bg-slate-500/10 text-slate-600 dark:text-slate-300';
   return 'border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-300';
@@ -1189,6 +1191,7 @@ function runnerStatusPillClass(status: RunnerStatusValue) {
 
 function formatRunnerStatusLabel(status: RunnerStatusValue) {
   if (status === 'online') return 'Online';
+  if (status === 'unreachable') return 'Unreachable';
   if (status === 'stale') return 'Stale';
   if (status === 'disabled') return 'Disabled';
   return 'Unknown';

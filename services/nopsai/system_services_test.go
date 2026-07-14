@@ -113,6 +113,25 @@ func TestBuildSystemServiceStatusesHandlesDispatcherAndGitBotWarnings(t *testing
 	assertServiceStatus(t, byID, "git-bot", "warning", "NopsAI to git-bot URL is not configured.")
 }
 
+func TestBuildSystemServiceStatusesWarnsOnUnreachableRegisteredRunner(t *testing.T) {
+	app := App{cfg: &config.Config{}}
+	statuses := app.buildSystemServiceStatuses(context.Background(), &proto.DispatcherStatus{
+		Runners: []*proto.RunnerInfo{
+			{RunnerId: "runner-a"},
+			{
+				RunnerId: "runner-b",
+				Metadata: map[string]string{
+					"connection_status": "unreachable",
+					"reachable":         "false",
+				},
+			},
+		},
+	}, nil)
+
+	byID := systemServiceStatusesByID(statuses)
+	assertServiceStatus(t, byID, "runners", "warning", "2 runner(s) registered, 1 unreachable.")
+}
+
 func systemServiceStatusesByID(statuses []systemServiceStatus) map[string]systemServiceStatus {
 	byID := make(map[string]systemServiceStatus, len(statuses))
 	for _, status := range statuses {

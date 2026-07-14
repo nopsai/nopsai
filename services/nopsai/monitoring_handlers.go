@@ -45,6 +45,7 @@ type monitoringRunnerSummary struct {
 	Total        int   `json:"total"`
 	Online       int   `json:"online"`
 	Stale        int   `json:"stale"`
+	Unreachable  int   `json:"unreachable"`
 	Disabled     int   `json:"disabled"`
 	Unknown      int   `json:"unknown"`
 	Docker       int   `json:"docker"`
@@ -286,6 +287,8 @@ func monitoringRunnersFromDispatcherStatus(status *proto.DispatcherStatus, allow
 			summary.Online++
 		case "stale":
 			summary.Stale++
+		case "unreachable":
+			summary.Unreachable++
 		case "disabled":
 			summary.Disabled++
 		default:
@@ -376,6 +379,9 @@ func firstMonitoringText(values ...string) string {
 func monitoringRunnerState(runner *proto.RunnerInfo, now time.Time) string {
 	if runner == nil {
 		return "unknown"
+	}
+	if !runnerReachable(runner.GetMetadata()) {
+		return "unreachable"
 	}
 	if !runner.GetAllowDispatch() {
 		return "disabled"

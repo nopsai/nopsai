@@ -930,10 +930,11 @@ func composeRuntimeReply(toolCalls []assistantToolActivity) string {
 	summary, _ := call.Output["runner_summary"].(monitoringRunnerSummary)
 	if summary.Total > 0 || call.Output["runner_summary"] != nil {
 		lines = append(lines, fmt.Sprintf(
-			"- Runners: %d total, %d online, %d stale, %d disabled, capacity %d, active jobs %d, queued jobs %d",
+			"- Runners: %d total, %d online, %d stale, %d unreachable, %d disabled, capacity %d, active jobs %d, queued jobs %d",
 			summary.Total,
 			summary.Online,
 			summary.Stale,
+			summary.Unreachable,
 			summary.Disabled,
 			summary.Capacity,
 			summary.ActiveJobs,

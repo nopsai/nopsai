@@ -1110,12 +1110,15 @@ func appendRunnerPrometheusMetrics(out *strings.Builder, status interface {
 	writeMetricType(out, "nopsai_runner_queued_jobs", "gauge")
 	writeMetricHelp(out, "nopsai_runner_heartbeat_age_seconds", "Runner heartbeat age in seconds.")
 	writeMetricType(out, "nopsai_runner_heartbeat_age_seconds", "gauge")
+	writeMetricHelp(out, "nopsai_runner_reachable", "Runner reachability reported by the dispatcher.")
+	writeMetricType(out, "nopsai_runner_reachable", "gauge")
 
 	if status == nil {
 		return
 	}
 	writeMetricLine(out, "nopsai_runner_queued_jobs", nil, float64(status.GetQueuedJobs()))
-	now := time.Now().Unix()
+	nowTime := time.Now()
+	now := nowTime.Unix()
 	for _, runner := range status.GetRunners() {
 		metadata := runner.GetMetadata()
 		labels := map[string]string{
@@ -1123,6 +1126,7 @@ func appendRunnerPrometheusMetrics(out *strings.Builder, status interface {
 			"runtime":   normalizeMetricLabel(runnerRuntime(metadata)),
 			"namespace": normalizeMetricLabel(firstMonitoringText(metadata["kubernetes_namespace"], metadata["namespace"])),
 			"node":      normalizeMetricLabel(firstMonitoringText(metadata["kubernetes_node"], metadata["node"], metadata["hostname"])),
+			"status":    normalizeMetricLabel(monitoringRunnerState(runner, nowTime)),
 		}
 		writeMetricLine(out, "nopsai_runner_capacity", labels, float64(runner.GetCapacity()))
 		writeMetricLine(out, "nopsai_runner_active_jobs", labels, float64(runner.GetActiveJobs()))
@@ -1133,6 +1137,11 @@ func appendRunnerPrometheusMetrics(out *strings.Builder, status interface {
 			age = float64(now - heartbeat)
 		}
 		writeMetricLine(out, "nopsai_runner_heartbeat_age_seconds", labels, age)
+		reachable := 0.0
+		if runnerReachable(metadata) {
+			reachable = 1
+		}
+		writeMetricLine(out, "nopsai_runner_reachable", labels, reachable)
 	}
 }
 

@@ -42,7 +42,7 @@ export type DispatcherStatusPayload = {
   dispatcherError?: string;
 };
 
-export type RunnerStatusValue = 'online' | 'stale' | 'disabled' | 'unknown';
+export type RunnerStatusValue = 'online' | 'stale' | 'unreachable' | 'disabled' | 'unknown';
 
 export type MonitoringActiveRun = {
   runId: string;
@@ -70,6 +70,7 @@ export type RunnerSummary = {
   total: number;
   online: number;
   stale: number;
+  unreachable: number;
   disabled: number;
   unknown: number;
   docker: number;
@@ -445,6 +446,7 @@ export const emptyRunnerSummary: RunnerSummary = {
   total: 0,
   online: 0,
   stale: 0,
+  unreachable: 0,
   disabled: 0,
   unknown: 0,
   docker: 0,
@@ -735,6 +737,7 @@ export function normalizeMonitoringActiveRuns(value: unknown): MonitoringActiveR
 export function normalizeRunnerStatusValue(value: unknown): RunnerStatusValue {
   const normalized = readString(value).trim().toLowerCase();
   if (normalized === 'online' || normalized === 'ok' || normalized === 'healthy') return 'online';
+  if (normalized === 'unreachable' || normalized === 'offline' || normalized === 'disconnected') return 'unreachable';
   if (normalized === 'stale' || normalized === 'warning' || normalized === 'degraded') return 'stale';
   if (normalized === 'disabled' || normalized === 'paused') return 'disabled';
   return 'unknown';
@@ -747,6 +750,7 @@ export function normalizeRunnerSummary(value: unknown, runners: MonitoringRunner
       total: normalizeNumber(record.total),
       online: normalizeNumber(record.online),
       stale: normalizeNumber(record.stale),
+      unreachable: normalizeNumber(record.unreachable),
       disabled: normalizeNumber(record.disabled),
       unknown: normalizeNumber(record.unknown),
       docker: normalizeNumber(record.docker),
@@ -766,6 +770,7 @@ export function normalizeRunnerSummary(value: unknown, runners: MonitoringRunner
       summary.inflightJobs += runner.inflightJobs;
       if (runner.status === 'online') summary.online += 1;
       else if (runner.status === 'stale') summary.stale += 1;
+      else if (runner.status === 'unreachable') summary.unreachable += 1;
       else if (runner.status === 'disabled') summary.disabled += 1;
       else summary.unknown += 1;
       if (runner.runtime === 'kubernetes') summary.kubernetes += 1;

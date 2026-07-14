@@ -69,7 +69,8 @@ function DispatcherPanel({
   const activeSum = runners.reduce((sum, r) => sum + (r.activeJobs || 0), 0);
   const kubernetesRunnerCount = runners.filter(runner => getRunnerMeta(runner).runtime === 'kubernetes').length;
   const dockerRunnerCount = Math.max(0, runnerCount - kubernetesRunnerCount);
-  const pausedRunnerCount = runners.filter(runner => !runner.allowDispatch).length;
+  const unreachableRunnerCount = runners.filter(runner => !getRunnerMeta(runner).reachable).length;
+  const pausedRunnerCount = runners.filter(runner => getRunnerMeta(runner).reachable && !runner.allowDispatch).length;
   const updatedLabel = status?.fetchedAt ? `Updated ${new Date(status.fetchedAt).toLocaleTimeString()}` : 'Not loaded yet';
   const nowMs = status?.fetchedAt ?? 0;
 
@@ -103,7 +104,7 @@ function DispatcherPanel({
 
       <div className="dispatcher-summary-grid">
         <StatCard label="Queued" value={queuedJobs} id="dispatcher-queue-count" icon={<GitBranch className="h-4 w-4" />} />
-        <StatCard label="Runners" value={runnerCount} id="dispatcher-runner-count" icon={<Server className="h-4 w-4" />} hint={pausedRunnerCount > 0 ? `${pausedRunnerCount} paused` : 'dispatch ready'} />
+        <StatCard label="Runners" value={runnerCount} id="dispatcher-runner-count" icon={<Server className="h-4 w-4" />} hint={unreachableRunnerCount > 0 ? `${unreachableRunnerCount} unreachable` : pausedRunnerCount > 0 ? `${pausedRunnerCount} paused` : 'dispatch ready'} />
         <StatCard label="Kubernetes" value={kubernetesRunnerCount} id="dispatcher-kubernetes-runner-count" icon={<Boxes className="h-4 w-4" />} hint={dockerRunnerCount > 0 ? `${dockerRunnerCount} docker` : 'cluster only'} />
         <StatCard label="Active" value={activeSum} id="dispatcher-active-count" icon={<Activity className="h-4 w-4" />} />
       </div>
@@ -115,7 +116,7 @@ function DispatcherPanel({
         <div className="dispatcher-section-header">
           <div>
             <h3>Runners</h3>
-            <p>{runnerCount ? `${runnerCount} connected runner${runnerCount === 1 ? '' : 's'}` : 'No connected runners'}</p>
+            <p>{runnerCount ? `${runnerCount} registered runner${runnerCount === 1 ? '' : 's'}` : 'No registered runners'}</p>
           </div>
           {loading && <span className="dispatcher-loading">Loading…</span>}
         </div>
@@ -602,13 +603,14 @@ function RunnerCard({
   onToggleDispatch: (runner: Runner) => Promise<void>;
   canManageDispatcher: boolean;
 }) {
-  const stale = isStale(nowMs, runner.lastHeartbeatUnix);
-  const paused = !runner.allowDispatch;
-  const statusClass = paused ? 'runner-dot--warning' : stale ? 'runner-dot--error' : 'runner-dot--ok';
-  const statusLabel = paused ? 'Dispatch paused' : stale ? 'Heartbeat stale' : 'Online';
-  const statusTone = paused ? 'runner-pill--warning' : stale ? 'runner-pill--error' : 'runner-pill--ok';
-
   const meta = getRunnerMeta(runner);
+  const unreachable = !meta.reachable;
+  const stale = !unreachable && isStale(nowMs, runner.lastHeartbeatUnix);
+  const paused = !runner.allowDispatch;
+  const statusClass = unreachable ? 'runner-dot--warning' : paused ? 'runner-dot--warning' : stale ? 'runner-dot--error' : 'runner-dot--ok';
+  const statusLabel = unreachable ? 'Unreachable' : paused ? 'Dispatch paused' : stale ? 'Heartbeat stale' : 'Online';
+  const statusTone = unreachable ? 'runner-pill--warning' : paused ? 'runner-pill--warning' : stale ? 'runner-pill--error' : 'runner-pill--ok';
+
   const runtimeLabel = meta.runtime === 'kubernetes' ? 'Kubernetes' : 'Docker';
   const runtimeTone = meta.runtime === 'kubernetes' ? 'runner-pill--ok' : 'runner-pill--muted';
   const connectionLabel = formatConnection(meta.connectionId);
@@ -622,14 +624,15 @@ function RunnerCard({
   const activeRunCount = meta.activeRuns.length;
 
   return (
-    <div className={`runner-card p-5 ${paused ? 'runner-card--paused' : stale ? 'runner-card--stale' : ''}`}>
+    <div className={`runner-card p-5 ${unreachable ? 'runner-card--unreachable' : paused ? 'runner-card--paused' : stale ? 'runner-card--stale' : ''}`}>
       <div className="runner-card__header">
         <div className="runner-card__title">
           <span className={`runner-dot ${statusClass}`} aria-hidden="true"></span>
           <div className="runner-card__title-stack">
-            <div className={`runner-name ${paused ? 'runner-name--paused' : ''}`}>{runner.runnerId}</div>
+            <div className={`runner-name ${paused && !unreachable ? 'runner-name--paused' : ''}`}>{runner.runnerId}</div>
             <div className="runner-card__badges">
               <span className={`runner-pill ${statusTone}`}>{statusLabel}</span>
+              {unreachable && paused && <span className="runner-pill runner-pill--muted">Dispatch paused</span>}
               <span className={`runner-pill ${runtimeTone}`}>{runtimeLabel}</span>
             </div>
           </div>
@@ -656,6 +659,7 @@ function RunnerCard({
       <div className="runner-card__facts">
         <RunnerFact label="Scopes" value={scopesLabel} />
         <RunnerFact label="Last heartbeat" value={formatSince(nowMs, runner.lastHeartbeatUnix)} />
+        {unreachable && meta.disconnectedAt && <RunnerFact label="Disconnected" value={formatTimestamp(meta.disconnectedAt)} />}
         {connectionLabel && <RunnerFact label="Connection" value={connectionLabel} mono />}
         {meta.runtime === 'kubernetes' ? (
           <>
@@ -731,7 +735,7 @@ function RoutingMap({ routing, runners }: { routing: Record<string, string[]>; r
     }))
     .sort((a, b) => a.scope.localeCompare(b.scope));
   const liveRows = buildLiveRoutingRows(runners);
-  const connectedRunnerIds = new Set(runners.map(runner => runner.runnerId).filter(Boolean));
+  const reachableRunnerIds = new Set(runners.filter(runner => getRunnerMeta(runner).reachable).map(runner => runner.runnerId).filter(Boolean));
 
   if (rows.length === 0 && liveRows.length === 0) {
     return (
@@ -754,7 +758,7 @@ function RoutingMap({ routing, runners }: { routing: Record<string, string[]>; r
               <span className="runner-pill runner-pill--ok">{formatRoutingScope(row.scope)}</span>
               <div className="flex flex-wrap gap-2 justify-end text-sm">
                 {row.runners.map(runnerId => {
-                  const connected = connectedRunnerIds.has(runnerId);
+                  const connected = reachableRunnerIds.has(runnerId);
                   return (
                     <span key={`${row.scope}-${runnerId}`} className={`runner-pill ${connected ? 'runner-pill--ok' : 'runner-pill--warning'}`}>
                       {runnerId}
@@ -785,11 +789,11 @@ function RoutingMap({ routing, runners }: { routing: Record<string, string[]>; r
             </div>
           ))}
         </div>
-      ) : rows.length === 0 ? (
-        <div id="dispatcher-routing-empty" className="text-sm text-[var(--text-secondary)]">
+      ) : (
+        <div id="dispatcher-routing-live-empty" className="text-sm text-[var(--text-secondary)]">
           No live runner scopes.
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
@@ -797,7 +801,7 @@ function RoutingMap({ routing, runners }: { routing: Record<string, string[]>; r
 function buildLiveRoutingRows(runners: Runner[]): Array<{ scope: string; runners: string[] }> {
   const scopeMap = new Map<string, Set<string>>();
   runners.forEach(runner => {
-    if (!runner.runnerId) return;
+    if (!runner.runnerId || !runner.reachable) return;
     const scopes = runner.scopes.length ? runner.scopes : ['*'];
     scopes.forEach(scopeValue => {
       const scope = (scopeValue || '*').trim() || '*';

@@ -64,3 +64,28 @@ func TestMonitoringActiveRunResourcesDeduplicatesRuns(t *testing.T) {
 		t.Fatalf("resources = %#v, want run-1 and run-2", resources)
 	}
 }
+
+func TestMonitoringRunnerSummaryCountsUnreachableRunners(t *testing.T) {
+	status := &proto.DispatcherStatus{
+		Runners: []*proto.RunnerInfo{
+			{
+				RunnerId:          "runner-offline",
+				Capacity:          2,
+				LastHeartbeatUnix: time.Now().Add(-time.Minute).Unix(),
+				AllowDispatch:     true,
+				Metadata: map[string]string{
+					"connection_status": "unreachable",
+					"reachable":         "false",
+				},
+			},
+		},
+	}
+
+	runners, summary := monitoringRunnersFromDispatcherStatus(status, nil)
+	if len(runners) != 1 || runners[0].Status != "unreachable" {
+		t.Fatalf("runners = %#v, want unreachable runner", runners)
+	}
+	if summary.Unreachable != 1 || summary.Stale != 0 || summary.Disabled != 0 {
+		t.Fatalf("summary = %#v, want one unreachable runner only", summary)
+	}
+}

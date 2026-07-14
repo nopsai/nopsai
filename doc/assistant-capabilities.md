@@ -569,6 +569,8 @@ The assistant can inspect dispatcher/system status, generate local runner
 Docker Compose, generate Kubernetes runner manifests, generate runner bootstrap
 commands, inspect runner monitoring history, and pause/resume dispatch for a
 runner with confirmation.
+Dispatcher status includes previously registered runners and marks those without
+a live connection as unreachable rather than hiding them.
 
 Ask:
 
