@@ -566,7 +566,9 @@ function TriggersPage({
     saving,
     submitCloneModal,
     submitCreateModal,
+    updateCloneDetails,
     updateCloneRepository,
+    updateCloneYamlPreview,
     updateCreateDetails,
     updateCreateRepository,
     updateCreateYamlPreview,
@@ -954,6 +956,8 @@ function TriggersPage({
         onSubmitEdit={() => void handleSave()}
         onCloseClone={closeCloneModal}
         onUpdateCloneRepository={updateCloneRepository}
+        onUpdateCloneDetails={updateCloneDetails}
+        onUpdateCloneYamlPreview={updateCloneYamlPreview}
         onSubmitClone={() => void submitCloneModal()}
         onCloseDelete={closeDeleteModal}
         onConfirmDelete={() => void confirmDelete()}

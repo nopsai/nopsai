@@ -157,6 +157,32 @@ test('keeps create and clone modal failures local to the modal state', async () 
   expect(result.current.cloneModal?.error).toBe('Repository is required.');
 });
 
+test('clones trigger manifests from the target-aware YAML preview', async () => {
+  const { result } = renderMutation();
+
+  act(() => {
+    result.current.openCloneModal();
+    result.current.updateCloneRepository('owner/repo-copy');
+  });
+  expect(result.current.cloneModal?.yamlPreview).toContain('provider: github');
+  expect(result.current.cloneModal?.yamlPreview).toContain('team: root');
+
+  await act(async () => {
+    expect(await result.current.submitCloneModal()).toBe(true);
+  });
+
+  expect(checkTriggerPermissionMock).toHaveBeenCalledWith('trigger.update', 'owner/repo-copy');
+  expect(saveTriggerMock).toHaveBeenCalledWith(
+    'owner/repo-copy',
+    expect.stringContaining('provider: github')
+  );
+  expect(saveTriggerMock).toHaveBeenCalledWith(
+    'owner/repo-copy',
+    expect.not.stringMatching(/^triggers:\n  - on: push\n    pipelines:/)
+  );
+  expect(onSelectSlug).toHaveBeenCalledWith('owner/repo-copy');
+});
+
 test('saves editable trigger manifests and refreshes dependent runs', async () => {
   const editorValue = 'triggers:\n  - on: pull_request\n    pipelines:\n      - pipelines/release.yaml\n';
   const { result } = renderMutation({ editorValue });

@@ -374,12 +374,13 @@ func (a *App) handleCreateOrUpdateTriggerOverride(w http.ResponseWriter, r *http
 	}
 
 	query := `INSERT INTO triggers (
-			repository_name, trigger_definition, source, provider, team_path, management, webhook_source_id,
+			repository_name, trigger_definition, source, visibility, provider, team_path, management, webhook_source_id,
 			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo
-		) VALUES ($1, $2, 'database', $3, $4, $5, NULLIF($6, ''), NULL, '', '', FALSE)
+		) VALUES ($1, $2, 'database', $3, $4, $5, $6, NULLIF($7, ''), NULL, '', '', FALSE)
 		ON CONFLICT (repository_name) DO UPDATE SET
 			trigger_definition = EXCLUDED.trigger_definition,
 			source = 'database',
+			visibility = EXCLUDED.visibility,
 			provider = EXCLUDED.provider,
 			team_path = EXCLUDED.team_path,
 			management = EXCLUDED.management,
@@ -391,6 +392,7 @@ func (a *App) handleCreateOrUpdateTriggerOverride(w http.ResponseWriter, r *http
 	_, err = a.db.Exec(context.Background(), query,
 		fullName,
 		string(triggerDef),
+		triggerRecord.Visibility,
 		triggerRecord.Provider,
 		triggerRecord.TeamPath,
 		triggerRecord.Management,

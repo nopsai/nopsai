@@ -37,6 +37,13 @@ function TriggerModalHarness({
   });
   const [cloneModal, setCloneModal] = useState<TriggerCloneModalState>({
     repository: 'owner/repo-copy',
+    details: {
+      provider: 'gitlab',
+      teamPath: 'team-1',
+      management: 'nopsai',
+      webhookSourceID: 'corporate-gitlab',
+    },
+    yamlPreview: 'provider: gitlab\nteam: team-1\nwebhook_source: corporate-gitlab\ntriggers:\n  - on: push\n',
     pending: false,
   });
   const deleteModal: TriggerDeleteModalState = {
@@ -94,6 +101,12 @@ function TriggerModalHarness({
         onCloseClone={() => setOpen(null)}
         onUpdateCloneRepository={repository =>
           setCloneModal(current => ({ ...current, repository, error: undefined }))
+        }
+        onUpdateCloneDetails={details =>
+          setCloneModal(current => ({ ...current, details, error: undefined }))
+        }
+        onUpdateCloneYamlPreview={yamlPreview =>
+          setCloneModal(current => ({ ...current, yamlPreview, error: undefined }))
         }
         onSubmitClone={onClone}
         onCloseDelete={() => setOpen(null)}
@@ -164,6 +177,10 @@ test('supports clone form submission and traps focus inside the dialog', async (
   const dialog = screen.getByRole('dialog', { name: 'Clone owner/repo' });
   const repository = screen.getByLabelText('Target repository');
   expect(repository).toHaveFocus();
+  expect(screen.getByLabelText('Provider')).toHaveValue('gitlab');
+  expect(screen.getByLabelText('Team')).toHaveValue('team-1');
+  expect(screen.getByLabelText('Webhook source')).toHaveValue('corporate-gitlab');
+  expect((screen.getByLabelText('Definition') as HTMLTextAreaElement).value).toContain('webhook_source: corporate-gitlab');
 
   await user.clear(repository);
   await user.type(repository, 'owner/repo-copy');

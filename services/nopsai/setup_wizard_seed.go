@@ -70,9 +70,9 @@ func (a *App) seedStarterDatabase(ctx context.Context, req setupBootstrapRequest
 			return nil, fmt.Errorf("starter trigger for %s is invalid: %w", repo, err)
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO triggers (repository_name, trigger_definition, source)
-			VALUES ($1, $2, 'setup')
-			ON CONFLICT (repository_name) DO UPDATE SET trigger_definition = EXCLUDED.trigger_definition, source = 'setup'
+			INSERT INTO triggers (repository_name, trigger_definition, source, visibility)
+			VALUES ($1, $2, 'setup', 'team')
+			ON CONFLICT (repository_name) DO UPDATE SET trigger_definition = EXCLUDED.trigger_definition, source = 'setup', visibility = EXCLUDED.visibility
 		`, repo, definition); err != nil {
 			return nil, fmt.Errorf("seed trigger for %s: %w", repo, err)
 		}
