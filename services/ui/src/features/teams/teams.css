@@ -289,7 +289,6 @@ html.dark .teams-breadcrumb__item.current {
 .teams-stat-card__icon,
 .teams-resource-icon,
 .teams-resource-mini__icon,
-.teams-activity-dot,
 .teams-table-resource__icon {
   display: inline-flex;
   align-items: center;
@@ -653,12 +652,6 @@ html.dark .teams-tabs button.active {
   color: var(--teams-accent);
 }
 
-.teams-detail-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.42fr) minmax(285px, 1fr);
-  gap: var(--space-panel);
-}
-
 .teams-tab-panel {
   min-width: 0;
 }
@@ -668,13 +661,11 @@ html.dark .teams-tabs button.active {
 }
 
 html.dark .teams-overview-card,
-html.dark .teams-activity-card,
 html.dark .teams-focus-card {
   border-color: var(--teams-line);
 }
 
 .teams-overview-card,
-.teams-activity-card,
 .teams-focus-card {
   min-height: 300px;
 }
@@ -701,6 +692,10 @@ html.dark .teams-focus-card {
   margin: 5px 0 0;
   color: var(--teams-muted);
   font-size: 12px;
+}
+
+.teams-focus-copy--standalone p {
+  margin-top: 0;
 }
 
 .teams-focus-actions {
@@ -926,50 +921,6 @@ html.dark .teams-profile-summary__row {
   justify-content: flex-end;
   gap: 6px;
   margin-left: auto;
-}
-
-.teams-activity-card select {
-  height: 34px;
-  border: 1px solid #dfe4ea;
-  border-radius: 7px;
-  background: var(--teams-card);
-  color: var(--teams-text);
-  padding: 0 10px;
-  font-size: 11px;
-}
-
-html.dark .teams-activity-card select {
-  border-color: var(--teams-line-strong);
-  background: var(--teams-input);
-}
-
-.teams-activity-list {
-  margin-top: 8px;
-}
-
-.teams-activity-row {
-  display: grid;
-  min-height: 54px;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 9px;
-  border-top: 1px solid #e8ecf1;
-  color: var(--teams-text);
-  font-size: 12px;
-}
-
-html.dark .teams-activity-row {
-  border-top-color: var(--teams-table-line);
-}
-
-.teams-activity-dot {
-  width: 25px;
-  height: 25px;
-  border-radius: 7px;
-}
-
-.teams-activity-row strong {
-  font-size: 17px;
 }
 
 .teams-resources-card {
@@ -1329,10 +1280,6 @@ html.dark .teams-table-resource strong {
 @media (max-width: 1240px) {
   .teams-resource-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .teams-detail-grid {
-    grid-template-columns: 1fr;
   }
 
   .teams-focus-grid {

@@ -110,10 +110,10 @@ truth; this file is the source-adjacent placement guide.
   normalization, ownership filtering, and route building for resources listed
   from a Teams overview.
 - `features/teams/TeamsWorkspace.tsx` owns master-detail composition, toolbar,
-  tree navigation, high-level summary cards, and responsive layout hooks.
-- `features/teams/TeamsWorkspacePanels.tsx` owns detail-tab panels, scoped
-  activity cards, GitOps/notification summaries, read-only access summaries,
-  resource tables, empty states, and table copy helpers.
+  tree navigation, high-level resource cards, and responsive layout hooks.
+- `features/teams/TeamsWorkspacePanels.tsx` owns detail-tab panels,
+  team/application overview rendering, GitOps/notification summaries, read-only
+  access summaries, resource tables, empty states, and table copy helpers.
 - `features/teams/hooks/useTeamOperationsSummary.ts` owns selected-team
   GitOps, notification, AI profile, and access-grant summary orchestration.
 - `features/teams/hooks/useTeamResourceCatalog.ts` owns selected-scope catalog
@@ -126,7 +126,15 @@ truth; this file is the source-adjacent placement guide.
   profile-style summaries below the boxes. Applications and AI profile rows are composed in
   `TeamsWorkspace.tsx` from the selected team scope and operations summary so
   the top-level tab strip does not duplicate Applications or AI Profiles.
+- Team overview merges the previous activity signal into the overview card:
+  it shows Applications, owners, and latest application run context, without a
+  separate range selector, repository count, or repeated activity card.
 - `features/teams/teams.css` owns the scoped Teams workspace styling.
+- Team and application create/edit forms live in `features/teams/TeamSettingsModals.tsx`;
+  parent-option and hierarchy safety shaping lives in `features/teams/model.ts`;
+  request routing for team creation, team updates, app creation, and app moves lives in
+  `features/teams/api.ts`; `pages/Teams.tsx` only orchestrates the mutation,
+  refresh, and route update.
 - Team settings configure GitOps repositories and notification routes only; AI
   profiles and access are summarized from Teams and linked to their owning
   pages so GitOps, AAA, and profile ownership stay compatible with the rest of
@@ -134,6 +142,10 @@ truth; this file is the source-adjacent placement guide.
 - Navigation-only team nodes are still valid team scopes for GitOps and
   notifications; application nodes are the scopes that cannot own team config
   repositories.
+- Application pages use a single Overview tab that combines ownership details,
+  repository metadata, related-run navigation, and app-matched resources such
+  as triggers while keeping activity dashboards, GitOps, notifications, and
+  team access tabs out of the app-specific surface.
 - Teams Access shows current-session access roles, matching scoped basic roles,
   and effective scope checks separately. Access role editing, basic role grants,
   advanced role definitions, and policy editing remain owned by System Access.

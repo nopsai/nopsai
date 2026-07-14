@@ -417,6 +417,13 @@ PUT    /v1/teams/{teamID}/mcp/profiles/{profileName}
 DELETE /v1/teams/{teamID}/mcp/profiles/{profileName}
 ```
 
+Team moves are expressed by `parent_id` or `parent_team_id` on
+`PUT /v1/teams/{teamID}`. Application updates and moves use the target parent
+in the application URL, for example
+`PUT /v1/teams/{targetTeamID}/applications/{applicationID}`. Moving either
+resource requires update permission on the resource plus create permission on
+the destination parent scope, and parent updates reject hierarchy cycles.
+
 New AAA actions should be separate from run actions:
 
 ```text

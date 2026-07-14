@@ -5,12 +5,15 @@ import {
   buildTeamScopeStats,
   buildTeamTree,
   formatTeamTimestamp,
+  getLatestRunApplication,
+  getTeamCreateParentOptions,
   getTeamDirectChildren,
+  getTeamMoveParentOptions,
   getTeamParent,
   getVisibleTeamItems,
   teamKindLabel,
 } from './model.js';
-import { getTeamTableCopy, getTeamTableItems } from './workspaceModel.js';
+import { getTeamTableCopy, getTeamTableItems, visibleTeamDetailTabs } from './workspaceModel.js';
 
 const teams: Team[] = [
   {
@@ -95,6 +98,19 @@ test('formats team labels, parent, and timestamps for detail rendering', () => {
   assert.notEqual(formatTeamTimestamp('2026-07-10T10:00:00Z'), '2026-07-10T10:00:00Z');
 });
 
+test('builds move parent options without invalid descendants or applications', () => {
+  assert.deepEqual(getTeamCreateParentOptions(teams).map(option => option.label), ['Global', '/platform', '/platform/payments']);
+  assert.deepEqual(getTeamMoveParentOptions(teams, teams[0]).map(option => option.label), ['Global']);
+  assert.deepEqual(getTeamMoveParentOptions(teams, teams[1]).map(option => option.label), ['Global', '/platform']);
+  assert.deepEqual(getTeamMoveParentOptions(teams, teams[2]).map(option => option.label), ['Global', '/platform', '/platform/payments']);
+});
+
+test('finds the latest run application inside the selected team scope', () => {
+  assert.equal(getLatestRunApplication(teams, null)?.name, 'checkout-api');
+  assert.equal(getLatestRunApplication(teams, 2)?.name, 'checkout-api');
+  assert.equal(getLatestRunApplication(teams, 4), null);
+});
+
 test('builds Teams workspace table items and copy', () => {
   const directChildren = getTeamDirectChildren(teams, 1);
   const visibleItems = [teams[2]];
@@ -117,4 +133,10 @@ test('builds Teams workspace table items and copy', () => {
   );
   assert.equal(getTeamTableCopy({ activeLabel: 'platform', searching: false }).title, 'Child Resources');
   assert.equal(getTeamTableCopy({ activeLabel: 'platform', searching: true }).title, 'Matching Resources');
+});
+
+test('keeps application detail navigation collapsed into overview only', () => {
+  assert.deepEqual(visibleTeamDetailTabs(teams[2]).map(tab => tab.label), ['Overview']);
+  assert.deepEqual(visibleTeamDetailTabs(teams[0]).map(tab => tab.label), ['Overview', 'GitOps', 'Notifications', 'Access']);
+  assert.deepEqual(visibleTeamDetailTabs(null).map(tab => tab.label), ['Overview', 'GitOps', 'Access']);
 });

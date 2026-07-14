@@ -48,6 +48,13 @@ export type TeamResourceCatalogState = {
   resources: TeamLinkedResource[];
 };
 
+export type ApplicationResourceMatchContext = {
+  appPath?: string;
+  appName?: string;
+  repository?: string;
+  repoURL?: string;
+};
+
 export const TEAM_LINKED_RESOURCE_LABELS: Record<TeamLinkedResourceKind, string> = {
   application: 'Applications',
   llm_profile: 'LLM Profiles',
@@ -79,6 +86,20 @@ const RESOURCE_KIND_ORDER: TeamLinkedResourceKind[] = [
   'scope',
   'credential',
 ];
+
+export const APPLICATION_RELATED_RESOURCE_KINDS: TeamLinkedResourceKind[] = [
+  'trigger',
+  'external_trigger',
+  'git_webhook_source',
+  'pipeline',
+  'schedule',
+  'step',
+  'knowledge_context',
+  'scope',
+  'credential',
+];
+
+const APPLICATION_RELATED_RESOURCE_KIND_SET = new Set<TeamLinkedResourceKind>(APPLICATION_RELATED_RESOURCE_KINDS);
 
 export function normalizeTeamResourcePath(value: unknown): string {
   const normalized = String(value ?? '').trim().replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '');
@@ -327,6 +348,50 @@ export function filterTeamLinkedResources(
       return teamResourceBelongsToScope(resourcePath, activePath);
     })
     .sort(compareTeamLinkedResources);
+}
+
+export function filterApplicationLinkedResources(
+  resources: TeamLinkedResource[],
+  context: ApplicationResourceMatchContext
+): TeamLinkedResource[] {
+  const appPath = normalizeApplicationMatchValue(context.appPath);
+  const repository = normalizeApplicationMatchValue(context.repository);
+  const repositoryName = repository.split('/').filter(Boolean).at(-1) || '';
+  const tokens = [
+    appPath,
+    context.appName,
+    repository,
+    repositoryName,
+    context.repoURL,
+  ]
+    .map(normalizeApplicationMatchValue)
+    .filter((value, index, values) => value.length >= 3 && values.indexOf(value) === index);
+
+  return resources
+    .filter(resource => {
+      if (!APPLICATION_RELATED_RESOURCE_KIND_SET.has(resource.kind)) return false;
+      const resourcePath = normalizeApplicationMatchValue(resource.teamPath);
+      if (resourcePath && appPath && resourcePath === appPath) return true;
+      const haystack = normalizeApplicationMatchValue([
+        resource.id,
+        resource.label,
+        resource.description,
+        resource.href,
+        resource.teamPath,
+        resource.source,
+      ].filter(Boolean).join(' '));
+      return tokens.some(token => haystack.includes(token));
+    })
+    .sort(compareTeamLinkedResources);
+}
+
+function normalizeApplicationMatchValue(value?: string) {
+  const raw = String(value || '').trim().toLowerCase();
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
 }
 
 function credentialTeamPath(namespace: string, name: string): string {

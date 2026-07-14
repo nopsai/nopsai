@@ -1,7 +1,6 @@
 import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  ArrowUpRight,
   Bell,
   BookOpen,
   Bot,
@@ -12,6 +11,7 @@ import {
   GitBranch,
   ListChecks,
   MoreHorizontal,
+  Pencil,
   Plus,
   RefreshCw,
   Route,
@@ -26,7 +26,6 @@ import {
   teamDisplayName,
   teamPathForURL,
   teamRepositoryLabel,
-  teamRepositoryURL,
   type Team,
 } from '../../lib/teamModels';
 import { teamScopedRoute } from '../../lib/teamRoutes';
@@ -34,17 +33,16 @@ import type { CurrentUser } from '../../app/types';
 import {
   buildTeamScopeStats,
   buildTeamTree,
-  formatTeamTimestamp,
   getTeamDirectChildren,
-  getTeamParent,
   getTeamSubtree,
   getVisibleTeamItems,
   teamKindLabel,
   type TeamTreeNode,
 } from './model';
 import {
-  TeamActivityCard,
+  TeamApplicationOverviewCard,
   TeamChildrenTable,
+  TeamOverviewCard,
   TeamTabPanel,
 } from './TeamsWorkspacePanels';
 import {
@@ -55,7 +53,9 @@ import {
 } from './workspaceModel';
 import type { TeamOperationsSummaryState } from './hooks/useTeamOperationsSummary';
 import {
+  APPLICATION_RELATED_RESOURCE_KINDS,
   TEAM_LINKED_RESOURCE_LABELS,
+  filterApplicationLinkedResources,
   type TeamLinkedResource,
   type TeamLinkedResourceKind,
   type TeamResourceCatalogState,
@@ -72,6 +72,7 @@ export function TeamsWorkspace({
   onSelectTeam,
   onRefresh,
   onCreate,
+  onEditTeam,
   onDeleteTeam,
   onOpenConfig,
   operationsSummary,
@@ -87,6 +88,7 @@ export function TeamsWorkspace({
   onSelectTeam: (id: number | null) => void;
   onRefresh: () => void;
   onCreate: () => void;
+  onEditTeam: (team: Team) => void;
   onDeleteTeam: (team: Team) => void;
   onOpenConfig: (team: Team, tab?: 'sync' | 'notifications') => void;
   operationsSummary: TeamOperationsSummaryState;
@@ -94,13 +96,15 @@ export function TeamsWorkspace({
   currentUser?: CurrentUser | null;
 }) {
   const activeTeamID = activeTeam?.id ?? null;
+  const activeTeamIsApp = Boolean(activeTeam && isAppTeam(activeTeam));
+  const defaultDetailTab: TeamDetailTabID = 'overview';
   const [detailTabSelection, setDetailTabSelection] = useState<{ teamID: number | null; tab: TeamDetailTabID }>({
     teamID: activeTeamID,
-    tab: 'overview',
+    tab: defaultDetailTab,
   });
   const detailTabs = visibleTeamDetailTabs(activeTeam);
-  const selectedDetailTab = detailTabSelection.teamID === activeTeamID ? detailTabSelection.tab : 'overview';
-  const activeDetailTab = detailTabs.some(tab => tab.id === selectedDetailTab) ? selectedDetailTab : 'overview';
+  const selectedDetailTab = detailTabSelection.teamID === activeTeamID ? detailTabSelection.tab : defaultDetailTab;
+  const activeDetailTab = detailTabs.some(tab => tab.id === selectedDetailTab) ? selectedDetailTab : defaultDetailTab;
   const directChildren = getTeamDirectChildren(teams, activeTeamID);
   const visibleItems = getVisibleTeamItems(teams, activeTeamID, searchTerm);
   const scopedItems = useMemo(() => getTeamSubtree(teams, activeTeamID), [activeTeamID, teams]);
@@ -113,7 +117,8 @@ export function TeamsWorkspace({
     visibleItems,
   });
   const activeLabel = activeTeam ? teamDisplayName(activeTeam) : 'Global';
-  const emptySelection = activeDetailTab === 'overview' && Boolean(activeTeam) && !searching && directChildren.length === 0;
+  const emptySelection = activeDetailTab === 'overview' && Boolean(activeTeam) && !activeTeamIsApp && !searching && directChildren.length === 0;
+  const showChildrenTable = activeDetailTab === 'overview' && (!activeTeamIsApp || searching);
   const tableCopy = getTeamTableCopy({ activeLabel, searching });
   const selectDetailTab = (tab: TeamDetailTabID) => setDetailTabSelection({ teamID: activeTeamID, tab });
 
@@ -157,16 +162,22 @@ export function TeamsWorkspace({
             teams={teams}
             stats={stats}
             onDeleteTeam={onDeleteTeam}
+            onEditTeam={onEditTeam}
             detailTabs={detailTabs}
             activeTab={activeDetailTab}
             onTabChange={selectDetailTab}
           />
           {activeDetailTab === 'overview' ? (
             <>
-              <div className="teams-detail-grid" role="tabpanel" id="teams-tabpanel-overview" aria-labelledby="teams-tab-overview">
-                <TeamOverviewCard team={activeTeam} teams={teams} stats={stats} />
-                <TeamActivityCard team={activeTeam} stats={stats} directChildren={directChildren} />
-              </div>
+              {activeTeamIsApp && activeTeam ? (
+                <div className="teams-tab-panel" role="tabpanel" id="teams-tabpanel-overview" aria-labelledby="teams-tab-overview">
+                  <TeamApplicationOverviewCard team={activeTeam} teams={teams} />
+                </div>
+              ) : (
+                <div className="teams-tab-panel" role="tabpanel" id="teams-tabpanel-overview" aria-labelledby="teams-tab-overview">
+                  <TeamOverviewCard team={activeTeam} teams={teams} stats={stats} operationsSummary={operationsSummary} />
+                </div>
+              )}
               <TeamResourcesPanel
                 team={activeTeam}
                 teams={teams}
@@ -188,7 +199,7 @@ export function TeamsWorkspace({
               onOpenConfig={onOpenConfig}
             />
           )}
-          {activeDetailTab === 'overview' ? (
+          {showChildrenTable ? (
             <TeamChildrenTable
               title={tableCopy.title}
               items={tableItems}
@@ -201,6 +212,7 @@ export function TeamsWorkspace({
               onBackToRoot={() => onSelectTeam(null)}
               onSelectTeam={onSelectTeam}
               onDeleteTeam={onDeleteTeam}
+              onEditTeam={onEditTeam}
               onOpenConfig={onOpenConfig}
             />
           ) : null}
@@ -424,6 +436,7 @@ function TeamDetailHeader({
   teams,
   stats,
   onDeleteTeam,
+  onEditTeam,
   detailTabs,
   activeTab,
   onTabChange,
@@ -432,6 +445,7 @@ function TeamDetailHeader({
   teams: Team[];
   stats: { totalItems: number };
   onDeleteTeam: (team: Team) => void;
+  onEditTeam: (team: Team) => void;
   detailTabs: Array<{ id: TeamDetailTabID; label: string }>;
   activeTab: TeamDetailTabID;
   onTabChange: (tab: TeamDetailTabID) => void;
@@ -457,9 +471,14 @@ function TeamDetailHeader({
       </div>
       <div className="teams-detail-actions">
         {team && !team.navigation_only ? (
-          <button type="button" className="teams-icon-btn teams-icon-btn--danger" title={`Delete ${label}`} aria-label={`Delete ${label}`} onClick={() => onDeleteTeam(team)}>
-            <Trash2 className="h-4 w-4" aria-hidden="true" />
-          </button>
+          <>
+            <button type="button" className="teams-icon-btn" title={`Edit ${label}`} aria-label={`Edit ${label}`} onClick={() => onEditTeam(team)}>
+              <Pencil className="h-4 w-4" aria-hidden="true" />
+            </button>
+            <button type="button" className="teams-icon-btn teams-icon-btn--danger" title={`Delete ${label}`} aria-label={`Delete ${label}`} onClick={() => onDeleteTeam(team)}>
+              <Trash2 className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </>
         ) : null}
       </div>
       <div className="teams-tabs" role="tablist" aria-label="Team detail sections">
@@ -482,60 +501,20 @@ function TeamDetailHeader({
   );
 }
 
-function TeamOverviewCard({
-  team,
-  teams,
-  stats,
-}: {
-  team: Team | null;
-  teams: Team[];
-  stats: { teams: number; applications: number; repositories: number; directChildren: number };
-}) {
-  const parent = getTeamParent(team, teams);
-  const app = team ? isAppTeam(team) : false;
-  const repoURL = team ? teamRepositoryURL(team) : '';
-  const rows = [
-    ['Kind', teamKindLabel(team)],
-    ['Path', team ? teamPathForURL(team, teams) : 'global'],
-    ['Parent', parent ? teamDisplayName(parent) : 'Global'],
-    ['Direct children', String(stats.directChildren)],
-    ['Applications', String(stats.applications)],
-    ['Repositories', String(stats.repositories)],
-    ['Last run', formatTeamTimestamp(team?.last_run_at)],
-  ];
-  return (
-    <article className="teams-card teams-overview-card">
-      <div className="teams-card-heading">
-        <div>
-          <h3>{app ? 'Application Overview' : 'Team Overview'}</h3>
-          <p>{team?.description || 'Central place for ownership, access, repositories, and automation resources.'}</p>
-        </div>
-      </div>
-      <dl className="teams-kv-list">
-        {rows.map(([label, value]) => (
-          <div key={label}>
-            <dt>{label}</dt>
-            <dd title={value}>{value}</dd>
-          </div>
-        ))}
-        <div>
-          <dt>{app ? 'Repository' : 'GitOps'}</dt>
-          <dd>
-            {repoURL ? (
-              <a href={repoURL} target="_blank" rel="noreferrer" className="teams-inline-link">
-                {team ? teamRepositoryLabel(team) || repoURL : repoURL}
-                <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
-              </a>
-            ) : team && !app ? (
-              'Configurable'
-            ) : (
-              'Not connected'
-            )}
-          </dd>
-        </div>
-      </dl>
-    </article>
-  );
+function applicationResourceTiles(
+  resourceCounts: Record<TeamLinkedResourceKind, number>,
+  activeResourceKind: TeamLinkedResourceKind,
+  setSelectedResourceKind: (kind: TeamLinkedResourceKind) => void
+) {
+  const visibleKinds = APPLICATION_RELATED_RESOURCE_KINDS.filter(kind => resourceCounts[kind] > 0);
+  return visibleKinds.map(kind => ({
+    label: TEAM_LINKED_RESOURCE_LABELS[kind],
+    value: resourceCounts[kind],
+    icon: linkedResourceIcon(kind),
+    tone: linkedResourceTone(kind),
+    active: activeResourceKind === kind,
+    onClick: () => setSelectedResourceKind(kind),
+  }));
 }
 
 function TeamResourcesPanel({
@@ -549,7 +528,7 @@ function TeamResourcesPanel({
 }: {
   team: Team | null;
   teams: Team[];
-  stats: { teams: number; applications: number; repositories: number };
+  stats: { teams: number };
   scopedApplications: Team[];
   operationsSummary: TeamOperationsSummaryState;
   resourceCatalog: TeamResourceCatalogState;
@@ -558,14 +537,18 @@ function TeamResourcesPanel({
   const notificationCount = operationsSummary.notificationRoute?.definition?.routes?.length;
   const [selectedResourceKind, setSelectedResourceKind] = useState<TeamLinkedResourceKind | null>(null);
   const teamPath = team ? teamPathForURL(team, teams) : '';
+  const app = team ? isAppTeam(team) : false;
   const localResources = useMemo(
-    () => [
-      ...buildApplicationLinkedResources(scopedApplications, teams),
-      ...buildLLMProfileLinkedResources(operationsSummary.llmProfiles?.profiles ?? []),
-      ...buildAgentProfileLinkedResources(operationsSummary.agentProfiles?.profiles ?? []),
-      ...buildMCPProfileLinkedResources(operationsSummary.mcpProfiles?.profiles ?? []),
-    ],
+    () => app
+      ? []
+      : [
+          ...buildApplicationLinkedResources(scopedApplications, teams),
+          ...buildLLMProfileLinkedResources(operationsSummary.llmProfiles?.profiles ?? []),
+          ...buildAgentProfileLinkedResources(operationsSummary.agentProfiles?.profiles ?? []),
+          ...buildMCPProfileLinkedResources(operationsSummary.mcpProfiles?.profiles ?? []),
+        ],
     [
+      app,
       operationsSummary.agentProfiles?.profiles,
       operationsSummary.llmProfiles?.profiles,
       operationsSummary.mcpProfiles?.profiles,
@@ -573,37 +556,55 @@ function TeamResourcesPanel({
       teams,
     ]
   );
+  const catalogResources = useMemo(
+    () => (app && team
+      ? filterApplicationLinkedResources(resourceCatalog.resources, {
+          appPath: teamPathForURL(team, teams),
+          appName: teamDisplayName(team),
+          repository: teamRepositoryLabel(team),
+          repoURL: team.repo_url,
+        })
+      : resourceCatalog.resources),
+    [app, resourceCatalog.resources, team, teams]
+  );
   const allResources = useMemo(
-    () => [...localResources, ...resourceCatalog.resources],
-    [localResources, resourceCatalog.resources]
+    () => [...localResources, ...catalogResources],
+    [catalogResources, localResources]
   );
   const resourceCounts = useMemo(() => countLinkedResourcesByKind(allResources), [allResources]);
-  const activeResourceKind = selectedResourceKind ?? firstLinkedResourceKind(resourceCounts) ?? 'application';
+  const firstResourceKind = firstLinkedResourceKind(resourceCounts);
+  const activeResourceKind = selectedResourceKind && resourceCounts[selectedResourceKind] > 0
+    ? selectedResourceKind
+    : firstResourceKind ?? (app ? 'trigger' : 'application');
   const resourceCountLabel = (kind: TeamLinkedResourceKind) => {
     if (AI_RESOURCE_KINDS.has(kind) && operationsSummary.loading) return '-';
     if (CATALOG_RESOURCE_KINDS.has(kind) && resourceCatalog.loading) return '-';
     return resourceCounts[kind];
   };
-  const description = team
-    ? 'Team-scoped product objects and automation configuration.'
-    : 'Organization resources and global automation configuration.';
-  const resources = [
-    { label: 'Teams', value: stats.teams, icon: <UsersRound className="h-4 w-4" />, tone: 'blue' as const, onClick: () => onTabChange('overview') },
-    { label: 'Applications', value: resourceCountLabel('application'), icon: <Boxes className="h-4 w-4" />, tone: 'purple' as const, active: activeResourceKind === 'application', onClick: () => setSelectedResourceKind('application') },
-    { label: 'LLM Profiles', value: resourceCountLabel('llm_profile'), icon: <Bot className="h-4 w-4" />, tone: 'purple' as const, active: activeResourceKind === 'llm_profile', onClick: () => setSelectedResourceKind('llm_profile') },
-    { label: 'Agent Profiles', value: resourceCountLabel('agent_profile'), icon: <ShieldCheck className="h-4 w-4" />, tone: 'blue' as const, active: activeResourceKind === 'agent_profile', onClick: () => setSelectedResourceKind('agent_profile') },
-    { label: 'MCP Profiles', value: resourceCountLabel('mcp_profile'), icon: <Route className="h-4 w-4" />, tone: 'green' as const, active: activeResourceKind === 'mcp_profile', onClick: () => setSelectedResourceKind('mcp_profile') },
-    ...(team ? [{ label: 'Notifications', value: typeof notificationCount === 'number' ? notificationCount : '-', icon: <Bell className="h-4 w-4" />, tone: 'cyan' as const, onClick: () => onTabChange('notifications') }] : []),
-    { label: 'Pipelines', value: resourceCountLabel('pipeline'), icon: <GitBranch className="h-4 w-4" />, tone: 'green' as const, active: activeResourceKind === 'pipeline', onClick: () => setSelectedResourceKind('pipeline') },
-    { label: 'Steps', value: resourceCountLabel('step'), icon: <ListChecks className="h-4 w-4" />, tone: 'blue' as const, active: activeResourceKind === 'step', onClick: () => setSelectedResourceKind('step') },
-    { label: 'Triggers', value: resourceCountLabel('trigger'), icon: <Route className="h-4 w-4" />, tone: 'cyan' as const, active: activeResourceKind === 'trigger', onClick: () => setSelectedResourceKind('trigger') },
-    { label: 'External Triggers', value: resourceCountLabel('external_trigger'), icon: <Webhook className="h-4 w-4" />, tone: 'cyan' as const, active: activeResourceKind === 'external_trigger', onClick: () => setSelectedResourceKind('external_trigger') },
-    { label: 'Git Webhook Sources', value: resourceCountLabel('git_webhook_source'), icon: <Webhook className="h-4 w-4" />, tone: 'green' as const, active: activeResourceKind === 'git_webhook_source', onClick: () => setSelectedResourceKind('git_webhook_source') },
-    { label: 'Schedules', value: resourceCountLabel('schedule'), icon: <Clock className="h-4 w-4" />, tone: 'purple' as const, active: activeResourceKind === 'schedule', onClick: () => setSelectedResourceKind('schedule') },
-    { label: 'Knowledge Context', value: resourceCountLabel('knowledge_context'), icon: <BookOpen className="h-4 w-4" />, tone: 'blue' as const, active: activeResourceKind === 'knowledge_context', onClick: () => setSelectedResourceKind('knowledge_context') },
-    { label: 'Scopes', value: resourceCountLabel('scope'), icon: <FolderTree className="h-4 w-4" />, tone: 'purple' as const, active: activeResourceKind === 'scope', onClick: () => setSelectedResourceKind('scope') },
-    { label: 'Credentials', value: resourceCountLabel('credential'), icon: <ShieldCheck className="h-4 w-4" />, tone: 'blue' as const, active: activeResourceKind === 'credential', onClick: () => setSelectedResourceKind('credential') },
-  ];
+  const description = app
+    ? 'Application-specific automation and configuration linked by app path or repository identity.'
+    : team
+      ? 'Team-scoped product objects and automation configuration.'
+      : 'Organization resources and global automation configuration.';
+  const resources = app
+    ? applicationResourceTiles(resourceCounts, activeResourceKind, setSelectedResourceKind)
+    : [
+        { label: 'Teams', value: stats.teams, icon: <UsersRound className="h-4 w-4" />, tone: 'blue' as const, onClick: () => onTabChange('overview') },
+        { label: 'Applications', value: resourceCountLabel('application'), icon: <Boxes className="h-4 w-4" />, tone: 'purple' as const, active: activeResourceKind === 'application', onClick: () => setSelectedResourceKind('application') },
+        { label: 'LLM Profiles', value: resourceCountLabel('llm_profile'), icon: <Bot className="h-4 w-4" />, tone: 'purple' as const, active: activeResourceKind === 'llm_profile', onClick: () => setSelectedResourceKind('llm_profile') },
+        { label: 'Agent Profiles', value: resourceCountLabel('agent_profile'), icon: <ShieldCheck className="h-4 w-4" />, tone: 'blue' as const, active: activeResourceKind === 'agent_profile', onClick: () => setSelectedResourceKind('agent_profile') },
+        { label: 'MCP Profiles', value: resourceCountLabel('mcp_profile'), icon: <Route className="h-4 w-4" />, tone: 'green' as const, active: activeResourceKind === 'mcp_profile', onClick: () => setSelectedResourceKind('mcp_profile') },
+        ...(team ? [{ label: 'Notifications', value: typeof notificationCount === 'number' ? notificationCount : '-', icon: <Bell className="h-4 w-4" />, tone: 'cyan' as const, onClick: () => onTabChange('notifications') }] : []),
+        { label: 'Pipelines', value: resourceCountLabel('pipeline'), icon: <GitBranch className="h-4 w-4" />, tone: 'green' as const, active: activeResourceKind === 'pipeline', onClick: () => setSelectedResourceKind('pipeline') },
+        { label: 'Steps', value: resourceCountLabel('step'), icon: <ListChecks className="h-4 w-4" />, tone: 'blue' as const, active: activeResourceKind === 'step', onClick: () => setSelectedResourceKind('step') },
+        { label: 'Triggers', value: resourceCountLabel('trigger'), icon: <Route className="h-4 w-4" />, tone: 'cyan' as const, active: activeResourceKind === 'trigger', onClick: () => setSelectedResourceKind('trigger') },
+        { label: 'External Triggers', value: resourceCountLabel('external_trigger'), icon: <Webhook className="h-4 w-4" />, tone: 'cyan' as const, active: activeResourceKind === 'external_trigger', onClick: () => setSelectedResourceKind('external_trigger') },
+        { label: 'Git Webhook Sources', value: resourceCountLabel('git_webhook_source'), icon: <Webhook className="h-4 w-4" />, tone: 'green' as const, active: activeResourceKind === 'git_webhook_source', onClick: () => setSelectedResourceKind('git_webhook_source') },
+        { label: 'Schedules', value: resourceCountLabel('schedule'), icon: <Clock className="h-4 w-4" />, tone: 'purple' as const, active: activeResourceKind === 'schedule', onClick: () => setSelectedResourceKind('schedule') },
+        { label: 'Knowledge Context', value: resourceCountLabel('knowledge_context'), icon: <BookOpen className="h-4 w-4" />, tone: 'blue' as const, active: activeResourceKind === 'knowledge_context', onClick: () => setSelectedResourceKind('knowledge_context') },
+        { label: 'Scopes', value: resourceCountLabel('scope'), icon: <FolderTree className="h-4 w-4" />, tone: 'purple' as const, active: activeResourceKind === 'scope', onClick: () => setSelectedResourceKind('scope') },
+        { label: 'Credentials', value: resourceCountLabel('credential'), icon: <ShieldCheck className="h-4 w-4" />, tone: 'blue' as const, active: activeResourceKind === 'credential', onClick: () => setSelectedResourceKind('credential') },
+      ];
   return (
     <article className="teams-card teams-resources-card">
       <div className="teams-card-heading">
@@ -622,7 +623,7 @@ function TeamResourcesPanel({
         activeKind={activeResourceKind}
         loading={selectedResourceKindLoading(activeResourceKind, operationsSummary.loading, resourceCatalog.loading)}
         error={selectedResourceKindError(activeResourceKind, operationsSummary.aiProfilesError, resourceCatalog.error)}
-        teamPath={teamPath}
+        scopeLabel={app ? 'application' : teamPath ? 'team' : 'global'}
       />
     </article>
   );
@@ -633,22 +634,22 @@ function TeamLinkedResourcesBrowser({
   activeKind,
   loading,
   error,
-  teamPath,
+  scopeLabel,
 }: {
   resources: TeamLinkedResource[];
   activeKind: TeamLinkedResourceKind;
   loading: boolean;
   error: string | null;
-  teamPath: string;
+  scopeLabel: 'application' | 'team' | 'global';
 }) {
   const activeResources = useMemo(
     () => resources.filter(resource => resource.kind === activeKind),
     [activeKind, resources]
   );
   const activeLabel = TEAM_LINKED_RESOURCE_LABELS[activeKind];
-  const emptyLabel = teamPath
-    ? `No ${activeLabel.toLowerCase()} found for this team.`
-    : `No global ${activeLabel.toLowerCase()} found.`;
+  const emptyLabel = scopeLabel === 'global'
+    ? `No global ${activeLabel.toLowerCase()} found.`
+    : `No ${activeLabel.toLowerCase()} found for this ${scopeLabel}.`;
 
   return (
     <div className="teams-linked-resources" aria-label="Selected resources">
@@ -852,6 +853,13 @@ function linkedResourceIcon(kind: TeamLinkedResourceKind) {
   if (kind === 'knowledge_context') return <BookOpen className="h-4 w-4" />;
   if (kind === 'scope') return <FolderTree className="h-4 w-4" />;
   return <ShieldCheck className="h-4 w-4" />;
+}
+
+function linkedResourceTone(kind: TeamLinkedResourceKind): 'blue' | 'purple' | 'green' | 'cyan' {
+  if (kind === 'pipeline' || kind === 'git_webhook_source' || kind === 'mcp_profile') return 'green';
+  if (kind === 'trigger' || kind === 'external_trigger') return 'cyan';
+  if (kind === 'schedule' || kind === 'scope' || kind === 'application' || kind === 'llm_profile') return 'purple';
+  return 'blue';
 }
 
 function TeamResourceTile({

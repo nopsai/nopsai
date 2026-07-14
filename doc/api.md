@@ -204,6 +204,19 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"runner-api","repo_url":"https://github.com/acme/runner-api"}' \
   http://localhost:8080/v1/teams/platform/applications
+
+# Rename or move a team. Omitted parent fields keep the current parent;
+# an explicit null parent moves the team to Global.
+curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"platform-core","parent_team_id":null,"description":"Platform engineering"}' \
+  http://localhost:8080/v1/teams/platform
+
+# Update or move an application by using the target parent in the URL.
+curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"runner-api","repo_url":"https://github.com/acme/runner-api"}' \
+  http://localhost:8080/v1/teams/platform-core/applications/42
 ```
 
 Team config repository and notification endpoints mirror the legacy team
@@ -228,11 +241,13 @@ MCP profiles without taking over the system-owned catalogs:
 - `GET|PUT|DELETE /v1/teams/{teamID}/mcp-profiles/{profileName}`
 
 Reads require `team.read` on the resolved team resource. Mutations require
-`team.update`. Team profile rows carry config-repository metadata columns and
-team config repositories import/export root `ai-profiles.yaml`; system profile
-GitOps remains under `setting/system/*` today. Run preparation and agent launch
-merge team profile definitions over the system catalogs when a run belongs to
-that team or one of its applications.
+`team.update` on the changed team or application. Moving a team or application
+also requires `team.create` on the destination parent scope and rejects
+hierarchy cycles. Team profile rows carry config-repository metadata columns
+and team config repositories import/export root `ai-profiles.yaml`; system
+profile GitOps remains under `setting/system/*` today. Run preparation and
+agent launch merge team profile definitions over the system catalogs when a run
+belongs to that team or one of its applications.
 
 ## Assistant and Hosted MCP
 
@@ -1742,11 +1757,16 @@ curl -X PUT -H 'Content-Type: application/json' \
   -d '{"parent_id":42}' \
   http://localhost:8080/v1/teams/<team-id>
 
+curl -X PUT -H 'Content-Type: application/json' \
+  -d '{"name":"api","repo_url":"https://github.com/acme/api"}' \
+  http://localhost:8080/v1/teams/<target-parent-team-id>/applications/<application-id>
+
 curl -X DELETE http://localhost:8080/v1/teams/<team-id>
 ```
 
 - Teams power the “Main” dashboard hierarchy. Each run card can be assigned to a team path.
 - Access grants should target the resolved team path, not numeric IDs.
+- Application moves use the target parent in the URL; team moves use `parent_id` or `parent_team_id` in the body.
 - Browser deep links for team-scoped pages use readable route segments, for example `#/pipelineruns/main/team/team-2/bank/account` or `#/pipelines/team/team-2/bank/account`, rather than numeric database IDs or `team=` query parameters.
 - `GET /v1/teams` is filtered by the caller’s team visibility.
 

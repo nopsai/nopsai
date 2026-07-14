@@ -1,5 +1,5 @@
 import { apiClient } from '../../lib/api.js';
-import type { Team } from '../../lib/teamModels.js';
+import { isAppTeam, type Team } from '../../lib/teamModels.js';
 
 async function responseError(response: Response, fallback: string) {
   const text = await response.text();
@@ -136,6 +136,21 @@ export type TeamMCPProfilesResponse = {
   profiles: TeamMCPProfile[];
 };
 
+export type TeamItemUpdatePayload = {
+  name: string;
+  description?: string;
+  repoURL?: string;
+  parentID: number | null;
+};
+
+export type TeamItemCreatePayload = {
+  kind: 'team' | 'app';
+  name: string;
+  description?: string;
+  repoURL?: string;
+  parentID: number | null;
+};
+
 export async function fetchTeams(): Promise<Team[]> {
   const payload = await requestTeamsJson<TeamListResponse | Team[]>('/v1/teams?include=applications');
   if (Array.isArray(payload)) return payload;
@@ -145,6 +160,52 @@ export async function fetchTeams(): Promise<Team[]> {
     ...teams.map(teamRecordToTeam),
     ...applications.map(applicationRecordToTeam),
   ];
+}
+
+export function createTeamItem(payload: TeamItemCreatePayload): Promise<void> {
+  if (payload.kind === 'app') {
+    return requestTeamsJson<void>(`${teamRoute(parentRouteSegment(payload.parentID))}/applications`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: payload.name,
+        repo_url: payload.repoURL,
+      }),
+    });
+  }
+
+  return requestTeamsJson<void>('/v1/teams', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: payload.name,
+      description: payload.description,
+      parent_team_id: payload.parentID,
+    }),
+  });
+}
+
+export function updateTeamItem(team: Team, payload: TeamItemUpdatePayload): Promise<void> {
+  if (isAppTeam(team)) {
+    return requestTeamsJson<void>(`${teamRoute(parentRouteSegment(payload.parentID))}/applications/${encodeURIComponent(String(team.id))}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: payload.name,
+        repo_url: payload.repoURL,
+      }),
+    });
+  }
+
+  return requestTeamsJson<void>(teamRoute(team.id), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: payload.name,
+      description: payload.description,
+      parent_team_id: payload.parentID,
+    }),
+  });
 }
 
 export async function fetchTeamConfigRepository(teamPath: string): Promise<unknown | null> {
@@ -261,6 +322,10 @@ export function deleteTeamMCPProfile(teamID: number | string, profileName: strin
 
 function teamRoute(teamID: number | string): string {
   return `/v1/teams/${encodeURIComponent(String(teamID))}`;
+}
+
+function parentRouteSegment(parentID: number | null): string {
+  return parentID == null ? 'root' : String(parentID);
 }
 
 function teamRecordToTeam(record: TeamRecord): Team {

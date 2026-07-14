@@ -5,6 +5,7 @@ import {
   Boxes,
   ChevronRight,
   GitBranch,
+  Pencil,
   Settings,
   ShieldCheck,
   Trash2,
@@ -20,52 +21,13 @@ import {
   teamRepositoryURL,
   type Team,
 } from '../../lib/teamModels';
+import { buildPipelineRunsRoute } from '../../lib/teamRoutes';
 import type { CurrentUser } from '../../app/types';
-import { formatTeamTimestamp, getTeamDirectChildren, teamKindLabel } from './model';
+import { accessPresetIDForRole } from '../system/access/presentation';
+import { formatTeamTimestamp, getLatestRunApplication, getTeamDirectChildren, getTeamParent, teamKindLabel } from './model';
 import { teamNotificationGitOpsTarget, type NotificationRouteRecord } from './notificationRoutes';
 import type { TeamOperationsSummaryState } from './hooks/useTeamOperationsSummary';
 import type { TeamDetailTabID } from './workspaceModel';
-
-export function TeamActivityCard({
-  team,
-  stats,
-  directChildren,
-}: {
-  team: Team | null;
-  stats: { teams: number; applications: number; repositories: number; recentRuns: number };
-  directChildren: Team[];
-}) {
-  const rows = [
-    { label: 'Scoped teams', value: stats.teams, tone: 'blue' as const },
-    { label: 'Applications', value: stats.applications, tone: 'purple' as const },
-    { label: 'Repositories', value: stats.repositories, tone: 'green' as const },
-    { label: 'Recent run signals', value: stats.recentRuns, tone: 'cyan' as const },
-  ];
-  return (
-    <article className="teams-card teams-activity-card">
-      <div className="teams-card-heading">
-        <div>
-          <h3>{team ? 'Team Activity' : 'Organization Activity'}</h3>
-          <p>{directChildren.length} direct child resources in the current scope.</p>
-        </div>
-        <select aria-label="Activity range">
-          <option>Last 30 days</option>
-        </select>
-      </div>
-      <div className="teams-activity-list">
-        {rows.map(row => (
-          <div key={row.label} className="teams-activity-row">
-            <span className={`teams-activity-dot teams-tone-${row.tone}`} aria-hidden="true">
-              <ShieldCheck className="h-3.5 w-3.5" />
-            </span>
-            <span>{row.label}</span>
-            <strong>{row.value}</strong>
-          </div>
-        ))}
-      </div>
-    </article>
-  );
-}
 
 export function TeamChildrenTable({
   title,
@@ -79,6 +41,7 @@ export function TeamChildrenTable({
   onBackToRoot,
   onSelectTeam,
   onDeleteTeam,
+  onEditTeam,
   onOpenConfig,
 }: {
   title: string;
@@ -92,6 +55,7 @@ export function TeamChildrenTable({
   onBackToRoot: () => void;
   onSelectTeam: (id: number | null) => void;
   onDeleteTeam: (team: Team) => void;
+  onEditTeam: (team: Team) => void;
   onOpenConfig: (team: Team) => void;
 }) {
   return (
@@ -134,6 +98,7 @@ export function TeamChildrenTable({
                   teams={teams}
                   onSelect={() => onSelectTeam(item.id)}
                   onDelete={() => onDeleteTeam(item)}
+                  onEdit={() => onEditTeam(item)}
                   onOpenConfig={() => onOpenConfig(item)}
                 />
               ))}
@@ -157,7 +122,7 @@ export function TeamTabPanel({
   activeTab: Exclude<TeamDetailTabID, 'overview'>;
   team: Team | null;
   teams: Team[];
-  stats: { applications: number; repositories: number; recentRuns: number; teams: number; totalItems: number };
+  stats: { totalItems: number };
   operationsSummary: TeamOperationsSummaryState;
   currentUser?: CurrentUser | null;
   onOpenConfig: (team: Team, tab?: 'sync' | 'notifications') => void;
@@ -185,6 +150,135 @@ export function TeamTabPanel({
   );
 }
 
+export function TeamOverviewCard({
+  team,
+  teams,
+  stats,
+  operationsSummary,
+}: {
+  team: Team | null;
+  teams: Team[];
+  stats: { applications: number; directChildren: number };
+  operationsSummary: TeamOperationsSummaryState;
+}) {
+  const parent = getTeamParent(team, teams);
+  const latestRunApplication = getLatestRunApplication(teams, team?.id ?? null);
+  const ownerLabels = teamOwnerLabels(operationsSummary);
+  const ownerSummary = operationsSummary.loading
+    ? 'Loading...'
+    : operationsSummary.accessGrantsError
+      ? 'Unable to load owners'
+      : ownerLabels.length
+        ? ownerLabels.slice(0, 3).join(', ') + (ownerLabels.length > 3 ? ` +${ownerLabels.length - 3}` : '')
+        : 'No direct owners';
+  const latestRunLabel = latestRunApplication
+    ? `${teamDisplayName(latestRunApplication)} / ${formatTeamTimestamp(latestRunApplication.last_run_at)}`
+    : 'No app runs';
+  const rows = [
+    ['Kind', teamKindLabel(team)],
+    ['Path', team ? teamPathForURL(team, teams) : 'global'],
+    ['Parent', parent ? teamDisplayName(parent) : 'Global'],
+    ['Direct children', String(stats.directChildren)],
+    ['Applications', String(stats.applications)],
+    ['Owners', ownerSummary],
+    ['Latest run app', latestRunLabel],
+  ];
+  return (
+    <article className="teams-card teams-overview-card">
+      <div className="teams-card-heading">
+        <div>
+          <h3>{team ? 'Team Overview' : 'Organization Overview'}</h3>
+          <p>{team?.description || 'Ownership, hierarchy, and latest application run context for this scope.'}</p>
+        </div>
+      </div>
+      <dl className="teams-kv-list">
+        {rows.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd title={value}>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </article>
+  );
+}
+
+function teamOwnerLabels(summary: TeamOperationsSummaryState) {
+  const ownerLabels = summary.accessGrants
+    .filter(grant => accessPresetIDForRole(grant.role) === 'owner')
+    .map(grant => grant.subjectDisplay || grant.subjectID || grant.subjectType)
+    .filter(Boolean);
+  return Array.from(new Set(ownerLabels)).sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }));
+}
+
+export function TeamApplicationOverviewCard({
+  team,
+  teams,
+}: {
+  team: Team;
+  teams: Team[];
+}) {
+  const parent = getTeamParent(team, teams);
+  const applicationPath = teamPathForURL(team, teams);
+  const repositoryURL = teamRepositoryURL(team);
+  const repositoryLabel = teamRepositoryLabel(team);
+  const rows = [
+    ['Type', 'Application'],
+    ['Application name', teamDisplayName(team)],
+    ['Repository', repositoryLabel || '-'],
+    ['Owner team', parent ? teamDisplayName(parent) : 'Global'],
+    ['Owner path', team.team_path || (parent ? teamPathForURL(parent, teams) : 'global')],
+    ['Application path', applicationPath],
+    ['Last run', formatTeamTimestamp(team.last_run_at)],
+  ];
+
+  return (
+    <article className="teams-card teams-focus-card teams-focus-card--wide">
+      <div className="teams-focus-hero">
+        <span className="teams-resource-icon teams-tone-purple" aria-hidden="true">
+          <Boxes className="h-5 w-5" />
+        </span>
+        <div className="teams-focus-copy teams-focus-copy--standalone">
+          <p>{team.description || 'Application ownership, repository identity, and run metadata.'}</p>
+        </div>
+        <div className="teams-focus-actions">
+          <Link className="teams-secondary-btn" to={buildPipelineRunsRoute('main', applicationPath)}>
+            <GitBranch className="h-4 w-4" aria-hidden="true" />
+            Related Runs
+          </Link>
+          {repositoryURL ? (
+            <a className="teams-secondary-btn" href={repositoryURL} target="_blank" rel="noreferrer">
+              <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
+              Open Repository
+            </a>
+          ) : null}
+        </div>
+      </div>
+      <dl className="teams-kv-list teams-kv-list--compact">
+        {rows.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd title={value}>{value}</dd>
+          </div>
+        ))}
+        <div>
+          <dt>Repository URL</dt>
+          <dd title={team.repo_url || repositoryURL || ''}>
+            {repositoryURL ? (
+              <a href={repositoryURL} target="_blank" rel="noreferrer" className="teams-inline-link">
+                {team.repo_url || repositoryURL}
+                <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </a>
+            ) : (
+              'Not connected'
+            )}
+          </dd>
+        </div>
+      </dl>
+    </article>
+  );
+}
+
 function TeamGitOpsCard({
   team,
   teams,
@@ -194,7 +288,7 @@ function TeamGitOpsCard({
 }: {
   team: Team | null;
   teams: Team[];
-  stats: { applications: number; repositories: number; teams: number; totalItems: number };
+  stats: { totalItems: number };
   summary: TeamOperationsSummaryState;
   onOpenConfig: (team: Team, tab?: 'sync' | 'notifications') => void;
 }) {
@@ -592,12 +686,14 @@ function TeamTableRow({
   teams,
   onSelect,
   onDelete,
+  onEdit,
   onOpenConfig,
 }: {
   team: Team;
   teams: Team[];
   onSelect: () => void;
   onDelete: () => void;
+  onEdit: () => void;
   onOpenConfig: () => void;
 }) {
   const app = isAppTeam(team);
@@ -636,6 +732,11 @@ function TeamTableRow({
       <td>{children.length}</td>
       <td>
         <div className="teams-table-actions">
+          {!team.navigation_only ? (
+            <button type="button" className="teams-icon-btn" title={`Edit ${label}`} aria-label={`Edit ${label}`} onClick={onEdit}>
+              <Pencil className="h-4 w-4" aria-hidden="true" />
+            </button>
+          ) : null}
           {!app ? (
             <button type="button" className="teams-icon-btn" title={`GitOps and notifications for ${label}`} aria-label={`GitOps and notifications for ${label}`} onClick={onOpenConfig}>
               <Settings className="h-4 w-4" aria-hidden="true" />
