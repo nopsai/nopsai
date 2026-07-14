@@ -48,8 +48,10 @@ storage table:
   controls for legacy teams; selected run teams link to Teams for administration.
 - Pipelines, Triggers, Steps, Scopes, Knowledge Context, and the global sidebar
   no longer inject empty team paths into their resource trees by default.
-- Repository-triggered run resolution no longer creates or rewrites
-  `teams.kind = 'app'` records when no existing owner can be resolved.
+- Repository-triggered run resolution prefers an existing repository app under
+  the trigger team. Trigger save and GitOps sync create missing supported
+  provider apps idempotently, while unsupported providers still require an
+  explicit application entry.
 - `/v1/teams` exposes team/application CRUD, team config repositories, and
   notification routes as the only public team hierarchy API.
 - Team-scoped LLM, Agent, and MCP profile tables and APIs are available under

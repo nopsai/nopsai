@@ -279,8 +279,22 @@ func (a *App) handleCreateTeamApplication(w http.ResponseWriter, r *http.Request
 	if !a.authorizeApplicationCreate(w, r, parentID) {
 		return
 	}
-	created, err := a.insertTeamRecord(r.Context(), team)
+	tx, err := a.db.Begin(r.Context())
 	if err != nil {
+		http.Error(w, "Failed to create application", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	created, err := insertTeamRecordWithRunner(r.Context(), tx, team)
+	if err != nil {
+		writeTeamMutationError(w, err, "Failed to create application")
+		return
+	}
+	if _, err := reassignRepositoryRunsToApplication(r.Context(), tx, created.ID, created.ParentID, created.RepositoryFullName); err != nil {
+		writeTeamMutationError(w, err, "Failed to assign existing runs to application")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
 		writeTeamMutationError(w, err, "Failed to create application")
 		return
 	}
@@ -321,7 +335,21 @@ func (a *App) handleUpdateTeamApplication(w http.ResponseWriter, r *http.Request
 	if !sameOptionalInt(appRecord.ParentID, parentID) && !a.authorizeApplicationCreate(w, r, parentID) {
 		return
 	}
-	if err := a.updateTeamRecord(r.Context(), team); err != nil {
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		http.Error(w, "Failed to update application", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	if err := updateTeamRecordWithRunner(r.Context(), tx, team); err != nil {
+		writeTeamMutationError(w, err, "Failed to update application")
+		return
+	}
+	if _, err := reassignRepositoryRunsToApplication(r.Context(), tx, team.ID, team.ParentID, team.RepositoryFullName); err != nil {
+		writeTeamMutationError(w, err, "Failed to assign existing runs to application")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
 		writeTeamMutationError(w, err, "Failed to update application")
 		return
 	}
@@ -594,16 +622,24 @@ func (a *App) teamForRecord(ctx context.Context, record teamPathRecord) (Team, e
 }
 
 func (a *App) insertTeamRecord(ctx context.Context, team Team) (Team, error) {
+	return insertTeamRecordWithRunner(ctx, a.db, team)
+}
+
+func insertTeamRecordWithRunner(ctx context.Context, runner queryRunner, team Team) (Team, error) {
 	query := `INSERT INTO teams (name, kind, parent_id, description, repo_url, repository_full_name) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`
-	if err := a.db.QueryRow(ctx, query, team.Name, team.Kind, team.ParentID, team.Description, team.RepoURL, team.RepositoryFullName).Scan(&team.ID); err != nil {
+	if err := runner.QueryRow(ctx, query, team.Name, team.Kind, team.ParentID, team.Description, team.RepoURL, team.RepositoryFullName).Scan(&team.ID); err != nil {
 		return Team{}, err
 	}
 	return team, nil
 }
 
 func (a *App) updateTeamRecord(ctx context.Context, team Team) error {
+	return updateTeamRecordWithRunner(ctx, a.db, team)
+}
+
+func updateTeamRecordWithRunner(ctx context.Context, runner queryRunner, team Team) error {
 	query := `UPDATE teams SET name = $1, kind = $2, parent_id = $3, description = $4, repo_url = $5, repository_full_name = $6, updated_at = NOW() WHERE id = $7`
-	_, err := a.db.Exec(ctx, query, team.Name, team.Kind, team.ParentID, team.Description, team.RepoURL, team.RepositoryFullName, team.ID)
+	_, err := runner.Exec(ctx, query, team.Name, team.Kind, team.ParentID, team.Description, team.RepoURL, team.RepositoryFullName, team.ID)
 	return err
 }
 

@@ -266,8 +266,8 @@ type teamRecordSet struct {
 	byRepo map[string]*teamRecord
 }
 
-func loadExistingTeamRecords(ctx context.Context, tx pgx.Tx) (teamRecordSet, error) {
-	rows, err := tx.Query(ctx, "SELECT id, name, COALESCE(kind, 'team'), parent_id, description, COALESCE(repo_url, ''), COALESCE(repository_full_name, '') FROM teams")
+func loadExistingTeamRecords(ctx context.Context, runner queryRunner) (teamRecordSet, error) {
+	rows, err := runner.Query(ctx, "SELECT id, name, COALESCE(kind, 'team'), parent_id, description, COALESCE(repo_url, ''), COALESCE(repository_full_name, '') FROM teams")
 	if err != nil {
 		return teamRecordSet{}, err
 	}
@@ -485,6 +485,9 @@ func (a *App) syncPipelineRunTeams(ctx context.Context, tx pgx.Tx, structure map
 				registerTeamRecord(record)
 				details["run_teams_updated"]++
 			}
+			if _, err := reassignRepositoryRunsToApplication(ctx, tx, record.ID, parentID, fullName); err != nil {
+				return 0, fmt.Errorf("failed to assign existing runs to app '%s': %w", name, err)
+			}
 			return record.ID, nil
 		}
 
@@ -502,6 +505,9 @@ func (a *App) syncPipelineRunTeams(ctx context.Context, tx pgx.Tx, structure map
 			return 0, fmt.Errorf("failed to create app '%s': %w", name, err)
 		}
 		registerTeamRecord(&teamRecord{ID: newID, Name: name, Kind: "app", ParentID: copyIntPointer(parentID), RepoURL: repoURL, RepositoryFullName: fullName})
+		if _, err := reassignRepositoryRunsToApplication(ctx, tx, newID, parentID, fullName); err != nil {
+			return 0, fmt.Errorf("failed to assign existing runs to app '%s': %w", name, err)
+		}
 		details["run_teams_created"]++
 		return newID, nil
 	}

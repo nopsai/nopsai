@@ -206,6 +206,9 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 	}
 	filterDelegatedConfigResources(binding, overrideScopes, pipelines, steps, schedules, externalTriggers, gitWebhookSources, notificationRoutes, knowledgeContexts, generalScopeVars, repoScopeVars, generalScopeSecrets, repoScopeSecrets, triggers)
 	filterDelegatedAccessResources(accessPlan, binding, overrideScopes)
+	if err := mergeRepositoryTriggerApplicationsIntoStructure(configRepositoryPipelineRunStructure, triggers); err != nil {
+		return fmt.Errorf("failed to prepare repository trigger applications: %w", err)
+	}
 	effectivePipelineRunStructure, err := effectivePipelineRunStructureForConfigSync(binding, configRepositories, configRepositoryPipelineRunStructure)
 	if err != nil {
 		return err
