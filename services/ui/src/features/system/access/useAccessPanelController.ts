@@ -887,7 +887,7 @@ export function useAccessPanelController({
   );
   const basicGrantOptions = useMemo(
     () => [
-      { value: ROOT_ACCESS_SCOPE, label: "Root" },
+      { value: ROOT_ACCESS_SCOPE, label: "Global" },
       ...resourceCatalog.teamOptions,
     ],
     [resourceCatalog.teamOptions],

@@ -42,7 +42,7 @@ function BasicGrantHarness() {
         entries={entries}
         draft={draft}
         options={[
-          { value: 'root', label: 'Root' },
+          { value: 'root', label: 'Global' },
           { value: 'engineering', label: 'Engineering' },
         ]}
         error={error}

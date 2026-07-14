@@ -19,7 +19,7 @@ test('delegates create-user editor role, basic grant, close, and submit actions'
       nextRole=""
       basicGrantEntries={[]}
       basicGrantDraft={{ role: 'viewer', scope: 'root' }}
-      basicGrantOptions={[{ value: 'root', label: 'Root' }]}
+      basicGrantOptions={[{ value: 'root', label: 'Global' }]}
       basicGrantError={null}
       toneClassForRole={() => 'access-chip--muted'}
       onChangeUser={vi.fn()}
