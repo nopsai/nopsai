@@ -49,6 +49,8 @@ export function BaseSidebarNavigation({
                   key={sub.path}
                   to={sub.path}
                   className={({ isActive: subActive }) => navItemClass(subActive || (isSystemRoute && locationPathname === sub.path))}
+                  aria-label={sub.label}
+                  title={sub.label}
                 >
                   <span className="sidebar-nav-icon">{sub.icon}</span>
                   <span className="truncate">{sub.label}</span>
@@ -84,6 +86,8 @@ function SidebarNavSection({
           key={item.path}
           to={item.path}
           className={({ isActive }) => navItemClass(isActive || sidebarNavItemIsActive(item.path, locationPathname))}
+          aria-label={item.label}
+          title={item.label}
         >
           <span className="sidebar-nav-icon">{item.icon}</span>
           <span className="truncate">{item.label}</span>

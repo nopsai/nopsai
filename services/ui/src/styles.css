@@ -325,17 +325,37 @@ html.dark [class*="text-neutral-200"] {
 }
 
 .app-sidebar-brand-row {
+    gap: 0.75rem;
     border-bottom-color: var(--border-primary) !important;
 }
 
-.app-sidebar-shell .brand-identity::before {
-    background-image: url('/brand/nopsai-logo-dark.png');
-    background-size: 142% auto;
+.app-sidebar-brand-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex: 0 0 auto;
+}
+
+.app-sidebar-icon-button {
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    border: 1px solid transparent;
+    border-radius: 0.65rem;
+    color: var(--text-secondary);
+    transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.app-sidebar-icon-button:hover,
+.app-sidebar-icon-button:focus-visible {
+    border-color: var(--border-primary);
+    background: var(--bg-hover);
+    color: var(--text-primary);
 }
 
 .app-sidebar-shell .sidebar-brand {
-    width: min(9.75rem, 100%);
-    height: 2.75rem;
+    height: 2.35rem;
 }
 
 .sidebar-nav {
@@ -503,44 +523,129 @@ html.dark [class*="text-neutral-200"] {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    gap: 0.6rem;
     flex-shrink: 0;
-    overflow: hidden;
+    overflow: visible;
 }
 
-.brand-identity::before {
-    position: absolute;
-    inset: 0;
-    content: "";
-    background-image: url('/brand/nopsai-logo-light.png');
+.brand-identity__mark {
+    display: inline-flex;
+    flex: 0 0 auto;
+    width: 2.25rem;
+    height: 2.25rem;
+    background-image: url('/brand/nopsai-app-icon.png');
     background-position: center;
     background-repeat: no-repeat;
-    background-size: 135% auto;
+    background-size: contain;
 }
 
-.brand-identity--mark::before {
-    background-image: url('/brand/nopsai-mark-light.png');
-    background-size: 305% auto;
+.brand-identity__word {
+    color: #071a4b;
+    font-size: 2rem;
+    font-weight: 650;
+    line-height: 1;
 }
 
-html.dark .brand-identity::before {
-    background-image: url('/brand/nopsai-logo-dark.png');
+.brand-identity--mark {
+    width: 2.35rem;
+    height: 2.35rem;
 }
 
-html.dark .brand-identity--mark::before {
-    background-image: url('/brand/nopsai-mark-dark.png');
+.brand-identity--mark .brand-identity__mark {
+    width: 100%;
+    height: 100%;
+}
+
+html.dark .brand-identity__word {
+    color: #f8fbff;
 }
 
 .sidebar-brand {
-    width: min(10.5rem, 100%);
-    height: 3rem;
+    width: auto;
+    height: 2.35rem;
     min-width: 0;
 }
 
 .login-brand {
-    width: min(15rem, 100%);
+    width: max-content;
     height: 4.75rem;
     margin: 0 auto;
 }
+
+.login-brand .brand-identity__mark {
+    width: 3.75rem;
+    height: 3.75rem;
+}
+
+.login-brand .brand-identity__word {
+    font-size: 3.35rem;
+}
+
+@media (min-width: 640px) {
+    .app-sidebar-shell {
+        transition: width 0.2s ease, min-width 0.2s ease, max-width 0.2s ease;
+    }
+
+    .app-sidebar-shell--collapsed .app-sidebar-brand-row {
+        justify-content: center;
+        padding-right: 0.5rem !important;
+        padding-left: 0.5rem !important;
+    }
+
+    .app-sidebar-shell--collapsed .sidebar-brand {
+        width: 2.15rem;
+        height: 2.15rem;
+    }
+
+    .app-sidebar-shell--collapsed .sidebar-nav {
+        align-items: center;
+        padding-right: 0.5rem;
+        padding-left: 0.5rem;
+    }
+
+    .app-sidebar-shell--collapsed .sidebar-nav-section,
+    .app-sidebar-shell--collapsed .sidebar-nav-subsection {
+        align-items: center;
+        width: 100%;
+    }
+
+    .app-sidebar-shell--collapsed .sidebar-nav-label,
+    .app-sidebar-shell--collapsed .sidebar-nav-subseparator,
+    .app-sidebar-shell--collapsed .sidebar-nav-link .truncate {
+        display: none;
+    }
+
+    .app-sidebar-shell--collapsed .sidebar-nav-section + .sidebar-nav-section {
+        margin-top: 0.7rem;
+    }
+
+    .app-sidebar-shell--collapsed .sidebar-nav-link {
+        justify-content: center;
+        width: 2.75rem;
+        min-height: 2.75rem;
+        padding: 0;
+        gap: 0;
+        border-radius: 0.8rem;
+    }
+
+    .app-sidebar-shell--collapsed .sidebar-nav-link.active {
+        box-shadow: inset 0 -3px 0 0 var(--border-accent);
+    }
+
+    .app-sidebar-shell--collapsed .sidebar-nav-icon svg {
+        width: 1.25rem;
+        height: 1.25rem;
+    }
+}
+
+@media (max-width: 639px) {
+    #sidebar {
+        width: min(20rem, 86vw) !important;
+        min-width: 0 !important;
+        max-width: none !important;
+    }
+}
+
 .drop-target-highlight {
     background-color: hsla(242, 59%, 65%, 0.3) !important;
     outline: 2px dashed var(--border-accent);
