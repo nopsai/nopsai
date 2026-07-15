@@ -229,12 +229,7 @@ export default function KnowledgeContextPage({
   const activeTeamNode = useMemo(() => findKnowledgeTeam(knowledgeTree, activeTeam), [activeTeam, knowledgeTree]);
   const activeTeamDocuments = useMemo(() => collectKnowledgeTeamDocs(activeTeamNode), [activeTeamNode]);
   const hasDocumentFilters = Boolean(search.trim() || sourceFilter !== 'all');
-  const visibleDocuments = useMemo(() => {
-    if (hasDocumentFilters) return filteredItems;
-    return activeTeamNode.docs;
-  }, [activeTeamNode.docs, filteredItems, hasDocumentFilters]);
   const collectionDocuments = hasDocumentFilters ? filteredItems : activeTeamDocuments;
-  const visibleTeams = hasDocumentFilters ? [] : activeTeamNode.children;
   const workspaceMetrics = useMemo(() => summarizeKnowledgeWorkspace(items), [items]);
   const activeConnectionTeam = useMemo(() => knowledgeTreePathToTeam(activeTeam), [activeTeam]);
   const connectionTeams = useMemo(() => {
@@ -242,6 +237,22 @@ export default function KnowledgeContextPage({
     if (!activeConnectionTeam) return summaries;
     return summaries.filter(summary => summary.teamPath === activeConnectionTeam || summary.teamPath.startsWith(`${activeConnectionTeam}/`));
   }, [activeConnectionTeam, connections]);
+  const teamOptions = useMemo(() => {
+    const activeIdentity = deriveIdentityFromTeam(activeTeam);
+    return Array.from(
+      new Set(
+        [
+          activeIdentity.team,
+          activeConnectionTeam,
+          ...items.map(item => item.team),
+          ...connections.map(connection => connection.team),
+          'team-1',
+        ]
+          .map(team => normalizeTeamPath(team))
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b));
+  }, [activeConnectionTeam, activeTeam, connections, items]);
   const previewDocument = useMemo(() => splitKnowledgeContentForPreview(editorValue), [editorValue]);
   const previewContent = previewDocument.content;
 
@@ -898,6 +909,7 @@ export default function KnowledgeContextPage({
           activeTeam={activeTeam}
           activeConnectionTeam={activeConnectionTeam}
           activeTab={activeWorkspaceTab}
+          treeRoot={knowledgeTree}
           metrics={workspaceMetrics}
           connectionTeams={connectionTeams}
           listLoading={activeWorkspaceTab === 'connections' ? connectionsLoading : listLoading}
@@ -905,8 +917,6 @@ export default function KnowledgeContextPage({
           search={search}
           sourceFilter={sourceFilter}
           collectionDocuments={collectionDocuments}
-          visibleDocuments={visibleDocuments}
-          visibleTeams={visibleTeams}
           selectedID={selectedID}
           detailLoading={detailLoading}
           selectedDetail={{
@@ -963,6 +973,7 @@ export default function KnowledgeContextPage({
         deleteModal={deleteModal}
         connectionModal={connectionModal}
         connections={connections}
+        teamOptions={teamOptions}
         onCloseForm={() => setFormModal(null)}
         onUpdateForm={patch => setFormModal(prev => (prev ? { ...prev, ...patch, error: undefined } : prev))}
         onSubmitForm={submitFormModal}

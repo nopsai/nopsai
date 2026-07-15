@@ -60,6 +60,7 @@ type KnowledgeContextModalsProps = {
   deleteModal: KnowledgeDeleteModalState | null;
   connectionModal: KnowledgeConnectionModalState | null;
   connections?: KnowledgeConnectionListItem[];
+  teamOptions?: string[];
   onCloseForm: () => void;
   onUpdateForm: (patch: Partial<KnowledgeFormModalState>) => void;
   onSubmitForm: () => void;
@@ -80,6 +81,7 @@ export function KnowledgeContextModals({
   deleteModal,
   connectionModal,
   connections = [],
+  teamOptions = [],
   onCloseForm,
   onUpdateForm,
   onSubmitForm,
@@ -108,6 +110,13 @@ export function KnowledgeContextModals({
     ? connections.filter(connection => normalizeTeamPath(connection.team) === normalizeTeamPath(formModal.team))
     : [];
   const isEditingConnection = connectionModal?.mode === 'edit';
+  const normalizedTeamOptions = Array.from(
+    new Set(
+      [...teamOptions, formModal?.team || '', connectionModal?.team || '', 'team-1']
+        .map(team => normalizeTeamPath(team))
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b));
 
   return (
     <>
@@ -169,12 +178,15 @@ export function KnowledgeContextModals({
               </label>
               <label className="block text-sm font-medium text-[var(--text-secondary)]">
                 Team
-                <input
+                <select
                   className="pipelines-input w-full mt-1"
-                  placeholder="team-1"
                   value={formModal.team}
                   onChange={event => onUpdateForm({ team: event.target.value })}
-                />
+                >
+                  {normalizedTeamOptions.map(team => (
+                    <option key={team} value={team}>{team}</option>
+                  ))}
+                </select>
               </label>
             </div>
             <div>
@@ -358,7 +370,18 @@ export function KnowledgeContextModals({
                   </label>
                 </section>
               </div>
-            ) : null}
+            ) : (
+              <label className="kc-inline-content-field block text-sm font-medium text-[var(--text-secondary)]">
+                Content
+                <textarea
+                  className="pipelines-input w-full mt-1"
+                  placeholder="Write the inline Knowledge Context content."
+                  value={formModal.content}
+                  onChange={event => onUpdateForm({ content: event.target.value })}
+                  rows={10}
+                />
+              </label>
+            )}
             {formModal.error ? <WorkflowInlineAlert id={formErrorId}>{formModal.error}</WorkflowInlineAlert> : null}
           </div>
           <div className="pipelines-modal-footer">
@@ -456,13 +479,16 @@ export function KnowledgeContextModals({
               </label>
               <label className="block text-sm font-medium text-[var(--text-secondary)]">
                 Team
-                <input
+                <select
                   className="pipelines-input w-full mt-1"
-                  placeholder="team/path"
                   value={connectionModal.team}
                   onChange={event => onUpdateConnection({ team: event.target.value })}
                   disabled={isEditingConnection}
-                />
+                >
+                  {normalizedTeamOptions.map(team => (
+                    <option key={team} value={team}>{team}</option>
+                  ))}
+                </select>
               </label>
             </div>
             <div className="grid gap-3 sm:grid-cols-[1fr_180px]">

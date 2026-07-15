@@ -30,6 +30,7 @@ describe('KnowledgeContextModals', () => {
         deleteModal={null}
         connectionModal={null}
         connections={[]}
+        teamOptions={['platform', 'security']}
         onCloseForm={vi.fn()}
         onUpdateForm={onUpdateForm}
         onSubmitForm={onSubmitForm}
@@ -43,17 +44,62 @@ describe('KnowledgeContextModals', () => {
     );
 
     expect(screen.getByRole('radio', { name: 'External page' })).toBeChecked();
+    expect(screen.getByRole('combobox', { name: 'Team' })).toHaveValue('platform');
     expect(screen.getByText('No connection is available for this team.')).toBeVisible();
 
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'restart' } });
     fireEvent.change(screen.getByLabelText('Page URL'), { target: { value: 'https://example.test/page' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add connection' }));
+    fireEvent.change(screen.getByLabelText('Team'), { target: { value: 'security' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create' }));
 
     expect(onUpdateForm).toHaveBeenCalledWith({ name: 'restart' });
     expect(onUpdateForm).toHaveBeenCalledWith({ external_page_url: 'https://example.test/page' });
+    expect(onUpdateForm).toHaveBeenCalledWith({ team: 'security' });
     expect(onAddConnectionFromForm).toHaveBeenCalledWith('platform');
     expect(onSubmitForm).toHaveBeenCalledOnce();
+  });
+
+  it('renders inline content fields when creating an inline document', () => {
+    const onUpdateForm = vi.fn();
+
+    render(
+      <KnowledgeContextModals
+        formModal={{
+          mode: 'create',
+          contentSource: 'inline',
+          kind: 'architecture',
+          team: 'platform',
+          name: '',
+          description: '',
+          content: 'Existing inline content',
+          pending: false,
+        }}
+        deleteModal={null}
+        connectionModal={null}
+        connections={[]}
+        teamOptions={['platform', 'security']}
+        onCloseForm={vi.fn()}
+        onUpdateForm={onUpdateForm}
+        onSubmitForm={vi.fn()}
+        onCloseDelete={vi.fn()}
+        onConfirmDelete={vi.fn()}
+        onCloseConnection={vi.fn()}
+        onUpdateConnection={vi.fn()}
+        onSubmitConnection={vi.fn()}
+        onAddConnectionFromForm={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('radio', { name: 'Inline content' })).toBeChecked();
+    expect(screen.queryByLabelText('Page URL')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Content')).toHaveValue('Existing inline content');
+
+    fireEvent.change(screen.getByLabelText('Content'), { target: { value: '# Architecture' } });
+    fireEvent.change(screen.getByLabelText('Team'), { target: { value: 'security' } });
+
+    expect(onUpdateForm).toHaveBeenCalledWith({ content: '# Architecture' });
+    expect(onUpdateForm).toHaveBeenCalledWith({ team: 'security' });
   });
 
   it('renders the knowledge connection dialog and submits changes', () => {
@@ -75,6 +121,7 @@ describe('KnowledgeContextModals', () => {
           pending: false,
         }}
         connections={[]}
+        teamOptions={['platform', 'security']}
         onCloseForm={vi.fn()}
         onUpdateForm={vi.fn()}
         onSubmitForm={vi.fn()}
@@ -88,13 +135,16 @@ describe('KnowledgeContextModals', () => {
     );
 
     expect(screen.getByRole('heading', { name: 'Add external page connection' })).toBeVisible();
+    expect(screen.getByRole('combobox', { name: 'Team' })).toHaveValue('platform');
 
+    fireEvent.change(screen.getByLabelText('Team'), { target: { value: 'security' } });
     fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'confluence' } });
     fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Platform Confluence' } });
     fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'https://confluence.example.test' } });
     fireEvent.change(screen.getByLabelText('Credential reference'), { target: { value: 'knowledge/confluence' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create connection' }));
 
+    expect(onUpdateConnection).toHaveBeenCalledWith({ team: 'security' });
     expect(onUpdateConnection).toHaveBeenCalledWith({ provider: 'confluence' });
     expect(onUpdateConnection).toHaveBeenCalledWith({ display_name: 'Platform Confluence' });
     expect(onUpdateConnection).toHaveBeenCalledWith({ base_url: 'https://confluence.example.test' });

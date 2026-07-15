@@ -42,6 +42,7 @@ function renderWorkspace(overrides: Partial<Parameters<typeof KnowledgeContextWo
     activeTeam,
     activeConnectionTeam: 'platform',
     activeTab: 'documents' as const,
+    treeRoot: tree,
     metrics: summarizeKnowledgeWorkspace(documents),
     connectionTeams: buildKnowledgeConnectionTeamSummaries(documents),
     listLoading: false,
@@ -49,8 +50,6 @@ function renderWorkspace(overrides: Partial<Parameters<typeof KnowledgeContextWo
     search: '',
     sourceFilter: 'all' as const,
     collectionDocuments: collectKnowledgeTeamDocs(activeTeamNode),
-    visibleDocuments: activeTeamNode.docs,
-    visibleTeams: activeTeamNode.children,
     selectedID: '',
     selectedDetail: {
       detail: null,
@@ -108,15 +107,16 @@ describe('KnowledgeContextWorkspace', () => {
     expect(screen.getByLabelText('Knowledge Context summary')).toBeVisible();
     expect(screen.getByRole('complementary', { name: 'Documents browser' })).toBeVisible();
     expect(screen.getByRole('heading', { name: 'All knowledge' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Open restart' })).toBeVisible();
     expect(screen.getByRole('columnheader', { name: 'Source' })).toBeVisible();
 
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Runbooks' }));
+    expect(screen.getAllByRole('button', { name: 'Open restart' }).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('tab', { name: 'Connections' }));
     fireEvent.change(screen.getByPlaceholderText('Search knowledge contexts'), { target: { value: 'restart' } });
     fireEvent.change(screen.getByLabelText('Filter knowledge sources'), { target: { value: 'gitops' } });
     fireEvent.click(screen.getByRole('button', { name: 'Open Runbooks' }));
     fireEvent.click(screen.getByRole('button', { name: 'New context' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Open restart' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open restart' })[0]);
 
     expect(props.onSwitchTab).toHaveBeenCalledWith('connections');
     expect(props.onSearchChange).toHaveBeenCalledWith('restart');
@@ -139,8 +139,9 @@ describe('KnowledgeContextWorkspace', () => {
     expect(screen.getByText('No connections yet.')).toBeVisible();
     expect(screen.getByRole('heading', { name: 'No knowledge connections yet' })).toBeVisible();
     expect(screen.queryByText('Confluence')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add connection' })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add connection' }));
+    fireEvent.click(screen.getByRole('button', { name: 'New connection' }));
 
     expect(props.onAddConnection).toHaveBeenCalledWith('');
   });
@@ -176,7 +177,7 @@ describe('KnowledgeContextWorkspace', () => {
     expect(screen.queryByRole('tab', { name: 'Providers' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Test Security Confluence' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reconnect Security Confluence' }));
     fireEvent.click(screen.getByRole('button', { name: 'Disable Security Confluence' }));
     fireEvent.click(screen.getByRole('button', { name: 'Delete Security Confluence' }));
 

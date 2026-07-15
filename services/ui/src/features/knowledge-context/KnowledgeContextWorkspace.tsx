@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
-import { BookOpenText, ChevronLeft, Filter, GitBranch, Link2, MoreHorizontal, Plus, Search, UsersRound } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { BookOpenText, ChevronRight, Filter, FolderTree, GitBranch, Link2, MoreHorizontal, Plus, Search, UsersRound } from 'lucide-react';
 
 import { ObjectIcon } from '../../components/ObjectIcon';
 import { KnowledgeContextConnectionsView } from './KnowledgeContextConnectionsView';
@@ -13,7 +13,6 @@ import {
   knowledgeContentSource,
   knowledgeSyncStatusLabel,
   knowledgeSourceFilterOptions,
-  parentTeam,
   splitKnowledgePath,
   sourceLabel,
   type KnowledgeConnectionListItem,
@@ -30,6 +29,7 @@ type KnowledgeContextWorkspaceProps = {
   activeTeam: string;
   activeConnectionTeam: string;
   activeTab: KnowledgeWorkspaceTab;
+  treeRoot: KnowledgeTeamNode;
   metrics: KnowledgeWorkspaceMetrics;
   connectionTeams: KnowledgeConnectionTeamSummary[];
   listLoading: boolean;
@@ -37,8 +37,6 @@ type KnowledgeContextWorkspaceProps = {
   search: string;
   sourceFilter: KnowledgeSourceFilter;
   collectionDocuments: KnowledgeContextListItem[];
-  visibleDocuments: KnowledgeContextListItem[];
-  visibleTeams: KnowledgeTeamNode[];
   selectedID: string;
   selectedDetail: KnowledgeContextDetailViewProps;
   detailLoading: boolean;
@@ -70,6 +68,7 @@ export function KnowledgeContextWorkspace({
   activeTeam,
   activeConnectionTeam,
   activeTab,
+  treeRoot,
   metrics,
   connectionTeams,
   listLoading,
@@ -77,8 +76,6 @@ export function KnowledgeContextWorkspace({
   search,
   sourceFilter,
   collectionDocuments,
-  visibleDocuments,
-  visibleTeams,
   selectedID,
   selectedDetail,
   detailLoading,
@@ -184,18 +181,15 @@ export function KnowledgeContextWorkspace({
           activeTab={activeTab}
           activeTeam={activeTeam}
           activeConnectionTeam={activeConnectionTeam}
+          treeRoot={treeRoot}
           totalDocuments={metrics.documents}
           connectionTeams={connectionTeams}
           listLoading={listLoading}
           listError={listError}
-          visibleDocuments={visibleDocuments}
-          visibleTeams={visibleTeams}
           selectedID={selectedID}
-          canDeleteKnowledge={canDeleteKnowledge}
           onOpenTeam={onOpenTeam}
           onSelectConnectionTeam={onSelectConnectionTeam}
           onSelectDocument={onSelectDocument}
-          onDeleteDocument={onDeleteDocument}
         />
 
         {activeTab === 'connections' ? (
@@ -206,7 +200,6 @@ export function KnowledgeContextWorkspace({
             teams={connectionTeams}
             canWriteKnowledge={canWriteKnowledge}
             canDeleteKnowledge={canDeleteKnowledge}
-            onAddConnection={onAddConnection}
             onTestConnection={onTestConnection || (() => undefined)}
             onEditConnection={onEditConnection || (() => undefined)}
             onToggleConnection={onToggleConnection || (() => undefined)}
@@ -236,34 +229,28 @@ function KnowledgeBrowserCard({
   activeTab,
   activeTeam,
   activeConnectionTeam,
+  treeRoot,
   totalDocuments,
   connectionTeams,
   listLoading,
   listError,
-  visibleDocuments,
-  visibleTeams,
   selectedID,
-  canDeleteKnowledge,
   onOpenTeam,
   onSelectConnectionTeam,
   onSelectDocument,
-  onDeleteDocument,
 }: {
   activeTab: KnowledgeWorkspaceTab;
   activeTeam: string;
   activeConnectionTeam: string;
+  treeRoot: KnowledgeTeamNode;
   totalDocuments: number;
   connectionTeams: KnowledgeConnectionTeamSummary[];
   listLoading: boolean;
   listError: string | null;
-  visibleDocuments: KnowledgeContextListItem[];
-  visibleTeams: KnowledgeTeamNode[];
   selectedID: string;
-  canDeleteKnowledge: boolean;
   onOpenTeam: (team: string) => void;
   onSelectConnectionTeam: (team: string) => void;
   onSelectDocument: (id: string) => void;
-  onDeleteDocument: (document: KnowledgeContextListItem) => void;
 }) {
   const title = activeTab === 'connections' ? 'Connection tree' : 'Knowledge tree';
   const count = activeTab === 'connections'
@@ -271,10 +258,10 @@ function KnowledgeBrowserCard({
     : totalDocuments;
 
   return (
-    <aside className="kc-demo-tree-card" aria-label={`${activeTab === 'connections' ? 'Connections' : 'Documents'} browser`}>
-      <div className="kc-demo-tree-head">
-        <span className="kc-demo-tree-head-icon" aria-hidden="true">
-          <ObjectIcon type={activeTab === 'connections' ? 'mcp-profile' : 'knowledge-context'} />
+    <aside className="triggers-explorer" aria-label={`${activeTab === 'connections' ? 'Connections' : 'Documents'} browser`}>
+      <div className="triggers-explorer-head">
+        <span className="triggers-explorer-head-icon" aria-hidden="true">
+          <FolderTree className="h-4 w-4" />
         </span>
         <div>
           <h3>{title}</h3>
@@ -295,14 +282,11 @@ function KnowledgeBrowserCard({
       ) : (
         <DocumentRows
           activeTeam={activeTeam}
+          treeRoot={treeRoot}
           totalDocuments={totalDocuments}
-          visibleDocuments={visibleDocuments}
-          visibleTeams={visibleTeams}
           selectedID={selectedID}
-          canDeleteKnowledge={canDeleteKnowledge}
           onOpenTeam={onOpenTeam}
           onSelectDocument={onSelectDocument}
-          onDeleteDocument={onDeleteDocument}
         />
       )}
     </aside>
@@ -311,99 +295,206 @@ function KnowledgeBrowserCard({
 
 function DocumentRows({
   activeTeam,
+  treeRoot,
   totalDocuments,
-  visibleDocuments,
-  visibleTeams,
   selectedID,
-  canDeleteKnowledge,
   onOpenTeam,
   onSelectDocument,
-  onDeleteDocument,
 }: {
   activeTeam: string;
+  treeRoot: KnowledgeTeamNode;
   totalDocuments: number;
-  visibleDocuments: KnowledgeContextListItem[];
-  visibleTeams: KnowledgeTeamNode[];
   selectedID: string;
-  canDeleteKnowledge: boolean;
   onOpenTeam: (team: string) => void;
   onSelectDocument: (id: string) => void;
-  onDeleteDocument: (document: KnowledgeContextListItem) => void;
 }) {
-  if (!visibleDocuments.length && !visibleTeams.length) {
+  const [nodeOpenOverrides, setNodeOpenOverrides] = useState<Map<string, boolean>>(() => new Map());
+  const selectedPath = selectedID ? splitKnowledgePath(selectedID).team : '';
+  const forcedOpenNodeIDs = useMemo(() => {
+    const ids = new Set<string>(['root']);
+    knowledgeTreeAncestorIDs(activeTeam).forEach(id => ids.add(id));
+    knowledgeTreeAncestorIDs(selectedPath).forEach(id => ids.add(id));
+    return ids;
+  }, [activeTeam, selectedPath]);
+  const openNodeIDs = useMemo(() => {
+    const ids = new Set(forcedOpenNodeIDs);
+    nodeOpenOverrides.forEach((open, id) => {
+      if (open) ids.add(id);
+      else ids.delete(id);
+    });
+    forcedOpenNodeIDs.forEach(id => ids.add(id));
+    return ids;
+  }, [forcedOpenNodeIDs, nodeOpenOverrides]);
+  const toggleNode = (id: string) => {
+    setNodeOpenOverrides(previous => {
+      const next = new Map(previous);
+      next.set(id, !openNodeIDs.has(id));
+      return next;
+    });
+  };
+
+  if (!totalDocuments) {
     return <p className="kc-demo-tree-state">No documents found.</p>;
   }
-  const parent = parentTeam(activeTeam);
 
   return (
-    <div className="kc-demo-tree-list">
-      {activeTeam ? (
-        <button
-          type="button"
-          className="kc-demo-tree-row"
-          aria-label={`Open ${parent || 'all knowledge'}`}
-          onClick={() => onOpenTeam(parent)}
-        >
-          <ChevronLeft className="h-4 w-4" aria-hidden="true" />
-          <span>{parent || 'All knowledge'}</span>
-          <span className="count">Up</span>
-        </button>
-      ) : (
-        <button
-          type="button"
-          className={`kc-demo-tree-row ${!selectedID ? 'active' : ''}`}
-          aria-label="Open all knowledge"
-          aria-current={!selectedID ? 'page' : undefined}
-          onClick={() => onOpenTeam('')}
-        >
+    <>
+      <button
+        type="button"
+        className={`triggers-explorer-root ${!activeTeam && !selectedID ? 'active' : ''}`}
+        aria-current={!activeTeam && !selectedID ? 'page' : undefined}
+        onClick={() => onOpenTeam('')}
+      >
+        <span className="triggers-explorer-folder" aria-hidden="true">
           <ObjectIcon type="knowledge-context" />
-          <span>All knowledge</span>
-          <span className="count">{totalDocuments}</span>
-        </button>
-      )}
-      {visibleTeams.map(team => {
-        const depth = team.fullPath.split('/').filter(Boolean).length;
-        const isKind = depth === 1;
-        return (
-          <button
-            key={team.id}
-            type="button"
-            className={`kc-demo-tree-row ${isKind ? '' : 'indent1'}`}
-            aria-label={`Open ${isKind ? kindPlural(team.name) : team.name}`}
-            onClick={() => onOpenTeam(team.fullPath)}
-          >
-            <ObjectIcon type={isKind ? kindIconType(team.name) : 'team'} />
-            <span>{isKind ? kindPlural(team.name) : team.name}</span>
-            <span className="count">{countTeamDocs(team)}</span>
-          </button>
-        );
-      })}
-      {visibleDocuments.map(document => {
-        const path = splitKnowledgePath(document.id).team;
-        return (
-          <div key={document.id} className={`kc-demo-tree-row-wrap ${selectedID === document.id ? 'active' : ''}`}>
-            <button
-              type="button"
-              className="kc-demo-tree-row indent2"
-              aria-label={`Open ${document.name}`}
-              onClick={() => onSelectDocument(document.id)}
-            >
-              <span className="tree-dot" aria-hidden="true" />
-              <ObjectIcon type={kindIconType(document.kind)} />
-              <span>{document.name}</span>
-              <small>{path}</small>
-              <span className={`kc-demo-source-dot ${knowledgeContentSource(document)}`} aria-label={sourceLabel(document.source)} />
-            </button>
-            {canDeleteKnowledge ? (
-              <button type="button" className="kc-demo-row-more" aria-label={`Delete ${document.name}`} onClick={() => onDeleteDocument(document)}>
-                <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
-              </button>
-            ) : null}
-          </div>
-        );
-      })}
-    </div>
+        </span>
+        <span>All knowledge</span>
+        <strong>{totalDocuments}</strong>
+      </button>
+      <ul className="triggers-explorer-tree">
+        {treeRoot.children.map(child => (
+          <KnowledgeExplorerNode
+            key={child.id}
+            node={child}
+            openNodeIDs={openNodeIDs}
+            activeTeam={activeTeam}
+            selectedID={selectedID}
+            onToggleNode={toggleNode}
+            onOpenTeam={onOpenTeam}
+            onSelectDocument={onSelectDocument}
+          />
+        ))}
+        {treeRoot.docs.map(document => (
+          <KnowledgeExplorerLeaf
+            key={document.id}
+            document={document}
+            selected={selectedID === document.id}
+            onSelectDocument={onSelectDocument}
+          />
+        ))}
+      </ul>
+    </>
   );
+}
+
+function KnowledgeExplorerNode({
+  node,
+  openNodeIDs,
+  activeTeam,
+  selectedID,
+  onToggleNode,
+  onOpenTeam,
+  onSelectDocument,
+}: {
+  node: KnowledgeTeamNode;
+  openNodeIDs: Set<string>;
+  activeTeam: string;
+  selectedID: string;
+  onToggleNode: (id: string) => void;
+  onOpenTeam: (team: string) => void;
+  onSelectDocument: (id: string) => void;
+}) {
+  const open = openNodeIDs.has(node.id);
+  const active = activeTeam === node.fullPath && !selectedID;
+  const isKind = node.fullPath.split('/').filter(Boolean).length === 1;
+  const hasChildren = node.children.length > 0 || node.docs.length > 0;
+  const label = isKind ? kindPlural(node.name) : node.name;
+
+  return (
+    <li className="triggers-explorer-node">
+      <div className="triggers-explorer-node-row">
+        <button
+          type="button"
+          className="triggers-explorer-toggle"
+          aria-label={`${open ? 'Collapse' : 'Expand'} ${label}`}
+          aria-expanded={open}
+          onClick={() => onToggleNode(node.id)}
+          disabled={!hasChildren}
+        >
+          <ChevronRight className={`h-3.5 w-3.5 ${open ? 'rotate-90' : ''}`} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className={`triggers-explorer-owner ${active ? 'active' : ''}`}
+          aria-label={`Open ${label}`}
+          aria-current={active ? 'page' : undefined}
+          onClick={() => onOpenTeam(node.fullPath)}
+        >
+          <span className="triggers-explorer-folder" aria-hidden="true">
+            <ObjectIcon type={isKind ? kindIconType(node.name) : 'team'} />
+          </span>
+          <span className="truncate">{label}</span>
+          <strong>{countTeamDocs(node)}</strong>
+        </button>
+      </div>
+      {open ? (
+        <ul className="triggers-explorer-children">
+          {node.children.map(child => (
+            <KnowledgeExplorerNode
+              key={child.id}
+              node={child}
+              openNodeIDs={openNodeIDs}
+              activeTeam={activeTeam}
+              selectedID={selectedID}
+              onToggleNode={onToggleNode}
+              onOpenTeam={onOpenTeam}
+              onSelectDocument={onSelectDocument}
+            />
+          ))}
+          {node.docs.map(document => (
+            <KnowledgeExplorerLeaf
+              key={document.id}
+              document={document}
+              selected={selectedID === document.id}
+              onSelectDocument={onSelectDocument}
+            />
+          ))}
+        </ul>
+      ) : null}
+    </li>
+  );
+}
+
+function KnowledgeExplorerLeaf({
+  document,
+  selected,
+  onSelectDocument,
+}: {
+  document: KnowledgeContextListItem;
+  selected: boolean;
+  onSelectDocument: (id: string) => void;
+}) {
+  const sourceKey = knowledgeContentSource(document);
+  return (
+    <li className="triggers-explorer-leaf">
+      <button
+        type="button"
+        className={`triggers-explorer-trigger ${selected ? 'active' : ''}`}
+        aria-label={`Open ${document.name}`}
+        aria-current={selected ? 'page' : undefined}
+        onClick={() => onSelectDocument(document.id)}
+      >
+        <span className="triggers-explorer-trigger-icon" aria-hidden="true">
+          <ObjectIcon type={kindIconType(document.kind)} />
+        </span>
+        <span className="truncate">{document.name || document.id}</span>
+        <span
+          className={`triggers-explorer-source triggers-explorer-source--${isGitManagedDocument(document) ? 'git' : sourceKey}`}
+          title={sourceLabel(document.source)}
+          aria-label={sourceLabel(document.source)}
+        />
+      </button>
+    </li>
+  );
+}
+
+function knowledgeTreeAncestorIDs(path: string) {
+  const parts = path.split('/').filter(Boolean);
+  const ids: string[] = [];
+  for (let index = 0; index < parts.length; index += 1) {
+    ids.push(parts.slice(0, index + 1).join('/'));
+  }
+  return ids;
 }
 
 function KnowledgeDocumentCollection({
@@ -572,65 +663,94 @@ function ConnectionRows({
   onSelectConnectionTeam: (teamPath: string) => void;
 }) {
   const visibleTeams = teams.filter(team => team.connections.length > 0);
+  const [teamOpenOverrides, setTeamOpenOverrides] = useState<Map<string, boolean>>(() => new Map());
+  const openTeamPaths = useMemo(() => {
+    const paths = new Set<string>();
+    visibleTeams.forEach(team => {
+      const overridden = teamOpenOverrides.get(team.teamPath);
+      if (overridden ?? true) paths.add(team.teamPath);
+    });
+    if (selectedTeamPath) paths.add(selectedTeamPath);
+    return paths;
+  }, [selectedTeamPath, teamOpenOverrides, visibleTeams]);
+  const toggleTeam = (teamPath: string) => {
+    setTeamOpenOverrides(previous => {
+      const next = new Map(previous);
+      next.set(teamPath, !openTeamPaths.has(teamPath));
+      return next;
+    });
+  };
+  const totalConnections = visibleTeams.reduce((total, team) => total + team.connections.length, 0);
   if (!visibleTeams.length) return <p className="kc-demo-tree-state">No connections yet.</p>;
-  const parent = parentTeam(selectedTeamPath);
 
   return (
-    <div className="kc-demo-tree-list">
-      <div className="kc-demo-tree-group-title">Connections</div>
-      {selectedTeamPath ? (
-        <button
-          type="button"
-          className="kc-demo-tree-row"
-          aria-label={`Open ${parent || 'all connections'}`}
-          onClick={() => onSelectConnectionTeam(parent)}
-        >
-          <ChevronLeft className="h-4 w-4" aria-hidden="true" />
-          <span>{parent || 'All connections'}</span>
-          <span className="count">Up</span>
-        </button>
-      ) : null}
-      {!selectedTeamPath ? (
-        <button
-          type="button"
-          className="kc-demo-tree-row active"
-          aria-label="Open all connections"
-          aria-current="page"
-          onClick={() => onSelectConnectionTeam('')}
-        >
+    <>
+      <button
+        type="button"
+        className={`triggers-explorer-root ${!selectedTeamPath ? 'active' : ''}`}
+        aria-current={!selectedTeamPath ? 'page' : undefined}
+        onClick={() => onSelectConnectionTeam('')}
+      >
+        <span className="triggers-explorer-folder" aria-hidden="true">
           <ObjectIcon type="mcp-profile" />
-          <span>All connections</span>
-          <span className="count">{visibleTeams.reduce((total, team) => total + team.connections.length, 0)}</span>
-        </button>
-      ) : null}
-      {visibleTeams.map(team => (
-        <div key={team.teamPath} className="kc-demo-tree-team-group">
-          <button
-            type="button"
-            className={`kc-demo-tree-row ${team.teamPath === selectedTeamPath ? 'active' : ''}`}
-            aria-label={`Open ${team.teamPath} connections`}
-            aria-current={team.teamPath === selectedTeamPath ? 'page' : undefined}
-            onClick={() => onSelectConnectionTeam(team.teamPath)}
-          >
-            <ObjectIcon type="team" />
-            <span>{team.teamPath}</span>
-            <span className="count">{team.connections.length}</span>
-          </button>
-          {team.connections.map(connection => (
-            <button
-              key={connection.id}
-              type="button"
-              className="kc-demo-tree-row indent1 kc-demo-tree-row--connection"
-              aria-label={`Open ${knowledgeConnectionDisplayName(connection)} connection`}
-              onClick={() => onSelectConnectionTeam(team.teamPath)}
-            >
-              <span className={`kc-demo-source-dot ${connection.disabled ? 'inline' : 'external'}`} aria-hidden="true" />
-              <span>{knowledgeConnectionDisplayName(connection)}</span>
-              <small>{connection.provider}</small>
-            </button>
-          ))}
-        </div>
-      ))}
-    </div>
+        </span>
+        <span>All connections</span>
+        <strong>{totalConnections}</strong>
+      </button>
+      <ul className="triggers-explorer-tree">
+        {visibleTeams.map(team => (
+          <li key={team.teamPath} className="triggers-explorer-node">
+            <div className="triggers-explorer-node-row">
+              <button
+                type="button"
+                className="triggers-explorer-toggle"
+                aria-label={`${openTeamPaths.has(team.teamPath) ? 'Collapse' : 'Expand'} ${team.teamPath} connections`}
+                aria-expanded={openTeamPaths.has(team.teamPath)}
+                onClick={() => toggleTeam(team.teamPath)}
+              >
+                <ChevronRight className={`h-3.5 w-3.5 ${openTeamPaths.has(team.teamPath) ? 'rotate-90' : ''}`} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className={`triggers-explorer-owner ${team.teamPath === selectedTeamPath ? 'active' : ''}`}
+                aria-label={`Open ${team.teamPath} connections`}
+                aria-current={team.teamPath === selectedTeamPath ? 'page' : undefined}
+                onClick={() => onSelectConnectionTeam(team.teamPath)}
+              >
+                <span className="triggers-explorer-folder" aria-hidden="true">
+                  <ObjectIcon type="team" />
+                </span>
+                <span className="truncate">{team.teamPath}</span>
+                <strong>{team.connections.length}</strong>
+              </button>
+            </div>
+            {openTeamPaths.has(team.teamPath) ? (
+              <ul className="triggers-explorer-children">
+                {team.connections.map(connection => (
+                  <li key={connection.id} className="triggers-explorer-leaf">
+                    <button
+                      type="button"
+                      className="triggers-explorer-trigger"
+                      aria-label={`Open ${knowledgeConnectionDisplayName(connection)} connection`}
+                      onClick={() => onSelectConnectionTeam(team.teamPath)}
+                    >
+                      <span className="triggers-explorer-trigger-icon" aria-hidden="true">
+                        <ObjectIcon type="credential" />
+                      </span>
+                      <span className="truncate">{knowledgeConnectionDisplayName(connection)}</span>
+                      <span
+                        className={`triggers-explorer-source triggers-explorer-source--${connection.disabled ? 'disabled' : connection.status === 'connected' ? 'external' : 'inline'}`}
+                        title={connection.disabled ? 'Disabled' : connection.status}
+                        aria-label={connection.disabled ? 'Disabled' : connection.status}
+                      />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
