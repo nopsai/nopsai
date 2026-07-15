@@ -337,10 +337,13 @@ editing/preview, access settings, usage by pipelines, and GitOps
 database-override warnings. Document detail tabs separate overview, content,
 usage, access, and GitOps state so each panel keeps a clear ownership boundary.
 Create dialogs expose the content source shape as `Inline content` or
-`External page`; external pages are blocked until provider connection APIs are
-available. Connections live in the Knowledge Context area so team owners can
-inspect team-scoped Notion, Confluence, or similar wiki provider readiness
-without moving document ownership into global settings.
+`External page`, use team dropdowns, and show an inline content editor for
+managed text documents. External page documents use the selected team's provider
+connection for page search, preview, and cached sync settings. Connections live
+in the Knowledge Context area so team owners can inspect team-scoped Notion,
+Confluence, or similar wiki provider readiness without moving document ownership
+into global settings; new connections are started from the page toolbar, while
+row actions cover open provider, test, reconnect, disable, and delete.
 
 AAA remains unchanged for the redesign: read/write/delete actions still use the
 existing knowledge-context permissions, and runtime use still checks

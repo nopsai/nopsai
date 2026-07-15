@@ -154,57 +154,64 @@ export function KnowledgeContextDetailView({
               </div>
             </div>
           </div>
-          <div className="kc-demo-detail-actions">
-            <button type="button" className="kc-demo-outline-btn" onClick={onBackToList}>
+          <div className="kc-demo-detail-actions" role="toolbar" aria-label="Document actions">
+            <button type="button" className="kc-doc-action-btn kc-doc-action-btn--back" onClick={onBackToList}>
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
               Back
             </button>
             {!isEditing ? (
               <>
-                <button type="button" className="kc-demo-outline-btn" onClick={onCopy}>
+                <button type="button" className="kc-doc-action-btn" onClick={onCopy}>
                   <Copy className="h-4 w-4" aria-hidden="true" />
                   Copy
                 </button>
-                <button type="button" className="kc-demo-outline-btn" onClick={onDownload}>
+                <button type="button" className="kc-doc-action-btn" onClick={onDownload}>
                   <Download className="h-4 w-4" aria-hidden="true" />
                   Export
                 </button>
                 {isExternal && detail.external_page_url ? (
-                  <a className="kc-demo-outline-btn" href={detail.external_page_url} target="_blank" rel="noreferrer">
+                  <a className="kc-doc-action-btn" href={detail.external_page_url} target="_blank" rel="noreferrer">
                     <ExternalLink className="h-4 w-4" aria-hidden="true" />
                     Open page
                   </a>
                 ) : null}
                 {isExternal ? (
-                  <button type="button" className="kc-demo-outline-btn" onClick={onSyncNow} disabled={syncing}>
+                  <button type="button" className="kc-doc-action-btn" onClick={onSyncNow} disabled={syncing}>
                     <RotateCw className="h-4 w-4" aria-hidden="true" />
                     {syncing ? 'Syncing...' : 'Sync now'}
                   </button>
                 ) : null}
                 {canEditSelected ? (
-                  <button type="button" className="kc-demo-outline-btn" onClick={handleStartEditing}>
+                  <button type="button" className="kc-doc-action-btn kc-doc-action-btn--primary" onClick={handleStartEditing}>
                     <Edit3 className="h-4 w-4" aria-hidden="true" />
                     Edit
                   </button>
                 ) : null}
                 {canWriteKnowledge ? (
-                  <button type="button" className="kc-demo-outline-btn" onClick={onClone}>
+                  <button type="button" className="kc-doc-action-btn" onClick={onClone}>
+                    <Copy className="h-4 w-4" aria-hidden="true" />
                     Clone
                   </button>
                 ) : null}
               </>
             ) : (
               <>
-                <button type="button" className="kc-demo-outline-btn" onClick={onDiscardEditing}>
+                <button type="button" className="kc-doc-action-btn" onClick={onDiscardEditing}>
                   Discard
                 </button>
-                <button type="button" className="kc-demo-primary-btn" onClick={onSave} disabled={saving}>
+                <button type="button" className="kc-doc-action-btn kc-doc-action-btn--primary" onClick={onSave} disabled={saving}>
                   {saving ? 'Saving...' : 'Save changes'}
                 </button>
               </>
             )}
             {canDeleteKnowledge ? (
-              <button type="button" className="kc-demo-icon-btn danger" aria-label="Delete" onClick={() => onDelete(detail)} disabled={saving}>
+              <button
+                type="button"
+                className="kc-doc-action-btn kc-doc-action-btn--danger-icon"
+                aria-label="Delete"
+                onClick={() => onDelete(detail)}
+                disabled={saving}
+              >
                 <Trash2 className="h-4 w-4" aria-hidden="true" />
               </button>
             ) : null}
