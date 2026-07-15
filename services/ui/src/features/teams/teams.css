@@ -344,8 +344,8 @@ html.dark .teams-tone-cyan {
 
 .teams-master-detail {
   display: grid;
-  grid-template-columns: minmax(305px, 373px) minmax(0, 1fr);
-  gap: var(--space-section);
+  grid-template-columns: minmax(300px, var(--tree-column-width, 340px)) 8px minmax(0, 1fr);
+  gap: 0;
   align-items: start;
 }
 
@@ -565,6 +565,7 @@ html.dark .teams-tree-row.active {
   min-width: 0;
   flex-direction: column;
   gap: var(--space-section);
+  margin-left: var(--space-section);
 }
 
 .teams-detail-header {
@@ -1303,6 +1304,10 @@ html.dark .teams-table-resource strong {
   .teams-tree-card {
     min-height: auto;
     position: static;
+  }
+
+  .teams-detail-stack {
+    margin-left: 0;
   }
 
   .teams-stat-grid {

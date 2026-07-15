@@ -72,7 +72,7 @@ describe('Pipeline Runs presentation', () => {
       'manual',
     ]);
     expect(buildRunSourceTeams({ main: [repository] })[0].branches?.main).toEqual([repository]);
-    expect(runSourceLabel('repository')).toBe('Git repositories');
+    expect(runSourceLabel('repository')).toBe('Applications');
     expect(runSourceLabel('schedule')).toBe('Scheduled runs');
     expect(runSourceLabel('external')).toBe('External triggers');
     expect(runSourceLabel('manual')).toBe('Manual / Unteamed');

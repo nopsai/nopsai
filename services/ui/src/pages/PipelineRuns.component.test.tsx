@@ -36,12 +36,22 @@ const runs: RunListItem[] = [
   },
 ];
 
+const scheduledRun: RunListItem = {
+  run_id: 'run-scheduled',
+  pipeline_name: 'nightly-ledger',
+  status: 'success',
+  is_complete: true,
+  trigger_source: 'schedule',
+  schedule_name: 'nightly',
+  started_at: '2026-07-12T10:00:00Z',
+  finished_at: '2026-07-12T10:02:00Z',
+};
+
 beforeEach(() => {
   localStorage.clear();
   api.fetchTeams.mockResolvedValue([]);
   api.requestPipelineRunsJson.mockImplementation((path: string) => {
     if (path.startsWith('/v1/runs?offset=')) return Promise.resolve(runs);
-    if (path === '/v1/runs?teamId=root') return Promise.resolve({});
     return Promise.resolve({});
   });
 });
@@ -68,6 +78,28 @@ test('keeps the all-runs view toggle aligned with the status filter controls', a
   expect(screen.getByRole('group', { name: 'Pipeline run layout' }).closest('.pipeline-runs-filterbar')).toBe(
     statusFilter.closest('.pipeline-runs-filterbar')
   );
+});
+
+test('filters application-sourced runs on the overview tab', async () => {
+  const user = userEvent.setup();
+  api.requestPipelineRunsJson.mockImplementation((path: string) => {
+    if (path.startsWith('/v1/runs?offset=')) return Promise.resolve([runs[0], scheduledRun]);
+    return Promise.resolve({});
+  });
+
+  renderPipelineRunsPage('/pipelineruns/main');
+
+  expect(await screen.findByText('deploy-api')).toBeVisible();
+  expect(screen.getByText('nightly-ledger')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Application' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Repository' })).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole('button', { name: 'Application' }));
+
+  expect(screen.getByText('deploy-api')).toBeVisible();
+  expect(screen.getAllByText('Application').length).toBeGreaterThan(1);
+  expect(screen.queryByText('nightly-ledger')).not.toBeInTheDocument();
+  expect(api.requestPipelineRunsJson).not.toHaveBeenCalledWith('/v1/runs?teamId=root');
 });
 
 function renderPipelineRunsPage(initialEntry: string) {

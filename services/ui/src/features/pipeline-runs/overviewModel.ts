@@ -255,7 +255,7 @@ export function buildPipelineRunTableRows(runs: RunListItem[], limit = 25, now =
 export function runSourceDisplayLabel(kind: RunSourceKind): string {
   switch (kind) {
     case 'repository':
-      return 'Repository';
+      return 'Application';
     case 'schedule':
       return 'Schedule';
     case 'external':

@@ -53,21 +53,15 @@ export function AutomationResourceTree({
     return ids;
   }, [itemByID, normalizedActivePath, selectedID]);
 
-  const defaultOpenNodeIDs = useMemo(() => {
-    const ids = new Set(forcedOpenNodeIDs);
-    rootNode.children.forEach(child => ids.add(child.id));
-    return ids;
-  }, [forcedOpenNodeIDs, rootNode]);
-
   const openNodeIDs = useMemo(() => {
-    const ids = new Set(defaultOpenNodeIDs);
+    const ids = new Set(forcedOpenNodeIDs);
     nodeOpenOverrides.forEach((open, id) => {
       if (open) ids.add(id);
       else ids.delete(id);
     });
     forcedOpenNodeIDs.forEach(id => ids.add(id));
     return ids;
-  }, [defaultOpenNodeIDs, forcedOpenNodeIDs, nodeOpenOverrides]);
+  }, [forcedOpenNodeIDs, nodeOpenOverrides]);
 
   const toggleNode = (id: string) => {
     setNodeOpenOverrides(previous => {
@@ -170,6 +164,7 @@ function AutomationResourceTreeNodeRow({
           type="button"
           className="triggers-explorer-toggle"
           aria-label={`${open ? 'Collapse' : 'Expand'} ${node.fullPath}`}
+          aria-expanded={open}
           onClick={() => onToggleNode(node.id)}
         >
           <ChevronRight className={`h-3.5 w-3.5 ${open ? 'rotate-90' : ''}`} aria-hidden="true" />

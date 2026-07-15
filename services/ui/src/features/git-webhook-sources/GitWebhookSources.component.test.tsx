@@ -69,6 +69,7 @@ test('renders source details and audited deliveries', async () => {
 
   expect(await screen.findByRole('heading', { name: 'GitLab Platform' })).toBeVisible();
   expect(screen.getByRole('complementary', { name: 'Team tree' })).toBeVisible();
+  expect(screen.getByRole('separator', { name: 'Resize team tree' })).toBeVisible();
   expect(screen.getByRole('link', { name: 'External API' })).toHaveAttribute('href', '/external-triggers');
   expect(await screen.findByText('platform/api')).toBeVisible();
   expect(screen.getByText('Triggers connected')).toBeVisible();
@@ -90,6 +91,7 @@ test('shows source details after selecting a row from the list route', async () 
 
   expect(await screen.findByRole('button', { name: 'GitLab Platformgitlab-platform' })).toBeVisible();
   expect(screen.getByRole('complementary', { name: 'Team tree' })).toBeVisible();
+  expect(screen.getByRole('separator', { name: 'Resize team tree' })).toBeVisible();
   expect(screen.getByRole('button', { name: 'All teams (1)' })).toBeVisible();
   expect(screen.queryByText('Select a webhook source')).not.toBeInTheDocument();
   expect(screen.queryByText(/\/v1\/git\/webhooks\/gitlab-platform$/)).not.toBeInTheDocument();

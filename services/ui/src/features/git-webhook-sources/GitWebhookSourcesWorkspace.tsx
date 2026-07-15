@@ -1,6 +1,7 @@
 import { useMemo, type ReactNode } from 'react';
 import { Activity, ArrowLeft, Copy, Edit3, GitBranch, PauseCircle, PlayCircle, ShieldCheck, Trash2, Webhook } from 'lucide-react';
 import { ObjectIcon } from '../../components/ObjectIcon';
+import { TreeColumnResizeHandle, useResizableTreeColumn } from '../../components/resizableTreeColumn';
 import { buildApiUrl } from '../../lib/api';
 import { AutomationResourceTree } from '../event-automation/AutomationResourceTree';
 import {
@@ -72,10 +73,16 @@ export function GitWebhookSourcesWorkspace({
     : activeTeamPath
       ? 'No webhook sources for this team'
       : 'No webhook sources found';
+  const treeResize = useResizableTreeColumn({
+    storageKey: 'event-automation',
+    defaultWidth: 280,
+    minWidth: 240,
+    maxWidth: 520,
+  });
 
   if (selected) {
     return (
-      <section className="triggers-detail-fullscreen triggers-detail-fullscreen--with-tree" aria-label="Git webhook source detail">
+      <section className="triggers-detail-fullscreen triggers-detail-fullscreen--with-tree" style={treeResize.gridStyle} aria-label="Git webhook source detail">
         <AutomationResourceTree
           title="Team tree"
           rootLabel="All teams"
@@ -88,6 +95,7 @@ export function GitWebhookSourcesWorkspace({
           onOpenPath={onOpenTeam}
           onSelectItem={onSelect}
         />
+        <TreeColumnResizeHandle {...treeResize} label="Resize team tree" />
         <div className="triggers-detail-fullscreen-main">
           <GitWebhookSourceDetail
             source={selected}
@@ -108,7 +116,7 @@ export function GitWebhookSourcesWorkspace({
 
   return (
     <div className="triggers-workspace-panel triggers-workspace-panel--trigger-browser triggers-workspace-panel--summary">
-      <div className="triggers-workspace-list triggers-browser" aria-label="Git webhook source list">
+      <div className="triggers-workspace-list triggers-browser" style={treeResize.gridStyle} aria-label="Git webhook source list">
         <AutomationResourceTree
           title="Team tree"
           rootLabel="All teams"
@@ -121,6 +129,7 @@ export function GitWebhookSourcesWorkspace({
           onOpenPath={onOpenTeam}
           onSelectItem={onSelect}
         />
+        <TreeColumnResizeHandle {...treeResize} label="Resize team tree" />
         <section className="triggers-browser-main" aria-label="Git webhook source collection">
           <div className="triggers-metrics-grid" aria-label="Git webhook source summary">
             <Metric icon={<Webhook className="h-4 w-4" aria-hidden="true" />} label="Webhook sources" value={metrics.total} />
