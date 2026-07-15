@@ -172,7 +172,7 @@ content: |
 
 Document fields:
 
-- `name`: required resource name; it defines the document identity and may differ from the file name
+- `name`: required resource name; it defines the document label and may differ from the file name
 - `kind`: optional, must match the path kind when present
 - `description`: optional UI/API summary
 - `access.visibility`: `team`, `restricted`, or `workspace`/`public`
@@ -191,8 +191,13 @@ text. New GitOps documents should use `access` for sharing.
 The Knowledge Context page uses a two-pane browser workspace. The left explorer
 keeps the knowledge kind/team tree visible, while the default right pane lists
 the selected branch as a table with source, sync, team, and pipeline-usage
-signals. Opening a document replaces the collection table with the detail view,
-including overview metadata, content preview, usage, access, and GitOps tabs.
+signals. Opening a document replaces the collection table with the detail view:
+the overview starts directly with document details and system-health metadata.
+Long source fields truncate in place, expose the full value on hover, link page
+URLs, and make the document ID copyable. Document content is rendered only in
+the Content tab, while usage and GitOps remain separate tabs so rendering stays
+distinct from action orchestration and backend state. Secondary document actions
+are grouped under the document action menu rather than spread across the header.
 GitOps-managed documents show the database-override warning before edits are
 saved.
 
@@ -360,16 +365,25 @@ kind -> team -> document
 
 The page supports keyboard search, source filtering, browsing, text
 editing/preview, access settings, usage by pipelines, and GitOps
-database-override warnings. Document detail tabs separate overview, content,
-usage, access, and GitOps state so each panel keeps a clear ownership boundary.
+database-override warnings.
 Create dialogs expose the content source shape as `Inline content` or
 `External page`, use team dropdowns, and show an inline content editor for
 managed text documents. External page documents use the selected team's provider
-connection for page search, preview, and cached sync settings. Connections live
+connection for page search, preview, and cached sync settings. Document detail
+tabs separate overview, content, usage, and GitOps state, while access and other
+secondary commands live in the document action menu. Connections live
 in the Knowledge Context area so team owners can inspect team-scoped Notion,
 Confluence, or similar wiki provider readiness without moving document ownership
-into global settings; new connections are started from the page toolbar, while
-row actions cover open provider, test, reconnect, disable, and delete.
+into global settings. The connection tree starts collapsed, expands only after a
+user selects a team or connection, keeps every connection-owning team visible
+while the table is filtered by the active route, and keeps provider details out
+of the tree. The main table stays optimized for scanning health and
+linked-document counts; a credentials-style detail drawer opens only after a row
+or tree connection is selected, the left tree follows that selection, and
+choosing a team or `All connections` closes the drawer. The drawer separates
+provider setup, credential health, and linked Knowledge Contexts from management
+actions. New connections are started from the page toolbar, while drawer actions
+cover open provider, test, edit, disable, and delete.
 
 AAA remains unchanged for the redesign: read/write/delete actions still use the
 existing knowledge-context permissions, and runtime use still checks

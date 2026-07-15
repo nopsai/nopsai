@@ -232,6 +232,10 @@ export default function KnowledgeContextPage({
   const collectionDocuments = hasDocumentFilters ? filteredItems : activeTeamDocuments;
   const workspaceMetrics = useMemo(() => summarizeKnowledgeWorkspace(items), [items]);
   const activeConnectionTeam = useMemo(() => knowledgeTreePathToTeam(activeTeam), [activeTeam]);
+  const connectionTreeTeams = useMemo(
+    () => buildKnowledgeConnectionTeamSummaries(items, [], connections),
+    [connections, items]
+  );
   const connectionTeams = useMemo(() => {
     const summaries = buildKnowledgeConnectionTeamSummaries(items, activeConnectionTeam ? [activeConnectionTeam] : [], connections);
     if (!activeConnectionTeam) return summaries;
@@ -912,6 +916,7 @@ export default function KnowledgeContextPage({
           treeRoot={knowledgeTree}
           metrics={workspaceMetrics}
           connectionTeams={connectionTeams}
+          connectionTreeTeams={connectionTreeTeams}
           listLoading={activeWorkspaceTab === 'connections' ? connectionsLoading : listLoading}
           listError={activeWorkspaceTab === 'connections' ? connectionsError : listError}
           search={search}

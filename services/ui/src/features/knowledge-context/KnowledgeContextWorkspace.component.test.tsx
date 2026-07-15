@@ -38,13 +38,17 @@ function renderWorkspace(overrides: Partial<Parameters<typeof KnowledgeContextWo
   const tree = buildKnowledgeTree(documents, []);
   const activeTeam = overrides.activeTeam ?? '';
   const activeTeamNode = findKnowledgeTeam(tree, activeTeam);
+  const defaultConnectionTeams = buildKnowledgeConnectionTeamSummaries(documents);
+  const connectionTeams = overrides.connectionTeams ?? defaultConnectionTeams;
+  const connectionTreeTeams = overrides.connectionTreeTeams ?? connectionTeams;
   const props = {
     activeTeam,
     activeConnectionTeam: 'platform',
     activeTab: 'documents' as const,
     treeRoot: tree,
     metrics: summarizeKnowledgeWorkspace(documents),
-    connectionTeams: buildKnowledgeConnectionTeamSummaries(documents),
+    connectionTeams,
+    connectionTreeTeams,
     listLoading: false,
     listError: null,
     search: '',
@@ -176,10 +180,21 @@ describe('KnowledgeContextWorkspace', () => {
       used_by: ['policy/security/access'],
       last_checked_at: '2026-07-15T10:00:00Z',
     };
+    const platformConnection: KnowledgeConnectionListItem = {
+      id: 'platform/platform-notion',
+      team: 'platform',
+      name: 'platform-notion',
+      display_name: 'Platform Notion',
+      provider: 'notion',
+      status: 'connected',
+      credential_visibility: 'configured',
+    };
+    const connectionTreeTeams = buildKnowledgeConnectionTeamSummaries([], ['platform', 'security'], [platformConnection, connection]);
     const props = renderWorkspace({
       activeTab: 'connections',
       activeConnectionTeam: 'security',
       connectionTeams: buildKnowledgeConnectionTeamSummaries([], ['security'], [connection]),
+      connectionTreeTeams,
       onTestConnection: vi.fn(),
       onEditConnection: vi.fn(),
       onToggleConnection: vi.fn(),
@@ -187,11 +202,22 @@ describe('KnowledgeContextWorkspace', () => {
     });
 
     expect(screen.getByRole('heading', { name: 'Connections' })).toBeVisible();
-    expect(screen.getByRole('link', { name: 'Open Security Confluence base URL' })).toBeVisible();
     expect(screen.getByText('security/security-confluence')).toBeVisible();
     expect(screen.getByRole('row', { name: /Security Confluence/ })).toHaveTextContent('Credential configured');
     expect(screen.getByRole('row', { name: /Security Confluence/ })).toHaveTextContent('1 linked');
-    expect(screen.getByRole('complementary', { name: 'Security Confluence connection details' })).toBeVisible();
+    expect(screen.queryByText('Configured Connections')).not.toBeInTheDocument();
+    expect(screen.queryByText('Select a connection to inspect linked Knowledge Contexts and management actions.')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Expand security connections' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: 'Expand platform connections' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('button', { name: 'Open Security Confluence connection' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Security Confluence' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'View Security Confluence details' }));
+
+    expect(props.onSelectConnectionTeam).toHaveBeenCalledWith('security');
+    expect(screen.getByRole('button', { name: 'Expand platform connections' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('link', { name: 'Open Security Confluence base URL' })).toBeVisible();
+    expect(screen.getByRole('dialog', { name: 'Security Confluence' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Open policy/security/access' })).toBeVisible();
     expect(screen.queryByRole('tab', { name: 'Providers' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Reconnect Security Confluence' })).not.toBeInTheDocument();
@@ -207,5 +233,40 @@ describe('KnowledgeContextWorkspace', () => {
     expect(props.onToggleConnection).toHaveBeenCalledWith(expect.objectContaining({ id: connection.id }));
     expect(props.onDeleteConnection).toHaveBeenCalledWith(expect.objectContaining({ id: connection.id }));
     expect(props.onSelectDocument).toHaveBeenCalledWith('policy/security/access');
+
+    fireEvent.click(screen.getByRole('button', { name: /All connections/ }));
+    expect(screen.queryByRole('dialog', { name: 'Security Confluence' })).not.toBeInTheDocument();
+  });
+
+  it('keeps connection tree branches collapsed until a team is selected', () => {
+    const connection: KnowledgeConnectionListItem = {
+      id: 'security/security-confluence',
+      team: 'security',
+      name: 'security-confluence',
+      display_name: 'Security Confluence',
+      provider: 'confluence',
+      status: 'connected',
+      credential_visibility: 'configured',
+    };
+    const props = renderWorkspace({
+      activeTab: 'connections',
+      activeConnectionTeam: '',
+      connectionTeams: buildKnowledgeConnectionTeamSummaries([], ['security'], [connection]),
+    });
+
+    expect(screen.getByRole('button', { name: 'Expand security connections' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('button', { name: 'Open Security Confluence connection' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'View Security Confluence details' }));
+
+    expect(props.onSelectConnectionTeam).toHaveBeenCalledWith('security');
+    expect(screen.getByRole('button', { name: 'Collapse security connections' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: 'Open security connections' })).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('button', { name: 'Open security connections' })).not.toHaveClass('active');
+    expect(screen.getByRole('button', { name: 'Open Security Confluence connection' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Open Security Confluence connection' })).toHaveAttribute('aria-current', 'page');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open security connections' }));
+    expect(screen.queryByRole('dialog', { name: 'Security Confluence' })).not.toBeInTheDocument();
   });
 });
