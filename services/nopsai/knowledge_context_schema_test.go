@@ -12,6 +12,12 @@ func TestKnowledgeContextSchemaUsesTeamPath(t *testing.T) {
 		"ADD CONSTRAINT knowledge_contexts_kind_team_path_name_key UNIQUE(kind, team_path, name)",
 		"CREATE INDEX IF NOT EXISTS idx_knowledge_contexts_kind_team ON knowledge_contexts(kind, team_path, name)",
 		"ALTER TABLE pipeline_run_knowledge_contexts ADD COLUMN IF NOT EXISTS team_path TEXT NOT NULL DEFAULT ''",
+		"CREATE TABLE IF NOT EXISTS knowledge_context_connections",
+		"UNIQUE(team_path, name)",
+		"ALTER TABLE knowledge_contexts ADD COLUMN IF NOT EXISTS connection_id UUID REFERENCES knowledge_context_connections(id) ON DELETE SET NULL",
+		"ALTER TABLE knowledge_contexts ADD COLUMN IF NOT EXISTS external_page_id TEXT NOT NULL DEFAULT ''",
+		"CREATE INDEX IF NOT EXISTS idx_knowledge_context_connections_team ON knowledge_context_connections(team_path, name)",
+		"CREATE INDEX IF NOT EXISTS idx_knowledge_contexts_connection_id ON knowledge_contexts(connection_id)",
 	}
 	for _, statement := range required {
 		if !strings.Contains(joined, statement) {

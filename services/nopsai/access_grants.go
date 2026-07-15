@@ -17,28 +17,29 @@ const (
 	productRoleOwner     = "owner"
 	productRoleAdmin     = "admin"
 
-	grantResourceTeam             = "team"
-	grantResourcePipeline         = "pipeline"
-	grantResourceRun              = "pipeline_run"
-	grantResourceSchedule         = "pipeline_schedule"
-	grantResourceTrigger          = "trigger"
-	grantResourceExternalTrigger  = "external_trigger"
-	grantResourceGitWebhookSource = "git_webhook_source"
-	grantResourceSecret           = "secret"
-	grantResourceVariable         = "variable"
-	grantResourceScope            = "scope"
-	grantResourceRepo             = "repository"
-	grantResourceStep             = "step"
-	grantResourceRunner           = "runner"
-	grantResourceConfig           = "config_repo"
-	grantResourceKnowledgeContext = "knowledge_context"
-	grantResourceLLMProfile       = "llm_profile"
-	grantResourceAgentProfile     = "agent_profile"
-	grantResourceMCPServer        = "mcp_server"
-	grantResourceMCPProfile       = "mcp_profile"
-	grantResourceCredential       = "credential"
-	grantResourceCompany          = "company"
-	grantResourcePlatform         = "platform"
+	grantResourceTeam                = "team"
+	grantResourcePipeline            = "pipeline"
+	grantResourceRun                 = "pipeline_run"
+	grantResourceSchedule            = "pipeline_schedule"
+	grantResourceTrigger             = "trigger"
+	grantResourceExternalTrigger     = "external_trigger"
+	grantResourceGitWebhookSource    = "git_webhook_source"
+	grantResourceSecret              = "secret"
+	grantResourceVariable            = "variable"
+	grantResourceScope               = "scope"
+	grantResourceRepo                = "repository"
+	grantResourceStep                = "step"
+	grantResourceRunner              = "runner"
+	grantResourceConfig              = "config_repo"
+	grantResourceKnowledgeContext    = "knowledge_context"
+	grantResourceKnowledgeConnection = "knowledge_connection"
+	grantResourceLLMProfile          = "llm_profile"
+	grantResourceAgentProfile        = "agent_profile"
+	grantResourceMCPServer           = "mcp_server"
+	grantResourceMCPProfile          = "mcp_profile"
+	grantResourceCredential          = "credential"
+	grantResourceCompany             = "company"
+	grantResourcePlatform            = "platform"
 
 	grantSubjectService        = "service"
 	grantSubjectUser           = "user"
@@ -197,6 +198,7 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"step.read",
 			"config_repo.read",
 			"knowledge_context.read",
+			"knowledge_connection.read",
 			"llm_profile.read",
 			"agent_profile.read",
 			"mcp_server.read",
@@ -222,6 +224,7 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"step.read",
 			"config_repo.read",
 			"knowledge_context.read",
+			"knowledge_connection.read",
 			"pipeline.create",
 			"pipeline.update",
 			"pipeline.execute",
@@ -251,6 +254,7 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"runner.use",
 			"config_repo.use",
 			"knowledge_context.use",
+			"knowledge_connection.use",
 			"llm_profile.use",
 			"agent_profile.use",
 			"mcp_server.use",
@@ -280,6 +284,7 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"step.read",
 			"config_repo.read",
 			"knowledge_context.read",
+			"knowledge_connection.read",
 			"llm_profile.read",
 			"agent_profile.read",
 			"mcp_server.read",
@@ -315,6 +320,7 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"runner.use",
 			"config_repo.use",
 			"knowledge_context.use",
+			"knowledge_connection.use",
 			"llm_profile.use",
 			"agent_profile.use",
 			"mcp_server.use",
@@ -329,6 +335,11 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"knowledge_context.update",
 			"knowledge_context.delete",
 			"knowledge_context.manage_access",
+			"knowledge_connection.create",
+			"knowledge_connection.update",
+			"knowledge_connection.test",
+			"knowledge_connection.delete",
+			"knowledge_connection.manage_access",
 			"llm_profile.manage_acl",
 			"agent_profile.manage_acl",
 			"mcp_server.manage_acl",

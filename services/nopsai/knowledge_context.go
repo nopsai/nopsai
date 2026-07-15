@@ -52,34 +52,78 @@ type storedKnowledgeContext struct {
 }
 
 type knowledgeContextListItem struct {
-	ID           string    `json:"id"`
-	UUID         string    `json:"uuid,omitempty"`
-	Kind         string    `json:"kind"`
-	Team         string    `json:"team"`
-	Name         string    `json:"name"`
-	Description  string    `json:"description,omitempty"`
-	Visibility   string    `json:"visibility"`
-	Source       string    `json:"source"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	Access       string    `json:"access"`
-	UsedByCount  int       `json:"used_by_count"`
-	UsedBy       []string  `json:"used_by,omitempty"`
-	GitOpsPath   string    `json:"config_source_path,omitempty"`
-	GitOpsCommit string    `json:"config_source_commit_sha,omitempty"`
+	ID                string     `json:"id"`
+	UUID              string     `json:"uuid,omitempty"`
+	Kind              string     `json:"kind"`
+	Team              string     `json:"team"`
+	Name              string     `json:"name"`
+	Description       string     `json:"description,omitempty"`
+	Visibility        string     `json:"visibility"`
+	Source            string     `json:"source"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+	Access            string     `json:"access"`
+	UsedByCount       int        `json:"used_by_count"`
+	UsedBy            []string   `json:"used_by,omitempty"`
+	GitOpsPath        string     `json:"config_source_path,omitempty"`
+	GitOpsCommit      string     `json:"config_source_commit_sha,omitempty"`
+	ConnectionID      string     `json:"connection_id,omitempty"`
+	ConnectionRef     string     `json:"connection_ref,omitempty"`
+	ExternalProvider  string     `json:"external_provider,omitempty"`
+	ExternalPageID    string     `json:"external_page_id,omitempty"`
+	ExternalPageURL   string     `json:"external_page_url,omitempty"`
+	ExternalPageTitle string     `json:"external_page_title,omitempty"`
+	SyncMode          string     `json:"sync_mode,omitempty"`
+	FailureMode       string     `json:"failure_mode,omitempty"`
+	SyncStatus        string     `json:"sync_status,omitempty"`
+	LastSyncedAt      *time.Time `json:"last_synced_at,omitempty"`
+	SyncError         string     `json:"sync_error,omitempty"`
+	SourceModifiedAt  *time.Time `json:"source_modified_at,omitempty"`
+	ContentHash       string     `json:"content_hash,omitempty"`
 }
 
 type knowledgeContextDetail struct {
 	knowledgeContextListItem
-	Content      string `json:"content"`
-	ManagedByGit bool   `json:"managed_by_config_repo"`
+	Content      string                               `json:"content"`
+	ManagedByGit bool                                 `json:"managed_by_config_repo"`
+	Connection   *knowledgeContextConnectionSummary   `json:"connection,omitempty"`
+	ExternalPage *knowledgeContextExternalPageSummary `json:"external_page,omitempty"`
+	Sync         *knowledgeContextSyncSummary         `json:"sync,omitempty"`
+}
+
+type knowledgeContextConnectionSummary struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Provider string `json:"provider"`
+	Status   string `json:"status"`
+}
+
+type knowledgeContextExternalPageSummary struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	URL   string `json:"url"`
+}
+
+type knowledgeContextSyncSummary struct {
+	Mode         string     `json:"mode"`
+	FailureMode  string     `json:"failure_mode"`
+	LastSyncedAt *time.Time `json:"last_synced_at,omitempty"`
+	Status       string     `json:"status"`
+	Error        *string    `json:"error"`
 }
 
 type upsertKnowledgeContextRequest struct {
-	Kind        string `json:"kind"`
-	Team        string `json:"team"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Content     string `json:"content"`
+	Kind              string `json:"kind"`
+	Team              string `json:"team"`
+	Name              string `json:"name"`
+	Description       string `json:"description"`
+	Content           string `json:"content"`
+	ContentSource     string `json:"content_source"`
+	ConnectionID      string `json:"connection_id"`
+	ExternalPageID    string `json:"external_page_id"`
+	ExternalPageURL   string `json:"external_page_url"`
+	ExternalPageTitle string `json:"external_page_title"`
+	SyncMode          string `json:"sync_mode"`
+	FailureMode       string `json:"failure_mode"`
 }
 
 type knowledgeFrontMatter struct {
@@ -528,10 +572,14 @@ func addKnowledgeContextEmbeddedAccess(plan accessSyncPlan, fm knowledgeFrontMat
 
 func (a *App) handleListKnowledgeContexts(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(r.Context(), `
-		SELECT id::text, kind, team_path, name, description, source,
-		       managed_by_config_repo, config_source_path, config_source_commit_sha, updated_at
-		FROM knowledge_contexts
-		ORDER BY kind ASC, team_path ASC, name ASC
+		SELECT k.id::text, k.kind, k.team_path, k.name, k.description, k.source,
+		       k.managed_by_config_repo, k.config_source_path, k.config_source_commit_sha, k.updated_at,
+		       k.connection_id::text, c.team_path, c.name, k.external_provider, k.external_page_id, k.external_page_url,
+		       k.external_page_title, k.sync_mode, k.failure_mode, k.sync_status, k.last_synced_at, k.sync_error,
+		       k.source_modified_at, k.content_hash
+		FROM knowledge_contexts k
+		LEFT JOIN knowledge_context_connections c ON c.id = k.connection_id
+		ORDER BY k.kind ASC, k.team_path ASC, k.name ASC
 	`)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to query knowledge contexts")
@@ -546,12 +594,35 @@ func (a *App) handleListKnowledgeContexts(w http.ResponseWriter, r *http.Request
 	for rows.Next() {
 		var item knowledgeContextListItem
 		var managed bool
-		if err := rows.Scan(&item.UUID, &item.Kind, &item.Team, &item.Name, &item.Description, &item.Source, &managed, &item.GitOpsPath, &item.GitOpsCommit, &item.UpdatedAt); err != nil {
+		var connectionID sql.NullString
+		var connectionTeam sql.NullString
+		var connectionName sql.NullString
+		var lastSyncedAt sql.NullTime
+		var sourceModifiedAt sql.NullTime
+		if err := rows.Scan(
+			&item.UUID, &item.Kind, &item.Team, &item.Name, &item.Description, &item.Source,
+			&managed, &item.GitOpsPath, &item.GitOpsCommit, &item.UpdatedAt,
+			&connectionID, &connectionTeam, &connectionName, &item.ExternalProvider, &item.ExternalPageID, &item.ExternalPageURL,
+			&item.ExternalPageTitle, &item.SyncMode, &item.FailureMode, &item.SyncStatus, &lastSyncedAt, &item.SyncError,
+			&sourceModifiedAt, &item.ContentHash,
+		); err != nil {
 			log.Error().Err(err).Msg("Failed to scan knowledge context")
 			http.Error(w, "Failed to process knowledge contexts", http.StatusInternalServerError)
 			return
 		}
 		item.ID = buildKnowledgeContextIdentifier(item.Kind, item.Team, item.Name)
+		if connectionID.Valid {
+			item.ConnectionID = connectionID.String
+			if connectionTeam.Valid && connectionName.Valid {
+				item.ConnectionRef = buildKnowledgeConnectionIdentifier(connectionTeam.String, connectionName.String)
+			}
+		}
+		if lastSyncedAt.Valid {
+			item.LastSyncedAt = &lastSyncedAt.Time
+		}
+		if sourceModifiedAt.Valid {
+			item.SourceModifiedAt = &sourceModifiedAt.Time
+		}
 		visibility, err := a.resourceVisibility(r.Context(), grantResourceKnowledgeContext, item.ID)
 		if err != nil {
 			log.Error().Err(err).Str("knowledge_context", item.ID).Msg("Failed to load knowledge context visibility")
@@ -602,6 +673,9 @@ func (a *App) handleGetKnowledgeContext(w http.ResponseWriter, r *http.Request) 
 		}
 		log.Error().Err(err).Str("knowledge_context", identifier).Msg("Failed to load knowledge context")
 		http.Error(w, "Failed to load knowledge context", http.StatusInternalServerError)
+		return
+	}
+	if !a.requireAAADecision(w, r, "knowledge_context.read", aaamodel.ResourceRef{Type: grantResourceKnowledgeContext, ID: detail.ID}) {
 		return
 	}
 	writeJSON(w, http.StatusOK, detail)
@@ -662,20 +736,113 @@ func (a *App) handleUpsertKnowledgeContext(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	source := knowledgeSourceDatabase
+	var connectionUUID any
+	externalProvider := ""
+	externalPageID := ""
+	externalPageURL := ""
+	externalPageTitle := ""
+	syncMode := knowledgeSyncModeManual
+	failureMode := knowledgeFailureModeFail
+	syncStatus := "not_synced"
+	contentSource := "inline"
+	contentHash := ""
+	var lastSyncedAt any
+	isExternal := strings.EqualFold(strings.TrimSpace(req.ContentSource), "external") ||
+		strings.EqualFold(strings.TrimSpace(req.ContentSource), "external_page") ||
+		strings.TrimSpace(req.ConnectionID) != "" ||
+		strings.TrimSpace(req.ExternalPageID) != "" ||
+		strings.TrimSpace(req.ExternalPageURL) != ""
+	if isExternal {
+		connection, err := a.loadKnowledgeConnectionByIdentifier(r.Context(), req.ConnectionID)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+				http.Error(w, "knowledge connection not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if connection.Team != team {
+			http.Error(w, "external page connection must belong to the same team as the knowledge context", http.StatusBadRequest)
+			return
+		}
+		if !a.requireAAADecision(w, r, "knowledge_connection.use", aaamodel.ResourceRef{Type: grantResourceKnowledgeConnection, ID: connection.ID}) {
+			return
+		}
+		externalPageID = strings.TrimSpace(req.ExternalPageID)
+		externalPageURL = strings.TrimSpace(req.ExternalPageURL)
+		if externalPageID == "" && externalPageURL == "" {
+			http.Error(w, "external_page_id or external_page_url is required", http.StatusBadRequest)
+			return
+		}
+		syncMode, err = normalizeKnowledgeSyncMode(req.SyncMode)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		failureMode, err = normalizeKnowledgeFailureMode(req.FailureMode)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if failureMode == knowledgeFailureModeSkip && (kind == "guardrail" || kind == "policy") {
+			http.Error(w, "skip failure behavior is not allowed for guardrail or policy knowledge contexts", http.StatusBadRequest)
+			return
+		}
+		source = connection.Provider
+		contentSource = "external_page"
+		parsedConnectionUUID, parseErr := uuid.Parse(connection.UUID)
+		if parseErr != nil {
+			http.Error(w, "knowledge connection has invalid UUID", http.StatusInternalServerError)
+			return
+		}
+		connectionUUID = parsedConnectionUUID
+		externalProvider = connection.Provider
+		externalPageTitle = strings.TrimSpace(req.ExternalPageTitle)
+		if strings.TrimSpace(req.Content) != "" {
+			syncStatus = "cached"
+			now := time.Now().UTC()
+			lastSyncedAt = now
+			contentHash = hashKnowledgeText(req.Content)
+		}
+	}
+
 	_, err = a.db.Exec(r.Context(), `
 		INSERT INTO knowledge_contexts (
-			kind, team_path, name, description, content, source, managed_by_config_repo, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, FALSE, NOW())
+			kind, team_path, name, description, content, source, managed_by_config_repo,
+			content_source, connection_id, external_provider, external_page_id, external_page_url,
+			external_page_title, sync_mode, failure_mode, sync_failure_mode, sync_status,
+			last_sync_status, last_synced_at, sync_error, last_sync_error, synced_content, content_hash, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, FALSE, $7, $8, $9, $10, $11, $12, $13, $14, $14, $15, $15, $16, '', '', $5, $17, NOW())
 		ON CONFLICT (kind, team_path, name) DO UPDATE SET
 			description = EXCLUDED.description,
 			content = EXCLUDED.content,
 			source = EXCLUDED.source,
+			content_source = EXCLUDED.content_source,
 			config_repo_id = NULL,
 			config_source_path = '',
 			config_source_commit_sha = '',
 			managed_by_config_repo = FALSE,
+			connection_id = EXCLUDED.connection_id,
+			external_provider = EXCLUDED.external_provider,
+			external_page_id = EXCLUDED.external_page_id,
+			external_page_url = EXCLUDED.external_page_url,
+			external_page_title = EXCLUDED.external_page_title,
+			sync_mode = EXCLUDED.sync_mode,
+			failure_mode = EXCLUDED.failure_mode,
+			sync_failure_mode = EXCLUDED.sync_failure_mode,
+			sync_status = EXCLUDED.sync_status,
+			last_sync_status = EXCLUDED.last_sync_status,
+			last_synced_at = EXCLUDED.last_synced_at,
+			sync_error = EXCLUDED.sync_error,
+			last_sync_error = EXCLUDED.last_sync_error,
+			synced_content = EXCLUDED.synced_content,
+			content_hash = EXCLUDED.content_hash,
 			updated_at = NOW()
-	`, kind, team, name, strings.TrimSpace(req.Description), req.Content, knowledgeSourceDatabase)
+	`, kind, team, name, strings.TrimSpace(req.Description), req.Content, source,
+		contentSource, connectionUUID, externalProvider, externalPageID, externalPageURL, externalPageTitle,
+		syncMode, failureMode, syncStatus, lastSyncedAt, contentHash)
 	if err != nil {
 		log.Error().Err(err).Str("knowledge_context", identifier).Msg("Failed to save knowledge context")
 		http.Error(w, "Failed to save knowledge context", http.StatusInternalServerError)
@@ -689,10 +856,82 @@ func (a *App) handleUpsertKnowledgeContext(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, detail)
 }
 
+func (a *App) handleKnowledgeContextPost(w http.ResponseWriter, r *http.Request) {
+	identifier := strings.Trim(strings.TrimSpace(r.PathValue("knowledgeID")), "/")
+	if !strings.HasSuffix(identifier, "/sync") {
+		http.NotFound(w, r)
+		return
+	}
+	identifier = strings.Trim(strings.TrimSuffix(identifier, "/sync"), "/")
+	a.handleSyncKnowledgeContext(w, r, identifier)
+}
+
+func (a *App) handleSyncKnowledgeContext(w http.ResponseWriter, r *http.Request, identifier string) {
+	kind, team, name, err := splitKnowledgeContextIdentifier(identifier)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	detail, err := a.loadKnowledgeContextDetail(r.Context(), kind, team, name)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "knowledge context not found", http.StatusNotFound)
+			return
+		}
+		log.Error().Err(err).Str("knowledge_context", identifier).Msg("Failed to load knowledge context for sync")
+		http.Error(w, "Failed to load knowledge context", http.StatusInternalServerError)
+		return
+	}
+	if !a.requireAAADecision(w, r, "knowledge_context.update", aaamodel.ResourceRef{Type: grantResourceKnowledgeContext, ID: detail.ID}) {
+		return
+	}
+	if strings.TrimSpace(detail.ConnectionID) == "" || (strings.TrimSpace(detail.ExternalPageID) == "" && strings.TrimSpace(detail.ExternalPageURL) == "") {
+		http.Error(w, "knowledge context is not configured for an external page", http.StatusBadRequest)
+		return
+	}
+	connection, err := a.loadKnowledgeConnectionByIdentifier(r.Context(), detail.ConnectionID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "knowledge connection not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Failed to load knowledge connection", http.StatusInternalServerError)
+		return
+	}
+	if !a.requireAAADecision(w, r, "knowledge_connection.use", aaamodel.ResourceRef{Type: grantResourceKnowledgeConnection, ID: connection.ID}) {
+		return
+	}
+
+	page, syncErr := a.fetchAndStoreExternalKnowledgePage(r.Context(), detail, connection)
+	if syncErr != nil {
+		log.Warn().
+			Err(syncErr).
+			Str("knowledge_context", detail.ID).
+			Str("knowledge_connection", connection.ID).
+			Msg("Knowledge context manual sync failed")
+	} else {
+		log.Info().
+			Str("knowledge_context", detail.ID).
+			Str("knowledge_connection", connection.ID).
+			Str("content_hash", page.Hash).
+			Msg("Knowledge context manual sync completed from provider page")
+	}
+	updated, err := a.loadKnowledgeContextDetail(r.Context(), kind, team, name)
+	if err != nil {
+		http.Error(w, "Failed to load synced knowledge context", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
 func (a *App) handleDeleteKnowledgeContext(w http.ResponseWriter, r *http.Request) {
 	kind, team, name, err := splitKnowledgeContextIdentifier(r.PathValue("knowledgeID"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	resourceID := buildKnowledgeContextIdentifier(kind, team, name)
+	if !a.requireAAADecision(w, r, "knowledge_context.delete", aaamodel.ResourceRef{Type: grantResourceKnowledgeContext, ID: resourceID}) {
 		return
 	}
 	tag, err := a.db.Exec(r.Context(), `DELETE FROM knowledge_contexts WHERE kind = $1 AND team_path = $2 AND name = $3`, kind, team, name)
@@ -710,20 +949,54 @@ func (a *App) handleDeleteKnowledgeContext(w http.ResponseWriter, r *http.Reques
 func (a *App) loadKnowledgeContextDetail(ctx context.Context, kind, team, name string) (knowledgeContextDetail, error) {
 	var detail knowledgeContextDetail
 	var managed bool
+	var connectionID sql.NullString
+	var connectionTeam sql.NullString
+	var connectionName sql.NullString
+	var connectionDisplayName sql.NullString
+	var connectionStatus sql.NullString
+	var lastSyncedAt sql.NullTime
+	var sourceModifiedAt sql.NullTime
 	err := a.db.QueryRow(ctx, `
-		SELECT id::text, kind, team_path, name, description, content,
-		       source, managed_by_config_repo, config_source_path, config_source_commit_sha, updated_at
-		FROM knowledge_contexts
-		WHERE kind = $1 AND team_path = $2 AND name = $3
+		SELECT k.id::text, k.kind, k.team_path, k.name, k.description, k.content,
+		       k.source, k.managed_by_config_repo, k.config_source_path, k.config_source_commit_sha, k.updated_at,
+		       k.connection_id::text, c.team_path, c.name, c.display_name, c.status,
+		       k.external_provider, k.external_page_id, k.external_page_url,
+		       k.external_page_title, k.sync_mode, k.failure_mode, k.sync_status, k.last_synced_at, k.sync_error,
+		       k.source_modified_at, k.content_hash
+		FROM knowledge_contexts k
+		LEFT JOIN knowledge_context_connections c ON c.id = k.connection_id
+		WHERE k.kind = $1 AND k.team_path = $2 AND k.name = $3
 	`, kind, team, name).Scan(
 		&detail.UUID, &detail.Kind, &detail.Team, &detail.Name, &detail.Description,
 		&detail.Content, &detail.Source, &managed,
 		&detail.GitOpsPath, &detail.GitOpsCommit, &detail.UpdatedAt,
+		&connectionID, &connectionTeam, &connectionName, &connectionDisplayName, &connectionStatus,
+		&detail.ExternalProvider, &detail.ExternalPageID, &detail.ExternalPageURL,
+		&detail.ExternalPageTitle, &detail.SyncMode, &detail.FailureMode, &detail.SyncStatus, &lastSyncedAt, &detail.SyncError,
+		&sourceModifiedAt, &detail.ContentHash,
 	)
 	if err != nil {
 		return detail, err
 	}
 	detail.ID = buildKnowledgeContextIdentifier(detail.Kind, detail.Team, detail.Name)
+	if connectionID.Valid {
+		detail.ConnectionID = connectionID.String
+		if connectionTeam.Valid && connectionName.Valid {
+			detail.ConnectionRef = buildKnowledgeConnectionIdentifier(connectionTeam.String, connectionName.String)
+			detail.Connection = &knowledgeContextConnectionSummary{
+				ID:       detail.ConnectionRef,
+				Name:     firstNonEmptyString(connectionDisplayName.String, connectionName.String),
+				Provider: detail.ExternalProvider,
+				Status:   connectionStatus.String,
+			}
+		}
+	}
+	if lastSyncedAt.Valid {
+		detail.LastSyncedAt = &lastSyncedAt.Time
+	}
+	if sourceModifiedAt.Valid {
+		detail.SourceModifiedAt = &sourceModifiedAt.Time
+	}
 	visibility, err := a.resourceVisibility(ctx, grantResourceKnowledgeContext, detail.ID)
 	if err != nil {
 		return detail, err
@@ -733,6 +1006,25 @@ func (a *App) loadKnowledgeContextDetail(ctx context.Context, kind, team, name s
 	detail.ManagedByGit = managed
 	if managed {
 		detail.Source = knowledgeSourceGitOps
+	}
+	if detail.ExternalPageID != "" || detail.ExternalPageURL != "" {
+		detail.ExternalPage = &knowledgeContextExternalPageSummary{
+			ID:    detail.ExternalPageID,
+			Title: detail.ExternalPageTitle,
+			URL:   detail.ExternalPageURL,
+		}
+		errorText := strings.TrimSpace(detail.SyncError)
+		var errorPtr *string
+		if errorText != "" {
+			errorPtr = &errorText
+		}
+		detail.Sync = &knowledgeContextSyncSummary{
+			Mode:         firstNonEmptyString(detail.SyncMode, knowledgeSyncModeManual),
+			FailureMode:  firstNonEmptyString(detail.FailureMode, knowledgeFailureModeFail),
+			LastSyncedAt: detail.LastSyncedAt,
+			Status:       firstNonEmptyString(detail.SyncStatus, "not_synced"),
+			Error:        errorPtr,
+		}
 	}
 	usage := a.knowledgeContextUsage(ctx)
 	detail.UsedBy = usage[detail.ID]
@@ -932,21 +1224,62 @@ func (a *App) resolveManagedKnowledgeContext(ctx context.Context, callerType, ca
 
 	var snapshot models.KnowledgeContextSnapshot
 	var resolvedAt time.Time
+	var externalPageID string
+	var externalPageURL string
+	var syncStatus string
+	var failureMode string
+	var syncMode string
+	var connectionID sql.NullString
 	err = a.db.QueryRow(ctx, `
 		SELECT id::text, kind, team_path, name, description, content,
-		       source, config_source_path, config_source_commit_sha, updated_at
+		       source, config_source_path, config_source_commit_sha, updated_at,
+		       external_page_id, external_page_url, sync_status, failure_mode, sync_mode, connection_id::text
 		FROM knowledge_contexts
 		WHERE kind = $1 AND team_path = $2 AND name = $3
 	`, kind, team, name).Scan(
 		&snapshot.KnowledgeContextID, &snapshot.Kind, &snapshot.Team, &snapshot.Name,
 		&snapshot.Description, &snapshot.Content, &snapshot.Source,
 		&snapshot.ConfigSourcePath, &snapshot.ConfigSourceCommitSHA, &resolvedAt,
+		&externalPageID, &externalPageURL, &syncStatus, &failureMode, &syncMode, &connectionID,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
 			return models.KnowledgeContextSnapshot{}, authResult, fmt.Errorf("knowledge context %s was not found", resourceID)
 		}
 		return models.KnowledgeContextSnapshot{}, authResult, err
+	}
+	isExternal := connectionID.Valid || strings.TrimSpace(externalPageID) != "" || strings.TrimSpace(externalPageURL) != ""
+	if isExternal && syncMode == knowledgeSyncModeBeforeRun {
+		detail, loadErr := a.loadKnowledgeContextDetail(ctx, kind, team, name)
+		if loadErr != nil {
+			return models.KnowledgeContextSnapshot{}, authResult, loadErr
+		}
+		connection, loadErr := a.loadKnowledgeConnectionByIdentifier(ctx, detail.ConnectionID)
+		if loadErr != nil {
+			if resolved, ok := applyExternalKnowledgeFailureMode(snapshot, ref, failureMode, fmt.Errorf("knowledge connection unavailable for %s: %w", resourceID, loadErr)); ok {
+				snapshot = resolved
+			} else {
+				return models.KnowledgeContextSnapshot{}, authResult, fmt.Errorf("knowledge connection unavailable for %s: %w", resourceID, loadErr)
+			}
+		} else if page, fetchErr := a.fetchAndStoreExternalKnowledgePage(ctx, detail, connection); fetchErr != nil {
+			if resolved, ok := applyExternalKnowledgeFailureMode(snapshot, ref, failureMode, fetchErr); ok {
+				snapshot = resolved
+			} else {
+				return models.KnowledgeContextSnapshot{}, authResult, fmt.Errorf("knowledge context %s could not fetch external page: %w", resourceID, fetchErr)
+			}
+		} else {
+			snapshot.Content = page.Text
+			snapshot.Source = connection.Provider
+			resolvedAt = time.Now().UTC()
+		}
+	}
+	if isExternal && strings.TrimSpace(snapshot.Content) == "" {
+		err := fmt.Errorf("knowledge context %s is not synchronized yet (status: %s, failure_mode: %s)", resourceID, firstNonEmptyString(syncStatus, "not_synced"), firstNonEmptyString(failureMode, knowledgeFailureModeFail))
+		if resolved, ok := applyExternalKnowledgeFailureMode(snapshot, ref, failureMode, err); ok {
+			snapshot = resolved
+		} else {
+			return models.KnowledgeContextSnapshot{}, authResult, err
+		}
 	}
 	snapshot.Ref = strings.Trim(strings.TrimSpace(ref.Ref), "/")
 	snapshot.Required = ref.Required

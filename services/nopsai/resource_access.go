@@ -627,6 +627,9 @@ func inheritedAccessParentTeams(resource accessGrantResource) []string {
 	case grantResourceKnowledgeContext:
 		_, team, _, _ := splitKnowledgeContextIdentifier(resource.ID)
 		return teamPathPrefixes(team)
+	case grantResourceKnowledgeConnection:
+		team, _, _ := splitKnowledgeConnectionIdentifier(resource.ID)
+		return teamPathPrefixes(team)
 	case grantResourceLLMProfile, grantResourceAgentProfile, grantResourceMCPServer, grantResourceMCPProfile:
 		path, _ := model.SplitPipelineID(resource.ID)
 		return teamPathPrefixes(path)
@@ -780,7 +783,7 @@ func validateResourceVisibilityPolicy(resourceType, visibility string) error {
 		return nil
 	}
 	switch resourceType {
-	case grantResourcePipeline, grantResourceStep, grantResourceConfig, grantResourceKnowledgeContext,
+	case grantResourcePipeline, grantResourceStep, grantResourceConfig, grantResourceKnowledgeContext, grantResourceKnowledgeConnection,
 		grantResourceLLMProfile, grantResourceAgentProfile, grantResourceMCPServer, grantResourceMCPProfile:
 		return nil
 	case grantResourceScope, grantResourceSecret, grantResourceVariable, grantResourceRunner:
@@ -844,6 +847,8 @@ func defaultUseActionForResource(resourceType string) (string, error) {
 		return "config_repo.use", nil
 	case grantResourceKnowledgeContext:
 		return "knowledge_context.use", nil
+	case grantResourceKnowledgeConnection:
+		return "knowledge_connection.use", nil
 	case grantResourceLLMProfile:
 		return "llm_profile.use", nil
 	case grantResourceAgentProfile:

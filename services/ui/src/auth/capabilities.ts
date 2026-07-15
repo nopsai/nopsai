@@ -23,6 +23,9 @@ export type Permission =
   | 'knowledge_contexts.read'
   | 'knowledge_contexts.write'
   | 'knowledge_contexts.delete'
+  | 'knowledge_connections.read'
+  | 'knowledge_connections.write'
+  | 'knowledge_connections.delete'
   | 'system.config.read'
   | 'system.config.write'
   | 'system.llm_profiles.read'
@@ -86,6 +89,9 @@ export type AppAccess = {
   canViewKnowledge: boolean;
   canWriteKnowledge: boolean;
   canDeleteKnowledge: boolean;
+  canViewKnowledgeConnections: boolean;
+  canWriteKnowledgeConnections: boolean;
+  canDeleteKnowledgeConnections: boolean;
   canViewSystemRuntimeConfig: boolean;
   canManageSystemRuntimeConfig: boolean;
   canViewSystemConfigRepo: boolean;
@@ -174,6 +180,7 @@ export function normalizeCurrentUser(data: unknown): CurrentUser {
         git_webhook_sources: normalizeReadCapabilities(capabilitiesRecord.git_webhook_sources),
         scopes: normalizeReadCapabilities(capabilitiesRecord.scopes),
         knowledge_contexts: normalizeReadCapabilities(capabilitiesRecord.knowledge_contexts),
+        knowledge_connections: normalizeReadCapabilities(capabilitiesRecord.knowledge_connections),
         system: normalizeSystemCapabilities(capabilitiesRecord.system),
       }
     : undefined;
@@ -234,6 +241,12 @@ export function can(user: CurrentUser | null | undefined, permission: Permission
       return Boolean(capabilities?.knowledge_contexts?.write);
     case 'knowledge_contexts.delete':
       return Boolean(capabilities?.knowledge_contexts?.delete);
+    case 'knowledge_connections.read':
+      return Boolean(capabilities?.knowledge_connections?.read);
+    case 'knowledge_connections.write':
+      return Boolean(capabilities?.knowledge_connections?.write);
+    case 'knowledge_connections.delete':
+      return Boolean(capabilities?.knowledge_connections?.delete);
     case 'system.config.read':
       return Boolean(capabilities?.system?.configRead);
     case 'system.config.write':
@@ -355,6 +368,9 @@ export function getAppAccess(user: CurrentUser | null | undefined, session: Auth
     canViewKnowledge: can(user, 'knowledge_contexts.read'),
     canWriteKnowledge: can(user, 'knowledge_contexts.write'),
     canDeleteKnowledge: can(user, 'knowledge_contexts.delete'),
+    canViewKnowledgeConnections: can(user, 'knowledge_connections.read') || can(user, 'knowledge_contexts.read'),
+    canWriteKnowledgeConnections: can(user, 'knowledge_connections.write') || can(user, 'knowledge_contexts.write'),
+    canDeleteKnowledgeConnections: can(user, 'knowledge_connections.delete') || can(user, 'knowledge_contexts.delete'),
     canViewSystemRuntimeConfig: systemPermissions.canViewRuntimeConfig,
     canManageSystemRuntimeConfig: systemPermissions.canManageRuntimeConfig,
     canViewSystemConfigRepo: systemPermissions.canViewGlobalConfigRepo,

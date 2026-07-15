@@ -74,6 +74,8 @@ func normalizeAccessGrantResourceType(raw string) (string, error) {
 		return grantResourceConfig, nil
 	case grantResourceKnowledgeContext:
 		return grantResourceKnowledgeContext, nil
+	case grantResourceKnowledgeConnection:
+		return grantResourceKnowledgeConnection, nil
 	case grantResourceLLMProfile:
 		return grantResourceLLMProfile, nil
 	case grantResourceAgentProfile:
@@ -453,6 +455,34 @@ func resolveAccessGrantResource(ctx context.Context, runner queryRunner, rawType
 			}
 		}
 		return accessGrantResource{Type: resourceType, ID: resourceID, Display: resourceID}, nil
+	case grantResourceKnowledgeConnection:
+		resourceID := strings.Trim(strings.TrimSpace(rawID), "/")
+		if resourceID == "" {
+			return accessGrantResource{}, fmt.Errorf("resource_id is required")
+		}
+		if resourceID != "*" {
+			team, name, err := splitKnowledgeConnectionIdentifier(resourceID)
+			if err != nil {
+				return accessGrantResource{}, err
+			}
+			resourceID = buildKnowledgeConnectionIdentifier(team, name)
+			if requireExists {
+				var exists int
+				err = runner.QueryRow(ctx, `
+					SELECT 1
+					FROM knowledge_context_connections
+					WHERE team_path = $1 AND name = $2
+					LIMIT 1
+				`, team, name).Scan(&exists)
+				if err != nil {
+					if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, sql.ErrNoRows) {
+						return accessGrantResource{}, fmt.Errorf("resource not found")
+					}
+					return accessGrantResource{}, err
+				}
+			}
+		}
+		return accessGrantResource{Type: resourceType, ID: resourceID, Display: resourceID}, nil
 	case grantResourceLLMProfile:
 		return resolveNamedTableGrantResource(ctx, runner, resourceType, rawID, requireExists, "llm_profiles", "name")
 	case grantResourceAgentProfile:
@@ -776,6 +806,8 @@ func managementActionForGrantResource(resource accessGrantResource) (string, mod
 		return "step.manage_acl", model.ResourceRef{Type: grantResourceStep, ID: resource.ID}, nil
 	case grantResourceKnowledgeContext:
 		return "knowledge_context.manage_access", model.ResourceRef{Type: grantResourceKnowledgeContext, ID: resource.ID}, nil
+	case grantResourceKnowledgeConnection:
+		return "knowledge_connection.manage_access", model.ResourceRef{Type: grantResourceKnowledgeConnection, ID: resource.ID}, nil
 	case grantResourceLLMProfile:
 		return "llm_profile.manage_acl", model.ResourceRef{Type: grantResourceLLMProfile, ID: resource.ID}, nil
 	case grantResourceAgentProfile:

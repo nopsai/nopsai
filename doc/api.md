@@ -568,7 +568,7 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - Agents record LLM usage with `POST /v1/internal/runs/{runID}/ai-usage` using an agent service JWT. The endpoint stores run, step, task, provider, model, LLM profile, token totals, metadata, and a per-run usage summary. Run list/detail responses expose that summary as `ai_usage`, while detail step/task rows include their own `ai_usage` totals for API compatibility. Provider token metadata is used when available; otherwise the agent records an estimated token count with `metadata.estimated_tokens=true`. Pipeline final output generation is recorded as the `pipeline_final_output` feature.
 - Monitoring aggregate endpoints accept shared query parameters: `from`, `to`, `teamId`, `pipelinePath`, `pipelineName`, `repo`, `runId`, `branch`/`ref`, `commitSHA`, `triggerSource`, `status`, `requestedByType`, `requestedById`, `effectiveSubjectType`, `effectiveSubjectId`, `externalTriggerId`, `scheduleId`, `minDurationSeconds`, `maxDurationSeconds`, and `compare=previous_period`. The UI fetches the shifted previous window and renders regression deltas on Monitoring tabs when comparison is enabled. Pipeline Runs usage links open Monitoring with `tab=ai-usage&runId=<pipeline-run-id>` and use an all-time window for that run-scoped drilldown.
 - Monitoring aggregate endpoints first load candidate run IDs in Postgres, filter them through AAA with `pipeline_run.list`, then aggregate only visible run IDs. External trigger analytics also filters trigger-only rows with `external_trigger.read` so failed invocations that did not create runs are still governed.
-- `GET /metrics` emits Prometheus text format. Metrics include DB-backed pipeline, output, duration, notification, trigger, LLM, runner, approval, and audit series plus in-memory System Logs active/opened streams, provider reconnect/error, redaction, and dropped-line counters.
+- `GET /metrics` emits Prometheus text format. Metrics include DB-backed pipeline, output, duration, notification, trigger, LLM, runner, approval, Knowledge Context connection/sync, and audit series plus in-memory System Logs active/opened streams, provider reconnect/error, redaction, and dropped-line counters.
 - System Logs source discovery is AAA-filtered with `system_log.read` on `system_log:<sourceID>`. Tail and stream endpoints accept registry IDs only. SSE emits `status`, signed-cursor `log`, and `reset` events; stream heartbeats are comments. See [system-logs.md](./system-logs.md).
 - `GET /v1/system/dispatcher/scopes` returns existing scope names from runner defaults, dispatcher routing, variables, secrets, and run history. It is used by the runner install UI for multi-select scope choices.
 - `GET /v1/internal/dispatcher/routing` is dispatcher-internal. The live dispatcher polls it with a service-auth JWT and updates its in-memory routing table without a restart.
@@ -1119,6 +1119,52 @@ curl -X PUT \
     "content":"# Repository Check Guardrail\n\n- Do not expose secrets in logs.\n"
   }' \
   http://localhost:8080/v1/knowledge-contexts/guardrail/security/repo-check
+
+# Create and test an external page provider connection
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "team":"security",
+    "name":"security-confluence",
+    "display_name":"Security Confluence",
+    "provider":"confluence",
+    "base_url":"https://confluence.example.com/wiki",
+    "credential_ref":"credential://team/security/knowledge/confluence"
+  }' \
+  http://localhost:8080/v1/knowledge-connections
+
+curl -X POST \
+  http://localhost:8080/v1/knowledge-connections/security/security-confluence/test
+
+# Search and preview provider pages before linking one
+curl "http://localhost:8080/v1/knowledge-connections/security/security-confluence/pages?query=repository%20guardrails"
+
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"page_url":"https://confluence.example.com/wiki/spaces/SEC/pages/12345/source-page"}' \
+  http://localhost:8080/v1/knowledge-connections/security/security-confluence/resolve-page
+
+# Create an external page document with provider-fetched cached text
+curl -X PUT \
+  -H "Content-Type: application/json" \
+  -d '{
+    "kind":"policy",
+    "team":"security",
+    "name":"source-page",
+    "description":"Security source page",
+    "content_source":"external",
+    "connection_id":"security/security-confluence",
+    "external_page_url":"https://confluence.example.com/wiki/spaces/SEC/pages/12345/source-page",
+    "external_page_id":"12345",
+    "sync_mode":"manual",
+    "failure_mode":"fail",
+    "content":"# Source Page\n\nProvider preview text returned by resolve-page.\n"
+  }' \
+  http://localhost:8080/v1/knowledge-contexts/policy/security/source-page
+
+# Fetch the latest provider page into the cached Knowledge Context content
+curl -X POST \
+  http://localhost:8080/v1/knowledge-contexts/policy/security/source-page/sync
 
 # Delete a UI-managed document
 curl -X DELETE \
