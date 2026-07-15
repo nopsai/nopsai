@@ -279,7 +279,26 @@ truth; this file is the source-adjacent placement guide.
 ### Knowledge Context, Monitoring, And Schedules
 
 - Knowledge Context model rules own document identifiers, team trees, draft
-  handling, GitOps source labels, and route encoding.
+  handling, GitOps source labels, source-kind summaries, connection provider
+  labels/status labels, connection form validation, Documents/Connections tab
+  normalization, subtree document collection, source filter matching,
+  external-page sync/failure labels, provider page result/preview types,
+  persisted team-owned connection summaries, and route encoding.
+- `features/knowledge-context/api.ts` owns Knowledge Context document transport
+  and Knowledge Context connection transport, including provider page search,
+  URL/page resolution, external-page save, and manual sync payloads. It must
+  keep credential values out of UI response types; connection create/update
+  payloads may send credential references only.
+- `pages/KnowledgeContext.tsx` owns URL selection, loading, mutation
+  orchestration, document/connection mutation state, and toast wiring only.
+  `KnowledgeContextWorkspace.tsx` owns Documents/Connections composition,
+  demo-style toolbar and browser shell, keyboard search focus, source filter
+  controls, branch collection table, and browser navigation.
+  `KnowledgeContextConnectionsView.tsx` owns provider/team connection
+  rendering and connection action buttons, `KnowledgeContextDetailView.tsx`
+  owns selected document rendering and local detail tabs, and
+  `KnowledgeContextModals.tsx` owns document create/clone/delete, external page
+  search/preview rendering, and connection create dialogs.
 - Monitoring model rules own metric normalization and display teaming.
 - Schedules model/API files own cron mode normalization, schedule request
   shaping, metadata normalization, and schedule transport.

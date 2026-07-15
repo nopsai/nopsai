@@ -521,6 +521,8 @@ func actionAppliesToGrantResource(action, resourceType string) bool {
 		return strings.HasPrefix(action, "config_repo.")
 	case grantResourceKnowledgeContext:
 		return strings.HasPrefix(action, "knowledge_context.")
+	case grantResourceKnowledgeConnection:
+		return strings.HasPrefix(action, "knowledge_connection.")
 	case grantResourceLLMProfile:
 		return strings.HasPrefix(action, "llm_profile.")
 	case grantResourceAgentProfile:

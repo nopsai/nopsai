@@ -1,81 +1,107 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import {
-  ArrowLeft,
-  Copy,
-  Download,
-  Plus,
-  Search,
-  Trash2,
-} from 'lucide-react';
 
-import ResourceAccessCard from '../components/ResourceAccessCard';
 import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowToastRegion';
 import {
+  createKnowledgeConnection,
+  deleteKnowledgeConnection,
   deleteKnowledgeContext,
   fetchKnowledgeContext,
+  fetchKnowledgeConnections,
   fetchKnowledgeContexts,
+  resolveKnowledgeConnectionPage,
   saveKnowledgeContext,
+  searchKnowledgeConnectionPages,
+  syncKnowledgeContext,
+  testKnowledgeConnection,
+  updateKnowledgeConnection,
 } from '../features/knowledge-context/api';
 import {
   KNOWLEDGE_CONTEXTS_CHANGED_EVENT,
+  buildKnowledgeConnectionTeamSummaries,
   buildKnowledgeID,
   buildKnowledgeTree,
   clearKnowledgeDraft,
+  collectKnowledgeTeamDocs,
   decodeKnowledgeRouteID,
+  deriveKnowledgeConnectionName,
   deriveIdentityFromTeam,
   emptyKnowledgeDraft,
   encodeKnowledgeID,
   findKnowledgeTeam,
+  isExternalKnowledgeDocument,
   isGitManagedDocument,
+  knowledgeConnectionIdentifier,
+  knowledgeConnectionMatchesIdentifier,
+  knowledgeTreePathToTeam,
   loadKnowledgeDraft,
+  matchesKnowledgeSourceFilter,
+  normalizeKnowledgeConnectionProvider,
   normalizeTeamPath,
-  normalizeKnowledgeSource,
-  parentTeam,
+  normalizeKnowledgeSourceFilter,
+  normalizeKnowledgeWorkspaceTab,
   saveKnowledgeDraft,
   splitKnowledgeContentForPreview,
   splitKnowledgePath,
+  summarizeKnowledgeWorkspace,
+  validateKnowledgeExternalDraft,
+  validateKnowledgeConnectionDraft,
   validateKnowledgeIdentity,
+  type KnowledgeConnectionListItem,
+  type KnowledgeConnectionProvider,
   type KnowledgeContextDetail,
   type KnowledgeContextListItem,
+  type KnowledgeSourceFilter,
 } from '../features/knowledge-context/model';
-import { KnowledgeContextCollectionList } from '../features/knowledge-context/KnowledgeContextCollectionList';
 import {
   KnowledgeContextModals,
+  type KnowledgeConnectionModalState,
   type KnowledgeDeleteModalState,
   type KnowledgeFormModalState,
 } from '../features/knowledge-context/KnowledgeContextModals';
-import { formatKnowledgeDate, kindIcon } from '../features/knowledge-context/presentation';
+import { KnowledgeContextWorkspace } from '../features/knowledge-context/KnowledgeContextWorkspace';
 import { TEAM_ROUTE_SEGMENT, decodeTeamRouteSegments, teamScopedRoute } from '../lib/teamRoutes';
 
 type KnowledgeContextPageProps = {
   canWriteKnowledge: boolean;
   canDeleteKnowledge: boolean;
+  canWriteKnowledgeConnections?: boolean;
+  canDeleteKnowledgeConnections?: boolean;
 };
 
-export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowledge }: KnowledgeContextPageProps) {
+export default function KnowledgeContextPage({
+  canWriteKnowledge,
+  canDeleteKnowledge,
+  canWriteKnowledgeConnections,
+  canDeleteKnowledgeConnections,
+}: KnowledgeContextPageProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const routeSegments = useMemo(() => location.pathname.split('/').filter(Boolean), [location.pathname]);
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const isTeamRoute = routeSegments[1] === TEAM_ROUTE_SEGMENT;
   const selectedID = isTeamRoute ? '' : decodeKnowledgeRouteID(location.pathname);
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const toastCounterRef = useRef(0);
   const editSessionOriginalRef = useRef<{ detail: KnowledgeContextDetail; content: string } | null>(null);
   const pendingDraftRef = useRef<{ detail: KnowledgeContextDetail; content: string } | null>(null);
   const [items, setItems] = useState<KnowledgeContextListItem[]>([]);
+  const [connections, setConnections] = useState<KnowledgeConnectionListItem[]>([]);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
+  const [connectionsLoading, setConnectionsLoading] = useState(false);
+  const [connectionsError, setConnectionsError] = useState<string | null>(null);
   const [detail, setDetail] = useState<KnowledgeContextDetail | null>(null);
   const [editorValue, setEditorValue] = useState('');
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [search, setSearch] = useState('');
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [sourceFilter, setSourceFilter] = useState<KnowledgeSourceFilter>('all');
   const [draftID, setDraftID] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [formModal, setFormModal] = useState<KnowledgeFormModalState | null>(null);
+  const [connectionModal, setConnectionModal] = useState<KnowledgeConnectionModalState | null>(null);
   const [deleteModal, setDeleteModal] = useState<KnowledgeDeleteModalState | null>(null);
   const [toasts, setToasts] = useState<WorkflowToast[]>([]);
 
@@ -101,9 +127,22 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
     }
   }, []);
 
+  const loadConnections = useCallback(async () => {
+    setConnectionsLoading(true);
+    setConnectionsError(null);
+    try {
+      setConnections(await fetchKnowledgeConnections());
+    } catch (err) {
+      setConnectionsError(err instanceof Error ? err.message : 'Unable to load knowledge connections');
+    } finally {
+      setConnectionsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadList();
-  }, [loadList]);
+    void loadConnections();
+  }, [loadConnections, loadList]);
 
   useEffect(() => {
     if (!selectedID) {
@@ -172,21 +211,37 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
 
   const filteredItems = useMemo(() => {
     const term = search.trim().toLowerCase();
-    if (!term) return items;
-    return items.filter(item => [item.kind, item.team, item.name, item.description].some(value => (value || '').toLowerCase().includes(term)));
-  }, [items, search]);
+    const sourceFiltered = items.filter(item => matchesKnowledgeSourceFilter(item, sourceFilter));
+    if (!term) return sourceFiltered;
+    return sourceFiltered.filter(item =>
+      [item.kind, item.team, item.name, item.description, item.source]
+        .some(value => (value || '').toLowerCase().includes(term))
+    );
+  }, [items, search, sourceFilter]);
 
   const activeTeam = useMemo(() => {
     const routeTeam = isTeamRoute ? decodeTeamRouteSegments(routeSegments.slice(2)) : '';
-    return normalizeTeamPath(routeTeam || new URLSearchParams(location.search).get('team') || '');
-  }, [isTeamRoute, location.search, routeSegments]);
+    const selectedTeam = selectedID ? splitKnowledgePath(selectedID).team : '';
+    return normalizeTeamPath(routeTeam || searchParams.get('team') || selectedTeam || '');
+  }, [isTeamRoute, routeSegments, searchParams, selectedID]);
+  const activeWorkspaceTab = normalizeKnowledgeWorkspaceTab(searchParams.get('tab'));
   const knowledgeTree = useMemo(() => buildKnowledgeTree(items, []), [items]);
   const activeTeamNode = useMemo(() => findKnowledgeTeam(knowledgeTree, activeTeam), [activeTeam, knowledgeTree]);
+  const activeTeamDocuments = useMemo(() => collectKnowledgeTeamDocs(activeTeamNode), [activeTeamNode]);
+  const hasDocumentFilters = Boolean(search.trim() || sourceFilter !== 'all');
   const visibleDocuments = useMemo(() => {
-    if (search.trim()) return filteredItems;
+    if (hasDocumentFilters) return filteredItems;
     return activeTeamNode.docs;
-  }, [activeTeamNode.docs, filteredItems, search]);
-  const visibleTeams = search.trim() ? [] : activeTeamNode.children;
+  }, [activeTeamNode.docs, filteredItems, hasDocumentFilters]);
+  const collectionDocuments = hasDocumentFilters ? filteredItems : activeTeamDocuments;
+  const visibleTeams = hasDocumentFilters ? [] : activeTeamNode.children;
+  const workspaceMetrics = useMemo(() => summarizeKnowledgeWorkspace(items), [items]);
+  const activeConnectionTeam = useMemo(() => knowledgeTreePathToTeam(activeTeam), [activeTeam]);
+  const connectionTeams = useMemo(() => {
+    const summaries = buildKnowledgeConnectionTeamSummaries([], activeConnectionTeam ? [activeConnectionTeam] : [], connections);
+    if (!activeConnectionTeam) return summaries;
+    return summaries.filter(summary => summary.teamPath === activeConnectionTeam || summary.teamPath.startsWith(`${activeConnectionTeam}/`));
+  }, [activeConnectionTeam, connections]);
   const previewDocument = useMemo(() => splitKnowledgeContentForPreview(editorValue), [editorValue]);
   const previewContent = previewDocument.content;
 
@@ -207,12 +262,178 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
     [navigate]
   );
 
+  const switchWorkspaceTab = useCallback(
+    (tab: 'documents' | 'connections') => {
+      const params = new URLSearchParams(location.search);
+      if (tab === 'connections') {
+        params.set('tab', 'connections');
+      } else {
+        params.delete('tab');
+      }
+      const query = params.toString();
+      const targetPath = selectedID ? teamScopedRoute('/knowledge-context', activeTeam) : location.pathname;
+      navigate(`${targetPath}${query ? `?${query}` : ''}`);
+    },
+    [activeTeam, location.pathname, location.search, navigate, selectedID]
+  );
+
+  const openConnectionTeam = useCallback(
+    (teamPath: string) => {
+      const target = teamScopedRoute('/knowledge-context', normalizeTeamPath(teamPath));
+      navigate(`${target}?tab=connections`);
+    },
+    [navigate]
+  );
+
+  const handleConnectionSetupRequest = useCallback(
+    (teamPath: string) => {
+      if (!(canWriteKnowledgeConnections ?? canWriteKnowledge)) {
+        addToast('You have read-only access to knowledge connections.', 'info');
+        return;
+      }
+      const team = normalizeTeamPath(teamPath || activeConnectionTeam || activeTeam);
+      setConnectionModal({
+        mode: 'create',
+        team,
+        provider: 'notion',
+        name: '',
+        display_name: '',
+        base_url: '',
+        credential_ref: '',
+        pending: false,
+      });
+    },
+    [activeConnectionTeam, activeTeam, addToast, canWriteKnowledge, canWriteKnowledgeConnections]
+  );
+
+  const handleEditConnection = useCallback(
+    (connection: KnowledgeConnectionListItem) => {
+      if (!(canWriteKnowledgeConnections ?? canWriteKnowledge)) {
+        addToast('You have read-only access to knowledge connections.', 'info');
+        return;
+      }
+      const provider = normalizeKnowledgeConnectionProvider(connection.provider) as KnowledgeConnectionProvider;
+      setConnectionModal({
+        mode: 'edit',
+        id: knowledgeConnectionIdentifier(connection),
+        team: connection.team,
+        provider: provider === 'notion' || provider === 'confluence' || provider === 'wiki' ? provider : 'wiki',
+        name: connection.name,
+        display_name: connection.display_name || connection.name,
+        base_url: connection.base_url || '',
+        credential_ref: '',
+        disabled: connection.disabled,
+        pending: false,
+      });
+    },
+    [addToast, canWriteKnowledge, canWriteKnowledgeConnections]
+  );
+
+  const submitConnectionModal = useCallback(async () => {
+    if (!connectionModal) return;
+    const normalizedConnection = {
+      ...connectionModal,
+      team: normalizeTeamPath(connectionModal.team),
+      name: connectionModal.name.trim() || deriveKnowledgeConnectionName(connectionModal.display_name || connectionModal.provider),
+      display_name: connectionModal.display_name.trim(),
+      base_url: connectionModal.base_url.trim(),
+      credential_ref: connectionModal.credential_ref.trim(),
+    };
+    const normalizedID = `${normalizedConnection.team}/${normalizedConnection.name}`;
+    const currentID = normalizedConnection.mode === 'edit' ? normalizedConnection.id || normalizedID : '';
+    const error = validateKnowledgeConnectionDraft(normalizedConnection, connections, currentID);
+    if (error) {
+      setConnectionModal(prev => (prev ? { ...prev, error } : prev));
+      return;
+    }
+    setConnectionModal(prev => (prev ? { ...prev, pending: true, error: undefined } : prev));
+    try {
+      const savedConnection =
+        normalizedConnection.mode === 'edit'
+          ? await updateKnowledgeConnection(
+              connections.find(connection => knowledgeConnectionMatchesIdentifier(connection, currentID)) || {
+                id: normalizedID,
+                team: normalizedConnection.team,
+                name: normalizedConnection.name,
+                display_name: normalizedConnection.display_name,
+                provider: normalizedConnection.provider,
+                status: 'authentication_required',
+                credential_visibility: 'not_configured',
+              },
+              normalizedConnection
+            )
+          : await createKnowledgeConnection({
+              team: normalizedConnection.team,
+              provider: normalizedConnection.provider,
+              name: normalizedConnection.name,
+              display_name: normalizedConnection.display_name,
+              base_url: normalizedConnection.base_url,
+              credential_ref: normalizedConnection.credential_ref,
+            });
+      setConnectionModal(null);
+      await loadConnections();
+      setFormModal(prev =>
+        prev?.contentSource === 'external' && normalizeTeamPath(prev.team) === normalizeTeamPath(savedConnection.team)
+          ? { ...prev, connection_id: savedConnection.id, error: undefined }
+          : prev
+      );
+      addToast(normalizedConnection.mode === 'edit' ? 'Knowledge connection updated.' : 'Knowledge connection created.', 'success');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to create knowledge connection';
+      setConnectionModal(prev => (prev ? { ...prev, pending: false, error: message } : prev));
+      addToast(message, 'error');
+    }
+  }, [addToast, connectionModal, connections, loadConnections]);
+
+  const handleTestConnection = useCallback(async (connection: KnowledgeConnectionListItem) => {
+    try {
+      const result = await testKnowledgeConnection(connection);
+      await loadConnections();
+      addToast(result.message || `Connection status: ${result.status}`, result.ok ? 'success' : 'info');
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : 'Unable to test knowledge connection', 'error');
+    }
+  }, [addToast, loadConnections]);
+
+  const handleDeleteConnection = useCallback(async (connection: KnowledgeConnectionListItem) => {
+    if (!(canDeleteKnowledgeConnections ?? canDeleteKnowledge)) {
+      addToast('You do not have permission to delete knowledge connections.', 'info');
+      return;
+    }
+    try {
+      const affected = connection.external_document_count ?? connection.document_count ?? 0;
+      const confirmed = affected > 0
+        ? window.confirm(`${connection.display_name || connection.name} is used by ${affected} knowledge context${affected === 1 ? '' : 's'}. Delete it and detach those contexts?`)
+        : true;
+      if (!confirmed) return;
+      await deleteKnowledgeConnection(connection, affected > 0);
+      await loadConnections();
+      addToast('Knowledge connection deleted.', 'success');
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : 'Unable to delete knowledge connection', 'error');
+    }
+  }, [addToast, canDeleteKnowledge, canDeleteKnowledgeConnections, loadConnections]);
+
+  const handleToggleConnection = useCallback(async (connection: KnowledgeConnectionListItem) => {
+    if (!(canWriteKnowledgeConnections ?? canWriteKnowledge)) {
+      addToast('You have read-only access to knowledge connections.', 'info');
+      return;
+    }
+    try {
+      await updateKnowledgeConnection(connection, { disabled: !connection.disabled });
+      await loadConnections();
+      addToast(connection.disabled ? 'Knowledge connection enabled.' : 'Knowledge connection disabled.', 'success');
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : 'Unable to update knowledge connection', 'error');
+    }
+  }, [addToast, canWriteKnowledge, canWriteKnowledgeConnections, loadConnections]);
+
   useEffect(() => {
     if (isTeamRoute || selectedID) return;
-    const legacyTeam = normalizeTeamPath(new URLSearchParams(location.search).get('team') || '');
+    const legacyTeam = normalizeTeamPath(searchParams.get('team') || '');
     if (!legacyTeam) return;
     navigate(teamScopedRoute('/knowledge-context', legacyTeam), { replace: true });
-  }, [isTeamRoute, location.search, navigate, selectedID]);
+  }, [isTeamRoute, navigate, searchParams, selectedID]);
 
   const handleSelectDocument = useCallback(
     (id: string) => {
@@ -234,10 +455,23 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
     const identity = deriveIdentityFromTeam(activeTeam);
     setFormModal({
       mode: 'create',
+      contentSource: 'inline',
       kind: identity.kind,
       team: identity.team,
       name: '',
+      description: '',
+      connection_id: '',
+      external_page_id: '',
+      external_page_url: '',
+      sync_mode: 'manual',
+      failure_mode: 'fail',
       content: '',
+      page_search_query: '',
+      page_search_results: [],
+      page_search_cursor: '',
+      page_search_loading: false,
+      page_resolving: false,
+      page_preview: null,
       pending: false,
     });
   }, [activeTeam, addToast, canWriteKnowledge]);
@@ -259,16 +493,18 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
     }
     setFormModal({
       mode: 'clone',
+      contentSource: 'inline',
       kind: detail.kind,
       team: detail.team,
       name: candidateName,
+      description: detail.description || '',
       content: editorValue,
       pending: false,
     });
   }, [addToast, canWriteKnowledge, detail, editorValue, items]);
 
-  const submitFormModal = useCallback(() => {
-    if (!formModal) return;
+  const submitFormModal = useCallback(async () => {
+    if (!formModal || formModal.pending) return;
     const error = validateKnowledgeIdentity(formModal.kind, formModal.team, formModal.name, items);
     if (error) {
       setFormModal(prev => (prev ? { ...prev, error } : prev));
@@ -279,13 +515,74 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
     const name = formModal.name.trim().replace(/\.(yaml|yml)$/i, '');
     const id = buildKnowledgeID(kind, team, name);
     const content = formModal.content || '';
+
+    if (formModal.contentSource === 'external') {
+      const externalError = validateKnowledgeExternalDraft({
+        connection_id: formModal.connection_id || '',
+        external_page_id: formModal.external_page_id || '',
+        external_page_url: formModal.external_page_url || '',
+        sync_mode: formModal.sync_mode || 'manual',
+        failure_mode: formModal.failure_mode || 'fail',
+        content,
+      }, team, connections);
+      if (externalError) {
+        setFormModal(prev => (prev ? { ...prev, error: externalError } : prev));
+        return;
+      }
+      const connection = connections.find(item => knowledgeConnectionMatchesIdentifier(item, formModal.connection_id || ''));
+      const draft: KnowledgeContextDetail = {
+        ...emptyKnowledgeDraft,
+        id,
+        kind,
+        team,
+        name,
+        description: formModal.description || '',
+        visibility: 'team',
+        source: connection?.provider || 'wiki',
+        content,
+        managed_by_config_repo: false,
+        used_by: [],
+        used_by_count: 0,
+        connection_id: connection?.uuid || formModal.connection_id || '',
+        connection_ref: connection?.id || formModal.connection_id || '',
+        external_provider: connection?.provider || 'wiki',
+        external_page_id: formModal.external_page_id?.trim() || '',
+        external_page_url: formModal.external_page_url?.trim() || '',
+        sync_mode: formModal.sync_mode || 'manual',
+        failure_mode: formModal.failure_mode || 'fail',
+        sync_status: content.trim() ? 'cached' : 'not_synced',
+        external_page_title: formModal.page_preview?.title || '',
+        content_hash: formModal.page_preview?.hash || '',
+      };
+      setFormModal(prev => (prev ? { ...prev, pending: true, error: undefined } : prev));
+      try {
+        const payload = await saveKnowledgeContext(draft, content);
+        setDetail(payload);
+        setEditorValue(payload.content || '');
+        setDraftID(null);
+        setIsEditing(false);
+        editSessionOriginalRef.current = null;
+        pendingDraftRef.current = null;
+        setDetailError(null);
+        setFormModal(null);
+        navigate(`/knowledge-context/${encodeKnowledgeID(payload.id)}`);
+        await loadList();
+        addToast('External knowledge context created.', 'success');
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unable to create external knowledge context';
+        setFormModal(prev => (prev ? { ...prev, pending: false, error: message } : prev));
+        addToast(message, 'error');
+      }
+      return;
+    }
+
     const draft: KnowledgeContextDetail = {
       ...emptyKnowledgeDraft,
       id,
       kind,
       team,
       name,
-      description: '',
+      description: formModal.description || '',
       visibility: 'team',
       source: 'database',
       content,
@@ -304,7 +601,7 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
     setFormModal(null);
     navigate(`/knowledge-context/${encodeKnowledgeID(id)}`);
     addToast(formModal.mode === 'clone' ? 'Draft knowledge context cloned.' : 'Draft knowledge context created.', 'success');
-  }, [addToast, formModal, items, navigate]);
+  }, [addToast, connections, formModal, items, loadList, navigate]);
 
   const startEditing = useCallback(() => {
     if (!detail) return;
@@ -339,6 +636,21 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
       addToast('Resolve the document identity before saving.', 'error');
       return;
     }
+    if (isExternalKnowledgeDocument(detail)) {
+      const externalError = validateKnowledgeExternalDraft({
+        connection_id: detail.connection_ref || detail.connection_id || '',
+        external_page_id: detail.external_page_id || '',
+        external_page_url: detail.external_page_url || '',
+        sync_mode: detail.sync_mode === 'before_run' || detail.sync_mode === 'periodic' ? detail.sync_mode : 'manual',
+        failure_mode: detail.failure_mode === 'use_cached' || detail.failure_mode === 'skip' ? detail.failure_mode : 'fail',
+        content: editorValue,
+      }, detail.team, connections);
+      if (externalError) {
+        setDetailError(externalError);
+        addToast('Resolve the external page settings before saving.', 'error');
+        return;
+      }
+    }
     setSaving(true);
     setDetailError(null);
     try {
@@ -366,7 +678,7 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
     } finally {
       setSaving(false);
     }
-  }, [addToast, canWriteKnowledge, detail, draftID, editorValue, items, loadList, navigate, saving]);
+  }, [addToast, canWriteKnowledge, connections, detail, draftID, editorValue, items, loadList, navigate, saving]);
 
   const openDeleteModal = useCallback(
     (doc: Pick<KnowledgeContextListItem, 'id' | 'name' | 'source'> & { managed_by_config_repo?: boolean }) => {
@@ -455,317 +767,218 @@ export default function KnowledgeContextPage({ canWriteKnowledge, canDeleteKnowl
   }, [detail?.id]);
 
   const canEditSelected = Boolean(detail && canWriteKnowledge);
+  const canWriteConnections = canWriteKnowledgeConnections ?? canWriteKnowledge;
+  const canDeleteConnections = canDeleteKnowledgeConnections ?? canDeleteKnowledge;
   const selectedCanEdit = Boolean(canEditSelected && isEditing);
-  const CurrentKindIcon = kindIcon(detail?.kind || '');
+  const handleDescriptionChange = useCallback((value: string) => {
+    setDetail(current => (current ? { ...current, description: value } : current));
+  }, []);
+  const handleDetailPatch = useCallback((patch: Partial<KnowledgeContextDetail>) => {
+    setDetail(current => (current ? { ...current, ...patch } : current));
+  }, []);
 
-  const renderDetail = () => {
-    if (!detail) {
-      return (
-        <div id="knowledge-context-detail-view" className="pipelines-view">
-          <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Select a knowledge context to see details.</div>
-        </div>
-      );
+  const handleSyncNow = useCallback(async () => {
+    if (!detail || syncing) return;
+    if (!isExternalKnowledgeDocument(detail)) {
+      addToast('Only external page documents can be synchronized.', 'info');
+      return;
     }
+    setSyncing(true);
+    setDetailError(null);
+    try {
+      const payload = await syncKnowledgeContext(detail.id);
+      setDetail(payload);
+      setEditorValue(payload.content || '');
+      await loadList();
+      if (payload.sync_error) {
+        setDetailError(payload.sync_error);
+        addToast(payload.sync_error, 'error');
+      } else {
+        addToast('Knowledge context synchronized from provider content.', 'success');
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to sync knowledge context';
+      setDetailError(message);
+      addToast(message, 'error');
+    } finally {
+      setSyncing(false);
+    }
+  }, [addToast, detail, loadList, syncing]);
 
-    const nameLabel = detail.name || detail.id;
-    const descriptionLabel = (detail.description || '').trim();
-    const source = normalizeKnowledgeSource(detail.source);
-    const isDraftDocument = Boolean(draftID && !detail.uuid);
-    const updatedLabel = isDraftDocument ? 'Unsaved' : formatKnowledgeDate(detail.updated_at);
+  const selectedFormConnection = useMemo(() => {
+    if (!formModal?.connection_id) return null;
+    return connections.find(item => knowledgeConnectionMatchesIdentifier(item, formModal.connection_id || '')) || null;
+  }, [connections, formModal?.connection_id]);
 
-    return (
-      <div id="knowledge-context-detail-view" className="pipelines-view">
-        <div className="min-w-0 space-y-6">
-          <div className="glass-card p-6">
-            <div className="flex items-start justify-between gap-4 w-full mb-4">
-              <div className="min-w-0 flex items-start gap-3">
-                <span className={`kc-document-header__icon kc-kind-mark kc-kind-mark--${detail.kind} mt-1`} aria-hidden="true">
-                  <CurrentKindIcon className="h-5 w-5" />
-                </span>
-                <div className="min-w-0">
-                  <h2 id="knowledge-context-detail-name" className="text-3xl font-bold text-[var(--text-primary)] truncate">
-                    {nameLabel}
-                  </h2>
-                  {descriptionLabel ? (
-                    <p id="knowledge-context-detail-description" className="text-sm text-[var(--text-secondary)] mt-1">
-                      {descriptionLabel}
-                    </p>
-                  ) : null}
-                  <dl className="kc-header-details">
-                    <div>
-                      <dt>Identifier</dt>
-                      <dd>{detail.id}</dd>
-                    </div>
-                    <div>
-                      <dt>Kind</dt>
-                      <dd>{detail.kind}</dd>
-                    </div>
-                    <div>
-                      <dt>Team</dt>
-                      <dd>{detail.team || 'Root'}</dd>
-                    </div>
-                    <div>
-                      <dt>Source</dt>
-                      <dd>{isDraftDocument ? 'draft' : source}</dd>
-                    </div>
-                    <div>
-                      <dt>Updated</dt>
-                      <dd>{updatedLabel}</dd>
-                    </div>
-                  </dl>
-                </div>
-              </div>
-              <button id="knowledge-context-back-btn" className="glass-button-ghost" onClick={handleBackToList}>
-                <ArrowLeft className="h-4 w-4" />
-                <span>Back to list</span>
-              </button>
-            </div>
-          </div>
+  const handleSearchProviderPages = useCallback(async (append = false) => {
+    if (!formModal || !selectedFormConnection) {
+      setFormModal(prev => (prev ? { ...prev, page_error: 'Choose a connection before searching provider pages.' } : prev));
+      return;
+    }
+    const cursor = append ? formModal.page_search_cursor || '' : '';
+    setFormModal(prev => (prev ? { ...prev, page_search_loading: true, page_error: undefined } : prev));
+    try {
+      const result = await searchKnowledgeConnectionPages(selectedFormConnection, formModal.page_search_query || '', cursor);
+      setFormModal(prev => {
+        if (!prev) return prev;
+        const existing = append ? prev.page_search_results || [] : [];
+        return {
+          ...prev,
+          page_search_results: [...existing, ...result.pages],
+          page_search_cursor: result.next_cursor || '',
+          page_search_loading: false,
+          page_error: result.pages.length || append ? undefined : 'No provider pages matched the search.',
+        };
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to search provider pages';
+      setFormModal(prev => (prev ? { ...prev, page_search_loading: false, page_error: message } : prev));
+      addToast(message, 'error');
+    }
+  }, [addToast, formModal, selectedFormConnection]);
 
-          {detailError ? <div className="kc-alert kc-alert--error">{detailError}</div> : null}
-          {isGitManagedDocument(detail) ? (
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-[var(--text-secondary)]">
-              Editing here saves a database override. The next GitOps sync can replace it unless the change is pushed to GitOps.
-            </div>
-          ) : null}
+  const handleResolveProviderPage = useCallback(async () => {
+    if (!formModal || !selectedFormConnection) {
+      setFormModal(prev => (prev ? { ...prev, page_error: 'Choose a connection before previewing a provider page.' } : prev));
+      return;
+    }
+    setFormModal(prev => (prev ? { ...prev, page_resolving: true, page_error: undefined } : prev));
+    try {
+      const page = await resolveKnowledgeConnectionPage(selectedFormConnection, {
+        page_id: formModal.external_page_id || '',
+        page_url: formModal.external_page_url || '',
+      });
+      setFormModal(prev => prev ? {
+        ...prev,
+        external_page_id: page.id || prev.external_page_id,
+        external_page_url: page.url || prev.external_page_url,
+        content: page.text || prev.content,
+        page_preview: page,
+        page_resolving: false,
+        page_error: undefined,
+      } : prev);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to preview provider page';
+      setFormModal(prev => (prev ? { ...prev, page_resolving: false, page_error: message } : prev));
+      addToast(message, 'error');
+    }
+  }, [addToast, formModal, selectedFormConnection]);
 
-          <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]">
-            <div className="min-w-0 space-y-6">
-              <div className="glass-card overflow-hidden">
-                <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b border-[var(--border-primary)]">
-                  <div className="kc-editor-heading">
-                    <h3 className="text-lg font-semibold text-[var(--text-primary)]">Knowledge Content</h3>
-                    <span className="kc-editor-stat">{contentMetrics.words} words</span>
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {!isEditing ? (
-                      <>
-                        <button className="glass-button-ghost" onClick={handleCopy} title="Copy content" aria-label="Copy content">
-                          <Copy className="h-4 w-4" />
-                        </button>
-                        <button className="glass-button-ghost" onClick={handleDownload} title="Download content" aria-label="Download content">
-                          <Download className="h-4 w-4" />
-                        </button>
-                        {detail.uuid && !draftID ? (
-                          <ResourceAccessCard
-                            resourceType="knowledge_context"
-                            resourceID={detail.id}
-                            label="knowledge context"
-                            buttonClassName="glass-button-ghost"
-                            onAccessChange={handleAccessChange}
-                          />
-                        ) : null}
-                        {canEditSelected ? (
-                          <button className="glass-button-primary" onClick={startEditing}>
-                            Edit
-                          </button>
-                        ) : null}
-                        {canWriteKnowledge ? (
-                          <button className={isGitManagedDocument(detail) ? 'glass-button-primary' : 'glass-button-subtle'} onClick={openCloneModal}>
-                            Clone
-                          </button>
-                        ) : null}
-                      </>
-                    ) : (
-                      <>
-                        <button className="glass-button-ghost" onClick={discardEditing}>
-                          Discard
-                        </button>
-                        <button className="glass-button-primary" onClick={saveDetail} disabled={saving}>
-                          {saving ? 'Saving...' : 'Save'}
-                        </button>
-                      </>
-                    )}
-                    {canDeleteKnowledge ? (
-                      <button className="glass-button-danger" onClick={() => openDeleteModal(detail)} disabled={saving}>
-                        <Trash2 className="h-4 w-4" />
-                        Delete
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
+  const handleSelectProviderPage = useCallback(async (page: { id: string; title: string; url?: string }) => {
+    if (!selectedFormConnection) return;
+    setFormModal(prev => prev ? { ...prev, external_page_id: page.id, external_page_url: page.url || prev.external_page_url, page_resolving: true, page_error: undefined } : prev);
+    try {
+      const preview = await resolveKnowledgeConnectionPage(selectedFormConnection, { page_id: page.id, page_url: page.url || '' });
+      setFormModal(prev => prev ? {
+        ...prev,
+        external_page_id: preview.id || page.id,
+        external_page_url: preview.url || page.url || prev.external_page_url,
+        content: preview.text || prev.content,
+        page_preview: preview,
+        page_resolving: false,
+      } : prev);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to preview provider page';
+      setFormModal(prev => (prev ? { ...prev, page_resolving: false, page_error: message } : prev));
+      addToast(message, 'error');
+    }
+  }, [addToast, selectedFormConnection]);
 
-                {isEditing ? (
-                  <div className="kc-description-editor border-b border-[var(--border-primary)] p-4">
-                    <label className="block text-sm font-medium text-[var(--text-secondary)]" htmlFor="knowledge-context-description">
-                      Description
-                    </label>
-                    <textarea
-                      id="knowledge-context-description"
-                      className="kc-description-input mt-2"
-                      value={detail.description || ''}
-                      disabled={!selectedCanEdit}
-                      onChange={event => setDetail(current => (current ? { ...current, description: event.target.value } : current))}
-                      placeholder="Optional description"
-                    />
-                  </div>
-                ) : null}
-
-                <div className="kc-editor-body">
-                  {isEditing ? (
-                    <textarea
-                      className="kc-editor-textarea"
-                      value={editorValue}
-                      disabled={!selectedCanEdit}
-                      onChange={event => setEditorValue(event.target.value)}
-                      spellCheck={false}
-                    />
-                  ) : (
-                    <TextPreview content={previewContent} />
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="min-w-0 space-y-6">
-              <div className="glass-card overflow-hidden">
-                <div className="p-4 border-b border-[var(--border-primary)]">
-                  <h3 className="text-lg font-semibold text-[var(--text-primary)]">Used in Pipelines</h3>
-                  <p className="text-xs text-[var(--text-secondary)] mt-1">Pipelines currently referencing this knowledge context.</p>
-                </div>
-                <div className="p-4">
-                  {detail.used_by?.length ? (
-                    <ul className={`triggers-pipeline-list ${detail.used_by.length > 5 ? 'triggers-pipelines-scroll' : ''}`}>
-                      {detail.used_by.map(pipelineID => (
-                        <li key={pipelineID} className="triggers-pipeline-item">
-                          <button
-                            type="button"
-                            className="triggers-pipeline-link"
-                            title={`Open ${pipelineID}`}
-                            onClick={() => navigate(`/pipelines/${pipelineID.split('/').map(encodeURIComponent).join('/')}`)}
-                          >
-                            <span className="triggers-pipeline-name">{pipelineID}</span>
-                            <dl className="triggers-detail-grid triggers-pipeline-details">
-                              <dt className="triggers-detail-label">Action:</dt>
-                              <dd className="triggers-detail-value">Open pipeline</dd>
-                            </dl>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-sm text-[var(--text-secondary)]">No pipelines reference this document.</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
+  const handleOpenPipeline = useCallback(
+    (pipelineID: string) => {
+      navigate(`/pipelines/${pipelineID.split('/').map(encodeURIComponent).join('/')}`);
+    },
+    [navigate]
+  );
 
   return (
     <div data-page="knowledge-context" className="active h-full flex flex-col">
-      {!selectedID && (
-        <div className="px-6 pt-6 pb-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              className="glass-button-ghost"
-              aria-label="Back"
-              onClick={() => openTeam(parentTeam(activeTeam))}
-              disabled={!activeTeam}
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </button>
-            <div className={`pipelines-search-shell ${searchOpen ? 'open' : ''}`}>
-              <button
-                type="button"
-                className="pipelines-search-toggle"
-                aria-label="Search knowledge contexts"
-                onClick={() => {
-                  setSearchOpen(true);
-                  requestAnimationFrame(() => searchInputRef.current?.focus());
-                }}
-              >
-                <Search className="h-4 w-4" />
-              </button>
-              <input
-                ref={searchInputRef}
-                id="knowledge-context-search"
-                type="text"
-                placeholder="Search knowledge contexts"
-                className="pipelines-search-input"
-                value={search}
-                onChange={event => {
-                  setSearch(event.target.value);
-                  if (event.target.value && !searchOpen) setSearchOpen(true);
-                }}
-                onBlur={() => {
-                  if (!search.trim()) setSearchOpen(false);
-                }}
-              />
-              {(search || searchOpen) && (
-                <button
-                  type="button"
-                  className="pipelines-search-clear"
-                  onClick={() => {
-                    setSearch('');
-                    setSearchOpen(false);
-                    searchInputRef.current?.blur();
-                  }}
-                  aria-label="Clear search"
-                >
-                  x
-                </button>
-              )}
-            </div>
-            {canWriteKnowledge ? (
-              <button id="knowledge-context-new-btn" type="button" className="pipelines-icon-only" aria-label="Create new knowledge context" title="New Knowledge Context" onClick={openCreateModal}>
-                <Plus className="h-4 w-4" />
-              </button>
-            ) : null}
-          </div>
-        </div>
-      )}
-
       <div className="flex-1 overflow-auto px-6 pb-8 triggers-content">
-        {!selectedID ? (
-          <KnowledgeContextCollectionList
-            listLoading={listLoading}
-            listError={listError}
-            search={search}
-            visibleDocuments={visibleDocuments}
-            visibleTeams={visibleTeams}
-            selectedID={selectedID}
-            canWriteKnowledge={canWriteKnowledge}
-            canDeleteKnowledge={canDeleteKnowledge}
-            onOpenTeam={openTeam}
-            onSelectDocument={handleSelectDocument}
-            onDeleteDocument={openDeleteModal}
-          />
-        ) : detailLoading ? (
-          <div className="glass-card p-5 text-sm text-[var(--text-secondary)]">Loading knowledge context...</div>
-        ) : detailError && !detail ? (
-          <div className="glass-card p-5 text-sm text-red-500">Failed to load knowledge context: {detailError}</div>
-        ) : (
-          renderDetail()
-        )}
+        <KnowledgeContextWorkspace
+          activeTeam={activeTeam}
+          activeConnectionTeam={activeConnectionTeam}
+          activeTab={activeWorkspaceTab}
+          metrics={workspaceMetrics}
+          connectionTeams={connectionTeams}
+          listLoading={activeWorkspaceTab === 'connections' ? connectionsLoading : listLoading}
+          listError={activeWorkspaceTab === 'connections' ? connectionsError : listError}
+          search={search}
+          sourceFilter={sourceFilter}
+          collectionDocuments={collectionDocuments}
+          visibleDocuments={visibleDocuments}
+          visibleTeams={visibleTeams}
+          selectedID={selectedID}
+          detailLoading={detailLoading}
+          selectedDetail={{
+            detail,
+            editorValue,
+            previewContent,
+            contentMetrics,
+            detailError,
+            draftID,
+            isEditing,
+            canEditSelected,
+            selectedCanEdit,
+            canWriteKnowledge,
+            canDeleteKnowledge,
+            saving,
+            syncing,
+            connections,
+            onBackToList: handleBackToList,
+            onCopy: handleCopy,
+            onDownload: handleDownload,
+            onStartEditing: startEditing,
+            onClone: openCloneModal,
+            onDiscardEditing: discardEditing,
+            onSave: saveDetail,
+            onSyncNow: handleSyncNow,
+            onDelete: openDeleteModal,
+            onDescriptionChange: handleDescriptionChange,
+            onDetailPatch: handleDetailPatch,
+            onContentChange: setEditorValue,
+            onAccessChange: handleAccessChange,
+            onOpenPipeline: handleOpenPipeline,
+            onCreateDocument: openCreateModal,
+          }}
+          canWriteKnowledge={activeWorkspaceTab === 'connections' ? canWriteConnections : canWriteKnowledge}
+          canDeleteKnowledge={activeWorkspaceTab === 'connections' ? canDeleteConnections : canDeleteKnowledge}
+          onSearchChange={setSearch}
+          onSourceFilterChange={value => setSourceFilter(normalizeKnowledgeSourceFilter(value))}
+          onSwitchTab={switchWorkspaceTab}
+          onOpenTeam={openTeam}
+          onSelectConnectionTeam={openConnectionTeam}
+          onSelectDocument={handleSelectDocument}
+          onDeleteDocument={openDeleteModal}
+          onCreateDocument={openCreateModal}
+          onAddConnection={handleConnectionSetupRequest}
+          onTestConnection={handleTestConnection}
+          onEditConnection={handleEditConnection}
+          onToggleConnection={handleToggleConnection}
+          onDeleteConnection={handleDeleteConnection}
+        />
       </div>
 
       <KnowledgeContextModals
         formModal={formModal}
         deleteModal={deleteModal}
+        connectionModal={connectionModal}
+        connections={connections}
         onCloseForm={() => setFormModal(null)}
         onUpdateForm={patch => setFormModal(prev => (prev ? { ...prev, ...patch, error: undefined } : prev))}
         onSubmitForm={submitFormModal}
+        onSearchPages={() => void handleSearchProviderPages(false)}
+        onLoadMorePages={() => void handleSearchProviderPages(true)}
+        onResolvePage={() => void handleResolveProviderPage()}
+        onSelectPage={page => void handleSelectProviderPage(page)}
         onCloseDelete={() => setDeleteModal(null)}
         onConfirmDelete={confirmDelete}
+        onCloseConnection={() => setConnectionModal(null)}
+        onUpdateConnection={patch => setConnectionModal(prev => (prev ? { ...prev, ...patch, error: undefined } : prev))}
+        onSubmitConnection={submitConnectionModal}
+        onAddConnectionFromForm={handleConnectionSetupRequest}
       />
 
       <WorkflowToastRegion toasts={toasts} />
     </div>
-  );
-}
-
-function TextPreview({ content }: { content: string }) {
-  if (!content.trim()) return <article className="kc-markdown kc-markdown--empty">No content</article>;
-  return (
-    <article className="kc-markdown">
-      <pre>
-        <code>{content}</code>
-      </pre>
-    </article>
   );
 }

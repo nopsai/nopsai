@@ -33,15 +33,16 @@ type authLoginResponse struct {
 }
 
 type authCapabilitiesResponse struct {
-	Pipelines         authResourceCapabilities `json:"pipelines"`
-	Steps             authResourceCapabilities `json:"steps"`
-	Schedules         authReadCapabilities     `json:"schedules"`
-	Triggers          authReadCapabilities     `json:"triggers"`
-	ExternalTriggers  authReadCapabilities     `json:"external_triggers"`
-	GitWebhookSources authReadCapabilities     `json:"git_webhook_sources"`
-	Scopes            authReadCapabilities     `json:"scopes"`
-	Knowledge         authReadCapabilities     `json:"knowledge_contexts"`
-	System            authSystemCapabilities   `json:"system"`
+	Pipelines            authResourceCapabilities `json:"pipelines"`
+	Steps                authResourceCapabilities `json:"steps"`
+	Schedules            authReadCapabilities     `json:"schedules"`
+	Triggers             authReadCapabilities     `json:"triggers"`
+	ExternalTriggers     authReadCapabilities     `json:"external_triggers"`
+	GitWebhookSources    authReadCapabilities     `json:"git_webhook_sources"`
+	Scopes               authReadCapabilities     `json:"scopes"`
+	Knowledge            authReadCapabilities     `json:"knowledge_contexts"`
+	KnowledgeConnections authReadCapabilities     `json:"knowledge_connections"`
+	System               authSystemCapabilities   `json:"system"`
 }
 
 type authResourceCapabilities struct {

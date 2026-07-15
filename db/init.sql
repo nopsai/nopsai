@@ -247,6 +247,33 @@ CREATE TABLE steps (
     UNIQUE (path, name)
 );
 
+CREATE TABLE knowledge_context_connections (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    team_path TEXT NOT NULL,
+    name TEXT NOT NULL,
+    display_name TEXT NOT NULL DEFAULT '',
+    provider TEXT NOT NULL DEFAULT 'wiki',
+    status TEXT NOT NULL DEFAULT 'authentication_required',
+    disabled BOOLEAN NOT NULL DEFAULT FALSE,
+    credential_ref TEXT NOT NULL DEFAULT '',
+    credential_secret_ref TEXT NOT NULL DEFAULT '',
+    base_url TEXT NOT NULL DEFAULT '',
+    scopes JSONB NOT NULL DEFAULT '{}'::jsonb,
+    config JSONB NOT NULL DEFAULT '{}'::jsonb,
+    provider_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+    last_checked_at TIMESTAMPTZ,
+    last_error TEXT NOT NULL DEFAULT '',
+    created_by TEXT NOT NULL DEFAULT '',
+    updated_by TEXT NOT NULL DEFAULT '',
+    disabled_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(team_path, name)
+);
+
+CREATE INDEX idx_knowledge_context_connections_team ON knowledge_context_connections(team_path, name);
+CREATE INDEX idx_knowledge_context_connections_provider ON knowledge_context_connections(provider);
+
 CREATE TABLE knowledge_contexts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     kind TEXT NOT NULL,
@@ -255,6 +282,24 @@ CREATE TABLE knowledge_contexts (
     description TEXT NOT NULL DEFAULT '',
     content TEXT NOT NULL DEFAULT '',
     source TEXT NOT NULL DEFAULT 'database',
+    content_source TEXT NOT NULL DEFAULT 'inline',
+    connection_id UUID REFERENCES knowledge_context_connections(id) ON DELETE SET NULL,
+    external_provider TEXT NOT NULL DEFAULT '',
+    external_page_id TEXT NOT NULL DEFAULT '',
+    external_page_url TEXT NOT NULL DEFAULT '',
+    external_page_title TEXT NOT NULL DEFAULT '',
+    sync_mode TEXT NOT NULL DEFAULT 'manual',
+    sync_interval_minutes INTEGER NOT NULL DEFAULT 0,
+    failure_mode TEXT NOT NULL DEFAULT 'fail',
+    sync_failure_mode TEXT NOT NULL DEFAULT 'fail',
+    synced_content TEXT NOT NULL DEFAULT '',
+    source_modified_at TIMESTAMPTZ,
+    sync_status TEXT NOT NULL DEFAULT 'not_synced',
+    last_sync_status TEXT NOT NULL DEFAULT '',
+    last_synced_at TIMESTAMPTZ,
+    sync_error TEXT NOT NULL DEFAULT '',
+    last_sync_error TEXT NOT NULL DEFAULT '',
+    content_hash TEXT NOT NULL DEFAULT '',
     config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
     config_source_path TEXT NOT NULL DEFAULT '',
     config_source_commit_sha TEXT NOT NULL DEFAULT '',
@@ -263,6 +308,8 @@ CREATE TABLE knowledge_contexts (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(kind, team_path, name)
 );
+
+CREATE INDEX idx_knowledge_contexts_connection_id ON knowledge_contexts(connection_id);
 
 CREATE TABLE secrets (
     id SERIAL PRIMARY KEY,

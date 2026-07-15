@@ -789,6 +789,19 @@ func normalizeAccessGrantResourceIDForBinding(resourceType, resourceID string, b
 		}
 		return buildKnowledgeContextIdentifier(kind, team, name), nil
 	}
+	if resourceType == grantResourceKnowledgeConnection {
+		team, name, err := splitKnowledgeConnectionIdentifier(resourceID)
+		if err != nil {
+			return "", err
+		}
+		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
+			team, err = configsync.NormalizePathForTeam(boundTeam, team)
+			if err != nil {
+				return "", err
+			}
+		}
+		return buildKnowledgeConnectionIdentifier(team, name), nil
+	}
 	if resourceType == grantResourceSecret || resourceType == grantResourceVariable {
 		if !strings.Contains(resourceID, "=") {
 			resourceID = model.BuildNamedResourceID("", "", resourceID)
@@ -869,6 +882,9 @@ func accessGrantResourceUnderBindingScope(resourceType, resourceID, boundTeam st
 	case grantResourceKnowledgeContext:
 		_, team, _, err := splitKnowledgeContextIdentifier(resourceID)
 		return err == nil && configsync.ResourceUnderScope(team, boundTeam)
+	case grantResourceKnowledgeConnection:
+		team, _, err := splitKnowledgeConnectionIdentifier(resourceID)
+		return err == nil && configsync.ResourceUnderScope(team, boundTeam)
 	case grantResourcePlatform:
 		return false
 	default:
@@ -892,6 +908,11 @@ func accessGrantResourceIntersectsAnyScope(resourceType, resourceID string, scop
 			}
 		case grantResourceKnowledgeContext:
 			_, team, _, err := splitKnowledgeContextIdentifier(resourceID)
+			if err == nil && configsync.ResourceUnderScope(team, scope) {
+				return true
+			}
+		case grantResourceKnowledgeConnection:
+			team, _, err := splitKnowledgeConnectionIdentifier(resourceID)
 			if err == nil && configsync.ResourceUnderScope(team, scope) {
 				return true
 			}

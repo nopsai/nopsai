@@ -188,6 +188,65 @@ The UI shows document parameters such as `name`, `kind`, `description`, and the
 access settings in the details panel. The preview renders only the `content`
 text. New GitOps documents should use `access` for sharing.
 
+The Knowledge Context page uses a two-pane browser workspace. The left explorer
+keeps the knowledge kind/team tree visible, while the default right pane lists
+the selected branch as a table with source, sync, team, and pipeline-usage
+signals. Opening a document replaces the collection table with the detail view,
+including overview metadata, content preview, usage, access, and GitOps tabs.
+GitOps-managed documents show the database-override warning before edits are
+saved.
+
+The Connections tab uses the same browser shell for team-owned external wiki
+connections. Connections are first-class backend resources stored separately
+from documents:
+
+```text
+knowledge_connection:<team>/<connection-name>
+```
+
+The connection row stores provider metadata, health status, base URL,
+credential reference, and configuration JSON. It does not store credential
+values and API responses only expose credential visibility. Team owners and
+admins can create, test, disable, delete, and manage access for connections.
+Regular members can read visible connection health and use permitted
+connections for external-page selection.
+
+Connection access and Knowledge Context access remain separate. A user can
+read or use a document only when `knowledge_context.*` allows it, and can
+configure or use a provider connection only when `knowledge_connection.*`
+allows it. Team-scoped product roles and GitOps access grants can refer to the
+connection resource type independently from document resources.
+
+External page documents record the connection, provider, stable page ID or URL,
+sync mode, failure mode, and sync status on the `knowledge_contexts` row. The
+runtime continues to consume cached document content through the existing
+Knowledge Context snapshot path. If an external page document has no cached
+content yet, required runtime references fail instead of silently injecting an
+empty required context.
+
+REST endpoints:
+
+- `GET /v1/knowledge-contexts`
+- `GET /v1/knowledge-contexts/{knowledgeID...}`
+- `PUT /v1/knowledge-contexts/{knowledgeID...}`
+- `POST /v1/knowledge-contexts/{knowledgeID...}/sync`
+- `DELETE /v1/knowledge-contexts/{knowledgeID...}`
+- `GET /v1/knowledge-connections`
+- `POST /v1/knowledge-connections`
+- `GET /v1/knowledge-connections/{connectionID...}`
+- `PUT/PATCH /v1/knowledge-connections/{connectionID...}`
+- `DELETE /v1/knowledge-connections/{connectionID...}`
+- `POST /v1/knowledge-connections/{connectionUUID}/test`
+- `GET /v1/knowledge-connections/{connectionUUID}/pages`
+- `POST /v1/knowledge-connections/{connectionUUID}/resolve-page`
+
+The legacy `/v1/knowledge-context-connections` route family remains available
+for existing clients. Notion and Confluence connections use credential
+references resolved through the credential service; credential values are never
+returned by these APIs. Page search is provider-backed, URL resolution validates
+access immediately, and manual sync fetches prompt-friendly page text into the
+cached Knowledge Context content used by runtime snapshots.
+
 Config sync creates, updates, and prunes `knowledge_contexts` rows for files
 under `knowledge/`, just like it does for other Git-managed resources.
 The UI mirrors existing teams under every supported knowledge kind, so a
@@ -261,14 +320,35 @@ resource-access grant.
 
 ## UI And API
 
-The UI has a `Knowledge Context` page teamed as:
+The UI keeps `Knowledge Context` as the top-level feature and splits the
+workspace into two tabs:
+
+- `Documents`: reusable context documents organized as `kind -> team -> document`
+- `Connections`: team-owned external page connections, organized as `team -> connection`
+
+Document browsing remains teamed as:
 
 ```text
 kind -> team -> document
 ```
 
-The page supports browsing, text editing/preview, access settings, and usage by
-pipelines.
+The page supports keyboard search, source filtering, browsing, text
+editing/preview, access settings, usage by pipelines, and GitOps
+database-override warnings. Document detail tabs separate overview, content,
+usage, access, and GitOps state so each panel keeps a clear ownership boundary.
+Create dialogs expose the content source shape as `Inline content` or
+`External page`; external pages are blocked until provider connection APIs are
+available. Connections live in the Knowledge Context area so team owners can
+inspect team-scoped Notion, Confluence, or similar wiki provider readiness
+without moving document ownership into global settings.
+
+AAA remains unchanged for the redesign: read/write/delete actions still use the
+existing knowledge-context permissions, and runtime use still checks
+`knowledge_context.use` on the specific document. The current MCP tools can
+continue to list, get, and propose managed knowledge-context changes without
+needing to know whether future content is inline or external. Monitoring and
+run details continue to rely on the stored run snapshot in
+`pipeline_run_knowledge_contexts`.
 
 Core API endpoints:
 

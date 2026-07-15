@@ -154,7 +154,7 @@ func (a *App) addConfigRepositoryResourceVisibilityRows(ctx context.Context, inc
 		FROM resource_visibility
 		WHERE resource_type = ANY($1)
 		ORDER BY resource_type ASC, resource_id ASC
-	`, []string{grantResourceScope, grantResourceKnowledgeContext})
+	`, []string{grantResourceScope, grantResourceKnowledgeContext, grantResourceKnowledgeConnection})
 	if err != nil {
 		return err
 	}
@@ -185,7 +185,7 @@ func (a *App) addConfigRepositoryResourceUseGrants(ctx context.Context, include 
 		WHERE ag.role_name = $1
 		  AND ag.resource_type = ANY($2)
 		ORDER BY ag.resource_type ASC, ag.resource_id ASC, ag.subject_type ASC, ag.subject_id ASC, ag.id ASC, ra.action ASC
-	`, customUseGrantRole, []string{grantResourcePipeline, grantResourceStep, grantResourceScope, grantResourceKnowledgeContext})
+	`, customUseGrantRole, []string{grantResourcePipeline, grantResourceStep, grantResourceScope, grantResourceKnowledgeContext, grantResourceKnowledgeConnection})
 	if err != nil {
 		return err
 	}
@@ -270,7 +270,7 @@ func configRepositoryIncludesBasicRoleGrant(repo models.ConfigRepository, resour
 
 func isConfigRepositoryEmbeddedAccessResourceType(resourceType string) bool {
 	switch strings.TrimSpace(resourceType) {
-	case grantResourcePipeline, grantResourceStep, grantResourceScope, grantResourceKnowledgeContext:
+	case grantResourcePipeline, grantResourceStep, grantResourceScope, grantResourceKnowledgeContext, grantResourceKnowledgeConnection:
 		return true
 	default:
 		return false
@@ -367,6 +367,8 @@ func resourceTypeForUseActions(actions []string) string {
 			return grantResourceScope
 		case strings.HasPrefix(action, "knowledge_context."):
 			return grantResourceKnowledgeContext
+		case strings.HasPrefix(action, "knowledge_connection."):
+			return grantResourceKnowledgeConnection
 		case strings.HasPrefix(action, "llm_profile."):
 			return grantResourceLLMProfile
 		case strings.HasPrefix(action, "agent_profile."):
