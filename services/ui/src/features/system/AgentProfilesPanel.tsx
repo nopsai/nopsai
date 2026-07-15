@@ -14,6 +14,7 @@ import {
   AIResourceTeamPlacementField,
   AIResourceTableHeader,
 } from './AIResourcePanel';
+import { AIResourceMetricGrid, AIResourceWorkspace, type AIResourceWorkspaceItem } from './AIResourceWorkspace';
 import {
   AI_RESOURCE_TEAM_FILTER_ALL,
   AI_RESOURCE_TEAM_FILTER_GLOBAL,
@@ -26,10 +27,13 @@ import {
   formatAIResourceTeamLabel,
 } from './aiResourceTeams';
 import {
+  formatAIResourceRatio,
   formatFilteredCount,
   matchesAIResourceSearch,
 } from './aiResourcePresentation';
+import { aiResourceTreeFilterForResource } from './aiResourceTree';
 import { useAIResourceTeamPaths } from './useAIResourceTeamPaths';
+import { ObjectIcon } from '../../components/ObjectIcon';
 import ResourceAccessCard from '../../components/ResourceAccessCard';
 
 function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
@@ -102,15 +106,10 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
     [payload.profiles, searchTerm, teamFilter]
   );
 
-  const selectedListProfile = useMemo(() => {
-    const selected = visibleProfiles.find(profile => profile.id === selectedProfileID);
-    if (selected) return selected;
-    return (
-      visibleProfiles.find(profile => profile.id === payload.default_profile) ??
-      visibleProfiles[0] ??
-      null
-    );
-  }, [payload.default_profile, selectedProfileID, visibleProfiles]);
+  const selectedListProfile = useMemo(
+    () => selectedProfileID ? visibleProfiles.find(profile => profile.id === selectedProfileID) ?? null : null,
+    [selectedProfileID, visibleProfiles]
+  );
 
   const defaultProfileRecord = payload.profiles.find(profile => profile.id === payload.default_profile) || null;
   const defaultProfileOptions = useMemo(() => {
@@ -121,15 +120,43 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
     return options;
   }, [defaultProfileRecord, payload.profiles]);
   const canManageGlobalDefault = canManage && defaultProfileOptions.length > 0;
-  const enabledCount = payload.profiles.filter(profile => profile.enabled).length;
-  const builtInCount = payload.profiles.filter(profile => profile.source === 'built-in' || profile.built_in).length;
   const teamFilterOptions = useMemo(
     () => collectAIResourceTeamPaths(payload.profiles.map(profile => profile.id), teamPaths),
     [payload.profiles, teamPaths]
   );
   const showForm = panelMode === 'create' || panelMode === 'edit';
-  const detailProfile = selectedProfile ?? selectedListProfile;
+  const detailProfile = (panelMode ? selectedProfile : null) ?? selectedListProfile;
   const filteredCountToken = searchTerm || (teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL ? teamFilter : '');
+  const visibleEnabledCount = visibleProfiles.filter(profile => profile.enabled).length;
+  const visibleUsageCount = visibleProfiles.reduce((total, profile) => total + profile.usage_count, 0);
+  const visibleGitOpsCount = visibleProfiles.filter(profile => profile.source === 'gitops' || Boolean(profile.source_path)).length;
+  const workspaceResources = useMemo<AIResourceWorkspaceItem[]>(
+    () => payload.profiles.map(profile => ({
+      id: profile.id,
+      label: profile.display_name || aiResourceLocalName(profile.id) || profile.id,
+      description: profile.role || profile.description || profile.id,
+    })),
+    [payload.profiles]
+  );
+  const selectedWorkspaceProfileID = panelMode === 'create' ? null : detailProfile?.id ?? selectedProfileID;
+  const detailOpen = showForm || panelMode === 'usage' || panelMode === 'source' || panelMode === 'delete' || Boolean(selectedWorkspaceProfileID);
+  const selectProfile = (profileID: string) => {
+    setSelectedProfileID(profileID);
+    setTeamFilter(aiResourceTreeFilterForResource(profileID));
+    setDeleteBlocker(null);
+    setPanelMode(null);
+  };
+  const closeDetail = () => {
+    setSelectedProfileID(null);
+    setDeleteBlocker(null);
+    setPanelMode(null);
+  };
+  const openTeamFilter = (value: string) => {
+    setTeamFilter(value);
+    setSelectedProfileID(null);
+    setDeleteBlocker(null);
+    setPanelMode(null);
+  };
   const openCreate = () => {
     const initialTeamPath = teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL && teamFilter !== AI_RESOURCE_TEAM_FILTER_GLOBAL ? teamFilter : '';
     setCreateTeamPath(initialTeamPath);
@@ -149,32 +176,14 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
   };
 
   return (
-    <div id="system-agent-profiles-section" className="ai-resource-panel space-y-5 pb-24">
-      <div className="ai-resource-page-header">
-        <div>
-          <h2>Agent Profiles</h2>
-          <p>Manage automation roles, instructions, and team access.</p>
-        </div>
-        <div className="ai-resource-page-actions">
-          {!canManage && <span className="runner-pill runner-pill--muted">Read-only</span>}
-          <button type="button" className="ai-resource-icon-button" onClick={() => void loadProfiles()} disabled={loading || saving} aria-label="Reload">
-            <RefreshCw className="h-4 w-4" aria-hidden="true" />
-          </button>
-          {canManage && (
-            <button type="button" className="ai-resource-primary-button" onClick={openCreate} disabled={saving}>
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              New profile
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="ai-resource-summary-band">
-        <div className="ai-resource-summary-item">
-          <span>Default resolution</span>
+    <div id="system-agent-profiles-section" className="ai-resource-panel ai-resource-page space-y-5 pb-24">
+      <div className="ai-resource-page-header ai-resource-page-header--toolbar ai-resource-overview-bar">
+        <h2 className="sr-only">Agent Profiles</h2>
+        <div className="ai-resource-default-control">
+          <span>Default profile</span>
           {canManageGlobalDefault ? (
             <select
-              className="ai-resource-summary-select"
+              className="ai-resource-default-select"
               value={payload.default_profile}
               onChange={event => void setDefaultProfile(event.target.value)}
               disabled={loading || saving}
@@ -190,80 +199,79 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
             <strong>{defaultProfileRecord?.display_name || payload.default_profile || '-'}</strong>
           )}
         </div>
-        <div className="ai-resource-summary-item">
-          <span>Profiles</span>
-          <strong>{payload.profiles.length}</strong>
-        </div>
-        <div className="ai-resource-summary-item">
-          <span>Enabled</span>
-          <strong className={enabledCount === payload.profiles.length ? 'text-emerald-600' : undefined}>{enabledCount} of {payload.profiles.length}</strong>
-        </div>
-        <div className="ai-resource-summary-item">
-          <span>Built-in</span>
-          <strong>{builtInCount}</strong>
+        {!detailOpen && (
+          <AIResourceMetricGrid
+            metrics={[
+              { label: 'Profiles', value: visibleProfiles.length, icon: <Bot className="h-4 w-4" /> },
+              { label: 'Enabled', value: formatAIResourceRatio(visibleEnabledCount, visibleProfiles.length), icon: <Power className="h-4 w-4" />, tone: visibleProfiles.length === 0 || visibleEnabledCount === visibleProfiles.length ? 'ok' : 'warning' },
+              { label: 'Pipeline refs', value: visibleUsageCount, icon: <Activity className="h-4 w-4" />, tone: 'info' },
+              { label: 'GitOps managed', value: visibleGitOpsCount, icon: <FileText className="h-4 w-4" />, tone: visibleGitOpsCount > 0 ? 'muted' : 'default' },
+            ]}
+          />
+        )}
+        <div className="ai-resource-page-actions">
+          {!canManage && <span className="runner-pill runner-pill--muted">Read-only</span>}
+          <button type="button" className="ai-resource-icon-button" onClick={() => void loadProfiles()} disabled={loading || saving} aria-label="Reload">
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
+          </button>
+          {canManage && (
+            <button type="button" className="ai-resource-primary-button" onClick={openCreate} disabled={saving}>
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              New profile
+            </button>
+          )}
         </div>
       </div>
 
       {error && <div className="ai-resource-alert ai-resource-alert--error">{error}</div>}
 
-      <section className="ai-resource-table-card ai-resource-split-card">
-        <div className="ai-resource-split">
-          <div className="ai-resource-split__list">
-            <AIResourceTableHeader
-              title="Profiles"
-              count={formatFilteredCount(visibleProfiles.length, payload.profiles.length, filteredCountToken)}
-              loading={loading}
-              searchLabel="Search agent profiles"
-              searchPlaceholder="Search agent profiles..."
-              searchValue={searchTerm}
-              onSearchChange={setSearchTerm}
-              filters={(
-                <AIResourceTeamFilter
-                  value={teamFilter}
-                  onChange={setTeamFilter}
-                  teamPaths={teamFilterOptions}
-                  disabled={teamPathsLoading && teamFilterOptions.length === 0}
-                />
-              )}
-            />
-            <div className="ai-resource-profile-list">
-              {visibleProfiles.map(profile => {
-                const isActive = detailProfile?.id === profile.id && panelMode !== 'create';
-                const isDefault = profile.id === payload.default_profile;
-                return (
-                  <button
-                    key={profile.id}
-                    type="button"
-                    className={`ai-resource-profile-option ${isActive ? 'ai-resource-profile-option--active' : ''}`}
-                    onClick={() => {
-                      setSelectedProfileID(profile.id);
-                      setDeleteBlocker(null);
-                      setPanelMode(null);
-                    }}
-                  >
-                    <span className="ai-resource-provider-glyph" aria-hidden="true">
-                      <Bot className="h-4 w-4" />
-                    </span>
-                    <span className="ai-resource-profile-option__body">
-                      <span className="ai-resource-profile-option__title">
-                        {profile.display_name}
-                        {isDefault && <span className="runner-pill runner-pill--ok">Default</span>}
-                        <AIResourceTeamBadge resourceID={profile.id} />
-                      </span>
-                      <span className="ai-resource-profile-option__provider">{agentProfileSourceLabel(profile.source)}</span>
-                      <span className="ai-resource-profile-option__model">{profile.role || profile.id}</span>
-                    </span>
-                    <span className={`ai-resource-status-dot ${profile.enabled ? 'ai-resource-status-dot--ok' : 'ai-resource-status-dot--muted'}`} aria-label={profile.enabled ? 'Enabled' : 'Disabled'} />
-                  </button>
-                );
-              })}
-              {!loading && visibleProfiles.length === 0 && (
-                <AIResourceEmptyState>{payload.profiles.length === 0 ? 'No agent profiles configured.' : 'No agent profiles match your filters.'}</AIResourceEmptyState>
-              )}
-            </div>
-          </div>
-
-          <aside ref={panelRef} className="ai-resource-split__detail">
+      <AIResourceWorkspace
+        storageKey="agent-profiles"
+        workspaceLabel="Agent profile workspace"
+        treeTitle="Agent profile tree"
+        resourceType="agent-profile"
+        resourceLabel="agent profile"
+        resources={workspaceResources}
+        teamPaths={teamFilterOptions}
+        teamFilter={teamFilter}
+        selectedResourceID={selectedWorkspaceProfileID}
+        onTeamFilterChange={openTeamFilter}
+        onResourceSelect={selectProfile}
+        onDetailClose={closeDetail}
+        detailOpen={detailOpen}
+        detailRef={panelRef}
+        detailLabel="Agent profile detail"
+        listHeader={(
+          <AIResourceTableHeader
+            title="Profiles"
+            count={formatFilteredCount(visibleProfiles.length, payload.profiles.length, filteredCountToken)}
+            loading={loading}
+            searchLabel="Search agent profiles"
+            searchPlaceholder="Search agent profiles..."
+            searchValue={searchTerm}
+            onSearchChange={setSearchTerm}
+            filters={(
+              <AIResourceTeamFilter
+                value={teamFilter}
+                onChange={openTeamFilter}
+                teamPaths={teamFilterOptions}
+                disabled={teamPathsLoading && teamFilterOptions.length === 0}
+              />
+            )}
+          />
+        )}
+        list={(
+          <AgentProfileTable
+            profiles={visibleProfiles}
+            defaultProfile={payload.default_profile}
+            selectedProfileID={selectedWorkspaceProfileID}
+            loading={loading}
+            emptyMessage={payload.profiles.length === 0 ? 'No agent profiles configured.' : 'No agent profiles match your filters.'}
+            onSelectProfile={selectProfile}
+          />
+        )}
+        detail={(
+          <>
             {showForm ? (
               <AgentProfileForm
                 canManage={canManage}
@@ -306,9 +314,92 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
             ) : (
               <AIResourceEmptyState>Select an agent profile to inspect.</AIResourceEmptyState>
             )}
-          </aside>
-        </div>
-      </section>
+          </>
+        )}
+      />
+    </div>
+  );
+}
+
+function AgentProfileTable({
+  profiles,
+  defaultProfile,
+  selectedProfileID,
+  loading,
+  emptyMessage,
+  onSelectProfile,
+}: {
+  profiles: AgentProfileRecord[];
+  defaultProfile: string;
+  selectedProfileID: string | null | undefined;
+  loading: boolean;
+  emptyMessage: string;
+  onSelectProfile: (profileID: string) => void;
+}) {
+  if (!loading && profiles.length === 0) {
+    return <AIResourceEmptyState>{emptyMessage}</AIResourceEmptyState>;
+  }
+
+  return (
+    <div className="ai-resource-table-shell">
+      <table className="ai-resource-registry-table" aria-label="Agent profiles">
+        <colgroup>
+          <col style={{ width: '30%' }} />
+          <col style={{ width: '14%' }} />
+          <col style={{ width: '14%' }} />
+          <col style={{ width: '22%' }} />
+          <col style={{ width: '8%' }} />
+          <col style={{ width: '12%' }} />
+        </colgroup>
+        <thead>
+          <tr>
+            <th scope="col">Profile</th>
+            <th scope="col">Team</th>
+            <th scope="col">Source</th>
+            <th scope="col">Role</th>
+            <th scope="col">Usage</th>
+            <th scope="col">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {profiles.map(profile => {
+            const selected = selectedProfileID === profile.id;
+            const isDefault = profile.id === defaultProfile;
+            return (
+              <tr key={profile.id} className={selected ? 'selected' : ''} onClick={() => onSelectProfile(profile.id)}>
+                <td>
+                  <button
+                    type="button"
+                    className="ai-resource-table-resource"
+                    onClick={event => {
+                      event.stopPropagation();
+                      onSelectProfile(profile.id);
+                    }}
+                  >
+                    <span className="ai-resource-table-resource-icon" aria-hidden="true">
+                      <ObjectIcon type="agent-profile" />
+                    </span>
+                    <span className="ai-resource-table-resource-name">
+                      <strong>{profile.display_name}</strong>
+                      <small>{profile.id}</small>
+                    </span>
+                  </button>
+                </td>
+                <td><AIResourceTeamBadge resourceID={profile.id} /></td>
+                <td><span className="ai-resource-table-mono">{agentProfileSourceLabel(profile.source)}</span></td>
+                <td>{profile.role || '-'}</td>
+                <td><span className="ai-resource-table-mono ai-resource-table-number">{profile.usage_count}</span></td>
+                <td>
+                  <span className={`ai-resource-health ${profile.enabled ? 'ai-resource-health--ok' : 'ai-resource-health--muted'}`}>
+                    <span aria-hidden="true" />
+                    {profile.enabled ? (isDefault ? 'Default' : 'Enabled') : 'Disabled'}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

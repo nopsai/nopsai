@@ -251,12 +251,17 @@ truth; this file is the source-adjacent placement guide.
   permissions and scoped team/product grants can show the route, while the
   backend list handlers filter individual LLM profiles, agent profiles, MCP
   servers, and MCP profiles by resource access before returning subjects.
-- `features/system/AIResourcePanel.tsx`, `features/system/aiResourcePanel.css`,
-  and `features/system/aiResourcePresentation.ts` own the shared hero, stats,
-  search, count, labeled resource rows, compact icon actions, team placement
-  controls, split profile detail layouts, and responsive presentation for LLM,
-  agent, and MCP resource pages; domain panels still own filtering inputs,
-  mutations, and side-panel rendering.
+- `features/system/AIResourcePanel.tsx`, `features/system/AIResourceWorkspace.tsx`,
+  `features/system/aiResourcePanel.css`, `features/system/aiResourceTree.ts`,
+  and `features/system/aiResourcePresentation.ts` own the shared trigger-style
+  AI resource workspace shell, resizable team tree, inline overview metrics,
+  selected-resource detail mode, search, count, labeled resource rows, compact
+  icon actions, team placement controls, and responsive presentation for LLM,
+  agent, and MCP resource pages. Domain panels still own filtering inputs,
+  mutations, and detail composition, while focused renderers such as
+  `MCPViewSwitch.tsx`, `MCPResourceTables.tsx`, and detail helpers such as
+  `MCPDetailSection.tsx` own domain-specific tabs, rows, and repeated detail
+  structure.
 - Individual LLM profiles, agent profiles, MCP servers, and MCP profiles share
   access through `ResourceAccessCard` with `llm_profile`, `agent_profile`,
   `mcp_server`, and `mcp_profile` resource types.

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  countMCPProfileTools,
+  formatMCPScopes,
   mcpProfileFormFromRecord,
   mcpProfilePayloadFromForm,
   mcpServerFormFromRecord,
@@ -141,4 +143,21 @@ test('normalizes MCP profile test responses', () => {
   assert.equal(normalizeMCPProfileTestMessage({ warnings: ['limited scope', 'missing tool'] }), 'limited scope; missing tool');
   assert.equal(normalizeMCPProfileTestMessage({ message: 'ok: 2 tools' }), 'ok: 2 tools');
   assert.equal(normalizeMCPProfileTestMessage(null), 'ok');
+});
+
+test('formats MCP profile tool counts and scope labels', () => {
+  const profile: MCPProfileRecord = {
+    name: 'review',
+    description: '',
+    enabled: true,
+    servers: [
+      { server: 'github', tools: ['issues_list', 'repos_get'] },
+      { server: 'slack', tools: ['search'] },
+    ],
+    allowed_scopes: [],
+  };
+
+  assert.equal(countMCPProfileTools(profile), 3);
+  assert.equal(formatMCPScopes([]), 'All scopes');
+  assert.equal(formatMCPScopes(['dev', 'prod']), 'dev, prod');
 });
