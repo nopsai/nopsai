@@ -72,7 +72,18 @@ test('renders MCP servers and profiles in the split detail workspace', async () 
     </MemoryRouter>
   );
 
-  expect(await screen.findByRole('heading', { name: 'MCP' })).toBeVisible();
+  expect(await screen.findByRole('heading', { name: 'MCP' })).toHaveClass('sr-only');
+  expect(document.getElementById('system-mcp-section')).toHaveClass('ai-resource-page');
+  expect(screen.getByLabelText('MCP server workspace')).toHaveClass('ai-resource-workspace-card');
+  expect(screen.getByLabelText('MCP server tree')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Select MCP server GitHub MCP' })).toBeVisible();
+  expect(screen.queryByLabelText('MCP server detail')).not.toBeInTheDocument();
+  expect(screen.getAllByText('Servers')[0]).toBeVisible();
+  expect(screen.getByText('Discovered tools')).toBeVisible();
+
+  await user.click(screen.getByRole('button', { name: 'Select MCP server GitHub MCP' }));
+  expect(screen.getByLabelText('MCP server detail')).toHaveClass('ai-resource-detail-fullscreen-main');
+  expect(screen.getByRole('button', { name: 'List' })).toBeVisible();
   expect(screen.getByText('https://api.githubcopilot.com/mcp/x/all/readonly')).toBeVisible();
   expect(screen.getByRole('link', { name: 'credential://system/mcp/github' })).toHaveAttribute(
     'href',
@@ -87,6 +98,15 @@ test('renders MCP servers and profiles in the split detail workspace', async () 
   await waitFor(() => expect(apiMocks.discoverMCPServer).toHaveBeenCalledWith('platform/ml/github'));
 
   await user.click(screen.getByRole('tab', { name: 'Profiles' }));
+  expect(screen.getByLabelText('MCP profile workspace')).toHaveClass('ai-resource-workspace-card');
+  expect(screen.getByLabelText('MCP profile tree')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Select MCP profile pr-review' })).toBeVisible();
+  expect(screen.queryByLabelText('MCP profile detail')).not.toBeInTheDocument();
+  expect(screen.getByRole('tab', { name: 'Profiles' })).toHaveClass('ai-resource-view-switch__item');
+  expect(screen.getByText('Approved tools')).toBeVisible();
+
+  await user.click(screen.getByRole('button', { name: 'Select MCP profile pr-review' }));
+  expect(screen.getByLabelText('MCP profile detail')).toHaveClass('ai-resource-detail-fullscreen-main');
   expect(await screen.findByText('Review pull requests.')).toBeVisible();
   expect(screen.getByText('issues_list')).toBeVisible();
   expect(screen.queryByRole('button', { name: /more actions/i })).not.toBeInTheDocument();
@@ -110,5 +130,6 @@ test('applies the team filter and profiles view from the route query', async () 
   expect(await screen.findByLabelText('Filter by team')).toHaveValue('platform/ml');
   await waitFor(() => expect(screen.getByRole('tab', { name: 'Profiles' })).toHaveAttribute('aria-selected', 'true'));
   expect(screen.getByText('Review pull requests.')).toBeVisible();
+  expect(screen.queryByLabelText('MCP profile detail')).not.toBeInTheDocument();
   expect(screen.queryByText('https://api.githubcopilot.com/mcp/x/all/readonly')).not.toBeInTheDocument();
 });

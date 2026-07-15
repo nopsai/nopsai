@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Bot, CheckCircle2, Edit3, ExternalLink, Plus, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
+import { Bot, CheckCircle2, Edit3, ExternalLink, KeyRound, Plus, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { LLM_PROVIDERS, getLLMProvider, replaceProviderDefault } from './llmProviders';
 import { type LLMProfileFormState, type LLMProfileRecord } from './llm-profiles/model';
@@ -13,6 +13,7 @@ import {
   AIResourceTeamPlacementField,
   AIResourceTableHeader,
 } from './AIResourcePanel';
+import { AIResourceMetricGrid, AIResourceWorkspace, type AIResourceWorkspaceItem } from './AIResourceWorkspace';
 import {
   AI_RESOURCE_TEAM_FILTER_ALL,
   AI_RESOURCE_TEAM_FILTER_GLOBAL,
@@ -25,10 +26,13 @@ import {
   formatAIResourceTeamLabel,
 } from './aiResourceTeams';
 import {
+  formatAIResourceRatio,
   formatFilteredCount,
   matchesAIResourceSearch,
 } from './aiResourcePresentation';
+import { aiResourceTreeFilterForResource } from './aiResourceTree';
 import { useAIResourceTeamPaths } from './useAIResourceTeamPaths';
+import { ObjectIcon } from '../../components/ObjectIcon';
 import ResourceAccessCard from '../../components/ResourceAccessCard';
 
 function PlusIcon() {
@@ -134,7 +138,6 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
   const showProfilePanel = panelMode !== null || deleteBlocker !== null;
   const showProfileForm = panelMode === 'create' || panelMode === 'edit';
   const formProvider = getLLMProvider(form.provider);
-  const providerCount = useMemo(() => new Set(payload.profiles.map(profile => getLLMProvider(profile.provider).id)).size, [payload.profiles]);
   const defaultProfileOptions = useMemo(
     () => payload.profiles.filter(profile => aiResourceTeamScope(profile.name).teamPath === ''),
     [payload.profiles]
@@ -144,7 +147,6 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
     () => collectAIResourceTeamPaths(payload.profiles.map(profile => profile.name), teamPaths),
     [payload.profiles, teamPaths]
   );
-  const validCount = payload.profiles.filter(profile => profile.status === 'valid').length;
   const visibleProfiles = useMemo(
     () => payload.profiles.filter(profile => {
       const provider = getLLMProvider(profile.provider);
@@ -168,16 +170,47 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
     [payload.profiles, searchTerm, teamFilter]
   );
   const selectedProfile = useMemo(() => {
-    if (visibleProfiles.length === 0) return null;
-    return visibleProfiles.find(profile => profile.name === selectedProfileName) ??
-      visibleProfiles.find(profile => profile.name === payload.default_profile) ??
-      visibleProfiles[0] ??
-      null;
-  }, [payload.default_profile, selectedProfileName, visibleProfiles]);
+    if (!selectedProfileName) return null;
+    return visibleProfiles.find(profile => profile.name === selectedProfileName) ?? null;
+  }, [selectedProfileName, visibleProfiles]);
   const emptyProfilesMessage = payload.profiles.length === 0 ? 'No LLM profiles configured.' : 'No LLM profiles match your filters.';
   const filteredCountToken = searchTerm || (teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL ? teamFilter : '');
+  const visibleHealthyCount = visibleProfiles.filter(isProfileHealthy).length;
+  const visibleProviderCount = new Set(visibleProfiles.map(profile => getLLMProvider(profile.provider).id)).size;
+  const visibleCredentialCount = visibleProfiles.filter(profile => Boolean(profile.credential_ref)).length;
+  const workspaceResources = useMemo<AIResourceWorkspaceItem[]>(
+    () => payload.profiles.map(profile => {
+      const provider = getLLMProvider(profile.provider);
+      return {
+        id: profile.name,
+        label: aiResourceLocalName(profile.name) || profile.name,
+        description: `${provider.label} ${profile.model || ''}`.trim(),
+      };
+    }),
+    [payload.profiles]
+  );
+  const selectedWorkspaceProfileName = showProfileForm ? null : selectedProfile?.name ?? null;
+  const detailOpen = showProfilePanel || Boolean(selectedWorkspaceProfileName);
+  const selectProfile = (profileName: string) => {
+    setSelectedProfileName(profileName);
+    setTeamFilter(aiResourceTreeFilterForResource(profileName));
+    setDeleteBlocker(null);
+    setPanelMode(null);
+  };
+  const openTeamFilter = (value: string) => {
+    setTeamFilter(value);
+    setSelectedProfileName('');
+    setDeleteBlocker(null);
+    setPanelMode(null);
+  };
+  const closeDetail = () => {
+    setSelectedProfileName('');
+    setDeleteBlocker(null);
+    setPanelMode(null);
+  };
   const openCreate = () => {
     const initialTeamPath = teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL && teamFilter !== AI_RESOURCE_TEAM_FILTER_GLOBAL ? teamFilter : '';
+    setSelectedProfileName('');
     setCreateTeamPath(initialTeamPath);
     startCreate();
     setForm(prev => ({ ...prev, name: buildAIResourceScopedID(initialTeamPath, aiResourceLocalName(prev.name)) }));
@@ -191,12 +224,39 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
   };
 
   return (
-    <div id="system-llm-profiles-section" className="ai-resource-panel space-y-6 pb-24">
-      <div className="ai-resource-page-header">
-        <div>
-          <h2>LLM Profiles</h2>
-          <p>Manage model connections and runtime defaults.</p>
+    <div id="system-llm-profiles-section" className="ai-resource-panel ai-resource-page space-y-5 pb-24">
+      <div className="ai-resource-page-header ai-resource-page-header--toolbar ai-resource-overview-bar">
+        <h2 className="sr-only">LLM Profiles</h2>
+        <div className="ai-resource-default-control">
+          <span>Default profile</span>
+          {canManageGlobalDefault ? (
+            <select
+              className="ai-resource-default-select"
+              value={payload.default_profile}
+              onChange={event => void saveDefaultProfile(event.target.value)}
+              disabled={loading || saving}
+              aria-label="Default LLM profile"
+            >
+              {defaultProfileOptions.map(profile => (
+                <option key={profile.name} value={profile.name}>
+                  {profile.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <strong>{payload.default_profile || '-'}</strong>
+          )}
         </div>
+        {!detailOpen && (
+          <AIResourceMetricGrid
+            metrics={[
+              { label: 'Profiles', value: visibleProfiles.length, icon: <Bot className="h-4 w-4" /> },
+              { label: 'Healthy', value: formatAIResourceRatio(visibleHealthyCount, visibleProfiles.length), icon: <CheckCircle2 className="h-4 w-4" />, tone: visibleProfiles.length === 0 || visibleHealthyCount === visibleProfiles.length ? 'ok' : 'warning' },
+              { label: 'Providers', value: visibleProviderCount, icon: <Sparkles className="h-4 w-4" />, tone: 'info' },
+              { label: 'Credentials', value: visibleCredentialCount, icon: <KeyRound className="h-4 w-4" />, tone: visibleCredentialCount > 0 ? 'muted' : 'warning' },
+            ]}
+          />
+        )}
         <div className="ai-resource-page-actions">
           {!canManage && <span className="runner-pill runner-pill--muted">Read-only</span>}
           <button type="button" className="ai-resource-icon-button" onClick={() => void loadProfiles()} disabled={loading || saving} aria-label="Reload">
@@ -210,98 +270,55 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
           )}
         </div>
       </div>
-      <section className="ai-resource-summary-band" aria-label="LLM profile summary">
-        <div className="ai-resource-summary-item">
-          <span>Default</span>
-          {canManageGlobalDefault ? (
-            <select
-              className="ai-resource-summary-select"
-              value={payload.default_profile}
-              onChange={event => void saveDefaultProfile(event.target.value)}
-              disabled={loading || saving}
-            >
-              {defaultProfileOptions.map(profile => (
-                <option key={profile.name} value={profile.name}>
-                  {profile.name}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <strong>{payload.default_profile || '-'}</strong>
-          )}
-        </div>
-        <div className="ai-resource-summary-item">
-          <span>Profiles</span>
-          <strong>{payload.profiles.length}</strong>
-        </div>
-        <div className="ai-resource-summary-item">
-          <span>Providers</span>
-          <strong>{providerCount}</strong>
-        </div>
-        <div className="ai-resource-summary-item">
-          <span>Healthy</span>
-          <strong className={validCount === payload.profiles.length ? 'text-emerald-600' : 'text-amber-600'}>{validCount} of {payload.profiles.length}</strong>
-        </div>
-      </section>
       {error && <div className="ai-resource-alert ai-resource-alert--error">{error}</div>}
 
-      <section className="ai-resource-table-card ai-resource-split-card">
-        <div className="ai-resource-split">
-          <div className="ai-resource-split__list">
-            <AIResourceTableHeader
-              title="Profiles"
-              count={formatFilteredCount(visibleProfiles.length, payload.profiles.length, filteredCountToken)}
-              loading={loading}
-              searchLabel="Search LLM profiles"
-              searchPlaceholder="Search profiles..."
-              searchValue={searchTerm}
-              onSearchChange={setSearchTerm}
-              filters={(
-                <AIResourceTeamFilter
-                  value={teamFilter}
-                  onChange={setTeamFilter}
-                  teamPaths={teamFilterOptions}
-                  disabled={teamPathsLoading && teamFilterOptions.length === 0}
-                />
-              )}
-            />
-            <div className="ai-resource-profile-list" aria-label="LLM profiles">
-              {visibleProfiles.map(profile => {
-                const provider = getLLMProvider(profile.provider);
-                const selected = selectedProfile?.name === profile.name;
-                return (
-                  <button
-                    key={profile.name}
-                    type="button"
-                    className={`ai-resource-profile-option ${selected ? 'ai-resource-profile-option--active' : ''}`}
-                    onClick={() => {
-                      setSelectedProfileName(profile.name);
-                      setDeleteBlocker(null);
-                      setPanelMode(null);
-                    }}
-                    aria-pressed={selected}
-                  >
-                    <ProviderGlyph providerID={provider.id} />
-                    <span className="ai-resource-profile-option__body">
-                      <span className="ai-resource-profile-option__title">
-                        <span>{profile.name}</span>
-                        {profile.name === payload.default_profile && <span className="runner-pill runner-pill--ok">Default</span>}
-                        <AIResourceTeamBadge resourceID={profile.name} />
-                      </span>
-                      <span className="ai-resource-profile-option__provider">{provider.label}</span>
-                      <span className="ai-resource-profile-option__model">{profile.model || '-'}</span>
-                    </span>
-                    <span className={`ai-resource-status-dot ${isProfileHealthy(profile) ? 'ai-resource-status-dot--ok' : 'ai-resource-status-dot--error'}`} aria-label={isProfileHealthy(profile) ? 'Healthy' : 'Needs attention'} />
-                  </button>
-                );
-              })}
-              {!loading && visibleProfiles.length === 0 && (
-                <AIResourceEmptyState>{emptyProfilesMessage}</AIResourceEmptyState>
-              )}
-            </div>
-          </div>
-
-          <section ref={profilePanelRef} className="ai-resource-split__detail">
+      <AIResourceWorkspace
+        storageKey="llm-profiles"
+        workspaceLabel="LLM profile workspace"
+        treeTitle="LLM profile tree"
+        resourceType="llm-profile"
+        resourceLabel="LLM profile"
+        resources={workspaceResources}
+        teamPaths={teamFilterOptions}
+        teamFilter={teamFilter}
+        selectedResourceID={selectedWorkspaceProfileName}
+        onTeamFilterChange={openTeamFilter}
+        onResourceSelect={selectProfile}
+        onDetailClose={closeDetail}
+        detailOpen={detailOpen}
+        detailRef={profilePanelRef}
+        detailLabel="LLM profile detail"
+        listHeader={(
+          <AIResourceTableHeader
+            title="Profiles"
+            count={formatFilteredCount(visibleProfiles.length, payload.profiles.length, filteredCountToken)}
+            loading={loading}
+            searchLabel="Search LLM profiles"
+            searchPlaceholder="Search profiles..."
+            searchValue={searchTerm}
+            onSearchChange={setSearchTerm}
+            filters={(
+              <AIResourceTeamFilter
+                value={teamFilter}
+                onChange={openTeamFilter}
+                teamPaths={teamFilterOptions}
+                disabled={teamPathsLoading && teamFilterOptions.length === 0}
+              />
+            )}
+          />
+        )}
+        list={(
+          <LLMProfileTable
+            profiles={visibleProfiles}
+            defaultProfile={payload.default_profile}
+            selectedProfileName={selectedWorkspaceProfileName}
+            loading={loading}
+            emptyMessage={emptyProfilesMessage}
+            onSelectProfile={selectProfile}
+          />
+        )}
+        detail={(
+          <>
             {showProfileForm && (
               <>
                 <div className="flex items-start justify-between gap-3">
@@ -490,9 +507,93 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
             {!showProfilePanel && !selectedProfile && (
               <AIResourceEmptyState>{emptyProfilesMessage}</AIResourceEmptyState>
             )}
-          </section>
-        </div>
-      </section>
+          </>
+        )}
+      />
+    </div>
+  );
+}
+
+function LLMProfileTable({
+  profiles,
+  defaultProfile,
+  selectedProfileName,
+  loading,
+  emptyMessage,
+  onSelectProfile,
+}: {
+  profiles: LLMProfileRecord[];
+  defaultProfile: string;
+  selectedProfileName: string | null;
+  loading: boolean;
+  emptyMessage: string;
+  onSelectProfile: (profileName: string) => void;
+}) {
+  if (!loading && profiles.length === 0) {
+    return <AIResourceEmptyState>{emptyMessage}</AIResourceEmptyState>;
+  }
+
+  return (
+    <div className="ai-resource-table-shell">
+      <table className="ai-resource-registry-table" aria-label="LLM profiles">
+        <colgroup>
+          <col style={{ width: '28%' }} />
+          <col style={{ width: '14%' }} />
+          <col style={{ width: '16%' }} />
+          <col style={{ width: '22%' }} />
+          <col style={{ width: '10%' }} />
+          <col style={{ width: '10%' }} />
+        </colgroup>
+        <thead>
+          <tr>
+            <th scope="col">Profile</th>
+            <th scope="col">Team</th>
+            <th scope="col">Provider</th>
+            <th scope="col">Model</th>
+            <th scope="col">Scopes</th>
+            <th scope="col">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {profiles.map(profile => {
+            const provider = getLLMProvider(profile.provider);
+            const selected = selectedProfileName === profile.name;
+            const healthy = isProfileHealthy(profile);
+            return (
+              <tr key={profile.name} className={selected ? 'selected' : ''} onClick={() => onSelectProfile(profile.name)}>
+                <td>
+                  <button
+                    type="button"
+                    className="ai-resource-table-resource"
+                    onClick={event => {
+                      event.stopPropagation();
+                      onSelectProfile(profile.name);
+                    }}
+                  >
+                    <span className="ai-resource-table-resource-icon" aria-hidden="true">
+                      <ObjectIcon type="llm-profile" />
+                    </span>
+                    <span className="ai-resource-table-resource-name">
+                      <strong>{profile.name}</strong>
+                      <small>{profile.name === defaultProfile ? 'Default profile' : profile.base_url || provider.label}</small>
+                    </span>
+                  </button>
+                </td>
+                <td><AIResourceTeamBadge resourceID={profile.name} /></td>
+                <td>{provider.label}</td>
+                <td><span className="ai-resource-table-mono">{profile.model || '-'}</span></td>
+                <td>{profile.allowed_scopes.length ? profile.allowed_scopes.join(', ') : 'All scopes'}</td>
+                <td>
+                  <span className={`ai-resource-health ${healthy ? 'ai-resource-health--ok' : 'ai-resource-health--error'}`}>
+                    <span aria-hidden="true" />
+                    {healthy ? 'Healthy' : profile.status || 'Needs attention'}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

@@ -289,6 +289,14 @@ export function normalizeMCPProfileTestMessage(value: unknown): string {
   return warnings.length ? warnings.join('; ') : readString(record?.message) || 'ok';
 }
 
+export function countMCPProfileTools(profile: MCPProfileRecord): number {
+  return profile.servers.reduce((total, ref) => total + ref.tools.length, 0);
+}
+
+export function formatMCPScopes(scopes: string[]): string {
+  return scopes.length > 0 ? scopes.join(', ') : 'All scopes';
+}
+
 export function splitCSV(value: string): string[] {
   return value
     .split(',')
