@@ -42,6 +42,7 @@ test('renders trigger metrics, subtree table rows, and tree navigation', async (
   );
 
   expect(screen.getByText('Trigger tree')).toBeVisible();
+  expect(screen.getByRole('separator', { name: 'Resize trigger tree' })).toBeVisible();
   expect(screen.getByRole('button', { name: /All owners/ })).toBeVisible();
   expect(screen.getByText('Triggers')).toBeVisible();
   expect(screen.getByText('GitOps')).toBeVisible();

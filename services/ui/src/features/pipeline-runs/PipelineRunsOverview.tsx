@@ -16,6 +16,7 @@ import {
   UsersRound,
   Webhook,
 } from 'lucide-react';
+import { TreeColumnResizeHandle, useResizableTreeColumn } from '../../components/resizableTreeColumn';
 import type { RunListItem } from './contracts';
 import {
   ALL_PIPELINE_RUN_BRANCHES,
@@ -100,6 +101,12 @@ export function PipelineRunsOverview({
     () => buildRecentRunsHref(activeTeamURLValue, searchTerm, sourceFilter, 'attention'),
     [activeTeamURLValue, searchTerm, sourceFilter]
   );
+  const treeResize = useResizableTreeColumn({
+    storageKey: 'pipeline-runs',
+    defaultWidth: 248,
+    minWidth: 216,
+    maxWidth: 480,
+  });
   const handleToggleTeam = useCallback((item: ReturnType<typeof buildPipelineRunNavigationItems>[number]) => {
     if (!item.childCount) return;
     setExpandedTeamIds(prev => {
@@ -123,7 +130,7 @@ export function PipelineRunsOverview({
   }, []);
 
   return (
-    <div className="pipeline-runs-workspace">
+    <div className="pipeline-runs-workspace" style={treeResize.gridStyle}>
       <PipelineRunTeamRail
         activeTeamId={activeTeamId}
         navigationItems={navigationItems}
@@ -134,6 +141,7 @@ export function PipelineRunsOverview({
         onSelectTeam={onSelectTeam}
         onToggleTeam={handleToggleTeam}
       />
+      <TreeColumnResizeHandle {...treeResize} label="Resize pipeline run team tree" />
 
       <div className="pipeline-runs-overview-main">
         <div className="pipeline-runs-metrics" data-testid="pipeline-runs-metrics">

@@ -27,7 +27,9 @@ truth; this file is the source-adjacent placement guide.
 - `components/` owns shared UI primitives that cross feature boundaries.
   Workflow dialogs, inline alerts, empty states, icon-only commands, focus
   handling, compact resource collection cards, shared object icons, and
-  toast/live-region feedback should start here.
+  toast/live-region feedback should start here. Shared in-page tree resizing
+  behavior belongs in `components/resizableTreeColumn.tsx`; feature modules own
+  only their default/min/max widths and layout placement.
 - `styles.css` owns global theme tokens, app-shell dark surfaces, sidebar
   selected states, and cross-route color aliases. Feature CSS should consume
   those tokens or define scoped aliases instead of hard-coding a competing dark
@@ -61,15 +63,16 @@ truth; this file is the source-adjacent placement guide.
   `EventAutomationToolbar.tsx`, `AutomationResourceTree.tsx`, and
   `resourceTreeModel.ts` own the rendering-only route switch, shared page
   header, and reusable team-tree browser between trigger, external API trigger,
-  and Git webhook source pages. These components link to each owning page and
-  must not duplicate API, model, or mutation state.
+  and Git webhook source pages. The reusable tree is collapsed by default and
+  user-resizable while keeping selected-resource ancestry open. These components
+  link to each owning page and must not duplicate API, model, or mutation state.
 - `features/triggers/model.ts` owns trigger collection metrics, source/search
   filtering, repository-owner membership rules, and structured trigger metadata
   helpers that read/write GitOps-compatible root YAML fields. `features/triggers/treeModel.ts`
   owns trigger tree shaping, lookup, team-under-owner grouping, and nested counts.
   `TriggerCollectionToolbar.tsx`, `TriggerExplorerTree.tsx`,
   `TriggerCollectionList.tsx`, and `TriggerDetailView.tsx` own the demo-style trigger workspace rendering:
-  compact event-automation switch/filter/create toolbar, explorer tree, subtree
+  compact event-automation switch/filter/create toolbar, collapsed-by-default and user-resizable explorer tree, subtree
   metrics/table list, and selected-trigger routes that keep the explorer visible
   while showing overview, definition, and recent runs together on one aligned page.
   `useTriggerManifestMutations.ts` owns trigger create/save/delete mutation state.
@@ -113,7 +116,8 @@ truth; this file is the source-adjacent placement guide.
   ownership scope used by team/application catalogs; trigger ownership must not
   be inferred from the Git `owner/repo` slug.
 - `features/teams/TeamsWorkspace.tsx` owns master-detail composition, toolbar,
-  tree navigation, high-level resource cards, and responsive layout hooks.
+  collapsed-by-default and user-resizable tree navigation, high-level resource cards, shared
+  `ObjectIcon` resource identity, and responsive layout hooks.
 - `features/teams/TeamsWorkspacePanels.tsx` owns detail-tab panels,
   team/application overview rendering, GitOps/notification summaries, read-only
   access summaries, resource tables, empty states, and table copy helpers.
@@ -169,8 +173,14 @@ truth; this file is the source-adjacent placement guide.
   filters remain URL-backed for shareable operations views.
 - `features/pipeline-runs/overviewModel.ts` owns overview metrics, source and
   status filtering, team/application navigation shaping, and table row shaping.
+  The repository-backed source kind remains `repository` for API/query
+  compatibility, but user-facing Pipeline Runs filters and tables present it as
+  Application.
+- The Pipeline Runs overview `All teams` selection loads the accessible recent
+  run list without a `teamId` filter; selecting a specific team/application uses
+  the branch-grouped team endpoint.
 - `features/pipeline-runs/PipelineRunsOverview.tsx` owns the redesigned
-  overview rendering: team/application rail, metrics, and run feed. It must
+  overview rendering: user-resizable team/application rail, metrics, and run feed. It must
   consume existing run/team API data rather than sample data.
 - The overview rail should keep its top aligned with the metrics row and
   preserve the user-controlled team/application expand/collapse tree while

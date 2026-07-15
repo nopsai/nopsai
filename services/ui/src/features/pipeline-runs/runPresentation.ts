@@ -97,7 +97,7 @@ export function hasRepositoryContext(run: Pick<RunListItem, 'git_repo_owner' | '
 export function runSourceLabel(kind: RunSourceKind) {
   switch (kind) {
     case 'repository':
-      return 'Git repositories';
+      return 'Applications';
     case 'schedule':
       return 'Scheduled runs';
     case 'external':

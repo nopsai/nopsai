@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, 
 import { useLocation, useNavigate } from 'react-router-dom';
 import * as yaml from 'js-yaml';
 import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowToastRegion';
+import { TreeColumnResizeHandle, useResizableTreeColumn } from '../components/resizableTreeColumn';
 import {
   buildTriggerEditorSuggestion,
   type TriggerEditorSuggestion,
@@ -134,6 +135,12 @@ function TriggersPage({
   const autocompleteFetchRef = useRef<{ fetchedAt: number; loadingPromise: Promise<void> | null }>({
     fetchedAt: 0,
     loadingPromise: null,
+  });
+  const treeResize = useResizableTreeColumn({
+    storageKey: 'triggers',
+    defaultWidth: 280,
+    minWidth: 240,
+    maxWidth: 520,
   });
 
   const [autocompleteMeta, setAutocompleteMeta] = useState<{
@@ -839,7 +846,7 @@ function TriggersPage({
 
       <div className="flex-1 overflow-auto px-6 pb-8 triggers-content">
         {selectedSlug ? (
-          <section className="triggers-detail-fullscreen triggers-detail-fullscreen--with-tree" aria-label="Trigger detail">
+          <section className="triggers-detail-fullscreen triggers-detail-fullscreen--with-tree" style={treeResize.gridStyle} aria-label="Trigger detail">
             <TriggerExplorerTree
               rootNode={buildTree}
               allTriggers={serverTriggers}
@@ -848,6 +855,7 @@ function TriggersPage({
               onOpenOwner={openOwner}
               onSelectTrigger={handleSelectSlug}
             />
+            <TreeColumnResizeHandle {...treeResize} label="Resize trigger tree" />
             <div className="triggers-detail-fullscreen-main">
               {selectedSlug && detailLoading ? (
                 <div className="triggers-detail-pane-empty">Loading trigger...</div>

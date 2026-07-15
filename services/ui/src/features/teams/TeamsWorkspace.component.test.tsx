@@ -362,6 +362,7 @@ describe('TeamsWorkspace', () => {
     const props = renderWorkspace();
 
     expect(screen.getAllByRole('button', { name: 'New' })).toHaveLength(1);
+    expect(screen.getByRole('separator', { name: 'Resize team tree' })).toBeVisible();
     expect(screen.getByRole('tabpanel', { name: 'Overview' })).toBeVisible();
     const overviewCard = screen.getByRole('heading', { name: 'Team Overview' }).closest('article');
     expect(overviewCard).not.toBeNull();
@@ -580,13 +581,19 @@ describe('TeamsWorkspace', () => {
       operationsSummary: rootOperationsSummary,
     });
 
-    expect(screen.getByRole('button', { name: 'checkout-api' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Expand payments' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'checkout-api' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Expand platform' }));
+    expect(screen.getByRole('button', { name: 'Expand payments' })).toBeVisible();
 
     await user.click(screen.getByRole('button', { name: 'Collapse platform' }));
-    expect(screen.queryByRole('button', { name: 'payments' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Expand payments' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Open platform' })).toBeVisible();
 
     await user.click(screen.getByRole('button', { name: 'Expand platform' }));
+    await user.click(screen.getByRole('button', { name: 'Expand payments' }));
+    expect(screen.getByRole('button', { name: 'checkout-api' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Collapse payments' }));
     expect(screen.queryByRole('button', { name: 'checkout-api' })).not.toBeInTheDocument();
     expect(props.onSelectTeam).not.toHaveBeenCalled();
