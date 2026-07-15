@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { currentUserDisplayName, currentUserInitials } from './userIdentity.js';
+import { currentUserDisplayName, currentUserInitials, currentUserRoleLabel } from './userIdentity.js';
 
 test('prefers email over opaque OIDC subject for display name', () => {
   assert.equal(
@@ -30,4 +30,10 @@ test('hides opaque OIDC subject when no readable identity exists', () => {
 test('builds initials from email or display name', () => {
   assert.equal(currentUserInitials({ sub: 'oidc:nopsai:jip', email: 'jip@example.com' }), 'J');
   assert.equal(currentUserInitials({ sub: 'alice', displayName: 'Alice Owner' }), 'AO');
+});
+
+test('formats current user role labels for workspace chips', () => {
+  assert.equal(currentUserRoleLabel({ sub: 'alice', roles: ['nopsai_admin'] }), 'Platform Admin');
+  assert.equal(currentUserRoleLabel({ sub: 'beth', roles: ['team-owner'] }), 'Team Owner');
+  assert.equal(currentUserRoleLabel({ sub: 'casey' }), 'Workspace User');
 });

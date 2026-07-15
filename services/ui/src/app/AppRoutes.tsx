@@ -168,6 +168,8 @@ export function AppRoutes({
               <KnowledgeContextPage
                 canWriteKnowledge={access.canWriteKnowledge}
                 canDeleteKnowledge={access.canDeleteKnowledge}
+                canWriteKnowledgeConnections={access.canWriteKnowledgeConnections}
+                canDeleteKnowledgeConnections={access.canDeleteKnowledgeConnections}
               />
             </PermissionGuard>
           }

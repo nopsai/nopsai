@@ -156,6 +156,10 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 	knowledgeWrite := a.checkCapabilityOrScopedGrant(ctx, subject, "knowledge_context.update", model.ResourceRef{Type: "knowledge_context", ID: "*"}) ||
 		a.checkCapabilityOrScopedGrant(ctx, subject, "knowledge_context.create", model.ResourceRef{Type: "knowledge_context", ID: "*"})
 	knowledgeDelete := a.checkCapabilityOrScopedGrant(ctx, subject, "knowledge_context.delete", model.ResourceRef{Type: "knowledge_context", ID: "*"})
+	knowledgeConnectionRead := a.checkCapabilityOrScopedGrant(ctx, subject, "knowledge_connection.read", model.ResourceRef{Type: grantResourceKnowledgeConnection, ID: "*"})
+	knowledgeConnectionWrite := a.checkCapabilityOrScopedGrant(ctx, subject, "knowledge_connection.update", model.ResourceRef{Type: grantResourceKnowledgeConnection, ID: "*"}) ||
+		a.checkCapabilityOrScopedGrant(ctx, subject, "knowledge_connection.create", model.ResourceRef{Type: grantResourceKnowledgeConnection, ID: "*"})
+	knowledgeConnectionDelete := a.checkCapabilityOrScopedGrant(ctx, subject, "knowledge_connection.delete", model.ResourceRef{Type: grantResourceKnowledgeConnection, ID: "*"})
 
 	return &authCapabilitiesResponse{
 		Pipelines: authResourceCapabilities{
@@ -196,6 +200,11 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 			Read:   knowledgeRead,
 			Write:  knowledgeWrite,
 			Delete: knowledgeDelete,
+		},
+		KnowledgeConnections: authReadCapabilities{
+			Read:   knowledgeConnectionRead,
+			Write:  knowledgeConnectionWrite,
+			Delete: knowledgeConnectionDelete,
 		},
 		System: authSystemCapabilities{
 			ConfigRead:         configRead,

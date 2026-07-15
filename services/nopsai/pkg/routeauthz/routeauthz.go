@@ -339,6 +339,12 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		}
 	case path == "/v1/knowledge-contexts" && r.Method == http.MethodGet:
 		return "knowledge_context.read", model.ResourceRef{Type: "knowledge_context", ID: "*"}, true, nil
+	case (path == "/v1/knowledge-context-connections" || path == "/v1/knowledge-connections") && r.Method == http.MethodGet:
+		return "knowledge_connection.read", model.ResourceRef{Type: "knowledge_connection", ID: "*"}, true, nil
+	case (path == "/v1/knowledge-context-connections" || path == "/v1/knowledge-connections") && r.Method == http.MethodPost:
+		return "", model.ResourceRef{}, false, nil
+	case strings.HasPrefix(path, "/v1/knowledge-context-connections/") || strings.HasPrefix(path, "/v1/knowledge-connections/"):
+		return "", model.ResourceRef{}, false, nil
 	case strings.HasPrefix(path, "/v1/knowledge-contexts/"):
 		resourceID := normalizePathIdentifier(pathValueOrTail(r, "knowledgeID", "/v1/knowledge-contexts/"))
 		resource = model.ResourceRef{Type: "knowledge_context", ID: resourceID}

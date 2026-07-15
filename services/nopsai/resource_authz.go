@@ -236,7 +236,7 @@ func sameTeamResourceUseAllowed(resourceType, visibility string) bool {
 	}
 
 	switch strings.TrimSpace(resourceType) {
-	case grantResourcePipeline, grantResourceScope, grantResourceStep, grantResourceKnowledgeContext,
+	case grantResourcePipeline, grantResourceScope, grantResourceStep, grantResourceKnowledgeContext, grantResourceKnowledgeConnection,
 		grantResourceLLMProfile, grantResourceAgentProfile, grantResourceMCPServer, grantResourceMCPProfile:
 		return true
 	default:
@@ -290,6 +290,13 @@ func normalizeResourceUseResourceID(resourceType, raw string) (string, error) {
 			return "", err
 		}
 		resourceID = buildKnowledgeContextIdentifier(kind, team, name)
+	}
+	if resourceType == grantResourceKnowledgeConnection {
+		team, name, err := splitKnowledgeConnectionIdentifier(resourceID)
+		if err != nil {
+			return "", err
+		}
+		resourceID = buildKnowledgeConnectionIdentifier(team, name)
 	}
 	if resourceID == "" {
 		return "", fmt.Errorf("resource_id is required")
@@ -446,6 +453,12 @@ func (a *App) ResolveResourceTeam(ctx context.Context, resourceType, resourceID 
 		return teamRefFromPath(repositoryParentPath(repoName)), nil
 	case grantResourceKnowledgeContext:
 		_, team, _, err := splitKnowledgeContextIdentifier(resourceID)
+		if err != nil {
+			return TeamRef{}, err
+		}
+		return teamRefFromPath(team), nil
+	case grantResourceKnowledgeConnection:
+		team, _, err := splitKnowledgeConnectionIdentifier(resourceID)
 		if err != nil {
 			return TeamRef{}, err
 		}

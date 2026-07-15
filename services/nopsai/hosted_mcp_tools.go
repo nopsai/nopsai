@@ -39,6 +39,7 @@ func allHostedMCPTools() []hostedMCPTool {
 		toolDef("nopsai.read_doc", "Read a Nopsai knowledge document by id.", "knowledge_context.read", "knowledge_context", "*", objectSchema(map[string]any{"id": stringSchema()})),
 		toolDef("nopsai.list_knowledge_contexts", "List managed Nopsai knowledge context documents with optional filters.", "knowledge_context.read", "knowledge_context", "*", objectSchema(map[string]any{"kind": stringSchema(), "team": stringSchema(), "team_path": stringSchema(), "query": stringSchema(), "used_by_pipeline": stringSchema(), "limit": numberSchema()})),
 		toolDef("nopsai.get_knowledge_context", "Read a managed knowledge context document by id, kind/team/name, or kind plus ref.", "knowledge_context.read", "knowledge_context", "*", objectSchema(map[string]any{"id": stringSchema(), "kind": stringSchema(), "team": stringSchema(), "team_path": stringSchema(), "name": stringSchema(), "ref": stringSchema()})),
+		toolDef("nopsai.list_knowledge_connections", "List reusable team-owned Knowledge Context external page connections.", "knowledge_connection.read", "knowledge_connection", "*", objectSchema(map[string]any{"team": stringSchema(), "team_path": stringSchema(), "provider": stringSchema(), "query": stringSchema(), "limit": numberSchema()})),
 		toolDef("nopsai.list_pipelines", "List pipelines visible to the current user.", "pipeline.list", "pipeline", "*", objectSchema(map[string]any{"limit": numberSchema()})),
 		toolDef("nopsai.search_pipelines", "Search pipeline metadata and readable YAML definitions.", "pipeline.list", "pipeline", "*", objectSchema(map[string]any{"query": stringSchema(), "limit": numberSchema(), "include_snippets": booleanSchema()})),
 		toolDef("nopsai.get_pipeline", "Read a pipeline YAML definition.", "pipeline.read", "pipeline", "*", objectSchema(map[string]any{"pipeline": stringSchema(), "path": stringSchema(), "name": stringSchema()})),
@@ -216,6 +217,7 @@ func assistantFeatureForTool(name string) string {
 	switch {
 	case name == "nopsai.search_docs" ||
 		name == "nopsai.read_doc" ||
+		strings.Contains(name, "knowledge_connection") ||
 		strings.Contains(name, "knowledge_context"):
 		return "docs"
 	case strings.Contains(name, "cost"):
@@ -351,6 +353,8 @@ func (a *App) executeHostedMCPTool(ctx context.Context, subject aaamodel.Subject
 		return a.hostedMCPListKnowledgeContexts(ctx, subject, args)
 	case "nopsai.get_knowledge_context":
 		return a.hostedMCPGetKnowledgeContext(ctx, subject, args)
+	case "nopsai.list_knowledge_connections":
+		return a.hostedMCPListKnowledgeConnections(ctx, subject, args)
 	case "nopsai.list_pipelines":
 		return a.hostedMCPListPipelines(ctx, args)
 	case "nopsai.search_pipelines":
@@ -1170,6 +1174,65 @@ func (a *App) hostedMCPListKnowledgeContexts(ctx context.Context, subject aaamod
 	return map[string]any{"knowledge_contexts": items}, nil
 }
 
+func (a *App) hostedMCPListKnowledgeConnections(ctx context.Context, subject aaamodel.Subject, args map[string]any) (map[string]any, error) {
+	teamFilter := strings.Trim(strings.TrimSpace(hostedMCPKnowledgeContextTeamArg(args)), "/")
+	if teamFilter != "" {
+		team, err := normalizeKnowledgeConnectionTeam(teamFilter)
+		if err != nil {
+			return nil, err
+		}
+		teamFilter = team
+	}
+	providerFilter := strings.TrimSpace(stringArg(args, "provider"))
+	if providerFilter != "" {
+		provider, err := normalizeKnowledgeConnectionProvider(providerFilter)
+		if err != nil {
+			return nil, err
+		}
+		providerFilter = provider
+	}
+	query := strings.ToLower(strings.TrimSpace(stringArg(args, "query")))
+	rows, err := a.db.Query(ctx, `
+		SELECT c.id::text, c.team_path, c.name, c.display_name, c.provider, c.status, c.disabled,
+		       c.credential_ref, c.base_url, c.scopes, c.config, c.last_checked_at, c.last_error,
+		       c.updated_at,
+		       COUNT(k.id)::int AS document_count,
+		       (COUNT(k.id) FILTER (WHERE COALESCE(k.external_page_id, '') <> ''))::int AS external_document_count
+		FROM knowledge_context_connections c
+		LEFT JOIN knowledge_contexts k ON k.connection_id = c.id
+		WHERE ($1 = '' OR c.team_path = $1 OR c.team_path LIKE $1 || '/%')
+		  AND ($2 = '' OR c.provider = $2)
+		  AND ($3 = '' OR LOWER(c.team_path || ' ' || c.name || ' ' || c.display_name || ' ' || c.provider) LIKE '%' || $3 || '%')
+		GROUP BY c.id, c.team_path, c.name, c.display_name, c.provider, c.status, c.disabled,
+		         c.credential_ref, c.base_url, c.scopes, c.config, c.last_checked_at, c.last_error, c.updated_at
+		ORDER BY c.team_path ASC, c.name ASC
+	`, teamFilter, providerFilter, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := []map[string]any{}
+	limit := limitArg(args, 50, 200)
+	for rows.Next() {
+		record, err := scanKnowledgeConnectionRecord(rows)
+		if err != nil {
+			return nil, err
+		}
+		if !a.hostedMCPAllowed(ctx, subject, hostedMCPReadPermission("knowledge_connection.read", grantResourceKnowledgeConnection, record.ID)) {
+			continue
+		}
+		items = append(items, hostedMCPKnowledgeConnectionListItem(record.knowledgeConnectionListItem))
+		if len(items) >= limit {
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return map[string]any{"knowledge_connections": items}, nil
+}
+
 func (a *App) hostedMCPGetKnowledgeContext(ctx context.Context, subject aaamodel.Subject, args map[string]any) (map[string]any, error) {
 	detail, err := a.loadHostedMCPKnowledgeContextDetail(ctx, args)
 	if err != nil {
@@ -1764,8 +1827,39 @@ func hostedMCPKnowledgeContextListItem(item knowledgeContextListItem) map[string
 		"used_by":                    item.UsedBy,
 		"config_source_path":         item.GitOpsPath,
 		"config_source_commit_sha":   item.GitOpsCommit,
+		"connection_id":              item.ConnectionID,
+		"connection_ref":             item.ConnectionRef,
+		"external_provider":          item.ExternalProvider,
+		"external_page_id":           item.ExternalPageID,
+		"external_page_url":          item.ExternalPageURL,
+		"sync_mode":                  item.SyncMode,
+		"failure_mode":               item.FailureMode,
+		"sync_status":                item.SyncStatus,
+		"last_synced_at":             item.LastSyncedAt,
+		"sync_error":                 item.SyncError,
 		"gitops_managed":             item.Source == knowledgeSourceGitOps,
 		"knowledge_context_resource": grantResourceKnowledgeContext + ":" + item.ID,
+	}
+}
+
+func hostedMCPKnowledgeConnectionListItem(item knowledgeConnectionListItem) map[string]any {
+	return map[string]any{
+		"id":                            item.ID,
+		"uuid":                          item.UUID,
+		"team":                          item.Team,
+		"name":                          item.Name,
+		"display_name":                  item.DisplayName,
+		"provider":                      item.Provider,
+		"status":                        item.Status,
+		"disabled":                      item.Disabled,
+		"base_url":                      item.BaseURL,
+		"credential_visibility":         item.CredentialVisibility,
+		"last_checked_at":               item.LastCheckedAt,
+		"last_error":                    item.LastError,
+		"updated_at":                    item.UpdatedAt,
+		"document_count":                item.DocumentCount,
+		"external_document_count":       item.ExternalDocumentCount,
+		"knowledge_connection_resource": grantResourceKnowledgeConnection + ":" + item.ID,
 	}
 }
 

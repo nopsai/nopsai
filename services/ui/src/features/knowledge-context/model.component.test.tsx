@@ -1,21 +1,29 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildKnowledgeID,
+  buildKnowledgeConnectionTeamSummaries,
   buildKnowledgeTree,
   clearKnowledgeDraft,
   countTeamDocs,
   decodeKnowledgeRouteID,
   deriveIdentityFromTeam,
+  documentTeamPath,
   encodeKnowledgeID,
   findKnowledgeTeam,
   isGitManagedDocument,
+  knowledgeContentSource,
+  knowledgeTreePathToTeam,
   loadKnowledgeDraft,
+  matchesKnowledgeSourceFilter,
   normalizeTeamPath,
+  normalizeKnowledgeSourceFilter,
+  normalizeKnowledgeWorkspaceTab,
   normalizeKnowledgeSource,
   parentTeam,
   saveKnowledgeDraft,
   sourceLabel,
   splitKnowledgeContentForPreview,
+  summarizeKnowledgeWorkspace,
   splitKnowledgePath,
   validateKnowledgeIdentity,
   type KnowledgeContextListItem,
@@ -61,8 +69,90 @@ describe('Knowledge Context model', () => {
     expect(deriveIdentityFromTeam('runbook/platform')).toEqual({ kind: 'runbook', team: 'platform' });
     expect(deriveIdentityFromTeam('platform')).toEqual({ kind: 'architecture', team: 'platform' });
     expect(sourceLabel('git-repository')).toBe('GitOps');
+    expect(sourceLabel('notion-page')).toBe('Notion');
     expect(normalizeKnowledgeSource('git-repository')).toBe('git');
+    expect(normalizeKnowledgeSource('confluence-page')).toBe('confluence');
     expect(isGitManagedDocument({ source: 'database', managed_by_config_repo: true })).toBe(true);
+    expect(knowledgeContentSource({ source: 'notion-page' })).toBe('external');
+    expect(knowledgeContentSource({ source: 'database' })).toBe('inline');
+    expect(knowledgeTreePathToTeam('guardrail/security/platform')).toBe('security/platform');
+    expect(documentTeamPath({ id: 'runbook/platform/restart', team: '' })).toBe('platform');
+    expect(normalizeKnowledgeWorkspaceTab('connections')).toBe('connections');
+    expect(normalizeKnowledgeWorkspaceTab('unknown')).toBe('documents');
+    expect(normalizeKnowledgeSourceFilter('gitops')).toBe('gitops');
+    expect(normalizeKnowledgeSourceFilter('unknown')).toBe('all');
+    expect(matchesKnowledgeSourceFilter({ source: 'git-repository', managed_by_config_repo: true }, 'gitops')).toBe(true);
+    expect(matchesKnowledgeSourceFilter({ source: 'confluence-page' }, 'external')).toBe(true);
+    expect(matchesKnowledgeSourceFilter({ source: 'confluence-page' }, 'confluence')).toBe(true);
+    expect(matchesKnowledgeSourceFilter({ source: 'database' }, 'notion')).toBe(false);
+  });
+
+  it('summarizes document and connection workspace state', () => {
+    const items: KnowledgeContextListItem[] = [
+      documents[0],
+      {
+        id: 'guardrail/security/repo-check',
+        kind: 'guardrail',
+        team: 'security',
+        name: 'repo-check',
+        visibility: 'restricted',
+        source: 'git-repository',
+        managed_by_config_repo: true,
+        used_by_count: 2,
+      },
+      {
+        id: 'policy/security/source-page',
+        kind: 'policy',
+        team: 'security',
+        name: 'source-page',
+        visibility: 'team',
+        source: 'confluence-page',
+        used_by: ['security/review'],
+      },
+    ];
+
+    expect(summarizeKnowledgeWorkspace(items)).toEqual({
+      documents: 3,
+      teams: 2,
+      kinds: 3,
+      inlineDocuments: 2,
+      externalDocuments: 1,
+      gitOpsManaged: 1,
+      referencedDocuments: 2,
+      pipelineReferences: 3,
+    });
+    expect(buildKnowledgeConnectionTeamSummaries(items, ['platform/empty'])).toEqual([
+      {
+        teamPath: 'platform',
+        documentCount: 1,
+        inlineDocuments: 1,
+        externalDocuments: 0,
+        gitOpsManaged: 0,
+        referencedDocuments: 0,
+        providers: [],
+        connections: [],
+      },
+      {
+        teamPath: 'platform/empty',
+        documentCount: 0,
+        inlineDocuments: 0,
+        externalDocuments: 0,
+        gitOpsManaged: 0,
+        referencedDocuments: 0,
+        providers: [],
+        connections: [],
+      },
+      {
+        teamPath: 'security',
+        documentCount: 2,
+        inlineDocuments: 1,
+        externalDocuments: 1,
+        gitOpsManaged: 1,
+        referencedDocuments: 2,
+        providers: ['confluence'],
+        connections: [],
+      },
+    ]);
   });
 
   it('extracts front matter, YAML content, and leading parameters', () => {

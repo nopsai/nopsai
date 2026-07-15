@@ -338,6 +338,11 @@ func configSyncGrantResourceScope(resource accessGrantResource) string {
 		if err == nil {
 			return team
 		}
+	case grantResourceKnowledgeConnection:
+		team, _, err := splitKnowledgeConnectionIdentifier(resource.ID)
+		if err == nil {
+			return team
+		}
 	}
 	return resource.ID
 }

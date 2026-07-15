@@ -545,6 +545,9 @@ func assistantPlannerSchemaToolNames(content string, plan assistantTurnPlan, too
 		add("nopsai.list_knowledge_contexts", 35)
 		add("nopsai.get_knowledge_context", 35)
 	}
+	if assistantTextHasAny(lower, "knowledge connection", "knowledge connections", "notion", "confluence", "wiki connection", "external page") {
+		add("nopsai.list_knowledge_connections", 40)
+	}
 	if assistantTextHasAny(lower, "profile", "profiles", "llm", "mcp", "capability", "capabilities", "feature coverage", "what can you") {
 		add("nopsai.get_feature_capabilities", 55)
 		add("nopsai.get_llm_profiles", 40)

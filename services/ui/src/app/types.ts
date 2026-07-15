@@ -89,6 +89,7 @@ export type CurrentUser = {
     git_webhook_sources?: ReadCapabilities;
     scopes?: ReadCapabilities;
     knowledge_contexts?: ReadCapabilities;
+    knowledge_connections?: ReadCapabilities;
     system?: SystemCapabilities;
   };
 };

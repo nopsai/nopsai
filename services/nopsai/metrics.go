@@ -178,6 +178,16 @@ func (a *App) buildPrometheusMetrics(ctx context.Context) (string, error) {
 	if err := a.appendApprovalWaitDurationHistogram(ctx, &out); err != nil {
 		return "", err
 	}
+	writeMetricHelp(&out, "nopsai_knowledge_connections", "Knowledge provider connections by provider and health status.")
+	writeMetricType(&out, "nopsai_knowledge_connections", "gauge")
+	if err := a.appendKnowledgeConnectionStatusMetrics(ctx, &out); err != nil {
+		return "", err
+	}
+	writeMetricHelp(&out, "nopsai_knowledge_context_sync_status", "External Knowledge Context documents by provider, sync mode, and sync status.")
+	writeMetricType(&out, "nopsai_knowledge_context_sync_status", "gauge")
+	if err := a.appendKnowledgeContextSyncStatusMetrics(ctx, &out); err != nil {
+		return "", err
+	}
 	writeMetricHelp(&out, "nopsai_audit_events_total", "Audit events by provider, action, and result.")
 	writeMetricType(&out, "nopsai_audit_events_total", "counter")
 	if err := a.appendAuditEventTotals(ctx, &out); err != nil {
@@ -999,6 +1009,66 @@ func (a *App) appendAssistantLLMCallTotals(ctx context.Context, out *strings.Bui
 		writeMetricLine(out, "nopsai_assistant_llm_calls_total", map[string]string{
 			"role": normalizeMetricLabel(role),
 		}, llmCalls)
+	}
+	return rows.Err()
+}
+
+func (a *App) appendKnowledgeConnectionStatusMetrics(ctx context.Context, out *strings.Builder) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT COALESCE(provider, 'unknown'), COALESCE(status, 'unknown'), disabled, COUNT(*)::float8
+		FROM knowledge_context_connections
+		GROUP BY COALESCE(provider, 'unknown'), COALESCE(status, 'unknown'), disabled
+		ORDER BY 1, 2, 3
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var provider, status string
+		var disabled bool
+		var count float64
+		if err := rows.Scan(&provider, &status, &disabled, &count); err != nil {
+			return err
+		}
+		writeMetricLine(out, "nopsai_knowledge_connections", map[string]string{
+			"provider": normalizeMetricLabel(provider),
+			"status":   normalizeMetricLabel(status),
+			"disabled": fmt.Sprintf("%t", disabled),
+		}, count)
+	}
+	return rows.Err()
+}
+
+func (a *App) appendKnowledgeContextSyncStatusMetrics(ctx context.Context, out *strings.Builder) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT COALESCE(NULLIF(external_provider, ''), source, 'unknown'),
+		       COALESCE(NULLIF(sync_mode, ''), 'manual'),
+		       COALESCE(NULLIF(sync_status, ''), 'not_synced'),
+		       COUNT(*)::float8
+		FROM knowledge_contexts
+		WHERE content_source = 'external_page'
+		   OR connection_id IS NOT NULL
+		   OR external_page_id <> ''
+		   OR external_page_url <> ''
+		GROUP BY 1, 2, 3
+		ORDER BY 1, 2, 3
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var provider, syncMode, status string
+		var count float64
+		if err := rows.Scan(&provider, &syncMode, &status, &count); err != nil {
+			return err
+		}
+		writeMetricLine(out, "nopsai_knowledge_context_sync_status", map[string]string{
+			"provider":  normalizeMetricLabel(provider),
+			"sync_mode": normalizeMetricLabel(syncMode),
+			"status":    normalizeMetricLabel(status),
+		}, count)
 	}
 	return rows.Err()
 }
