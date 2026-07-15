@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Database, Folder, GitBranch, Trash2, Zap } from 'lucide-react';
 import { ObjectIcon } from '../../components/ObjectIcon';
+import { TreeColumnResizeHandle, useResizableTreeColumn } from '../../components/resizableTreeColumn';
 import { TriggerExplorerTree } from './TriggerExplorerTree';
 import {
   buildTriggerCollectionMetrics,
@@ -48,9 +49,15 @@ export function TriggerCollectionList({
 }: TriggerCollectionListProps) {
   const metrics = buildTriggerCollectionMetrics(allTriggers, activeOwner);
   const activeOwnerLabel = activeOwner ? activeOwner : 'All owners';
+  const treeResize = useResizableTreeColumn({
+    storageKey: 'triggers',
+    defaultWidth: 280,
+    minWidth: 240,
+    maxWidth: 520,
+  });
 
   return (
-    <div id="triggers-list-view" className="triggers-workspace-list triggers-browser">
+    <div id="triggers-list-view" className="triggers-workspace-list triggers-browser" style={treeResize.gridStyle}>
       <TriggerExplorerTree
         rootNode={treeRoot}
         allTriggers={allTriggers}
@@ -59,6 +66,7 @@ export function TriggerCollectionList({
         onOpenOwner={onOpenOwner}
         onSelectTrigger={onSelectTrigger}
       />
+      <TreeColumnResizeHandle {...treeResize} label="Resize trigger tree" />
       <section className="triggers-browser-main" aria-label="Trigger collection">
         <TriggerMetricGrid metrics={metrics} />
         <div className="triggers-list-container">

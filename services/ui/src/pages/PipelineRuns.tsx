@@ -312,17 +312,12 @@ function PipelineRunsPage() {
     setRunsLoading(true);
     setRunsError(null);
     try {
-      const hasSearch = Boolean(searchTerm.trim());
       if (activeTab === 'main' && activeTeamId) {
         const data = await fetchJson<Record<string, RunListItem[]>>(`/v1/runs?teamId=${activeTeamId}`);
         setRunsByBranch(data || {});
-      } else if (activeTab === 'main' && hasSearch) {
+      } else if (activeTab === 'main') {
         setRunsByBranch({});
         await fetchRecentPage(0, { replace: true });
-      } else if (activeTab === 'main') {
-        const data = await fetchJson<Record<string, RunListItem[]>>('/v1/runs?teamId=root');
-        setRunsByBranch(data || {});
-        setRecentRunsAll([]);
       } else {
         await fetchRecentPage(0, { replace: true });
       }
@@ -332,7 +327,7 @@ function PipelineRunsPage() {
     } finally {
       setRunsLoading(false);
     }
-  }, [activeTeamId, activeTab, activeTeamValue, fetchJson, fetchRecentPage, searchTerm, teamsLoaded]);
+  }, [activeTeamId, activeTab, activeTeamValue, fetchJson, fetchRecentPage, teamsLoaded]);
 
   const loadRunDetail = useCallback(async () => {
     if (!activeRunId) {

@@ -187,7 +187,7 @@ test('flattens branch buckets and shapes table rows', () => {
   assert.equal(row?.pipelineName, 'deploy-api');
   assert.equal(row?.pipelineMeta, 'main - abcdef12 - newer');
   assert.equal(row?.scopeName, 'api');
-  assert.equal(row?.sourceLabel, 'Repository');
+  assert.equal(row?.sourceLabel, 'Application');
   assert.equal(row?.durationLabel, '2m 11s');
   assert.equal(row?.startedLabel, '1h ago');
 });

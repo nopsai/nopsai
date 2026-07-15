@@ -1,6 +1,7 @@
 import { useMemo, type ReactNode } from 'react';
 import { ArrowLeft, CheckCircle2, Clipboard, Copy, Edit3, History, PauseCircle, PlayCircle, RefreshCw, Shield, Trash2, Zap } from 'lucide-react';
 import { ObjectIcon } from '../../components/ObjectIcon';
+import { TreeColumnResizeHandle, useResizableTreeColumn } from '../../components/resizableTreeColumn';
 import { AutomationResourceTree } from '../event-automation/AutomationResourceTree';
 import {
   buildAutomationResourceTree,
@@ -84,10 +85,16 @@ export function ExternalTriggerWorkspace({
     : activeTeamPath
       ? 'No external triggers for this team'
       : 'No external triggers found';
+  const treeResize = useResizableTreeColumn({
+    storageKey: 'event-automation',
+    defaultWidth: 280,
+    minWidth: 240,
+    maxWidth: 520,
+  });
 
   if (selectedTrigger) {
     return (
-      <section className="triggers-detail-fullscreen triggers-detail-fullscreen--with-tree" aria-label="External trigger detail">
+      <section className="triggers-detail-fullscreen triggers-detail-fullscreen--with-tree" style={treeResize.gridStyle} aria-label="External trigger detail">
         <AutomationResourceTree
           title="Team tree"
           rootLabel="All teams"
@@ -100,6 +107,7 @@ export function ExternalTriggerWorkspace({
           onOpenPath={onOpenTeam}
           onSelectItem={onSelect}
         />
+        <TreeColumnResizeHandle {...treeResize} label="Resize team tree" />
         <div className="triggers-detail-fullscreen-main">
           <ExternalTriggerDetail
             trigger={selectedTrigger}
@@ -127,7 +135,7 @@ export function ExternalTriggerWorkspace({
 
   return (
     <div className="triggers-workspace-panel triggers-workspace-panel--trigger-browser triggers-workspace-panel--summary">
-      <div className="triggers-workspace-list triggers-browser" aria-label="External trigger list">
+      <div className="triggers-workspace-list triggers-browser" style={treeResize.gridStyle} aria-label="External trigger list">
         <AutomationResourceTree
           title="Team tree"
           rootLabel="All teams"
@@ -140,6 +148,7 @@ export function ExternalTriggerWorkspace({
           onOpenPath={onOpenTeam}
           onSelectItem={onSelect}
         />
+        <TreeColumnResizeHandle {...treeResize} label="Resize team tree" />
         <section className="triggers-browser-main" aria-label="External trigger collection">
           <div className="triggers-metrics-grid" aria-label="External trigger summary">
             <Metric icon={<Zap className="h-4 w-4" aria-hidden="true" />} label="API endpoints" value={metrics.total} />

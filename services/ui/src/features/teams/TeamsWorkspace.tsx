@@ -2,25 +2,20 @@ import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Bell,
-  BookOpen,
-  Bot,
   Boxes,
   ChevronRight,
-  Clock,
   FolderTree,
-  GitBranch,
-  ListChecks,
   MoreHorizontal,
   Pencil,
   Plus,
   RefreshCw,
-  Route,
   Search,
-  ShieldCheck,
   Trash2,
   UsersRound,
-  Webhook,
 } from 'lucide-react';
+import { ObjectIcon } from '../../components/ObjectIcon';
+import type { ObjectIconType } from '../../components/objectIconRegistry';
+import { TreeColumnResizeHandle, useResizableTreeColumn } from '../../components/resizableTreeColumn';
 import {
   isAppTeam,
   teamDisplayName,
@@ -121,6 +116,12 @@ export function TeamsWorkspace({
   const showChildrenTable = activeDetailTab === 'overview' && (!activeTeamIsApp || searching);
   const tableCopy = getTeamTableCopy({ activeLabel, searching });
   const selectDetailTab = (tab: TeamDetailTabID) => setDetailTabSelection({ teamID: activeTeamID, tab });
+  const treeResize = useResizableTreeColumn({
+    storageKey: 'teams',
+    defaultWidth: 340,
+    minWidth: 300,
+    maxWidth: 560,
+  });
 
   return (
     <div className="teams-page-shell">
@@ -148,7 +149,7 @@ export function TeamsWorkspace({
         </div>
       </header>
 
-      <div className="teams-master-detail">
+      <div className="teams-master-detail" style={treeResize.gridStyle}>
         <TeamTreePanel
           teams={teams}
           activeTeamID={activeTeamID}
@@ -156,6 +157,7 @@ export function TeamsWorkspace({
           onSearchTermChange={onSearchTermChange}
           onSelectTeam={onSelectTeam}
         />
+        <TreeColumnResizeHandle {...treeResize} label="Resize team tree" />
         <section className="teams-detail-stack" aria-label={`${activeLabel} details`}>
           <TeamDetailHeader
             team={activeTeam}
@@ -298,7 +300,7 @@ function TeamTreePanel({
   onSearchTermChange: (value: string) => void;
   onSelectTeam: (id: number | null) => void;
 }) {
-  const [collapsedIDs, setCollapsedIDs] = useState<Set<number>>(() => new Set());
+  const [expandedIDs, setExpandedIDs] = useState<Set<number>>(() => new Set());
   const tree = buildTeamTree(teams);
   const activeLineageIDs = useMemo(() => {
     const lineage = new Set<number>();
@@ -312,8 +314,8 @@ function TeamTreePanel({
     }
     return lineage;
   }, [activeTeamID, teams]);
-  const toggleCollapsed = (teamID: number) => {
-    setCollapsedIDs(current => {
+  const toggleExpanded = (teamID: number) => {
+    setExpandedIDs(current => {
       const next = new Set(current);
       if (next.has(teamID)) {
         next.delete(teamID);
@@ -359,8 +361,8 @@ function TeamTreePanel({
               node={node}
               activeTeamID={activeTeamID}
               activeLineageIDs={activeLineageIDs}
-              collapsedIDs={collapsedIDs}
-              onToggleCollapsed={toggleCollapsed}
+              expandedIDs={expandedIDs}
+              onToggleExpanded={toggleExpanded}
               onSelectTeam={onSelectTeam}
             />
           ))}
@@ -374,21 +376,21 @@ function TeamTreeRow({
   node,
   activeTeamID,
   activeLineageIDs,
-  collapsedIDs,
-  onToggleCollapsed,
+  expandedIDs,
+  onToggleExpanded,
   onSelectTeam,
 }: {
   node: TeamTreeNode;
   activeTeamID: number | null;
   activeLineageIDs: Set<number>;
-  collapsedIDs: Set<number>;
-  onToggleCollapsed: (teamID: number) => void;
+  expandedIDs: Set<number>;
+  onToggleExpanded: (teamID: number) => void;
   onSelectTeam: (id: number | null) => void;
 }) {
   const app = isAppTeam(node.team);
   const active = node.team.id === activeTeamID;
   const hasChildren = node.children.length > 0;
-  const collapsed = hasChildren && collapsedIDs.has(node.team.id) && !activeLineageIDs.has(node.team.id);
+  const expanded = hasChildren && (activeLineageIDs.has(node.team.id) || expandedIDs.has(node.team.id));
   const depthStyle = { '--team-tree-depth': node.depth } as CSSProperties;
   return (
     <li>
@@ -396,10 +398,10 @@ function TeamTreeRow({
         {hasChildren ? (
           <button
             type="button"
-            className={`teams-tree-toggle ${collapsed ? '' : 'expanded'}`}
-            aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${teamDisplayName(node.team)}`}
-            aria-expanded={!collapsed}
-            onClick={() => onToggleCollapsed(node.team.id)}
+            className={`teams-tree-toggle ${expanded ? 'expanded' : ''}`}
+            aria-label={`${expanded ? 'Collapse' : 'Expand'} ${teamDisplayName(node.team)}`}
+            aria-expanded={expanded}
+            onClick={() => onToggleExpanded(node.team.id)}
           >
             <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
@@ -412,7 +414,7 @@ function TeamTreeRow({
           {hasChildren ? <span className="teams-tree-count">{node.children.length}</span> : <MoreHorizontal className="teams-tree-more h-4 w-4" aria-hidden="true" />}
         </button>
       </div>
-      {hasChildren && !collapsed ? (
+      {expanded ? (
         <ul className="teams-tree-list">
           {node.children.map(child => (
             <TeamTreeRow
@@ -420,8 +422,8 @@ function TeamTreeRow({
               node={child}
               activeTeamID={activeTeamID}
               activeLineageIDs={activeLineageIDs}
-              collapsedIDs={collapsedIDs}
-              onToggleCollapsed={onToggleCollapsed}
+              expandedIDs={expandedIDs}
+              onToggleExpanded={onToggleExpanded}
               onSelectTeam={onSelectTeam}
             />
           ))}
@@ -589,21 +591,21 @@ function TeamResourcesPanel({
   const resources = app
     ? applicationResourceTiles(resourceCounts, activeResourceKind, setSelectedResourceKind)
     : [
-        { label: 'Teams', value: stats.teams, icon: <UsersRound className="h-4 w-4" />, tone: 'blue' as const, onClick: () => onTabChange('overview') },
-        { label: 'Applications', value: resourceCountLabel('application'), icon: <Boxes className="h-4 w-4" />, tone: 'purple' as const, active: activeResourceKind === 'application', onClick: () => setSelectedResourceKind('application') },
-        { label: 'LLM Profiles', value: resourceCountLabel('llm_profile'), icon: <Bot className="h-4 w-4" />, tone: 'purple' as const, active: activeResourceKind === 'llm_profile', onClick: () => setSelectedResourceKind('llm_profile') },
-        { label: 'Agent Profiles', value: resourceCountLabel('agent_profile'), icon: <ShieldCheck className="h-4 w-4" />, tone: 'blue' as const, active: activeResourceKind === 'agent_profile', onClick: () => setSelectedResourceKind('agent_profile') },
-        { label: 'MCP Profiles', value: resourceCountLabel('mcp_profile'), icon: <Route className="h-4 w-4" />, tone: 'green' as const, active: activeResourceKind === 'mcp_profile', onClick: () => setSelectedResourceKind('mcp_profile') },
+        { label: 'Teams', value: stats.teams, icon: <ObjectIcon type="team" />, tone: 'blue' as const, onClick: () => onTabChange('overview') },
+        { label: 'Applications', value: resourceCountLabel('application'), icon: <ObjectIcon type="application" />, tone: 'purple' as const, active: activeResourceKind === 'application', onClick: () => setSelectedResourceKind('application') },
+        { label: 'LLM Profiles', value: resourceCountLabel('llm_profile'), icon: <ObjectIcon type="llm-profile" />, tone: 'purple' as const, active: activeResourceKind === 'llm_profile', onClick: () => setSelectedResourceKind('llm_profile') },
+        { label: 'Agent Profiles', value: resourceCountLabel('agent_profile'), icon: <ObjectIcon type="agent-profile" />, tone: 'blue' as const, active: activeResourceKind === 'agent_profile', onClick: () => setSelectedResourceKind('agent_profile') },
+        { label: 'MCP Profiles', value: resourceCountLabel('mcp_profile'), icon: <ObjectIcon type="mcp-profile" />, tone: 'green' as const, active: activeResourceKind === 'mcp_profile', onClick: () => setSelectedResourceKind('mcp_profile') },
         ...(team ? [{ label: 'Notifications', value: typeof notificationCount === 'number' ? notificationCount : '-', icon: <Bell className="h-4 w-4" />, tone: 'cyan' as const, onClick: () => onTabChange('notifications') }] : []),
-        { label: 'Pipelines', value: resourceCountLabel('pipeline'), icon: <GitBranch className="h-4 w-4" />, tone: 'green' as const, active: activeResourceKind === 'pipeline', onClick: () => setSelectedResourceKind('pipeline') },
-        { label: 'Steps', value: resourceCountLabel('step'), icon: <ListChecks className="h-4 w-4" />, tone: 'blue' as const, active: activeResourceKind === 'step', onClick: () => setSelectedResourceKind('step') },
-        { label: 'Triggers', value: resourceCountLabel('trigger'), icon: <Route className="h-4 w-4" />, tone: 'cyan' as const, active: activeResourceKind === 'trigger', onClick: () => setSelectedResourceKind('trigger') },
-        { label: 'External Triggers', value: resourceCountLabel('external_trigger'), icon: <Webhook className="h-4 w-4" />, tone: 'cyan' as const, active: activeResourceKind === 'external_trigger', onClick: () => setSelectedResourceKind('external_trigger') },
-        { label: 'Git Webhook Sources', value: resourceCountLabel('git_webhook_source'), icon: <Webhook className="h-4 w-4" />, tone: 'green' as const, active: activeResourceKind === 'git_webhook_source', onClick: () => setSelectedResourceKind('git_webhook_source') },
-        { label: 'Schedules', value: resourceCountLabel('schedule'), icon: <Clock className="h-4 w-4" />, tone: 'purple' as const, active: activeResourceKind === 'schedule', onClick: () => setSelectedResourceKind('schedule') },
-        { label: 'Knowledge Context', value: resourceCountLabel('knowledge_context'), icon: <BookOpen className="h-4 w-4" />, tone: 'blue' as const, active: activeResourceKind === 'knowledge_context', onClick: () => setSelectedResourceKind('knowledge_context') },
-        { label: 'Scopes', value: resourceCountLabel('scope'), icon: <FolderTree className="h-4 w-4" />, tone: 'purple' as const, active: activeResourceKind === 'scope', onClick: () => setSelectedResourceKind('scope') },
-        { label: 'Credentials', value: resourceCountLabel('credential'), icon: <ShieldCheck className="h-4 w-4" />, tone: 'blue' as const, active: activeResourceKind === 'credential', onClick: () => setSelectedResourceKind('credential') },
+        { label: 'Pipelines', value: resourceCountLabel('pipeline'), icon: <ObjectIcon type="pipeline" />, tone: 'green' as const, active: activeResourceKind === 'pipeline', onClick: () => setSelectedResourceKind('pipeline') },
+        { label: 'Steps', value: resourceCountLabel('step'), icon: <ObjectIcon type="step" />, tone: 'blue' as const, active: activeResourceKind === 'step', onClick: () => setSelectedResourceKind('step') },
+        { label: 'Triggers', value: resourceCountLabel('trigger'), icon: <ObjectIcon type="trigger" />, tone: 'cyan' as const, active: activeResourceKind === 'trigger', onClick: () => setSelectedResourceKind('trigger') },
+        { label: 'External Triggers', value: resourceCountLabel('external_trigger'), icon: <ObjectIcon type="external-trigger" />, tone: 'cyan' as const, active: activeResourceKind === 'external_trigger', onClick: () => setSelectedResourceKind('external_trigger') },
+        { label: 'Git Webhook Sources', value: resourceCountLabel('git_webhook_source'), icon: <ObjectIcon type="git-webhook-source" />, tone: 'green' as const, active: activeResourceKind === 'git_webhook_source', onClick: () => setSelectedResourceKind('git_webhook_source') },
+        { label: 'Schedules', value: resourceCountLabel('schedule'), icon: <ObjectIcon type="schedule" />, tone: 'purple' as const, active: activeResourceKind === 'schedule', onClick: () => setSelectedResourceKind('schedule') },
+        { label: 'Knowledge Context', value: resourceCountLabel('knowledge_context'), icon: <ObjectIcon type="knowledge-context" />, tone: 'blue' as const, active: activeResourceKind === 'knowledge_context', onClick: () => setSelectedResourceKind('knowledge_context') },
+        { label: 'Scopes', value: resourceCountLabel('scope'), icon: <ObjectIcon type="scope" />, tone: 'purple' as const, active: activeResourceKind === 'scope', onClick: () => setSelectedResourceKind('scope') },
+        { label: 'Credentials', value: resourceCountLabel('credential'), icon: <ObjectIcon type="credential" />, tone: 'blue' as const, active: activeResourceKind === 'credential', onClick: () => setSelectedResourceKind('credential') },
       ];
   return (
     <article className="teams-card teams-resources-card">
@@ -840,19 +842,18 @@ function selectedResourceKindError(
 }
 
 function linkedResourceIcon(kind: TeamLinkedResourceKind) {
-  if (kind === 'application') return <Boxes className="h-4 w-4" />;
-  if (kind === 'llm_profile') return <Bot className="h-4 w-4" />;
-  if (kind === 'agent_profile') return <ShieldCheck className="h-4 w-4" />;
-  if (kind === 'mcp_profile') return <Route className="h-4 w-4" />;
-  if (kind === 'pipeline') return <GitBranch className="h-4 w-4" />;
-  if (kind === 'step') return <ListChecks className="h-4 w-4" />;
-  if (kind === 'trigger') return <Route className="h-4 w-4" />;
-  if (kind === 'external_trigger') return <Webhook className="h-4 w-4" />;
-  if (kind === 'git_webhook_source') return <Webhook className="h-4 w-4" />;
-  if (kind === 'schedule') return <Clock className="h-4 w-4" />;
-  if (kind === 'knowledge_context') return <BookOpen className="h-4 w-4" />;
-  if (kind === 'scope') return <FolderTree className="h-4 w-4" />;
-  return <ShieldCheck className="h-4 w-4" />;
+  return <ObjectIcon type={linkedResourceIconType(kind)} />;
+}
+
+function linkedResourceIconType(kind: TeamLinkedResourceKind): ObjectIconType {
+  if (kind === 'application') return 'application';
+  if (kind === 'llm_profile') return 'llm-profile';
+  if (kind === 'agent_profile') return 'agent-profile';
+  if (kind === 'mcp_profile') return 'mcp-profile';
+  if (kind === 'external_trigger') return 'external-trigger';
+  if (kind === 'git_webhook_source') return 'git-webhook-source';
+  if (kind === 'knowledge_context') return 'knowledge-context';
+  return kind;
 }
 
 function linkedResourceTone(kind: TeamLinkedResourceKind): 'blue' | 'purple' | 'green' | 'cyan' {

@@ -87,7 +87,7 @@ const tabs: Array<{ id: PipelineRunsTabKey; label: string }> = [
 
 const sourceFilterOptions: Array<{ value: PipelineRunSourceFilter; label: string }> = [
   { value: 'all', label: 'All sources' },
-  { value: 'repository', label: 'Repository' },
+  { value: 'repository', label: 'Application' },
   { value: 'schedule', label: 'Schedule' },
   { value: 'external', label: 'External' },
   { value: 'manual', label: 'Manual' },

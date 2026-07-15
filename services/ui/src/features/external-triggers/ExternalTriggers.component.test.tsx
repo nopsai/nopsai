@@ -89,6 +89,7 @@ describe('ExternalTriggersPage create action', () => {
     expect(screen.getByText('API endpoints')).toBeVisible();
     expect(screen.getByText('Caller policies')).toBeVisible();
     expect(screen.getByRole('complementary', { name: 'Team tree' })).toBeVisible();
+    expect(screen.getByRole('separator', { name: 'Resize team tree' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'All teams (1)' })).toBeVisible();
     expect(screen.queryByText('Select an external trigger')).not.toBeInTheDocument();
     expect(screen.getByRole('cell', { name: 'platform/deploy' })).toBeVisible();
