@@ -10040,6 +10040,19 @@ html.dark .triggers-runs-item:focus-within {
     background: var(--text-secondary);
 }
 
+.triggers-explorer-source--inline {
+    background: var(--text-secondary);
+}
+
+.triggers-explorer-source--external {
+    background: #0ea5e9;
+}
+
+.triggers-explorer-source--disabled {
+    background: #64748b;
+    opacity: 0.68;
+}
+
 .triggers-browser-main {
     min-width: 0;
     background: var(--bg-primary);
@@ -11571,6 +11584,11 @@ html.dark .kc-empty-state {
     resize: vertical;
 }
 
+[data-page="knowledge-context"] .kc-inline-content-field textarea {
+    min-height: 15rem;
+    resize: vertical;
+}
+
 [data-page="knowledge-context"] .kc-external-panel {
     display: grid;
     gap: 0.85rem;
@@ -13050,6 +13068,12 @@ html.dark [data-page="knowledge-context"] {
     box-shadow: 0 14px 38px rgba(0, 0, 0, 0.22);
 }
 
+[data-page="knowledge-context"] .kc-demo-workspace > .triggers-explorer {
+    max-height: none;
+    border-color: #2a354b;
+    background: #172033;
+}
+
 [data-page="knowledge-context"] .kc-demo-tree-card {
     position: static;
     min-height: 0;
@@ -13422,6 +13446,35 @@ html.dark [data-page="knowledge-context"] .kc-demo-tree-row-wrap.active {
     color: #fca5a5;
 }
 
+[data-page="knowledge-context"] .kc-demo-kebab-btn.kc-demo-connection-action {
+    width: 32px;
+    height: 32px;
+    border: 1px solid #34425b;
+    background: #111a2a;
+    color: #a7b1bf;
+}
+
+[data-page="knowledge-context"] .kc-demo-kebab-btn.kc-demo-connection-action:hover {
+    border-color: rgba(128, 117, 232, 0.48);
+    background: #1d2940;
+    color: #e5eaf2;
+}
+
+[data-page="knowledge-context"] .kc-demo-kebab-btn.kc-demo-connection-action.danger {
+    color: #f87171;
+}
+
+[data-page="knowledge-context"] .kc-demo-kebab-btn.kc-demo-connection-action.danger:hover {
+    border-color: rgba(248, 113, 113, 0.42);
+    background: rgba(248, 113, 113, 0.14);
+    color: #fca5a5;
+}
+
+[data-page="knowledge-context"] .kc-demo-kebab-btn.kc-demo-connection-action:disabled {
+    opacity: 0.48;
+    cursor: not-allowed;
+}
+
 [data-page="knowledge-context"] .kc-demo-resource-cell--static {
     cursor: default;
 }
@@ -13489,7 +13542,73 @@ html.dark [data-page="knowledge-context"] .kc-demo-tree-row-wrap.active {
 }
 
 [data-page="knowledge-context"] .kc-demo-detail-actions {
+    display: flex;
+    align-items: center;
     flex-wrap: nowrap;
+    justify-content: flex-end;
+    gap: 0.35rem;
+    padding: 0.25rem;
+    border: 1px solid #2a354b;
+    border-radius: 10px;
+    background: rgba(15, 23, 42, 0.36);
+}
+
+[data-page="knowledge-context"] .kc-doc-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.42rem;
+    min-height: 34px;
+    padding: 0 0.72rem;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: #a7b1bf;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+[data-page="knowledge-context"] .kc-doc-action-btn:hover {
+    border-color: #34425b;
+    background: #1d2940;
+    color: #e5eaf2;
+}
+
+[data-page="knowledge-context"] .kc-doc-action-btn--back {
+    border-color: #2a354b;
+    background: rgba(255, 255, 255, 0.025);
+}
+
+[data-page="knowledge-context"] .kc-doc-action-btn--primary {
+    border-color: rgba(128, 117, 232, 0.56);
+    background: rgba(128, 117, 232, 0.18);
+    color: #dedbff;
+}
+
+[data-page="knowledge-context"] .kc-doc-action-btn--primary:hover {
+    border-color: rgba(155, 146, 240, 0.72);
+    background: rgba(128, 117, 232, 0.28);
+    color: #fff;
+}
+
+[data-page="knowledge-context"] .kc-doc-action-btn--danger-icon {
+    width: 34px;
+    padding: 0;
+    color: #f87171;
+}
+
+[data-page="knowledge-context"] .kc-doc-action-btn--danger-icon:hover {
+    border-color: rgba(248, 113, 113, 0.42);
+    background: rgba(248, 113, 113, 0.14);
+    color: #fca5a5;
+}
+
+[data-page="knowledge-context"] .kc-doc-action-btn:disabled {
+    opacity: 0.52;
+    cursor: not-allowed;
 }
 
 [data-page="knowledge-context"] .kc-demo-detail-head {
@@ -13595,6 +13714,11 @@ html.dark [data-page="knowledge-context"] .kc-demo-tree-row-wrap.active {
 @media (max-width: 1180px) {
     [data-page="knowledge-context"] .kc-demo-workspace {
         grid-template-columns: 1fr;
+    }
+
+    [data-page="knowledge-context"] .kc-demo-workspace > .triggers-explorer {
+        border-right: 0;
+        border-bottom: 1px solid #2a354b;
     }
 
     [data-page="knowledge-context"] .kc-demo-tree-card {

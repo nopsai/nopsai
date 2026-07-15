@@ -17,7 +17,6 @@ type KnowledgeContextConnectionsViewProps = {
   teams: KnowledgeConnectionTeamSummary[];
   canWriteKnowledge: boolean;
   canDeleteKnowledge: boolean;
-  onAddConnection: (teamPath: string) => void;
   onTestConnection: (connection: KnowledgeConnectionListItem) => void;
   onEditConnection: (connection: KnowledgeConnectionListItem) => void;
   onToggleConnection: (connection: KnowledgeConnectionListItem) => void;
@@ -31,7 +30,6 @@ export function KnowledgeContextConnectionsView({
   teams,
   canWriteKnowledge,
   canDeleteKnowledge,
-  onAddConnection,
   onTestConnection,
   onEditConnection,
   onToggleConnection,
@@ -53,7 +51,6 @@ export function KnowledgeContextConnectionsView({
   const connectedCount = activeConnections.filter(connection => connection.status === 'connected' && !connection.disabled).length;
   const authRequiredCount = activeConnections.filter(connection => connection.status === 'authentication_required').length;
   const disabledCount = activeConnections.filter(connection => connection.disabled).length;
-  const defaultTeam = teams[0]?.teamPath || '';
 
   if (listLoading) {
     return <div className="kc-demo-detail-empty">Loading knowledge connections...</div>;
@@ -72,12 +69,8 @@ export function KnowledgeContextConnectionsView({
           <span>
             {term
               ? 'Adjust the search filter to find a configured provider connection.'
-              : 'Create a team-owned Notion, Confluence, or wiki connection before linking external pages.'}
+              : 'Use New connection in the toolbar to add a team-owned Notion, Confluence, or wiki connection.'}
           </span>
-          <button type="button" className="kc-demo-primary-btn" onClick={() => onAddConnection(defaultTeam)} disabled={!canWriteKnowledge}>
-            <Plug className="h-4 w-4" aria-hidden="true" />
-            Add connection
-          </button>
         </div>
       </section>
     );
@@ -102,10 +95,6 @@ export function KnowledgeContextConnectionsView({
               </div>
             </div>
           </div>
-          <button type="button" className="kc-demo-primary-btn" onClick={() => onAddConnection(defaultTeam)} disabled={!canWriteKnowledge}>
-            <Plug className="h-4 w-4" aria-hidden="true" />
-            Add connection
-          </button>
         </div>
       </div>
 
@@ -166,21 +155,55 @@ export function KnowledgeContextConnectionsView({
                     <td>
                       <div className="kc-demo-row-actions kc-demo-row-actions--wide">
                         {connection.base_url ? (
-                          <a className="kc-demo-kebab-btn" aria-label={`Open ${knowledgeConnectionDisplayName(connection)} base URL`} href={connection.base_url} target="_blank" rel="noreferrer">
+                          <a
+                            className="kc-demo-kebab-btn kc-demo-connection-action"
+                            aria-label={`Open ${knowledgeConnectionDisplayName(connection)} base URL`}
+                            title="Open provider"
+                            href={connection.base_url}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
                             <ExternalLink className="h-4 w-4" aria-hidden="true" />
                           </a>
                         ) : null}
-                        <button type="button" className="kc-demo-kebab-btn" aria-label={`Test ${knowledgeConnectionDisplayName(connection)}`} onClick={() => onTestConnection(connection)} disabled={!canWriteKnowledge}>
+                        <button
+                          type="button"
+                          className="kc-demo-kebab-btn kc-demo-connection-action"
+                          aria-label={`Test ${knowledgeConnectionDisplayName(connection)}`}
+                          title="Test connection"
+                          onClick={() => onTestConnection(connection)}
+                          disabled={!canWriteKnowledge}
+                        >
                           <RefreshCw className="h-4 w-4" aria-hidden="true" />
                         </button>
-                        <button type="button" className="kc-demo-table-link" onClick={() => onEditConnection(connection)} disabled={!canWriteKnowledge}>
-                          Reconnect
+                        <button
+                          type="button"
+                          className="kc-demo-kebab-btn kc-demo-connection-action"
+                          aria-label={`Reconnect ${knowledgeConnectionDisplayName(connection)}`}
+                          title="Reconnect"
+                          onClick={() => onEditConnection(connection)}
+                          disabled={!canWriteKnowledge}
+                        >
+                          <KeyRound className="h-4 w-4" aria-hidden="true" />
                         </button>
-                        <button type="button" className="kc-demo-kebab-btn" aria-label={`${connection.disabled ? 'Enable' : 'Disable'} ${knowledgeConnectionDisplayName(connection)}`} onClick={() => onToggleConnection(connection)} disabled={!canWriteKnowledge}>
+                        <button
+                          type="button"
+                          className="kc-demo-kebab-btn kc-demo-connection-action"
+                          aria-label={`${connection.disabled ? 'Enable' : 'Disable'} ${knowledgeConnectionDisplayName(connection)}`}
+                          title={connection.disabled ? 'Enable' : 'Disable'}
+                          onClick={() => onToggleConnection(connection)}
+                          disabled={!canWriteKnowledge}
+                        >
                           {connection.disabled ? <Power className="h-4 w-4" aria-hidden="true" /> : <PowerOff className="h-4 w-4" aria-hidden="true" />}
                         </button>
                         {canDeleteKnowledge ? (
-                          <button type="button" className="kc-demo-kebab-btn danger" aria-label={`Delete ${knowledgeConnectionDisplayName(connection)}`} onClick={() => onDeleteConnection(connection)}>
+                          <button
+                            type="button"
+                            className="kc-demo-kebab-btn kc-demo-connection-action danger"
+                            aria-label={`Delete ${knowledgeConnectionDisplayName(connection)}`}
+                            title="Delete"
+                            onClick={() => onDeleteConnection(connection)}
+                          >
                             <Trash2 className="h-4 w-4" aria-hidden="true" />
                           </button>
                         ) : null}
