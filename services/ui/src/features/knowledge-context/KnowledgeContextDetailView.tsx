@@ -1,8 +1,9 @@
-import { useState } from 'react';
-import { ArrowLeft, Copy, Download, Edit3, ExternalLink, GitBranch, Lock, Plus, RotateCw, ShieldCheck, Trash2 } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
+import { ArrowLeft, Copy, Download, Edit3, ExternalLink, GitBranch, Lock, MoreHorizontal, Plus, RotateCw, ShieldCheck, Trash2 } from 'lucide-react';
 
 import ResourceAccessCard from '../../components/ResourceAccessCard';
 import { ObjectIcon } from '../../components/ObjectIcon';
+import type { ObjectIconType } from '../../components/objectIconRegistry';
 import {
   isGitManagedDocument,
   isExternalKnowledgeDocument,
@@ -19,7 +20,7 @@ import {
   type KnowledgeFailureMode,
   type KnowledgeSyncMode,
 } from './model';
-import { formatKnowledgeDate, kindIconType, kindTitle } from './presentation';
+import { formatKnowledgeDate, kindIconType } from './presentation';
 
 type KnowledgeDetailTab = 'overview' | 'content' | 'usage' | 'gitops';
 
@@ -100,6 +101,7 @@ export function KnowledgeContextDetailView({
   onCreateDocument,
 }: KnowledgeContextDetailViewProps) {
   const [activeTab, setActiveTab] = useState<KnowledgeDetailTab>(() => (isEditing ? 'content' : 'overview'));
+  const [actionsOpen, setActionsOpen] = useState(false);
 
   if (!detail) {
     return (
@@ -128,8 +130,8 @@ export function KnowledgeContextDetailView({
   const rawConnectionID = detail.connection_ref || detail.connection_id || '';
   const selectedConnection = connections.find(connection => knowledgeConnectionMatchesIdentifier(connection, rawConnectionID));
   const selectedConnectionID = selectedConnection?.id || rawConnectionID;
-  const usedByCount = detail.used_by_count ?? detail.used_by?.length ?? 0;
   const handleStartEditing = () => {
+    setActionsOpen(false);
     setActiveTab('content');
     onStartEditing();
   };
@@ -159,45 +161,71 @@ export function KnowledgeContextDetailView({
               Back
             </button>
             {!isEditing ? (
-              <>
-                {!draftID ? (
-                  <ResourceAccessCard
-                    resourceType="knowledge_context"
-                    resourceID={detail.id}
-                    label="knowledge context"
-                    buttonClassName="kc-doc-action-btn"
-                    onAccessChange={onAccessChange}
-                  />
-                ) : null}
-                <button type="button" className="kc-doc-action-btn" onClick={onDownload}>
-                  <Download className="h-4 w-4" aria-hidden="true" />
-                  Export
+              <div className="kc-doc-actions-menu">
+                <button
+                  type="button"
+                  className="kc-doc-action-btn kc-doc-action-btn--primary"
+                  aria-haspopup="true"
+                  aria-expanded={actionsOpen}
+                  onClick={() => setActionsOpen(open => !open)}
+                >
+                  <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+                  Actions
                 </button>
-                {isExternal && detail.external_page_url ? (
-                  <a className="kc-doc-action-btn" href={detail.external_page_url} target="_blank" rel="noreferrer">
-                    <ExternalLink className="h-4 w-4" aria-hidden="true" />
-                    Open page
-                  </a>
+                {actionsOpen ? (
+                  <div className="kc-doc-actions-popover" aria-label="Document action menu">
+                    {!draftID ? (
+                      <ResourceAccessCard
+                        resourceType="knowledge_context"
+                        resourceID={detail.id}
+                        label="knowledge context"
+                        buttonClassName="kc-doc-menu-item"
+                        onAccessChange={onAccessChange}
+                      />
+                    ) : null}
+                    <button type="button" className="kc-doc-menu-item" onClick={onDownload}>
+                      <Download className="h-4 w-4" aria-hidden="true" />
+                      Export
+                    </button>
+                    {isExternal && detail.external_page_url ? (
+                      <a className="kc-doc-menu-item" href={detail.external_page_url} target="_blank" rel="noreferrer">
+                        <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                        Open page
+                      </a>
+                    ) : null}
+                    {isExternal ? (
+                      <button type="button" className="kc-doc-menu-item" onClick={onSyncNow} disabled={syncing}>
+                        <RotateCw className="h-4 w-4" aria-hidden="true" />
+                        {syncing ? 'Syncing...' : 'Sync now'}
+                      </button>
+                    ) : null}
+                    {canEditSelected ? (
+                      <button type="button" className="kc-doc-menu-item kc-doc-menu-item--primary" onClick={handleStartEditing}>
+                        <Edit3 className="h-4 w-4" aria-hidden="true" />
+                        Edit
+                      </button>
+                    ) : null}
+                    {canWriteKnowledge ? (
+                      <button type="button" className="kc-doc-menu-item" onClick={onClone}>
+                        <Plus className="h-4 w-4" aria-hidden="true" />
+                        Clone
+                      </button>
+                    ) : null}
+                    {canDeleteKnowledge ? (
+                      <button
+                        type="button"
+                        className="kc-doc-menu-item kc-doc-menu-item--danger"
+                        aria-label="Delete"
+                        onClick={() => onDelete(detail)}
+                        disabled={saving}
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        Delete
+                      </button>
+                    ) : null}
+                  </div>
                 ) : null}
-                {isExternal ? (
-                  <button type="button" className="kc-doc-action-btn" onClick={onSyncNow} disabled={syncing}>
-                    <RotateCw className="h-4 w-4" aria-hidden="true" />
-                    {syncing ? 'Syncing...' : 'Sync now'}
-                  </button>
-                ) : null}
-                {canEditSelected ? (
-                  <button type="button" className="kc-doc-action-btn kc-doc-action-btn--primary" onClick={handleStartEditing}>
-                    <Edit3 className="h-4 w-4" aria-hidden="true" />
-                    Edit
-                  </button>
-                ) : null}
-                {canWriteKnowledge ? (
-                  <button type="button" className="kc-doc-action-btn" onClick={onClone}>
-                    <Plus className="h-4 w-4" aria-hidden="true" />
-                    Clone
-                  </button>
-                ) : null}
-              </>
+              </div>
             ) : (
               <>
                 <button type="button" className="kc-doc-action-btn" onClick={onDiscardEditing}>
@@ -208,17 +236,6 @@ export function KnowledgeContextDetailView({
                 </button>
               </>
             )}
-            {canDeleteKnowledge ? (
-              <button
-                type="button"
-                className="kc-doc-action-btn kc-doc-action-btn--danger-icon"
-                aria-label="Delete"
-                onClick={() => onDelete(detail)}
-                disabled={saving}
-              >
-                <Trash2 className="h-4 w-4" aria-hidden="true" />
-              </button>
-            ) : null}
           </div>
         </div>
         <div className="kc-demo-tabs" role="tablist" aria-label="Knowledge context detail sections">
@@ -245,101 +262,80 @@ export function KnowledgeContextDetailView({
       ) : null}
 
       {activeTab === 'overview' ? (
-        <>
-          <div className="kc-demo-top-grid kc-overview-grid">
-            <div className="kc-demo-card kc-demo-panel kc-overview-card">
+        <div className="kc-overview-stack">
+          {isEditing ? (
+            <div className="kc-demo-card kc-demo-panel kc-overview-edit-card">
               <div className="kc-demo-panel-title">
                 <div>
-                  <h3>Document Overview</h3>
-                  <p>{detail.description || `${kindTitle(detail.kind)} knowledge context.`}</p>
+                  <h3>Edit Overview</h3>
+                  <p>Update the document summary and source settings.</p>
                 </div>
-                {canEditSelected && !isEditing ? (
-                  <button type="button" className="kc-demo-edit-btn" aria-label="Edit knowledge context" onClick={handleStartEditing}>
-                    <Edit3 className="h-4 w-4" aria-hidden="true" />
-                  </button>
+              </div>
+              <div className="kc-demo-edit-stack">
+                <label>
+                  <span>Description</span>
+                  <textarea
+                    value={detail.description || ''}
+                    disabled={!selectedCanEdit}
+                    onChange={event => onDescriptionChange(event.target.value)}
+                    placeholder="Optional description"
+                  />
+                </label>
+                {isExternal ? (
+                  <ExternalSettingsEditor
+                    detail={detail}
+                    connections={connections}
+                    selectedConnectionID={selectedConnectionID}
+                    onDetailPatch={onDetailPatch}
+                  />
                 ) : null}
               </div>
-              {isEditing ? (
-                <div className="kc-demo-edit-stack">
-                  <label>
-                    <span>Description</span>
-                    <textarea
-                      value={detail.description || ''}
-                      disabled={!selectedCanEdit}
-                      onChange={event => onDescriptionChange(event.target.value)}
-                      placeholder="Optional description"
-                    />
-                  </label>
-                  {isExternal ? (
-                    <ExternalSettingsEditor
-                      detail={detail}
-                      connections={connections}
-                      selectedConnectionID={selectedConnectionID}
-                      onDetailPatch={onDetailPatch}
-                    />
-                  ) : null}
-                </div>
-              ) : (
-                <>
-                <div className="kc-overview-id-block">
-                  <span>Document ID</span>
-                  <code>{detail.id}</code>
-                </div>
-                <dl className="kc-demo-kv kc-demo-kv--overview">
-                  <InfoRow label="Document ID" value={detail.id} />
+            </div>
+          ) : (
+            <>
+              <div className="kc-overview-detail-grid">
+                <OverviewPanel title="Document Details" iconType={kindIconType(detail.kind || '')} tone="purple">
+                  <InfoRow label="Document ID" value={detail.id} copyable />
                   <InfoRow label="Kind" value={detail.kind} />
+                  <InfoRow label="Owner" value={detail.team || 'Root'} />
+                  <InfoRow label="Visibility" value={detail.visibility || 'team'} />
+                  <div className="kc-overview-divider" aria-hidden="true" />
                   <InfoRow label="Content source" value={isExternal ? 'External page' : 'Inline content'} />
-                  <InfoRow label="Source" value={source} badge={isGitManagedDocument(detail) ? 'Synced' : undefined} />
+                  <InfoRow label="Provider" value={source} badge={isGitManagedDocument(detail) ? 'Synced' : undefined} />
                   {isExternal ? (
                     <>
                       <InfoRow label="Connection" value={selectedConnection ? knowledgeConnectionDisplayName(selectedConnection) : detail.connection_ref || detail.connection_id || '-'} />
-                      <InfoRow label="Page title" value={detail.external_page_title || '-'} />
-                      <InfoRow label="Page URL" value={detail.external_page_url || '-'} />
+                      <InfoRow label="Page" value={detail.external_page_title || '-'} />
                       <InfoRow label="Page ID" value={detail.external_page_id || '-'} />
+                      <InfoRow label="Page URL" value={detail.external_page_url || '-'} href={detail.external_page_url || undefined} />
+                    </>
+                  ) : null}
+                </OverviewPanel>
+                <OverviewPanel title="System Health" iconType={isExternal ? 'monitoring' : 'access'} tone="green">
+                  {isExternal ? (
+                    <>
                       <InfoRow label="Sync mode" value={(detail.sync_mode || 'manual').replace(/_/g, ' ')} />
-                      <InfoRow label="Failure behavior" value={(detail.failure_mode || 'fail').replace(/_/g, ' ')} />
                       <InfoRow label="Sync status" value={syncBadge.label} />
+                      <InfoRow label="Failure behavior" value={(detail.failure_mode || 'fail').replace(/_/g, ' ')} />
+                      <div className="kc-overview-divider" aria-hidden="true" />
                       <InfoRow label="Last synced" value={formatKnowledgeDate(detail.last_synced_at)} />
                       <InfoRow label="Provider modified" value={formatKnowledgeDate(detail.source_modified_at)} />
                       <InfoRow label="Content hash" value={detail.content_hash ? detail.content_hash.slice(0, 12) : '-'} />
                     </>
-                  ) : null}
-                  <InfoRow label="Visibility" value={detail.visibility || 'team'} />
+                  ) : (
+                    <>
+                      <InfoRow label="Source state" value={isGitManagedDocument(detail) ? 'GitOps synced' : 'Database'} />
+                      <InfoRow label="Access posture" value={detail.visibility || 'team'} />
+                      <div className="kc-overview-divider" aria-hidden="true" />
+                    </>
+                  )}
                   <InfoRow label="Updated" value={updatedLabel} />
                   <InfoRow label="Content size" value={`${contentMetrics.words} words / ${contentMetrics.lines} lines`} />
-                </dl>
-                </>
-              )}
-            </div>
-
-            <div className="kc-demo-card kc-demo-panel kc-activity-card">
-              <div className="kc-demo-activity-head">
-                <div>
-                  <h3>Document Activity</h3>
-                  <p>Runtime usage and source health for this document.</p>
-                </div>
+                </OverviewPanel>
               </div>
-              <div className="kc-activity-grid">
-                <ActivityMetric label="Pipeline uses" value={String(usedByCount)} meta={usedByCount ? 'Active references' : 'No references'} tone="blue" />
-                <ActivityMetric label="Content source" value={isExternal ? 'Page' : 'Inline'} meta={isExternal ? (detail.sync_mode || 'manual').replace(/_/g, ' ') : 'Local edit'} tone="green" />
-                <ActivityMetric label="GitOps" value={isGitManagedDocument(detail) ? 'Synced' : 'DB'} meta={isGitManagedDocument(detail) ? 'Repository source' : 'Database source'} tone="purple" />
-                <ActivityMetric label="Characters" value={String(contentMetrics.chars)} meta={`${contentMetrics.words} words`} tone="cyan" />
-              </div>
-            </div>
-          </div>
-
-          <div className="kc-demo-card kc-demo-content-preview kc-demo-overview-preview">
-            <div className="kc-demo-usage-head">
-              <div>
-                <h3>Content Preview</h3>
-                <p>{isExternal ? 'Read-only preview from the connected page.' : 'Inline content managed in NopsAI.'}</p>
-              </div>
-              <span className={`kc-demo-badge ${isExternal ? syncBadge.tone : 'neutral'}`}>{isExternal ? syncBadge.label : `${contentMetrics.words} words`}</span>
-            </div>
-            {detail.sync_error ? <div className="kc-demo-alert kc-demo-alert--warning">{detail.sync_error}</div> : null}
-            <pre><code>{previewContent || 'No content'}</code></pre>
-          </div>
-        </>
+            </>
+          )}
+        </div>
       ) : null}
 
       {activeTab === 'content' ? (
@@ -554,27 +550,68 @@ function UsagePanel({
   );
 }
 
-function InfoRow({ label, value, badge }: { label: string; value: string; badge?: string }) {
+function InfoRow({
+  label,
+  value,
+  badge,
+  href,
+  copyable = false,
+}: {
+  label: string;
+  value: string;
+  badge?: string;
+  href?: string;
+  copyable?: boolean;
+}) {
+  const displayValue = value || '-';
+  const copyLabel = label === 'Document ID' ? 'Copy document ID' : `Copy ${label.toLowerCase()}`;
   return (
-    <div>
+    <div className="kc-info-row">
       <dt>{label}</dt>
       <dd>
-        {value}
+        {href && displayValue !== '-' ? (
+          <a className="kc-info-value kc-info-link" href={href} target="_blank" rel="noreferrer" title={displayValue}>
+            {displayValue}
+          </a>
+        ) : (
+          <span className="kc-info-value" title={displayValue}>{displayValue}</span>
+        )}
+        {copyable && displayValue !== '-' ? (
+          <button
+            type="button"
+            className="kc-info-copy-btn"
+            aria-label={copyLabel}
+            onClick={() => void navigator.clipboard?.writeText(displayValue)}
+          >
+            <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        ) : null}
         {badge ? <span className="kc-demo-sync">{badge}</span> : null}
       </dd>
     </div>
   );
 }
 
-function ActivityMetric({ label, value, meta, tone }: { label: string; value: string; meta: string; tone: string }) {
+function OverviewPanel({
+  title,
+  iconType,
+  tone,
+  children,
+}: {
+  title: string;
+  iconType: ObjectIconType;
+  tone: 'green' | 'purple';
+  children: ReactNode;
+}) {
   return (
-    <article className="kc-activity-metric">
-      <span className={`kc-demo-act-icon kc-demo-act-icon--${tone}`} aria-hidden="true">
-        <ObjectIcon type={tone === 'purple' ? 'gitops' : tone === 'green' ? 'knowledge-context' : 'pipeline'} />
-      </span>
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <em>{meta}</em>
-    </article>
+    <section className="kc-overview-panel">
+      <div className="kc-overview-panel-head">
+        <span className={`kc-demo-act-icon kc-demo-act-icon--${tone}`} aria-hidden="true">
+          <ObjectIcon type={iconType} />
+        </span>
+        <h4>{title}</h4>
+      </div>
+      <dl className="kc-demo-kv kc-demo-kv--overview">{children}</dl>
+    </section>
   );
 }
