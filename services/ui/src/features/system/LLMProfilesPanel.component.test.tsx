@@ -45,6 +45,21 @@ test('renders provider labels and applies provider-aware profile defaults', asyn
   );
 
   expect((await screen.findAllByText('OpenAI / ChatGPT'))[0]).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'LLM Profiles' })).toHaveClass('sr-only');
+  expect(document.getElementById('system-llm-profiles-section')).toHaveClass('ai-resource-page');
+  expect(screen.getByLabelText('LLM profile workspace')).toHaveClass('ai-resource-workspace-card');
+  expect(screen.getByLabelText('LLM profile tree')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Select LLM profile hosted' })).toBeVisible();
+  expect(screen.queryByLabelText('LLM profile detail')).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Default LLM profile').closest('.ai-resource-overview-bar')).toBe(
+    screen.getByLabelText('Resource summary').closest('.ai-resource-overview-bar')
+  );
+  expect(screen.getAllByText('Profiles')[0]).toBeVisible();
+  expect(screen.getByText('Credentials')).toBeVisible();
+
+  await user.click(screen.getByRole('button', { name: 'Select LLM profile hosted' }));
+  expect(screen.getByLabelText('LLM profile detail')).toHaveClass('ai-resource-detail-fullscreen-main');
+  expect(screen.getByRole('button', { name: 'List' })).toBeVisible();
   expect(screen.getByRole('link', { name: 'credential://system/llm/openai' })).toHaveAttribute(
     'href',
     '/credentials?credential=credential%3A%2F%2Fsystem%2Fllm%2Fopenai'

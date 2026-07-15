@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { expect, test, vi } from 'vitest';
@@ -70,14 +70,24 @@ test('renders agent profiles as a split detail workspace and keeps actions wired
     </MemoryRouter>
   );
 
-  expect(await screen.findByRole('heading', { name: 'Agent Profiles' })).toBeVisible();
-  expect(screen.getByText('Operates deployments and CI/CD.')).toBeVisible();
-  expect(screen.getByText('Keep releases boring and reversible.')).toBeVisible();
+  expect(await screen.findByRole('heading', { name: 'Agent Profiles' })).toHaveClass('sr-only');
+  expect(document.getElementById('system-agent-profiles-section')).toHaveClass('ai-resource-page');
+  expect(screen.getByLabelText('Agent profile workspace')).toHaveClass('ai-resource-workspace-card');
+  expect(screen.getByLabelText('Agent profile tree')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Select agent profile DevOps Engineer' })).toBeVisible();
+  expect(screen.queryByLabelText('Agent profile detail')).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Default agent profile').closest('.ai-resource-overview-bar')).toBe(
+    screen.getByLabelText('Resource summary').closest('.ai-resource-overview-bar')
+  );
+  expect(screen.getAllByText('Profiles')[0]).toBeVisible();
+  expect(screen.getByText('Pipeline refs')).toBeVisible();
+  expect(screen.queryByText('Operates deployments and CI/CD.')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /more actions/i })).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Access' })).toHaveClass('ai-resource-icon-action');
-  expect(screen.getByRole('button', { name: /view usage/i })).toHaveClass('ai-resource-icon-action');
 
-  await user.click(screen.getByRole('button', { name: /security reviewer/i }));
+  await user.click(within(screen.getByLabelText('Agent profiles')).getByRole('button', { name: /security reviewer/i }));
+  expect(screen.getByLabelText('Agent profile detail')).toHaveClass('ai-resource-detail-fullscreen-main');
+  expect(screen.getByRole('button', { name: 'List' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Access' })).toHaveClass('ai-resource-icon-action');
   expect(screen.getByText('Reviews security posture.')).toBeVisible();
   expect(screen.getByText('Focus on practical risk reduction.')).toBeVisible();
   expect(screen.getAllByText('/platform/ml')[0]).toBeVisible();
@@ -101,6 +111,7 @@ test('applies the team filter from the route query', async () => {
   );
 
   expect(await screen.findByLabelText('Filter by team')).toHaveValue('platform/ml');
-  expect(screen.getByRole('button', { name: /security reviewer/i })).toBeVisible();
-  expect(screen.queryByRole('button', { name: /devops engineer/i })).not.toBeInTheDocument();
+  const profileTable = await screen.findByLabelText('Agent profiles');
+  expect(within(profileTable).getByRole('button', { name: /security reviewer/i })).toBeVisible();
+  expect(within(profileTable).queryByRole('button', { name: /devops engineer/i })).not.toBeInTheDocument();
 });
