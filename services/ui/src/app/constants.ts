@@ -3,6 +3,7 @@ export const STATUS_PRIORITY = ['failure', 'rejected', 'failure (ignored)', 'can
 export const SIDEBAR_MIN_WIDTH = 260;
 export const SIDEBAR_MAX_WIDTH = 520;
 export const SIDEBAR_DEFAULT_WIDTH = 320;
+export const SIDEBAR_COLLAPSED_WIDTH = 96;
 export const SIDEBAR_RECENT_PAGE_SIZE = 200;
 export const SIDEBAR_SCROLL_BUFFER = 200;
 

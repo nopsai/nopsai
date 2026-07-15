@@ -6,11 +6,13 @@ describe('BrandIdentity', () => {
   it('renders the accessible wordmark contract by default', () => {
     render(<BrandIdentity className="login-brand" />);
 
-    expect(screen.getByRole('img', { name: 'NopsAI' })).toHaveClass(
+    const brand = screen.getByRole('img', { name: 'NopsAI' });
+    expect(brand).toHaveClass(
       'brand-identity',
       'brand-identity--wordmark',
       'login-brand'
     );
+    expect(screen.getByText('nopsai')).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('supports the compact mark without changing its accessible name', () => {
@@ -20,5 +22,6 @@ describe('BrandIdentity', () => {
       'brand-identity--mark',
       'brand-preview'
     );
+    expect(screen.queryByText('nopsai')).not.toBeInTheDocument();
   });
 });
