@@ -21,13 +21,12 @@ import {
 } from './model';
 import { formatKnowledgeDate, kindIconType, kindTitle } from './presentation';
 
-type KnowledgeDetailTab = 'overview' | 'content' | 'usage' | 'access' | 'gitops';
+type KnowledgeDetailTab = 'overview' | 'content' | 'usage' | 'gitops';
 
 const detailTabs: Array<{ id: KnowledgeDetailTab; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'content', label: 'Content' },
   { id: 'usage', label: 'Usage' },
-  { id: 'access', label: 'Access' },
   { id: 'gitops', label: 'GitOps' },
 ];
 
@@ -161,10 +160,15 @@ export function KnowledgeContextDetailView({
             </button>
             {!isEditing ? (
               <>
-                <button type="button" className="kc-doc-action-btn" onClick={onCopy}>
-                  <Copy className="h-4 w-4" aria-hidden="true" />
-                  Copy
-                </button>
+                {!draftID ? (
+                  <ResourceAccessCard
+                    resourceType="knowledge_context"
+                    resourceID={detail.id}
+                    label="knowledge context"
+                    buttonClassName="kc-doc-action-btn"
+                    onAccessChange={onAccessChange}
+                  />
+                ) : null}
                 <button type="button" className="kc-doc-action-btn" onClick={onDownload}>
                   <Download className="h-4 w-4" aria-hidden="true" />
                   Export
@@ -189,7 +193,7 @@ export function KnowledgeContextDetailView({
                 ) : null}
                 {canWriteKnowledge ? (
                   <button type="button" className="kc-doc-action-btn" onClick={onClone}>
-                    <Copy className="h-4 w-4" aria-hidden="true" />
+                    <Plus className="h-4 w-4" aria-hidden="true" />
                     Clone
                   </button>
                 ) : null}
@@ -242,8 +246,8 @@ export function KnowledgeContextDetailView({
 
       {activeTab === 'overview' ? (
         <>
-          <div className="kc-demo-top-grid">
-            <div className="kc-demo-card kc-demo-panel">
+          <div className="kc-demo-top-grid kc-overview-grid">
+            <div className="kc-demo-card kc-demo-panel kc-overview-card">
               <div className="kc-demo-panel-title">
                 <div>
                   <h3>Document Overview</h3>
@@ -276,7 +280,13 @@ export function KnowledgeContextDetailView({
                   ) : null}
                 </div>
               ) : (
-                <dl className="kc-demo-kv">
+                <>
+                <div className="kc-overview-id-block">
+                  <span>Document ID</span>
+                  <code>{detail.id}</code>
+                </div>
+                <dl className="kc-demo-kv kc-demo-kv--overview">
+                  <InfoRow label="Document ID" value={detail.id} />
                   <InfoRow label="Kind" value={detail.kind} />
                   <InfoRow label="Content source" value={isExternal ? 'External page' : 'Inline content'} />
                   <InfoRow label="Source" value={source} badge={isGitManagedDocument(detail) ? 'Synced' : undefined} />
@@ -298,17 +308,23 @@ export function KnowledgeContextDetailView({
                   <InfoRow label="Updated" value={updatedLabel} />
                   <InfoRow label="Content size" value={`${contentMetrics.words} words / ${contentMetrics.lines} lines`} />
                 </dl>
+                </>
               )}
             </div>
 
-            <div className="kc-demo-card kc-demo-panel">
+            <div className="kc-demo-card kc-demo-panel kc-activity-card">
               <div className="kc-demo-activity-head">
-                <h3>Document Activity</h3>
+                <div>
+                  <h3>Document Activity</h3>
+                  <p>Runtime usage and source health for this document.</p>
+                </div>
               </div>
-              <ActivityRow label="Pipeline uses" value={String(usedByCount)} delta={usedByCount ? '+ active' : 'none'} tone="blue" />
-              <ActivityRow label="Content source" value={isExternal ? 'Page' : 'Inline'} delta={isExternal ? (detail.sync_mode || 'manual') : 'local'} tone="green" />
-              <ActivityRow label="GitOps" value={isGitManagedDocument(detail) ? 'Synced' : 'DB'} delta={isGitManagedDocument(detail) ? '+ repo' : 'override'} tone="purple" />
-              <ActivityRow label="Characters" value={String(contentMetrics.chars)} delta={`${contentMetrics.words} words`} tone="cyan" />
+              <div className="kc-activity-grid">
+                <ActivityMetric label="Pipeline uses" value={String(usedByCount)} meta={usedByCount ? 'Active references' : 'No references'} tone="blue" />
+                <ActivityMetric label="Content source" value={isExternal ? 'Page' : 'Inline'} meta={isExternal ? (detail.sync_mode || 'manual').replace(/_/g, ' ') : 'Local edit'} tone="green" />
+                <ActivityMetric label="GitOps" value={isGitManagedDocument(detail) ? 'Synced' : 'DB'} meta={isGitManagedDocument(detail) ? 'Repository source' : 'Database source'} tone="purple" />
+                <ActivityMetric label="Characters" value={String(contentMetrics.chars)} meta={`${contentMetrics.words} words`} tone="cyan" />
+              </div>
             </div>
           </div>
 
@@ -368,32 +384,6 @@ export function KnowledgeContextDetailView({
           updatedLabel={updatedLabel}
           onOpenPipeline={onOpenPipeline}
         />
-      ) : null}
-
-      {activeTab === 'access' ? (
-        <div className="kc-demo-card kc-demo-panel">
-          <div className="kc-demo-panel-title">
-            <div>
-              <h3>Access</h3>
-              <p>{detail.visibility || 'team'} visibility for {detail.id}</p>
-            </div>
-            {detail.uuid && !draftID ? (
-              <ResourceAccessCard
-                resourceType="knowledge_context"
-                resourceID={detail.id}
-                label="knowledge context"
-                buttonClassName="kc-demo-outline-btn"
-                onAccessChange={onAccessChange}
-              />
-            ) : null}
-          </div>
-          <dl className="kc-demo-kv">
-            <InfoRow label="Resource" value={`knowledge_context:${detail.id}`} />
-            <InfoRow label="Visibility" value={detail.visibility || 'team'} />
-            <InfoRow label="Runtime action" value="knowledge_context.use" />
-            <InfoRow label="Management action" value="knowledge_context.manage_access" />
-          </dl>
-        </div>
       ) : null}
 
       {activeTab === 'gitops' ? (
@@ -576,15 +566,15 @@ function InfoRow({ label, value, badge }: { label: string; value: string; badge?
   );
 }
 
-function ActivityRow({ label, value, delta, tone }: { label: string; value: string; delta: string; tone: string }) {
+function ActivityMetric({ label, value, meta, tone }: { label: string; value: string; meta: string; tone: string }) {
   return (
-    <div className="kc-demo-activity-row">
+    <article className="kc-activity-metric">
       <span className={`kc-demo-act-icon kc-demo-act-icon--${tone}`} aria-hidden="true">
         <ObjectIcon type={tone === 'purple' ? 'gitops' : tone === 'green' ? 'knowledge-context' : 'pipeline'} />
       </span>
       <span>{label}</span>
       <strong>{value}</strong>
-      <em>{delta}</em>
-    </div>
+      <em>{meta}</em>
+    </article>
   );
 }

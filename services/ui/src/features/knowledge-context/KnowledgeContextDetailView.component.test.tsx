@@ -62,22 +62,23 @@ describe('KnowledgeContextDetailView', () => {
     expect(screen.getByRole('heading', { name: /restart/ })).toBeVisible();
     expect(screen.getByText('ID: runbook/platform/restart')).toBeVisible();
     expect(screen.getByText('Document Overview')).toBeVisible();
+    expect(screen.getAllByText('runbook/platform/restart').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Access' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Copy' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Access' })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
     fireEvent.click(screen.getByRole('button', { name: 'Export' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     fireEvent.click(screen.getByRole('button', { name: 'Clone' }));
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
 
     fireEvent.click(screen.getByRole('tab', { name: 'Content' }));
     expect(screen.getByText((content, node) => node?.tagName.toLowerCase() === 'code' && content.includes('# Restart'))).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
 
     fireEvent.click(screen.getByRole('tab', { name: 'Usage' }));
     expect(screen.getByText('Recent Usage')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'platform/deploy' }));
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Access' }));
-    expect(screen.getByText('knowledge_context.use')).toBeVisible();
 
     fireEvent.click(screen.getByRole('tab', { name: 'GitOps' }));
     expect(screen.getByText('Database')).toBeVisible();

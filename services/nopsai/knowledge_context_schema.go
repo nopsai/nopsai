@@ -89,7 +89,10 @@ var knowledgeContextSchemaStatements = []string{
 	`ALTER TABLE knowledge_contexts ADD COLUMN IF NOT EXISTS source_modified_at TIMESTAMPTZ`,
 	`ALTER TABLE knowledge_contexts ADD COLUMN IF NOT EXISTS sync_status TEXT NOT NULL DEFAULT 'not_synced'`,
 	`ALTER TABLE knowledge_contexts ADD COLUMN IF NOT EXISTS last_sync_status TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE knowledge_contexts ADD COLUMN IF NOT EXISTS last_sync_started_at TIMESTAMPTZ`,
 	`ALTER TABLE knowledge_contexts ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMPTZ`,
+	`ALTER TABLE knowledge_contexts ADD COLUMN IF NOT EXISTS next_sync_attempt_at TIMESTAMPTZ`,
+	`ALTER TABLE knowledge_contexts ADD COLUMN IF NOT EXISTS sync_attempt_count INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE knowledge_contexts ADD COLUMN IF NOT EXISTS sync_error TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE knowledge_contexts ADD COLUMN IF NOT EXISTS last_sync_error TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE knowledge_contexts ADD COLUMN IF NOT EXISTS content_hash TEXT NOT NULL DEFAULT ''`,
@@ -99,6 +102,8 @@ var knowledgeContextSchemaStatements = []string{
 	`UPDATE knowledge_contexts SET last_sync_status = sync_status WHERE last_sync_status = '' AND sync_status <> ''`,
 	`UPDATE knowledge_contexts SET last_sync_error = sync_error WHERE last_sync_error = '' AND sync_error <> ''`,
 	`CREATE INDEX IF NOT EXISTS idx_knowledge_contexts_connection_id ON knowledge_contexts(connection_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_knowledge_contexts_periodic_sync_due ON knowledge_contexts(sync_mode, next_sync_attempt_at, last_synced_at)
+			WHERE sync_mode = 'periodic' AND (content_source = 'external_page' OR connection_id IS NOT NULL OR external_page_id <> '' OR external_page_url <> '')`,
 	`CREATE TABLE IF NOT EXISTS resource_visibility (
 		resource_type TEXT NOT NULL,
 		resource_id TEXT NOT NULL,

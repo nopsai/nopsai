@@ -168,9 +168,20 @@ test('summarizes persisted knowledge connections', () => {
     },
   ];
 
-  const summaries = buildKnowledgeConnectionTeamSummaries([], ['security'], connections);
+  const summaries = buildKnowledgeConnectionTeamSummaries([
+    {
+      id: 'policy/security/source-page',
+      kind: 'policy',
+      team: 'security',
+      name: 'source-page',
+      visibility: 'team',
+      source: 'notion',
+      connection_ref: 'security/security-notion',
+    },
+  ], ['security'], connections);
   assert.equal(summaries[0]?.providers[0], 'notion');
   assert.equal(summaries[0]?.connections[0]?.display_name, 'Security Notion');
+  assert.deepEqual(summaries[0]?.connections[0]?.used_by, ['policy/security/source-page']);
   assert.equal(knowledgeConnectionProviderLabel('wiki'), 'Wiki page');
   assert.equal(knowledgeConnectionStatusLabel('authentication_required'), 'Auth required');
   assert.equal(knowledgeConnectionStatusLabel('provider_unavailable'), 'Integration pending');

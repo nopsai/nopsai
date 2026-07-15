@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { KNOWLEDGE_CONTEXTS_CHANGED_EVENT } from './constants';
 import {
-  buildKnowledgeContextTree,
   buildPipelineTree,
   buildScopeTree,
   buildStepTree,
@@ -13,7 +11,6 @@ import { PIPELINE_DRAFTS_CHANGED_EVENT, getPipelineDraftStorageKey, loadPipeline
 import { STEP_DRAFTS_CHANGED_EVENT, getStepDraftStorageKey, loadStepDrafts } from '../lib/stepDrafts';
 
 type UseResourceTreesOptions = {
-  canViewKnowledge: boolean;
   canWritePipelines: boolean;
   canWriteSteps: boolean;
   draftScope: string;
@@ -34,7 +31,6 @@ const toggleOpenSet = (prev: Set<string>, id: string) => {
 };
 
 export function useResourceTrees({
-  canViewKnowledge,
   canWritePipelines,
   canWriteSteps,
   draftScope,
@@ -51,13 +47,6 @@ export function useResourceTrees({
 
   const [scopes, setScopes] = useState<string[]>([]);
   const [scopeTreeOpen, setScopeTreeOpen] = useState<Set<string>>(new Set());
-
-  const [knowledgeContexts, setKnowledgeContexts] = useState<string[]>([]);
-  const [knowledgeContextTreeOpen, setKnowledgeContextTreeOpen] = useState<Set<string>>(new Set());
-
-  const onToggleKnowledgeContextNode = useCallback((id: string) => {
-    setKnowledgeContextTreeOpen(prev => toggleOpenSet(prev, id));
-  }, []);
 
   const onTogglePipelineNode = useCallback((id: string) => {
     setPipelineTreeOpen(prev => toggleOpenSet(prev, id));
@@ -174,45 +163,6 @@ export function useResourceTrees({
   }, [canWriteSteps, draftScope, isAuthenticated, pathname]);
 
   useEffect(() => {
-    if (!isAuthenticated || !canViewKnowledge) {
-      const handle = window.setTimeout(() => setKnowledgeContexts([]), 0);
-      return () => window.clearTimeout(handle);
-    }
-    const load = async () => {
-      try {
-        const response = await apiClient.fetch('/v1/knowledge-contexts');
-        if (!response.ok) return;
-        const payload = await response.json();
-        const ids = Array.isArray(payload)
-          ? payload
-              .map((item: unknown) => {
-                if (typeof item === 'string') return item.trim();
-                const record = asRecord(item);
-                return typeof record?.id === 'string' ? record.id.trim() : '';
-              })
-              .filter(Boolean)
-          : [];
-        ids.sort((a, b) => a.localeCompare(b));
-        setKnowledgeContexts(ids);
-      } catch (error) {
-        console.warn('Failed to load knowledge contexts for sidebar', error);
-      }
-    };
-    const handleKnowledgeContextsChanged = () => {
-      if (pathname.startsWith('/knowledge-context')) {
-        void load();
-      }
-    };
-    window.addEventListener(KNOWLEDGE_CONTEXTS_CHANGED_EVENT, handleKnowledgeContextsChanged);
-    if (pathname.startsWith('/knowledge-context')) {
-      void load();
-    }
-    return () => {
-      window.removeEventListener(KNOWLEDGE_CONTEXTS_CHANGED_EVENT, handleKnowledgeContextsChanged);
-    };
-  }, [canViewKnowledge, isAuthenticated, pathname]);
-
-  useEffect(() => {
     if (typeof window === 'undefined') return;
     if (!canWritePipelines || !draftScope) return;
     const storageKey = getPipelineDraftStorageKey(draftScope);
@@ -256,18 +206,11 @@ export function useResourceTrees({
     };
   }, [canWriteSteps, draftScope, pathname]);
 
-  const knowledgeContextTree = useMemo(
-    () => buildKnowledgeContextTree(knowledgeContexts, []),
-    [knowledgeContexts]
-  );
   const pipelineTree = useMemo(() => buildPipelineTree(pipelines, []), [pipelines]);
   const scopeTree = useMemo(() => buildScopeTree(scopes, []), [scopes]);
   const stepTree = useMemo(() => buildStepTree(steps, []), [steps]);
 
   return {
-    knowledgeContextTree,
-    knowledgeContextTreeOpen,
-    onToggleKnowledgeContextNode,
     pipelineTree,
     pipelineTreeOpen,
     onTogglePipelineNode,

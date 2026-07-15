@@ -12,21 +12,24 @@ import (
 
 func (a *App) exportConfigRepositoryKnowledge(ctx context.Context, repo models.ConfigRepository, delegatedScopes []string, resourceAccess map[resourceAccessPlanKey]configRepositoryResourceAccessState, files map[string]string) error {
 	rows, err := a.db.Query(ctx, `
-		SELECT kind, team_path, name, description, content, COALESCE(source, 'database'), config_repo_id, managed_by_config_repo, config_source_path
-		FROM knowledge_contexts
-		ORDER BY kind ASC, team_path ASC, name ASC
-	`)
+			SELECT kind, team_path, name, description, content, COALESCE(source, 'database'), content_source, config_repo_id, managed_by_config_repo, config_source_path
+			FROM knowledge_contexts
+			ORDER BY kind ASC, team_path ASC, name ASC
+		`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var kind, teamPath, name, description, content, source, sourcePath string
+		var kind, teamPath, name, description, content, source, contentSource, sourcePath string
 		var configRepoID sql.NullInt64
 		var managed bool
-		if err := rows.Scan(&kind, &teamPath, &name, &description, &content, &source, &configRepoID, &managed, &sourcePath); err != nil {
+		if err := rows.Scan(&kind, &teamPath, &name, &description, &content, &source, &contentSource, &configRepoID, &managed, &sourcePath); err != nil {
 			return err
+		}
+		if contentSource == "external_page" {
+			continue
 		}
 		identifier := buildKnowledgeContextIdentifier(kind, teamPath, name)
 		if !configRepositoryIncludesResource(repo, teamPath, source, configRepoID, managed, delegatedScopes) {
