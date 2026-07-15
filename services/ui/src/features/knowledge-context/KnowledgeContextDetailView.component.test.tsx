@@ -61,20 +61,32 @@ describe('KnowledgeContextDetailView', () => {
 
     expect(screen.getByRole('heading', { name: /restart/ })).toBeVisible();
     expect(screen.getByText('ID: runbook/platform/restart')).toBeVisible();
-    expect(screen.getByText('Document Overview')).toBeVisible();
+    expect(screen.getByText('Document Details')).toBeVisible();
+    expect(screen.getByText('System Health')).toBeVisible();
     expect(screen.getAllByText('runbook/platform/restart').length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: 'Access' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Copy document ID' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Actions' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Access' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit knowledge context' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Copy' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Summary')).not.toBeInTheDocument();
+    expect(screen.queryByText('Document Overview')).not.toBeInTheDocument();
+    expect(screen.queryByText('Document Activity')).not.toBeInTheDocument();
+    expect(screen.queryByText('Content Preview')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Identity/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'Access' })).not.toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole('button', { name: 'Actions' }));
+    expect(screen.getByRole('button', { name: 'Access' })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Export' }));
     fireEvent.click(screen.getByRole('button', { name: 'Clone' }));
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
 
     fireEvent.click(screen.getByRole('tab', { name: 'Content' }));
+    expect(screen.getByText('Content Preview')).toBeVisible();
     expect(screen.getByText((content, node) => node?.tagName.toLowerCase() === 'code' && content.includes('# Restart'))).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
 
     fireEvent.click(screen.getByRole('tab', { name: 'Usage' }));
     expect(screen.getByText('Recent Usage')).toBeVisible();
@@ -142,6 +154,8 @@ describe('KnowledgeContextDetailView', () => {
       connections: [connection],
     });
 
+    expect(screen.getByRole('link', { name: externalDetail.external_page_url })).toHaveAttribute('href', externalDetail.external_page_url);
+    fireEvent.click(screen.getByRole('button', { name: 'Actions' }));
     expect(screen.getByRole('button', { name: 'Sync now' })).toBeVisible();
     expect(screen.getByRole('link', { name: 'Open page' })).toHaveAttribute('href', externalDetail.external_page_url);
     fireEvent.click(screen.getByRole('button', { name: 'Sync now' }));
