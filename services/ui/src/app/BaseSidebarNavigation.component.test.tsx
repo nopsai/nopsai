@@ -25,6 +25,7 @@ describe('BaseSidebarNavigation', () => {
     );
 
     expect(screen.getByRole('link', { name: 'Pipeline runs' })).toHaveAttribute('href', '/pipelineruns/main');
+    expect(screen.getByRole('link', { name: 'Pipeline runs' })).toHaveAttribute('title', 'Pipeline runs');
     expect(screen.getByRole('group', { name: 'Operate navigation' })).toBeVisible();
     expect(screen.getByRole('group', { name: 'Build & Automate navigation' })).toBeVisible();
     expect(screen.getByRole('group', { name: 'AI & Knowledge navigation' })).toBeVisible();
@@ -37,6 +38,7 @@ describe('BaseSidebarNavigation', () => {
     expect(llmProfilesLink).toHaveAttribute('href', '/llm-profiles');
     expect(llmProfilesLink.closest('#system-subnavigation')).toBeNull();
     expect(screen.getByRole('link', { name: 'Credentials' }).closest('[aria-label="Platform navigation"]')).not.toBeNull();
+    expect(screen.getByRole('link', { name: 'Access' })).toHaveAttribute('aria-label', 'Access');
     expect(screen.getByRole('link', { name: 'Access' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: 'Access' })).toHaveClass('active');
     expect(screen.getByRole('link', { name: 'Access' }).closest('#system-subnavigation')).not.toBeNull();

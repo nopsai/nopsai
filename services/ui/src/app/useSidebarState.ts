@@ -11,6 +11,10 @@ import { SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from './c
 
 export function useSidebarState(pathname: string) {
   const [open, setOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('sidebarCollapsed') === 'true';
+  });
   const [width, setWidth] = useState<number>(() => {
     if (typeof window === 'undefined') return SIDEBAR_DEFAULT_WIDTH;
     const stored = Number(localStorage.getItem('sidebarWidth'));
@@ -29,6 +33,7 @@ export function useSidebarState(pathname: string) {
 
   const close = useCallback(() => setOpen(false), []);
   const openSidebar = useCallback(() => setOpen(true), []);
+  const toggleCollapsed = useCallback(() => setCollapsed(value => !value), []);
 
   const clampSidebarWidth = useCallback(
     (value: number) => Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, value)),
@@ -69,6 +74,11 @@ export function useSidebarState(pathname: string) {
   }, [width]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem('sidebarCollapsed', String(collapsed));
+  }, [collapsed]);
+
+  useEffect(() => {
     if (!isResizing) return undefined;
     const handleMove = (event: MouseEvent | TouchEvent) => {
       const clientX = 'touches' in event ? event.touches[0]?.clientX : event.clientX;
@@ -104,11 +114,13 @@ export function useSidebarState(pathname: string) {
 
   return {
     close,
+    collapsed,
     isResizing,
     open,
     openSidebar,
     resizeWithKeyboard,
     startResize,
+    toggleCollapsed,
     width,
   };
 }

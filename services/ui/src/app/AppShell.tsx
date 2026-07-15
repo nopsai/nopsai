@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type
 import { NavLink, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { BranchIcon, IconMenu, IconX, RunIdIcon } from './icons';
 import {
+  SIDEBAR_COLLAPSED_WIDTH,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
   SIDEBAR_SCROLL_BUFFER,
@@ -246,6 +247,8 @@ function AppShell() {
               systemSubNav={systemSubNav}
               open={sidebar.open}
               onClose={sidebar.close}
+              collapsed={sidebar.collapsed}
+              onToggleCollapsed={sidebar.toggleCollapsed}
               width={sidebar.width}
               pipelineTree={resourceTrees.pipelineTree}
               pipelineTreeOpen={resourceTrees.pipelineTreeOpen}
@@ -264,20 +267,22 @@ function AppShell() {
               onSelectStepTeam={path => navigate(teamScopedRoute('/steps', path))}
               onSelectScopeTeam={path => navigate(teamScopedRoute('/scopes', path))}
             />
-            <div
-              id="sidebar-resizer"
-              className={`hidden sm:block w-1.5 cursor-col-resize flex-shrink-0 transition-colors duration-200 ${sidebar.isResizing ? 'bg-[var(--border-accent)]' : 'bg-[var(--bg-tertiary)] hover:bg-[var(--border-accent)]'}`}
-              onMouseDown={sidebar.startResize}
-              onTouchStart={sidebar.startResize}
-              onKeyDown={sidebar.resizeWithKeyboard}
-              role="separator"
-              tabIndex={0}
-              aria-label="Resize sidebar"
-              aria-orientation="vertical"
-              aria-valuemin={SIDEBAR_MIN_WIDTH}
-              aria-valuemax={SIDEBAR_MAX_WIDTH}
-              aria-valuenow={sidebar.width}
-            ></div>
+            {!sidebar.collapsed ? (
+              <div
+                id="sidebar-resizer"
+                className={`hidden sm:block w-1.5 cursor-col-resize flex-shrink-0 transition-colors duration-200 ${sidebar.isResizing ? 'bg-[var(--border-accent)]' : 'bg-[var(--bg-tertiary)] hover:bg-[var(--border-accent)]'}`}
+                onMouseDown={sidebar.startResize}
+                onTouchStart={sidebar.startResize}
+                onKeyDown={sidebar.resizeWithKeyboard}
+                role="separator"
+                tabIndex={0}
+                aria-label="Resize sidebar"
+                aria-orientation="vertical"
+                aria-valuemin={SIDEBAR_MIN_WIDTH}
+                aria-valuemax={SIDEBAR_MAX_WIDTH}
+                aria-valuenow={sidebar.width}
+              ></div>
+            ) : null}
             <main className="flex-1 flex flex-col overflow-hidden">
               <Header
                 title={title}
@@ -315,6 +320,8 @@ function Sidebar({
   systemSubNav,
   open,
   onClose,
+  collapsed,
+  onToggleCollapsed,
   width,
   pipelineTree,
   pipelineTreeOpen,
@@ -337,6 +344,8 @@ function Sidebar({
   systemSubNav: NavItem[];
   open: boolean;
   onClose: () => void;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
   width: number;
   pipelineTree: PipelineTreeNode;
   pipelineTreeOpen: Set<string>;
@@ -355,6 +364,7 @@ function Sidebar({
   onSelectStepTeam: (path: string) => void;
   onSelectScopeTeam: (path: string) => void;
 }) {
+  const sidebarWidth = collapsed ? SIDEBAR_COLLAPSED_WIDTH : width;
   const isPipelinesRoute = locationPathname.startsWith('/pipelines');
   const isTriggersRoute = locationPathname.startsWith('/triggers');
   const isStepsRoute = locationPathname.startsWith('/steps');
@@ -603,24 +613,41 @@ function Sidebar({
       ></div>
       <aside
         id="sidebar"
-        className={`app-sidebar-shell bg-[var(--bg-secondary)] border-r border-[var(--border-primary)] flex-shrink-0 flex flex-col transition-transform duration-300 ease-in-out h-full z-20 w-80 sidebar-scrollbar overflow-hidden
+        className={`app-sidebar-shell ${collapsed ? 'app-sidebar-shell--collapsed' : ''} bg-[var(--bg-secondary)] border-r border-[var(--border-primary)] flex-shrink-0 flex flex-col transition-transform duration-300 ease-in-out h-full z-20 w-80 sidebar-scrollbar overflow-hidden
           ${open ? 'translate-x-0' : '-translate-x-full'} sm:translate-x-0 fixed sm:static`}
-        style={{ width, minWidth: SIDEBAR_MIN_WIDTH, maxWidth: SIDEBAR_MAX_WIDTH }}
+        style={{
+          width: sidebarWidth,
+          minWidth: collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_MIN_WIDTH,
+          maxWidth: collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_MAX_WIDTH,
+        }}
       >
         <div className="app-sidebar-brand-row flex items-center justify-between px-6 h-16 border-b border-[var(--border-primary)] flex-shrink-0">
-          <BrandIdentity className="sidebar-brand" />
-          <button
-            id="close-sidebar-btn"
-            className="sm:hidden text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-            onClick={onClose}
-            aria-label="Close sidebar"
-          >
-            <IconX />
-          </button>
+          <BrandIdentity className="sidebar-brand" variant={collapsed ? 'mark' : 'wordmark'} />
+          <div className="app-sidebar-brand-actions">
+            <button
+              id="collapse-sidebar-btn"
+              type="button"
+              className="app-sidebar-icon-button hidden sm:inline-flex"
+              onClick={onToggleCollapsed}
+              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-pressed={collapsed}
+              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
+              <IconMenu />
+            </button>
+            <button
+              id="close-sidebar-btn"
+              className="sm:hidden text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+              onClick={onClose}
+              aria-label="Close sidebar"
+            >
+              <IconX />
+            </button>
+          </div>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto sidebar-scrollbar">
           <BaseSidebarNavigation navItems={navItems} systemSubNav={systemSubNav} locationPathname={locationPathname} />
-          {showSidebarContextNav && (
+          {showSidebarContextNav && !collapsed && (
             <nav id="sidebar-details-nav" className="sidebar-context-nav border-t border-[var(--border-primary)] px-4 py-4 space-y-2" aria-label="Contextual">
               {isPipelineRunsRoute ? (
                 <PipelineRunsSidebarContent

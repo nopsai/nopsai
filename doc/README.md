@@ -37,7 +37,7 @@ Existing focused docs:
 - [llm-model-selection.md](./llm-model-selection.md): LLM provider and model notes.
 - [mcp-pipeline-integration.md](./mcp-pipeline-integration.md): MCP integration details.
 - [mcp-feature-coverage.md](./mcp-feature-coverage.md): Hosted MCP feature coverage, user-scoped permissions, and enterprise automation boundaries.
-- [wiki](./wiki): Earlier broad control-plane/data-plane overview.
+- [wiki](./wiki): Product-wiki source map for the in-app documentation page, including supported deployment models, GitOps authority, AI/MCP, operations, security boundaries, and confirmed implementation gaps.
 
 Recommended reading order:
 

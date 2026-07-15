@@ -1,142 +1,214 @@
-# Nopsai: Control Plane + Data Plane Guide
+# NopsAI Product Wiki Source Map
 
-Related docs:
+This document is the repository-side source map for the in-app product wiki at
+`services/ui/src/pages/ProductDocs.tsx` and its data model at
+`services/ui/src/features/product-docs/model.ts`.
 
-- `doc/README.md`
-- `doc/architecture-overview.md`
-- `doc/service-reference.md`
-- `doc/access-control.md`
-- `doc/runtime-flows.md`
-- `doc/feature-reference.md`
-- `doc/decision-architecture.md`
-- `doc/jwt-authentication.md`
+The wiki is intentionally grounded in the current repository implementation. It
+should not describe future-state infrastructure, storage, autoscaling, or
+cloud-specific automation unless that capability is backed by runtime code,
+deployment files, tests, and focused docs.
 
-This guide documents the current architecture, how to run the stack, and how to use every major feature after the dispatcher/runner split.
+## Source Priority
 
----
+Use this order when updating product documentation:
 
-## Architecture at a Glance
+1. Runtime code, schemas, and route behavior.
+2. Docker Compose and Helm deployment files.
+3. Focused markdown under `doc/`.
+4. Root README examples.
+5. UI help text only when it agrees with implementation.
 
-- **Core API (`services/nopsai`)** – Brain + database owner. Receives run requests, validates pipelines, resolves secrets/variables, records runs/logs, and now hands execution to the Dispatcher instead of calling Docker directly.
-- **AAA (`services/aaa`)** – Internal authorization decision service. Handles subject introspection, checks, filtering, and authorization decision logging from Postgres-backed policy data.
-- **Dispatcher (`services/dispatcher`)** – Control plane switchboard. Tracks connected runners, heartbeats, and capacity; routes jobs by scope using `dispatcher_routing`; requeues on disconnect.
-- **Docker Runner (`services/docker-runner`)** – Long-lived daemon on Docker-capable hosts. Opens an outbound gRPC stream to the Dispatcher, receives jobs, starts the agent container with the supplied runtime variable/volume config, forwards logs to Nopsai, and reports job results.
-- **Agent (`services/agent`)** – Per-run container that orchestrates pipeline steps/tasks, calls the configured LLM provider for LLM actions, masks secrets, and reports step/task status back to Nopsai/GitHub.
-- **Git Bot (`services/git-bot`)** – GitHub App webhook handler; creates check runs, fetches pipeline sources, posts status, supports reruns/cancels, and cancels stale checks.
-- **UI (`services/ui`)** – Reads authenticated REST APIs for runs, graphs, logs, teams, access management, and branch hygiene actions.
-- **PostgreSQL** – Stores pipelines, triggers, reusable steps, secrets/variables, runs, tasks, logs, and teams.
+## Wiki Sections
 
-Flow: GitHub event or user request → Nopsai authenticates and checks AAA → Nopsai validates + enqueues → Dispatcher selects a runner by scope/capacity → Runner launches Agent → Agent talks back through Dispatcher → Nopsai persists logs/status and Git Bot updates checks.
+The in-app wiki is organized for operators and enterprise users rather than as
+a flat feature catalog.
 
----
+```text
+Product and Architecture
+├── What NopsAI is
+├── Control plane and execution plane
+└── Normal run lifecycle
 
-## Deploy the Stack (Docker Compose)
+Installation
+├── First-install wizard
+├── Docker Compose
+├── Kubernetes and Helm
+└── Additional runners
 
-1. **Prereqs**: Docker + Docker Compose, Gemini key, GitHub App credentials, and a generated `NOPSAI_MASTER_KEY`.
-2. **Config**: Review `config.yml` for non-secret runtime defaults and the
-   per-service `environment` blocks in `docker-compose.yaml` for bootstrap
-   values. Override real secrets from your shell or deployment secret manager.
-   Key additions:
-   - `DISPATCHER_LISTEN_ADDRESS` (default `:9090`), `DISPATCHER_GRPC_ADDRESS` (what clients dial, default `dispatcher:9090`).
-   - `SERVICE_JWT_SIGNING_KEY` for internal REST and dispatcher gRPC service authentication. Optional: `SERVICE_JWT_ISSUER`, `SERVICE_JWT_AUDIENCE`, `NOPSAI_SERVICE_ID`, `RUNNER_SERVICE_ID`, `AGENT_SERVICE_ID`.
-   - `AAA_LISTEN_ADDRESS` (default `:8082`), `AAA_API_URL` (default `http://aaa:8082`), and `AAA_SHARED_INTERNAL_TOKEN` for Nopsai-to-AAA calls.
-   - `DISPATCHER_ROUTING` (YAML in `config.yml`) maps scope → allowed runner IDs; per-runner `RUNNER_ID`, `RUNNER_SCOPES` (comma list), and `RUNNER_CAPACITY` belong on generated runner installs, not the local control-plane containers.
-   - Existing fields still apply: DB URL, Gemini model/key, service listen addresses, Docker network name, agent image, log format/level, GitBot URLs, config repo URL, defaults for timeouts.
-3. **Compose up**:
-   ```bash
-   docker-compose up --build -d
-   ```
-   Services: `nopsai`, `aaa`, `dispatcher`, `docker-runner`, `git-bot`, `nopsai-ui`, Postgres, plus build-only images (`agent`, `pipeline`, `k8s-runner`).
-4. **Verify**:
-   - Dispatcher: `nc -z localhost 9090` (or check logs for “dispatcher listening”).
-   - Runner: logs should show registration + heartbeats; ensure `/var/run/docker.sock` is mounted.
-   - Core API: `curl http://localhost:8080/v1/runs` returns an empty list.
-5. **Initial sync** (optional): `curl -X POST http://localhost:8080/v1/internal/config/sync` to pull pipelines/steps/triggers from the config repo.
+Platform Administration
+├── Networking and exposure
+├── Storage and persistence
+├── Configuration authority and GitOps
+├── Credentials, secrets, and variables
+└── Authentication, AAA, teams, and scopes
 
----
+Automation Authoring
+├── Pipeline YAML schema
+├── Approvals, reusable steps, and child pipelines
+├── Git triggers and Git webhook sources
+└── Schedules and external triggers
 
-## Config Reference (selected)
+AI, MCP, and Knowledge
+├── AI control layers
+├── LLM Profiles
+├── External and hosted MCP
+├── Knowledge Context
+└── Final deliverables
 
-- **Networking**: `nopsai_listen_address`, `git_bot_listen_address`, `dispatcher_listen_address`.
-- **Service-to-service URLs**: use deployment env `NOPSAI_API_URL`, `GIT_BOT_API_URL`, `DISPATCHER_GRPC_ADDRESS`, and `AAA_API_URL`; GitOps fields are `nopsai_api_url`, `git_bot_api_url`, `dispatcher_grpc_address`, and `aaa_api_url`.
-- **Service auth**: `service_jwt_signing_key` signs internal REST and dispatcher gRPC service tokens for `nopsai`, `dispatcher`, `runner`, and `agent` callers. `service_jwt_issuer` and `service_jwt_audience` default to internal dispatcher values.
-- **JWT details**: See `doc/jwt-authentication.md` for user/API tokens, refresh tokens, internal REST service JWTs, and dispatcher gRPC service JWTs.
-- **AAA**: `aaa_listen_address`, `aaa_shared_internal_token`; protected AAA endpoints require `X-Internal-Token`.
-- **Dispatcher routing**: In `config.yml`:
-  ```yaml
-  dispatcher_routing:
-    prod: ["runner-prod-1", "runner-prod-2"]
-    "*": ["runner-general"]
-  ```
-  Runners must use matching `RUNNER_ID` and declare scopes via `RUNNER_SCOPES`.
-- **Runtime GitOps**: The global config repo can manage runner install defaults,
-  supported runtime URLs, agent defaults, `runtime_pools`, and `dispatcher_routing` in
-  `setting/system/runner.yaml`. Synced values are persisted in the database and
-  reloaded before NopsAI connects to the dispatcher on restart; routing changes
-  are also exposed through the dispatcher control-plane polling path for live
-  scheduling updates.
-- **Runner**: `RUNNER_ID`, `RUNNER_SCOPES` (e.g., `dev,prod`), `RUNNER_CAPACITY` (concurrent jobs). Mount Docker socket on the runner container/host.
-- **Agent defaults**: `agent_image`, `docker_network_name`, `auto_removal_agent_container`, `default_pipeline_timeout`, `llm_agent_timeout`.
-- **Secrets/vars**: Master key from `NOPSAI_MASTER_KEY`; secrets encrypted with AES-256-GCM and scope-aware resolution stays unchanged.
+Operations
+├── Monitoring and metrics
+├── Pipeline Logs and System Logs
+├── Notifications
+├── Backups, cleanup, and restore boundary
+└── Release integrity and compatibility
 
----
+Interfaces
+├── REST API
+├── CLI
+└── Hosted NopsAI MCP interface
 
-## Working With Pipelines
+Security and Reference
+├── Production hardening checklist
+├── Troubleshooting index
+└── Confirmed gaps and limits
+```
 
-- **Definitions** live under `.nopsai/` in repos or the DB (overrides). Fields: `name`, `version`, `description`, `timeout`, `container_image`, `display_options`, `llm_*` flags, top-level `variables`, steps/tasks with `goal`/`script`, `condition`, `depends_on`, `secrets`, `volumes`, and `include` for nested pipelines/steps.
-- **Triggers** in `.nopsai/triggers.yaml` map Git events to pipelines and scopes with branch/tag globs.
-  - Branch and tag globs cannot coexist in a single `on: push` rule; use separate rules for branch pushes vs. tag pushes.
-- **Overrides**: Store pipelines or triggers in DB; git-bot and core will prefer overrides when present.
-- **Scopes**: Provide isolation for secrets/variables; dispatcher also uses scope to target runners.
+## Current Product Boundaries
 
----
+NopsAI is a self-hosted automation control plane for YAML-defined workflows
+executed by Docker or Kubernetes runners.
 
-## Running & Monitoring
+Implemented workflow building blocks include:
 
-- **Manual run**: `curl -X POST http://localhost:8080/v1/run -H 'Content-Type: application/json' -d '{"pipeline":"main-pipeline","scope":"dev"}'`
-- **Rerun / cancel**: POST to `/v1/runs/{runID}/rerun` or `/v1/runs/{runID}/cancel`.
-- **Logs**: runners post batches to `/v1/runs/{runID}/logs/ingest`; the UI polls `/v1/runs/{runID}/logs?since_line=...` for incremental history.
-- **Status**: `/v1/runs/{runID}/status` or `/v1/runs-by-check/{checkRunID}`.
-- **Teams**: Manage via `/v1/teams` endpoints to organize repos/runs.
-- **Access**: Manage product-role grants through `/v1/access/grants` and inspect decisions with `/v1/access/effective-permissions`.
-- **Branch hygiene**: `DELETE /v1/repositories/{owner}/{repo}/branches/{branch...}` to prune runs for obsolete branches.
+- deterministic shell scripts
+- LLM-backed goals
+- reusable steps
+- child pipelines
+- human approvals
+- scoped variables and encrypted secrets
+- governed Knowledge Context
+- LLM Profiles, Agent Profiles, and MCP Profiles
+- manual, scheduled, Git, external-trigger, child-pipeline, and rerun entry
+  points
+- final Markdown, JSON, HTML, PDF, and Excel deliverables
 
----
+The control plane includes the API, UI, AAA, dispatcher, git-bot, PostgreSQL,
+Gotenberg, and the restricted Docker socket proxy. The execution plane includes
+Docker runners, Kubernetes runners, per-run agents, step containers or pods, and
+shared run workspaces.
 
-## GitHub Flow
+## Supported Deployment Models
 
-1. GitHub App receives webhook → git-bot validates HMAC.
-2. git-bot fetches pipeline/triggers, creates/updates check run, posts run request to Nopsai.
-3. Nopsai records run, checks AAA, resolves includes/variables/secrets, submits job to Dispatcher.
-4. Dispatcher picks a runner (scope + least-active + routing).
-5. Runner launches Agent, streams logs back, reports job status to Dispatcher, Agent reports task status to Nopsai/GitHub.
-6. git-bot updates check runs with step/task progress, failures, and rerun/cancel actions; stale checks are cancelled.
+| Deployment | Use case | Runtime | Database |
+| --- | --- | --- | --- |
+| Docker Compose | Development, demos, evaluation, and small single-host installs | Docker runner | Included PostgreSQL 15 |
+| Release bundle | Version-pinned single-host deployment | Docker runner | Deployment-managed PostgreSQL |
+| Helm/Kubernetes | Cluster-based production deployment | Kubernetes runner | External PostgreSQL |
+| Hybrid runners | Central control plane with remote Docker or Kubernetes runners | Docker and Kubernetes runners | Control-plane PostgreSQL |
 
----
+The Helm chart deploys API, AAA, dispatcher, git-bot, UI, Gotenberg, and the
+Kubernetes runner. PostgreSQL and bootstrap secrets are intentionally external.
 
-## Operations Tips
+## Bootstrap Configuration
 
-- Watch runner heartbeats in dispatcher logs; if missing >30s, dispatcher marks runner stale and requeues jobs.
-- Ensure each runner has correct `RUNNER_SCOPES`; jobs without a matching runner will queue until a compatible runner connects.
-- To add capacity, start additional runner containers pointing at the same dispatcher.
-- If the core API restarts, running agents continue and will still post logs/status through the runner/dispatcher path.
+Required bootstrap values:
 
----
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL connection |
+| `NOPSAI_MASTER_KEY` | Root encryption material |
+| `JWT_SIGNING_KEY` | User/API access-token signing |
+| `SERVICE_JWT_SIGNING_KEY` | Internal REST and dispatcher service-token signing |
+| `AAA_SHARED_INTERNAL_TOKEN` | Internal NopsAI-to-AAA authentication |
 
-## Security Notes
+Production mode should also keep dispatcher transport security enabled through
+`DISPATCHER_TLS_MODE=mtls` or `DISPATCHER_TLS_MODE=tls`.
 
-- Secrets stay encrypted at rest; logs are masked before leaving the agent.
-- AAA denies before allows, logs denied decisions and sensitive allowed decisions, and is reachable only through the internal token-protected service interface.
-- Use TLS/mTLS on gRPC endpoints in production (current defaults use insecure creds for local/dev).
-- Protect the API/git-bot ingress with auth if exposed beyond trusted networks.
+## GitOps Authority
 
----
+Bootstrap environment and deployment secrets are not the long-term product
+source of truth. GitOps can manage:
 
-## Quick Commands
+- `pipelines/`
+- `steps/`
+- `schedules/`
+- `triggers/`
+- `external-triggers/`
+- `git-webhook-sources/`
+- `scopes/`
+- `knowledge/`
+- `access/`
+- `config-repositories/`
+- `setting/system/`
 
-- Compose up: `docker-compose up --build -d`
-- Tail dispatcher: `docker logs -f nopsai-dispatcher`
-- Tail Docker runner: `docker logs -f nopsai-docker-runner`
-- Trigger config sync: `curl -X POST http://localhost:8080/v1/internal/config/sync`
+Canonical system files include:
 
-With these pieces, Nopsai now follows a standard CI/CD control-plane/data-plane pattern similar to GitHub Actions or GitLab Runners, making it easier to scale and to place runners near your workloads.
+- `setting/system/credentials.yaml`
+- `setting/system/github.yaml`
+- `setting/system/runner.yaml`
+- `setting/system/auth.yaml`
+- `setting/system/mail.yaml`
+- `setting/system/llm_profile.yaml`
+- `setting/system/mcp.yaml`
+- `setting/system/agent-profiles.yaml`
+
+UI or API edits to GitOps-managed resources create database overrides. The next
+sync can replace or recreate those resources unless the desired change is pushed
+back to the owning configuration repository.
+
+## AI and MCP Boundaries
+
+Agent Profiles, LLM Profiles, MCP Profiles, Knowledge Context, AAA, and pipeline
+schema are separate control layers:
+
+- Agent Profiles control persona and prompt behavior.
+- LLM Profiles control provider, model, endpoint, credential reference, and
+  generation settings.
+- MCP Profiles control approved external servers and tools.
+- Knowledge Context supplies architecture, policies, guardrails, examples, and
+  runbooks.
+- AAA decides whether the original caller may use each selected resource.
+
+External MCP currently uses streamable HTTP. Pipeline YAML may reference only
+approved MCP profiles and cannot define arbitrary server URLs. NopsAI also
+exposes a hosted MCP endpoint at `POST /v1/mcp`, filtered by AAA permissions.
+
+## Operations Boundary
+
+Monitoring is authorization-filtered and covers runs, pipelines, steps, tasks,
+triggers, external triggers, runners, LLM usage, reliability, efficiency, and
+security. The API exposes Prometheus metrics at `GET /metrics`.
+
+Pipeline logs are durable run records. System Logs are live allow-listed
+platform container or pod logs streamed through authenticated SSE. Docker
+deployments use the restricted socket proxy; Kubernetes deployments use
+read-only `pods` and `pods/log` RBAC.
+
+Product backups are gzip-compressed JSON Lines files under `/data/backups` by
+default. The default Compose topology does not mount that path as durable
+storage, so production deployments must mount or export it. The current product
+supports backup creation, listing, checksum metadata, download, and cleanup; a
+complete product-managed restore workflow is not implemented.
+
+## Do Not Claim These As Implemented
+
+The current repository does not establish these capabilities:
+
+- Terraform modules.
+- AWS-, Azure-, or Google Cloud-specific deployment automation.
+- Built-in Redis dependency.
+- S3 or generic object-storage artifact or backup backend.
+- Helm-managed PostgreSQL.
+- Documented HPA/autoscaling implementation.
+- Documented Kubernetes NetworkPolicy set.
+- Complete air-gap installation workflow.
+- Product-managed backup upload to object storage.
+- Verified product-managed restore workflow.
+- Production sizing or throughput benchmark.
+- Automatic certificate-management integration.
+- Multi-region database or control-plane architecture.
+- Guaranteed high availability from simply increasing every replica count.
+
+These can be valid roadmap items, but they should not appear in the
+current-version wiki as implemented behavior without implementation evidence.

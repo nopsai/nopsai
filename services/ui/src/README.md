@@ -6,9 +6,9 @@ truth; this file is the source-adjacent placement guide.
 
 ## Placement Rules
 
-- `app/` owns shell composition, route wiring, sidebar state, top-level
-  navigation topic grouping, navigation trees, setup redirect behavior, and
-  run-sidebar orchestration.
+- `app/` owns shell composition, route wiring, sidebar state, desktop
+  collapse/resize behavior, top-level navigation topic grouping, navigation
+  trees, setup redirect behavior, and run-sidebar orchestration.
 - `auth/` owns session state, current-user loading, capability normalization,
   route guards, and redirect safety.
 - `lib/api.ts` owns API base URL resolution, token persistence, bearer-token
