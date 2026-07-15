@@ -57,6 +57,7 @@ const (
 	knowledgeProviderErrorAuthentication  knowledgeProviderErrorKind = "authentication_required"
 	knowledgeProviderErrorPermission      knowledgeProviderErrorKind = "permission_denied"
 	knowledgeProviderErrorUnavailable     knowledgeProviderErrorKind = "provider_unavailable"
+	knowledgeProviderErrorDisabled        knowledgeProviderErrorKind = "connection_disabled"
 	knowledgeProviderErrorPageUnavailable knowledgeProviderErrorKind = "page_unavailable"
 	knowledgeProviderErrorPageTooLarge    knowledgeProviderErrorKind = "page_too_large"
 	knowledgeProviderErrorInvalidRequest  knowledgeProviderErrorKind = "invalid_request"
@@ -89,6 +90,8 @@ func knowledgeProviderErrorStatus(err error) string {
 			return knowledgeConnectionStatusPermissionDenied
 		case knowledgeProviderErrorPageUnavailable:
 			return "page_unavailable"
+		case knowledgeProviderErrorDisabled:
+			return knowledgeConnectionStatusDisabled
 		default:
 			return knowledgeConnectionStatusProviderUnavailable
 		}

@@ -383,6 +383,8 @@ func hostedMCPFeatureCapabilityCatalog() []hostedMCPFeatureCapability {
 				"Repo-local markdown documents",
 				"Run-resolved context storage",
 				"Knowledge context CRUD",
+				"External page provider connections",
+				"Manual, before-run, and periodic external sync status",
 			},
 			Coverage: "first_class",
 			Mode:     "read/traversal and GitOps-ready write plans first-class",
@@ -438,6 +440,7 @@ func hostedMCPFeatureCapabilityCatalog() []hostedMCPFeatureCapability {
 			Notes: []string{
 				"Repo-local markdown is intentionally reported as run-time-only because it resolves from repository commit state.",
 				"Managed knowledge context writes return GitOps file plans and do not mutate database state directly.",
+				"External page links and provider connections are API-managed runtime resources; GitOps export skips external-page rows to avoid flattening provider links into inline markdown.",
 			},
 		},
 		{

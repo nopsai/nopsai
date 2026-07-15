@@ -455,6 +455,15 @@ export function buildKnowledgeConnectionTeamSummaries(
     if (normalized) ensureSummary(normalized);
   });
 
+  const documentsByConnection = new Map<string, string[]>();
+  const addConnectionDocument = (connectionID: string | undefined, documentID: string) => {
+    const normalizedID = (connectionID || '').trim();
+    if (!normalizedID) return;
+    const existing = documentsByConnection.get(normalizedID) || [];
+    if (!existing.includes(documentID)) existing.push(documentID);
+    documentsByConnection.set(normalizedID, existing);
+  };
+
   items.forEach(item => {
     const summary = ensureSummary(documentTeamPath(item));
     summary.documentCount += 1;
@@ -466,11 +475,23 @@ export function buildKnowledgeConnectionTeamSummaries(
     if ((source === 'notion' || source === 'confluence' || source === 'external') && !summary.providers.includes(source)) {
       summary.providers.push(source);
     }
+    addConnectionDocument(item.connection_ref, item.id);
+    addConnectionDocument(item.connection_id, item.id);
   });
 
   connections.forEach(connection => {
     const summary = ensureSummary(connection.team);
-    summary.connections.push(connection);
+    const linkedDocuments = [
+      ...(connection.used_by || []),
+      ...(documentsByConnection.get(connection.id) || []),
+      ...(documentsByConnection.get(connection.uuid || '') || []),
+    ].filter((id, index, list) => id && list.indexOf(id) === index);
+    summary.connections.push({
+      ...connection,
+      used_by: linkedDocuments,
+      document_count: connection.document_count ?? linkedDocuments.length,
+      external_document_count: connection.external_document_count ?? linkedDocuments.length,
+    });
     const provider = normalizeKnowledgeConnectionProvider(connection.provider);
     if (provider && !summary.providers.includes(provider)) summary.providers.push(provider);
   });

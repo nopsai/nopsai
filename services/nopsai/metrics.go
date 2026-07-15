@@ -188,6 +188,12 @@ func (a *App) buildPrometheusMetrics(ctx context.Context) (string, error) {
 	if err := a.appendKnowledgeContextSyncStatusMetrics(ctx, &out); err != nil {
 		return "", err
 	}
+	writeMetricHelp(&out, "nopsai_knowledge_context_cache_age_seconds", "Maximum external Knowledge Context cache age in seconds by provider and sync mode.")
+	writeMetricType(&out, "nopsai_knowledge_context_cache_age_seconds", "gauge")
+	if err := a.appendKnowledgeContextCacheAgeMetrics(ctx, &out); err != nil {
+		return "", err
+	}
+	a.appendKnowledgeContextSyncRuntimeMetrics(&out)
 	writeMetricHelp(&out, "nopsai_audit_events_total", "Audit events by provider, action, and result.")
 	writeMetricType(&out, "nopsai_audit_events_total", "counter")
 	if err := a.appendAuditEventTotals(ctx, &out); err != nil {
@@ -1071,6 +1077,84 @@ func (a *App) appendKnowledgeContextSyncStatusMetrics(ctx context.Context, out *
 		}, count)
 	}
 	return rows.Err()
+}
+
+func (a *App) appendKnowledgeContextCacheAgeMetrics(ctx context.Context, out *strings.Builder) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT COALESCE(NULLIF(external_provider, ''), source, 'unknown'),
+		       COALESCE(NULLIF(sync_mode, ''), 'manual'),
+		       MAX(EXTRACT(EPOCH FROM NOW() - last_synced_at))::float8
+		FROM knowledge_contexts
+		WHERE last_synced_at IS NOT NULL
+		  AND (
+		    content_source = 'external_page'
+		    OR connection_id IS NOT NULL
+		    OR external_page_id <> ''
+		    OR external_page_url <> ''
+		  )
+		GROUP BY 1, 2
+		ORDER BY 1, 2
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var provider, syncMode string
+		var ageSeconds float64
+		if err := rows.Scan(&provider, &syncMode, &ageSeconds); err != nil {
+			return err
+		}
+		writeMetricLine(out, "nopsai_knowledge_context_cache_age_seconds", map[string]string{
+			"provider":  normalizeMetricLabel(provider),
+			"sync_mode": normalizeMetricLabel(syncMode),
+		}, ageSeconds)
+	}
+	return rows.Err()
+}
+
+func (a *App) appendKnowledgeContextSyncRuntimeMetrics(out *strings.Builder) {
+	attempts, durations, beforeRunBlocks := a.knowledgeSyncMetrics.snapshot()
+	writeMetricHelp(out, "nopsai_knowledge_context_sync_attempts_total", "External Knowledge Context sync attempts by provider, sync mode, and result.")
+	writeMetricType(out, "nopsai_knowledge_context_sync_attempts_total", "counter")
+	for key, value := range attempts {
+		writeMetricLine(out, "nopsai_knowledge_context_sync_attempts_total", map[string]string{
+			"provider":  key.Provider,
+			"sync_mode": key.Mode,
+			"result":    key.Result,
+		}, value)
+	}
+	writeMetricHelp(out, "nopsai_knowledge_context_sync_duration_seconds_total", "Total external Knowledge Context sync duration by provider, sync mode, and result.")
+	writeMetricType(out, "nopsai_knowledge_context_sync_duration_seconds_total", "counter")
+	for key, value := range durations {
+		if key.Mode == "" {
+			continue
+		}
+		writeMetricLine(out, "nopsai_knowledge_context_sync_duration_seconds_total", map[string]string{
+			"provider":  key.Provider,
+			"sync_mode": key.Mode,
+			"result":    key.Result,
+		}, value)
+	}
+	writeMetricHelp(out, "nopsai_knowledge_provider_request_duration_seconds_total", "Total provider page request duration for Knowledge Context synchronization.")
+	writeMetricType(out, "nopsai_knowledge_provider_request_duration_seconds_total", "counter")
+	for key, value := range durations {
+		if key.Operation == "" {
+			continue
+		}
+		writeMetricLine(out, "nopsai_knowledge_provider_request_duration_seconds_total", map[string]string{
+			"provider":  key.Provider,
+			"operation": key.Operation,
+			"result":    key.Result,
+		}, value)
+	}
+	writeMetricHelp(out, "nopsai_knowledge_context_before_run_blocks_total", "Pipeline run preparations blocked by unavailable external Knowledge Context.")
+	writeMetricType(out, "nopsai_knowledge_context_before_run_blocks_total", "counter")
+	for provider, value := range beforeRunBlocks {
+		writeMetricLine(out, "nopsai_knowledge_context_before_run_blocks_total", map[string]string{
+			"provider": provider,
+		}, value)
+	}
 }
 
 func (a *App) appendApprovalWaitDurationHistogram(ctx context.Context, out *strings.Builder) error {

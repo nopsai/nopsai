@@ -456,7 +456,7 @@ export function KnowledgeContextModals({
                 {isEditingConnection ? 'Update knowledge connection' : 'New knowledge connection'}
               </p>
               <h3 id={connectionTitleId} className="text-lg font-semibold text-[var(--text-primary)]">
-                {isEditingConnection ? 'Reconnect external page provider' : 'Add external page connection'}
+                {isEditingConnection ? 'Edit external page connection' : 'Add external page connection'}
               </h3>
             </div>
             <button type="button" className="glass-button-ghost" onClick={onCloseConnection} disabled={connectionModal.pending}>

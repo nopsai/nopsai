@@ -296,7 +296,10 @@ CREATE TABLE knowledge_contexts (
     source_modified_at TIMESTAMPTZ,
     sync_status TEXT NOT NULL DEFAULT 'not_synced',
     last_sync_status TEXT NOT NULL DEFAULT '',
+    last_sync_started_at TIMESTAMPTZ,
     last_synced_at TIMESTAMPTZ,
+    next_sync_attempt_at TIMESTAMPTZ,
+    sync_attempt_count INTEGER NOT NULL DEFAULT 0,
     sync_error TEXT NOT NULL DEFAULT '',
     last_sync_error TEXT NOT NULL DEFAULT '',
     content_hash TEXT NOT NULL DEFAULT '',
@@ -310,6 +313,8 @@ CREATE TABLE knowledge_contexts (
 );
 
 CREATE INDEX idx_knowledge_contexts_connection_id ON knowledge_contexts(connection_id);
+CREATE INDEX idx_knowledge_contexts_periodic_sync_due ON knowledge_contexts(sync_mode, next_sync_attempt_at, last_synced_at)
+    WHERE sync_mode = 'periodic' AND (content_source = 'external_page' OR connection_id IS NOT NULL OR external_page_id <> '' OR external_page_url <> '');
 
 CREATE TABLE secrets (
     id SERIAL PRIMARY KEY,

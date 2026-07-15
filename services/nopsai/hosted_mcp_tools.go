@@ -1124,8 +1124,9 @@ func (a *App) hostedMCPListKnowledgeContexts(ctx context.Context, subject aaamod
 	usedByPipeline := strings.Trim(strings.TrimSpace(stringArg(args, "used_by_pipeline")), "/")
 
 	rows, err := a.db.Query(ctx, `
-		SELECT id::text, kind, team_path, name, description, source,
-		       managed_by_config_repo, config_source_path, config_source_commit_sha, updated_at
+			SELECT id::text, kind, team_path, name, description, source,
+			       managed_by_config_repo, config_source_path, config_source_commit_sha, updated_at,
+			       sync_mode, sync_interval_minutes, failure_mode, sync_status, sync_error
 		FROM knowledge_contexts
 		WHERE ($1 = '' OR kind = $1)
 		  AND ($2 = '' OR team_path = $2 OR team_path LIKE $2 || '/%')
@@ -1143,7 +1144,11 @@ func (a *App) hostedMCPListKnowledgeContexts(ctx context.Context, subject aaamod
 	for rows.Next() {
 		var item knowledgeContextListItem
 		var managed bool
-		if err := rows.Scan(&item.UUID, &item.Kind, &item.Team, &item.Name, &item.Description, &item.Source, &managed, &item.GitOpsPath, &item.GitOpsCommit, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(
+			&item.UUID, &item.Kind, &item.Team, &item.Name, &item.Description, &item.Source,
+			&managed, &item.GitOpsPath, &item.GitOpsCommit, &item.UpdatedAt,
+			&item.SyncMode, &item.SyncInterval, &item.FailureMode, &item.SyncStatus, &item.SyncError,
+		); err != nil {
 			return nil, err
 		}
 		item.ID = buildKnowledgeContextIdentifier(item.Kind, item.Team, item.Name)
@@ -1833,6 +1838,7 @@ func hostedMCPKnowledgeContextListItem(item knowledgeContextListItem) map[string
 		"external_page_id":           item.ExternalPageID,
 		"external_page_url":          item.ExternalPageURL,
 		"sync_mode":                  item.SyncMode,
+		"sync_interval_minutes":      item.SyncInterval,
 		"failure_mode":               item.FailureMode,
 		"sync_status":                item.SyncStatus,
 		"last_synced_at":             item.LastSyncedAt,

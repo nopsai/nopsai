@@ -153,4 +153,5 @@ func (a *App) StartBackgroundWorkers(ctx context.Context) {
 	go a.runScheduleWorker(ctx)
 	go a.runDataCleanupScheduleWorker(ctx)
 	go a.runOIDCEntitlementSyncWorker(ctx)
+	go a.runKnowledgeContextPeriodicSyncWorker(ctx)
 }

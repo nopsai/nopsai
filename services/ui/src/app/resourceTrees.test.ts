@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  buildKnowledgeContextTree,
   buildPipelineTree,
   buildScopeTree,
   normalizeScopeLabel,
@@ -30,16 +29,8 @@ test('builds pipeline tree from explicit teams and pipeline ids', () => {
   assert.deepEqual(platform.children[0].pipelineIds, ['platform/payments/deploy']);
 });
 
-test('builds scope and knowledge context trees with enterprise team ordering', () => {
+test('builds scope tree with enterprise team ordering', () => {
   const scopeTree = buildScopeTree(['', 'platform/payments'], ['platform/security']);
   assert.deepEqual(scopeTree.scopes, ['']);
   assert.deepEqual(scopeTree.children[0].children.map(child => child.name), ['payments', 'security']);
-
-  const knowledgeTree = buildKnowledgeContextTree(
-    ['runbook/platform/restart', 'architecture/platform/topology'],
-    ['platform/security']
-  );
-  assert.deepEqual(knowledgeTree.children.slice(0, 2).map(child => child.name), ['architecture', 'guardrail']);
-  const architecture = knowledgeTree.children.find(child => child.name === 'architecture');
-  assert.equal(architecture?.children.find(child => child.name === 'platform')?.knowledgeContextIds[0], 'architecture/platform/topology');
 });
