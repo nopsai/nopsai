@@ -33,14 +33,6 @@ export type ScopeTreeNode = {
   scopes: string[];
 };
 
-export type KnowledgeContextTreeNode = {
-  id: string;
-  name: string;
-  fullPath: string;
-  children: KnowledgeContextTreeNode[];
-  knowledgeContextIds: string[];
-};
-
 export type ResourceCapabilities = {
   write?: boolean;
   delete?: boolean;

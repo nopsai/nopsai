@@ -36,6 +36,9 @@ const (
 	knowledgeFailureModeFail      = "fail"
 	knowledgeFailureModeSkip      = "skip"
 	knowledgeFailureModeUseCached = "use_cached"
+
+	defaultKnowledgeSyncIntervalMinutes = 60
+	minKnowledgeSyncIntervalMinutes     = 5
 )
 
 type knowledgeConnectionListItem struct {
@@ -212,6 +215,19 @@ func normalizeKnowledgeFailureMode(raw string) (string, error) {
 	}
 }
 
+func normalizeKnowledgeSyncIntervalMinutes(raw int, syncMode string) (int, error) {
+	if syncMode != knowledgeSyncModePeriodic {
+		return 0, nil
+	}
+	if raw == 0 {
+		return defaultKnowledgeSyncIntervalMinutes, nil
+	}
+	if raw < minKnowledgeSyncIntervalMinutes {
+		return 0, fmt.Errorf("sync_interval_minutes must be at least %d for periodic sync", minKnowledgeSyncIntervalMinutes)
+	}
+	return raw, nil
+}
+
 func (a *App) handleListKnowledgeConnections(w http.ResponseWriter, r *http.Request) {
 	teamFilter := strings.Trim(strings.TrimSpace(r.URL.Query().Get("team")), "/")
 	rows, err := a.db.Query(r.Context(), `
@@ -276,6 +292,7 @@ func (a *App) handleCreateKnowledgeConnection(w http.ResponseWriter, r *http.Req
 		http.Error(w, err.Error(), status)
 		return
 	}
+	a.auditKnowledgeConnectionAction(r.Context(), r, "knowledge_connection.created", record, "success", nil)
 	writeJSON(w, http.StatusCreated, record.knowledgeConnectionListItem)
 }
 
@@ -309,6 +326,7 @@ func (a *App) handleUpdateKnowledgeConnection(w http.ResponseWriter, r *http.Req
 		http.Error(w, err.Error(), status)
 		return
 	}
+	a.auditKnowledgeConnectionAction(r.Context(), r, "knowledge_connection.updated", record, "success", nil)
 	writeJSON(w, http.StatusOK, record.knowledgeConnectionListItem)
 }
 
@@ -321,8 +339,8 @@ func (a *App) handleDeleteKnowledgeConnection(w http.ResponseWriter, r *http.Req
 	if !a.requireAAADecision(w, r, "knowledge_connection.delete", aaamodel.ResourceRef{Type: grantResourceKnowledgeConnection, ID: record.ID}) {
 		return
 	}
+	affected := a.loadKnowledgeConnectionDependentContextIDs(r.Context(), record.UUID)
 	if record.DocumentCount > 0 {
-		affected := a.loadKnowledgeConnectionDependentContextIDs(r.Context(), record.UUID)
 		if !strings.EqualFold(r.URL.Query().Get("confirm"), "true") {
 			writeJSON(w, http.StatusConflict, knowledgeConnectionImpactResponse{
 				Error:                     "knowledge connection is still referenced by knowledge contexts",
@@ -341,6 +359,9 @@ func (a *App) handleDeleteKnowledgeConnection(w http.ResponseWriter, r *http.Req
 		http.Error(w, "knowledge connection not found", http.StatusNotFound)
 		return
 	}
+	a.auditKnowledgeConnectionAction(r.Context(), r, "knowledge_connection.deleted", record, "success", map[string]any{
+		"affected_knowledge_contexts": affected,
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 

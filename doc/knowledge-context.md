@@ -218,11 +218,33 @@ allows it. Team-scoped product roles and GitOps access grants can refer to the
 connection resource type independently from document resources.
 
 External page documents record the connection, provider, stable page ID or URL,
-sync mode, failure mode, and sync status on the `knowledge_contexts` row. The
-runtime continues to consume cached document content through the existing
-Knowledge Context snapshot path. If an external page document has no cached
-content yet, required runtime references fail instead of silently injecting an
-empty required context.
+sync mode, sync interval, failure mode, and sync status on the
+`knowledge_contexts` row. The runtime continues to consume cached document
+content through the existing Knowledge Context snapshot path. If an external page
+document has no cached content yet, required runtime references fail instead of
+silently injecting an empty required context.
+
+External page synchronization supports three modes:
+
+- `manual`: fetches only when a user or API caller requests sync
+- `before_run`: fetches during run preparation and stores the exact fetched text in the run snapshot
+- `periodic`: a background worker refreshes due documents using each document's configured interval
+
+The worker claims due rows idempotently with row locking, marks active work as
+`syncing`, recovers stuck jobs, applies provider timeouts and per-provider pacing,
+and uses bounded exponential retry before falling back to the configured periodic
+interval. Disabled connections are never fetched; affected documents move to
+`connection_disabled`.
+
+Failure behavior is:
+
+- `fail`: the run fails closed when the external page cannot be resolved
+- `use_cached`: the run uses the latest successful cached content and fails if no cache exists
+- `skip`: optional contexts are omitted; guardrail and policy contexts cannot use `skip`
+
+Structured sync logs, audit records for connection changes and manual sync, and
+Prometheus metrics expose connection health, sync status, cache age, sync
+attempts, provider request duration, and before-run knowledge blocks.
 
 REST endpoints:
 
@@ -247,8 +269,12 @@ returned by these APIs. Page search is provider-backed, URL resolution validates
 access immediately, and manual sync fetches prompt-friendly page text into the
 cached Knowledge Context content used by runtime snapshots.
 
-Config sync creates, updates, and prunes `knowledge_contexts` rows for files
-under `knowledge/`, just like it does for other Git-managed resources.
+Config sync creates, updates, and prunes inline `knowledge_contexts` rows for
+files under `knowledge/`, just like it does for other Git-managed resources.
+External page links and provider connections are API-managed runtime resources;
+GitOps export skips external-page rows to avoid converting provider-backed links
+into inline markdown snapshots. Existing inline and GitOps documents are
+unaffected by external sync.
 The UI mirrors existing teams under every supported knowledge kind, so a
 team such as `team-1/platform` is available as a team path under `guardrail`,
 `policy`, `guideline`, and the other kinds even before it has a document.

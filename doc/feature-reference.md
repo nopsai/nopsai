@@ -435,8 +435,9 @@ Pipeline notifications include:
 
 - Prometheus-friendly `GET /metrics` with DB-backed pipeline run, duration,
   queue duration, end-to-end duration, active/pending/approval, step, task,
-  final output, external trigger, LLM usage, runner capacity, approval wait,
-  audit, and notification delivery metrics
+  final output, external trigger, Knowledge Context connection health and sync
+  status/cache age, LLM usage, runner capacity, approval wait, audit, and
+  notification delivery metrics
 - backend-computed monitoring analytics under **Monitoring** with tabs for
   Overview, Runs, Pipelines, Steps & Tasks, Triggers, External Triggers,
   Runners, LLM Usage, Reliability, Efficiency, and Security

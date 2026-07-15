@@ -51,3 +51,19 @@ func TestKnowledgeSyncAndFailureModeNormalization(t *testing.T) {
 		t.Fatalf("failure mode = %q", failureMode)
 	}
 }
+
+func TestKnowledgePeriodicSyncIntervalNormalization(t *testing.T) {
+	interval, err := normalizeKnowledgeSyncIntervalMinutes(0, knowledgeSyncModePeriodic)
+	if err != nil {
+		t.Fatalf("normalize periodic default interval: %v", err)
+	}
+	if interval != defaultKnowledgeSyncIntervalMinutes {
+		t.Fatalf("default interval = %d, want %d", interval, defaultKnowledgeSyncIntervalMinutes)
+	}
+	if interval, err := normalizeKnowledgeSyncIntervalMinutes(0, knowledgeSyncModeManual); err != nil || interval != 0 {
+		t.Fatalf("manual interval = (%d, %v), want zero nil", interval, err)
+	}
+	if _, err := normalizeKnowledgeSyncIntervalMinutes(1, knowledgeSyncModePeriodic); err == nil {
+		t.Fatal("expected too-small periodic interval to fail")
+	}
+}

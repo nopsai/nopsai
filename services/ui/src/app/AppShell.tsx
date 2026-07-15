@@ -27,7 +27,6 @@ import {
 import { normalizeScopeLabel } from './resourceTrees';
 import type {
   CurrentUser,
-  KnowledgeContextTreeNode,
   NavItem,
   PipelineTreeNode,
   RunTeam,
@@ -217,7 +216,6 @@ function AppShell() {
   });
 
   const resourceTrees = useResourceTrees({
-    canViewKnowledge,
     canWritePipelines,
     canWriteSteps,
     draftScope,
@@ -258,9 +256,6 @@ function AppShell() {
               scopeTree={resourceTrees.scopeTree}
               scopeTreeOpen={resourceTrees.scopeTreeOpen}
               onToggleScopeNode={resourceTrees.onToggleScopeNode}
-              knowledgeContextTree={resourceTrees.knowledgeContextTree}
-              knowledgeContextTreeOpen={resourceTrees.knowledgeContextTreeOpen}
-              onToggleKnowledgeContextNode={resourceTrees.onToggleKnowledgeContextNode}
               splitIdentifier={resourceTrees.splitIdentifier}
               locationPathname={location.pathname}
               locationSearch={location.search}
@@ -268,7 +263,6 @@ function AppShell() {
               onSelectPipelineTeam={path => navigate(teamScopedRoute('/pipelines', path))}
               onSelectStepTeam={path => navigate(teamScopedRoute('/steps', path))}
               onSelectScopeTeam={path => navigate(teamScopedRoute('/scopes', path))}
-              onSelectKnowledgeContextTeam={path => navigate(teamScopedRoute('/knowledge-context', path))}
             />
             <div
               id="sidebar-resizer"
@@ -331,9 +325,6 @@ function Sidebar({
   scopeTree,
   scopeTreeOpen,
   onToggleScopeNode,
-  knowledgeContextTree,
-  knowledgeContextTreeOpen,
-  onToggleKnowledgeContextNode,
   splitIdentifier,
   locationPathname,
   locationSearch,
@@ -341,7 +332,6 @@ function Sidebar({
   onSelectPipelineTeam,
   onSelectStepTeam,
   onSelectScopeTeam,
-  onSelectKnowledgeContextTeam,
 }: {
   navItems: NavItem[];
   systemSubNav: NavItem[];
@@ -357,9 +347,6 @@ function Sidebar({
   scopeTree: ScopeTreeNode;
   scopeTreeOpen: Set<string>;
   onToggleScopeNode: (id: string) => void;
-  knowledgeContextTree: KnowledgeContextTreeNode;
-  knowledgeContextTreeOpen: Set<string>;
-  onToggleKnowledgeContextNode: (id: string) => void;
   splitIdentifier: (id: string) => { name: string; path: string };
   locationPathname: string;
   locationSearch: string;
@@ -367,13 +354,11 @@ function Sidebar({
   onSelectPipelineTeam: (path: string) => void;
   onSelectStepTeam: (path: string) => void;
   onSelectScopeTeam: (path: string) => void;
-  onSelectKnowledgeContextTeam: (path: string) => void;
 }) {
   const isPipelinesRoute = locationPathname.startsWith('/pipelines');
   const isTriggersRoute = locationPathname.startsWith('/triggers');
   const isStepsRoute = locationPathname.startsWith('/steps');
   const isScopesRoute = locationPathname.startsWith('/scopes');
-  const isKnowledgeContextRoute = locationPathname.startsWith('/knowledge-context');
   const isPipelineRunsRoute = locationPathname.startsWith('/pipelineruns');
   const searchParams = useMemo(() => new URLSearchParams(locationSearch), [locationSearch]);
   const pipelineRunsTab: RunTabKey =
@@ -388,30 +373,11 @@ function Sidebar({
           ? 'steps'
           : isScopesRoute
             ? 'scopes'
-            : isKnowledgeContextRoute
-              ? 'knowledge-context'
-              : isPipelineRunsRoute
-                ? 'pipelineruns'
-                : '';
+            : isPipelineRunsRoute
+              ? 'pipelineruns'
+              : '';
     return (root ? extractTeamPathFromRoute(locationPathname, root) : '') || searchParams.get('team') || '';
-  }, [isKnowledgeContextRoute, isPipelineRunsRoute, isPipelinesRoute, isScopesRoute, isStepsRoute, isTriggersRoute, locationPathname, searchParams]);
-  const encodeKnowledgeContextRoute = (id: string) => `/knowledge-context/${id.split('/').filter(Boolean).map(encodeURIComponent).join('/')}`;
-  const activeKnowledgeContextID = (() => {
-    const prefix = '/knowledge-context/';
-    if (!locationPathname.startsWith(prefix)) return '';
-    return locationPathname
-      .slice(prefix.length)
-      .split('/')
-      .filter(Boolean)
-      .map(part => {
-        try {
-          return decodeURIComponent(part);
-        } catch {
-          return part;
-        }
-      })
-      .join('/');
-  })();
+  }, [isPipelineRunsRoute, isPipelinesRoute, isScopesRoute, isStepsRoute, isTriggersRoute, locationPathname, searchParams]);
 
   const renderPipelineTreeNode = (node: PipelineTreeNode) => {
     const isOpen = pipelineTreeOpen.has(node.id);
@@ -629,73 +595,6 @@ function Sidebar({
     );
   };
 
-  const renderKnowledgeContextTreeNode = (node: KnowledgeContextTreeNode) => {
-    const isOpen = knowledgeContextTreeOpen.has(node.id);
-    const isRoot = node.id === '__root__';
-    const isActiveTeam = activeTeam === node.fullPath;
-    return (
-      <li key={`knowledge-${node.id}`} className="pipeline-tree-row">
-        {!isRoot && (
-          <div className="pipeline-tree-item flex items-center gap-2 rounded-md hover:bg-[var(--bg-tertiary)] px-1">
-            <button
-              className="pipeline-tree-toggle inline-flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
-              onClick={() => onToggleKnowledgeContextNode(node.id)}
-              aria-label="Toggle team"
-            >
-              <svg
-                className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-90' : ''}`}
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-            <button
-              className={`pipeline-tree-team flex items-center gap-2 flex-1 min-w-0 text-left text-[var(--text-primary)] hover:text-[var(--text-primary)] px-2 py-1 rounded-md hover:bg-[var(--bg-tertiary)] ${isActiveTeam ? 'active' : ''}`}
-              onClick={() => {
-                if (!isOpen) onToggleKnowledgeContextNode(node.id);
-                onSelectKnowledgeContextTeam(node.fullPath);
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 7h5l2 2h11v9a2 2 0 0 1-2 2H3z" />
-                <path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2" />
-              </svg>
-              <span className="truncate">{node.name}</span>
-            </button>
-          </div>
-        )}
-        {(isRoot || isOpen) && (
-          <ul className="pipeline-tree-children">
-            {node.children.map(child => renderKnowledgeContextTreeNode(child))}
-            {node.knowledgeContextIds.map(contextId => {
-              const { name } = splitIdentifier(contextId);
-              const active = activeKnowledgeContextID === contextId;
-              return (
-                <li key={`knowledge-id-${contextId}`} className={`pipeline-tree-leaf ${active ? 'active' : ''}`}>
-                  <NavLink className="pipeline-tree-leaf-btn" to={encodeKnowledgeContextRoute(contextId)}>
-                    <span className="pipeline-tree-leaf-icon" aria-hidden="true">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                        <path d="M14 2v6h6" />
-                        <path d="M8 13h8M8 17h5" />
-                      </svg>
-                    </span>
-                    <span className="truncate">{name || contextId}</span>
-                  </NavLink>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </li>
-    );
-  };
-
   return (
     <>
       <div
@@ -753,13 +652,6 @@ function Sidebar({
                     <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">All scopes</p>
                   </div>
                   <ul className="pipeline-tree-list">{renderScopeTreeNode(scopeTree)}</ul>
-                </div>
-              ) : isKnowledgeContextRoute ? (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">All knowledge contexts</p>
-                  </div>
-                  <ul className="pipeline-tree-list">{renderKnowledgeContextTreeNode(knowledgeContextTree)}</ul>
                 </div>
               ) : (
                 <p className="text-xs text-[var(--text-secondary)]">Contextual navigation will appear here as features are migrated.</p>

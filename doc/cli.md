@@ -196,11 +196,12 @@ request is stopped locally when the platform API version or reciprocal semantic
 version range is incompatible. Development builds retain a deliberate bypass
 until release metadata is injected by the build.
 
-Repository trigger provider/team/webhook-source metadata and config repository
-provider/credential metadata are additive to the v1 API and GitOps file format.
-They do not require a CLI protocol or version-range bump; released CLIs continue
-to rely on `/version` compatibility checks before mutating trigger or
-config-repository routes.
+Repository trigger provider/team/webhook-source metadata, config repository
+provider/credential metadata, and Knowledge Context external-page sync fields are
+additive to the v1 API and GitOps file format. They do not require a CLI protocol
+or version-range bump; released CLIs continue to rely on `/version`
+compatibility checks before mutating trigger, config-repository, or
+knowledge-context routes.
 
 ## Platform Bundles
 

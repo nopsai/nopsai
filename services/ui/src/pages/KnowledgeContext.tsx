@@ -233,10 +233,10 @@ export default function KnowledgeContextPage({
   const workspaceMetrics = useMemo(() => summarizeKnowledgeWorkspace(items), [items]);
   const activeConnectionTeam = useMemo(() => knowledgeTreePathToTeam(activeTeam), [activeTeam]);
   const connectionTeams = useMemo(() => {
-    const summaries = buildKnowledgeConnectionTeamSummaries([], activeConnectionTeam ? [activeConnectionTeam] : [], connections);
+    const summaries = buildKnowledgeConnectionTeamSummaries(items, activeConnectionTeam ? [activeConnectionTeam] : [], connections);
     if (!activeConnectionTeam) return summaries;
     return summaries.filter(summary => summary.teamPath === activeConnectionTeam || summary.teamPath.startsWith(`${activeConnectionTeam}/`));
-  }, [activeConnectionTeam, connections]);
+  }, [activeConnectionTeam, connections, items]);
   const teamOptions = useMemo(() => {
     const activeIdentity = deriveIdentityFromTeam(activeTeam);
     return Array.from(

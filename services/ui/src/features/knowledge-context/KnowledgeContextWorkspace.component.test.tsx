@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { KnowledgeContextWorkspace } from './KnowledgeContextWorkspace';
 import {
@@ -100,6 +100,10 @@ function renderWorkspace(overrides: Partial<Parameters<typeof KnowledgeContextWo
 }
 
 describe('KnowledgeContextWorkspace', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
   it('renders the demo-style document workspace and actions', () => {
     const props = renderWorkspace();
 
@@ -124,6 +128,18 @@ describe('KnowledgeContextWorkspace', () => {
     expect(props.onOpenTeam).toHaveBeenCalledWith('runbook');
     expect(props.onCreateDocument).toHaveBeenCalledOnce();
     expect(props.onSelectDocument).toHaveBeenCalledWith('runbook/platform/restart');
+  });
+
+  it('uses the shared resizable tree column behavior', () => {
+    localStorage.setItem('treeColumnWidth:knowledge-context', '360');
+
+    renderWorkspace();
+
+    const resizeHandle = screen.getByRole('separator', { name: 'Resize knowledge tree' });
+    expect(resizeHandle).toHaveAttribute('aria-valuemin', '240');
+    expect(resizeHandle).toHaveAttribute('aria-valuemax', '520');
+    expect(resizeHandle).toHaveAttribute('aria-valuenow', '360');
+    expect(resizeHandle.parentElement?.style.getPropertyValue('--tree-column-width')).toBe('360px');
   });
 
   it('renders an empty connection workspace without document team placeholders', () => {
@@ -157,6 +173,7 @@ describe('KnowledgeContextWorkspace', () => {
       credential_visibility: 'configured',
       base_url: 'https://confluence.example.test',
       external_document_count: 1,
+      used_by: ['policy/security/access'],
       last_checked_at: '2026-07-15T10:00:00Z',
     };
     const props = renderWorkspace({
@@ -173,17 +190,22 @@ describe('KnowledgeContextWorkspace', () => {
     expect(screen.getByRole('link', { name: 'Open Security Confluence base URL' })).toBeVisible();
     expect(screen.getByText('security/security-confluence')).toBeVisible();
     expect(screen.getByRole('row', { name: /Security Confluence/ })).toHaveTextContent('Credential configured');
-    expect(screen.getByRole('row', { name: /Security Confluence/ })).toHaveTextContent('1');
+    expect(screen.getByRole('row', { name: /Security Confluence/ })).toHaveTextContent('1 linked');
+    expect(screen.getByRole('complementary', { name: 'Security Confluence connection details' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Open policy/security/access' })).toBeVisible();
     expect(screen.queryByRole('tab', { name: 'Providers' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reconnect Security Confluence' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Test Security Confluence' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Reconnect Security Confluence' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Security Confluence' }));
     fireEvent.click(screen.getByRole('button', { name: 'Disable Security Confluence' }));
     fireEvent.click(screen.getByRole('button', { name: 'Delete Security Confluence' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open policy/security/access' }));
 
-    expect(props.onTestConnection).toHaveBeenCalledWith(connection);
-    expect(props.onEditConnection).toHaveBeenCalledWith(connection);
-    expect(props.onToggleConnection).toHaveBeenCalledWith(connection);
-    expect(props.onDeleteConnection).toHaveBeenCalledWith(connection);
+    expect(props.onTestConnection).toHaveBeenCalledWith(expect.objectContaining({ id: connection.id }));
+    expect(props.onEditConnection).toHaveBeenCalledWith(expect.objectContaining({ id: connection.id }));
+    expect(props.onToggleConnection).toHaveBeenCalledWith(expect.objectContaining({ id: connection.id }));
+    expect(props.onDeleteConnection).toHaveBeenCalledWith(expect.objectContaining({ id: connection.id }));
+    expect(props.onSelectDocument).toHaveBeenCalledWith('policy/security/access');
   });
 });

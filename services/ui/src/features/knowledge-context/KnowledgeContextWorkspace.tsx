@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { BookOpenText, ChevronRight, Filter, FolderTree, GitBranch, Link2, MoreHorizontal, Plus, Search, UsersRound } from 'lucide-react';
 
 import { ObjectIcon } from '../../components/ObjectIcon';
+import { TreeColumnResizeHandle, useResizableTreeColumn } from '../../components/resizableTreeColumn';
 import { KnowledgeContextConnectionsView } from './KnowledgeContextConnectionsView';
 import { KnowledgeContextDetailView, type KnowledgeContextDetailViewProps } from './KnowledgeContextDetailView';
 import {
@@ -96,6 +97,12 @@ export function KnowledgeContextWorkspace({
   onDeleteConnection,
 }: KnowledgeContextWorkspaceProps) {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const treeResize = useResizableTreeColumn({
+    storageKey: 'knowledge-context',
+    defaultWidth: 270,
+    minWidth: 240,
+    maxWidth: 520,
+  });
   const actionLabel = activeTab === 'connections' ? 'New connection' : 'New context';
   const searchPlaceholder = activeTab === 'connections' ? 'Search connections' : 'Search knowledge contexts';
 
@@ -176,7 +183,7 @@ export function KnowledgeContextWorkspace({
         </div>
       </header>
 
-      <div className="kc-demo-workspace">
+      <div className="kc-demo-workspace" style={treeResize.gridStyle}>
         <KnowledgeBrowserCard
           activeTab={activeTab}
           activeTeam={activeTeam}
@@ -191,6 +198,7 @@ export function KnowledgeContextWorkspace({
           onSelectConnectionTeam={onSelectConnectionTeam}
           onSelectDocument={onSelectDocument}
         />
+        <TreeColumnResizeHandle {...treeResize} label="Resize knowledge tree" />
 
         {activeTab === 'connections' ? (
           <KnowledgeContextConnectionsView
@@ -200,6 +208,7 @@ export function KnowledgeContextWorkspace({
             teams={connectionTeams}
             canWriteKnowledge={canWriteKnowledge}
             canDeleteKnowledge={canDeleteKnowledge}
+            onSelectDocument={onSelectDocument}
             onTestConnection={onTestConnection || (() => undefined)}
             onEditConnection={onEditConnection || (() => undefined)}
             onToggleConnection={onToggleConnection || (() => undefined)}
