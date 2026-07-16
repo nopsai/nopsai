@@ -60,7 +60,12 @@ export function ConfigRepositoryDriftModal({
   const dialogRef = useDialogFocus(onClose);
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[var(--bg-overlay)] px-4 py-6">
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-[var(--bg-overlay)] px-4 py-6"
+      onPointerDown={event => {
+        if (!pushing && event.target === event.currentTarget) onClose();
+      }}
+    >
       <div
         ref={dialogRef}
         className="flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-[var(--border-primary)] bg-white shadow-2xl dark:bg-slate-900"

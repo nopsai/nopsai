@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildKnowledgeID,
   buildKnowledgeConnectionTeamSummaries,
+  buildKnowledgeTeamOptions,
   buildKnowledgeTree,
   clearKnowledgeDraft,
   countTeamDocs,
@@ -54,6 +55,20 @@ describe('Knowledge Context model', () => {
     expect(findKnowledgeTeam(tree, 'runbook/platform/security').docs).toHaveLength(0);
     expect(findKnowledgeTeam(tree, 'missing')).toBe(tree);
     expect(countTeamDocs(tree)).toBe(1);
+  });
+
+  it('builds team options from resource teams and existing knowledge resources', () => {
+    expect(
+      buildKnowledgeTeamOptions({
+        activeTeam: 'runbook/platform',
+        activeConnectionTeam: 'security',
+        resourceTeamPaths: ['payments/api', 'platform'],
+        items: [{ team: 'docs' }],
+        connections: [{ team: 'wiki' }],
+      })
+    ).toEqual(['docs', 'payments/api', 'platform', 'security', 'wiki']);
+    expect(buildKnowledgeTeamOptions({ fallbackTeam: 'starter' })).toEqual(['starter']);
+    expect(buildKnowledgeTeamOptions({})).toEqual([]);
   });
 
   it('normalizes identities, routes, sources, and team paths', () => {

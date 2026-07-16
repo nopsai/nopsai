@@ -246,7 +246,12 @@ export function StepDetailModal({
   if (!step) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] px-3 py-6">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] px-3 py-6"
+      onPointerDown={event => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <div className="w-full max-w-6xl bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-[var(--border-primary)] flex flex-col max-h-[90vh] overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-primary)] bg-[var(--bg-primary)]">
           <div className="flex flex-wrap items-center gap-3">
@@ -663,7 +668,12 @@ export function PipelineDefinitionModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)]">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)]"
+      onPointerDown={event => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <div className="bg-[var(--bg-primary)] rounded-xl shadow-xl w-full max-w-5xl max-h-[85vh] overflow-hidden border border-[var(--border-primary)]">
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-primary)]">
           <div>

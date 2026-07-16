@@ -9,6 +9,12 @@ should not describe future-state infrastructure, storage, autoscaling, or
 cloud-specific automation unless that capability is backed by runtime code,
 deployment files, tests, and focused docs.
 
+The in-app wiki must be usable as a field reference. A user who sees
+`llm_profile` under a step, `dashboard.mode` under an output item, or
+`allowed_callers` under an external trigger should be able to search that exact
+directive and learn what it does, where it can be used, what it does not grant,
+and which options are currently supported.
+
 ## Source Priority
 
 Use this order when updating product documentation:
@@ -73,6 +79,285 @@ Security and Reference
 ├── Troubleshooting index
 └── Confirmed gaps and limits
 ```
+
+## Reference Depth Standard
+
+Use the same style as a production platform reference:
+
+- name the exact directive, API field, GitOps file, or environment variable
+- state whether the field is required, optional, defaulted, inherited, or
+  mutually exclusive
+- list supported option values when the code constrains them
+- explain runtime behavior and authorization behavior separately
+- include a minimal YAML or command example for complex feature areas
+- link back to focused docs for long operational workflows
+
+Avoid marketing summaries in reference articles. The user should be able to
+answer practical questions such as:
+
+- "Can a task set `agent_profile`?" No. Tasks can set `llm_profile`, but
+  `agent_profile` is valid only at pipeline and step level.
+- "Does `steps[].llm_profile` grant access to a provider?" No. It selects the
+  named LLM profile; AAA and profile scope restrictions still decide whether the
+  original caller may use it.
+- "Can a script task use `mcp_profiles`?" No. Explicit MCP profiles are valid
+  only for LLM-backed goal work.
+- "What happens when `llm_enabled: false`?" The pipeline must be script-only and
+  cannot define goals, step conditions, final outputs, or explicit MCP profile
+  use.
+- "Can a dashboard output define `dashboard.*` fields when type is `pdf`?" No.
+  Dashboard target fields require `type: dashboard`.
+
+## Pipeline YAML Directive Reference
+
+The in-app article **Pipeline YAML Schema** owns top-level pipeline fields.
+It should include at least these directives:
+
+| Directive | Scope | Meaning |
+| --- | --- | --- |
+| `name` | pipeline | Required stable name. Letters, numbers, underscores, dots, and hyphens are supported. |
+| `version` | pipeline | Optional version. Runtime validation defaults it to `latest` when omitted. |
+| `description` | pipeline | Human-readable description for UI/API review context. |
+| `container_image` | pipeline | Default executable image. Required unless every executable step has its own image; approval-only steps do not need one. |
+| `working_directory` | pipeline | Container working directory. Empty or `.` resolves to `/workspace`; relative paths are rooted under `/workspace`; root, colon, NUL, and escaping paths are rejected. |
+| `display_options.github_view` | pipeline | GitHub check visualization hint such as `mermaid`, `tree`, or `flat`. |
+| `variables` | pipeline | Runtime variable references required by the pipeline. Bare names resolve in the run scope; `default:NAME` resolves unscoped/default; `scope/path:NAME` resolves an explicit scope and injects `NAME`. |
+| `steps` | pipeline | Required non-empty ordered list of step definitions. |
+| `timeout` | pipeline | Optional whole-run duration such as `45m` or `2h`. |
+| `llm_enabled` | pipeline | Optional boolean. `false` is for script-only pipelines and rejects goals, conditions, final outputs, and MCP profile validation. |
+| `agent_profile` | pipeline | Default AI persona and instruction profile. Step can override it. |
+| `llm_profile` | pipeline | Default model-provider profile. Step, task, output, and output item can override it where supported. |
+| `mcp_profiles` | pipeline | Approved MCP tool profiles available to LLM goal work. Additive with step and task MCP profiles. |
+| `runtime_pool` | pipeline | Kubernetes runtime pool default. Docker runners ignore it. |
+| `affinity_enabled` | pipeline | Kubernetes same-node affinity override for the run. |
+| `knowledge_context` | pipeline | Knowledge references merged into all effective LLM task contexts. |
+| `llm_content_sharing` | pipeline | Controls whether workspace file listings/content are shared with LLM goal resolution. |
+| `llm_content_include` | pipeline | Include filters for files shared with LLM goal context. |
+| `llm_content_ignore` | pipeline | Ignore filters for files shared with LLM goal context. |
+| `llm_output_sharing` | pipeline | Default for whether task output is written into later LLM execution history. |
+| `output` | pipeline | Final deliverables and dashboard publications generated after run execution. |
+
+The article **Step and Task Directives** owns step and task fields. Every step
+must define exactly one execution mode:
+
+| Mode | Field | Notes |
+| --- | --- | --- |
+| Include | `include` | `step:<identifier>` includes a reusable step. `pipeline:<identifier>` launches a child pipeline. |
+| Multi-task | `tasks` | Each task defines exactly one of `goal` or `script`; task dependencies are local to the same step. |
+| Single LLM goal | `goal` | LLM-backed single-task step. Requires LLM to be enabled. |
+| Single script | `script` | Direct shell step. With guardrail/policy Knowledge Context, the exact command is LLM-validated before execution. |
+| Approval | `approval` | Durable human checkpoint that pauses the run and releases runner capacity. |
+
+Common step directives:
+
+| Directive | Meaning |
+| --- | --- |
+| `steps[].name` | Required unique step name. Step dependencies reference this name. |
+| `steps[].image` | Step executable image override. |
+| `steps[].depends_on` | Step dependencies. Values must be other step names. |
+| `steps[].condition` | LLM-evaluated natural-language condition. False normally skips; false under blocking guardrail/policy context fails closed. |
+| `steps[].secrets` | Scoped secret refs injected as environment variables. |
+| `steps[].variables` | Step-wide environment overrides. |
+| `steps[].volumes` | Docker volume mounts using `volume:/mount/path`. |
+| `steps[].ignore_failure` | Treats failure as ignored so graph progress can continue. |
+| `steps[].llm_output_sharing` | Step-level output-history sharing override. |
+| `steps[].agent_profile` | Step persona override. Valid for conditions and LLM goals in the step. |
+| `steps[].llm_profile` | Step model-client override. Applies to the step condition and tasks unless a task has `llm_profile`. |
+| `steps[].mcp_profiles` | MCP profiles added for LLM goals in the step. Invalid on script-only and include steps. |
+| `steps[].runtime_pool` | Kubernetes runtime pool override. Falls back to pipeline `runtime_pool`, then runner default. |
+| `steps[].knowledge_context` | Step-level knowledge references merged with pipeline and task context. |
+
+Common task directives:
+
+| Directive | Meaning |
+| --- | --- |
+| `tasks[].name` | Required unique task name within the step. |
+| `tasks[].goal` | LLM-backed task goal. Mutually exclusive with `script`. |
+| `tasks[].script` | Direct shell task. Mutually exclusive with `goal`. |
+| `tasks[].depends_on` | Dependencies inside the same step only. |
+| `tasks[].ignore_failure` | Treats this task failure as ignored. |
+| `tasks[].llm_output_sharing` | Task-specific output-history sharing override. |
+| `tasks[].llm_profile` | Most-specific LLM model-client override for this task. |
+| `tasks[].mcp_profiles` | MCP profiles for this LLM goal task. Invalid on script tasks. |
+| `tasks[].variables` | Task-local environment overrides. Applied after step variables. |
+| `tasks[].knowledge_context` | Most-specific knowledge references for this task. |
+
+Approval directives:
+
+| Directive | Meaning |
+| --- | --- |
+| `steps[].approval.type` | Required approval kind. Letters, numbers, underscores, dots, and hyphens are supported. |
+| `steps[].approval.teams` | Required relative team paths assigned to approve or reject. |
+| `steps[].approval.allow_self_approval` | Whether the original requester may approve the same checkpoint. |
+
+## AI Directive Reference
+
+AI controls are intentionally separate. Do not collapse these concepts in the
+wiki:
+
+| Directive or resource | Controls | Does not control |
+| --- | --- | --- |
+| `agent_profile` | Persona, role, and prompt instructions. | Provider, model, secrets, tools, credentials, permissions. |
+| `llm_profile` | Provider, model, endpoint, credential reference, timeout, tokens, temperature, and provider-specific settings. | Persona, authorization, Knowledge Context, MCP server definitions. |
+| `mcp_profiles` | Approved MCP servers and tool allowlists for LLM goals. | Arbitrary server URLs in pipeline YAML. |
+| `knowledge_context` | Documents injected into LLM prompts and guardrail/policy behavior. | Runtime resource permission by itself. |
+| AAA | Whether the original caller may use the selected resources. | Model selection or prompt wording. |
+
+LLM profile resolution for conditions and LLM-backed tasks:
+
+1. Task `llm_profile`
+2. Step `llm_profile`
+3. Pipeline `llm_profile`
+4. Configured default profile
+
+Final-output LLM profile resolution:
+
+1. `output.items[].llm_profile`
+2. `output.llm_profile`
+3. Pipeline `llm_profile`
+4. Configured default profile
+
+Agent profile resolution:
+
+1. Step `agent_profile`
+2. Pipeline `agent_profile`
+3. Configured default profile
+
+MCP profile resolution is additive:
+
+```text
+ pipeline mcp_profiles
++ step mcp_profiles
++ task mcp_profiles
+= deduplicated MCP profile set
+```
+
+Document the supported LLM providers in the wiki:
+
+```text
+gemini, lmstudio, openai, anthropic, groq, mistral, ollama, openrouter, azure-openai
+```
+
+`reasoning` and `thinking` are generic NopsAI options only for LM Studio. Other
+providers reject generic values rather than silently ignoring stale config.
+
+## Knowledge Context Reference
+
+The wiki must explain both forms:
+
+```yaml
+knowledge_context:
+  - kind: guardrail
+    ref: security/repo-check
+    required: true
+  - kind: architecture
+    path: .nopsai/docs/backend.md
+```
+
+Supported kinds:
+
+```text
+architecture, guardrail, policy, adr, guideline, runbook, reference, example
+```
+
+Rules:
+
+- `kind` is required.
+- Use exactly one of `ref` or `path`.
+- Managed `ref` values use `team/document` format and require
+  `knowledge_context.use`.
+- Repo-local `path` values are loaded from the run repository at the run commit.
+- `required: true` fails the run before execution when resolution or
+  authorization fails.
+- Guardrails and policies are blocking context. They apply to goals, commands,
+  direct scripts, file writes, MCP calls, MCP arguments, and conditions.
+- Resolved content is snapshotted on the run, so later document edits do not
+  rewrite run history.
+
+## Final Output Reference
+
+Final outputs use:
+
+```yaml
+output:
+  llm_profile: report-writer
+  items:
+    - name: Executive summary
+      type: markdown
+      when: success
+      prompt: Summarize the successful run.
+```
+
+Supported `output.items[].type` values:
+
+```text
+markdown, pdf, excel, json, html, dashboard
+```
+
+Supported `output.items[].when` values:
+
+```text
+success, failure, always
+```
+
+Omitted or empty `when` is treated as `always`.
+
+Dashboard output directives are valid only when `type: dashboard`:
+
+| Directive | Meaning |
+| --- | --- |
+| `dashboard.ref` | Required `team/dashboard-slug` reference. |
+| `dashboard.section` | Required dashboard section key. |
+| `dashboard.entry_key` | Optional stable entry key for replace and series publications. Defaults to the output item name when omitted. |
+| `dashboard.mode` | Optional publication mode: `replace`, `append`, `snapshot`, or `series`. Empty defaults to `replace`. |
+| `dashboard.preset` | Optional prompt preset hint: `auto`, `report`, `table`, `status`, `timeline`, `comparison`, `metrics`, or `mixed`. |
+| `dashboard.ttl` | Optional stale-state duration such as `7d`. |
+
+## Event Automation Reference
+
+Git trigger manifests should document:
+
+| Directive | Meaning |
+| --- | --- |
+| `provider` | Git provider metadata. Non-GitHub providers use managed Git Webhook Sources. |
+| `team` | Owner team/application boundary for run ownership and inheritance. |
+| `webhook_source` | Required source ID for GitLab, Bitbucket, Gitea, or generic providers. |
+| `management` | Indicates NopsAI-managed trigger overrides. |
+| `triggers[].on` | Event name; `all` matches any event. |
+| `triggers[].branches` | Included branch globs. |
+| `triggers[].skip_branches` | Excluded branch globs. |
+| `triggers[].tags` | Tag globs for push tag events. |
+| `triggers[].skip_repos` | Repository patterns that skip the rule. |
+| `triggers[].include_paths` | Changed-file globs that must match when changed files are known. |
+| `triggers[].exclude_paths` | Changed-file globs removed before include matching. |
+| `triggers[].pipelines` | Pipeline identifiers started by a match. |
+| `triggers[].scope` | Runtime scope for the run. |
+
+Path matching intentionally fails open when changed-file metadata is unknown.
+Missing provider data should not silently skip CI.
+
+Schedules should document:
+
+| Directive | Meaning |
+| --- | --- |
+| `schedule_kind` | `cron` or `once`. |
+| `cron_expression` | Required for cron schedules; `cron` is accepted as an API alias. |
+| `run_at` | One-time timestamp; enabled one-time schedules must be in the future. |
+| `timezone` | IANA timezone, default `UTC`. |
+| `pipeline` | Stored pipeline identifier. |
+| `scope` | Runtime scope. |
+| `run_team_path` | Pipeline Runs team path and notification lineage. `root` means unassigned root. |
+| `variables` | Schedule-supplied run variable overrides. |
+
+External triggers should document:
+
+| Directive | Meaning |
+| --- | --- |
+| `allowed_callers` | Explicit `user`, `service_account`, or `auth_team` callers. |
+| `variable_mapping` | Maps `event_type`, `payload.<path>`, `variables.<name>`, direct payload paths, or `literal:<value>` into run variables. |
+| `payload_schema` | Object-schema guard with required fields and basic property type checks. |
+| `rate_limit.per_minute` | Per-trigger invocation limit over the previous minute. |
+| `idempotency_key` | Optional invoke-request retry key scoped by trigger and caller. |
 
 ## Current Product Boundaries
 

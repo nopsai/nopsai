@@ -191,15 +191,24 @@ text. New GitOps documents should use `access` for sharing.
 The Knowledge Context page uses a two-pane browser workspace. The left explorer
 keeps the knowledge kind/team tree visible, while the default right pane lists
 the selected branch as a table with source, sync, team, and pipeline-usage
-signals. Opening a document replaces the collection table with the detail view:
-the overview starts directly with document details and system-health metadata.
-Long source fields truncate in place, expose the full value on hover, link page
-URLs, and make the document ID copyable. Document content is rendered only in
-the Content tab, while usage and GitOps remain separate tabs so rendering stays
-distinct from action orchestration and backend state. Secondary document actions
-are grouped under the document action menu rather than spread across the header.
-GitOps-managed documents show the database-override warning before edits are
-saved.
+signals. The team selectors are loaded from the resource team catalog, then
+merged with document and connection owners, so teams without existing knowledge
+documents still appear in create and connection dialogs.
+
+Opening a document replaces the collection table with the detail view: the
+overview starts directly with document details and system-health metadata. Long
+source fields truncate in place, expose the full value on hover, link page URLs,
+and make the document ID copyable. Document content is rendered only in the
+Content tab, while usage stays separate so rendering remains distinct from
+action orchestration. Secondary document actions are grouped under the document
+action menu rather than spread across the header, and the collection-table
+three-dot control opens the same action set: open, access, export, provider
+page, sync, edit, clone, and delete when each action applies. Row action menus
+render above the table scroll container and close on outside click instead of
+invoking delete directly.
+When editing a document, the Overview tab allows changing the document name,
+team owner, description, and external source settings. GitOps-managed documents
+show the database-override warning before edits are saved.
 
 The Connections tab uses the same browser shell for team-owned external wiki
 connections. Connections are first-class backend resources stored separately
@@ -277,9 +286,8 @@ cached Knowledge Context content used by runtime snapshots.
 Config sync creates, updates, and prunes inline `knowledge_contexts` rows for
 files under `knowledge/`, just like it does for other Git-managed resources.
 External page links and provider connections are API-managed runtime resources;
-GitOps export skips external-page rows to avoid converting provider-backed links
-into inline markdown snapshots. Existing inline and GitOps documents are
-unaffected by external sync.
+external sync does not convert provider-backed links into inline markdown
+snapshots. Existing inline and GitOps documents are unaffected by external sync.
 The UI mirrors existing teams under every supported knowledge kind, so a
 team such as `team-1/platform` is available as a team path under `guardrail`,
 `policy`, `guideline`, and the other kinds even before it has a document.
@@ -370,8 +378,10 @@ Create dialogs expose the content source shape as `Inline content` or
 `External page`, use team dropdowns, and show an inline content editor for
 managed text documents. External page documents use the selected team's provider
 connection for page search, preview, and cached sync settings. Document detail
-tabs separate overview, content, usage, and GitOps state, while access and other
-secondary commands live in the document action menu. Connections live
+tabs separate overview, content, and usage, while access and other secondary
+commands live in the document action menu. Action lists and dialogs close on
+outside click unless an active save/sync operation must keep the flow visible.
+Connections live
 in the Knowledge Context area so team owners can inspect team-scoped Notion,
 Confluence, or similar wiki provider readiness without moving document ownership
 into global settings. The connection tree starts collapsed, expands only after a
@@ -410,5 +420,5 @@ curl -X DELETE \
 
 GitOps-managed documents can also be edited or deleted through the UI/API when
 AAA permits. Editing stores a database override and deleting removes the
-database row; the next GitOps sync can replace or recreate the document unless
-the change is also pushed back to GitOps.
+database row; the next GitOps sync can replace or recreate the document from
+the repository.
