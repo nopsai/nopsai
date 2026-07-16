@@ -750,7 +750,104 @@ func hostedMCPExplainWebhookIngressPolicy(args map[string]any) map[string]any {
 
 func hostedMCPMonitoringAnalyticsPath(toolName string, args map[string]any) string {
 	base := hostedMCPMonitoringAnalyticsBasePath(toolName)
-	return hostedMCPPathWithQuery(base, args, hostedMCPMonitoringAnalyticsAliases())
+	return hostedMCPPathWithQuery(base, hostedMCPMonitoringAnalyticsArgs(toolName, args), hostedMCPMonitoringAnalyticsAliases())
+}
+
+func hostedMCPMonitoringAnalyticsArgs(toolName string, args map[string]any) map[string]any {
+	if !hostedMCPIsAIUsageMonitoringTool(toolName) || args == nil {
+		return args
+	}
+	sanitized := make(map[string]any, len(args))
+	for key, value := range args {
+		sanitized[key] = value
+	}
+	if query := hostedMCPMapArg(args, "query"); len(query) > 0 {
+		querySanitized := make(map[string]any, len(query))
+		for key, value := range query {
+			querySanitized[key] = value
+		}
+		hostedMCPPruneGenericAIUsageFilters(querySanitized)
+		sanitized["query"] = querySanitized
+	}
+	hostedMCPPruneGenericAIUsageFilters(sanitized)
+	return sanitized
+}
+
+func hostedMCPIsAIUsageMonitoringTool(toolName string) bool {
+	switch toolName {
+	case "nopsai.get_monitoring_ai_usage", "nopsai.get_monitoring_schedule_ai_usage":
+		return true
+	default:
+		return false
+	}
+}
+
+func hostedMCPPruneGenericAIUsageFilters(args map[string]any) {
+	genericDimensions := map[string]bool{
+		"all":          true,
+		"any":          true,
+		"*":            true,
+		"provider":     true,
+		"providers":    true,
+		"by provider":  true,
+		"by_provider":  true,
+		"model":        true,
+		"models":       true,
+		"by model":     true,
+		"by_model":     true,
+		"profile":      true,
+		"profiles":     true,
+		"llm profile":  true,
+		"llm profiles": true,
+		"llm_profile":  true,
+		"feature":      true,
+		"features":     true,
+	}
+	genericFeatures := map[string]bool{
+		"all":          true,
+		"any":          true,
+		"*":            true,
+		"ai usage":     true,
+		"ai_usage":     true,
+		"cost":         true,
+		"costs":        true,
+		"llm usage":    true,
+		"llm_usage":    true,
+		"token":        true,
+		"tokens":       true,
+		"token usage":  true,
+		"token_usage":  true,
+		"usage":        true,
+		"provider":     true,
+		"providers":    true,
+		"by provider":  true,
+		"by_provider":  true,
+		"model":        true,
+		"models":       true,
+		"by model":     true,
+		"by_model":     true,
+		"profile":      true,
+		"profiles":     true,
+		"llm profile":  true,
+		"llm profiles": true,
+		"llm_profile":  true,
+	}
+	for _, key := range []string{"provider", "model", "profile", "llmProfile", "llm_profile"} {
+		if hostedMCPIsGenericFilterValue(args[key], genericDimensions) {
+			delete(args, key)
+		}
+	}
+	if hostedMCPIsGenericFilterValue(args["feature"], genericFeatures) {
+		delete(args, "feature")
+	}
+}
+
+func hostedMCPIsGenericFilterValue(value any, values map[string]bool) bool {
+	trimmed := strings.ToLower(strings.TrimSpace(fmt.Sprint(value)))
+	if trimmed == "" || trimmed == "<nil>" {
+		return false
+	}
+	return values[trimmed]
 }
 
 func hostedMCPMonitoringAnalyticsBasePath(toolName string) string {

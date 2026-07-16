@@ -125,12 +125,17 @@ func (a *App) runAssistantHostedMCPTool(ctx context.Context, subject model.Subje
 	if args == nil {
 		args = map[string]any{}
 	}
+	args = hostedMCPMonitoringAnalyticsArgs(name, args)
 	if !config.AssistantMCPEnabled(a.assistantConfig().MCP) {
 		return assistantToolActivity{
-			Name:   name,
-			Input:  args,
-			Output: map[string]any{"error": "hosted MCP is disabled by assistant configuration"},
-			Status: assistantToolStatusDenied,
+			Name:       name,
+			Input:      args,
+			Output:     map[string]any{"error": "hosted MCP is disabled by assistant configuration"},
+			Status:     assistantToolStatusDenied,
+			Source:     "mcp",
+			Phase:      "evidence",
+			Confidence: "low",
+			Purpose:    "Run a hosted MCP tool with current-user authorization.",
 		}
 	}
 	result, err := a.callAssistantHostedMCPTool(ctx, subject, userID, conversationID, name, args)
@@ -146,12 +151,20 @@ func (a *App) runAssistantHostedMCPTool(ctx context.Context, subject model.Subje
 			result["error"] = err.Error()
 		}
 	}
+	confidence := "high"
+	if status != assistantToolStatusSuccess {
+		confidence = "low"
+	}
 	return assistantToolActivity{
 		Name:         name,
 		Input:        args,
 		Output:       result,
 		Status:       status,
 		ResourceURIs: assistantResourceURIsForTool(name),
+		Source:       "mcp",
+		Phase:        "evidence",
+		Confidence:   confidence,
+		Purpose:      "Run a hosted MCP tool with current-user authorization.",
 	}
 }
 
@@ -336,8 +349,47 @@ func composeAssistantReply(plan assistantTurnPlan, selectedProfile string, toolC
 	case "system":
 		return composeSystemReply(toolCalls)
 	default:
+		if reply := composeFallbackEvidenceReply(plan, evidenceCalls); reply != "" {
+			return reply
+		}
 		return composeDocsReply(toolCalls)
 	}
+}
+
+func composeFallbackEvidenceReply(plan assistantTurnPlan, toolCalls []assistantToolActivity) string {
+	if len(toolCalls) == 0 {
+		return ""
+	}
+	if assistantOnlyDocsToolCalls(toolCalls) {
+		return composeDocsReply(toolCalls)
+	}
+	if assistantHasToolCall(toolCalls, "nopsai.get_monitoring_ai_usage") {
+		return composeAIUsageReply(plan, toolCalls)
+	}
+	return composeFeatureToolReply(toolCalls)
+}
+
+func assistantOnlyDocsToolCalls(toolCalls []assistantToolActivity) bool {
+	if len(toolCalls) == 0 {
+		return false
+	}
+	for _, call := range toolCalls {
+		switch call.Name {
+		case "nopsai.search_docs", "nopsai.read_doc", "nopsai.list_knowledge_contexts", "nopsai.get_knowledge_context":
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func assistantHasToolCall(toolCalls []assistantToolActivity, name string) bool {
+	for _, call := range toolCalls {
+		if call.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func composePipelineWritePlanReply(toolCalls []assistantToolActivity) string {
@@ -506,6 +558,7 @@ func composeAIUsageReply(plan assistantTurnPlan, toolCalls []assistantToolActivi
 	if call.Status != assistantToolStatusSuccess {
 		return assistantToolErrorReply("I could not load AI token usage analytics.", call)
 	}
+	output := assistantAIUsageOutput(call)
 	lines := []string{"AI token usage investigation:"}
 	if filterSummary := assistantAIUsageFilterSummary(call.Input); filterSummary != "" {
 		lines = append(lines, "- Filters: "+filterSummary)
@@ -513,47 +566,26 @@ func composeAIUsageReply(plan assistantTurnPlan, toolCalls []assistantToolActivi
 	if len(usageCalls) > 1 {
 		lines = append(lines, "- Windows checked: "+fmt.Sprint(len(usageCalls)))
 	}
-	lines = append(lines, fmt.Sprintf("- Total tokens: %.0f", assistantOutputFloat(call.Output, "total_tokens")))
-	lines = append(lines, fmt.Sprintf("- Prompt tokens: %.0f", assistantOutputFloat(call.Output, "total_prompt_tokens")))
-	lines = append(lines, fmt.Sprintf("- Completion tokens: %.0f", assistantOutputFloat(call.Output, "total_completion_tokens")))
-	lines = append(lines, fmt.Sprintf("- Exact token events: %.0f", assistantOutputFloat(call.Output, "exact_token_events")))
-	lines = append(lines, fmt.Sprintf("- Estimated token events: %.0f", assistantOutputFloat(call.Output, "estimated_token_events")))
-	pipelines := assistantMapSlice(call.Output["by_pipeline"])
-	if len(pipelines) > 0 {
-		lines = append(lines, "", "Highest token pipelines:")
-		for _, item := range pipelines {
-			label := firstNonEmptyString(assistantOutputString(item, "label"), assistantOutputString(item, "key"))
-			if label == "" {
-				continue
-			}
-			lines = append(lines, fmt.Sprintf("- %s: %.0f tokens across %.0f events", label, assistantOutputFloat(item, "tokens"), assistantOutputFloat(item, "count")))
+	if assistantAnyAIUsageCallHasEvents(usageCalls) {
+		if dimensionReply := composeDimensionAIUsageReply(plan, call, output, usageCalls); dimensionReply != "" {
+			return dimensionReply
 		}
 	}
-	runs := assistantMapSlice(call.Output["top_token_runs"])
-	if len(runs) > 0 {
-		lines = append(lines, "", "Top token runs:")
-		for _, item := range runs {
-			label := firstNonEmptyString(assistantOutputString(item, "label"), assistantOutputString(item, "key"))
-			if label == "" {
-				continue
-			}
-			lines = append(lines, fmt.Sprintf("- %s: %.0f tokens", label, assistantOutputFloat(item, "tokens")))
-		}
-	}
-	if assistantPlanAsksScheduleLowTokens(plan) {
-		lines = assistantAppendTokenTeam(lines, "Lowest token schedules:", call.Output["lowest_token_schedules"], 10)
-	} else {
-		lines = assistantAppendTokenTeam(lines, "Highest token schedules:", call.Output["by_schedule"], 10)
-	}
-	lines = assistantAppendTokenTeams(lines, call)
+	lines = append(lines, fmt.Sprintf("- Total tokens: %.0f", assistantOutputFloat(output, "total_tokens")))
+	lines = append(lines, fmt.Sprintf("- Prompt tokens: %.0f", assistantOutputFloat(output, "total_prompt_tokens")))
+	lines = append(lines, fmt.Sprintf("- Completion tokens: %.0f", assistantOutputFloat(output, "total_completion_tokens")))
+	lines = append(lines, fmt.Sprintf("- Exact token events: %.0f", assistantOutputFloat(output, "exact_token_events")))
+	lines = append(lines, fmt.Sprintf("- Estimated token events: %.0f", assistantOutputFloat(output, "estimated_token_events")))
+	lines = assistantAppendAIUsageOverview(lines, output)
 	if !assistantAnyAIUsageCallHasEvents(usageCalls) {
 		lines = append(lines, "", "Investigation evidence:")
 		for idx, usageCall := range usageCalls {
+			usageOutput := assistantAIUsageOutput(usageCall)
 			lines = append(lines, fmt.Sprintf(
 				"- %s: %.0f tokens across %.0f visible events",
 				assistantAIUsageWindowLabel(usageCall, idx),
-				assistantOutputFloat(usageCall.Output, "total_tokens"),
-				assistantOutputFloat(usageCall.Output, "exact_token_events")+assistantOutputFloat(usageCall.Output, "estimated_token_events"),
+				assistantOutputFloat(usageOutput, "total_tokens"),
+				assistantOutputFloat(usageOutput, "exact_token_events")+assistantOutputFloat(usageOutput, "estimated_token_events"),
 			))
 		}
 		lines = append(lines, "", "Diagnosis:")
@@ -570,10 +602,189 @@ func composeAIUsageReply(plan assistantTurnPlan, toolCalls []assistantToolActivi
 	return strings.Join(lines, "\n")
 }
 
-func assistantPlanAsksScheduleLowTokens(plan assistantTurnPlan) bool {
-	lower := plan.LowerContent
-	return containsAny(lower, "schedule", "schedules", "scheduled", "cron") &&
-		containsAny(lower, "low", "lower", "lowest", "least", "less", "minimal", "minimum", "cheapest")
+func composeDimensionAIUsageReply(plan assistantTurnPlan, call assistantToolActivity, output map[string]any, usageCalls []assistantToolActivity) string {
+	_, field, header, topLabel, breakdownTitle, ok := assistantAIUsageRequestedDimension(plan, output)
+	if !ok {
+		return ""
+	}
+	items := assistantMapSlice(output[field])
+	if len(items) == 0 {
+		return ""
+	}
+	lines := []string{header + ":"}
+	if filterSummary := assistantAIUsageFilterSummary(call.Input); filterSummary != "" {
+		lines = append(lines, "- Filters: "+filterSummary)
+	}
+	if len(usageCalls) > 1 {
+		lines = append(lines, "- Windows checked: "+fmt.Sprint(len(usageCalls)))
+	}
+	lines = append(lines, fmt.Sprintf("- Total tokens checked: %.0f", assistantOutputFloat(output, "total_tokens")))
+	if assistantAIUsageTextHasAnyTerm(assistantAIUsageQuestionText(plan), []string{"cost", "costs", "price", "pricing", "spend"}) {
+		lines = append(lines, "- Pricing fields are not included in this monitoring payload, so this ranking uses token volume.")
+	}
+	first := items[0]
+	firstLabel := firstNonEmptyString(assistantOutputString(first, "label"), assistantOutputString(first, "key"))
+	topShown := false
+	if firstLabel != "" && topLabel != "" {
+		lines = append(lines, assistantAIUsageTopLine(topLabel, firstLabel, assistantOutputFloat(first, "tokens"), assistantOutputFloat(first, "count")))
+		topShown = true
+	}
+	start := 0
+	if topShown {
+		start = 1
+	}
+	if start >= len(items) {
+		lines = append(lines, "", "No changes were applied.")
+		return strings.Join(lines, "\n")
+	}
+	lines = append(lines, "", breakdownTitle+":")
+	for idx := start; idx < len(items) && idx < start+5; idx++ {
+		item := items[idx]
+		label := firstNonEmptyString(assistantOutputString(item, "label"), assistantOutputString(item, "key"))
+		if label == "" {
+			continue
+		}
+		lines = append(lines, assistantAIUsageItemLine(label, assistantOutputFloat(item, "tokens"), assistantOutputFloat(item, "count")))
+	}
+	lines = append(lines, "", "No changes were applied.")
+	return strings.Join(lines, "\n")
+}
+
+func assistantAIUsageQuestionText(plan assistantTurnPlan) string {
+	return strings.ToLower(strings.TrimSpace(strings.Join([]string{plan.LowerContent, plan.Goal, plan.SuccessCriteria}, " ")))
+}
+
+type assistantAIUsageDimension struct {
+	Name           string
+	Field          string
+	LowField       string
+	Header         string
+	LowHeader      string
+	TopLabel       string
+	LowTopLabel    string
+	BreakdownTitle string
+	LowBreakdown   string
+	Terms          []string
+	Overview       bool
+}
+
+func assistantAIUsageDimensionCatalog() []assistantAIUsageDimension {
+	return []assistantAIUsageDimension{
+		{Name: "provider", Field: "by_provider", Header: "AI usage by provider", TopLabel: "Highest token provider", BreakdownTitle: "Provider breakdown", Terms: []string{"provider", "providers"}, Overview: true},
+		{Name: "model", Field: "by_model", Header: "AI usage by model", TopLabel: "Highest token model", BreakdownTitle: "Model breakdown", Terms: []string{"model", "models"}, Overview: true},
+		{Name: "profile", Field: "by_profile", Header: "AI usage by LLM profile", TopLabel: "Highest token LLM profile", BreakdownTitle: "LLM profile breakdown", Terms: []string{"profile", "profiles", "llm profile", "llm profiles"}, Overview: true},
+		{Name: "feature", Field: "by_feature", Header: "AI usage by feature", TopLabel: "Highest token feature", BreakdownTitle: "Feature breakdown", Terms: []string{"feature", "features"}, Overview: true},
+		{Name: "pipeline", Field: "by_pipeline", Header: "AI usage by pipeline", TopLabel: "Highest token pipeline", BreakdownTitle: "Other high-token pipelines", Terms: []string{"pipeline", "pipelines"}, Overview: true},
+		{Name: "step", Field: "by_step", Header: "AI usage by step", TopLabel: "Highest token step", BreakdownTitle: "Other high-token steps", Terms: []string{"step", "steps"}},
+		{Name: "task", Field: "by_task", Header: "AI usage by task", TopLabel: "Highest token task", BreakdownTitle: "Other high-token tasks", Terms: []string{"task", "tasks"}},
+		{Name: "schedule", Field: "by_schedule", LowField: "lowest_token_schedules", Header: "AI usage by schedule", LowHeader: "Lowest token schedules", TopLabel: "Highest token schedule", LowTopLabel: "Lowest token schedule", BreakdownTitle: "Other high-token schedules", LowBreakdown: "Other low-token schedules", Terms: []string{"schedule", "schedules", "scheduled", "cron"}},
+		{Name: "run", Field: "top_token_runs", Header: "AI usage by run", TopLabel: "Highest token run", BreakdownTitle: "Other high-token runs", Terms: []string{"run", "runs", "pipeline run", "pipeline runs"}},
+	}
+}
+
+func assistantAIUsageRequestedDimension(plan assistantTurnPlan, output map[string]any) (assistantAIUsageDimension, string, string, string, string, bool) {
+	text := assistantAIUsageQuestionText(plan)
+	lowRequested := assistantAIUsageTextHasAnyTerm(text, []string{"low", "lower", "lowest", "least", "less", "minimal", "minimum", "cheapest"})
+	bestScore := 0
+	var best assistantAIUsageDimension
+	for _, dimension := range assistantAIUsageDimensionCatalog() {
+		field := dimension.Field
+		if lowRequested && dimension.LowField != "" && len(assistantMapSlice(output[dimension.LowField])) > 0 {
+			field = dimension.LowField
+		}
+		if len(assistantMapSlice(output[field])) == 0 {
+			continue
+		}
+		score := 0
+		for _, term := range dimension.Terms {
+			if assistantAIUsageTextHasTerm(text, term) {
+				score += 10 + strings.Count(term, " ")
+			}
+		}
+		if score > bestScore {
+			bestScore = score
+			best = dimension
+		}
+	}
+	if bestScore == 0 {
+		return assistantAIUsageDimension{}, "", "", "", "", false
+	}
+	field := best.Field
+	header := best.Header
+	topLabel := best.TopLabel
+	breakdownTitle := best.BreakdownTitle
+	if lowRequested && best.LowField != "" && len(assistantMapSlice(output[best.LowField])) > 0 {
+		field = best.LowField
+		header = firstNonEmptyString(best.LowHeader, header)
+		topLabel = firstNonEmptyString(best.LowTopLabel, topLabel)
+		breakdownTitle = firstNonEmptyString(best.LowBreakdown, breakdownTitle)
+	}
+	return best, field, header, topLabel, breakdownTitle, true
+}
+
+func assistantAppendAIUsageOverview(lines []string, output map[string]any) []string {
+	sections := 0
+	for _, dimension := range assistantAIUsageDimensionCatalog() {
+		if !dimension.Overview {
+			continue
+		}
+		items := assistantMapSlice(output[dimension.Field])
+		if len(items) == 0 {
+			continue
+		}
+		lines = append(lines, "", dimension.Header+":")
+		for idx, item := range items {
+			if idx >= 3 {
+				break
+			}
+			label := firstNonEmptyString(assistantOutputString(item, "label"), assistantOutputString(item, "key"))
+			if label == "" {
+				continue
+			}
+			lines = append(lines, assistantAIUsageItemLine(label, assistantOutputFloat(item, "tokens"), assistantOutputFloat(item, "count")))
+		}
+		sections++
+		if sections >= 5 {
+			break
+		}
+	}
+	return lines
+}
+
+func assistantAIUsageTextHasAnyTerm(text string, terms []string) bool {
+	for _, term := range terms {
+		if assistantAIUsageTextHasTerm(text, term) {
+			return true
+		}
+	}
+	return false
+}
+
+func assistantAIUsageTextHasTerm(text, term string) bool {
+	text = strings.ToLower(strings.TrimSpace(text))
+	term = strings.ToLower(strings.TrimSpace(term))
+	if text == "" || term == "" {
+		return false
+	}
+	if strings.Contains(term, " ") {
+		return strings.Contains(text, term)
+	}
+	pattern := regexp.MustCompile(`\b` + regexp.QuoteMeta(term) + `\b`)
+	return pattern.MatchString(text)
+}
+
+func assistantAIUsageTopLine(topLabel, label string, tokens, count float64) string {
+	if count > 0 {
+		return fmt.Sprintf("- %s: %s with %.0f tokens across %.0f events", topLabel, label, tokens, count)
+	}
+	return fmt.Sprintf("- %s: %s with %.0f tokens", topLabel, label, tokens)
+}
+
+func assistantAIUsageItemLine(label string, tokens, count float64) string {
+	if count > 0 {
+		return fmt.Sprintf("- %s: %.0f tokens across %.0f events", label, tokens, count)
+	}
+	return fmt.Sprintf("- %s: %.0f tokens", label, tokens)
 }
 
 func composeClarifyingReply(plan assistantTurnPlan) string {
@@ -1187,7 +1398,7 @@ func (a *App) assistantPlannerFailureReply(ctx context.Context, subject model.Su
 		if reply := a.assistantSchemaSubsetFailureReply(ctx, subject, content, plan); reply != "" {
 			return reply
 		}
-		return "I did not run that because the planner selected a tool that is not valid for this request mode. Please choose direct MCP execution with confirmation, or explicitly ask for a GitOps proposal. No changes were applied."
+		return "I did not run that because the requested tool plan did not match an available safe tool for this request. For estimates or calculations, I can use existing same-chat MCP evidence with a clearly labeled LLM-derived estimate, or I can inspect the relevant NopsAI data first. No changes were applied."
 	}
 	reply := "I could not create a validated NopsAI tool plan for that request because the assistant LLM planner was unavailable or returned an invalid plan. No changes were applied."
 	if reason != "" {
@@ -1208,6 +1419,11 @@ func (a *App) assistantSchemaSubsetFailureReply(ctx context.Context, subject mod
 	lower := strings.ToLower(strings.TrimSpace(content))
 	if lower == "" {
 		lower = plan.LowerContent
+	}
+	if assistantPlannerWantsExposurePolicySchema(lower) ||
+		(assistantTextHasAny(lower, "policy", "policies", "guardrail", "guardrails") &&
+			assistantTextHasAny(lower, "knowledge", "docs", "documentation")) {
+		return "I could not validate the read plan for that policy question. This should be answered from permission-bound feature capabilities or knowledge context search, using metadata only for variables/secrets and no plaintext values. No changes were applied."
 	}
 	if assistantPlannerWantsGitOpsProposalSchema(lower) || !assistantPlannerWantsChangeSchema(lower) {
 		return ""

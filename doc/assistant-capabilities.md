@@ -13,6 +13,10 @@ operations as the current authenticated user.
   a structured turn plan with goal, intent, tool steps, and success criteria
   before execution from the live permission-filtered hosted MCP tool list and a
   compact catalog of tool descriptions and input schemas.
+- Validated plans are persisted as a user-visible execution-plan activity before
+  MCP evidence tools run. Each plan step labels whether the work is MCP-backed,
+  docs-backed, knowledge-context-backed, GitOps-proposal-backed, or LLM-derived,
+  and includes phase and confidence metadata for audit/review surfaces.
 - Assistant conversation turns do not use static normal-language routing. If
   the LLM planner returns malformed JSON, NopsAI retries once with a repair
   prompt that reuses the same live tool catalog and conversation context. If the
@@ -28,6 +32,15 @@ operations as the current authenticated user.
 - Final answers from the planner require successful hosted MCP evidence from
   the current turn. The deterministic validator does not reinterpret natural
   language intent with static routing rules.
+- Deterministic fallback rendering is evidence-driven. If the planner uses a
+  broad or novel intent label but returns valid hosted MCP evidence, the
+  assistant summarizes the returned data, proposals, monitoring rows, and object
+  lists from the tool output instead of falling back to a docs-only answer.
+- The assistant may answer follow-up calculations, estimates, comparisons, and
+  explanations without another MCP call when previous same-chat MCP evidence is
+  sufficient. These answers must label their data source and confidence,
+  separating exact MCP-backed facts from LLM-derived calculations and
+  assumptions.
 - Pipeline-specific answers are additionally grounded in successful NopsAI
   pipeline evidence. Generated or edited pipeline YAML must go through
   `nopsai.validate_pipeline` or a `nopsai.propose_pipeline_*` tool before the
@@ -56,12 +69,33 @@ operations as the current authenticated user.
 - Final LLM synthesis is quality-gated against the validated plan and hosted
   MCP evidence. If the model claims unapplied changes or omits required
   proposal-safe wording, NopsAI falls back to the deterministic tool summary.
+- Hosted MCP API responses are interpreted from their JSON response envelope
+  when deterministic assistant summaries and quality checks read analytics
+  evidence. For example, AI usage answers rank pipelines, steps, models, and
+  runs from the live `/v1/monitoring/ai-usage` payload instead of treating the
+  wrapper metadata as an empty result.
+- AI usage analytics expose provider, model, profile, feature, step, task,
+  pipeline, schedule, subject, and run breakdowns. Assistant chat token usage is
+  merged into the same global AI usage view and is attributed back to provider
+  and model through the selected LLM profile when that profile is stored in
+  NopsAI.
+- Successful AI usage evidence is terminal for the assistant planner loop. The
+  assistant renders the deterministic token analytics summary directly instead
+  of asking a final LLM pass to reinterpret the numbers. These summaries use a
+  reusable analytics-dimension catalog over the live payload, so provider,
+  pipeline, step, task, run, model, profile, feature, and schedule questions all
+  use the same selection path instead of static question templates.
 - Pipeline proposal synthesis also requires review/GitOps-safe language. If
   the model omits the review path or implies an unverified pipeline, NopsAI
   falls back to the deterministic validation/proposal summary.
 - The packaged UI nginx proxy keeps API connections open long enough for local
   LLM-backed assistant turns, while the assistant still avoids unnecessary
   planner/synthesis passes when a validated MCP tool result is sufficient.
+- Assistant UI transport errors sanitize HTML proxy/gateway responses before
+  rendering them in the chat error banner. For transient gateway, timeout, or
+  network-like send failures, the UI briefly refetches the conversation and
+  reconciles the saved assistant reply when the backend completed the turn even
+  though the original browser request failed.
 - Secret and credential workflows are metadata-, reference-, encrypted-payload-,
   or explicit-write-oriented. Plaintext secret reads are not part of ordinary
   assistant context.
@@ -144,6 +178,16 @@ metadata available on demand.
 - Message bubbles show only user/assistant content plus compact actions such as
   copy and retry. Raw internal planner and synthesis calls are not rendered
   under each message.
+- Assistant replies can show a compact execution plan above the answer. This is
+  the safe, user-facing plan summary with source, phase, and confidence labels;
+  it is not hidden model chain-of-thought.
+- While a turn is running, the assistant shows a compact time-aware staged
+  progress list such as planning, reading permission-bound evidence, comparing
+  relevant records, synthesizing the answer, and reconciling the saved result.
+  These are safe operational stages, not hidden chain-of-thought.
+- Optimistic user messages are reconciled with refetched server messages, so a
+  user prompt is not shown twice when someone switches conversations and
+  returns while the assistant turn is still in flight.
 - Assistant messages render a safe markdown subset for headings, bullets,
   inline code, fenced code blocks, and HTTPS citations. Operational LLM
   synthesis is instructed to prefer Summary, Evidence, and Recommended next
@@ -184,9 +228,12 @@ metadata available on demand.
 - Conversation memory, NopsAI evidence, usage, and proposed changes live in
   collapsible detail sections. The dock stays lightweight and leaves deep
   evidence/configuration to the full assistant page.
-- The left rail focuses on conversations and conversation deletion. Chat-level
-  actions stay close to the relevant message or session detail, avoiding
-  duplicate new/copy controls in the conversation header.
+- The left rail focuses on conversations and conversation deletion. Delete
+  actions stay visible for scannability; only the conversation currently
+  running an assistant turn is locked from deletion, so users can clean up other
+  chats while a long model request is still in flight. Chat-level actions stay
+  close to the relevant message or session detail, avoiding duplicate new/copy
+  controls in the conversation header.
 - Conversation deletion uses the authenticated user's assistant subject and
   removes the conversation, messages, and memory through the existing database
   cascade. It does not modify GitOps-managed product configuration.
@@ -197,9 +244,10 @@ metadata available on demand.
 
 The assistant can show the current user's MCP coverage, available resources,
 required AAA actions, and access state. It can also explain policy boundaries
-for internal run operations, webhook ingress, and UI rendering.
+for env/secret exposure, internal run operations, webhook ingress, and UI
+rendering.
 
-Ask:
+Example prompts, not static routing templates:
 
 - "What features can I use with the assistant right now?"
 - "Show the tools/resources available to my user."
@@ -223,6 +271,7 @@ Ask:
 
 - "Search the docs for external trigger configuration."
 - "Read the knowledge context named `release-policy`."
+- "Do we have any env exposure policy in knowledge context?"
 - "Show all knowledge docs available to this pipeline."
 - "Walk the knowledge refs in `platform/release` and tell me which docs are
   managed by NopsAI versus repo-local."
@@ -498,7 +547,9 @@ Ask:
 - "Summarize monitoring health for the last 24 hours."
 - "Show pipeline performance for `platform/deploy-api` this week."
 - "Which steps are slowest across production deploy pipelines?"
+- "Find bottlenecks in deploy steps and suggest what to improve."
 - "Analyze AI usage cost by provider."
+- "Estimate the AI usage cost from the token data you just found."
 - "Give me LLM usage."
 - "Give me LLM usage for qwen model."
 - "Show tokens for the openai profile last week."

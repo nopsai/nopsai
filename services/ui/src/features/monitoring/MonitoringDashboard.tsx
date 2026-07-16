@@ -392,6 +392,9 @@ function AIUsageTab({ usage, previousUsage, loading }: { usage: MonitoringAIUsag
         <Panel title="By Feature" icon={<Bot className="h-4 w-4" />}>
           <NamedCountList items={usage?.by_feature || []} loading={loading} value="tokens" />
         </Panel>
+        <Panel title="By Provider" icon={<Bot className="h-4 w-4" />}>
+          <NamedCountList items={usage?.by_provider || []} loading={loading} value="tokens" />
+        </Panel>
         <Panel title="By LLM Profile" icon={<ShieldCheck className="h-4 w-4" />}>
           <NamedCountList items={usage?.by_profile || []} loading={loading} value="tokens" />
         </Panel>

@@ -245,6 +245,7 @@ type monitoringAIUsageResponse struct {
 	ByStep                []monitoringNamedCount   `json:"by_step"`
 	ByTask                []monitoringNamedCount   `json:"by_task"`
 	ByFeature             []monitoringNamedCount   `json:"by_feature"`
+	ByProvider            []monitoringNamedCount   `json:"by_provider"`
 	ByProfile             []monitoringNamedCount   `json:"by_profile"`
 	ByModel               []monitoringNamedCount   `json:"by_model"`
 	BySubject             []monitoringNamedCount   `json:"by_subject"`
@@ -1371,6 +1372,10 @@ func (a *App) loadMonitoringAIUsage(ctx context.Context, filters monitoringAnaly
 		if err != nil {
 			return resp, err
 		}
+		resp.ByProvider, err = a.loadAIUsageTeam(ctx, runIDs, filters, "provider")
+		if err != nil {
+			return resp, err
+		}
 		resp.ByProfile, err = a.loadAIUsageTeam(ctx, runIDs, filters, "llm_profile")
 		if err != nil {
 			return resp, err
@@ -1871,7 +1876,9 @@ type monitoringAssistantChatUsage struct {
 	ExactEvents      int64
 	EstimatedEvents  int64
 	MessageCount     int64
+	ByProvider       []monitoringNamedCount
 	ByProfile        []monitoringNamedCount
+	ByModel          []monitoringNamedCount
 	BySubject        []monitoringNamedCount
 	Trend            []monitoringTimeBucket
 }
@@ -1892,7 +1899,15 @@ func (a *App) loadMonitoringAssistantChatUsage(ctx context.Context, filters moni
 		return usage, err
 	}
 	var err error
+	usage.ByProvider, err = a.loadMonitoringTokenCounts(ctx, monitoringAssistantChatUsageTeamQuery("lp.provider"), args...)
+	if err != nil {
+		return usage, err
+	}
 	usage.ByProfile, err = a.loadMonitoringTokenCounts(ctx, monitoringAssistantChatUsageTeamQuery("COALESCE(NULLIF(ac.selected_llm_profile, ''), 'default')"), args...)
+	if err != nil {
+		return usage, err
+	}
+	usage.ByModel, err = a.loadMonitoringTokenCounts(ctx, monitoringAssistantChatUsageTeamQuery("CONCAT_WS('/', NULLIF(lp.provider, ''), NULLIF(lp.model, ''))"), args...)
 	if err != nil {
 		return usage, err
 	}
@@ -1940,7 +1955,9 @@ func (resp *monitoringAIUsageResponse) addAssistantChatUsage(usage monitoringAss
 		Count:  usage.MessageCount,
 		Tokens: usage.TotalTokens,
 	}})
+	resp.ByProvider = mergeMonitoringTokenCounts(resp.ByProvider, usage.ByProvider)
 	resp.ByProfile = mergeMonitoringTokenCounts(resp.ByProfile, usage.ByProfile)
+	resp.ByModel = mergeMonitoringTokenCounts(resp.ByModel, usage.ByModel)
 	resp.BySubject = mergeMonitoringTokenCounts(resp.BySubject, usage.BySubject)
 	resp.Trend = mergeMonitoringTimeBuckets(resp.Trend, usage.Trend)
 }
@@ -1952,7 +1969,7 @@ func monitoringAssistantChatUsageAllowed(filters monitoringAnalyticsFilters) boo
 		filters.ScheduleID != "" || filters.MinDurationSeconds != nil || filters.MaxDurationSeconds != nil {
 		return false
 	}
-	if filters.Provider != "" || filters.Model != "" || filters.StepName != "" || filters.TaskName != "" {
+	if filters.StepName != "" || filters.TaskName != "" {
 		return false
 	}
 	return filters.Feature == "" || strings.EqualFold(filters.Feature, "assistant_chat")
@@ -1967,6 +1984,8 @@ func monitoringAssistantChatUsageQueryArgs(filters monitoringAnalyticsFilters) [
 		filters.RequestedByID,
 		filters.EffectiveSubjectType,
 		filters.EffectiveSubjectID,
+		filters.Provider,
+		filters.Model,
 	}
 }
 
@@ -1991,8 +2010,11 @@ func monitoringAssistantChatUsageTotalsQuery() string {
 		       COUNT(*)::bigint
 		FROM assistant_messages am
 		JOIN assistant_conversations ac ON ac.id = am.conversation_id
+		LEFT JOIN llm_profiles lp ON LOWER(lp.name) = LOWER(ac.selected_llm_profile)
 		WHERE am.created_at >= $1 AND am.created_at <= $2
-		  AND ($3::text = '' OR LOWER(COALESCE(ac.selected_llm_profile, '')) = LOWER($3))` + monitoringAssistantChatUserIDPredicate()
+		  AND ($3::text = '' OR LOWER(COALESCE(ac.selected_llm_profile, '')) = LOWER($3))` + monitoringAssistantChatUserIDPredicate() + `
+		  AND ($8::text = '' OR LOWER(COALESCE(lp.provider, '')) = LOWER($8))
+		  AND ($9::text = '' OR LOWER(COALESCE(lp.model, '')) = LOWER($9))`
 }
 
 func monitoringAssistantChatUsageTeamQuery(expression string) string {
@@ -2001,8 +2023,11 @@ func monitoringAssistantChatUsageTeamQuery(expression string) string {
 		       (COUNT(*) FILTER (WHERE am.total_tokens > 0))::bigint, COALESCE(SUM(am.total_tokens), 0)::bigint, 0::float8
 		FROM assistant_messages am
 		JOIN assistant_conversations ac ON ac.id = am.conversation_id
+		LEFT JOIN llm_profiles lp ON LOWER(lp.name) = LOWER(ac.selected_llm_profile)
 		WHERE am.created_at >= $1 AND am.created_at <= $2
 		  AND ($3::text = '' OR LOWER(COALESCE(ac.selected_llm_profile, '')) = LOWER($3))` + monitoringAssistantChatUserIDPredicate() + `
+		  AND ($8::text = '' OR LOWER(COALESCE(lp.provider, '')) = LOWER($8))
+		  AND ($9::text = '' OR LOWER(COALESCE(lp.model, '')) = LOWER($9))
 		GROUP BY 1,2
 		HAVING COALESCE(SUM(am.total_tokens), 0) > 0
 		ORDER BY 4 DESC, 2
@@ -2019,8 +2044,11 @@ func monitoringAssistantChatUsageTrendQuery() string {
 		       0::float8
 		FROM assistant_messages am
 		JOIN assistant_conversations ac ON ac.id = am.conversation_id
+		LEFT JOIN llm_profiles lp ON LOWER(lp.name) = LOWER(ac.selected_llm_profile)
 		WHERE am.created_at >= $1 AND am.created_at <= $2
 		  AND ($3::text = '' OR LOWER(COALESCE(ac.selected_llm_profile, '')) = LOWER($3))` + monitoringAssistantChatUserIDPredicate() + `
+		  AND ($8::text = '' OR LOWER(COALESCE(lp.provider, '')) = LOWER($8))
+		  AND ($9::text = '' OR LOWER(COALESCE(lp.model, '')) = LOWER($9))
 		GROUP BY 1,2
 		ORDER BY 1`
 }

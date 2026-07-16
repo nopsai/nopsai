@@ -782,6 +782,52 @@ func TestHostedMCPMonitoringAnalyticsPathUsesAliases(t *testing.T) {
 	}
 }
 
+func TestHostedMCPMonitoringAIUsagePathDropsGeneratedPlaceholderFilters(t *testing.T) {
+	path := hostedMCPMonitoringAnalyticsPath("nopsai.get_monitoring_ai_usage", map[string]any{
+		"from":        "2026-07-01",
+		"provider":    "provider",
+		"model":       "all",
+		"feature":     "cost",
+		"llm_profile": "llm profile",
+		"query": map[string]any{
+			"to":       "2026-07-16",
+			"provider": "by_provider",
+			"model":    "models",
+			"feature":  "usage",
+		},
+	})
+	parsed, err := url.Parse(path)
+	if err != nil {
+		t.Fatalf("parse path %q: %v", path, err)
+	}
+	query := parsed.Query()
+	for _, key := range []string{"provider", "model", "feature", "llmProfile"} {
+		if got := query.Get(key); got != "" {
+			t.Fatalf("path kept generated placeholder %s=%q in %q", key, got, path)
+		}
+	}
+	if query.Get("from") != "2026-07-01" || query.Get("to") != "2026-07-16" {
+		t.Fatalf("path dropped real window filters: %q", path)
+	}
+}
+
+func TestHostedMCPMonitoringAIUsagePathKeepsExplicitFilters(t *testing.T) {
+	path := hostedMCPMonitoringAnalyticsPath("nopsai.get_monitoring_ai_usage", map[string]any{
+		"provider":    "gemini",
+		"model":       "gemini-2.5-flash",
+		"feature":     "assistant_chat",
+		"llm_profile": "standard",
+	})
+	parsed, err := url.Parse(path)
+	if err != nil {
+		t.Fatalf("parse path %q: %v", path, err)
+	}
+	query := parsed.Query()
+	if query.Get("provider") != "gemini" || query.Get("model") != "gemini-2.5-flash" || query.Get("feature") != "assistant_chat" || query.Get("llmProfile") != "standard" {
+		t.Fatalf("path = %q, want explicit AI usage filters preserved", path)
+	}
+}
+
 func TestHostedMCPConfigRepoPathUsesTeamEndpoint(t *testing.T) {
 	path := hostedMCPConfigRepoPath(map[string]any{"team_path": "team-1/platform"}, "/drift")
 	if path != "/v1/teams/team-1%2Fplatform/config-repository/drift" {

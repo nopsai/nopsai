@@ -6,6 +6,29 @@ export type AssistantToolActivity = {
   output: Record<string, unknown>;
   status: string;
   resource_uris: string[];
+  source?: string;
+  phase?: string;
+  confidence?: string;
+  purpose?: string;
+};
+
+export type AssistantExecutionPlanStep = {
+  index: number;
+  title: string;
+  source: string;
+  phase: string;
+  confidence: string;
+  tool: string;
+  reason: string;
+  status: string;
+};
+
+export type AssistantExecutionPlan = {
+  goal: string;
+  intent: string;
+  summary: string;
+  requires_confirmation: boolean;
+  steps: AssistantExecutionPlanStep[];
 };
 
 export type AssistantMessage = {
@@ -310,7 +333,16 @@ export function assistantVisibleToolActivity(messages: AssistantMessage[]): Assi
 }
 
 export function assistantToolActivityIsInternal(tool: AssistantToolActivity): boolean {
-  return tool.name === 'nopsai.llm.plan' || tool.name === 'nopsai.llm.complete';
+  return tool.name === 'nopsai.llm.plan' ||
+    tool.name === 'nopsai.llm.complete' ||
+    tool.name === 'nopsai.assistant.execution_plan' ||
+    tool.name === 'nopsai.assistant_plan';
+}
+
+export function assistantExecutionPlanFromMessage(message: AssistantMessage): AssistantExecutionPlan | null {
+  const tool = message.tool_calls.find(activity => activity.name === 'nopsai.assistant.execution_plan');
+  if (!tool) return null;
+  return normalizeAssistantExecutionPlan(tool.output.execution_plan || tool.output);
 }
 
 export function assistantMessageAuthorLabel(message: AssistantMessage): string {
@@ -441,6 +473,41 @@ function normalizeAssistantToolActivity(value: unknown): AssistantToolActivity {
     output: asRecord(record.output) || {},
     status: readString(record.status),
     resource_uris: normalizeStringArray(record.resource_uris),
+    source: readString(record.source).trim(),
+    phase: readString(record.phase).trim(),
+    confidence: readString(record.confidence).trim(),
+    purpose: readString(record.purpose).trim(),
+  };
+}
+
+function normalizeAssistantExecutionPlan(value: unknown): AssistantExecutionPlan | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const steps = Array.isArray(record.steps)
+    ? record.steps.map(normalizeAssistantExecutionPlanStep).filter(step => step.title || step.source || step.tool)
+    : [];
+  const plan = {
+    goal: readString(record.goal).trim(),
+    intent: readString(record.intent).trim(),
+    summary: readString(record.summary).trim(),
+    requires_confirmation: readBoolean(record.requires_confirmation, false),
+    steps,
+  };
+  if (!plan.goal && !plan.summary && plan.steps.length === 0) return null;
+  return plan;
+}
+
+function normalizeAssistantExecutionPlanStep(value: unknown): AssistantExecutionPlanStep {
+  const record = asRecord(value) || {};
+  return {
+    index: readNonNegativeNumber(record.index),
+    title: readString(record.title).trim(),
+    source: readString(record.source).trim(),
+    phase: readString(record.phase).trim(),
+    confidence: readString(record.confidence).trim(),
+    tool: readString(record.tool).trim(),
+    reason: readString(record.reason).trim(),
+    status: readString(record.status).trim(),
   };
 }
 

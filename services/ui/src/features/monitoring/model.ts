@@ -342,6 +342,7 @@ export type MonitoringAIUsage = {
   by_step?: MonitoringNamedCount[];
   by_task?: MonitoringNamedCount[];
   by_feature?: MonitoringNamedCount[];
+  by_provider?: MonitoringNamedCount[];
   by_profile?: MonitoringNamedCount[];
   by_model?: MonitoringNamedCount[];
   by_subject?: MonitoringNamedCount[];

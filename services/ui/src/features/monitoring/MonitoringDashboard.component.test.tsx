@@ -109,6 +109,7 @@ test('renders exact, estimated, and profile LLM token usage separately', () => {
             { key: 'log_analysis', label: 'log_analysis', count: 2, tokens: 700 },
             { key: 'assistant_chat', label: 'Assistant chat', count: 4, tokens: 200 },
           ],
+          by_provider: [{ key: 'gemini', label: 'gemini', count: 2, tokens: 700 }],
           by_profile: [{ key: 'default', label: 'default', count: 2, tokens: 800 }],
           by_model: [{ key: 'gemini/gemini-2.5-pro', label: 'gemini/gemini-2.5-pro', count: 2, tokens: 700 }],
           trend: [{ key: '2026-06-12', label: '2026-06-12', runs: 1200 }],
@@ -133,6 +134,8 @@ test('renders exact, estimated, and profile LLM token usage separately', () => {
   expect(screen.getByText('1 estimated events')).toBeVisible();
   expect(screen.getByText('By Step')).toBeVisible();
   expect(screen.getByText('By Task')).toBeVisible();
+  expect(screen.getByText('By Provider')).toBeVisible();
+  expect(screen.getByText('gemini')).toBeVisible();
   expect(screen.getByText('By LLM Profile')).toBeVisible();
   expect(screen.getByText('default')).toBeVisible();
   expect(screen.getByText('plan/summarize')).toBeVisible();

@@ -31,6 +31,7 @@ export function useAssistantController({ autoload = true, startFresh = false }: 
   const [loading, setLoading] = useState(autoload);
   const [sending, setSending] = useState(false);
   const [sendingConversationID, setSendingConversationID] = useState('');
+  const [sendingStartedAt, setSendingStartedAt] = useState(0);
   const [retrying, setRetrying] = useState(false);
   const [deletingConversationID, setDeletingConversationID] = useState('');
   const [copiedMessageID, setCopiedMessageID] = useState('');
@@ -168,7 +169,7 @@ export function useAssistantController({ autoload = true, startFresh = false }: 
   }, [activeConversation, finishCopyFeedback]);
 
   const deleteConversation = useCallback(async (conversationID = activeConversation?.id || '') => {
-    if (!conversationID || sending) return;
+    if (!conversationID || conversationID === sendingConversationID) return;
     const remaining = conversations.filter(conversation => conversation.id !== conversationID);
     setDeletingConversationID(conversationID);
     setError(null);
@@ -193,7 +194,7 @@ export function useAssistantController({ autoload = true, startFresh = false }: 
     } finally {
       setDeletingConversationID('');
     }
-  }, [activateConversation, activeConversation?.id, conversations, profileOptions, sending]);
+  }, [activateConversation, activeConversation?.id, conversations, profileOptions, sendingConversationID]);
 
   const submitMessage = useCallback(async () => {
     const content = draft.trim();
@@ -202,6 +203,7 @@ export function useAssistantController({ autoload = true, startFresh = false }: 
     setSending(true);
     setError(null);
     let messageConversationID = activeConversation?.id || '';
+    let turnStartedAt = Date.now();
     try {
       let conversation = activeConversation;
       if (!conversation) {
@@ -217,8 +219,10 @@ export function useAssistantController({ autoload = true, startFresh = false }: 
         ]);
       }
       messageConversationID = conversation.id;
+      turnStartedAt = Date.now();
       setPendingMessage(buildPendingAssistantMessage(conversation.id, content));
       setSendingConversationID(conversation.id);
+      setSendingStartedAt(turnStartedAt);
       const payload = await sendAssistantMessage({
         conversation_id: conversation.id,
         content,
@@ -233,12 +237,27 @@ export function useAssistantController({ autoload = true, startFresh = false }: 
         ...current.filter(item => item.id !== payload.conversation.id),
       ]);
     } catch (err) {
+      const recoveredConversation = assistantSendErrorMayHavePersisted(err)
+        ? await recoverAssistantConversationAfterSendError(messageConversationID, content, turnStartedAt)
+        : null;
+      if (recoveredConversation) {
+        setPendingMessage(current => (current?.conversation_id === messageConversationID ? null : current));
+        if (activeConversationIDRef.current === messageConversationID) {
+          activateConversation(recoveredConversation);
+        }
+        setConversations(current => [
+          recoveredConversation,
+          ...current.filter(item => item.id !== recoveredConversation.id),
+        ]);
+        return;
+      }
       setError(err instanceof Error ? err.message : 'Unable to send message');
       setDraft(current => current || content);
       setPendingMessage(current => (current?.conversation_id === messageConversationID ? null : current));
     } finally {
       setSending(false);
       setSendingConversationID(current => (current === messageConversationID ? '' : current));
+      setSendingStartedAt(0);
     }
   }, [activateConversation, activeConversation, config?.default_docs_version, config?.enabled, draft, selectedProfile, sending]);
 
@@ -249,6 +268,8 @@ export function useAssistantController({ autoload = true, startFresh = false }: 
     setPendingMessage(buildPendingAssistantMessage(activeConversation.id, sourceMessage.content));
     setSending(true);
     setSendingConversationID(activeConversation.id);
+    const turnStartedAt = Date.now();
+    setSendingStartedAt(turnStartedAt);
     setRetrying(true);
     setError(null);
     try {
@@ -266,12 +287,27 @@ export function useAssistantController({ autoload = true, startFresh = false }: 
         ...current.filter(item => item.id !== payload.conversation.id),
       ]);
     } catch (err) {
+      const recoveredConversation = assistantSendErrorMayHavePersisted(err)
+        ? await recoverAssistantConversationAfterSendError(activeConversation.id, sourceMessage.content, turnStartedAt)
+        : null;
+      if (recoveredConversation) {
+        setPendingMessage(current => (current?.conversation_id === activeConversation.id ? null : current));
+        if (activeConversationIDRef.current === activeConversation.id) {
+          activateConversation(recoveredConversation);
+        }
+        setConversations(current => [
+          recoveredConversation,
+          ...current.filter(item => item.id !== recoveredConversation.id),
+        ]);
+        return;
+      }
       setError(err instanceof Error ? err.message : 'Unable to retry message');
       setPendingMessage(current => (current?.conversation_id === activeConversation.id ? null : current));
     } finally {
       setRetrying(false);
       setSending(false);
       setSendingConversationID(current => (current === activeConversation.id ? '' : current));
+      setSendingStartedAt(0);
     }
   }, [activateConversation, activeConversation, config?.enabled, retrying, selectedProfile, sending]);
 
@@ -284,9 +320,13 @@ export function useAssistantController({ autoload = true, startFresh = false }: 
     if (!activeConversation || pendingMessage?.conversation_id !== activeConversation.id) {
       return messages;
     }
+    if (messages.some(message => assistantMessageMatchesPending(message, pendingMessage))) {
+      return messages;
+    }
     return [...messages, pendingMessage];
   }, [activeConversation, activeConversation?.messages, pendingMessage]);
   const activeConversationSending = Boolean(activeConversation?.id && sendingConversationID === activeConversation.id);
+  const activeConversationSendingStartedAt = activeConversationSending ? sendingStartedAt : 0;
   const canRetry = Boolean(activeConversation && assistantLastUserMessage(activeConversation.messages));
 
   return {
@@ -301,7 +341,9 @@ export function useAssistantController({ autoload = true, startFresh = false }: 
     setDraft,
     loading,
     sending,
+    sendingConversationID,
     activeConversationSending,
+    activeConversationSendingStartedAt,
     retrying,
     deletingConversationID,
     copiedMessageID,
@@ -322,6 +364,66 @@ export function useAssistantController({ autoload = true, startFresh = false }: 
   };
 }
 
+const assistantSendRecoveryAttempts = 12;
+const assistantSendRecoveryDelayMS = 2500;
+const assistantSendRecoveryClockSkewMS = 30000;
+
+function assistantSendErrorMayHavePersisted(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /\b(502|503|504|gateway|timeout|timed out|network|failed to fetch|load failed|proxy|abort|aborted|connection|econnreset)\b/i.test(message);
+}
+
+async function recoverAssistantConversationAfterSendError(
+  conversationID: string,
+  content: string,
+  turnStartedAt: number,
+): Promise<AssistantConversation | null> {
+  if (!conversationID || !content.trim()) return null;
+  for (let attempt = 0; attempt < assistantSendRecoveryAttempts; attempt += 1) {
+    if (attempt > 0) await delay(assistantSendRecoveryDelayMS);
+    try {
+      const conversation = await fetchAssistantConversation(conversationID);
+      if (assistantConversationHasCompletedTurn(conversation, content, turnStartedAt)) {
+        return conversation;
+      }
+    } catch {
+      // Keep polling briefly; the original POST may have timed out while the turn is still being saved.
+    }
+  }
+  return null;
+}
+
+function assistantConversationHasCompletedTurn(
+  conversation: AssistantConversation,
+  content: string,
+  turnStartedAt: number,
+): boolean {
+  const normalizedContent = content.trim();
+  for (let index = conversation.messages.length - 1; index >= 0; index -= 1) {
+    const message = conversation.messages[index];
+    if (message.role !== 'user' || message.content.trim() !== normalizedContent) continue;
+    if (!assistantMessageIsRecoverableNew(message, turnStartedAt)) continue;
+    return conversation.messages.slice(index + 1).some(reply => (
+      reply.role === 'assistant'
+      && reply.content.trim().length > 0
+      && assistantMessageIsRecoverableNew(reply, turnStartedAt)
+    ));
+  }
+  return false;
+}
+
+function assistantMessageIsRecoverableNew(message: AssistantMessage, turnStartedAt: number): boolean {
+  const messageTime = Date.parse(message.created_at);
+  if (!Number.isFinite(messageTime)) return true;
+  return messageTime >= turnStartedAt - assistantSendRecoveryClockSkewMS;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
 function buildPendingAssistantMessage(conversationID: string, content: string): AssistantMessage {
   return {
     id: `pending-${Date.now()}`,
@@ -332,6 +434,16 @@ function buildPendingAssistantMessage(conversationID: string, content: string): 
     usage: emptyAssistantMessageUsage,
     created_at: new Date().toISOString(),
   };
+}
+
+function assistantMessageMatchesPending(message: AssistantMessage, pending: AssistantMessage): boolean {
+  if (message.id === pending.id) return true;
+  if (message.conversation_id !== pending.conversation_id || message.role !== pending.role) return false;
+  if (message.content.trim() !== pending.content.trim()) return false;
+  const messageTime = Date.parse(message.created_at);
+  const pendingTime = Date.parse(pending.created_at);
+  if (!Number.isFinite(messageTime) || !Number.isFinite(pendingTime)) return true;
+  return messageTime >= pendingTime - 30_000;
 }
 
 function selectableAssistantProfileNames(profiles: AssistantLLMProfile[]) {
