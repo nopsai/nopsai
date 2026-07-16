@@ -1,6 +1,12 @@
+import { ChevronDown } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import type { ReactNode } from 'react';
-import { groupNavItemsByTopic, SIDEBAR_NAV_PLATFORM_TOPIC_ID, sidebarNavItemIsActive } from './navigationModel';
+import {
+  groupNavItemsByTopic,
+  SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_ID,
+  SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_LABEL,
+  sidebarNavItemIsActive,
+} from './navigationModel';
 import type { NavItem } from './types';
 
 function navItemClass(active: boolean) {
@@ -19,81 +25,106 @@ export function BaseSidebarNavigation({
   const isSystemRoute = locationPathname.startsWith('/system');
   const topLevelNav = navItems.filter(item => !item.path.startsWith('/system'));
   const topics = groupNavItemsByTopic(topLevelNav);
-  const platformTopic = topics.find(topic => topic.id === SIDEBAR_NAV_PLATFORM_TOPIC_ID);
-  const regularTopics = topics.filter(topic => topic.id !== SIDEBAR_NAV_PLATFORM_TOPIC_ID);
-  const showSystemNav = systemSubNav.length > 0 || navItems.some(item => item.path.startsWith('/system'));
-  const platformItems = platformTopic?.items || [];
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
+    () => new Set(isSystemRoute ? [] : [SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_ID])
+  );
+
+  useEffect(() => {
+    if (!isSystemRoute || systemSubNav.length === 0) return;
+    setCollapsedSections(current => {
+      if (!current.has(SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_ID)) return current;
+      const next = new Set(current);
+      next.delete(SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_ID);
+      return next;
+    });
+  }, [isSystemRoute, systemSubNav.length]);
+
+  const toggleSection = (sectionID: string) => {
+    setCollapsedSections(current => {
+      const next = new Set(current);
+      if (next.has(sectionID)) {
+        next.delete(sectionID);
+      } else {
+        next.add(sectionID);
+      }
+      return next;
+    });
+  };
 
   return (
     <nav id="sidebar-base-nav" className="sidebar-nav" aria-label="Primary">
-      {regularTopics.map(topic => (
+      {topics.map(topic => (
         <SidebarNavSection
           key={topic.id}
+          sectionID={`${topic.id}-navigation`}
+          topicID={topic.id}
           label={topic.label}
           items={topic.items}
           locationPathname={locationPathname}
+          expanded={!collapsedSections.has(topic.id)}
+          onToggle={() => toggleSection(topic.id)}
         />
       ))}
-      {platformItems.length > 0 || showSystemNav ? (
+      {systemSubNav.length > 0 ? (
         <SidebarNavSection
-          sectionID="platform-navigation"
-          label={platformTopic?.label || 'Platform'}
-          items={platformItems}
+          sectionID={`${SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_ID}-navigation`}
+          topicID={SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_ID}
+          label={SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_LABEL}
+          items={systemSubNav}
           locationPathname={locationPathname}
-        >
-          {showSystemNav ? (
-            <div id="system-subnavigation" className="sidebar-nav-subsection" aria-label="System sections">
-              {platformItems.length > 0 ? <div className="sidebar-nav-subseparator" aria-hidden="true" /> : null}
-              {systemSubNav.map(sub => (
-                <NavLink
-                  key={sub.path}
-                  to={sub.path}
-                  className={({ isActive: subActive }) => navItemClass(subActive || (isSystemRoute && locationPathname === sub.path))}
-                  aria-label={sub.label}
-                  title={sub.label}
-                >
-                  <span className="sidebar-nav-icon">{sub.icon}</span>
-                  <span className="truncate">{sub.label}</span>
-                </NavLink>
-              ))}
-            </div>
-          ) : null}
-        </SidebarNavSection>
+          expanded={!collapsedSections.has(SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_ID)}
+          onToggle={() => toggleSection(SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_ID)}
+        />
       ) : null}
     </nav>
   );
 }
 
 function SidebarNavSection({
-  children,
   items,
   label,
   locationPathname,
   sectionID,
+  topicID,
+  expanded,
+  onToggle,
 }: {
-  children?: ReactNode;
   items: NavItem[];
   label: string;
   locationPathname: string;
-  sectionID?: string;
+  sectionID: string;
+  topicID: string;
+  expanded: boolean;
+  onToggle: () => void;
 }) {
-  if (items.length === 0 && !children) return null;
+  if (items.length === 0) return null;
+  const contentID = `${sectionID}-items`;
   return (
-    <div id={sectionID} className="sidebar-nav-section" role="group" aria-label={`${label} navigation`}>
-      <p className="sidebar-nav-label">{label}</p>
-      {items.map(item => (
-        <NavLink
-          key={item.path}
-          to={item.path}
-          className={({ isActive }) => navItemClass(isActive || sidebarNavItemIsActive(item.path, locationPathname))}
-          aria-label={item.label}
-          title={item.label}
-        >
-          <span className="sidebar-nav-icon">{item.icon}</span>
-          <span className="truncate">{item.label}</span>
-        </NavLink>
-      ))}
-      {children}
+    <div id={sectionID} className="sidebar-nav-section" role="group" aria-label={`${label} navigation`} data-topic-id={topicID}>
+      <button
+        type="button"
+        className="sidebar-nav-label sidebar-nav-toggle"
+        aria-expanded={expanded}
+        aria-controls={contentID}
+        onClick={onToggle}
+      >
+        <span className="sidebar-nav-label-text">{label}</span>
+        <ChevronDown className="sidebar-nav-toggle-chevron" aria-hidden="true" />
+      </button>
+      <div id={contentID} className="sidebar-nav-section-content" hidden={!expanded}>
+        {items.map(item => (
+          <NavLink
+            key={item.path}
+            to={item.path}
+            className={({ isActive }) => navItemClass(isActive || sidebarNavItemIsActive(item.path, locationPathname))}
+            aria-label={item.label}
+            title={item.label}
+          >
+            <span className="sidebar-nav-icon">{item.icon}</span>
+            <span className="truncate">{item.label}</span>
+          </NavLink>
+        ))}
+      </div>
     </div>
   );
 }

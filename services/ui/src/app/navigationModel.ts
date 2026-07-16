@@ -1,4 +1,6 @@
 const SIDEBAR_NAV_PLATFORM_TOPIC_ID = 'platform';
+export const SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_ID = 'system-settings';
+export const SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_LABEL = 'System Settings';
 
 export const sidebarNavTopics = [
   {
@@ -12,23 +14,21 @@ export const sidebarNavTopics = [
     itemLabels: ['Pipelines', 'Schedules', 'Triggers', 'Lab', 'Steps'],
   },
   {
-    id: 'ai-knowledge',
-    label: 'AI & Knowledge',
-    itemLabels: ['Assistant', 'LLM Profiles', 'Agent Profiles', 'MCP', 'Knowledge Context'],
-  },
-  {
     id: 'organization',
     label: 'Organization',
     itemLabels: ['Teams', 'Scopes'],
   },
   {
+    id: 'ai-knowledge',
+    label: 'AI & Knowledge',
+    itemLabels: ['Assistant', 'LLM Profiles', 'Agent Profiles', 'MCP', 'Knowledge Context'],
+  },
+  {
     id: SIDEBAR_NAV_PLATFORM_TOPIC_ID,
     label: 'Platform',
-    itemLabels: ['Credentials', 'System'],
+    itemLabels: ['Credentials'],
   },
 ] as const;
-
-export { SIDEBAR_NAV_PLATFORM_TOPIC_ID };
 
 export type SidebarNavTopicID = typeof sidebarNavTopics[number]['id'] | 'other';
 

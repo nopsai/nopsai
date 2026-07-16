@@ -83,11 +83,6 @@ export const baseNavItems: NavItem[] = [
     path: '/knowledge-context',
     icon: <ObjectIcon type="knowledge-context" />,
   },
-  {
-    label: 'System',
-    path: '/system/config',
-    icon: <ObjectIcon type="system" />,
-  },
 ];
 
 export const baseSystemSubNav: NavItem[] = [
