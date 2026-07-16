@@ -5,7 +5,7 @@ import {
   type WikiRunbook,
   type WikiSection,
   type WikiSource,
-} from './model';
+} from './model.js';
 
 export const documentationMetadata = {
   title: 'NopsAI Documentation',
@@ -32,8 +32,6 @@ export type DocumentationArticle = Omit<WikiArticle, 'configRows' | 'sourceLinks
 export type DocumentationSection = Omit<WikiSection, 'articles'> & {
   articles: DocumentationArticle[];
 };
-
-const repositoryBlobBase = 'https://github.com/hosein-yousefii/pre-nopsai/blob/main';
 
 export const documentationSections: DocumentationSection[] = wikiSections.map(section => ({
   ...section,
@@ -77,7 +75,7 @@ export function isFieldMetadataVerified(row: WikiConfigRow) {
 export function normalizeSource(source: WikiSource): WikiSource {
   return {
     ...source,
-    sourceUrl: source.sourceUrl || `${repositoryBlobBase}/${encodeRepositoryPath(source.repositoryPath)}`,
+    sourceUrl: undefined,
   };
 }
 
@@ -85,7 +83,7 @@ export function normalizeRunbook(runbook: WikiRunbook): DocumentationRunbook {
   return {
     ...runbook,
     complete: runbook.diagnosticCommands.length > 0 ||
-      runbook.resolution.some(item => !item.startsWith('Follow the linked article details')),
+      runbook.resolution.some(item => !item.startsWith('Follow the article details, inspect the listed implementation evidence')),
   };
 }
 
@@ -140,10 +138,6 @@ function formatRequired(value: WikiConfigRow['required']) {
   if (value === true) return 'Yes';
   if (value === false) return 'No';
   return 'Conditional';
-}
-
-function encodeRepositoryPath(path: string) {
-  return path.split('/').map(segment => encodeURIComponent(segment)).join('/');
 }
 
 function decodeRouteSegment(segment: string) {

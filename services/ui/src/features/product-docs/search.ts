@@ -1,5 +1,5 @@
-import { wikiArticlePath } from './model';
-import { documentationSections, type DocumentationSection } from './quality';
+import { wikiArticlePath } from './model.js';
+import { documentationSections, type DocumentationSection } from './quality.js';
 
 export type DocumentationSearchKind = 'article' | 'field' | 'procedure' | 'runbook' | 'source';
 

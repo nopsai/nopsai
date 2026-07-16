@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { wikiArticlePath } from '../features/product-docs/model';
 import { ArticleHeader, Boundaries, Details, KeyFacts, Prerequisites, Procedure, Sources } from '../features/product-docs/DocumentationArticle';
@@ -56,6 +56,10 @@ export default function ProductDocsPage() {
   const visibleBlocks = useMemo(() => activeArticle ? getVisibleBlocks(activeArticle) : [], [activeArticle]);
   const tocItems = visibleBlocks.map(block => ({ id: block, label: blockLabels[block] }));
 
+  useEffect(() => {
+    scrollDocumentationViewport(location.hash);
+  }, [location.pathname, location.hash]);
+
   if (!activeArticle || !activeSection) return null;
 
   const handleQueryChange = (nextQuery: string) => {
@@ -68,7 +72,9 @@ export default function ProductDocsPage() {
   const handleSelectArticle = (articleID: string) => {
     const section = findDocumentationSectionForArticle(articleID);
     if (!section) return;
-    navigate({ pathname: wikiArticlePath(section.id, articleID), search: location.search });
+    const pathname = wikiArticlePath(section.id, articleID);
+    navigate({ pathname, search: location.search });
+    if (pathname === location.pathname && !location.hash) scrollDocumentationViewport('');
   };
 
   const handleSelectSearchResult = (result: DocumentationSearchResult) => {
@@ -123,4 +129,38 @@ export default function ProductDocsPage() {
       </div>
     </div>
   );
+}
+
+export function scrollDocumentationViewport(hash: string) {
+  if (typeof window === 'undefined') return;
+  const schedule = window.requestAnimationFrame || ((callback: FrameRequestCallback) => window.setTimeout(callback, 0));
+  schedule(() => {
+    if (hash) {
+      const targetID = decodeHashTarget(hash);
+      const target = targetID ? document.getElementById(targetID) : null;
+      if (target && typeof target.scrollIntoView === 'function') {
+        try {
+          target.scrollIntoView({ block: 'start' });
+          return;
+        } catch {
+          // Fall back to top-level scroll when a test or browser environment lacks smooth element scrolling.
+        }
+      }
+    }
+    if (typeof window.scrollTo === 'function') {
+      try {
+        window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      } catch {
+        // jsdom exposes scrollTo but does not implement it.
+      }
+    }
+  });
+}
+
+function decodeHashTarget(hash: string) {
+  try {
+    return decodeURIComponent(hash.replace(/^#/, ''));
+  } catch {
+    return hash.replace(/^#/, '');
+  }
 }
