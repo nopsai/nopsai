@@ -36,6 +36,10 @@ truth; this file is the source-adjacent placement guide.
   palette. Dark mode uses the softer enterprise palette from `--page-bg`,
   `--sidebar-bg`, `--card-bg`, `--input-bg`, `--border`, and `--accent`;
   avoid reintroducing near-black page glows or pure-white primary text.
+  App chrome and feature split panes should avoid permanent divider lines for
+  rails, headers, and resizers; use spacing, surface contrast, elevation, or
+  hover/focus-only resize handles while keeping functional form, table, card,
+  alert, and status borders intact.
 - `tools/` owns local and CI guardrails such as boundary checks. Runtime code
   should not depend on tool-only modules.
 

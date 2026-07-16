@@ -272,7 +272,7 @@ function AppShell() {
             {!sidebar.collapsed ? (
               <div
                 id="sidebar-resizer"
-                className={`hidden sm:block w-1.5 cursor-col-resize flex-shrink-0 transition-colors duration-200 ${sidebar.isResizing ? 'bg-[var(--border-accent)]' : 'bg-[var(--bg-tertiary)] hover:bg-[var(--border-accent)]'}`}
+                className={`app-sidebar-resizer hidden sm:block w-2 cursor-col-resize flex-shrink-0 transition-colors duration-200 ${sidebar.isResizing ? 'app-sidebar-resizer--active' : ''}`}
                 onMouseDown={sidebar.startResize}
                 onTouchStart={sidebar.startResize}
                 onKeyDown={sidebar.resizeWithKeyboard}
@@ -615,7 +615,7 @@ function Sidebar({
       ></div>
       <aside
         id="sidebar"
-        className={`app-sidebar-shell ${collapsed ? 'app-sidebar-shell--collapsed' : ''} bg-[var(--bg-secondary)] border-r border-[var(--border-primary)] flex-shrink-0 flex flex-col transition-transform duration-300 ease-in-out h-full z-20 w-80 sidebar-scrollbar overflow-hidden
+        className={`app-sidebar-shell ${collapsed ? 'app-sidebar-shell--collapsed' : ''} bg-[var(--bg-secondary)] flex-shrink-0 flex flex-col transition-transform duration-300 ease-in-out h-full z-20 w-80 sidebar-scrollbar overflow-hidden
           ${open ? 'translate-x-0' : '-translate-x-full'} sm:translate-x-0 fixed sm:static`}
         style={{
           width: sidebarWidth,
@@ -623,7 +623,7 @@ function Sidebar({
           maxWidth: collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_MAX_WIDTH,
         }}
       >
-        <div className="app-sidebar-brand-row flex items-center justify-between px-6 h-16 border-b border-[var(--border-primary)] flex-shrink-0">
+        <div className="app-sidebar-brand-row flex items-center justify-between px-6 h-16 flex-shrink-0">
           <BrandIdentity className="sidebar-brand" variant={collapsed ? 'mark' : 'wordmark'} />
           <div className="app-sidebar-brand-actions">
             <button
@@ -650,7 +650,7 @@ function Sidebar({
         <div className="flex-1 min-h-0 overflow-y-auto sidebar-scrollbar">
           <BaseSidebarNavigation navItems={navItems} systemSubNav={systemSubNav} locationPathname={locationPathname} />
           {showSidebarContextNav && !collapsed && (
-            <nav id="sidebar-details-nav" className="sidebar-context-nav border-t border-[var(--border-primary)] px-4 py-4 space-y-2" aria-label="Contextual">
+            <nav id="sidebar-details-nav" className="sidebar-context-nav px-4 py-4 space-y-2" aria-label="Contextual">
               {isPipelineRunsRoute ? (
                 <PipelineRunsSidebarContent
                   tab={pipelineRunsTab}
@@ -1188,7 +1188,7 @@ function Header({
 
   return (
     <header
-      className="relative flex items-center justify-between px-6 py-4 themed-bg-blur backdrop-blur-sm shadow-sm z-40 border-b border-[var(--border-primary)] flex-shrink-0"
+      className="app-header-shell relative flex items-center justify-between px-6 py-4 themed-bg-blur backdrop-blur-sm z-40 flex-shrink-0"
       style={{ paddingTop: '11px' }}
     >
       <button

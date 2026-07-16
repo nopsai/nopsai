@@ -1762,3 +1762,40 @@ html.dark .ai-resource-registry-table th {
     padding: 9px 16px;
   }
 }
+
+/* Keep AI resource split panes spacious without persistent chrome dividers. */
+.ai-resource-hero__divider {
+  width: 0;
+  background: transparent;
+}
+
+.ai-resource-split__list,
+.ai-resource-explorer {
+  border-right-color: transparent;
+}
+
+.ai-resource-browser > .tree-column-resizer {
+  background: transparent;
+}
+
+.ai-resource-browser > .tree-column-resizer::before {
+  background: transparent;
+  opacity: 0;
+}
+
+.ai-resource-browser > .tree-column-resizer:hover::before,
+.ai-resource-browser > .tree-column-resizer:focus-visible::before,
+.ai-resource-browser > .tree-column-resizer--active::before {
+  background: var(--border-accent);
+  opacity: 0.72;
+}
+
+@media (max-width: 760px) {
+  .ai-resource-hero__divider {
+    height: 0;
+  }
+
+  .ai-resource-explorer {
+    border-bottom-color: transparent;
+  }
+}
