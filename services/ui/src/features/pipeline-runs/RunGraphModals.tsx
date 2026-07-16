@@ -10,7 +10,7 @@ import type {
 } from './contracts';
 import { calculateGraphLayout, deriveTaskGraphStatus, getGraphStatusColor } from './graphLayout';
 import { TASK_HEIGHT, TASK_MAX_WIDTH, TASK_MIN_WIDTH, TaskNodeRenderer } from './RunGraph';
-import { formatAIUsageBreakdown, formatTokenCount } from './runPresentation';
+import { formatAIUsageBreakdown, formatRunTimestamp, formatTokenCount } from './runPresentation';
 import { formatStepDuration, formatTaskDuration } from './runGraphModel';
 import { getStatusMeta } from './statusPresentation';
 
@@ -481,11 +481,11 @@ export function StepDetailModal({
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-[var(--text-secondary)]">Started</span>
-                    <span className="font-mono">{step?.started_at || '—'}</span>
+                    <span className="font-mono">{formatRunTimestamp(step?.started_at)}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-[var(--text-secondary)]">Finished</span>
-                    <span className="font-mono">{step?.finished_at || '—'}</span>
+                    <span className="font-mono">{formatRunTimestamp(step?.finished_at)}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-[var(--text-secondary)]">Ignore failure</span>
@@ -582,11 +582,11 @@ export function StepDetailModal({
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-[var(--text-secondary)]">Started</span>
-                    <span className="font-mono">{selectedTask.started_at || '—'}</span>
+                    <span className="font-mono">{formatRunTimestamp(selectedTask.started_at)}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-[var(--text-secondary)]">Finished</span>
-                    <span className="font-mono">{selectedTask.finished_at || '—'}</span>
+                    <span className="font-mono">{formatRunTimestamp(selectedTask.finished_at)}</span>
                   </div>
                 </div>
                 {selectedTaskDefinition?.goal && (

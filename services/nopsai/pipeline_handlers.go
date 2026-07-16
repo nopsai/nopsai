@@ -144,6 +144,7 @@ func (a *App) handleListTriggerOverrides(w http.ResponseWriter, r *http.Request)
 					Ingress:              record.Ingress,
 					AllowlistStatus:      record.AllowlistStatus,
 					RepositoryForWebhook: record.RepositoryForWebhook,
+					Scopes:               repositoryTriggerScopesFromDefinition(record.Definition),
 					ManagedByConfigRepo:  record.ManagedByConfigRepo,
 					ConfigSourcePath:     record.ConfigSourcePath,
 				},

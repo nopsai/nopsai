@@ -51,6 +51,9 @@ const STATUS_PRIORITY = [
   'success',
 ];
 
+const MIN_RUN_TIMESTAMP_MS = Date.UTC(2000, 0, 1);
+const GO_ZERO_TIME_PATTERN = /^0001-01-01T00:00:00(?:\.0+)?(?:Z|[+-]00:?00)?$/i;
+
 export function buildRunSourceTeams(runsByBranch: Record<string, RunListItem[]>): RunSourceTeam[] {
   const buckets = new Map<RunSourceKind, RunListItem[]>();
   const repositoryBranches: Record<string, RunListItem[]> = {};
@@ -120,10 +123,32 @@ export function getStatusDotClass(status: string | undefined, complete?: boolean
 
 export function runTimestamp(run?: RunListItem) {
   if (!run) return 0;
-  const value = run.started_at || run.finished_at;
-  if (!value) return 0;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+  return parseRunTimestamp(runActivityTimestamp(run)) ?? 0;
+}
+
+export function parseRunTimestamp(value?: string | null): number | null {
+  const text = (value || '').trim();
+  if (!text || GO_ZERO_TIME_PATTERN.test(text)) return null;
+  const timestamp = Date.parse(text);
+  if (!Number.isFinite(timestamp) || timestamp < MIN_RUN_TIMESTAMP_MS) return null;
+  return timestamp;
+}
+
+export function runStartedTimestamp(run?: Pick<RunListItem, 'started_at'> | null): string | undefined {
+  return parseRunTimestamp(run?.started_at) === null ? undefined : run?.started_at;
+}
+
+export function runActivityTimestamp(run?: Pick<RunListItem, 'started_at' | 'finished_at' | 'is_complete'> | null): string | undefined {
+  if (!run) return undefined;
+  const primary = run.is_complete ? run.finished_at : run.started_at;
+  const fallback = run.is_complete ? run.started_at : run.finished_at;
+  if (parseRunTimestamp(primary) !== null) return primary;
+  if (parseRunTimestamp(fallback) !== null) return fallback;
+  return undefined;
+}
+
+export function formatRunTimestamp(value?: string | null): string {
+  return parseRunTimestamp(value) === null ? '—' : (value || '').trim();
 }
 
 export function buildStatusTimeline(runs: RunListItem[], limit = 36) {
@@ -255,10 +280,9 @@ export function buildPipelineLink(
 }
 
 export function timeAgo(dateInput?: string, now = Date.now()) {
-  if (!dateInput) return '—';
-  const date = new Date(dateInput);
-  if (Number.isNaN(date.getTime())) return '—';
-  const seconds = Math.floor((now - date.getTime()) / 1000);
+  const timestamp = parseRunTimestamp(dateInput);
+  if (timestamp === null) return '—';
+  const seconds = Math.max(0, Math.floor((now - timestamp) / 1000));
   if (seconds < 60) return `${seconds}s ago`;
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;
@@ -300,6 +324,6 @@ export function extractLatestRunSummary(runsByBranch: Record<string, RunListItem
     branch: branchName,
     commit: (resolved.git_commit_sha || '').slice(0, 8),
     pusher: resolved.git_pusher_name || '',
-    started_at: resolved.started_at,
+    started_at: runStartedTimestamp(resolved),
   };
 }

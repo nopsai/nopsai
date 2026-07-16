@@ -8,6 +8,7 @@ test('formats bounded run graph durations', () => {
     '1h 2m'
   );
   assert.equal(formatElapsedLabel('invalid', '2026-06-08T11:02:03Z', 'unknown'), 'unknown');
+  assert.equal(formatElapsedLabel('0001-01-01T00:00:00Z', '2026-06-08T11:02:03Z', 'unknown'), 'unknown');
 });
 
 test('derives step duration from task execution before the supplied fallback', () => {

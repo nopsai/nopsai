@@ -170,6 +170,7 @@ export function GitWebhookSourcesWorkspace({
                           <th scope="col">Visibility</th>
                           <th scope="col">Repositories allowed</th>
                           <th scope="col">Triggers connected</th>
+                          <th scope="col">Last used</th>
                           <th scope="col">Status</th>
                         </tr>
                       </thead>
@@ -245,7 +246,6 @@ function GitWebhookSourceRow({
           </span>
           <span className="triggers-resource-name">
             <strong>{source.name || source.id}</strong>
-            <small>{source.id}</small>
           </span>
         </button>
       </td>
@@ -263,6 +263,9 @@ function GitWebhookSourceRow({
       </td>
       <td>
         <span className="triggers-mono">{gitWebhookSourceConnectedCount(source)}</span>
+      </td>
+      <td>
+        <span className="triggers-mono">{formatGitWebhookDate(source.last_used_at)}</span>
       </td>
       <td>
         <span className={`triggers-badge triggers-badge--${source.enabled ? 'green' : 'neutral'}`}>

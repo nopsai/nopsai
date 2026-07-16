@@ -670,7 +670,6 @@ function KnowledgeDocumentCollection({
                           </span>
                           <span className="kc-demo-resource-name">
                             <strong>{document.name || document.id}</strong>
-                            <span>{teamPath === 'root' ? document.name : `${teamPath}/${document.name}`}</span>
                           </span>
                         </button>
                       </td>

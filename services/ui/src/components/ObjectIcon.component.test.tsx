@@ -1,4 +1,5 @@
 import { render } from '@testing-library/react';
+import { BrainCircuit } from 'lucide-react';
 import { describe, expect, it } from 'vitest';
 import { ObjectIcon } from './ObjectIcon';
 import {
@@ -35,5 +36,9 @@ describe('ObjectIcon', () => {
     expect(Icon).toBe(objectIconRegistry[type]);
     expect(svg).toHaveClass('h-5', 'w-5');
     expect(svg).toHaveAttribute('stroke-width', '2.2');
+  });
+
+  it('uses the dedicated LLM profile glyph instead of the generic bot icon', () => {
+    expect(getObjectIconComponent('llm-profile')).toBe(BrainCircuit);
   });
 });

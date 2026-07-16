@@ -35,7 +35,7 @@ export function MCPServerTable({
             <th scope="col">Server</th>
             <th scope="col">Team</th>
             <th scope="col">Provider</th>
-            <th scope="col">Transport</th>
+            <th scope="col">Scopes</th>
             <th scope="col">Tools</th>
             <th scope="col">Status</th>
           </tr>
@@ -59,13 +59,12 @@ export function MCPServerTable({
                     </span>
                     <span className="ai-resource-table-resource-name">
                       <strong>{server.display_name || server.name}</strong>
-                      <small>{server.name}</small>
                     </span>
                   </button>
                 </td>
                 <td><AIResourceTeamBadge resourceID={server.name} /></td>
                 <td>{server.provider || '-'}</td>
-                <td><span className="ai-resource-table-mono">{server.transport || '-'}</span></td>
+                <td>{formatMCPScopes(server.allowed_scopes)}</td>
                 <td><span className="ai-resource-table-mono ai-resource-table-number">{server.tools.length}</span></td>
                 <td>
                   <span className={`ai-resource-health ${server.enabled ? 'ai-resource-health--ok' : 'ai-resource-health--muted'}`}>
@@ -140,7 +139,6 @@ export function MCPProfileTable({
                     </span>
                     <span className="ai-resource-table-resource-name">
                       <strong>{profile.name}</strong>
-                      <small>{profile.description || 'MCP profile'}</small>
                     </span>
                   </button>
                 </td>

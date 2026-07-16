@@ -1,12 +1,7 @@
 import type { StepDetail, TaskDetail } from './contracts.js';
+import { parseRunTimestamp } from './runPresentation.js';
 
 const MAX_ELAPSED_MS = 1000 * 60 * 60 * 24 * 30;
-
-function parseTimestamp(value?: string | null): number | null {
-  if (!value) return null;
-  const timestamp = Date.parse(value);
-  return Number.isNaN(timestamp) ? null : timestamp;
-}
 
 function humanizeDurationMs(milliseconds: number): string {
   const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
@@ -24,9 +19,9 @@ export function formatElapsedLabel(
   fallback = '0s',
   openEnded = true
 ): string {
-  const startTimestamp = parseTimestamp(start);
-  if (!startTimestamp) return fallback;
-  const parsedEnd = parseTimestamp(end);
+  const startTimestamp = parseRunTimestamp(start);
+  if (startTimestamp === null) return fallback;
+  const parsedEnd = parseRunTimestamp(end);
   if (parsedEnd === null && !openEnded) return fallback;
   const endTimestamp = parsedEnd ?? Date.now();
   const duration = endTimestamp - startTimestamp;
@@ -65,10 +60,10 @@ function calculateStepDurationFromTasks(tasks: TaskDetail[]): string | null {
   let latestEnd: number | null = null;
 
   tasks.forEach(task => {
-    const start = parseTimestamp(task.started_at);
+    const start = parseRunTimestamp(task.started_at);
     if (start === null) return;
     earliestStart = earliestStart === null ? start : Math.min(earliestStart, start);
-    const end = parseTimestamp(task.finished_at) ?? Date.now();
+    const end = parseRunTimestamp(task.finished_at) ?? Date.now();
     latestEnd = latestEnd === null ? end : Math.max(latestEnd, end);
   });
 

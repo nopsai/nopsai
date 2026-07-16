@@ -18,6 +18,7 @@ const source = {
   credential_ref: 'credential://system/webhooks/gitlab-platform',
   repository_allowlist: ['platform/*'],
   rate_limit: { per_minute: 120 },
+  last_used_at: '2026-06-15T10:00:00Z',
   source: 'database',
   managed_by_config_repo: false,
 };
@@ -89,14 +90,15 @@ test('shows source details after selecting a row from the list route', async () 
     </MemoryRouter>
   );
 
-  expect(await screen.findByRole('button', { name: 'GitLab Platformgitlab-platform' })).toBeVisible();
+  expect(await screen.findByRole('button', { name: 'GitLab Platform' })).toBeVisible();
   expect(screen.getByRole('complementary', { name: 'Team tree' })).toBeVisible();
   expect(screen.getByRole('separator', { name: 'Resize team tree' })).toBeVisible();
   expect(screen.getByRole('button', { name: 'All teams (1)' })).toBeVisible();
+  expect(screen.getByRole('columnheader', { name: 'Last used' })).toBeVisible();
   expect(screen.queryByText('Select a webhook source')).not.toBeInTheDocument();
   expect(screen.queryByText(/\/v1\/git\/webhooks\/gitlab-platform$/)).not.toBeInTheDocument();
 
-  await user.click(screen.getByRole('button', { name: 'Select webhook source GitLab Platform' }));
+  await user.click(screen.getByRole('button', { name: 'GitLab Platform' }));
 
   expect(await screen.findByText(/\/v1\/git\/webhooks\/gitlab-platform$/)).toBeVisible();
   expect(screen.getByRole('button', { name: 'List' })).toBeVisible();

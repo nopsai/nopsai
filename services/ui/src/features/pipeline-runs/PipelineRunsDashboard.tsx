@@ -18,6 +18,8 @@ import {
   formatBranchDisplay,
   formatRepoLabel,
   formatTriggerId,
+  runActivityTimestamp,
+  runTimestamp,
   summarizeStatus,
   timeAgo,
   type Team,
@@ -101,7 +103,7 @@ export function PipelineRunsDashboard({
             ...team,
             runs,
             status: summarizeStatus(runs),
-            latestRun: runs.find(run => run.started_at) || runs[0],
+            latestRun: [...runs].sort((left, right) => runTimestamp(right) - runTimestamp(left))[0],
           };
         })
         .filter(team => team.runs.length > 0),
@@ -197,7 +199,7 @@ function EventCard({
   const branchLabel = latestRun ? formatBranchDisplay(latestRun.git_ref, latestRun.git_target_ref) : '—';
   const commitLabel = latestRun?.git_commit_sha ? latestRun.git_commit_sha.slice(0, 8) : '—';
   const pusher = latestRun?.git_pusher_name || 'System';
-  const timestamp = latestRun?.started_at;
+  const timestamp = runActivityTimestamp(latestRun);
   const repoLabel = latestRun ? formatRepoLabel(latestRun) : '—';
   const timeLabel = timeAgo(timestamp);
 

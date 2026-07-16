@@ -436,6 +436,12 @@
   box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
 }
 
+.ai-resource-workspace-card {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
 .ai-resource-table-head {
   display: flex;
   align-items: center;
@@ -974,7 +980,7 @@
   color: var(--text-secondary);
   font-size: 0.68rem;
   font-weight: 800;
-  letter-spacing: 0;
+  letter-spacing: 0.08em;
   text-align: left;
   text-transform: uppercase;
   white-space: nowrap;
@@ -984,6 +990,7 @@
   padding: 10px 13px;
   border-bottom: 1px solid var(--border-primary);
   color: var(--text-primary);
+  font-size: 0.74rem;
   overflow: hidden;
   text-overflow: ellipsis;
   vertical-align: middle;
@@ -1053,7 +1060,7 @@
 
 .ai-resource-table-mono {
   color: var(--text-secondary);
-  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
   font-size: 0.74rem;
 }
 
@@ -1230,14 +1237,14 @@
 .ai-resource-health {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  font-size: 13px;
-  font-weight: 650;
+  gap: 5px;
+  font-size: 0.68rem;
+  font-weight: 800;
 }
 
 .ai-resource-health span {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 999px;
 }
 
@@ -1587,6 +1594,10 @@
 html.dark .ai-resource-hero__card,
 html.dark .ai-resource-table-card {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.24), 0 16px 34px rgba(0, 0, 0, 0.22);
+}
+
+html.dark .ai-resource-workspace-card {
+  box-shadow: none;
 }
 
 html.dark .ai-resource-hero__card {

@@ -147,14 +147,34 @@ export function scrollDocumentationViewport(hash: string) {
         }
       }
     }
-    if (typeof window.scrollTo === 'function') {
-      try {
-        window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-      } catch {
-        // jsdom exposes scrollTo but does not implement it.
-      }
-    }
+    if (scrollDocumentationContainerToTop()) return;
+    scrollWindowToTop();
   });
+}
+
+function scrollDocumentationContainerToTop() {
+  const wrapper = document.getElementById('page-content-wrapper') as HTMLElement | null;
+  if (!wrapper) return false;
+  if (typeof wrapper.scrollTo === 'function') {
+    try {
+      wrapper.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      return true;
+    } catch {
+      // Fall back to direct offsets for test environments or older browsers.
+    }
+  }
+  wrapper.scrollTop = 0;
+  wrapper.scrollLeft = 0;
+  return true;
+}
+
+function scrollWindowToTop() {
+  if (typeof window.scrollTo !== 'function') return;
+  try {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  } catch {
+    // jsdom exposes scrollTo but does not implement it.
+  }
 }
 
 function decodeHashTarget(hash: string) {
