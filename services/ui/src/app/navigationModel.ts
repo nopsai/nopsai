@@ -4,7 +4,7 @@ export const sidebarNavTopics = [
   {
     id: 'operate',
     label: 'Operate',
-    itemLabels: ['Pipeline runs', 'Monitoring'],
+    itemLabels: ['Pipeline runs', 'Dashboards', 'Monitoring'],
   },
   {
     id: 'build-automate',

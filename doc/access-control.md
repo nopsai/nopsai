@@ -72,8 +72,8 @@ Internal endpoints require the `X-Internal-Token` header, configured with `AAA_S
 
 The product roles are templates seeded by `nopsai` startup:
 
-- `viewer`: read/list access for teams, pipelines, schedules, runs, logs, triggers, Git webhook sources, repositories, steps, scopes, knowledge contexts, credential metadata, secret metadata, variable metadata, and config repository metadata.
-- `developer`: includes all viewer access plus non-destructive creation, updates, pipeline and schedule execution, `*.use` runtime permissions, rerun/cancel, trigger and Git webhook source updates, credential creation/rotation/use, secret writes, variable writes, repository updates, scope updates, reusable step usage, knowledge context usage, runner usage, and config repository usage.
+- `viewer`: read/list access for teams, pipelines, schedules, dashboards, runs, logs, triggers, Git webhook sources, repositories, steps, scopes, knowledge contexts, credential metadata, secret metadata, variable metadata, and config repository metadata.
+- `developer`: includes all viewer access plus non-destructive creation, updates, pipeline and schedule execution, dashboard publication/source management, `*.use` runtime permissions, rerun/cancel, trigger and Git webhook source updates, credential creation/rotation/use, secret writes, variable writes, repository updates, scope updates, reusable step usage, knowledge context usage, runner usage, and config repository usage.
 - `owner`: includes all developer and viewer access plus all scoped non-admin actions, deletes, credential ACL management, secret and variable value reads, ownership, and ACL management inside the owned scope.
 - `admin`: platform-wide access through the normal AAA `Check` path.
 
@@ -97,6 +97,7 @@ Supported grant resources:
 - `team`
 - `pipeline`
 - `pipeline_schedule`
+- `dashboard`
 - `pipeline_run`
 - `trigger`
 - `secret`
@@ -121,6 +122,16 @@ grants include `pipeline_schedule.list` and `pipeline_schedule.read`;
 `developer` grants add `pipeline_schedule.create`, `pipeline_schedule.update`,
 and `pipeline_schedule.execute`; `owner` grants add
 `pipeline_schedule.delete` and `pipeline_schedule.manage_acl`.
+
+Dashboards use `dashboard` as the resource type. Viewer grants include
+`dashboard.list` and `dashboard.read`; developer grants add
+`dashboard.create`, `dashboard.update`, `dashboard.publish`,
+`dashboard.refresh`, and `dashboard.manage_sources`; owner grants add
+`dashboard.delete` and `dashboard.manage_acl`. Refresh routes use
+`dashboard.refresh` for start, cancel, and retry; refresh history reads use
+`dashboard.read`. Dashboard refresh schedule reads use `dashboard.read`,
+schedule create/update/delete/enable/disable use `dashboard.update`, and
+schedule run-now uses `dashboard.refresh`.
 
 Git Webhook Sources use `git_webhook_source`. Viewer grants add
 `git_webhook_source.read`; developer grants add create and update; owner grants

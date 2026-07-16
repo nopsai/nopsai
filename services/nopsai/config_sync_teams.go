@@ -113,6 +113,7 @@ func filterDelegatedConfigResources(
 	pipelines map[string]storedPipeline,
 	steps map[string]storedStep,
 	schedules map[string]storedSchedule,
+	dashboards map[string]storedDashboard,
 	externalTriggers map[string]storedExternalTrigger,
 	gitWebhookSources map[string]storedGitWebhookSource,
 	notificationRoutes map[string]storedNotificationRoute,
@@ -144,6 +145,15 @@ func filterDelegatedConfigResources(
 		}
 		if configsync.ResourceUnderAnyScope(scope, overrideScopes) {
 			delete(schedules, key)
+		}
+	}
+	for key, dashboard := range dashboards {
+		scope := dashboard.teamPath
+		if scope == "" {
+			scope = key
+		}
+		if configsync.ResourceUnderAnyScope(scope, overrideScopes) {
+			delete(dashboards, key)
 		}
 	}
 	for key, trigger := range externalTriggers {

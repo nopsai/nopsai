@@ -31,6 +31,7 @@ const (
 	grantResourceStep                = "step"
 	grantResourceRunner              = "runner"
 	grantResourceConfig              = "config_repo"
+	grantResourceDashboard           = "dashboard"
 	grantResourceKnowledgeContext    = "knowledge_context"
 	grantResourceKnowledgeConnection = "knowledge_connection"
 	grantResourceLLMProfile          = "llm_profile"
@@ -197,6 +198,8 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"repository.read",
 			"step.read",
 			"config_repo.read",
+			"dashboard.list",
+			"dashboard.read",
 			"knowledge_context.read",
 			"knowledge_connection.read",
 			"llm_profile.read",
@@ -253,6 +256,11 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"step.use",
 			"runner.use",
 			"config_repo.use",
+			"dashboard.create",
+			"dashboard.update",
+			"dashboard.publish",
+			"dashboard.refresh",
+			"dashboard.manage_sources",
 			"knowledge_context.use",
 			"knowledge_connection.use",
 			"llm_profile.use",
@@ -319,6 +327,11 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"step.use",
 			"runner.use",
 			"config_repo.use",
+			"dashboard.create",
+			"dashboard.update",
+			"dashboard.publish",
+			"dashboard.refresh",
+			"dashboard.manage_sources",
 			"knowledge_context.use",
 			"knowledge_connection.use",
 			"llm_profile.use",
@@ -351,6 +364,8 @@ var productRoleDefinitions = map[string]productRoleDefinition{
 			"team.manage_acl",
 			"config_repo.manage",
 			"config_repo.sync",
+			"dashboard.delete",
+			"dashboard.manage_acl",
 			"pipeline.delete",
 			"pipeline.manage_acl",
 			"pipeline_run.delete",

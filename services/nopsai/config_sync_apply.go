@@ -11,6 +11,7 @@ import (
 	"nopsai/services/nopsai/internal/configsync"
 
 	"github.com/jackc/pgx/v5"
+	"gopkg.in/yaml.v3"
 )
 
 const configSyncScheduleUpsertSQL = `INSERT INTO pipeline_schedules (
@@ -59,6 +60,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 	githubSettingsPlan := plan.githubSettingsPlan
 	mailSettingsPlan := plan.mailSettingsPlan
 	schedules := plan.schedules
+	dashboards := plan.dashboards
 	externalTriggers := plan.externalTriggers
 	gitWebhookSources := plan.gitWebhookSources
 	notificationRoutes := plan.notificationRoutes
@@ -204,7 +206,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 	if err != nil {
 		return err
 	}
-	filterDelegatedConfigResources(binding, overrideScopes, pipelines, steps, schedules, externalTriggers, gitWebhookSources, notificationRoutes, knowledgeContexts, generalScopeVars, repoScopeVars, generalScopeSecrets, repoScopeSecrets, triggers)
+	filterDelegatedConfigResources(binding, overrideScopes, pipelines, steps, schedules, dashboards, externalTriggers, gitWebhookSources, notificationRoutes, knowledgeContexts, generalScopeVars, repoScopeVars, generalScopeSecrets, repoScopeSecrets, triggers)
 	filterDelegatedAccessResources(accessPlan, binding, overrideScopes)
 	if err := mergeRepositoryTriggerApplicationsIntoStructure(configRepositoryPipelineRunStructure, triggers); err != nil {
 		return fmt.Errorf("failed to prepare repository trigger applications: %w", err)
@@ -414,6 +416,10 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		details["config_repositories_synced"]++
 	}
 
+	if err := a.applyGitOpsDashboards(ctx, tx, binding, dashboards, commitSHA, details); err != nil {
+		return err
+	}
+
 	// B. Upsert Pipelines
 	for key, stored := range pipelines {
 		writable, err := ensureConfigResourceWritable(ctx, tx, "pipelines", "pipeline", key, binding, key, "path = $1 AND name = $2", stored.path, stored.name)
@@ -425,6 +431,13 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		}
 		if _, err := tx.Exec(ctx, pipelineUpsert, stored.path, stored.name, stored.version, stored.definition, binding.ID, stored.sourcePath, commitSHA); err != nil {
 			return fmt.Errorf("failed to upsert pipeline '%s': %w", key, err)
+		}
+		var pipeline models.Pipeline
+		if err := yaml.Unmarshal([]byte(stored.definition), &pipeline); err != nil {
+			return fmt.Errorf("failed to parse synced pipeline '%s' for dashboard source bindings: %w", key, err)
+		}
+		if err := syncDashboardSourceBindingsForPipeline(ctx, tx, stored.path, stored.name, pipeline); err != nil {
+			return fmt.Errorf("failed to sync dashboard source bindings for pipeline '%s': %w", key, err)
 		}
 		details["pipelines_synced"]++
 	}
@@ -772,7 +785,7 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 			rows.Close()
 		}
 		if len(prunedRepoIDs) > 0 {
-			for _, tableName := range []string{"config_repositories", "pipelines", "steps", "pipeline_schedules", "triggers", "external_triggers", "git_webhook_sources", "variables", "secrets", "knowledge_contexts", "agent_profiles", "notification_routes", "notification_mail_settings", "runtime_settings", "credentials"} {
+			for _, tableName := range []string{"config_repositories", "pipelines", "steps", "pipeline_schedules", "dashboards", "dashboard_refresh_schedules", "triggers", "external_triggers", "git_webhook_sources", "variables", "secrets", "knowledge_contexts", "agent_profiles", "notification_routes", "notification_mail_settings", "runtime_settings", "credentials"} {
 				if _, err := tx.Exec(ctx, fmt.Sprintf(`
 					UPDATE %s
 					SET config_repo_id = NULL,
@@ -865,7 +878,35 @@ func (a *App) applyConfigSyncPlan(ctx context.Context, binding models.ConfigRepo
 		}
 	}
 
-	// 4. Prune Knowledge Contexts
+	// 4. Prune Dashboards
+	{
+		var teams, slugs []string
+		for _, dashboard := range dashboards {
+			teams = append(teams, dashboard.teamPath)
+			slugs = append(slugs, dashboard.slug)
+		}
+		if len(teams) == 0 {
+			if _, err := tx.Exec(ctx, "DELETE FROM dashboards WHERE managed_by_config_repo = TRUE AND config_repo_id = $1", binding.ID); err != nil {
+				return fmt.Errorf("failed to prune dashboards: %w", err)
+			}
+		} else {
+			if _, err := tx.Exec(ctx, `
+				DELETE FROM dashboards d
+				WHERE d.managed_by_config_repo = TRUE
+				  AND d.config_repo_id = $3
+				  AND NOT EXISTS (
+					SELECT 1
+					FROM unnest($1::text[], $2::text[]) AS wanted(team_path, slug)
+					JOIN teams t ON t.path = wanted.team_path
+					WHERE d.team_id = t.id AND d.slug = wanted.slug
+				  )
+			`, teams, slugs, binding.ID); err != nil {
+				return fmt.Errorf("failed to prune dashboards: %w", err)
+			}
+		}
+	}
+
+	// 5. Prune Knowledge Contexts
 	{
 		var kinds, teams, names []string
 		for _, knowledge := range knowledgeContexts {

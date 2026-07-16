@@ -177,6 +177,47 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		return "", model.ResourceRef{}, false, nil
 	case strings.HasPrefix(path, "/v1/schedules/"):
 		return "", model.ResourceRef{}, false, nil
+	case path == "/v1/dashboards" && r.Method == http.MethodGet:
+		return "dashboard.list", model.ResourceRef{Type: "dashboard", ID: "*"}, true, nil
+	case path == "/v1/dashboards" && r.Method == http.MethodPost:
+		return "", model.ResourceRef{}, false, nil
+	case strings.HasPrefix(path, "/v1/dashboards/") && strings.HasSuffix(path, "/view"):
+		return "dashboard.read", model.ResourceRef{Type: "dashboard", ID: dashboardIDFromRequest(r)}, false, nil
+	case strings.HasPrefix(path, "/v1/dashboards/") && strings.HasSuffix(path, "/history"):
+		return "dashboard.read", model.ResourceRef{Type: "dashboard", ID: dashboardIDFromRequest(r)}, false, nil
+	case strings.HasPrefix(path, "/v1/dashboards/") && strings.Contains(path, "/refresh-schedules"):
+		resource = model.ResourceRef{Type: "dashboard", ID: dashboardIDFromRequest(r)}
+		if r.Method == http.MethodGet {
+			return "dashboard.read", resource, false, nil
+		}
+		if strings.HasSuffix(path, "/enable") || strings.HasSuffix(path, "/disable") || strings.HasSuffix(path, "/run") {
+			return "dashboard.refresh", resource, false, nil
+		}
+		return "dashboard.update", resource, false, nil
+	case strings.HasPrefix(path, "/v1/dashboards/") && strings.Contains(path, "/refreshes"):
+		resource = model.ResourceRef{Type: "dashboard", ID: dashboardIDFromRequest(r)}
+		if r.Method == http.MethodGet {
+			return "dashboard.read", resource, false, nil
+		}
+		return "dashboard.refresh", resource, false, nil
+	case strings.HasPrefix(path, "/v1/dashboards/") && strings.HasSuffix(path, "/refresh"):
+		return "dashboard.refresh", model.ResourceRef{Type: "dashboard", ID: dashboardIDFromRequest(r)}, false, nil
+	case strings.HasPrefix(path, "/v1/dashboards/") && strings.Contains(path, "/sources"):
+		resource = model.ResourceRef{Type: "dashboard", ID: dashboardIDFromRequest(r)}
+		if r.Method == http.MethodGet {
+			return "dashboard.read", resource, false, nil
+		}
+		return "dashboard.manage_sources", resource, false, nil
+	case strings.HasPrefix(path, "/v1/dashboards/"):
+		resource = model.ResourceRef{Type: "dashboard", ID: dashboardIDFromRequest(r)}
+		switch r.Method {
+		case http.MethodGet:
+			return "dashboard.read", resource, false, nil
+		case http.MethodPut, http.MethodPatch:
+			return "dashboard.update", resource, false, nil
+		case http.MethodDelete:
+			return "dashboard.delete", resource, false, nil
+		}
 	case path == "/v1/external-triggers" && r.Method == http.MethodGet:
 		return "external_trigger.read", model.ResourceRef{Type: "external_trigger", ID: "*"}, true, nil
 	case path == "/v1/external-triggers" && r.Method == http.MethodPost:
@@ -466,6 +507,10 @@ func pathValueOrTail(r *http.Request, name, prefix string) string {
 
 func runIDFromRequest(r *http.Request) string {
 	return pathValueOrSegment(r, "runID", 2)
+}
+
+func dashboardIDFromRequest(r *http.Request) string {
+	return pathValueOrSegment(r, "dashboardID", 2)
 }
 
 func repositoryIDFromRequest(r *http.Request) string {

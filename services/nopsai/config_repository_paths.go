@@ -81,6 +81,8 @@ func configRepositoryDriftPathOptions() configsync.DriftPathOptions {
 	return configsync.DriftPathOptions{
 		ExternalTriggersDirectory:  externalTriggersGitOpsDirectory,
 		GitWebhookSourcesDirectory: gitWebhookSourcesGitOpsDirectory,
+		DashboardDirectory:         "dashboards",
+		DashboardTemplateDirectory: "dashboard-templates",
 		SettingsRelativePath:       isConfigRepositorySettingsDriftPath,
 	}
 }

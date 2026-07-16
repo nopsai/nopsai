@@ -541,6 +541,11 @@ func (a *App) handleCreateOrUpdatePipeline(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "Failed to save pipeline", http.StatusInternalServerError)
 		return
 	}
+	if err := syncDashboardSourceBindingsForPipeline(r.Context(), a.db, dbPath, storedName, pipeline); err != nil {
+		log.Error().Err(err).Msg("Failed to sync dashboard source bindings for pipeline")
+		http.Error(w, "Failed to sync dashboard source bindings", http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusCreated)
 }
 

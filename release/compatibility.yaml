@@ -8,6 +8,8 @@ capabilities:
   - api.v1
   - cli.api-catalog.v1
   - config-sync.v1
+  - dashboard-refresh.v1
+  - dashboards.v1
   - mcp.v1
   - monitoring.v1
   - platform.helm

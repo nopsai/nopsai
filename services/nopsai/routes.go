@@ -263,6 +263,35 @@ func (a *App) registerScheduleRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/schedules/{scheduleID}/run", a.handleRunScheduleNow)
 }
 
+func (a *App) registerDashboardRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /v1/dashboards", a.handleListDashboards)
+	mux.HandleFunc("POST /v1/dashboards", a.handleCreateDashboard)
+	mux.HandleFunc("GET /v1/dashboards/{dashboardID}", a.handleGetDashboard)
+	mux.HandleFunc("PUT /v1/dashboards/{dashboardID}", a.handleUpdateDashboard)
+	mux.HandleFunc("PATCH /v1/dashboards/{dashboardID}", a.handleUpdateDashboard)
+	mux.HandleFunc("DELETE /v1/dashboards/{dashboardID}", a.handleDeleteDashboard)
+	mux.HandleFunc("GET /v1/dashboards/{dashboardID}/view", a.handleGetDashboardView)
+	mux.HandleFunc("GET /v1/dashboards/{dashboardID}/history", a.handleGetDashboardHistory)
+	mux.HandleFunc("POST /v1/dashboards/{dashboardID}/refresh", a.handleStartDashboardRefresh)
+	mux.HandleFunc("GET /v1/dashboards/{dashboardID}/refreshes", a.handleListDashboardRefreshes)
+	mux.HandleFunc("GET /v1/dashboards/{dashboardID}/refreshes/{refreshID}", a.handleGetDashboardRefresh)
+	mux.HandleFunc("POST /v1/dashboards/{dashboardID}/refreshes/{refreshID}/cancel", a.handleCancelDashboardRefresh)
+	mux.HandleFunc("POST /v1/dashboards/{dashboardID}/refreshes/{refreshID}/retry-failed", a.handleRetryDashboardRefreshFailed)
+	mux.HandleFunc("GET /v1/dashboards/{dashboardID}/refresh-schedules", a.handleListDashboardRefreshSchedules)
+	mux.HandleFunc("POST /v1/dashboards/{dashboardID}/refresh-schedules", a.handleCreateDashboardRefreshSchedule)
+	mux.HandleFunc("PUT /v1/dashboards/{dashboardID}/refresh-schedules/{scheduleID}", a.handleUpdateDashboardRefreshSchedule)
+	mux.HandleFunc("PATCH /v1/dashboards/{dashboardID}/refresh-schedules/{scheduleID}", a.handleUpdateDashboardRefreshSchedule)
+	mux.HandleFunc("DELETE /v1/dashboards/{dashboardID}/refresh-schedules/{scheduleID}", a.handleDeleteDashboardRefreshSchedule)
+	mux.HandleFunc("POST /v1/dashboards/{dashboardID}/refresh-schedules/{scheduleID}/enable", a.handleEnableDashboardRefreshSchedule)
+	mux.HandleFunc("POST /v1/dashboards/{dashboardID}/refresh-schedules/{scheduleID}/disable", a.handleDisableDashboardRefreshSchedule)
+	mux.HandleFunc("POST /v1/dashboards/{dashboardID}/refresh-schedules/{scheduleID}/run", a.handleRunDashboardRefreshScheduleNow)
+	mux.HandleFunc("GET /v1/dashboards/{dashboardID}/sources", a.handleListDashboardSources)
+	mux.HandleFunc("POST /v1/dashboards/{dashboardID}/sources", a.handleCreateDashboardSource)
+	mux.HandleFunc("PUT /v1/dashboards/{dashboardID}/sources/{sourceID}", a.handleUpdateDashboardSource)
+	mux.HandleFunc("PATCH /v1/dashboards/{dashboardID}/sources/{sourceID}", a.handleUpdateDashboardSource)
+	mux.HandleFunc("DELETE /v1/dashboards/{dashboardID}/sources/{sourceID}", a.handleDeleteDashboardSource)
+}
+
 func (a *App) registerExternalTriggerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/external-triggers", a.handleListExternalTriggers)
 	mux.HandleFunc("POST /v1/external-triggers", a.handleCreateExternalTrigger)
@@ -361,6 +390,7 @@ func (a *App) buildHTTPHandler() http.Handler {
 	a.registerHostedMCPRoutes(mux)
 	a.registerPipelineRoutes(mux)
 	a.registerScheduleRoutes(mux)
+	a.registerDashboardRoutes(mux)
 	a.registerExternalTriggerRoutes(mux)
 	a.registerGitWebhookSourceRoutes(mux)
 	a.registerKnowledgeContextRoutes(mux)

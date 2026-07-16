@@ -605,6 +605,36 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 			return generalTeamAncestors(), nil
 		}
 		return s.containingTeamAncestors(ctx, schedulePath)
+	case "dashboard":
+		resourceID := strings.Trim(strings.TrimSpace(resource.ID), "/")
+		if resourceID == "" || resourceID == "*" {
+			return nil, nil
+		}
+		if looksLikeStoreUUID(resourceID) {
+			var teamID int
+			err := s.db.QueryRow(ctx, `
+				SELECT team_id
+				FROM dashboards
+				WHERE id::text = $1
+				LIMIT 1
+			`, resourceID).Scan(&teamID)
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return nil, ErrResourceNotFound
+				}
+				return nil, err
+			}
+			return s.teamHierarchyAncestors(ctx, teamID)
+		}
+		parts := strings.Split(resourceID, "/")
+		if len(parts) < 2 {
+			return nil, nil
+		}
+		teamPath := strings.Trim(strings.Join(parts[:len(parts)-1], "/"), "/")
+		if teamPath == "" {
+			return generalTeamAncestors(), nil
+		}
+		return s.containingTeamAncestors(ctx, teamPath)
 	case "team":
 		if strings.TrimSpace(resource.ID) == model.TeamGeneralID {
 			return nil, nil
@@ -678,6 +708,26 @@ func (s *PGStore) ResolveResourceInheritance(ctx context.Context, resource model
 	default:
 		return nil, nil
 	}
+}
+
+func looksLikeStoreUUID(value string) bool {
+	value = strings.TrimSpace(value)
+	if len(value) != 36 {
+		return false
+	}
+	for idx, ch := range value {
+		switch idx {
+		case 8, 13, 18, 23:
+			if ch != '-' {
+				return false
+			}
+		default:
+			if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func repositoryResourceID(owner, name string) string {

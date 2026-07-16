@@ -30,6 +30,7 @@ recorded for accepted and rejected responses.
 | PDF | `DocumentSpec` JSON | Gotenberg/Chromium PDF |
 | HTML | `DocumentSpec` JSON | Server-owned HTML/CSS document |
 | Excel | `SpreadsheetSpec` JSON | Excelize XLSX workbook |
+| Dashboard | `DashboardSpec` JSON | Dashboard publication and JSON fallback |
 
 PDF and HTML use this versioned shape:
 
@@ -84,6 +85,37 @@ formats are `text`, `integer`, `decimal`, `percent`, `currency_usd`,
 `currency_eur`, `date`, `datetime`, and `boolean`. XLSX output supports multiple
 sheets, typed cells, widths, number formats, frozen headers, and filters.
 
+Dashboard outputs use this versioned shape:
+
+```json
+{
+  "version": "1",
+  "title": "Service health",
+  "blocks": [
+    { "type": "status", "label": "API", "status": "success", "value": "Green" },
+    {
+      "type": "table",
+      "title": "Checks",
+      "columns": [{ "key": "name", "label": "Check" }],
+      "rows": [{ "name": "Smoke tests" }]
+    }
+  ]
+}
+```
+
+Dashboard block types are `status`, `text`, `callout`, `list`, `properties`,
+`table`, `progress`, `link`, `chart`, and `series`. Chart types are `line`,
+`bar`, `area`, `pie`, and `donut`; `series` blocks support line, bar, and area
+charts with time windows, aggregation intervals, missing-value policy, team and
+environment dimensions, and bounded point retention. Table cells must be JSON
+scalars. Links must be relative or use `http`/`https`. Dashboard outputs are
+published to team-owned dashboards when their `output.items[].dashboard` target
+is valid and the run subject has `dashboard.publish`. Dashboard publication
+modes are `replace`, `append`, `snapshot`, and `series`; snapshot archives the
+current content for the target section before publishing the new section
+snapshot, while series mode merges chart points, dedupes by timestamp or label,
+and retains the latest bounded point window.
+
 ## PDF Service
 
 NopsAI renders `DocumentSpec` through an escaped server-owned HTML/CSS template
@@ -103,6 +135,8 @@ deployment configuration. Pipeline YAML never contains infrastructure URLs.
 
 ## Preview Behavior
 
+- Dashboard outputs render in Dashboards and fall back to pretty JSON through
+  run-output download.
 - Markdown is parsed with GFM support.
 - PDF is fetched through the authorized download endpoint and displayed in an
   inline viewer with loading/error states.
@@ -115,18 +149,20 @@ canonical complete artifacts.
 
 ## Compatibility
 
-New PDF, HTML, and Excel generations must pass the structured schemas. Existing
-stored PDF Markdown and Excel Markdown/CSV data remain downloadable through
-render-only compatibility adapters. Existing stored HTML is sanitized before
-download and stays sandboxed in preview. Compatibility adapters are not used
-for new LLM responses.
+New PDF, HTML, Excel, and dashboard generations must pass the structured
+schemas. Existing stored PDF Markdown and Excel Markdown/CSV data remain
+downloadable through render-only compatibility adapters. Existing stored HTML
+is sanitized before download and stays sandboxed in preview. Compatibility
+adapters are not used for new LLM responses.
 
 ## Authorization, MCP, And GitOps
 
-No new AAA action is introduced. Run details, downloads, PDF previews, and
-`nopsai.get_pipeline_run_output` remain protected by `pipeline_run.read` for the
-requested run. Hosted MCP returns the same authorized structured source and
-audit fields as REST.
+Dashboard publication introduces `dashboard.publish` on dashboard resources.
+Dashboard refresh introduces `dashboard.refresh` for dashboard, section, and
+source refresh orchestration.
+Run details, downloads, PDF previews, and `nopsai.get_pipeline_run_output`
+remain protected by `pipeline_run.read` for the requested run. Hosted MCP
+returns the same authorized structured source and audit fields as REST.
 
 The pipeline's `output.items` declaration remains ordinary GitOps YAML. The
 versioned specs are generated run data, not configuration drift and not written
@@ -144,6 +180,19 @@ fields. Prometheus exports:
 - `nopsai_pipeline_final_output_retries_total`
 - `nopsai_pipeline_final_output_render_attempts_total`
 - `nopsai_pipeline_final_output_render_failures_total`
+- `nopsai_dashboard_publications`
+- `nopsai_dashboard_publication_events_total`
+- `nopsai_dashboard_publications_total`
+- `nopsai_dashboard_publication_failures_total`
+- `nopsai_dashboard_refreshes`
+- `nopsai_dashboard_refresh_sources`
+- `nopsai_dashboard_refreshes_total`
+- `nopsai_dashboard_refresh_failures_total`
+- `nopsai_dashboard_refresh_duration_seconds`
+- `nopsai_dashboard_refresh_sources_total`
+- `nopsai_dashboard_stale_publications_total`
+- `nopsai_dashboard_render_failures_total`
+- `nopsai_dashboard_series_points_total`
 
 Labels are bounded to output type, pipeline path/name, and team.
 
@@ -157,6 +206,9 @@ Labels are bounded to output type, pipeline path/name, and team.
 - HTML document model: `pipeline_final_outputs_document.go`
 - Gotenberg client: `pipeline_final_outputs_pdf.go`
 - Excel workbook model: `pipeline_final_outputs_spreadsheet.go`
+- Dashboard model and publication: `dashboard_publication.go`,
+  `dashboard_store.go`, and `dashboard_handlers.go`
 - UI action orchestration: `RunFinalOutputs.tsx`
 - UI format rendering: `final-output-preview/`
+- Dashboard UI rendering: `features/dashboards/`
 - Route composition: `routes.go` and `RunDetailPanel.tsx`

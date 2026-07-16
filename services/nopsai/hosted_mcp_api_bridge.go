@@ -139,6 +139,7 @@ func (a *App) hostedMCPAPIHandler() http.Handler {
 	a.registerMonitoringRoutes(mux)
 	a.registerPipelineRoutes(mux)
 	a.registerScheduleRoutes(mux)
+	a.registerDashboardRoutes(mux)
 	a.registerExternalTriggerRoutes(mux)
 	a.registerGitWebhookSourceRoutes(mux)
 	a.registerKnowledgeContextRoutes(mux)

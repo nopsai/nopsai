@@ -137,6 +137,16 @@ func normalizePipelineFinalOutputContent(outputType, raw string) (string, error)
 		if parseErr != nil {
 			return "", newPipelineFinalOutputContractError("invalid_spreadsheet_spec", parseErr.Error())
 		}
+	case "dashboard":
+		content = stripMarkdownFence(content)
+		spec, parseErr := parseDashboardSpec(content)
+		if parseErr != nil {
+			return "", newPipelineFinalOutputContractError("invalid_dashboard_spec", parseErr.Error())
+		}
+		content, parseErr = marshalFinalOutputSpec(spec)
+		if parseErr != nil {
+			return "", newPipelineFinalOutputContractError("invalid_dashboard_spec", parseErr.Error())
+		}
 	}
 	return content, nil
 }
