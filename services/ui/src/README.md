@@ -9,6 +9,10 @@ truth; this file is the source-adjacent placement guide.
 - `app/` owns shell composition, route wiring, sidebar state, desktop
   collapse/resize behavior, top-level navigation topic grouping, navigation
   trees, setup redirect behavior, and run-sidebar orchestration.
+  Primary sidebar categories remain collapsible app-shell state: Organization
+  follows Build & Automate, System Settings owns config/setup/data-management
+  links, and only System Settings starts collapsed when no system route is
+  active.
 - `auth/` owns session state, current-user loading, capability normalization,
   route guards, and redirect safety.
 - `lib/api.ts` owns API base URL resolution, token persistence, bearer-token
