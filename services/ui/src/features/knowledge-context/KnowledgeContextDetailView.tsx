@@ -1,8 +1,9 @@
-import { useState, type ReactNode } from 'react';
-import { ArrowLeft, Copy, Download, Edit3, ExternalLink, GitBranch, Lock, MoreHorizontal, Plus, RotateCw, ShieldCheck, Trash2 } from 'lucide-react';
+import { useRef, useState, type ReactNode } from 'react';
+import { ArrowLeft, Copy, Download, Edit3, ExternalLink, Lock, MoreHorizontal, Plus, RotateCw, Trash2 } from 'lucide-react';
 
 import ResourceAccessCard from '../../components/ResourceAccessCard';
 import { ObjectIcon } from '../../components/ObjectIcon';
+import { useOutsideDismiss } from '../../components/useOutsideDismiss';
 import type { ObjectIconType } from '../../components/objectIconRegistry';
 import {
   isGitManagedDocument,
@@ -22,13 +23,12 @@ import {
 } from './model';
 import { formatKnowledgeDate, kindIconType } from './presentation';
 
-type KnowledgeDetailTab = 'overview' | 'content' | 'usage' | 'gitops';
+type KnowledgeDetailTab = 'overview' | 'content' | 'usage';
 
 const detailTabs: Array<{ id: KnowledgeDetailTab; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'content', label: 'Content' },
   { id: 'usage', label: 'Usage' },
-  { id: 'gitops', label: 'GitOps' },
 ];
 
 export type KnowledgeContentMetrics = {
@@ -52,6 +52,7 @@ export type KnowledgeContextDetailViewProps = {
   saving: boolean;
   syncing: boolean;
   connections: KnowledgeConnectionListItem[];
+  teamOptions: string[];
   onBackToList: () => void;
   onCopy: () => void;
   onDownload: () => void;
@@ -84,6 +85,7 @@ export function KnowledgeContextDetailView({
   saving,
   syncing,
   connections,
+  teamOptions,
   onBackToList,
   onCopy,
   onDownload,
@@ -102,6 +104,8 @@ export function KnowledgeContextDetailView({
 }: KnowledgeContextDetailViewProps) {
   const [activeTab, setActiveTab] = useState<KnowledgeDetailTab>(() => (isEditing ? 'content' : 'overview'));
   const [actionsOpen, setActionsOpen] = useState(false);
+  const actionsMenuRef = useRef<HTMLDivElement | null>(null);
+  useOutsideDismiss(actionsMenuRef, actionsOpen, () => setActionsOpen(false), { ignore: ['#resource-access-modal'] });
 
   if (!detail) {
     return (
@@ -109,7 +113,7 @@ export function KnowledgeContextDetailView({
         <div className="kc-demo-detail-empty">
           <ObjectIcon type="knowledge-context" className="h-6 w-6" />
           <strong>{detailError ? 'Unable to load knowledge context' : 'Select a knowledge context'}</strong>
-          <span>{detailError || 'Choose a document from the browser to inspect content, access, GitOps state, and usage.'}</span>
+          <span>{detailError || 'Choose a document from the browser to inspect content, access, and usage.'}</span>
           {canWriteKnowledge && onCreateDocument ? (
             <button type="button" className="kc-demo-primary-btn" onClick={onCreateDocument}>
               <Plus className="h-4 w-4" aria-hidden="true" />
@@ -130,6 +134,9 @@ export function KnowledgeContextDetailView({
   const rawConnectionID = detail.connection_ref || detail.connection_id || '';
   const selectedConnection = connections.find(connection => knowledgeConnectionMatchesIdentifier(connection, rawConnectionID));
   const selectedConnectionID = selectedConnection?.id || rawConnectionID;
+  const editableTeamOptions = Array.from(
+    new Set([normalizeTeamPath(detail.team), ...teamOptions.map(option => normalizeTeamPath(option))].filter(Boolean))
+  ).sort((a, b) => a.localeCompare(b));
   const handleStartEditing = () => {
     setActionsOpen(false);
     setActiveTab('content');
@@ -161,7 +168,7 @@ export function KnowledgeContextDetailView({
               Back
             </button>
             {!isEditing ? (
-              <div className="kc-doc-actions-menu">
+              <div className="kc-doc-actions-menu" ref={actionsMenuRef}>
                 <button
                   type="button"
                   className="kc-doc-action-btn kc-doc-action-btn--primary"
@@ -181,6 +188,7 @@ export function KnowledgeContextDetailView({
                         label="knowledge context"
                         buttonClassName="kc-doc-menu-item"
                         onAccessChange={onAccessChange}
+                        onDialogClose={() => setActionsOpen(false)}
                       />
                     ) : null}
                     <button type="button" className="kc-doc-menu-item" onClick={onDownload}>
@@ -257,7 +265,7 @@ export function KnowledgeContextDetailView({
       {detailError ? <div className="kc-demo-alert">{detailError}</div> : null}
       {isGitManagedDocument(detail) ? (
         <div className="kc-demo-alert kc-demo-alert--warning">
-          Editing here saves a database override. The next GitOps sync can replace it unless the change is pushed to GitOps.
+          Editing here saves a database override. A future GitOps sync can replace it from the repository.
         </div>
       ) : null}
 
@@ -268,10 +276,35 @@ export function KnowledgeContextDetailView({
               <div className="kc-demo-panel-title">
                 <div>
                   <h3>Edit Overview</h3>
-                  <p>Update the document summary and source settings.</p>
+                  <p>Update the document identity, owner, summary, and source settings.</p>
                 </div>
               </div>
               <div className="kc-demo-edit-stack">
+                <div className="kc-demo-edit-grid">
+                  <label>
+                    <span>Name</span>
+                    <input
+                      value={detail.name || ''}
+                      disabled={!selectedCanEdit}
+                      onChange={event => onDetailPatch({ name: event.target.value })}
+                      placeholder="restart"
+                    />
+                  </label>
+                  <label>
+                    <span>Team</span>
+                    <select
+                      value={normalizeTeamPath(detail.team)}
+                      disabled={!selectedCanEdit}
+                      onChange={event => onDetailPatch({ team: event.target.value })}
+                    >
+                      {editableTeamOptions.map(team => (
+                        <option key={team} value={team}>
+                          {team}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
                 <label>
                   <span>Description</span>
                   <textarea
@@ -380,26 +413,6 @@ export function KnowledgeContextDetailView({
           updatedLabel={updatedLabel}
           onOpenPipeline={onOpenPipeline}
         />
-      ) : null}
-
-      {activeTab === 'gitops' ? (
-        <div className="kc-demo-card kc-demo-panel">
-          <div className="kc-demo-panel-title">
-            <div>
-              <h3>GitOps</h3>
-              <p>{isGitManagedDocument(detail) ? 'Repository-managed document with database override protection.' : 'Database-managed document.'}</p>
-            </div>
-            <span className={`kc-demo-resource-icon ${isGitManagedDocument(detail) ? 'kc-demo-resource-icon--green' : 'kc-demo-resource-icon--purple'}`} aria-hidden="true">
-              {isGitManagedDocument(detail) ? <GitBranch className="h-5 w-5" /> : <ShieldCheck className="h-5 w-5" />}
-            </span>
-          </div>
-          <dl className="kc-demo-kv">
-            <InfoRow label="State" value={isGitManagedDocument(detail) ? 'Synced from GitOps' : 'Database'} />
-            <InfoRow label="Source path" value={detail.config_source_path || '-'} />
-            <InfoRow label="Commit" value={detail.config_source_commit_sha || '-'} />
-            <InfoRow label="Updated" value={updatedLabel} />
-          </dl>
-        </div>
       ) : null}
     </section>
   );

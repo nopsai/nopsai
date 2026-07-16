@@ -331,12 +331,48 @@ export function sourceLabel(source: string) {
   return 'UI';
 }
 
-export function deriveIdentityFromTeam(activeTeam: string) {
+export function deriveIdentityFromTeam(activeTeam: string, fallbackTeam = '') {
   const parts = normalizeTeamPath(activeTeam).split('/').filter(Boolean);
   const first = parts[0] || '';
   return kindOrder.includes(first)
-    ? { kind: first, team: parts.slice(1).join('/') || 'team-1' }
-    : { kind: 'architecture', team: parts.join('/') || 'team-1' };
+    ? { kind: first, team: parts.slice(1).join('/') || fallbackTeam }
+    : { kind: 'architecture', team: parts.join('/') || fallbackTeam };
+}
+
+export function buildKnowledgeTeamOptions({
+  activeTeam = '',
+  activeConnectionTeam = '',
+  resourceTeamPaths = [],
+  items = [],
+  connections = [],
+  fallbackTeam = '',
+}: {
+  activeTeam?: string;
+  activeConnectionTeam?: string;
+  resourceTeamPaths?: string[];
+  items?: Array<Pick<KnowledgeContextListItem, 'team'>>;
+  connections?: Array<Pick<KnowledgeConnectionListItem, 'team'>>;
+  fallbackTeam?: string;
+}) {
+  const activeIdentity = deriveIdentityFromTeam(activeTeam, '');
+  const teams = Array.from(
+    new Set(
+      [
+        activeIdentity.team,
+        activeConnectionTeam,
+        ...resourceTeamPaths,
+        ...items.map(item => item.team),
+        ...connections.map(connection => connection.team),
+      ]
+        .map(team => normalizeTeamPath(team))
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b));
+  if (!teams.length && fallbackTeam) {
+    const fallback = normalizeTeamPath(fallbackTeam);
+    if (fallback) teams.push(fallback);
+  }
+  return teams;
 }
 
 export function normalizeKnowledgeSource(source: string) {

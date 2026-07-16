@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '../lib/api';
@@ -77,6 +77,16 @@ describe('ResourceAccessCard', () => {
         })
       );
     });
+  });
+
+  it('closes access settings when the backdrop is clicked', async () => {
+    render(<ResourceAccessCard resourceType="pipeline" resourceID="platform/deploy" label="pipeline" />);
+    await userEvent.click(screen.getByRole('button', { name: 'Access' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Who can use this pipeline?' });
+
+    fireEvent.pointerDown(dialog.parentElement!);
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('supports icon-only access actions while keeping an accessible name', () => {

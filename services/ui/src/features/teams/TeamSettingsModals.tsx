@@ -120,7 +120,12 @@ export function NewTeamItemModal({
   const selectedParentLabel = parentOptions.find(option => option.id === parentID)?.label || parentLabel || 'Global';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] px-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] px-4"
+      onPointerDown={event => {
+        if (!pending && event.target === event.currentTarget) onClose();
+      }}
+    >
       <div
         role="dialog"
         aria-modal="true"
@@ -280,7 +285,12 @@ export function EditTeamItemModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] px-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] px-4"
+      onPointerDown={event => {
+        if (!pending && event.target === event.currentTarget) onClose();
+      }}
+    >
       <div
         role="dialog"
         aria-modal="true"
@@ -464,7 +474,12 @@ export function TeamConfigRepositoryModal({
     }`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] px-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] px-4"
+      onPointerDown={event => {
+        if (!saving && !syncing && event.target === event.currentTarget) onClose();
+      }}
+    >
       <div
         role="dialog"
         aria-modal="true"

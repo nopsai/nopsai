@@ -45,6 +45,7 @@ describe('KnowledgeContextModals', () => {
 
     expect(screen.getByRole('radio', { name: 'External page' })).toBeChecked();
     expect(screen.getByRole('combobox', { name: 'Team' })).toHaveValue('platform');
+    expect(screen.queryByRole('option', { name: 'team-1' })).not.toBeInTheDocument();
     expect(screen.getByText('No connection is available for this team.')).toBeVisible();
 
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'restart' } });

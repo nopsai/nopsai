@@ -96,6 +96,747 @@ export const supportedDeploymentModels = [
   },
 ];
 
+const pipelineTopLevelRows: WikiConfigRow[] = [
+  {
+    key: 'name',
+    area: 'Pipeline YAML',
+    description: 'Required stable pipeline name. It may contain letters, numbers, underscores, dots, and hyphens.',
+    example: 'release-readiness',
+  },
+  {
+    key: 'version',
+    area: 'Pipeline YAML',
+    description: 'Optional pipeline version. When omitted, runtime validation defaults it to latest.',
+    example: '1.0.0',
+  },
+  {
+    key: 'description',
+    area: 'Pipeline YAML',
+    description: 'Human-readable explanation shown in API/UI contexts and useful during reviews.',
+    example: 'Build, test, and deploy the API.',
+  },
+  {
+    key: 'container_image',
+    area: 'Pipeline YAML',
+    description: 'Default executable image. Required unless every executable step has its own image; approval-only steps do not need one.',
+    example: 'alpine:3.20',
+  },
+  {
+    key: 'working_directory',
+    area: 'Pipeline YAML',
+    description: 'Container working directory. Empty and dot resolve to /workspace; relative paths are rooted under /workspace and may not escape it.',
+    example: '/workspace',
+  },
+  {
+    key: 'display_options.github_view',
+    area: 'Pipeline YAML',
+    description: 'Preferred GitHub check visualization when GitHub integration renders pipeline progress.',
+    example: 'mermaid',
+  },
+  {
+    key: 'variables',
+    area: 'Pipeline YAML',
+    description: 'Required runtime variable references for the run. Bare names resolve in the run scope; scope:name resolves another scope and injects name.',
+    example: '[API_VERSION, default:REGION, prod:IMAGE_TAG]',
+  },
+  {
+    key: 'timeout',
+    area: 'Pipeline YAML',
+    description: 'Optional whole-run timeout using Go duration syntax. Timeout failure stops remaining work.',
+    example: '45m',
+  },
+  {
+    key: 'llm_enabled',
+    area: 'Pipeline YAML',
+    description: 'Set false only for script-only pipelines. It rejects goals, conditions, MCP profile validation, and final outputs.',
+    example: 'false',
+  },
+  {
+    key: 'agent_profile',
+    area: 'Pipeline YAML',
+    description: 'Pipeline-level AI persona. Step agent_profile can override it; tasks cannot define agent_profile.',
+    example: 'release-manager',
+  },
+  {
+    key: 'llm_profile',
+    area: 'Pipeline YAML',
+    description: 'Pipeline-level model profile. It selects provider/model/client settings, not persona or permissions.',
+    example: 'standard',
+  },
+  {
+    key: 'mcp_profiles',
+    area: 'Pipeline YAML',
+    description: 'Approved MCP tool profiles available to LLM goals. Profiles are additive with step and task MCP profiles.',
+    example: '[github-pr-review]',
+  },
+  {
+    key: 'runtime_pool',
+    area: 'Pipeline YAML',
+    description: 'Kubernetes runtime pool default for steps. Docker runners ignore runtime pools.',
+    example: 'high-memory',
+  },
+  {
+    key: 'affinity_enabled',
+    area: 'Pipeline YAML',
+    description: 'Overrides the Kubernetes runner same-node affinity default for this run.',
+    example: 'true',
+  },
+  {
+    key: 'knowledge_context',
+    area: 'Pipeline YAML',
+    description: 'Pipeline-level knowledge references merged into every LLM condition and goal in the run.',
+    example: 'kind: guardrail, ref: security/repo-check',
+  },
+  {
+    key: 'llm_content_sharing',
+    area: 'Pipeline YAML',
+    description: 'Boolean control for whether the agent scans workspace file content for LLM goal context.',
+    example: 'true',
+  },
+  {
+    key: 'llm_content_include',
+    area: 'Pipeline YAML',
+    description: 'Path filters limiting which workspace files may be shared with LLM goal context.',
+    example: '[services/api/**, Dockerfile]',
+  },
+  {
+    key: 'llm_content_ignore',
+    area: 'Pipeline YAML',
+    description: 'Path filters excluding workspace files from LLM goal context.',
+    example: '[.git, "**/*.pem"]',
+  },
+  {
+    key: 'llm_output_sharing',
+    area: 'Pipeline YAML',
+    description: 'Default for whether task output is written into execution history for later LLM tasks.',
+    example: 'false',
+  },
+  {
+    key: 'output',
+    area: 'Pipeline YAML',
+    description: 'Post-run final deliverables and dashboard publications generated from completed run context.',
+    example: 'items: [{ name: summary, type: markdown, when: success }]',
+  },
+];
+
+const stepTaskRows: WikiConfigRow[] = [
+  {
+    key: 'steps[].name',
+    area: 'Step YAML',
+    description: 'Required unique step name. Step dependencies refer to this name.',
+    example: 'test',
+  },
+  {
+    key: 'steps[].image',
+    area: 'Step YAML',
+    description: 'Step-specific container image. Overrides container_image for executable work in that step.',
+    example: 'golang:1.24',
+  },
+  {
+    key: 'steps[].depends_on',
+    area: 'Step YAML',
+    description: 'Step dependencies. Values must name other steps; tasks cannot depend on other steps directly.',
+    example: '[build, scan]',
+  },
+  {
+    key: 'steps[].condition',
+    area: 'Step YAML',
+    description: 'Natural-language LLM condition evaluated before the step runs. False normally skips; with guardrail/policy context it fails closed.',
+    example: 'Run only when the latest tag is newer than 2.0.0',
+  },
+  {
+    key: 'steps[].secrets',
+    area: 'Step YAML',
+    description: 'Secret refs injected as environment variables for the step. Bare names use the run scope; scope:name uses an explicit scope.',
+    example: '[DEPLOY_TOKEN, prod:REGISTRY_PASSWORD]',
+  },
+  {
+    key: 'steps[].variables',
+    area: 'Step YAML',
+    description: 'Inline environment variable overrides applied to all tasks in the step after inherited run variables.',
+    example: '{ API_VERSION: "canary" }',
+  },
+  {
+    key: 'steps[].volumes',
+    area: 'Step YAML',
+    description: 'Named Docker volume mounts using volume:mount-path syntax for Docker execution.',
+    example: '[cache:/cache]',
+  },
+  {
+    key: 'steps[].ignore_failure',
+    area: 'Step YAML',
+    description: 'Marks a failing single-mode step as ignored so downstream dependencies can continue.',
+    example: 'true',
+  },
+  {
+    key: 'steps[].llm_output_sharing',
+    area: 'Step YAML',
+    description: 'Step-level default for hiding or sharing task output in later LLM execution history.',
+    example: 'false',
+  },
+  {
+    key: 'steps[].agent_profile',
+    area: 'Step YAML',
+    description: 'Step persona override used by the step condition and LLM goals in that step. Tasks cannot override agent_profile.',
+    example: 'sre',
+  },
+  {
+    key: 'steps[].llm_profile',
+    area: 'Step YAML',
+    description: 'Step model-profile override. It selects the LLM provider/model for the step condition and tasks unless a task defines its own llm_profile.',
+    example: 'reasoning',
+  },
+  {
+    key: 'steps[].mcp_profiles',
+    area: 'Step YAML',
+    description: 'Approved MCP profiles added for LLM goal tasks in the step. Invalid on script-only and include steps.',
+    example: '[github-readonly]',
+  },
+  {
+    key: 'steps[].runtime_pool',
+    area: 'Step YAML',
+    description: 'Kubernetes runtime pool override for this step. It falls back to pipeline runtime_pool and then the runner default.',
+    example: 'gpu',
+  },
+  {
+    key: 'steps[].knowledge_context',
+    area: 'Step YAML',
+    description: 'Step-level knowledge references merged with pipeline and task references for LLM work.',
+    example: 'kind: runbook, ref: platform/deploy-api',
+  },
+  {
+    key: 'steps[].goal',
+    area: 'Step mode',
+    description: 'Single-task LLM goal step. Mutually exclusive with include, tasks, script, and approval.',
+    example: 'Review release readiness and summarize risks.',
+  },
+  {
+    key: 'steps[].script',
+    area: 'Step mode',
+    description: 'Single-task shell script step executed directly. Mutually exclusive with include, tasks, goal, and approval.',
+    example: 'go test ./...',
+  },
+  {
+    key: 'steps[].tasks',
+    area: 'Step mode',
+    description: 'Multi-task step. Each task must define exactly one of goal or script and may depend only on tasks in the same step.',
+    example: '- name: unit-test',
+  },
+  {
+    key: 'tasks[].name',
+    area: 'Task YAML',
+    description: 'Required unique task name within its step.',
+    example: 'unit-test',
+  },
+  {
+    key: 'tasks[].goal',
+    area: 'Task YAML',
+    description: 'LLM-backed task goal. Mutually exclusive with task script and requires LLM to be enabled.',
+    example: 'Inspect risky files changed in this PR.',
+  },
+  {
+    key: 'tasks[].script',
+    area: 'Task YAML',
+    description: 'Direct shell command or script for the task. It can still be guardrail-validated when strict knowledge context is active.',
+    example: 'npm test -- --runInBand',
+  },
+  {
+    key: 'tasks[].depends_on',
+    area: 'Task YAML',
+    description: 'Task dependencies inside the same step only.',
+    example: '[install]',
+  },
+  {
+    key: 'tasks[].ignore_failure',
+    area: 'Task YAML',
+    description: 'Treats this task failure as ignored, allowing dependent graph progress.',
+    example: 'true',
+  },
+  {
+    key: 'tasks[].llm_output_sharing',
+    area: 'Task YAML',
+    description: 'Task-specific override for whether this task output appears in later LLM history.',
+    example: 'false',
+  },
+  {
+    key: 'tasks[].llm_profile',
+    area: 'Task YAML',
+    description: 'Task model-profile override. It is the most specific llm_profile level and controls this task goal client.',
+    example: 'fast',
+  },
+  {
+    key: 'tasks[].mcp_profiles',
+    area: 'Task YAML',
+    description: 'Approved MCP profiles added for this LLM goal task. Invalid on script tasks.',
+    example: '[github-pr-review]',
+  },
+  {
+    key: 'tasks[].variables',
+    area: 'Task YAML',
+    description: 'Task-local environment variable overrides applied after step variables.',
+    example: '{ API_VERSION: "inside-task" }',
+  },
+  {
+    key: 'tasks[].knowledge_context',
+    area: 'Task YAML',
+    description: 'Most-specific knowledge references merged with pipeline and step context.',
+    example: 'kind: policy, path: .nopsai/docs/auth-policy.md',
+  },
+];
+
+const approvalIncludeRows: WikiConfigRow[] = [
+  {
+    key: 'steps[].include',
+    area: 'Include step',
+    description: 'Reusable automation reference. Use step:<identifier> for reusable steps or pipeline:<identifier> for child pipelines.',
+    example: 'step:team-1/shared/notify',
+  },
+  {
+    key: 'steps[].sync',
+    area: 'Include step',
+    description: 'Child-pipeline execution mode flag on include steps. Use with pipeline includes when parent behavior should wait for child work.',
+    example: 'false',
+  },
+  {
+    key: 'steps[].approval.type',
+    area: 'Approval step',
+    description: 'Required approval kind. It may contain letters, numbers, underscores, dots, and hyphens.',
+    example: 'production-deploy',
+  },
+  {
+    key: 'steps[].approval.teams',
+    area: 'Approval step',
+    description: 'Required relative team paths whose approvers may approve or reject the checkpoint.',
+    example: '[platform/prod]',
+  },
+  {
+    key: 'steps[].approval.allow_self_approval',
+    area: 'Approval step',
+    description: 'Whether the original requester can approve the same checkpoint.',
+    example: 'false',
+  },
+];
+
+const triggerRows: WikiConfigRow[] = [
+  {
+    key: 'provider',
+    area: 'Trigger manifest',
+    description: 'Git provider for a repository trigger. GitHub App triggers use github behavior; non-GitHub triggers need a webhook_source.',
+    example: 'gitlab',
+  },
+  {
+    key: 'team',
+    area: 'Trigger manifest',
+    description: 'NopsAI team/application owner used for run ownership and resource inheritance.',
+    example: 'platform',
+  },
+  {
+    key: 'webhook_source',
+    area: 'Trigger manifest',
+    description: 'Managed Git Webhook Source ID for GitLab, Bitbucket, Gitea, or generic Git events.',
+    example: 'gitlab-platform',
+  },
+  {
+    key: 'management',
+    area: 'Trigger manifest',
+    description: 'Marks whether the trigger is NopsAI-managed rather than repository-file managed.',
+    example: 'nopsai',
+  },
+  {
+    key: 'triggers[].on',
+    area: 'Trigger rule',
+    description: 'Event name to match. all matches any event.',
+    example: 'push',
+  },
+  {
+    key: 'triggers[].branches',
+    area: 'Trigger rule',
+    description: 'Included branch glob patterns for push or pull_request target branches.',
+    example: '[main, release/*]',
+  },
+  {
+    key: 'triggers[].skip_branches',
+    area: 'Trigger rule',
+    description: 'Branch glob patterns excluded after inclusion.',
+    example: '[wip/*]',
+  },
+  {
+    key: 'triggers[].tags',
+    area: 'Trigger rule',
+    description: 'Tag glob patterns for push tag events.',
+    example: '[v*]',
+  },
+  {
+    key: 'triggers[].skip_repos',
+    area: 'Trigger rule',
+    description: 'Repository name patterns that prevent this rule from matching.',
+    example: '[archive/*]',
+  },
+  {
+    key: 'triggers[].include_paths',
+    area: 'Trigger rule',
+    description: 'Changed-file glob patterns that must match after exclusions when changed-file data is known.',
+    example: '[services/api/**]',
+  },
+  {
+    key: 'triggers[].exclude_paths',
+    area: 'Trigger rule',
+    description: 'Changed-file glob patterns ignored before include matching.',
+    example: '[docs/**, "**/*.md"]',
+  },
+  {
+    key: 'triggers[].pipelines',
+    area: 'Trigger rule',
+    description: 'Pipeline identifiers to start when the rule matches. Scalar paths are supported.',
+    example: '[platform/api-ci]',
+  },
+  {
+    key: 'triggers[].scope',
+    area: 'Trigger rule',
+    description: 'Run scope used for variable, secret, runner, profile, and resource authorization resolution.',
+    example: 'platform/prod',
+  },
+  {
+    key: 'git_webhook_sources[].auth_mode',
+    area: 'Git Webhook Source',
+    description: 'Provider request authentication mode. Supported values are hmac, static_token, and none.',
+    example: 'hmac',
+  },
+  {
+    key: 'git_webhook_sources[].repository_allowlist',
+    area: 'Git Webhook Source',
+    description: 'Required owner/repository allowlist with glob support.',
+    example: '[platform/api, platform/*]',
+  },
+];
+
+const scheduleExternalRows: WikiConfigRow[] = [
+  {
+    key: 'schedules[].schedule_kind',
+    area: 'Schedule',
+    description: 'Schedule type. Supported values are cron and once; once may be inferred when run_at is set.',
+    example: 'cron',
+  },
+  {
+    key: 'schedules[].cron_expression',
+    area: 'Schedule',
+    description: 'Cron expression required for cron schedules. cron is accepted as an API alias.',
+    example: '0 2 * * *',
+  },
+  {
+    key: 'schedules[].run_at',
+    area: 'Schedule',
+    description: 'One-time schedule timestamp. Enabled one-time schedules must be in the future.',
+    example: '2026-08-01T10:00:00Z',
+  },
+  {
+    key: 'schedules[].timezone',
+    area: 'Schedule',
+    description: 'IANA timezone used to interpret cron and run_at values. Defaults to UTC.',
+    example: 'Europe/Amsterdam',
+  },
+  {
+    key: 'schedules[].pipeline',
+    area: 'Schedule',
+    description: 'Stored pipeline identifier to run.',
+    example: 'team-1/services/api/deploy',
+  },
+  {
+    key: 'schedules[].scope',
+    area: 'Schedule',
+    description: 'Runtime scope used by the scheduled run.',
+    example: 'prod',
+  },
+  {
+    key: 'schedules[].run_team_path',
+    area: 'Schedule',
+    description: 'Pipeline Runs team path and notification lineage for runs created by this schedule. root means unassigned root.',
+    example: 'team-1',
+  },
+  {
+    key: 'schedules[].variables',
+    area: 'Schedule',
+    description: 'Run variable overrides supplied when the schedule starts the pipeline.',
+    example: '{ RELEASE_CHANNEL: nightly }',
+  },
+  {
+    key: 'external_triggers[].allowed_callers',
+    area: 'External Trigger',
+    description: 'Required explicit callers. Types are user, service_account, or auth_team; team is normalized to auth_team.',
+    example: '[{ type: service_account, id: servicenow-prod }]',
+  },
+  {
+    key: 'external_triggers[].variable_mapping',
+    area: 'External Trigger',
+    description: 'Maps event_type, payload paths, variables paths, or literal: values into run variables.',
+    example: '{ CHANGE_ID: payload.change.id }',
+  },
+  {
+    key: 'external_triggers[].payload_schema',
+    area: 'External Trigger',
+    description: 'Small object-schema guard with required fields and basic property type checks.',
+    example: '{ type: object, required: [version] }',
+  },
+  {
+    key: 'external_triggers[].rate_limit.per_minute',
+    area: 'External Trigger',
+    description: 'Per-trigger invocation limit over the previous minute.',
+    example: '10',
+  },
+  {
+    key: 'external_triggers.invoke.idempotency_key',
+    area: 'External Trigger API',
+    description: 'Optional retry key scoped by trigger and caller. Reuse for the same source event; change for a new event.',
+    example: 'servicenow:CHG001',
+  },
+];
+
+const llmProfileRows: WikiConfigRow[] = [
+  {
+    key: 'setting/system/llm_profile.yaml',
+    area: 'GitOps',
+    description: 'System LLM profile registry path in a global config repository.',
+    example: 'setting/system/llm_profile.yaml',
+  },
+  {
+    key: 'default_profile',
+    area: 'LLM profile registry',
+    description: 'Fallback profile name when pipeline, step, task, output, and conversation settings do not override it.',
+    example: 'standard',
+  },
+  {
+    key: 'profiles[].name',
+    area: 'LLM profile registry',
+    description: 'Profile ID referenced by llm_profile in pipelines, steps, tasks, outputs, and assistant conversations.',
+    example: 'reasoning',
+  },
+  {
+    key: 'profiles[].provider',
+    area: 'LLM profile',
+    description: 'Provider adapter. Supported values are gemini, lmstudio, openai, anthropic, groq, mistral, ollama, openrouter, and azure-openai.',
+    example: 'openai',
+  },
+  {
+    key: 'profiles[].model',
+    area: 'LLM profile',
+    description: 'Provider model or deployment name. LM Studio may discover a loaded model when omitted.',
+    example: 'gpt-4.1-mini',
+  },
+  {
+    key: 'profiles[].base_url',
+    area: 'LLM profile',
+    description: 'Custom endpoint. Required for LM Studio, Ollama, and Azure OpenAI; hosted providers use defaults when omitted.',
+    example: 'http://ollama:11434/v1',
+  },
+  {
+    key: 'profiles[].credential_ref',
+    area: 'LLM profile',
+    description: 'Credential registry reference for provider API keys. Hosted providers require it.',
+    example: 'credential://system/llm/openai-hosted',
+  },
+  {
+    key: 'profiles[].allowed_scopes',
+    area: 'LLM profile',
+    description: 'Optional scope allowlist. Empty means the profile can run in every scope.',
+    example: '[dev, prod]',
+  },
+  {
+    key: 'profiles[].reasoning',
+    area: 'LLM profile',
+    description: 'LM Studio reasoning level. Supported values are off, low, medium, high, and on.',
+    example: 'high',
+  },
+  {
+    key: 'profiles[].thinking',
+    area: 'LLM profile',
+    description: 'LM Studio shortcut used only when reasoning is omitted. true maps to on and false maps to off.',
+    example: 'false',
+  },
+  {
+    key: 'profiles[].timeout_seconds',
+    area: 'LLM profile',
+    description: 'Client-side HTTP timeout for provider requests.',
+    example: '60',
+  },
+  {
+    key: 'profiles[].max_tokens',
+    area: 'LLM profile',
+    description: 'Completion token limit translated to each provider adapter wire format.',
+    example: '4096',
+  },
+  {
+    key: 'profiles[].temperature',
+    area: 'LLM profile',
+    description: 'Optional sampling temperature. When omitted, provider or model defaults apply.',
+    example: '0.2',
+  },
+  {
+    key: 'profiles[].extra',
+    area: 'LLM profile',
+    description: 'Provider-specific string options such as OpenRouter http_referer or Azure deployment/api_version.',
+    example: '{ x_title: NopsAI }',
+  },
+];
+
+const mcpRows: WikiConfigRow[] = [
+  {
+    key: 'setting/system/mcp.yaml',
+    area: 'GitOps',
+    description: 'System MCP server and profile registry path in a global config repository.',
+    example: 'setting/system/mcp.yaml',
+  },
+  {
+    key: 'mcp_servers[].transport',
+    area: 'MCP server',
+    description: 'External MCP transport. streamable_http is the current default; http/https normalize to http.',
+    example: 'streamable_http',
+  },
+  {
+    key: 'mcp_servers[].auth_type',
+    area: 'MCP server',
+    description: 'Server authentication mode. Supported values are none and bearer_token.',
+    example: 'bearer_token',
+  },
+  {
+    key: 'mcp_servers[].headers',
+    area: 'MCP server',
+    description: 'Static headers sent to the MCP server after whitespace normalization.',
+    example: '{ X-Workspace: platform }',
+  },
+  {
+    key: 'mcp_servers[].timeout',
+    area: 'MCP server',
+    description: 'Per-server timeout. Defaults to 30s when omitted.',
+    example: '30s',
+  },
+  {
+    key: 'mcp_profiles[].servers[].tools',
+    area: 'MCP profile',
+    description: 'Tool allowlist for a server reference. Use * only when the full approved server toolset is acceptable.',
+    example: '["*"]',
+  },
+  {
+    key: 'mcp_profiles[].allowed_scopes',
+    area: 'MCP profile',
+    description: 'Optional runtime scopes where the profile can be used.',
+    example: '[dev]',
+  },
+];
+
+const knowledgeRows: WikiConfigRow[] = [
+  {
+    key: 'knowledge/',
+    area: 'GitOps',
+    description: 'Managed Knowledge Context directory grouped by kind and team.',
+    example: 'knowledge/guardrail/security/repo-check.md',
+  },
+  {
+    key: 'knowledge_context[].kind',
+    area: 'Knowledge Context',
+    description: 'Required kind. Supported values are architecture, guardrail, policy, adr, guideline, runbook, reference, and example.',
+    example: 'guardrail',
+  },
+  {
+    key: 'knowledge_context[].ref',
+    area: 'Knowledge Context',
+    description: 'Managed NopsAI document reference using team/document format. Mutually exclusive with path.',
+    example: 'security/repo-check',
+  },
+  {
+    key: 'knowledge_context[].path',
+    area: 'Knowledge Context',
+    description: 'Repo-local markdown path loaded from the run repository at the run commit. Mutually exclusive with ref.',
+    example: '.nopsai/docs/backend.md',
+  },
+  {
+    key: 'knowledge_context[].required',
+    area: 'Knowledge Context',
+    description: 'When true, resolution or authorization failure stops the run before execution.',
+    example: 'true',
+  },
+  {
+    key: 'knowledge/<kind>/<team>/<name>.md',
+    area: 'Knowledge GitOps',
+    description: 'Managed knowledge document path. GitOps documents must provide reusable text through content.',
+    example: 'knowledge/policy/platform/release-evidence.md',
+  },
+];
+
+const finalOutputRows: WikiConfigRow[] = [
+  {
+    key: 'output.llm_profile',
+    area: 'Final output YAML',
+    description: 'Default model profile for all final outputs. Item llm_profile overrides it.',
+    example: 'report-writer',
+  },
+  {
+    key: 'output.items[].name',
+    area: 'Final output YAML',
+    description: 'Required unique output name inside the pipeline.',
+    example: 'Executive summary',
+  },
+  {
+    key: 'output.items[].type',
+    area: 'Final output YAML',
+    description: 'Output type. Supported values are markdown, pdf, excel, json, html, and dashboard.',
+    example: 'pdf',
+  },
+  {
+    key: 'output.items[].when',
+    area: 'Final output YAML',
+    description: 'Generation condition. Supported values are success, failure, and always; empty behaves as always.',
+    example: 'always',
+  },
+  {
+    key: 'output.items[].prompt',
+    area: 'Final output YAML',
+    description: 'Required prompt describing the deliverable to generate from completed run context.',
+    example: 'Summarize the deployment evidence.',
+  },
+  {
+    key: 'output.items[].llm_profile',
+    area: 'Final output YAML',
+    description: 'Item-specific model profile for this output.',
+    example: 'fast-report',
+  },
+  {
+    key: 'output.items[].dashboard.ref',
+    area: 'Dashboard output',
+    description: 'Required for dashboard outputs. Uses team/dashboard-slug format.',
+    example: 'platform/engineering-health',
+  },
+  {
+    key: 'output.items[].dashboard.section',
+    area: 'Dashboard output',
+    description: 'Required section key where the publication appears.',
+    example: 'deployments',
+  },
+  {
+    key: 'output.items[].dashboard.entry_key',
+    area: 'Dashboard output',
+    description: 'Optional stable entry key used by replace and series publications. When omitted, the output name is used.',
+    example: 'payments-api',
+  },
+  {
+    key: 'output.items[].dashboard.mode',
+    area: 'Dashboard output',
+    description: 'Optional publication mode. Supported values are replace, append, snapshot, and series; empty defaults to replace.',
+    example: 'replace',
+  },
+  {
+    key: 'output.items[].dashboard.preset',
+    area: 'Dashboard output',
+    description: 'Optional prompt preset hint. Supported values include auto, report, table, status, timeline, comparison, metrics, and mixed.',
+    example: 'metrics',
+  },
+  {
+    key: 'output.items[].dashboard.ttl',
+    area: 'Dashboard output',
+    description: 'Optional staleness duration for dashboard content.',
+    example: '7d',
+  },
+];
+
 export const wikiSections: WikiSection[] = [
   {
     id: 'architecture',
@@ -624,29 +1365,19 @@ export const wikiSections: WikiSection[] = [
         summary:
           'Pipelines define container images, variables, steps, timeouts, AI controls, profiles, runtime pools, knowledge context, and final outputs.',
         keyFacts: [
-          'Top-level fields include name, version, description, container_image, working_directory, variables, steps, timeout, llm_enabled, agent_profile, llm_profile, mcp_profiles, runtime_pool, affinity_enabled, knowledge_context, output, and LLM sharing controls.',
+          'Top-level fields include name, version, description, container_image, working_directory, display_options, variables, steps, timeout, llm_enabled, agent_profile, llm_profile, mcp_profiles, runtime_pool, affinity_enabled, knowledge_context, output, and LLM sharing controls.',
           'Every step must contain exactly one mode: include, tasks, goal, script, or approval.',
           'Independent ready tasks may execute concurrently; depends_on defines graph edges.',
           'Script-only pipelines can set llm_enabled: false to avoid requiring an LLM registry.',
         ],
         details: [
+          'Pipeline YAML is a reviewed automation contract. It should contain the desired execution graph and references to approved resources, not raw provider credentials, arbitrary MCP server URLs, or environment-specific bootstrap secrets.',
           'Within one step, NopsAI reuses a step container or pod. Across steps, separate containers or pods may be used. All steps share the run workspace.',
           'Script tasks with effective guardrail or policy knowledge are submitted for LLM validation before execution and fail closed on conflicts or unavailable validation.',
+          'Profile directives are intentionally separate. agent_profile changes the persona and instructions; llm_profile selects the provider and model client; mcp_profiles selects approved external tools; knowledge_context supplies governed documents.',
+          'Runtime references such as variables and secrets may be bare names, default:NAME for unscoped/default values, or scope/path:NAME for explicit scoped lookup. The injected environment variable name is the final NAME part.',
         ],
-        configRows: [
-          {
-            key: 'llm_enabled',
-            area: 'Pipeline YAML',
-            description: 'Disables LLM-backed behavior for script-only pipelines.',
-            example: 'false',
-          },
-          {
-            key: 'runtime_pool',
-            area: 'Pipeline YAML',
-            description: 'Selects a Kubernetes runtime pool for scheduling.',
-            example: 'high-memory',
-          },
-        ],
+        configRows: pipelineTopLevelRows,
         examples: [
           {
             title: 'Release readiness pipeline',
@@ -658,6 +1389,45 @@ export const wikiSections: WikiSection[] = [
         relatedDocs: ['doc/feature-reference.md', 'doc/runtime-flows.md'],
         runbooks: ['Validate a new pipeline', 'Review dependency graph before production use', 'Convert manual shell script to script-only pipeline'],
         caveats: ['Goal tasks, conditions, and explicit MCP profiles are invalid when LLM behavior is disabled.'],
+      },
+      {
+        id: 'step-task-directives',
+        title: 'Step and Task Directives',
+        level: 'Reference',
+        audience: 'Automation authors reading or reviewing pipeline YAML',
+        summary:
+          'Steps choose one execution mode and add operational controls; tasks are the executable units inside multi-task steps.',
+        keyFacts: [
+          'A step must define exactly one of include, tasks, goal, script, or approval.',
+          'Step depends_on points to other steps. Task depends_on points only to tasks in the same step.',
+          'steps[].llm_profile means this step uses that model profile for its condition and LLM tasks unless a task has a more specific llm_profile.',
+          'steps[].agent_profile changes prompt persona for the step; tasks cannot define agent_profile.',
+          'mcp_profiles can be set on pipeline, step, and goal task levels, but not on script or include work.',
+        ],
+        details: [
+          'Goal steps and goal tasks ask the selected LLM profile for structured actions. Those actions can execute commands, replace files under the working directory, return an answer, or call an approved MCP tool.',
+          'Script steps and script tasks run the provided shell script directly. When guardrail or policy Knowledge Context is active, the script is first validated as the exact proposed command and fails closed if validation is unavailable or reports a conflict.',
+          'llm_output_sharing is about history, not logs. Logs still record masked task output; the setting controls whether output is fed into later LLM task history.',
+          'variables are layered in this order: pipeline/runtime values, inherited system values such as GIT_* and SCOPE, step variables, then task variables.',
+        ],
+        configRows: stepTaskRows,
+        examples: [
+          {
+            title: 'Mixed task step with profile overrides',
+            language: 'yaml',
+            code:
+              'steps:\n  - name: review\n    image: golang:1.24\n    llm_profile: reasoning\n    agent_profile: sre\n    mcp_profiles: [github-readonly]\n    variables:\n      REVIEW_DEPTH: full\n    tasks:\n      - name: unit-tests\n        script: go test ./...\n      - name: risk-review\n        depends_on: [unit-tests]\n        llm_profile: fast\n        goal: Summarize reliability risk from the test output and repository context.\n        llm_output_sharing: false',
+          },
+          {
+            title: 'Script-only pipeline',
+            language: 'yaml',
+            code:
+              'name: shell-check\nllm_enabled: false\ncontainer_image: alpine:3.20\nsteps:\n  - name: lint\n    script: ./scripts/lint.sh\n  - name: test\n    depends_on: [lint]\n    script: ./scripts/test.sh',
+          },
+        ],
+        relatedDocs: ['doc/feature-reference.md', 'doc/agent-profiles.md', 'doc/llm-model-selection.md', 'doc/mcp-pipeline-integration.md'],
+        runbooks: ['Find which profile a task uses', 'Debug a skipped condition', 'Split a large step into independent tasks'],
+        caveats: ['Task-level agent_profile is rejected by YAML parsing. Put persona overrides on the pipeline or step instead.'],
       },
       {
         id: 'approvals-reuse-children',
@@ -675,15 +1445,10 @@ export const wikiSections: WikiSection[] = [
         details: [
           'Cross-team reusable-step and child-pipeline includes require explicit step.use or pipeline.use authorization.',
           'Parent run aggregation remains active while direct child runs execute and surfaces child failures.',
+          'Approval teams must be relative team paths. Absolute paths, home-directory prefixes, dot segments, and duplicate team entries are rejected during validation.',
+          'Pending approvals are visible to assigned approvers even when the pipeline belongs to another team, so approval queues do not require broad pipeline ownership.',
         ],
-        configRows: [
-          {
-            key: 'approval.allow_self_approval',
-            area: 'Pipeline YAML',
-            description: 'Controls whether the requester may approve their own gate.',
-            example: 'false',
-          },
-        ],
+        configRows: approvalIncludeRows,
         examples: [
           {
             title: 'Approval step',
@@ -711,21 +1476,10 @@ export const wikiSections: WikiSection[] = [
         details: [
           'Non-GitHub providers do not currently fetch pipeline or trigger files directly from the source repository. Their triggers and pipelines must already exist in NopsAI, normally through configuration sync.',
           'Delivery history records accepted events, authentication failures, idempotency behavior, and no_match outcomes.',
+          'Branch, tag, repository, and changed-file matching uses simple glob semantics. Single star matches one path segment, double star can span directories, and question mark matches one non-slash character.',
+          'Path filters are applied only when the provider supplies changed-file data. If the changed-file list is unavailable, NopsAI treats the rule as eligible so CI is not silently skipped.',
         ],
-        configRows: [
-          {
-            key: 'git-webhook-sources/',
-            area: 'GitOps',
-            description: 'Declarative Git webhook source definitions.',
-            example: 'git-webhook-sources/gitlab-platform.yaml',
-          },
-          {
-            key: 'triggers/',
-            area: 'GitOps',
-            description: 'Repository trigger manifests.',
-            example: 'triggers/platform/api.yaml',
-          },
-        ],
+        configRows: triggerRows,
         examples: [
           {
             title: 'Repository trigger',
@@ -752,24 +1506,26 @@ export const wikiSections: WikiSection[] = [
           'External trigger callers must appear in allowed_callers and pass external_trigger.invoke.',
         ],
         details: [
-          'Variable mappings can come from payload, variables, or event_type.',
+          'Variable mappings can come from event_type, payload.<path>, variables.<name>, direct payload paths, or literal:<value> sources.',
+          'Payload schema validation supports object schemas, required fields, and basic property types: string, number, integer, boolean, object, and array.',
           'Run team controls where scheduled or externally triggered runs appear and which notification policy lineage receives events.',
+          'Schedules and external triggers still use normal run authorization. The caller or schedule service account must be allowed to execute the selected pipeline and use the selected scope, profiles, secrets, variables, and knowledge context.',
         ],
-        configRows: [
+        configRows: scheduleExternalRows,
+        examples: [
           {
-            key: 'schedules/',
-            area: 'GitOps',
-            description: 'Declarative recurring and one-time pipeline schedules.',
-            example: 'schedules/platform/nightly.yaml',
+            title: 'Cron schedule',
+            language: 'yaml',
+            code:
+              'name: nightly-api-deploy\npipeline: team-1/services/api/deploy\nschedule_kind: cron\ncron_expression: "0 2 * * *"\ntimezone: UTC\nenabled: true\nscope: prod\nrun_team_path: team-1\nvariables:\n  RELEASE_CHANNEL: nightly',
           },
           {
-            key: 'external-triggers/',
-            area: 'GitOps',
-            description: 'Declarative integration trigger definitions.',
-            example: 'external-triggers/deployments/service-now.yaml',
+            title: 'Authenticated external trigger',
+            language: 'yaml',
+            code:
+              'id: deploy-prod\nname: Deploy prod from ServiceNow\nenabled: true\npipeline: platform/prod/platform-maintenance\nscope: prod\nrun_team_path: platform/prod\nallowed_callers:\n  - type: service_account\n    id: servicenow-prod\nvariable_mapping:\n  VERSION: payload.version\n  CHANGE_ID: payload.change.id\npayload_schema:\n  type: object\n  required: [version]\nrate_limit:\n  per_minute: 10',
           },
         ],
-        examples: [],
         relatedDocs: ['doc/feature-reference.md', 'doc/runtime-flows.md'],
         runbooks: ['Run a schedule immediately', 'Investigate missed schedule', 'Replay an external trigger safely'],
         caveats: ['GitOps-managed schedules and triggers can be replaced by sync unless changes are pushed back to Git.'],
@@ -799,6 +1555,7 @@ export const wikiSections: WikiSection[] = [
         details: [
           'Profile resolution is independent and layered. Step settings can override pipeline settings, and task settings can override LLM profile selection where supported.',
           'AAA still decides whether the original caller may use each selected profile, tool boundary, knowledge document, secret, or scope.',
+          'For a single goal task, the final effective AI context is the resolved Agent Profile persona, the resolved LLM Profile client, the additive MCP tool profile set, the merged Knowledge Context, the runtime variables, the workspace directory listing allowed by llm_content_* settings, and the masked execution history allowed by llm_output_sharing.',
         ],
         configRows: [
           {
@@ -835,21 +1592,10 @@ export const wikiSections: WikiSection[] = [
         details: [
           'Profiles should use credential_ref for hosted provider API keys instead of plaintext secrets.',
           'allowed_scopes lets administrators restrict model use by runtime context.',
+          'The selected llm_profile is validated before agent launch. A run is rejected when the default profile is missing, a referenced profile does not exist, the profile is not allowed in the requested scope, or the provider configuration is invalid.',
+          'Final outputs have their own resolution path: output.items[].llm_profile overrides output.llm_profile, which overrides the pipeline llm_profile, which finally falls back to the configured default profile.',
         ],
-        configRows: [
-          {
-            key: 'setting/system/llm_profile.yaml',
-            area: 'GitOps',
-            description: 'System LLM profile registry.',
-            example: 'setting/system/llm_profile.yaml',
-          },
-          {
-            key: 'profiles[].allowed_scopes',
-            area: 'LLM profile',
-            description: 'Scopes where a profile may be used.',
-            example: '[dev, internal]',
-          },
-        ],
+        configRows: llmProfileRows,
         examples: [
           {
             title: 'LLM profile registry',
@@ -879,21 +1625,10 @@ export const wikiSections: WikiSection[] = [
         details: [
           'Hosted MCP supports initialize, tools/list, tools/call, resources/list, and resources/read JSON-RPC methods.',
           'Mutation tools require confirmation. GitOps proposal tools return commit-ready files with applies: false rather than silently applying production changes.',
+          'External MCP profile resolution is additive: pipeline profiles, step profiles, and task profiles are combined with duplicates removed. The tool set is then checked against enabled profiles and scope allowlists.',
+          'Pipeline YAML can reference approved MCP profile names only. It cannot define arbitrary server URLs or credentials inline.',
         ],
-        configRows: [
-          {
-            key: 'setting/system/mcp.yaml',
-            area: 'GitOps',
-            description: 'System MCP server and profile registry.',
-            example: 'setting/system/mcp.yaml',
-          },
-          {
-            key: 'mcp_servers[].transport',
-            area: 'MCP server',
-            description: 'Current external MCP transport.',
-            example: 'streamable_http',
-          },
-        ],
+        configRows: mcpRows,
         examples: [
           {
             title: 'External MCP profile',
@@ -922,15 +1657,10 @@ export const wikiSections: WikiSection[] = [
         details: [
           'A reference must use kind plus ref for managed knowledge, or kind plus a safe relative path for repo-local markdown.',
           'If a guardrail or policy conflicts with a requested action, the agent should explain the block rather than perform the prohibited action, and that block is treated as task failure.',
+          'Effective context is merged from pipeline-level references, then step-level references, then task-level references. Required duplicates win over optional duplicates.',
+          'Managed refs use knowledge_context.use authorization and are snapshotted into pipeline_run_knowledge_contexts so completed runs preserve exactly what the model saw.',
         ],
-        configRows: [
-          {
-            key: 'knowledge/',
-            area: 'GitOps',
-            description: 'Managed markdown knowledge documents grouped by kind and team.',
-            example: 'knowledge/guardrail/security/repo-check.md',
-          },
-        ],
+        configRows: knowledgeRows,
         examples: [
           {
             title: 'Knowledge references',
@@ -949,31 +1679,22 @@ export const wikiSections: WikiSection[] = [
         level: 'Reference',
         audience: 'Automation authors and stakeholders consuming run results',
         summary:
-          'Final outputs are generated after execution and can produce Markdown, JSON, PDF, HTML, and Excel deliverables from completed run context.',
+          'Final outputs are generated after execution and can produce Markdown, JSON, PDF, HTML, Excel, and dashboard deliverables from completed run context.',
         keyFacts: [
           'Supported when values are success, failure, and always.',
           'Providers must return a single <final_output> envelope.',
           'Malformed, duplicate, empty, or missing envelopes fail validation and allow one corrective retry.',
           'PDF and HTML use validated DocumentSpec; Excel uses typed SpreadsheetSpec and rejects formulas and object/array cell values.',
+          'Dashboard outputs publish a validated DashboardSpec into a team dashboard with replace, append, snapshot, or series behavior.',
         ],
         details: [
           'PDF rendering uses Gotenberg through FINAL_OUTPUT_PDF_RENDERER_URL. Pipeline YAML never contains renderer infrastructure URLs.',
           'Provider and network failures are not retried by this feature. Contract and schema violations get one corrective retry.',
+          'When output.items[].when is omitted or empty, the runtime treats it as always.',
+          'Dashboard output configuration is valid only when output.items[].type is dashboard. Non-dashboard outputs that set dashboard.* fields are rejected.',
+          'DashboardSpec content is sanitized and validated before persistence. Generated HTML, CSS, JavaScript, iframes, forms, executable links, oversized tables, and oversized chart series are rejected for standard dashboard content.',
         ],
-        configRows: [
-          {
-            key: 'output.items[].type',
-            area: 'Pipeline YAML',
-            description: 'Final deliverable type.',
-            example: 'pdf',
-          },
-          {
-            key: 'output.items[].when',
-            area: 'Pipeline YAML',
-            description: 'Execution status that triggers generation.',
-            example: 'always',
-          },
-        ],
+        configRows: finalOutputRows,
         examples: [
           {
             title: 'Final output configuration',

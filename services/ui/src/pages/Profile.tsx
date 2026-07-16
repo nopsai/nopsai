@@ -505,7 +505,16 @@ export default function ProfilePage({ user, loading, onLogout, onUserUpdated, mu
         </div>
       )}
       {passwordModalOpen && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4"
+          onPointerDown={event => {
+            if (event.target !== event.currentTarget || mustChangePassword || passwordSaving) return;
+            setPasswordModalOpen(false);
+            setCurrentPassword('');
+            setNewPassword('');
+            setConfirmPassword('');
+          }}
+        >
           <div className="w-full max-w-md rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)] shadow-2xl p-6 space-y-4">
             <div className="flex items-center justify-between">
               <div>
@@ -600,7 +609,14 @@ export default function ProfilePage({ user, loading, onLogout, onUserUpdated, mu
         </div>
       )}
       {tokenModalOpen && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4">
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4"
+          onPointerDown={event => {
+            if (event.target !== event.currentTarget || tokenSaving) return;
+            setTokenModalOpen(false);
+            resetTokenForm();
+          }}
+        >
           <div className="w-full max-w-md rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)] shadow-2xl p-6 space-y-4">
             <div className="flex items-center justify-between">
               <div>

@@ -193,7 +193,12 @@ export function RunLogsModal({
   const logCountLabel = `${visibleLines.length} line${visibleLines.length === 1 ? '' : 's'} + ${lines.length} total`;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[var(--bg-overlay)] px-4 py-6">
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-[var(--bg-overlay)] px-4 py-6"
+      onPointerDown={event => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <div
         ref={dialogRef}
         className="w-full max-w-6xl bg-[var(--bg-primary)] rounded-2xl shadow-2xl border border-[var(--border-primary)] flex flex-col max-h-[90vh] overflow-hidden"

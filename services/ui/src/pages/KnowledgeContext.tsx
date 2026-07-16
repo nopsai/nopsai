@@ -20,6 +20,7 @@ import {
   KNOWLEDGE_CONTEXTS_CHANGED_EVENT,
   buildKnowledgeConnectionTeamSummaries,
   buildKnowledgeID,
+  buildKnowledgeTeamOptions,
   buildKnowledgeTree,
   clearKnowledgeDraft,
   collectKnowledgeTeamDocs,
@@ -60,6 +61,7 @@ import {
   type KnowledgeFormModalState,
 } from '../features/knowledge-context/KnowledgeContextModals';
 import { KnowledgeContextWorkspace } from '../features/knowledge-context/KnowledgeContextWorkspace';
+import { fetchResourceTeamPaths } from '../lib/resourceTeams';
 import { TEAM_ROUTE_SEGMENT, decodeTeamRouteSegments, teamScopedRoute } from '../lib/teamRoutes';
 
 type KnowledgeContextPageProps = {
@@ -68,6 +70,18 @@ type KnowledgeContextPageProps = {
   canWriteKnowledgeConnections?: boolean;
   canDeleteKnowledgeConnections?: boolean;
 };
+
+function downloadKnowledgeContextFile(detail: Pick<KnowledgeContextDetail, 'name'>, content: string) {
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${detail.name || 'knowledge-context'}.txt`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
 
 export default function KnowledgeContextPage({
   canWriteKnowledge,
@@ -84,8 +98,10 @@ export default function KnowledgeContextPage({
   const toastCounterRef = useRef(0);
   const editSessionOriginalRef = useRef<{ detail: KnowledgeContextDetail; content: string } | null>(null);
   const pendingDraftRef = useRef<{ detail: KnowledgeContextDetail; content: string } | null>(null);
+  const pendingEditIDRef = useRef<string | null>(null);
   const [items, setItems] = useState<KnowledgeContextListItem[]>([]);
   const [connections, setConnections] = useState<KnowledgeConnectionListItem[]>([]);
+  const [resourceTeamPaths, setResourceTeamPaths] = useState<string[]>([]);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
   const [connectionsLoading, setConnectionsLoading] = useState(false);
@@ -139,10 +155,15 @@ export default function KnowledgeContextPage({
     }
   }, []);
 
+  const loadResourceTeamPaths = useCallback(async () => {
+    setResourceTeamPaths(await fetchResourceTeamPaths());
+  }, []);
+
   useEffect(() => {
     void loadList();
     void loadConnections();
-  }, [loadConnections, loadList]);
+    void loadResourceTeamPaths();
+  }, [loadConnections, loadList, loadResourceTeamPaths]);
 
   useEffect(() => {
     if (!selectedID) {
@@ -184,11 +205,14 @@ export default function KnowledgeContextPage({
     fetchKnowledgeContext(selectedID)
       .then(payload => {
         if (cancelled) return;
+        const content = typeof payload?.content === 'string' ? payload.content : '';
+        const startInEditMode = pendingEditIDRef.current === payload.id;
+        if (startInEditMode) pendingEditIDRef.current = null;
         setDetail(payload);
-        setEditorValue(typeof payload?.content === 'string' ? payload.content : '');
+        setEditorValue(content);
         setDraftID(null);
-        setIsEditing(false);
-        editSessionOriginalRef.current = null;
+        setIsEditing(startInEditMode);
+        editSessionOriginalRef.current = startInEditMode ? { detail: { ...payload }, content } : null;
       })
       .catch(err => {
         if (!cancelled) {
@@ -225,7 +249,7 @@ export default function KnowledgeContextPage({
     return normalizeTeamPath(routeTeam || searchParams.get('team') || selectedTeam || '');
   }, [isTeamRoute, routeSegments, searchParams, selectedID]);
   const activeWorkspaceTab = normalizeKnowledgeWorkspaceTab(searchParams.get('tab'));
-  const knowledgeTree = useMemo(() => buildKnowledgeTree(items, []), [items]);
+  const knowledgeTree = useMemo(() => buildKnowledgeTree(items, resourceTeamPaths), [items, resourceTeamPaths]);
   const activeTeamNode = useMemo(() => findKnowledgeTeam(knowledgeTree, activeTeam), [activeTeam, knowledgeTree]);
   const activeTeamDocuments = useMemo(() => collectKnowledgeTeamDocs(activeTeamNode), [activeTeamNode]);
   const hasDocumentFilters = Boolean(search.trim() || sourceFilter !== 'all');
@@ -233,30 +257,24 @@ export default function KnowledgeContextPage({
   const workspaceMetrics = useMemo(() => summarizeKnowledgeWorkspace(items), [items]);
   const activeConnectionTeam = useMemo(() => knowledgeTreePathToTeam(activeTeam), [activeTeam]);
   const connectionTreeTeams = useMemo(
-    () => buildKnowledgeConnectionTeamSummaries(items, [], connections),
-    [connections, items]
+    () => buildKnowledgeConnectionTeamSummaries(items, resourceTeamPaths, connections),
+    [connections, items, resourceTeamPaths]
   );
   const connectionTeams = useMemo(() => {
-    const summaries = buildKnowledgeConnectionTeamSummaries(items, activeConnectionTeam ? [activeConnectionTeam] : [], connections);
+    const summaries = connectionTreeTeams;
     if (!activeConnectionTeam) return summaries;
     return summaries.filter(summary => summary.teamPath === activeConnectionTeam || summary.teamPath.startsWith(`${activeConnectionTeam}/`));
-  }, [activeConnectionTeam, connections, items]);
+  }, [activeConnectionTeam, connectionTreeTeams]);
   const teamOptions = useMemo(() => {
-    const activeIdentity = deriveIdentityFromTeam(activeTeam);
-    return Array.from(
-      new Set(
-        [
-          activeIdentity.team,
-          activeConnectionTeam,
-          ...items.map(item => item.team),
-          ...connections.map(connection => connection.team),
-          'team-1',
-        ]
-          .map(team => normalizeTeamPath(team))
-          .filter(Boolean)
-      )
-    ).sort((a, b) => a.localeCompare(b));
-  }, [activeConnectionTeam, activeTeam, connections, items]);
+    return buildKnowledgeTeamOptions({
+      activeTeam,
+      activeConnectionTeam,
+      resourceTeamPaths,
+      items,
+      connections,
+    });
+  }, [activeConnectionTeam, activeTeam, connections, items, resourceTeamPaths]);
+  const defaultKnowledgeTeam = teamOptions[0] || '';
   const previewDocument = useMemo(() => splitKnowledgeContentForPreview(editorValue), [editorValue]);
   const previewContent = previewDocument.content;
 
@@ -306,7 +324,7 @@ export default function KnowledgeContextPage({
         addToast('You have read-only access to knowledge connections.', 'info');
         return;
       }
-      const team = normalizeTeamPath(teamPath || activeConnectionTeam || activeTeam);
+      const team = normalizeTeamPath(teamPath || activeConnectionTeam || defaultKnowledgeTeam);
       setConnectionModal({
         mode: 'create',
         team,
@@ -318,7 +336,7 @@ export default function KnowledgeContextPage({
         pending: false,
       });
     },
-    [activeConnectionTeam, activeTeam, addToast, canWriteKnowledge, canWriteKnowledgeConnections]
+    [activeConnectionTeam, addToast, canWriteKnowledge, canWriteKnowledgeConnections, defaultKnowledgeTeam]
   );
 
   const handleEditConnection = useCallback(
@@ -467,7 +485,7 @@ export default function KnowledgeContextPage({
       addToast('You have read-only access to knowledge contexts.', 'info');
       return;
     }
-    const identity = deriveIdentityFromTeam(activeTeam);
+    const identity = deriveIdentityFromTeam(activeTeam, defaultKnowledgeTeam);
     setFormModal({
       mode: 'create',
       contentSource: 'inline',
@@ -489,34 +507,38 @@ export default function KnowledgeContextPage({
       page_preview: null,
       pending: false,
     });
-  }, [activeTeam, addToast, canWriteKnowledge]);
+  }, [activeTeam, addToast, canWriteKnowledge, defaultKnowledgeTeam]);
+
+  const openCloneForDetail = useCallback((sourceDetail: KnowledgeContextDetail, content: string) => {
+    if (!canWriteKnowledge) {
+      addToast('You have read-only access to knowledge contexts.', 'info');
+      return;
+    }
+    let candidateName = `${sourceDetail.name || 'document'}-copy`;
+    let suffix = 2;
+    while (items.some(item => item.id === buildKnowledgeID(sourceDetail.kind, sourceDetail.team, candidateName))) {
+      candidateName = `${sourceDetail.name || 'document'}-copy-${suffix}`;
+      suffix += 1;
+    }
+    setFormModal({
+      mode: 'clone',
+      contentSource: 'inline',
+      kind: sourceDetail.kind,
+      team: sourceDetail.team,
+      name: candidateName,
+      description: sourceDetail.description || '',
+      content,
+      pending: false,
+    });
+  }, [addToast, canWriteKnowledge, items]);
 
   const openCloneModal = useCallback(() => {
     if (!detail) {
       addToast('Select a knowledge context to clone.', 'info');
       return;
     }
-    if (!canWriteKnowledge) {
-      addToast('You have read-only access to knowledge contexts.', 'info');
-      return;
-    }
-    let candidateName = `${detail.name || 'document'}-copy`;
-    let suffix = 2;
-    while (items.some(item => item.id === buildKnowledgeID(detail.kind, detail.team, candidateName))) {
-      candidateName = `${detail.name || 'document'}-copy-${suffix}`;
-      suffix += 1;
-    }
-    setFormModal({
-      mode: 'clone',
-      contentSource: 'inline',
-      kind: detail.kind,
-      team: detail.team,
-      name: candidateName,
-      description: detail.description || '',
-      content: editorValue,
-      pending: false,
-    });
-  }, [addToast, canWriteKnowledge, detail, editorValue, items]);
+    openCloneForDetail(detail, editorValue);
+  }, [addToast, detail, editorValue, openCloneForDetail]);
 
   const submitFormModal = useCallback(async () => {
     if (!formModal || formModal.pending) return;
@@ -625,7 +647,7 @@ export default function KnowledgeContextPage({
       return;
     }
     if (isGitManagedDocument(detail)) {
-      addToast('Editing saves a database override. The next GitOps sync can replace it unless it is pushed to GitOps.', 'info');
+      addToast('Editing saves a database override. A future GitOps sync can replace it from the repository.', 'info');
     }
     editSessionOriginalRef.current = { detail: { ...detail }, content: editorValue };
     setIsEditing(true);
@@ -645,21 +667,30 @@ export default function KnowledgeContextPage({
   const saveDetail = useCallback(async () => {
     if (!detail || !canWriteKnowledge || saving) return;
     const isGitManaged = isGitManagedDocument(detail);
-    const validationError = validateKnowledgeIdentity(detail.kind, detail.team, detail.name, items, draftID || detail.id);
+    const originalID = editSessionOriginalRef.current?.detail.id || draftID || detail.id;
+    const normalizedTeam = normalizeTeamPath(detail.team);
+    const normalizedName = detail.name.trim().replace(/\.(yaml|yml)$/i, '');
+    const saveCandidate = {
+      ...detail,
+      id: buildKnowledgeID(detail.kind, normalizedTeam, normalizedName),
+      team: normalizedTeam,
+      name: normalizedName,
+    };
+    const validationError = validateKnowledgeIdentity(saveCandidate.kind, saveCandidate.team, saveCandidate.name, items, originalID);
     if (validationError) {
       setDetailError(validationError);
       addToast('Resolve the document identity before saving.', 'error');
       return;
     }
-    if (isExternalKnowledgeDocument(detail)) {
+    if (isExternalKnowledgeDocument(saveCandidate)) {
       const externalError = validateKnowledgeExternalDraft({
-        connection_id: detail.connection_ref || detail.connection_id || '',
-        external_page_id: detail.external_page_id || '',
-        external_page_url: detail.external_page_url || '',
-        sync_mode: detail.sync_mode === 'before_run' || detail.sync_mode === 'periodic' ? detail.sync_mode : 'manual',
-        failure_mode: detail.failure_mode === 'use_cached' || detail.failure_mode === 'skip' ? detail.failure_mode : 'fail',
+        connection_id: saveCandidate.connection_ref || saveCandidate.connection_id || '',
+        external_page_id: saveCandidate.external_page_id || '',
+        external_page_url: saveCandidate.external_page_url || '',
+        sync_mode: saveCandidate.sync_mode === 'before_run' || saveCandidate.sync_mode === 'periodic' ? saveCandidate.sync_mode : 'manual',
+        failure_mode: saveCandidate.failure_mode === 'use_cached' || saveCandidate.failure_mode === 'skip' ? saveCandidate.failure_mode : 'fail',
         content: editorValue,
-      }, detail.team, connections);
+      }, saveCandidate.team, connections);
       if (externalError) {
         setDetailError(externalError);
         addToast('Resolve the external page settings before saving.', 'error');
@@ -669,20 +700,23 @@ export default function KnowledgeContextPage({
     setSaving(true);
     setDetailError(null);
     try {
-      const payload = await saveKnowledgeContext(detail, editorValue);
+      const payload = await saveKnowledgeContext(saveCandidate, editorValue);
+      if (originalID !== payload.id && !draftID) {
+        await deleteKnowledgeContext(originalID);
+      }
       setDetail(payload);
       setEditorValue(payload.content || '');
       setDraftID(null);
       setIsEditing(false);
       editSessionOriginalRef.current = null;
       pendingDraftRef.current = null;
-      clearKnowledgeDraft(detail.id);
-      if (payload.id && payload.id !== detail.id) clearKnowledgeDraft(payload.id);
+      clearKnowledgeDraft(originalID);
+      if (payload.id && payload.id !== originalID) clearKnowledgeDraft(payload.id);
       navigate(`/knowledge-context/${encodeKnowledgeID(payload.id)}`, { replace: true });
       await loadList();
       addToast(
         isGitManaged
-          ? 'Knowledge context saved as a database override. The next GitOps sync can replace it unless it is pushed to GitOps.'
+          ? 'Knowledge context saved as a database override. A future GitOps sync can replace it from the repository.'
           : 'Knowledge context saved.',
         'success'
       );
@@ -762,16 +796,21 @@ export default function KnowledgeContextPage({
 
   const handleDownload = useCallback(() => {
     if (!detail) return;
-    const blob = new Blob([previewContent], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${detail.name || 'knowledge-context'}.txt`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    downloadKnowledgeContextFile(detail, previewContent);
   }, [detail, previewContent]);
+
+  const handleDownloadDocument = useCallback(async (doc: KnowledgeContextListItem) => {
+    try {
+      if (detail?.id === doc.id) {
+        downloadKnowledgeContextFile(detail, previewContent);
+        return;
+      }
+      const payload = await fetchKnowledgeContext(doc.id);
+      downloadKnowledgeContextFile(payload, splitKnowledgeContentForPreview(payload.content || '').content);
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : 'Unable to export knowledge context', 'error');
+    }
+  }, [addToast, detail, previewContent]);
 
   const handleAccessChange = useCallback((access: { resource_id?: string; visibility?: string }) => {
     const visibility = access.visibility;
@@ -819,6 +858,59 @@ export default function KnowledgeContextPage({
       setSyncing(false);
     }
   }, [addToast, detail, loadList, syncing]);
+
+  const handleSyncDocument = useCallback(async (doc: KnowledgeContextListItem) => {
+    if (syncing) return;
+    if (!isExternalKnowledgeDocument(doc)) {
+      addToast('Only external page documents can be synchronized.', 'info');
+      return;
+    }
+    if (detail?.id === doc.id) {
+      await handleSyncNow();
+      return;
+    }
+    setSyncing(true);
+    try {
+      const payload = await syncKnowledgeContext(doc.id);
+      await loadList();
+      if (payload.sync_error) {
+        addToast(payload.sync_error, 'error');
+      } else {
+        addToast('Knowledge context synchronized from provider content.', 'success');
+      }
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : 'Unable to sync knowledge context', 'error');
+    } finally {
+      setSyncing(false);
+    }
+  }, [addToast, detail?.id, handleSyncNow, loadList, syncing]);
+
+  const handleEditDocument = useCallback((doc: KnowledgeContextListItem) => {
+    if (!canWriteKnowledge) {
+      addToast('You have read-only access to knowledge contexts.', 'info');
+      return;
+    }
+    if (detail?.id === doc.id) {
+      startEditing();
+      return;
+    }
+    pendingEditIDRef.current = doc.id;
+    navigate(`/knowledge-context/${encodeKnowledgeID(doc.id)}`);
+  }, [addToast, canWriteKnowledge, detail?.id, navigate, startEditing]);
+
+  const handleCloneDocument = useCallback(async (doc: KnowledgeContextListItem) => {
+    if (!canWriteKnowledge) {
+      addToast('You have read-only access to knowledge contexts.', 'info');
+      return;
+    }
+    try {
+      const payload = detail?.id === doc.id && detail ? detail : await fetchKnowledgeContext(doc.id);
+      const content = detail?.id === doc.id ? editorValue : payload.content || '';
+      openCloneForDetail(payload, content);
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : 'Unable to clone knowledge context', 'error');
+    }
+  }, [addToast, canWriteKnowledge, detail, editorValue, openCloneForDetail]);
 
   const selectedFormConnection = useMemo(() => {
     if (!formModal?.connection_id) return null;
@@ -939,6 +1031,7 @@ export default function KnowledgeContextPage({
             saving,
             syncing,
             connections,
+            teamOptions,
             onBackToList: handleBackToList,
             onCopy: handleCopy,
             onDownload: handleDownload,
@@ -963,6 +1056,11 @@ export default function KnowledgeContextPage({
           onOpenTeam={openTeam}
           onSelectConnectionTeam={openConnectionTeam}
           onSelectDocument={handleSelectDocument}
+          onDownloadDocument={handleDownloadDocument}
+          onSyncDocument={handleSyncDocument}
+          onEditDocument={handleEditDocument}
+          onCloneDocument={handleCloneDocument}
+          onAccessChange={handleAccessChange}
           onDeleteDocument={openDeleteModal}
           onCreateDocument={openCreateModal}
           onAddConnection={handleConnectionSetupRequest}

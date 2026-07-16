@@ -866,7 +866,12 @@ function SourceModal({
 
 function ModalFrame({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4"
+      onPointerDown={event => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <div className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded bg-[var(--bg-primary)] shadow-xl">
         <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-4 py-3">
           <h3 className="text-base font-semibold">{title}</h3>
