@@ -52,6 +52,38 @@ test('renders clean chat messages without inline tool-call details', async () =>
       ...assistantMessage('m2', 'assistant', 'Pipeline loaded.'),
       tool_calls: [
         { name: 'nopsai.llm.plan', input: {}, output: {}, status: 'success', resource_uris: ['nopsai://features'] },
+        {
+          name: 'nopsai.assistant.execution_plan',
+          input: {},
+          output: {
+            execution_plan: {
+              goal: 'Show pipeline',
+              intent: 'llm_planned',
+              summary: 'Use MCP first, then synthesize a concise answer.',
+              requires_confirmation: false,
+              steps: [
+                {
+                  index: 1,
+                  title: 'Read pipeline metadata',
+                  source: 'mcp',
+                  phase: 'evidence',
+                  confidence: 'high',
+                  status: 'planned',
+                },
+                {
+                  index: 2,
+                  title: 'Synthesize the answer',
+                  source: 'llm',
+                  phase: 'synthesis',
+                  confidence: 'medium',
+                  status: 'planned',
+                },
+              ],
+            },
+          },
+          status: 'success',
+          resource_uris: ['nopsai://assistant/execution-plan'],
+        },
         { name: 'nopsai.get_pipeline', input: {}, output: {}, status: 'success', resource_uris: ['nopsai://pipelines'] },
         { name: 'nopsai.llm.complete', input: {}, output: {}, status: 'success', resource_uris: ['nopsai://system/llm-profiles'] },
       ],
@@ -70,7 +102,9 @@ test('renders clean chat messages without inline tool-call details', async () =>
     setDraft: vi.fn(),
     loading: false,
     sending: false,
+    sendingConversationID: '',
     activeConversationSending: false,
+    activeConversationSendingStartedAt: 0,
     retrying: false,
     deletingConversationID: '',
     copiedMessageID: '',
@@ -93,6 +127,10 @@ test('renders clean chat messages without inline tool-call details', async () =>
   render(<AssistantPanel variant="dock" />);
 
   expect(screen.getByText('Pipeline loaded.')).toBeVisible();
+  expect(screen.getByText('Execution plan')).toBeVisible();
+  expect(screen.getByText('Read pipeline metadata')).toBeVisible();
+  expect(screen.getByText('MCP')).toBeVisible();
+  expect(screen.getByText('Synthesize the answer')).toBeVisible();
   expect(screen.queryByText(/nopsai\.llm\.plan/)).toBeNull();
   expect(screen.queryByText(/nopsai\.get_pipeline/)).toBeNull();
   expect(screen.queryByText(/nopsai:\/\/features/)).toBeNull();
@@ -126,7 +164,9 @@ test('renders welcome starters that prefill the composer', async () => {
     setDraft,
     loading: false,
     sending: false,
+    sendingConversationID: '',
     activeConversationSending: false,
+    activeConversationSendingStartedAt: 0,
     retrying: false,
     deletingConversationID: '',
     copiedMessageID: '',
@@ -154,6 +194,109 @@ test('renders welcome starters that prefill the composer', async () => {
   await user.click(screen.getByRole('button', { name: 'Explain a failed run' }));
   expect(setDraft).toHaveBeenCalledWith('Explain a failed run');
   expect(screen.getAllByText(/changes always need your review/i).length).toBeGreaterThan(0);
+});
+
+test('renders staged progress while the active conversation is sending', () => {
+  const messages = [
+    assistantMessage('m1', 'user', 'Analyze AI usage cost by provider'),
+  ];
+  const conversation = assistantConversation(messages);
+
+  useAssistantControllerMock.mockReturnValue({
+    conversations: [conversation],
+    activeConversation: conversation,
+    activeMessages: messages,
+    profiles: [],
+    profileOptions: ['assistant'],
+    selectedProfile: 'assistant',
+    setSelectedProfile: vi.fn(),
+    draft: '',
+    setDraft: vi.fn(),
+    loading: false,
+    sending: true,
+    sendingConversationID: 'c1',
+    activeConversationSending: true,
+    activeConversationSendingStartedAt: Date.now(),
+    retrying: false,
+    deletingConversationID: '',
+    copiedMessageID: '',
+    conversationCopied: false,
+    error: null,
+    config: enabledConfig,
+    enabled: true,
+    canRetry: true,
+    load: vi.fn(),
+    selectConversation: vi.fn(),
+    startConversation: vi.fn(),
+    deleteConversation: vi.fn(),
+    retryMessage: vi.fn(),
+    retryLastUserMessage: vi.fn(),
+    copyMessage: vi.fn(),
+    copyConversation: vi.fn(),
+    submitMessage: vi.fn(),
+  });
+
+  render(<AssistantPanel variant="dock" />);
+
+  expect(screen.getByText('Working through the request')).toBeVisible();
+  expect(screen.getByText('Plan the request with current permissions')).toBeVisible();
+  expect(screen.getByText('Read AI usage, profile, and cost evidence')).toBeVisible();
+  expect(screen.getByText('Compare recorded usage with configured profiles')).toBeVisible();
+  expect(screen.getByText('Synthesize an evidence-backed answer')).toBeVisible();
+  expect(screen.getByText('Save and reconcile the chat result')).toBeVisible();
+});
+
+test('keeps non-running conversation delete actions available during a send', async () => {
+  const user = userEvent.setup();
+  const deleteConversation = vi.fn();
+  const runningConversation = assistantConversation([assistantMessage('m1', 'user', 'Analyze AI usage cost by provider')]);
+  const otherConversation = {
+    ...assistantConversation([assistantMessage('m2', 'user', 'previous chat')]),
+    id: 'c2',
+    title: 'Previous chat',
+  };
+
+  useAssistantControllerMock.mockReturnValue({
+    conversations: [runningConversation, otherConversation],
+    activeConversation: runningConversation,
+    activeMessages: runningConversation.messages,
+    profiles: [],
+    profileOptions: ['assistant'],
+    selectedProfile: 'assistant',
+    setSelectedProfile: vi.fn(),
+    draft: '',
+    setDraft: vi.fn(),
+    loading: false,
+    sending: true,
+    sendingConversationID: 'c1',
+    activeConversationSending: true,
+    activeConversationSendingStartedAt: Date.now(),
+    retrying: false,
+    deletingConversationID: '',
+    copiedMessageID: '',
+    conversationCopied: false,
+    error: null,
+    config: enabledConfig,
+    enabled: true,
+    canRetry: true,
+    load: vi.fn(),
+    selectConversation: vi.fn(),
+    startConversation: vi.fn(),
+    deleteConversation,
+    retryMessage: vi.fn(),
+    retryLastUserMessage: vi.fn(),
+    copyMessage: vi.fn(),
+    copyConversation: vi.fn(),
+    submitMessage: vi.fn(),
+  });
+
+  render(<AssistantPanel />);
+
+  expect(screen.getByRole('button', { name: 'Delete conversation Pipeline' })).toBeDisabled();
+  const otherDelete = screen.getByRole('button', { name: 'Delete conversation Previous chat' });
+  expect(otherDelete).toBeEnabled();
+  await user.click(otherDelete);
+  expect(deleteConversation).toHaveBeenCalledWith('c2');
 });
 
 test('renders assistant markdown and toggles usage details in the full page', async () => {
@@ -208,7 +351,9 @@ test('renders assistant markdown and toggles usage details in the full page', as
     setDraft: vi.fn(),
     loading: false,
     sending: false,
+    sendingConversationID: '',
     activeConversationSending: false,
+    activeConversationSendingStartedAt: 0,
     retrying: false,
     deletingConversationID: '',
     copiedMessageID: '',

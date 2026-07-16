@@ -14,7 +14,38 @@ import {
 
 async function responseError(response: Response, fallback: string) {
   const text = await response.text();
-  return text || fallback;
+  return assistantReadableErrorText(text, fallback);
+}
+
+export function assistantReadableErrorText(text: string, fallback: string) {
+  const trimmed = text.trim();
+  if (!trimmed) return fallback;
+  const isHTML = assistantResponseLooksHTML(trimmed);
+  const withoutHTML = isHTML
+    ? trimmed
+        .replace(/<!--[\s\S]*?-->/g, ' ')
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+    : trimmed;
+  const readable = withoutHTML.replace(/\s+/g, ' ').trim();
+  if (!readable) return fallback;
+  const summary = `${readable.slice(0, 400)}${readable.length > 400 ? '...' : ''}`;
+  return isHTML ? `${fallback}: ${summary}` : summary;
+}
+
+function assistantResponseLooksHTML(text: string) {
+  const lower = text.trim().toLowerCase();
+  return (
+    lower.startsWith('<!doctype html') ||
+    lower.startsWith('<html') ||
+    lower.includes('<body') ||
+    lower.includes('<center>')
+  );
 }
 
 export async function fetchAssistantConfig(): Promise<AssistantConfig> {

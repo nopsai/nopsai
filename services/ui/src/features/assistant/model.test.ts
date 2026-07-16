@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import {
   assistantConversationClipboardText,
   assistantConversationUsageLabel,
+  assistantExecutionPlanFromMessage,
   assistantLastUserMessage,
   assistantMessageUsageLabel,
   assistantVisibleToolActivity,
@@ -168,5 +169,65 @@ describe('assistant model', () => {
       body: 'name: deploy',
       note: 'Proposal only. No changes were applied.',
     }]);
+  });
+
+  it('extracts execution plans while keeping them out of evidence lists', () => {
+    const conversation = normalizeAssistantConversation({
+      id: 'c1',
+      messages: [{
+        id: 'm1',
+        role: 'assistant',
+        content: 'Feature coverage was checked.',
+        tool_calls: [
+          {
+            name: 'nopsai.assistant.execution_plan',
+            status: 'success',
+            source: 'llm',
+            phase: 'planning',
+            confidence: 'medium',
+            output: {
+              execution_plan: {
+                goal: 'Check feature coverage',
+                intent: 'llm_planned',
+                summary: 'Use MCP first, then synthesize.',
+                requires_confirmation: false,
+                steps: [
+                  {
+                    index: 1,
+                    title: 'Read capability evidence',
+                    source: 'mcp',
+                    phase: 'evidence',
+                    confidence: 'high',
+                    tool: 'nopsai.get_feature_capabilities',
+                    status: 'planned',
+                  },
+                  {
+                    index: 2,
+                    title: 'Synthesize answer',
+                    source: 'llm',
+                    phase: 'synthesis',
+                    confidence: 'medium',
+                    status: 'planned',
+                  },
+                ],
+              },
+            },
+          },
+          {
+            name: 'nopsai.get_feature_capabilities',
+            status: 'success',
+            source: 'mcp',
+            phase: 'evidence',
+            confidence: 'high',
+          },
+        ],
+      }],
+    });
+
+    const plan = assistantExecutionPlanFromMessage(conversation.messages[0]);
+    assert.equal(plan?.goal, 'Check feature coverage');
+    assert.equal(plan?.steps[0].source, 'mcp');
+    assert.equal(plan?.steps[1].phase, 'synthesis');
+    assert.deepEqual(assistantVisibleToolActivity(conversation.messages).map(tool => tool.name), ['nopsai.get_feature_capabilities']);
   });
 });

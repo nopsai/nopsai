@@ -81,23 +81,35 @@ func assistantAppendFeatureSummary(lines []string, output map[string]any) []stri
 	lines = assistantAppendFeatureFileSummary(lines, output)
 	for _, key := range []string{
 		"backups",
+		"dashboards",
+		"deliveries",
+		"events",
+		"external_triggers",
+		"grants",
+		"history",
+		"identity_providers",
+		"items",
 		"jobs",
+		"knowledge_connections",
+		"knowledge_contexts",
+		"pipelines",
+		"publications",
+		"recommendations",
+		"refreshes",
+		"roles",
+		"runs",
 		"schedules",
+		"sections",
+		"service_accounts",
+		"sources",
+		"surfaces",
+		"triggers",
 		"credentials",
 		"users",
-		"service_accounts",
-		"roles",
-		"identity_providers",
-		"grants",
 		"views",
 		"alert_rules",
 		"alert_events",
-		"recommendations",
-		"sources",
-		"deliveries",
-		"external_triggers",
 		"invocations",
-		"surfaces",
 		"workflow",
 		"profiles",
 	} {
@@ -153,6 +165,10 @@ func assistantAppendFeatureValueSummary(lines []string, title string, value any)
 		highSignal := assistantFeatureMapHighlights(typed)
 		if len(highSignal) > 0 {
 			lines = append(lines, "- "+title+": "+strings.Join(highSignal, ", "))
+		}
+		beforeNested := len(lines)
+		lines = assistantAppendFeatureNestedListSummaries(lines, title, typed)
+		if len(highSignal) > 0 || len(lines) > beforeNested {
 			return lines
 		}
 		keys := assistantFeatureVisibleKeys(typed)
@@ -167,6 +183,39 @@ func assistantAppendFeatureValueSummary(lines []string, title string, value any)
 		if typed != nil {
 			lines = append(lines, "- "+title+": "+assistantTruncateForReply(fmt.Sprint(typed), 220))
 		}
+	}
+	return lines
+}
+
+func assistantAppendFeatureNestedListSummaries(lines []string, title string, value map[string]any) []string {
+	prefix := strings.TrimSpace(title)
+	for _, key := range []string{
+		"items",
+		"runs",
+		"pipelines",
+		"dashboards",
+		"sections",
+		"publications",
+		"refreshes",
+		"schedules",
+		"triggers",
+		"sources",
+		"recommendations",
+		"events",
+		"history",
+		"by_pipeline",
+		"by_step",
+		"by_task",
+		"by_provider",
+		"by_model",
+		"by_profile",
+		"by_feature",
+	} {
+		nestedTitle := assistantFeatureSummaryTitle(key)
+		if prefix != "" {
+			nestedTitle = prefix + " " + nestedTitle
+		}
+		lines = assistantAppendFeatureListSummary(lines, nestedTitle, value[key])
 	}
 	return lines
 }
@@ -225,14 +274,24 @@ func assistantFeatureListItems(value any) []map[string]any {
 func assistantFeatureItemLabel(item map[string]any) string {
 	for _, key := range []string{
 		"id",
+		"label",
 		"name",
+		"title",
+		"key",
+		"ref",
+		"slug",
 		"path",
 		"reference",
 		"credential_id",
+		"dashboard_id",
+		"pipeline_id",
+		"pipeline_name",
 		"schedule_id",
 		"trigger_id",
 		"source_id",
 		"run_id",
+		"step_name",
+		"task_name",
 		"email",
 		"role",
 		"area",
@@ -249,7 +308,25 @@ func assistantFeatureItemLabel(item map[string]any) string {
 
 func assistantFeatureMapHighlights(value map[string]any) []string {
 	highlights := []string{}
-	for _, key := range []string{"status", "state", "enabled", "profile", "environment", "count", "total", "drift_status"} {
+	for _, key := range []string{
+		"status",
+		"state",
+		"enabled",
+		"profile",
+		"environment",
+		"count",
+		"total",
+		"total_runs",
+		"success_rate",
+		"failure_rate",
+		"average_duration_seconds",
+		"p95_duration_seconds",
+		"total_duration_seconds",
+		"total_tokens",
+		"exact_token_events",
+		"estimated_token_events",
+		"drift_status",
+	} {
 		if raw, ok := value[key]; ok && raw != nil {
 			highlights = append(highlights, strings.ReplaceAll(key, "_", " ")+"="+assistantTruncateForReply(fmt.Sprint(raw), 80))
 		}

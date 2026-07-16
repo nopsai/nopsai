@@ -278,6 +278,16 @@ func TestAssistantPlannerTerminalEvidenceRequiresSuccessfulAnalysis(t *testing.T
 	}}) {
 		t.Fatal("non-analysis tools should not short-circuit planner iteration")
 	}
+	if !assistantPlanHasTerminalEvidence(assistantTurnPlan{
+		Intent: "ai_token_usage",
+		Steps:  []assistantPlanStep{{ToolName: "nopsai.get_monitoring_ai_usage"}},
+	}, []assistantToolActivity{{
+		Name:   "nopsai.get_monitoring_ai_usage",
+		Status: assistantToolStatusSuccess,
+		Output: map[string]any{"total_tokens": 42},
+	}}) {
+		t.Fatal("successful AI usage evidence with tokens should skip final synthesis")
+	}
 }
 
 func TestAssistantTerminalEvidenceSkipsFinalLLMSynthesis(t *testing.T) {
@@ -320,7 +330,7 @@ func TestAssistantVariableUsageReplyStaysMetadataOnly(t *testing.T) {
 	}
 }
 
-func TestAssistantAIUsageReplyRanksPipelinesByTokens(t *testing.T) {
+func TestAssistantAIUsageReplyUsesConciseCatalogOverviewWithoutRequestedDimension(t *testing.T) {
 	reply := composeAIUsageReply(assistantTurnPlan{}, []assistantToolActivity{{
 		Name:   "nopsai.get_monitoring_ai_usage",
 		Status: assistantToolStatusSuccess,
@@ -333,6 +343,11 @@ func TestAssistantAIUsageReplyRanksPipelinesByTokens(t *testing.T) {
 				"tokens": 3200,
 				"count":  7,
 			}},
+			"by_provider": []map[string]any{{
+				"label":  "gemini",
+				"tokens": 4500,
+				"count":  8,
+			}},
 			"top_token_runs": []map[string]any{{
 				"label":  "run-1",
 				"tokens": 2100,
@@ -340,20 +355,145 @@ func TestAssistantAIUsageReplyRanksPipelinesByTokens(t *testing.T) {
 		},
 	}})
 
-	for _, want := range []string{"Total tokens: 4500", "deploy-api: 3200 tokens", "run-1: 2100 tokens"} {
+	for _, want := range []string{"Total tokens: 4500", "AI usage by provider", "gemini: 4500 tokens", "AI usage by pipeline", "deploy-api: 3200 tokens"} {
 		if !strings.Contains(reply, want) {
 			t.Fatalf("reply missing %q:\n%s", want, reply)
 		}
 	}
+	if strings.Contains(reply, "run-1") {
+		t.Fatalf("broad overview should not dump run IDs unless run dimension is requested:\n%s", reply)
+	}
 }
 
-func TestAssistantAIUsageReplyRanksLowestTokenSchedules(t *testing.T) {
+func TestAssistantAIUsageReplySelectsDimensionFromCatalog(t *testing.T) {
 	plan := assistantTurnPlan{
 		Intent:       "ai_token_usage",
-		LowerContent: "which one of the schedules run a pipeline with lower llm token required",
+		LowerContent: "break down llm token usage across providers",
 	}
-	if !assistantPlanAsksScheduleLowTokens(plan) {
-		t.Fatalf("plan should detect schedule low-token ranking: %#v", plan)
+	reply := composeAIUsageReply(plan, []assistantToolActivity{{
+		Name:   "nopsai.get_monitoring_ai_usage",
+		Status: assistantToolStatusSuccess,
+		Output: map[string]any{
+			"total_tokens": 1200,
+			"by_provider": []map[string]any{{
+				"label":  "lmstudio",
+				"tokens": 900,
+				"count":  9,
+			}, {
+				"label":  "gemini",
+				"tokens": 300,
+				"count":  3,
+			}},
+			"by_pipeline": []map[string]any{{
+				"label":  "deploy-api",
+				"tokens": 1200,
+				"count":  12,
+			}},
+		},
+	}})
+
+	for _, want := range []string{"AI usage by provider", "Total tokens checked: 1200", "Highest token provider: lmstudio with 900 tokens", "gemini: 300 tokens"} {
+		if !strings.Contains(reply, want) {
+			t.Fatalf("dimension-selected reply missing %q:\n%s", want, reply)
+		}
+	}
+	if strings.Contains(reply, "AI usage by pipeline") || strings.Contains(reply, "deploy-api") {
+		t.Fatalf("dimension-selected reply should not dump unrelated sections:\n%s", reply)
+	}
+}
+
+func TestAssistantAIUsageReplyUsesRequestedDimensionWhenCostTermsArePresent(t *testing.T) {
+	plan := assistantTurnPlan{
+		Intent:       "ai_token_usage",
+		LowerContent: "show cost impact grouped by pipeline",
+	}
+	reply := composeAIUsageReply(plan, []assistantToolActivity{{
+		Name:   "nopsai.get_monitoring_ai_usage",
+		Status: assistantToolStatusSuccess,
+		Output: map[string]any{
+			"total_tokens": 1200,
+			"by_provider": []map[string]any{{
+				"label":  "gemini",
+				"tokens": 1200,
+				"count":  12,
+			}},
+			"by_pipeline": []map[string]any{{
+				"label":  "deploy-api",
+				"tokens": 1200,
+				"count":  12,
+			}},
+		},
+	}})
+
+	if !strings.Contains(reply, "AI usage by pipeline") || !strings.Contains(reply, "Highest token pipeline: deploy-api with 1200 tokens") {
+		t.Fatalf("reply should focus the requested dimension:\n%s", reply)
+	}
+	if !strings.Contains(reply, "Pricing fields are not included") {
+		t.Fatalf("cost wording should explain token-volume ranking when pricing fields are absent:\n%s", reply)
+	}
+	if strings.Contains(reply, "Provider breakdown") || strings.Contains(reply, "gemini: 1200 tokens") {
+		t.Fatalf("reply should not fall back to another dimension:\n%s", reply)
+	}
+}
+
+func TestAssistantAIUsageReplyUnwrapsHostedMCPResponse(t *testing.T) {
+	plan := assistantTurnPlan{
+		Intent:       "ai_token_usage",
+		LowerContent: "compare pipeline llm token consumption",
+	}
+	toolCalls := []assistantToolActivity{{
+		Name:   "nopsai.get_monitoring_ai_usage",
+		Status: assistantToolStatusSuccess,
+		Output: map[string]any{
+			"status_code": 200,
+			"ok":          true,
+			"response": map[string]any{
+				"total_tokens":            921516,
+				"total_prompt_tokens":     700000,
+				"total_completion_tokens": 221516,
+				"exact_token_events":      314,
+				"by_pipeline": []map[string]any{{
+					"key":    "prod/main-test",
+					"label":  "main-test",
+					"tokens": 810862,
+					"count":  314,
+				}, {
+					"key":    "prod/reference-pipeline",
+					"label":  "reference-pipeline",
+					"tokens": 110654,
+					"count":  42,
+				}},
+				"by_step": []map[string]any{{
+					"label":  "repository-map",
+					"tokens": 441492,
+					"count":  110,
+				}},
+			},
+		},
+	}}
+
+	reply := composeAIUsageReply(plan, toolCalls)
+	for _, want := range []string{"AI usage by pipeline", "Total tokens checked: 921516", "Highest token pipeline: main-test with 810862 tokens", "reference-pipeline: 110654 tokens"} {
+		if !strings.Contains(reply, want) {
+			t.Fatalf("reply missing %q:\n%s", want, reply)
+		}
+	}
+	if strings.Contains(reply, "repository-map") {
+		t.Fatalf("pipeline-focused reply should not dump step sections:\n%s", reply)
+	}
+	if !assistantAnyAIUsageCallHasEvents(toolCalls) {
+		t.Fatal("wrapped hosted MCP response should count as AI usage evidence")
+	}
+	quality := assistantAssessAnswerQuality(plan, toolCalls, "The highest LLM token pipeline is main-test with 810862 tokens.")
+	if !assistantAnswerQualityPasses(quality) {
+		t.Fatalf("wrapped AI usage evidence should pass answer quality: %#v", quality)
+	}
+}
+
+func TestAssistantAIUsageReplyUsesLowRankFieldWhenCatalogDimensionSupportsIt(t *testing.T) {
+	plan := assistantTurnPlan{
+		Intent:       "ai_token_usage",
+		LowerContent: "show lower token usage across schedules",
 	}
 	reply := composeAIUsageReply(plan, []assistantToolActivity{{
 		Name:   "nopsai.get_monitoring_ai_usage",
@@ -373,7 +513,7 @@ func TestAssistantAIUsageReplyRanksLowestTokenSchedules(t *testing.T) {
 		},
 	}})
 
-	if !strings.Contains(reply, "Lowest token schedules") || !strings.Contains(reply, "prod/nightly-smoke: 120 tokens") {
+	if !strings.Contains(reply, "Lowest token schedules") || !strings.Contains(reply, "prod/nightly-smoke with 120 tokens") {
 		t.Fatalf("reply did not rank lowest-token schedules:\n%s", reply)
 	}
 	if strings.Contains(reply, "Highest token schedules") {
@@ -587,6 +727,112 @@ func TestAssistantOrchestrationFallsBackWhenLLMClaimsUnappliedChange(t *testing.
 	}
 }
 
+func TestAssistantOrchestrationAllowsLLMDerivedEstimateFromPriorMCPEvidence(t *testing.T) {
+	credentialRef := "credential://system/llm/standard"
+	requestCount := 0
+	var plannerPrompt string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		var payload struct {
+			Messages []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		if len(payload.Messages) > 0 {
+			plannerPrompt = payload.Messages[0].Content
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"goal\":\"Estimate AI usage cost from prior provider token data\",\"intent\":\"cost_estimate\",\"steps\":[],\"success_criteria\":\"Return an explicitly labeled estimate from prior MCP evidence and assumptions.\",\"needs_more_tools\":false,\"final_answer\":\"Data source: previous MCP-backed AI usage evidence in this conversation.\\nConfidence: LLM-derived estimate because the monitoring payload did not include provider pricing.\\n\\nUsing the prior provider totals, cost = (provider tokens / 1,000,000) * assumed price per 1M tokens. With an example assumption of $0 for local lmstudio and $0.30 per 1M Gemini tokens, the estimate is about $0.05 for Gemini and $0.00 for lmstudio. Replace the assumed per-provider prices to get an exact scenario. No changes were applied.\",\"clarifying_question\":\"\"}"}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`)
+	}))
+	defer server.Close()
+
+	conversation := assistantConversation{
+		ID:                 uuid.New(),
+		DocsVersion:        "auto",
+		SelectedLLMProfile: "standard",
+		Messages: []assistantMessage{{
+			ID:      uuid.New(),
+			Role:    assistantRoleAssistant,
+			Content: "AI usage by provider:\nTotal tokens checked: 1375128\nHighest token provider: lmstudio with 1218028 tokens across 405 events\nProvider breakdown:\n- gemini: 157100 tokens across 8 events\nNo changes were applied.",
+			ToolCalls: []assistantToolActivity{{
+				Name:   "nopsai.get_monitoring_ai_usage",
+				Status: assistantToolStatusSuccess,
+				Output: map[string]any{
+					"total_tokens": 1375128,
+					"by_provider": []map[string]any{{
+						"label":  "lmstudio",
+						"tokens": 1218028,
+						"count":  405,
+					}, {
+						"label":  "gemini",
+						"tokens": 157100,
+						"count":  8,
+					}},
+				},
+			}},
+		}},
+	}
+	app := &App{
+		cfg: &config.Config{
+			LLMDefaultProfile: "standard",
+			LLMProfiles: map[string]config.LLMProfile{
+				"standard": {
+					Provider:      config.LLMProviderOpenAI,
+					Model:         "gpt-test",
+					BaseURL:       server.URL + "/v1",
+					CredentialRef: credentialRef,
+				},
+			},
+		},
+		httpClient:         server.Client(),
+		credentialResolver: staticCredentialResolver{credentialRef: "secret"},
+		aaaLocal:           allowActionsForAssistantTest("pipeline_run.list", "system.read"),
+	}
+
+	result := app.runAssistantConversationTurn(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		"user:viewer",
+		conversation,
+		"can you give me estimation of the cost",
+		"standard",
+	)
+
+	if requestCount != 1 {
+		t.Fatalf("LLM requests = %d, want planner final answer only", requestCount)
+	}
+	if !strings.Contains(plannerPrompt, "previous_evidence") || !strings.Contains(plannerPrompt, "1218028") {
+		t.Fatalf("planner prompt missing prior MCP evidence:\n%s", plannerPrompt)
+	}
+	if strings.Contains(result.Reply, "planner selected a tool") || strings.Contains(result.Reply, "direct MCP execution") {
+		t.Fatalf("reply should not use schema-subset failure text: %q", result.Reply)
+	}
+	for _, want := range []string{"Data source: previous MCP-backed AI usage evidence", "Confidence: LLM-derived estimate", "$0.05", "No changes were applied"} {
+		if !strings.Contains(result.Reply, want) {
+			t.Fatalf("derived estimate reply missing %q:\n%s", want, result.Reply)
+		}
+	}
+	planCall := assistantFirstToolCall(result.ToolCalls, assistantExecutionPlanToolName)
+	if planCall.Status != assistantToolStatusSuccess {
+		t.Fatalf("derived estimate should record an execution plan: %#v", result.ToolCalls)
+	}
+	executionPlan, ok := planCall.Output["execution_plan"].(assistantExecutionPlan)
+	if !ok || len(executionPlan.Steps) != 1 {
+		t.Fatalf("derived estimate execution plan = %#v", planCall.Output)
+	}
+	if executionPlan.Steps[0].Source != "llm" || executionPlan.Steps[0].Phase != "analysis" {
+		t.Fatalf("derived estimate plan should label LLM analysis over prior evidence: %#v", executionPlan.Steps[0])
+	}
+	for _, call := range result.ToolCalls {
+		if call.Name == "nopsai.get_monitoring_ai_usage" {
+			t.Fatalf("cost estimate follow-up should not rerun MCP when prior evidence is enough: %#v", call)
+		}
+	}
+}
+
 func TestAssistantOrchestrationFailsClosedWhenLLMProviderFails(t *testing.T) {
 	credentialRef := "credential://system/llm/standard"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -791,11 +1037,32 @@ func TestAssistantLLMPlannerExecutesValidatedToolPlan(t *testing.T) {
 	if result.ToolCalls[0].Name != assistantLLMPlannerToolName || result.ToolCalls[0].Status != assistantToolStatusSuccess {
 		t.Fatalf("planner call = %#v", result.ToolCalls[0])
 	}
+	planCall := assistantFirstToolCall(result.ToolCalls, assistantExecutionPlanToolName)
+	if planCall.Status != assistantToolStatusSuccess {
+		t.Fatalf("execution plan call = %#v", planCall)
+	}
+	executionPlan, ok := planCall.Output["execution_plan"].(assistantExecutionPlan)
+	if !ok {
+		t.Fatalf("execution plan output = %#v", planCall.Output)
+	}
+	if executionPlan.Goal != "List current assistant feature coverage" || len(executionPlan.Steps) != 2 {
+		t.Fatalf("execution plan = %#v", executionPlan)
+	}
+	if executionPlan.Steps[0].Source != "mcp" || executionPlan.Steps[0].Phase != "evidence" || executionPlan.Steps[0].Confidence != "high" {
+		t.Fatalf("execution plan should label MCP evidence step: %#v", executionPlan.Steps[0])
+	}
+	if executionPlan.Steps[1].Source != "llm" || executionPlan.Steps[1].Phase != "synthesis" {
+		t.Fatalf("execution plan should label LLM synthesis step: %#v", executionPlan.Steps[1])
+	}
 	if call := assistantFirstToolCall(result.ToolCalls, "nopsai.get_feature_capabilities"); call.Status != assistantToolStatusSuccess {
 		t.Fatalf("feature capability call = %#v", call)
+	} else if call.Source != "mcp" || call.Phase != "evidence" || call.Confidence != "high" || call.Purpose == "" {
+		t.Fatalf("feature capability call should be source-labeled: %#v", call)
 	}
 	if call := assistantFirstToolCall(result.ToolCalls, assistantLLMToolName); call.Status != assistantToolStatusSuccess {
 		t.Fatalf("synthesis call = %#v", call)
+	} else if call.Source != "llm" || call.Phase != "synthesis" {
+		t.Fatalf("synthesis call should be source-labeled: %#v", call)
 	}
 }
 
@@ -889,6 +1156,60 @@ func TestAssistantPromptsIncludeSameChatHistoryForFollowUps(t *testing.T) {
 	for _, want := range []string{"conversation_history", "lists, bars, and text", "dashboard final output", "definition for dashboard"} {
 		if !strings.Contains(synthesisPrompt, want) {
 			t.Fatalf("synthesis prompt missing %q:\n%s", want, synthesisPrompt)
+		}
+	}
+}
+
+func TestAssistantPlannerPromptIncludesPreviousEvidenceForDerivedEstimates(t *testing.T) {
+	app := &App{aaaLocal: allowActionsForAssistantTest("pipeline_run.list", "system.read")}
+	conversation := assistantConversation{
+		ID: uuid.New(),
+		Messages: []assistantMessage{{
+			ID:      uuid.New(),
+			Role:    assistantRoleAssistant,
+			Content: "AI usage by provider: lmstudio 1218028 tokens; gemini 157100 tokens.",
+			ToolCalls: []assistantToolActivity{{
+				Name:   "nopsai.get_monitoring_ai_usage",
+				Status: assistantToolStatusSuccess,
+				Output: map[string]any{
+					"total_tokens": 1375128,
+					"by_provider": []map[string]any{{
+						"label":  "lmstudio",
+						"tokens": 1218028,
+						"count":  405,
+					}, {
+						"label":  "gemini",
+						"tokens": 157100,
+						"count":  8,
+					}},
+				},
+			}},
+		}},
+	}
+	plan := assistantBaseTurnPlan("can you give me estimation of the cost", assistantConversationMemory{})
+
+	prompt := app.buildAssistantPlannerPrompt(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		conversation,
+		plan.Goal,
+		plan,
+		nil,
+		assistantMaxPlanToolCalls,
+		1,
+	)
+
+	for _, want := range []string{
+		"previous_evidence",
+		"nopsai.get_monitoring_ai_usage",
+		"lmstudio",
+		"1218028",
+		"Data source",
+		"Confidence",
+		"LLM-derived",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("derived estimate planner prompt missing %q:\n%s", want, prompt)
 		}
 	}
 }
@@ -1160,6 +1481,167 @@ func TestAssistantPlannerPromptStaysCompactForFullToolCatalog(t *testing.T) {
 	}
 }
 
+func TestAssistantPlannerPromptRoutesSlowestStepQuestionToMonitoringSchemas(t *testing.T) {
+	app := &App{aaaLocal: stubAAAAuthorizer{
+		checkFn: func(context.Context, model.Subject, string, model.ResourceRef, map[string]any) (model.Decision, error) {
+			return model.Decision{Allowed: true}, nil
+		},
+	}}
+	plan := assistantBaseTurnPlan("Which steps are slowest across production deploy pipelines?", assistantConversationMemory{})
+
+	prompt := app.buildAssistantPlannerPrompt(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		assistantConversation{ID: uuid.New(), DocsVersion: "auto"},
+		plan.Goal,
+		plan,
+		nil,
+		assistantMaxPlanToolCalls,
+		1,
+	)
+
+	schemaNames := assistantPlannerSchemaToolNamesForTest(t, prompt)
+	for _, want := range []string{
+		"nopsai.get_monitoring_step_performance",
+		"nopsai.get_monitoring_task_performance",
+		"nopsai.get_monitoring_pipeline_performance",
+	} {
+		if !schemaNames[want] {
+			t.Fatalf("slowest-step prompt missing monitoring schema %q: %#v", want, schemaNames)
+		}
+	}
+}
+
+func TestAssistantPlannerPromptRoutesEnvExposurePolicyToSafeSchemas(t *testing.T) {
+	app := &App{aaaLocal: stubAAAAuthorizer{
+		checkFn: func(context.Context, model.Subject, string, model.ResourceRef, map[string]any) (model.Decision, error) {
+			return model.Decision{Allowed: true}, nil
+		},
+	}}
+	plan := assistantBaseTurnPlan("Do we have any policy to prevent showing envs?", assistantConversationMemory{})
+
+	prompt := app.buildAssistantPlannerPrompt(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		assistantConversation{ID: uuid.New(), DocsVersion: "auto"},
+		plan.Goal,
+		plan,
+		nil,
+		assistantMaxPlanToolCalls,
+		1,
+	)
+
+	schemaNames := assistantPlannerSchemaToolNamesForTest(t, prompt)
+	for _, want := range []string{
+		"nopsai.get_feature_capabilities",
+		"nopsai.search_docs",
+		"nopsai.list_knowledge_contexts",
+		"nopsai.get_knowledge_context",
+		"nopsai.list_variables_metadata",
+		"nopsai.list_secrets_metadata",
+	} {
+		if !schemaNames[want] {
+			t.Fatalf("env exposure policy prompt missing safe schema %q: %#v", want, schemaNames)
+		}
+	}
+	if schemaNames["nopsai.get_variable_value"] {
+		t.Fatalf("env exposure policy prompt should not include plaintext variable read schema: %#v", schemaNames)
+	}
+}
+
+func TestAssistantPlannerPromptRoutesKnowledgeContextPolicyFollowUpToKnowledgeSchemas(t *testing.T) {
+	app := &App{aaaLocal: stubAAAAuthorizer{
+		checkFn: func(context.Context, model.Subject, string, model.ResourceRef, map[string]any) (model.Decision, error) {
+			return model.Decision{Allowed: true}, nil
+		},
+	}}
+	plan := assistantBaseTurnPlan("any policy in knowledge context", assistantConversationMemory{})
+
+	prompt := app.buildAssistantPlannerPrompt(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		assistantConversation{ID: uuid.New(), DocsVersion: "auto"},
+		plan.Goal,
+		plan,
+		nil,
+		assistantMaxPlanToolCalls,
+		1,
+	)
+
+	schemaNames := assistantPlannerSchemaToolNamesForTest(t, prompt)
+	for _, want := range []string{
+		"nopsai.get_feature_capabilities",
+		"nopsai.search_docs",
+		"nopsai.read_doc",
+		"nopsai.list_knowledge_contexts",
+		"nopsai.get_knowledge_context",
+	} {
+		if !schemaNames[want] {
+			t.Fatalf("knowledge policy prompt missing schema %q: %#v", want, schemaNames)
+		}
+	}
+}
+
+func TestAssistantFallbackReplyUsesEvidenceForNovelPlannerIntent(t *testing.T) {
+	reply := composeAssistantReply(assistantTurnPlan{
+		Intent: "dashboard_inventory",
+		Goal:   "Find dashboard data",
+	}, "", []assistantToolActivity{{
+		Name:   "nopsai.list_dashboards",
+		Status: assistantToolStatusSuccess,
+		Output: map[string]any{
+			"dashboards": []map[string]any{{
+				"id":        "dash-1",
+				"title":     "Production deploys",
+				"team_path": "platform",
+			}},
+		},
+	}})
+
+	if !strings.Contains(reply, "list dashboards") ||
+		!strings.Contains(reply, "Dashboards: 1 item(s): dash-1") ||
+		!strings.Contains(reply, "No changes were applied") {
+		t.Fatalf("novel planner intent should render tool evidence:\n%s", reply)
+	}
+	if strings.Contains(reply, "could not search docs") {
+		t.Fatalf("novel planner intent should not fall through to docs renderer:\n%s", reply)
+	}
+}
+
+func TestAssistantFeatureReplySummarizesMonitoringResponseItems(t *testing.T) {
+	reply := composeFeatureToolReply([]assistantToolActivity{{
+		Name:   "nopsai.get_monitoring_step_performance",
+		Status: assistantToolStatusSuccess,
+		Output: map[string]any{
+			"ok":          true,
+			"status_code": 200,
+			"response": map[string]any{
+				"total_runs": 42,
+				"items": []map[string]any{{
+					"key":                  "build-image",
+					"label":                "build-image",
+					"p95_duration_seconds": 118,
+				}, {
+					"key":                  "deploy",
+					"label":                "deploy",
+					"p95_duration_seconds": 73,
+				}},
+			},
+		},
+	}})
+
+	for _, want := range []string{
+		"get monitoring step performance",
+		"Response: total runs=42",
+		"Response Items: 2 item(s): build-image, deploy",
+		"No changes were applied",
+	} {
+		if !strings.Contains(reply, want) {
+			t.Fatalf("monitoring feature reply missing %q:\n%s", want, reply)
+		}
+	}
+}
+
 func TestAssistantPlanValidationChecksToolInputSchema(t *testing.T) {
 	app := &App{aaaLocal: allowActionsForAssistantTest("pipeline.read")}
 	plan := assistantTurnPlan{
@@ -1227,7 +1709,7 @@ func TestAssistantAnswerQualityRequiresGitOpsSafetyLanguageForPipelineProposals(
 func TestAssistantValidatePlannerFinalAnswerRequiresSuccessfulEvidence(t *testing.T) {
 	plan := assistantBaseTurnPlan("What changed?", assistantConversationMemory{})
 
-	if err := assistantValidatePlannerFinalAnswer(plan, nil); err == nil {
+	if err := assistantValidatePlannerFinalAnswer(plan, nil, assistantConversation{}); err == nil {
 		t.Fatal("final answer without evidence should fail")
 	}
 
@@ -1236,7 +1718,7 @@ func TestAssistantValidatePlannerFinalAnswerRequiresSuccessfulEvidence(t *testin
 		Status: assistantToolStatusError,
 		Output: map[string]any{"error": "docs unavailable"},
 	}}
-	if err := assistantValidatePlannerFinalAnswer(plan, erroredEvidence); err == nil {
+	if err := assistantValidatePlannerFinalAnswer(plan, erroredEvidence, assistantConversation{}); err == nil {
 		t.Fatal("final answer with only failed evidence should fail")
 	}
 
@@ -1245,8 +1727,29 @@ func TestAssistantValidatePlannerFinalAnswerRequiresSuccessfulEvidence(t *testin
 		Status: assistantToolStatusSuccess,
 		Output: map[string]any{"results": []map[string]any{}},
 	}}
-	if err := assistantValidatePlannerFinalAnswer(plan, successfulEvidence); err != nil {
+	if err := assistantValidatePlannerFinalAnswer(plan, successfulEvidence, assistantConversation{}); err != nil {
 		t.Fatalf("final answer with successful MCP evidence should pass: %v", err)
+	}
+
+	priorEvidenceConversation := assistantConversation{Messages: []assistantMessage{{
+		Role:    assistantRoleAssistant,
+		Content: "AI usage by provider: lmstudio 1218028 tokens; gemini 157100 tokens.",
+		ToolCalls: []assistantToolActivity{{
+			Name:   "nopsai.get_monitoring_ai_usage",
+			Status: assistantToolStatusSuccess,
+			Output: map[string]any{"total_tokens": 1375128},
+		}},
+	}}}
+	derivedPlan := assistantTurnPlan{
+		Goal:        "Estimate cost from prior token data",
+		FinalAnswer: "Data source: previous MCP-backed AI usage evidence. Confidence: LLM-derived estimate using explicit pricing assumptions.",
+	}
+	if err := assistantValidatePlannerFinalAnswer(derivedPlan, nil, priorEvidenceConversation); err != nil {
+		t.Fatalf("final answer from prior MCP evidence with provenance should pass: %v", err)
+	}
+	derivedPlan.FinalAnswer = "That probably costs about five dollars."
+	if err := assistantValidatePlannerFinalAnswer(derivedPlan, nil, priorEvidenceConversation); err == nil {
+		t.Fatal("prior-evidence final answer without source/confidence labels should fail")
 	}
 }
 
