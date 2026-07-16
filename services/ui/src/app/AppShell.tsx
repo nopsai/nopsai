@@ -100,8 +100,6 @@ function AppShell() {
     canViewSystemDispatcher,
     canViewSystemLogs,
     canViewSystemAccess,
-    canViewAnySystem,
-    preferredSystemPath,
     isInitialAdminUser,
   } = access;
   const sidebar = useSidebarState(location.pathname);
@@ -162,7 +160,6 @@ function AppShell() {
   const navItems = useMemo(() => {
     return baseNavItems
       .map(item => {
-        if (item.path.startsWith('/system')) return { ...item, path: preferredSystemPath };
         if (item.path.startsWith('/pipelineruns')) return { ...item, path: pipelineRunsNavPath(location.pathname) };
         if (item.path === '/triggers') {
           return {
@@ -177,7 +174,6 @@ function AppShell() {
         return item;
       })
       .filter(item => {
-        if (item.path.startsWith('/system')) return canViewAnySystem;
         if (item.path === '/llm-profiles') return canViewSystemLLMProfiles;
         if (item.path === '/agent-profiles') return canViewSystemAgentProfiles;
         if (item.path === '/mcp') return canViewSystemMCP;
@@ -191,7 +187,7 @@ function AppShell() {
         if (item.path === '/knowledge-context') return canViewKnowledge;
         return true;
       });
-  }, [canViewAnySystem, canViewDashboards, canViewExternalTriggers, canViewGitWebhookSources, canViewKnowledge, canViewSchedules, canViewScopes, canViewSystemAgentProfiles, canViewSystemCredentials, canViewSystemLLMProfiles, canViewSystemMCP, canViewTriggers, location.pathname, preferredSystemPath]);
+  }, [canViewDashboards, canViewExternalTriggers, canViewGitWebhookSources, canViewKnowledge, canViewSchedules, canViewScopes, canViewSystemAgentProfiles, canViewSystemCredentials, canViewSystemLLMProfiles, canViewSystemMCP, canViewTriggers, location.pathname]);
   const systemSubNav = useMemo(
     () =>
       baseSystemSubNav.filter(item => {

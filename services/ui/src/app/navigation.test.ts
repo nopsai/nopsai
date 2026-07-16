@@ -65,8 +65,8 @@ describe('groupNavItemsByTopic', () => {
       [
         ['Operate', ['Pipeline runs', 'Dashboards']],
         ['Build & Automate', ['Pipelines', 'Triggers']],
-        ['AI & Knowledge', ['Assistant', 'MCP']],
         ['Organization', ['Teams', 'Scopes']],
+        ['AI & Knowledge', ['Assistant', 'MCP']],
         ['Platform', ['Credentials']],
         ['Other', ['Custom Console']],
       ]
