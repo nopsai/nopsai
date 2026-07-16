@@ -1366,32 +1366,44 @@ func (a *App) hostedMCPSearchDocs(ctx context.Context, args map[string]any) (map
 	if query == "" {
 		return nil, fmt.Errorf("query is required")
 	}
-	rows, err := a.db.Query(ctx, `
-		SELECT id::text, kind, team_path, name, description
-		FROM knowledge_contexts
-		WHERE LOWER(name || ' ' || description || ' ' || content) LIKE LOWER('%' || $1 || '%')
-		ORDER BY kind ASC, team_path ASC, name ASC
-		LIMIT $2
-	`, query, limitArg(args, 10, 50))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
+	limit := limitArg(args, 10, 50)
 	docs := []map[string]any{}
-	for rows.Next() {
-		var id, kind, teamPath, name, description string
-		if err := rows.Scan(&id, &kind, &teamPath, &name, &description); err != nil {
+	if a != nil && a.db != nil {
+		rows, err := a.db.Query(ctx, `
+			SELECT id::text, kind, team_path, name, description
+			FROM knowledge_contexts
+			WHERE LOWER(name || ' ' || description || ' ' || content) LIKE LOWER('%' || $1 || '%')
+			ORDER BY kind ASC, team_path ASC, name ASC
+			LIMIT $2
+		`, query, limit)
+		if err != nil {
 			return nil, err
 		}
-		docs = append(docs, map[string]any{"id": id, "kind": kind, "team": teamPath, "name": name, "description": description})
+		defer rows.Close()
+		for rows.Next() {
+			var id, kind, teamPath, name, description string
+			if err := rows.Scan(&id, &kind, &teamPath, &name, &description); err != nil {
+				return nil, err
+			}
+			docs = append(docs, map[string]any{"id": id, "kind": kind, "team": teamPath, "team_path": teamPath, "name": name, "description": description, "source": "knowledge_context"})
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
 	}
-	return map[string]any{"docs": docs}, rows.Err()
+	if len(docs) < limit {
+		docs = append(docs, hostedMCPStaticDocsSearchResults(query, limit-len(docs))...)
+	}
+	return map[string]any{"docs": docs}, nil
 }
 
 func (a *App) hostedMCPReadDoc(ctx context.Context, args map[string]any) (map[string]any, error) {
 	id := stringArg(args, "id")
 	if id == "" {
 		return nil, fmt.Errorf("id is required")
+	}
+	if doc, ok := hostedMCPStaticDocByID(id); ok {
+		return doc, nil
 	}
 	var kind, teamPath, name, description, content string
 	err := a.db.QueryRow(ctx, `
@@ -1403,7 +1415,252 @@ func (a *App) hostedMCPReadDoc(ctx context.Context, args map[string]any) (map[st
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"id": id, "kind": kind, "team": teamPath, "name": name, "description": description, "content": content}, nil
+	return map[string]any{"id": id, "kind": kind, "team": teamPath, "team_path": teamPath, "name": name, "description": description, "content": content, "source": "knowledge_context"}, nil
+}
+
+type hostedMCPStaticDoc struct {
+	ID          string
+	Kind        string
+	Name        string
+	Description string
+	Path        string
+	Content     string
+	Keywords    []string
+}
+
+var hostedMCPStaticDocs = []hostedMCPStaticDoc{
+	{
+		ID:          "doc/dashboards.md",
+		Kind:        "product_doc",
+		Name:        "Team Dashboards",
+		Description: "Dashboard YAML, pipeline dashboard final outputs, DashboardSpec blocks, source bindings, refresh, and GitOps examples.",
+		Path:        "doc/dashboards.md",
+		Keywords: []string{
+			"pipeline dashboard data publication example",
+			"pipeline sends data to dashboard",
+			"working dashboard pipeline definition",
+			"dashboard final output",
+			"DashboardSpec",
+		},
+		Content: strings.TrimSpace(`Team dashboards are populated by validated pipeline final outputs. A pipeline publishes dashboard data by declaring an output item with type: dashboard under output.items. NopsAI generates a validated DashboardSpec from the run context and output prompt, then publishes it to the target dashboard when the run subject has dashboard.publish.
+
+Working pipeline example:
+
+` + "```yaml" + `
+name: service-health-dashboard
+version: "1.0"
+description: Publish text, list, and bar-chart status into Engineering Health.
+container_image: alpine:3.20
+llm_profile: standard
+
+steps:
+  - name: collect-evidence
+    script: |
+      cat > dashboard-evidence.json <<'JSON'
+      {
+        "service": "payments-api",
+        "summary": "Payments API is healthy. Build and deploy passed; latency is within target.",
+        "actions": [
+          {"label": "Review slow checkout test", "status": "watch", "tone": "warning"},
+          {"label": "Keep deployment canary at 25 percent for 30 minutes", "status": "open", "tone": "info"},
+          {"label": "Archive successful release notes", "status": "done", "tone": "success"}
+        ],
+        "stage_results": [
+          {"label": "build", "value": 42},
+          {"label": "test", "value": 39},
+          {"label": "deploy", "value": 37}
+        ]
+      }
+      JSON
+      cat dashboard-evidence.json
+
+output:
+  items:
+    - name: service-health-widgets
+      type: dashboard
+      when: always
+      dashboard:
+        ref: platform/engineering-health
+        section: service-health
+        entry_key: payments-api
+        mode: replace
+        preset: auto
+        ttl: 7d
+      prompt: |
+        Create a DashboardSpec JSON object for payments-api using the run
+        evidence. Include exactly these blocks:
+        - one text block titled Summary
+        - one list block titled Next actions
+        - one bar chart block titled Stage throughput
+        Do not include Markdown, HTML, CSS, JavaScript, or fields outside the
+        DashboardSpec schema.
+` + "```" + `
+
+The dashboard itself can be managed by GitOps under dashboards/platform/engineering-health.yaml with a section whose section_key is service-health and a source binding whose pipeline_id is service-health-dashboard and output_name is service-health-widgets.
+`),
+	},
+	{
+		ID:          "doc/final-output-rendering.md",
+		Kind:        "product_doc",
+		Name:        "Pipeline Final Output Rendering",
+		Description: "Final output contracts for Markdown, JSON, PDF, HTML, Excel, and dashboard publications.",
+		Path:        "doc/final-output-rendering.md",
+		Keywords: []string{
+			"dashboard output",
+			"pipeline final output",
+			"DashboardSpec JSON",
+			"output.items dashboard",
+		},
+		Content: strings.TrimSpace(`Pipeline final outputs are run-owned deliverables configured through output.items in pipeline YAML.
+
+Dashboard outputs use type: dashboard and must generate a versioned DashboardSpec JSON object. Supported dashboard block types are status, text, callout, list, properties, table, progress, link, chart, and series.
+
+Dashboard outputs are published to team-owned dashboards when their output.items[].dashboard target is valid and the run subject has dashboard.publish. Publication modes are replace, append, snapshot, and series.
+`),
+	},
+}
+
+func hostedMCPStaticDocsSearchResults(query string, limit int) []map[string]any {
+	if limit <= 0 {
+		return []map[string]any{}
+	}
+	type scoredDoc struct {
+		doc   hostedMCPStaticDoc
+		score int
+	}
+	scored := []scoredDoc{}
+	for _, doc := range hostedMCPStaticDocs {
+		score := hostedMCPStaticDocScore(query, doc)
+		if score <= 0 {
+			continue
+		}
+		scored = append(scored, scoredDoc{doc: doc, score: score})
+	}
+	sort.SliceStable(scored, func(i, j int) bool {
+		if scored[i].score != scored[j].score {
+			return scored[i].score > scored[j].score
+		}
+		return scored[i].doc.ID < scored[j].doc.ID
+	})
+	results := make([]map[string]any, 0, min(len(scored), limit))
+	for idx, item := range scored {
+		if idx >= limit {
+			break
+		}
+		results = append(results, hostedMCPStaticDocSearchResult(item.doc, query))
+	}
+	return results
+}
+
+func hostedMCPStaticDocByID(id string) (map[string]any, bool) {
+	id = strings.Trim(strings.TrimSpace(id), "/")
+	for _, doc := range hostedMCPStaticDocs {
+		if id == doc.ID || id == strings.TrimPrefix(doc.ID, "doc/") || strings.EqualFold(id, doc.Name) {
+			return map[string]any{
+				"id":          doc.ID,
+				"kind":        doc.Kind,
+				"team":        "",
+				"team_path":   "",
+				"name":        doc.Name,
+				"description": doc.Description,
+				"path":        doc.Path,
+				"content":     doc.Content,
+				"source":      "product_docs",
+			}, true
+		}
+	}
+	return nil, false
+}
+
+func hostedMCPStaticDocSearchResult(doc hostedMCPStaticDoc, query string) map[string]any {
+	return map[string]any{
+		"id":          doc.ID,
+		"kind":        doc.Kind,
+		"team":        "",
+		"team_path":   "",
+		"name":        doc.Name,
+		"description": doc.Description,
+		"path":        doc.Path,
+		"snippet":     hostedMCPDocSnippet(doc.Content, query),
+		"source":      "product_docs",
+	}
+}
+
+func hostedMCPStaticDocScore(query string, doc hostedMCPStaticDoc) int {
+	lowerQuery := strings.ToLower(strings.TrimSpace(query))
+	if lowerQuery == "" {
+		return 1
+	}
+	haystack := strings.ToLower(strings.Join([]string{
+		doc.ID,
+		doc.Name,
+		doc.Description,
+		doc.Path,
+		strings.Join(doc.Keywords, " "),
+		doc.Content,
+	}, " "))
+	score := 0
+	if strings.Contains(haystack, lowerQuery) {
+		score += 100
+	}
+	for _, keyword := range doc.Keywords {
+		if strings.Contains(lowerQuery, strings.ToLower(keyword)) || strings.Contains(strings.ToLower(keyword), lowerQuery) {
+			score += 80
+		}
+	}
+	for _, token := range hostedMCPDocSearchTokens(lowerQuery) {
+		if strings.Contains(haystack, token) {
+			score += 10
+		}
+	}
+	if score >= 20 {
+		return score
+	}
+	return 0
+}
+
+func hostedMCPDocSearchTokens(query string) []string {
+	fields := strings.FieldsFunc(strings.ToLower(query), func(r rune) bool {
+		return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9')
+	})
+	stop := map[string]bool{
+		"and": true, "any": true, "can": true, "data": true, "for": true, "from": true,
+		"have": true, "how": true, "implemented": true, "into": true, "just": true,
+		"need": true, "see": true, "send": true, "sends": true, "that": true,
+		"the": true, "this": true, "to": true, "want": true, "which": true, "with": true,
+	}
+	tokens := []string{}
+	seen := map[string]bool{}
+	for _, field := range fields {
+		if len(field) < 3 || stop[field] || seen[field] {
+			continue
+		}
+		seen[field] = true
+		tokens = append(tokens, field)
+	}
+	return tokens
+}
+
+func hostedMCPDocSnippet(content, query string) string {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return ""
+	}
+	lowerQuery := strings.ToLower(query)
+	if strings.Contains(lowerQuery, "pipeline") && strings.Contains(lowerQuery, "dashboard") && strings.Contains(content, "output:\n  items:") {
+		if snippet := hostedMCPSnippet(content, "output:", 800); snippet != "" {
+			return snippet
+		}
+	}
+	for _, token := range hostedMCPDocSearchTokens(query) {
+		if snippet := hostedMCPSnippet(content, token, 480); snippet != "" {
+			return snippet
+		}
+	}
+	if len(content) <= 480 {
+		return content
+	}
+	return strings.TrimSpace(content[:480]) + "..."
 }
 
 func (a *App) hostedMCPStatistics(ctx context.Context) (map[string]any, error) {
