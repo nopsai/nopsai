@@ -22,6 +22,9 @@ func TestKnowledgeContextSchemaUsesTeamPath(t *testing.T) {
 		"CREATE INDEX IF NOT EXISTS idx_knowledge_context_connections_team ON knowledge_context_connections(team_path, name)",
 		"CREATE INDEX IF NOT EXISTS idx_knowledge_contexts_connection_id ON knowledge_contexts(connection_id)",
 		"CREATE INDEX IF NOT EXISTS idx_knowledge_contexts_periodic_sync_due",
+		"CREATE TABLE IF NOT EXISTS knowledge_context_assets",
+		"REFERENCES knowledge_contexts(id) ON DELETE CASCADE",
+		"CREATE INDEX IF NOT EXISTS idx_knowledge_context_assets_context",
 	}
 	for _, statement := range required {
 		if !strings.Contains(joined, statement) {

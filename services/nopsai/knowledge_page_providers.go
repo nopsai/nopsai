@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"io"
 	"net/http"
 	"net/url"
@@ -43,12 +42,13 @@ type ExternalPageSummary struct {
 }
 
 type ExternalPage struct {
-	ID         string     `json:"id"`
-	Title      string     `json:"title"`
-	URL        string     `json:"url"`
-	Text       string     `json:"text"`
-	ModifiedAt *time.Time `json:"modified_at,omitempty"`
-	Hash       string     `json:"hash"`
+	ID         string              `json:"id"`
+	Title      string              `json:"title"`
+	URL        string              `json:"url"`
+	Text       string              `json:"text"`
+	Assets     []ExternalPageAsset `json:"assets,omitempty"`
+	ModifiedAt *time.Time          `json:"modified_at,omitempty"`
+	Hash       string              `json:"hash"`
 }
 
 type knowledgeProviderErrorKind string
@@ -250,11 +250,14 @@ func (p notionKnowledgeProvider) GetPage(ctx context.Context, connection Connect
 	if err != nil {
 		return ExternalPage{}, err
 	}
-	lines, err := p.getNotionBlockText(ctx, connection, token, pageID, 0)
+	lines, assets, err := p.getNotionBlockContent(ctx, connection, token, pageID, 0)
 	if err != nil {
 		return ExternalPage{}, err
 	}
 	text := strings.TrimSpace(strings.Join(lines, "\n"))
+	if text == "" && len(assets) > 0 {
+		text = preservedAssetOnlyContent(assets)
+	}
 	if text == "" {
 		return ExternalPage{}, newKnowledgeProviderError(knowledgeProviderErrorPageUnavailable, http.StatusNotFound, "Notion page has no prompt-friendly text.")
 	}
@@ -264,6 +267,7 @@ func (p notionKnowledgeProvider) GetPage(ctx context.Context, connection Connect
 		Title:      firstNonEmptyString(notionPageTitle(page), "Untitled page"),
 		URL:        page.URL,
 		Text:       text,
+		Assets:     assets,
 		ModifiedAt: modified,
 		Hash:       hashKnowledgeText(text),
 	}, nil
@@ -291,11 +295,52 @@ func (p notionKnowledgeProvider) getNotionPageMetadata(ctx context.Context, conn
 	return page, nil
 }
 
-func (p notionKnowledgeProvider) getNotionBlockText(ctx context.Context, connection Connection, token, blockID string, depth int) ([]string, error) {
+func (p notionKnowledgeProvider) getNotionBlockContent(ctx context.Context, connection Connection, token, blockID string, depth int) ([]string, []ExternalPageAsset, error) {
 	if depth > 6 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	var lines []string
+	var assets []ExternalPageAsset
+	blocks, err := p.getNotionChildBlocks(ctx, connection, token, blockID)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, block := range blocks {
+		if block.Type == "table" {
+			tableText, tableAssets, err := p.getNotionTableMarkdown(ctx, connection, token, block.ID, block.Table, depth+1)
+			if err != nil {
+				return nil, nil, err
+			}
+			if tableText != "" {
+				lines = append(lines, tableText)
+			}
+			assets = append(assets, tableAssets...)
+			continue
+		}
+		if line := notionBlockText(block); line != "" {
+			lines = append(lines, line)
+		}
+		if asset, ok := notionBlockAsset(block); ok {
+			assets = append(assets, asset)
+			lines = append(lines, assetPromptPlaceholder(asset))
+		}
+		if block.HasChildren {
+			childLines, childAssets, err := p.getNotionBlockContent(ctx, connection, token, block.ID, depth+1)
+			if err != nil {
+				return nil, nil, err
+			}
+			lines = append(lines, childLines...)
+			assets = append(assets, childAssets...)
+		}
+		if len(strings.Join(lines, "\n")) > 1_000_000 {
+			return nil, nil, newKnowledgeProviderError(knowledgeProviderErrorPageTooLarge, http.StatusRequestEntityTooLarge, "Provider page is too large to use as Knowledge Context.")
+		}
+	}
+	return lines, dedupeExternalPageAssets(assets), nil
+}
+
+func (p notionKnowledgeProvider) getNotionChildBlocks(ctx context.Context, connection Connection, token, blockID string) ([]notionBlockObject, error) {
+	var blocks []notionBlockObject
 	cursor := ""
 	for {
 		endpoint := notionBaseURL(connection) + "/v1/blocks/" + url.PathEscape(blockID) + "/children?page_size=100"
@@ -327,27 +372,53 @@ func (p notionKnowledgeProvider) getNotionBlockText(ctx context.Context, connect
 			return nil, newKnowledgeProviderError(knowledgeProviderErrorUnavailable, resp.StatusCode, "Notion block response could not be decoded.")
 		}
 		resp.Body.Close()
-		for _, block := range payload.Results {
-			if line := notionBlockText(block); line != "" {
-				lines = append(lines, line)
-			}
-			if block.HasChildren {
-				childLines, err := p.getNotionBlockText(ctx, connection, token, block.ID, depth+1)
-				if err != nil {
-					return nil, err
-				}
-				lines = append(lines, childLines...)
-			}
-			if len(strings.Join(lines, "\n")) > 1_000_000 {
-				return nil, newKnowledgeProviderError(knowledgeProviderErrorPageTooLarge, http.StatusRequestEntityTooLarge, "Provider page is too large to use as Knowledge Context.")
-			}
-		}
+		blocks = append(blocks, payload.Results...)
 		if !payload.HasMore || payload.NextCursor == "" {
 			break
 		}
 		cursor = payload.NextCursor
 	}
-	return lines, nil
+	return blocks, nil
+}
+
+func (p notionKnowledgeProvider) getNotionTableMarkdown(ctx context.Context, connection Connection, token, tableID string, table notionTableBlock, depth int) (string, []ExternalPageAsset, error) {
+	if depth > 6 {
+		return "", nil, nil
+	}
+	rows, err := p.getNotionChildBlocks(ctx, connection, token, tableID)
+	if err != nil {
+		return "", nil, err
+	}
+	cells := make([][]string, 0, len(rows))
+	var assets []ExternalPageAsset
+	for _, row := range rows {
+		if row.Type != "table_row" {
+			if asset, ok := notionUnsupportedBlockAsset(row); ok {
+				assets = append(assets, asset)
+			}
+			continue
+		}
+		values := make([]string, 0, len(row.TableRow.Cells))
+		for _, cell := range row.TableRow.Cells {
+			values = append(values, richTextPlain(cell))
+		}
+		cells = append(cells, values)
+	}
+	if len(cells) == 0 {
+		asset := ExternalPageAsset{
+			SourceBlockID:   tableID,
+			SourceBlockType: "table",
+			Kind:            "table",
+			Title:           "Empty Notion table",
+			ContentHash:     hashKnowledgeText(tableID + ":empty-table"),
+			Metadata: map[string]any{
+				"reason":             "empty_table",
+				"notion_table_width": table.TableWidth,
+			},
+		}
+		return assetPromptPlaceholder(asset), []ExternalPageAsset{asset}, nil
+	}
+	return markdownTable(cells, table.HasColumnHeader), assets, nil
 }
 
 type notionPageObject struct {
@@ -364,20 +435,31 @@ type notionPageProperty struct {
 }
 
 type notionBlockObject struct {
-	ID               string          `json:"id"`
-	Type             string          `json:"type"`
-	HasChildren      bool            `json:"has_children"`
-	Paragraph        notionTextBlock `json:"paragraph"`
-	Heading1         notionTextBlock `json:"heading_1"`
-	Heading2         notionTextBlock `json:"heading_2"`
-	Heading3         notionTextBlock `json:"heading_3"`
-	BulletedListItem notionTextBlock `json:"bulleted_list_item"`
-	NumberedListItem notionTextBlock `json:"numbered_list_item"`
-	ToDo             notionTextBlock `json:"to_do"`
-	Toggle           notionTextBlock `json:"toggle"`
-	Quote            notionTextBlock `json:"quote"`
-	Callout          notionTextBlock `json:"callout"`
-	Code             notionCodeBlock `json:"code"`
+	ID               string              `json:"id"`
+	Type             string              `json:"type"`
+	HasChildren      bool                `json:"has_children"`
+	Paragraph        notionTextBlock     `json:"paragraph"`
+	Heading1         notionTextBlock     `json:"heading_1"`
+	Heading2         notionTextBlock     `json:"heading_2"`
+	Heading3         notionTextBlock     `json:"heading_3"`
+	BulletedListItem notionTextBlock     `json:"bulleted_list_item"`
+	NumberedListItem notionTextBlock     `json:"numbered_list_item"`
+	ToDo             notionTextBlock     `json:"to_do"`
+	Toggle           notionTextBlock     `json:"toggle"`
+	Quote            notionTextBlock     `json:"quote"`
+	Callout          notionTextBlock     `json:"callout"`
+	Code             notionCodeBlock     `json:"code"`
+	Table            notionTableBlock    `json:"table"`
+	TableRow         notionTableRowBlock `json:"table_row"`
+	Image            notionFileBlock     `json:"image"`
+	File             notionFileBlock     `json:"file"`
+	PDF              notionFileBlock     `json:"pdf"`
+	Video            notionFileBlock     `json:"video"`
+	Audio            notionFileBlock     `json:"audio"`
+	Embed            notionURLBlock      `json:"embed"`
+	Bookmark         notionURLBlock      `json:"bookmark"`
+	LinkPreview      notionURLBlock      `json:"link_preview"`
+	ChildPage        notionTitleBlock    `json:"child_page"`
 }
 
 type notionTextBlock struct {
@@ -387,6 +469,36 @@ type notionTextBlock struct {
 type notionCodeBlock struct {
 	RichText []notionRichText `json:"rich_text"`
 	Language string           `json:"language"`
+}
+
+type notionTableBlock struct {
+	TableWidth      int  `json:"table_width"`
+	HasColumnHeader bool `json:"has_column_header"`
+	HasRowHeader    bool `json:"has_row_header"`
+}
+
+type notionTableRowBlock struct {
+	Cells [][]notionRichText `json:"cells"`
+}
+
+type notionFileBlock struct {
+	Type     string           `json:"type"`
+	Caption  []notionRichText `json:"caption"`
+	External *struct {
+		URL string `json:"url"`
+	} `json:"external"`
+	File *struct {
+		URL string `json:"url"`
+	} `json:"file"`
+}
+
+type notionURLBlock struct {
+	URL     string           `json:"url"`
+	Caption []notionRichText `json:"caption"`
+}
+
+type notionTitleBlock struct {
+	Title string `json:"title"`
 }
 
 type notionRichText struct {
@@ -458,6 +570,101 @@ func notionBlockText(block notionBlockObject) string {
 		return "```" + strings.TrimSpace(block.Code.Language) + "\n" + text + "\n```"
 	default:
 		return ""
+	}
+}
+
+func notionBlockAsset(block notionBlockObject) (ExternalPageAsset, bool) {
+	switch block.Type {
+	case "image":
+		return notionFileAsset(block, "image", block.Image), true
+	case "file":
+		return notionFileAsset(block, "file", block.File), true
+	case "pdf":
+		return notionFileAsset(block, "pdf", block.PDF), true
+	case "video":
+		return notionFileAsset(block, "video", block.Video), true
+	case "audio":
+		return notionFileAsset(block, "audio", block.Audio), true
+	case "embed":
+		return notionURLAsset(block, "embed", block.Embed), true
+	case "bookmark":
+		return notionURLAsset(block, "bookmark", block.Bookmark), true
+	case "link_preview":
+		return notionURLAsset(block, "link_preview", block.LinkPreview), true
+	case "child_page":
+		title := strings.TrimSpace(block.ChildPage.Title)
+		return ExternalPageAsset{
+			SourceBlockID:   block.ID,
+			SourceBlockType: block.Type,
+			Kind:            "linked_page",
+			Title:           firstNonEmptyString(title, "Linked Notion page"),
+			ContentHash:     hashKnowledgeText(block.ID + ":" + block.Type + ":" + title),
+			Metadata:        map[string]any{"notion_block_type": block.Type},
+		}, true
+	default:
+		return notionUnsupportedBlockAsset(block)
+	}
+}
+
+func notionUnsupportedBlockAsset(block notionBlockObject) (ExternalPageAsset, bool) {
+	switch block.Type {
+	case "", "paragraph", "heading_1", "heading_2", "heading_3", "bulleted_list_item", "numbered_list_item", "to_do", "toggle", "quote", "callout", "code", "table", "table_row", "column_list", "column", "divider", "breadcrumb", "unsupported":
+		if block.Type != "unsupported" {
+			return ExternalPageAsset{}, false
+		}
+	}
+	return ExternalPageAsset{
+		SourceBlockID:   block.ID,
+		SourceBlockType: block.Type,
+		Kind:            "unsupported",
+		Title:           firstNonEmptyString(block.Type, "Unsupported Notion block"),
+		ContentHash:     hashKnowledgeText(block.ID + ":" + block.Type),
+		Metadata:        map[string]any{"notion_block_type": block.Type},
+	}, true
+}
+
+func notionFileAsset(block notionBlockObject, kind string, file notionFileBlock) ExternalPageAsset {
+	sourceURL := ""
+	if file.External != nil {
+		sourceURL = strings.TrimSpace(file.External.URL)
+	}
+	if sourceURL == "" && file.File != nil {
+		sourceURL = strings.TrimSpace(file.File.URL)
+	}
+	title := richTextPlain(file.Caption)
+	if title == "" {
+		title = strings.TrimSpace(kind)
+	}
+	return ExternalPageAsset{
+		SourceBlockID:   block.ID,
+		SourceBlockType: block.Type,
+		Kind:            kind,
+		Title:           title,
+		URL:             sourceURL,
+		MediaType:       mediaTypeFromURL(sourceURL, kind),
+		ContentHash:     hashKnowledgeText(block.ID + ":" + kind + ":" + sourceURL),
+		Metadata: map[string]any{
+			"notion_block_type": block.Type,
+			"notion_file_type":  strings.TrimSpace(file.Type),
+		},
+	}
+}
+
+func notionURLAsset(block notionBlockObject, kind string, value notionURLBlock) ExternalPageAsset {
+	sourceURL := strings.TrimSpace(value.URL)
+	title := richTextPlain(value.Caption)
+	if title == "" {
+		title = strings.TrimSpace(kind)
+	}
+	return ExternalPageAsset{
+		SourceBlockID:   block.ID,
+		SourceBlockType: block.Type,
+		Kind:            kind,
+		Title:           title,
+		URL:             sourceURL,
+		MediaType:       mediaTypeFromURL(sourceURL, kind),
+		ContentHash:     hashKnowledgeText(block.ID + ":" + kind + ":" + sourceURL),
+		Metadata:        map[string]any{"notion_block_type": block.Type},
 	}
 }
 
@@ -659,7 +866,12 @@ func (p confluenceKnowledgeProvider) GetPage(ctx context.Context, connection Con
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&payload); err != nil {
 		return ExternalPage{}, newKnowledgeProviderError(knowledgeProviderErrorUnavailable, resp.StatusCode, "Confluence page response could not be decoded.")
 	}
-	text := strings.TrimSpace(htmlToPromptText(payload.Body.Storage.Value))
+	pageURL := absoluteProviderURL(base, firstNonEmptyString(payload.Links["webui"], payload.Links["self"]))
+	text, assets := confluenceStorageToPromptContent(payload.Body.Storage.Value, pageURL)
+	text = strings.TrimSpace(text)
+	if text == "" && len(assets) > 0 {
+		text = preservedAssetOnlyContent(assets)
+	}
 	if text == "" {
 		return ExternalPage{}, newKnowledgeProviderError(knowledgeProviderErrorPageUnavailable, http.StatusNotFound, "Confluence page has no prompt-friendly text.")
 	}
@@ -669,8 +881,9 @@ func (p confluenceKnowledgeProvider) GetPage(ctx context.Context, connection Con
 	return ExternalPage{
 		ID:         firstNonEmptyString(payload.ID, pageID),
 		Title:      firstNonEmptyString(strings.TrimSpace(payload.Title), "Untitled page"),
-		URL:        absoluteProviderURL(base, firstNonEmptyString(payload.Links["webui"], payload.Links["self"])),
+		URL:        pageURL,
 		Text:       text,
+		Assets:     assets,
 		ModifiedAt: parseProviderTime(payload.Version.When),
 		Hash:       hashKnowledgeText(text),
 	}, nil
@@ -796,45 +1009,6 @@ func absoluteProviderURL(base, value string) string {
 		return value
 	}
 	return parsedBase.ResolveReference(parsedValue).String()
-}
-
-func htmlToPromptText(value string) string {
-	value = strings.ReplaceAll(value, "\r\n", "\n")
-	replacements := []struct{ old, new string }{
-		{"</p>", "\n\n"},
-		{"</div>", "\n"},
-		{"</li>", "\n"},
-		{"<br>", "\n"},
-		{"<br/>", "\n"},
-		{"<br />", "\n"},
-		{"</h1>", "\n\n"},
-		{"</h2>", "\n\n"},
-		{"</h3>", "\n\n"},
-		{"</tr>", "\n"},
-		{"</table>", "\n"},
-	}
-	for _, replacement := range replacements {
-		value = strings.ReplaceAll(value, replacement.old, replacement.new)
-	}
-	tagPattern := regexp.MustCompile(`<[^>]+>`)
-	value = tagPattern.ReplaceAllString(value, "")
-	value = html.UnescapeString(value)
-	lines := strings.Split(value, "\n")
-	out := make([]string, 0, len(lines))
-	blank := false
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			if !blank && len(out) > 0 {
-				out = append(out, "")
-			}
-			blank = true
-			continue
-		}
-		out = append(out, line)
-		blank = false
-	}
-	return strings.TrimSpace(strings.Join(out, "\n"))
 }
 
 func knowledgeProviderStringMapValue(values map[string]any, key string) string {

@@ -75,7 +75,12 @@ func TestConfluenceProviderFetchesPromptFriendlyPage(t *testing.T) {
 				},
 				"version": map[string]string{"when": "2026-07-15T10:00:00Z"},
 				"body": map[string]any{"storage": map[string]string{
-					"value": "<h1>Repository Guardrails</h1><p>Require signed commits.</p><ul><li>Block secrets</li></ul>",
+					"value": `<h1>Repository Guardrails</h1>
+						<p>Require signed commits.</p>
+						<ul><li>Block secrets</li></ul>
+						<table><tr><th>Check</th><th>Status</th></tr><tr><td>Secrets</td><td>Blocked</td></tr></table>
+						<ac:image><ri:attachment ri:filename="deployment-flow.png" /></ac:image>
+						<ac:structured-macro ac:name="chart" ac:macro-id="macro-1" />`,
 				}},
 			})
 		default:
@@ -115,6 +120,15 @@ func TestConfluenceProviderFetchesPromptFriendlyPage(t *testing.T) {
 	}
 	if page.Title != "Repository Guardrails" || !strings.Contains(page.Text, "Require signed commits.") || page.Hash == "" {
 		t.Fatalf("page = %#v", page)
+	}
+	if !strings.Contains(page.Text, "| Check | Status |") || !strings.Contains(page.Text, "[Asset preserved: image - deployment-flow.png]") {
+		t.Fatalf("page text did not include converted table and asset placeholder:\n%s", page.Text)
+	}
+	if len(page.Assets) != 2 {
+		t.Fatalf("assets = %#v, want image and macro", page.Assets)
+	}
+	if page.Assets[0].Kind != "image" && page.Assets[1].Kind != "image" {
+		t.Fatalf("assets missing image: %#v", page.Assets)
 	}
 }
 
@@ -159,6 +173,45 @@ func TestNotionProviderFetchesPageBlocks(t *testing.T) {
 						"type":      "paragraph",
 						"paragraph": map[string]any{"rich_text": []map[string]string{{"plain_text": "Require reviewed changes."}}},
 					},
+					{
+						"id":           "block-table",
+						"type":         "table",
+						"has_children": true,
+						"table": map[string]any{
+							"table_width":       2,
+							"has_column_header": true,
+						},
+					},
+					{
+						"id":   "block-image",
+						"type": "image",
+						"image": map[string]any{
+							"type":     "external",
+							"caption":  []map[string]string{{"plain_text": "Deployment flow"}},
+							"external": map[string]string{"url": "https://assets.test/deployment-flow.png"},
+						},
+					},
+				},
+			})
+		case r.URL.Path == "/v1/blocks/block-table/children":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"results": []map[string]any{
+					{
+						"id":   "row-1",
+						"type": "table_row",
+						"table_row": map[string]any{"cells": []any{
+							[]map[string]string{{"plain_text": "Check"}},
+							[]map[string]string{{"plain_text": "Status"}},
+						}},
+					},
+					{
+						"id":   "row-2",
+						"type": "table_row",
+						"table_row": map[string]any{"cells": []any{
+							[]map[string]string{{"plain_text": "Review"}},
+							[]map[string]string{{"plain_text": "Required"}},
+						}},
+					},
 				},
 			})
 		default:
@@ -198,5 +251,11 @@ func TestNotionProviderFetchesPageBlocks(t *testing.T) {
 	}
 	if page.Title != "Repository Guardrails" || !strings.Contains(page.Text, "Require reviewed changes.") || page.Hash == "" {
 		t.Fatalf("page = %#v", page)
+	}
+	if !strings.Contains(page.Text, "| Check | Status |") || !strings.Contains(page.Text, "[Asset preserved: image - Deployment flow]") {
+		t.Fatalf("page text did not include converted table and asset placeholder:\n%s", page.Text)
+	}
+	if len(page.Assets) != 1 || page.Assets[0].Kind != "image" || page.Assets[0].MediaType != "image/png" {
+		t.Fatalf("assets = %#v, want preserved image with inferred media type", page.Assets)
 	}
 }
