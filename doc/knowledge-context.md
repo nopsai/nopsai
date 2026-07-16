@@ -238,6 +238,37 @@ content through the existing Knowledge Context snapshot path. If an external pag
 document has no cached content yet, required runtime references fail instead of
 silently injecting an empty required context.
 
+## External Page Conversion
+
+External Notion and Confluence pages are synchronized into prompt-friendly
+markdown while preserving non-text provider blocks as separate asset records.
+The runtime snapshot remains text-only: it receives the converted
+`knowledge_contexts.content` value, not raw provider HTML or binary files.
+
+Safe conversions:
+
+- headings, paragraphs, quotes, and code blocks become markdown
+- Notion and Confluence lists become markdown lists
+- simple Notion and Confluence tables become markdown tables
+- links remain links when the provider exposes a URL
+
+Blocks that cannot be represented safely as markdown are not silently dropped.
+Images, files, PDFs, videos, embeds, Confluence macros, diagrams, and complex
+tables are stored in `knowledge_context_assets` with their parent knowledge
+context, provider, page ID, source block ID, source block type, asset kind,
+title, URL when available, MIME type when inferable, content hash, and metadata.
+The synced markdown includes a lightweight placeholder such as:
+
+```markdown
+[Asset preserved: image - deployment-flow.png]
+```
+
+The placeholder only records that the block exists. It does not OCR, summarize,
+or infer the contents of the asset. Asset rows inherit access through the parent
+Knowledge Context and are deleted/replaced atomically with each successful
+external-page sync. GitOps knowledge files stay text-only; external-page links
+and preserved provider assets remain API-managed runtime resources.
+
 External page synchronization supports three modes:
 
 - `manual`: fetches only when a user or API caller requests sync

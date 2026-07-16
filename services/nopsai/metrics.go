@@ -258,6 +258,11 @@ func (a *App) buildPrometheusMetrics(ctx context.Context) (string, error) {
 	if err := a.appendKnowledgeContextCacheAgeMetrics(ctx, &out); err != nil {
 		return "", err
 	}
+	writeMetricHelp(&out, "nopsai_knowledge_context_assets", "Preserved non-text Knowledge Context assets by provider and asset kind.")
+	writeMetricType(&out, "nopsai_knowledge_context_assets", "gauge")
+	if err := a.appendKnowledgeContextAssetMetrics(ctx, &out); err != nil {
+		return "", err
+	}
 	a.appendKnowledgeContextSyncRuntimeMetrics(&out)
 	writeMetricHelp(&out, "nopsai_audit_events_total", "Audit events by provider, action, and result.")
 	writeMetricType(&out, "nopsai_audit_events_total", "counter")
@@ -1508,6 +1513,33 @@ func (a *App) appendKnowledgeContextCacheAgeMetrics(ctx context.Context, out *st
 			"provider":  normalizeMetricLabel(provider),
 			"sync_mode": normalizeMetricLabel(syncMode),
 		}, ageSeconds)
+	}
+	return rows.Err()
+}
+
+func (a *App) appendKnowledgeContextAssetMetrics(ctx context.Context, out *strings.Builder) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT COALESCE(NULLIF(provider, ''), 'unknown'),
+		       COALESCE(NULLIF(asset_kind, ''), 'asset'),
+		       COUNT(*)::float8
+		FROM knowledge_context_assets
+		GROUP BY 1, 2
+		ORDER BY 1, 2
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var provider, kind string
+		var count float64
+		if err := rows.Scan(&provider, &kind, &count); err != nil {
+			return err
+		}
+		writeMetricLine(out, "nopsai_knowledge_context_assets", map[string]string{
+			"provider": normalizeMetricLabel(provider),
+			"kind":     normalizeMetricLabel(kind),
+		}, count)
 	}
 	return rows.Err()
 }
