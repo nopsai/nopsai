@@ -17,7 +17,7 @@ test('summarizes the product wiki and keeps a stable first article', () => {
   const summary = summarizeWiki();
 
   assert.equal(summary.sections, 9);
-  assert.equal(summary.articles, 41);
+  assert.equal(summary.articles, 42);
   assert.ok(summary.configKeys > 20);
   assert.ok(summary.runbooks > 20);
   assert.equal(summary.tutorials, 8);
@@ -49,7 +49,21 @@ test('does not expose removed aspirational deployment config keys', () => {
   assert.equal(configKeys.includes('NOPS_ENV'), false);
   assert.equal(configKeys.includes('NOPS_PUBLIC_URL'), false);
   assert.ok(configKeys.includes('DATABASE_URL'));
+  assert.ok(configKeys.includes('SERVICE_JWT_SIGNING_KEY'));
+  assert.ok(configKeys.includes('DISPATCHER_TLS_MODE'));
+  assert.ok(configKeys.includes('FINAL_OUTPUT_PDF_RENDERER_URL'));
   assert.ok(configKeys.includes('DISPATCHER_GRPC_ADDRESS'));
+});
+
+test('documents required deployment environment and service URL settings as first-class wiki content', () => {
+  const article = findWikiArticle(wikiSections, 'required-envs-service-urls');
+  assert.ok(article);
+  assert.equal(article.docType, 'reference');
+  assert.ok(article.audiences.includes('administrator'));
+  assert.ok(article.keyFacts.some(fact => fact.includes('SERVICE_JWT_SIGNING_KEY')));
+  assert.ok(article.configRows.some(row => row.key === 'SERVICE_JWT_SIGNING_KEY' && row.security?.includes('independent secret')));
+  assert.ok(article.configRows.some(row => row.key === 'SYSTEM_LOGS_DOCKER_HOST' && row.security?.includes('docker-socket-proxy')));
+  assert.ok(article.examples.some(example => example.title === 'Helm bootstrap Secret keys'));
 });
 
 test('documents step-level LLM profile directives', () => {

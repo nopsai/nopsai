@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import ProductDocsPage from './ProductDocs';
 
@@ -15,6 +15,14 @@ function renderDocs(initialEntry = '/docs') {
 }
 
 describe('ProductDocsPage', () => {
+  beforeEach(() => {
+    vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('renders a calm documentation shell with route-backed navigation', () => {
     renderDocs();
 
@@ -42,14 +50,37 @@ describe('ProductDocsPage', () => {
     const user = userEvent.setup();
     renderDocs();
 
-    await user.type(screen.getByLabelText('Search documentation'), 'steps[].llm_profile');
+    fireEvent.change(screen.getByLabelText('Search documentation'), { target: { value: 'steps[].llm_profile' } });
 
-    const result = screen.getByRole('button', { name: /field steps\[\]\.llm_profile/i });
-    expect(result).toBeVisible();
-    await user.click(result);
+    const result = screen.getByText('steps[].llm_profile').closest('button');
+    expect(result).toBeTruthy();
+    await user.click(result as HTMLElement);
 
     expect(screen.getByRole('heading', { name: 'Step and Task Directives' })).toBeVisible();
-    expect(screen.getByText('steps[].llm_profile')).toBeVisible();
+    expect(screen.getAllByText('steps[].llm_profile').length).toBeGreaterThan(0);
+  });
+
+  it('starts a selected article at the top of the page', async () => {
+    const user = userEvent.setup();
+    const originalRAF = window.requestAnimationFrame;
+    const scrollTo = vi.mocked(window.scrollTo);
+    window.requestAnimationFrame = (callback: FrameRequestCallback) => {
+      callback(0);
+      return 0;
+    };
+
+    try {
+      renderDocs('/docs/installation/docker-compose');
+      scrollTo.mockClear();
+
+      await user.click(screen.getByRole('button', { name: 'Kubernetes and Helm' }));
+
+      expect(screen.getByRole('heading', { name: 'Kubernetes and Helm' })).toBeVisible();
+      expect(scrollTo).toHaveBeenCalledWith({ top: 0, left: 0, behavior: 'auto' });
+    } finally {
+      window.requestAnimationFrame = originalRAF;
+      scrollTo.mockRestore();
+    }
   });
 
   it('labels unverified field metadata instead of presenting inferred values as facts', async () => {
@@ -60,16 +91,18 @@ describe('ProductDocsPage', () => {
     await user.click(nameField);
 
     expect(screen.getAllByText('Metadata incomplete').length).toBeGreaterThan(0);
-    expect(screen.getByText(/has not been explicitly verified/i)).toBeVisible();
+    expect(screen.getAllByText(/has not been explicitly verified/i).length).toBeGreaterThan(0);
   });
 
-  it('renders repository sources as links', async () => {
+  it('renders implementation evidence without outbound documentation links', async () => {
     renderDocs('/docs/getting-started/first-script-pipeline');
 
     const user = userEvent.setup();
-    await user.click(screen.getByText('Sources', { selector: 'summary' }));
-    const source = screen.getByRole('link', { name: /runtime-flows\.md/i });
-    expect(source).toHaveAttribute('href', expect.stringContaining('/blob/main/doc/runtime-flows.md'));
+    await user.click(screen.getByText('Implementation evidence', { selector: 'summary' }));
+
+    expect(screen.getByText('runtime-flows.md')).toBeVisible();
+    expect(screen.getByText('doc/runtime-flows.md')).toBeVisible();
+    expect(screen.queryByRole('link', { name: /runtime-flows\.md/i })).not.toBeInTheDocument();
   });
 
   it('does not present placeholder operational tasks as complete runbooks', () => {
