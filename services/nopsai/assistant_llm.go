@@ -15,6 +15,8 @@ import (
 
 const assistantLLMToolName = "nopsai.llm.complete"
 const assistantDedicatedLLMProfileName = "assistant"
+const assistantPromptHistoryLimit = 12
+const assistantPromptHistoryContentLimit = 1200
 
 type assistantLLMSynthesis struct {
 	Reply    string
@@ -243,17 +245,19 @@ func buildAssistantLLMPrompt(
 	deterministicReply string,
 ) string {
 	payload := map[string]any{
-		"user_request":        strings.TrimSpace(userContent),
-		"intent":              plan.Intent,
-		"validated_plan":      assistantPlanActivityInput(plan),
-		"conversation_memory": normalizeAssistantMemory(conversation.Memory),
-		"tool_calls":          assistantLLMPromptToolCalls(toolCalls),
-		"tool_summary":        strings.TrimSpace(deterministicReply),
+		"user_request":         strings.TrimSpace(userContent),
+		"intent":               plan.Intent,
+		"validated_plan":       assistantPlanActivityInput(plan),
+		"conversation_memory":  normalizeAssistantMemory(conversation.Memory),
+		"conversation_history": assistantPromptConversationHistory(conversation.Messages),
+		"tool_calls":           assistantLLMPromptToolCalls(toolCalls),
+		"tool_summary":         strings.TrimSpace(deterministicReply),
 	}
 	raw, _ := json.MarshalIndent(payload, "", "  ")
 	return strings.TrimSpace(`You are the Nopsai AI Assistant for an enterprise CI/CD and GitOps platform.
 
-Use only the provided JSON context and tool outputs. Do not invent pipeline runs, permissions, approvals, costs, logs, or applied changes.
+Use only the provided JSON context, same-chat conversation_history, memory, and tool outputs. Do not invent pipeline runs, permissions, approvals, costs, logs, or applied changes.
+Use conversation_history to resolve same-chat follow-ups such as "generic pipeline", "the dashboard definition", "that one", or "both".
 When discussing pipelines, use only pipeline definitions, validation results, GitOps plans, or search results returned by the tool outputs.
 Generated pipeline YAML, trigger edits, and schedule edits are proposals only. Never say a change was applied unless the tool output explicitly says it was applied.
 Mention denied or unavailable tools plainly when they affect the answer. Keep the answer concise and operational.
@@ -261,6 +265,47 @@ For operational answers, prefer short markdown sections named Summary, Evidence,
 
 Context:
 ` + string(raw))
+}
+
+func assistantPromptConversationHistory(messages []assistantMessage) []map[string]any {
+	if len(messages) == 0 {
+		return []map[string]any{}
+	}
+	start := len(messages) - assistantPromptHistoryLimit
+	if start < 0 {
+		start = 0
+	}
+	items := make([]map[string]any, 0, len(messages)-start)
+	for _, message := range messages[start:] {
+		role := strings.TrimSpace(message.Role)
+		content := strings.TrimSpace(message.Content)
+		if role == "" || content == "" {
+			continue
+		}
+		item := map[string]any{
+			"role":    role,
+			"content": assistantTruncateHistoryContent(content),
+		}
+		if len(message.ToolCalls) > 0 {
+			item["tool_calls"] = assistantPromptToolCallHistory(message.ToolCalls)
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+func assistantPromptToolCallHistory(toolCalls []assistantToolActivity) []map[string]any {
+	items := make([]map[string]any, 0, len(toolCalls))
+	for _, call := range toolCalls {
+		if strings.TrimSpace(call.Name) == "" {
+			continue
+		}
+		items = append(items, map[string]any{
+			"name":   call.Name,
+			"status": call.Status,
+		})
+	}
+	return items
 }
 
 func assistantLLMPromptToolCalls(toolCalls []assistantToolActivity) []map[string]any {
@@ -329,6 +374,14 @@ func assistantPromptSafeValue(value any) any {
 	default:
 		return value
 	}
+}
+
+func assistantTruncateHistoryContent(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) <= assistantPromptHistoryContentLimit {
+		return value
+	}
+	return value[:assistantPromptHistoryContentLimit] + "...[truncated]"
 }
 
 func assistantTruncateForPrompt(value string) string {

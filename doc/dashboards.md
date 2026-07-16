@@ -122,6 +122,145 @@ series or points, and oversized content before publication is persisted. Chart
 types are `line`, `bar`, `area`, `pie`, and `donut`; `series` blocks support
 line, bar, and area charts.
 
+## Example: Text, List, And Bar Dashboard
+
+This pipeline publishes one dashboard output. The step creates deterministic
+evidence and the final output prompt asks the configured LLM profile to turn
+that evidence into a validated `DashboardSpec`.
+
+```yaml
+name: service-health-dashboard
+version: "1.0"
+description: Publish text, list, and bar-chart status into Engineering Health.
+container_image: alpine:3.20
+llm_profile: standard
+
+steps:
+  - name: collect-evidence
+    script: |
+      cat > dashboard-evidence.json <<'JSON'
+      {
+        "service": "payments-api",
+        "summary": "Payments API is healthy. Build and deploy passed; latency is within target.",
+        "actions": [
+          {"label": "Review slow checkout test", "status": "watch", "tone": "warning"},
+          {"label": "Keep deployment canary at 25 percent for 30 minutes", "status": "open", "tone": "info"},
+          {"label": "Archive successful release notes", "status": "done", "tone": "success"}
+        ],
+        "stage_results": [
+          {"label": "build", "value": 42},
+          {"label": "test", "value": 39},
+          {"label": "deploy", "value": 37}
+        ]
+      }
+      JSON
+      cat dashboard-evidence.json
+
+output:
+  items:
+    - name: service-health-widgets
+      type: dashboard
+      when: always
+      dashboard:
+        ref: platform/engineering-health
+        section: service-health
+        entry_key: payments-api
+        mode: replace
+        preset: auto
+        ttl: 7d
+      prompt: |
+        Create a DashboardSpec JSON object for payments-api using the run
+        evidence. Include exactly these blocks:
+        - one text block titled Summary
+        - one list block titled Next actions
+        - one bar chart block titled Stage throughput
+        Do not include Markdown, HTML, CSS, JavaScript, or fields outside the
+        DashboardSpec schema.
+```
+
+The dashboard itself can be managed by GitOps under
+`dashboards/platform/engineering-health.yaml`:
+
+```yaml
+title: Engineering Health
+description: Team-owned operational health view for deployment and service status.
+visibility: team
+
+sections:
+  - section_key: service-health
+    title: Service Health
+    description: Current service status, actions, and stage throughput.
+    display_order: 10
+    layout:
+      columns: 2
+
+sources:
+  - section_key: service-health
+    pipeline_id: service-health-dashboard
+    output_name: service-health-widgets
+    entry_key: payments-api
+    enabled: true
+    required_for_refresh: true
+    refresh_order: 10
+
+refresh_schedules:
+  - name: Hourly service health
+    cron_expression: "0 * * * *"
+    timezone: Europe/Amsterdam
+    enabled: true
+    scope:
+      type: section
+      section_key: service-health
+    mode: best_effort
+    timeout: 45m
+    max_concurrency: 2
+```
+
+A valid `DashboardSpec` produced by that pipeline would look like this:
+
+```json
+{
+  "version": "1",
+  "title": "Payments API service health",
+  "blocks": [
+    {
+      "type": "text",
+      "title": "Summary",
+      "text": "Payments API is healthy. Build and deploy passed; latency is within target."
+    },
+    {
+      "type": "list",
+      "title": "Next actions",
+      "items": [
+        { "label": "Review slow checkout test", "status": "watch", "tone": "warning" },
+        { "label": "Keep deployment canary at 25 percent for 30 minutes", "status": "open", "tone": "info" },
+        { "label": "Archive successful release notes", "status": "done", "tone": "success" }
+      ]
+    },
+    {
+      "type": "chart",
+      "title": "Stage throughput",
+      "chart": {
+        "type": "bar",
+        "unit": "runs",
+        "missing_values": "zero",
+        "series": [
+          {
+            "key": "stage-throughput",
+            "label": "Successful runs",
+            "points": [
+              { "label": "build", "value": 42 },
+              { "label": "test", "value": 39 },
+              { "label": "deploy", "value": 37 }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
+```
+
 ## REST API
 
 Dashboard management:

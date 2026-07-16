@@ -11,7 +11,6 @@ func assistantUsageForUserMessage(content string) assistantMessageUsage {
 	tokens := assistantEstimateTokenCount(content)
 	return normalizeAssistantMessageUsage(content, assistantMessageUsage{
 		ContentTokens: tokens,
-		TotalTokens:   tokens,
 		Estimated:     tokens > 0,
 	})
 }
@@ -21,9 +20,17 @@ func assistantUsageForAssistantReply(content string, toolCalls []assistantToolAc
 		ContentTokens: assistantEstimateTokenCount(content),
 		DurationMS:    assistantDurationMilliseconds(duration),
 	}
+	missingSuccessfulLLMUsage := false
 	for _, call := range toolCalls {
+		if !assistantIsLLMToolCall(call) {
+			continue
+		}
 		callUsage, ok := assistantLLMUsageFromToolCall(call)
 		if !ok {
+			if call.Status == assistantToolStatusSuccess {
+				missingSuccessfulLLMUsage = true
+				usage.LLMCalls++
+			}
 			continue
 		}
 		usage.PromptTokens += callUsage.PromptTokens
@@ -32,7 +39,7 @@ func assistantUsageForAssistantReply(content string, toolCalls []assistantToolAc
 		usage.LLMCalls++
 		usage.Estimated = usage.Estimated || callUsage.Estimated
 	}
-	if usage.PromptTokens == 0 && usage.CompletionTokens == 0 && usage.TotalTokens == 0 {
+	if missingSuccessfulLLMUsage && usage.PromptTokens == 0 && usage.CompletionTokens == 0 && usage.TotalTokens == 0 {
 		usage.CompletionTokens = usage.ContentTokens
 		usage.TotalTokens = usage.ContentTokens
 		usage.Estimated = usage.ContentTokens > 0
@@ -40,8 +47,12 @@ func assistantUsageForAssistantReply(content string, toolCalls []assistantToolAc
 	return normalizeAssistantMessageUsage(content, usage)
 }
 
+func assistantIsLLMToolCall(call assistantToolActivity) bool {
+	return call.Name == assistantLLMPlannerToolName || call.Name == assistantLLMToolName
+}
+
 func assistantLLMUsageFromToolCall(call assistantToolActivity) (assistantMessageUsage, bool) {
-	if call.Name != assistantLLMPlannerToolName && call.Name != assistantLLMToolName {
+	if !assistantIsLLMToolCall(call) {
 		return assistantMessageUsage{}, false
 	}
 	switch usage := call.Output["usage"].(type) {

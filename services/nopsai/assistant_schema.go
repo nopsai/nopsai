@@ -41,6 +41,22 @@ var assistantSchemaStatements = []string{
 	`ALTER TABLE assistant_messages ADD COLUMN IF NOT EXISTS usage_estimated BOOLEAN NOT NULL DEFAULT FALSE`,
 	`ALTER TABLE assistant_messages ADD COLUMN IF NOT EXISTS duration_ms BIGINT NOT NULL DEFAULT 0`,
 	`ALTER TABLE assistant_messages ADD COLUMN IF NOT EXISTS llm_calls INTEGER NOT NULL DEFAULT 0`,
+	`UPDATE assistant_messages
+	 SET total_tokens = 0
+	 WHERE role = 'user'
+	   AND prompt_tokens = 0
+	   AND completion_tokens = 0
+	   AND llm_calls = 0
+	   AND total_tokens = content_tokens`,
+	`UPDATE assistant_messages
+	 SET completion_tokens = 0,
+	     total_tokens = 0
+	 WHERE role = 'assistant'
+	   AND prompt_tokens = 0
+	   AND llm_calls = 0
+	   AND usage_estimated = TRUE
+	   AND completion_tokens = total_tokens
+	   AND total_tokens = content_tokens`,
 	`CREATE INDEX IF NOT EXISTS idx_assistant_messages_conversation_created ON assistant_messages(conversation_id, created_at ASC)`,
 	`CREATE TABLE IF NOT EXISTS assistant_conversation_memory (
 		conversation_id UUID PRIMARY KEY REFERENCES assistant_conversations(id) ON DELETE CASCADE,

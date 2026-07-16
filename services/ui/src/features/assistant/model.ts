@@ -337,7 +337,7 @@ export function assistantConversationUsageLabel(conversation: AssistantConversat
   const usage = conversation?.usage || emptyAssistantConversationUsage;
   if (!conversation || usage.message_count === 0) return 'No usage recorded yet';
   const parts = [
-    `${formatAssistantNumber(usage.total_tokens)} tokens`,
+    `${formatAssistantNumber(usage.total_tokens)} LLM token${usage.total_tokens === 1 ? '' : 's'}`,
     `${usage.message_count} message${usage.message_count === 1 ? '' : 's'}`,
   ];
   if (usage.duration_ms > 0) parts.push(formatAssistantDuration(usage.duration_ms));

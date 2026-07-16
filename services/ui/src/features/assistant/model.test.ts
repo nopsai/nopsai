@@ -57,7 +57,7 @@ describe('assistant model', () => {
     assert.equal(conversation.messages[0].tool_calls[0].input.run_id, 'run-1');
     assert.equal(conversation.messages[0].tool_calls[0].output.status, 'failure');
     assert.equal(assistantMessageUsageLabel(conversation.messages[0]), '14 LLM tokens · 1.2s');
-    assert.equal(assistantConversationUsageLabel(conversation), '14 tokens · 1 message · 1.2s');
+    assert.equal(assistantConversationUsageLabel(conversation), '14 LLM tokens · 1 message · 1.2s');
   });
 
   it('normalizes list and message response payloads', () => {
