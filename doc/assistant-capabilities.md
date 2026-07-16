@@ -263,13 +263,14 @@ Main MCP coverage: `nopsai.get_feature_capabilities`,
 
 ### Documentation And Knowledge Search
 
-The assistant can search NopsAI docs, read documentation resources, list managed
-knowledge contexts, read knowledge documents, and traverse the knowledge refs
-attached to a pipeline.
+The assistant can search NopsAI product docs, read documentation resources,
+list managed knowledge contexts, read knowledge documents, and traverse the
+knowledge refs attached to a pipeline.
 
 Ask:
 
 - "Search the docs for external trigger configuration."
+- "I need a working pipeline example that sends data to a dashboard."
 - "Read the knowledge context named `release-policy`."
 - "Do we have any env exposure policy in knowledge context?"
 - "Show all knowledge docs available to this pipeline."
