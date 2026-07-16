@@ -35,6 +35,7 @@ function renderDetail(overrides: Partial<Parameters<typeof KnowledgeContextDetai
     saving: false,
     syncing: false,
     connections: [],
+    teamOptions: ['platform', 'security'],
     onBackToList: vi.fn(),
     onCopy: vi.fn(),
     onDownload: vi.fn(),
@@ -75,9 +76,14 @@ describe('KnowledgeContextDetailView', () => {
     expect(screen.queryByText('Content Preview')).not.toBeInTheDocument();
     expect(screen.queryByText(/Identity/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'Access' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'GitOps' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Actions' }));
     expect(screen.getByRole('button', { name: 'Access' })).toBeVisible();
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole('button', { name: 'Access' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions' }));
     fireEvent.click(screen.getByRole('button', { name: 'Export' }));
     fireEvent.click(screen.getByRole('button', { name: 'Clone' }));
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
@@ -91,9 +97,6 @@ describe('KnowledgeContextDetailView', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Usage' }));
     expect(screen.getByText('Recent Usage')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'platform/deploy' }));
-
-    fireEvent.click(screen.getByRole('tab', { name: 'GitOps' }));
-    expect(screen.getByText('Database')).toBeVisible();
 
     expect(props.onCopy).toHaveBeenCalledOnce();
     expect(props.onDownload).toHaveBeenCalledOnce();
@@ -110,12 +113,16 @@ describe('KnowledgeContextDetailView', () => {
     });
 
     fireEvent.click(screen.getByRole('tab', { name: 'Overview' }));
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'restart-v2' } });
+    fireEvent.change(screen.getByLabelText('Team'), { target: { value: 'security' } });
     fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Updated description' } });
     fireEvent.click(screen.getByRole('tab', { name: 'Content' }));
     fireEvent.change(screen.getByLabelText('Content'), { target: { value: '# Updated' } });
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
+    expect(props.onDetailPatch).toHaveBeenCalledWith({ name: 'restart-v2' });
+    expect(props.onDetailPatch).toHaveBeenCalledWith({ team: 'security' });
     expect(props.onDescriptionChange).toHaveBeenCalledWith('Updated description');
     expect(props.onContentChange).toHaveBeenCalledWith('# Updated');
     expect(props.onDiscardEditing).toHaveBeenCalledOnce();

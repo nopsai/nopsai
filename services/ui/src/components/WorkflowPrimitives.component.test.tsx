@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Check, Plus } from 'lucide-react';
 import { expect, test, vi } from 'vitest';
@@ -55,6 +55,22 @@ test('frames dialogs with labels, modal semantics, focus trapping, and Escape cl
   await user.keyboard('{Escape}');
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   expect(opener).toHaveFocus();
+  expect(onClose).toHaveBeenCalledOnce();
+});
+
+test('closes shared dialogs when the backdrop is clicked', async () => {
+  const user = userEvent.setup();
+  const onClose = vi.fn();
+  render(<DialogHarness onClose={onClose} />);
+
+  await user.click(screen.getByRole('button', { name: 'Open dialog' }));
+  const dialog = screen.getByRole('dialog', { name: 'Shared primitive' });
+  const backdrop = dialog.parentElement;
+  expect(backdrop).not.toBeNull();
+
+  fireEvent.pointerDown(backdrop!);
+
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   expect(onClose).toHaveBeenCalledOnce();
 });
 

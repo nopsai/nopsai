@@ -12887,6 +12887,12 @@ html.dark [data-page="knowledge-context"] .kc-demo-tabs {
     gap: 0.8rem;
 }
 
+[data-page="knowledge-context"] .kc-demo-edit-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
 [data-page="knowledge-context"] .kc-demo-edit-stack label {
     display: grid;
     gap: 0.35rem;
@@ -12895,11 +12901,11 @@ html.dark [data-page="knowledge-context"] .kc-demo-tabs {
     font-weight: 760;
 }
 
+[data-page="knowledge-context"] .kc-demo-edit-stack input,
+[data-page="knowledge-context"] .kc-demo-edit-stack select,
 [data-page="knowledge-context"] .kc-demo-edit-stack textarea,
 [data-page="knowledge-context"] .kc-external-settings input,
 [data-page="knowledge-context"] .kc-external-settings select {
-    min-height: 6rem;
-    resize: vertical;
     border: 1px solid #e5e7eb;
     border-radius: 8px;
     background: #fff;
@@ -12908,6 +12914,16 @@ html.dark [data-page="knowledge-context"] .kc-demo-tabs {
     font-size: 0.86rem;
     line-height: 1.5;
     padding: 0.7rem;
+}
+
+[data-page="knowledge-context"] .kc-demo-edit-stack input,
+[data-page="knowledge-context"] .kc-demo-edit-stack select {
+    min-height: 2.5rem;
+}
+
+[data-page="knowledge-context"] .kc-demo-edit-stack textarea {
+    min-height: 6rem;
+    resize: vertical;
 }
 
 [data-page="knowledge-context"] .kc-external-settings {
@@ -12979,6 +12995,8 @@ html.dark [data-page="knowledge-context"] .kc-demo-table-empty span {
 html.dark [data-page="knowledge-context"] .kc-demo-mini,
 html.dark [data-page="knowledge-context"] .kc-demo-table-empty,
 html.dark [data-page="knowledge-context"] .kc-demo-detail-empty,
+html.dark [data-page="knowledge-context"] .kc-demo-edit-stack input,
+html.dark [data-page="knowledge-context"] .kc-demo-edit-stack select,
 html.dark [data-page="knowledge-context"] .kc-demo-edit-stack textarea,
 html.dark [data-page="knowledge-context"] .kc-external-settings input,
 html.dark [data-page="knowledge-context"] .kc-external-settings select,
@@ -14093,6 +14111,17 @@ html.dark [data-page="knowledge-context"] .kc-demo-tree-row-wrap.active {
     box-shadow: 0 18px 36px rgba(0, 0, 0, 0.28);
 }
 
+[data-page="knowledge-context"] .kc-doc-actions-popover--row {
+    min-width: 190px;
+}
+
+[data-page="knowledge-context"] .kc-doc-actions-popover--portal {
+    position: fixed;
+    z-index: 90;
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
+}
+
 [data-page="knowledge-context"] .kc-doc-menu-item {
     display: flex;
     align-items: center;
@@ -14317,6 +14346,7 @@ html.dark [data-page="knowledge-context"] .kc-demo-tree-row-wrap.active {
 
     [data-page="knowledge-context"] .kc-demo-stats,
     [data-page="knowledge-context"] .kc-demo-top-grid,
+    [data-page="knowledge-context"] .kc-demo-edit-grid,
     [data-page="knowledge-context"] .kc-demo-kv,
     [data-page="knowledge-context"] .kc-demo-resource-cards,
     [data-page="knowledge-context"] .kc-demo-resource-cards--providers {

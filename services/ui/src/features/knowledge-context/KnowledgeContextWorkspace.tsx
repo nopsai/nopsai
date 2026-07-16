@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BookOpenText, ChevronRight, Filter, FolderTree, GitBranch, Link2, MoreHorizontal, Plus, Search, UsersRound } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { BookOpenText, ChevronRight, Download, Edit3, ExternalLink, Filter, FolderTree, GitBranch, Link2, MoreHorizontal, Plus, RotateCw, Search, Trash2, UsersRound } from 'lucide-react';
 
+import ResourceAccessCard from '../../components/ResourceAccessCard';
 import { ObjectIcon } from '../../components/ObjectIcon';
 import { TreeColumnResizeHandle, useResizableTreeColumn } from '../../components/resizableTreeColumn';
+import { useOutsideDismiss } from '../../components/useOutsideDismiss';
 import { KnowledgeContextConnectionsView } from './KnowledgeContextConnectionsView';
 import { KnowledgeContextDetailView, type KnowledgeContextDetailViewProps } from './KnowledgeContextDetailView';
 import {
@@ -51,6 +54,11 @@ type KnowledgeContextWorkspaceProps = {
   onOpenTeam: (team: string) => void;
   onSelectConnectionTeam: (team: string) => void;
   onSelectDocument: (id: string) => void;
+  onDownloadDocument: (document: KnowledgeContextListItem) => void;
+  onSyncDocument: (document: KnowledgeContextListItem) => void;
+  onEditDocument: (document: KnowledgeContextListItem) => void;
+  onCloneDocument: (document: KnowledgeContextListItem) => void;
+  onAccessChange: (access: { resource_id?: string; visibility?: string }) => void;
   onDeleteDocument: (document: KnowledgeContextListItem) => void;
   onCreateDocument: () => void;
   onAddConnection: (teamPath: string) => void;
@@ -91,6 +99,11 @@ export function KnowledgeContextWorkspace({
   onOpenTeam,
   onSelectConnectionTeam,
   onSelectDocument,
+  onDownloadDocument,
+  onSyncDocument,
+  onEditDocument,
+  onCloneDocument,
+  onAccessChange,
   onDeleteDocument,
   onCreateDocument,
   onAddConnection,
@@ -261,7 +274,13 @@ export function KnowledgeContextWorkspace({
             listLoading={listLoading}
             listError={listError}
             canDeleteKnowledge={canDeleteKnowledge}
+            canWriteKnowledge={canWriteKnowledge}
             onSelectDocument={onSelectDocument}
+            onDownloadDocument={onDownloadDocument}
+            onSyncDocument={onSyncDocument}
+            onEditDocument={onEditDocument}
+            onCloneDocument={onCloneDocument}
+            onAccessChange={onAccessChange}
             onDeleteDocument={onDeleteDocument}
           />
         )}
@@ -554,7 +573,13 @@ function KnowledgeDocumentCollection({
   listLoading,
   listError,
   canDeleteKnowledge,
+  canWriteKnowledge,
   onSelectDocument,
+  onDownloadDocument,
+  onSyncDocument,
+  onEditDocument,
+  onCloneDocument,
+  onAccessChange,
   onDeleteDocument,
 }: {
   documents: KnowledgeContextListItem[];
@@ -562,7 +587,13 @@ function KnowledgeDocumentCollection({
   listLoading: boolean;
   listError: string | null;
   canDeleteKnowledge: boolean;
+  canWriteKnowledge: boolean;
   onSelectDocument: (id: string) => void;
+  onDownloadDocument: (document: KnowledgeContextListItem) => void;
+  onSyncDocument: (document: KnowledgeContextListItem) => void;
+  onEditDocument: (document: KnowledgeContextListItem) => void;
+  onCloneDocument: (document: KnowledgeContextListItem) => void;
+  onAccessChange: (access: { resource_id?: string; visibility?: string }) => void;
   onDeleteDocument: (document: KnowledgeContextListItem) => void;
 }) {
   const sortedDocuments = [...documents].sort(
@@ -655,13 +686,18 @@ function KnowledgeDocumentCollection({
                       </td>
                       <td><span className="kc-demo-mono">{usedByCount ? `${usedByCount} ${usedByCount === 1 ? 'pipeline' : 'pipelines'}` : 'None'}</span></td>
                       <td>
-                        <div className="kc-demo-row-actions">
-                          {canDeleteKnowledge ? (
-                            <button type="button" className="kc-demo-kebab-btn" aria-label={`Delete ${document.name}`} onClick={() => onDeleteDocument(document)}>
-                              <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
-                            </button>
-                          ) : null}
-                        </div>
+                        <KnowledgeDocumentRowActions
+                          document={document}
+                          canWriteKnowledge={canWriteKnowledge}
+                          canDeleteKnowledge={canDeleteKnowledge}
+                          onSelectDocument={onSelectDocument}
+                          onDownloadDocument={onDownloadDocument}
+                          onSyncDocument={onSyncDocument}
+                          onEditDocument={onEditDocument}
+                          onCloneDocument={onCloneDocument}
+                          onAccessChange={onAccessChange}
+                          onDeleteDocument={onDeleteDocument}
+                        />
                       </td>
                     </tr>
                   );
@@ -678,6 +714,149 @@ function KnowledgeDocumentCollection({
         )}
       </div>
     </section>
+  );
+}
+
+function KnowledgeDocumentRowActions({
+  document: item,
+  canWriteKnowledge,
+  canDeleteKnowledge,
+  onSelectDocument,
+  onDownloadDocument,
+  onSyncDocument,
+  onEditDocument,
+  onCloneDocument,
+  onAccessChange,
+  onDeleteDocument,
+}: {
+  document: KnowledgeContextListItem;
+  canWriteKnowledge: boolean;
+  canDeleteKnowledge: boolean;
+  onSelectDocument: (id: string) => void;
+  onDownloadDocument: (document: KnowledgeContextListItem) => void;
+  onSyncDocument: (document: KnowledgeContextListItem) => void;
+  onEditDocument: (document: KnowledgeContextListItem) => void;
+  onCloneDocument: (document: KnowledgeContextListItem) => void;
+  onAccessChange: (access: { resource_id?: string; visibility?: string }) => void;
+  onDeleteDocument: (document: KnowledgeContextListItem) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<{ top: number; right: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const menuID = `knowledge-row-actions-${item.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+  const itemLabel = item.name || item.id;
+  const isExternal = isExternalKnowledgeDocument(item);
+  const portalHost = typeof document === 'undefined' ? null : document.querySelector('[data-page="knowledge-context"]') || document.body;
+  const closeMenu = () => setOpen(false);
+
+  const updatePosition = () => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const estimatedMenuHeight = 300;
+    const belowTop = rect.bottom + 8;
+    const top = belowTop + estimatedMenuHeight > window.innerHeight
+      ? Math.max(8, rect.top - estimatedMenuHeight - 8)
+      : belowTop;
+    setPosition({
+      top,
+      right: Math.max(8, window.innerWidth - rect.right),
+    });
+  };
+
+  useOutsideDismiss([triggerRef, menuRef], open, closeMenu, { ignore: ['#resource-access-modal'] });
+
+  useEffect(() => {
+    if (!open) return undefined;
+    updatePosition();
+    const handleReposition = () => updatePosition();
+    window.addEventListener('resize', handleReposition);
+    window.addEventListener('scroll', handleReposition, true);
+    return () => {
+      window.removeEventListener('resize', handleReposition);
+      window.removeEventListener('scroll', handleReposition, true);
+    };
+  }, [open]);
+
+  const runAction = (action: () => void) => {
+    closeMenu();
+    action();
+  };
+
+  const menu = open && position ? (
+    <div
+      ref={menuRef}
+      id={menuID}
+      className="kc-doc-actions-popover kc-doc-actions-popover--row kc-doc-actions-popover--portal"
+      aria-label={`${itemLabel} actions`}
+      style={{ top: position.top, right: position.right }}
+    >
+      <button type="button" className="kc-doc-menu-item kc-doc-menu-item--primary" onClick={() => runAction(() => onSelectDocument(item.id))}>
+        <BookOpenText className="h-4 w-4" aria-hidden="true" />
+        Open
+      </button>
+      <ResourceAccessCard
+        resourceType="knowledge_context"
+        resourceID={item.id}
+        label="knowledge context"
+        buttonClassName="kc-doc-menu-item"
+        onAccessChange={onAccessChange}
+        onDialogClose={closeMenu}
+      />
+      <button type="button" className="kc-doc-menu-item" onClick={() => runAction(() => onDownloadDocument(item))}>
+        <Download className="h-4 w-4" aria-hidden="true" />
+        Export
+      </button>
+      {isExternal && item.external_page_url ? (
+        <a className="kc-doc-menu-item" href={item.external_page_url} target="_blank" rel="noreferrer" onClick={closeMenu}>
+          <ExternalLink className="h-4 w-4" aria-hidden="true" />
+          Open page
+        </a>
+      ) : null}
+      {isExternal ? (
+        <button type="button" className="kc-doc-menu-item" onClick={() => runAction(() => onSyncDocument(item))}>
+          <RotateCw className="h-4 w-4" aria-hidden="true" />
+          Sync now
+        </button>
+      ) : null}
+      {canWriteKnowledge ? (
+        <button type="button" className="kc-doc-menu-item kc-doc-menu-item--primary" onClick={() => runAction(() => onEditDocument(item))}>
+          <Edit3 className="h-4 w-4" aria-hidden="true" />
+          Edit
+        </button>
+      ) : null}
+      {canWriteKnowledge ? (
+        <button type="button" className="kc-doc-menu-item" onClick={() => runAction(() => onCloneDocument(item))}>
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          Clone
+        </button>
+      ) : null}
+      {canDeleteKnowledge ? (
+        <button type="button" className="kc-doc-menu-item kc-doc-menu-item--danger" onClick={() => runAction(() => onDeleteDocument(item))}>
+          <Trash2 className="h-4 w-4" aria-hidden="true" />
+          Delete
+        </button>
+      ) : null}
+    </div>
+  ) : null;
+
+  return (
+    <div className="kc-demo-row-actions">
+      <button
+        ref={triggerRef}
+        type="button"
+        className="kc-demo-kebab-btn"
+        aria-label={`Actions for ${itemLabel}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuID : undefined}
+        onClick={() => setOpen(current => !current)}
+      >
+        <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+      </button>
+      {menu && portalHost ? createPortal(menu, portalHost) : null}
+    </div>
   );
 }
 

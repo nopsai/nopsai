@@ -42,6 +42,18 @@ describe('ProductDocsPage', () => {
     expect(screen.queryByRole('button', { name: /First-Install Wizard/ })).not.toBeInTheDocument();
   });
 
+  it('explains step-level llm_profile directives through search', async () => {
+    const user = userEvent.setup();
+    render(<ProductDocsPage />);
+
+    await user.type(screen.getByLabelText(/Search wiki pages/), 'steps[].llm_profile');
+    await user.click(screen.getByRole('button', { name: /Step and Task Directives/ }));
+
+    expect(screen.getByRole('heading', { name: 'Step and Task Directives' })).toBeVisible();
+    expect(screen.getByText('steps[].llm_profile')).toBeVisible();
+    expect(screen.getByText(/selects the LLM provider\/model/)).toBeVisible();
+  });
+
   it('surfaces known implementation limits as wiki boundaries', async () => {
     const user = userEvent.setup();
     render(<ProductDocsPage />);

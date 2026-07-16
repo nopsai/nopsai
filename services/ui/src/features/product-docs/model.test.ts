@@ -15,7 +15,7 @@ test('summarizes the product wiki and keeps a stable first article', () => {
   const summary = summarizeWiki();
 
   assert.equal(summary.sections, 8);
-  assert.equal(summary.articles, 32);
+  assert.equal(summary.articles, 33);
   assert.ok(summary.configKeys > 20);
   assert.ok(summary.runbooks > 20);
   assert.equal(getFirstWikiArticleID(), 'what-nopsai-is');
@@ -45,4 +45,12 @@ test('does not expose removed aspirational deployment config keys', () => {
   assert.equal(configKeys.includes('NOPS_PUBLIC_URL'), false);
   assert.ok(configKeys.includes('DATABASE_URL'));
   assert.ok(configKeys.includes('DISPATCHER_GRPC_ADDRESS'));
+});
+
+test('documents step-level LLM profile directives', () => {
+  const article = findWikiArticle(wikiSections, 'step-task-directives');
+  assert.ok(article);
+  assert.ok(article.keyFacts.some(fact => fact.includes('steps[].llm_profile')));
+  assert.ok(article.configRows.some(row => row.key === 'steps[].llm_profile' && row.description.includes('provider/model')));
+  assert.ok(article.configRows.some(row => row.key === 'tasks[].llm_profile'));
 });

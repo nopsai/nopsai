@@ -30,6 +30,7 @@ const documents: KnowledgeContextListItem[] = [
     name: 'access',
     visibility: 'restricted',
     source: 'confluence-page',
+    external_page_url: 'https://example.test/wiki/access',
     used_by_count: 2,
   },
 ];
@@ -70,6 +71,7 @@ function renderWorkspace(overrides: Partial<Parameters<typeof KnowledgeContextWo
       saving: false,
       syncing: false,
       connections: [],
+      teamOptions: ['platform', 'security'],
       onBackToList: vi.fn(),
       onCopy: vi.fn(),
       onDownload: vi.fn(),
@@ -94,6 +96,11 @@ function renderWorkspace(overrides: Partial<Parameters<typeof KnowledgeContextWo
     onOpenTeam: vi.fn(),
     onSelectConnectionTeam: vi.fn(),
     onSelectDocument: vi.fn(),
+    onDownloadDocument: vi.fn(),
+    onSyncDocument: vi.fn(),
+    onEditDocument: vi.fn(),
+    onCloneDocument: vi.fn(),
+    onAccessChange: vi.fn(),
     onDeleteDocument: vi.fn(),
     onCreateDocument: vi.fn(),
     onAddConnection: vi.fn(),
@@ -132,6 +139,51 @@ describe('KnowledgeContextWorkspace', () => {
     expect(props.onOpenTeam).toHaveBeenCalledWith('runbook');
     expect(props.onCreateDocument).toHaveBeenCalledOnce();
     expect(props.onSelectDocument).toHaveBeenCalledWith('runbook/platform/restart');
+  });
+
+  it('opens document row actions before deleting and dismisses on outside click', () => {
+    const props = renderWorkspace();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for restart' }));
+    expect(screen.getByRole('button', { name: 'Open' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Access' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Export' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Clone' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeVisible();
+
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for restart' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+    expect(props.onDownloadDocument).toHaveBeenCalledWith(documents[0]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for restart' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(props.onEditDocument).toHaveBeenCalledWith(documents[0]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for restart' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Clone' }));
+    expect(props.onCloneDocument).toHaveBeenCalledWith(documents[0]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for restart' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    expect(props.onDeleteDocument).toHaveBeenCalledWith(documents[0]);
+    expect(props.onSelectDocument).not.toHaveBeenCalled();
+  });
+
+  it('shows external page row actions when provider metadata is available', () => {
+    const props = renderWorkspace();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for access' }));
+    expect(screen.getByRole('link', { name: 'Open page' })).toHaveAttribute('href', 'https://example.test/wiki/access');
+    expect(screen.getByRole('button', { name: 'Sync now' })).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sync now' }));
+
+    expect(props.onSyncDocument).toHaveBeenCalledWith(documents[1]);
   });
 
   it('uses the shared resizable tree column behavior', () => {

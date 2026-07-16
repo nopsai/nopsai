@@ -23,7 +23,13 @@ export function WorkflowDialogFrame({
   const dialogRef = useDialogFocus(onClose);
 
   return (
-    <div id={id} className={overlayClassName}>
+    <div
+      id={id}
+      className={overlayClassName}
+      onPointerDown={event => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <div
         ref={dialogRef}
         className={className}

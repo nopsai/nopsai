@@ -117,9 +117,10 @@ commands, toast/live-region feedback, editor autocomplete, graph controls, or
 log dialogs, keep the shared primitives in `services/ui/src/components` as the
 default starting point. Component tests should cover accessible names,
 descriptions, validation announcements, focus trap behavior, Escape close, Tab
-order, and focus restoration. The mocked Playwright suite is the release gate
-for serious/critical axe violations across login, authenticated workspace,
-workflow dialogs, editor autocomplete, graph interaction, and populated logs.
+order, outside-click dismissal for transient dialogs/lists, and focus
+restoration. The mocked Playwright suite is the release gate for
+serious/critical axe violations across login, authenticated workspace, workflow
+dialogs, editor autocomplete, graph interaction, and populated logs.
 
 Set `SKIP_DOCKER_BUILDS=1` when validating Go/lint/security gates without
 local Docker builds.

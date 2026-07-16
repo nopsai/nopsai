@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   buildKnowledgeConnectionTeamSummaries,
+  buildKnowledgeTeamOptions,
   buildKnowledgeTree,
   collectKnowledgeTeamDocs,
   decodeKnowledgeRouteID,
@@ -47,6 +48,21 @@ test('builds knowledge trees with empty enterprise team teams', () => {
     runbooks?.children.find(child => child.name === 'platform')?.children.find(child => child.name === 'security')?.docs.length,
     0
   );
+});
+
+test('builds knowledge team options from resource teams and existing resources', () => {
+  assert.deepEqual(
+    buildKnowledgeTeamOptions({
+      activeTeam: 'runbook/platform',
+      activeConnectionTeam: 'security',
+      resourceTeamPaths: ['payments/api', 'platform'],
+      items: [{ team: 'docs' }],
+      connections: [{ team: 'wiki' }],
+    }),
+    ['docs', 'payments/api', 'platform', 'security', 'wiki']
+  );
+  assert.deepEqual(buildKnowledgeTeamOptions({ fallbackTeam: 'starter' }), ['starter']);
+  assert.deepEqual(buildKnowledgeTeamOptions({}), []);
 });
 
 test('extracts preview content and document parameters', () => {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AlertTriangle, GitBranch, Plus, RefreshCw, Trash2, Users, X } from 'lucide-react';
 
 import { apiClient } from '../lib/api';
@@ -54,6 +55,7 @@ type ResourceAccessCardProps = {
   buttonClassName?: string;
   iconOnly?: boolean;
   onAccessChange?: (access: ResourceAccess) => void;
+  onDialogClose?: () => void;
 };
 
 type TeamOption = {
@@ -142,6 +144,7 @@ export default function ResourceAccessCard({
   buttonClassName = 'glass-button-ghost',
   iconOnly = false,
   onAccessChange,
+  onDialogClose,
 }: ResourceAccessCardProps) {
   const [open, setOpen] = useState(false);
   const [access, setAccess] = useState<ResourceAccess | null>(null);
@@ -158,7 +161,11 @@ export default function ResourceAccessCard({
   const endpoint = useMemo(() => encodeResourcePath(resourceType, resourceID), [resourceType, resourceID]);
   const grants = access?.use_access?.grants || [];
   const showGrantControls = access?.visibility === 'restricted' || grants.length > 0;
-  const closeDialog = useCallback(() => setOpen(false), []);
+  const portalHost = typeof document === 'undefined' ? null : document.body;
+  const closeDialog = useCallback(() => {
+    setOpen(false);
+    onDialogClose?.();
+  }, [onDialogClose]);
   const dialogRef = useDialogFocus(closeDialog, open);
 
   const loadAccess = useCallback(async () => {
@@ -302,13 +309,25 @@ export default function ResourceAccessCard({
 
   return (
     <>
-      <button className={buttonClassName} type="button" onClick={() => setOpen(true)} title={openerLabel} aria-label={iconOnly ? openerLabel : undefined}>
+      <button
+        className={buttonClassName}
+        type="button"
+        onClick={() => setOpen(true)}
+        title={openerLabel}
+        aria-label={iconOnly ? openerLabel : undefined}
+      >
         <Users className="h-4 w-4" aria-hidden="true" />
         <span className={iconOnly ? 'sr-only' : undefined}>{openerLabel}</span>
       </button>
 
-      {open ? (
-        <div id="resource-access-modal" className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show px-4 py-6">
+      {open && portalHost ? createPortal(
+        <div
+          id="resource-access-modal"
+          className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-50 show px-4 py-6"
+          onPointerDown={event => {
+            if (!saving && event.target === event.currentTarget) closeDialog();
+          }}
+        >
           <div
             ref={dialogRef}
             className="pipelines-modal-card max-w-2xl w-full overflow-hidden"
@@ -490,7 +509,8 @@ export default function ResourceAccessCard({
               ) : null}
             </div>
           </div>
-        </div>
+        </div>,
+        portalHost
       ) : null}
     </>
   );
