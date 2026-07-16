@@ -67,6 +67,11 @@ runbooks should be structured objects, not plain strings, so the UI can render
 purpose, access, checks, diagnostics, and escalation consistently. Source
 evidence renders as non-clickable repository paths.
 
+The in-app wiki route is rendered inside the authenticated app shell. When a
+user changes articles or topics without a hash anchor, the page must restore
+`#page-content-wrapper` to the top so the next article never inherits the prior
+article's scroll position.
+
 ## Wiki Sections
 
 The in-app wiki is organized for operators and enterprise users rather than as

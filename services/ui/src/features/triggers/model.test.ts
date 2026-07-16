@@ -12,6 +12,7 @@ import {
   triggerBelongsToOwner,
   triggerIngressLabel,
   triggerManagementLabel,
+  triggerScopesLabel,
   triggerDetailsFormFromYaml,
   triggerDetailsWithProvider,
   triggerTeamLabel,
@@ -53,6 +54,7 @@ test('normalizes trigger lists and default pipeline paths', () => {
     webhook_source_id: 'corporate-gitlab',
     webhook_source_name: 'Corporate GitLab',
     allowlist_status: 'allowed',
+    scopes: ['default', 'prod'],
   }]), [{
     slug: 'acme/api',
     source: 'git',
@@ -62,10 +64,12 @@ test('normalizes trigger lists and default pipeline paths', () => {
     webhookSourceID: 'corporate-gitlab',
     webhookSourceName: 'Corporate GitLab',
     allowlistStatus: 'allowed',
+    scopes: ['', 'prod'],
   }]);
   assert.equal(triggerManagementLabel('repository'), 'Repository');
   assert.equal(triggerTeamLabel('root'), 'Workspace');
   assert.equal(triggerAllowlistStatusLabel('allowed'), 'Allowed');
+  assert.equal(triggerScopesLabel(['', 'prod']), 'default, prod');
   assert.equal(triggerIngressLabel({ provider: 'gitlab', webhookSourceName: 'Corporate GitLab' }), 'Corporate GitLab');
 });
 
@@ -111,13 +115,16 @@ test('builds owner-scoped trigger collection metrics', () => {
 
 test('filters trigger list items by query and source label', () => {
   const triggers = [
-    { slug: 'platform/api', source: 'gitops' },
+    { slug: 'platform/api', source: 'gitops', scopes: ['prod'] },
     { slug: 'platform/web', source: 'database' },
     { slug: 'security/audit', source: 'database' },
   ];
 
   assert.deepEqual(filterTriggerListItems(triggers, { query: 'git', source: 'all' }), [
-    { slug: 'platform/api', source: 'gitops' },
+    { slug: 'platform/api', source: 'gitops', scopes: ['prod'] },
+  ]);
+  assert.deepEqual(filterTriggerListItems(triggers, { query: 'prod', source: 'all' }), [
+    { slug: 'platform/api', source: 'gitops', scopes: ['prod'] },
   ]);
   assert.deepEqual(filterTriggerListItems(triggers, { query: 'platform', source: 'database' }), [
     { slug: 'platform/web', source: 'database' },

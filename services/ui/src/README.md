@@ -180,6 +180,13 @@ truth; this file is the source-adjacent placement guide.
   The repository-backed source kind remains `repository` for API/query
   compatibility, but user-facing Pipeline Runs filters and tables present it as
   Application.
+- Pipeline Runs overview table rows stay one-line-per-run: status, run name,
+  repository, 8-character run ID, branch, started, duration, and action
+  controls. Additional diagnostics belong in detail, graph, or feed surfaces.
+- `features/pipeline-runs/runPresentation.ts` owns run timestamp parsing and
+  relative-time labels. UI code must treat Go zero `time.Time` values such as
+  `0001-01-01T00:00:00Z` as unset, show `—` for the Started field, and use
+  valid activity timestamps only for sorting or latest-run summaries.
 - The Pipeline Runs overview `All teams` selection loads the accessible recent
   run list without a `teamId` filter; selecting a specific team/application uses
   the branch-grouped team endpoint.
@@ -264,6 +271,9 @@ truth; this file is the source-adjacent placement guide.
   owns URL selection. Team references that repeat the selected team path are
   normalized for display and create previews without changing the
   GitOps-compatible reference format.
+- Credential catalog rows stay single-line registry entries. Descriptions,
+  parent paths, category hints, and secret metadata belong in the detail drawer
+  or explicit columns, not under the credential name.
 - LLM profiles, agent profiles, and MCP are first-class workspace routes. Their
   model/API/hook/panel code can remain under `features/system` while the route
   wrappers live in `pages/`. Page visibility is topic-level: global system
@@ -273,14 +283,20 @@ truth; this file is the source-adjacent placement guide.
 - `features/system/AIResourcePanel.tsx`, `features/system/AIResourceWorkspace.tsx`,
   `features/system/aiResourcePanel.css`, `features/system/aiResourceTree.ts`,
   and `features/system/aiResourcePresentation.ts` own the shared trigger-style
-  AI resource workspace shell, resizable team tree, inline overview metrics,
-  selected-resource detail mode, search, count, labeled resource rows, compact
-  icon actions, team placement controls, and responsive presentation for LLM,
-  agent, and MCP resource pages. Domain panels still own filtering inputs,
+  AI resource workspace shell, borderless outer workspace frame, resizable team
+  tree, inline overview metrics, selected-resource detail mode, search, count,
+  labeled resource rows, compact icon actions, team placement controls, and
+  responsive presentation for LLM, agent, and MCP resource pages. Domain panels
+  still own filtering inputs,
   mutations, and detail composition, while focused renderers such as
   `MCPViewSwitch.tsx`, `MCPResourceTables.tsx`, and detail helpers such as
   `MCPDetailSection.tsx` own domain-specific tabs, rows, and repeated detail
   structure.
+- AI resource tables keep resource-name cells to primary names only. LLM,
+  Agent, and MCP descriptions, base URLs, transports, and profile notes belong
+  in explicit columns or detail panels; MCP server list scope coverage is shown
+  as allowed scopes. Registry table typography, monospace metadata cells, and
+  status text should stay aligned with the Triggers resource table.
 - Individual LLM profiles, agent profiles, MCP servers, and MCP profiles share
   access through `ResourceAccessCard` with `llm_profile`, `agent_profile`,
   `mcp_server`, and `mcp_profile` resource types.
@@ -318,11 +334,22 @@ truth; this file is the source-adjacent placement guide.
   owns selected document rendering and local detail tabs, and
   `KnowledgeContextModals.tsx` owns document create/clone/delete, external page
   search/preview rendering, and connection create dialogs.
+- Knowledge document collection rows stay single-line name entries; document
+  path and source details remain in table columns or the selected detail panel.
 - Monitoring model rules own metric normalization and display teaming.
 - Schedules model/API files own cron mode normalization, schedule request
   shaping, metadata normalization, and schedule transport.
 - New route-level growth in these areas should first look for a tested
   feature-owned model, API, hook, or presentation boundary.
+
+### Product Docs
+
+- `pages/ProductDocs.tsx` owns documentation route selection, query
+  synchronization, and article scroll restoration. Article/topic changes should
+  scroll the authenticated app content wrapper (`#page-content-wrapper`) when it
+  exists, with `window.scrollTo` kept only as the standalone rendering fallback.
+- Product docs content, search quality, article metadata, and evidence rules
+  remain owned by `features/product-docs`.
 
 ## Accessibility And Test Ownership
 

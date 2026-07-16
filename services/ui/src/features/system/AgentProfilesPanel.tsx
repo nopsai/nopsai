@@ -381,7 +381,6 @@ function AgentProfileTable({
                     </span>
                     <span className="ai-resource-table-resource-name">
                       <strong>{profile.display_name}</strong>
-                      <small>{profile.id}</small>
                     </span>
                   </button>
                 </td>

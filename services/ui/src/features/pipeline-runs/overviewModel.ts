@@ -4,7 +4,9 @@ import {
   formatRepoLabel,
   getRunSourceKind,
   isAppTeam,
+  parseRunTimestamp,
   runMatchesSearch,
+  runStartedTimestamp,
   runTimestamp,
   teamDisplayName,
   teamPathForURL,
@@ -47,11 +49,9 @@ export type PipelineRunNavigationItem = {
 export type PipelineRunTableRow = {
   run: RunListItem;
   pipelineName: string;
-  pipelineMeta: string;
-  scopeName: string;
-  scopeMeta: string;
-  sourceKind: RunSourceKind;
-  sourceLabel: string;
+  repoName: string;
+  branchLabel: string;
+  runID: string;
   status: string;
   statusLabel: string;
   startedLabel: string;
@@ -234,35 +234,19 @@ export function buildPipelineRunTableRows(runs: RunListItem[], limit = 25, now =
     .sort((left, right) => runTimestamp(right) - runTimestamp(left))
     .slice(0, limit)
     .map(run => {
-      const sourceKind = getRunSourceKind(run);
       const status = normalizedRunStatus(run);
       return {
         run,
         pipelineName: run.pipeline_name || 'Pipeline run',
-        pipelineMeta: pipelineMeta(run),
-        scopeName: runScopeName(run),
-        scopeMeta: runScopeMeta(run),
-        sourceKind,
-        sourceLabel: runSourceDisplayLabel(sourceKind),
+        repoName: formatRepoLabel(run),
+        branchLabel: formatPipelineRunBranch(run),
+        runID: formatPipelineRunID(run.run_id),
         status,
         statusLabel: statusDisplayLabel(status),
-        startedLabel: timeAgo(run.started_at || run.finished_at, now),
+        startedLabel: timeAgo(runStartedTimestamp(run), now),
         durationLabel: formatDuration(run),
       };
     });
-}
-
-export function runSourceDisplayLabel(kind: RunSourceKind): string {
-  switch (kind) {
-    case 'repository':
-      return 'Application';
-    case 'schedule':
-      return 'Schedule';
-    case 'external':
-      return 'External';
-    default:
-      return 'Manual';
-  }
 }
 
 function runMatchesStatusFilter(run: RunListItem, filter: PipelineRunStatusFilter): boolean {
@@ -311,11 +295,10 @@ function runDurationSeconds(run: RunListItem): number | null {
 }
 
 function timestampDurationSeconds(start?: string, finish?: string): number | null {
-  if (!start || !finish) return null;
-  const startDate = new Date(start);
-  const finishDate = new Date(finish);
-  if (Number.isNaN(startDate.getTime()) || Number.isNaN(finishDate.getTime())) return null;
-  return Math.max(0, Math.round((finishDate.getTime() - startDate.getTime()) / 1000));
+  const startDate = parseRunTimestamp(start);
+  const finishDate = parseRunTimestamp(finish);
+  if (startDate === null || finishDate === null) return null;
+  return Math.max(0, Math.round((finishDate - startDate) / 1000));
 }
 
 function parseDurationSeconds(value?: string): number | null {
@@ -357,11 +340,14 @@ function formatDurationSeconds(seconds: number): string {
   return `${remainingSeconds}s`;
 }
 
-function pipelineMeta(run: RunListItem): string {
+function formatPipelineRunBranch(run: RunListItem): string {
   const branch = formatBranchDisplay(run.git_ref, run.git_target_ref);
-  const commit = run.git_commit_sha ? run.git_commit_sha.slice(0, 8) : '';
-  const runId = run.run_id ? run.run_id.slice(0, 8) : '';
-  return [branch && branch !== '\u2014' ? branch : '', commit, runId].filter(Boolean).join(' - ') || runId || '-';
+  return branch && branch !== '\u2014' ? branch : '-';
+}
+
+function formatPipelineRunID(runID?: string): string {
+  const normalized = (runID || '').trim();
+  return normalized ? normalized.slice(0, 8) : '-';
 }
 
 function runScopeName(run: RunListItem): string {
@@ -372,15 +358,6 @@ function runScopeName(run: RunListItem): string {
   if (run.schedule_name || run.schedule_path || run.schedule_id) return run.schedule_name || run.schedule_path || run.schedule_id || 'Schedule';
   if (run.external_trigger_name || run.external_trigger_id) return run.external_trigger_name || run.external_trigger_id || 'External trigger';
   return 'Workspace';
-}
-
-function runScopeMeta(run: RunListItem): string {
-  const path = (run.pipeline_path || '').trim().replace(/^\/+|\/+$/g, '');
-  const repoLabel = formatRepoLabel(run);
-  if (path && repoLabel && repoLabel !== 'Manual') return repoLabel;
-  if (run.schedule_name || run.schedule_path || run.schedule_id) return run.schedule_path || run.schedule_id || 'Scheduled run';
-  if (run.external_trigger_name || run.external_trigger_id) return run.external_trigger_id || 'External trigger';
-  return path || run.trigger_source || 'Manual';
 }
 
 function statusDisplayLabel(status: string): string {

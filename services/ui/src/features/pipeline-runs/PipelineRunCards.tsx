@@ -12,6 +12,7 @@ import {
   formatTriggerId,
   getBranchStatusTone,
   getStatusDotClass,
+  runActivityTimestamp,
   runTimestamp,
   summarizeStatus,
   timeAgo,
@@ -107,7 +108,7 @@ export function BranchRunsSection({
   const sortedRuns = useMemo(() => [...runs].sort((a, b) => runTimestamp(b) - runTimestamp(a)), [runs]);
   const latestRun = sortedRuns[0];
   const latestStatus = normalizeStatus(latestRun?.status, latestRun?.is_complete);
-  const latestTime = latestRun ? timeAgo(latestRun.started_at || latestRun.finished_at) : '—';
+  const latestTime = latestRun ? timeAgo(runActivityTimestamp(latestRun)) : '—';
 
   const events = useMemo<BranchEventTeam[]>(() => {
     const bucket = new Map<string, RunListItem[]>();
@@ -125,7 +126,7 @@ export function BranchRunsSection({
           id,
           runs: ordered,
           status: summarizeStatus(ordered),
-          startedAt: newest?.started_at || newest?.finished_at,
+          startedAt: runActivityTimestamp(newest),
           actor: newest?.git_pusher_name,
           branchLabel: formatBranchDisplay(newest?.git_ref, newest?.git_target_ref),
           commitLabel: newest?.git_commit_sha ? newest.git_commit_sha.slice(0, 8) : undefined,
@@ -354,7 +355,7 @@ export function RunCard({
   showSelect?: boolean;
 }) {
   const triggerLabel = formatTriggerId(run.trigger_event_id);
-  const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
+  const timeToDisplay = runActivityTimestamp(run);
   const repoLabel = formatRepoLabel(run);
   const branchLabel = formatBranchDisplay(run.git_ref, run.git_target_ref);
   const failurePreview = getFailurePreview(run.failure_reason);
@@ -455,7 +456,7 @@ export function RunCard({
 
 function ListRunRow({ run, selected, onSelect, onOpen }: { run: RunListItem; selected: boolean; onSelect: () => void; onOpen: () => void }) {
   const triggerLabel = formatTriggerId(run.trigger_event_id);
-  const timeToDisplay = run.is_complete ? run.finished_at : run.started_at;
+  const timeToDisplay = runActivityTimestamp(run);
   const repoLabel = formatRepoLabel(run);
   const branchLabel = formatBranchDisplay(run.git_ref, run.git_target_ref);
   const commitLabel = (run.git_commit_sha || 'N/A').slice(0, 8);

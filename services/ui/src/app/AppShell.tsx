@@ -18,6 +18,7 @@ import {
   isRunAppTeam,
   normalizeRunTeamURLValue,
   normalizeRunStatus,
+  runSidebarActivityTimestamp,
   runTeamDisplayName,
   runTeamPathForURL,
   runTeamRepositoryURL,
@@ -1056,7 +1057,7 @@ function RunSidebarRow({ run, active, onOpen }: { run: RunListItem; active: bool
           </div>
         </div>
         <span className="text-[10px] text-[var(--text-secondary)] whitespace-nowrap flex-shrink-0">
-          {timeAgoShort(run.started_at || run.finished_at)}
+          {timeAgoShort(runSidebarActivityTimestamp(run))}
         </span>
       </div>
       <div className="mt-2 text-[11px] text-[var(--text-secondary)] font-mono space-y-1">

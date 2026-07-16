@@ -26,6 +26,7 @@ export type TriggerListItem = {
   ingress?: string;
   allowlistStatus?: string;
   repositoryForWebhook?: string;
+  scopes?: string[];
 };
 
 export type TriggerSourceFilter = 'all' | 'git' | 'database';
@@ -178,6 +179,13 @@ export function triggerAllowlistStatusLabel(value?: string): string {
   }
 }
 
+export function triggerScopesLabel(scopes?: readonly string[]): string {
+  const normalized = [...new Set((scopes || []).map(normalizeScopeLabel))]
+    .map(scope => scope || 'default')
+    .filter(Boolean);
+  return normalized.length ? normalized.join(', ') : 'default';
+}
+
 export function triggerIngressLabel(detail: Pick<TriggerDetail, 'provider' | 'ingress' | 'webhookSourceName' | 'webhookSourceID'>): string {
   const provider = (detail.provider || 'github').trim().toLowerCase();
   if (provider === 'github') return 'GitHub App - automatic';
@@ -318,6 +326,7 @@ export function filterTriggerListItems(
       item.webhookSourceName,
       item.ingress,
       item.allowlistStatus,
+      ...(item.scopes || []),
     ].join(' ').toLowerCase().includes(normalizedQuery);
   });
 }
@@ -429,6 +438,9 @@ export function parseTriggerOverrideList(payload: unknown): TriggerListItem[] {
       if (typeof record.ingress === 'string') item.ingress = record.ingress;
       if (typeof record.allowlist_status === 'string') item.allowlistStatus = record.allowlist_status;
       if (typeof record.repository_for_webhook === 'string') item.repositoryForWebhook = record.repository_for_webhook;
+      if (Array.isArray(record.scopes)) {
+        item.scopes = [...new Set(record.scopes.map(normalizeScopeLabel))];
+      }
       items.push(item);
     }
   });

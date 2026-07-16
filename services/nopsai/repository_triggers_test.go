@@ -44,6 +44,23 @@ func TestRepositoryTriggerRecordFromManifestNormalizesMetadata(t *testing.T) {
 	}
 }
 
+func TestRepositoryTriggerScopesFromDefinition(t *testing.T) {
+	scopes := repositoryTriggerScopesFromDefinition(`
+triggers:
+  - on: push
+    pipelines: [pipelines/build.yaml]
+  - on: push
+    scope: /prod/
+    pipelines: [pipelines/deploy.yaml]
+  - on: pull_request
+    scope: prod
+    pipelines: [pipelines/test.yaml]
+`)
+	if got, want := strings.Join(scopes, ","), "default,prod"; got != want {
+		t.Fatalf("repositoryTriggerScopesFromDefinition() = %q, want %q", got, want)
+	}
+}
+
 func TestRepositoryTriggerValidationRequiresProviderSpecificIngress(t *testing.T) {
 	gitlab := repositoryTriggerRecord{
 		RepositoryName:       "acme/api",

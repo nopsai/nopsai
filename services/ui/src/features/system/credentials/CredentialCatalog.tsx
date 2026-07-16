@@ -250,8 +250,6 @@ function CredentialTableRow({ credential, group, selected, teamPaths, onSelect }
   const displayName = formatCredentialLabel(reference.displayName);
   const scopeLabel = formatCredentialScopeLabel(group.scopeKind, group.scopePath, group.namespace);
   const versionLabel = credential.active_version ? String(credential.active_version) : '-';
-  const categoryLabel = reference.category === 'general' ? '' : formatCredentialLabel(reference.category);
-  const descriptionLabel = credential.description || reference.parentPath || credential.reference;
 
   return (
     <button
@@ -265,15 +263,6 @@ function CredentialTableRow({ credential, group, selected, teamPaths, onSelect }
         </span>
         <span className="credential-registry__credential-copy">
           <span className="credential-registry__credential-name">{displayName}</span>
-          <span className="credential-registry__credential-description">
-            {categoryLabel ? (
-              <>
-                <span>{categoryLabel}</span>
-                <span aria-hidden="true"> · </span>
-              </>
-            ) : null}
-            <span>{descriptionLabel}</span>
-          </span>
         </span>
       </span>
       <span className="credential-registry__cell">{formatCredentialLabel(credential.kind || reference.category)}</span>

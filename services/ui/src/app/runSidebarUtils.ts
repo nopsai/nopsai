@@ -1,6 +1,9 @@
 import { STATUS_PRIORITY } from './constants';
 import type { RunTeam, RunListItem } from './types';
 
+const MIN_RUN_TIMESTAMP_MS = Date.UTC(2000, 0, 1);
+const GO_ZERO_TIME_PATTERN = /^0001-01-01T00:00:00(?:\.0+)?(?:Z|[+-]00:?00)?$/i;
+
 export function getSidebarStatusTone(status: string) {
   const normalized = normalizeRunStatus(status, true);
   if (normalized === 'success') return 'text-green-400';
@@ -79,10 +82,9 @@ export function formatTriggerLabel(id?: string) {
 }
 
 export function timeAgoShort(dateInput?: string) {
-  if (!dateInput) return '—';
-  const date = new Date(dateInput);
-  if (Number.isNaN(date.getTime())) return '—';
-  const diff = Date.now() - date.getTime();
+  const timestamp = parseRunSidebarTimestamp(dateInput);
+  if (timestamp === null) return '—';
+  const diff = Math.max(0, Date.now() - timestamp);
   const seconds = Math.floor(diff / 1000);
   if (seconds < 60) return `${seconds}s ago`;
   const minutes = Math.floor(seconds / 60);
@@ -91,6 +93,23 @@ export function timeAgoShort(dateInput?: string) {
   if (hours < 48) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+export function parseRunSidebarTimestamp(value?: string | null): number | null {
+  const text = (value || '').trim();
+  if (!text || GO_ZERO_TIME_PATTERN.test(text)) return null;
+  const timestamp = Date.parse(text);
+  if (!Number.isFinite(timestamp) || timestamp < MIN_RUN_TIMESTAMP_MS) return null;
+  return timestamp;
+}
+
+export function runSidebarActivityTimestamp(run?: Pick<RunListItem, 'started_at' | 'finished_at' | 'is_complete'> | null): string | undefined {
+  if (!run) return undefined;
+  const primary = run.is_complete ? run.finished_at : run.started_at;
+  const fallback = run.is_complete ? run.started_at : run.finished_at;
+  if (parseRunSidebarTimestamp(primary) !== null) return primary;
+  if (parseRunSidebarTimestamp(fallback) !== null) return fallback;
+  return undefined;
 }
 
 export function isRunAppTeam(team: Pick<RunTeam, 'kind' | 'name' | 'repo_url' | 'repository_full_name'>) {

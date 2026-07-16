@@ -69,6 +69,7 @@ describe('ExternalTriggersPage create action', () => {
       scope: 'production',
       run_team_path: 'platform/prod',
       allowed_callers: [{ type: 'service_account', id: 'deployer' }],
+      last_used_at: '2026-07-12T09:30:00Z',
       source: 'database',
     };
     mocks.fetch.mockImplementation(async path => {
@@ -92,11 +93,13 @@ describe('ExternalTriggersPage create action', () => {
     expect(screen.getByRole('separator', { name: 'Resize team tree' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'All teams (1)' })).toBeVisible();
     expect(screen.queryByText('Select an external trigger')).not.toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Last used' })).toBeVisible();
     expect(screen.getByRole('cell', { name: 'platform/deploy' })).toBeVisible();
     expect(screen.getByRole('cell', { name: 'platform/prod' })).toBeVisible();
+    expect(screen.getByRole('cell', { name: 'production' })).toBeVisible();
     expect(screen.queryByText('Allowed callers')).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Deploy productiondeploy-prod' }));
+    await user.click(screen.getByRole('button', { name: 'Deploy production' }));
 
     expect(await screen.findByText('Allowed callers')).toBeVisible();
     expect(screen.getByRole('button', { name: 'List' })).toBeVisible();

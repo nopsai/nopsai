@@ -310,7 +310,6 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
         list={(
           <LLMProfileTable
             profiles={visibleProfiles}
-            defaultProfile={payload.default_profile}
             selectedProfileName={selectedWorkspaceProfileName}
             loading={loading}
             emptyMessage={emptyProfilesMessage}
@@ -516,14 +515,12 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
 
 function LLMProfileTable({
   profiles,
-  defaultProfile,
   selectedProfileName,
   loading,
   emptyMessage,
   onSelectProfile,
 }: {
   profiles: LLMProfileRecord[];
-  defaultProfile: string;
   selectedProfileName: string | null;
   loading: boolean;
   emptyMessage: string;
@@ -575,7 +572,6 @@ function LLMProfileTable({
                     </span>
                     <span className="ai-resource-table-resource-name">
                       <strong>{profile.name}</strong>
-                      <small>{profile.name === defaultProfile ? 'Default profile' : profile.base_url || provider.label}</small>
                     </span>
                   </button>
                 </td>

@@ -1787,6 +1787,10 @@ curl -X DELETE http://localhost:8080/v1/overrides/hosein-yousefii/test-app
 
 - Overrides let you replace or augment the config-repo trigger manifest for a given repository.
 - The payload mirrors the `.nopsai/triggers.yaml` schema (event, branches, skip branches, tags, skipped repositories, include paths, exclude paths, pipelines, and scope).
+- When `include_source=true`, each item includes source/provider/team/ingress
+  metadata plus a `scopes` array derived from the stored trigger manifest. Empty
+  trigger scopes are reported as `default` so list clients can render scope
+  coverage without loading every manifest.
 
 ---
 

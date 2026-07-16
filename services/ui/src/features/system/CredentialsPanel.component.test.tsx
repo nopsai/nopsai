@@ -97,7 +97,7 @@ test('uses registry table references and supports enable plus old-version deleti
 
   expect((await screen.findAllByText('OpenAI Primary'))[0]).toBeVisible();
   expect(screen.queryByText('credential://system/llm/openai-primary')).not.toBeInTheDocument();
-  expect(screen.getByText('LLM')).toBeVisible();
+  expect(screen.getByText('API Key')).toBeVisible();
   expect(screen.getAllByText('System')).not.toHaveLength(0);
 
   await user.click(screen.getByRole('button', { name: /openai primary/i }));
@@ -148,7 +148,7 @@ test('filters by team scope and toggles registry grouping', async () => {
 
   expect(screen.getByText('1 credential shown')).toBeVisible();
   expect((await screen.findAllByText('Platform / ML'))[0]).toBeVisible();
-  expect(screen.getAllByText('Mail')).not.toHaveLength(0);
+  expect(screen.getAllByText('Password')).not.toHaveLength(0);
   expect((await screen.findAllByText('SMTP Primary'))[0]).toBeVisible();
 
   await user.click(screen.getByRole('button', { name: 'Flat list' }));

@@ -1,16 +1,21 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import ProductDocsPage from './ProductDocs';
 
-function renderDocs(initialEntry = '/docs') {
-  return render(
+function renderDocs(initialEntry = '/docs', options: { withPageWrapper?: boolean } = {}) {
+  const docs = (
     <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route path="/docs/*" element={<ProductDocsPage />} />
       </Routes>
-    </MemoryRouter>,
+    </MemoryRouter>
+  );
+  return render(
+    options.withPageWrapper
+      ? <div id="page-content-wrapper">{docs}</div>
+      : docs,
   );
 }
 
@@ -80,6 +85,34 @@ describe('ProductDocsPage', () => {
     } finally {
       window.requestAnimationFrame = originalRAF;
       scrollTo.mockRestore();
+    }
+  });
+
+  it('scrolls the authenticated app content wrapper when changing articles', async () => {
+    const user = userEvent.setup();
+    const originalRAF = window.requestAnimationFrame;
+    const scrollTo = vi.mocked(window.scrollTo);
+    window.requestAnimationFrame = (callback: FrameRequestCallback) => {
+      callback(0);
+      return 0;
+    };
+
+    try {
+      renderDocs('/docs/installation/docker-compose', { withPageWrapper: true });
+      const wrapper = document.getElementById('page-content-wrapper') as HTMLElement;
+      const wrapperScrollTo = vi.fn();
+      Object.defineProperty(wrapper, 'scrollTo', { configurable: true, value: wrapperScrollTo });
+      scrollTo.mockClear();
+
+      await user.click(screen.getByRole('button', { name: 'Kubernetes and Helm' }));
+
+      expect(screen.getByRole('heading', { name: 'Kubernetes and Helm' })).toBeVisible();
+      await waitFor(() => {
+        expect(wrapperScrollTo).toHaveBeenCalledWith({ top: 0, left: 0, behavior: 'auto' });
+      });
+      expect(scrollTo).not.toHaveBeenCalled();
+    } finally {
+      window.requestAnimationFrame = originalRAF;
     }
   });
 

@@ -9,15 +9,19 @@ import {
   buildStatusTimeline,
   extractLatestRunSummary,
   findTeamByURLValue,
+  formatRunTimestamp,
   formatAIUsageBreakdown,
   formatBranchDisplay,
   formatRepoLabel,
   formatTokenCount,
   formatTriggerId,
   getRunSourceKind,
+  runActivityTimestamp,
   teamDisplayName,
   teamRepositoryURL,
   repositoryBrowserURL,
+  runStartedTimestamp,
+  runTimestamp,
   runMatchesSearch,
   summarizeStatus,
   teamPathForURL,
@@ -121,4 +125,20 @@ test('summarizes status and latest activity deterministically', () => {
     started_at: '2026-06-08T11:00:00Z',
   });
   assert.equal(timeAgo('2026-06-08T10:00:00Z', Date.parse('2026-06-08T12:00:00Z')), '2h ago');
+});
+
+test('ignores Go zero timestamps from runs that failed before start', () => {
+  const zeroStarted = run({
+    run_id: 'failed-before-start',
+    status: 'failure',
+    is_complete: true,
+    started_at: '0001-01-01T00:00:00Z',
+    finished_at: '2026-06-08T12:00:00Z',
+  });
+
+  assert.equal(runStartedTimestamp(zeroStarted), undefined);
+  assert.equal(runActivityTimestamp(zeroStarted), '2026-06-08T12:00:00Z');
+  assert.equal(runTimestamp(zeroStarted), Date.parse('2026-06-08T12:00:00Z'));
+  assert.equal(timeAgo(zeroStarted.started_at, Date.parse('2026-06-08T12:01:00Z')), '—');
+  assert.equal(formatRunTimestamp(zeroStarted.started_at), '—');
 });

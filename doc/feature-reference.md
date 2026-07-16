@@ -587,6 +587,9 @@ Run organization behavior:
   `team.read` or `team.update` on the selected team
 - Pipeline Runs shows runtime history for selected teams/applications and runs
   without a team assignment
+- Pipeline Runs treats unset runtime timestamps from failed-before-start runs as
+  empty values, so the Started column and run detail never calculate a relative
+  age from Go's zero time
 - pipeline path is used as the run owner when a run has no repository or
   explicit team path
 - repository metadata remains a source/runtime identity for Git-triggered runs,
@@ -656,17 +659,17 @@ Important behavior:
 
 Pages present in the current UI:
 
-- `Pipeline runs`: team/application/run panels, source-aggregated runs, recent runs, event aggregation, details, logs, rerun, cancel, branch cleanup
+- `Pipeline runs`: team/application/run panels, source-aggregated runs, recent runs, event aggregation, details, logs, rerun, cancel, branch cleanup, and single-line overview rows with status, run name, repository, 8-character run ID, branch, started time, and duration
 - `Pipeline runs`: pending approval records with assigned teams and approve/reject actions inside run details
 - `Pipelines`: pipeline browser/editor, drafts, validation, dependency graphing, and Execute handoff to Lab
 - `Pipelines`: configured Kubernetes runtime pool suggestions for pipeline-level and step-level `runtime_pool` values
 - `Schedules`: schedule browser, pipeline-filtered schedule view, enable/disable, run now, latest-run link, and GitOps markers
-- `Triggers`: trigger override browser/editor
+- `Triggers`: trigger override browser/editor with list scopes derived from trigger manifests
 - `Scopes`: variable and secret management by scope and repository, including scope use-access controls
 - `Lab`: ad-hoc YAML editing, runtime pool suggestions, preselected pipeline handoff, and direct run execution
 - `Steps`: reusable step library, usage inspection, and step use-access controls
 - `Steps`: reusable step YAML validation and autocomplete for Kubernetes `runtime_pool` selection
-- `Knowledge Context`: kind/team/document browser, markdown editor/preview, source metadata, access settings, and usage inspection
+- `Knowledge Context`: kind/team/document browser, single-line document collection rows, markdown editor/preview, source metadata, access settings, and usage inspection
 - `System`: config, data management, dispatcher, runner controls, runtime pool management, user/role/access management
 - `Profile`: email and password management
 - `Login`: local authentication entrypoint
