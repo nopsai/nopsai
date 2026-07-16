@@ -433,13 +433,21 @@ func assistantAIUsageCallHasEvents(call assistantToolActivity) bool {
 	if call.Status != assistantToolStatusSuccess {
 		return false
 	}
-	if assistantOutputFloat(call.Output, "total_tokens") > 0 {
+	output := assistantAIUsageOutput(call)
+	if assistantOutputFloat(output, "total_tokens") > 0 {
 		return true
 	}
-	if assistantOutputFloat(call.Output, "exact_token_events")+assistantOutputFloat(call.Output, "estimated_token_events") > 0 {
+	if assistantOutputFloat(output, "exact_token_events")+assistantOutputFloat(output, "estimated_token_events") > 0 {
 		return true
 	}
-	return len(assistantMapSlice(call.Output["by_pipeline"])) > 0 || len(assistantMapSlice(call.Output["top_token_runs"])) > 0
+	return len(assistantMapSlice(output["by_pipeline"])) > 0 || len(assistantMapSlice(output["top_token_runs"])) > 0
+}
+
+func assistantAIUsageOutput(call assistantToolActivity) map[string]any {
+	if response, ok := call.Output["response"].(map[string]any); ok {
+		return response
+	}
+	return call.Output
 }
 
 func assistantAIUsageFilterSummary(args map[string]any) string {
@@ -499,11 +507,13 @@ func assistantAIUsageWindowLabel(call assistantToolActivity, idx int) string {
 }
 
 func assistantAppendTokenTeams(lines []string, call assistantToolActivity) []string {
-	lines = assistantAppendTokenTeam(lines, "Highest token steps:", call.Output["by_step"], 5)
-	lines = assistantAppendTokenTeam(lines, "Highest token tasks:", call.Output["by_task"], 5)
-	lines = assistantAppendTokenTeam(lines, "Usage by model:", call.Output["by_model"], 5)
-	lines = assistantAppendTokenTeam(lines, "Usage by LLM profile:", call.Output["by_profile"], 5)
-	lines = assistantAppendTokenTeam(lines, "Usage by feature:", call.Output["by_feature"], 5)
+	output := assistantAIUsageOutput(call)
+	lines = assistantAppendTokenTeam(lines, "Highest token steps:", output["by_step"], 5)
+	lines = assistantAppendTokenTeam(lines, "Highest token tasks:", output["by_task"], 5)
+	lines = assistantAppendTokenTeam(lines, "Usage by provider:", output["by_provider"], 5)
+	lines = assistantAppendTokenTeam(lines, "Usage by model:", output["by_model"], 5)
+	lines = assistantAppendTokenTeam(lines, "Usage by LLM profile:", output["by_profile"], 5)
+	lines = assistantAppendTokenTeam(lines, "Usage by feature:", output["by_feature"], 5)
 	return lines
 }
 

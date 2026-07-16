@@ -337,6 +337,11 @@ fails closed with "No changes were applied." Before execution, NopsAI validates
 that the plan uses available hosted MCP tools for the current AAA subject,
 stays within the tool-call and argument bounds, and does not run mutating tools
 without explicit `confirm:true`.
+The validated plan is persisted with the assistant reply as a visible
+execution-plan activity before MCP evidence calls. UI and API clients can show
+which steps came from MCP evidence, docs, knowledge context, GitOps proposal
+tools, or LLM analysis, along with phase and confidence labels, without
+exposing hidden model chain-of-thought.
 The planner covers NopsAI product areas that previously required exact
 API/tool knowledge: setup, config repositories, notifications, monitoring saved
 views/alerts/recommendations, credentials, runners, access/admin/audit,
@@ -345,6 +350,15 @@ secrets/variables, UI ownership context, run failure analysis, variable
 repetition analysis, scope/secret counts, AI token investigations, pipeline
 authoring proposals, feature coverage questions, and explicit `nopsai.*`
 hosted MCP tool names.
+For broad discovery and analysis prompts, including questions about slowest
+steps, bottlenecks, product objects, available data, or suggested solutions,
+the planner exposes the relevant hosted MCP schemas and the deterministic
+fallback renderer summarizes the returned evidence instead of depending on a
+fixed intent label.
+Follow-up calculations and estimates can use previous same-chat MCP evidence
+without another tool call. The assistant must label the answer source and
+confidence, so exact MCP-backed data remains distinct from LLM-derived
+calculations and assumptions such as pricing scenarios.
 The assistant can analyze failed runs from status/log excerpts, validate
 LLM-drafted pipeline YAML, prepare GitOps-ready pipeline
 create/update file plans, validate pasted pipeline YAML, traverse pipeline

@@ -3,16 +3,25 @@ import { Check, Copy, Loader2, Maximize2, Plus, RotateCcw, Send, Trash2, X } fro
 import { ObjectIcon } from '../../components/ObjectIcon.js';
 import {
   assistantConversationUsageLabel,
+  assistantExecutionPlanFromMessage,
   assistantMessageAuthorLabel,
   assistantMessageUsageLabel,
   assistantVisibleToolActivity,
   proposedChangesFromMessages,
   type AssistantConfig,
   type AssistantConversation,
+  type AssistantExecutionPlan,
+  type AssistantExecutionPlanStep,
   type AssistantMessage,
   type AssistantToolActivity,
 } from './model.js';
-import { assistantProgressLabel, assistantPromptStarters, assistantReadyLine } from './experience.js';
+import {
+  assistantProgressElapsedLabel,
+  assistantProgressSteps,
+  assistantPromptStarters,
+  assistantReadyLine,
+  type AssistantProgressStep,
+} from './experience.js';
 import { AssistantRichContent } from './rendering.js';
 import { useComposerResize } from './useComposerResize.js';
 import { useAssistantController } from './useAssistantController.js';
@@ -31,6 +40,7 @@ export function AssistantPanel({
   const assistant = useAssistantController({ startFresh });
   const compact = variant === 'dock';
   const [detailsOpen, setDetailsOpen] = useState(true);
+  const [progressNow, setProgressNow] = useState(() => Date.now());
   const transcriptRef = useRef<HTMLDivElement>(null);
   const composerResize = useComposerResize();
   const layoutClass = compact
@@ -44,6 +54,17 @@ export function AssistantPanel({
     if (!transcript) return;
     transcript.scrollTop = transcript.scrollHeight;
   }, [assistant.activeConversation?.id, assistant.activeMessages.length, assistant.sending, assistant.loading]);
+
+  useEffect(() => {
+    if (!assistant.activeConversationSending || assistant.activeConversationSendingStartedAt <= 0) return;
+    setProgressNow(Date.now());
+    const interval = window.setInterval(() => setProgressNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [assistant.activeConversationSending, assistant.activeConversationSendingStartedAt]);
+
+  const progressElapsedMs = assistant.activeConversationSendingStartedAt > 0
+    ? Math.max(0, progressNow - assistant.activeConversationSendingStartedAt)
+    : 0;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -119,6 +140,7 @@ export function AssistantPanel({
             enabled={assistant.enabled}
             loading={assistant.loading}
             sending={assistant.sending}
+            sendingConversationID={assistant.sendingConversationID}
             deletingConversationID={assistant.deletingConversationID}
             onStartConversation={() => void assistant.startConversation()}
             onSelectConversation={id => void assistant.selectConversation(id)}
@@ -165,7 +187,10 @@ export function AssistantPanel({
                   />
                 ))}
                 {assistant.activeConversationSending && (
-                  <AssistantThinkingBubble label={assistantProgressLabel(assistant.activeMessages, assistant.activeConversation)} />
+                  <AssistantThinkingBubble
+                    elapsedMs={progressElapsedMs}
+                    steps={assistantProgressSteps(assistant.activeMessages, assistant.activeConversation, progressElapsedMs)}
+                  />
                 )}
               </>
             )}
@@ -228,6 +253,7 @@ function AssistantSidebar({
   enabled,
   loading,
   sending,
+  sendingConversationID,
   deletingConversationID,
   onStartConversation,
   onSelectConversation,
@@ -238,6 +264,7 @@ function AssistantSidebar({
   enabled: boolean;
   loading: boolean;
   sending: boolean;
+  sendingConversationID: string;
   deletingConversationID: string;
   onStartConversation: () => void;
   onSelectConversation: (conversationID: string) => void;
@@ -262,30 +289,33 @@ function AssistantSidebar({
         {conversations.length === 0 && (
           <p className="rounded-md border border-dashed border-[var(--border-primary)] px-3 py-2 text-sm text-[var(--text-secondary)]">No conversations yet.</p>
         )}
-        {conversations.map(conversation => (
-          <div
-            key={conversation.id}
-            className={`team flex items-center gap-2 rounded-md border px-2 py-2 text-sm hover:bg-[var(--bg-tertiary)] ${activeConversation?.id === conversation.id ? 'border-[var(--border-accent)] bg-[var(--bg-tertiary)]' : 'border-[var(--border-primary)]'}`}
-          >
-            <button
-              type="button"
-              className="min-w-0 flex-1 text-left"
-              onClick={() => onSelectConversation(conversation.id)}
+        {conversations.map(conversation => {
+          const conversationSending = sendingConversationID === conversation.id;
+          return (
+            <div
+              key={conversation.id}
+              className={`flex items-center gap-2 rounded-md border px-2 py-2 text-sm hover:bg-[var(--bg-tertiary)] ${activeConversation?.id === conversation.id ? 'border-[var(--border-accent)] bg-[var(--bg-tertiary)]' : 'border-[var(--border-primary)]'}`}
             >
-              <span className="block truncate font-medium text-[var(--text-primary)]">{conversation.title || 'Untitled conversation'}</span>
-            </button>
-            <button
-              type="button"
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] opacity-0 hover:bg-red-50 hover:text-red-600 focus:opacity-100 team-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-red-950/30"
-              onClick={() => onDeleteConversation(conversation.id)}
-              disabled={sending || deletingConversationID === conversation.id}
-              aria-label={`Delete conversation ${conversation.title || conversation.id}`}
-              title="Delete"
-            >
-              {deletingConversationID === conversation.id ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Trash2 className="h-4 w-4" aria-hidden="true" />}
-            </button>
-          </div>
-        ))}
+              <button
+                type="button"
+                className="min-w-0 flex-1 text-left"
+                onClick={() => onSelectConversation(conversation.id)}
+              >
+                <span className="block truncate font-medium text-[var(--text-primary)]">{conversation.title || 'Untitled conversation'}</span>
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] opacity-70 hover:bg-red-50 hover:text-red-600 hover:opacity-100 focus:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-red-950/30"
+                onClick={() => onDeleteConversation(conversation.id)}
+                disabled={conversationSending || deletingConversationID === conversation.id}
+                aria-label={`Delete conversation ${conversation.title || conversation.id}`}
+                title={conversationSending ? 'Assistant turn in progress' : 'Delete'}
+              >
+                {deletingConversationID === conversation.id ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Trash2 className="h-4 w-4" aria-hidden="true" />}
+              </button>
+            </div>
+          );
+        })}
       </div>
     </aside>
   );
@@ -404,6 +434,7 @@ function AssistantMessageBubble({
 }) {
   const isUser = message.role === 'user';
   const usageLabel = assistantMessageUsageLabel(message);
+  const executionPlan = isUser ? null : assistantExecutionPlanFromMessage(message);
   return (
     <article className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div className={`max-w-[820px] rounded-lg border px-4 py-3 text-sm shadow-sm ${isUser ? 'border-[var(--border-accent)] bg-[var(--border-accent)] text-white' : 'border-[var(--border-primary)] bg-[var(--bg-secondary)] text-[var(--text-primary)]'}`}>
@@ -433,6 +464,7 @@ function AssistantMessageBubble({
             </button>
           </div>
         </div>
+        {executionPlan && <AssistantExecutionPlanBlock plan={executionPlan} />}
         <AssistantRichContent content={message.content} inverted={isUser} />
         {usageLabel && <p className={`mt-2 text-[11px] ${isUser ? 'text-white/70' : 'text-[var(--text-secondary)]'}`}>{usageLabel}</p>}
       </div>
@@ -440,12 +472,96 @@ function AssistantMessageBubble({
   );
 }
 
-function AssistantThinkingBubble({ label }: { label: string }) {
+function AssistantExecutionPlanBlock({ plan }: { plan: AssistantExecutionPlan }) {
+  const visibleSteps = plan.steps.slice(0, 6);
+  return (
+    <div className="mb-3 border-l-2 border-[var(--border-accent)] pl-3 text-xs text-[var(--text-secondary)]">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Execution plan</span>
+        {plan.requires_confirmation && (
+          <span className="rounded bg-[var(--bg-tertiary)] px-2 py-0.5 text-[11px] font-medium text-[var(--text-primary)]">Needs confirmation</span>
+        )}
+      </div>
+      {plan.summary && <p className="mt-1 leading-relaxed">{plan.summary}</p>}
+      {visibleSteps.length > 0 && (
+        <ol className="mt-2 space-y-1.5">
+          {visibleSteps.map((step, index) => (
+            <AssistantExecutionPlanRow key={`${step.index || index}-${step.title}-${step.source}`} step={step} fallbackIndex={index + 1} />
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+function AssistantExecutionPlanRow({ step, fallbackIndex }: { step: AssistantExecutionPlanStep; fallbackIndex: number }) {
+  const index = step.index || fallbackIndex;
+  const title = step.title || step.reason || step.tool || 'Assistant step';
+  return (
+    <li className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2 leading-relaxed">
+      <span className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded bg-[var(--bg-tertiary)] text-[11px] font-semibold text-[var(--text-secondary)]">{index}</span>
+      <span className="min-w-0">
+        <span className="block text-[var(--text-primary)]">{title}</span>
+        <span className="mt-0.5 flex flex-wrap gap-1.5">
+          <AssistantExecutionPlanBadge value={assistantExecutionPlanSourceLabel(step.source)} />
+          <AssistantExecutionPlanBadge value={step.phase} />
+          <AssistantExecutionPlanBadge value={step.confidence ? `${step.confidence} confidence` : ''} />
+        </span>
+      </span>
+    </li>
+  );
+}
+
+function AssistantExecutionPlanBadge({ value }: { value: string }) {
+  if (!value) return null;
+  return <span className="rounded bg-[var(--bg-tertiary)] px-1.5 py-0.5 text-[11px] text-[var(--text-secondary)]">{value}</span>;
+}
+
+function assistantExecutionPlanSourceLabel(value: string): string {
+  const source = value.trim().toLowerCase();
+  if (source === 'mcp') return 'MCP';
+  if (source === 'llm') return 'LLM';
+  if (source === 'docs') return 'Docs';
+  if (source === 'knowledge_context') return 'Knowledge context';
+  if (source === 'gitops_proposal') return 'GitOps proposal';
+  return source.replace(/_/g, ' ');
+}
+
+function AssistantThinkingBubble({ steps, elapsedMs }: { steps: AssistantProgressStep[]; elapsedMs: number }) {
+  const visibleSteps = steps.length > 0 ? steps : [{ label: 'Preparing a bounded answer', state: 'active' as const }];
   return (
     <article className="flex justify-start">
-      <div className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--text-secondary)] shadow-sm">
-        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-        <span>{label}</span>
+      <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--text-secondary)] shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <span className="flex min-w-0 items-center gap-2">
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
+            <span>Working through the request</span>
+          </span>
+          <span className="shrink-0 text-xs text-[var(--text-secondary)]">{assistantProgressElapsedLabel(elapsedMs)}</span>
+        </div>
+        <ol className="mt-2 space-y-1 text-xs leading-relaxed">
+          {visibleSteps.map((step, index) => (
+            <li key={`${step.label}-${index}`} className="flex items-start gap-2">
+              <span className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center">
+                {step.state === 'done' ? (
+                  <Check className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
+                ) : step.state === 'active' ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--border-accent)]" aria-hidden="true" />
+                ) : (
+                  <span className="h-1.5 w-1.5 rounded-full bg-[var(--border-primary)]" aria-hidden="true" />
+                )}
+              </span>
+              <span className={step.state === 'pending' ? 'text-[var(--text-secondary)] opacity-70' : 'text-[var(--text-secondary)]'}>
+                {step.label}
+              </span>
+            </li>
+          ))}
+        </ol>
+        {elapsedMs > 30000 && (
+          <p className="mt-2 max-w-md text-xs leading-relaxed text-[var(--text-secondary)]">
+            Still waiting on the selected model. Saved results will appear as soon as the turn finishes.
+          </p>
+        )}
       </div>
     </article>
   );
@@ -534,12 +650,19 @@ function AssistantContextPanel({
 }
 
 function EvidenceToolCard({ tool }: { tool: AssistantToolActivity }) {
+  const meta = [
+    assistantExecutionPlanSourceLabel(tool.source || ''),
+    tool.phase || '',
+    tool.confidence ? `${tool.confidence} confidence` : '',
+  ].filter(Boolean);
   return (
     <li className="rounded-md border border-[var(--border-primary)] p-2 text-sm">
       <div className="flex items-center justify-between gap-2">
         <span className="min-w-0 truncate font-medium text-[var(--text-primary)]">{tool.name}</span>
         <span className="rounded bg-[var(--bg-tertiary)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)]">{tool.status || 'completed'}</span>
       </div>
+      {meta.length > 0 && <p className="mt-1 truncate text-xs text-[var(--text-secondary)]">{meta.join(' · ')}</p>}
+      {tool.purpose && <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">{tool.purpose}</p>}
       {tool.resource_uris.length > 0 && <p className="mt-1 truncate text-xs text-[var(--text-secondary)]">{tool.resource_uris.join(', ')}</p>}
       <details className="mt-2">
         <summary className="cursor-pointer select-none text-xs font-medium text-[var(--text-secondary)]">View details</summary>
@@ -566,6 +689,10 @@ function prettyPrintEvidence(tool: AssistantToolActivity): string {
       input: tool.input,
       output: tool.output,
       resources: tool.resource_uris,
+      source: tool.source || '',
+      phase: tool.phase || '',
+      confidence: tool.confidence || '',
+      purpose: tool.purpose || '',
     }, null, 2);
   } catch {
     return 'Evidence details are unavailable.';

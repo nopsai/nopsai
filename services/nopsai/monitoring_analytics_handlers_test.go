@@ -103,6 +103,7 @@ func TestMonitoringAIUsageQueriesCastTokenSumsForIntegerScans(t *testing.T) {
 		"by task":            monitoringAIUsageByTaskQuery(),
 		"top token runs":     monitoringAITopTokenRunsQuery(),
 		"by feature":         monitoringAIUsageTeamQuery("feature"),
+		"by provider":        monitoringAIUsageTeamQuery("provider"),
 		"by profile":         monitoringAIUsageTeamQuery("llm_profile"),
 		"trend":              monitoringAIUsageTrendQuery(),
 	}
@@ -175,8 +176,11 @@ func TestMonitoringAssistantChatUsageAllowedOnlyForGlobalChatCompatibleFilters(t
 	if monitoringAssistantChatUsageAllowed(monitoringAnalyticsFilters{RunID: "run-1"}) {
 		t.Fatal("run-scoped usage should not include unrelated assistant chat")
 	}
-	if monitoringAssistantChatUsageAllowed(monitoringAnalyticsFilters{Model: "qwen"}) {
-		t.Fatal("model-scoped usage should not include assistant chat without stored model metadata")
+	if !monitoringAssistantChatUsageAllowed(monitoringAnalyticsFilters{Provider: "gemini"}) {
+		t.Fatal("provider-scoped usage should include assistant chat when the selected profile resolves to that provider")
+	}
+	if !monitoringAssistantChatUsageAllowed(monitoringAnalyticsFilters{Model: "gemini-2.5-flash"}) {
+		t.Fatal("model-scoped usage should include assistant chat when the selected profile resolves to that model")
 	}
 }
 
@@ -185,10 +189,13 @@ func TestMonitoringAssistantChatUsageQueriesUseStoredMessages(t *testing.T) {
 	for _, fragment := range []string{
 		"FROM assistant_messages am",
 		"JOIN assistant_conversations ac ON ac.id = am.conversation_id",
+		"LEFT JOIN llm_profiles lp ON LOWER(lp.name) = LOWER(ac.selected_llm_profile)",
 		"COALESCE(SUM(am.total_tokens), 0)::bigint",
 		"COUNT(*) FILTER (WHERE am.total_tokens > 0",
 		"COUNT(*)::bigint",
 		"LOWER(COALESCE(ac.selected_llm_profile, '')) = LOWER($3)",
+		"LOWER(COALESCE(lp.provider, '')) = LOWER($8)",
+		"LOWER(COALESCE(lp.model, '')) = LOWER($9)",
 		"SPLIT_PART(ac.user_id, ':', 1)",
 	} {
 		if !strings.Contains(totals, fragment) {
@@ -209,7 +216,9 @@ func TestMonitoringAIUsageResponseAddsAssistantChatUsage(t *testing.T) {
 		TotalPromptTokens: 100,
 		TotalTokens:       150,
 		ByFeature:         []monitoringNamedCount{{Key: "log_analysis", Label: "log_analysis", Count: 1, Tokens: 150}},
+		ByProvider:        []monitoringNamedCount{{Key: "lmstudio", Label: "lmstudio", Count: 1, Tokens: 150}},
 		ByProfile:         []monitoringNamedCount{{Key: "standard", Label: "standard", Count: 1, Tokens: 150}},
+		ByModel:           []monitoringNamedCount{{Key: "lmstudio/qwen", Label: "lmstudio/qwen", Count: 1, Tokens: 150}},
 		Trend:             []monitoringTimeBucket{{Key: "2026-06-20", Label: "2026-06-20", Runs: 150}},
 	}
 
@@ -220,7 +229,9 @@ func TestMonitoringAIUsageResponseAddsAssistantChatUsage(t *testing.T) {
 		EstimatedTokens:  35,
 		EstimatedEvents:  2,
 		MessageCount:     2,
+		ByProvider:       []monitoringNamedCount{{Key: "gemini", Label: "gemini", Count: 2, Tokens: 35}},
 		ByProfile:        []monitoringNamedCount{{Key: "standard", Label: "standard", Count: 2, Tokens: 35}},
+		ByModel:          []monitoringNamedCount{{Key: "gemini/gemini-2.5-flash", Label: "gemini/gemini-2.5-flash", Count: 2, Tokens: 35}},
 		BySubject:        []monitoringNamedCount{{Key: "user:viewer", Label: "user:viewer", Count: 2, Tokens: 35}},
 		Trend:            []monitoringTimeBucket{{Key: "2026-06-20", Label: "2026-06-20", Runs: 35}},
 	})
@@ -233,6 +244,12 @@ func TestMonitoringAIUsageResponseAddsAssistantChatUsage(t *testing.T) {
 	}
 	if len(resp.ByFeature) != 2 || resp.ByFeature[1].Key != "assistant_chat" {
 		t.Fatalf("by_feature = %#v, want assistant_chat merged", resp.ByFeature)
+	}
+	if len(resp.ByProvider) != 2 || resp.ByProvider[0].Key != "lmstudio" || resp.ByProvider[1].Key != "gemini" {
+		t.Fatalf("by_provider = %#v, want pipeline and assistant chat providers", resp.ByProvider)
+	}
+	if len(resp.ByModel) != 2 || resp.ByModel[0].Key != "lmstudio/qwen" || resp.ByModel[1].Key != "gemini/gemini-2.5-flash" {
+		t.Fatalf("by_model = %#v, want pipeline and assistant chat models", resp.ByModel)
 	}
 	if resp.ByProfile[0].Tokens != 185 || resp.Trend[0].Runs != 185 {
 		t.Fatalf("profile/trend merge failed: profiles=%#v trend=%#v", resp.ByProfile, resp.Trend)

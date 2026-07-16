@@ -17,6 +17,7 @@ const assistantLLMToolName = "nopsai.llm.complete"
 const assistantDedicatedLLMProfileName = "assistant"
 const assistantPromptHistoryLimit = 12
 const assistantPromptHistoryContentLimit = 1200
+const assistantPromptEvidenceHistoryLimit = 4
 
 type assistantLLMSynthesis struct {
 	Reply    string
@@ -250,6 +251,7 @@ func buildAssistantLLMPrompt(
 		"validated_plan":       assistantPlanActivityInput(plan),
 		"conversation_memory":  normalizeAssistantMemory(conversation.Memory),
 		"conversation_history": assistantPromptConversationHistory(conversation.Messages),
+		"previous_evidence":    assistantPromptPreviousEvidence(conversation.Messages),
 		"tool_calls":           assistantLLMPromptToolCalls(toolCalls),
 		"tool_summary":         strings.TrimSpace(deterministicReply),
 	}
@@ -260,6 +262,8 @@ Use only the provided JSON context, same-chat conversation_history, memory, and 
 Use conversation_history to resolve same-chat follow-ups such as "generic pipeline", "the dashboard definition", "that one", or "both".
 When discussing pipelines, use only pipeline definitions, validation results, GitOps plans, or search results returned by the tool outputs.
 Generated pipeline YAML, trigger edits, and schedule edits are proposals only. Never say a change was applied unless the tool output explicitly says it was applied.
+When you calculate, compare, or estimate from prior same-chat evidence, label Data source and Confidence. Distinguish exact MCP-backed facts from LLM-derived calculations and assumptions.
+For cost estimates, do not invent pricing as product data. If prices are absent, show the formula or scenario assumptions.
 Mention denied or unavailable tools plainly when they affect the answer. Keep the answer concise and operational.
 For operational answers, prefer short markdown sections named Summary, Evidence, and Recommended next step when those sections fit the available tool evidence.
 
@@ -308,12 +312,47 @@ func assistantPromptToolCallHistory(toolCalls []assistantToolActivity) []map[str
 	return items
 }
 
+func assistantPromptPreviousEvidence(messages []assistantMessage) []map[string]any {
+	if len(messages) == 0 {
+		return []map[string]any{}
+	}
+	reversed := make([]map[string]any, 0, assistantPromptEvidenceHistoryLimit)
+	for idx := len(messages) - 1; idx >= 0 && len(reversed) < assistantPromptEvidenceHistoryLimit; idx-- {
+		message := messages[idx]
+		for _, call := range assistantEvidenceToolCalls(message.ToolCalls) {
+			if call.Status != assistantToolStatusSuccess {
+				continue
+			}
+			reversed = append(reversed, map[string]any{
+				"message_role":    message.Role,
+				"message_content": assistantTruncateHistoryContent(message.Content),
+				"name":            call.Name,
+				"status":          call.Status,
+				"input":           assistantPromptSafeValue(call.Input),
+				"output":          assistantPromptSafeValue(call.Output),
+			})
+			if len(reversed) >= assistantPromptEvidenceHistoryLimit {
+				break
+			}
+		}
+	}
+	items := make([]map[string]any, 0, len(reversed))
+	for idx := len(reversed) - 1; idx >= 0; idx-- {
+		items = append(items, reversed[idx])
+	}
+	return items
+}
+
 func assistantLLMPromptToolCalls(toolCalls []assistantToolActivity) []map[string]any {
 	items := make([]map[string]any, 0, len(toolCalls))
 	for _, call := range toolCalls {
 		items = append(items, map[string]any{
 			"name":          call.Name,
 			"status":        call.Status,
+			"source":        call.Source,
+			"phase":         call.Phase,
+			"confidence":    call.Confidence,
+			"purpose":       call.Purpose,
 			"resource_uris": call.ResourceURIs,
 			"input":         assistantPromptSafeValue(call.Input),
 			"output":        assistantPromptSafeValue(call.Output),
@@ -339,6 +378,10 @@ func assistantLLMActivity(profileName string, profile config.LLMProfile, status 
 		Output:       output,
 		Status:       status,
 		ResourceURIs: []string{"nopsai://system/llm-profiles"},
+		Source:       "llm",
+		Phase:        "synthesis",
+		Confidence:   "medium",
+		Purpose:      "Generate the final user-facing answer from validated evidence and deterministic fallback text.",
 	}
 }
 

@@ -247,3 +247,53 @@ func TestCompletionErrors(t *testing.T) {
 		t.Fatalf("error = %v, want non-2xx", err)
 	}
 }
+
+func TestCompletionRetriesTransientGateway(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		if attempts == 1 {
+			w.WriteHeader(http.StatusBadGateway)
+			fmt.Fprint(w, `<html><head><title>502 Bad Gateway</title></head><body><center><h1>502 Bad Gateway</h1></center></body></html>`)
+			return
+		}
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"answer after retry"}}]}`)
+	}))
+	defer server.Close()
+
+	completion, err := New(Options{Provider: config.LLMProviderOpenAI, Model: "gpt-test", BaseURL: server.URL}).Complete(t.Context(), "hello")
+	if err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("attempts = %d, want 2", attempts)
+	}
+	if completion.Text != "answer after retry" {
+		t.Fatalf("completion = %#v", completion)
+	}
+}
+
+func TestCompletionSanitizesHTMLGatewayErrors(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		w.WriteHeader(http.StatusBadGateway)
+		fmt.Fprint(w, `<html><head><title>502 Bad Gateway</title></head><body><center><h1>502 Bad Gateway</h1></center><hr><center>nginx/1.27.5</center></body></html><!-- padding -->`)
+	}))
+	defer server.Close()
+
+	_, err := New(Options{Provider: config.LLMProviderOpenAI, Model: "gpt-test", BaseURL: server.URL}).Complete(t.Context(), "hello")
+	if err == nil {
+		t.Fatal("Complete() error = nil, want gateway error")
+	}
+	if attempts != transientGatewayAttempts {
+		t.Fatalf("attempts = %d, want %d", attempts, transientGatewayAttempts)
+	}
+	message := err.Error()
+	if strings.Contains(message, "<html") || strings.Contains(message, "<!--") || strings.Contains(message, "</") {
+		t.Fatalf("error leaked raw HTML: %s", message)
+	}
+	if !strings.Contains(message, "502 Bad Gateway") || !strings.Contains(message, "nginx/1.27.5") {
+		t.Fatalf("error = %s, want sanitized gateway body", message)
+	}
+}

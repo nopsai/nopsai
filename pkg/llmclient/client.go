@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -16,9 +18,16 @@ import (
 )
 
 const (
-	defaultMaxTokens  = 2048
-	maxResponseBytes  = 2 << 20
-	defaultGeminiHost = "https://generativelanguage.googleapis.com"
+	defaultMaxTokens          = 2048
+	maxResponseBytes          = 2 << 20
+	defaultGeminiHost         = "https://generativelanguage.googleapis.com"
+	transientGatewayAttempts  = 2
+	transientGatewayRetryWait = 200 * time.Millisecond
+)
+
+var (
+	htmlCommentPattern = regexp.MustCompile(`(?s)<!--.*?-->`)
+	htmlTagPattern     = regexp.MustCompile(`(?s)<[^>]*>`)
 )
 
 type Options struct {
@@ -529,9 +538,31 @@ func (c *Client) postJSON(ctx context.Context, endpoint string, headers map[stri
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal %s request: %w", c.options.Provider, err)
 	}
+	var lastErr error
+	for attempt := 1; attempt <= transientGatewayAttempts; attempt++ {
+		body, statusCode, err := c.doPostJSON(ctx, endpoint, headers, payloadBytes)
+		if err == nil {
+			return body, nil
+		}
+		lastErr = err
+		if attempt >= transientGatewayAttempts || !llmClientTransientGatewayStatus(statusCode) {
+			break
+		}
+		timer := time.NewTimer(transientGatewayRetryWait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, fmt.Errorf("%s request cancelled: %w", c.options.Provider, ctx.Err())
+		case <-timer.C:
+		}
+	}
+	return nil, lastErr
+}
+
+func (c *Client) doPostJSON(ctx context.Context, endpoint string, headers map[string]string, payloadBytes []byte) ([]byte, int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payloadBytes))
 	if err != nil {
-		return nil, fmt.Errorf("failed to build %s request: %w", c.options.Provider, err)
+		return nil, 0, fmt.Errorf("failed to build %s request: %w", c.options.Provider, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	for name, value := range headers {
@@ -542,19 +573,57 @@ func (c *Client) postJSON(ctx context.Context, endpoint string, headers map[stri
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, fmt.Errorf("%s request cancelled: %w", c.options.Provider, ctxErr)
+			return nil, 0, fmt.Errorf("%s request cancelled: %w", c.options.Provider, ctxErr)
 		}
-		return nil, fmt.Errorf("failed to call %s api: %w", c.options.Provider, err)
+		return nil, 0, fmt.Errorf("failed to call %s api: %w", c.options.Provider, err)
 	}
 	defer resp.Body.Close()
 	body, err := readResponseBody(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read %s response: %w", c.options.Provider, err)
+		return nil, resp.StatusCode, fmt.Errorf("failed to read %s response: %w", c.options.Provider, err)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("%s api returned non-2xx status: %s, body: %s", c.options.Provider, resp.Status, strings.TrimSpace(string(body)))
+		bodySummary := llmErrorBodySummary(body)
+		if bodySummary == "" {
+			return nil, resp.StatusCode, fmt.Errorf("%s api returned non-2xx status: %s", c.options.Provider, resp.Status)
+		}
+		return nil, resp.StatusCode, fmt.Errorf("%s api returned non-2xx status: %s, body: %s", c.options.Provider, resp.Status, bodySummary)
 	}
-	return body, nil
+	return body, resp.StatusCode, nil
+}
+
+func llmClientTransientGatewayStatus(statusCode int) bool {
+	switch statusCode {
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
+func llmErrorBodySummary(body []byte) string {
+	text := strings.TrimSpace(string(body))
+	if text == "" {
+		return ""
+	}
+	if llmResponseLooksHTML(text) {
+		text = htmlCommentPattern.ReplaceAllString(text, " ")
+		text = htmlTagPattern.ReplaceAllString(text, " ")
+		text = html.UnescapeString(text)
+	}
+	text = strings.Join(strings.Fields(text), " ")
+	if len(text) > 600 {
+		text = text[:600] + "..."
+	}
+	return text
+}
+
+func llmResponseLooksHTML(text string) bool {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	return strings.HasPrefix(lower, "<!doctype html") ||
+		strings.HasPrefix(lower, "<html") ||
+		strings.Contains(lower, "<body") ||
+		strings.Contains(lower, "<center>")
 }
 
 func (c *Client) maxTokens() int {

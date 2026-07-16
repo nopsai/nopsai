@@ -81,11 +81,12 @@ func (a *App) runAssistantLLMPlannedTurn(
 			return assistantPlannerResult{Plan: plan, ToolCalls: toolCalls, Handled: true}
 		}
 		if plan.FinalAnswer != "" && len(plan.Steps) == 0 {
-			if err := assistantValidatePlannerFinalAnswer(plan, toolCalls); err != nil {
+			if err := assistantValidatePlannerFinalAnswer(plan, toolCalls, conversation); err != nil {
 				plan.FinalAnswer = ""
 				toolCalls = append(toolCalls, assistantPlanDeniedActivity(plan, err))
 				return assistantPlannerResult{Plan: plan, ToolCalls: toolCalls, Handled: true}
 			}
+			toolCalls = append(toolCalls, assistantExecutionPlanActivity(plan, assistantToolStatusSuccess))
 			return assistantPlannerResult{Plan: plan, ToolCalls: toolCalls, Handled: true}
 		}
 		if len(plan.Steps) == 0 {
@@ -100,8 +101,10 @@ func (a *App) runAssistantLLMPlannedTurn(
 			toolCalls = append(toolCalls, assistantPlanDeniedActivity(plan, err))
 			return assistantPlannerResult{Plan: plan, ToolCalls: toolCalls, Handled: true}
 		}
-		for _, step := range plan.Steps {
+		toolCalls = append(toolCalls, assistantExecutionPlanActivity(plan, assistantToolStatusSuccess))
+		for idx, step := range plan.Steps {
 			call := a.runAssistantHostedMCPTool(ctx, subject, userID, conversation.ID, step.ToolName, cloneAssistantArgs(step.Args))
+			call = assistantAnnotateToolActivityFromPlanStep(call, step, idx+1)
 			toolCalls = append(toolCalls, call)
 			remainingToolCalls--
 			if remainingToolCalls <= 0 {
@@ -229,6 +232,10 @@ func assistantLLMPlannerActivity(profileName string, profile config.LLMProfile, 
 		Output:       output,
 		Status:       status,
 		ResourceURIs: []string{"nopsai://features"},
+		Source:       "llm",
+		Phase:        "planning",
+		Confidence:   "medium",
+		Purpose:      "Create and validate a safe execution plan before any MCP evidence calls are run.",
 	}
 }
 
@@ -315,6 +322,11 @@ func assistantPlanHasTerminalEvidence(plan assistantTurnPlan, toolCalls []assist
 			if call.Status == assistantToolStatusSuccess {
 				return true
 			}
+		case "nopsai.get_monitoring_ai_usage":
+			call := assistantFirstToolCall(toolCalls, step.ToolName)
+			if assistantAIUsageCallHasEvents(call) {
+				return true
+			}
 		}
 	}
 	return false
@@ -343,19 +355,27 @@ func (a *App) buildAssistantPlannerPrompt(ctx context.Context, subject aaamodel.
 			"max_steps_per_plan":   assistantMaxPlanToolCalls,
 			"iteration":            iteration,
 		},
-		"available_tools":     assistantPlannerToolCatalog(availableTools, schemaToolNames),
-		"schema_tools":        assistantPlannerSchemaToolCatalog(availableTools, schemaToolNames),
-		"previous_tool_calls": assistantLLMPromptToolCalls(assistantEvidenceToolCalls(toolCalls)),
+		"available_tools": assistantPlannerToolCatalog(availableTools, schemaToolNames),
+		"schema_tools":    assistantPlannerSchemaToolCatalog(availableTools, schemaToolNames),
+	}
+	if previousEvidence := assistantPromptPreviousEvidence(conversation.Messages); len(previousEvidence) > 0 {
+		payload["previous_evidence"] = previousEvidence
+	}
+	if previousToolCalls := assistantLLMPromptToolCalls(assistantEvidenceToolCalls(toolCalls)); len(previousToolCalls) > 0 {
+		payload["previous_tool_calls"] = previousToolCalls
 	}
 	raw, _ := json.Marshal(payload)
-	return strings.TrimSpace(`You are the NopsAI assistant planner for an enterprise CI/CD, GitOps, and operations platform.
+	return strings.TrimSpace(`You are the NopsAI assistant planner.
 
-Create a safe hosted MCP tool plan from the user's request, available_tools, schema_tools, and observed tool results.
-Use same-chat conversation_history and conversation_memory to resolve follow-up requests before asking clarifying questions.
-Use only tool names from available_tools, and only put a tool in steps when its available_tools schema_included value is true. Tools with schema_included:false are discoverability context only for this turn.
+Create a safe hosted MCP tool plan from user_request, available_tools, schema_tools, and observed tool results.
+Use conversation_history and conversation_memory to resolve follow-ups before asking clarifying questions.
+Use only tool names from available_tools. Put a tool in steps only when schema_included is true; false is discoverability only.
 Select tools from their descriptions and use schema_tools for exact argument names. Never invent tools or arguments. Never request direct database access.
+Step reasons are user-visible; keep them short and operational, not hidden reasoning.
 Prefer first-party analytics tools over stitching raw data manually.
 For reads, choose the smallest evidence set that can answer the question.
+If previous_evidence is enough for a follow-up calculation, estimate, comparison, or explanation, return no steps and final_answer with "Data source" and "Confidence". Separate MCP-backed facts from LLM-derived assumptions.
+For cost estimates, do not invent exact pricing. If pricing is missing, give a formula or scenario with explicit per-token/per-million-token assumptions.
 For pipeline YAML, config, or API validation, use the relevant MCP validation/API/doc tools and schemas instead of relying on memory.
 For samples, templates, schema questions, and "what should this definition look like" requests, gather current NopsAI docs or capability evidence before answering. Do not answer from static examples in the prompt.
 For pipeline generation or edits, route YAML through nopsai.validate_pipeline or a nopsai.propose_pipeline_* tool before answering.
@@ -364,7 +384,7 @@ For variables and secrets, plain add/set/update/delete requests should use direc
 If a mutating tool is needed but the user did not explicitly confirm, return that tool without confirm:true; NopsAI validation will block execution and the answer should explain confirmation is required.
 If a needed tool is not listed in schema_tools and it requires arguments you cannot infer safely, ask a clarifying question instead of guessing.
 When drafting pipeline YAML, every step must contain exactly one execution method: include, tasks, goal, script, or approval. For explicit operational steps such as clone repository, build docker image, or push image to registry, prefer script steps with concrete shell commands instead of name-only placeholder steps.
-If the previous tool outputs are sufficient, return no steps and write final_answer from the evidence.
+If previous_evidence is sufficient, return no steps and final_answer with source/confidence labels.
 If the request is too broad or missing a target, return no steps and set clarifying_question.
 
 Return JSON only, with this shape:
@@ -492,10 +512,12 @@ func assistantPlannerSchemaToolNames(content string, plan assistantTurnPlan, too
 		add("nopsai.call_api", 60)
 	}
 
-	if assistantTextHasAny(lower, "env var", "environment variable", "variable", "variables", "var ", "_var") {
+	if assistantTextHasAny(lower, "env", "envs", "env var", "environment variable", "environment variables", "variable", "variables", "var ", "_var") {
 		addPrefix("nopsai.list_variable", 50)
 		add("nopsai.analyze_variable_usage", 45)
-		if assistantPlannerWantsDeleteSchema(lower) {
+		if assistantPlannerWantsExposurePolicySchema(lower) {
+			add("nopsai.list_variables_metadata", 50)
+		} else if assistantPlannerWantsDeleteSchema(lower) {
 			if assistantPlannerWantsGitOpsProposalSchema(lower) {
 				add("nopsai.propose_variable_gitops_delete", 55)
 			} else {
@@ -528,6 +550,15 @@ func assistantPlannerSchemaToolNames(content string, plan assistantTurnPlan, too
 			}
 		}
 	}
+	if assistantPlannerWantsExposurePolicySchema(lower) {
+		add("nopsai.get_feature_capabilities", 70)
+		add("nopsai.search_docs", 60)
+		add("nopsai.list_knowledge_contexts", 55)
+		add("nopsai.get_knowledge_context", 45)
+		add("nopsai.list_variables_metadata", 40)
+		add("nopsai.list_secrets_metadata", 40)
+		add("nopsai.explain_scope_permissions", 25)
+	}
 
 	if assistantTextHasAny(lower, "pipeline", "yaml", "build", "deploy", "approval", "step", "rollout", "release") {
 		add("nopsai.list_pipelines", 20)
@@ -554,7 +585,7 @@ func assistantPlannerSchemaToolNames(content string, plan assistantTurnPlan, too
 		add("nopsai.analyze_pipeline_run_failure", 55)
 		add("nopsai.explain_lab_result", 25)
 	}
-	if assistantTextHasAny(lower, "monitor", "monitoring", "health", "reliability", "efficiency", "security", "performance", "analytics", "usage", "tokens", "token", "cost", "runner utilization") {
+	if assistantTextHasAny(lower, "monitor", "monitoring", "health", "reliability", "efficiency", "security", "performance", "analytics", "usage", "tokens", "token", "cost", "estimate", "estimation", "calculate", "calculation", "runner utilization") {
 		addPrefix("nopsai.get_monitoring_", 35)
 		add("nopsai.get_pipeline_efficiency", 30)
 		add("nopsai.compare_pipelines", 25)
@@ -563,6 +594,23 @@ func assistantPlannerSchemaToolNames(content string, plan assistantTurnPlan, too
 		add("nopsai.find_optimization_opportunities", 30)
 		add("nopsai.get_cost_summary", 25)
 		add("nopsai.suggest_cost_improvements", 25)
+	}
+	if assistantTextHasAny(lower, "slowest", "fastest", "longest", "duration", "latency", "bottleneck", "bottlenecks", "p95", "p99") {
+		add("nopsai.get_monitoring_step_performance", 55)
+		add("nopsai.get_monitoring_task_performance", 45)
+		add("nopsai.get_monitoring_pipeline_performance", 35)
+		add("nopsai.get_monitoring_summary", 30)
+		add("nopsai.find_optimization_opportunities", 25)
+	}
+	if assistantTextHasAny(lower, "find data", "show data", "list data", "understand", "analyse", "analysis", "investigate", "insight", "insights", "estimate", "estimation", "calculate", "calculation") {
+		add("nopsai.get_feature_capabilities", 35)
+		add("nopsai.search_docs", 25)
+		add("nopsai.get_monitoring_summary", 25)
+	}
+	if assistantTextHasAny(lower, "object", "objects", "resource", "resources", "record", "records") {
+		add("nopsai.get_feature_capabilities", 45)
+		add("nopsai.search_docs", 25)
+		add("nopsai.get_ui_context", 20)
 	}
 	if assistantTextHasAny(lower, "trigger", "webhook") {
 		add("nopsai.list_triggers", 45)
@@ -592,11 +640,14 @@ func assistantPlannerSchemaToolNames(content string, plan assistantTurnPlan, too
 	if assistantTextHasAny(lower, "setup", "install", "bootstrap", "first install", "template") {
 		addContains("setup", 45)
 	}
-	if assistantTextHasAny(lower, "docs", "documentation", "knowledge", "guideline", "sample", "samples", "example", "examples", "template", "schema", "definition", "definitions", "looks like", "look like") {
+	if assistantTextHasAny(lower, "docs", "documentation", "knowledge", "policy", "guardrail", "guideline", "sample", "samples", "example", "examples", "template", "schema", "definition", "definitions", "looks like", "look like") {
 		add("nopsai.search_docs", 45)
 		add("nopsai.read_doc", 35)
 		add("nopsai.list_knowledge_contexts", 35)
 		add("nopsai.get_knowledge_context", 35)
+	}
+	if assistantTextHasAny(lower, "policy", "policies", "guardrail", "guardrails") {
+		add("nopsai.get_feature_capabilities", 45)
 	}
 	if assistantTextHasAny(lower, "knowledge connection", "knowledge connections", "notion", "confluence", "wiki connection", "external page") {
 		add("nopsai.list_knowledge_connections", 40)
@@ -620,6 +671,8 @@ func assistantPlannerSchemaToolNames(content string, plan assistantTurnPlan, too
 		add("nopsai.suggest_design_improvements", 35)
 		add("nopsai.suggest_cost_improvements", 35)
 		add("nopsai.find_optimization_opportunities", 35)
+		add("nopsai.get_monitoring_efficiency", 25)
+		add("nopsai.get_monitoring_reliability", 25)
 		addContains("recommendation", 25)
 	}
 
@@ -721,6 +774,34 @@ func assistantPlannerWantsGitOpsProposalSchema(lower string) bool {
 		"pull request",
 		"merge request",
 		"without applying",
+	)
+}
+
+func assistantPlannerWantsExposurePolicySchema(lower string) bool {
+	return assistantTextHasAny(lower,
+		"policy",
+		"policies",
+		"guardrail",
+		"guardrails",
+		"prevent",
+		"block",
+		"hide",
+		"showing",
+		"expose",
+		"redact",
+		"plaintext",
+	) && assistantTextHasAny(lower,
+		"env",
+		"envs",
+		"environment variable",
+		"environment variables",
+		"secret",
+		"secrets",
+		"credential",
+		"credentials",
+		"token",
+		"password",
+		"sensitive",
 	)
 }
 
@@ -891,7 +972,7 @@ func assistantEvidenceToolCalls(toolCalls []assistantToolActivity) []assistantTo
 	filtered := make([]assistantToolActivity, 0, len(toolCalls))
 	for _, call := range toolCalls {
 		switch call.Name {
-		case assistantLLMPlannerToolName, assistantLLMToolName, "nopsai.assistant_plan":
+		case assistantLLMPlannerToolName, assistantLLMToolName, assistantExecutionPlanToolName, "nopsai.assistant_plan":
 			continue
 		default:
 			filtered = append(filtered, call)
@@ -911,5 +992,9 @@ func assistantPlanDeniedActivity(plan assistantTurnPlan, err error) assistantToo
 			"validated":  false,
 			"tool_count": len(plan.Steps),
 		},
+		Source:     "policy",
+		Phase:      "planning",
+		Confidence: "high",
+		Purpose:    "Reject unsafe or invalid assistant plans before execution.",
 	}
 }

@@ -245,9 +245,19 @@ replies are synthesized from the user request, conversation memory, and hosted
 MCP tool outputs. Assistant conversation turns do not use static
 normal-language routing. If the selected profile cannot be used for planning,
 no hosted MCP tools run and the assistant reports that no changes were applied.
+When a plan is validated, the assistant stores a user-visible execution-plan
+activity before running MCP evidence calls. That activity labels steps as MCP,
+docs, knowledge context, GitOps proposal, or LLM analysis, with phase and
+confidence metadata, without exposing hidden model chain-of-thought.
+For follow-up calculations or estimates, the assistant LLM may answer from
+previous same-chat MCP evidence without another tool call, but the answer must
+label its data source and confidence so exact MCP-backed facts stay separate
+from LLM-derived assumptions.
 If final synthesis fails after a validated plan already produced MCP evidence,
 the assistant records the fallback reason and returns the deterministic
-permission-bound tool summary.
+permission-bound tool summary. Transient upstream gateway responses from LLM
+providers are retried once. If the provider still returns an HTML gateway page,
+Nopsai strips the markup before storing or showing the fallback reason.
 
 Assistant usage accounting keeps visible text estimates separate from provider
 usage. User messages and deterministic replies without an LLM call add to

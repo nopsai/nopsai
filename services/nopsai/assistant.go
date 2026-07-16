@@ -15,6 +15,8 @@ const (
 	assistantRoleSystem    = "system"
 )
 
+const assistantExecutionPlanToolName = "nopsai.assistant.execution_plan"
+
 type assistantConversation struct {
 	ID                 uuid.UUID                   `json:"id"`
 	UserID             string                      `json:"user_id"`
@@ -66,6 +68,29 @@ type assistantToolActivity struct {
 	Output       map[string]any `json:"output,omitempty"`
 	Status       string         `json:"status,omitempty"`
 	ResourceURIs []string       `json:"resource_uris,omitempty"`
+	Source       string         `json:"source,omitempty"`
+	Phase        string         `json:"phase,omitempty"`
+	Confidence   string         `json:"confidence,omitempty"`
+	Purpose      string         `json:"purpose,omitempty"`
+}
+
+type assistantExecutionPlan struct {
+	Goal                 string                       `json:"goal"`
+	Intent               string                       `json:"intent"`
+	Summary              string                       `json:"summary"`
+	RequiresConfirmation bool                         `json:"requires_confirmation"`
+	Steps                []assistantExecutionPlanStep `json:"steps"`
+}
+
+type assistantExecutionPlanStep struct {
+	Index      int    `json:"index"`
+	Title      string `json:"title"`
+	Source     string `json:"source"`
+	Phase      string `json:"phase"`
+	Confidence string `json:"confidence"`
+	Tool       string `json:"tool,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	Status     string `json:"status,omitempty"`
 }
 
 type assistantConversationMemory struct {
