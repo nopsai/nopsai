@@ -38,6 +38,8 @@ var configRepositorySchemaStatements = []string{
 		UNIQUE(scope_type, scope_id),
 		UNIQUE(repo_url, branch, base_path)
 	)`,
+	`ALTER TABLE config_repositories DROP CONSTRAINT IF EXISTS config_repositories_scope_type_check`,
+	`ALTER TABLE config_repositories ADD CONSTRAINT config_repositories_scope_type_check CHECK (scope_type IN ('team', 'system'))`,
 	`ALTER TABLE config_repositories ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'github'`,
 	`UPDATE config_repositories SET provider = 'github' WHERE provider = '' OR provider IS NULL`,
 	`UPDATE config_repositories SET provider = 'github' WHERE provider NOT IN ('github', 'gitlab', 'bitbucket', 'gitea')`,

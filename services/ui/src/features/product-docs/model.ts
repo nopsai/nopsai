@@ -1,16 +1,91 @@
 export type WikiArticleLevel = 'Start' | 'Operate' | 'Reference' | 'Admin' | 'Troubleshoot' | 'Security';
 
+export type WikiDocType = 'tutorial' | 'how-to' | 'concept' | 'reference' | 'runbook' | 'troubleshooting';
+
+export type WikiAudience =
+  | 'new-user'
+  | 'automation-author'
+  | 'operator'
+  | 'administrator'
+  | 'security'
+  | 'developer';
+
 export type WikiConfigRow = {
   key: string;
   area: string;
   description: string;
   example: string;
+  path?: string;
+  type?: string;
+  required?: boolean | 'conditional';
+  defaultValue?: string;
+  allowedValues?: string[];
+  scope?: string;
+  constraints?: string[];
+  inheritedFrom?: string[];
+  permission?: string;
+  introducedIn?: string;
+  deprecatedIn?: string;
+  security?: string;
 };
 
 export type WikiExample = {
   title: string;
   language: string;
   code: string;
+  complete?: boolean;
+  expectedOutput?: string;
+  placeholderNotes?: string[];
+  testedIn?: string;
+  permission?: string;
+  validationCommand?: string;
+  rollback?: string;
+};
+
+export type WikiPrerequisite = {
+  label: string;
+  value: string;
+  verification?: string;
+};
+
+export type WikiStep = {
+  title: string;
+  description: string;
+  commands?: WikiExample[];
+  expectedOutput?: string;
+  verification?: string;
+  warning?: string;
+};
+
+export type WikiSource = {
+  title: string;
+  repositoryPath: string;
+  sourceUrl?: string;
+  sourceLines?: string;
+  purpose: string;
+};
+
+export type WikiRunbook = {
+  id: string;
+  title: string;
+  symptoms: string[];
+  impact: string;
+  requiredAccess: string;
+  initialChecks: string[];
+  diagnosticCommands: string[];
+  resolution: string[];
+  rollback?: string;
+  escalation?: string;
+  metrics?: string[];
+};
+
+export type WikiArticleMetadata = {
+  appliesTo: string;
+  owner: string;
+  introducedIn: string;
+  lastVerified: string;
+  sourceCommit: string;
+  status: 'current' | 'preview' | 'deprecated' | 'archived';
 };
 
 export type WikiArticle = {
@@ -18,14 +93,21 @@ export type WikiArticle = {
   title: string;
   level: WikiArticleLevel;
   audience: string;
+  docType: WikiDocType;
+  audiences: WikiAudience[];
   summary: string;
   keyFacts: string[];
   details: string[];
+  prerequisites: WikiPrerequisite[];
+  steps: WikiStep[];
   configRows: WikiConfigRow[];
   examples: WikiExample[];
   relatedDocs: string[];
+  sourceLinks: WikiSource[];
   runbooks: string[];
+  runbookEntries: WikiRunbook[];
   caveats: string[];
+  metadata: WikiArticleMetadata;
 };
 
 export type WikiSection = {
@@ -42,6 +124,21 @@ export type WikiSummary = {
   configKeys: number;
   runbooks: number;
   caveats: number;
+  tutorials: number;
+  proceduralPages: number;
+  sourceLinks: number;
+};
+
+type WikiArticleInput = Omit<
+  WikiArticle,
+  'docType' | 'audiences' | 'prerequisites' | 'steps' | 'sourceLinks' | 'runbookEntries' | 'metadata'
+> &
+  Partial<Pick<WikiArticle, 'docType' | 'audiences' | 'prerequisites' | 'steps' | 'sourceLinks' | 'runbookEntries'>> & {
+    metadata?: Partial<WikiArticleMetadata>;
+  };
+
+type WikiSectionInput = Omit<WikiSection, 'articles'> & {
+  articles: WikiArticleInput[];
 };
 
 export const wikiMetadata = {
@@ -95,6 +192,185 @@ export const supportedDeploymentModels = [
     storage: 'Control-plane PostgreSQL plus runner-local workspace storage',
   },
 ];
+
+const DEFAULT_VERIFIED_DATE = 'July 2026';
+const DEFAULT_SOURCE_COMMIT = '3558159';
+
+export function wikiArticlePath(sectionID: string, articleID: string) {
+  return `/docs/${encodeURIComponent(sectionID)}/${encodeURIComponent(articleID)}`;
+}
+
+export function findWikiArticleByPath(sections: WikiSection[], pathname: string) {
+  const segments = pathname.split('/').filter(Boolean);
+  if (segments[0] !== 'docs' || segments.length < 3) return undefined;
+  const sectionID = decodeRouteSegment(segments[1] || '');
+  const articleID = decodeRouteSegment(segments[2] || '');
+  const section = sections.find(candidate => candidate.id === sectionID);
+  const article = section?.articles.find(candidate => candidate.id === articleID);
+  return section && article ? { section, article } : undefined;
+}
+
+export function wikiDocTypeLabel(type: WikiDocType) {
+  return {
+    tutorial: 'Tutorial',
+    'how-to': 'How-to',
+    concept: 'Concept',
+    reference: 'Reference',
+    runbook: 'Runbook',
+    troubleshooting: 'Troubleshooting',
+  }[type];
+}
+
+export function wikiAudienceLabel(audience: WikiAudience) {
+  return {
+    'new-user': 'New user',
+    'automation-author': 'Automation author',
+    operator: 'Operator',
+    administrator: 'Administrator',
+    security: 'Security',
+    developer: 'Developer',
+  }[audience];
+}
+
+function decodeRouteSegment(segment: string) {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
+function normalizeWikiSections(sections: WikiSectionInput[]): WikiSection[] {
+  return sections.map(section => ({
+    ...section,
+    articles: section.articles.map(article => normalizeWikiArticle(section, article)),
+  }));
+}
+
+function normalizeWikiArticle(section: WikiSectionInput, article: WikiArticleInput): WikiArticle {
+  const configRows = article.configRows.map(normalizeConfigRow);
+  const sourceLinks = article.sourceLinks || article.relatedDocs.map(doc => sourceFromPath(doc));
+  const runbookEntries = article.runbookEntries || article.runbooks.map(title => runbookFromTitle(title, article));
+
+  return {
+    ...article,
+    docType: article.docType || docTypeFromLevel(article.level),
+    audiences: article.audiences || audiencesFromLegacy(article.audience),
+    prerequisites: article.prerequisites || [],
+    steps: article.steps || [],
+    configRows,
+    sourceLinks,
+    runbookEntries,
+    metadata: {
+      appliesTo: wikiMetadata.apiVersion,
+      owner: section.owner,
+      introducedIn: 'current',
+      lastVerified: DEFAULT_VERIFIED_DATE,
+      sourceCommit: DEFAULT_SOURCE_COMMIT,
+      status: 'current',
+      ...article.metadata,
+    },
+  };
+}
+
+function normalizeConfigRow(row: WikiConfigRow): WikiConfigRow {
+  return {
+    path: row.path || row.key,
+    type: row.type || inferFieldType(row.example),
+    required: row.required ?? inferRequired(row.description),
+    defaultValue: row.defaultValue || inferDefault(row.description),
+    scope: row.scope || row.area,
+    ...row,
+  };
+}
+
+function sourceFromPath(repositoryPath: string): WikiSource {
+  const filename = repositoryPath.split('/').filter(Boolean).pop() || repositoryPath;
+  return {
+    title: filename,
+    repositoryPath,
+    purpose: repositoryPath.startsWith('doc/')
+      ? 'Focused repository documentation backing this wiki article.'
+      : 'Implementation or deployment source used to verify the article.',
+  };
+}
+
+function runbookFromTitle(title: string, article: WikiArticleInput): WikiRunbook {
+  return {
+    id: slugify(title),
+    title,
+    symptoms: [`You need to perform or investigate: ${title}.`],
+    impact: article.summary,
+    requiredAccess: defaultRunbookAccess(article),
+    initialChecks: ['Confirm the target team, scope, repository, pipeline, and run ID before changing state.'],
+    diagnosticCommands: [],
+    resolution: ['Follow the linked article details and focused source documents, then verify the result through UI, API, CLI, or metrics.'],
+    escalation: 'Escalate to the article owner when the expected resource, permission, route, or metric is missing.',
+  };
+}
+
+function docTypeFromLevel(level: WikiArticleLevel): WikiDocType {
+  if (level === 'Start') return 'concept';
+  if (level === 'Operate' || level === 'Admin') return 'how-to';
+  if (level === 'Troubleshoot') return 'troubleshooting';
+  if (level === 'Security') return 'reference';
+  return 'reference';
+}
+
+function audiencesFromLegacy(value: string): WikiAudience[] {
+  const normalized = value.toLowerCase();
+  const audiences = new Set<WikiAudience>();
+  if (normalized.includes('new') || normalized.includes('buyer')) audiences.add('new-user');
+  if (normalized.includes('automation') || normalized.includes('author') || normalized.includes('release')) audiences.add('automation-author');
+  if (normalized.includes('operator') || normalized.includes('sre') || normalized.includes('support')) audiences.add('operator');
+  if (normalized.includes('admin') || normalized.includes('platform')) audiences.add('administrator');
+  if (normalized.includes('security') || normalized.includes('audit')) audiences.add('security');
+  if (normalized.includes('developer') || normalized.includes('integration')) audiences.add('developer');
+  if (audiences.size === 0) audiences.add('operator');
+  return Array.from(audiences);
+}
+
+function inferFieldType(example: string) {
+  const trimmed = example.trim();
+  if (trimmed === 'true' || trimmed === 'false') return 'boolean';
+  if (/^\d+$/.test(trimmed)) return 'integer';
+  if (/^\[.*\]$/.test(trimmed)) return 'array';
+  if (/^\{.*\}$/.test(trimmed)) return 'object';
+  if (/^\d+[smhd]$/.test(trimmed)) return 'duration';
+  if (trimmed.endsWith('.yaml') || trimmed.includes('/')) return 'path';
+  return 'string';
+}
+
+function inferRequired(description: string): boolean | 'conditional' {
+  const normalized = description.toLowerCase();
+  if (normalized.includes('required')) return true;
+  if (normalized.includes('optional') || normalized.includes('defaults') || normalized.includes('default')) return false;
+  return 'conditional';
+}
+
+function inferDefault(description: string) {
+  const normalized = description.toLowerCase();
+  if (normalized.includes('defaults to utc')) return 'UTC';
+  if (normalized.includes('defaults to replace')) return 'replace';
+  if (normalized.includes('defaults it to latest')) return 'latest';
+  if (normalized.includes('defaults to false')) return 'false';
+  if (normalized.includes('defaults to true')) return 'true';
+  return undefined;
+}
+
+function defaultRunbookAccess(article: WikiArticleInput) {
+  if (article.audience.toLowerCase().includes('security')) return 'Security administrator or owner for the affected resource.';
+  if (article.audience.toLowerCase().includes('administrator')) return 'Platform administrator or owner for the affected resource.';
+  return 'Read access to the affected resource, plus write access only for corrective changes.';
+}
+
+function slugify(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
 
 const pipelineTopLevelRows: WikiConfigRow[] = [
   {
@@ -150,24 +426,45 @@ const pipelineTopLevelRows: WikiConfigRow[] = [
     area: 'Pipeline YAML',
     description: 'Set false only for script-only pipelines. It rejects goals, conditions, MCP profile validation, and final outputs.',
     example: 'false',
+    type: 'boolean',
+    required: false,
+    defaultValue: 'true',
+    scope: 'pipeline',
+    constraints: ['false requires script-only execution and rejects goals, conditions, explicit MCP profiles, and final outputs.'],
   },
   {
     key: 'agent_profile',
     area: 'Pipeline YAML',
     description: 'Pipeline-level AI persona. Step agent_profile can override it; tasks cannot define agent_profile.',
     example: 'release-manager',
+    type: 'string',
+    required: false,
+    scope: 'pipeline',
+    permission: 'agent_profile.use',
+    constraints: ['Tasks cannot set agent_profile.'],
   },
   {
     key: 'llm_profile',
     area: 'Pipeline YAML',
     description: 'Pipeline-level model profile. It selects provider/model/client settings, not persona or permissions.',
     example: 'standard',
+    type: 'string',
+    required: 'conditional',
+    scope: 'pipeline',
+    inheritedFrom: ['configured default LLM profile'],
+    permission: 'llm_profile.use',
+    constraints: ['Step, task, output, and output item overrides can select a more specific profile where supported.'],
   },
   {
     key: 'mcp_profiles',
     area: 'Pipeline YAML',
     description: 'Approved MCP tool profiles available to LLM goals. Profiles are additive with step and task MCP profiles.',
     example: '[github-pr-review]',
+    type: 'array<string>',
+    required: false,
+    scope: 'pipeline',
+    permission: 'mcp_profile.use',
+    constraints: ['Valid only for LLM-backed goal work.'],
   },
   {
     key: 'runtime_pool',
@@ -186,6 +483,11 @@ const pipelineTopLevelRows: WikiConfigRow[] = [
     area: 'Pipeline YAML',
     description: 'Pipeline-level knowledge references merged into every LLM condition and goal in the run.',
     example: 'kind: guardrail, ref: security/repo-check',
+    type: 'array<object>',
+    required: false,
+    scope: 'pipeline',
+    permission: 'knowledge_context.use',
+    constraints: ['Each entry must use exactly one of ref or path. Guardrails and policies fail closed on conflicts.'],
   },
   {
     key: 'llm_content_sharing',
@@ -216,6 +518,10 @@ const pipelineTopLevelRows: WikiConfigRow[] = [
     area: 'Pipeline YAML',
     description: 'Post-run final deliverables and dashboard publications generated from completed run context.',
     example: 'items: [{ name: summary, type: markdown, when: success }]',
+    type: 'object',
+    required: false,
+    scope: 'pipeline',
+    constraints: ['Invalid when llm_enabled is false.'],
   },
 ];
 
@@ -285,6 +591,11 @@ const stepTaskRows: WikiConfigRow[] = [
     area: 'Step YAML',
     description: 'Step model-profile override. It selects the LLM provider/model for the step condition and tasks unless a task defines its own llm_profile.',
     example: 'reasoning',
+    type: 'string',
+    required: 'conditional',
+    scope: 'step',
+    inheritedFrom: ['pipeline llm_profile', 'configured default LLM profile'],
+    permission: 'llm_profile.use',
   },
   {
     key: 'steps[].mcp_profiles',
@@ -363,6 +674,12 @@ const stepTaskRows: WikiConfigRow[] = [
     area: 'Task YAML',
     description: 'Task model-profile override. It is the most specific llm_profile level and controls this task goal client.',
     example: 'fast',
+    type: 'string',
+    required: 'conditional',
+    scope: 'task',
+    inheritedFrom: ['step llm_profile', 'pipeline llm_profile', 'configured default LLM profile'],
+    permission: 'llm_profile.use',
+    constraints: ['Valid for LLM-backed goal tasks.'],
   },
   {
     key: 'tasks[].mcp_profiles',
@@ -768,6 +1085,11 @@ const finalOutputRows: WikiConfigRow[] = [
     area: 'Final output YAML',
     description: 'Default model profile for all final outputs. Item llm_profile overrides it.',
     example: 'report-writer',
+    type: 'string',
+    required: 'conditional',
+    scope: 'pipeline output',
+    inheritedFrom: ['pipeline llm_profile', 'configured default LLM profile'],
+    permission: 'llm_profile.use',
   },
   {
     key: 'output.items[].name',
@@ -780,12 +1102,21 @@ const finalOutputRows: WikiConfigRow[] = [
     area: 'Final output YAML',
     description: 'Output type. Supported values are markdown, pdf, excel, json, html, and dashboard.',
     example: 'pdf',
+    type: 'enum',
+    required: true,
+    allowedValues: ['markdown', 'pdf', 'excel', 'json', 'html', 'dashboard'],
+    scope: 'output item',
   },
   {
     key: 'output.items[].when',
     area: 'Final output YAML',
     description: 'Generation condition. Supported values are success, failure, and always; empty behaves as always.',
     example: 'always',
+    type: 'enum',
+    required: false,
+    defaultValue: 'always',
+    allowedValues: ['success', 'failure', 'always'],
+    scope: 'output item',
   },
   {
     key: 'output.items[].prompt',
@@ -822,22 +1153,35 @@ const finalOutputRows: WikiConfigRow[] = [
     area: 'Dashboard output',
     description: 'Optional publication mode. Supported values are replace, append, snapshot, and series; empty defaults to replace.',
     example: 'replace',
+    type: 'enum',
+    required: false,
+    defaultValue: 'replace',
+    allowedValues: ['replace', 'append', 'snapshot', 'series'],
+    scope: 'dashboard output item',
   },
   {
     key: 'output.items[].dashboard.preset',
     area: 'Dashboard output',
     description: 'Optional prompt preset hint. Supported values include auto, report, table, status, timeline, comparison, metrics, and mixed.',
     example: 'metrics',
+    type: 'enum',
+    required: false,
+    allowedValues: ['auto', 'report', 'table', 'status', 'timeline', 'comparison', 'metrics', 'mixed'],
+    scope: 'dashboard output item',
   },
   {
     key: 'output.items[].dashboard.ttl',
     area: 'Dashboard output',
     description: 'Optional staleness duration for dashboard content.',
     example: '7d',
+    type: 'duration',
+    required: false,
+    scope: 'dashboard output item',
+    constraints: ['Accepts Go durations and day shorthand such as 7d up to the platform maximum retention.'],
   },
 ];
 
-export const wikiSections: WikiSection[] = [
+const baseWikiSections: WikiSectionInput[] = [
   {
     id: 'architecture',
     title: 'Product and Architecture',
@@ -944,6 +1288,561 @@ export const wikiSections: WikiSection[] = [
         relatedDocs: ['doc/runtime-flows.md', 'doc/final-output-rendering.md'],
         runbooks: ['Trace a stuck run from API record to dispatcher queue to runner logs'],
         caveats: ['A queued run normally means no eligible runner is currently available for the requested scope or route.'],
+      },
+    ],
+  },
+  {
+    id: 'getting-started',
+    title: 'Getting Started',
+    owner: 'Developer experience',
+    description: 'A first-run journey from local installation through a working script pipeline, AI goal, Git trigger, approval, and final deliverable.',
+    articles: [
+      {
+        id: 'install-local-docker-compose',
+        title: 'Install Locally with Docker Compose',
+        level: 'Start',
+        docType: 'tutorial',
+        audiences: ['new-user', 'developer', 'administrator'],
+        audience: 'New users, developers, and administrators evaluating NopsAI locally',
+        summary:
+          'Start a local NopsAI stack, confirm the control-plane services, and verify that a Docker runner can register for first-run testing.',
+        keyFacts: [
+          'Use the checked-in Compose file for local evaluation and development.',
+          'The UI is published on http://localhost/ and the API on http://localhost:8080.',
+          'The Docker runner needs Docker socket access because it creates agent and step containers.',
+          'Local fallback secrets are present for development only and must be replaced outside a local workstation.',
+        ],
+        prerequisites: [
+          { label: 'NopsAI version', value: 'Current repository checkout', verification: 'git rev-parse --short HEAD' },
+          { label: 'Runtime', value: 'Docker 26+ with Compose v2', verification: 'docker compose version' },
+          { label: 'Ports', value: '80, 8080, 8081, 9090, and 5432 available on the workstation' },
+          { label: 'Permission', value: 'Local Docker access for the current user', verification: 'docker ps' },
+        ],
+        steps: [
+          {
+            title: 'Build and start the stack',
+            description: 'Run the local Compose topology from the repository root.',
+            commands: [
+              {
+                title: 'Start Compose',
+                language: 'bash',
+                code: 'docker compose up -d --build',
+                complete: true,
+                testedIn: DEFAULT_VERIFIED_DATE,
+              },
+            ],
+            expectedOutput: 'Compose creates the nopsai-net network and starts PostgreSQL, API, AAA, dispatcher, git-bot, UI, Gotenberg, socket proxy, and Docker runner services.',
+          },
+          {
+            title: 'Check service health',
+            description: 'Confirm that the core services are running before opening the setup flow.',
+            commands: [
+              {
+                title: 'Inspect local services',
+                language: 'bash',
+                code: 'docker compose ps\ndocker compose logs --tail=80 nopsai aaa dispatcher docker-runner',
+                complete: true,
+                testedIn: DEFAULT_VERIFIED_DATE,
+              },
+            ],
+            verification: 'Open http://localhost/ and confirm the setup or login page loads.',
+          },
+          {
+            title: 'Keep logs visible during setup',
+            description: 'Follow the services that own first-run setup and runner registration while completing the wizard.',
+            commands: [
+              {
+                title: 'Follow setup logs',
+                language: 'bash',
+                code: 'docker compose logs -f nopsai aaa dispatcher docker-runner',
+                complete: true,
+                testedIn: DEFAULT_VERIFIED_DATE,
+              },
+            ],
+          },
+        ],
+        details: [
+          'The Compose stack is intentionally optimized for local inspection. It is the fastest path for validating product behavior before you move to a release bundle or Helm deployment.',
+          'Use the Docker Compose reference article when you need port, service, and environment-variable detail after the tutorial succeeds.',
+        ],
+        configRows: [
+          {
+            key: 'SYSTEM_LOGS_DOCKER_HOST',
+            area: 'Compose',
+            description: 'Docker socket proxy endpoint used by API System Logs.',
+            example: 'tcp://docker-socket-proxy:2375',
+            type: 'URL',
+            required: true,
+            scope: 'system',
+            security: 'Use only the restricted socket proxy for API log reads.',
+          },
+        ],
+        examples: [
+          {
+            title: 'Local startup',
+            language: 'bash',
+            code: 'docker compose up -d --build\ndocker compose ps',
+            complete: true,
+            expectedOutput: 'The nopsai, aaa, dispatcher, git-bot, ui, and docker-runner services are running.',
+            testedIn: DEFAULT_VERIFIED_DATE,
+            rollback: 'docker compose down',
+          },
+        ],
+        relatedDocs: ['docker-compose.yaml', 'doc/enterprise-gates.md'],
+        runbooks: ['Start local stack', 'Check runner registration'],
+        caveats: ['Do not promote checked-in local fallback secrets to a shared or production environment.'],
+      },
+      {
+        id: 'complete-first-install-wizard',
+        title: 'Complete the First-Install Wizard',
+        level: 'Start',
+        docType: 'tutorial',
+        audiences: ['new-user', 'administrator'],
+        audience: 'Administrators bootstrapping an empty workspace',
+        summary:
+          'Use System > Setup to pass preflight checks, create bootstrap resources, and seed a first runnable GitOps-friendly workspace.',
+        keyFacts: [
+          'The wizard checks database, encryption, JWT, service-secret, internal URL, LLM/MCP, starter content, and runner readiness.',
+          'Required gates must pass before the workspace is ready for normal use.',
+          'Optional AI and MCP seed data can be skipped and added later.',
+          'Production mode does not silently accept unsafe bootstrap defaults.',
+        ],
+        prerequisites: [
+          { label: 'Running stack', value: 'Local Compose or deployed control plane with API and UI reachable' },
+          { label: 'Permission', value: 'Initial administrator or setup-capable platform administrator' },
+          { label: 'Services', value: 'PostgreSQL, API, AAA, dispatcher, and at least one runner available' },
+          { label: 'Verification', value: 'Open the UI and confirm the setup page renders' },
+        ],
+        steps: [
+          {
+            title: 'Open setup',
+            description: 'Navigate to the setup page from the empty workspace.',
+            verification: 'The page shows preflight status rather than the normal product workspace.',
+          },
+          {
+            title: 'Resolve required preflight checks',
+            description: 'Fix missing database, master key, JWT, service token, service URL, or runner readiness items before continuing.',
+            warning: 'Do not accept local fallback secrets for shared environments.',
+          },
+          {
+            title: 'Create starter resources',
+            description: 'Seed the first teams, users, scopes, starter pipeline, knowledge documents, profiles, and access bootstrap.',
+            expectedOutput: 'The workspace has a first team, a first pipeline, and enough access for an administrator to run it.',
+          },
+          {
+            title: 'Run setup validation',
+            description: 'Use the generated first-run content to verify API, dispatcher, runner, and authorization wiring.',
+            verification: 'A first pipeline run reaches a terminal status and is visible in Pipeline runs.',
+          },
+        ],
+        details: [
+          'The setup wizard owns bootstrap readiness. After the workspace is live, GitOps repositories and focused system pages own ongoing configuration.',
+        ],
+        configRows: [
+          {
+            key: 'NOPSAI_MASTER_KEY',
+            area: 'Bootstrap',
+            description: 'Required root encryption material used before credential registry access is available.',
+            example: 'openssl rand -base64 32',
+            type: 'secret',
+            required: true,
+            scope: 'system',
+            security: 'Store in deployment secret management, not in GitOps application config.',
+          },
+          {
+            key: 'JWT_SIGNING_KEY',
+            area: 'Bootstrap',
+            description: 'Required user/API access-token signing key.',
+            example: 'openssl rand -base64 48',
+            type: 'secret',
+            required: true,
+            scope: 'system',
+            security: 'Use separate user/API and internal service signing keys.',
+          },
+        ],
+        examples: [],
+        relatedDocs: ['doc/first-install-wizard.md', 'doc/enterprise-gates.md'],
+        runbooks: ['Complete setup preflight', 'Replace default administrator password', 'Run setup/first-run'],
+        caveats: ['Changing bootstrap secrets usually requires restarting the affected services.'],
+      },
+      {
+        id: 'first-script-pipeline',
+        title: 'Create and Run Your First Script Pipeline',
+        level: 'Start',
+        docType: 'tutorial',
+        audiences: ['new-user', 'automation-author', 'developer'],
+        audience: 'New users and automation authors creating deterministic automation',
+        summary:
+          'Create a script-only pipeline that does not require an LLM profile, run it, inspect logs, and validate the terminal result.',
+        keyFacts: [
+          'Set llm_enabled: false when every executable unit is a script and no final outputs are configured.',
+          'Each step must define exactly one execution mode.',
+          'Script output is stored as pipeline logs and can be inspected from Pipeline runs.',
+          'The run still uses normal pipeline, scope, runner, and secret authorization.',
+        ],
+        prerequisites: [
+          { label: 'Workspace', value: 'Setup completed with a visible team and runner' },
+          { label: 'Permission', value: 'pipeline.create or pipeline.update, plus pipeline.run for the target team' },
+          { label: 'Runtime', value: 'A Docker or Kubernetes runner eligible for the selected scope' },
+          { label: 'Verification', value: 'Open Pipeline runs and confirm at least one runner exists in System > Dispatcher' },
+        ],
+        steps: [
+          {
+            title: 'Create the pipeline YAML',
+            description: 'Use a minimal script-only pipeline with a base image and one script step.',
+            commands: [
+              {
+                title: 'Minimal script pipeline',
+                language: 'yaml',
+                code: 'name: first-script\nversion: "1.0"\nllm_enabled: false\ncontainer_image: alpine:3.20\nsteps:\n  - name: hello\n    script: |\n      echo "hello from NopsAI"\n      uname -a',
+                complete: true,
+                testedIn: DEFAULT_VERIFIED_DATE,
+              },
+            ],
+          },
+          {
+            title: 'Save and run it',
+            description: 'Create the pipeline in the UI or through GitOps, then start a manual run from the selected team and scope.',
+            expectedOutput: 'The run moves from queued to running to success.',
+          },
+          {
+            title: 'Inspect logs',
+            description: 'Open the run details and confirm the step output is present.',
+            verification: 'The log contains hello from NopsAI and the runner-reported system information.',
+          },
+        ],
+        details: [
+          'This tutorial validates the deterministic execution path before adding profiles, tools, knowledge, approvals, triggers, or final outputs.',
+        ],
+        configRows: [
+          {
+            key: 'llm_enabled',
+            area: 'Pipeline YAML',
+            description: 'Set false only for script-only pipelines. It rejects goals, conditions, MCP profile validation, and final outputs.',
+            example: 'false',
+            type: 'boolean',
+            required: false,
+            defaultValue: 'true',
+            scope: 'pipeline',
+            constraints: ['Requires every step and task to be script or non-LLM operational work.'],
+          },
+        ],
+        examples: [
+          {
+            title: 'First script pipeline',
+            language: 'yaml',
+            code: 'name: first-script\nllm_enabled: false\ncontainer_image: alpine:3.20\nsteps:\n  - name: hello\n    script: echo "hello from NopsAI"',
+            complete: true,
+            expectedOutput: 'Run status success with the script output in logs.',
+            testedIn: DEFAULT_VERIFIED_DATE,
+          },
+        ],
+        relatedDocs: ['doc/feature-reference.md', 'doc/runtime-flows.md'],
+        runbooks: ['Validate a new pipeline', 'Debug queued run'],
+        caveats: ['Goal tasks, conditions, MCP profiles, and final outputs are invalid when llm_enabled is false.'],
+      },
+      {
+        id: 'first-ai-assisted-pipeline',
+        title: 'Create Your First AI-Assisted Pipeline',
+        level: 'Start',
+        docType: 'tutorial',
+        audiences: ['automation-author', 'administrator'],
+        audience: 'Automation authors adding governed LLM behavior',
+        summary:
+          'Register or select an LLM profile, attach an Agent Profile and Knowledge Context, and run a first LLM-backed goal after a deterministic check.',
+        keyFacts: [
+          'LLM Profiles select provider and model settings; Agent Profiles select persona and instructions.',
+          'Knowledge Context attaches governed documents and can enforce guardrail or policy constraints.',
+          'AAA decides whether the original caller may use each selected profile and knowledge document.',
+          'MCP profiles are optional and additive across pipeline, step, and task levels.',
+        ],
+        prerequisites: [
+          { label: 'LLM credential', value: 'OpenAI, Azure OpenAI, Ollama, LM Studio, or another supported provider configured in an LLM profile' },
+          { label: 'Permission', value: 'pipeline.run plus use access for the selected LLM, Agent, MCP, and Knowledge resources' },
+          { label: 'Network', value: 'Runner or API path can reach the selected LLM provider or local model endpoint' },
+          { label: 'Verification', value: 'System LLM profile test succeeds before running the pipeline' },
+        ],
+        steps: [
+          {
+            title: 'Choose profile boundaries',
+            description: 'Select the LLM profile for model access, the Agent Profile for instructions, and optional Knowledge Context for governed context.',
+          },
+          {
+            title: 'Create the pipeline',
+            description: 'Place deterministic checks before the LLM goal so the model receives useful execution evidence.',
+            commands: [
+              {
+                title: 'First AI-assisted pipeline',
+                language: 'yaml',
+                code: 'name: first-ai-review\nversion: "1.0"\ncontainer_image: alpine:3.20\nllm_profile: standard\nagent_profile: devops-engineer\nknowledge_context:\n  - kind: guideline\n    ref: platform/automation-style\n    required: false\nsteps:\n  - name: collect\n    script: |\n      echo "service=checkout"\n      echo "status=ready"\n  - name: summarize\n    depends_on: [collect]\n    goal: Summarize the service readiness evidence and list any missing operational checks.',
+                complete: true,
+                testedIn: DEFAULT_VERIFIED_DATE,
+              },
+            ],
+          },
+          {
+            title: 'Run and review the result',
+            description: 'Start the run and confirm the goal task uses the configured profile without granting extra runtime permissions.',
+            verification: 'Run details show the script step succeeded and the AI goal produced a constrained answer.',
+          },
+        ],
+        details: [
+          'Keep provider credentials in the credential registry. Pipeline YAML should reference approved profiles, not raw provider secrets or endpoint credentials.',
+        ],
+        configRows: [
+          {
+            key: 'llm_profile',
+            area: 'Pipeline YAML',
+            description: 'Pipeline-level model profile. It selects provider/model/client settings, not persona or permissions.',
+            example: 'standard',
+            type: 'string',
+            required: 'conditional',
+            scope: 'pipeline',
+            permission: 'llm_profile.use',
+          },
+          {
+            key: 'agent_profile',
+            area: 'Pipeline YAML',
+            description: 'Pipeline-level AI persona. Step agent_profile can override it; tasks cannot define agent_profile.',
+            example: 'devops-engineer',
+            type: 'string',
+            required: false,
+            scope: 'pipeline',
+            permission: 'agent_profile.use',
+          },
+        ],
+        examples: [],
+        relatedDocs: ['doc/llm-model-selection.md', 'doc/agent-profiles.md', 'doc/knowledge-context.md'],
+        runbooks: ['Add LLM profile', 'Find which profile a task uses', 'Review a new Agent Profile'],
+        caveats: ['Selecting an LLM profile does not grant secrets, tools, scopes, or Knowledge Context by itself.'],
+      },
+      {
+        id: 'connect-git-repository',
+        title: 'Connect a Git Repository',
+        level: 'Start',
+        docType: 'tutorial',
+        audiences: ['automation-author', 'administrator', 'developer'],
+        audience: 'Repository owners and platform administrators',
+        summary:
+          'Connect repository-owned automation to a NopsAI team using GitOps content or a provider webhook source.',
+        keyFacts: [
+          'GitHub App events enter through git-bot; GitLab, Bitbucket, Gitea, and generic Git events enter through Git Webhook Sources.',
+          'Repository triggers should be owned by a team or repository owner with explicit pipeline and scope access.',
+          'Config sync is the safest authority for repeatable enterprise repository onboarding.',
+          'Generic Git providers require synchronized pipelines and triggers because they do not fetch repository files directly in v1.',
+        ],
+        prerequisites: [
+          { label: 'Repository', value: 'A Git repository that will own or trigger automation' },
+          { label: 'Permission', value: 'Team owner or administrator for the target NopsAI team' },
+          { label: 'Network', value: 'Public or private webhook ingress reachable by the Git provider' },
+          { label: 'Credentials', value: 'GitHub App installation or Git webhook source secret depending on provider' },
+        ],
+        steps: [
+          {
+            title: 'Choose the connection mode',
+            description: 'Use GitHub App when available. Use a Git Webhook Source for GitLab, Bitbucket, Gitea, or generic webhook delivery.',
+          },
+          {
+            title: 'Bind repository ownership',
+            description: 'Assign the repository to the team that owns its pipelines, triggers, notifications, and runtime resources.',
+          },
+          {
+            title: 'Add GitOps files',
+            description: 'Commit pipelines, triggers, scopes, access, and knowledge files to the owning config repository where possible.',
+            expectedOutput: 'Config sync imports or updates the NopsAI resources and records source path and commit metadata.',
+          },
+        ],
+        details: [
+          'For enterprises, repository connection is an ownership problem as much as an integration problem. Tie the repository to a team before adding run triggers.',
+        ],
+        configRows: [
+          {
+            key: 'provider',
+            area: 'Trigger manifest',
+            description: 'Git provider for a repository trigger. GitHub App triggers use github behavior; non-GitHub triggers need a webhook_source.',
+            example: 'gitlab',
+            type: 'enum',
+            required: true,
+            allowedValues: ['github', 'gitlab', 'bitbucket', 'gitea', 'generic'],
+            scope: 'trigger',
+          },
+          {
+            key: 'webhook_source',
+            area: 'Trigger manifest',
+            description: 'Managed Git Webhook Source ID for GitLab, Bitbucket, Gitea, or generic Git events.',
+            example: 'gitlab-platform',
+            type: 'string',
+            required: 'conditional',
+            scope: 'trigger',
+          },
+        ],
+        examples: [],
+        relatedDocs: ['doc/triggering.md', 'doc/git-webhook-sources.md', 'doc/team-resource-ownership-design.md'],
+        runbooks: ['Review repository allowlist', 'Resolve GitOps drift'],
+        caveats: ['Do not use unauthenticated generic webhook ingress unless it is isolated behind trusted private controls.'],
+      },
+      {
+        id: 'trigger-pipeline-from-git',
+        title: 'Trigger a Pipeline from Git',
+        level: 'Start',
+        docType: 'tutorial',
+        audiences: ['automation-author', 'developer', 'operator'],
+        audience: 'Repository owners and automation authors validating CI-style triggers',
+        summary:
+          'Create a trigger manifest, match a branch and path change, start a pipeline run, and verify the Git delivery outcome.',
+        keyFacts: [
+          'Trigger rules match event, branch, tag, repository, and changed-path constraints.',
+          'Path filters fail open when the provider does not send changed-file data.',
+          'The selected pipeline and scope are still authorized before a run is created.',
+          'Delivery history records accepted events, auth failures, idempotency behavior, and no-match outcomes.',
+        ],
+        prerequisites: [
+          { label: 'Pipeline', value: 'A synchronized or database-created pipeline that can run manually' },
+          { label: 'Repository connection', value: 'GitHub App or Git Webhook Source configured' },
+          { label: 'Permission', value: 'trigger.create or trigger.update plus resource access for the selected pipeline and scope' },
+          { label: 'Verification', value: 'Manual run of the selected pipeline succeeds before wiring the trigger' },
+        ],
+        steps: [
+          {
+            title: 'Create the trigger rule',
+            description: 'Match the provider event and branch, then point the rule at one or more pipeline identifiers.',
+            commands: [
+              {
+                title: 'Trigger manifest',
+                language: 'yaml',
+                code: 'provider: gitlab\nteam: platform\nwebhook_source: gitlab-platform\ntriggers:\n  - on: push\n    branches: [main]\n    include_paths:\n      - services/api/**\n    pipelines:\n      - platform/api-ci\n    scope: platform/prod',
+                complete: true,
+                testedIn: DEFAULT_VERIFIED_DATE,
+              },
+            ],
+          },
+          {
+            title: 'Send a test event',
+            description: 'Push a commit or replay a signed webhook payload that matches the rule.',
+            expectedOutput: 'The trigger delivery records an accepted outcome and creates a pipeline run.',
+          },
+          {
+            title: 'Confirm run ownership',
+            description: 'Open Pipeline runs and verify team, repository, branch, commit, event ID, selected pipeline, and scope.',
+          },
+        ],
+        details: [
+          'Trigger matching is not authorization. A matched trigger still needs permission to use the pipeline, scope, secrets, variables, profiles, and knowledge selected by the run.',
+        ],
+        configRows: triggerRows,
+        examples: [],
+        relatedDocs: ['doc/triggering.md', 'doc/git-webhook-sources.md'],
+        runbooks: ['Debug GitHub webhook no-run outcome', 'Replay an external trigger safely'],
+        caveats: ['Changing trigger YAML in the UI can be overwritten by GitOps unless the change is pushed back to the owning repository.'],
+      },
+      {
+        id: 'add-approval-checkpoint',
+        title: 'Add an Approval Checkpoint',
+        level: 'Start',
+        docType: 'tutorial',
+        audiences: ['automation-author', 'operator', 'administrator'],
+        audience: 'Release managers and automation authors adding human control gates',
+        summary:
+          'Insert a durable approval step that pauses a run, releases runner capacity, and resumes from a stored checkpoint after approval.',
+        keyFacts: [
+          'Approval steps store execution history, completed task keys, variables, pipeline definition, and a compressed workspace archive.',
+          'A waiting approval does not keep runner capacity occupied.',
+          'Assigned approvers can see pending approvals even across team boundaries when they are named on the approval.',
+          'Self-approval can be disabled for production changes.',
+        ],
+        prerequisites: [
+          { label: 'Pipeline', value: 'A pipeline with a deterministic step before the gate' },
+          { label: 'Permission', value: 'pipeline.update plus approval permissions for the assigned team' },
+          { label: 'Team', value: 'A relative team path that owns approvers for the checkpoint' },
+          { label: 'Verification', value: 'The assigned approver can see the approval queue' },
+        ],
+        steps: [
+          {
+            title: 'Insert the approval step',
+            description: 'Place the approval after evidence-producing steps and before the protected action.',
+            commands: [
+              {
+                title: 'Approval step',
+                language: 'yaml',
+                code: 'steps:\n  - name: build\n    script: ./scripts/build.sh\n  - name: production-gate\n    depends_on: [build]\n    approval:\n      type: production-deploy\n      teams:\n        - platform/prod\n      allow_self_approval: false\n  - name: deploy\n    depends_on: [production-gate]\n    script: ./scripts/deploy.sh',
+                complete: false,
+                testedIn: DEFAULT_VERIFIED_DATE,
+              },
+            ],
+          },
+          {
+            title: 'Run to the checkpoint',
+            description: 'Start the pipeline and confirm it enters waiting_approval after the upstream work succeeds.',
+          },
+          {
+            title: 'Approve and verify resume',
+            description: 'Approve as an assigned approver and confirm the run resumes on a fresh agent from the checkpoint.',
+            expectedOutput: 'The deploy step runs only after approval and the final run state records the approval decision.',
+          },
+        ],
+        details: [
+          'Approval steps are the right boundary for production promotion, irreversible changes, and externally reviewed actions.',
+        ],
+        configRows: approvalIncludeRows.filter(row => row.key.startsWith('steps[].approval')),
+        examples: [],
+        relatedDocs: ['doc/feature-reference.md', 'doc/access-control.md'],
+        runbooks: ['Approve or reject a pending gate', 'Resume an approval checkpoint', 'Audit cross-team include permissions'],
+        caveats: ['Rejecting an approval marks the approval task failed and the run rejected.'],
+      },
+      {
+        id: 'create-final-deliverable',
+        title: 'Create a Final Deliverable',
+        level: 'Start',
+        docType: 'tutorial',
+        audiences: ['automation-author', 'operator'],
+        audience: 'Automation authors and stakeholders who need run outputs',
+        summary:
+          'Configure a post-run final output that turns completed run context into a Markdown report or a validated dashboard publication.',
+        keyFacts: [
+          'Final outputs run after execution status is known.',
+          'Supported when values are success, failure, and always.',
+          'Markdown, JSON, HTML, PDF, Excel, and dashboard output types are supported by current contracts.',
+          'Dashboard outputs require a validated DashboardSpec and reject generated HTML, CSS, JavaScript, iframes, forms, and executable links.',
+        ],
+        prerequisites: [
+          { label: 'Pipeline', value: 'A pipeline with useful completed task context' },
+          { label: 'LLM profile', value: 'A final-output-capable LLM profile available to the caller' },
+          { label: 'Permission', value: 'pipeline.run plus any dashboard.publish permission for dashboard outputs' },
+          { label: 'Verification', value: 'The selected profile can complete a small generation request' },
+        ],
+        steps: [
+          {
+            title: 'Add an output item',
+            description: 'Start with Markdown for a low-risk first deliverable.',
+            commands: [
+              {
+                title: 'Markdown final output',
+                language: 'yaml',
+                code: 'output:\n  llm_profile: report-writer\n  items:\n    - name: Run summary\n      type: markdown\n      when: always\n      prompt: Summarize the run status, important evidence, and next action.',
+                complete: false,
+                testedIn: DEFAULT_VERIFIED_DATE,
+              },
+            ],
+          },
+          {
+            title: 'Run the pipeline',
+            description: 'Start a run and wait for execution and final-output generation to complete.',
+            expectedOutput: 'Run details show a generated final output attached to the completed run.',
+          },
+          {
+            title: 'Promote to dashboard when needed',
+            description: 'Use type: dashboard only when the content should update a team operational view.',
+            verification: 'Dashboard publication history records the source run and output item.',
+          },
+        ],
+        details: [
+          'Use a dashboard output for team-owned current operational state. Use Markdown, PDF, Excel, HTML, or JSON for run-owned deliverables that should remain attached to the run.',
+        ],
+        configRows: finalOutputRows,
+        examples: [],
+        relatedDocs: ['doc/final-output-rendering.md', 'doc/dashboards.md'],
+        runbooks: ['Review final-output contract violations', 'Diagnose failed PDF render', 'Validate Excel deliverable schema'],
+        caveats: ['Final-output failure is tracked separately from execution failure.'],
       },
     ],
   },
@@ -2067,6 +2966,8 @@ export const wikiSections: WikiSection[] = [
   },
 ];
 
+export const wikiSections: WikiSection[] = normalizeWikiSections(baseWikiSections);
+
 export function summarizeWiki(sections: WikiSection[] = wikiSections): WikiSummary {
   const articles = sections.flatMap(section => section.articles);
   return {
@@ -2075,6 +2976,9 @@ export function summarizeWiki(sections: WikiSection[] = wikiSections): WikiSumma
     configKeys: collectWikiConfigKeys(sections).length,
     runbooks: new Set(articles.flatMap(article => article.runbooks)).size,
     caveats: articles.reduce((total, article) => total + article.caveats.length, 0),
+    tutorials: articles.filter(article => article.docType === 'tutorial').length,
+    proceduralPages: articles.filter(article => article.steps.length > 0 || article.prerequisites.length > 0).length,
+    sourceLinks: articles.reduce((total, article) => total + article.sourceLinks.length, 0),
   };
 }
 
@@ -2129,13 +3033,83 @@ function articleHaystack(article: WikiArticle) {
     article.title,
     article.level,
     article.audience,
+    article.docType,
+    ...article.audiences,
+    article.metadata.appliesTo,
+    article.metadata.owner,
+    article.metadata.introducedIn,
+    article.metadata.lastVerified,
+    article.metadata.sourceCommit,
+    article.metadata.status,
     article.summary,
     ...article.keyFacts,
     ...article.details,
-    ...article.configRows.flatMap(row => [row.key, row.area, row.description, row.example]),
-    ...article.examples.flatMap(example => [example.title, example.language, example.code]),
+    ...article.prerequisites.flatMap(item => [item.label, item.value, item.verification || '']),
+    ...article.steps.flatMap(step => [
+      step.title,
+      step.description,
+      step.expectedOutput || '',
+      step.verification || '',
+      step.warning || '',
+      ...(step.commands || []).flatMap(command => [
+        command.title,
+        command.language,
+        command.code,
+        command.expectedOutput || '',
+        command.validationCommand || '',
+      ]),
+    ]),
+    ...article.configRows.flatMap(row => [
+      row.key,
+      row.path || '',
+      row.area,
+      row.type || '',
+      String(row.required ?? ''),
+      row.defaultValue || '',
+      ...(row.allowedValues || []),
+      row.scope || '',
+      row.description,
+      ...(row.constraints || []),
+      ...(row.inheritedFrom || []),
+      row.permission || '',
+      row.introducedIn || '',
+      row.deprecatedIn || '',
+      row.security || '',
+      row.example,
+    ]),
+    ...article.examples.flatMap(example => [
+      example.title,
+      example.language,
+      example.code,
+      example.expectedOutput || '',
+      ...(example.placeholderNotes || []),
+      example.testedIn || '',
+      example.permission || '',
+      example.validationCommand || '',
+      example.rollback || '',
+    ]),
     ...article.relatedDocs,
+    ...article.sourceLinks.flatMap(source => [
+      source.title,
+      source.repositoryPath,
+      source.sourceUrl || '',
+      source.sourceLines || '',
+      source.purpose,
+    ]),
     ...article.runbooks,
+    ...article.runbookEntries.flatMap(runbook => [
+      runbook.id,
+      runbook.title,
+      ...runbook.symptoms,
+      runbook.impact,
+      runbook.requiredAccess,
+      ...runbook.initialChecks,
+      ...runbook.diagnosticCommands,
+      ...runbook.resolution,
+      runbook.rollback || '',
+      runbook.escalation || '',
+      ...(runbook.metrics || []),
+    ]),
     ...article.caveats,
   ]
     .join(' ')
