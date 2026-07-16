@@ -1263,13 +1263,23 @@ func composeDocsReply(toolCalls []assistantToolActivity) string {
 	lines := []string{"Relevant docs:"}
 	for _, doc := range docs {
 		line := "- " + assistantOutputString(doc, "name")
-		if team := assistantOutputString(doc, "team_path"); team != "" {
+		if id := assistantOutputString(doc, "id"); id != "" {
+			line += " [" + id + "]"
+		}
+		team := assistantOutputString(doc, "team_path")
+		if team == "" {
+			team = assistantOutputString(doc, "team")
+		}
+		if team != "" {
 			line += " (" + team + ")"
 		}
 		if desc := assistantOutputString(doc, "description"); desc != "" {
 			line += ": " + desc
 		}
 		lines = append(lines, line)
+		if snippet := assistantOutputString(doc, "snippet"); snippet != "" {
+			lines = append(lines, "  "+snippet)
+		}
 	}
 	return strings.Join(lines, "\n")
 }

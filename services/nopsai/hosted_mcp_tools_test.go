@@ -323,6 +323,45 @@ func TestHostedMCPFeatureCapabilitiesNormalizeNaturalLanguagePolicyQuery(t *test
 	}
 }
 
+func TestHostedMCPSearchDocsIncludesStaticDashboardPipelineExample(t *testing.T) {
+	app := &App{}
+
+	result, err := app.hostedMCPSearchDocs(context.Background(), map[string]any{
+		"query": "pipeline sends data to dashboard working example",
+		"limit": 5,
+	})
+	if err != nil {
+		t.Fatalf("hostedMCPSearchDocs() error = %v", err)
+	}
+	docs := assistantMapSlice(result["docs"])
+	if len(docs) == 0 {
+		t.Fatalf("docs = %#v, want static dashboard docs", result)
+	}
+	first := docs[0]
+	if assistantOutputString(first, "id") != "doc/dashboards.md" {
+		t.Fatalf("first doc = %#v, want dashboard doc", first)
+	}
+	snippet := assistantOutputString(first, "snippet")
+	if !strings.Contains(snippet, "type: dashboard") || !strings.Contains(snippet, "output:") {
+		t.Fatalf("snippet = %q, want dashboard pipeline YAML", snippet)
+	}
+}
+
+func TestHostedMCPReadDocReadsStaticDashboardPipelineExample(t *testing.T) {
+	app := &App{}
+
+	result, err := app.hostedMCPReadDoc(context.Background(), map[string]any{"id": "doc/dashboards.md"})
+	if err != nil {
+		t.Fatalf("hostedMCPReadDoc() error = %v", err)
+	}
+	content := assistantOutputString(result, "content")
+	for _, want := range []string{"service-health-dashboard", "type: dashboard", "DashboardSpec", "dashboard.publish"} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("static dashboard doc missing %q:\n%s", want, content)
+		}
+	}
+}
+
 func TestHostedMCPGetDispatcherStatusReturnsRunnerSummary(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

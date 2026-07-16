@@ -1512,6 +1512,38 @@ func TestAssistantPlannerPromptRoutesSlowestStepQuestionToMonitoringSchemas(t *t
 	}
 }
 
+func TestAssistantPlannerPromptRoutesDashboardPipelineExampleToDocsAndValidation(t *testing.T) {
+	app := &App{aaaLocal: stubAAAAuthorizer{
+		checkFn: func(context.Context, model.Subject, string, model.ResourceRef, map[string]any) (model.Decision, error) {
+			return model.Decision{Allowed: true}, nil
+		},
+	}}
+	plan := assistantBaseTurnPlan("I want to have a pipeline which sends data to dashboard, I just need a working example of that pipeline definition to see how it is implemented", assistantConversationMemory{})
+
+	prompt := app.buildAssistantPlannerPrompt(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		assistantConversation{ID: uuid.New(), DocsVersion: "auto"},
+		plan.Goal,
+		plan,
+		nil,
+		assistantMaxPlanToolCalls,
+		1,
+	)
+
+	schemaNames := assistantPlannerSchemaToolNamesForTest(t, prompt)
+	for _, want := range []string{
+		"nopsai.search_docs",
+		"nopsai.read_doc",
+		"nopsai.validate_pipeline",
+		"nopsai.get_feature_capabilities",
+	} {
+		if !schemaNames[want] {
+			t.Fatalf("dashboard pipeline example prompt missing schema %q: %#v", want, schemaNames)
+		}
+	}
+}
+
 func TestAssistantPlannerPromptRoutesEnvExposurePolicyToSafeSchemas(t *testing.T) {
 	app := &App{aaaLocal: stubAAAAuthorizer{
 		checkFn: func(context.Context, model.Subject, string, model.ResourceRef, map[string]any) (model.Decision, error) {
