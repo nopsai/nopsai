@@ -35,17 +35,6 @@ export type DocumentationSection = Omit<WikiSection, 'articles'> & {
 
 const repositoryBlobBase = 'https://github.com/hosein-yousefii/pre-nopsai/blob/main';
 
-const explicitFieldMetadataPaths = new Set([
-  'llm_enabled',
-  'steps[].llm_profile',
-  'tasks[].llm_profile',
-  'output.items[].type',
-  'output.items[].when',
-  'dashboard.mode',
-  'knowledge_context[].kind',
-  'knowledge_context[].required',
-]);
-
 export const documentationSections: DocumentationSection[] = wikiSections.map(section => ({
   ...section,
   articles: section.articles.map(normalizeArticle),
@@ -79,7 +68,7 @@ export function normalizeField(row: WikiConfigRow): DocumentationField {
 }
 
 export function isFieldMetadataVerified(row: WikiConfigRow) {
-  return explicitFieldMetadataPaths.has(row.path || row.key) || Boolean(
+  return Boolean(
     row.allowedValues?.length || row.constraints?.length || row.inheritedFrom?.length ||
     row.permission || row.introducedIn || row.deprecatedIn || row.security,
   );
