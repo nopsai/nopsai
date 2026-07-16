@@ -14769,3 +14769,120 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-detail-empty {
     box-shadow: 0 0 0 2px var(--border-accent-focus-ring);
     outline: none;
 }
+
+/* Structural Divider Cleanup
+   Keep form, card, table, and status borders available, but remove persistent
+   shell/rail hairlines that made every page feel boxed in. */
+.app-header-shell {
+    border: 0 !important;
+    box-shadow: none !important;
+}
+
+.app-sidebar-shell,
+.app-sidebar-brand-row,
+.app-sidebar-shell .sidebar-context-nav {
+    border-color: transparent !important;
+}
+
+.app-sidebar-shell {
+    border-right: 0 !important;
+}
+
+.sidebar-nav-separator,
+.sidebar-nav-subseparator {
+    background: transparent !important;
+}
+
+.tree-column-resizer,
+[data-page="knowledge-context"] .kc-demo-workspace > .tree-column-resizer {
+    position: relative;
+    background: transparent !important;
+}
+
+.app-sidebar-resizer {
+    position: relative;
+    background: var(--bg-sidebar) !important;
+}
+
+.app-sidebar-resizer::before,
+.tree-column-resizer::before,
+[data-page="knowledge-context"] .kc-demo-workspace > .tree-column-resizer::before {
+    content: "";
+    position: absolute;
+    top: 1rem;
+    bottom: 1rem;
+    left: 50%;
+    width: 2px;
+    border-radius: 999px;
+    background: transparent !important;
+    opacity: 0;
+    transform: translateX(-50%);
+    transition: background-color 150ms ease, opacity 150ms ease;
+}
+
+.app-sidebar-resizer:hover::before,
+.app-sidebar-resizer:focus-visible::before,
+.app-sidebar-resizer--active::before,
+.tree-column-resizer:hover::before,
+.tree-column-resizer:focus-visible::before,
+.tree-column-resizer--active::before,
+[data-page="knowledge-context"] .kc-demo-workspace > .tree-column-resizer:hover::before,
+[data-page="knowledge-context"] .kc-demo-workspace > .tree-column-resizer:focus-visible::before,
+[data-page="knowledge-context"] .kc-demo-workspace > .tree-column-resizer--active::before {
+    background: var(--border-accent) !important;
+    opacity: 0.72;
+}
+
+.app-sidebar-resizer:focus-visible {
+    outline: 2px solid var(--border-accent);
+    outline-offset: -2px;
+}
+
+.app-sidebar-shell .pipeline-runs-sidebar-context .sidebar-run-link,
+.app-sidebar-shell .pipeline-runs-sidebar-context .pipeline-runs-sidebar-branch {
+    border-color: transparent !important;
+    box-shadow: none;
+}
+
+.app-sidebar-shell .pipeline-runs-sidebar-context .sidebar-run-link {
+    background: color-mix(in srgb, var(--bg-primary) 72%, transparent) !important;
+}
+
+.app-sidebar-shell .pipeline-runs-sidebar-context .pipeline-runs-sidebar-branch {
+    background: color-mix(in srgb, var(--bg-primary) 58%, transparent) !important;
+}
+
+.app-sidebar-shell .pipeline-runs-sidebar-context .border-t,
+.app-sidebar-shell .pipeline-runs-sidebar-context .divide-y > :not([hidden]) ~ :not([hidden]) {
+    border-color: transparent !important;
+}
+
+.kc-library,
+.triggers-workspace-list,
+.triggers-explorer,
+[data-page="knowledge-context"] .kc-demo-tree-card,
+[data-page="knowledge-context"] .kc-demo-workspace > .triggers-explorer {
+    border-right-color: transparent !important;
+}
+
+.kc-library__header,
+.kc-panel-header,
+[data-page="knowledge-context"] .kc-demo-tree-head {
+    border-bottom-color: transparent !important;
+}
+
+[data-page="knowledge-context"] .kc-demo-workspace > .tree-column-resizer,
+html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-column-resizer {
+    background: transparent !important;
+}
+
+html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-column-resizer:hover::before,
+html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-column-resizer:focus-visible::before,
+html:not(.dark) [data-page="knowledge-context"] .kc-demo-workspace > .tree-column-resizer--active::before {
+    background: var(--border-accent) !important;
+}
+
+[aria-label="Assistant conversations"],
+[aria-label="Assistant details"] {
+    border-color: transparent !important;
+}
