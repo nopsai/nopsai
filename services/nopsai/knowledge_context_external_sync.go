@@ -35,6 +35,9 @@ func (a *App) fetchAndStoreExternalKnowledgePage(ctx context.Context, detail kno
 		a.markExternalKnowledgeSyncFailure(ctx, detail, connection, err)
 		return ExternalPage{}, err
 	}
+	if strings.TrimSpace(page.Text) == "" && len(page.Assets) > 0 {
+		page.Text = preservedAssetOnlyContent(page.Assets)
+	}
 	if strings.TrimSpace(page.Text) == "" {
 		err := newKnowledgeProviderError(knowledgeProviderErrorPageUnavailable, 404, "Provider page returned empty content.")
 		a.markExternalKnowledgeSyncFailure(ctx, detail, connection, err)
@@ -44,7 +47,13 @@ func (a *App) fetchAndStoreExternalKnowledgePage(ctx context.Context, detail kno
 		page.Hash = hashKnowledgeText(page.Text)
 	}
 	now := time.Now().UTC()
-	_, err = a.db.Exec(ctx, `
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return ExternalPage{}, fmt.Errorf("begin external knowledge sync transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	var knowledgeID string
+	err = tx.QueryRow(ctx, `
 		UPDATE knowledge_contexts
 		SET content = $1,
 		    synced_content = $1,
@@ -69,9 +78,16 @@ func (a *App) fetchAndStoreExternalKnowledgePage(ctx context.Context, detail kno
 			    last_synced_at = $8,
 			    updated_at = NOW()
 			WHERE kind = $9 AND team_path = $10 AND name = $11
-		`, page.Text, page.Hash, connection.Provider, page.ID, page.URL, page.Title, nullableTimePtr(page.ModifiedAt), now, detail.Kind, detail.Team, detail.Name, defaultKnowledgeSyncIntervalMinutes)
+			RETURNING id::text
+		`, page.Text, page.Hash, connection.Provider, page.ID, page.URL, page.Title, nullableTimePtr(page.ModifiedAt), now, detail.Kind, detail.Team, detail.Name, defaultKnowledgeSyncIntervalMinutes).Scan(&knowledgeID)
 	if err != nil {
 		return ExternalPage{}, fmt.Errorf("store external knowledge page: %w", err)
+	}
+	if err := a.replaceKnowledgeContextAssets(ctx, tx, knowledgeID, connection.Provider, page); err != nil {
+		return ExternalPage{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return ExternalPage{}, fmt.Errorf("commit external knowledge sync transaction: %w", err)
 	}
 	a.updateKnowledgeConnectionHealth(ctx, connection, knowledgeConnectionStatusConnected, "", &now)
 	return page, nil

@@ -33,6 +33,22 @@ export type KnowledgeContextListItem = {
 
 export type KnowledgeContextDetail = KnowledgeContextListItem & {
   content: string;
+  assets?: KnowledgeContextAsset[];
+};
+
+export type KnowledgeContextAsset = {
+  id: string;
+  provider: string;
+  external_page_id?: string;
+  source_block_id: string;
+  source_block_type: string;
+  kind: string;
+  title?: string;
+  url?: string;
+  media_type?: string;
+  content_hash?: string;
+  metadata?: Record<string, unknown>;
+  updated_at?: string;
 };
 
 export type KnowledgeWorkspaceTab = 'documents' | 'connections';

@@ -1892,6 +1892,7 @@ func hostedMCPKnowledgeConnectionListItem(item knowledgeConnectionListItem) map[
 func hostedMCPKnowledgeContextDetail(detail knowledgeContextDetail) map[string]any {
 	item := hostedMCPKnowledgeContextListItem(detail.knowledgeContextListItem)
 	item["content"] = detail.Content
+	item["assets"] = detail.Assets
 	item["managed_by_config_repo"] = detail.ManagedByGit
 	item["gitops_compatible"] = true
 	return item

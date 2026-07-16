@@ -89,6 +89,7 @@ type knowledgeContextDetail struct {
 	Connection   *knowledgeContextConnectionSummary   `json:"connection,omitempty"`
 	ExternalPage *knowledgeContextExternalPageSummary `json:"external_page,omitempty"`
 	Sync         *knowledgeContextSyncSummary         `json:"sync,omitempty"`
+	Assets       []knowledgeContextAssetSummary       `json:"assets,omitempty"`
 }
 
 type knowledgeContextConnectionSummary struct {
@@ -1029,6 +1030,11 @@ func (a *App) loadKnowledgeContextDetail(ctx context.Context, kind, team, name s
 		detail.Source = knowledgeSourceGitOps
 	}
 	if detail.ExternalPageID != "" || detail.ExternalPageURL != "" {
+		assets, err := a.loadKnowledgeContextAssets(ctx, detail.UUID)
+		if err != nil {
+			return detail, err
+		}
+		detail.Assets = assets
 		detail.ExternalPage = &knowledgeContextExternalPageSummary{
 			ID:    detail.ExternalPageID,
 			Title: detail.ExternalPageTitle,

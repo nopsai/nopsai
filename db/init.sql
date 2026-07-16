@@ -316,6 +316,27 @@ CREATE INDEX idx_knowledge_contexts_connection_id ON knowledge_contexts(connecti
 CREATE INDEX idx_knowledge_contexts_periodic_sync_due ON knowledge_contexts(sync_mode, next_sync_attempt_at, last_synced_at)
     WHERE sync_mode = 'periodic' AND (content_source = 'external_page' OR connection_id IS NOT NULL OR external_page_id <> '' OR external_page_url <> '');
 
+CREATE TABLE knowledge_context_assets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    knowledge_context_id UUID NOT NULL REFERENCES knowledge_contexts(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL DEFAULT '',
+    external_page_id TEXT NOT NULL DEFAULT '',
+    source_block_id TEXT NOT NULL DEFAULT '',
+    source_block_type TEXT NOT NULL DEFAULT '',
+    asset_kind TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
+    url TEXT NOT NULL DEFAULT '',
+    media_type TEXT NOT NULL DEFAULT '',
+    content_hash TEXT NOT NULL DEFAULT '',
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(knowledge_context_id, source_block_id, asset_kind, url)
+);
+
+CREATE INDEX idx_knowledge_context_assets_context ON knowledge_context_assets(knowledge_context_id);
+CREATE INDEX idx_knowledge_context_assets_provider_kind ON knowledge_context_assets(provider, asset_kind);
+
 CREATE TABLE secrets (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
