@@ -14721,3 +14721,21 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-detail-empty {
     border-color: #cbd5e1;
     background: #fff;
 }
+
+.form-input {
+    min-height: 2.5rem;
+    width: 100%;
+    border-radius: 0.375rem;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+}
+
+.form-input:focus {
+    border-color: var(--border-accent);
+    box-shadow: 0 0 0 2px var(--border-accent-focus-ring);
+    outline: none;
+}

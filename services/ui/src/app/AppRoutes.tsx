@@ -8,6 +8,7 @@ const PipelineRunsPage = lazy(() => import('../pages/PipelineRuns'));
 const TeamsPage = lazy(() => import('../pages/Teams'));
 const PipelinesPage = lazy(() => import('../pages/Pipelines'));
 const SchedulesPage = lazy(() => import('../pages/Schedules'));
+const DashboardsPage = lazy(() => import('../pages/Dashboards'));
 const TriggersPage = lazy(() => import('../pages/Triggers'));
 const ExternalTriggersPage = lazy(() => import('../pages/ExternalTriggers'));
 const GitWebhookSourcesPage = lazy(() => import('../pages/GitWebhookSources'));
@@ -109,6 +110,17 @@ export function AppRoutes({
               <SchedulesPage
                 canWriteSchedules={access.canWriteSchedules}
                 canDeleteSchedules={access.canDeleteSchedules}
+              />
+            </PermissionGuard>
+          }
+        />
+        <Route
+          path="/dashboards/*"
+          element={
+            <PermissionGuard allowed={access.canViewDashboards} loading={currentUserLoading}>
+              <DashboardsPage
+                canWriteDashboards={access.canWriteDashboards}
+                canDeleteDashboards={access.canDeleteDashboards}
               />
             </PermissionGuard>
           }

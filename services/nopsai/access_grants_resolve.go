@@ -72,6 +72,8 @@ func normalizeAccessGrantResourceType(raw string) (string, error) {
 		return grantResourceRunner, nil
 	case grantResourceConfig:
 		return grantResourceConfig, nil
+	case grantResourceDashboard:
+		return grantResourceDashboard, nil
 	case grantResourceKnowledgeContext:
 		return grantResourceKnowledgeContext, nil
 	case grantResourceKnowledgeConnection:
@@ -430,6 +432,8 @@ func resolveAccessGrantResource(ctx context.Context, runner queryRunner, rawType
 			return accessGrantResource{}, fmt.Errorf("resource_id is required")
 		}
 		return accessGrantResource{Type: resourceType, ID: resourceID, Display: resourceID}, nil
+	case grantResourceDashboard:
+		return resolveDashboardGrantResource(ctx, runner, rawID, requireExists)
 	case grantResourceKnowledgeContext:
 		resourceID := strings.Trim(strings.TrimSpace(rawID), "/")
 		if resourceID == "" {

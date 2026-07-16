@@ -8,6 +8,9 @@ export type Permission =
   | 'schedules.read'
   | 'schedules.write'
   | 'schedules.delete'
+  | 'dashboards.read'
+  | 'dashboards.write'
+  | 'dashboards.delete'
   | 'triggers.read'
   | 'triggers.write'
   | 'triggers.delete'
@@ -74,6 +77,9 @@ export type AppAccess = {
   canViewSchedules: boolean;
   canWriteSchedules: boolean;
   canDeleteSchedules: boolean;
+  canViewDashboards: boolean;
+  canWriteDashboards: boolean;
+  canDeleteDashboards: boolean;
   canWriteSteps: boolean;
   canDeleteSteps: boolean;
   canViewTriggers: boolean;
@@ -175,6 +181,7 @@ export function normalizeCurrentUser(data: unknown): CurrentUser {
         pipelines: normalizeResourceCapabilities(capabilitiesRecord.pipelines),
         steps: normalizeResourceCapabilities(capabilitiesRecord.steps),
         schedules: normalizeReadCapabilities(capabilitiesRecord.schedules),
+        dashboards: normalizeReadCapabilities(capabilitiesRecord.dashboards),
         triggers: normalizeReadCapabilities(capabilitiesRecord.triggers),
         external_triggers: normalizeReadCapabilities(capabilitiesRecord.external_triggers),
         git_webhook_sources: normalizeReadCapabilities(capabilitiesRecord.git_webhook_sources),
@@ -211,6 +218,12 @@ export function can(user: CurrentUser | null | undefined, permission: Permission
       return Boolean(capabilities?.schedules?.write);
     case 'schedules.delete':
       return Boolean(capabilities?.schedules?.delete);
+    case 'dashboards.read':
+      return Boolean(capabilities?.dashboards?.read);
+    case 'dashboards.write':
+      return Boolean(capabilities?.dashboards?.write);
+    case 'dashboards.delete':
+      return Boolean(capabilities?.dashboards?.delete);
     case 'triggers.read':
       return Boolean(capabilities?.triggers?.read);
     case 'triggers.write':
@@ -353,6 +366,9 @@ export function getAppAccess(user: CurrentUser | null | undefined, session: Auth
     canViewSchedules: can(user, 'schedules.read'),
     canWriteSchedules: can(user, 'schedules.write'),
     canDeleteSchedules: can(user, 'schedules.delete'),
+    canViewDashboards: can(user, 'dashboards.read'),
+    canWriteDashboards: can(user, 'dashboards.write'),
+    canDeleteDashboards: can(user, 'dashboards.delete'),
     canWriteSteps: can(user, 'steps.write'),
     canDeleteSteps: can(user, 'steps.delete'),
     canViewTriggers: can(user, 'triggers.read'),

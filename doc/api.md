@@ -249,6 +249,88 @@ profile GitOps remains under `setting/system/*` today. Run preparation and
 agent launch merge team profile definitions over the system catalogs when a run
 belongs to that team or one of its applications.
 
+## Dashboards
+
+Team dashboards are operational views populated by validated pipeline final
+outputs.
+
+```bash
+# List visible dashboards, optionally scoped to a team path
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  'http://localhost:8080/v1/dashboards?team=platform&q=health'
+
+# Create a dashboard with two sections
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"team_path":"platform","slug":"engineering-health","title":"Engineering Health","sections":[{"section_key":"overview","title":"Overview"},{"section_key":"deployments","title":"Deployments"}]}' \
+  http://localhost:8080/v1/dashboards
+
+# Read the composed dashboard view
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  http://localhost:8080/v1/dashboards/<dashboard-id>/view
+
+# Inspect publication history
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  'http://localhost:8080/v1/dashboards/<dashboard-id>/history?limit=50'
+
+# Start a strict section refresh
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: refresh-deployments-1" \
+  -d '{"scope":{"type":"section","section_key":"deployments"},"mode":"strict","timeout":"45m","max_concurrency":4}' \
+  http://localhost:8080/v1/dashboards/<dashboard-id>/refresh
+
+# Track refresh progress
+curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  http://localhost:8080/v1/dashboards/<dashboard-id>/refreshes/<refresh-id>
+
+# Create a scheduled refresh
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Hourly deployments","cron":"0 * * * *","timezone":"Europe/Amsterdam","enabled":true,"scope":{"type":"section","section_key":"deployments"},"mode":"best_effort","timeout":"45m","max_concurrency":4}' \
+  http://localhost:8080/v1/dashboards/<dashboard-id>/refresh-schedules
+
+# Run a scheduled refresh immediately
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"confirm":true}' \
+  http://localhost:8080/v1/dashboards/<dashboard-id>/refresh-schedules/<schedule-id>/run
+
+# Manage a source binding
+curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"section_key":"deployments","pipeline_id":"deploy/payments-api","output_name":"deployment-summary","entry_key":"payments-api","enabled":true,"required_for_refresh":true}' \
+  http://localhost:8080/v1/dashboards/<dashboard-id>/sources
+```
+
+Pipeline YAML publishes into a dashboard with `type: dashboard` final outputs:
+
+```yaml
+output:
+  items:
+    - name: deployment-summary
+      type: dashboard
+      dashboard:
+        ref: platform/engineering-health
+        section: deployments
+        entry_key: payments-api
+        mode: series
+        preset: auto
+```
+
+REST paths use dashboard UUIDs. Pipeline YAML and hosted MCP may use
+`team/dashboard-slug` refs. Reads require `dashboard.list` or
+`dashboard.read`; create/update/delete/source management and refresh use the
+matching `dashboard.*` actions. Pipeline publication re-checks
+`dashboard.publish` as the effective run subject before current publications or
+history are written. Dashboard output supports `replace`, `append`, `snapshot`,
+and `series` modes; `series` merges chart or time-series blocks while deduping
+and retaining bounded points. Refresh supports dashboard, section, and source
+scope; strict mode blocks required unavailable sources while best-effort records
+skips and continues. GitOps-managed dashboards live under `dashboards/` and
+templates under `dashboard-templates/`, with source path, source commit, team
+ownership, drift, and managed-state pruning metadata preserved.
+
 ## Assistant and Hosted MCP
 
 For a user-facing guide to assistant capabilities and example chat prompts, see

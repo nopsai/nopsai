@@ -8,14 +8,16 @@ import (
 )
 
 const (
-	CapabilityAPIV1        = "api.v1"
-	CapabilityConfigSyncV1 = "config-sync.v1"
-	CapabilityMCPV1        = "mcp.v1"
-	CapabilityMonitoringV1 = "monitoring.v1"
-	CapabilityPlatformHelm = "platform.helm"
-	CapabilityRunnerDocker = "runner.docker"
-	CapabilityRunnerK8s    = "runner.kubernetes"
-	CapabilityCLICatalogV1 = "cli.api-catalog.v1"
+	CapabilityAPIV1              = "api.v1"
+	CapabilityConfigSyncV1       = "config-sync.v1"
+	CapabilityDashboardRefreshV1 = "dashboard-refresh.v1"
+	CapabilityDashboardsV1       = "dashboards.v1"
+	CapabilityMCPV1              = "mcp.v1"
+	CapabilityMonitoringV1       = "monitoring.v1"
+	CapabilityPlatformHelm       = "platform.helm"
+	CapabilityRunnerDocker       = "runner.docker"
+	CapabilityRunnerK8s          = "runner.kubernetes"
+	CapabilityCLICatalogV1       = "cli.api-catalog.v1"
 )
 
 var capabilityPattern = regexp.MustCompile(`^[a-z][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)+$`)

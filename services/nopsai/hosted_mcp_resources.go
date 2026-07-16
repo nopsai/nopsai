@@ -24,6 +24,7 @@ func allHostedMCPResources() []hostedMCPResource {
 		resourceDef("nopsai://knowledge-connections", "Knowledge connections", "Reusable team-owned Knowledge Context external page connections.", "knowledge_connection.read", "knowledge_connection", "*"),
 		resourceDef("nopsai://pipelines", "Pipelines", "Pipeline inventory.", "pipeline.list", "pipeline", "*"),
 		resourceDef("nopsai://pipeline-runs", "Pipeline runs", "Recent pipeline runs.", "pipeline_run.list", "pipeline_run", "*"),
+		resourceDef("nopsai://dashboards", "Dashboards", "Team dashboard inventory and current publications.", "dashboard.list", "dashboard", "*"),
 		resourceDef("nopsai://triggers", "Triggers", "Repository trigger inventory.", "trigger.read", "trigger", "*"),
 		resourceDef("nopsai://schedules", "Schedules", "Pipeline schedule inventory.", "pipeline_schedule.list", "pipeline_schedule", "*"),
 		resourceDef("nopsai://scopes", "Scopes", "Scope usage inventory.", "scope.read", "scope", "*"),
@@ -93,6 +94,8 @@ func (a *App) readHostedMCPResource(ctx context.Context, subject aaamodel.Subjec
 		payload, err = a.hostedMCPListPipelines(ctx, map[string]any{"limit": 100})
 	case "nopsai://pipeline-runs", "nopsai://lab":
 		payload, err = a.hostedMCPListPipelineRuns(ctx, map[string]any{"limit": 50})
+	case "nopsai://dashboards":
+		payload, err = a.hostedMCPListDashboards(ctx, subject, map[string]any{"limit": 100})
 	case "nopsai://triggers":
 		payload, err = a.hostedMCPListTriggers(ctx, map[string]any{"limit": 100})
 	case "nopsai://schedules":

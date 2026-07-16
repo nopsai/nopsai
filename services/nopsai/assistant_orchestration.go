@@ -1116,6 +1116,8 @@ func assistantResourceURIsForTool(name string) []string {
 		return []string{"nopsai://triggers"}
 	case "nopsai.list_schedules", "nopsai.get_schedule", "nopsai.propose_schedule_change", "nopsai.propose_schedule_create", "nopsai.propose_schedule_update", "nopsai.propose_schedule_delete", "nopsai.propose_schedule_enable", "nopsai.propose_schedule_disable", "nopsai.run_schedule_now":
 		return []string{"nopsai://schedules"}
+	case "nopsai.list_dashboards", "nopsai.get_dashboard", "nopsai.list_dashboard_refreshes", "nopsai.list_dashboard_refresh_schedules", "nopsai.refresh_dashboard", "nopsai.run_dashboard_refresh_schedule":
+		return []string{"nopsai://dashboards"}
 	case "nopsai.list_scopes", "nopsai.get_scope", "nopsai.explain_scope_permissions", "nopsai.list_secret_scopes":
 		return []string{"nopsai://scopes"}
 	case "nopsai.analyze_variable_usage", "nopsai.list_variable_scopes", "nopsai.list_variables_metadata", "nopsai.get_variable_value", "nopsai.write_variable_value", "nopsai.delete_variable_value", "nopsai.propose_variable_gitops_write", "nopsai.propose_variable_gitops_delete":

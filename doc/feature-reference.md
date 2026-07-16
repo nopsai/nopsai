@@ -127,6 +127,50 @@ The runtime supports:
 - post-finalization output generation that stores polished run-owned
   deliverables separately from step logs and task internals
 
+## Team Dashboards
+
+Dashboards are team-owned operational views populated by pipeline final outputs.
+
+Supported dashboard capabilities:
+
+- multiple dashboards per team
+- dashboard sections with display order and layout metadata
+- `dashboard` pipeline output items with `ref`, `section`, `entry_key`,
+  `mode`, `preset`, and optional `ttl`
+- validated `DashboardSpec` content with `status`, `text`, `callout`, `list`,
+  `properties`, `table`, `progress`, `link`, `chart`, and `series` blocks
+- `replace` publications for latest state, `append` publications for feeds,
+  `snapshot` publications for whole-section refresh output, and `series`
+  publications for deduped retained time-series updates
+- source-binding discovery from pipeline output declarations during API saves
+  and config sync
+- current publication storage with immutable run, run-output, pipeline, output,
+  section, and entry-key provenance
+- publication history and stale-state metadata
+- protection against unsafe generated HTML/CSS/JavaScript, executable links,
+  iframes, forms, external scripts, oversized tables, oversized text, and
+  oversized chart series/point sets
+- older-run protection for replace publications
+- idempotent publication by run output
+- full dashboard, section, and source refresh with strict/best-effort modes,
+  idempotency, one-active-refresh protection, timeout, cancellation, retry
+  failed sources, required/optional source tracking, and old-data preservation
+- scheduled refreshes with cron, timezone, manual/API/assistant/schedule
+  triggers, service-account execution, concurrency limits, and timeout limits
+- GitOps-managed dashboards and templates from `dashboards/` and
+  `dashboard-templates/`, including import/export, validation, drift, source
+  path/source commit provenance, team ownership, managed-state pruning, and
+  safe manual detachment
+- dashboard list/detail/source/history/refresh UI with confirmation,
+  progress, source status, refresh schedules, GitOps badges, section
+  completeness, create, edit, delete, source management,
+  empty/error/loading/permission states, responsive tables, and chart rendering
+- Prometheus publication, refresh, render, staleness, and series-point metrics
+  plus hosted MCP dashboard read and confirmed refresh/schedule-run tools
+
+See [dashboards.md](./dashboards.md) for the YAML contract, API routes,
+authorization model, monitoring, and code ownership.
+
 ## Pipeline Scheduling
 
 Pipeline schedules are first-class resources for time-based automation:

@@ -82,6 +82,7 @@ function AppShell() {
     draftScope,
     canWritePipelines,
     canViewSchedules,
+    canViewDashboards,
     canWriteSteps,
     canViewTriggers,
     canViewExternalTriggers,
@@ -181,6 +182,7 @@ function AppShell() {
         if (item.path === '/mcp') return canViewSystemMCP;
         if (item.path === '/credentials') return canViewSystemCredentials;
         if (item.path === '/schedules') return canViewSchedules;
+        if (item.path === '/dashboards') return canViewDashboards;
         if (item.label === 'Triggers') return canViewTriggers || canViewExternalTriggers || canViewGitWebhookSources;
         if (item.path === '/external-triggers') return canViewExternalTriggers;
         if (item.path === '/git-webhook-sources') return canViewGitWebhookSources;
@@ -188,7 +190,7 @@ function AppShell() {
         if (item.path === '/knowledge-context') return canViewKnowledge;
         return true;
       });
-  }, [canViewAnySystem, canViewExternalTriggers, canViewGitWebhookSources, canViewKnowledge, canViewSchedules, canViewScopes, canViewSystemAgentProfiles, canViewSystemCredentials, canViewSystemLLMProfiles, canViewSystemMCP, canViewTriggers, location.pathname, preferredSystemPath]);
+  }, [canViewAnySystem, canViewDashboards, canViewExternalTriggers, canViewGitWebhookSources, canViewKnowledge, canViewSchedules, canViewScopes, canViewSystemAgentProfiles, canViewSystemCredentials, canViewSystemLLMProfiles, canViewSystemMCP, canViewTriggers, location.pathname, preferredSystemPath]);
   const systemSubNav = useMemo(
     () =>
       baseSystemSubNav.filter(item => {

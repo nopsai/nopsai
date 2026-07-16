@@ -54,6 +54,7 @@ test('derives app and system access from normalized capabilities', () => {
     sub: 'operator',
     capabilities: {
       schedules: { read: true },
+      dashboards: { read: true, write: true, delete: false },
       git_webhook_sources: { read: true, write: false },
       knowledge_contexts: { read: true, write: true },
       knowledge_connections: { read: true, write: false },
@@ -69,6 +70,9 @@ test('derives app and system access from normalized capabilities', () => {
 
   assert.equal(access.canViewSchedules, true);
   assert.equal(access.canWriteSchedules, false);
+  assert.equal(access.canViewDashboards, true);
+  assert.equal(access.canWriteDashboards, true);
+  assert.equal(access.canDeleteDashboards, false);
   assert.equal(access.canViewGitWebhookSources, true);
   assert.equal(access.canWriteGitWebhookSources, false);
   assert.equal(access.canViewKnowledge, true);

@@ -12,6 +12,7 @@ Start here when you want to understand the system from different angles:
 - [team-resource-ownership-design.md](./team-resource-ownership-design.md): Target design for separating Teams from Pipeline Runs and adding team-scoped LLM, Agent, and MCP profiles.
 - [kubernetes-runner.md](./kubernetes-runner.md): Kubernetes runner runtime, namespace deployment, agent-owned PVC workspace behavior, node affinity, GitOps settings, one-time install commands, and GitOps manifests.
 - [feature-reference.md](./feature-reference.md): Functional capabilities exposed by the codebase and UI.
+- [dashboards.md](./dashboards.md): Team dashboard model, dashboard final outputs, chart/series publication, publication history, source bindings, scheduled refresh orchestration, GitOps ownership, AAA, monitoring, and MCP.
 - [assistant-capabilities.md](./assistant-capabilities.md): User-facing assistant capabilities and example chat prompts for each NopsAI feature area.
 - [first-install-wizard.md](./first-install-wizard.md): UI bootstrap flow for an empty database, starter profiles, secret generation, GitOps seeding, repository teams, and production guardrails.
 - [enterprise-gates.md](./enterprise-gates.md): Production startup gates, local/CI verification commands, Docker build checks, and integration coverage baseline.

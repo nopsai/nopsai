@@ -36,6 +36,7 @@ type authCapabilitiesResponse struct {
 	Pipelines            authResourceCapabilities `json:"pipelines"`
 	Steps                authResourceCapabilities `json:"steps"`
 	Schedules            authReadCapabilities     `json:"schedules"`
+	Dashboards           authReadCapabilities     `json:"dashboards"`
 	Triggers             authReadCapabilities     `json:"triggers"`
 	ExternalTriggers     authReadCapabilities     `json:"external_triggers"`
 	GitWebhookSources    authReadCapabilities     `json:"git_webhook_sources"`

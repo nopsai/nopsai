@@ -49,6 +49,7 @@ describe('groupNavItemsByTopic', () => {
   it('groups sidebar navigation into enterprise product topics', () => {
     const topics = groupNavItemsByTopic([
       { label: 'Pipeline runs', path: '/pipelineruns/main' },
+      { label: 'Dashboards', path: '/dashboards' },
       { label: 'Teams', path: '/teams' },
       { label: 'Pipelines', path: '/pipelines' },
       { label: 'Triggers', path: '/triggers' },
@@ -62,7 +63,7 @@ describe('groupNavItemsByTopic', () => {
     assert.deepEqual(
       topics.map(topic => [topic.label, topic.items.map(item => item.label)]),
       [
-        ['Operate', ['Pipeline runs']],
+        ['Operate', ['Pipeline runs', 'Dashboards']],
         ['Build & Automate', ['Pipelines', 'Triggers']],
         ['AI & Knowledge', ['Assistant', 'MCP']],
         ['Organization', ['Teams', 'Scopes']],

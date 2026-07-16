@@ -27,6 +27,7 @@ type configSyncPlan struct {
 	githubSettingsPlan                   *gitOpsGitHubSettingsPlan
 	mailSettingsPlan                     *gitOpsMailSettingsPlan
 	schedules                            map[string]storedSchedule
+	dashboards                           map[string]storedDashboard
 	externalTriggers                     map[string]storedExternalTrigger
 	gitWebhookSources                    map[string]storedGitWebhookSource
 	notificationRoutes                   map[string]storedNotificationRoute
@@ -47,6 +48,7 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 	triggerDir := repoCtx.dirs.trigger
 	externalTriggerDir := repoCtx.dirs.externalTrigger
 	scheduleDir := repoCtx.dirs.schedule
+	dashboardDir := repoCtx.dirs.dashboard
 	scopeDir := repoCtx.dirs.scope
 	configRepositoryDir := repoCtx.dirs.configRepository
 	accessDir := repoCtx.dirs.access
@@ -229,6 +231,10 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 		return configSyncPlan{}, err
 	}
 	plan.schedules, err = parseGitOpsSchedules(files.schedules, scheduleDir, binding, boundTeam)
+	if err != nil {
+		return configSyncPlan{}, err
+	}
+	plan.dashboards, err = parseGitOpsDashboards(files.dashboards, dashboardDir, binding, boundTeam)
 	if err != nil {
 		return configSyncPlan{}, err
 	}

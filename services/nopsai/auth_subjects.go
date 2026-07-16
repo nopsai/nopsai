@@ -143,6 +143,13 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 	scheduleWrite := a.checkCapabilityOrScopedGrant(ctx, subject, "pipeline_schedule.update", model.ResourceRef{Type: grantResourceSchedule, ID: "*"}) ||
 		a.checkCapabilityOrScopedGrant(ctx, subject, "pipeline_schedule.create", model.ResourceRef{Type: grantResourceSchedule, ID: "*"})
 	scheduleDelete := a.checkCapabilityOrScopedGrant(ctx, subject, "pipeline_schedule.delete", model.ResourceRef{Type: grantResourceSchedule, ID: "*"})
+	dashboardRead := a.checkCapabilityOrScopedGrant(ctx, subject, "dashboard.read", model.ResourceRef{Type: grantResourceDashboard, ID: "*"}) ||
+		a.checkCapabilityOrScopedGrant(ctx, subject, "dashboard.list", model.ResourceRef{Type: grantResourceDashboard, ID: "*"})
+	dashboardWrite := a.checkCapabilityOrScopedGrant(ctx, subject, "dashboard.update", model.ResourceRef{Type: grantResourceDashboard, ID: "*"}) ||
+		a.checkCapabilityOrScopedGrant(ctx, subject, "dashboard.create", model.ResourceRef{Type: grantResourceDashboard, ID: "*"}) ||
+		a.checkCapabilityOrScopedGrant(ctx, subject, "dashboard.publish", model.ResourceRef{Type: grantResourceDashboard, ID: "*"}) ||
+		a.checkCapabilityOrScopedGrant(ctx, subject, "dashboard.manage_sources", model.ResourceRef{Type: grantResourceDashboard, ID: "*"})
+	dashboardDelete := a.checkCapabilityOrScopedGrant(ctx, subject, "dashboard.delete", model.ResourceRef{Type: grantResourceDashboard, ID: "*"})
 	scopeRead := a.checkCapabilityOrScopedGrant(ctx, subject, "secret.list_metadata", model.ResourceRef{Type: "secret", ID: "*"}) ||
 		a.checkCapabilityOrScopedGrant(ctx, subject, "variable.list_metadata", model.ResourceRef{Type: "variable", ID: "*"}) ||
 		a.hasScopedProductGrantCapability(ctx, subject, "scope.read")
@@ -175,6 +182,11 @@ func (a *App) authCapabilities(claims *auth.Claims) *authCapabilitiesResponse {
 			Read:   scheduleRead,
 			Write:  scheduleWrite,
 			Delete: scheduleDelete,
+		},
+		Dashboards: authReadCapabilities{
+			Read:   dashboardRead,
+			Write:  dashboardWrite,
+			Delete: dashboardDelete,
 		},
 		Triggers: authReadCapabilities{
 			Read:   triggerRead,

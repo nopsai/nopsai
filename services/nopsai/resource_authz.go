@@ -237,7 +237,7 @@ func sameTeamResourceUseAllowed(resourceType, visibility string) bool {
 
 	switch strings.TrimSpace(resourceType) {
 	case grantResourcePipeline, grantResourceScope, grantResourceStep, grantResourceKnowledgeContext, grantResourceKnowledgeConnection,
-		grantResourceLLMProfile, grantResourceAgentProfile, grantResourceMCPServer, grantResourceMCPProfile:
+		grantResourceLLMProfile, grantResourceAgentProfile, grantResourceMCPServer, grantResourceMCPProfile, grantResourceDashboard:
 		return true
 	default:
 		return false
@@ -466,6 +466,22 @@ func (a *App) ResolveResourceTeam(ctx context.Context, resourceType, resourceID 
 	case grantResourceLLMProfile, grantResourceAgentProfile, grantResourceMCPServer, grantResourceMCPProfile:
 		path, _ := model.SplitPipelineID(resourceID)
 		return teamRefFromPath(path), nil
+	case grantResourceDashboard:
+		if a != nil && a.db != nil && looksLikeUUID(resourceID) {
+			record, err := a.getDashboardRecord(ctx, resourceID)
+			if err != nil {
+				if dashboardNotFound(err) {
+					return TeamRef{}, nil
+				}
+				return TeamRef{}, err
+			}
+			return teamRefFromPath(record.TeamPath), nil
+		}
+		teamPath, _, err := splitDashboardRef(resourceID)
+		if err != nil {
+			return TeamRef{}, nil
+		}
+		return teamRefFromPath(teamPath), nil
 	default:
 		return TeamRef{}, nil
 	}
@@ -660,6 +676,29 @@ func (a *App) resourceVisibility(ctx context.Context, resourceType, resourceID s
 		}
 		if !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
 			return "", err
+		}
+	case grantResourceDashboard:
+		var visibility string
+		if looksLikeUUID(resourceID) {
+			err := a.db.QueryRow(ctx, `SELECT visibility FROM dashboards WHERE id::text = $1`, resourceID).Scan(&visibility)
+			if err == nil {
+				return normalizeResourceVisibility(visibility), nil
+			}
+			if !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
+				return "", err
+			}
+		} else if teamPath, slug, splitErr := splitDashboardRef(resourceID); splitErr == nil {
+			teamID, _, _, resolveErr := a.resolveDashboardRefTeam(ctx, dashboardResourceID(teamPath, slug))
+			if resolveErr != nil {
+				return resourceVisibilityTeam, nil
+			}
+			err := a.db.QueryRow(ctx, `SELECT visibility FROM dashboards WHERE team_id = $1 AND slug = $2`, teamID, slug).Scan(&visibility)
+			if err == nil {
+				return normalizeResourceVisibility(visibility), nil
+			}
+			if !errors.Is(err, pgx.ErrNoRows) && !errors.Is(err, sql.ErrNoRows) {
+				return "", err
+			}
 		}
 	}
 

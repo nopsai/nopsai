@@ -67,7 +67,8 @@ validation, reusable step GitOps plans, pipeline knowledge-context traversal,
 LLM-drafted YAML checked by validation/proposal tools, GitOps-ready pipeline
 create/update proposals, managed knowledge reads and write
 plans, run/log analysis with explicit run-status and bounded-log chaining,
-confirmed run mutations, schedule inventory and GitOps write plans, webhook
+confirmed run mutations, team dashboard reads with current publications,
+source bindings, provenance, and history, schedule inventory and GitOps write plans, webhook
 source and external trigger plans, repository trigger provider/team/ingress
 metadata reads, webhook-ingress policy explanations, config
 repo sync/drift/write workflows, notification mail/route plans, monitoring
@@ -117,6 +118,14 @@ Important enterprise boundaries:
 - `nopsai.get_pipeline_run_output` remains guarded by `pipeline_run.read` and
   returns contract-validated `DocumentSpec`/`SpreadsheetSpec` source where
   applicable, plus generation and render counts for operational auditing.
+- `nopsai.list_dashboards`, `nopsai.get_dashboard`,
+  `nopsai.list_dashboard_refreshes`,
+  `nopsai.list_dashboard_refresh_schedules`, and `nopsai://dashboards` are
+  guarded by `dashboard.list`/`dashboard.read` and return only dashboards
+  visible to the current subject. `nopsai.refresh_dashboard` and
+  `nopsai.run_dashboard_refresh_schedule` require `dashboard.refresh` and
+  `confirm:true`. Dashboard write/source management remains available through
+  guarded REST via `nopsai.call_api`.
 - Pipeline, schedule, knowledge, webhook source, external trigger, and
   notification write-plan tools return `applies:false` plus GitOps file plans;
   they do not directly mutate product state.

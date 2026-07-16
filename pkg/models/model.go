@@ -700,11 +700,21 @@ type PipelineOutput struct {
 }
 
 type PipelineOutputItem struct {
-	Name       string `yaml:"name" json:"name"`
-	Type       string `yaml:"type" json:"type"`
-	When       string `yaml:"when,omitempty" json:"when,omitempty"`
-	Prompt     string `yaml:"prompt" json:"prompt"`
-	LLMProfile string `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
+	Name       string                `yaml:"name" json:"name"`
+	Type       string                `yaml:"type" json:"type"`
+	When       string                `yaml:"when,omitempty" json:"when,omitempty"`
+	Prompt     string                `yaml:"prompt" json:"prompt"`
+	LLMProfile string                `yaml:"llm_profile,omitempty" json:"llm_profile,omitempty"`
+	Dashboard  DashboardOutputTarget `yaml:"dashboard,omitempty" json:"dashboard,omitempty"`
+}
+
+type DashboardOutputTarget struct {
+	Ref      string `yaml:"ref,omitempty" json:"ref,omitempty"`
+	Section  string `yaml:"section,omitempty" json:"section,omitempty"`
+	EntryKey string `yaml:"entry_key,omitempty" json:"entry_key,omitempty"`
+	Mode     string `yaml:"mode,omitempty" json:"mode,omitempty"`
+	Preset   string `yaml:"preset,omitempty" json:"preset,omitempty"`
+	TTL      string `yaml:"ttl,omitempty" json:"ttl,omitempty"`
 }
 
 type Pipeline struct {
