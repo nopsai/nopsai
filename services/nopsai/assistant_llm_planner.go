@@ -15,6 +15,7 @@ import (
 const (
 	assistantLLMPlannerToolName    = "nopsai.llm.plan"
 	assistantMaxPlannerIterations  = 4
+	assistantMaxPlannerAttempts    = 2
 	assistantMaxPlannerSchemaTools = 18
 )
 
@@ -69,8 +70,8 @@ func (a *App) runAssistantLLMPlannedTurn(
 	remainingToolCalls := assistantMaxPlanToolCalls
 	skipSynthesis := false
 	for iteration := 1; iteration <= assistantMaxPlannerIterations; iteration++ {
-		decision, activity, ok := a.requestAssistantPlannerDecision(ctx, subject, conversation, content, plan, toolCalls, remainingToolCalls, iteration, profileName, profile, client)
-		toolCalls = append(toolCalls, activity)
+		decision, activities, ok := a.requestAssistantPlannerDecision(ctx, subject, conversation, content, plan, toolCalls, remainingToolCalls, iteration, profileName, profile, client)
+		toolCalls = append(toolCalls, activities...)
 		if !ok {
 			return assistantPlannerResult{Plan: plan, ToolCalls: toolCalls, Handled: false}
 		}
@@ -134,38 +135,81 @@ func (a *App) requestAssistantPlannerDecision(
 	profileName string,
 	profile config.LLMProfile,
 	client *llmclient.Client,
-) (assistantPlannerDecision, assistantToolActivity, bool) {
-	prompt := a.buildAssistantPlannerPrompt(ctx, subject, conversation, content, plan, toolCalls, remainingToolCalls, iteration)
-	completion, err := client.Complete(ctx, prompt)
-	if err != nil {
-		return assistantPlannerDecision{}, *assistantLLMPlannerActivity(profileName, profile, assistantToolStatusError, map[string]any{
-			"iteration":       iteration,
-			"fallback_reason": err.Error(),
-		}), false
-	}
-	decision, err := parseAssistantPlannerDecision(completion.Text)
-	output := map[string]any{
-		"iteration": iteration,
-		"usage":     completion.Usage,
-	}
-	if err != nil {
-		output["fallback_reason"] = err.Error()
-		output["raw_response"] = assistantTruncateForPrompt(completion.Text)
-		return assistantPlannerDecision{}, *assistantLLMPlannerActivity(profileName, profile, assistantToolStatusError, output), false
-	}
+) (assistantPlannerDecision, []assistantToolActivity, bool) {
+	basePrompt := a.buildAssistantPlannerPrompt(ctx, subject, conversation, content, plan, toolCalls, remainingToolCalls, iteration)
 	availableTools := a.hostedMCPToolsForSubject(ctx, subject)
-	schemaToolNames := assistantPlannerSchemaToolNames(content, plan, toolCalls, availableTools)
-	if err := assistantValidatePlannerDecisionUsesSchemaTools(decision, schemaToolNames); err != nil {
-		output["fallback_reason"] = err.Error()
-		output["raw_response"] = assistantTruncateForPrompt(completion.Text)
-		return assistantPlannerDecision{}, *assistantLLMPlannerActivity(profileName, profile, assistantToolStatusError, output), false
+	schemaToolNames := assistantPlannerSchemaToolNames(assistantPlannerSchemaContext(conversation, content), plan, toolCalls, availableTools)
+	prompt := basePrompt
+	activities := []assistantToolActivity{}
+	for attempt := 1; attempt <= assistantMaxPlannerAttempts; attempt++ {
+		completion, err := client.Complete(ctx, prompt)
+		output := map[string]any{
+			"iteration": iteration,
+			"attempt":   attempt,
+		}
+		if err != nil {
+			output["fallback_reason"] = err.Error()
+			activities = append(activities, *assistantLLMPlannerActivity(profileName, profile, assistantToolStatusError, output))
+			return assistantPlannerDecision{}, activities, false
+		}
+		output["usage"] = completion.Usage
+		decision, err := parseAssistantPlannerDecision(completion.Text)
+		if err != nil {
+			output["fallback_reason"] = err.Error()
+			output["raw_response"] = assistantTruncateForPrompt(completion.Text)
+			if attempt < assistantMaxPlannerAttempts && assistantPlannerDecisionRetryable(err) {
+				output["will_retry"] = true
+				activities = append(activities, *assistantLLMPlannerActivity(profileName, profile, assistantToolStatusError, output))
+				prompt = assistantPlannerRepairPrompt(basePrompt, completion.Text, err)
+				continue
+			}
+			activities = append(activities, *assistantLLMPlannerActivity(profileName, profile, assistantToolStatusError, output))
+			return assistantPlannerDecision{}, activities, false
+		}
+		if err := assistantValidatePlannerDecisionUsesSchemaTools(decision, schemaToolNames); err != nil {
+			output["fallback_reason"] = err.Error()
+			output["raw_response"] = assistantTruncateForPrompt(completion.Text)
+			activities = append(activities, *assistantLLMPlannerActivity(profileName, profile, assistantToolStatusError, output))
+			return assistantPlannerDecision{}, activities, false
+		}
+		output["goal"] = decision.Goal
+		output["intent"] = decision.Intent
+		output["success_criteria"] = decision.SuccessCriteria
+		output["tool_count"] = len(decision.Steps)
+		output["has_final_answer"] = strings.TrimSpace(decision.FinalAnswer) != ""
+		if attempt > 1 {
+			output["repaired"] = true
+		}
+		activities = append(activities, *assistantLLMPlannerActivity(profileName, profile, assistantToolStatusSuccess, output))
+		return decision, activities, true
 	}
-	output["goal"] = decision.Goal
-	output["intent"] = decision.Intent
-	output["success_criteria"] = decision.SuccessCriteria
-	output["tool_count"] = len(decision.Steps)
-	output["has_final_answer"] = strings.TrimSpace(decision.FinalAnswer) != ""
-	return decision, *assistantLLMPlannerActivity(profileName, profile, assistantToolStatusSuccess, output), true
+	return assistantPlannerDecision{}, activities, false
+}
+
+func assistantPlannerDecisionRetryable(err error) bool {
+	if err == nil {
+		return false
+	}
+	reason := strings.ToLower(err.Error())
+	return strings.Contains(reason, "planner response did not contain a json object") ||
+		strings.Contains(reason, "parse planner json")
+}
+
+func assistantPlannerRepairPrompt(originalPrompt string, rawResponse string, err error) string {
+	return strings.TrimSpace(`Your previous NopsAI assistant planner response was invalid or incomplete JSON.
+
+Repair the response by returning exactly one complete JSON object that follows the required planner schema.
+Do not include Markdown, prose, code fences, comments, or multiple JSON objects.
+Keep the plan compact. Use available tools from the original prompt; do not invent tools or arguments.
+
+Planner parse error:
+` + strings.TrimSpace(err.Error()) + `
+
+Previous invalid response:
+` + assistantTruncateForPrompt(rawResponse) + `
+
+Original planner instructions and context:
+` + originalPrompt)
 }
 
 func assistantLLMPlannerActivity(profileName string, profile config.LLMProfile, status string, output map[string]any) *assistantToolActivity {
@@ -278,10 +322,11 @@ func assistantPlanHasTerminalEvidence(plan assistantTurnPlan, toolCalls []assist
 
 func (a *App) buildAssistantPlannerPrompt(ctx context.Context, subject aaamodel.Subject, conversation assistantConversation, content string, plan assistantTurnPlan, toolCalls []assistantToolActivity, remainingToolCalls int, iteration int) string {
 	availableTools := a.hostedMCPToolsForSubject(ctx, subject)
-	schemaToolNames := assistantPlannerSchemaToolNames(content, plan, toolCalls, availableTools)
+	schemaToolNames := assistantPlannerSchemaToolNames(assistantPlannerSchemaContext(conversation, content), plan, toolCalls, availableTools)
 	payload := map[string]any{
-		"user_request":        strings.TrimSpace(content),
-		"conversation_memory": normalizeAssistantMemory(conversation.Memory),
+		"user_request":         strings.TrimSpace(content),
+		"conversation_memory":  normalizeAssistantMemory(conversation.Memory),
+		"conversation_history": assistantPromptConversationHistory(conversation.Messages),
 		"extracted_context": map[string]any{
 			"run_id":                  plan.RunID,
 			"pipeline":                plan.PipelineID,
@@ -306,11 +351,13 @@ func (a *App) buildAssistantPlannerPrompt(ctx context.Context, subject aaamodel.
 	return strings.TrimSpace(`You are the NopsAI assistant planner for an enterprise CI/CD, GitOps, and operations platform.
 
 Create a safe hosted MCP tool plan from the user's request, available_tools, schema_tools, and observed tool results.
+Use same-chat conversation_history and conversation_memory to resolve follow-up requests before asking clarifying questions.
 Use only tool names from available_tools, and only put a tool in steps when its available_tools schema_included value is true. Tools with schema_included:false are discoverability context only for this turn.
 Select tools from their descriptions and use schema_tools for exact argument names. Never invent tools or arguments. Never request direct database access.
 Prefer first-party analytics tools over stitching raw data manually.
 For reads, choose the smallest evidence set that can answer the question.
 For pipeline YAML, config, or API validation, use the relevant MCP validation/API/doc tools and schemas instead of relying on memory.
+For samples, templates, schema questions, and "what should this definition look like" requests, gather current NopsAI docs or capability evidence before answering. Do not answer from static examples in the prompt.
 For pipeline generation or edits, route YAML through nopsai.validate_pipeline or a nopsai.propose_pipeline_* tool before answering.
 For changes, choose the tool mode the user asked for: use proposal/GitOps tools for proposed file plans, and use confirmed runtime tools only when the user explicitly confirmed the mutation and the tool accepts confirm:true.
 For variables and secrets, plain add/set/update/delete requests should use direct runtime MCP write/delete tools. Do not substitute GitOps/proposal tools unless the user explicitly asks for GitOps, a proposal, or a file plan. "Encrypted secret" means the secret domain stores encrypted material; it is not by itself a GitOps request.
@@ -494,6 +541,12 @@ func assistantPlannerSchemaToolNames(content string, plan assistantTurnPlan, too
 		add("nopsai.get_pipeline_knowledge_context", 20)
 		add("nopsai.explain_pipeline_health", 20)
 	}
+	if assistantTextHasAny(lower, "dashboard", "dashboards", "dashboardspec", "dashboard spec") {
+		add("nopsai.list_dashboards", 25)
+		add("nopsai.get_dashboard", 25)
+		add("nopsai.get_feature_capabilities", 40)
+		add("nopsai.search_docs", 45)
+	}
 	if assistantTextHasAny(lower, "run", "failed", "failure", "error", "log", "logs", "why did", "lab") {
 		add("nopsai.list_pipeline_runs", 35)
 		add("nopsai.get_pipeline_run", 45)
@@ -539,7 +592,7 @@ func assistantPlannerSchemaToolNames(content string, plan assistantTurnPlan, too
 	if assistantTextHasAny(lower, "setup", "install", "bootstrap", "first install", "template") {
 		addContains("setup", 45)
 	}
-	if assistantTextHasAny(lower, "docs", "documentation", "knowledge", "guideline") {
+	if assistantTextHasAny(lower, "docs", "documentation", "knowledge", "guideline", "sample", "samples", "example", "examples", "template", "schema", "definition", "definitions", "looks like", "look like") {
 		add("nopsai.search_docs", 45)
 		add("nopsai.read_doc", 35)
 		add("nopsai.list_knowledge_contexts", 35)
@@ -602,6 +655,25 @@ func assistantPlannerSchemaToolNames(content string, plan assistantTurnPlan, too
 		out[candidate.name] = true
 	}
 	return out
+}
+
+func assistantPlannerSchemaContext(conversation assistantConversation, content string) string {
+	parts := []string{}
+	for _, message := range conversation.Messages {
+		if message.Role != assistantRoleUser {
+			continue
+		}
+		if text := strings.TrimSpace(message.Content); text != "" {
+			parts = append(parts, text)
+		}
+	}
+	if text := strings.TrimSpace(content); text != "" {
+		parts = append(parts, text)
+	}
+	if len(parts) > assistantPromptHistoryLimit {
+		parts = parts[len(parts)-assistantPromptHistoryLimit:]
+	}
+	return strings.Join(parts, "\n")
 }
 
 func assistantValidatePlannerDecisionUsesSchemaTools(decision assistantPlannerDecision, schemaToolNames map[string]bool) error {

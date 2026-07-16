@@ -317,6 +317,13 @@ func (a *App) handleCreateAssistantMessage(w http.ResponseWriter, r *http.Reques
 	if selectedProfile != "" {
 		conversation.SelectedLLMProfile = selectedProfile
 	}
+	messages, err := a.loadAssistantMessages(r.Context(), conversationID)
+	if err != nil {
+		http.Error(w, "failed to load assistant conversation messages", http.StatusInternalServerError)
+		return
+	}
+	conversation.Messages = messages
+	conversation.Usage = assistantConversationUsageFromMessages(messages)
 	turnStarted := time.Now()
 	orchestration := a.runAssistantConversationTurn(r.Context(), subject, userID, conversation, req.Content, selectedProfile)
 	replyUsage := assistantUsageForAssistantReply(orchestration.Reply, orchestration.ToolCalls, time.Since(turnStarted))

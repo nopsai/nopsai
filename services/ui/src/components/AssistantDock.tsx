@@ -58,6 +58,7 @@ function AssistantDockContent({ navigate }: { navigate: NavigateFunction }) {
           <aside className="absolute right-0 top-0 h-full w-full max-w-[420px] border-l border-[var(--border-primary)] bg-[var(--bg-primary)] shadow-xl">
             <AssistantPanel
               variant="dock"
+              startFresh
               onClose={() => setOpen(false)}
               onExpand={() => {
                 setOpen(false);

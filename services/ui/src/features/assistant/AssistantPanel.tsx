@@ -19,14 +19,16 @@ import { useAssistantController } from './useAssistantController.js';
 
 export function AssistantPanel({
   variant = 'page',
+  startFresh = false,
   onExpand,
   onClose,
 }: {
   variant?: 'page' | 'dock';
+  startFresh?: boolean;
   onExpand?: () => void;
   onClose?: () => void;
 }) {
-  const assistant = useAssistantController();
+  const assistant = useAssistantController({ startFresh });
   const compact = variant === 'dock';
   const [detailsOpen, setDetailsOpen] = useState(true);
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -162,7 +164,7 @@ export function AssistantPanel({
                     onRetry={message.role === 'user' ? () => void assistant.retryMessage(message) : undefined}
                   />
                 ))}
-                {assistant.sending && (
+                {assistant.activeConversationSending && (
                   <AssistantThinkingBubble label={assistantProgressLabel(assistant.activeMessages, assistant.activeConversation)} />
                 )}
               </>
@@ -202,7 +204,7 @@ export function AssistantPanel({
                   className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-[var(--border-accent)] px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
                   disabled={!assistant.enabled || assistant.loading || !assistant.draft.trim() || assistant.sending}
                 >
-                  {assistant.sending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Send className="h-4 w-4" aria-hidden="true" />}
+                  {assistant.activeConversationSending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Send className="h-4 w-4" aria-hidden="true" />}
                   Send
                 </button>
               </div>

@@ -154,6 +154,9 @@ func TestAssistantPlanDoesNotTreatQuestionGrammarAsScope(t *testing.T) {
 	if scope := assistantScopeFromMessage("how many scope do we have and for each how many secrets"); scope != "" {
 		t.Fatalf("scope = %q, want empty question grammar ignored", scope)
 	}
+	if pipelineID := assistantPipelineIDFromMessage("metrics, events, and pipeline gonna build docker images"); pipelineID != "" {
+		t.Fatalf("pipeline id = %q, want empty grammar ignored", pipelineID)
+	}
 }
 
 func TestAssistantRunAnalysisReplyIncludesMCPChainAndLogHint(t *testing.T) {
@@ -634,6 +637,79 @@ func TestAssistantOrchestrationFailsClosedWhenLLMProviderFails(t *testing.T) {
 	}
 }
 
+func TestAssistantLLMPlannerRepairsMalformedJSONAndUsesEvidence(t *testing.T) {
+	credentialRef := "credential://system/llm/standard"
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requestCount++
+		w.Header().Set("Content-Type", "application/json")
+		switch requestCount {
+		case 1:
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"goal\":\"Find dashboard pipeline definition guidance\",\"intent\":\"llm_planned\",\"steps\":["}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`)
+		case 2:
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"{\"goal\":\"Find dashboard and pipeline definition guidance\",\"intent\":\"llm_planned\",\"steps\":[{\"tool\":\"nopsai.get_feature_capabilities\",\"args\":{\"query\":\"dashboard pipeline final output definitions\",\"include_api_routes\":true},\"reason\":\"Use current NopsAI capability evidence before answering with samples.\"}],\"success_criteria\":\"Answer from current NopsAI dashboard and pipeline capability evidence.\",\"needs_more_tools\":false,\"final_answer\":\"\",\"clarifying_question\":\"\"}"}}],"usage":{"prompt_tokens":9,"completion_tokens":5,"total_tokens":14}}`)
+		default:
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"Use the current dashboard capability evidence to describe the pipeline output binding and dashboard source binding. No changes were applied."}}],"usage":{"prompt_tokens":11,"completion_tokens":4,"total_tokens":15}}`)
+		}
+	}))
+	defer server.Close()
+
+	app := &App{
+		cfg: &config.Config{
+			LLMDefaultProfile: "standard",
+			LLMProfiles: map[string]config.LLMProfile{
+				"standard": {
+					Provider:      config.LLMProviderOpenAI,
+					Model:         "gpt-test",
+					BaseURL:       server.URL + "/v1",
+					CredentialRef: credentialRef,
+				},
+			},
+		},
+		httpClient:         server.Client(),
+		credentialResolver: staticCredentialResolver{credentialRef: "secret"},
+		aaaLocal:           allowActionsForAssistantTest("system.read"),
+	}
+	conversation := assistantConversation{
+		ID:          uuid.New(),
+		DocsVersion: "auto",
+		Messages: []assistantMessage{{
+			ID:      uuid.New(),
+			Role:    assistantRoleUser,
+			Content: "I want a dashboard with lists, bars, and text. Give me both the pipeline and dashboard definition.",
+		}},
+	}
+
+	result := app.runAssistantConversationTurn(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		"user:viewer",
+		conversation,
+		"metrics, events, and pipeline gonna build docker images. I only need samples.",
+		"standard",
+	)
+
+	if requestCount != 3 {
+		t.Fatalf("LLM requests = %d, want malformed planner, repair planner, and synthesis", requestCount)
+	}
+	plannerCalls := assistantToolCallsByName(result.ToolCalls, assistantLLMPlannerToolName)
+	if len(plannerCalls) != 2 {
+		t.Fatalf("planner calls = %#v, want initial failure and repair success", plannerCalls)
+	}
+	if plannerCalls[0].Status != assistantToolStatusError || !assistantOutputBool(plannerCalls[0].Output, "will_retry") {
+		t.Fatalf("first planner call should record retryable parse failure: %#v", plannerCalls[0])
+	}
+	if plannerCalls[1].Status != assistantToolStatusSuccess || !assistantOutputBool(plannerCalls[1].Output, "repaired") {
+		t.Fatalf("second planner call should record repaired success: %#v", plannerCalls[1])
+	}
+	if call := assistantFirstToolCall(result.ToolCalls, "nopsai.get_feature_capabilities"); call.Status != assistantToolStatusSuccess {
+		t.Fatalf("feature capability evidence call = %#v", call)
+	}
+	if !strings.Contains(result.Reply, "current dashboard capability evidence") || !strings.Contains(result.Reply, "No changes were applied") {
+		t.Fatalf("reply should come from LLM synthesis over tool evidence: %q", result.Reply)
+	}
+}
+
 func TestAssistantLLMPlannerExecutesValidatedToolPlan(t *testing.T) {
 	credentialRef := "credential://system/llm/standard"
 	requestCount := 0
@@ -768,6 +844,51 @@ func TestAssistantPlannerPromptUsesLiveToolSchemasWithoutStaticRouting(t *testin
 	} {
 		if strings.Contains(prompt, blocked) {
 			t.Fatalf("planner prompt includes static routing artifact %q:\n%s", blocked, prompt)
+		}
+	}
+}
+
+func TestAssistantPromptsIncludeSameChatHistoryForFollowUps(t *testing.T) {
+	app := &App{aaaLocal: allowActionsForAssistantTest("pipeline.read", "dashboard.read")}
+	conversation := assistantConversation{
+		ID:          uuid.New(),
+		DocsVersion: "auto",
+		Messages: []assistantMessage{
+			{
+				ID:      uuid.New(),
+				Role:    assistantRoleUser,
+				Content: "I want dashboard output with lists, bars, and text. Give me the pipeline and dashboard definition.",
+			},
+			{
+				ID:      uuid.New(),
+				Role:    assistantRoleAssistant,
+				Content: "Use a dashboard final output in the pipeline and a GitOps dashboard record with sections and sources.",
+			},
+		},
+	}
+	plan := assistantBaseTurnPlan("generic pipeline", assistantConversationMemory{})
+
+	plannerPrompt := app.buildAssistantPlannerPrompt(
+		context.Background(),
+		model.Subject{Type: model.SubjectTypeUser, Sub: "viewer"},
+		conversation,
+		plan.Goal,
+		plan,
+		nil,
+		assistantMaxPlanToolCalls,
+		1,
+	)
+
+	for _, want := range []string{"conversation_history", "lists, bars, and text", "dashboard final output", "generic pipeline"} {
+		if !strings.Contains(plannerPrompt, want) {
+			t.Fatalf("planner prompt missing %q:\n%s", want, plannerPrompt)
+		}
+	}
+
+	synthesisPrompt := buildAssistantLLMPrompt(conversation, "definition for dashboard", plan, nil, "Provide both definitions.")
+	for _, want := range []string{"conversation_history", "lists, bars, and text", "dashboard final output", "definition for dashboard"} {
+		if !strings.Contains(synthesisPrompt, want) {
+			t.Fatalf("synthesis prompt missing %q:\n%s", want, synthesisPrompt)
 		}
 	}
 }

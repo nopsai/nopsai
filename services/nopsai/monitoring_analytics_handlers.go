@@ -1980,13 +1980,14 @@ func monitoringAssistantChatUserIDPredicate() string {
 
 func monitoringAssistantChatUsageTotalsQuery() string {
 	estimatedPredicate := `am.usage_estimated`
+	tokenEventPredicate := `am.total_tokens > 0`
 	return `
 		SELECT COALESCE(SUM(am.prompt_tokens), 0)::bigint, COALESCE(SUM(am.completion_tokens), 0)::bigint,
 		       COALESCE(SUM(am.total_tokens), 0)::bigint,
 		       COALESCE(SUM(am.total_tokens) FILTER (WHERE NOT (` + estimatedPredicate + `)), 0)::bigint,
 		       COALESCE(SUM(am.total_tokens) FILTER (WHERE ` + estimatedPredicate + `), 0)::bigint,
-		       (COUNT(*) FILTER (WHERE NOT (` + estimatedPredicate + `)))::bigint,
-		       (COUNT(*) FILTER (WHERE ` + estimatedPredicate + `))::bigint,
+		       (COUNT(*) FILTER (WHERE ` + tokenEventPredicate + ` AND NOT (` + estimatedPredicate + `)))::bigint,
+		       (COUNT(*) FILTER (WHERE ` + tokenEventPredicate + ` AND ` + estimatedPredicate + `))::bigint,
 		       COUNT(*)::bigint
 		FROM assistant_messages am
 		JOIN assistant_conversations ac ON ac.id = am.conversation_id
@@ -1997,12 +1998,13 @@ func monitoringAssistantChatUsageTotalsQuery() string {
 func monitoringAssistantChatUsageTeamQuery(expression string) string {
 	return `
 		SELECT COALESCE(NULLIF(` + expression + `, ''), 'unknown'), COALESCE(NULLIF(` + expression + `, ''), 'Unknown'),
-		       COUNT(*)::bigint, COALESCE(SUM(am.total_tokens), 0)::bigint, 0::float8
+		       (COUNT(*) FILTER (WHERE am.total_tokens > 0))::bigint, COALESCE(SUM(am.total_tokens), 0)::bigint, 0::float8
 		FROM assistant_messages am
 		JOIN assistant_conversations ac ON ac.id = am.conversation_id
 		WHERE am.created_at >= $1 AND am.created_at <= $2
 		  AND ($3::text = '' OR LOWER(COALESCE(ac.selected_llm_profile, '')) = LOWER($3))` + monitoringAssistantChatUserIDPredicate() + `
 		GROUP BY 1,2
+		HAVING COALESCE(SUM(am.total_tokens), 0) > 0
 		ORDER BY 4 DESC, 2
 		LIMIT 20`
 }

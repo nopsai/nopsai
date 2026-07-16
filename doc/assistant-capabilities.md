@@ -14,8 +14,10 @@ operations as the current authenticated user.
   before execution from the live permission-filtered hosted MCP tool list and a
   compact catalog of tool descriptions and input schemas.
 - Assistant conversation turns do not use static normal-language routing. If
-  the LLM planner is unavailable or returns an invalid plan, no hosted MCP tools
-  run and the assistant replies that no changes were applied.
+  the LLM planner returns malformed JSON, NopsAI retries once with a repair
+  prompt that reuses the same live tool catalog and conversation context. If the
+  planner is unavailable or still cannot produce a validated plan, no hosted MCP
+  tools run and the assistant replies that no changes were applied.
 - The planner routes clear normal-language requests across the full NopsAI MCP
   surface, including setup, config repositories, notifications, monitoring
   extras, credentials, runners, access/admin, backups/cleanup, webhook sources,
@@ -146,12 +148,21 @@ metadata available on demand.
   inline code, fenced code blocks, and HTTPS citations. Operational LLM
   synthesis is instructed to prefer Summary, Evidence, and Recommended next
   step sections when supported by the current turn's tool evidence.
-- Each message records content-token estimates and, for assistant replies,
-  provider-reported or estimated planner/synthesis prompt, completion, total
-  token counts, LLM call count, and response duration. Conversation detail
-  panels show rollups for monitoring and troubleshooting. Prometheus exports
-  assistant token, duration, and LLM-call counters from the same stored message
-  usage fields.
+- Each message records visible content-token estimates separately from model
+  usage. Assistant replies record provider-reported or estimated
+  planner/synthesis prompt, completion, and total token counts, LLM call count,
+  and response duration; user messages do not add visible text estimates to
+  model `total_tokens`, and deterministic replies without an LLM call stay
+  visible-text-only as well. Conversation detail panels show both views for
+  monitoring and troubleshooting. Prometheus exports assistant token, duration,
+  and LLM-call counters from the same stored message usage fields.
+- Planner and final synthesis prompts include a compact recent same-chat
+  transcript plus conversation memory, so follow-up requests such as "generic
+  pipeline", "the dashboard definition", or "give me both" can resolve against
+  prior turns in that conversation instead of being treated as isolated prompts.
+- Sample, template, schema, and definition-shape requests are routed through
+  current NopsAI docs or capability evidence before the assistant answers. The
+  chat path must not use hardcoded example payloads as a fallback.
 - Planner prompts keep the live hosted MCP tool list visible, but include
   compact input schemas only for tools that look relevant to the request,
   extracted context, or previous evidence. This keeps planning grounded in
@@ -473,12 +484,13 @@ views, alert rules, alert events, and recommendations. AI/LLM usage prompts
 inspect before answering: empty default-window results are retried against
 broader windows, combined with summary/efficiency context, and explained with a
 recording/permission diagnosis when no events are visible.
-Global AI usage includes assistant chat message tokens as the
-`assistant_chat` feature, so monitoring can explain how much chat consumed as
-well as pipeline/run LLM work. Pipeline final output generation is recorded as
-the `pipeline_final_output` feature. Run-level token questions are answered from
-`nopsai.get_monitoring_ai_usage` with the run ID as a filter; those run-scoped
-answers stay limited to run AI usage events, and run status, log, and
+Global AI usage includes assistant chat model tokens as the `assistant_chat`
+feature, so monitoring can explain how much provider/model usage chat consumed
+as well as pipeline/run LLM work. Visible user and assistant text estimates stay
+separate from model token totals. Pipeline final output generation is recorded
+as the `pipeline_final_output` feature. Run-level token questions are answered
+from `nopsai.get_monitoring_ai_usage` with the run ID as a filter; those
+run-scoped answers stay limited to run AI usage events, and run status, log, and
 failure-analysis tools do not provide token counts.
 
 Ask:
