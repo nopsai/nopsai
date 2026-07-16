@@ -5,9 +5,9 @@ import { TriggerCollectionList } from './TriggerCollectionList';
 import { buildTriggerTree, findTriggerTreeNode } from './treeModel';
 
 const allTriggers = [
-  { slug: 'platform/api', source: 'gitops' },
-  { slug: 'platform/web', source: 'database' },
-  { slug: 'platform/apps/checkout', source: 'git' },
+  { slug: 'platform/api', source: 'gitops', scopes: ['prod'] },
+  { slug: 'platform/web', source: 'database', scopes: ['default'] },
+  { slug: 'platform/apps/checkout', source: 'git', scopes: ['dev'] },
 ];
 const treeRoot = buildTriggerTree(allTriggers);
 const activeOwnerNode = findTriggerTreeNode(treeRoot, 'platform');
@@ -24,9 +24,9 @@ test('renders trigger metrics, subtree table rows, and tree navigation', async (
       listError={null}
       allTriggers={allTriggers}
       visibleTriggers={[
-        { slug: 'platform/api', source: 'gitops' },
-        { slug: 'platform/web', source: 'database' },
-        { slug: 'platform/apps/checkout', source: 'git' },
+        { slug: 'platform/api', source: 'gitops', scopes: ['prod'] },
+        { slug: 'platform/web', source: 'database', scopes: ['default'] },
+        { slug: 'platform/apps/checkout', source: 'git', scopes: ['dev'] },
       ]}
       treeRoot={treeRoot}
       activeOwnerNode={activeOwnerNode}
@@ -49,6 +49,8 @@ test('renders trigger metrics, subtree table rows, and tree navigation', async (
   expect(screen.getByText('Owners')).toBeVisible();
   expect(screen.getByText('platform/api').closest('tr')).toHaveClass('selected');
   expect(screen.getByText('platform/apps/checkout')).toBeVisible();
+  expect(screen.getByRole('columnheader', { name: 'Scopes' })).toBeVisible();
+  expect(screen.getByText('prod')).toBeVisible();
 
   await user.click(screen.getByText('platform/web'));
   expect(onSelectTrigger).toHaveBeenCalledTimes(1);

@@ -182,10 +182,11 @@ export function ExternalTriggerWorkspace({
                     <table className="triggers-resource-table">
                       <thead>
                         <tr>
-                          <th scope="col">Endpoint</th>
-                          <th scope="col">Target</th>
+                          <th scope="col">Name</th>
+                          <th scope="col">Pipeline</th>
                           <th scope="col">Team</th>
-                          <th scope="col">Access</th>
+                          <th scope="col">Scope</th>
+                          <th scope="col">Last used</th>
                           <th scope="col">Source</th>
                         </tr>
                       </thead>
@@ -248,7 +249,6 @@ function ExternalTriggerRow({
   selected: boolean;
   onSelect: (id: string) => void;
 }) {
-  const callerTypes = Array.from(new Set((trigger.allowed_callers || []).map(caller => caller.type))).join(', ') || 'none';
   const sourceLabel = externalTriggerSourceLabel(trigger);
   return (
     <tr className={selected ? 'selected' : ''} onClick={() => onSelect(trigger.id)}>
@@ -262,7 +262,6 @@ function ExternalTriggerRow({
           </span>
           <span className="triggers-resource-name">
             <strong>{trigger.name || trigger.id}</strong>
-            <small>{trigger.id}</small>
           </span>
         </button>
       </td>
@@ -273,7 +272,10 @@ function ExternalTriggerRow({
         <span className="triggers-mono">{externalTriggerTeamLabel(trigger.run_team_path)}</span>
       </td>
       <td>
-        <span className="triggers-mono">{externalTriggerScopeLabel(trigger.scope)} / {callerTypes}</span>
+        <span className="triggers-mono">{externalTriggerScopeLabel(trigger.scope)}</span>
+      </td>
+      <td>
+        <span className="triggers-mono">{formatDate(trigger.last_used_at)}</span>
       </td>
       <td>
         <span className={`triggers-badge triggers-badge--${trigger.managed_by_config_repo ? 'blue' : 'neutral'}`}>

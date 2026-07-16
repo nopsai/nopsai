@@ -185,9 +185,22 @@ test('flattens branch buckets and shapes table rows', () => {
 
   const row = buildPipelineRunTableRows([newer], 5, Date.parse('2026-07-12T12:00:00Z'))[0];
   assert.equal(row?.pipelineName, 'deploy-api');
-  assert.equal(row?.pipelineMeta, 'main - abcdef12 - newer');
-  assert.equal(row?.scopeName, 'api');
-  assert.equal(row?.sourceLabel, 'Application');
+  assert.equal(row?.repoName, 'acme/api');
+  assert.equal(row?.branchLabel, 'main');
+  assert.equal(row?.runID, 'newer');
   assert.equal(row?.durationLabel, '2m 11s');
   assert.equal(row?.startedLabel, '1h ago');
+
+  const longRunIDRow = buildPipelineRunTableRows([run({ run_id: '9e40b9b1-9f67-41f5-9c7e-6d7e3ef6a991' })], 5, Date.parse('2026-07-12T12:00:00Z'))[0];
+  assert.equal(longRunIDRow?.runID, '9e40b9b1');
+
+  const failedBeforeStart = run({
+    run_id: 'failed-before-start',
+    status: 'failure',
+    started_at: '0001-01-01T00:00:00Z',
+    finished_at: '2026-07-12T11:59:00Z',
+  });
+  const failedRow = buildPipelineRunTableRows([failedBeforeStart], 5, Date.parse('2026-07-12T12:00:00Z'))[0];
+  assert.equal(failedRow?.startedLabel, '—');
+  assert.equal(failedRow?.durationLabel, '-');
 });

@@ -12,6 +12,8 @@ import {
   formatRepoLabel,
   formatTokenCount,
   formatTriggerId,
+  runActivityTimestamp,
+  runStartedTimestamp,
   timeAgo,
   type ParentRunInfo,
 } from './runPresentation';
@@ -96,7 +98,8 @@ export function RunDetailView({
   const dangerAction = `${actionBase} border border-red-500/40 text-red-600 bg-red-50 hover:bg-red-100 dark:text-red-100 dark:bg-red-500/10 dark:hover:bg-red-500/20`;
   const iconDanger = 'inline-flex items-center justify-center h-11 w-11 rounded-xl p-0 text-red-600 hover:text-red-700 dark:text-red-200 dark:hover:text-red-100 bg-transparent border-none shadow-none';
 
-  const startedLabel = run.started_at ? timeAgo(run.started_at) : '—';
+  const startedAt = runStartedTimestamp(run);
+  const startedLabel = timeAgo(startedAt);
   const branchLabel = formatBranchDisplay(run.git_ref, run.git_target_ref);
   const repoLabel = formatRepoLabel(run);
   const isExternalTriggerRun = run.trigger_source === 'external_trigger' || Boolean(run.external_trigger_id);
@@ -121,7 +124,7 @@ export function RunDetailView({
     {
       label: 'Trigger Event ID',
       value: triggerLabel.full || '—',
-      subtext: run.started_at ? `Started ${startedLabel}` : 'Started: —',
+      subtext: startedAt ? `Started ${startedLabel}` : 'Started: —',
       icon: <ZapIcon className="h-4 w-4 text-slate-500" />,
     },
     {
@@ -439,7 +442,7 @@ export function RunDetailView({
                   {child.parent_step_name && <span className="runner-pill runner-pill--muted">Step {child.parent_step_name}</span>}
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-[var(--text-secondary)]">{timeAgo(child.started_at)}</span>
+                  <span className="text-xs text-[var(--text-secondary)]">{timeAgo(runActivityTimestamp(child))}</span>
                   <button className={ghostAction} type="button" onClick={() => onOpenRun(child.run_id)}>
                     Open
                   </button>

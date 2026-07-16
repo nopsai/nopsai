@@ -7,8 +7,8 @@ import {
   buildTriggerCollectionMetrics,
   normalizeSource,
   sourceLabel,
-  triggerAllowlistStatusLabel,
   triggerIngressLabel,
+  triggerScopesLabel,
   triggerSlugLabel,
   type TriggerListItem,
 } from './model';
@@ -99,7 +99,7 @@ export function TriggerCollectionList({
                         <th scope="col">Trigger</th>
                         <th scope="col">Provider</th>
                         <th scope="col">Ingress</th>
-                        <th scope="col">Allowlist</th>
+                        <th scope="col">Scopes</th>
                         <th scope="col">Source</th>
                         <th scope="col" aria-label="Actions"></th>
                       </tr>
@@ -199,7 +199,7 @@ function TriggerRow({
         <span className="triggers-mono">{triggerIngressLabel(item)}</span>
       </td>
       <td>
-        <span className="triggers-mono">{triggerAllowlistStatusLabel(item.allowlistStatus)}</span>
+        <span className="triggers-mono">{triggerScopesLabel(item.scopes)}</span>
       </td>
       <td>
         <span className={`triggers-badge triggers-badge--${sourceKey === 'git' ? 'blue' : 'neutral'}`}>

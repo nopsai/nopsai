@@ -89,7 +89,17 @@ test('renders redesigned pipeline run overview and delegates user actions', asyn
   expect(screen.getByText('deploy-api')).toBeVisible();
   expect(screen.getByText('deploy-feature')).toBeVisible();
   expect(container.querySelectorAll('[data-trigger-id="event-related"]')).toHaveLength(2);
-  expect(screen.getByRole('columnheader', { name: 'Target' })).toBeVisible();
+  expect(screen.getByRole('columnheader', { name: 'Repository' })).toBeVisible();
+  expect(screen.getByRole('columnheader', { name: 'Run ID' })).toBeVisible();
+  expect(screen.getAllByRole('columnheader').map(header => header.textContent?.trim()).slice(0, 7)).toEqual([
+    'Status',
+    'Pipeline run',
+    'Repository',
+    'Run ID',
+    'Branch',
+    'Started',
+    'Duration',
+  ]);
   expect(screen.getByText('nightly-ledger')).toBeVisible();
   expect(screen.queryByRole('heading', { name: 'Source mix' })).not.toBeInTheDocument();
   expect(screen.queryByRole('heading', { name: 'Current scope' })).not.toBeInTheDocument();

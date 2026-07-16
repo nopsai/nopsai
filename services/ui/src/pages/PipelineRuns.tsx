@@ -7,6 +7,7 @@ import {
   findTeamByURLValue,
   normalizeTeamURLValue,
   runMatchesSearch,
+  runTimestamp,
   summarizeStatus,
   teamPathForURL,
   type Team,
@@ -417,7 +418,7 @@ function PipelineRunsPage() {
       id,
       runs,
       status: summarizeStatus(runs),
-      latestRun: runs.find(r => r.started_at) || runs[0],
+      latestRun: [...runs].sort((left, right) => runTimestamp(right) - runTimestamp(left))[0],
     }));
   }, [activeTab, recentRunsAll, searchTerm]);
 

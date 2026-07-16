@@ -10,11 +10,8 @@ import {
   ChevronRight,
   Clock3,
   GitBranch,
-  PlayCircle,
   Search,
-  Timer,
   UsersRound,
-  Webhook,
 } from 'lucide-react';
 import { TreeColumnResizeHandle, useResizableTreeColumn } from '../../components/resizableTreeColumn';
 import type { RunListItem } from './contracts';
@@ -29,7 +26,7 @@ import {
   type PipelineRunSourceFilter,
   type PipelineRunStatusFilter,
 } from './overviewModel';
-import { isAppTeam, type RunSourceKind, type Team } from './runPresentation';
+import { isAppTeam, type Team } from './runPresentation';
 import { buildPipelineRunsRoute } from '../../lib/teamRoutes';
 
 type PipelineRunsOverviewProps = {
@@ -372,9 +369,10 @@ function PipelineRunTable({
         <thead>
           <tr>
             <th>Status</th>
-            <th>Pipeline</th>
-            <th>Target</th>
-            <th>Source</th>
+            <th>Pipeline run</th>
+            <th>Repository</th>
+            <th>Run ID</th>
+            <th>Branch</th>
             <th>Started</th>
             <th>Duration</th>
             <th>
@@ -393,20 +391,14 @@ function PipelineRunTable({
                 <td>
                   <button type="button" className="pipeline-runs-table-title" onClick={() => onOpenRun(row.run.run_id)}>
                     <span>{row.pipelineName}</span>
-                    <small>{row.pipelineMeta}</small>
                   </button>
                 </td>
                 <td>
-                  <div className="pipeline-runs-table-scope">
-                    <span>{row.scopeName}</span>
-                    <small>{row.scopeMeta}</small>
-                  </div>
+                  <span className="pipeline-runs-mono">{row.repoName}</span>
                 </td>
+                <td className="pipeline-runs-mono">{row.runID}</td>
                 <td>
-                  <span className="pipeline-runs-source-label">
-                    <SourceIcon kind={row.sourceKind} />
-                    {row.sourceLabel}
-                  </span>
+                  <span className="pipeline-runs-mono">{row.branchLabel}</span>
                 </td>
                 <td>{row.startedLabel}</td>
                 <td className="pipeline-runs-mono">{row.durationLabel}</td>
@@ -447,13 +439,6 @@ function StatusPill({ status, label }: { status: string; label: string }) {
       {label}
     </span>
   );
-}
-
-function SourceIcon({ kind }: { kind: RunSourceKind }) {
-  if (kind === 'repository') return <GitBranch className="h-4 w-4" aria-hidden="true" />;
-  if (kind === 'schedule') return <Timer className="h-4 w-4" aria-hidden="true" />;
-  if (kind === 'external') return <Webhook className="h-4 w-4" aria-hidden="true" />;
-  return <PlayCircle className="h-4 w-4" aria-hidden="true" />;
 }
 
 function statusClass(status: string): string {

@@ -4111,8 +4111,49 @@ html.dark .pipeline-card-icon {
 
 .pipeline-runs-table {
     width: 100%;
-    min-width: 48rem;
+    min-width: 0;
     border-collapse: collapse;
+    table-layout: fixed;
+}
+
+.pipeline-runs-table th:nth-child(1),
+.pipeline-runs-table td:nth-child(1) {
+    width: 10%;
+}
+
+.pipeline-runs-table th:nth-child(2),
+.pipeline-runs-table td:nth-child(2) {
+    width: 17%;
+}
+
+.pipeline-runs-table th:nth-child(3),
+.pipeline-runs-table td:nth-child(3) {
+    width: 27%;
+}
+
+.pipeline-runs-table th:nth-child(4),
+.pipeline-runs-table td:nth-child(4) {
+    width: 8%;
+}
+
+.pipeline-runs-table th:nth-child(5),
+.pipeline-runs-table td:nth-child(5) {
+    width: 13%;
+}
+
+.pipeline-runs-table th:nth-child(6),
+.pipeline-runs-table td:nth-child(6) {
+    width: 11%;
+}
+
+.pipeline-runs-table th:nth-child(7),
+.pipeline-runs-table td:nth-child(7) {
+    width: 8%;
+}
+
+.pipeline-runs-table th:nth-child(8),
+.pipeline-runs-table td:nth-child(8) {
+    width: 6%;
 }
 
 .pipeline-runs-table th {
@@ -4158,7 +4199,7 @@ html.dark .pipeline-card-icon {
     flex-direction: column;
     align-items: flex-start;
     min-width: 0;
-    max-width: 18rem;
+    width: 100%;
     border: 0;
     background: transparent;
     color: var(--text-primary);
@@ -4251,6 +4292,20 @@ html.dark .pipeline-card-icon {
 
 .pipeline-runs-mono {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
+}
+
+.pipeline-runs-table td > .pipeline-runs-mono {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pipeline-runs-table td.pipeline-runs-mono {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .pipeline-runs-row-actions {

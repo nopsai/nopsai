@@ -3,10 +3,12 @@ package nopsai
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"gopkg.in/yaml.v3"
 
 	"nopsai/pkg/models"
 	"nopsai/services/nopsai/internal/gitwebhook"
@@ -47,19 +49,20 @@ type repositoryTriggerRecord struct {
 }
 
 type repositoryTriggerListItem struct {
-	Name                  string `json:"name"`
-	Source                string `json:"source"`
-	Provider              string `json:"provider"`
-	TeamPath              string `json:"team_path"`
-	Management            string `json:"management"`
-	WebhookSourceID       string `json:"webhook_source_id,omitempty"`
-	WebhookSourceName     string `json:"webhook_source_name,omitempty"`
-	Ingress               string `json:"ingress,omitempty"`
-	AllowlistStatus       string `json:"allowlist_status,omitempty"`
-	RepositoryForWebhook  string `json:"repository_for_webhook,omitempty"`
-	ManagedByConfigRepo   bool   `json:"managed_by_config_repo"`
-	ConfigSourcePath      string `json:"config_source_path,omitempty"`
-	RepositoryManagedHint string `json:"repository_managed_hint,omitempty"`
+	Name                  string   `json:"name"`
+	Source                string   `json:"source"`
+	Provider              string   `json:"provider"`
+	TeamPath              string   `json:"team_path"`
+	Management            string   `json:"management"`
+	WebhookSourceID       string   `json:"webhook_source_id,omitempty"`
+	WebhookSourceName     string   `json:"webhook_source_name,omitempty"`
+	Ingress               string   `json:"ingress,omitempty"`
+	AllowlistStatus       string   `json:"allowlist_status,omitempty"`
+	RepositoryForWebhook  string   `json:"repository_for_webhook,omitempty"`
+	Scopes                []string `json:"scopes,omitempty"`
+	ManagedByConfigRepo   bool     `json:"managed_by_config_repo"`
+	ConfigSourcePath      string   `json:"config_source_path,omitempty"`
+	RepositoryManagedHint string   `json:"repository_managed_hint,omitempty"`
 }
 
 type repositoryTriggerDetailResponse struct {
@@ -105,6 +108,31 @@ func repositoryTriggerRecordFromManifest(repositoryName, definition, source, vis
 		WebhookSourceID:      webhookSourceID,
 		RepositoryForWebhook: repositoryTriggerProviderRepository(repositoryName, teamPath),
 	}, nil
+}
+
+func repositoryTriggerScopesFromDefinition(definition string) []string {
+	var manifest models.Manifest
+	if err := yaml.Unmarshal([]byte(definition), &manifest); err != nil {
+		return nil
+	}
+	scopes := make(map[string]struct{})
+	for _, trigger := range manifest.Triggers {
+		scopes[runtimeScopeForDisplay(trigger.Scope)] = struct{}{}
+	}
+	out := make([]string, 0, len(scopes))
+	for scope := range scopes {
+		out = append(out, scope)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i] == defaultRuntimeScope {
+			return true
+		}
+		if out[j] == defaultRuntimeScope {
+			return false
+		}
+		return out[i] < out[j]
+	})
+	return out
 }
 
 func normalizeRepositoryTriggerProvider(raw string) (string, error) {
