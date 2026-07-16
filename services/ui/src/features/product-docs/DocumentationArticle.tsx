@@ -1,4 +1,3 @@
-import { ExternalLink } from 'lucide-react';
 import { wikiAudienceLabel, wikiDocTypeLabel, type WikiPrerequisite, type WikiStep } from './model';
 import type { DocumentationArticle, DocumentationSection } from './quality';
 import { CodeExample } from './DocumentationExamples';
@@ -14,7 +13,7 @@ export function ArticleHeader({ section, article }: { section: DocumentationSect
         <span className="rounded-full border border-[var(--border-primary)] px-2.5 py-1 font-semibold uppercase tracking-wide">{wikiDocTypeLabel(article.docType)}</span>
         <span>{article.audiences.map(wikiAudienceLabel).join(', ')}</span>
       </div>
-      <h1 id="documentation-article-title" className="mt-3 text-3xl font-semibold tracking-tight text-[var(--text-primary)] sm:text-4xl">{article.title}</h1>
+      <h2 id="documentation-article-title" className="mt-3 text-3xl font-semibold tracking-tight text-[var(--text-primary)] sm:text-4xl">{article.title}</h2>
       <p className="mt-4 max-w-3xl text-base leading-8 text-[var(--text-secondary)]">{article.summary}</p>
       <details className="mt-5 max-w-3xl rounded border border-[var(--border-primary)] px-4 py-3 text-sm">
         <summary className="cursor-pointer font-medium text-[var(--text-secondary)]">Page details</summary>
@@ -120,11 +119,11 @@ export function Sources({ article }: { article: DocumentationArticle }) {
   return (
     <section id="sources" className="scroll-mt-8 border-t border-[var(--border-primary)] pt-8">
       <details>
-        <summary className="cursor-pointer text-lg font-semibold text-[var(--text-primary)]">Sources</summary>
+        <summary className="cursor-pointer text-lg font-semibold text-[var(--text-primary)]">Implementation evidence</summary>
         <ul className="mt-4 space-y-3">
           {article.sourceLinks.map(source => (
             <li key={`${article.id}-${source.repositoryPath}`} className="rounded border border-[var(--border-primary)] px-4 py-3">
-              <a className="inline-flex items-center gap-1 text-sm font-medium text-[var(--text-accent)]" href={source.sourceUrl} target="_blank" rel="noreferrer">{source.title}<ExternalLink className="h-3.5 w-3.5" aria-hidden="true" /></a>
+              <p className="text-sm font-medium text-[var(--text-primary)]">{source.title}</p>
               <code className="mt-1 block text-xs text-[var(--text-tertiary)]">{source.repositoryPath}</code>
               <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">{source.purpose}</p>
             </li>

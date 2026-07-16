@@ -290,8 +290,8 @@ function sourceFromPath(repositoryPath: string): WikiSource {
     title: filename,
     repositoryPath,
     purpose: repositoryPath.startsWith('doc/')
-      ? 'Focused repository documentation backing this wiki article.'
-      : 'Implementation or deployment source used to verify the article.',
+      ? 'Repository documentation evidence already summarized in this wiki article.'
+      : 'Implementation or deployment evidence used to verify the article.',
   };
 }
 
@@ -304,7 +304,7 @@ function runbookFromTitle(title: string, article: WikiArticleInput): WikiRunbook
     requiredAccess: defaultRunbookAccess(article),
     initialChecks: ['Confirm the target team, scope, repository, pipeline, and run ID before changing state.'],
     diagnosticCommands: [],
-    resolution: ['Follow the linked article details and focused source documents, then verify the result through UI, API, CLI, or metrics.'],
+    resolution: ['Follow the article details, inspect the listed implementation evidence when needed, then verify the result through UI, API, CLI, or metrics.'],
     escalation: 'Escalate to the article owner when the expected resource, permission, route, or metric is missing.',
   };
 }
@@ -1181,6 +1181,266 @@ const finalOutputRows: WikiConfigRow[] = [
   },
 ];
 
+const requiredEnvironmentRows: WikiConfigRow[] = [
+  {
+    key: 'DATABASE_URL',
+    area: 'Bootstrap',
+    description: 'PostgreSQL connection string for runtime state, config sync state, auth records, run records, logs, and evidence.',
+    example: 'postgres://nopsai:***@db:5432/nopsai?sslmode=disable',
+    type: 'secret URL',
+    required: true,
+    scope: 'API and AAA',
+    security: 'Store in deployment secret management or the Helm bootstrap Secret, not in GitOps files.',
+  },
+  {
+    key: 'NOPSAI_MASTER_KEY',
+    area: 'Bootstrap',
+    description: 'Root application secret used for encrypted platform data.',
+    example: 'openssl rand -base64 32',
+    type: 'secret',
+    required: true,
+    scope: 'API',
+    security: 'Production gates require a non-default high-entropy value.',
+  },
+  {
+    key: 'JWT_SIGNING_KEY',
+    area: 'Bootstrap',
+    description: 'Signs user, personal-token, service-account-token, browser, CLI, automation, and hosted MCP bearer tokens.',
+    example: 'openssl rand -base64 48',
+    type: 'secret',
+    required: true,
+    scope: 'API',
+    security: 'Keep separate from SERVICE_JWT_SIGNING_KEY.',
+  },
+  {
+    key: 'SERVICE_JWT_SIGNING_KEY',
+    area: 'Bootstrap',
+    description: 'Signs internal service JWTs for nopsai, dispatcher, git-bot, runner, and agent callbacks.',
+    example: 'openssl rand -base64 48',
+    type: 'secret',
+    required: true,
+    scope: 'API, dispatcher, git-bot, runners, agents',
+    security: 'Use an independent secret from user/API token signing.',
+  },
+  {
+    key: 'AAA_SHARED_INTERNAL_TOKEN',
+    area: 'Bootstrap',
+    description: 'Shared internal token used when nopsai asks AAA for route and runtime resource-use authorization checks.',
+    example: 'openssl rand -base64 32',
+    type: 'secret',
+    required: true,
+    scope: 'API and AAA',
+    security: 'Treat as service-to-service authentication material.',
+  },
+  {
+    key: 'AAA_API_URL',
+    area: 'Service discovery',
+    description: 'Internal URL for the AAA service.',
+    example: 'http://aaa:8082',
+    type: 'URL',
+    required: true,
+    scope: 'API',
+    constraints: ['Usually a private service DNS name in Compose or Kubernetes.'],
+  },
+  {
+    key: 'NOPSAI_API_URL',
+    area: 'Service discovery',
+    description: 'Internal API URL used for dispatcher status/log callbacks and git-bot event forwarding.',
+    example: 'http://nopsai:8080',
+    type: 'URL',
+    required: true,
+    scope: 'dispatcher and git-bot',
+    constraints: ['Use an internal route for service callbacks instead of the public UI URL.'],
+  },
+  {
+    key: 'GIT_BOT_API_URL',
+    area: 'Service discovery',
+    description: 'Internal git-bot URL used by the API for repository contents, review-branch writes, GitHub events, and check-run updates.',
+    example: 'http://nopsai-git-bot:8081',
+    type: 'URL',
+    required: 'conditional',
+    scope: 'API',
+    constraints: ['Required when GitHub App or GitOps repository operations are enabled.'],
+  },
+  {
+    key: 'DISPATCHER_GRPC_ADDRESS',
+    area: 'Dispatcher',
+    description: 'gRPC address used by runners and agents to reach the dispatcher.',
+    example: 'dispatcher:9090',
+    type: 'host:port',
+    required: true,
+    scope: 'runners and agents',
+    inheritedFrom: ['setting/system/runner.yaml can also publish dispatcher defaults'],
+  },
+  {
+    key: 'DISPATCHER_TLS_MODE',
+    area: 'Dispatcher',
+    description: 'Transport security mode for dispatcher gRPC.',
+    example: 'mtls',
+    type: 'enum',
+    required: 'conditional',
+    defaultValue: 'mtls',
+    allowedValues: ['mtls', 'tls', 'disabled'],
+    scope: 'dispatcher, runners, agents',
+    security: 'Production gates expect tls or mtls, not disabled transport.',
+  },
+  {
+    key: 'DISPATCHER_TLS_SECRET',
+    area: 'Dispatcher',
+    description: 'Shared high-entropy bootstrap secret used by dispatcher clients when TLS or mTLS is configured.',
+    example: 'openssl rand -base64 32',
+    type: 'secret',
+    required: 'conditional',
+    scope: 'dispatcher, runners, agents',
+    security: 'Rotate as part of dispatcher trust seed rotation.',
+  },
+  {
+    key: 'DOCKER_NETWORK_NAME',
+    area: 'Docker runner',
+    description: 'Docker network used when the Docker runner starts per-run agent and step containers.',
+    example: 'nopsai-net',
+    type: 'string',
+    required: true,
+    defaultValue: 'nopsai-net',
+    scope: 'Docker runner',
+  },
+  {
+    key: 'SYSTEM_LOGS_DOCKER_HOST',
+    area: 'System Logs',
+    description: 'Read-only Docker API endpoint used for allow-listed System Logs sources in Docker deployments.',
+    example: 'tcp://docker-socket-proxy:2375',
+    type: 'URL',
+    required: 'conditional',
+    scope: 'API',
+    security: 'Use the restricted docker-socket-proxy, not a broad Docker daemon endpoint.',
+  },
+  {
+    key: 'FINAL_OUTPUT_PDF_RENDERER_URL',
+    area: 'Final outputs',
+    description: 'Gotenberg URL used when final outputs render PDFs.',
+    example: 'http://gotenberg:3000',
+    type: 'URL',
+    required: 'conditional',
+    scope: 'API',
+    constraints: ['Required for PDF final outputs.'],
+  },
+  {
+    key: 'FINAL_OUTPUT_PDF_TIMEOUT_SECONDS',
+    area: 'Final outputs',
+    description: 'Server-side timeout for PDF rendering through Gotenberg.',
+    example: '60',
+    type: 'integer',
+    required: false,
+    defaultValue: '60',
+    scope: 'API',
+  },
+];
+
+const gitOpsRepositoryRows: WikiConfigRow[] = [
+  {
+    key: 'pipelines/',
+    area: 'GitOps repository',
+    description: 'Pipeline definitions grouped by team, service, or application path.',
+    example: 'pipelines/team-1/services/api/deploy.yaml',
+    type: 'directory',
+    required: false,
+    scope: 'config repository',
+  },
+  {
+    key: 'steps/',
+    area: 'GitOps repository',
+    description: 'Reusable step definitions referenced through include steps.',
+    example: 'steps/shared/notify.yaml',
+    type: 'directory',
+    required: false,
+    scope: 'config repository',
+    permission: 'step.use',
+  },
+  {
+    key: 'schedules/',
+    area: 'GitOps repository',
+    description: 'One-time and recurring pipeline schedules.',
+    example: 'schedules/prod/nightly-api-deploy.yaml',
+    type: 'directory',
+    required: false,
+    scope: 'config repository',
+  },
+  {
+    key: 'triggers/',
+    area: 'GitOps repository',
+    description: 'Repository trigger manifests for GitHub App and Git Webhook Source events.',
+    example: 'triggers/platform/service-api.yaml',
+    type: 'directory',
+    required: false,
+    scope: 'config repository',
+  },
+  {
+    key: 'external-triggers/',
+    area: 'GitOps repository',
+    description: 'Authenticated external trigger endpoint definitions with caller allowlists, schemas, mappings, and rate limits.',
+    example: 'external-triggers/deploy-prod.yaml',
+    type: 'directory',
+    required: false,
+    scope: 'config repository',
+  },
+  {
+    key: 'git-webhook-sources/',
+    area: 'GitOps repository',
+    description: 'GitLab, Bitbucket, Gitea, and generic Git event source definitions.',
+    example: 'git-webhook-sources/gitlab-platform.yaml',
+    type: 'directory',
+    required: false,
+    scope: 'config repository',
+  },
+  {
+    key: 'scopes/',
+    area: 'GitOps repository',
+    description: 'Scope variables, GitOps secret keys, runtime defaults, and repository-specific values.',
+    example: 'scopes/prod/scope.yaml',
+    type: 'directory',
+    required: false,
+    scope: 'config repository',
+  },
+  {
+    key: 'knowledge/',
+    area: 'GitOps repository',
+    description: 'Managed Knowledge Context documents organized by kind and team.',
+    example: 'knowledge/policy/platform/release-evidence.md',
+    type: 'directory',
+    required: false,
+    scope: 'config repository',
+    permission: 'knowledge_context.use',
+  },
+  {
+    key: 'config-repositories/',
+    area: 'GitOps repository',
+    description: 'Group config repository bindings, group structure, and notification ownership.',
+    example: 'config-repositories/groups/team-1/structure.yaml',
+    type: 'directory',
+    required: false,
+    scope: 'system config repository',
+  },
+  {
+    key: 'access/',
+    area: 'GitOps repository',
+    description: 'Users, service accounts, roles, policies, bindings, and product grants.',
+    example: 'access/all.yaml',
+    type: 'directory',
+    required: false,
+    scope: 'config repository',
+    security: 'Raw generated service-account tokens are not stored in Git.',
+  },
+  {
+    key: 'setting/',
+    area: 'GitOps repository',
+    description: 'System settings for auth, mail, Agent Profiles, LLM, MCP, runner, GitHub App, and credentials.',
+    example: 'setting/system/runner.yaml',
+    type: 'directory',
+    required: false,
+    scope: 'system config repository',
+  },
+];
+
 const baseWikiSections: WikiSectionInput[] = [
   {
     id: 'architecture',
@@ -1232,6 +1492,12 @@ const baseWikiSections: WikiSectionInput[] = [
           'The API submits jobs to the dispatcher. Runners maintain long-lived outbound connections to the dispatcher, which keeps runner registration and capacity visible to the control plane.',
           'Docker runners create containers and Docker volumes. Kubernetes runners create an agent pod, PVC-backed workspace, and step pods in their namespace.',
           'Gotenberg is used for PDF rendering. The Docker socket proxy is restricted to allow-listed System Logs reads and is not used for runner execution.',
+          'UI and CLI are entry points only. They call authenticated REST routes and do not talk directly to AAA, dispatcher, PostgreSQL, or runners.',
+          'services/nopsai owns auth, config sync, Git event ingress, run creation, setup preflight, logs, outputs, metrics, and hosted MCP; it calls Postgres, AAA, git-bot, dispatcher, Gotenberg, and log providers.',
+          'services/aaa owns route authorization, product grants, groups, roles, policies, bindings, deny-before-allow decisions, filtering, ACL expansion, and decision audit data.',
+          'services/git-bot owns GitHub App credentials, webhook HMAC verification, repository contents, review-branch writes, installation repositories, and check-run updates.',
+          'services/dispatcher owns job queueing, runner registration, scope and capacity routing, the gRPC runner bridge, log/status ingestion, and finalization callbacks.',
+          'services/agent owns one run orchestration: YAML parsing, task dependency scheduling, LLM calls, MCP profile use, approval checkpointing, child pipelines, step container or pod execution, and final task state.',
         ],
         configRows: [
           {
@@ -1272,9 +1538,14 @@ const baseWikiSections: WikiSectionInput[] = [
           'Final output generation happens after execution status is known and records generation, contract, and render metrics.',
         ],
         details: [
-          'The dispatcher selects a runner by availability, allowed scope, routing policy, affinity, and load.',
-          'The agent executes dependency-ready tasks, so independent work can run concurrently where the schema allows it.',
-          'Logs and task status are streamed back through the dispatcher and stored by the API; Git checks and notifications follow the run lifecycle.',
+          'GitHub events enter git-bot /webhook, where HMAC validation happens before normalized events are forwarded to nopsai /v1/git/events and GitHub check-runs are queued.',
+          'Manual, UI, CLI, and API runs enter nopsai through POST /v1/run or POST /v1/run/{pipelineName...}; the request keeps the original caller as the authorization subject.',
+          'nopsai validates bearer tokens, maps routes to actions and resources, calls AAA, and then performs runtime use checks for pipeline, scope, step, secret, variable, runner, and knowledge access.',
+          'Config sync resolves files from pipelines, steps, triggers, scopes, knowledge, access, and setting/system. Each run snapshots the relevant YAML, secrets, variables, Git metadata, and approval state.',
+          'The dispatcher selects a runner by availability, allowed scope, routing policy, runtime pool, affinity, capacity, and load.',
+          'Docker runner creates a vol-<run_id> workspace and starts an agent container. Kubernetes runner creates an agent pod with namespace, service account, storage, affinity, and runtime pool settings.',
+          'The agent executes dependency-ready tasks, so independent work can run concurrently where the schema allows it. It runs scripts, asks approved LLM profiles for goals, uses approved MCP profiles, pauses for approvals, and starts child pipelines.',
+          'Logs, task status, final-output counts, and completion state stream through dispatcher back to nopsai; GitHub checks and notifications are updated after the run state changes.',
         ],
         configRows: [
           {
@@ -1901,6 +2172,55 @@ const baseWikiSections: WikiSectionInput[] = [
         caveats: ['Changing generated service secrets usually requires restarting affected services.'],
       },
       {
+        id: 'required-envs-service-urls',
+        title: 'Required Environment and Service URLs',
+        level: 'Admin',
+        docType: 'reference',
+        audiences: ['administrator', 'operator', 'security'],
+        audience: 'Platform administrators, operators, and security reviewers deploying or auditing NopsAI',
+        summary:
+          'Bootstrap secrets, internal service URLs, dispatcher transport, Docker runner networking, System Logs, and PDF rendering settings must be explicit before production traffic is allowed.',
+        keyFacts: [
+          'Docker uses environment variables and Helm maps the same bootstrap values to Secret keys such as database-url, master-key, jwt-signing-key, service-jwt-signing-key, and aaa-shared-internal-token.',
+          'Keep NOPSAI_MASTER_KEY, JWT_SIGNING_KEY, SERVICE_JWT_SIGNING_KEY, and AAA_SHARED_INTERNAL_TOKEN as separate high-entropy values.',
+          'Internal URLs such as AAA_API_URL, NOPSAI_API_URL, GIT_BOT_API_URL, and DISPATCHER_GRPC_ADDRESS should point to private service discovery names.',
+          'Production dispatcher clients should use tls or mtls with DISPATCHER_TLS_SECRET rather than disabled transport.',
+          'Docker System Logs should read through docker-socket-proxy, and PDF final outputs require a reachable Gotenberg renderer.',
+        ],
+        details: [
+          'Deployment owns bootstrap-only secrets. GitOps owns reviewable operating config after the platform can start, but it should not contain the root values needed to decrypt and authenticate the platform itself.',
+          'The API, AAA, dispatcher, git-bot, runners, and agents rely on consistent internal addressing. A browser-facing public URL is not a replacement for service-to-service callback URLs.',
+          'Helm deployments should create the bootstrap Secret before chart installation and should normally source it from External Secrets, Sealed Secrets, SOPS, or a cluster secret manager.',
+          'Compose deployments should generate values before starting the release compose file and should persist them through the host secret management process used for that environment.',
+        ],
+        configRows: requiredEnvironmentRows,
+        examples: [
+          {
+            title: 'Release Compose bootstrap environment',
+            language: 'bash',
+            code:
+              'export POSTGRES_PASSWORD="$(openssl rand -base64 32)"\nexport NOPSAI_MASTER_KEY="$(openssl rand -base64 32)"\nexport JWT_SIGNING_KEY="$(openssl rand -base64 48)"\nexport SERVICE_JWT_SIGNING_KEY="$(openssl rand -base64 48)"\nexport AAA_SHARED_INTERNAL_TOKEN="$(openssl rand -base64 32)"\nexport DATABASE_URL="postgres://nopsai:${POSTGRES_PASSWORD}@db:5432/nopsai?sslmode=disable"\nexport DISPATCHER_TLS_MODE=mtls\nexport DISPATCHER_TLS_SECRET="$(openssl rand -base64 32)"\n\ndocker compose -f deploy/docker-compose.release.yaml up -d',
+            complete: true,
+            testedIn: DEFAULT_VERIFIED_DATE,
+            rollback: 'docker compose -f deploy/docker-compose.release.yaml down',
+          },
+          {
+            title: 'Helm bootstrap Secret keys',
+            language: 'bash',
+            code:
+              'kubectl -n nopsai create secret generic nopsai-secrets \\\n  --from-literal=database-url="postgres://nopsai:<password>@postgres.example:5432/nopsai?sslmode=require" \\\n  --from-literal=master-key="$(openssl rand -base64 32)" \\\n  --from-literal=jwt-signing-key="$(openssl rand -base64 48)" \\\n  --from-literal=service-jwt-signing-key="$(openssl rand -base64 48)" \\\n  --from-literal=aaa-shared-internal-token="$(openssl rand -base64 32)"',
+            complete: true,
+            testedIn: DEFAULT_VERIFIED_DATE,
+          },
+        ],
+        relatedDocs: ['deploy/docker-compose.release.yaml', 'deploy/helm/nopsai/values.yaml', 'doc/enterprise-gates.md'],
+        runbooks: ['Verify bootstrap secret separation', 'Fix service callback URL mismatch', 'Rotate dispatcher TLS trust seed'],
+        caveats: [
+          'A valid route to the public UI or API does not prove internal dispatcher, git-bot, AAA, runner, or renderer callbacks are correct.',
+          'Do not copy development fallback secrets from local Compose into shared environments.',
+        ],
+      },
+      {
         id: 'docker-compose',
         title: 'Docker Compose',
         level: 'Start',
@@ -2024,6 +2344,7 @@ const baseWikiSections: WikiSectionInput[] = [
         details: [
           'The dispatcher checks runner availability, scope compatibility, routing, affinity, and load before assignment.',
           'For Kubernetes, runner manifests include namespace, ServiceAccount, namespace-scoped Role, RoleBinding, dispatcher auth Secret, runtime ConfigMap, and Deployment.',
+          'Runner defaults and hard routing can live in setting/system/runner.yaml. Dispatcher routing updates are exposed through internal runtime config and do not require a dispatcher container restart.',
         ],
         configRows: [
           {
@@ -2045,7 +2366,16 @@ const baseWikiSections: WikiSectionInput[] = [
             example: '10',
           },
         ],
-        examples: [],
+        examples: [
+          {
+            title: 'Runner defaults and dispatcher routing',
+            language: 'yaml',
+            code:
+              'dispatcher_grpc_address: dispatcher:9090\nruntime: docker\nrunner_id: runner-general\nrunner_scopes: dev,prod\nrunner_capacity: 2\n\nassistant:\n  default_llm_profile: standard\n  default_agent_profile: release-manager\n\ndispatcher_routing:\n  prod:\n    - runner-prod-1\n    - runner-prod-2\n  dev:\n    - runner-dev-1\n  "*":\n    - runner-general',
+            complete: true,
+            testedIn: DEFAULT_VERIFIED_DATE,
+          },
+        ],
         relatedDocs: ['doc/kubernetes-runner.md', 'doc/runtime-flows.md'],
         runbooks: ['Generate one-time runner installer', 'Restrict runner scopes', 'Retire stale runner registration'],
         caveats: ['Increasing every replica count does not by itself guarantee high availability or capacity.'],
@@ -2149,8 +2479,11 @@ const baseWikiSections: WikiSectionInput[] = [
         details: [
           'Canonical system files include credentials.yaml, github.yaml, runner.yaml, auth.yaml, mail.yaml, llm_profile.yaml, mcp.yaml, and agent-profiles.yaml.',
           'Config sync can import, update, prune Git-managed resources, detect drift, generate commit-ready changes, push to a review branch, and adopt database-created resources when matching files exist.',
+          'A system/global repository can own shared platform settings and delegate group-owned repositories. Runtime records stay in PostgreSQL; declarative intent lives in Git.',
+          'Write-enabled repositories push generated files to a review branch before merge. Sync should not mutate the protected sync branch directly.',
         ],
         configRows: [
+          ...gitOpsRepositoryRows,
           {
             key: 'setting/system/runner.yaml',
             area: 'GitOps',
@@ -2164,7 +2497,25 @@ const baseWikiSections: WikiSectionInput[] = [
             example: 'setting/system/credentials.yaml',
           },
         ],
-        examples: [],
+        examples: [
+          {
+            title: 'Global config repository binding',
+            language: 'bash',
+            code:
+              'curl -X PUT -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  -H "Content-Type: application/json" \\\n  -d \'{"repo_url":"https://github.com/acme/nopsai-config","branch":"main","base_path":"","enabled":true,"write_enabled":true,"write_branch":"nopsai/ui-changes"}\' \\\n  http://localhost:8080/v1/system/config-repo\n\ncurl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  http://localhost:8080/v1/system/config-repos/sync\n\ncurl -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  http://localhost:8080/v1/system/config-repo/drift',
+            complete: true,
+            testedIn: DEFAULT_VERIFIED_DATE,
+            permission: 'config_repo.manage',
+          },
+          {
+            title: 'System setting file map',
+            language: 'text',
+            code:
+              'setting/system/credentials.yaml\nsetting/system/github.yaml\nsetting/system/runner.yaml\nsetting/system/auth.yaml\nsetting/system/mail.yaml\nsetting/system/llm_profile.yaml\nsetting/system/mcp.yaml\nsetting/system/agent-profiles.yaml',
+            complete: true,
+            testedIn: DEFAULT_VERIFIED_DATE,
+          },
+        ],
         relatedDocs: ['doc/mcp-pipeline-integration.md', 'doc/credential-management.md', 'doc/git-webhook-sources.md'],
         runbooks: ['Resolve GitOps drift', 'Promote a UI override back to Git', 'Review delegated team repository ownership'],
         caveats: ['Database-only edits to GitOps-managed resources may be overwritten or recreated by the next sync.'],
@@ -2378,8 +2729,48 @@ const baseWikiSections: WikiSectionInput[] = [
           'Branch, tag, repository, and changed-file matching uses simple glob semantics. Single star matches one path segment, double star can span directories, and question mark matches one non-slash character.',
           'Path filters are applied only when the provider supplies changed-file data. If the changed-file list is unavailable, NopsAI treats the rule as eligible so CI is not silently skipped.',
         ],
-        configRows: triggerRows,
+        configRows: [
+          ...triggerRows,
+          {
+            key: 'setting/system/github.yaml',
+            area: 'GitHub App',
+            description: 'System GitHub App settings path for git-bot URL, app ID, installation ID, and credential references.',
+            example: 'setting/system/github.yaml',
+            type: 'path',
+            required: 'conditional',
+            scope: 'system config repository',
+          },
+          {
+            key: 'github_private_key_credential_ref',
+            area: 'GitHub App',
+            description: 'Credential reference for the GitHub App private key.',
+            example: 'credential://system/github/app-private-key',
+            type: 'credential reference',
+            required: true,
+            scope: 'system',
+            security: 'Store the private key as a credential, not plaintext GitOps YAML.',
+          },
+          {
+            key: 'github_webhook_credential_ref',
+            area: 'GitHub App',
+            description: 'Credential reference for the webhook HMAC secret that git-bot uses to verify X-Hub-Signature-256.',
+            example: 'credential://system/github/webhook-secret',
+            type: 'credential reference',
+            required: true,
+            scope: 'system',
+            security: 'Store the webhook secret as a credential, not plaintext GitOps YAML.',
+          },
+        ],
         examples: [
+          {
+            title: 'GitHub App settings',
+            language: 'yaml',
+            code:
+              'git_bot_api_url: http://git-bot:8081\ngithub_app_id: "123456"\ngithub_installation_id: "987654"\ngithub_private_key_credential_ref: credential://system/github/app-private-key\ngithub_webhook_credential_ref: credential://system/github/webhook-secret',
+            complete: true,
+            testedIn: DEFAULT_VERIFIED_DATE,
+            permission: 'config_repo.manage and credential.use for referenced credentials',
+          },
           {
             title: 'Repository trigger',
             language: 'yaml',
@@ -2630,6 +3021,8 @@ const baseWikiSections: WikiSectionInput[] = [
         details: [
           'The Helm API Service includes Prometheus scrape annotations by default.',
           'Use monitoring data to size runners and resource requests because the repository does not publish validated production sizing tiers.',
+          'Monitoring aggregate endpoints filter candidate run IDs through AAA before aggregation, so charts and summaries stay aligned with the caller permissions.',
+          'AI usage records include run, step, task, provider, model, profile, feature, and assistant chat dimensions where the runtime records them.',
         ],
         configRows: [
           {
@@ -2639,7 +3032,17 @@ const baseWikiSections: WikiSectionInput[] = [
             example: 'true',
           },
         ],
-        examples: [],
+        examples: [
+          {
+            title: 'Monitoring and metrics checks',
+            language: 'bash',
+            code:
+              'nopsai api request GET /v1/monitoring/summary\nnopsai api request GET "/v1/monitoring/runs/analytics?status=failure"\nnopsai api request GET "/v1/monitoring/ai-usage?pipelineName=release"\nnopsai api request GET /v1/monitoring/recommendations\ncurl http://localhost:8080/metrics',
+            complete: true,
+            testedIn: DEFAULT_VERIFIED_DATE,
+            permission: 'pipeline_run.list plus monitoring route access',
+          },
+        ],
         relatedDocs: ['doc/system-logs.md', 'doc/enterprise-gates.md'],
         runbooks: ['Build runner capacity dashboard', 'Review AI usage by profile', 'Alert on approval wait time'],
         caveats: ['Do not infer production throughput from default Helm resource blocks; they are intentionally empty.'],
@@ -2660,6 +3063,7 @@ const baseWikiSections: WikiSectionInput[] = [
         details: [
           'System Logs apply line and stream limits, buffer recent sanitized entries in memory, and do not copy platform logs into pipeline_run_logs.',
           'Build-only base, agent, and pipeline images are not exposed as System Logs sources.',
+          'Source-level system_log.read permissions control who can list or stream each platform source.',
         ],
         configRows: [
           {
@@ -2675,7 +3079,17 @@ const baseWikiSections: WikiSectionInput[] = [
             example: 'true',
           },
         ],
-        examples: [],
+        examples: [
+          {
+            title: 'Stream dispatcher System Logs through the CLI',
+            language: 'bash',
+            code:
+              'nopsai --timeout 0 api call GET \\\n  "/v1/system/logs/sources/{sourceID}/stream" \\\n  --path sourceID=dispatcher \\\n  --accept text/event-stream',
+            complete: true,
+            testedIn: DEFAULT_VERIFIED_DATE,
+            permission: 'system_log.read for dispatcher',
+          },
+        ],
         relatedDocs: ['doc/system-logs.md'],
         runbooks: ['Inspect dispatcher logs', 'Audit system_log.read grants', 'Tune System Logs line limits'],
         caveats: ['System Logs are live operational evidence, not durable pipeline history.'],
@@ -2758,6 +3172,8 @@ const baseWikiSections: WikiSectionInput[] = [
           'Do not combine services from different manifests or deploy floating tags.',
           'The CLI can verify release manifests and chart digests, render plans, and perform Helm deployments.',
           'Release locks are GitOps-readable evidence for deployed version state.',
+          'GET /version is public and returns build, API, CLI, runner, capability, and release-manifest identity without deployment secrets.',
+          'Breaking API, CLI, runner protocol, or deployment changes require a new major compatibility line.',
         ],
         details: [
           'Enterprise gates test release compatibility, manifest strictness, digest pinning, chart verification, Helm rendering, /version, and build metadata.',
@@ -2777,7 +3193,16 @@ const baseWikiSections: WikiSectionInput[] = [
             example: '494d57c',
           },
         ],
-        examples: [],
+        examples: [
+          {
+            title: 'Version compatibility payload',
+            language: 'json',
+            code:
+              '{\n  "productVersion": "2.7.0",\n  "apiVersion": "v1",\n  "cliCompatibility": ">=2.0.0 <3.0.0",\n  "runnerCompatibility": ">=2.0.0 <3.0.0",\n  "capabilities": [\n    "api.v1",\n    "cli.api-catalog.v1",\n    "config-sync.v1",\n    "mcp.v1",\n    "monitoring.v1",\n    "platform.helm",\n    "runner.docker",\n    "runner.kubernetes"\n  ]\n}',
+            complete: true,
+            testedIn: DEFAULT_VERIFIED_DATE,
+          },
+        ],
         relatedDocs: ['doc/release-bundles.md', 'doc/cli.md', 'doc/enterprise-gates.md'],
         runbooks: ['Verify release manifest before deploy', 'Render Helm deployment plan', 'Preserve deployment release lock'],
         caveats: ['Platform services should not be selected independently in production.'],
@@ -2801,12 +3226,32 @@ const baseWikiSections: WikiSectionInput[] = [
           'Protected requests go through bearer authentication, route authorization, resource checks, and audit regardless of UI, CLI, or API origin.',
           'API categories include auth, setup, teams, pipelines, steps, runs, schedules, triggers, Git webhook sources, external triggers, scopes, credentials, knowledge, LLM, Agent, MCP, notifications, monitoring, System Logs, dispatcher, access, users, service accounts, identity providers, audit, backups, cleanup, and hosted MCP.',
           'Binary downloads and SSE responses are preserved by CLI generic API commands.',
+          'Except for public setup and identity discovery endpoints, API requests require bearer authentication.',
+          'Personal tokens and service-account tokens inherit the same authorization checks as browser sessions.',
         ],
         details: [
           'Route registration parity is tested against the generated CLI API catalog so new server APIs are discoverable through the CLI.',
+          'Stored pipelines can be run by name through POST /v1/run/{pipelineName...}. Details, status, logs, approvals, reruns, cancellation, deletion, and output downloads remain separate authorized routes.',
         ],
         configRows: [],
-        examples: [],
+        examples: [
+          {
+            title: 'Authenticate and call',
+            language: 'bash',
+            code:
+              'curl -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  http://localhost:8080/v1/runs\n\ncurl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  http://localhost:8080/v1/system/config-repos/sync',
+            complete: true,
+            testedIn: DEFAULT_VERIFIED_DATE,
+          },
+          {
+            title: 'Run lifecycle routes',
+            language: 'bash',
+            code:
+              'curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  http://localhost:8080/v1/run/team-1/services/api/deploy\n\ncurl -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  http://localhost:8080/v1/runs/<run-id>/logs\n\ncurl -OJ -H "Authorization: Bearer $NOPSAI_TOKEN" \\\n  http://localhost:8080/v1/runs/<run-id>/outputs/<output-id>/download',
+            complete: true,
+            testedIn: DEFAULT_VERIFIED_DATE,
+          },
+        ],
         relatedDocs: ['doc/api.md', 'doc/cli.md'],
         runbooks: ['Validate API token', 'Describe a route from the CLI', 'Replay a safe read-only request'],
         caveats: ['Use route-level and resource-level authorization together; route access alone is not enough for runtime resource use.'],
@@ -2823,9 +3268,13 @@ const baseWikiSections: WikiSectionInput[] = [
           'Local config and credential files are atomically written with 0600 permissions inside a 0700 directory.',
           'The CLI rejects credential files with broader permissions.',
           'platform doctor checks local tools, API readiness, setup preflight, metrics, token acceptance, dispatcher monitoring, and runner count.',
+          'The generated route catalog grants discovery only. api call and api request still traverse bearer authentication, route authorization, resource filtering, and compatibility checks.',
+          'Released CLIs check GET /version before mutating API requests. Development builds keep a deliberate bypass until release metadata is injected.',
         ],
         details: [
           'Optional missing local tools and missing dispatcher-read permission are warnings. API readiness, connectivity, malformed responses, metrics failures, and rejected tokens are errors.',
+          'The CLI preserves binary downloads, streaming responses, YAML, JSON, and raw response bytes without implementing a separate API behavior layer.',
+          'Shell completion is generated explicitly and does not silently modify shell startup files.',
         ],
         configRows: [
           {
@@ -2843,10 +3292,28 @@ const baseWikiSections: WikiSectionInput[] = [
         ],
         examples: [
           {
+            title: 'Context and login',
+            language: 'bash',
+            code:
+              'nopsai platform doctor\nnopsai context add prod --api https://api.nopsai.example\nnopsai context use prod\nNOPSAI_TOKEN=nopat_<secret> nopsai login --token\nnopsai context list',
+            complete: true,
+            testedIn: DEFAULT_VERIFIED_DATE,
+          },
+          {
             title: 'Generic API access',
             language: 'bash',
             code:
-              'nopsai api routes --domain monitoring --method GET\nnopsai api describe GET "/v1/pipelines/{pipelineName...}"\nnopsai api request GET /v1/monitoring/summary',
+              'nopsai api routes --domain monitoring --method GET\nnopsai api routes --audience public --output json\nnopsai api describe GET "/v1/pipelines/{pipelineName...}"\nnopsai api call GET "/v1/runs/{runID}" --path runID=<run-id>\nnopsai api request GET /v1/monitoring/summary',
+            complete: true,
+            testedIn: DEFAULT_VERIFIED_DATE,
+          },
+          {
+            title: 'Completion and release operations',
+            language: 'bash',
+            code:
+              'nopsai completion zsh --output-dir ./completion\n\nnopsai platform release kubernetes --version 2.7.0 \\\n  --manifest release-manifest.json \\\n  --values deploy/production.yaml',
+            complete: false,
+            testedIn: DEFAULT_VERIFIED_DATE,
           },
         ],
         relatedDocs: ['doc/cli.md', 'doc/release-bundles.md'],
@@ -2867,9 +3334,20 @@ const baseWikiSections: WikiSectionInput[] = [
         ],
         details: [
           'Confirmed run operations and mutation tools require explicit confirmation, preserving enterprise change-control boundaries.',
+          'Hosted tools and resources are listed and called as the current authenticated subject. GitOps write tools return proposals instead of silently applying config.',
         ],
         configRows: [],
-        examples: [],
+        examples: [
+          {
+            title: 'List hosted MCP tools through the CLI',
+            language: 'bash',
+            code:
+              'printf \'{"jsonrpc":"2.0","id":1,"method":"tools/list"}\' | \\\n  nopsai api request POST /v1/mcp --data -\n\nnopsai api describe POST /v1/mcp',
+            complete: true,
+            testedIn: DEFAULT_VERIFIED_DATE,
+            permission: 'Bearer subject access determines visible hosted MCP tools',
+          },
+        ],
         relatedDocs: ['doc/mcp-feature-coverage.md', 'doc/mcp-pipeline-integration.md'],
         runbooks: ['Review hosted MCP tool allow-list', 'Confirm a mutation action', 'Audit assistant-triggered recommendations'],
         caveats: ['Hosted MCP exposes only what the authenticated subject may see or do.'],

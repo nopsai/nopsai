@@ -8,14 +8,15 @@ import {
 } from './quality.js';
 import { searchDocumentation } from './search.js';
 
-test('uses product documentation naming and repository-backed source links', () => {
+test('uses product documentation naming and internal implementation evidence', () => {
   assert.equal(documentationMetadata.title, 'NopsAI Documentation');
   assert.ok(documentationSections.length > 0);
   for (const section of documentationSections) {
     for (const article of section.articles) {
       assert.equal(article.metadata.sourceCommit, 'main');
       for (const source of article.sourceLinks) {
-        assert.ok(source.sourceUrl?.startsWith('https://github.com/hosein-yousefii/pre-nopsai/blob/main/'));
+        assert.equal(source.sourceUrl, undefined);
+        assert.ok(source.repositoryPath.length > 0);
       }
     }
   }
