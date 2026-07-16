@@ -1,18 +1,26 @@
+import { useLocation } from 'react-router-dom';
 import type { DocumentationArticle, DocumentationField } from './quality';
 import { CompactList, MetadataItem, Notice, SectionFrame } from './DocumentationPrimitives';
 
 export function FieldReference({ article }: { article: DocumentationArticle }) {
+  const location = useLocation();
   if (!article.configRows.length) return null;
   return (
     <SectionFrame id="configuration" title="Field reference">
       <div className="space-y-2">
-        {article.configRows.map(field => <FieldCard key={`${article.id}-${field.key}`} field={field} />)}
+        {article.configRows.map(field => (
+          <FieldCard
+            key={`${article.id}-${field.key}`}
+            field={field}
+            targeted={location.hash === `#${field.anchor}`}
+          />
+        ))}
       </div>
     </SectionFrame>
   );
 }
 
-function FieldCard({ field }: { field: DocumentationField }) {
+function FieldCard({ field, targeted }: { field: DocumentationField; targeted: boolean }) {
   const constraints = [
     ...(field.allowedValues?.length ? [`Allowed values: ${field.allowedValues.join(', ')}`] : []),
     ...(field.constraints || []),
@@ -23,7 +31,7 @@ function FieldCard({ field }: { field: DocumentationField }) {
   ];
 
   return (
-    <details id={field.anchor} className="scroll-mt-8 rounded border border-[var(--border-primary)] px-4 py-3">
+    <details open={targeted} id={field.anchor} className="scroll-mt-8 rounded border border-[var(--border-primary)] px-4 py-3">
       <summary className="cursor-pointer list-none marker:hidden">
         <span className="flex flex-wrap items-center justify-between gap-3">
           <code className="text-sm font-semibold text-[var(--text-primary)]">{field.path || field.key}</code>
