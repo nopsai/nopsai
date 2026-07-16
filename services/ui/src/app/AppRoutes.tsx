@@ -93,7 +93,7 @@ export function AppRoutes({
             </PermissionGuard>
           }
         />
-        <Route path="/docs" element={<ProductDocsPage />} />
+        <Route path="/docs/*" element={<ProductDocsPage />} />
         <Route
           path="/pipelines/*"
           element={
