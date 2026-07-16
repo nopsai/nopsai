@@ -39,6 +39,57 @@ func TestNormalizePipelineFinalOutputContentValidatesDocumentSpec(t *testing.T) 
 	}
 }
 
+func TestNormalizePipelineFinalOutputContentValidatesDashboardSpec(t *testing.T) {
+	content, err := normalizePipelineFinalOutputContent("dashboard", `<final_output>{"version":"1","title":"Ops Dashboard","blocks":[{"type":"status","label":"Health","status":"success","value":"Green"},{"type":"table","columns":[{"key":"name","label":"Name"}],"rows":[{"name":"api"}]}]}</final_output>`)
+	if err != nil {
+		t.Fatalf("normalizePipelineFinalOutputContent() error = %v", err)
+	}
+	if !strings.Contains(content, `"title": "Ops Dashboard"`) || strings.Contains(content, "<table") {
+		t.Fatalf("normalized DashboardSpec = %s", content)
+	}
+
+	if _, err := normalizePipelineFinalOutputContent("dashboard", `<final_output>{"version":"1","title":"Bad","blocks":[{"type":"link","href":"javascript:alert(1)","text":"Bad"}]}</final_output>`); err == nil {
+		t.Fatal("expected unsafe dashboard link to fail")
+	}
+}
+
+func TestNormalizePipelineFinalOutputContentValidatesDashboardChartSpec(t *testing.T) {
+	spec := dashboardSeriesSpec("Ops Dashboard", "Latency", []models.DashboardChartSeries{
+		{
+			Key:         "api.p95",
+			Label:       "API p95",
+			Team:        "platform",
+			Environment: "prod",
+			Color:       "#2563eb",
+			Points: []models.DashboardSeriesPoint{
+				dashboardPoint("2026-07-15T10:00:00Z", "", 120),
+				dashboardPoint("2026-07-15T10:05:00Z", "", 130),
+			},
+		},
+	})
+	raw, err := marshalFinalOutputSpec(spec)
+	if err != nil {
+		t.Fatalf("marshal spec: %v", err)
+	}
+	content, err := normalizePipelineFinalOutputContent("dashboard", "<final_output>"+raw+"</final_output>")
+	if err != nil {
+		t.Fatalf("normalizePipelineFinalOutputContent() chart error = %v", err)
+	}
+	if !strings.Contains(content, `"type": "series"`) || !strings.Contains(content, `"aggregation_interval": "5m"`) {
+		t.Fatalf("normalized chart DashboardSpec = %s", content)
+	}
+
+	badScript := strings.Replace(raw, "API p95", "<script>alert(1)</script>", 1)
+	if _, err := normalizePipelineFinalOutputContent("dashboard", "<final_output>"+badScript+"</final_output>"); err == nil {
+		t.Fatal("expected executable chart content to fail")
+	}
+
+	badPieSeries := strings.Replace(raw, `"type": "line"`, `"type": "pie"`, 1)
+	if _, err := normalizePipelineFinalOutputContent("dashboard", "<final_output>"+badPieSeries+"</final_output>"); err == nil {
+		t.Fatal("expected pie series block to fail")
+	}
+}
+
 func TestResolvePipelineFinalOutputProfileNameUsesItemOutputPipelineDefault(t *testing.T) {
 	pipeline := models.Pipeline{
 		LLMProfile: "pipeline-profile",

@@ -128,6 +128,71 @@ func (a *App) buildPrometheusMetrics(ctx context.Context) (string, error) {
 	if err := a.appendPipelineFinalOutputGenerationTotals(ctx, &out, "nopsai_pipeline_final_output_render_failures_total", "render_failures"); err != nil {
 		return "", err
 	}
+	writeMetricHelp(&out, "nopsai_dashboard_publications", "Dashboard publications by mode, status, and stale state.")
+	writeMetricType(&out, "nopsai_dashboard_publications", "gauge")
+	if err := a.appendDashboardPublicationMetrics(ctx, &out); err != nil {
+		return "", err
+	}
+	writeMetricHelp(&out, "nopsai_dashboard_publication_events_total", "Dashboard publication events by type.")
+	writeMetricType(&out, "nopsai_dashboard_publication_events_total", "counter")
+	if err := a.appendDashboardPublicationEventMetrics(ctx, &out); err != nil {
+		return "", err
+	}
+	writeMetricHelp(&out, "nopsai_dashboard_publications_total", "Dashboard publications by mode and status.")
+	writeMetricType(&out, "nopsai_dashboard_publications_total", "counter")
+	if err := a.appendDashboardPublicationTotalMetrics(ctx, &out); err != nil {
+		return "", err
+	}
+	writeMetricHelp(&out, "nopsai_dashboard_publication_failures_total", "Dashboard publication failure events by type.")
+	writeMetricType(&out, "nopsai_dashboard_publication_failures_total", "counter")
+	if err := a.appendDashboardPublicationFailureMetrics(ctx, &out); err != nil {
+		return "", err
+	}
+	writeMetricHelp(&out, "nopsai_dashboard_refreshes", "Dashboard refresh records by status, mode, and scope type.")
+	writeMetricType(&out, "nopsai_dashboard_refreshes", "gauge")
+	if err := a.appendDashboardRefreshMetrics(ctx, &out); err != nil {
+		return "", err
+	}
+	writeMetricHelp(&out, "nopsai_dashboard_refreshes_total", "Dashboard refresh records by trigger, mode, scope type, and status.")
+	writeMetricType(&out, "nopsai_dashboard_refreshes_total", "counter")
+	if err := a.appendDashboardRefreshTotalMetrics(ctx, &out); err != nil {
+		return "", err
+	}
+	writeMetricHelp(&out, "nopsai_dashboard_refresh_failures_total", "Failed dashboard refresh records by trigger, mode, and status.")
+	writeMetricType(&out, "nopsai_dashboard_refresh_failures_total", "counter")
+	if err := a.appendDashboardRefreshFailureMetrics(ctx, &out); err != nil {
+		return "", err
+	}
+	writeMetricHelp(&out, "nopsai_dashboard_refresh_duration_seconds", "Completed dashboard refresh duration in seconds by trigger, mode, and status.")
+	writeMetricType(&out, "nopsai_dashboard_refresh_duration_seconds", "gauge")
+	if err := a.appendDashboardRefreshDurationMetrics(ctx, &out); err != nil {
+		return "", err
+	}
+	writeMetricHelp(&out, "nopsai_dashboard_refresh_sources", "Dashboard refresh source records by status and required flag.")
+	writeMetricType(&out, "nopsai_dashboard_refresh_sources", "gauge")
+	if err := a.appendDashboardRefreshSourceMetrics(ctx, &out); err != nil {
+		return "", err
+	}
+	writeMetricHelp(&out, "nopsai_dashboard_refresh_sources_total", "Dashboard refresh source records by status and required flag.")
+	writeMetricType(&out, "nopsai_dashboard_refresh_sources_total", "counter")
+	if err := a.appendDashboardRefreshSourceTotalMetrics(ctx, &out); err != nil {
+		return "", err
+	}
+	writeMetricHelp(&out, "nopsai_dashboard_stale_publications_total", "Stale current dashboard publications.")
+	writeMetricType(&out, "nopsai_dashboard_stale_publications_total", "gauge")
+	if err := a.appendDashboardStalePublicationMetrics(ctx, &out); err != nil {
+		return "", err
+	}
+	writeMetricHelp(&out, "nopsai_dashboard_render_failures_total", "Dashboard final output render failures.")
+	writeMetricType(&out, "nopsai_dashboard_render_failures_total", "counter")
+	if err := a.appendDashboardRenderFailureMetrics(ctx, &out); err != nil {
+		return "", err
+	}
+	writeMetricHelp(&out, "nopsai_dashboard_series_points_total", "Current dashboard chart series points by chart type.")
+	writeMetricType(&out, "nopsai_dashboard_series_points_total", "gauge")
+	if err := a.appendDashboardSeriesPointMetrics(ctx, &out); err != nil {
+		return "", err
+	}
 	writeMetricHelp(&out, "nopsai_notifications_sent_total", "Sent notification deliveries by channel and event type.")
 	writeMetricType(&out, "nopsai_notifications_sent_total", "counter")
 	if err := a.appendNotificationDeliveryStatusTotals(ctx, &out, "nopsai_notifications_sent_total", "sent"); err != nil {
@@ -715,6 +780,340 @@ func pipelineFinalOutputGenerationValueExpression(valueKind string) string {
 	default:
 		return "pro.generation_attempts"
 	}
+}
+
+func (a *App) appendDashboardPublicationMetrics(ctx context.Context, out *strings.Builder) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT mode,
+		       status,
+		       CASE WHEN expires_at IS NOT NULL AND expires_at <= NOW() THEN 'true' ELSE 'false' END AS stale,
+		       COUNT(*)::float8
+		FROM dashboard_publications
+		GROUP BY 1,2,3
+		ORDER BY 1,2,3
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var mode, status, stale string
+		var count float64
+		if err := rows.Scan(&mode, &status, &stale, &count); err != nil {
+			return err
+		}
+		writeMetricLine(out, "nopsai_dashboard_publications", map[string]string{
+			"mode":   normalizeMetricLabel(mode),
+			"status": normalizeMetricLabel(status),
+			"stale":  normalizeMetricLabel(stale),
+		}, count)
+	}
+	return rows.Err()
+}
+
+func (a *App) appendDashboardPublicationEventMetrics(ctx context.Context, out *strings.Builder) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT event_type, COUNT(*)::float8
+		FROM dashboard_publication_events
+		GROUP BY 1
+		ORDER BY 1
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var eventType string
+		var count float64
+		if err := rows.Scan(&eventType, &count); err != nil {
+			return err
+		}
+		writeMetricLine(out, "nopsai_dashboard_publication_events_total", map[string]string{
+			"event_type": normalizeMetricLabel(eventType),
+		}, count)
+	}
+	return rows.Err()
+}
+
+func (a *App) appendDashboardPublicationTotalMetrics(ctx context.Context, out *strings.Builder) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT mode, status, COUNT(*)::float8
+		FROM dashboard_publications
+		GROUP BY 1,2
+		ORDER BY 1,2
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var mode, status string
+		var count float64
+		if err := rows.Scan(&mode, &status, &count); err != nil {
+			return err
+		}
+		writeMetricLine(out, "nopsai_dashboard_publications_total", map[string]string{
+			"mode":   normalizeMetricLabel(mode),
+			"status": normalizeMetricLabel(status),
+		}, count)
+	}
+	return rows.Err()
+}
+
+func (a *App) appendDashboardPublicationFailureMetrics(ctx context.Context, out *strings.Builder) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT event_type, COUNT(*)::float8
+		FROM dashboard_publication_events
+		WHERE event_type IN ('failed', 'rejected', 'render_failed')
+		GROUP BY 1
+		ORDER BY 1
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var eventType string
+		var count float64
+		if err := rows.Scan(&eventType, &count); err != nil {
+			return err
+		}
+		writeMetricLine(out, "nopsai_dashboard_publication_failures_total", map[string]string{
+			"event_type": normalizeMetricLabel(eventType),
+		}, count)
+	}
+	return rows.Err()
+}
+
+func (a *App) appendDashboardRefreshMetrics(ctx context.Context, out *strings.Builder) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT status, mode, scope_type, COUNT(*)::float8
+		FROM dashboard_refreshes
+		GROUP BY 1,2,3
+		ORDER BY 1,2,3
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var status, mode, scopeType string
+		var count float64
+		if err := rows.Scan(&status, &mode, &scopeType, &count); err != nil {
+			return err
+		}
+		writeMetricLine(out, "nopsai_dashboard_refreshes", map[string]string{
+			"status":     normalizeMetricLabel(status),
+			"mode":       normalizeMetricLabel(mode),
+			"scope_type": normalizeMetricLabel(scopeType),
+		}, count)
+	}
+	return rows.Err()
+}
+
+func (a *App) appendDashboardRefreshTotalMetrics(ctx context.Context, out *strings.Builder) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT trigger_type, status, mode, scope_type, COUNT(*)::float8
+		FROM dashboard_refreshes
+		GROUP BY 1,2,3,4
+		ORDER BY 1,2,3,4
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var triggerType, status, mode, scopeType string
+		var count float64
+		if err := rows.Scan(&triggerType, &status, &mode, &scopeType, &count); err != nil {
+			return err
+		}
+		writeMetricLine(out, "nopsai_dashboard_refreshes_total", map[string]string{
+			"trigger_type": normalizeMetricLabel(triggerType),
+			"status":       normalizeMetricLabel(status),
+			"mode":         normalizeMetricLabel(mode),
+			"scope_type":   normalizeMetricLabel(scopeType),
+		}, count)
+	}
+	return rows.Err()
+}
+
+func (a *App) appendDashboardRefreshFailureMetrics(ctx context.Context, out *strings.Builder) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT trigger_type, status, mode, COUNT(*)::float8
+		FROM dashboard_refreshes
+		WHERE status IN ('failed', 'partial', 'cancelled', 'timed_out')
+		GROUP BY 1,2,3
+		ORDER BY 1,2,3
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var triggerType, status, mode string
+		var count float64
+		if err := rows.Scan(&triggerType, &status, &mode, &count); err != nil {
+			return err
+		}
+		writeMetricLine(out, "nopsai_dashboard_refresh_failures_total", map[string]string{
+			"trigger_type": normalizeMetricLabel(triggerType),
+			"status":       normalizeMetricLabel(status),
+			"mode":         normalizeMetricLabel(mode),
+		}, count)
+	}
+	return rows.Err()
+}
+
+func (a *App) appendDashboardRefreshDurationMetrics(ctx context.Context, out *strings.Builder) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT trigger_type, status, mode,
+		       EXTRACT(EPOCH FROM (finished_at - started_at))::float8
+		FROM dashboard_refreshes
+		WHERE finished_at IS NOT NULL
+		  AND started_at IS NOT NULL
+		ORDER BY finished_at DESC
+		LIMIT 500
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var triggerType, status, mode string
+		var seconds float64
+		if err := rows.Scan(&triggerType, &status, &mode, &seconds); err != nil {
+			return err
+		}
+		writeMetricLine(out, "nopsai_dashboard_refresh_duration_seconds", map[string]string{
+			"trigger_type": normalizeMetricLabel(triggerType),
+			"status":       normalizeMetricLabel(status),
+			"mode":         normalizeMetricLabel(mode),
+		}, seconds)
+	}
+	return rows.Err()
+}
+
+func (a *App) appendDashboardRefreshSourceMetrics(ctx context.Context, out *strings.Builder) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT status, CASE WHEN required THEN 'true' ELSE 'false' END AS required, COUNT(*)::float8
+		FROM dashboard_refresh_pipeline_runs
+		GROUP BY 1,2
+		ORDER BY 1,2
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var status, required string
+		var count float64
+		if err := rows.Scan(&status, &required, &count); err != nil {
+			return err
+		}
+		writeMetricLine(out, "nopsai_dashboard_refresh_sources", map[string]string{
+			"status":   normalizeMetricLabel(status),
+			"required": normalizeMetricLabel(required),
+		}, count)
+	}
+	return rows.Err()
+}
+
+func (a *App) appendDashboardRefreshSourceTotalMetrics(ctx context.Context, out *strings.Builder) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT status, CASE WHEN required THEN 'true' ELSE 'false' END AS required, COUNT(*)::float8
+		FROM dashboard_refresh_pipeline_runs
+		GROUP BY 1,2
+		ORDER BY 1,2
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var status, required string
+		var count float64
+		if err := rows.Scan(&status, &required, &count); err != nil {
+			return err
+		}
+		writeMetricLine(out, "nopsai_dashboard_refresh_sources_total", map[string]string{
+			"status":   normalizeMetricLabel(status),
+			"required": normalizeMetricLabel(required),
+		}, count)
+	}
+	return rows.Err()
+}
+
+func (a *App) appendDashboardStalePublicationMetrics(ctx context.Context, out *strings.Builder) error {
+	var count float64
+	if err := a.db.QueryRow(ctx, `
+		SELECT COUNT(*)::float8
+		FROM dashboard_publications
+		WHERE status = 'current'
+		  AND expires_at IS NOT NULL
+		  AND expires_at <= NOW()
+	`).Scan(&count); err != nil {
+		return err
+	}
+	writeMetricLine(out, "nopsai_dashboard_stale_publications_total", nil, count)
+	return nil
+}
+
+func (a *App) appendDashboardRenderFailureMetrics(ctx context.Context, out *strings.Builder) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT COALESCE(pr.pipeline_path, ''), COALESCE(pr.pipeline_name, ''),
+		       COALESCE(SUM(pro.render_failures), 0)::float8
+		FROM pipeline_run_outputs pro
+		JOIN pipeline_runs pr ON pr.run_id = pro.run_id
+		WHERE COALESCE(pro.type, '') = 'dashboard'
+		GROUP BY 1,2
+		HAVING COALESCE(SUM(pro.render_failures), 0) > 0
+		ORDER BY 1,2
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var path, pipeline string
+		var count float64
+		if err := rows.Scan(&path, &pipeline, &count); err != nil {
+			return err
+		}
+		writeMetricLine(out, "nopsai_dashboard_render_failures_total", map[string]string{
+			"path":     normalizeMetricLabel(path),
+			"pipeline": normalizeMetricLabel(pipeline),
+		}, count)
+	}
+	return rows.Err()
+}
+
+func (a *App) appendDashboardSeriesPointMetrics(ctx context.Context, out *strings.Builder) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT COALESCE(block.value->'chart'->>'type', 'unknown') AS chart_type,
+		       COALESCE(SUM(jsonb_array_length(COALESCE(series.value->'points', '[]'::jsonb))), 0)::float8
+		FROM dashboard_publications dp
+		CROSS JOIN LATERAL jsonb_array_elements(COALESCE(dp.content->'blocks', '[]'::jsonb)) AS block(value)
+		CROSS JOIN LATERAL jsonb_array_elements(COALESCE(block.value->'chart'->'series', '[]'::jsonb)) AS series(value)
+		WHERE dp.status = 'current'
+		GROUP BY 1
+		ORDER BY 1
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var chartType string
+		var count float64
+		if err := rows.Scan(&chartType, &count); err != nil {
+			return err
+		}
+		writeMetricLine(out, "nopsai_dashboard_series_points_total", map[string]string{
+			"chart_type": normalizeMetricLabel(chartType),
+		}, count)
+	}
+	return rows.Err()
 }
 
 func (a *App) appendNotificationDeliveryStatusTotals(ctx context.Context, out *strings.Builder, metricName, status string) error {

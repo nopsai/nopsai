@@ -58,6 +58,12 @@ func allHostedMCPTools() []hostedMCPTool {
 		toolDef("nopsai.list_schedules", "List pipeline schedules.", "pipeline_schedule.list", "pipeline_schedule", "*", objectSchema(map[string]any{"limit": numberSchema()})),
 		toolDef("nopsai.get_schedule", "Read a schedule definition.", "pipeline_schedule.read", "pipeline_schedule", "*", objectSchema(map[string]any{"schedule_id": stringSchema()})),
 		toolDef("nopsai.propose_schedule_change", "Draft a schedule change without applying it.", "pipeline_schedule.update", "pipeline_schedule", "*", objectSchema(map[string]any{"schedule_id": stringSchema(), "change": stringSchema()})),
+		toolDef("nopsai.list_dashboards", "List team-owned dashboards visible to the current user.", "dashboard.list", "dashboard", "*", objectSchema(map[string]any{"team": stringSchema(), "team_path": stringSchema(), "query": stringSchema(), "q": stringSchema(), "limit": numberSchema()})),
+		toolDef("nopsai.get_dashboard", "Read a dashboard with sections, current publications, source bindings, and provenance.", "dashboard.read", "dashboard", "*", objectSchema(map[string]any{"dashboard_id": stringSchema(), "id": stringSchema(), "ref": stringSchema(), "include_history": booleanSchema()})),
+		toolDef("nopsai.list_dashboard_refreshes", "List dashboard refresh records and per-source progress.", "dashboard.read", "dashboard", "*", objectSchema(map[string]any{"dashboard_id": stringSchema(), "id": stringSchema(), "ref": stringSchema(), "limit": numberSchema()})),
+		toolDef("nopsai.list_dashboard_refresh_schedules", "List scheduled dashboard refresh definitions.", "dashboard.read", "dashboard", "*", objectSchema(map[string]any{"dashboard_id": stringSchema(), "id": stringSchema(), "ref": stringSchema()})),
+		toolDef("nopsai.refresh_dashboard", "Start a confirmed dashboard, section, or source refresh.", "dashboard.refresh", "dashboard", "*", objectSchema(map[string]any{"dashboard_id": stringSchema(), "id": stringSchema(), "ref": stringSchema(), "scope_type": stringSchema(), "section_key": stringSchema(), "source_id": stringSchema(), "mode": stringSchema(), "run_scope": stringSchema(), "timeout": stringSchema(), "max_concurrency": numberSchema(), "idempotency_key": stringSchema(), "variables": objectSchema(map[string]any{}), "confirm": booleanSchema()})),
+		toolDef("nopsai.run_dashboard_refresh_schedule", "Run a scheduled dashboard refresh immediately. Requires confirm:true.", "dashboard.refresh", "dashboard", "*", objectSchema(map[string]any{"dashboard_id": stringSchema(), "id": stringSchema(), "ref": stringSchema(), "schedule_id": stringSchema(), "name": stringSchema(), "confirm": booleanSchema()})),
 		toolDef("nopsai.list_scopes", "List scopes referenced by pipelines, schedules, secrets, and variables.", "scope.read", "scope", "*", objectSchema(map[string]any{"limit": numberSchema()})),
 		toolDef("nopsai.get_scope", "Read high-level scope usage.", "scope.read", "scope", "*", objectSchema(map[string]any{"scope": stringSchema()})),
 		toolDef("nopsai.explain_scope_permissions", "Explain what a scope is used for.", "scope.read", "scope", "*", objectSchema(map[string]any{"scope": stringSchema()})),
@@ -321,6 +327,8 @@ func (a *App) authorizeHostedMCPToolCall(ctx context.Context, subject aaamodel.S
 		permission.Resource.ID = stringArg(args, "repository")
 	case "nopsai.get_schedule", "nopsai.propose_schedule_change":
 		permission.Resource.ID = stringArg(args, "schedule_id")
+	case "nopsai.get_dashboard", "nopsai.list_dashboard_refreshes", "nopsai.list_dashboard_refresh_schedules", "nopsai.refresh_dashboard", "nopsai.run_dashboard_refresh_schedule":
+		permission.Resource.ID = firstNonEmptyString(stringArg(args, "dashboard_id"), stringArg(args, "id"), stringArg(args, "ref"))
 	case "nopsai.get_scope", "nopsai.explain_scope_permissions":
 		permission.Resource.ID = stringArg(args, "scope")
 	}
@@ -391,6 +399,18 @@ func (a *App) executeHostedMCPTool(ctx context.Context, subject aaamodel.Subject
 		return a.hostedMCPGetSchedule(ctx, args)
 	case "nopsai.propose_schedule_change":
 		return hostedMCPProposal("schedule", args), nil
+	case "nopsai.list_dashboards":
+		return a.hostedMCPListDashboards(ctx, subject, args)
+	case "nopsai.get_dashboard":
+		return a.hostedMCPGetDashboard(ctx, args)
+	case "nopsai.list_dashboard_refreshes":
+		return a.hostedMCPListDashboardRefreshes(ctx, args)
+	case "nopsai.list_dashboard_refresh_schedules":
+		return a.hostedMCPListDashboardRefreshSchedules(ctx, args)
+	case "nopsai.refresh_dashboard":
+		return a.hostedMCPRefreshDashboard(ctx, subject, args)
+	case "nopsai.run_dashboard_refresh_schedule":
+		return a.hostedMCPRunDashboardRefreshSchedule(ctx, args)
 	case "nopsai.list_scopes":
 		return a.hostedMCPListScopes(ctx, args)
 	case "nopsai.get_scope", "nopsai.explain_scope_permissions":

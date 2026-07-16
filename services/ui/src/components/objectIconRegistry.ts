@@ -1,5 +1,6 @@
 import {
   Activity,
+  BarChart3,
   Bell,
   BookOpen,
   Bot,
@@ -28,6 +29,7 @@ import {
 export const objectIconTypes = [
   'pipeline-run',
   'monitoring',
+  'dashboard',
   'team',
   'application',
   'repository-owner',
@@ -67,6 +69,7 @@ export type ObjectIconType = (typeof objectIconTypes)[number];
 export const objectIconRegistry = {
   'pipeline-run': Play,
   monitoring: Activity,
+  dashboard: BarChart3,
   team: UsersRound,
   application: Boxes,
   'repository-owner': UsersRound,

@@ -75,6 +75,7 @@ export type CurrentUser = {
   capabilities?: {
     pipelines?: ResourceCapabilities;
     schedules?: ReadCapabilities;
+    dashboards?: ReadCapabilities;
     steps?: ResourceCapabilities;
     triggers?: ReadCapabilities;
     external_triggers?: ReadCapabilities;

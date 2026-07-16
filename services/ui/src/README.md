@@ -214,6 +214,21 @@ truth; this file is the source-adjacent placement guide.
 - Autocomplete metadata should remain keyed to the active scope and editor
   context.
 
+### Dashboards
+
+- Dashboard route composition lives in `pages/Dashboards.tsx`. Keep dashboard
+  model rules, response normalization, API transport, and block rendering under
+  `features/dashboards`.
+- `features/dashboards/model.ts` owns dashboard/source/publication/refresh
+  schedule types, ref/slug helpers, form defaults, stale labels, and
+  publication grouping.
+  `api.ts` owns the `/v1/dashboards` transport. `blocks/` owns presentation for
+  validated `DashboardSpec` blocks only, including chart and series rendering.
+- Dashboard UI must not render arbitrary generated HTML. It renders structured
+  `status`, `text`, `callout`, `list`, `properties`, `table`, `progress`, and
+  `link` blocks plus validated chart/series blocks returned by the API and
+  keeps run-output downloads out of the dashboard workflow.
+
 ### System
 
 - System tab panels own their domain UI under `features/system`.

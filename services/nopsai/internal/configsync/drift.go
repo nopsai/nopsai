@@ -11,6 +11,8 @@ import (
 type DriftPathOptions struct {
 	ExternalTriggersDirectory  string
 	GitWebhookSourcesDirectory string
+	DashboardDirectory         string
+	DashboardTemplateDirectory string
 	SettingsRelativePath       func(string) bool
 }
 
@@ -120,6 +122,8 @@ func IsDriftPath(filePath string, options DriftPathOptions) bool {
 		"triggers/",
 		options.ExternalTriggersDirectory + "/",
 		options.GitWebhookSourcesDirectory + "/",
+		options.DashboardDirectory + "/",
+		options.DashboardTemplateDirectory + "/",
 		"schedules/",
 		"scopes/",
 		"knowledge/",
@@ -154,6 +158,14 @@ func normalizeDriftPathOptions(options DriftPathOptions) DriftPathOptions {
 	options.GitWebhookSourcesDirectory = strings.Trim(strings.TrimSpace(options.GitWebhookSourcesDirectory), "/")
 	if options.GitWebhookSourcesDirectory == "" {
 		options.GitWebhookSourcesDirectory = "git-webhook-sources"
+	}
+	options.DashboardDirectory = strings.Trim(strings.TrimSpace(options.DashboardDirectory), "/")
+	if options.DashboardDirectory == "" {
+		options.DashboardDirectory = "dashboards"
+	}
+	options.DashboardTemplateDirectory = strings.Trim(strings.TrimSpace(options.DashboardTemplateDirectory), "/")
+	if options.DashboardTemplateDirectory == "" {
+		options.DashboardTemplateDirectory = "dashboard-templates"
 	}
 	if options.SettingsRelativePath == nil {
 		options.SettingsRelativePath = func(string) bool { return false }

@@ -152,6 +152,14 @@ export const AAA_RESOURCE_TYPE_CONFIGS: AAAResourceTypeConfig[] = [
     customPlaceholder: 'run-123',
   },
   {
+    value: 'dashboard',
+    label: 'Dashboard',
+    targetLabel: 'Dashboard',
+    allowAll: true,
+    allLabel: 'All dashboards',
+    customPlaceholder: 'platform/engineering-health',
+  },
+  {
     value: 'scope',
     label: 'Scope',
     targetLabel: 'Scope',
@@ -314,6 +322,20 @@ const AAA_ALL_ACTION_OPTION_TEAMS: AAAOptionTeam[] = [
     ],
   },
   {
+    label: 'Dashboards',
+    options: [
+      { value: 'dashboard.list', label: 'list' },
+      { value: 'dashboard.read', label: 'read' },
+      { value: 'dashboard.create', label: 'create' },
+      { value: 'dashboard.update', label: 'update' },
+      { value: 'dashboard.delete', label: 'delete' },
+      { value: 'dashboard.publish', label: 'publish' },
+      { value: 'dashboard.refresh', label: 'refresh' },
+      { value: 'dashboard.manage_sources', label: 'manage sources' },
+      { value: 'dashboard.manage_acl', label: 'manage ACL' },
+    ],
+  },
+  {
     label: 'Scopes',
     options: [
       { value: 'scope.read', label: 'read' },
@@ -427,6 +449,7 @@ const AAA_ACTION_OPTION_TEAMS_BY_RESOURCE_TYPE: Record<string, AAAOptionTeam[]> 
   team: [{ label: 'Team actions', options: AAA_ALL_ACTION_OPTION_TEAMS.find(team => team.label === 'Teams')?.options || [] }],
   pipeline: [{ label: 'Pipeline actions', options: AAA_ALL_ACTION_OPTION_TEAMS.find(team => team.label === 'Pipelines')?.options || [] }],
   pipeline_run: [{ label: 'Pipeline run actions', options: AAA_ALL_ACTION_OPTION_TEAMS.find(team => team.label === 'Pipeline Runs')?.options || [] }],
+  dashboard: [{ label: 'Dashboard actions', options: AAA_ALL_ACTION_OPTION_TEAMS.find(team => team.label === 'Dashboards')?.options || [] }],
   scope: [{ label: 'Scope actions', options: AAA_ALL_ACTION_OPTION_TEAMS.find(team => team.label === 'Scopes')?.options || [] }],
   trigger: [{ label: 'Trigger actions', options: AAA_ALL_ACTION_OPTION_TEAMS.find(team => team.label === 'Triggers')?.options || [] }],
   external_trigger: [{ label: 'External trigger actions', options: AAA_ALL_ACTION_OPTION_TEAMS.find(team => team.label === 'External Triggers')?.options || [] }],

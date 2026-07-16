@@ -3,6 +3,7 @@ package nopsai
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -30,6 +31,7 @@ type pipelineFinalOutputRecord struct {
 	models.PipelineRunFinalOutput
 	ItemIndex int
 	Prompt    string
+	Dashboard models.DashboardOutputTarget
 }
 
 type pipelineFinalOutputRunContext struct {
@@ -68,14 +70,15 @@ func (a *App) preparePipelineFinalOutputRecords(ctx context.Context, runID strin
 		}
 		_, err := a.db.Exec(ctx, `
 			INSERT INTO pipeline_run_outputs (
-				run_id, item_index, name, type, prompt, llm_profile, status, updated_at
+				run_id, item_index, name, type, prompt, llm_profile, dashboard_target, status, updated_at
 			)
-			VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW())
+			VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, 'pending', NOW())
 			ON CONFLICT (run_id, item_index) DO UPDATE SET
 				name = EXCLUDED.name,
 				type = EXCLUDED.type,
 				prompt = EXCLUDED.prompt,
 				llm_profile = EXCLUDED.llm_profile,
+				dashboard_target = EXCLUDED.dashboard_target,
 				status = CASE
 					WHEN pipeline_run_outputs.status = 'success' THEN pipeline_run_outputs.status
 					ELSE 'pending'
@@ -93,7 +96,7 @@ func (a *App) preparePipelineFinalOutputRecords(ctx context.Context, runID strin
 					ELSE 0
 				END,
 				updated_at = NOW()
-		`, runID, idx, name, outputType, prompt, profileName)
+		`, runID, idx, name, outputType, prompt, profileName, mustMarshalDashboardTarget(item.Dashboard))
 		if err != nil {
 			return fmt.Errorf("prepare final output %q: %w", name, err)
 		}
@@ -140,7 +143,7 @@ func (a *App) loadPipelineFinalOutputsForGeneration(ctx context.Context, runID s
 	rows, err := a.db.Query(ctx, `
 		SELECT id::text, item_index, name, type, prompt, llm_profile, status, content, error,
 		       generation_attempts, contract_violations, render_attempts, render_failures,
-		       created_at, updated_at
+		       created_at, updated_at, dashboard_target::text
 		FROM pipeline_run_outputs
 		WHERE run_id = $1 AND status <> 'success'
 		ORDER BY item_index ASC, created_at ASC
@@ -153,6 +156,7 @@ func (a *App) loadPipelineFinalOutputsForGeneration(ctx context.Context, runID s
 	outputs := []pipelineFinalOutputRecord{}
 	for rows.Next() {
 		var output pipelineFinalOutputRecord
+		var dashboardRaw string
 		if err := rows.Scan(
 			&output.ID,
 			&output.ItemIndex,
@@ -169,9 +173,11 @@ func (a *App) loadPipelineFinalOutputsForGeneration(ctx context.Context, runID s
 			&output.RenderFailures,
 			&output.CreatedAt,
 			&output.UpdatedAt,
+			&dashboardRaw,
 		); err != nil {
 			return nil, err
 		}
+		_ = json.Unmarshal([]byte(dashboardRaw), &output.Dashboard)
 		outputs = append(outputs, output)
 	}
 	return outputs, rows.Err()
@@ -198,6 +204,12 @@ func (a *App) generatePipelineFinalOutput(ctx context.Context, runID string, run
 		_ = a.markPipelineFinalOutputFailureWithResult(ctx, output.ID, err, result)
 		return err
 	}
+	if normalizePipelineFinalOutputType(output.Type) == "dashboard" {
+		if err := a.publishDashboardFinalOutput(ctx, runID, output, result.Content); err != nil {
+			_ = a.markPipelineFinalOutputFailureWithResult(ctx, output.ID, err, result)
+			return err
+		}
+	}
 	if _, err := a.db.Exec(ctx, `
 		UPDATE pipeline_run_outputs
 		SET status = 'success', content = $2, error = '',
@@ -207,6 +219,14 @@ func (a *App) generatePipelineFinalOutput(ctx context.Context, runID string, run
 		return err
 	}
 	return nil
+}
+
+func mustMarshalDashboardTarget(target models.DashboardOutputTarget) string {
+	payload, err := json.Marshal(target)
+	if err != nil {
+		return "{}"
+	}
+	return string(payload)
 }
 
 func (a *App) recordPipelineFinalOutputAttemptUsage(
@@ -497,7 +517,7 @@ func buildPipelineFinalOutputPrompt(runContext string, output pipelineFinalOutpu
 	builder.WriteString("The system output contract defines the required response envelope.\n\n")
 	builder.WriteString("Output name: " + output.Name + "\n")
 	builder.WriteString("Output type: " + output.Type + "\n")
-	builder.WriteString("Format requirements: " + pipelineFinalOutputFormatGuidance(output.Type) + "\n\n")
+	builder.WriteString("Format requirements: " + pipelineFinalOutputFormatGuidance(output) + "\n\n")
 	builder.WriteString("User instruction:\n")
 	builder.WriteString(strings.TrimSpace(output.Prompt) + "\n\n")
 	builder.WriteString("Run context:\n")
@@ -505,8 +525,8 @@ func buildPipelineFinalOutputPrompt(runContext string, output pipelineFinalOutpu
 	return builder.String()
 }
 
-func pipelineFinalOutputFormatGuidance(outputType string) string {
-	switch normalizePipelineFinalOutputType(outputType) {
+func pipelineFinalOutputFormatGuidance(output pipelineFinalOutputRecord) string {
+	switch normalizePipelineFinalOutputType(output.Type) {
 	case "markdown":
 		return "Inside <final_output>, provide clean Markdown suitable for preview and copy."
 	case "pdf":
@@ -517,8 +537,32 @@ func pipelineFinalOutputFormatGuidance(outputType string) string {
 		return "Inside <final_output>, provide valid JSON without Markdown fences or commentary."
 	case "html":
 		return pipelineDocumentSpecGuidance("HTML")
+	case "dashboard":
+		return dashboardFinalOutputFormatGuidance(output.Dashboard.Preset)
 	default:
 		return "Inside <final_output>, provide concise business-readable text."
+	}
+}
+
+func dashboardFinalOutputFormatGuidance(preset string) string {
+	base := `Inside <final_output>, provide only a DashboardSpec JSON object. Use {"version":"1","title":"...","blocks":[{"type":"status","label":"Health","status":"success","value":"On track"},{"type":"text","title":"Summary","text":"..."},{"type":"table","title":"Findings","columns":[{"key":"name","label":"Name"}],"rows":[{"name":"Example"}]},{"type":"chart","title":"Trend","chart":{"type":"line","aggregation_interval":"1h","missing_values":"gap","series":[{"key":"prod","label":"Production","environment":"prod","points":[{"timestamp":"2026-07-15T08:00:00Z","value":98.5}]}]}}]}. Supported block types are status, text, callout, list, properties, table, progress, link, chart, and series. Do not include Markdown or HTML.`
+	switch strings.ToLower(strings.TrimSpace(preset)) {
+	case "report":
+		return base + " Prefer a concise text summary followed by callouts, properties, and supporting tables."
+	case "table":
+		return base + " Prefer one primary table with clear scalar columns and a short status or text block."
+	case "status":
+		return base + " Prefer status, progress, properties, and callout blocks for health and readiness."
+	case "timeline":
+		return base + " Prefer list blocks ordered by time with labels, values, and statuses for each event."
+	case "comparison":
+		return base + " Prefer tables and properties that compare environments, versions, or options side by side."
+	case "metrics":
+		return base + " Prefer status, progress, properties, and line or bar chart blocks with numeric values and units."
+	case "mixed", "auto":
+		return base + " Choose the smallest useful mix of blocks for the run evidence."
+	default:
+		return base
 	}
 }
 
@@ -581,6 +625,8 @@ func normalizePipelineFinalOutputType(raw string) string {
 		return "json"
 	case "html":
 		return "html"
+	case "dashboard", "dash", "dashboard_spec":
+		return "dashboard"
 	default:
 		return ""
 	}

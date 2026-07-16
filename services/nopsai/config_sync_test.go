@@ -838,6 +838,7 @@ func TestFilterDelegatedConfigResourcesFiltersRepoScopeVarsByScope(t *testing.T)
 		map[string]storedPipeline{},
 		map[string]storedStep{},
 		map[string]storedSchedule{},
+		map[string]storedDashboard{},
 		externalTriggers,
 		gitWebhookSources,
 		map[string]storedNotificationRoute{},

@@ -32,7 +32,7 @@ func renderPipelineFinalOutputDownload(
 	switch outputType {
 	case "markdown":
 		return []byte(content), "text/markdown; charset=utf-8", fileName, nil
-	case "json":
+	case "json", "dashboard":
 		return []byte(content), "application/json; charset=utf-8", fileName, nil
 	case "html":
 		payload, err := renderPipelineFinalOutputHTML(content)
@@ -85,6 +85,8 @@ func pipelineFinalOutputExtension(outputType string) string {
 	case "excel":
 		return "xlsx"
 	case "json":
+		return "json"
+	case "dashboard":
 		return "json"
 	case "html":
 		return "html"

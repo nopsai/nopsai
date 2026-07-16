@@ -51,17 +51,38 @@ var supportedKnowledgeContextKinds = map[string]struct{}{
 }
 
 var supportedPipelineOutputTypes = map[string]struct{}{
-	"markdown": {},
-	"pdf":      {},
-	"excel":    {},
-	"json":     {},
-	"html":     {},
+	"markdown":  {},
+	"pdf":       {},
+	"excel":     {},
+	"json":      {},
+	"html":      {},
+	"dashboard": {},
 }
 
 var supportedPipelineOutputWhen = map[string]struct{}{
 	"always":  {},
 	"success": {},
 	"failure": {},
+}
+
+var supportedDashboardOutputModes = map[string]struct{}{
+	"":         {},
+	"replace":  {},
+	"append":   {},
+	"snapshot": {},
+	"series":   {},
+}
+
+var supportedDashboardOutputPresets = map[string]struct{}{
+	"":           {},
+	"auto":       {},
+	"report":     {},
+	"table":      {},
+	"status":     {},
+	"timeline":   {},
+	"comparison": {},
+	"metrics":    {},
+	"mixed":      {},
 }
 
 func ValidatePipeline(pipeline *models.Pipeline) error {
@@ -298,6 +319,51 @@ func validatePipelineOutput(output models.PipelineOutput) error {
 		if strings.TrimSpace(item.Prompt) == "" {
 			return fmt.Errorf("output item %q prompt is required", name)
 		}
+		if outputType == "dashboard" {
+			if err := validateDashboardOutputTarget(name, item.Dashboard); err != nil {
+				return err
+			}
+		} else if strings.TrimSpace(item.Dashboard.Ref) != "" ||
+			strings.TrimSpace(item.Dashboard.Section) != "" ||
+			strings.TrimSpace(item.Dashboard.EntryKey) != "" ||
+			strings.TrimSpace(item.Dashboard.Mode) != "" ||
+			strings.TrimSpace(item.Dashboard.Preset) != "" ||
+			strings.TrimSpace(item.Dashboard.TTL) != "" {
+			return fmt.Errorf("output item %q dashboard configuration requires type \"dashboard\"", name)
+		}
+	}
+	return nil
+}
+
+func validateDashboardOutputTarget(itemName string, target models.DashboardOutputTarget) error {
+	ref := strings.Trim(strings.TrimSpace(target.Ref), "/")
+	if ref == "" {
+		return fmt.Errorf("output item %q dashboard.ref is required", itemName)
+	}
+	if err := validateRelativeKnowledgePath(ref); err != nil {
+		return fmt.Errorf("output item %q dashboard.ref is invalid: %w", itemName, err)
+	}
+	parts := strings.Split(ref, "/")
+	if len(parts) < 2 {
+		return fmt.Errorf("output item %q dashboard.ref must use team/dashboard format", itemName)
+	}
+	section := strings.TrimSpace(target.Section)
+	if section == "" {
+		return fmt.Errorf("output item %q dashboard.section is required", itemName)
+	}
+	if !regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`).MatchString(section) {
+		return fmt.Errorf("output item %q dashboard.section can only contain alphanumeric characters, underscores, dots, and hyphens", itemName)
+	}
+	if entryKey := strings.TrimSpace(target.EntryKey); entryKey != "" && !regexp.MustCompile(`^[a-zA-Z0-9_.:/-]+$`).MatchString(entryKey) {
+		return fmt.Errorf("output item %q dashboard.entry_key can only contain alphanumeric characters, underscores, dots, colons, slashes, and hyphens", itemName)
+	}
+	mode := strings.ToLower(strings.TrimSpace(target.Mode))
+	if _, ok := supportedDashboardOutputModes[mode]; !ok {
+		return fmt.Errorf("output item %q dashboard.mode %q is not supported", itemName, target.Mode)
+	}
+	preset := strings.ToLower(strings.TrimSpace(target.Preset))
+	if _, ok := supportedDashboardOutputPresets[preset]; !ok {
+		return fmt.Errorf("output item %q dashboard.preset %q is not supported", itemName, target.Preset)
 	}
 	return nil
 }

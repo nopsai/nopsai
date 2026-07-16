@@ -14,6 +14,11 @@ export const baseNavItems: NavItem[] = [
     icon: <ObjectIcon type="monitoring" />,
   },
   {
+    label: 'Dashboards',
+    path: '/dashboards',
+    icon: <ObjectIcon type="dashboard" />,
+  },
+  {
     label: 'Teams',
     path: '/teams',
     icon: <ObjectIcon type="team" />,
@@ -97,6 +102,7 @@ export const baseSystemSubNav: NavItem[] = [
 export const titleMap: Record<string, string> = {
   pipelineruns: 'Pipeline runs',
   monitoring: 'Monitoring',
+  dashboards: 'Dashboards',
   teams: 'Teams',
   assistant: 'Assistant',
   'llm-profiles': 'LLM Profiles',

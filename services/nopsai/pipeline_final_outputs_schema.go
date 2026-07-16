@@ -16,6 +16,7 @@ var pipelineFinalOutputSchemaStatements = []string{
 			type TEXT NOT NULL,
 			prompt TEXT NOT NULL DEFAULT '',
 			llm_profile TEXT NOT NULL DEFAULT '',
+			dashboard_target JSONB NOT NULL DEFAULT '{}'::jsonb,
 			status TEXT NOT NULL DEFAULT 'pending',
 			content TEXT NOT NULL DEFAULT '',
 			error TEXT NOT NULL DEFAULT '',
@@ -39,6 +40,7 @@ var pipelineFinalOutputSchemaStatements = []string{
 	)`,
 	`ALTER TABLE pipeline_run_outputs ADD COLUMN IF NOT EXISTS prompt TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE pipeline_run_outputs ADD COLUMN IF NOT EXISTS llm_profile TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE pipeline_run_outputs ADD COLUMN IF NOT EXISTS dashboard_target JSONB NOT NULL DEFAULT '{}'::jsonb`,
 	`ALTER TABLE pipeline_run_outputs ADD COLUMN IF NOT EXISTS content TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE pipeline_run_outputs ADD COLUMN IF NOT EXISTS error TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE pipeline_run_outputs ADD COLUMN IF NOT EXISTS generation_attempts INTEGER NOT NULL DEFAULT 0`,
@@ -73,16 +75,10 @@ var pipelineFinalOutputSchemaStatements = []string{
 			);
 		END IF;
 	END $$`,
-	`DO $$
-	BEGIN
-		IF NOT EXISTS (
-			SELECT 1 FROM pg_constraint WHERE conname = 'pipeline_run_outputs_type_check'
-		) THEN
-			ALTER TABLE pipeline_run_outputs
-			ADD CONSTRAINT pipeline_run_outputs_type_check
-			CHECK (type IN ('markdown', 'pdf', 'excel', 'json', 'html'));
-		END IF;
-	END $$`,
+	`ALTER TABLE pipeline_run_outputs DROP CONSTRAINT IF EXISTS pipeline_run_outputs_type_check`,
+	`ALTER TABLE pipeline_run_outputs
+		ADD CONSTRAINT pipeline_run_outputs_type_check
+		CHECK (type IN ('markdown', 'pdf', 'excel', 'json', 'html', 'dashboard'))`,
 	`DO $$
 	BEGIN
 		IF NOT EXISTS (

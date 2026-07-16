@@ -153,7 +153,7 @@ export default function ProductDocsPage() {
     <div className="min-h-full bg-[var(--bg-primary)]">
       <div className="mx-auto grid w-full max-w-[1280px] gap-8 px-4 py-6 sm:px-6 lg:grid-cols-[18rem_minmax(0,1fr)] lg:px-8">
         <aside className="lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
-          <h1 className="text-lg font-semibold text-[var(--text-primary)]">{wikiMetadata.title}</h1>
+          <h2 className="text-lg font-semibold text-[var(--text-primary)]">{wikiMetadata.title}</h2>
           <p className="mt-1 text-xs text-[var(--text-tertiary)]">{wikiMetadata.status}</p>
 
           <label className="mt-5 block text-xs font-semibold uppercase text-[var(--text-tertiary)]">

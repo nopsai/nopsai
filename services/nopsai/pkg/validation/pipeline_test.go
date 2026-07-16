@@ -161,6 +161,96 @@ func TestValidatePipelineFinalOutputs(t *testing.T) {
 	}
 }
 
+func TestValidatePipelineDashboardFinalOutput(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "valid-pipeline",
+		ContainerImage: "ubuntu:latest",
+		Output: models.PipelineOutput{
+			Items: []models.PipelineOutputItem{{
+				Name:   "Dashboard summary",
+				Type:   "dashboard",
+				Prompt: "Summarize the run.",
+				Dashboard: models.DashboardOutputTarget{
+					Ref:      "platform/ops",
+					Section:  "overview",
+					EntryKey: "daily",
+					Mode:     "replace",
+					Preset:   "status",
+					TTL:      "24h",
+				},
+			}},
+		},
+		Steps: []models.PipelineStep{{
+			Step: &models.TaskStep{
+				BaseStep: models.BaseStep{Name: "step1"},
+				Tasks:    []models.Task{{Name: "task1", Script: "echo ok"}},
+			},
+		}},
+	}
+
+	if err := ValidatePipeline(p); err != nil {
+		t.Fatalf("expected dashboard final output to validate, got %v", err)
+	}
+	p.Output.Items[0].Dashboard.Mode = "snapshot"
+	if err := ValidatePipeline(p); err != nil {
+		t.Fatalf("expected snapshot dashboard output to validate, got %v", err)
+	}
+}
+
+func TestValidatePipelineDashboardFinalOutputRequiresTarget(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "invalid-pipeline",
+		ContainerImage: "ubuntu:latest",
+		Output: models.PipelineOutput{
+			Items: []models.PipelineOutputItem{{
+				Name:   "Dashboard summary",
+				Type:   "dashboard",
+				Prompt: "Summarize the run.",
+			}},
+		},
+		Steps: []models.PipelineStep{{
+			Step: &models.TaskStep{
+				BaseStep: models.BaseStep{Name: "step1"},
+				Tasks:    []models.Task{{Name: "task1", Script: "echo ok"}},
+			},
+		}},
+	}
+
+	err := ValidatePipeline(p)
+	if err == nil || !strings.Contains(err.Error(), "dashboard.ref is required") {
+		t.Fatalf("ValidatePipeline() error = %v, want dashboard.ref error", err)
+	}
+}
+
+func TestValidatePipelineRejectsDashboardConfigOnOtherTypes(t *testing.T) {
+	p := &models.Pipeline{
+		Name:           "invalid-pipeline",
+		ContainerImage: "ubuntu:latest",
+		Output: models.PipelineOutput{
+			Items: []models.PipelineOutputItem{{
+				Name:   "Summary",
+				Type:   "markdown",
+				Prompt: "Summarize.",
+				Dashboard: models.DashboardOutputTarget{
+					Ref:     "platform/ops",
+					Section: "overview",
+				},
+			}},
+		},
+		Steps: []models.PipelineStep{{
+			Step: &models.TaskStep{
+				BaseStep: models.BaseStep{Name: "step1"},
+				Tasks:    []models.Task{{Name: "task1", Script: "echo ok"}},
+			},
+		}},
+	}
+
+	err := ValidatePipeline(p)
+	if err == nil || !strings.Contains(err.Error(), `dashboard configuration requires type "dashboard"`) {
+		t.Fatalf("ValidatePipeline() error = %v, want dashboard config error", err)
+	}
+}
+
 func TestValidatePipelineFinalOutputsRejectUnsupportedType(t *testing.T) {
 	p := &models.Pipeline{
 		Name:           "invalid-pipeline",

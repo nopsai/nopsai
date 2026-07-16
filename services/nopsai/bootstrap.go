@@ -151,6 +151,7 @@ func (a *App) Handler() http.Handler {
 
 func (a *App) StartBackgroundWorkers(ctx context.Context) {
 	go a.runScheduleWorker(ctx)
+	go a.runDashboardRefreshScheduleWorker(ctx)
 	go a.runDataCleanupScheduleWorker(ctx)
 	go a.runOIDCEntitlementSyncWorker(ctx)
 	go a.runKnowledgeContextPeriodicSyncWorker(ctx)
