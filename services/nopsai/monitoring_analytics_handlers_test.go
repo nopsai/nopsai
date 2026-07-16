@@ -186,6 +186,7 @@ func TestMonitoringAssistantChatUsageQueriesUseStoredMessages(t *testing.T) {
 		"FROM assistant_messages am",
 		"JOIN assistant_conversations ac ON ac.id = am.conversation_id",
 		"COALESCE(SUM(am.total_tokens), 0)::bigint",
+		"COUNT(*) FILTER (WHERE am.total_tokens > 0",
 		"COUNT(*)::bigint",
 		"LOWER(COALESCE(ac.selected_llm_profile, '')) = LOWER($3)",
 		"SPLIT_PART(ac.user_id, ':', 1)",
@@ -196,7 +197,9 @@ func TestMonitoringAssistantChatUsageQueriesUseStoredMessages(t *testing.T) {
 	}
 
 	team := monitoringAssistantChatUsageTeamQuery("ac.user_id")
-	if !strings.Contains(team, "COUNT(*)::bigint") || !strings.Contains(team, "COALESCE(SUM(am.total_tokens), 0)::bigint") {
+	if !strings.Contains(team, "COUNT(*) FILTER (WHERE am.total_tokens > 0") ||
+		!strings.Contains(team, "COALESCE(SUM(am.total_tokens), 0)::bigint") ||
+		!strings.Contains(team, "HAVING COALESCE(SUM(am.total_tokens), 0) > 0") {
 		t.Fatalf("assistant chat team query should expose message count and tokens:\n%s", team)
 	}
 }

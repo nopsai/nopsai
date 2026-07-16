@@ -70,6 +70,7 @@ test('renders clean chat messages without inline tool-call details', async () =>
     setDraft: vi.fn(),
     loading: false,
     sending: false,
+    activeConversationSending: false,
     retrying: false,
     deletingConversationID: '',
     copiedMessageID: '',
@@ -125,6 +126,7 @@ test('renders welcome starters that prefill the composer', async () => {
     setDraft,
     loading: false,
     sending: false,
+    activeConversationSending: false,
     retrying: false,
     deletingConversationID: '',
     copiedMessageID: '',
@@ -187,7 +189,7 @@ test('renders assistant markdown and toggles usage details in the full page', as
       content_tokens: 20,
       prompt_tokens: 30,
       completion_tokens: 10,
-      total_tokens: 45,
+      total_tokens: 40,
       estimated_token_messages: 1,
       duration_ms: 1250,
       llm_calls: 2,
@@ -206,6 +208,7 @@ test('renders assistant markdown and toggles usage details in the full page', as
     setDraft: vi.fn(),
     loading: false,
     sending: false,
+    activeConversationSending: false,
     retrying: false,
     deletingConversationID: '',
     copiedMessageID: '',
@@ -235,7 +238,7 @@ test('renders assistant markdown and toggles usage details in the full page', as
   expect(screen.getAllByText(/Pipeline/).length).toBeGreaterThan(0);
   expect(screen.getAllByText('deploy-api').length).toBeGreaterThan(0);
   expect(screen.getByText(/40 LLM tokens · 1.3s · 2 LLM calls/)).toBeVisible();
-  expect(screen.getAllByText(/45 tokens · 2 messages · 1.3s · 1 estimated/).length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/40 LLM tokens · 2 messages · 1.3s · 1 estimated/).length).toBeGreaterThan(0);
   expect(screen.getByText('Provider input')).toBeVisible();
   expect(screen.getByText('Provider output')).toBeVisible();
   expect(screen.getByText('nopsai.get_pipeline')).toBeVisible();

@@ -1295,7 +1295,7 @@ func assistantLooksLikePipelineYAML(content string) bool {
 func assistantPipelineIDFromMessage(content string) string {
 	id := assistantFirstPatternTeam(assistantPipelineIDPattern, content)
 	switch strings.ToLower(strings.Trim(strings.TrimSpace(id), "/")) {
-	case "", "a", "an", "the", "that", "which", "who", "where", "has", "have", "having", "with", "through", "via", "yaml", "context", "knowledge", "runs", "run", "logs", "called", "named", "name", "approval", "step", "steps", "use", "uses", "using", "highest", "llm", "tokens":
+	case "", "a", "an", "the", "that", "which", "who", "where", "has", "have", "having", "with", "through", "via", "yaml", "context", "knowledge", "runs", "run", "logs", "called", "named", "name", "approval", "step", "steps", "use", "uses", "using", "highest", "llm", "tokens", "gonna", "going", "will", "would", "should", "must", "can", "could", "to", "build", "deploy":
 		return ""
 	default:
 		return strings.Trim(id, "/")

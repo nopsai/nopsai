@@ -249,6 +249,12 @@ If final synthesis fails after a validated plan already produced MCP evidence,
 the assistant records the fallback reason and returns the deterministic
 permission-bound tool summary.
 
+Assistant usage accounting keeps visible text estimates separate from provider
+usage. User messages and deterministic replies without an LLM call add to
+`content_tokens` only. Assistant planner and final synthesis calls add
+provider-reported or estimated prompt, completion, and total tokens to the
+selected LLM profile for monitoring and cost analysis.
+
 ## Validation
 
 Runs are rejected before agent launch when:
