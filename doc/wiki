@@ -25,6 +25,40 @@ Use this order when updating product documentation:
 4. Root README examples.
 5. UI help text only when it agrees with implementation.
 
+## Documentation Model
+
+The in-app wiki separates content purpose from reader audience. Do not use one
+mixed category to describe both.
+
+Content type values:
+
+| Type | Use for |
+| --- | --- |
+| `tutorial` | End-to-end learning paths with prerequisites, steps, validation, cleanup, and next steps. |
+| `how-to` | Task-oriented procedures for users who already understand the concept. |
+| `concept` | Explanation of product ideas, boundaries, and architecture. |
+| `reference` | Exact schema, API, CLI, configuration, and behavior facts. |
+| `runbook` | Operational response procedures with symptoms, checks, resolution, rollback, and escalation. |
+| `troubleshooting` | Diagnostic pages that lead the user from symptom to likely cause. |
+
+Audience values:
+
+| Audience | Reader |
+| --- | --- |
+| `new-user` | First-time product users and evaluators. |
+| `automation-author` | People writing pipelines, triggers, schedules, approvals, outputs, and GitOps config. |
+| `operator` | SRE, support, and operations users running or diagnosing the platform. |
+| `administrator` | Platform owners configuring services, teams, access, runners, and releases. |
+| `security` | Security, compliance, audit, and least-privilege reviewers. |
+| `developer` | Integration and repository developers using NopsAI from code or Git workflows. |
+
+Every procedural page should prefer structured prerequisites and procedure
+steps over hiding instructions in prose. Every reference page should prefer
+structured field rows with path, type, required/default behavior, scope,
+constraints, permissions, security notes, and examples. Source documents and
+runbooks should be structured objects, not plain strings, so the UI can render
+purpose, access, checks, diagnostics, and escalation consistently.
+
 ## Wiki Sections
 
 The in-app wiki is organized for operators and enterprise users rather than as
@@ -35,6 +69,16 @@ Product and Architecture
 ├── What NopsAI is
 ├── Control plane and execution plane
 └── Normal run lifecycle
+
+Getting Started
+├── Install locally with Docker Compose
+├── Complete the first-install wizard
+├── Create and run your first script pipeline
+├── Create your first AI-assisted pipeline
+├── Connect a Git repository
+├── Trigger a pipeline from Git
+├── Add an approval checkpoint
+└── Create a final deliverable
 
 Installation
 ├── First-install wizard
@@ -51,6 +95,7 @@ Platform Administration
 
 Automation Authoring
 ├── Pipeline YAML schema
+├── Step and task directives
 ├── Approvals, reusable steps, and child pipelines
 ├── Git triggers and Git webhook sources
 └── Schedules and external triggers
