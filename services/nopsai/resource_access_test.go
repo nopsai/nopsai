@@ -131,6 +131,43 @@ func TestListAccessAuthTeamsQueriesAuthTeamsOnly(t *testing.T) {
 	}
 }
 
+func TestSelectableAccessTeamRecordExcludesApplications(t *testing.T) {
+	tests := []struct {
+		name   string
+		record teamPathRecord
+		want   bool
+	}{
+		{
+			name:   "team",
+			record: teamPathRecord{Kind: "team", Path: "platform"},
+			want:   true,
+		},
+		{
+			name:   "app kind",
+			record: teamPathRecord{Kind: "app", Path: "platform/api"},
+			want:   false,
+		},
+		{
+			name:   "repository url",
+			record: teamPathRecord{Kind: "team", Path: "platform/api", RepoURL: "https://github.com/acme/api"},
+			want:   false,
+		},
+		{
+			name:   "repository full name",
+			record: teamPathRecord{Kind: "team", Path: "platform/api", RepositoryFullName: "acme/api"},
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isSelectableAccessTeamRecord(tt.record); got != tt.want {
+				t.Fatalf("isSelectableAccessTeamRecord(%#v) = %v, want %v", tt.record, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestValidateResourceVisibilityPolicy(t *testing.T) {
 	if err := validateResourceVisibilityPolicy(grantResourcePipeline, resourceVisibilityWorkspace); err != nil {
 		t.Fatalf("pipeline workspace visibility error = %v", err)

@@ -1106,7 +1106,7 @@ Validation and guardrails:
 - Only `owner` or `admin` can manage grants.
 - `admin` grants are only valid on `platform`.
 - `GET /v1/access/auth-teams` lists persisted SSO/AAA auth teams from `auth_teams` for subject selectors.
-- `GET /v1/access/teams` lists product team resources for team sharing and resource selectors.
+- `GET /v1/access/teams` lists product team resources for team sharing and resource selectors, excluding application and repository-backed nodes.
 
 ---
 
@@ -1154,7 +1154,7 @@ curl -X POST \
 curl -X DELETE http://localhost:8080/v1/resources/pipeline/team-1/build/grants/grant_123
 ```
 
-The team dropdown in the UI is populated from `GET /v1/access/teams`, using resolved team paths rather than numeric team IDs. The default scope is addressed as `/v1/resources/scope/default/access`; secret and variable rows store the default scope as `default`.
+The team dropdown in the UI is populated from `GET /v1/access/teams`, using resolved team paths rather than numeric team IDs. Application and repository-backed nodes are intentionally not selectable in these dropdowns. The default scope is addressed as `/v1/resources/scope/default/access`; secret and variable rows store the default scope as `default`.
 
 Resource-use check endpoints:
 

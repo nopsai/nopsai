@@ -142,7 +142,7 @@ export function TriggerDetailView({
   const ingress = triggerIngressLabel(detail);
   const allowlistStatus = triggerAllowlistStatusLabel(detail.allowlistStatus);
   const showIngressWarning = provider !== 'github' && detail.allowlistStatus !== 'allowed';
-  const teamOptions = uniqueTeamOptions([...teamPaths, triggerDetails.teamPath, detail.teamPath || 'root']);
+  const teamOptions = uniqueTeamOptions(teamPaths);
   const compatibleWebhookSources = webhookSources.filter(source => source.provider === triggerDetails.provider);
 
   return (

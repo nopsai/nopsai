@@ -1,4 +1,5 @@
 import { Shield } from 'lucide-react';
+import { useEffect } from 'react';
 import { WorkflowFormDialog } from '../../components/WorkflowFormDialog';
 import {
   MONTHDAY_VALUES,
@@ -53,7 +54,10 @@ export function ScheduleFormModal({
   const pipelineOptions = Array.from(new Set([...pipelines, form.pipeline].map(normalizeIdentifier).filter(Boolean))).sort((a, b) =>
     a.localeCompare(b)
   );
-  const teamOptions = uniqueRunTeamOptions([...runTeams, form.runTeamPath]);
+  const teamOptions = uniqueRunTeamOptions(runTeams);
+  const selectedRunTeamPath = teamOptions.includes(normalizeIdentifier(form.runTeamPath))
+    ? normalizeIdentifier(form.runTeamPath)
+    : 'root';
   const scopeOptions = Array.from(new Set(['', ...scopes, form.scope].map(normalizeScopeOption))).sort((a, b) => a.localeCompare(b));
   const updateCron = (patch: Partial<CronFormFields>) => {
     const next = { ...form, ...patch };
@@ -66,6 +70,11 @@ export function ScheduleFormModal({
   const selectedMonthdays = new Set(normalizeCronList(form.cronMonthday, MONTHDAY_VALUES, '1').split(','));
   const titleId = 'schedule-form-title';
   const errorId = 'schedule-form-error';
+
+  useEffect(() => {
+    if (form.runTeamPath === selectedRunTeamPath) return;
+    update({ runTeamPath: selectedRunTeamPath });
+  }, [form.runTeamPath, selectedRunTeamPath]);
 
   return (
     <WorkflowFormDialog
@@ -117,8 +126,8 @@ export function ScheduleFormModal({
                   update({
                     pipeline,
                     runTeamPath:
-                      form.runTeamPath && form.runTeamPath !== 'root'
-                        ? form.runTeamPath
+                      selectedRunTeamPath && selectedRunTeamPath !== 'root'
+                        ? selectedRunTeamPath
                         : defaultRunTeamForPipeline(pipeline, runTeams),
                   });
                 }}
@@ -138,7 +147,7 @@ export function ScheduleFormModal({
               <span className="text-xs font-semibold uppercase text-[var(--text-secondary)]">Run team</span>
               <select
                 className="pipelines-input w-full"
-                value={form.runTeamPath}
+                value={selectedRunTeamPath}
                 onChange={event => update({ runTeamPath: event.target.value })}
                 disabled={disabled}
               >

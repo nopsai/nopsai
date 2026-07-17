@@ -105,7 +105,8 @@ export function DashboardModal({
   onSubmit: () => void;
 }) {
   const isCreate = modal.mode === 'create';
-  const teamOptions = uniqueOptions([form.teamPath, ...teams].filter(Boolean));
+  const teamOptions = uniqueOptions(teams.filter(Boolean));
+  const selectedTeamPath = teamOptions.some(option => option.value === form.teamPath) ? form.teamPath : '';
   const title = isCreate ? 'New dashboard' : 'Edit dashboard';
   const dashboardRef = dashboardRefFromForm(form);
   const matchingPipelineOptions = useMemo(
@@ -118,7 +119,7 @@ export function DashboardModal({
   );
   const selectedMatchingPipelineCount = form.pipelineIDs.filter(id => matchingPipelineIDSet.has(id)).length;
   const canSubmit =
-    Boolean(form.teamPath.trim() && form.slug.trim() && form.title.trim()) &&
+    Boolean(selectedTeamPath && form.slug.trim() && form.title.trim()) &&
     (!isCreate || selectedMatchingPipelineCount > 0) &&
     !saving;
   const errorID = error ? 'dashboard-form-error' : undefined;
@@ -158,7 +159,7 @@ export function DashboardModal({
           <Field label="Team" description="Existing team that owns the dashboard and its GitOps path.">
             <select
               className="pipelines-input w-full"
-              value={form.teamPath}
+              value={selectedTeamPath}
               onChange={event => onChange({ ...form, teamPath: event.target.value })}
               disabled={saving || teamOptions.length === 0}
               required

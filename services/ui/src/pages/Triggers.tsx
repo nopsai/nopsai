@@ -748,14 +748,13 @@ function TriggersPage({
   }, [serverTriggers, searchTerm, sourceFilter]);
 
   const triggerTeamPaths = useMemo(() => {
-    const paths = [...teamPathOptions, ...serverTriggers.map(item => normalizeTriggerTeamPath(item.teamPath))]
-      .filter(Boolean);
+    const paths = teamPathOptions.map(path => normalizeTriggerTeamPath(path)).filter(Boolean);
     return Array.from(new Set(['root', ...paths])).sort((left, right) => {
       if (left === 'root') return -1;
       if (right === 'root') return 1;
       return left.localeCompare(right);
     });
-  }, [serverTriggers, teamPathOptions]);
+  }, [teamPathOptions]);
 
   const workspaceOwner = selectedSlug ? ownerForSlug(selectedSlug) : activeOwner;
   const triggerDetails = useMemo(

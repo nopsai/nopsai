@@ -7,6 +7,7 @@ import {
   aiResourceTeamScope,
   buildAIResourceScopedID,
   collectAIResourceTeamPaths,
+  selectableAIResourceTeamPath,
 } from './aiResourceTeams.js';
 
 test('splits AI resource IDs into team placement and local names', () => {
@@ -27,9 +28,11 @@ test('matches AI resources by team filter including nested teams', () => {
   assert.equal(aiResourceMatchesTeamFilter('platform/ml/reasoning', AI_RESOURCE_TEAM_FILTER_GLOBAL), false);
 });
 
-test('collects known and resource-derived team paths', () => {
+test('collects selectable team paths from the team catalog only', () => {
   assert.deepEqual(
-    collectAIResourceTeamPaths(['platform/ml/reasoning', 'ops/github', 'hosted'], ['security']),
-    ['ops', 'platform/ml', 'security']
+    collectAIResourceTeamPaths(['platform/app/reasoning', 'ops/github', 'hosted'], ['security', 'platform']),
+    ['platform', 'security']
   );
+  assert.equal(selectableAIResourceTeamPath('platform', ['platform']), 'platform');
+  assert.equal(selectableAIResourceTeamPath('platform/app', ['platform']), '');
 });

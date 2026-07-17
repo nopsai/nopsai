@@ -148,6 +148,9 @@ func (a *App) handleListAccessTeams(w http.ResponseWriter, r *http.Request) {
 	}
 	resources := make([]model.ResourceRef, 0, len(records))
 	for _, record := range records {
+		if !isSelectableAccessTeamRecord(record) {
+			continue
+		}
 		if strings.TrimSpace(record.Path) == "" {
 			continue
 		}
@@ -160,6 +163,9 @@ func (a *App) handleListAccessTeams(w http.ResponseWriter, r *http.Request) {
 	}
 	teams := make([]accessTeamResponse, 0, len(records))
 	for _, record := range records {
+		if !isSelectableAccessTeamRecord(record) {
+			continue
+		}
 		path := strings.Trim(strings.TrimSpace(record.Path), "/")
 		if path == "" {
 			continue
@@ -174,6 +180,12 @@ func (a *App) handleListAccessTeams(w http.ResponseWriter, r *http.Request) {
 		return strings.ToLower(teams[i].Name) < strings.ToLower(teams[j].Name)
 	})
 	_ = httpapi.WriteJSON(w, http.StatusOK, teams)
+}
+
+func isSelectableAccessTeamRecord(record teamPathRecord) bool {
+	return !strings.EqualFold(strings.TrimSpace(record.Kind), "app") &&
+		strings.TrimSpace(record.RepoURL) == "" &&
+		strings.TrimSpace(record.RepositoryFullName) == ""
 }
 
 func (a *App) handleResourceAccessRoute(w http.ResponseWriter, r *http.Request) {
