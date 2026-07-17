@@ -242,16 +242,20 @@ func (a *App) createDashboardRefreshRecord(ctx context.Context, dashboard dashbo
 		return "", false, err
 	}
 	for _, plan := range plans {
+		runScope := plan.Source.RunScope
+		if strings.TrimSpace(input.RunScope) != "" {
+			runScope = input.RunScope
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO dashboard_refresh_pipeline_runs (
 				refresh_id, dashboard_id, source_binding_id, pipeline_id, output_name,
-				section_key, entry_key, required, status, error, updated_at
+				section_key, entry_key, run_scope, required, status, error, updated_at
 			) VALUES (
 				$1::uuid, $2::uuid, $3::uuid, $4, $5,
-				$6, $7, $8, $9, $10, NOW()
+				$6, $7, $8, $9, $10, $11, NOW()
 			)
 		`, refreshID, dashboard.ID, plan.Source.ID, plan.Source.PipelineID, plan.Source.OutputName,
-			plan.Source.SectionKey, plan.Source.EntryKey, plan.Source.RequiredForRefresh, plan.Status, plan.Error); err != nil {
+			plan.Source.SectionKey, plan.Source.EntryKey, runScope, plan.Source.RequiredForRefresh, plan.Status, plan.Error); err != nil {
 			return "", false, err
 		}
 	}
@@ -353,9 +357,13 @@ func (a *App) launchDashboardRefreshSources(ctx context.Context, dashboard dashb
 }
 
 func (a *App) launchDashboardRefreshSource(ctx context.Context, dashboard dashboardRecord, refreshID string, input dashboardRefreshInput, subject aaamodel.Subject, source dashboardSourceRecord) (string, error) {
+	runScope := source.RunScope
+	if strings.TrimSpace(input.RunScope) != "" {
+		runScope = input.RunScope
+	}
 	payload := runRequestPayload{
 		Pipeline:  source.PipelineID,
-		Scope:     input.RunScope,
+		Scope:     runScope,
 		Variables: input.Variables,
 	}
 	body, err := json.Marshal(payload)
@@ -372,8 +380,8 @@ func (a *App) launchDashboardRefreshSource(ctx context.Context, dashboard dashbo
 	req.Header.Set("X-Nopsai-Pipeline-Source", dashboardRefreshTriggerSource)
 	req.Header.Set("X-Nopsai-Trigger-Event-ID", fmt.Sprintf("dashboard-refresh:%s:%s", refreshID, source.ID))
 	req.Header.Set("X-Nopsai-Dashboard-Refresh-ID", refreshID)
-	if strings.TrimSpace(input.RunScope) != "" {
-		req.Header.Set("X-Nopsai-Scope", input.RunScope)
+	if strings.TrimSpace(runScope) != "" {
+		req.Header.Set("X-Nopsai-Scope", runScope)
 	}
 	if strings.TrimSpace(dashboard.TeamPath) != "" {
 		req.Header.Set("X-Nopsai-Team-Path", dashboard.TeamPath)
@@ -782,7 +790,7 @@ func (a *App) listDashboardRefreshRecords(ctx context.Context, dashboard dashboa
 func (a *App) listDashboardRefreshRunRecords(ctx context.Context, refreshID string) ([]dashboardRefreshRunRecord, error) {
 	rows, err := a.db.Query(ctx, `
 		SELECT id::text, refresh_id::text, dashboard_id::text, COALESCE(source_binding_id::text, ''),
-		       pipeline_id, output_name, section_key, entry_key, COALESCE(run_id::text, ''),
+		       pipeline_id, output_name, section_key, entry_key, run_scope, COALESCE(run_id::text, ''),
 		       required, status, error, started_at, finished_at, created_at, updated_at
 		FROM dashboard_refresh_pipeline_runs
 		WHERE refresh_id::text = $1
@@ -854,6 +862,7 @@ func scanDashboardRefreshRunRecord(scanner dashboardScanner) (dashboardRefreshRu
 		&record.OutputName,
 		&record.SectionKey,
 		&record.EntryKey,
+		&record.RunScope,
 		&record.RunID,
 		&record.Required,
 		&record.Status,

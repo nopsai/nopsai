@@ -85,6 +85,7 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
   const [dashboards, setDashboards] = useState<DashboardSummary[]>([]);
   const [teams, setTeams] = useState<string[]>([]);
   const [pipelines, setPipelines] = useState<string[]>([]);
+  const [scopes, setScopes] = useState<string[]>(['']);
   const [dashboardPipelineCatalog, setDashboardPipelineCatalog] = useState<DashboardPipelineCatalogItem[]>([]);
   const [pipelineLoading, setPipelineLoading] = useState(true);
   const [selectedID, setSelectedID] = useState('');
@@ -175,12 +176,14 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
         const catalog = await fetchDashboardPipelineCatalog(metadata.pipelines);
         if (cancelled) return;
         setTeams(metadata.teams);
+        setScopes(metadata.scopes);
         setDashboardPipelineCatalog(catalog);
         setPipelines(catalog.map(pipeline => pipeline.id));
       })
       .catch(() => {
         if (!cancelled) {
           setTeams([]);
+          setScopes(['']);
           setDashboardPipelineCatalog([]);
           setPipelines([]);
         }
@@ -217,7 +220,13 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
     const attachedPipelineIDs = Array.from(new Set((view?.sources || []).map(source => source.pipeline_id)))
       .filter(id => dashboardPipelineIDs.has(id))
       .sort((a, b) => a.localeCompare(b));
-    setDashboardForm({ ...formFromDashboard(dashboard), pipelineIDs: attachedPipelineIDs });
+    const pipelineScopes = Object.fromEntries(
+      attachedPipelineIDs.map(pipelineID => [
+        pipelineID,
+        (view?.sources || []).find(source => source.pipeline_id === pipelineID)?.run_scope || '',
+      ])
+    );
+    setDashboardForm({ ...formFromDashboard(dashboard), pipelineIDs: attachedPipelineIDs, pipelineScopes });
     setFormError(null);
     setDashboardModal({ mode: 'edit', dashboard });
   }, [dashboardPipelineCatalog, view?.sources]);
@@ -518,6 +527,7 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
           teams={teams}
           sections={view?.sections || []}
           pipelineOptions={dashboardPipelineCatalog}
+          scopeOptions={scopes}
           pipelineLoading={pipelineLoading}
           saving={saving}
           error={formError}
@@ -563,6 +573,7 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
           sources={view?.sources || []}
           publications={view?.publications || []}
           pipelines={pipelines}
+          scopeOptions={scopes}
           saving={saving}
           error={formError}
           loadPipelineOutputs={fetchDashboardPipelineOutputs}

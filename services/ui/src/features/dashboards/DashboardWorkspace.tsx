@@ -30,6 +30,7 @@ import {
   groupPublicationsBySection,
   refreshProgress,
   refreshStatusLabel,
+  runScopeLabel,
   staleLabel,
   type DashboardEvent,
   type DashboardPublication,
@@ -538,7 +539,9 @@ function PublicationCard({ publication }: { publication: DashboardPublication })
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-[var(--text-primary)]">{publication.content.title || publication.entry_key}</div>
-          <div className="mt-1 truncate text-xs text-[var(--text-muted)]">{publication.pipeline_id} / {publication.output_name}</div>
+          <div className="mt-1 truncate text-xs text-[var(--text-muted)]">
+            {publication.pipeline_id} / {publication.output_name} / {runScopeLabel(publication.run_scope)}
+          </div>
         </div>
         <span className={`rounded-md px-2 py-1 text-xs ${publication.stale ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/30 dark:text-amber-100' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100'}`}>
           {staleLabel(publication)}
@@ -577,7 +580,7 @@ function SectionRunningSources({ sources }: { sources: NonNullable<DashboardRefr
             <div key={source.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-md bg-white/70 px-3 py-2 dark:bg-slate-900/40">
               <div className="min-w-0">
                 <div className="truncate text-xs font-semibold">{source.pipeline_id}</div>
-                <div className="truncate text-xs opacity-80">{source.output_name}</div>
+                <div className="truncate text-xs opacity-80">{source.output_name} / {runScopeLabel(source.run_scope)}</div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <StatusBadge status={source.status} />
@@ -770,7 +773,7 @@ function SourceRow({
       <div className="min-w-0">
         <div className="truncate text-sm font-medium text-[var(--text-primary)]">{source.pipeline_id}</div>
         <div className="mt-1 truncate text-xs text-[var(--text-muted)]">
-          {source.output_name}{source.entry_key ? ` / ${source.entry_key}` : ''} / order {source.refresh_order}
+          {source.output_name}{source.entry_key ? ` / ${source.entry_key}` : ''} / {runScopeLabel(source.run_scope)} / order {source.refresh_order}
         </div>
         <div className="mt-2 flex flex-wrap gap-1 text-xs">
           <Badge>{source.enabled ? 'Enabled' : 'Disabled'}</Badge>
@@ -837,10 +840,11 @@ function ScheduleList({
               <span className={`runner-pill ${scheduleStatusTone(schedule.last_status)}`}>{scheduleStatusLabel(schedule.last_status)}</span>
             </div>
             {schedule.description ? <div className="mt-1 text-sm text-[var(--text-secondary)]">{schedule.description}</div> : null}
-            <div className="mt-2 grid gap-2 text-xs text-[var(--text-secondary)] sm:grid-cols-3">
+            <div className="mt-2 grid gap-2 text-xs text-[var(--text-secondary)] sm:grid-cols-4">
               <ScheduleFact label="Schedule" value={friendlyCronLabel(schedule.cron_expression || schedule.cron)} />
               <ScheduleFact label="Next" value={schedule.enabled ? formatDateTime(schedule.next_run_at) || 'pending' : 'Disabled'} />
               <ScheduleFact label="Target" value={`${scheduleScopeLabel(schedule)} / ${schedule.mode}`} />
+              <ScheduleFact label="Run scope" value={schedule.run_scope ? runScopeLabel(schedule.run_scope) : 'Source scopes'} />
             </div>
             <div className="mt-2 truncate font-mono text-xs text-[var(--text-muted)]" title={`${schedule.cron_expression || schedule.cron} / ${schedule.timezone}`}>
               {schedule.cron_expression || schedule.cron} / {schedule.timezone}
@@ -991,7 +995,7 @@ function RefreshPanel({
             <div key={source.id} className="rounded-md bg-[var(--bg-primary)] px-3 py-2">
               <div className="truncate text-xs font-medium text-[var(--text-primary)]">{source.pipeline_id}</div>
               <div className="mt-1 flex flex-wrap gap-2 text-xs text-[var(--text-muted)]">
-                <span>{source.section_key} / {source.output_name}</span>
+                <span>{source.section_key} / {source.output_name} / {runScopeLabel(source.run_scope)}</span>
                 <span>{refreshStatusLabel(source.status)}</span>
                 <span>{source.required ? 'required' : 'optional'}</span>
               </div>
@@ -1201,7 +1205,7 @@ function sectionRunHistoryItems(refreshes: DashboardRefresh[], history: Dashboar
         type: 'run',
         status: source.status || refresh.status,
         title: source.pipeline_id,
-        subtitle: `${source.output_name}${source.entry_key ? ` / ${source.entry_key}` : ''} / ${source.required ? 'required' : 'optional'} / ${refresh.trigger_type}`,
+        subtitle: `${source.output_name}${source.entry_key ? ` / ${source.entry_key}` : ''} / ${runScopeLabel(source.run_scope)} / ${source.required ? 'required' : 'optional'} / ${refresh.trigger_type}`,
         timestamp: source.finished_at || source.started_at || source.updated_at || source.created_at || refresh.updated_at || refresh.created_at,
         runID: source.run_id,
         refreshID: refresh.id,

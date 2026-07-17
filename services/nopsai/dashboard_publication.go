@@ -19,6 +19,7 @@ type dashboardPublicationTarget struct {
 	Ref       string
 	Section   string
 	EntryKey  string
+	RunScope  string
 	Mode      string
 	Preset    string
 	TTL       string
@@ -32,6 +33,7 @@ type dashboardPublicationRunRecord struct {
 	FinishedAt   *time.Time
 	SubjectType  string
 	SubjectID    string
+	Scope        string
 }
 
 func (a *App) publishDashboardFinalOutput(ctx context.Context, runID string, output pipelineFinalOutputRecord, content string) error {
@@ -51,6 +53,10 @@ func (a *App) publishDashboardFinalOutput(ctx context.Context, runID string, out
 	if err != nil {
 		return err
 	}
+	run.Scope, err = normalizeDashboardRunScope(run.Scope)
+	if err != nil {
+		return err
+	}
 	if refreshID, err := a.dashboardRefreshIDForRun(ctx, runID); err == nil {
 		target.RefreshID = refreshID
 	} else {
@@ -64,31 +70,21 @@ func (a *App) publishDashboardFinalOutput(ctx context.Context, runID string, out
 		return err
 	}
 
+	pipelineID := aaamodel.BuildPipelineID(run.PipelinePath, run.PipelineName)
+	source, eventType, skipReason, err := a.matchDashboardPublicationSource(ctx, dashboard.ID, target, pipelineID, output.Name, run.Scope)
+	if err != nil {
+		return err
+	}
+	if eventType != "" {
+		return a.insertDashboardPublicationSkipEvent(ctx, dashboard.ID, target, eventType, skipReason, runID, output, run)
+	}
+	target.RunScope = source.RunScope
+
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-
-	section := dashboardSectionInput{
-		SectionKey: target.Section,
-		Title:      titleFromKey(target.Section),
-		Layout:     map[string]any{},
-	}
-	if err := upsertDashboardSection(ctx, tx, dashboard.ID, section); err != nil {
-		return err
-	}
-	source := dashboardSourceInput{
-		SectionKey:         target.Section,
-		PipelineID:         aaamodel.BuildPipelineID(run.PipelinePath, run.PipelineName),
-		OutputName:         output.Name,
-		EntryKey:           target.EntryKey,
-		Enabled:            true,
-		RequiredForRefresh: true,
-	}
-	if err := upsertDashboardSourceBinding(ctx, tx, dashboard.ID, source); err != nil {
-		return err
-	}
 
 	switch target.Mode {
 	case dashboardPublishModeAppend:
@@ -192,6 +188,7 @@ func (a *App) loadDashboardPublicationRun(ctx context.Context, runID string) (da
 	var requestedType, requestedID, effectiveType, effectiveID sql.NullString
 	err := a.db.QueryRow(ctx, `
 		SELECT COALESCE(pipeline_path, ''), COALESCE(pipeline_name, ''), finished_at,
+		       COALESCE(scope, ''),
 		       requested_by_type, requested_by_id, effective_subject_type, effective_subject_id
 		FROM pipeline_runs
 		WHERE run_id::text = $1
@@ -199,6 +196,7 @@ func (a *App) loadDashboardPublicationRun(ctx context.Context, runID string) (da
 		&record.PipelinePath,
 		&record.PipelineName,
 		&finishedAt,
+		&record.Scope,
 		&requestedType,
 		&requestedID,
 		&effectiveType,
@@ -258,18 +256,136 @@ func (a *App) dashboardRefreshIDForRun(ctx context.Context, runID string) (strin
 	return refreshID, nil
 }
 
+func (a *App) matchDashboardPublicationSource(
+	ctx context.Context,
+	dashboardID string,
+	target dashboardPublicationTarget,
+	pipelineID string,
+	outputName string,
+	runScope string,
+) (dashboardSourceRecord, string, string, error) {
+	rows, err := a.db.Query(ctx, `
+		SELECT id::text, dashboard_id::text, section_key, pipeline_id, output_name, entry_key, run_scope,
+		       enabled, required_for_refresh, refresh_order, created_at, updated_at
+		FROM dashboard_source_bindings
+		WHERE dashboard_id::text = $1
+		  AND section_key = $2
+		  AND pipeline_id = $3
+		  AND output_name = $4
+		  AND (entry_key = $5 OR entry_key = '')
+		ORDER BY CASE WHEN entry_key = $5 THEN 0 ELSE 1 END,
+		         CASE WHEN run_scope = $6 THEN 0 ELSE 1 END,
+		         run_scope ASC
+	`, dashboardID, target.Section, pipelineID, outputName, target.EntryKey, runScope)
+	if err != nil {
+		return dashboardSourceRecord{}, "", "", err
+	}
+	defer rows.Close()
+
+	var disabledExact bool
+	availableScopes := []string{}
+	for rows.Next() {
+		source, scanErr := scanDashboardSourceRecord(rows)
+		if scanErr != nil {
+			return dashboardSourceRecord{}, "", "", scanErr
+		}
+		if source.RunScope == runScope {
+			if source.Enabled {
+				return source, "", "", nil
+			}
+			disabledExact = true
+			continue
+		}
+		availableScopes = append(availableScopes, dashboardRunScopeLabel(source.RunScope))
+	}
+	if err := rows.Err(); err != nil {
+		return dashboardSourceRecord{}, "", "", err
+	}
+	if disabledExact {
+		return dashboardSourceRecord{}, "skipped_disabled_source", fmt.Sprintf("matching dashboard source for run scope %s is disabled", dashboardRunScopeLabel(runScope)), nil
+	}
+	if len(availableScopes) > 0 {
+		sort.Strings(availableScopes)
+		return dashboardSourceRecord{}, "skipped_scope_mismatch", fmt.Sprintf(
+			"run scope %s does not match configured source scope(s): %s",
+			dashboardRunScopeLabel(runScope),
+			strings.Join(uniqueStrings(availableScopes), ", "),
+		), nil
+	}
+	return dashboardSourceRecord{}, "skipped_missing_source", fmt.Sprintf(
+		"no dashboard source binding matches pipeline %s output %s entry %s scope %s",
+		pipelineID,
+		outputName,
+		target.EntryKey,
+		dashboardRunScopeLabel(runScope),
+	), nil
+}
+
+func (a *App) insertDashboardPublicationSkipEvent(
+	ctx context.Context,
+	dashboardID string,
+	target dashboardPublicationTarget,
+	eventType string,
+	reason string,
+	runID string,
+	output pipelineFinalOutputRecord,
+	run dashboardPublicationRunRecord,
+) error {
+	content, err := json.Marshal(map[string]any{
+		"reason":      reason,
+		"pipeline_id": aaamodel.BuildPipelineID(run.PipelinePath, run.PipelineName),
+		"output_name": output.Name,
+		"run_scope":   run.Scope,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = a.db.Exec(ctx, `
+		INSERT INTO dashboard_publication_events (
+			dashboard_id, section_key, entry_key, revision, event_type, content, run_id, refresh_id
+		) VALUES (
+			$1::uuid, $2, $3, 0, $4, $5::jsonb, $6::uuid, NULLIF($7, '')::uuid
+		)
+	`, dashboardID, target.Section, target.EntryKey, eventType, string(content), runID, target.RefreshID)
+	return err
+}
+
+func dashboardRunScopeLabel(scope string) string {
+	if strings.TrimSpace(scope) == "" {
+		return "default"
+	}
+	return scope
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
 func upsertDashboardSourceBinding(ctx context.Context, runner queryRunner, dashboardID string, input dashboardSourceInput) error {
 	_, err := runner.Exec(ctx, `
 		INSERT INTO dashboard_source_bindings (
-			dashboard_id, section_key, pipeline_id, output_name, entry_key,
+			dashboard_id, section_key, pipeline_id, output_name, entry_key, run_scope,
 			enabled, required_for_refresh, refresh_order, updated_at
-		) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, NOW())
-		ON CONFLICT (dashboard_id, section_key, pipeline_id, output_name, entry_key) DO UPDATE SET
+		) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+		ON CONFLICT (dashboard_id, section_key, pipeline_id, output_name, entry_key, run_scope) DO UPDATE SET
 			enabled = EXCLUDED.enabled,
 			required_for_refresh = EXCLUDED.required_for_refresh,
 			refresh_order = EXCLUDED.refresh_order,
 			updated_at = NOW()
-	`, dashboardID, input.SectionKey, input.PipelineID, input.OutputName, input.EntryKey, input.Enabled, input.RequiredForRefresh, input.RefreshOrder)
+	`, dashboardID, input.SectionKey, input.PipelineID, input.OutputName, input.EntryKey, input.RunScope, input.Enabled, input.RequiredForRefresh, input.RefreshOrder)
 	return err
 }
 
@@ -300,22 +416,22 @@ func insertAppendDashboardPublication(
 	if err := tx.QueryRow(ctx, `
 		SELECT COALESCE(MAX(revision), 0) + 1
 		FROM dashboard_publications
-		WHERE dashboard_id::text = $1 AND section_key = $2 AND entry_key = $3
-	`, dashboardID, target.Section, target.EntryKey).Scan(&revision); err != nil {
+		WHERE dashboard_id::text = $1 AND section_key = $2 AND entry_key = $3 AND run_scope = $4
+	`, dashboardID, target.Section, target.EntryKey, target.RunScope).Scan(&revision); err != nil {
 		return err
 	}
 	var publicationID string
 	err = tx.QueryRow(ctx, `
 		INSERT INTO dashboard_publications (
 			dashboard_id, section_key, entry_key, mode, content, revision,
-			run_id, run_output_id, pipeline_id, output_name, refresh_id, source_finished_at, expires_at, status, updated_at
+			run_id, run_output_id, pipeline_id, output_name, run_scope, refresh_id, source_finished_at, expires_at, status, updated_at
 		) VALUES (
 			$1::uuid, $2, $3, 'append', $4::jsonb, $5,
-			$6::uuid, $7::uuid, $8, $9, NULLIF($10, '')::uuid, $11, $12, 'current', NOW()
+			$6::uuid, $7::uuid, $8, $9, $10, NULLIF($11, '')::uuid, $12, $13, 'current', NOW()
 		)
 		RETURNING id::text
 	`, dashboardID, target.Section, target.EntryKey, content, revision, runID, output.ID,
-		aaamodel.BuildPipelineID(run.PipelinePath, run.PipelineName), output.Name, target.RefreshID, run.FinishedAt, target.ExpiresAt).Scan(&publicationID)
+		aaamodel.BuildPipelineID(run.PipelinePath, run.PipelineName), output.Name, target.RunScope, target.RefreshID, run.FinishedAt, target.ExpiresAt).Scan(&publicationID)
 	if err != nil {
 		return err
 	}
@@ -341,10 +457,11 @@ func replaceDashboardPublication(
 		WHERE dashboard_id::text = $1
 		  AND section_key = $2
 		  AND entry_key = $3
+		  AND run_scope = $4
 		  AND mode = 'replace'
 		  AND status = 'current'
 		FOR UPDATE
-	`, dashboardID, target.Section, target.EntryKey).Scan(&existingID, &existingRevision, &existingFinishedAt, &existingRunOutputID)
+	`, dashboardID, target.Section, target.EntryKey, target.RunScope).Scan(&existingID, &existingRevision, &existingFinishedAt, &existingRunOutputID)
 	if err == nil {
 		if strings.TrimSpace(existingRunOutputID) == output.ID {
 			return nil
@@ -361,14 +478,15 @@ func replaceDashboardPublication(
 				run_output_id = $5::uuid,
 				pipeline_id = $6,
 				output_name = $7,
-				refresh_id = NULLIF($8, '')::uuid,
-				source_finished_at = $9,
-				expires_at = $10,
+				run_scope = $8,
+				refresh_id = NULLIF($9, '')::uuid,
+				source_finished_at = $10,
+				expires_at = $11,
 				published_at = NOW(),
 				updated_at = NOW()
 			WHERE id::text = $1
 		`, existingID, content, revision, runID, output.ID,
-			aaamodel.BuildPipelineID(run.PipelinePath, run.PipelineName), output.Name, target.RefreshID, run.FinishedAt, target.ExpiresAt)
+			aaamodel.BuildPipelineID(run.PipelinePath, run.PipelineName), output.Name, target.RunScope, target.RefreshID, run.FinishedAt, target.ExpiresAt)
 		if err != nil {
 			return err
 		}
@@ -382,14 +500,14 @@ func replaceDashboardPublication(
 	err = tx.QueryRow(ctx, `
 		INSERT INTO dashboard_publications (
 			dashboard_id, section_key, entry_key, mode, content, revision,
-			run_id, run_output_id, pipeline_id, output_name, refresh_id, source_finished_at, expires_at, status, updated_at
+			run_id, run_output_id, pipeline_id, output_name, run_scope, refresh_id, source_finished_at, expires_at, status, updated_at
 		) VALUES (
 			$1::uuid, $2, $3, 'replace', $4::jsonb, 1,
-			$5::uuid, $6::uuid, $7, $8, NULLIF($9, '')::uuid, $10, $11, 'current', NOW()
+			$5::uuid, $6::uuid, $7, $8, $9, NULLIF($10, '')::uuid, $11, $12, 'current', NOW()
 		)
 		RETURNING id::text
 	`, dashboardID, target.Section, target.EntryKey, content, runID, output.ID,
-		aaamodel.BuildPipelineID(run.PipelinePath, run.PipelineName), output.Name, target.RefreshID, run.FinishedAt, target.ExpiresAt).Scan(&publicationID)
+		aaamodel.BuildPipelineID(run.PipelinePath, run.PipelineName), output.Name, target.RunScope, target.RefreshID, run.FinishedAt, target.ExpiresAt).Scan(&publicationID)
 	if err != nil {
 		return err
 	}
@@ -425,30 +543,31 @@ func snapshotDashboardPublication(
 			updated_at = NOW()
 		WHERE dashboard_id::text = $1
 		  AND section_key = $2
+		  AND run_scope = $3
 		  AND status = 'current'
-	`, dashboardID, target.Section); err != nil {
+	`, dashboardID, target.Section, target.RunScope); err != nil {
 		return err
 	}
 	var revision int
 	if err := tx.QueryRow(ctx, `
 		SELECT COALESCE(MAX(revision), 0) + 1
 		FROM dashboard_publications
-		WHERE dashboard_id::text = $1 AND section_key = $2
-	`, dashboardID, target.Section).Scan(&revision); err != nil {
+		WHERE dashboard_id::text = $1 AND section_key = $2 AND run_scope = $3
+	`, dashboardID, target.Section, target.RunScope).Scan(&revision); err != nil {
 		return err
 	}
 	var publicationID string
 	err = tx.QueryRow(ctx, `
 		INSERT INTO dashboard_publications (
 			dashboard_id, section_key, entry_key, mode, content, revision,
-			run_id, run_output_id, pipeline_id, output_name, refresh_id, source_finished_at, expires_at, status, updated_at
+			run_id, run_output_id, pipeline_id, output_name, run_scope, refresh_id, source_finished_at, expires_at, status, updated_at
 		) VALUES (
 			$1::uuid, $2, $3, 'snapshot', $4::jsonb, $5,
-			$6::uuid, $7::uuid, $8, $9, NULLIF($10, '')::uuid, $11, $12, 'current', NOW()
+			$6::uuid, $7::uuid, $8, $9, $10, NULLIF($11, '')::uuid, $12, $13, 'current', NOW()
 		)
 		RETURNING id::text
 	`, dashboardID, target.Section, target.EntryKey, content, revision, runID, output.ID,
-		aaamodel.BuildPipelineID(run.PipelinePath, run.PipelineName), output.Name, target.RefreshID, run.FinishedAt, target.ExpiresAt).Scan(&publicationID)
+		aaamodel.BuildPipelineID(run.PipelinePath, run.PipelineName), output.Name, target.RunScope, target.RefreshID, run.FinishedAt, target.ExpiresAt).Scan(&publicationID)
 	if err != nil {
 		return err
 	}
@@ -491,10 +610,11 @@ func seriesDashboardPublication(
 		WHERE dashboard_id::text = $1
 		  AND section_key = $2
 		  AND entry_key = $3
+		  AND run_scope = $4
 		  AND mode = 'series'
 		  AND status = 'current'
 		FOR UPDATE
-	`, dashboardID, target.Section, target.EntryKey).Scan(&existingID, &existingRevision, &existingContent)
+	`, dashboardID, target.Section, target.EntryKey, target.RunScope).Scan(&existingID, &existingRevision, &existingContent)
 	if err == nil {
 		merged, mergeErr := mergeDashboardSeriesSpec(existingContent, incoming)
 		if mergeErr != nil {
@@ -513,14 +633,15 @@ func seriesDashboardPublication(
 				run_output_id = $5::uuid,
 				pipeline_id = $6,
 				output_name = $7,
-				refresh_id = NULLIF($8, '')::uuid,
-				source_finished_at = $9,
-				expires_at = $10,
+				run_scope = $8,
+				refresh_id = NULLIF($9, '')::uuid,
+				source_finished_at = $10,
+				expires_at = $11,
 				published_at = NOW(),
 				updated_at = NOW()
 			WHERE id::text = $1
 		`, existingID, content, revision, runID, output.ID,
-			aaamodel.BuildPipelineID(run.PipelinePath, run.PipelineName), output.Name, target.RefreshID, run.FinishedAt, target.ExpiresAt); err != nil {
+			aaamodel.BuildPipelineID(run.PipelinePath, run.PipelineName), output.Name, target.RunScope, target.RefreshID, run.FinishedAt, target.ExpiresAt); err != nil {
 			return err
 		}
 		return insertDashboardPublicationEvent(ctx, tx, dashboardID, target, existingID, revision, "published", content, runID)
@@ -533,8 +654,8 @@ func seriesDashboardPublication(
 	if err := tx.QueryRow(ctx, `
 		SELECT COALESCE(MAX(revision), 0) + 1
 		FROM dashboard_publications
-		WHERE dashboard_id::text = $1 AND section_key = $2 AND entry_key = $3
-	`, dashboardID, target.Section, target.EntryKey).Scan(&revision); err != nil {
+		WHERE dashboard_id::text = $1 AND section_key = $2 AND entry_key = $3 AND run_scope = $4
+	`, dashboardID, target.Section, target.EntryKey, target.RunScope).Scan(&revision); err != nil {
 		return err
 	}
 	var marshalErr error
@@ -546,14 +667,14 @@ func seriesDashboardPublication(
 	err = tx.QueryRow(ctx, `
 		INSERT INTO dashboard_publications (
 			dashboard_id, section_key, entry_key, mode, content, revision,
-			run_id, run_output_id, pipeline_id, output_name, refresh_id, source_finished_at, expires_at, status, updated_at
+			run_id, run_output_id, pipeline_id, output_name, run_scope, refresh_id, source_finished_at, expires_at, status, updated_at
 		) VALUES (
 			$1::uuid, $2, $3, 'series', $4::jsonb, $5,
-			$6::uuid, $7::uuid, $8, $9, NULLIF($10, '')::uuid, $11, $12, 'current', NOW()
+			$6::uuid, $7::uuid, $8, $9, $10, NULLIF($11, '')::uuid, $12, $13, 'current', NOW()
 		)
 		RETURNING id::text
 	`, dashboardID, target.Section, target.EntryKey, content, revision, runID, output.ID,
-		aaamodel.BuildPipelineID(run.PipelinePath, run.PipelineName), output.Name, target.RefreshID, run.FinishedAt, target.ExpiresAt).Scan(&publicationID)
+		aaamodel.BuildPipelineID(run.PipelinePath, run.PipelineName), output.Name, target.RunScope, target.RefreshID, run.FinishedAt, target.ExpiresAt).Scan(&publicationID)
 	if err != nil {
 		return err
 	}

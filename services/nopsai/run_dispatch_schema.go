@@ -1,0 +1,37 @@
+package nopsai
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+var runDispatchSchemaStatements = []string{
+	`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS parent_runner_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS parent_history TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS runtime_variable_overrides JSONB NOT NULL DEFAULT '{}'::jsonb`,
+	`CREATE INDEX IF NOT EXISTS idx_pipeline_runs_pending_recovery ON pipeline_runs(created_at) WHERE status = 'pending'`,
+}
+
+func ensureRunDispatchSchema(ctx context.Context, db *pgxpool.Pool) error {
+	if db == nil {
+		return nil
+	}
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin run dispatch schema transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	for idx, stmt := range runDispatchSchemaStatements {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("apply run dispatch schema statement %d: %w", idx+1, err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit run dispatch schema transaction: %w", err)
+	}
+	return nil
+}

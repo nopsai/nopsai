@@ -37,6 +37,7 @@ type dashboardGitOpsSource struct {
 	PipelineID         string `yaml:"pipeline_id"`
 	OutputName         string `yaml:"output_name"`
 	EntryKey           string `yaml:"entry_key,omitempty"`
+	RunScope           string `yaml:"run_scope,omitempty"`
 	Enabled            *bool  `yaml:"enabled,omitempty"`
 	RequiredForRefresh *bool  `yaml:"required_for_refresh,omitempty"`
 	RefreshOrder       int    `yaml:"refresh_order,omitempty"`
@@ -116,6 +117,7 @@ func parseGitOpsDashboards(files map[string]string, dashboardDir string, binding
 				PipelineID:         source.PipelineID,
 				OutputName:         source.OutputName,
 				EntryKey:           source.EntryKey,
+				RunScope:           source.RunScope,
 				Enabled:            source.Enabled,
 				RequiredForRefresh: source.RequiredForRefresh,
 				RefreshOrder:       source.RefreshOrder,
@@ -388,6 +390,7 @@ func (a *App) exportConfigRepositoryDashboards(
 				PipelineID:         source.PipelineID,
 				OutputName:         source.OutputName,
 				EntryKey:           source.EntryKey,
+				RunScope:           source.RunScope,
 				Enabled:            &enabled,
 				RequiredForRefresh: &required,
 				RefreshOrder:       source.RefreshOrder,

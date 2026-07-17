@@ -465,6 +465,8 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		PipelineDefinition: pipelineDef,
 		ParentRunID:        parentRunID,
 		ParentStepName:     parentStepName,
+		ParentRunnerID:     parentRunnerID,
+		ParentHistory:      parentHistory,
 		Scope:              scope,
 		PipelineSource:     pipelineSource,
 		TriggerSource:      triggerSource,
@@ -473,6 +475,7 @@ func (a *App) handleRunPipeline(w http.ResponseWriter, r *http.Request) {
 		GitContext:         gitContext,
 		TeamPath:           teamPathForRun,
 		AuthSnapshot:       authSnapshot,
+		VariableOverrides:  overrideVars,
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to insert initial run record")

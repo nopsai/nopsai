@@ -9,6 +9,7 @@ import (
 	"time"
 
 	aaamodel "nopsai/services/aaa/pkg/model"
+	"nopsai/services/nopsai/internal/configsync"
 )
 
 const (
@@ -105,6 +106,7 @@ type dashboardSourceRequest struct {
 	PipelineID         string `json:"pipeline_id"`
 	OutputName         string `json:"output_name"`
 	EntryKey           string `json:"entry_key,omitempty"`
+	RunScope           string `json:"run_scope,omitempty"`
 	Enabled            *bool  `json:"enabled,omitempty"`
 	RequiredForRefresh *bool  `json:"required_for_refresh,omitempty"`
 	RefreshOrder       int    `json:"refresh_order,omitempty"`
@@ -115,6 +117,7 @@ type dashboardSourceInput struct {
 	PipelineID         string
 	OutputName         string
 	EntryKey           string
+	RunScope           string
 	Enabled            bool
 	RequiredForRefresh bool
 	RefreshOrder       int
@@ -222,6 +225,7 @@ type dashboardSourceRecord struct {
 	PipelineID         string
 	OutputName         string
 	EntryKey           string
+	RunScope           string
 	Enabled            bool
 	RequiredForRefresh bool
 	RefreshOrder       int
@@ -241,6 +245,7 @@ type dashboardPublicationRecord struct {
 	RunOutputID      string
 	PipelineID       string
 	OutputName       string
+	RunScope         string
 	RefreshID        string
 	SourceFinishedAt *time.Time
 	PublishedAt      time.Time
@@ -303,6 +308,7 @@ type dashboardRefreshRunRecord struct {
 	OutputName      string
 	SectionKey      string
 	EntryKey        string
+	RunScope        string
 	RunID           string
 	Required        bool
 	Status          string
@@ -388,6 +394,7 @@ type dashboardSourceResponse struct {
 	PipelineID         string    `json:"pipeline_id"`
 	OutputName         string    `json:"output_name"`
 	EntryKey           string    `json:"entry_key,omitempty"`
+	RunScope           string    `json:"run_scope,omitempty"`
 	Enabled            bool      `json:"enabled"`
 	RequiredForRefresh bool      `json:"required_for_refresh"`
 	RefreshOrder       int       `json:"refresh_order"`
@@ -406,6 +413,7 @@ type dashboardPublicationResponse struct {
 	RunOutputID      string          `json:"run_output_id,omitempty"`
 	PipelineID       string          `json:"pipeline_id,omitempty"`
 	OutputName       string          `json:"output_name,omitempty"`
+	RunScope         string          `json:"run_scope,omitempty"`
 	RefreshID        string          `json:"refresh_id,omitempty"`
 	SourceFinishedAt *time.Time      `json:"source_finished_at,omitempty"`
 	PublishedAt      time.Time       `json:"published_at"`
@@ -465,6 +473,7 @@ type dashboardRefreshRunResponse struct {
 	OutputName      string     `json:"output_name"`
 	SectionKey      string     `json:"section_key"`
 	EntryKey        string     `json:"entry_key,omitempty"`
+	RunScope        string     `json:"run_scope,omitempty"`
 	RunID           string     `json:"run_id,omitempty"`
 	Required        bool       `json:"required"`
 	Status          string     `json:"status"`
@@ -614,8 +623,15 @@ func normalizeDashboardSourceInput(req dashboardSourceRequest) (dashboardSourceI
 		return dashboardSourceInput{}, fmt.Errorf("output_name is required")
 	}
 	entryKey := strings.TrimSpace(req.EntryKey)
+	if entryKey == "" {
+		entryKey = outputName
+	}
 	if entryKey != "" && !dashboardEntryKeyPattern.MatchString(entryKey) {
 		return dashboardSourceInput{}, fmt.Errorf("entry_key can only contain alphanumeric characters, underscores, dots, colons, slashes, and hyphens")
+	}
+	runScope, err := normalizeDashboardRunScope(req.RunScope)
+	if err != nil {
+		return dashboardSourceInput{}, err
 	}
 	enabled := true
 	if req.Enabled != nil {
@@ -630,10 +646,22 @@ func normalizeDashboardSourceInput(req dashboardSourceRequest) (dashboardSourceI
 		PipelineID:         pipelineID,
 		OutputName:         outputName,
 		EntryKey:           entryKey,
+		RunScope:           runScope,
 		Enabled:            enabled,
 		RequiredForRefresh: required,
 		RefreshOrder:       req.RefreshOrder,
 	}, nil
+}
+
+func normalizeDashboardRunScope(raw string) (string, error) {
+	scope := normalizeScheduleScope(raw)
+	if scope == "" {
+		return "", nil
+	}
+	if _, err := configsync.CleanPathSegments(scope, false); err != nil {
+		return "", fmt.Errorf("run_scope is invalid: %w", err)
+	}
+	return scope, nil
 }
 
 func dashboardResponseFromRecord(record dashboardRecord) dashboardResponse {
@@ -678,6 +706,7 @@ func dashboardSourceResponseFromRecord(record dashboardSourceRecord) dashboardSo
 		PipelineID:         record.PipelineID,
 		OutputName:         record.OutputName,
 		EntryKey:           record.EntryKey,
+		RunScope:           record.RunScope,
 		Enabled:            record.Enabled,
 		RequiredForRefresh: record.RequiredForRefresh,
 		RefreshOrder:       record.RefreshOrder,
@@ -698,6 +727,7 @@ func dashboardPublicationResponseFromRecord(record dashboardPublicationRecord) d
 		RunOutputID:      record.RunOutputID,
 		PipelineID:       record.PipelineID,
 		OutputName:       record.OutputName,
+		RunScope:         record.RunScope,
 		RefreshID:        record.RefreshID,
 		SourceFinishedAt: record.SourceFinishedAt,
 		PublishedAt:      record.PublishedAt,
@@ -767,6 +797,7 @@ func dashboardRefreshRunResponseFromRecord(record dashboardRefreshRunRecord) das
 		OutputName:      record.OutputName,
 		SectionKey:      record.SectionKey,
 		EntryKey:        record.EntryKey,
+		RunScope:        record.RunScope,
 		RunID:           record.RunID,
 		Required:        record.Required,
 		Status:          record.Status,
@@ -898,6 +929,10 @@ func normalizeDashboardRefreshRequest(req dashboardRefreshRequest, policy map[st
 		}
 		variables[key] = value
 	}
+	runScope, err := normalizeDashboardRunScope(req.RunScope)
+	if err != nil {
+		return dashboardRefreshInput{}, err
+	}
 	return dashboardRefreshInput{
 		ScopeType:      scopeType,
 		Scope:          scope,
@@ -905,7 +940,7 @@ func normalizeDashboardRefreshRequest(req dashboardRefreshRequest, policy map[st
 		SourceIDs:      sourceIDs,
 		TriggerType:    normalizeDashboardRefreshTrigger(req.TriggerType),
 		Mode:           mode,
-		RunScope:       strings.TrimSpace(req.RunScope),
+		RunScope:       runScope,
 		Variables:      variables,
 		MaxConcurrency: concurrency,
 		Timeout:        timeout,

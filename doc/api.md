@@ -299,7 +299,7 @@ curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
 # Manage a source binding
 curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"section_key":"deployments","pipeline_id":"deploy/payments-api","output_name":"deployment-summary","entry_key":"payments-api","enabled":true,"required_for_refresh":true}' \
+  -d '{"section_key":"deployments","pipeline_id":"deploy/payments-api","output_name":"deployment-summary","entry_key":"payments-api","run_scope":"prod","enabled":true,"required_for_refresh":true}' \
   http://localhost:8080/v1/dashboards/<dashboard-id>/sources
 ```
 
@@ -327,9 +327,13 @@ history are written. Dashboard output supports `replace`, `append`, `snapshot`,
 and `series` modes; `series` merges chart or time-series blocks while deduping
 and retaining bounded points. Refresh supports dashboard, section, and source
 scope; strict mode blocks required unavailable sources while best-effort records
-skips and continues. GitOps-managed dashboards live under `dashboards/` and
-templates under `dashboard-templates/`, with source path, source commit, team
-ownership, drift, and managed-state pruning metadata preserved.
+skips and continues. Dashboard source bindings include `run_scope` as part of
+their identity. Empty `run_scope` is the exact default/unscoped run, not a
+legacy any-scope match; scoped trigger or schedule runs only publish when an
+enabled source binding has the same scope. GitOps-managed dashboards live under
+`dashboards/` and templates under `dashboard-templates/`, with source path,
+source commit, team ownership, drift, and managed-state pruning metadata
+preserved.
 
 ## Assistant and Hosted MCP
 

@@ -17,6 +17,8 @@ CREATE TABLE pipeline_runs (
     run_id UUID PRIMARY KEY,
     parent_run_id UUID NULL REFERENCES pipeline_runs(run_id) ON DELETE SET NULL,
     parent_step_name VARCHAR(255),
+    parent_runner_id TEXT NOT NULL DEFAULT '',
+    parent_history TEXT NOT NULL DEFAULT '',
     trigger_event_id VARCHAR(255),
     pipeline_name VARCHAR(255),
     pipeline_path TEXT NOT NULL DEFAULT '',
@@ -51,6 +53,7 @@ CREATE TABLE pipeline_runs (
     requested_by_id TEXT,
     effective_subject_type TEXT,
     effective_subject_id TEXT,
+    runtime_variable_overrides JSONB NOT NULL DEFAULT '{}'::jsonb,
     authorization_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
@@ -1246,6 +1249,7 @@ CREATE INDEX idx_pipeline_schedules_config_repo_id ON pipeline_schedules(config_
 CREATE INDEX idx_pipeline_schedules_next_run ON pipeline_schedules(enabled, next_run_at);
 CREATE INDEX idx_pipeline_schedules_pipeline ON pipeline_schedules(pipeline_path, pipeline_name);
 CREATE INDEX idx_pipeline_runs_schedule_id ON pipeline_runs(schedule_id);
+CREATE INDEX idx_pipeline_runs_pending_recovery ON pipeline_runs(created_at) WHERE status = 'pending';
 CREATE INDEX idx_pipeline_run_checkpoints_run ON pipeline_run_checkpoints(run_id, created_at DESC);
 CREATE INDEX idx_pipeline_approvals_run ON pipeline_approvals(run_id, status, requested_at DESC);
 CREATE INDEX idx_steps_config_repo_id ON steps(config_repo_id);

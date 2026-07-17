@@ -3,6 +3,7 @@ import { fetchPipelineRunTeamPaths } from '../../lib/resourceTeams';
 import { fetchPipelineYaml } from '../pipelines/api';
 import {
   dashboardRequestFromForm,
+  normalizeRunScope,
   normalizeDashboardRefresh,
   normalizeDashboardRefreshSchedule,
   normalizeDashboardPublication,
@@ -229,10 +230,14 @@ export async function deleteDashboardSource(dashboardID: string, sourceID: strin
   }
 }
 
-export async function fetchDashboardMetadata(): Promise<{ teams: string[]; pipelines: string[] }> {
-  const [teams, pipelines] = await Promise.all([
+type ScopeListEntry = string | { scope?: string; name?: string; value?: string };
+
+export async function fetchDashboardMetadata(): Promise<{ teams: string[]; pipelines: string[]; scopes: string[] }> {
+  const [teams, pipelines, secretScopes, variableScopes] = await Promise.all([
     fetchPipelineRunTeamPaths().catch(() => []),
     requestJson<Array<string | { id?: string }>>('/v1/pipelines').catch(() => []),
+    requestJson<ScopeListEntry[]>('/v1/secrets/scopes').catch(() => []),
+    requestJson<ScopeListEntry[]>('/v1/variables/scopes').catch(() => []),
   ]);
   return {
     teams,
@@ -240,6 +245,7 @@ export async function fetchDashboardMetadata(): Promise<{ teams: string[]; pipel
       .map(item => (typeof item === 'string' ? item : item.id || ''))
       .filter(Boolean)
       .sort((a, b) => a.localeCompare(b)),
+    scopes: normalizeScopeList([...secretScopes, ...variableScopes]),
   };
 }
 
@@ -267,4 +273,17 @@ export async function fetchDashboardPipelineCatalog(pipelineIDs: string[]): Prom
 
 export function normalizePublication(payload: unknown): DashboardPublication {
   return normalizeDashboardPublication(payload);
+}
+
+function normalizeScopeList(entries: ScopeListEntry[]): string[] {
+  const scopes = new Set<string>(['']);
+  for (const entry of entries) {
+    if (typeof entry === 'string') {
+      scopes.add(normalizeRunScope(entry));
+      continue;
+    }
+    if (!entry || typeof entry !== 'object') continue;
+    scopes.add(normalizeRunScope(entry.scope || entry.name || entry.value || ''));
+  }
+  return Array.from(scopes).sort((a, b) => a.localeCompare(b));
 }

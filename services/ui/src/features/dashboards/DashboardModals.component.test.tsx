@@ -39,6 +39,7 @@ test('new dashboard modal uses an existing-team dropdown and dashboard-output pi
       form={form}
       teams={['team-1', 'platform']}
       pipelineOptions={dashboardPipelineOptions()}
+      scopeOptions={['', 'prod']}
       saving={false}
       error={null}
       onChange={onChange}
@@ -61,7 +62,11 @@ test('new dashboard modal uses an existing-team dropdown and dashboard-output pi
   fireEvent.change(teamSelect, { target: { value: 'platform' } });
   expect(onChange).toHaveBeenCalledWith({ ...form, teamPath: 'platform' });
   fireEvent.click(screen.getByRole('checkbox', { name: /team-1\/dashboard-sample/ }));
-  expect(onChange).toHaveBeenCalledWith({ ...form, pipelineIDs: ['team-1/dashboard-sample'] });
+  expect(onChange).toHaveBeenCalledWith({
+    ...form,
+    pipelineIDs: ['team-1/dashboard-sample'],
+    pipelineScopes: { 'team-1/dashboard-sample': '' },
+  });
 });
 
 test('edit dashboard modal leaves access management to the dashboard access card', () => {
@@ -73,7 +78,9 @@ test('edit dashboard modal leaves access management to the dashboard access card
     title: 'Ops Dashboard',
     visibility: 'restricted',
     pipelineIDs: ['team-1/dashboard-sample'],
+    pipelineScopes: { 'team-1/dashboard-sample': 'prod' },
   };
+  const onChange = vi.fn();
 
   render(
     <DashboardModal
@@ -91,6 +98,7 @@ test('edit dashboard modal leaves access management to the dashboard access card
       form={form}
       teams={['team-1']}
       pipelineOptions={dashboardPipelineOptions()}
+      scopeOptions={['', 'prod', 'staging']}
       sections={[
         {
           id: 'section-1',
@@ -102,7 +110,7 @@ test('edit dashboard modal leaves access management to the dashboard access card
       ]}
       saving={false}
       error={null}
-      onChange={vi.fn()}
+      onChange={onChange}
       onEditSection={onEditSection}
       onDeleteSection={onDeleteSection}
       onClose={vi.fn()}
@@ -115,6 +123,12 @@ test('edit dashboard modal leaves access management to the dashboard access card
   expect(screen.getByText('Sections')).toBeVisible();
   expect(screen.queryByRole('button', { name: 'New section' })).not.toBeInTheDocument();
   expect(screen.getByRole('checkbox', { name: /team-1\/dashboard-sample/ })).toBeChecked();
+  expect(screen.getByLabelText('Run scope for team-1/dashboard-sample')).toHaveValue('prod');
+  fireEvent.change(screen.getByLabelText('Run scope for team-1/dashboard-sample'), { target: { value: 'staging' } });
+  expect(onChange).toHaveBeenCalledWith({
+    ...form,
+    pipelineScopes: { 'team-1/dashboard-sample': 'staging' },
+  });
   fireEvent.click(screen.getByRole('button', { name: 'Edit section Overview' }));
   expect(onEditSection).toHaveBeenCalledWith(expect.objectContaining({ section_key: 'overview' }));
   fireEvent.click(screen.getByRole('button', { name: 'Delete section Overview' }));
@@ -192,12 +206,15 @@ test('source modal loads pipeline outputs and maps section, output, and entry wi
   expect(screen.queryByRole('option', { name: 'Other dashboard' })).not.toBeInTheDocument();
 
   fireEvent.change(screen.getByLabelText('Output'), { target: { value: 'Service metrics' } });
+  fireEvent.change(screen.getByLabelText('Run scope'), { target: { value: 'prod' } });
 
   await waitFor(() => {
     expect(screen.getByLabelText('Section')).toHaveValue('service-metrics');
     expect(screen.getByLabelText('Entry')).toHaveValue('dashboard-sample');
   });
   expect(screen.getByText('Pipeline output')).toBeVisible();
+  expect(screen.getAllByText('Run scope').length).toBeGreaterThan(0);
+  expect(screen.getAllByText('prod').length).toBeGreaterThan(0);
   expect(screen.getByText('24h')).toBeVisible();
 });
 
@@ -298,6 +315,7 @@ function SourceModalHarness({
       sources={[]}
       publications={[]}
       pipelines={['team-1/dashboard-sample']}
+      scopeOptions={['', 'prod']}
       saving={false}
       error={null}
       loadPipelineOutputs={loadPipelineOutputs}

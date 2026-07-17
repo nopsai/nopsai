@@ -145,7 +145,7 @@ Supported dashboard capabilities:
 - source-binding discovery from pipeline output declarations during API saves
   and config sync
 - current publication storage with immutable run, run-output, pipeline, output,
-  section, and entry-key provenance
+  section, entry-key, and exact run-scope provenance
 - publication history and stale-state metadata
 - protection against unsafe generated HTML/CSS/JavaScript, executable links,
   iframes, forms, external scripts, oversized tables, oversized text, and
@@ -170,10 +170,12 @@ Supported dashboard capabilities:
   collapse/expand, section latest-run history for failed refresh/publication
   attempts, dashboard-edit section management, dashboard create/edit/delete,
   existing-team dashboard creation, dashboard-level pipeline assignment filtered
-  to pipeline dashboard outputs, generated sections/source bindings,
+  to pipeline dashboard outputs with per-pipeline run-scope selection,
+  generated sections/source bindings,
   extra-wide dashboard/section/refresh/schedule modals, in-app delete confirmation,
   access-aligned sharing, and guided source editing with larger review from
-  dashboard sections, pipeline catalog entries, pipeline dashboard outputs, and entry keys,
+  dashboard sections, pipeline catalog entries, pipeline dashboard outputs,
+  run scopes, and entry keys,
   empty/error/loading/permission states, responsive tables, and chart rendering
 - Prometheus publication, refresh, render, staleness, and series-point metrics
   plus hosted MCP dashboard read and confirmed refresh/schedule-run tools
@@ -693,6 +695,8 @@ Operational support already in the code:
 - dedicated runner capacities and scope declarations
 - Kubernetes runner one-time install commands, GitOps manifests, namespace-scoped RBAC, agent-owned PVC workspaces, runtime pools, and agent-to-step node-affinity controls
 - dispatcher queue visibility
+- durable pending-run recovery that resubmits eligible queued pipeline runs after
+  dispatcher restarts or runner outages
 - active runner metadata display
 - active-run inspection from runner metadata
 - data backups for full database, runs, or logs, stored as downloadable compressed JSONL files
