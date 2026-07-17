@@ -114,19 +114,27 @@ schemes, HTML/CSS/JavaScript/iframes/forms/executable links, object or array
 table cells, invalid keys, unsupported chart types, non-finite values, too many
 series or points, and oversized content before publication is persisted. Chart
 types are `line`, `bar`, `area`, `pie`, and `donut`; `series` blocks support
-line, bar, and area charts.
+line, bar, and area charts. A declared chart series may have an empty `points`
+array so the UI can render an empty-state chart instead of rejecting otherwise
+valid generated output.
 
 Generated dashboard output is normalized before strict validation for common
 LLM wrappers: a top-level `widgets` array, `sections[].blocks`,
 `sections[].widgets`, or section-like entries inside `blocks` with nested
 `blocks`/`widgets` are folded into the required flat top-level `blocks` array.
 Generated `properties` arrays or objects are folded into `items`, and display
-item or point `key` aliases are folded into `label`. The renderer contract
-remains the flat `DashboardSpec` shape above, and block fields still use strict
-validation. If generated content omits the root title, NopsAI derives one from
-the first block title or label and otherwise uses `Dashboard output`. Missing,
-numeric `1`, and `1.0` generated versions are normalized to the current
-`DashboardSpec` version `1`; other versions remain invalid.
+item or point `key` aliases are folded into `label`. Common model chart aliases
+are also normalized: `type_name`/`typeName` become `type`, `chartType` or
+`chart_type` become `chart.type`, chart block type aliases such as `bar` or
+`line` become canonical `chart` blocks, and block-level `series` is moved under
+`chart.series` for chart blocks. `data` and `points` aliases at the root, block,
+chart, or series level are normalized into `chart.series[].points` based on
+whether the payload looks like series objects or raw points. The renderer
+contract remains the flat `DashboardSpec` shape above, and block fields still
+use strict validation. If generated content omits the root title, NopsAI
+derives one from the first block title or label and otherwise uses `Dashboard
+output`. Missing, numeric `1`, and `1.0` generated versions are normalized to
+the current `DashboardSpec` version `1`; other versions remain invalid.
 
 ## Example: Intent-Driven Dashboard Publication
 
@@ -187,7 +195,10 @@ output and structured JSON/NDJSON, is authoritative for business facts such as
 artifact names, versions, durations, services, and subjects. Runtime/container
 metadata, image-pull logs, and prior run history must not replace values that
 are present in the emitted step output. NopsAI then validates and repairs the
-generated `DashboardSpec` before publication.
+generated `DashboardSpec` before publication. Each output item is generated
+with its own output name, dashboard ref, section, entry key, publication mode,
+and preset, so a single pipeline can publish multiple dashboard entries without
+collapsing them into one generic summary.
 
 For example, this is enough for a dashboard output prompt:
 
@@ -308,10 +319,18 @@ sources run. Refresh status is `complete`, `partial`, `failed`, `cancelled`, or
 `timed_out`, with per-source progress and retry failed support. Refreshes can
 be triggered manually, by API, by assistant, or by schedules.
 
-Dashboard refreshes launch each selected source using that source binding's
-`run_scope`. A refresh request or schedule may set `run_scope` to override the
-source scopes for that run, but publication still requires an enabled source
-binding with the same exact scope.
+Dashboard refreshes group selected source bindings by effective `pipeline_id`
+and `run_scope`. One pipeline run is launched for each unique group, even when
+that pipeline publishes several outputs into the same dashboard. The refresh
+keeps one progress row per source binding so sections can track their own
+dashboard output generation, publication success, and publication failure. The
+progress row follows the matching `pipeline_run_outputs` item, so a successful
+pipeline run does not mark the dashboard source successful unless its dashboard
+output was generated and published. If a finished pipeline run never produces
+the expected output item, reconciliation marks the source failed instead of
+leaving it stuck as generating. A refresh request or schedule may set
+`run_scope` to override the source scopes for that run, but publication still
+requires an enabled source binding with the same exact scope.
 
 Refresh schedules run under a dashboard-owned service account. A schedule
 stores cron, timezone, enabled state, strict/best-effort mode, scope,
@@ -375,8 +394,11 @@ dashboard-edit flows rather than per-section action menus. Editing a section
 updates its title, description, and display order while keeping `section_key`
 stable. Deleting a section also removes its source bindings, current
 publications, publication events, and section-scoped refresh schedules. When a
-refresh is running, each section with queued or running source pipelines shows an
-inline running-state panel with source status and direct run links.
+refresh is running, each section with queued or generating dashboard outputs
+shows an inline generation panel with output status and direct run links to the
+single pipeline run that is producing those outputs. Operators with dashboard
+write access can cancel the active refresh from that panel; cancellation also
+marks pending or generating dashboard final outputs as cancelled.
 
 Refresh actions open an extra-wide modal with separate target and execution
 guardrail sections. The modal explains dashboard, section, and source scope;

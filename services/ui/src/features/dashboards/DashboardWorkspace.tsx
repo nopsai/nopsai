@@ -305,6 +305,7 @@ export function DashboardWorkspace({
                     onDeleteSchedule={onDeleteSchedule}
                     onToggleSchedule={onToggleSchedule}
                     onRunSchedule={onRunSchedule}
+                    onCancelRefresh={onCancelRefresh}
                   />
                 );
               })}
@@ -437,6 +438,7 @@ function DashboardSectionSurface({
   onDeleteSchedule,
   onToggleSchedule,
   onRunSchedule,
+  onCancelRefresh,
 }: {
   section: DashboardSection;
   publications: DashboardPublication[];
@@ -461,6 +463,7 @@ function DashboardSectionSurface({
   onDeleteSchedule: (schedule: DashboardRefreshSchedule) => void;
   onToggleSchedule: (schedule: DashboardRefreshSchedule, enabled: boolean) => void;
   onRunSchedule: (schedule: DashboardRefreshSchedule) => void;
+  onCancelRefresh: (refresh: DashboardRefresh) => void;
 }) {
   return (
     <section className="space-y-3">
@@ -495,7 +498,11 @@ function DashboardSectionSurface({
       </div>
 
       {activeSources.length > 0 ? (
-        <SectionRunningSources sources={activeSources} />
+        <SectionRunningSources
+          sources={activeSources}
+          saving={saving}
+          onCancelRefresh={canWriteDashboards && activeRefresh ? () => onCancelRefresh(activeRefresh) : undefined}
+        />
       ) : null}
 
       {collapsed ? null : publications.length === 0 ? (
@@ -564,23 +571,42 @@ function PublicationCard({ publication }: { publication: DashboardPublication })
   );
 }
 
-function SectionRunningSources({ sources }: { sources: NonNullable<DashboardRefresh['sources']> }) {
+function SectionRunningSources({
+  sources,
+  saving,
+  onCancelRefresh,
+}: {
+  sources: NonNullable<DashboardRefresh['sources']>;
+  saving: boolean;
+  onCancelRefresh?: () => void;
+}) {
   return (
     <div className="rounded-md border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900 shadow-sm dark:border-sky-800/60 dark:bg-sky-950/30 dark:text-sky-100">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div className="flex min-w-0 items-start gap-2">
           <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
           <div className="min-w-0">
-            <div className="font-semibold">{sources.length === 1 ? 'Pipeline source running' : `${sources.length} pipeline sources running`}</div>
-            <div className="mt-1 text-xs opacity-80">This section is being refreshed. New publications will appear here when source runs finish.</div>
+            <div className="font-semibold">{sources.length === 1 ? 'Dashboard output generating' : `${sources.length} dashboard outputs generating`}</div>
+            <div className="mt-1 text-xs opacity-80">This section is waiting for dashboard output publication. One pipeline run can generate multiple section outputs.</div>
+            {onCancelRefresh ? (
+              <button
+                type="button"
+                className="mt-3 inline-flex h-8 items-center gap-2 rounded-md border border-rose-200 bg-white/80 px-3 text-xs font-semibold text-rose-700 shadow-sm transition hover:border-rose-300 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-800/70 dark:bg-rose-950/20 dark:text-rose-100 dark:hover:bg-rose-950/40"
+                onClick={onCancelRefresh}
+                disabled={saving}
+              >
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
+                Cancel refresh
+              </button>
+            ) : null}
           </div>
         </div>
         <div className="grid min-w-0 gap-2 md:min-w-[360px]">
           {sources.map(source => (
             <div key={source.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-md bg-white/70 px-3 py-2 dark:bg-slate-900/40">
               <div className="min-w-0">
-                <div className="truncate text-xs font-semibold">{source.pipeline_id}</div>
-                <div className="truncate text-xs opacity-80">{source.output_name} / {runScopeLabel(source.run_scope)}</div>
+                <div className="truncate text-xs font-semibold">{source.output_name || source.entry_key || 'Dashboard output'}</div>
+                <div className="truncate text-xs opacity-80">{source.pipeline_id} / {source.entry_key || 'default entry'} / {runScopeLabel(source.run_scope)}</div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <StatusBadge status={source.status} />
@@ -1204,8 +1230,8 @@ function sectionRunHistoryItems(refreshes: DashboardRefresh[], history: Dashboar
         id: `run-${refresh.id}-${source.id}`,
         type: 'run',
         status: source.status || refresh.status,
-        title: source.pipeline_id,
-        subtitle: `${source.output_name}${source.entry_key ? ` / ${source.entry_key}` : ''} / ${runScopeLabel(source.run_scope)} / ${source.required ? 'required' : 'optional'} / ${refresh.trigger_type}`,
+        title: source.output_name || source.entry_key || 'Dashboard output',
+        subtitle: `${source.pipeline_id}${source.entry_key ? ` / ${source.entry_key}` : ''} / ${runScopeLabel(source.run_scope)} / ${source.required ? 'required' : 'optional'} / ${refresh.trigger_type}`,
         timestamp: source.finished_at || source.started_at || source.updated_at || source.created_at || refresh.updated_at || refresh.created_at,
         runID: source.run_id,
         refreshID: refresh.id,

@@ -38,6 +38,12 @@ type dashboardRefreshSourcePlan struct {
 	Launch bool
 }
 
+type dashboardRefreshLaunchGroup struct {
+	PipelineID string
+	RunScope   string
+	Sources    []dashboardSourceRecord
+}
+
 func (a *App) startDashboardRefresh(ctx context.Context, dashboard dashboardRecord, input dashboardRefreshInput, subject aaamodel.Subject) (dashboardRefreshResponse, error) {
 	if a == nil || a.db == nil {
 		return dashboardRefreshResponse{}, dashboardRefreshHTTPError{StatusCode: http.StatusServiceUnavailable, Message: "database unavailable"}
@@ -242,10 +248,7 @@ func (a *App) createDashboardRefreshRecord(ctx context.Context, dashboard dashbo
 		return "", false, err
 	}
 	for _, plan := range plans {
-		runScope := plan.Source.RunScope
-		if strings.TrimSpace(input.RunScope) != "" {
-			runScope = input.RunScope
-		}
+		runScope := dashboardRefreshEffectiveRunScope(input, plan.Source)
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO dashboard_refresh_pipeline_runs (
 				refresh_id, dashboard_id, source_binding_id, pipeline_id, output_name,
@@ -310,59 +313,108 @@ func (a *App) findDashboardRefreshByIdempotency(ctx context.Context, dashboardID
 }
 
 func (a *App) launchDashboardRefreshSources(ctx context.Context, dashboard dashboardRecord, refreshID string, input dashboardRefreshInput, subject aaamodel.Subject, plans []dashboardRefreshSourcePlan) {
+	groups := groupDashboardRefreshLaunchSources(input, plans)
+	if len(groups) == 0 {
+		return
+	}
 	concurrency := input.MaxConcurrency
 	if concurrency <= 0 {
 		concurrency = dashboardRefreshDefaultConcurrency
 	}
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
-	for _, plan := range plans {
-		if !plan.Launch {
-			continue
-		}
-		plan := plan
+	for _, group := range groups {
+		group := group
 		wg.Add(1)
 		sem <- struct{}{}
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			runID, err := a.launchDashboardRefreshSource(ctx, dashboard, refreshID, input, subject, plan.Source)
+			runID, err := a.launchDashboardRefreshSource(ctx, dashboard, refreshID, input, subject, group)
 			if err != nil {
-				if _, updateErr := a.db.Exec(ctx, `
-					UPDATE dashboard_refresh_pipeline_runs
-					SET status = 'failed',
-						error = $3,
-						finished_at = NOW(),
-						updated_at = NOW()
-					WHERE refresh_id::text = $1 AND source_binding_id::text = $2
-				`, refreshID, plan.Source.ID, err.Error()); updateErr != nil {
-					log.Warn().Err(updateErr).Str("refresh_id", refreshID).Str("source_id", plan.Source.ID).Msg("Failed to mark dashboard refresh source failed")
+				if updateErr := a.markDashboardRefreshLaunchGroupFailed(ctx, refreshID, group, err.Error()); updateErr != nil {
+					log.Warn().Err(updateErr).Str("refresh_id", refreshID).Str("pipeline_id", group.PipelineID).Str("run_scope", group.RunScope).Msg("Failed to mark dashboard refresh launch group failed")
 				}
 				return
 			}
-			if _, err := a.db.Exec(ctx, `
-				UPDATE dashboard_refresh_pipeline_runs
-				SET status = 'running',
-					run_id = $3::uuid,
-					started_at = COALESCE(started_at, NOW()),
-					error = '',
-					updated_at = NOW()
-				WHERE refresh_id::text = $1 AND source_binding_id::text = $2
-			`, refreshID, plan.Source.ID, runID); err != nil {
-				log.Warn().Err(err).Str("refresh_id", refreshID).Str("source_id", plan.Source.ID).Str("run_id", runID).Msg("Failed to link dashboard refresh run")
+			if err := a.linkDashboardRefreshLaunchGroupRun(ctx, refreshID, group, runID); err != nil {
+				log.Warn().Err(err).Str("refresh_id", refreshID).Str("pipeline_id", group.PipelineID).Str("run_scope", group.RunScope).Str("run_id", runID).Msg("Failed to link dashboard refresh run")
 			}
 		}()
 	}
 	wg.Wait()
 }
 
-func (a *App) launchDashboardRefreshSource(ctx context.Context, dashboard dashboardRecord, refreshID string, input dashboardRefreshInput, subject aaamodel.Subject, source dashboardSourceRecord) (string, error) {
-	runScope := source.RunScope
-	if strings.TrimSpace(input.RunScope) != "" {
-		runScope = input.RunScope
+func groupDashboardRefreshLaunchSources(input dashboardRefreshInput, plans []dashboardRefreshSourcePlan) []dashboardRefreshLaunchGroup {
+	groups := make([]dashboardRefreshLaunchGroup, 0, len(plans))
+	indexByKey := map[string]int{}
+	for _, plan := range plans {
+		if !plan.Launch {
+			continue
+		}
+		runScope := dashboardRefreshEffectiveRunScope(input, plan.Source)
+		key := dashboardRefreshLaunchKey(plan.Source.PipelineID, runScope)
+		if index, ok := indexByKey[key]; ok {
+			groups[index].Sources = append(groups[index].Sources, plan.Source)
+			continue
+		}
+		indexByKey[key] = len(groups)
+		groups = append(groups, dashboardRefreshLaunchGroup{
+			PipelineID: plan.Source.PipelineID,
+			RunScope:   runScope,
+			Sources:    []dashboardSourceRecord{plan.Source},
+		})
 	}
+	return groups
+}
+
+func dashboardRefreshEffectiveRunScope(input dashboardRefreshInput, source dashboardSourceRecord) string {
+	if strings.TrimSpace(input.RunScope) != "" {
+		return strings.Trim(strings.TrimSpace(input.RunScope), "/")
+	}
+	return strings.Trim(strings.TrimSpace(source.RunScope), "/")
+}
+
+func dashboardRefreshLaunchKey(pipelineID, runScope string) string {
+	return strings.TrimSpace(pipelineID) + "\x00" + strings.Trim(strings.TrimSpace(runScope), "/")
+}
+
+func (a *App) linkDashboardRefreshLaunchGroupRun(ctx context.Context, refreshID string, group dashboardRefreshLaunchGroup, runID string) error {
+	for _, source := range group.Sources {
+		if _, err := a.db.Exec(ctx, `
+			UPDATE dashboard_refresh_pipeline_runs
+			SET run_id = $3::uuid,
+				started_at = COALESCE(started_at, NOW()),
+				error = '',
+				updated_at = NOW()
+			WHERE refresh_id::text = $1 AND source_binding_id::text = $2
+		`, refreshID, source.ID, runID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *App) markDashboardRefreshLaunchGroupFailed(ctx context.Context, refreshID string, group dashboardRefreshLaunchGroup, message string) error {
+	for _, source := range group.Sources {
+		if _, err := a.db.Exec(ctx, `
+			UPDATE dashboard_refresh_pipeline_runs
+			SET status = 'failed',
+				error = $3,
+				finished_at = NOW(),
+				updated_at = NOW()
+			WHERE refresh_id::text = $1 AND source_binding_id::text = $2
+		`, refreshID, source.ID, message); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *App) launchDashboardRefreshSource(ctx context.Context, dashboard dashboardRecord, refreshID string, input dashboardRefreshInput, subject aaamodel.Subject, group dashboardRefreshLaunchGroup) (string, error) {
+	runScope := group.RunScope
 	payload := runRequestPayload{
-		Pipeline:  source.PipelineID,
+		Pipeline:  group.PipelineID,
 		Scope:     runScope,
 		Variables: input.Variables,
 	}
@@ -378,7 +430,7 @@ func (a *App) launchDashboardRefreshSource(ctx context.Context, dashboard dashbo
 	req.Header.Set("X-Nopsai-Caller-ID", subjectID)
 	req.Header.Set("X-Nopsai-Trigger-Source", dashboardRefreshTriggerSource)
 	req.Header.Set("X-Nopsai-Pipeline-Source", dashboardRefreshTriggerSource)
-	req.Header.Set("X-Nopsai-Trigger-Event-ID", fmt.Sprintf("dashboard-refresh:%s:%s", refreshID, source.ID))
+	req.Header.Set("X-Nopsai-Trigger-Event-ID", fmt.Sprintf("dashboard-refresh:%s:%s:%s", refreshID, group.PipelineID, group.RunScope))
 	req.Header.Set("X-Nopsai-Dashboard-Refresh-ID", refreshID)
 	if strings.TrimSpace(runScope) != "" {
 		req.Header.Set("X-Nopsai-Scope", runScope)
@@ -479,9 +531,23 @@ func (a *App) reconcileDashboardRefresh(ctx context.Context, dashboard dashboard
 
 func (a *App) reconcileDashboardRefreshRunRows(ctx context.Context, refreshID string) error {
 	rows, err := a.db.Query(ctx, `
-		SELECT drr.id::text, COALESCE(drr.run_id::text, ''), drr.status, COALESCE(pr.status, '')
+		SELECT drr.id::text,
+		       COALESCE(drr.run_id::text, ''),
+		       drr.status,
+		       COALESCE(pr.status, ''),
+		       COALESCE(pro.status, ''),
+		       COALESCE(pro.error, ''),
+		       COALESCE(pr.finished_at <= NOW() - INTERVAL '30 seconds', FALSE)
 		FROM dashboard_refresh_pipeline_runs drr
 		LEFT JOIN pipeline_runs pr ON pr.run_id = drr.run_id
+		LEFT JOIN LATERAL (
+			SELECT status, error
+			FROM pipeline_run_outputs
+			WHERE run_id = drr.run_id
+			  AND name = drr.output_name
+			ORDER BY item_index ASC
+			LIMIT 1
+		) pro ON TRUE
 		WHERE drr.refresh_id::text = $1
 	`, refreshID)
 	if err != nil {
@@ -495,20 +561,17 @@ func (a *App) reconcileDashboardRefreshRunRows(ctx context.Context, refreshID st
 	}
 	var updates []update
 	for rows.Next() {
-		var id, runID, currentStatus, runStatus string
-		if err := rows.Scan(&id, &runID, &currentStatus, &runStatus); err != nil {
+		var id, runID, currentStatus, runStatus, outputStatus, outputError string
+		var runFinishedStale bool
+		if err := rows.Scan(&id, &runID, &currentStatus, &runStatus, &outputStatus, &outputError, &runFinishedStale); err != nil {
 			return err
 		}
 		if dashboardRefreshRunTerminal(currentStatus) || runID == "" || runStatus == "" {
 			continue
 		}
-		nextStatus := dashboardRefreshRunStatusFromPipelineStatus(runStatus)
+		nextStatus, message := dashboardRefreshRunStatusFromPipelineOutputStatus(runStatus, outputStatus, outputError, runFinishedStale)
 		if nextStatus == "" || nextStatus == currentStatus {
 			continue
-		}
-		message := ""
-		if nextStatus == dashboardRefreshRunStatusFailed {
-			message = "pipeline run failed"
 		}
 		updates = append(updates, update{id: id, status: nextStatus, error: message})
 	}
@@ -516,6 +579,10 @@ func (a *App) reconcileDashboardRefreshRunRows(ctx context.Context, refreshID st
 		return err
 	}
 	for _, item := range updates {
+		startedExpr := "started_at"
+		if item.status == dashboardRefreshRunStatusRunning || dashboardRefreshRunTerminal(item.status) {
+			startedExpr = "COALESCE(started_at, NOW())"
+		}
 		finishedExpr := "finished_at"
 		if dashboardRefreshRunTerminal(item.status) {
 			finishedExpr = "COALESCE(finished_at, NOW())"
@@ -524,10 +591,11 @@ func (a *App) reconcileDashboardRefreshRunRows(ctx context.Context, refreshID st
 			UPDATE dashboard_refresh_pipeline_runs
 			SET status = $2,
 				error = CASE WHEN $3 = '' THEN error ELSE $3 END,
+				started_at = %s,
 				finished_at = %s,
 				updated_at = NOW()
 			WHERE id::text = $1
-		`, finishedExpr), item.id, item.status, item.error)
+		`, startedExpr, finishedExpr), item.id, item.status, item.error)
 		if err != nil {
 			return err
 		}
@@ -535,10 +603,41 @@ func (a *App) reconcileDashboardRefreshRunRows(ctx context.Context, refreshID st
 	return nil
 }
 
+func dashboardRefreshRunStatusFromPipelineOutputStatus(runStatus, outputStatus, outputError string, runFinishedStale bool) (string, string) {
+	switch strings.ToLower(strings.TrimSpace(outputStatus)) {
+	case finalOutputStatusPending, finalOutputStatusRunning:
+		return dashboardRefreshRunStatusRunning, ""
+	case finalOutputStatusSuccess:
+		return dashboardRefreshRunStatusSuccess, ""
+	case finalOutputStatusFailure:
+		if message := strings.TrimSpace(outputError); message != "" {
+			return dashboardRefreshRunStatusFailed, message
+		}
+		return dashboardRefreshRunStatusFailed, "dashboard output generation failed"
+	case finalOutputStatusCancelled:
+		return dashboardRefreshRunStatusCancelled, "dashboard output generation cancelled"
+	}
+
+	switch nextStatus := dashboardRefreshRunStatusFromPipelineStatus(runStatus); nextStatus {
+	case dashboardRefreshRunStatusFailed:
+		return nextStatus, "pipeline run failed"
+	case dashboardRefreshRunStatusCancelled:
+		return nextStatus, "pipeline run cancelled"
+	case dashboardRefreshRunStatusTimedOut:
+		return nextStatus, "pipeline run timed out"
+	case dashboardRefreshRunStatusSkipped:
+		return nextStatus, "pipeline run skipped"
+	}
+	if strings.EqualFold(strings.TrimSpace(runStatus), "success") && runFinishedStale {
+		return dashboardRefreshRunStatusFailed, "pipeline run completed without producing dashboard output"
+	}
+	return "", ""
+}
+
 func dashboardRefreshRunStatusFromPipelineStatus(status string) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "success":
-		return dashboardRefreshRunStatusSuccess
+		return ""
 	case "failure", "failure (ignored)", "rejected":
 		return dashboardRefreshRunStatusFailed
 	case "cancelled":
@@ -548,7 +647,7 @@ func dashboardRefreshRunStatusFromPipelineStatus(status string) string {
 	case "skipped":
 		return dashboardRefreshRunStatusSkipped
 	case "pending", "running", "waiting_approval":
-		return dashboardRefreshRunStatusRunning
+		return ""
 	default:
 		return ""
 	}
@@ -635,6 +734,9 @@ func (a *App) cancelDashboardRefresh(ctx context.Context, dashboard dashboardRec
 	if err != nil {
 		return dashboardRefreshResponse{}, err
 	}
+	if err := a.cancelDashboardRefreshFinalOutputs(ctx, refreshID); err != nil {
+		log.Warn().Err(err).Str("refresh_id", refreshID).Msg("Failed to cancel dashboard refresh final outputs")
+	}
 	if _, err := a.db.Exec(ctx, `
 		UPDATE dashboard_refresh_pipeline_runs
 		SET status = 'cancelled',
@@ -667,6 +769,37 @@ func (a *App) cancelDashboardRefresh(ctx context.Context, dashboard dashboardRec
 		return dashboardRefreshResponse{}, err
 	}
 	return a.getDashboardRefreshResponse(ctx, dashboard, refreshID)
+}
+
+func (a *App) cancelDashboardRefreshFinalOutputs(ctx context.Context, refreshID string) error {
+	if a == nil || a.db == nil {
+		return nil
+	}
+	rows, err := a.db.Query(ctx, `
+		UPDATE pipeline_run_outputs pro
+		SET status = 'cancelled',
+			error = CASE WHEN pro.error = '' THEN 'cancelled by dashboard refresh' ELSE pro.error END,
+			updated_at = NOW()
+		FROM dashboard_refresh_pipeline_runs drr
+		WHERE drr.refresh_id::text = $1
+		  AND drr.run_id = pro.run_id
+		  AND drr.output_name = pro.name
+		  AND drr.status IN ('queued', 'running')
+		  AND pro.status IN ('pending', 'generating')
+		RETURNING pro.id::text
+	`, refreshID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var outputID string
+		if err := rows.Scan(&outputID); err != nil {
+			return err
+		}
+		a.cancelActivePipelineFinalOutputGeneration(outputID)
+	}
+	return rows.Err()
 }
 
 func (a *App) activeDashboardRefreshRunIDs(ctx context.Context, refreshID string) ([]string, error) {
@@ -733,6 +866,96 @@ func (a *App) retryFailedDashboardRefreshSources(ctx context.Context, dashboard 
 		Timeout:        dashboardRefreshDefaultTimeout,
 	}
 	return a.startDashboardRefresh(ctx, dashboard, input, subject)
+}
+
+func (a *App) markDashboardRefreshOutputGenerating(ctx context.Context, runID string, output pipelineFinalOutputRecord) error {
+	return a.markDashboardRefreshOutputStatus(ctx, "", runID, output, nil, dashboardRefreshRunStatusRunning, "")
+}
+
+func (a *App) markDashboardRefreshOutputPublished(ctx context.Context, refreshID, runID string, output pipelineFinalOutputRecord, target dashboardPublicationTarget) error {
+	return a.markDashboardRefreshOutputStatus(ctx, refreshID, runID, output, &target, dashboardRefreshRunStatusSuccess, "")
+}
+
+func (a *App) markDashboardRefreshOutputFailed(ctx context.Context, runID string, output pipelineFinalOutputRecord, cause error) error {
+	message := "dashboard output generation failed"
+	if cause != nil && strings.TrimSpace(cause.Error()) != "" {
+		message = strings.TrimSpace(cause.Error())
+	}
+	return a.markDashboardRefreshOutputStatus(ctx, "", runID, output, nil, dashboardRefreshRunStatusFailed, message)
+}
+
+func (a *App) markDashboardRefreshOutputCancelled(ctx context.Context, runID string, output pipelineFinalOutputRecord) error {
+	return a.markDashboardRefreshOutputStatus(ctx, "", runID, output, nil, dashboardRefreshRunStatusCancelled, "dashboard output generation cancelled")
+}
+
+func (a *App) markDashboardRefreshOutputSkipped(ctx context.Context, refreshID, runID string, output pipelineFinalOutputRecord, target dashboardPublicationTarget, reason string) error {
+	if strings.TrimSpace(reason) == "" {
+		reason = "dashboard output was not published"
+	}
+	return a.markDashboardRefreshOutputStatus(ctx, refreshID, runID, output, &target, dashboardRefreshRunStatusFailed, reason)
+}
+
+func (a *App) markDashboardRefreshOutputStatus(ctx context.Context, refreshID, runID string, output pipelineFinalOutputRecord, target *dashboardPublicationTarget, status, message string) error {
+	if a == nil || a.db == nil {
+		return nil
+	}
+	runID = strings.TrimSpace(runID)
+	outputName := strings.TrimSpace(output.Name)
+	status = strings.TrimSpace(status)
+	if runID == "" || outputName == "" || status == "" {
+		return nil
+	}
+	if strings.TrimSpace(refreshID) == "" {
+		found, err := a.dashboardRefreshIDForRun(ctx, runID)
+		if err != nil {
+			return err
+		}
+		refreshID = found
+	}
+	refreshID = strings.TrimSpace(refreshID)
+	if refreshID == "" {
+		return nil
+	}
+	if target == nil {
+		if normalized, err := normalizeDashboardPublicationTarget(output); err == nil {
+			target = &normalized
+		}
+	}
+
+	startedExpr := "started_at"
+	if status == dashboardRefreshRunStatusRunning || dashboardRefreshRunTerminal(status) {
+		startedExpr = "COALESCE(started_at, NOW())"
+	}
+	finishedExpr := "finished_at"
+	if dashboardRefreshRunTerminal(status) {
+		finishedExpr = "COALESCE(finished_at, NOW())"
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE dashboard_refresh_pipeline_runs
+		SET status = $4,
+			error = $5,
+			started_at = %s,
+			finished_at = %s,
+			updated_at = NOW()
+		WHERE refresh_id::text = $1
+		  AND run_id::text = $2
+		  AND output_name = $3
+	`, startedExpr, finishedExpr)
+	args := []any{refreshID, runID, outputName, status, strings.TrimSpace(message)}
+	if target != nil {
+		query += " AND section_key = $6 AND (entry_key = $7 OR entry_key = '')"
+		args = append(args, target.Section, target.EntryKey)
+	}
+	tag, err := a.db.Exec(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil
+	}
+	_, err = a.updateDashboardRefreshRollup(ctx, refreshID)
+	return err
 }
 
 func (a *App) getDashboardRefreshRecord(ctx context.Context, dashboard dashboardRecord, refreshID string) (dashboardRefreshRecord, error) {

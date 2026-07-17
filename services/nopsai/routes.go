@@ -370,6 +370,7 @@ func (a *App) registerRunRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/runs/{runID}/approvals/{approvalID}/approve", a.handleApproveRunApproval)
 	mux.HandleFunc("POST /v1/runs/{runID}/approvals/{approvalID}/reject", a.handleRejectRunApproval)
 	mux.HandleFunc("GET /v1/runs/{runID}/outputs/{outputID}/download", a.handleDownloadRunFinalOutput)
+	mux.HandleFunc("POST /v1/runs/{runID}/outputs/{outputID}/cancel", a.handleCancelRunFinalOutput)
 	mux.HandleFunc("GET /v1/runs/{runID}", a.handleGetRunDetails)
 	mux.HandleFunc("DELETE /v1/runs/{runID}", a.handleDeleteRun)
 	mux.HandleFunc("GET /v1/runs-by-check/{checkRunID}", a.handleGetRunByCheckID)

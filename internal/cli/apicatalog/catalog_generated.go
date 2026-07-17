@@ -198,6 +198,7 @@ var generatedRoutes = []Route{
 	newRoute("POST", "/v1/runs/{runID}/finalize"),
 	newRoute("GET", "/v1/runs/{runID}/logs"),
 	newRoute("POST", "/v1/runs/{runID}/logs/ingest"),
+	newRoute("POST", "/v1/runs/{runID}/outputs/{outputID}/cancel"),
 	newRoute("GET", "/v1/runs/{runID}/outputs/{outputID}/download"),
 	newRoute("POST", "/v1/runs/{runID}/rerun"),
 	newRoute("GET", "/v1/runs/{runID}/status"),

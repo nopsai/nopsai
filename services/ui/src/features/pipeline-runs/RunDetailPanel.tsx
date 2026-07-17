@@ -53,6 +53,7 @@ export function RunDetailView({
   error,
   onClose,
   onCancel,
+  onCancelOutput,
   onRerun,
   onDelete,
   selectedStep,
@@ -70,6 +71,7 @@ export function RunDetailView({
   error: string | null;
   onClose: () => void;
   onCancel: () => void;
+  onCancelOutput: (outputId: string) => void;
   onRerun: () => void;
   onDelete: () => void;
   selectedStep: string | null;
@@ -352,7 +354,7 @@ export function RunDetailView({
         </div>
       )}
 
-      <RunFinalOutputs runID={run.run_id} outputs={detail.final_outputs} />
+      <RunFinalOutputs runID={run.run_id} outputs={detail.final_outputs} onCancelOutput={onCancelOutput} />
 
       {approvals.length > 0 && (
         <div className="border border-[var(--border-primary)] rounded-2xl bg-white dark:bg-slate-950 p-4 space-y-3 shadow-sm">

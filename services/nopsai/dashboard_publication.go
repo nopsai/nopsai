@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/rs/zerolog/log"
 
 	"nopsai/pkg/models"
 	aaamodel "nopsai/services/aaa/pkg/model"
@@ -101,6 +102,9 @@ func (a *App) publishDashboardFinalOutput(ctx context.Context, runID string, out
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
+	}
+	if err := a.markDashboardRefreshOutputPublished(ctx, target.RefreshID, runID, output, target); err != nil {
+		log.Warn().Err(err).Str("run_id", runID).Str("output_id", output.ID).Str("refresh_id", target.RefreshID).Msg("Failed to mark dashboard refresh output published")
 	}
 	a.auditDashboardAction(ctx, nil, "dashboard.published", dashboard, "success", map[string]any{
 		"run_id":      runID,
@@ -347,7 +351,13 @@ func (a *App) insertDashboardPublicationSkipEvent(
 			$1::uuid, $2, $3, 0, $4, $5::jsonb, $6::uuid, NULLIF($7, '')::uuid
 		)
 	`, dashboardID, target.Section, target.EntryKey, eventType, string(content), runID, target.RefreshID)
-	return err
+	if err != nil {
+		return err
+	}
+	if markErr := a.markDashboardRefreshOutputSkipped(ctx, target.RefreshID, runID, output, target, reason); markErr != nil {
+		log.Warn().Err(markErr).Str("run_id", runID).Str("output_id", output.ID).Str("refresh_id", target.RefreshID).Msg("Failed to mark skipped dashboard refresh output")
+	}
+	return nil
 }
 
 func dashboardRunScopeLabel(scope string) string {

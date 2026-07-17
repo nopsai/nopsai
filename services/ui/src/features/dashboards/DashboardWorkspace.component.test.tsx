@@ -308,7 +308,7 @@ test('section details include failed latest run attempts even without a publicat
   expect(screen.queryByRole('button', { name: 'New schedule' })).not.toBeInTheDocument();
 });
 
-test('dashboard workspace shows running pipeline sources inside their section', () => {
+test('dashboard workspace shows generating dashboard outputs inside their section', () => {
   render(
     <MemoryRouter>
       <DashboardWorkspace
@@ -365,6 +365,6 @@ test('dashboard workspace shows running pipeline sources inside their section', 
     </MemoryRouter>
   );
 
-  expect(screen.getByText('Pipeline source running')).toBeVisible();
+  expect(screen.getByText('Dashboard output generating')).toBeVisible();
   expect(screen.getByRole('link', { name: 'Run run-acti' })).toHaveAttribute('href', '/pipelineruns/recent/run-active-123456');
 });

@@ -27,6 +27,7 @@ const (
 	finalOutputStatusRunning        = "generating"
 	finalOutputStatusSuccess        = "success"
 	finalOutputStatusFailure        = "failure"
+	finalOutputStatusCancelled      = "cancelled"
 	pipelineFinalOutputHistoryLimit = 5
 )
 
@@ -52,6 +53,8 @@ type pipelineFinalOutputLogEvidence struct {
 	Lines  []string
 	Images []pipelineFinalOutputImageEvidence
 }
+
+var errPipelineFinalOutputNotCancellable = errors.New("final output is already complete")
 
 func (a *App) preparePipelineFinalOutputRecords(ctx context.Context, runID string) error {
 	record, err := runquery.LoadRunRecord(ctx, a.db, runID)
@@ -94,19 +97,19 @@ func (a *App) preparePipelineFinalOutputRecords(ctx context.Context, runID strin
 				llm_profile = EXCLUDED.llm_profile,
 				dashboard_target = EXCLUDED.dashboard_target,
 				status = CASE
-					WHEN pipeline_run_outputs.status = 'success' THEN pipeline_run_outputs.status
+					WHEN pipeline_run_outputs.status IN ('success', 'cancelled') THEN pipeline_run_outputs.status
 					ELSE 'pending'
 				END,
 				error = CASE
-					WHEN pipeline_run_outputs.status = 'success' THEN pipeline_run_outputs.error
+					WHEN pipeline_run_outputs.status IN ('success', 'cancelled') THEN pipeline_run_outputs.error
 					ELSE ''
 				END,
 				generation_attempts = CASE
-					WHEN pipeline_run_outputs.status = 'success' THEN pipeline_run_outputs.generation_attempts
+					WHEN pipeline_run_outputs.status IN ('success', 'cancelled') THEN pipeline_run_outputs.generation_attempts
 					ELSE 0
 				END,
 				contract_violations = CASE
-					WHEN pipeline_run_outputs.status = 'success' THEN pipeline_run_outputs.contract_violations
+					WHEN pipeline_run_outputs.status IN ('success', 'cancelled') THEN pipeline_run_outputs.contract_violations
 					ELSE 0
 				END,
 				updated_at = NOW()
@@ -142,6 +145,7 @@ func (a *App) generatePipelineFinalOutputs(ctx context.Context, runID string) {
 		log.Warn().Err(err).Str("run_id", runID).Msg("Failed to build pipeline final output context")
 		for _, output := range outputs {
 			_ = a.markPipelineFinalOutputFailure(ctx, output.ID, err)
+			a.markDashboardRefreshOutputFailureIfDashboard(ctx, runID, output, err)
 		}
 		return
 	}
@@ -159,7 +163,7 @@ func (a *App) loadPipelineFinalOutputsForGeneration(ctx context.Context, runID s
 		       generation_attempts, contract_violations, render_attempts, render_failures,
 		       created_at, updated_at, dashboard_target::text
 		FROM pipeline_run_outputs
-		WHERE run_id = $1 AND status <> 'success'
+		WHERE run_id = $1 AND status IN ('pending', 'generating')
 		ORDER BY item_index ASC, created_at ASC
 	`, runID)
 	if err != nil {
@@ -198,67 +202,234 @@ func (a *App) loadPipelineFinalOutputsForGeneration(ctx context.Context, runID s
 }
 
 func (a *App) generatePipelineFinalOutput(ctx context.Context, runID string, runContext pipelineFinalOutputRunContext, output pipelineFinalOutputRecord) error {
-	if _, err := a.db.Exec(ctx, `
-		UPDATE pipeline_run_outputs
-		SET status = 'generating', error = '', updated_at = NOW()
-		WHERE id = $1 AND status <> 'success'
-	`, output.ID); err != nil {
+	claimed, err := a.claimPipelineFinalOutputForGeneration(ctx, output.ID)
+	if err != nil {
 		return err
+	}
+	if !claimed {
+		return nil
+	}
+	generationCtx, releaseGeneration := a.registerPipelineFinalOutputGeneration(ctx, output.ID)
+	defer releaseGeneration()
+
+	if normalizePipelineFinalOutputType(output.Type) == "dashboard" {
+		if err := a.markDashboardRefreshOutputGenerating(ctx, runID, output); err != nil {
+			log.Warn().Err(err).Str("run_id", runID).Str("output_id", output.ID).Msg("Failed to mark dashboard refresh output generating")
+		}
 	}
 
 	client, err := a.pipelineFinalOutputLLMClient(ctx, output.LLMProfile, runContext.Scope)
 	if err != nil {
 		_ = a.markPipelineFinalOutputFailure(ctx, output.ID, err)
+		a.markDashboardRefreshOutputFailureIfDashboard(ctx, runID, output, err)
 		return err
 	}
 	prompt := buildPipelineFinalOutputPrompt(runContext.Text, output)
-	result, err := generateValidatedPipelineFinalOutput(ctx, client, output.Type, prompt)
+	result, err := generateValidatedPipelineFinalOutput(generationCtx, client, output.Type, prompt)
 	a.recordPipelineFinalOutputAttemptUsage(ctx, runID, output, result)
 	if err != nil {
+		cancelled, cancelErr := a.pipelineFinalOutputCancelled(ctx, output.ID)
+		if cancelErr != nil {
+			return cancelErr
+		}
+		if cancelled {
+			return nil
+		}
 		_ = a.markPipelineFinalOutputFailureWithResult(ctx, output.ID, err, result)
+		a.markDashboardRefreshOutputFailureIfDashboard(ctx, runID, output, err)
 		return err
+	}
+	cancelled, err := a.pipelineFinalOutputCancelled(ctx, output.ID)
+	if err != nil {
+		return err
+	}
+	if cancelled {
+		return nil
 	}
 	if normalizePipelineFinalOutputType(output.Type) == "dashboard" {
 		content, err := a.groundPipelineFinalDashboardOutputContent(ctx, runID, result.Content, output, runContext.LogEvidence)
 		if err != nil {
 			_ = a.markPipelineFinalOutputFailureWithResult(ctx, output.ID, err, result)
+			a.markDashboardRefreshOutputFailureIfDashboard(ctx, runID, output, err)
 			return err
 		}
 		result.Content = content
+		cancelled, err := a.pipelineFinalOutputCancelled(ctx, output.ID)
+		if err != nil {
+			return err
+		}
+		if cancelled {
+			return nil
+		}
 		if err := a.publishDashboardFinalOutput(ctx, runID, output, result.Content); err != nil {
 			_ = a.markPipelineFinalOutputFailureWithResult(ctx, output.ID, err, result)
+			a.markDashboardRefreshOutputFailureIfDashboard(ctx, runID, output, err)
 			return err
 		}
 	}
-	if _, err := a.db.Exec(ctx, `
+	tag, err := a.db.Exec(ctx, `
 		UPDATE pipeline_run_outputs
 		SET status = 'success', content = $2, error = '',
 		    generation_attempts = $3, contract_violations = $4, updated_at = NOW()
-		WHERE id = $1
-	`, output.ID, result.Content, len(result.Attempts), result.ContractViolations); err != nil {
+		WHERE id = $1 AND status <> 'cancelled'
+	`, output.ID, result.Content, len(result.Attempts), result.ContractViolations)
+	if err != nil {
 		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil
 	}
 	return nil
 }
 
-func (a *App) groundPipelineFinalDashboardOutputContent(ctx context.Context, runID, content string, output pipelineFinalOutputRecord, evidence pipelineFinalOutputLogEvidence) (string, error) {
-	if pipelineFinalOutputPromptRequestsImageEvidence(output.Prompt) && len(evidence.Images) == 0 {
-		if logs, err := a.loadPipelineFinalOutputLogExcerpt(ctx, runID); err == nil {
-			evidence = buildPipelineFinalOutputLogEvidence(logs)
+func (a *App) claimPipelineFinalOutputForGeneration(ctx context.Context, outputID string) (bool, error) {
+	tag, err := a.db.Exec(ctx, `
+		UPDATE pipeline_run_outputs
+		SET status = 'generating', error = '', updated_at = NOW()
+		WHERE id = $1 AND status IN ('pending', 'generating')
+	`, outputID)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+func (a *App) registerPipelineFinalOutputGeneration(ctx context.Context, outputID string) (context.Context, func()) {
+	generationCtx, cancel := context.WithCancel(ctx)
+	if a != nil && strings.TrimSpace(outputID) != "" {
+		a.finalOutputCancellers.Store(outputID, cancel)
+	}
+	return generationCtx, func() {
+		cancel()
+		if a != nil && strings.TrimSpace(outputID) != "" {
+			a.finalOutputCancellers.Delete(outputID)
 		}
 	}
+}
+
+func (a *App) pipelineFinalOutputCancelled(ctx context.Context, outputID string) (bool, error) {
+	var status string
+	err := a.db.QueryRow(ctx, `
+		SELECT status
+		FROM pipeline_run_outputs
+		WHERE id = $1
+	`, outputID).Scan(&status)
+	if err != nil {
+		return false, err
+	}
+	return strings.EqualFold(strings.TrimSpace(status), finalOutputStatusCancelled), nil
+}
+
+func (a *App) markDashboardRefreshOutputFailureIfDashboard(ctx context.Context, runID string, output pipelineFinalOutputRecord, cause error) {
+	if normalizePipelineFinalOutputType(output.Type) != "dashboard" {
+		return
+	}
+	if err := a.markDashboardRefreshOutputFailed(ctx, runID, output, cause); err != nil {
+		log.Warn().Err(err).Str("run_id", runID).Str("output_id", output.ID).Msg("Failed to mark dashboard refresh output failed")
+	}
+}
+
+func (a *App) cancelPipelineFinalOutput(ctx context.Context, runID, outputID string) (pipelineFinalOutputRecord, error) {
+	output, err := a.updatePipelineFinalOutputCancelled(ctx, runID, outputID)
+	if err == nil {
+		a.cancelActivePipelineFinalOutputGeneration(output.ID)
+		a.markDashboardRefreshOutputCancelledIfDashboard(ctx, runID, output)
+		return output, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return pipelineFinalOutputRecord{}, err
+	}
+	output, err = a.loadPipelineFinalOutputRecord(ctx, runID, outputID)
+	if err != nil {
+		return pipelineFinalOutputRecord{}, err
+	}
+	if strings.EqualFold(strings.TrimSpace(output.Status), finalOutputStatusCancelled) {
+		a.cancelActivePipelineFinalOutputGeneration(output.ID)
+		return output, nil
+	}
+	return pipelineFinalOutputRecord{}, errPipelineFinalOutputNotCancellable
+}
+
+func (a *App) cancelActivePipelineFinalOutputGeneration(outputID string) {
+	if a == nil || strings.TrimSpace(outputID) == "" {
+		return
+	}
+	value, ok := a.finalOutputCancellers.Load(outputID)
+	if !ok {
+		return
+	}
+	if cancel, ok := value.(context.CancelFunc); ok {
+		cancel()
+	}
+}
+
+func (a *App) updatePipelineFinalOutputCancelled(ctx context.Context, runID, outputID string) (pipelineFinalOutputRecord, error) {
+	return scanPipelineFinalOutputRecord(a.db.QueryRow(ctx, `
+		UPDATE pipeline_run_outputs
+		SET status = 'cancelled',
+			error = 'cancelled by user',
+			updated_at = NOW()
+		WHERE run_id::text = $1
+		  AND id::text = $2
+		  AND status IN ('pending', 'generating')
+		RETURNING id::text, item_index, name, type, prompt, llm_profile, status, content, error,
+		       generation_attempts, contract_violations, render_attempts, render_failures,
+		       created_at, updated_at, dashboard_target::text
+	`, runID, outputID))
+}
+
+func (a *App) loadPipelineFinalOutputRecord(ctx context.Context, runID, outputID string) (pipelineFinalOutputRecord, error) {
+	return scanPipelineFinalOutputRecord(a.db.QueryRow(ctx, `
+		SELECT id::text, item_index, name, type, prompt, llm_profile, status, content, error,
+		       generation_attempts, contract_violations, render_attempts, render_failures,
+		       created_at, updated_at, dashboard_target::text
+		FROM pipeline_run_outputs
+		WHERE run_id::text = $1 AND id::text = $2
+	`, runID, outputID))
+}
+
+func scanPipelineFinalOutputRecord(scanner interface{ Scan(dest ...any) error }) (pipelineFinalOutputRecord, error) {
+	var output pipelineFinalOutputRecord
+	var dashboardRaw string
+	if err := scanner.Scan(
+		&output.ID,
+		&output.ItemIndex,
+		&output.Name,
+		&output.Type,
+		&output.Prompt,
+		&output.LLMProfile,
+		&output.Status,
+		&output.Content,
+		&output.Error,
+		&output.GenerationAttempts,
+		&output.ContractViolations,
+		&output.RenderAttempts,
+		&output.RenderFailures,
+		&output.CreatedAt,
+		&output.UpdatedAt,
+		&dashboardRaw,
+	); err != nil {
+		return output, err
+	}
+	_ = json.Unmarshal([]byte(dashboardRaw), &output.Dashboard)
+	return output, nil
+}
+
+func (a *App) markDashboardRefreshOutputCancelledIfDashboard(ctx context.Context, runID string, output pipelineFinalOutputRecord) {
+	if normalizePipelineFinalOutputType(output.Type) != "dashboard" {
+		return
+	}
+	if err := a.markDashboardRefreshOutputCancelled(ctx, runID, output); err != nil {
+		log.Warn().Err(err).Str("run_id", runID).Str("output_id", output.ID).Msg("Failed to mark dashboard refresh output cancelled")
+	}
+}
+
+func (a *App) groundPipelineFinalDashboardOutputContent(ctx context.Context, runID, content string, output pipelineFinalOutputRecord, evidence pipelineFinalOutputLogEvidence) (string, error) {
 	return groundPipelineFinalDashboardOutputContent(content, output, evidence)
 }
 
 func groundPipelineFinalDashboardOutputContent(content string, output pipelineFinalOutputRecord, evidence pipelineFinalOutputLogEvidence) (string, error) {
-	if !pipelineFinalOutputPromptRequestsImageEvidence(output.Prompt) || len(evidence.Images) == 0 {
-		return content, nil
-	}
-	spec := dashboardSpecFromPipelineFinalOutputImageEvidence(evidence)
-	if err := validateDashboardSpec(spec); err != nil {
-		return "", fmt.Errorf("ground dashboard image evidence: %w", err)
-	}
-	return marshalFinalOutputSpec(spec)
+	return content, nil
 }
 
 func pipelineFinalOutputPromptRequestsImageEvidence(prompt string) bool {
@@ -498,7 +669,7 @@ func (a *App) markPipelineFinalOutputFailureWithResult(
 		UPDATE pipeline_run_outputs
 		SET status = 'failure', error = $2,
 		    generation_attempts = $3, contract_violations = $4, updated_at = NOW()
-		WHERE id = $1
+		WHERE id = $1 AND status <> 'cancelled'
 	`, outputID, message, attempts, violations)
 	return err
 }
@@ -1112,6 +1283,13 @@ func buildPipelineFinalOutputPrompt(runContext string, output pipelineFinalOutpu
 	builder.WriteString("The system output contract defines the required response envelope.\n\n")
 	builder.WriteString("Output name: " + output.Name + "\n")
 	builder.WriteString("Output type: " + output.Type + "\n")
+	if normalizePipelineFinalOutputType(output.Type) == "dashboard" {
+		writeFinalOutputLine(&builder, "Dashboard ref", output.Dashboard.Ref)
+		writeFinalOutputLine(&builder, "Dashboard section", output.Dashboard.Section)
+		writeFinalOutputLine(&builder, "Dashboard entry key", output.Dashboard.EntryKey)
+		writeFinalOutputLine(&builder, "Dashboard publish mode", output.Dashboard.Mode)
+		writeFinalOutputLine(&builder, "Dashboard preset", output.Dashboard.Preset)
+	}
 	builder.WriteString("Format requirements: " + pipelineFinalOutputFormatGuidance(output) + "\n\n")
 	builder.WriteString("User instruction:\n")
 	builder.WriteString(strings.TrimSpace(output.Prompt) + "\n\n")

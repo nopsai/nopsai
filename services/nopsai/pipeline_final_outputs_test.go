@@ -30,6 +30,20 @@ func TestNormalizePipelineFinalOutputContentValidatesJSON(t *testing.T) {
 	}
 }
 
+func TestCancelActivePipelineFinalOutputGenerationSignalsRegisteredContext(t *testing.T) {
+	app := &App{}
+	generationCtx, release := app.registerPipelineFinalOutputGeneration(context.Background(), "output-1")
+	defer release()
+
+	app.cancelActivePipelineFinalOutputGeneration("output-1")
+
+	select {
+	case <-generationCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("generation context was not cancelled")
+	}
+}
+
 func TestNormalizePipelineFinalOutputContentValidatesDocumentSpec(t *testing.T) {
 	content, err := normalizePipelineFinalOutputContent("html", `<final_output>{"version":"1","title":"Report","sections":[{"title":"Summary","blocks":[{"type":"paragraph","text":"Everything passed."}]}]}</final_output>`)
 	if err != nil {
@@ -360,7 +374,7 @@ func TestNormalizePipelineFinalOutputContentAcceptsDashboardTextAliases(t *testi
       "type": "callout",
       "tone": "warning",
       "title": "Follow-up",
-      "message": "Keep watching error rate during the next deploy window."
+      "body": "Keep watching error rate during the next deploy window."
     },
     {
       "type": "text",
@@ -379,10 +393,220 @@ func TestNormalizePipelineFinalOutputContentAcceptsDashboardTextAliases(t *testi
 		t.Fatalf("json.Unmarshal(normalized DashboardSpec) error = %v\n%s", err, content)
 	}
 	if got := spec.Blocks[0].Text; got != "Keep watching error rate during the next deploy window." {
-		t.Fatalf("callout message alias text = %q\n%s", got, content)
+		t.Fatalf("callout body alias text = %q\n%s", got, content)
 	}
 	if got := spec.Blocks[1].Text; got != "Checkout API is healthy." {
 		t.Fatalf("text description alias text = %q\n%s", got, content)
+	}
+}
+
+func TestNormalizePipelineFinalOutputContentAcceptsDashboardRootAliasesAndScalarItems(t *testing.T) {
+	raw := `<final_output>{
+  "version": "1",
+  "title": "Release report",
+  "callout": {
+    "tone": "warning",
+    "body": "Images contain vulnerabilities and cannot run in production."
+  },
+  "body": "Git repositories were updated with a proper changelog.",
+  "blocks": [
+    {
+      "type": "properties",
+      "title": "Readiness facts",
+      "properties": {
+        "git_changelog_updated": true,
+        "risk": "vulnerable images"
+      }
+    },
+    {
+      "type": "properties",
+      "title": "Readiness list",
+      "items": [
+        "Images built: 4",
+        "Production ready: false"
+      ]
+    },
+    {
+      "type": "list",
+      "title": "Next actions",
+      "items": [
+        "Patch vulnerable images",
+        { "body": "Provide missing environment configuration" }
+      ]
+    }
+  ]
+}</final_output>`
+
+	content, err := normalizePipelineFinalOutputContent("dashboard", raw)
+	if err != nil {
+		t.Fatalf("normalizePipelineFinalOutputContent() error = %v", err)
+	}
+	var spec models.DashboardSpec
+	if err := json.Unmarshal([]byte(content), &spec); err != nil {
+		t.Fatalf("json.Unmarshal(normalized DashboardSpec) error = %v\n%s", err, content)
+	}
+	if len(spec.Blocks) != 5 {
+		t.Fatalf("blocks = %#v\n%s", spec.Blocks, content)
+	}
+	if spec.Blocks[0].Type != "callout" || spec.Blocks[0].Text == "" {
+		t.Fatalf("root callout alias not normalized: %#v\n%s", spec.Blocks[0], content)
+	}
+	if spec.Blocks[1].Type != "text" || !strings.Contains(spec.Blocks[1].Text, "changelog") {
+		t.Fatalf("root body alias not normalized: %#v\n%s", spec.Blocks[1], content)
+	}
+	if got := spec.Blocks[2].Items[0].Label; got != "git_changelog_updated" {
+		t.Fatalf("property object label = %q\n%s", got, content)
+	}
+	if got := spec.Blocks[2].Items[0].Value; got != "true" {
+		t.Fatalf("property bool value = %q\n%s", got, content)
+	}
+	if got := spec.Blocks[3].Items[0].Label; got != "Images built" {
+		t.Fatalf("property scalar label = %q\n%s", got, content)
+	}
+	if got := spec.Blocks[3].Items[0].Value; got != "4" {
+		t.Fatalf("property scalar value = %q\n%s", got, content)
+	}
+	if got := spec.Blocks[4].Items[1].Text; got != "Provide missing environment configuration" {
+		t.Fatalf("list item body alias = %q\n%s", got, content)
+	}
+}
+
+func TestNormalizePipelineFinalOutputContentAcceptsDashboardChartAliases(t *testing.T) {
+	raw := `<final_output>{
+  "version": "1",
+  "title": "Build duration",
+  "blocks": [
+    {
+      "type_name": "status",
+      "label": "Production readiness",
+      "value": "blocked",
+      "status": "critical"
+    },
+    {
+      "title": "Build duration metrics",
+      "chartType": "bar",
+      "series": [
+        {
+          "key": "duration",
+          "label": "Build duration",
+          "points": [
+            { "label": "nopsai-dashboard", "value": 24 },
+            { "label": "git-sample", "value": 55 }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "chart",
+      "title": "Timeline",
+      "chart": {
+        "chartType": "line",
+        "series": [
+          {
+            "key": "timeline",
+            "points": [
+              { "timestamp": "2026-07-17T10:00:00Z", "value": 1 }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "title": "Build data alias",
+      "chartType": "bar",
+      "data": [
+        { "label": "app-finance", "value": 60 },
+        { "label": "seed-static", "value": 12 }
+      ]
+    },
+    {
+      "type": "chart",
+      "title": "Chart points alias",
+      "chart": {
+        "chartType": "bar",
+        "points": [
+          { "label": "nopsai-dashboard", "value": 24 }
+        ]
+      }
+    },
+    {
+      "type": "bar",
+      "title": "Block chart type alias",
+      "data": [
+        { "label": "app-finance", "value": 60 },
+        { "label": "seed-static", "value": 12 }
+      ]
+    }
+  ]
+}</final_output>`
+
+	content, err := normalizePipelineFinalOutputContent("dashboard", raw)
+	if err != nil {
+		t.Fatalf("normalizePipelineFinalOutputContent() error = %v", err)
+	}
+	var spec models.DashboardSpec
+	if err := json.Unmarshal([]byte(content), &spec); err != nil {
+		t.Fatalf("json.Unmarshal(normalized DashboardSpec) error = %v\n%s", err, content)
+	}
+	if spec.Blocks[0].Type != "status" {
+		t.Fatalf("type_name alias type = %q\n%s", spec.Blocks[0].Type, content)
+	}
+	if spec.Blocks[1].Type != "chart" || spec.Blocks[1].Chart == nil || spec.Blocks[1].Chart.Type != "bar" {
+		t.Fatalf("block-level chart aliases not normalized: %#v\n%s", spec.Blocks[1], content)
+	}
+	if got := spec.Blocks[1].Chart.Series[0].Points[0].Label; got != "nopsai-dashboard" {
+		t.Fatalf("chart point label = %q\n%s", got, content)
+	}
+	if spec.Blocks[2].Chart == nil || spec.Blocks[2].Chart.Type != "line" {
+		t.Fatalf("chart.chartType alias not normalized: %#v\n%s", spec.Blocks[2], content)
+	}
+	if spec.Blocks[3].Chart == nil || len(spec.Blocks[3].Chart.Series) != 1 || len(spec.Blocks[3].Chart.Series[0].Points) != 2 {
+		t.Fatalf("block data alias not normalized: %#v\n%s", spec.Blocks[3], content)
+	}
+	if spec.Blocks[4].Chart == nil || len(spec.Blocks[4].Chart.Series) != 1 || len(spec.Blocks[4].Chart.Series[0].Points) != 1 {
+		t.Fatalf("chart points alias not normalized: %#v\n%s", spec.Blocks[4], content)
+	}
+	if spec.Blocks[5].Type != "chart" || spec.Blocks[5].Chart == nil || spec.Blocks[5].Chart.Type != "bar" || len(spec.Blocks[5].Chart.Series) != 1 {
+		t.Fatalf("block chart type alias not normalized: %#v\n%s", spec.Blocks[5], content)
+	}
+
+	rootRaw := `<final_output>{
+  "version": "1",
+  "title": "Root chart",
+  "chartType": "bar",
+  "points": [
+    { "label": "seed-static", "value": 12 }
+  ]
+}</final_output>`
+	content, err = normalizePipelineFinalOutputContent("dashboard", rootRaw)
+	if err != nil {
+		t.Fatalf("normalizePipelineFinalOutputContent(root chart) error = %v", err)
+	}
+	if err := json.Unmarshal([]byte(content), &spec); err != nil {
+		t.Fatalf("json.Unmarshal(root chart DashboardSpec) error = %v\n%s", err, content)
+	}
+	if len(spec.Blocks) != 1 || spec.Blocks[0].Type != "chart" || spec.Blocks[0].Chart == nil || spec.Blocks[0].Chart.Type != "bar" {
+		t.Fatalf("root chart aliases not normalized: %#v\n%s", spec.Blocks, content)
+	}
+
+	emptySeriesRaw := `<final_output>{
+  "version": "1",
+  "title": "Empty chart",
+  "blocks": [
+    {
+      "type": "chart",
+      "title": "Metrics pending",
+      "chart": {
+        "type": "bar",
+        "series": [
+          { "key": "duration", "label": "Build duration", "points": [] }
+        ]
+      }
+    }
+  ]
+}</final_output>`
+	if _, err := normalizePipelineFinalOutputContent("dashboard", emptySeriesRaw); err != nil {
+		t.Fatalf("normalizePipelineFinalOutputContent(empty series) error = %v", err)
 	}
 }
 
@@ -506,29 +730,31 @@ func TestWritePipelineFinalOutputCurrentLogEvidenceMarksLogsAuthoritative(t *tes
 	}
 }
 
-func TestGroundPipelineFinalDashboardOutputContentUsesExtractedImageEvidence(t *testing.T) {
+func TestGroundPipelineFinalDashboardOutputContentPreservesValidOutputIntent(t *testing.T) {
 	logs := []string{
 		"Preparing agent container agent-dashboard-sample with image ghcr.io/hosein-yousefii/nopsai-agent:dev",
 		`2026-07-16T20:31:50Z {"level":"info","message":"status=success action=\"echo \"we built 4 different docker images, nopsai-dashboard:latest, git-sample:dev, app-finance:prod, seed-static:3.4.5\"\" output=\"we built 4 different docker images, nopsai-dashboard:latest, git-sample:dev, app-finance:prod, seed-static:3.4.5\nthis is how each image took to be built, 24s, 55s, 60s, 12s\nThese images have vulnerabilities and can not be run in production\n some environments are not provided for images, so it might fails during running\ngit repositories are updated with proper changelog\nmy dog name is leone, and I have a car\""}`,
 	}
-	wrongContent := `{
+	inventoryContent := `{
   "version": "1",
-  "title": "Image Build Summary",
+  "title": "Image inventory table",
   "blocks": [
     {
       "type": "table",
+      "title": "Inventory",
       "columns": [
         { "key": "image", "label": "Image" },
         { "key": "version", "label": "Version" },
-        { "key": "duration", "label": "Duration" }
+        { "key": "duration", "label": "Duration" },
+        { "key": "ready", "label": "Ready" }
       ],
       "rows": [
-        { "image": "ghcr.io/hosein-yousefii/nopsai-agent", "version": "dev", "duration": "1" }
+        { "image": "nopsai-dashboard", "version": "latest", "duration": "24s", "ready": false }
       ]
     }
   ]
 }`
-	content, err := groundPipelineFinalDashboardOutputContent(wrongContent, pipelineFinalOutputRecord{
+	content, err := groundPipelineFinalDashboardOutputContent(inventoryContent, pipelineFinalOutputRecord{
 		PipelineRunFinalOutput: models.PipelineRunFinalOutput{Type: "dashboard"},
 		Prompt:                 "Show how many images were built, which version each image used, and how long each image build took.",
 	}, buildPipelineFinalOutputLogEvidence(logs))
@@ -539,22 +765,14 @@ func TestGroundPipelineFinalDashboardOutputContentUsesExtractedImageEvidence(t *
 	if err := json.Unmarshal([]byte(content), &spec); err != nil {
 		t.Fatalf("json.Unmarshal grounded content error = %v\n%s", err, content)
 	}
-	var imageRows []map[string]json.RawMessage
-	for _, block := range spec.Blocks {
-		if block.Type == "table" && block.Title == "Built Images" {
-			imageRows = block.Rows
-		}
+	if spec.Title != "Image inventory table" {
+		t.Fatalf("grounding changed output title to %q\n%s", spec.Title, content)
 	}
-	if len(imageRows) != 4 {
-		t.Fatalf("image rows = %#v\n%s", imageRows, content)
+	if len(spec.Blocks) != 1 || spec.Blocks[0].Title != "Inventory" {
+		t.Fatalf("grounding changed output blocks: %#v\n%s", spec.Blocks, content)
 	}
-	for _, want := range []string{"nopsai-dashboard", "git-sample", "app-finance", "seed-static", "24s", "55s", "60s", "12s"} {
-		if !strings.Contains(content, want) {
-			t.Fatalf("grounded dashboard missing %q:\n%s", want, content)
-		}
-	}
-	if strings.Contains(content, "nopsai-agent") {
-		t.Fatalf("grounded dashboard retained operational agent image:\n%s", content)
+	if strings.Contains(content, "Image Build Summary") || strings.Contains(content, "Built Images") {
+		t.Fatalf("grounding replaced output with generic image summary:\n%s", content)
 	}
 }
 
@@ -565,6 +783,13 @@ func TestBuildPipelineFinalOutputPromptGuidesEvidenceFromLogs(t *testing.T) {
 			PipelineRunFinalOutput: models.PipelineRunFinalOutput{
 				Name: "dashboard-widgets",
 				Type: "dashboard",
+			},
+			Dashboard: models.DashboardOutputTarget{
+				Ref:      "team-1/ops-dashboard",
+				Section:  "service-metrics",
+				EntryKey: "web-api-status",
+				Mode:     "replace",
+				Preset:   "status",
 			},
 			Prompt: "Show service health.",
 		},
@@ -577,6 +802,9 @@ func TestBuildPipelineFinalOutputPromptGuidesEvidenceFromLogs(t *testing.T) {
 		"Use run history, step, and task duration metadata for operational run timing only",
 		"Prefer operationally relevant subjects over incidental personal/noise lines",
 		"do not infer or invent",
+		"Dashboard section: service-metrics",
+		"Dashboard entry key: web-api-status",
+		"Dashboard preset: status",
 		`{"status":"success","error_count":5}`,
 	} {
 		if !strings.Contains(prompt, want) {
@@ -763,6 +991,7 @@ func TestPipelineFinalOutputSchemaIncludesGenerationAndRenderAuditConstraints(t 
 		"render_failures INTEGER NOT NULL DEFAULT 0",
 		"pipeline_run_outputs_render_audit_check",
 		"render_failures <= render_attempts",
+		"status IN ('pending', 'generating', 'success', 'failure', 'cancelled')",
 	} {
 		if !strings.Contains(combined, expected) {
 			t.Fatalf("schema statements missing %q", expected)
