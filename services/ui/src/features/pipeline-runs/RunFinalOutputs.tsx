@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertCircle, CheckCircle2, Clipboard, Download, Eye, FileText, Loader2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clipboard, Download, Eye, FileText, Loader2, Square } from 'lucide-react';
 import { apiClient } from '../../lib/api';
 import { copyTextToClipboard } from '../../lib/clipboard';
 import type { PipelineRunFinalOutput } from './contracts';
@@ -9,6 +9,7 @@ import { documentSpecToText, parseDocumentSpec, parseSpreadsheetSpec, spreadshee
 type RunFinalOutputsProps = {
   runID: string;
   outputs?: PipelineRunFinalOutput[];
+  onCancelOutput?: (outputId: string) => void | Promise<void>;
 };
 
 type FileSaveHandle = {
@@ -31,7 +32,7 @@ type FileSavePickerWindow = Window & {
 const actionClass =
   'inline-flex items-center gap-2 rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 py-1.5 text-xs font-semibold text-[var(--text-primary)] transition hover:border-indigo-300/60 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-white/5 dark:text-[var(--text-primary)] dark:hover:bg-white/10';
 
-export function RunFinalOutputs({ runID, outputs = [] }: RunFinalOutputsProps) {
+export function RunFinalOutputs({ runID, outputs = [], onCancelOutput }: RunFinalOutputsProps) {
   const [previewID, setPreviewID] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [message, setMessage] = useState<string>('');
@@ -86,6 +87,21 @@ export function RunFinalOutputs({ runID, outputs = [] }: RunFinalOutputsProps) {
     }
   };
 
+  const handleCancel = async (output: PipelineRunFinalOutput) => {
+    if (!onCancelOutput) return;
+    const key = `cancel:${output.id}`;
+    setPendingAction(key);
+    setMessage('');
+    try {
+      await onCancelOutput(output.id);
+      setMessage(`${output.name || 'Output'} cancellation requested`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Cancel failed');
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
   return (
     <section className="border border-[var(--border-primary)] rounded-2xl bg-white dark:bg-slate-950 p-4 space-y-3 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -95,6 +111,7 @@ export function RunFinalOutputs({ runID, outputs = [] }: RunFinalOutputsProps) {
       <div className="space-y-3">
         {outputs.map(output => {
           const ready = output.status === 'success' && Boolean(output.content);
+          const cancellable = output.status === 'pending' || output.status === 'generating';
           const expanded = previewID === output.id;
           return (
             <div key={output.id} className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-3 text-sm">
@@ -121,6 +138,12 @@ export function RunFinalOutputs({ runID, outputs = [] }: RunFinalOutputsProps) {
                     <Download className="h-4 w-4" aria-hidden="true" />
                     {pendingAction === `download:${output.id}` ? 'Downloading' : 'Download'}
                   </button>
+                  {onCancelOutput ? (
+                    <button className={actionClass} type="button" disabled={!cancellable || pendingAction === `cancel:${output.id}`} onClick={() => void handleCancel(output)}>
+                      <Square className="h-4 w-4" aria-hidden="true" />
+                      {pendingAction === `cancel:${output.id}` ? 'Cancelling' : 'Cancel'}
+                    </button>
+                  ) : null}
                 </div>
               </div>
               {expanded && ready && (
@@ -164,6 +187,14 @@ function FinalOutputStatus({ status }: { status: string }) {
       <span className="inline-flex items-center gap-1.5 rounded-full border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs font-semibold text-red-700 dark:text-red-200">
         <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
         Failed
+      </span>
+    );
+  }
+  if (status === 'cancelled') {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-500/30 bg-slate-500/10 px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
+        <Square className="h-3.5 w-3.5" aria-hidden="true" />
+        Cancelled
       </span>
     );
   }

@@ -45,17 +45,17 @@
     --run-highlight-background: rgba(245, 158, 11, 0.12);
     --app-header-height: 4.5rem;
 
-    --yaml-base-color: #e0f2fe;
-    --yaml-key-color: #c084fc;
-    --yaml-string-color: #34d399;
-    --yaml-number-color: #fcd34d;
-    --yaml-boolean-color: #fb7185;
-    --yaml-comment-color: #94a3b8;
-    --yaml-scalar-color: #fef3c7;
-    --yaml-operator-color: #fbbf24;
-    --yaml-type-color: #38bdf8;
-    --yaml-punctuation-color: #fcd34d;
-    --yaml-indent-color: rgba(148,163,184,0.45);
+    --yaml-base-color: #334155;
+    --yaml-key-color: #6d28d9;
+    --yaml-string-color: #047857;
+    --yaml-number-color: #b45309;
+    --yaml-boolean-color: #be123c;
+    --yaml-comment-color: #64748b;
+    --yaml-scalar-color: #374151;
+    --yaml-operator-color: #7c3aed;
+    --yaml-type-color: #0369a1;
+    --yaml-punctuation-color: #475569;
+    --yaml-indent-color: rgba(100,116,139,0.55);
 
     /* Icon badge colors (lighter) */
     --icon-info-bg: #818cf8;      /* indigo-400 */
@@ -525,6 +525,21 @@ html.dark .sidebar-nav-toggle:focus-visible {
 }
 
 .app-sidebar-shell .pipeline-runs-sidebar-context {
+    --bg-primary: #f8fbff;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #eef4ff;
+    --text-primary: #1e293b;
+    --text-secondary: #64748b;
+    --text-tertiary: #94a3b8;
+    --text-accent: #4f46e5;
+    --text-link: #4f46e5;
+    --border-primary: #dbe4f0;
+    --border-secondary: #cbd5e1;
+    --border-accent: #6366f1;
+    color: var(--text-primary);
+}
+
+html.dark .app-sidebar-shell .pipeline-runs-sidebar-context {
     --bg-primary: var(--input-bg);
     --bg-secondary: var(--sidebar-bg);
     --bg-tertiary: var(--bg-hover);
@@ -536,7 +551,6 @@ html.dark .sidebar-nav-toggle:focus-visible {
     --border-primary: #2A354B;
     --border-secondary: #34425B;
     --border-accent: #8075E8;
-    color: var(--text-primary);
 }
 
 .app-sidebar-shell .pipeline-runs-sidebar-context .sidebar-run-link,
@@ -14947,10 +14961,18 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-detail-empty {
 }
 
 .app-sidebar-shell .pipeline-runs-sidebar-context .sidebar-run-link {
-    background: color-mix(in srgb, var(--bg-primary) 72%, transparent) !important;
+    background: var(--bg-secondary) !important;
 }
 
 .app-sidebar-shell .pipeline-runs-sidebar-context .pipeline-runs-sidebar-branch {
+    background: var(--bg-primary) !important;
+}
+
+html.dark .app-sidebar-shell .pipeline-runs-sidebar-context .sidebar-run-link {
+    background: color-mix(in srgb, var(--bg-primary) 72%, transparent) !important;
+}
+
+html.dark .app-sidebar-shell .pipeline-runs-sidebar-context .pipeline-runs-sidebar-branch {
     background: color-mix(in srgb, var(--bg-primary) 58%, transparent) !important;
 }
 

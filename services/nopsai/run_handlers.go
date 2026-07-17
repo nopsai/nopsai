@@ -278,6 +278,34 @@ func (a *App) handleDownloadRunFinalOutput(w http.ResponseWriter, r *http.Reques
 	_, _ = w.Write(payload)
 }
 
+func (a *App) handleCancelRunFinalOutput(w http.ResponseWriter, r *http.Request) {
+	setNoStoreHeaders(w)
+	runID := strings.TrimSpace(r.PathValue("runID"))
+	outputID := strings.TrimSpace(r.PathValue("outputID"))
+	if runID == "" || outputID == "" {
+		http.Error(w, "Run ID and output ID are required", http.StatusBadRequest)
+		return
+	}
+
+	output, err := a.cancelPipelineFinalOutput(r.Context(), runID, outputID)
+	if err != nil {
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			http.Error(w, "Final output not found", http.StatusNotFound)
+		case errors.Is(err, errPipelineFinalOutputNotCancellable):
+			http.Error(w, "Final output is already complete", http.StatusConflict)
+		default:
+			log.Error().Err(err).Str("run_id", runID).Str("output_id", outputID).Msg("Failed to cancel final output")
+			http.Error(w, "Failed to cancel final output", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(output.PipelineRunFinalOutput)
+}
+
 type runRequestPayload struct {
 	Pipeline   string            `json:"pipeline"`
 	Scope      string            `json:"scope"`

@@ -84,3 +84,27 @@ test('downloads final outputs through the authenticated API client', async () =>
     clickSpy.mockRestore();
   }
 });
+
+test('cancels pending final output generation', async () => {
+  const user = userEvent.setup();
+  const onCancelOutput = vi.fn().mockResolvedValue(undefined);
+
+  render(<RunFinalOutputs runID="run-1" outputs={[outputs[1]]} onCancelOutput={onCancelOutput} />);
+  await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+  await waitFor(() => expect(onCancelOutput).toHaveBeenCalledWith('output-2'));
+  expect(screen.getByText('Comparison Report cancellation requested')).toBeVisible();
+});
+
+test('shows cancelled final outputs as terminal', () => {
+  render(
+    <RunFinalOutputs
+      runID="run-1"
+      outputs={[{ ...outputs[1], status: 'cancelled', error: 'cancelled by user' }]}
+      onCancelOutput={vi.fn()}
+    />
+  );
+
+  expect(screen.getByText('Cancelled')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+});

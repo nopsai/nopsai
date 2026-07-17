@@ -63,7 +63,7 @@ Supported pipeline features:
   responses use a strict `<final_output>` contract, one corrective retry, and
   persisted generation/contract/render audit counts; PDF and HTML use validated
   `DocumentSpec`, Excel uses typed `SpreadsheetSpec`, and the run UI provides
-  format-specific previews
+  format-specific previews plus cancellation for pending or generating outputs
 - pipeline- and step-level Agent Profile selection through `agent_profile`
 - knowledge context references for architecture docs, guardrails, policies, ADRs, guidelines, runbooks, references, and examples
 - GitHub display options
@@ -575,6 +575,7 @@ Core run-management capabilities:
 - fetch run details
 - formatted Markdown/document/spreadsheet previews, inline PDF viewing,
   readable structured copy, and download of run-level final outputs
+- cancel pending or generating final outputs without cancelling the pipeline run
 - inspect final-output generation, contract, and render audit counts through
   authorized REST/MCP reads and Prometheus metrics
 - fetch run status
