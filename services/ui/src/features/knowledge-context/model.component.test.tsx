@@ -61,12 +61,12 @@ describe('Knowledge Context model', () => {
     expect(
       buildKnowledgeTeamOptions({
         activeTeam: 'runbook/platform',
-        activeConnectionTeam: 'security',
-        resourceTeamPaths: ['payments/api', 'platform'],
-        items: [{ team: 'docs' }],
+        activeConnectionTeam: 'platform/security',
+        resourceTeamPaths: ['platform', 'platform/security'],
+        items: [{ team: 'platform/app' }],
         connections: [{ team: 'wiki' }],
       })
-    ).toEqual(['docs', 'payments/api', 'platform', 'security', 'wiki']);
+    ).toEqual(['platform', 'platform/security']);
     expect(buildKnowledgeTeamOptions({ fallbackTeam: 'starter' })).toEqual(['starter']);
     expect(buildKnowledgeTeamOptions({})).toEqual([]);
   });

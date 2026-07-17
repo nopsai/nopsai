@@ -111,11 +111,7 @@ export function KnowledgeContextModals({
     : [];
   const isEditingConnection = connectionModal?.mode === 'edit';
   const normalizedTeamOptions = Array.from(
-    new Set(
-      [...teamOptions, formModal?.team || '', connectionModal?.team || '']
-        .map(team => normalizeTeamPath(team))
-        .filter(Boolean)
-    )
+    new Set(teamOptions.map(team => normalizeTeamPath(team)).filter(Boolean))
   ).sort((a, b) => a.localeCompare(b));
 
   return (

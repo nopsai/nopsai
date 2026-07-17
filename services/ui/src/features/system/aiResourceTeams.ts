@@ -61,14 +61,17 @@ export function aiResourceMatchesTeamFilter(resourceID: string, teamFilter: stri
   return teamPath === normalizedFilter || teamPath.startsWith(`${normalizedFilter}/`);
 }
 
-export function collectAIResourceTeamPaths(resourceIDs: string[], knownTeamPaths: string[] = []) {
+export function collectAIResourceTeamPaths(_resourceIDs: string[], knownTeamPaths: string[] = []) {
   const teams = new Set<string>();
   knownTeamPaths.map(normalizeAIResourceTeamPath).filter(Boolean).forEach(path => teams.add(path));
-  resourceIDs
-    .map(id => aiResourceTeamScope(id).teamPath)
-    .filter(Boolean)
-    .forEach(path => teams.add(path));
   return Array.from(teams).sort((a, b) => a.localeCompare(b));
+}
+
+export function selectableAIResourceTeamPath(value: string, knownTeamPaths: string[] = []) {
+  const normalizedValue = normalizeAIResourceTeamPath(value);
+  if (!normalizedValue) return '';
+  const known = new Set(knownTeamPaths.map(normalizeAIResourceTeamPath).filter(Boolean));
+  return known.has(normalizedValue) ? normalizedValue : '';
 }
 
 export function countAIResourceTeams(resourceIDs: string[]) {

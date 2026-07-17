@@ -21,6 +21,7 @@ import {
   buildAIResourceScopedID,
   collectAIResourceTeamPaths,
   formatAIResourceTeamLabel,
+  selectableAIResourceTeamPath,
 } from './aiResourceTeams';
 import {
   formatAIResourceRatio,
@@ -230,14 +231,18 @@ function MCPPanel({ canManage }: { canManage: boolean }) {
   };
 
   const openServerCreate = () => {
-    const initialTeamPath = teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL && teamFilter !== AI_RESOURCE_TEAM_FILTER_GLOBAL ? teamFilter : '';
+    const initialTeamPath = teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL && teamFilter !== AI_RESOURCE_TEAM_FILTER_GLOBAL
+      ? selectableAIResourceTeamPath(teamFilter, teamPaths)
+      : '';
     setSelectedServerName(null);
     setCreateServerTeamPath(initialTeamPath);
     startServerCreate();
     setServerForm(prev => ({ ...prev, name: buildAIResourceScopedID(initialTeamPath, aiResourceLocalName(prev.name)) }));
   };
   const openProfileCreate = () => {
-    const initialTeamPath = teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL && teamFilter !== AI_RESOURCE_TEAM_FILTER_GLOBAL ? teamFilter : '';
+    const initialTeamPath = teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL && teamFilter !== AI_RESOURCE_TEAM_FILTER_GLOBAL
+      ? selectableAIResourceTeamPath(teamFilter, teamPaths)
+      : '';
     setSelectedProfileName(null);
     setCreateProfileTeamPath(initialTeamPath);
     startProfileCreate();

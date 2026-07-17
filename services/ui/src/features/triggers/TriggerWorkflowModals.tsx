@@ -84,7 +84,7 @@ function TriggerRepositoryDialog({
   const inputId = `${modalId}-repository`;
   const title = isCreate ? 'Create trigger override' : `Clone ${selectedSlug || 'trigger'}`;
   const modalDetails = 'details' in modal ? modal.details : null;
-  const teamOptions = uniqueTeamOptions([...(teamPaths || []), modalDetails?.teamPath || 'root']);
+  const teamOptions = uniqueTeamOptions(teamPaths || []);
 
   return (
     <WorkflowFormDialog
@@ -148,14 +148,16 @@ function TriggerRepositoryDialog({
       ) : null}
       {'yamlPreview' in modal ? (
         <div className="trigger-modal-field-repository">
-          <p className="block text-sm font-medium text-[var(--text-secondary)]">{isCreate ? 'Template' : 'Definition'}</p>
-          <textarea
-            className="pipelines-input min-h-52 w-full font-mono text-xs"
-            value={modal.yamlPreview}
-            onChange={event => onUpdateYamlPreview?.(event.target.value)}
-            disabled={modal.pending}
-            spellCheck={false}
-          />
+          <label className="block text-sm font-medium text-[var(--text-secondary)]">
+            {isCreate ? 'Template' : 'Definition'}
+            <textarea
+              className="pipelines-input min-h-52 w-full font-mono text-xs"
+              value={modal.yamlPreview}
+              onChange={event => onUpdateYamlPreview?.(event.target.value)}
+              disabled={modal.pending}
+              spellCheck={false}
+            />
+          </label>
         </div>
       ) : null}
       {modal.error ? <WorkflowInlineAlert id={errorId}>{modal.error}</WorkflowInlineAlert> : null}
@@ -183,7 +185,7 @@ function TriggerEditDialog({
   const titleId = 'triggers-edit-modal-title';
   const descriptionId = 'triggers-edit-modal-description';
   const validationId = 'triggers-edit-modal-validation';
-  const teamOptions = uniqueTeamOptions([...(teamPaths || []), modal.details.teamPath]);
+  const teamOptions = uniqueTeamOptions(teamPaths || []);
 
   return (
     <WorkflowFormDialog

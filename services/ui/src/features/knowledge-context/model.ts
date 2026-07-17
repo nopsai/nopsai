@@ -371,18 +371,18 @@ export function buildKnowledgeTeamOptions({
   fallbackTeam?: string;
 }) {
   const activeIdentity = deriveIdentityFromTeam(activeTeam, '');
+  const knownTeams = resourceTeamPaths.map(team => normalizeTeamPath(team)).filter(Boolean);
+  const knownTeamSet = new Set(knownTeams);
+  const resourceTeams = [
+    activeIdentity.team,
+    activeConnectionTeam,
+    ...items.map(item => item.team),
+    ...connections.map(connection => connection.team),
+  ]
+    .map(team => normalizeTeamPath(team))
+    .filter(Boolean);
   const teams = Array.from(
-    new Set(
-      [
-        activeIdentity.team,
-        activeConnectionTeam,
-        ...resourceTeamPaths,
-        ...items.map(item => item.team),
-        ...connections.map(connection => connection.team),
-      ]
-        .map(team => normalizeTeamPath(team))
-        .filter(Boolean)
-    )
+    new Set(knownTeamSet.size ? [...knownTeams, ...resourceTeams.filter(team => knownTeamSet.has(team))] : resourceTeams)
   ).sort((a, b) => a.localeCompare(b));
   if (!teams.length && fallbackTeam) {
     const fallback = normalizeTeamPath(fallbackTeam);

@@ -49,6 +49,7 @@ export function MCPServerTable({
                   <button
                     type="button"
                     className="ai-resource-table-resource"
+                    aria-label={`Select MCP server ${server.display_name || server.name}`}
                     onClick={event => {
                       event.stopPropagation();
                       onSelectServer(server.name);
@@ -129,6 +130,7 @@ export function MCPProfileTable({
                   <button
                     type="button"
                     className="ai-resource-table-resource"
+                    aria-label={`Select MCP profile table row ${profile.name.split('/').filter(Boolean).pop() || profile.name}`}
                     onClick={event => {
                       event.stopPropagation();
                       onSelectProfile(profile.name);

@@ -54,12 +54,12 @@ test('builds knowledge team options from resource teams and existing resources',
   assert.deepEqual(
     buildKnowledgeTeamOptions({
       activeTeam: 'runbook/platform',
-      activeConnectionTeam: 'security',
-      resourceTeamPaths: ['payments/api', 'platform'],
-      items: [{ team: 'docs' }],
+      activeConnectionTeam: 'platform/security',
+      resourceTeamPaths: ['platform', 'platform/security'],
+      items: [{ team: 'platform/app' }],
       connections: [{ team: 'wiki' }],
     }),
-    ['docs', 'payments/api', 'platform', 'security', 'wiki']
+    ['platform', 'platform/security']
   );
   assert.deepEqual(buildKnowledgeTeamOptions({ fallbackTeam: 'starter' }), ['starter']);
   assert.deepEqual(buildKnowledgeTeamOptions({}), []);

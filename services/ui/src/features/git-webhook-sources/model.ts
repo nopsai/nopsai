@@ -202,7 +202,7 @@ export function gitWebhookSourceRequest(form: GitWebhookSourceFormState): GitWeb
     throw new Error('Rate limit must be a positive whole number.');
   }
 
-  return {
+  const request: GitWebhookSourceRequest = {
     id,
     name,
     description: form.description.trim(),
@@ -211,10 +211,13 @@ export function gitWebhookSourceRequest(form: GitWebhookSourceFormState): GitWeb
     team_path: normalizeGitWebhookSourceTeamPath(form.teamPath) || 'root',
     visibility: normalizeGitWebhookSourceVisibility(form.visibility),
     auth_mode: form.authMode,
-    credential_ref: form.authMode === 'none' || !credentialRef ? undefined : credentialRef,
     repository_allowlist: repositoryAllowlist,
     rate_limit: rateLimit > 0 ? { per_minute: rateLimit } : {},
   };
+  if (form.authMode !== 'none' && credentialRef) {
+    request.credential_ref = credentialRef;
+  }
+  return request;
 }
 
 export function sourceStatusLabel(source: GitWebhookSource): string {

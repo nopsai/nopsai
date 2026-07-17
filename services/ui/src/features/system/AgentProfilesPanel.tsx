@@ -25,6 +25,7 @@ import {
   buildAIResourceScopedID,
   collectAIResourceTeamPaths,
   formatAIResourceTeamLabel,
+  selectableAIResourceTeamPath,
 } from './aiResourceTeams';
 import {
   formatAIResourceRatio,
@@ -158,13 +159,15 @@ function AgentProfilesPanel({ canManage }: { canManage: boolean }) {
     setPanelMode(null);
   };
   const openCreate = () => {
-    const initialTeamPath = teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL && teamFilter !== AI_RESOURCE_TEAM_FILTER_GLOBAL ? teamFilter : '';
+    const initialTeamPath = teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL && teamFilter !== AI_RESOURCE_TEAM_FILTER_GLOBAL
+      ? selectableAIResourceTeamPath(teamFilter, teamPaths)
+      : '';
     setCreateTeamPath(initialTeamPath);
     startCreate();
     setForm(prev => ({ ...prev, id: buildAIResourceScopedID(initialTeamPath, aiResourceLocalName(prev.id)) }));
   };
   const openDuplicate = (profile: AgentProfileRecord) => {
-    setCreateTeamPath(aiResourceTeamScope(profile.id).teamPath);
+    setCreateTeamPath(selectableAIResourceTeamPath(aiResourceTeamScope(profile.id).teamPath, teamPaths));
     startDuplicate(profile);
   };
   const setCreateTeam = (teamPath: string) => {
@@ -371,6 +374,7 @@ function AgentProfileTable({
                   <button
                     type="button"
                     className="ai-resource-table-resource"
+                    aria-label={`Select agent profile ${profile.display_name || profile.id}`}
                     onClick={event => {
                       event.stopPropagation();
                       onSelectProfile(profile.id);

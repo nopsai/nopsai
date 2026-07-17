@@ -34,7 +34,7 @@ export function GitWebhookSourceForm({
   ) => onChange({ ...form, [key]: value });
   const titleId = 'git-webhook-source-form-title';
   const errorId = 'git-webhook-source-form-error';
-  const teamOptions = uniqueTeamOptions([...teamPaths, form.teamPath]);
+  const teamOptions = uniqueTeamOptions(teamPaths);
 
   return (
     <WorkflowFormDialog
