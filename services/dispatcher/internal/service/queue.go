@@ -15,14 +15,16 @@ import (
 func (d *dispatcherServer) enqueue(job *proto.JobRequest) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.queue = append(d.queue, job)
-	log.Info().Str("run_id", job.RunId).Str("scope", job.Scope).Msg("job queued")
+	d.enqueueLocked(job)
 }
 
 func (d *dispatcherServer) dispatch(job *proto.JobRequest) string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	return d.dispatchLocked(job)
+}
 
+func (d *dispatcherServer) dispatchLocked(job *proto.JobRequest) string {
 	runner := d.pickRunnerForJobLocked(job)
 	if runner == nil {
 		return ""
@@ -57,6 +59,52 @@ func (d *dispatcherServer) dispatch(job *proto.JobRequest) string {
 	}
 }
 
+func (d *dispatcherServer) enqueueLocked(job *proto.JobRequest) {
+	if job == nil {
+		return
+	}
+	runID := strings.TrimSpace(job.RunId)
+	if runID == "" {
+		return
+	}
+	for idx, queued := range d.queue {
+		if queued == nil {
+			continue
+		}
+		if strings.TrimSpace(queued.RunId) == runID {
+			d.queue[idx] = job
+			log.Info().Str("run_id", job.RunId).Str("scope", job.Scope).Msg("job already queued; refreshed queued payload")
+			return
+		}
+	}
+	d.queue = append(d.queue, job)
+	log.Info().Str("run_id", job.RunId).Str("scope", job.Scope).Msg("job queued")
+}
+
+func (d *dispatcherServer) trackedJobStateLocked(runID string) (proto.JobState, string, bool) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return proto.JobState_JOB_STATE_UNKNOWN, "", false
+	}
+	for _, queued := range d.queue {
+		if queued == nil {
+			continue
+		}
+		if strings.TrimSpace(queued.RunId) == runID {
+			return proto.JobState_JOB_STATE_QUEUED, "", true
+		}
+	}
+	for _, runner := range d.runners {
+		if runner == nil {
+			continue
+		}
+		if _, ok := runner.inflight[runID]; ok {
+			return proto.JobState_JOB_STATE_ASSIGNED, runner.id, true
+		}
+	}
+	return proto.JobState_JOB_STATE_UNKNOWN, "", false
+}
+
 func (d *dispatcherServer) pumpQueue() {
 	d.mu.Lock()
 	if len(d.queue) == 0 {
@@ -75,6 +123,9 @@ func (d *dispatcherServer) pumpQueue() {
 		triggerID    string
 	}
 	for _, job := range queuedJobs {
+		if job == nil || strings.TrimSpace(job.RunId) == "" {
+			continue
+		}
 		dispatchCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		runStatus, err := d.fetchRunStatusValue(dispatchCtx, job.RunId)
 		cancel()
@@ -86,16 +137,25 @@ func (d *dispatcherServer) pumpQueue() {
 		}
 
 		d.mu.Lock()
+		if state, runnerID, tracked := d.trackedJobStateLocked(job.RunId); tracked {
+			d.mu.Unlock()
+			log.Info().
+				Str("run_id", job.RunId).
+				Str("runner_id", runnerID).
+				Str("state", state.String()).
+				Msg("Skipping duplicate queued job already tracked by dispatcher")
+			continue
+		}
 		runner := d.pickRunnerForJobLocked(job)
 		if runner == nil {
-			d.queue = append(d.queue, job)
+			d.enqueueLocked(job)
 			d.mu.Unlock()
 			continue
 		}
 		jobForRunner := d.prepareJobForRunner(job, runner)
 		if jobForRunner == nil {
 			log.Error().Str("run_id", job.RunId).Str("runner_id", runner.id).Msg("failed to prepare queued job for runner")
-			d.queue = append(d.queue, job)
+			d.enqueueLocked(job)
 			d.mu.Unlock()
 			continue
 		}
@@ -134,7 +194,7 @@ func (d *dispatcherServer) pumpQueue() {
 			d.mu.Unlock()
 		default:
 			log.Warn().Str("runner_id", runner.id).Msg("runner send channel is full during queue dispatch")
-			d.queue = append(d.queue, job)
+			d.enqueueLocked(job)
 			d.mu.Unlock()
 		}
 	}

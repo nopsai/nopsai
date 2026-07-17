@@ -363,11 +363,11 @@ func upsertDashboardSection(ctx context.Context, runner queryRunner, dashboardID
 
 func (a *App) listDashboardSources(ctx context.Context, dashboardID string) ([]dashboardSourceRecord, error) {
 	rows, err := a.db.Query(ctx, `
-		SELECT id::text, dashboard_id::text, section_key, pipeline_id, output_name, entry_key,
+		SELECT id::text, dashboard_id::text, section_key, pipeline_id, output_name, entry_key, run_scope,
 		       enabled, required_for_refresh, refresh_order, created_at, updated_at
 		FROM dashboard_source_bindings
 		WHERE dashboard_id::text = $1
-		ORDER BY section_key ASC, refresh_order ASC, pipeline_id ASC, output_name ASC, entry_key ASC
+		ORDER BY section_key ASC, refresh_order ASC, pipeline_id ASC, output_name ASC, entry_key ASC, run_scope ASC
 	`, dashboardID)
 	if err != nil {
 		return nil, err
@@ -386,7 +386,7 @@ func (a *App) listDashboardSources(ctx context.Context, dashboardID string) ([]d
 
 func (a *App) getDashboardSource(ctx context.Context, dashboardID, sourceID string) (dashboardSourceRecord, error) {
 	return scanDashboardSourceRecord(a.db.QueryRow(ctx, `
-		SELECT id::text, dashboard_id::text, section_key, pipeline_id, output_name, entry_key,
+		SELECT id::text, dashboard_id::text, section_key, pipeline_id, output_name, entry_key, run_scope,
 		       enabled, required_for_refresh, refresh_order, created_at, updated_at
 		FROM dashboard_source_bindings
 		WHERE dashboard_id::text = $1 AND id::text = $2
@@ -398,16 +398,16 @@ func (a *App) saveDashboardSource(ctx context.Context, dashboardID, sourceID str
 		var id string
 		err := a.db.QueryRow(ctx, `
 			INSERT INTO dashboard_source_bindings (
-				dashboard_id, section_key, pipeline_id, output_name, entry_key,
+				dashboard_id, section_key, pipeline_id, output_name, entry_key, run_scope,
 				enabled, required_for_refresh, refresh_order, updated_at
-			) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, NOW())
-			ON CONFLICT (dashboard_id, section_key, pipeline_id, output_name, entry_key) DO UPDATE SET
+			) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+			ON CONFLICT (dashboard_id, section_key, pipeline_id, output_name, entry_key, run_scope) DO UPDATE SET
 				enabled = EXCLUDED.enabled,
 				required_for_refresh = EXCLUDED.required_for_refresh,
 				refresh_order = EXCLUDED.refresh_order,
 				updated_at = NOW()
 			RETURNING id::text
-		`, dashboardID, input.SectionKey, input.PipelineID, input.OutputName, input.EntryKey, input.Enabled, input.RequiredForRefresh, input.RefreshOrder).Scan(&id)
+		`, dashboardID, input.SectionKey, input.PipelineID, input.OutputName, input.EntryKey, input.RunScope, input.Enabled, input.RequiredForRefresh, input.RefreshOrder).Scan(&id)
 		if err != nil {
 			return dashboardSourceRecord{}, err
 		}
@@ -419,12 +419,13 @@ func (a *App) saveDashboardSource(ctx context.Context, dashboardID, sourceID str
 			pipeline_id = $4,
 			output_name = $5,
 			entry_key = $6,
-			enabled = $7,
-			required_for_refresh = $8,
-			refresh_order = $9,
+			run_scope = $7,
+			enabled = $8,
+			required_for_refresh = $9,
+			refresh_order = $10,
 			updated_at = NOW()
 		WHERE dashboard_id::text = $1 AND id::text = $2
-	`, dashboardID, sourceID, input.SectionKey, input.PipelineID, input.OutputName, input.EntryKey, input.Enabled, input.RequiredForRefresh, input.RefreshOrder)
+	`, dashboardID, sourceID, input.SectionKey, input.PipelineID, input.OutputName, input.EntryKey, input.RunScope, input.Enabled, input.RequiredForRefresh, input.RefreshOrder)
 	if err != nil {
 		return dashboardSourceRecord{}, err
 	}
@@ -449,7 +450,7 @@ func (a *App) listDashboardPublications(ctx context.Context, dashboardID string,
 	query := `
 		SELECT id::text, dashboard_id::text, section_key, entry_key, mode, content::text,
 		       revision, COALESCE(run_id::text, ''), COALESCE(run_output_id::text, ''),
-		       pipeline_id, output_name, COALESCE(refresh_id::text, ''), source_finished_at,
+		       pipeline_id, output_name, run_scope, COALESCE(refresh_id::text, ''), source_finished_at,
 		       published_at, expires_at, status, (expires_at IS NOT NULL AND expires_at <= NOW()) AS stale,
 		       created_at, updated_at
 		FROM dashboard_publications
@@ -583,6 +584,7 @@ func scanDashboardSourceRecord(scanner dashboardScanner) (dashboardSourceRecord,
 		&record.PipelineID,
 		&record.OutputName,
 		&record.EntryKey,
+		&record.RunScope,
 		&record.Enabled,
 		&record.RequiredForRefresh,
 		&record.RefreshOrder,
@@ -610,6 +612,7 @@ func scanDashboardPublicationRecord(scanner dashboardScanner) (dashboardPublicat
 		&record.RunOutputID,
 		&record.PipelineID,
 		&record.OutputName,
+		&record.RunScope,
 		&record.RefreshID,
 		&sourceFinishedAt,
 		&record.PublishedAt,

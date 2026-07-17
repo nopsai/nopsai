@@ -252,6 +252,65 @@ func TestSubmitJobRejectsTerminalRun(t *testing.T) {
 	}
 }
 
+func TestSubmitJobDeduplicatesQueuedRun(t *testing.T) {
+	server := newRunStatusServer(map[string]string{"run-queued": "pending"})
+	defer server.Close()
+
+	d := newDispatcherServer(nil, server.URL, newTestDispatcherCredentials(t))
+	d.nopsai.(*nopsaiHTTPClient).setHTTPClient(server.Client())
+
+	first, err := d.SubmitJob(context.Background(), &proto.JobRequest{RunId: "run-queued", Scope: "prod"})
+	if err != nil {
+		t.Fatalf("first SubmitJob() error = %v", err)
+	}
+	if first.State != proto.JobState_JOB_STATE_QUEUED {
+		t.Fatalf("first SubmitJob() state = %s, want queued", first.State)
+	}
+
+	second, err := d.SubmitJob(context.Background(), &proto.JobRequest{RunId: "run-queued", Scope: "prod"})
+	if err != nil {
+		t.Fatalf("second SubmitJob() error = %v", err)
+	}
+	if second.State != proto.JobState_JOB_STATE_QUEUED || second.Message != "already queued" {
+		t.Fatalf("second SubmitJob() = (%s, %q), want queued/already queued", second.State, second.Message)
+	}
+	if got := len(d.queue); got != 1 {
+		t.Fatalf("queue len = %d, want one queued job", got)
+	}
+}
+
+func TestSubmitJobDeduplicatesInflightRun(t *testing.T) {
+	server := newRunStatusServer(map[string]string{"run-active": "running"})
+	defer server.Close()
+
+	d := newDispatcherServer(nil, server.URL, newTestDispatcherCredentials(t))
+	d.nopsai.(*nopsaiHTTPClient).setHTTPClient(server.Client())
+	rc := newTestRunnerConn("runner-active", "prod")
+	d.addRunner(rc)
+
+	first, err := d.SubmitJob(context.Background(), &proto.JobRequest{RunId: "run-active", Scope: "prod"})
+	if err != nil {
+		t.Fatalf("first SubmitJob() error = %v", err)
+	}
+	if first.State != proto.JobState_JOB_STATE_ASSIGNED {
+		t.Fatalf("first SubmitJob() state = %s, want assigned", first.State)
+	}
+
+	second, err := d.SubmitJob(context.Background(), &proto.JobRequest{RunId: "run-active", Scope: "prod"})
+	if err != nil {
+		t.Fatalf("second SubmitJob() error = %v", err)
+	}
+	if second.State != proto.JobState_JOB_STATE_ASSIGNED || second.RunnerId != "runner-active" || second.Message != "already dispatched" {
+		t.Fatalf("second SubmitJob() = (%s, %q, %q), want assigned/runner-active/already dispatched", second.State, second.RunnerId, second.Message)
+	}
+	if got := len(rc.sendCh); got != 1 {
+		t.Fatalf("runner send queue len = %d, want one dispatch message", got)
+	}
+	if rc.active != 1 {
+		t.Fatalf("runner active = %d, want 1", rc.active)
+	}
+}
+
 func TestRunStatusAllowsDispatchUsesAllowList(t *testing.T) {
 	tests := []struct {
 		status string

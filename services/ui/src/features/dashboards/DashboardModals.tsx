@@ -16,6 +16,8 @@ import {
 } from '../schedules/model';
 import { dashboardRefFromForm } from './pipelineAssignments';
 import {
+  normalizeRunScope,
+  runScopeLabel,
   titleFromKey,
   refreshScheduleCronExpressionFromForm,
   type DashboardFormState,
@@ -81,6 +83,7 @@ export function DashboardModal({
   teams,
   sections = [],
   pipelineOptions = [],
+  scopeOptions = [''],
   pipelineLoading = false,
   saving,
   error,
@@ -95,6 +98,7 @@ export function DashboardModal({
   teams: string[];
   sections?: DashboardSection[];
   pipelineOptions?: DashboardPipelineCatalogItem[];
+  scopeOptions?: string[];
   pipelineLoading?: boolean;
   saving: boolean;
   error: string | null;
@@ -207,10 +211,19 @@ export function DashboardModal({
           dashboardRef={dashboardRef}
           pipelines={matchingPipelineOptions}
           selectedIDs={form.pipelineIDs}
+          scopeOptions={scopeOptions}
+          scopeByPipelineID={form.pipelineScopes}
           saving={saving}
           loading={pipelineLoading}
           required={isCreate}
-          onToggle={pipelineID => onChange({ ...form, pipelineIDs: toggleValue(form.pipelineIDs, pipelineID) })}
+          onToggle={pipelineID => onChange(togglePipelineAssignment(form, pipelineID))}
+          onScopeChange={(pipelineID, runScope) => onChange({
+            ...form,
+            pipelineScopes: {
+              ...form.pipelineScopes,
+              [pipelineID]: normalizeRunScope(runScope),
+            },
+          })}
         />
       </FormSection>
       {!isCreate ? (
@@ -230,18 +243,24 @@ function PipelineAssignmentPicker({
   dashboardRef,
   pipelines,
   selectedIDs,
+  scopeOptions,
+  scopeByPipelineID,
   saving,
   loading,
   required,
   onToggle,
+  onScopeChange,
 }: {
   dashboardRef: string;
   pipelines: DashboardPipelineCatalogItem[];
   selectedIDs: string[];
+  scopeOptions: string[];
+  scopeByPipelineID: Record<string, string>;
   saving: boolean;
   loading: boolean;
   required: boolean;
   onToggle: (pipelineID: string) => void;
+  onScopeChange: (pipelineID: string, runScope: string) => void;
 }) {
   if (!dashboardRef) {
     return (
@@ -276,16 +295,18 @@ function PipelineAssignmentPicker({
         {pipelines.map(pipeline => {
           const checked = selectedIDs.includes(pipeline.id);
           const sections = pipelineSections(pipeline.outputs);
+          const runScope = normalizeRunScope(scopeByPipelineID[pipeline.id]);
+          const runScopeOptions = scopeSelectOptions(scopeOptions, runScope);
           return (
-            <label
+            <div
               key={pipeline.id}
-              className={`block cursor-pointer rounded-lg border p-3 transition-colors ${
+              className={`rounded-lg border p-3 transition-colors ${
                 checked
                   ? 'border-[var(--accent)] bg-[var(--bg-active)]'
                   : 'border-[var(--border-subtle)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)]'
               }`}
             >
-              <div className="flex items-start gap-3">
+              <label className="flex cursor-pointer items-start gap-3">
                 <input
                   type="checkbox"
                   className="mt-1"
@@ -305,8 +326,23 @@ function PipelineAssignmentPicker({
                     ))}
                   </div>
                 </div>
-              </div>
-            </label>
+              </label>
+              {checked ? (
+                <div className="mt-3 border-t border-[var(--border-subtle)] pt-3">
+                  <Field label="Run scope" description="Only pipeline runs with this exact scope can publish to these dashboard entries.">
+                    <select
+                      className="pipelines-input w-full"
+                      value={runScope}
+                      onChange={event => onScopeChange(pipeline.id, event.target.value)}
+                      disabled={saving}
+                      aria-label={`Run scope for ${pipeline.id}`}
+                    >
+                      {runScopeOptions.map(option => <option key={option.value || '__default_scope__'} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </Field>
+                </div>
+              ) : null}
+            </div>
           );
         })}
       </div>
@@ -466,6 +502,7 @@ export function SourceModal({
   sources,
   publications,
   pipelines,
+  scopeOptions = [''],
   saving,
   error,
   loadPipelineOutputs,
@@ -480,6 +517,7 @@ export function SourceModal({
   sources: DashboardSource[];
   publications: DashboardPublication[];
   pipelines: string[];
+  scopeOptions?: string[];
   saving: boolean;
   error: string | null;
   loadPipelineOutputs: (pipelineID: string) => Promise<DashboardPipelineOutputOption[]>;
@@ -522,6 +560,7 @@ export function SourceModal({
 
   const sectionOptions = useMemo(() => sectionSelectOptions(sections, form.sectionKey), [sections, form.sectionKey]);
   const pipelineOptions = useMemo(() => uniqueOptions([form.pipelineID, ...pipelines].filter(Boolean)), [form.pipelineID, pipelines]);
+  const runScopeOptions = useMemo(() => scopeSelectOptions(scopeOptions, form.runScope), [form.runScope, scopeOptions]);
   const outputOptions = useMemo(
     () => outputSelectOptions(outputs, form.outputName, dashboardRef, sectionOptions.map(option => option.value)),
     [dashboardRef, form.outputName, outputs, sectionOptions]
@@ -633,6 +672,16 @@ export function SourceModal({
               {entryOptions.map(option => <option key={option.value || '__output_name__'} value={option.value}>{option.label}</option>)}
             </select>
           </Field>
+          <Field label="Run scope" description="Only successful runs with this exact scope can publish through this source.">
+            <select
+              className="pipelines-input w-full"
+              value={normalizeRunScope(form.runScope)}
+              onChange={event => onChange({ ...form, runScope: event.target.value })}
+              disabled={saving}
+            >
+              {runScopeOptions.map(option => <option key={option.value || '__default_scope__'} value={option.value}>{option.label}</option>)}
+            </select>
+          </Field>
         </div>
       </FormSection>
 
@@ -676,6 +725,7 @@ export function SourceModal({
         pipelineID={form.pipelineID}
         outputName={form.outputName}
         entryKey={form.entryKey || selectedOutput?.entryKey || ''}
+        runScope={form.runScope}
         selectedOutput={selectedOutput}
       />
     </WorkflowFormDialog>
@@ -1240,6 +1290,7 @@ function SourceMappingPreview({
   pipelineID,
   outputName,
   entryKey,
+  runScope,
   selectedOutput,
 }: {
   dashboardRef: string;
@@ -1247,6 +1298,7 @@ function SourceMappingPreview({
   pipelineID: string;
   outputName: string;
   entryKey: string;
+  runScope: string;
   selectedOutput?: DashboardPipelineOutputOption;
 }) {
   const entryLabel = entryKey || (outputName ? `output:${outputName}` : '-');
@@ -1257,6 +1309,7 @@ function SourceMappingPreview({
   ];
   const outputRows = [
     ['Pipeline', pipelineID || '-'],
+    ['Run scope', runScopeLabel(runScope)],
     ['Output', outputName || '-'],
     ['Mode', selectedOutput?.mode || '-'],
     ['Preset', selectedOutput?.preset || '-'],
@@ -1437,6 +1490,27 @@ function toggleValue(values: string[], value: string): string[] {
   return [...values, value].sort((a, b) => a.localeCompare(b));
 }
 
+function togglePipelineAssignment(form: DashboardFormState, pipelineID: string): DashboardFormState {
+  const selected = form.pipelineIDs.includes(pipelineID);
+  if (selected) {
+    const pipelineScopes = { ...form.pipelineScopes };
+    delete pipelineScopes[pipelineID];
+    return {
+      ...form,
+      pipelineIDs: toggleValue(form.pipelineIDs, pipelineID),
+      pipelineScopes,
+    };
+  }
+  return {
+    ...form,
+    pipelineIDs: toggleValue(form.pipelineIDs, pipelineID),
+    pipelineScopes: {
+      ...form.pipelineScopes,
+      [pipelineID]: normalizeRunScope(form.pipelineScopes[pipelineID]),
+    },
+  };
+}
+
 function uniqueOptions(values: string[]): Option[] {
   const seen = new Set<string>();
   return values
@@ -1448,6 +1522,15 @@ function uniqueOptions(values: string[]): Option[] {
     })
     .sort((a, b) => a.localeCompare(b))
     .map(value => ({ value, label: value }));
+}
+
+function scopeSelectOptions(scopes: string[], currentScope: string): Option[] {
+  const values = Array.from(new Set(['', ...scopes, currentScope].map(normalizeRunScope))).sort((a, b) => {
+    if (a === '') return -1;
+    if (b === '') return 1;
+    return a.localeCompare(b);
+  });
+  return values.map(value => ({ value, label: runScopeLabel(value) }));
 }
 
 function sectionSelectOptions(sections: DashboardSection[], currentSectionKey: string): Option[] {
@@ -1498,7 +1581,7 @@ function sourceSelectOptions(sources: DashboardSource[], currentSourceID: string
     .map(source => {
       const value = source.id.trim();
       if (!value) return null;
-      const bits = [source.section_key, source.pipeline_id, source.output_name].filter(Boolean).join(' / ');
+      const bits = [source.section_key, source.pipeline_id, source.output_name, runScopeLabel(source.run_scope)].filter(Boolean).join(' / ');
       return { value, label: bits || value };
     })
     .filter((option): option is Option => Boolean(option));

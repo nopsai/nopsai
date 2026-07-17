@@ -212,15 +212,30 @@ func (d *dispatcherServer) SubmitJob(ctx context.Context, job *proto.JobRequest)
 		return resp, nil
 	}
 
-	runnerID := d.dispatch(job)
+	d.mu.Lock()
+	if state, runnerID, tracked := d.trackedJobStateLocked(job.RunId); tracked {
+		d.mu.Unlock()
+		resp.State = state
+		resp.RunnerId = runnerID
+		if state == proto.JobState_JOB_STATE_ASSIGNED {
+			resp.Message = "already dispatched"
+		} else {
+			resp.Message = "already queued"
+		}
+		return resp, nil
+	}
+
+	runnerID := d.dispatchLocked(job)
 	if runnerID != "" {
+		d.mu.Unlock()
 		resp.State = proto.JobState_JOB_STATE_ASSIGNED
 		resp.RunnerId = runnerID
 		resp.Message = "dispatched"
 		return resp, nil
 	}
 
-	d.enqueue(job)
+	d.enqueueLocked(job)
+	d.mu.Unlock()
 	resp.State = proto.JobState_JOB_STATE_QUEUED
 	resp.Message = "queued"
 	return resp, nil
@@ -572,7 +587,9 @@ func (d *dispatcherServer) removeRunner(connectionID string) {
 		}
 		runner.inflight = make(map[string]*proto.JobRequest)
 		runner.active = 0
-		d.queue = append(d.queue, inflightJobs...)
+		for _, job := range inflightJobs {
+			d.enqueueLocked(job)
+		}
 		d.markRunnerUnreachableLocked(runner, time.Now())
 	}
 	d.mu.Unlock()

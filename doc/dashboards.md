@@ -232,6 +232,7 @@ sources:
     pipeline_id: service-health-dashboard
     output_name: service-health-widgets
     entry_key: payments-api
+    run_scope: prod
     enabled: true
     required_for_refresh: true
     refresh_order: 10
@@ -248,6 +249,12 @@ refresh_schedules:
     timeout: 45m
     max_concurrency: 2
 ```
+
+`run_scope` is part of the dashboard source identity. A source with
+`run_scope: prod` only accepts successful pipeline runs launched with scope
+`prod`; omitting `run_scope` means the exact default/unscoped run, not any
+scope. This prevents a trigger running the same pipeline in `dev` from
+overwriting a dashboard entry intended for `prod`.
 
 ## REST API
 
@@ -301,11 +308,17 @@ sources run. Refresh status is `complete`, `partial`, `failed`, `cancelled`, or
 `timed_out`, with per-source progress and retry failed support. Refreshes can
 be triggered manually, by API, by assistant, or by schedules.
 
+Dashboard refreshes launch each selected source using that source binding's
+`run_scope`. A refresh request or schedule may set `run_scope` to override the
+source scopes for that run, but publication still requires an enabled source
+binding with the same exact scope.
+
 Refresh schedules run under a dashboard-owned service account. A schedule
 stores cron, timezone, enabled state, strict/best-effort mode, scope,
 max concurrency, timeout, variables, next run, and latest refresh status.
 Service-account grants are synced for the dashboard, selected pipeline sources,
-and referenced scopes so scheduled execution stays auditable and AAA-compatible.
+and referenced source or override scopes so scheduled execution stays auditable
+and AAA-compatible.
 
 Section and source management:
 
@@ -346,7 +359,8 @@ edit-dashboard modals group fields by purpose and include one-line descriptions
 for each group. The pipeline picker only lists pipelines with `dashboard`
 outputs whose `dashboard.ref` matches the dashboard being created or edited.
 Selecting those pipelines creates the needed section records and source
-bindings from `dashboard.section`, `dashboard.entry_key`, and the output name.
+bindings from `dashboard.section`, `dashboard.entry_key`, the output name, and
+the chosen exact run scope.
 New dashboards choose from existing team paths, and broader sharing is assigned
 through the dashboard Access button after creation, matching the pipeline
 access-management pattern.
@@ -385,11 +399,13 @@ catalog, and the selected pipeline YAML, then offers only dashboard final
 outputs whose `dashboard.ref` targets the current dashboard and whose
 `dashboard.section` is present on the dashboard. Selecting an output maps the
 section from `dashboard.section`, and maps entry choices from
-`dashboard.entry_key`, existing entries, or the output-name fallback. The REST
-payload remains the same `dashboard_source_bindings` contract, so GitOps YAML,
-AAA checks, refresh orchestration, monitoring, and MCP behavior stay compatible.
+`dashboard.entry_key`, existing entries, or the output-name fallback. The run
+scope dropdown comes from existing secret/variable scopes and defaults to the
+exact default/unscoped run. The REST payload remains the same
+`dashboard_source_bindings` contract, so GitOps YAML, AAA checks, refresh
+orchestration, monitoring, and MCP behavior stay compatible.
 The larger mapping review panel shows the dashboard target and selected
-pipeline output side by side before saving edits.
+pipeline output, including run scope, side by side before saving edits.
 
 ## Authorization
 
@@ -412,7 +428,10 @@ Product role defaults:
 - owner: developer plus delete and manage ACL
 
 Pipeline publication re-checks `dashboard.publish` as the effective run
-subject before it writes dashboard publications.
+subject before it writes dashboard publications. Publication then matches
+`dashboard + section + pipeline_id + output_name + entry_key + run_scope`.
+If the run scope does not match an enabled source binding, NopsAI records a
+publication skip event and leaves current dashboard content unchanged.
 
 ## GitOps Boundary
 
@@ -425,6 +444,10 @@ repository. Manual dashboard edits detach GitOps ownership to avoid unsafe
 overwrites. Generated dashboard content, current publications, and publication
 events remain runtime state in Postgres and are not written back to the config
 repository.
+
+GitOps source bindings should include `run_scope` whenever the pipeline is
+expected to publish from a non-default scope. Leaving it empty keeps the default
+scope exact and does not preserve legacy any-scope behavior.
 
 ## Monitoring And MCP
 

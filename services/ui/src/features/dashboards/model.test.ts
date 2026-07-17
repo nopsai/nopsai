@@ -4,12 +4,14 @@ import { describe, it } from 'node:test';
 import {
   createDashboardForm,
   createRefreshScheduleForm,
+  createSourceForm,
   dashboardRequestFromForm,
   normalizeDashboardRefreshSchedule,
   normalizeDashboardSpec,
   refreshScheduleFormFromSchedule,
   refreshScheduleRequestFromForm,
   sectionRequestFromForm,
+  sourceRequestFromForm,
 } from './model.js';
 
 describe('dashboard model normalization', () => {
@@ -130,6 +132,26 @@ describe('dashboard model normalization', () => {
       title: 'Service Health',
       description: 'Current service state.',
       display_order: 20,
+    });
+  });
+
+  it('includes normalized run scope in source binding requests', () => {
+    assert.deepEqual(sourceRequestFromForm({
+      ...createSourceForm('overview'),
+      pipelineID: 'team-1/dashboard',
+      outputName: 'Service Health',
+      entryKey: 'health',
+      runScope: '/prod/',
+      refreshOrder: '5',
+    }), {
+      section_key: 'overview',
+      pipeline_id: 'team-1/dashboard',
+      output_name: 'Service Health',
+      entry_key: 'health',
+      run_scope: 'prod',
+      enabled: true,
+      required_for_refresh: true,
+      refresh_order: 5,
     });
   });
 

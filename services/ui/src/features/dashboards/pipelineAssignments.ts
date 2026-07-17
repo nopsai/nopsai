@@ -1,5 +1,6 @@
 import {
   createSourceForm,
+  normalizeRunScope,
   titleFromKey,
   type DashboardFormState,
   type DashboardSectionFormState,
@@ -11,6 +12,7 @@ import type { DashboardPipelineCatalogItem, DashboardPipelineOutputOption } from
 
 export type DashboardOutputBinding = {
   pipelineID: string;
+  runScope: string;
   output: DashboardPipelineOutputOption;
 };
 
@@ -33,6 +35,7 @@ export function dashboardOutputBindingsFromForm(
       .filter(output => output.dashboardRef === dashboardRef && Boolean(output.sectionKey.trim()) && Boolean(output.name.trim()))
       .map(output => ({
         pipelineID: pipeline.id,
+        runScope: normalizeRunScope(form.pipelineScopes[pipeline.id]),
         output: normalizeOutput(output),
       })))
     .sort(compareBindings);
@@ -61,7 +64,8 @@ export function sourceBindingExists(sources: DashboardSource[], binding: Dashboa
     source.section_key === binding.output.sectionKey &&
     source.pipeline_id === binding.pipelineID &&
     source.output_name === binding.output.name &&
-    (source.entry_key || '') === entryKey
+    (source.entry_key || '') === entryKey &&
+    normalizeRunScope(source.run_scope) === binding.runScope
   );
 }
 
@@ -71,7 +75,7 @@ export function unselectedDashboardOutputSources(
   sources: DashboardSource[]
 ): DashboardSource[] {
   const dashboardRef = dashboardRefFromForm(form);
-  const selectedPipelineIDs = new Set(form.pipelineIDs);
+  const selectedBindingKeys = new Set(dashboardOutputBindingsFromForm(form, catalog).map(bindingKey));
   const outputsByPipelineID = new Map(
     catalog.map(pipeline => [
       pipeline.id,
@@ -79,11 +83,11 @@ export function unselectedDashboardOutputSources(
     ])
   );
   return sources.filter(source => {
-    if (selectedPipelineIDs.has(source.pipeline_id)) return false;
     return (outputsByPipelineID.get(source.pipeline_id) || []).some(output =>
       source.section_key === output.sectionKey.trim() &&
       source.output_name === output.name.trim() &&
-      (source.entry_key || '') === output.entryKey.trim()
+      (source.entry_key || '') === output.entryKey.trim() &&
+      !selectedBindingKeys.has(sourceKey(source))
     );
   });
 }
@@ -103,6 +107,7 @@ export function sourceFormFromBinding(binding: DashboardOutputBinding, index: nu
     pipelineID: binding.pipelineID,
     outputName: binding.output.name,
     entryKey: binding.output.entryKey,
+    runScope: binding.runScope,
     refreshOrder: String(index * 10),
   };
 }
@@ -121,5 +126,27 @@ function compareBindings(a: DashboardOutputBinding, b: DashboardOutputBinding): 
   if (sectionCompare !== 0) return sectionCompare;
   const pipelineCompare = a.pipelineID.localeCompare(b.pipelineID);
   if (pipelineCompare !== 0) return pipelineCompare;
-  return a.output.name.localeCompare(b.output.name);
+  const outputCompare = a.output.name.localeCompare(b.output.name);
+  if (outputCompare !== 0) return outputCompare;
+  return a.runScope.localeCompare(b.runScope);
+}
+
+function bindingKey(binding: DashboardOutputBinding): string {
+  return [
+    binding.output.sectionKey,
+    binding.pipelineID,
+    binding.output.name,
+    binding.output.entryKey,
+    binding.runScope,
+  ].join('\u001f');
+}
+
+function sourceKey(source: DashboardSource): string {
+  return [
+    source.section_key,
+    source.pipeline_id,
+    source.output_name,
+    source.entry_key || '',
+    normalizeRunScope(source.run_scope),
+  ].join('\u001f');
 }
