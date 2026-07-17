@@ -230,6 +230,119 @@ func (a *App) listDashboardSections(ctx context.Context, dashboardID string) ([]
 	return sections, rows.Err()
 }
 
+func (a *App) getDashboardSection(ctx context.Context, dashboardID, sectionID string) (dashboardSectionRecord, error) {
+	return scanDashboardSectionRecord(a.db.QueryRow(ctx, `
+		SELECT id::text, dashboard_id::text, section_key, title, description, layout::text,
+		       display_order, created_at, updated_at
+		FROM dashboard_sections
+		WHERE dashboard_id::text = $1 AND id::text = $2
+	`, dashboardID, strings.TrimSpace(sectionID)))
+}
+
+func (a *App) createDashboardSection(ctx context.Context, dashboardID string, input dashboardSectionInput) (dashboardSectionRecord, error) {
+	layoutJSON, err := json.Marshal(input.Layout)
+	if err != nil {
+		return dashboardSectionRecord{}, err
+	}
+	var id string
+	err = a.db.QueryRow(ctx, `
+		INSERT INTO dashboard_sections (dashboard_id, section_key, title, description, layout, display_order, updated_at)
+		VALUES ($1::uuid, $2, $3, $4, $5::jsonb, $6, NOW())
+		RETURNING id::text
+	`, dashboardID, input.SectionKey, input.Title, input.Description, string(layoutJSON), input.DisplayOrder).Scan(&id)
+	if err != nil {
+		return dashboardSectionRecord{}, err
+	}
+	return a.getDashboardSection(ctx, dashboardID, id)
+}
+
+func (a *App) updateDashboardSection(ctx context.Context, dashboardID, sectionID string, input dashboardSectionInput) (dashboardSectionRecord, error) {
+	layoutJSON, err := json.Marshal(input.Layout)
+	if err != nil {
+		return dashboardSectionRecord{}, err
+	}
+	tag, err := a.db.Exec(ctx, `
+		UPDATE dashboard_sections
+		SET title = $3,
+			description = $4,
+			layout = $5::jsonb,
+			display_order = $6,
+			updated_at = NOW()
+		WHERE dashboard_id::text = $1 AND id::text = $2
+	`, dashboardID, strings.TrimSpace(sectionID), input.Title, input.Description, string(layoutJSON), input.DisplayOrder)
+	if err != nil {
+		return dashboardSectionRecord{}, err
+	}
+	if tag.RowsAffected() == 0 {
+		return dashboardSectionRecord{}, pgx.ErrNoRows
+	}
+	return a.getDashboardSection(ctx, dashboardID, sectionID)
+}
+
+func (a *App) deleteDashboardSection(ctx context.Context, dashboardID, sectionID string) error {
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	section, err := scanDashboardSectionRecord(tx.QueryRow(ctx, `
+		SELECT id::text, dashboard_id::text, section_key, title, description, layout::text,
+		       display_order, created_at, updated_at
+		FROM dashboard_sections
+		WHERE dashboard_id::text = $1 AND id::text = $2
+	`, dashboardID, strings.TrimSpace(sectionID)))
+	if err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM dashboard_refresh_schedules
+		WHERE dashboard_id::text = $1
+		  AND scope_type = 'section'
+		  AND (
+			scope->>'section_key' = $2
+			OR COALESCE(scope->'section_keys', '[]'::jsonb) ? $2
+		  )
+	`, dashboardID, section.SectionKey); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		WITH section_sources AS (
+			SELECT id::text AS source_id
+			FROM dashboard_source_bindings
+			WHERE dashboard_id::text = $1 AND section_key = $2
+		)
+		DELETE FROM dashboard_refresh_schedules schedule
+		USING section_sources source
+		WHERE schedule.dashboard_id::text = $1
+		  AND schedule.scope_type = 'source'
+		  AND (
+			schedule.scope->>'source_id' = source.source_id
+			OR COALESCE(schedule.scope->'source_ids', '[]'::jsonb) ? source.source_id
+		  )
+	`, dashboardID, section.SectionKey); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM dashboard_source_bindings WHERE dashboard_id::text = $1 AND section_key = $2`, dashboardID, section.SectionKey); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM dashboard_publication_events WHERE dashboard_id::text = $1 AND section_key = $2`, dashboardID, section.SectionKey); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM dashboard_publications WHERE dashboard_id::text = $1 AND section_key = $2`, dashboardID, section.SectionKey); err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, `DELETE FROM dashboard_sections WHERE dashboard_id::text = $1 AND id::text = $2`, dashboardID, section.ID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return tx.Commit(ctx)
+}
+
 func upsertDashboardSection(ctx context.Context, runner queryRunner, dashboardID string, input dashboardSectionInput) error {
 	layoutJSON, err := json.Marshal(input.Layout)
 	if err != nil {

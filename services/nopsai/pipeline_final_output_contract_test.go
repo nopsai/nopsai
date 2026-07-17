@@ -120,6 +120,31 @@ func TestGenerateValidatedPipelineFinalOutputRetriesInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestBuildPipelineFinalOutputRetryPromptAddsDashboardSchemaHint(t *testing.T) {
+	prompt := buildPipelineFinalOutputRetryPrompt(
+		"Build dashboard.",
+		newPipelineFinalOutputContractError(
+			"invalid_dashboard_spec",
+			"invalid DashboardSpec: json: cannot unmarshal string into Go struct field DashboardBlock.blocks.items of type models.DashboardBlockItem",
+		),
+	)
+	for _, want := range []string{
+		"invalid_dashboard_spec",
+		"use one flat top-level blocks array",
+		"do not put nested blocks or widgets inside a block",
+		"Use the validation error to correct incompatible field shapes",
+		"Keep the dashboard focused on the user's requested intent",
+		"evidence present in the run context",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("retry prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, `{"text":"Disk usage high"}`) {
+		t.Fatalf("retry prompt should not include static dashboard item examples:\n%s", prompt)
+	}
+}
+
 func TestGenerateValidatedPipelineFinalOutputFailsAfterOneRetry(t *testing.T) {
 	client := &scriptedPipelineFinalOutputCompleter{completions: []llmclient.Completion{
 		{Text: "analysis first"},

@@ -1,7 +1,10 @@
 export type Team = {
   id: number;
   name: string;
+  kind?: 'team' | 'app' | string;
   parent_id?: number | null;
+  repo_url?: string;
+  repository_full_name?: string;
 };
 
 export type RunListItem = {
@@ -499,6 +502,14 @@ export function buildTeamContext(teams: Team[]) {
   });
 
   return { childrenByParent, labels, depths };
+}
+
+export function selectableMonitoringTeams(teams: Team[]): Team[] {
+  return teams.filter(team => !isMonitoringApplicationTeam(team));
+}
+
+function isMonitoringApplicationTeam(team: Team): boolean {
+  return team.kind === 'app' || Boolean(team.repo_url || team.repository_full_name) || team.name.includes('/');
 }
 
 export function allDirectRuns(runsByTeam: Record<number, RunListItem[]>): RunListItem[] {

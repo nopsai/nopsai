@@ -37,6 +37,7 @@ type ResourceAccess = {
 
 export type ResourceAccessResourceType =
   | 'pipeline'
+  | 'dashboard'
   | 'scope'
   | 'step'
   | 'runner'
@@ -78,6 +79,22 @@ const visibilityOptions = [
   { value: 'workspace', label: 'Public', description: 'Any authorized user can use it.' },
 ] as const;
 
+function visibilityDescription(value: (typeof visibilityOptions)[number]['value'], resourceType: ResourceAccessResourceType) {
+  if (resourceType !== 'dashboard') {
+    return visibilityOptions.find(option => option.value === value)?.description || '';
+  }
+  switch (value) {
+    case 'team':
+      return 'Viewing stays inside the dashboard team unless specific grants exist.';
+    case 'restricted':
+      return 'Keep same-team viewing and add explicit sharing.';
+    case 'workspace':
+      return 'Any authorized user can view it.';
+    default:
+      return '';
+  }
+}
+
 function encodeResourcePath(resourceType: string, resourceID: string) {
   const idPath = resourceID
     .split('/')
@@ -89,6 +106,7 @@ function encodeResourcePath(resourceType: string, resourceID: string) {
 function defaultUseAction(resourceType: ResourceAccessCardProps['resourceType']) {
   if (resourceType === 'config_repo') return 'config_repo.use';
   if (resourceType === 'knowledge_context') return 'knowledge_context.use';
+  if (resourceType === 'dashboard') return 'dashboard.read';
   return `${resourceType}.use`;
 }
 
@@ -102,8 +120,8 @@ function subjectLabel(grant: AccessGrant) {
   return display;
 }
 
-function grantSourceLabel(grant: AccessGrant) {
-  const role = grant.role === 'use' ? 'Use access' : grant.role;
+function grantSourceLabel(grant: AccessGrant, resourceType: ResourceAccessResourceType) {
+  const role = grant.role === 'use' ? (resourceType === 'dashboard' ? 'View access' : 'Use access') : grant.role;
   const inherited = grant.inherited_from_resource ? `Inherited from ${grant.inherited_from_resource}` : '';
   const source = (grant.managed_by_config_repo || grant.source === 'gitops')
     ? grant.config_source_path
@@ -162,6 +180,8 @@ export default function ResourceAccessCard({
   const grants = access?.use_access?.grants || [];
   const showGrantControls = access?.visibility === 'restricted' || grants.length > 0;
   const portalHost = typeof document === 'undefined' ? null : document.body;
+  const accessVerb = resourceType === 'dashboard' ? 'view' : 'use';
+  const accessNoun = resourceType === 'dashboard' ? 'View' : 'Use';
   const closeDialog = useCallback(() => {
     setOpen(false);
     onDialogClose?.();
@@ -339,7 +359,7 @@ export default function ResourceAccessCard({
             <header className="pipelines-modal-header">
               <div>
                 <p className="pipelines-modal-kicker text-xs text-[var(--text-secondary)]">Access</p>
-                <h3 id="resource-access-title" className="text-lg font-semibold text-[var(--text-primary)]">Who can use this {label}?</h3>
+                <h3 id="resource-access-title" className="text-lg font-semibold text-[var(--text-primary)]">Who can {accessVerb} this {label}?</h3>
               </div>
               <div className="flex items-center gap-2">
                 <button className="glass-button-ghost" type="button" onClick={() => void loadAccess()} disabled={loading || saving} aria-label="Refresh access">
@@ -387,7 +407,7 @@ export default function ResourceAccessCard({
                         />
                         <span className="min-w-0">
                           <span className="block text-[var(--text-primary)]">{option.label}</span>
-                          <span className="block text-xs text-[var(--text-secondary)]">{option.description}</span>
+                          <span className="block text-xs text-[var(--text-secondary)]">{visibilityDescription(option.value, resourceType)}</span>
                         </span>
                       </label>
                     );
@@ -398,7 +418,7 @@ export default function ResourceAccessCard({
                   <div className="space-y-3">
                     <div>
                       <p className="text-sm font-semibold text-[var(--text-primary)]">Teams, repositories, and service accounts</p>
-                      <p className="text-xs text-[var(--text-secondary)] mt-1">Use access only. Manage access stays with owners.</p>
+                      <p className="text-xs text-[var(--text-secondary)] mt-1">{accessNoun} access only. Manage access stays with owners.</p>
                     </div>
 
                     {grants.length ? (
@@ -409,7 +429,7 @@ export default function ResourceAccessCard({
                               <p className="truncate text-sm font-medium text-[var(--text-primary)]">{subjectLabel(grant)}</p>
                               <p className="flex items-center gap-1 text-xs text-[var(--text-secondary)]">
                                 {(grant.managed_by_config_repo || grant.source === 'gitops') ? <GitBranch className="h-3.5 w-3.5 shrink-0" /> : null}
-                                <span className="truncate">{grantSourceLabel(grant)}</span>
+                                <span className="truncate">{grantSourceLabel(grant, resourceType)}</span>
                               </p>
                             </div>
                             <button

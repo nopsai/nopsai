@@ -3,6 +3,7 @@ package nopsai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -100,10 +101,31 @@ func generateValidatedPipelineFinalOutput(
 }
 
 func buildPipelineFinalOutputRetryPrompt(prompt string, contractErr error) string {
-	return strings.TrimSpace(prompt) + "\n\n" +
+	retryPrompt := strings.TrimSpace(prompt) + "\n\n" +
 		"Correction required: the previous response was rejected. " +
 		strings.TrimSpace(contractErr.Error()) + "\n" +
 		"Return a corrected response that follows the system output contract exactly."
+	if hint := pipelineFinalOutputContractCorrectionHint(contractErr); hint != "" {
+		retryPrompt += "\n" + hint
+	}
+	return retryPrompt
+}
+
+func pipelineFinalOutputContractCorrectionHint(err error) string {
+	var contractErr *pipelineFinalOutputContractError
+	if !errors.As(err, &contractErr) {
+		return ""
+	}
+	switch contractErr.Reason {
+	case "invalid_dashboard_spec":
+		return "DashboardSpec reminder: use one flat top-level blocks array. Do not wrap output in sections or widgets, and do not put nested blocks or widgets inside a block. Use the validation error to correct incompatible field shapes, unsupported fields, unsafe content, or missing required values. Keep the dashboard focused on the user's requested intent and the evidence present in the run context."
+	case "invalid_document_spec":
+		return "DocumentSpec reminder: correct the rejected JSON shape and keep the response as the requested document JSON only."
+	case "invalid_spreadsheet_spec":
+		return "SpreadsheetSpec reminder: correct the rejected workbook JSON shape and keep the response as the requested spreadsheet JSON only."
+	default:
+		return ""
+	}
 }
 
 func normalizePipelineFinalOutputContent(outputType, raw string) (string, error) {

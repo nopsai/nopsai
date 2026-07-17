@@ -7318,6 +7318,10 @@ html.dark .pipelines-graph {
     max-width: 48rem;
 }
 
+.pipelines-modal-card.workflow-form-dialog--xwide {
+    max-width: 64rem;
+}
+
 .pipelines-modal-card::before {
     content: '';
     position: absolute;

@@ -330,7 +330,13 @@ func upsertGitOpsDashboardRefreshSchedules(ctx context.Context, tx pgx.Tx, bindi
 	return nil
 }
 
-func (a *App) exportConfigRepositoryDashboards(ctx context.Context, repo models.ConfigRepository, delegatedScopes []string, files map[string]string) error {
+func (a *App) exportConfigRepositoryDashboards(
+	ctx context.Context,
+	repo models.ConfigRepository,
+	delegatedScopes []string,
+	resourceAccess map[resourceAccessPlanKey]configRepositoryResourceAccessState,
+	files map[string]string,
+) error {
 	records, err := a.listDashboardRecords(ctx, "", "")
 	if err != nil {
 		return err
@@ -355,6 +361,7 @@ func (a *App) exportConfigRepositoryDashboards(ctx context.Context, repo models.
 		if err != nil {
 			return err
 		}
+		resourceID := record.ref()
 		doc := dashboardGitOpsDocument{
 			Title:            record.Title,
 			Description:      record.Description,
@@ -410,7 +417,14 @@ func (a *App) exportConfigRepositoryDashboards(ctx context.Context, repo models.
 		if err != nil {
 			return err
 		}
-		files[filePath] = string(content)
+		definition := string(content)
+		if access, ok := resourceAccess[resourceAccessPlanKey{resourceType: grantResourceDashboard, resourceID: resourceID}]; ok && (access.Override || !record.ManagedByConfigRepo) {
+			definition, err = syncConfigRepositoryYAMLAccessBlock(definition, access.exportFile())
+			if err != nil {
+				return fmt.Errorf("failed to render dashboard access for %s: %w", resourceID, err)
+			}
+		}
+		files[filePath] = definition
 	}
 	return nil
 }

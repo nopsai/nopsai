@@ -1,5 +1,5 @@
-import { STATUS_PRIORITY } from './constants';
-import type { RunTeam, RunListItem } from './types';
+import { STATUS_PRIORITY } from './constants.js';
+import type { RunTeam, RunListItem } from './types.js';
 
 const MIN_RUN_TIMESTAMP_MS = Date.UTC(2000, 0, 1);
 const GO_ZERO_TIME_PATTERN = /^0001-01-01T00:00:00(?:\.0+)?(?:Z|[+-]00:?00)?$/i;

@@ -16,6 +16,13 @@ The global repo can sync every shared config type and can define team config
 repo bindings. Team repos then become authoritative for everything under their
 team path.
 
+`team-1-repo` includes an intent-driven dashboard publication sample:
+`pipelines/dashboard-sample.yaml` publishes the `Service metrics` final output
+to `dashboards/ops-dashboard.yaml` in the `service-metrics` section. The
+pipeline prompt asks for service metrics from JSON log evidence and lets NopsAI
+choose the best dashboard structure when the prompt does not name a table,
+text, bar chart, or another visualization.
+
 ## Global repo binding
 
 ```json
@@ -102,6 +109,8 @@ Under the configured `base_path`, Nopsai scans:
 
 ```text
 pipelines/             Pipeline definitions
+dashboards/            Team dashboard definitions, sections, sources, and refresh schedules
+dashboard-templates/   Reusable dashboard templates
 steps/                 Reusable step definitions
 schedules/             One-time and recurring pipeline schedules
 triggers/              Trigger override manifests
@@ -138,6 +147,12 @@ global-repo/pipelines/platform/prod/platform-maintenance.yaml
 
 global-repo/pipelines/knowledge-kind-comparison.yaml
   -> pipeline knowledge-kind-comparison, comparing guardrail, policy, and guideline prompt behavior
+
+team-1-repo/pipelines/dashboard-sample.yaml
+  -> pipeline team-1/dashboard-sample, publishing prompt-generated service metrics into team-1/ops-dashboard
+
+team-1-repo/dashboards/ops-dashboard.yaml
+  -> dashboard team-1/ops-dashboard, with service-metrics section bound to team-1/dashboard-sample
 
 global-repo/steps/shared/announce.yaml
   -> reusable step shared/announce

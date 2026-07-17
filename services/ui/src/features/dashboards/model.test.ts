@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { normalizeDashboardRefreshSchedule, normalizeDashboardSpec } from './model.js';
+import {
+  createDashboardForm,
+  createRefreshScheduleForm,
+  dashboardRequestFromForm,
+  normalizeDashboardRefreshSchedule,
+  normalizeDashboardSpec,
+  refreshScheduleFormFromSchedule,
+  refreshScheduleRequestFromForm,
+  sectionRequestFromForm,
+} from './model.js';
 
 describe('dashboard model normalization', () => {
   it('normalizes refresh schedule and GitOps provenance fields', () => {
@@ -60,5 +69,127 @@ describe('dashboard model normalization', () => {
 
     assert.equal(spec.blocks?.[0]?.type, 'series');
     assert.equal(spec.blocks?.[0]?.chart?.series?.[0]?.key, 'api.p95');
+  });
+
+  it('omits create-only sections from dashboard edit requests', () => {
+    const form = {
+      ...createDashboardForm('platform'),
+      slug: 'health',
+      title: 'Health',
+      description: 'Runtime health.',
+      sectionKey: 'overview',
+      sectionTitle: 'Overview',
+    };
+
+    assert.deepEqual(dashboardRequestFromForm(form, { includeSections: false }), {
+      team_path: 'platform',
+      slug: 'health',
+      title: 'Health',
+      description: 'Runtime health.',
+      visibility: 'team',
+    });
+    assert.equal(dashboardRequestFromForm(form).sections?.[0]?.section_key, 'overview');
+  });
+
+  it('uses pipeline-derived section seeds for dashboard create requests', () => {
+    const form = {
+      ...createDashboardForm('platform'),
+      slug: 'health',
+      title: 'Health',
+    };
+
+    assert.deepEqual(dashboardRequestFromForm(form, {
+      sections: [
+        { sectionKey: 'service-health', title: 'Service Health', displayOrder: 10 },
+        { sectionKey: 'deployments', displayOrder: 20 },
+      ],
+    }).sections, [
+      {
+        section_key: 'service-health',
+        title: 'Service Health',
+        description: '',
+        display_order: 10,
+      },
+      {
+        section_key: 'deployments',
+        title: 'Deployments',
+        description: '',
+        display_order: 20,
+      },
+    ]);
+  });
+
+  it('builds section requests with a generated title and numeric display order', () => {
+    assert.deepEqual(sectionRequestFromForm({
+      sectionKey: 'service-health',
+      title: '',
+      description: 'Current service state.',
+      displayOrder: '20',
+    }), {
+      section_key: 'service-health',
+      title: 'Service Health',
+      description: 'Current service state.',
+      display_order: 20,
+    });
+  });
+
+  it('builds refresh schedule requests with scoped cadence and guardrails', () => {
+    const form = {
+      ...createRefreshScheduleForm({ scopeType: 'section', sectionKey: 'overview' }),
+      name: 'hourly-health',
+      description: 'Refresh before the review.',
+      cronMode: 'hourly' as const,
+      cronMinute: '0',
+      intervalValue: '1',
+      cron_expression: '0 * * * *',
+      timezone: 'Europe/Amsterdam',
+      mode: 'best_effort' as const,
+      timeout: '30m',
+      maxConcurrency: '2',
+    };
+
+    assert.deepEqual(refreshScheduleRequestFromForm(form), {
+      name: 'hourly-health',
+      description: 'Refresh before the review.',
+      cron_expression: '0 * * * *',
+      timezone: 'Europe/Amsterdam',
+      enabled: true,
+      scope: {
+        type: 'section',
+        section_key: 'overview',
+        source_id: undefined,
+      },
+      mode: 'best_effort',
+      timeout: '30m',
+      max_concurrency: 2,
+    });
+  });
+
+  it('creates refresh schedule forms from backend array scopes', () => {
+    const form = refreshScheduleFormFromSchedule(normalizeDashboardRefreshSchedule({
+      id: 'schedule-1',
+      dashboard_id: 'dashboard-1',
+      dashboard_ref: 'platform/health',
+      name: 'source-refresh',
+      cron_expression: '*/15 * * * *',
+      timezone: 'UTC',
+      enabled: false,
+      scope_type: 'source',
+      scope: { source_ids: ['source-1'] },
+      mode: 'strict',
+      max_concurrency: 3,
+      timeout_seconds: 3600,
+      source: 'database',
+      service_account_id: 'dashboard-schedule:schedule-1',
+      managed_by_config_repo: false,
+      created_at: '2026-07-15T10:00:00Z',
+      updated_at: '2026-07-15T10:00:00Z',
+    }));
+
+    assert.equal(form.scopeType, 'source');
+    assert.equal(form.sourceID, 'source-1');
+    assert.equal(form.timeout, '1h');
+    assert.equal(form.cronMode, 'minutes');
+    assert.equal(form.enabled, false);
   });
 });

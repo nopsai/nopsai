@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,11 +22,17 @@ import (
 )
 
 const (
-	pipelineFinalOutputFeature = "pipeline_final_output"
-	finalOutputStatusPending   = "pending"
-	finalOutputStatusRunning   = "generating"
-	finalOutputStatusSuccess   = "success"
-	finalOutputStatusFailure   = "failure"
+	pipelineFinalOutputFeature      = "pipeline_final_output"
+	finalOutputStatusPending        = "pending"
+	finalOutputStatusRunning        = "generating"
+	finalOutputStatusSuccess        = "success"
+	finalOutputStatusFailure        = "failure"
+	pipelineFinalOutputHistoryLimit = 5
+)
+
+var (
+	pipelineFinalOutputImageRefPattern      = regexp.MustCompile(`\b[A-Za-z0-9][A-Za-z0-9._/-]*:[A-Za-z0-9][A-Za-z0-9._-]*\b`)
+	pipelineFinalOutputDurationTokenPattern = regexp.MustCompile(`(?i)\b\d+(?:\.\d+)?\s*(?:ms|s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours)\b`)
 )
 
 type pipelineFinalOutputRecord struct {
@@ -35,8 +43,14 @@ type pipelineFinalOutputRecord struct {
 }
 
 type pipelineFinalOutputRunContext struct {
-	Text  string
-	Scope string
+	Text        string
+	Scope       string
+	LogEvidence pipelineFinalOutputLogEvidence
+}
+
+type pipelineFinalOutputLogEvidence struct {
+	Lines  []string
+	Images []pipelineFinalOutputImageEvidence
 }
 
 func (a *App) preparePipelineFinalOutputRecords(ctx context.Context, runID string) error {
@@ -205,6 +219,12 @@ func (a *App) generatePipelineFinalOutput(ctx context.Context, runID string, run
 		return err
 	}
 	if normalizePipelineFinalOutputType(output.Type) == "dashboard" {
+		content, err := a.groundPipelineFinalDashboardOutputContent(ctx, runID, result.Content, output, runContext.LogEvidence)
+		if err != nil {
+			_ = a.markPipelineFinalOutputFailureWithResult(ctx, output.ID, err, result)
+			return err
+		}
+		result.Content = content
 		if err := a.publishDashboardFinalOutput(ctx, runID, output, result.Content); err != nil {
 			_ = a.markPipelineFinalOutputFailureWithResult(ctx, output.ID, err, result)
 			return err
@@ -219,6 +239,182 @@ func (a *App) generatePipelineFinalOutput(ctx context.Context, runID string, run
 		return err
 	}
 	return nil
+}
+
+func (a *App) groundPipelineFinalDashboardOutputContent(ctx context.Context, runID, content string, output pipelineFinalOutputRecord, evidence pipelineFinalOutputLogEvidence) (string, error) {
+	if pipelineFinalOutputPromptRequestsImageEvidence(output.Prompt) && len(evidence.Images) == 0 {
+		if logs, err := a.loadPipelineFinalOutputLogExcerpt(ctx, runID); err == nil {
+			evidence = buildPipelineFinalOutputLogEvidence(logs)
+		}
+	}
+	return groundPipelineFinalDashboardOutputContent(content, output, evidence)
+}
+
+func groundPipelineFinalDashboardOutputContent(content string, output pipelineFinalOutputRecord, evidence pipelineFinalOutputLogEvidence) (string, error) {
+	if !pipelineFinalOutputPromptRequestsImageEvidence(output.Prompt) || len(evidence.Images) == 0 {
+		return content, nil
+	}
+	spec := dashboardSpecFromPipelineFinalOutputImageEvidence(evidence)
+	if err := validateDashboardSpec(spec); err != nil {
+		return "", fmt.Errorf("ground dashboard image evidence: %w", err)
+	}
+	return marshalFinalOutputSpec(spec)
+}
+
+func pipelineFinalOutputPromptRequestsImageEvidence(prompt string) bool {
+	lower := strings.ToLower(prompt)
+	return strings.Contains(lower, "image") || strings.Contains(lower, "docker")
+}
+
+func dashboardSpecFromPipelineFinalOutputImageEvidence(evidence pipelineFinalOutputLogEvidence) models.DashboardSpec {
+	rows := make([]map[string]json.RawMessage, 0, len(evidence.Images))
+	points := make([]models.DashboardSeriesPoint, 0, len(evidence.Images))
+	for _, image := range evidence.Images {
+		row := map[string]json.RawMessage{
+			"image":    dashboardJSONString(image.Name),
+			"version":  dashboardJSONString(image.Version),
+			"duration": dashboardJSONString(image.Duration),
+		}
+		rows = append(rows, row)
+		if seconds, ok := pipelineFinalOutputDurationSeconds(image.Duration); ok {
+			value := seconds
+			points = append(points, models.DashboardSeriesPoint{Label: image.Name, Value: &value})
+		}
+	}
+
+	primaryText := "Docker image builds are the primary subject of this pipeline."
+	if pipelineFinalOutputEvidenceContainsAny(evidence.Lines, "vulnerab", "production", "environment") {
+		primaryText = "Docker image builds and production readiness are the primary subject of this pipeline."
+	}
+	blocks := []models.DashboardBlock{
+		{
+			Type:  "callout",
+			Tone:  pipelineFinalOutputImageEvidenceTone(evidence.Lines),
+			Label: "Primary Subject",
+			Text:  primaryText,
+		},
+		{
+			Type:  "properties",
+			Label: "Build Statistics",
+			Items: []models.DashboardBlockItem{
+				{Label: "Images Built", Value: strconv.Itoa(len(evidence.Images))},
+			},
+		},
+		{
+			Type:  "table",
+			Title: "Built Images",
+			Columns: []models.DashboardTableColumn{
+				{Key: "image", Label: "Image Name"},
+				{Key: "version", Label: "Version"},
+				{Key: "duration", Label: "Build Duration"},
+			},
+			Rows: rows,
+		},
+	}
+	if len(points) == len(evidence.Images) {
+		blocks = append(blocks, models.DashboardBlock{
+			Type:  "chart",
+			Title: "Build Duration",
+			Chart: &models.DashboardChart{
+				Type: "bar",
+				Unit: "s",
+				Series: []models.DashboardChartSeries{
+					{
+						Key:    "build_duration_seconds",
+						Label:  "Build duration",
+						Unit:   "s",
+						Points: points,
+					},
+				},
+			},
+		})
+	}
+	if followUps := pipelineFinalOutputImageEvidenceFollowUps(evidence.Lines); len(followUps) > 0 {
+		blocks = append(blocks, models.DashboardBlock{
+			Type:  "list",
+			Title: "Important Follow-ups",
+			Items: followUps,
+		})
+	}
+	return models.DashboardSpec{
+		Version: models.FinalOutputSpecVersion,
+		Title:   "Image Build Summary",
+		Blocks:  blocks,
+	}
+}
+
+func dashboardJSONString(value string) json.RawMessage {
+	payload, _ := json.Marshal(value)
+	return payload
+}
+
+func pipelineFinalOutputImageEvidenceTone(lines []string) string {
+	if pipelineFinalOutputEvidenceContainsAny(lines, "vulnerab", "can not be run in production", "cannot be run in production", "fails during running", "missing") {
+		return "warning"
+	}
+	return "info"
+}
+
+func pipelineFinalOutputImageEvidenceFollowUps(lines []string) []models.DashboardBlockItem {
+	items := []models.DashboardBlockItem{}
+	for _, line := range lines {
+		lower := strings.ToLower(line)
+		switch {
+		case strings.Contains(lower, "vulnerab"):
+			items = append(items, models.DashboardBlockItem{Text: strings.TrimSpace(line), Tone: "warning"})
+		case strings.Contains(lower, "environment") && (strings.Contains(lower, "not provided") || strings.Contains(lower, "fail")):
+			items = append(items, models.DashboardBlockItem{Text: strings.TrimSpace(line), Tone: "warning"})
+		case strings.Contains(lower, "changelog"):
+			items = append(items, models.DashboardBlockItem{Text: strings.TrimSpace(line), Tone: "success"})
+		}
+	}
+	return items
+}
+
+func pipelineFinalOutputEvidenceContainsAny(lines []string, fragments ...string) bool {
+	for _, line := range lines {
+		lower := strings.ToLower(line)
+		for _, fragment := range fragments {
+			if strings.Contains(lower, strings.ToLower(fragment)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func pipelineFinalOutputDurationSeconds(raw string) (float64, bool) {
+	match := pipelineFinalOutputDurationTokenPattern.FindStringSubmatch(raw)
+	if len(match) == 0 {
+		return 0, false
+	}
+	token := strings.ToLower(strings.Join(strings.Fields(match[0]), ""))
+	unitStart := len(token)
+	for index, r := range token {
+		if (r < '0' || r > '9') && r != '.' {
+			unitStart = index
+			break
+		}
+	}
+	if unitStart <= 0 || unitStart >= len(token) {
+		return 0, false
+	}
+	value, err := strconv.ParseFloat(token[:unitStart], 64)
+	if err != nil {
+		return 0, false
+	}
+	switch token[unitStart:] {
+	case "ms":
+		return value / 1000, true
+	case "s", "sec", "secs", "second", "seconds":
+		return value, true
+	case "m", "min", "mins", "minute", "minutes":
+		return value * 60, true
+	case "h", "hr", "hrs", "hour", "hours":
+		return value * 3600, true
+	default:
+		return 0, false
+	}
 }
 
 func mustMarshalDashboardTarget(target models.DashboardOutputTarget) string {
@@ -388,10 +584,15 @@ func (a *App) buildPipelineFinalOutputRunContext(ctx context.Context, runID stri
 	if err != nil {
 		return pipelineFinalOutputRunContext{}, err
 	}
+	history, err := a.loadPipelineFinalOutputRunHistory(ctx, runID, record.Run)
+	if err != nil {
+		return pipelineFinalOutputRunContext{}, err
+	}
 	logs, err := a.loadPipelineFinalOutputLogExcerpt(ctx, runID)
 	if err != nil {
 		return pipelineFinalOutputRunContext{}, err
 	}
+	logEvidence := buildPipelineFinalOutputLogEvidence(logs)
 
 	var pipeline models.Pipeline
 	_ = yaml.Unmarshal([]byte(record.PipelineDefinitionYAML), &pipeline)
@@ -413,6 +614,9 @@ func (a *App) buildPipelineFinalOutputRunContext(ctx context.Context, runID stri
 	writeFinalOutputLine(&builder, "Failure reason", run.FailureReason)
 	writeFinalOutputTime(&builder, "Started at", run.StartedAt)
 	writeFinalOutputTime(&builder, "Finished at", run.FinishedAt)
+
+	writePipelineFinalOutputCurrentLogEvidence(&builder, logs, logEvidence)
+	writePipelineFinalOutputRunHistory(&builder, history)
 
 	builder.WriteString("\nSteps and tasks\n")
 	if len(stepDetails) > 0 {
@@ -453,14 +657,67 @@ func (a *App) buildPipelineFinalOutputRunContext(ctx context.Context, runID stri
 		}
 	}
 
-	if len(logs) > 0 {
-		builder.WriteString("\nRecent log excerpt\n")
-		for _, line := range logs {
-			builder.WriteString("- " + line + "\n")
-		}
-	}
+	return pipelineFinalOutputRunContext{Text: builder.String(), Scope: scope, LogEvidence: logEvidence}, nil
+}
 
-	return pipelineFinalOutputRunContext{Text: builder.String(), Scope: scope}, nil
+func (a *App) loadPipelineFinalOutputRunHistory(ctx context.Context, currentRunID string, currentRun models.RunListItem) ([]models.RunListItem, error) {
+	pipelineName := strings.TrimSpace(currentRun.PipelineName)
+	if pipelineName == "" {
+		return nil, nil
+	}
+	pipelinePath := strings.TrimSpace(currentRun.PipelinePath)
+	rows, err := a.db.Query(ctx, `
+		SELECT run_id::text, pipeline_name, COALESCE(pipeline_path, ''), COALESCE(pipeline_version, ''),
+		       status, started_at, finished_at, COALESCE(failure_reason, '')
+		FROM pipeline_runs
+		WHERE run_id::text <> $1
+		  AND COALESCE(pipeline_path, '') = $2
+		  AND pipeline_name = $3
+		ORDER BY created_at DESC
+		LIMIT $4
+	`, currentRunID, pipelinePath, pipelineName, pipelineFinalOutputHistoryLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	history := []models.RunListItem{}
+	for rows.Next() {
+		var item models.RunListItem
+		var startedAt, finishedAt sql.NullTime
+		var pipelineVersion string
+		if err := rows.Scan(
+			&item.RunID,
+			&item.PipelineName,
+			&item.PipelinePath,
+			&pipelineVersion,
+			&item.Status,
+			&startedAt,
+			&finishedAt,
+			&item.FailureReason,
+		); err != nil {
+			return nil, err
+		}
+		item.PipelineVersion = runquery.NormalizePipelineVersion(pipelineVersion)
+		if startedAt.Valid {
+			item.StartedAt = startedAt.Time
+			if finishedAt.Valid {
+				item.FinishedAt = finishedAt.Time
+				item.Duration = item.FinishedAt.Sub(item.StartedAt).Round(time.Second).String()
+				item.IsComplete = true
+			} else {
+				item.Duration = time.Since(item.StartedAt).Round(time.Second).String()
+				item.IsComplete = runquery.IsTerminalRunStatus(item.Status)
+			}
+		} else {
+			item.IsComplete = runquery.IsTerminalRunStatus(item.Status)
+		}
+		history = append(history, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return history, nil
 }
 
 func (a *App) pipelineFinalOutputRunScope(ctx context.Context, runID string) string {
@@ -510,10 +767,348 @@ func (a *App) loadPipelineFinalOutputLogExcerpt(ctx context.Context, runID strin
 	return reversed, nil
 }
 
+func writePipelineFinalOutputRunHistory(builder *strings.Builder, history []models.RunListItem) {
+	if len(history) == 0 {
+		return
+	}
+	builder.WriteString("\nRecent pipeline history\n")
+	for _, item := range history {
+		runID := strings.TrimSpace(item.RunID)
+		if runID == "" {
+			runID = "unknown"
+		}
+		builder.WriteString("- " + runID)
+		pipeline := strings.Trim(strings.TrimSpace(item.PipelinePath+"/"+item.PipelineName), "/")
+		if pipeline != "" {
+			builder.WriteString(" | pipeline: " + pipeline)
+		}
+		if version := strings.TrimSpace(item.PipelineVersion); version != "" {
+			builder.WriteString(" | version: " + version)
+		}
+		if status := strings.TrimSpace(item.Status); status != "" {
+			builder.WriteString(" | status: " + status)
+		}
+		if duration := strings.TrimSpace(item.Duration); duration != "" {
+			builder.WriteString(" | duration: " + duration)
+		}
+		writeFinalOutputTimeFragment(builder, "started_at", item.StartedAt)
+		writeFinalOutputTimeFragment(builder, "finished_at", item.FinishedAt)
+		if reason := strings.TrimSpace(item.FailureReason); reason != "" {
+			builder.WriteString(" | failure_reason: " + reason)
+		}
+		builder.WriteString("\n")
+	}
+}
+
+func writePipelineFinalOutputCurrentLogEvidence(builder *strings.Builder, logs []string, evidence pipelineFinalOutputLogEvidence) {
+	if len(logs) == 0 {
+		return
+	}
+	builder.WriteString("\nCurrent run emitted evidence (authoritative for business facts)\n")
+	builder.WriteString("Use emitted step output before operational runner logs, metadata, history, or configured runtime/container fields when answering questions about produced business data.\n")
+	if summary := pipelineFinalOutputLogEvidenceSummaryFromEvidence(evidence); len(summary) > 0 {
+		builder.WriteString("Extracted facts from current log lines\n")
+		for _, line := range summary {
+			builder.WriteString("- " + line + "\n")
+		}
+	}
+	if len(evidence.Lines) > 0 {
+		builder.WriteString("Emitted step output lines\n")
+		for _, line := range evidence.Lines {
+			builder.WriteString("- " + line + "\n")
+		}
+	}
+	builder.WriteString("Raw operational log excerpt (use only for run status and operational metadata unless it contains emitted step output)\n")
+	for _, line := range logs {
+		builder.WriteString("- " + line + "\n")
+	}
+}
+
+type pipelineFinalOutputImageEvidence struct {
+	Name     string
+	Version  string
+	Duration string
+}
+
+func pipelineFinalOutputLogEvidenceSummary(logs []string) []string {
+	return pipelineFinalOutputLogEvidenceSummaryFromEvidence(buildPipelineFinalOutputLogEvidence(logs))
+}
+
+func pipelineFinalOutputLogEvidenceSummaryFromEvidence(evidence pipelineFinalOutputLogEvidence) []string {
+	if len(evidence.Images) == 0 {
+		return nil
+	}
+	summary := []string{fmt.Sprintf("image_count: %d", len(evidence.Images))}
+	for _, image := range evidence.Images {
+		line := fmt.Sprintf("image: %s | version: %s", image.Name, image.Version)
+		if image.Duration != "" {
+			line += " | build_duration: " + image.Duration
+		}
+		summary = append(summary, line)
+	}
+	return summary
+}
+
+func buildPipelineFinalOutputLogEvidence(logs []string) pipelineFinalOutputLogEvidence {
+	lines := pipelineFinalOutputEmittedEvidenceLines(logs)
+	if len(lines) == 0 {
+		lines = pipelineFinalOutputFallbackEvidenceLines(logs)
+	}
+	return pipelineFinalOutputLogEvidence{
+		Lines:  lines,
+		Images: pipelineFinalOutputImageEvidenceFromLines(lines),
+	}
+}
+
+func pipelineFinalOutputImageEvidenceFromLines(lines []string) []pipelineFinalOutputImageEvidence {
+	images := []pipelineFinalOutputImageEvidence{}
+	seenImages := map[string]struct{}{}
+	for _, line := range lines {
+		if !pipelineFinalOutputLooksLikeImageEvidenceLine(line) {
+			continue
+		}
+		for _, ref := range pipelineFinalOutputImageRefPattern.FindAllString(line, -1) {
+			if strings.Contains(ref, "://") {
+				continue
+			}
+			separator := strings.LastIndex(ref, ":")
+			if separator <= 0 || separator == len(ref)-1 {
+				continue
+			}
+			image := pipelineFinalOutputImageEvidence{
+				Name:    strings.TrimSpace(ref[:separator]),
+				Version: strings.TrimSpace(ref[separator+1:]),
+			}
+			if image.Name == "" || image.Version == "" {
+				continue
+			}
+			key := image.Name + ":" + image.Version
+			if _, ok := seenImages[key]; ok {
+				continue
+			}
+			seenImages[key] = struct{}{}
+			images = append(images, image)
+		}
+	}
+	if len(images) == 0 {
+		return nil
+	}
+
+	durations := []string{}
+	for _, line := range lines {
+		if !pipelineFinalOutputLooksLikeBuildDurationLine(line) {
+			continue
+		}
+		for _, duration := range pipelineFinalOutputDurationTokenPattern.FindAllString(line, -1) {
+			durations = append(durations, strings.Join(strings.Fields(duration), ""))
+		}
+	}
+	for index := range images {
+		if index < len(durations) {
+			images[index].Duration = durations[index]
+		}
+	}
+	return images
+}
+
+func pipelineFinalOutputEmittedEvidenceLines(logs []string) []string {
+	lines := []string{}
+	for _, line := range logs {
+		message := pipelineFinalOutputLogMessage(line)
+		outputLines := pipelineFinalOutputCommandOutputLines(message)
+		lines = append(lines, outputLines...)
+	}
+	return compactNonEmptyStrings(lines)
+}
+
+func pipelineFinalOutputFallbackEvidenceLines(logs []string) []string {
+	lines := []string{}
+	for _, line := range logs {
+		message := pipelineFinalOutputLogMessage(line)
+		if pipelineFinalOutputLooksLikeOperationalLogLine(message) {
+			continue
+		}
+		lines = append(lines, message)
+	}
+	return compactNonEmptyStrings(lines)
+}
+
+func pipelineFinalOutputLogMessage(line string) string {
+	line = strings.TrimSpace(line)
+	jsonStart := strings.Index(line, "{")
+	if jsonStart < 0 {
+		return line
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(line[jsonStart:]), &payload); err != nil {
+		return line
+	}
+	var message string
+	if err := json.Unmarshal(payload["message"], &message); err != nil || strings.TrimSpace(message) == "" {
+		return line
+	}
+	return strings.TrimSpace(message)
+}
+
+func pipelineFinalOutputCommandOutputLines(message string) []string {
+	index := strings.LastIndex(message, "output=")
+	if index < 0 {
+		return nil
+	}
+	tail := strings.TrimSpace(message[index+len("output="):])
+	value, ok := pipelineFinalOutputQuotedAssignmentValue(tail)
+	if !ok {
+		value, ok = pipelineFinalOutputEscapedQuotedAssignmentValue(tail)
+	}
+	if !ok {
+		return nil
+	}
+	return splitPipelineFinalOutputEvidenceLines(value)
+}
+
+func pipelineFinalOutputQuotedAssignmentValue(raw string) (string, bool) {
+	if raw == "" || raw[0] != '"' {
+		return "", false
+	}
+	var builder strings.Builder
+	escaped := false
+	for index := 1; index < len(raw); index++ {
+		ch := raw[index]
+		if escaped {
+			switch ch {
+			case 'n':
+				builder.WriteByte('\n')
+			case 'r':
+				builder.WriteByte('\r')
+			case 't':
+				builder.WriteByte('\t')
+			default:
+				builder.WriteByte(ch)
+			}
+			escaped = false
+			continue
+		}
+		switch ch {
+		case '\\':
+			escaped = true
+		case '"':
+			return builder.String(), true
+		default:
+			builder.WriteByte(ch)
+		}
+	}
+	return "", false
+}
+
+func pipelineFinalOutputEscapedQuotedAssignmentValue(raw string) (string, bool) {
+	if !strings.HasPrefix(raw, `\"`) {
+		return "", false
+	}
+	var builder strings.Builder
+	for index := 2; index < len(raw); index++ {
+		ch := raw[index]
+		if ch != '\\' {
+			builder.WriteByte(ch)
+			continue
+		}
+		if index+1 >= len(raw) {
+			return "", false
+		}
+		next := raw[index+1]
+		if next == '"' {
+			return builder.String(), true
+		}
+		switch next {
+		case 'n':
+			builder.WriteByte('\n')
+		case 'r':
+			builder.WriteByte('\r')
+		case 't':
+			builder.WriteByte('\t')
+		case '\\':
+			builder.WriteByte('\\')
+		default:
+			builder.WriteByte(next)
+		}
+		index++
+	}
+	return "", false
+}
+
+func splitPipelineFinalOutputEvidenceLines(value string) []string {
+	return compactNonEmptyStrings(strings.Split(value, "\n"))
+}
+
+func compactNonEmptyStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func pipelineFinalOutputLooksLikeImageEvidenceLine(line string) bool {
+	lower := strings.ToLower(line)
+	return strings.Contains(lower, "image") || strings.Contains(lower, "docker") || strings.Contains(lower, "container") || strings.Contains(lower, "artifact")
+}
+
+func pipelineFinalOutputLooksLikeOperationalLogLine(line string) bool {
+	lower := strings.ToLower(strings.TrimSpace(line))
+	if lower == "" {
+		return true
+	}
+	for _, prefix := range []string{
+		"trigger event id:",
+		"preparing agent container",
+		"assigned pipeline ",
+		"dispatched to runner",
+	} {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	for _, fragment := range []string{
+		"pipeline execution starting",
+		"agent starting with embedded",
+		"starting asynchronous image pre-pull",
+		"creating new container for step",
+		"image found locally",
+		"executing direct script",
+		"successfully notified dispatcher",
+		"cleaning up session container",
+		"cleaning up pipeline container",
+		"pipeline finished successfully",
+	} {
+		if strings.Contains(lower, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+func pipelineFinalOutputLooksLikeBuildDurationLine(line string) bool {
+	lower := strings.ToLower(line)
+	hasDurationSignal := strings.Contains(lower, "duration") ||
+		strings.Contains(lower, "took") ||
+		strings.Contains(lower, "time")
+	hasBuildSignal := strings.Contains(lower, "build") ||
+		strings.Contains(lower, "built") ||
+		strings.Contains(lower, "image") ||
+		strings.Contains(lower, "artifact")
+	return hasDurationSignal && hasBuildSignal
+}
+
 func buildPipelineFinalOutputPrompt(runContext string, output pipelineFinalOutputRecord) string {
 	var builder strings.Builder
 	builder.WriteString("You are creating a polished final deliverable for an enterprise pipeline run.\n")
 	builder.WriteString("Use the full run context below, but do not expose secrets, credentials, tokens, or raw environment values.\n")
+	builder.WriteString("Treat emitted current-run step output, including structured JSON, NDJSON, and plain-language log lines, as the primary source for business facts. If emitted step output contains values that answer the user instruction, copy those values exactly.\n")
+	builder.WriteString("Do not substitute configured container images, runner/runtime images, LLM/agent metadata, operational log image-pull lines, or recent-history values for business entities such as images, versions, artifacts, services, or subjects unless the emitted step output explicitly identifies them as the requested entities.\n")
+	builder.WriteString("If a file is mentioned but its contents are not present in the run context, do not infer or invent its values. Prefer operationally relevant subjects over incidental personal/noise lines unless the user specifically asks for those details.\n")
+	builder.WriteString("For intent-level dashboard requests, infer the dashboard structure from the requested facts and available evidence. Use run history, step, and task duration metadata for operational run timing only when current log evidence does not answer the requested business timing.\n")
 	builder.WriteString("The system output contract defines the required response envelope.\n\n")
 	builder.WriteString("Output name: " + output.Name + "\n")
 	builder.WriteString("Output type: " + output.Type + "\n")
@@ -545,22 +1140,22 @@ func pipelineFinalOutputFormatGuidance(output pipelineFinalOutputRecord) string 
 }
 
 func dashboardFinalOutputFormatGuidance(preset string) string {
-	base := `Inside <final_output>, provide only a DashboardSpec JSON object. Use {"version":"1","title":"...","blocks":[{"type":"status","label":"Health","status":"success","value":"On track"},{"type":"text","title":"Summary","text":"..."},{"type":"table","title":"Findings","columns":[{"key":"name","label":"Name"}],"rows":[{"name":"Example"}]},{"type":"chart","title":"Trend","chart":{"type":"line","aggregation_interval":"1h","missing_values":"gap","series":[{"key":"prod","label":"Production","environment":"prod","points":[{"timestamp":"2026-07-15T08:00:00Z","value":98.5}]}]}}]}. Supported block types are status, text, callout, list, properties, table, progress, link, chart, and series. Do not include Markdown or HTML.`
+	base := `Inside <final_output>, provide only a valid DashboardSpec JSON object. Translate the user's dashboard intent into a useful dashboard from the run context; do not require the user to know schema details. Choose the dashboard structure dynamically from the prompt, pipeline definition, run metadata, recent pipeline history, step/task durations, child runs, and log evidence. If the user did not name a visualization, choose by data shape: text or callout for narrative conclusions, status/progress/properties for current state and scalar facts, table for repeated records, bar chart for categorical counts/durations/rankings, line or area chart for time series, and pie or donut chart only for bounded part-to-whole data. Use only evidence present in the run context; if requested data is absent, say it is not present rather than guessing. Available DashboardSpec blocks are status, text, callout, list, properties, table, progress, link, chart, and series. Include a non-empty title. Use one flat top-level blocks array; do not wrap dashboard output in sections or widgets, and do not put nested blocks or widgets inside a block. Use text for text and callout block bodies. Use label for display labels; key is only for table columns and chart series identifiers. Tables need columns with key/label and scalar row values. Charts need type, series, and points with label or timestamp plus finite numeric value. Do not include Markdown, HTML, CSS, JavaScript, commentary, or unsafe links. The response is validated before publication and will be retried if it does not match the DashboardSpec contract.`
 	switch strings.ToLower(strings.TrimSpace(preset)) {
 	case "report":
-		return base + " Prefer a concise text summary followed by callouts, properties, and supporting tables."
+		return base + " Prefer a concise report-style presentation with summary first and supporting details after it."
 	case "table":
-		return base + " Prefer one primary table with clear scalar columns and a short status or text block."
+		return base + " Prefer a scannable row-and-column presentation when the evidence naturally has repeated records."
 	case "status":
-		return base + " Prefer status, progress, properties, and callout blocks for health and readiness."
+		return base + " Prefer a health-and-readiness presentation that makes current state and attention items obvious."
 	case "timeline":
-		return base + " Prefer list blocks ordered by time with labels, values, and statuses for each event."
+		return base + " Prefer chronological organization when the evidence describes ordered events."
 	case "comparison":
-		return base + " Prefer tables and properties that compare environments, versions, or options side by side."
+		return base + " Prefer side-by-side comparison when the evidence compares environments, versions, or options."
 	case "metrics":
-		return base + " Prefer status, progress, properties, and line or bar chart blocks with numeric values and units."
+		return base + " Prefer a numeric metric-focused presentation with clear values, units, and trends when available."
 	case "mixed", "auto":
-		return base + " Choose the smallest useful mix of blocks for the run evidence."
+		return base + " Choose the smallest useful presentation for the run evidence."
 	default:
 		return base
 	}
@@ -645,6 +1240,13 @@ func writeFinalOutputTime(builder *strings.Builder, label string, value time.Tim
 		return
 	}
 	builder.WriteString(label + ": " + value.UTC().Format(time.RFC3339) + "\n")
+}
+
+func writeFinalOutputTimeFragment(builder *strings.Builder, label string, value time.Time) {
+	if value.IsZero() {
+		return
+	}
+	builder.WriteString(" | " + label + ": " + value.UTC().Format(time.RFC3339))
 }
 
 func (a *App) loadPipelineFinalOutputForDownload(ctx context.Context, runID, outputID string) (models.PipelineRunFinalOutput, error) {

@@ -1,10 +1,11 @@
 # Team Dashboards
 
 Team dashboards are team-owned operational views populated by validated
-pipeline final outputs. They support dashboard CRUD, sections, source
-discovery, publication storage, chart/series rendering, scheduled refreshes,
-GitOps ownership, provenance, refresh orchestration, history, stale-state
-metadata, AAA enforcement, MCP visibility, monitoring, and UI rendering.
+pipeline final outputs. They support dashboard CRUD, pipeline-output source
+assignment, generated sections, publication storage, chart/series rendering,
+scheduled refreshes, GitOps ownership, provenance, refresh orchestration,
+history, stale-state metadata, AAA enforcement, MCP visibility, monitoring,
+and UI rendering.
 
 ## Pipeline Publication
 
@@ -31,20 +32,9 @@ output:
 
 The pipeline prompt describes the desired content. NopsAI requires the LLM to
 return a validated `DashboardSpec`; generated HTML, CSS, and JavaScript are not
-accepted for standard dashboard content.
-
-Supported block types:
-
-- `status`
-- `text`
-- `callout`
-- `list`
-- `properties`
-- `table`
-- `progress`
-- `link`
-- `chart`
-- `series`
+accepted for standard dashboard content. Pipeline authors do not need to know
+or target the dashboard renderer schema; they describe the dashboard intent and
+NopsAI chooses the structure from the available run evidence.
 
 Supported publication modes:
 
@@ -62,7 +52,11 @@ Supported publication modes:
 to the platform maximum retention. Expired content remains visible but is
 marked stale until replaced or removed.
 
-## DashboardSpec
+## DashboardSpec Contract Reference
+
+`DashboardSpec` is the internal renderer contract used after generation and
+validation. Pipeline authors generally do not write this JSON by hand; the
+configured LLM creates it from the run context and output prompt.
 
 ```json
 {
@@ -122,7 +116,19 @@ series or points, and oversized content before publication is persisted. Chart
 types are `line`, `bar`, `area`, `pie`, and `donut`; `series` blocks support
 line, bar, and area charts.
 
-## Example: Text, List, And Bar Dashboard
+Generated dashboard output is normalized before strict validation for common
+LLM wrappers: a top-level `widgets` array, `sections[].blocks`,
+`sections[].widgets`, or section-like entries inside `blocks` with nested
+`blocks`/`widgets` are folded into the required flat top-level `blocks` array.
+Generated `properties` arrays or objects are folded into `items`, and display
+item or point `key` aliases are folded into `label`. The renderer contract
+remains the flat `DashboardSpec` shape above, and block fields still use strict
+validation. If generated content omits the root title, NopsAI derives one from
+the first block title or label and otherwise uses `Dashboard output`. Missing,
+numeric `1`, and `1.0` generated versions are normalized to the current
+`DashboardSpec` version `1`; other versions remain invalid.
+
+## Example: Intent-Driven Dashboard Publication
 
 This pipeline publishes one dashboard output. The step creates deterministic
 evidence and the final output prompt asks the configured LLM profile to turn
@@ -131,7 +137,7 @@ that evidence into a validated `DashboardSpec`.
 ```yaml
 name: service-health-dashboard
 version: "1.0"
-description: Publish text, list, and bar-chart status into Engineering Health.
+description: Publish service health evidence into Engineering Health.
 container_image: alpine:3.20
 llm_profile: standard
 
@@ -169,14 +175,41 @@ output:
         preset: auto
         ttl: 7d
       prompt: |
-        Create a DashboardSpec JSON object for payments-api using the run
-        evidence. Include exactly these blocks:
-        - one text block titled Summary
-        - one list block titled Next actions
-        - one bar chart block titled Stage throughput
-        Do not include Markdown, HTML, CSS, JavaScript, or fields outside the
-        DashboardSpec schema.
+        Build a dashboard summary for payments-api from the run evidence.
+        Show the current service summary, next actions, and stage throughput.
 ```
+
+Pipeline authors describe the dashboard they want. NopsAI sends emitted step
+output evidence first, then run metadata, recent same-pipeline run history,
+pipeline context, step and task durations, child runs, and dashboard intent to
+the configured LLM. Emitted stdout/stderr from steps, including plain `echo`
+output and structured JSON/NDJSON, is authoritative for business facts such as
+artifact names, versions, durations, services, and subjects. Runtime/container
+metadata, image-pull logs, and prior run history must not replace values that
+are present in the emitted step output. NopsAI then validates and repairs the
+generated `DashboardSpec` before publication.
+
+For example, this is enough for a dashboard output prompt:
+
+```yaml
+      prompt: |
+        Show how many images were built, which version each image used, how long
+        each image build took, and the most important subject in this pipeline.
+```
+
+NopsAI chooses the dashboard structure dynamically from the prompt and evidence.
+The values still come from run metadata and logged evidence. When the pipeline
+builds multiple images inside one script, plain log lines such as
+`name:version` image lists and matching duration lists are summarized for the
+model; structured summaries such as JSON are still recommended for richer or
+nested facts.
+
+When the prompt does not request a specific visualization, NopsAI guides the
+model to choose by data shape: text or callout for narrative conclusions,
+status/progress/properties for current state and scalar facts, tables for
+repeated records, bar charts for categorical counts, durations, and rankings,
+line or area charts for time series, and pie or donut charts only for bounded
+part-to-whole data.
 
 The dashboard itself can be managed by GitOps under
 `dashboards/platform/engineering-health.yaml`:
@@ -214,51 +247,6 @@ refresh_schedules:
     mode: best_effort
     timeout: 45m
     max_concurrency: 2
-```
-
-A valid `DashboardSpec` produced by that pipeline would look like this:
-
-```json
-{
-  "version": "1",
-  "title": "Payments API service health",
-  "blocks": [
-    {
-      "type": "text",
-      "title": "Summary",
-      "text": "Payments API is healthy. Build and deploy passed; latency is within target."
-    },
-    {
-      "type": "list",
-      "title": "Next actions",
-      "items": [
-        { "label": "Review slow checkout test", "status": "watch", "tone": "warning" },
-        { "label": "Keep deployment canary at 25 percent for 30 minutes", "status": "open", "tone": "info" },
-        { "label": "Archive successful release notes", "status": "done", "tone": "success" }
-      ]
-    },
-    {
-      "type": "chart",
-      "title": "Stage throughput",
-      "chart": {
-        "type": "bar",
-        "unit": "runs",
-        "missing_values": "zero",
-        "series": [
-          {
-            "key": "stage-throughput",
-            "label": "Successful runs",
-            "points": [
-              { "label": "build", "value": 42 },
-              { "label": "test", "value": 39 },
-              { "label": "deploy", "value": 37 }
-            ]
-          }
-        ]
-      }
-    }
-  ]
-}
 ```
 
 ## REST API
@@ -319,9 +307,15 @@ max concurrency, timeout, variables, next run, and latest refresh status.
 Service-account grants are synced for the dashboard, selected pipeline sources,
 and referenced scopes so scheduled execution stays auditable and AAA-compatible.
 
-Source management:
+Section and source management:
 
 ```text
+GET    /v1/dashboards/{dashboardID}/sections
+POST   /v1/dashboards/{dashboardID}/sections
+PUT    /v1/dashboards/{dashboardID}/sections/{sectionID}
+PATCH  /v1/dashboards/{dashboardID}/sections/{sectionID}
+DELETE /v1/dashboards/{dashboardID}/sections/{sectionID}
+
 GET    /v1/dashboards/{dashboardID}/sources
 POST   /v1/dashboards/{dashboardID}/sources
 PUT    /v1/dashboards/{dashboardID}/sources/{sourceID}
@@ -331,6 +325,71 @@ DELETE /v1/dashboards/{dashboardID}/sources/{sourceID}
 
 Use UUID dashboard IDs on REST paths. Pipeline YAML and hosted MCP accept
 dashboard refs in `team/dashboard-slug` form.
+
+## UI Source Mapping
+
+The dashboard UI uses a dropdown selector for dashboards the caller can access,
+then shows the selected dashboard as section-first content with a compact top
+toolbar. Refresh, schedule refresh, edit, Access, details, and delete actions
+stay grouped under the dashboard action menu so the primary screen remains
+focused on the live sections. Section cards expose only direct details and
+collapse/expand controls for quick scanning.
+Dashboard-level metadata, schedules, refresh history, and publication history
+stay behind the details action. Published entries link back to their originating
+pipeline run detail when run provenance is available, using direct run-detail
+routes so the exact run opens even when it is not visible in the recent list.
+Delete actions use an in-app confirmation dialog with target-specific impact
+copy and backend errors instead of browser confirmation prompts.
+
+The dashboard UI keeps source binding at the dashboard level. New-dashboard and
+edit-dashboard modals group fields by purpose and include one-line descriptions
+for each group. The pipeline picker only lists pipelines with `dashboard`
+outputs whose `dashboard.ref` matches the dashboard being created or edited.
+Selecting those pipelines creates the needed section records and source
+bindings from `dashboard.section`, `dashboard.entry_key`, and the output name.
+New dashboards choose from existing team paths, and broader sharing is assigned
+through the dashboard Access button after creation, matching the pipeline
+access-management pattern.
+
+Dashboard sections are created from selected pipeline dashboard outputs, then
+can be collapsed or expanded directly from the dashboard surface. Their details
+button reveals sources, existing schedules, refreshes, and latest run history
+only when requested. Latest run history is based on refresh source attempts, so
+failed runs and failed publication attempts remain visible even when no
+publication event was created. Section edit and delete operations live in
+dashboard-edit flows rather than per-section action menus. Editing a section
+updates its title, description, and display order while keeping `section_key`
+stable. Deleting a section also removes its source bindings, current
+publications, publication events, and section-scoped refresh schedules. When a
+refresh is running, each section with queued or running source pipelines shows an
+inline running-state panel with source status and direct run links.
+
+Refresh actions open an extra-wide modal with separate target and execution
+guardrail sections. The modal explains dashboard, section, and source scope;
+strict versus best-effort behavior; timeout; and concurrency before starting
+pipeline runs.
+
+Scheduled refreshes are created from dashboard-level actions. The schedule modal
+is extra-wide and separates identity, cadence, target, and execution guardrails.
+Operators use the same frequency builder as pipeline schedules:
+every-N-minutes, hourly, daily, weekdays, weekly, monthly, yearly, or custom
+five-field cron. They can set an IANA timezone, enable or disable the schedule,
+and target the whole dashboard, a section, or one source binding. Existing
+schedules can be run now, edited, enabled/disabled, or deleted from dashboard or
+section detail panels; section detail panels do not create new schedules. Delete
+uses the same in-app confirmation pattern as dashboard cleanup.
+
+Existing source bindings can still be edited with guided dropdowns. The source
+modal reads the selected dashboard sections, the dashboard-capable pipeline
+catalog, and the selected pipeline YAML, then offers only dashboard final
+outputs whose `dashboard.ref` targets the current dashboard and whose
+`dashboard.section` is present on the dashboard. Selecting an output maps the
+section from `dashboard.section`, and maps entry choices from
+`dashboard.entry_key`, existing entries, or the output-name fallback. The REST
+payload remains the same `dashboard_source_bindings` contract, so GitOps YAML,
+AAA checks, refresh orchestration, monitoring, and MCP behavior stay compatible.
+The larger mapping review panel shows the dashboard target and selected
+pipeline output side by side before saving edits.
 
 ## Authorization
 
@@ -397,7 +456,9 @@ Hosted MCP exposes:
 
 Dashboard creation and source mutation are available through guarded REST via
 `nopsai.call_api`; refresh and schedule run-now have dedicated confirmed MCP
-tools.
+tools. The dashboard-level pipeline assignment and source-edit UI reuse
+existing REST reads and pipeline YAML metadata, so they do not add new MCP tools
+or Prometheus metrics.
 
 ## Code Ownership
 
@@ -418,4 +479,6 @@ tools.
   `services/nopsai/hosted_mcp_tools.go`, and
   `services/nopsai/hosted_mcp_resources.go`
 - UI model/API/rendering: `services/ui/src/features/dashboards/`
+  (`model.ts`, `api.ts`, `sourceOptions.ts`, `pipelineAssignments.ts`,
+  `DashboardModals.tsx`, and `blocks/DashboardBlocks.tsx`)
 - UI route composition: `services/ui/src/pages/Dashboards.tsx`

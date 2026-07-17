@@ -45,6 +45,88 @@ steps:
   assert.deepEqual(result.errors, []);
 });
 
+test('validates pipeline dashboard final outputs without dashboard field errors', () => {
+  const result = validatePipelineYaml(`
+name: deploy
+container_image: alpine:3.20
+output:
+  items:
+    - name: Dashboard summary
+      type: dashboard
+      when: success
+      dashboard:
+        ref: platform/ops
+        section: overview
+        entry_key: daily
+        mode: replace
+        preset: status
+        ttl: 24h
+      prompt: |
+        Summarize the deployment state for the dashboard.
+steps:
+  - name: build
+    script: echo "ok"
+`);
+
+  assert.deepEqual(result.errors, []);
+});
+
+test('validates pipeline dashboard final output target requirements', () => {
+  const missingTarget = validatePipelineYaml(`
+name: deploy
+container_image: alpine:3.20
+output:
+  items:
+    - name: Dashboard summary
+      type: dashboard
+      prompt: Summarize the deployment state.
+steps:
+  - name: build
+    script: echo "ok"
+`);
+
+  assert.match(missingTarget.errors[0]?.message || '', /dashboard target must be an object/);
+
+  const invalidMode = validatePipelineYaml(`
+name: deploy
+container_image: alpine:3.20
+output:
+  items:
+    - name: Dashboard summary
+      type: dashboard
+      dashboard:
+        ref: platform/ops
+        section: overview
+        mode: overwrite
+      prompt: Summarize the deployment state.
+steps:
+  - name: build
+    script: echo "ok"
+`);
+
+  assert.match(invalidMode.errors[0]?.message || '', /dashboard\.mode 'overwrite' is not supported/);
+});
+
+test('rejects dashboard target configuration on non-dashboard outputs', () => {
+  const result = validatePipelineYaml(`
+name: deploy
+container_image: alpine:3.20
+output:
+  items:
+    - name: Executive summary
+      type: markdown
+      dashboard:
+        ref: platform/ops
+        section: overview
+      prompt: Summarize the deployment state.
+steps:
+  - name: build
+    script: echo "ok"
+`);
+
+  assert.match(result.errors[0]?.message || '', /dashboard configuration requires type 'dashboard'/);
+});
+
 test('validates pipeline final output item shape', () => {
   const result = validatePipelineYaml(`
 name: deploy

@@ -1,4 +1,4 @@
-import { apiClient } from '../../lib/api';
+import { apiClient } from '../../lib/api.js';
 
 export async function fetchSystemJson(path: string, init?: RequestInit): Promise<unknown> {
   const response = await apiClient.fetch(path, init);
