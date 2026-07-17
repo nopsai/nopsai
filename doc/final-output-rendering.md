@@ -158,6 +158,16 @@ deployment configuration. Pipeline YAML never contains infrastructure URLs.
 Copy actions convert structured source to readable text. Downloads remain the
 canonical complete artifacts.
 
+Operators can cancel final outputs while they are `pending` or `generating`
+from run details or with
+`POST /v1/runs/{runID}/outputs/{outputID}/cancel`. Cancellation marks the output
+`cancelled` and prevents later content writes or dashboard publication when the
+background LLM request returns. It does not cancel or change the status of the
+pipeline run itself. Cancelling an active dashboard refresh also cancels any
+pending or generating dashboard final outputs attached to that refresh, which
+lets operators clear missed publication handoffs without changing completed
+pipeline run status.
+
 ## Compatibility
 
 New PDF, HTML, Excel, and dashboard generations must pass the structured
@@ -172,8 +182,9 @@ Dashboard publication introduces `dashboard.publish` on dashboard resources.
 Dashboard refresh introduces `dashboard.refresh` for dashboard, section, and
 source refresh orchestration.
 Run details, downloads, PDF previews, and `nopsai.get_pipeline_run_output`
-remain protected by `pipeline_run.read` for the requested run. Hosted MCP
-returns the same authorized structured source and audit fields as REST.
+remain protected by `pipeline_run.read` for the requested run. Cancelling output
+generation uses `pipeline_run.cancel` for the requested run. Hosted MCP returns
+the same authorized structured source and audit fields as REST.
 
 The pipeline's `output.items` declaration remains ordinary GitOps YAML. The
 versioned specs are generated run data, not configuration drift and not written

@@ -854,7 +854,7 @@ export function RefreshModal({
           <Field label="Timeout" description="Maximum wall-clock duration for this refresh request, for example 45m or 1h.">
             <input className="pipelines-input w-full" value={form.timeout} onChange={event => onChange({ ...form, timeout: event.target.value })} disabled={saving} />
           </Field>
-          <Field label="Concurrency" description="Maximum number of source pipelines that can run at the same time.">
+          <Field label="Concurrency" description="Maximum number of unique pipeline and scope refresh runs that can start at the same time.">
             <input className="pipelines-input w-full" type="number" min="1" max="16" value={form.maxConcurrency} onChange={event => onChange({ ...form, maxConcurrency: event.target.value })} disabled={saving} />
           </Field>
         </div>
@@ -1209,7 +1209,7 @@ export function RefreshScheduleModal({
           <Field label="Timeout" description="Maximum wall-clock duration for each scheduled refresh, for example 45m or 1h.">
             <input className="pipelines-input w-full" value={form.timeout} onChange={event => onChange({ ...form, timeout: event.target.value })} disabled={saving} />
           </Field>
-          <Field label="Concurrency" description="Maximum number of source pipelines that can run at the same time.">
+          <Field label="Concurrency" description="Maximum number of unique pipeline and scope refresh runs that can start at the same time.">
             <input className="pipelines-input w-full" type="number" min="1" max="16" value={form.maxConcurrency} onChange={event => onChange({ ...form, maxConcurrency: event.target.value })} disabled={saving} />
           </Field>
         </div>

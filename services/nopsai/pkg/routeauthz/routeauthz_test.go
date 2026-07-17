@@ -155,6 +155,14 @@ func TestMapRequestUsesUpdatedLowLevelActions(t *testing.T) {
 			wantID:     "run-123",
 		},
 		{
+			name:       "run final output cancel uses run cancel action",
+			method:     http.MethodPost,
+			path:       "/v1/runs/run-123/outputs/output-1/cancel",
+			wantAction: "pipeline_run.cancel",
+			wantType:   "pipeline_run",
+			wantID:     "run-123",
+		},
+		{
 			name:       "run task update maps run id before mux path values",
 			method:     http.MethodPost,
 			path:       "/v1/runs/run-123/steps/build/tasks/test",

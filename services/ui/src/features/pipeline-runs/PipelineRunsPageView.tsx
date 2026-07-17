@@ -61,6 +61,7 @@ type PipelineRunsPageViewProps = {
   runDetailError: string | null;
   handleCloseDetail: () => void;
   handleCancelRun: (runId: string) => Promise<void>;
+  handleCancelFinalOutput: (runId: string, outputId: string) => Promise<void>;
   handleRerun: (runId: string) => Promise<void>;
   handleDeleteRun: (runId: string) => Promise<void>;
   selectedStep: string | null;
@@ -146,6 +147,7 @@ export function PipelineRunsPageView({
   runDetailError,
   handleCloseDetail,
   handleCancelRun,
+  handleCancelFinalOutput,
   handleRerun,
   handleDeleteRun,
   selectedStep,
@@ -294,6 +296,7 @@ export function PipelineRunsPageView({
                 error={runDetailError}
                 onClose={handleCloseDetail}
                 onCancel={() => void handleCancelRun(runDetail.run_info.run_id)}
+                onCancelOutput={outputId => void handleCancelFinalOutput(runDetail.run_info.run_id, outputId)}
                 onRerun={() => void handleRerun(runDetail.run_info.run_id)}
                 onDelete={() => void handleDeleteRun(runDetail.run_info.run_id)}
                 selectedStep={selectedStep}

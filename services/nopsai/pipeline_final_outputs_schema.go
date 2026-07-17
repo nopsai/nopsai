@@ -79,16 +79,10 @@ var pipelineFinalOutputSchemaStatements = []string{
 	`ALTER TABLE pipeline_run_outputs
 		ADD CONSTRAINT pipeline_run_outputs_type_check
 		CHECK (type IN ('markdown', 'pdf', 'excel', 'json', 'html', 'dashboard'))`,
-	`DO $$
-	BEGIN
-		IF NOT EXISTS (
-			SELECT 1 FROM pg_constraint WHERE conname = 'pipeline_run_outputs_status_check'
-		) THEN
-			ALTER TABLE pipeline_run_outputs
-			ADD CONSTRAINT pipeline_run_outputs_status_check
-			CHECK (status IN ('pending', 'generating', 'success', 'failure'));
-		END IF;
-	END $$`,
+	`ALTER TABLE pipeline_run_outputs DROP CONSTRAINT IF EXISTS pipeline_run_outputs_status_check`,
+	`ALTER TABLE pipeline_run_outputs
+		ADD CONSTRAINT pipeline_run_outputs_status_check
+		CHECK (status IN ('pending', 'generating', 'success', 'failure', 'cancelled'))`,
 	`CREATE INDEX IF NOT EXISTS idx_pipeline_run_outputs_run ON pipeline_run_outputs(run_id, item_index)`,
 	`CREATE INDEX IF NOT EXISTS idx_pipeline_run_outputs_status ON pipeline_run_outputs(status, updated_at DESC)`,
 }

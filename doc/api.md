@@ -1830,6 +1830,7 @@ curl -X POST -H 'Content-Type: application/json' \
 # Rerun, cancel, or finalise
 curl -X POST http://localhost:8080/v1/runs/<run-id>/rerun
 curl -X POST http://localhost:8080/v1/runs/<run-id>/cancel
+curl -X POST http://localhost:8080/v1/runs/<run-id>/outputs/<output-id>/cancel
 curl -X POST -H 'Content-Type: application/json' \
   -d '{"status":"success"}' \
   http://localhost:8080/v1/runs/<run-id>/finalize
@@ -1862,6 +1863,10 @@ curl -X DELETE \
   Markdown, JSON, server-templated HTML, Gotenberg/Chromium PDF, or typed
   Excelize XLSX content for successful final outputs. Existing pre-schema rich
   outputs use download-only compatibility adapters.
+- `POST /v1/runs/{runID}/outputs/{outputID}/cancel` marks a `pending` or
+  `generating` final output as `cancelled` without cancelling the pipeline run.
+  Late background generation results do not overwrite the cancelled output or
+  publish dashboard content. The route requires `pipeline_run.cancel`.
 - `GET /v1/runs?teamId=<id>` returns runs for a Pipeline Runs team and its
   descendants, teamed by branch for the Main view. `teamId=root` returns runs
   with no team assignment.

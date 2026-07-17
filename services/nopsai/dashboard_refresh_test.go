@@ -115,21 +115,148 @@ func TestSelectDashboardRefreshSources(t *testing.T) {
 	}
 }
 
+func TestGroupDashboardRefreshLaunchSourcesDedupesPipelineAndScope(t *testing.T) {
+	plans := []dashboardRefreshSourcePlan{
+		{
+			Source: dashboardSourceRecord{ID: "s1", PipelineID: "team/dashboard-sample", RunScope: "prod"},
+			Launch: true,
+		},
+		{
+			Source: dashboardSourceRecord{ID: "s2", PipelineID: "team/dashboard-sample", RunScope: "prod"},
+			Launch: true,
+		},
+		{
+			Source: dashboardSourceRecord{ID: "s3", PipelineID: "team/dashboard-sample", RunScope: "dev"},
+			Launch: true,
+		},
+		{
+			Source: dashboardSourceRecord{ID: "s4", PipelineID: "team/other", RunScope: "prod"},
+			Launch: false,
+		},
+	}
+
+	groups := groupDashboardRefreshLaunchSources(dashboardRefreshInput{}, plans)
+	if len(groups) != 2 {
+		t.Fatalf("groups = %#v, want 2 launch groups", groups)
+	}
+	if groups[0].PipelineID != "team/dashboard-sample" || groups[0].RunScope != "prod" || len(groups[0].Sources) != 2 {
+		t.Fatalf("first group = %#v, want two prod sources for team/dashboard-sample", groups[0])
+	}
+	if groups[1].PipelineID != "team/dashboard-sample" || groups[1].RunScope != "dev" || len(groups[1].Sources) != 1 {
+		t.Fatalf("second group = %#v, want one dev source for team/dashboard-sample", groups[1])
+	}
+}
+
+func TestGroupDashboardRefreshLaunchSourcesUsesRequestScopeOverride(t *testing.T) {
+	plans := []dashboardRefreshSourcePlan{
+		{
+			Source: dashboardSourceRecord{ID: "s1", PipelineID: "team/dashboard-sample", RunScope: "prod"},
+			Launch: true,
+		},
+		{
+			Source: dashboardSourceRecord{ID: "s2", PipelineID: "team/dashboard-sample", RunScope: "dev"},
+			Launch: true,
+		},
+	}
+
+	groups := groupDashboardRefreshLaunchSources(dashboardRefreshInput{RunScope: "/staging/"}, plans)
+	if len(groups) != 1 {
+		t.Fatalf("groups = %#v, want one launch group after run scope override", groups)
+	}
+	if groups[0].RunScope != "staging" || len(groups[0].Sources) != 2 {
+		t.Fatalf("override group = %#v, want two staging sources", groups[0])
+	}
+}
+
 func TestDashboardRefreshRunStatusFromPipelineStatus(t *testing.T) {
 	tests := map[string]string{
-		"success":           dashboardRefreshRunStatusSuccess,
+		"success":           "",
 		"failure":           dashboardRefreshRunStatusFailed,
 		"failure (ignored)": dashboardRefreshRunStatusFailed,
 		"rejected":          dashboardRefreshRunStatusFailed,
 		"cancelled":         dashboardRefreshRunStatusCancelled,
 		"timed_out":         dashboardRefreshRunStatusTimedOut,
 		"skipped":           dashboardRefreshRunStatusSkipped,
-		"pending":           dashboardRefreshRunStatusRunning,
-		"waiting_approval":  dashboardRefreshRunStatusRunning,
+		"pending":           "",
+		"waiting_approval":  "",
 	}
 	for status, want := range tests {
 		if got := dashboardRefreshRunStatusFromPipelineStatus(status); got != want {
 			t.Fatalf("status %q => %q, want %q", status, got, want)
 		}
+	}
+}
+
+func TestDashboardRefreshRunStatusFromPipelineOutputStatus(t *testing.T) {
+	tests := []struct {
+		name             string
+		runStatus        string
+		outputStatus     string
+		outputError      string
+		runFinishedStale bool
+		wantStatus       string
+		wantMessage      string
+	}{
+		{
+			name:         "pending output keeps dashboard row running",
+			runStatus:    "success",
+			outputStatus: finalOutputStatusPending,
+			wantStatus:   dashboardRefreshRunStatusRunning,
+		},
+		{
+			name:         "generating output keeps dashboard row running",
+			runStatus:    "success",
+			outputStatus: finalOutputStatusRunning,
+			wantStatus:   dashboardRefreshRunStatusRunning,
+		},
+		{
+			name:         "successful output completes dashboard row",
+			runStatus:    "success",
+			outputStatus: finalOutputStatusSuccess,
+			wantStatus:   dashboardRefreshRunStatusSuccess,
+		},
+		{
+			name:         "failed output fails dashboard row with output error",
+			runStatus:    "success",
+			outputStatus: finalOutputStatusFailure,
+			outputError:  "invalid DashboardSpec",
+			wantStatus:   dashboardRefreshRunStatusFailed,
+			wantMessage:  "invalid DashboardSpec",
+		},
+		{
+			name:         "cancelled output cancels dashboard row",
+			runStatus:    "success",
+			outputStatus: finalOutputStatusCancelled,
+			wantStatus:   dashboardRefreshRunStatusCancelled,
+			wantMessage:  "dashboard output generation cancelled",
+		},
+		{
+			name:             "stale successful run without output fails dashboard row",
+			runStatus:        "success",
+			runFinishedStale: true,
+			wantStatus:       dashboardRefreshRunStatusFailed,
+			wantMessage:      "pipeline run completed without producing dashboard output",
+		},
+		{
+			name:        "fresh successful run without output waits for final output preparation",
+			runStatus:   "success",
+			wantStatus:  "",
+			wantMessage: "",
+		},
+		{
+			name:        "pipeline failure fails dashboard row",
+			runStatus:   "failure",
+			wantStatus:  dashboardRefreshRunStatusFailed,
+			wantMessage: "pipeline run failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotStatus, gotMessage := dashboardRefreshRunStatusFromPipelineOutputStatus(tt.runStatus, tt.outputStatus, tt.outputError, tt.runFinishedStale)
+			if gotStatus != tt.wantStatus || gotMessage != tt.wantMessage {
+				t.Fatalf("status/message = %q/%q, want %q/%q", gotStatus, gotMessage, tt.wantStatus, tt.wantMessage)
+			}
+		})
 	}
 }

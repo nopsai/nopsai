@@ -281,6 +281,8 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		return "", model.ResourceRef{Type: "pipeline_run", ID: runIDFromRequest(r)}, false, nil
 	case strings.HasPrefix(path, "/v1/runs/") && strings.HasSuffix(path, "/rerun"):
 		return "pipeline_run.rerun", model.ResourceRef{Type: "pipeline_run", ID: runIDFromRequest(r)}, false, nil
+	case strings.HasPrefix(path, "/v1/runs/") && strings.Contains(path, "/outputs/") && strings.HasSuffix(path, "/cancel"):
+		return "pipeline_run.cancel", model.ResourceRef{Type: "pipeline_run", ID: runIDFromRequest(r)}, false, nil
 	case strings.HasPrefix(path, "/v1/runs/") && strings.HasSuffix(path, "/cancel"):
 		return "pipeline_run.cancel", model.ResourceRef{Type: "pipeline_run", ID: runIDFromRequest(r)}, false, nil
 	case strings.HasPrefix(path, "/v1/runs/") && strings.HasSuffix(path, "/finalize"):

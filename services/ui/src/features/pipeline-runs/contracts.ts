@@ -136,7 +136,7 @@ export type PipelineRunFinalOutput = {
   id: string;
   name: string;
   type: 'markdown' | 'pdf' | 'excel' | 'json' | 'html' | string;
-  status: 'pending' | 'generating' | 'success' | 'failure' | string;
+  status: 'pending' | 'generating' | 'success' | 'failure' | 'cancelled' | string;
   content?: string;
   error?: string;
   llm_profile?: string;

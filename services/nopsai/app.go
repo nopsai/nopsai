@@ -51,19 +51,20 @@ type App struct {
 	configSyncStatus ConfigSyncStatus
 	envFilePath      string
 
-	authService          *auth.Service
-	serviceAuth          *serviceauth.Authenticator
-	serviceCredentials   *serviceauth.Credentials
-	aaaClient            AAAClient
-	aaaLocal             AAAClient
-	aaaRemoteMu          sync.Mutex
-	aaaRetryAfter        time.Time
-	authz                *authz.Enforcer
-	auditLogger          *audit.Logger
-	systemLogs           *systemlogs.Broker
-	systemLogLimiter     *systemLogRateLimiter
-	knowledgeSyncMetrics knowledgeSyncMetrics
-	tokenActivity        sync.Map
+	authService           *auth.Service
+	serviceAuth           *serviceauth.Authenticator
+	serviceCredentials    *serviceauth.Credentials
+	aaaClient             AAAClient
+	aaaLocal              AAAClient
+	aaaRemoteMu           sync.Mutex
+	aaaRetryAfter         time.Time
+	authz                 *authz.Enforcer
+	auditLogger           *audit.Logger
+	systemLogs            *systemlogs.Broker
+	systemLogLimiter      *systemLogRateLimiter
+	knowledgeSyncMetrics  knowledgeSyncMetrics
+	tokenActivity         sync.Map
+	finalOutputCancellers sync.Map
 
 	runnerBootstrapMu     sync.Mutex
 	runnerBootstrapTokens map[string]runnerBootstrapToken
