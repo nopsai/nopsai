@@ -35,7 +35,7 @@ const RECENT_BATCH_SIZE = 20;
 function PipelineRunsPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { tab: tabParam } = useParams<{ tab?: string }>();
+  const { tab: tabParam, runID: routeRunID } = useParams<{ tab?: string; runID?: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const activeTab: TabKey = useMemo(() => {
@@ -60,7 +60,8 @@ function PipelineRunsPage() {
   const queryTeamValue = useMemo(() => normalizeTeamURLValue(searchParams.get('team')), [searchParams]);
   const activeTeamValue = routeTeamValue || queryTeamValue;
 
-  const activeRunId = searchParams.get('run');
+  const routeRunId = routeRunID || null;
+  const activeRunId = routeRunId || searchParams.get('run');
   const sourceFilter = useMemo<PipelineRunSourceFilter>(
     () => normalizeRunSourceFilter(searchParams.get('source')),
     [searchParams]
@@ -141,6 +142,11 @@ function PipelineRunsPage() {
     // Reset step selection when run detail changes to avoid showing task graphs by default.
     setSelectedStep(null);
   }, [runDetail?.run_info.run_id]);
+
+  useEffect(() => {
+    setRunDetail(null);
+    setRunDetailError(null);
+  }, [activeRunId]);
 
   useEffect(() => {
     const handleMove = (event: MouseEvent) => {
@@ -570,22 +576,38 @@ function PipelineRunsPage() {
 
   const handleOpenRun = useCallback(
     (runId: string) => {
-      updateSearchParams({ run: runId });
+      if (routeRunId) {
+        const params = new URLSearchParams(searchParams);
+        params.delete('run');
+        params.delete('team');
+        const search = params.toString();
+        navigate(`/pipelineruns/${activeTab}/${encodeURIComponent(runId)}${search ? `?${search}` : ''}`, { preventScrollReset: true });
+      } else {
+        updateSearchParams({ run: runId });
+      }
       setSelectedStep(null);
       setDefinitionOpen(false);
       setLogsStepFilter(null);
       scrollMainToTop();
     },
-    [scrollMainToTop, updateSearchParams]
+    [activeTab, navigate, routeRunId, scrollMainToTop, searchParams, updateSearchParams]
   );
 
   const handleCloseDetail = useCallback(() => {
-    updateSearchParams({ run: null });
+    if (routeRunId) {
+      const params = new URLSearchParams(searchParams);
+      params.delete('run');
+      params.delete('team');
+      const search = params.toString();
+      navigate(`/pipelineruns/${activeTab}${search ? `?${search}` : ''}`, { replace: true, preventScrollReset: true });
+    } else {
+      updateSearchParams({ run: null });
+    }
     setRunDetail(null);
     setSelectedStep(null);
     setDefinitionOpen(false);
     setLogsStepFilter(null);
-  }, [updateSearchParams]);
+  }, [activeTab, navigate, routeRunId, searchParams, updateSearchParams]);
 
   const handleDeleteRun = useCallback(
     async (runId: string) => {
@@ -664,7 +686,15 @@ function PipelineRunsPage() {
           { method: 'POST' }
         );
         if (result?.runId) {
-          updateSearchParams({ run: result.runId });
+          if (routeRunId) {
+            const params = new URLSearchParams(searchParams);
+            params.delete('run');
+            params.delete('team');
+            const search = params.toString();
+            navigate(`/pipelineruns/${activeTab}/${encodeURIComponent(result.runId)}${search ? `?${search}` : ''}`, { preventScrollReset: true });
+          } else {
+            updateSearchParams({ run: result.runId });
+          }
         }
         await loadRuns();
       } catch (error) {
@@ -672,7 +702,7 @@ function PipelineRunsPage() {
         alert(message);
       }
     },
-    [fetchJson, loadRuns, updateSearchParams]
+    [activeTab, fetchJson, loadRuns, navigate, routeRunId, searchParams, updateSearchParams]
   );
 
   const onSelectTeam = useCallback(
@@ -690,7 +720,7 @@ function PipelineRunsPage() {
     [activeTab, navigate, searchParams, teams]
   );
 
-  const isViewingDetail = Boolean(runDetail && activeRunId);
+  const isViewingDetail = Boolean(activeRunId);
   const showSelectionBar = selectedRunIds.size > 0;
 
   return (

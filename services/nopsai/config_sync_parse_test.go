@@ -78,6 +78,59 @@ triggers:
 	}
 }
 
+func TestParseConfigSyncPlanAddsDashboardEmbeddedAccess(t *testing.T) {
+	binding := models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeTeam,
+		ScopeID:   "team-1",
+		RepoURL:   "https://github.com/acme/platform-config",
+		BasePath:  "config",
+	}
+	repoCtx, err := newConfigSyncRepositoryContext(binding)
+	if err != nil {
+		t.Fatalf("newConfigSyncRepositoryContext() error = %v", err)
+	}
+
+	files := configSyncRepositoryFiles{
+		dashboards: map[string]string{
+			"config/dashboards/ops-dashboard.yaml": `
+title: Ops Dashboard
+visibility: workspace
+access:
+  visibility: workspace
+  use_access:
+    grants:
+      - team: data-team
+`,
+		},
+	}
+
+	plan, err := (&App{}).parseConfigSyncPlan(binding, repoCtx, files)
+	if err != nil {
+		t.Fatalf("parseConfigSyncPlan() error = %v", err)
+	}
+	resourceKey := resourceAccessPlanKey{resourceType: grantResourceDashboard, resourceID: "team-1/ops-dashboard"}
+	access, ok := plan.accessPlan.resourceAccess[resourceKey]
+	if !ok {
+		t.Fatalf("dashboard resource access = %#v, want key %#v", plan.accessPlan.resourceAccess, resourceKey)
+	}
+	if !access.visibilitySet || access.visibility != resourceVisibilityWorkspace {
+		t.Fatalf("dashboard visibility = (%v, %q), want workspace", access.visibilitySet, access.visibility)
+	}
+	grantKey := accessGrantPlanKey{
+		subjectType:  grantSubjectTeam,
+		subjectID:    "data-team",
+		resourceType: grantResourceDashboard,
+		resourceID:   "team-1/ops-dashboard",
+	}
+	grant, ok := plan.accessPlan.grants[grantKey]
+	if !ok {
+		t.Fatalf("dashboard grants = %#v, want key %#v", plan.accessPlan.grants, grantKey)
+	}
+	if len(grant.actions) != 1 || grant.actions[0] != "dashboard.read" {
+		t.Fatalf("dashboard grant actions = %#v, want dashboard.read", grant.actions)
+	}
+}
+
 func TestParseConfigSyncPlanLoadsTeamAIProfiles(t *testing.T) {
 	binding := models.ConfigRepository{
 		ScopeType: models.ConfigRepositoryScopeTeam,

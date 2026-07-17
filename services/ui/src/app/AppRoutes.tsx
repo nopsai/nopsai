@@ -54,6 +54,7 @@ export function AppRoutes({
       <Routes>
         <Route path="/" element={<Navigate to="/pipelineruns/main" replace />} />
         <Route path="/pipelineruns/:tab/team/*" element={<PipelineRunsPage />} />
+        <Route path="/pipelineruns/:tab/:runID" element={<PipelineRunsPage />} />
         <Route path="/pipelineruns/:tab?" element={<PipelineRunsPage />} />
         <Route path="/monitoring" element={<MonitoringPage />} />
         <Route path="/teams/*" element={<TeamsPage />} />

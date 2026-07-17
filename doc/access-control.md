@@ -131,7 +131,9 @@ Dashboards use `dashboard` as the resource type. Viewer grants include
 `dashboard.refresh` for start, cancel, and retry; refresh history reads use
 `dashboard.read`. Dashboard refresh schedule reads use `dashboard.read`,
 schedule create/update/delete/enable/disable use `dashboard.update`, and
-schedule run-now uses `dashboard.refresh`.
+schedule run-now uses `dashboard.refresh`. The dashboard creation UI assigns
+the dashboard to an existing team and leaves broader sharing to Access grants,
+matching pipeline access-management behavior.
 
 Git Webhook Sources use `git_webhook_source`. Viewer grants add
 `git_webhook_source.read`; developer grants add create and update; owner grants
@@ -208,9 +210,13 @@ Resource visibility values:
 
 Current resource Access UI behavior:
 
-- Pipeline, step, scope, and knowledge context pages show an `Access` button next to the normal action buttons.
+- Pipeline, dashboard, step, scope, and knowledge context pages show an `Access` button next to the normal action buttons.
 - The Access dialog offers `Only this team`, `This team and selected subjects`, and, for non-sensitive resources, `Public`.
+- Dashboard grants use `dashboard.read`; other resource-use grants use their resource-specific `*.use` action.
 - Team sharing uses existing Teams entries from `GET /v1/access/teams`.
+- Team dropdowns in Access, resource creation, monitoring, and resource
+  configuration surfaces list team paths only; application/repository nodes are
+  reserved for the Teams and run-navigation resource trees.
 - Auth-team subject pickers use SSO/AAA entries from `GET /v1/access/auth-teams`.
 - Repository sharing accepts canonical repository IDs such as `hosein-yousefii/test-app`.
 - Sensitive resources such as scopes do not expose `Public`.
@@ -326,7 +332,7 @@ exported.
 
 ## GitOps Resource Access
 
-Pipeline, reusable step, scope, and knowledge context config files can also
+Pipeline, dashboard, reusable step, scope, and knowledge context config files can also
 declare resource use access inline with the object they protect. This is the
 GitOps form of the resource Access dialog in the UI.
 
@@ -349,7 +355,8 @@ Supported `visibility` values are `team`, `restricted`, and
 `workspace`/`public`. `public` is only allowed for non-sensitive resources such
 as pipelines, reusable steps, and knowledge contexts; scopes remain sensitive
 and can only be `team` or `restricted`. If a resource declares grants without a
-visibility, sync treats it as `restricted`.
+visibility, sync treats it as `restricted`. Dashboard use-access grants expand
+to `dashboard.read`.
 
 The grant subjects match the Access UI. Use `repository:` with a canonical
 repository ID, `service_account:` with a service-account sub, or `team:` with a
@@ -371,10 +378,10 @@ remains for IAM-like records: users, advanced roles, policies, advanced role
 bindings, and scoped product role grants.
 
 Config repository drift exports the current resource Access state for pipelines,
-reusable steps, scopes, and knowledge contexts. If access is changed in the UI,
-the drift response marks the owning GitOps resource file as modified and the
-write endpoint can push the updated embedded `access:` block to the review
-branch.
+dashboards, reusable steps, scopes, and knowledge contexts. If access is
+changed in the UI, the drift response marks the owning GitOps resource file as
+modified and the write endpoint can push the updated embedded `access:` block
+to the review branch.
 
 ## Inheritance
 

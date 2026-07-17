@@ -286,36 +286,45 @@ export function PipelineRunsPageView({
 
       <div className="flex-1 min-h-0 overflow-hidden">
         <main id="main-content-runs" ref={mainContentRef} className="pipeline-runs-main-scroll h-full min-h-0 overflow-y-auto p-6 space-y-4">
-          {runDetail && activeRunId ? (
-            <RunDetailView
-              detail={runDetail}
-              loading={runDetailLoading}
-              error={runDetailError}
-              onClose={handleCloseDetail}
-              onCancel={() => void handleCancelRun(runDetail.run_info.run_id)}
-              onRerun={() => void handleRerun(runDetail.run_info.run_id)}
-              onDelete={() => void handleDeleteRun(runDetail.run_info.run_id)}
-              selectedStep={selectedStep}
-              onSelectStep={setSelectedStep}
-              onOpenLogs={() => {
-                setLogsStepFilter(null);
-                setLogsSearchFilter(null);
-                setLogsOpen(true);
-              }}
-              onOpenTaskLogs={(stepName, taskName) => {
-                setSelectedStep(stepName);
-                setLogsStepFilter(stepName);
-                setLogsSearchFilter(taskName);
-                setLogsOpen(true);
-              }}
-              onOpenStepDetail={stepName => {
-                setStepDetailName(stepName);
-              }}
-              onOpenRun={handleOpenRun}
-              onShowDefinition={() => setDefinitionOpen(true)}
-              onApprovalDecision={handleApprovalDecision}
-              approvalDecisionPending={approvalDecisionPending}
-            />
+          {activeRunId ? (
+            runDetail ? (
+              <RunDetailView
+                detail={runDetail}
+                loading={runDetailLoading}
+                error={runDetailError}
+                onClose={handleCloseDetail}
+                onCancel={() => void handleCancelRun(runDetail.run_info.run_id)}
+                onRerun={() => void handleRerun(runDetail.run_info.run_id)}
+                onDelete={() => void handleDeleteRun(runDetail.run_info.run_id)}
+                selectedStep={selectedStep}
+                onSelectStep={setSelectedStep}
+                onOpenLogs={() => {
+                  setLogsStepFilter(null);
+                  setLogsSearchFilter(null);
+                  setLogsOpen(true);
+                }}
+                onOpenTaskLogs={(stepName, taskName) => {
+                  setSelectedStep(stepName);
+                  setLogsStepFilter(stepName);
+                  setLogsSearchFilter(taskName);
+                  setLogsOpen(true);
+                }}
+                onOpenStepDetail={stepName => {
+                  setStepDetailName(stepName);
+                }}
+                onOpenRun={handleOpenRun}
+                onShowDefinition={() => setDefinitionOpen(true)}
+                onApprovalDecision={handleApprovalDecision}
+                approvalDecisionPending={approvalDecisionPending}
+              />
+            ) : (
+              <RunDetailLoadingState
+                runId={activeRunId}
+                loading={runDetailLoading}
+                error={runDetailError}
+                onClose={handleCloseDetail}
+              />
+            )
           ) : (
             <PipelineRunsDashboard
               activeTab={activeTab}
@@ -388,6 +397,37 @@ export function PipelineRunsPageView({
     </div>
   );
 
+}
+
+function RunDetailLoadingState({
+  runId,
+  loading,
+  error,
+  onClose,
+}: {
+  runId: string;
+  loading: boolean;
+  error: string | null;
+  onClose: () => void;
+}) {
+  return (
+    <section className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-5 shadow-sm">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="text-xs font-semibold uppercase text-[var(--text-muted)]">Pipeline run</div>
+          <h2 className="mt-1 truncate text-xl font-semibold text-[var(--text-primary)]">{runId}</h2>
+          <p className="mt-2 text-sm text-[var(--text-secondary)]">
+            {error ? 'The run detail could not be loaded.' : loading ? 'Loading the selected run detail.' : 'Preparing the selected run detail.'}
+          </p>
+          {error ? <p className="mt-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{error}</p> : null}
+        </div>
+        <button type="button" className="glass-button-ghost shrink-0" onClick={onClose}>
+          <X className="h-4 w-4" aria-hidden="true" />
+          Close
+        </button>
+      </div>
+    </section>
+  );
 }
 
 function ViewToggle({ viewMode, onChange }: { viewMode: 'grid' | 'list'; onChange: (mode: 'grid' | 'list') => void }) {

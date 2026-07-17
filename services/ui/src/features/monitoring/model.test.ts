@@ -5,6 +5,7 @@ import {
   normalizeMonitoringRunner,
   normalizeRunnerSummary,
   runsForTeamAndDescendants,
+  selectableMonitoringTeams,
   summarizeRuns,
   type Team,
   type RunListItem,
@@ -89,4 +90,15 @@ test('normalizes unreachable runner status and summary counts', () => {
 
   assert.equal(runner.status, 'unreachable');
   assert.equal(normalizeRunnerSummary(null, [runner]).unreachable, 1);
+});
+
+test('keeps monitoring team selectors free of applications', () => {
+  const teams: Team[] = [
+    { id: 1, name: 'Platform', kind: 'team' },
+    { id: 2, name: 'Checkout', kind: 'app', parent_id: 1 },
+    { id: 3, name: 'acme/docs', parent_id: 1, repository_full_name: 'acme/docs' },
+    { id: 4, name: 'Payments', parent_id: 1 },
+  ];
+
+  assert.deepEqual(selectableMonitoringTeams(teams).map(team => team.name), ['Platform', 'Payments']);
 });

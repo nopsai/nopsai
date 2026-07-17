@@ -273,7 +273,7 @@ func (a *App) exportConfigRepositoryFiles(ctx context.Context, repo models.Confi
 	if err := a.exportConfigRepositorySchedules(ctx, repo, delegatedScopes, files); err != nil {
 		return nil, err
 	}
-	if err := a.exportConfigRepositoryDashboards(ctx, repo, delegatedScopes, files); err != nil {
+	if err := a.exportConfigRepositoryDashboards(ctx, repo, delegatedScopes, resourceAccess, files); err != nil {
 		return nil, err
 	}
 	if err := a.exportConfigRepositoryNotificationRoutes(ctx, repo, delegatedScopes, files); err != nil {

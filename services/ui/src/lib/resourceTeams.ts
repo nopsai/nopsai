@@ -56,7 +56,7 @@ export async function fetchResourceTeamPaths(): Promise<string[]> {
 }
 
 export async function fetchPipelineRunTeamPaths(): Promise<string[]> {
-  const response = await apiClient.fetch('/v1/teams?include=applications');
+  const response = await apiClient.fetch('/v1/teams');
   if (!response.ok) return [];
   const payload = await response.json();
   return buildPipelineRunTeamPaths(resourceTeamsFromTeamPayload(payload));
@@ -88,11 +88,11 @@ function resourceTeamsFromTeamPayload(payload: unknown): ResourceTeam[] {
 }
 
 export function buildResourceTeamPaths(teams: ResourceTeam[]): string[] {
-  return buildTeamPaths(teams);
+  return buildTeamPaths(teams, team => !isApplicationTeamLike(team));
 }
 
 export function buildPipelineRunTeamPaths(teams: ResourceTeam[]): string[] {
-  return ['root', ...buildTeamPaths(teams, team => !isPipelineRunAppTeam(team)).filter(path => path !== 'root')];
+  return ['root', ...buildResourceTeamPaths(teams).filter(path => path !== 'root')];
 }
 
 function buildTeamPaths(teams: ResourceTeam[], includeTeam: (team: ResourceTeam) => boolean = () => true): string[] {
@@ -135,7 +135,7 @@ function buildTeamPaths(teams: ResourceTeam[], includeTeam: (team: ResourceTeam)
   ).sort((a, b) => a.localeCompare(b));
 }
 
-function isPipelineRunAppTeam(team: ResourceTeam) {
+function isApplicationTeamLike(team: ResourceTeam) {
   return team.kind === 'app' || Boolean(team.repo_url || team.repository_full_name) || String(team.name || '').includes('/');
 }
 

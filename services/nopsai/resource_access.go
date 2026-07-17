@@ -736,6 +736,28 @@ func setResourceVisibilityWithRunner(ctx context.Context, runner execRunner, res
 		tag, err = runner.Exec(ctx, `UPDATE steps SET visibility = $1 WHERE path = $2 AND name = $3`, visibility, path, name)
 	case grantResourceConfig:
 		tag, err = runner.Exec(ctx, `UPDATE config_repositories SET visibility = $1 WHERE id::text = $2 OR scope_id = $2`, visibility, resource.ID)
+	case grantResourceDashboard:
+		teamPath, slug, splitErr := splitDashboardRef(resource.ID)
+		if splitErr != nil {
+			return splitErr
+		}
+		tag, err = runner.Exec(ctx, `
+			WITH RECURSIVE team_paths AS (
+				SELECT id, name::text AS path
+				FROM teams
+				WHERE parent_id IS NULL
+				UNION ALL
+				SELECT child.id, team_paths.path || '/' || child.name
+				FROM teams child
+				JOIN team_paths ON child.parent_id = team_paths.id
+			)
+			UPDATE dashboards d
+			SET visibility = $1
+			FROM team_paths tp
+			WHERE d.team_id = tp.id
+			  AND tp.path = $2
+			  AND d.slug = $3
+		`, visibility, teamPath, slug)
 	default:
 		_, err = runner.Exec(ctx, `
 			INSERT INTO resource_visibility (resource_type, resource_id, visibility, updated_at)
@@ -784,7 +806,7 @@ func validateResourceVisibilityPolicy(resourceType, visibility string) error {
 	}
 	switch resourceType {
 	case grantResourcePipeline, grantResourceStep, grantResourceConfig, grantResourceKnowledgeContext, grantResourceKnowledgeConnection,
-		grantResourceLLMProfile, grantResourceAgentProfile, grantResourceMCPServer, grantResourceMCPProfile:
+		grantResourceLLMProfile, grantResourceAgentProfile, grantResourceMCPServer, grantResourceMCPProfile, grantResourceDashboard:
 		return nil
 	case grantResourceScope, grantResourceSecret, grantResourceVariable, grantResourceRunner:
 		return fmt.Errorf("workspace visibility is not available for this resource yet")
@@ -849,6 +871,8 @@ func defaultUseActionForResource(resourceType string) (string, error) {
 		return "knowledge_context.use", nil
 	case grantResourceKnowledgeConnection:
 		return "knowledge_connection.use", nil
+	case grantResourceDashboard:
+		return "dashboard.read", nil
 	case grantResourceLLMProfile:
 		return "llm_profile.use", nil
 	case grantResourceAgentProfile:
@@ -877,7 +901,7 @@ func normalizeUseGrantActions(resourceType string, actions []string) ([]string, 
 		if action == "" {
 			continue
 		}
-		if !strings.HasSuffix(action, ".use") {
+		if !isResourceUseGrantAction(resourceType, action) {
 			return nil, fmt.Errorf("only use actions can be granted from this endpoint")
 		}
 		if !actionAppliesToGrantResource(action, resourceType) {
@@ -893,6 +917,13 @@ func normalizeUseGrantActions(resourceType string, actions []string) ([]string, 
 		return nil, fmt.Errorf("at least one action is required")
 	}
 	return normalized, nil
+}
+
+func isResourceUseGrantAction(resourceType, action string) bool {
+	if resourceType == grantResourceDashboard {
+		return action == "dashboard.read"
+	}
+	return strings.HasSuffix(action, ".use")
 }
 
 func (a *App) CreateResourceUseGrant(ctx context.Context, input createResourceUseGrantInput) (accessGrantRecord, error) {

@@ -9,6 +9,7 @@ import {
   normalizeRunnerSummary,
   normalizeServiceStatus,
   readOptionalString,
+  selectableMonitoringTeams,
   type DispatcherStatusPayload,
   type Team,
   type MonitoringAlertEvent,
@@ -264,7 +265,7 @@ function MonitoringPage() {
         fetchMonitoringRuntime(),
       ]);
 
-      const accessibleTeams = Array.isArray(teamPayload) ? teamPayload : [];
+      const accessibleTeams = selectableMonitoringTeams(Array.isArray(teamPayload) ? teamPayload : []);
       setTeams(accessibleTeams);
       setData(currentData);
       setPreviousData(previousWindowData);

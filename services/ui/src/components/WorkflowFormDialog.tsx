@@ -14,7 +14,7 @@ type WorkflowFormDialogProps = {
   onClose: () => void;
   onSubmit?: FormEventHandler<HTMLFormElement>;
   closeDisabled?: boolean;
-  size?: 'default' | 'wide';
+  size?: 'default' | 'wide' | 'xwide';
   cardClassName?: string;
   bodyClassName?: string;
 };
@@ -85,6 +85,7 @@ export function WorkflowFormDialog({
       className={joinClasses(
         'pipelines-modal-card workflow-form-dialog w-full',
         size === 'wide' && 'workflow-form-dialog--wide',
+        size === 'xwide' && 'workflow-form-dialog--xwide',
         cardClassName
       )}
       overlayClassName="workflow-form-dialog-overlay fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] p-4 show"

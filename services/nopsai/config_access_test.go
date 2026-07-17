@@ -532,6 +532,47 @@ access:
 	}
 }
 
+func TestEmbeddedDashboardAccessAddsVisibilityAndReadGrant(t *testing.T) {
+	plan := newAccessSyncPlan()
+	err := plan.addEmbeddedResourceAccess(`
+title: Ops Dashboard
+access:
+  visibility: workspace
+  use_access:
+    grants:
+      - team: data-team
+`, "dashboards/team-1/ops-dashboard.yaml", grantResourceDashboard, "team-1/ops-dashboard", models.ConfigRepository{
+		ScopeType: models.ConfigRepositoryScopeTeam,
+		ScopeID:   "team-1",
+	}, "team-1")
+	if err != nil {
+		t.Fatalf("addEmbeddedResourceAccess(dashboard) error = %v", err)
+	}
+
+	accessKey := resourceAccessPlanKey{resourceType: grantResourceDashboard, resourceID: "team-1/ops-dashboard"}
+	access, ok := plan.resourceAccess[accessKey]
+	if !ok {
+		t.Fatalf("expected dashboard resource access key %#v, got %#v", accessKey, plan.resourceAccess)
+	}
+	if !access.visibilitySet || access.visibility != resourceVisibilityWorkspace {
+		t.Fatalf("dashboard visibility = (%v, %q), want workspace", access.visibilitySet, access.visibility)
+	}
+
+	grantKey := accessGrantPlanKey{
+		subjectType:  grantSubjectTeam,
+		subjectID:    "data-team",
+		resourceType: grantResourceDashboard,
+		resourceID:   "team-1/ops-dashboard",
+	}
+	grant, ok := plan.grants[grantKey]
+	if !ok {
+		t.Fatalf("expected dashboard read grant key %#v, got %#v", grantKey, plan.grants)
+	}
+	if grant.role != customUseGrantRole || len(grant.actions) != 1 || grant.actions[0] != "dashboard.read" {
+		t.Fatalf("dashboard grant = %#v, want dashboard read grant", grant)
+	}
+}
+
 func TestEmbeddedAccessDefaultsToRestrictedWhenGrantsArePresent(t *testing.T) {
 	plan := newAccessSyncPlan()
 	err := plan.addEmbeddedResourceAccess(`

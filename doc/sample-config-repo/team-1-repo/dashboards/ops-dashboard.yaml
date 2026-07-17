@@ -1,0 +1,16 @@
+title: Ops Dashboard
+description: Team 1 operational dashboard populated by pipeline final outputs.
+visibility: team
+sections:
+  - section_key: service-metrics
+    title: Service Metrics
+    description: Current service health and metric summaries produced by dashboard pipelines.
+    display_order: 10
+sources:
+  - section_key: service-metrics
+    pipeline_id: team-1/dashboard-sample
+    output_name: Service metrics
+    entry_key: dashboard-sample
+    enabled: true
+    required_for_refresh: true
+    refresh_order: 10

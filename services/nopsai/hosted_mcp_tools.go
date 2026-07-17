@@ -1433,7 +1433,7 @@ var hostedMCPStaticDocs = []hostedMCPStaticDoc{
 		ID:          "doc/dashboards.md",
 		Kind:        "product_doc",
 		Name:        "Team Dashboards",
-		Description: "Dashboard YAML, pipeline dashboard final outputs, DashboardSpec blocks, source bindings, refresh, and GitOps examples.",
+		Description: "Dashboard YAML, pipeline dashboard final outputs, DashboardSpec validation, source bindings, refresh, and GitOps examples.",
 		Path:        "doc/dashboards.md",
 		Keywords: []string{
 			"pipeline dashboard data publication example",
@@ -1449,7 +1449,7 @@ Working pipeline example:
 ` + "```yaml" + `
 name: service-health-dashboard
 version: "1.0"
-description: Publish text, list, and bar-chart status into Engineering Health.
+description: Publish service health evidence into Engineering Health.
 container_image: alpine:3.20
 llm_profile: standard
 
@@ -1487,14 +1487,11 @@ output:
         preset: auto
         ttl: 7d
       prompt: |
-        Create a DashboardSpec JSON object for payments-api using the run
-        evidence. Include exactly these blocks:
-        - one text block titled Summary
-        - one list block titled Next actions
-        - one bar chart block titled Stage throughput
-        Do not include Markdown, HTML, CSS, JavaScript, or fields outside the
-        DashboardSpec schema.
+        Build a dashboard summary for payments-api from the run evidence.
+        Show the current service summary, next actions, and stage throughput.
 ` + "```" + `
+
+Pipeline authors describe the dashboard they want. NopsAI sends emitted step output evidence first, then run metadata, recent same-pipeline run history, pipeline context, step and task durations, child runs, and dashboard intent to the configured LLM, then validates and repairs the generated DashboardSpec before publication. Emitted step stdout/stderr, including plain echo output and structured JSON/NDJSON, is authoritative for business facts such as artifact names, versions, durations, services, and subjects; configured container images, runner/runtime metadata, image-pull logs, and recent-history values must not replace values present in emitted step output. For example, the prompt can say: "Show how many images were built, which version each image used, how long each image build took, and the most important subject in this pipeline." NopsAI chooses the dashboard structure dynamically from the prompt and evidence. If the prompt does not specify a visualization, NopsAI guides the model to choose by data shape: text or callout for narrative conclusions, status/progress/properties for current state and scalar facts, tables for repeated records, bar charts for categorical counts, durations, and rankings, line or area charts for time series, and pie or donut charts only for bounded part-to-whole data. Generated dashboard output uses a flat top-level blocks array; common generated wrappers such as top-level widgets, sections[].blocks, and nested blocks/widgets wrappers are normalized before strict validation, and display key aliases are normalized to labels. Authors do not need to know or target the dashboard renderer schema. Emit structured evidence such as JSON to stdout/stderr when the dashboard should use rich or nested data produced by a step.
 
 The dashboard itself can be managed by GitOps under dashboards/platform/engineering-health.yaml with a section whose section_key is service-health and a source binding whose pipeline_id is service-health-dashboard and output_name is service-health-widgets.
 `),
@@ -1513,7 +1510,7 @@ The dashboard itself can be managed by GitOps under dashboards/platform/engineer
 		},
 		Content: strings.TrimSpace(`Pipeline final outputs are run-owned deliverables configured through output.items in pipeline YAML.
 
-Dashboard outputs use type: dashboard and must generate a versioned DashboardSpec JSON object. Supported dashboard block types are status, text, callout, list, properties, table, progress, link, chart, and series.
+Dashboard outputs use type: dashboard. Authors write the dashboard intent in prompt; NopsAI supplies emitted step output first as authoritative business evidence, then run metadata, recent same-pipeline run history, step and task durations, and child runs to the configured LLM. It guides visualization selection when the prompt does not name one, normalizes common generated wrappers such as sections[].blocks, widgets, or nested blocks/widgets wrappers into flat DashboardSpec blocks, normalizes display key aliases to labels, validates the generated DashboardSpec, and retries invalid generations.
 
 Dashboard outputs are published to team-owned dashboards when their output.items[].dashboard target is valid and the run subject has dashboard.publish. Publication modes are replace, append, snapshot, and series.
 `),

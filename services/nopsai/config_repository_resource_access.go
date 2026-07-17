@@ -270,7 +270,7 @@ func configRepositoryIncludesBasicRoleGrant(repo models.ConfigRepository, resour
 
 func isConfigRepositoryEmbeddedAccessResourceType(resourceType string) bool {
 	switch strings.TrimSpace(resourceType) {
-	case grantResourcePipeline, grantResourceStep, grantResourceScope, grantResourceKnowledgeContext, grantResourceKnowledgeConnection:
+	case grantResourcePipeline, grantResourceDashboard, grantResourceStep, grantResourceScope, grantResourceKnowledgeContext, grantResourceKnowledgeConnection:
 		return true
 	default:
 		return false
@@ -369,6 +369,8 @@ func resourceTypeForUseActions(actions []string) string {
 			return grantResourceKnowledgeContext
 		case strings.HasPrefix(action, "knowledge_connection."):
 			return grantResourceKnowledgeConnection
+		case strings.HasPrefix(action, "dashboard."):
+			return grantResourceDashboard
 		case strings.HasPrefix(action, "llm_profile."):
 			return grantResourceLLMProfile
 		case strings.HasPrefix(action, "agent_profile."):

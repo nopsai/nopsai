@@ -108,7 +108,18 @@ Dashboard block types are `status`, `text`, `callout`, `list`, `properties`,
 `bar`, `area`, `pie`, and `donut`; `series` blocks support line, bar, and area
 charts with time windows, aggregation intervals, missing-value policy, team and
 environment dimensions, and bounded point retention. Table cells must be JSON
-scalars. Links must be relative or use `http`/`https`. Dashboard outputs are
+scalars. Links must be relative or use `http`/`https`. Common generated
+wrappers, including top-level `widgets` and `sections[].blocks` /
+`sections[].widgets` and section-like entries inside `blocks` with nested
+`blocks`/`widgets`, are normalized into the required flat top-level `blocks`
+array before strict validation. Generated `properties` aliases are normalized
+to `items`, and display item or point `key` aliases are normalized to `label`.
+For dashboard generation, emitted step stdout/stderr is supplied before metadata
+and history and is treated as authoritative for business facts. This applies to
+plain log lines as well as JSON/NDJSON; configured container images,
+runner/runtime metadata, image-pull logs, and recent-history values must not
+replace artifact names, versions, durations, services, or subjects already
+present in emitted step output. Dashboard outputs are
 published to team-owned dashboards when their `output.items[].dashboard` target
 is valid and the run subject has `dashboard.publish`. Dashboard publication
 modes are `replace`, `append`, `snapshot`, and `series`; snapshot archives the

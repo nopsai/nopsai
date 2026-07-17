@@ -1,3 +1,12 @@
+import {
+  DEFAULT_CRON,
+  DEFAULT_TIMEZONE,
+  buildCronExpression,
+  cronFormFromExpression,
+  type CronFormFields,
+  type ScheduleFormState,
+} from '../schedules/model.js';
+
 export type DashboardSummary = {
   id: string;
   team_id?: number;
@@ -159,6 +168,13 @@ export type DashboardRefreshFormState = {
   maxConcurrency: string;
 };
 
+export type DashboardRefreshScheduleFormState = DashboardRefreshFormState & CronFormFields & {
+  name: string;
+  description: string;
+  timezone: string;
+  enabled: boolean;
+};
+
 export type DashboardView = {
   dashboard: DashboardSummary;
   sections: DashboardSection[];
@@ -240,8 +256,24 @@ export type DashboardFormState = {
   title: string;
   description: string;
   visibility: string;
+  pipelineIDs: string[];
   sectionKey: string;
   sectionTitle: string;
+  sectionDescription: string;
+};
+
+export type DashboardSectionSeed = {
+  sectionKey: string;
+  title?: string;
+  description?: string;
+  displayOrder?: number;
+};
+
+export type DashboardSectionFormState = {
+  sectionKey: string;
+  title: string;
+  description: string;
+  displayOrder: string;
 };
 
 export type DashboardSourceFormState = {
@@ -261,8 +293,10 @@ export function createDashboardForm(teamPath = ''): DashboardFormState {
     title: '',
     description: '',
     visibility: 'team',
+    pipelineIDs: [],
     sectionKey: 'overview',
     sectionTitle: 'Overview',
+    sectionDescription: '',
   };
 }
 
@@ -273,25 +307,85 @@ export function formFromDashboard(dashboard: DashboardSummary): DashboardFormSta
     title: dashboard.title || '',
     description: dashboard.description || '',
     visibility: dashboard.visibility || 'team',
+    pipelineIDs: [],
     sectionKey: 'overview',
     sectionTitle: 'Overview',
+    sectionDescription: '',
   };
 }
 
-export function dashboardRequestFromForm(form: DashboardFormState) {
-  return {
+export function dashboardRequestFromForm(
+  form: DashboardFormState,
+  options: { includeSections?: boolean; sections?: DashboardSectionSeed[] } = {}
+) {
+  const request: {
+    team_path: string;
+    slug: string;
+    title: string;
+    description: string;
+    visibility: string;
+    sections?: Array<{
+      section_key: string;
+      title: string;
+      description?: string;
+      display_order: number;
+    }>;
+  } = {
     team_path: form.teamPath.trim(),
     slug: form.slug.trim(),
     title: form.title.trim(),
     description: form.description.trim(),
     visibility: form.visibility || 'team',
-    sections: [
-      {
-        section_key: form.sectionKey.trim() || 'overview',
-        title: form.sectionTitle.trim() || titleFromKey(form.sectionKey || 'overview'),
-        display_order: 0,
-      },
-    ],
+  };
+  if (options.includeSections ?? true) {
+    const sectionSeeds = options.sections && options.sections.length > 0
+      ? options.sections
+      : [
+          {
+            sectionKey: form.sectionKey.trim() || 'overview',
+            title: form.sectionTitle.trim() || titleFromKey(form.sectionKey || 'overview'),
+            description: form.sectionDescription.trim(),
+            displayOrder: 0,
+          },
+        ];
+    request.sections = sectionSeeds.map((section, index) => {
+      const sectionKey = section.sectionKey.trim() || 'overview';
+      return {
+        section_key: sectionKey,
+        title: section.title?.trim() || titleFromKey(sectionKey),
+        description: section.description?.trim() || '',
+        display_order: section.displayOrder ?? index * 10,
+      };
+    });
+  }
+  return request;
+}
+
+export function createSectionForm(displayOrder = 0): DashboardSectionFormState {
+  return {
+    sectionKey: '',
+    title: '',
+    description: '',
+    displayOrder: String(displayOrder),
+  };
+}
+
+export function sectionFormFromSection(section: DashboardSection): DashboardSectionFormState {
+  return {
+    sectionKey: section.section_key,
+    title: section.title,
+    description: section.description || '',
+    displayOrder: String(section.display_order ?? 0),
+  };
+}
+
+export function sectionRequestFromForm(form: DashboardSectionFormState) {
+  const sectionKey = form.sectionKey.trim();
+  return {
+    section_key: sectionKey,
+    title: form.title.trim() || titleFromKey(sectionKey),
+    description: form.description.trim(),
+    display_order: Number.parseInt(form.displayOrder || '0', 10) || 0,
   };
 }
 
@@ -318,6 +412,23 @@ export function createRefreshForm(sectionKey = 'overview', sourceID = ''): Dashb
   };
 }
 
+export function createRefreshScheduleForm(
+  scope: { scopeType?: DashboardRefreshScheduleFormState['scopeType']; sectionKey?: string; sourceID?: string } = {}
+): DashboardRefreshScheduleFormState {
+  const sourceID = scope.sourceID || '';
+  const sectionKey = scope.sectionKey || '';
+  const scopeType = scope.scopeType || (sourceID ? 'source' : sectionKey ? 'section' : 'dashboard');
+  return {
+    ...createRefreshForm(scopeType === 'section' ? sectionKey : '', scopeType === 'source' ? sourceID : ''),
+    ...cronFormFromExpression(DEFAULT_CRON),
+    scopeType,
+    name: '',
+    description: '',
+    timezone: DEFAULT_TIMEZONE,
+    enabled: true,
+  };
+}
+
 export function sourceFormFromSource(source: DashboardSource): DashboardSourceFormState {
   return {
     sectionKey: source.section_key,
@@ -327,6 +438,27 @@ export function sourceFormFromSource(source: DashboardSource): DashboardSourceFo
     enabled: source.enabled,
     requiredForRefresh: source.required_for_refresh,
     refreshOrder: String(source.refresh_order ?? 0),
+  };
+}
+
+export function refreshScheduleFormFromSchedule(schedule: DashboardRefreshSchedule): DashboardRefreshScheduleFormState {
+  const scopeType = schedule.scope_type === 'section' || schedule.scope_type === 'source' ? schedule.scope_type : 'dashboard';
+  const cronExpression = schedule.cron_expression || schedule.cron || DEFAULT_CRON;
+  return {
+    ...createRefreshForm(
+      scopeType === 'section' ? firstStringFromScope(schedule.scope, 'section_key', 'section_keys') : '',
+      scopeType === 'source' ? firstStringFromScope(schedule.scope, 'source_id', 'source_ids') : ''
+    ),
+    ...cronFormFromExpression(cronExpression),
+    scopeType,
+    mode: schedule.mode === 'best_effort' ? 'best_effort' : 'strict',
+    timeout: durationFromSeconds(schedule.timeout_seconds || 2700),
+    maxConcurrency: String(schedule.max_concurrency || 4),
+    name: schedule.name,
+    description: schedule.description || '',
+    cron_expression: cronExpression,
+    timezone: schedule.timezone || DEFAULT_TIMEZONE,
+    enabled: schedule.enabled,
   };
 }
 
@@ -344,6 +476,24 @@ export function sourceRequestFromForm(form: DashboardSourceFormState) {
 
 export function refreshRequestFromForm(form: DashboardRefreshFormState) {
   return {
+    scope: {
+      type: form.scopeType,
+      section_key: form.scopeType === 'section' ? form.sectionKey.trim() : undefined,
+      source_id: form.scopeType === 'source' ? form.sourceID.trim() : undefined,
+    },
+    mode: form.mode,
+    timeout: form.timeout.trim(),
+    max_concurrency: Number.parseInt(form.maxConcurrency || '4', 10) || 4,
+  };
+}
+
+export function refreshScheduleRequestFromForm(form: DashboardRefreshScheduleFormState) {
+  return {
+    name: form.name.trim(),
+    description: form.description.trim(),
+    cron_expression: refreshScheduleCronExpressionFromForm(form),
+    timezone: form.timezone.trim() || 'UTC',
+    enabled: form.enabled,
     scope: {
       type: form.scopeType,
       section_key: form.scopeType === 'section' ? form.sectionKey.trim() : undefined,
@@ -586,10 +736,37 @@ function stringValue(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+export function refreshScheduleCronExpressionFromForm(form: DashboardRefreshScheduleFormState): string {
+  return buildCronExpression({
+    ...form,
+    pipeline: '',
+    scope: '',
+    runTeamPath: 'root',
+    variablesText: '',
+  } satisfies ScheduleFormState);
+}
+
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
 function numberValue(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function durationFromSeconds(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '45m';
+  if (seconds % 3600 === 0) return `${seconds / 3600}h`;
+  if (seconds % 60 === 0) return `${seconds / 60}m`;
+  return `${seconds}s`;
+}
+
+function firstStringFromScope(scope: Record<string, unknown> | undefined, scalarKey: string, arrayKey: string): string {
+  const scalar = scope?.[scalarKey];
+  if (typeof scalar === 'string') return scalar;
+  const values = scope?.[arrayKey];
+  if (Array.isArray(values)) {
+    return values.find((value): value is string => typeof value === 'string') || '';
+  }
+  return '';
 }
