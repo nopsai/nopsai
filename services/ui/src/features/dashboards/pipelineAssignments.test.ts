@@ -19,13 +19,17 @@ describe('dashboard pipeline assignments', () => {
       slug: 'ops',
       title: 'Ops',
       pipelineIDs: ['team-1/service-dashboard', 'team-1/deployments-dashboard'],
+      pipelineScopes: {
+        'team-1/service-dashboard': 'prod',
+        'team-1/deployments-dashboard': '',
+      },
     };
 
     const bindings = dashboardOutputBindingsFromForm(form, catalog());
 
-    assert.deepEqual(bindings.map(binding => `${binding.pipelineID}:${binding.output.sectionKey}:${binding.output.name}`), [
-      'team-1/deployments-dashboard:deployments:Deployment Summary',
-      'team-1/service-dashboard:service-health:Service Health',
+    assert.deepEqual(bindings.map(binding => `${binding.pipelineID}:${binding.runScope}:${binding.output.sectionKey}:${binding.output.name}`), [
+      'team-1/deployments-dashboard::deployments:Deployment Summary',
+      'team-1/service-dashboard:prod:service-health:Service Health',
     ]);
   });
 
@@ -53,6 +57,7 @@ describe('dashboard pipeline assignments', () => {
       pipelineID: 'team-1/deployments-dashboard',
       outputName: 'Deployment Summary',
       entryKey: 'deployments',
+      runScope: '',
       enabled: true,
       requiredForRefresh: true,
       refreshOrder: '10',
@@ -74,6 +79,7 @@ describe('dashboard pipeline assignments', () => {
         pipeline_id: 'team-1/service-dashboard',
         output_name: 'Service Health',
         entry_key: 'health',
+        run_scope: '',
         enabled: true,
         required_for_refresh: true,
         refresh_order: 0,
@@ -84,6 +90,7 @@ describe('dashboard pipeline assignments', () => {
         pipeline_id: 'team-1/deployments-dashboard',
         output_name: 'Deployment Summary',
         entry_key: 'deployments',
+        run_scope: '',
         enabled: true,
         required_for_refresh: true,
         refresh_order: 10,
@@ -94,6 +101,7 @@ describe('dashboard pipeline assignments', () => {
         pipeline_id: 'team-1/manual-report',
         output_name: 'Deployment Summary',
         entry_key: 'deployments',
+        run_scope: '',
         enabled: true,
         required_for_refresh: true,
         refresh_order: 20,
@@ -102,6 +110,44 @@ describe('dashboard pipeline assignments', () => {
 
     assert.equal(sourceBindingExists(sources, bindings[0]), true);
     assert.deepEqual(unselectedDashboardOutputSources(form, catalog(), sources).map(source => source.id), ['source-2']);
+  });
+
+  it('treats source scope as part of the binding identity', () => {
+    const form = {
+      ...createDashboardForm('team-1'),
+      slug: 'ops',
+      title: 'Ops',
+      pipelineIDs: ['team-1/service-dashboard'],
+      pipelineScopes: { 'team-1/service-dashboard': 'prod' },
+    };
+    const bindings = dashboardOutputBindingsFromForm(form, catalog());
+    const sources: DashboardSource[] = [
+      {
+        id: 'default-source',
+        section_key: 'service-health',
+        pipeline_id: 'team-1/service-dashboard',
+        output_name: 'Service Health',
+        entry_key: 'health',
+        run_scope: '',
+        enabled: true,
+        required_for_refresh: true,
+        refresh_order: 0,
+      },
+      {
+        id: 'prod-source',
+        section_key: 'service-health',
+        pipeline_id: 'team-1/service-dashboard',
+        output_name: 'Service Health',
+        entry_key: 'health',
+        run_scope: 'prod',
+        enabled: true,
+        required_for_refresh: true,
+        refresh_order: 10,
+      },
+    ];
+
+    assert.equal(sourceBindingExists(sources, bindings[0]), true);
+    assert.deepEqual(unselectedDashboardOutputSources(form, catalog(), sources).map(source => source.id), ['default-source']);
   });
 });
 

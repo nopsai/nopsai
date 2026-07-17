@@ -35,6 +35,7 @@ type AgentRunLaunchRequest struct {
 	Overrides          map[string]string
 	ResumeCheckpointID string
 	ResumeVariables    map[string]string
+	RecoveryAttempt    bool
 }
 
 type appRunLauncher struct {
@@ -76,14 +77,24 @@ func (a *App) launchAgent(ctx context.Context, req AgentRunLaunchRequest) {
 
 	payload, failure := a.buildAgentLaunchPayload(ctx, req)
 	if failure != nil {
+		if req.RecoveryAttempt {
+			log.Warn().Str("run_id", req.RunID).Str("reason", failure.reason).Msg("Pending run recovery could not rebuild launch payload")
+			return
+		}
 		a.failAgentLaunch(ctx, req.RunID, req.GitContext, failure.reason, failure.notifyGit)
 		return
 	}
 
-	a.appendRunLogs(ctx, req.RunID, payload.InitialLogLines...)
+	if !req.RecoveryAttempt {
+		a.appendRunLogs(ctx, req.RunID, payload.InitialLogLines...)
+	}
 
 	resp, err := a.dispatcher.SubmitJob(ctx, payload.Job)
 	if err != nil {
+		if req.RecoveryAttempt {
+			log.Warn().Err(err).Str("run_id", req.RunID).Msg("Pending run recovery could not submit job to dispatcher")
+			return
+		}
 		log.Error().Err(err).Str("run_id", req.RunID).Msg("Failed to dispatch job to runner")
 		a.failAgentLaunch(ctx, req.RunID, req.GitContext, "Failed to dispatch job to runner", true)
 		a.appendRunLogs(ctx, req.RunID, "Failed to dispatch job to runner: "+err.Error())
@@ -96,15 +107,25 @@ func (a *App) launchAgent(ctx context.Context, req AgentRunLaunchRequest) {
 			log.Error().Err(err).Str("run_id", req.RunID).Msg("Failed to mark run as running")
 		}
 		log.Info().Str("run_id", req.RunID).Str("runner_id", resp.RunnerId).Msg("Job dispatched to runner")
-		a.appendRunLogs(ctx, req.RunID, fmt.Sprintf("Dispatched to runner %s", resp.RunnerId))
+		if req.RecoveryAttempt {
+			a.appendRunLogs(ctx, req.RunID, fmt.Sprintf("Recovered pending run and dispatched to runner %s", resp.RunnerId))
+		} else {
+			a.appendRunLogs(ctx, req.RunID, fmt.Sprintf("Dispatched to runner %s", resp.RunnerId))
+		}
 	case proto.JobState_JOB_STATE_QUEUED:
 		log.Info().Str("run_id", req.RunID).Msg("No runner available; job queued")
-		a.appendRunLogs(ctx, req.RunID, "No runner available; job queued by dispatcher")
+		if !req.RecoveryAttempt {
+			a.appendRunLogs(ctx, req.RunID, "No runner available; job queued by dispatcher")
+		}
 	default:
 		var latestStatus string
 		if err := a.db.QueryRow(ctx, "SELECT status FROM pipeline_runs WHERE run_id = $1", req.RunID).Scan(&latestStatus); err == nil && isTerminalRunStatus(latestStatus) {
 			log.Info().Str("run_id", req.RunID).Str("status", latestStatus).Msg("Dispatcher rejected job for terminal run")
 			a.appendRunLogs(ctx, req.RunID, fmt.Sprintf("Dispatcher skipped agent launch because run is %s", strings.ToLower(strings.TrimSpace(latestStatus))))
+			return
+		}
+		if req.RecoveryAttempt {
+			log.Warn().Str("run_id", req.RunID).Str("state", resp.State.String()).Msg("Pending run recovery was rejected by dispatcher")
 			return
 		}
 		log.Error().Str("run_id", req.RunID).Str("state", resp.State.String()).Msg("Dispatcher rejected job")

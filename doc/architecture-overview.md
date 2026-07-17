@@ -268,6 +268,10 @@ The dispatcher uses a few simple but important rules:
 - Prefer the least-loaded eligible runner.
 - Queue when no eligible runner is currently available.
 - Requeue inflight work if a runner disconnects.
+- NopsAI periodically reconciles durable `pending` pipeline runs back into the
+  dispatcher so queued work survives dispatcher restarts and runner outages.
+  When a recovered run had a timeout, the original configured timeout duration
+  is reconstructed for the agent so recovery matches the in-memory queue path.
 
 ## Deployment Shape
 

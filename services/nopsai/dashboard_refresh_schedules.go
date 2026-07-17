@@ -243,12 +243,24 @@ func ensureDashboardRefreshScheduleACLs(ctx context.Context, runner queryRunner,
 			acl{resourceType: grantResourcePipeline, resourceID: source.PipelineID, action: "pipeline.use"},
 		)
 	}
-	scopeID := strings.Trim(strings.TrimSpace(refresh.RunScope), "/")
-	if scopeID == "" {
-		scopeID = "default"
+	scopeIDs := map[string]struct{}{}
+	if strings.TrimSpace(refresh.RunScope) != "" {
+		scopeIDs[refresh.RunScope] = struct{}{}
+	} else {
+		for _, source := range selectDashboardRefreshSources(refresh, sources) {
+			scopeIDs[source.RunScope] = struct{}{}
+		}
 	}
-	normalizedScopeID, _, _ := normalizeScopeGrantResourceID(scopeID)
-	grants = append(grants, acl{resourceType: grantResourceScope, resourceID: normalizedScopeID, action: "scope.use"})
+	if len(scopeIDs) == 0 {
+		scopeIDs[""] = struct{}{}
+	}
+	for scopeID := range scopeIDs {
+		if strings.TrimSpace(scopeID) == "" {
+			scopeID = "default"
+		}
+		normalizedScopeID, _, _ := normalizeScopeGrantResourceID(scopeID)
+		grants = append(grants, acl{resourceType: grantResourceScope, resourceID: normalizedScopeID, action: "scope.use"})
+	}
 
 	seen := map[string]struct{}{}
 	for _, grant := range grants {
@@ -273,11 +285,11 @@ func ensureDashboardRefreshScheduleACLs(ctx context.Context, runner queryRunner,
 
 func listDashboardSourcesForACL(ctx context.Context, runner queryRunner, dashboardID string) ([]dashboardSourceRecord, error) {
 	rows, err := runner.Query(ctx, `
-		SELECT id::text, dashboard_id::text, section_key, pipeline_id, output_name, entry_key,
+		SELECT id::text, dashboard_id::text, section_key, pipeline_id, output_name, entry_key, run_scope,
 		       enabled, required_for_refresh, refresh_order, created_at, updated_at
 		FROM dashboard_source_bindings
 		WHERE dashboard_id::text = $1
-		ORDER BY section_key ASC, refresh_order ASC, pipeline_id ASC, output_name ASC, entry_key ASC
+		ORDER BY section_key ASC, refresh_order ASC, pipeline_id ASC, output_name ASC, entry_key ASC, run_scope ASC
 	`, dashboardID)
 	if err != nil {
 		return nil, err

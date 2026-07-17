@@ -62,6 +62,36 @@ func TestNormalizeDashboardRefreshRequestRejectsMissingScopedTargets(t *testing.
 	}
 }
 
+func TestNormalizeDashboardSourceInputKeepsDefaultScopeExact(t *testing.T) {
+	input, err := normalizeDashboardSourceInput(dashboardSourceRequest{
+		SectionKey: "overview",
+		PipelineID: "team-1/dashboard",
+		OutputName: "Service Health",
+		EntryKey:   "health",
+		RunScope:   "default",
+	})
+	if err != nil {
+		t.Fatalf("normalizeDashboardSourceInput() error = %v", err)
+	}
+	if input.RunScope != "" {
+		t.Fatalf("run scope = %q, want empty exact default scope", input.RunScope)
+	}
+
+	input, err = normalizeDashboardSourceInput(dashboardSourceRequest{
+		SectionKey: "overview",
+		PipelineID: "team-1/dashboard",
+		OutputName: "Service Health",
+		EntryKey:   "health",
+		RunScope:   "/prod/",
+	})
+	if err != nil {
+		t.Fatalf("normalizeDashboardSourceInput(scoped) error = %v", err)
+	}
+	if input.RunScope != "prod" {
+		t.Fatalf("run scope = %q, want prod", input.RunScope)
+	}
+}
+
 func TestSelectDashboardRefreshSources(t *testing.T) {
 	sources := []dashboardSourceRecord{
 		{ID: "s1", SectionKey: "overview", Enabled: true},

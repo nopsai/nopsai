@@ -54,14 +54,32 @@ var dashboardSchemaStatements = []string{
 		pipeline_id TEXT NOT NULL,
 		output_name TEXT NOT NULL,
 		entry_key TEXT NOT NULL DEFAULT '',
+		run_scope TEXT NOT NULL DEFAULT '',
 		enabled BOOLEAN NOT NULL DEFAULT TRUE,
 		required_for_refresh BOOLEAN NOT NULL DEFAULT TRUE,
 		refresh_order INTEGER NOT NULL DEFAULT 0,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		CONSTRAINT dashboard_source_bindings_section_check CHECK (section_key ~ '^[a-zA-Z0-9_.-]+$'),
-		UNIQUE(dashboard_id, section_key, pipeline_id, output_name, entry_key)
+		UNIQUE(dashboard_id, section_key, pipeline_id, output_name, entry_key, run_scope)
 	)`,
+	`ALTER TABLE dashboard_source_bindings ADD COLUMN IF NOT EXISTS run_scope TEXT NOT NULL DEFAULT ''`,
+	`DO $$
+	DECLARE old_constraint TEXT;
+	BEGIN
+		SELECT c.conname INTO old_constraint
+		FROM pg_constraint c
+		WHERE c.conrelid = 'dashboard_source_bindings'::regclass
+		  AND c.contype = 'u'
+		  AND (
+			SELECT array_agg(a.attname::text ORDER BY k.ordinality)
+			FROM unnest(c.conkey) WITH ORDINALITY AS k(attnum, ordinality)
+			JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum
+		  ) = ARRAY['dashboard_id', 'section_key', 'pipeline_id', 'output_name', 'entry_key']::text[];
+		IF old_constraint IS NOT NULL THEN
+			EXECUTE format('ALTER TABLE dashboard_source_bindings DROP CONSTRAINT %I', old_constraint);
+		END IF;
+	END $$`,
 	`CREATE TABLE IF NOT EXISTS dashboard_publications (
 		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 		dashboard_id UUID NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
@@ -74,6 +92,7 @@ var dashboardSchemaStatements = []string{
 		run_output_id UUID REFERENCES pipeline_run_outputs(id) ON DELETE SET NULL,
 		pipeline_id TEXT NOT NULL DEFAULT '',
 		output_name TEXT NOT NULL DEFAULT '',
+		run_scope TEXT NOT NULL DEFAULT '',
 		refresh_id UUID,
 		source_finished_at TIMESTAMPTZ,
 		published_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -144,6 +163,7 @@ var dashboardSchemaStatements = []string{
 		output_name TEXT NOT NULL DEFAULT '',
 		section_key TEXT NOT NULL DEFAULT '',
 		entry_key TEXT NOT NULL DEFAULT '',
+		run_scope TEXT NOT NULL DEFAULT '',
 		run_id UUID REFERENCES pipeline_runs(run_id) ON DELETE SET NULL,
 		required BOOLEAN NOT NULL DEFAULT TRUE,
 		status TEXT NOT NULL DEFAULT 'queued',
@@ -156,6 +176,8 @@ var dashboardSchemaStatements = []string{
 		CONSTRAINT dashboard_refresh_pipeline_runs_section_check CHECK (section_key = '' OR section_key ~ '^[a-zA-Z0-9_.-]+$'),
 		UNIQUE(refresh_id, source_binding_id)
 	)`,
+	`ALTER TABLE dashboard_publications ADD COLUMN IF NOT EXISTS run_scope TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE dashboard_refresh_pipeline_runs ADD COLUMN IF NOT EXISTS run_scope TEXT NOT NULL DEFAULT ''`,
 	`CREATE TABLE IF NOT EXISTS dashboard_refresh_schedules (
 		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 		dashboard_id UUID NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
@@ -196,9 +218,12 @@ var dashboardSchemaStatements = []string{
 	`CREATE INDEX IF NOT EXISTS idx_dashboards_team ON dashboards(team_id, slug)`,
 	`CREATE INDEX IF NOT EXISTS idx_dashboard_sections_dashboard ON dashboard_sections(dashboard_id, display_order, section_key)`,
 	`CREATE INDEX IF NOT EXISTS idx_dashboard_sources_dashboard ON dashboard_source_bindings(dashboard_id, section_key, refresh_order)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_dashboard_source_bindings_unique_scope ON dashboard_source_bindings(dashboard_id, section_key, pipeline_id, output_name, entry_key, run_scope)`,
 	`CREATE INDEX IF NOT EXISTS idx_dashboard_publications_dashboard ON dashboard_publications(dashboard_id, section_key, status, published_at DESC)`,
-	`CREATE UNIQUE INDEX IF NOT EXISTS idx_dashboard_publications_replace_current ON dashboard_publications(dashboard_id, section_key, entry_key) WHERE mode = 'replace' AND status = 'current'`,
-	`CREATE UNIQUE INDEX IF NOT EXISTS idx_dashboard_publications_series_current ON dashboard_publications(dashboard_id, section_key, entry_key) WHERE mode = 'series' AND status = 'current'`,
+	`DROP INDEX IF EXISTS idx_dashboard_publications_replace_current`,
+	`DROP INDEX IF EXISTS idx_dashboard_publications_series_current`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_dashboard_publications_replace_current ON dashboard_publications(dashboard_id, section_key, entry_key, run_scope) WHERE mode = 'replace' AND status = 'current'`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_dashboard_publications_series_current ON dashboard_publications(dashboard_id, section_key, entry_key, run_scope) WHERE mode = 'series' AND status = 'current'`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS idx_dashboard_publications_run_output ON dashboard_publications(run_output_id) WHERE run_output_id IS NOT NULL`,
 	`CREATE INDEX IF NOT EXISTS idx_dashboard_publication_events_dashboard ON dashboard_publication_events(dashboard_id, section_key, created_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_dashboard_refreshes_dashboard ON dashboard_refreshes(dashboard_id, created_at DESC)`,

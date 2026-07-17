@@ -44,6 +44,7 @@ export type DashboardSource = {
   pipeline_id: string;
   output_name: string;
   entry_key?: string;
+  run_scope?: string;
   enabled: boolean;
   required_for_refresh: boolean;
   refresh_order: number;
@@ -62,6 +63,7 @@ export type DashboardPublication = {
   run_output_id?: string;
   pipeline_id?: string;
   output_name?: string;
+  run_scope?: string;
   refresh_id?: string;
   source_finished_at?: string | null;
   published_at: string;
@@ -149,6 +151,7 @@ export type DashboardRefreshSource = {
   output_name: string;
   section_key: string;
   entry_key?: string;
+  run_scope?: string;
   run_id?: string;
   required: boolean;
   status: string;
@@ -257,6 +260,7 @@ export type DashboardFormState = {
   description: string;
   visibility: string;
   pipelineIDs: string[];
+  pipelineScopes: Record<string, string>;
   sectionKey: string;
   sectionTitle: string;
   sectionDescription: string;
@@ -281,6 +285,7 @@ export type DashboardSourceFormState = {
   pipelineID: string;
   outputName: string;
   entryKey: string;
+  runScope: string;
   enabled: boolean;
   requiredForRefresh: boolean;
   refreshOrder: string;
@@ -294,6 +299,7 @@ export function createDashboardForm(teamPath = ''): DashboardFormState {
     description: '',
     visibility: 'team',
     pipelineIDs: [],
+    pipelineScopes: {},
     sectionKey: 'overview',
     sectionTitle: 'Overview',
     sectionDescription: '',
@@ -308,6 +314,7 @@ export function formFromDashboard(dashboard: DashboardSummary): DashboardFormSta
     description: dashboard.description || '',
     visibility: dashboard.visibility || 'team',
     pipelineIDs: [],
+    pipelineScopes: {},
     sectionKey: 'overview',
     sectionTitle: 'Overview',
     sectionDescription: '',
@@ -395,6 +402,7 @@ export function createSourceForm(sectionKey = 'overview'): DashboardSourceFormSt
     pipelineID: '',
     outputName: '',
     entryKey: '',
+    runScope: '',
     enabled: true,
     requiredForRefresh: true,
     refreshOrder: '0',
@@ -435,6 +443,7 @@ export function sourceFormFromSource(source: DashboardSource): DashboardSourceFo
     pipelineID: source.pipeline_id,
     outputName: source.output_name,
     entryKey: source.entry_key || '',
+    runScope: source.run_scope || '',
     enabled: source.enabled,
     requiredForRefresh: source.required_for_refresh,
     refreshOrder: String(source.refresh_order ?? 0),
@@ -468,6 +477,7 @@ export function sourceRequestFromForm(form: DashboardSourceFormState) {
     pipeline_id: form.pipelineID.trim(),
     output_name: form.outputName.trim(),
     entry_key: form.entryKey.trim(),
+    run_scope: normalizeRunScope(form.runScope),
     enabled: form.enabled,
     required_for_refresh: form.requiredForRefresh,
     refresh_order: Number.parseInt(form.refreshOrder || '0', 10) || 0,
@@ -518,6 +528,7 @@ export function normalizeDashboardPublication(raw: unknown): DashboardPublicatio
     run_output_id: optionalString(record.run_output_id),
     pipeline_id: optionalString(record.pipeline_id),
     output_name: optionalString(record.output_name),
+    run_scope: optionalString(record.run_scope),
     refresh_id: optionalString(record.refresh_id),
     source_finished_at: optionalString(record.source_finished_at),
     published_at: stringValue(record.published_at),
@@ -609,6 +620,7 @@ export function normalizeDashboardRefreshSource(raw: unknown): DashboardRefreshS
     output_name: stringValue(record.output_name),
     section_key: stringValue(record.section_key),
     entry_key: optionalString(record.entry_key),
+    run_scope: optionalString(record.run_scope),
     run_id: optionalString(record.run_id),
     required: Boolean(record.required),
     status: stringValue(record.status) || 'queued',
@@ -665,6 +677,7 @@ export function normalizeDashboardSource(raw: unknown): DashboardSource {
     pipeline_id: stringValue(record.pipeline_id),
     output_name: stringValue(record.output_name),
     entry_key: optionalString(record.entry_key),
+    run_scope: optionalString(record.run_scope),
     enabled: Boolean(record.enabled),
     required_for_refresh: Boolean(record.required_for_refresh),
     refresh_order: numberValue(record.refresh_order, 0),
@@ -709,6 +722,17 @@ export function formatDateTime(value?: string | null): string {
 
 export function refreshStatusLabel(status: string): string {
   return status.replace(/_/g, ' ');
+}
+
+export function normalizeRunScope(value: string | undefined): string {
+  const normalized = (value || '').trim().replace(/^\/+|\/+$/g, '');
+  if (!normalized || normalized.toLowerCase() === 'default') return '';
+  return normalized;
+}
+
+export function runScopeLabel(value: string | undefined): string {
+  const normalized = normalizeRunScope(value);
+  return normalized || 'Default scope';
 }
 
 export function refreshProgress(refresh: DashboardRefresh): number {

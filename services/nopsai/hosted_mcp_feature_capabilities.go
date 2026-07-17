@@ -335,6 +335,7 @@ func hostedMCPFeatureCapabilityCatalog() []hostedMCPFeatureCapability {
 				"Line, bar, area, pie, and donut chart blocks",
 				"Series publication mode with dedupe and bounded point retention",
 				"Source binding discovery from pipeline output declarations",
+				"Exact run-scope source binding and publication matching",
 				"Replace, append, section snapshot, and series publication modes",
 				"Run-output provenance",
 				"Publication history",
@@ -411,6 +412,7 @@ func hostedMCPFeatureCapabilityCatalog() []hostedMCPFeatureCapability {
 			Notes: []string{
 				"Refresh records preserve existing dashboard data while selected sources run and report complete, partial, failed, cancelled, or timed_out status.",
 				"Dashboard publication accepts DashboardSpec JSON only; arbitrary HTML, CSS, JavaScript, iframes, forms, executable links, external scripts, and network-request content are rejected.",
+				"Dashboard source run_scope is exact: empty means the default/unscoped run, and scoped runs publish only to enabled source bindings with the same scope.",
 				"Series publications merge chart points by timestamp or label and retain only the bounded latest point window.",
 				"Dashboard creation, schedule management, and source management use guarded REST routes through nopsai.call_api today; refresh and schedule run-now have direct confirmed MCP tools.",
 			},
