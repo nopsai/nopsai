@@ -44,14 +44,7 @@ export async function fetchResourceTeamPaths(): Promise<string[]> {
   if (!response.ok) return [];
   const payload = await response.json();
   if (!Array.isArray(payload)) return [];
-  return payload
-    .map(record => {
-      if (!record || typeof record !== 'object') return '';
-      const entry = record as { id?: unknown; name?: unknown };
-      return typeof entry.id === 'string' ? entry.id : typeof entry.name === 'string' ? entry.name.replace(/^\/+/, '') : '';
-    })
-    .map(path => path.trim().replace(/^\/+|\/+$/g, ''))
-    .filter(Boolean)
+  return Array.from(new Set(payload.map(normalizeAccessTeamPathRecord).filter(Boolean)))
     .sort((a, b) => a.localeCompare(b));
 }
 
@@ -137,6 +130,29 @@ function buildTeamPaths(teams: ResourceTeam[], includeTeam: (team: ResourceTeam)
 
 function isApplicationTeamLike(team: ResourceTeam) {
   return team.kind === 'app' || Boolean(team.repo_url || team.repository_full_name) || String(team.name || '').includes('/');
+}
+
+function normalizeAccessTeamPathRecord(record: unknown): string {
+  if (!record || typeof record !== 'object') return '';
+  const entry = record as {
+    id?: unknown;
+    name?: unknown;
+    kind?: unknown;
+    repo_url?: unknown;
+    repository_full_name?: unknown;
+  };
+  if (
+    String(entry.kind || '').trim().toLowerCase() === 'app' ||
+    Boolean(entry.repo_url || entry.repository_full_name)
+  ) {
+    return '';
+  }
+  const raw = typeof entry.id === 'string'
+    ? entry.id
+    : typeof entry.name === 'string'
+      ? entry.name
+      : '';
+  return raw.trim().replace(/^\/+|\/+$/g, '').replace(/\/+/g, '/');
 }
 
 export function insertTeamPath<T extends TreeNodeLike<T>>(

@@ -141,9 +141,13 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
   );
 
   const runTeamOptions = useMemo(
-    () => uniqueRunTeamOptions([...runTeams, form.runTeamPath]),
-    [form.runTeamPath, runTeams]
+    () => uniqueRunTeamOptions(runTeams),
+    [runTeams]
   );
+  const selectedRunTeamPath = useMemo(() => {
+    const normalized = normalizeIdentifier(form.runTeamPath);
+    return runTeamOptions.includes(normalized) ? normalized : 'root';
+  }, [form.runTeamPath, runTeamOptions]);
 
   const callerOptions = useMemo<Record<AllowedCaller['type'], SelectOption[]>>(
     () => ({
@@ -163,6 +167,11 @@ function ExternalTriggersPage({ canWriteExternalTriggers, canDeleteExternalTrigg
   );
 
   const activeCallerOptions = callerOptions[callerDraft.type] || [];
+
+  useEffect(() => {
+    if (!modal || form.runTeamPath === selectedRunTeamPath) return;
+    setForm(current => ({ ...current, runTeamPath: selectedRunTeamPath }));
+  }, [form.runTeamPath, modal, selectedRunTeamPath]);
 
   const fetchJson = useCallback(async <T,>(path: string, options?: RequestInit): Promise<T> => {
     const response = await apiClient.fetch(path, { cache: 'no-store', ...options });

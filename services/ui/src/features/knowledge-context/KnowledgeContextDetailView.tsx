@@ -135,7 +135,7 @@ export function KnowledgeContextDetailView({
   const selectedConnection = connections.find(connection => knowledgeConnectionMatchesIdentifier(connection, rawConnectionID));
   const selectedConnectionID = selectedConnection?.id || rawConnectionID;
   const editableTeamOptions = Array.from(
-    new Set([normalizeTeamPath(detail.team), ...teamOptions.map(option => normalizeTeamPath(option))].filter(Boolean))
+    new Set(teamOptions.map(option => normalizeTeamPath(option)).filter(Boolean))
   ).sort((a, b) => a.localeCompare(b));
   const handleStartEditing = () => {
     setActionsOpen(false);

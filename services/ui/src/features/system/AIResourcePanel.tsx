@@ -163,21 +163,18 @@ export function AIResourceTeamFilter({
   const normalizedTeamPaths = teamPaths.map(normalizeAIResourceTeamPath).filter(Boolean);
   const selectableTeamPaths = [...new Set(normalizedTeamPaths)];
   const normalizedValue = normalizeAIResourceTeamPath(value);
-  if (
-    normalizedValue &&
-    normalizedValue !== AI_RESOURCE_TEAM_FILTER_ALL &&
-    normalizedValue !== AI_RESOURCE_TEAM_FILTER_GLOBAL &&
-    !selectableTeamPaths.includes(normalizedValue)
-  ) {
-    selectableTeamPaths.push(normalizedValue);
-  }
+  const safeValue = value === AI_RESOURCE_TEAM_FILTER_GLOBAL
+    ? AI_RESOURCE_TEAM_FILTER_GLOBAL
+    : normalizedValue && selectableTeamPaths.includes(normalizedValue)
+      ? normalizedValue
+      : AI_RESOURCE_TEAM_FILTER_ALL;
 
   return (
     <label className="ai-resource-team-filter">
       <span className="sr-only">Filter by team</span>
       <select
         aria-label="Filter by team"
-        value={value}
+        value={safeValue}
         onChange={event => onChange(event.target.value)}
         disabled={disabled}
       >

@@ -24,6 +24,7 @@ import {
   buildAIResourceScopedID,
   collectAIResourceTeamPaths,
   formatAIResourceTeamLabel,
+  selectableAIResourceTeamPath,
 } from './aiResourceTeams';
 import {
   formatAIResourceRatio,
@@ -209,7 +210,9 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
     setPanelMode(null);
   };
   const openCreate = () => {
-    const initialTeamPath = teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL && teamFilter !== AI_RESOURCE_TEAM_FILTER_GLOBAL ? teamFilter : '';
+    const initialTeamPath = teamFilter !== AI_RESOURCE_TEAM_FILTER_ALL && teamFilter !== AI_RESOURCE_TEAM_FILTER_GLOBAL
+      ? selectableAIResourceTeamPath(teamFilter, teamPaths)
+      : '';
     setSelectedProfileName('');
     setCreateTeamPath(initialTeamPath);
     startCreate();
@@ -562,6 +565,7 @@ function LLMProfileTable({
                   <button
                     type="button"
                     className="ai-resource-table-resource"
+                    aria-label={`Select LLM profile ${aiResourceLocalName(profile.name) || profile.name}`}
                     onClick={event => {
                       event.stopPropagation();
                       onSelectProfile(profile.name);
