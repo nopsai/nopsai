@@ -3,6 +3,7 @@ package nopsai
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestAssistantPromptSafeValueRedactsNestedSecrets(t *testing.T) {
@@ -91,7 +92,7 @@ func TestBuildAssistantLLMPromptRedactsAllContextSources(t *testing.T) {
 func TestAssistantPromptRedactionPreservesUTF8Boundary(t *testing.T) {
 	value := strings.Repeat("界", assistantPromptHistoryContentLimit)
 	got := assistantTruncateHistoryContent(value)
-	if !strings.ValidUTF8(got) {
+	if !utf8.ValidString(got) {
 		t.Fatal("redacted history value is not valid UTF-8")
 	}
 	if len(got) > assistantPromptHistoryContentLimit {
