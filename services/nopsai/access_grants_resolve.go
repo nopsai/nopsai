@@ -792,6 +792,8 @@ func managementActionForGrantResource(resource accessGrantResource) (string, mod
 		return "pipeline.manage_acl", model.ResourceRef{Type: grantResourcePipeline, ID: resource.ID}, nil
 	case grantResourceSchedule:
 		return "pipeline_schedule.manage_acl", model.ResourceRef{Type: grantResourceSchedule, ID: resource.ID}, nil
+	case grantResourceDashboard:
+		return "dashboard.manage_acl", model.ResourceRef{Type: grantResourceDashboard, ID: resource.ID}, nil
 	case grantResourceTrigger:
 		return "trigger.manage_acl", model.ResourceRef{Type: grantResourceTrigger, ID: resource.ID}, nil
 	case grantResourceExternalTrigger:

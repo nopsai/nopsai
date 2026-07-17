@@ -1,26 +1,39 @@
 import { apiClient } from '../../lib/api';
 import { fetchPipelineRunTeamPaths } from '../../lib/resourceTeams';
+import { fetchPipelineYaml } from '../pipelines/api';
 import {
   dashboardRequestFromForm,
   normalizeDashboardRefresh,
   normalizeDashboardRefreshSchedule,
   normalizeDashboardPublication,
+  normalizeDashboardSection,
   normalizeDashboardSource,
   normalizeDashboardSummary,
   normalizeDashboardView,
+  refreshScheduleRequestFromForm,
   refreshRequestFromForm,
+  sectionRequestFromForm,
   sourceRequestFromForm,
   type DashboardEvent,
   type DashboardFormState,
   type DashboardPublication,
   type DashboardRefresh,
   type DashboardRefreshSchedule,
+  type DashboardRefreshScheduleFormState,
   type DashboardRefreshFormState,
+  type DashboardSection,
+  type DashboardSectionSeed,
+  type DashboardSectionFormState,
   type DashboardSource,
   type DashboardSourceFormState,
   type DashboardSummary,
   type DashboardView,
 } from './model';
+import {
+  parseDashboardPipelineOutputOptions,
+  type DashboardPipelineCatalogItem,
+  type DashboardPipelineOutputOption,
+} from './sourceOptions';
 
 async function readResponseError(response: Response, fallback: string) {
   const text = await response.text();
@@ -63,6 +76,44 @@ export async function fetchDashboardRefreshSchedules(dashboardID: string): Promi
   return Array.isArray(payload) ? payload.map(normalizeDashboardRefreshSchedule) : [];
 }
 
+export function saveDashboardRefreshSchedule(
+  dashboardID: string,
+  form: DashboardRefreshScheduleFormState,
+  schedule?: DashboardRefreshSchedule
+): Promise<DashboardRefreshSchedule> {
+  return requestJson<unknown>(
+    schedule
+      ? `/v1/dashboards/${encodeURIComponent(dashboardID)}/refresh-schedules/${encodeURIComponent(schedule.id)}`
+      : `/v1/dashboards/${encodeURIComponent(dashboardID)}/refresh-schedules`,
+    {
+      method: schedule ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(refreshScheduleRequestFromForm(form)),
+    }
+  ).then(normalizeDashboardRefreshSchedule);
+}
+
+export async function deleteDashboardRefreshSchedule(dashboardID: string, scheduleID: string): Promise<void> {
+  const response = await apiClient.fetch(
+    `/v1/dashboards/${encodeURIComponent(dashboardID)}/refresh-schedules/${encodeURIComponent(scheduleID)}`,
+    { method: 'DELETE' }
+  );
+  if (!response.ok) {
+    throw new Error(await readResponseError(response, `Unable to delete refresh schedule (${response.status})`));
+  }
+}
+
+export function setDashboardRefreshScheduleEnabled(
+  dashboardID: string,
+  scheduleID: string,
+  enabled: boolean
+): Promise<DashboardRefreshSchedule> {
+  return requestJson<unknown>(
+    `/v1/dashboards/${encodeURIComponent(dashboardID)}/refresh-schedules/${encodeURIComponent(scheduleID)}/${enabled ? 'enable' : 'disable'}`,
+    { method: 'POST' }
+  ).then(normalizeDashboardRefreshSchedule);
+}
+
 export function runDashboardRefreshSchedule(dashboardID: string, scheduleID: string): Promise<DashboardRefresh> {
   return requestJson<unknown>(
     `/v1/dashboards/${encodeURIComponent(dashboardID)}/refresh-schedules/${encodeURIComponent(scheduleID)}/run`,
@@ -95,11 +146,15 @@ export function retryDashboardRefreshFailed(dashboardID: string, refreshID: stri
   ).then(normalizeDashboardRefresh);
 }
 
-export function saveDashboard(form: DashboardFormState, dashboard?: DashboardSummary): Promise<DashboardSummary> {
+export function saveDashboard(
+  form: DashboardFormState,
+  dashboard?: DashboardSummary,
+  options: { sections?: DashboardSectionSeed[] } = {}
+): Promise<DashboardSummary> {
   return requestJson<unknown>(dashboard ? `/v1/dashboards/${encodeURIComponent(dashboard.id)}` : '/v1/dashboards', {
     method: dashboard ? 'PUT' : 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(dashboardRequestFromForm(form)),
+    body: JSON.stringify(dashboardRequestFromForm(form, { includeSections: !dashboard, sections: options.sections })),
   }).then(normalizeDashboardSummary);
 }
 
@@ -107,6 +162,38 @@ export async function deleteDashboard(dashboardID: string): Promise<void> {
   const response = await apiClient.fetch(`/v1/dashboards/${encodeURIComponent(dashboardID)}`, { method: 'DELETE' });
   if (!response.ok) {
     throw new Error(await readResponseError(response, `Unable to delete dashboard (${response.status})`));
+  }
+}
+
+export async function fetchDashboardSections(dashboardID: string): Promise<DashboardSection[]> {
+  const payload = await requestJson<unknown[]>(`/v1/dashboards/${encodeURIComponent(dashboardID)}/sections`);
+  return Array.isArray(payload) ? payload.map(normalizeDashboardSection) : [];
+}
+
+export function saveDashboardSection(
+  dashboardID: string,
+  form: DashboardSectionFormState,
+  section?: DashboardSection
+): Promise<DashboardSection> {
+  return requestJson<unknown>(
+    section
+      ? `/v1/dashboards/${encodeURIComponent(dashboardID)}/sections/${encodeURIComponent(section.id)}`
+      : `/v1/dashboards/${encodeURIComponent(dashboardID)}/sections`,
+    {
+      method: section ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sectionRequestFromForm(form)),
+    }
+  ).then(normalizeDashboardSection);
+}
+
+export async function deleteDashboardSection(dashboardID: string, sectionID: string): Promise<void> {
+  const response = await apiClient.fetch(
+    `/v1/dashboards/${encodeURIComponent(dashboardID)}/sections/${encodeURIComponent(sectionID)}`,
+    { method: 'DELETE' }
+  );
+  if (!response.ok) {
+    throw new Error(await readResponseError(response, `Unable to delete section (${response.status})`));
   }
 }
 
@@ -154,6 +241,28 @@ export async function fetchDashboardMetadata(): Promise<{ teams: string[]; pipel
       .filter(Boolean)
       .sort((a, b) => a.localeCompare(b)),
   };
+}
+
+export async function fetchDashboardPipelineOutputs(pipelineID: string): Promise<DashboardPipelineOutputOption[]> {
+  const normalized = pipelineID.trim();
+  if (!normalized) return [];
+  const rawYaml = await fetchPipelineYaml(normalized);
+  return parseDashboardPipelineOutputOptions(rawYaml);
+}
+
+export async function fetchDashboardPipelineCatalog(pipelineIDs: string[]): Promise<DashboardPipelineCatalogItem[]> {
+  const uniquePipelineIDs = Array.from(new Set(pipelineIDs.map(id => id.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  const items = await Promise.all(
+    uniquePipelineIDs.map(async id => {
+      try {
+        const outputs = await fetchDashboardPipelineOutputs(id);
+        return outputs.length > 0 ? { id, outputs } : null;
+      } catch {
+        return null;
+      }
+    })
+  );
+  return items.filter((item): item is DashboardPipelineCatalogItem => Boolean(item));
 }
 
 export function normalizePublication(payload: unknown): DashboardPublication {

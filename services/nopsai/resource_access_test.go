@@ -138,6 +138,9 @@ func TestValidateResourceVisibilityPolicy(t *testing.T) {
 	if err := validateResourceVisibilityPolicy(grantResourceStep, resourceVisibilityWorkspace); err != nil {
 		t.Fatalf("step workspace visibility error = %v", err)
 	}
+	if err := validateResourceVisibilityPolicy(grantResourceDashboard, resourceVisibilityWorkspace); err != nil {
+		t.Fatalf("dashboard workspace visibility error = %v", err)
+	}
 	for _, resourceType := range []string{grantResourceLLMProfile, grantResourceAgentProfile, grantResourceMCPServer, grantResourceMCPProfile} {
 		t.Run(resourceType, func(t *testing.T) {
 			if err := validateResourceVisibilityPolicy(resourceType, resourceVisibilityWorkspace); err != nil {
@@ -172,6 +175,20 @@ func TestNormalizeUseGrantActions(t *testing.T) {
 	if len(actions) != 1 || actions[0] != "llm_profile.use" {
 		t.Fatalf("normalizeUseGrantActions(llm_profile) = %#v, want llm_profile.use", actions)
 	}
+	actions, err = normalizeUseGrantActions(grantResourceDashboard, nil)
+	if err != nil {
+		t.Fatalf("normalizeUseGrantActions(dashboard) error = %v", err)
+	}
+	if len(actions) != 1 || actions[0] != "dashboard.read" {
+		t.Fatalf("normalizeUseGrantActions(dashboard) = %#v, want dashboard.read", actions)
+	}
+	actions, err = normalizeUseGrantActions(grantResourceDashboard, []string{"dashboard.read"})
+	if err != nil {
+		t.Fatalf("normalizeUseGrantActions(dashboard explicit) error = %v", err)
+	}
+	if len(actions) != 1 || actions[0] != "dashboard.read" {
+		t.Fatalf("normalizeUseGrantActions(dashboard explicit) = %#v, want dashboard.read", actions)
+	}
 
 	if _, err := normalizeUseGrantActions(grantResourcePipeline, []string{"pipeline.execute"}); err == nil {
 		t.Fatal("normalizeUseGrantActions() accepted non-use action")
@@ -181,6 +198,28 @@ func TestNormalizeUseGrantActions(t *testing.T) {
 	}
 	if _, err := normalizeUseGrantActions(grantResourceMCPProfile, []string{"llm_profile.use"}); err == nil {
 		t.Fatal("normalizeUseGrantActions() accepted mismatched AI profile use action")
+	}
+	if _, err := normalizeUseGrantActions(grantResourceDashboard, []string{"dashboard.publish"}); err == nil {
+		t.Fatal("normalizeUseGrantActions() accepted non-read dashboard action")
+	}
+}
+
+func TestSetDashboardResourceVisibilityUpdatesDashboardRow(t *testing.T) {
+	runner := &resourceVisibilityExecRunner{}
+	err := setResourceVisibilityWithRunner(
+		context.Background(),
+		runner,
+		accessGrantResource{Type: grantResourceDashboard, ID: "team-1/ops-dashboard"},
+		resourceVisibilityWorkspace,
+	)
+	if err != nil {
+		t.Fatalf("setResourceVisibilityWithRunner(dashboard) error = %v", err)
+	}
+	if !strings.Contains(runner.query, "UPDATE dashboards") {
+		t.Fatalf("dashboard visibility query = %q, want dashboards update", runner.query)
+	}
+	if len(runner.args) != 3 || runner.args[0] != resourceVisibilityWorkspace || runner.args[1] != "team-1" || runner.args[2] != "ops-dashboard" {
+		t.Fatalf("dashboard visibility args = %#v, want workspace/team-1/ops-dashboard", runner.args)
 	}
 }
 
@@ -216,6 +255,17 @@ func TestInheritedAccessParentTeamsForGlobalAIProfile(t *testing.T) {
 type accessAuthTeamsQueryRunner struct {
 	rows  pgx.Rows
 	query string
+}
+
+type resourceVisibilityExecRunner struct {
+	query string
+	args  []any
+}
+
+func (r *resourceVisibilityExecRunner) Exec(_ context.Context, query string, args ...any) (pgconn.CommandTag, error) {
+	r.query = query
+	r.args = args
+	return pgconn.NewCommandTag("UPDATE 1"), nil
 }
 
 func (r *accessAuthTeamsQueryRunner) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {

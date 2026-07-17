@@ -278,7 +278,8 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
     'llm_output_sharing',
   ]);
   const knownOutputKeys = new Set(['llm_profile', 'items']);
-  const knownOutputItemKeys = new Set(['name', 'type', 'when', 'prompt', 'llm_profile']);
+  const knownOutputItemKeys = new Set(['name', 'type', 'when', 'prompt', 'llm_profile', 'dashboard']);
+  const knownDashboardTargetKeys = new Set(['ref', 'section', 'entry_key', 'mode', 'preset', 'ttl']);
   const knownDisplayOptionsKeys = new Set(['github_view']);
 
   const createError = (message: string, pathHints: string[] = []): LabValidationError => {
@@ -322,7 +323,11 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
       allUnknown = allUnknown.concat(findUnknownKeys(pipeline.output, knownOutputKeys, 'output'));
       const outputItems = isPlainObject(pipeline.output) && Array.isArray(pipeline.output.items) ? pipeline.output.items : [];
       outputItems.forEach((item: unknown, index: number) => {
-        allUnknown = allUnknown.concat(findUnknownKeys(item, knownOutputItemKeys, `output.items[${index}]`));
+        const itemPath = `output.items[${index}]`;
+        allUnknown = allUnknown.concat(findUnknownKeys(item, knownOutputItemKeys, itemPath));
+        if (isPlainObject(item) && hasOwn(item, 'dashboard')) {
+          allUnknown = allUnknown.concat(findUnknownKeys(item.dashboard, knownDashboardTargetKeys, `${itemPath}.dashboard`));
+        }
       });
     }
 
@@ -373,8 +378,10 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
         return { errors: [createError("Validation Error: 'output.items' must contain at least one final output.", ['output.items', 'output'])] };
       }
       const outputNames = new Set<string>();
-      const allowedOutputTypes = new Set(['markdown', 'pdf', 'excel', 'json', 'html']);
+      const allowedOutputTypes = new Set(['markdown', 'pdf', 'excel', 'json', 'html', 'dashboard']);
       const allowedOutputWhen = new Set(['always', 'success', 'failure']);
+      const allowedDashboardModes = new Set(['', 'replace', 'append', 'snapshot', 'series']);
+      const allowedDashboardPresets = new Set(['', 'auto', 'report', 'table', 'status', 'timeline', 'comparison', 'metrics', 'mixed']);
       for (let index = 0; index < outputItems.length; index += 1) {
         const itemPath = `output.items[${index}]`;
         const item = outputItems[index] as unknown;
@@ -406,6 +413,103 @@ export function validatePipelineYamlStrict(yamlString: string): LabValidationRes
         }
         if (hasOwn(item, 'llm_profile') && typeof item.llm_profile !== 'string') {
           return { errors: [createError(`Validation Error: Final output '${outputName}' llm_profile must be a string.`, [`${itemPath}.llm_profile`, itemPath])] };
+        }
+        const hasDashboardTarget = hasOwn(item, 'dashboard');
+        const dashboardTarget = hasDashboardTarget ? item.dashboard : undefined;
+        if (outputType === 'dashboard') {
+          if (!isPlainObject(dashboardTarget)) {
+            return { errors: [createError(`Validation Error: Final output '${outputName}' dashboard target must be an object.`, [`${itemPath}.dashboard`, itemPath])] };
+          }
+          const dashboardStringFields = ['ref', 'section', 'entry_key', 'mode', 'preset', 'ttl'];
+          for (const key of dashboardStringFields) {
+            if (hasOwn(dashboardTarget, key) && typeof dashboardTarget[key] !== 'string') {
+              return {
+                errors: [
+                  createError(`Validation Error: Final output '${outputName}' dashboard.${key} must be a string.`, [
+                    `${itemPath}.dashboard.${key}`,
+                    `${itemPath}.dashboard`,
+                    itemPath,
+                  ]),
+                ],
+              };
+            }
+          }
+          const dashboardRef = safeString(dashboardTarget.ref).replace(/^\/+|\/+$/g, '');
+          if (!dashboardRef) {
+            return { errors: [createError(`Validation Error: Final output '${outputName}' dashboard.ref is required.`, [`${itemPath}.dashboard.ref`, `${itemPath}.dashboard`, itemPath])] };
+          }
+          const refSegments = dashboardRef.split('/');
+          if (dashboardRef.startsWith('~') || refSegments.length < 2 || refSegments.some(segment => !segment || segment === '.' || segment === '..')) {
+            return {
+              errors: [
+                createError(`Validation Error: Final output '${outputName}' dashboard.ref must use team/dashboard format.`, [
+                  `${itemPath}.dashboard.ref`,
+                  `${itemPath}.dashboard`,
+                  itemPath,
+                ]),
+              ],
+            };
+          }
+          const dashboardSection = safeString(dashboardTarget.section);
+          if (!dashboardSection) {
+            return { errors: [createError(`Validation Error: Final output '${outputName}' dashboard.section is required.`, [`${itemPath}.dashboard.section`, `${itemPath}.dashboard`, itemPath])] };
+          }
+          if (!/^[a-zA-Z0-9_.-]+$/.test(dashboardSection)) {
+            return {
+              errors: [
+                createError(`Validation Error: Final output '${outputName}' dashboard.section can only contain letters, numbers, underscores, dots, and hyphens.`, [
+                  `${itemPath}.dashboard.section`,
+                  `${itemPath}.dashboard`,
+                  itemPath,
+                ]),
+              ],
+            };
+          }
+          const entryKey = safeString(dashboardTarget.entry_key);
+          if (entryKey && !/^[a-zA-Z0-9_.:/-]+$/.test(entryKey)) {
+            return {
+              errors: [
+                createError(`Validation Error: Final output '${outputName}' dashboard.entry_key can only contain letters, numbers, underscores, dots, colons, slashes, and hyphens.`, [
+                  `${itemPath}.dashboard.entry_key`,
+                  `${itemPath}.dashboard`,
+                  itemPath,
+                ]),
+              ],
+            };
+          }
+          const dashboardMode = safeString(dashboardTarget.mode).toLowerCase();
+          if (!allowedDashboardModes.has(dashboardMode)) {
+            return {
+              errors: [
+                createError(`Validation Error: Final output '${outputName}' dashboard.mode '${safeString(dashboardTarget.mode)}' is not supported.`, [
+                  `${itemPath}.dashboard.mode`,
+                  `${itemPath}.dashboard`,
+                  itemPath,
+                ]),
+              ],
+            };
+          }
+          const dashboardPreset = safeString(dashboardTarget.preset).toLowerCase();
+          if (!allowedDashboardPresets.has(dashboardPreset)) {
+            return {
+              errors: [
+                createError(`Validation Error: Final output '${outputName}' dashboard.preset '${safeString(dashboardTarget.preset)}' is not supported.`, [
+                  `${itemPath}.dashboard.preset`,
+                  `${itemPath}.dashboard`,
+                  itemPath,
+                ]),
+              ],
+            };
+          }
+        } else if (hasDashboardTarget) {
+          return {
+            errors: [
+              createError(`Validation Error: Final output '${outputName}' dashboard configuration requires type 'dashboard'.`, [
+                `${itemPath}.dashboard`,
+                itemPath,
+              ]),
+            ],
+          };
         }
       }
       if (!llmEnabled) {

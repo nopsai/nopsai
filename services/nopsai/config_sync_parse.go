@@ -238,6 +238,32 @@ func (a *App) parseConfigSyncPlan(binding models.ConfigRepository, repoCtx confi
 	if err != nil {
 		return configSyncPlan{}, err
 	}
+	for path, content := range files.dashboards {
+		normalized := filepath.ToSlash(path)
+		rel, ok := configsync.RelativePath(normalized, dashboardDir)
+		if !ok {
+			continue
+		}
+		if rel == "" || strings.HasSuffix(rel, "/") || !isYAMLFile(rel) {
+			continue
+		}
+		identifier := strings.TrimSuffix(rel, filepath.Ext(rel))
+		if binding.ScopeType == models.ConfigRepositoryScopeTeam {
+			targetID, err := configsync.NormalizePathForTeam(boundTeam, rel)
+			if err != nil {
+				return configSyncPlan{}, fmt.Errorf("invalid team-scoped dashboard path '%s': %w", normalized, err)
+			}
+			identifier = strings.TrimSuffix(targetID, filepath.Ext(targetID))
+		}
+		teamPath, slug, err := splitDashboardRef(identifier)
+		if err != nil {
+			return configSyncPlan{}, fmt.Errorf("invalid dashboard path '%s': %w", normalized, err)
+		}
+		key := dashboardResourceID(teamPath, slug)
+		if err := accessPlan.addEmbeddedResourceAccess(content, normalized, grantResourceDashboard, key, binding, boundTeam); err != nil {
+			return configSyncPlan{}, fmt.Errorf("invalid dashboard access '%s': %w", normalized, err)
+		}
+	}
 	plan.externalTriggers, err = parseGitOpsExternalTriggers(files.externalTriggers, externalTriggerDir, binding, boundTeam)
 	if err != nil {
 		return configSyncPlan{}, err

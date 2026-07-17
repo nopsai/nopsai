@@ -203,6 +203,128 @@ func (a *App) handleGetDashboardHistory(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, responses)
 }
 
+func (a *App) handleListDashboardSections(w http.ResponseWriter, r *http.Request) {
+	record, ok := a.requireDashboardDecision(w, r, "dashboard.read")
+	if !ok {
+		return
+	}
+	sections, err := a.listDashboardSections(r.Context(), record.ID)
+	if err != nil {
+		log.Error().Err(err).Str("dashboard_id", record.ID).Msg("Failed to list dashboard sections")
+		http.Error(w, "Failed to retrieve dashboard sections", http.StatusInternalServerError)
+		return
+	}
+	responses := make([]dashboardSectionResponse, 0, len(sections))
+	for _, section := range sections {
+		responses = append(responses, dashboardSectionResponseFromRecord(section))
+	}
+	writeJSON(w, http.StatusOK, responses)
+}
+
+func (a *App) handleCreateDashboardSection(w http.ResponseWriter, r *http.Request) {
+	record, ok := a.requireDashboardDecision(w, r, "dashboard.update")
+	if !ok {
+		return
+	}
+	var req dashboardSectionRequest
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
+		http.Error(w, "Invalid dashboard section payload", http.StatusBadRequest)
+		return
+	}
+	input, err := normalizeDashboardSectionInput(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	section, err := a.createDashboardSection(r.Context(), record.ID, input)
+	if err != nil {
+		if isUniqueViolation(err) {
+			http.Error(w, "dashboard section already exists", http.StatusConflict)
+			return
+		}
+		log.Error().Err(err).Str("dashboard_id", record.ID).Msg("Failed to create dashboard section")
+		http.Error(w, "Failed to create dashboard section", http.StatusInternalServerError)
+		return
+	}
+	a.auditDashboardAction(r.Context(), r, "dashboard.section_created", record, "success", map[string]any{"section_id": section.ID, "section_key": section.SectionKey})
+	writeJSON(w, http.StatusCreated, dashboardSectionResponseFromRecord(section))
+}
+
+func (a *App) handleUpdateDashboardSection(w http.ResponseWriter, r *http.Request) {
+	record, ok := a.requireDashboardDecision(w, r, "dashboard.update")
+	if !ok {
+		return
+	}
+	existing, err := a.getDashboardSection(r.Context(), record.ID, strings.TrimSpace(r.PathValue("sectionID")))
+	if err != nil {
+		if dashboardNotFound(err) {
+			http.Error(w, "dashboard section not found", http.StatusNotFound)
+			return
+		}
+		log.Error().Err(err).Str("dashboard_id", record.ID).Msg("Failed to load dashboard section")
+		http.Error(w, "Failed to load dashboard section", http.StatusInternalServerError)
+		return
+	}
+	var req dashboardSectionRequest
+	if err := httpapi.DecodeJSON(r, &req); err != nil {
+		http.Error(w, "Invalid dashboard section payload", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.SectionKey) == "" {
+		req.SectionKey = existing.SectionKey
+	}
+	if strings.TrimSpace(req.SectionKey) != existing.SectionKey {
+		http.Error(w, "section_key cannot be changed after creation", http.StatusBadRequest)
+		return
+	}
+	input, err := normalizeDashboardSectionInput(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	section, err := a.updateDashboardSection(r.Context(), record.ID, existing.ID, input)
+	if err != nil {
+		if dashboardNotFound(err) {
+			http.Error(w, "dashboard section not found", http.StatusNotFound)
+			return
+		}
+		log.Error().Err(err).Str("dashboard_id", record.ID).Str("section_id", existing.ID).Msg("Failed to update dashboard section")
+		http.Error(w, "Failed to update dashboard section", http.StatusInternalServerError)
+		return
+	}
+	a.auditDashboardAction(r.Context(), r, "dashboard.section_updated", record, "success", map[string]any{"section_id": section.ID, "section_key": section.SectionKey})
+	writeJSON(w, http.StatusOK, dashboardSectionResponseFromRecord(section))
+}
+
+func (a *App) handleDeleteDashboardSection(w http.ResponseWriter, r *http.Request) {
+	record, ok := a.requireDashboardDecision(w, r, "dashboard.update")
+	if !ok {
+		return
+	}
+	sectionID := strings.TrimSpace(r.PathValue("sectionID"))
+	section, err := a.getDashboardSection(r.Context(), record.ID, sectionID)
+	if err != nil {
+		if dashboardNotFound(err) {
+			http.Error(w, "dashboard section not found", http.StatusNotFound)
+			return
+		}
+		log.Error().Err(err).Str("dashboard_id", record.ID).Msg("Failed to load dashboard section")
+		http.Error(w, "Failed to delete dashboard section", http.StatusInternalServerError)
+		return
+	}
+	if err := a.deleteDashboardSection(r.Context(), record.ID, sectionID); err != nil {
+		if dashboardNotFound(err) {
+			http.Error(w, "dashboard section not found", http.StatusNotFound)
+			return
+		}
+		log.Error().Err(err).Str("dashboard_id", record.ID).Str("section_id", sectionID).Msg("Failed to delete dashboard section")
+		http.Error(w, "Failed to delete dashboard section", http.StatusInternalServerError)
+		return
+	}
+	a.auditDashboardAction(r.Context(), r, "dashboard.section_deleted", record, "success", map[string]any{"section_id": section.ID, "section_key": section.SectionKey})
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (a *App) handleStartDashboardRefresh(w http.ResponseWriter, r *http.Request) {
 	record, ok := a.requireDashboardDecision(w, r, "dashboard.refresh")
 	if !ok {

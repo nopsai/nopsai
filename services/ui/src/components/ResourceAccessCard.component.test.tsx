@@ -8,7 +8,7 @@ describe('ResourceAccessCard', () => {
   beforeEach(() => {
     vi.spyOn(apiClient, 'fetch').mockImplementation(async (input, init) => {
       const path = String(input);
-      if (path === '/v1/teams?include=applications' || path === '/v1/admin/service-accounts') {
+      if (path === '/v1/access/teams' || path === '/v1/admin/service-accounts') {
         return Response.json([]);
       }
       if (path.endsWith('/grants') && init?.method === 'POST') {
@@ -72,6 +72,30 @@ describe('ResourceAccessCard', () => {
             subject_type: 'repository',
             subject_id: 'acme/ai',
             actions: ['llm_profile.use'],
+            conditions: { branches: [], events: [] },
+          }),
+        })
+      );
+    });
+  });
+
+  it('uses dashboard read grants when sharing dashboards', async () => {
+    render(<ResourceAccessCard resourceType="dashboard" resourceID="team-1/ops-dashboard" label="dashboard" />);
+    await userEvent.click(screen.getByRole('button', { name: 'Access' }));
+
+    expect(await screen.findByRole('dialog', { name: 'Who can view this dashboard?' })).toBeVisible();
+    await userEvent.type(screen.getByPlaceholderText('owner/repo'), 'acme/ops');
+    await userEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+    await waitFor(() => {
+      expect(apiClient.fetch).toHaveBeenCalledWith(
+        '/v1/resources/dashboard/team-1/ops-dashboard/grants',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            subject_type: 'repository',
+            subject_id: 'acme/ops',
+            actions: ['dashboard.read'],
             conditions: { branches: [], events: [] },
           }),
         })

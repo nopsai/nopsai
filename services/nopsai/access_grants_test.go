@@ -255,6 +255,7 @@ func TestProductRolePermissions(t *testing.T) {
 		assertAction(t, actions, "trigger.delete", true)
 		assertAction(t, actions, "external_trigger.delete", true)
 		assertAction(t, actions, "external_trigger.manage_acl", true)
+		assertAction(t, actions, "dashboard.manage_acl", true)
 		assertAction(t, actions, "scope.delete", true)
 		assertAction(t, actions, "pipeline.manage_acl", true)
 		assertAction(t, actions, "secret.read_value", true)
@@ -970,6 +971,22 @@ func TestStepGrantManagementUsesManageACLAction(t *testing.T) {
 	}
 	if resource.Type != grantResourceStep || resource.ID != "payments/build" {
 		t.Fatalf("resource = %#v, want step:payments/build", resource)
+	}
+}
+
+func TestDashboardGrantManagementUsesManageACLAction(t *testing.T) {
+	action, resource, err := managementActionForGrantResource(accessGrantResource{
+		Type: grantResourceDashboard,
+		ID:   "team-1/ops-dashboard",
+	})
+	if err != nil {
+		t.Fatalf("managementActionForGrantResource() error = %v", err)
+	}
+	if action != "dashboard.manage_acl" {
+		t.Fatalf("action = %q, want dashboard.manage_acl", action)
+	}
+	if resource.Type != grantResourceDashboard || resource.ID != "team-1/ops-dashboard" {
+		t.Fatalf("resource = %#v, want dashboard:team-1/ops-dashboard", resource)
 	}
 }
 

@@ -1,21 +1,21 @@
-import { fetchSystemJson } from '../api';
+import { fetchSystemJson } from '../api.js';
 import {
   identityProviderPayloadFromForm,
   normalizeIdentityProvidersState,
   type IdentityProviderFormState,
   type IdentityProviderSettings,
   type IdentityProvidersState,
-} from './model';
+} from './model.js';
 import {
   buildAccessResourceCatalog,
   type AccessResourceCatalog,
   type AccessResourceCatalogSources,
-} from './resourceCatalog';
+} from './resourceCatalog.js';
 
 type CatalogSourceKey = keyof AccessResourceCatalogSources;
 
 const CATALOG_REQUESTS: Array<{ key: CatalogSourceKey; path: string }> = [
-  { key: 'teams', path: '/v1/teams?include=applications' },
+  { key: 'teams', path: '/v1/teams' },
   { key: 'pipelines', path: '/v1/pipelines' },
   { key: 'triggers', path: '/v1/overrides' },
   { key: 'externalTriggers', path: '/v1/external-triggers' },
@@ -59,24 +59,27 @@ export async function fetchAccessResourceCatalog(): Promise<AccessResourceCatalo
   return buildAccessResourceCatalog(sources);
 }
 
-function normalizeTeamCatalogPayload(value: unknown): unknown[] {
-  if (Array.isArray(value)) return value;
-  const record = value && typeof value === 'object' ? value as { teams?: unknown[]; applications?: unknown[] } : null;
+export function normalizeTeamCatalogPayload(value: unknown): unknown[] {
+  if (Array.isArray(value)) {
+    return value
+      .map(team => normalizeTeamCatalogEntry(team))
+      .filter(Boolean);
+  }
+  const record = value && typeof value === 'object' ? value as { teams?: unknown[] } : null;
   const teams = Array.isArray(record?.teams) ? record.teams : [];
-  const applications = Array.isArray(record?.applications) ? record.applications : [];
-  return [
-    ...teams.map(team => normalizeTeamCatalogEntry(team, false)),
-    ...applications.map(application => normalizeTeamCatalogEntry(application, true)),
-  ].filter(Boolean);
+  return teams.map(team => normalizeTeamCatalogEntry(team)).filter(Boolean);
 }
 
-function normalizeTeamCatalogEntry(value: unknown, application: boolean): unknown {
+function normalizeTeamCatalogEntry(value: unknown): unknown {
   if (!value || typeof value !== 'object') return null;
   const record = value as Record<string, unknown>;
+  if (record.kind === 'app' || record.repo_url || record.repository_full_name) return null;
+  const name = record.slug || record.name || record.display_name;
+  if (String(name || '').includes('/')) return null;
   return {
     id: record.id,
-    name: record.slug || record.name || record.display_name || record.repository_full_name,
-    parent_id: application ? record.team_id ?? record.parent_id : record.parent_team_id ?? record.parent_id,
+    name,
+    parent_id: record.parent_team_id ?? record.parent_id,
   };
 }
 

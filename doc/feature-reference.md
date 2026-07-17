@@ -161,9 +161,19 @@ Supported dashboard capabilities:
   `dashboard-templates/`, including import/export, validation, drift, source
   path/source commit provenance, team ownership, managed-state pruning, and
   safe manual detachment
-- dashboard list/detail/source/history/refresh UI with confirmation,
-  progress, source status, refresh schedules, GitOps badges, section
-  completeness, create, edit, delete, source management,
+- dashboard selector/detail/source/history/refresh UI with confirmation,
+  compact dashboard action menus, direct section details/collapse controls,
+  details-on-demand panels, progress, source status,
+  section-level running-source panels, dashboard-level refresh schedule creation,
+  schedule edit/delete, enable/disable, run-now controls, GitOps badges,
+  direct run-detail provenance links, section completeness, section
+  collapse/expand, section latest-run history for failed refresh/publication
+  attempts, dashboard-edit section management, dashboard create/edit/delete,
+  existing-team dashboard creation, dashboard-level pipeline assignment filtered
+  to pipeline dashboard outputs, generated sections/source bindings,
+  extra-wide dashboard/section/refresh/schedule modals, in-app delete confirmation,
+  access-aligned sharing, and guided source editing with larger review from
+  dashboard sections, pipeline catalog entries, pipeline dashboard outputs, and entry keys,
   empty/error/loading/permission states, responsive tables, and chart rendering
 - Prometheus publication, refresh, render, staleness, and series-point metrics
   plus hosted MCP dashboard read and confirmed refresh/schedule-run tools

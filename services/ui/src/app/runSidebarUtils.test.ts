@@ -14,9 +14,6 @@ test('sidebar run timestamps ignore Go zero time values', t => {
   assert.equal(timeAgoShort('2026-07-12T12:00:00Z'), '5m ago');
   assert.equal(
     runSidebarActivityTimestamp({
-      run_id: 'failed-before-start',
-      pipeline_name: 'release',
-      status: 'failure',
       is_complete: true,
       started_at: '0001-01-01T00:00:00Z',
       finished_at: '2026-07-12T12:00:00Z',

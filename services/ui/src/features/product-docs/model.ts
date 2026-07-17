@@ -1121,8 +1121,8 @@ const finalOutputRows: WikiConfigRow[] = [
   {
     key: 'output.items[].prompt',
     area: 'Final output YAML',
-    description: 'Required prompt describing the deliverable to generate from completed run context.',
-    example: 'Summarize the deployment evidence.',
+    description: 'Required prompt describing the deliverable to generate from completed run context. Dashboard prompts describe dashboard intent; emitted step output is authoritative for business facts, and NopsAI chooses a suitable structured presentation when no visualization is specified.',
+    example: 'Show service metrics from the run evidence and choose the best table, text, bar, or trend view.',
   },
   {
     key: 'output.items[].llm_profile',
@@ -2976,6 +2976,10 @@ const baseWikiSections: WikiSectionInput[] = [
           'Malformed, duplicate, empty, or missing envelopes fail validation and allow one corrective retry.',
           'PDF and HTML use validated DocumentSpec; Excel uses typed SpreadsheetSpec and rejects formulas and object/array cell values.',
           'Dashboard outputs publish a validated DashboardSpec into a team dashboard with replace, append, snapshot, or series behavior.',
+          'Emitted step stdout/stderr, including plain log lines and JSON/NDJSON, is treated as authoritative dashboard evidence for artifact names, versions, durations, services, and subjects.',
+          'Dashboard prompts are intent-driven: when the prompt does not name a visualization, NopsAI guides the model to choose text/callout, status/progress/properties, table, bar, line/area, or pie/donut based on the data shape.',
+          'Generated dashboard sections[].blocks, sections[].widgets, top-level widgets, and nested blocks/widgets wrappers are normalized into flat DashboardSpec blocks before strict validation.',
+          'Generated properties and display key aliases are normalized to DashboardSpec items and labels before strict validation.',
         ],
         details: [
           'PDF rendering uses Gotenberg through FINAL_OUTPUT_PDF_RENDERER_URL. Pipeline YAML never contains renderer infrastructure URLs.',
