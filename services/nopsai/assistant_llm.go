@@ -246,14 +246,14 @@ func buildAssistantLLMPrompt(
 	deterministicReply string,
 ) string {
 	payload := map[string]any{
-		"user_request":         strings.TrimSpace(userContent),
-		"intent":               plan.Intent,
-		"validated_plan":       assistantPlanActivityInput(plan),
-		"conversation_memory":  normalizeAssistantMemory(conversation.Memory),
-		"conversation_history": assistantPromptConversationHistory(conversation.Messages),
-		"previous_evidence":    assistantPromptPreviousEvidence(conversation.Messages),
-		"tool_calls":           assistantLLMPromptToolCalls(toolCalls),
-		"tool_summary":         strings.TrimSpace(deterministicReply),
+		"user_request":         redactAssistantPromptValue(userContent),
+		"intent":               redactAssistantPromptValue(plan.Intent),
+		"validated_plan":       assistantPromptSafeValue(assistantPlanActivityInput(plan)),
+		"conversation_memory":  assistantPromptMemoryValue(conversation.Memory),
+		"conversation_history": assistantPromptSafeValue(assistantPromptConversationHistory(conversation.Messages)),
+		"previous_evidence":    assistantPromptSafeValue(assistantPromptPreviousEvidence(conversation.Messages)),
+		"tool_calls":           assistantPromptSafeValue(assistantLLMPromptToolCalls(toolCalls)),
+		"tool_summary":         redactAssistantPromptValue(deterministicReply),
 	}
 	raw, _ := json.MarshalIndent(payload, "", "  ")
 	return strings.TrimSpace(`You are the Nopsai AI Assistant for an enterprise CI/CD and GitOps platform.
@@ -408,6 +408,12 @@ func assistantPromptSafeValue(value any) any {
 			values = append(values, mapped)
 		}
 		return values
+	case map[string]string:
+		mapped := make(map[string]string, len(typed))
+		for key, item := range typed {
+			mapped[key] = assistantTruncateForPrompt(item)
+		}
+		return mapped
 	case map[string]any:
 		mapped := make(map[string]any, len(typed))
 		for key, item := range typed {
@@ -420,20 +426,11 @@ func assistantPromptSafeValue(value any) any {
 }
 
 func assistantTruncateHistoryContent(value string) string {
-	value = strings.TrimSpace(value)
-	if len(value) <= assistantPromptHistoryContentLimit {
-		return value
-	}
-	return value[:assistantPromptHistoryContentLimit] + "...[truncated]"
+	return redactAssistantPromptHistoryValue(value)
 }
 
 func assistantTruncateForPrompt(value string) string {
-	value = strings.TrimSpace(value)
-	const maxPromptValueLength = 6000
-	if len(value) <= maxPromptValueLength {
-		return value
-	}
-	return value[:maxPromptValueLength] + "...[truncated]"
+	return redactAssistantPromptValue(value)
 }
 
 func assistantHTTPClient(a *App) *http.Client {
