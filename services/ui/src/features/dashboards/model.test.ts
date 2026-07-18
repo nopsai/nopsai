@@ -3,12 +3,14 @@ import { describe, it } from 'node:test';
 
 import {
   createDashboardForm,
+  createRefreshForm,
   createRefreshScheduleForm,
   createSourceForm,
   dashboardRequestFromForm,
   normalizeDashboardRefreshSchedule,
   normalizeDashboardRefresh,
   normalizeDashboardSpec,
+  refreshRequestFromForm,
   refreshScheduleFormFromSchedule,
   refreshScheduleRequestFromForm,
   sectionRequestFromForm,
@@ -228,7 +230,6 @@ describe('dashboard model normalization', () => {
       scope: {
         type: 'section',
         section_key: 'overview',
-        source_id: undefined,
       },
       mode: 'best_effort',
       timeout: '30m',
@@ -236,7 +237,28 @@ describe('dashboard model normalization', () => {
     });
   });
 
-  it('creates refresh schedule forms from backend array scopes', () => {
+  it('builds manual refresh requests without source-scoped payloads', () => {
+    const form = {
+      ...createRefreshForm('overview'),
+      sourceID: 'source-1',
+      timeout: '30m',
+      maxConcurrency: '2',
+    };
+    const request = refreshRequestFromForm(form);
+
+    assert.deepEqual(request, {
+      scope: {
+        type: 'section',
+        section_key: 'overview',
+      },
+      mode: 'strict',
+      timeout: '30m',
+      max_concurrency: 2,
+    });
+    assert.equal('source_id' in request.scope, false);
+  });
+
+  it('normalizes legacy source-scoped schedules to dashboard schedule forms', () => {
     const form = refreshScheduleFormFromSchedule(normalizeDashboardRefreshSchedule({
       id: 'schedule-1',
       dashboard_id: 'dashboard-1',
@@ -257,8 +279,8 @@ describe('dashboard model normalization', () => {
       updated_at: '2026-07-15T10:00:00Z',
     }));
 
-    assert.equal(form.scopeType, 'source');
-    assert.equal(form.sourceID, 'source-1');
+    assert.equal(form.scopeType, 'dashboard');
+    assert.equal(form.sourceID, '');
     assert.equal(form.timeout, '1h');
     assert.equal(form.cronMode, 'minutes');
     assert.equal(form.enabled, false);

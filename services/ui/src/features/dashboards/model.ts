@@ -170,8 +170,11 @@ export type DashboardRefreshSource = {
   output_duration_seconds?: number;
 };
 
+export type DashboardRefreshScopeType = 'dashboard' | 'section';
+export type DashboardRefreshScheduleScopeType = DashboardRefreshScopeType;
+
 export type DashboardRefreshFormState = {
-  scopeType: 'dashboard' | 'section' | 'source';
+  scopeType: DashboardRefreshScopeType;
   sectionKey: string;
   sourceID: string;
   mode: 'strict' | 'best_effort';
@@ -179,7 +182,8 @@ export type DashboardRefreshFormState = {
   maxConcurrency: string;
 };
 
-export type DashboardRefreshScheduleFormState = DashboardRefreshFormState & CronFormFields & {
+export type DashboardRefreshScheduleFormState = Omit<DashboardRefreshFormState, 'scopeType'> & CronFormFields & {
+  scopeType: DashboardRefreshScheduleScopeType;
   name: string;
   description: string;
   timezone: string;
@@ -417,11 +421,11 @@ export function createSourceForm(sectionKey = 'overview'): DashboardSourceFormSt
   };
 }
 
-export function createRefreshForm(sectionKey = 'overview', sourceID = ''): DashboardRefreshFormState {
+export function createRefreshForm(sectionKey = 'overview'): DashboardRefreshFormState {
   return {
-    scopeType: sourceID ? 'source' : sectionKey ? 'section' : 'dashboard',
+    scopeType: sectionKey ? 'section' : 'dashboard',
     sectionKey,
-    sourceID,
+    sourceID: '',
     mode: 'strict',
     timeout: '45m',
     maxConcurrency: '4',
@@ -429,15 +433,15 @@ export function createRefreshForm(sectionKey = 'overview', sourceID = ''): Dashb
 }
 
 export function createRefreshScheduleForm(
-  scope: { scopeType?: DashboardRefreshScheduleFormState['scopeType']; sectionKey?: string; sourceID?: string } = {}
+  scope: { scopeType?: DashboardRefreshScheduleFormState['scopeType']; sectionKey?: string } = {}
 ): DashboardRefreshScheduleFormState {
-  const sourceID = scope.sourceID || '';
   const sectionKey = scope.sectionKey || '';
-  const scopeType = scope.scopeType || (sourceID ? 'source' : sectionKey ? 'section' : 'dashboard');
+  const scopeType = scope.scopeType || (sectionKey ? 'section' : 'dashboard');
   return {
-    ...createRefreshForm(scopeType === 'section' ? sectionKey : '', scopeType === 'source' ? sourceID : ''),
+    ...createRefreshForm(scopeType === 'section' ? sectionKey : ''),
     ...cronFormFromExpression(DEFAULT_CRON),
     scopeType,
+    sourceID: '',
     name: '',
     description: '',
     timezone: DEFAULT_TIMEZONE,
@@ -459,15 +463,15 @@ export function sourceFormFromSource(source: DashboardSource): DashboardSourceFo
 }
 
 export function refreshScheduleFormFromSchedule(schedule: DashboardRefreshSchedule): DashboardRefreshScheduleFormState {
-  const scopeType = schedule.scope_type === 'section' || schedule.scope_type === 'source' ? schedule.scope_type : 'dashboard';
+  const scopeType = schedule.scope_type === 'section' ? 'section' : 'dashboard';
   const cronExpression = schedule.cron_expression || schedule.cron || DEFAULT_CRON;
   return {
     ...createRefreshForm(
-      scopeType === 'section' ? firstStringFromScope(schedule.scope, 'section_key', 'section_keys') : '',
-      scopeType === 'source' ? firstStringFromScope(schedule.scope, 'source_id', 'source_ids') : ''
+      scopeType === 'section' ? firstStringFromScope(schedule.scope, 'section_key', 'section_keys') : ''
     ),
     ...cronFormFromExpression(cronExpression),
     scopeType,
+    sourceID: '',
     mode: schedule.mode === 'best_effort' ? 'best_effort' : 'strict',
     timeout: durationFromSeconds(schedule.timeout_seconds || 2700),
     maxConcurrency: String(schedule.max_concurrency || 4),
@@ -497,7 +501,6 @@ export function refreshRequestFromForm(form: DashboardRefreshFormState) {
     scope: {
       type: form.scopeType,
       section_key: form.scopeType === 'section' ? form.sectionKey.trim() : undefined,
-      source_id: form.scopeType === 'source' ? form.sourceID.trim() : undefined,
     },
     mode: form.mode,
     timeout: form.timeout.trim(),
@@ -515,7 +518,6 @@ export function refreshScheduleRequestFromForm(form: DashboardRefreshScheduleFor
     scope: {
       type: form.scopeType,
       section_key: form.scopeType === 'section' ? form.sectionKey.trim() : undefined,
-      source_id: form.scopeType === 'source' ? form.sourceID.trim() : undefined,
     },
     mode: form.mode,
     timeout: form.timeout.trim(),
