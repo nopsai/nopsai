@@ -27,6 +27,8 @@ type pipelineFinalOutputCompleter interface {
 	CompleteWithSystem(ctx context.Context, systemInstruction, prompt string) (llmclient.Completion, error)
 }
 
+type pipelineFinalOutputContentValidator func(content string) error
+
 type pipelineFinalOutputGenerationAttempt struct {
 	Completion    llmclient.Completion
 	ContractValid bool
@@ -68,6 +70,7 @@ func generateValidatedPipelineFinalOutput(
 	client pipelineFinalOutputCompleter,
 	outputType string,
 	prompt string,
+	validators ...pipelineFinalOutputContentValidator,
 ) (pipelineFinalOutputGenerationResult, error) {
 	var result pipelineFinalOutputGenerationResult
 	var contractErr error
@@ -82,6 +85,17 @@ func generateValidatedPipelineFinalOutput(
 			return result, err
 		}
 		content, err := normalizePipelineFinalOutputContent(outputType, completion.Text)
+		if err == nil {
+			for _, validate := range validators {
+				if validate == nil {
+					continue
+				}
+				if validateErr := validate(content); validateErr != nil {
+					err = validateErr
+					break
+				}
+			}
+		}
 		result.Attempts = append(result.Attempts, pipelineFinalOutputGenerationAttempt{
 			Completion:    completion,
 			ContractValid: err == nil,
@@ -118,7 +132,7 @@ func pipelineFinalOutputContractCorrectionHint(err error) string {
 	}
 	switch contractErr.Reason {
 	case "invalid_dashboard_spec":
-		return "DashboardSpec reminder: use one flat top-level blocks array. Do not wrap output in sections or widgets, and do not put nested blocks or widgets inside a block. Use the validation error to correct incompatible field shapes, unsupported fields, unsafe content, or missing required values. Keep the dashboard focused on the user's requested intent and the evidence present in the run context."
+		return "DashboardSpec reminder: use one flat top-level blocks array. Do not wrap output in sections or widgets, and do not put nested blocks or widgets inside a block. If the dashboard publish mode is series, include at least one chart or series block with chart.series[].points. Use the validation error to correct incompatible field shapes, unsupported fields, unsafe content, or missing required values. Keep the dashboard focused on the user's requested intent and the evidence present in the run context."
 	case "invalid_document_spec":
 		return "DocumentSpec reminder: correct the rejected JSON shape and keep the response as the requested document JSON only."
 	case "invalid_spreadsheet_spec":

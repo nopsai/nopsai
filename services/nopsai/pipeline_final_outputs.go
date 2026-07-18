@@ -261,7 +261,7 @@ func (a *App) generatePipelineFinalOutput(ctx context.Context, runID string, run
 		return err
 	}
 	prompt := buildPipelineFinalOutputPrompt(runContext.Text, output)
-	result, err := generateValidatedPipelineFinalOutput(generationCtx, client, output.Type, prompt)
+	result, err := generateValidatedPipelineFinalOutput(generationCtx, client, output.Type, prompt, pipelineFinalOutputRecordContentValidator(output))
 	a.recordPipelineFinalOutputAttemptUsage(ctx, runID, output, result)
 	if err != nil {
 		cancelled, cancelErr := a.pipelineFinalOutputCancelled(ctx, output.ID)
@@ -458,6 +458,25 @@ func (a *App) markDashboardRefreshOutputCancelledIfDashboard(ctx context.Context
 	}
 	if err := a.markDashboardRefreshOutputCancelled(ctx, runID, output); err != nil {
 		log.Warn().Err(err).Str("run_id", runID).Str("output_id", output.ID).Msg("Failed to mark dashboard refresh output cancelled")
+	}
+}
+
+func pipelineFinalOutputRecordContentValidator(output pipelineFinalOutputRecord) pipelineFinalOutputContentValidator {
+	if normalizePipelineFinalOutputType(output.Type) != "dashboard" {
+		return nil
+	}
+	if normalizeDashboardPublishMode(output.Dashboard.Mode) != dashboardPublishModeSeries {
+		return nil
+	}
+	return func(content string) error {
+		spec, err := parseDashboardSpec(content)
+		if err != nil {
+			return newPipelineFinalOutputContractError("invalid_dashboard_spec", err.Error())
+		}
+		if err := validateDashboardSeriesPublicationSpec(spec); err != nil {
+			return newPipelineFinalOutputContractError("invalid_dashboard_spec", err.Error())
+		}
+		return nil
 	}
 }
 
@@ -2228,18 +2247,35 @@ func pipelineFinalOutputFormatGuidance(output pipelineFinalOutputRecord) string 
 	case "html":
 		return pipelineDocumentSpecGuidance("HTML")
 	case "dashboard":
-		return dashboardFinalOutputFormatGuidance(output.Dashboard.Preset)
+		return dashboardFinalOutputFormatGuidanceForTarget(output.Dashboard)
 	default:
 		return "Inside <final_output>, provide concise business-readable text."
 	}
 }
 
 func dashboardFinalOutputFormatGuidance(preset string) string {
-	base := `Inside <final_output>, provide only a valid DashboardSpec JSON object. Translate the user's dashboard intent into a useful dashboard from the run context; do not require the user to know schema details. Choose the dashboard structure dynamically from the prompt, pipeline definition, run metadata, recent pipeline history, step/task durations, child runs, and log evidence. If the user did not name a visualization, choose by data shape: text or callout for narrative conclusions, status/progress/properties for current state and scalar facts, table for repeated records, bar chart for categorical counts/durations/rankings, line or area chart for time series, and pie or donut chart only for bounded part-to-whole data. Use only evidence present in the run context; if requested data is absent, say it is not present rather than guessing. Keep content scoped to the user's dashboard request and avoid generic run metadata unless requested. Copy non-secret operational labels from emitted evidence exactly, including tags such as prod, environment names such as production, versions, statuses, and JSON field names. Available DashboardSpec blocks are status, text, callout, list, properties, table, progress, link, chart, and series. Include a non-empty title. Use one flat top-level blocks array; do not wrap dashboard output in sections or widgets, and do not put nested blocks or widgets inside a block. Use text for text and callout block bodies. Use label for display labels; key is only for table columns and chart series identifiers. Tables need columns with key/label and scalar row values. Charts need type, series, and points with label or timestamp plus finite numeric value. Do not include Markdown, HTML, CSS, JavaScript, commentary, or unsafe links. The response is validated before publication and will be retried if it does not match the DashboardSpec contract.`
+	base := `Inside <final_output>, provide only a valid DashboardSpec JSON object. Translate the user's dashboard intent into a useful dashboard from the run context; do not require the user to know schema details. Choose the dashboard structure dynamically from the prompt, pipeline definition, run metadata, recent pipeline history, step/task durations, child runs, and log evidence. If the user did not name a visualization, choose by data shape: text or callout for narrative conclusions, status/progress/properties for current state and scalar facts, table for repeated records, bar chart for categorical counts/durations/rankings, line or area chart for time series, and pie or donut chart only for bounded part-to-whole data. Use only evidence present in the run context; if requested data is absent, say it is not present rather than guessing. Keep content scoped to the user's dashboard request and avoid generic run metadata unless requested. Copy non-secret operational labels from emitted evidence exactly, including tags such as prod, environment names such as production, versions, statuses, and JSON field names. Available DashboardSpec blocks are status, text, callout, list, properties, table, progress, link, chart, and series. Include a non-empty title. Use one flat top-level blocks array; do not wrap dashboard output in sections or widgets, and do not put nested blocks or widgets inside a block. Use text for text and callout block bodies. Use label for display labels; key is only for table columns and chart series identifiers. Tables need columns with key/label and scalar row values. Charts need type, series, and points with label or timestamp plus finite numeric value; put units in chart.unit or chart.series[].unit and use chart.type values such as line, bar, area, pie, or donut instead of a shape field. Do not include Markdown, HTML, CSS, JavaScript, commentary, or unsafe links. The response is validated before publication and will be retried if it does not match the DashboardSpec contract.`
 	if presetGuidance := dashboardFinalOutputPresetGuidance(preset); presetGuidance != "" {
 		return base + " Preset guidance: " + presetGuidance
 	}
 	return base
+}
+
+func dashboardFinalOutputFormatGuidanceForTarget(target models.DashboardOutputTarget) string {
+	guidance := dashboardFinalOutputFormatGuidance(target.Preset)
+	if modeGuidance := dashboardFinalOutputPublishModeGuidance(target.Mode); modeGuidance != "" {
+		guidance += " Publication mode guidance: " + modeGuidance
+	}
+	return guidance
+}
+
+func dashboardFinalOutputPublishModeGuidance(mode string) string {
+	switch normalizeDashboardPublishMode(mode) {
+	case dashboardPublishModeSeries:
+		return "Because dashboard publish mode is series, include at least one chart or series block with a chart object, chart.series array, and chart.series[].points. Use line, bar, or area charts for series blocks; chart blocks may also use pie or donut for bounded part-to-whole metrics."
+	default:
+		return ""
+	}
 }
 
 func dashboardFinalOutputPresetGuidance(preset string) string {

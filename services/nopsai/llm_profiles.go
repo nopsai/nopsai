@@ -24,6 +24,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
 )
 
@@ -508,12 +509,19 @@ func (a *App) setLLMProfiles(defaultProfile string, profiles map[string]config.L
 	a.cfgMu.Lock()
 	defer a.cfgMu.Unlock()
 
-	a.cfg.LLMDefaultProfile = config.NormalizeLLMProfileName(defaultProfile)
-	if a.cfg.LLMDefaultProfile == "" {
-		a.cfg.LLMDefaultProfile = config.DefaultLLMProfileName
-	}
-	a.cfg.LLMProfiles = config.NormalizeLLMProfiles(profiles)
+	next := configWithLLMProfiles(*a.cfg, defaultProfile, profiles)
+	a.cfg.LLMDefaultProfile = next.LLMDefaultProfile
+	a.cfg.LLMProfiles = next.LLMProfiles
 	return *a.cfg
+}
+
+func configWithLLMProfiles(base config.Config, defaultProfile string, profiles map[string]config.LLMProfile) config.Config {
+	base.LLMDefaultProfile = config.NormalizeLLMProfileName(defaultProfile)
+	if base.LLMDefaultProfile == "" {
+		base.LLMDefaultProfile = config.DefaultLLMProfileName
+	}
+	base.LLMProfiles = config.NormalizeLLMProfiles(profiles)
+	return base
 }
 
 func ensureLLMProfileSchema(ctx context.Context, db *pgxpool.Pool) error {
@@ -744,10 +752,15 @@ func (a *App) persistLLMProfilesConfig(ctx context.Context, cfg config.Config) e
 	if err := a.ensureLLMProfileCredentialReferences(ctx, cfg.EffectiveLLMProfiles(), credentialActorFromContext(ctx)); err != nil {
 		return err
 	}
+	dbBacked := a != nil && a.db != nil
 	if err := a.persistLLMProfilesToDB(ctx, cfg.EffectiveLLMDefaultProfile(), cfg.EffectiveLLMProfiles()); err != nil {
 		return err
 	}
-	if a.configPath == "" {
+	return a.persistLLMProfilesBootstrapConfig(cfg, !dbBacked)
+}
+
+func (a *App) persistLLMProfilesBootstrapConfig(cfg config.Config, required bool) error {
+	if a == nil || a.configPath == "" {
 		return nil
 	}
 
@@ -757,6 +770,10 @@ func (a *App) persistLLMProfilesConfig(ctx context.Context, cfg config.Config) e
 			_ = yaml.Unmarshal(contents, &existing)
 		}
 	} else if !os.IsNotExist(err) {
+		if !required {
+			log.Warn().Err(err).Str("config_path", a.configPath).Msg("Failed to sync LLM profiles to bootstrap config after database persistence")
+			return nil
+		}
 		return err
 	}
 
@@ -778,7 +795,14 @@ func (a *App) persistLLMProfilesConfig(ctx context.Context, cfg config.Config) e
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(a.configPath, contents, 0o644)
+	if err := os.WriteFile(a.configPath, contents, 0o644); err != nil {
+		if !required {
+			log.Warn().Err(err).Str("config_path", a.configPath).Msg("Failed to sync LLM profiles to bootstrap config after database persistence")
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func parseGitOpsLLMProfilePlan(binding models.ConfigRepository, directories ...gitOpsLLMProfileDirectory) (*gitOpsLLMProfilePlan, error) {
@@ -1130,11 +1154,12 @@ func (a *App) handleReplaceLLMProfiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := a.setLLMProfiles(defaultProfile, profiles)
+	cfg := configWithLLMProfiles(a.getConfigSnapshot(), defaultProfile, profiles)
 	if err := a.persistLLMProfilesConfig(r.Context(), cfg); err != nil {
 		http.Error(w, "failed to persist LLM profiles", http.StatusInternalServerError)
 		return
 	}
+	a.setLLMProfiles(defaultProfile, profiles)
 	a.handleListLLMProfiles(w, r)
 }
 
@@ -1169,11 +1194,12 @@ func (a *App) handleUpsertLLMProfile(w http.ResponseWriter, r *http.Request) {
 		defaultProfile = profileName
 	}
 
-	cfg = a.setLLMProfiles(defaultProfile, profiles)
+	cfg = configWithLLMProfiles(cfg, defaultProfile, profiles)
 	if err := a.persistLLMProfilesConfig(r.Context(), cfg); err != nil {
 		http.Error(w, "failed to persist LLM profile", http.StatusInternalServerError)
 		return
 	}
+	a.setLLMProfiles(defaultProfile, profiles)
 	a.handleListLLMProfiles(w, r)
 }
 
@@ -1236,11 +1262,12 @@ func (a *App) handleDeleteLLMProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	delete(profiles, profileName)
-	cfg = a.setLLMProfiles(defaultProfile, profiles)
+	cfg = configWithLLMProfiles(cfg, defaultProfile, profiles)
 	if err := a.persistLLMProfilesConfig(r.Context(), cfg); err != nil {
 		http.Error(w, "failed to persist LLM profile deletion", http.StatusInternalServerError)
 		return
 	}
+	a.setLLMProfiles(defaultProfile, profiles)
 	w.WriteHeader(http.StatusNoContent)
 }
 

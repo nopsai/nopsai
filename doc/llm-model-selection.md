@@ -16,6 +16,8 @@ file is present, config sync writes that file into the database and refreshes
 the running profile registry. `config.yml` still accepts bootstrap profile
 settings for non-GitOps deployments, but the checked-in config intentionally
 does not define profiles so GitOps remains the source of truth.
+In database-backed deployments, UI saves persist the registry to the database;
+syncing those values back to `config.yml` is a best-effort bootstrap mirror.
 
 Supported providers:
 

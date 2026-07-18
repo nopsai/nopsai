@@ -7,6 +7,7 @@ import {
   moveDashboardCard,
   normalizeDashboardCardLayout,
   orderDashboardCards,
+  placeDashboardCard,
   setDashboardCardSize,
   type DashboardCardLayout,
 } from './dashboardCardLayout.js';
@@ -34,6 +35,9 @@ test('orders, moves, and resizes dashboard cards without changing unknown cards'
 
   layout = moveDashboardCard(layout, cards.map(card => card.id), 'first', 'later');
   assert.deepEqual(orderDashboardCards(cards, card => card.id, layout).map(card => card.id), ['second', 'first', 'third']);
+
+  layout = placeDashboardCard(layout, cards.map(card => card.id), 'third', 'second', 'before');
+  assert.deepEqual(orderDashboardCards(cards, card => card.id, layout).map(card => card.id), ['third', 'second', 'first']);
 
   layout = setDashboardCardSize(layout, cards.map(card => card.id), 'first', 'wide');
   assert.equal(layout.first?.size, 'wide');
