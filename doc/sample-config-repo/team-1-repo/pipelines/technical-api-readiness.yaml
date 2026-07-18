@@ -1,0 +1,40 @@
+name: technical-api-readiness
+version: "1.0.0"
+description: Checks API release readiness and publishes deterministic technical evidence to the ops dashboard.
+container_image: alpine:3.20
+working_directory: /workspace
+timeout: 10m
+output:
+  items:
+    - name: API readiness dashboard
+      type: dashboard
+      when: success
+      dashboard:
+        ref: team-1/ops-dashboard
+        section: technical-readiness
+        entry_key: api-release-readiness
+        mode: replace
+        preset: status
+        ttl: 24h
+      prompt: |
+        Publish an API release-readiness status for enterprise operators from
+        the emitted dashboard_evidence JSON. Start with the overall readiness
+        state, then show version, environment, checks, risk level, blocked
+        count, and next action. Use a compact table only for the repeated checks.
+steps:
+  - name: collect-release-evidence
+    script: |
+      #!/bin/sh
+      set -e
+      echo "Collecting API release readiness evidence"
+      cat <<'JSON'
+      dashboard_evidence={"purpose":"technical_api_release_readiness","service":"checkout-api","version":"2026.07.18-rc1","environment":"staging","overall_status":"watch","ready_for_production":false,"risk_level":"medium","blocked_checks":1,"checks":[{"name":"unit tests","status":"passed","duration_seconds":41},{"name":"contract tests","status":"passed","duration_seconds":53},{"name":"smoke tests","status":"passed","duration_seconds":19},{"name":"dependency scan","status":"watch","duration_seconds":27,"note":"one medium dependency advisory needs owner acknowledgement"}],"next_action":"Review dependency advisory before production promotion."}
+      JSON
+
+  - name: confirm-dashboard-evidence
+    script: |
+      #!/bin/sh
+      set -e
+      echo "API readiness evidence is available for dashboard publication"
+    depends_on:
+      - collect-release-evidence
