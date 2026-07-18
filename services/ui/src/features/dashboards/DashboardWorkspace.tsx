@@ -512,7 +512,7 @@ function DashboardSectionSurface({
       ) : (
         <div className="grid gap-3 xl:grid-cols-2">
           {publications.map(publication => (
-            <PublicationCard key={publication.id} publication={publication} />
+            <PublicationCard key={publication.id} publication={publication} forceWide={publications.length === 1} />
           ))}
         </div>
       )}
@@ -540,10 +540,11 @@ function DashboardSectionSurface({
   );
 }
 
-function PublicationCard({ publication }: { publication: DashboardPublication }) {
+function PublicationCard({ publication, forceWide = false }: { publication: DashboardPublication; forceWide?: boolean }) {
+  const wideLayout = forceWide || dashboardSpecNeedsWideLayout(publication.content);
   return (
-    <article className={`min-w-0 overflow-hidden rounded-md border border-[var(--border-subtle)] bg-[var(--bg-tertiary)] shadow-sm ${dashboardSpecNeedsWideLayout(publication.content) ? 'xl:col-span-2' : ''}`}>
-      <header className="flex flex-wrap items-center justify-between gap-2 bg-[var(--accent-soft)] px-4 py-3">
+    <article className={`min-w-0 overflow-hidden rounded-md border border-[var(--border-subtle)] bg-[var(--bg-tertiary)] shadow-sm ${wideLayout ? 'xl:col-span-2' : ''}`}>
+      <header className="relative z-[1] flex flex-wrap items-center justify-between gap-2 bg-[var(--accent-soft)] px-4 py-3 shadow-[0_16px_30px_-24px_var(--accent)]">
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-[var(--text-primary)]">{publication.content.title || publication.entry_key}</div>
           <div className="mt-1 truncate text-xs text-[var(--text-muted)]">
@@ -557,7 +558,7 @@ function PublicationCard({ publication }: { publication: DashboardPublication })
       <div className="p-4">
         <DashboardBlocks spec={publication.content} />
       </div>
-      <footer className="flex flex-wrap items-center gap-3 bg-[var(--accent-soft)] px-4 py-3 text-xs text-[var(--text-secondary)]">
+      <footer className="relative z-[1] flex flex-wrap items-center gap-3 bg-[var(--accent-soft)] px-4 py-3 text-xs text-[var(--text-secondary)] shadow-[0_-16px_30px_-24px_var(--accent)]">
         <span>Revision {publication.revision}</span>
         <span>{formatDateTime(publication.published_at)}</span>
         {publication.run_id ? (
