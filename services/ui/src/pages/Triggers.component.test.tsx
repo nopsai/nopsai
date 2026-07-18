@@ -115,6 +115,7 @@ test('uses repository owners for trigger browsing and migrates legacy team route
   });
   expect(await screen.findByRole('button', { name: /All owners/ })).toBeVisible();
   expect(screen.getByRole('heading', { name: 'platform' })).toBeVisible();
-  expect(screen.getByRole('columnheader', { name: 'Owner' })).toBeVisible();
+  expect(screen.getByRole('columnheader', { name: 'Trigger' })).toBeVisible();
+  expect(screen.queryByRole('columnheader', { name: 'Owner' })).not.toBeInTheDocument();
   expect(screen.queryByText('All teams')).not.toBeInTheDocument();
 });

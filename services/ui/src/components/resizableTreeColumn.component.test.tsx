@@ -1,10 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, test } from 'vitest';
+import { TreeColumnResizeHandle } from './resizableTreeColumn';
 import {
-  TreeColumnResizeHandle,
   clampResizableTreeColumnWidth,
   useResizableTreeColumn,
-} from './resizableTreeColumn';
+} from './resizableTreeColumnState';
 
 function ResizableTreeHarness({ storageKey = 'test' }: { storageKey?: string }) {
   const resize = useResizableTreeColumn({

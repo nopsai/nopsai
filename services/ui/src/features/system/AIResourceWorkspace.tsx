@@ -2,7 +2,8 @@ import { useMemo, useState, type ReactNode, type RefObject } from 'react';
 import { ArrowLeft, ChevronRight, FolderTree } from 'lucide-react';
 import { ObjectIcon } from '../../components/ObjectIcon';
 import type { ObjectIconType } from '../../components/objectIconRegistry';
-import { TreeColumnResizeHandle, useResizableTreeColumn } from '../../components/resizableTreeColumn';
+import { TreeColumnResizeHandle } from '../../components/resizableTreeColumn';
+import { useResizableTreeColumn } from '../../components/resizableTreeColumnState';
 import {
   AI_RESOURCE_TEAM_FILTER_ALL,
   AI_RESOURCE_TEAM_FILTER_GLOBAL,

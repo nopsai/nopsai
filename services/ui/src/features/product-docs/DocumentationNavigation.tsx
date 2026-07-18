@@ -1,5 +1,4 @@
 import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
-import { wikiArticlePath } from './model';
 import {
   documentationMetadata,
   documentationSections,
@@ -143,9 +142,4 @@ export function ArticleNavigation({ articleID, onSelect }: { articleID: string; 
       ) : null}
     </nav>
   );
-}
-
-export function articleHref(articleID: string) {
-  const section = findDocumentationSectionForArticle(articleID);
-  return section ? wikiArticlePath(section.id, articleID) : '/docs';
 }

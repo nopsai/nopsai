@@ -1,7 +1,6 @@
 import { ExternalLink } from 'lucide-react';
 import type { DashboardBlock, DashboardChartSeries, DashboardSeriesPoint, DashboardSpec } from '../model';
-
-const numericValuePattern = /[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?/;
+import { isChartBlock, isOverviewChartGroup, pointValue, shouldRenderHorizontalBars } from './DashboardBlocksLayout';
 
 const toneClass: Record<string, string> = {
   success: 'border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100',
@@ -30,15 +29,6 @@ export function DashboardBlocks({ spec }: { spec: DashboardSpec }) {
   );
 }
 
-export function dashboardSpecNeedsWideLayout(spec: DashboardSpec): boolean {
-  const blocks = spec.blocks || [];
-  const chartBlocks = blocks.filter(isChartBlock);
-  if (chartBlocks.length >= 3 && isOverviewChartGroup(chartBlocks)) return true;
-  if (blocks.some(block => block.type === 'table' && (block.columns || []).length >= 6)) return true;
-  if (blocks.some(block => block.type === 'properties' && (block.items || []).length >= 4)) return true;
-  return /operations?\s+(overview|digest)|release\s+readiness|image\s+comparison/i.test(spec.title || '');
-}
-
 function groupDashboardBlocks(blocks: DashboardBlock[]): Array<DashboardBlock | DashboardBlock[]> {
   const groups: Array<DashboardBlock | DashboardBlock[]> = [];
   let index = 0;
@@ -57,10 +47,6 @@ function groupDashboardBlocks(blocks: DashboardBlock[]): Array<DashboardBlock | 
     groups.push(chartGroup.length > 1 ? chartGroup : chartGroup[0]);
   }
   return groups;
-}
-
-function isChartBlock(block: DashboardBlock): boolean {
-  return block.type === 'chart' || block.type === 'series';
 }
 
 function ChartGroup({ blocks }: { blocks: DashboardBlock[] }) {
@@ -91,10 +77,6 @@ function ChartGroup({ blocks }: { blocks: DashboardBlock[] }) {
       ))}
     </div>
   );
-}
-
-function isOverviewChartGroup(blocks: DashboardBlock[]): boolean {
-  return blocks.some(isHorizontalBarBlock) && blocks.filter(isCircularChartBlock).length >= 2;
 }
 
 function isHorizontalBarBlock(block: DashboardBlock): boolean {
@@ -360,12 +342,6 @@ function CartesianChart({ type, series, unit }: { type: string; series: Dashboar
   );
 }
 
-function shouldRenderHorizontalBars(series: DashboardChartSeries[]): boolean {
-  if (series.length !== 1) return false;
-  const points = series[0]?.points || [];
-  return points.length > 0 && points.every(point => Boolean(point.label) && pointValue(point) !== null);
-}
-
 function HorizontalBarChart({ series, unit }: { series: DashboardChartSeries; unit?: string }) {
   const points = (series.points || [])
     .map(point => ({ point, value: pointValue(point) }))
@@ -469,32 +445,36 @@ function CircularChart({ type, series, unit }: { type: string; series: Dashboard
   const radius = centerSummary || type === 'donut' ? 54 : 36;
   const strokeWidth = centerSummary || type === 'donut' ? 22 : 72;
   const circumference = Math.PI * 2 * radius;
-  let offset = 0;
+  const slices = points.reduce(
+    (acc, point, index) => {
+      const value = Math.max(0, point.value);
+      const length = (value / total) * circumference;
+      return {
+        offset: acc.offset + length,
+        items: [...acc.items, { point, index, length, dashOffset: -acc.offset }],
+      };
+    },
+    { offset: 0, items: [] as Array<{ point: (typeof points)[number]; index: number; length: number; dashOffset: number }> }
+  ).items;
   return (
     <div className="dashboard-circular-chart">
       <div className="dashboard-circular-chart__body">
         <svg viewBox={`0 0 ${size} ${size}`} role="img" aria-label={`${type} dashboard chart`} className="dashboard-circular-chart__svg">
           <circle cx={center} cy={center} r={radius} fill="none" stroke="currentColor" strokeWidth={strokeWidth} className="text-[var(--bg-tertiary)]" />
-          {points.map((point, index) => {
-            const value = Math.max(0, point.value);
-            const length = (value / total) * circumference;
-            const dashOffset = -offset;
-            offset += length;
-            return (
-              <circle
-                key={`${point.series.key}-${point.point.label || index}`}
-                cx={center}
-                cy={center}
-                r={radius}
-                fill="none"
-                stroke={point.color}
-                strokeWidth={strokeWidth}
-                strokeDasharray={`${length} ${Math.max(0, circumference - length)}`}
-                strokeDashoffset={dashOffset}
-                transform={`rotate(-90 ${center} ${center})`}
-              />
-            );
-          })}
+          {slices.map(slice => (
+            <circle
+              key={`${slice.point.series.key}-${slice.point.point.label || slice.index}`}
+              cx={center}
+              cy={center}
+              r={radius}
+              fill="none"
+              stroke={slice.point.color}
+              strokeWidth={strokeWidth}
+              strokeDasharray={`${slice.length} ${Math.max(0, circumference - slice.length)}`}
+              strokeDashoffset={slice.dashOffset}
+              transform={`rotate(-90 ${center} ${center})`}
+            />
+          ))}
           <circle cx={center} cy={center} r={centerSummary || type === 'donut' ? 39 : 0} fill="var(--bg-secondary)" />
           {centerSummary || type === 'donut' ? (
             <>
@@ -613,21 +593,6 @@ function booleanCellState(value: unknown, column: { key: string; label: string }
       ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100'
       : 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-100',
   };
-}
-
-function pointValue(point: DashboardSeriesPoint): number | null {
-  return numericValue(point.value);
-}
-
-function numericValue(value: unknown): number | null {
-  if (typeof value === 'number') {
-    return Number.isFinite(value) ? value : null;
-  }
-  if (typeof value !== 'string') return null;
-  const match = value.trim().match(numericValuePattern);
-  if (!match) return null;
-  const parsed = Number(match[0]);
-  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function formatChartValue(value: number, unit?: string): string {

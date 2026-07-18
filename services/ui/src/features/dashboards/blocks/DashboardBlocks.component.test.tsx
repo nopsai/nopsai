@@ -1,7 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import { expect, test } from 'vitest';
 
-import { DashboardBlocks, dashboardSpecNeedsWideLayout } from './DashboardBlocks';
+import { DashboardBlocks } from './DashboardBlocks';
+import { dashboardSpecNeedsWideLayout } from './DashboardBlocksLayout';
 
 test('renders dashboard chart values from numeric strings with units', () => {
   const { container } = render(

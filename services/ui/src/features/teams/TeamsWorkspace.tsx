@@ -15,7 +15,8 @@ import {
 } from 'lucide-react';
 import { ObjectIcon } from '../../components/ObjectIcon';
 import type { ObjectIconType } from '../../components/objectIconRegistry';
-import { TreeColumnResizeHandle, useResizableTreeColumn } from '../../components/resizableTreeColumn';
+import { TreeColumnResizeHandle } from '../../components/resizableTreeColumn';
+import { useResizableTreeColumn } from '../../components/resizableTreeColumnState';
 import {
   isAppTeam,
   teamDisplayName,
