@@ -250,7 +250,7 @@ export type DashboardChartSeries = {
 export type DashboardSeriesPoint = {
   timestamp?: string;
   label?: string;
-  value?: number | null;
+  value?: number | string | null;
 };
 
 export type DashboardFormState = {

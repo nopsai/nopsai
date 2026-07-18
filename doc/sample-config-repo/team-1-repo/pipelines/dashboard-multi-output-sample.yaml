@@ -1,6 +1,6 @@
 name: dashboard-sample
 version: "1.0.0"
-description: Generates multiple dashboard outputs for one dashboard to exercise publication modes and presets.
+description: Generates multiple dashboard outputs for one dashboard to exercise publication modes, presets, charts, and status renderers.
 container_image: python:3.11-slim
 working_directory: /workspace
 timeout: 10m
@@ -96,6 +96,43 @@ output:
         production readiness, vulnerability state, and missing runtime
         configuration.
 
+    - name: Readiness donut chart
+      type: dashboard
+      when: always
+      dashboard:
+        ref: team-1/ops-dashboard
+        section: release-readiness
+        entry_key: readiness-donut-chart
+        mode: replace
+        preset: metrics
+        ttl: 14d
+      prompt: |
+        Create a compact circular-chart dashboard output from the emitted JSON
+        evidence. Include one donut chart for production readiness with points
+        for production ready and blocked from production. Include one pie chart
+        for runtime configuration coverage with points for missing configuration
+        and configuration present. Chart points must use label and numeric value
+        only. Add a short risk callout explaining why all production-ready values
+        are currently blocked.
+
+    - name: Boolean readiness matrix
+      type: dashboard
+      when: always
+      dashboard:
+        ref: team-1/ops-dashboard
+        section: release-readiness
+        entry_key: boolean-readiness-matrix
+        mode: snapshot
+        preset: table
+        ttl: 14d
+      prompt: |
+        Create a dashboard table that exercises boolean status rendering. For
+        every image, include image name, tag, environment, has vulnerabilities,
+        missing environment configuration, production ready, and changelog
+        updated. Use boolean values or yes/no values for the boolean columns.
+        Include an overall status block that shows production ready is false and
+        changelog updated is true.
+
     - name: Release report
       type: dashboard
       when: always
@@ -122,9 +159,14 @@ output:
         preset: mixed
         ttl: 7d
       prompt: |
-        Create a mixed dashboard digest with a short summary, key metrics,
-        risks, and a compact list of next actions. Mention that the dog and car
-        sentence is unrelated noise, not an operational subject.
+        Create one cohesive Docker image operations overview from the emitted
+        JSON evidence. Start with KPI cards for images built, total build time
+        with average, production ready as ready/total, and runtime
+        configuration present as configured/total. Then include a horizontal
+        build-duration comparison by image, production-readiness and runtime
+        configuration donut charts, a production-blocked risk callout, a
+        readiness matrix table, and concise next actions. Mention only
+        operational evidence; treat the dog and car sentence as unrelated noise.
 steps:
   - name: generate-data
     script: |
@@ -180,6 +222,13 @@ steps:
           "subject": "docker image build and production readiness",
           "images_built": len(images),
           "images": images,
+          "readiness_summary": {
+              "production_ready": sum(1 for image in images if image["production_ready"]),
+              "blocked_from_production": sum(1 for image in images if not image["production_ready"]),
+              "missing_runtime_configuration": sum(1 for image in images if image["missing_environment"]),
+              "runtime_configuration_present": sum(1 for image in images if not image["missing_environment"]),
+              "vulnerable_images": sum(1 for image in images if image["has_vulnerabilities"]),
+          },
           "git_changelog_updated": True,
           "operational_risk": "Images contain vulnerabilities and missing environment configuration can make runtime execution fail.",
           "noise": {

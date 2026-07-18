@@ -1,11 +1,13 @@
 package nopsai
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -29,11 +31,13 @@ const (
 	finalOutputStatusFailure        = "failure"
 	finalOutputStatusCancelled      = "cancelled"
 	pipelineFinalOutputHistoryLimit = 5
+	pipelineFinalOutputLogDrainWait = 750 * time.Millisecond
 )
 
 var (
 	pipelineFinalOutputImageRefPattern      = regexp.MustCompile(`\b[A-Za-z0-9][A-Za-z0-9._/-]*:[A-Za-z0-9][A-Za-z0-9._-]*\b`)
 	pipelineFinalOutputDurationTokenPattern = regexp.MustCompile(`(?i)\b\d+(?:\.\d+)?\s*(?:ms|s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours)\b`)
+	pipelineFinalOutputEvidenceKeyPattern   = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.-]{0,64}_evidence$`)
 )
 
 type pipelineFinalOutputRecord struct {
@@ -50,8 +54,23 @@ type pipelineFinalOutputRunContext struct {
 }
 
 type pipelineFinalOutputLogEvidence struct {
-	Lines  []string
-	Images []pipelineFinalOutputImageEvidence
+	Lines      []string
+	Structured []string
+	Images     []pipelineFinalOutputImageEvidence
+}
+
+type pipelineFinalOutputStructuredImageEvidence struct {
+	Name               string
+	Tag                string
+	Environment        string
+	DurationSeconds    float64
+	HasDuration        bool
+	Vulnerable         bool
+	HasVulnerability   bool
+	MissingRuntime     bool
+	HasMissingRuntime  bool
+	ProductionReady    bool
+	HasProductionReady bool
 }
 
 var errPipelineFinalOutputNotCancellable = errors.New("final output is already complete")
@@ -140,6 +159,9 @@ func (a *App) generatePipelineFinalOutputs(ctx context.Context, runID string) {
 	if len(outputs) == 0 {
 		return
 	}
+	if err := a.waitForPipelineFinalOutputLogDrain(ctx, runID); err != nil {
+		log.Debug().Err(err).Str("run_id", runID).Msg("Pipeline final output log drain wait skipped")
+	}
 	runContext, err := a.buildPipelineFinalOutputRunContext(ctx, runID)
 	if err != nil {
 		log.Warn().Err(err).Str("run_id", runID).Msg("Failed to build pipeline final output context")
@@ -154,6 +176,20 @@ func (a *App) generatePipelineFinalOutputs(ctx context.Context, runID string) {
 		if err := a.generatePipelineFinalOutput(ctx, runID, runContext, output); err != nil {
 			log.Warn().Err(err).Str("run_id", runID).Str("output_id", output.ID).Msg("Failed to generate pipeline final output")
 		}
+	}
+}
+
+func (a *App) waitForPipelineFinalOutputLogDrain(ctx context.Context, runID string) error {
+	if a == nil || a.db == nil || pipelineFinalOutputLogDrainWait <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(pipelineFinalOutputLogDrainWait)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 
@@ -429,7 +465,783 @@ func (a *App) groundPipelineFinalDashboardOutputContent(ctx context.Context, run
 }
 
 func groundPipelineFinalDashboardOutputContent(content string, output pipelineFinalOutputRecord, evidence pipelineFinalOutputLogEvidence) (string, error) {
-	return content, nil
+	if normalizePipelineFinalOutputType(output.Type) != "dashboard" {
+		return content, nil
+	}
+	counts := pipelineFinalOutputStructuredDashboardCounts(evidence)
+	if len(counts) == 0 {
+		return content, nil
+	}
+	var spec models.DashboardSpec
+	if err := json.Unmarshal([]byte(content), &spec); err != nil {
+		return "", fmt.Errorf("parse dashboard output for grounding: %w", err)
+	}
+	changed := false
+	if pipelineFinalOutputRequestsOperationsOverview(output) {
+		if overview, ok := dashboardSpecFromPipelineFinalOutputOperationsOverview(evidence, counts); ok {
+			spec = overview
+			changed = true
+		}
+	}
+	changed = groundDashboardCircularChartsFromEvidence(&spec, counts) || changed
+	if pipelineFinalOutputRequestsBuildDurationMetrics(output) {
+		changed = groundDashboardBuildDurationMetricsFromEvidence(&spec, pipelineFinalOutputStructuredDashboardImages(evidence)) || changed
+	}
+	if !changed {
+		return content, nil
+	}
+	payload, err := json.Marshal(spec)
+	if err != nil {
+		return "", fmt.Errorf("encode grounded dashboard output: %w", err)
+	}
+	return string(payload), nil
+}
+
+func pipelineFinalOutputStructuredDashboardCounts(evidence pipelineFinalOutputLogEvidence) map[string]float64 {
+	counts := map[string]float64{}
+	for _, line := range evidence.Structured {
+		_, payload, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		var root map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(payload), &root); err != nil {
+			continue
+		}
+		for _, key := range []string{"images_built", "git_changelog_updated"} {
+			if value, ok := dashboardEvidenceNumber(root[key]); ok {
+				addDashboardEvidenceCount(counts, key, value)
+			}
+		}
+		if rawSummary, ok := root["readiness_summary"]; ok {
+			var summary map[string]json.RawMessage
+			if err := json.Unmarshal(rawSummary, &summary); err == nil {
+				for key, raw := range summary {
+					if value, ok := dashboardEvidenceNumber(raw); ok {
+						addDashboardEvidenceCount(counts, key, value)
+					}
+				}
+			}
+		}
+		if rawImages, ok := root["images"]; ok {
+			addDashboardImageDerivedEvidenceCounts(counts, rawImages)
+		}
+	}
+	return counts
+}
+
+func pipelineFinalOutputStructuredDashboardImages(evidence pipelineFinalOutputLogEvidence) []pipelineFinalOutputStructuredImageEvidence {
+	images := []pipelineFinalOutputStructuredImageEvidence{}
+	for _, line := range evidence.Structured {
+		_, payload, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		var root map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(payload), &root); err != nil {
+			continue
+		}
+		rawImages, ok := root["images"]
+		if !ok {
+			continue
+		}
+		var rows []map[string]json.RawMessage
+		if err := json.Unmarshal(rawImages, &rows); err != nil {
+			continue
+		}
+		for _, row := range rows {
+			image := pipelineFinalOutputStructuredImageEvidence{
+				Name:        dashboardEvidenceString(row["name"]),
+				Tag:         dashboardEvidenceString(row["tag"]),
+				Environment: dashboardEvidenceString(row["environment"]),
+			}
+			if value, ok := dashboardEvidenceNumber(row["build_duration_seconds"]); ok {
+				image.DurationSeconds = value
+				image.HasDuration = true
+			} else if value, ok := pipelineFinalOutputDurationSeconds(dashboardEvidenceString(row["build_duration"])); ok {
+				image.DurationSeconds = value
+				image.HasDuration = true
+			}
+			if value, ok := dashboardEvidenceBool(row["has_vulnerabilities"]); ok {
+				image.Vulnerable = value
+				image.HasVulnerability = true
+			}
+			if value, ok := dashboardEvidenceBool(row["missing_environment"]); ok {
+				image.MissingRuntime = value
+				image.HasMissingRuntime = true
+			}
+			if value, ok := dashboardEvidenceBool(row["production_ready"]); ok {
+				image.ProductionReady = value
+				image.HasProductionReady = true
+			}
+			if image.Name != "" {
+				images = append(images, image)
+			}
+		}
+	}
+	return images
+}
+
+func addDashboardImageDerivedEvidenceCounts(counts map[string]float64, raw json.RawMessage) {
+	var images []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &images); err != nil || len(images) == 0 {
+		return
+	}
+	var productionReady, missingConfiguration, vulnerable float64
+	for _, image := range images {
+		if value, ok := dashboardEvidenceBool(image["production_ready"]); ok && value {
+			productionReady++
+		}
+		if value, ok := dashboardEvidenceBool(image["missing_environment"]); ok && value {
+			missingConfiguration++
+		}
+		if value, ok := dashboardEvidenceBool(image["has_vulnerabilities"]); ok && value {
+			vulnerable++
+		}
+	}
+	total := float64(len(images))
+	addDashboardEvidenceCount(counts, "images_built", total)
+	addDashboardEvidenceCount(counts, "production_ready", productionReady)
+	addDashboardEvidenceCount(counts, "blocked_from_production", total-productionReady)
+	addDashboardEvidenceCount(counts, "missing_runtime_configuration", missingConfiguration)
+	addDashboardEvidenceCount(counts, "runtime_configuration_present", total-missingConfiguration)
+	addDashboardEvidenceCount(counts, "vulnerable_images", vulnerable)
+}
+
+func dashboardEvidenceString(raw json.RawMessage) string {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return ""
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err == nil {
+		return strings.TrimSpace(value)
+	}
+	var number float64
+	if err := json.Unmarshal(raw, &number); err == nil {
+		return strings.TrimSpace(strconv.FormatFloat(number, 'f', -1, 64))
+	}
+	var boolean bool
+	if err := json.Unmarshal(raw, &boolean); err == nil {
+		return strconv.FormatBool(boolean)
+	}
+	return ""
+}
+
+func dashboardEvidenceNumber(raw json.RawMessage) (float64, bool) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return 0, false
+	}
+	var number float64
+	if err := json.Unmarshal(raw, &number); err == nil {
+		return number, true
+	}
+	var boolean bool
+	if err := json.Unmarshal(raw, &boolean); err == nil {
+		if boolean {
+			return 1, true
+		}
+		return 0, true
+	}
+	return 0, false
+}
+
+func dashboardEvidenceBool(raw json.RawMessage) (bool, bool) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return false, false
+	}
+	var value bool
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return false, false
+	}
+	return value, true
+}
+
+func addDashboardEvidenceCount(counts map[string]float64, key string, value float64) {
+	normalized := dashboardEvidenceCountKey(key)
+	if normalized == "" {
+		return
+	}
+	counts[normalized] = value
+	for _, alias := range dashboardEvidenceCountAliases(normalized) {
+		counts[alias] = value
+	}
+}
+
+func dashboardEvidenceCountAliases(key string) []string {
+	switch key {
+	case "missing_runtime_configuration":
+		return []string{"missing_configuration", "missing_environment", "missing_env_config"}
+	case "runtime_configuration_present":
+		return []string{"configuration_present", "environment_present", "env_config_present"}
+	case "blocked_from_production":
+		return []string{"blocked", "production_blocked", "blocked_images"}
+	case "production_ready":
+		return []string{"ready", "production_ready_images"}
+	case "vulnerable_images":
+		return []string{"has_vulnerabilities", "vulnerabilities", "vulnerable"}
+	default:
+		return nil
+	}
+}
+
+func dashboardEvidenceCountKey(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	normalized = strings.ReplaceAll(normalized, "-", "_")
+	normalized = strings.ReplaceAll(normalized, " ", "_")
+	normalized = strings.ReplaceAll(normalized, ".", "_")
+	for strings.Contains(normalized, "__") {
+		normalized = strings.ReplaceAll(normalized, "__", "_")
+	}
+	return strings.Trim(normalized, "_")
+}
+
+func groundDashboardCircularChartsFromEvidence(spec *models.DashboardSpec, counts map[string]float64) bool {
+	if spec == nil || len(counts) == 0 {
+		return false
+	}
+	changed := false
+	for blockIndex := range spec.Blocks {
+		block := &spec.Blocks[blockIndex]
+		if block.Chart == nil {
+			continue
+		}
+		chartType := strings.ToLower(strings.TrimSpace(block.Chart.Type))
+		if chartType != "pie" && chartType != "donut" {
+			continue
+		}
+		if dashboardChartHasPoints(block.Chart) {
+			continue
+		}
+		points := dashboardCircularPointsFromEvidenceSeries(block.Chart.Series, counts)
+		if len(points) == 0 {
+			continue
+		}
+		block.Chart.Series = []models.DashboardChartSeries{
+			{
+				Key:    dashboardGroundedChartSeriesKey(block, chartType),
+				Label:  dashboardGroundedChartSeriesLabel(block),
+				Points: points,
+			},
+		}
+		changed = true
+	}
+	return changed
+}
+
+func dashboardChartHasPoints(chart *models.DashboardChart) bool {
+	if chart == nil {
+		return false
+	}
+	for _, series := range chart.Series {
+		if len(series.Points) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func dashboardCircularPointsFromEvidenceSeries(series []models.DashboardChartSeries, counts map[string]float64) []models.DashboardSeriesPoint {
+	points := make([]models.DashboardSeriesPoint, 0, len(series))
+	for _, item := range series {
+		value, ok := dashboardEvidenceCountForSeries(item, counts)
+		if !ok {
+			continue
+		}
+		pointValue := value
+		points = append(points, models.DashboardSeriesPoint{
+			Label: dashboardEvidenceSeriesPointLabel(item),
+			Value: &pointValue,
+		})
+	}
+	return points
+}
+
+func dashboardEvidenceCountForSeries(series models.DashboardChartSeries, counts map[string]float64) (float64, bool) {
+	for _, key := range []string{series.Key, series.Label} {
+		normalized := dashboardEvidenceCountKey(key)
+		if normalized == "" {
+			continue
+		}
+		if value, ok := counts[normalized]; ok {
+			return value, true
+		}
+		for _, alias := range dashboardEvidenceCountAliases(normalized) {
+			if value, ok := counts[alias]; ok {
+				return value, true
+			}
+		}
+	}
+	return 0, false
+}
+
+func dashboardEvidenceSeriesPointLabel(series models.DashboardChartSeries) string {
+	if label := strings.TrimSpace(series.Label); label != "" {
+		return dashboardEvidenceDisplayLabel(label)
+	}
+	if key := strings.TrimSpace(series.Key); key != "" {
+		return dashboardEvidenceDisplayLabel(key)
+	}
+	return "Value"
+}
+
+func dashboardEvidenceDisplayLabel(value string) string {
+	value = strings.ReplaceAll(value, "_", " ")
+	value = strings.ReplaceAll(value, "-", " ")
+	parts := strings.Fields(value)
+	if len(parts) == 0 {
+		return "Value"
+	}
+	for index, part := range parts {
+		if part == "" {
+			continue
+		}
+		parts[index] = strings.ToUpper(part[:1]) + strings.ToLower(part[1:])
+	}
+	return strings.Join(parts, " ")
+}
+
+func pipelineFinalOutputRequestsOperationsOverview(output pipelineFinalOutputRecord) bool {
+	text := strings.ToLower(strings.Join([]string{
+		output.Name,
+		output.Prompt,
+		output.Dashboard.EntryKey,
+		output.Dashboard.Preset,
+	}, " "))
+	return strings.Contains(text, "operations digest") ||
+		strings.Contains(text, "operational overview") ||
+		strings.Contains(text, "operations overview") ||
+		strings.Contains(text, "mixed dashboard digest")
+}
+
+func dashboardSpecFromPipelineFinalOutputOperationsOverview(evidence pipelineFinalOutputLogEvidence, counts map[string]float64) (models.DashboardSpec, bool) {
+	images := pipelineFinalOutputStructuredDashboardImages(evidence)
+	metrics, ok := dashboardBuildDurationEvidenceMetrics(images)
+	if !ok {
+		return models.DashboardSpec{}, false
+	}
+	total := dashboardCountValue(counts, "images_built", float64(len(images)))
+	productionReady := dashboardCountValue(counts, "production_ready", dashboardImageBoolCount(images, func(image pipelineFinalOutputStructuredImageEvidence) (bool, bool) {
+		return image.ProductionReady, image.HasProductionReady
+	}))
+	blocked := dashboardCountValue(counts, "blocked_from_production", total-productionReady)
+	missingRuntime := dashboardCountValue(counts, "missing_runtime_configuration", dashboardImageBoolCount(images, func(image pipelineFinalOutputStructuredImageEvidence) (bool, bool) {
+		return image.MissingRuntime, image.HasMissingRuntime
+	}))
+	configPresent := dashboardCountValue(counts, "runtime_configuration_present", total-missingRuntime)
+	vulnerable := dashboardCountValue(counts, "vulnerable_images", dashboardImageBoolCount(images, func(image pipelineFinalOutputStructuredImageEvidence) (bool, bool) {
+		return image.Vulnerable, image.HasVulnerability
+	}))
+	changelogUpdated := dashboardCountValue(counts, "git_changelog_updated", 0) > 0
+	riskText := pipelineFinalOutputStructuredDashboardString(evidence, "operational_risk")
+	if riskText == "" {
+		riskText = "Images contain vulnerabilities and missing environment configuration can make runtime execution fail."
+	}
+
+	return models.DashboardSpec{
+		Version: models.FinalOutputSpecVersion,
+		Title:   "Docker Image Operations Overview",
+		Blocks: []models.DashboardBlock{
+			{
+				Type:  "properties",
+				Title: "Overview",
+				Items: []models.DashboardBlockItem{
+					{Label: "Images Built", Value: dashboardNumberValue(total), Text: "Pipeline completed"},
+					{Label: "Total Build Time", Value: dashboardSecondsValue(metrics.TotalSeconds), Text: "Average " + dashboardSecondsValue(metrics.AverageSeconds)},
+					{Label: "Production Ready", Value: dashboardRatioValue(productionReady, total), Text: dashboardBlockedSummary(blocked)},
+					{Label: "Configuration Present", Value: dashboardRatioValue(configPresent, total), Text: dashboardMissingConfigurationSummary(missingRuntime)},
+				},
+			},
+			{
+				Type:  "chart",
+				Title: "Build Duration",
+				Text:  "Seconds required to build each image.",
+				Chart: &models.DashboardChart{
+					Type: "bar",
+					Unit: "s",
+					Series: []models.DashboardChartSeries{
+						{
+							Key:    "build_duration_seconds",
+							Label:  "Build Duration",
+							Unit:   "s",
+							Points: dashboardBuildDurationOverviewPoints(images),
+						},
+					},
+				},
+			},
+			{
+				Type:  "chart",
+				Title: "Production Readiness",
+				Text:  "Current production readiness coverage.",
+				Chart: &models.DashboardChart{
+					Type: "donut",
+					Series: []models.DashboardChartSeries{
+						{
+							Key:   "production_readiness",
+							Label: "Production Readiness",
+							Points: []models.DashboardSeriesPoint{
+								dashboardPointValue("Production Ready", productionReady),
+								dashboardPointValue("Blocked From Production", blocked),
+							},
+						},
+					},
+				},
+			},
+			{
+				Type:  "chart",
+				Title: "Runtime Configuration",
+				Text:  "Runtime configuration coverage for built images.",
+				Chart: &models.DashboardChart{
+					Type: "donut",
+					Series: []models.DashboardChartSeries{
+						{
+							Key:   "runtime_configuration",
+							Label: "Runtime Configuration",
+							Points: []models.DashboardSeriesPoint{
+								dashboardPointValue("Configuration Present", configPresent),
+								dashboardPointValue("Missing Runtime Configuration", missingRuntime),
+							},
+						},
+					},
+				},
+			},
+			{
+				Type:  "callout",
+				Tone:  "critical",
+				Title: "Production status: blocked",
+				Text: fmt.Sprintf(
+					"%s Changelog updated: %s.",
+					riskText,
+					dashboardYesNo(changelogUpdated, true),
+				),
+			},
+			{
+				Type:    "table",
+				Title:   "Readiness Matrix",
+				Columns: dashboardOperationsOverviewColumns(),
+				Rows:    dashboardOperationsOverviewRows(images, changelogUpdated),
+			},
+			{
+				Type:  "list",
+				Title: "Next Actions",
+				Items: dashboardOperationsOverviewActions(images, vulnerable, missingRuntime),
+			},
+		},
+	}, true
+}
+
+func dashboardCountValue(counts map[string]float64, key string, fallback float64) float64 {
+	normalized := dashboardEvidenceCountKey(key)
+	if value, ok := counts[normalized]; ok {
+		return value
+	}
+	for _, alias := range dashboardEvidenceCountAliases(normalized) {
+		if value, ok := counts[alias]; ok {
+			return value
+		}
+	}
+	return fallback
+}
+
+func dashboardImageBoolCount(images []pipelineFinalOutputStructuredImageEvidence, pick func(pipelineFinalOutputStructuredImageEvidence) (bool, bool)) float64 {
+	var count float64
+	for _, image := range images {
+		value, ok := pick(image)
+		if ok && value {
+			count++
+		}
+	}
+	return count
+}
+
+func pipelineFinalOutputStructuredDashboardString(evidence pipelineFinalOutputLogEvidence, key string) string {
+	for _, line := range evidence.Structured {
+		_, payload, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		var root map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(payload), &root); err != nil {
+			continue
+		}
+		value := dashboardEvidenceString(root[key])
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func dashboardRatioValue(value, total float64) string {
+	return dashboardNumberValue(value) + " / " + dashboardNumberValue(total)
+}
+
+func dashboardNumberValue(value float64) string {
+	return strconv.FormatFloat(value, 'f', -1, 64)
+}
+
+func dashboardBlockedSummary(blocked float64) string {
+	if blocked == 0 {
+		return "No images blocked"
+	}
+	if blocked == 1 {
+		return "One image blocked"
+	}
+	if math.Mod(blocked, 1) == 0 {
+		return fmt.Sprintf("%.0f images blocked", blocked)
+	}
+	return dashboardNumberValue(blocked) + " images blocked"
+}
+
+func dashboardMissingConfigurationSummary(missing float64) string {
+	if missing == 0 {
+		return "All images configured"
+	}
+	if missing == 1 {
+		return "One image incomplete"
+	}
+	if math.Mod(missing, 1) == 0 {
+		return fmt.Sprintf("%.0f images incomplete", missing)
+	}
+	return dashboardNumberValue(missing) + " images incomplete"
+}
+
+func dashboardBuildDurationOverviewPoints(images []pipelineFinalOutputStructuredImageEvidence) []models.DashboardSeriesPoint {
+	points := make([]models.DashboardSeriesPoint, 0, len(images))
+	for _, image := range images {
+		if !image.HasDuration {
+			continue
+		}
+		value := image.DurationSeconds
+		points = append(points, models.DashboardSeriesPoint{Label: dashboardImageEvidenceLabel(image), Value: &value})
+	}
+	return points
+}
+
+func dashboardImageEvidenceLabel(image pipelineFinalOutputStructuredImageEvidence) string {
+	if image.Tag != "" {
+		return image.Name + ":" + image.Tag
+	}
+	return image.Name
+}
+
+func dashboardPointValue(label string, value float64) models.DashboardSeriesPoint {
+	pointValue := value
+	return models.DashboardSeriesPoint{Label: label, Value: &pointValue}
+}
+
+func dashboardOperationsOverviewColumns() []models.DashboardTableColumn {
+	return []models.DashboardTableColumn{
+		{Key: "image", Label: "Image"},
+		{Key: "environment", Label: "Environment"},
+		{Key: "vulnerabilities", Label: "Vulnerabilities"},
+		{Key: "missing_config", Label: "Missing Config"},
+		{Key: "production_ready", Label: "Production Ready"},
+		{Key: "changelog", Label: "Changelog"},
+	}
+}
+
+func dashboardOperationsOverviewRows(images []pipelineFinalOutputStructuredImageEvidence, changelogUpdated bool) []map[string]json.RawMessage {
+	rows := make([]map[string]json.RawMessage, 0, len(images))
+	for _, image := range images {
+		rows = append(rows, map[string]json.RawMessage{
+			"image":            dashboardJSONString(dashboardImageEvidenceLabel(image)),
+			"environment":      dashboardJSONString(image.Environment),
+			"vulnerabilities":  dashboardJSONString(dashboardYesNo(image.Vulnerable, image.HasVulnerability)),
+			"missing_config":   dashboardJSONString(dashboardYesNo(image.MissingRuntime, image.HasMissingRuntime)),
+			"production_ready": dashboardJSONString(dashboardYesNo(image.ProductionReady, image.HasProductionReady)),
+			"changelog":        dashboardJSONString(dashboardYesNo(changelogUpdated, true)),
+		})
+	}
+	return rows
+}
+
+func dashboardYesNo(value bool, known bool) string {
+	if !known {
+		return "Unknown"
+	}
+	if value {
+		return "Yes"
+	}
+	return "No"
+}
+
+func dashboardOperationsOverviewActions(images []pipelineFinalOutputStructuredImageEvidence, vulnerable, missingRuntime float64) []models.DashboardBlockItem {
+	items := []models.DashboardBlockItem{}
+	if vulnerable > 0 {
+		items = append(items, models.DashboardBlockItem{
+			Text: "Remediate vulnerabilities before allowing these images into production.",
+			Tone: "critical",
+		})
+	}
+	if missingRuntime > 0 {
+		items = append(items, models.DashboardBlockItem{
+			Text: "Add missing runtime environment configuration for " + strings.Join(dashboardImagesWithMissingRuntime(images), ", ") + ".",
+			Tone: "warning",
+		})
+	}
+	items = append(items, models.DashboardBlockItem{
+		Text: "Rerun the readiness pipeline after remediation to publish an updated dashboard.",
+		Tone: "info",
+	})
+	return items
+}
+
+func dashboardImagesWithMissingRuntime(images []pipelineFinalOutputStructuredImageEvidence) []string {
+	names := []string{}
+	for _, image := range images {
+		if image.HasMissingRuntime && image.MissingRuntime {
+			names = append(names, dashboardImageEvidenceLabel(image))
+		}
+	}
+	if len(names) == 0 {
+		return []string{"affected images"}
+	}
+	return names
+}
+
+func pipelineFinalOutputRequestsBuildDurationMetrics(output pipelineFinalOutputRecord) bool {
+	text := strings.ToLower(strings.Join([]string{
+		output.Name,
+		output.Prompt,
+		output.Dashboard.EntryKey,
+		output.Dashboard.Preset,
+	}, " "))
+	return strings.Contains(text, "build duration") && strings.Contains(text, "metric")
+}
+
+func groundDashboardBuildDurationMetricsFromEvidence(spec *models.DashboardSpec, images []pipelineFinalOutputStructuredImageEvidence) bool {
+	metrics, ok := dashboardBuildDurationEvidenceMetrics(images)
+	if !ok {
+		return false
+	}
+	changed := false
+	for blockIndex := range spec.Blocks {
+		block := &spec.Blocks[blockIndex]
+		if block.Type == "properties" {
+			for itemIndex := range block.Items {
+				item := &block.Items[itemIndex]
+				value, ok := dashboardBuildDurationGroundedPropertyValue(item.Label, metrics)
+				if !ok || item.Value == value {
+					continue
+				}
+				item.Value = value
+				changed = true
+			}
+		}
+		if block.Chart == nil {
+			continue
+		}
+		chartContext := strings.ToLower(strings.Join([]string{block.Label, block.Title, block.Chart.Type}, " "))
+		for _, series := range block.Chart.Series {
+			chartContext += " " + strings.ToLower(series.Key+" "+series.Label)
+		}
+		if !strings.Contains(chartContext, "duration") && !strings.Contains(chartContext, "build") {
+			continue
+		}
+		key := "build_duration_seconds"
+		label := "Build Duration"
+		if len(block.Chart.Series) > 0 {
+			if strings.TrimSpace(block.Chart.Series[0].Key) != "" {
+				key = block.Chart.Series[0].Key
+			}
+			if strings.TrimSpace(block.Chart.Series[0].Label) != "" {
+				label = block.Chart.Series[0].Label
+			}
+		}
+		block.Chart.Unit = "s"
+		block.Chart.Series = []models.DashboardChartSeries{
+			{
+				Key:    key,
+				Label:  label,
+				Unit:   "s",
+				Points: metrics.Points,
+			},
+		}
+		changed = true
+	}
+	return changed
+}
+
+type dashboardBuildDurationMetrics struct {
+	TotalSeconds   float64
+	AverageSeconds float64
+	Fastest        pipelineFinalOutputStructuredImageEvidence
+	Slowest        pipelineFinalOutputStructuredImageEvidence
+	Points         []models.DashboardSeriesPoint
+}
+
+func dashboardBuildDurationEvidenceMetrics(images []pipelineFinalOutputStructuredImageEvidence) (dashboardBuildDurationMetrics, bool) {
+	metrics := dashboardBuildDurationMetrics{
+		Points: make([]models.DashboardSeriesPoint, 0, len(images)),
+	}
+	count := 0
+	for _, image := range images {
+		if !image.HasDuration {
+			continue
+		}
+		value := image.DurationSeconds
+		metrics.TotalSeconds += value
+		if count == 0 || value < metrics.Fastest.DurationSeconds {
+			metrics.Fastest = image
+		}
+		if count == 0 || value > metrics.Slowest.DurationSeconds {
+			metrics.Slowest = image
+		}
+		metrics.Points = append(metrics.Points, models.DashboardSeriesPoint{Label: image.Name, Value: &value})
+		count++
+	}
+	if count == 0 {
+		return dashboardBuildDurationMetrics{}, false
+	}
+	metrics.AverageSeconds = metrics.TotalSeconds / float64(count)
+	return metrics, true
+}
+
+func dashboardBuildDurationGroundedPropertyValue(label string, metrics dashboardBuildDurationMetrics) (string, bool) {
+	normalized := dashboardEvidenceCountKey(label)
+	switch {
+	case strings.Contains(normalized, "total") && strings.Contains(normalized, "build") && strings.Contains(normalized, "time"):
+		return dashboardSecondsValue(metrics.TotalSeconds), true
+	case strings.Contains(normalized, "average") && strings.Contains(normalized, "build") && strings.Contains(normalized, "time"):
+		return dashboardSecondsValue(metrics.AverageSeconds), true
+	case strings.Contains(normalized, "fastest") && strings.Contains(normalized, "image"):
+		return dashboardImageDurationValue(metrics.Fastest), true
+	case strings.Contains(normalized, "slowest") && strings.Contains(normalized, "image"):
+		return dashboardImageDurationValue(metrics.Slowest), true
+	default:
+		return "", false
+	}
+}
+
+func dashboardSecondsValue(seconds float64) string {
+	return strconv.FormatFloat(seconds, 'f', -1, 64) + "s"
+}
+
+func dashboardImageDurationValue(image pipelineFinalOutputStructuredImageEvidence) string {
+	name := image.Name
+	if image.Tag != "" {
+		name += ":" + image.Tag
+	}
+	return name + " (" + dashboardSecondsValue(image.DurationSeconds) + ")"
+}
+
+func dashboardGroundedChartSeriesKey(block *models.DashboardBlock, chartType string) string {
+	for _, candidate := range []string{block.Label, block.Title, chartType} {
+		key := dashboardEvidenceCountKey(candidate)
+		if key != "" {
+			return key
+		}
+	}
+	return "evidence"
+}
+
+func dashboardGroundedChartSeriesLabel(block *models.DashboardBlock) string {
+	for _, candidate := range []string{block.Label, block.Title} {
+		if strings.TrimSpace(candidate) != "" {
+			return dashboardEvidenceDisplayLabel(candidate)
+		}
+	}
+	return "Evidence"
 }
 
 func pipelineFinalOutputPromptRequestsImageEvidence(prompt string) bool {
@@ -983,6 +1795,12 @@ func writePipelineFinalOutputCurrentLogEvidence(builder *strings.Builder, logs [
 			builder.WriteString("- " + line + "\n")
 		}
 	}
+	if len(evidence.Structured) > 0 {
+		builder.WriteString("Structured emitted evidence\n")
+		for _, line := range evidence.Structured {
+			builder.WriteString("- " + line + "\n")
+		}
+	}
 	if len(evidence.Lines) > 0 {
 		builder.WriteString("Emitted step output lines\n")
 		for _, line := range evidence.Lines {
@@ -1026,9 +1844,51 @@ func buildPipelineFinalOutputLogEvidence(logs []string) pipelineFinalOutputLogEv
 		lines = pipelineFinalOutputFallbackEvidenceLines(logs)
 	}
 	return pipelineFinalOutputLogEvidence{
-		Lines:  lines,
-		Images: pipelineFinalOutputImageEvidenceFromLines(lines),
+		Lines:      lines,
+		Structured: pipelineFinalOutputStructuredEvidenceFromLines(lines),
+		Images:     pipelineFinalOutputImageEvidenceFromLines(lines),
 	}
+}
+
+func pipelineFinalOutputStructuredEvidenceFromLines(lines []string) []string {
+	evidence := make([]string, 0)
+	totalBytes := 0
+	for _, line := range lines {
+		key, payload, ok := pipelineFinalOutputStructuredEvidenceLine(line)
+		if !ok {
+			continue
+		}
+		entry := key + "=" + payload
+		totalBytes += len(entry)
+		if totalBytes > 12000 {
+			break
+		}
+		evidence = append(evidence, entry)
+		if len(evidence) >= 8 {
+			break
+		}
+	}
+	return evidence
+}
+
+func pipelineFinalOutputStructuredEvidenceLine(line string) (string, string, bool) {
+	key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
+	if !ok {
+		return "", "", false
+	}
+	key = strings.TrimSpace(key)
+	if !pipelineFinalOutputEvidenceKeyPattern.MatchString(key) {
+		return "", "", false
+	}
+	value = strings.TrimSpace(value)
+	if value == "" || !json.Valid([]byte(value)) {
+		return "", "", false
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, []byte(value)); err != nil {
+		return "", "", false
+	}
+	return key, compact.String(), true
 }
 
 func pipelineFinalOutputImageEvidenceFromLines(lines []string) []pipelineFinalOutputImageEvidence {
@@ -1127,7 +1987,10 @@ func pipelineFinalOutputCommandOutputLines(message string) []string {
 		return nil
 	}
 	tail := strings.TrimSpace(message[index+len("output="):])
-	value, ok := pipelineFinalOutputQuotedAssignmentValue(tail)
+	value, ok := pipelineFinalOutputTrailingQuotedAssignmentValue(tail)
+	if !ok {
+		value, ok = pipelineFinalOutputQuotedAssignmentValue(tail)
+	}
 	if !ok {
 		value, ok = pipelineFinalOutputEscapedQuotedAssignmentValue(tail)
 	}
@@ -1135,6 +1998,59 @@ func pipelineFinalOutputCommandOutputLines(message string) []string {
 		return nil
 	}
 	return splitPipelineFinalOutputEvidenceLines(value)
+}
+
+func pipelineFinalOutputTrailingQuotedAssignmentValue(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if len(raw) < 2 || raw[0] != '"' || raw[len(raw)-1] != '"' {
+		return "", false
+	}
+	return decodePipelineFinalOutputAssignmentEscapes(raw[1 : len(raw)-1]), true
+}
+
+func decodePipelineFinalOutputAssignmentEscapes(raw string) string {
+	var builder *strings.Builder
+	for index := 0; index < len(raw); index++ {
+		ch := raw[index]
+		if ch != '\\' || index+1 >= len(raw) {
+			if builder != nil {
+				builder.WriteByte(ch)
+			}
+			continue
+		}
+		next := raw[index+1]
+		var decoded byte
+		switch next {
+		case 'n':
+			decoded = '\n'
+		case 'r':
+			decoded = '\r'
+		case 't':
+			decoded = '\t'
+		case '\\':
+			decoded = '\\'
+		case '"':
+			decoded = '"'
+		default:
+			if builder != nil {
+				builder.WriteByte(ch)
+				builder.WriteByte(next)
+			}
+			index++
+			continue
+		}
+		if builder == nil {
+			builder = &strings.Builder{}
+			builder.Grow(len(raw))
+			builder.WriteString(raw[:index])
+		}
+		builder.WriteByte(decoded)
+		index++
+	}
+	if builder == nil {
+		return raw
+	}
+	return builder.String()
 }
 
 func pipelineFinalOutputQuotedAssignmentValue(raw string) (string, bool) {
@@ -1275,11 +2191,11 @@ func pipelineFinalOutputLooksLikeBuildDurationLine(line string) bool {
 func buildPipelineFinalOutputPrompt(runContext string, output pipelineFinalOutputRecord) string {
 	var builder strings.Builder
 	builder.WriteString("You are creating a polished final deliverable for an enterprise pipeline run.\n")
-	builder.WriteString("Use the full run context below, but do not expose secrets, credentials, tokens, or raw environment values.\n")
+	builder.WriteString("Use the full run context below, but do not expose secrets, credentials, tokens, or raw environment variable values. Do copy non-secret operational labels from emitted evidence exactly, including image tags, environment names, versions, statuses, and JSON field names.\n")
 	builder.WriteString("Treat emitted current-run step output, including structured JSON, NDJSON, and plain-language log lines, as the primary source for business facts. If emitted step output contains values that answer the user instruction, copy those values exactly.\n")
 	builder.WriteString("Do not substitute configured container images, runner/runtime images, LLM/agent metadata, operational log image-pull lines, or recent-history values for business entities such as images, versions, artifacts, services, or subjects unless the emitted step output explicitly identifies them as the requested entities.\n")
 	builder.WriteString("If a file is mentioned but its contents are not present in the run context, do not infer or invent its values. Prefer operationally relevant subjects over incidental personal/noise lines unless the user specifically asks for those details.\n")
-	builder.WriteString("For intent-level dashboard requests, infer the dashboard structure from the requested facts and available evidence. Use run history, step, and task duration metadata for operational run timing only when current log evidence does not answer the requested business timing.\n")
+	builder.WriteString("For intent-level dashboard requests, infer the dashboard structure from the requested facts and available evidence. Keep the dashboard scoped to the user instruction; do not add generic run metadata, configured runtime/container details, or incidental facts unless requested. Use run history, step, and task duration metadata for operational run timing only when current log evidence does not answer the requested business timing.\n")
 	builder.WriteString("The system output contract defines the required response envelope.\n\n")
 	builder.WriteString("Output name: " + output.Name + "\n")
 	builder.WriteString("Output type: " + output.Type + "\n")
@@ -1318,7 +2234,7 @@ func pipelineFinalOutputFormatGuidance(output pipelineFinalOutputRecord) string 
 }
 
 func dashboardFinalOutputFormatGuidance(preset string) string {
-	base := `Inside <final_output>, provide only a valid DashboardSpec JSON object. Translate the user's dashboard intent into a useful dashboard from the run context; do not require the user to know schema details. Choose the dashboard structure dynamically from the prompt, pipeline definition, run metadata, recent pipeline history, step/task durations, child runs, and log evidence. If the user did not name a visualization, choose by data shape: text or callout for narrative conclusions, status/progress/properties for current state and scalar facts, table for repeated records, bar chart for categorical counts/durations/rankings, line or area chart for time series, and pie or donut chart only for bounded part-to-whole data. Use only evidence present in the run context; if requested data is absent, say it is not present rather than guessing. Available DashboardSpec blocks are status, text, callout, list, properties, table, progress, link, chart, and series. Include a non-empty title. Use one flat top-level blocks array; do not wrap dashboard output in sections or widgets, and do not put nested blocks or widgets inside a block. Use text for text and callout block bodies. Use label for display labels; key is only for table columns and chart series identifiers. Tables need columns with key/label and scalar row values. Charts need type, series, and points with label or timestamp plus finite numeric value. Do not include Markdown, HTML, CSS, JavaScript, commentary, or unsafe links. The response is validated before publication and will be retried if it does not match the DashboardSpec contract.`
+	base := `Inside <final_output>, provide only a valid DashboardSpec JSON object. Translate the user's dashboard intent into a useful dashboard from the run context; do not require the user to know schema details. Choose the dashboard structure dynamically from the prompt, pipeline definition, run metadata, recent pipeline history, step/task durations, child runs, and log evidence. If the user did not name a visualization, choose by data shape: text or callout for narrative conclusions, status/progress/properties for current state and scalar facts, table for repeated records, bar chart for categorical counts/durations/rankings, line or area chart for time series, and pie or donut chart only for bounded part-to-whole data. Use only evidence present in the run context; if requested data is absent, say it is not present rather than guessing. Keep content scoped to the user's dashboard request and avoid generic run metadata unless requested. Copy non-secret operational labels from emitted evidence exactly, including tags such as prod, environment names such as production, versions, statuses, and JSON field names. Available DashboardSpec blocks are status, text, callout, list, properties, table, progress, link, chart, and series. Include a non-empty title. Use one flat top-level blocks array; do not wrap dashboard output in sections or widgets, and do not put nested blocks or widgets inside a block. Use text for text and callout block bodies. Use label for display labels; key is only for table columns and chart series identifiers. Tables need columns with key/label and scalar row values. Charts need type, series, and points with label or timestamp plus finite numeric value. Do not include Markdown, HTML, CSS, JavaScript, commentary, or unsafe links. The response is validated before publication and will be retried if it does not match the DashboardSpec contract.`
 	switch strings.ToLower(strings.TrimSpace(preset)) {
 	case "report":
 		return base + " Prefer a concise report-style presentation with summary first and supporting details after it."

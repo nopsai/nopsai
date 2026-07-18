@@ -24,7 +24,7 @@ import {
 import ResourceAccessCard from '../../components/ResourceAccessCard';
 import { useOutsideDismiss } from '../../components/useOutsideDismiss';
 import { friendlyCronLabel } from '../schedules/model';
-import { DashboardBlocks } from './blocks/DashboardBlocks';
+import { DashboardBlocks, dashboardSpecNeedsWideLayout } from './blocks/DashboardBlocks';
 import {
   formatDateTime,
   groupPublicationsBySection,
@@ -467,10 +467,10 @@ function DashboardSectionSurface({
 }) {
   return (
     <section className="space-y-3">
-      <div className="flex flex-col gap-3 rounded-md bg-[var(--bg-secondary)] px-4 py-3 shadow-sm lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex flex-col gap-3 rounded-md border-l-4 border-[var(--border-accent)] bg-[var(--bg-secondary)] px-4 py-3 shadow-sm lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="truncate text-lg font-semibold text-[var(--text-primary)]">{section.title}</h2>
+            <h2 className="truncate text-lg font-semibold text-[var(--text-accent)]">{section.title}</h2>
             <Badge>{completeness}</Badge>
             {refreshes[0] ? <StatusBadge status={refreshes[0].status} /> : null}
           </div>
@@ -542,8 +542,8 @@ function DashboardSectionSurface({
 
 function PublicationCard({ publication }: { publication: DashboardPublication }) {
   return (
-    <article className="min-w-0 rounded-md bg-[var(--bg-secondary)] p-4 shadow-sm">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+    <article className={`min-w-0 overflow-hidden rounded-md border border-[var(--border-subtle)] bg-[var(--bg-tertiary)] shadow-sm ${dashboardSpecNeedsWideLayout(publication.content) ? 'xl:col-span-2' : ''}`}>
+      <header className="flex flex-wrap items-center justify-between gap-2 bg-[var(--accent-soft)] px-4 py-3">
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-[var(--text-primary)]">{publication.content.title || publication.entry_key}</div>
           <div className="mt-1 truncate text-xs text-[var(--text-muted)]">
@@ -553,9 +553,11 @@ function PublicationCard({ publication }: { publication: DashboardPublication })
         <span className={`rounded-md px-2 py-1 text-xs ${publication.stale ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/30 dark:text-amber-100' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100'}`}>
           {staleLabel(publication)}
         </span>
+      </header>
+      <div className="p-4">
+        <DashboardBlocks spec={publication.content} />
       </div>
-      <DashboardBlocks spec={publication.content} />
-      <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-[var(--text-muted)]">
+      <footer className="flex flex-wrap items-center gap-3 bg-[var(--accent-soft)] px-4 py-3 text-xs text-[var(--text-secondary)]">
         <span>Revision {publication.revision}</span>
         <span>{formatDateTime(publication.published_at)}</span>
         {publication.run_id ? (
@@ -566,7 +568,7 @@ function PublicationCard({ publication }: { publication: DashboardPublication })
             Run {publication.run_id.slice(0, 8)}
           </Link>
         ) : null}
-      </div>
+      </footer>
     </article>
   );
 }

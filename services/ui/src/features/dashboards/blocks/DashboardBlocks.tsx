@@ -1,6 +1,8 @@
 import { ExternalLink } from 'lucide-react';
 import type { DashboardBlock, DashboardChartSeries, DashboardSeriesPoint, DashboardSpec } from '../model';
 
+const numericValuePattern = /[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?/;
+
 const toneClass: Record<string, string> = {
   success: 'border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100',
   warning: 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100',
@@ -14,13 +16,95 @@ export function DashboardBlocks({ spec }: { spec: DashboardSpec }) {
   if (blocks.length === 0) {
     return <div className="text-sm text-[var(--text-secondary)]">No blocks published.</div>;
   }
+  const groups = groupDashboardBlocks(blocks);
   return (
     <div className="space-y-3">
-      {blocks.map((block, index) => (
-        <DashboardBlockView key={`${block.type || 'block'}-${index}`} block={block} />
+      {groups.map((group, index) => (
+        Array.isArray(group) ? (
+          <ChartGroup key={`chart-group-${index}`} blocks={group} />
+        ) : (
+          <DashboardBlockView key={`${group.type || 'block'}-${index}`} block={group} />
+        )
       ))}
     </div>
   );
+}
+
+export function dashboardSpecNeedsWideLayout(spec: DashboardSpec): boolean {
+  const blocks = spec.blocks || [];
+  const chartBlocks = blocks.filter(isChartBlock);
+  if (chartBlocks.length >= 3 && isOverviewChartGroup(chartBlocks)) return true;
+  if (blocks.some(block => block.type === 'table' && (block.columns || []).length >= 6)) return true;
+  if (blocks.some(block => block.type === 'properties' && (block.items || []).length >= 4)) return true;
+  return /operations?\s+(overview|digest)|release\s+readiness|image\s+comparison/i.test(spec.title || '');
+}
+
+function groupDashboardBlocks(blocks: DashboardBlock[]): Array<DashboardBlock | DashboardBlock[]> {
+  const groups: Array<DashboardBlock | DashboardBlock[]> = [];
+  let index = 0;
+  while (index < blocks.length) {
+    const block = blocks[index];
+    if (!isChartBlock(block)) {
+      groups.push(block);
+      index++;
+      continue;
+    }
+    const chartGroup: DashboardBlock[] = [];
+    while (index < blocks.length && isChartBlock(blocks[index])) {
+      chartGroup.push(blocks[index]);
+      index++;
+    }
+    groups.push(chartGroup.length > 1 ? chartGroup : chartGroup[0]);
+  }
+  return groups;
+}
+
+function isChartBlock(block: DashboardBlock): boolean {
+  return block.type === 'chart' || block.type === 'series';
+}
+
+function ChartGroup({ blocks }: { blocks: DashboardBlock[] }) {
+  if (isOverviewChartGroup(blocks)) {
+    const bar = blocks.find(block => isHorizontalBarBlock(block));
+    const circular = blocks.filter(block => isCircularChartBlock(block));
+    const rest = blocks.filter(block => block !== bar && !circular.includes(block));
+    if (bar && circular.length >= 2 && rest.length === 0) {
+      return (
+        <div
+          data-testid="dashboard-overview-chart-grid"
+          className="grid gap-3 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]"
+        >
+          <DashboardBlockView block={bar} />
+          <div className="grid min-w-0 gap-3 md:grid-cols-2">
+            {circular.map((block, index) => (
+              <DashboardBlockView key={`${block.chart?.type || 'chart'}-${block.title || index}`} block={block} />
+            ))}
+          </div>
+        </div>
+      );
+    }
+  }
+  return (
+    <div className="grid gap-3 xl:grid-cols-2">
+      {blocks.map((block, blockIndex) => (
+        <DashboardBlockView key={`${block.type || 'block'}-${blockIndex}`} block={block} />
+      ))}
+    </div>
+  );
+}
+
+function isOverviewChartGroup(blocks: DashboardBlock[]): boolean {
+  return blocks.some(isHorizontalBarBlock) && blocks.filter(isCircularChartBlock).length >= 2;
+}
+
+function isHorizontalBarBlock(block: DashboardBlock): boolean {
+  const chart = block.chart;
+  return Boolean(chart && chart.type === 'bar' && shouldRenderHorizontalBars(chart.series || []));
+}
+
+function isCircularChartBlock(block: DashboardBlock): boolean {
+  const chartType = block.chart?.type;
+  return chartType === 'pie' || chartType === 'donut';
 }
 
 function DashboardBlockView({ block }: { block: DashboardBlock }) {
@@ -100,15 +184,23 @@ function ListBlock({ block }: { block: DashboardBlock }) {
 
 function PropertiesBlock({ block }: { block: DashboardBlock }) {
   return (
-    <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
+    <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
       {(block.items || []).map(item => (
-        <div key={item.label} className="border-b border-[var(--border-subtle)] pb-2">
+        <div key={item.label} className="rounded border border-[var(--border-subtle)] bg-[var(--bg-secondary)] p-3">
           <dt className="text-xs uppercase text-[var(--text-muted)]">{item.label}</dt>
-          <dd className="mt-1 font-medium text-[var(--text-primary)]">{item.value}</dd>
+          <dd className={`mt-1 font-semibold leading-tight text-[var(--text-primary)] ${metricValueClass(item.value)}`}>{item.value}</dd>
+          {item.text ? <dd className="mt-1 text-xs text-[var(--text-secondary)]">{item.text}</dd> : null}
         </div>
       ))}
     </dl>
   );
+}
+
+function metricValueClass(value: unknown): string {
+  const length = formatCell(value).length;
+  if (length > 20) return 'break-words text-lg';
+  if (length > 12) return 'break-words text-xl';
+  return 'text-2xl';
 }
 
 function TableBlock({ block }: { block: DashboardBlock }) {
@@ -128,7 +220,7 @@ function TableBlock({ block }: { block: DashboardBlock }) {
           {(block.rows || []).map((row, index) => (
             <tr key={index}>
               {columns.map(column => (
-                <td key={column.key} className="border-b border-[var(--border-subtle)] px-2 py-2 text-[var(--text-secondary)]">{formatCell(row[column.key])}</td>
+                <td key={column.key} className="border-b border-[var(--border-subtle)] px-2 py-2 text-[var(--text-secondary)]">{renderCell(row[column.key], column)}</td>
               ))}
             </tr>
           ))}
@@ -176,23 +268,13 @@ function ChartBlock({ block }: { block: DashboardBlock }) {
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
           {block.title ? <h4 className="text-sm font-semibold text-[var(--text-primary)]">{block.title}</h4> : null}
-          <div className="text-xs text-[var(--text-muted)]">
-            {[chartType, chart.aggregation_interval, chart.time_window?.from && chart.time_window?.to ? `${chart.time_window.from} to ${chart.time_window.to}` : '']
-              .filter(Boolean)
-              .join(' · ')}
-          </div>
+          {block.text ? <div className="text-sm text-[var(--text-secondary)]">{block.text}</div> : null}
+          <ChartMetadata chart={chart} />
         </div>
-        <div className="flex flex-wrap gap-2">
-          {series.slice(0, 6).map((item, index) => (
-            <span key={item.key || index} className="inline-flex items-center gap-1 text-xs text-[var(--text-secondary)]">
-              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: seriesColor(item, index) }} />
-              {item.label || item.key}
-            </span>
-          ))}
-        </div>
+        <ChartSummary chartType={chartType} series={series} unit={chart.unit} />
       </div>
       {chartType === 'pie' || chartType === 'donut' ? (
-        <PieSummary series={series} />
+        <CircularChart type={chartType} series={series} unit={chart.unit} />
       ) : (
         <CartesianChart type={chartType} series={series} unit={chart.unit} />
       )}
@@ -200,12 +282,59 @@ function ChartBlock({ block }: { block: DashboardBlock }) {
   );
 }
 
+function ChartMetadata({ chart }: { chart: NonNullable<DashboardBlock['chart']> }) {
+  const metadata = [
+    chart.aggregation_interval,
+    chart.time_window?.from && chart.time_window?.to ? `${chart.time_window.from} to ${chart.time_window.to}` : '',
+  ].filter(Boolean);
+  if (metadata.length === 0) return null;
+  return <div className="text-xs text-[var(--text-muted)]">{metadata.join(' · ')}</div>;
+}
+
+function ChartSummary({ chartType, series, unit }: { chartType: string; series: DashboardChartSeries[]; unit?: string }) {
+  const pill = chartSummaryPill(chartType, series, unit);
+  if (pill) {
+    return (
+      <span className="rounded-full bg-[var(--accent-soft)] px-2 py-1 text-xs font-semibold text-[var(--text-primary)]">
+        {pill}
+      </span>
+    );
+  }
+  if (chartType === 'bar' && series.length === 1) return null;
+  return (
+    <div className="flex flex-wrap gap-2">
+      {series.slice(0, 6).map((item, index) => (
+        <span key={item.key || index} className="inline-flex items-center gap-1 text-xs text-[var(--text-secondary)]">
+          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: seriesColor(item, index) }} />
+          {item.label || item.key}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function chartSummaryPill(chartType: string, series: DashboardChartSeries[], unit?: string): string | null {
+  if (chartType !== 'bar' || !shouldRenderHorizontalBars(series)) return null;
+  const primary = series[0];
+  const points = (primary.points || [])
+    .map(point => pointValue(point))
+    .filter((value): value is number => value !== null);
+  if (points.length === 0) return null;
+  const maxValue = Math.max(...points);
+  const label = /build|duration|seconds?/i.test(`${primary.key} ${primary.label || ''} ${unit || ''}`) ? 'Slowest' : 'Max';
+  return `${label}: ${formatChartValue(maxValue, primary.unit || unit)}`;
+}
+
 function CartesianChart({ type, series, unit }: { type: string; series: DashboardChartSeries[]; unit?: string }) {
+  if (type === 'bar' && shouldRenderHorizontalBars(series)) {
+    return <HorizontalBarChart series={series[0]} unit={series[0]?.unit || unit} />;
+  }
   const width = 640;
   const height = 220;
   const padding = 28;
-  const points = series.flatMap(item => (item.points || []).filter(point => typeof point.value === 'number')) as Required<Pick<DashboardSeriesPoint, 'value'>>[];
-  const values = points.map(point => Number(point.value));
+  const values = series
+    .flatMap(item => (item.points || []).map(point => pointValue(point)))
+    .filter((value): value is number => value !== null);
   const minValue = Math.min(0, ...values);
   const maxValue = Math.max(1, ...values);
   const valueY = (value: number) => {
@@ -229,6 +358,41 @@ function CartesianChart({ type, series, unit }: { type: string; series: Dashboar
   );
 }
 
+function shouldRenderHorizontalBars(series: DashboardChartSeries[]): boolean {
+  if (series.length !== 1) return false;
+  const points = series[0]?.points || [];
+  return points.length > 0 && points.every(point => Boolean(point.label) && pointValue(point) !== null);
+}
+
+function HorizontalBarChart({ series, unit }: { series: DashboardChartSeries; unit?: string }) {
+  const points = (series.points || [])
+    .map(point => ({ point, value: pointValue(point) }))
+    .filter((item): item is { point: DashboardSeriesPoint; value: number } => item.value !== null);
+  if (points.length === 0) {
+    return <div className="text-sm text-[var(--text-secondary)]">No chart data.</div>;
+  }
+  const maxValue = Math.max(1, ...points.map(item => Math.max(0, item.value)));
+  return (
+    <div role="img" aria-label="Dashboard bar chart" className="space-y-3 rounded border border-[var(--border-subtle)] bg-[var(--bg-secondary)] p-3">
+      {points.map(({ point, value }) => {
+        const width = Math.max(2, Math.min(100, (Math.max(0, value) / maxValue) * 100));
+        const label = point.label || point.timestamp || 'Value';
+        return (
+          <div key={label} className="space-y-1.5">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className="min-w-0 truncate font-medium text-[var(--text-primary)]">{label}</span>
+              <span className="shrink-0 font-semibold text-[var(--text-primary)]">{formatChartValue(value, unit)}</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded bg-[var(--bg-tertiary)]">
+              <div className="h-full rounded bg-[var(--accent)]" style={{ width: `${width}%` }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function renderLines(
   series: DashboardChartSeries[],
   type: string,
@@ -238,9 +402,11 @@ function renderLines(
   valueY: (value: number) => number
 ) {
   return series.map((item, seriesIndex) => {
-    const points = (item.points || []).filter(point => typeof point.value === 'number');
+    const points = (item.points || [])
+      .map(point => ({ point, value: pointValue(point) }))
+      .filter((item): item is { point: DashboardSeriesPoint; value: number } => item.value !== null);
     const path = points
-      .map((point, index) => `${index === 0 ? 'M' : 'L'} ${pointX(index, points.length).toFixed(1)} ${valueY(Number(point.value)).toFixed(1)}`)
+      .map((item, index) => `${index === 0 ? 'M' : 'L'} ${pointX(index, points.length).toFixed(1)} ${valueY(item.value).toFixed(1)}`)
       .join(' ');
     const areaPath = type === 'area' && points.length > 0
       ? `${path} L ${pointX(points.length - 1, points.length).toFixed(1)} ${height - padding} L ${padding} ${height - padding} Z`
@@ -250,8 +416,8 @@ function renderLines(
       <g key={item.key || seriesIndex}>
         {areaPath ? <path d={areaPath} fill={color} opacity="0.14" /> : null}
         <path d={path} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-        {points.map((point, index) => (
-          <circle key={`${point.timestamp || point.label || index}`} cx={pointX(index, points.length)} cy={valueY(Number(point.value))} r="2.8" fill={color} />
+        {points.map(({ point, value }, index) => (
+          <circle key={`${point.timestamp || point.label || index}`} cx={pointX(index, points.length)} cy={valueY(value)} r="2.8" fill={color} />
         ))}
       </g>
     );
@@ -266,43 +432,120 @@ function renderBars(
   valueY: (value: number) => number
 ) {
   const primary = series[0];
-  const points = (primary?.points || []).filter(point => typeof point.value === 'number');
+  const points = (primary?.points || [])
+    .map(point => ({ point, value: pointValue(point) }))
+    .filter((item): item is { point: DashboardSeriesPoint; value: number } => item.value !== null);
   const gap = 8;
   const barWidth = Math.max(8, ((width - padding * 2) / Math.max(1, points.length)) - gap);
   const color = seriesColor(primary, 0);
-  return points.map((point, index) => {
-    const value = Number(point.value);
+  return points.map(({ point, value }, index) => {
     const x = padding + index * (barWidth + gap);
     const y = valueY(value);
-    return <rect key={`${point.timestamp || point.label || index}`} x={x} y={y} width={barWidth} height={height - padding - y} rx="3" fill={color} />;
+    const centerX = x + barWidth / 2;
+    const label = point.label || point.timestamp || '';
+    return (
+      <g key={`${point.timestamp || point.label || index}`}>
+        <rect x={x} y={y} width={barWidth} height={height - padding - y} rx="3" fill={color} />
+        <text x={centerX} y={Math.max(14, y - 6)} textAnchor="middle" className="fill-[var(--text-muted)] text-[10px]">{formatChartValue(value)}</text>
+        {label ? <text x={centerX} y={height - 8} textAnchor="middle" className="fill-[var(--text-muted)] text-[10px]">{shortChartLabel(label)}</text> : null}
+      </g>
+    );
   });
 }
 
-function PieSummary({ series }: { series: DashboardChartSeries[] }) {
-  const points = series.flatMap(item => (item.points || []).map(point => ({ ...point, series: item }))).filter(point => typeof point.value === 'number');
-  const total = points.reduce((sum, point) => sum + Math.max(0, Number(point.value)), 0) || 1;
+function CircularChart({ type, series, unit }: { type: string; series: DashboardChartSeries[]; unit?: string }) {
+  const points = series.flatMap((item, seriesIndex) => (item.points || [])
+    .map((point, pointIndex) => ({ point, value: pointValue(point), series: item, color: circularPointColor(item, seriesIndex, pointIndex) }))
+    .filter((item): item is { point: DashboardSeriesPoint; value: number; series: DashboardChartSeries; color: string } => item.value !== null));
+  const total = points.reduce((sum, point) => sum + Math.max(0, point.value), 0);
+  if (total <= 0) {
+    return <div className="text-sm text-[var(--text-secondary)]">No chart data.</div>;
+  }
+  const size = 168;
+  const center = size / 2;
+  const centerSummary = circularCenterSummary(points, total, unit);
+  const radius = centerSummary || type === 'donut' ? 54 : 36;
+  const strokeWidth = centerSummary || type === 'donut' ? 22 : 72;
+  const circumference = Math.PI * 2 * radius;
+  let offset = 0;
   return (
-    <div className="space-y-2">
-      {points.map((point, index) => {
-        const value = Math.max(0, Number(point.value));
-        const percent = Math.round((value / total) * 100);
-        return (
-          <div key={`${point.series.key}-${point.label || index}`}>
-            <div className="flex items-center justify-between gap-3 text-sm">
-              <span className="inline-flex min-w-0 items-center gap-2">
-                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: seriesColor(point.series, index) }} />
-                <span className="truncate">{point.label || point.series.label || point.series.key}</span>
-              </span>
-              <span className="shrink-0 text-[var(--text-secondary)]">{formatCell(point.value)} · {percent}%</span>
+    <div className="grid min-w-0 gap-3 rounded border border-[var(--border-subtle)] bg-[var(--bg-secondary)] p-3 md:grid-cols-[minmax(128px,168px)_minmax(0,1fr)]">
+      <svg viewBox={`0 0 ${size} ${size}`} role="img" aria-label={`${type} dashboard chart`} className="h-40 w-full max-w-[168px] justify-self-center">
+        <circle cx={center} cy={center} r={radius} fill="none" stroke="currentColor" strokeWidth={strokeWidth} className="text-[var(--bg-tertiary)]" />
+        {points.map((point, index) => {
+          const value = Math.max(0, point.value);
+          const length = (value / total) * circumference;
+          const dashOffset = -offset;
+          offset += length;
+          return (
+            <circle
+              key={`${point.series.key}-${point.point.label || index}`}
+              cx={center}
+              cy={center}
+              r={radius}
+              fill="none"
+              stroke={point.color}
+              strokeWidth={strokeWidth}
+              strokeDasharray={`${length} ${Math.max(0, circumference - length)}`}
+              strokeDashoffset={dashOffset}
+              transform={`rotate(-90 ${center} ${center})`}
+            />
+          );
+        })}
+        <circle cx={center} cy={center} r={centerSummary || type === 'donut' ? 39 : 0} fill="var(--bg-secondary)" />
+        {centerSummary || type === 'donut' ? (
+          <>
+            <text x={center} y={center - 2} textAnchor="middle" className="fill-[var(--text-primary)] text-lg font-semibold">{centerSummary?.value || formatChartValue(total, unit)}</text>
+            <text x={center} y={center + 16} textAnchor="middle" className="fill-[var(--text-muted)] text-[11px]">{centerSummary?.label || 'total'}</text>
+          </>
+        ) : null}
+      </svg>
+      <div className="min-w-0 space-y-2 self-center">
+        {points.map((point, index) => {
+          const value = Math.max(0, point.value);
+          const percent = Math.round((value / total) * 100);
+          const label = point.point.label || point.series.label || point.series.key;
+          return (
+            <div key={`${point.series.key}-${point.point.label || index}`}>
+              <div className="flex min-w-0 items-start justify-between gap-3 text-sm">
+                <span className="inline-flex min-w-0 items-start gap-2">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: point.color }} />
+                  <span className="min-w-0 break-words leading-snug">{label}</span>
+                </span>
+                <span className="shrink-0 text-[var(--text-secondary)]">{formatChartValue(value, unit)} · {percent}%</span>
+              </div>
             </div>
-            <div className="mt-1 h-2 overflow-hidden rounded bg-[var(--bg-tertiary)]">
-              <div className="h-full" style={{ width: `${percent}%`, backgroundColor: seriesColor(point.series, index) }} />
-            </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
+}
+
+function circularCenterSummary(
+  points: Array<{ point: DashboardSeriesPoint; value: number; series: DashboardChartSeries; color: string }>,
+  total: number,
+  unit?: string
+): { value: string; label: string } | null {
+  const positive = points.find(item => circularPositivePointKind(item.point.label || item.series.label || item.series.key));
+  if (!positive) return null;
+  const kind = circularPositivePointKind(positive.point.label || positive.series.label || positive.series.key);
+  const value = unit ? `${formatChartValue(positive.value, unit)}/${formatChartValue(total, unit)}` : `${formatChartValue(positive.value)}/${formatChartValue(total)}`;
+  return {
+    value,
+    label: kind === 'configuration' ? 'configured' : 'ready',
+  };
+}
+
+function circularPositivePointKind(label: string | undefined): 'readiness' | 'configuration' | null {
+  const normalized = (label || '').toLowerCase();
+  if (/(configuration|configured|runtime).*present|present.*(configuration|configured|runtime)/.test(normalized)) {
+    return 'configuration';
+  }
+  if (/production ready|ready/.test(normalized) && !/not ready|blocked|missing/.test(normalized)) {
+    return 'readiness';
+  }
+  return null;
 }
 
 function seriesColor(series: DashboardChartSeries | undefined, index: number): string {
@@ -311,8 +554,82 @@ function seriesColor(series: DashboardChartSeries | undefined, index: number): s
   return ['#2563eb', '#059669', '#d97706', '#dc2626', '#7c3aed', '#0891b2'][index % 6];
 }
 
+function circularPointColor(series: DashboardChartSeries | undefined, seriesIndex: number, pointIndex: number): string {
+  const point = series?.points?.[pointIndex];
+  const label = `${point?.label || ''} ${series?.label || ''} ${series?.key || ''}`.toLowerCase();
+  if (/blocked\s+from\s+production|production\s+blocked/.test(label)) return '#2563eb';
+  if (/missing|vulnerab|failed|failure|blocked/.test(label)) return '#94a3b8';
+  if (/ready|present|configured|success|healthy/.test(label)) return '#2563eb';
+  const hasMultiplePoints = (series?.points || []).length > 1;
+  if (!hasMultiplePoints) return seriesColor(series, seriesIndex);
+  return seriesColor(undefined, pointIndex);
+}
+
+function shortChartLabel(label: string): string {
+  const trimmed = label.trim();
+  if (trimmed.length <= 16) return trimmed;
+  return `${trimmed.slice(0, 13)}...`;
+}
+
 function formatCell(value: unknown): string {
   if (value === null || value === undefined) return '';
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
   return JSON.stringify(value);
+}
+
+function renderCell(value: unknown, column: { key: string; label: string }) {
+  const booleanState = booleanCellState(value, column);
+  if (booleanState) {
+    return (
+      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${booleanState.className}`}>
+        {booleanState.label}
+      </span>
+    );
+  }
+  return formatCell(value);
+}
+
+function booleanCellState(value: unknown, column: { key: string; label: string }) {
+  const raw = formatCell(value).trim();
+  const normalized = raw.toLowerCase();
+  const trueValues = new Set(['true', 'yes', 'pass', 'passed', 'ready', 'enabled', 'healthy', 'success']);
+  const falseValues = new Set(['false', 'no', 'fail', 'failed', 'blocked', 'disabled', 'unhealthy']);
+  let boolValue: boolean | null = null;
+  if (typeof value === 'boolean') {
+    boolValue = value;
+  } else if (trueValues.has(normalized)) {
+    boolValue = true;
+  } else if (falseValues.has(normalized)) {
+    boolValue = false;
+  }
+  if (boolValue === null) return null;
+  const columnName = `${column.key} ${column.label}`.toLowerCase();
+  const riskColumn = /vulnerab|risk|error|fail|missing|blocked|critical|down|unhealthy/.test(columnName);
+  const positive = riskColumn ? !boolValue : boolValue;
+  return {
+    label: raw || String(boolValue),
+    className: positive
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100'
+      : 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-100',
+  };
+}
+
+function pointValue(point: DashboardSeriesPoint): number | null {
+  return numericValue(point.value);
+}
+
+function numericValue(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value !== 'string') return null;
+  const match = value.trim().match(numericValuePattern);
+  if (!match) return null;
+  const parsed = Number(match[0]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatChartValue(value: number, unit?: string): string {
+  const rounded = Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, '');
+  return `${rounded}${unit || ''}`;
 }
