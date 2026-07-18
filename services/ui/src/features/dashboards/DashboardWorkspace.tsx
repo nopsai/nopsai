@@ -70,6 +70,7 @@ type DashboardWorkspaceProps = {
   onScheduleDashboard: () => void;
   onEditSource: (source: DashboardSource) => void;
   onDeleteSource: (source: DashboardSource) => void;
+  onDeletePublication: (publication: DashboardPublication) => void;
   onRefreshSource: (source: DashboardSource) => void;
   onCancelRefresh: (refresh: DashboardRefresh) => void;
   onRetryRefresh: (refresh: DashboardRefresh) => void;
@@ -85,6 +86,8 @@ type RefreshScheduleScope = {
   sectionKey?: string;
   sourceID?: string;
 };
+
+type DashboardRefreshSource = NonNullable<DashboardRefresh['sources']>[number];
 
 export function DashboardWorkspace({
   dashboards,
@@ -114,6 +117,7 @@ export function DashboardWorkspace({
   onScheduleDashboard,
   onEditSource,
   onDeleteSource,
+  onDeletePublication,
   onRefreshSource,
   onCancelRefresh,
   onRetryRefresh,
@@ -300,6 +304,7 @@ export function DashboardWorkspace({
                     onToggleCollapsed={() => toggleSectionCollapsed(section.section_key)}
                     onEditSource={onEditSource}
                     onDeleteSource={onDeleteSource}
+                    onDeletePublication={onDeletePublication}
                     onRefreshSource={onRefreshSource}
                     onEditSchedule={onEditSchedule}
                     onDeleteSchedule={onDeleteSchedule}
@@ -433,6 +438,7 @@ function DashboardSectionSurface({
   onToggleCollapsed,
   onEditSource,
   onDeleteSource,
+  onDeletePublication,
   onRefreshSource,
   onEditSchedule,
   onDeleteSchedule,
@@ -447,7 +453,7 @@ function DashboardSectionSurface({
   history: DashboardEvent[];
   refreshes: DashboardRefresh[];
   activeSources: NonNullable<DashboardRefresh['sources']>;
-  latestRefreshSourceByID: Map<string, NonNullable<DashboardRefresh['sources']>[number]>;
+  latestRefreshSourceByID: Map<string, DashboardRefreshSource>;
   completeness: string;
   detailsOpen: boolean;
   collapsed: boolean;
@@ -458,6 +464,7 @@ function DashboardSectionSurface({
   onToggleCollapsed: () => void;
   onEditSource: (source: DashboardSource) => void;
   onDeleteSource: (source: DashboardSource) => void;
+  onDeletePublication: (publication: DashboardPublication) => void;
   onRefreshSource: (source: DashboardSource) => void;
   onEditSchedule: (schedule: DashboardRefreshSchedule) => void;
   onDeleteSchedule: (schedule: DashboardRefreshSchedule) => void;
@@ -512,7 +519,13 @@ function DashboardSectionSurface({
       ) : (
         <div className="grid gap-3 xl:grid-cols-2">
           {publications.map(publication => (
-            <PublicationCard key={publication.id} publication={publication} forceWide={publications.length === 1} />
+            <PublicationCard
+              key={publication.id}
+              publication={publication}
+              forceWide={publications.length === 1}
+              canWriteDashboards={canWriteDashboards}
+              onDeletePublication={onDeletePublication}
+            />
           ))}
         </div>
       )}
@@ -540,7 +553,17 @@ function DashboardSectionSurface({
   );
 }
 
-function PublicationCard({ publication, forceWide = false }: { publication: DashboardPublication; forceWide?: boolean }) {
+function PublicationCard({
+  publication,
+  forceWide = false,
+  canWriteDashboards,
+  onDeletePublication,
+}: {
+  publication: DashboardPublication;
+  forceWide?: boolean;
+  canWriteDashboards: boolean;
+  onDeletePublication: (publication: DashboardPublication) => void;
+}) {
   const wideLayout = forceWide || dashboardSpecNeedsWideLayout(publication.content);
   return (
     <article className={`min-w-0 overflow-hidden rounded-md border border-[var(--border-subtle)] bg-[var(--bg-tertiary)] shadow-sm ${wideLayout ? 'xl:col-span-2' : ''}`}>
@@ -551,9 +574,19 @@ function PublicationCard({ publication, forceWide = false }: { publication: Dash
             {publication.pipeline_id} / {publication.output_name} / {runScopeLabel(publication.run_scope)}
           </div>
         </div>
-        <span className={`rounded-md px-2 py-1 text-xs ${publication.stale ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/30 dark:text-amber-100' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100'}`}>
-          {staleLabel(publication)}
-        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className={`rounded-md px-2 py-1 text-xs ${publication.stale ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/30 dark:text-amber-100' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100'}`}>
+            {staleLabel(publication)}
+          </span>
+          {canWriteDashboards ? (
+            <ToolbarButton
+              label={`Remove entry ${publication.entry_key}`}
+              icon={<Trash2 className="h-4 w-4" />}
+              onClick={() => onDeletePublication(publication)}
+              danger
+            />
+          ) : null}
+        </div>
       </header>
       <div className="p-4">
         <DashboardBlocks spec={publication.content} />
@@ -609,10 +642,12 @@ function SectionRunningSources({
             <div key={source.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-md bg-white/70 px-3 py-2 dark:bg-slate-900/40">
               <div className="min-w-0">
                 <div className="truncate text-xs font-semibold">{source.output_name || source.entry_key || 'Dashboard output'}</div>
-                <div className="truncate text-xs opacity-80">{source.pipeline_id} / {source.entry_key || 'default entry'} / {runScopeLabel(source.run_scope)}</div>
+                <div className="truncate text-xs opacity-80">{source.pipeline_id} / {source.entry_key || 'output name'} / {runScopeLabel(source.run_scope)}</div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  <RefreshSourceStatusBadges source={source} />
+                </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                <StatusBadge status={source.status} />
                 {source.run_id ? (
                   <Link className="text-xs font-semibold text-[var(--accent)] hover:underline" to={runDetailHref(source.run_id)}>
                     Run {source.run_id.slice(0, 8)}
@@ -790,7 +825,7 @@ function SourceRow({
   onRefreshSource,
 }: {
   source: DashboardSource;
-  refreshSource?: NonNullable<DashboardRefresh['sources']>[number];
+  refreshSource?: DashboardRefreshSource;
   activeRefresh: DashboardRefresh | null;
   canWriteDashboards: boolean;
   onEditSource: (source: DashboardSource) => void;
@@ -802,13 +837,14 @@ function SourceRow({
       <div className="min-w-0">
         <div className="truncate text-sm font-medium text-[var(--text-primary)]">{source.pipeline_id}</div>
         <div className="mt-1 truncate text-xs text-[var(--text-muted)]">
-          {source.output_name}{source.entry_key ? ` / ${source.entry_key}` : ''} / {runScopeLabel(source.run_scope)} / order {source.refresh_order}
+          {source.output_name}{source.entry_key ? ` / ${source.entry_key}` : ' / output name'} / {runScopeLabel(source.run_scope)} / order {source.refresh_order}
         </div>
         <div className="mt-2 flex flex-wrap gap-1 text-xs">
           <Badge>{source.enabled ? 'Enabled' : 'Disabled'}</Badge>
           <Badge>{source.required_for_refresh ? 'Required' : 'Optional'}</Badge>
-          {refreshSource ? <StatusBadge status={refreshSource.status} /> : null}
+          {refreshSource ? <RefreshSourceStatusBadges source={refreshSource} /> : null}
         </div>
+        {refreshSource ? <RefreshSourceTiming source={refreshSource} /> : null}
         {refreshSource?.error ? <div className="mt-1 text-xs text-rose-600">{refreshSource.error}</div> : null}
       </div>
       {canWriteDashboards ? (
@@ -1025,9 +1061,12 @@ function RefreshPanel({
               <div className="truncate text-xs font-medium text-[var(--text-primary)]">{source.pipeline_id}</div>
               <div className="mt-1 flex flex-wrap gap-2 text-xs text-[var(--text-muted)]">
                 <span>{source.section_key} / {source.output_name} / {runScopeLabel(source.run_scope)}</span>
-                <span>{refreshStatusLabel(source.status)}</span>
                 <span>{source.required ? 'required' : 'optional'}</span>
               </div>
+              <div className="mt-2 flex flex-wrap gap-1 text-xs">
+                <RefreshSourceStatusBadges source={source} />
+              </div>
+              <RefreshSourceTiming source={source} />
               {source.error ? <div className="mt-1 text-xs text-rose-600">{source.error}</div> : null}
             </div>
           ))}
@@ -1079,12 +1118,75 @@ function StatusBadge({ status }: { status: string }) {
   const normalized = status.toLowerCase();
   const tone = normalized === 'complete' || normalized === 'success' || normalized === 'published'
     ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100'
-    : normalized === 'running'
+    : normalized === 'running' || normalized === 'generating'
       ? 'bg-sky-100 text-sky-800 dark:bg-sky-950/30 dark:text-sky-100'
-      : normalized === 'failed' || normalized === 'timed_out'
+      : normalized === 'queued' || normalized === 'pending'
+        ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/30 dark:text-amber-100'
+      : normalized === 'failed' || normalized === 'failure' || normalized === 'timed_out'
         ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/30 dark:text-rose-100'
-        : 'bg-[var(--bg-primary)] text-[var(--text-secondary)]';
+        : normalized === 'cancelled'
+          ? 'bg-orange-100 text-orange-800 dark:bg-orange-950/30 dark:text-orange-100'
+          : 'bg-[var(--bg-primary)] text-[var(--text-secondary)]';
   return <span className={`rounded-md px-2 py-1 text-xs ${tone}`}>{refreshStatusLabel(status)}</span>;
+}
+
+function RefreshSourceStatusBadges({ source }: { source: DashboardRefreshSource }) {
+  const pipelineStatus = source.pipeline_status || source.status;
+  const outputStatus = source.output_status || legacyOutputStatus(source.status);
+  return (
+    <>
+      <LabeledStatusBadge label="Refresh" status={source.status} />
+      {pipelineStatus ? <LabeledStatusBadge label="Pipeline" status={pipelineStatus} /> : null}
+      {outputStatus ? <LabeledStatusBadge label="Output" status={outputStatus} /> : null}
+    </>
+  );
+}
+
+function LabeledStatusBadge({ label, status }: { label: string; status: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md bg-[var(--bg-secondary)] p-1 dark:bg-black/20">
+      <span className="px-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">{label}</span>
+      <StatusBadge status={status} />
+    </span>
+  );
+}
+
+function RefreshSourceTiming({ source }: { source: DashboardRefreshSource }) {
+  const outputDuration = source.output_duration || (source.output_duration_seconds ? formatDurationSeconds(source.output_duration_seconds) : '');
+  const parts = [
+    source.pipeline_finished_at
+      ? `Pipeline finished ${formatDateTime(source.pipeline_finished_at)}`
+      : source.pipeline_started_at
+        ? `Pipeline started ${formatDateTime(source.pipeline_started_at)}`
+        : '',
+    source.output_updated_at
+      ? `Output updated ${formatDateTime(source.output_updated_at)}`
+      : source.output_created_at
+        ? `Output created ${formatDateTime(source.output_created_at)}`
+        : '',
+    outputDuration ? `Output duration ${outputDuration}` : '',
+  ].filter(Boolean);
+  if (parts.length === 0) return null;
+  return <div className="mt-1 text-xs text-[var(--text-muted)]">{parts.join(' / ')}</div>;
+}
+
+function legacyOutputStatus(status: string) {
+  const normalized = status.toLowerCase();
+  if (normalized === 'success') return 'success';
+  if (normalized === 'failed') return 'failure';
+  if (normalized === 'cancelled' || normalized === 'timed_out') return normalized;
+  return '';
+}
+
+function formatDurationSeconds(rawSeconds: number) {
+  const seconds = Math.max(0, Math.round(rawSeconds));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  if (minutes < 60) return remainingSeconds ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
 }
 
 function ActionMenu({
@@ -1232,10 +1334,10 @@ function sectionRunHistoryItems(refreshes: DashboardRefresh[], history: Dashboar
       items.push({
         id: `run-${refresh.id}-${source.id}`,
         type: 'run',
-        status: source.status || refresh.status,
+        status: source.output_status || source.pipeline_status || source.status || refresh.status,
         title: source.output_name || source.entry_key || 'Dashboard output',
-        subtitle: `${source.pipeline_id}${source.entry_key ? ` / ${source.entry_key}` : ''} / ${runScopeLabel(source.run_scope)} / ${source.required ? 'required' : 'optional'} / ${refresh.trigger_type}`,
-        timestamp: source.finished_at || source.started_at || source.updated_at || source.created_at || refresh.updated_at || refresh.created_at,
+        subtitle: `${source.pipeline_id}${source.entry_key ? ` / ${source.entry_key}` : ' / output name'} / ${runScopeLabel(source.run_scope)} / ${refreshSourceProgressLabel(source)} / ${source.required ? 'required' : 'optional'} / ${refresh.trigger_type}`,
+        timestamp: source.output_updated_at || source.pipeline_finished_at || source.finished_at || source.started_at || source.updated_at || source.created_at || refresh.updated_at || refresh.created_at,
         runID: source.run_id,
         refreshID: refresh.id,
         error: source.error || refresh.error,
@@ -1267,6 +1369,12 @@ function sectionRunHistoryItems(refreshes: DashboardRefresh[], history: Dashboar
     });
   }
   return items.sort((left, right) => new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime());
+}
+
+function refreshSourceProgressLabel(source: DashboardRefreshSource) {
+  const pipeline = source.pipeline_status || source.status || 'queued';
+  const output = source.output_status || legacyOutputStatus(source.status) || 'pending';
+  return `pipeline ${refreshStatusLabel(pipeline)} / output ${refreshStatusLabel(output)}`;
 }
 
 function scheduleScopeLabel(schedule: DashboardRefreshSchedule): string {

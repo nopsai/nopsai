@@ -48,8 +48,8 @@ func allHostedMCPTools() []hostedMCPTool {
 		toolDef("nopsai.propose_pipeline_create", "Validate pipeline YAML and return a GitOps-ready create file plan without applying changes.", "pipeline.create", "pipeline", "*", objectSchema(map[string]any{"pipeline": stringSchema(), "path": stringSchema(), "name": stringSchema(), "yaml": stringSchema(), "message": stringSchema()})),
 		toolDef("nopsai.propose_pipeline_update", "Validate pipeline YAML and return a GitOps-ready update file plan without applying changes.", "pipeline.update", "pipeline", "*", objectSchema(map[string]any{"pipeline": stringSchema(), "path": stringSchema(), "name": stringSchema(), "yaml": stringSchema(), "message": stringSchema()})),
 		toolDef("nopsai.list_pipeline_runs", "List recent pipeline runs visible to the current user.", "pipeline_run.list", "pipeline_run", "*", objectSchema(map[string]any{"limit": numberSchema()})),
-		toolDef("nopsai.get_pipeline_run", "Read pipeline run status and metadata.", "pipeline_run.read", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema()})),
-		toolDef("nopsai.get_pipeline_run_output", "Read a contract-validated final output, its structured source when applicable, and generation/render audit counts for a pipeline run.", "pipeline_run.read", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema(), "output_id": stringSchema(), "name": stringSchema()})),
+		toolDef("nopsai.get_pipeline_run", "Read run status, scope, trigger subject, Git data, timings, and output summaries.", "pipeline_run.read", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema()})),
+		toolDef("nopsai.get_pipeline_run_output", "Read final output content, timing, and generation/render audit counts.", "pipeline_run.read", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema(), "output_id": stringSchema(), "name": stringSchema()})),
 		toolDef("nopsai.get_pipeline_run_logs", "Read recent pipeline run logs.", "pipeline_run.read_logs", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema(), "limit": numberSchema()})),
 		toolDef("nopsai.analyze_pipeline_run_failure", "Analyze a failed pipeline run from status and log excerpts.", "pipeline_run.read_logs", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema()})),
 		toolDef("nopsai.list_triggers", "List repository triggers.", "trigger.read", "trigger", "*", objectSchema(map[string]any{"limit": numberSchema()})),
@@ -60,7 +60,7 @@ func allHostedMCPTools() []hostedMCPTool {
 		toolDef("nopsai.propose_schedule_change", "Draft a schedule change without applying it.", "pipeline_schedule.update", "pipeline_schedule", "*", objectSchema(map[string]any{"schedule_id": stringSchema(), "change": stringSchema()})),
 		toolDef("nopsai.list_dashboards", "List team-owned dashboards visible to the current user.", "dashboard.list", "dashboard", "*", objectSchema(map[string]any{"team": stringSchema(), "team_path": stringSchema(), "query": stringSchema(), "q": stringSchema(), "limit": numberSchema()})),
 		toolDef("nopsai.get_dashboard", "Read a dashboard with sections, current publications, source bindings, and provenance.", "dashboard.read", "dashboard", "*", objectSchema(map[string]any{"dashboard_id": stringSchema(), "id": stringSchema(), "ref": stringSchema(), "include_history": booleanSchema()})),
-		toolDef("nopsai.list_dashboard_refreshes", "List dashboard refresh records and per-source progress.", "dashboard.read", "dashboard", "*", objectSchema(map[string]any{"dashboard_id": stringSchema(), "id": stringSchema(), "ref": stringSchema(), "limit": numberSchema()})),
+		toolDef("nopsai.list_dashboard_refreshes", "List dashboard refreshes with source, pipeline, and output progress.", "dashboard.read", "dashboard", "*", objectSchema(map[string]any{"dashboard_id": stringSchema(), "id": stringSchema(), "ref": stringSchema(), "limit": numberSchema()})),
 		toolDef("nopsai.list_dashboard_refresh_schedules", "List scheduled dashboard refresh definitions.", "dashboard.read", "dashboard", "*", objectSchema(map[string]any{"dashboard_id": stringSchema(), "id": stringSchema(), "ref": stringSchema()})),
 		toolDef("nopsai.refresh_dashboard", "Start a confirmed dashboard, section, or source refresh.", "dashboard.refresh", "dashboard", "*", objectSchema(map[string]any{"dashboard_id": stringSchema(), "id": stringSchema(), "ref": stringSchema(), "scope_type": stringSchema(), "section_key": stringSchema(), "source_id": stringSchema(), "mode": stringSchema(), "run_scope": stringSchema(), "timeout": stringSchema(), "max_concurrency": numberSchema(), "idempotency_key": stringSchema(), "variables": objectSchema(map[string]any{}), "confirm": booleanSchema()})),
 		toolDef("nopsai.run_dashboard_refresh_schedule", "Run a scheduled dashboard refresh immediately. Requires confirm:true.", "dashboard.refresh", "dashboard", "*", objectSchema(map[string]any{"dashboard_id": stringSchema(), "id": stringSchema(), "ref": stringSchema(), "schedule_id": stringSchema(), "name": stringSchema(), "confirm": booleanSchema()})),
@@ -700,17 +700,40 @@ func (a *App) hostedMCPGetPipelineRun(ctx context.Context, args map[string]any) 
 	if runID == "" {
 		return nil, fmt.Errorf("run_id is required")
 	}
-	var path, name, version, status, source, scope, failureReason, triggerSource string
+	var path, name, version, status, source, scope, failureReason, triggerSource, triggerEventID string
+	var gitRepoOwner, gitRepoName, gitCloneURL, gitSSHURL, gitRef, gitTargetRef string
+	var gitCommitSHA, gitCommitURL, gitCommitMessage, gitCommitAuthorName, gitCommitAuthorEmail, gitCommitAuthorUsername string
+	var gitPusherName, gitPusherEmail string
+	var requestedByType, requestedByID, effectiveSubjectType, effectiveSubjectID, runtimeVariableOverridesRaw string
 	var definition sql.NullString
+	var teamID int
+	var gitCheckRunID int64
 	var createdAt time.Time
-	var startedAt, finishedAt sql.NullTime
+	var startedAt, finishedAt, timeoutAt sql.NullTime
 	err := a.db.QueryRow(ctx, `
 		SELECT COALESCE(pipeline_path, ''), COALESCE(pipeline_name, ''), pipeline_version, status, COALESCE(pipeline_source, ''),
 		       COALESCE(scope, ''), COALESCE(failure_reason, ''), COALESCE(trigger_source, ''), pipeline_definition,
-		       created_at, started_at, finished_at
+		       COALESCE(trigger_event_id, ''), COALESCE(git_repo_owner, ''), COALESCE(git_repo_name, ''),
+		       COALESCE(git_clone_url, ''), COALESCE(git_ssh_url, ''), COALESCE(git_ref, ''),
+		       COALESCE(git_target_ref, ''), COALESCE(git_commit_sha, ''), COALESCE(git_commit_url, ''),
+		       COALESCE(git_commit_message, ''), COALESCE(git_commit_author_name, ''),
+		       COALESCE(git_commit_author_email, ''), COALESCE(git_commit_author_username, ''),
+		       COALESCE(git_pusher_name, ''), COALESCE(git_pusher_email, ''),
+		       COALESCE(git_check_run_id, 0)::bigint, COALESCE(team_id, 0)::int,
+		       COALESCE(requested_by_type, ''), COALESCE(requested_by_id, ''),
+		       COALESCE(effective_subject_type, ''), COALESCE(effective_subject_id, ''),
+		       COALESCE(runtime_variable_overrides::text, '{}'),
+		       created_at, started_at, finished_at, timeout_at
 		FROM pipeline_runs
 		WHERE run_id::text = $1
-	`, runID).Scan(&path, &name, &version, &status, &source, &scope, &failureReason, &triggerSource, &definition, &createdAt, &startedAt, &finishedAt)
+	`, runID).Scan(
+		&path, &name, &version, &status, &source, &scope, &failureReason, &triggerSource, &definition,
+		&triggerEventID, &gitRepoOwner, &gitRepoName, &gitCloneURL, &gitSSHURL, &gitRef, &gitTargetRef,
+		&gitCommitSHA, &gitCommitURL, &gitCommitMessage, &gitCommitAuthorName, &gitCommitAuthorEmail,
+		&gitCommitAuthorUsername, &gitPusherName, &gitPusherEmail, &gitCheckRunID, &teamID,
+		&requestedByType, &requestedByID, &effectiveSubjectType, &effectiveSubjectID, &runtimeVariableOverridesRaw,
+		&createdAt, &startedAt, &finishedAt, &timeoutAt,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -719,28 +742,53 @@ func (a *App) hostedMCPGetPipelineRun(ctx context.Context, args map[string]any) 
 		return nil, err
 	}
 	return map[string]any{
-		"run_id":              runID,
-		"pipeline_id":         aaamodel.BuildPipelineID(path, name),
-		"pipeline_path":       path,
-		"pipeline_name":       name,
-		"pipeline_version":    version,
-		"pipeline_definition": definition.String,
-		"status":              status,
-		"source":              source,
-		"scope":               scope,
-		"trigger_source":      triggerSource,
-		"failure_reason":      failureReason,
-		"created_at":          createdAt,
-		"started_at":          hostedMCPNullableTime(startedAt),
-		"finished_at":         hostedMCPNullableTime(finishedAt),
-		"final_outputs":       outputs,
+		"run_id":                 runID,
+		"pipeline_id":            aaamodel.BuildPipelineID(path, name),
+		"pipeline_path":          path,
+		"pipeline_name":          name,
+		"pipeline_version":       version,
+		"pipeline_definition":    definition.String,
+		"status":                 status,
+		"source":                 source,
+		"scope":                  scope,
+		"trigger_source":         triggerSource,
+		"trigger_event_id":       triggerEventID,
+		"requested_by_type":      requestedByType,
+		"requested_by_id":        requestedByID,
+		"effective_subject_type": effectiveSubjectType,
+		"effective_subject_id":   effectiveSubjectID,
+		"team_id":                teamID,
+		"failure_reason":         failureReason,
+		"git": map[string]any{
+			"repo_owner":             gitRepoOwner,
+			"repo_name":              gitRepoName,
+			"clone_url":              gitCloneURL,
+			"ssh_url":                gitSSHURL,
+			"ref":                    gitRef,
+			"target_ref":             gitTargetRef,
+			"commit_sha":             gitCommitSHA,
+			"commit_url":             gitCommitURL,
+			"commit_message":         gitCommitMessage,
+			"commit_author_name":     gitCommitAuthorName,
+			"commit_author_email":    gitCommitAuthorEmail,
+			"commit_author_username": gitCommitAuthorUsername,
+			"pusher_name":            gitPusherName,
+			"pusher_email":           gitPusherEmail,
+			"check_run_id":           gitCheckRunID,
+		},
+		"runtime_variable_overrides": scanJSONMap(runtimeVariableOverridesRaw),
+		"created_at":                 createdAt,
+		"started_at":                 hostedMCPNullableTime(startedAt),
+		"finished_at":                hostedMCPNullableTime(finishedAt),
+		"timeout_at":                 hostedMCPNullableTime(timeoutAt),
+		"final_outputs":              outputs,
 	}, nil
 }
 
 func (a *App) hostedMCPPipelineRunOutputSummaries(ctx context.Context, runID string) ([]map[string]any, error) {
 	rows, err := a.db.Query(ctx, `
 		SELECT id::text, name, type, status, error, llm_profile,
-		       generation_attempts, contract_violations, render_attempts, render_failures, updated_at
+		       generation_attempts, contract_violations, render_attempts, render_failures, created_at, updated_at
 		FROM pipeline_run_outputs
 		WHERE run_id::text = $1
 		ORDER BY item_index ASC, created_at ASC
@@ -754,7 +802,7 @@ func (a *App) hostedMCPPipelineRunOutputSummaries(ctx context.Context, runID str
 	for rows.Next() {
 		var id, name, outputType, status, errorText, profile string
 		var generationAttempts, contractViolations, renderAttempts, renderFailures int
-		var updatedAt time.Time
+		var createdAt, updatedAt time.Time
 		if err := rows.Scan(
 			&id,
 			&name,
@@ -766,22 +814,27 @@ func (a *App) hostedMCPPipelineRunOutputSummaries(ctx context.Context, runID str
 			&contractViolations,
 			&renderAttempts,
 			&renderFailures,
+			&createdAt,
 			&updatedAt,
 		); err != nil {
 			return nil, err
 		}
+		duration, durationSeconds := pipelineOutputGenerationDuration(createdAt, updatedAt)
 		outputs = append(outputs, map[string]any{
-			"id":                  id,
-			"name":                name,
-			"type":                outputType,
-			"status":              status,
-			"error":               errorText,
-			"llm_profile":         profile,
-			"generation_attempts": generationAttempts,
-			"contract_violations": contractViolations,
-			"render_attempts":     renderAttempts,
-			"render_failures":     renderFailures,
-			"updated_at":          updatedAt,
+			"id":                          id,
+			"name":                        name,
+			"type":                        outputType,
+			"status":                      status,
+			"error":                       errorText,
+			"llm_profile":                 profile,
+			"generation_attempts":         generationAttempts,
+			"contract_violations":         contractViolations,
+			"render_attempts":             renderAttempts,
+			"render_failures":             renderFailures,
+			"created_at":                  createdAt,
+			"updated_at":                  updatedAt,
+			"generation_duration":         duration,
+			"generation_duration_seconds": durationSeconds,
 		})
 	}
 	return outputs, rows.Err()
@@ -833,22 +886,25 @@ func (a *App) hostedMCPGetPipelineRunOutput(ctx context.Context, args map[string
 	if err != nil {
 		return nil, err
 	}
+	output.GenerationDuration, output.GenerationSeconds = pipelineOutputGenerationDuration(output.CreatedAt, output.UpdatedAt)
 	return map[string]any{
 		"run_id": runID,
 		"output": map[string]any{
-			"id":                  output.ID,
-			"name":                output.Name,
-			"type":                output.Type,
-			"status":              output.Status,
-			"content":             output.Content,
-			"error":               output.Error,
-			"llm_profile":         output.LLMProfile,
-			"generation_attempts": output.GenerationAttempts,
-			"contract_violations": output.ContractViolations,
-			"render_attempts":     output.RenderAttempts,
-			"render_failures":     output.RenderFailures,
-			"created_at":          output.CreatedAt,
-			"updated_at":          output.UpdatedAt,
+			"id":                          output.ID,
+			"name":                        output.Name,
+			"type":                        output.Type,
+			"status":                      output.Status,
+			"content":                     output.Content,
+			"error":                       output.Error,
+			"llm_profile":                 output.LLMProfile,
+			"generation_attempts":         output.GenerationAttempts,
+			"contract_violations":         output.ContractViolations,
+			"render_attempts":             output.RenderAttempts,
+			"render_failures":             output.RenderFailures,
+			"created_at":                  output.CreatedAt,
+			"updated_at":                  output.UpdatedAt,
+			"generation_duration":         output.GenerationDuration,
+			"generation_duration_seconds": output.GenerationSeconds,
 		},
 	}, nil
 }
@@ -1493,7 +1549,7 @@ output:
 
 Pipeline authors describe the dashboard they want. NopsAI sends emitted step output evidence first, then run metadata, recent same-pipeline run history, pipeline context, step and task durations, child runs, and dashboard intent to the configured LLM, then validates and repairs the generated DashboardSpec before publication. Emitted step stdout/stderr, including plain echo output and structured JSON/NDJSON, is authoritative for business facts such as artifact names, versions, durations, services, and subjects; configured container images, runner/runtime metadata, image-pull logs, and recent-history values must not replace values present in emitted step output. For example, the prompt can say: "Show how many images were built, which version each image used, how long each image build took, and the most important subject in this pipeline." NopsAI chooses the dashboard structure dynamically from the prompt and evidence. If the prompt does not specify a visualization, NopsAI guides the model to choose by data shape: text or callout for narrative conclusions, status/progress/properties for current state and scalar facts, tables for repeated records, bar charts for categorical counts, durations, and rankings, line or area charts for time series, and pie or donut charts only for bounded part-to-whole data. Generated dashboard output uses a flat top-level blocks array; common generated wrappers such as top-level widgets, sections[].blocks, and nested blocks/widgets wrappers are normalized before strict validation, and display key aliases are normalized to labels. Authors do not need to know or target the dashboard renderer schema. Emit structured evidence such as JSON to stdout/stderr when the dashboard should use rich or nested data produced by a step.
 
-The dashboard itself can be managed by GitOps under dashboards/platform/engineering-health.yaml with a section whose section_key is service-health and a source binding whose pipeline_id is service-health-dashboard and output_name is service-health-widgets.
+The dashboard itself can be managed by GitOps under dashboards/platform/engineering-health.yaml with a section whose section_key is service-health and a source binding whose pipeline_id is service-health-dashboard and output_name is service-health-widgets. A source binding may leave entry_key empty to use the output name as the dashboard entry key; this is how operators remove an explicit entry-key binding without breaking output-name fallback publication. Operators can also remove a visible section entry card through the dashboard publication DELETE route; this archives the current publication and writes history without deleting sources or runs. Dashboard refresh source rows keep the refresh rollup status separate from the launched pipeline status and the final output status so a finished pipeline is not confused with a finished output.
 `),
 	},
 	{
@@ -1512,7 +1568,7 @@ The dashboard itself can be managed by GitOps under dashboards/platform/engineer
 
 Dashboard outputs use type: dashboard. Authors write the dashboard intent in prompt; NopsAI supplies emitted step output first as authoritative business evidence, then run metadata, recent same-pipeline run history, step and task durations, and child runs to the configured LLM. It guides visualization selection when the prompt does not name one, normalizes common generated wrappers such as sections[].blocks, widgets, or nested blocks/widgets wrappers into flat DashboardSpec blocks, normalizes display key aliases to labels, validates the generated DashboardSpec, and retries invalid generations.
 
-Dashboard outputs are published to team-owned dashboards when their output.items[].dashboard target is valid and the run subject has dashboard.publish. Publication modes are replace, append, snapshot, and series.
+Dashboard outputs are published to team-owned dashboards when their output.items[].dashboard target is valid and the run subject has dashboard.publish. Publication modes are replace, append, snapshot, and series. Run detail and hosted MCP final-output responses include created_at, updated_at, generation_duration, and generation_duration_seconds so operators can inspect output generation timing separately from the pipeline run duration.
 `),
 	},
 }

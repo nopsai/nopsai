@@ -56,6 +56,7 @@ export type RefreshScheduleModalState =
 export type DashboardDeleteModalState =
   | { kind: 'dashboard'; dashboard: DashboardSummary }
   | { kind: 'section'; section: DashboardSection }
+  | { kind: 'publication'; publication: DashboardPublication }
   | { kind: 'source'; source: DashboardSource }
   | { kind: 'schedule'; schedule: DashboardRefreshSchedule };
 
@@ -724,7 +725,7 @@ export function SourceModal({
         sectionKey={form.sectionKey}
         pipelineID={form.pipelineID}
         outputName={form.outputName}
-        entryKey={form.entryKey || selectedOutput?.entryKey || ''}
+        entryKey={form.entryKey}
         runScope={form.runScope}
         selectedOutput={selectedOutput}
       />
@@ -1301,7 +1302,7 @@ function SourceMappingPreview({
   runScope: string;
   selectedOutput?: DashboardPipelineOutputOption;
 }) {
-  const entryLabel = entryKey || (outputName ? `output:${outputName}` : '-');
+  const entryLabel = entryKey || (outputName ? `Use output name (${outputName})` : '-');
   const rows = [
     ['Dashboard', dashboardRef || '-'],
     ['Section', sectionKey || '-'],
@@ -1382,12 +1383,22 @@ function deleteTargetCopy(modal: DashboardDeleteModalState): {
       impact: 'Future automated refreshes for this schedule stop immediately. Existing refresh records, publications, and pipeline runs remain available for audit.',
     };
   }
+  if (modal.kind === 'publication') {
+    const name = modal.publication.content.title || modal.publication.entry_key;
+    return {
+      kicker: 'entry',
+      name,
+      sectionTitle: 'Dashboard entry removal',
+      description: 'Removes this visible dashboard card from its section.',
+      impact: 'The current publication is archived and a removal event is written to history. Source bindings, refresh records, and pipeline runs remain available for audit, and a future refresh can publish the entry again.',
+    };
+  }
   return {
     kicker: 'source',
     name: `${modal.source.pipeline_id}/${modal.source.output_name}`,
     sectionTitle: 'Source binding removal',
     description: 'Deletes this dashboard source binding from the selected section.',
-    impact: 'The pipeline output will no longer refresh this dashboard entry. Existing publications remain visible until replaced or removed by section/dashboard cleanup.',
+    impact: 'The pipeline output will no longer refresh this dashboard entry. Existing publications remain visible until replaced, removed from the section card, or cleared by section/dashboard cleanup.',
   };
 }
 

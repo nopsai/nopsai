@@ -213,6 +213,7 @@ fields. Prometheus exports:
 - `nopsai_pipeline_final_output_retries_total`
 - `nopsai_pipeline_final_output_render_attempts_total`
 - `nopsai_pipeline_final_output_render_failures_total`
+- `nopsai_pipeline_final_output_generation_duration_seconds`
 - `nopsai_dashboard_publications`
 - `nopsai_dashboard_publication_events_total`
 - `nopsai_dashboard_publications_total`

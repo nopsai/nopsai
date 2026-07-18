@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, BarChart3, FileText, RefreshCw, Square, Trash2, Workflow, X } from 'lucide-react';
+import { ArrowRight, BarChart3, FileText, Info, RefreshCw, Square, Trash2, Workflow, X } from 'lucide-react';
 import type { PipelineDefinition, PipelineRunFinalOutput, RunListItem, StepDetail } from './contracts';
 import { BranchIcon, CommitIcon, RunIdIcon, StatusBadge, ZapIcon } from './PipelineRunCards';
 import { RunFinalOutputs } from './RunFinalOutputs';
@@ -10,6 +11,7 @@ import {
   formatAIUsageBreakdown,
   formatBranchDisplay,
   formatRepoLabel,
+  formatRunTimestamp,
   formatTokenCount,
   formatTriggerId,
   runActivityTimestamp,
@@ -85,6 +87,7 @@ export function RunDetailView({
   approvalDecisionPending: string | null;
 }) {
   const run = detail.run_info;
+  const [metadataOpen, setMetadataOpen] = useState(false);
   const normalizedStatus = normalizeStatus(run.status, run.is_complete);
   const isActiveRun = normalizedStatus === 'running' || normalizedStatus === 'pending' || normalizedStatus === 'waiting_approval';
   const approvals = detail.approvals || [];
@@ -259,6 +262,16 @@ export function RunDetailView({
                   <BarChart3 className="h-4 w-4 text-current" aria-hidden="true" />
                   Usage
                 </Link>
+                <button
+                  className={ghostAction}
+                  type="button"
+                  onClick={() => setMetadataOpen(open => !open)}
+                  aria-expanded={metadataOpen}
+                  aria-controls="pipeline-run-metadata"
+                >
+                  <Info className="h-4 w-4 text-current" aria-hidden="true" />
+                  Info
+                </button>
                 {pipelineLink ? (
                   <Link className={ghostAction} to={pipelineLink}>
                     <Workflow className="h-4 w-4 text-current" aria-hidden="true" />
@@ -344,6 +357,8 @@ export function RunDetailView({
           </div>
         </div>
       </div>
+
+      {metadataOpen ? <RunMetadataPanel run={run} /> : null}
 
       {error && <div className="text-red-500 text-sm">{error}</div>}
 
@@ -456,4 +471,135 @@ export function RunDetailView({
       )}
     </div>
   );
+}
+
+function RunMetadataPanel({ run }: { run: RunListItem }) {
+  const runtimeOverrides = Object.entries(run.runtime_variable_overrides || {}).sort(([a], [b]) => a.localeCompare(b));
+  const runItems = [
+    { label: 'Pipeline ID', value: pipelineID(run) },
+    { label: 'Pipeline path', value: run.pipeline_path },
+    { label: 'Pipeline name', value: run.pipeline_name },
+    { label: 'Version', value: run.pipeline_version },
+    { label: 'Pipeline source', value: run.pipeline_source },
+    { label: 'Status', value: run.status },
+    { label: 'Scope', value: run.scope || 'Default scope' },
+    { label: 'Team ID', value: run.team_id ? String(run.team_id) : '' },
+    { label: 'Run ID', value: run.run_id },
+    { label: 'Parent run ID', value: run.parent_run_id || '' },
+    { label: 'Created', value: formatRunTimestamp(run.created_at) },
+    { label: 'Started', value: formatRunTimestamp(run.started_at) },
+    { label: 'Finished', value: formatRunTimestamp(run.finished_at) },
+    { label: 'Timeout', value: formatRunTimestamp(run.timeout_at) },
+    { label: 'Duration', value: run.duration },
+    { label: 'Failure reason', value: run.failure_reason, wide: true },
+  ];
+  const triggerItems = [
+    { label: 'Trigger source', value: run.trigger_source },
+    { label: 'Trigger event ID', value: run.trigger_event_id },
+    { label: 'Requested by', value: subjectLabel(run.requested_by_type, run.requested_by_id) },
+    { label: 'Effective subject', value: subjectLabel(run.effective_subject_type, run.effective_subject_id) },
+    { label: 'Schedule', value: scheduleLabel(run) },
+    { label: 'External trigger', value: externalTriggerLabel(run) },
+    { label: 'External caller', value: subjectLabel(run.external_trigger_caller_type, run.external_trigger_caller_id) },
+    { label: 'External event type', value: run.external_trigger_event_type },
+    { label: 'Idempotency key', value: run.external_trigger_idempotency_key, wide: true },
+  ];
+  const gitItems = [
+    { label: 'Repository', value: formatRepoLabel(run) },
+    { label: 'Clone URL', value: run.git_clone_url, wide: true },
+    { label: 'SSH URL', value: run.git_ssh_url, wide: true },
+    { label: 'Ref', value: run.git_ref },
+    { label: 'Target ref', value: run.git_target_ref },
+    { label: 'Commit SHA', value: run.git_commit_sha },
+    { label: 'Commit URL', value: run.git_commit_url, wide: true },
+    { label: 'Commit author', value: subjectLabel(run.git_commit_author_name, run.git_commit_author_email) },
+    { label: 'Commit author username', value: run.git_commit_author_username },
+    { label: 'Pusher', value: subjectLabel(run.git_pusher_name, run.git_pusher_email) },
+    { label: 'Check run ID', value: run.git_check_run_id ? String(run.git_check_run_id) : '' },
+    { label: 'Commit message', value: run.git_commit_message, wide: true },
+  ];
+
+  return (
+    <section
+      id="pipeline-run-metadata"
+      className="rounded-2xl border border-[var(--border-primary)] bg-white p-4 shadow-sm dark:border-white/10 dark:bg-slate-950"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="font-semibold text-[var(--text-primary)]">Run Metadata</h3>
+        <span className="text-xs text-[var(--text-secondary)]">{run.run_id}</span>
+      </div>
+      <div className="mt-4 grid gap-4 xl:grid-cols-3">
+        <MetadataGroup title="Run" items={runItems} />
+        <MetadataGroup title="Trigger" items={triggerItems} />
+        <MetadataGroup title="Git" items={gitItems} />
+      </div>
+      <div className="mt-4 rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-3 dark:border-white/10">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Runtime variable overrides</div>
+        {runtimeOverrides.length > 0 ? (
+          <div className="mt-2 grid gap-2 md:grid-cols-2">
+            {runtimeOverrides.map(([key, value]) => (
+              <MetadataValue key={key} label={key} value={metadataValue(value)} />
+            ))}
+          </div>
+        ) : (
+          <div className="mt-2 text-xs text-[var(--text-secondary)]">No overrides recorded</div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function MetadataGroup({ title, items }: { title: string; items: Array<{ label: string; value?: string | null; wide?: boolean }> }) {
+  return (
+    <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-3 dark:border-white/10">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">{title}</div>
+      <div className="mt-3 grid gap-2">
+        {items.map(item => (
+          <MetadataValue key={item.label} label={item.label} value={item.value} wide={item.wide} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MetadataValue({ label, value, wide }: { label: string; value?: string | null; wide?: boolean }) {
+  return (
+    <div className={`min-w-0 rounded-lg bg-white px-3 py-2 dark:bg-black/20 ${wide ? 'md:col-span-2' : ''}`}>
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">{label}</div>
+      <div className="mt-1 break-words font-mono text-xs text-[var(--text-primary)]">{metadataValue(value)}</div>
+    </div>
+  );
+}
+
+function metadataValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '—';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function pipelineID(run: RunListItem) {
+  const path = (run.pipeline_path || '').replace(/^\/+|\/+$/g, '');
+  const name = (run.pipeline_name || '').trim();
+  if (path && name) return `${path}/${name}`;
+  return name || path;
+}
+
+function subjectLabel(type?: string, id?: string) {
+  const normalizedType = (type || '').trim();
+  const normalizedID = (id || '').trim();
+  if (normalizedType && normalizedID) return `${normalizedType}:${normalizedID}`;
+  return normalizedID || normalizedType;
+}
+
+function scheduleLabel(run: RunListItem) {
+  return [run.schedule_name || run.schedule_path || '', run.schedule_id || ''].filter(Boolean).join(' / ');
+}
+
+function externalTriggerLabel(run: RunListItem) {
+  return [run.external_trigger_name || '', run.external_trigger_id || ''].filter(Boolean).join(' / ');
 }

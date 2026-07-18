@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { AlertCircle, CheckCircle2, Clipboard, Download, Eye, FileText, Loader2, Square } from 'lucide-react';
+import { useRef, useState, type ReactNode } from 'react';
+import { AlertCircle, CheckCircle2, Clipboard, Download, Eye, FileText, Loader2, MoreHorizontal, Square } from 'lucide-react';
+import { useOutsideDismiss } from '../../components/useOutsideDismiss';
 import { apiClient } from '../../lib/api';
 import { copyTextToClipboard } from '../../lib/clipboard';
 import type { PipelineRunFinalOutput } from './contracts';
@@ -31,6 +32,9 @@ type FileSavePickerWindow = Window & {
 
 const actionClass =
   'inline-flex items-center gap-2 rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 py-1.5 text-xs font-semibold text-[var(--text-primary)] transition hover:border-indigo-300/60 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-white/5 dark:text-[var(--text-primary)] dark:hover:bg-white/10';
+
+const menuItemClass =
+  'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--text-primary)] transition hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/10';
 
 export function RunFinalOutputs({ runID, outputs = [], onCancelOutput }: RunFinalOutputsProps) {
   const [previewID, setPreviewID] = useState<string | null>(null);
@@ -113,6 +117,7 @@ export function RunFinalOutputs({ runID, outputs = [], onCancelOutput }: RunFina
           const ready = output.status === 'success' && Boolean(output.content);
           const cancellable = output.status === 'pending' || output.status === 'generating';
           const expanded = previewID === output.id;
+          const timingText = finalOutputTimingText(output);
           return (
             <div key={output.id} className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-3 text-sm">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -123,28 +128,21 @@ export function RunFinalOutputs({ runID, outputs = [], onCancelOutput }: RunFina
                     <span className="runner-pill runner-pill--muted">{formatOutputType(output.type)}</span>
                     {output.llm_profile && <span className="runner-pill runner-pill--muted">LLM {output.llm_profile}</span>}
                   </div>
+                  {timingText ? <div className="text-xs text-[var(--text-secondary)]">{timingText}</div> : null}
                   {output.error && <div className="text-xs text-red-600 dark:text-red-300 break-words">{output.error}</div>}
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button className={actionClass} type="button" disabled={!ready} onClick={() => setPreviewID(expanded ? null : output.id)}>
-                    <Eye className="h-4 w-4" aria-hidden="true" />
-                    {expanded ? 'Hide' : 'Preview'}
-                  </button>
-                  <button className={actionClass} type="button" disabled={!ready || pendingAction === `copy:${output.id}`} onClick={() => void handleCopy(output)}>
-                    <Clipboard className="h-4 w-4" aria-hidden="true" />
-                    {pendingAction === `copy:${output.id}` ? 'Copying' : 'Copy'}
-                  </button>
-                  <button className={actionClass} type="button" disabled={output.status !== 'success' || pendingAction === `download:${output.id}`} onClick={() => void handleDownload(output)}>
-                    <Download className="h-4 w-4" aria-hidden="true" />
-                    {pendingAction === `download:${output.id}` ? 'Downloading' : 'Download'}
-                  </button>
-                  {onCancelOutput ? (
-                    <button className={actionClass} type="button" disabled={!cancellable || pendingAction === `cancel:${output.id}`} onClick={() => void handleCancel(output)}>
-                      <Square className="h-4 w-4" aria-hidden="true" />
-                      {pendingAction === `cancel:${output.id}` ? 'Cancelling' : 'Cancel'}
-                    </button>
-                  ) : null}
-                </div>
+                <FinalOutputActionsMenu
+                  output={output}
+                  ready={ready}
+                  expanded={expanded}
+                  pendingAction={pendingAction}
+                  cancellable={cancellable}
+                  canCancel={Boolean(onCancelOutput)}
+                  onTogglePreview={() => setPreviewID(expanded ? null : output.id)}
+                  onCopy={() => void handleCopy(output)}
+                  onDownload={() => void handleDownload(output)}
+                  onCancel={() => void handleCancel(output)}
+                />
               </div>
               {expanded && ready && (
                 <div className="mt-3 rounded-lg border border-[var(--border-primary)] bg-white dark:bg-black/20 p-3">
@@ -157,6 +155,116 @@ export function RunFinalOutputs({ runID, outputs = [], onCancelOutput }: RunFina
       </div>
       {message && <div className="text-xs text-[var(--text-secondary)]">{message}</div>}
     </section>
+  );
+}
+
+function FinalOutputActionsMenu({
+  output,
+  ready,
+  expanded,
+  pendingAction,
+  cancellable,
+  canCancel,
+  onTogglePreview,
+  onCopy,
+  onDownload,
+  onCancel,
+}: {
+  output: PipelineRunFinalOutput;
+  ready: boolean;
+  expanded: boolean;
+  pendingAction: string | null;
+  cancellable: boolean;
+  canCancel: boolean;
+  onTogglePreview: () => void;
+  onCopy: () => void;
+  onDownload: () => void;
+  onCancel: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const close = () => setOpen(false);
+  const name = output.name || 'output';
+  useOutsideDismiss(menuRef, open, close);
+
+  return (
+    <div className="relative shrink-0" ref={menuRef}>
+      <button
+        className={actionClass}
+        type="button"
+        aria-label={`Actions for ${name}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(current => !current)}
+      >
+        <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+        Actions
+      </button>
+      {open ? (
+        <div
+          role="menu"
+          aria-label={`Actions for ${name}`}
+          className="absolute right-0 z-40 mt-2 grid min-w-48 gap-1 rounded-xl border border-[var(--border-primary)] bg-white p-1.5 shadow-xl dark:border-white/10 dark:bg-slate-950"
+        >
+          <FinalOutputActionItem
+            label={expanded ? 'Hide preview' : 'Preview'}
+            icon={<Eye className="h-4 w-4" aria-hidden="true" />}
+            disabled={!ready}
+            close={close}
+            onClick={onTogglePreview}
+          />
+          <FinalOutputActionItem
+            label={pendingAction === `copy:${output.id}` ? 'Copying' : 'Copy'}
+            icon={<Clipboard className="h-4 w-4" aria-hidden="true" />}
+            disabled={!ready || pendingAction === `copy:${output.id}`}
+            close={close}
+            onClick={onCopy}
+          />
+          <FinalOutputActionItem
+            label={pendingAction === `download:${output.id}` ? 'Downloading' : 'Download'}
+            icon={<Download className="h-4 w-4" aria-hidden="true" />}
+            disabled={output.status !== 'success' || pendingAction === `download:${output.id}`}
+            close={close}
+            onClick={onDownload}
+          />
+          {canCancel ? (
+            <FinalOutputActionItem
+              label={pendingAction === `cancel:${output.id}` ? 'Cancelling' : 'Cancel'}
+              icon={<Square className="h-4 w-4" aria-hidden="true" />}
+              disabled={!cancellable || pendingAction === `cancel:${output.id}`}
+              close={close}
+              onClick={onCancel}
+            />
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function FinalOutputActionItem({
+  label,
+  icon,
+  disabled,
+  close,
+  onClick,
+}: {
+  label: string;
+  icon: ReactNode;
+  disabled?: boolean;
+  close: () => void;
+  onClick: () => void;
+}) {
+  const handleClick = () => {
+    if (disabled) return;
+    close();
+    onClick();
+  };
+  return (
+    <button type="button" role="menuitem" className={menuItemClass} disabled={disabled} onClick={handleClick}>
+      {icon}
+      <span className="truncate">{label}</span>
+    </button>
   );
 }
 
@@ -209,6 +317,58 @@ function FinalOutputStatus({ status }: { status: string }) {
 function formatOutputType(type: string) {
   if (!type) return 'Output';
   return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+function finalOutputTimingText(output: PipelineRunFinalOutput) {
+  const timestamp = formatOutputTimestamp(output.updated_at || output.created_at);
+  const duration = formatOutputGenerationDuration(output);
+  const verb = output.status === 'success'
+    ? 'Generated'
+    : output.status === 'failure'
+      ? 'Failed'
+      : output.status === 'cancelled'
+        ? 'Cancelled'
+        : output.status === 'generating'
+          ? 'Generating'
+          : 'Queued';
+  const parts = [timestamp ? `${verb} ${timestamp}` : '', duration ? `${duration} duration` : ''].filter(Boolean);
+  return parts.join(' / ');
+}
+
+function formatOutputTimestamp(value?: string | null) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
+}
+
+function formatOutputGenerationDuration(output: PipelineRunFinalOutput) {
+  if (output.generation_duration) return output.generation_duration;
+  const seconds = Number(output.generation_duration_seconds || 0);
+  if (Number.isFinite(seconds) && seconds > 0) return formatDurationSeconds(seconds);
+  const created = output.created_at ? Date.parse(output.created_at) : Number.NaN;
+  const updated = output.updated_at ? Date.parse(output.updated_at) : Number.NaN;
+  if (Number.isFinite(created) && Number.isFinite(updated) && updated >= created) {
+    return formatDurationSeconds((updated - created) / 1000);
+  }
+  if ((output.status === 'pending' || output.status === 'generating') && Number.isFinite(created)) {
+    return formatDurationSeconds(Math.max(0, (Date.now() - created) / 1000));
+  }
+  return '';
+}
+
+function formatDurationSeconds(rawSeconds: number) {
+  const seconds = Math.max(0, Math.round(rawSeconds));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  if (minutes < 60) return remainingSeconds ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
 }
 
 function filenameFromContentDisposition(value: string | null) {

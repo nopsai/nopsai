@@ -1012,12 +1012,23 @@ func (a *App) listDashboardRefreshRecords(ctx context.Context, dashboard dashboa
 
 func (a *App) listDashboardRefreshRunRecords(ctx context.Context, refreshID string) ([]dashboardRefreshRunRecord, error) {
 	rows, err := a.db.Query(ctx, `
-		SELECT id::text, refresh_id::text, dashboard_id::text, COALESCE(source_binding_id::text, ''),
-		       pipeline_id, output_name, section_key, entry_key, run_scope, COALESCE(run_id::text, ''),
-		       required, status, error, started_at, finished_at, created_at, updated_at
-		FROM dashboard_refresh_pipeline_runs
-		WHERE refresh_id::text = $1
-		ORDER BY section_key ASC, created_at ASC, pipeline_id ASC, output_name ASC
+		SELECT drr.id::text, drr.refresh_id::text, drr.dashboard_id::text, COALESCE(drr.source_binding_id::text, ''),
+		       drr.pipeline_id, drr.output_name, drr.section_key, drr.entry_key, drr.run_scope, COALESCE(drr.run_id::text, ''),
+		       drr.required, drr.status, drr.error, drr.started_at, drr.finished_at, drr.created_at, drr.updated_at,
+		       COALESCE(pr.status, ''), pr.started_at, pr.finished_at,
+		       COALESCE(pro.status, ''), pro.created_at, pro.updated_at
+		FROM dashboard_refresh_pipeline_runs drr
+		LEFT JOIN pipeline_runs pr ON pr.run_id = drr.run_id
+		LEFT JOIN LATERAL (
+			SELECT status, created_at, updated_at
+			FROM pipeline_run_outputs
+			WHERE run_id = drr.run_id
+			  AND name = drr.output_name
+			ORDER BY item_index ASC, created_at ASC
+			LIMIT 1
+		) pro ON TRUE
+		WHERE drr.refresh_id::text = $1
+		ORDER BY drr.section_key ASC, drr.created_at ASC, drr.pipeline_id ASC, drr.output_name ASC
 	`, refreshID)
 	if err != nil {
 		return nil, err
@@ -1075,7 +1086,7 @@ func scanDashboardRefreshRecord(scanner dashboardScanner) (dashboardRefreshRecor
 
 func scanDashboardRefreshRunRecord(scanner dashboardScanner) (dashboardRefreshRunRecord, error) {
 	var record dashboardRefreshRunRecord
-	var startedAt, finishedAt sql.NullTime
+	var startedAt, finishedAt, pipelineStartedAt, pipelineFinishedAt, outputCreatedAt, outputUpdatedAt sql.NullTime
 	if err := scanner.Scan(
 		&record.ID,
 		&record.RefreshID,
@@ -1094,10 +1105,31 @@ func scanDashboardRefreshRunRecord(scanner dashboardScanner) (dashboardRefreshRu
 		&finishedAt,
 		&record.CreatedAt,
 		&record.UpdatedAt,
+		&record.PipelineStatus,
+		&pipelineStartedAt,
+		&pipelineFinishedAt,
+		&record.OutputStatus,
+		&outputCreatedAt,
+		&outputUpdatedAt,
 	); err != nil {
 		return record, err
 	}
 	record.StartedAt = nullTimePtr(startedAt)
 	record.FinishedAt = nullTimePtr(finishedAt)
+	record.PipelineStartedAt = nullTimePtr(pipelineStartedAt)
+	record.PipelineFinishedAt = nullTimePtr(pipelineFinishedAt)
+	record.OutputCreatedAt = nullTimePtr(outputCreatedAt)
+	record.OutputUpdatedAt = nullTimePtr(outputUpdatedAt)
+	if record.OutputCreatedAt != nil && record.OutputUpdatedAt != nil {
+		record.OutputDuration, record.OutputDurationSeconds = pipelineOutputGenerationDuration(*record.OutputCreatedAt, *record.OutputUpdatedAt)
+	}
 	return record, nil
+}
+
+func pipelineOutputGenerationDuration(createdAt, updatedAt time.Time) (string, float64) {
+	if createdAt.IsZero() || updatedAt.IsZero() || updatedAt.Before(createdAt) {
+		return "", 0
+	}
+	duration := updatedAt.Sub(createdAt).Round(time.Second)
+	return duration.String(), duration.Seconds()
 }

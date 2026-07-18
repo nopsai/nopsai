@@ -1,6 +1,6 @@
-import { apiClient } from '../../lib/api';
-import { fetchPipelineRunTeamPaths } from '../../lib/resourceTeams';
-import { fetchPipelineYaml } from '../pipelines/api';
+import { apiClient } from '../../lib/api.js';
+import { fetchPipelineRunTeamPaths } from '../../lib/resourceTeams.js';
+import { fetchPipelineYaml } from '../pipelines/api.js';
 import {
   dashboardRequestFromForm,
   normalizeRunScope,
@@ -29,12 +29,12 @@ import {
   type DashboardSourceFormState,
   type DashboardSummary,
   type DashboardView,
-} from './model';
+} from './model.js';
 import {
   parseDashboardPipelineOutputOptions,
   type DashboardPipelineCatalogItem,
   type DashboardPipelineOutputOption,
-} from './sourceOptions';
+} from './sourceOptions.js';
 
 async function readResponseError(response: Response, fallback: string) {
   const text = await response.text();
@@ -195,6 +195,16 @@ export async function deleteDashboardSection(dashboardID: string, sectionID: str
   );
   if (!response.ok) {
     throw new Error(await readResponseError(response, `Unable to delete section (${response.status})`));
+  }
+}
+
+export async function deleteDashboardPublication(dashboardID: string, publicationID: string): Promise<void> {
+  const response = await apiClient.fetch(
+    `/v1/dashboards/${encodeURIComponent(dashboardID)}/publications/${encodeURIComponent(publicationID)}`,
+    { method: 'DELETE' }
+  );
+  if (!response.ok) {
+    throw new Error(await readResponseError(response, `Unable to delete dashboard entry (${response.status})`));
   }
 }
 

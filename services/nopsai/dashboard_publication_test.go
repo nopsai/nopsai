@@ -1,10 +1,16 @@
 package nopsai
 
 import (
+	"context"
+	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"nopsai/pkg/models"
 )
@@ -239,6 +245,65 @@ func TestTrimDashboardSeriesPointsRetainsLatestSortedPoints(t *testing.T) {
 	}
 }
 
+func TestArchiveDashboardPublicationEntryArchivesCurrentRowAndWritesRemovedEvent(t *testing.T) {
+	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	runner := &archivePublicationRunner{
+		record: dashboardPublicationRecord{
+			ID:          "publication-1",
+			DashboardID: "dashboard-1",
+			SectionKey:  "overview",
+			EntryKey:    "service-health",
+			Mode:        dashboardPublishModeReplace,
+			Content:     json.RawMessage(`{"title":"Service Health"}`),
+			Revision:    3,
+			RunID:       "00000000-0000-0000-0000-000000000010",
+			RunOutputID: "00000000-0000-0000-0000-000000000020",
+			PipelineID:  "platform/service-health",
+			OutputName:  "Service Health",
+			RunScope:    "prod",
+			RefreshID:   "00000000-0000-0000-0000-000000000030",
+			PublishedAt: now,
+			Status:      "archived",
+			CreatedAt:   now.Add(-time.Hour),
+			UpdatedAt:   now,
+		},
+	}
+
+	publication, err := archiveDashboardPublicationEntry(context.Background(), runner, "dashboard-1", " publication-1 ")
+	if err != nil {
+		t.Fatalf("archiveDashboardPublicationEntry() error = %v", err)
+	}
+	if publication.ID != "publication-1" || publication.Status != "archived" {
+		t.Fatalf("publication = %#v", publication)
+	}
+	if !strings.Contains(runner.query, "SET status = 'archived'") {
+		t.Fatalf("query did not archive publication: %s", runner.query)
+	}
+	if len(runner.queryArgs) != 2 || runner.queryArgs[0] != "dashboard-1" || runner.queryArgs[1] != "publication-1" {
+		t.Fatalf("query args = %#v", runner.queryArgs)
+	}
+	if len(runner.execArgs) < 9 {
+		t.Fatalf("exec args = %#v", runner.execArgs)
+	}
+	if runner.execArgs[1] != "overview" || runner.execArgs[2] != "service-health" || runner.execArgs[5] != "removed" {
+		t.Fatalf("publication event args = %#v", runner.execArgs)
+	}
+	var eventContent map[string]any
+	if err := json.Unmarshal([]byte(runner.execArgs[6].(string)), &eventContent); err != nil {
+		t.Fatalf("event content JSON = %v", err)
+	}
+	if eventContent["removed_publication_id"] != "publication-1" || eventContent["pipeline_id"] != "platform/service-health" {
+		t.Fatalf("event content = %#v", eventContent)
+	}
+}
+
+func TestArchiveDashboardPublicationEntryRejectsEmptyPublicationID(t *testing.T) {
+	_, err := archiveDashboardPublicationEntry(context.Background(), &archivePublicationRunner{}, "dashboard-1", " ")
+	if !dashboardNotFound(err) {
+		t.Fatalf("error = %v, want not found", err)
+	}
+}
+
 func dashboardSeriesSpec(title, blockTitle string, series []models.DashboardChartSeries) models.DashboardSpec {
 	return models.DashboardSpec{
 		Version: models.FinalOutputSpecVersion,
@@ -291,4 +356,67 @@ func valueOfPointByLabel(points []models.DashboardSeriesPoint, label string) flo
 		}
 	}
 	return 0
+}
+
+type archivePublicationRunner struct {
+	record    dashboardPublicationRecord
+	query     string
+	queryArgs []any
+	execArgs  []any
+}
+
+func (r *archivePublicationRunner) Exec(_ context.Context, _ string, args ...any) (pgconn.CommandTag, error) {
+	r.execArgs = append([]any(nil), args...)
+	return pgconn.NewCommandTag("INSERT 1"), nil
+}
+
+func (r *archivePublicationRunner) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
+	return nil, fmt.Errorf("unexpected query")
+}
+
+func (r *archivePublicationRunner) QueryRow(_ context.Context, query string, args ...any) pgx.Row {
+	r.query = query
+	r.queryArgs = append([]any(nil), args...)
+	return archivePublicationRow{record: r.record}
+}
+
+type archivePublicationRow struct {
+	record dashboardPublicationRecord
+}
+
+func (r archivePublicationRow) Scan(dest ...any) error {
+	if len(dest) != 20 {
+		return fmt.Errorf("scan destination count = %d, want 20", len(dest))
+	}
+	content := string(r.record.Content)
+	var sourceFinishedAt, expiresAt sql.NullTime
+	if r.record.SourceFinishedAt != nil {
+		sourceFinishedAt.Valid = true
+		sourceFinishedAt.Time = *r.record.SourceFinishedAt
+	}
+	if r.record.ExpiresAt != nil {
+		expiresAt.Valid = true
+		expiresAt.Time = *r.record.ExpiresAt
+	}
+	*(dest[0].(*string)) = r.record.ID
+	*(dest[1].(*string)) = r.record.DashboardID
+	*(dest[2].(*string)) = r.record.SectionKey
+	*(dest[3].(*string)) = r.record.EntryKey
+	*(dest[4].(*string)) = r.record.Mode
+	*(dest[5].(*string)) = content
+	*(dest[6].(*int)) = r.record.Revision
+	*(dest[7].(*string)) = r.record.RunID
+	*(dest[8].(*string)) = r.record.RunOutputID
+	*(dest[9].(*string)) = r.record.PipelineID
+	*(dest[10].(*string)) = r.record.OutputName
+	*(dest[11].(*string)) = r.record.RunScope
+	*(dest[12].(*string)) = r.record.RefreshID
+	*(dest[13].(*sql.NullTime)) = sourceFinishedAt
+	*(dest[14].(*time.Time)) = r.record.PublishedAt
+	*(dest[15].(*sql.NullTime)) = expiresAt
+	*(dest[16].(*string)) = r.record.Status
+	*(dest[17].(*bool)) = r.record.Stale
+	*(dest[18].(*time.Time)) = r.record.CreatedAt
+	*(dest[19].(*time.Time)) = r.record.UpdatedAt
+	return nil
 }

@@ -306,6 +306,7 @@ PATCH  /v1/dashboards/{dashboardID}
 DELETE /v1/dashboards/{dashboardID}
 GET    /v1/dashboards/{dashboardID}/view
 GET    /v1/dashboards/{dashboardID}/history
+DELETE /v1/dashboards/{dashboardID}/publications/{publicationID}
 ```
 
 Refresh orchestration:
@@ -358,6 +359,13 @@ leaving it stuck as generating. A refresh request or schedule may set
 `run_scope` to override the source scopes for that run, but publication still
 requires an enabled source binding with the same exact scope.
 
+Refresh source responses keep the historical source `status` as the refresh
+rollup and also expose `pipeline_status`, `pipeline_started_at`,
+`pipeline_finished_at`, `output_status`, `output_created_at`,
+`output_updated_at`, `output_duration`, and `output_duration_seconds`. This
+lets operators see a pipeline that has finished separately from an output that
+is still pending, generating, failed, cancelled, or published successfully.
+
 Refresh schedules run under a dashboard-owned service account. A schedule
 stores cron, timezone, enabled state, strict/best-effort mode, scope,
 max concurrency, timeout, variables, next run, and latest refresh status.
@@ -382,7 +390,9 @@ DELETE /v1/dashboards/{dashboardID}/sources/{sourceID}
 ```
 
 Use UUID dashboard IDs on REST paths. Pipeline YAML and hosted MCP accept
-dashboard refs in `team/dashboard-slug` form.
+dashboard refs in `team/dashboard-slug` form. Deleting a publication archives
+the current section card and writes a `removed` history event; it does not
+delete source bindings, refresh rows, pipeline runs, or final output records.
 
 ## UI Source Mapping
 
@@ -397,7 +407,10 @@ stay behind the details action. Published entries link back to their originating
 pipeline run detail when run provenance is available, using direct run-detail
 routes so the exact run opens even when it is not visible in the recent list.
 Delete actions use an in-app confirmation dialog with target-specific impact
-copy and backend errors instead of browser confirmation prompts.
+copy and backend errors instead of browser confirmation prompts. Operators with
+dashboard write access can remove an individual section entry card from the
+card header; the publication is archived and can be recreated by a future
+refresh.
 
 The dashboard UI keeps source binding at the dashboard level. New-dashboard and
 edit-dashboard modals group fields by purpose and include one-line descriptions
@@ -447,9 +460,12 @@ catalog, and the selected pipeline YAML, then offers only dashboard final
 outputs whose `dashboard.ref` targets the current dashboard and whose
 `dashboard.section` is present on the dashboard. Selecting an output maps the
 section from `dashboard.section`, and maps entry choices from
-`dashboard.entry_key`, existing entries, or the output-name fallback. The run
-scope dropdown comes from existing secret/variable scopes and defaults to the
-exact default/unscoped run. The REST payload remains the same
+`dashboard.entry_key`, existing entries, or the output-name fallback. Choosing
+the output-name fallback saves an empty source `entry_key`, which removes the
+explicit entry-key binding while preserving publication compatibility with
+pipeline outputs. The run scope dropdown comes from existing secret/variable
+scopes and defaults to the exact default/unscoped run. The REST payload remains
+the same
 `dashboard_source_bindings` contract, so GitOps YAML, AAA checks, refresh
 orchestration, monitoring, and MCP behavior stay compatible.
 The larger mapping review panel shows the dashboard target and selected
@@ -514,6 +530,7 @@ Prometheus exports:
 - `nopsai_dashboard_stale_publications_total`
 - `nopsai_dashboard_render_failures_total`
 - `nopsai_dashboard_series_points_total`
+- `nopsai_pipeline_final_output_generation_duration_seconds`
 
 Hosted MCP exposes:
 
@@ -529,7 +546,7 @@ Dashboard creation and source mutation are available through guarded REST via
 `nopsai.call_api`; refresh and schedule run-now have dedicated confirmed MCP
 tools. The dashboard-level pipeline assignment and source-edit UI reuse
 existing REST reads and pipeline YAML metadata, so they do not add new MCP tools
-or Prometheus metrics.
+or mutate GitOps-owned resources outside the existing dashboard source contract.
 
 ## Code Ownership
 
