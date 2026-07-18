@@ -253,6 +253,15 @@ builds multiple images inside one script, plain log lines such as
 model; structured summaries such as JSON are still recommended for richer or
 nested facts.
 
+The team sample config repo includes five immediately runnable dashboard
+pipelines under `doc/sample-config-repo/team-1-repo/pipelines/`: two technical
+checks (`technical-api-readiness` and `technical-slo-burn-rate`) and three
+business-facing workflows (`customer-onboarding-pulse`,
+`finance-close-snapshot`, and `people-capacity-plan`). They use only
+`alpine:3.20` shell scripts and structured `dashboard_evidence=<json>`, so they
+can be launched directly or through the bound `team-1/ops-dashboard` sources
+without secrets, approvals, variables, or external MCP profiles.
+
 When the prompt does not request a specific visualization, NopsAI guides the
 model to choose by data shape: text or callout for narrative conclusions,
 status/progress/properties for current state and scalar facts, tables for

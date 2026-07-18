@@ -30,6 +30,14 @@ readiness matrix so dashboard rendering can be checked against graph and status
 chip views. The `report` preset example is narrative-first and keeps any table
 as supporting evidence after the executive summary, changes, blockers, and next
 action sections.
+The repo also includes five purpose-specific dashboard pipelines that can run
+immediately with `alpine:3.20` and no required variables, secrets, approvals, or
+external MCP profiles. Two are technical operational checks
+(`technical-api-readiness` and `technical-slo-burn-rate`), and three are
+business-facing workflows (`customer-onboarding-pulse`,
+`finance-close-snapshot`, and `people-capacity-plan`). Each emits structured
+`dashboard_evidence=<json>` and publishes one dashboard final output to
+`team-1/ops-dashboard`.
 
 ## Global repo binding
 
@@ -162,8 +170,23 @@ team-1-repo/pipelines/dashboard-sample.yaml
 team-1-repo/pipelines/dashboard-multi-output-sample.yaml
   -> pipeline team-1/dashboard-sample, publishing multiple dashboard outputs into team-1/ops-dashboard to exercise replace, append, snapshot, series, circular charts, boolean status chips, a narrative-first release report, and all dashboard presets
 
+team-1-repo/pipelines/technical-api-readiness.yaml
+  -> pipeline team-1/technical-api-readiness, publishing executable API release-readiness status into team-1/ops-dashboard
+
+team-1-repo/pipelines/technical-slo-burn-rate.yaml
+  -> pipeline team-1/technical-slo-burn-rate, publishing executable SLO burn-rate monitoring metrics into team-1/ops-dashboard
+
+team-1-repo/pipelines/customer-onboarding-pulse.yaml
+  -> pipeline team-1/customer-onboarding-pulse, publishing customer onboarding progress into team-1/ops-dashboard
+
+team-1-repo/pipelines/finance-close-snapshot.yaml
+  -> pipeline team-1/finance-close-snapshot, publishing a month-end close report into team-1/ops-dashboard
+
+team-1-repo/pipelines/people-capacity-plan.yaml
+  -> pipeline team-1/people-capacity-plan, publishing staffing capacity comparison into team-1/ops-dashboard
+
 team-1-repo/dashboards/ops-dashboard.yaml
-  -> dashboard team-1/ops-dashboard, with service-metrics and multi-output test sections bound to team-1/dashboard-sample
+  -> dashboard team-1/ops-dashboard, with service metrics, technical readiness, image-build, release-readiness, customer success, finance, and people operations sources bound to executable sample pipelines
 
 global-repo/steps/shared/announce.yaml
   -> reusable step shared/announce
