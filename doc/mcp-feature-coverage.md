@@ -117,7 +117,8 @@ Important enterprise boundaries:
   grants, resource visibility, and route-compatible permissions.
 - `nopsai.get_pipeline_run_output` remains guarded by `pipeline_run.read` and
   returns contract-validated `DocumentSpec`/`SpreadsheetSpec` source where
-  applicable, plus generation and render counts for operational auditing.
+  applicable, plus generation timestamps, generation duration, and generation
+  and render counts for operational auditing.
 - `nopsai.list_dashboards`, `nopsai.get_dashboard`,
   `nopsai.list_dashboard_refreshes`,
   `nopsai.list_dashboard_refresh_schedules`, and `nopsai://dashboards` are
@@ -125,7 +126,10 @@ Important enterprise boundaries:
   visible to the current subject. `nopsai.refresh_dashboard` and
   `nopsai.run_dashboard_refresh_schedule` require `dashboard.refresh` and
   `confirm:true`. Dashboard write/source management remains available through
-  guarded REST via `nopsai.call_api`.
+  guarded REST via `nopsai.call_api`, including publication-entry deletion for
+  removing visible section cards while preserving source bindings and run audit
+  records. Dashboard refresh source rows expose the refresh rollup status
+  separately from the launched pipeline status and final output status.
 - Pipeline, schedule, knowledge, webhook source, external trigger, and
   notification write-plan tools return `applies:false` plus GitOps file plans;
   they do not directly mutate product state.

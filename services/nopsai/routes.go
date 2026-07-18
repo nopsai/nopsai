@@ -272,6 +272,7 @@ func (a *App) registerDashboardRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /v1/dashboards/{dashboardID}", a.handleDeleteDashboard)
 	mux.HandleFunc("GET /v1/dashboards/{dashboardID}/view", a.handleGetDashboardView)
 	mux.HandleFunc("GET /v1/dashboards/{dashboardID}/history", a.handleGetDashboardHistory)
+	mux.HandleFunc("DELETE /v1/dashboards/{dashboardID}/publications/{publicationID}", a.handleDeleteDashboardPublication)
 	mux.HandleFunc("GET /v1/dashboards/{dashboardID}/sections", a.handleListDashboardSections)
 	mux.HandleFunc("POST /v1/dashboards/{dashboardID}/sections", a.handleCreateDashboardSection)
 	mux.HandleFunc("PUT /v1/dashboards/{dashboardID}/sections/{sectionID}", a.handleUpdateDashboardSection)

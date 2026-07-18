@@ -202,6 +202,12 @@ func MapRequest(r *http.Request) (action string, resource model.ResourceRef, req
 		return "dashboard.refresh", resource, false, nil
 	case strings.HasPrefix(path, "/v1/dashboards/") && strings.HasSuffix(path, "/refresh"):
 		return "dashboard.refresh", model.ResourceRef{Type: "dashboard", ID: dashboardIDFromRequest(r)}, false, nil
+	case strings.HasPrefix(path, "/v1/dashboards/") && strings.Contains(path, "/publications"):
+		resource = model.ResourceRef{Type: "dashboard", ID: dashboardIDFromRequest(r)}
+		if r.Method == http.MethodGet {
+			return "dashboard.read", resource, false, nil
+		}
+		return "dashboard.update", resource, false, nil
 	case strings.HasPrefix(path, "/v1/dashboards/") && strings.Contains(path, "/sections"):
 		resource = model.ResourceRef{Type: "dashboard", ID: dashboardIDFromRequest(r)}
 		if r.Method == http.MethodGet {

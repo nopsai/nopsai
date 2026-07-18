@@ -97,7 +97,8 @@ test('filters application-sourced runs on the overview tab', async () => {
   await user.click(screen.getByRole('button', { name: 'Application' }));
 
   expect(screen.getByText('deploy-api')).toBeVisible();
-  expect(screen.getAllByText('Application').length).toBeGreaterThan(1);
+  expect(screen.getByRole('button', { name: 'Application' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByText('acme/api')).toBeVisible();
   expect(screen.queryByText('nightly-ledger')).not.toBeInTheDocument();
   expect(api.requestPipelineRunsJson).not.toHaveBeenCalledWith('/v1/runs?teamId=root');
 });

@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { expect, test, vi } from 'vitest';
 
 import {
+  DashboardDeleteModal,
   DashboardModal,
   RefreshModal,
   RefreshScheduleModal,
@@ -18,6 +19,7 @@ import {
   createSectionForm,
   createSourceForm,
   type DashboardFormState,
+  type DashboardPublication,
   type DashboardSection,
   type DashboardSectionFormState,
   type DashboardSourceFormState,
@@ -149,6 +151,42 @@ test('section modal edits section title, description, and order without changing
   expect(screen.getByLabelText('Order')).toHaveValue(20);
 });
 
+test('delete modal explains dashboard entry card removal', () => {
+  const onConfirm = vi.fn();
+  const publication: DashboardPublication = {
+    id: 'publication-1',
+    section_key: 'overview',
+    entry_key: 'service-health',
+    mode: 'replace',
+    content: {
+      title: 'Service Health',
+      blocks: [{ type: 'status', label: 'API', status: 'ok' }],
+    },
+    revision: 3,
+    pipeline_id: 'team-1/dashboard-sample',
+    output_name: 'Service metrics',
+    published_at: '2026-07-18T12:00:00Z',
+    status: 'current',
+    stale: false,
+  };
+
+  render(
+    <DashboardDeleteModal
+      modal={{ kind: 'publication', publication }}
+      saving={false}
+      error={null}
+      onClose={vi.fn()}
+      onConfirm={onConfirm}
+    />
+  );
+
+  expect(screen.getByRole('alertdialog', { name: 'Remove Service Health?' })).toBeVisible();
+  expect(screen.getByText('Dashboard entry removal')).toBeVisible();
+  expect(screen.getByText(/current publication is archived/i)).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+  expect(onConfirm).toHaveBeenCalledTimes(1);
+});
+
 test('source modal loads pipeline outputs and maps section, output, and entry with dropdowns', async () => {
   const loadPipelineOutputs = vi.fn(async (_pipelineID: string): Promise<DashboardPipelineOutputOption[]> => (
     [
@@ -212,6 +250,9 @@ test('source modal loads pipeline outputs and maps section, output, and entry wi
     expect(screen.getByLabelText('Section')).toHaveValue('service-metrics');
     expect(screen.getByLabelText('Entry')).toHaveValue('dashboard-sample');
   });
+  fireEvent.change(screen.getByLabelText('Entry'), { target: { value: '' } });
+  expect(screen.getByLabelText('Entry')).toHaveValue('');
+  expect(screen.getAllByText('Use output name (Service metrics)').length).toBeGreaterThan(0);
   expect(screen.getByText('Pipeline output')).toBeVisible();
   expect(screen.getAllByText('Run scope').length).toBeGreaterThan(0);
   expect(screen.getAllByText('prod').length).toBeGreaterThan(0);

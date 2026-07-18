@@ -151,6 +151,7 @@ test('dashboard workspace uses a dashboard dropdown and details-on-demand panels
   const onCreateSchedule = vi.fn();
   const onEditSchedule = vi.fn();
   const onDeleteSchedule = vi.fn();
+  const onDeletePublication = vi.fn();
 
   render(
     <MemoryRouter>
@@ -182,6 +183,7 @@ test('dashboard workspace uses a dashboard dropdown and details-on-demand panels
         onScheduleDashboard={onScheduleDashboard}
         onEditSource={vi.fn()}
         onDeleteSource={vi.fn()}
+        onDeletePublication={onDeletePublication}
         onRefreshSource={vi.fn()}
         onCancelRefresh={vi.fn()}
         onRetryRefresh={vi.fn()}
@@ -213,6 +215,8 @@ test('dashboard workspace uses a dashboard dropdown and details-on-demand panels
   expect(runLink.closest('footer')).toHaveClass('bg-[var(--accent-soft)]');
   expect(runLink.closest('footer')).toHaveClass('shadow-[0_-16px_30px_-24px_var(--accent)]');
   expect(runLink.closest('footer')).not.toHaveClass('border-t');
+  fireEvent.click(screen.getByRole('button', { name: 'Remove entry service-health' }));
+  expect(onDeletePublication).toHaveBeenCalledWith(expect.objectContaining({ id: 'publication-1' }));
   expect(screen.queryByText('Sources')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Section actions' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Refresh section' })).not.toBeInTheDocument();
@@ -301,6 +305,7 @@ test('section details include failed latest run attempts even without a publicat
         onScheduleDashboard={vi.fn()}
         onEditSource={vi.fn()}
         onDeleteSource={vi.fn()}
+        onDeletePublication={vi.fn()}
         onRefreshSource={vi.fn()}
         onCancelRefresh={vi.fn()}
         onRetryRefresh={vi.fn()}
@@ -365,6 +370,7 @@ test('dashboard workspace shows generating dashboard outputs inside their sectio
         onScheduleDashboard={vi.fn()}
         onEditSource={vi.fn()}
         onDeleteSource={vi.fn()}
+        onDeletePublication={vi.fn()}
         onRefreshSource={vi.fn()}
         onCancelRefresh={vi.fn()}
         onRetryRefresh={vi.fn()}

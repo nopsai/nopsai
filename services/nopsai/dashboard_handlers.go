@@ -203,6 +203,31 @@ func (a *App) handleGetDashboardHistory(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, responses)
 }
 
+func (a *App) handleDeleteDashboardPublication(w http.ResponseWriter, r *http.Request) {
+	record, ok := a.requireDashboardDecision(w, r, "dashboard.update")
+	if !ok {
+		return
+	}
+	publicationID := strings.TrimSpace(r.PathValue("publicationID"))
+	publication, err := a.deleteDashboardPublicationEntry(r.Context(), record.ID, publicationID)
+	if err != nil {
+		if dashboardNotFound(err) {
+			http.Error(w, "dashboard publication not found", http.StatusNotFound)
+			return
+		}
+		log.Error().Err(err).Str("dashboard_id", record.ID).Str("publication_id", publicationID).Msg("Failed to delete dashboard publication")
+		http.Error(w, "Failed to delete dashboard publication", http.StatusInternalServerError)
+		return
+	}
+	a.auditDashboardAction(r.Context(), r, "dashboard.entry_removed", record, "success", map[string]any{
+		"publication_id": publication.ID,
+		"section_key":    publication.SectionKey,
+		"entry_key":      publication.EntryKey,
+		"revision":       publication.Revision,
+	})
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (a *App) handleListDashboardSections(w http.ResponseWriter, r *http.Request) {
 	record, ok := a.requireDashboardDecision(w, r, "dashboard.read")
 	if !ok {

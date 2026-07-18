@@ -69,6 +69,7 @@ var generatedRoutes = []Route{
 	newRoute("PATCH", "/v1/dashboards/{dashboardID}"),
 	newRoute("PUT", "/v1/dashboards/{dashboardID}"),
 	newRoute("GET", "/v1/dashboards/{dashboardID}/history"),
+	newRoute("DELETE", "/v1/dashboards/{dashboardID}/publications/{publicationID}"),
 	newRoute("POST", "/v1/dashboards/{dashboardID}/refresh"),
 	newRoute("GET", "/v1/dashboards/{dashboardID}/refresh-schedules"),
 	newRoute("POST", "/v1/dashboards/{dashboardID}/refresh-schedules"),

@@ -7,6 +7,7 @@ import {
   createSourceForm,
   dashboardRequestFromForm,
   normalizeDashboardRefreshSchedule,
+  normalizeDashboardRefresh,
   normalizeDashboardSpec,
   refreshScheduleFormFromSchedule,
   refreshScheduleRequestFromForm,
@@ -153,6 +154,54 @@ describe('dashboard model normalization', () => {
       required_for_refresh: true,
       refresh_order: 5,
     });
+  });
+
+  it('preserves an empty source entry key so bindings can use the output name', () => {
+    assert.deepEqual(sourceRequestFromForm({
+      ...createSourceForm('overview'),
+      pipelineID: 'team-1/dashboard',
+      outputName: 'Service Health',
+      entryKey: '',
+    }).entry_key, '');
+  });
+
+  it('normalizes separate pipeline and output refresh source statuses', () => {
+    const refresh = normalizeDashboardRefresh({
+      id: 'refresh-1',
+      dashboard_id: 'dashboard-1',
+      dashboard_ref: 'team-1/ops',
+      trigger_type: 'manual',
+      scope_type: 'dashboard',
+      mode: 'strict',
+      status: 'running',
+      total_sources: 1,
+      required_sources: 1,
+      created_at: '2026-07-18T10:00:00Z',
+      updated_at: '2026-07-18T10:03:00Z',
+      sources: [{
+        id: 'source-run-1',
+        refresh_id: 'refresh-1',
+        pipeline_id: 'team-1/dashboard',
+        output_name: 'Service Health',
+        section_key: 'overview',
+        required: true,
+        status: 'running',
+        pipeline_status: 'success',
+        pipeline_finished_at: '2026-07-18T10:02:00Z',
+        output_status: 'generating',
+        output_created_at: '2026-07-18T10:02:01Z',
+        output_updated_at: '2026-07-18T10:03:00Z',
+        output_duration: '59s',
+        output_duration_seconds: 59,
+        created_at: '2026-07-18T10:00:00Z',
+        updated_at: '2026-07-18T10:03:00Z',
+      }],
+    });
+
+    assert.equal(refresh.sources?.[0]?.status, 'running');
+    assert.equal(refresh.sources?.[0]?.pipeline_status, 'success');
+    assert.equal(refresh.sources?.[0]?.output_status, 'generating');
+    assert.equal(refresh.sources?.[0]?.output_duration_seconds, 59);
   });
 
   it('builds refresh schedule requests with scoped cadence and guardrails', () => {

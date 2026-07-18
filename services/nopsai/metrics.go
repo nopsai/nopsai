@@ -128,6 +128,11 @@ func (a *App) buildPrometheusMetrics(ctx context.Context) (string, error) {
 	if err := a.appendPipelineFinalOutputGenerationTotals(ctx, &out, "nopsai_pipeline_final_output_render_failures_total", "render_failures"); err != nil {
 		return "", err
 	}
+	writeMetricHelp(&out, "nopsai_pipeline_final_output_generation_duration_seconds", "Average completed final output generation duration in seconds by status, type, and pipeline.")
+	writeMetricType(&out, "nopsai_pipeline_final_output_generation_duration_seconds", "gauge")
+	if err := a.appendPipelineFinalOutputGenerationDurationMetrics(ctx, &out); err != nil {
+		return "", err
+	}
 	writeMetricHelp(&out, "nopsai_dashboard_publications", "Dashboard publications by mode, status, and stale state.")
 	writeMetricType(&out, "nopsai_dashboard_publications", "gauge")
 	if err := a.appendDashboardPublicationMetrics(ctx, &out); err != nil {
@@ -768,6 +773,41 @@ func (a *App) appendPipelineFinalOutputGenerationTotals(
 			"path":     normalizeMetricLabel(path),
 			"team":     normalizeMetricLabel(team),
 		}, count)
+	}
+	return rows.Err()
+}
+
+func (a *App) appendPipelineFinalOutputGenerationDurationMetrics(ctx context.Context, out *strings.Builder) error {
+	rows, err := a.db.Query(ctx, `
+		SELECT COALESCE(pro.status, ''), COALESCE(pro.type, ''),
+		       COALESCE(pr.pipeline_path, ''), COALESCE(pr.pipeline_name, ''),
+		       COALESCE(g.name, ''),
+		       AVG(EXTRACT(EPOCH FROM (pro.updated_at - pro.created_at)))::float8
+		FROM pipeline_run_outputs pro
+		JOIN pipeline_runs pr ON pr.run_id = pro.run_id
+		LEFT JOIN teams g ON g.id = pr.team_id
+		WHERE pro.status IN ('success', 'failure', 'cancelled')
+		  AND pro.updated_at >= pro.created_at
+		GROUP BY 1,2,3,4,5
+		ORDER BY 1,2,3,4,5
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var status, outputType, path, pipeline, team string
+		var seconds float64
+		if err := rows.Scan(&status, &outputType, &path, &pipeline, &team, &seconds); err != nil {
+			return err
+		}
+		writeMetricLine(out, "nopsai_pipeline_final_output_generation_duration_seconds", map[string]string{
+			"status":   normalizeMetricLabel(status),
+			"type":     normalizeMetricLabel(outputType),
+			"pipeline": normalizeMetricLabel(pipeline),
+			"path":     normalizeMetricLabel(path),
+			"team":     normalizeMetricLabel(team),
+		}, seconds)
 	}
 	return rows.Err()
 }

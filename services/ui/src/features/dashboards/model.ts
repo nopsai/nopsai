@@ -160,6 +160,14 @@ export type DashboardRefreshSource = {
   finished_at?: string | null;
   created_at: string;
   updated_at: string;
+  pipeline_status?: string;
+  pipeline_started_at?: string | null;
+  pipeline_finished_at?: string | null;
+  output_status?: string;
+  output_created_at?: string | null;
+  output_updated_at?: string | null;
+  output_duration?: string;
+  output_duration_seconds?: number;
 };
 
 export type DashboardRefreshFormState = {
@@ -629,6 +637,14 @@ export function normalizeDashboardRefreshSource(raw: unknown): DashboardRefreshS
     finished_at: optionalString(record.finished_at),
     created_at: stringValue(record.created_at),
     updated_at: stringValue(record.updated_at),
+    pipeline_status: optionalString(record.pipeline_status),
+    pipeline_started_at: optionalString(record.pipeline_started_at),
+    pipeline_finished_at: optionalString(record.pipeline_finished_at),
+    output_status: optionalString(record.output_status),
+    output_created_at: optionalString(record.output_created_at),
+    output_updated_at: optionalString(record.output_updated_at),
+    output_duration: optionalString(record.output_duration),
+    output_duration_seconds: numberValue(record.output_duration_seconds, 0),
   };
 }
 

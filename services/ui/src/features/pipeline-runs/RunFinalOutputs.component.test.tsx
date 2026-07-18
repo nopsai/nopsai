@@ -13,6 +13,9 @@ const outputs: PipelineRunFinalOutput[] = [
     status: 'success',
     content: '# Summary\n\nEverything passed.',
     llm_profile: 'report-writer',
+    created_at: '2026-07-18T10:00:00Z',
+    updated_at: '2026-07-18T10:02:00Z',
+    generation_duration: '2m0s',
   },
   {
     id: 'output-2',
@@ -44,11 +47,14 @@ test('renders final outputs with preview and copy actions', async () => {
   expect(screen.getByText('Executive Summary')).toBeVisible();
   expect(screen.getByText('Generating')).toBeVisible();
   expect(screen.getByText('LLM profile missing')).toBeVisible();
+  expect(screen.getByText(/2m0s duration/)).toBeVisible();
 
-  await user.click(screen.getAllByRole('button', { name: 'Preview' })[0]);
+  await user.click(screen.getByRole('button', { name: 'Actions for Executive Summary' }));
+  await user.click(screen.getByRole('menuitem', { name: 'Preview' }));
   expect(screen.getByText(/Everything passed/)).toBeVisible();
 
-  await user.click(screen.getAllByRole('button', { name: 'Copy' })[0]);
+  await user.click(screen.getByRole('button', { name: 'Actions for Executive Summary' }));
+  await user.click(screen.getByRole('menuitem', { name: 'Copy' }));
   await waitFor(() => expect(writeText).toHaveBeenCalledWith('# Summary\n\nEverything passed.'));
   expect(screen.getByText('Executive Summary copied')).toBeVisible();
 });
@@ -71,7 +77,8 @@ test('downloads final outputs through the authenticated API client', async () =>
 
   try {
     render(<RunFinalOutputs runID="run-1" outputs={[outputs[0]]} />);
-    await user.click(screen.getByRole('button', { name: 'Download' }));
+    await user.click(screen.getByRole('button', { name: 'Actions for Executive Summary' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Download' }));
 
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledWith('/v1/runs/run-1/outputs/output-1/download', { cache: 'no-store' });
@@ -90,13 +97,15 @@ test('cancels pending final output generation', async () => {
   const onCancelOutput = vi.fn().mockResolvedValue(undefined);
 
   render(<RunFinalOutputs runID="run-1" outputs={[outputs[1]]} onCancelOutput={onCancelOutput} />);
-  await user.click(screen.getByRole('button', { name: 'Cancel' }));
+  await user.click(screen.getByRole('button', { name: 'Actions for Comparison Report' }));
+  await user.click(screen.getByRole('menuitem', { name: 'Cancel' }));
 
   await waitFor(() => expect(onCancelOutput).toHaveBeenCalledWith('output-2'));
   expect(screen.getByText('Comparison Report cancellation requested')).toBeVisible();
 });
 
-test('shows cancelled final outputs as terminal', () => {
+test('shows cancelled final outputs as terminal', async () => {
+  const user = userEvent.setup();
   render(
     <RunFinalOutputs
       runID="run-1"
@@ -106,5 +115,6 @@ test('shows cancelled final outputs as terminal', () => {
   );
 
   expect(screen.getByText('Cancelled')).toBeVisible();
-  expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+  await user.click(screen.getByRole('button', { name: 'Actions for Comparison Report' }));
+  expect(screen.getByRole('menuitem', { name: 'Cancel' })).toBeDisabled();
 });

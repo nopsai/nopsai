@@ -249,6 +249,15 @@ func TestMapRequestUsesUpdatedLowLevelActions(t *testing.T) {
 			wantID:     "00000000-0000-0000-0000-000000000001",
 		},
 		{
+			name:       "dashboard publication removal uses dashboard update",
+			method:     http.MethodDelete,
+			path:       "/v1/dashboards/00000000-0000-0000-0000-000000000001/publications/00000000-0000-0000-0000-000000000002",
+			pathValues: map[string]string{"dashboardID": "00000000-0000-0000-0000-000000000001", "publicationID": "00000000-0000-0000-0000-000000000002"},
+			wantAction: "dashboard.update",
+			wantType:   "dashboard",
+			wantID:     "00000000-0000-0000-0000-000000000001",
+		},
+		{
 			name:       "dashboard refresh start uses refresh",
 			method:     http.MethodPost,
 			path:       "/v1/dashboards/00000000-0000-0000-0000-000000000001/refresh",

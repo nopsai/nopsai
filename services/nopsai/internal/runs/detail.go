@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -45,6 +46,14 @@ func LoadRunRecord(ctx context.Context, db Queryer, runID string) (RunRecord, er
 			COALESCE(pr.trigger_source, ''), COALESCE(pr.schedule_id::text, ''), COALESCE(ps.name, ''), COALESCE(ps.path, ''),
 			COALESCE(eti.trigger_id, ''), COALESCE(et.name, ''), COALESCE(eti.event_type, ''),
 			COALESCE(eti.caller_type, ''), COALESCE(eti.caller_id, ''), COALESCE(eti.idempotency_key, ''),
+			pr.created_at, pr.timeout_at, COALESCE(pr.scope, ''), COALESCE(pr.team_id, 0)::int,
+			COALESCE(pr.git_clone_url, ''), COALESCE(pr.git_ssh_url, ''), COALESCE(pr.git_commit_url, ''),
+			COALESCE(pr.git_commit_message, ''), COALESCE(pr.git_commit_author_name, ''),
+			COALESCE(pr.git_commit_author_email, ''), COALESCE(pr.git_commit_author_username, ''),
+			COALESCE(pr.git_pusher_email, ''), COALESCE(pr.git_check_run_id, 0)::bigint,
+			COALESCE(pr.requested_by_type, ''), COALESCE(pr.requested_by_id, ''),
+			COALESCE(pr.effective_subject_type, ''), COALESCE(pr.effective_subject_id, ''),
+			COALESCE(pr.runtime_variable_overrides::text, '{}'),
 			COALESCE(prus.ai_prompt_tokens, 0)::bigint, COALESCE(prus.ai_completion_tokens, 0)::bigint,
 			COALESCE(prus.ai_total_tokens, 0)::bigint, COALESCE(prus.ai_cost_usd, 0)::float8
 		FROM pipeline_runs pr
@@ -56,9 +65,11 @@ func LoadRunRecord(ctx context.Context, db Queryer, runID string) (RunRecord, er
 	`, runID)
 
 	var record RunRecord
-	var startedAt, finishedAt sql.NullTime
+	var startedAt, finishedAt, timeoutAt sql.NullTime
 	var commitSHA, repoOwner, repoName, pusherName, gitRef, gitTargetRef, failureReason, pipelineSource, pipelineVersion, pipelinePath, triggerEventID, triggerSource, scheduleID, scheduleName, schedulePath sql.NullString
 	var externalTriggerID, externalTriggerName, externalTriggerEventType, externalTriggerCallerType, externalTriggerCallerID, externalTriggerIdempotency sql.NullString
+	var scope, gitCloneURL, gitSSHURL, gitCommitURL, gitCommitMessage, gitCommitAuthorName, gitCommitAuthorEmail, gitCommitAuthorUsername, gitPusherEmail sql.NullString
+	var requestedByType, requestedByID, effectiveSubjectType, effectiveSubjectID, runtimeVariableOverridesRaw sql.NullString
 	err := row.Scan(
 		&record.Run.RunID, &record.Run.PipelineName, &pipelinePath, &pipelineVersion, &record.Run.Status, &commitSHA,
 		&repoOwner, &repoName, &startedAt, &finishedAt,
@@ -66,6 +77,10 @@ func LoadRunRecord(ctx context.Context, db Queryer, runID string) (RunRecord, er
 		&failureReason, &pipelineSource, &triggerEventID,
 		&triggerSource, &scheduleID, &scheduleName, &schedulePath, &externalTriggerID, &externalTriggerName,
 		&externalTriggerEventType, &externalTriggerCallerType, &externalTriggerCallerID, &externalTriggerIdempotency,
+		&record.Run.CreatedAt, &timeoutAt, &scope, &record.Run.TeamID,
+		&gitCloneURL, &gitSSHURL, &gitCommitURL, &gitCommitMessage, &gitCommitAuthorName,
+		&gitCommitAuthorEmail, &gitCommitAuthorUsername, &gitPusherEmail, &record.Run.GitCheckRunID,
+		&requestedByType, &requestedByID, &effectiveSubjectType, &effectiveSubjectID, &runtimeVariableOverridesRaw,
 		&record.Run.AIUsage.PromptTokens, &record.Run.AIUsage.CompletionTokens, &record.Run.AIUsage.TotalTokens, &record.Run.AIUsage.TotalCostUSD,
 	)
 	if err != nil {
@@ -94,6 +109,23 @@ func LoadRunRecord(ctx context.Context, db Queryer, runID string) (RunRecord, er
 	run.ExternalTriggerCallerType = externalTriggerCallerType.String
 	run.ExternalTriggerCallerID = externalTriggerCallerID.String
 	run.ExternalTriggerIdempotency = externalTriggerIdempotency.String
+	run.Scope = scope.String
+	run.GitCloneURL = gitCloneURL.String
+	run.GitSSHURL = gitSSHURL.String
+	run.GitCommitURL = gitCommitURL.String
+	run.GitCommitMessage = gitCommitMessage.String
+	run.GitCommitAuthorName = gitCommitAuthorName.String
+	run.GitCommitAuthorEmail = gitCommitAuthorEmail.String
+	run.GitCommitAuthorUsername = gitCommitAuthorUsername.String
+	run.GitPusherEmail = gitPusherEmail.String
+	run.RequestedByType = requestedByType.String
+	run.RequestedByID = requestedByID.String
+	run.EffectiveSubjectType = effectiveSubjectType.String
+	run.EffectiveSubjectID = effectiveSubjectID.String
+	run.RuntimeVariableOverrides = parseRuntimeVariableOverrides(runtimeVariableOverridesRaw.String)
+	if timeoutAt.Valid {
+		run.TimeoutAt = timeoutAt.Time
+	}
 	if startedAt.Valid {
 		run.StartedAt = startedAt.Time
 		if finishedAt.Valid {
@@ -313,11 +345,33 @@ func LoadFinalOutputs(ctx context.Context, db Queryer, runID string) ([]models.P
 			return nil, err
 		}
 		outputs = append(outputs, output)
+		output.GenerationDuration, output.GenerationSeconds = FinalOutputGenerationTiming(output.CreatedAt, output.UpdatedAt)
+		outputs[len(outputs)-1] = output
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	return outputs, nil
+}
+
+func parseRuntimeVariableOverrides(raw string) map[string]any {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "{}" {
+		return nil
+	}
+	var overrides map[string]any
+	if err := json.Unmarshal([]byte(raw), &overrides); err != nil || len(overrides) == 0 {
+		return nil
+	}
+	return overrides
+}
+
+func FinalOutputGenerationTiming(createdAt, updatedAt time.Time) (string, float64) {
+	if createdAt.IsZero() || updatedAt.IsZero() || updatedAt.Before(createdAt) {
+		return "", 0
+	}
+	duration := updatedAt.Sub(createdAt).Round(time.Second)
+	return duration.String(), duration.Seconds()
 }
 
 func BuildDetail(input DetailBuildInput) models.RunDetail {
