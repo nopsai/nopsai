@@ -120,6 +120,13 @@ wrappers, including top-level `widgets` and `sections[].blocks` /
 `blocks`/`widgets`, are normalized into the required flat top-level `blocks`
 array before strict validation. Generated `properties` aliases are normalized
 to `items`, and display item or point `key` aliases are normalized to `label`.
+Dashboard presets are shape hints on top of the same `DashboardSpec` contract:
+`report` is narrative-first with tables only as supporting evidence, `table`
+makes one table primary, `status` starts with current health/readiness,
+`timeline` orders events or series chronologically, `comparison` presents
+side-by-side differences, `metrics` starts with headline numbers and charts,
+`mixed` composes complementary operator blocks, and `auto` chooses the smallest
+useful layout.
 For dashboard generation, emitted step stdout/stderr is supplied before metadata
 and history and is treated as authoritative for business facts. Structured
 emitted evidence lines such as `dashboard_evidence={...}` are promoted into a
