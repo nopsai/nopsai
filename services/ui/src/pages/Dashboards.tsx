@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import {
   cancelDashboardRefresh,
@@ -72,6 +73,13 @@ import {
   unselectedDashboardOutputSources,
   type DashboardOutputBinding,
 } from '../features/dashboards/pipelineAssignments';
+import {
+  DASHBOARD_ROUTE_DASHBOARD_PARAM,
+  DASHBOARD_ROUTE_TAB_PARAM,
+  dashboardTabHref,
+  dashboardTabSearchParams,
+  normalizeDashboardRouteValue,
+} from '../features/dashboards/routes';
 import type { DashboardPipelineCatalogItem } from '../features/dashboards/sourceOptions';
 
 type DashboardsPageProps = {
@@ -84,13 +92,17 @@ type RefreshModalState = {
 };
 
 export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards }: DashboardsPageProps) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const routeDashboardID = normalizeDashboardRouteValue(searchParams.get(DASHBOARD_ROUTE_DASHBOARD_PARAM));
+  const routeSectionKey = normalizeDashboardRouteValue(searchParams.get(DASHBOARD_ROUTE_TAB_PARAM));
+
   const [dashboards, setDashboards] = useState<DashboardSummary[]>([]);
   const [teams, setTeams] = useState<string[]>([]);
   const [pipelines, setPipelines] = useState<string[]>([]);
   const [scopes, setScopes] = useState<string[]>(['']);
   const [dashboardPipelineCatalog, setDashboardPipelineCatalog] = useState<DashboardPipelineCatalogItem[]>([]);
   const [pipelineLoading, setPipelineLoading] = useState(true);
-  const [selectedID, setSelectedID] = useState('');
+  const [selectedID, setSelectedID] = useState(routeDashboardID);
   const [view, setView] = useState<DashboardView | null>(null);
   const [history, setHistory] = useState<DashboardEvent[]>([]);
   const [refreshes, setRefreshes] = useState<DashboardRefresh[]>([]);
@@ -132,6 +144,11 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
       setLoading(false);
     }
   }, [searchTerm, teamFilter]);
+
+  useEffect(() => {
+    if (!routeDashboardID || routeDashboardID === selectedID) return;
+    setSelectedID(routeDashboardID);
+  }, [routeDashboardID, selectedID]);
 
   const loadSelected = useCallback(async () => {
     if (!selectedID) {
@@ -210,6 +227,33 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
     () => dashboards.find(item => item.id === selectedID) || view?.dashboard || null,
     [dashboards, selectedID, view]
   );
+  const activeSectionKey = useMemo(() => {
+    const sections = view?.sections || [];
+    if (routeSectionKey && sections.some(section => section.section_key === routeSectionKey)) return routeSectionKey;
+    return sections[0]?.section_key || '';
+  }, [routeSectionKey, view?.sections]);
+
+  useEffect(() => {
+    if (!selectedID) return;
+    const nextParams = dashboardTabSearchParams(searchParams, selectedID, activeSectionKey);
+    if (nextParams.toString() === searchParams.toString()) return;
+    setSearchParams(nextParams, { replace: true });
+  }, [activeSectionKey, searchParams, selectedID, setSearchParams]);
+
+  const selectDashboard = useCallback((dashboardID: string) => {
+    const normalizedDashboardID = normalizeDashboardRouteValue(dashboardID);
+    setSelectedID(normalizedDashboardID);
+    setSearchParams(dashboardTabSearchParams(searchParams, normalizedDashboardID, ''));
+  }, [searchParams, setSearchParams]);
+
+  const selectDashboardSection = useCallback((sectionKey: string) => {
+    setSearchParams(dashboardTabSearchParams(searchParams, selectedID, sectionKey));
+  }, [searchParams, selectedID, setSearchParams]);
+
+  const dashboardSectionHref = useCallback(
+    (sectionKey: string) => dashboardTabHref(searchParams, selectedID, sectionKey),
+    [searchParams, selectedID]
+  );
 
   const openCreateDashboard = useCallback(() => {
     setDashboardForm(createDashboardForm(teamFilter || teams[0] || ''));
@@ -262,14 +306,14 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
       await saveDashboardOutputBindings(updated.id, outputBindings.filter(binding => !sourceBindingExists(remainingSources, binding)));
       await loadDashboards();
       if (selectedID === updated.id) await loadSelected();
-      setSelectedID(updated.id);
+      selectDashboard(updated.id);
       setDashboardModal(null);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Unable to save dashboard');
     } finally {
       setSaving(false);
     }
-  }, [dashboardForm, dashboardModal, dashboardPipelineCatalog, loadDashboards, loadSelected, saving, selectedID, view?.sections, view?.sources]);
+  }, [dashboardForm, dashboardModal, dashboardPipelineCatalog, loadDashboards, loadSelected, saving, selectDashboard, selectedID, view?.sections, view?.sources]);
 
   const openDeleteDashboard = useCallback((dashboard: DashboardSummary) => {
     setFormError(null);
@@ -381,14 +425,8 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
     setRefreshModal({ label: 'Refresh dashboard' });
   }, []);
 
-  const openRefreshSource = useCallback((source: DashboardSource) => {
-    setRefreshForm(createRefreshForm(source.section_key, source.id));
-    setFormError(null);
-    setRefreshModal({ label: `Refresh ${source.pipeline_id}` });
-  }, []);
-
   const openCreateRefreshSchedule = useCallback((
-    scope: { scopeType?: DashboardRefreshScheduleFormState['scopeType']; sectionKey?: string; sourceID?: string } = {}
+    scope: { scopeType?: DashboardRefreshScheduleFormState['scopeType']; sectionKey?: string } = {}
   ) => {
     setRefreshScheduleForm(createRefreshScheduleForm(scope));
     setFormError(null);
@@ -497,6 +535,7 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
         dashboards={dashboards}
         teams={teams}
         selectedID={selectedID}
+        activeSectionKey={activeSectionKey}
         selectedDashboard={selectedDashboard}
         view={view}
         history={history}
@@ -512,7 +551,9 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
         canDeleteDashboards={canDeleteDashboards}
         onSearchTermChange={setSearchTerm}
         onTeamFilterChange={setTeamFilter}
-        onSelectDashboard={setSelectedID}
+        onSelectDashboard={selectDashboard}
+        onSelectSection={selectDashboardSection}
+        sectionTabHref={dashboardSectionHref}
         onReloadDashboards={() => void loadDashboards()}
         onCreateDashboard={openCreateDashboard}
         onEditDashboard={openEditDashboard}
@@ -522,7 +563,6 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
         onEditSource={openEditSource}
         onDeleteSource={openDeleteSource}
         onDeletePublication={openDeletePublication}
-        onRefreshSource={openRefreshSource}
         onCancelRefresh={refresh => void cancelRefresh(refresh)}
         onRetryRefresh={refresh => void retryFailed(refresh)}
         onCreateSchedule={scope => openCreateRefreshSchedule(scope)}
@@ -600,7 +640,6 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
           title={refreshModal.label}
           form={refreshForm}
           sections={view?.sections || []}
-          sources={view?.sources || []}
           saving={saving}
           error={formError}
           onChange={setRefreshForm}
@@ -614,7 +653,6 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
           modal={refreshScheduleModal}
           form={refreshScheduleForm}
           sections={view?.sections || []}
-          sources={view?.sources || []}
           saving={saving}
           error={formError}
           onChange={setRefreshScheduleForm}
