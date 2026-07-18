@@ -150,6 +150,9 @@ Supported dashboard capabilities:
 - protection against unsafe generated HTML/CSS/JavaScript, executable links,
   iframes, forms, external scripts, oversized tables, oversized text, and
   oversized chart series/point sets
+- circular pie/donut rendering with point-level slice colors, bar chart labels,
+  boolean-like table status chips, tolerant dashboard alias normalization, and
+  table fallback inference for charts that declare a series without points
 - older-run protection for replace publications
 - idempotent publication by run output
 - full dashboard, section, and source refresh with strict/best-effort modes,

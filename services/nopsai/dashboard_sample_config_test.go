@@ -49,11 +49,11 @@ func TestSampleConfigDashboardPublicationTargetsOpsDashboard(t *testing.T) {
 	if err := validatePipeline(&multiOutputPipeline); err != nil {
 		t.Fatalf("validatePipeline(multi-output sample pipeline) error = %v", err)
 	}
-	if multiOutputPipeline.Name != "dashboard-multi-output-sample" {
-		t.Fatalf("multi-output sample pipeline name = %q, want dashboard-multi-output-sample", multiOutputPipeline.Name)
+	if multiOutputPipeline.Name != "dashboard-sample" {
+		t.Fatalf("multi-output sample pipeline name = %q, want dashboard-sample", multiOutputPipeline.Name)
 	}
-	if len(multiOutputPipeline.Output.Items) != 8 {
-		t.Fatalf("multi-output sample pipeline output items = %d, want 8", len(multiOutputPipeline.Output.Items))
+	if len(multiOutputPipeline.Output.Items) != 10 {
+		t.Fatalf("multi-output sample pipeline output items = %d, want 10", len(multiOutputPipeline.Output.Items))
 	}
 	modes := map[string]bool{}
 	presets := map[string]bool{}
@@ -78,6 +78,16 @@ func TestSampleConfigDashboardPublicationTargetsOpsDashboard(t *testing.T) {
 		if !presets[preset] {
 			t.Fatalf("multi-output sample missing dashboard preset %q; got %#v", preset, presets)
 		}
+	}
+	for _, outputName := range []string{"Readiness donut chart", "Boolean readiness matrix"} {
+		if !outputNames[outputName] {
+			t.Fatalf("multi-output sample missing dashboard output %q; got %#v", outputName, outputNames)
+		}
+	}
+	if !strings.Contains(multiOutputPipelineContent, "donut chart") ||
+		!strings.Contains(multiOutputPipelineContent, "pie chart") ||
+		!strings.Contains(multiOutputPipelineContent, "boolean status rendering") {
+		t.Fatalf("multi-output sample should exercise circular charts and boolean status rendering:\n%s", multiOutputPipelineContent)
 	}
 
 	dashboards, err := parseGitOpsDashboards(
@@ -105,8 +115,8 @@ func TestSampleConfigDashboardPublicationTargetsOpsDashboard(t *testing.T) {
 			t.Fatalf("sample dashboard sections = %#v, missing %s", dashboard.input.Sections, section)
 		}
 	}
-	if len(dashboard.sources) != 9 {
-		t.Fatalf("sample dashboard sources = %d, want 9", len(dashboard.sources))
+	if len(dashboard.sources) != 11 {
+		t.Fatalf("sample dashboard sources = %d, want 11", len(dashboard.sources))
 	}
 	sources := map[string]dashboardSourceInput{}
 	for _, source := range dashboard.sources {
@@ -120,8 +130,8 @@ func TestSampleConfigDashboardPublicationTargetsOpsDashboard(t *testing.T) {
 	}
 	for outputName := range outputNames {
 		source := sources[outputName]
-		if source.PipelineID != "team-1/dashboard-multi-output-sample" {
-			t.Fatalf("source for %q = %+v, want team-1/dashboard-multi-output-sample", outputName, source)
+		if source.PipelineID != "team-1/dashboard-sample" {
+			t.Fatalf("source for %q = %+v, want team-1/dashboard-sample", outputName, source)
 		}
 	}
 }

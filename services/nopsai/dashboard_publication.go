@@ -748,11 +748,17 @@ func mergeDashboardCharts(existing, incoming *models.DashboardChart) *models.Das
 	merged := *incoming
 	seriesByKey := map[string]models.DashboardChartSeries{}
 	for _, series := range existing.Series {
-		seriesByKey[strings.TrimSpace(series.Key)] = series
+		key := dashboardChartSeriesMergeKey(series)
+		if current, ok := seriesByKey[key]; ok {
+			current.Points = mergeDashboardSeriesPoints(current.Points, series.Points)
+			seriesByKey[key] = current
+			continue
+		}
+		seriesByKey[key] = series
 	}
 	merged.Series = make([]models.DashboardChartSeries, 0, len(incoming.Series))
 	for _, series := range incoming.Series {
-		key := strings.TrimSpace(series.Key)
+		key := dashboardChartSeriesMergeKey(series)
 		if current, ok := seriesByKey[key]; ok {
 			series.Points = mergeDashboardSeriesPoints(current.Points, series.Points)
 		}
@@ -768,6 +774,23 @@ func mergeDashboardCharts(existing, incoming *models.DashboardChart) *models.Das
 		return strings.TrimSpace(merged.Series[i].Key) < strings.TrimSpace(merged.Series[j].Key)
 	})
 	return trimDashboardChart(&merged)
+}
+
+func dashboardChartSeriesMergeKey(series models.DashboardChartSeries) string {
+	key := strings.TrimSpace(series.Key)
+	normalized := dashboardEvidenceCountKey(key)
+	switch normalized {
+	case "build_duration", "build_duration_seconds", "duration", "duration_seconds":
+		return "build_duration_seconds"
+	}
+	if key != "" {
+		return key
+	}
+	label := strings.TrimSpace(series.Label)
+	if label != "" {
+		return label
+	}
+	return "series"
 }
 
 func mergeDashboardSeriesPoints(existing, incoming []models.DashboardSeriesPoint) []models.DashboardSeriesPoint {

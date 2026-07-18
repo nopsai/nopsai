@@ -21,7 +21,7 @@ const pipelineFinalOutputSystemInstruction = `You produce final deliverables for
 Return exactly one <final_output> element.
 Do not describe the request, your reasoning, the run context, or formatting choices.
 Do not write any text before or after the element.
-The element content must follow the requested output format and must not expose secrets, credentials, tokens, or raw environment values.`
+The element content must follow the requested output format and must not expose secrets, credentials, tokens, or raw environment variable values. Non-secret operational labels from emitted evidence, such as image tags, environment names, versions, and statuses, may be copied exactly when they answer the request.`
 
 type pipelineFinalOutputCompleter interface {
 	CompleteWithSystem(ctx context.Context, systemInstruction, prompt string) (llmclient.Completion, error)

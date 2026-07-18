@@ -127,11 +127,20 @@ item or point `key` aliases are folded into `label`. Common model chart aliases
 are also normalized: `type_name`/`typeName` become `type`, `chartType` or
 `chart_type` become `chart.type`, chart block type aliases such as `bar` or
 `line` become canonical `chart` blocks, and block-level `series` is moved under
-`chart.series` for chart blocks. `data` and `points` aliases at the root, block,
-chart, or series level are normalized into `chart.series[].points` based on
-whether the payload looks like series objects or raw points. The renderer
-contract remains the flat `DashboardSpec` shape above, and block fields still
-use strict validation. If generated content omits the root title, NopsAI
+`chart.series` for chart blocks. Object-shaped chart `series` values are wrapped
+or expanded into the required series array, and chart type aliases such as
+`timeline`, `column`, and `doughnut` are normalized to supported chart types.
+`data` and `points` aliases at the root, block, chart, or series level are
+normalized into `chart.series[].points` based on whether the payload looks like
+series objects or raw points. Status aliases such as `failure`, `failed`,
+`blocked`, `true`, and `False` are normalized into supported dashboard status
+tones before validation. Harmless publication-target metadata accidentally
+included at the root, such as `entryKey`, is ignored. If a chart declares a
+series but leaves `points` empty or `null`, NopsAI can infer points from the
+nearest table by matching the chart or series label to a numeric table column
+and using a text-like column for labels. The renderer contract remains the flat
+`DashboardSpec` shape above, and block fields still use strict validation. If
+generated content omits the root title, NopsAI
 derives one from the first block title or label and otherwise uses `Dashboard
 output`. Missing, numeric `1`, and `1.0` generated versions are normalized to
 the current `DashboardSpec` version `1`; other versions remain invalid.
@@ -209,6 +218,16 @@ For example, this is enough for a dashboard output prompt:
 ```
 
 NopsAI chooses the dashboard structure dynamically from the prompt and evidence.
+
+For operational overview dashboards, emit one structured evidence line such as
+`dashboard_evidence=<json>` and ask for the composed view: KPI cards first,
+categorical build-duration bars, circular readiness/configuration coverage,
+risk callouts, and a readiness matrix. NopsAI treats that structured evidence
+as the source of truth for counts, ratios, chart points, image tags,
+environments, and boolean status cells, so dashboard math and status rendering
+stay stable even when the LLM wording varies. The dashboard UI renders that
+shape as a wide operational overview with the duration comparison and coverage
+donuts grouped together for quick scanning.
 The values still come from run metadata and logged evidence. When the pipeline
 builds multiple images inside one script, plain log lines such as
 `name:version` image lists and matching duration lists are summarized for the
@@ -221,6 +240,13 @@ status/progress/properties for current state and scalar facts, tables for
 repeated records, bar charts for categorical counts, durations, and rankings,
 line or area charts for time series, and pie or donut charts only for bounded
 part-to-whole data.
+
+Dashboard rendering displays `pie` and `donut` chart types as circular charts
+with point-level slice colors. Bar charts render compact category labels when
+points provide labels. Tables render boolean-like values such as `true`/`false`,
+`yes`/`no`, and `passed`/`failed` as compact status chips, with risk-oriented
+columns such as vulnerabilities or missing configuration colored by inverse
+meaning.
 
 The dashboard itself can be managed by GitOps under
 `dashboards/platform/engineering-health.yaml`:

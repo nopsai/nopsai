@@ -610,6 +610,192 @@ func TestNormalizePipelineFinalOutputContentAcceptsDashboardChartAliases(t *test
 	}
 }
 
+func TestNormalizePipelineFinalOutputContentInfersDashboardChartPointsFromTables(t *testing.T) {
+	raw := `<final_output>{
+  "version": "1",
+  "title": "Build duration",
+  "blocks": [
+    {
+      "type": "chart",
+      "title": "Build Duration by Image",
+      "chart": {
+        "type": "bar",
+        "series": [
+          { "key": "duration_sec", "label": "Seconds", "points": null }
+        ]
+      }
+    },
+    {
+      "type": "table",
+      "columns": [
+        { "key": "image", "label": "Image Name" },
+        { "key": "tag", "label": "Tag" },
+        { "key": "duration", "label": "Build Duration" }
+      ],
+      "rows": [
+        { "image": "nopsai-dashboard", "tag": "latest", "duration": "24s" },
+        { "image": "git-sample", "tag": "dev", "duration": "55s" }
+      ]
+    },
+    {
+      "type": "table",
+      "columns": [
+        { "key": "image", "label": "Image Name" },
+        { "key": "duration", "label": "Duration (s)" }
+      ],
+      "rows": [
+        { "image": "app-finance", "duration": 60 },
+        { "image": "seed-static", "duration": 12 }
+      ]
+    },
+    {
+      "type": "chart",
+      "title": "Duration comparison",
+      "chart": {
+        "type": "bar",
+        "series": [
+          { "key": "duration", "label": "Seconds", "points": [] }
+        ]
+      }
+    }
+  ]
+}</final_output>`
+
+	content, err := normalizePipelineFinalOutputContent("dashboard", raw)
+	if err != nil {
+		t.Fatalf("normalizePipelineFinalOutputContent() error = %v", err)
+	}
+	var spec models.DashboardSpec
+	if err := json.Unmarshal([]byte(content), &spec); err != nil {
+		t.Fatalf("json.Unmarshal(normalized DashboardSpec) error = %v\n%s", err, content)
+	}
+	firstPoints := spec.Blocks[0].Chart.Series[0].Points
+	if len(firstPoints) != 2 || firstPoints[0].Label != "nopsai-dashboard" || firstPoints[0].Value == nil || *firstPoints[0].Value != 24 {
+		t.Fatalf("first chart points = %#v\n%s", firstPoints, content)
+	}
+	secondPoints := spec.Blocks[3].Chart.Series[0].Points
+	if len(secondPoints) != 2 || secondPoints[0].Label != "app-finance" || secondPoints[0].Value == nil || *secondPoints[0].Value != 60 {
+		t.Fatalf("second chart points = %#v\n%s", secondPoints, content)
+	}
+
+	raw = `<final_output>{
+  "version": "1",
+  "title": "Production readiness",
+  "blocks": [
+    {
+      "type": "chart",
+      "title": "Production readiness status",
+      "chart": {
+        "type": "bar",
+        "series": [
+          { "key": "readiness", "label": "Ready", "points": null }
+        ]
+      }
+    },
+    {
+      "type": "table",
+      "columns": [
+        { "key": "image", "label": "Image Name" },
+        { "key": "tag", "label": "Tag" },
+        { "key": "prod_ready", "label": "Prod Ready" }
+      ],
+      "rows": [
+        { "image": "nopsai-dashboard", "tag": "latest", "prod_ready": "No" },
+        { "image": "seed-static", "tag": "3.4.5", "prod_ready": "No" }
+      ]
+    }
+  ]
+}</final_output>`
+
+	content, err = normalizePipelineFinalOutputContent("dashboard", raw)
+	if err != nil {
+		t.Fatalf("normalizePipelineFinalOutputContent() identifier table error = %v", err)
+	}
+	if err := json.Unmarshal([]byte(content), &spec); err != nil {
+		t.Fatalf("json.Unmarshal(identifier table DashboardSpec) error = %v\n%s", err, content)
+	}
+	if points := spec.Blocks[0].Chart.Series[0].Points; len(points) != 0 {
+		t.Fatalf("identifier-looking tag column inferred chart points = %#v\n%s", points, content)
+	}
+}
+
+func TestNormalizePipelineFinalOutputContentAcceptsCommonLLMDashboardAliases(t *testing.T) {
+	raw := `<final_output>{
+  "version": "1",
+  "title": "Release readiness",
+  "entryKey": "release-readiness",
+  "blocks": [
+    {
+      "type": "status",
+      "label": "Production readiness",
+      "status": "failure"
+    },
+    {
+      "type": "status",
+      "label": "Production ready",
+      "status": "False"
+    },
+    {
+      "type": "chart",
+      "title": "Build timeline",
+      "chart": {
+        "type": "timeline",
+        "series": {
+          "key": "duration",
+          "label": "Duration",
+          "points": [
+            { "label": "nopsai-dashboard", "value": "24s" }
+          ]
+        }
+      }
+    },
+    {
+      "type": "chart",
+      "title": "Readiness donut",
+      "chart": {
+        "type": "doughnut",
+        "series": {
+          "readiness": {
+            "Production Ready": 0,
+            "Blocked from Production": 4
+          }
+        }
+      }
+    }
+  ]
+}</final_output>`
+
+	content, err := normalizePipelineFinalOutputContent("dashboard", raw)
+	if err != nil {
+		t.Fatalf("normalizePipelineFinalOutputContent() error = %v", err)
+	}
+	if strings.Contains(content, "entryKey") {
+		t.Fatalf("root metadata alias was not removed:\n%s", content)
+	}
+	var spec models.DashboardSpec
+	if err := json.Unmarshal([]byte(content), &spec); err != nil {
+		t.Fatalf("json.Unmarshal(normalized DashboardSpec) error = %v\n%s", err, content)
+	}
+	if spec.Blocks[0].Status != "critical" || spec.Blocks[0].Value != "failure" {
+		t.Fatalf("failure status alias = %#v\n%s", spec.Blocks[0], content)
+	}
+	if spec.Blocks[1].Status != "critical" || spec.Blocks[1].Value != "False" {
+		t.Fatalf("boolean status alias = %#v\n%s", spec.Blocks[1], content)
+	}
+	if spec.Blocks[2].Chart == nil || spec.Blocks[2].Chart.Type != "line" || len(spec.Blocks[2].Chart.Series) != 1 {
+		t.Fatalf("timeline chart alias = %#v\n%s", spec.Blocks[2], content)
+	}
+	if points := spec.Blocks[2].Chart.Series[0].Points; len(points) != 1 || points[0].Value == nil || *points[0].Value != 24 {
+		t.Fatalf("series object points = %#v\n%s", points, content)
+	}
+	if spec.Blocks[3].Chart == nil || spec.Blocks[3].Chart.Type != "donut" || len(spec.Blocks[3].Chart.Series) != 1 {
+		t.Fatalf("doughnut/chart series map alias = %#v\n%s", spec.Blocks[3], content)
+	}
+	if points := spec.Blocks[3].Chart.Series[0].Points; len(points) != 2 {
+		t.Fatalf("readiness points = %#v\n%s", points, content)
+	}
+}
+
 func TestNormalizePipelineFinalOutputContentValidatesDashboardChartSpec(t *testing.T) {
 	spec := dashboardSeriesSpec("Ops Dashboard", "Latency", []models.DashboardChartSeries{
 		{
@@ -658,6 +844,8 @@ func TestDashboardFinalOutputGuidanceStaysIntentDriven(t *testing.T) {
 		"line or area chart for time series",
 		"recent pipeline history",
 		"Use only evidence present in the run context",
+		"Keep content scoped to the user's dashboard request",
+		"Copy non-secret operational labels from emitted evidence exactly",
 		"Available DashboardSpec blocks are status, text, callout, list, properties, table, progress, link, chart, and series",
 		"Include a non-empty title",
 		"Use one flat top-level blocks array",
@@ -707,9 +895,75 @@ func TestPipelineFinalOutputLogEvidenceSummaryExtractsImagesAndDurations(t *test
 	}
 }
 
+func TestPipelineFinalOutputLogEvidenceExtractsKubernetesDirectScriptOutput(t *testing.T) {
+	output := strings.Join([]string{
+		"we built 4 different docker images, nopsai-dashboard:latest, git-sample:dev, app-finance:prod, seed-static:3.4.5",
+		"this is how each image took to be built, 24s, 55s, 60s, 12s",
+		"These images have vulnerabilities and can not be run in production",
+		"some environments are not provided for images, so it might fails during running",
+		"git repositories are updated with proper changelog",
+		"my dog name is leone, and I have a car",
+		`dashboard_evidence={"git_changelog_updated":true,"images":[{"build_duration_seconds":24,"environment":"dashboard","has_vulnerabilities":true,"missing_environment":false,"name":"nopsai-dashboard","production_ready":false,"tag":"latest"},{"build_duration_seconds":55,"environment":"development","has_vulnerabilities":true,"missing_environment":true,"name":"git-sample","production_ready":false,"tag":"dev"},{"build_duration_seconds":60,"environment":"production","has_vulnerabilities":true,"missing_environment":true,"name":"app-finance","production_ready":false,"tag":"prod"},{"build_duration_seconds":12,"environment":"static-assets","has_vulnerabilities":true,"missing_environment":false,"name":"seed-static","production_ready":false,"tag":"3.4.5"}],"images_built":4,"readiness_summary":{"blocked_from_production":4,"missing_runtime_configuration":2,"production_ready":0,"runtime_configuration_present":2,"vulnerable_images":4},"subject":"docker image build and production readiness"}`,
+	}, "\n")
+	payload, err := json.Marshal(map[string]string{
+		"level":   "info",
+		"runid":   "3e349032-4918-4f47-8a9f-349600932e57",
+		"message": "status=success action=\"python - <<'PY'\nimport json\nprint(\"dashboard_evidence=...\")\nPY\" output=\"" + output + "\"",
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	logs := []string{
+		`Preparing agent container agent-dashboard-sample with image ghcr.io/hosein-yousefii/nopsai-agent:dev`,
+		`2026-07-18T09:38:55Z {"level":"info","image":"python:3.11-slim","message":"Creating new Kubernetes pod for step"}`,
+		"2026-07-18T09:38:57Z " + string(payload),
+	}
+
+	evidence := buildPipelineFinalOutputLogEvidence(logs)
+	if len(evidence.Lines) < 7 {
+		t.Fatalf("emitted evidence lines = %#v", evidence.Lines)
+	}
+	if len(evidence.Structured) != 1 || !strings.Contains(evidence.Structured[0], `"images_built":4`) {
+		t.Fatalf("structured evidence = %#v", evidence.Structured)
+	}
+	summary := strings.Join(pipelineFinalOutputLogEvidenceSummaryFromEvidence(evidence), "\n")
+	for _, want := range []string{
+		"image_count: 4",
+		"image: nopsai-dashboard | version: latest | build_duration: 24s",
+		"image: app-finance | version: prod | build_duration: 60s",
+		"image: seed-static | version: 3.4.5 | build_duration: 12s",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("log evidence summary missing %q:\n%s", want, summary)
+		}
+	}
+	if strings.Contains(summary, "python") || strings.Contains(summary, "nopsai-agent") {
+		t.Fatalf("log evidence summary included runtime metadata:\n%s", summary)
+	}
+}
+
+func TestPipelineFinalOutputCommandOutputLinesKeepsTrailingEmbeddedJSONQuotes(t *testing.T) {
+	message := `status=success action="python - <<'PY'
+print("dashboard_evidence=...")
+PY" output="first line
+dashboard_evidence={"images_built":4,"readiness_summary":{"blocked_from_production":4,"production_ready":0}}"`
+
+	lines := pipelineFinalOutputCommandOutputLines(message)
+	if len(lines) != 2 {
+		t.Fatalf("lines = %#v", lines)
+	}
+	if lines[1] != `dashboard_evidence={"images_built":4,"readiness_summary":{"blocked_from_production":4,"production_ready":0}}` {
+		t.Fatalf("structured line = %q", lines[1])
+	}
+	evidence := pipelineFinalOutputStructuredEvidenceFromLines(lines)
+	if len(evidence) != 1 || !strings.Contains(evidence[0], `"images_built":4`) {
+		t.Fatalf("structured evidence = %#v", evidence)
+	}
+}
+
 func TestWritePipelineFinalOutputCurrentLogEvidenceMarksLogsAuthoritative(t *testing.T) {
 	logs := []string{
-		`2026-07-16T20:31:50Z {"level":"info","message":"status=success action=\"echo \"we built 4 different docker images, nopsai-dashboard:latest\"\" output=\"we built 4 different docker images, nopsai-dashboard:latest\nthis is how each image took to be built, 24s\""}`,
+		`2026-07-16T20:31:50Z {"level":"info","message":"status=success action=\"echo \"we built 4 different docker images, nopsai-dashboard:latest\"\" output=\"we built 4 different docker images, nopsai-dashboard:latest\nthis is how each image took to be built, 24s\ndashboard_evidence={\\\"images_built\\\":1,\\\"readiness_summary\\\":{\\\"production_ready\\\":0,\\\"blocked_from_production\\\":1}}\""}`,
 	}
 	var builder strings.Builder
 	writePipelineFinalOutputCurrentLogEvidence(&builder, logs, buildPipelineFinalOutputLogEvidence(logs))
@@ -720,6 +974,8 @@ func TestWritePipelineFinalOutputCurrentLogEvidenceMarksLogsAuthoritative(t *tes
 		"Extracted facts from current log lines",
 		"image_count: 1",
 		"image: nopsai-dashboard | version: latest | build_duration: 24s",
+		"Structured emitted evidence",
+		`dashboard_evidence={"images_built":1,"readiness_summary":{"production_ready":0,"blocked_from_production":1}}`,
 		"Emitted step output lines",
 		"Raw operational log excerpt",
 		"we built 4 different docker images, nopsai-dashboard:latest",
@@ -776,6 +1032,181 @@ func TestGroundPipelineFinalDashboardOutputContentPreservesValidOutputIntent(t *
 	}
 }
 
+func TestGroundPipelineFinalDashboardOutputContentFillsCircularChartPointsFromStructuredEvidence(t *testing.T) {
+	evidence := pipelineFinalOutputLogEvidence{
+		Structured: []string{
+			`dashboard_evidence={"images_built":4,"readiness_summary":{"blocked_from_production":4,"missing_runtime_configuration":2,"production_ready":0,"runtime_configuration_present":2,"vulnerable_images":4}}`,
+		},
+	}
+	content := `{
+  "version": "1",
+  "title": "Production Readiness Dashboard",
+  "blocks": [
+    {
+      "type": "chart",
+      "label": "Production Readiness",
+      "chart": {
+        "type": "donut",
+        "series": [
+          { "key": "production_ready", "label": "production ready", "points": null },
+          { "key": "blocked_from_production", "label": "blocked from production", "points": null }
+        ]
+      }
+    },
+    {
+      "type": "chart",
+      "label": "Runtime Configuration Coverage",
+      "chart": {
+        "type": "pie",
+        "series": [
+          { "key": "missing_configuration", "label": "missing configuration", "points": null },
+          { "key": "configuration_present", "label": "configuration present", "points": null }
+        ]
+      }
+    }
+  ]
+}`
+	grounded, err := groundPipelineFinalDashboardOutputContent(content, pipelineFinalOutputRecord{
+		PipelineRunFinalOutput: models.PipelineRunFinalOutput{Type: "dashboard"},
+		Prompt:                 "Create a compact circular-chart dashboard output from emitted JSON evidence.",
+	}, evidence)
+	if err != nil {
+		t.Fatalf("groundPipelineFinalDashboardOutputContent() error = %v", err)
+	}
+	if strings.Contains(grounded, `"points":null`) {
+		t.Fatalf("grounded dashboard still contains null points:\n%s", grounded)
+	}
+	var spec models.DashboardSpec
+	if err := json.Unmarshal([]byte(grounded), &spec); err != nil {
+		t.Fatalf("json.Unmarshal grounded content error = %v\n%s", err, grounded)
+	}
+	readinessPoints := spec.Blocks[0].Chart.Series[0].Points
+	if len(readinessPoints) != 2 || readinessPoints[0].Label != "Production Ready" || readinessPoints[0].Value == nil || *readinessPoints[0].Value != 0 ||
+		readinessPoints[1].Label != "Blocked From Production" || readinessPoints[1].Value == nil || *readinessPoints[1].Value != 4 {
+		t.Fatalf("readiness points = %#v\n%s", readinessPoints, grounded)
+	}
+	configPoints := spec.Blocks[1].Chart.Series[0].Points
+	if len(configPoints) != 2 || configPoints[0].Label != "Missing Configuration" || configPoints[0].Value == nil || *configPoints[0].Value != 2 ||
+		configPoints[1].Label != "Configuration Present" || configPoints[1].Value == nil || *configPoints[1].Value != 2 {
+		t.Fatalf("configuration points = %#v\n%s", configPoints, grounded)
+	}
+}
+
+func TestGroundPipelineFinalDashboardOutputContentCorrectsBuildDurationMetrics(t *testing.T) {
+	evidence := pipelineFinalOutputLogEvidence{
+		Structured: []string{
+			`dashboard_evidence={"images":[{"build_duration_seconds":24,"name":"nopsai-dashboard","tag":"latest"},{"build_duration_seconds":55,"name":"git-sample","tag":"dev"},{"build_duration_seconds":60,"name":"app-finance","tag":"prod"},{"build_duration_seconds":12,"name":"seed-static","tag":"3.4.5"}],"readiness_summary":{"blocked_from_production":4,"production_ready":0}}`,
+		},
+	}
+	content := `{
+  "version": "1",
+  "title": "Build duration metrics",
+  "blocks": [
+    {
+      "type": "properties",
+      "items": [
+        { "label": "Total Build Time", "value": "149s" },
+        { "label": "Average Build Time", "value": "37.25s" },
+        { "label": "Fastest Image", "value": "N/A" },
+        { "label": "Slowest Image", "value": "N/A" }
+      ]
+    },
+    {
+      "type": "chart",
+      "label": "Build Duration by Image",
+      "chart": {
+        "type": "bar",
+        "series": [
+          {
+            "key": "duration",
+            "label": "Seconds",
+            "points": [
+              { "label": "nopsai-dashboard", "value": 1 }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}`
+	grounded, err := groundPipelineFinalDashboardOutputContent(content, pipelineFinalOutputRecord{
+		PipelineRunFinalOutput: models.PipelineRunFinalOutput{Type: "dashboard", Name: "Build duration metrics"},
+		Prompt:                 "Publish numeric build duration metrics for each image.",
+		Dashboard:              models.DashboardOutputTarget{EntryKey: "build-duration-metrics", Preset: "metrics"},
+	}, evidence)
+	if err != nil {
+		t.Fatalf("groundPipelineFinalDashboardOutputContent() error = %v", err)
+	}
+	var spec models.DashboardSpec
+	if err := json.Unmarshal([]byte(grounded), &spec); err != nil {
+		t.Fatalf("json.Unmarshal grounded content error = %v\n%s", err, grounded)
+	}
+	items := spec.Blocks[0].Items
+	wantValues := []string{"151s", "37.75s", "seed-static:3.4.5 (12s)", "app-finance:prod (60s)"}
+	for index, want := range wantValues {
+		if items[index].Value != want {
+			t.Fatalf("items[%d].Value = %q, want %q\n%s", index, items[index].Value, want, grounded)
+		}
+	}
+	points := spec.Blocks[1].Chart.Series[0].Points
+	if len(points) != 4 || points[0].Value == nil || *points[0].Value != 24 || points[3].Value == nil || *points[3].Value != 12 {
+		t.Fatalf("points = %#v\n%s", points, grounded)
+	}
+}
+
+func TestGroundPipelineFinalDashboardOutputContentBuildsOperationsOverviewFromEvidence(t *testing.T) {
+	evidence := pipelineFinalOutputLogEvidence{
+		Structured: []string{
+			`dashboard_evidence={"git_changelog_updated":true,"images":[{"build_duration_seconds":24,"environment":"dashboard","has_vulnerabilities":true,"missing_environment":false,"name":"nopsai-dashboard","production_ready":false,"tag":"latest"},{"build_duration_seconds":55,"environment":"development","has_vulnerabilities":true,"missing_environment":true,"name":"git-sample","production_ready":false,"tag":"dev"},{"build_duration_seconds":60,"environment":"production","has_vulnerabilities":true,"missing_environment":true,"name":"app-finance","production_ready":false,"tag":"prod"},{"build_duration_seconds":12,"environment":"static-assets","has_vulnerabilities":true,"missing_environment":false,"name":"seed-static","production_ready":false,"tag":"3.4.5"}],"images_built":4,"operational_risk":"Images contain vulnerabilities and missing environment configuration can make runtime execution fail.","readiness_summary":{"blocked_from_production":4,"missing_runtime_configuration":2,"production_ready":0,"runtime_configuration_present":2,"vulnerable_images":4}}`,
+		},
+	}
+	content := `{
+  "version": "1",
+  "title": "Unstructured Digest",
+  "blocks": [{ "type": "text", "text": "placeholder" }]
+}`
+	grounded, err := groundPipelineFinalDashboardOutputContent(content, pipelineFinalOutputRecord{
+		PipelineRunFinalOutput: models.PipelineRunFinalOutput{Type: "dashboard", Name: "Mixed operations digest"},
+		Prompt:                 "Create a mixed dashboard digest with a short summary, key metrics, risks, and next actions.",
+		Dashboard:              models.DashboardOutputTarget{EntryKey: "mixed-operations-digest", Preset: "mixed"},
+	}, evidence)
+	if err != nil {
+		t.Fatalf("groundPipelineFinalDashboardOutputContent() error = %v", err)
+	}
+	var spec models.DashboardSpec
+	if err := json.Unmarshal([]byte(grounded), &spec); err != nil {
+		t.Fatalf("json.Unmarshal grounded content error = %v\n%s", err, grounded)
+	}
+	if spec.Title != "Docker Image Operations Overview" {
+		t.Fatalf("title = %q", spec.Title)
+	}
+	if len(spec.Blocks) != 7 {
+		t.Fatalf("blocks = %d, want composed overview\n%s", len(spec.Blocks), grounded)
+	}
+	metrics := spec.Blocks[0].Items
+	wantValues := []string{"4", "151s", "0 / 4", "2 / 4"}
+	for index, want := range wantValues {
+		if metrics[index].Value != want {
+			t.Fatalf("metrics[%d].Value = %q, want %q\n%s", index, metrics[index].Value, want, grounded)
+		}
+	}
+	if spec.Blocks[1].Chart == nil || len(spec.Blocks[1].Chart.Series[0].Points) != 4 {
+		t.Fatalf("build duration chart not grounded: %#v", spec.Blocks[1])
+	}
+	if spec.Blocks[2].Chart.Series[0].Points[0].Label != "Production Ready" ||
+		*spec.Blocks[2].Chart.Series[0].Points[0].Value != 0 ||
+		spec.Blocks[3].Chart.Series[0].Points[0].Label != "Configuration Present" ||
+		*spec.Blocks[3].Chart.Series[0].Points[0].Value != 2 {
+		t.Fatalf("readiness charts = %#v / %#v", spec.Blocks[2].Chart.Series, spec.Blocks[3].Chart.Series)
+	}
+	if len(spec.Blocks[5].Rows) != 4 || string(spec.Blocks[5].Rows[2]["image"]) != `"app-finance:prod"` {
+		t.Fatalf("matrix rows = %#v", spec.Blocks[5].Rows)
+	}
+	if strings.Contains(grounded, "dog") || strings.Contains(grounded, "car") {
+		t.Fatalf("overview included noise:\n%s", grounded)
+	}
+}
+
 func TestBuildPipelineFinalOutputPromptGuidesEvidenceFromLogs(t *testing.T) {
 	prompt := buildPipelineFinalOutputPrompt(
 		"Current run emitted evidence (authoritative for business facts)\n- {\"status\":\"success\",\"error_count\":5}\n",
@@ -797,8 +1228,10 @@ func TestBuildPipelineFinalOutputPromptGuidesEvidenceFromLogs(t *testing.T) {
 	for _, want := range []string{
 		"Treat emitted current-run step output, including structured JSON, NDJSON, and plain-language log lines",
 		"If emitted step output contains values that answer the user instruction, copy those values exactly",
+		"Do copy non-secret operational labels from emitted evidence exactly",
 		"Do not substitute configured container images, runner/runtime images, LLM/agent metadata, operational log image-pull lines, or recent-history values",
 		"For intent-level dashboard requests, infer the dashboard structure",
+		"do not add generic run metadata",
 		"Use run history, step, and task duration metadata for operational run timing only",
 		"Prefer operationally relevant subjects over incidental personal/noise lines",
 		"do not infer or invent",

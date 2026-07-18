@@ -31,56 +31,70 @@ sources:
     required_for_refresh: true
     refresh_order: 10
   - section_key: image-builds
-    pipeline_id: team-1/dashboard-multi-output-sample
+    pipeline_id: team-1/dashboard-sample
     output_name: Image build summary
     entry_key: image-build-summary
     enabled: true
     required_for_refresh: true
     refresh_order: 20
   - section_key: image-builds
-    pipeline_id: team-1/dashboard-multi-output-sample
+    pipeline_id: team-1/dashboard-sample
     output_name: Image inventory table
     entry_key: image-inventory-table
     enabled: true
     required_for_refresh: false
     refresh_order: 21
   - section_key: image-builds
-    pipeline_id: team-1/dashboard-multi-output-sample
+    pipeline_id: team-1/dashboard-sample
     output_name: Build duration metrics
     entry_key: build-duration-metrics
     enabled: true
     required_for_refresh: false
     refresh_order: 22
   - section_key: release-readiness
-    pipeline_id: team-1/dashboard-multi-output-sample
+    pipeline_id: team-1/dashboard-sample
     output_name: Production readiness status
     entry_key: production-readiness-status
     enabled: true
     required_for_refresh: true
     refresh_order: 30
   - section_key: release-readiness
-    pipeline_id: team-1/dashboard-multi-output-sample
+    pipeline_id: team-1/dashboard-sample
     output_name: Image comparison
     entry_key: image-comparison
     enabled: true
     required_for_refresh: false
     refresh_order: 31
   - section_key: release-readiness
-    pipeline_id: team-1/dashboard-multi-output-sample
+    pipeline_id: team-1/dashboard-sample
+    output_name: Readiness donut chart
+    entry_key: readiness-donut-chart
+    enabled: true
+    required_for_refresh: false
+    refresh_order: 32
+  - section_key: release-readiness
+    pipeline_id: team-1/dashboard-sample
+    output_name: Boolean readiness matrix
+    entry_key: boolean-readiness-matrix
+    enabled: true
+    required_for_refresh: false
+    refresh_order: 33
+  - section_key: release-readiness
+    pipeline_id: team-1/dashboard-sample
     output_name: Release report
     entry_key: release-report
     enabled: true
     required_for_refresh: false
-    refresh_order: 32
+    refresh_order: 34
   - section_key: build-timeline
-    pipeline_id: team-1/dashboard-multi-output-sample
+    pipeline_id: team-1/dashboard-sample
     output_name: Build timeline
     entry_key: build-timeline
     enabled: true
     required_for_refresh: false
     refresh_order: 40
   - section_key: operations-digest
-    pipeline_id: team-1/dashboard-multi-output-sample
+    pipeline_id: team-1/dashboard-sample
     output_name: Mixed operations digest
     entry_key: mixed-operations-digest
     enabled: true
