@@ -58,6 +58,7 @@ func TestSampleConfigDashboardPublicationTargetsOpsDashboard(t *testing.T) {
 	modes := map[string]bool{}
 	presets := map[string]bool{}
 	outputNames := map[string]bool{}
+	outputPrompts := map[string]string{}
 	for _, item := range multiOutputPipeline.Output.Items {
 		if item.Type != "dashboard" {
 			t.Fatalf("multi-output item %q type = %q, want dashboard", item.Name, item.Type)
@@ -68,6 +69,7 @@ func TestSampleConfigDashboardPublicationTargetsOpsDashboard(t *testing.T) {
 		modes[item.Dashboard.Mode] = true
 		presets[item.Dashboard.Preset] = true
 		outputNames[item.Name] = true
+		outputPrompts[item.Name] = item.Prompt
 	}
 	for _, mode := range []string{"replace", "append", "snapshot", "series"} {
 		if !modes[mode] {
@@ -88,6 +90,19 @@ func TestSampleConfigDashboardPublicationTargetsOpsDashboard(t *testing.T) {
 		!strings.Contains(multiOutputPipelineContent, "pie chart") ||
 		!strings.Contains(multiOutputPipelineContent, "boolean status rendering") {
 		t.Fatalf("multi-output sample should exercise circular charts and boolean status rendering:\n%s", multiOutputPipelineContent)
+	}
+	releaseReportPrompt := outputPrompts["Release report"]
+	for _, want := range []string{
+		"executive summary",
+		"built artifacts",
+		"Git changes",
+		"production blockers",
+		"supporting evidence after",
+		"do not make a table the primary layout",
+	} {
+		if !strings.Contains(releaseReportPrompt, want) {
+			t.Fatalf("release report prompt missing %q:\n%s", want, releaseReportPrompt)
+		}
 	}
 
 	dashboards, err := parseGitOpsDashboards(

@@ -854,6 +854,7 @@ func TestDashboardFinalOutputGuidanceStaysIntentDriven(t *testing.T) {
 		"Use label for display labels; key is only for table columns and chart series identifiers",
 		"Charts need type, series, and points",
 		"will be retried if it does not match the DashboardSpec contract",
+		"auto means choose the smallest useful presentation",
 	} {
 		if !strings.Contains(guidance, want) {
 			t.Fatalf("dashboard guidance missing %q:\n%s", want, guidance)
@@ -868,6 +869,84 @@ func TestDashboardFinalOutputGuidanceStaysIntentDriven(t *testing.T) {
 		if strings.Contains(guidance, staticFragment) {
 			t.Fatalf("dashboard guidance contains static fragment %q:\n%s", staticFragment, guidance)
 		}
+	}
+}
+
+func TestDashboardFinalOutputGuidanceDefinesPresetShapes(t *testing.T) {
+	tests := []struct {
+		preset string
+		wants  []string
+	}{
+		{
+			preset: "report",
+			wants: []string{
+				"report means a narrative operator report",
+				"executive summary",
+				"what changed",
+				"Tables are allowed only as compact supporting evidence after the narrative",
+				"do not make a table the primary or first block",
+			},
+		},
+		{
+			preset: "table",
+			wants: []string{
+				"table means a row-and-column output",
+				"Make one table the primary block",
+				"stable keys for repeated records",
+				"Avoid charts or long narrative",
+			},
+		},
+		{
+			preset: "status",
+			wants: []string{
+				"status means current health or readiness",
+				"Start with one status block or callout",
+				"properties, progress, or a short list",
+			},
+		},
+		{
+			preset: "timeline",
+			wants: []string{
+				"timeline means chronological order",
+				"series line or area chart for timestamped numeric data",
+				"sorted oldest-to-newest",
+			},
+		},
+		{
+			preset: "comparison",
+			wants: []string{
+				"comparison means side-by-side differences",
+				"comparison table or properties blocks",
+				"most important difference, winner, or risk",
+			},
+		},
+		{
+			preset: "metrics",
+			wants: []string{
+				"metrics means numbers first",
+				"include units and ratios",
+				"bar charts for categorical metrics or line/area/series charts for trends",
+			},
+		},
+		{
+			preset: "mixed",
+			wants: []string{
+				"mixed means a cohesive multi-block digest",
+				"headline properties/status, charts, risk callouts, tables, and next-action lists",
+				"without duplicating the same facts",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.preset, func(t *testing.T) {
+			guidance := dashboardFinalOutputFormatGuidance(test.preset)
+			for _, want := range test.wants {
+				if !strings.Contains(guidance, want) {
+					t.Fatalf("dashboard %s guidance missing %q:\n%s", test.preset, want, guidance)
+				}
+			}
+		})
 	}
 }
 

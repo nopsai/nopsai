@@ -137,6 +137,9 @@ Supported dashboard capabilities:
 - dashboard sections with display order and layout metadata
 - `dashboard` pipeline output items with `ref`, `section`, `entry_key`,
   `mode`, `preset`, and optional `ttl`
+- dashboard preset guidance for `auto`, narrative-first `report`, primary
+  `table`, current-state `status`, chronological `timeline`, side-by-side
+  `comparison`, numbers-first `metrics`, and cohesive `mixed` outputs
 - validated `DashboardSpec` content with `status`, `text`, `callout`, `list`,
   `properties`, `table`, `progress`, `link`, `chart`, and `series` blocks
 - `replace` publications for latest state, `append` publications for feeds,

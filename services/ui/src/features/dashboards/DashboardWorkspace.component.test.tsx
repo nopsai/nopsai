@@ -1,7 +1,7 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { useState } from 'react';
 import { MemoryRouter } from 'react-router-dom';
-import { expect, test, vi } from 'vitest';
+import { beforeEach, expect, test, vi } from 'vitest';
 
 import { DashboardWorkspace } from './DashboardWorkspace';
 import type {
@@ -97,6 +97,31 @@ const tabbedView: DashboardView = {
   ],
 };
 
+const layoutView: DashboardView = {
+  ...view,
+  dashboard: { ...dashboard, current_publication_count: 2 },
+  publications: [
+    ...view.publications,
+    {
+      id: 'publication-2',
+      section_key: 'overview',
+      entry_key: 'deployment-readiness',
+      mode: 'replace',
+      content: {
+        title: 'Deployment Readiness',
+        blocks: [{ type: 'status', label: 'Deploy', status: 'warning', text: 'Review required' }],
+      },
+      revision: 1,
+      run_id: 'run-987654321',
+      pipeline_id: 'platform/deployment-readiness',
+      output_name: 'Deployment Readiness',
+      published_at: '2026-07-15T11:00:00Z',
+      status: 'current',
+      stale: false,
+    },
+  ],
+};
+
 const refreshes: DashboardRefresh[] = [
   {
     id: 'refresh-1',
@@ -172,6 +197,10 @@ const history: DashboardEvent[] = [
 ];
 
 const sectionTabHref = (sectionKey: string) => `/dashboards?dashboard=dashboard-1&tab=${encodeURIComponent(sectionKey)}`;
+
+beforeEach(() => {
+  window.localStorage.clear();
+});
 
 test('dashboard workspace uses a dashboard dropdown and details-on-demand panels', () => {
   const onSelectDashboard = vi.fn();
@@ -273,9 +302,10 @@ test('dashboard workspace uses a dashboard dropdown and details-on-demand panels
 
   expect(screen.getByRole('tabpanel')).toHaveAttribute('id', 'dashboard-section-overview');
   const publicationHeading = screen.getByText('Service Health');
-  expect(publicationHeading.closest('article')).toHaveClass('bg-[var(--bg-secondary)]', 'border', 'xl:col-span-2');
+  expect(publicationHeading.closest('article')).toHaveClass('bg-[var(--bg-secondary)]', 'border', 'xl:col-span-4');
   expect(publicationHeading.closest('header')).toHaveClass('border-b');
   expect(publicationHeading.closest('header')).not.toHaveClass('bg-[var(--accent-soft)]');
+  expect(screen.getByLabelText('Card size for Service Health')).toHaveValue('wide');
   const runLink = screen.getByRole('link', { name: 'Run run-1234' });
   expect(runLink).toHaveAttribute('href', '/pipelineruns/recent/run-123456789');
   expect(runLink.closest('footer')).toHaveClass('bg-[var(--bg-tertiary)]');
@@ -295,28 +325,101 @@ test('dashboard workspace uses a dashboard dropdown and details-on-demand panels
   expect(onScheduleDashboard).toHaveBeenCalled();
 
   fireEvent.click(screen.getByRole('button', { name: 'Dashboard actions' }));
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Show dashboard details' }));
-  expect(screen.getByText('Dashboard details')).toBeVisible();
-  expect(screen.getByRole('tab', { name: /Sources/ })).toHaveAttribute('aria-selected', 'true');
-  expect(screen.getAllByText('platform/service-health').length).toBeGreaterThan(0);
-  expect(screen.getByText('platform/deployments')).toBeVisible();
-  expect(screen.queryByRole('button', { name: 'Refresh source' })).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('tab', { name: /Refreshes/ }));
-  fireEvent.click(screen.getByRole('button', { name: 'Show refresh details' }));
-  expect(screen.getByText('Pipeline')).toBeVisible();
-  fireEvent.click(screen.getByRole('tab', { name: /Latest runs/ }));
-  expect(screen.getAllByText('published').length).toBeGreaterThan(0);
-  fireEvent.click(screen.getByRole('tab', { name: /Schedules/ }));
-  fireEvent.click(screen.getByRole('button', { name: 'New schedule' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Dashboard details' }));
+  const detailsDialog = screen.getByRole('dialog', { name: 'Dashboard details' });
+  expect(within(detailsDialog).getByText('Dashboard details')).toBeVisible();
+  expect(within(detailsDialog).getByRole('tab', { name: /Sources/ })).toHaveAttribute('aria-selected', 'true');
+  expect(within(detailsDialog).getAllByText('platform/service-health').length).toBeGreaterThan(0);
+  expect(within(detailsDialog).getByText('platform/deployments')).toBeVisible();
+  expect(within(detailsDialog).queryByRole('button', { name: 'Refresh source' })).not.toBeInTheDocument();
+  fireEvent.click(within(detailsDialog).getByRole('tab', { name: /Refreshes/ }));
+  fireEvent.click(within(detailsDialog).getByRole('button', { name: 'Show refresh details' }));
+  expect(within(detailsDialog).getByText('Pipeline')).toBeVisible();
+  fireEvent.click(within(detailsDialog).getByRole('tab', { name: /Latest runs/ }));
+  expect(within(detailsDialog).getAllByText('published').length).toBeGreaterThan(0);
+  fireEvent.click(within(detailsDialog).getByRole('tab', { name: /Schedules/ }));
+  fireEvent.click(within(detailsDialog).getByRole('button', { name: 'New schedule' }));
   expect(onCreateSchedule).toHaveBeenCalledWith({ scopeType: 'dashboard' });
-  fireEvent.click(screen.getAllByRole('button', { name: 'Edit Hourly' })[0]);
+  fireEvent.click(within(detailsDialog).getAllByRole('button', { name: 'Edit Hourly' })[0]);
   expect(onEditSchedule).toHaveBeenCalledWith(expect.objectContaining({ id: 'schedule-1' }));
-  fireEvent.click(screen.getAllByRole('button', { name: 'Delete Hourly' })[0]);
+  fireEvent.click(within(detailsDialog).getAllByRole('button', { name: 'Delete Hourly' })[0]);
   expect(onDeleteSchedule).toHaveBeenCalledWith(expect.objectContaining({ id: 'schedule-1' }));
+  fireEvent.click(within(detailsDialog).getByRole('button', { name: 'Close dashboard details' }));
+  expect(screen.queryByRole('dialog', { name: 'Dashboard details' })).not.toBeInTheDocument();
 
   fireEvent.click(screen.getByRole('button', { name: 'Dashboard actions' }));
   fireEvent.click(screen.getByRole('menuitem', { name: 'Delete dashboard' }));
   expect(onDeleteDashboard).toHaveBeenCalledWith(expect.objectContaining({ id: 'dashboard-1' }));
+});
+
+test('dashboard cards can be resized, reordered, and remembered per section tab', () => {
+  function renderWorkspace() {
+    return render(
+      <MemoryRouter>
+        <DashboardWorkspace
+          dashboards={[dashboard]}
+          teams={['platform']}
+          selectedID="dashboard-1"
+          activeSectionKey="overview"
+          selectedDashboard={dashboard}
+          view={layoutView}
+          history={history}
+          refreshes={refreshes}
+          refreshSchedules={schedules}
+          loading={false}
+          detailLoading={false}
+          error={null}
+          searchTerm=""
+          teamFilter=""
+          saving={false}
+          canWriteDashboards={false}
+          canDeleteDashboards={false}
+          onSearchTermChange={vi.fn()}
+          onTeamFilterChange={vi.fn()}
+          onSelectDashboard={vi.fn()}
+          onSelectSection={vi.fn()}
+          sectionTabHref={sectionTabHref}
+          onReloadDashboards={vi.fn()}
+          onCreateDashboard={vi.fn()}
+          onEditDashboard={vi.fn()}
+          onDeleteDashboard={vi.fn()}
+          onRefreshDashboard={vi.fn()}
+          onScheduleDashboard={vi.fn()}
+          onEditSource={vi.fn()}
+          onDeleteSource={vi.fn()}
+          onDeletePublication={vi.fn()}
+          onCancelRefresh={vi.fn()}
+          onRetryRefresh={vi.fn()}
+          onCreateSchedule={vi.fn()}
+          onEditSchedule={vi.fn()}
+          onDeleteSchedule={vi.fn()}
+          onToggleSchedule={vi.fn()}
+          onRunSchedule={vi.fn()}
+        />
+      </MemoryRouter>
+    );
+  }
+
+  const { unmount } = renderWorkspace();
+  const cardNames = () => screen.getAllByRole('article').map(card => card.getAttribute('aria-label'));
+  const serviceCard = () => screen.getByRole('article', { name: 'Dashboard card Service Health' });
+
+  expect(serviceCard()).toHaveClass('xl:col-span-2');
+  fireEvent.change(screen.getByLabelText('Card size for Service Health'), { target: { value: 'compact' } });
+  expect(serviceCard()).toHaveClass('xl:col-span-1');
+  fireEvent.click(screen.getByRole('button', { name: 'Move card Service Health later' }));
+  expect(cardNames()).toEqual(['Dashboard card Deployment Readiness', 'Dashboard card Service Health']);
+  expect(window.localStorage.getItem('nopsai.dashboard-card-layout.v1:dashboard-1:overview')).toContain('"size":"compact"');
+
+  unmount();
+  renderWorkspace();
+
+  expect(serviceCard()).toHaveClass('xl:col-span-1');
+  expect(cardNames()).toEqual(['Dashboard card Deployment Readiness', 'Dashboard card Service Health']);
+  fireEvent.click(screen.getByRole('button', { name: 'Reset card layout' }));
+  expect(serviceCard()).toHaveClass('xl:col-span-2');
+  expect(cardNames()).toEqual(['Dashboard card Service Health', 'Dashboard card Deployment Readiness']);
+  expect(screen.queryByRole('button', { name: 'Reset card layout' })).not.toBeInTheDocument();
 });
 
 test('dashboard details include failed latest run attempts even without a publication', () => {
@@ -389,12 +492,13 @@ test('dashboard details include failed latest run attempts even without a public
   const attentionIndicator = screen.getByRole('img', { name: /Dashboard publication validation failed/ });
   expect(attentionIndicator).toHaveAttribute('title', expect.stringContaining('What to do: Open dashboard details'));
   fireEvent.click(screen.getByRole('button', { name: 'Dashboard actions' }));
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Show dashboard details' }));
-  fireEvent.click(screen.getByRole('tab', { name: /Latest runs/ }));
-  expect(screen.getByText('Latest runs')).toBeVisible();
-  expect(screen.getAllByText('Dashboard publication validation failed.').length).toBeGreaterThan(0);
-  expect(screen.getAllByRole('link', { name: 'Run run-fail' })[0]).toHaveAttribute('href', '/pipelineruns/recent/run-failed-publication-123');
-  expect(screen.queryByRole('button', { name: 'New schedule' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Dashboard details' }));
+  const detailsDialog = screen.getByRole('dialog', { name: 'Dashboard details' });
+  fireEvent.click(within(detailsDialog).getByRole('tab', { name: /Latest runs/ }));
+  expect(within(detailsDialog).getByText('Latest runs')).toBeVisible();
+  expect(within(detailsDialog).getAllByText('Dashboard publication validation failed.').length).toBeGreaterThan(0);
+  expect(within(detailsDialog).getAllByRole('link', { name: 'Run run-fail' })[0]).toHaveAttribute('href', '/pipelineruns/recent/run-failed-publication-123');
+  expect(within(detailsDialog).queryByRole('button', { name: 'New schedule' })).not.toBeInTheDocument();
 });
 
 test('dashboard workspace shows generating dashboard outputs inside their section', () => {

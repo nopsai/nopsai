@@ -370,7 +370,7 @@ Dashboard output directives are valid only when `type: dashboard`:
 | `dashboard.section` | Required dashboard section key. |
 | `dashboard.entry_key` | Optional stable entry key for replace and series publications. Defaults to the output item name when omitted. |
 | `dashboard.mode` | Optional publication mode: `replace`, `append`, `snapshot`, or `series`. Empty defaults to `replace`. |
-| `dashboard.preset` | Optional prompt preset hint: `auto`, `report`, `table`, `status`, `timeline`, `comparison`, `metrics`, or `mixed`. |
+| `dashboard.preset` | Optional prompt preset hint: `auto`, narrative-first `report`, primary `table`, current-state `status`, chronological `timeline`, side-by-side `comparison`, numbers-first `metrics`, or cohesive `mixed`. |
 | `dashboard.ttl` | Optional stale-state duration such as `7d`. |
 
 ## Event Automation Reference
