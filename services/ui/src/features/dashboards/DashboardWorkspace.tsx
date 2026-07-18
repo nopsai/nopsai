@@ -2,6 +2,8 @@ import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
   CalendarClock,
   CheckCircle2,
   Clock3,
@@ -21,9 +23,11 @@ import {
 import { ObjectIcon } from '../../components/ObjectIcon';
 import ResourceAccessCard from '../../components/ResourceAccessCard';
 import { useOutsideDismiss } from '../../components/useOutsideDismiss';
+import { WorkflowDialogFrame } from '../../components/WorkflowPrimitives';
 import { friendlyCronLabel } from '../schedules/model';
 import { DashboardBlocks, dashboardSpecNeedsWideLayout } from './blocks/DashboardBlocks';
 import { dashboardAttentionSignals, type DashboardAttentionSignal, type DashboardAttentionTone } from './dashboardAttention';
+import { DASHBOARD_CARD_SIZE_OPTIONS, dashboardCardLayoutItemKey, type DashboardCardSize } from './dashboardCardLayout';
 import {
   formatDateTime,
   groupPublicationsBySection,
@@ -40,6 +44,7 @@ import {
   type DashboardSummary,
   type DashboardView,
 } from './model';
+import { useDashboardCardLayout } from './useDashboardCardLayout';
 
 type DashboardWorkspaceProps = {
   dashboards: DashboardSummary[];
@@ -90,6 +95,10 @@ type RefreshScheduleScope = {
 type DashboardRefreshSource = NonNullable<DashboardRefresh['sources']>[number];
 type DashboardDetailTabID = 'sources' | 'schedules' | 'refreshes' | 'latest-runs';
 
+const EMPTY_DASHBOARD_SECTIONS: DashboardSection[] = [];
+const EMPTY_DASHBOARD_SOURCES: DashboardSource[] = [];
+const EMPTY_DASHBOARD_PUBLICATIONS: DashboardPublication[] = [];
+
 export function DashboardWorkspace({
   dashboards,
   teams,
@@ -131,9 +140,9 @@ export function DashboardWorkspace({
   onRunSchedule,
 }: DashboardWorkspaceProps) {
   const [dashboardDetailsOpen, setDashboardDetailsOpen] = useState(false);
-  const sections = view?.sections || [];
-  const sources = view?.sources || [];
-  const publications = view?.publications || [];
+  const sections = view?.sections || EMPTY_DASHBOARD_SECTIONS;
+  const sources = view?.sources || EMPTY_DASHBOARD_SOURCES;
+  const publications = view?.publications || EMPTY_DASHBOARD_PUBLICATIONS;
   const publicationsBySection = useMemo(
     () => groupPublicationsBySection(publications),
     [publications]
@@ -229,7 +238,7 @@ export function DashboardWorkspace({
                 canWriteDashboards={canWriteDashboards}
                 canDeleteDashboards={canDeleteDashboards}
                 saving={saving}
-                onToggleDetails={() => setDashboardDetailsOpen(open => !open)}
+                onOpenDetails={() => setDashboardDetailsOpen(true)}
                 onRefresh={onRefreshDashboard}
                 onSchedule={onScheduleDashboard}
                 onEdit={() => onEditDashboard(selectedDashboard)}
@@ -238,9 +247,40 @@ export function DashboardWorkspace({
 
               {detailLoading ? <div className="rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)] shadow-sm">Loading dashboard...</div> : null}
 
+              <DashboardSectionTabs
+                sections={sections}
+                activeSectionKey={resolvedActiveSectionKey}
+                onSelectSection={onSelectSection}
+                sectionTabHref={sectionTabHref}
+              />
+
+              {sections.length === 0 ? (
+                <div className="rounded-md border border-dashed border-[var(--border-subtle)] bg-[var(--bg-secondary)] px-4 py-8 text-center text-sm text-[var(--text-secondary)]">
+                  This dashboard has no sections yet.
+                </div>
+              ) : null}
+
+              <div id="dashboard-sections" className="space-y-6">
+                {activeSection ? (
+                  <DashboardSectionSurface
+                    key={activeSection.id || activeSection.section_key}
+                    dashboardID={selectedDashboard.id}
+                    section={activeSection}
+                    publications={selectedSectionPublications}
+                    activeSources={selectedSectionRunningSources}
+                    activeRefresh={activeRefresh}
+                    saving={saving}
+                    canWriteDashboards={canWriteDashboards}
+                    onDeletePublication={onDeletePublication}
+                    onCancelRefresh={onCancelRefresh}
+                  />
+                ) : null}
+              </div>
+
               {dashboardDetailsOpen ? (
-                <div id="dashboard-details">
+                <DashboardDetailsModal onClose={() => setDashboardDetailsOpen(false)}>
                   <DashboardDetails
+                    titleID="dashboard-details-modal-title"
                     dashboard={selectedDashboard}
                     sources={sources}
                     latestRefresh={latestRefresh}
@@ -261,37 +301,8 @@ export function DashboardWorkspace({
                     onToggleSchedule={onToggleSchedule}
                     onRunSchedule={onRunSchedule}
                   />
-                </div>
+                </DashboardDetailsModal>
               ) : null}
-
-              <DashboardSectionTabs
-                sections={sections}
-                activeSectionKey={resolvedActiveSectionKey}
-                onSelectSection={onSelectSection}
-                sectionTabHref={sectionTabHref}
-              />
-
-              {sections.length === 0 ? (
-                <div className="rounded-md border border-dashed border-[var(--border-subtle)] bg-[var(--bg-secondary)] px-4 py-8 text-center text-sm text-[var(--text-secondary)]">
-                  This dashboard has no sections yet.
-                </div>
-              ) : null}
-
-              <div id="dashboard-sections" className="space-y-6">
-                {activeSection ? (
-                  <DashboardSectionSurface
-                    key={activeSection.id || activeSection.section_key}
-                    section={activeSection}
-                    publications={selectedSectionPublications}
-                    activeSources={selectedSectionRunningSources}
-                    activeRefresh={activeRefresh}
-                    saving={saving}
-                    canWriteDashboards={canWriteDashboards}
-                    onDeletePublication={onDeletePublication}
-                    onCancelRefresh={onCancelRefresh}
-                  />
-                ) : null}
-              </div>
             </>
           )}
         </div>
@@ -308,7 +319,7 @@ function DashboardHeader({
   canWriteDashboards,
   canDeleteDashboards,
   saving,
-  onToggleDetails,
+  onOpenDetails,
   onRefresh,
   onSchedule,
   onEdit,
@@ -321,7 +332,7 @@ function DashboardHeader({
   canWriteDashboards: boolean;
   canDeleteDashboards: boolean;
   saving: boolean;
-  onToggleDetails: () => void;
+  onOpenDetails: () => void;
   onRefresh: () => void;
   onSchedule: () => void;
   onEdit: () => void;
@@ -381,9 +392,9 @@ function DashboardHeader({
                 onDialogClose={close}
               />
               <ActionMenuItem
-                label={dashboardDetailsOpen ? 'Hide dashboard details' : 'Show dashboard details'}
+                label="Dashboard details"
                 icon={<Info className="h-4 w-4" />}
-                onClick={onToggleDetails}
+                onClick={onOpenDetails}
                 close={close}
                 active={dashboardDetailsOpen}
               />
@@ -443,6 +454,30 @@ function attentionIndicatorClass(tone: DashboardAttentionTone): string {
   return 'border border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-100';
 }
 
+function DashboardDetailsModal({ children, onClose }: { children: ReactNode; onClose: () => void }) {
+  return (
+    <WorkflowDialogFrame
+      id="dashboard-details-modal"
+      titleId="dashboard-details-modal-title"
+      onClose={onClose}
+      overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] px-4 py-6 show"
+      className="relative max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-md outline-none"
+    >
+      <button
+        type="button"
+        className="absolute right-3 top-3 z-10 inline-flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] shadow-sm transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+        aria-label="Close dashboard details"
+        title="Close dashboard details"
+        onClick={onClose}
+        data-dialog-initial-focus
+      >
+        <X className="h-4 w-4" aria-hidden="true" />
+      </button>
+      {children}
+    </WorkflowDialogFrame>
+  );
+}
+
 function DashboardSectionTabs({
   sections,
   activeSectionKey,
@@ -490,6 +525,7 @@ function DashboardSectionTabs({
 }
 
 function DashboardSectionSurface({
+  dashboardID,
   section,
   publications,
   activeSources,
@@ -499,6 +535,7 @@ function DashboardSectionSurface({
   onDeletePublication,
   onCancelRefresh,
 }: {
+  dashboardID: string;
   section: DashboardSection;
   publications: DashboardPublication[];
   activeSources: NonNullable<DashboardRefresh['sources']>;
@@ -508,6 +545,15 @@ function DashboardSectionSurface({
   onDeletePublication: (publication: DashboardPublication) => void;
   onCancelRefresh: (refresh: DashboardRefresh) => void;
 }) {
+  const {
+    layout,
+    orderedPublications,
+    resizeCard,
+    moveCard,
+    resetLayout,
+    hasSavedLayout,
+  } = useDashboardCardLayout(dashboardID, section.section_key, publications);
+
   return (
     <section id={sectionAnchorID(section.section_key)} role="tabpanel" aria-labelledby={sectionTabID(section.section_key)} className="space-y-3 scroll-mt-24">
       {section.description ? <p className="min-w-0 text-sm leading-6 text-[var(--text-secondary)]">{section.description}</p> : null}
@@ -525,17 +571,39 @@ function DashboardSectionSurface({
           No publications yet. Assign a dashboard-output pipeline or run a refresh to populate this section.
         </div>
       ) : (
-        <div className="grid gap-3 xl:grid-cols-2">
-          {publications.map(publication => (
-            <PublicationCard
-              key={publication.id}
-              publication={publication}
-              forceWide={publications.length === 1}
-              canWriteDashboards={canWriteDashboards}
-              onDeletePublication={onDeletePublication}
-            />
-          ))}
-        </div>
+        <>
+          {hasSavedLayout ? (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                className="inline-flex h-8 items-center gap-2 rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 text-xs font-semibold text-[var(--text-secondary)] shadow-sm transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                onClick={resetLayout}
+              >
+                <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                Reset card layout
+              </button>
+            </div>
+          ) : null}
+          <div className="grid gap-3 xl:grid-cols-4">
+            {orderedPublications.map((publication, index) => {
+              const cardKey = dashboardCardLayoutItemKey(publication);
+              const currentSize = layout[cardKey]?.size || defaultPublicationCardSize(publication, publications.length);
+              return (
+                <PublicationCard
+                  key={cardKey}
+                  publication={publication}
+                  cardSize={currentSize}
+                  canMoveEarlier={index > 0}
+                  canMoveLater={index < orderedPublications.length - 1}
+                  canWriteDashboards={canWriteDashboards}
+                  onMoveCard={direction => moveCard(cardKey, direction)}
+                  onResizeCard={size => resizeCard(cardKey, size)}
+                  onDeletePublication={onDeletePublication}
+                />
+              );
+            })}
+          </div>
+        </>
       )}
 
     </section>
@@ -544,31 +612,67 @@ function DashboardSectionSurface({
 
 function PublicationCard({
   publication,
-  forceWide = false,
+  cardSize,
+  canMoveEarlier,
+  canMoveLater,
   canWriteDashboards,
+  onMoveCard,
+  onResizeCard,
   onDeletePublication,
 }: {
   publication: DashboardPublication;
-  forceWide?: boolean;
+  cardSize: DashboardCardSize;
+  canMoveEarlier: boolean;
+  canMoveLater: boolean;
   canWriteDashboards: boolean;
+  onMoveCard: (direction: 'earlier' | 'later') => void;
+  onResizeCard: (size: DashboardCardSize) => void;
   onDeletePublication: (publication: DashboardPublication) => void;
 }) {
-  const wideLayout = forceWide || dashboardSpecNeedsWideLayout(publication.content);
+  const cardTitle = publication.content.title || publication.entry_key;
   return (
-    <article className={`min-w-0 overflow-hidden rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-sm ${wideLayout ? 'xl:col-span-2' : ''}`}>
+    <article
+      aria-label={`Dashboard card ${cardTitle}`}
+      className={`min-w-0 overflow-hidden rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-sm ${publicationCardSizeClass(cardSize)}`}
+    >
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border-primary)] px-4 py-3">
         <div className="flex min-w-0 items-start gap-3">
           <div className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--accent-soft)] text-[var(--accent)]">
             <ObjectIcon type="dashboard" className="h-4 w-4" />
           </div>
           <div className="min-w-0">
-            <div className="truncate text-sm font-bold text-[var(--text-primary)]">{publication.content.title || publication.entry_key}</div>
+            <div className="truncate text-sm font-bold text-[var(--text-primary)]">{cardTitle}</div>
             <div className="mt-1 truncate text-xs text-[var(--text-muted)]">
               {publication.pipeline_id} / {publication.output_name} / {runScopeLabel(publication.run_scope)}
             </div>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <ToolbarButton
+            label={`Move card ${cardTitle} earlier`}
+            icon={<ArrowLeft className="h-4 w-4" />}
+            onClick={() => onMoveCard('earlier')}
+            disabled={!canMoveEarlier}
+          />
+          <ToolbarButton
+            label={`Move card ${cardTitle} later`}
+            icon={<ArrowRight className="h-4 w-4" />}
+            onClick={() => onMoveCard('later')}
+            disabled={!canMoveLater}
+          />
+          <label className="min-w-28">
+            <span className="sr-only">Card size for {cardTitle}</span>
+            <select
+              className="h-9 w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-2 text-xs font-semibold text-[var(--text-secondary)] shadow-sm outline-none transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] focus:border-[var(--accent)]"
+              aria-label={`Card size for ${cardTitle}`}
+              value={cardSize}
+              onChange={event => onResizeCard(event.target.value as DashboardCardSize)}
+            >
+              {DASHBOARD_CARD_SIZE_OPTIONS.map(option => (
+                <option key={option.id} value={option.id}>{option.label}</option>
+              ))}
+            </select>
+          </label>
           <span className="runner-pill runner-pill--muted">
             {publication.mode}
           </span>
@@ -602,6 +706,17 @@ function PublicationCard({
       </footer>
     </article>
   );
+}
+
+function defaultPublicationCardSize(publication: DashboardPublication, publicationCount: number): DashboardCardSize {
+  if (publicationCount === 1 || dashboardSpecNeedsWideLayout(publication.content)) return 'wide';
+  return 'standard';
+}
+
+function publicationCardSizeClass(size: DashboardCardSize): string {
+  if (size === 'compact') return 'xl:col-span-1';
+  if (size === 'wide') return 'xl:col-span-4';
+  return 'xl:col-span-2';
 }
 
 function SectionRunningSources({
@@ -660,6 +775,7 @@ function SectionRunningSources({
 }
 
 function DashboardDetails({
+  titleID,
   dashboard,
   sources,
   latestRefresh,
@@ -680,6 +796,7 @@ function DashboardDetails({
   onToggleSchedule,
   onRunSchedule,
 }: {
+  titleID?: string;
   dashboard: DashboardSummary;
   sources: DashboardSource[];
   latestRefresh: DashboardRefresh | null;
@@ -712,7 +829,7 @@ function DashboardDetails({
   return (
     <section className="overflow-hidden rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-sm">
       <header className="border-b border-[var(--border-primary)] px-3 py-3">
-        <div className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)]">
+        <div id={titleID} className="flex items-center gap-2 pr-10 text-sm font-semibold text-[var(--text-primary)]">
           <Info className="h-4 w-4" aria-hidden="true" />
           Dashboard details
         </div>

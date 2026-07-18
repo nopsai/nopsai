@@ -48,6 +48,22 @@ Supported publication modes:
   for `section + entry_key`, dedupes by timestamp or label, and retains the
   latest bounded point window per series.
 
+Supported dashboard presets are generation hints. They do not change the
+validated `DashboardSpec` schema, publication modes, GitOps ownership, AAA, MCP,
+or monitoring behavior. They tell the final-output generator which block mix
+should be primary:
+
+| Preset | Expected dashboard shape |
+| --- | --- |
+| `auto` | Smallest useful shape for the prompt and evidence; one or two blocks for simple answers, richer layouts only when the data calls for them. |
+| `report` | Narrative report first: executive summary or callout, then short text/list blocks for changes, blockers or risks, and next action. Tables are supporting evidence after the narrative, not the primary or first block unless the prompt asks for an appendix. |
+| `table` | One scannable table is primary, with stable column keys for repeated records and at most a short status or callout summary before it. |
+| `status` | Current health/readiness first, using a status block or callout, then properties, progress, or a short attention list. |
+| `timeline` | Chronological output, using a `series` line/area chart for timestamped numeric data or an ordered list/table for discrete events. |
+| `comparison` | Side-by-side comparison of services, environments, versions, or options, usually as a comparison table or properties blocks with a callout for the key difference. |
+| `metrics` | Numbers first, using properties/status blocks for headline values, explicit units and ratios, and charts for categorical or trend data. |
+| `mixed` | Cohesive operational digest with complementary blocks such as headline properties/status, charts, risk callouts, tables, and next-action lists. |
+
 `ttl` accepts Go durations such as `168h` and day shorthand such as `7d`, up
 to the platform maximum retention. Expired content remains visible but is
 marked stale until replaced or removed.
@@ -422,7 +438,7 @@ state. Section tabs show section titles only, while the active section surface
 exposes only the cards and optional section description without repeating the
 active tab title, completion count, entry count, source count, or latest refresh
 status pill. Dashboard-level metadata, sources, schedules, refresh history, and
-latest runs stay behind the details action as dashboard-level tabs. Published
+latest runs open in a dashboard details modal as dashboard-level tabs. Published
 entries link back to their originating
 pipeline run detail when run provenance is available, using direct run-detail
 routes so the exact run opens even when it is not visible in the recent list.
@@ -430,7 +446,11 @@ Delete actions use an in-app confirmation dialog with target-specific impact
 copy and backend errors instead of browser confirmation prompts. Operators with
 dashboard write access can remove an individual section entry card from the
 card header; the publication is archived and can be recreated by a future
-refresh.
+refresh. Every operator can resize section cards between compact, standard, and
+wide widths and move cards earlier or later within the active section tab. This
+card arrangement is remembered in the browser per dashboard and section, so it
+does not mutate GitOps YAML, publication records, refresh orchestration, AAA,
+MCP, or monitoring contracts.
 
 The dashboard UI keeps source binding at the dashboard level. New-dashboard and
 edit-dashboard modals group fields by purpose and include one-line descriptions
@@ -445,7 +465,7 @@ access-management pattern.
 
 Dashboard sections are created from selected pipeline dashboard outputs, then
 render as tabs on the dashboard surface. Sources, existing schedules,
-refreshes, and latest run history are shown from the dashboard details action,
+refreshes, and latest run history are shown in the dashboard details modal,
 not from individual section tabs, because one pipeline can publish several
 section outputs in the same run.
 Cancelled refreshes are explained from the dashboard-title attention indicator
@@ -593,6 +613,7 @@ or mutate GitOps-owned resources outside the existing dashboard source contract.
 - UI model/API/rendering: `services/ui/src/features/dashboards/`
   (`model.ts`, `api.ts`, `sourceOptions.ts`, `pipelineAssignments.ts`,
   `routes.ts`,
-  `dashboardAttention.ts`, `DashboardWorkspace.tsx`,
+  `dashboardAttention.ts`, `dashboardCardLayout.ts`,
+  `useDashboardCardLayout.ts`, `DashboardWorkspace.tsx`,
   `DashboardModals.tsx`, and `blocks/DashboardBlocks.tsx`)
 - UI route composition: `services/ui/src/pages/Dashboards.tsx`

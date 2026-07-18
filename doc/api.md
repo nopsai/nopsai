@@ -337,6 +337,12 @@ best-effort records skips and continues. Dashboard source bindings include
 `run_scope` as part of their identity. Empty `run_scope` is the exact
 default/unscoped run, not a legacy any-scope match; scoped trigger or schedule
 runs only publish when an enabled source binding has the same scope.
+`dashboard.preset` stays a generation hint for shape: `report` is
+narrative-first, `table` makes a table primary, `status` emphasizes current
+state, `timeline` orders events or series chronologically, `comparison`
+presents side-by-side differences, `metrics` starts with headline numbers and
+charts, `mixed` composes complementary operator blocks, and `auto` chooses the
+smallest useful layout.
 GitOps-managed dashboards live under `dashboards/` and templates under
 `dashboard-templates/`, with source path, source commit, team ownership, drift,
 and managed-state pruning metadata preserved.

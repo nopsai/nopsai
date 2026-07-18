@@ -146,7 +146,10 @@ output:
       prompt: |
         Write a concise release report for dashboard readers. Include what was
         built, what changed in Git, what blocks production usage, and the next
-        follow-up action.
+        follow-up action. Structure it as report blocks: executive summary
+        first, then built artifacts, Git changes, production blockers, and next
+        action. A compact table is acceptable only as supporting evidence after
+        the narrative sections; do not make a table the primary layout.
 
     - name: Mixed operations digest
       type: dashboard

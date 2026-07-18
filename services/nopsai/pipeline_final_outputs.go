@@ -2236,23 +2236,33 @@ func pipelineFinalOutputFormatGuidance(output pipelineFinalOutputRecord) string 
 
 func dashboardFinalOutputFormatGuidance(preset string) string {
 	base := `Inside <final_output>, provide only a valid DashboardSpec JSON object. Translate the user's dashboard intent into a useful dashboard from the run context; do not require the user to know schema details. Choose the dashboard structure dynamically from the prompt, pipeline definition, run metadata, recent pipeline history, step/task durations, child runs, and log evidence. If the user did not name a visualization, choose by data shape: text or callout for narrative conclusions, status/progress/properties for current state and scalar facts, table for repeated records, bar chart for categorical counts/durations/rankings, line or area chart for time series, and pie or donut chart only for bounded part-to-whole data. Use only evidence present in the run context; if requested data is absent, say it is not present rather than guessing. Keep content scoped to the user's dashboard request and avoid generic run metadata unless requested. Copy non-secret operational labels from emitted evidence exactly, including tags such as prod, environment names such as production, versions, statuses, and JSON field names. Available DashboardSpec blocks are status, text, callout, list, properties, table, progress, link, chart, and series. Include a non-empty title. Use one flat top-level blocks array; do not wrap dashboard output in sections or widgets, and do not put nested blocks or widgets inside a block. Use text for text and callout block bodies. Use label for display labels; key is only for table columns and chart series identifiers. Tables need columns with key/label and scalar row values. Charts need type, series, and points with label or timestamp plus finite numeric value. Do not include Markdown, HTML, CSS, JavaScript, commentary, or unsafe links. The response is validated before publication and will be retried if it does not match the DashboardSpec contract.`
+	if presetGuidance := dashboardFinalOutputPresetGuidance(preset); presetGuidance != "" {
+		return base + " Preset guidance: " + presetGuidance
+	}
+	return base
+}
+
+func dashboardFinalOutputPresetGuidance(preset string) string {
 	switch strings.ToLower(strings.TrimSpace(preset)) {
 	case "report":
-		return base + " Prefer a concise report-style presentation with summary first and supporting details after it."
+		return "report means a narrative operator report. Start with a text executive summary or callout, then short titled text or list blocks for what changed, blockers or risks, and the next action. Tables are allowed only as compact supporting evidence after the narrative; do not make a table the primary or first block unless the user explicitly asks for a report appendix."
 	case "table":
-		return base + " Prefer a scannable row-and-column presentation when the evidence naturally has repeated records."
+		return "table means a row-and-column output. Make one table the primary block, use clear columns with stable keys for repeated records, and add at most one short status or callout summary before it. Avoid charts or long narrative unless the user explicitly asks for them."
 	case "status":
-		return base + " Prefer a health-and-readiness presentation that makes current state and attention items obvious."
+		return "status means current health or readiness. Start with one status block or callout that states the overall condition, then use properties, progress, or a short list for attention items and next checks. Avoid large tables unless the status depends on repeated records."
 	case "timeline":
-		return base + " Prefer chronological organization when the evidence describes ordered events."
+		return "timeline means chronological order. Use a series line or area chart for timestamped numeric data, or a titled list/table sorted oldest-to-newest for discrete events. Include timestamps or ordered labels and avoid side-by-side comparison unless the user asks for it."
 	case "comparison":
-		return base + " Prefer side-by-side comparison when the evidence compares environments, versions, or options."
+		return "comparison means side-by-side differences. Use a comparison table or properties blocks keyed by the compared services, environments, versions, or options, and include a short callout for the most important difference, winner, or risk. Charts are optional only for numeric comparisons."
 	case "metrics":
-		return base + " Prefer a numeric metric-focused presentation with clear values, units, and trends when available."
+		return "metrics means numbers first. Start with properties or status blocks for headline values, include units and ratios, and use bar charts for categorical metrics or line/area/series charts for trends. Tables are supporting detail only when exact per-entity metric rows are requested."
 	case "mixed", "auto":
-		return base + " Choose the smallest useful presentation for the run evidence."
+		if strings.EqualFold(strings.TrimSpace(preset), "mixed") {
+			return "mixed means a cohesive multi-block digest. Combine complementary blocks in this order when useful: headline properties/status, charts, risk callouts, tables, and next-action lists. Each block should answer a distinct operator question without duplicating the same facts."
+		}
+		return "auto means choose the smallest useful presentation for the requested facts and evidence. Prefer one or two blocks when the answer is simple, and escalate to table, chart, report, or mixed layout only when the prompt or data shape calls for it."
 	default:
-		return base
+		return ""
 	}
 }
 
