@@ -733,11 +733,13 @@ func TestNormalizePipelineFinalOutputContentAcceptsCommonLLMDashboardAliases(t *
     {
       "type": "status",
       "label": "Production ready",
-      "status": "False"
+      "status": "False",
+      "value": { "value": false }
     },
     {
       "type": "chart",
       "title": "Build timeline",
+      "unit": "s",
       "chart": {
         "type": "timeline",
         "series": {
@@ -753,13 +755,35 @@ func TestNormalizePipelineFinalOutputContentAcceptsCommonLLMDashboardAliases(t *
       "type": "chart",
       "title": "Readiness donut",
       "chart": {
-        "type": "doughnut",
+        "shape": "doughnut",
         "series": {
           "readiness": {
             "Production Ready": 0,
             "Blocked from Production": 4
           }
         }
+      }
+    },
+    {
+      "type": "metric",
+      "label": "Total build time",
+      "value": 151,
+      "unit": "s",
+      "shape": "card"
+    },
+    {
+      "type": "properties",
+      "title": "Generated values",
+      "items": [
+        { "label": "Average build time", "value": { "value": 37.75 }, "unit": "s" },
+        { "label": "Changelog updated", "value": { "value": true } }
+      ]
+    },
+    {
+      "type": "properties",
+      "title": "Property map",
+      "properties": {
+        "Production ready": { "ready": false }
       }
     }
   ]
@@ -779,10 +803,10 @@ func TestNormalizePipelineFinalOutputContentAcceptsCommonLLMDashboardAliases(t *
 	if spec.Blocks[0].Status != "critical" || spec.Blocks[0].Value != "failure" {
 		t.Fatalf("failure status alias = %#v\n%s", spec.Blocks[0], content)
 	}
-	if spec.Blocks[1].Status != "critical" || spec.Blocks[1].Value != "False" {
+	if spec.Blocks[1].Status != "critical" || spec.Blocks[1].Value != "false" {
 		t.Fatalf("boolean status alias = %#v\n%s", spec.Blocks[1], content)
 	}
-	if spec.Blocks[2].Chart == nil || spec.Blocks[2].Chart.Type != "line" || len(spec.Blocks[2].Chart.Series) != 1 {
+	if spec.Blocks[2].Chart == nil || spec.Blocks[2].Chart.Type != "line" || spec.Blocks[2].Chart.Unit != "s" || len(spec.Blocks[2].Chart.Series) != 1 {
 		t.Fatalf("timeline chart alias = %#v\n%s", spec.Blocks[2], content)
 	}
 	if points := spec.Blocks[2].Chart.Series[0].Points; len(points) != 1 || points[0].Value == nil || *points[0].Value != 24 {
@@ -793,6 +817,35 @@ func TestNormalizePipelineFinalOutputContentAcceptsCommonLLMDashboardAliases(t *
 	}
 	if points := spec.Blocks[3].Chart.Series[0].Points; len(points) != 2 {
 		t.Fatalf("readiness points = %#v\n%s", points, content)
+	}
+	if spec.Blocks[4].Type != "status" || spec.Blocks[4].Value != "151s" {
+		t.Fatalf("metric block alias = %#v\n%s", spec.Blocks[4], content)
+	}
+	if got := spec.Blocks[5].Items[0].Value; got != "37.75s" {
+		t.Fatalf("object value with unit = %q\n%s", got, content)
+	}
+	if got := spec.Blocks[5].Items[1].Value; got != "true" {
+		t.Fatalf("object boolean value = %q\n%s", got, content)
+	}
+	if got := spec.Blocks[6].Items[0].Value; got != "false" {
+		t.Fatalf("property map object value = %q\n%s", got, content)
+	}
+	var normalizedRoot struct {
+		Blocks []map[string]json.RawMessage `json:"blocks"`
+	}
+	if err := json.Unmarshal([]byte(content), &normalizedRoot); err != nil {
+		t.Fatalf("json.Unmarshal(normalized root) error = %v\n%s", err, content)
+	}
+	for blockIndex, block := range normalizedRoot.Blocks {
+		if _, hasShape := block["shape"]; hasShape {
+			t.Fatalf("block %d leaked shape alias:\n%s", blockIndex, content)
+		}
+		if _, hasUnit := block["unit"]; hasUnit {
+			t.Fatalf("block %d leaked unit alias:\n%s", blockIndex, content)
+		}
+	}
+	if strings.Contains(content, `"type": "metric"`) {
+		t.Fatalf("metric type alias leaked into normalized content:\n%s", content)
 	}
 }
 
@@ -947,6 +1000,24 @@ func TestDashboardFinalOutputGuidanceDefinesPresetShapes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestPipelineFinalOutputGuidanceDefinesSeriesModeShape(t *testing.T) {
+	guidance := pipelineFinalOutputFormatGuidance(pipelineFinalOutputRecord{
+		PipelineRunFinalOutput: models.PipelineRunFinalOutput{Type: "dashboard", Name: "Build timeline"},
+		Dashboard:              models.DashboardOutputTarget{Mode: "series", Preset: "timeline"},
+	})
+	for _, want := range []string{
+		"timeline means chronological order",
+		"Publication mode guidance",
+		"Because dashboard publish mode is series",
+		"include at least one chart or series block",
+		"chart.series[].points",
+	} {
+		if !strings.Contains(guidance, want) {
+			t.Fatalf("series dashboard guidance missing %q:\n%s", want, guidance)
+		}
 	}
 }
 

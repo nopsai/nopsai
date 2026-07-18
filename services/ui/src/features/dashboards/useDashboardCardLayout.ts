@@ -6,6 +6,7 @@ import {
   moveDashboardCard,
   normalizeDashboardCardLayout,
   orderDashboardCards,
+  placeDashboardCard,
   setDashboardCardSize,
   type DashboardCardLayout,
   type DashboardCardSize,
@@ -78,6 +79,13 @@ export function useDashboardCardLayout(
     [cardKeys, updateLayout]
   );
 
+  const placeCard = useCallback(
+    (cardKey: string, targetCardKey: string, position: 'before' | 'after') => {
+      updateLayout(current => placeDashboardCard(current, cardKeys, cardKey, targetCardKey, position));
+    },
+    [cardKeys, updateLayout]
+  );
+
   const resetLayout = useCallback(() => {
     removeDashboardCardLayout(storageKey);
     setLayoutState({ storageKey, cardKeySignature, layout: {} });
@@ -88,6 +96,7 @@ export function useDashboardCardLayout(
     orderedPublications,
     resizeCard,
     moveCard,
+    placeCard,
     resetLayout,
     hasSavedLayout: Object.keys(layout).length > 0,
   };

@@ -80,6 +80,30 @@ export function moveDashboardCard(
   return layoutWithCardOrder(layout, nextKeys);
 }
 
+export function placeDashboardCard(
+  layout: DashboardCardLayout,
+  cardKeys: string[],
+  cardKey: string,
+  targetCardKey: string,
+  position: 'before' | 'after'
+): DashboardCardLayout {
+  if (!cardKeys.includes(cardKey) || !cardKeys.includes(targetCardKey) || cardKey === targetCardKey) {
+    return compactDashboardCardLayout(layout, cardKeys);
+  }
+
+  const orderedKeys = dashboardCardOrderKeys(cardKeys, layout).filter(key => key !== cardKey);
+  const targetIndex = orderedKeys.indexOf(targetCardKey);
+  if (targetIndex === -1) return compactDashboardCardLayout(layout, cardKeys);
+
+  const insertIndex = position === 'after' ? targetIndex + 1 : targetIndex;
+  const nextKeys = [
+    ...orderedKeys.slice(0, insertIndex),
+    cardKey,
+    ...orderedKeys.slice(insertIndex),
+  ];
+  return layoutWithCardOrder(layout, nextKeys);
+}
+
 export function setDashboardCardSize(
   layout: DashboardCardLayout,
   cardKeys: string[],

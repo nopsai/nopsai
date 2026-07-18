@@ -46,7 +46,8 @@ Supported publication modes:
   new section snapshot while preserving history.
 - `series`: merges incoming chart or series points into the current publication
   for `section + entry_key`, dedupes by timestamp or label, and retains the
-  latest bounded point window per series.
+  latest bounded point window per series. Incoming series-mode outputs must
+  include at least one `chart` or `series` block with chart points.
 
 Supported dashboard presets are generation hints. They do not change the
 validated `DashboardSpec` schema, publication modes, GitOps ownership, AAA, MCP,
@@ -59,7 +60,7 @@ should be primary:
 | `report` | Narrative report first: executive summary or callout, then short text/list blocks for changes, blockers or risks, and next action. Tables are supporting evidence after the narrative, not the primary or first block unless the prompt asks for an appendix. |
 | `table` | One scannable table is primary, with stable column keys for repeated records and at most a short status or callout summary before it. |
 | `status` | Current health/readiness first, using a status block or callout, then properties, progress, or a short attention list. |
-| `timeline` | Chronological output, using a `series` line/area chart for timestamped numeric data or an ordered list/table for discrete events. |
+| `timeline` | Chronological output, using a `series` line/area chart for timestamped numeric data or an ordered list/table for discrete events. When `mode: series` is used, include a chart or series block with ordered points. |
 | `comparison` | Side-by-side comparison of services, environments, versions, or options, usually as a comparison table or properties blocks with a callout for the key difference. |
 | `metrics` | Numbers first, using properties/status blocks for headline values, explicit units and ratios, and charts for categorical or trend data. |
 | `mixed` | Cohesive operational digest with complementary blocks such as headline properties/status, charts, risk callouts, tables, and next-action lists. |
@@ -141,11 +142,13 @@ LLM wrappers: a top-level `widgets` array, `sections[].blocks`,
 Generated `properties` arrays or objects are folded into `items`, and display
 item or point `key` aliases are folded into `label`. Common model chart aliases
 are also normalized: `type_name`/`typeName` become `type`, `chartType` or
-`chart_type` become `chart.type`, chart block type aliases such as `bar` or
-`line` become canonical `chart` blocks, and block-level `series` is moved under
-`chart.series` for chart blocks. Object-shaped chart `series` values are wrapped
-or expanded into the required series array, and chart type aliases such as
-`timeline`, `column`, and `doughnut` are normalized to supported chart types.
+`chart_type` become `chart.type`, chart `shape` aliases such as `doughnut`
+become supported chart types, chart block type aliases such as `bar` or `line`
+become canonical `chart` blocks, and block-level `series` and chart units are
+moved under the `chart` object for chart blocks. Object-shaped display values
+are converted to display strings, object-shaped chart `series` values are
+wrapped or expanded into the required series array, and chart type aliases such
+as `timeline`, `column`, and `doughnut` are normalized to supported chart types.
 `data` and `points` aliases at the root, block, chart, or series level are
 normalized into `chart.series[].points` based on whether the payload looks like
 series objects or raw points. Status aliases such as `failure`, `failed`,
@@ -446,11 +449,11 @@ Delete actions use an in-app confirmation dialog with target-specific impact
 copy and backend errors instead of browser confirmation prompts. Operators with
 dashboard write access can remove an individual section entry card from the
 card header; the publication is archived and can be recreated by a future
-refresh. Every operator can resize section cards between compact, standard, and
-wide widths and move cards earlier or later within the active section tab. This
-card arrangement is remembered in the browser per dashboard and section, so it
-does not mutate GitOps YAML, publication records, refresh orchestration, AAA,
-MCP, or monitoring contracts.
+refresh. Every operator can drag a section card by its grab handle to reorder
+cards within the active section tab, and drag the card's right edge to resize it
+between compact, standard, and wide widths. This card arrangement is remembered
+in the browser per dashboard and section, so it does not mutate GitOps YAML,
+publication records, refresh orchestration, AAA, MCP, or monitoring contracts.
 
 The dashboard UI keeps source binding at the dashboard level. New-dashboard and
 edit-dashboard modals group fields by purpose and include one-line descriptions
@@ -615,5 +618,6 @@ or mutate GitOps-owned resources outside the existing dashboard source contract.
   `routes.ts`,
   `dashboardAttention.ts`, `dashboardCardLayout.ts`,
   `useDashboardCardLayout.ts`, `DashboardWorkspace.tsx`,
-  `DashboardModals.tsx`, and `blocks/DashboardBlocks.tsx`)
+  `DashboardPublicationGrid.tsx`, `DashboardModals.tsx`, and
+  `blocks/DashboardBlocks.tsx`)
 - UI route composition: `services/ui/src/pages/Dashboards.tsx`

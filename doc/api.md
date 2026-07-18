@@ -331,9 +331,11 @@ history are written. Removing a visible dashboard entry archives that current
 publication and writes a history event; source bindings, refresh records, and
 pipeline runs remain auditable. Dashboard output supports `replace`, `append`,
 `snapshot`, and `series` modes; `series` merges chart or time-series blocks
-while deduping and retaining bounded points. Refresh supports dashboard,
-section, and source scope; strict mode blocks required unavailable sources while
-best-effort records skips and continues. Dashboard source bindings include
+while deduping and retaining bounded points. Series-mode final outputs must
+include at least one `chart` or `series` block with chart points. Refresh
+supports dashboard, section, and source scope; strict mode blocks required
+unavailable sources while best-effort records skips and continues. Dashboard
+source bindings include
 `run_scope` as part of their identity. Empty `run_scope` is the exact
 default/unscoped run, not a legacy any-scope match; scoped trigger or schedule
 runs only publish when an enabled source binding has the same scope.

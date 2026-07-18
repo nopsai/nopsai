@@ -2,8 +2,6 @@ import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
-  ArrowLeft,
-  ArrowRight,
   CalendarClock,
   CheckCircle2,
   Clock3,
@@ -25,16 +23,14 @@ import ResourceAccessCard from '../../components/ResourceAccessCard';
 import { useOutsideDismiss } from '../../components/useOutsideDismiss';
 import { WorkflowDialogFrame } from '../../components/WorkflowPrimitives';
 import { friendlyCronLabel } from '../schedules/model';
-import { DashboardBlocks, dashboardSpecNeedsWideLayout } from './blocks/DashboardBlocks';
 import { dashboardAttentionSignals, type DashboardAttentionSignal, type DashboardAttentionTone } from './dashboardAttention';
-import { DASHBOARD_CARD_SIZE_OPTIONS, dashboardCardLayoutItemKey, type DashboardCardSize } from './dashboardCardLayout';
+import { DashboardPublicationGrid } from './DashboardPublicationGrid';
 import {
   formatDateTime,
   groupPublicationsBySection,
   refreshProgress,
   refreshStatusLabel,
   runScopeLabel,
-  staleLabel,
   type DashboardEvent,
   type DashboardPublication,
   type DashboardRefresh,
@@ -44,7 +40,6 @@ import {
   type DashboardSummary,
   type DashboardView,
 } from './model';
-import { useDashboardCardLayout } from './useDashboardCardLayout';
 
 type DashboardWorkspaceProps = {
   dashboards: DashboardSummary[];
@@ -545,15 +540,6 @@ function DashboardSectionSurface({
   onDeletePublication: (publication: DashboardPublication) => void;
   onCancelRefresh: (refresh: DashboardRefresh) => void;
 }) {
-  const {
-    layout,
-    orderedPublications,
-    resizeCard,
-    moveCard,
-    resetLayout,
-    hasSavedLayout,
-  } = useDashboardCardLayout(dashboardID, section.section_key, publications);
-
   return (
     <section id={sectionAnchorID(section.section_key)} role="tabpanel" aria-labelledby={sectionTabID(section.section_key)} className="space-y-3 scroll-mt-24">
       {section.description ? <p className="min-w-0 text-sm leading-6 text-[var(--text-secondary)]">{section.description}</p> : null}
@@ -571,152 +557,17 @@ function DashboardSectionSurface({
           No publications yet. Assign a dashboard-output pipeline or run a refresh to populate this section.
         </div>
       ) : (
-        <>
-          {hasSavedLayout ? (
-            <div className="flex justify-end">
-              <button
-                type="button"
-                className="inline-flex h-8 items-center gap-2 rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 text-xs font-semibold text-[var(--text-secondary)] shadow-sm transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-                onClick={resetLayout}
-              >
-                <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
-                Reset card layout
-              </button>
-            </div>
-          ) : null}
-          <div className="grid gap-3 xl:grid-cols-4">
-            {orderedPublications.map((publication, index) => {
-              const cardKey = dashboardCardLayoutItemKey(publication);
-              const currentSize = layout[cardKey]?.size || defaultPublicationCardSize(publication, publications.length);
-              return (
-                <PublicationCard
-                  key={cardKey}
-                  publication={publication}
-                  cardSize={currentSize}
-                  canMoveEarlier={index > 0}
-                  canMoveLater={index < orderedPublications.length - 1}
-                  canWriteDashboards={canWriteDashboards}
-                  onMoveCard={direction => moveCard(cardKey, direction)}
-                  onResizeCard={size => resizeCard(cardKey, size)}
-                  onDeletePublication={onDeletePublication}
-                />
-              );
-            })}
-          </div>
-        </>
+        <DashboardPublicationGrid
+          dashboardID={dashboardID}
+          sectionKey={section.section_key}
+          publications={publications}
+          canWriteDashboards={canWriteDashboards}
+          onDeletePublication={onDeletePublication}
+        />
       )}
 
     </section>
   );
-}
-
-function PublicationCard({
-  publication,
-  cardSize,
-  canMoveEarlier,
-  canMoveLater,
-  canWriteDashboards,
-  onMoveCard,
-  onResizeCard,
-  onDeletePublication,
-}: {
-  publication: DashboardPublication;
-  cardSize: DashboardCardSize;
-  canMoveEarlier: boolean;
-  canMoveLater: boolean;
-  canWriteDashboards: boolean;
-  onMoveCard: (direction: 'earlier' | 'later') => void;
-  onResizeCard: (size: DashboardCardSize) => void;
-  onDeletePublication: (publication: DashboardPublication) => void;
-}) {
-  const cardTitle = publication.content.title || publication.entry_key;
-  return (
-    <article
-      aria-label={`Dashboard card ${cardTitle}`}
-      className={`min-w-0 overflow-hidden rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-sm ${publicationCardSizeClass(cardSize)}`}
-    >
-      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border-primary)] px-4 py-3">
-        <div className="flex min-w-0 items-start gap-3">
-          <div className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--accent-soft)] text-[var(--accent)]">
-            <ObjectIcon type="dashboard" className="h-4 w-4" />
-          </div>
-          <div className="min-w-0">
-            <div className="truncate text-sm font-bold text-[var(--text-primary)]">{cardTitle}</div>
-            <div className="mt-1 truncate text-xs text-[var(--text-muted)]">
-              {publication.pipeline_id} / {publication.output_name} / {runScopeLabel(publication.run_scope)}
-            </div>
-          </div>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-          <ToolbarButton
-            label={`Move card ${cardTitle} earlier`}
-            icon={<ArrowLeft className="h-4 w-4" />}
-            onClick={() => onMoveCard('earlier')}
-            disabled={!canMoveEarlier}
-          />
-          <ToolbarButton
-            label={`Move card ${cardTitle} later`}
-            icon={<ArrowRight className="h-4 w-4" />}
-            onClick={() => onMoveCard('later')}
-            disabled={!canMoveLater}
-          />
-          <label className="min-w-28">
-            <span className="sr-only">Card size for {cardTitle}</span>
-            <select
-              className="h-9 w-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-2 text-xs font-semibold text-[var(--text-secondary)] shadow-sm outline-none transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] focus:border-[var(--accent)]"
-              aria-label={`Card size for ${cardTitle}`}
-              value={cardSize}
-              onChange={event => onResizeCard(event.target.value as DashboardCardSize)}
-            >
-              {DASHBOARD_CARD_SIZE_OPTIONS.map(option => (
-                <option key={option.id} value={option.id}>{option.label}</option>
-              ))}
-            </select>
-          </label>
-          <span className="runner-pill runner-pill--muted">
-            {publication.mode}
-          </span>
-          <span className={`runner-pill ${publication.stale ? 'runner-pill--warning' : 'runner-pill--ok'}`}>
-            {staleLabel(publication)}
-          </span>
-          {canWriteDashboards ? (
-            <ToolbarButton
-              label={`Remove entry ${publication.entry_key}`}
-              icon={<Trash2 className="h-4 w-4" />}
-              onClick={() => onDeletePublication(publication)}
-              danger
-            />
-          ) : null}
-        </div>
-      </header>
-      <div className="p-4">
-        <DashboardBlocks spec={publication.content} />
-      </div>
-      <footer className="flex flex-wrap items-center gap-3 border-t border-[var(--border-primary)] bg-[var(--bg-tertiary)] px-4 py-3 text-xs text-[var(--text-secondary)]">
-        <span>Revision {publication.revision}</span>
-        <span>{formatDateTime(publication.published_at)}</span>
-        {publication.run_id ? (
-          <Link
-            className="font-medium text-[var(--accent)] hover:underline"
-            to={runDetailHref(publication.run_id)}
-          >
-            Run {publication.run_id.slice(0, 8)}
-          </Link>
-        ) : null}
-      </footer>
-    </article>
-  );
-}
-
-function defaultPublicationCardSize(publication: DashboardPublication, publicationCount: number): DashboardCardSize {
-  if (publicationCount === 1 || dashboardSpecNeedsWideLayout(publication.content)) return 'wide';
-  return 'standard';
-}
-
-function publicationCardSizeClass(size: DashboardCardSize): string {
-  if (size === 'compact') return 'xl:col-span-1';
-  if (size === 'wide') return 'xl:col-span-4';
-  return 'xl:col-span-2';
 }
 
 function SectionRunningSources({
