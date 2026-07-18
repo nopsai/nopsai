@@ -13,7 +13,8 @@ import {
   Search,
   UsersRound,
 } from 'lucide-react';
-import { TreeColumnResizeHandle, useResizableTreeColumn } from '../../components/resizableTreeColumn';
+import { TreeColumnResizeHandle } from '../../components/resizableTreeColumn';
+import { useResizableTreeColumn } from '../../components/resizableTreeColumnState';
 import type { RunListItem } from './contracts';
 import {
   ALL_PIPELINE_RUN_BRANCHES,

@@ -178,7 +178,7 @@ test('clones trigger manifests from the target-aware YAML preview', async () => 
   );
   expect(saveTriggerMock).toHaveBeenCalledWith(
     'owner/repo-copy',
-    expect.not.stringMatching(/^triggers:\n  - on: push\n    pipelines:/)
+    expect.not.stringMatching(/^triggers:\n {2}- on: push\n {4}pipelines:/)
   );
   expect(onSelectSlug).toHaveBeenCalledWith('owner/repo-copy');
 });

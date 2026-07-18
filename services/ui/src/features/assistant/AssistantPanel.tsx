@@ -57,7 +57,6 @@ export function AssistantPanel({
 
   useEffect(() => {
     if (!assistant.activeConversationSending || assistant.activeConversationSendingStartedAt <= 0) return;
-    setProgressNow(Date.now());
     const interval = window.setInterval(() => setProgressNow(Date.now()), 1000);
     return () => window.clearInterval(interval);
   }, [assistant.activeConversationSending, assistant.activeConversationSendingStartedAt]);

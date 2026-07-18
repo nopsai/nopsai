@@ -4,7 +4,8 @@ import { BookOpenText, ChevronRight, Download, Edit3, ExternalLink, Filter, Fold
 
 import ResourceAccessCard from '../../components/ResourceAccessCard';
 import { ObjectIcon } from '../../components/ObjectIcon';
-import { TreeColumnResizeHandle, useResizableTreeColumn } from '../../components/resizableTreeColumn';
+import { TreeColumnResizeHandle } from '../../components/resizableTreeColumn';
+import { useResizableTreeColumn } from '../../components/resizableTreeColumnState';
 import { useOutsideDismiss } from '../../components/useOutsideDismiss';
 import { KnowledgeContextConnectionsView } from './KnowledgeContextConnectionsView';
 import { KnowledgeContextDetailView, type KnowledgeContextDetailViewProps } from './KnowledgeContextDetailView';
@@ -123,14 +124,17 @@ export function KnowledgeContextWorkspace({
   });
   const actionLabel = activeTab === 'connections' ? 'New connection' : 'New context';
   const searchPlaceholder = activeTab === 'connections' ? 'Search connections' : 'Search knowledge contexts';
-  const connectionActionTeam = selectedConnectionTeamPath || activeConnectionTeam;
+  const activeSelectedConnectionID = activeTab === 'connections' ? selectedConnectionID : '';
+  const activeSelectedConnectionTeamPath = activeTab === 'connections' ? selectedConnectionTeamPath : '';
+  const connectionActionTeam = activeSelectedConnectionTeamPath || activeConnectionTeam;
 
-  useEffect(() => {
-    if (activeTab !== 'connections') {
+  const handleSwitchTab = (tab: KnowledgeWorkspaceTab) => {
+    if (tab !== 'connections') {
       setSelectedConnectionID('');
       setSelectedConnectionTeamPath('');
     }
-  }, [activeTab]);
+    onSwitchTab(tab);
+  };
 
   const handleSelectConnectionTeam = (teamPath: string) => {
     const normalized = normalizeTeamPath(teamPath);
@@ -170,7 +174,7 @@ export function KnowledgeContextWorkspace({
             role="tab"
             aria-selected={activeTab === 'documents'}
             className={activeTab === 'documents' ? 'active' : ''}
-            onClick={() => onSwitchTab('documents')}
+            onClick={() => handleSwitchTab('documents')}
           >
             <BookOpenText className="h-4 w-4" aria-hidden="true" />
             Documents
@@ -180,7 +184,7 @@ export function KnowledgeContextWorkspace({
             role="tab"
             aria-selected={activeTab === 'connections'}
             className={activeTab === 'connections' ? 'active' : ''}
-            onClick={() => onSwitchTab('connections')}
+            onClick={() => handleSwitchTab('connections')}
           >
             <Link2 className="h-4 w-4" aria-hidden="true" />
             Connections
@@ -231,7 +235,7 @@ export function KnowledgeContextWorkspace({
         <KnowledgeBrowserCard
           activeTab={activeTab}
           activeTeam={activeTeam}
-          activeConnectionTeam={selectedConnectionTeamPath}
+          activeConnectionTeam={activeSelectedConnectionTeamPath}
           treeRoot={treeRoot}
           totalDocuments={metrics.documents}
           connectionTeams={connectionTreeTeams}
@@ -239,7 +243,7 @@ export function KnowledgeContextWorkspace({
           listError={listError}
           selectedID={selectedID}
           onOpenTeam={onOpenTeam}
-          selectedConnectionID={selectedConnectionID}
+          selectedConnectionID={activeSelectedConnectionID}
           onSelectConnectionTeam={handleSelectConnectionTeam}
           onSelectConnection={handleSelectConnection}
           onSelectDocument={onSelectDocument}
@@ -252,7 +256,7 @@ export function KnowledgeContextWorkspace({
             listError={listError}
             search={search}
             teams={connectionTeams}
-            selectedConnectionID={selectedConnectionID}
+            selectedConnectionID={activeSelectedConnectionID}
             canWriteKnowledge={canWriteKnowledge}
             canDeleteKnowledge={canDeleteKnowledge}
             onSelectConnection={handleSelectConnection}

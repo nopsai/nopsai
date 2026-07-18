@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, 
 import { useLocation, useNavigate } from 'react-router-dom';
 import * as yaml from 'js-yaml';
 import { WorkflowToastRegion, type WorkflowToast } from '../components/WorkflowToastRegion';
-import { TreeColumnResizeHandle, useResizableTreeColumn } from '../components/resizableTreeColumn';
+import { TreeColumnResizeHandle } from '../components/resizableTreeColumn';
+import { useResizableTreeColumn } from '../components/resizableTreeColumnState';
 import {
   buildTriggerEditorSuggestion,
   type TriggerEditorSuggestion,

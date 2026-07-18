@@ -1,5 +1,5 @@
 import { Shield } from 'lucide-react';
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import { WorkflowFormDialog } from '../../components/WorkflowFormDialog';
 import {
   MONTHDAY_VALUES,
@@ -50,7 +50,7 @@ export function ScheduleFormModal({
   onSubmit,
 }: ScheduleFormModalProps) {
   const disabled = saving || !canSubmit;
-  const update = (patch: Partial<ScheduleFormState>) => onChange({ ...form, ...patch });
+  const update = useCallback((patch: Partial<ScheduleFormState>) => onChange({ ...form, ...patch }), [form, onChange]);
   const pipelineOptions = Array.from(new Set([...pipelines, form.pipeline].map(normalizeIdentifier).filter(Boolean))).sort((a, b) =>
     a.localeCompare(b)
   );
@@ -74,7 +74,7 @@ export function ScheduleFormModal({
   useEffect(() => {
     if (form.runTeamPath === selectedRunTeamPath) return;
     update({ runTeamPath: selectedRunTeamPath });
-  }, [form.runTeamPath, selectedRunTeamPath]);
+  }, [form.runTeamPath, selectedRunTeamPath, update]);
 
   return (
     <WorkflowFormDialog

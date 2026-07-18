@@ -324,7 +324,7 @@ export function useAssistantController({ autoload = true, startFresh = false }: 
       return messages;
     }
     return [...messages, pendingMessage];
-  }, [activeConversation, activeConversation?.messages, pendingMessage]);
+  }, [activeConversation, pendingMessage]);
   const activeConversationSending = Boolean(activeConversation?.id && sendingConversationID === activeConversation.id);
   const activeConversationSendingStartedAt = activeConversationSending ? sendingStartedAt : 0;
   const canRetry = Boolean(activeConversation && assistantLastUserMessage(activeConversation.messages));

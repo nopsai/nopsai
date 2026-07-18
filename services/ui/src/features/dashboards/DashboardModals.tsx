@@ -533,28 +533,29 @@ export function SourceModal({
 
   useEffect(() => {
     const pipelineID = form.pipelineID.trim();
-    if (!pipelineID) {
-      setOutputs([]);
-      setOutputLoading(false);
-      setOutputError(null);
-      return undefined;
-    }
     let cancelled = false;
-    setOutputLoading(true);
-    setOutputError(null);
-    void loadPipelineOutputs(pipelineID)
-      .then(next => {
+    void Promise.resolve().then(async () => {
+      if (cancelled) return;
+      if (!pipelineID) {
+        setOutputs([]);
+        setOutputLoading(false);
+        setOutputError(null);
+        return;
+      }
+      setOutputLoading(true);
+      setOutputError(null);
+      try {
+        const next = await loadPipelineOutputs(pipelineID);
         if (!cancelled) setOutputs(next);
-      })
-      .catch(err => {
+      } catch (err) {
         if (!cancelled) {
           setOutputs([]);
           setOutputError(err instanceof Error ? err.message : 'Unable to load outputs');
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setOutputLoading(false);
-      });
+      }
+    });
     return () => {
       cancelled = true;
     };

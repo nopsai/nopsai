@@ -1,5 +1,5 @@
 import { ChevronDown } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   groupNavItemsByTopic,
@@ -25,21 +25,26 @@ export function BaseSidebarNavigation({
   const isSystemRoute = locationPathname.startsWith('/system');
   const topLevelNav = navItems.filter(item => !item.path.startsWith('/system'));
   const topics = groupNavItemsByTopic(topLevelNav);
-  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
+  const [collapsedSectionState, setCollapsedSections] = useState<Set<string>>(
     () => new Set(isSystemRoute ? [] : [SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_ID])
   );
-
-  useEffect(() => {
-    if (!isSystemRoute || systemSubNav.length === 0) return;
-    setCollapsedSections(current => {
-      if (!current.has(SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_ID)) return current;
-      const next = new Set(current);
-      next.delete(SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_ID);
-      return next;
-    });
-  }, [isSystemRoute, systemSubNav.length]);
+  const [systemSettingsManualCollapsePath, setSystemSettingsManualCollapsePath] = useState('');
+  const collapsedSections = useMemo(() => {
+    const shouldAutoExpandSystemSettings =
+      isSystemRoute &&
+      systemSubNav.length > 0 &&
+      systemSettingsManualCollapsePath !== locationPathname &&
+      collapsedSectionState.has(SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_ID);
+    if (!shouldAutoExpandSystemSettings) return collapsedSectionState;
+    const next = new Set(collapsedSectionState);
+    next.delete(SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_ID);
+    return next;
+  }, [collapsedSectionState, isSystemRoute, locationPathname, systemSettingsManualCollapsePath, systemSubNav.length]);
 
   const toggleSection = (sectionID: string) => {
+    if (sectionID === SIDEBAR_NAV_SYSTEM_SETTINGS_TOPIC_ID && isSystemRoute && systemSubNav.length > 0) {
+      setSystemSettingsManualCollapsePath(collapsedSections.has(sectionID) ? '' : locationPathname);
+    }
     setCollapsedSections(current => {
       const next = new Set(current);
       if (next.has(sectionID)) {

@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { GripVertical, RotateCcw, Trash2 } from 'lucide-react';
 
 import { ObjectIcon } from '../../components/ObjectIcon';
-import { DashboardBlocks, dashboardSpecNeedsWideLayout } from './blocks/DashboardBlocks';
+import { DashboardBlocks } from './blocks/DashboardBlocks';
+import { dashboardSpecNeedsWideLayout } from './blocks/DashboardBlocksLayout';
 import { dashboardCardLayoutItemKey, type DashboardCardSize } from './dashboardCardLayout';
 import { formatDateTime, runScopeLabel, staleLabel, type DashboardPublication } from './model';
 import { useDashboardCardLayout } from './useDashboardCardLayout';

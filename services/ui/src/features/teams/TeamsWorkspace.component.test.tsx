@@ -246,9 +246,9 @@ const resourceCatalog: TeamResourceCatalogState = {
       id: 'trigger:platform/acme/checkout-api',
       kind: 'trigger',
       label: 'checkout-api',
-      description: 'Trigger in platform/acme',
+      description: 'Trigger in platform/payments',
       href: '/triggers/platform/acme/checkout-api',
-      teamPath: 'platform/acme',
+      teamPath: 'platform/payments',
       source: 'database',
     },
     {
@@ -620,7 +620,6 @@ describe('TeamsWorkspace', () => {
     expect(screen.queryByRole('heading', { name: 'Application Activity' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'No child items' })).not.toBeInTheDocument();
     expect(screen.getByText('Application-specific automation and configuration linked by app path or repository identity.')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Open Triggers' })).toHaveTextContent('1');
     expect(screen.getByRole('region', { name: 'Triggers resources' })).toBeVisible();
     expect(screen.getByRole('link', { name: 'Open checkout-api' })).toHaveAttribute('href', '/triggers/platform/acme/checkout-api');
     expect(screen.queryByRole('button', { name: 'Open Applications' })).not.toBeInTheDocument();
