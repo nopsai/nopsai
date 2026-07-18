@@ -45,9 +45,12 @@ Profile fields:
   endpoint does not require authentication.
 - `allowed_scopes`: scopes where this profile can run. Empty means allowed everywhere.
 - `reasoning`: optional LM Studio reasoning level: `off`, `low`, `medium`,
-  `high`, or `on`. When omitted, Nopsai sends `off` for LM Studio so JSON
-  planning and action generation do not depend on a model-specific default.
-- `thinking`: optional LM Studio shortcut. When `reasoning` is omitted, `thinking: true` maps to reasoning `on` and `thinking: false` maps to reasoning `off`.
+  `high`, or `on`. Leave it omitted for LM Studio models that do not expose
+  reasoning configuration. Nopsai also omits `off` on the wire so existing
+  profiles can run against non-reasoning LM Studio models.
+- `thinking`: optional LM Studio shortcut. When `reasoning` is omitted,
+  `thinking: true` maps to reasoning `on` and `thinking: false` maps to
+  reasoning `off`; `off` is omitted from LM Studio requests.
 - `timeout_seconds`: optional HTTP timeout for provider requests.
 - `max_tokens`: optional completion token limit supported by every built-in
   provider. OpenAI-compatible, Azure OpenAI, and Anthropic adapters default to
@@ -65,7 +68,7 @@ the fields to the correct wire format:
 | Provider | `max_tokens` | `temperature` | Generic `reasoning` / `thinking` |
 | --- | --- | --- | --- |
 | Gemini | `generationConfig.maxOutputTokens` | `generationConfig.temperature`; effective limits are model-specific | No. Gemini thinking uses model-specific `thinkingBudget` or `thinkingLevel` controls. |
-| LM Studio | `max_output_tokens` | `0` to `1` | Yes, through the native chat API. |
+| LM Studio | `max_output_tokens` | `0` to `1` | Yes, through the native chat API when the selected model exposes reasoning configuration. `off` is accepted in profiles but omitted from requests for broad model compatibility. |
 | OpenAI | `max_completion_tokens` | `0` to `2`; some reasoning models reject it | No. Reasoning settings are model-specific. |
 | Anthropic | `max_tokens` | `0` to `1` | No. Extended thinking requires Anthropic's model-specific thinking configuration. |
 | Groq | `max_completion_tokens` | `0` to `2`; model support varies | No. Reasoning settings are model-specific. |
@@ -122,7 +125,6 @@ profiles:
     provider: lmstudio
     model: google/gemma-4-e4b
     base_url: http://lmstudio:1234
-    reasoning: off
 
   - name: hosted
     provider: openai

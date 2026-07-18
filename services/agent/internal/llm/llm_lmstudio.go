@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	appconfig "nopsai/config"
 	"nopsai/pkg/models"
 
 	"github.com/rs/zerolog/log"
@@ -105,7 +106,7 @@ func (c *lmStudioClient) callLMStudio(ctx context.Context, prompt string) (strin
 	}{
 		Model:           model,
 		Input:           prompt,
-		Reasoning:       c.reasoning,
+		Reasoning:       appconfig.LMStudioReasoningRequestValue(c.reasoning),
 		MaxOutputTokens: c.maxTokens,
 		Temperature:     c.temperature,
 		Store:           false,

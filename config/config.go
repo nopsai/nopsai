@@ -1100,15 +1100,23 @@ func EffectiveLLMProfileReasoning(profile LLMProfile) string {
 		return reasoning
 	}
 	if profile.Thinking == nil {
-		if NormalizeLLMProvider(profile.Provider) == LLMProviderLMStudio {
-			return "off"
-		}
 		return ""
 	}
 	if *profile.Thinking {
 		return "on"
 	}
 	return "off"
+}
+
+// LMStudioReasoningRequestValue returns the reasoning value that is safe to send
+// to LM Studio's native API. Disabled reasoning is omitted because some local
+// models reject any reasoning configuration, including "off".
+func LMStudioReasoningRequestValue(raw string) string {
+	reasoning := NormalizeLMStudioReasoning(raw)
+	if reasoning == "off" {
+		return ""
+	}
+	return reasoning
 }
 
 func NormalizeLLMProfiles(raw map[string]LLMProfile) map[string]LLMProfile {

@@ -337,7 +337,7 @@ func (c *Client) completeLMStudio(ctx context.Context, systemInstruction, prompt
 		Model:           model,
 		Input:           prompt,
 		SystemPrompt:    systemInstruction,
-		Reasoning:       c.options.Reasoning,
+		Reasoning:       config.LMStudioReasoningRequestValue(c.options.Reasoning),
 		MaxOutputTokens: c.options.MaxTokens,
 		Temperature:     c.options.Temperature,
 		Store:           false,

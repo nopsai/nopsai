@@ -168,11 +168,11 @@ func TestEffectiveLLMProfileReasoningUsesThinking(t *testing.T) {
 	}
 }
 
-func TestEffectiveLLMProfileReasoningDefaultsLMStudioOff(t *testing.T) {
+func TestEffectiveLLMProfileReasoningDefaultsLMStudioBlank(t *testing.T) {
 	profile := NormalizeLLMProfile(LLMProfile{Provider: LLMProviderLMStudio})
 
-	if got := EffectiveLLMProfileReasoning(profile); got != "off" {
-		t.Fatalf("EffectiveLLMProfileReasoning() = %q, want off", got)
+	if got := EffectiveLLMProfileReasoning(profile); got != "" {
+		t.Fatalf("EffectiveLLMProfileReasoning() = %q, want blank", got)
 	}
 }
 
@@ -182,6 +182,28 @@ func TestEffectiveLLMProfileReasoningPrefersExplicitReasoning(t *testing.T) {
 
 	if got := EffectiveLLMProfileReasoning(profile); got != "high" {
 		t.Fatalf("EffectiveLLMProfileReasoning() = %q, want high", got)
+	}
+}
+
+func TestLMStudioReasoningRequestValueOmitsDisabledReasoning(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "empty omitted", raw: "", want: ""},
+		{name: "off omitted", raw: "off", want: ""},
+		{name: "false alias omitted", raw: "false", want: ""},
+		{name: "on sent", raw: "on", want: "on"},
+		{name: "high sent", raw: "High", want: "high"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := LMStudioReasoningRequestValue(tt.raw); got != tt.want {
+				t.Fatalf("LMStudioReasoningRequestValue(%q) = %q, want %q", tt.raw, got, tt.want)
+			}
+		})
 	}
 }
 
