@@ -91,6 +91,13 @@ func TestSampleConfigDashboardPublicationTargetsOpsDashboard(t *testing.T) {
 		!strings.Contains(multiOutputPipelineContent, "boolean status rendering") {
 		t.Fatalf("multi-output sample should exercise circular charts and boolean status rendering:\n%s", multiOutputPipelineContent)
 	}
+	for _, outputName := range []string{"Build duration metrics", "Build timeline"} {
+		prompt := outputPrompts[outputName]
+		if !strings.Contains(prompt, "mode: series") ||
+			!strings.Contains(prompt, "chart or series block") {
+			t.Fatalf("%s prompt should require chart-compatible series publication:\n%s", outputName, prompt)
+		}
+	}
 	releaseReportPrompt := outputPrompts["Release report"]
 	for _, want := range []string{
 		"executive summary",

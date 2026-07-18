@@ -111,9 +111,10 @@ environment dimensions, and bounded point retention. Pie and donut charts render
 as circular dashboard visuals with point-level slice colors, bar charts show
 compact category labels, and boolean-like table values render as compact status
 chips. Chart points may be inferred from a nearby table when a generated chart
-declares an empty or null series. Common status, chart type, object-shaped
-series, and root publication-metadata aliases are normalized before strict
-validation. Table cells must be JSON scalars. Links must be relative or use
+declares an empty or null series. Common status, chart type, chart `shape`,
+block-level chart `unit`, object-shaped display value, object-shaped series,
+and root publication-metadata aliases are normalized before strict validation.
+Table cells must be JSON scalars. Links must be relative or use
 `http`/`https`. Common generated
 wrappers, including top-level `widgets` and `sections[].blocks` /
 `sections[].widgets` and section-like entries inside `blocks` with nested
@@ -143,7 +144,9 @@ is valid and the run subject has `dashboard.publish`. Dashboard publication
 modes are `replace`, `append`, `snapshot`, and `series`; snapshot archives the
 current content for the target section before publishing the new section
 snapshot, while series mode merges chart points, dedupes by timestamp or label,
-and retains the latest bounded point window.
+and retains the latest bounded point window. Series-mode outputs must include
+at least one `chart` or `series` block with chart points so the publisher can
+merge them.
 
 ## PDF Service
 

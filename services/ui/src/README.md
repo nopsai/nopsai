@@ -9,6 +9,9 @@ truth; this file is the source-adjacent placement guide.
 - `app/` owns shell composition, route wiring, sidebar state, desktop
   collapse/resize behavior, top-level navigation topic grouping, navigation
   trees, setup redirect behavior, and run-sidebar orchestration.
+  HashRouter URLs must be canonicalized by app-shell code so stale pre-hash
+  paths such as `/system/config?...#/dashboards` are replaced with root hash
+  routes.
   Primary sidebar categories remain collapsible app-shell state: Organization
   follows Build & Automate, System Settings owns config/setup/data-management
   links, and only System Settings starts collapsed when no system route is
@@ -44,6 +47,9 @@ truth; this file is the source-adjacent placement guide.
   rails, headers, and resizers; use spacing, surface contrast, elevation, or
   hover/focus-only resize handles while keeping functional form, table, card,
   alert, and status borders intact.
+  The global `[data-page]` active/hidden contract must preserve route-root
+  display classes such as `flex` and `grid`; feature pages should not add local
+  workarounds for active page display.
 - `tools/` owns local and CI guardrails such as boundary checks. Runtime code
   should not depend on tool-only modules.
 

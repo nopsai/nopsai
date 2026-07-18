@@ -202,6 +202,18 @@ beforeEach(() => {
   window.localStorage.clear();
 });
 
+function createDragDataTransfer() {
+  const data: Record<string, string> = {};
+  return {
+    effectAllowed: 'move',
+    dropEffect: 'move',
+    setData: vi.fn((type: string, value: string) => {
+      data[type] = value;
+    }),
+    getData: vi.fn((type: string) => data[type] || ''),
+  };
+}
+
 test('dashboard workspace uses a dashboard dropdown and details-on-demand panels', () => {
   const onSelectDashboard = vi.fn();
   const onDeleteDashboard = vi.fn();
@@ -305,7 +317,9 @@ test('dashboard workspace uses a dashboard dropdown and details-on-demand panels
   expect(publicationHeading.closest('article')).toHaveClass('bg-[var(--bg-secondary)]', 'border', 'xl:col-span-4');
   expect(publicationHeading.closest('header')).toHaveClass('border-b');
   expect(publicationHeading.closest('header')).not.toHaveClass('bg-[var(--accent-soft)]');
-  expect(screen.getByLabelText('Card size for Service Health')).toHaveValue('wide');
+  expect(screen.getByRole('separator', { name: 'Resize card Service Health' })).toHaveAttribute('aria-valuetext', 'Wide width');
+  expect(screen.getByRole('button', { name: 'Drag card Service Health' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Move card Service Health later' })).not.toBeInTheDocument();
   const runLink = screen.getByRole('link', { name: 'Run run-1234' });
   expect(runLink).toHaveAttribute('href', '/pipelineruns/recent/run-123456789');
   expect(runLink.closest('footer')).toHaveClass('bg-[var(--bg-tertiary)]');
@@ -405,9 +419,17 @@ test('dashboard cards can be resized, reordered, and remembered per section tab'
   const serviceCard = () => screen.getByRole('article', { name: 'Dashboard card Service Health' });
 
   expect(serviceCard()).toHaveClass('xl:col-span-2');
-  fireEvent.change(screen.getByLabelText('Card size for Service Health'), { target: { value: 'compact' } });
+  const resizeHandle = screen.getByRole('separator', { name: 'Resize card Service Health' });
+  fireEvent.pointerDown(resizeHandle, { button: 0, clientX: 200 });
+  fireEvent.pointerMove(window, { clientX: 80 });
+  fireEvent.pointerUp(window);
   expect(serviceCard()).toHaveClass('xl:col-span-1');
-  fireEvent.click(screen.getByRole('button', { name: 'Move card Service Health later' }));
+  expect(resizeHandle).toHaveAttribute('aria-valuetext', 'Compact width');
+
+  const dataTransfer = createDragDataTransfer();
+  fireEvent.dragStart(screen.getByRole('button', { name: 'Drag card Service Health' }), { dataTransfer });
+  fireEvent.dragOver(screen.getByRole('article', { name: 'Dashboard card Deployment Readiness' }), { dataTransfer });
+  fireEvent.drop(screen.getByRole('article', { name: 'Dashboard card Deployment Readiness' }), { dataTransfer });
   expect(cardNames()).toEqual(['Dashboard card Deployment Readiness', 'Dashboard card Service Health']);
   expect(window.localStorage.getItem('nopsai.dashboard-card-layout.v1:dashboard-1:overview')).toContain('"size":"compact"');
 

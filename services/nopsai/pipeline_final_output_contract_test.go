@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"nopsai/pkg/llmclient"
+	"nopsai/pkg/models"
 )
 
 type scriptedPipelineFinalOutputCompleter struct {
@@ -120,6 +121,28 @@ func TestGenerateValidatedPipelineFinalOutputRetriesInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestGenerateValidatedPipelineFinalOutputRetriesSeriesModeWithoutChart(t *testing.T) {
+	client := &scriptedPipelineFinalOutputCompleter{completions: []llmclient.Completion{
+		{Text: `<final_output>{"version":"1","title":"Build timeline","blocks":[{"type":"list","title":"Timeline","items":["nopsai-dashboard built first"]}]}</final_output>`},
+		{Text: `<final_output>{"version":"1","title":"Build timeline","blocks":[{"type":"series","title":"Build duration timeline","chart":{"type":"line","series":[{"key":"duration","label":"Duration","points":[{"label":"nopsai-dashboard","value":24}]}]}}]}</final_output>`},
+	}}
+	validator := pipelineFinalOutputRecordContentValidator(pipelineFinalOutputRecord{
+		PipelineRunFinalOutput: models.PipelineRunFinalOutput{Type: "dashboard", Name: "Build timeline"},
+		Dashboard:              models.DashboardOutputTarget{Mode: "series", Preset: "timeline"},
+	})
+	result, err := generateValidatedPipelineFinalOutput(t.Context(), client, "dashboard", "Build timeline.", validator)
+	if err != nil {
+		t.Fatalf("generateValidatedPipelineFinalOutput() error = %v", err)
+	}
+	if result.ContractViolations != 1 || len(result.Attempts) != 2 || result.Attempts[0].ContractValid || !result.Attempts[1].ContractValid {
+		t.Fatalf("result = %#v", result)
+	}
+	if !strings.Contains(client.prompts[1], "series publication requires at least one chart or series block") ||
+		!strings.Contains(client.prompts[1], "include at least one chart or series block") {
+		t.Fatalf("retry prompt = %q", client.prompts[1])
+	}
+}
+
 func TestBuildPipelineFinalOutputRetryPromptAddsDashboardSchemaHint(t *testing.T) {
 	prompt := buildPipelineFinalOutputRetryPrompt(
 		"Build dashboard.",
@@ -132,6 +155,7 @@ func TestBuildPipelineFinalOutputRetryPromptAddsDashboardSchemaHint(t *testing.T
 		"invalid_dashboard_spec",
 		"use one flat top-level blocks array",
 		"do not put nested blocks or widgets inside a block",
+		"If the dashboard publish mode is series",
 		"Use the validation error to correct incompatible field shapes",
 		"Keep the dashboard focused on the user's requested intent",
 		"evidence present in the run context",

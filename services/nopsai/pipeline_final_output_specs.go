@@ -368,7 +368,7 @@ func dashboardRootLooksLikeSingleBlock(root map[string]json.RawMessage) bool {
 			return false
 		}
 	}
-	for _, field := range []string{"type", "type_name", "typeName", "chartType", "chart_type", "series", "data", "points", "chart", "columns", "rows", "progress"} {
+	for _, field := range []string{"type", "type_name", "typeName", "chartType", "chart_type", "shape", "unit", "series", "data", "points", "chart", "columns", "rows", "progress"} {
 		if _, ok := root[field]; ok {
 			return true
 		}
@@ -381,7 +381,7 @@ func dashboardBlockFromRootFields(root map[string]json.RawMessage) (json.RawMess
 	for _, field := range []string{
 		"type", "type_name", "typeName", "title", "text", "body", "message", "description", "content", "summary",
 		"tone", "status", "label", "value", "href", "items", "properties", "columns", "rows", "progress",
-		"chart", "chartType", "chart_type", "series", "data", "points", "key",
+		"chart", "chartType", "chart_type", "shape", "unit", "series", "data", "points", "key",
 	} {
 		raw, ok := root[field]
 		if !ok {
@@ -1007,6 +1007,8 @@ func normalizeDashboardBlockAliases(raw json.RawMessage, path string) (json.RawM
 		return nil, false, err
 	}
 	changed = changed || blockChartChanged
+	blockTypeValueChanged := normalizeDashboardBlockTypeValueAlias(block)
+	changed = changed || blockTypeValueChanged
 	blockType := dashboardRawString(block["type"])
 	keyChanged, err := normalizeDashboardKeyAlias(block)
 	if err != nil {
@@ -1023,6 +1025,13 @@ func normalizeDashboardBlockAliases(raw json.RawMessage, path string) (json.RawM
 			changed = true
 		}
 	}
+	unitChanged, err := normalizeDashboardBlockUnitAlias(block, path)
+	if err != nil {
+		return nil, false, err
+	}
+	changed = changed || unitChanged
+	shapeChanged := normalizeDashboardBlockShapeAlias(block)
+	changed = changed || shapeChanged
 	textChanged, err := normalizeDashboardTextAlias(block)
 	if err != nil {
 		return nil, false, fmt.Errorf("%s.text: %w", path, err)
@@ -1078,18 +1087,8 @@ func normalizeDashboardBlockAliases(raw json.RawMessage, path string) (json.RawM
 
 func normalizeDashboardBlockChartAliases(block map[string]json.RawMessage, path string) (bool, error) {
 	blockChartTypeAlias, hasBlockChartTypeAlias := dashboardBlockChartTypeAlias(block)
-	if _, hasChartType := block["chartType"]; !hasChartType {
-		if _, hasChartTypeSnake := block["chart_type"]; !hasChartTypeSnake {
-			if _, hasSeries := block["series"]; !hasSeries {
-				if _, hasData := block["data"]; !hasData {
-					if _, hasPoints := block["points"]; !hasPoints {
-						if !hasBlockChartTypeAlias {
-							return false, nil
-						}
-					}
-				}
-			}
-		}
+	if !dashboardBlockHasChartAlias(block, hasBlockChartTypeAlias) {
+		return false, nil
 	}
 
 	chart := map[string]json.RawMessage{}
@@ -1119,6 +1118,16 @@ func normalizeDashboardBlockChartAliases(block map[string]json.RawMessage, path 
 		chart["type"] = dashboardStringRawMessage(blockChartTypeAlias)
 		changed = true
 	}
+	shapeChanged, err := moveDashboardChartShapeAliasToType(block, chart)
+	if err != nil {
+		return false, fmt.Errorf("%s.shape: %w", path, err)
+	}
+	changed = changed || shapeChanged
+	unitChanged, err := moveDashboardStringAliasesToMap(block, chart, "unit", []string{"unit"})
+	if err != nil {
+		return false, fmt.Errorf("%s.chart.unit: %w", path, err)
+	}
+	changed = changed || unitChanged
 	if rawSeries, hasSeries := block["series"]; hasSeries {
 		if _, hasChartSeries := chart["series"]; !hasChartSeries {
 			chart["series"] = rawSeries
@@ -1149,10 +1158,43 @@ func normalizeDashboardBlockChartAliases(block map[string]json.RawMessage, path 
 	return changed, nil
 }
 
+func dashboardBlockHasChartAlias(block map[string]json.RawMessage, hasBlockChartTypeAlias bool) bool {
+	if hasBlockChartTypeAlias {
+		return true
+	}
+	for _, field := range []string{"chartType", "chart_type", "series", "data", "points"} {
+		if _, ok := block[field]; ok {
+			return true
+		}
+	}
+	if rawShape, hasShape := block["shape"]; hasShape {
+		if _, recognized := dashboardCanonicalChartTypeValue(dashboardRawString(rawShape)); recognized {
+			return true
+		}
+		if _, hasChart := block["chart"]; hasChart || dashboardBlockLooksLikeChart(block) {
+			return true
+		}
+	}
+	if _, hasUnit := block["unit"]; hasUnit {
+		if _, hasChart := block["chart"]; hasChart || dashboardBlockLooksLikeChart(block) {
+			return true
+		}
+	}
+	return false
+}
+
 func dashboardBlockChartTypeAlias(fields map[string]json.RawMessage) (string, bool) {
 	blockType := strings.ToLower(dashboardRawString(fields["type"]))
 	if _, ok := supportedDashboardChartTypes[blockType]; ok {
 		return blockType, true
+	}
+	switch blockType {
+	case "column", "columns", "histogram":
+		return "bar", true
+	case "doughnut":
+		return "donut", true
+	case "time_series", "timeseries", "time-series", "trend":
+		return "line", true
 	}
 	return "", false
 }
@@ -1188,8 +1230,21 @@ func dashboardItemsFromPropertiesAlias(raw json.RawMessage, path string) (json.R
 	for _, key := range keys {
 		item := map[string]json.RawMessage{}
 		if bytes.HasPrefix(bytes.TrimSpace(properties[key]), []byte("{")) {
-			if err := json.Unmarshal(properties[key], &item); err != nil {
+			var propertyObject map[string]json.RawMessage
+			if err := json.Unmarshal(properties[key], &propertyObject); err != nil {
 				return nil, fmt.Errorf("%s.%s must be a scalar or item object: %w", path, key, err)
+			}
+			if dashboardObjectLooksLikeDashboardItem(propertyObject) {
+				item = propertyObject
+			} else {
+				value, converted, err := dashboardStringAliasRaw(properties[key])
+				if err != nil {
+					return nil, fmt.Errorf("%s.%s must be a scalar or item object", path, key)
+				}
+				if !converted {
+					value = properties[key]
+				}
+				item["value"] = value
 			}
 		} else if bytes.HasPrefix(bytes.TrimSpace(properties[key]), []byte("[")) {
 			return nil, fmt.Errorf("%s.%s must be a scalar or item object", path, key)
@@ -1225,6 +1280,18 @@ func dashboardItemsFromPropertiesAlias(raw json.RawMessage, path string) (json.R
 		return nil, err
 	}
 	return payload, nil
+}
+
+func dashboardObjectLooksLikeDashboardItem(object map[string]json.RawMessage) bool {
+	for _, field := range []string{
+		"label", "value", "text", "status", "tone", "href", "key", "body", "message",
+		"description", "content", "summary", "unit",
+	} {
+		if _, ok := object[field]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeDashboardItemsAlias(raw json.RawMessage, path, scalarMode string) (json.RawMessage, bool, error) {
@@ -1335,6 +1402,8 @@ func normalizeDashboardItemObject(item map[string]json.RawMessage) (map[string]j
 			changed = true
 		}
 	}
+	unitChanged := normalizeDashboardItemUnitAlias(item)
+	changed = changed || unitChanged
 	statusChanged, err := normalizeDashboardStatusAlias(item, "item")
 	if err != nil {
 		return nil, false, err
@@ -1461,6 +1530,75 @@ func normalizeDashboardBlockTypeAlias(fields map[string]json.RawMessage) (bool, 
 	return normalizeDashboardStringFieldAliases(fields, "type", []string{"type_name", "typeName"})
 }
 
+func normalizeDashboardBlockTypeValueAlias(fields map[string]json.RawMessage) bool {
+	raw, ok := fields["type"]
+	if !ok {
+		return false
+	}
+	blockType := strings.ToLower(strings.TrimSpace(dashboardRawString(raw)))
+	canonical := ""
+	switch blockType {
+	case "metric", "metrics", "kpi", "stat", "stats", "number", "scorecard":
+		canonical = "status"
+	case "card", "tile", "widget":
+		canonical = dashboardCardBlockTypeAlias(fields)
+	case "paragraph", "markdown":
+		canonical = "text"
+	case "bullet_list", "numbered_list", "bullets", "checklist", "action_list":
+		canonical = "list"
+	case "property", "metadata", "details", "facts":
+		canonical = "properties"
+	case "alert", "notice":
+		canonical = "callout"
+	case "timeline":
+		canonical = dashboardTimelineBlockTypeAlias(fields)
+	default:
+		return false
+	}
+	if canonical == "" || strings.EqualFold(blockType, canonical) {
+		return false
+	}
+	fields["type"] = dashboardStringRawMessage(canonical)
+	return true
+}
+
+func dashboardCardBlockTypeAlias(fields map[string]json.RawMessage) string {
+	switch {
+	case dashboardBlockLooksLikeChart(fields) || dashboardMapHasAny(fields, "chart", "chartType", "chart_type", "shape", "series", "data", "points"):
+		return "chart"
+	case dashboardMapHasAny(fields, "columns", "rows"):
+		return "table"
+	case dashboardMapHasAny(fields, "items", "properties"):
+		return "properties"
+	case dashboardMapHasAny(fields, "href"):
+		return "link"
+	case dashboardMapHasAny(fields, "text", "body", "message", "description", "content", "summary"):
+		return "text"
+	default:
+		return "status"
+	}
+}
+
+func dashboardTimelineBlockTypeAlias(fields map[string]json.RawMessage) string {
+	switch {
+	case dashboardMapHasAny(fields, "chart", "chartType", "chart_type", "shape", "series", "data", "points"):
+		return "chart"
+	case dashboardMapHasAny(fields, "columns", "rows"):
+		return "table"
+	default:
+		return "list"
+	}
+}
+
+func dashboardMapHasAny(fields map[string]json.RawMessage, names ...string) bool {
+	for _, name := range names {
+		if _, ok := fields[name]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 func normalizeDashboardChartTypeAlias(fields map[string]json.RawMessage) (bool, error) {
 	return normalizeDashboardStringFieldAliases(fields, "type", []string{"chartType", "chart_type", "type_name", "typeName"})
 }
@@ -1513,6 +1651,116 @@ func moveDashboardStringAliasesToMap(source, target map[string]json.RawMessage, 
 		changed = true
 	}
 	return changed, nil
+}
+
+func moveDashboardChartShapeAliasToType(source, chart map[string]json.RawMessage) (bool, error) {
+	raw, ok := source["shape"]
+	if !ok {
+		return false, nil
+	}
+	if dashboardTitleIsEmpty(chart["type"]) {
+		shape := dashboardRawString(raw)
+		if canonical, recognized := dashboardCanonicalChartTypeValue(shape); recognized {
+			chart["type"] = dashboardStringRawMessage(canonical)
+		}
+	}
+	delete(source, "shape")
+	return true, nil
+}
+
+func normalizeDashboardBlockUnitAlias(block map[string]json.RawMessage, path string) (bool, error) {
+	raw, ok := block["unit"]
+	if !ok {
+		return false, nil
+	}
+	unit := dashboardRawString(raw)
+	delete(block, "unit")
+	if strings.TrimSpace(unit) == "" {
+		return true, nil
+	}
+	if strings.EqualFold(dashboardRawString(block["type"]), "progress") {
+		progressChanged, err := moveDashboardUnitToProgress(block, unit, path)
+		if err != nil {
+			return false, err
+		}
+		if progressChanged {
+			return true, nil
+		}
+	}
+	if rawValue, hasValue := block["value"]; hasValue {
+		value := dashboardRawString(rawValue)
+		if value != "" {
+			block["value"] = dashboardStringRawMessage(dashboardDisplayValueWithUnit(value, unit))
+		}
+	}
+	return true, nil
+}
+
+func normalizeDashboardBlockShapeAlias(block map[string]json.RawMessage) bool {
+	if _, ok := block["shape"]; !ok {
+		return false
+	}
+	delete(block, "shape")
+	return true
+}
+
+func moveDashboardUnitToProgress(block map[string]json.RawMessage, unit, path string) (bool, error) {
+	raw, ok := block["progress"]
+	if !ok {
+		return false, nil
+	}
+	var progress map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &progress); err != nil {
+		return false, fmt.Errorf("%s.progress: %w", path, err)
+	}
+	if !dashboardTitleIsEmpty(progress["unit"]) {
+		return false, nil
+	}
+	progress["unit"] = dashboardStringRawMessage(unit)
+	payload, err := json.Marshal(progress)
+	if err != nil {
+		return false, err
+	}
+	block["progress"] = payload
+	return true, nil
+}
+
+func normalizeDashboardItemUnitAlias(item map[string]json.RawMessage) bool {
+	raw, ok := item["unit"]
+	if !ok {
+		return false
+	}
+	unit := dashboardRawString(raw)
+	delete(item, "unit")
+	if strings.TrimSpace(unit) == "" {
+		return true
+	}
+	if rawValue, hasValue := item["value"]; hasValue {
+		value := dashboardRawString(rawValue)
+		if value != "" {
+			item["value"] = dashboardStringRawMessage(dashboardDisplayValueWithUnit(value, unit))
+		}
+	}
+	return true
+}
+
+func dashboardDisplayValueWithUnit(value, unit string) string {
+	value = strings.TrimSpace(value)
+	unit = strings.TrimSpace(unit)
+	if value == "" || unit == "" {
+		return value
+	}
+	compactValue := strings.ToLower(strings.ReplaceAll(value, " ", ""))
+	compactUnit := strings.ToLower(strings.ReplaceAll(unit, " ", ""))
+	if compactUnit != "" && strings.HasSuffix(compactValue, compactUnit) {
+		return value
+	}
+	separator := " "
+	switch compactUnit {
+	case "%", "ms", "s", "sec", "secs", "m", "min", "mins", "h", "hr", "hrs":
+		separator = ""
+	}
+	return value + separator + unit
 }
 
 func moveDashboardChartDataAlias(source, chart map[string]json.RawMessage, alias, labelHint, path string) (bool, error) {
@@ -1721,6 +1969,11 @@ func normalizeDashboardChartAliases(raw json.RawMessage, path string) (json.RawM
 		return nil, false, fmt.Errorf("%s.type: %w", path, err)
 	}
 	changed = changed || typeChanged
+	shapeChanged, err := moveDashboardChartShapeAliasToType(chart, chart)
+	if err != nil {
+		return nil, false, fmt.Errorf("%s.shape: %w", path, err)
+	}
+	changed = changed || shapeChanged
 	for _, field := range []string{"type", "unit", "aggregation_interval", "missing_values"} {
 		normalized, fieldChanged, err := dashboardStringAliasRaw(chart[field])
 		if err != nil {
@@ -1824,20 +2077,30 @@ func normalizeDashboardChartTypeValueAlias(chart map[string]json.RawMessage) boo
 	if !ok {
 		return false
 	}
-	chartType := strings.ToLower(strings.TrimSpace(dashboardRawString(raw)))
-	canonical := chartType
-	switch chartType {
-	case "column", "columns", "histogram":
-		canonical = "bar"
-	case "time_series", "timeseries", "time-series", "timeline", "trend":
-		canonical = "line"
-	case "doughnut":
-		canonical = "donut"
-	default:
+	chartType := dashboardRawString(raw)
+	canonical, recognized := dashboardCanonicalChartTypeValue(chartType)
+	if !recognized || strings.EqualFold(strings.TrimSpace(chartType), canonical) {
 		return false
 	}
 	chart["type"] = dashboardStringRawMessage(canonical)
 	return true
+}
+
+func dashboardCanonicalChartTypeValue(raw string) (string, bool) {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if _, ok := supportedDashboardChartTypes[value]; ok {
+		return value, true
+	}
+	switch value {
+	case "column", "columns", "histogram":
+		return "bar", true
+	case "time_series", "timeseries", "time-series", "timeline", "trend":
+		return "line", true
+	case "doughnut":
+		return "donut", true
+	default:
+		return "", false
+	}
 }
 
 func normalizeDashboardChartSeriesShapeAlias(raw json.RawMessage, path string) (json.RawMessage, bool, error) {
@@ -1987,8 +2250,25 @@ func dashboardStringAliasRaw(raw json.RawMessage) (json.RawMessage, bool, error)
 		payload, _ := json.Marshal(strconv.FormatBool(value))
 		return payload, true, nil
 	}
-	if trimmed[0] == '{' || trimmed[0] == '[' {
-		return raw, false, nil
+	if trimmed[0] == '{' {
+		value, ok, err := dashboardStringFromObjectAlias(trimmed)
+		if err != nil {
+			return nil, false, err
+		}
+		if !ok {
+			return raw, false, nil
+		}
+		return dashboardStringRawMessage(value), true, nil
+	}
+	if trimmed[0] == '[' {
+		value, ok, err := dashboardStringFromArrayAlias(trimmed)
+		if err != nil {
+			return nil, false, err
+		}
+		if !ok {
+			return raw, false, nil
+		}
+		return dashboardStringRawMessage(value), true, nil
 	}
 	var number json.Number
 	decoder := json.NewDecoder(bytes.NewReader(trimmed))
@@ -2004,6 +2284,87 @@ func dashboardStringAliasRaw(raw json.RawMessage) (json.RawMessage, bool, error)
 	}
 	payload, _ := json.Marshal(number.String())
 	return payload, true, nil
+}
+
+func dashboardStringFromObjectAlias(raw json.RawMessage) (string, bool, error) {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &object); err != nil {
+		return "", false, err
+	}
+	for _, key := range []string{
+		"value", "display_value", "displayValue", "text", "label", "status", "state", "result",
+		"message", "summary", "description", "title", "name",
+	} {
+		value, ok, err := dashboardStringFromObjectFieldAlias(object, key)
+		if err != nil || ok {
+			return value, ok, err
+		}
+	}
+	if len(object) == 1 {
+		for key := range object {
+			value, ok, err := dashboardStringFromObjectFieldAlias(object, key)
+			if err != nil || ok {
+				return value, ok, err
+			}
+		}
+	}
+	payload, err := json.Marshal(object)
+	if err != nil {
+		return "", false, err
+	}
+	return string(payload), true, nil
+}
+
+func dashboardStringFromObjectFieldAlias(object map[string]json.RawMessage, key string) (string, bool, error) {
+	raw, ok := object[key]
+	if !ok {
+		return "", false, nil
+	}
+	return dashboardStringFromNestedAlias(raw)
+}
+
+func dashboardStringFromArrayAlias(raw json.RawMessage) (string, bool, error) {
+	var values []json.RawMessage
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return "", false, err
+	}
+	if len(values) == 0 {
+		return "", true, nil
+	}
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := bytes.TrimSpace(value)
+		if len(trimmed) == 0 || trimmed[0] == '{' || trimmed[0] == '[' {
+			payload, err := json.Marshal(values)
+			if err != nil {
+				return "", false, err
+			}
+			return string(payload), true, nil
+		}
+		text, ok, err := dashboardStringFromNestedAlias(value)
+		if err != nil {
+			return "", false, err
+		}
+		if ok {
+			parts = append(parts, text)
+		}
+	}
+	return strings.Join(parts, ", "), true, nil
+}
+
+func dashboardStringFromNestedAlias(raw json.RawMessage) (string, bool, error) {
+	normalized, converted, err := dashboardStringAliasRaw(raw)
+	if err != nil {
+		return "", false, err
+	}
+	if !converted {
+		normalized = raw
+	}
+	var value string
+	if err := json.Unmarshal(bytes.TrimSpace(normalized), &value); err == nil {
+		return strings.TrimSpace(value), true, nil
+	}
+	return "", false, nil
 }
 
 func dashboardBlocksFromSectionAliases(raw json.RawMessage) (json.RawMessage, bool, error) {

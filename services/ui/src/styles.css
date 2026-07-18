@@ -213,6 +213,8 @@ html.dark [class*="text-neutral-200"] {
 
 [data-page] { display: none !important; }
 [data-page].active { display: block !important; }
+[data-page].active.flex { display: flex !important; }
+[data-page].active.grid { display: grid !important; }
 
 [data-page="pipelineruns"].active {
   display: flex !important;

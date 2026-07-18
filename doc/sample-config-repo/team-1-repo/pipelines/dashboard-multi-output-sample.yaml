@@ -65,7 +65,8 @@ output:
       prompt: |
         Publish numeric build duration metrics for each image. Show total build
         time, average build time, fastest image, slowest image, and a chart-ready
-        breakdown by image.
+        breakdown by image. Because this output publishes with mode: series,
+        include at least one chart or series block with build duration points.
 
     - name: Build timeline
       type: dashboard
@@ -78,8 +79,10 @@ output:
         preset: timeline
         ttl: 14d
       prompt: |
-        Show a chronological build timeline using the step evidence. Use the
-        image order from the emitted logs and JSON evidence.
+        Show a chronological build timeline using the step evidence. Because
+        this output publishes with mode: series, include at least one line or
+        area chart or series block with ordered duration points for each image.
+        Use the image order from the emitted logs and JSON evidence.
 
     - name: Image comparison
       type: dashboard
