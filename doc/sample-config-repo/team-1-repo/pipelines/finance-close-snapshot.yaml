@@ -1,0 +1,40 @@
+name: finance-close-snapshot
+version: "1.0.0"
+description: Publishes a month-end finance close snapshot for operational review.
+container_image: alpine:3.20
+working_directory: /workspace
+timeout: 10m
+output:
+  items:
+    - name: Finance close dashboard
+      type: dashboard
+      when: success
+      dashboard:
+        ref: team-1/ops-dashboard
+        section: finance-operations
+        entry_key: month-end-close
+        mode: append
+        preset: report
+        ttl: 30d
+      prompt: |
+        Write a narrative-first finance close report from dashboard_evidence for
+        business operators. Start with an executive summary and current close
+        state, then cover cash position, invoice aging, blockers, and next
+        action. Keep any table after the narrative as supporting evidence.
+steps:
+  - name: collect-finance-evidence
+    script: |
+      #!/bin/sh
+      set -e
+      echo "Collecting finance close snapshot"
+      cat <<'JSON'
+      dashboard_evidence={"purpose":"finance_close_snapshot","period":"2026-07","close_status":"on_track","cash_position_usd":1840000,"recognized_revenue_usd":612000,"open_invoice_total_usd":128500,"overdue_invoice_total_usd":19000,"expense_accruals_pending":3,"blockers":[{"item":"Vendor accrual approval","owner":"Finance Ops","status":"open"},{"item":"Enterprise invoice PO correction","owner":"Account Team","status":"watch"}],"next_action":"Resolve three accrual approvals before final close review."}
+      JSON
+
+  - name: confirm-close-inputs
+    script: |
+      #!/bin/sh
+      set -e
+      echo "Finance close inputs validated for dashboard report"
+    depends_on:
+      - collect-finance-evidence

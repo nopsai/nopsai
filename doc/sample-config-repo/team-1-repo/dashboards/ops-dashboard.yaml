@@ -6,6 +6,10 @@ sections:
     title: Service Metrics
     description: Current service health and metric summaries produced by dashboard pipelines.
     display_order: 10
+  - section_key: technical-readiness
+    title: Technical Readiness
+    description: API release readiness and monitoring evidence from executable technical pipelines.
+    display_order: 15
   - section_key: image-builds
     title: Image Builds
     description: Image inventory, duration metrics, and build summaries from dashboard output samples.
@@ -22,6 +26,18 @@ sections:
     title: Operations Digest
     description: Mixed dashboard output combining summary, metrics, risks, and actions.
     display_order: 50
+  - section_key: customer-success
+    title: Customer Success
+    description: Business-facing customer onboarding health and follow-up actions.
+    display_order: 60
+  - section_key: finance-operations
+    title: Finance Operations
+    description: Month-end close status, cash position, aging, and finance blockers.
+    display_order: 70
+  - section_key: people-operations
+    title: People Operations
+    description: Capacity planning and staffing demand comparisons.
+    display_order: 80
 sources:
   - section_key: service-metrics
     pipeline_id: team-1/dashboard-sample
@@ -30,6 +46,20 @@ sources:
     enabled: true
     required_for_refresh: true
     refresh_order: 10
+  - section_key: technical-readiness
+    pipeline_id: team-1/technical-api-readiness
+    output_name: API readiness dashboard
+    entry_key: api-release-readiness
+    enabled: true
+    required_for_refresh: true
+    refresh_order: 15
+  - section_key: technical-readiness
+    pipeline_id: team-1/technical-slo-burn-rate
+    output_name: SLO burn-rate dashboard
+    entry_key: slo-burn-rate
+    enabled: true
+    required_for_refresh: true
+    refresh_order: 16
   - section_key: image-builds
     pipeline_id: team-1/dashboard-sample
     output_name: Image build summary
@@ -100,3 +130,24 @@ sources:
     enabled: true
     required_for_refresh: false
     refresh_order: 50
+  - section_key: customer-success
+    pipeline_id: team-1/customer-onboarding-pulse
+    output_name: Customer onboarding dashboard
+    entry_key: enterprise-onboarding
+    enabled: true
+    required_for_refresh: true
+    refresh_order: 60
+  - section_key: finance-operations
+    pipeline_id: team-1/finance-close-snapshot
+    output_name: Finance close dashboard
+    entry_key: month-end-close
+    enabled: true
+    required_for_refresh: true
+    refresh_order: 70
+  - section_key: people-operations
+    pipeline_id: team-1/people-capacity-plan
+    output_name: People capacity dashboard
+    entry_key: capacity-plan
+    enabled: true
+    required_for_refresh: true
+    refresh_order: 80
