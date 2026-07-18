@@ -96,22 +96,20 @@ func TestLMStudioCompletion(t *testing.T) {
 		case "/api/v1/models":
 			fmt.Fprint(w, `{"models":[{"type":"llm","key":"local-model","loaded_instances":[{"id":"local-model"}]}]}`)
 		case "/api/v1/chat":
-			var request struct {
-				Model           string `json:"model"`
-				Input           string `json:"input"`
-				SystemPrompt    string `json:"system_prompt"`
-				Reasoning       string `json:"reasoning"`
-				MaxOutputTokens int    `json:"max_output_tokens"`
-			}
+			var request map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 				t.Errorf("decode request: %v", err)
 			}
-			if request.Model != "local-model" ||
-				request.Input != "hello" ||
-				request.SystemPrompt != "return only the answer" ||
-				request.Reasoning != "off" ||
-				request.MaxOutputTokens != 0 {
+			if request["model"] != "local-model" ||
+				request["input"] != "hello" ||
+				request["system_prompt"] != "return only the answer" {
 				t.Errorf("request = %#v", request)
+			}
+			if _, ok := request["reasoning"]; ok {
+				t.Errorf("reasoning should be omitted for off: %#v", request)
+			}
+			if _, ok := request["max_output_tokens"]; ok {
+				t.Errorf("max_output_tokens should be omitted when unset: %#v", request)
 			}
 			fmt.Fprint(w, `{"output":[{"type":"message","content":"local answer"}],"usage":{"input_tokens":4,"output_tokens":3,"total_tokens":7}}`)
 		default:
@@ -132,6 +130,37 @@ func TestLMStudioCompletion(t *testing.T) {
 	}
 	if completion.Text != "local answer" || completion.Usage.TotalTokens != 7 {
 		t.Fatalf("completion = %#v", completion)
+	}
+}
+
+func TestLMStudioCompletionSendsEnabledReasoning(t *testing.T) {
+	var request map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/models":
+			fmt.Fprint(w, `{"models":[{"type":"llm","key":"local-model","loaded_instances":[{"id":"local-model"}]}]}`)
+		case "/api/v1/chat":
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Errorf("decode request: %v", err)
+			}
+			fmt.Fprint(w, `{"output":[{"type":"message","content":"local answer"}]}`)
+		default:
+			t.Errorf("unexpected path = %q", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	if _, err := New(Options{
+		Provider:  config.LLMProviderLMStudio,
+		Model:     "local-model",
+		BaseURL:   server.URL,
+		Reasoning: "high",
+	}).Complete(t.Context(), "hello"); err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+	if request["reasoning"] != "high" {
+		t.Fatalf("reasoning = %#v, want high", request["reasoning"])
 	}
 }
 

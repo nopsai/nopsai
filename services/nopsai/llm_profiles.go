@@ -1361,7 +1361,7 @@ func testLMStudioProfile(ctx context.Context, profile config.LLMProfile, apiKey 
 	}{
 		Model:           profile.Model,
 		Input:           "reply ok",
-		Reasoning:       config.EffectiveLLMProfileReasoning(profile),
+		Reasoning:       config.LMStudioReasoningRequestValue(config.EffectiveLLMProfileReasoning(profile)),
 		MaxOutputTokens: profile.MaxTokens,
 		Temperature:     profile.Temperature,
 		Store:           false,

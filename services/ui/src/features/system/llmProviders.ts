@@ -31,7 +31,7 @@ export const LLM_PROVIDERS: LLMProviderDefinition[] = [
     supportsMaxTokens: true,
     supportsTemperature: true,
     temperatureMax: 1,
-    generationOptionsNote: 'Uses native max output tokens, temperature (0-1), and reasoning controls.',
+    generationOptionsNote: 'Uses native max output tokens and temperature (0-1). Reasoning is sent only when the selected LM Studio model exposes that configuration.',
   },
   {
     id: 'gemini',
