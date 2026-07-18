@@ -1,6 +1,7 @@
 package resolver
 
 import (
+	"regexp"
 	"sort"
 	"strings"
 
@@ -21,6 +22,11 @@ const (
 type runtimeValue struct {
 	Value     string
 	Sensitive bool
+}
+
+type namedRuntimeValue struct {
+	Name  string
+	Value string
 }
 
 type ExecutionContext struct {
@@ -167,7 +173,23 @@ func (c ExecutionContext) MaskText(input string, secrets map[string]string) stri
 }
 
 func (c ExecutionContext) MaskRuntimeText(input string, secrets map[string]string) string {
-	return maskSensitiveValues(input, c.runtimeMaskValues(secrets))
+	if input == "" {
+		return input
+	}
+	sensitiveValues := make([]string, 0, len(c.values)+len(secrets))
+	plainValues := make([]namedRuntimeValue, 0, len(c.values))
+	for name, value := range c.values {
+		if value.Sensitive {
+			sensitiveValues = append(sensitiveValues, value.Value)
+			continue
+		}
+		plainValues = append(plainValues, namedRuntimeValue{Name: name, Value: value.Value})
+	}
+	for _, value := range secrets {
+		sensitiveValues = append(sensitiveValues, value)
+	}
+	masked := maskSensitiveValues(input, sensitiveValues)
+	return maskPlainRuntimeValues(masked, plainValues)
 }
 
 func (c ExecutionContext) promptMaskValues(secrets map[string]string) []string {
@@ -176,17 +198,6 @@ func (c ExecutionContext) promptMaskValues(secrets map[string]string) []string {
 		if value.Sensitive {
 			values = append(values, value.Value)
 		}
-	}
-	for _, value := range secrets {
-		values = append(values, value)
-	}
-	return uniqueSensitiveValues(values)
-}
-
-func (c ExecutionContext) runtimeMaskValues(secrets map[string]string) []string {
-	values := make([]string, 0, len(c.values)+len(secrets))
-	for _, value := range c.values {
-		values = append(values, value.Value)
 	}
 	for _, value := range secrets {
 		values = append(values, value)
@@ -256,6 +267,90 @@ func maskSensitiveValues(input string, values []string) string {
 			if len(flattened) >= 4 {
 				masked = strings.ReplaceAll(masked, flattened, "*****")
 			}
+		}
+	}
+	return masked
+}
+
+func maskPlainRuntimeValues(input string, values []namedRuntimeValue) string {
+	if input == "" || len(values) == 0 {
+		return input
+	}
+	unique := uniqueNamedRuntimeValues(values)
+	sort.SliceStable(unique, func(i, j int) bool {
+		return len(unique[i].Value) > len(unique[j].Value)
+	})
+	masked := input
+	for _, value := range unique {
+		if len(value.Value) < 4 {
+			continue
+		}
+		if shouldMaskPlainRuntimeValueOnlyInAssignments(value.Value) {
+			masked = maskRuntimeAssignmentValue(masked, value.Name, value.Value)
+			continue
+		}
+		masked = maskSensitiveValues(masked, []string{value.Value})
+	}
+	return masked
+}
+
+func uniqueNamedRuntimeValues(values []namedRuntimeValue) []namedRuntimeValue {
+	seen := make(map[string]struct{}, len(values))
+	unique := make([]namedRuntimeValue, 0, len(values))
+	for _, value := range values {
+		value.Name = strings.TrimSpace(value.Name)
+		if value.Name == "" || value.Value == "" {
+			continue
+		}
+		key := value.Name + "\x00" + value.Value
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		unique = append(unique, value)
+	}
+	return unique
+}
+
+func shouldMaskPlainRuntimeValueOnlyInAssignments(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	if len(trimmed) < 8 {
+		return true
+	}
+	if len(trimmed) <= 16 && plainRuntimeIdentifierPattern.MatchString(trimmed) {
+		return true
+	}
+	switch strings.ToLower(trimmed) {
+	case "prod", "production", "dev", "development", "staging", "stage", "test", "testing", "qa", "dashboard", "latest", "main", "master", "true", "false", "enabled", "disabled":
+		return true
+	default:
+		return false
+	}
+}
+
+var plainRuntimeIdentifierPattern = regexp.MustCompile(`^[A-Za-z0-9_.:-]+$`)
+
+func maskRuntimeAssignmentValue(input, name, value string) string {
+	if input == "" || strings.TrimSpace(name) == "" || value == "" {
+		return input
+	}
+	masked := input
+	namePattern := regexp.QuoteMeta(strings.TrimSpace(name))
+	valuePattern := regexp.QuoteMeta(value)
+	trailer := `($|[^A-Za-z0-9_./:-])`
+	patterns := []*regexp.Regexp{
+		regexp.MustCompile(`(?i)(\b` + namePattern + `\s*=\s*)` + valuePattern + trailer),
+		regexp.MustCompile(`(?i)(\b` + namePattern + `\s*:\s*)` + valuePattern + trailer),
+		regexp.MustCompile(`(?i)("` + namePattern + `"\s*:\s*")` + valuePattern + `(")`),
+	}
+	for _, pattern := range patterns {
+		masked = pattern.ReplaceAllString(masked, "${1}*****${2}")
+	}
+	if strings.Contains(value, "\n") {
+		flattened := strings.ReplaceAll(value, "\r", "")
+		flattened = strings.ReplaceAll(flattened, "\n", " ")
+		if flattened != value && len(flattened) >= 4 {
+			masked = maskRuntimeAssignmentValue(masked, name, flattened)
 		}
 	}
 	return masked

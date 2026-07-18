@@ -175,6 +175,56 @@ func TestMergeDashboardSeriesSpecDedupesRetainsAndCarriesSeries(t *testing.T) {
 	}
 }
 
+func TestMergeDashboardSeriesSpecCollapsesBuildDurationAliases(t *testing.T) {
+	existing := dashboardSeriesSpec("Ops", "Build Duration by Image", []models.DashboardChartSeries{
+		{
+			Key:    "build_duration_seconds",
+			Label:  "Build Duration",
+			Points: []models.DashboardSeriesPoint{dashboardPoint("", "nopsai-dashboard", 1)},
+		},
+		{
+			Key:    "duration",
+			Label:  "Seconds",
+			Points: []models.DashboardSeriesPoint{dashboardPoint("", "seed-static", 2)},
+		},
+	})
+	existingContent, err := marshalFinalOutputSpec(existing)
+	if err != nil {
+		t.Fatalf("marshal existing spec: %v", err)
+	}
+	incoming := dashboardSeriesSpec("Ops", "Build Duration by Image", []models.DashboardChartSeries{
+		{
+			Key:   "duration",
+			Label: "Seconds",
+			Points: []models.DashboardSeriesPoint{
+				dashboardPoint("", "nopsai-dashboard", 24),
+				dashboardPoint("", "git-sample", 55),
+				dashboardPoint("", "app-finance", 60),
+				dashboardPoint("", "seed-static", 12),
+			},
+		},
+	})
+
+	merged, err := mergeDashboardSeriesSpec(existingContent, incoming)
+	if err != nil {
+		t.Fatalf("mergeDashboardSeriesSpec() error = %v", err)
+	}
+	series := merged.Blocks[0].Chart.Series
+	if len(series) != 1 {
+		t.Fatalf("series count = %d, want alias series collapsed: %#v", len(series), series)
+	}
+	if series[0].Key != "duration" {
+		t.Fatalf("series key = %q, want incoming key", series[0].Key)
+	}
+	if len(series[0].Points) != 4 ||
+		valueOfPointByLabel(series[0].Points, "nopsai-dashboard") != 24 ||
+		valueOfPointByLabel(series[0].Points, "git-sample") != 55 ||
+		valueOfPointByLabel(series[0].Points, "app-finance") != 60 ||
+		valueOfPointByLabel(series[0].Points, "seed-static") != 12 {
+		t.Fatalf("points = %#v", series[0].Points)
+	}
+}
+
 func TestTrimDashboardSeriesPointsRetainsLatestSortedPoints(t *testing.T) {
 	points := make([]models.DashboardSeriesPoint, 0, dashboardSeriesRetentionPoints+5)
 	for index := 0; index < dashboardSeriesRetentionPoints+5; index++ {
@@ -232,4 +282,13 @@ func valueOfPoint(point models.DashboardSeriesPoint) float64 {
 		return 0
 	}
 	return *point.Value
+}
+
+func valueOfPointByLabel(points []models.DashboardSeriesPoint, label string) float64 {
+	for _, point := range points {
+		if point.Label == label {
+			return valueOfPoint(point)
+		}
+	}
+	return 0
 }

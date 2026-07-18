@@ -45,17 +45,17 @@
     --run-highlight-background: rgba(245, 158, 11, 0.12);
     --app-header-height: 4.5rem;
 
-    --yaml-base-color: #334155;
-    --yaml-key-color: #6d28d9;
+    --yaml-base-color: #1f2937;
+    --yaml-key-color: #4f46e5;
     --yaml-string-color: #047857;
-    --yaml-number-color: #b45309;
-    --yaml-boolean-color: #be123c;
+    --yaml-number-color: #92400e;
+    --yaml-boolean-color: #b91c1c;
     --yaml-comment-color: #64748b;
-    --yaml-scalar-color: #374151;
-    --yaml-operator-color: #7c3aed;
+    --yaml-scalar-color: #334155;
+    --yaml-operator-color: #2563eb;
     --yaml-type-color: #0369a1;
     --yaml-punctuation-color: #475569;
-    --yaml-indent-color: rgba(100,116,139,0.55);
+    --yaml-indent-color: rgba(100,116,139,0.48);
 
     /* Icon badge colors (lighter) */
     --icon-info-bg: #818cf8;      /* indigo-400 */
@@ -14956,24 +14956,48 @@ html:not(.dark) [data-page="knowledge-context"] .kc-demo-detail-empty {
 
 .app-sidebar-shell .pipeline-runs-sidebar-context .sidebar-run-link,
 .app-sidebar-shell .pipeline-runs-sidebar-context .pipeline-runs-sidebar-branch {
-    border-color: transparent !important;
-    box-shadow: none;
+    border-color: #e2e8f0 !important;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .app-sidebar-shell .pipeline-runs-sidebar-context .sidebar-run-link {
-    background: var(--bg-secondary) !important;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%) !important;
 }
 
 .app-sidebar-shell .pipeline-runs-sidebar-context .pipeline-runs-sidebar-branch {
-    background: var(--bg-primary) !important;
+    background: #f8fbff !important;
+}
+
+.app-sidebar-shell .pipeline-runs-sidebar-context .sidebar-run-link:hover,
+.app-sidebar-shell .pipeline-runs-sidebar-context .pipeline-runs-sidebar-branch:hover {
+    background: #eef4ff !important;
+    border-color: #bfdbfe !important;
+}
+
+.app-sidebar-shell .pipeline-runs-sidebar-context .sidebar-run-link--active,
+.app-sidebar-shell .pipeline-runs-sidebar-context .sidebar-run-link.run-link-highlight {
+    background: linear-gradient(180deg, #eef4ff 0%, #e0e7ff 100%) !important;
+    border-color: #818cf8 !important;
+    box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.36), 0 8px 20px rgba(79, 70, 229, 0.12);
 }
 
 html.dark .app-sidebar-shell .pipeline-runs-sidebar-context .sidebar-run-link {
     background: color-mix(in srgb, var(--bg-primary) 72%, transparent) !important;
+    border-color: transparent !important;
+    box-shadow: none;
 }
 
 html.dark .app-sidebar-shell .pipeline-runs-sidebar-context .pipeline-runs-sidebar-branch {
     background: color-mix(in srgb, var(--bg-primary) 58%, transparent) !important;
+    border-color: transparent !important;
+    box-shadow: none;
+}
+
+html.dark .app-sidebar-shell .pipeline-runs-sidebar-context .sidebar-run-link--active,
+html.dark .app-sidebar-shell .pipeline-runs-sidebar-context .sidebar-run-link.run-link-highlight {
+    background: color-mix(in srgb, var(--bg-primary) 82%, var(--accent) 18%) !important;
+    border-color: color-mix(in srgb, var(--border-accent) 72%, transparent) !important;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--border-accent) 38%, transparent);
 }
 
 .app-sidebar-shell .pipeline-runs-sidebar-context .border-t,

@@ -107,19 +107,30 @@ Dashboard block types are `status`, `text`, `callout`, `list`, `properties`,
 `table`, `progress`, `link`, `chart`, and `series`. Chart types are `line`,
 `bar`, `area`, `pie`, and `donut`; `series` blocks support line, bar, and area
 charts with time windows, aggregation intervals, missing-value policy, team and
-environment dimensions, and bounded point retention. Table cells must be JSON
-scalars. Links must be relative or use `http`/`https`. Common generated
+environment dimensions, and bounded point retention. Pie and donut charts render
+as circular dashboard visuals with point-level slice colors, bar charts show
+compact category labels, and boolean-like table values render as compact status
+chips. Chart points may be inferred from a nearby table when a generated chart
+declares an empty or null series. Common status, chart type, object-shaped
+series, and root publication-metadata aliases are normalized before strict
+validation. Table cells must be JSON scalars. Links must be relative or use
+`http`/`https`. Common generated
 wrappers, including top-level `widgets` and `sections[].blocks` /
 `sections[].widgets` and section-like entries inside `blocks` with nested
 `blocks`/`widgets`, are normalized into the required flat top-level `blocks`
 array before strict validation. Generated `properties` aliases are normalized
 to `items`, and display item or point `key` aliases are normalized to `label`.
 For dashboard generation, emitted step stdout/stderr is supplied before metadata
-and history and is treated as authoritative for business facts. This applies to
-plain log lines as well as JSON/NDJSON; configured container images,
-runner/runtime metadata, image-pull logs, and recent-history values must not
-replace artifact names, versions, durations, services, or subjects already
-present in emitted step output. Dashboard outputs are
+and history and is treated as authoritative for business facts. Structured
+emitted evidence lines such as `dashboard_evidence={...}` are promoted into a
+compact evidence block before raw operational logs. This applies to plain log
+lines as well as JSON/NDJSON; configured container images, runner/runtime
+metadata, image-pull logs, and recent-history values must not replace artifact
+names, versions, durations, services, or subjects already present in emitted
+step output. Final output generation may copy non-secret operational labels
+from emitted evidence, such as image tags, environment names, versions,
+statuses, and JSON field names; the ban on raw environment values applies to
+environment variable values and secrets. Dashboard outputs are
 published to team-owned dashboards when their `output.items[].dashboard` target
 is valid and the run subject has `dashboard.publish`. Dashboard publication
 modes are `replace`, `append`, `snapshot`, and `series`; snapshot archives the

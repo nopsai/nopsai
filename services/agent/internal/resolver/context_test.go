@@ -84,18 +84,30 @@ func TestBuildActionRequestMasksSensitiveHistoryAndDirectoryContent(t *testing.T
 	}
 }
 
-func TestMaskRuntimeTextMasksAllRuntimeValues(t *testing.T) {
+func TestMaskRuntimeTextMasksRuntimeValuesWithoutCorruptingOperationalWords(t *testing.T) {
 	context := NewExecutionContext()
 	context.SetValue("VISIBLE_VAR", "plain-runtime-value", false)
+	context.SetValue("SCOPE", "prod", false)
+	context.SetValue("ENVIRONMENT", "dashboard", false)
 	context.SetValue("STEP_SECRET", "super-secret-value", true)
 
 	if got := context.MaskText("value=plain-runtime-value secret=super-secret-value", nil); !strings.Contains(got, "plain-runtime-value") {
 		t.Fatalf("MaskText should leave non-sensitive prompt values visible, got %q", got)
 	}
 
-	masked := context.MaskRuntimeText("value=plain-runtime-value secret=super-secret-value", nil)
+	masked := context.MaskRuntimeText("value=plain-runtime-value secret=super-secret-value SCOPE=prod ENVIRONMENT=dashboard production_ready app-finance:prod nopsai-dashboard", nil)
 	if strings.Contains(masked, "plain-runtime-value") || strings.Contains(masked, "super-secret-value") {
-		t.Fatalf("expected all runtime values to be masked, got %q", masked)
+		t.Fatalf("expected sensitive and high-signal runtime values to be masked, got %q", masked)
+	}
+	for _, want := range []string{"SCOPE=*****", "ENVIRONMENT=*****"} {
+		if !strings.Contains(masked, want) {
+			t.Fatalf("expected explicit assignment %q to be masked, got %q", want, masked)
+		}
+	}
+	for _, want := range []string{"production_ready", "app-finance:prod", "nopsai-dashboard"} {
+		if !strings.Contains(masked, want) {
+			t.Fatalf("expected operational word %q to remain intact, got %q", want, masked)
+		}
 	}
 }
 

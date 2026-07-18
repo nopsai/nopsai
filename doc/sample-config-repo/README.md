@@ -22,9 +22,12 @@ to `dashboards/ops-dashboard.yaml` in the `service-metrics` section. The
 pipeline prompt asks for service metrics from JSON log evidence and lets NopsAI
 choose the best dashboard structure when the prompt does not name a table,
 text, bar chart, or another visualization.
-`pipelines/dashboard-multi-output-sample.yaml` publishes several final outputs
-into the same dashboard to exercise all dashboard presets and every publication
-mode: `replace`, `append`, `snapshot`, and `series`.
+`pipelines/dashboard-multi-output-sample.yaml` declares the same
+`dashboard-sample` pipeline with several final outputs to exercise all dashboard
+presets and every publication mode: `replace`, `append`, `snapshot`, and
+`series`. It also includes circular `donut`/`pie` chart prompts and a boolean
+readiness matrix so dashboard rendering can be checked against graph and status
+chip views.
 
 ## Global repo binding
 
@@ -155,10 +158,10 @@ team-1-repo/pipelines/dashboard-sample.yaml
   -> pipeline team-1/dashboard-sample, publishing prompt-generated service metrics into team-1/ops-dashboard
 
 team-1-repo/pipelines/dashboard-multi-output-sample.yaml
-  -> pipeline team-1/dashboard-multi-output-sample, publishing multiple dashboard outputs into team-1/ops-dashboard to exercise replace, append, snapshot, series, and all dashboard presets
+  -> pipeline team-1/dashboard-sample, publishing multiple dashboard outputs into team-1/ops-dashboard to exercise replace, append, snapshot, series, circular charts, boolean status chips, and all dashboard presets
 
 team-1-repo/dashboards/ops-dashboard.yaml
-  -> dashboard team-1/ops-dashboard, with service-metrics bound to team-1/dashboard-sample and multi-output test sections bound to team-1/dashboard-multi-output-sample
+  -> dashboard team-1/ops-dashboard, with service-metrics and multi-output test sections bound to team-1/dashboard-sample
 
 global-repo/steps/shared/announce.yaml
   -> reusable step shared/announce

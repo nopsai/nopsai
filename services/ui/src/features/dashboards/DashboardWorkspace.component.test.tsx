@@ -199,8 +199,18 @@ test('dashboard workspace uses a dashboard dropdown and details-on-demand panels
   fireEvent.change(selector, { target: { value: 'dashboard-1' } });
   expect(onSelectDashboard).toHaveBeenCalledWith('dashboard-1');
 
-  expect(screen.getByRole('heading', { name: 'Overview' })).toBeVisible();
-  expect(screen.getByRole('link', { name: 'Run run-1234' })).toHaveAttribute('href', '/pipelineruns/recent/run-123456789');
+  const sectionHeading = screen.getByRole('heading', { name: 'Overview' });
+  expect(sectionHeading).toBeVisible();
+  expect(sectionHeading).toHaveClass('text-[var(--text-accent)]');
+  expect(sectionHeading.closest('.border-l-4')).toHaveClass('border-[var(--border-accent)]');
+  const publicationHeading = screen.getByText('Service Health');
+  expect(publicationHeading.closest('article')).toHaveClass('bg-[var(--bg-tertiary)]', 'border');
+  expect(publicationHeading.closest('header')).toHaveClass('bg-[var(--accent-soft)]');
+  expect(publicationHeading.closest('header')).not.toHaveClass('border-b');
+  const runLink = screen.getByRole('link', { name: 'Run run-1234' });
+  expect(runLink).toHaveAttribute('href', '/pipelineruns/recent/run-123456789');
+  expect(runLink.closest('footer')).toHaveClass('bg-[var(--accent-soft)]');
+  expect(runLink.closest('footer')).not.toHaveClass('border-t');
   expect(screen.queryByText('Sources')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Section actions' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Refresh section' })).not.toBeInTheDocument();
