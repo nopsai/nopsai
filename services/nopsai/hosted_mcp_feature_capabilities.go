@@ -374,6 +374,7 @@ func hostedMCPFeatureCapabilityCatalog() []hostedMCPFeatureCapability {
 				"DELETE /v1/dashboards/{dashboardID}",
 				"GET /v1/dashboards/{dashboardID}/view",
 				"GET /v1/dashboards/{dashboardID}/history",
+				"DELETE /v1/dashboards/{dashboardID}/publications/{publicationID}",
 				"GET /v1/dashboards/{dashboardID}/sections",
 				"POST /v1/dashboards/{dashboardID}/sections",
 				"PUT /v1/dashboards/{dashboardID}/sections/{sectionID}",
@@ -413,6 +414,7 @@ func hostedMCPFeatureCapabilityCatalog() []hostedMCPFeatureCapability {
 			Notes: []string{
 				"Refresh records preserve existing dashboard data while selected sources run and report complete, partial, failed, cancelled, or timed_out status.",
 				"Dashboard publication accepts DashboardSpec JSON only; arbitrary HTML, CSS, JavaScript, iframes, forms, executable links, external scripts, and network-request content are rejected.",
+				"Current dashboard entry cards can be removed through the guarded publication DELETE route; removal archives the publication and writes history without deleting source bindings or runs.",
 				"Dashboard source run_scope is exact: empty means the default/unscoped run, and scoped runs publish only to enabled source bindings with the same scope.",
 				"Series publications merge chart points by timestamp or label and retain only the bounded latest point window.",
 				"Dashboard creation, schedule management, and source management use guarded REST routes through nopsai.call_api today; refresh and schedule run-now have direct confirmed MCP tools.",

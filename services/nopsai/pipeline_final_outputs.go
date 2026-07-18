@@ -447,6 +447,7 @@ func scanPipelineFinalOutputRecord(scanner interface{ Scan(dest ...any) error })
 	); err != nil {
 		return output, err
 	}
+	output.GenerationDuration, output.GenerationSeconds = runquery.FinalOutputGenerationTiming(output.CreatedAt, output.UpdatedAt)
 	_ = json.Unmarshal([]byte(dashboardRaw), &output.Dashboard)
 	return output, nil
 }
@@ -2372,6 +2373,7 @@ func (a *App) loadPipelineFinalOutputForDownload(ctx context.Context, runID, out
 		}
 		return output, err
 	}
+	output.GenerationDuration, output.GenerationSeconds = runquery.FinalOutputGenerationTiming(output.CreatedAt, output.UpdatedAt)
 	return output, nil
 }
 

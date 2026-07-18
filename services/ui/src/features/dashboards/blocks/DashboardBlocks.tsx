@@ -72,10 +72,10 @@ function ChartGroup({ blocks }: { blocks: DashboardBlock[] }) {
       return (
         <div
           data-testid="dashboard-overview-chart-grid"
-          className="grid gap-3 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]"
+          className="grid items-stretch gap-3 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]"
         >
           <DashboardBlockView block={bar} />
-          <div className="grid min-w-0 gap-3 md:grid-cols-2">
+          <div className="grid min-w-0 items-stretch gap-3 md:grid-cols-2">
             {circular.map((block, index) => (
               <DashboardBlockView key={`${block.chart?.type || 'chart'}-${block.title || index}`} block={block} />
             ))}
@@ -263,8 +263,9 @@ function ChartBlock({ block }: { block: DashboardBlock }) {
     return <div className="text-sm text-[var(--text-secondary)]">No chart data.</div>;
   }
   const chartType = chart.type || 'line';
+  const circular = chartType === 'pie' || chartType === 'donut';
   return (
-    <div className="space-y-3">
+    <div className={circular ? 'flex h-full min-w-0 flex-col gap-3' : 'space-y-3'}>
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
           {block.title ? <h4 className="text-sm font-semibold text-[var(--text-primary)]">{block.title}</h4> : null}
@@ -273,7 +274,7 @@ function ChartBlock({ block }: { block: DashboardBlock }) {
         </div>
         <ChartSummary chartType={chartType} series={series} unit={chart.unit} />
       </div>
-      {chartType === 'pie' || chartType === 'donut' ? (
+      {circular ? (
         <CircularChart type={chartType} series={series} unit={chart.unit} />
       ) : (
         <CartesianChart type={chartType} series={series} unit={chart.unit} />
@@ -292,6 +293,7 @@ function ChartMetadata({ chart }: { chart: NonNullable<DashboardBlock['chart']> 
 }
 
 function ChartSummary({ chartType, series, unit }: { chartType: string; series: DashboardChartSeries[]; unit?: string }) {
+  if (chartType === 'pie' || chartType === 'donut') return null;
   const pill = chartSummaryPill(chartType, series, unit);
   if (pill) {
     return (
@@ -469,54 +471,54 @@ function CircularChart({ type, series, unit }: { type: string; series: Dashboard
   const circumference = Math.PI * 2 * radius;
   let offset = 0;
   return (
-    <div className="grid min-w-0 gap-3 rounded border border-[var(--border-subtle)] bg-[var(--bg-secondary)] p-3 md:grid-cols-[minmax(128px,168px)_minmax(0,1fr)]">
-      <svg viewBox={`0 0 ${size} ${size}`} role="img" aria-label={`${type} dashboard chart`} className="h-40 w-full max-w-[168px] justify-self-center">
-        <circle cx={center} cy={center} r={radius} fill="none" stroke="currentColor" strokeWidth={strokeWidth} className="text-[var(--bg-tertiary)]" />
-        {points.map((point, index) => {
-          const value = Math.max(0, point.value);
-          const length = (value / total) * circumference;
-          const dashOffset = -offset;
-          offset += length;
-          return (
-            <circle
-              key={`${point.series.key}-${point.point.label || index}`}
-              cx={center}
-              cy={center}
-              r={radius}
-              fill="none"
-              stroke={point.color}
-              strokeWidth={strokeWidth}
-              strokeDasharray={`${length} ${Math.max(0, circumference - length)}`}
-              strokeDashoffset={dashOffset}
-              transform={`rotate(-90 ${center} ${center})`}
-            />
-          );
-        })}
-        <circle cx={center} cy={center} r={centerSummary || type === 'donut' ? 39 : 0} fill="var(--bg-secondary)" />
-        {centerSummary || type === 'donut' ? (
-          <>
-            <text x={center} y={center - 2} textAnchor="middle" className="fill-[var(--text-primary)] text-lg font-semibold">{centerSummary?.value || formatChartValue(total, unit)}</text>
-            <text x={center} y={center + 16} textAnchor="middle" className="fill-[var(--text-muted)] text-[11px]">{centerSummary?.label || 'total'}</text>
-          </>
-        ) : null}
-      </svg>
-      <div className="min-w-0 space-y-2 self-center">
-        {points.map((point, index) => {
-          const value = Math.max(0, point.value);
-          const percent = Math.round((value / total) * 100);
-          const label = point.point.label || point.series.label || point.series.key;
-          return (
-            <div key={`${point.series.key}-${point.point.label || index}`}>
-              <div className="flex min-w-0 items-start justify-between gap-3 text-sm">
-                <span className="inline-flex min-w-0 items-start gap-2">
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: point.color }} />
-                  <span className="min-w-0 break-words leading-snug">{label}</span>
+    <div className="dashboard-circular-chart">
+      <div className="dashboard-circular-chart__body">
+        <svg viewBox={`0 0 ${size} ${size}`} role="img" aria-label={`${type} dashboard chart`} className="dashboard-circular-chart__svg">
+          <circle cx={center} cy={center} r={radius} fill="none" stroke="currentColor" strokeWidth={strokeWidth} className="text-[var(--bg-tertiary)]" />
+          {points.map((point, index) => {
+            const value = Math.max(0, point.value);
+            const length = (value / total) * circumference;
+            const dashOffset = -offset;
+            offset += length;
+            return (
+              <circle
+                key={`${point.series.key}-${point.point.label || index}`}
+                cx={center}
+                cy={center}
+                r={radius}
+                fill="none"
+                stroke={point.color}
+                strokeWidth={strokeWidth}
+                strokeDasharray={`${length} ${Math.max(0, circumference - length)}`}
+                strokeDashoffset={dashOffset}
+                transform={`rotate(-90 ${center} ${center})`}
+              />
+            );
+          })}
+          <circle cx={center} cy={center} r={centerSummary || type === 'donut' ? 39 : 0} fill="var(--bg-secondary)" />
+          {centerSummary || type === 'donut' ? (
+            <>
+              <text x={center} y={center - 2} textAnchor="middle" className="fill-[var(--text-primary)] text-lg font-semibold">{centerSummary?.value || formatChartValue(total, unit)}</text>
+              <text x={center} y={center + 16} textAnchor="middle" className="fill-[var(--text-muted)] text-[11px]">{centerSummary?.label || 'total'}</text>
+            </>
+          ) : null}
+        </svg>
+        <div className="dashboard-circular-chart__legend">
+          {points.map((point, index) => {
+            const value = Math.max(0, point.value);
+            const percent = Math.round((value / total) * 100);
+            const label = point.point.label || point.series.label || point.series.key;
+            return (
+              <div key={`${point.series.key}-${point.point.label || index}`} className="dashboard-circular-chart__legend-row">
+                <span className="dashboard-circular-chart__legend-label">
+                  <span className="dashboard-circular-chart__legend-dot" style={{ backgroundColor: point.color }} />
+                  <span className="dashboard-circular-chart__legend-name">{label}</span>
                 </span>
-                <span className="shrink-0 text-[var(--text-secondary)]">{formatChartValue(value, unit)} · {percent}%</span>
+                <span className="dashboard-circular-chart__legend-value">{formatChartValue(value, unit)} · {percent}%</span>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -557,7 +559,6 @@ function seriesColor(series: DashboardChartSeries | undefined, index: number): s
 function circularPointColor(series: DashboardChartSeries | undefined, seriesIndex: number, pointIndex: number): string {
   const point = series?.points?.[pointIndex];
   const label = `${point?.label || ''} ${series?.label || ''} ${series?.key || ''}`.toLowerCase();
-  if (/blocked\s+from\s+production|production\s+blocked/.test(label)) return '#2563eb';
   if (/missing|vulnerab|failed|failure|blocked/.test(label)) return '#94a3b8';
   if (/ready|present|configured|success|healthy/.test(label)) return '#2563eb';
   const hasMultiplePoints = (series?.points || []).length > 1;

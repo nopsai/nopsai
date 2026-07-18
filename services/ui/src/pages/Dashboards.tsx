@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   cancelDashboardRefresh,
   deleteDashboard,
+  deleteDashboardPublication,
   deleteDashboardRefreshSchedule,
   deleteDashboardSection,
   deleteDashboardSource,
@@ -49,6 +50,7 @@ import {
   sourceFormFromSource,
   type DashboardEvent,
   type DashboardFormState,
+  type DashboardPublication,
   type DashboardRefresh,
   type DashboardRefreshSchedule,
   type DashboardRefreshScheduleFormState,
@@ -284,6 +286,11 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
     setDeleteModal({ kind: 'source', source });
   }, []);
 
+  const openDeletePublication = useCallback((publication: DashboardPublication) => {
+    setFormError(null);
+    setDeleteModal({ kind: 'publication', publication });
+  }, []);
+
   const openDeleteRefreshSchedule = useCallback((schedule: DashboardRefreshSchedule) => {
     setFormError(null);
     setDeleteModal({ kind: 'schedule', schedule });
@@ -308,6 +315,10 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
       } else if (deleteModal.kind === 'source') {
         if (!selectedID) throw new Error('Select a dashboard before deleting a source');
         await deleteDashboardSource(selectedID, deleteModal.source.id);
+        await loadSelected();
+      } else if (deleteModal.kind === 'publication') {
+        if (!selectedID) throw new Error('Select a dashboard before deleting an entry');
+        await deleteDashboardPublication(selectedID, deleteModal.publication.id);
         await loadSelected();
       } else {
         if (!selectedID) throw new Error('Select a dashboard before deleting a schedule');
@@ -510,6 +521,7 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
         onScheduleDashboard={() => openCreateRefreshSchedule()}
         onEditSource={openEditSource}
         onDeleteSource={openDeleteSource}
+        onDeletePublication={openDeletePublication}
         onRefreshSource={openRefreshSource}
         onCancelRefresh={refresh => void cancelRefresh(refresh)}
         onRetryRefresh={refresh => void retryFailed(refresh)}

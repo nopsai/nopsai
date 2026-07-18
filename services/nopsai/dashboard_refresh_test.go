@@ -92,6 +92,59 @@ func TestNormalizeDashboardSourceInputKeepsDefaultScopeExact(t *testing.T) {
 	}
 }
 
+func TestNormalizeDashboardSourceInputAllowsEmptyEntryKey(t *testing.T) {
+	input, err := normalizeDashboardSourceInput(dashboardSourceRequest{
+		SectionKey: "overview",
+		PipelineID: "team-1/dashboard",
+		OutputName: "Service Health",
+		EntryKey:   " ",
+	})
+	if err != nil {
+		t.Fatalf("normalizeDashboardSourceInput() error = %v", err)
+	}
+	if input.EntryKey != "" {
+		t.Fatalf("entry key = %q, want empty output-name binding", input.EntryKey)
+	}
+}
+
+func TestDashboardRefreshRunResponseIncludesPipelineAndOutputStatus(t *testing.T) {
+	startedAt := time.Date(2026, 7, 18, 10, 0, 0, 0, time.UTC)
+	pipelineFinishedAt := startedAt.Add(2 * time.Minute)
+	outputCreatedAt := pipelineFinishedAt.Add(time.Second)
+	outputUpdatedAt := outputCreatedAt.Add(59 * time.Second)
+	outputDuration, outputDurationSeconds := pipelineOutputGenerationDuration(outputCreatedAt, outputUpdatedAt)
+
+	response := dashboardRefreshRunResponseFromRecord(dashboardRefreshRunRecord{
+		ID:                    "refresh-run-1",
+		RefreshID:             "refresh-1",
+		PipelineID:            "team-1/dashboard",
+		OutputName:            "Service Health",
+		SectionKey:            "overview",
+		Required:              true,
+		Status:                "running",
+		CreatedAt:             startedAt,
+		UpdatedAt:             outputUpdatedAt,
+		PipelineStatus:        "success",
+		PipelineStartedAt:     &startedAt,
+		PipelineFinishedAt:    &pipelineFinishedAt,
+		OutputStatus:          "generating",
+		OutputCreatedAt:       &outputCreatedAt,
+		OutputUpdatedAt:       &outputUpdatedAt,
+		OutputDuration:        outputDuration,
+		OutputDurationSeconds: outputDurationSeconds,
+	})
+
+	if response.Status != "running" {
+		t.Fatalf("status = %q, want refresh source rollup running", response.Status)
+	}
+	if response.PipelineStatus != "success" || response.PipelineFinishedAt == nil {
+		t.Fatalf("pipeline fields = %#v", response)
+	}
+	if response.OutputStatus != "generating" || response.OutputDuration != "59s" || response.OutputDurationSeconds != 59 {
+		t.Fatalf("output fields = %#v", response)
+	}
+}
+
 func TestSelectDashboardRefreshSources(t *testing.T) {
 	sources := []dashboardSourceRecord{
 		{ID: "s1", SectionKey: "overview", Enabled: true},

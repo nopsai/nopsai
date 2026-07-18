@@ -273,6 +273,10 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
   'http://localhost:8080/v1/dashboards/<dashboard-id>/history?limit=50'
 
+# Remove a visible dashboard entry card
+curl -X DELETE -H "Authorization: Bearer $NOPSAI_TOKEN" \
+  http://localhost:8080/v1/dashboards/<dashboard-id>/publications/<publication-id>
+
 # Start a strict section refresh
 curl -X POST -H "Authorization: Bearer $NOPSAI_TOKEN" \
   -H "Content-Type: application/json" \
@@ -323,17 +327,19 @@ REST paths use dashboard UUIDs. Pipeline YAML and hosted MCP may use
 `dashboard.read`; create/update/delete/source management and refresh use the
 matching `dashboard.*` actions. Pipeline publication re-checks
 `dashboard.publish` as the effective run subject before current publications or
-history are written. Dashboard output supports `replace`, `append`, `snapshot`,
-and `series` modes; `series` merges chart or time-series blocks while deduping
-and retaining bounded points. Refresh supports dashboard, section, and source
-scope; strict mode blocks required unavailable sources while best-effort records
-skips and continues. Dashboard source bindings include `run_scope` as part of
-their identity. Empty `run_scope` is the exact default/unscoped run, not a
-legacy any-scope match; scoped trigger or schedule runs only publish when an
-enabled source binding has the same scope. GitOps-managed dashboards live under
-`dashboards/` and templates under `dashboard-templates/`, with source path,
-source commit, team ownership, drift, and managed-state pruning metadata
-preserved.
+history are written. Removing a visible dashboard entry archives that current
+publication and writes a history event; source bindings, refresh records, and
+pipeline runs remain auditable. Dashboard output supports `replace`, `append`,
+`snapshot`, and `series` modes; `series` merges chart or time-series blocks
+while deduping and retaining bounded points. Refresh supports dashboard,
+section, and source scope; strict mode blocks required unavailable sources while
+best-effort records skips and continues. Dashboard source bindings include
+`run_scope` as part of their identity. Empty `run_scope` is the exact
+default/unscoped run, not a legacy any-scope match; scoped trigger or schedule
+runs only publish when an enabled source binding has the same scope.
+GitOps-managed dashboards live under `dashboards/` and templates under
+`dashboard-templates/`, with source path, source commit, team ownership, drift,
+and managed-state pruning metadata preserved.
 
 ## Assistant and Hosted MCP
 
@@ -654,7 +660,7 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - Agents record LLM usage with `POST /v1/internal/runs/{runID}/ai-usage` using an agent service JWT. The endpoint stores run, step, task, provider, model, LLM profile, token totals, metadata, and a per-run usage summary. Run list/detail responses expose that summary as `ai_usage`, while detail step/task rows include their own `ai_usage` totals for API compatibility. Provider token metadata is used when available; otherwise the agent records an estimated token count with `metadata.estimated_tokens=true`. Pipeline final output generation is recorded as the `pipeline_final_output` feature.
 - Monitoring aggregate endpoints accept shared query parameters: `from`, `to`, `teamId`, `pipelinePath`, `pipelineName`, `repo`, `runId`, `branch`/`ref`, `commitSHA`, `triggerSource`, `status`, `requestedByType`, `requestedById`, `effectiveSubjectType`, `effectiveSubjectId`, `externalTriggerId`, `scheduleId`, `minDurationSeconds`, `maxDurationSeconds`, and `compare=previous_period`. The UI fetches the shifted previous window and renders regression deltas on Monitoring tabs when comparison is enabled. Pipeline Runs usage links open Monitoring with `tab=ai-usage&runId=<pipeline-run-id>` and use an all-time window for that run-scoped drilldown.
 - Monitoring aggregate endpoints first load candidate run IDs in Postgres, filter them through AAA with `pipeline_run.list`, then aggregate only visible run IDs. External trigger analytics also filters trigger-only rows with `external_trigger.read` so failed invocations that did not create runs are still governed.
-- `GET /metrics` emits Prometheus text format. Metrics include DB-backed pipeline, output, duration, notification, trigger, LLM, runner, approval, Knowledge Context connection/sync, and audit series plus in-memory System Logs active/opened streams, provider reconnect/error, redaction, and dropped-line counters.
+- `GET /metrics` emits Prometheus text format. Metrics include DB-backed pipeline, output, final-output generation duration, run duration, notification, trigger, LLM, runner, approval, Knowledge Context connection/sync, and audit series plus in-memory System Logs active/opened streams, provider reconnect/error, redaction, and dropped-line counters.
 - System Logs source discovery is AAA-filtered with `system_log.read` on `system_log:<sourceID>`. Tail and stream endpoints accept registry IDs only. SSE emits `status`, signed-cursor `log`, and `reset` events; stream heartbeats are comments. See [system-logs.md](./system-logs.md).
 - `GET /v1/system/dispatcher/scopes` returns existing scope names from runner defaults, dispatcher routing, variables, secrets, and run history. It is used by the runner install UI for multi-select scope choices.
 - `GET /v1/internal/dispatcher/routing` is dispatcher-internal. The live dispatcher polls it with a service-auth JWT and updates its in-memory routing table without a restart.
@@ -1845,6 +1851,10 @@ curl -X DELETE \
 - Approval steps move runs to `waiting_approval`; approval resumes the stored checkpoint, while rejection marks the run `rejected`.
 - Internal approval checkpoint endpoints under `/v1/internal/runs/...` are service-token protected for agents and are not user API endpoints.
 - Run listings return summary metadata used by the UI cards and periodic refreshes.
+  Run details additionally expose run-created/timeout timestamps, scope, team
+  ID, trigger source/event, requested/effective subject, schedule/external
+  trigger metadata, Git repository/commit/pusher metadata, and runtime variable
+  overrides. Authorization snapshots remain server-side audit data.
 - Pipeline YAML can define run-level final deliverables under `output.items`.
   When a run finalizes, NopsAI creates run-owned output records and generates
   matching items asynchronously from the full run context. Each item can set
@@ -1852,8 +1862,9 @@ curl -X DELETE \
   and failure reports separate. Run detail responses include
   `final_outputs` with output ID, name, type, status, content, error,
   LLM profile, `generation_attempts`, `contract_violations`, `render_attempts`,
-  `render_failures`, and timestamps. PDF/HTML content is versioned
-  `DocumentSpec` JSON; Excel content is versioned `SpreadsheetSpec` JSON.
+  `render_failures`, created/updated timestamps, `generation_duration`, and
+  `generation_duration_seconds`. PDF/HTML content is versioned `DocumentSpec`
+  JSON; Excel content is versioned `SpreadsheetSpec` JSON.
 - Final-output LLM calls use a provider-level system contract requiring one
   `<final_output>` element. NopsAI stores only the element content, retries one
   time for missing or invalid contract output, forces temperature `0`, and

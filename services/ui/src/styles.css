@@ -3429,6 +3429,84 @@ html.dark .recent-run-card {
     font-size: 0.86rem;
 }
 
+.dashboard-circular-chart {
+    container-type: inline-size;
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    border: 1px solid var(--border-subtle);
+    border-radius: 0.25rem;
+    background: var(--bg-secondary);
+    padding: 0.75rem;
+}
+
+.dashboard-circular-chart__body {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.dashboard-circular-chart__svg {
+    width: min(10.5rem, 100%);
+    height: 10rem;
+    justify-self: center;
+}
+
+.dashboard-circular-chart__legend {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    gap: 0.5rem;
+    align-self: center;
+}
+
+.dashboard-circular-chart__legend-row {
+    display: grid;
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.75rem;
+    align-items: start;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+.dashboard-circular-chart__legend-label {
+    display: inline-flex;
+    min-width: 0;
+    align-items: flex-start;
+    gap: 0.5rem;
+    color: var(--text-secondary);
+    line-height: 1.25;
+}
+
+.dashboard-circular-chart__legend-dot {
+    margin-top: 0.25rem;
+    height: 0.625rem;
+    width: 0.625rem;
+    flex: 0 0 auto;
+    border-radius: 999px;
+}
+
+.dashboard-circular-chart__legend-name {
+    min-width: 0;
+    overflow-wrap: normal;
+    word-break: normal;
+}
+
+.dashboard-circular-chart__legend-value {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    color: var(--text-secondary);
+}
+
+@container (min-width: 34rem) {
+    .dashboard-circular-chart__body {
+        grid-template-columns: minmax(8rem, 10.5rem) minmax(0, 1fr);
+    }
+}
+
 .pipeline-team-actions {
     display: flex;
     align-items: center;

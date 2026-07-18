@@ -117,6 +117,23 @@ func (a *App) publishDashboardFinalOutput(ctx context.Context, runID string, out
 	return nil
 }
 
+func (a *App) deleteDashboardPublicationEntry(ctx context.Context, dashboardID, publicationID string) (dashboardPublicationRecord, error) {
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return dashboardPublicationRecord{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	publication, err := archiveDashboardPublicationEntry(ctx, tx, dashboardID, publicationID)
+	if err != nil {
+		return dashboardPublicationRecord{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return dashboardPublicationRecord{}, err
+	}
+	return publication, nil
+}
+
 func normalizeDashboardPublicationTarget(output pipelineFinalOutputRecord) (dashboardPublicationTarget, error) {
 	target := output.Dashboard
 	ref := strings.Trim(strings.TrimSpace(target.Ref), "/")
@@ -880,9 +897,52 @@ func insertDashboardPublicationEvent(
 	_, err := runner.Exec(ctx, `
 		INSERT INTO dashboard_publication_events (
 			dashboard_id, section_key, entry_key, publication_id, revision, event_type, content, run_id, refresh_id
-		) VALUES ($1::uuid, $2, $3, $4::uuid, $5, $6, $7::jsonb, $8::uuid, NULLIF($9, '')::uuid)
+		) VALUES ($1::uuid, $2, $3, $4::uuid, $5, $6, $7::jsonb, NULLIF($8, '')::uuid, NULLIF($9, '')::uuid)
 	`, dashboardID, target.Section, target.EntryKey, publicationID, revision, eventType, string(payload), runID, target.RefreshID)
 	return err
+}
+
+func archiveDashboardPublicationEntry(ctx context.Context, runner queryRunner, dashboardID, publicationID string) (dashboardPublicationRecord, error) {
+	publicationID = strings.TrimSpace(publicationID)
+	if publicationID == "" {
+		return dashboardPublicationRecord{}, pgx.ErrNoRows
+	}
+	publication, err := scanDashboardPublicationRecord(runner.QueryRow(ctx, `
+		UPDATE dashboard_publications
+		SET status = 'archived',
+			updated_at = NOW()
+		WHERE dashboard_id::text = $1
+		  AND id::text = $2
+		  AND status = 'current'
+		RETURNING id::text, dashboard_id::text, section_key, entry_key, mode, content::text,
+		       revision, COALESCE(run_id::text, ''), COALESCE(run_output_id::text, ''),
+		       pipeline_id, output_name, run_scope, COALESCE(refresh_id::text, ''), source_finished_at,
+		       published_at, expires_at, status, (expires_at IS NOT NULL AND expires_at <= NOW()) AS stale,
+		       created_at, updated_at
+	`, dashboardID, publicationID))
+	if err != nil {
+		return dashboardPublicationRecord{}, err
+	}
+	content, err := json.Marshal(map[string]any{
+		"removed_publication_id": publication.ID,
+		"pipeline_id":            publication.PipelineID,
+		"output_name":            publication.OutputName,
+		"run_scope":              publication.RunScope,
+		"mode":                   publication.Mode,
+	})
+	if err != nil {
+		return dashboardPublicationRecord{}, err
+	}
+	target := dashboardPublicationTarget{
+		Section:   publication.SectionKey,
+		EntryKey:  publication.EntryKey,
+		RunScope:  publication.RunScope,
+		RefreshID: publication.RefreshID,
+	}
+	if err := insertDashboardPublicationEvent(ctx, runner, dashboardID, target, publication.ID, publication.Revision, "removed", string(content), publication.RunID); err != nil {
+		return dashboardPublicationRecord{}, err
+	}
+	return publication, nil
 }
 
 func dashboardTargetFromOutputItem(item models.PipelineOutputItem) dashboardPublicationTarget {

@@ -300,23 +300,31 @@ type dashboardRefreshRecord struct {
 }
 
 type dashboardRefreshRunRecord struct {
-	ID              string
-	RefreshID       string
-	DashboardID     string
-	SourceBindingID string
-	PipelineID      string
-	OutputName      string
-	SectionKey      string
-	EntryKey        string
-	RunScope        string
-	RunID           string
-	Required        bool
-	Status          string
-	Error           string
-	StartedAt       *time.Time
-	FinishedAt      *time.Time
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID                    string
+	RefreshID             string
+	DashboardID           string
+	SourceBindingID       string
+	PipelineID            string
+	OutputName            string
+	SectionKey            string
+	EntryKey              string
+	RunScope              string
+	RunID                 string
+	Required              bool
+	Status                string
+	Error                 string
+	StartedAt             *time.Time
+	FinishedAt            *time.Time
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	PipelineStatus        string
+	PipelineStartedAt     *time.Time
+	PipelineFinishedAt    *time.Time
+	OutputStatus          string
+	OutputCreatedAt       *time.Time
+	OutputUpdatedAt       *time.Time
+	OutputDuration        string
+	OutputDurationSeconds float64
 }
 
 type dashboardRefreshScheduleRecord struct {
@@ -466,22 +474,30 @@ type dashboardRefreshResponse struct {
 }
 
 type dashboardRefreshRunResponse struct {
-	ID              string     `json:"id"`
-	RefreshID       string     `json:"refresh_id"`
-	SourceBindingID string     `json:"source_binding_id,omitempty"`
-	PipelineID      string     `json:"pipeline_id"`
-	OutputName      string     `json:"output_name"`
-	SectionKey      string     `json:"section_key"`
-	EntryKey        string     `json:"entry_key,omitempty"`
-	RunScope        string     `json:"run_scope,omitempty"`
-	RunID           string     `json:"run_id,omitempty"`
-	Required        bool       `json:"required"`
-	Status          string     `json:"status"`
-	Error           string     `json:"error,omitempty"`
-	StartedAt       *time.Time `json:"started_at,omitempty"`
-	FinishedAt      *time.Time `json:"finished_at,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	ID                    string     `json:"id"`
+	RefreshID             string     `json:"refresh_id"`
+	SourceBindingID       string     `json:"source_binding_id,omitempty"`
+	PipelineID            string     `json:"pipeline_id"`
+	OutputName            string     `json:"output_name"`
+	SectionKey            string     `json:"section_key"`
+	EntryKey              string     `json:"entry_key,omitempty"`
+	RunScope              string     `json:"run_scope,omitempty"`
+	RunID                 string     `json:"run_id,omitempty"`
+	Required              bool       `json:"required"`
+	Status                string     `json:"status"`
+	Error                 string     `json:"error,omitempty"`
+	StartedAt             *time.Time `json:"started_at,omitempty"`
+	FinishedAt            *time.Time `json:"finished_at,omitempty"`
+	CreatedAt             time.Time  `json:"created_at"`
+	UpdatedAt             time.Time  `json:"updated_at"`
+	PipelineStatus        string     `json:"pipeline_status,omitempty"`
+	PipelineStartedAt     *time.Time `json:"pipeline_started_at,omitempty"`
+	PipelineFinishedAt    *time.Time `json:"pipeline_finished_at,omitempty"`
+	OutputStatus          string     `json:"output_status,omitempty"`
+	OutputCreatedAt       *time.Time `json:"output_created_at,omitempty"`
+	OutputUpdatedAt       *time.Time `json:"output_updated_at,omitempty"`
+	OutputDuration        string     `json:"output_duration,omitempty"`
+	OutputDurationSeconds float64    `json:"output_duration_seconds,omitempty"`
 }
 
 type dashboardRefreshScheduleResponse struct {
@@ -623,9 +639,6 @@ func normalizeDashboardSourceInput(req dashboardSourceRequest) (dashboardSourceI
 		return dashboardSourceInput{}, fmt.Errorf("output_name is required")
 	}
 	entryKey := strings.TrimSpace(req.EntryKey)
-	if entryKey == "" {
-		entryKey = outputName
-	}
 	if entryKey != "" && !dashboardEntryKeyPattern.MatchString(entryKey) {
 		return dashboardSourceInput{}, fmt.Errorf("entry_key can only contain alphanumeric characters, underscores, dots, colons, slashes, and hyphens")
 	}
@@ -790,22 +803,30 @@ func dashboardRefreshResponseFromRecord(record dashboardRefreshRecord, runs []da
 
 func dashboardRefreshRunResponseFromRecord(record dashboardRefreshRunRecord) dashboardRefreshRunResponse {
 	return dashboardRefreshRunResponse{
-		ID:              record.ID,
-		RefreshID:       record.RefreshID,
-		SourceBindingID: record.SourceBindingID,
-		PipelineID:      record.PipelineID,
-		OutputName:      record.OutputName,
-		SectionKey:      record.SectionKey,
-		EntryKey:        record.EntryKey,
-		RunScope:        record.RunScope,
-		RunID:           record.RunID,
-		Required:        record.Required,
-		Status:          record.Status,
-		Error:           record.Error,
-		StartedAt:       record.StartedAt,
-		FinishedAt:      record.FinishedAt,
-		CreatedAt:       record.CreatedAt,
-		UpdatedAt:       record.UpdatedAt,
+		ID:                    record.ID,
+		RefreshID:             record.RefreshID,
+		SourceBindingID:       record.SourceBindingID,
+		PipelineID:            record.PipelineID,
+		OutputName:            record.OutputName,
+		SectionKey:            record.SectionKey,
+		EntryKey:              record.EntryKey,
+		RunScope:              record.RunScope,
+		RunID:                 record.RunID,
+		Required:              record.Required,
+		Status:                record.Status,
+		Error:                 record.Error,
+		StartedAt:             record.StartedAt,
+		FinishedAt:            record.FinishedAt,
+		CreatedAt:             record.CreatedAt,
+		UpdatedAt:             record.UpdatedAt,
+		PipelineStatus:        record.PipelineStatus,
+		PipelineStartedAt:     record.PipelineStartedAt,
+		PipelineFinishedAt:    record.PipelineFinishedAt,
+		OutputStatus:          record.OutputStatus,
+		OutputCreatedAt:       record.OutputCreatedAt,
+		OutputUpdatedAt:       record.OutputUpdatedAt,
+		OutputDuration:        record.OutputDuration,
+		OutputDurationSeconds: record.OutputDurationSeconds,
 	}
 }
 

@@ -72,6 +72,9 @@ test('renders donut charts as circular visualizations', () => {
   expect(screen.getByText('Blocked')).toBeVisible();
   expect(screen.getByText('1/4')).toBeVisible();
   expect(screen.getByText('ready')).toBeVisible();
+  expect(container.querySelector('.dashboard-circular-chart')).toBeTruthy();
+  expect(container.querySelector('.dashboard-circular-chart__body')).toBeTruthy();
+  expect(container.querySelector('.dashboard-circular-chart__legend-name')).toHaveTextContent('Ready');
   const slices = Array.from(container.querySelectorAll('svg circle[stroke-dasharray]'));
   expect(new Set(slices.map(slice => slice.getAttribute('stroke'))).size).toBe(2);
 });
@@ -126,7 +129,7 @@ test('renders boolean-like table cells as status chips', () => {
 });
 
 test('groups overview duration and donut charts into a wide operational layout', () => {
-  render(
+  const { container } = render(
     <DashboardBlocks
       spec={{
         title: 'Docker Image Operations Overview',
@@ -198,9 +201,12 @@ test('groups overview duration and donut charts into a wide operational layout',
   );
 
   expect(screen.getByTestId('dashboard-overview-chart-grid')).toHaveClass('xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]');
+  expect(screen.getByTestId('dashboard-overview-chart-grid')).toHaveClass('items-stretch');
   expect(screen.getByText('Slowest: 60s')).toBeVisible();
   expect(screen.getByText('0/4')).toBeVisible();
   expect(screen.getByText('2/4')).toBeVisible();
+  const productionReadinessSlices = Array.from(container.querySelectorAll('svg[aria-label="donut dashboard chart"] circle[stroke-dasharray]')).slice(0, 2);
+  expect(productionReadinessSlices.map(slice => slice.getAttribute('stroke'))).toEqual(['#2563eb', '#94a3b8']);
 });
 
 test('marks rich dashboard specs as needing full-width publication cards', () => {
