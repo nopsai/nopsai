@@ -1,7 +1,8 @@
 import { useMemo, type ReactNode } from 'react';
 import { Activity, ArrowLeft, Copy, Edit3, GitBranch, PauseCircle, PlayCircle, ShieldCheck, Trash2, Webhook } from 'lucide-react';
 import { ObjectIcon } from '../../components/ObjectIcon';
-import { TreeColumnResizeHandle, useResizableTreeColumn } from '../../components/resizableTreeColumn';
+import { TreeColumnResizeHandle } from '../../components/resizableTreeColumn';
+import { useResizableTreeColumn } from '../../components/resizableTreeColumnState';
 import { buildApiUrl } from '../../lib/api';
 import { AutomationResourceTree } from '../event-automation/AutomationResourceTree';
 import {

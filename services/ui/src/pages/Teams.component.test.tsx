@@ -171,8 +171,8 @@ describe('TeamsPage', () => {
 
     renderTeams('/teams/team/platform/service-api');
 
-    expect(await screen.findByRole('heading', { name: 'service-api Overview' })).toBeVisible();
-    expect(screen.getByText('Application ownership, repository identity, and run metadata.')).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'service-api' })).toBeVisible();
+    expect(screen.getByText('service-api application details: owner team, repository, app path, and latest run context.')).toBeVisible();
     expect(screen.getByRole('link', { name: 'Related Runs' })).toHaveAttribute('href', '/pipelineruns/main/team/platform/service-api');
     expect(screen.queryByRole('link', { name: 'Recent Runs' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'No child items' })).not.toBeInTheDocument();
@@ -233,7 +233,7 @@ describe('TeamsPage', () => {
     const user = userEvent.setup();
     renderTeams('/teams/team/platform/service-api');
 
-    expect(await screen.findByRole('heading', { name: 'service-api Overview' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'service-api' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Edit service-api' }));
     expect(screen.getByRole('dialog', { name: 'Edit Application' })).toBeVisible();
     await waitFor(() => expect(screen.getByLabelText('Application Name')).toHaveValue('service-api'));

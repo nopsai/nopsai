@@ -188,7 +188,7 @@ test('delete modal explains dashboard entry card removal', () => {
 });
 
 test('source modal loads pipeline outputs and maps section, output, and entry with dropdowns', async () => {
-  const loadPipelineOutputs = vi.fn(async (_pipelineID: string): Promise<DashboardPipelineOutputOption[]> => (
+  const loadPipelineOutputs = vi.fn(async (): Promise<DashboardPipelineOutputOption[]> => (
     [
       {
         name: 'Service metrics',

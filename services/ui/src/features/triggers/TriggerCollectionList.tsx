@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 import { Database, Folder, GitBranch, Trash2, Zap } from 'lucide-react';
 import { ObjectIcon } from '../../components/ObjectIcon';
-import { TreeColumnResizeHandle, useResizableTreeColumn } from '../../components/resizableTreeColumn';
+import { TreeColumnResizeHandle } from '../../components/resizableTreeColumn';
+import { useResizableTreeColumn } from '../../components/resizableTreeColumnState';
 import { TriggerExplorerTree } from './TriggerExplorerTree';
 import {
   buildTriggerCollectionMetrics,

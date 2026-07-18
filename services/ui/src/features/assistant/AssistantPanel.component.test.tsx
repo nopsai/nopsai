@@ -129,7 +129,9 @@ test('renders clean chat messages without inline tool-call details', async () =>
   expect(screen.getByText('Pipeline loaded.')).toBeVisible();
   expect(screen.getByText('Execution plan')).toBeVisible();
   expect(screen.getByText('Read pipeline metadata')).toBeVisible();
-  expect(screen.getByText('MCP')).toBeVisible();
+  const mcpPlanStep = screen.getByText('Read pipeline metadata').closest('li');
+  expect(mcpPlanStep).not.toBeNull();
+  expect(within(mcpPlanStep as HTMLElement).getByText('MCP')).toBeVisible();
   expect(screen.getByText('Synthesize the answer')).toBeVisible();
   expect(screen.queryByText(/nopsai\.llm\.plan/)).toBeNull();
   expect(screen.queryByText(/nopsai\.get_pipeline/)).toBeNull();
