@@ -272,7 +272,6 @@ test('refresh modal explains scope and execution guardrails in a wider dialog', 
           display_order: 0,
         },
       ]}
-      sources={[]}
       saving={false}
       error={null}
       onChange={vi.fn()}
@@ -285,6 +284,7 @@ test('refresh modal explains scope and execution guardrails in a wider dialog', 
   expect(screen.getByText('Refresh target')).toBeVisible();
   expect(screen.getByText('Execution guardrails')).toBeVisible();
   expect(screen.getByText(/Strict fails when required sources cannot complete/)).toBeVisible();
+  expect(screen.queryByRole('option', { name: 'Source' })).not.toBeInTheDocument();
 });
 
 test('refresh schedule modal captures cadence, target, and guardrails', () => {
@@ -307,17 +307,6 @@ test('refresh schedule modal captures cadence, target, and guardrails', () => {
           display_order: 0,
         },
       ]}
-      sources={[
-        {
-          id: 'source-1',
-          section_key: 'overview',
-          pipeline_id: 'team-1/dashboard-sample',
-          output_name: 'Service metrics',
-          enabled: true,
-          required_for_refresh: true,
-          refresh_order: 0,
-        },
-      ]}
       saving={false}
       error={null}
       onChange={onChange}
@@ -333,8 +322,9 @@ test('refresh schedule modal captures cadence, target, and guardrails', () => {
   expect(screen.getByLabelText('Cron preview')).toHaveValue('0 2 * * *');
   fireEvent.change(screen.getByLabelText('Frequency'), { target: { value: 'minutes' } });
   expect(onChange).toHaveBeenCalledWith({ ...form, cronMode: 'minutes', cron_expression: '*/15 * * * *' });
-  fireEvent.change(screen.getByLabelText('Scope'), { target: { value: 'source' } });
-  expect(onChange).toHaveBeenCalledWith({ ...form, scopeType: 'source' });
+  expect(screen.queryByRole('option', { name: 'Source' })).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Scope'), { target: { value: 'section' } });
+  expect(onChange).toHaveBeenCalledWith({ ...form, scopeType: 'section' });
 });
 
 function SourceModalHarness({

@@ -4,12 +4,8 @@ import {
   AlertTriangle,
   CalendarClock,
   CheckCircle2,
-  ChevronDown,
-  ChevronRight,
   Clock3,
-  History,
   Info,
-  LayoutDashboard,
   MoreHorizontal,
   PauseCircle,
   Pencil,
@@ -17,14 +13,17 @@ import {
   Plus,
   RefreshCw,
   RotateCcw,
+  Search,
   Trash2,
   X,
 } from 'lucide-react';
 
+import { ObjectIcon } from '../../components/ObjectIcon';
 import ResourceAccessCard from '../../components/ResourceAccessCard';
 import { useOutsideDismiss } from '../../components/useOutsideDismiss';
 import { friendlyCronLabel } from '../schedules/model';
 import { DashboardBlocks, dashboardSpecNeedsWideLayout } from './blocks/DashboardBlocks';
+import { dashboardAttentionSignals, type DashboardAttentionSignal, type DashboardAttentionTone } from './dashboardAttention';
 import {
   formatDateTime,
   groupPublicationsBySection,
@@ -46,6 +45,7 @@ type DashboardWorkspaceProps = {
   dashboards: DashboardSummary[];
   teams: string[];
   selectedID: string;
+  activeSectionKey: string;
   selectedDashboard: DashboardSummary | null;
   view: DashboardView | null;
   history: DashboardEvent[];
@@ -62,6 +62,8 @@ type DashboardWorkspaceProps = {
   onSearchTermChange: (value: string) => void;
   onTeamFilterChange: (value: string) => void;
   onSelectDashboard: (id: string) => void;
+  onSelectSection: (sectionKey: string) => void;
+  sectionTabHref: (sectionKey: string) => string;
   onReloadDashboards: () => void;
   onCreateDashboard: () => void;
   onEditDashboard: (dashboard: DashboardSummary) => void;
@@ -71,7 +73,6 @@ type DashboardWorkspaceProps = {
   onEditSource: (source: DashboardSource) => void;
   onDeleteSource: (source: DashboardSource) => void;
   onDeletePublication: (publication: DashboardPublication) => void;
-  onRefreshSource: (source: DashboardSource) => void;
   onCancelRefresh: (refresh: DashboardRefresh) => void;
   onRetryRefresh: (refresh: DashboardRefresh) => void;
   onCreateSchedule: (scope: RefreshScheduleScope) => void;
@@ -82,17 +83,18 @@ type DashboardWorkspaceProps = {
 };
 
 type RefreshScheduleScope = {
-  scopeType?: 'dashboard' | 'section' | 'source';
+  scopeType?: 'dashboard' | 'section';
   sectionKey?: string;
-  sourceID?: string;
 };
 
 type DashboardRefreshSource = NonNullable<DashboardRefresh['sources']>[number];
+type DashboardDetailTabID = 'sources' | 'schedules' | 'refreshes' | 'latest-runs';
 
 export function DashboardWorkspace({
   dashboards,
   teams,
   selectedID,
+  activeSectionKey,
   selectedDashboard,
   view,
   history,
@@ -109,6 +111,8 @@ export function DashboardWorkspace({
   onSearchTermChange,
   onTeamFilterChange,
   onSelectDashboard,
+  onSelectSection,
+  sectionTabHref,
   onReloadDashboards,
   onCreateDashboard,
   onEditDashboard,
@@ -118,7 +122,6 @@ export function DashboardWorkspace({
   onEditSource,
   onDeleteSource,
   onDeletePublication,
-  onRefreshSource,
   onCancelRefresh,
   onRetryRefresh,
   onCreateSchedule,
@@ -128,13 +131,12 @@ export function DashboardWorkspace({
   onRunSchedule,
 }: DashboardWorkspaceProps) {
   const [dashboardDetailsOpen, setDashboardDetailsOpen] = useState(false);
-  const [openSectionDetails, setOpenSectionDetails] = useState<Set<string>>(new Set());
-  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
   const sections = view?.sections || [];
   const sources = view?.sources || [];
+  const publications = view?.publications || [];
   const publicationsBySection = useMemo(
-    () => groupPublicationsBySection(view?.publications || []),
-    [view?.publications]
+    () => groupPublicationsBySection(publications),
+    [publications]
   );
   const latestRefresh = refreshes[0] || null;
   const activeRefresh = refreshes.find(refresh => refresh.status === 'running') || null;
@@ -145,34 +147,26 @@ export function DashboardWorkspace({
     }
     return map;
   }, [latestRefresh]);
-
-  const toggleSectionDetails = (sectionKey: string) => {
-    setOpenSectionDetails(current => {
-      const next = new Set(current);
-      if (next.has(sectionKey)) next.delete(sectionKey);
-      else next.add(sectionKey);
-      return next;
-    });
-  };
-
-  const toggleSectionCollapsed = (sectionKey: string) => {
-    setCollapsedSections(current => {
-      const next = new Set(current);
-      if (next.has(sectionKey)) next.delete(sectionKey);
-      else next.add(sectionKey);
-      return next;
-    });
-  };
+  const activeSection = sections.find(section => section.section_key === activeSectionKey) || sections[0] || null;
+  const resolvedActiveSectionKey = activeSection?.section_key || '';
+  const selectedSectionPublications = activeSection ? publicationsBySection[activeSection.section_key] || [] : [];
+  const selectedSectionRunningSources = activeSection
+    ? (activeRefresh?.sources || []).filter(source => source.section_key === activeSection.section_key && sourceRefreshRunning(source.status))
+    : [];
+  const attentionSignals = useMemo(
+    () => dashboardAttentionSignals({ sections, sources, publications, latestRefresh, refreshSchedules }),
+    [latestRefresh, publications, refreshSchedules, sections, sources]
+  );
 
   return (
-    <div data-page="dashboards" className="active flex h-full flex-col bg-[var(--bg-primary)]">
-      <header className="border-b border-[var(--border-subtle)] bg-[var(--bg-primary)] px-4 py-3">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="grid min-w-0 flex-1 gap-2 md:grid-cols-[minmax(220px,1fr)_minmax(220px,1fr)_minmax(160px,220px)]">
+    <div data-page="dashboards" className="active flex h-full flex-col bg-[var(--bg-tertiary)]">
+      <header className="border-b border-[var(--border-primary)] bg-[var(--bg-primary)] px-4 py-3 shadow-sm">
+        <div className="mx-auto flex w-full max-w-[1320px] flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="grid min-w-0 flex-1 gap-2 md:grid-cols-[minmax(220px,1fr)_minmax(220px,1.25fr)_minmax(160px,220px)]">
             <label className="min-w-0">
               <span className="sr-only">Dashboard</span>
               <select
-                className="h-10 w-full rounded-md border border-transparent bg-[var(--bg-secondary)] px-3 text-sm font-medium text-[var(--text-primary)] shadow-sm outline-none focus:border-[var(--accent)]"
+                className="h-10 w-full rounded-md border border-[var(--border-strong)] bg-[var(--bg-secondary)] px-3 text-sm font-semibold text-[var(--text-primary)] shadow-sm outline-none focus:border-[var(--accent)]"
                 value={selectedID}
                 onChange={event => onSelectDashboard(event.target.value)}
                 disabled={loading || dashboards.length === 0}
@@ -186,10 +180,11 @@ export function DashboardWorkspace({
                 ))}
               </select>
             </label>
-            <label className="min-w-0">
+            <label className="relative min-w-0">
               <span className="sr-only">Search dashboards</span>
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-tertiary)]" aria-hidden="true" />
               <input
-                className="h-10 w-full rounded-md border border-transparent bg-[var(--bg-secondary)] px-3 text-sm text-[var(--text-primary)] shadow-sm outline-none placeholder:text-[var(--text-muted)] focus:border-[var(--accent)]"
+                className="h-10 w-full rounded-md border border-[var(--border-strong)] bg-[var(--bg-secondary)] px-9 text-sm text-[var(--text-primary)] shadow-sm outline-none placeholder:text-[var(--text-tertiary)] focus:border-[var(--accent)]"
                 value={searchTerm}
                 onChange={event => onSearchTermChange(event.target.value)}
                 placeholder="Search dashboards"
@@ -199,7 +194,7 @@ export function DashboardWorkspace({
             <label className="min-w-0">
               <span className="sr-only">Filter by team</span>
               <select
-                className="h-10 w-full rounded-md border border-transparent bg-[var(--bg-secondary)] px-3 text-sm text-[var(--text-primary)] shadow-sm outline-none focus:border-[var(--accent)]"
+                className="h-10 w-full rounded-md border border-[var(--border-strong)] bg-[var(--bg-secondary)] px-3 text-sm text-[var(--text-primary)] shadow-sm outline-none focus:border-[var(--accent)]"
                 value={teamFilter}
                 onChange={event => onTeamFilterChange(event.target.value)}
                 aria-label="Filter by team"
@@ -217,11 +212,11 @@ export function DashboardWorkspace({
             ) : null}
           </div>
         </div>
-        {error ? <div className="mt-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/30 dark:text-rose-100">{error}</div> : null}
+        {error ? <div className="mx-auto mt-3 w-full max-w-[1320px] rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/30 dark:text-rose-100">{error}</div> : null}
       </header>
 
       <main className="min-h-0 flex-1 overflow-auto">
-        <div className="mx-auto w-full max-w-[1500px] space-y-5 px-4 py-5 lg:px-6">
+        <div className="mx-auto w-full max-w-[1320px] space-y-6 px-4 py-6 lg:px-8">
           {!selectedDashboard ? (
             <EmptyDashboardState loading={loading} dashboardCount={dashboards.length} />
           ) : (
@@ -229,6 +224,7 @@ export function DashboardWorkspace({
               <DashboardHeader
                 dashboard={selectedDashboard}
                 activeRefresh={activeRefresh}
+                attentionSignals={attentionSignals}
                 dashboardDetailsOpen={dashboardDetailsOpen}
                 canWriteDashboards={canWriteDashboards}
                 canDeleteDashboards={canDeleteDashboards}
@@ -240,80 +236,62 @@ export function DashboardWorkspace({
                 onDelete={() => onDeleteDashboard(selectedDashboard)}
               />
 
+              {detailLoading ? <div className="rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)] shadow-sm">Loading dashboard...</div> : null}
+
               {dashboardDetailsOpen ? (
-                <DashboardDetails
-                  dashboard={selectedDashboard}
-                  latestRefresh={latestRefresh}
-                  activeRefresh={activeRefresh}
-                  refreshes={refreshes}
-                  schedules={refreshSchedules}
-                  history={history.slice(0, 8)}
-                  saving={saving}
-                  canWriteDashboards={canWriteDashboards}
-                  onCancelRefresh={onCancelRefresh}
-                  onRetryRefresh={onRetryRefresh}
-                  onCreateSchedule={() => onCreateSchedule({ scopeType: 'dashboard' })}
-                  onEditSchedule={onEditSchedule}
-                  onDeleteSchedule={onDeleteSchedule}
-                  onToggleSchedule={onToggleSchedule}
-                  onRunSchedule={onRunSchedule}
-                />
-              ) : null}
-
-              {detailLoading ? <div className="rounded-md bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-secondary)]">Loading dashboard...</div> : null}
-
-              {sections.length === 0 ? (
-                <div className="rounded-md border border-dashed border-[var(--border-subtle)] px-4 py-8 text-center text-sm text-[var(--text-secondary)]">
-                  This dashboard has no sections yet.
-                </div>
-              ) : null}
-
-              {sections.map(section => {
-                const sectionPublications = publicationsBySection[section.section_key] || [];
-                const sectionSources = sources.filter(source => source.section_key === section.section_key);
-                const enabledSources = sectionSources.filter(source => source.enabled);
-                const requiredSources = enabledSources.filter(source => source.required_for_refresh);
-                const sectionSchedules = refreshSchedules.filter(schedule => scheduleMatchesSection(schedule, section.section_key, sources));
-                const sectionHistory = history.filter(event => event.section_key === section.section_key).slice(0, 6);
-                const sectionRefreshes = refreshes.filter(refresh => refreshMatchesSection(refresh, section.section_key)).slice(0, 4);
-                const activeSectionSources = (activeRefresh?.sources || [])
-                  .filter(source => source.section_key === section.section_key && sourceRefreshRunning(source.status));
-                const detailsOpen = openSectionDetails.has(section.section_key);
-                const collapsed = collapsedSections.has(section.section_key);
-                const completeness = requiredSources.length === 0
-                  ? 'No required sources'
-                  : `${Math.min(sectionPublications.length, requiredSources.length)}/${requiredSources.length} required`;
-                return (
-                  <DashboardSectionSurface
-                    key={section.id || section.section_key}
-                    section={section}
-                    publications={sectionPublications}
-                    sources={sectionSources}
-                    schedules={sectionSchedules}
-                    history={sectionHistory}
-                    refreshes={sectionRefreshes}
-                    activeSources={activeSectionSources}
-                    latestRefreshSourceByID={latestRefreshSourceByID}
-                    completeness={completeness}
-                    detailsOpen={detailsOpen}
-                    collapsed={collapsed}
+                <div id="dashboard-details">
+                  <DashboardDetails
+                    dashboard={selectedDashboard}
+                    sources={sources}
+                    latestRefresh={latestRefresh}
                     activeRefresh={activeRefresh}
+                    refreshes={refreshes}
+                    schedules={refreshSchedules}
+                    history={history}
+                    latestRefreshSourceByID={latestRefreshSourceByID}
                     saving={saving}
                     canWriteDashboards={canWriteDashboards}
-                    onToggleDetails={() => toggleSectionDetails(section.section_key)}
-                    onToggleCollapsed={() => toggleSectionCollapsed(section.section_key)}
                     onEditSource={onEditSource}
                     onDeleteSource={onDeleteSource}
-                    onDeletePublication={onDeletePublication}
-                    onRefreshSource={onRefreshSource}
+                    onCancelRefresh={onCancelRefresh}
+                    onRetryRefresh={onRetryRefresh}
+                    onCreateSchedule={() => onCreateSchedule({ scopeType: 'dashboard' })}
                     onEditSchedule={onEditSchedule}
                     onDeleteSchedule={onDeleteSchedule}
                     onToggleSchedule={onToggleSchedule}
                     onRunSchedule={onRunSchedule}
+                  />
+                </div>
+              ) : null}
+
+              <DashboardSectionTabs
+                sections={sections}
+                activeSectionKey={resolvedActiveSectionKey}
+                onSelectSection={onSelectSection}
+                sectionTabHref={sectionTabHref}
+              />
+
+              {sections.length === 0 ? (
+                <div className="rounded-md border border-dashed border-[var(--border-subtle)] bg-[var(--bg-secondary)] px-4 py-8 text-center text-sm text-[var(--text-secondary)]">
+                  This dashboard has no sections yet.
+                </div>
+              ) : null}
+
+              <div id="dashboard-sections" className="space-y-6">
+                {activeSection ? (
+                  <DashboardSectionSurface
+                    key={activeSection.id || activeSection.section_key}
+                    section={activeSection}
+                    publications={selectedSectionPublications}
+                    activeSources={selectedSectionRunningSources}
+                    activeRefresh={activeRefresh}
+                    saving={saving}
+                    canWriteDashboards={canWriteDashboards}
+                    onDeletePublication={onDeletePublication}
                     onCancelRefresh={onCancelRefresh}
                   />
-                );
-              })}
+                ) : null}
+              </div>
             </>
           )}
         </div>
@@ -325,6 +303,7 @@ export function DashboardWorkspace({
 function DashboardHeader({
   dashboard,
   activeRefresh,
+  attentionSignals,
   dashboardDetailsOpen,
   canWriteDashboards,
   canDeleteDashboards,
@@ -337,6 +316,7 @@ function DashboardHeader({
 }: {
   dashboard: DashboardSummary;
   activeRefresh: DashboardRefresh | null;
+  attentionSignals: DashboardAttentionSignal[];
   dashboardDetailsOpen: boolean;
   canWriteDashboards: boolean;
   canDeleteDashboards: boolean;
@@ -348,161 +328,189 @@ function DashboardHeader({
   onDelete: () => void;
 }) {
   return (
-    <section className="space-y-3">
-      <div className="flex flex-col gap-3 rounded-md bg-[var(--bg-secondary)] px-4 py-3 shadow-sm lg:flex-row lg:items-center lg:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--text-muted)]">
-            <LayoutDashboard className="h-4 w-4" aria-hidden="true" />
-            <span className="truncate">{dashboard.ref}</span>
-            {dashboard.managed_by_config_repo ? <Badge>GitOps</Badge> : null}
-            <Badge>{dashboard.visibility || 'team'}</Badge>
-          </div>
-          <p className="mt-1 truncate text-2xl font-semibold text-[var(--text-primary)]">{dashboard.title}</p>
-          {dashboard.description ? <p className="mt-1 max-w-4xl text-sm text-[var(--text-secondary)]">{dashboard.description}</p> : null}
+    <section className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--text-tertiary)]">
+          <ObjectIcon type="dashboard" className="h-4 w-4" />
+          <span className="truncate">{dashboard.ref}</span>
+          {dashboard.managed_by_config_repo ? <Badge>GitOps</Badge> : null}
+          <Badge>{dashboard.visibility || 'team'}</Badge>
         </div>
+        <h2 className="mt-1 flex min-w-0 items-center gap-2 text-2xl font-bold tracking-normal text-[var(--text-primary)]">
+          <DashboardAttentionIndicator signals={attentionSignals} />
+          <span className="truncate">{dashboard.title}</span>
+        </h2>
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[var(--text-secondary)]">
+          <span>Team {dashboard.team_path || 'unassigned'}</span>
+          {dashboard.last_published_at ? <span>Published {formatDateTime(dashboard.last_published_at)}</span> : null}
+          {activeRefresh ? <StatusBadge status={activeRefresh.status} /> : null}
+        </div>
+        {dashboard.description ? <p className="mt-2 max-w-4xl text-sm leading-6 text-[var(--text-secondary)]">{dashboard.description}</p> : null}
+      </div>
 
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          <ActionMenu label="Dashboard actions" buttonLabel="Actions">
-            {({ close }) => (
-              <>
-                {canWriteDashboards ? (
-                  <ActionMenuItem
-                    label="Refresh dashboard"
-                    icon={<RefreshCw className="h-4 w-4" />}
-                    onClick={onRefresh}
-                    close={close}
-                    disabled={Boolean(activeRefresh)}
-                    primary
-                  />
-                ) : null}
-                {canWriteDashboards ? (
-                  <ActionMenuItem
-                    label="Schedule refresh"
-                    icon={<CalendarClock className="h-4 w-4" />}
-                    onClick={onSchedule}
-                    close={close}
-                  />
-                ) : null}
-                {canWriteDashboards ? (
-                  <ActionMenuItem label="Edit dashboard" icon={<Pencil className="h-4 w-4" />} onClick={onEdit} close={close} />
-                ) : null}
-                <ResourceAccessCard
-                  resourceType="dashboard"
-                  resourceID={dashboard.ref || dashboard.id}
-                  label="dashboard"
-                  buttonClassName={actionMenuItemClass()}
-                  onDialogClose={close}
-                />
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <ActionMenu label="Dashboard actions" buttonLabel="Actions">
+          {({ close }) => (
+            <>
+              {canWriteDashboards ? (
                 <ActionMenuItem
-                  label={dashboardDetailsOpen ? 'Hide dashboard details' : 'Show dashboard details'}
-                  icon={<Info className="h-4 w-4" />}
-                  onClick={onToggleDetails}
+                  label="Refresh dashboard"
+                  icon={<RefreshCw className="h-4 w-4" />}
+                  onClick={onRefresh}
                   close={close}
-                  active={dashboardDetailsOpen}
+                  disabled={Boolean(activeRefresh)}
+                  primary
                 />
-                {canDeleteDashboards ? (
-                  <ActionMenuItem
-                    label="Delete dashboard"
-                    icon={<Trash2 className="h-4 w-4" />}
-                    onClick={onDelete}
-                    close={close}
-                    disabled={saving}
-                    danger
-                  />
-                ) : null}
-              </>
-            )}
-          </ActionMenu>
-        </div>
+              ) : null}
+              {canWriteDashboards ? (
+                <ActionMenuItem
+                  label="Schedule refresh"
+                  icon={<CalendarClock className="h-4 w-4" />}
+                  onClick={onSchedule}
+                  close={close}
+                />
+              ) : null}
+              {canWriteDashboards ? (
+                <ActionMenuItem label="Edit dashboard" icon={<Pencil className="h-4 w-4" />} onClick={onEdit} close={close} />
+              ) : null}
+              <ResourceAccessCard
+                resourceType="dashboard"
+                resourceID={dashboard.ref || dashboard.id}
+                label="dashboard"
+                buttonClassName={actionMenuItemClass()}
+                onDialogClose={close}
+              />
+              <ActionMenuItem
+                label={dashboardDetailsOpen ? 'Hide dashboard details' : 'Show dashboard details'}
+                icon={<Info className="h-4 w-4" />}
+                onClick={onToggleDetails}
+                close={close}
+                active={dashboardDetailsOpen}
+              />
+              {canDeleteDashboards ? (
+                <ActionMenuItem
+                  label="Delete dashboard"
+                  icon={<Trash2 className="h-4 w-4" />}
+                  onClick={onDelete}
+                  close={close}
+                  disabled={saving}
+                  danger
+                />
+              ) : null}
+            </>
+          )}
+        </ActionMenu>
       </div>
     </section>
+  );
+}
+
+function DashboardAttentionIndicator({ signals }: { signals: DashboardAttentionSignal[] }) {
+  if (signals.length === 0) return null;
+  const primarySignal = signals[0];
+  const remainingCount = signals.length - 1;
+  const tooltipText = [
+    `Needs attention: ${primarySignal.title}${remainingCount > 0 ? ` and ${remainingCount} more` : ''}`,
+    primarySignal.detail,
+    `What to do: ${primarySignal.action}`,
+  ].join('\n');
+  return (
+    <span
+      className={`group relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${attentionIndicatorClass(primarySignal.tone)}`}
+      role="img"
+      aria-label={tooltipText}
+      title={tooltipText}
+      tabIndex={0}
+    >
+      <AlertTriangle className="relative h-4 w-4" aria-hidden="true" />
+      <span className="pointer-events-none absolute left-0 top-full z-50 mt-2 w-[min(22rem,calc(100vw-2rem))] rounded-md border border-[var(--border-strong)] bg-[var(--bg-secondary)] p-3 text-left text-xs font-normal leading-5 text-[var(--text-secondary)] opacity-0 shadow-xl transition-opacity group-hover:opacity-100 group-focus:opacity-100" aria-hidden="true">
+        <span className="block font-bold text-[var(--text-primary)]">
+          Needs attention: {primarySignal.title}
+          {remainingCount > 0 ? ` and ${remainingCount} more` : ''}
+        </span>
+        <span className="mt-1 block">{primarySignal.detail}</span>
+        <span className="mt-2 block font-semibold text-[var(--text-primary)]">What to do</span>
+        <span className="mt-1 block">{primarySignal.action}</span>
+      </span>
+    </span>
+  );
+}
+
+function attentionIndicatorClass(tone: DashboardAttentionTone): string {
+  if (tone === 'danger') {
+    return 'border border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-900/70 dark:bg-rose-950/40 dark:text-rose-100';
+  }
+  return 'border border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-100';
+}
+
+function DashboardSectionTabs({
+  sections,
+  activeSectionKey,
+  onSelectSection,
+  sectionTabHref,
+}: {
+  sections: DashboardSection[];
+  activeSectionKey: string;
+  onSelectSection: (sectionKey: string) => void;
+  sectionTabHref: (sectionKey: string) => string;
+}) {
+  if (sections.length === 0) return null;
+
+  return (
+    <div className="rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-2 py-2 shadow-sm">
+      <div className="flex gap-1 overflow-x-auto" role="tablist" aria-label="Dashboard sections">
+        {sections.map(section => {
+          const selected = section.section_key === activeSectionKey;
+          return (
+            <Link
+              key={section.id || section.section_key}
+              id={sectionTabID(section.section_key)}
+              to={sectionTabHref(section.section_key)}
+              role="tab"
+              aria-selected={selected}
+              aria-controls={selected ? sectionAnchorID(section.section_key) : undefined}
+              aria-label={section.title}
+              className={`inline-flex min-h-10 max-w-[280px] shrink-0 items-center gap-2 rounded-md border px-3 text-sm font-semibold transition-colors ${
+                selected
+                  ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--text-primary)] shadow-sm'
+                  : 'border-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+              }`}
+              onClick={event => {
+                if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.altKey || event.ctrlKey || event.shiftKey) return;
+                onSelectSection(section.section_key);
+              }}
+            >
+              <span className="truncate">{section.title}</span>
+            </Link>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
 function DashboardSectionSurface({
   section,
   publications,
-  sources,
-  schedules,
-  history,
-  refreshes,
   activeSources,
-  latestRefreshSourceByID,
-  completeness,
-  detailsOpen,
-  collapsed,
   activeRefresh,
   saving,
   canWriteDashboards,
-  onToggleDetails,
-  onToggleCollapsed,
-  onEditSource,
-  onDeleteSource,
   onDeletePublication,
-  onRefreshSource,
-  onEditSchedule,
-  onDeleteSchedule,
-  onToggleSchedule,
-  onRunSchedule,
   onCancelRefresh,
 }: {
   section: DashboardSection;
   publications: DashboardPublication[];
-  sources: DashboardSource[];
-  schedules: DashboardRefreshSchedule[];
-  history: DashboardEvent[];
-  refreshes: DashboardRefresh[];
   activeSources: NonNullable<DashboardRefresh['sources']>;
-  latestRefreshSourceByID: Map<string, DashboardRefreshSource>;
-  completeness: string;
-  detailsOpen: boolean;
-  collapsed: boolean;
   activeRefresh: DashboardRefresh | null;
   saving: boolean;
   canWriteDashboards: boolean;
-  onToggleDetails: () => void;
-  onToggleCollapsed: () => void;
-  onEditSource: (source: DashboardSource) => void;
-  onDeleteSource: (source: DashboardSource) => void;
   onDeletePublication: (publication: DashboardPublication) => void;
-  onRefreshSource: (source: DashboardSource) => void;
-  onEditSchedule: (schedule: DashboardRefreshSchedule) => void;
-  onDeleteSchedule: (schedule: DashboardRefreshSchedule) => void;
-  onToggleSchedule: (schedule: DashboardRefreshSchedule, enabled: boolean) => void;
-  onRunSchedule: (schedule: DashboardRefreshSchedule) => void;
   onCancelRefresh: (refresh: DashboardRefresh) => void;
 }) {
   return (
-    <section className="space-y-3">
-      <div className="flex flex-col gap-3 rounded-md border-l-4 border-[var(--border-accent)] bg-[var(--bg-secondary)] px-4 py-3 shadow-sm lg:flex-row lg:items-center lg:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="truncate text-lg font-semibold text-[var(--text-accent)]">{section.title}</h2>
-            <Badge>{completeness}</Badge>
-            {refreshes[0] ? <StatusBadge status={refreshes[0].status} /> : null}
-          </div>
-          <div className="mt-1 flex flex-wrap gap-2 text-xs text-[var(--text-muted)]">
-            <span>{section.section_key}</span>
-            <span>{publications.length} entries</span>
-            <span>{sources.length} sources</span>
-          </div>
-          {section.description ? <p className="mt-1 text-sm text-[var(--text-secondary)]">{section.description}</p> : null}
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          <ToolbarButton
-            label={detailsOpen ? 'Hide details' : 'Show details'}
-            icon={<Info className="h-4 w-4" />}
-            onClick={onToggleDetails}
-            pressed={detailsOpen}
-          />
-          <ToolbarButton
-            label={collapsed ? 'Expand section' : 'Collapse section'}
-            icon={collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-            onClick={onToggleCollapsed}
-            pressed={collapsed}
-          />
-        </div>
-      </div>
+    <section id={sectionAnchorID(section.section_key)} role="tabpanel" aria-labelledby={sectionTabID(section.section_key)} className="space-y-3 scroll-mt-24">
+      {section.description ? <p className="min-w-0 text-sm leading-6 text-[var(--text-secondary)]">{section.description}</p> : null}
 
       {activeSources.length > 0 ? (
         <SectionRunningSources
@@ -512,7 +520,7 @@ function DashboardSectionSurface({
         />
       ) : null}
 
-      {collapsed ? null : publications.length === 0 ? (
+      {publications.length === 0 ? (
         <div className="rounded-md border border-dashed border-[var(--border-subtle)] px-4 py-6 text-sm text-[var(--text-secondary)]">
           No publications yet. Assign a dashboard-output pipeline or run a refresh to populate this section.
         </div>
@@ -530,25 +538,6 @@ function DashboardSectionSurface({
         </div>
       )}
 
-      {detailsOpen && !collapsed ? (
-        <SectionDetails
-          sources={sources}
-          schedules={schedules}
-          history={history}
-          refreshes={refreshes}
-          latestRefreshSourceByID={latestRefreshSourceByID}
-          activeRefresh={activeRefresh}
-          saving={saving}
-          canWriteDashboards={canWriteDashboards}
-          onEditSource={onEditSource}
-          onDeleteSource={onDeleteSource}
-          onRefreshSource={onRefreshSource}
-          onEditSchedule={onEditSchedule}
-          onDeleteSchedule={onDeleteSchedule}
-          onToggleSchedule={onToggleSchedule}
-          onRunSchedule={onRunSchedule}
-        />
-      ) : null}
     </section>
   );
 }
@@ -566,16 +555,24 @@ function PublicationCard({
 }) {
   const wideLayout = forceWide || dashboardSpecNeedsWideLayout(publication.content);
   return (
-    <article className={`min-w-0 overflow-hidden rounded-md border border-[var(--border-subtle)] bg-[var(--bg-tertiary)] shadow-sm ${wideLayout ? 'xl:col-span-2' : ''}`}>
-      <header className="relative z-[1] flex flex-wrap items-center justify-between gap-2 bg-[var(--accent-soft)] px-4 py-3 shadow-[0_16px_30px_-24px_var(--accent)]">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-[var(--text-primary)]">{publication.content.title || publication.entry_key}</div>
-          <div className="mt-1 truncate text-xs text-[var(--text-muted)]">
-            {publication.pipeline_id} / {publication.output_name} / {runScopeLabel(publication.run_scope)}
+    <article className={`min-w-0 overflow-hidden rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-sm ${wideLayout ? 'xl:col-span-2' : ''}`}>
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border-primary)] px-4 py-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--accent-soft)] text-[var(--accent)]">
+            <ObjectIcon type="dashboard" className="h-4 w-4" />
+          </div>
+          <div className="min-w-0">
+            <div className="truncate text-sm font-bold text-[var(--text-primary)]">{publication.content.title || publication.entry_key}</div>
+            <div className="mt-1 truncate text-xs text-[var(--text-muted)]">
+              {publication.pipeline_id} / {publication.output_name} / {runScopeLabel(publication.run_scope)}
+            </div>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <span className={`rounded-md px-2 py-1 text-xs ${publication.stale ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/30 dark:text-amber-100' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100'}`}>
+          <span className="runner-pill runner-pill--muted">
+            {publication.mode}
+          </span>
+          <span className={`runner-pill ${publication.stale ? 'runner-pill--warning' : 'runner-pill--ok'}`}>
             {staleLabel(publication)}
           </span>
           {canWriteDashboards ? (
@@ -591,7 +588,7 @@ function PublicationCard({
       <div className="p-4">
         <DashboardBlocks spec={publication.content} />
       </div>
-      <footer className="relative z-[1] flex flex-wrap items-center gap-3 bg-[var(--accent-soft)] px-4 py-3 text-xs text-[var(--text-secondary)] shadow-[0_-16px_30px_-24px_var(--accent)]">
+      <footer className="flex flex-wrap items-center gap-3 border-t border-[var(--border-primary)] bg-[var(--bg-tertiary)] px-4 py-3 text-xs text-[var(--text-secondary)]">
         <span>Revision {publication.revision}</span>
         <span>{formatDateTime(publication.published_at)}</span>
         {publication.run_id ? (
@@ -664,13 +661,17 @@ function SectionRunningSources({
 
 function DashboardDetails({
   dashboard,
+  sources,
   latestRefresh,
   activeRefresh,
   refreshes,
   schedules,
   history,
+  latestRefreshSourceByID,
   saving,
   canWriteDashboards,
+  onEditSource,
+  onDeleteSource,
   onCancelRefresh,
   onRetryRefresh,
   onCreateSchedule,
@@ -680,13 +681,17 @@ function DashboardDetails({
   onRunSchedule,
 }: {
   dashboard: DashboardSummary;
+  sources: DashboardSource[];
   latestRefresh: DashboardRefresh | null;
   activeRefresh: DashboardRefresh | null;
   refreshes: DashboardRefresh[];
   schedules: DashboardRefreshSchedule[];
   history: DashboardEvent[];
+  latestRefreshSourceByID: Map<string, DashboardRefreshSource>;
   saving: boolean;
   canWriteDashboards: boolean;
+  onEditSource: (source: DashboardSource) => void;
+  onDeleteSource: (source: DashboardSource) => void;
   onCancelRefresh: (refresh: DashboardRefresh) => void;
   onRetryRefresh: (refresh: DashboardRefresh) => void;
   onCreateSchedule: () => void;
@@ -695,122 +700,123 @@ function DashboardDetails({
   onToggleSchedule: (schedule: DashboardRefreshSchedule, enabled: boolean) => void;
   onRunSchedule: (schedule: DashboardRefreshSchedule) => void;
 }) {
+  const [activeTab, setActiveTab] = useState<DashboardDetailTabID>('sources');
+  const latestRuns = useMemo(() => latestRunHistoryItems(refreshes, history), [history, refreshes]);
+  const tabs: Array<{ id: DashboardDetailTabID; label: string; count: number; icon: ReactNode }> = [
+    { id: 'sources', label: 'Sources', count: sources.length, icon: <Clock3 className="h-4 w-4" /> },
+    { id: 'schedules', label: 'Schedules', count: schedules.length, icon: <CalendarClock className="h-4 w-4" /> },
+    { id: 'refreshes', label: 'Refreshes', count: refreshes.length, icon: <RefreshCw className="h-4 w-4" /> },
+    { id: 'latest-runs', label: 'Latest runs', count: latestRuns.length, icon: <AlertTriangle className="h-4 w-4" /> },
+  ];
+
   return (
-    <div className="grid gap-3 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
-      <DetailPanel title="Dashboard details" icon={<Info className="h-4 w-4" />}>
-        <div className="grid gap-2 text-sm md:grid-cols-2">
+    <section className="overflow-hidden rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-sm">
+      <header className="border-b border-[var(--border-primary)] px-3 py-3">
+        <div className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)]">
+          <Info className="h-4 w-4" aria-hidden="true" />
+          Dashboard details
+        </div>
+        <div className="mt-3 grid gap-2 text-sm md:grid-cols-2 xl:grid-cols-3">
           <DetailValue label="Team" value={dashboard.team_path || '-'} />
           <DetailValue label="Slug" value={dashboard.slug || '-'} />
           <DetailValue label="Visibility" value={dashboard.visibility || 'team'} />
           <DetailValue label="Updated" value={formatDateTime(dashboard.updated_at) || '-'} />
+          <DetailValue label="Latest refresh" value={latestRefresh ? refreshStatusLabel(latestRefresh.status) : 'No refreshes'} />
           <DetailValue label="Source" value={dashboard.managed_by_config_repo ? 'GitOps' : 'Database'} />
           <DetailValue label="Config path" value={dashboard.config_source_path || '-'} />
         </div>
-      </DetailPanel>
-      <DetailPanel title="Refresh status" icon={<RefreshCw className="h-4 w-4" />}>
-        {latestRefresh ? (
-          <RefreshPanel
-            refresh={latestRefresh}
-            saving={saving}
-            compact
-            onCancel={activeRefresh ? () => onCancelRefresh(activeRefresh) : undefined}
-            onRetry={canWriteDashboards && (latestRefresh.failed_sources > 0 || latestRefresh.skipped_sources > 0) ? () => onRetryRefresh(latestRefresh) : undefined}
+      </header>
+      <div className="border-b border-[var(--border-primary)] px-2 py-2">
+        <div className="flex gap-1 overflow-x-auto" role="tablist" aria-label="Dashboard detail views">
+          {tabs.map(tab => (
+            <button
+              key={tab.id}
+              id={dashboardDetailTabID(tab.id)}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              aria-controls={dashboardDetailPanelID(tab.id)}
+              className={`inline-flex min-h-9 shrink-0 items-center gap-2 rounded-md border px-3 text-sm font-semibold transition-colors ${
+                activeTab === tab.id
+                  ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--text-primary)] shadow-sm'
+                  : 'border-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+              }`}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {tab.icon}
+              <span>{tab.label}</span>
+              <span className={`rounded-md px-2 py-0.5 text-[11px] font-bold ${activeTab === tab.id ? 'bg-[var(--bg-primary)] text-[var(--text-primary)]' : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)]'}`}>
+                {tab.count}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div id={dashboardDetailPanelID(activeTab)} role="tabpanel" aria-labelledby={dashboardDetailTabID(activeTab)} className="p-3">
+        {activeTab === 'sources' ? (
+          <SourceList
+            sources={sources}
+            latestRefreshSourceByID={latestRefreshSourceByID}
+            canWriteDashboards={canWriteDashboards}
+            onEditSource={onEditSource}
+            onDeleteSource={onDeleteSource}
           />
-        ) : (
-          <EmptyDetail label="No refreshes yet." />
-        )}
-      </DetailPanel>
-      <DetailPanel title="Schedules" icon={<CalendarClock className="h-4 w-4" />}>
-        <ScheduleList
-          schedules={schedules}
-          activeRefresh={activeRefresh}
-          saving={saving}
-          canWriteDashboards={canWriteDashboards}
-          onCreateSchedule={onCreateSchedule}
-          onEditSchedule={onEditSchedule}
-          onDeleteSchedule={onDeleteSchedule}
-          onToggleSchedule={onToggleSchedule}
-          onRunSchedule={onRunSchedule}
-        />
-      </DetailPanel>
-      <DetailPanel title="Activity" icon={<History className="h-4 w-4" />}>
-        <HistoryList history={history} />
-        <RefreshList refreshes={refreshes.slice(0, 5)} />
-      </DetailPanel>
-    </div>
+        ) : null}
+        {activeTab === 'schedules' ? (
+          <ScheduleList
+            schedules={schedules}
+            activeRefresh={activeRefresh}
+            saving={saving}
+            canWriteDashboards={canWriteDashboards}
+            onCreateSchedule={onCreateSchedule}
+            onEditSchedule={onEditSchedule}
+            onDeleteSchedule={onDeleteSchedule}
+            onToggleSchedule={onToggleSchedule}
+            onRunSchedule={onRunSchedule}
+          />
+        ) : null}
+        {activeTab === 'refreshes' ? (
+          <RefreshList
+            refreshes={refreshes}
+            activeRefresh={activeRefresh}
+            saving={saving}
+            canWriteDashboards={canWriteDashboards}
+            onCancelRefresh={onCancelRefresh}
+            onRetryRefresh={onRetryRefresh}
+          />
+        ) : null}
+        {activeTab === 'latest-runs' ? <LatestRunHistoryList items={latestRuns} /> : null}
+      </div>
+    </section>
   );
 }
 
-function SectionDetails({
+function SourceList({
   sources,
-  schedules,
-  history,
-  refreshes,
   latestRefreshSourceByID,
-  activeRefresh,
-  saving,
   canWriteDashboards,
   onEditSource,
   onDeleteSource,
-  onRefreshSource,
-  onEditSchedule,
-  onDeleteSchedule,
-  onToggleSchedule,
-  onRunSchedule,
 }: {
   sources: DashboardSource[];
-  schedules: DashboardRefreshSchedule[];
-  history: DashboardEvent[];
-  refreshes: DashboardRefresh[];
-  latestRefreshSourceByID: Map<string, NonNullable<DashboardRefresh['sources']>[number]>;
-  activeRefresh: DashboardRefresh | null;
-  saving: boolean;
+  latestRefreshSourceByID: Map<string, DashboardRefreshSource>;
   canWriteDashboards: boolean;
   onEditSource: (source: DashboardSource) => void;
   onDeleteSource: (source: DashboardSource) => void;
-  onRefreshSource: (source: DashboardSource) => void;
-  onEditSchedule: (schedule: DashboardRefreshSchedule) => void;
-  onDeleteSchedule: (schedule: DashboardRefreshSchedule) => void;
-  onToggleSchedule: (schedule: DashboardRefreshSchedule, enabled: boolean) => void;
-  onRunSchedule: (schedule: DashboardRefreshSchedule) => void;
 }) {
+  if (sources.length === 0) return <EmptyDetail label="No sources attached." />;
   return (
-    <div className="grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-      <DetailPanel title="Sources" icon={<Clock3 className="h-4 w-4" />}>
-        {sources.length === 0 ? <EmptyDetail label="No sources attached." /> : null}
-        <div className="space-y-2">
-          {sources.map(source => (
-            <SourceRow
-              key={source.id}
-              source={source}
-              refreshSource={latestRefreshSourceByID.get(source.id)}
-              activeRefresh={activeRefresh}
-              canWriteDashboards={canWriteDashboards}
-              onEditSource={onEditSource}
-              onDeleteSource={onDeleteSource}
-              onRefreshSource={onRefreshSource}
-            />
-          ))}
-        </div>
-      </DetailPanel>
-      <DetailPanel title="Refreshes" icon={<RefreshCw className="h-4 w-4" />}>
-        <RefreshList refreshes={refreshes} />
-      </DetailPanel>
-      <DetailPanel title="Schedules" icon={<CalendarClock className="h-4 w-4" />}>
-        <ScheduleList
-          schedules={schedules}
-          activeRefresh={activeRefresh}
-          saving={saving}
+    <div className="space-y-2">
+      {sources.map(source => (
+        <SourceRow
+          key={source.id}
+          source={source}
+          refreshSource={latestRefreshSourceByID.get(source.id)}
           canWriteDashboards={canWriteDashboards}
-          onEditSchedule={onEditSchedule}
-          onDeleteSchedule={onDeleteSchedule}
-          onToggleSchedule={onToggleSchedule}
-          onRunSchedule={onRunSchedule}
+          onEditSource={onEditSource}
+          onDeleteSource={onDeleteSource}
         />
-      </DetailPanel>
-      <DetailPanel title="Latest runs" icon={<AlertTriangle className="h-4 w-4" />}>
-        <SectionRunHistoryList refreshes={refreshes} history={history} />
-      </DetailPanel>
+      ))}
     </div>
   );
 }
@@ -818,24 +824,23 @@ function SectionDetails({
 function SourceRow({
   source,
   refreshSource,
-  activeRefresh,
   canWriteDashboards,
   onEditSource,
   onDeleteSource,
-  onRefreshSource,
 }: {
   source: DashboardSource;
   refreshSource?: DashboardRefreshSource;
-  activeRefresh: DashboardRefresh | null;
   canWriteDashboards: boolean;
   onEditSource: (source: DashboardSource) => void;
   onDeleteSource: (source: DashboardSource) => void;
-  onRefreshSource: (source: DashboardSource) => void;
 }) {
   return (
     <div className="flex flex-col gap-2 rounded-md bg-[var(--bg-primary)] px-3 py-2 md:flex-row md:items-center md:justify-between">
       <div className="min-w-0">
-        <div className="truncate text-sm font-medium text-[var(--text-primary)]">{source.pipeline_id}</div>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <div className="truncate text-sm font-medium text-[var(--text-primary)]">{source.pipeline_id}</div>
+          <Badge>{source.section_key}</Badge>
+        </div>
         <div className="mt-1 truncate text-xs text-[var(--text-muted)]">
           {source.output_name}{source.entry_key ? ` / ${source.entry_key}` : ' / output name'} / {runScopeLabel(source.run_scope)} / order {source.refresh_order}
         </div>
@@ -849,7 +854,6 @@ function SourceRow({
       </div>
       {canWriteDashboards ? (
         <div className="flex shrink-0 items-center gap-2">
-          <ToolbarButton label="Refresh source" icon={<RefreshCw className="h-4 w-4" />} onClick={() => onRefreshSource(source)} disabled={Boolean(activeRefresh) || !source.enabled} />
           <ToolbarButton label="Edit source" icon={<Pencil className="h-4 w-4" />} onClick={() => onEditSource(source)} />
           <ToolbarButton label="Delete source" icon={<Trash2 className="h-4 w-4" />} onClick={() => onDeleteSource(source)} danger />
         </div>
@@ -944,7 +948,7 @@ function ScheduleFact({ label, value }: { label: string; value: string }) {
   );
 }
 
-type SectionRunHistoryItem = {
+type LatestRunHistoryItem = {
   id: string;
   type: 'run' | 'publication';
   status: string;
@@ -956,12 +960,12 @@ type SectionRunHistoryItem = {
   error?: string;
 };
 
-function SectionRunHistoryList({ refreshes, history }: { refreshes: DashboardRefresh[]; history: DashboardEvent[] }) {
-  const items = sectionRunHistoryItems(refreshes, history).slice(0, 8);
-  if (items.length === 0) return <EmptyDetail label="No run history yet." />;
+function LatestRunHistoryList({ items }: { items: LatestRunHistoryItem[] }) {
+  const visibleItems = items.slice(0, 8);
+  if (visibleItems.length === 0) return <EmptyDetail label="No run history yet." />;
   return (
     <div className="space-y-2">
-      {items.map(item => (
+      {visibleItems.map(item => (
         <div key={item.id} className="rounded-md bg-[var(--bg-primary)] px-3 py-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex min-w-0 items-center gap-2">
@@ -973,7 +977,7 @@ function SectionRunHistoryList({ refreshes, history }: { refreshes: DashboardRef
           <div className="mt-1 truncate text-xs text-[var(--text-muted)]" title={item.subtitle}>{item.subtitle}</div>
           {item.error ? <div className="mt-1 text-xs text-rose-600">{item.error}</div> : null}
           <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-[var(--text-secondary)]">
-            <span>{item.type === 'run' ? 'Refresh source' : 'Publication event'}</span>
+            <span>{item.type === 'run' ? 'Output attempt' : 'Publication event'}</span>
             {item.refreshID ? <span>Refresh {item.refreshID.slice(0, 8)}</span> : null}
             {item.runID ? (
               <Link className="font-medium text-[var(--accent)] hover:underline" to={runDetailHref(item.runID)}>
@@ -987,104 +991,95 @@ function SectionRunHistoryList({ refreshes, history }: { refreshes: DashboardRef
   );
 }
 
-function HistoryList({ history }: { history: DashboardEvent[] }) {
-  if (history.length === 0) return <EmptyDetail label="No history." />;
-  return (
-    <div className="space-y-2">
-      {history.map(event => (
-        <div key={event.id} className="rounded-md bg-[var(--bg-primary)] px-3 py-2">
-          <div className="text-sm font-medium text-[var(--text-primary)]">{event.event_type}</div>
-          <div className="mt-1 text-xs text-[var(--text-muted)]">{event.section_key} / {event.entry_key} / revision {event.revision}</div>
-          <div className="mt-1 text-xs text-[var(--text-secondary)]">{formatDateTime(event.created_at)}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function RefreshList({ refreshes }: { refreshes: DashboardRefresh[] }) {
+function RefreshList({
+  refreshes,
+  activeRefresh,
+  saving,
+  canWriteDashboards,
+  onCancelRefresh,
+  onRetryRefresh,
+}: {
+  refreshes: DashboardRefresh[];
+  activeRefresh: DashboardRefresh | null;
+  saving: boolean;
+  canWriteDashboards: boolean;
+  onCancelRefresh: (refresh: DashboardRefresh) => void;
+  onRetryRefresh: (refresh: DashboardRefresh) => void;
+}) {
+  const [expandedRefreshID, setExpandedRefreshID] = useState<string | null>(null);
   if (refreshes.length === 0) return <EmptyDetail label="No refreshes." />;
   return (
-    <div className="mt-3 space-y-2">
-      {refreshes.map(refresh => (
-        <div key={refresh.id} className="rounded-md bg-[var(--bg-primary)] px-3 py-2">
-          <div className="flex items-center justify-between gap-2">
-            <StatusBadge status={refresh.status} />
-            <span className="text-xs text-[var(--text-muted)]">{refresh.scope_type} / {refresh.mode}</span>
+    <div className="space-y-2">
+      {refreshes.map(refresh => {
+        const progress = refreshProgress(refresh);
+        const expanded = expandedRefreshID === refresh.id;
+        const canCancel = canWriteDashboards && activeRefresh?.id === refresh.id;
+        const canRetry = canWriteDashboards && (refresh.failed_sources > 0 || refresh.skipped_sources > 0);
+        return (
+          <div key={refresh.id} className="rounded-md bg-[var(--bg-primary)] px-3 py-3">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div className="min-w-0">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <StatusBadge status={refresh.status} />
+                  <span className="text-xs font-medium text-[var(--text-muted)]">{refresh.scope_type} / {refresh.mode}</span>
+                  <span className="text-xs text-[var(--text-muted)]">{formatDateTime(refresh.created_at)}</span>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-3 text-xs text-[var(--text-secondary)]">
+                  <span>{refresh.successful_sources}/{refresh.total_sources} sources complete</span>
+                  <span>{refresh.failed_sources} failed</span>
+                  <span>{refresh.skipped_sources} skipped</span>
+                  <span>{refresh.running_sources + refresh.queued_sources} active</span>
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <ToolbarButton
+                  label={expanded ? 'Hide refresh details' : 'Show refresh details'}
+                  icon={<Info className="h-4 w-4" />}
+                  onClick={() => setExpandedRefreshID(expanded ? null : refresh.id)}
+                  pressed={expanded}
+                />
+                {canRetry ? <ToolbarButton label="Retry failed sources" icon={<RotateCcw className="h-4 w-4" />} onClick={() => onRetryRefresh(refresh)} disabled={saving} /> : null}
+                {canCancel ? <ToolbarButton label="Cancel refresh" icon={<X className="h-4 w-4" />} onClick={() => onCancelRefresh(refresh)} disabled={saving} danger /> : null}
+              </div>
+            </div>
+            <div className="mt-3 h-2 overflow-hidden rounded-md bg-[var(--bg-secondary)]">
+              <div className="h-full rounded-md bg-[var(--accent)]" style={{ width: `${progress}%` }} />
+            </div>
+            {expanded ? <RefreshSourceAttemptList refresh={refresh} /> : null}
           </div>
-          <div className="mt-1 text-xs text-[var(--text-secondary)]">{refresh.successful_sources}/{refresh.total_sources} sources / {formatDateTime(refresh.created_at)}</div>
+        );
+      })}
+    </div>
+  );
+}
+
+function RefreshSourceAttemptList({ refresh }: { refresh: DashboardRefresh }) {
+  const sources = refresh.sources || [];
+  if (sources.length === 0) {
+    return refresh.error ? <div className="mt-3 text-xs text-rose-600">{refresh.error}</div> : null;
+  }
+  return (
+    <div className="mt-3 grid gap-2 md:grid-cols-2">
+      {sources.map(source => (
+        <div key={source.id} className="rounded-md bg-[var(--bg-secondary)] px-3 py-2">
+          <div className="truncate text-xs font-semibold text-[var(--text-primary)]">{source.pipeline_id}</div>
+          <div className="mt-1 flex flex-wrap gap-2 text-xs text-[var(--text-muted)]">
+            <span>{source.section_key} / {source.output_name} / {runScopeLabel(source.run_scope)}</span>
+            <span>{source.required ? 'required' : 'optional'}</span>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1 text-xs">
+            <RefreshSourceStatusBadges source={source} />
+          </div>
+          <RefreshSourceTiming source={source} />
+          {source.error ? <div className="mt-1 text-xs text-rose-600">{source.error}</div> : null}
+          {source.run_id ? (
+            <Link className="mt-2 inline-flex text-xs font-medium text-[var(--accent)] hover:underline" to={runDetailHref(source.run_id)}>
+              Run {source.run_id.slice(0, 8)}
+            </Link>
+          ) : null}
         </div>
       ))}
     </div>
-  );
-}
-
-function RefreshPanel({
-  refresh,
-  saving,
-  compact = false,
-  onCancel,
-  onRetry,
-}: {
-  refresh: DashboardRefresh;
-  saving: boolean;
-  compact?: boolean;
-  onCancel?: () => void;
-  onRetry?: () => void;
-}) {
-  const progress = refreshProgress(refresh);
-  return (
-    <div>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <StatusBadge status={refresh.status} />
-          <div className="mt-1 text-xs text-[var(--text-muted)]">{refresh.scope_type} / {refresh.mode} / {formatDateTime(refresh.created_at)}</div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {onRetry ? <ToolbarButton label="Retry failed sources" icon={<RotateCcw className="h-4 w-4" />} onClick={onRetry} disabled={saving} /> : null}
-          {onCancel ? <ToolbarButton label="Cancel refresh" icon={<X className="h-4 w-4" />} onClick={onCancel} disabled={saving} danger /> : null}
-        </div>
-      </div>
-      <div className="mt-3 h-2 overflow-hidden rounded-md bg-[var(--bg-primary)]">
-        <div className="h-full rounded-md bg-[var(--accent)]" style={{ width: `${progress}%` }} />
-      </div>
-      <div className="mt-2 flex flex-wrap gap-3 text-xs text-[var(--text-secondary)]">
-        <span>{refresh.successful_sources} success</span>
-        <span>{refresh.failed_sources} failed</span>
-        <span>{refresh.skipped_sources} skipped</span>
-        <span>{refresh.running_sources + refresh.queued_sources} active</span>
-      </div>
-      {!compact && (refresh.sources || []).length > 0 ? (
-        <div className="mt-3 grid gap-2 md:grid-cols-2">
-          {(refresh.sources || []).map(source => (
-            <div key={source.id} className="rounded-md bg-[var(--bg-primary)] px-3 py-2">
-              <div className="truncate text-xs font-medium text-[var(--text-primary)]">{source.pipeline_id}</div>
-              <div className="mt-1 flex flex-wrap gap-2 text-xs text-[var(--text-muted)]">
-                <span>{source.section_key} / {source.output_name} / {runScopeLabel(source.run_scope)}</span>
-                <span>{source.required ? 'required' : 'optional'}</span>
-              </div>
-              <div className="mt-2 flex flex-wrap gap-1 text-xs">
-                <RefreshSourceStatusBadges source={source} />
-              </div>
-              <RefreshSourceTiming source={source} />
-              {source.error ? <div className="mt-1 text-xs text-rose-600">{source.error}</div> : null}
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function DetailPanel({ title, icon, children }: { title: string; icon: ReactNode; children: ReactNode }) {
-  return (
-    <section className="rounded-md bg-[var(--bg-secondary)] p-3 shadow-sm">
-      <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)]">
-        {icon}
-        {title}
-      </div>
-      {children}
-    </section>
   );
 }
 
@@ -1104,14 +1099,14 @@ function EmptyDetail({ label }: { label: string }) {
 function EmptyDashboardState({ loading, dashboardCount }: { loading: boolean; dashboardCount: number }) {
   const label = loading ? 'Loading dashboards...' : dashboardCount === 0 ? 'No dashboards found.' : 'Select a dashboard.';
   return (
-    <div className="rounded-md bg-[var(--bg-secondary)] px-4 py-10 text-center text-sm text-[var(--text-secondary)]">
+    <div className="rounded-md border border-dashed border-[var(--border-primary)] bg-[var(--bg-secondary)] px-4 py-10 text-center text-sm text-[var(--text-secondary)]">
       {label}
     </div>
   );
 }
 
 function Badge({ children }: { children: ReactNode }) {
-  return <span className="rounded-md bg-[var(--bg-primary)] px-2 py-1 text-xs text-[var(--text-secondary)]">{children}</span>;
+  return <span className="rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-2 py-1 text-xs font-semibold text-[var(--text-secondary)]">{children}</span>;
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -1207,7 +1202,7 @@ function ActionMenu({
     <div className="relative" ref={menuRef}>
       <button
         type="button"
-        className="inline-flex h-9 items-center gap-2 rounded-md bg-[var(--bg-secondary)] px-3 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+        className="inline-flex h-9 items-center gap-2 rounded-md border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 text-sm font-semibold text-[var(--text-secondary)] shadow-sm transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -1308,27 +1303,15 @@ function actionMenuItemClass(options: { active?: boolean; primary?: boolean; dan
 }
 
 function iconButtonClass(options: { accent?: boolean; danger?: boolean; pressed?: boolean } = {}) {
-  const base = 'inline-flex h-9 w-9 items-center justify-center rounded-md text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50';
+  const base = 'inline-flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border-primary)] text-sm shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50';
   if (options.danger) return `${base} bg-rose-50 text-rose-600 hover:bg-rose-100 dark:bg-rose-950/30 dark:text-rose-100`;
   if (options.accent) return `${base} bg-[var(--accent)] text-white hover:opacity-90`;
   if (options.pressed) return `${base} bg-[var(--bg-active)] text-[var(--text-primary)]`;
   return `${base} bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]`;
 }
 
-function scheduleMatchesSection(schedule: DashboardRefreshSchedule, sectionKey: string, sources: DashboardSource[]): boolean {
-  if (schedule.scope_type === 'section') return scopeSectionKeys(schedule.scope).includes(sectionKey);
-  if (schedule.scope_type !== 'source') return false;
-  const sourceID = recordString(schedule.scope, 'source_id');
-  return sources.some(source => source.id === sourceID && source.section_key === sectionKey);
-}
-
-function refreshMatchesSection(refresh: DashboardRefresh, sectionKey: string): boolean {
-  if (refresh.scope_type === 'section') return scopeSectionKeys(refresh.scope).includes(sectionKey);
-  return (refresh.sources || []).some(source => source.section_key === sectionKey);
-}
-
-function sectionRunHistoryItems(refreshes: DashboardRefresh[], history: DashboardEvent[]): SectionRunHistoryItem[] {
-  const items: SectionRunHistoryItem[] = [];
+function latestRunHistoryItems(refreshes: DashboardRefresh[], history: DashboardEvent[]): LatestRunHistoryItem[] {
+  const items: LatestRunHistoryItem[] = [];
   for (const refresh of refreshes) {
     for (const source of refresh.sources || []) {
       items.push({
@@ -1416,6 +1399,26 @@ function runDetailHref(runID: string): string {
   return `/pipelineruns/recent/${encodeURIComponent(runID)}`;
 }
 
+function sectionAnchorID(sectionKey: string): string {
+  return `dashboard-section-${safeSectionIDPart(sectionKey)}`;
+}
+
+function sectionTabID(sectionKey: string): string {
+  return `dashboard-tab-${safeSectionIDPart(sectionKey)}`;
+}
+
+function dashboardDetailTabID(tabID: DashboardDetailTabID): string {
+  return `dashboard-details-tab-${tabID}`;
+}
+
+function dashboardDetailPanelID(tabID: DashboardDetailTabID): string {
+  return `dashboard-details-panel-${tabID}`;
+}
+
+function safeSectionIDPart(sectionKey: string): string {
+  return sectionKey.replace(/[^a-zA-Z0-9_-]+/g, '-');
+}
+
 function scopeSectionKeys(scope: Record<string, unknown> | undefined): string[] {
   if (!scope) return [];
   const direct = typeof scope.section_key === 'string' ? [scope.section_key] : [];
@@ -1428,9 +1431,4 @@ function scopeSourceIDs(scope: Record<string, unknown> | undefined): string[] {
   const direct = typeof scope.source_id === 'string' ? [scope.source_id] : [];
   const many = Array.isArray(scope.source_ids) ? scope.source_ids.filter((value): value is string => typeof value === 'string') : [];
   return [...direct, ...many].map(value => value.trim()).filter(Boolean);
-}
-
-function recordString(record: Record<string, unknown> | undefined, key: string): string {
-  const value = record?.[key];
-  return typeof value === 'string' ? value : '';
 }

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { useState } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { expect, test, vi } from 'vitest';
 
@@ -66,6 +67,32 @@ const view: DashboardView = {
       enabled: true,
       required_for_refresh: true,
       refresh_order: 0,
+    },
+  ],
+};
+
+const tabbedView: DashboardView = {
+  ...view,
+  sections: [
+    ...view.sections,
+    {
+      id: 'section-2',
+      section_key: 'deployments',
+      title: 'Deployments',
+      display_order: 1,
+    },
+  ],
+  sources: [
+    ...view.sources,
+    {
+      id: 'source-2',
+      section_key: 'deployments',
+      pipeline_id: 'platform/deployments',
+      output_name: 'Deployments',
+      entry_key: 'deployments',
+      enabled: true,
+      required_for_refresh: false,
+      refresh_order: 1,
     },
   ],
 };
@@ -144,6 +171,8 @@ const history: DashboardEvent[] = [
   },
 ];
 
+const sectionTabHref = (sectionKey: string) => `/dashboards?dashboard=dashboard-1&tab=${encodeURIComponent(sectionKey)}`;
+
 test('dashboard workspace uses a dashboard dropdown and details-on-demand panels', () => {
   const onSelectDashboard = vi.fn();
   const onDeleteDashboard = vi.fn();
@@ -153,14 +182,16 @@ test('dashboard workspace uses a dashboard dropdown and details-on-demand panels
   const onDeleteSchedule = vi.fn();
   const onDeletePublication = vi.fn();
 
-  render(
-    <MemoryRouter>
+  function WorkspaceUnderTest() {
+    const [activeSectionKey, setActiveSectionKey] = useState('overview');
+    return (
       <DashboardWorkspace
         dashboards={[dashboard]}
         teams={['platform']}
         selectedID="dashboard-1"
+        activeSectionKey={activeSectionKey}
         selectedDashboard={dashboard}
-        view={view}
+        view={tabbedView}
         history={history}
         refreshes={refreshes}
         refreshSchedules={schedules}
@@ -175,6 +206,8 @@ test('dashboard workspace uses a dashboard dropdown and details-on-demand panels
         onSearchTermChange={vi.fn()}
         onTeamFilterChange={vi.fn()}
         onSelectDashboard={onSelectDashboard}
+        onSelectSection={setActiveSectionKey}
+        sectionTabHref={sectionTabHref}
         onReloadDashboards={vi.fn()}
         onCreateDashboard={vi.fn()}
         onEditDashboard={vi.fn()}
@@ -184,7 +217,6 @@ test('dashboard workspace uses a dashboard dropdown and details-on-demand panels
         onEditSource={vi.fn()}
         onDeleteSource={vi.fn()}
         onDeletePublication={onDeletePublication}
-        onRefreshSource={vi.fn()}
         onCancelRefresh={vi.fn()}
         onRetryRefresh={vi.fn()}
         onCreateSchedule={onCreateSchedule}
@@ -193,6 +225,12 @@ test('dashboard workspace uses a dashboard dropdown and details-on-demand panels
         onToggleSchedule={vi.fn()}
         onRunSchedule={vi.fn()}
       />
+    );
+  }
+
+  render(
+    <MemoryRouter>
+      <WorkspaceUnderTest />
     </MemoryRouter>
   );
 
@@ -201,20 +239,47 @@ test('dashboard workspace uses a dashboard dropdown and details-on-demand panels
   fireEvent.change(selector, { target: { value: 'dashboard-1' } });
   expect(onSelectDashboard).toHaveBeenCalledWith('dashboard-1');
 
-  const sectionHeading = screen.getByRole('heading', { name: 'Overview' });
-  expect(sectionHeading).toBeVisible();
-  expect(sectionHeading).toHaveClass('text-[var(--text-accent)]');
-  expect(sectionHeading.closest('.border-l-4')).toHaveClass('border-[var(--border-accent)]');
+  const overviewTab = screen.getByRole('tab', { name: /Overview/ });
+  const deploymentsTab = screen.getByRole('tab', { name: /Deployments/ });
+  expect(overviewTab).toHaveAttribute('aria-selected', 'true');
+  expect(overviewTab).toHaveAttribute('href', '/dashboards?dashboard=dashboard-1&tab=overview');
+  expect(deploymentsTab).toHaveAttribute('aria-selected', 'false');
+  expect(deploymentsTab).toHaveAttribute('href', '/dashboards?dashboard=dashboard-1&tab=deployments');
+  expect(screen.queryByRole('tab', { name: /Build and release/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole('tab', { name: /Monitoring/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole('tab', { name: /Activity/ })).not.toBeInTheDocument();
+  expect(screen.queryByText('Refresh status')).not.toBeInTheDocument();
+  expect(screen.queryByText('Wall-clock time')).not.toBeInTheDocument();
+  expect(screen.queryByText('Source readiness')).not.toBeInTheDocument();
+  expect(screen.queryByText('Open signals')).not.toBeInTheDocument();
+  expect(screen.queryByRole('img', { name: /Needs attention/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Latest refresh timeline' })).not.toBeInTheDocument();
+  expect(screen.queryByText('Total time')).not.toBeInTheDocument();
+  expect(screen.getByText(/platform\/service-health/)).toBeVisible();
+
+  expect(screen.queryByRole('heading', { name: 'Overview' })).not.toBeInTheDocument();
+  expect(screen.queryByText('1/1 required')).not.toBeInTheDocument();
+  expect(screen.queryByText('1 entries')).not.toBeInTheDocument();
+  expect(screen.queryByText('1 sources')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Collapse section' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Expand section' })).not.toBeInTheDocument();
+  fireEvent.click(deploymentsTab);
+  expect(deploymentsTab).toHaveAttribute('aria-selected', 'true');
+  expect(screen.getByRole('tabpanel')).toHaveAttribute('id', 'dashboard-section-deployments');
+  expect(screen.queryByRole('heading', { name: 'Deployments' })).not.toBeInTheDocument();
+  expect(screen.getByText(/No publications yet/)).toBeVisible();
+  expect(screen.queryByText('Service Health')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('tab', { name: /Overview/ }));
+
+  expect(screen.getByRole('tabpanel')).toHaveAttribute('id', 'dashboard-section-overview');
   const publicationHeading = screen.getByText('Service Health');
-  expect(publicationHeading.closest('article')).toHaveClass('bg-[var(--bg-tertiary)]', 'border', 'xl:col-span-2');
-  expect(publicationHeading.closest('header')).toHaveClass('bg-[var(--accent-soft)]');
-  expect(publicationHeading.closest('header')).toHaveClass('shadow-[0_16px_30px_-24px_var(--accent)]');
-  expect(publicationHeading.closest('header')).not.toHaveClass('border-b');
+  expect(publicationHeading.closest('article')).toHaveClass('bg-[var(--bg-secondary)]', 'border', 'xl:col-span-2');
+  expect(publicationHeading.closest('header')).toHaveClass('border-b');
+  expect(publicationHeading.closest('header')).not.toHaveClass('bg-[var(--accent-soft)]');
   const runLink = screen.getByRole('link', { name: 'Run run-1234' });
   expect(runLink).toHaveAttribute('href', '/pipelineruns/recent/run-123456789');
-  expect(runLink.closest('footer')).toHaveClass('bg-[var(--accent-soft)]');
-  expect(runLink.closest('footer')).toHaveClass('shadow-[0_-16px_30px_-24px_var(--accent)]');
-  expect(runLink.closest('footer')).not.toHaveClass('border-t');
+  expect(runLink.closest('footer')).toHaveClass('bg-[var(--bg-tertiary)]');
+  expect(runLink.closest('footer')).toHaveClass('border-t');
   fireEvent.click(screen.getByRole('button', { name: 'Remove entry service-health' }));
   expect(onDeletePublication).toHaveBeenCalledWith(expect.objectContaining({ id: 'publication-1' }));
   expect(screen.queryByText('Sources')).not.toBeInTheDocument();
@@ -222,17 +287,8 @@ test('dashboard workspace uses a dashboard dropdown and details-on-demand panels
   expect(screen.queryByRole('button', { name: 'Refresh section' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Edit section' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Delete section' })).not.toBeInTheDocument();
-
-  fireEvent.click(screen.getByRole('button', { name: 'Show details' }));
-  expect(screen.getByText('Sources')).toBeVisible();
-  expect(screen.getByText('Hourly')).toBeVisible();
-  expect(screen.getByText('Latest runs')).toBeVisible();
-  expect(screen.getAllByText('published').length).toBeGreaterThan(0);
+  expect(screen.queryByRole('button', { name: 'Show details' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'New schedule' })).not.toBeInTheDocument();
-
-  fireEvent.click(screen.getByRole('button', { name: 'Collapse section' }));
-  expect(screen.queryByText('Service Health')).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Expand section' })).toBeVisible();
 
   fireEvent.click(screen.getByRole('button', { name: 'Dashboard actions' }));
   fireEvent.click(screen.getByRole('menuitem', { name: 'Schedule refresh' }));
@@ -241,6 +297,16 @@ test('dashboard workspace uses a dashboard dropdown and details-on-demand panels
   fireEvent.click(screen.getByRole('button', { name: 'Dashboard actions' }));
   fireEvent.click(screen.getByRole('menuitem', { name: 'Show dashboard details' }));
   expect(screen.getByText('Dashboard details')).toBeVisible();
+  expect(screen.getByRole('tab', { name: /Sources/ })).toHaveAttribute('aria-selected', 'true');
+  expect(screen.getAllByText('platform/service-health').length).toBeGreaterThan(0);
+  expect(screen.getByText('platform/deployments')).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Refresh source' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('tab', { name: /Refreshes/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Show refresh details' }));
+  expect(screen.getByText('Pipeline')).toBeVisible();
+  fireEvent.click(screen.getByRole('tab', { name: /Latest runs/ }));
+  expect(screen.getAllByText('published').length).toBeGreaterThan(0);
+  fireEvent.click(screen.getByRole('tab', { name: /Schedules/ }));
   fireEvent.click(screen.getByRole('button', { name: 'New schedule' }));
   expect(onCreateSchedule).toHaveBeenCalledWith({ scopeType: 'dashboard' });
   fireEvent.click(screen.getAllByRole('button', { name: 'Edit Hourly' })[0]);
@@ -253,13 +319,14 @@ test('dashboard workspace uses a dashboard dropdown and details-on-demand panels
   expect(onDeleteDashboard).toHaveBeenCalledWith(expect.objectContaining({ id: 'dashboard-1' }));
 });
 
-test('section details include failed latest run attempts even without a publication', () => {
+test('dashboard details include failed latest run attempts even without a publication', () => {
   render(
     <MemoryRouter>
       <DashboardWorkspace
         dashboards={[dashboard]}
         teams={['platform']}
         selectedID="dashboard-1"
+        activeSectionKey="overview"
         selectedDashboard={dashboard}
         view={{ ...view, publications: [] }}
         history={[]}
@@ -297,6 +364,8 @@ test('section details include failed latest run attempts even without a publicat
         onSearchTermChange={vi.fn()}
         onTeamFilterChange={vi.fn()}
         onSelectDashboard={vi.fn()}
+        onSelectSection={vi.fn()}
+        sectionTabHref={sectionTabHref}
         onReloadDashboards={vi.fn()}
         onCreateDashboard={vi.fn()}
         onEditDashboard={vi.fn()}
@@ -306,7 +375,6 @@ test('section details include failed latest run attempts even without a publicat
         onEditSource={vi.fn()}
         onDeleteSource={vi.fn()}
         onDeletePublication={vi.fn()}
-        onRefreshSource={vi.fn()}
         onCancelRefresh={vi.fn()}
         onRetryRefresh={vi.fn()}
         onCreateSchedule={vi.fn()}
@@ -318,10 +386,14 @@ test('section details include failed latest run attempts even without a publicat
     </MemoryRouter>
   );
 
-  fireEvent.click(screen.getByRole('button', { name: 'Show details' }));
+  const attentionIndicator = screen.getByRole('img', { name: /Dashboard publication validation failed/ });
+  expect(attentionIndicator).toHaveAttribute('title', expect.stringContaining('What to do: Open dashboard details'));
+  fireEvent.click(screen.getByRole('button', { name: 'Dashboard actions' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Show dashboard details' }));
+  fireEvent.click(screen.getByRole('tab', { name: /Latest runs/ }));
   expect(screen.getByText('Latest runs')).toBeVisible();
   expect(screen.getAllByText('Dashboard publication validation failed.').length).toBeGreaterThan(0);
-  expect(screen.getByRole('link', { name: 'Run run-fail' })).toHaveAttribute('href', '/pipelineruns/recent/run-failed-publication-123');
+  expect(screen.getAllByRole('link', { name: 'Run run-fail' })[0]).toHaveAttribute('href', '/pipelineruns/recent/run-failed-publication-123');
   expect(screen.queryByRole('button', { name: 'New schedule' })).not.toBeInTheDocument();
 });
 
@@ -332,6 +404,7 @@ test('dashboard workspace shows generating dashboard outputs inside their sectio
         dashboards={[dashboard]}
         teams={['platform']}
         selectedID="dashboard-1"
+        activeSectionKey="overview"
         selectedDashboard={dashboard}
         view={view}
         history={history}
@@ -362,6 +435,8 @@ test('dashboard workspace shows generating dashboard outputs inside their sectio
         onSearchTermChange={vi.fn()}
         onTeamFilterChange={vi.fn()}
         onSelectDashboard={vi.fn()}
+        onSelectSection={vi.fn()}
+        sectionTabHref={sectionTabHref}
         onReloadDashboards={vi.fn()}
         onCreateDashboard={vi.fn()}
         onEditDashboard={vi.fn()}
@@ -371,7 +446,6 @@ test('dashboard workspace shows generating dashboard outputs inside their sectio
         onEditSource={vi.fn()}
         onDeleteSource={vi.fn()}
         onDeletePublication={vi.fn()}
-        onRefreshSource={vi.fn()}
         onCancelRefresh={vi.fn()}
         onRetryRefresh={vi.fn()}
         onCreateSchedule={vi.fn()}
@@ -384,5 +458,69 @@ test('dashboard workspace shows generating dashboard outputs inside their sectio
   );
 
   expect(screen.getByText('Dashboard output generating')).toBeVisible();
-  expect(screen.getByRole('link', { name: 'Run run-acti' })).toHaveAttribute('href', '/pipelineruns/recent/run-active-123456');
+  expect(screen.getAllByRole('link', { name: 'Run run-acti' })[0]).toHaveAttribute('href', '/pipelineruns/recent/run-active-123456');
+});
+
+test('dashboard title attention explains cancelled refreshes without raw cancellation errors', () => {
+  render(
+    <MemoryRouter>
+      <DashboardWorkspace
+        dashboards={[dashboard]}
+        teams={['platform']}
+        selectedID="dashboard-1"
+        activeSectionKey="overview"
+        selectedDashboard={dashboard}
+        view={view}
+        history={history}
+        refreshes={[
+          {
+            ...refreshes[0],
+            id: 'refresh-cancelled',
+            status: 'cancelled',
+            successful_sources: 0,
+            skipped_sources: 1,
+            error: 'dashboard refresh cancelled',
+            finished_at: '2026-07-15T10:00:30Z',
+            updated_at: '2026-07-15T10:00:30Z',
+            sources: [],
+          },
+        ]}
+        refreshSchedules={schedules}
+        loading={false}
+        detailLoading={false}
+        error={null}
+        searchTerm=""
+        teamFilter=""
+        saving={false}
+        canWriteDashboards
+        canDeleteDashboards
+        onSearchTermChange={vi.fn()}
+        onTeamFilterChange={vi.fn()}
+        onSelectDashboard={vi.fn()}
+        onSelectSection={vi.fn()}
+        sectionTabHref={sectionTabHref}
+        onReloadDashboards={vi.fn()}
+        onCreateDashboard={vi.fn()}
+        onEditDashboard={vi.fn()}
+        onDeleteDashboard={vi.fn()}
+        onRefreshDashboard={vi.fn()}
+        onScheduleDashboard={vi.fn()}
+        onEditSource={vi.fn()}
+        onDeleteSource={vi.fn()}
+        onDeletePublication={vi.fn()}
+        onCancelRefresh={vi.fn()}
+        onRetryRefresh={vi.fn()}
+        onCreateSchedule={vi.fn()}
+        onEditSchedule={vi.fn()}
+        onDeleteSchedule={vi.fn()}
+        onToggleSchedule={vi.fn()}
+        onRunSchedule={vi.fn()}
+      />
+    </MemoryRouter>
+  );
+
+  const attentionIndicator = screen.getByRole('img', { name: /Latest refresh was cancelled/ });
+  expect(attentionIndicator).toHaveAttribute('title', expect.stringContaining('stopped this refresh before it finished'));
+  expect(attentionIndicator).toHaveAttribute('title', expect.stringContaining('What to do: Start another refresh'));
+  expect(screen.queryByText('dashboard refresh cancelled')).not.toBeInTheDocument();
 });

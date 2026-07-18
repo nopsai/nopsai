@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
-import { AlertTriangle, CalendarClock, LayoutDashboard, Pencil, PlugZap, RefreshCw, Save, Trash2, Workflow, X } from 'lucide-react';
+import { AlertTriangle, CalendarClock, Pencil, PlugZap, RefreshCw, Save, Trash2, Workflow, X } from 'lucide-react';
 
+import { ObjectIcon } from '../../components/ObjectIcon';
 import { WorkflowFormDialog } from '../../components/WorkflowFormDialog';
 import { WorkflowDialogFrame, WorkflowInlineAlert } from '../../components/WorkflowPrimitives';
 import {
@@ -137,7 +138,7 @@ export function DashboardModal({
       kicker="Dashboard"
       title={title}
       subtitle={isCreate ? 'Create the view from pipeline dashboard outputs; assign broader access from Access.' : 'Update dashboard metadata and pipeline assignments.'}
-      headerLeading={<ModalIcon icon={<LayoutDashboard className="h-4 w-4" aria-hidden="true" />} />}
+      headerLeading={<ModalIcon icon={<ObjectIcon type="dashboard" className="h-4 w-4" />} />}
       onClose={onClose}
       onSubmit={event => submitForm(event, onSubmit)}
       closeDisabled={saving}
@@ -427,7 +428,7 @@ export function SectionModal({
       kicker="Section"
       title={title}
       subtitle={isCreate ? 'Add a focused area to the selected dashboard.' : 'Update how this dashboard area appears.'}
-      headerLeading={<ModalIcon icon={<LayoutDashboard className="h-4 w-4" aria-hidden="true" />} />}
+      headerLeading={<ModalIcon icon={<ObjectIcon type="dashboard" className="h-4 w-4" />} />}
       onClose={onClose}
       onSubmit={event => submitForm(event, onSubmit)}
       closeDisabled={saving}
@@ -737,7 +738,6 @@ export function RefreshModal({
   title,
   form,
   sections,
-  sources,
   saving,
   error,
   onChange,
@@ -747,7 +747,6 @@ export function RefreshModal({
   title: string;
   form: DashboardRefreshFormState;
   sections: DashboardSection[];
-  sources: DashboardSource[];
   saving: boolean;
   error: string | null;
   onChange: (next: DashboardRefreshFormState) => void;
@@ -755,12 +754,10 @@ export function RefreshModal({
   onSubmit: () => void;
 }) {
   const sectionOptions = useMemo(() => sectionSelectOptions(sections, form.sectionKey), [form.sectionKey, sections]);
-  const sourceOptions = useMemo(() => sourceSelectOptions(sources, form.sourceID), [form.sourceID, sources]);
   const canSubmit =
     !saving &&
     (form.scopeType === 'dashboard' ||
-      (form.scopeType === 'section' && Boolean(form.sectionKey.trim())) ||
-      (form.scopeType === 'source' && Boolean(form.sourceID.trim())));
+      (form.scopeType === 'section' && Boolean(form.sectionKey.trim())));
   const errorID = error ? 'dashboard-refresh-form-error' : undefined;
 
   return (
@@ -792,10 +789,10 @@ export function RefreshModal({
     >
       <FormSection
         title="Refresh target"
-        description="Choose whether to refresh the whole dashboard, one generated section, or one source binding."
+        description="Choose whether to refresh the whole dashboard or one generated section."
       >
         <div className="grid gap-4 md:grid-cols-2">
-          <Field label="Scope" description="Dashboard runs all enabled bindings; section and source limit the refresh to a smaller target.">
+          <Field label="Scope" description="Dashboard runs all enabled bindings; section limits the refresh to that section's outputs.">
             <select
               className="pipelines-input w-full"
               value={form.scopeType}
@@ -805,7 +802,6 @@ export function RefreshModal({
             >
               <option value="dashboard">Dashboard</option>
               <option value="section">Section</option>
-              <option value="source">Source</option>
             </select>
           </Field>
           <Field label="Mode" description="Strict fails when required sources cannot complete; best effort keeps usable partial results.">
@@ -829,19 +825,6 @@ export function RefreshModal({
               >
                 <option value="" disabled>Select section</option>
                 {sectionOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            </Field>
-          ) : null}
-          {form.scopeType === 'source' ? (
-            <Field label="Source" description="Run one pipeline dashboard output binding and publish its result back here.">
-              <select
-                className="pipelines-input w-full"
-                value={form.sourceID}
-                onChange={event => onChange({ ...form, sourceID: event.target.value })}
-                disabled={saving || sourceOptions.length === 0}
-              >
-                <option value="" disabled>Select source</option>
-                {sourceOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </Field>
           ) : null}
@@ -869,7 +852,6 @@ export function RefreshScheduleModal({
   modal,
   form,
   sections,
-  sources,
   saving,
   error,
   onChange,
@@ -879,7 +861,6 @@ export function RefreshScheduleModal({
   modal: RefreshScheduleModalState;
   form: DashboardRefreshScheduleFormState;
   sections: DashboardSection[];
-  sources: DashboardSource[];
   saving: boolean;
   error: string | null;
   onChange: (next: DashboardRefreshScheduleFormState) => void;
@@ -895,15 +876,13 @@ export function RefreshScheduleModal({
     });
   };
   const sectionOptions = useMemo(() => sectionSelectOptions(sections, form.sectionKey), [form.sectionKey, sections]);
-  const sourceOptions = useMemo(() => sourceSelectOptions(sources, form.sourceID), [form.sourceID, sources]);
   const selectedWeekdays = new Set(normalizeCronList(form.cronWeekday, WEEKDAY_VALUES, '1').split(','));
   const selectedMonthdays = new Set(normalizeCronList(form.cronMonthday, MONTHDAY_VALUES, '1').split(','));
   const canSubmit =
     !saving &&
     Boolean(form.name.trim() && form.cron_expression.trim()) &&
     (form.scopeType === 'dashboard' ||
-      (form.scopeType === 'section' && Boolean(form.sectionKey.trim())) ||
-      (form.scopeType === 'source' && Boolean(form.sourceID.trim())));
+      (form.scopeType === 'section' && Boolean(form.sectionKey.trim())));
   const isCreate = modal.mode === 'create';
   const title = isCreate ? 'Schedule refresh' : 'Edit refresh schedule';
   const errorID = error ? 'dashboard-refresh-schedule-form-error' : undefined;
@@ -1147,10 +1126,10 @@ export function RefreshScheduleModal({
 
       <FormSection
         title="Refresh target"
-        description="Schedule the whole dashboard or narrow the recurring refresh to one section or source binding."
+        description="Schedule the whole dashboard or narrow the recurring refresh to one section. Individual output cards are published by their pipeline run and are not scheduled independently."
       >
         <div className="grid gap-4 md:grid-cols-2">
-          <Field label="Scope" description="Dashboard runs all enabled bindings; section and source limit the scheduled work.">
+          <Field label="Scope" description="Dashboard runs all enabled bindings; section limits the scheduled work without pretending one output card can run independently.">
             <select
               className="pipelines-input w-full"
               value={form.scopeType}
@@ -1159,7 +1138,6 @@ export function RefreshScheduleModal({
             >
               <option value="dashboard">Dashboard</option>
               <option value="section">Section</option>
-              <option value="source">Source</option>
             </select>
           </Field>
           <Field label="Mode" description="Strict fails when required sources cannot complete; best effort keeps partial usable results.">
@@ -1183,19 +1161,6 @@ export function RefreshScheduleModal({
               >
                 <option value="" disabled>Select section</option>
                 {sectionOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            </Field>
-          ) : null}
-          {form.scopeType === 'source' ? (
-            <Field label="Source" description="Run one pipeline dashboard-output binding on this cadence.">
-              <select
-                className="pipelines-input w-full"
-                value={form.sourceID}
-                onChange={event => onChange({ ...form, sourceID: event.target.value })}
-                disabled={saving || sourceOptions.length === 0}
-              >
-                <option value="" disabled>Select source</option>
-                {sourceOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </Field>
           ) : null}
@@ -1585,21 +1550,6 @@ function outputSelectOptions(
     });
   }
   return matching;
-}
-
-function sourceSelectOptions(sources: DashboardSource[], currentSourceID: string): Option[] {
-  const options = sources
-    .map(source => {
-      const value = source.id.trim();
-      if (!value) return null;
-      const bits = [source.section_key, source.pipeline_id, source.output_name, runScopeLabel(source.run_scope)].filter(Boolean).join(' / ');
-      return { value, label: bits || value };
-    })
-    .filter((option): option is Option => Boolean(option));
-  if (currentSourceID && !options.some(option => option.value === currentSourceID)) {
-    options.push({ value: currentSourceID, label: currentSourceID });
-  }
-  return options.sort((a, b) => a.label.localeCompare(b.label));
 }
 
 function existingEntryKeys(
