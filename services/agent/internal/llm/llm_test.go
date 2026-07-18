@@ -72,19 +72,16 @@ func TestLMStudioRecordsUsageMetadata(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprintf(w, `{"models":[%s]}`, lmStudioModelListItemForTest("model-a", true))
 		case "/api/v1/chat":
-			var payload struct {
-				MaxOutputTokens int      `json:"max_output_tokens"`
-				Temperature     *float64 `json:"temperature"`
-				Reasoning       string   `json:"reasoning"`
-			}
+			var payload map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 				t.Errorf("decode request: %v", err)
 			}
-			if payload.MaxOutputTokens != 512 ||
-				payload.Temperature == nil ||
-				*payload.Temperature != temperature ||
-				payload.Reasoning != "off" {
+			if payload["max_output_tokens"] != float64(512) ||
+				payload["temperature"] != temperature {
 				t.Errorf("payload = %#v", payload)
+			}
+			if _, ok := payload["reasoning"]; ok {
+				t.Errorf("reasoning should be omitted for off: %#v", payload)
 			}
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprint(w, `{"output":[{"type":"message","content":"true"}],"usage":{"input_tokens":9,"output_tokens":3,"total_tokens":12}}`)
@@ -120,6 +117,41 @@ func TestLMStudioRecordsUsageMetadata(t *testing.T) {
 	}
 	if usage.PromptTokens != 9 || usage.CompletionTokens != 3 || usage.TotalTokens != 12 {
 		t.Fatalf("usage tokens = (%d,%d,%d), want (9,3,12)", usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens)
+	}
+}
+
+func TestLMStudioSendsEnabledReasoning(t *testing.T) {
+	var payload map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"models":[%s]}`, lmStudioModelListItemForTest("model-a", true))
+		case "/api/v1/chat":
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Errorf("decode request: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"output":[{"type":"message","content":"true"}]}`)
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewLLMClientWithOptions(LLMClientOptions{
+		Provider:  appconfig.LLMProviderLMStudio,
+		Model:     "model-a",
+		BaseURL:   server.URL,
+		Reasoning: "high",
+	})
+
+	if _, err := client.callLMStudioForBoolean(t.Context(), "is reasoning sent?"); err != nil {
+		t.Fatalf("callLMStudioForBoolean() error = %v", err)
+	}
+	if payload["reasoning"] != "high" {
+		t.Fatalf("reasoning = %#v, want high", payload["reasoning"])
 	}
 }
 

@@ -61,12 +61,17 @@ func TestTestOpenAICompatibleProfile(t *testing.T) {
 
 func TestTestLMStudioProfilePreservesMaxOutputTokens(t *testing.T) {
 	tests := []struct {
-		name      string
-		maxTokens int
-		want      any
+		name             string
+		maxTokens        int
+		reasoning        string
+		wantMaxTokens    any
+		wantReasoning    any
+		reasoningOmitted bool
 	}{
-		{name: "default omitted"},
-		{name: "configured", maxTokens: 64, want: float64(64)},
+		{name: "defaults omitted", reasoningOmitted: true},
+		{name: "off reasoning omitted", reasoning: "off", reasoningOmitted: true},
+		{name: "configured max tokens", maxTokens: 64, wantMaxTokens: float64(64), reasoningOmitted: true},
+		{name: "enabled reasoning", reasoning: "high", wantReasoning: "high"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -81,15 +86,19 @@ func TestTestLMStudioProfilePreservesMaxOutputTokens(t *testing.T) {
 				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 					t.Errorf("decode request: %v", err)
 				}
-				if tt.want == nil {
+				if tt.wantMaxTokens == nil {
 					if _, ok := payload["max_output_tokens"]; ok {
 						t.Errorf("max_output_tokens should be omitted: %#v", payload)
 					}
-				} else if payload["max_output_tokens"] != tt.want {
-					t.Errorf("max_output_tokens = %#v, want %#v", payload["max_output_tokens"], tt.want)
+				} else if payload["max_output_tokens"] != tt.wantMaxTokens {
+					t.Errorf("max_output_tokens = %#v, want %#v", payload["max_output_tokens"], tt.wantMaxTokens)
 				}
-				if payload["reasoning"] != "off" {
-					t.Errorf("reasoning = %#v, want off", payload["reasoning"])
+				if tt.reasoningOmitted {
+					if _, ok := payload["reasoning"]; ok {
+						t.Errorf("reasoning should be omitted: %#v", payload)
+					}
+				} else if payload["reasoning"] != tt.wantReasoning {
+					t.Errorf("reasoning = %#v, want %#v", payload["reasoning"], tt.wantReasoning)
 				}
 				fmt.Fprint(w, `{"output":[{"type":"message","content":"ok"}]}`)
 			}))
@@ -99,6 +108,7 @@ func TestTestLMStudioProfilePreservesMaxOutputTokens(t *testing.T) {
 				Provider:  config.LLMProviderLMStudio,
 				Model:     "local-model",
 				BaseURL:   server.URL,
+				Reasoning: tt.reasoning,
 				MaxTokens: tt.maxTokens,
 			}, "secret")
 			if err != nil || reply != "ok" {

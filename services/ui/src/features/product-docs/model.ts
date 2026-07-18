@@ -960,13 +960,13 @@ const llmProfileRows: WikiConfigRow[] = [
   {
     key: 'profiles[].reasoning',
     area: 'LLM profile',
-    description: 'LM Studio reasoning level. Supported values are off, low, medium, high, and on.',
+    description: 'LM Studio reasoning level. Supported values are off, low, medium, high, and on. Leave empty for models that do not expose reasoning configuration.',
     example: 'high',
   },
   {
     key: 'profiles[].thinking',
     area: 'LLM profile',
-    description: 'LM Studio shortcut used only when reasoning is omitted. true maps to on and false maps to off.',
+    description: 'LM Studio shortcut used only when reasoning is omitted. true maps to on; false maps to off, which is omitted from LM Studio requests.',
     example: 'false',
   },
   {
