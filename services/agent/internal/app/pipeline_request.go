@@ -49,6 +49,7 @@ type PipelineRunRequest struct {
 	KnowledgePrompt        KnowledgePromptBuilder
 	BlockingKnowledgeKinds BlockingKnowledgeKindResolver
 	KnowledgeViolation     KnowledgeViolationDetector
+	PolicyRevisionChecker  PolicyRevisionChecker
 }
 
 type PipelineRunResult struct {

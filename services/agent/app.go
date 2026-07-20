@@ -153,6 +153,7 @@ func Run() int {
 		KnowledgePrompt:         buildEffectiveKnowledgeContextPrompt,
 		BlockingKnowledgeKinds:  effectiveBlockingKnowledgeContextKinds,
 		KnowledgeViolation:      knowledgeContextViolationFailureReason,
+		PolicyRevisionChecker:   checkRunPolicyRevision,
 	})
 	return result.ExitCode
 }

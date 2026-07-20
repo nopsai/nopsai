@@ -10,6 +10,7 @@ import (
 
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
+	workspacectx "nopsai/services/agent/internal/workspace"
 
 	"github.com/rs/zerolog"
 )
@@ -22,7 +23,7 @@ type ActionSession interface {
 	MCPToolCount() int
 	RequiresMCPToolCall() bool
 	SuccessfulMCPToolCalls() int
-	GetAction(context.Context, *proto.GetActionRequest) (*proto.Action, error)
+	GetAction(context.Context, *proto.GetActionRequest, *workspacectx.Tools) (*proto.Action, error)
 }
 
 type ActionSessionResolver func(*models.Pipeline, *models.PipelineStep, *models.Task) (ActionSession, error)
@@ -65,6 +66,8 @@ type ActionRequest struct {
 	History                string
 	ParentContext          context.Context
 	WorkspaceDir           string
+	WorkspaceRevision      uint64
+	WorkspaceIndex         *workspacectx.Index
 	IsRunStopping          func() bool
 	Secrets                map[string]string
 	KnowledgePrompt        string
@@ -80,6 +83,7 @@ type ActionResult struct {
 	Action           *proto.Action
 	ActionSummary    string
 	Goal             string
+	FilePrecondition FilePrecondition
 	LLMDurationMs    int64
 	LLMDurationSet   bool
 	Failed           bool
@@ -197,7 +201,7 @@ func validateDirectScriptAction(ctx context.Context, req ActionRequest, goal, sc
 		attemptCtx, cancel := context.WithTimeout(parentCtx, llmTimeout)
 		defer cancel()
 		var callErr error
-		validationAction, callErr = session.GetAction(attemptCtx, actionReq)
+		validationAction, callErr = session.GetAction(attemptCtx, actionReq, nil)
 		return callErr
 	}, 3, time.Second, req.StopRetry)
 	llmDurationMs := time.Since(actionStart).Milliseconds()
@@ -303,8 +307,18 @@ func (llmBackedActionResolver) Resolve(ctx context.Context, req ActionRequest) A
 		}
 	}
 
-	directoryListing := collectActionDirectoryListing(req)
-	actionReq := req.Context.BuildActionRequest(goal, req.History, directoryListing, req.KnowledgePrompt, req.Secrets)
+	workspaceRevision := effectiveWorkspaceRevision(req.WorkspaceRevision)
+	var sharedDirectoryListing map[string]string
+	var sharedFileIdentities map[string]SharedFileIdentity
+	if models.PipelineLLMContentSharing(req.Pipeline) && req.WorkspaceIndex != nil {
+		sharedDirectoryListing, sharedFileIdentities = buildSharedDirectoryContextFromWorkspaceIndex(req.WorkspaceIndex)
+		logDirectoryListingMetadata(req.Logger, sharedDirectoryListing)
+	} else {
+		directoryListing := collectActionDirectoryListing(req)
+		sharedDirectoryListing, sharedFileIdentities = buildSharedDirectoryContext(directoryListing, workspaceRevision)
+	}
+	actionReq := req.Context.BuildActionRequest(goal, req.History, sharedDirectoryListing, req.KnowledgePrompt, req.Secrets)
+	workspaceTools := workspacectx.NewTools(req.WorkspaceIndex)
 
 	session, sessionErr := req.SessionResolver(req.Pipeline, req.Step, req.Task)
 	if sessionErr != nil {
@@ -343,7 +357,7 @@ func (llmBackedActionResolver) Resolve(ctx context.Context, req ActionRequest) A
 		attemptCtx, cancel := context.WithTimeout(actionParentCtx, llmTimeout)
 		defer cancel()
 		var callErr error
-		action, callErr = session.GetAction(attemptCtx, actionReq)
+		action, callErr = session.GetAction(attemptCtx, actionReq, workspaceTools)
 		if callErr != nil {
 			return callErr
 		}
@@ -384,7 +398,7 @@ func (llmBackedActionResolver) Resolve(ctx context.Context, req ActionRequest) A
 			req.Logger.Warn().Err(err).Msg("GetAction failed after retries; attempting one final retry")
 		}
 		attemptCtx, cancel := context.WithTimeout(actionParentCtx, llmTimeout)
-		action, err = session.GetAction(attemptCtx, actionReq)
+		action, err = session.GetAction(attemptCtx, actionReq, workspaceTools)
 		cancel()
 		if err == nil && session.RequiresMCPToolCall() && session.SuccessfulMCPToolCalls() == 0 {
 			action = nil
@@ -411,21 +425,34 @@ func (llmBackedActionResolver) Resolve(ctx context.Context, req ActionRequest) A
 			Msgf("MCP tool calls completed before final action (count=%d)", session.SuccessfulMCPToolCalls())
 	}
 
+	filePrecondition := replaceFilePrecondition(action, sharedFileIdentities, workspaceRevision)
+	if filePrecondition.ExpectedSHA256 == "" && workspaceTools != nil {
+		if identity, ok := workspaceTools.IdentityFor(filePrecondition.Path); ok {
+			filePrecondition.ExpectedSHA256 = identity.SHA256
+			filePrecondition.Size = int(identity.Size)
+			filePrecondition.WorkspaceRevision = identity.WorkspaceRevision
+		}
+	}
+
 	return ActionResult{
-		Action:         action,
-		ActionSummary:  actionSummary(action),
-		Goal:           goal,
-		LLMDurationMs:  llmDurationMs,
-		LLMDurationSet: true,
+		Action:           action,
+		ActionSummary:    actionSummary(action),
+		Goal:             goal,
+		FilePrecondition: filePrecondition,
+		LLMDurationMs:    llmDurationMs,
+		LLMDurationSet:   true,
 	}
 }
 
-func collectActionDirectoryListing(req ActionRequest) map[string]string {
-	shareContent := true
-	if req.Pipeline != nil && req.Pipeline.LlmContentSharing != nil {
-		shareContent = *req.Pipeline.LlmContentSharing
+func effectiveWorkspaceRevision(revision uint64) uint64 {
+	if revision == 0 {
+		return 1
 	}
-	if !shareContent {
+	return revision
+}
+
+func collectActionDirectoryListing(req ActionRequest) map[string]string {
+	if !models.PipelineLLMContentSharing(req.Pipeline) {
 		if req.Logger != nil {
 			req.Logger.Debug().Msg("Content sharing is DISABLED for this pipeline. Skipping directory scan")
 		}

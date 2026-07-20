@@ -123,15 +123,15 @@ func (c *anthropicClient) Complete(ctx context.Context, prompt string) (string, 
 		return "", fmt.Errorf("invalid or empty response from anthropic: %s", string(body))
 	}
 	responseText := strings.Join(messages, "\n")
-	recordUsage(ctx, usageFromTokens(
-		c.owner.provider,
+	recordUsage(ctx, usageFromTokenDetailsForClient(
+		c.owner,
 		c.model,
-		c.owner.profile,
 		prompt,
 		responseText,
 		response.Usage.InputTokens,
 		response.Usage.OutputTokens,
 		response.Usage.InputTokens+response.Usage.OutputTokens,
+		0,
 	))
 	return responseText, nil
 }

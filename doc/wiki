@@ -191,7 +191,7 @@ It should include at least these directives:
 | `runtime_pool` | pipeline | Kubernetes runtime pool default. Docker runners ignore it. |
 | `affinity_enabled` | pipeline | Kubernetes same-node affinity override for the run. |
 | `knowledge_context` | pipeline | Knowledge references merged into all effective LLM task contexts. |
-| `llm_content_sharing` | pipeline | Controls whether workspace file listings/content are shared with LLM goal resolution. |
+| `llm_content_sharing` | pipeline | Optional boolean. Defaults to `false`; set `true` only when workspace file listings/content should be shared automatically with LLM goal resolution. Bounded workspace tools can still retrieve current file identities and file content on demand. Shared and retrieved files include path, SHA-256, size, and workspace revision metadata so stale file replacements can be rejected. |
 | `llm_content_include` | pipeline | Include filters for files shared with LLM goal context. |
 | `llm_content_ignore` | pipeline | Ignore filters for files shared with LLM goal context. |
 | `llm_output_sharing` | pipeline | Default for whether task output is written into later LLM execution history. |
@@ -528,6 +528,12 @@ schema are separate control layers:
 External MCP currently uses streamable HTTP. Pipeline YAML may reference only
 approved MCP profiles and cannot define arbitrary server URLs. NopsAI also
 exposes a hosted MCP endpoint at `POST /v1/mcp`, filtered by AAA permissions.
+Blocking Knowledge Context kinds (`policy` and `guardrail`) are checked through
+an internal run policy-revision endpoint before LLM and execution boundaries;
+policy drift or an unavailable policy check fails closed. Prompt and usage
+telemetry records hashes, revision markers, cache keys, cached input tokens when
+providers expose them, and bounded workspace retrieval sizes without storing
+prompt bodies.
 
 ## Operations Boundary
 

@@ -108,6 +108,12 @@ func formatKnowledgeContextPrompt(snapshots []models.KnowledgeContextSnapshot) s
 		}
 	}
 	if hasStrict {
+		builder.WriteString("NopsAI Knowledge Snapshot\n")
+		builder.WriteString("knowledge_revision: ")
+		builder.WriteString(knowledgeContextRevision(snapshots, false))
+		builder.WriteString("\npolicy_revision: ")
+		builder.WriteString(knowledgeContextRevision(snapshots, true))
+		builder.WriteString("\n\n")
 		builder.WriteString(strictKnowledgeContextActionInstruction)
 		builder.WriteString("\n\n")
 	}
@@ -129,6 +135,10 @@ func formatKnowledgeContextPrompt(snapshots []models.KnowledgeContextSnapshot) s
 		builder.WriteString("\n\n")
 	}
 	return strings.TrimSpace(builder.String())
+}
+
+func knowledgeContextRevision(snapshots []models.KnowledgeContextSnapshot, blockingOnly bool) string {
+	return models.KnowledgeContextRevision(snapshots, blockingOnly)
 }
 
 func effectiveBlockingKnowledgeContextKinds(pipeline *models.Pipeline, step *models.PipelineStep, task *models.Task, snapshots []models.KnowledgeContextSnapshot) []string {
@@ -154,12 +164,7 @@ func effectiveBlockingKnowledgeContextKinds(pipeline *models.Pipeline, step *mod
 }
 
 func isBlockingKnowledgeContextKind(kind string) bool {
-	switch normalizeKnowledgeRuntimeValue(kind) {
-	case "guardrail", "policy":
-		return true
-	default:
-		return false
-	}
+	return models.KnowledgeContextKindIsBlocking(kind)
 }
 
 func knowledgeContextViolationFailureReason(action *proto.Action, pipeline *models.Pipeline, step *models.PipelineStep, task *models.Task, snapshots []models.KnowledgeContextSnapshot) (string, []string, bool) {

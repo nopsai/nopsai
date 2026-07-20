@@ -94,11 +94,11 @@ You must only respond with the word "true" or "false" and nothing else.
 Based on the context, is the answer to the question YES or NO? Respond with only "true" or "false".`
 
 	fullPrompt := fmt.Sprintf(promptTemplate, formatAgentPromptProfile(agentProfile), buildVariablesSection(req.GetVariables()), buildKnowledgeContextSection(req.GetKnowledgeContext()), history, req.GetGoal())
-	logEvent := log.Debug().Str("provider", c.provider)
-	if c.profile != "" {
-		logEvent = logEvent.Str("llm_profile", c.profile)
-	}
-	logEvent.Msgf("Condition prompt:\n%s", fullPrompt)
+	addPromptMetadata(log.Debug().Str("prompt_kind", "condition"), newPromptMetadata(c, fullPrompt)).
+		Int("variable_count", len(req.GetVariables())).
+		Int("knowledge_context_bytes", len([]byte(req.GetKnowledgeContext()))).
+		Int("history_bytes", len([]byte(history))).
+		Msg("Built condition prompt metadata")
 	return fullPrompt
 }
 
@@ -107,12 +107,23 @@ func (c *LLMClient) buildPrompt(req *proto.GetActionRequest) string {
 }
 
 func (c *LLMClient) buildPromptWithMCP(req *proto.GetActionRequest, mcpTranscript, mcpToolPrompt string, agentProfile AgentPromptProfile) string {
+	return c.buildPromptWithTools(req, mcpTranscript, mcpToolPrompt, "", "", agentProfile)
+}
+
+func (c *LLMClient) buildPromptWithTools(req *proto.GetActionRequest, mcpTranscript, mcpToolPrompt, workspaceTranscript, workspaceToolPrompt string, agentProfile AgentPromptProfile) string {
 	history := req.GetHistory()
 	if history == "" {
 		history = "No history yet."
 	}
+	if strings.TrimSpace(workspaceTranscript) != "" {
+		history = history + "\n--- Workspace Tool Results For Current Goal ---\n" + strings.TrimSpace(workspaceTranscript)
+	}
 	if strings.TrimSpace(mcpTranscript) != "" {
 		history = history + "\n--- MCP Tool Results For Current Goal ---\n" + strings.TrimSpace(mcpTranscript)
+	}
+	workspaceSection := strings.TrimSpace(workspaceToolPrompt)
+	if workspaceSection == "" {
+		workspaceSection = "**Workspace Tools:**\nNo workspace tools are available for this goal."
 	}
 	mcpSection := strings.TrimSpace(mcpToolPrompt)
 	if mcpSection == "" {
@@ -123,12 +134,16 @@ func (c *LLMClient) buildPromptWithMCP(req *proto.GetActionRequest, mcpTranscrip
 
 Your task is to achieve a user's goal by choosing the correct action from a toolkit.
 You must only respond with a single JSON object. Inside this object, there should be a single key "action" which contains the action to perform.
+If Working Directory Contents includes a NopsAI File Identity block, treat its sha256 and workspace_revision as the current file identity for that prompt. File replacements based on stale identity are rejected by the agent, so read the file again through an approved action or tool when you need fresher content.
 
 Here are the available actions:
 1. **EXECUTE_COMMAND**: {"action": {"type": "EXECUTE_COMMAND", "command_action": {"command": "your-bash-command-here"}}}
 2. **REPLACE_FILE**: {"action": {"type": "REPLACE_FILE", "file_action": {"path": "./path/to/file.txt", "content": "The full new content of the file."}}}
 3. **RETURN_ANSWER**: {"action": {"type": "RETURN_ANSWER", "answer_action": {"answer": "The answer to the user's question."}}}
 4. **CALL_MCP_TOOL**: {"action": {"type": "CALL_MCP_TOOL", "mcp_tool_action": {"server": "server-name", "tool": "tool_name", "arguments": {}}}}
+5. **CALL_WORKSPACE_TOOL**: {"action": {"type": "CALL_WORKSPACE_TOOL", "workspace_tool_action": {"tool": "read_file", "arguments": {"path": "relative/path.txt"}}}}
+---
+%s
 ---
 %s
 ---
@@ -152,15 +167,20 @@ Now, choose the single best action from your toolkit and provide the response in
 		buildVariablesSection(req.GetVariables()),
 		buildKnowledgeContextSection(req.GetKnowledgeContext()),
 		buildDirectoryListingSection(req.GetDirectoryListing()),
+		workspaceSection,
 		mcpSection,
 		history,
 		req.GetGoal(),
 	)
-	logEvent := log.Debug().Str("provider", c.provider)
-	if c.profile != "" {
-		logEvent = logEvent.Str("llm_profile", c.profile)
-	}
-	logEvent.Msgf("Full prompt:\n%s", fullPrompt)
+	addPromptMetadata(log.Debug().Str("prompt_kind", "action"), newPromptMetadata(c, fullPrompt)).
+		Int("variable_count", len(req.GetVariables())).
+		Int("knowledge_context_bytes", len([]byte(req.GetKnowledgeContext()))).
+		Int("history_bytes", len([]byte(history))).
+		Int("workspace_tool_prompt_bytes", len([]byte(workspaceSection))).
+		Int("workspace_tool_transcript_bytes", len([]byte(strings.TrimSpace(workspaceTranscript)))).
+		Int("mcp_prompt_bytes", len([]byte(mcpSection))).
+		Int("mcp_transcript_bytes", len([]byte(strings.TrimSpace(mcpTranscript)))).
+		Msg("Built action prompt metadata")
 	return fullPrompt
 }
 

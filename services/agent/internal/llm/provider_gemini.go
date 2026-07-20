@@ -88,15 +88,15 @@ func (c *geminiClient) Complete(ctx context.Context, prompt string) (string, err
 	}
 
 	responseText := geminiResp.Candidates[0].Content.Parts[0].Text
-	recordUsage(ctx, usageFromTokens(
-		c.owner.provider,
+	recordUsage(ctx, usageFromTokenDetailsForClient(
+		c.owner,
 		c.model,
-		c.owner.profile,
 		prompt,
 		responseText,
 		geminiResp.UsageMetadata.PromptTokenCount,
 		geminiResp.UsageMetadata.CandidatesTokenCount,
 		geminiResp.UsageMetadata.TotalTokenCount,
+		0,
 	))
 	return responseText, nil
 }
