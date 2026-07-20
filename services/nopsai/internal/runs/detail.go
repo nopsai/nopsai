@@ -314,7 +314,7 @@ func LoadFinalOutputs(ctx context.Context, db Queryer, runID string) ([]models.P
 	rows, err := db.Query(ctx, `
 		SELECT id::text, name, type, status, content, error, llm_profile,
 		       generation_attempts, contract_violations, render_attempts, render_failures,
-		       created_at, updated_at
+		       created_at, generation_started_at, updated_at
 		FROM pipeline_run_outputs
 		WHERE run_id = $1
 		ORDER BY item_index ASC, created_at ASC
@@ -327,6 +327,7 @@ func LoadFinalOutputs(ctx context.Context, db Queryer, runID string) ([]models.P
 	outputs := []models.PipelineRunFinalOutput{}
 	for rows.Next() {
 		var output models.PipelineRunFinalOutput
+		var generationStartedAt sql.NullTime
 		if err := rows.Scan(
 			&output.ID,
 			&output.Name,
@@ -340,12 +341,14 @@ func LoadFinalOutputs(ctx context.Context, db Queryer, runID string) ([]models.P
 			&output.RenderAttempts,
 			&output.RenderFailures,
 			&output.CreatedAt,
+			&generationStartedAt,
 			&output.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
+		output.GenerationStartedAt = nullTimePtr(generationStartedAt)
 		outputs = append(outputs, output)
-		output.GenerationDuration, output.GenerationSeconds = FinalOutputGenerationTiming(output.CreatedAt, output.UpdatedAt)
+		output.GenerationDuration, output.GenerationSeconds = FinalOutputGenerationTiming(output.GenerationStartedAt, output.UpdatedAt)
 		outputs[len(outputs)-1] = output
 	}
 	if err := rows.Err(); err != nil {
@@ -366,12 +369,20 @@ func parseRuntimeVariableOverrides(raw string) map[string]any {
 	return overrides
 }
 
-func FinalOutputGenerationTiming(createdAt, updatedAt time.Time) (string, float64) {
-	if createdAt.IsZero() || updatedAt.IsZero() || updatedAt.Before(createdAt) {
+func FinalOutputGenerationTiming(startedAt *time.Time, updatedAt time.Time) (string, float64) {
+	if startedAt == nil || startedAt.IsZero() || updatedAt.IsZero() || updatedAt.Before(*startedAt) {
 		return "", 0
 	}
-	duration := updatedAt.Sub(createdAt).Round(time.Second)
+	duration := updatedAt.Sub(*startedAt).Round(time.Second)
 	return duration.String(), duration.Seconds()
+}
+
+func nullTimePtr(value sql.NullTime) *time.Time {
+	if !value.Valid {
+		return nil
+	}
+	t := value.Time
+	return &t
 }
 
 func BuildDetail(input DetailBuildInput) models.RunDetail {

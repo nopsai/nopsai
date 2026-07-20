@@ -45,6 +45,8 @@ var teamProfileSchemaStatements = []string{
 		timeout_seconds INTEGER NOT NULL DEFAULT 0,
 		max_tokens INTEGER NOT NULL DEFAULT 0,
 		temperature DOUBLE PRECISION,
+		prompt_cache JSONB NOT NULL DEFAULT '{}'::jsonb,
+		provider_state JSONB NOT NULL DEFAULT '{}'::jsonb,
 		extra JSONB NOT NULL DEFAULT '{}'::jsonb,
 		source TEXT NOT NULL DEFAULT 'ui',
 		config_repo_id BIGINT REFERENCES config_repositories(id) ON DELETE SET NULL,
@@ -89,6 +91,8 @@ var teamProfileSchemaStatements = []string{
 		PRIMARY KEY (team_id, name)
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_team_llm_profiles_config_repo ON team_llm_profiles(config_repo_id)`,
+	`ALTER TABLE team_llm_profiles ADD COLUMN IF NOT EXISTS prompt_cache JSONB NOT NULL DEFAULT '{}'::jsonb`,
+	`ALTER TABLE team_llm_profiles ADD COLUMN IF NOT EXISTS provider_state JSONB NOT NULL DEFAULT '{}'::jsonb`,
 	`CREATE INDEX IF NOT EXISTS idx_team_agent_profiles_config_repo ON team_agent_profiles(config_repo_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_team_mcp_profiles_config_repo ON team_mcp_profiles(config_repo_id)`,
 }
@@ -666,7 +670,7 @@ func (a *App) loadTeamLLMProfilesFromDB(ctx context.Context, teamID int) (string
 		return "", nil, err
 	}
 	rows, err := a.db.Query(ctx, `
-		SELECT name, provider, model, base_url, credential_ref, allowed_scopes, reasoning, thinking, timeout_seconds, max_tokens, temperature, extra
+		SELECT name, provider, model, base_url, credential_ref, allowed_scopes, reasoning, thinking, timeout_seconds, max_tokens, temperature, prompt_cache, provider_state, extra
 		FROM team_llm_profiles
 		WHERE team_id = $1
 		ORDER BY name ASC
@@ -679,12 +683,14 @@ func (a *App) loadTeamLLMProfilesFromDB(ctx context.Context, teamID int) (string
 	profiles := map[string]config.LLMProfile{}
 	for rows.Next() {
 		var (
-			name       string
-			profile    config.LLMProfile
-			allowedRaw []byte
-			extraRaw   []byte
-			thinking   sql.NullBool
-			temp       sql.NullFloat64
+			name             string
+			profile          config.LLMProfile
+			allowedRaw       []byte
+			extraRaw         []byte
+			promptCacheRaw   []byte
+			providerStateRaw []byte
+			thinking         sql.NullBool
+			temp             sql.NullFloat64
 		)
 		if err := rows.Scan(
 			&name,
@@ -698,6 +704,8 @@ func (a *App) loadTeamLLMProfilesFromDB(ctx context.Context, teamID int) (string
 			&profile.TimeoutSeconds,
 			&profile.MaxTokens,
 			&temp,
+			&promptCacheRaw,
+			&providerStateRaw,
 			&extraRaw,
 		); err != nil {
 			return "", nil, fmt.Errorf("scan team LLM profile: %w", err)
@@ -712,6 +720,12 @@ func (a *App) loadTeamLLMProfilesFromDB(ctx context.Context, teamID int) (string
 		if temp.Valid {
 			value := temp.Float64
 			profile.Temperature = &value
+		}
+		if len(promptCacheRaw) > 0 {
+			_ = json.Unmarshal(promptCacheRaw, &profile.PromptCache)
+		}
+		if len(providerStateRaw) > 0 {
+			_ = json.Unmarshal(providerStateRaw, &profile.ProviderState)
 		}
 		if len(extraRaw) > 0 {
 			_ = json.Unmarshal(extraRaw, &profile.Extra)
@@ -789,13 +803,21 @@ func upsertTeamLLMProfileTxWithSource(ctx context.Context, tx pgx.Tx, teamID int
 	if err != nil {
 		return fmt.Errorf("encode team LLM profile extra: %w", err)
 	}
+	promptCacheJSON, err := json.Marshal(profile.PromptCache)
+	if err != nil {
+		return fmt.Errorf("encode team LLM profile prompt cache settings: %w", err)
+	}
+	providerStateJSON, err := json.Marshal(profile.ProviderState)
+	if err != nil {
+		return fmt.Errorf("encode team LLM profile provider state settings: %w", err)
+	}
 	_, err = tx.Exec(ctx, `
 		INSERT INTO team_llm_profiles (
 			team_id, name, provider, model, base_url, credential_ref, allowed_scopes,
-			reasoning, thinking, timeout_seconds, max_tokens, temperature, extra, source,
+			reasoning, thinking, timeout_seconds, max_tokens, temperature, prompt_cache, provider_state, extra, source,
 			config_repo_id, config_source_path, config_source_commit_sha, managed_by_config_repo, updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16, $17, $18, NOW())
+		VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb, $15::jsonb, $16, $17, $18, $19, $20, NOW())
 		ON CONFLICT (team_id, name) DO UPDATE SET
 			provider = EXCLUDED.provider,
 			model = EXCLUDED.model,
@@ -807,6 +829,8 @@ func upsertTeamLLMProfileTxWithSource(ctx context.Context, tx pgx.Tx, teamID int
 			timeout_seconds = EXCLUDED.timeout_seconds,
 			max_tokens = EXCLUDED.max_tokens,
 			temperature = EXCLUDED.temperature,
+			prompt_cache = EXCLUDED.prompt_cache,
+			provider_state = EXCLUDED.provider_state,
 			extra = EXCLUDED.extra,
 			source = EXCLUDED.source,
 			config_repo_id = EXCLUDED.config_repo_id,
@@ -814,7 +838,7 @@ func upsertTeamLLMProfileTxWithSource(ctx context.Context, tx pgx.Tx, teamID int
 			config_source_commit_sha = EXCLUDED.config_source_commit_sha,
 			managed_by_config_repo = EXCLUDED.managed_by_config_repo,
 			updated_at = NOW()
-	`, teamID, name, profile.Provider, profile.Model, profile.BaseURL, profile.CredentialRef, string(allowedJSON), profile.Reasoning, profile.Thinking, profile.TimeoutSeconds, profile.MaxTokens, profile.Temperature, string(extraJSON), source, configRepoID, sourcePath, commitSHA, managed)
+	`, teamID, name, profile.Provider, profile.Model, profile.BaseURL, profile.CredentialRef, string(allowedJSON), profile.Reasoning, profile.Thinking, profile.TimeoutSeconds, profile.MaxTokens, profile.Temperature, string(promptCacheJSON), string(providerStateJSON), string(extraJSON), source, configRepoID, sourcePath, commitSHA, managed)
 	if err != nil {
 		return fmt.Errorf("persist team LLM profile %q: %w", name, err)
 	}

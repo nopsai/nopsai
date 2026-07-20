@@ -120,6 +120,20 @@ test('renders provider labels and applies provider-aware profile defaults', asyn
   expect(form.getByTitle(
     "Turns the provider's extended thinking mode on or off when no reasoning level is selected."
   )).toHaveTextContent('Thinking');
+
+  expect(form.getByLabelText('Prompt cache')).toHaveValue('auto');
+  expect(form.getByLabelText('Provider state')).toHaveValue('auto');
+  await user.selectOptions(form.getByLabelText('Prompt cache'), 'required');
+  await user.selectOptions(form.getByLabelText('Provider state'), 'disabled');
+  apiMocks.saveLLMProfile.mockResolvedValueOnce({
+    name: 'platform/ml/reasoning',
+    payload: { default_profile: 'hosted', profiles: [] },
+  });
+  await user.click(form.getByRole('button', { name: 'Save profile' }));
+  await waitFor(() => expect(apiMocks.saveLLMProfile).toHaveBeenCalledWith(expect.objectContaining({
+    prompt_cache: '{\n  "mode": "required"\n}',
+    provider_state: '{\n  "mode": "disabled"\n}',
+  })));
 });
 
 test('applies the team filter from the route query', async () => {

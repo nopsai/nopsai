@@ -59,6 +59,47 @@ test('renders final outputs with preview and copy actions', async () => {
   expect(screen.getByText('Executive Summary copied')).toBeVisible();
 });
 
+test('uses per-output generation start times for final output durations', () => {
+  render(
+    <RunFinalOutputs
+      runID="run-1"
+      outputs={[
+        {
+          id: 'output-1',
+          name: 'First output',
+          type: 'markdown',
+          status: 'success',
+          created_at: '2026-07-18T10:00:00Z',
+          generation_started_at: '2026-07-18T10:00:05Z',
+          updated_at: '2026-07-18T10:00:15Z',
+        },
+        {
+          id: 'output-2',
+          name: 'Later output',
+          type: 'markdown',
+          status: 'success',
+          created_at: '2026-07-18T10:00:00Z',
+          generation_started_at: '2026-07-18T10:01:00Z',
+          updated_at: '2026-07-18T10:01:20Z',
+        },
+        {
+          id: 'output-3',
+          name: 'Queued output',
+          type: 'markdown',
+          status: 'pending',
+          created_at: '2026-07-18T10:00:00Z',
+          updated_at: '2026-07-18T10:05:00Z',
+        },
+      ]}
+    />
+  );
+
+  expect(screen.getByText(/10s duration/)).toBeVisible();
+  expect(screen.getByText(/20s duration/)).toBeVisible();
+  expect(screen.queryByText(/1m 20s duration/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/5m duration/)).not.toBeInTheDocument();
+});
+
 test('downloads final outputs through the authenticated API client', async () => {
   const user = userEvent.setup();
   const originalFetch = apiClient.fetch;

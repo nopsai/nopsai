@@ -349,13 +349,13 @@ function formatOutputGenerationDuration(output: PipelineRunFinalOutput) {
   if (output.generation_duration) return output.generation_duration;
   const seconds = Number(output.generation_duration_seconds || 0);
   if (Number.isFinite(seconds) && seconds > 0) return formatDurationSeconds(seconds);
-  const created = output.created_at ? Date.parse(output.created_at) : Number.NaN;
+  const started = output.generation_started_at ? Date.parse(output.generation_started_at) : Number.NaN;
   const updated = output.updated_at ? Date.parse(output.updated_at) : Number.NaN;
-  if (Number.isFinite(created) && Number.isFinite(updated) && updated >= created) {
-    return formatDurationSeconds((updated - created) / 1000);
+  if (Number.isFinite(started) && Number.isFinite(updated) && updated >= started) {
+    return formatDurationSeconds((updated - started) / 1000);
   }
-  if ((output.status === 'pending' || output.status === 'generating') && Number.isFinite(created)) {
-    return formatDurationSeconds(Math.max(0, (Date.now() - created) / 1000));
+  if (output.status === 'generating' && Number.isFinite(started)) {
+    return formatDurationSeconds(Math.max(0, (Date.now() - started) / 1000));
   }
   return '';
 }

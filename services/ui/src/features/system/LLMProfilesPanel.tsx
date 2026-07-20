@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Bot, CheckCircle2, Edit3, ExternalLink, KeyRound, Plus, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { LLM_PROVIDERS, getLLMProvider, replaceProviderDefault } from './llmProviders';
-import { type LLMProfileFormState, type LLMProfileRecord } from './llm-profiles/model';
+import { type LLMFeatureConfig, type LLMProfileFormState, type LLMProfileRecord } from './llm-profiles/model';
+import { LLMFeatureControls } from './llm-profiles/LLMFeatureControls';
 import { useLLMProfiles } from './llm-profiles/useLLMProfiles';
 import { CredentialReferenceLink } from './credentials/CredentialReferenceLink';
 import {
@@ -79,6 +80,13 @@ function profileMaxTokensText(profile: LLMProfileRecord) {
 
 function profileTemperatureText(profile: LLMProfileRecord) {
   return profile.temperature === undefined ? 'Provider default' : String(profile.temperature);
+}
+
+function profileFeatureModeText(feature?: LLMFeatureConfig) {
+  const mode = feature?.mode?.trim().toLowerCase();
+  if (mode === 'required') return 'Required';
+  if (mode === 'disabled') return 'Disabled';
+  return 'Auto';
 }
 
 function isProfileHealthy(profile: LLMProfileRecord) {
@@ -445,6 +453,7 @@ function LLMProfilesPanel({ canManage }: { canManage: boolean }) {
                     )}
                   </div>
                   <p className="text-xs text-[var(--text-secondary)]">{formProvider.generationOptionsNote}</p>
+                  <LLMFeatureControls form={form} setForm={setForm} disabled={!canManage} />
                   <label className="flex flex-col gap-1 text-sm">
                     <OptionLabel help="Additional provider-specific settings entered as one key=value pair per line.">Provider options</OptionLabel>
                     <textarea
@@ -683,6 +692,8 @@ function LLMProfileDetail({
           { label: 'Timeout', value: profileTimeoutText(profile) },
           { label: 'Max tokens', value: profileMaxTokensText(profile) },
           { label: 'Temperature', value: profileTemperatureText(profile) },
+          { label: 'Prompt cache', value: profileFeatureModeText(profile.prompt_cache) },
+          { label: 'Provider state', value: profileFeatureModeText(profile.provider_state) },
         ]}
       />
       <LLMDetailSection

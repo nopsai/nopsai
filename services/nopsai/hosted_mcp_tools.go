@@ -788,7 +788,7 @@ func (a *App) hostedMCPGetPipelineRun(ctx context.Context, args map[string]any) 
 func (a *App) hostedMCPPipelineRunOutputSummaries(ctx context.Context, runID string) ([]map[string]any, error) {
 	rows, err := a.db.Query(ctx, `
 		SELECT id::text, name, type, status, error, llm_profile,
-		       generation_attempts, contract_violations, render_attempts, render_failures, created_at, updated_at
+		       generation_attempts, contract_violations, render_attempts, render_failures, created_at, generation_started_at, updated_at
 		FROM pipeline_run_outputs
 		WHERE run_id::text = $1
 		ORDER BY item_index ASC, created_at ASC
@@ -803,6 +803,7 @@ func (a *App) hostedMCPPipelineRunOutputSummaries(ctx context.Context, runID str
 		var id, name, outputType, status, errorText, profile string
 		var generationAttempts, contractViolations, renderAttempts, renderFailures int
 		var createdAt, updatedAt time.Time
+		var generationStartedAt sql.NullTime
 		if err := rows.Scan(
 			&id,
 			&name,
@@ -815,11 +816,13 @@ func (a *App) hostedMCPPipelineRunOutputSummaries(ctx context.Context, runID str
 			&renderAttempts,
 			&renderFailures,
 			&createdAt,
+			&generationStartedAt,
 			&updatedAt,
 		); err != nil {
 			return nil, err
 		}
-		duration, durationSeconds := pipelineOutputGenerationDuration(createdAt, updatedAt)
+		startedAt := nullTimePtr(generationStartedAt)
+		duration, durationSeconds := pipelineOutputGenerationDuration(startedAt, updatedAt)
 		outputs = append(outputs, map[string]any{
 			"id":                          id,
 			"name":                        name,
@@ -832,6 +835,7 @@ func (a *App) hostedMCPPipelineRunOutputSummaries(ctx context.Context, runID str
 			"render_attempts":             renderAttempts,
 			"render_failures":             renderFailures,
 			"created_at":                  createdAt,
+			"generation_started_at":       startedAt,
 			"updated_at":                  updatedAt,
 			"generation_duration":         duration,
 			"generation_duration_seconds": durationSeconds,
@@ -854,7 +858,7 @@ func (a *App) hostedMCPGetPipelineRunOutput(ctx context.Context, args map[string
 	query := `
 		SELECT id::text, name, type, status, content, error, llm_profile,
 		       generation_attempts, contract_violations, render_attempts, render_failures,
-		       created_at, updated_at
+		       created_at, generation_started_at, updated_at
 		FROM pipeline_run_outputs
 		WHERE run_id::text = $1 AND `
 	argsList := []any{runID}
@@ -868,6 +872,7 @@ func (a *App) hostedMCPGetPipelineRunOutput(ctx context.Context, args map[string
 	query += ` ORDER BY item_index ASC LIMIT 1`
 
 	var output models.PipelineRunFinalOutput
+	var generationStartedAt sql.NullTime
 	err := a.db.QueryRow(ctx, query, argsList...).Scan(
 		&output.ID,
 		&output.Name,
@@ -881,12 +886,14 @@ func (a *App) hostedMCPGetPipelineRunOutput(ctx context.Context, args map[string
 		&output.RenderAttempts,
 		&output.RenderFailures,
 		&output.CreatedAt,
+		&generationStartedAt,
 		&output.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
-	output.GenerationDuration, output.GenerationSeconds = pipelineOutputGenerationDuration(output.CreatedAt, output.UpdatedAt)
+	output.GenerationStartedAt = nullTimePtr(generationStartedAt)
+	output.GenerationDuration, output.GenerationSeconds = pipelineOutputGenerationDuration(output.GenerationStartedAt, output.UpdatedAt)
 	return map[string]any{
 		"run_id": runID,
 		"output": map[string]any{
@@ -902,6 +909,7 @@ func (a *App) hostedMCPGetPipelineRunOutput(ctx context.Context, args map[string
 			"render_attempts":             output.RenderAttempts,
 			"render_failures":             output.RenderFailures,
 			"created_at":                  output.CreatedAt,
+			"generation_started_at":       output.GenerationStartedAt,
 			"updated_at":                  output.UpdatedAt,
 			"generation_duration":         output.GenerationDuration,
 			"generation_duration_seconds": output.GenerationSeconds,
@@ -1568,7 +1576,7 @@ The dashboard itself can be managed by GitOps under dashboards/platform/engineer
 
 Dashboard outputs use type: dashboard. Authors write the dashboard intent in prompt; NopsAI supplies emitted step output first as authoritative business evidence, then run metadata, recent same-pipeline run history, step and task durations, and child runs to the configured LLM. It guides visualization selection when the prompt does not name one, normalizes common generated wrappers such as sections[].blocks, widgets, or nested blocks/widgets wrappers into flat DashboardSpec blocks, normalizes display key aliases to labels, validates the generated DashboardSpec, and retries invalid generations.
 
-Dashboard outputs are published to team-owned dashboards when their output.items[].dashboard target is valid and the run subject has dashboard.publish. Publication modes are replace, append, snapshot, and series. Run detail and hosted MCP final-output responses include created_at, updated_at, generation_duration, and generation_duration_seconds so operators can inspect output generation timing separately from the pipeline run duration.
+Dashboard outputs are published to team-owned dashboards when their output.items[].dashboard target is valid and the run subject has dashboard.publish. Publication modes are replace, append, snapshot, and series. Run detail and hosted MCP final-output responses include created_at, generation_started_at, updated_at, generation_duration, and generation_duration_seconds so operators can inspect output generation timing separately from queue time and pipeline run duration.
 `),
 	},
 }
@@ -1803,6 +1811,8 @@ func (a *App) hostedMCPGetLLMProfiles(ctx context.Context) (map[string]any, erro
 			"model":          profile.Model,
 			"base_url":       profile.BaseURL,
 			"allowed_scopes": profile.AllowedScopes,
+			"prompt_cache":   profile.PromptCache,
+			"provider_state": profile.ProviderState,
 		})
 	}
 	return map[string]any{"default_profile": defaultProfile, "profiles": items}, nil

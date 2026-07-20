@@ -25,6 +25,7 @@ var pipelineFinalOutputSchemaStatements = []string{
 			render_attempts INTEGER NOT NULL DEFAULT 0,
 			render_failures INTEGER NOT NULL DEFAULT 0,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			generation_started_at TIMESTAMPTZ,
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			CONSTRAINT pipeline_run_outputs_generation_audit_check CHECK (
 				generation_attempts >= 0
@@ -47,6 +48,7 @@ var pipelineFinalOutputSchemaStatements = []string{
 	`ALTER TABLE pipeline_run_outputs ADD COLUMN IF NOT EXISTS contract_violations INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE pipeline_run_outputs ADD COLUMN IF NOT EXISTS render_attempts INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE pipeline_run_outputs ADD COLUMN IF NOT EXISTS render_failures INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE pipeline_run_outputs ADD COLUMN IF NOT EXISTS generation_started_at TIMESTAMPTZ`,
 	`DO $$
 	BEGIN
 		IF NOT EXISTS (

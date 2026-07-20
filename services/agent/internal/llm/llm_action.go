@@ -19,7 +19,7 @@ func (c *LLMClient) GetAction(ctx context.Context, req *proto.GetActionRequest) 
 }
 
 func (c *LLMClient) GetActionWithAgentProfile(ctx context.Context, req *proto.GetActionRequest, agentProfile AgentPromptProfile) (*proto.Action, error) {
-	actionModel, err := c.getActionModel(ctx, c.buildPromptWithMCP(req, "", "", agentProfile))
+	actionModel, err := c.getActionModel(ctx, c.buildPromptWithMCP(req, "", "", agentProfile), NewGoalSession(""))
 	if err != nil {
 		return nil, err
 	}
@@ -35,6 +35,7 @@ func (c *LLMClient) GetActionWithMCPAndAgentProfile(ctx context.Context, req *pr
 }
 
 func (c *LLMClient) GetActionWithToolsAndAgentProfile(ctx context.Context, req *proto.GetActionRequest, mcpRuntime *MCPTaskRuntime, workspaceTools *workspacectx.Tools, agentProfile AgentPromptProfile) (*proto.Action, error) {
+	goalSession := NewGoalSession("")
 	toolTranscript := ""
 	if mcpRuntime == nil {
 		toolTranscript = ""
@@ -65,7 +66,7 @@ func (c *LLMClient) GetActionWithToolsAndAgentProfile(ctx context.Context, req *
 		logEvent.Msg("MCP tool call is required before final action")
 	}
 	for toolCallCount := 0; toolCallCount <= maxMCPToolCallsPerAction; toolCallCount++ {
-		actionModel, err := c.getActionModel(ctx, c.buildPromptWithTools(req, toolTranscript, mcpToolPrompt(mcpRuntime), workspaceTranscript, workspaceToolPrompt(workspaceTools), agentProfile))
+		actionModel, err := c.getActionModel(ctx, c.buildPromptWithTools(req, toolTranscript, mcpToolPrompt(mcpRuntime), workspaceTranscript, workspaceToolPrompt(workspaceTools), agentProfile), goalSession)
 		if err != nil {
 			return nil, err
 		}

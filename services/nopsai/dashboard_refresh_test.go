@@ -111,27 +111,29 @@ func TestDashboardRefreshRunResponseIncludesPipelineAndOutputStatus(t *testing.T
 	startedAt := time.Date(2026, 7, 18, 10, 0, 0, 0, time.UTC)
 	pipelineFinishedAt := startedAt.Add(2 * time.Minute)
 	outputCreatedAt := pipelineFinishedAt.Add(time.Second)
-	outputUpdatedAt := outputCreatedAt.Add(59 * time.Second)
-	outputDuration, outputDurationSeconds := pipelineOutputGenerationDuration(outputCreatedAt, outputUpdatedAt)
+	outputGenerationStartedAt := outputCreatedAt.Add(30 * time.Second)
+	outputUpdatedAt := outputGenerationStartedAt.Add(59 * time.Second)
+	outputDuration, outputDurationSeconds := pipelineOutputGenerationDuration(&outputGenerationStartedAt, outputUpdatedAt)
 
 	response := dashboardRefreshRunResponseFromRecord(dashboardRefreshRunRecord{
-		ID:                    "refresh-run-1",
-		RefreshID:             "refresh-1",
-		PipelineID:            "team-1/dashboard",
-		OutputName:            "Service Health",
-		SectionKey:            "overview",
-		Required:              true,
-		Status:                "running",
-		CreatedAt:             startedAt,
-		UpdatedAt:             outputUpdatedAt,
-		PipelineStatus:        "success",
-		PipelineStartedAt:     &startedAt,
-		PipelineFinishedAt:    &pipelineFinishedAt,
-		OutputStatus:          "generating",
-		OutputCreatedAt:       &outputCreatedAt,
-		OutputUpdatedAt:       &outputUpdatedAt,
-		OutputDuration:        outputDuration,
-		OutputDurationSeconds: outputDurationSeconds,
+		ID:                        "refresh-run-1",
+		RefreshID:                 "refresh-1",
+		PipelineID:                "team-1/dashboard",
+		OutputName:                "Service Health",
+		SectionKey:                "overview",
+		Required:                  true,
+		Status:                    "running",
+		CreatedAt:                 startedAt,
+		UpdatedAt:                 outputUpdatedAt,
+		PipelineStatus:            "success",
+		PipelineStartedAt:         &startedAt,
+		PipelineFinishedAt:        &pipelineFinishedAt,
+		OutputStatus:              "generating",
+		OutputCreatedAt:           &outputCreatedAt,
+		OutputGenerationStartedAt: &outputGenerationStartedAt,
+		OutputUpdatedAt:           &outputUpdatedAt,
+		OutputDuration:            outputDuration,
+		OutputDurationSeconds:     outputDurationSeconds,
 	})
 
 	if response.Status != "running" {

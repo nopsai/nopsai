@@ -163,6 +163,7 @@ export type PipelineRunFinalOutput = {
   render_attempts?: number;
   render_failures?: number;
   created_at?: string;
+  generation_started_at?: string;
   updated_at?: string;
   generation_duration?: string;
   generation_duration_seconds?: number;

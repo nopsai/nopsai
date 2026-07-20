@@ -350,7 +350,7 @@ test('has no serious automatically detectable accessibility violations in the au
   const pipelineRunsLink = page.getByRole('link', { name: 'Pipeline runs' });
   await expect(pipelineRunsLink).toBeVisible();
   await expect(pipelineRunsLink).toHaveAttribute('aria-current', 'page');
-  await expect(page.getByRole('tab', { name: 'Main' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true');
   const resizer = page.getByRole('separator', { name: 'Resize sidebar' });
   await resizer.focus();
   const widthBeforeKeyboardResize = Number(await resizer.getAttribute('aria-valuenow'));

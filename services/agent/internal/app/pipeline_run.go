@@ -126,11 +126,6 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 		}
 	}
 	historyRevision := uint64(len(completedTasks))
-	policyRevision := newPolicyRevisionState(req.KnowledgeSnapshots)
-	ensurePolicyRevision := func(ctx context.Context, logger *zerolog.Logger, stage string) error {
-		checkCtx := timeoutController.ContextOrDefault(ctx)
-		return policyRevision.EnsureCurrent(checkCtx, runID, req.PolicyRevisionChecker, logger, stage)
-	}
 
 	var pipelineFailed atomic.Bool
 	pipelinePaused := false
@@ -185,14 +180,6 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 					taskLogger.Warn().Str("secret", secretName).Msg("Secret was requested by step but not provided")
 				}
 
-				if strings.TrimSpace(step.GetCondition()) != "" {
-					if err := ensurePolicyRevision(context.Background(), taskLogger, "condition_evaluation"); err != nil {
-						taskLogger.Error().Err(err).Msg("Blocking policy revision check failed closed before condition evaluation")
-						req.finalizeTask(activeTasks, stepName, task.Name, "failure", 1, llmDurationMs)
-						results <- taskResult{name: runnable.GlobalKey, success: false}
-						return
-					}
-				}
 				historyMutex.Lock()
 				conditionHistorySnapshot := llmHistorySnapshotWithRevision(history.String(), historyRevision)
 				historyMutex.Unlock()
@@ -224,12 +211,6 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 
 				if approvalStep, ok := step.AsApprovalStep(); ok {
 					req.setTaskRunning(activeTasks, stepName, task.Name)
-					if err := ensurePolicyRevision(context.Background(), taskLogger, "approval_pause"); err != nil {
-						taskLogger.Error().Err(err).Msg("Blocking policy revision check failed closed before approval pause")
-						req.finalizeTask(activeTasks, stepName, task.Name, "failure", 1, llmDurationMs)
-						results <- taskResult{name: runnable.GlobalKey, success: false}
-						return
-					}
 
 					historyMutex.Lock()
 					historySnapshot := history.String()
@@ -304,12 +285,6 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 				}
 
 				req.setTaskRunning(activeTasks, stepName, task.Name)
-				if err := ensurePolicyRevision(context.Background(), taskLogger, "goal_resolution"); err != nil {
-					taskLogger.Error().Err(err).Msg("Blocking policy revision check failed closed before goal resolution")
-					req.finalizeTask(activeTasks, stepName, task.Name, "failure", 1, llmDurationMs)
-					results <- taskResult{name: runnable.GlobalKey, success: false}
-					return
-				}
 
 				stepRuntimeVars := stepContext.ContainerVariables()
 				taskContext := stepContext.WithTask(task)
@@ -417,9 +392,7 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 				var exitCode int
 
 				actionExecuted := false
-				if err := ensurePolicyRevision(context.Background(), taskLogger, "action_execution"); err != nil {
-					stdout, stderr, exitCode = "", err.Error(), 1
-				} else if err := resolver.ValidateReplaceFilePrecondition(actionResult.FilePrecondition, req.WorkspaceDir, snapshotWorkspaceRevision()); err != nil {
+				if err := resolver.ValidateReplaceFilePrecondition(actionResult.FilePrecondition, req.WorkspaceDir, snapshotWorkspaceRevision()); err != nil {
 					stdout, stderr, exitCode = "", err.Error(), 1
 				} else {
 					for attempt := 0; attempt < 10; attempt++ {

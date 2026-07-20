@@ -86,6 +86,9 @@ func TestPromptMetadataExtractsContextRevisionsAndRetrievalStats(t *testing.T) {
 	prompt := `NopsAI Knowledge Snapshot
 knowledge_revision: knowledge123
 policy_revision: policy456
+effective_policy_snapshot_hash: effective789
+policy_merge_mode: restrictive
+policy_precedence_version: 2026-07-20.v1
 ---
 **Working Directory Contents:**
 --- File: README.md ---
@@ -115,6 +118,11 @@ Workspace tool result: tool=read_file arguments={"path":"README.md"} result={"wo
 	}
 	if meta.KnowledgeRevision != "knowledge123" || meta.PolicyRevision != "policy456" {
 		t.Fatalf("knowledge/policy revisions = %q/%q", meta.KnowledgeRevision, meta.PolicyRevision)
+	}
+	if meta.EffectivePolicySnapshotHash != "effective789" ||
+		meta.PolicyMergeMode != "restrictive" ||
+		meta.PolicyPrecedenceVersion != "2026-07-20.v1" {
+		t.Fatalf("policy metadata = %#v", meta)
 	}
 	if meta.SharedFileCount != 1 || meta.SharedFileBytes <= 0 {
 		t.Fatalf("shared file stats = %d/%d", meta.SharedFileCount, meta.SharedFileBytes)

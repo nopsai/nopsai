@@ -528,12 +528,12 @@ schema are separate control layers:
 External MCP currently uses streamable HTTP. Pipeline YAML may reference only
 approved MCP profiles and cannot define arbitrary server URLs. NopsAI also
 exposes a hosted MCP endpoint at `POST /v1/mcp`, filtered by AAA permissions.
-Blocking Knowledge Context kinds (`policy` and `guardrail`) are checked through
-an internal run policy-revision endpoint before LLM and execution boundaries;
-policy drift or an unavailable policy check fails closed. Prompt and usage
-telemetry records hashes, revision markers, cache keys, cached input tokens when
-providers expose them, and bounded workspace retrieval sizes without storing
-prompt bodies.
+Blocking Knowledge Context kinds (`policy` and `guardrail`) are pinned by
+scope, then recomputed as pipeline, step, and task scopes start. Emergency
+policy response cancels active runs instead of mutating already-resolved policy.
+Prompt and usage telemetry records hashes, revision markers, cache/session
+identity, cached input tokens when providers expose them, and bounded workspace
+retrieval sizes without storing prompt bodies.
 
 ## Operations Boundary
 

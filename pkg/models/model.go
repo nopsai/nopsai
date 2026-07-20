@@ -70,6 +70,7 @@ type Step interface {
 	GetRuntimePool() string
 	GetVariables() map[string]string
 	GetKnowledgeContext() []KnowledgeContextRef
+	GetPolicyMergeMode() string
 
 	// Type assertion helpers
 	AsIncludeStep() (*IncludeStep, bool)
@@ -95,6 +96,7 @@ type BaseStep struct {
 	RuntimePool      string                `yaml:"runtime_pool,omitempty" json:"runtime_pool,omitempty"`
 	Variables        map[string]string     `yaml:"variables,omitempty" json:"variables,omitempty"`
 	KnowledgeContext []KnowledgeContextRef `yaml:"knowledge_context,omitempty" json:"knowledge_context,omitempty"`
+	PolicyMergeMode  string                `yaml:"policy_merge_mode,omitempty" json:"policy_merge_mode,omitempty"`
 }
 
 // GetName returns the step's name.
@@ -138,6 +140,9 @@ func (s *BaseStep) GetVariables() map[string]string { return s.Variables }
 
 // GetKnowledgeContext returns the step's requested knowledge context.
 func (s *BaseStep) GetKnowledgeContext() []KnowledgeContextRef { return s.KnowledgeContext }
+
+// GetPolicyMergeMode returns the step's policy merge mode override.
+func (s *BaseStep) GetPolicyMergeMode() string { return s.PolicyMergeMode }
 
 // Default type assertion implementations
 func (s *BaseStep) AsIncludeStep() (*IncludeStep, bool)   { return nil, false }
@@ -509,6 +514,13 @@ func (ps PipelineStep) GetKnowledgeContext() []KnowledgeContextRef {
 	return ps.Step.GetKnowledgeContext()
 }
 
+func (ps PipelineStep) GetPolicyMergeMode() string {
+	if ps.Step == nil {
+		return ""
+	}
+	return ps.Step.GetPolicyMergeMode()
+}
+
 func (ps PipelineStep) GetTasks() []Task {
 	if taskStep, ok := ps.AsTaskStep(); ok {
 		return taskStep.Tasks
@@ -670,6 +682,12 @@ func (ps *PipelineStep) SetKnowledgeContext(context []KnowledgeContextRef) {
 	}
 }
 
+func (ps *PipelineStep) SetPolicyMergeMode(value string) {
+	if base := ps.baseStep(); base != nil {
+		base.PolicyMergeMode = value
+	}
+}
+
 type KnowledgeContextRef struct {
 	Kind     string `yaml:"kind" json:"kind"`
 	Ref      string `yaml:"ref,omitempty" json:"ref,omitempty"`
@@ -734,6 +752,7 @@ type Pipeline struct {
 	RuntimePool       string                `yaml:"runtime_pool,omitempty" json:"runtime_pool,omitempty"`
 	AffinityEnabled   *bool                 `yaml:"affinity_enabled,omitempty" json:"affinity_enabled,omitempty"`
 	KnowledgeContext  []KnowledgeContextRef `yaml:"knowledge_context,omitempty" json:"knowledge_context,omitempty"`
+	PolicyMergeMode   string                `yaml:"policy_merge_mode,omitempty" json:"policy_merge_mode,omitempty"`
 	Output            PipelineOutput        `yaml:"output,omitempty" json:"output,omitempty"`
 	LlmContentSharing *bool                 `yaml:"llm_content_sharing,omitempty" json:"llm_content_sharing,omitempty"`
 	LlmOutputSharing  *bool                 `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
@@ -779,6 +798,7 @@ type Task struct {
 	MCPProfiles      []string              `yaml:"mcp_profiles,omitempty" json:"mcp_profiles,omitempty"`
 	Variables        map[string]string     `yaml:"variables,omitempty" json:"variables,omitempty"`
 	KnowledgeContext []KnowledgeContextRef `yaml:"knowledge_context,omitempty" json:"knowledge_context,omitempty"`
+	PolicyMergeMode  string                `yaml:"policy_merge_mode,omitempty" json:"policy_merge_mode,omitempty"`
 }
 
 func (t *Task) UnmarshalYAML(value *yaml.Node) error {
