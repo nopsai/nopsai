@@ -13,6 +13,8 @@ export type LLMProfileRecord = {
   timeout_seconds: number;
   max_tokens: number;
   temperature?: number;
+  prompt_cache?: LLMFeatureConfig;
+  provider_state?: LLMFeatureConfig;
   extra: Record<string, string>;
   status: string;
   validation?: string;
@@ -20,6 +22,20 @@ export type LLMProfileRecord = {
   allowed_in_scope?: boolean;
   disabled_reason?: string;
 };
+
+export type LLMFeatureConfig = {
+  mode?: string;
+  scope?: string;
+  retention?: string;
+};
+
+export type LLMFeatureMode = 'auto' | 'required' | 'disabled';
+
+export const LLM_FEATURE_MODE_OPTIONS: Array<{ value: LLMFeatureMode; label: string }> = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'required', label: 'Required' },
+  { value: 'disabled', label: 'Disabled' },
+];
 
 export type LLMProfilesPayload = {
   default_profile: string;
@@ -38,6 +54,8 @@ export type LLMProfileFormState = {
   timeout_seconds: string;
   max_tokens: string;
   temperature: string;
+  prompt_cache: string;
+  provider_state: string;
   extra: string;
 };
 
@@ -61,6 +79,8 @@ export const emptyLLMProfileForm: LLMProfileFormState = {
   timeout_seconds: '',
   max_tokens: '',
   temperature: '',
+  prompt_cache: '',
+  provider_state: '',
   extra: '',
 };
 
@@ -90,6 +110,8 @@ export function normalizeLLMProfilesPayload(value: unknown): LLMProfilesPayload 
         timeout_seconds: normalizeNumber(profile.timeout_seconds),
         max_tokens: normalizeNumber(profile.max_tokens),
         temperature: typeof profile.temperature === 'number' ? profile.temperature : undefined,
+        prompt_cache: normalizeLLMFeatureConfig(profile.prompt_cache),
+        provider_state: normalizeLLMFeatureConfig(profile.provider_state),
         extra: normalizeStringMap(profile.extra),
         status: readString(profile.status).trim() || 'unknown',
         validation: readOptionalString(profile.validation),
@@ -121,6 +143,8 @@ export function llmProfileFormFromRecord(profile: LLMProfileRecord): LLMProfileF
     timeout_seconds: profile.timeout_seconds > 0 ? String(profile.timeout_seconds) : '',
     max_tokens: profile.max_tokens > 0 ? String(profile.max_tokens) : '',
     temperature: profile.temperature === undefined ? '' : String(profile.temperature),
+    prompt_cache: formatLLMFeatureConfig(profile.prompt_cache),
+    provider_state: formatLLMFeatureConfig(profile.provider_state),
     extra: formatExtraOptions(profile.extra),
   };
 }
@@ -140,8 +164,49 @@ export function llmProfilePayloadFromForm(form: LLMProfileFormState) {
     timeout_seconds: parseOptionalNonNegativeNumber(form.timeout_seconds),
     max_tokens: providerDefinition.supportsMaxTokens ? parseOptionalNonNegativeNumber(form.max_tokens) : undefined,
     temperature: providerDefinition.supportsTemperature ? parseOptionalNumber(form.temperature) : undefined,
+    prompt_cache: parseLLMFeatureConfig(form.prompt_cache),
+    provider_state: parseLLMFeatureConfig(form.provider_state),
     extra: parseExtraOptions(form.extra),
   };
+}
+
+export function normalizeLLMFeatureConfig(value: unknown): LLMFeatureConfig | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const feature: LLMFeatureConfig = {};
+  const mode = readOptionalString(record.mode)?.trim();
+  const scope = readOptionalString(record.scope)?.trim();
+  const retention = readOptionalString(record.retention)?.trim();
+  if (mode) feature.mode = mode;
+  if (scope) feature.scope = scope;
+  if (retention) feature.retention = retention;
+  return Object.keys(feature).length ? feature : undefined;
+}
+
+export function formatLLMFeatureConfig(value?: LLMFeatureConfig): string {
+  if (!value || Object.keys(value).length === 0) return '';
+  return JSON.stringify(value, null, 2);
+}
+
+export function parseLLMFeatureConfig(value: string): LLMFeatureConfig | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  try {
+    return normalizeLLMFeatureConfig(JSON.parse(trimmed));
+  } catch {
+    return undefined;
+  }
+}
+
+export function llmFeatureModeFromFormValue(value: string): LLMFeatureMode {
+  const mode = parseLLMFeatureConfig(value)?.mode?.trim().toLowerCase();
+  if (mode === 'required' || mode === 'disabled') return mode;
+  return 'auto';
+}
+
+export function llmFeatureFormValueWithMode(value: string, mode: LLMFeatureMode): string {
+  const current = parseLLMFeatureConfig(value) || {};
+  return formatLLMFeatureConfig({ ...current, mode });
 }
 
 export function formatExtraOptions(extra: Record<string, string>): string {

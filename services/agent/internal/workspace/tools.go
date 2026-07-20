@@ -9,11 +9,12 @@ import (
 )
 
 type Tools struct {
-	index      *Index
-	mu         sync.Mutex
-	calls      int
-	log        string
-	identities map[string]FileEntry
+	index       *Index
+	mu          sync.Mutex
+	calls       int
+	log         string
+	completeLog string
+	identities  map[string]FileEntry
 }
 
 func NewTools(index *Index) *Tools {
@@ -42,6 +43,15 @@ func (t *Tools) ToolTranscript() string {
 	return t.log
 }
 
+func (t *Tools) CompleteToolTranscript() string {
+	if t == nil {
+		return ""
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.completeLog
+}
+
 func (t *Tools) IdentityFor(path string) (FileEntry, bool) {
 	if t == nil {
 		return FileEntry{}, false
@@ -63,9 +73,10 @@ func (t *Tools) ToolPrompt() string {
 	return strings.TrimSpace(`**Workspace Tools:**
 You may call these NopsAI-managed workspace tools before choosing a final action. To call a tool, respond with JSON like {"action":{"type":"CALL_WORKSPACE_TOOL","workspace_tool_action":{"tool":"read_file","arguments":{"path":"README.md"}}}}. After a workspace tool result is returned in the history, either call another workspace tool, call an approved MCP tool, or choose EXECUTE_COMMAND, REPLACE_FILE, or RETURN_ANSWER.
 - list_files: List current workspace file identities. arguments: {"limit": number}
-- search_code: Search current text files by substring. arguments: {"query": string, "max_results": number}
-- read_file: Read one current text file by relative path. arguments: {"path": string, "max_bytes": number}
-Tool results include path, sha256, size, and workspace_revision. Use those identities when reasoning about file changes; stale REPLACE_FILE actions are rejected.`) + "\n"
+- list_files: List current workspace file identities. arguments: {"limit": number, "cursor": string}. Continue with next_cursor when present.
+- search_code: Search current text files by substring. arguments: {"query": string, "max_results": number, "cursor": string}. Continue with next_cursor when present.
+- read_file: Read one current text file byte range by relative path. arguments: {"path": string, "offset": number, "max_bytes": number}. Continue with next_offset until eof is true.
+Tool results include path, sha256, size, workspace_revision, and pagination/range cursors. Use those identities when reasoning about file changes; stale REPLACE_FILE actions are rejected.`) + "\n"
 }
 
 func (t *Tools) CallTool(_ context.Context, toolName string, arguments json.RawMessage) (json.RawMessage, error) {
@@ -77,34 +88,30 @@ func (t *Tools) CallTool(_ context.Context, toolName string, arguments json.RawM
 	switch toolName {
 	case "list_files":
 		var args struct {
-			Limit int `json:"limit"`
+			Limit  int    `json:"limit"`
+			Cursor string `json:"cursor"`
 		}
 		_ = json.Unmarshal(arguments, &args)
-		result = map[string]any{
-			"files":              t.index.ListFiles(args.Limit),
-			"workspace_revision": t.index.Revision(),
-		}
-		for _, entry := range t.index.ListFiles(args.Limit) {
+		page := t.index.ListFilesPage(args.Cursor, args.Limit)
+		result = page
+		for _, entry := range page.Files {
 			t.recordIdentity(entry)
 		}
 	case "search_code":
 		var args struct {
 			Query      string `json:"query"`
 			MaxResults int    `json:"max_results"`
+			Cursor     string `json:"cursor"`
 		}
 		if err := json.Unmarshal(arguments, &args); err != nil {
 			return nil, fmt.Errorf("invalid search_code arguments: %w", err)
 		}
-		results, err := t.index.SearchCode(args.Query, args.MaxResults)
+		page, err := t.index.SearchCodePage(args.Query, args.Cursor, args.MaxResults)
 		if err != nil {
 			return nil, err
 		}
-		result = map[string]any{
-			"query":              strings.TrimSpace(args.Query),
-			"results":            results,
-			"workspace_revision": t.index.Revision(),
-		}
-		for _, searchResult := range results {
+		result = page
+		for _, searchResult := range page.Results {
 			t.recordIdentity(FileEntry{
 				Path:              searchResult.Path,
 				SHA256:            searchResult.SHA256,
@@ -116,12 +123,13 @@ func (t *Tools) CallTool(_ context.Context, toolName string, arguments json.RawM
 	case "read_file":
 		var args struct {
 			Path     string `json:"path"`
+			Offset   int64  `json:"offset"`
 			MaxBytes int    `json:"max_bytes"`
 		}
 		if err := json.Unmarshal(arguments, &args); err != nil {
 			return nil, fmt.Errorf("invalid read_file arguments: %w", err)
 		}
-		file, err := t.index.ReadFile(args.Path, args.MaxBytes)
+		file, err := t.index.ReadFileRange(args.Path, args.Offset, args.MaxBytes)
 		if err != nil {
 			return nil, err
 		}
@@ -145,6 +153,12 @@ func (t *Tools) recordSuccessfulToolCall(toolName string, arguments json.RawMess
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.calls++
+	t.completeLog += fmt.Sprintf(
+		"\nWorkspace tool result: tool=%s arguments=%s result=%s\n",
+		toolName,
+		jsonString(arguments, 0),
+		jsonString(result, 0),
+	)
 	t.log += fmt.Sprintf(
 		"\nWorkspace tool result: tool=%s arguments=%s result=%s\n",
 		toolName,

@@ -390,13 +390,18 @@ func TestBuildRunDetailETagChangesWhenFinalOutputRenderAuditChanges(t *testing.T
 func TestFinalOutputGenerationTiming(t *testing.T) {
 	createdAt := time.Date(2026, 7, 18, 10, 0, 0, 0, time.UTC)
 	updatedAt := createdAt.Add(2*time.Minute + 30*time.Second)
-	duration, seconds := FinalOutputGenerationTiming(createdAt, updatedAt)
+	duration, seconds := FinalOutputGenerationTiming(&createdAt, updatedAt)
 	if duration != "2m30s" || seconds != 150 {
 		t.Fatalf("FinalOutputGenerationTiming() = %q, %.0f; want 2m30s, 150", duration, seconds)
 	}
 
-	duration, seconds = FinalOutputGenerationTiming(updatedAt, createdAt)
+	duration, seconds = FinalOutputGenerationTiming(&updatedAt, createdAt)
 	if duration != "" || seconds != 0 {
 		t.Fatalf("FinalOutputGenerationTiming(inverted) = %q, %.0f; want empty, 0", duration, seconds)
+	}
+
+	duration, seconds = FinalOutputGenerationTiming(nil, updatedAt)
+	if duration != "" || seconds != 0 {
+		t.Fatalf("FinalOutputGenerationTiming(nil start) = %q, %.0f; want empty, 0", duration, seconds)
 	}
 }

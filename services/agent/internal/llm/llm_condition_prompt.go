@@ -12,8 +12,16 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func (c *LLMClient) getActionModel(ctx context.Context, prompt string) (*models.Action, error) {
-	responseText, err := c.providerClient.Complete(ctx, prompt)
+func (c *LLMClient) getActionModel(ctx context.Context, prompt string, sessions ...GoalSession) (*models.Action, error) {
+	session := NewGoalSession("")
+	if len(sessions) > 0 {
+		session = sessions[0]
+	}
+	response, err := c.CompleteRequest(ctx, CompletionRequest{
+		Feature: "goal_resolution",
+		Prompt:  prompt,
+		Session: session,
+	})
 	if err != nil {
 		logEvent := log.Error().Err(err).Str("provider", c.provider)
 		if c.profile != "" {
@@ -23,7 +31,7 @@ func (c *LLMClient) getActionModel(ctx context.Context, prompt string) (*models.
 		return nil, err
 	}
 
-	return decodeActionResponse(responseText)
+	return decodeActionResponse(response.Text)
 }
 
 func actionModelToProto(actionModel *models.Action) (*proto.Action, error) {
@@ -52,7 +60,11 @@ func (c *LLMClient) EvaluateCondition(ctx context.Context, req *proto.ConditionR
 func (c *LLMClient) EvaluateConditionWithAgentProfile(ctx context.Context, req *proto.ConditionRequest, agentProfile AgentPromptProfile) (*proto.ConditionResponse, error) {
 	prompt := c.buildConditionPrompt(req, agentProfile)
 
-	responseText, err := c.providerClient.Complete(ctx, prompt)
+	response, err := c.CompleteRequest(ctx, CompletionRequest{
+		Feature: "condition",
+		Prompt:  prompt,
+		Session: NewGoalSession(""),
+	})
 	if err != nil {
 		logEvent := log.Error().Err(err).Str("provider", c.provider)
 		if c.profile != "" {
@@ -62,7 +74,7 @@ func (c *LLMClient) EvaluateConditionWithAgentProfile(ctx context.Context, req *
 		return &proto.ConditionResponse{Result: false}, err
 	}
 
-	result, err := parseBooleanText(responseText)
+	result, err := parseBooleanText(response.Text)
 	if err != nil {
 		return &proto.ConditionResponse{Result: false}, err
 	}

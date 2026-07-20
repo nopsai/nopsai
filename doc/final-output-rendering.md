@@ -1,9 +1,11 @@
 # Pipeline Final Output Rendering
 
 Pipeline final outputs are run-owned deliverables configured through
-`output.items` in pipeline YAML. Output name, type, timing, prompt, and optional
-LLM profile remain GitOps-owned. Generated source, validation audit, and render
-audit remain attached to the run record.
+`output.items` in pipeline YAML. Output name, type, prompt, and optional LLM
+profile remain GitOps-owned. Generated source, timing, validation audit, and
+render audit remain attached to the run record. Generation duration is measured
+from `generation_started_at` to `updated_at`, so queued outputs do not inherit
+time spent waiting for earlier outputs.
 
 ## Generation Contract
 

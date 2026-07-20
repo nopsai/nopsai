@@ -30,11 +30,31 @@ func TestLLMHistorySnapshotCompactsLargeHistory(t *testing.T) {
 
 	if !strings.Contains(got, "Stable run summary:") ||
 		!strings.Contains(got, "Full execution history is") ||
+		!strings.Contains(got, "Structured previous-goal facts:") ||
 		!strings.Contains(got, "Recent task events:") ||
 		!strings.Contains(got, "recent event") {
 		t.Fatalf("compacted history missing expected summary:\n%s", got)
 	}
 	if len([]byte(got)) >= len([]byte(history)) {
 		t.Fatalf("compacted history is not smaller: got %d original %d", len([]byte(got)), len([]byte(history)))
+	}
+}
+
+func TestLLMHistorySnapshotExtractsStructuredFactsWhenCompacted(t *testing.T) {
+	history := strings.Repeat("padding\n", 5000) +
+		"- Goal: deploy\n  Action: run deploy\n  Result (Exit Code 0): shipped successfully\n" +
+		"- Goal: verify\n  Action: curl health\n  Result (Exit Code 1): health check failed\n"
+	got := llmHistorySnapshotWithRevision(history, 4)
+
+	for _, want := range []string{
+		"history_revision: 4",
+		"Structured previous-goal facts:",
+		`goal="deploy"`,
+		`action="curl health"`,
+		`exit_code="1"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("compacted history = %q, want %q", got, want)
+		}
 	}
 }

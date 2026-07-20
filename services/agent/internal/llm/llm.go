@@ -17,26 +17,32 @@ type ProviderClient interface {
 }
 
 type LLMClientOptions struct {
-	Provider       string
-	Profile        string
-	APIKey         string
-	Model          string
-	BaseURL        string
-	Reasoning      string
-	TimeoutSeconds int
-	MaxTokens      int
-	Temperature    *float64
-	Extra          map[string]string
+	Provider           string
+	Profile            string
+	APIKey             string
+	Model              string
+	BaseURL            string
+	Reasoning          string
+	AuthorizationScope string
+	PromptCacheMode    string
+	ProviderStateMode  string
+	TimeoutSeconds     int
+	MaxTokens          int
+	Temperature        *float64
+	Extra              map[string]string
 }
 
 type LLMClient struct {
-	provider       string
-	profile        string
-	model          string
-	baseURL        string
-	extra          map[string]string
-	httpClient     *http.Client
-	providerClient ProviderClient
+	provider           string
+	profile            string
+	model              string
+	baseURL            string
+	authorizationScope string
+	promptCacheMode    string
+	providerStateMode  string
+	extra              map[string]string
+	httpClient         *http.Client
+	providerClient     ProviderClient
 }
 
 const maxMCPToolCallsPerAction = 8
@@ -79,6 +85,9 @@ func NewLLMClientWithOptions(options LLMClientOptions) *LLMClient {
 	options.Model = strings.TrimSpace(options.Model)
 	options.BaseURL = strings.TrimSpace(options.BaseURL)
 	options.Reasoning = appconfig.NormalizeLMStudioReasoning(options.Reasoning)
+	options.AuthorizationScope = strings.Trim(strings.TrimSpace(options.AuthorizationScope), "/")
+	options.PromptCacheMode = appconfig.NormalizeLLMFeatureMode(options.PromptCacheMode)
+	options.ProviderStateMode = appconfig.NormalizeLLMFeatureMode(options.ProviderStateMode)
 	if len(options.Extra) > 0 {
 		normalizedExtra := make(map[string]string, len(options.Extra))
 		for key, value := range options.Extra {
@@ -93,12 +102,15 @@ func NewLLMClientWithOptions(options LLMClientOptions) *LLMClient {
 		timeout = time.Duration(options.TimeoutSeconds) * time.Second
 	}
 	client := &LLMClient{
-		provider:   options.Provider,
-		profile:    options.Profile,
-		model:      options.Model,
-		baseURL:    options.BaseURL,
-		extra:      cloneStringMap(options.Extra),
-		httpClient: &http.Client{Timeout: timeout},
+		provider:           options.Provider,
+		profile:            options.Profile,
+		model:              options.Model,
+		baseURL:            options.BaseURL,
+		authorizationScope: options.AuthorizationScope,
+		promptCacheMode:    options.PromptCacheMode,
+		providerStateMode:  options.ProviderStateMode,
+		extra:              cloneStringMap(options.Extra),
+		httpClient:         &http.Client{Timeout: timeout},
 	}
 	client.providerClient = newProviderClient(client, options)
 	return client

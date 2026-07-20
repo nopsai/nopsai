@@ -431,7 +431,7 @@ html.dark [class*="text-neutral-200"] {
 .sidebar-nav-label {
     margin: 0;
     padding: 0 9px 6px;
-    color: #38bdf8;
+    color: #0369a1;
     font-family: inherit;
     font-size: 11px;
     font-weight: 700;
@@ -3869,11 +3869,15 @@ html.dark .pipeline-card-icon {
     padding: 0 0.65rem;
     border: 0;
     border-radius: 0.45rem;
-    color: var(--text-secondary);
+    color: #4b5563;
     background: transparent;
     font-size: 0.76rem;
     font-weight: 650;
     white-space: nowrap;
+}
+
+html.dark .pipeline-runs-segment {
+    color: var(--text-secondary);
 }
 
 .pipeline-runs-segment:hover {

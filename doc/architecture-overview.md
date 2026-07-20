@@ -122,21 +122,21 @@ agent-owned workspace index and return current hashes instead of relying on
 provider conversation state.
 
 Provider prompt caching is treated as an optimization signal rather than the
-source of truth. Agent LLM usage metadata records `static_context_sha256` and
-`static_context_cache_key` from the stable prompt prefix, provider, model,
-profile, endpoint, and provider project/deployment extras so adapters and
+source of truth. Agent LLM usage metadata records `static_context_sha256`,
+`static_context_cache_key`, `cache_identity_sha256`, execution mode, logical
+session ID, provider-state support, and prompt-cache support so adapters and
 monitoring can reason about cache eligibility and invalidation without storing
 prompt bodies.
 
 Policy and knowledge revisions in agent prompts are deterministic hashes. The
-agent keeps non-blocking knowledge pinned to the run-start snapshot for
-reproducibility, but treats blocking `policy` and `guardrail` contexts as live:
-before condition evaluation, approval pause, goal resolution/direct-script
-validation, and action execution, it calls the internal NopsAI
-`/v1/internal/runs/{runID}/policy-revision` endpoint. If the policy revision
-changed or the check is unavailable, the action fails closed and the static
-context cache key is considered invalidated. No provider conversation state is
-required for that check.
+agent pins policy snapshots by scope: pipeline at run start, step at step start,
+and task at task start. Effective policy is recomputed as each narrower scope
+begins and includes a merge mode (`restrictive`, `override`, or
+`fail_on_conflict`) plus `policy_precedence_version`. Provider conversation
+state and provider caches are disposable optimizations; NopsAI-owned scoped
+snapshots, logical session IDs, and durable transcripts remain the correctness
+boundary. Emergency policy response cancels active runs instead of mutating
+already-resolved policy snapshots.
 
 Step types:
 
