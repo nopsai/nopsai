@@ -492,7 +492,7 @@ const pipelineTopLevelRows: WikiConfigRow[] = [
   {
     key: 'llm_content_sharing',
     area: 'Pipeline YAML',
-    description: 'Boolean control for whether the agent scans workspace file content for LLM goal context.',
+    description: 'Boolean control for whether the agent automatically shares workspace file content in LLM goal context. Defaults to false when omitted; bounded workspace tools can still retrieve current files on demand with identity metadata for stale-write checks.',
     example: 'true',
   },
   {
@@ -2949,6 +2949,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'If a guardrail or policy conflicts with a requested action, the agent should explain the block rather than perform the prohibited action, and that block is treated as task failure.',
           'Effective context is merged from pipeline-level references, then step-level references, then task-level references. Required duplicates win over optional duplicates.',
           'Managed refs use knowledge_context.use authorization and are snapshotted into pipeline_run_knowledge_contexts so completed runs preserve exactly what the model saw.',
+          'Blocking policy and guardrail revisions are checked live before LLM and execution boundaries. Policy drift or an unavailable policy-revision check fails closed.',
         ],
         configRows: knowledgeRows,
         examples: [
@@ -3026,7 +3027,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'The Helm API Service includes Prometheus scrape annotations by default.',
           'Use monitoring data to size runners and resource requests because the repository does not publish validated production sizing tiers.',
           'Monitoring aggregate endpoints filter candidate run IDs through AAA before aggregation, so charts and summaries stay aligned with the caller permissions.',
-          'AI usage records include run, step, task, provider, model, profile, feature, and assistant chat dimensions where the runtime records them.',
+          'AI usage records include run, step, task, provider, model, profile, feature, prompt hashes, static cache keys, cached input tokens when providers expose them, revision markers, workspace retrieval sizes, and assistant chat dimensions where the runtime records them.',
         ],
         configRows: [
           {

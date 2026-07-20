@@ -80,7 +80,7 @@ func TestOpenAICompatibleClientRequestAndUsage(t *testing.T) {
 			t.Errorf("decode request: %v", err)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"choices":[{"message":{"content":"true"}}],"usage":{"prompt_tokens":7,"completion_tokens":2,"total_tokens":9}}`)
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"true"}}],"usage":{"prompt_tokens":7,"completion_tokens":2,"total_tokens":9,"prompt_tokens_details":{"cached_tokens":3}}}`)
 	}))
 	defer server.Close()
 
@@ -113,7 +113,7 @@ func TestOpenAICompatibleClientRequestAndUsage(t *testing.T) {
 		t.Fatalf("messages = %#v", request.Messages)
 	}
 	usages := collector.Snapshot()
-	if len(usages) != 1 || usages[0].Provider != appconfig.LLMProviderGroq || usages[0].TotalTokens != 9 {
+	if len(usages) != 1 || usages[0].Provider != appconfig.LLMProviderGroq || usages[0].TotalTokens != 9 || usages[0].CachedInputTokens != 3 {
 		t.Fatalf("usage = %#v", usages)
 	}
 }

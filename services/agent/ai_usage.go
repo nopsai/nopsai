@@ -58,6 +58,48 @@ func aiUsageReportFromLLMUsage(feature, stepName, taskName, agentProfile string,
 	if usage.Estimated {
 		metadata["estimated_tokens"] = true
 	}
+	if promptSHA := strings.TrimSpace(usage.PromptSHA256); promptSHA != "" {
+		metadata["prompt_sha256"] = promptSHA
+	}
+	if usage.PromptBytes > 0 {
+		metadata["prompt_bytes"] = usage.PromptBytes
+	}
+	if usage.EstimatedInputTokens > 0 {
+		metadata["estimated_input_tokens"] = usage.EstimatedInputTokens
+	}
+	if usage.CachedInputTokens > 0 {
+		metadata["cached_input_tokens"] = usage.CachedInputTokens
+	}
+	if staticSHA := strings.TrimSpace(usage.StaticContextSHA256); staticSHA != "" {
+		metadata["static_context_sha256"] = staticSHA
+	}
+	if cacheKey := strings.TrimSpace(usage.StaticContextCacheKey); cacheKey != "" {
+		metadata["static_context_cache_key"] = cacheKey
+	}
+	if usage.HistoryRevision > 0 {
+		metadata["history_revision"] = usage.HistoryRevision
+	}
+	if usage.WorkspaceRevision > 0 {
+		metadata["workspace_revision"] = usage.WorkspaceRevision
+	}
+	if knowledgeRevision := strings.TrimSpace(usage.KnowledgeRevision); knowledgeRevision != "" {
+		metadata["knowledge_revision"] = knowledgeRevision
+	}
+	if policyRevision := strings.TrimSpace(usage.PolicyRevision); policyRevision != "" {
+		metadata["policy_revision"] = policyRevision
+	}
+	if usage.SharedFileCount > 0 {
+		metadata["shared_file_count"] = usage.SharedFileCount
+	}
+	if usage.SharedFileBytes > 0 {
+		metadata["shared_file_bytes"] = usage.SharedFileBytes
+	}
+	if usage.WorkspaceToolCallCount > 0 {
+		metadata["workspace_tool_call_count"] = usage.WorkspaceToolCallCount
+	}
+	if usage.WorkspaceToolResultBytes > 0 {
+		metadata["workspace_tool_result_bytes"] = usage.WorkspaceToolResultBytes
+	}
 	return models.AIUsageReport{
 		StepName:         strings.TrimSpace(stepName),
 		TaskName:         strings.TrimSpace(taskName),

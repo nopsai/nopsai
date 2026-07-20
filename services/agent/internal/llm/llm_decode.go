@@ -45,7 +45,12 @@ func decodeActionResponse(raw string) (*models.Action, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("failed to unmarshal action response: %w. Response text: %s", strictErr, actionJSON)
+	return nil, fmt.Errorf(
+		"failed to unmarshal action response: %w. response_sha256=%s response_bytes=%d",
+		strictErr,
+		promptSHA256(actionJSON),
+		len([]byte(actionJSON)),
+	)
 }
 
 func decodeActionJSON(actionJSON string) (*models.Action, error) {
@@ -79,6 +84,10 @@ func validateAction(action models.Action) error {
 	case models.ActionTypeCallMCPTool:
 		if action.MCPToolAction == nil || strings.TrimSpace(action.MCPToolAction.Tool) == "" {
 			return fmt.Errorf("CALL_MCP_TOOL action requires mcp_tool_action.tool")
+		}
+	case models.ActionTypeCallWorkspaceTool:
+		if action.WorkspaceToolAction == nil || strings.TrimSpace(action.WorkspaceToolAction.Tool) == "" {
+			return fmt.Errorf("CALL_WORKSPACE_TOOL action requires workspace_tool_action.tool")
 		}
 	default:
 		return fmt.Errorf("unsupported action type %q", action.Type)

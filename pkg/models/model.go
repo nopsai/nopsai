@@ -751,6 +751,13 @@ func PipelineLLMEnabled(pipeline *Pipeline) bool {
 	return true
 }
 
+func PipelineLLMContentSharing(pipeline *Pipeline) bool {
+	if pipeline == nil || pipeline.LlmContentSharing == nil {
+		return false
+	}
+	return *pipeline.LlmContentSharing
+}
+
 // DisplayOptions defines how the pipeline progress is displayed in integrations like GitHub.
 type DisplayOptions struct {
 	GitHubView string `yaml:"github_view,omitempty" json:"github_view,omitempty"`
@@ -842,20 +849,28 @@ type MCPToolAction struct {
 	Arguments json.RawMessage `json:"arguments,omitempty"`
 }
 
+// WorkspaceToolAction asks the agent to call a bounded NopsAI workspace tool.
+type WorkspaceToolAction struct {
+	Tool      string          `json:"tool"`
+	Arguments json.RawMessage `json:"arguments,omitempty"`
+}
+
 // Action is the structured command returned by the LLM Agent to the Agent.
 type Action struct {
-	Type          string         `json:"type"`
-	CommandAction *CommandAction `json:"command_action,omitempty"`
-	FileAction    *FileAction    `json:"file_action,omitempty"`
-	AnswerAction  *AnswerAction  `json:"answer_action,omitempty"`
-	MCPToolAction *MCPToolAction `json:"mcp_tool_action,omitempty"`
+	Type                string               `json:"type"`
+	CommandAction       *CommandAction       `json:"command_action,omitempty"`
+	FileAction          *FileAction          `json:"file_action,omitempty"`
+	AnswerAction        *AnswerAction        `json:"answer_action,omitempty"`
+	MCPToolAction       *MCPToolAction       `json:"mcp_tool_action,omitempty"`
+	WorkspaceToolAction *WorkspaceToolAction `json:"workspace_tool_action,omitempty"`
 }
 
 const (
-	ActionTypeExecuteCommand string = "EXECUTE_COMMAND"
-	ActionTypeReplaceFile    string = "REPLACE_FILE"
-	ActionTypeReturnAnswer   string = "RETURN_ANSWER"
-	ActionTypeCallMCPTool    string = "CALL_MCP_TOOL"
+	ActionTypeExecuteCommand    string = "EXECUTE_COMMAND"
+	ActionTypeReplaceFile       string = "REPLACE_FILE"
+	ActionTypeReturnAnswer      string = "RETURN_ANSWER"
+	ActionTypeCallMCPTool       string = "CALL_MCP_TOOL"
+	ActionTypeCallWorkspaceTool string = "CALL_WORKSPACE_TOOL"
 )
 
 // ActionResult is sent from the Agent back to the LLM Agent after an action is performed.

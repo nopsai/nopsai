@@ -486,6 +486,21 @@ Responsibilities:
 - Executes commands or file writes inside step containers.
 - Maintains execution history that later tasks and child pipelines can use.
 - Injects effective pipeline + step + task knowledge context into LLM prompts.
+- Adds deterministic run-start `knowledge_revision` and `policy_revision`
+  hashes to blocking knowledge prompts.
+- Checks live blocking policy revision through NopsAI before condition
+  evaluation, approval pause, goal resolution/direct-script validation, and
+  action execution. Policy drift or policy-check errors fail closed.
+- Logs LLM prompt metadata, hashes, sizes, and token estimates without logging
+  prompt bodies.
+- Records prompt/cache/revision/retrieval telemetry in AI usage metadata,
+  including cached input tokens when OpenAI-compatible providers return them.
+- Exposes bounded internal workspace tools (`list_files`, `search_code`, and
+  `read_file`) to LLM goal resolution.
+- Adds file identity metadata to explicitly shared workspace files and rejects
+  stale `REPLACE_FILE` actions before execution.
+- Compacts oversized LLM prompt history to a stable summary plus recent task
+  events while preserving full durable history for approvals and child runs.
 - Masks secrets before writing output into the shared history/log path.
 - Sends task status and final status back through the dispatcher.
 - Keeps logger construction, workspace directory listing, and dispatcher
@@ -511,6 +526,7 @@ Key files:
 - `services/agent/dispatcher_reports.go`
 - `services/agent/approval_checkpoint.go`
 - `services/agent/nopsai_client.go`
+- `services/agent/policy_revision.go`
 - `services/agent/internal/app`
 - `services/agent/internal/scheduler`
 - `services/agent/internal/executor`
