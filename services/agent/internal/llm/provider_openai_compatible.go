@@ -45,9 +45,12 @@ type openAIChatResponse struct {
 		} `json:"message"`
 	} `json:"choices"`
 	Usage struct {
-		PromptTokens     int64 `json:"prompt_tokens"`
-		CompletionTokens int64 `json:"completion_tokens"`
-		TotalTokens      int64 `json:"total_tokens"`
+		PromptTokens        int64 `json:"prompt_tokens"`
+		CompletionTokens    int64 `json:"completion_tokens"`
+		TotalTokens         int64 `json:"total_tokens"`
+		PromptTokensDetails struct {
+			CachedTokens int64 `json:"cached_tokens"`
+		} `json:"prompt_tokens_details"`
 	} `json:"usage"`
 }
 
@@ -183,15 +186,15 @@ func completeOpenAIChat(
 		return "", fmt.Errorf("invalid response from %s: %w", owner.provider, err)
 	}
 
-	recordUsage(ctx, usageFromTokens(
-		owner.provider,
+	recordUsage(ctx, usageFromTokenDetailsForClient(
+		owner,
 		model,
-		owner.profile,
 		prompt,
 		responseText,
 		response.Usage.PromptTokens,
 		response.Usage.CompletionTokens,
 		response.Usage.TotalTokens,
+		response.Usage.PromptTokensDetails.CachedTokens,
 	))
 	return responseText, nil
 }

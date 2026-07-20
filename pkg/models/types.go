@@ -166,6 +166,14 @@ type AIUsageReport struct {
 	Metadata         map[string]any `json:"metadata,omitempty"`
 }
 
+type PolicyRevisionResponse struct {
+	RunStartPolicyRevision string                     `json:"run_start_policy_revision"`
+	CurrentPolicyRevision  string                     `json:"current_policy_revision"`
+	BlockingContextCount   int                        `json:"blocking_context_count"`
+	KnowledgeContexts      []KnowledgeContextSnapshot `json:"knowledge_contexts,omitempty"`
+	CheckedAt              time.Time                  `json:"checked_at,omitempty"`
+}
+
 type SecretRequest struct {
 	Value string `json:"value"`
 }

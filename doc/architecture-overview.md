@@ -106,9 +106,37 @@ Top-level pipeline features:
 - `variables` as required scope variables
 - `timeout`
 - `llm_enabled` to disable all LLM-backed behavior for script-only pipelines
-- `llm_content_sharing`, `llm_output_sharing`, `llm_content_include`, `llm_content_ignore`
+- `llm_content_sharing` defaults to false and must be explicitly enabled before workspace file contents are sent to LLM goal resolution
+- `llm_output_sharing`, `llm_content_include`, `llm_content_ignore`
 - `knowledge_context` for managed or repo-local project knowledge
 - `display_options.github_view`
+
+When content sharing is enabled, shared files are annotated with path, SHA-256,
+size, and workspace revision metadata. The agent rejects stale `REPLACE_FILE`
+actions when the file or workspace revision changed after the LLM context was
+built.
+
+For file retrieval, LLM goal resolution can call bounded internal workspace
+tools: `list_files`, `search_code`, and `read_file`. These tools read from the
+agent-owned workspace index and return current hashes instead of relying on
+provider conversation state.
+
+Provider prompt caching is treated as an optimization signal rather than the
+source of truth. Agent LLM usage metadata records `static_context_sha256` and
+`static_context_cache_key` from the stable prompt prefix, provider, model,
+profile, endpoint, and provider project/deployment extras so adapters and
+monitoring can reason about cache eligibility and invalidation without storing
+prompt bodies.
+
+Policy and knowledge revisions in agent prompts are deterministic hashes. The
+agent keeps non-blocking knowledge pinned to the run-start snapshot for
+reproducibility, but treats blocking `policy` and `guardrail` contexts as live:
+before condition evaluation, approval pause, goal resolution/direct-script
+validation, and action execution, it calls the internal NopsAI
+`/v1/internal/runs/{runID}/policy-revision` endpoint. If the policy revision
+changed or the check is unavailable, the action fails closed and the static
+context cache key is considered invalidated. No provider conversation state is
+required for that check.
 
 Step types:
 

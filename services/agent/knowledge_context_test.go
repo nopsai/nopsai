@@ -25,11 +25,36 @@ func TestFormatKnowledgeContextPromptExplainsBlockingFailure(t *testing.T) {
 		"Guardrails and policies apply to the user's goal and to generated commands",
 		"return RETURN_ANSWER instead",
 		"agent will treat that response as a task failure",
+		"NopsAI Knowledge Snapshot",
+		"knowledge_revision:",
+		"policy_revision:",
 		"runtime-output-safety",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt = %q, want it to contain %q", prompt, want)
 		}
+	}
+}
+
+func TestKnowledgeContextRevisionSeparatesPolicyAndGuidelineChanges(t *testing.T) {
+	snapshots := []models.KnowledgeContextSnapshot{
+		{Kind: "policy", Ref: "team/release", Content: "Require evidence."},
+		{Kind: "guideline", Ref: "team/style", Content: "Friendly tone."},
+	}
+	knowledgeRevision := knowledgeContextRevision(snapshots, false)
+	policyRevision := knowledgeContextRevision(snapshots, true)
+	if knowledgeRevision == "" || policyRevision == "" {
+		t.Fatalf("revisions should be populated: knowledge=%q policy=%q", knowledgeRevision, policyRevision)
+	}
+	changedGuideline := []models.KnowledgeContextSnapshot{
+		{Kind: "policy", Ref: "team/release", Content: "Require evidence."},
+		{Kind: "guideline", Ref: "team/style", Content: "Concise tone."},
+	}
+	if got := knowledgeContextRevision(changedGuideline, false); got == knowledgeRevision {
+		t.Fatal("knowledge revision did not change after guideline content changed")
+	}
+	if got := knowledgeContextRevision(changedGuideline, true); got != policyRevision {
+		t.Fatal("policy revision changed after guideline-only content changed")
 	}
 }
 

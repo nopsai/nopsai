@@ -2,12 +2,14 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
+	workspacectx "nopsai/services/agent/internal/workspace"
 
 	"github.com/rs/zerolog/log"
 )
@@ -29,13 +31,32 @@ func (c *LLMClient) GetActionWithMCP(ctx context.Context, req *proto.GetActionRe
 }
 
 func (c *LLMClient) GetActionWithMCPAndAgentProfile(ctx context.Context, req *proto.GetActionRequest, mcpRuntime *MCPTaskRuntime, agentProfile AgentPromptProfile) (*proto.Action, error) {
-	if mcpRuntime == nil || !mcpRuntime.Enabled() {
-		return c.GetActionWithAgentProfile(ctx, req, agentProfile)
-	}
+	return c.GetActionWithToolsAndAgentProfile(ctx, req, mcpRuntime, nil, agentProfile)
+}
 
-	toolTranscript := mcpRuntime.ToolTranscript()
-	successfulToolCalls := mcpRuntime.SuccessfulToolCalls()
-	mustUseMCP := mcpRuntime.RequiresToolCall() || goalRequiresMCPToolCall(req.GetGoal())
+func (c *LLMClient) GetActionWithToolsAndAgentProfile(ctx context.Context, req *proto.GetActionRequest, mcpRuntime *MCPTaskRuntime, workspaceTools *workspacectx.Tools, agentProfile AgentPromptProfile) (*proto.Action, error) {
+	toolTranscript := ""
+	if mcpRuntime == nil {
+		toolTranscript = ""
+	} else {
+		toolTranscript = mcpRuntime.ToolTranscript()
+	}
+	workspaceTranscript := ""
+	if workspaceTools != nil {
+		workspaceTranscript = workspaceTools.ToolTranscript()
+	}
+	successfulToolCalls := 0
+	if mcpRuntime == nil {
+		successfulToolCalls = 0
+	} else {
+		successfulToolCalls = mcpRuntime.SuccessfulToolCalls()
+	}
+	mustUseMCP := false
+	if mcpRuntime == nil {
+		mustUseMCP = false
+	} else {
+		mustUseMCP = mcpRuntime.RequiresToolCall() || goalRequiresMCPToolCall(req.GetGoal())
+	}
 	if mustUseMCP {
 		logEvent := log.Info().Strs("mcp_profiles", mcpRuntime.Profiles())
 		if c.profile != "" {
@@ -44,9 +65,43 @@ func (c *LLMClient) GetActionWithMCPAndAgentProfile(ctx context.Context, req *pr
 		logEvent.Msg("MCP tool call is required before final action")
 	}
 	for toolCallCount := 0; toolCallCount <= maxMCPToolCallsPerAction; toolCallCount++ {
-		actionModel, err := c.getActionModel(ctx, c.buildPromptWithMCP(req, toolTranscript, mcpRuntime.ToolPrompt(), agentProfile))
+		actionModel, err := c.getActionModel(ctx, c.buildPromptWithTools(req, toolTranscript, mcpToolPrompt(mcpRuntime), workspaceTranscript, workspaceToolPrompt(workspaceTools), agentProfile))
 		if err != nil {
 			return nil, err
+		}
+		if actionModel.Type == models.ActionTypeCallWorkspaceTool {
+			if workspaceTools == nil || !workspaceTools.Enabled() {
+				workspaceTranscript += "\nWorkspace tool call failed: workspace tools are not available\n"
+				continue
+			}
+			if toolCallCount == maxMCPToolCallsPerAction {
+				return nil, fmt.Errorf("workspace tool call limit exceeded")
+			}
+			toolAction := actionModel.WorkspaceToolAction
+			if toolAction == nil {
+				return nil, fmt.Errorf("CALL_WORKSPACE_TOOL action requires workspace_tool_action")
+			}
+			toolName := strings.TrimSpace(toolAction.Tool)
+			logEvent := log.Info().Str("workspace_tool", toolName)
+			if c.profile != "" {
+				logEvent = logEvent.Str("llm_profile", c.profile)
+			}
+			logEvent.Msg("Calling workspace tool requested by LLM")
+			result, err := workspaceTools.CallTool(ctx, toolName, toolAction.Arguments)
+			if err != nil {
+				workspaceTranscript += fmt.Sprintf("\nWorkspace tool call failed: tool=%s error=%s\n", toolName, err.Error())
+				continue
+			}
+			resultLog := log.Info().
+				Str("workspace_tool", toolName).
+				Int("workspace_tool_result_bytes", len(result)).
+				Int("workspace_successful_tool_calls", workspaceTools.SuccessfulToolCalls())
+			if c.profile != "" {
+				resultLog = resultLog.Str("llm_profile", c.profile)
+			}
+			resultLog.Msg("Workspace tool returned result to LLM")
+			workspaceTranscript += formatWorkspaceToolResultTranscript(toolName, toolAction.Arguments, result)
+			continue
 		}
 		if actionModel.Type != models.ActionTypeCallMCPTool {
 			if mustUseMCP && successfulToolCalls == 0 {
@@ -81,6 +136,10 @@ func (c *LLMClient) GetActionWithMCPAndAgentProfile(ctx context.Context, req *pr
 			}
 			return actionModelToProto(actionModel)
 		}
+		if mcpRuntime == nil || !mcpRuntime.Enabled() {
+			toolTranscript += "\nMCP tool call failed: external MCP tools are not available for this goal\n"
+			continue
+		}
 		if toolCallCount == maxMCPToolCallsPerAction {
 			return nil, fmt.Errorf("MCP tool call limit exceeded")
 		}
@@ -107,6 +166,40 @@ func (c *LLMClient) GetActionWithMCPAndAgentProfile(ctx context.Context, req *pr
 		toolTranscript += formatMCPToolResultTranscript(serverName, toolName, toolAction.Arguments, result)
 	}
 	return nil, fmt.Errorf("MCP tool call loop ended without a final action")
+}
+
+func mcpToolPrompt(mcpRuntime *MCPTaskRuntime) string {
+	if mcpRuntime == nil {
+		return ""
+	}
+	return mcpRuntime.ToolPrompt()
+}
+
+func workspaceToolPrompt(workspaceTools *workspacectx.Tools) string {
+	if workspaceTools == nil {
+		return ""
+	}
+	return workspaceTools.ToolPrompt()
+}
+
+func formatWorkspaceToolResultTranscript(toolName string, arguments json.RawMessage, result json.RawMessage) string {
+	return fmt.Sprintf(
+		"\nWorkspace tool result: tool=%s arguments=%s result=%s\n",
+		toolName,
+		workspacectxJSONString(arguments, 2048),
+		workspacectxJSONString(result, 24000),
+	)
+}
+
+func workspacectxJSONString(raw json.RawMessage, max int) string {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" {
+		return "{}"
+	}
+	if max > 0 && len(trimmed) > max {
+		return trimmed[:max] + "...[truncated]"
+	}
+	return trimmed
 }
 
 func mcpFinalAnswerFailureReason(actionModel *models.Action, mcpRuntime *MCPTaskRuntime) (string, bool) {

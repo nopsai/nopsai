@@ -191,7 +191,7 @@ func (c *lmStudioClient) recordLMStudioUsage(ctx context.Context, model, prompt,
 	if completionTokens == 0 {
 		completionTokens = outputTokens
 	}
-	recordUsage(ctx, usageFromTokens(c.owner.provider, model, c.owner.profile, prompt, completion, promptTokens, completionTokens, totalTokens))
+	recordUsage(ctx, usageFromTokenDetailsForClient(c.owner, model, prompt, completion, promptTokens, completionTokens, totalTokens, 0))
 }
 
 func lmStudioEndpointLoadGateFor(baseURL string) *lmStudioEndpointGate {

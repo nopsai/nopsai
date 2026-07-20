@@ -32,6 +32,9 @@ type LLMClientOptions struct {
 type LLMClient struct {
 	provider       string
 	profile        string
+	model          string
+	baseURL        string
+	extra          map[string]string
 	httpClient     *http.Client
 	providerClient ProviderClient
 }
@@ -70,17 +73,8 @@ func NewLLMClient(provider, apiKey, model, baseURL, reasoning string, profileNam
 }
 
 func NewLLMClientWithOptions(options LLMClientOptions) *LLMClient {
-	timeout := time.Duration(0)
-	if options.TimeoutSeconds > 0 {
-		timeout = time.Duration(options.TimeoutSeconds) * time.Second
-	}
-	client := &LLMClient{
-		provider:   appconfig.NormalizeLLMProvider(options.Provider),
-		profile:    strings.TrimSpace(options.Profile),
-		httpClient: &http.Client{Timeout: timeout},
-	}
-	options.Provider = client.provider
-	options.Profile = client.profile
+	options.Provider = appconfig.NormalizeLLMProvider(options.Provider)
+	options.Profile = strings.TrimSpace(options.Profile)
 	options.APIKey = strings.TrimSpace(options.APIKey)
 	options.Model = strings.TrimSpace(options.Model)
 	options.BaseURL = strings.TrimSpace(options.BaseURL)
@@ -94,6 +88,29 @@ func NewLLMClientWithOptions(options LLMClientOptions) *LLMClient {
 		}
 		options.Extra = normalizedExtra
 	}
+	timeout := time.Duration(0)
+	if options.TimeoutSeconds > 0 {
+		timeout = time.Duration(options.TimeoutSeconds) * time.Second
+	}
+	client := &LLMClient{
+		provider:   options.Provider,
+		profile:    options.Profile,
+		model:      options.Model,
+		baseURL:    options.BaseURL,
+		extra:      cloneStringMap(options.Extra),
+		httpClient: &http.Client{Timeout: timeout},
+	}
 	client.providerClient = newProviderClient(client, options)
 	return client
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	cloned := make(map[string]string, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+	return cloned
 }
