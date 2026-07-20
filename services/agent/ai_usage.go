@@ -88,6 +88,60 @@ func aiUsageReportFromLLMUsage(feature, stepName, taskName, agentProfile string,
 	if policyRevision := strings.TrimSpace(usage.PolicyRevision); policyRevision != "" {
 		metadata["policy_revision"] = policyRevision
 	}
+	if policyMergeMode := strings.TrimSpace(usage.PolicyMergeMode); policyMergeMode != "" {
+		metadata["policy_merge_mode"] = policyMergeMode
+	}
+	if policyPrecedenceVersion := strings.TrimSpace(usage.PolicyPrecedenceVersion); policyPrecedenceVersion != "" {
+		metadata["policy_precedence_version"] = policyPrecedenceVersion
+	}
+	if effectivePolicyHash := strings.TrimSpace(usage.EffectivePolicySnapshotHash); effectivePolicyHash != "" {
+		metadata["effective_policy_snapshot_hash"] = effectivePolicyHash
+	}
+	if cacheIdentity := strings.TrimSpace(usage.CacheIdentitySHA256); cacheIdentity != "" {
+		metadata["cache_identity_sha256"] = cacheIdentity
+	}
+	if promptSchemaVersion := strings.TrimSpace(usage.PromptSchemaVersion); promptSchemaVersion != "" {
+		metadata["prompt_schema_version"] = promptSchemaVersion
+	}
+	if executionMode := strings.TrimSpace(usage.ExecutionMode); executionMode != "" {
+		metadata["execution_mode"] = executionMode
+	}
+	if sessionID := strings.TrimSpace(usage.LogicalSessionID); sessionID != "" {
+		metadata["logical_session_id"] = sessionID
+	}
+	if providerStateID := strings.TrimSpace(usage.ProviderStateID); providerStateID != "" {
+		metadata["provider_state_id"] = providerStateID
+	}
+	if usage.ProviderStateUsed {
+		metadata["provider_state_used"] = true
+	}
+	if usage.ProviderStateSupportKnown {
+		metadata["provider_state_supported"] = usage.ProviderStateSupported
+	}
+	if usage.PromptCacheSupportKnown {
+		metadata["prompt_cache_supported"] = usage.PromptCacheSupported
+	}
+	if usage.PromptCacheHit {
+		metadata["prompt_cache_hit"] = true
+	}
+	if promptCacheMode := strings.TrimSpace(usage.PromptCacheMode); promptCacheMode != "" {
+		metadata["prompt_cache_mode"] = promptCacheMode
+	}
+	if providerStateMode := strings.TrimSpace(usage.ProviderStateMode); providerStateMode != "" {
+		metadata["provider_state_mode"] = providerStateMode
+	}
+	if usage.StablePrefixTokens > 0 {
+		metadata["stable_prefix_tokens"] = usage.StablePrefixTokens
+	}
+	if usage.DynamicContextTokens > 0 {
+		metadata["dynamic_context_tokens"] = usage.DynamicContextTokens
+	}
+	if usage.UncachedInputTokens > 0 {
+		metadata["uncached_input_tokens"] = usage.UncachedInputTokens
+	}
+	if usage.CacheWriteTokens > 0 {
+		metadata["cache_write_tokens"] = usage.CacheWriteTokens
+	}
 	if usage.SharedFileCount > 0 {
 		metadata["shared_file_count"] = usage.SharedFileCount
 	}

@@ -364,18 +364,22 @@ Current Goal
 ```
 
 When selected knowledge includes blocking guardrails or policies, the knowledge
-section starts with deterministic `knowledge_revision` and `policy_revision`
-hashes. The policy revision is based only on selected blocking policy/guardrail
-documents, while the knowledge revision covers all selected knowledge. These
-hashes are used for reproducibility and cache invalidation.
+section starts with deterministic `knowledge_revision`, `policy_revision`,
+`effective_policy_snapshot_hash`, `policy_merge_mode`, and
+`policy_precedence_version` lines. The policy revision is based only on
+selected blocking policy/guardrail documents, while the knowledge revision
+covers all selected knowledge. The effective policy snapshot hash also includes
+scope, merge mode, and precedence-version metadata for cache identity.
 
-Non-blocking knowledge remains pinned to the run-start snapshot. Blocking
-`policy` and `guardrail` documents are checked as live policy before LLM
-condition evaluation, approval pause, goal resolution/direct-script validation,
-and action execution. The agent calls the internal
-`/v1/internal/runs/{runID}/policy-revision` endpoint and fails closed if the
-current blocking policy revision differs from the run-start revision or if the
-check is unavailable.
+Policy snapshots are pinned when their scope starts: pipeline policies at run
+start, step policies when the step starts, and task policies when the task
+starts. The effective policy is recomputed as the agent enters a narrower scope.
+The default merge mode is `restrictive`, so task or step policies may add
+requirements but cannot weaken broader policy. `override` replaces broader
+policy only for the same policy identity, and `fail_on_conflict` instructs the
+agent to stop with `RETURN_ANSWER` when blocking policies are incompatible.
+Emergency policy response is handled by cancelling the active run rather than
+mutating already-resolved snapshots.
 
 Workspace file contents appear in `Working Directory Contents` only when the
 pipeline explicitly sets `llm_content_sharing: true`. If omitted or false, the
@@ -385,9 +389,12 @@ runtime actions or MCP tools.
 Workspace tools are available to LLM goal resolution as bounded NopsAI-managed
 retrieval actions:
 
-- `list_files` returns current file identities.
+- `list_files` returns current file identities and a `next_cursor` when more
+  files are available.
 - `search_code` searches current text files by substring and returns bounded
-  line previews.
+  line previews plus a `next_cursor` when more matches are available.
+- `read_file` returns a bounded byte range with `next_offset` until `eof` is
+  true.
 - `read_file` returns one current text file with path, SHA-256, size, and
   workspace revision.
 

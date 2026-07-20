@@ -486,17 +486,19 @@ Responsibilities:
 - Executes commands or file writes inside step containers.
 - Maintains execution history that later tasks and child pipelines can use.
 - Injects effective pipeline + step + task knowledge context into LLM prompts.
-- Adds deterministic run-start `knowledge_revision` and `policy_revision`
-  hashes to blocking knowledge prompts.
-- Checks live blocking policy revision through NopsAI before condition
-  evaluation, approval pause, goal resolution/direct-script validation, and
-  action execution. Policy drift or policy-check errors fail closed.
+- Adds deterministic `knowledge_revision`, `policy_revision`,
+  `effective_policy_snapshot_hash`, `policy_merge_mode`, and
+  `policy_precedence_version` metadata to blocking knowledge prompts.
+- Pins policy snapshots by scope and recomputes effective policy as pipeline,
+  step, and task scopes start. Emergency policy response uses run cancellation
+  instead of live mutation of already-resolved policy.
 - Logs LLM prompt metadata, hashes, sizes, and token estimates without logging
   prompt bodies.
-- Records prompt/cache/revision/retrieval telemetry in AI usage metadata,
-  including cached input tokens when OpenAI-compatible providers return them.
+- Records prompt/cache/session/revision/retrieval telemetry in AI usage
+  metadata, including logical session IDs, provider-state support, cache
+  identity hashes, and cached input tokens when providers return them.
 - Exposes bounded internal workspace tools (`list_files`, `search_code`, and
-  `read_file`) to LLM goal resolution.
+  `read_file`) to LLM goal resolution with cursor and byte-range pagination.
 - Adds file identity metadata to explicitly shared workspace files and rejects
   stale `REPLACE_FILE` actions before execution.
 - Compacts oversized LLM prompt history to a stable summary plus recent task

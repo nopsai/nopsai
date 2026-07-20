@@ -7,30 +7,50 @@ import (
 )
 
 type Usage struct {
-	Provider                 string
-	Model                    string
-	Profile                  string
-	PromptTokens             int64
-	CompletionTokens         int64
-	TotalTokens              int64
-	CachedInputTokens        int64
-	InputCostUSD             float64
-	OutputCostUSD            float64
-	TotalCostUSD             float64
-	PromptSHA256             string
-	PromptBytes              int
-	EstimatedInputTokens     int64
-	StaticContextSHA256      string
-	StaticContextCacheKey    string
-	HistoryRevision          uint64
-	WorkspaceRevision        uint64
-	KnowledgeRevision        string
-	PolicyRevision           string
-	SharedFileCount          int
-	SharedFileBytes          int
-	WorkspaceToolCallCount   int
-	WorkspaceToolResultBytes int
-	Estimated                bool
+	Provider                    string
+	Model                       string
+	Profile                     string
+	PromptTokens                int64
+	CompletionTokens            int64
+	TotalTokens                 int64
+	CachedInputTokens           int64
+	InputCostUSD                float64
+	OutputCostUSD               float64
+	TotalCostUSD                float64
+	PromptSHA256                string
+	PromptBytes                 int
+	EstimatedInputTokens        int64
+	StaticContextSHA256         string
+	StaticContextCacheKey       string
+	HistoryRevision             uint64
+	WorkspaceRevision           uint64
+	KnowledgeRevision           string
+	PolicyRevision              string
+	PolicyMergeMode             string
+	PolicyPrecedenceVersion     string
+	EffectivePolicySnapshotHash string
+	CacheIdentitySHA256         string
+	PromptSchemaVersion         string
+	ExecutionMode               string
+	LogicalSessionID            string
+	ProviderStateID             string
+	ProviderStateUsed           bool
+	ProviderStateSupported      bool
+	ProviderStateSupportKnown   bool
+	PromptCacheSupported        bool
+	PromptCacheSupportKnown     bool
+	PromptCacheHit              bool
+	PromptCacheMode             string
+	ProviderStateMode           string
+	StablePrefixTokens          int64
+	DynamicContextTokens        int64
+	UncachedInputTokens         int64
+	CacheWriteTokens            int64
+	SharedFileCount             int
+	SharedFileBytes             int
+	WorkspaceToolCallCount      int
+	WorkspaceToolResultBytes    int
+	Estimated                   bool
 }
 
 type UsageCollector struct {
@@ -76,6 +96,9 @@ func recordUsage(ctx context.Context, usage Usage) {
 	usage.Provider = strings.TrimSpace(usage.Provider)
 	usage.Model = strings.TrimSpace(usage.Model)
 	usage.Profile = strings.TrimSpace(usage.Profile)
+	if metadata, ok := completionMetadataFromContext(ctx); ok {
+		mergeCompletionMetadata(&usage, metadata)
+	}
 	if usage.TotalTokens == 0 {
 		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	}
@@ -111,25 +134,29 @@ func usageFromTokenDetailsForClient(owner *LLMClient, model, prompt, completion 
 func usageFromTokenDetailsWithClient(owner *LLMClient, provider, model, profile, prompt, completion string, promptTokens, completionTokens, totalTokens, cachedInputTokens int64) Usage {
 	promptMeta := newPromptMetadata(nil, prompt)
 	usage := Usage{
-		Provider:                 provider,
-		Model:                    model,
-		Profile:                  profile,
-		PromptTokens:             promptTokens,
-		CompletionTokens:         completionTokens,
-		TotalTokens:              totalTokens,
-		CachedInputTokens:        cachedInputTokens,
-		PromptSHA256:             promptMeta.PromptSHA256,
-		PromptBytes:              promptMeta.PromptBytes,
-		EstimatedInputTokens:     promptMeta.EstimatedInputTokens,
-		StaticContextSHA256:      promptMeta.StaticContextSHA256,
-		HistoryRevision:          promptMeta.HistoryRevision,
-		WorkspaceRevision:        promptMeta.WorkspaceRevision,
-		KnowledgeRevision:        promptMeta.KnowledgeRevision,
-		PolicyRevision:           promptMeta.PolicyRevision,
-		SharedFileCount:          promptMeta.SharedFileCount,
-		SharedFileBytes:          promptMeta.SharedFileBytes,
-		WorkspaceToolCallCount:   promptMeta.WorkspaceToolCallCount,
-		WorkspaceToolResultBytes: promptMeta.WorkspaceToolResultBytes,
+		Provider:                    provider,
+		Model:                       model,
+		Profile:                     profile,
+		PromptTokens:                promptTokens,
+		CompletionTokens:            completionTokens,
+		TotalTokens:                 totalTokens,
+		CachedInputTokens:           cachedInputTokens,
+		PromptSHA256:                promptMeta.PromptSHA256,
+		PromptBytes:                 promptMeta.PromptBytes,
+		EstimatedInputTokens:        promptMeta.EstimatedInputTokens,
+		StaticContextSHA256:         promptMeta.StaticContextSHA256,
+		HistoryRevision:             promptMeta.HistoryRevision,
+		WorkspaceRevision:           promptMeta.WorkspaceRevision,
+		KnowledgeRevision:           promptMeta.KnowledgeRevision,
+		PolicyRevision:              promptMeta.PolicyRevision,
+		PolicyMergeMode:             promptMeta.PolicyMergeMode,
+		PolicyPrecedenceVersion:     promptMeta.PolicyPrecedenceVersion,
+		EffectivePolicySnapshotHash: promptMeta.EffectivePolicySnapshotHash,
+		CacheIdentitySHA256:         promptMeta.CacheIdentitySHA256,
+		SharedFileCount:             promptMeta.SharedFileCount,
+		SharedFileBytes:             promptMeta.SharedFileBytes,
+		WorkspaceToolCallCount:      promptMeta.WorkspaceToolCallCount,
+		WorkspaceToolResultBytes:    promptMeta.WorkspaceToolResultBytes,
 	}
 	if promptMeta.StaticContextSHA256 != "" {
 		if owner != nil {
@@ -154,6 +181,63 @@ func usageFromTokenDetailsWithClient(owner *LLMClient, provider, model, profile,
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	usage.Estimated = usage.TotalTokens > 0
 	return usage
+}
+
+func mergeCompletionMetadata(usage *Usage, metadata completionMetadata) {
+	if usage == nil {
+		return
+	}
+	if usage.ExecutionMode == "" {
+		usage.ExecutionMode = metadata.ExecutionMode
+	}
+	if usage.LogicalSessionID == "" {
+		usage.LogicalSessionID = metadata.LogicalSessionID
+	}
+	if usage.ProviderStateID == "" {
+		usage.ProviderStateID = metadata.ProviderStateID
+	}
+	usage.ProviderStateUsed = usage.ProviderStateUsed || metadata.ProviderStateUsed
+	if !usage.ProviderStateSupportKnown && metadata.ProviderStateSupportKnown {
+		usage.ProviderStateSupportKnown = true
+		usage.ProviderStateSupported = metadata.ProviderStateSupported
+	}
+	if !usage.PromptCacheSupportKnown && metadata.PromptCacheSupportKnown {
+		usage.PromptCacheSupportKnown = true
+		usage.PromptCacheSupported = metadata.PromptCacheSupported
+	}
+	if usage.PromptCacheMode == "" {
+		usage.PromptCacheMode = metadata.PromptCacheMode
+	}
+	if usage.ProviderStateMode == "" {
+		usage.ProviderStateMode = metadata.ProviderStateMode
+	}
+	if usage.CacheIdentitySHA256 == "" {
+		usage.CacheIdentitySHA256 = metadata.CacheIdentitySHA256
+	}
+	if usage.PromptSchemaVersion == "" {
+		usage.PromptSchemaVersion = metadata.PromptSchemaVersion
+	}
+	if usage.PolicyMergeMode == "" {
+		usage.PolicyMergeMode = metadata.PolicyMergeMode
+	}
+	if usage.PolicyPrecedenceVersion == "" {
+		usage.PolicyPrecedenceVersion = metadata.PolicyPrecedenceVersion
+	}
+	if usage.EffectivePolicySnapshotHash == "" {
+		usage.EffectivePolicySnapshotHash = metadata.EffectivePolicySnapshotHash
+	}
+	if usage.StablePrefixTokens == 0 {
+		usage.StablePrefixTokens = metadata.StablePrefixTokens
+	}
+	if usage.DynamicContextTokens == 0 {
+		usage.DynamicContextTokens = metadata.DynamicContextTokens
+	}
+	if usage.CachedInputTokens > 0 {
+		usage.PromptCacheHit = true
+	}
+	if usage.UncachedInputTokens == 0 && usage.PromptTokens > usage.CachedInputTokens {
+		usage.UncachedInputTokens = usage.PromptTokens - usage.CachedInputTokens
+	}
 }
 
 func estimateTokenCount(text string) int64 {

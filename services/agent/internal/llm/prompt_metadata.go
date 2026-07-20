@@ -12,22 +12,26 @@ import (
 )
 
 type promptMetadata struct {
-	Provider                 string
-	Model                    string
-	Profile                  string
-	PromptSHA256             string
-	PromptBytes              int
-	EstimatedInputTokens     int64
-	StaticContextSHA256      string
-	StaticContextCacheKey    string
-	HistoryRevision          uint64
-	WorkspaceRevision        uint64
-	KnowledgeRevision        string
-	PolicyRevision           string
-	SharedFileCount          int
-	SharedFileBytes          int
-	WorkspaceToolCallCount   int
-	WorkspaceToolResultBytes int
+	Provider                    string
+	Model                       string
+	Profile                     string
+	PromptSHA256                string
+	PromptBytes                 int
+	EstimatedInputTokens        int64
+	StaticContextSHA256         string
+	StaticContextCacheKey       string
+	HistoryRevision             uint64
+	WorkspaceRevision           uint64
+	KnowledgeRevision           string
+	PolicyRevision              string
+	PolicyMergeMode             string
+	PolicyPrecedenceVersion     string
+	EffectivePolicySnapshotHash string
+	CacheIdentitySHA256         string
+	SharedFileCount             int
+	SharedFileBytes             int
+	WorkspaceToolCallCount      int
+	WorkspaceToolResultBytes    int
 }
 
 func newPromptMetadata(owner *LLMClient, prompt string) promptMetadata {
@@ -39,24 +43,28 @@ func newPromptMetadata(owner *LLMClient, prompt string) promptMetadata {
 	}
 	workspaceToolSection := promptSection(prompt, "--- Workspace Tool Results For Current Goal ---", "--- MCP Tool Results For Current Goal ---", "---\n**Current Goal:**")
 	meta := promptMetadata{
-		PromptSHA256:             promptSHA256(prompt),
-		PromptBytes:              len([]byte(prompt)),
-		EstimatedInputTokens:     estimateTokenCount(prompt),
-		StaticContextSHA256:      promptSHA256(staticPromptPrefix(prompt)),
-		HistoryRevision:          maxMetadataUint64(prompt, "history_revision"),
-		WorkspaceRevision:        maxMetadataUint64(prompt, "workspace_revision"),
-		KnowledgeRevision:        firstMetadataLineValue(prompt, "knowledge_revision"),
-		PolicyRevision:           firstMetadataLineValue(prompt, "policy_revision"),
-		SharedFileCount:          sharedFileCount,
-		SharedFileBytes:          sharedFileBytes,
-		WorkspaceToolCallCount:   strings.Count(workspaceToolSection, "Workspace tool result:"),
-		WorkspaceToolResultBytes: len([]byte(strings.TrimSpace(workspaceToolSection))),
+		PromptSHA256:                promptSHA256(prompt),
+		PromptBytes:                 len([]byte(prompt)),
+		EstimatedInputTokens:        estimateTokenCount(prompt),
+		StaticContextSHA256:         promptSHA256(staticPromptPrefix(prompt)),
+		HistoryRevision:             maxMetadataUint64(prompt, "history_revision"),
+		WorkspaceRevision:           maxMetadataUint64(prompt, "workspace_revision"),
+		KnowledgeRevision:           firstMetadataLineValue(prompt, "knowledge_revision"),
+		PolicyRevision:              firstMetadataLineValue(prompt, "policy_revision"),
+		PolicyMergeMode:             firstMetadataLineValue(prompt, "policy_merge_mode"),
+		PolicyPrecedenceVersion:     firstMetadataLineValue(prompt, "policy_precedence_version"),
+		EffectivePolicySnapshotHash: firstMetadataLineValue(prompt, "effective_policy_snapshot_hash"),
+		SharedFileCount:             sharedFileCount,
+		SharedFileBytes:             sharedFileBytes,
+		WorkspaceToolCallCount:      strings.Count(workspaceToolSection, "Workspace tool result:"),
+		WorkspaceToolResultBytes:    len([]byte(strings.TrimSpace(workspaceToolSection))),
 	}
 	if owner != nil {
 		meta.Provider = strings.TrimSpace(owner.provider)
 		meta.Model = strings.TrimSpace(owner.model)
 		meta.Profile = strings.TrimSpace(owner.profile)
 		meta.StaticContextCacheKey = staticContextCacheKey(owner, meta.StaticContextSHA256)
+		meta.CacheIdentitySHA256 = NewCacheIdentity(owner, prompt).Hash()
 	}
 	return meta
 }
@@ -91,6 +99,18 @@ func addPromptMetadata(event *zerolog.Event, meta promptMetadata) *zerolog.Event
 	}
 	if meta.PolicyRevision != "" {
 		event = event.Str("policy_revision", meta.PolicyRevision)
+	}
+	if meta.PolicyMergeMode != "" {
+		event = event.Str("policy_merge_mode", meta.PolicyMergeMode)
+	}
+	if meta.PolicyPrecedenceVersion != "" {
+		event = event.Str("policy_precedence_version", meta.PolicyPrecedenceVersion)
+	}
+	if meta.EffectivePolicySnapshotHash != "" {
+		event = event.Str("effective_policy_snapshot_hash", meta.EffectivePolicySnapshotHash)
+	}
+	if meta.CacheIdentitySHA256 != "" {
+		event = event.Str("cache_identity_sha256", meta.CacheIdentitySHA256)
 	}
 	if meta.SharedFileCount > 0 {
 		event = event.Int("shared_file_count", meta.SharedFileCount)

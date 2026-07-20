@@ -97,6 +97,8 @@ func TestBuildRuntimeLLMProfilesPreservesProviderOptions(t *testing.T) {
 				TimeoutSeconds: 45,
 				MaxTokens:      3000,
 				Temperature:    &temperature,
+				PromptCache:    config.LLMFeatureConfig{Mode: "required", Scope: "run"},
+				ProviderState:  config.LLMFeatureConfig{Mode: "disabled"},
 				Extra:          map[string]string{"x_title": "NopsAI"},
 			},
 		},
@@ -110,6 +112,9 @@ func TestBuildRuntimeLLMProfilesPreservesProviderOptions(t *testing.T) {
 	}
 	if profile.Temperature == nil || *profile.Temperature != temperature || profile.Extra["x_title"] != "NopsAI" {
 		t.Fatalf("runtime options = %#v", profile)
+	}
+	if profile.PromptCache.Mode != "required" || profile.PromptCache.Scope != "run" || profile.ProviderState.Mode != "disabled" {
+		t.Fatalf("runtime feature preferences = %#v/%#v", profile.PromptCache, profile.ProviderState)
 	}
 }
 

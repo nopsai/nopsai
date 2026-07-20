@@ -40,11 +40,27 @@ type SearchResult struct {
 	Preview           string `json:"preview"`
 }
 
+type ListFilesPage struct {
+	Files             []FileEntry `json:"files"`
+	NextCursor        string      `json:"next_cursor,omitempty"`
+	WorkspaceRevision uint64      `json:"workspace_revision"`
+}
+
+type SearchCodePage struct {
+	Query             string         `json:"query"`
+	Results           []SearchResult `json:"results"`
+	NextCursor        string         `json:"next_cursor,omitempty"`
+	WorkspaceRevision uint64         `json:"workspace_revision"`
+}
+
 type ReadFileResult struct {
 	Path              string `json:"path"`
 	SHA256            string `json:"sha256"`
 	Size              int64  `json:"size"`
 	WorkspaceRevision uint64 `json:"workspace_revision"`
+	Offset            int64  `json:"offset"`
+	NextOffset        int64  `json:"next_offset,omitempty"`
+	EOF               bool   `json:"eof"`
 	Content           string `json:"content"`
 	Truncated         bool   `json:"truncated"`
 }
@@ -135,8 +151,13 @@ func (i *Index) Revision() uint64 {
 }
 
 func (i *Index) ListFiles(limit int) []FileEntry {
+	page := i.ListFilesPage("", limit)
+	return page.Files
+}
+
+func (i *Index) ListFilesPage(cursor string, limit int) ListFilesPage {
 	if i == nil {
-		return nil
+		return ListFilesPage{}
 	}
 	if limit <= 0 || limit > defaultMaxListFiles {
 		limit = defaultMaxListFiles
@@ -150,10 +171,30 @@ func (i *Index) ListFiles(limit int) []FileEntry {
 	sort.Slice(entries, func(a, b int) bool {
 		return entries[a].Path < entries[b].Path
 	})
-	if len(entries) > limit {
-		return append([]FileEntry(nil), entries[:limit]...)
+	start := 0
+	cursor = normalizeWorkspacePath(cursor)
+	if cursor != "" {
+		for idx, entry := range entries {
+			if entry.Path > cursor {
+				start = idx
+				break
+			}
+			start = idx + 1
+		}
 	}
-	return entries
+	if start > len(entries) {
+		start = len(entries)
+	}
+	end := start + limit
+	if end > len(entries) {
+		end = len(entries)
+	}
+	files := append([]FileEntry(nil), entries[start:end]...)
+	nextCursor := ""
+	if end < len(entries) && len(files) > 0 {
+		nextCursor = files[len(files)-1].Path
+	}
+	return ListFilesPage{Files: files, NextCursor: nextCursor, WorkspaceRevision: i.Revision()}
 }
 
 func (i *Index) SharedFileContents(limit int) map[string]string {
@@ -175,17 +216,28 @@ func (i *Index) SharedFileContents(limit int) map[string]string {
 }
 
 func (i *Index) SearchCode(query string, maxResults int) ([]SearchResult, error) {
+	page, err := i.SearchCodePage(query, "", maxResults)
+	if err != nil {
+		return nil, err
+	}
+	return page.Results, nil
+}
+
+func (i *Index) SearchCodePage(query string, cursor string, maxResults int) (SearchCodePage, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
-		return nil, fmt.Errorf("query is required")
+		return SearchCodePage{}, fmt.Errorf("query is required")
 	}
 	if maxResults <= 0 || maxResults > defaultMaxSearchResults {
 		maxResults = defaultMaxSearchResults
 	}
+	offset := parseNonNegativeCursor(cursor)
 	queryLower := strings.ToLower(query)
 	results := []SearchResult{}
+	matched := 0
+	nextCursor := ""
 	for _, entry := range i.ListFiles(defaultMaxListFiles) {
-		if len(results) >= maxResults {
+		if len(results) >= maxResults && nextCursor != "" {
 			break
 		}
 		if !entry.Text {
@@ -197,11 +249,19 @@ func (i *Index) SearchCode(query string, maxResults int) ([]SearchResult, error)
 		}
 		lines := strings.Split(content, "\n")
 		for idx, line := range lines {
-			if len(results) >= maxResults {
+			if len(results) >= maxResults && nextCursor != "" {
 				break
 			}
 			if !strings.Contains(strings.ToLower(line), queryLower) {
 				continue
+			}
+			matched++
+			if matched <= offset {
+				continue
+			}
+			if len(results) >= maxResults {
+				nextCursor = fmt.Sprintf("%d", matched-1)
+				break
 			}
 			results = append(results, SearchResult{
 				Path:              entry.Path,
@@ -213,13 +273,25 @@ func (i *Index) SearchCode(query string, maxResults int) ([]SearchResult, error)
 			})
 		}
 	}
-	return results, nil
+	return SearchCodePage{
+		Query:             query,
+		Results:           results,
+		NextCursor:        nextCursor,
+		WorkspaceRevision: i.Revision(),
+	}, nil
 }
 
 func (i *Index) ReadFile(path string, maxBytes int) (ReadFileResult, error) {
+	return i.ReadFileRange(path, 0, maxBytes)
+}
+
+func (i *Index) ReadFileRange(path string, offset int64, maxBytes int) (ReadFileResult, error) {
 	normalized := normalizeWorkspacePath(path)
 	if normalized == "" {
 		return ReadFileResult{}, fmt.Errorf("path is required")
+	}
+	if offset < 0 {
+		return ReadFileResult{}, fmt.Errorf("offset must be non-negative")
 	}
 	if maxBytes <= 0 || maxBytes > defaultMaxReadBytes {
 		maxBytes = defaultMaxReadBytes
@@ -249,15 +321,26 @@ func (i *Index) ReadFile(path string, maxBytes int) (ReadFileResult, error) {
 	if !currentEntry.Text {
 		return ReadFileResult{}, fmt.Errorf("file %q is no longer text content", normalized)
 	}
-	content, truncated, err := i.readFileContentWithLimit(normalized, maxBytes)
+	if offset > currentEntry.Size {
+		return ReadFileResult{}, fmt.Errorf("offset %d exceeds file size %d", offset, currentEntry.Size)
+	}
+	content, truncated, err := i.readFileContentWithRange(normalized, offset, maxBytes)
 	if err != nil {
 		return ReadFileResult{}, err
+	}
+	nextOffset := offset + int64(len([]byte(content)))
+	eof := !truncated && nextOffset >= currentEntry.Size
+	if eof {
+		nextOffset = 0
 	}
 	return ReadFileResult{
 		Path:              currentEntry.Path,
 		SHA256:            currentEntry.SHA256,
 		Size:              currentEntry.Size,
 		WorkspaceRevision: currentEntry.WorkspaceRevision,
+		Offset:            offset,
+		NextOffset:        nextOffset,
+		EOF:               eof,
 		Content:           content,
 		Truncated:         truncated,
 	}, nil
@@ -277,6 +360,10 @@ func (i *Index) readFileContent(path string, maxBytes int) (string, error) {
 }
 
 func (i *Index) readFileContentWithLimit(path string, maxBytes int) (string, bool, error) {
+	return i.readFileContentWithRange(path, 0, maxBytes)
+}
+
+func (i *Index) readFileContentWithRange(path string, offset int64, maxBytes int) (string, bool, error) {
 	if i == nil {
 		return "", false, fmt.Errorf("workspace index is not available")
 	}
@@ -294,6 +381,11 @@ func (i *Index) readFileContentWithLimit(path string, maxBytes int) (string, boo
 		return "", false, err
 	}
 	defer file.Close()
+	if offset > 0 {
+		if _, err := file.Seek(offset, io.SeekStart); err != nil {
+			return "", false, err
+		}
+	}
 
 	var content []byte
 	if maxBytes > 0 {
@@ -310,6 +402,18 @@ func (i *Index) readFileContentWithLimit(path string, maxBytes int) (string, boo
 		truncated = true
 	}
 	return string(content), truncated, nil
+}
+
+func parseNonNegativeCursor(cursor string) int {
+	cursor = strings.TrimSpace(cursor)
+	if cursor == "" {
+		return 0
+	}
+	var value int
+	if _, err := fmt.Sscanf(cursor, "%d", &value); err != nil || value < 0 {
+		return 0
+	}
+	return value
 }
 
 func isTextContent(content []byte) bool {

@@ -988,6 +988,18 @@ const llmProfileRows: WikiConfigRow[] = [
     example: '0.2',
   },
   {
+    key: 'profiles[].prompt_cache.mode',
+    area: 'LLM profile',
+    description: 'Prompt cache preference: auto, required, or disabled. Required fails closed if the selected provider adapter cannot support it.',
+    example: 'auto',
+  },
+  {
+    key: 'profiles[].provider_state.mode',
+    area: 'LLM profile',
+    description: 'Provider conversation-state preference: auto, required, or disabled. NopsAI logical sessions remain the audit identity even when provider state is unavailable.',
+    example: 'disabled',
+  },
+  {
     key: 'profiles[].extra',
     area: 'LLM profile',
     description: 'Provider-specific string options such as OpenRouter http_referer or Azure deployment/api_version.',
@@ -2949,7 +2961,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'If a guardrail or policy conflicts with a requested action, the agent should explain the block rather than perform the prohibited action, and that block is treated as task failure.',
           'Effective context is merged from pipeline-level references, then step-level references, then task-level references. Required duplicates win over optional duplicates.',
           'Managed refs use knowledge_context.use authorization and are snapshotted into pipeline_run_knowledge_contexts so completed runs preserve exactly what the model saw.',
-          'Blocking policy and guardrail revisions are checked live before LLM and execution boundaries. Policy drift or an unavailable policy-revision check fails closed.',
+          'Policy snapshots are pinned by scope, then recomputed as pipeline, step, and task scopes start. Emergency policy response cancels active runs instead of mutating already-resolved policy.',
         ],
         configRows: knowledgeRows,
         examples: [
@@ -2981,6 +2993,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'Dashboard prompts are intent-driven: when the prompt does not name a visualization, NopsAI guides the model to choose text/callout, status/progress/properties, table, bar, line/area, or pie/donut based on the data shape.',
           'Generated dashboard sections[].blocks, sections[].widgets, top-level widgets, and nested blocks/widgets wrappers are normalized into flat DashboardSpec blocks before strict validation.',
           'Generated properties and display key aliases are normalized to DashboardSpec items and labels before strict validation.',
+          'Generation duration is measured from generation_started_at, so queued outputs do not inherit time spent behind earlier outputs.',
         ],
         details: [
           'PDF rendering uses Gotenberg through FINAL_OUTPUT_PDF_RENDERER_URL. Pipeline YAML never contains renderer infrastructure URLs.',

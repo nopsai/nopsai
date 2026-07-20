@@ -117,21 +117,22 @@ type ParentRunInfo struct {
 }
 
 type PipelineRunFinalOutput struct {
-	ID                 string    `json:"id"`
-	Name               string    `json:"name"`
-	Type               string    `json:"type"`
-	Status             string    `json:"status"`
-	Content            string    `json:"content,omitempty"`
-	Error              string    `json:"error,omitempty"`
-	LLMProfile         string    `json:"llm_profile,omitempty"`
-	GenerationAttempts int       `json:"generation_attempts,omitempty"`
-	ContractViolations int       `json:"contract_violations,omitempty"`
-	RenderAttempts     int       `json:"render_attempts,omitempty"`
-	RenderFailures     int       `json:"render_failures,omitempty"`
-	CreatedAt          time.Time `json:"created_at,omitempty"`
-	UpdatedAt          time.Time `json:"updated_at,omitempty"`
-	GenerationDuration string    `json:"generation_duration,omitempty"`
-	GenerationSeconds  float64   `json:"generation_duration_seconds,omitempty"`
+	ID                  string     `json:"id"`
+	Name                string     `json:"name"`
+	Type                string     `json:"type"`
+	Status              string     `json:"status"`
+	Content             string     `json:"content,omitempty"`
+	Error               string     `json:"error,omitempty"`
+	LLMProfile          string     `json:"llm_profile,omitempty"`
+	GenerationAttempts  int        `json:"generation_attempts,omitempty"`
+	ContractViolations  int        `json:"contract_violations,omitempty"`
+	RenderAttempts      int        `json:"render_attempts,omitempty"`
+	RenderFailures      int        `json:"render_failures,omitempty"`
+	CreatedAt           time.Time  `json:"created_at,omitempty"`
+	GenerationStartedAt *time.Time `json:"generation_started_at,omitempty"`
+	UpdatedAt           time.Time  `json:"updated_at,omitempty"`
+	GenerationDuration  string     `json:"generation_duration,omitempty"`
+	GenerationSeconds   float64    `json:"generation_duration_seconds,omitempty"`
 }
 
 type RunDetail struct {

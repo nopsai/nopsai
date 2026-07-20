@@ -181,10 +181,22 @@ llm_profiles:
     model: gpt-4.1
     credential_ref: credential://team/platform/llm/openai
     allowed_scopes: ["platform/prod"]
+    prompt_cache:
+      mode: auto
+    provider_state:
+      mode: disabled
 ```
 
 Run preparation and agent launch merge team profiles over the system catalog
 when the run belongs to that team.
+
+LLM profiles accept optional `prompt_cache` and `provider_state` feature
+preferences. `mode: auto` lets NopsAI use a supported provider optimization,
+`mode: disabled` keeps the request stateless, and `mode: required` fails closed
+when the selected provider adapter cannot satisfy the feature. NopsAI still
+owns the logical session, scoped context, transcript, policy precedence, and
+cache identity; provider caches and continuation state are treated as
+replaceable transport optimizations.
 
 ## Pipeline Usage
 
