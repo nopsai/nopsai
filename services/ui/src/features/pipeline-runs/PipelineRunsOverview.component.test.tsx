@@ -54,6 +54,17 @@ const runs: RunListItem[] = [
     git_commit_sha: '123456abcdef',
     started_at: '2026-07-12T10:30:00Z',
     finished_at: '2026-07-12T10:35:00Z',
+    final_output_status: {
+      status: 'success',
+      configured: 1,
+      total: 1,
+      pending: 0,
+      generating: 0,
+      generated: 1,
+      failed: 0,
+      cancelled: 0,
+      updated_at: '2026-07-12T10:35:00Z',
+    },
   },
 ];
 
@@ -116,6 +127,10 @@ test('renders redesigned pipeline run overview and delegates user actions', asyn
   const runningRow = container.querySelector('[data-trigger-id="event-related"]');
   expect(runningRow).toHaveTextContent('generating');
   expect(within(runningRow as HTMLElement).getByTitle('Output generating: 1 generated, 1 generating')).toBeVisible();
+  const featureRunButton = screen.getByRole('button', { name: 'deploy-feature' });
+  const featureRow = featureRunButton.closest('tr');
+  expect(featureRow).toHaveTextContent('success');
+  expect(featureRow).not.toHaveTextContent('generated');
   expect(screen.getByText('nightly-ledger')).toBeVisible();
   expect(screen.queryByRole('heading', { name: 'Source mix' })).not.toBeInTheDocument();
   expect(screen.queryByRole('heading', { name: 'Current scope' })).not.toBeInTheDocument();
