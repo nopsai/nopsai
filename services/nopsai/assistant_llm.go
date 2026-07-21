@@ -255,11 +255,14 @@ func buildAssistantLLMPrompt(
 		"tool_calls":           assistantLLMPromptToolCalls(toolCalls),
 		"tool_summary":         strings.TrimSpace(deterministicReply),
 	}
+	if pageContext := assistantPageContextPromptMap(plan.PageContext); len(pageContext) > 0 {
+		payload["page_context"] = pageContext
+	}
 	raw, _ := json.MarshalIndent(payload, "", "  ")
 	return strings.TrimSpace(`You are the Nopsai AI Assistant for an enterprise CI/CD and GitOps platform.
 
 Use only the provided JSON context, same-chat conversation_history, memory, and tool outputs. Do not invent pipeline runs, permissions, approvals, costs, logs, or applied changes.
-Use conversation_history to resolve same-chat follow-ups such as "generic pipeline", "the dashboard definition", "that one", or "both".
+Use conversation_history and page_context to resolve same-chat follow-ups such as "generic pipeline", "the dashboard definition", "that one", "this page", or "both".
 When discussing pipelines, use only pipeline definitions, validation results, GitOps plans, or search results returned by the tool outputs.
 Generated pipeline YAML, trigger edits, and schedule edits are proposals only. Never say a change was applied unless the tool output explicitly says it was applied.
 When you calculate, compare, or estimate from prior same-chat evidence, label Data source and Confidence. Distinguish exact MCP-backed facts from LLM-derived calculations and assumptions.

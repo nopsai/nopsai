@@ -238,6 +238,7 @@ func (a *App) loadPipelineFinalOutputsForGeneration(ctx context.Context, runID s
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(dashboardRaw), &output.Dashboard)
+		output.DashboardTarget = pipelineFinalOutputDashboardTargetPtr(output.Dashboard)
 		output.GenerationStartedAt = nullTimePtr(generationStartedAt)
 		outputs = append(outputs, output)
 	}
@@ -459,7 +460,20 @@ func scanPipelineFinalOutputRecord(scanner interface{ Scan(dest ...any) error })
 	output.GenerationStartedAt = nullTimePtr(generationStartedAt)
 	output.GenerationDuration, output.GenerationSeconds = runquery.FinalOutputGenerationTiming(output.GenerationStartedAt, output.UpdatedAt)
 	_ = json.Unmarshal([]byte(dashboardRaw), &output.Dashboard)
+	output.DashboardTarget = pipelineFinalOutputDashboardTargetPtr(output.Dashboard)
 	return output, nil
+}
+
+func pipelineFinalOutputDashboardTargetPtr(target models.DashboardOutputTarget) *models.DashboardOutputTarget {
+	if strings.TrimSpace(target.Ref) == "" &&
+		strings.TrimSpace(target.Section) == "" &&
+		strings.TrimSpace(target.EntryKey) == "" &&
+		strings.TrimSpace(target.Mode) == "" &&
+		strings.TrimSpace(target.Preset) == "" &&
+		strings.TrimSpace(target.TTL) == "" {
+		return nil
+	}
+	return &target
 }
 
 func (a *App) markDashboardRefreshOutputCancelledIfDashboard(ctx context.Context, runID string, output pipelineFinalOutputRecord) {

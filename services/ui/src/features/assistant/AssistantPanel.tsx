@@ -25,20 +25,28 @@ import {
 import { AssistantRichContent } from './rendering.js';
 import { useComposerResize } from './useComposerResize.js';
 import { useAssistantController } from './useAssistantController.js';
+import { assistantPageContextKey, assistantPageContextLabel, type AssistantPageContext } from './pageContext.js';
 
 export function AssistantPanel({
   variant = 'page',
   startFresh = false,
+  pageContext = null,
   onExpand,
   onClose,
 }: {
   variant?: 'page' | 'dock';
   startFresh?: boolean;
+  pageContext?: Partial<AssistantPageContext> | null;
   onExpand?: () => void;
   onClose?: () => void;
 }) {
-  const assistant = useAssistantController({ startFresh });
+  const [removedPageContextKey, setRemovedPageContextKey] = useState('');
+  const pageContextKey = assistantPageContextKey(pageContext);
+  const pageContextRemoved = pageContextKey !== '' && removedPageContextKey === pageContextKey;
+  const effectivePageContext = pageContextRemoved ? null : pageContext;
+  const assistant = useAssistantController({ startFresh, pageContext: effectivePageContext });
   const compact = variant === 'dock';
+  const pageContextLabel = pageContextRemoved ? '' : assistantPageContextLabel(pageContext);
   const [detailsOpen, setDetailsOpen] = useState(true);
   const [progressNow, setProgressNow] = useState(() => Date.now());
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -161,6 +169,7 @@ export function AssistantPanel({
             profileOptions={assistant.profileOptions}
             enabled={assistant.enabled}
             loading={assistant.loading}
+            pageContextLabel={pageContextLabel}
             onSelectProfile={assistant.setSelectedProfile}
           />
 
@@ -212,6 +221,21 @@ export function AssistantPanel({
               <span className="h-px w-full bg-[var(--border-primary)] transition-colors hover:bg-[var(--border-accent)]" />
             </div>
             <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-3 shadow-sm focus-within:border-[var(--border-accent)]">
+              {pageContextLabel && (
+                <div className="mb-2 flex min-h-7 items-center gap-2 rounded-md bg-[var(--bg-tertiary)] px-2 text-xs text-[var(--text-secondary)]">
+                  <span className="font-medium text-[var(--text-primary)]">Context</span>
+                  <span className="min-w-0 truncate">{pageContextLabel}</span>
+                  <button
+                    type="button"
+                    className="ml-auto inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)]"
+                    onClick={() => setRemovedPageContextKey(pageContextKey)}
+                    aria-label="Remove page context"
+                    title="Remove context"
+                  >
+                    <X className="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
+                </div>
+              )}
               <textarea
                 className="w-full resize-none overflow-auto bg-transparent text-sm leading-relaxed text-[var(--text-primary)] outline-none placeholder:text-[var(--text-secondary)]"
                 style={{ height: composerResize.composerHeight }}
@@ -328,6 +352,7 @@ function AssistantStatusBar({
   profileOptions,
   enabled,
   loading,
+  pageContextLabel,
   onSelectProfile,
 }: {
   compact: boolean;
@@ -337,6 +362,7 @@ function AssistantStatusBar({
   profileOptions: string[];
   enabled: boolean;
   loading: boolean;
+  pageContextLabel: string;
   onSelectProfile: (profile: string) => void;
 }) {
   return (
@@ -354,6 +380,7 @@ function AssistantStatusBar({
           <SessionDetail label="MCP" value={config?.mcp.enabled ? 'Enabled' : 'Disabled'} />
           <SessionDetail label="Memory" value={config?.memory.enabled ? config.memory.scope || 'Enabled' : 'Disabled'} />
           <SessionDetail label="Confirmation" value={config?.actions.require_confirmation !== false ? 'Required' : 'Relaxed'} />
+          {pageContextLabel && <SessionDetail label="Page" value={pageContextLabel} />}
           <label className="text-xs text-[var(--text-secondary)]">
             LLM profile
             <select

@@ -169,8 +169,13 @@ deployment configuration. Pipeline YAML never contains infrastructure URLs.
 
 ## Preview Behavior
 
-- Dashboard outputs render in Dashboards and fall back to pretty JSON through
-  run-output download.
+- Ready run-detail output rows are clickable preview toggles. The actions menu
+  keeps explicit preview, copy, download, and cancel commands for keyboard and
+  dense-table workflows.
+- Dashboard outputs render their stored `DashboardSpec` inline with the same
+  dashboard block renderer used by Dashboards. When run detail includes
+  `dashboard_target`, the output row also links directly to the target dashboard
+  and section.
 - Markdown is parsed with GFM support.
 - PDF is fetched through the authorized download endpoint and displayed in an
   inline viewer with loading/error states.

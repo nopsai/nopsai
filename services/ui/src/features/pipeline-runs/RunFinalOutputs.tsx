@@ -1,15 +1,18 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { AlertCircle, CheckCircle2, Clipboard, Download, Eye, FileText, Loader2, MoreHorizontal, Square } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { AlertCircle, CheckCircle2, Clipboard, Download, Eye, FileText, LayoutDashboard, Loader2, MoreHorizontal, Square } from 'lucide-react';
 import { useOutsideDismiss } from '../../components/useOutsideDismiss';
 import { apiClient } from '../../lib/api';
 import { copyTextToClipboard } from '../../lib/clipboard';
-import type { PipelineRunFinalOutput } from './contracts';
+import type { PipelineDefinition, PipelineRunFinalOutput } from './contracts';
+import { finalOutputDashboardLink } from './finalOutputs';
 import { FinalOutputPreview } from './final-output-preview/FinalOutputPreview';
 import { documentSpecToText, parseDocumentSpec, parseSpreadsheetSpec, spreadsheetSpecToText } from './final-output-preview/finalOutputSpecs';
 
 type RunFinalOutputsProps = {
   runID: string;
   outputs?: PipelineRunFinalOutput[];
+  pipelineDefinition?: PipelineDefinition | null;
   onCancelOutput?: (outputId: string) => void | Promise<void>;
 };
 
@@ -36,7 +39,7 @@ const actionClass =
 const menuItemClass =
   'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--text-primary)] transition hover:bg-[var(--bg-tertiary)] disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/10';
 
-export function RunFinalOutputs({ runID, outputs = [], onCancelOutput }: RunFinalOutputsProps) {
+export function RunFinalOutputs({ runID, outputs = [], pipelineDefinition = null, onCancelOutput }: RunFinalOutputsProps) {
   const [previewID, setPreviewID] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [message, setMessage] = useState<string>('');
@@ -118,10 +121,20 @@ export function RunFinalOutputs({ runID, outputs = [], onCancelOutput }: RunFina
           const cancellable = output.status === 'pending' || output.status === 'generating';
           const expanded = previewID === output.id;
           const timingText = finalOutputTimingText(output);
+          const dashboardLink = finalOutputDashboardLink(output, pipelineDefinition);
+          const previewLabel = `${expanded ? 'Hide preview' : 'Preview'} ${output.name || 'output'}`;
           return (
             <div key={output.id} className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-3 text-sm">
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0 space-y-2">
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 space-y-2 rounded-lg text-left outline-none transition hover:bg-[var(--bg-tertiary)] focus-visible:ring-2 focus-visible:ring-[var(--border-accent)] disabled:cursor-default disabled:hover:bg-transparent"
+                  onClick={() => setPreviewID(expanded ? null : output.id)}
+                  disabled={!ready}
+                  aria-label={ready ? previewLabel : `${output.name || 'Output'} is not ready for preview`}
+                  aria-expanded={ready ? expanded : undefined}
+                  aria-controls={ready ? `final-output-preview-${output.id}` : undefined}
+                >
                   <div className="flex flex-wrap items-center gap-2">
                     <FinalOutputStatus status={output.status} />
                     <span className="font-semibold text-[var(--text-primary)] break-words">{output.name || 'Untitled output'}</span>
@@ -130,22 +143,25 @@ export function RunFinalOutputs({ runID, outputs = [], onCancelOutput }: RunFina
                   </div>
                   {timingText ? <div className="text-xs text-[var(--text-secondary)]">{timingText}</div> : null}
                   {output.error && <div className="text-xs text-red-600 dark:text-red-300 break-words">{output.error}</div>}
+                </button>
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                  {dashboardLink ? <FinalOutputDashboardLink link={dashboardLink} /> : null}
+                  <FinalOutputActionsMenu
+                    output={output}
+                    ready={ready}
+                    expanded={expanded}
+                    pendingAction={pendingAction}
+                    cancellable={cancellable}
+                    canCancel={Boolean(onCancelOutput)}
+                    onTogglePreview={() => setPreviewID(expanded ? null : output.id)}
+                    onCopy={() => void handleCopy(output)}
+                    onDownload={() => void handleDownload(output)}
+                    onCancel={() => void handleCancel(output)}
+                  />
                 </div>
-                <FinalOutputActionsMenu
-                  output={output}
-                  ready={ready}
-                  expanded={expanded}
-                  pendingAction={pendingAction}
-                  cancellable={cancellable}
-                  canCancel={Boolean(onCancelOutput)}
-                  onTogglePreview={() => setPreviewID(expanded ? null : output.id)}
-                  onCopy={() => void handleCopy(output)}
-                  onDownload={() => void handleDownload(output)}
-                  onCancel={() => void handleCancel(output)}
-                />
               </div>
               {expanded && ready && (
-                <div className="mt-3 rounded-lg border border-[var(--border-primary)] bg-white dark:bg-black/20 p-3">
+                <div id={`final-output-preview-${output.id}`} className="mt-3 rounded-lg border border-[var(--border-primary)] bg-white dark:bg-black/20 p-3">
                   <FinalOutputPreview runID={runID} output={output} />
                 </div>
               )}
@@ -155,6 +171,20 @@ export function RunFinalOutputs({ runID, outputs = [], onCancelOutput }: RunFina
       </div>
       {message && <div className="text-xs text-[var(--text-secondary)]">{message}</div>}
     </section>
+  );
+}
+
+function FinalOutputDashboardLink({ link }: { link: NonNullable<ReturnType<typeof finalOutputDashboardLink>> }) {
+  return (
+    <Link
+      to={link.href}
+      className="inline-flex h-9 max-w-full items-center gap-2 rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 text-xs font-semibold text-[var(--text-primary)] transition hover:border-indigo-300/60 hover:text-indigo-600"
+      aria-label={`Open dashboard ${link.ref}${link.section ? ` section ${link.section}` : ''}`}
+      title={link.label}
+    >
+      <LayoutDashboard className="h-4 w-4 shrink-0" aria-hidden="true" />
+      <span className="min-w-0 truncate">{link.label}</span>
+    </Link>
   );
 }
 

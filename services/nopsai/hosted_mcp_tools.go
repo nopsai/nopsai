@@ -18,6 +18,7 @@ import (
 	"nopsai/pkg/models"
 	aaamodel "nopsai/services/aaa/pkg/model"
 	"nopsai/services/nopsai/internal/configsync"
+	runquery "nopsai/services/nopsai/internal/runs"
 	"nopsai/services/nopsai/internal/systemlogs"
 	"nopsai/services/nopsai/pkg/validation"
 )
@@ -49,7 +50,7 @@ func allHostedMCPTools() []hostedMCPTool {
 		toolDef("nopsai.propose_pipeline_update", "Validate pipeline YAML and return a GitOps-ready update file plan without applying changes.", "pipeline.update", "pipeline", "*", objectSchema(map[string]any{"pipeline": stringSchema(), "path": stringSchema(), "name": stringSchema(), "yaml": stringSchema(), "message": stringSchema()})),
 		toolDef("nopsai.list_pipeline_runs", "List recent pipeline runs visible to the current user.", "pipeline_run.list", "pipeline_run", "*", objectSchema(map[string]any{"limit": numberSchema()})),
 		toolDef("nopsai.get_pipeline_run", "Read run status, scope, trigger subject, Git data, timings, and output summaries.", "pipeline_run.read", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema()})),
-		toolDef("nopsai.get_pipeline_run_output", "Read final output content, timing, and generation/render audit counts.", "pipeline_run.read", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema(), "output_id": stringSchema(), "name": stringSchema()})),
+		toolDef("nopsai.get_pipeline_run_output", "Read final output content, dashboard target metadata, timing, and generation/render audit counts.", "pipeline_run.read", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema(), "output_id": stringSchema(), "name": stringSchema()})),
 		toolDef("nopsai.get_pipeline_run_logs", "Read recent pipeline run logs.", "pipeline_run.read_logs", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema(), "limit": numberSchema()})),
 		toolDef("nopsai.analyze_pipeline_run_failure", "Analyze a failed pipeline run from status and log excerpts.", "pipeline_run.read_logs", "pipeline_run", "*", objectSchema(map[string]any{"run_id": stringSchema()})),
 		toolDef("nopsai.list_triggers", "List repository triggers.", "trigger.read", "trigger", "*", objectSchema(map[string]any{"limit": numberSchema()})),
@@ -661,38 +662,30 @@ func hostedMCPProposePipelineWrite(args map[string]any, mode string) (map[string
 }
 
 func (a *App) hostedMCPListPipelineRuns(ctx context.Context, args map[string]any) (map[string]any, error) {
-	rows, err := a.db.Query(ctx, `
-		SELECT run_id::text, COALESCE(pipeline_path, ''), COALESCE(pipeline_name, ''), status, COALESCE(scope, ''), created_at, started_at, finished_at, COALESCE(failure_reason, '')
-		FROM pipeline_runs
-		ORDER BY created_at DESC
-		LIMIT $1
-	`, limitArg(args, 30, 100))
+	items, err := runquery.List(ctx, a.db, runquery.ListFilter{Limit: limitArg(args, 30, 100)})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	runs := []map[string]any{}
-	for rows.Next() {
-		var runID, path, name, status, scope, failureReason string
-		var createdAt time.Time
-		var startedAt, finishedAt sql.NullTime
-		if err := rows.Scan(&runID, &path, &name, &status, &scope, &createdAt, &startedAt, &finishedAt, &failureReason); err != nil {
-			return nil, err
+	for _, item := range items {
+		run := map[string]any{
+			"run_id":         item.RunID,
+			"pipeline_id":    aaamodel.BuildPipelineID(item.PipelinePath, item.PipelineName),
+			"pipeline_path":  item.PipelinePath,
+			"pipeline_name":  item.PipelineName,
+			"status":         item.Status,
+			"scope":          item.Scope,
+			"created_at":     hostedMCPTime(item.CreatedAt),
+			"started_at":     hostedMCPTime(item.StartedAt),
+			"finished_at":    hostedMCPTime(item.FinishedAt),
+			"failure_reason": item.FailureReason,
 		}
-		runs = append(runs, map[string]any{
-			"run_id":         runID,
-			"pipeline_id":    aaamodel.BuildPipelineID(path, name),
-			"pipeline_path":  path,
-			"pipeline_name":  name,
-			"status":         status,
-			"scope":          scope,
-			"created_at":     createdAt,
-			"started_at":     hostedMCPNullableTime(startedAt),
-			"finished_at":    hostedMCPNullableTime(finishedAt),
-			"failure_reason": failureReason,
-		})
+		if item.FinalOutputStatus != nil {
+			run["final_output_status"] = item.FinalOutputStatus
+		}
+		runs = append(runs, run)
 	}
-	return map[string]any{"runs": runs}, rows.Err()
+	return map[string]any{"runs": runs}, nil
 }
 
 func (a *App) hostedMCPGetPipelineRun(ctx context.Context, args map[string]any) (map[string]any, error) {
@@ -787,12 +780,13 @@ func (a *App) hostedMCPGetPipelineRun(ctx context.Context, args map[string]any) 
 
 func (a *App) hostedMCPPipelineRunOutputSummaries(ctx context.Context, runID string) ([]map[string]any, error) {
 	rows, err := a.db.Query(ctx, `
-		SELECT id::text, name, type, status, error, llm_profile,
-		       generation_attempts, contract_violations, render_attempts, render_failures, created_at, generation_started_at, updated_at
-		FROM pipeline_run_outputs
-		WHERE run_id::text = $1
-		ORDER BY item_index ASC, created_at ASC
-	`, runID)
+			SELECT id::text, name, type, status, error, llm_profile,
+			       generation_attempts, contract_violations, render_attempts, render_failures, created_at, generation_started_at, updated_at,
+			       COALESCE(dashboard_target::text, '{}')
+			FROM pipeline_run_outputs
+			WHERE run_id::text = $1
+			ORDER BY item_index ASC, created_at ASC
+		`, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -801,6 +795,7 @@ func (a *App) hostedMCPPipelineRunOutputSummaries(ctx context.Context, runID str
 	outputs := []map[string]any{}
 	for rows.Next() {
 		var id, name, outputType, status, errorText, profile string
+		var dashboardTargetRaw string
 		var generationAttempts, contractViolations, renderAttempts, renderFailures int
 		var createdAt, updatedAt time.Time
 		var generationStartedAt sql.NullTime
@@ -818,28 +813,32 @@ func (a *App) hostedMCPPipelineRunOutputSummaries(ctx context.Context, runID str
 			&createdAt,
 			&generationStartedAt,
 			&updatedAt,
+			&dashboardTargetRaw,
 		); err != nil {
 			return nil, err
 		}
 		startedAt := nullTimePtr(generationStartedAt)
 		duration, durationSeconds := pipelineOutputGenerationDuration(startedAt, updatedAt)
-		outputs = append(outputs, map[string]any{
-			"id":                          id,
-			"name":                        name,
-			"type":                        outputType,
-			"status":                      status,
-			"error":                       errorText,
-			"llm_profile":                 profile,
-			"generation_attempts":         generationAttempts,
-			"contract_violations":         contractViolations,
-			"render_attempts":             renderAttempts,
-			"render_failures":             renderFailures,
-			"created_at":                  createdAt,
-			"generation_started_at":       startedAt,
-			"updated_at":                  updatedAt,
-			"generation_duration":         duration,
-			"generation_duration_seconds": durationSeconds,
+		output := hostedMCPPipelineRunOutputMap(models.PipelineRunFinalOutput{
+			ID:                  id,
+			Name:                name,
+			Type:                outputType,
+			Status:              status,
+			Error:               errorText,
+			LLMProfile:          profile,
+			DashboardTarget:     hostedMCPFinalOutputDashboardTargetPtr(dashboardTargetRaw),
+			GenerationAttempts:  generationAttempts,
+			ContractViolations:  contractViolations,
+			RenderAttempts:      renderAttempts,
+			RenderFailures:      renderFailures,
+			CreatedAt:           createdAt,
+			GenerationStartedAt: startedAt,
+			UpdatedAt:           updatedAt,
+			GenerationDuration:  duration,
+			GenerationSeconds:   durationSeconds,
 		})
+		delete(output, "content")
+		outputs = append(outputs, output)
 	}
 	return outputs, rows.Err()
 }
@@ -856,11 +855,11 @@ func (a *App) hostedMCPGetPipelineRunOutput(ctx context.Context, args map[string
 	}
 
 	query := `
-		SELECT id::text, name, type, status, content, error, llm_profile,
-		       generation_attempts, contract_violations, render_attempts, render_failures,
-		       created_at, generation_started_at, updated_at
-		FROM pipeline_run_outputs
-		WHERE run_id::text = $1 AND `
+			SELECT id::text, name, type, status, content, error, llm_profile,
+			       generation_attempts, contract_violations, render_attempts, render_failures,
+			       created_at, generation_started_at, updated_at, COALESCE(dashboard_target::text, '{}')
+			FROM pipeline_run_outputs
+			WHERE run_id::text = $1 AND `
 	argsList := []any{runID}
 	if outputID != "" {
 		query += `id::text = $2`
@@ -872,6 +871,7 @@ func (a *App) hostedMCPGetPipelineRunOutput(ctx context.Context, args map[string
 	query += ` ORDER BY item_index ASC LIMIT 1`
 
 	var output models.PipelineRunFinalOutput
+	var dashboardTargetRaw string
 	var generationStartedAt sql.NullTime
 	err := a.db.QueryRow(ctx, query, argsList...).Scan(
 		&output.ID,
@@ -888,33 +888,63 @@ func (a *App) hostedMCPGetPipelineRunOutput(ctx context.Context, args map[string
 		&output.CreatedAt,
 		&generationStartedAt,
 		&output.UpdatedAt,
+		&dashboardTargetRaw,
 	)
 	if err != nil {
 		return nil, err
 	}
 	output.GenerationStartedAt = nullTimePtr(generationStartedAt)
+	output.DashboardTarget = hostedMCPFinalOutputDashboardTargetPtr(dashboardTargetRaw)
 	output.GenerationDuration, output.GenerationSeconds = pipelineOutputGenerationDuration(output.GenerationStartedAt, output.UpdatedAt)
 	return map[string]any{
 		"run_id": runID,
-		"output": map[string]any{
-			"id":                          output.ID,
-			"name":                        output.Name,
-			"type":                        output.Type,
-			"status":                      output.Status,
-			"content":                     output.Content,
-			"error":                       output.Error,
-			"llm_profile":                 output.LLMProfile,
-			"generation_attempts":         output.GenerationAttempts,
-			"contract_violations":         output.ContractViolations,
-			"render_attempts":             output.RenderAttempts,
-			"render_failures":             output.RenderFailures,
-			"created_at":                  output.CreatedAt,
-			"generation_started_at":       output.GenerationStartedAt,
-			"updated_at":                  output.UpdatedAt,
-			"generation_duration":         output.GenerationDuration,
-			"generation_duration_seconds": output.GenerationSeconds,
-		},
+		"output": hostedMCPPipelineRunOutputMap(output),
 	}, nil
+}
+
+func hostedMCPPipelineRunOutputMap(output models.PipelineRunFinalOutput) map[string]any {
+	out := map[string]any{
+		"id":                          output.ID,
+		"name":                        output.Name,
+		"type":                        output.Type,
+		"status":                      output.Status,
+		"content":                     output.Content,
+		"error":                       output.Error,
+		"llm_profile":                 output.LLMProfile,
+		"generation_attempts":         output.GenerationAttempts,
+		"contract_violations":         output.ContractViolations,
+		"render_attempts":             output.RenderAttempts,
+		"render_failures":             output.RenderFailures,
+		"created_at":                  output.CreatedAt,
+		"generation_started_at":       output.GenerationStartedAt,
+		"updated_at":                  output.UpdatedAt,
+		"generation_duration":         output.GenerationDuration,
+		"generation_duration_seconds": output.GenerationSeconds,
+	}
+	if output.DashboardTarget != nil {
+		out["dashboard_target"] = output.DashboardTarget
+	}
+	return out
+}
+
+func hostedMCPFinalOutputDashboardTargetPtr(raw string) *models.DashboardOutputTarget {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "{}" {
+		return nil
+	}
+	var target models.DashboardOutputTarget
+	if err := json.Unmarshal([]byte(raw), &target); err != nil {
+		return nil
+	}
+	if strings.TrimSpace(target.Ref) == "" &&
+		strings.TrimSpace(target.Section) == "" &&
+		strings.TrimSpace(target.EntryKey) == "" &&
+		strings.TrimSpace(target.Mode) == "" &&
+		strings.TrimSpace(target.Preset) == "" &&
+		strings.TrimSpace(target.TTL) == "" {
+		return nil
+	}
+	return &target
 }
 
 func (a *App) hostedMCPGetPipelineRunLogs(ctx context.Context, args map[string]any) (map[string]any, error) {
@@ -2310,6 +2340,13 @@ func hostedMCPNullableTime(value sql.NullTime) any {
 		return nil
 	}
 	return value.Time
+}
+
+func hostedMCPTime(value time.Time) any {
+	if value.IsZero() {
+		return nil
+	}
+	return value
 }
 
 func reverseMaps(values []map[string]any) {

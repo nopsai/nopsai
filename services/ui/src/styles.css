@@ -785,11 +785,12 @@ html.dark .brand-identity__word {
         minmax(5.5rem, 0.65fr)
         minmax(5.5rem, 0.65fr)
         minmax(7rem, 0.8fr)
+        minmax(8rem, 0.8fr)
         minmax(5.75rem, 0.65fr)
         minmax(5.75rem, 0.65fr)
         auto;
     gap: 0.65rem;
-    min-width: 72rem;
+    min-width: 80rem;
     min-height: 3rem;
     padding: 0.5rem 0.75rem;
     align-items: center;
@@ -798,13 +799,13 @@ html.dark .brand-identity__word {
 
 @media (max-width: 1280px) {
     .run-card--list {
-        min-width: 68rem;
+        min-width: 76rem;
     }
 }
 
 @media (max-width: 1024px) {
     .run-card--list {
-        min-width: 64rem;
+        min-width: 72rem;
     }
 
     .run-list-cell--actions {
@@ -4264,17 +4265,17 @@ html.dark .pipeline-runs-segment {
 
 .pipeline-runs-table th:nth-child(1),
 .pipeline-runs-table td:nth-child(1) {
-    width: 10%;
+    width: 9%;
 }
 
 .pipeline-runs-table th:nth-child(2),
 .pipeline-runs-table td:nth-child(2) {
-    width: 17%;
+    width: 16%;
 }
 
 .pipeline-runs-table th:nth-child(3),
 .pipeline-runs-table td:nth-child(3) {
-    width: 27%;
+    width: 23%;
 }
 
 .pipeline-runs-table th:nth-child(4),
@@ -4284,12 +4285,12 @@ html.dark .pipeline-runs-segment {
 
 .pipeline-runs-table th:nth-child(5),
 .pipeline-runs-table td:nth-child(5) {
-    width: 13%;
+    width: 12%;
 }
 
 .pipeline-runs-table th:nth-child(6),
 .pipeline-runs-table td:nth-child(6) {
-    width: 11%;
+    width: 10%;
 }
 
 .pipeline-runs-table th:nth-child(7),
@@ -4299,6 +4300,11 @@ html.dark .pipeline-runs-segment {
 
 .pipeline-runs-table th:nth-child(8),
 .pipeline-runs-table td:nth-child(8) {
+    width: 8%;
+}
+
+.pipeline-runs-table th:nth-child(9),
+.pipeline-runs-table td:nth-child(9) {
     width: 6%;
 }
 
@@ -4434,6 +4440,14 @@ html.dark .pipeline-runs-segment {
 .pipeline-runs-status-pending {
     color: var(--text-secondary);
     background: var(--bg-tertiary);
+}
+
+.pipeline-runs-output-pill {
+    max-width: 100%;
+}
+
+.pipeline-runs-output-empty {
+    color: var(--text-tertiary);
 }
 
 .pipeline-runs-mono {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"gopkg.in/yaml.v3"
 
 	"nopsai/pkg/models"
 )
@@ -108,27 +109,64 @@ func ApplyDirectChildRunStatuses(ctx context.Context, db Queryer, runs []models.
 			continue
 		}
 		runs[index] = ApplyChildRunStatus(runs[index], childRuns)
+		refreshRunFinalOutputStatus(&runs[index])
 	}
 	return runs, nil
+}
+
+func refreshRunFinalOutputStatus(run *models.RunListItem) {
+	if run == nil || run.FinalOutputStatus == nil {
+		return
+	}
+	status := run.FinalOutputStatus
+	status.Status = FinalOutputAggregateStatus(
+		status.Configured,
+		run.Status,
+		status.Total,
+		status.Pending,
+		status.Generating,
+		status.Generated,
+		status.Failed,
+		status.Cancelled,
+	)
 }
 
 func BuildListRunsQuery(teamID *int, rootTeam bool, branchName string, limit, offset int) (string, []any) {
 	query := `
 		SELECT
-		    pr.run_id, pr.pipeline_name, pr.pipeline_path, pr.pipeline_version, pr.status, COALESCE(pr.git_commit_sha, ''),
+		    pr.run_id, pr.pipeline_name, pr.pipeline_path, pr.pipeline_version, pr.status, pr.created_at, COALESCE(pr.git_commit_sha, ''),
 		    COALESCE(pr.git_repo_owner, ''), COALESCE(pr.git_repo_name, ''), pr.started_at, pr.finished_at, pr.parent_run_id,
 			COALESCE(pr.git_pusher_name, ''), COALESCE(pr.git_ref, ''), COALESCE(pr.git_target_ref, ''),
 			COALESCE(pr.pipeline_source, ''), COALESCE(pr.trigger_event_id, ''), COALESCE(pr.failure_reason, ''),
 			COALESCE(pr.trigger_source, ''), COALESCE(pr.schedule_id::text, ''), COALESCE(ps.name, ''), COALESCE(ps.path, ''),
 			COALESCE(eti.trigger_id, ''), COALESCE(et.name, ''), COALESCE(eti.event_type, ''), COALESCE(eti.caller_type, ''),
 			COALESCE(eti.caller_id, ''), COALESCE(eti.idempotency_key, ''),
+			COALESCE(pr.pipeline_definition, ''),
 			COALESCE(prus.ai_prompt_tokens, 0)::bigint, COALESCE(prus.ai_completion_tokens, 0)::bigint,
-			COALESCE(prus.ai_total_tokens, 0)::bigint, COALESCE(prus.ai_cost_usd, 0)::float8
+			COALESCE(prus.ai_total_tokens, 0)::bigint, COALESCE(prus.ai_cost_usd, 0)::float8,
+			COALESCE(outputs.total, 0)::int,
+			COALESCE(outputs.pending, 0)::int,
+			COALESCE(outputs.generating, 0)::int,
+			COALESCE(outputs.generated, 0)::int,
+			COALESCE(outputs.failed, 0)::int,
+			COALESCE(outputs.cancelled, 0)::int,
+			outputs.updated_at
 			FROM pipeline_runs pr
 		LEFT JOIN pipeline_schedules ps ON ps.id = pr.schedule_id
 		LEFT JOIN external_trigger_invocations eti ON eti.id::text = pr.trigger_event_id
 		LEFT JOIN external_triggers et ON et.id = eti.trigger_id
 		LEFT JOIN pipeline_run_usage_summary prus ON prus.run_id = pr.run_id
+		LEFT JOIN LATERAL (
+			SELECT COUNT(*)::int AS total,
+			       COUNT(*) FILTER (WHERE status = 'pending')::int AS pending,
+			       COUNT(*) FILTER (WHERE status = 'generating')::int AS generating,
+			       COUNT(*) FILTER (WHERE status = 'success')::int AS generated,
+			       COUNT(*) FILTER (WHERE status = 'failure')::int AS failed,
+			       COUNT(*) FILTER (WHERE status = 'cancelled')::int AS cancelled,
+			       MAX(updated_at) AS updated_at
+			FROM pipeline_run_outputs
+			WHERE run_id = pr.run_id
+		) outputs ON true
 	`
 	args := []any{}
 	var conditions []string
@@ -182,12 +220,17 @@ func scanRunListItem(scanner interface {
 	var startedAt, finishedAt sql.NullTime
 	var commitSHA, repoOwner, repoName, pusherName, gitRef, gitTargetRef, pipelineSource, pipelineVersion, pipelinePath, triggerEventID, failureReason, triggerSource, scheduleID, scheduleName, schedulePath sql.NullString
 	var externalTriggerID, externalTriggerName, externalTriggerEventType, externalTriggerCallerType, externalTriggerCallerID, externalTriggerIdempotency sql.NullString
+	var pipelineDefinition string
+	var outputsUpdatedAt sql.NullTime
+	var outputTotal, outputPending, outputGenerating, outputGenerated, outputFailed, outputCancelled int
 	err := scanner.Scan(
-		&run.RunID, &run.PipelineName, &pipelinePath, &pipelineVersion, &run.Status, &commitSHA,
+		&run.RunID, &run.PipelineName, &pipelinePath, &pipelineVersion, &run.Status, &run.CreatedAt, &commitSHA,
 		&repoOwner, &repoName, &startedAt, &finishedAt, &run.ParentRunID, &pusherName, &gitRef, &gitTargetRef, &pipelineSource, &triggerEventID, &failureReason,
 		&triggerSource, &scheduleID, &scheduleName, &schedulePath, &externalTriggerID, &externalTriggerName, &externalTriggerEventType,
 		&externalTriggerCallerType, &externalTriggerCallerID, &externalTriggerIdempotency,
+		&pipelineDefinition,
 		&run.AIUsage.PromptTokens, &run.AIUsage.CompletionTokens, &run.AIUsage.TotalTokens, &run.AIUsage.TotalCostUSD,
+		&outputTotal, &outputPending, &outputGenerating, &outputGenerated, &outputFailed, &outputCancelled, &outputsUpdatedAt,
 	)
 	if err != nil {
 		return models.RunListItem{}, err
@@ -214,6 +257,17 @@ func scanRunListItem(scanner interface {
 	run.ExternalTriggerCallerType = externalTriggerCallerType.String
 	run.ExternalTriggerCallerID = externalTriggerCallerID.String
 	run.ExternalTriggerIdempotency = externalTriggerIdempotency.String
+	run.FinalOutputStatus = SummarizeFinalOutputStatus(
+		CountConfiguredFinalOutputs(pipelineDefinition),
+		run.Status,
+		outputTotal,
+		outputPending,
+		outputGenerating,
+		outputGenerated,
+		outputFailed,
+		outputCancelled,
+		outputsUpdatedAt,
+	)
 	if startedAt.Valid {
 		run.StartedAt = startedAt.Time
 		if finishedAt.Valid {
@@ -228,6 +282,90 @@ func scanRunListItem(scanner interface {
 		run.IsComplete = true
 	}
 	return run, nil
+}
+
+func CountConfiguredFinalOutputs(definition string) int {
+	var pipeline models.Pipeline
+	if err := yaml.Unmarshal([]byte(definition), &pipeline); err != nil {
+		return 0
+	}
+	return len(pipeline.Output.Items)
+}
+
+func SummarizeFinalOutputStatus(
+	configured int,
+	runStatus string,
+	total int,
+	pending int,
+	generating int,
+	generated int,
+	failed int,
+	cancelled int,
+	updatedAt sql.NullTime,
+) *models.FinalOutputStatusSummary {
+	if configured <= 0 && total <= 0 {
+		return nil
+	}
+	if configured <= 0 {
+		configured = total
+	}
+	summary := &models.FinalOutputStatusSummary{
+		Status:     FinalOutputAggregateStatus(configured, runStatus, total, pending, generating, generated, failed, cancelled),
+		Configured: configured,
+		Total:      total,
+		Pending:    pending,
+		Generating: generating,
+		Generated:  generated,
+		Failed:     failed,
+		Cancelled:  cancelled,
+	}
+	if updatedAt.Valid {
+		summary.UpdatedAt = &updatedAt.Time
+	}
+	return summary
+}
+
+func FinalOutputAggregateStatus(
+	configured int,
+	runStatus string,
+	total int,
+	pending int,
+	generating int,
+	generated int,
+	failed int,
+	cancelled int,
+) string {
+	if configured <= 0 && total <= 0 {
+		return ""
+	}
+	if total <= 0 {
+		if !IsTerminalRunStatus(NormalizeRunDetailStatus(runStatus)) {
+			return "waiting"
+		}
+		return "not_generated"
+	}
+	if generating > 0 {
+		return "generating"
+	}
+	if pending > 0 {
+		return "pending"
+	}
+	if failed > 0 {
+		if generated > 0 || cancelled > 0 {
+			return "partial_failure"
+		}
+		return "failure"
+	}
+	if cancelled > 0 {
+		if generated > 0 {
+			return "partial_cancelled"
+		}
+		return "cancelled"
+	}
+	if generated >= total {
+		return "success"
+	}
+	return "pending"
 }
 
 func NormalizePipelineVersion(version string) string {

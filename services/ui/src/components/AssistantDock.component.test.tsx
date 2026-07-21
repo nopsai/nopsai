@@ -40,7 +40,7 @@ test('shows the floating assistant trigger away from the assistant page when ena
   fetchAssistantConfigMock.mockResolvedValue(enabledAssistantConfig);
 
   render(
-    <MemoryRouter initialEntries={['/pipelines']}>
+    <MemoryRouter initialEntries={['/pipelines/platform/deploy']}>
       <AssistantDock />
     </MemoryRouter>
   );
@@ -53,7 +53,7 @@ test('opens the floating assistant as a fresh chat', async () => {
   fetchAssistantConfigMock.mockResolvedValue(enabledAssistantConfig);
 
   render(
-    <MemoryRouter initialEntries={['/pipelines']}>
+    <MemoryRouter initialEntries={['/pipelines/platform/deploy']}>
       <AssistantDock />
     </MemoryRouter>
   );
@@ -61,5 +61,13 @@ test('opens the floating assistant as a fresh chat', async () => {
   await user.click(await screen.findByRole('button', { name: 'Open Nopsai AI Assistant' }));
 
   expect(screen.getByText('Assistant overlay')).toBeVisible();
-  expect(AssistantPanelMock.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ variant: 'dock', startFresh: true }));
+  expect(AssistantPanelMock.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+    variant: 'dock',
+    startFresh: true,
+    pageContext: expect.objectContaining({
+      route: '/pipelines/:pipeline_id',
+      pipeline_id: 'platform/deploy',
+      scope: 'platform',
+    }),
+  }));
 });

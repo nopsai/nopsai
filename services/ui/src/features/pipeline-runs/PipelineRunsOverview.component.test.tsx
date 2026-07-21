@@ -18,6 +18,17 @@ const runs: RunListItem[] = [
     git_ref: 'refs/heads/main',
     git_commit_sha: 'abcdef123456',
     started_at: '2026-07-12T11:58:00Z',
+    final_output_status: {
+      status: 'generating',
+      configured: 2,
+      total: 2,
+      pending: 0,
+      generating: 1,
+      generated: 1,
+      failed: 0,
+      cancelled: 0,
+      updated_at: '2026-07-12T11:59:00Z',
+    },
   },
   {
     run_id: 'run-failed',
@@ -91,7 +102,8 @@ test('renders redesigned pipeline run overview and delegates user actions', asyn
   expect(container.querySelectorAll('[data-trigger-id="event-related"]')).toHaveLength(2);
   expect(screen.getByRole('columnheader', { name: 'Repository' })).toBeVisible();
   expect(screen.getByRole('columnheader', { name: 'Run ID' })).toBeVisible();
-  expect(screen.getAllByRole('columnheader').map(header => header.textContent?.trim()).slice(0, 7)).toEqual([
+  expect(screen.getByRole('columnheader', { name: 'Outputs' })).toBeVisible();
+  expect(screen.getAllByRole('columnheader').map(header => header.textContent?.trim()).slice(0, 8)).toEqual([
     'Status',
     'Pipeline run',
     'Repository',
@@ -99,7 +111,11 @@ test('renders redesigned pipeline run overview and delegates user actions', asyn
     'Branch',
     'Started',
     'Duration',
+    'Outputs',
   ]);
+  const runningRow = container.querySelector('[data-trigger-id="event-related"]');
+  expect(runningRow).toHaveTextContent('generating');
+  expect(within(runningRow as HTMLElement).getByTitle('Output generating: 1 generated, 1 generating')).toBeVisible();
   expect(screen.getByText('nightly-ledger')).toBeVisible();
   expect(screen.queryByRole('heading', { name: 'Source mix' })).not.toBeInTheDocument();
   expect(screen.queryByRole('heading', { name: 'Current scope' })).not.toBeInTheDocument();
