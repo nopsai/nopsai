@@ -408,8 +408,8 @@ function PipelineRunTable({
                 <td className="pipeline-runs-mono">{row.durationLabel}</td>
                 <td>
                   {outputStatus ? (
-                    <span className={`runner-pill pipeline-runs-output-pill ${outputStatus.className}`} title={outputStatus.title}>
-                      {outputStatus.label.replace(/^Output /, '')}
+                    <span className={`pipeline-runs-output-text ${outputStatusTextClass(outputStatus.className)}`} title={outputStatus.title}>
+                      {overviewOutputStatusLabel(outputStatus.label)}
                     </span>
                   ) : (
                     <span className="pipeline-runs-output-empty" title="No final outputs">—</span>
@@ -460,6 +460,18 @@ function statusClass(status: string): string {
   if (status === 'waiting_approval') return 'waiting';
   if (status === 'failure' || status === 'failure (ignored)' || status === 'rejected') return 'failed';
   return 'pending';
+}
+
+function outputStatusTextClass(className: string): string {
+  if (className.includes('runner-pill--ok')) return 'pipeline-runs-output-text--ok';
+  if (className.includes('runner-pill--error')) return 'pipeline-runs-output-text--error';
+  if (className.includes('runner-pill--warning')) return 'pipeline-runs-output-text--warning';
+  return 'pipeline-runs-output-text--muted';
+}
+
+function overviewOutputStatusLabel(label: string): string {
+  const text = label.replace(/^Output /, '').trim();
+  return text === 'generated' ? 'success' : text;
 }
 
 function buildRecentRunsHref(
