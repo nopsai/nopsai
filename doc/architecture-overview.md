@@ -106,9 +106,37 @@ Top-level pipeline features:
 - `variables` as required scope variables
 - `timeout`
 - `llm_enabled` to disable all LLM-backed behavior for script-only pipelines
-- `llm_content_sharing`, `llm_output_sharing`, `llm_content_include`, `llm_content_ignore`
+- `llm_content_sharing` defaults to false and must be explicitly enabled before workspace file contents are sent to LLM goal resolution
+- `llm_output_sharing`, `llm_content_include`, `llm_content_ignore`
 - `knowledge_context` for managed or repo-local project knowledge
 - `display_options.github_view`
+
+When content sharing is enabled, shared files are annotated with path, SHA-256,
+size, and workspace revision metadata. The agent rejects stale `REPLACE_FILE`
+actions when the file or workspace revision changed after the LLM context was
+built.
+
+For file retrieval, LLM goal resolution can call bounded internal workspace
+tools: `list_files`, `search_code`, and `read_file`. These tools read from the
+agent-owned workspace index and return current hashes instead of relying on
+provider conversation state.
+
+Provider prompt caching is treated as an optimization signal rather than the
+source of truth. Agent LLM usage metadata records `static_context_sha256`,
+`static_context_cache_key`, `cache_identity_sha256`, execution mode, logical
+session ID, provider-state support, and prompt-cache support so adapters and
+monitoring can reason about cache eligibility and invalidation without storing
+prompt bodies.
+
+Policy and knowledge revisions in agent prompts are deterministic hashes. The
+agent pins policy snapshots by scope: pipeline at run start, step at step start,
+and task at task start. Effective policy is recomputed as each narrower scope
+begins and includes a merge mode (`restrictive`, `override`, or
+`fail_on_conflict`) plus `policy_precedence_version`. Provider conversation
+state and provider caches are disposable optimizations; NopsAI-owned scoped
+snapshots, logical session IDs, and durable transcripts remain the correctness
+boundary. Emergency policy response cancels active runs instead of mutating
+already-resolved policy snapshots.
 
 Step types:
 

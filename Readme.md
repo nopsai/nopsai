@@ -46,7 +46,7 @@ around that balance:
 | Secrets and scopes | Encrypted secrets, plaintext scoped variables, strict scope isolation, repository-specific overrides, cross-scope references, and runtime authorization checks. |
 | Knowledge context | Managed or repo-local markdown context for architecture docs, guardrails, policies, ADRs, runbooks, references, examples, and guidelines injected into LLM tasks. |
 | Runner-based execution | Dispatcher-managed Docker and Kubernetes runners, per-run agents, per-step containers or pods, scope routing, affinity, capacity controls, cancellation, and durable logs. |
-| Nopsai AI Assistant | Docked and full-page assistant that uses existing LLM profiles, conversation memory, and permission-bound hosted MCP tools to analyze runs, draft/validate pipeline YAML, synthesize answers with configured providers, inspect platform context, and keep changes proposal-only for GitOps review. |
+| Nopsai AI Assistant | Docked and full-page assistant that uses existing LLM profiles, conversation memory, current-page route context, and permission-bound hosted MCP tools to analyze runs, draft/validate pipeline YAML, synthesize answers with configured providers, inspect platform context, and keep changes proposal-only for GitOps review. |
 | First-install bootstrap | UI wizard for empty databases, generated runtime configuration, starter repository teams, starter templates, user bootstrap, and setup guardrails. |
 | MCP integration | System-managed MCP server and profile registry with optional profile examples and scope-aware enablement. |
 
@@ -487,7 +487,11 @@ read/proposal-only for generated YAML, trigger changes, and schedule changes;
 applying changes remains an explicit API/GitOps approval workflow. Assistant
 message turns use the selected or default LLM profile for final synthesis when
 the profile is valid for the conversation scope, and fall back to deterministic
-tool summaries when the provider or credential is unavailable.
+tool summaries when the provider or credential is unavailable. Docked chats add
+bounded current-page metadata such as the route, selected resource ID, tab, and
+team/scope so page-local questions can resolve "this" without scraping rendered
+page content. The composer shows that attached context and lets the user remove
+it before sending.
 
 See:
 

@@ -431,7 +431,7 @@ html.dark [class*="text-neutral-200"] {
 .sidebar-nav-label {
     margin: 0;
     padding: 0 9px 6px;
-    color: #38bdf8;
+    color: #0369a1;
     font-family: inherit;
     font-size: 11px;
     font-weight: 700;
@@ -785,11 +785,12 @@ html.dark .brand-identity__word {
         minmax(5.5rem, 0.65fr)
         minmax(5.5rem, 0.65fr)
         minmax(7rem, 0.8fr)
+        minmax(8rem, 0.8fr)
         minmax(5.75rem, 0.65fr)
         minmax(5.75rem, 0.65fr)
         auto;
     gap: 0.65rem;
-    min-width: 72rem;
+    min-width: 80rem;
     min-height: 3rem;
     padding: 0.5rem 0.75rem;
     align-items: center;
@@ -798,13 +799,13 @@ html.dark .brand-identity__word {
 
 @media (max-width: 1280px) {
     .run-card--list {
-        min-width: 68rem;
+        min-width: 76rem;
     }
 }
 
 @media (max-width: 1024px) {
     .run-card--list {
-        min-width: 64rem;
+        min-width: 72rem;
     }
 
     .run-list-cell--actions {
@@ -3869,11 +3870,15 @@ html.dark .pipeline-card-icon {
     padding: 0 0.65rem;
     border: 0;
     border-radius: 0.45rem;
-    color: var(--text-secondary);
+    color: #4b5563;
     background: transparent;
     font-size: 0.76rem;
     font-weight: 650;
     white-space: nowrap;
+}
+
+html.dark .pipeline-runs-segment {
+    color: var(--text-secondary);
 }
 
 .pipeline-runs-segment:hover {
@@ -4260,17 +4265,17 @@ html.dark .pipeline-card-icon {
 
 .pipeline-runs-table th:nth-child(1),
 .pipeline-runs-table td:nth-child(1) {
-    width: 10%;
+    width: 9%;
 }
 
 .pipeline-runs-table th:nth-child(2),
 .pipeline-runs-table td:nth-child(2) {
-    width: 17%;
+    width: 15%;
 }
 
 .pipeline-runs-table th:nth-child(3),
 .pipeline-runs-table td:nth-child(3) {
-    width: 27%;
+    width: 22%;
 }
 
 .pipeline-runs-table th:nth-child(4),
@@ -4280,12 +4285,12 @@ html.dark .pipeline-card-icon {
 
 .pipeline-runs-table th:nth-child(5),
 .pipeline-runs-table td:nth-child(5) {
-    width: 13%;
+    width: 12%;
 }
 
 .pipeline-runs-table th:nth-child(6),
 .pipeline-runs-table td:nth-child(6) {
-    width: 11%;
+    width: 10%;
 }
 
 .pipeline-runs-table th:nth-child(7),
@@ -4295,7 +4300,18 @@ html.dark .pipeline-card-icon {
 
 .pipeline-runs-table th:nth-child(8),
 .pipeline-runs-table td:nth-child(8) {
-    width: 6%;
+    width: 9%;
+}
+
+.pipeline-runs-table th:nth-child(9),
+.pipeline-runs-table td:nth-child(9) {
+    width: 7%;
+}
+
+.pipeline-runs-table th:nth-child(9),
+.pipeline-runs-table td:nth-child(9) {
+    padding-left: 0.4rem;
+    padding-right: 0.4rem;
 }
 
 .pipeline-runs-table th {
@@ -4430,6 +4446,36 @@ html.dark .pipeline-card-icon {
 .pipeline-runs-status-pending {
     color: var(--text-secondary);
     background: var(--bg-tertiary);
+}
+
+.pipeline-runs-output-empty {
+    color: var(--text-tertiary);
+}
+
+.pipeline-runs-output-text {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.72rem;
+    font-weight: 800;
+}
+
+.pipeline-runs-output-text--ok {
+    color: #22c55e;
+}
+
+.pipeline-runs-output-text--error {
+    color: #f87171;
+}
+
+.pipeline-runs-output-text--warning {
+    color: #f59e0b;
+}
+
+.pipeline-runs-output-text--muted {
+    color: var(--text-secondary);
 }
 
 .pipeline-runs-mono {

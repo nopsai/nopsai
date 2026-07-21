@@ -61,6 +61,21 @@ test('renders typed spreadsheet sheets and switches tabs', async () => {
   expect(screen.getByRole('cell', { name: '42.5' })).toBeVisible();
 });
 
+test('renders dashboard output specs with dashboard blocks', () => {
+  const content = JSON.stringify({
+    version: '1',
+    title: 'Release health',
+    blocks: [
+      { type: 'status', label: 'Deploy', value: 'Ready', status: 'success' },
+      { type: 'table', title: 'Services', columns: [{ key: 'name', label: 'Name' }], rows: [{ name: 'api' }] },
+    ],
+  });
+  render(<FinalOutputPreview runID="run-1" output={output('dashboard', content)} />);
+  expect(screen.getByRole('heading', { name: 'Release health' })).toBeVisible();
+  expect(screen.getByText('Ready')).toBeVisible();
+  expect(screen.getByRole('table')).toHaveTextContent('api');
+});
+
 test('loads the rendered PDF into an inline viewer', async () => {
   const fetchSpy = vi.fn().mockResolvedValue(new Response('%PDF-1.7', { status: 200, headers: { 'content-type': 'application/pdf' } }));
   apiClient.fetch = fetchSpy;

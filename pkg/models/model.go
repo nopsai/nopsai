@@ -70,6 +70,7 @@ type Step interface {
 	GetRuntimePool() string
 	GetVariables() map[string]string
 	GetKnowledgeContext() []KnowledgeContextRef
+	GetPolicyMergeMode() string
 
 	// Type assertion helpers
 	AsIncludeStep() (*IncludeStep, bool)
@@ -95,6 +96,7 @@ type BaseStep struct {
 	RuntimePool      string                `yaml:"runtime_pool,omitempty" json:"runtime_pool,omitempty"`
 	Variables        map[string]string     `yaml:"variables,omitempty" json:"variables,omitempty"`
 	KnowledgeContext []KnowledgeContextRef `yaml:"knowledge_context,omitempty" json:"knowledge_context,omitempty"`
+	PolicyMergeMode  string                `yaml:"policy_merge_mode,omitempty" json:"policy_merge_mode,omitempty"`
 }
 
 // GetName returns the step's name.
@@ -138,6 +140,9 @@ func (s *BaseStep) GetVariables() map[string]string { return s.Variables }
 
 // GetKnowledgeContext returns the step's requested knowledge context.
 func (s *BaseStep) GetKnowledgeContext() []KnowledgeContextRef { return s.KnowledgeContext }
+
+// GetPolicyMergeMode returns the step's policy merge mode override.
+func (s *BaseStep) GetPolicyMergeMode() string { return s.PolicyMergeMode }
 
 // Default type assertion implementations
 func (s *BaseStep) AsIncludeStep() (*IncludeStep, bool)   { return nil, false }
@@ -509,6 +514,13 @@ func (ps PipelineStep) GetKnowledgeContext() []KnowledgeContextRef {
 	return ps.Step.GetKnowledgeContext()
 }
 
+func (ps PipelineStep) GetPolicyMergeMode() string {
+	if ps.Step == nil {
+		return ""
+	}
+	return ps.Step.GetPolicyMergeMode()
+}
+
 func (ps PipelineStep) GetTasks() []Task {
 	if taskStep, ok := ps.AsTaskStep(); ok {
 		return taskStep.Tasks
@@ -670,6 +682,12 @@ func (ps *PipelineStep) SetKnowledgeContext(context []KnowledgeContextRef) {
 	}
 }
 
+func (ps *PipelineStep) SetPolicyMergeMode(value string) {
+	if base := ps.baseStep(); base != nil {
+		base.PolicyMergeMode = value
+	}
+}
+
 type KnowledgeContextRef struct {
 	Kind     string `yaml:"kind" json:"kind"`
 	Ref      string `yaml:"ref,omitempty" json:"ref,omitempty"`
@@ -734,6 +752,7 @@ type Pipeline struct {
 	RuntimePool       string                `yaml:"runtime_pool,omitempty" json:"runtime_pool,omitempty"`
 	AffinityEnabled   *bool                 `yaml:"affinity_enabled,omitempty" json:"affinity_enabled,omitempty"`
 	KnowledgeContext  []KnowledgeContextRef `yaml:"knowledge_context,omitempty" json:"knowledge_context,omitempty"`
+	PolicyMergeMode   string                `yaml:"policy_merge_mode,omitempty" json:"policy_merge_mode,omitempty"`
 	Output            PipelineOutput        `yaml:"output,omitempty" json:"output,omitempty"`
 	LlmContentSharing *bool                 `yaml:"llm_content_sharing,omitempty" json:"llm_content_sharing,omitempty"`
 	LlmOutputSharing  *bool                 `yaml:"llm_output_sharing,omitempty" json:"llm_output_sharing,omitempty"`
@@ -749,6 +768,13 @@ func PipelineLLMEnabled(pipeline *Pipeline) bool {
 		return *pipeline.LLMEnabled
 	}
 	return true
+}
+
+func PipelineLLMContentSharing(pipeline *Pipeline) bool {
+	if pipeline == nil || pipeline.LlmContentSharing == nil {
+		return false
+	}
+	return *pipeline.LlmContentSharing
 }
 
 // DisplayOptions defines how the pipeline progress is displayed in integrations like GitHub.
@@ -772,6 +798,7 @@ type Task struct {
 	MCPProfiles      []string              `yaml:"mcp_profiles,omitempty" json:"mcp_profiles,omitempty"`
 	Variables        map[string]string     `yaml:"variables,omitempty" json:"variables,omitempty"`
 	KnowledgeContext []KnowledgeContextRef `yaml:"knowledge_context,omitempty" json:"knowledge_context,omitempty"`
+	PolicyMergeMode  string                `yaml:"policy_merge_mode,omitempty" json:"policy_merge_mode,omitempty"`
 }
 
 func (t *Task) UnmarshalYAML(value *yaml.Node) error {
@@ -842,20 +869,28 @@ type MCPToolAction struct {
 	Arguments json.RawMessage `json:"arguments,omitempty"`
 }
 
+// WorkspaceToolAction asks the agent to call a bounded NopsAI workspace tool.
+type WorkspaceToolAction struct {
+	Tool      string          `json:"tool"`
+	Arguments json.RawMessage `json:"arguments,omitempty"`
+}
+
 // Action is the structured command returned by the LLM Agent to the Agent.
 type Action struct {
-	Type          string         `json:"type"`
-	CommandAction *CommandAction `json:"command_action,omitempty"`
-	FileAction    *FileAction    `json:"file_action,omitempty"`
-	AnswerAction  *AnswerAction  `json:"answer_action,omitempty"`
-	MCPToolAction *MCPToolAction `json:"mcp_tool_action,omitempty"`
+	Type                string               `json:"type"`
+	CommandAction       *CommandAction       `json:"command_action,omitempty"`
+	FileAction          *FileAction          `json:"file_action,omitempty"`
+	AnswerAction        *AnswerAction        `json:"answer_action,omitempty"`
+	MCPToolAction       *MCPToolAction       `json:"mcp_tool_action,omitempty"`
+	WorkspaceToolAction *WorkspaceToolAction `json:"workspace_tool_action,omitempty"`
 }
 
 const (
-	ActionTypeExecuteCommand string = "EXECUTE_COMMAND"
-	ActionTypeReplaceFile    string = "REPLACE_FILE"
-	ActionTypeReturnAnswer   string = "RETURN_ANSWER"
-	ActionTypeCallMCPTool    string = "CALL_MCP_TOOL"
+	ActionTypeExecuteCommand    string = "EXECUTE_COMMAND"
+	ActionTypeReplaceFile       string = "REPLACE_FILE"
+	ActionTypeReturnAnswer      string = "RETURN_ANSWER"
+	ActionTypeCallMCPTool       string = "CALL_MCP_TOOL"
+	ActionTypeCallWorkspaceTool string = "CALL_WORKSPACE_TOOL"
 )
 
 // ActionResult is sent from the Agent back to the LLM Agent after an action is performed.

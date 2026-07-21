@@ -19,3 +19,12 @@ export {
   type AssistantMessagePayload,
   type AssistantToolActivity,
 } from '../features/assistant/model.js';
+
+export {
+  assistantPageContextKey,
+  assistantPageContextLabel,
+  assistantPageContextScope,
+  buildAssistantPageContext,
+  normalizeAssistantPageContext,
+  type AssistantPageContext,
+} from '../features/assistant/pageContext.js';

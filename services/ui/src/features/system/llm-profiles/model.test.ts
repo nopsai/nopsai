@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   emptyLLMProfileForm,
+  llmFeatureFormValueWithMode,
+  llmFeatureModeFromFormValue,
   llmProfileFormFromRecord,
   llmProfilePayloadFromForm,
   normalizeLLMProfilesPayload,
@@ -21,6 +23,8 @@ test('normalizes LLM profile payloads and preserves an explicit hidden default',
         timeout_seconds: 30,
         max_tokens: 4096,
         temperature: 0.2,
+        prompt_cache: { mode: 'auto' },
+        provider_state: { mode: 'disabled' },
         extra: { deployment: 'review' },
         references: ['pipeline:build'],
       },
@@ -43,6 +47,8 @@ test('normalizes LLM profile payloads and preserves an explicit hidden default',
   assert.equal(payload.profiles[1]?.thinking, true);
   assert.equal(payload.profiles[1]?.timeout_seconds, 30);
   assert.equal(payload.profiles[1]?.temperature, 0.2);
+  assert.deepEqual(payload.profiles[1]?.prompt_cache, { mode: 'auto' });
+  assert.deepEqual(payload.profiles[1]?.provider_state, { mode: 'disabled' });
   assert.deepEqual(payload.profiles[1]?.extra, { deployment: 'review' });
   assert.deepEqual(payload.profiles[1]?.references, ['pipeline:build']);
 });
@@ -71,6 +77,8 @@ test('converts LLM profile records into editable form state', () => {
     timeout_seconds: 30,
     max_tokens: 4096,
     temperature: 0.1,
+    prompt_cache: { mode: 'required', scope: 'run' },
+    provider_state: { mode: 'disabled' },
     extra: { api_version: '2024-10-21', deployment: 'local' },
     status: 'valid',
   };
@@ -87,6 +95,8 @@ test('converts LLM profile records into editable form state', () => {
     timeout_seconds: '30',
     max_tokens: '4096',
     temperature: '0.1',
+    prompt_cache: '{\n  "mode": "required",\n  "scope": "run"\n}',
+    provider_state: '{\n  "mode": "disabled"\n}',
     extra: 'api_version=2024-10-21\ndeployment=local',
   });
 });
@@ -104,6 +114,8 @@ test('builds API payloads from LLM profile form state', () => {
     timeout_seconds: '20',
     max_tokens: '2048',
     temperature: '0.25',
+    prompt_cache: '{"mode":"auto"}',
+    provider_state: '{"mode":"disabled"}',
     extra: 'x_title=NopsAI\nhttp_referer=https://nopsai.example.com',
   });
 
@@ -119,6 +131,8 @@ test('builds API payloads from LLM profile form state', () => {
     timeout_seconds: 20,
     max_tokens: 2048,
     temperature: 0.25,
+    prompt_cache: { mode: 'auto' },
+    provider_state: { mode: 'disabled' },
     extra: {
       http_referer: 'https://nopsai.example.com',
       x_title: 'NopsAI',
@@ -138,10 +152,25 @@ test('builds API payloads from LLM profile form state', () => {
       timeout_seconds: '',
       max_tokens: '',
       temperature: '',
+      prompt_cache: '',
+      provider_state: '',
       extra: '',
     }).thinking,
     undefined
   );
+});
+
+test('updates visible LLM feature modes while preserving advanced fields', () => {
+  const updated = llmFeatureFormValueWithMode('{"mode":"auto","scope":"run","retention":"ephemeral"}', 'required');
+
+  assert.equal(llmFeatureModeFromFormValue(updated), 'required');
+  assert.deepEqual(JSON.parse(updated), {
+    mode: 'required',
+    retention: 'ephemeral',
+    scope: 'run',
+  });
+  assert.equal(llmFeatureModeFromFormValue(''), 'auto');
+  assert.equal(llmFeatureModeFromFormValue('{"mode":"disabled"}'), 'disabled');
 });
 
 test('removes LM Studio-only options from other providers', () => {

@@ -32,7 +32,7 @@ export const PIPELINE_DIRECTIVES: LabDirective[] = [
   { key: 'knowledge_context', hint: 'Knowledge documents for goals' },
   { key: 'output', hint: 'Pipeline final outputs' },
   { key: 'llm_output_sharing', hint: 'Share LLM outputs across steps' },
-  { key: 'llm_content_sharing', hint: 'Share LLM prompts across steps' },
+  { key: 'llm_content_sharing', hint: 'Share workspace files with LLM goals' },
   { key: 'llm_content_include', hint: 'Only share matching paths with LLM' },
   { key: 'llm_content_ignore', hint: 'Paths excluded from LLM context' },
   { key: 'display_options', hint: 'UI rendering preferences' },

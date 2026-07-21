@@ -1,9 +1,11 @@
 # Pipeline Final Output Rendering
 
 Pipeline final outputs are run-owned deliverables configured through
-`output.items` in pipeline YAML. Output name, type, timing, prompt, and optional
-LLM profile remain GitOps-owned. Generated source, validation audit, and render
-audit remain attached to the run record.
+`output.items` in pipeline YAML. Output name, type, prompt, and optional LLM
+profile remain GitOps-owned. Generated source, timing, validation audit, and
+render audit remain attached to the run record. Generation duration is measured
+from `generation_started_at` to `updated_at`, so queued outputs do not inherit
+time spent waiting for earlier outputs.
 
 ## Generation Contract
 
@@ -167,8 +169,13 @@ deployment configuration. Pipeline YAML never contains infrastructure URLs.
 
 ## Preview Behavior
 
-- Dashboard outputs render in Dashboards and fall back to pretty JSON through
-  run-output download.
+- Ready run-detail output rows are clickable preview toggles. The actions menu
+  keeps explicit preview, copy, download, and cancel commands for keyboard and
+  dense-table workflows.
+- Dashboard outputs render their stored `DashboardSpec` inline with the same
+  dashboard block renderer used by Dashboards. When run detail includes
+  `dashboard_target`, the output row also links directly to the target dashboard
+  and section.
 - Markdown is parsed with GFM support.
 - PDF is fetched through the authorized download endpoint and displayed in an
   inline viewer with loading/error states.

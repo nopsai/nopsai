@@ -182,6 +182,56 @@ test('loads a fresh session without selecting the most recent conversation', asy
   expect(fetchAssistantConversationMock).not.toHaveBeenCalled();
 });
 
+test('uses page context for scoped profile loading, new conversations, and sends', async () => {
+  const createdConversation = assistantConversation('c1', []);
+  const completedConversation = assistantConversation('c1', [
+    assistantMessage('m1', 'c1', 'user', 'explain this'),
+    assistantMessage('m2', 'c1', 'assistant', 'Run analysis is ready.'),
+  ]);
+  createAssistantConversationMock.mockResolvedValue(createdConversation);
+  sendAssistantMessageMock.mockResolvedValue({
+    conversation: completedConversation,
+    user_message: completedConversation.messages[0],
+    reply: completedConversation.messages[1],
+  });
+
+  const pageContext = {
+    title: 'Pipeline runs',
+    path: '/pipelineruns/recent/run-1',
+    route: '/pipelineruns/:tab/:run_id',
+    area: 'pipelineruns',
+    scope: 'platform/api',
+    run_id: 'run-1',
+    resource_type: 'pipeline_run',
+    resource_id: 'run-1',
+  };
+  const { result } = renderHook(() => useAssistantController({ pageContext }));
+  await waitFor(() => expect(result.current.enabled).toBe(true));
+
+  act(() => result.current.setDraft('explain this'));
+  await act(async () => {
+    await result.current.submitMessage();
+  });
+
+  expect(fetchAssistantLLMProfilesMock).toHaveBeenCalledWith('platform/api');
+  expect(createAssistantConversationMock).toHaveBeenCalledWith({
+    selected_llm_profile: 'assistant',
+    docs_version: 'auto',
+    scope: 'platform/api',
+  });
+  expect(sendAssistantMessageMock).toHaveBeenCalledWith({
+    conversation_id: 'c1',
+    content: 'explain this',
+    selected_llm_profile: 'assistant',
+    page_context: expect.objectContaining({
+      title: 'Pipeline runs',
+      run_id: 'run-1',
+      scope: 'platform/api',
+      resource_type: 'pipeline_run',
+    }),
+  });
+});
+
 test('keeps pending send state scoped to the source conversation', async () => {
   const first = assistantConversation('c1', [assistantMessage('m1', 'c1', 'user', 'first chat')]);
   const second = assistantConversation('c2', [assistantMessage('m2', 'c2', 'user', 'second chat')]);

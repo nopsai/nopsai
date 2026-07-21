@@ -17,7 +17,22 @@ test('routes trigger, dependency, copy, and run actions through callbacks', asyn
       triggersLoading={false}
       triggersError={null}
       dependencies={['pipeline:platform/deploy', 'step:build-image']}
-      runs={[{ run_id: 'run-123456789', pipeline_name: 'release', status: 'success', git_ref: 'refs/heads/main' }]}
+      runs={[{
+        run_id: 'run-123456789',
+        pipeline_name: 'release',
+        status: 'success',
+        git_ref: 'refs/heads/main',
+        final_output_status: {
+          status: 'success',
+          configured: 1,
+          total: 1,
+          pending: 0,
+          generating: 0,
+          generated: 1,
+          failed: 0,
+          cancelled: 0,
+        },
+      }]}
       runsLoading={false}
       runsError={null}
       onOpenTrigger={onOpenTrigger}
@@ -36,4 +51,5 @@ test('routes trigger, dependency, copy, and run actions through callbacks', asyn
   expect(onOpenDependency).toHaveBeenCalledWith('platform/deploy');
   expect(onCopyDependency).toHaveBeenCalledWith('build-image');
   expect(onOpenRun).toHaveBeenCalledWith('run-123456789');
+  expect(screen.getByText('Output generated')).toHaveClass('runner-pill--ok');
 });

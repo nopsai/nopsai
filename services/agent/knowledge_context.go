@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -20,6 +21,29 @@ const strictKnowledgeContextActionInstruction = "If the requested action conflic
 	"Guardrails and policies apply to the user's goal and to generated commands, file writes, MCP/tool actions, and their arguments. " +
 	"If any generated action would violate a guardrail or policy from the knowledge context, return RETURN_ANSWER instead with a short explanation that names the conflicting guardrail or policy; the agent will treat that response as a task failure."
 
+type knowledgeContextScope string
+
+const (
+	knowledgeContextScopePipeline knowledgeContextScope = "pipeline"
+	knowledgeContextScopeStep     knowledgeContextScope = "step"
+	knowledgeContextScopeTask     knowledgeContextScope = "task"
+)
+
+type scopedKnowledgeContextRef struct {
+	Ref        models.KnowledgeContextRef
+	Scope      knowledgeContextScope
+	ScopeOrder int
+	Sequence   int
+}
+
+type scopedKnowledgeContextSnapshot struct {
+	Snapshot   models.KnowledgeContextSnapshot
+	Scope      knowledgeContextScope
+	ScopeOrder int
+	Sequence   int
+	Key        string
+}
+
 func loadRuntimeKnowledgeContexts() ([]models.KnowledgeContextSnapshot, error) {
 	raw := strings.TrimSpace(os.Getenv(knowledgeContextsRuntimeEnv))
 	if raw == "" {
@@ -37,14 +61,23 @@ func loadRuntimeKnowledgeContexts() ([]models.KnowledgeContextSnapshot, error) {
 }
 
 func buildEffectiveKnowledgeContextPrompt(pipeline *models.Pipeline, step *models.PipelineStep, task *models.Task, snapshots []models.KnowledgeContextSnapshot) string {
-	selected := selectEffectiveKnowledgeContexts(pipeline, step, task, snapshots)
+	selected := selectScopedEffectiveKnowledgeContexts(pipeline, step, task, snapshots)
 	if len(selected) == 0 {
 		return ""
 	}
-	return formatKnowledgeContextPrompt(selected)
+	return formatScopedKnowledgeContextPrompt(selected, models.EffectivePolicyMergeMode(pipeline, step, task))
 }
 
 func selectEffectiveKnowledgeContexts(pipeline *models.Pipeline, step *models.PipelineStep, task *models.Task, snapshots []models.KnowledgeContextSnapshot) []models.KnowledgeContextSnapshot {
+	scoped := selectScopedEffectiveKnowledgeContexts(pipeline, step, task, snapshots)
+	selected := make([]models.KnowledgeContextSnapshot, 0, len(scoped))
+	for _, item := range scoped {
+		selected = append(selected, item.Snapshot)
+	}
+	return selected
+}
+
+func selectScopedEffectiveKnowledgeContexts(pipeline *models.Pipeline, step *models.PipelineStep, task *models.Task, snapshots []models.KnowledgeContextSnapshot) []scopedKnowledgeContextSnapshot {
 	if pipeline == nil || step == nil || len(snapshots) == 0 {
 		return nil
 	}
@@ -63,55 +96,125 @@ func selectEffectiveKnowledgeContexts(pipeline *models.Pipeline, step *models.Pi
 		}
 	}
 
-	var refs []models.KnowledgeContextRef
-	refs = append(refs, pipeline.KnowledgeContext...)
-	refs = append(refs, step.GetKnowledgeContext()...)
-	if task != nil {
-		refs = append(refs, task.KnowledgeContext...)
-	}
+	refs := scopedKnowledgeContextRefs(pipeline, step, task)
+	mode := models.EffectivePolicyMergeMode(pipeline, step, task)
 
-	seen := map[string]struct{}{}
-	var selected []models.KnowledgeContextSnapshot
+	seen := map[string]int{}
+	var selected []scopedKnowledgeContextSnapshot
 	for _, ref := range refs {
-		kind := normalizeKnowledgeRuntimeValue(ref.Kind)
+		kind := normalizeKnowledgeRuntimeValue(ref.Ref.Kind)
 		if kind == "" {
 			continue
 		}
 		key := ""
 		var snapshot models.KnowledgeContextSnapshot
-		if refValue := normalizeKnowledgeRuntimeValue(ref.Ref); refValue != "" {
+		if refValue := normalizeKnowledgeRuntimeValue(ref.Ref.Ref); refValue != "" {
 			key = "ref:" + kind + "|" + refValue
 			snapshot = byRef[kind+"|"+refValue]
-		} else if pathValue := normalizeKnowledgeRuntimePath(ref.Path); pathValue != "" {
+		} else if pathValue := normalizeKnowledgeRuntimePath(ref.Ref.Path); pathValue != "" {
 			key = "path:" + kind + "|" + pathValue
 			snapshot = byPath[kind+"|"+pathValue]
 		}
 		if key == "" || snapshot.Content == "" {
 			continue
 		}
-		if _, ok := seen[key]; ok {
+		item := scopedKnowledgeContextSnapshot{
+			Snapshot:   snapshot,
+			Scope:      ref.Scope,
+			ScopeOrder: ref.ScopeOrder,
+			Sequence:   ref.Sequence,
+			Key:        key,
+		}
+		if existingIdx, ok := seen[key]; ok {
+			if mode == models.PolicyMergeModeOverride && item.ScopeOrder >= selected[existingIdx].ScopeOrder {
+				selected[existingIdx] = item
+			}
 			continue
 		}
-		seen[key] = struct{}{}
-		selected = append(selected, snapshot)
+		seen[key] = len(selected)
+		selected = append(selected, item)
 	}
+	sort.SliceStable(selected, func(a, b int) bool {
+		if selected[a].ScopeOrder != selected[b].ScopeOrder {
+			return selected[a].ScopeOrder < selected[b].ScopeOrder
+		}
+		if selected[a].Sequence != selected[b].Sequence {
+			return selected[a].Sequence < selected[b].Sequence
+		}
+		return selected[a].Key < selected[b].Key
+	})
 	return selected
 }
 
+func scopedKnowledgeContextRefs(pipeline *models.Pipeline, step *models.PipelineStep, task *models.Task) []scopedKnowledgeContextRef {
+	if pipeline == nil || step == nil {
+		return nil
+	}
+	refs := make([]scopedKnowledgeContextRef, 0, len(pipeline.KnowledgeContext)+len(step.GetKnowledgeContext()))
+	sequence := 0
+	for _, ref := range pipeline.KnowledgeContext {
+		refs = append(refs, scopedKnowledgeContextRef{Ref: ref, Scope: knowledgeContextScopePipeline, ScopeOrder: 0, Sequence: sequence})
+		sequence++
+	}
+	for _, ref := range step.GetKnowledgeContext() {
+		refs = append(refs, scopedKnowledgeContextRef{Ref: ref, Scope: knowledgeContextScopeStep, ScopeOrder: 1, Sequence: sequence})
+		sequence++
+	}
+	if task != nil {
+		for _, ref := range task.KnowledgeContext {
+			refs = append(refs, scopedKnowledgeContextRef{Ref: ref, Scope: knowledgeContextScopeTask, ScopeOrder: 2, Sequence: sequence})
+			sequence++
+		}
+	}
+	return refs
+}
+
 func formatKnowledgeContextPrompt(snapshots []models.KnowledgeContextSnapshot) string {
+	scoped := make([]scopedKnowledgeContextSnapshot, 0, len(snapshots))
+	for idx, snapshot := range snapshots {
+		scoped = append(scoped, scopedKnowledgeContextSnapshot{
+			Snapshot:   snapshot,
+			Scope:      knowledgeContextScopePipeline,
+			ScopeOrder: 0,
+			Sequence:   idx,
+			Key:        knowledgeContextSnapshotKey(snapshot),
+		})
+	}
+	return formatScopedKnowledgeContextPrompt(scoped, models.PolicyMergeModeRestrictive)
+}
+
+func formatScopedKnowledgeContextPrompt(snapshots []scopedKnowledgeContextSnapshot, mergeMode string) string {
 	var builder strings.Builder
 	hasStrict := false
-	for _, snapshot := range snapshots {
-		switch normalizeKnowledgeRuntimeValue(snapshot.Kind) {
+	rawSnapshots := make([]models.KnowledgeContextSnapshot, 0, len(snapshots))
+	for _, item := range snapshots {
+		rawSnapshots = append(rawSnapshots, item.Snapshot)
+		switch normalizeKnowledgeRuntimeValue(item.Snapshot.Kind) {
 		case "guardrail", "policy":
 			hasStrict = true
 		}
 	}
+	mergeMode = models.NormalizePolicyMergeMode(mergeMode)
 	if hasStrict {
+		builder.WriteString("NopsAI Knowledge Snapshot\n")
+		builder.WriteString("knowledge_revision: ")
+		builder.WriteString(knowledgeContextRevision(rawSnapshots, false))
+		builder.WriteString("\npolicy_revision: ")
+		builder.WriteString(knowledgeContextRevision(rawSnapshots, true))
+		builder.WriteString("\neffective_policy_snapshot_hash: ")
+		builder.WriteString(effectivePolicySnapshotHash(snapshots, mergeMode))
+		builder.WriteString("\npolicy_merge_mode: ")
+		builder.WriteString(mergeMode)
+		builder.WriteString("\npolicy_precedence_version: ")
+		builder.WriteString(models.PolicyPrecedenceVersion)
+		builder.WriteString("\n\n")
+		builder.WriteString(policyMergeInstruction(mergeMode))
+		builder.WriteString("\n\n")
 		builder.WriteString(strictKnowledgeContextActionInstruction)
 		builder.WriteString("\n\n")
 	}
-	for _, snapshot := range snapshots {
+	for _, item := range snapshots {
+		snapshot := item.Snapshot
 		title := strings.TrimSpace(snapshot.Name)
 		if title == "" {
 			title = firstNonEmptyKnowledgeLabel(snapshot.Ref, snapshot.Path, snapshot.Kind)
@@ -120,7 +223,7 @@ func formatKnowledgeContextPrompt(snapshots []models.KnowledgeContextSnapshot) s
 		builder.WriteString("### ")
 		builder.WriteString(strings.Join(nonEmptyKnowledgeParts(labelParts...), " - "))
 		builder.WriteString("\n")
-		meta := knowledgeContextMetadata(snapshot)
+		meta := knowledgeContextMetadataForScope(snapshot, item.Scope)
 		if len(meta) > 0 {
 			builder.WriteString(strings.Join(meta, " | "))
 			builder.WriteString("\n")
@@ -129,6 +232,71 @@ func formatKnowledgeContextPrompt(snapshots []models.KnowledgeContextSnapshot) s
 		builder.WriteString("\n\n")
 	}
 	return strings.TrimSpace(builder.String())
+}
+
+func policyMergeInstruction(mergeMode string) string {
+	switch models.NormalizePolicyMergeMode(mergeMode) {
+	case models.PolicyMergeModeOverride:
+		return "Policy precedence is task > step > pipeline. In override mode, a narrower scope replaces a broader policy only when both policies have the same identity; unrelated policies from broader scopes still apply."
+	case models.PolicyMergeModeFailOnConflict:
+		return "Policy precedence is task > step > pipeline. In fail_on_conflict mode, if policy or guardrail instructions are incompatible, return RETURN_ANSWER with a short conflict explanation instead of choosing an executable or file-changing action."
+	default:
+		return "Policy precedence is task > step > pipeline. In restrictive mode, narrower policies may add restrictions but cannot weaken broader pipeline or step policies; apply the stricter requirement when instructions differ."
+	}
+}
+
+func effectivePolicySnapshotHash(snapshots []scopedKnowledgeContextSnapshot, mergeMode string) string {
+	type policyHashItem struct {
+		Scope                 string `json:"scope"`
+		Kind                  string `json:"kind"`
+		Ref                   string `json:"ref,omitempty"`
+		Path                  string `json:"path,omitempty"`
+		Source                string `json:"source,omitempty"`
+		ConfigSourcePath      string `json:"config_source_path,omitempty"`
+		ConfigSourceCommitSHA string `json:"config_source_commit_sha,omitempty"`
+		ContentSHA256         string `json:"content_sha256"`
+		Required              bool   `json:"required"`
+	}
+	payload := struct {
+		MergeMode         string           `json:"policy_merge_mode"`
+		PrecedenceVersion string           `json:"policy_precedence_version"`
+		Items             []policyHashItem `json:"items"`
+	}{
+		MergeMode:         models.NormalizePolicyMergeMode(mergeMode),
+		PrecedenceVersion: models.PolicyPrecedenceVersion,
+	}
+	for _, item := range snapshots {
+		snapshot := item.Snapshot
+		if !models.KnowledgeContextKindIsBlocking(snapshot.Kind) {
+			continue
+		}
+		payload.Items = append(payload.Items, policyHashItem{
+			Scope:                 string(item.Scope),
+			Kind:                  normalizeKnowledgeRuntimeValue(snapshot.Kind),
+			Ref:                   normalizeKnowledgeRuntimeValue(snapshot.Ref),
+			Path:                  normalizeKnowledgeRuntimePath(snapshot.Path),
+			Source:                normalizeKnowledgeRuntimeValue(snapshot.Source),
+			ConfigSourcePath:      normalizeKnowledgeRuntimePath(snapshot.ConfigSourcePath),
+			ConfigSourceCommitSHA: normalizeKnowledgeRuntimeValue(snapshot.ConfigSourceCommitSHA),
+			ContentSHA256:         fmt.Sprintf("%x", sha256.Sum256([]byte(snapshot.Content))),
+			Required:              snapshot.Required,
+		})
+	}
+	sort.Slice(payload.Items, func(a, b int) bool {
+		left := payload.Items[a]
+		right := payload.Items[b]
+		return strings.Join([]string{left.Scope, left.Kind, left.Ref, left.Path, left.Source, left.ConfigSourcePath, left.ConfigSourceCommitSHA, left.ContentSHA256}, "\x00") <
+			strings.Join([]string{right.Scope, right.Kind, right.Ref, right.Path, right.Source, right.ConfigSourcePath, right.ConfigSourceCommitSHA, right.ContentSHA256}, "\x00")
+	})
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(encoded))
+}
+
+func knowledgeContextRevision(snapshots []models.KnowledgeContextSnapshot, blockingOnly bool) string {
+	return models.KnowledgeContextRevision(snapshots, blockingOnly)
 }
 
 func effectiveBlockingKnowledgeContextKinds(pipeline *models.Pipeline, step *models.PipelineStep, task *models.Task, snapshots []models.KnowledgeContextSnapshot) []string {
@@ -154,12 +322,7 @@ func effectiveBlockingKnowledgeContextKinds(pipeline *models.Pipeline, step *mod
 }
 
 func isBlockingKnowledgeContextKind(kind string) bool {
-	switch normalizeKnowledgeRuntimeValue(kind) {
-	case "guardrail", "policy":
-		return true
-	default:
-		return false
-	}
+	return models.KnowledgeContextKindIsBlocking(kind)
 }
 
 func knowledgeContextViolationFailureReason(action *proto.Action, pipeline *models.Pipeline, step *models.PipelineStep, task *models.Task, snapshots []models.KnowledgeContextSnapshot) (string, []string, bool) {
@@ -236,7 +399,14 @@ func answerLooksLikeKnowledgeContextRejection(answer string, blockingKinds []str
 }
 
 func knowledgeContextMetadata(snapshot models.KnowledgeContextSnapshot) []string {
+	return knowledgeContextMetadataForScope(snapshot, "")
+}
+
+func knowledgeContextMetadataForScope(snapshot models.KnowledgeContextSnapshot, scope knowledgeContextScope) []string {
 	var meta []string
+	if scope != "" {
+		meta = append(meta, "scope: "+string(scope))
+	}
 	if snapshot.Ref != "" {
 		meta = append(meta, "ref: "+snapshot.Ref)
 	}
@@ -251,6 +421,17 @@ func knowledgeContextMetadata(snapshot models.KnowledgeContextSnapshot) []string
 	}
 	sort.Strings(meta)
 	return meta
+}
+
+func knowledgeContextSnapshotKey(snapshot models.KnowledgeContextSnapshot) string {
+	kind := normalizeKnowledgeRuntimeValue(snapshot.Kind)
+	if ref := normalizeKnowledgeRuntimeValue(snapshot.Ref); ref != "" {
+		return "ref:" + kind + "|" + ref
+	}
+	if path := normalizeKnowledgeRuntimePath(snapshot.Path); path != "" {
+		return "path:" + kind + "|" + path
+	}
+	return "content:" + kind + "|" + fmt.Sprintf("%x", sha256.Sum256([]byte(snapshot.Content)))
 }
 
 func normalizeKnowledgeRuntimeValue(value string) string {
