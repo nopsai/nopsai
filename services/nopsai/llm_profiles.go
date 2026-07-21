@@ -48,6 +48,8 @@ var llmProfileSchemaStatements = []string{
 		timeout_seconds INTEGER NOT NULL DEFAULT 0,
 		max_tokens INTEGER NOT NULL DEFAULT 0,
 		temperature DOUBLE PRECISION,
+		prompt_cache JSONB NOT NULL DEFAULT '{}'::jsonb,
+		provider_state JSONB NOT NULL DEFAULT '{}'::jsonb,
 		extra JSONB NOT NULL DEFAULT '{}'::jsonb,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -56,22 +58,26 @@ var llmProfileSchemaStatements = []string{
 	`ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS timeout_seconds INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS max_tokens INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS temperature DOUBLE PRECISION`,
+	`ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS prompt_cache JSONB NOT NULL DEFAULT '{}'::jsonb`,
+	`ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS provider_state JSONB NOT NULL DEFAULT '{}'::jsonb`,
 	`ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS extra JSONB NOT NULL DEFAULT '{}'::jsonb`,
 }
 
 type llmProfileForm struct {
-	Name           string            `json:"name" yaml:"name"`
-	Provider       string            `json:"provider" yaml:"provider"`
-	Model          string            `json:"model" yaml:"model"`
-	BaseURL        string            `json:"base_url" yaml:"base_url"`
-	CredentialRef  string            `json:"credential_ref" yaml:"credential_ref"`
-	AllowedScopes  []string          `json:"allowed_scopes" yaml:"allowed_scopes"`
-	Reasoning      string            `json:"reasoning" yaml:"reasoning"`
-	Thinking       *bool             `json:"thinking,omitempty" yaml:"thinking,omitempty"`
-	TimeoutSeconds int               `json:"timeout_seconds,omitempty" yaml:"timeout_seconds,omitempty"`
-	MaxTokens      int               `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
-	Temperature    *float64          `json:"temperature,omitempty" yaml:"temperature,omitempty"`
-	Extra          map[string]string `json:"extra,omitempty" yaml:"extra,omitempty"`
+	Name           string                  `json:"name" yaml:"name"`
+	Provider       string                  `json:"provider" yaml:"provider"`
+	Model          string                  `json:"model" yaml:"model"`
+	BaseURL        string                  `json:"base_url" yaml:"base_url"`
+	CredentialRef  string                  `json:"credential_ref" yaml:"credential_ref"`
+	AllowedScopes  []string                `json:"allowed_scopes" yaml:"allowed_scopes"`
+	Reasoning      string                  `json:"reasoning" yaml:"reasoning"`
+	Thinking       *bool                   `json:"thinking,omitempty" yaml:"thinking,omitempty"`
+	TimeoutSeconds int                     `json:"timeout_seconds,omitempty" yaml:"timeout_seconds,omitempty"`
+	MaxTokens      int                     `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
+	Temperature    *float64                `json:"temperature,omitempty" yaml:"temperature,omitempty"`
+	PromptCache    config.LLMFeatureConfig `json:"prompt_cache,omitempty" yaml:"prompt_cache,omitempty"`
+	ProviderState  config.LLMFeatureConfig `json:"provider_state,omitempty" yaml:"provider_state,omitempty"`
+	Extra          map[string]string       `json:"extra,omitempty" yaml:"extra,omitempty"`
 }
 
 type llmProfileView struct {
@@ -112,18 +118,20 @@ type gitOpsLLMProfileFileCandidate struct {
 }
 
 type runtimeLLMProfile struct {
-	Provider       string            `json:"provider"`
-	Model          string            `json:"model,omitempty"`
-	BaseURL        string            `json:"base_url,omitempty"`
-	APIKey         string            `json:"api_key,omitempty"`
-	CredentialRef  string            `json:"credential_ref,omitempty"`
-	AllowedScopes  []string          `json:"allowed_scopes,omitempty"`
-	Reasoning      string            `json:"reasoning,omitempty"`
-	Thinking       *bool             `json:"thinking,omitempty"`
-	TimeoutSeconds int               `json:"timeout_seconds,omitempty"`
-	MaxTokens      int               `json:"max_tokens,omitempty"`
-	Temperature    *float64          `json:"temperature,omitempty"`
-	Extra          map[string]string `json:"extra,omitempty"`
+	Provider       string                  `json:"provider"`
+	Model          string                  `json:"model,omitempty"`
+	BaseURL        string                  `json:"base_url,omitempty"`
+	APIKey         string                  `json:"api_key,omitempty"`
+	CredentialRef  string                  `json:"credential_ref,omitempty"`
+	AllowedScopes  []string                `json:"allowed_scopes,omitempty"`
+	Reasoning      string                  `json:"reasoning,omitempty"`
+	Thinking       *bool                   `json:"thinking,omitempty"`
+	TimeoutSeconds int                     `json:"timeout_seconds,omitempty"`
+	MaxTokens      int                     `json:"max_tokens,omitempty"`
+	Temperature    *float64                `json:"temperature,omitempty"`
+	PromptCache    config.LLMFeatureConfig `json:"prompt_cache,omitempty"`
+	ProviderState  config.LLMFeatureConfig `json:"provider_state,omitempty"`
+	Extra          map[string]string       `json:"extra,omitempty"`
 }
 
 type runtimeLLMProfiles struct {
@@ -144,6 +152,8 @@ func profileFormFromConfig(name string, profile config.LLMProfile) llmProfileFor
 		TimeoutSeconds: profile.TimeoutSeconds,
 		MaxTokens:      profile.MaxTokens,
 		Temperature:    profile.Temperature,
+		PromptCache:    profile.PromptCache,
+		ProviderState:  profile.ProviderState,
 		Extra:          cloneStringMap(profile.Extra),
 	}
 }
@@ -160,6 +170,8 @@ func profileConfigFromForm(form llmProfileForm) config.LLMProfile {
 		TimeoutSeconds: form.TimeoutSeconds,
 		MaxTokens:      form.MaxTokens,
 		Temperature:    form.Temperature,
+		PromptCache:    form.PromptCache,
+		ProviderState:  form.ProviderState,
 		Extra:          form.Extra,
 	})
 }
@@ -584,7 +596,7 @@ func (a *App) loadLLMProfilesFromDB(ctx context.Context) (string, map[string]con
 
 	rows, err := a.db.Query(ctx, `
 		SELECT name, provider, model, base_url, credential_ref, allowed_scopes, reasoning, thinking,
-		       timeout_seconds, max_tokens, temperature, extra
+		       timeout_seconds, max_tokens, temperature, prompt_cache, provider_state, extra
 		FROM llm_profiles
 		ORDER BY name ASC
 	`)
@@ -601,6 +613,8 @@ func (a *App) loadLLMProfilesFromDB(ctx context.Context) (string, map[string]con
 			allowedScopesRaw []byte
 			thinking         sql.NullBool
 			temperature      sql.NullFloat64
+			promptCacheRaw   []byte
+			providerStateRaw []byte
 			extraRaw         []byte
 		)
 		if err := rows.Scan(
@@ -615,6 +629,8 @@ func (a *App) loadLLMProfilesFromDB(ctx context.Context) (string, map[string]con
 			&profile.TimeoutSeconds,
 			&profile.MaxTokens,
 			&temperature,
+			&promptCacheRaw,
+			&providerStateRaw,
 			&extraRaw,
 		); err != nil {
 			return "", nil, false, fmt.Errorf("scan LLM profile from database: %w", err)
@@ -631,6 +647,16 @@ func (a *App) loadLLMProfilesFromDB(ctx context.Context) (string, map[string]con
 		if temperature.Valid {
 			value := temperature.Float64
 			profile.Temperature = &value
+		}
+		if len(promptCacheRaw) > 0 {
+			if err := json.Unmarshal(promptCacheRaw, &profile.PromptCache); err != nil {
+				return "", nil, false, fmt.Errorf("parse prompt cache settings for LLM profile %q: %w", name, err)
+			}
+		}
+		if len(providerStateRaw) > 0 {
+			if err := json.Unmarshal(providerStateRaw, &profile.ProviderState); err != nil {
+				return "", nil, false, fmt.Errorf("parse provider state settings for LLM profile %q: %w", name, err)
+			}
 		}
 		if len(extraRaw) > 0 {
 			if err := json.Unmarshal(extraRaw, &profile.Extra); err != nil {
@@ -710,6 +736,14 @@ func persistLLMProfilesToTx(ctx context.Context, tx pgx.Tx, defaultProfile strin
 		if profile.Temperature != nil {
 			temperature = *profile.Temperature
 		}
+		promptCacheJSON, err := json.Marshal(profile.PromptCache)
+		if err != nil {
+			return fmt.Errorf("encode prompt cache settings for LLM profile %q: %w", name, err)
+		}
+		providerStateJSON, err := json.Marshal(profile.ProviderState)
+		if err != nil {
+			return fmt.Errorf("encode provider state settings for LLM profile %q: %w", name, err)
+		}
 		extraJSON, err := json.Marshal(profile.Extra)
 		if err != nil {
 			return fmt.Errorf("encode extra options for LLM profile %q: %w", name, err)
@@ -717,9 +751,9 @@ func persistLLMProfilesToTx(ctx context.Context, tx pgx.Tx, defaultProfile strin
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO llm_profiles (
 				name, provider, model, base_url, credential_ref, allowed_scopes, reasoning, thinking,
-				timeout_seconds, max_tokens, temperature, extra, updated_at
+				timeout_seconds, max_tokens, temperature, prompt_cache, provider_state, extra, updated_at
 			)
-			VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12::jsonb, NOW())
+			VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb, $14::jsonb, NOW())
 		`,
 			name,
 			profile.Provider,
@@ -732,6 +766,8 @@ func persistLLMProfilesToTx(ctx context.Context, tx pgx.Tx, defaultProfile strin
 			profile.TimeoutSeconds,
 			profile.MaxTokens,
 			temperature,
+			string(promptCacheJSON),
+			string(providerStateJSON),
 			string(extraJSON),
 		); err != nil {
 			return fmt.Errorf("persist LLM profile %q: %w", name, err)
@@ -923,6 +959,12 @@ func validateLLMProfileDefinition(name string, profile config.LLMProfile) (strin
 	if profile.MaxTokens > 0 && !config.LLMProviderSupportsMaxTokens(profile.Provider) {
 		return "invalid", fmt.Sprintf("LLM profile %q provider %q does not support max_tokens", name, profile.Provider)
 	}
+	if !config.SupportedLLMFeatureMode(profile.PromptCache.Mode) {
+		return "invalid", fmt.Sprintf("LLM profile %q has invalid prompt_cache.mode %q", name, profile.PromptCache.Mode)
+	}
+	if !config.SupportedLLMFeatureMode(profile.ProviderState.Mode) {
+		return "invalid", fmt.Sprintf("LLM profile %q has invalid provider_state.mode %q", name, profile.ProviderState.Mode)
+	}
 	if profile.Temperature != nil {
 		minimum, maximum, supported := config.LLMProviderTemperatureRange(profile.Provider)
 		if !supported {
@@ -1058,6 +1100,8 @@ func (a *App) buildRuntimeLLMProfilesForTeam(ctx context.Context, cfg config.Con
 			TimeoutSeconds: normalized.TimeoutSeconds,
 			MaxTokens:      normalized.MaxTokens,
 			Temperature:    normalized.Temperature,
+			PromptCache:    normalized.PromptCache,
+			ProviderState:  normalized.ProviderState,
 			Extra:          cloneStringMap(normalized.Extra),
 		}
 	}

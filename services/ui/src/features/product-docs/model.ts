@@ -492,7 +492,7 @@ const pipelineTopLevelRows: WikiConfigRow[] = [
   {
     key: 'llm_content_sharing',
     area: 'Pipeline YAML',
-    description: 'Boolean control for whether the agent scans workspace file content for LLM goal context.',
+    description: 'Boolean control for whether the agent automatically shares workspace file content in LLM goal context. Defaults to false when omitted; bounded workspace tools can still retrieve current files on demand with identity metadata for stale-write checks.',
     example: 'true',
   },
   {
@@ -986,6 +986,18 @@ const llmProfileRows: WikiConfigRow[] = [
     area: 'LLM profile',
     description: 'Optional sampling temperature. When omitted, provider or model defaults apply.',
     example: '0.2',
+  },
+  {
+    key: 'profiles[].prompt_cache.mode',
+    area: 'LLM profile',
+    description: 'Prompt cache preference: auto, required, or disabled. Required fails closed if the selected provider adapter cannot support it.',
+    example: 'auto',
+  },
+  {
+    key: 'profiles[].provider_state.mode',
+    area: 'LLM profile',
+    description: 'Provider conversation-state preference: auto, required, or disabled. NopsAI logical sessions remain the audit identity even when provider state is unavailable.',
+    example: 'disabled',
   },
   {
     key: 'profiles[].extra',
@@ -2725,6 +2737,7 @@ const baseWikiSections: WikiSectionInput[] = [
         ],
         details: [
           'Non-GitHub providers do not currently fetch pipeline or trigger files directly from the source repository. Their triggers and pipelines must already exist in NopsAI, normally through configuration sync.',
+          'GitHub App payloads are verified by git-bot first; forwarding from git-bot to nopsai /v1/git/events is an internal service-token call, not public webhook ingress.',
           'Delivery history records accepted events, authentication failures, idempotency behavior, and no_match outcomes.',
           'Branch, tag, repository, and changed-file matching uses simple glob semantics. Single star matches one path segment, double star can span directories, and question mark matches one non-slash character.',
           'Path filters are applied only when the provider supplies changed-file data. If the changed-file list is unavailable, NopsAI treats the rule as eligible so CI is not silently skipped.',
@@ -2877,12 +2890,14 @@ const baseWikiSections: WikiSectionInput[] = [
           'Supported providers include gemini, lmstudio, openai, anthropic, groq, mistral, ollama, openrouter, and azure-openai.',
           'Resolution order is task, step, pipeline, then default profile.',
           'Generic reasoning and thinking fields are supported only for LM Studio; other providers reject those generic settings.',
+          'Prompt cache and provider-state modes can be auto, required, or disabled; required fails closed when the provider adapter cannot satisfy the feature.',
           'Script-only pipelines with llm_enabled: false can run without a configured LLM registry.',
         ],
         details: [
           'Profiles should use credential_ref for hosted provider API keys instead of plaintext secrets.',
           'allowed_scopes lets administrators restrict model use by runtime context.',
           'The selected llm_profile is validated before agent launch. A run is rejected when the default profile is missing, a referenced profile does not exist, the profile is not allowed in the requested scope, or the provider configuration is invalid.',
+          'Provider prompt caches and provider conversation state are transport optimizations. NopsAI still owns the logical session, scoped context, policy precedence, and cache identity used for audit and invalidation.',
           'Final outputs have their own resolution path: output.items[].llm_profile overrides output.llm_profile, which overrides the pipeline llm_profile, which finally falls back to the configured default profile.',
         ],
         configRows: llmProfileRows,
@@ -2949,6 +2964,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'If a guardrail or policy conflicts with a requested action, the agent should explain the block rather than perform the prohibited action, and that block is treated as task failure.',
           'Effective context is merged from pipeline-level references, then step-level references, then task-level references. Required duplicates win over optional duplicates.',
           'Managed refs use knowledge_context.use authorization and are snapshotted into pipeline_run_knowledge_contexts so completed runs preserve exactly what the model saw.',
+          'Policy snapshots are pinned by scope, then recomputed as pipeline, step, and task scopes start. Emergency policy response cancels active runs instead of mutating already-resolved policy.',
         ],
         configRows: knowledgeRows,
         examples: [
@@ -2980,11 +2996,14 @@ const baseWikiSections: WikiSectionInput[] = [
           'Dashboard prompts are intent-driven: when the prompt does not name a visualization, NopsAI guides the model to choose text/callout, status/progress/properties, table, bar, line/area, or pie/donut based on the data shape.',
           'Generated dashboard sections[].blocks, sections[].widgets, top-level widgets, and nested blocks/widgets wrappers are normalized into flat DashboardSpec blocks before strict validation.',
           'Generated properties and display key aliases are normalized to DashboardSpec items and labels before strict validation.',
+          'Generation duration is measured from generation_started_at, so queued outputs do not inherit time spent behind earlier outputs.',
+          'Run lists, Pipeline Runs Overview, and related recent-run panels expose lightweight final-output status summaries without generated content.',
         ],
         details: [
           'PDF rendering uses Gotenberg through FINAL_OUTPUT_PDF_RENDERER_URL. Pipeline YAML never contains renderer infrastructure URLs.',
           'Provider and network failures are not retried by this feature. Contract and schema violations get one corrective retry.',
           'When output.items[].when is omitted or empty, the runtime treats it as always.',
+          'Ready run-detail output rows are clickable preview toggles. Dashboard outputs also link to the configured dashboard and section when dashboard_target metadata is present.',
           'Dashboard output configuration is valid only when output.items[].type is dashboard. Non-dashboard outputs that set dashboard.* fields are rejected.',
           'DashboardSpec content is sanitized and validated before persistence. Generated HTML, CSS, JavaScript, iframes, forms, executable links, oversized tables, and oversized chart series are rejected for standard dashboard content.',
         ],
@@ -3026,7 +3045,7 @@ const baseWikiSections: WikiSectionInput[] = [
           'The Helm API Service includes Prometheus scrape annotations by default.',
           'Use monitoring data to size runners and resource requests because the repository does not publish validated production sizing tiers.',
           'Monitoring aggregate endpoints filter candidate run IDs through AAA before aggregation, so charts and summaries stay aligned with the caller permissions.',
-          'AI usage records include run, step, task, provider, model, profile, feature, and assistant chat dimensions where the runtime records them.',
+          'AI usage records include run, step, task, provider, model, profile, feature, prompt hashes, static cache keys, provider-state IDs/support, cached input tokens, cache-write tokens when providers expose them, revision markers, workspace retrieval sizes, and assistant chat dimensions where the runtime records them.',
         ],
         configRows: [
           {
@@ -3325,6 +3344,46 @@ const baseWikiSections: WikiSectionInput[] = [
         caveats: ['Install or upgrade local Helm when release chart validation requires a newer Helm version.'],
       },
       {
+        id: 'assistant-chat',
+        title: 'Assistant Chat',
+        level: 'Operate',
+        audience: 'Operators, automation authors, and support engineers',
+        summary:
+          'The NopsAI Assistant is a docked and full-page chat interface that uses scoped LLM profiles plus permission-filtered hosted MCP tools.',
+        keyFacts: [
+          'Conversations persist per authenticated subject and keep bounded conversation memory for follow-up questions.',
+          'Assistant turns use the selected or default LLM profile for planning and synthesis, then execute only validated hosted MCP tool calls for the current AAA subject.',
+          'Generated YAML and configuration edits are proposals unless a confirmed mutation path is explicitly used.',
+          'Docked chat can attach current-page route context so prompts like "explain this run" can resolve the visible target.',
+        ],
+        details: [
+          'Current-page context contains metadata only: route, page area, active tab, team or scope, selected resource IDs, and allow-listed filters.',
+          'The composer shows the attached context as a removable chip. Removing it omits that context from profile scoping and message sends.',
+          'Assistant context never scrapes rendered page text, logs, secrets, credentials, or arbitrary query parameters.',
+          'Explicit user targets override page context, and page context is preferred over older conversation memory.',
+        ],
+        configRows: [
+          {
+            key: 'assistant.default_llm_profile',
+            area: 'System runner config',
+            description: 'Default LLM profile used by assistant conversations when no chat-specific selection is made.',
+            example: 'standard',
+          },
+        ],
+        examples: [
+          {
+            title: 'Context-aware assistant question',
+            language: 'text',
+            code: 'Open a failed pipeline run, open Assistant, keep the context chip attached, and ask: "What is happening in this run?"',
+            complete: true,
+            testedIn: DEFAULT_VERIFIED_DATE,
+          },
+        ],
+        relatedDocs: ['doc/assistant-capabilities.md', 'doc/mcp-pipeline-integration.md'],
+        runbooks: ['Ask the assistant to explain a failed run', 'Remove page context before asking a general question', 'Audit assistant MCP evidence'],
+        caveats: ['If the planner is unavailable or invalid, no hosted MCP tools run and the assistant reports that no changes were applied.'],
+      },
+      {
         id: 'hosted-mcp-interface',
         title: 'Hosted NopsAI MCP Interface',
         level: 'Reference',
@@ -3339,6 +3398,7 @@ const baseWikiSections: WikiSectionInput[] = [
         details: [
           'Confirmed run operations and mutation tools require explicit confirmation, preserving enterprise change-control boundaries.',
           'Hosted tools and resources are listed and called as the current authenticated subject. GitOps write tools return proposals instead of silently applying config.',
+          'Pipeline-run listing tools include lightweight final_output_status summaries for runs that define or store final outputs, but generated output content remains behind the authorized final-output read path.',
         ],
         configRows: [],
         examples: [

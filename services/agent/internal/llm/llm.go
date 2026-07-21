@@ -17,23 +17,32 @@ type ProviderClient interface {
 }
 
 type LLMClientOptions struct {
-	Provider       string
-	Profile        string
-	APIKey         string
-	Model          string
-	BaseURL        string
-	Reasoning      string
-	TimeoutSeconds int
-	MaxTokens      int
-	Temperature    *float64
-	Extra          map[string]string
+	Provider           string
+	Profile            string
+	APIKey             string
+	Model              string
+	BaseURL            string
+	Reasoning          string
+	AuthorizationScope string
+	PromptCacheMode    string
+	ProviderStateMode  string
+	TimeoutSeconds     int
+	MaxTokens          int
+	Temperature        *float64
+	Extra              map[string]string
 }
 
 type LLMClient struct {
-	provider       string
-	profile        string
-	httpClient     *http.Client
-	providerClient ProviderClient
+	provider           string
+	profile            string
+	model              string
+	baseURL            string
+	authorizationScope string
+	promptCacheMode    string
+	providerStateMode  string
+	extra              map[string]string
+	httpClient         *http.Client
+	providerClient     ProviderClient
 }
 
 const maxMCPToolCallsPerAction = 8
@@ -70,21 +79,15 @@ func NewLLMClient(provider, apiKey, model, baseURL, reasoning string, profileNam
 }
 
 func NewLLMClientWithOptions(options LLMClientOptions) *LLMClient {
-	timeout := time.Duration(0)
-	if options.TimeoutSeconds > 0 {
-		timeout = time.Duration(options.TimeoutSeconds) * time.Second
-	}
-	client := &LLMClient{
-		provider:   appconfig.NormalizeLLMProvider(options.Provider),
-		profile:    strings.TrimSpace(options.Profile),
-		httpClient: &http.Client{Timeout: timeout},
-	}
-	options.Provider = client.provider
-	options.Profile = client.profile
+	options.Provider = appconfig.NormalizeLLMProvider(options.Provider)
+	options.Profile = strings.TrimSpace(options.Profile)
 	options.APIKey = strings.TrimSpace(options.APIKey)
 	options.Model = strings.TrimSpace(options.Model)
 	options.BaseURL = strings.TrimSpace(options.BaseURL)
 	options.Reasoning = appconfig.NormalizeLMStudioReasoning(options.Reasoning)
+	options.AuthorizationScope = strings.Trim(strings.TrimSpace(options.AuthorizationScope), "/")
+	options.PromptCacheMode = appconfig.NormalizeLLMFeatureMode(options.PromptCacheMode)
+	options.ProviderStateMode = appconfig.NormalizeLLMFeatureMode(options.ProviderStateMode)
 	if len(options.Extra) > 0 {
 		normalizedExtra := make(map[string]string, len(options.Extra))
 		for key, value := range options.Extra {
@@ -94,6 +97,32 @@ func NewLLMClientWithOptions(options LLMClientOptions) *LLMClient {
 		}
 		options.Extra = normalizedExtra
 	}
+	timeout := time.Duration(0)
+	if options.TimeoutSeconds > 0 {
+		timeout = time.Duration(options.TimeoutSeconds) * time.Second
+	}
+	client := &LLMClient{
+		provider:           options.Provider,
+		profile:            options.Profile,
+		model:              options.Model,
+		baseURL:            options.BaseURL,
+		authorizationScope: options.AuthorizationScope,
+		promptCacheMode:    options.PromptCacheMode,
+		providerStateMode:  options.ProviderStateMode,
+		extra:              cloneStringMap(options.Extra),
+		httpClient:         &http.Client{Timeout: timeout},
+	}
 	client.providerClient = newProviderClient(client, options)
 	return client
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	cloned := make(map[string]string, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+	return cloned
 }

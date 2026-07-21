@@ -55,6 +55,7 @@ export type RunListItem = {
   parent_step_name?: string;
   failure_reason?: string;
   ai_usage?: AIUsageSummary;
+  final_output_status?: RunFinalOutputStatus;
 };
 
 export type TaskDefinition = {
@@ -133,6 +134,7 @@ export type PipelineDefinition = {
       when?: 'always' | 'success' | 'failure' | string;
       prompt: string;
       llm_profile?: string;
+      dashboard?: PipelineOutputDashboardTarget;
     }>;
   };
   steps?: Array<{
@@ -150,6 +152,15 @@ export type PipelineDefinition = {
   }>;
 };
 
+export type PipelineOutputDashboardTarget = {
+  ref?: string;
+  section?: string;
+  entry_key?: string;
+  mode?: string;
+  preset?: string;
+  ttl?: string;
+};
+
 export type PipelineRunFinalOutput = {
   id: string;
   name: string;
@@ -158,14 +169,28 @@ export type PipelineRunFinalOutput = {
   content?: string;
   error?: string;
   llm_profile?: string;
+  dashboard_target?: PipelineOutputDashboardTarget;
   generation_attempts?: number;
   contract_violations?: number;
   render_attempts?: number;
   render_failures?: number;
   created_at?: string;
+  generation_started_at?: string;
   updated_at?: string;
   generation_duration?: string;
   generation_duration_seconds?: number;
+};
+
+export type RunFinalOutputStatus = {
+  status: string;
+  configured: number;
+  total: number;
+  pending: number;
+  generating: number;
+  generated: number;
+  failed: number;
+  cancelled: number;
+  updated_at?: string;
 };
 
 export type GraphStatus = 'success' | 'failed' | 'running' | 'pending' | 'skipped' | 'cancelled';

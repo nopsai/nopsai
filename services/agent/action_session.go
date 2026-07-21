@@ -8,6 +8,7 @@ import (
 	"nopsai/pkg/proto"
 	llmruntime "nopsai/services/agent/internal/llm"
 	"nopsai/services/agent/internal/resolver"
+	workspacectx "nopsai/services/agent/internal/workspace"
 )
 
 type agentActionSession struct {
@@ -127,11 +128,11 @@ func (s *agentActionSession) AgentProfileName() string {
 }
 
 func (s *agentActionSession) MCPEnabled() bool {
-	return s != nil && s.runtime.Enabled()
+	return s != nil && s.runtime != nil && s.runtime.Enabled()
 }
 
 func (s *agentActionSession) MCPProfiles() []string {
-	if s == nil {
+	if s == nil || s.runtime == nil {
 		return nil
 	}
 	return s.runtime.Profiles()
@@ -145,23 +146,23 @@ func (s *agentActionSession) MCPToolCount() int {
 }
 
 func (s *agentActionSession) RequiresMCPToolCall() bool {
-	return s != nil && s.runtime.RequiresToolCall()
+	return s != nil && s.runtime != nil && s.runtime.RequiresToolCall()
 }
 
 func (s *agentActionSession) SuccessfulMCPToolCalls() int {
-	if s == nil {
+	if s == nil || s.runtime == nil {
 		return 0
 	}
 	return s.runtime.SuccessfulToolCalls()
 }
 
-func (s *agentActionSession) GetAction(ctx context.Context, req *proto.GetActionRequest) (*proto.Action, error) {
+func (s *agentActionSession) GetAction(ctx context.Context, req *proto.GetActionRequest, workspaceTools *workspacectx.Tools) (*proto.Action, error) {
 	if s == nil || s.client == nil {
 		return nil, fmt.Errorf("LLM action client is not initialized")
 	}
 	collector := llmruntime.NewUsageCollector()
 	callCtx := llmruntime.ContextWithUsageCollector(ctx, collector)
-	action, err := s.client.GetActionWithMCPAndAgentProfile(callCtx, req, s.runtime, s.promptProfile)
+	action, err := s.client.GetActionWithToolsAndAgentProfile(callCtx, req, s.runtime, workspaceTools, s.promptProfile)
 	reportCollectedAIUsage(context.Background(), s.usageReporter, "goal_resolution", s.stepName, s.taskName, s.agentProfile, collector.Snapshot())
 	return action, err
 }

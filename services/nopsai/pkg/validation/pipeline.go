@@ -122,6 +122,9 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 	if err := validateKnowledgeContextRefs(pipeline.KnowledgeContext, "pipeline"); err != nil {
 		return err
 	}
+	if err := validatePolicyMergeMode(pipeline.PolicyMergeMode, "pipeline"); err != nil {
+		return err
+	}
 
 	allStepNames := make(map[string]bool)
 	stepToTaskNames := make(map[string]map[string]bool)
@@ -136,6 +139,9 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 			return fmt.Errorf("duplicate step name '%s' found. Step names must be unique", stepName)
 		}
 		if err := validateKnowledgeContextRefs(step.GetKnowledgeContext(), fmt.Sprintf("step '%s'", stepName)); err != nil {
+			return err
+		}
+		if err := validatePolicyMergeMode(step.GetPolicyMergeMode(), fmt.Sprintf("step '%s'", stepName)); err != nil {
 			return err
 		}
 		allStepNames[stepName] = true
@@ -182,6 +188,9 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 				if err := validateKnowledgeContextRefs(task.KnowledgeContext, fmt.Sprintf("task '%s' in step '%s'", task.Name, stepName)); err != nil {
 					return err
 				}
+				if err := validatePolicyMergeMode(task.PolicyMergeMode, fmt.Sprintf("task '%s' in step '%s'", task.Name, stepName)); err != nil {
+					return err
+				}
 			}
 		} else if !isLegacyStep {
 			return fmt.Errorf("step '%s' must contain 'include', 'tasks', 'goal', 'script', or 'approval'", stepName)
@@ -211,6 +220,21 @@ func ValidatePipeline(pipeline *models.Pipeline) error {
 		}
 	}
 
+	return nil
+}
+
+func validatePolicyMergeMode(value string, location string) error {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	if !models.SupportedPolicyMergeMode(value) {
+		return fmt.Errorf("policy_merge_mode in %s must be one of %q, %q, or %q",
+			location,
+			models.PolicyMergeModeRestrictive,
+			models.PolicyMergeModeOverride,
+			models.PolicyMergeModeFailOnConflict,
+		)
+	}
 	return nil
 }
 

@@ -76,9 +76,12 @@ import {
 import {
   DASHBOARD_ROUTE_DASHBOARD_PARAM,
   DASHBOARD_ROUTE_TAB_PARAM,
+  dashboardRouteParamForSelectedID,
+  dashboardRouteSelectedID,
   dashboardTabHref,
   dashboardTabSearchParams,
   normalizeDashboardRouteValue,
+  resolveDashboardActiveSectionKey,
 } from '../features/dashboards/routes';
 import type { DashboardPipelineCatalogItem } from '../features/dashboards/sourceOptions';
 
@@ -102,7 +105,7 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
   const [scopes, setScopes] = useState<string[]>(['']);
   const [dashboardPipelineCatalog, setDashboardPipelineCatalog] = useState<DashboardPipelineCatalogItem[]>([]);
   const [pipelineLoading, setPipelineLoading] = useState(true);
-  const [selectedID, setSelectedID] = useState(routeDashboardID);
+  const [selectedID, setSelectedID] = useState('');
   const [view, setView] = useState<DashboardView | null>(null);
   const [history, setHistory] = useState<DashboardEvent[]>([]);
   const [refreshes, setRefreshes] = useState<DashboardRefresh[]>([]);
@@ -133,8 +136,7 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
       const payload = await fetchDashboards({ team: teamFilter, query: searchTerm });
       setDashboards(payload);
       setSelectedID(current => {
-        if (current && payload.some(item => item.id === current)) return current;
-        return payload[0]?.id || '';
+        return dashboardRouteSelectedID(payload, routeDashboardID, current);
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load dashboards');
@@ -143,12 +145,15 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
     } finally {
       setLoading(false);
     }
-  }, [searchTerm, teamFilter]);
+  }, [routeDashboardID, searchTerm, teamFilter]);
 
   useEffect(() => {
-    if (!routeDashboardID || routeDashboardID === selectedID) return;
-    setSelectedID(routeDashboardID);
-  }, [routeDashboardID, selectedID]);
+    if (dashboards.length === 0) return;
+    setSelectedID(current => {
+      const next = dashboardRouteSelectedID(dashboards, routeDashboardID, current);
+      return next === current ? current : next;
+    });
+  }, [dashboards, routeDashboardID]);
 
   const loadSelected = useCallback(async () => {
     if (!selectedID) {
@@ -228,17 +233,19 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
     [dashboards, selectedID, view]
   );
   const activeSectionKey = useMemo(() => {
-    const sections = view?.sections || [];
-    if (routeSectionKey && sections.some(section => section.section_key === routeSectionKey)) return routeSectionKey;
-    return sections[0]?.section_key || '';
+    return resolveDashboardActiveSectionKey(view?.sections, routeSectionKey);
   }, [routeSectionKey, view?.sections]);
+  const routeDashboardParam = useMemo(
+    () => dashboardRouteParamForSelectedID(dashboards, selectedID, routeDashboardID),
+    [dashboards, routeDashboardID, selectedID]
+  );
 
   useEffect(() => {
-    if (!selectedID) return;
-    const nextParams = dashboardTabSearchParams(searchParams, selectedID, activeSectionKey);
+    if (!routeDashboardParam) return;
+    const nextParams = dashboardTabSearchParams(searchParams, routeDashboardParam, activeSectionKey);
     if (nextParams.toString() === searchParams.toString()) return;
     setSearchParams(nextParams, { replace: true });
-  }, [activeSectionKey, searchParams, selectedID, setSearchParams]);
+  }, [activeSectionKey, routeDashboardParam, searchParams, setSearchParams]);
 
   const selectDashboard = useCallback((dashboardID: string) => {
     const normalizedDashboardID = normalizeDashboardRouteValue(dashboardID);
@@ -247,12 +254,12 @@ export default function DashboardsPage({ canWriteDashboards, canDeleteDashboards
   }, [searchParams, setSearchParams]);
 
   const selectDashboardSection = useCallback((sectionKey: string) => {
-    setSearchParams(dashboardTabSearchParams(searchParams, selectedID, sectionKey));
-  }, [searchParams, selectedID, setSearchParams]);
+    setSearchParams(dashboardTabSearchParams(searchParams, routeDashboardParam, sectionKey));
+  }, [routeDashboardParam, searchParams, setSearchParams]);
 
   const dashboardSectionHref = useCallback(
-    (sectionKey: string) => dashboardTabHref(searchParams, selectedID, sectionKey),
-    [searchParams, selectedID]
+    (sectionKey: string) => dashboardTabHref(searchParams, routeDashboardParam, sectionKey),
+    [routeDashboardParam, searchParams]
   );
 
   const openCreateDashboard = useCallback(() => {

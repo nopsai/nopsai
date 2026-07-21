@@ -17,13 +17,14 @@ test('summarizes the product wiki and keeps a stable first article', () => {
   const summary = summarizeWiki();
 
   assert.equal(summary.sections, 9);
-  assert.equal(summary.articles, 42);
+  assert.equal(summary.articles, 43);
   assert.ok(summary.configKeys > 20);
   assert.ok(summary.runbooks > 20);
   assert.equal(summary.tutorials, 8);
   assert.ok(summary.proceduralPages >= 8);
   assert.ok(summary.sourceLinks > 30);
   assert.equal(getFirstWikiArticleID(), 'what-nopsai-is');
+  assert.equal(findWikiArticle(wikiSections, 'assistant-chat')?.title, 'Assistant Chat');
 });
 
 test('searches article body, examples, config rows, and known limitations', () => {

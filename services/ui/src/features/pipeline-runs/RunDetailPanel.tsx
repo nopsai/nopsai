@@ -369,7 +369,12 @@ export function RunDetailView({
         </div>
       )}
 
-      <RunFinalOutputs runID={run.run_id} outputs={detail.final_outputs} onCancelOutput={onCancelOutput} />
+      <RunFinalOutputs
+        runID={run.run_id}
+        outputs={detail.final_outputs}
+        pipelineDefinition={detail.pipeline_definition}
+        onCancelOutput={onCancelOutput}
+      />
 
       {approvals.length > 0 && (
         <div className="border border-[var(--border-primary)] rounded-2xl bg-white dark:bg-slate-950 p-4 space-y-3 shadow-sm">

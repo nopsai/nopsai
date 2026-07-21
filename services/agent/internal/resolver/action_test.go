@@ -7,6 +7,7 @@ import (
 
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
+	workspacectx "nopsai/services/agent/internal/workspace"
 
 	"github.com/rs/zerolog"
 )
@@ -23,7 +24,7 @@ func (s *fakeActionSession) MCPProfiles() []string       { return nil }
 func (s *fakeActionSession) MCPToolCount() int           { return 0 }
 func (s *fakeActionSession) RequiresMCPToolCall() bool   { return false }
 func (s *fakeActionSession) SuccessfulMCPToolCalls() int { return 0 }
-func (s *fakeActionSession) GetAction(_ context.Context, req *proto.GetActionRequest) (*proto.Action, error) {
+func (s *fakeActionSession) GetAction(_ context.Context, req *proto.GetActionRequest, _ *workspacectx.Tools) (*proto.Action, error) {
 	s.requests = append(s.requests, req)
 	return s.action, nil
 }
@@ -178,6 +179,7 @@ func TestTaskActionResolverDisabledLLMReturnsFinalizableFailure(t *testing.T) {
 
 func TestTaskActionResolverUsesSessionAndMasksPromptContent(t *testing.T) {
 	logger := zerolog.Nop()
+	shareContent := true
 	session := &fakeActionSession{action: &proto.Action{
 		Type:    "EXECUTE_COMMAND",
 		Payload: &proto.Action_CommandAction{CommandAction: &proto.CommandAction{Command: "make test"}},
@@ -187,7 +189,7 @@ func TestTaskActionResolverUsesSessionAndMasksPromptContent(t *testing.T) {
 
 	result := NewTaskActionResolver().Resolve(context.Background(), ActionRequest{
 		Logger:       &logger,
-		Pipeline:     &models.Pipeline{},
+		Pipeline:     &models.Pipeline{LlmContentSharing: &shareContent},
 		Step:         &models.PipelineStep{Step: &models.GoalStep{Goal: "test changes"}},
 		Task:         &models.Task{Name: "test"},
 		Context:      executionContext,
@@ -214,5 +216,91 @@ func TestTaskActionResolverUsesSessionAndMasksPromptContent(t *testing.T) {
 	}
 	if strings.Contains(session.requests[0].GetDirectoryListing()["README.md"], "secret-token-value") {
 		t.Fatalf("directory listing was not masked: %q", session.requests[0].GetDirectoryListing()["README.md"])
+	}
+}
+
+func TestTaskActionResolverDefaultsContentSharingOff(t *testing.T) {
+	logger := zerolog.Nop()
+	session := &fakeActionSession{action: &proto.Action{
+		Type:    "EXECUTE_COMMAND",
+		Payload: &proto.Action_CommandAction{CommandAction: &proto.CommandAction{Command: "make test"}},
+	}}
+	listerCalled := false
+
+	result := NewTaskActionResolver().Resolve(context.Background(), ActionRequest{
+		Logger:       &logger,
+		Pipeline:     &models.Pipeline{},
+		Step:         &models.PipelineStep{Step: &models.GoalStep{Goal: "test changes"}},
+		Task:         &models.Task{Name: "test"},
+		Context:      NewExecutionContext(),
+		LLMEnabled:   true,
+		WorkspaceDir: "/workspace",
+		SessionResolver: func(*models.Pipeline, *models.PipelineStep, *models.Task) (ActionSession, error) {
+			return session, nil
+		},
+		DirectoryLister: func(*zerolog.Logger, string, []string, []string) map[string]string {
+			listerCalled = true
+			return map[string]string{"README.md": "repository content"}
+		},
+	})
+
+	if result.Failed || result.ActionSummary != "make test" {
+		t.Fatalf("result = %#v, want successful command action", result)
+	}
+	if listerCalled {
+		t.Fatal("directory lister was called even though llm_content_sharing was omitted")
+	}
+	if len(session.requests) != 1 {
+		t.Fatalf("session requests = %d, want 1", len(session.requests))
+	}
+	if got := session.requests[0].GetDirectoryListing(); len(got) != 0 {
+		t.Fatalf("directory listing = %#v, want empty when content sharing is omitted", got)
+	}
+}
+
+func TestTaskActionResolverAddsSharedFileIdentityAndReplacePrecondition(t *testing.T) {
+	logger := zerolog.Nop()
+	shareContent := true
+	session := &fakeActionSession{action: &proto.Action{
+		Type: "REPLACE_FILE",
+		Payload: &proto.Action_FileAction{FileAction: &proto.FileAction{
+			Path:    "README.md",
+			Content: "updated",
+		}},
+	}}
+
+	result := NewTaskActionResolver().Resolve(context.Background(), ActionRequest{
+		Logger:            &logger,
+		Pipeline:          &models.Pipeline{LlmContentSharing: &shareContent},
+		Step:              &models.PipelineStep{Step: &models.GoalStep{Goal: "update docs"}},
+		Task:              &models.Task{Name: "docs"},
+		Context:           NewExecutionContext(),
+		LLMEnabled:        true,
+		WorkspaceDir:      "/workspace",
+		WorkspaceRevision: 9,
+		SessionResolver: func(*models.Pipeline, *models.PipelineStep, *models.Task) (ActionSession, error) {
+			return session, nil
+		},
+		DirectoryLister: func(*zerolog.Logger, string, []string, []string) map[string]string {
+			return map[string]string{"README.md": "original"}
+		},
+	})
+
+	if result.Failed {
+		t.Fatalf("result failed: %#v", result)
+	}
+	if len(session.requests) != 1 {
+		t.Fatalf("session requests = %d, want 1", len(session.requests))
+	}
+	sharedFile := session.requests[0].GetDirectoryListing()["README.md"]
+	for _, want := range []string{"NopsAI File Identity:", "workspace_revision: 9", "sha256: " + textSHA256("original"), "--- Content ---\noriginal"} {
+		if !strings.Contains(sharedFile, want) {
+			t.Fatalf("shared file context missing %q:\n%s", want, sharedFile)
+		}
+	}
+	if result.FilePrecondition.Path != "README.md" ||
+		result.FilePrecondition.ExpectedSHA256 != textSHA256("original") ||
+		result.FilePrecondition.WorkspaceRevision != 9 {
+		t.Fatalf("file precondition = %#v", result.FilePrecondition)
 	}
 }

@@ -1,8 +1,10 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ReactElement } from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import { expect, test, vi } from 'vitest';
 import { apiClient } from '../../lib/api';
-import type { PipelineRunFinalOutput } from './contracts';
+import type { PipelineDefinition, PipelineRunFinalOutput } from './contracts';
 import { RunFinalOutputs } from './RunFinalOutputs';
 
 const outputs: PipelineRunFinalOutput[] = [
@@ -40,7 +42,7 @@ test('renders final outputs with preview and copy actions', async () => {
     value: { writeText },
   });
 
-  render(<RunFinalOutputs runID="run-1" outputs={outputs} />);
+  renderFinalOutputs(<RunFinalOutputs runID="run-1" outputs={outputs} />);
 
   expect(screen.getByText('Final Outputs')).toBeVisible();
   expect(screen.getByText('3 deliverables')).toBeVisible();
@@ -49,14 +51,111 @@ test('renders final outputs with preview and copy actions', async () => {
   expect(screen.getByText('LLM profile missing')).toBeVisible();
   expect(screen.getByText(/2m0s duration/)).toBeVisible();
 
-  await user.click(screen.getByRole('button', { name: 'Actions for Executive Summary' }));
-  await user.click(screen.getByRole('menuitem', { name: 'Preview' }));
+  await user.click(screen.getByRole('button', { name: 'Preview Executive Summary' }));
   expect(screen.getByText(/Everything passed/)).toBeVisible();
+
+  await user.click(screen.getByRole('button', { name: 'Actions for Executive Summary' }));
+  await user.click(screen.getByRole('menuitem', { name: 'Hide preview' }));
+  expect(screen.queryByText(/Everything passed/)).not.toBeInTheDocument();
 
   await user.click(screen.getByRole('button', { name: 'Actions for Executive Summary' }));
   await user.click(screen.getByRole('menuitem', { name: 'Copy' }));
   await waitFor(() => expect(writeText).toHaveBeenCalledWith('# Summary\n\nEverything passed.'));
   expect(screen.getByText('Executive Summary copied')).toBeVisible();
+});
+
+test('uses per-output generation start times for final output durations', () => {
+  renderFinalOutputs(
+    <RunFinalOutputs
+      runID="run-1"
+      outputs={[
+        {
+          id: 'output-1',
+          name: 'First output',
+          type: 'markdown',
+          status: 'success',
+          created_at: '2026-07-18T10:00:00Z',
+          generation_started_at: '2026-07-18T10:00:05Z',
+          updated_at: '2026-07-18T10:00:15Z',
+        },
+        {
+          id: 'output-2',
+          name: 'Later output',
+          type: 'markdown',
+          status: 'success',
+          created_at: '2026-07-18T10:00:00Z',
+          generation_started_at: '2026-07-18T10:01:00Z',
+          updated_at: '2026-07-18T10:01:20Z',
+        },
+        {
+          id: 'output-3',
+          name: 'Queued output',
+          type: 'markdown',
+          status: 'pending',
+          created_at: '2026-07-18T10:00:00Z',
+          updated_at: '2026-07-18T10:05:00Z',
+        },
+      ]}
+    />
+  );
+
+  expect(screen.getByText(/10s duration/)).toBeVisible();
+  expect(screen.getByText(/20s duration/)).toBeVisible();
+  expect(screen.queryByText(/1m 20s duration/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/5m duration/)).not.toBeInTheDocument();
+});
+
+test('links dashboard outputs to the generated dashboard section', async () => {
+  const user = userEvent.setup();
+  const dashboardOutput: PipelineRunFinalOutput = {
+    id: 'output-dashboard',
+    name: 'Release health',
+    type: 'dashboard',
+    status: 'success',
+    content: JSON.stringify({
+      version: '1',
+      title: 'Release health',
+      blocks: [{ type: 'status', label: 'Deploy', value: 'Ready', status: 'success' }],
+    }),
+    dashboard_target: { ref: 'platform/ops', section: 'overview', entry_key: 'release-health' },
+  };
+
+  renderFinalOutputs(<RunFinalOutputs runID="run-1" outputs={[dashboardOutput]} />);
+
+  const dashboardLink = screen.getByRole('link', { name: 'Open dashboard platform/ops section overview' });
+  expect(dashboardLink).toHaveAttribute('href', '/dashboards?dashboard=platform%2Fops&tab=overview');
+
+  await user.click(screen.getByRole('button', { name: 'Preview Release health' }));
+  expect(screen.getByRole('heading', { name: 'Release health' })).toBeVisible();
+  expect(within(screen.getByRole('heading', { name: 'Release health' }).closest('div') as HTMLElement).getByText('Ready')).toBeVisible();
+});
+
+test('uses pipeline definition dashboard metadata when stored output target is absent', () => {
+  const definition: PipelineDefinition = {
+    output: {
+      items: [
+        {
+          name: 'Release health',
+          type: 'dashboard',
+          prompt: 'Summarize release health',
+          dashboard: { ref: 'platform/ops', section: 'releases' },
+        },
+      ],
+    },
+  };
+
+  renderFinalOutputs(
+    <RunFinalOutputs
+      runID="run-1"
+      outputs={[{ id: 'output-dashboard', name: 'Release health', type: 'dashboard', status: 'generating' }]}
+      pipelineDefinition={definition}
+    />
+  );
+
+  expect(screen.getByRole('link', { name: 'Open dashboard platform/ops section releases' })).toHaveAttribute(
+    'href',
+    '/dashboards?dashboard=platform%2Fops&tab=releases'
+  );
 });
 
 test('downloads final outputs through the authenticated API client', async () => {
@@ -76,7 +175,7 @@ test('downloads final outputs through the authenticated API client', async () =>
   URL.revokeObjectURL = vi.fn();
 
   try {
-    render(<RunFinalOutputs runID="run-1" outputs={[outputs[0]]} />);
+    renderFinalOutputs(<RunFinalOutputs runID="run-1" outputs={[outputs[0]]} />);
     await user.click(screen.getByRole('button', { name: 'Actions for Executive Summary' }));
     await user.click(screen.getByRole('menuitem', { name: 'Download' }));
 
@@ -96,7 +195,7 @@ test('cancels pending final output generation', async () => {
   const user = userEvent.setup();
   const onCancelOutput = vi.fn().mockResolvedValue(undefined);
 
-  render(<RunFinalOutputs runID="run-1" outputs={[outputs[1]]} onCancelOutput={onCancelOutput} />);
+  renderFinalOutputs(<RunFinalOutputs runID="run-1" outputs={[outputs[1]]} onCancelOutput={onCancelOutput} />);
   await user.click(screen.getByRole('button', { name: 'Actions for Comparison Report' }));
   await user.click(screen.getByRole('menuitem', { name: 'Cancel' }));
 
@@ -106,7 +205,7 @@ test('cancels pending final output generation', async () => {
 
 test('shows cancelled final outputs as terminal', async () => {
   const user = userEvent.setup();
-  render(
+  renderFinalOutputs(
     <RunFinalOutputs
       runID="run-1"
       outputs={[{ ...outputs[1], status: 'cancelled', error: 'cancelled by user' }]}
@@ -118,3 +217,7 @@ test('shows cancelled final outputs as terminal', async () => {
   await user.click(screen.getByRole('button', { name: 'Actions for Comparison Report' }));
   expect(screen.getByRole('menuitem', { name: 'Cancel' })).toBeDisabled();
 });
+
+function renderFinalOutputs(node: ReactElement) {
+  return render(<MemoryRouter>{node}</MemoryRouter>);
+}

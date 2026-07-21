@@ -131,6 +131,10 @@ func (a *App) preparePipelineFinalOutputRecords(ctx context.Context, runID strin
 					WHEN pipeline_run_outputs.status IN ('success', 'cancelled') THEN pipeline_run_outputs.contract_violations
 					ELSE 0
 				END,
+				generation_started_at = CASE
+					WHEN pipeline_run_outputs.status IN ('success', 'cancelled') THEN pipeline_run_outputs.generation_started_at
+					ELSE NULL
+				END,
 				updated_at = NOW()
 		`, runID, idx, name, outputType, prompt, profileName, mustMarshalDashboardTarget(item.Dashboard))
 		if err != nil {
@@ -197,7 +201,7 @@ func (a *App) loadPipelineFinalOutputsForGeneration(ctx context.Context, runID s
 	rows, err := a.db.Query(ctx, `
 		SELECT id::text, item_index, name, type, prompt, llm_profile, status, content, error,
 		       generation_attempts, contract_violations, render_attempts, render_failures,
-		       created_at, updated_at, dashboard_target::text
+		       created_at, generation_started_at, updated_at, dashboard_target::text
 		FROM pipeline_run_outputs
 		WHERE run_id = $1 AND status IN ('pending', 'generating')
 		ORDER BY item_index ASC, created_at ASC
@@ -211,6 +215,7 @@ func (a *App) loadPipelineFinalOutputsForGeneration(ctx context.Context, runID s
 	for rows.Next() {
 		var output pipelineFinalOutputRecord
 		var dashboardRaw string
+		var generationStartedAt sql.NullTime
 		if err := rows.Scan(
 			&output.ID,
 			&output.ItemIndex,
@@ -226,12 +231,15 @@ func (a *App) loadPipelineFinalOutputsForGeneration(ctx context.Context, runID s
 			&output.RenderAttempts,
 			&output.RenderFailures,
 			&output.CreatedAt,
+			&generationStartedAt,
 			&output.UpdatedAt,
 			&dashboardRaw,
 		); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(dashboardRaw), &output.Dashboard)
+		output.DashboardTarget = pipelineFinalOutputDashboardTargetPtr(output.Dashboard)
+		output.GenerationStartedAt = nullTimePtr(generationStartedAt)
 		outputs = append(outputs, output)
 	}
 	return outputs, rows.Err()
@@ -321,7 +329,7 @@ func (a *App) generatePipelineFinalOutput(ctx context.Context, runID string, run
 func (a *App) claimPipelineFinalOutputForGeneration(ctx context.Context, outputID string) (bool, error) {
 	tag, err := a.db.Exec(ctx, `
 		UPDATE pipeline_run_outputs
-		SET status = 'generating', error = '', updated_at = NOW()
+		SET status = 'generating', error = '', generation_started_at = NOW(), updated_at = NOW()
 		WHERE id = $1 AND status IN ('pending', 'generating')
 	`, outputID)
 	if err != nil {
@@ -410,7 +418,7 @@ func (a *App) updatePipelineFinalOutputCancelled(ctx context.Context, runID, out
 		  AND status IN ('pending', 'generating')
 		RETURNING id::text, item_index, name, type, prompt, llm_profile, status, content, error,
 		       generation_attempts, contract_violations, render_attempts, render_failures,
-		       created_at, updated_at, dashboard_target::text
+		       created_at, generation_started_at, updated_at, dashboard_target::text
 	`, runID, outputID))
 }
 
@@ -418,7 +426,7 @@ func (a *App) loadPipelineFinalOutputRecord(ctx context.Context, runID, outputID
 	return scanPipelineFinalOutputRecord(a.db.QueryRow(ctx, `
 		SELECT id::text, item_index, name, type, prompt, llm_profile, status, content, error,
 		       generation_attempts, contract_violations, render_attempts, render_failures,
-		       created_at, updated_at, dashboard_target::text
+		       created_at, generation_started_at, updated_at, dashboard_target::text
 		FROM pipeline_run_outputs
 		WHERE run_id::text = $1 AND id::text = $2
 	`, runID, outputID))
@@ -427,6 +435,7 @@ func (a *App) loadPipelineFinalOutputRecord(ctx context.Context, runID, outputID
 func scanPipelineFinalOutputRecord(scanner interface{ Scan(dest ...any) error }) (pipelineFinalOutputRecord, error) {
 	var output pipelineFinalOutputRecord
 	var dashboardRaw string
+	var generationStartedAt sql.NullTime
 	if err := scanner.Scan(
 		&output.ID,
 		&output.ItemIndex,
@@ -442,14 +451,29 @@ func scanPipelineFinalOutputRecord(scanner interface{ Scan(dest ...any) error })
 		&output.RenderAttempts,
 		&output.RenderFailures,
 		&output.CreatedAt,
+		&generationStartedAt,
 		&output.UpdatedAt,
 		&dashboardRaw,
 	); err != nil {
 		return output, err
 	}
-	output.GenerationDuration, output.GenerationSeconds = runquery.FinalOutputGenerationTiming(output.CreatedAt, output.UpdatedAt)
+	output.GenerationStartedAt = nullTimePtr(generationStartedAt)
+	output.GenerationDuration, output.GenerationSeconds = runquery.FinalOutputGenerationTiming(output.GenerationStartedAt, output.UpdatedAt)
 	_ = json.Unmarshal([]byte(dashboardRaw), &output.Dashboard)
+	output.DashboardTarget = pipelineFinalOutputDashboardTargetPtr(output.Dashboard)
 	return output, nil
+}
+
+func pipelineFinalOutputDashboardTargetPtr(target models.DashboardOutputTarget) *models.DashboardOutputTarget {
+	if strings.TrimSpace(target.Ref) == "" &&
+		strings.TrimSpace(target.Section) == "" &&
+		strings.TrimSpace(target.EntryKey) == "" &&
+		strings.TrimSpace(target.Mode) == "" &&
+		strings.TrimSpace(target.Preset) == "" &&
+		strings.TrimSpace(target.TTL) == "" {
+		return nil
+	}
+	return &target
 }
 
 func (a *App) markDashboardRefreshOutputCancelledIfDashboard(ctx context.Context, runID string, output pipelineFinalOutputRecord) {
@@ -2392,10 +2416,11 @@ func writeFinalOutputTimeFragment(builder *strings.Builder, label string, value 
 
 func (a *App) loadPipelineFinalOutputForDownload(ctx context.Context, runID, outputID string) (models.PipelineRunFinalOutput, error) {
 	var output models.PipelineRunFinalOutput
+	var generationStartedAt sql.NullTime
 	err := a.db.QueryRow(ctx, `
 		SELECT id::text, name, type, status, content, error, llm_profile,
 		       generation_attempts, contract_violations, render_attempts, render_failures,
-		       created_at, updated_at
+		       created_at, generation_started_at, updated_at
 		FROM pipeline_run_outputs
 		WHERE run_id = $1 AND id::text = $2
 	`, runID, outputID).Scan(
@@ -2411,6 +2436,7 @@ func (a *App) loadPipelineFinalOutputForDownload(ctx context.Context, runID, out
 		&output.RenderAttempts,
 		&output.RenderFailures,
 		&output.CreatedAt,
+		&generationStartedAt,
 		&output.UpdatedAt,
 	)
 	if err != nil {
@@ -2419,7 +2445,8 @@ func (a *App) loadPipelineFinalOutputForDownload(ctx context.Context, runID, out
 		}
 		return output, err
 	}
-	output.GenerationDuration, output.GenerationSeconds = runquery.FinalOutputGenerationTiming(output.CreatedAt, output.UpdatedAt)
+	output.GenerationStartedAt = nullTimePtr(generationStartedAt)
+	output.GenerationDuration, output.GenerationSeconds = runquery.FinalOutputGenerationTiming(output.GenerationStartedAt, output.UpdatedAt)
 	return output, nil
 }
 

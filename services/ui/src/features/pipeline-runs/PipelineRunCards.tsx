@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import type { ReactNode } from 'react';
-import { CalendarClock, ChevronRight, Trash2, Webhook } from 'lucide-react';
+import { CalendarClock, ChevronRight, FileOutput, Trash2, Webhook } from 'lucide-react';
 import type { RunListItem } from './contracts';
+import { runFinalOutputStatusPresentation } from './finalOutputs';
 import {
   buildStatusTimeline,
   aiUsageTotalTokens,
@@ -360,6 +361,7 @@ export function RunCard({
   const branchLabel = formatBranchDisplay(run.git_ref, run.git_target_ref);
   const failurePreview = getFailurePreview(run.failure_reason);
   const aiTokens = aiUsageTotalTokens(run.ai_usage);
+  const outputStatus = runFinalOutputStatusPresentation(run.final_output_status);
   const cardTone =
     variant === 'event'
       ? 'border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-[0_6px_18px_rgba(0,0,0,0.12)]'
@@ -425,6 +427,12 @@ export function RunCard({
               <span className="truncate" title="LLM tokens">{formatTokenCount(aiTokens)}</span>
             </div>
           )}
+          {outputStatus && (
+            <div className="flex items-center">
+              <FileOutput className="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" aria-hidden="true" />
+              <span className="truncate" title={outputStatus.title}>{outputStatus.label}: {outputStatus.detail}</span>
+            </div>
+          )}
           <div className="flex items-center">
             <svg className="h-3.5 w-3.5 mr-2 text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 7a1 1 0 011-1h3.586a1 1 0 01.707.293l6.414 6.414a1 1 0 010 1.414l-4.586 4.586a1 1 0 01-1.414 0L7.293 13.707A1 1 0 017 13V9a1 1 0 011-1z" />
@@ -463,6 +471,7 @@ function ListRunRow({ run, selected, onSelect, onOpen }: { run: RunListItem; sel
   const runIdLabel = (run.run_id || 'N/A').slice(0, 8);
   const failurePreview = getFailurePreview(run.failure_reason);
   const aiTokens = aiUsageTotalTokens(run.ai_usage);
+  const outputStatus = runFinalOutputStatusPresentation(run.final_output_status);
   const failureSummary = failurePreview
     ? [failurePreview.title, failurePreview.detail].filter(Boolean).join(' - ')
     : '';
@@ -473,6 +482,7 @@ function ListRunRow({ run, selected, onSelect, onOpen }: { run: RunListItem; sel
     `Run ${run.run_id || 'N/A'}`,
     `Commit ${commitLabel}`,
     `Trigger ${triggerLabel.full || triggerLabel.display}`,
+    outputStatus?.title || '',
     aiTokens > 0 ? formatTokenCount(aiTokens) : '',
     failureSummary,
   ].filter(Boolean).join(' | ');
@@ -534,6 +544,12 @@ function ListRunRow({ run, selected, onSelect, onOpen }: { run: RunListItem; sel
         </span>
         <span className="run-list-meta-value truncate" title={triggerLabel.full}>
           {triggerLabel.display}
+        </span>
+      </div>
+      <div className="run-list-cell">
+        {outputStatus ? <FileOutput className="run-list-cell-icon h-3.5 w-3.5" aria-hidden="true" /> : null}
+        <span className="run-list-meta-value truncate" title={outputStatus?.title || 'No final outputs'}>
+          {outputStatus ? outputStatus.label.replace(/^Output /, '') : '—'}
         </span>
       </div>
       <div className="run-list-cell">

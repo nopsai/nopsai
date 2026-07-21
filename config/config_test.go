@@ -130,6 +130,30 @@ func TestNormalizeLLMProfileNormalizesExtra(t *testing.T) {
 	}
 }
 
+func TestNormalizeLLMProfileNormalizesFeatureModes(t *testing.T) {
+	profile := NormalizeLLMProfile(LLMProfile{
+		Provider: LLMProviderOpenAI,
+		PromptCache: LLMFeatureConfig{
+			Mode:  " REQUIRED ",
+			Scope: " /team/platform/ ",
+		},
+		ProviderState: LLMFeatureConfig{
+			Mode:      " Disabled ",
+			Retention: "ephemeral",
+		},
+	})
+
+	if profile.PromptCache.Mode != "required" || profile.PromptCache.Scope != "team/platform" {
+		t.Fatalf("prompt cache settings = %#v", profile.PromptCache)
+	}
+	if profile.ProviderState.Mode != "disabled" || profile.ProviderState.Retention != "ephemeral" {
+		t.Fatalf("provider state settings = %#v", profile.ProviderState)
+	}
+	if !SupportedLLMFeatureMode("auto") || SupportedLLMFeatureMode("sticky") {
+		t.Fatal("SupportedLLMFeatureMode returned unexpected result")
+	}
+}
+
 func TestNormalizeLMStudioReasoning(t *testing.T) {
 	tests := []struct {
 		name string

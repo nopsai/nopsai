@@ -118,8 +118,9 @@ type assistantCreateConversationRequest struct {
 }
 
 type assistantCreateMessageRequest struct {
-	Content            string `json:"content"`
-	SelectedLLMProfile string `json:"selected_llm_profile"`
+	Content            string               `json:"content"`
+	SelectedLLMProfile string               `json:"selected_llm_profile"`
+	PageContext        assistantPageContext `json:"page_context,omitempty"`
 }
 
 type assistantMessageResponse struct {
@@ -260,6 +261,7 @@ func normalizeAssistantConversationRequest(req assistantCreateConversationReques
 func normalizeAssistantMessageRequest(req assistantCreateMessageRequest) assistantCreateMessageRequest {
 	req.Content = strings.TrimSpace(req.Content)
 	req.SelectedLLMProfile = config.NormalizeLLMProfileName(req.SelectedLLMProfile)
+	req.PageContext = normalizeAssistantPageContext(req.PageContext)
 	return req
 }
 

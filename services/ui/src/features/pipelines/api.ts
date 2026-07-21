@@ -1,5 +1,6 @@
 import * as yaml from 'js-yaml';
 import { apiClient } from '../../lib/api.js';
+import type { RunFinalOutputStatus } from '../pipeline-runs/contracts.js';
 import { encodeId, normalizePipelineSource, splitIdentifier, type PipelineListItem } from './model.js';
 
 export type PipelineRun = {
@@ -13,6 +14,7 @@ export type PipelineRun = {
   git_ref?: string;
   duration?: string;
   started_at?: string;
+  final_output_status?: RunFinalOutputStatus;
 };
 
 export type PipelineTrigger = {

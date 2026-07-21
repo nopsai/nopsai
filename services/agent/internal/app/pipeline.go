@@ -27,6 +27,7 @@ type ExitFunc func(code int)
 type KnowledgePromptBuilder func(*models.Pipeline, *models.PipelineStep, *models.Task, []models.KnowledgeContextSnapshot) string
 type BlockingKnowledgeKindResolver func(*models.Pipeline, *models.PipelineStep, *models.Task, []models.KnowledgeContextSnapshot) []string
 type KnowledgeViolationDetector func(*proto.Action, *models.Pipeline, *models.PipelineStep, *models.Task, []models.KnowledgeContextSnapshot) (string, []string, bool)
+type PolicyRevisionChecker func(context.Context, string) (models.PolicyRevisionResponse, error)
 
 type ApprovalPauser interface {
 	Pause(context.Context, approval.Request) (approval.PauseResponse, error)

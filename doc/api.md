@@ -3,8 +3,7 @@
 The core service exposes its REST API on `http://localhost:8080`. This guide summarises the high-impact endpoints that power day-to-day automation. All examples assume local development defaults.
 
 Except for login, SSO discovery/callback/session exchange, token refresh,
-logout, setup preflight, runner bootstrap, and forwarded Git events, API calls
-require a bearer token:
+logout, setup preflight, and runner bootstrap, API calls require a bearer token:
 
 ```bash
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" http://localhost:8080/v1/runs
@@ -665,7 +664,8 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 - `GET|POST|PUT|DELETE /v1/monitoring/views` manages owner-scoped saved views. Updating a config-repo-managed view stores a database override, and deleting one removes the database row; the next GitOps sync can replace or recreate it unless the change is pushed to GitOps.
 - `GET|POST|PUT|DELETE /v1/monitoring/alert-rules`, `POST /v1/monitoring/alert-rules/{ruleID}/evaluate`, and `GET /v1/monitoring/alert-events` manage alert rules and persisted evaluation events. Updating a config-repo-managed alert rule stores a database override, and deleting one removes the database row; the next GitOps sync can replace or recreate it unless the change is pushed to GitOps. The first evaluator supports `failure_rate`, `p95_duration_seconds`, `queued_jobs`, `runner_utilization`, `ai_tokens`, and `external_trigger_failures`.
 - `GET /v1/monitoring/recommendations`, `POST /v1/monitoring/recommendations/{recommendationID}/acknowledge`, and `POST /v1/monitoring/recommendations/{recommendationID}/resolve` manage persisted recommendation workflow status.
-- Agents record LLM usage with `POST /v1/internal/runs/{runID}/ai-usage` using an agent service JWT. The endpoint stores run, step, task, provider, model, LLM profile, token totals, metadata, and a per-run usage summary. Run list/detail responses expose that summary as `ai_usage`, while detail step/task rows include their own `ai_usage` totals for API compatibility. Provider token metadata is used when available; otherwise the agent records an estimated token count with `metadata.estimated_tokens=true`. Pipeline final output generation is recorded as the `pipeline_final_output` feature.
+- Agents record LLM usage with `POST /v1/internal/runs/{runID}/ai-usage` using an agent service JWT. The endpoint stores run, step, task, provider, model, LLM profile, token totals, metadata, and a per-run usage summary. Run list/detail responses expose that summary as `ai_usage`, while detail step/task rows include their own `ai_usage` totals for API compatibility. Provider token metadata is used when available; otherwise the agent records an estimated token count with `metadata.estimated_tokens=true`. Agent-reported metadata may include `prompt_sha256`, `prompt_bytes`, `estimated_input_tokens`, `cached_input_tokens`, `uncached_input_tokens`, `cache_write_tokens`, `stable_prefix_tokens`, `dynamic_context_tokens`, `static_context_sha256`, `static_context_cache_key`, `cache_identity_sha256`, `prompt_schema_version`, `execution_mode`, `logical_session_id`, `provider_state_id`, `provider_state_supported`, `provider_state_used`, `provider_state_mode`, `prompt_cache_supported`, `prompt_cache_hit`, `prompt_cache_mode`, `history_revision`, `workspace_revision`, `knowledge_revision`, `policy_revision`, `effective_policy_snapshot_hash`, `policy_merge_mode`, `policy_precedence_version`, `shared_file_count`, `shared_file_bytes`, `workspace_tool_call_count`, and `workspace_tool_result_bytes`; prompt bodies and shared file contents are not stored in AI usage events. Pipeline final output generation is recorded as the `pipeline_final_output` feature.
+- `GET /v1/internal/runs/{runID}/policy-revision` remains available for diagnostics and audit. It returns `run_start_policy_revision`, `current_policy_revision`, `blocking_context_count`, and the current blocking knowledge snapshots used to calculate the revision. Active agent runs use their pinned scope snapshots as the correctness boundary; emergency policy response cancels the run instead of mutating policy in place.
 - Monitoring aggregate endpoints accept shared query parameters: `from`, `to`, `teamId`, `pipelinePath`, `pipelineName`, `repo`, `runId`, `branch`/`ref`, `commitSHA`, `triggerSource`, `status`, `requestedByType`, `requestedById`, `effectiveSubjectType`, `effectiveSubjectId`, `externalTriggerId`, `scheduleId`, `minDurationSeconds`, `maxDurationSeconds`, and `compare=previous_period`. The UI fetches the shifted previous window and renders regression deltas on Monitoring tabs when comparison is enabled. Pipeline Runs usage links open Monitoring with `tab=ai-usage&runId=<pipeline-run-id>` and use an all-time window for that run-scoped drilldown.
 - Monitoring aggregate endpoints first load candidate run IDs in Postgres, filter them through AAA with `pipeline_run.list`, then aggregate only visible run IDs. External trigger analytics also filters trigger-only rows with `external_trigger.read` so failed invocations that did not create runs are still governed.
 - `GET /metrics` emits Prometheus text format. Metrics include DB-backed pipeline, output, final-output generation duration, run duration, notification, trigger, LLM, runner, approval, Knowledge Context connection/sync, and audit series plus in-memory System Logs active/opened streams, provider reconnect/error, redaction, and dropped-line counters.
@@ -1857,11 +1857,18 @@ curl -X DELETE \
 
 - Step/task status updates are posted by the agent to `/v1/runs/{runID}/steps/{step}/tasks/{task}` (payload includes status, exit code, and LLM timing).
 - Approval steps move runs to `waiting_approval`; approval resumes the stored checkpoint, while rejection marks the run `rejected`.
-- Internal approval checkpoint endpoints under `/v1/internal/runs/...` are service-token protected for agents and are not user API endpoints.
-- Run listings return summary metadata used by the UI cards and periodic refreshes.
-  Run details additionally expose run-created/timeout timestamps, scope, team
-  ID, trigger source/event, requested/effective subject, schedule/external
-  trigger metadata, Git repository/commit/pusher metadata, and runtime variable
+- Internal approval checkpoint, AI usage, and policy-revision endpoints under
+  `/v1/internal/runs/...` are service-token protected for agents and are not
+  user API endpoints.
+- Run listings return summary metadata used by the UI cards and periodic
+  refreshes. When a run has configured or stored final outputs, list items also
+  include a lightweight `final_output_status` with aggregate statuses such as
+  `waiting`, `not_generated`, `pending`, `generating`, `success`, `failure`,
+  `partial_failure`, `cancelled`, and `partial_cancelled`, plus configured and
+  stored output counts. It never includes generated output content. Run details
+  additionally expose run-created/timeout timestamps, scope, team ID, trigger
+  source/event, requested/effective subject, schedule/external trigger
+  metadata, Git repository/commit/pusher metadata, and runtime variable
   overrides. Authorization snapshots remain server-side audit data.
 - Pipeline YAML can define run-level final deliverables under `output.items`.
   When a run finalizes, NopsAI creates run-owned output records and generates
@@ -1869,10 +1876,14 @@ curl -X DELETE \
   `when: success`, `when: failure`, or `when: always` to keep success reports
   and failure reports separate. Run detail responses include
   `final_outputs` with output ID, name, type, status, content, error,
-  LLM profile, `generation_attempts`, `contract_violations`, `render_attempts`,
-  `render_failures`, created/updated timestamps, `generation_duration`, and
-  `generation_duration_seconds`. PDF/HTML content is versioned `DocumentSpec`
-  JSON; Excel content is versioned `SpreadsheetSpec` JSON.
+  LLM profile, dashboard target metadata for dashboard outputs,
+  `generation_attempts`, `contract_violations`, `render_attempts`,
+  `render_failures`, created/started/updated timestamps,
+  `generation_duration`, and `generation_duration_seconds`.
+  `generation_duration` is measured from `generation_started_at`, not from row
+  creation, so queued final outputs do not include time spent waiting behind
+  prior outputs. PDF/HTML content is versioned `DocumentSpec` JSON; Excel
+  content is versioned `SpreadsheetSpec` JSON.
 - Final-output LLM calls use a provider-level system contract requiring one
   `<final_output>` element. NopsAI stores only the element content, retries one
   time for missing or invalid contract output, forces temperature `0`, and
@@ -1936,9 +1947,10 @@ curl -X DELETE http://localhost:8080/v1/teams/<team-id>
 ## Git & Repository Utilities
 
 ```bash
-# Triggered by git-bot; useful for debugging
+# Triggered by git-bot; requires a git-bot internal service token.
 curl -X POST http://localhost:8080/v1/git/events \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $GIT_BOT_SERVICE_TOKEN" \
   --data-binary "@doc/sample-git-event.json"
 
 # List branches known to the API (for branch clean-up helpers)

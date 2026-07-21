@@ -1016,11 +1016,11 @@ func (a *App) listDashboardRefreshRunRecords(ctx context.Context, refreshID stri
 		       drr.pipeline_id, drr.output_name, drr.section_key, drr.entry_key, drr.run_scope, COALESCE(drr.run_id::text, ''),
 		       drr.required, drr.status, drr.error, drr.started_at, drr.finished_at, drr.created_at, drr.updated_at,
 		       COALESCE(pr.status, ''), pr.started_at, pr.finished_at,
-		       COALESCE(pro.status, ''), pro.created_at, pro.updated_at
+		       COALESCE(pro.status, ''), pro.created_at, pro.generation_started_at, pro.updated_at
 		FROM dashboard_refresh_pipeline_runs drr
 		LEFT JOIN pipeline_runs pr ON pr.run_id = drr.run_id
 		LEFT JOIN LATERAL (
-			SELECT status, created_at, updated_at
+			SELECT status, created_at, generation_started_at, updated_at
 			FROM pipeline_run_outputs
 			WHERE run_id = drr.run_id
 			  AND name = drr.output_name
@@ -1086,7 +1086,7 @@ func scanDashboardRefreshRecord(scanner dashboardScanner) (dashboardRefreshRecor
 
 func scanDashboardRefreshRunRecord(scanner dashboardScanner) (dashboardRefreshRunRecord, error) {
 	var record dashboardRefreshRunRecord
-	var startedAt, finishedAt, pipelineStartedAt, pipelineFinishedAt, outputCreatedAt, outputUpdatedAt sql.NullTime
+	var startedAt, finishedAt, pipelineStartedAt, pipelineFinishedAt, outputCreatedAt, outputGenerationStartedAt, outputUpdatedAt sql.NullTime
 	if err := scanner.Scan(
 		&record.ID,
 		&record.RefreshID,
@@ -1110,6 +1110,7 @@ func scanDashboardRefreshRunRecord(scanner dashboardScanner) (dashboardRefreshRu
 		&pipelineFinishedAt,
 		&record.OutputStatus,
 		&outputCreatedAt,
+		&outputGenerationStartedAt,
 		&outputUpdatedAt,
 	); err != nil {
 		return record, err
@@ -1119,17 +1120,18 @@ func scanDashboardRefreshRunRecord(scanner dashboardScanner) (dashboardRefreshRu
 	record.PipelineStartedAt = nullTimePtr(pipelineStartedAt)
 	record.PipelineFinishedAt = nullTimePtr(pipelineFinishedAt)
 	record.OutputCreatedAt = nullTimePtr(outputCreatedAt)
+	record.OutputGenerationStartedAt = nullTimePtr(outputGenerationStartedAt)
 	record.OutputUpdatedAt = nullTimePtr(outputUpdatedAt)
-	if record.OutputCreatedAt != nil && record.OutputUpdatedAt != nil {
-		record.OutputDuration, record.OutputDurationSeconds = pipelineOutputGenerationDuration(*record.OutputCreatedAt, *record.OutputUpdatedAt)
+	if record.OutputUpdatedAt != nil {
+		record.OutputDuration, record.OutputDurationSeconds = pipelineOutputGenerationDuration(record.OutputGenerationStartedAt, *record.OutputUpdatedAt)
 	}
 	return record, nil
 }
 
-func pipelineOutputGenerationDuration(createdAt, updatedAt time.Time) (string, float64) {
-	if createdAt.IsZero() || updatedAt.IsZero() || updatedAt.Before(createdAt) {
+func pipelineOutputGenerationDuration(startedAt *time.Time, updatedAt time.Time) (string, float64) {
+	if startedAt == nil || startedAt.IsZero() || updatedAt.IsZero() || updatedAt.Before(*startedAt) {
 		return "", 0
 	}
-	duration := updatedAt.Sub(createdAt).Round(time.Second)
+	duration := updatedAt.Sub(*startedAt).Round(time.Second)
 	return duration.String(), duration.Seconds()
 }

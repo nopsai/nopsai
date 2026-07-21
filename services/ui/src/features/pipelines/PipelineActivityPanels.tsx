@@ -1,4 +1,5 @@
 import type { PipelineRun, PipelineTrigger } from './api';
+import { runFinalOutputStatusPresentation } from '../pipeline-runs/finalOutputs';
 import {
   formatPipelineGitRef,
   formatPipelineRelativeTime,
@@ -140,6 +141,7 @@ export function PipelineActivityPanels({
               {runs.map(run => {
                 const runID = run.run_id || '';
                 const triggerID = typeof run.trigger_event_id === 'string' ? run.trigger_event_id : '';
+                const outputStatus = runFinalOutputStatusPresentation(run.final_output_status);
                 return (
                   <li key={runID || `${run.pipeline_name}-${run.started_at}`} className="triggers-pipeline-item">
                     <button
@@ -162,6 +164,16 @@ export function PipelineActivityPanels({
                         <dd className="triggers-detail-value">{runID ? runID.slice(0, 8) : '—'}</dd>
                         <dt className="triggers-detail-label">Trigger:</dt>
                         <dd className="triggers-detail-value">{triggerID ? triggerID.slice(0, 8) : '—'}</dd>
+                        {outputStatus ? (
+                          <>
+                            <dt className="triggers-detail-label">Outputs:</dt>
+                            <dd className="triggers-detail-value">
+                              <span className={`runner-pill ${outputStatus.className}`} title={outputStatus.title}>
+                                {outputStatus.label}
+                              </span>
+                            </dd>
+                          </>
+                        ) : null}
                       </dl>
                     </button>
                   </li>
