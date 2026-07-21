@@ -3,8 +3,7 @@
 The core service exposes its REST API on `http://localhost:8080`. This guide summarises the high-impact endpoints that power day-to-day automation. All examples assume local development defaults.
 
 Except for login, SSO discovery/callback/session exchange, token refresh,
-logout, setup preflight, runner bootstrap, and forwarded Git events, API calls
-require a bearer token:
+logout, setup preflight, and runner bootstrap, API calls require a bearer token:
 
 ```bash
 curl -H "Authorization: Bearer $NOPSAI_TOKEN" http://localhost:8080/v1/runs
@@ -1861,10 +1860,15 @@ curl -X DELETE \
 - Internal approval checkpoint, AI usage, and policy-revision endpoints under
   `/v1/internal/runs/...` are service-token protected for agents and are not
   user API endpoints.
-- Run listings return summary metadata used by the UI cards and periodic refreshes.
-  Run details additionally expose run-created/timeout timestamps, scope, team
-  ID, trigger source/event, requested/effective subject, schedule/external
-  trigger metadata, Git repository/commit/pusher metadata, and runtime variable
+- Run listings return summary metadata used by the UI cards and periodic
+  refreshes. When a run has configured or stored final outputs, list items also
+  include a lightweight `final_output_status` with aggregate statuses such as
+  `waiting`, `not_generated`, `pending`, `generating`, `success`, `failure`,
+  `partial_failure`, `cancelled`, and `partial_cancelled`, plus configured and
+  stored output counts. It never includes generated output content. Run details
+  additionally expose run-created/timeout timestamps, scope, team ID, trigger
+  source/event, requested/effective subject, schedule/external trigger
+  metadata, Git repository/commit/pusher metadata, and runtime variable
   overrides. Authorization snapshots remain server-side audit data.
 - Pipeline YAML can define run-level final deliverables under `output.items`.
   When a run finalizes, NopsAI creates run-owned output records and generates
@@ -1872,7 +1876,8 @@ curl -X DELETE \
   `when: success`, `when: failure`, or `when: always` to keep success reports
   and failure reports separate. Run detail responses include
   `final_outputs` with output ID, name, type, status, content, error,
-  LLM profile, `generation_attempts`, `contract_violations`, `render_attempts`,
+  LLM profile, dashboard target metadata for dashboard outputs,
+  `generation_attempts`, `contract_violations`, `render_attempts`,
   `render_failures`, created/started/updated timestamps,
   `generation_duration`, and `generation_duration_seconds`.
   `generation_duration` is measured from `generation_started_at`, not from row
@@ -1942,9 +1947,10 @@ curl -X DELETE http://localhost:8080/v1/teams/<team-id>
 ## Git & Repository Utilities
 
 ```bash
-# Triggered by git-bot; useful for debugging
+# Triggered by git-bot; requires a git-bot internal service token.
 curl -X POST http://localhost:8080/v1/git/events \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $GIT_BOT_SERVICE_TOKEN" \
   --data-binary "@doc/sample-git-event.json"
 
 # List branches known to the API (for branch clean-up helpers)

@@ -11,55 +11,56 @@ type LogLine struct {
 }
 
 type RunListItem struct {
-	RunID                      string         `json:"run_id"`
-	PipelineName               string         `json:"pipeline_name"`
-	PipelinePath               string         `json:"pipeline_path"`
-	PipelineVersion            string         `json:"pipeline_version"`
-	PipelineSource             string         `json:"pipeline_source,omitempty"`
-	Status                     string         `json:"status"`
-	CreatedAt                  time.Time      `json:"created_at,omitempty"`
-	GitCommitSHA               string         `json:"git_commit_sha"`
-	GitCommitURL               string         `json:"git_commit_url,omitempty"`
-	GitCommitMessage           string         `json:"git_commit_message,omitempty"`
-	GitCommitAuthorName        string         `json:"git_commit_author_name,omitempty"`
-	GitCommitAuthorEmail       string         `json:"git_commit_author_email,omitempty"`
-	GitCommitAuthorUsername    string         `json:"git_commit_author_username,omitempty"`
-	GitRepoName                string         `json:"git_repo_name"`
-	GitRepoOwner               string         `json:"git_repo_owner"`
-	GitCloneURL                string         `json:"git_clone_url,omitempty"`
-	GitSSHURL                  string         `json:"git_ssh_url,omitempty"`
-	GitRef                     string         `json:"git_ref"`
-	GitTargetRef               string         `json:"git_target_ref"`
-	StartedAt                  time.Time      `json:"started_at"`
-	FinishedAt                 time.Time      `json:"finished_at"`
-	TimeoutAt                  time.Time      `json:"timeout_at,omitempty"`
-	Duration                   string         `json:"duration"`
-	IsComplete                 bool           `json:"is_complete"`
-	ParentRunID                *string        `json:"parent_run_id"`
-	TriggerEventID             string         `json:"trigger_event_id,omitempty"`
-	TriggerSource              string         `json:"trigger_source,omitempty"`
-	Scope                      string         `json:"scope,omitempty"`
-	TeamID                     int            `json:"team_id,omitempty"`
-	RequestedByType            string         `json:"requested_by_type,omitempty"`
-	RequestedByID              string         `json:"requested_by_id,omitempty"`
-	EffectiveSubjectType       string         `json:"effective_subject_type,omitempty"`
-	EffectiveSubjectID         string         `json:"effective_subject_id,omitempty"`
-	RuntimeVariableOverrides   map[string]any `json:"runtime_variable_overrides,omitempty"`
-	ExternalTriggerID          string         `json:"external_trigger_id,omitempty"`
-	ExternalTriggerName        string         `json:"external_trigger_name,omitempty"`
-	ExternalTriggerEventType   string         `json:"external_trigger_event_type,omitempty"`
-	ExternalTriggerCallerType  string         `json:"external_trigger_caller_type,omitempty"`
-	ExternalTriggerCallerID    string         `json:"external_trigger_caller_id,omitempty"`
-	ExternalTriggerIdempotency string         `json:"external_trigger_idempotency_key,omitempty"`
-	ScheduleID                 string         `json:"schedule_id,omitempty"`
-	ScheduleName               string         `json:"schedule_name,omitempty"`
-	SchedulePath               string         `json:"schedule_path,omitempty"`
-	GitPusherName              string         `json:"git_pusher_name"`
-	GitPusherEmail             string         `json:"git_pusher_email,omitempty"`
-	GitCheckRunID              int64          `json:"git_check_run_id,omitempty"`
-	ParentStepName             string         `json:"parent_step_name,omitempty"`
-	FailureReason              string         `json:"failure_reason,omitempty"`
-	AIUsage                    AIUsageSummary `json:"ai_usage"`
+	RunID                      string                    `json:"run_id"`
+	PipelineName               string                    `json:"pipeline_name"`
+	PipelinePath               string                    `json:"pipeline_path"`
+	PipelineVersion            string                    `json:"pipeline_version"`
+	PipelineSource             string                    `json:"pipeline_source,omitempty"`
+	Status                     string                    `json:"status"`
+	CreatedAt                  time.Time                 `json:"created_at,omitempty"`
+	GitCommitSHA               string                    `json:"git_commit_sha"`
+	GitCommitURL               string                    `json:"git_commit_url,omitempty"`
+	GitCommitMessage           string                    `json:"git_commit_message,omitempty"`
+	GitCommitAuthorName        string                    `json:"git_commit_author_name,omitempty"`
+	GitCommitAuthorEmail       string                    `json:"git_commit_author_email,omitempty"`
+	GitCommitAuthorUsername    string                    `json:"git_commit_author_username,omitempty"`
+	GitRepoName                string                    `json:"git_repo_name"`
+	GitRepoOwner               string                    `json:"git_repo_owner"`
+	GitCloneURL                string                    `json:"git_clone_url,omitempty"`
+	GitSSHURL                  string                    `json:"git_ssh_url,omitempty"`
+	GitRef                     string                    `json:"git_ref"`
+	GitTargetRef               string                    `json:"git_target_ref"`
+	StartedAt                  time.Time                 `json:"started_at"`
+	FinishedAt                 time.Time                 `json:"finished_at"`
+	TimeoutAt                  time.Time                 `json:"timeout_at,omitempty"`
+	Duration                   string                    `json:"duration"`
+	IsComplete                 bool                      `json:"is_complete"`
+	ParentRunID                *string                   `json:"parent_run_id"`
+	TriggerEventID             string                    `json:"trigger_event_id,omitempty"`
+	TriggerSource              string                    `json:"trigger_source,omitempty"`
+	Scope                      string                    `json:"scope,omitempty"`
+	TeamID                     int                       `json:"team_id,omitempty"`
+	RequestedByType            string                    `json:"requested_by_type,omitempty"`
+	RequestedByID              string                    `json:"requested_by_id,omitempty"`
+	EffectiveSubjectType       string                    `json:"effective_subject_type,omitempty"`
+	EffectiveSubjectID         string                    `json:"effective_subject_id,omitempty"`
+	RuntimeVariableOverrides   map[string]any            `json:"runtime_variable_overrides,omitempty"`
+	ExternalTriggerID          string                    `json:"external_trigger_id,omitempty"`
+	ExternalTriggerName        string                    `json:"external_trigger_name,omitempty"`
+	ExternalTriggerEventType   string                    `json:"external_trigger_event_type,omitempty"`
+	ExternalTriggerCallerType  string                    `json:"external_trigger_caller_type,omitempty"`
+	ExternalTriggerCallerID    string                    `json:"external_trigger_caller_id,omitempty"`
+	ExternalTriggerIdempotency string                    `json:"external_trigger_idempotency_key,omitempty"`
+	ScheduleID                 string                    `json:"schedule_id,omitempty"`
+	ScheduleName               string                    `json:"schedule_name,omitempty"`
+	SchedulePath               string                    `json:"schedule_path,omitempty"`
+	GitPusherName              string                    `json:"git_pusher_name"`
+	GitPusherEmail             string                    `json:"git_pusher_email,omitempty"`
+	GitCheckRunID              int64                     `json:"git_check_run_id,omitempty"`
+	ParentStepName             string                    `json:"parent_step_name,omitempty"`
+	FailureReason              string                    `json:"failure_reason,omitempty"`
+	AIUsage                    AIUsageSummary            `json:"ai_usage"`
+	FinalOutputStatus          *FinalOutputStatusSummary `json:"final_output_status,omitempty"`
 }
 
 type AIUsageSummary struct {
@@ -67,6 +68,18 @@ type AIUsageSummary struct {
 	CompletionTokens int64   `json:"completion_tokens"`
 	TotalTokens      int64   `json:"total_tokens"`
 	TotalCostUSD     float64 `json:"total_cost_usd"`
+}
+
+type FinalOutputStatusSummary struct {
+	Status     string     `json:"status"`
+	Configured int        `json:"configured"`
+	Total      int        `json:"total"`
+	Pending    int        `json:"pending"`
+	Generating int        `json:"generating"`
+	Generated  int        `json:"generated"`
+	Failed     int        `json:"failed"`
+	Cancelled  int        `json:"cancelled"`
+	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
 }
 
 type StepConfiguration struct {
@@ -117,22 +130,23 @@ type ParentRunInfo struct {
 }
 
 type PipelineRunFinalOutput struct {
-	ID                  string     `json:"id"`
-	Name                string     `json:"name"`
-	Type                string     `json:"type"`
-	Status              string     `json:"status"`
-	Content             string     `json:"content,omitempty"`
-	Error               string     `json:"error,omitempty"`
-	LLMProfile          string     `json:"llm_profile,omitempty"`
-	GenerationAttempts  int        `json:"generation_attempts,omitempty"`
-	ContractViolations  int        `json:"contract_violations,omitempty"`
-	RenderAttempts      int        `json:"render_attempts,omitempty"`
-	RenderFailures      int        `json:"render_failures,omitempty"`
-	CreatedAt           time.Time  `json:"created_at,omitempty"`
-	GenerationStartedAt *time.Time `json:"generation_started_at,omitempty"`
-	UpdatedAt           time.Time  `json:"updated_at,omitempty"`
-	GenerationDuration  string     `json:"generation_duration,omitempty"`
-	GenerationSeconds   float64    `json:"generation_duration_seconds,omitempty"`
+	ID                  string                 `json:"id"`
+	Name                string                 `json:"name"`
+	Type                string                 `json:"type"`
+	Status              string                 `json:"status"`
+	Content             string                 `json:"content,omitempty"`
+	Error               string                 `json:"error,omitempty"`
+	LLMProfile          string                 `json:"llm_profile,omitempty"`
+	DashboardTarget     *DashboardOutputTarget `json:"dashboard_target,omitempty"`
+	GenerationAttempts  int                    `json:"generation_attempts,omitempty"`
+	ContractViolations  int                    `json:"contract_violations,omitempty"`
+	RenderAttempts      int                    `json:"render_attempts,omitempty"`
+	RenderFailures      int                    `json:"render_failures,omitempty"`
+	CreatedAt           time.Time              `json:"created_at,omitempty"`
+	GenerationStartedAt *time.Time             `json:"generation_started_at,omitempty"`
+	UpdatedAt           time.Time              `json:"updated_at,omitempty"`
+	GenerationDuration  string                 `json:"generation_duration,omitempty"`
+	GenerationSeconds   float64                `json:"generation_duration_seconds,omitempty"`
 }
 
 type RunDetail struct {

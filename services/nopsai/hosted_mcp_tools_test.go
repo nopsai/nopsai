@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"nopsai/config"
+	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
 	"nopsai/services/aaa/pkg/model"
 )
@@ -71,6 +72,45 @@ func TestHostedMCPPipelineRunOutputKeepsReadOnlyAAABoundary(t *testing.T) {
 		return
 	}
 	t.Fatal("nopsai.get_pipeline_run_output is missing")
+}
+
+func TestHostedMCPPipelineRunOutputMapIncludesDashboardTarget(t *testing.T) {
+	startedAt := time.Date(2026, 7, 21, 8, 30, 0, 0, time.UTC)
+	mapped := hostedMCPPipelineRunOutputMap(models.PipelineRunFinalOutput{
+		ID:                  "output-1",
+		Name:                "Release health",
+		Type:                "dashboard",
+		Status:              "success",
+		Content:             `{"version":1}`,
+		DashboardTarget:     &models.DashboardOutputTarget{Ref: "platform/ops", Section: "overview", EntryKey: "release-health"},
+		GenerationStartedAt: &startedAt,
+		UpdatedAt:           startedAt.Add(2 * time.Minute),
+		GenerationDuration:  "2m0s",
+		GenerationSeconds:   120,
+	})
+
+	target, ok := mapped["dashboard_target"].(*models.DashboardOutputTarget)
+	if !ok {
+		t.Fatalf("dashboard_target = %#v, want DashboardOutputTarget", mapped["dashboard_target"])
+	}
+	if target.Ref != "platform/ops" || target.Section != "overview" || target.EntryKey != "release-health" {
+		t.Fatalf("dashboard_target = %#v", target)
+	}
+
+	if _, ok := hostedMCPPipelineRunOutputMap(models.PipelineRunFinalOutput{ID: "output-2"})["dashboard_target"]; ok {
+		t.Fatal("empty output should not include dashboard_target")
+	}
+
+	parsed := hostedMCPFinalOutputDashboardTargetPtr(`{"ref":"platform/ops","section":"deployments"}`)
+	if parsed == nil || parsed.Ref != "platform/ops" || parsed.Section != "deployments" {
+		t.Fatalf("parsed target = %#v", parsed)
+	}
+	if hostedMCPFinalOutputDashboardTargetPtr(`{}`) != nil {
+		t.Fatal("empty dashboard target should be omitted")
+	}
+	if hostedMCPFinalOutputDashboardTargetPtr(`not-json`) != nil {
+		t.Fatal("invalid dashboard target should be omitted")
+	}
 }
 
 func TestHostedMCPEmptyCurlDefaultsToToolsList(t *testing.T) {

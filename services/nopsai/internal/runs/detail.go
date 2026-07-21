@@ -314,7 +314,7 @@ func LoadFinalOutputs(ctx context.Context, db Queryer, runID string) ([]models.P
 	rows, err := db.Query(ctx, `
 		SELECT id::text, name, type, status, content, error, llm_profile,
 		       generation_attempts, contract_violations, render_attempts, render_failures,
-		       created_at, generation_started_at, updated_at
+		       created_at, generation_started_at, updated_at, COALESCE(dashboard_target::text, '{}')
 		FROM pipeline_run_outputs
 		WHERE run_id = $1
 		ORDER BY item_index ASC, created_at ASC
@@ -327,6 +327,7 @@ func LoadFinalOutputs(ctx context.Context, db Queryer, runID string) ([]models.P
 	outputs := []models.PipelineRunFinalOutput{}
 	for rows.Next() {
 		var output models.PipelineRunFinalOutput
+		var dashboardTargetRaw string
 		var generationStartedAt sql.NullTime
 		if err := rows.Scan(
 			&output.ID,
@@ -343,10 +344,12 @@ func LoadFinalOutputs(ctx context.Context, db Queryer, runID string) ([]models.P
 			&output.CreatedAt,
 			&generationStartedAt,
 			&output.UpdatedAt,
+			&dashboardTargetRaw,
 		); err != nil {
 			return nil, err
 		}
 		output.GenerationStartedAt = nullTimePtr(generationStartedAt)
+		output.DashboardTarget = parseFinalOutputDashboardTarget(dashboardTargetRaw)
 		outputs = append(outputs, output)
 		output.GenerationDuration, output.GenerationSeconds = FinalOutputGenerationTiming(output.GenerationStartedAt, output.UpdatedAt)
 		outputs[len(outputs)-1] = output
@@ -355,6 +358,26 @@ func LoadFinalOutputs(ctx context.Context, db Queryer, runID string) ([]models.P
 		return nil, err
 	}
 	return outputs, nil
+}
+
+func parseFinalOutputDashboardTarget(raw string) *models.DashboardOutputTarget {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "{}" {
+		return nil
+	}
+	var target models.DashboardOutputTarget
+	if err := json.Unmarshal([]byte(raw), &target); err != nil {
+		return nil
+	}
+	if strings.TrimSpace(target.Ref) == "" &&
+		strings.TrimSpace(target.Section) == "" &&
+		strings.TrimSpace(target.EntryKey) == "" &&
+		strings.TrimSpace(target.Mode) == "" &&
+		strings.TrimSpace(target.Preset) == "" &&
+		strings.TrimSpace(target.TTL) == "" {
+		return nil
+	}
+	return &target
 }
 
 func parseRuntimeVariableOverrides(raw string) map[string]any {
@@ -628,7 +651,7 @@ func BuildRunDetailETag(run models.RunListItem, childRuns []models.RunListItem, 
 	for _, output := range finalOutputs {
 		fmt.Fprintf(
 			hasher,
-			"output|%s|%s|%s|%s|%s|%s|%s|%d|%d|%d|%d|%d|%d|",
+			"output|%s|%s|%s|%s|%s|%s|%s|%s|%d|%d|%d|%d|%d|%d|",
 			output.ID,
 			strings.TrimSpace(output.Name),
 			strings.TrimSpace(output.Type),
@@ -636,6 +659,7 @@ func BuildRunDetailETag(run models.RunListItem, childRuns []models.RunListItem, 
 			strings.TrimSpace(output.Content),
 			strings.TrimSpace(output.Error),
 			strings.TrimSpace(output.LLMProfile),
+			finalOutputDashboardTargetHash(output.DashboardTarget),
 			output.GenerationAttempts,
 			output.ContractViolations,
 			output.RenderAttempts,
@@ -646,6 +670,20 @@ func BuildRunDetailETag(run models.RunListItem, childRuns []models.RunListItem, 
 	}
 
 	return fmt.Sprintf(`W/"%x"`, hasher.Sum(nil))
+}
+
+func finalOutputDashboardTargetHash(target *models.DashboardOutputTarget) string {
+	if target == nil {
+		return ""
+	}
+	return strings.Join([]string{
+		strings.TrimSpace(target.Ref),
+		strings.TrimSpace(target.Section),
+		strings.TrimSpace(target.EntryKey),
+		strings.TrimSpace(target.Mode),
+		strings.TrimSpace(target.Preset),
+		strings.TrimSpace(target.TTL),
+	}, "|")
 }
 
 func writeAIUsageMapToHash(hasher interface {
