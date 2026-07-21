@@ -50,12 +50,24 @@ func (a *App) runAssistantLLMPlannedTurn(
 	content string,
 	selectedProfile string,
 ) assistantPlannerResult {
+	return a.runAssistantLLMPlannedTurnWithPageContext(ctx, subject, userID, conversation, content, selectedProfile, assistantPageContext{})
+}
+
+func (a *App) runAssistantLLMPlannedTurnWithPageContext(
+	ctx context.Context,
+	subject aaamodel.Subject,
+	userID string,
+	conversation assistantConversation,
+	content string,
+	selectedProfile string,
+	pageContext assistantPageContext,
+) assistantPlannerResult {
 	profileName, profile, client, ok, reason := a.assistantLLMClientForTurn(ctx, conversation, selectedProfile)
 	if !ok {
 		if reason == "" {
 			return assistantPlannerResult{}
 		}
-		plan := assistantBaseTurnPlan(content, conversation.Memory)
+		plan := assistantBaseTurnPlanWithPageContext(content, conversation.Memory, pageContext)
 		return assistantPlannerResult{
 			Plan: plan,
 			ToolCalls: []assistantToolActivity{*assistantLLMPlannerActivity(profileName, profile, assistantToolStatusError, map[string]any{
@@ -65,7 +77,7 @@ func (a *App) runAssistantLLMPlannedTurn(
 		}
 	}
 
-	plan := assistantBaseTurnPlan(content, conversation.Memory)
+	plan := assistantBaseTurnPlanWithPageContext(content, conversation.Memory, pageContext)
 	toolCalls := []assistantToolActivity{}
 	remainingToolCalls := assistantMaxPlanToolCalls
 	skipSynthesis := false
@@ -141,7 +153,7 @@ func (a *App) requestAssistantPlannerDecision(
 ) (assistantPlannerDecision, []assistantToolActivity, bool) {
 	basePrompt := a.buildAssistantPlannerPrompt(ctx, subject, conversation, content, plan, toolCalls, remainingToolCalls, iteration)
 	availableTools := a.hostedMCPToolsForSubject(ctx, subject)
-	schemaToolNames := assistantPlannerSchemaToolNames(assistantPlannerSchemaContext(conversation, content), plan, toolCalls, availableTools)
+	schemaToolNames := assistantPlannerSchemaToolNames(assistantPlannerSchemaContext(conversation, content, plan.PageContext), plan, toolCalls, availableTools)
 	prompt := basePrompt
 	activities := []assistantToolActivity{}
 	for attempt := 1; attempt <= assistantMaxPlannerAttempts; attempt++ {
@@ -240,12 +252,18 @@ func assistantLLMPlannerActivity(profileName string, profile config.LLMProfile, 
 }
 
 func assistantBaseTurnPlan(content string, memory assistantConversationMemory) assistantTurnPlan {
+	return assistantBaseTurnPlanWithPageContext(content, memory, assistantPageContext{})
+}
+
+func assistantBaseTurnPlanWithPageContext(content string, memory assistantConversationMemory, pageContext assistantPageContext) assistantTurnPlan {
 	content = strings.TrimSpace(content)
 	lower := strings.ToLower(content)
+	pageContext = normalizeAssistantPageContext(pageContext)
 	plan := assistantTurnPlan{
 		Intent:        "llm_planned",
 		Goal:          content,
 		LowerContent:  lower,
+		PageContext:   pageContext,
 		RunID:         assistantFirstUUID(content),
 		YAML:          assistantYAMLFromMessage(content),
 		PipelineName:  assistantPipelineNameFromMessage(content),
@@ -257,13 +275,28 @@ func assistantBaseTurnPlan(content string, memory assistantConversationMemory) a
 	}
 	plan.APIMethod, plan.APIPath = assistantAPICallFromMessage(content)
 	if plan.RunID == "" {
+		plan.RunID = assistantPageContextRunID(pageContext)
+	}
+	if plan.RunID == "" {
 		plan.RunID = strings.TrimSpace(memory.SelectedRun)
+	}
+	if plan.PipelineID == "" {
+		plan.PipelineID = assistantPageContextPipelineID(pageContext)
 	}
 	if plan.PipelineID == "" {
 		plan.PipelineID = strings.Trim(strings.TrimSpace(memory.SelectedPipeline), "/")
 	}
 	if plan.Scope == "" {
+		plan.Scope = assistantPageContextScope(pageContext)
+	}
+	if plan.Scope == "" {
 		plan.Scope = strings.Trim(strings.TrimSpace(memory.SelectedScope), "/")
+	}
+	if plan.Repository == "" {
+		plan.Repository = assistantPageContextRepository(pageContext)
+	}
+	if plan.ScheduleID == "" {
+		plan.ScheduleID = assistantPageContextScheduleID(pageContext)
 	}
 	if plan.PipelineName == "" {
 		plan.PipelineName = "generated-pipeline"
@@ -334,7 +367,7 @@ func assistantPlanHasTerminalEvidence(plan assistantTurnPlan, toolCalls []assist
 
 func (a *App) buildAssistantPlannerPrompt(ctx context.Context, subject aaamodel.Subject, conversation assistantConversation, content string, plan assistantTurnPlan, toolCalls []assistantToolActivity, remainingToolCalls int, iteration int) string {
 	availableTools := a.hostedMCPToolsForSubject(ctx, subject)
-	schemaToolNames := assistantPlannerSchemaToolNames(assistantPlannerSchemaContext(conversation, content), plan, toolCalls, availableTools)
+	schemaToolNames := assistantPlannerSchemaToolNames(assistantPlannerSchemaContext(conversation, content, plan.PageContext), plan, toolCalls, availableTools)
 	payload := map[string]any{
 		"user_request":         strings.TrimSpace(content),
 		"conversation_memory":  normalizeAssistantMemory(conversation.Memory),
@@ -358,6 +391,9 @@ func (a *App) buildAssistantPlannerPrompt(ctx context.Context, subject aaamodel.
 		"available_tools": assistantPlannerToolCatalog(availableTools, schemaToolNames),
 		"schema_tools":    assistantPlannerSchemaToolCatalog(availableTools, schemaToolNames),
 	}
+	if pageContext := assistantPageContextPromptMap(plan.PageContext); len(pageContext) > 0 {
+		payload["page_context"] = pageContext
+	}
 	if previousEvidence := assistantPromptPreviousEvidence(conversation.Messages); len(previousEvidence) > 0 {
 		payload["previous_evidence"] = previousEvidence
 	}
@@ -368,7 +404,7 @@ func (a *App) buildAssistantPlannerPrompt(ctx context.Context, subject aaamodel.
 	return strings.TrimSpace(`You are the NopsAI assistant planner.
 
 Create a safe hosted MCP tool plan from user_request, available_tools, schema_tools, and observed tool results.
-Use conversation_history and conversation_memory to resolve follow-ups before asking clarifying questions.
+Use conversation_history, memory, and page_context for follow-ups; explicit user targets win.
 Use only tool names from available_tools. Put a tool in steps only when schema_included is true; false is discoverability only.
 Select tools from their descriptions and use schema_tools for exact argument names. Never invent tools or arguments. Never request direct database access.
 Step reasons are user-visible; keep them short and operational, not hidden reasoning.
@@ -710,7 +746,7 @@ func assistantPlannerSchemaToolNames(content string, plan assistantTurnPlan, too
 	return out
 }
 
-func assistantPlannerSchemaContext(conversation assistantConversation, content string) string {
+func assistantPlannerSchemaContext(conversation assistantConversation, content string, pageContext assistantPageContext) string {
 	parts := []string{}
 	for _, message := range conversation.Messages {
 		if message.Role != assistantRoleUser {
@@ -721,6 +757,9 @@ func assistantPlannerSchemaContext(conversation assistantConversation, content s
 		}
 	}
 	if text := strings.TrimSpace(content); text != "" {
+		parts = append(parts, text)
+	}
+	if text := strings.TrimSpace(assistantPageContextSummary(pageContext)); text != "" {
 		parts = append(parts, text)
 	}
 	if len(parts) > assistantPromptHistoryLimit {

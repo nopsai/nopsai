@@ -190,9 +190,15 @@ truth; this file is the source-adjacent placement guide.
   The repository-backed source kind remains `repository` for API/query
   compatibility, but user-facing Pipeline Runs filters and tables present it as
   Application.
-- Pipeline Runs overview table rows stay one-line-per-run: status, run name,
-  repository, 8-character run ID, branch, started, duration, and action
-  controls. Additional diagnostics belong in detail, graph, or feed surfaces.
+- Pipeline Runs list rows stay one-line-per-run: status, run name, repository,
+  branch, 8-character run ID, trigger, final-output status, LLM usage, latest
+  activity, and action controls. Additional diagnostics belong in detail, graph,
+  or feed surfaces.
+- Run final outputs stay under `features/pipeline-runs`: `finalOutputs.ts`
+  owns dashboard-target/link rules and run-list output-status presentation,
+  `RunFinalOutputs.tsx` owns clickable output cards and actions, and
+  `final-output-preview/` owns artifact previews, including dashboard-spec
+  rendering through the dashboard block renderer.
 - `features/pipeline-runs/runPresentation.ts` owns run timestamp parsing and
   relative-time labels. UI code must treat Go zero `time.Time` values such as
   `0001-01-01T00:00:00Z` as unset, show `—` for the Started field, and use
@@ -234,6 +240,23 @@ truth; this file is the source-adjacent placement guide.
   and scope before launch.
 - Autocomplete metadata should remain keyed to the active scope and editor
   context.
+
+### Assistant
+
+- `features/assistant/pageContext.ts` owns route-derived assistant context:
+  page label, route pattern, tab, team/scope, selected resource IDs, and
+  allow-listed filters. It must stay metadata-only and must not scrape rendered
+  page text, logs, secrets, credentials, or arbitrary query parameters.
+- `features/assistant/api.ts` owns assistant request/response transport,
+  including optional `page_context` payload shaping. `model.ts` owns persisted
+  conversation/message normalization and display helpers.
+- `features/assistant/useAssistantController.ts` owns chat orchestration,
+  scoped LLM-profile loading, conversation creation, send/retry recovery, and
+  page-context attachment. `AssistantPanel.tsx` owns rendering and local
+  dismissal state for the composer context chip.
+- `components/AssistantDock.tsx` composes the floating entry point and passes
+  current route context. `pages/Assistant.tsx` composes the full-page route and
+  accepts only sanitized route state from the dock.
 
 ### Dashboards
 

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { TreeColumnResizeHandle } from '../../components/resizableTreeColumn';
 import { useResizableTreeColumn } from '../../components/resizableTreeColumnState';
+import { runFinalOutputStatusPresentation } from './finalOutputs';
 import type { RunListItem } from './contracts';
 import {
   ALL_PIPELINE_RUN_BRANCHES,
@@ -376,6 +377,7 @@ function PipelineRunTable({
             <th>Branch</th>
             <th>Started</th>
             <th>Duration</th>
+            <th>Outputs</th>
             <th>
               <span className="sr-only">Actions</span>
             </th>
@@ -384,6 +386,7 @@ function PipelineRunTable({
         <tbody>
           {rows.map(row => {
             const selected = selectedRunIds.has(row.run.run_id);
+            const outputStatus = runFinalOutputStatusPresentation(row.run.final_output_status);
             return (
               <tr key={row.run.run_id} data-trigger-id={row.run.trigger_event_id || undefined}>
                 <td>
@@ -403,6 +406,15 @@ function PipelineRunTable({
                 </td>
                 <td>{row.startedLabel}</td>
                 <td className="pipeline-runs-mono">{row.durationLabel}</td>
+                <td>
+                  {outputStatus ? (
+                    <span className={`runner-pill pipeline-runs-output-pill ${outputStatus.className}`} title={outputStatus.title}>
+                      {outputStatus.label.replace(/^Output /, '')}
+                    </span>
+                  ) : (
+                    <span className="pipeline-runs-output-empty" title="No final outputs">—</span>
+                  )}
+                </td>
                 <td>
                   <div className="pipeline-runs-row-actions">
                     <button

@@ -44,6 +44,19 @@ func (a *App) runAssistantConversationTurn(
 	content string,
 	selectedProfile string,
 ) assistantOrchestrationResult {
+	return a.runAssistantConversationTurnWithPageContext(ctx, subject, userID, conversation, content, selectedProfile, assistantPageContext{})
+}
+
+func (a *App) runAssistantConversationTurnWithPageContext(
+	ctx context.Context,
+	subject model.Subject,
+	userID string,
+	conversation assistantConversation,
+	content string,
+	selectedProfile string,
+	pageContext assistantPageContext,
+) assistantOrchestrationResult {
+	pageContext = normalizeAssistantPageContext(pageContext)
 	if result, ok := a.handleAssistantPendingConfirmation(ctx, subject, userID, conversation, content); ok {
 		return result
 	}
@@ -51,7 +64,7 @@ func (a *App) runAssistantConversationTurn(
 		return result
 	}
 
-	planned := a.runAssistantLLMPlannedTurn(ctx, subject, userID, conversation, content, selectedProfile)
+	planned := a.runAssistantLLMPlannedTurnWithPageContext(ctx, subject, userID, conversation, content, selectedProfile, pageContext)
 	if planned.Handled {
 		memory := assistantMemoryForTurn(conversation, planned.Plan)
 		memory = assistantMemoryAfterTools(memory, planned.Plan, planned.ToolCalls)
@@ -86,7 +99,7 @@ func (a *App) runAssistantConversationTurn(
 
 	plan := planned.Plan
 	if strings.TrimSpace(plan.Goal) == "" {
-		plan = assistantBaseTurnPlan(content, conversation.Memory)
+		plan = assistantBaseTurnPlanWithPageContext(content, conversation.Memory, pageContext)
 	}
 	memory := assistantMemoryForTurn(conversation, plan)
 	reply := a.assistantPlannerFailureReply(ctx, subject, content, plan, planned.ToolCalls)
@@ -105,6 +118,7 @@ type assistantTurnPlan struct {
 	Intent          string
 	Goal            string
 	LowerContent    string
+	PageContext     assistantPageContext
 	RunID           string
 	YAML            string
 	PipelineName    string
@@ -1456,7 +1470,7 @@ func (a *App) assistantSchemaSubsetFailureReply(ctx context.Context, subject mod
 		directTool = "nopsai.delete_" + kind + "_value"
 	}
 	availableTools := a.hostedMCPToolsForSubject(ctx, subject)
-	schemaToolNames := assistantPlannerSchemaToolNames(content, plan, nil, availableTools)
+	schemaToolNames := assistantPlannerSchemaToolNames(assistantPlannerSchemaContext(assistantConversation{}, content, plan.PageContext), plan, nil, availableTools)
 	if schemaToolNames[directTool] {
 		return fmt.Sprintf("I did not use GitOps because you did not ask for a GitOps proposal. This should be a direct MCP %s %s, and NopsAI requires explicit confirmation before applying it. Please confirm the direct %s %s with the name, value, and scope. No changes were applied.", kind, action, kind, action)
 	}

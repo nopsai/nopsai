@@ -387,6 +387,41 @@ func TestBuildRunDetailETagChangesWhenFinalOutputRenderAuditChanges(t *testing.T
 	}
 }
 
+func TestBuildRunDetailETagChangesWhenFinalOutputDashboardTargetChanges(t *testing.T) {
+	run := models.RunListItem{RunID: "run-1", Status: "success", IsComplete: true}
+	base := models.PipelineRunFinalOutput{
+		ID:              "output-1",
+		Name:            "Release health",
+		Type:            "dashboard",
+		Status:          "generating",
+		DashboardTarget: &models.DashboardOutputTarget{Ref: "platform/ops", Section: "overview"},
+	}
+	updated := base
+	updated.DashboardTarget = &models.DashboardOutputTarget{Ref: "platform/ops", Section: "deployments"}
+
+	baseETag := BuildRunDetailETag(run, nil, nil, nil, nil, []models.PipelineRunFinalOutput{base})
+	updatedETag := BuildRunDetailETag(run, nil, nil, nil, nil, []models.PipelineRunFinalOutput{updated})
+	if updatedETag == baseETag {
+		t.Fatalf("expected dashboard target change to alter ETag, but both were %q", updatedETag)
+	}
+}
+
+func TestParseFinalOutputDashboardTarget(t *testing.T) {
+	target := parseFinalOutputDashboardTarget(`{"ref":"platform/ops","section":"overview","entry_key":"release-health"}`)
+	if target == nil {
+		t.Fatal("expected dashboard target")
+	}
+	if target.Ref != "platform/ops" || target.Section != "overview" || target.EntryKey != "release-health" {
+		t.Fatalf("dashboard target = %#v", target)
+	}
+	if parseFinalOutputDashboardTarget(`{}`) != nil {
+		t.Fatal("expected empty dashboard target to return nil")
+	}
+	if parseFinalOutputDashboardTarget(`not-json`) != nil {
+		t.Fatal("expected invalid dashboard target to return nil")
+	}
+}
+
 func TestFinalOutputGenerationTiming(t *testing.T) {
 	createdAt := time.Date(2026, 7, 18, 10, 0, 0, 0, time.UTC)
 	updatedAt := createdAt.Add(2*time.Minute + 30*time.Second)
