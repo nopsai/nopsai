@@ -325,7 +325,7 @@ func (a *App) handleCreateAssistantMessage(w http.ResponseWriter, r *http.Reques
 	conversation.Messages = messages
 	conversation.Usage = assistantConversationUsageFromMessages(messages)
 	turnStarted := time.Now()
-	orchestration := a.runAssistantConversationTurn(r.Context(), subject, userID, conversation, req.Content, selectedProfile)
+	orchestration := a.runAssistantConversationTurnWithPageContext(r.Context(), subject, userID, conversation, req.Content, selectedProfile, req.PageContext)
 	replyUsage := assistantUsageForAssistantReply(orchestration.Reply, orchestration.ToolCalls, time.Since(turnStarted))
 	reply, err := insertAssistantMessageTx(r.Context(), a.db, conversationID, assistantRoleAssistant, orchestration.Reply, orchestration.ToolCalls, replyUsage)
 	if err != nil {

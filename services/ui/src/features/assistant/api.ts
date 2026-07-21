@@ -11,6 +11,11 @@ import {
   type AssistantLLMProfilesPayload,
   type AssistantMessagePayload,
 } from './model.js';
+import {
+  assistantPageContextIsEmpty,
+  normalizeAssistantPageContext,
+  type AssistantPageContext,
+} from './pageContext.js';
 
 async function responseError(response: Response, fallback: string) {
   const text = await response.text();
@@ -115,18 +120,35 @@ export async function sendAssistantMessage(input: {
   conversation_id: string;
   content: string;
   selected_llm_profile?: string;
+  page_context?: Partial<AssistantPageContext> | null;
 }): Promise<AssistantMessagePayload> {
   const response = await apiClient.fetch(`/v1/assistant/conversations/${encodeURIComponent(input.conversation_id)}/messages`, {
     method: 'POST',
     cache: 'no-store',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      content: input.content,
-      selected_llm_profile: input.selected_llm_profile || '',
-    }),
+    body: JSON.stringify(assistantMessageRequestBody(input)),
   });
   if (!response.ok) {
     throw new Error(await responseError(response, `Failed to send message (${response.status})`));
   }
   return normalizeAssistantMessagePayload(await response.json());
+}
+
+export function assistantMessageRequestBody(input: {
+  content: string;
+  selected_llm_profile?: string;
+  page_context?: Partial<AssistantPageContext> | null;
+}) {
+  const body: {
+    content: string;
+    selected_llm_profile: string;
+    page_context?: AssistantPageContext;
+  } = {
+    content: input.content,
+    selected_llm_profile: input.selected_llm_profile || '',
+  };
+  if (!assistantPageContextIsEmpty(input.page_context)) {
+    body.page_context = normalizeAssistantPageContext(input.page_context);
+  }
+  return body;
 }

@@ -13,6 +13,7 @@ import (
 	includeflow "nopsai/services/agent/internal/include"
 	"nopsai/services/agent/internal/resolver"
 	"nopsai/services/agent/internal/scheduler"
+	workspacectx "nopsai/services/agent/internal/workspace"
 
 	"github.com/rs/zerolog"
 )
@@ -94,6 +95,27 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 		}
 	}
 
+	workspaceRevision := uint64(1)
+	workspaceRevisionMutex := &sync.Mutex{}
+	workspaceIndex := workspacectx.NewIndex(req.WorkspaceDir, pipeline.LlmContentInclude, pipeline.LlmContentIgnore)
+	if err := workspaceIndex.Refresh(logger, workspaceRevision); err != nil {
+		logger.Warn().Err(err).Uint64("workspace_revision", workspaceRevision).Msg("Failed to build initial workspace index")
+	}
+	snapshotWorkspaceRevision := func() uint64 {
+		workspaceRevisionMutex.Lock()
+		defer workspaceRevisionMutex.Unlock()
+		return workspaceRevision
+	}
+	advanceWorkspaceRevision := func() uint64 {
+		workspaceRevisionMutex.Lock()
+		defer workspaceRevisionMutex.Unlock()
+		workspaceRevision++
+		if err := workspaceIndex.Refresh(logger, workspaceRevision); err != nil {
+			logger.Warn().Err(err).Uint64("workspace_revision", workspaceRevision).Msg("Failed to refresh workspace index")
+		}
+		return workspaceRevision
+	}
+
 	completedTasks := make(map[string]bool)
 	if req.ResumeCheckpoint != nil {
 		for _, key := range req.ResumeCheckpoint.CompletedTasks {
@@ -103,6 +125,7 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 			}
 		}
 	}
+	historyRevision := uint64(len(completedTasks))
 
 	var pipelineFailed atomic.Bool
 	pipelinePaused := false
@@ -158,7 +181,7 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 				}
 
 				historyMutex.Lock()
-				conditionHistorySnapshot := history.String()
+				conditionHistorySnapshot := llmHistorySnapshotWithRevision(history.String(), historyRevision)
 				historyMutex.Unlock()
 				conditionResult := conditionEvaluator.Evaluate(context.Background(), resolver.ConditionRequest{
 					Logger:                 taskLogger,
@@ -299,8 +322,9 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 				}
 
 				historyMutex.Lock()
-				historySnapshot := history.String()
+				historySnapshot := llmHistorySnapshotWithRevision(history.String(), historyRevision)
 				historyMutex.Unlock()
+				workspaceRevisionSnapshot := snapshotWorkspaceRevision()
 				actionParentCtx := timeoutController.ContextOrDefault(context.Background())
 				actionResult := taskResolver.Resolve(context.Background(), resolver.ActionRequest{
 					Logger:                 taskLogger,
@@ -311,6 +335,8 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 					History:                historySnapshot,
 					ParentContext:          actionParentCtx,
 					WorkspaceDir:           req.WorkspaceDir,
+					WorkspaceRevision:      workspaceRevisionSnapshot,
+					WorkspaceIndex:         workspaceIndex,
 					IsRunStopping:          isRunStopping,
 					Secrets:                req.Secrets,
 					KnowledgePrompt:        req.knowledgePrompt(&pipeline, step, task),
@@ -349,6 +375,7 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 					}
 					historyMutex.Lock()
 					history.WriteString(fmt.Sprintf("- Goal: %s\n  Action: Return answer\n  Result (Exit Code 1): %s\n", historyGoal, maskedReason))
+					historyRevision++
 					historyMutex.Unlock()
 					req.finalizeTask(activeTasks, stepName, task.Name, "failure", 1, llmDurationMs)
 					results <- taskResult{name: runnable.GlobalKey, success: false}
@@ -364,16 +391,26 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 				var stdout, stderr string
 				var exitCode int
 
-				for attempt := 0; attempt < 10; attempt++ {
-					if req.StepRuntime == nil {
-						stdout, stderr, exitCode = "", "step runtime is not configured", 1
-					} else {
-						stdout, stderr, exitCode = req.StepRuntime.ExecuteAction(context.Background(), stepSessionID, action, taskRuntimeVars, req.WorkingDirectory)
+				actionExecuted := false
+				if err := resolver.ValidateReplaceFilePrecondition(actionResult.FilePrecondition, req.WorkspaceDir, snapshotWorkspaceRevision()); err != nil {
+					stdout, stderr, exitCode = "", err.Error(), 1
+				} else {
+					for attempt := 0; attempt < 10; attempt++ {
+						if req.StepRuntime == nil {
+							stdout, stderr, exitCode = "", "step runtime is not configured", 1
+						} else {
+							actionExecuted = true
+							stdout, stderr, exitCode = req.StepRuntime.ExecuteAction(context.Background(), stepSessionID, action, taskRuntimeVars, req.WorkingDirectory)
+						}
+						if exitCode == 0 {
+							break
+						}
+						time.Sleep(time.Duration(attempt*100) * time.Millisecond)
 					}
-					if exitCode == 0 {
-						break
-					}
-					time.Sleep(time.Duration(attempt*100) * time.Millisecond)
+				}
+				if actionExecuted && actionMayMutateWorkspace(action) {
+					newRevision := advanceWorkspaceRevision()
+					taskLogger.Debug().Uint64("workspace_revision", newRevision).Msg("Advanced workspace revision after mutating action")
 				}
 
 				status := "success"
@@ -408,6 +445,7 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 
 				historyMutex.Lock()
 				history.WriteString(fmt.Sprintf("- Goal: %s\n  Action: %s\n  Result (Exit Code %d): %s\n", historyGoal, maskedActionStr, exitCode, output))
+				historyRevision++
 				historyMutex.Unlock()
 
 				if exitCode == 0 {

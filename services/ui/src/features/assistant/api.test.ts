@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { assistantReadableErrorText } from './api.js';
+import { assistantMessageRequestBody, assistantReadableErrorText } from './api.js';
 
 describe('assistant api helpers', () => {
   it('summarizes HTML gateway errors without leaking markup', () => {
@@ -18,5 +18,48 @@ describe('assistant api helpers', () => {
 
   it('keeps plain API errors concise', () => {
     assert.equal(assistantReadableErrorText('Authorization unavailable', 'Failed to load'), 'Authorization unavailable');
+  });
+
+  it('adds sanitized page context only when the message has route context', () => {
+    assert.deepEqual(assistantMessageRequestBody({
+      content: 'explain this',
+      selected_llm_profile: 'assistant',
+    }), {
+      content: 'explain this',
+      selected_llm_profile: 'assistant',
+    });
+
+    assert.deepEqual(assistantMessageRequestBody({
+      content: 'explain this',
+      selected_llm_profile: 'assistant',
+      page_context: {
+        title: 'Pipeline runs',
+        path: '/pipelineruns/recent/run-1',
+        route: '/pipelineruns/:tab/:run_id',
+        area: 'Pipeline Runs',
+        run_id: 'run-1',
+        query: { token: 'secret', status: 'failure' },
+      },
+    }), {
+      content: 'explain this',
+      selected_llm_profile: 'assistant',
+      page_context: {
+        title: 'Pipeline runs',
+        path: '/pipelineruns/recent/run-1',
+        route: '/pipelineruns/:tab/:run_id',
+        area: 'pipeline_runs',
+        tab: '',
+        team_path: '',
+        resource_type: '',
+        resource_id: '',
+        resource_name: '',
+        scope: '',
+        pipeline_id: '',
+        run_id: 'run-1',
+        repository: '',
+        query: { status: 'failure' },
+        params: {},
+      },
+    });
   });
 });

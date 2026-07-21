@@ -65,6 +65,16 @@ export type TeamLLMProfilePayload = {
   timeout_seconds?: number;
   max_tokens?: number;
   temperature?: number;
+  prompt_cache?: {
+    mode?: string;
+    scope?: string;
+    retention?: string;
+  };
+  provider_state?: {
+    mode?: string;
+    scope?: string;
+    retention?: string;
+  };
   extra?: Record<string, string>;
 };
 

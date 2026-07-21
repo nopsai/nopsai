@@ -56,7 +56,15 @@ type LLMProfile struct {
 	TimeoutSeconds     int               `yaml:"timeout_seconds,omitempty" json:"timeout_seconds,omitempty"`
 	MaxTokens          int               `yaml:"max_tokens,omitempty" json:"max_tokens,omitempty"`
 	Temperature        *float64          `yaml:"temperature,omitempty" json:"temperature,omitempty"`
+	PromptCache        LLMFeatureConfig  `yaml:"prompt_cache,omitempty" json:"prompt_cache,omitempty"`
+	ProviderState      LLMFeatureConfig  `yaml:"provider_state,omitempty" json:"provider_state,omitempty"`
 	Extra              map[string]string `yaml:"extra,omitempty" json:"extra,omitempty"`
+}
+
+type LLMFeatureConfig struct {
+	Mode      string `yaml:"mode,omitempty" json:"mode,omitempty"`
+	Scope     string `yaml:"scope,omitempty" json:"scope,omitempty"`
+	Retention string `yaml:"retention,omitempty" json:"retention,omitempty"`
 }
 
 type KubernetesConfig struct {
@@ -934,6 +942,8 @@ func NormalizeLLMProfile(profile LLMProfile) LLMProfile {
 	profile.CredentialRef = strings.TrimSpace(profile.CredentialRef)
 	profile.LegacyAPIKeySecret = strings.TrimSpace(profile.LegacyAPIKeySecret)
 	profile.Reasoning = NormalizeLMStudioReasoning(profile.Reasoning)
+	profile.PromptCache = NormalizeLLMFeatureConfig(profile.PromptCache)
+	profile.ProviderState = NormalizeLLMFeatureConfig(profile.ProviderState)
 	profile.Extra = normalizeStringMap(profile.Extra)
 
 	scopes := make([]string, 0, len(profile.AllowedScopes))
@@ -949,6 +959,35 @@ func NormalizeLLMProfile(profile LLMProfile) LLMProfile {
 	profile.AllowedScopes = scopes
 
 	return profile
+}
+
+func NormalizeLLMFeatureConfig(value LLMFeatureConfig) LLMFeatureConfig {
+	value.Mode = NormalizeLLMFeatureMode(value.Mode)
+	value.Scope = strings.Trim(strings.TrimSpace(value.Scope), "/")
+	value.Retention = strings.TrimSpace(value.Retention)
+	return value
+}
+
+func NormalizeLLMFeatureMode(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "auto":
+		return "auto"
+	case "required":
+		return "required"
+	case "disabled":
+		return "disabled"
+	default:
+		return strings.ToLower(strings.TrimSpace(value))
+	}
+}
+
+func SupportedLLMFeatureMode(value string) bool {
+	switch NormalizeLLMFeatureMode(value) {
+	case "auto", "required", "disabled":
+		return true
+	default:
+		return false
+	}
 }
 
 func DefaultLLMProviderBaseURL(provider string) string {

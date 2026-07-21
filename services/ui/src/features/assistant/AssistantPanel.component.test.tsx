@@ -188,14 +188,90 @@ test('renders welcome starters that prefill the composer', async () => {
     submitMessage: vi.fn(),
   });
 
-  render(<AssistantPanel variant="dock" />);
+  render(
+    <AssistantPanel
+      variant="dock"
+      pageContext={{
+        title: 'Pipelines',
+        path: '/pipelines/platform/deploy',
+        route: '/pipelines/:pipeline_id',
+        area: 'pipelines',
+        resource_type: 'pipeline',
+        resource_id: 'platform/deploy',
+        pipeline_id: 'platform/deploy',
+        scope: 'platform',
+      }}
+    />
+  );
 
   expect(screen.getByText("Hi, I'm NopsAI. What are we solving today?")).toBeVisible();
+  expect(screen.getByText('Context')).toBeVisible();
+  expect(screen.getAllByText('Pipelines · deploy · /platform').length).toBeGreaterThan(0);
   expect(screen.getByRole('separator', { name: 'Resize message composer' })).toBeVisible();
   expect(screen.getByPlaceholderText('Describe what you are trying to achieve...')).toHaveClass('resize-none');
   await user.click(screen.getByRole('button', { name: 'Explain a failed run' }));
   expect(setDraft).toHaveBeenCalledWith('Explain a failed run');
   expect(screen.getAllByText(/changes always need your review/i).length).toBeGreaterThan(0);
+});
+
+test('lets users remove page context from the composer', async () => {
+  const user = userEvent.setup();
+  const pageContext = {
+    title: 'Pipelines',
+    path: '/pipelines/platform/deploy',
+    route: '/pipelines/:pipeline_id',
+    area: 'pipelines',
+    resource_type: 'pipeline',
+    resource_id: 'platform/deploy',
+    pipeline_id: 'platform/deploy',
+    scope: 'platform',
+  };
+
+  useAssistantControllerMock.mockReturnValue({
+    conversations: [],
+    activeConversation: null,
+    activeMessages: [],
+    profiles: [],
+    profileOptions: ['assistant'],
+    selectedProfile: 'assistant',
+    setSelectedProfile: vi.fn(),
+    draft: '',
+    setDraft: vi.fn(),
+    loading: false,
+    sending: false,
+    sendingConversationID: '',
+    activeConversationSending: false,
+    activeConversationSendingStartedAt: 0,
+    retrying: false,
+    deletingConversationID: '',
+    copiedMessageID: '',
+    conversationCopied: false,
+    error: null,
+    config: enabledConfig,
+    enabled: true,
+    canRetry: false,
+    load: vi.fn(),
+    selectConversation: vi.fn(),
+    startConversation: vi.fn(),
+    deleteConversation: vi.fn(),
+    retryMessage: vi.fn(),
+    retryLastUserMessage: vi.fn(),
+    copyMessage: vi.fn(),
+    copyConversation: vi.fn(),
+    submitMessage: vi.fn(),
+  });
+
+  render(<AssistantPanel variant="dock" pageContext={pageContext} />);
+
+  expect(useAssistantControllerMock).toHaveBeenLastCalledWith({ startFresh: false, pageContext });
+  expect(screen.getByText('Context')).toBeVisible();
+  expect(screen.getAllByText('Pipelines · deploy · /platform').length).toBeGreaterThan(0);
+
+  await user.click(screen.getByRole('button', { name: 'Remove page context' }));
+
+  expect(screen.queryByText('Context')).toBeNull();
+  expect(screen.queryByText('Pipelines · deploy · /platform')).toBeNull();
+  expect(useAssistantControllerMock).toHaveBeenLastCalledWith({ startFresh: false, pageContext: null });
 });
 
 test('renders staged progress while the active conversation is sending', () => {

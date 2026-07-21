@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { TreeColumnResizeHandle } from '../../components/resizableTreeColumn';
 import { useResizableTreeColumn } from '../../components/resizableTreeColumnState';
+import { runFinalOutputStatusPresentation } from './finalOutputs';
 import type { RunListItem } from './contracts';
 import {
   ALL_PIPELINE_RUN_BRANCHES,
@@ -376,6 +377,7 @@ function PipelineRunTable({
             <th>Branch</th>
             <th>Started</th>
             <th>Duration</th>
+            <th>Outputs</th>
             <th>
               <span className="sr-only">Actions</span>
             </th>
@@ -384,6 +386,7 @@ function PipelineRunTable({
         <tbody>
           {rows.map(row => {
             const selected = selectedRunIds.has(row.run.run_id);
+            const outputStatus = runFinalOutputStatusPresentation(row.run.final_output_status);
             return (
               <tr key={row.run.run_id} data-trigger-id={row.run.trigger_event_id || undefined}>
                 <td>
@@ -403,6 +406,15 @@ function PipelineRunTable({
                 </td>
                 <td>{row.startedLabel}</td>
                 <td className="pipeline-runs-mono">{row.durationLabel}</td>
+                <td>
+                  {outputStatus ? (
+                    <span className={`pipeline-runs-output-text ${outputStatusTextClass(outputStatus.className)}`} title={outputStatus.title}>
+                      {overviewOutputStatusLabel(outputStatus.label)}
+                    </span>
+                  ) : (
+                    <span className="pipeline-runs-output-empty" title="No final outputs">—</span>
+                  )}
+                </td>
                 <td>
                   <div className="pipeline-runs-row-actions">
                     <button
@@ -448,6 +460,18 @@ function statusClass(status: string): string {
   if (status === 'waiting_approval') return 'waiting';
   if (status === 'failure' || status === 'failure (ignored)' || status === 'rejected') return 'failed';
   return 'pending';
+}
+
+function outputStatusTextClass(className: string): string {
+  if (className.includes('runner-pill--ok')) return 'pipeline-runs-output-text--ok';
+  if (className.includes('runner-pill--error')) return 'pipeline-runs-output-text--error';
+  if (className.includes('runner-pill--warning')) return 'pipeline-runs-output-text--warning';
+  return 'pipeline-runs-output-text--muted';
+}
+
+function overviewOutputStatusLabel(label: string): string {
+  const text = label.replace(/^Output /, '').trim();
+  return text === 'generated' ? 'success' : text;
 }
 
 function buildRecentRunsHref(

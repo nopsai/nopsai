@@ -204,6 +204,14 @@ metadata available on demand.
   transcript plus conversation memory, so follow-up requests such as "generic
   pipeline", "the dashboard definition", or "give me both" can resolve against
   prior turns in that conversation instead of being treated as isolated prompts.
+- Docked assistant turns also include bounded current-page context from the UI:
+  route, page area, tab, team/scope, selected resource IDs, and allow-listed
+  filters. This helps prompts like "explain this" on a run, pipeline, scope, or
+  dashboard page resolve the visible target without copying page text into the
+  chat. The composer renders this context as a removable chip; when removed,
+  the context is omitted from profile scoping and message sends. Explicit user
+  targets override page context, and page context overrides older conversation
+  memory.
 - Sample, template, schema, and definition-shape requests are routed through
   current NopsAI docs or capability evidence before the assistant answers. The
   chat path must not use hardcoded example payloads as a fallback.

@@ -15,18 +15,20 @@ import (
 const llmProfilesRuntimeEnv = "NOPSAI_LLM_PROFILES"
 
 type agentRuntimeLLMProfile struct {
-	Provider       string            `json:"provider"`
-	Model          string            `json:"model,omitempty"`
-	BaseURL        string            `json:"base_url,omitempty"`
-	APIKey         string            `json:"api_key,omitempty"`
-	CredentialRef  string            `json:"credential_ref,omitempty"`
-	AllowedScopes  []string          `json:"allowed_scopes,omitempty"`
-	Reasoning      string            `json:"reasoning,omitempty"`
-	Thinking       *bool             `json:"thinking,omitempty"`
-	TimeoutSeconds int               `json:"timeout_seconds,omitempty"`
-	MaxTokens      int               `json:"max_tokens,omitempty"`
-	Temperature    *float64          `json:"temperature,omitempty"`
-	Extra          map[string]string `json:"extra,omitempty"`
+	Provider       string                     `json:"provider"`
+	Model          string                     `json:"model,omitempty"`
+	BaseURL        string                     `json:"base_url,omitempty"`
+	APIKey         string                     `json:"api_key,omitempty"`
+	CredentialRef  string                     `json:"credential_ref,omitempty"`
+	AllowedScopes  []string                   `json:"allowed_scopes,omitempty"`
+	Reasoning      string                     `json:"reasoning,omitempty"`
+	Thinking       *bool                      `json:"thinking,omitempty"`
+	TimeoutSeconds int                        `json:"timeout_seconds,omitempty"`
+	MaxTokens      int                        `json:"max_tokens,omitempty"`
+	Temperature    *float64                   `json:"temperature,omitempty"`
+	PromptCache    appconfig.LLMFeatureConfig `json:"prompt_cache,omitempty"`
+	ProviderState  appconfig.LLMFeatureConfig `json:"provider_state,omitempty"`
+	Extra          map[string]string          `json:"extra,omitempty"`
 }
 
 type agentRuntimeLLMProfiles struct {
@@ -80,6 +82,8 @@ func newLLMProfileRegistry(defaultProfile string, profiles map[string]agentRunti
 		profile.APIKey = strings.TrimSpace(profile.APIKey)
 		profile.CredentialRef = strings.TrimSpace(profile.CredentialRef)
 		profile.Reasoning = appconfig.NormalizeLMStudioReasoning(profile.Reasoning)
+		profile.PromptCache = appconfig.NormalizeLLMFeatureConfig(profile.PromptCache)
+		profile.ProviderState = appconfig.NormalizeLLMFeatureConfig(profile.ProviderState)
 		profile.Extra = normalizeRuntimeExtra(profile.Extra)
 		if profile.MaxTokens < 0 {
 			return nil, fmt.Errorf("LLM profile %q has invalid max_tokens %d", profileName, profile.MaxTokens)
@@ -177,16 +181,19 @@ func (r *LLMProfileRegistry) ClientFor(pipeline *models.Pipeline, step *models.P
 	}
 
 	client := NewLLMClientWithOptions(LLMClientOptions{
-		Provider:       profile.Provider,
-		Profile:        profileName,
-		APIKey:         profile.APIKey,
-		Model:          profile.Model,
-		BaseURL:        profile.BaseURL,
-		Reasoning:      profile.Reasoning,
-		TimeoutSeconds: profile.TimeoutSeconds,
-		MaxTokens:      profile.MaxTokens,
-		Temperature:    profile.Temperature,
-		Extra:          profile.Extra,
+		Provider:           profile.Provider,
+		Profile:            profileName,
+		APIKey:             profile.APIKey,
+		Model:              profile.Model,
+		BaseURL:            profile.BaseURL,
+		Reasoning:          profile.Reasoning,
+		AuthorizationScope: r.scope,
+		TimeoutSeconds:     profile.TimeoutSeconds,
+		MaxTokens:          profile.MaxTokens,
+		Temperature:        profile.Temperature,
+		PromptCacheMode:    profile.PromptCache.Mode,
+		ProviderStateMode:  profile.ProviderState.Mode,
+		Extra:              profile.Extra,
 	})
 	r.clients[profileName] = client
 	return client, profileName, nil

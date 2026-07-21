@@ -117,6 +117,7 @@ var generatedRoutes = []Route{
 	newRoute("POST", "/v1/internal/runs/{runID}/ai-usage"),
 	newRoute("POST", "/v1/internal/runs/{runID}/approvals/pause"),
 	newRoute("GET", "/v1/internal/runs/{runID}/checkpoints/{checkpointID}"),
+	newRoute("GET", "/v1/internal/runs/{runID}/policy-revision"),
 	newRoute("GET", "/v1/knowledge-connections"),
 	newRoute("POST", "/v1/knowledge-connections"),
 	newRoute("DELETE", "/v1/knowledge-connections/{connectionID...}"),

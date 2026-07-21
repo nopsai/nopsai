@@ -191,7 +191,7 @@ It should include at least these directives:
 | `runtime_pool` | pipeline | Kubernetes runtime pool default. Docker runners ignore it. |
 | `affinity_enabled` | pipeline | Kubernetes same-node affinity override for the run. |
 | `knowledge_context` | pipeline | Knowledge references merged into all effective LLM task contexts. |
-| `llm_content_sharing` | pipeline | Controls whether workspace file listings/content are shared with LLM goal resolution. |
+| `llm_content_sharing` | pipeline | Optional boolean. Defaults to `false`; set `true` only when workspace file listings/content should be shared automatically with LLM goal resolution. Bounded workspace tools can still retrieve current file identities and file content on demand. Shared and retrieved files include path, SHA-256, size, and workspace revision metadata so stale file replacements can be rejected. |
 | `llm_content_include` | pipeline | Include filters for files shared with LLM goal context. |
 | `llm_content_ignore` | pipeline | Ignore filters for files shared with LLM goal context. |
 | `llm_output_sharing` | pipeline | Default for whether task output is written into later LLM execution history. |
@@ -362,6 +362,12 @@ success, failure, always
 
 Omitted or empty `when` is treated as `always`.
 
+Run-list and run-detail documentation should explain that generated output
+content stays on authorized detail/read paths, while list surfaces expose only
+lightweight aggregate `final_output_status` metadata. The Pipeline Runs overview
+table should describe successful output state as compact `success` text, while
+details and related run panels may use richer labels and tooltips.
+
 Dashboard output directives are valid only when `type: dashboard`:
 
 | Directive | Meaning |
@@ -372,6 +378,10 @@ Dashboard output directives are valid only when `type: dashboard`:
 | `dashboard.mode` | Optional publication mode: `replace`, `append`, `snapshot`, or `series`. Empty defaults to `replace`. |
 | `dashboard.preset` | Optional prompt preset hint: `auto`, narrative-first `report`, primary `table`, current-state `status`, chronological `timeline`, side-by-side `comparison`, numbers-first `metrics`, or cohesive `mixed`. |
 | `dashboard.ttl` | Optional stale-state duration such as `7d`. |
+
+Final-output preview documentation should mention that ready output rows are
+clickable preview toggles and that dashboard outputs can link directly to the
+configured dashboard and section when `dashboard_target` metadata is available.
 
 ## Event Automation Reference
 
@@ -395,6 +405,9 @@ Git trigger manifests should document:
 
 Path matching intentionally fails open when changed-file metadata is unknown.
 Missing provider data should not silently skip CI.
+Forwarded GitHub App events from git-bot to `POST /v1/git/events` are internal
+service calls and require a git-bot service token; this endpoint should not be
+documented as public webhook ingress.
 
 Schedules should document:
 
@@ -528,6 +541,19 @@ schema are separate control layers:
 External MCP currently uses streamable HTTP. Pipeline YAML may reference only
 approved MCP profiles and cannot define arbitrary server URLs. NopsAI also
 exposes a hosted MCP endpoint at `POST /v1/mcp`, filtered by AAA permissions.
+Blocking Knowledge Context kinds (`policy` and `guardrail`) are pinned by
+scope, then recomputed as pipeline, step, and task scopes start. Emergency
+policy response cancels active runs instead of mutating already-resolved policy.
+Prompt and usage telemetry records hashes, revision markers, cache/session
+identity, provider-state IDs/support, cached input tokens, cache-write tokens
+when providers expose them, and bounded workspace retrieval sizes without
+storing prompt bodies.
+
+The Assistant wiki entry should explain current-page context as metadata-only:
+route, page area, active tab, team/scope, selected resource IDs, and allow-listed
+filters. It should also mention that the composer renders a removable context
+chip and does not scrape page text, logs, secrets, credentials, or arbitrary
+query parameters.
 
 ## Operations Boundary
 

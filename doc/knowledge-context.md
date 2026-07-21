@@ -357,10 +357,63 @@ LLM requests. The prompt order is:
 Variables
 Knowledge Context
 Working Directory Contents
+Workspace Tools
 MCP Tools
 Execution History
 Current Goal
 ```
+
+When selected knowledge includes blocking guardrails or policies, the knowledge
+section starts with deterministic `knowledge_revision`, `policy_revision`,
+`effective_policy_snapshot_hash`, `policy_merge_mode`, and
+`policy_precedence_version` lines. The policy revision is based only on
+selected blocking policy/guardrail documents, while the knowledge revision
+covers all selected knowledge. The effective policy snapshot hash also includes
+scope, merge mode, and precedence-version metadata for cache identity.
+
+Policy snapshots are pinned when their scope starts: pipeline policies at run
+start, step policies when the step starts, and task policies when the task
+starts. The effective policy is recomputed as the agent enters a narrower scope.
+The default merge mode is `restrictive`, so task or step policies may add
+requirements but cannot weaken broader policy. `override` replaces broader
+policy only for the same policy identity, and `fail_on_conflict` instructs the
+agent to stop with `RETURN_ANSWER` when blocking policies are incompatible.
+Emergency policy response is handled by cancelling the active run rather than
+mutating already-resolved snapshots.
+
+Workspace file contents appear in `Working Directory Contents` only when the
+pipeline explicitly sets `llm_content_sharing: true`. If omitted or false, the
+agent skips the directory scan and the LLM must inspect files through approved
+runtime actions or MCP tools.
+
+Workspace tools are available to LLM goal resolution as bounded NopsAI-managed
+retrieval actions:
+
+- `list_files` returns current file identities and a `next_cursor` when more
+  files are available.
+- `search_code` searches current text files by substring and returns bounded
+  line previews plus a `next_cursor` when more matches are available.
+- `read_file` returns a bounded byte range with `next_offset` until `eof` is
+  true.
+- `read_file` returns one current text file with path, SHA-256, size, and
+  workspace revision.
+
+These tools use the agent's current workspace index instead of provider memory.
+The index is built once for the run and refreshed whenever the agent executes a
+workspace-mutating action.
+
+When files are shared, each file includes a NopsAI file identity block with the
+relative path, SHA-256, size, and current workspace revision. Before executing a
+`REPLACE_FILE` action, the agent checks that the target file still matches the
+identity seen by the LLM. If the file changed, or if the workspace revision
+changed for a file that was not in the shared context, the write is rejected and
+the task fails closed instead of overwriting potentially newer content.
+
+LLM condition and action prompts receive the full execution history while it is
+small. Once history grows large, the agent sends a compact stable summary plus
+recent task events with a `history_revision` marker to keep later LLM calls
+bounded. Approval checkpoints and child-run handoff continue to use the durable
+full history.
 
 Run details include the stored snapshot, so a completed run records the exact
 knowledge content that influenced it even if the source document later changes.

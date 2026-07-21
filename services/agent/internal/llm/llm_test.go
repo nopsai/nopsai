@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,6 +18,9 @@ import (
 	"nopsai/pkg/mcpclient"
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
+	workspacectx "nopsai/services/agent/internal/workspace"
+
+	"github.com/rs/zerolog"
 )
 
 func TestBuildLMStudioChatURL(t *testing.T) {
@@ -291,9 +296,27 @@ Done.`
 	}
 }
 
+func TestDecodeActionResponseAcceptsWorkspaceToolAction(t *testing.T) {
+	raw := `{"action":{"type":"CALL_WORKSPACE_TOOL","workspace_tool_action":{"tool":"read_file","arguments":{"path":"README.md"}}}}`
+
+	action, err := decodeActionResponse(raw)
+	if err != nil {
+		t.Fatalf("decodeActionResponse() error = %v", err)
+	}
+	if action.Type != models.ActionTypeCallWorkspaceTool {
+		t.Fatalf("action.Type = %q, want %q", action.Type, models.ActionTypeCallWorkspaceTool)
+	}
+	if action.WorkspaceToolAction == nil || action.WorkspaceToolAction.Tool != "read_file" {
+		t.Fatalf("workspace tool action = %#v", action.WorkspaceToolAction)
+	}
+}
+
 func TestDecodeActionResponseFailsWithoutValidAction(t *testing.T) {
-	if _, err := decodeActionResponse("The file visible in the shared workspace is: test-app/Dockerfile."); err == nil {
+	raw := "The file visible in the shared workspace is: test-app/Dockerfile."
+	if _, err := decodeActionResponse(raw); err == nil {
 		t.Fatal("expected decodeActionResponse() to fail without a valid action object")
+	} else if strings.Contains(err.Error(), raw) || !strings.Contains(err.Error(), "response_sha256=") {
+		t.Fatalf("error should include response metadata but not raw text: %v", err)
 	}
 }
 
@@ -466,6 +489,118 @@ func TestGetActionWithMCPRequiresToolCallWhenRuntimeRequiresMCP(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&chatCalls); got != 3 {
 		t.Fatalf("LM Studio chat calls = %d, want 3", got)
+	}
+}
+
+func TestGetActionWithWorkspaceToolReadsFileBeforeFinalAction(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("hello workspace\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	logger := zerolog.Nop()
+	index := workspacectx.NewIndex(root, nil, nil)
+	if err := index.Refresh(&logger, 2); err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	workspaceTools := workspacectx.NewTools(index)
+
+	chatResponses := []string{
+		`{"action":{"type":"CALL_WORKSPACE_TOOL","workspace_tool_action":{"tool":"read_file","arguments":{"path":"README.md"}}}}`,
+		`{"action":{"type":"RETURN_ANSWER","answer_action":{"answer":"README says hello workspace."}}}`,
+	}
+	var prompts []string
+	var chatCalls int32
+	lmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"models":[%s]}`, lmStudioModelListItemForTest("model-a", true))
+		case "/api/v1/chat":
+			var req struct {
+				Input string `json:"input"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Errorf("decode LM Studio request: %v", err)
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			prompts = append(prompts, req.Input)
+			callIndex := int(atomic.AddInt32(&chatCalls, 1)) - 1
+			if callIndex >= len(chatResponses) {
+				t.Fatalf("unexpected extra LM Studio chat call %d", callIndex+1)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"output":[{"type":"message","content":%q}]}`, chatResponses[callIndex])
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer lmServer.Close()
+
+	client := NewLLMClient(appconfig.LLMProviderLMStudio, "", "model-a", lmServer.URL, "off", "local")
+	action, err := client.GetActionWithToolsAndAgentProfile(t.Context(), &proto.GetActionRequest{Goal: "Read README.md"}, nil, workspaceTools, defaultAgentPromptProfile())
+	if err != nil {
+		t.Fatalf("GetActionWithToolsAndAgentProfile() error = %v", err)
+	}
+	if action.GetAnswerAction().GetAnswer() != "README says hello workspace." {
+		t.Fatalf("action = %#v", action)
+	}
+	if len(prompts) != 2 || !strings.Contains(prompts[0], "CALL_WORKSPACE_TOOL") || !strings.Contains(prompts[1], "Workspace tool result") {
+		t.Fatalf("prompts did not include workspace tool contract/result: %#v", prompts)
+	}
+	if _, ok := workspaceTools.IdentityFor("README.md"); !ok {
+		t.Fatal("workspace tool did not record README.md identity")
+	}
+}
+
+func TestGetActionWithToolsHandlesUnavailableMCPToolCall(t *testing.T) {
+	chatResponses := []string{
+		`{"action":{"type":"CALL_MCP_TOOL","mcp_tool_action":{"server":"github","tool":"issues_list","arguments":{}}}}`,
+		`{"action":{"type":"RETURN_ANSWER","answer_action":{"answer":"MCP tools are unavailable."}}}`,
+	}
+	var prompts []string
+	var chatCalls int32
+	lmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"models":[%s]}`, lmStudioModelListItemForTest("model-a", true))
+		case "/api/v1/chat":
+			var req struct {
+				Input string `json:"input"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Errorf("decode LM Studio request: %v", err)
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			prompts = append(prompts, req.Input)
+			callIndex := int(atomic.AddInt32(&chatCalls, 1)) - 1
+			if callIndex >= len(chatResponses) {
+				t.Fatalf("unexpected extra LM Studio chat call %d", callIndex+1)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"output":[{"type":"message","content":%q}]}`, chatResponses[callIndex])
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer lmServer.Close()
+
+	client := NewLLMClient(appconfig.LLMProviderLMStudio, "", "model-a", lmServer.URL, "off")
+	action, err := client.GetActionWithToolsAndAgentProfile(t.Context(), &proto.GetActionRequest{
+		Goal: "Try an unavailable external tool.",
+	}, nil, nil, defaultAgentPromptProfile())
+	if err != nil {
+		t.Fatalf("GetActionWithToolsAndAgentProfile() error = %v", err)
+	}
+	if action.GetAnswerAction().GetAnswer() != "MCP tools are unavailable." {
+		t.Fatalf("action = %#v", action)
+	}
+	if len(prompts) != 2 || !strings.Contains(prompts[1], "MCP tool call failed: external MCP tools are not available") {
+		t.Fatalf("prompts did not include unavailable MCP feedback: %#v", prompts)
 	}
 }
 

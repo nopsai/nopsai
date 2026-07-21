@@ -53,6 +53,27 @@ func TestValidatePipelineAllowsScriptOnlyWhenLLMDisabled(t *testing.T) {
 	}
 }
 
+func TestValidatePipelineRejectsInvalidPolicyMergeMode(t *testing.T) {
+	p := &models.Pipeline{
+		Name:            "invalid-policy-mode",
+		ContainerImage:  "ubuntu:latest",
+		PolicyMergeMode: "loose",
+		Steps: []models.PipelineStep{
+			{
+				Step: &models.TaskStep{
+					BaseStep: models.BaseStep{Name: "step1"},
+					Tasks:    []models.Task{{Name: "task1", Script: "echo ok"}},
+				},
+			},
+		},
+	}
+
+	err := ValidatePipeline(p)
+	if err == nil || !strings.Contains(err.Error(), "policy_merge_mode") {
+		t.Fatalf("ValidatePipeline() error = %v, want policy_merge_mode error", err)
+	}
+}
+
 func TestValidatePipelineAllowsTaskVariablesFromYAML(t *testing.T) {
 	const raw = `
 name: main-pipeline

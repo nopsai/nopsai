@@ -370,7 +370,7 @@ export function StepsGraph({
           width="100%"
           height="100%"
           className="cursor-grab active:cursor-grabbing"
-          role="team"
+          role="group"
           aria-label={`${steps.length}-step pipeline run dependency graph`}
         >
           <g transform={`translate(${transform.x}, ${transform.y}) scale(${transform.k})`}>
@@ -507,7 +507,7 @@ function StepNodeRenderer({
       }}
       onMouseDown={event => event.stopPropagation()}
       data-graph-node
-      role="team"
+      role="group"
       aria-label={`${node.data.name} step`}
     >
       <rect
