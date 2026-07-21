@@ -4270,12 +4270,12 @@ html.dark .pipeline-runs-segment {
 
 .pipeline-runs-table th:nth-child(2),
 .pipeline-runs-table td:nth-child(2) {
-    width: 16%;
+    width: 15%;
 }
 
 .pipeline-runs-table th:nth-child(3),
 .pipeline-runs-table td:nth-child(3) {
-    width: 23%;
+    width: 22%;
 }
 
 .pipeline-runs-table th:nth-child(4),
@@ -4300,12 +4300,18 @@ html.dark .pipeline-runs-segment {
 
 .pipeline-runs-table th:nth-child(8),
 .pipeline-runs-table td:nth-child(8) {
-    width: 8%;
+    width: 9%;
 }
 
 .pipeline-runs-table th:nth-child(9),
 .pipeline-runs-table td:nth-child(9) {
-    width: 6%;
+    width: 7%;
+}
+
+.pipeline-runs-table th:nth-child(9),
+.pipeline-runs-table td:nth-child(9) {
+    padding-left: 0.4rem;
+    padding-right: 0.4rem;
 }
 
 .pipeline-runs-table th {
@@ -4442,12 +4448,34 @@ html.dark .pipeline-runs-segment {
     background: var(--bg-tertiary);
 }
 
-.pipeline-runs-output-pill {
-    max-width: 100%;
-}
-
 .pipeline-runs-output-empty {
     color: var(--text-tertiary);
+}
+
+.pipeline-runs-output-text {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.72rem;
+    font-weight: 800;
+}
+
+.pipeline-runs-output-text--ok {
+    color: #22c55e;
+}
+
+.pipeline-runs-output-text--error {
+    color: #f87171;
+}
+
+.pipeline-runs-output-text--warning {
+    color: #f59e0b;
+}
+
+.pipeline-runs-output-text--muted {
+    color: var(--text-secondary);
 }
 
 .pipeline-runs-mono {
