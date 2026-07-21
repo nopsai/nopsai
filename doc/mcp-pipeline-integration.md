@@ -244,7 +244,7 @@ records are written under the same subject/conversation.
 `nopsai.list_pipeline_runs` mirrors the REST run list's lightweight
 `final_output_status` summary for runs that define or store final outputs, so
 MCP clients can distinguish waiting, not-generated, pending, generating,
-generated, failed, partial, cancelled, and partially cancelled output states
+success, failed, partial, cancelled, and partially cancelled output states
 without reading generated content.
 Pipeline final output reads stay on the existing `pipeline_run.read` boundary.
 The output tool exposes stored contract-validated content together with

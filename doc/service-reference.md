@@ -495,8 +495,9 @@ Responsibilities:
 - Logs LLM prompt metadata, hashes, sizes, and token estimates without logging
   prompt bodies.
 - Records prompt/cache/session/revision/retrieval telemetry in AI usage
-  metadata, including logical session IDs, provider-state support, cache
-  identity hashes, and cached input tokens when providers return them.
+  metadata, including logical session IDs, provider-state IDs/support, cache
+  identity hashes, cached input tokens, and cache-write tokens when providers
+  return them.
 - Exposes bounded internal workspace tools (`list_files`, `search_code`, and
   `read_file`) to LLM goal resolution with cursor and byte-range pagination.
 - Adds file identity metadata to explicitly shared workspace files and rejects
