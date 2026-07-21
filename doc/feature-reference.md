@@ -325,6 +325,13 @@ The Nopsai AI Assistant is available as a bottom-right dock and a full
 conversation-scoped memory for selected runs, pipelines, scopes, docs version,
 open tasks, and proposed fixes.
 
+Docked assistant messages can include bounded current-page context from the UI:
+route, page area, active tab, team/scope, selected resource IDs, and
+allow-listed filters. The composer shows the attached context as a removable
+chip, and removing it omits the context from profile scoping and message sends.
+The context is metadata-only and does not scrape rendered page text, logs,
+secrets, credentials, or arbitrary query parameters.
+
 Assistant model configuration is separate from pipeline execution profiles.
 When `assistant.provider` is set in `setting/system/runner.yaml`, the UI shows a
 dedicated `assistant` picker profile backed by that provider/model/credential.
@@ -538,6 +545,10 @@ Pipeline notifications include:
   step/task token totals in the step detail modal, and a run-scoped LLM Usage
   Monitoring link for deeper filtering by pipeline, step, task, model, profile,
   feature, subject, and exact/estimated token source
+- Pipeline Runs list, overview table, and related recent-run panels show
+  lightweight final-output status summaries for runs with configured or stored
+  final outputs. These summaries expose aggregate state and counts only; they
+  do not include generated output content.
 - runner trend sampling through `runner_metric_snapshots` with hourly capacity,
   active-job, inflight-job, queued-job, and utilization timelines
 - GitOps-ready monitoring saved views and alert rules through
@@ -581,6 +592,9 @@ Core run-management capabilities:
 - fetch run details
 - formatted Markdown/document/spreadsheet previews, inline PDF viewing,
   readable structured copy, and download of run-level final outputs
+- clickable final-output rows that open inline previews and link dashboard
+  outputs directly to the configured dashboard and section when target metadata
+  is available
 - cancel pending or generating final outputs without cancelling the pipeline run
 - inspect final-output generation, contract, and render audit counts through
   authorized REST/MCP reads and Prometheus metrics
@@ -609,6 +623,9 @@ Run organization behavior:
 - Pipeline Runs treats unset runtime timestamps from failed-before-start runs as
   empty values, so the Started column and run detail never calculate a relative
   age from Go's zero time
+- Pipeline Runs overview renders successful final-output aggregate state as
+  compact `success` text to fit the operational table, while detail and
+  run-list surfaces keep richer output labels and tooltips.
 - pipeline path is used as the run owner when a run has no repository or
   explicit team path
 - repository metadata remains a source/runtime identity for Git-triggered runs,
