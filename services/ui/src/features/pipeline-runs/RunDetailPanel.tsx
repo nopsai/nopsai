@@ -61,6 +61,7 @@ export function RunDetailView({
   selectedStep,
   onSelectStep,
   onOpenLogs,
+  onOpenStepLogs,
   onOpenTaskLogs,
   onOpenStepDetail,
   onOpenRun,
@@ -79,6 +80,7 @@ export function RunDetailView({
   selectedStep: string | null;
   onSelectStep: (step: string | null) => void;
   onOpenLogs: () => void;
+  onOpenStepLogs: (stepName: string) => void;
   onOpenTaskLogs: (stepName: string, taskName: string) => void;
   onOpenStepDetail: (stepName: string) => void;
   onOpenRun: (id: string) => void;
@@ -444,6 +446,7 @@ export function RunDetailView({
             steps={detail.steps}
             selectedStep={selectedStep}
             onSelectStep={onSelectStep}
+            onOpenStepLogs={onOpenStepLogs}
             onOpenTaskLogs={onOpenTaskLogs}
             onOpenStepDetail={onOpenStepDetail}
             childRuns={detail.child_runs}

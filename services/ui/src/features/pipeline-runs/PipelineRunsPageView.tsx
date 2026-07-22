@@ -68,6 +68,7 @@ type PipelineRunsPageViewProps = {
   setSelectedStep: Dispatch<SetStateAction<string | null>>;
   setLogsOpen: Dispatch<SetStateAction<boolean>>;
   setLogsStepFilter: Dispatch<SetStateAction<string | null>>;
+  setLogsTaskFilter: Dispatch<SetStateAction<string | null>>;
   setLogsSearchFilter: Dispatch<SetStateAction<string | null>>;
   setStepDetailName: Dispatch<SetStateAction<string | null>>;
   setDefinitionOpen: Dispatch<SetStateAction<boolean>>;
@@ -76,6 +77,7 @@ type PipelineRunsPageViewProps = {
   definitionOpen: boolean;
   logsOpen: boolean;
   logsStepFilter: string | null;
+  logsTaskFilter: string | null;
   logsSearchFilter: string | null;
   stepDetailName: string | null;
 };
@@ -154,6 +156,7 @@ export function PipelineRunsPageView({
   setSelectedStep,
   setLogsOpen,
   setLogsStepFilter,
+  setLogsTaskFilter,
   setLogsSearchFilter,
   setStepDetailName,
   setDefinitionOpen,
@@ -162,6 +165,7 @@ export function PipelineRunsPageView({
   definitionOpen,
   logsOpen,
   logsStepFilter,
+  logsTaskFilter,
   logsSearchFilter,
   stepDetailName,
 }: PipelineRunsPageViewProps) {
@@ -303,13 +307,22 @@ export function PipelineRunsPageView({
                 onSelectStep={setSelectedStep}
                 onOpenLogs={() => {
                   setLogsStepFilter(null);
+                  setLogsTaskFilter(null);
+                  setLogsSearchFilter(null);
+                  setLogsOpen(true);
+                }}
+                onOpenStepLogs={stepName => {
+                  setSelectedStep(null);
+                  setLogsStepFilter(stepName);
+                  setLogsTaskFilter(null);
                   setLogsSearchFilter(null);
                   setLogsOpen(true);
                 }}
                 onOpenTaskLogs={(stepName, taskName) => {
                   setSelectedStep(stepName);
                   setLogsStepFilter(stepName);
-                  setLogsSearchFilter(taskName);
+                  setLogsTaskFilter(taskName);
+                  setLogsSearchFilter(null);
                   setLogsOpen(true);
                 }}
                 onOpenStepDetail={stepName => {
@@ -375,11 +388,13 @@ export function PipelineRunsPageView({
           onClose={() => {
             setLogsOpen(false);
             setLogsStepFilter(null);
+            setLogsTaskFilter(null);
             setLogsSearchFilter(null);
           }}
           steps={runDetail?.steps}
           stepNames={runDetail?.steps.map(step => step.name)}
           initialStep={logsStepFilter}
+          initialTask={logsTaskFilter}
           initialSearch={logsSearchFilter}
         />
       )}
@@ -390,6 +405,7 @@ export function PipelineRunsPageView({
           onClose={() => setStepDetailName(null)}
           onViewLogs={() => {
             setLogsStepFilter(stepDetailName);
+            setLogsTaskFilter(null);
             setLogsSearchFilter(null);
             setLogsOpen(true);
           }}

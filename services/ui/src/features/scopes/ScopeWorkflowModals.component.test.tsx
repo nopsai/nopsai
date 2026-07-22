@@ -68,6 +68,24 @@ function ScopeModalHarness({
             name: 'API_URL',
             repository: 'owner/repo',
             value: '',
+            valueLoading: true,
+            pending: false,
+          });
+          setOpen('variable');
+        }}
+      >
+        Open loading variable
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          setVariableModal({
+            mode: 'update',
+            scope: 'team',
+            originalName: 'owner/repo/API_URL',
+            name: 'API_URL',
+            repository: 'owner/repo',
+            value: 'https://current.test',
             gitOpsManaged: true,
             pending: false,
           });
@@ -170,6 +188,19 @@ test('warns when editing GitOps-managed scoped values', async () => {
   await user.click(screen.getByRole('button', { name: 'Open override variable' }));
   const dialog = screen.getByRole('dialog', { name: 'Variable' });
   expect(within(dialog).getByText(/Saving here creates a database override/)).toBeVisible();
+  expect(screen.getByLabelText('Value')).toHaveValue('https://current.test');
+});
+
+test('keeps variable edit close controls available while the current value loads', async () => {
+  const user = userEvent.setup();
+  renderHarness();
+
+  await user.click(screen.getByRole('button', { name: 'Open loading variable' }));
+  const dialog = screen.getByRole('dialog', { name: 'Variable' });
+  expect(screen.getByLabelText('Value')).toBeDisabled();
+  expect(within(dialog).getByRole('button', { name: 'Loading...' })).toBeDisabled();
+  expect(within(dialog).getByRole('button', { name: 'Close' })).toBeEnabled();
+  expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeEnabled();
 });
 
 test('supports GitOps encryption controls and destructive confirmation semantics', async () => {

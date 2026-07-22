@@ -16,6 +16,7 @@ export function RunLogsModal({
   steps,
   stepNames,
   initialStep,
+  initialTask,
   initialSearch,
 }: {
   runId: string;
@@ -24,6 +25,7 @@ export function RunLogsModal({
   steps?: RunLogStep[];
   stepNames?: string[];
   initialStep?: string | null;
+  initialTask?: string | null;
   initialSearch?: string | null;
 }) {
   const {
@@ -38,6 +40,7 @@ export function RunLogsModal({
     searchText,
     selectedLevels,
     selectedSteps,
+    selectedTasks,
     shortView,
     structured,
     visibleLines,
@@ -48,12 +51,13 @@ export function RunLogsModal({
     setHasUnseen,
     setSearchText,
     setSelectedSteps,
+    setSelectedTasks,
     setShortView,
     setStructured,
     setWrap,
     toggleLevel,
     toggleStep,
-  } = useRunLogs({ runID: runId, initialStep, initialSearch });
+  } = useRunLogs({ runID: runId, initialStep, initialTask, initialSearch });
   const [stepSearch, setStepSearch] = useState('');
   const logContainerRef = useRef<HTMLDivElement | null>(null);
   const dialogRef = useDialogFocus(onClose);
@@ -171,8 +175,7 @@ export function RunLogsModal({
   useEffect(() => {
     const container = logContainerRef.current;
     if (!container) return;
-    const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
-    if (follow && nearBottom) {
+    if (follow) {
       container.scrollTop = container.scrollHeight;
       setHasUnseen(false);
     }
@@ -248,6 +251,27 @@ export function RunLogsModal({
               )}
             </div>
             <p className="text-[11px] text-[var(--text-secondary)] mt-1" aria-live="polite">{logCountLabel}</p>
+            {selectedTasks.size > 0 ? (
+              <div className="mt-2 flex flex-wrap gap-2" aria-label="Active task log filters">
+                {Array.from(selectedTasks).map(task => (
+                  <button
+                    key={task}
+                    type="button"
+                    className="runner-pill runner-pill--ghost text-xs"
+                    onClick={() =>
+                      setSelectedTasks(current => {
+                        const next = new Set(current);
+                        next.delete(task);
+                        return next;
+                      })
+                    }
+                    title={`Clear ${task} task filter`}
+                  >
+                    Task: {task}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
           <div className="flex flex-col gap-2 flex-1 min-w-[240px] w-full items-end">
             <div className="flex items-center gap-2 flex-wrap justify-end">

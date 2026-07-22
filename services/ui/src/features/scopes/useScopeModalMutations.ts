@@ -3,6 +3,7 @@ import {
   checkScopePermission,
   deleteScopedValue,
   encryptSecretValue,
+  fetchVariableValue,
   saveScopedValue,
   scopedResourcePath,
 } from './api';
@@ -45,6 +46,7 @@ export type ScopedValueModalState = {
   repository: string;
   value: string;
   gitOpsManaged?: boolean;
+  valueLoading?: boolean;
   pending: boolean;
   error?: string;
 };
@@ -274,8 +276,29 @@ export function useScopeModalMutations({
         repository: identity.repoSlug,
         value: '',
         gitOpsManaged,
+        valueLoading: true,
         pending: false,
       });
+      void fetchVariableValue(scopedResourcePath('variable', scope, identity.name, identity.repoSlug))
+        .then(value => {
+          setVariableModal(current => {
+            if (!current || current.mode !== 'update') return current;
+            if (current.scope !== scope || current.originalName !== identity.fullName) return current;
+            return { ...current, value: current.value || value, valueLoading: false, error: undefined };
+          });
+        })
+        .catch(error => {
+          console.error('Failed to load variable value', error);
+          setVariableModal(current => {
+            if (!current || current.mode !== 'update') return current;
+            if (current.scope !== scope || current.originalName !== identity.fullName) return current;
+            return {
+              ...current,
+              valueLoading: false,
+              error: error instanceof Error ? error.message : 'Failed to load variable value.',
+            };
+          });
+        });
     },
     [addToast, canWriteVariablesInSelectedScope, scopeDataByScope]
   );

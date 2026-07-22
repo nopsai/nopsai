@@ -119,3 +119,67 @@ test('polls incrementally from the latest received line', async () => {
   expect(screen.getByText(/second batch/)).toBeVisible();
   expect(fetchRunLogsMock).toHaveBeenNthCalledWith(2, 'run-poll', 7);
 });
+
+test('opens task logs with both step and task filters applied', async () => {
+  fetchRunLogsMock.mockResolvedValueOnce([
+    {
+      id: 1,
+      timestamp: '2026-06-08T10:00:00Z',
+      line: '{"level":"info","step":"build","task":"compile","message":"compiled"}',
+    },
+    {
+      id: 2,
+      timestamp: '2026-06-08T10:00:01Z',
+      line: '{"level":"info","step":"build","task":"test","message":"tested"}',
+    },
+    {
+      id: 3,
+      timestamp: '2026-06-08T10:00:02Z',
+      line: '{"level":"info","step":"deploy","task":"compile","message":"deployed"}',
+    },
+  ]);
+
+  render(
+    <RunLogsModal
+      runId="run-1"
+      runName="Enterprise pipeline"
+      onClose={() => undefined}
+      steps={[{ name: 'build', status: 'success' }, { name: 'deploy', status: 'success' }]}
+      initialStep="build"
+      initialTask="compile"
+    />
+  );
+
+  expect(await screen.findByText(/compiled/)).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Task: compile' })).toBeVisible();
+  expect(screen.queryByText(/tested/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/deployed/)).not.toBeInTheDocument();
+});
+
+test('keeps following new lines even when the scroll position was previously above the bottom', async () => {
+  vi.useFakeTimers();
+  fetchRunLogsMock
+    .mockResolvedValueOnce([
+      { id: 1, timestamp: '2026-06-08T10:00:00Z', line: '{"level":"info","message":"first batch"}' },
+    ])
+    .mockResolvedValueOnce([
+      { id: 2, timestamp: '2026-06-08T10:00:05Z', line: '{"level":"info","message":"second batch"}' },
+    ]);
+
+  render(<RunLogsModal runId="run-follow" onClose={() => undefined} />);
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const log = screen.getByRole('log', { name: 'Logs for run-follow' });
+  Object.defineProperty(log, 'scrollHeight', { configurable: true, value: 500 });
+  Object.defineProperty(log, 'clientHeight', { configurable: true, value: 100 });
+  log.scrollTop = 0;
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1000);
+  });
+
+  expect(screen.getByText(/second batch/)).toBeVisible();
+  expect(log.scrollTop).toBe(500);
+});

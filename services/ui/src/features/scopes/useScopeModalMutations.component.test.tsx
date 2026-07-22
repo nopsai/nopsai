@@ -1,9 +1,10 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import {
   checkScopePermission,
   deleteScopedValue,
   encryptSecretValue,
+  fetchVariableValue,
   saveScopedValue,
 } from './api';
 import { SAMPLE_SCOPE_VARIABLE, useScopeModalMutations } from './useScopeModalMutations';
@@ -12,6 +13,7 @@ vi.mock('./api', () => ({
   checkScopePermission: vi.fn(),
   deleteScopedValue: vi.fn(),
   encryptSecretValue: vi.fn(),
+  fetchVariableValue: vi.fn(),
   saveScopedValue: vi.fn(),
   scopedResourcePath: (kind: 'variable' | 'secret', scope: string, name: string, repositorySlug = '') => {
     const plural = kind === 'variable' ? 'variables' : 'secrets';
@@ -22,6 +24,7 @@ vi.mock('./api', () => ({
 const checkScopePermissionMock = vi.mocked(checkScopePermission);
 const deleteScopedValueMock = vi.mocked(deleteScopedValue);
 const encryptSecretValueMock = vi.mocked(encryptSecretValue);
+const fetchVariableValueMock = vi.mocked(fetchVariableValue);
 const saveScopedValueMock = vi.mocked(saveScopedValue);
 
 const addToast = vi.fn();
@@ -68,6 +71,7 @@ beforeEach(() => {
   checkScopePermissionMock.mockResolvedValue(true);
   deleteScopedValueMock.mockResolvedValue(undefined);
   encryptSecretValueMock.mockResolvedValue('ENC[value]');
+  fetchVariableValueMock.mockResolvedValue('https://current.test');
   saveScopedValueMock.mockResolvedValue(undefined);
   loadScopes.mockResolvedValue(undefined);
   ensureScopeVariables.mockResolvedValue(undefined);
@@ -201,7 +205,17 @@ test('warns and saves database overrides for GitOps-managed scoped values', asyn
     mode: 'update',
     gitOpsManaged: true,
     originalName: 'owner/repo/API_URL',
+    valueLoading: true,
+    pending: false,
   });
+  await waitFor(() => {
+    expect(result.current.variableModal).toMatchObject({
+      value: 'https://current.test',
+      valueLoading: false,
+      pending: false,
+    });
+  });
+  expect(fetchVariableValueMock).toHaveBeenCalledWith('/repo/owner/repo/variables/API_URL?scope=team');
   expect(addToast).toHaveBeenCalledWith(
     'Editing saves a database override. The next GitOps sync can replace it unless it is pushed to GitOps.',
     'info'
@@ -263,6 +277,25 @@ test('warns and saves database overrides for GitOps-managed scoped values', asyn
     'Secret database row removed. GitOps can recreate it on the next sync unless it is removed from GitOps.',
     'success'
   );
+});
+
+test('keeps the variable update modal open with an error when loading the current value fails', async () => {
+  fetchVariableValueMock.mockRejectedValueOnce(new Error('read denied'));
+  const { result } = renderMutations();
+
+  act(() => {
+    result.current.openVariableUpdateModal('team', 'owner/repo/API_URL');
+  });
+
+  await waitFor(() => {
+    expect(result.current.variableModal).toMatchObject({
+      mode: 'update',
+      value: '',
+      valueLoading: false,
+      pending: false,
+      error: 'read denied',
+    });
+  });
 });
 
 test('encrypts and copies GitOps secret values', async () => {

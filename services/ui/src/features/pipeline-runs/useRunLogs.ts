@@ -14,18 +14,22 @@ import {
 type RunLogsOptions = {
   runID: string;
   initialStep?: string | null;
+  initialTask?: string | null;
   initialSearch?: string | null;
 };
 
 export const RUN_LOG_VISIBLE_POLL_MS = 1000;
 export const RUN_LOG_HIDDEN_POLL_MS = 15000;
 
-export function useRunLogs({ runID, initialStep, initialSearch }: RunLogsOptions) {
+export function useRunLogs({ runID, initialStep, initialTask, initialSearch }: RunLogsOptions) {
   const [lines, setLines] = useState<EnrichedRunLogLine[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedSteps, setSelectedSteps] = useState<Set<string>>(
     () => (initialStep && initialStep !== 'all' ? new Set([initialStep]) : new Set())
+  );
+  const [selectedTasks, setSelectedTasks] = useState<Set<string>>(
+    () => (initialTask && initialTask !== 'all' ? new Set([initialTask]) : new Set())
   );
   const [selectedLevels, setSelectedLevels] = useState<Set<string>>(new Set());
   const [searchText, setSearchText] = useState('');
@@ -49,31 +53,45 @@ export function useRunLogs({ runID, initialStep, initialSearch }: RunLogsOptions
 
   useEffect(() => {
     const parsed = parseRunLogsHash(window.location.hash, runID);
+    const hasExplicitInitialStep = initialStep !== undefined;
+    const hasExplicitInitialTask = initialTask !== undefined;
+    const hasExplicitInitialSearch = initialSearch !== undefined;
+    const hasExplicitInitialFilters = hasExplicitInitialStep || hasExplicitInitialTask || hasExplicitInitialSearch;
+    const initialStepSet = initialStep && initialStep !== 'all' ? new Set([initialStep]) : new Set<string>();
+    const initialTaskSet = initialTask && initialTask !== 'all' ? new Set([initialTask]) : new Set<string>();
     setSelectedSteps(
-      parsed?.steps.length
+      hasExplicitInitialStep
+        ? initialStepSet
+        : parsed?.steps.length
         ? new Set(parsed.steps)
-        : initialStep && initialStep !== 'all'
-          ? new Set([initialStep])
+        : new Set()
+    );
+    setSelectedTasks(
+      hasExplicitInitialTask
+        ? initialTaskSet
+        : parsed?.tasks.length
+          ? new Set(parsed.tasks)
           : new Set()
     );
-    setSelectedLevels(parsed?.levels ?? new Set());
-    setSearchText(initialSearch ?? parsed?.search ?? '');
+    setSelectedLevels(hasExplicitInitialFilters ? new Set() : parsed?.levels ?? new Set());
+    setSearchText(hasExplicitInitialSearch ? (initialSearch ?? '') : parsed?.search ?? '');
     setFollow(true);
-    setWrap(parsed?.wrap ?? false);
-    setStructured(parsed?.structured ?? false);
-    setShortView(parsed?.shortView ?? true);
-    setAgentOnly(parsed?.agentOnly ?? false);
+    setWrap(hasExplicitInitialFilters ? false : parsed?.wrap ?? false);
+    setStructured(hasExplicitInitialFilters ? false : parsed?.structured ?? false);
+    setShortView(hasExplicitInitialFilters ? true : parsed?.shortView ?? true);
+    setAgentOnly(hasExplicitInitialFilters ? false : parsed?.agentOnly ?? false);
     setLines([]);
     setError(null);
     lastIDRef.current = 0;
     setHasUnseen(false);
-  }, [initialSearch, initialStep, runID, setFollow]);
+  }, [initialSearch, initialStep, initialTask, runID, setFollow]);
 
   useEffect(() => {
     const nextHash = buildRunLogsHash({
       currentHash: window.location.hash,
       runID,
       selectedSteps,
+      selectedTasks,
       selectedLevels,
       wrap,
       structured,
@@ -89,7 +107,7 @@ export function useRunLogs({ runID, initialStep, initialSearch }: RunLogsOptions
     } catch {
       window.location.hash = nextHash;
     }
-  }, [agentOnly, runID, searchText, selectedLevels, selectedSteps, shortView, structured, wrap]);
+  }, [agentOnly, runID, searchText, selectedLevels, selectedSteps, selectedTasks, shortView, structured, wrap]);
 
   useEffect(() => {
     const wasShortView = shortViewRef.current;
@@ -134,8 +152,8 @@ export function useRunLogs({ runID, initialStep, initialSearch }: RunLogsOptions
 
   const presentLevels = useMemo(() => getPresentRunLogLevels(lines), [lines]);
   const visibleLines = useMemo(
-    () => filterRunLogLines(lines, { selectedSteps, selectedLevels, agentOnly, searchText }),
-    [agentOnly, lines, searchText, selectedLevels, selectedSteps]
+    () => filterRunLogLines(lines, { selectedSteps, selectedTasks, selectedLevels, agentOnly, searchText }),
+    [agentOnly, lines, searchText, selectedLevels, selectedSteps, selectedTasks]
   );
 
   const toggleLevel = useCallback((level: string) => {
@@ -158,6 +176,7 @@ export function useRunLogs({ runID, initialStep, initialSearch }: RunLogsOptions
 
   const resetFilters = useCallback(() => {
     setSelectedSteps(new Set());
+    setSelectedTasks(new Set());
     setSelectedLevels(new Set());
     setAgentOnly(false);
     setSearchText('');
@@ -179,6 +198,7 @@ export function useRunLogs({ runID, initialStep, initialSearch }: RunLogsOptions
     searchText,
     selectedLevels,
     selectedSteps,
+    selectedTasks,
     shortView,
     structured,
     visibleLines,
@@ -189,6 +209,7 @@ export function useRunLogs({ runID, initialStep, initialSearch }: RunLogsOptions
     setHasUnseen,
     setSearchText,
     setSelectedSteps,
+    setSelectedTasks,
     setShortView,
     setStructured,
     setWrap,
