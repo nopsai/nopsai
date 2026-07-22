@@ -2,6 +2,7 @@ package command
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -44,20 +45,23 @@ func newPlatformReleaseCommand(root *rootOptions) *cobra.Command {
 				target = strings.ToLower(strings.TrimSpace(args[0]))
 			}
 			if options.interactive && len(args) == 0 {
-				selected, err := prompter.Choose("Deployment target", []interactive.Choice{
-					{Label: "kubernetes", Description: "Helm-based NopsAI platform deployment", SearchText: "helm k8s cluster"},
-				})
+				var err error
+				target, err = chooseInteractiveReleaseTarget(prompter, root)
 				if err != nil {
 					return err
-				}
-				if selected == 0 {
-					target = "kubernetes"
 				}
 			}
 			if target != "kubernetes" {
 				return fmt.Errorf("unsupported deployment target %q; expected kubernetes", target)
 			}
 			if options.interactive {
+				if prompter.CanUseLiveSelector() {
+					err := runInteractivePlatformReleaseTarget(command, root, prompter, options, target)
+					if errors.Is(err, interactive.ErrBack) || errors.Is(err, interactive.ErrCancelled) {
+						return nil
+					}
+					return err
+				}
 				if err := resolveInteractiveKubernetesOptions(prompter, options, defaultPlatformVersion(root)); err != nil {
 					return err
 				}
