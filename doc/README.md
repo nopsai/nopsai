@@ -7,7 +7,7 @@ Start here when you want to understand the system from different angles:
 - [architecture-overview.md](./architecture-overview.md): The big picture, main components, core data model, and deployment shape.
 - [service-reference.md](./service-reference.md): What each service owns, how it talks to the others, and the main source files to read.
 - [cli.md](./cli.md): Operator CLI contexts, credentials, interactive REST access, completion files, one-command installs, platform diagnostics, GitOps deployment, and binary separation.
-- [release-bundles.md](./release-bundles.md): Shared build identity, compatibility contracts, digest-pinned release manifests, CLI-generated Compose/Kubernetes install files, unified Helm release flow, and GitOps release locks.
+- [release-bundles.md](./release-bundles.md): Shared build identity, versioned release assets, CLI-generated Compose/Kubernetes install files, Helm chart publication, and GitOps release locks.
 - [runtime-flows.md](./runtime-flows.md): Step-by-step execution flows for request authorization, webhooks, manual runs, dispatching, agent execution, child pipelines, cancellation, and config sync.
 - [team-resource-ownership-design.md](./team-resource-ownership-design.md): Target design for separating Teams from Pipeline Runs and adding team-scoped LLM, Agent, and MCP profiles.
 - [kubernetes-runner.md](./kubernetes-runner.md): Kubernetes runner runtime, namespace deployment, agent-owned PVC workspace behavior, node affinity, GitOps settings, one-time install commands, and GitOps manifests.

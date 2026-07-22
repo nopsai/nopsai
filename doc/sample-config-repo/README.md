@@ -162,7 +162,7 @@ global-repo/pipelines/platform/prod/platform-maintenance.yaml
   -> pipeline platform/prod/platform-maintenance, public use access
 
 global-repo/pipelines/platform/prod/nopsai-platform-release.yaml
-  -> pipeline platform/prod/nopsai-platform-release, self-hosted release publication workflow for NopsAI packages, images, Helm chart, release manifest, and deployment bundle
+  -> pipeline platform/prod/nopsai-platform-release, self-hosted release publication workflow for NopsAI images, Helm chart, CLI archives, changelog, and checksums
 
 global-repo/pipelines/knowledge-kind-comparison.yaml
   -> pipeline knowledge-kind-comparison, comparing guardrail, policy, and guideline prompt behavior

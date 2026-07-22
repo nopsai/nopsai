@@ -278,9 +278,9 @@ Current responsibilities:
   templates for scripted invocation.
 - Checks API preflight, authentication, metrics, dispatcher monitoring, and
   local platform tools through `platform doctor`.
-- Plans and deploys one compatible Kubernetes release manifest, verifies the
-  OCI chart package digest, pins every image digest, and writes a deployment
-  lock after a successful Helm operation.
+- Generates versioned Docker Compose and Helm values for first installs, can
+  deploy generated Kubernetes values with Helm, and keeps the lower-level
+  manifest deployer available for advanced internal release workflows.
 - Supports GitOps/CI use through declarative context files and environment
   secret injection.
 

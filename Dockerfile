@@ -3,7 +3,6 @@ FROM golang:1.26.5-alpine AS builder
 ARG VERSION=dev
 ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
-ARG RELEASE_MANIFEST_DIGEST=
 ARG API_VERSION=v1
 ARG RUNNER_PROTOCOL_VERSION=1
 ARG CLI_COMPATIBILITY=>=2.0.0,<3.0.0
@@ -28,7 +27,7 @@ COPY config.yml .
 ENV CGO_ENABLED=0
 ENV GOOS=linux
 RUN mkdir -p /out
-RUN BUILD_LDFLAGS="-s -w -X nopsai/pkg/buildinfo.Version=${VERSION} -X nopsai/pkg/buildinfo.Commit=${COMMIT} -X nopsai/pkg/buildinfo.BuildDate=${BUILD_DATE} -X nopsai/pkg/buildinfo.ReleaseManifestDigest=${RELEASE_MANIFEST_DIGEST} -X nopsai/pkg/buildinfo.APIVersion=${API_VERSION} -X nopsai/pkg/buildinfo.RunnerProtocolVersion=${RUNNER_PROTOCOL_VERSION} -X nopsai/pkg/buildinfo.CLICompatibility=${CLI_COMPATIBILITY} -X nopsai/pkg/buildinfo.RunnerCompatibility=${RUNNER_COMPATIBILITY} -X nopsai/pkg/buildinfo.PlatformCompatibility=${PLATFORM_COMPATIBILITY} -X nopsai/pkg/buildinfo.Capabilities=${CAPABILITIES}" && \
+RUN BUILD_LDFLAGS="-s -w -X nopsai/pkg/buildinfo.Version=${VERSION} -X nopsai/pkg/buildinfo.Commit=${COMMIT} -X nopsai/pkg/buildinfo.BuildDate=${BUILD_DATE} -X nopsai/pkg/buildinfo.APIVersion=${API_VERSION} -X nopsai/pkg/buildinfo.RunnerProtocolVersion=${RUNNER_PROTOCOL_VERSION} -X nopsai/pkg/buildinfo.CLICompatibility=${CLI_COMPATIBILITY} -X nopsai/pkg/buildinfo.RunnerCompatibility=${RUNNER_COMPATIBILITY} -X nopsai/pkg/buildinfo.PlatformCompatibility=${PLATFORM_COMPATIBILITY} -X nopsai/pkg/buildinfo.Capabilities=${CAPABILITIES}" && \
   go build -ldflags="${BUILD_LDFLAGS}" -o /out/nopsai-agent ./services/agent/cmd/agent && \
   go build -ldflags="${BUILD_LDFLAGS}" -o /out/nopsai-git-bot ./services/git-bot/cmd/git-bot && \
   go build -ldflags="${BUILD_LDFLAGS}" -o /out/nopsai ./cmd/nopsai-cli && \

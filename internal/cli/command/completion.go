@@ -3,6 +3,7 @@ package command
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +30,16 @@ func newCompletionCommand(root *cobra.Command) *cobra.Command {
 			if len(args) == 1 {
 				shell = args[0]
 			} else {
-				selected, err := interactive.NewPrompter(command.InOrStdin(), command.OutOrStdout()).Choose("Shell", completionShellChoices())
+				prompter := interactive.NewPrompter(command.InOrStdin(), command.OutOrStdout())
+				var (
+					selected int
+					err      error
+				)
+				if prompter.CanUseLiveSelector() {
+					selected, err = prompter.ChooseScreen("Completion shell", completionShellChoices(), completionShellScreenOptions())
+				} else {
+					selected, err = prompter.Choose("Shell", completionShellChoices())
+				}
 				if err != nil {
 					return err
 				}
@@ -62,7 +72,7 @@ func newCompletionCommand(root *cobra.Command) *cobra.Command {
 func completionShellChoices() []interactive.Choice {
 	choices := make([]interactive.Choice, 0, len(supportedCompletionShells))
 	for _, shell := range supportedCompletionShells {
-		choices = append(choices, interactive.Choice{Label: shell, SearchText: shell})
+		choices = append(choices, interactive.Choice{Label: shell, Description: "Generate " + completionFilename(shell), SearchText: shell + " " + completionFilename(shell)})
 	}
 	return choices
 }
@@ -126,12 +136,16 @@ func completionFilename(shell string) string {
 }
 
 func renderCompletionInstructions(command *cobra.Command, shell, path string) error {
-	if _, err := fmt.Fprintf(command.OutOrStdout(), "Wrote %s completion: %s\n\n", shell, path); err != nil {
+	return renderCompletionInstructionsTo(command.OutOrStdout(), shell, path)
+}
+
+func renderCompletionInstructionsTo(output io.Writer, shell, path string) error {
+	if _, err := fmt.Fprintf(output, "Wrote %s completion: %s\n\n", shell, path); err != nil {
 		return err
 	}
 	lines := completionInstallInstructions(shell, path)
 	for _, line := range lines {
-		if _, err := fmt.Fprintln(command.OutOrStdout(), line); err != nil {
+		if _, err := fmt.Fprintln(output, line); err != nil {
 			return err
 		}
 	}
