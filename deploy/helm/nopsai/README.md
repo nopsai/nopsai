@@ -29,13 +29,10 @@ Private GHCR installations should attach a registry credential through
 credentials so dynamically created agent and step pods can pull the same
 release images.
 
-Internal service topology is editable under `topology`. Override
-`topology.nopsaiAPIURL`, `topology.dispatcherGRPCAddress`,
-`topology.aaaAPIURL`, `topology.gitBotAPIURL`, and `topology.gotenbergURL` when
-services are split across namespaces, clusters, service meshes, or custom DNS
-domains. The generated `nopsai install kubernetes` values file writes these
-keys explicitly so the chosen topology can be reviewed with the environment's
-GitOps state.
+`topology.dispatcherGRPCAddress` controls the internal dispatcher gRPC endpoint
+in the API and Kubernetes runner Deployments. It defaults to `dispatcher:9090`
+and can be overridden when the dispatcher Service name, namespace, or port is
+customized.
 
 System Logs defaults to the Kubernetes provider in this chart. The API
 Deployment runs as the `api.serviceAccount.name` service account and receives

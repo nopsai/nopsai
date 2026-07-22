@@ -157,6 +157,7 @@ func TestKubernetesValuesInstallPlanRendersEditableValues(t *testing.T) {
 	valuesText := string(values)
 	for _, required := range []string{
 		`existingSecret: "nopsai-prod-secrets"`,
+		`dispatcherGRPCAddress: dispatcher:9090`,
 		`host: "nopsai.example.com"`,
 		`nopsaiAPIURL: "http://nopsai-api.prod.svc:8080"`,
 		`dispatcherGRPCAddress: "dispatcher.prod.svc:9090"`,

@@ -106,6 +106,72 @@ nopsai platform release kubernetes \
   --deploy --wait
 ```
 
-That command validates manifest compatibility, verifies the OCI chart package
-digest, renders digest-pinned Helm values, and writes `.nopsai/release.lock`
-after a successful deploy.
+Without `--manifest`, standalone released CLIs use their embedded
+`release-manifest.json` for the same release version. Set
+`NOPSAI_RELEASE_MANIFEST_URL_TEMPLATE` only when GitOps automation should
+intentionally resolve manifests from a trusted internal HTTPS artifact
+repository.
+
+`nopsai install` is the shortest first-install path. It opens a wizard, lets the
+operator choose Docker Compose or Kubernetes, resolves the same manifest from
+the CLI release version, and generates the required files itself.
+`nopsai install docker-compose` is the automation shortcut: it writes
+`docker-compose.yaml`, `.env`, `db/init.sql`, `release-manifest.json`, and
+`.nopsai/install.lock`, then starts the stack when `--run` is set. The `.env`
+file is generated with local secrets and must stay out of Git; the install lock
+is non-secret and can be kept with environment state.
+
+`nopsai install kubernetes` generates editable Helm values for the selected
+version and references a Secret through `secrets.existingSecret`. Operators can
+edit those values, create the Secret with their cluster secret manager, then run
+the printed `nopsai install kubernetes ... --deploy` command from the generated
+directory. The installer reuses stored `release-manifest.json` and `values.yaml`
+without overwriting edits. `nopsai platform release` remains available for CI
+and advanced GitOps workflows that want direct render/deploy control.
+
+Planning verifies compatibility, downloads the exact OCI chart with Helm,
+verifies the chart package digest, injects the release version, manifest
+digest, and every image repository/digest into generated Helm values, and runs
+`helm template`. Deployment uses the same verified inputs with
+`helm upgrade --install`; no floating tag is passed to Helm.
+
+After a successful deployment, the CLI atomically writes
+`.nopsai/release.lock`. The GitOps-readable file records the bundle version,
+manifest and chart digests, exact images, deterministic values hash, namespace,
+release name, and deployment time. It contains no credentials and is not
+written after a failed deployment.
+
+The lock is also the deployment transition guard. Before Helm changes the
+cluster, the CLI rejects a lock for another release or namespace, any database
+migration regression, and a version downgrade unless both the deployed and
+target bundles declare `rollback-safe`. Locks written before rollback policy was
+recorded are treated as `forward-only`. Preserve the lock in the environment's
+GitOps repository so these checks remain effective across operators and CI
+runners.
+
+The generated deployment bundle still has a deployment-only `docker-compose.yaml`
+and `.env` with digest-pinned NopsAI image references for operators who want the
+release archive instead of CLI generation. The GitHub asset
+`nopsai-helm-chart-<version>.tgz` is the deployable chart containing the same
+digest-pinned images. Kubernetes installations must create the Secret named by
+`secrets.existingSecret` before installing the chart; PostgreSQL stays
+externally managed. Override `topology.dispatcherGRPCAddress` only when the
+dispatcher Service DNS name or port differs from the chart default
+`dispatcher:9090`.
+
+```bash
+helm upgrade --install nopsai \
+  oci://ghcr.io/<owner>/charts/nopsai \
+  --version <version> \
+  --namespace nopsai \
+  --create-namespace \
+  --set secrets.existingSecret=nopsai-secrets
+```
+
+## Release Boundary
+
+The repository now owns commit-count image, CLI, and Helm publication,
+SBOM/provenance generation, deployment image locks, and changelog generation.
+Release-manifest signing, release-candidate promotion, package-manager
+distribution, upgrade/status/rollback commands, and Kind smoke deployment
+remain separate work.
