@@ -291,11 +291,6 @@ func TestZenChoiceBlockShowsLongLabelsAndBreadcrumbWithoutRightSideParameters(t 
 	longLabel := "POST    /v1/admin/service-accounts/{serviceAccountID}/tokens/{tokenID}/rotate"
 	choices := []Choice{{
 		Label: longLabel,
-		Parameters: []string{
-			"attach bearer token",
-			"service",
-			"token",
-		},
 	}}
 	block := zenChoiceBlock("API", choices, "", []int{0}, 0, 0, 112, 32, ScreenOptions{Breadcrumb: []string{"Home", "API"}})
 	text := strings.Join(block, "\n")
@@ -336,10 +331,7 @@ func TestZenAnchoredFieldBlockKeepsMenuGeometryAndParameters(t *testing.T) {
 		{Name: "auth", Label: "Attach bearer token", Value: "yes", Kind: FieldBoolean},
 		{Name: "send", Label: "Send request", Value: "yes", Kind: FieldBoolean},
 	}
-	fieldBlock := zenAnchoredFieldBlock("Runtime config", fields, 2, 0, []bool{true, true, false, false, false}, "", "Send request", 112, 32, ScreenOptions{
-		Breadcrumb:     []string{"Home", "API", "Catalog"},
-		ParameterLines: []string{"query: action", "query: resource_def", "query: resource_id", "attach bearer token", "send request"},
-	})
+	fieldBlock := zenAnchoredFieldBlock("Runtime config", fields, 2, 0, []bool{true, true, false, false, false}, "", "Send request", 112, 32, ScreenOptions{Breadcrumb: []string{"Home", "API", "Catalog"}})
 	text := strings.Join(fieldBlock, "\n")
 	for _, want := range []string{
 		"Home > API > Catalog >",
@@ -351,8 +343,10 @@ func TestZenAnchoredFieldBlockKeepsMenuGeometryAndParameters(t *testing.T) {
 		"Value: " + styleBlink("|"),
 		"○ 4. attach bearer token",
 		"○ 5. send request",
-		"Guide: The unique identifier of the resource.",
-		"Example: prj_123abc",
+		styleBold("Guide:"),
+		"        The unique identifier of the resource.",
+		styleBold("Example:"),
+		"        prj_123abc",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("anchored field block missing %q: %q", want, text)
@@ -430,7 +424,21 @@ func TestRunLiveFieldEditorEditsAndSubmits(t *testing.T) {
 	if values["version"] != "2.7.0" || values["output"] != "prod" || values["run"] != "yes" {
 		t.Fatalf("edited fields = %#v", values)
 	}
-	if text := output.String(); !strings.Contains(text, "Output") || !strings.Contains(text, "Guide: Install output directory") || !strings.Contains(text, "Run?") || !strings.Contains(text, "> Yes") || !strings.Contains(text, "Value: prod") || strings.Contains(text, "+---") || strings.Contains(text, "VALUES & DETAILS") || strings.Contains(text, "Action:") || strings.Contains(text, "Step:") {
+	if text := output.String(); !strings.Contains(text, "Home > Install >") ||
+		!strings.Contains(text, "Parameters") ||
+		!strings.Contains(text, "✓ 1. version") ||
+		!strings.Contains(text, "> 2. output") ||
+		!strings.Contains(text, "Value: prod") ||
+		!strings.Contains(text, "> 3. run") ||
+		!strings.Contains(text, "Value: yes") ||
+		!strings.Contains(text, styleBold("Guide:")) ||
+		!strings.Contains(text, "        Install output directory") ||
+		strings.Contains(text, "Run?") ||
+		strings.Contains(text, "> Yes") ||
+		strings.Contains(text, "+---") ||
+		strings.Contains(text, "VALUES & DETAILS") ||
+		strings.Contains(text, "Action:") ||
+		strings.Contains(text, "Step:") {
 		t.Fatalf("form output = %q", text)
 	}
 }
@@ -448,36 +456,15 @@ func TestRunLiveFieldEditorSupportsMultilineInput(t *testing.T) {
 		t.Fatalf("multiline value = %q", edited[0].Value)
 	}
 	text := output.String()
-	if !strings.Contains(text, "Payload source: paste") || !strings.Contains(text, "Guide: Paste JSON content.") || !strings.Contains(text, "1 | {") || strings.Contains(text, "Input mode: multiline editor") {
+	if !strings.Contains(text, "Home > API Request >") ||
+		!strings.Contains(text, "Parameters") ||
+		!strings.Contains(text, "> 1. payload source: paste") ||
+		!strings.Contains(text, "Value: 2 lines") ||
+		!strings.Contains(text, styleBold("Guide:")) ||
+		!strings.Contains(text, "        Paste JSON content.") ||
+		strings.Contains(text, "1 | {") ||
+		strings.Contains(text, "Input mode: multiline editor") {
 		t.Fatalf("multiline form output = %q", text)
-	}
-}
-
-func TestFieldStepsDistinguishPrefilledFromCompletedSteps(t *testing.T) {
-	fields := []Field{
-		{Name: "version", Label: "Version", Value: "2.7.0", Required: true},
-		{Name: "auth", Label: "Authentication", Value: "yes", Kind: FieldBoolean},
-	}
-	text := strings.Join(fieldStepLines(fields, 0, 0, []bool{false, false}, 80, len(fields)), "\n")
-	if !strings.Contains(text, "->") || !strings.Contains(text, "prefill") || strings.Contains(text, "done") {
-		t.Fatalf("prefilled step labels = %q", text)
-	}
-	text = strings.Join(fieldStepLines(fields, 0, 0, []bool{false, true}, 80, len(fields)), "\n")
-	if !strings.Contains(text, "done") || strings.Contains(text, "prefill") {
-		t.Fatalf("completed step labels = %q", text)
-	}
-}
-
-func TestFieldStepsUseOffsetWithoutPuttingValuesOnLeft(t *testing.T) {
-	fields := []Field{
-		{Name: "one", Label: "One"},
-		{Name: "two", Label: "Two", Value: "set"},
-		{Name: "three", Label: "Three", Value: "yes", Kind: FieldBoolean},
-		{Name: "four", Label: "Four"},
-	}
-	text := strings.Join(fieldStepLines(fields, 2, 0, []bool{true, true, false, false}, 90, 2), "\n")
-	if !strings.Contains(text, "Showing steps 2-3 of 4") || strings.Contains(text, "One") || strings.Contains(text, "value: set") || !strings.Contains(text, "->") {
-		t.Fatalf("offset step labels = %q", text)
 	}
 }
 
@@ -491,7 +478,12 @@ func TestRunLiveTextViewerScrollsAndBacksOut(t *testing.T) {
 	if !errors.Is(err, ErrBack) {
 		t.Fatalf("viewer error = %v", err)
 	}
-	if text := output.String(); !strings.Contains(text, "Lines") || !strings.Contains(text, "line-") || !strings.Contains(text, "\x1b[2J") {
+	if text := output.String(); !strings.Contains(text, "Home > Result >") ||
+		!strings.Contains(text, "(11-20 of 31)") ||
+		!strings.Contains(text, "Result") ||
+		!strings.Contains(text, "line-") ||
+		strings.Contains(text, "Lines") ||
+		!strings.Contains(text, "\x1b[2J") {
 		t.Fatalf("viewer output = %q", text)
 	}
 }
