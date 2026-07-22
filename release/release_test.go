@@ -134,6 +134,7 @@ func TestPlatformReleasePublishesCLIArtifactsAndParsesHelmDigest(t *testing.T) {
 		"for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64",
 		"./cmd/nopsai-cli",
 		"rm -rf dist/cli",
+		`asset="nopsai-cli_${VERSION}_${goos}_${goarch}"`,
 		"shopt -s nullglob",
 		"cli_assets=(dist/cli/*)",
 		"No CLI release artifacts were built into dist/cli",
@@ -144,8 +145,15 @@ func TestPlatformReleasePublishesCLIArtifactsAndParsesHelmDigest(t *testing.T) {
 		"checksum_files=(.env db/init.sql docker-compose.yaml",
 		"checksum_files+=(release-manifest.json)",
 		"release_manifest=missing packaging release assets without release-manifest.json",
+		"helm_chart_asset=\"nopsai-helm-chart-$VERSION.tgz\"",
+		"changelog_asset=\"nopsai-changelog-$VERSION.md\"",
+		"compose_asset=\"nopsai-docker-compose-$VERSION.yaml\"",
+		"deployment_bundle_asset=\"nopsai-deployment-bundle-$VERSION.tar.gz\"",
 		`cp "${cli_assets[@]}" dist/assets/`,
+		`cp "dist/release/nopsai-$VERSION.tgz" "dist/assets/$helm_chart_asset"`,
 		"if [[ -f dist/release/release-manifest.json ]]",
+		"legacy_assets=(",
+		`gh release delete-asset "v$VERSION" "$asset"`,
 	} {
 		if !strings.Contains(pipeline, required) {
 			t.Errorf("NopsAI platform release pipeline is missing %q", required)

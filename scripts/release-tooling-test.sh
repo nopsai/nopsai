@@ -123,6 +123,18 @@ if ! jq -e '.manifest.file == "release-manifest.json" and (.manifest.sha256 | te
   printf 'release index does not contain the published release manifest\n' >&2
   exit 1
 fi
+if ! jq -e --arg version "$actual" '
+  .chart.releaseAsset == ("nopsai-helm-chart-" + $version + ".tgz") and
+  .releaseAssets.helmChart == ("nopsai-helm-chart-" + $version + ".tgz") and
+  .releaseAssets.dockerCompose == ("nopsai-docker-compose-" + $version + ".yaml") and
+  .releaseAssets.deploymentBundle == ("nopsai-deployment-bundle-" + $version + ".tar.gz") and
+  .releaseAssets.changelog == ("nopsai-changelog-" + $version + ".md") and
+  .releaseAssets.releaseManifest == "release-manifest.json" and
+  .releaseAssets.checksums == "SHA256SUMS"
+' "$temp_dir/digest-bundle/release-index.json" >/dev/null; then
+  printf 'release index does not contain the friendly release asset names\n' >&2
+  exit 1
+fi
 if ! jq -e '.images.dockerSocketProxy | contains("ghcr.io/hosein-yousefii/nopsai-docker-socket-proxy@sha256:")' \
   "$temp_dir/digest-bundle/release-manifest.json" >/dev/null; then
   printf 'release manifest does not contain the digest-pinned socket proxy image\n' >&2
