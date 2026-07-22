@@ -16,7 +16,8 @@ require_text() {
 }
 
 commit_count="$(git -C "$ROOT_DIR" rev-list --count HEAD)"
-expected="2.7.$((commit_count + 2))"
+base_version="$(tr -d '[:space:]' <"$ROOT_DIR/release/version.txt")"
+expected="$base_version.$((commit_count + 2))"
 actual="$("$ROOT_DIR/scripts/release-version.sh" --offset 2)"
 if [[ "$actual" != "$expected" ]]; then
   printf 'version = %s, want %s\n' "$actual" "$expected" >&2
