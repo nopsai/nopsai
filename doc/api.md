@@ -18,7 +18,7 @@ curl http://localhost:8080/version
 ```
 
 `GET /version` returns product and API versions, supported CLI and runner
-ranges, capability IDs, and the release-manifest digest. It contains no
+ranges, capability IDs, and optional legacy release-manifest digest. It contains no
 deployment configuration or credentials. Released CLIs use this endpoint to
 reject incompatible mutating requests before sending them. See
 [release-bundles.md](./release-bundles.md).

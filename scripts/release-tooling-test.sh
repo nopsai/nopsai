@@ -41,39 +41,19 @@ fi
 "$ROOT_DIR/scripts/generate-changelog.sh" "$actual" "$temp_dir/CHANGELOG.md"
 require_text "# NopsAI $actual" "$temp_dir/CHANGELOG.md" "the generated release heading"
 
-"$ROOT_DIR/scripts/render-release-bundle.sh" \
-  --output "$temp_dir/bundle" \
-  --registry ghcr.io/hosein-yousefii \
+mkdir -p "$temp_dir/chart"
+helm package "$ROOT_DIR/deploy/helm/nopsai" \
   --version "$actual" \
-  --commit "$(git -C "$ROOT_DIR" rev-parse HEAD)" \
-  --build-date 2026-06-22T00:00:00Z
-
-require_text "NOPSAI_VERSION=$actual" "$temp_dir/bundle/.env" "the release version"
-require_text "ghcr.io/hosein-yousefii/nopsai-api:$actual" "$temp_dir/bundle/.env" "the versioned API image"
-chart_file="$temp_dir/bundle/nopsai-$actual.tgz"
-test -s "$chart_file"
-test ! -e "$temp_dir/bundle/kubernetes-values.yaml"
+  --app-version "$actual" \
+  --destination "$temp_dir/chart"
+chart_file="$temp_dir/chart/nopsai-$actual.tgz"
 helm show chart "$chart_file" >"$temp_dir/chart-metadata.yaml"
 require_text "version: $actual" "$temp_dir/chart-metadata.yaml" "the chart version"
 require_text "appVersion: $actual" "$temp_dir/chart-metadata.yaml" "the chart application version"
 helm show values "$chart_file" >"$temp_dir/chart-values.yaml"
-require_text "releaseVersion: $actual" "$temp_dir/chart-values.yaml" "the release version"
 require_text "repository: ghcr.io/hosein-yousefii/nopsai-api" "$temp_dir/chart-values.yaml" "the API image repository"
-test -s "$temp_dir/bundle/db/init.sql"
-(
-  cd "$temp_dir/bundle"
-  export SERVICE_JWT_SIGNING_KEY=test-service-signing-key-at-least-32-characters
-  export POSTGRES_PASSWORD=test-postgres-password
-  export DATABASE_URL=postgres://nopsai_user:test-postgres-password@db:5432/nopsai_db
-  export AAA_SHARED_INTERNAL_TOKEN=test-aaa-shared-token-at-least-32-characters
-  export NOPSAI_MASTER_KEY=dGVzdC1tYXN0ZXIta2V5LTMyaXRlcy1sb25nISE=
-  export JWT_SIGNING_KEY=test-jwt-signing-key-at-least-32-characters
-  docker compose config --quiet
-  shasum -a 256 -c checksums.txt >/dev/null
-)
 
 image_names=(
-  nopsai-base
   nopsai-api
   nopsai-aaa
   nopsai-agent
@@ -83,98 +63,33 @@ image_names=(
   nopsai-k8s-runner
   nopsai-docker-socket-proxy
   nopsai-ui
-  pipeline-image
 )
-mkdir -p "$temp_dir/digests"
-for image_name in "${image_names[@]}"; do
-  printf 'sha256:%064d\n' 0 >"$temp_dir/digests/$image_name.digest"
-done
-
-"$ROOT_DIR/scripts/render-release-bundle.sh" \
-  --output "$temp_dir/digest-bundle" \
-  --registry ghcr.io/hosein-yousefii \
-  --version "$actual" \
-  --commit "$(git -C "$ROOT_DIR" rev-parse HEAD)" \
-  --build-date 2026-06-22T00:00:00Z \
-  --digest-dir "$temp_dir/digests"
-
-for image_name in "${image_names[@]}"; do
-  require_text \
-    "ghcr.io/hosein-yousefii/$image_name@sha256:" \
-    "$temp_dir/digest-bundle/.env" \
-    "the digest-pinned $image_name image"
-done
-if grep -F '{{' \
-  "$temp_dir/digest-bundle/.env" \
-  "$temp_dir/digest-bundle/docker-compose.yaml" \
-  "$temp_dir/digest-bundle/release-index.json" >/dev/null; then
-  printf 'digest release bundle contains an unresolved placeholder\n' >&2
-  exit 1
-fi
-if jq -e '.images | length == 11 and all(.[]; contains("@sha256:"))' \
-  "$temp_dir/digest-bundle/release-index.json" >/dev/null; then
-  :
-else
-  printf 'release index does not contain all digest-pinned images\n' >&2
-  exit 1
-fi
-if ! jq -e '.manifest.file == "release-manifest.json" and (.manifest.sha256 | test("^sha256:[a-f0-9]{64}$"))' \
-  "$temp_dir/digest-bundle/release-index.json" >/dev/null; then
-  printf 'release index does not contain the published release manifest\n' >&2
-  exit 1
-fi
-if ! jq -e --arg version "$actual" '
-  .chart.releaseAsset == ("nopsai-helm-chart-" + $version + ".tgz") and
-  .releaseAssets.helmChart == ("nopsai-helm-chart-" + $version + ".tgz") and
-  .releaseAssets.dockerCompose == ("nopsai-docker-compose-" + $version + ".yaml") and
-  .releaseAssets.deploymentBundle == ("nopsai-deployment-bundle-" + $version + ".tar.gz") and
-  .releaseAssets.changelog == ("nopsai-changelog-" + $version + ".md") and
-  .releaseAssets.releaseManifest == "release-manifest.json" and
-  .releaseAssets.checksums == "SHA256SUMS"
-' "$temp_dir/digest-bundle/release-index.json" >/dev/null; then
-  printf 'release index does not contain the friendly release asset names\n' >&2
-  exit 1
-fi
-if ! jq -e '.images.dockerSocketProxy | contains("ghcr.io/hosein-yousefii/nopsai-docker-socket-proxy@sha256:")' \
-  "$temp_dir/digest-bundle/release-manifest.json" >/dev/null; then
-  printf 'release manifest does not contain the digest-pinned socket proxy image\n' >&2
-  exit 1
-fi
-digest_chart="$temp_dir/digest-bundle/nopsai-$actual.tgz"
-if ! jq -e --arg file "nopsai-$actual.tgz" \
-  '.chart.file == $file and (.chart.sha256 | test("^sha256:[a-f0-9]{64}$"))' \
-  "$temp_dir/digest-bundle/release-index.json" >/dev/null; then
-  printf 'release index does not contain the packaged Helm chart\n' >&2
-  exit 1
-fi
-helm show values "$digest_chart" >"$temp_dir/digest-chart-values.yaml"
 for image_name in "${image_names[@]}"; do
   require_text \
     "repository: ghcr.io/hosein-yousefii/$image_name" \
-    "$temp_dir/digest-chart-values.yaml" \
+    "$temp_dir/chart-values.yaml" \
     "the $image_name repository"
 done
-if [[ "$(grep -c 'digest: sha256:' "$temp_dir/digest-chart-values.yaml")" -ne 11 ]]; then
-  printf 'packaged Helm chart does not contain all image digests\n' >&2
-  exit 1
-fi
-helm template nopsai "$digest_chart" --namespace nopsai >"$temp_dir/digest-chart-manifests.yaml"
+
+(cd "$ROOT_DIR" && go run ./cmd/nopsai-cli install docker-compose --version "$actual" --output-dir "$temp_dir/compose-install" --force >/dev/null)
+require_text "NOPSAI_VERSION=$actual" "$temp_dir/compose-install/.env" "the generated Compose release version"
+require_text "ghcr.io/hosein-yousefii/nopsai-api:$actual" "$temp_dir/compose-install/.env" "the generated Compose API image"
+test -s "$temp_dir/compose-install/docker-compose.yaml"
+test -s "$temp_dir/compose-install/db/init.sql"
+test ! -e "$temp_dir/compose-install/release-manifest.json"
+
+(cd "$ROOT_DIR" && go run ./cmd/nopsai-cli install kubernetes --version "$actual" --output-dir "$temp_dir/kubernetes-install" --force >/dev/null)
+require_text "releaseVersion: \"$actual\"" "$temp_dir/kubernetes-install/values.yaml" "the generated values release version"
+require_text "tag: \"$actual\"" "$temp_dir/kubernetes-install/values.yaml" "the generated values image tag"
+require_text "oci://ghcr.io/hosein-yousefii/charts/nopsai" "$temp_dir/kubernetes-install/.nopsai/install.lock" "the generated chart reference"
+test ! -e "$temp_dir/kubernetes-install/release-manifest.json"
+
+helm template nopsai "$chart_file" --namespace nopsai -f "$temp_dir/kubernetes-install/values.yaml" >"$temp_dir/chart-manifests.yaml"
 require_text \
-  'image: "ghcr.io/hosein-yousefii/nopsai-api@sha256:' \
-  "$temp_dir/digest-chart-manifests.yaml" \
-  "the digest-pinned API workload image"
+  "image: \"ghcr.io/hosein-yousefii/nopsai-api:$actual\"" \
+  "$temp_dir/chart-manifests.yaml" \
+  "the versioned API workload image"
 require_text \
-  'name: AGENT_IMAGE, value: "ghcr.io/hosein-yousefii/nopsai-agent@sha256:' \
-  "$temp_dir/digest-chart-manifests.yaml" \
-  "the digest-pinned dynamic agent image"
-(
-  cd "$temp_dir/digest-bundle"
-  export SERVICE_JWT_SIGNING_KEY=test-service-signing-key-at-least-32-characters
-  export POSTGRES_PASSWORD=test-postgres-password
-  export DATABASE_URL=postgres://nopsai_user:test-postgres-password@db:5432/nopsai_db
-  export AAA_SHARED_INTERNAL_TOKEN=test-aaa-shared-token-at-least-32-characters
-  export NOPSAI_MASTER_KEY=dGVzdC1tYXN0ZXIta2V5LTMyaXRlcy1sb25nISE=
-  export JWT_SIGNING_KEY=test-jwt-signing-key-at-least-32-characters
-  docker compose config --quiet
-  shasum -a 256 -c checksums.txt >/dev/null
-)
+  "name: AGENT_IMAGE, value: \"ghcr.io/hosein-yousefii/nopsai-agent:$actual\"" \
+  "$temp_dir/chart-manifests.yaml" \
+  "the versioned dynamic agent image"

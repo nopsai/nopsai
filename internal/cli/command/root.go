@@ -45,6 +45,7 @@ type session struct {
 	ContextName string
 	API         string
 	Token       string
+	TokenSource string
 	Client      *client.Client
 }
 
@@ -63,6 +64,10 @@ func NewRootCommand(dependencies Dependencies) *cobra.Command {
 		SilenceUsage:      true,
 		SilenceErrors:     true,
 		CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
+		Args:              cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			return executeInteractiveHome(command, options)
+		},
 	}
 	root.SetIn(dependencies.In)
 	root.SetOut(dependencies.Out)
@@ -76,6 +81,7 @@ func NewRootCommand(dependencies Dependencies) *cobra.Command {
 	root.AddCommand(newLoginCommand(options))
 	root.AddCommand(newLogoutCommand(options))
 	root.AddCommand(newAPICommand(options))
+	root.AddCommand(newGuideCommand())
 	root.AddCommand(newInstallCommand(options))
 	root.AddCommand(newPlatformCommand(options))
 	root.AddCommand(newCompletionCommand(root))
@@ -122,12 +128,19 @@ func (o *rootOptions) resolveSessionWithToken(requireContext, loadToken bool) (s
 		return session{}, err
 	}
 	token := ""
+	tokenSource := ""
 	if loadToken {
 		token = strings.TrimSpace(o.dependencies.Getenv("NOPSAI_TOKEN"))
+		if token != "" {
+			tokenSource = "environment"
+		}
 		if token == "" && contextName != "" && sameAPIOrigin(normalizedAPI, contextAPI) {
 			token, err = store.Token(contextName)
 			if err != nil {
 				return session{}, err
+			}
+			if token != "" {
+				tokenSource = "context"
 			}
 		}
 	}
@@ -151,7 +164,7 @@ func (o *rootOptions) resolveSessionWithToken(requireContext, loadToken bool) (s
 	if err != nil {
 		return session{}, err
 	}
-	return session{ContextName: contextName, API: normalizedAPI, Token: token, Client: apiClient}, nil
+	return session{ContextName: contextName, API: normalizedAPI, Token: token, TokenSource: tokenSource, Client: apiClient}, nil
 }
 
 func sameAPIOrigin(left, right string) bool {

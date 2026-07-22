@@ -92,10 +92,10 @@ spec:
             - {name: LOG_LEVEL, value: {{ .Values.global.logLevel | quote }}}
             - {name: LOG_FORMAT, value: {{ .Values.global.logFormat | quote }}}
             - {name: NOPSAI_LISTEN_ADDRESS, value: "0.0.0.0:8080"}
-            - {name: AAA_API_URL, value: "http://aaa:8082"}
-            - {name: GIT_BOT_API_URL, value: "http://git-bot:8081"}
-            - {name: NOPSAI_API_URL, value: "http://nopsai:8080"}
-            - {name: DISPATCHER_GRPC_ADDRESS, value: "dispatcher:9090"}
+            - {name: AAA_API_URL, value: {{ include "nopsai.topology.aaaAPIURL" . | quote }}}
+            - {name: GIT_BOT_API_URL, value: {{ include "nopsai.topology.gitBotAPIURL" . | quote }}}
+            - {name: NOPSAI_API_URL, value: {{ include "nopsai.topology.nopsaiAPIURL" . | quote }}}
+            - {name: DISPATCHER_GRPC_ADDRESS, value: {{ include "nopsai.topology.dispatcherGRPCAddress" . | quote }}}
             {{- if eq (include "nopsai.systemLogsKubernetesEnabled" .) "true" }}
             - {name: SYSTEM_LOGS_PROVIDER, value: "kubernetes"}
             - {name: SYSTEM_LOGS_KUBERNETES_NAMESPACE, valueFrom: {fieldRef: {fieldPath: metadata.namespace}}}
@@ -106,7 +106,7 @@ spec:
             {{- end }}
             - {name: AGENT_IMAGE, value: {{ include "nopsai.image" .Values.agent.image | quote }}}
             {{- if .Values.gotenberg.enabled }}
-            - {name: FINAL_OUTPUT_PDF_RENDERER_URL, value: "http://gotenberg:3000"}
+            - {name: FINAL_OUTPUT_PDF_RENDERER_URL, value: {{ include "nopsai.topology.gotenbergURL" . | quote }}}
             {{- end }}
             - name: DATABASE_URL
               valueFrom: {secretKeyRef: {name: {{ include "nopsai.secretName" . }}, key: {{ .Values.secrets.keys.databaseURL }}}}
