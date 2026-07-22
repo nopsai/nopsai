@@ -72,6 +72,26 @@ user changes articles or topics without a hash anchor, the page must restore
 `#page-content-wrapper` to the top so the next article never inherits the prior
 article's scroll position.
 
+CLI reference pages must cover both automation commands and the interactive
+operator console. The interactive console currently exposes API catalog calls,
+raw API requests, route listing, route descriptions, context management,
+token login/logout, install generation, platform doctor, platform release,
+completion generation, guide topics, help, and exit. Keep the in-app wiki,
+`doc/cli.md`, and `internal/cli/command/interactive_*.go` aligned when this
+surface changes. The live terminal layout uses centered Contextual Zen screens
+with fixed home-style header/footer chrome, breadcrumb text above nested menus,
+a fixed 20-row menu viewport, a pinned guide/details section beneath it, and
+inline `Parameters` progress lists for every live form and wizard. Feature
+menus, result viewers, help, guide, doctor, install, completion, API, context,
+auth, and platform screens must share the same breadcrumb, header, footer, menu
+viewport, and detail positioning. Result viewers use a fixed `Result` section
+and place scroll ranges in the breadcrumb only when needed. API request
+parameter lists must follow the same order as the wizard steps, expand the
+active item inline with its required marker and value, and render empty active
+values as a cursor rather than a blank placeholder. Pinned detail keys such as
+`Guide:`, `Example:`, and `Validation:` must render bold on their own line with
+indented content below.
+
 ## Wiki Sections
 
 The in-app wiki is organized for operators and enterprise users rather than as

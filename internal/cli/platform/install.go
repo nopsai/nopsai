@@ -12,8 +12,10 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"text/template"
@@ -31,12 +33,18 @@ const (
 	DefaultInstallAPIPort           = "8080"
 	DefaultInstallPostgresDB        = "nopsai_db"
 	DefaultInstallPostgresUser      = "nopsai_user"
+	DefaultInstallNopsaiAPIURL      = "http://nopsai:8080"
+	DefaultInstallDispatcherAddress = "dispatcher:9090"
+	DefaultInstallAAAAPIURL         = "http://aaa:8082"
+	DefaultInstallGitBotAPIURL      = "http://git-bot:8081"
+	DefaultInstallGotenbergURL      = "http://gotenberg:3000"
+	DefaultInstallDockerNetworkName = "nopsai-net"
+	DefaultInstallChartReference    = "oci://ghcr.io/hosein-yousefii/charts/nopsai"
 	DefaultKubernetesValuesFile     = "values.yaml"
 	DefaultKubernetesExistingSecret = "nopsai-secrets"
 	installSchemaVersion            = "v1"
 	installComposeFile              = "docker-compose.yaml"
 	installEnvFile                  = ".env"
-	installManifestFile             = "release-manifest.json"
 	installLockFile                 = ".nopsai/install.lock"
 	installDatabaseBootstrapSQLFile = "db/init.sql"
 )
@@ -51,38 +59,53 @@ type Installer struct {
 }
 
 type DockerComposeInstallOptions struct {
-	Version                string
-	ManifestSource         string
-	ExpectedManifestDigest string
-	OutputDir              string
-	ProjectName            string
-	UIPort                 string
-	APIPort                string
+	Version           string
+	OutputDir         string
+	ProjectName       string
+	UIPort            string
+	APIPort           string
+	NopsaiAPIURL      string
+	DispatcherAddress string
+	AAAAPIURL         string
+	GitBotAPIURL      string
+	GotenbergURL      string
+	DockerNetworkName string
 }
 
 type KubernetesValuesOptions struct {
-	Version                string
-	ManifestSource         string
-	ExpectedManifestDigest string
-	OutputDir              string
-	ValuesFile             string
-	ReleaseName            string
-	Namespace              string
-	ExistingSecret         string
-	IngressHost            string
-	Wait                   bool
+	Version           string
+	OutputDir         string
+	ValuesFile        string
+	ReleaseName       string
+	Namespace         string
+	ExistingSecret    string
+	IngressHost       string
+	NopsaiAPIURL      string
+	DispatcherAddress string
+	AAAAPIURL         string
+	GitBotAPIURL      string
+	GotenbergURL      string
+	Wait              bool
+}
+
+type KubernetesInstallDeployOptions struct {
+	Version        string
+	ChartReference string
+	ValuesFiles    []string
+	ReleaseName    string
+	Namespace      string
+	Wait           bool
+	LockFile       string
 }
 
 type InstallPlan struct {
-	Target         string
-	Version        string
-	CLI            string
-	OutputDir      string
-	ManifestSource string
-	ManifestDigest string
-	Files          []InstallFile
-	Command        string
-	Warnings       []string
+	Target    string
+	Version   string
+	CLI       string
+	OutputDir string
+	Files     []InstallFile
+	Command   string
+	Warnings  []string
 }
 
 type InstallFile struct {
@@ -97,11 +120,39 @@ type InstallLock struct {
 	Target         string            `json:"target" yaml:"target"`
 	Version        string            `json:"version" yaml:"version"`
 	CLI            string            `json:"cliVersion" yaml:"cliVersion"`
-	ManifestSource string            `json:"manifestSource" yaml:"manifestSource"`
-	ManifestDigest string            `json:"manifestDigest" yaml:"manifestDigest"`
+	ChartReference string            `json:"chartReference,omitempty" yaml:"chartReference,omitempty"`
+	ChartVersion   string            `json:"chartVersion,omitempty" yaml:"chartVersion,omitempty"`
 	Images         map[string]string `json:"images" yaml:"images"`
 	FileHashes     map[string]string `json:"fileHashes" yaml:"fileHashes"`
 	GeneratedAt    time.Time         `json:"generatedAt" yaml:"generatedAt"`
+}
+
+type KubernetesInstallDeploymentPlan struct {
+	Version        string            `json:"version" yaml:"version"`
+	CLI            string            `json:"cliVersion" yaml:"cliVersion"`
+	ReleaseName    string            `json:"releaseName" yaml:"releaseName"`
+	Namespace      string            `json:"namespace" yaml:"namespace"`
+	ChartReference string            `json:"chartReference" yaml:"chartReference"`
+	ChartVersion   string            `json:"chartVersion" yaml:"chartVersion"`
+	Images         map[string]string `json:"images" yaml:"images"`
+	ValuesFiles    []string          `json:"valuesFiles" yaml:"valuesFiles"`
+	ValuesHash     string            `json:"valuesHash" yaml:"valuesHash"`
+	LockFile       string            `json:"lockFile" yaml:"lockFile"`
+}
+
+type InstallDeploymentLock struct {
+	SchemaVersion  string            `json:"schemaVersion" yaml:"schemaVersion"`
+	Target         string            `json:"target" yaml:"target"`
+	Version        string            `json:"version" yaml:"version"`
+	CLI            string            `json:"cliVersion" yaml:"cliVersion"`
+	ReleaseName    string            `json:"releaseName" yaml:"releaseName"`
+	Namespace      string            `json:"namespace" yaml:"namespace"`
+	ChartReference string            `json:"chartReference" yaml:"chartReference"`
+	ChartVersion   string            `json:"chartVersion" yaml:"chartVersion"`
+	Images         map[string]string `json:"images" yaml:"images"`
+	ValuesFiles    []string          `json:"valuesFiles" yaml:"valuesFiles"`
+	ValuesHash     string            `json:"valuesHash" yaml:"valuesHash"`
+	DeployedAt     time.Time         `json:"deployedAt" yaml:"deployedAt"`
 }
 
 type composeTemplateData struct {
@@ -114,6 +165,15 @@ type composeSecrets struct {
 	ServiceJWTSigningKey   string
 	AAASharedInternalToken string
 	MasterKey              string
+}
+
+type installTopology struct {
+	NopsaiAPIURL      string
+	DispatcherAddress string
+	AAAAPIURL         string
+	GitBotAPIURL      string
+	GotenbergURL      string
+	DockerNetworkName string
 }
 
 type imageEnv struct {
@@ -132,11 +192,12 @@ var composeImageEnvs = []imageEnv{
 	{Key: "ui", Env: "NOPSAI_UI_IMAGE"},
 }
 
-func (i Installer) PlanDockerCompose(ctx context.Context, options DockerComposeInstallOptions) (InstallPlan, error) {
-	resolved, cli, err := i.resolveInstallManifest(ctx, options.Version, options.ManifestSource, options.ExpectedManifestDigest, compatibility.CapabilityPlatformCompose, compatibility.CapabilityRunnerDocker)
+func (i Installer) PlanDockerCompose(_ context.Context, options DockerComposeInstallOptions) (InstallPlan, error) {
+	version, cli, err := i.resolveInstallVersion(options.Version, compatibility.CapabilityPlatformCompose, compatibility.CapabilityRunnerDocker)
 	if err != nil {
 		return InstallPlan{}, err
 	}
+	images := versionedInstallImages(version)
 	outputDir := installOutputDir(options.OutputDir)
 	projectName := strings.TrimSpace(options.ProjectName)
 	if projectName == "" {
@@ -159,8 +220,19 @@ func (i Installer) PlanDockerCompose(ctx context.Context, options DockerComposeI
 	if err := validateTCPPort("ui port", uiPort); err != nil {
 		return InstallPlan{}, err
 	}
+	topology, err := normalizeInstallTopology(installTopology{
+		NopsaiAPIURL:      options.NopsaiAPIURL,
+		DispatcherAddress: options.DispatcherAddress,
+		AAAAPIURL:         options.AAAAPIURL,
+		GitBotAPIURL:      options.GitBotAPIURL,
+		GotenbergURL:      options.GotenbergURL,
+		DockerNetworkName: options.DockerNetworkName,
+	}, true)
+	if err != nil {
+		return InstallPlan{}, err
+	}
 	for _, image := range composeImageEnvs {
-		if _, err := requiredInstallImage(resolved.Manifest, image.Key); err != nil {
+		if _, err := requiredInstallImage(images, image.Key); err != nil {
 			return InstallPlan{}, err
 		}
 	}
@@ -172,26 +244,23 @@ func (i Installer) PlanDockerCompose(ctx context.Context, options DockerComposeI
 	if err != nil {
 		return InstallPlan{}, err
 	}
-	env := renderComposeEnv(resolved.Manifest, secrets, apiPort, uiPort)
+	env := renderComposeEnv(version, images, secrets, apiPort, uiPort, topology)
 	baseFiles := []InstallFile{
 		{RelativePath: installComposeFile, Mode: 0o644, Contents: compose},
 		{RelativePath: installEnvFile, Mode: 0o600, Sensitive: true, Contents: env},
 		{RelativePath: installDatabaseBootstrapSQLFile, Mode: 0o644, Contents: dbassets.InitSQL()},
-		{RelativePath: installManifestFile, Mode: 0o644, Contents: resolved.Raw},
 	}
-	files, err := appendInstallLock(baseFiles, installLock("docker-compose", resolved, cli, baseFiles, i.now()))
+	files, err := appendInstallLock(baseFiles, installLock("docker-compose", version, cli, images, baseFiles, i.now(), "", ""))
 	if err != nil {
 		return InstallPlan{}, err
 	}
 	return InstallPlan{
-		Target:         "docker-compose",
-		Version:        resolved.Manifest.Version,
-		CLI:            cli.Version,
-		OutputDir:      outputDir,
-		ManifestSource: resolved.Source,
-		ManifestDigest: resolved.Digest,
-		Files:          files,
-		Command:        composeCommandText(outputDir),
+		Target:    "docker-compose",
+		Version:   version,
+		CLI:       cli.Version,
+		OutputDir: outputDir,
+		Files:     files,
+		Command:   composeCommandText(outputDir),
 		Warnings: []string{
 			installEnvFile + " contains generated secrets and should stay out of Git.",
 			"Rotate generated secrets through your production secret manager before promoting this install beyond evaluation.",
@@ -199,11 +268,12 @@ func (i Installer) PlanDockerCompose(ctx context.Context, options DockerComposeI
 	}, nil
 }
 
-func (i Installer) PlanKubernetesValues(ctx context.Context, options KubernetesValuesOptions) (InstallPlan, error) {
-	resolved, cli, err := i.resolveInstallManifest(ctx, options.Version, options.ManifestSource, options.ExpectedManifestDigest, compatibility.CapabilityPlatformHelm, compatibility.CapabilityRunnerK8s)
+func (i Installer) PlanKubernetesValues(_ context.Context, options KubernetesValuesOptions) (InstallPlan, error) {
+	version, cli, err := i.resolveInstallVersion(options.Version, compatibility.CapabilityPlatformHelm, compatibility.CapabilityRunnerK8s)
 	if err != nil {
 		return InstallPlan{}, err
 	}
+	images := versionedInstallImages(version)
 	outputDir := installOutputDir(options.OutputDir)
 	valuesFile := strings.TrimSpace(options.ValuesFile)
 	if valuesFile == "" {
@@ -234,27 +304,34 @@ func (i Installer) PlanKubernetesValues(ctx context.Context, options KubernetesV
 	if err := validateHelmName("secret", existingSecret); err != nil {
 		return InstallPlan{}, err
 	}
-	values, err := renderKubernetesValues(resolved.Manifest, existingSecret, options.IngressHost)
+	topology, err := normalizeInstallTopology(installTopology{
+		NopsaiAPIURL:      options.NopsaiAPIURL,
+		DispatcherAddress: options.DispatcherAddress,
+		AAAAPIURL:         options.AAAAPIURL,
+		GitBotAPIURL:      options.GitBotAPIURL,
+		GotenbergURL:      options.GotenbergURL,
+	}, false)
+	if err != nil {
+		return InstallPlan{}, err
+	}
+	values, err := renderKubernetesValues(version, images, existingSecret, options.IngressHost, topology)
 	if err != nil {
 		return InstallPlan{}, err
 	}
 	baseFiles := []InstallFile{
 		{RelativePath: valuesFile, Mode: 0o644, Contents: values},
-		{RelativePath: installManifestFile, Mode: 0o644, Contents: resolved.Raw},
 	}
-	files, err := appendInstallLock(baseFiles, installLock("kubernetes", resolved, cli, baseFiles, i.now()))
+	files, err := appendInstallLock(baseFiles, installLock("kubernetes", version, cli, images, baseFiles, i.now(), DefaultInstallChartReference, version))
 	if err != nil {
 		return InstallPlan{}, err
 	}
 	return InstallPlan{
-		Target:         "kubernetes",
-		Version:        resolved.Manifest.Version,
-		CLI:            cli.Version,
-		OutputDir:      outputDir,
-		ManifestSource: resolved.Source,
-		ManifestDigest: resolved.Digest,
-		Files:          files,
-		Command:        kubernetesCommandText(outputDir, releaseName, namespace, valuesFile, options.Wait),
+		Target:    "kubernetes",
+		Version:   version,
+		CLI:       cli.Version,
+		OutputDir: outputDir,
+		Files:     files,
+		Command:   kubernetesCommandText(outputDir, releaseName, namespace, valuesFile, options.Wait),
 		Warnings: []string{
 			"values.yaml references an existing Kubernetes Secret; create it with your cluster secret manager before deploying.",
 			"Do not commit raw database URLs, signing keys, or master keys to GitOps repositories.",
@@ -280,6 +357,91 @@ func (i Installer) RunDockerCompose(ctx context.Context, plan InstallPlan) error
 		stderr = io.Discard
 	}
 	return i.Runner(ctx, "docker", args, io.Discard, stderr)
+}
+
+func (i Installer) DeployKubernetesValues(ctx context.Context, options KubernetesInstallDeployOptions) (KubernetesInstallDeploymentPlan, error) {
+	version, cli, err := i.resolveInstallVersion(options.Version, compatibility.CapabilityPlatformHelm, compatibility.CapabilityRunnerK8s)
+	if err != nil {
+		return KubernetesInstallDeploymentPlan{}, err
+	}
+	images := versionedInstallImages(version)
+	chartReference := strings.TrimSpace(options.ChartReference)
+	if chartReference == "" {
+		chartReference = DefaultInstallChartReference
+	}
+	if !strings.HasPrefix(chartReference, "oci://") {
+		return KubernetesInstallDeploymentPlan{}, errors.New("install chart reference must use oci://")
+	}
+	releaseName := strings.TrimSpace(options.ReleaseName)
+	if releaseName == "" {
+		releaseName = DefaultReleaseName
+	}
+	namespace := strings.TrimSpace(options.Namespace)
+	if namespace == "" {
+		namespace = DefaultNamespace
+	}
+	if err := validateHelmName("release", releaseName); err != nil {
+		return KubernetesInstallDeploymentPlan{}, err
+	}
+	if err := validateHelmName("namespace", namespace); err != nil {
+		return KubernetesInstallDeploymentPlan{}, err
+	}
+	valuesHash, err := hashInstallValues(options.ValuesFiles, images)
+	if err != nil {
+		return KubernetesInstallDeploymentPlan{}, err
+	}
+	if i.Runner == nil {
+		return KubernetesInstallDeploymentPlan{}, errors.New("process runner is not configured")
+	}
+	args := []string{"upgrade", "--install", releaseName, chartReference, "--version", version, "--namespace", namespace}
+	for _, valuesFile := range options.ValuesFiles {
+		args = append(args, "--values", valuesFile)
+	}
+	args = append(args, "--create-namespace")
+	if options.Wait {
+		args = append(args, "--wait")
+	}
+	stderr := i.Stderr
+	if stderr == nil {
+		stderr = io.Discard
+	}
+	if err := i.Runner(ctx, "helm", args, io.Discard, stderr); err != nil {
+		return KubernetesInstallDeploymentPlan{}, fmt.Errorf("deploy Helm release: %w", err)
+	}
+	lockFile := strings.TrimSpace(options.LockFile)
+	if lockFile == "" {
+		lockFile = DefaultLockFile
+	}
+	plan := KubernetesInstallDeploymentPlan{
+		Version:        version,
+		CLI:            cli.Version,
+		ReleaseName:    releaseName,
+		Namespace:      namespace,
+		ChartReference: chartReference,
+		ChartVersion:   version,
+		Images:         cloneStrings(images),
+		ValuesFiles:    append([]string(nil), options.ValuesFiles...),
+		ValuesHash:     valuesHash,
+		LockFile:       lockFile,
+	}
+	lock := InstallDeploymentLock{
+		SchemaVersion:  installSchemaVersion,
+		Target:         "kubernetes",
+		Version:        version,
+		CLI:            cli.Version,
+		ReleaseName:    releaseName,
+		Namespace:      namespace,
+		ChartReference: chartReference,
+		ChartVersion:   version,
+		Images:         cloneStrings(images),
+		ValuesFiles:    append([]string(nil), options.ValuesFiles...),
+		ValuesHash:     valuesHash,
+		DeployedAt:     i.now(),
+	}
+	if err := WriteInstallDeploymentLock(lockFile, lock); err != nil {
+		return KubernetesInstallDeploymentPlan{}, err
+	}
+	return plan, nil
 }
 
 func WriteInstallPlan(plan InstallPlan, overwrite bool) error {
@@ -319,22 +481,33 @@ func WriteInstallPlan(plan InstallPlan, overwrite bool) error {
 	return nil
 }
 
-func (i Installer) resolveInstallManifest(ctx context.Context, version, source, digest string, requiredCapabilities ...string) (ResolvedManifest, buildinfo.Info, error) {
+func (i Installer) resolveInstallVersion(version string, requiredCapabilities ...string) (string, buildinfo.Info, error) {
 	cli := i.CLI
 	if strings.TrimSpace(cli.Version) == "" {
 		cli = buildinfo.Current()
 	}
-	resolved, err := i.Resolver.Resolve(ctx, version, source, defaultReleaseManifestDigest(source, digest, cli))
+	cli = normalizeInstallCLIInfo(cli)
+	parsedVersion, err := compatibility.ParseVersion(version)
 	if err != nil {
-		return ResolvedManifest{}, buildinfo.Info{}, err
+		return "", buildinfo.Info{}, fmt.Errorf("invalid requested install version: %w", err)
 	}
-	if err := compatibility.ValidateManifestForCLI(resolved.Manifest, cli); err != nil {
-		return ResolvedManifest{}, buildinfo.Info{}, fmt.Errorf("release compatibility check failed: %w", err)
+	version = parsedVersion.String()
+	if strings.Contains(version, "+") {
+		return "", buildinfo.Info{}, errors.New("install version must not contain build metadata because container image tags do not support '+'")
 	}
-	if err := compatibility.RequireCapabilities(resolved.Manifest.Capabilities, requiredCapabilities...); err != nil {
-		return ResolvedManifest{}, buildinfo.Info{}, err
+	if !cli.IsDevelopment() {
+		platformRange, err := compatibility.ParseRange(cli.PlatformCompatibility)
+		if err != nil {
+			return "", buildinfo.Info{}, fmt.Errorf("invalid CLI platform compatibility: %w", err)
+		}
+		if !platformRange.Contains(parsedVersion) {
+			return "", buildinfo.Info{}, fmt.Errorf("CLI %s does not support platform %s; supported range is %s", cli.Version, version, cli.PlatformCompatibility)
+		}
 	}
-	return resolved, cli, nil
+	if err := compatibility.RequireCapabilities(cli.Capabilities, requiredCapabilities...); err != nil {
+		return "", buildinfo.Info{}, err
+	}
+	return version, cli, nil
 }
 
 func defaultReleaseManifestDigest(source, digest string, cli buildinfo.Info) string {
@@ -405,12 +578,57 @@ func installOutputDir(value string) string {
 	return value
 }
 
-func requiredInstallImage(manifest compatibility.Manifest, key string) (string, error) {
-	value := strings.TrimSpace(manifest.Images[key])
-	if value == "" {
-		return "", fmt.Errorf("release manifest is missing image %q", key)
+func normalizeInstallCLIInfo(cli buildinfo.Info) buildinfo.Info {
+	current := buildinfo.Current()
+	if strings.TrimSpace(cli.Version) == "" {
+		cli.Version = current.Version
 	}
-	if err := compatibility.ValidateImageReference(value); err != nil {
+	if strings.TrimSpace(cli.APIVersion) == "" {
+		cli.APIVersion = current.APIVersion
+	}
+	if cli.RunnerProtocolVersion < 1 {
+		cli.RunnerProtocolVersion = current.RunnerProtocolVersion
+	}
+	if strings.TrimSpace(cli.CLICompatibility) == "" {
+		cli.CLICompatibility = current.CLICompatibility
+	}
+	if strings.TrimSpace(cli.RunnerCompatibility) == "" {
+		cli.RunnerCompatibility = current.RunnerCompatibility
+	}
+	if strings.TrimSpace(cli.PlatformCompatibility) == "" {
+		cli.PlatformCompatibility = current.PlatformCompatibility
+	}
+	if len(cli.Capabilities) == 0 {
+		cli.Capabilities = append([]string(nil), current.Capabilities...)
+	}
+	return cli
+}
+
+func versionedInstallImages(version string) map[string]string {
+	repositories := map[string]string{
+		"aaa":               "ghcr.io/hosein-yousefii/nopsai-aaa",
+		"agent":             "ghcr.io/hosein-yousefii/nopsai-agent",
+		"api":               "ghcr.io/hosein-yousefii/nopsai-api",
+		"dispatcher":        "ghcr.io/hosein-yousefii/nopsai-dispatcher",
+		"dockerSocketProxy": "ghcr.io/hosein-yousefii/nopsai-docker-socket-proxy",
+		"gitBot":            "ghcr.io/hosein-yousefii/nopsai-git-bot",
+		"k8sRunner":         "ghcr.io/hosein-yousefii/nopsai-k8s-runner",
+		"runner":            "ghcr.io/hosein-yousefii/nopsai-runner",
+		"ui":                "ghcr.io/hosein-yousefii/nopsai-ui",
+	}
+	images := make(map[string]string, len(repositories))
+	for key, repository := range repositories {
+		images[key] = repository + ":" + version
+	}
+	return images
+}
+
+func requiredInstallImage(images map[string]string, key string) (string, error) {
+	value := strings.TrimSpace(images[key])
+	if value == "" {
+		return "", fmt.Errorf("install image set is missing image %q", key)
+	}
+	if _, _, _, err := splitInstallImageReference(value); err != nil {
 		return "", fmt.Errorf("image %q: %w", key, err)
 	}
 	return value, nil
@@ -428,15 +646,27 @@ func renderComposeTemplate(projectName string) ([]byte, error) {
 	return buffer.Bytes(), nil
 }
 
-func renderComposeEnv(manifest compatibility.Manifest, secrets composeSecrets, apiPort, uiPort string) []byte {
+func renderComposeEnv(version string, images map[string]string, secrets composeSecrets, apiPort, uiPort string, topology installTopology) []byte {
 	var builder strings.Builder
 	builder.WriteString("NOPSAI_VERSION=")
-	builder.WriteString(manifest.Version)
+	builder.WriteString(version)
 	builder.WriteString("\nNOPSAI_ENVIRONMENT=production\nLOG_FORMAT=json\nLOG_LEVEL=info\n")
 	builder.WriteString("NOPSAI_API_PORT=")
 	builder.WriteString(apiPort)
 	builder.WriteString("\nNOPSAI_UI_PORT=")
 	builder.WriteString(uiPort)
+	builder.WriteString("\nNOPSAI_INTERNAL_API_URL=")
+	builder.WriteString(topology.NopsaiAPIURL)
+	builder.WriteString("\nDISPATCHER_GRPC_ADDRESS=")
+	builder.WriteString(topology.DispatcherAddress)
+	builder.WriteString("\nAAA_API_URL=")
+	builder.WriteString(topology.AAAAPIURL)
+	builder.WriteString("\nGIT_BOT_API_URL=")
+	builder.WriteString(topology.GitBotAPIURL)
+	builder.WriteString("\nFINAL_OUTPUT_PDF_RENDERER_URL=")
+	builder.WriteString(topology.GotenbergURL)
+	builder.WriteString("\nDOCKER_NETWORK_NAME=")
+	builder.WriteString(topology.DockerNetworkName)
 	builder.WriteString("\nPOSTGRES_DB=")
 	builder.WriteString(DefaultInstallPostgresDB)
 	builder.WriteString("\nPOSTGRES_USER=")
@@ -461,19 +691,31 @@ func renderComposeEnv(manifest compatibility.Manifest, secrets composeSecrets, a
 	for _, image := range composeImageEnvs {
 		builder.WriteString(image.Env)
 		builder.WriteString("=")
-		builder.WriteString(manifest.Images[image.Key])
+		builder.WriteString(images[image.Key])
 		builder.WriteString("\n")
 	}
 	return []byte(builder.String())
 }
 
-func renderKubernetesValues(manifest compatibility.Manifest, existingSecret, ingressHost string) ([]byte, error) {
+func renderKubernetesValues(version string, images map[string]string, existingSecret, ingressHost string, topology installTopology) ([]byte, error) {
 	var builder strings.Builder
 	builder.WriteString("# Generated by nopsai install kubernetes. Edit non-secret values, then deploy with the command printed by the CLI.\n")
 	builder.WriteString("global:\n")
 	builder.WriteString("  releaseVersion: ")
-	builder.WriteString(strconv.Quote(manifest.Version))
+	builder.WriteString(strconv.Quote(version))
 	builder.WriteString("\n  sourceCommit: \"\"\n  environment: production\n  logLevel: info\n  logFormat: json\n  imagePullSecrets: []\n\n")
+	builder.WriteString("topology:\n")
+	builder.WriteString("  nopsaiAPIURL: ")
+	builder.WriteString(strconv.Quote(topology.NopsaiAPIURL))
+	builder.WriteString("\n  dispatcherGRPCAddress: ")
+	builder.WriteString(strconv.Quote(topology.DispatcherAddress))
+	builder.WriteString("\n  aaaAPIURL: ")
+	builder.WriteString(strconv.Quote(topology.AAAAPIURL))
+	builder.WriteString("\n  gitBotAPIURL: ")
+	builder.WriteString(strconv.Quote(topology.GitBotAPIURL))
+	builder.WriteString("\n  gotenbergURL: ")
+	builder.WriteString(strconv.Quote(topology.GotenbergURL))
+	builder.WriteString("\n\n")
 	builder.WriteString("secrets:\n")
 	builder.WriteString("  existingSecret: ")
 	builder.WriteString(strconv.Quote(existingSecret))
@@ -484,41 +726,41 @@ func renderKubernetesValues(manifest compatibility.Manifest, existingSecret, ing
 	builder.WriteString("    serviceJWTSigningKey: service-jwt-signing-key\n")
 	builder.WriteString("    aaaSharedInternalToken: aaa-shared-internal-token\n\n")
 	builder.WriteString("api:\n  replicaCount: 1\n")
-	if err := writeKubernetesImage(&builder, manifest, "api"); err != nil {
+	if err := writeKubernetesImage(&builder, images, "api"); err != nil {
 		return nil, err
 	}
 	builder.WriteString("  service:\n    type: ClusterIP\n    port: 8080\n\n")
 	builder.WriteString("aaa:\n  replicaCount: 1\n")
-	if err := writeKubernetesImage(&builder, manifest, "aaa"); err != nil {
+	if err := writeKubernetesImage(&builder, images, "aaa"); err != nil {
 		return nil, err
 	}
 	builder.WriteString("\nagent:\n")
-	if err := writeKubernetesImage(&builder, manifest, "agent"); err != nil {
+	if err := writeKubernetesImage(&builder, images, "agent"); err != nil {
 		return nil, err
 	}
 	builder.WriteString("\ndispatcher:\n  replicaCount: 1\n")
-	if err := writeKubernetesImage(&builder, manifest, "dispatcher"); err != nil {
+	if err := writeKubernetesImage(&builder, images, "dispatcher"); err != nil {
 		return nil, err
 	}
 	builder.WriteString("\ngitBot:\n  replicaCount: 1\n")
-	if err := writeKubernetesImage(&builder, manifest, "gitBot"); err != nil {
+	if err := writeKubernetesImage(&builder, images, "gitBot"); err != nil {
 		return nil, err
 	}
 	builder.WriteString("\nrunner:\n")
-	if err := writeKubernetesImage(&builder, manifest, "runner"); err != nil {
+	if err := writeKubernetesImage(&builder, images, "runner"); err != nil {
 		return nil, err
 	}
 	builder.WriteString("\nk8sRunner:\n  enabled: true\n  replicaCount: 1\n  runnerID: k8s-runner-1\n  scopes: \"\"\n  capacity: 10\n  serviceAccount:\n    create: true\n    name: nopsai-runner\n  workspace:\n    size: 10Gi\n    accessMode: ReadWriteOnce\n    volumeMode: pvc\n    storageClass: \"\"\n")
-	if err := writeKubernetesImage(&builder, manifest, "k8sRunner"); err != nil {
+	if err := writeKubernetesImage(&builder, images, "k8sRunner"); err != nil {
 		return nil, err
 	}
 	builder.WriteString("\ndockerSocketProxy:\n")
-	if err := writeKubernetesImage(&builder, manifest, "dockerSocketProxy"); err != nil {
+	if err := writeKubernetesImage(&builder, images, "dockerSocketProxy"); err != nil {
 		return nil, err
 	}
 	builder.WriteString("\nsystemLogs:\n  enabled: true\n  provider: kubernetes\n  kubernetes:\n    labelSelector: \"\"\n    container: \"\"\n    rbac:\n      create: true\n\n")
 	builder.WriteString("ui:\n  replicaCount: 1\n")
-	if err := writeKubernetesImage(&builder, manifest, "ui"); err != nil {
+	if err := writeKubernetesImage(&builder, images, "ui"); err != nil {
 		return nil, err
 	}
 	builder.WriteString("  service:\n    type: ClusterIP\n    port: 80\n\n")
@@ -533,20 +775,65 @@ func renderKubernetesValues(manifest compatibility.Manifest, existingSecret, ing
 	return []byte(builder.String()), nil
 }
 
-func writeKubernetesImage(builder *strings.Builder, manifest compatibility.Manifest, imageKey string) error {
-	image, err := requiredInstallImage(manifest, imageKey)
+func writeKubernetesImage(builder *strings.Builder, images map[string]string, imageKey string) error {
+	image, err := requiredInstallImage(images, imageKey)
 	if err != nil {
 		return err
 	}
-	repository, digest, err := compatibility.SplitImageReference(image)
+	repository, tag, digest, err := splitInstallImageReference(image)
 	if err != nil {
 		return err
 	}
 	builder.WriteString("  image:\n    repository: ")
 	builder.WriteString(strconv.Quote(repository))
-	builder.WriteString("\n    tag: \"\"\n    digest: ")
+	builder.WriteString("\n    tag: ")
+	builder.WriteString(strconv.Quote(tag))
+	builder.WriteString("\n    digest: ")
 	builder.WriteString(strconv.Quote(digest))
 	builder.WriteString("\n  imagePullPolicy: IfNotPresent\n")
+	return nil
+}
+
+func splitInstallImageReference(value string) (repository, tag, digest string, err error) {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.ContainsAny(value, " \t\r\n") {
+		return "", "", "", errors.New("must be a container image reference without whitespace")
+	}
+	if separator := strings.LastIndex(value, "@"); separator >= 0 {
+		if separator == 0 || separator == len(value)-1 {
+			return "", "", "", errors.New("digest-pinned image reference is incomplete")
+		}
+		digest = value[separator+1:]
+		if err := compatibility.ValidateDigest(digest); err != nil {
+			return "", "", "", fmt.Errorf("invalid image digest: %w", err)
+		}
+		return value[:separator], "", digest, nil
+	}
+	lastSlash := strings.LastIndex(value, "/")
+	lastColon := strings.LastIndex(value, ":")
+	if lastColon <= lastSlash || lastColon == len(value)-1 {
+		return "", "", "", errors.New("must include an explicit tag or @sha256 digest")
+	}
+	tag = value[lastColon+1:]
+	if err := validateInstallImageTag(tag); err != nil {
+		return "", "", "", err
+	}
+	return value[:lastColon], tag, "", nil
+}
+
+func validateInstallImageTag(tag string) error {
+	if tag == "" || len(tag) > 128 {
+		return errors.New("image tag must contain 1-128 characters")
+	}
+	for index, character := range tag {
+		valid := character >= 'a' && character <= 'z' ||
+			character >= 'A' && character <= 'Z' ||
+			character >= '0' && character <= '9' ||
+			character == '_' || character == '.' || character == '-'
+		if !valid || (index == 0 && (character == '.' || character == '-')) {
+			return errors.New("image tag must use letters, numbers, underscores, periods, or dashes")
+		}
+	}
 	return nil
 }
 
@@ -561,18 +848,60 @@ func appendInstallLock(files []InstallFile, lock InstallLock) ([]InstallFile, er
 	return out, nil
 }
 
-func installLock(target string, resolved ResolvedManifest, cli buildinfo.Info, files []InstallFile, generatedAt time.Time) InstallLock {
+func installLock(target, version string, cli buildinfo.Info, images map[string]string, files []InstallFile, generatedAt time.Time, chartReference, chartVersion string) InstallLock {
 	return InstallLock{
 		SchemaVersion:  installSchemaVersion,
 		Target:         target,
-		Version:        resolved.Manifest.Version,
+		Version:        version,
 		CLI:            cli.Version,
-		ManifestSource: resolved.Source,
-		ManifestDigest: resolved.Digest,
-		Images:         cloneStrings(resolved.Manifest.Images),
+		ChartReference: strings.TrimSpace(chartReference),
+		ChartVersion:   strings.TrimSpace(chartVersion),
+		Images:         cloneStrings(images),
 		FileHashes:     installFileHashes(files),
 		GeneratedAt:    generatedAt.UTC(),
 	}
+}
+
+func WriteInstallDeploymentLock(path string, lock InstallDeploymentLock) error {
+	contents, err := json.MarshalIndent(lock, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode install deployment lock: %w", err)
+	}
+	contents = append(contents, '\n')
+	return writeFileAtomic(path, contents, 0o644)
+}
+
+func hashInstallValues(files []string, images map[string]string) (string, error) {
+	hash := sha256.New()
+	for index, path := range files {
+		info, err := os.Stat(path)
+		if err != nil {
+			return "", fmt.Errorf("inspect values file %s: %w", path, err)
+		}
+		if !info.Mode().IsRegular() || info.Size() > maxValuesFileBytes {
+			return "", fmt.Errorf("values file %s must be a regular file no larger than 10 MiB", path)
+		}
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("read values file %s: %w", path, err)
+		}
+		_, _ = hash.Write([]byte(fmt.Sprintf("values[%d]", index)))
+		_, _ = hash.Write([]byte{0})
+		_, _ = hash.Write(contents)
+		_, _ = hash.Write([]byte{0})
+	}
+	names := make([]string, 0, len(images))
+	for name := range images {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		_, _ = hash.Write([]byte(name))
+		_, _ = hash.Write([]byte{0})
+		_, _ = hash.Write([]byte(images[name]))
+		_, _ = hash.Write([]byte{0})
+	}
+	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func installFileHashes(files []InstallFile) map[string]string {
@@ -653,6 +982,90 @@ func validateTCPPort(label, raw string) error {
 	return nil
 }
 
+func normalizeInstallTopology(input installTopology, includeDockerNetwork bool) (installTopology, error) {
+	topology := installTopology{
+		NopsaiAPIURL:      strings.TrimSpace(input.NopsaiAPIURL),
+		DispatcherAddress: strings.TrimSpace(input.DispatcherAddress),
+		AAAAPIURL:         strings.TrimSpace(input.AAAAPIURL),
+		GitBotAPIURL:      strings.TrimSpace(input.GitBotAPIURL),
+		GotenbergURL:      strings.TrimSpace(input.GotenbergURL),
+		DockerNetworkName: strings.TrimSpace(input.DockerNetworkName),
+	}
+	if topology.NopsaiAPIURL == "" {
+		topology.NopsaiAPIURL = DefaultInstallNopsaiAPIURL
+	}
+	if topology.DispatcherAddress == "" {
+		topology.DispatcherAddress = DefaultInstallDispatcherAddress
+	}
+	if topology.AAAAPIURL == "" {
+		topology.AAAAPIURL = DefaultInstallAAAAPIURL
+	}
+	if topology.GitBotAPIURL == "" {
+		topology.GitBotAPIURL = DefaultInstallGitBotAPIURL
+	}
+	if topology.GotenbergURL == "" {
+		topology.GotenbergURL = DefaultInstallGotenbergURL
+	}
+	if topology.DockerNetworkName == "" {
+		topology.DockerNetworkName = DefaultInstallDockerNetworkName
+	}
+	for label, value := range map[string]string{
+		"nopsai API URL":  topology.NopsaiAPIURL,
+		"AAA API URL":     topology.AAAAPIURL,
+		"git-bot API URL": topology.GitBotAPIURL,
+		"Gotenberg URL":   topology.GotenbergURL,
+	} {
+		if err := validateInstallHTTPURL(label, value); err != nil {
+			return installTopology{}, err
+		}
+	}
+	if err := validateInstallAddress("dispatcher address", topology.DispatcherAddress); err != nil {
+		return installTopology{}, err
+	}
+	if includeDockerNetwork {
+		if err := validateInstallToken("Docker network name", topology.DockerNetworkName); err != nil {
+			return installTopology{}, err
+		}
+	}
+	return topology, nil
+}
+
+func validateInstallHTTPURL(label, raw string) error {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return fmt.Errorf("%s: %w", label, err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("%s must use http or https", label)
+	}
+	if parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {
+		return fmt.Errorf("%s must be an absolute URL without credentials or a fragment", label)
+	}
+	return nil
+}
+
+func validateInstallAddress(label, raw string) error {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return fmt.Errorf("%s is required", label)
+	}
+	if strings.ContainsAny(value, "\r\n") || strings.Contains(value, "://") {
+		return fmt.Errorf("%s must be a host:port service address, not a URL", label)
+	}
+	return nil
+}
+
+func validateInstallToken(label, raw string) error {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return fmt.Errorf("%s is required", label)
+	}
+	if strings.ContainsAny(value, "\r\n\t ") {
+		return fmt.Errorf("%s cannot contain whitespace", label)
+	}
+	return nil
+}
+
 func composeCommandText(outputDir string) string {
 	return "cd " + shellQuote(outputDir) + " && docker compose --env-file .env -f docker-compose.yaml up -d"
 }
@@ -696,7 +1109,7 @@ const dockerComposeTemplate = `name: {{.ProjectName}}
 
 networks:
   nopsai-net:
-    name: nopsai-net
+    name: ${DOCKER_NETWORK_NAME:-nopsai-net}
 
 volumes:
   db:
@@ -706,9 +1119,9 @@ x-service-auth-env: &service-auth-env
   SERVICE_JWT_SIGNING_KEY: ${SERVICE_JWT_SIGNING_KEY:?SERVICE_JWT_SIGNING_KEY is required}
 
 x-local-topology-env: &local-topology-env
-  NOPSAI_API_URL: http://nopsai:8080
-  DISPATCHER_GRPC_ADDRESS: dispatcher:9090
-  DOCKER_NETWORK_NAME: nopsai-net
+  NOPSAI_API_URL: ${NOPSAI_INTERNAL_API_URL:-http://nopsai:8080}
+  DISPATCHER_GRPC_ADDRESS: ${DISPATCHER_GRPC_ADDRESS:-dispatcher:9090}
+  DOCKER_NETWORK_NAME: ${DOCKER_NETWORK_NAME:-nopsai-net}
 
 x-observability-env: &observability-env
   NOPSAI_ENV: ${NOPSAI_ENVIRONMENT:-production}
@@ -801,10 +1214,10 @@ services:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       NOPSAI_MASTER_KEY: ${NOPSAI_MASTER_KEY:?NOPSAI_MASTER_KEY is required}
       JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:?JWT_SIGNING_KEY is required}
-      AAA_API_URL: http://aaa:8082
+      AAA_API_URL: ${AAA_API_URL:-http://aaa:8082}
       AAA_SHARED_INTERNAL_TOKEN: ${AAA_SHARED_INTERNAL_TOKEN:?AAA_SHARED_INTERNAL_TOKEN is required}
-      GIT_BOT_API_URL: http://git-bot:8081
-      FINAL_OUTPUT_PDF_RENDERER_URL: http://gotenberg:3000
+      GIT_BOT_API_URL: ${GIT_BOT_API_URL:-http://git-bot:8081}
+      FINAL_OUTPUT_PDF_RENDERER_URL: ${FINAL_OUTPUT_PDF_RENDERER_URL:-http://gotenberg:3000}
       SYSTEM_LOGS_PROVIDER: docker
       SYSTEM_LOGS_DOCKER_HOST: tcp://docker-socket-proxy:2375
       AGENT_IMAGE: ${NOPSAI_AGENT_IMAGE:?NOPSAI_AGENT_IMAGE is required}
@@ -820,7 +1233,7 @@ services:
     environment:
       <<: [*service-auth-env, *observability-env]
       NOPSAI_SERVICE_NAME: dispatcher
-      NOPSAI_API_URL: http://nopsai:8080
+      NOPSAI_API_URL: ${NOPSAI_INTERNAL_API_URL:-http://nopsai:8080}
     networks: [nopsai-net]
 
   git-bot:
@@ -834,7 +1247,7 @@ services:
       <<: [*service-auth-env, *observability-env]
       NOPSAI_SERVICE_NAME: git-bot
       GIT_BOT_LISTEN_ADDRESS: 0.0.0.0:8081
-      NOPSAI_API_URL: http://nopsai:8080
+      NOPSAI_API_URL: ${NOPSAI_INTERNAL_API_URL:-http://nopsai:8080}
     networks: [nopsai-net]
 
   ui:
@@ -864,8 +1277,8 @@ services:
     environment:
       <<: [*service-auth-env, *observability-env]
       NOPSAI_SERVICE_NAME: docker-runner
-      DISPATCHER_GRPC_ADDRESS: dispatcher:9090
-      DOCKER_NETWORK_NAME: nopsai-net
+      DISPATCHER_GRPC_ADDRESS: ${DISPATCHER_GRPC_ADDRESS:-dispatcher:9090}
+      DOCKER_NETWORK_NAME: ${DOCKER_NETWORK_NAME:-nopsai-net}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     networks: [nopsai-net]

@@ -74,10 +74,10 @@ is intentionally part of the contract.
 - Generated API route metadata and path-template expansion live in
   `internal/cli/apicatalog`; Go AST route discovery is generator/test-only in
   `internal/cli/apicatalog/internal/discovery`.
-- Live 10-row selectors, searchable prompts, confirmations, and default-aware
-  stdin/stdout fallback interaction primitives live in
-  `internal/cli/interactive`.
-- Platform diagnostic rules, release manifest resolution, compatibility checks,
+- Alternate-screen selectors, editable forms, scrollable result panels,
+  confirmations, and default-aware stdin/stdout fallback interaction primitives
+  live in `internal/cli/interactive`.
+- Platform diagnostic rules, advanced release manifest resolution, compatibility checks,
   install-file planning, Helm process orchestration, and deployment lock models live in
   `internal/cli/platform`.
 - Cobra command/hook orchestration, install-vs-deploy flow decisions for stored
@@ -105,15 +105,15 @@ release model logic.
   offsets.
 - `scripts/generate-changelog.sh` owns deterministic history-to-Markdown
   rendering.
-- `scripts/render-release-bundle.sh` owns deployment artifact composition,
-  release-manifest rendering, and image-lock rendering.
-- `deploy/` owns deployment-only Compose, the NopsAI Helm chart, and the
-  release image overlay used to create digest-pinned chart packages.
+- `internal/cli/platform/install.go` owns version-to-image generation,
+  Docker Compose rendering, Helm values rendering, install locks, and
+  first-install Helm deployment locks.
+- `deploy/helm/nopsai` owns the published NopsAI Helm chart.
 - `doc/sample-config-repo/global-repo/triggers/hosein-yousefii/pre-nopsai.yaml`
   owns the GitHub App main-branch release trigger.
 - `doc/sample-config-repo/global-repo/pipelines/platform/prod/nopsai-platform-release.yaml`
-  owns release package validation plus GHCR, OCI Helm, CLI, deployment bundle,
-  and GitHub Release publication.
+  owns release package validation plus GHCR images, OCI Helm publication, CLI
+  archives, changelog, checksums, and GitHub Release publication.
 
 GitOps pipeline and trigger YAML should orchestrate these owners rather than
 duplicate their model or rendering logic inline.

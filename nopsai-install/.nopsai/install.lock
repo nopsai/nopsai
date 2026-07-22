@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "v1",
+  "target": "docker-compose",
+  "version": "2.10.648",
+  "cliVersion": "dev",
+  "images": {
+    "aaa": "ghcr.io/hosein-yousefii/nopsai-aaa:2.10.648",
+    "agent": "ghcr.io/hosein-yousefii/nopsai-agent:2.10.648",
+    "api": "ghcr.io/hosein-yousefii/nopsai-api:2.10.648",
+    "dispatcher": "ghcr.io/hosein-yousefii/nopsai-dispatcher:2.10.648",
+    "dockerSocketProxy": "ghcr.io/hosein-yousefii/nopsai-docker-socket-proxy:2.10.648",
+    "gitBot": "ghcr.io/hosein-yousefii/nopsai-git-bot:2.10.648",
+    "k8sRunner": "ghcr.io/hosein-yousefii/nopsai-k8s-runner:2.10.648",
+    "runner": "ghcr.io/hosein-yousefii/nopsai-runner:2.10.648",
+    "ui": "ghcr.io/hosein-yousefii/nopsai-ui:2.10.648"
+  },
+  "fileHashes": {
+    "db/init.sql": "sha256:3c256ea9dccf73297f2fc31de006b251be24572d2fe9f2d15ddd0c12a56e925d",
+    "docker-compose.yaml": "sha256:51112e1939cb49171659e52975f1d6373bf7146224a27ad7d6b4c5d21f1fd5be"
+  },
+  "generatedAt": "2026-07-22T19:58:03.842009Z"
+}
