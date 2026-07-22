@@ -622,6 +622,7 @@ Useful local docs:
 - [doc/license-compliance.md](doc/license-compliance.md): commercial
   dependency, container, data, and MCP/plugin license policy
 
+
 ## Documentation Map
 
 Start here:
