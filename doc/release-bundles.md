@@ -110,10 +110,12 @@ Each successful release publishes:
 - multi-architecture `linux/amd64` and `linux/arm64` images under
   `ghcr.io/<owner>` for the base, API, AAA, agent, dispatcher, git-bot, Docker
   runner, Kubernetes runner, socket proxy, UI, and pipeline helper
-- standalone CLI archives for Linux, macOS, and Windows
+- standalone `nopsai-cli_<version>_<os>_<arch>` archives for Linux, macOS, and
+  Windows
 - SBOM and provenance output for published OCI images
-- a digest-pinned release manifest, image index, `SHA256SUMS`, generated
-  changelog, deployment Compose file, and `nopsai-<version>.tgz` Helm package
+- a digest-pinned release manifest, image index, `SHA256SUMS`,
+  `nopsai-changelog-<version>.md`, `nopsai-docker-compose-<version>.yaml`, and
+  `nopsai-helm-chart-<version>.tgz` Helm chart asset
 - the same Helm chart published to `oci://ghcr.io/<owner>/charts/nopsai`
 - one deployment bundle whose `.env`, Compose file, Helm package, and image
   index all identify the same version and source commit
@@ -134,6 +136,13 @@ The current publication pipeline cross-compiles standalone Darwin binaries as
 release assets; macOS signing and notarization are available through
 `scripts/sign-notarize-macos-cli.sh` but are not wired into the default package
 publication path.
+
+GitHub release asset names are optimized for operators scanning the release
+page. `release-manifest.json`, `release-index.json`, and `SHA256SUMS` keep
+stable conventional names for CLI and automation compatibility. The Helm chart
+is uploaded as `nopsai-helm-chart-<version>.tgz`; inside the deployment bundle
+and in the OCI registry it still uses Helm's standard chart package name,
+`nopsai-<version>.tgz`.
 
 If an earlier run published some GHCR packages but failed before the GitHub
 Release asset upload, rerun `platform/prod/nopsai-platform-release` for the same
@@ -238,10 +247,11 @@ runners.
 
 The generated deployment bundle still has a deployment-only `docker-compose.yaml`
 and `.env` with digest-pinned NopsAI image references for operators who want the
-release archive instead of CLI generation. `nopsai-<version>.tgz` is a
-deployable chart containing the same digest-pinned images. Kubernetes
-installations must create the Secret named by `secrets.existingSecret` before
-installing the chart; PostgreSQL stays externally managed.
+release archive instead of CLI generation. The GitHub asset
+`nopsai-helm-chart-<version>.tgz` is the deployable chart containing the same
+digest-pinned images. Kubernetes installations must create the Secret named by
+`secrets.existingSecret` before installing the chart; PostgreSQL stays
+externally managed.
 
 ```bash
 helm upgrade --install nopsai \

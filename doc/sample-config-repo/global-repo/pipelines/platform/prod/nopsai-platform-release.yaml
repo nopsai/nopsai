@@ -301,7 +301,7 @@ steps:
         fi
         echo "Building CLI for ${goos}/${goarch}"
         CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags="$ldflags" -o "$package_dir/$binary" ./cmd/nopsai-cli
-        asset="nopsai_${VERSION}_${goos}_${goarch}"
+        asset="nopsai-cli_${VERSION}_${goos}_${goarch}"
         if [[ "$goos" == "windows" ]]; then
           (cd "$package_dir" && zip -9 "../../cli/${asset}.zip" "$binary")
         else
@@ -803,6 +803,10 @@ steps:
       fi
 
       echo "release_phase=package-release-assets"
+      helm_chart_asset="nopsai-helm-chart-$VERSION.tgz"
+      changelog_asset="nopsai-changelog-$VERSION.md"
+      compose_asset="nopsai-docker-compose-$VERSION.yaml"
+      deployment_bundle_asset="nopsai-deployment-bundle-$VERSION.tar.gz"
       shopt -s nullglob
       cli_assets=(dist/cli/*)
       if (( ${#cli_assets[@]} == 0 )); then
@@ -820,14 +824,14 @@ steps:
         shasum -a 256 "${checksum_files[@]}" >checksums.txt
       )
       cp "${cli_assets[@]}" dist/assets/
-      cp dist/release/CHANGELOG.md dist/assets/
-      cp dist/release/docker-compose.yaml dist/assets/nopsai-docker-compose.yaml
-      cp "dist/release/nopsai-$VERSION.tgz" dist/assets/
+      cp dist/release/CHANGELOG.md "dist/assets/$changelog_asset"
+      cp dist/release/docker-compose.yaml "dist/assets/$compose_asset"
+      cp "dist/release/nopsai-$VERSION.tgz" "dist/assets/$helm_chart_asset"
       cp dist/release/release-index.json dist/assets/
       if [[ -f dist/release/release-manifest.json ]]; then
         cp dist/release/release-manifest.json dist/assets/
       fi
-      tar -C dist/release -czf "dist/assets/nopsai_${VERSION}_deployment-bundle.tar.gz" .
+      tar -C dist/release -czf "dist/assets/$deployment_bundle_asset" .
       (
         cd dist/assets
         find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 shasum -a 256 >SHA256SUMS
@@ -879,12 +883,26 @@ steps:
       install_gh
       export GH_TOKEN="$NOPSAI_RELEASE_GITHUB_TOKEN"
       echo "release_phase=publish-github-release"
+      legacy_assets=(
+        CHANGELOG.md
+        nopsai-docker-compose.yaml
+        "nopsai-$VERSION.tgz"
+        "nopsai_${VERSION}_deployment-bundle.tar.gz"
+        "nopsai_${VERSION}_linux_amd64.tar.gz"
+        "nopsai_${VERSION}_linux_arm64.tar.gz"
+        "nopsai_${VERSION}_darwin_amd64.tar.gz"
+        "nopsai_${VERSION}_darwin_arm64.tar.gz"
+        "nopsai_${VERSION}_windows_amd64.zip"
+      )
       if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
         if [[ "$ALLOW_EXISTING_RELEASE" != "true" ]]; then
           echo "Release v$VERSION already exists and recovery mode is disabled" >&2
           exit 1
         fi
         echo "github_release_action=update"
+        for asset in "${legacy_assets[@]}"; do
+          gh release delete-asset "v$VERSION" "$asset" --repo "$GITHUB_REPOSITORY" -y >/dev/null 2>&1 || true
+        done
         gh release upload "v$VERSION" dist/assets/* --repo "$GITHUB_REPOSITORY" --clobber
         gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --title "NopsAI $VERSION" --notes-file dist/release/CHANGELOG.md
       else

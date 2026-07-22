@@ -126,6 +126,10 @@ rm "$release_values"
 
 chart_name="nopsai-$version.tgz"
 chart_checksum="$(shasum -a 256 "$output/$chart_name" | awk '{print $1}')"
+helm_chart_asset="nopsai-helm-chart-$version.tgz"
+compose_asset="nopsai-docker-compose-$version.yaml"
+deployment_bundle_asset="nopsai-deployment-bundle-$version.tar.gz"
+changelog_asset="nopsai-changelog-$version.md"
 if [[ -n "$digest_dir" ]]; then
   sed \
     "${sed_args[@]}" \
@@ -147,7 +151,24 @@ jq \
   --arg file "$chart_name" \
   --arg version "$version" \
   --arg checksum "sha256:$chart_checksum" \
-  '.chart = {file:$file,version:$version,sha256:$checksum}' \
+  --arg release_asset "$helm_chart_asset" \
+  '.chart = {file:$file,version:$version,sha256:$checksum,releaseAsset:$release_asset}' \
+  "$index_file" >"$temp_index"
+mv "$temp_index" "$index_file"
+temp_index="$index_file.tmp"
+jq \
+  --arg helm_chart "$helm_chart_asset" \
+  --arg docker_compose "$compose_asset" \
+  --arg deployment_bundle "$deployment_bundle_asset" \
+  --arg changelog "$changelog_asset" \
+  '.releaseAssets = {
+    helmChart: $helm_chart,
+    dockerCompose: $docker_compose,
+    deploymentBundle: $deployment_bundle,
+    changelog: $changelog,
+    checksums: "SHA256SUMS",
+    releaseIndex: "release-index.json"
+  } + (if has("manifest") then {releaseManifest: "release-manifest.json"} else {} end)' \
   "$index_file" >"$temp_index"
 mv "$temp_index" "$index_file"
 (
