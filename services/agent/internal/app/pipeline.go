@@ -41,7 +41,7 @@ type StepRuntime interface {
 	Name() string
 	PrePullImages(context.Context, zerolog.Logger, *models.Pipeline, int)
 	CreateSession(context.Context, *zerolog.Logger, StepRuntimeSessionRequest) (string, error)
-	ExecuteAction(context.Context, string, *proto.Action, []string, string) (string, string, int)
+	ExecuteAction(context.Context, string, *proto.Action, []string, string, executor.OutputLineHandler) (string, string, int)
 	CleanupSession(context.Context, *zerolog.Logger, string)
 }
 
@@ -139,17 +139,17 @@ func (r ContainerStepRuntime) CreateSession(ctx context.Context, logger *zerolog
 	})
 }
 
-func (r ContainerStepRuntime) ExecuteAction(ctx context.Context, sessionID string, action *proto.Action, runtimeVars []string, workingDirectory string) (string, string, int) {
+func (r ContainerStepRuntime) ExecuteAction(ctx context.Context, sessionID string, action *proto.Action, runtimeVars []string, workingDirectory string, onLine executor.OutputLineHandler) (string, string, int) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if r.runtime != nil && r.runtime.Kubernetes != nil {
-		return r.runtime.Kubernetes.ExecuteAction(ctx, sessionID, action, runtimeVars, workingDirectory)
+		return r.runtime.Kubernetes.ExecuteAction(ctx, sessionID, action, runtimeVars, workingDirectory, onLine)
 	}
 	if r.runtime == nil || r.runtime.Docker == nil {
 		return "", "execution runtime is not configured", 1
 	}
-	return executor.ExecuteDockerAction(ctx, r.runtime.Docker, sessionID, action, runtimeVars, workingDirectory)
+	return executor.ExecuteDockerAction(ctx, r.runtime.Docker, sessionID, action, runtimeVars, workingDirectory, onLine)
 }
 
 func (r ContainerStepRuntime) CleanupSession(ctx context.Context, logger *zerolog.Logger, sessionID string) {

@@ -67,7 +67,7 @@ test('loads, filters, and closes the run log dialog accessibly', async () => {
   const opener = screen.getByRole('button', { name: 'Open logs' });
   await user.click(opener);
 
-  expect(await screen.findByRole('dialog', { name: 'Agent Logs for Enterprise pipeline' })).toBeVisible();
+  expect(await screen.findByRole('dialog', { name: 'Run Logs for Enterprise pipeline' })).toBeVisible();
   expect(screen.getByRole('searchbox', { name: 'Search run logs' })).toHaveFocus();
   expect(await screen.findByText(/compiled/)).toBeVisible();
   expect(screen.getByRole('log', { name: 'Logs for Enterprise pipeline' })).toBeVisible();
@@ -113,7 +113,7 @@ test('polls incrementally from the latest received line', async () => {
   expect(fetchRunLogsMock).toHaveBeenNthCalledWith(1, 'run-poll', 0);
 
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(5000);
+    await vi.advanceTimersByTimeAsync(1000);
   });
 
   expect(screen.getByText(/second batch/)).toBeVisible();

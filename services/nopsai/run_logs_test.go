@@ -41,3 +41,30 @@ func TestNormalizeRunLogIngestPayloadUsesCorrelationAndServiceClaims(t *testing.
 		t.Fatalf("metadata = %#v, want ingested_by and service_id", payload.Metadata)
 	}
 }
+
+func TestRunLogFieldsForLineDerivesStructuredMetadata(t *testing.T) {
+	fields := runLogFieldsForLine(runLogIngestPayload{}, `prefix {"level":"warning","step_name":"build","task":"compile","message":"done"}`)
+
+	if fields.Level != "warn" || fields.StepName != "build" || fields.TaskName != "compile" {
+		t.Fatalf("fields = %#v, want warn/build/compile", fields)
+	}
+}
+
+func TestRunLogFieldsForLinePrefersActionOutputLevelAndFallsBackToStream(t *testing.T) {
+	fields := runLogFieldsForLine(runLogIngestPayload{Stream: "stdout"}, `{"level":"info","output_level":"debug","step":"test","task_name":"unit","message":"trace line"}`)
+	if fields.Level != "debug" || fields.StepName != "test" || fields.TaskName != "unit" {
+		t.Fatalf("fields = %#v, want debug/test/unit", fields)
+	}
+
+	stderrFields := runLogFieldsForLine(runLogIngestPayload{Stream: "stderr"}, "plain failure")
+	if stderrFields.Level != "error" {
+		t.Fatalf("stderr level = %q, want error", stderrFields.Level)
+	}
+}
+
+func TestRunLogFieldsForLineInfersPlainTextSeverity(t *testing.T) {
+	fields := runLogFieldsForLine(runLogIngestPayload{}, "WARNING request latency exceeded threshold")
+	if fields.Level != "warn" {
+		t.Fatalf("level = %q, want warn", fields.Level)
+	}
+}

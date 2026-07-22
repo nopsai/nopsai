@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -344,13 +345,14 @@ func (a *App) handleIngestLogs(w http.ResponseWriter, r *http.Request) {
 
 	batch := &pgx.Batch{}
 	for _, line := range payload.Lines {
+		lineFields := runLogFieldsForLine(payload, line)
 		batch.Queue(`
 			INSERT INTO pipeline_run_logs (
 				run_id, line, source, stream, level, step_name, task_name, runner_id,
 				request_id, traceparent, metadata
 			)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
-		`, runID, line, payload.Source, payload.Stream, payload.Level, payload.StepName, payload.TaskName, payload.RunnerID, payload.RequestID, payload.Traceparent, metadataJSON)
+		`, runID, line, payload.Source, payload.Stream, lineFields.Level, lineFields.StepName, lineFields.TaskName, payload.RunnerID, payload.RequestID, payload.Traceparent, metadataJSON)
 	}
 	br := a.db.SendBatch(r.Context(), batch)
 	if err := br.Close(); err != nil {
@@ -434,7 +436,7 @@ type runLogIngestPayload struct {
 func normalizeRunLogIngestPayload(r *http.Request, payload runLogIngestPayload) runLogIngestPayload {
 	payload.Source = strings.TrimSpace(payload.Source)
 	payload.Stream = strings.ToLower(strings.TrimSpace(payload.Stream))
-	payload.Level = strings.ToLower(strings.TrimSpace(payload.Level))
+	payload.Level = normalizeRunLogLevelValue(payload.Level)
 	payload.StepName = strings.TrimSpace(payload.StepName)
 	payload.TaskName = strings.TrimSpace(payload.TaskName)
 	payload.RunnerID = strings.TrimSpace(payload.RunnerID)
@@ -483,4 +485,120 @@ func normalizeRunLogIngestPayload(r *http.Request, payload runLogIngestPayload) 
 		payload.Metadata["service_role"] = payload.ServiceRole
 	}
 	return payload
+}
+
+type inferredRunLogFields struct {
+	Level    string
+	StepName string
+	TaskName string
+}
+
+func runLogFieldsForLine(payload runLogIngestPayload, line string) inferredRunLogFields {
+	fields := inferredRunLogFields{
+		Level:    payload.Level,
+		StepName: payload.StepName,
+		TaskName: payload.TaskName,
+	}
+	parsed := parseStructuredRunLogFields(line)
+	if fields.Level == "" {
+		fields.Level = normalizeRunLogLevelValue(structuredRunLogString(parsed, "output_level", "severity", "level"))
+	}
+	if fields.StepName == "" {
+		fields.StepName = structuredRunLogString(parsed, "step", "step_name")
+	}
+	if fields.TaskName == "" {
+		fields.TaskName = structuredRunLogString(parsed, "task", "task_name")
+	}
+	if fields.Level == "" {
+		if payload.Stream == "stderr" {
+			fields.Level = "error"
+		} else {
+			fields.Level = inferPlainTextRunLogLevel(line)
+		}
+	}
+	if fields.Level == "" {
+		fields.Level = "info"
+	}
+	return fields
+}
+
+func parseStructuredRunLogFields(line string) map[string]any {
+	jsonStart := strings.Index(line, "{")
+	if jsonStart == -1 {
+		return nil
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(line[jsonStart:]), &payload); err != nil {
+		return nil
+	}
+	return payload
+}
+
+func structuredRunLogString(payload map[string]any, keys ...string) string {
+	if len(payload) == 0 {
+		return ""
+	}
+	if value := firstRunLogString(payload, keys...); value != "" {
+		return value
+	}
+	if meta, ok := payload["meta"].(map[string]any); ok {
+		if value := firstRunLogString(meta, keys...); value != "" {
+			return value
+		}
+	}
+	if message, ok := payload["message"].(string); ok {
+		if nested := parseStructuredRunLogFields(message); len(nested) > 0 {
+			if value := firstRunLogString(nested, keys...); value != "" {
+				return value
+			}
+			if meta, ok := nested["meta"].(map[string]any); ok {
+				return firstRunLogString(meta, keys...)
+			}
+		}
+	}
+	return ""
+}
+
+func firstRunLogString(payload map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := payload[key]; ok {
+			if str, ok := value.(string); ok && strings.TrimSpace(str) != "" {
+				return str
+			}
+		}
+	}
+	return ""
+}
+
+func normalizeRunLogLevelValue(level string) string {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "info", "warn", "error", "debug":
+		return strings.ToLower(strings.TrimSpace(level))
+	case "warning":
+		return "warn"
+	case "fatal", "panic":
+		return "error"
+	case "trace":
+		return "debug"
+	default:
+		return ""
+	}
+}
+
+func inferPlainTextRunLogLevel(line string) string {
+	for _, field := range strings.FieldsFunc(strings.ToLower(line), func(r rune) bool {
+		return !unicode.IsLetter(r)
+	}) {
+		switch field {
+		case "info", "warn", "error", "debug":
+			return field
+		case "warning":
+			return "warn"
+		case "fatal", "panic":
+			return "error"
+		case "trace":
+			return "debug"
+		}
+	}
+	return ""
 }

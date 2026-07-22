@@ -253,16 +253,18 @@ For a `step:<identifier>` include:
 
 1. The runner reads agent container logs and batches them.
 2. Kubernetes runners reattach if `pods/log?follow=true` ends before the agent pod is terminal, then perform a final non-follow pod-log read after terminal state to fill any stream-shutdown gap.
-3. Logs go to `dispatcher.IngestLogs`.
-4. The dispatcher makes an authenticated internal service call to `nopsai` at `/v1/runs/{runID}/logs/ingest`, carrying source service, service ID, request ID, traceparent, and optional metadata for the batch.
-5. The agent reports task status to `dispatcher.ReportTaskStatus`.
-6. The dispatcher forwards that to `nopsai` at `/v1/runs/{runID}/steps/{step}/tasks/{task}`.
-7. `nopsai` persists the update and asynchronously tells `git-bot` about the task status.
-8. `git-bot` updates its in-memory check-run state and renders the GitHub check output.
-9. When the agent finishes, it calls `dispatcher.FinalizeRun`. An agent that has paused for approval exits without finalizing, and late finalization attempts are ignored while the run is `waiting_approval`.
-10. The dispatcher forwards final status to `nopsai`, which finalizes the run and notifies `git-bot` of the final result.
-11. If the runner reports a job failure, including an agent container startup failure or nonzero agent exit, the dispatcher writes the runner error into the run logs and finalizes the run as `failure` with the same failure reason.
-12. The UI refreshes run lists and details over REST polling, and log modals poll `/v1/runs/{runID}/logs?since_line=<id>` for incremental log lines. The response keeps the historical `id`, `timestamp`, and `line` fields and may include `source`, `stream`, `level`, `step_name`, `task_name`, `runner_id`, `request_id`, `traceparent`, and `metadata`.
+3. While each task action is executing, the agent emits stdout and stderr lines as structured run logs with `stream`, `step`, `task`, and normalized `output_level` fields. The full command output is still captured for execution history and final task summaries.
+4. Logs go to `dispatcher.IngestLogs`.
+5. The dispatcher makes an authenticated internal service call to `nopsai` at `/v1/runs/{runID}/logs/ingest`, carrying source service, service ID, request ID, traceparent, and optional metadata for the batch.
+6. `nopsai` derives per-line `level`, `step_name`, and `task_name` from structured log fields when the batch metadata does not provide them, then persists the line for durable filtering and audit.
+7. The agent reports task status to `dispatcher.ReportTaskStatus`.
+8. The dispatcher forwards that to `nopsai` at `/v1/runs/{runID}/steps/{step}/tasks/{task}`.
+9. `nopsai` persists the update and asynchronously tells `git-bot` about the task status.
+10. `git-bot` updates its in-memory check-run state and renders the GitHub check output.
+11. When the agent finishes, it calls `dispatcher.FinalizeRun`. An agent that has paused for approval exits without finalizing, and late finalization attempts are ignored while the run is `waiting_approval`.
+12. The dispatcher forwards final status to `nopsai`, which finalizes the run and notifies `git-bot` of the final result.
+13. If the runner reports a job failure, including an agent container startup failure or nonzero agent exit, the dispatcher writes the runner error into the run logs and finalizes the run as `failure` with the same failure reason.
+14. The UI refreshes run lists and details over REST polling, and log modals poll `/v1/runs/{runID}/logs?since_line=<id>` for incremental log lines. The response keeps the historical `id`, `timestamp`, and `line` fields and may include `source`, `stream`, `level`, `step_name`, `task_name`, `runner_id`, `request_id`, `traceparent`, and `metadata`.
 
 ## 11. Cancellation And Reruns
 
