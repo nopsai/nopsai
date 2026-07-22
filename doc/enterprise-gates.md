@@ -89,15 +89,14 @@ The script runs:
 `scripts/test-backend.sh` tests repository-level packaging contracts, command
 entrypoints, internal CLI packages, `config`, shared Go packages, and every
 service except `services/ui`. This keeps frontend dependencies under
-`node_modules` outside Go package discovery, including when Docker Compose runs
-backend and UI checks concurrently.
+`node_modules` outside Go package discovery. Docker Compose is reserved for the
+install/runtime stack and build-only service images.
 
 The gate itself has read-only repository permissions and never publishes PR
 artifacts to a registry. It uploads a release preview with the forecast version.
-After a successful gate run for the current main commit,
-`.github/workflows/platform-release.yml` performs the privileged GHCR, CLI, and
-GitHub Release publication with job-scoped package and content permissions. See
-[release-bundles.md](./release-bundles.md).
+Main-branch publication is owned by `.github/workflows/platform-release.yml`,
+which runs as a separate privileged workflow with job-scoped package and content
+permissions. See [release-bundles.md](./release-bundles.md).
 
 Run the UI boundary gate from `services/ui` whenever a frontend change touches
 route pages, feature modules, hooks, or shared UI helpers:
@@ -147,12 +146,11 @@ go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
 - release-contract validation and a downloadable predicted/actual release
   preview
 
-`.github/workflows/platform-release.yml` is chained from a successful main
-`Enterprise Gates` run. It re-checks that the tested SHA is still current main,
-builds without PR caches, publishes version-only GHCR tags and standalone CLI
-archives, publishes the versioned OCI Helm chart, and creates the
-changelog-backed GitHub Release only after every image, CLI target, and chart
-stage succeeds.
+`.github/workflows/platform-release.yml` runs on pushes to `main` and manual
+dispatches for a selected `source_ref`. It validates release package contracts,
+publishes version-only GHCR tags and standalone CLI archives, publishes the
+versioned OCI Helm chart, and creates or recovers the changelog-backed GitHub
+Release only after every image, CLI target, and chart stage succeeds.
 
 `.github/workflows/ui-live-smoke.yml` provides the post-deployment UI gate. It
 can be called by a deployment workflow or dispatched manually against a

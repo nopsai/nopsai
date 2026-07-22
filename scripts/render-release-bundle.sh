@@ -99,8 +99,10 @@ for spec in "${image_specs[@]}"; do
       exit 1
     fi
     image_ref="$repository@$digest"
+    digest_hex="${digest#sha256:}"
   else
     image_ref="$repository:$version"
+    digest_hex=""
   fi
   printf 'NOPSAI_%s_IMAGE=%s\n' "$env_name" "$image_ref" >>"$output/.env"
   temp_index="$index_file.tmp"
@@ -110,6 +112,7 @@ for spec in "${image_specs[@]}"; do
     -e "s|{{${env_name}_REPOSITORY}}|$repository|g"
     -e "s|{{${env_name}_TAG}}|$version|g"
     -e "s|{{${env_name}_DIGEST}}|$digest|g"
+    -e "s|{{${env_name}_IMAGE_SHA256}}|$digest_hex|g"
   )
 done
 
@@ -123,6 +126,22 @@ rm "$release_values"
 
 chart_name="nopsai-$version.tgz"
 chart_checksum="$(shasum -a 256 "$output/$chart_name" | awk '{print $1}')"
+if [[ -n "$digest_dir" ]]; then
+  sed \
+    "${sed_args[@]}" \
+    -e "s|{{CHART_REFERENCE}}|oci://$registry/charts/nopsai|g" \
+    -e "s|{{CHART_SHA256}}|$chart_checksum|g" \
+    "$ROOT_DIR/release/manifest.tmpl.json" >"$output/release-manifest.json"
+  jq empty "$output/release-manifest.json" >/dev/null
+  manifest_checksum="$(shasum -a 256 "$output/release-manifest.json" | awk '{print $1}')"
+  temp_index="$index_file.tmp"
+  jq \
+    --arg file "release-manifest.json" \
+    --arg checksum "sha256:$manifest_checksum" \
+    '.manifest = {file:$file,sha256:$checksum}' \
+    "$index_file" >"$temp_index"
+  mv "$temp_index" "$index_file"
+fi
 temp_index="$index_file.tmp"
 jq \
   --arg file "$chart_name" \
@@ -133,5 +152,9 @@ jq \
 mv "$temp_index" "$index_file"
 (
   cd "$output"
-  shasum -a 256 .env db/init.sql docker-compose.yaml "$chart_name" release-index.json >checksums.txt
+  checksum_files=(.env db/init.sql docker-compose.yaml "$chart_name" release-index.json)
+  if [[ -f release-manifest.json ]]; then
+    checksum_files+=(release-manifest.json)
+  fi
+  shasum -a 256 "${checksum_files[@]}" >checksums.txt
 )

@@ -78,11 +78,14 @@ is intentionally part of the contract.
   stdin/stdout fallback interaction primitives live in
   `internal/cli/interactive`.
 - Platform diagnostic rules, release manifest resolution, compatibility checks,
-  Helm process orchestration, and deployment lock models live in
+  install-file planning, Helm process orchestration, and deployment lock models live in
   `internal/cli/platform`.
-- Cobra command/hook orchestration and text/JSON/YAML rendering live in
-  `internal/cli/command`.
+- Cobra command/hook orchestration, install-vs-deploy flow decisions for stored
+  generated files, and text/JSON/YAML rendering live in `internal/cli/command`.
 - Route composition and process exit behavior live in `cmd/nopsai-cli`.
+- Embedded immutable installer assets such as the database bootstrap SQL are
+  exposed from the asset-owning package (`db`) so released CLI binaries do not
+  depend on a source checkout.
 
 Typed API and platform features must extend these owners instead of placing
 model, transport, subprocess orchestration, and rendering in one command file.
@@ -102,13 +105,14 @@ release model logic.
   offsets.
 - `scripts/generate-changelog.sh` owns deterministic history-to-Markdown
   rendering.
-- `scripts/render-release-bundle.sh` owns deployment artifact composition and
-  image-lock rendering.
+- `scripts/render-release-bundle.sh` owns deployment artifact composition,
+  release-manifest rendering, and image-lock rendering.
 - `deploy/` owns deployment-only Compose, the NopsAI Helm chart, and the
   release image overlay used to create digest-pinned chart packages.
 - `.github/workflows/enterprise-gates.yml` owns unprivileged validation and
-  preview composition; `.github/workflows/platform-release.yml` owns gated
-  publication only.
+  preview composition; `.github/workflows/platform-release.yml` owns release
+  package validation plus GHCR, OCI Helm, CLI, deployment bundle, and GitHub
+  Release publication.
 
 Workflow YAML should orchestrate these owners rather than duplicate their model
 or rendering logic inline.
@@ -173,6 +177,20 @@ Enterprise authentication follows the same split:
 - Docker proxy topology is deployment-owned in `docker-compose.yaml`; Kubernetes
   RBAC and provider env wiring are deployment-owned in the Helm chart. Metrics
   are exposed by the existing `services/nopsai/metrics.go` owner.
+
+## Logging And Correlation Ownership
+
+- Request ID and traceparent context helpers live in `pkg/correlation`.
+- Shared stdout/stderr routing, HTTP access logging, and gRPC client/server
+  logging interceptors live in `pkg/servicelog`.
+- NopsAI request/audit middleware composition lives in
+  `services/nopsai/http_middleware.go`; route composition remains in
+  `services/nopsai/routes.go`.
+- Durable pipeline log schema and existing-database convergence live in
+  `db/init.sql` and `services/nopsai/run_dispatch_schema.go`. Log ingest and
+  REST response shaping live in `services/nopsai/run_internal_handlers.go`.
+- Dispatcher owns translating authenticated gRPC log batches into NopsAI HTTP
+  ingest metadata in `services/dispatcher/internal/service`.
 
 ## Pipeline Final Output Ownership
 

@@ -13,8 +13,10 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/rs/zerolog/log"
 
+	"nopsai/pkg/correlation"
 	"nopsai/pkg/httpapi"
 	runquery "nopsai/services/nopsai/internal/runs"
+	"nopsai/services/nopsai/pkg/auth"
 	"nopsai/services/nopsai/pkg/routeauthz"
 )
 
@@ -323,9 +325,7 @@ func (a *App) handleIngestLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var payload struct {
-		Lines []string `json:"lines"`
-	}
+	var payload runLogIngestPayload
 	if err := httpapi.DecodeJSON(r, &payload); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
@@ -335,11 +335,24 @@ func (a *App) handleIngestLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	payload = normalizeRunLogIngestPayload(r, payload)
+	metadataJSON, err := json.Marshal(payload.Metadata)
+	if err != nil {
+		http.Error(w, "Invalid log metadata", http.StatusBadRequest)
+		return
+	}
+
 	batch := &pgx.Batch{}
 	for _, line := range payload.Lines {
-		batch.Queue("INSERT INTO pipeline_run_logs (run_id, line) VALUES ($1, $2)", runID, line)
+		batch.Queue(`
+			INSERT INTO pipeline_run_logs (
+				run_id, line, source, stream, level, step_name, task_name, runner_id,
+				request_id, traceparent, metadata
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
+		`, runID, line, payload.Source, payload.Stream, payload.Level, payload.StepName, payload.TaskName, payload.RunnerID, payload.RequestID, payload.Traceparent, metadataJSON)
 	}
-	br := a.db.SendBatch(context.Background(), batch)
+	br := a.db.SendBatch(r.Context(), batch)
 	if err := br.Close(); err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to ingest log batch")
 		http.Error(w, "Failed to persist logs", http.StatusInternalServerError)
@@ -359,7 +372,12 @@ func (a *App) handleGetRunLogs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	rows, err := a.db.Query(context.Background(), "SELECT id, timestamp, line FROM pipeline_run_logs WHERE run_id = $1 AND id > $2 ORDER BY id ASC", runID, lastID)
+	rows, err := a.db.Query(r.Context(), `
+		SELECT id, timestamp, line, source, stream, level, step_name, task_name, runner_id, request_id, traceparent, metadata
+		FROM pipeline_run_logs
+		WHERE run_id = $1 AND id > $2
+		ORDER BY id ASC
+	`, runID, lastID)
 	if err != nil {
 		log.Error().Err(err).Str("run_id", runID).Msg("Failed to query logs for run")
 		http.Error(w, "Failed to retrieve logs", http.StatusInternalServerError)
@@ -370,13 +388,99 @@ func (a *App) handleGetRunLogs(w http.ResponseWriter, r *http.Request) {
 	var logs []LogLine
 	for rows.Next() {
 		var logLine LogLine
-		if err := rows.Scan(&logLine.ID, &logLine.Timestamp, &logLine.Line); err != nil {
+		var metadataJSON []byte
+		if err := rows.Scan(
+			&logLine.ID,
+			&logLine.Timestamp,
+			&logLine.Line,
+			&logLine.Source,
+			&logLine.Stream,
+			&logLine.Level,
+			&logLine.StepName,
+			&logLine.TaskName,
+			&logLine.RunnerID,
+			&logLine.RequestID,
+			&logLine.Traceparent,
+			&metadataJSON,
+		); err != nil {
 			log.Error().Err(err).Msg("Failed to scan log line")
 			continue
+		}
+		if len(metadataJSON) > 0 && string(metadataJSON) != "{}" {
+			_ = json.Unmarshal(metadataJSON, &logLine.Metadata)
 		}
 		logs = append(logs, logLine)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(logs)
+}
+
+type runLogIngestPayload struct {
+	Lines       []string       `json:"lines"`
+	Source      string         `json:"source,omitempty"`
+	Stream      string         `json:"stream,omitempty"`
+	Level       string         `json:"level,omitempty"`
+	StepName    string         `json:"step_name,omitempty"`
+	TaskName    string         `json:"task_name,omitempty"`
+	RunnerID    string         `json:"runner_id,omitempty"`
+	RequestID   string         `json:"request_id,omitempty"`
+	Traceparent string         `json:"traceparent,omitempty"`
+	ServiceID   string         `json:"service_id,omitempty"`
+	ServiceRole string         `json:"service_role,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
+}
+
+func normalizeRunLogIngestPayload(r *http.Request, payload runLogIngestPayload) runLogIngestPayload {
+	payload.Source = strings.TrimSpace(payload.Source)
+	payload.Stream = strings.ToLower(strings.TrimSpace(payload.Stream))
+	payload.Level = strings.ToLower(strings.TrimSpace(payload.Level))
+	payload.StepName = strings.TrimSpace(payload.StepName)
+	payload.TaskName = strings.TrimSpace(payload.TaskName)
+	payload.RunnerID = strings.TrimSpace(payload.RunnerID)
+	payload.RequestID = strings.TrimSpace(payload.RequestID)
+	payload.Traceparent = strings.TrimSpace(payload.Traceparent)
+	payload.ServiceID = strings.TrimSpace(payload.ServiceID)
+	payload.ServiceRole = strings.TrimSpace(payload.ServiceRole)
+	if payload.Metadata == nil {
+		payload.Metadata = map[string]any{}
+	}
+	if r != nil {
+		if payload.RequestID == "" {
+			payload.RequestID = requestIDFromContext(r.Context())
+		}
+		if payload.Traceparent == "" {
+			payload.Traceparent = correlation.TraceparentFromContext(r.Context())
+		}
+		if claims, ok := auth.ClaimsFromContext(r.Context()); ok && claims != nil {
+			if payload.ServiceID == "" {
+				payload.ServiceID = claims.Sub
+			}
+			if payload.ServiceRole == "" && len(claims.Roles) > 0 {
+				payload.ServiceRole = claims.Roles[0]
+			}
+			if payload.Source == "" {
+				payload.Source = payload.ServiceRole
+				if payload.Source == "" {
+					payload.Source = claims.Sub
+				}
+			}
+			if payload.Metadata["ingested_by"] == nil {
+				payload.Metadata["ingested_by"] = claims.Sub
+			}
+			if payload.Metadata["ingested_by_provider"] == nil {
+				payload.Metadata["ingested_by_provider"] = claims.Provider
+			}
+		}
+	}
+	if payload.Source == "" {
+		payload.Source = "unknown"
+	}
+	if payload.ServiceID != "" && payload.Metadata["service_id"] == nil {
+		payload.Metadata["service_id"] = payload.ServiceID
+	}
+	if payload.ServiceRole != "" && payload.Metadata["service_role"] == nil {
+		payload.Metadata["service_role"] = payload.ServiceRole
+	}
+	return payload
 }

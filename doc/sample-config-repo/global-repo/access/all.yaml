@@ -16,6 +16,12 @@ advanced_roles:
       - name: Run release pipelines
         resource: pipeline:team-1/*
         action: pipeline.execute
+      - name: Run NopsAI platform release pipelines
+        resource: pipeline:platform/prod/*
+        action: pipeline.execute
+      - name: Use NopsAI platform release pipelines
+        resource: pipeline:platform/prod/*
+        action: pipeline.use
       - name: Read release runs
         resource: pipeline_run:*
         action: pipeline_run.read

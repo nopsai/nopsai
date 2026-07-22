@@ -2,19 +2,20 @@
   "schemaVersion": "v1",
   "version": "{{VERSION}}",
   "chart": {
-    "reference": "oci://ghcr.io/hosein-yousefii/charts/nopsai",
+    "reference": "{{CHART_REFERENCE}}",
     "version": "{{VERSION}}",
     "digest": "sha256:{{CHART_SHA256}}"
   },
   "images": {
-    "aaa": "ghcr.io/hosein-yousefii/nopsai-aaa@sha256:{{AAA_IMAGE_SHA256}}",
-    "agent": "ghcr.io/hosein-yousefii/nopsai-agent@sha256:{{AGENT_IMAGE_SHA256}}",
-    "api": "ghcr.io/hosein-yousefii/nopsai-api@sha256:{{API_IMAGE_SHA256}}",
-    "dispatcher": "ghcr.io/hosein-yousefii/nopsai-dispatcher@sha256:{{DISPATCHER_IMAGE_SHA256}}",
-    "gitBot": "ghcr.io/hosein-yousefii/nopsai-git-bot@sha256:{{GIT_BOT_IMAGE_SHA256}}",
-    "k8sRunner": "ghcr.io/hosein-yousefii/nopsai-k8s-runner@sha256:{{K8S_RUNNER_IMAGE_SHA256}}",
-    "runner": "ghcr.io/hosein-yousefii/nopsai-runner@sha256:{{RUNNER_IMAGE_SHA256}}",
-    "ui": "ghcr.io/hosein-yousefii/nopsai-ui@sha256:{{UI_IMAGE_SHA256}}"
+    "aaa": "{{AAA_REPOSITORY}}@sha256:{{AAA_IMAGE_SHA256}}",
+    "agent": "{{AGENT_REPOSITORY}}@sha256:{{AGENT_IMAGE_SHA256}}",
+    "api": "{{API_REPOSITORY}}@sha256:{{API_IMAGE_SHA256}}",
+    "dispatcher": "{{DISPATCHER_REPOSITORY}}@sha256:{{DISPATCHER_IMAGE_SHA256}}",
+    "dockerSocketProxy": "{{DOCKER_SOCKET_PROXY_REPOSITORY}}@sha256:{{DOCKER_SOCKET_PROXY_IMAGE_SHA256}}",
+    "gitBot": "{{GIT_BOT_REPOSITORY}}@sha256:{{GIT_BOT_IMAGE_SHA256}}",
+    "k8sRunner": "{{K8S_RUNNER_REPOSITORY}}@sha256:{{K8S_RUNNER_IMAGE_SHA256}}",
+    "runner": "{{RUNNER_REPOSITORY}}@sha256:{{RUNNER_IMAGE_SHA256}}",
+    "ui": "{{UI_REPOSITORY}}@sha256:{{UI_IMAGE_SHA256}}"
   },
   "compatibility": {
     "cli": ">=2.0.0 <3.0.0",
@@ -32,6 +33,7 @@
     "config-sync.v1",
     "mcp.v1",
     "monitoring.v1",
+    "platform.docker-compose",
     "platform.helm",
     "runner.docker",
     "runner.kubernetes"
