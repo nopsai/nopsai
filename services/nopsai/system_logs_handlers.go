@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"nopsai/pkg/correlation"
 	"nopsai/services/aaa/pkg/model"
 	"nopsai/services/nopsai/internal/systemlogs"
 	"nopsai/services/nopsai/pkg/audit"
@@ -231,7 +232,14 @@ func (a *App) auditSystemLogStream(ctx context.Context, claims *auth.Claims, sou
 	if a == nil || a.auditLogger == nil {
 		return
 	}
-	entry := audit.Entry{Action: action, Resource: "system_log:" + sourceID, Result: result, Metadata: map[string]any{"source_id": sourceID}}
+	metadata := map[string]any{"source_id": sourceID}
+	if requestID := requestIDFromContext(ctx); requestID != "" {
+		metadata["request_id"] = requestID
+	}
+	if traceparent := correlation.TraceparentFromContext(ctx); traceparent != "" {
+		metadata["traceparent"] = traceparent
+	}
+	entry := audit.Entry{Action: action, Resource: "system_log:" + sourceID, Result: result, Metadata: metadata}
 	if claims != nil {
 		entry.ActorSub, entry.ActorEmail, entry.Provider = claims.Sub, claims.Email, claims.Provider
 	}

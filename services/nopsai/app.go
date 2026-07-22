@@ -1,6 +1,7 @@
 package nopsai
 
 import (
+	"context"
 	"net/http"
 	"sync"
 	"time"
@@ -26,6 +27,10 @@ const (
 	defaultAdminID           = "00000000-0000-0000-0000-00000000000a"
 	dockerContainerNameMax   = 255
 )
+
+type auditWriter interface {
+	Write(context.Context, audit.Entry) error
+}
 
 // WebSocket Hub implementation
 
@@ -59,7 +64,7 @@ type App struct {
 	aaaRemoteMu           sync.Mutex
 	aaaRetryAfter         time.Time
 	authz                 *authz.Enforcer
-	auditLogger           *audit.Logger
+	auditLogger           auditWriter
 	systemLogs            *systemlogs.Broker
 	systemLogLimiter      *systemLogRateLimiter
 	knowledgeSyncMetrics  knowledgeSyncMetrics

@@ -38,6 +38,12 @@ func TestCurrentUsesSafeDevelopmentDefaults(t *testing.T) {
 	}
 }
 
+func TestDefaultCapabilitiesIncludeInstallTargets(t *testing.T) {
+	if !strings.Contains(DefaultCapabilities, "platform.docker-compose") || !strings.Contains(DefaultCapabilities, "platform.helm") {
+		t.Fatalf("default capabilities do not include install targets: %s", DefaultCapabilities)
+	}
+}
+
 func TestVersionRequestAndOutput(t *testing.T) {
 	setBuildVariablesForTest(t)
 	Version, Commit, BuildDate = "2.7.0", "abc123", "today"

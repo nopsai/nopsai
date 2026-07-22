@@ -81,11 +81,13 @@ func defaultPlatformVersion(root *rootOptions) string {
 	if root == nil {
 		return ""
 	}
-	version := strings.TrimSpace(root.dependencies.BuildInfo.Version)
-	if _, err := compatibility.ParseVersion(version); err != nil {
-		return ""
+	for _, version := range []string{root.dependencies.BuildInfo.Version, root.dependencies.Version} {
+		version = strings.TrimSpace(version)
+		if _, err := compatibility.ParseVersion(version); err == nil {
+			return version
+		}
 	}
-	return version
+	return ""
 }
 
 func addPlatformReleaseFlags(command *cobra.Command, options *platformReleaseOptions, defaultVersion string) {

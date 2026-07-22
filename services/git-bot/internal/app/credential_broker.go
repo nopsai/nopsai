@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"nopsai/config"
+	"nopsai/pkg/correlation"
 	"nopsai/pkg/credentialbroker"
 	"nopsai/pkg/serviceauth"
 )
@@ -65,6 +66,7 @@ func requestGitHubBootstrap(
 	url string,
 ) (gitHubBootstrap, error) {
 	var result gitHubBootstrap
+	ctx, _ = correlation.EnsureRequestID(ctx)
 	token, err := credentials.MintToken(ctx)
 	if err != nil {
 		return result, err
@@ -75,6 +77,7 @@ func requestGitHubBootstrap(
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
+	correlation.SetHTTPHeaders(ctx, req.Header)
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return result, err

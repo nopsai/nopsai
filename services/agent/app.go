@@ -16,7 +16,9 @@ const agentWorkspaceDir = models.DefaultPipelineWorkingDirectory
 
 func Run() int {
 	// --- Initialization ---
-	agentapp.ConfigureLogging(os.Getenv("LOG_FORMAT"))
+	if err := agentapp.ConfigureLogging(os.Getenv("LOG_LEVEL"), os.Getenv("LOG_FORMAT")); err != nil {
+		agentLog("", "").Warn().Str("log_level", os.Getenv("LOG_LEVEL")).Msg("Invalid log level; defaulting to info")
+	}
 	runtimeConfig, configWarnings, err := agentapp.LoadRuntimeConfig(os.Getenv)
 	runID := runtimeConfig.RunID
 	pipelineName := runtimeConfig.PipelineName

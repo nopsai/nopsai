@@ -6,11 +6,21 @@ export type RunLogLine = {
   id: number;
   timestamp: string;
   line: string;
+  source?: string;
+  stream?: string;
+  level?: string;
+  step_name?: string;
+  task_name?: string;
+  runner_id?: string;
+  request_id?: string;
+  traceparent?: string;
+  metadata?: Record<string, unknown>;
 };
 
 export type EnrichedRunLogLine = RunLogLine & {
   level?: string;
   step?: string;
+  task?: string;
 };
 
 export type RunLogsHashState = {
@@ -32,25 +42,44 @@ export type RunLogFilter = {
 
 export function normalizeRunLogLevel(level: string | undefined): string {
   const normalized = (level || 'info').trim().toLowerCase();
-  return normalized === 'warning' ? 'warn' : normalized || 'info';
+  if (normalized === 'warning') return 'warn';
+  if (normalized === 'fatal' || normalized === 'panic') return 'error';
+  if (normalized === 'trace') return 'debug';
+  return normalized || 'info';
 }
 
-export function parseRunLogLine(line: string): Pick<EnrichedRunLogLine, 'level' | 'step'> {
+export function parseRunLogLine(line: string): Pick<EnrichedRunLogLine, 'level' | 'step' | 'task'> {
   if (!line) return {};
   try {
     const jsonStart = line.indexOf('{');
     if (jsonStart !== -1) {
       const parsed = JSON.parse(line.slice(jsonStart)) as {
         level?: unknown;
+        output_level?: unknown;
+        severity?: unknown;
         step?: unknown;
         step_name?: unknown;
-        meta?: { level?: unknown; step?: unknown; step_name?: unknown };
+        task?: unknown;
+        task_name?: unknown;
+        meta?: {
+          level?: unknown;
+          output_level?: unknown;
+          severity?: unknown;
+          step?: unknown;
+          step_name?: unknown;
+          task?: unknown;
+          task_name?: unknown;
+        };
       };
-      const level = String(parsed.level || parsed.meta?.level || '').toLowerCase();
+      const rawLevel = String(
+        parsed.output_level || parsed.severity || parsed.level || parsed.meta?.output_level || parsed.meta?.severity || parsed.meta?.level || ''
+      ).trim();
       const step = parsed.step || parsed.step_name || parsed.meta?.step || parsed.meta?.step_name;
+      const task = parsed.task || parsed.task_name || parsed.meta?.task || parsed.meta?.task_name;
       return {
-        level: level || undefined,
+        level: rawLevel ? normalizeRunLogLevel(rawLevel) : undefined,
         step: typeof step === 'string' && step ? step : undefined,
+        task: typeof task === 'string' && task ? task : undefined,
       };
     }
   } catch {
@@ -61,7 +90,15 @@ export function parseRunLogLine(line: string): Pick<EnrichedRunLogLine, 'level' 
 }
 
 export function enrichRunLogLines(lines: RunLogLine[]): EnrichedRunLogLine[] {
-  return lines.map(line => ({ ...line, ...parseRunLogLine(line.line || '') }));
+  return lines.map(line => {
+    const parsed = parseRunLogLine(line.line || '');
+    return {
+      ...line,
+      level: parsed.level || (line.level ? normalizeRunLogLevel(line.level) : undefined),
+      step: parsed.step || line.step_name || undefined,
+      task: parsed.task || line.task_name || undefined,
+    };
+  });
 }
 
 export function isAgentRunLogLine(line: EnrichedRunLogLine): boolean {
@@ -178,6 +215,7 @@ export function formatRunLogDownload(lines: EnrichedRunLogLine[]): string {
       const timestamp = line.timestamp ? new Date(line.timestamp) : null;
       const parts = [timestamp && !Number.isNaN(timestamp.getTime()) ? timestamp.toISOString() : ''];
       if (line.step) parts.push(`[${line.step}]`);
+      if (line.task) parts.push(`[${line.task}]`);
       if (line.level) parts.push(normalizeRunLogLevel(line.level).toUpperCase());
       parts.push('-', line.line || '');
       return parts.join(' ');

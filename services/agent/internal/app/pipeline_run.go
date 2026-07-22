@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"nopsai/services/agent/internal/approval"
+	"nopsai/services/agent/internal/executor"
 	includeflow "nopsai/services/agent/internal/include"
 	"nopsai/services/agent/internal/resolver"
 	"nopsai/services/agent/internal/scheduler"
@@ -400,7 +402,11 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 							stdout, stderr, exitCode = "", "step runtime is not configured", 1
 						} else {
 							actionExecuted = true
-							stdout, stderr, exitCode = req.StepRuntime.ExecuteAction(context.Background(), stepSessionID, action, taskRuntimeVars, req.WorkingDirectory)
+							liveOutput := func(stream executor.OutputStream, line string) {
+								maskedLine := taskContext.MaskRuntimeText(line, req.Secrets)
+								logLiveActionOutput(taskLogger, stepName, task.Name, stream, maskedLine)
+							}
+							stdout, stderr, exitCode = req.StepRuntime.ExecuteAction(context.Background(), stepSessionID, action, taskRuntimeVars, req.WorkingDirectory, liveOutput)
 						}
 						if exitCode == 0 {
 							break
@@ -515,4 +521,79 @@ func RunPipeline(req PipelineRunRequest) PipelineRunResult {
 		return PipelineRunResult{ExitCode: 1, FinalStatus: finalStatus}
 	}
 	return PipelineRunResult{ExitCode: 0, FinalStatus: finalStatus}
+}
+
+func logLiveActionOutput(logger *zerolog.Logger, stepName, taskName string, stream executor.OutputStream, line string) {
+	if logger == nil || strings.TrimSpace(line) == "" {
+		return
+	}
+	level := detectLiveActionLogLevel(stream, line)
+	event := logger.Info()
+	switch level {
+	case "error":
+		event = logger.Error()
+	case "warn":
+		event = logger.Warn()
+	}
+	event.
+		Str("component", "action-output").
+		Str("stream", string(stream)).
+		Str("step", stepName).
+		Str("task", taskName).
+		Str("output_level", level).
+		Msg(line)
+}
+
+func detectLiveActionLogLevel(stream executor.OutputStream, line string) string {
+	if level := normalizeLiveActionLogLevel(structuredLiveActionLogLevel(line)); level != "" {
+		return level
+	}
+	if stream == executor.OutputStreamStderr {
+		return "error"
+	}
+	return "info"
+}
+
+func structuredLiveActionLogLevel(line string) string {
+	jsonStart := strings.Index(line, "{")
+	if jsonStart == -1 {
+		return ""
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(line[jsonStart:]), &payload); err != nil {
+		return ""
+	}
+	if level := firstLiveActionLogString(payload, "output_level", "level", "severity"); level != "" {
+		return level
+	}
+	if meta, ok := payload["meta"].(map[string]any); ok {
+		return firstLiveActionLogString(meta, "output_level", "level", "severity")
+	}
+	return ""
+}
+
+func firstLiveActionLogString(payload map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := payload[key]; ok {
+			if str, ok := value.(string); ok && strings.TrimSpace(str) != "" {
+				return str
+			}
+		}
+	}
+	return ""
+}
+
+func normalizeLiveActionLogLevel(level string) string {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "info", "warn", "error", "debug":
+		return strings.ToLower(strings.TrimSpace(level))
+	case "warning":
+		return "warn"
+	case "fatal", "panic":
+		return "error"
+	case "trace":
+		return "debug"
+	default:
+		return ""
+	}
 }

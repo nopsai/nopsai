@@ -30,7 +30,7 @@ Platform identity is monitored separately from logs. Prometheus exports
 manifest digest labels so mixed control-plane bundles can be detected without
 parsing log lines.
 
-Allow-listed source IDs are `nopsai`, `aaa`, `dispatcher`, `git-bot`, `ui`, and optional `docker-runner` and `k8s-runner`. Build-only `base`, `agent`, and `pipeline` containers are not registered. Arbitrary container names, pod names, and IDs are never accepted.
+Allow-listed source IDs are `nopsai`, `aaa`, `dispatcher`, `git-bot`, `ui`, `docker-socket-proxy`, `gotenberg`, `db`, and optional `docker-runner` and `k8s-runner`. Build-only `base`, `agent`, and `pipeline` containers are not registered. Arbitrary container names, pod names, and IDs are never accepted.
 
 The UI stream label reflects the container's real stdout/stderr file descriptor.
 NopsAI Go services route `trace`, `debug`, and `info` events to stdout and route
@@ -46,7 +46,7 @@ state so their current selection is visible and accessible.
 - Action: `system_log.read`
 - Resource: `system_log:<sourceID>`
 
-Grant `system_log.read` on `system_log:*` for all platform sources or on an individual source. Stream open/close and source selection are audited; log content is never included in audit metadata. Hosted MCP exposes `nopsai.list_system_log_sources` and `nopsai.tail_system_logs`. Long-lived streams remain UI-only.
+Grant `system_log.read` on `system_log:*` for all platform sources or on an individual source. Stream open/close and source selection are audited with source ID, request ID, and traceparent when present; log content is never included in audit metadata. Hosted MCP exposes `nopsai.list_system_log_sources` and `nopsai.tail_system_logs`. Long-lived streams remain UI-only.
 
 ## Limits and redaction
 
@@ -56,7 +56,7 @@ Redaction masks common authorization headers, tokens, passwords, API keys, clien
 
 ## GitOps and deployment configuration
 
-Compose declares the socket proxy and sets `SYSTEM_LOGS_DOCKER_HOST=tcp://docker-socket-proxy:2375`. Other Docker deployments can configure the feature declaratively in the mounted NopsAI YAML:
+Compose declares the socket proxy, allow-lists the persistent platform containers, and sets `SYSTEM_LOGS_DOCKER_HOST=tcp://docker-socket-proxy:2375`. Other Docker deployments can configure the feature declaratively in the mounted NopsAI YAML:
 
 ```yaml
 system_logs:

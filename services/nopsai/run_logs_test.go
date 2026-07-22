@@ -1,0 +1,70 @@
+package nopsai
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"nopsai/pkg/correlation"
+	"nopsai/pkg/serviceauth"
+	"nopsai/services/nopsai/pkg/auth"
+)
+
+func TestNormalizeRunLogIngestPayloadUsesCorrelationAndServiceClaims(t *testing.T) {
+	ctx := correlation.WithTraceparent(correlation.WithRequestID(context.Background(), "req-run-log"), "trace-run-log")
+	ctx = context.WithValue(ctx, ctxKeyRequestID, "req-run-log")
+	ctx = auth.WithClaims(ctx, &auth.Claims{
+		Sub:      "dispatcher",
+		Provider: serviceauth.ProviderInternalService,
+		Roles:    []string{serviceauth.RoleDispatcher},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/v1/runs/00000000-0000-0000-0000-000000000001/logs/ingest", nil).WithContext(ctx)
+
+	payload := normalizeRunLogIngestPayload(req, runLogIngestPayload{
+		Lines:     []string{"hello"},
+		Source:    " runner ",
+		ServiceID: " runner-1 ",
+		Metadata:  map[string]any{},
+	})
+
+	if payload.Source != "runner" {
+		t.Fatalf("Source = %q, want runner", payload.Source)
+	}
+	if payload.RequestID != "req-run-log" || payload.Traceparent != "trace-run-log" {
+		t.Fatalf("correlation = (%q, %q), want req-run-log/trace-run-log", payload.RequestID, payload.Traceparent)
+	}
+	if payload.ServiceID != "runner-1" {
+		t.Fatalf("ServiceID = %q, want runner-1", payload.ServiceID)
+	}
+	if payload.Metadata["ingested_by"] != "dispatcher" || payload.Metadata["service_id"] != "runner-1" {
+		t.Fatalf("metadata = %#v, want ingested_by and service_id", payload.Metadata)
+	}
+}
+
+func TestRunLogFieldsForLineDerivesStructuredMetadata(t *testing.T) {
+	fields := runLogFieldsForLine(runLogIngestPayload{}, `prefix {"level":"warning","step_name":"build","task":"compile","message":"done"}`)
+
+	if fields.Level != "warn" || fields.StepName != "build" || fields.TaskName != "compile" {
+		t.Fatalf("fields = %#v, want warn/build/compile", fields)
+	}
+}
+
+func TestRunLogFieldsForLinePrefersActionOutputLevelAndFallsBackToStream(t *testing.T) {
+	fields := runLogFieldsForLine(runLogIngestPayload{Stream: "stdout"}, `{"level":"info","output_level":"debug","step":"test","task_name":"unit","message":"trace line"}`)
+	if fields.Level != "debug" || fields.StepName != "test" || fields.TaskName != "unit" {
+		t.Fatalf("fields = %#v, want debug/test/unit", fields)
+	}
+
+	stderrFields := runLogFieldsForLine(runLogIngestPayload{Stream: "stderr"}, "plain failure")
+	if stderrFields.Level != "error" {
+		t.Fatalf("stderr level = %q, want error", stderrFields.Level)
+	}
+}
+
+func TestRunLogFieldsForLineInfersPlainTextSeverity(t *testing.T) {
+	fields := runLogFieldsForLine(runLogIngestPayload{}, "WARNING request latency exceeded threshold")
+	if fields.Level != "warn" {
+		t.Fatalf("level = %q, want warn", fields.Level)
+	}
+}
