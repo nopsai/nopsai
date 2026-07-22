@@ -11,12 +11,18 @@ import {
 } from './runLogs.js';
 
 test('parses structured and plain run log metadata', () => {
-  assert.deepEqual(parseRunLogLine('prefix {"level":"warning","step_name":"deploy","message":"done"}'), {
-    level: 'warning',
+  assert.deepEqual(parseRunLogLine('prefix {"level":"warning","step_name":"deploy","task":"publish","message":"done"}'), {
+    level: 'warn',
     step: 'deploy',
+    task: 'publish',
   });
   assert.deepEqual(parseRunLogLine('ERROR request failed'), { level: 'error' });
   assert.deepEqual(parseRunLogLine('ordinary output'), { level: undefined });
+  assert.deepEqual(parseRunLogLine('{"output_level":"trace","step":"test","task_name":"unit","message":"verbose"}'), {
+    level: 'debug',
+    step: 'test',
+    task: 'unit',
+  });
 });
 
 test('round-trips run log filters through the legacy hash contract', () => {
@@ -61,4 +67,30 @@ test('enriches, filters, and formats log lines consistently', () => {
     [2]
   );
   assert.match(formatRunLogDownload([lines[1]]), /\[agent-review\] ERROR -/);
+});
+
+test('preserves API log metadata when line parsing cannot provide it', () => {
+  const lines = enrichRunLogLines([
+    {
+      id: 3,
+      timestamp: '2026-06-08T12:00:02Z',
+      line: 'plain stderr output',
+      level: 'error',
+      step_name: 'release',
+      task_name: 'publish',
+    },
+  ]);
+
+  assert.equal(lines[0].level, 'error');
+  assert.equal(lines[0].step, 'release');
+  assert.equal(lines[0].task, 'publish');
+  assert.deepEqual(
+    filterRunLogLines(lines, {
+      selectedSteps: new Set(['release']),
+      selectedLevels: new Set(['error']),
+      agentOnly: false,
+      searchText: 'stderr',
+    }).map(line => line.id),
+    [3]
+  );
 });

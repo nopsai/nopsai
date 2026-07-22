@@ -17,6 +17,9 @@ type RunLogsOptions = {
   initialSearch?: string | null;
 };
 
+export const RUN_LOG_VISIBLE_POLL_MS = 1000;
+export const RUN_LOG_HIDDEN_POLL_MS = 15000;
+
 export function useRunLogs({ runID, initialStep, initialSearch }: RunLogsOptions) {
   const [lines, setLines] = useState<EnrichedRunLogLine[]>([]);
   const [loading, setLoading] = useState(false);
@@ -119,7 +122,7 @@ export function useRunLogs({ runID, initialStep, initialSearch }: RunLogsOptions
 
     const tick = async () => {
       await fetchLogs();
-      if (!cancelled) timer = window.setTimeout(tick, document.hidden ? 30000 : 5000);
+      if (!cancelled) timer = window.setTimeout(tick, document.hidden ? RUN_LOG_HIDDEN_POLL_MS : RUN_LOG_VISIBLE_POLL_MS);
     };
 
     void tick();

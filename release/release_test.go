@@ -192,9 +192,14 @@ func TestPlatformReleasePublishesCLIArtifactsAndParsesHelmDigest(t *testing.T) {
 		"shopt -s nullglob",
 		"cli_assets=(dist/cli/*)",
 		"No CLI release artifacts were downloaded into dist/cli",
+		`helm push "dist/release/nopsai-$VERSION.tgz" "$chart_repository" 2>&1`,
 		`grep -Eo 'sha256:[a-f0-9]{64}'`,
+		`tail -1 || true`,
+		"checksum_files=(.env db/init.sql docker-compose.yaml",
+		"checksum_files+=(release-manifest.json)",
+		"release_manifest=missing packaging release assets without release-manifest.json",
 		`cp "${cli_assets[@]}" dist/assets/`,
-		"cp dist/release/release-manifest.json dist/assets/",
+		"if [[ -f dist/release/release-manifest.json ]]",
 	} {
 		if !strings.Contains(workflow, required) {
 			t.Errorf("platform release workflow is missing %q", required)

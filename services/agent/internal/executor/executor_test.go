@@ -74,3 +74,28 @@ func TestPrepareActionReturnsAnswerWithoutCommand(t *testing.T) {
 		t.Fatalf("PrepareAction() Command = %q, want empty", prepared.Command)
 	}
 }
+
+func TestOutputCaptureStreamsCompleteLinesAndKeepsFullOutput(t *testing.T) {
+	var lines []string
+	capture := NewOutputCapture(OutputStreamStdout, func(stream OutputStream, line string) {
+		if stream != OutputStreamStdout {
+			t.Fatalf("stream = %q, want stdout", stream)
+		}
+		lines = append(lines, line)
+	})
+
+	if _, err := capture.Write([]byte("first\nsec")); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if _, err := capture.Write([]byte("ond\r\nthird")); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	capture.Flush()
+
+	if got := strings.Join(lines, "|"); got != "first|second|third" {
+		t.Fatalf("streamed lines = %q, want first|second|third", got)
+	}
+	if capture.String() != "first\nsecond\r\nthird" {
+		t.Fatalf("full output = %q, want original output", capture.String())
+	}
+}

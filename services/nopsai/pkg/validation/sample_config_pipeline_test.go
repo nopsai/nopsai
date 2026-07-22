@@ -69,6 +69,10 @@ func TestSampleNopsAIPlatformReleasePipelineValidates(t *testing.T) {
 		"build-cli-archives",
 		"publish-base-image",
 		"publish-images",
+		"render-release-bundle",
+		"publish-helm-chart",
+		"validate-release-compose",
+		"package-release-assets",
 		"publish-release",
 	} {
 		if _, ok := steps[name]; !ok {
@@ -88,9 +92,14 @@ func TestSampleNopsAIPlatformReleasePipelineValidates(t *testing.T) {
 		requireSecrets(t, steps[name].GetSecrets(), "NOPSAI_RELEASE_GHCR_TOKEN")
 		requireDependsOn(t, steps[name].GetDependsOn(), "publish-base-image")
 	}
+	requireSecrets(t, steps["publish-helm-chart"].GetSecrets(), "NOPSAI_RELEASE_GHCR_TOKEN")
 	requireSecrets(t, steps["publish-release"].GetSecrets(), "NOPSAI_RELEASE_GITHUB_TOKEN")
-	requireSecrets(t, steps["publish-release"].GetSecrets(), "NOPSAI_RELEASE_GHCR_TOKEN")
 	requireDependsOn(t, steps["publish-images"].GetDependsOn(), imageStepNames...)
+	requireDependsOn(t, steps["render-release-bundle"].GetDependsOn(), "build-cli-archives", "publish-images")
+	requireDependsOn(t, steps["publish-helm-chart"].GetDependsOn(), "render-release-bundle")
+	requireDependsOn(t, steps["validate-release-compose"].GetDependsOn(), "publish-helm-chart")
+	requireDependsOn(t, steps["package-release-assets"].GetDependsOn(), "validate-release-compose")
+	requireDependsOn(t, steps["publish-release"].GetDependsOn(), "package-release-assets")
 	requireContains(t, steps["release-metadata"].GetScript(), "GIT_ASKPASS")
 	requireContains(t, steps["checkout-repository"].GetScript(), "git fetch --force --tags origin")
 	requireContains(t, steps["quality-gates"].GetScript(), "apk add --no-cache bash build-base")
@@ -102,10 +111,27 @@ func TestSampleNopsAIPlatformReleasePipelineValidates(t *testing.T) {
 	requireContains(t, steps["publish-image-pipeline-image"].GetScript(), "publish-release-image.sh pipeline-image . container/Dockerfile.pipeline")
 	requireContains(t, steps["publish-images"].GetScript(), "dist/digests/${image_name}.digest")
 	requireContains(t, steps["publish-images"].GetScript(), "verified_image=$REGISTRY/$image_name@$digest")
-	requireContains(t, steps["publish-release"].GetScript(), "scripts/render-release-bundle.sh")
-	requireContains(t, steps["publish-release"].GetScript(), "NOPSAI_RELEASE_GHCR_TOKEN is required to publish the Helm chart to GHCR")
-	requireContains(t, steps["publish-release"].GetScript(), "printf '%s' \"$NOPSAI_RELEASE_GHCR_TOKEN\" | helm registry login ghcr.io")
-	requireContains(t, steps["publish-release"].GetScript(), "cp dist/release/release-manifest.json dist/assets/")
+	requireContains(t, steps["render-release-bundle"].GetScript(), "scripts/render-release-bundle.sh")
+	requireContains(t, steps["render-release-bundle"].GetScript(), "release_phase=render-release-bundle")
+	requireContains(t, steps["render-release-bundle"].GetScript(), "rm -rf dist/assets")
+	requireContains(t, steps["render-release-bundle"].GetScript(), "release_manifest=missing source bundle renderer did not create")
+	requireContains(t, steps["publish-helm-chart"].GetScript(), "NOPSAI_RELEASE_GHCR_TOKEN is required to publish the Helm chart to GHCR")
+	requireContains(t, steps["publish-helm-chart"].GetScript(), "printf '%s' \"$NOPSAI_RELEASE_GHCR_TOKEN\" | helm registry login ghcr.io")
+	requireContains(t, steps["publish-helm-chart"].GetScript(), "helm push \"dist/release/nopsai-$VERSION.tgz\" \"$chart_repository\" 2>&1")
+	requireContains(t, steps["publish-helm-chart"].GetScript(), "tail -1 || true")
+	requireContains(t, steps["publish-helm-chart"].GetScript(), "release_phase=publish-helm-chart")
+	requireContains(t, steps["validate-release-compose"].GetScript(), "validation_env=dist/release/.env.validation")
+	requireContains(t, steps["validate-release-compose"].GetScript(), "release_phase=validate-release-compose")
+	requireContains(t, steps["package-release-assets"].GetScript(), "apk add --no-cache bash coreutils perl-utils tar gzip")
+	requireContains(t, steps["package-release-assets"].GetScript(), "checksum_files=(.env db/init.sql docker-compose.yaml")
+	requireContains(t, steps["package-release-assets"].GetScript(), "checksum_files+=(release-manifest.json)")
+	requireContains(t, steps["package-release-assets"].GetScript(), "release_manifest=missing packaging release assets without release-manifest.json")
+	requireContains(t, steps["package-release-assets"].GetScript(), "if [[ -f dist/release/release-manifest.json ]]")
+	requireContains(t, steps["package-release-assets"].GetScript(), "release_phase=package-release-assets")
+	requireContains(t, steps["publish-release"].GetScript(), "release_phase=publish-github-release")
+	requireContains(t, steps["publish-release"].GetScript(), "failed line=$LINENO command=$BASH_COMMAND exit_code=$status")
+	requireContains(t, steps["publish-release"].GetScript(), "github_release_action=create")
+	requireContains(t, steps["publish-release"].GetScript(), "github_release_action=update")
 	requireContains(t, steps["publish-release"].GetScript(), "gh release upload \"v$VERSION\" dist/assets/* --repo \"$GITHUB_REPOSITORY\" --clobber")
 }
 
