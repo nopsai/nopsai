@@ -13,6 +13,7 @@ access:
   visibility: restricted
   use_access:
     grants:
+      - repository: hosein-yousefii/pre-nopsai
       - service_account: nopsai-release-bot
 variables:
   - NOPSAI_RELEASE_REPOSITORY_URL
