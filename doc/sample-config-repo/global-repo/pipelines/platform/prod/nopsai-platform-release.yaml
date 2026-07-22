@@ -268,48 +268,6 @@ steps:
       npm run build
       BASH
 
-  - name: build-cli-archives
-    image: golang:1.26.5-alpine
-    depends_on:
-      - quality-gates
-    script: |
-      set -eu
-      apk add --no-cache bash git tar gzip zip
-      bash <<'BASH'
-      set -euo pipefail
-
-      . dist/release/env
-      if [[ "$SHOULD_RELEASE" != "true" ]]; then
-        echo "Release v$VERSION already exists; skipping CLI archive build"
-        exit 0
-      fi
-
-      rm -rf dist/cli
-      mkdir -p dist/cli
-      capabilities="api.v1,cli.api-catalog.v1,config-sync.v1,mcp.v1,monitoring.v1,platform.docker-compose,platform.helm,runner.docker,runner.kubernetes"
-      ldflags="-s -w -X nopsai/pkg/buildinfo.Version=${VERSION} -X nopsai/pkg/buildinfo.Commit=${SOURCE_COMMIT} -X nopsai/pkg/buildinfo.BuildDate=${BUILD_DATE} -X nopsai/pkg/buildinfo.APIVersion=v1 -X nopsai/pkg/buildinfo.RunnerProtocolVersion=1 -X nopsai/pkg/buildinfo.CLICompatibility=>=2.0.0,<3.0.0 -X nopsai/pkg/buildinfo.RunnerCompatibility=>=2.0.0,<3.0.0 -X nopsai/pkg/buildinfo.PlatformCompatibility=>=2.0.0,<3.0.0 -X nopsai/pkg/buildinfo.Capabilities=${capabilities}"
-
-      for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
-        goos="${target%/*}"
-        goarch="${target#*/}"
-        package_dir="dist/package/${goos}-${goarch}"
-        rm -rf "$package_dir"
-        mkdir -p "$package_dir"
-        binary=nopsai
-        if [[ "$goos" == "windows" ]]; then
-          binary=nopsai.exe
-        fi
-        echo "Building CLI for ${goos}/${goarch}"
-        CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags="$ldflags" -o "$package_dir/$binary" ./cmd/nopsai-cli
-        asset="nopsai-cli_${VERSION}_${goos}_${goarch}"
-        if [[ "$goos" == "windows" ]]; then
-          (cd "$package_dir" && zip -9 "../../cli/${asset}.zip" "$binary")
-        else
-          tar -C "$package_dir" -czf "dist/cli/${asset}.tar.gz" "$binary"
-        fi
-      done
-      BASH
-
   - name: publish-base-image
     image: docker:27-cli
     depends_on:
@@ -610,7 +568,6 @@ steps:
   - name: render-release-bundle
     image: alpine:3.20
     depends_on:
-      - build-cli-archives
       - publish-images
     script: |
       set -eu
@@ -657,23 +614,6 @@ steps:
 
       rm -rf dist/assets
       mkdir -p dist/assets
-      index_file=dist/release/release-index.json
-      temp_index="$index_file.tmp"
-      jq '.cli = {}' "$index_file" >"$temp_index"
-      mv "$temp_index" "$index_file"
-
-      shopt -s nullglob
-      cli_assets=(dist/cli/*)
-      if (( ${#cli_assets[@]} == 0 )); then
-        echo "No CLI release artifacts were built into dist/cli" >&2
-        exit 1
-      fi
-      for asset in "${cli_assets[@]}"; do
-        asset_name="$(basename "$asset")"
-        checksum="$(shasum -a 256 "$asset" | awk '{print $1}')"
-        jq --arg name "$asset_name" --arg checksum "sha256:$checksum" '.cli[$name] = $checksum' "$index_file" >"$temp_index"
-        mv "$temp_index" "$index_file"
-      done
       if [[ -f dist/release/release-manifest.json ]]; then
         echo "release_manifest=present"
       else
@@ -749,6 +689,71 @@ steps:
       echo "release_phase=publish-helm-chart complete"
       BASH
 
+  - name: build-cli-archives
+    image: golang:1.26.5-alpine
+    depends_on:
+      - publish-helm-chart
+    script: |
+      set -eu
+      apk add --no-cache bash git jq tar gzip zip
+      bash <<'BASH'
+      set -euo pipefail
+
+      . dist/release/env
+      if [[ "$SHOULD_RELEASE" != "true" ]]; then
+        echo "Release v$VERSION already exists; skipping CLI archive build"
+        exit 0
+      fi
+      if [[ ! -s dist/release/release-manifest.json ]]; then
+        echo "release-manifest.json is required before building CLI archives" >&2
+        exit 1
+      fi
+
+      rm -rf dist/cli
+      mkdir -p dist/cli
+      release_manifest_digest="sha256:$(sha256sum dist/release/release-manifest.json | awk '{print $1}')"
+      release_manifest_b64="$(base64 dist/release/release-manifest.json | tr -d '\r\n')"
+      capabilities="api.v1,cli.api-catalog.v1,config-sync.v1,mcp.v1,monitoring.v1,platform.docker-compose,platform.helm,runner.docker,runner.kubernetes"
+      ldflags="-s -w -X nopsai/pkg/buildinfo.Version=${VERSION} -X nopsai/pkg/buildinfo.Commit=${SOURCE_COMMIT} -X nopsai/pkg/buildinfo.BuildDate=${BUILD_DATE} -X nopsai/pkg/buildinfo.ReleaseManifestDigest=${release_manifest_digest} -X nopsai/internal/cli/platform.EmbeddedReleaseManifestBase64=${release_manifest_b64} -X nopsai/pkg/buildinfo.APIVersion=v1 -X nopsai/pkg/buildinfo.RunnerProtocolVersion=1 -X nopsai/pkg/buildinfo.CLICompatibility=>=2.0.0,<3.0.0 -X nopsai/pkg/buildinfo.RunnerCompatibility=>=2.0.0,<3.0.0 -X nopsai/pkg/buildinfo.PlatformCompatibility=>=2.0.0,<3.0.0 -X nopsai/pkg/buildinfo.Capabilities=${capabilities}"
+
+      for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+        goos="${target%/*}"
+        goarch="${target#*/}"
+        package_dir="dist/package/${goos}-${goarch}"
+        rm -rf "$package_dir"
+        mkdir -p "$package_dir"
+        binary=nopsai
+        if [[ "$goos" == "windows" ]]; then
+          binary=nopsai.exe
+        fi
+        echo "Building CLI for ${goos}/${goarch}"
+        CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags="$ldflags" -o "$package_dir/$binary" ./cmd/nopsai-cli
+        asset="nopsai-cli_${VERSION}_${goos}_${goarch}"
+        if [[ "$goos" == "windows" ]]; then
+          (cd "$package_dir" && zip -9 "../../cli/${asset}.zip" "$binary")
+        else
+          tar -C "$package_dir" -czf "dist/cli/${asset}.tar.gz" "$binary"
+        fi
+      done
+
+      index_file=dist/release/release-index.json
+      temp_index="$index_file.tmp"
+      jq '.cli = {}' "$index_file" >"$temp_index"
+      mv "$temp_index" "$index_file"
+      shopt -s nullglob
+      cli_assets=(dist/cli/*)
+      if (( ${#cli_assets[@]} == 0 )); then
+        echo "No CLI release artifacts were built into dist/cli" >&2
+        exit 1
+      fi
+      for asset in "${cli_assets[@]}"; do
+        asset_name="$(basename "$asset")"
+        checksum="$(sha256sum "$asset" | awk '{print $1}')"
+        jq --arg name "$asset_name" --arg checksum "sha256:$checksum" '.cli[$name] = $checksum' "$index_file" >"$temp_index"
+        mv "$temp_index" "$index_file"
+      done
+      BASH
+
   - name: validate-release-compose
     image: alpine:3.20
     depends_on:
@@ -787,6 +792,7 @@ steps:
   - name: package-release-assets
     image: alpine:3.20
     depends_on:
+      - build-cli-archives
       - validate-release-compose
     script: |
       set -eu

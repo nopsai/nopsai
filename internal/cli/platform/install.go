@@ -320,13 +320,13 @@ func WriteInstallPlan(plan InstallPlan, overwrite bool) error {
 }
 
 func (i Installer) resolveInstallManifest(ctx context.Context, version, source, digest string, requiredCapabilities ...string) (ResolvedManifest, buildinfo.Info, error) {
-	resolved, err := i.Resolver.Resolve(ctx, version, source, digest)
-	if err != nil {
-		return ResolvedManifest{}, buildinfo.Info{}, err
-	}
 	cli := i.CLI
 	if strings.TrimSpace(cli.Version) == "" {
 		cli = buildinfo.Current()
+	}
+	resolved, err := i.Resolver.Resolve(ctx, version, source, defaultReleaseManifestDigest(source, digest, cli))
+	if err != nil {
+		return ResolvedManifest{}, buildinfo.Info{}, err
 	}
 	if err := compatibility.ValidateManifestForCLI(resolved.Manifest, cli); err != nil {
 		return ResolvedManifest{}, buildinfo.Info{}, fmt.Errorf("release compatibility check failed: %w", err)
@@ -335,6 +335,13 @@ func (i Installer) resolveInstallManifest(ctx context.Context, version, source, 
 		return ResolvedManifest{}, buildinfo.Info{}, err
 	}
 	return resolved, cli, nil
+}
+
+func defaultReleaseManifestDigest(source, digest string, cli buildinfo.Info) string {
+	if strings.TrimSpace(source) != "" || strings.TrimSpace(digest) != "" {
+		return digest
+	}
+	return strings.TrimSpace(cli.ReleaseManifestDigest)
 }
 
 func (i Installer) generateComposeSecrets() (composeSecrets, error) {

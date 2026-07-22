@@ -3,8 +3,10 @@ package command
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -448,6 +450,61 @@ func TestPlatformReleaseInteractiveCanPlanWithoutDeploying(t *testing.T) {
 	}
 }
 
+func TestInstallDockerComposeUsesEmbeddedReleaseManifest(t *testing.T) {
+	manifestPath := writeCommandInstallManifest(t)
+	raw, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := cliplatform.EmbeddedReleaseManifestBase64
+	cliplatform.EmbeddedReleaseManifestBase64 = base64.StdEncoding.EncodeToString(raw)
+	defer func() { cliplatform.EmbeddedReleaseManifestBase64 = previous }()
+
+	outputDir := filepath.Join(t.TempDir(), "install")
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("unexpected manifest HTTP request to %s", request.URL.String())
+	})}
+	dependencies := testDependencies(client, nil)
+	dependencies.BuildInfo = commandBuildInfo("2.7.0")
+	dependencies.BuildInfo.ReleaseManifestDigest = compatibility.DigestBytes(raw)
+	dependencies.Random = bytes.NewReader(bytes.Repeat([]byte{9}, 256))
+
+	output, err := executeCommand(dependencies, "install", "docker-compose", "--output-dir", outputDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, "Generated NopsAI 2.7.0 docker-compose install") {
+		t.Fatalf("install output = %q", output)
+	}
+	storedManifest, err := os.ReadFile(filepath.Join(outputDir, "release-manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(storedManifest, raw) {
+		t.Fatal("installer did not write the embedded release manifest")
+	}
+	lockContents, err := os.ReadFile(filepath.Join(outputDir, ".nopsai", "install.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(lockContents), cliplatform.EmbeddedManifestSource) {
+		t.Fatalf("install lock did not record embedded manifest source: %s", lockContents)
+	}
+}
+
+func TestInstallDockerComposeRequiresManifestWhenDefaultIsMissing(t *testing.T) {
+	previous := cliplatform.EmbeddedReleaseManifestBase64
+	cliplatform.EmbeddedReleaseManifestBase64 = ""
+	defer func() { cliplatform.EmbeddedReleaseManifestBase64 = previous }()
+
+	dependencies := testDependencies(nil, nil)
+	dependencies.BuildInfo = commandBuildInfo("2.7.0")
+	_, err := executeCommand(dependencies, "install", "docker-compose", "--output-dir", filepath.Join(t.TempDir(), "install"))
+	if err == nil || !strings.Contains(err.Error(), "release manifest is required") {
+		t.Fatalf("missing manifest error = %v", err)
+	}
+}
+
 func TestCompletionWritesShellFileAndSupportsStdout(t *testing.T) {
 	outputDir := t.TempDir()
 	output, err := executeCommand(testDependencies(nil, nil), "completion", "bash", "--output-dir", outputDir)
@@ -598,6 +655,42 @@ func commandBuildInfo(version string) buildinfo.Info {
 	}
 }
 
+func writeCommandInstallManifest(t *testing.T) string {
+	t.Helper()
+	images := make(map[string]string, len(compatibility.RequiredPlatformImages))
+	for _, name := range compatibility.RequiredPlatformImages {
+		images[name] = "ghcr.io/example/nopsai-" + strings.ToLower(name) + "@sha256:" + strings.Repeat("a", 64)
+	}
+	manifest := compatibility.Manifest{
+		SchemaVersion: "v1",
+		Version:       "2.7.0",
+		Chart: compatibility.ChartArtifact{
+			Reference: "oci://ghcr.io/example/charts/nopsai",
+			Version:   "2.7.0",
+			Digest:    "sha256:" + strings.Repeat("b", 64),
+		},
+		Images:        images,
+		Compatibility: compatibility.ManifestCompatibility{CLI: ">=2.0.0 <3.0.0", API: "v1", RunnerProtocol: 1},
+		Database:      compatibility.DatabaseContract{MigrationVersion: 1, RollbackSafe: false, RollbackPolicy: "forward-only"},
+		Capabilities: []string{
+			compatibility.CapabilityAPIV1,
+			compatibility.CapabilityPlatformCompose,
+			compatibility.CapabilityPlatformHelm,
+			compatibility.CapabilityRunnerDocker,
+			compatibility.CapabilityRunnerK8s,
+		},
+	}
+	contents, err := compatibility.CanonicalJSON(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "release-manifest.json")
+	if err := os.WriteFile(path, contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func writeCommandReleaseManifest(t *testing.T, chart []byte) string {
 	t.Helper()
 	images := make(map[string]string, len(compatibility.RequiredPlatformImages))
@@ -626,6 +719,12 @@ func writeCommandReleaseManifest(t *testing.T, chart []byte) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
 }
 
 func commandArgumentValue(args []string, name string) string {
