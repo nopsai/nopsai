@@ -162,7 +162,7 @@ Main tables from `db/init.sql`:
 - `pipeline_runs`: One record per run, including git context, pipeline definition snapshot, status, scope, parent/child relationships, GitHub check ID, trigger source, requested/effective subject, and an authorization snapshot.
 - `task_runs`: One record per executable task, including task ordering and final exit code.
 - `step_runs`: Step-level tracking table for higher-level summaries.
-- `pipeline_run_logs`: Durable log lines ingested from runner/agent activity.
+- `pipeline_run_logs`: Durable log lines ingested from runner/agent activity, with structured source, stream, level, step, task, runner, request ID, traceparent, and JSON metadata columns for audit-friendly querying.
 - `pipelines`, `steps`, `triggers`: Stored configuration and overrides. Pipelines and reusable steps also carry resource visibility for runtime sharing.
 - `variables`, `secrets`: Runtime configuration data, with secrets encrypted before storage.
 - `knowledge_contexts`: Managed markdown knowledge documents teamed by kind/team/name, with GitOps source metadata.

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"nopsai/pkg/correlation"
 	"nopsai/pkg/proto"
 	"nopsai/pkg/serviceauth"
 
@@ -20,13 +21,22 @@ import (
 )
 
 type nopsaiClient interface {
-	IngestLogs(context.Context, string, []string) error
+	IngestLogs(context.Context, string, []string, LogIngestMetadata) error
 	ReportTaskStatus(context.Context, *proto.TaskStatusReport) error
 	FinalizeRun(context.Context, string, string, string) error
 	FetchPipeline(context.Context, *proto.FetchPipelineRequest) ([]byte, error)
 	TriggerPipeline(context.Context, *proto.TriggerPipelineRequest) (*proto.TriggerPipelineResponse, error)
 	RunStatus(context.Context, string) (string, error)
 	DispatcherRouting(context.Context) (map[string][]string, error)
+}
+
+type LogIngestMetadata struct {
+	Source      string         `json:"source,omitempty"`
+	ServiceID   string         `json:"service_id,omitempty"`
+	ServiceRole string         `json:"service_role,omitempty"`
+	RequestID   string         `json:"request_id,omitempty"`
+	Traceparent string         `json:"traceparent,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
 }
 
 type nopsaiHTTPClient struct {
@@ -49,8 +59,29 @@ func (c *nopsaiHTTPClient) setHTTPClient(client *http.Client) {
 	}
 }
 
-func (c *nopsaiHTTPClient) IngestLogs(ctx context.Context, runID string, lines []string) error {
-	body, _ := json.Marshal(map[string][]string{"lines": lines})
+func (c *nopsaiHTTPClient) IngestLogs(ctx context.Context, runID string, lines []string, metadata LogIngestMetadata) error {
+	ctx, requestID := correlation.EnsureRequestID(ctx)
+	metadata = normalizeLogIngestMetadata(ctx, metadata)
+	if metadata.RequestID == "" {
+		metadata.RequestID = requestID
+	}
+	body, _ := json.Marshal(struct {
+		Lines       []string       `json:"lines"`
+		Source      string         `json:"source,omitempty"`
+		ServiceID   string         `json:"service_id,omitempty"`
+		ServiceRole string         `json:"service_role,omitempty"`
+		RequestID   string         `json:"request_id,omitempty"`
+		Traceparent string         `json:"traceparent,omitempty"`
+		Metadata    map[string]any `json:"metadata,omitempty"`
+	}{
+		Lines:       lines,
+		Source:      metadata.Source,
+		ServiceID:   metadata.ServiceID,
+		ServiceRole: metadata.ServiceRole,
+		RequestID:   metadata.RequestID,
+		Traceparent: metadata.Traceparent,
+		Metadata:    metadata.Metadata,
+	})
 	return c.postJSON(ctx, fmt.Sprintf("/v1/runs/%s/logs/ingest", strings.TrimSpace(runID)), body, http.StatusOK, http.StatusNoContent)
 }
 
@@ -247,6 +278,7 @@ func (c *nopsaiHTTPClient) postJSON(ctx context.Context, path string, body []byt
 	if err := c.requireBaseURL(); err != nil {
 		return err
 	}
+	ctx, _ = correlation.EnsureRequestID(ctx)
 	target := c.baseURL + path
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
@@ -298,7 +330,46 @@ func (c *nopsaiHTTPClient) authorize(ctx context.Context, req *http.Request) err
 		return fmt.Errorf("mint dispatcher token: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
+	correlation.SetHTTPHeaders(ctx, req.Header)
 	return nil
+}
+
+func normalizeLogIngestMetadata(ctx context.Context, metadata LogIngestMetadata) LogIngestMetadata {
+	metadata.Source = strings.TrimSpace(metadata.Source)
+	metadata.ServiceID = strings.TrimSpace(metadata.ServiceID)
+	metadata.ServiceRole = strings.TrimSpace(metadata.ServiceRole)
+	metadata.RequestID = strings.TrimSpace(metadata.RequestID)
+	metadata.Traceparent = strings.TrimSpace(metadata.Traceparent)
+	if metadata.RequestID == "" {
+		metadata.RequestID = correlation.RequestIDFromContext(ctx)
+	}
+	if metadata.Traceparent == "" {
+		metadata.Traceparent = correlation.TraceparentFromContext(ctx)
+	}
+	if claims, ok := serviceauth.ClaimsFromContext(ctx); ok {
+		if metadata.ServiceID == "" {
+			metadata.ServiceID = claims.ServiceID()
+		}
+		if metadata.ServiceRole == "" {
+			metadata.ServiceRole = claims.ServiceRole()
+		}
+		if metadata.Source == "" {
+			metadata.Source = claims.ServiceRole()
+		}
+	}
+	if metadata.Source == "" {
+		metadata.Source = "dispatcher"
+	}
+	if metadata.Metadata == nil {
+		metadata.Metadata = map[string]any{}
+	}
+	if metadata.ServiceID != "" && metadata.Metadata["service_id"] == nil {
+		metadata.Metadata["service_id"] = metadata.ServiceID
+	}
+	if metadata.ServiceRole != "" && metadata.Metadata["service_role"] == nil {
+		metadata.Metadata["service_role"] = metadata.ServiceRole
+	}
+	return metadata
 }
 
 type dispatcherRoutingResponse struct {

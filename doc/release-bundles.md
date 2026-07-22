@@ -90,11 +90,11 @@ package checksum plus the OCI chart reference, version, and registry digest.
 
 ## Automated Publication
 
-`.github/workflows/platform-release.yml` runs only after a successful
-push-triggered `Enterprise Gates` run on the current main commit, or through an
-explicit manual retry of the current main commit. It does not
-consume PR gate runs, caches, or artifacts. A superseded gate run and an
-existing version tag are skipped.
+`.github/workflows/platform-release.yml` runs on every push to `main` and can
+also be dispatched manually for a specific `source_ref`. The workflow validates
+the release package contracts before publication, calculates the commit-count
+version from `release/version.txt`, and skips an existing version tag unless the
+manual `allow_existing_release` recovery input is enabled.
 
 Each successful release publishes:
 
@@ -103,31 +103,45 @@ Each successful release publishes:
   runner, Kubernetes runner, socket proxy, UI, and pipeline helper
 - standalone CLI archives for Linux, macOS, and Windows
 - SBOM and provenance output for published OCI images
-- a digest-pinned image index, `SHA256SUMS`, generated changelog, deployment
-  Compose file, and `nopsai-<version>.tgz` Helm package
+- a digest-pinned release manifest, image index, `SHA256SUMS`, generated
+  changelog, deployment Compose file, and `nopsai-<version>.tgz` Helm package
 - the same Helm chart published to `oci://ghcr.io/<owner>/charts/nopsai`
 - one deployment bundle whose `.env`, Compose file, Helm package, and image
   index all identify the same version and source commit
+- a standalone CLI that embeds install templates and defaults to the same
+  version when resolving manifests
 
-Darwin CLI matrix entries run on `macos-14`. The release imports an Apple
-Developer ID Application certificate into an ephemeral keychain, applies a
-hardened-runtime timestamped signature, notarizes the ZIP with an App Store
-Connect API key, and runs a Gatekeeper assessment before uploading the asset.
-The keychain and decoded credentials are deleted before the job ends.
+Darwin CLI matrix entries run on `macos-14`. The current publication workflow
+packages the standalone Darwin binaries as release assets; macOS signing and
+notarization are available through `scripts/sign-notarize-macos-cli.sh` but are
+not wired into the default package publication path.
 
-Configure these encrypted GitHub Actions secrets before enabling main-branch
-publication:
+If an earlier run published some GHCR packages but failed before the GitHub
+Release asset upload, dispatch `Platform Release` manually for the same
+`source_ref` with `allow_existing_release=true`. The workflow verifies that the
+existing version tag points to the same source commit, republishes the OCI
+images and Helm chart, and replaces GitHub Release assets with `--clobber`.
 
-- `APPLE_DEVELOPER_ID_P12_BASE64`: base64-encoded Developer ID Application P12
-- `APPLE_DEVELOPER_ID_P12_PASSWORD`: password protecting the P12
-- `APPLE_DEVELOPER_ID_IDENTITY`: full signing identity, including Team ID
-- `APPLE_NOTARY_KEY_P8_BASE64`: base64-encoded App Store Connect API private key
-- `APPLE_NOTARY_KEY_ID`: App Store Connect API key ID
-- `APPLE_NOTARY_ISSUER_ID`: App Store Connect API issuer ID
-
-Missing or rejected Apple credentials fail the Darwin matrix jobs and prevent
-the unified release from being published. They never fall back to an unsigned
-CLI artifact.
+The same release contract can run inside NopsAI from
+`doc/sample-config-repo/global-repo/pipelines/platform/prod/nopsai-platform-release.yaml`.
+That GitOps pipeline is script-only with `llm_enabled: false`, clones and
+checks out the release repository first, records metadata under
+`dist/release/env`, runs backend, race, release-tooling, and UI quality gates,
+builds CLI archives, publishes the base OCI image, fans out one NopsAI step per
+service image so image builds run in parallel with independent logs and audit
+records, verifies the published image digests, pushes the Helm chart, and uploads
+the GitHub Release assets.
+Release image parallelism is governed by the runner concurrency limits configured
+for the environment.
+The prod scope sample declares the required release variables and the
+`NOPSAI_RELEASE_GITHUB_TOKEN` / `NOPSAI_RELEASE_GHCR_TOKEN` secret placeholders.
+`NOPSAI_RELEASE_GITHUB_TOKEN` must be readable by the release repository because
+the checkout and metadata steps run raw `git fetch` commands inside pipeline
+containers; git-bot's GitHub App installation credentials are not mounted into
+those script containers. `NOPSAI_RELEASE_GHCR_TOKEN` is used for both container
+image pushes and the Helm OCI chart push, so it must be authorized to publish
+packages under the configured GHCR owner. Release runners must also provide a
+usable Docker or BuildKit endpoint through `DOCKER_HOST`.
 
 `scripts/generate-changelog.sh` teams commits since the most recent semantic
 version tag into breaking, added, fixed, and changed sections. The generated
@@ -142,6 +156,21 @@ authenticate Docker, containerd, and Kubernetes with a package read token.
 ## Plan And Deploy
 
 ```bash
+# First-time wizard; choose Docker Compose or Kubernetes
+nopsai install
+
+# Automation shortcut for Docker Compose
+nopsai install docker-compose --run
+
+nopsai install kubernetes \
+  --output-dir ./nopsai-prod \
+  --values-file values.yaml
+
+# After editing values and creating the referenced Secret
+cd ./nopsai-prod
+nopsai install kubernetes --output-dir . --values-file values.yaml --deploy --wait
+
+# Advanced CI/GitOps primitive for already prepared manifests and values
 nopsai platform release kubernetes \
   --version 2.7.0 \
   --manifest ./release-manifest.json \
@@ -155,9 +184,26 @@ nopsai platform release kubernetes \
   --deploy --wait
 ```
 
-Without `--manifest`, the CLI resolves the manifest from the configured release
-URL template. `NOPSAI_RELEASE_MANIFEST_URL_TEMPLATE` can point GitOps automation
-at an internal HTTPS artifact repository.
+Without `--manifest`, released CLIs resolve `release-manifest.json` from the
+configured release URL template. `NOPSAI_RELEASE_MANIFEST_URL_TEMPLATE` can
+point GitOps automation at an internal HTTPS artifact repository.
+
+`nopsai install` is the shortest first-install path. It opens a wizard, lets the
+operator choose Docker Compose or Kubernetes, resolves the same manifest from
+the CLI release version, and generates the required files itself.
+`nopsai install docker-compose` is the automation shortcut: it writes
+`docker-compose.yaml`, `.env`, `db/init.sql`, `release-manifest.json`, and
+`.nopsai/install.lock`, then starts the stack when `--run` is set. The `.env`
+file is generated with local secrets and must stay out of Git; the install lock
+is non-secret and can be kept with environment state.
+
+`nopsai install kubernetes` generates editable Helm values for the selected
+version and references a Secret through `secrets.existingSecret`. Operators can
+edit those values, create the Secret with their cluster secret manager, then run
+the printed `nopsai install kubernetes ... --deploy` command from the generated
+directory. The installer reuses stored `release-manifest.json` and `values.yaml`
+without overwriting edits. `nopsai platform release` remains available for CI
+and advanced GitOps workflows that want direct render/deploy control.
 
 Planning verifies compatibility, downloads the exact OCI chart with Helm,
 verifies the chart package digest, injects the release version, manifest
@@ -179,13 +225,12 @@ recorded are treated as `forward-only`. Preserve the lock in the environment's
 GitOps repository so these checks remain effective across operators and CI
 runners.
 
-The generated deployment bundle has a deployment-only `docker-compose.yaml`
-and `.env` with digest-pinned NopsAI image references. Operators add production
-secrets through their secret manager, then run `docker compose config` and
-`docker compose up -d`. `nopsai-<version>.tgz` is a deployable chart containing
-the same digest-pinned images. Kubernetes installations must create the Secret
-named by `secrets.existingSecret` before installing the chart; PostgreSQL stays
-externally managed.
+The generated deployment bundle still has a deployment-only `docker-compose.yaml`
+and `.env` with digest-pinned NopsAI image references for operators who want the
+release archive instead of CLI generation. `nopsai-<version>.tgz` is a
+deployable chart containing the same digest-pinned images. Kubernetes
+installations must create the Secret named by `secrets.existingSecret` before
+installing the chart; PostgreSQL stays externally managed.
 
 ```bash
 helm upgrade --install nopsai \

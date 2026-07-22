@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
+	"nopsai/pkg/correlation"
 	"nopsai/pkg/httpapi"
 	aaamodel "nopsai/services/aaa/pkg/model"
 	"nopsai/services/nopsai/internal/credentials"
@@ -420,7 +421,9 @@ func (a *App) gitWebhookRateLimitExceeded(ctx context.Context, sourceID string, 
 
 func requestIDFromContext(ctx context.Context) string {
 	if value, ok := ctx.Value(ctxKeyRequestID).(string); ok {
-		return strings.TrimSpace(value)
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
 	}
-	return ""
+	return correlation.RequestIDFromContext(ctx)
 }

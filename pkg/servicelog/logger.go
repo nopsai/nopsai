@@ -3,6 +3,7 @@ package servicelog
 import (
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -40,7 +41,14 @@ func Configure(rawLevel, format string) error {
 
 // ConfigureLevel routes routine events to stdout and warnings or errors to stderr.
 func ConfigureLevel(level zerolog.Level, format string) {
-	log.Logger = zerolog.New(newSplitLevelWriter(format, os.Stdout, os.Stderr)).With().Timestamp().Logger()
+	context := zerolog.New(newSplitLevelWriter(format, os.Stdout, os.Stderr)).With().Timestamp()
+	if serviceName := detectServiceName(); serviceName != "" {
+		context = context.Str("service", serviceName)
+	}
+	if environment := detectEnvironment(); environment != "" {
+		context = context.Str("environment", environment)
+	}
+	log.Logger = context.Logger()
 	zerolog.SetGlobalLevel(level)
 }
 
@@ -50,4 +58,25 @@ func newSplitLevelWriter(format string, stdout, stderr io.Writer) splitLevelWrit
 		stderr = zerolog.ConsoleWriter{Out: stderr, TimeFormat: time.Kitchen}
 	}
 	return splitLevelWriter{stdout: stdout, stderr: stderr}
+}
+
+func detectServiceName() string {
+	for _, key := range []string{"NOPSAI_SERVICE_NAME", "SERVICE_NAME"} {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+	}
+	if len(os.Args) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(filepath.Base(os.Args[0]))
+}
+
+func detectEnvironment() string {
+	for _, key := range []string{"NOPSAI_ENV", "NOPSAI_ENVIRONMENT", "ENVIRONMENT", "APP_ENV"} {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+	}
+	return ""
 }

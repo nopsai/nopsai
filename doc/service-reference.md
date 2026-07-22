@@ -26,6 +26,13 @@ or blank. Use the explicit `disabled` level when a deployment intentionally
 suppresses service container logs. Routine events (`trace` through `info`) are
 written to stdout; warnings and errors are written to stderr.
 
+Shared service logging adds stable `service` and deployment `environment`
+fields when `NOPSAI_SERVICE_NAME`/`SERVICE_NAME` and `NOPSAI_ENVIRONMENT` are
+available. HTTP and gRPC service boundaries log method, path/RPC method, status
+or gRPC code, byte count where applicable, `duration_ms`, `request_id`, and
+`traceparent` when provided. `X-Request-ID` is accepted or generated at ingress
+and propagated over internal HTTP and gRPC metadata.
+
 Responsibilities:
 
 - Enforces optional enterprise startup gates for production deployments,

@@ -87,7 +87,10 @@ spec:
             - name: http
               containerPort: 8080
           env:
+            - {name: NOPSAI_SERVICE_NAME, value: nopsai}
             - {name: NOPSAI_ENVIRONMENT, value: {{ .Values.global.environment | quote }}}
+            - {name: LOG_LEVEL, value: {{ .Values.global.logLevel | quote }}}
+            - {name: LOG_FORMAT, value: {{ .Values.global.logFormat | quote }}}
             - {name: NOPSAI_LISTEN_ADDRESS, value: "0.0.0.0:8080"}
             - {name: AAA_API_URL, value: "http://aaa:8082"}
             - {name: GIT_BOT_API_URL, value: "http://git-bot:8081"}

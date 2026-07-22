@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"nopsai/pkg/correlation"
 	"nopsai/pkg/proto"
 	"nopsai/pkg/serviceauth"
 
@@ -622,6 +623,40 @@ func TestPumpQueueDoesNotHoldDispatcherLockWhileFetchingRunStatus(t *testing.T) 
 	case <-pumpDone:
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for pumpQueue to finish")
+	}
+}
+
+func TestNopsaiHTTPClientIngestLogsSendsCorrelationMetadata(t *testing.T) {
+	var capturedHeader string
+	var capturedPayload map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedHeader = r.Header.Get(correlation.RequestIDHeader)
+		if err := json.NewDecoder(r.Body).Decode(&capturedPayload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client := newNopsaiHTTPClient(server.URL, newTestDispatcherCredentials(t))
+	client.setHTTPClient(server.Client())
+	ctx := correlation.WithTraceparent(correlation.WithRequestID(context.Background(), "req-ingest"), "trace-ingest")
+	err := client.IngestLogs(ctx, "00000000-0000-0000-0000-000000000123", []string{"line one"}, LogIngestMetadata{
+		Source:      serviceauth.RoleRunner,
+		ServiceID:   "runner-1",
+		ServiceRole: serviceauth.RoleRunner,
+	})
+	if err != nil {
+		t.Fatalf("IngestLogs() error = %v", err)
+	}
+	if capturedHeader != "req-ingest" {
+		t.Fatalf("X-Request-ID = %q, want req-ingest", capturedHeader)
+	}
+	if capturedPayload["source"] != serviceauth.RoleRunner || capturedPayload["service_id"] != "runner-1" {
+		t.Fatalf("payload metadata = %#v, want runner source/service", capturedPayload)
+	}
+	if capturedPayload["request_id"] != "req-ingest" || capturedPayload["traceparent"] != "trace-ingest" {
+		t.Fatalf("payload correlation = %#v, want req/trace", capturedPayload)
 	}
 }
 

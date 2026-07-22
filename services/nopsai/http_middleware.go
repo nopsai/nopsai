@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
+	"nopsai/pkg/correlation"
 	"nopsai/pkg/serviceauth"
 	"nopsai/services/nopsai/pkg/audit"
 	"nopsai/services/nopsai/pkg/auth"
 	"nopsai/services/nopsai/pkg/routeauthz"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc/metadata"
@@ -24,7 +24,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*") // Allow any origin for simplicity in POC
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID, Traceparent")
 
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
@@ -102,12 +102,12 @@ func isTrustedInternalDispatcherRequest(r *http.Request) bool {
 
 func requestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		reqID := r.Header.Get("X-Request-ID")
-		if reqID == "" {
-			reqID = uuid.NewString()
+		ctx, reqID, traceparent := correlation.FromHTTPHeaders(r.Context(), r.Header)
+		w.Header().Set(correlation.RequestIDHeader, reqID)
+		if traceparent != "" {
+			w.Header().Set(correlation.TraceparentHeader, traceparent)
 		}
-		w.Header().Set("X-Request-ID", reqID)
-		ctx := context.WithValue(r.Context(), ctxKeyRequestID, reqID)
+		ctx = context.WithValue(ctx, ctxKeyRequestID, reqID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -136,15 +136,20 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		start := time.Now()
 		lrw := &loggingResponseWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(lrw, r)
-		reqID, _ := r.Context().Value(ctxKeyRequestID).(string)
-		log.Info().
+		reqID := requestIDFromContext(r.Context())
+		event := log.Info().
 			Str("method", r.Method).
 			Str("path", r.URL.Path).
 			Int("status", lrw.status).
 			Int("bytes", lrw.length).
 			Str("request_id", reqID).
-			Dur("duration_ms", time.Since(start)).
-			Msg("http_request")
+			Str("remote_ip", r.RemoteAddr).
+			Str("user_agent", r.UserAgent()).
+			Int64("duration_ms", time.Since(start).Milliseconds())
+		if traceparent := correlation.TraceparentFromContext(r.Context()); traceparent != "" {
+			event = event.Str("traceparent", traceparent)
+		}
+		event.Msg("http_request")
 	})
 }
 
@@ -223,6 +228,9 @@ func (a *App) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		ctx := auth.WithClaims(r.Context(), claims)
+		if state := auditRequestStateFromContext(ctx); state != nil {
+			state.claims = claims
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -332,16 +340,35 @@ func (a *auditRecorder) WriteHeader(code int) {
 	a.ResponseWriter.WriteHeader(code)
 }
 
+type auditRequestState struct {
+	claims *auth.Claims
+}
+
+const ctxKeyAuditRequestState requestContextKey = "audit-request-state"
+
+func auditRequestStateFromContext(ctx context.Context) *auditRequestState {
+	if ctx == nil {
+		return nil
+	}
+	state, _ := ctx.Value(ctxKeyAuditRequestState).(*auditRequestState)
+	return state
+}
+
 func (a *App) auditMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		state := &auditRequestState{}
+		ctx := context.WithValue(r.Context(), ctxKeyAuditRequestState, state)
 		rec := &auditRecorder{ResponseWriter: w, status: http.StatusOK}
-		next.ServeHTTP(rec, r)
+		next.ServeHTTP(rec, r.WithContext(ctx))
 
 		if a.auditLogger == nil {
 			return
 		}
-		claims, _ := auth.ClaimsFromContext(r.Context())
-		requestID, _ := r.Context().Value(ctxKeyRequestID).(string)
+		claims := state.claims
+		if claims == nil {
+			claims, _ = auth.ClaimsFromContext(ctx)
+		}
+		requestID := requestIDFromContext(ctx)
 
 		entry := audit.Entry{
 			ActorSub:   "",
@@ -353,13 +380,18 @@ func (a *App) auditMiddleware(next http.Handler) http.Handler {
 			Metadata: map[string]any{
 				"request_id": requestID,
 				"remote_ip":  r.RemoteAddr,
+				"method":     r.Method,
+				"path":       r.URL.Path,
 			},
+		}
+		if traceparent := correlation.TraceparentFromContext(ctx); traceparent != "" {
+			entry.Metadata["traceparent"] = traceparent
 		}
 		if claims != nil {
 			entry.ActorSub = claims.Sub
 			entry.ActorEmail = claims.Email
 			entry.Provider = claims.Provider
 		}
-		_ = a.auditLogger.Write(r.Context(), entry)
+		_ = a.auditLogger.Write(ctx, entry)
 	})
 }
