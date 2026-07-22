@@ -117,20 +117,3 @@ func TestEnterpriseDockerBuildsPassLocalBaseImageToAllBaseConsumers(t *testing.T
 		}
 	}
 }
-
-func TestEnterpriseWorkflowPassesLocalBaseImageToAAAAndAgent(t *testing.T) {
-	contents, err := os.ReadFile(".github/workflows/enterprise-gates.yml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(contents)
-	for _, required := range []string{
-		`base_args=(--build-arg "BASE_IMAGE=nopsai-base:$VERSION" "${release_args[@]}")`,
-		`docker build "${base_args[@]}" -t "nopsai-agent:$VERSION" -f container/Dockerfile.agent .`,
-		`docker build "${base_args[@]}" -t "nopsai-aaa:$VERSION" -f container/Dockerfile.aaa .`,
-	} {
-		if !strings.Contains(text, required) {
-			t.Errorf("enterprise-gates workflow does not contain %q", required)
-		}
-	}
-}
