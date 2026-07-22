@@ -2,7 +2,7 @@ name: nopsai
 
 networks:
   nopsai-net:
-    name: nopsai-net
+    name: ${DOCKER_NETWORK_NAME:-nopsai-net}
 
 volumes:
   db:
@@ -12,9 +12,15 @@ x-service-auth-env: &service-auth-env
   SERVICE_JWT_SIGNING_KEY: ${SERVICE_JWT_SIGNING_KEY:?SERVICE_JWT_SIGNING_KEY is required}
 
 x-local-topology-env: &local-topology-env
-  NOPSAI_API_URL: http://nopsai:8080
-  DISPATCHER_GRPC_ADDRESS: dispatcher:9090
-  DOCKER_NETWORK_NAME: nopsai-net
+  NOPSAI_API_URL: ${NOPSAI_INTERNAL_API_URL:-http://nopsai:8080}
+  DISPATCHER_GRPC_ADDRESS: ${DISPATCHER_GRPC_ADDRESS:-dispatcher:9090}
+  DOCKER_NETWORK_NAME: ${DOCKER_NETWORK_NAME:-nopsai-net}
+
+x-observability-env: &observability-env
+  NOPSAI_ENV: ${NOPSAI_ENVIRONMENT:-production}
+  NOPSAI_ENVIRONMENT: ${NOPSAI_ENVIRONMENT:-production}
+  LOG_FORMAT: ${LOG_FORMAT:-json}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
 
 services:
   db:
@@ -37,23 +43,26 @@ services:
 
   aaa:
     container_name: nopsai-aaa
-    image: ${NOPSAI_AAA_IMAGE:?release bundle .env is required}
+    image: ${NOPSAI_AAA_IMAGE:?NOPSAI_AAA_IMAGE is required}
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
     environment:
+      <<: *observability-env
+      NOPSAI_SERVICE_NAME: aaa
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       AAA_SHARED_INTERNAL_TOKEN: ${AAA_SHARED_INTERNAL_TOKEN:?AAA_SHARED_INTERNAL_TOKEN is required}
-      NOPSAI_ENVIRONMENT: ${NOPSAI_ENVIRONMENT:-production}
     networks: [nopsai-net]
 
   docker-socket-proxy:
     container_name: nopsai-docker-socket-proxy
-    image: ${NOPSAI_DOCKER_SOCKET_PROXY_IMAGE:?release bundle .env is required}
+    image: ${NOPSAI_DOCKER_SOCKET_PROXY_IMAGE:?NOPSAI_DOCKER_SOCKET_PROXY_IMAGE is required}
     restart: unless-stopped
     environment:
-      ALLOWED_CONTAINERS: nopsai,nopsai-aaa,nopsai-dispatcher,nopsai-git-bot,nopsai-ui,nopsai-docker-runner,nopsai-k8s-runner
+      <<: *observability-env
+      NOPSAI_SERVICE_NAME: docker-socket-proxy
+      ALLOWED_CONTAINERS: nopsai,nopsai-aaa,nopsai-dispatcher,nopsai-git-bot,nopsai-ui,nopsai-docker-runner,nopsai-k8s-runner,nopsai-docker-socket-proxy,nopsai-gotenberg,nopsai-db
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     read_only: true
@@ -79,7 +88,7 @@ services:
 
   nopsai:
     container_name: nopsai
-    image: ${NOPSAI_API_IMAGE:?release bundle .env is required}
+    image: ${NOPSAI_API_IMAGE:?NOPSAI_API_IMAGE is required}
     restart: unless-stopped
     depends_on:
       db:
@@ -93,49 +102,50 @@ services:
     ports:
       - "${NOPSAI_API_PORT:-8080}:8080"
     environment:
-      <<: [*service-auth-env, *local-topology-env]
+      <<: [*service-auth-env, *local-topology-env, *observability-env]
+      NOPSAI_SERVICE_NAME: nopsai
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       NOPSAI_MASTER_KEY: ${NOPSAI_MASTER_KEY:?NOPSAI_MASTER_KEY is required}
       JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:?JWT_SIGNING_KEY is required}
-      AAA_API_URL: http://aaa:8082
+      AAA_API_URL: ${AAA_API_URL:-http://aaa:8082}
       AAA_SHARED_INTERNAL_TOKEN: ${AAA_SHARED_INTERNAL_TOKEN:?AAA_SHARED_INTERNAL_TOKEN is required}
-      GIT_BOT_API_URL: http://git-bot:8081
-      FINAL_OUTPUT_PDF_RENDERER_URL: http://gotenberg:3000
+      GIT_BOT_API_URL: ${GIT_BOT_API_URL:-http://git-bot:8081}
+      FINAL_OUTPUT_PDF_RENDERER_URL: ${FINAL_OUTPUT_PDF_RENDERER_URL:-http://gotenberg:3000}
+      SYSTEM_LOGS_PROVIDER: docker
       SYSTEM_LOGS_DOCKER_HOST: tcp://docker-socket-proxy:2375
-      AGENT_IMAGE: ${NOPSAI_AGENT_IMAGE:?release bundle .env is required}
-      NOPSAI_ENVIRONMENT: ${NOPSAI_ENVIRONMENT:-production}
+      AGENT_IMAGE: ${NOPSAI_AGENT_IMAGE:?NOPSAI_AGENT_IMAGE is required}
     networks: [nopsai-net]
 
   dispatcher:
     container_name: nopsai-dispatcher
-    image: ${NOPSAI_DISPATCHER_IMAGE:?release bundle .env is required}
+    image: ${NOPSAI_DISPATCHER_IMAGE:?NOPSAI_DISPATCHER_IMAGE is required}
     restart: unless-stopped
     depends_on:
       nopsai:
         condition: service_started
     environment:
-      <<: *service-auth-env
-      NOPSAI_API_URL: http://nopsai:8080
-      NOPSAI_ENVIRONMENT: ${NOPSAI_ENVIRONMENT:-production}
+      <<: [*service-auth-env, *observability-env]
+      NOPSAI_SERVICE_NAME: dispatcher
+      NOPSAI_API_URL: ${NOPSAI_INTERNAL_API_URL:-http://nopsai:8080}
     networks: [nopsai-net]
 
   git-bot:
     container_name: nopsai-git-bot
-    image: ${NOPSAI_GIT_BOT_IMAGE:?release bundle .env is required}
+    image: ${NOPSAI_GIT_BOT_IMAGE:?NOPSAI_GIT_BOT_IMAGE is required}
     restart: unless-stopped
     depends_on:
       nopsai:
         condition: service_started
     environment:
-      <<: *service-auth-env
+      <<: [*service-auth-env, *observability-env]
+      NOPSAI_SERVICE_NAME: git-bot
       GIT_BOT_LISTEN_ADDRESS: 0.0.0.0:8081
-      NOPSAI_API_URL: http://nopsai:8080
-      NOPSAI_ENVIRONMENT: ${NOPSAI_ENVIRONMENT:-production}
+      NOPSAI_API_URL: ${NOPSAI_INTERNAL_API_URL:-http://nopsai:8080}
     networks: [nopsai-net]
 
   ui:
     container_name: nopsai-ui
-    image: ${NOPSAI_UI_IMAGE:?release bundle .env is required}
+    image: ${NOPSAI_UI_IMAGE:?NOPSAI_UI_IMAGE is required}
     restart: unless-stopped
     depends_on:
       nopsai:
@@ -152,16 +162,16 @@ services:
   docker-runner:
     container_name: nopsai-docker-runner
     hostname: docker-runner
-    image: ${NOPSAI_RUNNER_IMAGE:?release bundle .env is required}
+    image: ${NOPSAI_RUNNER_IMAGE:?NOPSAI_RUNNER_IMAGE is required}
     restart: unless-stopped
     depends_on:
       dispatcher:
         condition: service_started
     environment:
-      <<: *service-auth-env
-      DISPATCHER_GRPC_ADDRESS: dispatcher:9090
-      DOCKER_NETWORK_NAME: nopsai-net
-      NOPSAI_ENVIRONMENT: ${NOPSAI_ENVIRONMENT:-production}
+      <<: [*service-auth-env, *observability-env]
+      NOPSAI_SERVICE_NAME: docker-runner
+      DISPATCHER_GRPC_ADDRESS: ${DISPATCHER_GRPC_ADDRESS:-dispatcher:9090}
+      DOCKER_NETWORK_NAME: ${DOCKER_NETWORK_NAME:-nopsai-net}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     networks: [nopsai-net]

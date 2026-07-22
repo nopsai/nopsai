@@ -55,7 +55,7 @@ Public endpoint:
 
 - `GET /healthz`
 - `GET /version` exposes only immutable build, API compatibility, capability,
-  and release-manifest identity. It is available during setup preflight and
+  and optional legacy release-manifest identity. It is available during setup preflight and
   does not expose environment state or credentials.
 
 Internal endpoints require the `X-Internal-Token` header, configured with `AAA_SHARED_INTERNAL_TOKEN`:

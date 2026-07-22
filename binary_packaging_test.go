@@ -15,7 +15,7 @@ func TestBaseImageBuildsSeparateCLIAndAPIBinaries(t *testing.T) {
 	for _, required := range []string{
 		"ARG VERSION=dev",
 		"nopsai/pkg/buildinfo.Version=${VERSION}",
-		"nopsai/pkg/buildinfo.ReleaseManifestDigest=${RELEASE_MANIFEST_DIGEST}",
+		"nopsai/pkg/buildinfo.PlatformCompatibility=${PLATFORM_COMPATIBILITY}",
 		"platform.docker-compose",
 		"COPY db db",
 		"-o /out/nopsai ./cmd/nopsai-cli",

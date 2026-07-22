@@ -52,3 +52,23 @@ app.kubernetes.io/component: {{ .component }}
 app.kubernetes.io/name=nopsai,app.kubernetes.io/instance={{ .Release.Name }}
 {{- end -}}
 {{- end }}
+
+{{- define "nopsai.topology.nopsaiAPIURL" -}}
+{{- dig "topology" "nopsaiAPIURL" "http://nopsai:8080" .Values -}}
+{{- end }}
+
+{{- define "nopsai.topology.dispatcherGRPCAddress" -}}
+{{- dig "topology" "dispatcherGRPCAddress" "dispatcher:9090" .Values -}}
+{{- end }}
+
+{{- define "nopsai.topology.aaaAPIURL" -}}
+{{- dig "topology" "aaaAPIURL" "http://aaa:8082" .Values -}}
+{{- end }}
+
+{{- define "nopsai.topology.gitBotAPIURL" -}}
+{{- dig "topology" "gitBotAPIURL" "http://git-bot:8081" .Values -}}
+{{- end }}
+
+{{- define "nopsai.topology.gotenbergURL" -}}
+{{- dig "topology" "gotenbergURL" "http://gotenberg:3000" .Values -}}
+{{- end }}
