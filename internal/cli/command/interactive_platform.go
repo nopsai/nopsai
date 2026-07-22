@@ -152,8 +152,9 @@ func chooseInteractiveReleaseTarget(prompter *interactive.Prompter, root *rootOp
 
 func platformReleaseTargetScreenOptions(root *rootOptions) interactive.ScreenOptions {
 	return interactive.ScreenOptions{
+		Breadcrumb: []string{"Home", "Platform", "Release"},
 		Title:      "Platform Release",
-		Header:     []string{"Version default: " + valueOrDefault(defaultPlatformVersion(root), "not embedded; version is required")},
+		Header:     []string{"Version: " + valueOrDefault(defaultPlatformVersion(root), "not embedded; version is required")},
 		LeftTitle:  "Targets",
 		RightTitle: "Release Detail",
 		LeftWidth:  38,
@@ -212,8 +213,9 @@ func resolveLiveKubernetesReleaseOptions(prompter *interactive.Prompter, options
 
 func platformReleaseFormScreenOptions(defaultVersion string) interactive.ScreenOptions {
 	return interactive.ScreenOptions{
+		Breadcrumb:  []string{"Home", "Platform", "Release", "Kubernetes"},
 		Title:       "Kubernetes Release",
-		Header:      []string{"Version default: " + valueOrDefault(strings.TrimSpace(defaultVersion), "not embedded; version is required")},
+		Header:      []string{"Version: " + valueOrDefault(strings.TrimSpace(defaultVersion), "not embedded; version is required")},
 		LeftTitle:   "Release Steps",
 		RightTitle:  "Values & Details",
 		LeftWidth:   58,
@@ -231,9 +233,10 @@ func platformReleaseResultScreenOptions(root *rootOptions, options platformRelea
 		mode = "deploy"
 	}
 	return interactive.ScreenOptions{
-		Title: "Platform Release Result",
+		Breadcrumb: []string{"Home", "Platform", "Release", "Result"},
+		Title:      "Platform Release Result",
 		Header: []string{
-			"Version default: " + valueOrDefault(defaultPlatformVersion(root), "not embedded"),
+			"Version: " + valueOrDefault(defaultPlatformVersion(root), "not embedded"),
 			fmt.Sprintf("Mode: %s | Output: %s | Lock: %s", mode, valueOrDefault(options.output, "text"), releaseLockPath(options)),
 		},
 		Footer: []string{"Keys: Up/Down scroll | PgUp/PgDn jump | Home/End | Enter platform | Esc platform | Ctrl+C quit"},

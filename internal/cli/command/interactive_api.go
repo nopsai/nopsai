@@ -259,7 +259,7 @@ func runInteractiveAPIDescribe(command *cobra.Command, prompter *interactive.Pro
 		err      error
 	)
 	if prompter.CanUseLiveSelector() {
-		selected, err = prompter.ChooseScreen("Describe route", choices, apiRouteScreenOptions(routes, state, apiRequestOptions{}))
+		selected, err = prompter.ChooseScreen("Describe route", choices, apiRouteScreenOptions(routes, state))
 	} else {
 		selected, err = prompter.Choose("Describe route", choices)
 	}
