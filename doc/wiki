@@ -487,6 +487,8 @@ shared run workspaces.
 
 The Helm chart deploys API, AAA, dispatcher, git-bot, UI, Gotenberg, and the
 Kubernetes runner. PostgreSQL and bootstrap secrets are intentionally external.
+`topology.dispatcherGRPCAddress` defaults to `dispatcher:9090` and controls the
+dispatcher endpoint injected into API and Kubernetes runner pods.
 
 ## Bootstrap Configuration
 

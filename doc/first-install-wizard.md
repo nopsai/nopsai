@@ -101,9 +101,10 @@ Required preflight items:
 - `NOPSAI_MASTER_KEY`: required for encrypted secret storage.
 - `JWT_SIGNING_KEY`: required for local login sessions.
 
-The login page shows suggested environment entries for missing required values.
-The wizard can generate later service secrets after login, but these hard
-pre-authentication values must exist before an authenticated workspace can open.
+The login page shows suggested environment entries for missing required values
+and marks configured required checks with a green tick. The wizard can generate
+later service secrets after login, but these hard pre-authentication values must
+exist before an authenticated workspace can open.
 
 Production startup gates:
 

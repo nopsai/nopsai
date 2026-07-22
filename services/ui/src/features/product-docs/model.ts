@@ -1687,6 +1687,7 @@ const baseWikiSections: WikiSectionInput[] = [
         keyFacts: [
           'The wizard checks database, encryption, JWT, service-secret, internal URL, LLM/MCP, starter content, and runner readiness.',
           'Required gates must pass before the workspace is ready for normal use.',
+          'The login readiness view marks configured required gates with a green tick.',
           'Optional AI and MCP seed data can be skipped and added later.',
           'Production mode does not silently accept unsafe bootstrap defaults.',
         ],
@@ -2296,6 +2297,7 @@ const baseWikiSections: WikiSectionInput[] = [
         keyFacts: [
           'Create the Secret referenced by `secrets.existingSecret` before installing the chart.',
           'Default secret keys are database-url, master-key, jwt-signing-key, service-jwt-signing-key, and aaa-shared-internal-token.',
+          '`topology.dispatcherGRPCAddress` defaults to dispatcher:9090 and feeds API and Kubernetes runner pods.',
           'The chart defaults to Kubernetes System Logs and can create read-only pods and pods/log RBAC for the API service account.',
           'The Kubernetes runner starts one agent pod per run and step pods that share a PVC-backed workspace.',
         ],
@@ -2315,6 +2317,12 @@ const baseWikiSections: WikiSectionInput[] = [
             area: 'Runner',
             description: 'Workspace mode for agent and step pods.',
             example: 'pvc',
+          },
+          {
+            key: 'topology.dispatcherGRPCAddress',
+            area: 'Helm',
+            description: 'Internal dispatcher gRPC endpoint injected into API and Kubernetes runner pods.',
+            example: 'dispatcher:9090',
           },
           {
             key: 'k8sRunner.affinityEnabled',

@@ -33,6 +33,26 @@ type SetupPreflight = {
   checks: SetupPreflightCheck[];
 };
 
+function renderReadinessState(check: SetupPreflightCheck) {
+  if (check.required && check.status === 'success') {
+    return (
+      <span
+        aria-label={`${check.label} configured`}
+        className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-emerald-600 text-sm font-semibold leading-none text-white shadow-sm shadow-emerald-900/10"
+        title="Configured"
+      >
+        ✓
+      </span>
+    );
+  }
+
+  return (
+    <span className="text-xs uppercase tracking-wide">
+      {check.required ? 'Required' : 'Optional'}
+    </span>
+  );
+}
+
 export default function LoginPage({ onLogin }: { onLogin: () => void }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -206,129 +226,133 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[var(--bg-primary)] p-6">
-      <div className={`w-full grid gap-5 ${showReadiness ? 'max-w-4xl lg:grid-cols-[1fr_0.85fr]' : 'max-w-md'}`}>
-        {showReadiness && (
-          <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-6 shadow-lg">
-            <BrandIdentity className="login-brand mb-5" />
-            <h1 className="text-2xl font-semibold text-[var(--text-primary)]">Installation readiness</h1>
-            <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
-              NopsAI needs the database, master encryption key, and JWT signing key before the authenticated workspace can open.
-            </p>
+      <div className={`w-full ${showReadiness ? 'max-w-4xl' : 'max-w-md'}`}>
+        <div className="mb-6 flex justify-center">
+          <BrandIdentity className="login-brand" />
+        </div>
 
-            <div className="mt-5 space-y-3">
-              {preflightUnavailable ? (
-                <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-700 dark:text-red-300">
-                  The API is not reachable. Check that the `nopsai` service is running and verify the required environment below.
-                </div>
-              ) : preflight ? (
-                <>
-                  {(preflight.checks || []).filter(check => check.required || check.status === 'error').map(check => (
-                    <div key={check.id} className={`rounded-lg border p-3 text-sm ${check.status === 'success' ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : check.status === 'error' ? 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300' : 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'}`}>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="font-semibold">{check.label}</span>
-                        <span className="text-xs uppercase">{check.required ? 'Required' : 'Optional'}</span>
+        <div className={`grid gap-5 ${showReadiness ? 'lg:grid-cols-[1fr_0.85fr]' : ''}`}>
+          {showReadiness && (
+            <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-6 shadow-lg">
+              <h1 className="text-2xl font-semibold text-[var(--text-primary)]">Installation readiness</h1>
+              <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
+                NopsAI needs the database, master encryption key, and JWT signing key before the authenticated workspace can open.
+              </p>
+
+              <div className="mt-5 space-y-3">
+                {preflightUnavailable ? (
+                  <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-700 dark:text-red-300">
+                    The API is not reachable. Check that the `nopsai` service is running and verify the required environment below.
+                  </div>
+                ) : preflight ? (
+                  <>
+                    {(preflight.checks || []).filter(check => check.required || check.status === 'error').map(check => (
+                      <div key={check.id} className={`rounded-lg border p-3 text-sm ${check.status === 'success' ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : check.status === 'error' ? 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300' : 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'}`}>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-semibold">{check.label}</span>
+                          {renderReadinessState(check)}
+                        </div>
+                        <div className="mt-1 text-xs leading-5">{check.message}</div>
                       </div>
-                      <div className="mt-1 text-xs leading-5">{check.message}</div>
-                    </div>
-                  ))}
-                </>
-              ) : (
-                <div className="rounded-lg border border-[var(--border-primary)] p-4 text-sm text-[var(--text-secondary)]">Checking installation prerequisites...</div>
+                    ))}
+                  </>
+                ) : (
+                  <div className="rounded-lg border border-[var(--border-primary)] p-4 text-sm text-[var(--text-secondary)]">Checking installation prerequisites...</div>
+                )}
+              </div>
+
+              {(preflightUnavailable || suggestedEnv.length > 0) && (
+                <div className="mt-5">
+                  <div className="mb-2 text-sm font-semibold">Suggested runtime values</div>
+                  <pre className="overflow-auto rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-3 text-xs leading-5">{suggestedEnv.length > 0 ? suggestedEnv.map(([key, value]) => `${key}=${value}`).join('\n') : 'DATABASE_URL=postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_db\nNOPSAI_MASTER_KEY=$(openssl rand -base64 32)\nJWT_SIGNING_KEY=$(openssl rand -base64 48)'}</pre>
+                </div>
               )}
             </div>
+          )}
 
-            {(preflightUnavailable || suggestedEnv.length > 0) && (
-              <div className="mt-5">
-                <div className="mb-2 text-sm font-semibold">Suggested runtime values</div>
-                <pre className="overflow-auto rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] p-3 text-xs leading-5">{suggestedEnv.length > 0 ? suggestedEnv.map(([key, value]) => `${key}=${value}`).join('\n') : 'DATABASE_URL=postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_db\nNOPSAI_MASTER_KEY=$(openssl rand -base64 32)\nJWT_SIGNING_KEY=$(openssl rand -base64 48)'}</pre>
+          <div className="w-full bg-[var(--bg-secondary)] rounded-xl shadow-lg border border-[var(--border-primary)] p-8 space-y-6 self-start">
+            <div className="text-center space-y-2">
+              <h1 className="text-2xl font-semibold text-[var(--text-primary)]">Sign in</h1>
+              <p className="text-sm text-[var(--text-secondary)]">
+                {ssoEnabled ? 'Use SSO or your local account to continue' : 'Use your local account to continue'}
+              </p>
+            </div>
+            {ssoEnabled && (
+              <div className="space-y-3">
+                <div className="grid gap-2">
+                  {authProviders.providers.map(provider => (
+                    <button
+                      key={provider.id}
+                      type="button"
+                      className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm font-medium text-[var(--text-primary)] transition hover:border-[var(--border-accent)] disabled:opacity-60"
+                      disabled={loginBlocked || providersLoading}
+                      onClick={() => startProviderLogin(provider.id)}
+                    >
+                      Continue with {provider.display_name}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-3 text-xs uppercase tracking-wide text-[var(--text-secondary)]">
+                  <span className="h-px flex-1 bg-[var(--border-primary)]" />
+                  <span>or</span>
+                  <span className="h-px flex-1 bg-[var(--border-primary)]" />
+                </div>
               </div>
             )}
-          </div>
-        )}
-
-        <div className="w-full bg-[var(--bg-secondary)] rounded-xl shadow-lg border border-[var(--border-primary)] p-8 space-y-6 self-start">
-        <div className="text-center space-y-2">
-          <BrandIdentity className="login-brand" />
-          <h1 className="text-2xl font-semibold text-[var(--text-primary)]">Sign in</h1>
-          <p className="text-sm text-[var(--text-secondary)]">
-            {ssoEnabled ? 'Use SSO or your local account to continue' : 'Use your local account to continue'}
-          </p>
-        </div>
-        {ssoEnabled && (
-          <div className="space-y-3">
-            <div className="grid gap-2">
-              {authProviders.providers.map(provider => (
+            <form className="space-y-4" onSubmit={showLocalPassword ? handleSubmit : event => { event.preventDefault(); void handleDiscover(); }}>
+              <div className="space-y-2">
+                <label htmlFor="login-identifier" className="block text-sm font-medium text-[var(--text-secondary)]">
+                  {ssoEnabled && !showLocalPassword ? 'Company email' : 'Email or username'}
+                </label>
+                <input
+                  id="login-identifier"
+                  value={identifier}
+                  onChange={e => setIdentifier(e.target.value)}
+                  className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)]"
+                  placeholder={ssoEnabled && !showLocalPassword ? 'you@example.com' : 'admin or you@example.com'}
+                  required
+                />
+              </div>
+              {showLocalPassword && localEnabled && (
+                <div className="space-y-2">
+                  <label htmlFor="login-password" className="block text-sm font-medium text-[var(--text-secondary)]">
+                    Password
+                  </label>
+                  <input
+                    id="login-password"
+                    type="password"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)]"
+                    placeholder="••••••••"
+                    required={showLocalPassword}
+                  />
+                </div>
+              )}
+              {error && <div className="text-sm text-red-500">{error}</div>}
+              {loginBlocked && <div className="text-sm text-amber-600 dark:text-amber-300">Complete required installation settings before signing in.</div>}
+              <button
+                type="submit"
+                disabled={loading || discoveryLoading || providersLoading || loginBlocked || (!showLocalPassword && !ssoEnabled) || (showLocalPassword && !localEnabled)}
+                className="w-full rounded-lg bg-indigo-700 py-2 font-medium text-white transition hover:bg-indigo-800 disabled:opacity-60 dark:bg-indigo-600 dark:hover:bg-indigo-500"
+              >
+                {showLocalPassword ? (loading ? 'Signing in...' : 'Sign in') : (discoveryLoading ? 'Checking...' : 'Continue')}
+              </button>
+              {ssoEnabled && localEnabled && showLocalPassword && (
                 <button
-                  key={provider.id}
                   type="button"
-                  className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-sm font-medium text-[var(--text-primary)] transition hover:border-[var(--border-accent)] disabled:opacity-60"
-                  disabled={loginBlocked || providersLoading}
-                  onClick={() => startProviderLogin(provider.id)}
+                  className="w-full text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                  onClick={() => {
+                    setShowLocalPassword(false);
+                    setPassword('');
+                    setError('');
+                  }}
                 >
-                  Continue with {provider.display_name}
+                  Use company SSO instead
                 </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-3 text-xs uppercase tracking-wide text-[var(--text-secondary)]">
-              <span className="h-px flex-1 bg-[var(--border-primary)]" />
-              <span>or</span>
-              <span className="h-px flex-1 bg-[var(--border-primary)]" />
-            </div>
+              )}
+            </form>
           </div>
-        )}
-        <form className="space-y-4" onSubmit={showLocalPassword ? handleSubmit : event => { event.preventDefault(); void handleDiscover(); }}>
-          <div className="space-y-2">
-            <label htmlFor="login-identifier" className="block text-sm font-medium text-[var(--text-secondary)]">
-              {ssoEnabled && !showLocalPassword ? 'Company email' : 'Email or username'}
-            </label>
-            <input
-              id="login-identifier"
-              value={identifier}
-              onChange={e => setIdentifier(e.target.value)}
-              className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)]"
-              placeholder={ssoEnabled && !showLocalPassword ? 'you@example.com' : 'admin or you@example.com'}
-              required
-            />
-          </div>
-          {showLocalPassword && localEnabled && (
-            <div className="space-y-2">
-              <label htmlFor="login-password" className="block text-sm font-medium text-[var(--text-secondary)]">
-                Password
-              </label>
-              <input
-                id="login-password"
-                type="password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                className="w-full rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-2 text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--border-accent)]"
-                placeholder="••••••••"
-                required={showLocalPassword}
-              />
-            </div>
-          )}
-          {error && <div className="text-sm text-red-500">{error}</div>}
-          {loginBlocked && <div className="text-sm text-amber-600 dark:text-amber-300">Complete required installation settings before signing in.</div>}
-          <button
-            type="submit"
-            disabled={loading || discoveryLoading || providersLoading || loginBlocked || (!showLocalPassword && !ssoEnabled) || (showLocalPassword && !localEnabled)}
-            className="w-full rounded-lg bg-indigo-700 py-2 font-medium text-white transition hover:bg-indigo-800 disabled:opacity-60 dark:bg-indigo-600 dark:hover:bg-indigo-500"
-          >
-            {showLocalPassword ? (loading ? 'Signing in...' : 'Sign in') : (discoveryLoading ? 'Checking...' : 'Continue')}
-          </button>
-          {ssoEnabled && localEnabled && showLocalPassword && (
-            <button
-              type="button"
-              className="w-full text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-              onClick={() => {
-                setShowLocalPassword(false);
-                setPassword('');
-                setError('');
-              }}
-            >
-              Use company SSO instead
-            </button>
-          )}
-        </form>
         </div>
       </div>
     </div>
