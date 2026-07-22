@@ -9,6 +9,7 @@ import (
 	"nopsai/pkg/models"
 	"nopsai/pkg/proto"
 	"nopsai/services/agent/internal/approval"
+	"nopsai/services/agent/internal/executor"
 
 	"github.com/rs/zerolog"
 )
@@ -133,6 +134,28 @@ func TestRunPipelinePausesForApprovalWithoutFinalStatus(t *testing.T) {
 	}
 }
 
+func TestDetectLiveActionLogLevelNormalizesStructuredAndStreamLevels(t *testing.T) {
+	cases := []struct {
+		name   string
+		stream executor.OutputStream
+		line   string
+		want   string
+	}{
+		{name: "structured warning", stream: executor.OutputStreamStdout, line: `{"level":"warning","message":"slow"}`, want: "warn"},
+		{name: "structured trace", stream: executor.OutputStreamStdout, line: `{"output_level":"trace","message":"verbose"}`, want: "debug"},
+		{name: "stderr fallback", stream: executor.OutputStreamStderr, line: "plain failure", want: "error"},
+		{name: "stdout fallback", stream: executor.OutputStreamStdout, line: "plain output", want: "info"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := detectLiveActionLogLevel(tc.stream, tc.line); got != tc.want {
+				t.Fatalf("detectLiveActionLogLevel() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func testPipelineRunRequest(pipeline models.Pipeline, runtime StepRuntime, statuses *statusRecorder, finalStatuses *finalStatusRecorder) PipelineRunRequest {
 	logger := zerolog.New(io.Discard)
 	return PipelineRunRequest{
@@ -184,10 +207,16 @@ func (r *fakeStepRuntime) CreateSession(_ context.Context, _ *zerolog.Logger, re
 	return "session-" + req.StepName, nil
 }
 
-func (r *fakeStepRuntime) ExecuteAction(_ context.Context, _ string, action *proto.Action, _ []string, _ string) (string, string, int) {
+func (r *fakeStepRuntime) ExecuteAction(_ context.Context, _ string, action *proto.Action, _ []string, _ string, onLine executor.OutputLineHandler) (string, string, int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.actions = append(r.actions, action)
+	if onLine != nil && r.stdout != "" {
+		onLine(executor.OutputStreamStdout, r.stdout)
+	}
+	if onLine != nil && r.stderr != "" {
+		onLine(executor.OutputStreamStderr, r.stderr)
+	}
 	return r.stdout, r.stderr, r.exitCode
 }
 
