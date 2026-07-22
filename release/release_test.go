@@ -138,6 +138,54 @@ func TestHelmChartConfiguresKubernetesSystemLogs(t *testing.T) {
 	}
 }
 
+func TestHelmChartTopologyDispatcherAddressIsOverrideable(t *testing.T) {
+	valuesBytes, err := os.ReadFile("../deploy/helm/nopsai/values.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	apiTemplateBytes, err := os.ReadFile("../deploy/helm/nopsai/templates/api.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runnerTemplateBytes, err := os.ReadFile("../deploy/helm/nopsai/templates/k8s-runner.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	helpersBytes, err := os.ReadFile("../deploy/helm/nopsai/templates/_helpers.tpl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := string(valuesBytes)
+	apiTemplate := string(apiTemplateBytes)
+	runnerTemplate := string(runnerTemplateBytes)
+	helpers := string(helpersBytes)
+	for _, required := range []string{
+		"topology:",
+		"dispatcherGRPCAddress: dispatcher:9090",
+	} {
+		if !strings.Contains(values, required) {
+			t.Errorf("values.yaml is missing topology dispatcher contract %q", required)
+		}
+	}
+	for name, template := range map[string]string{"api.yaml": apiTemplate, "k8s-runner.yaml": runnerTemplate} {
+		if !strings.Contains(template, `include "nopsai.topology.dispatcherGRPCAddress" . | quote`) {
+			t.Errorf("%s does not use topology dispatcher helper", name)
+		}
+	}
+	for _, required := range []string{
+		`define "nopsai.topology.dispatcherGRPCAddress"`,
+		`index $topology "dispatcherGRPCAddress"`,
+		`default "dispatcher:9090"`,
+	} {
+		if !strings.Contains(helpers, required) {
+			t.Errorf("_helpers.tpl is missing topology dispatcher helper contract %q", required)
+		}
+	}
+	if strings.Contains(helpers, `dig "topology"`) {
+		t.Fatal("_helpers.tpl must not use dig for topology values because Helm passes .Values as chartutil.Values")
+	}
+}
+
 func TestPlatformReleasePublishesCLIArtifactsAndParsesHelmDigest(t *testing.T) {
 	pipeline := readNopsAIReleasePipeline(t)
 	for _, required := range []string{
