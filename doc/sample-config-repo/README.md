@@ -200,6 +200,9 @@ global-repo/triggers/acme/service-api.yaml
 global-repo/triggers/acme/deploy-webhook.yaml
   -> trigger override acme/deploy-webhook for the webhook-deployer service account sample
 
+global-repo/triggers/hosein-yousefii/pre-nopsai.yaml
+  -> GitHub App repository trigger for self-hosted NopsAI release on push to main, assigned to platform/prod with scope prod
+
 global-repo/external-triggers/deploy-prod.yaml
   -> authenticated external trigger for ServiceNow-style production deploy approvals,
      with invoked runs teamed under platform/prod
@@ -248,7 +251,7 @@ global-repo/access/*.yaml
   -> global users, service accounts, advanced roles, policies, advanced role bindings, and basic role grants
 
 global-repo/access/service-accounts.yaml
-  -> service account identities webhook-deployer and servicenow-prod, plus scoped webhook grants and a least-privilege external trigger runner role
+  -> service account identities webhook-deployer, servicenow-prod, and nopsai-release-bot, plus scoped webhook grants and a least-privilege release pipeline runner role
 
 global-repo/config-repositories/teams/team-2/notifications.yaml
   -> team notification policy with named routes for team-2 pipeline events
@@ -278,8 +281,8 @@ global-repo/setting/system/credentials.example.yaml
   -> documentation-only example of encrypted credential envelopes; drift export writes the active credentials.yaml
 ```
 
-The `webhook-deployer` and `servicenow-prod` service accounts are intentionally
-tokenless in Git. After sync, create or rotate their `nopsat_` tokens from System Access or
+The `webhook-deployer`, `servicenow-prod`, and `nopsai-release-bot` service
+accounts are intentionally tokenless in Git. After sync, create or rotate their `nopsat_` tokens from System Access or
 `POST /v1/admin/service-accounts/{id}/tokens`, then use that token for
 integration API calls such as starting `platform/prod/platform-maintenance` in scope `dev`.
 The paired `triggers/acme/deploy-webhook.yaml` file shows the GitHub webhook
@@ -288,6 +291,16 @@ The paired `external-triggers/deploy-prod.yaml` file shows the enterprise path:
 `servicenow-prod` has an advanced role that can invoke `deploy-prod`, execute
 and use `platform/prod/platform-maintenance`; `scopes/prod/scope.yaml` shares restricted
 `scope.use` access with that service account.
+The `triggers/hosein-yousefii/pre-nopsai.yaml` file is the native GitHub App
+self-release trigger. It starts `platform/prod/nopsai-platform-release` when the
+GitHub App receives a `push` event for `main`; it intentionally sets
+`provider: github`, `team_path: platform/prod`, and `management: nopsai`, with
+no `webhook_source` because GitHub App ingress is automatic. The release pipeline
+and `prod` scope both grant use access to `repository:hosein-yousefii/pre-nopsai`
+so the GitHub-triggered run can pass runtime authorization. Release inputs come
+from `scopes/prod/scope.yaml`, including the repository URL, source ref, GHCR
+registry, image platforms, and Docker host. GitHub and GHCR token values stay as
+secret placeholders.
 If a service account is first created in the UI or API, config repository drift
 can export the identity and service-account product grants back to
 `access/service-accounts.yaml` for review-branch push. Token values remain local
