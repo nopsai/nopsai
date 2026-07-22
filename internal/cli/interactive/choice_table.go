@@ -155,14 +155,13 @@ func truncateChoiceCell(value string, width int) string {
 	if width <= 0 {
 		return ""
 	}
-	runes := []rune(value)
-	if len(runes) <= width {
+	if runeCount(value) <= width {
 		return value
 	}
 	if width <= 3 {
 		return strings.Repeat(".", width)
 	}
-	return string(runes[:width-3]) + "..."
+	return truncateVisible(value, width-3) + "..."
 }
 
 func choiceText(choice Choice) string {
@@ -178,5 +177,5 @@ func choiceDisplay(choice Choice) (string, string) {
 }
 
 func runeCount(value string) int {
-	return len([]rune(value))
+	return visibleRuneCount(value)
 }

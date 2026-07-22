@@ -8,6 +8,13 @@ global:
   podAnnotations: {}
   podLabels: {}
 
+topology:
+  nopsaiAPIURL: http://nopsai:8080
+  dispatcherGRPCAddress: dispatcher:9090
+  aaaAPIURL: http://aaa:8082
+  gitBotAPIURL: http://git-bot:8081
+  gotenbergURL: http://gotenberg:3000
+
 secrets:
   existingSecret: nopsai-secrets
   keys:

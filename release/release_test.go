@@ -33,30 +33,40 @@ func TestCommitCountVersionSeriesMatchesCompatibilityBaseline(t *testing.T) {
 	}
 }
 
-func TestDeploymentTemplatesOwnEveryReleasedImage(t *testing.T) {
-	composeBytes, err := os.ReadFile("../deploy/docker-compose.release.yaml")
+func TestCLIInstallGeneratorOwnsEveryVersionedImage(t *testing.T) {
+	installerBytes, err := os.ReadFile("../internal/cli/platform/install.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	valuesBytes, err := os.ReadFile("../deploy/helm/release-images.yaml.tmpl")
+	valuesBytes, err := os.ReadFile("../deploy/helm/nopsai/values.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	compose, values := string(composeBytes), string(valuesBytes)
-	for _, required := range []string{"API", "AAA", "AGENT", "DISPATCHER", "GIT_BOT", "RUNNER", "DOCKER_SOCKET_PROXY", "UI"} {
-		if !strings.Contains(compose, "NOPSAI_"+required+"_IMAGE") {
-			t.Errorf("release Compose template is missing %s image", required)
+	installer := string(installerBytes)
+	values := string(valuesBytes)
+	for _, repository := range []string{
+		"ghcr.io/hosein-yousefii/nopsai-aaa",
+		"ghcr.io/hosein-yousefii/nopsai-agent",
+		"ghcr.io/hosein-yousefii/nopsai-api",
+		"ghcr.io/hosein-yousefii/nopsai-dispatcher",
+		"ghcr.io/hosein-yousefii/nopsai-docker-socket-proxy",
+		"ghcr.io/hosein-yousefii/nopsai-git-bot",
+		"ghcr.io/hosein-yousefii/nopsai-k8s-runner",
+		"ghcr.io/hosein-yousefii/nopsai-runner",
+		"ghcr.io/hosein-yousefii/nopsai-ui",
+	} {
+		if !strings.Contains(installer, repository) {
+			t.Errorf("CLI install generator is missing %s", repository)
+		}
+		if !strings.Contains(values, repository) {
+			t.Errorf("Helm chart values are missing %s", repository)
 		}
 	}
-	for _, required := range []string{"API", "AAA", "AGENT", "DISPATCHER", "GIT_BOT", "RUNNER", "K8S_RUNNER", "DOCKER_SOCKET_PROXY", "UI"} {
-		if !strings.Contains(values, "{{"+required+"_DIGEST}}") {
-			t.Errorf("Helm release values template is missing %s digest", required)
-		}
+	if !strings.Contains(installer, "DefaultInstallChartReference") || !strings.Contains(installer, "oci://ghcr.io/hosein-yousefii/charts/nopsai") {
+		t.Fatal("CLI install generator does not declare the default OCI chart reference")
 	}
-	for _, template := range []string{compose, values} {
-		if strings.Contains(template, "nopsai-api:latest") || strings.Contains(template, "nopsai-agent:latest") {
-			t.Fatal("release deployment template contains a floating NopsAI image")
-		}
+	if strings.Contains(installer, ":latest") || strings.Contains(values, ":latest") {
+		t.Fatal("install generator or chart values contain a floating NopsAI image")
 	}
 }
 
@@ -131,33 +141,25 @@ func TestHelmChartConfiguresKubernetesSystemLogs(t *testing.T) {
 func TestPlatformReleasePublishesCLIArtifactsAndParsesHelmDigest(t *testing.T) {
 	pipeline := readNopsAIReleasePipeline(t)
 	for _, required := range []string{
+		"package-helm-chart",
+		"helm lint dist/release/chart",
+		"helm package dist/release/chart --destination dist/release",
 		"for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64",
 		"./cmd/nopsai-cli",
 		"rm -rf dist/cli",
-		"release-manifest.json is required before building CLI archives",
-		`release_manifest_digest="sha256:$(sha256sum dist/release/release-manifest.json`,
-		`release_manifest_b64="$(base64 dist/release/release-manifest.json`,
-		"nopsai/pkg/buildinfo.ReleaseManifestDigest=${release_manifest_digest}",
-		"nopsai/internal/cli/platform.EmbeddedReleaseManifestBase64=${release_manifest_b64}",
+		"nopsai/pkg/buildinfo.APIVersion=v1",
 		`asset="nopsai-cli_${VERSION}_${goos}_${goarch}"`,
 		"shopt -s nullglob",
 		"cli_assets=(dist/cli/*)",
 		"No CLI release artifacts were built into dist/cli",
-		"jq '.cli = {}'",
 		`helm push "dist/release/nopsai-$VERSION.tgz" "$chart_repository" 2>&1`,
 		`grep -Eo 'sha256:[a-f0-9]{64}'`,
 		`tail -1 || true`,
 		"apk add --no-cache bash coreutils perl-utils tar gzip",
-		"checksum_files=(.env db/init.sql docker-compose.yaml",
-		"checksum_files+=(release-manifest.json)",
-		"release_manifest=missing packaging release assets without release-manifest.json",
 		"helm_chart_asset=\"nopsai-helm-chart-$VERSION.tgz\"",
 		"changelog_asset=\"nopsai-changelog-$VERSION.md\"",
-		"compose_asset=\"nopsai-docker-compose-$VERSION.yaml\"",
-		"deployment_bundle_asset=\"nopsai-deployment-bundle-$VERSION.tar.gz\"",
 		`cp "${cli_assets[@]}" dist/assets/`,
 		`cp "dist/release/nopsai-$VERSION.tgz" "dist/assets/$helm_chart_asset"`,
-		"if [[ -f dist/release/release-manifest.json ]]",
 		"legacy_assets=(",
 		`gh release delete-asset "v$VERSION" "$asset"`,
 	} {
@@ -165,26 +167,38 @@ func TestPlatformReleasePublishesCLIArtifactsAndParsesHelmDigest(t *testing.T) {
 			t.Errorf("NopsAI platform release pipeline is missing %q", required)
 		}
 	}
+	for _, forbidden := range []string{
+		"render-release-bundle",
+		"validate-release-compose",
+		"release-manifest.json is required before building CLI archives",
+		"release_manifest_digest",
+		"EmbeddedReleaseManifestBase64",
+		"release-index.json",
+		"compose_asset=",
+		"deployment_bundle_asset=",
+		"tar -C dist/release -czf",
+	} {
+		if strings.Contains(pipeline, forbidden) {
+			t.Errorf("NopsAI platform release pipeline should not contain %q", forbidden)
+		}
+	}
 }
 
-func TestManifestTemplateDeclaresEveryPinnedPlatformArtifact(t *testing.T) {
-	contents, err := os.ReadFile("manifest.tmpl.json")
+func TestInstallGeneratorDeclaresEveryCompatibilityImageKey(t *testing.T) {
+	contents, err := os.ReadFile("../internal/cli/platform/install.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	template := string(contents)
+	installer := string(contents)
 	for _, image := range compatibility.RequiredPlatformImages {
-		if !strings.Contains(template, `"`+image+`"`) {
-			t.Errorf("manifest template is missing %q", image)
+		if !strings.Contains(installer, `"`+image+`"`) {
+			t.Errorf("install generator is missing compatibility image key %q", image)
 		}
 	}
 	for _, forbidden := range []string{"@latest", `:latest"`, `:edge"`} {
-		if strings.Contains(template, forbidden) {
-			t.Errorf("manifest template contains floating reference %q", forbidden)
+		if strings.Contains(installer, forbidden) {
+			t.Errorf("install generator contains floating reference %q", forbidden)
 		}
-	}
-	if !strings.Contains(template, `"rollbackPolicy": "forward-only"`) {
-		t.Fatal("manifest template does not declare migration rollback policy")
 	}
 }
 

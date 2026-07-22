@@ -48,15 +48,53 @@ when package scripts need the raw completion script.
 
 ## Interactive Selection
 
-Interactive list prompts render inline below the command as an aligned table
-with selection, number, option, and detail columns. They do not switch to an
-alternate screen or clear the whole terminal window. The prompt shows the full
-matching set through a 10-row viewport. Type to filter live, use Up/Down to move
-through visible and off-screen matches, use PgUp/PgDn for larger jumps, and
-press Enter to select the highlighted row. Clearing the search shows every
+Running `nopsai` with no subcommand opens the default full-screen operator
+console. In a real terminal the CLI uses the alternate screen, clears the view,
+and renders boxed sections with a top status area, left navigation pane, main
+detail pane, and footer guidance. The home screen shows the CLI version, current
+context, API URL, token source, authenticated session user when available, and
+lightweight NopsAI health checks for `/healthz`, `/version`, setup preflight,
+and `/v1/auth/me`.
+
+From the home menu operators can switch into API calls, context management, the
+first-install wizard, platform doctor, guide topics, help, or exit. Nested
+screens keep the same visual model: route parameters, install options, help,
+doctor checks, guide text, and API responses render as boxed step panels or
+scrollable result panels instead of falling back to line-by-line prompts. Esc
+moves one level back, Enter selects or accepts the current step, and Ctrl+C
+exits the interactive session. Terminals that support ANSI styling receive
+dimmed borders, bold titles, highlighted selections, and colored status cues.
+Form screens keep the selected workflow on the left as an ordered checklist of
+steps and parameters, with route/context, progress, final action, and navigation
+near the same list. The top status area keeps route, context, user, defaults,
+current step, completed count, and missing input count visible so operators do
+not need to infer progress from a reused header position. The right pane owns
+the selected value and details: current input, multiline editor content, step
+metadata, guidance, examples, and validation status. Step labels distinguish
+untouched prefilled values from accepted steps, required blanks, active editing,
+and intentionally skipped optional fields. Footer controls are grouped by
+intent: edit, next, submit/send/save, back, and quit.
+
+Interactive lists filter live as the operator types. Use Up/Down to move
+through visible and off-screen matches, PgUp/PgDn for larger jumps, Home/End for
+edges, and Enter to select the highlighted row. Clearing the search shows every
 available option again. When stdin or stdout is not a terminal, the CLI uses the
-same numbered table shape with an explicit search prompt so scripted tests and
-piped input stay deterministic.
+same numbered table shape with explicit prompts so scripted tests and piped
+input stay deterministic.
+
+## Built-In Guides
+
+```bash
+nopsai guide --list
+nopsai guide api
+nopsai guide install
+nopsai guide monitoring
+```
+
+The `guide` command provides CLI-native samples for config, API access,
+first-install environments, GitOps, monitoring, AAA, and MCP. It is intended for
+operators who know what they want to accomplish but do not remember the exact
+subcommand or flag shape.
 
 ## Contexts And Authentication
 
@@ -95,7 +133,7 @@ which makes the same commands deterministic in automation.
 ## Complete API Access
 
 The CLI contains a generated catalog for every route registered by the API. The
-catalog currently covers 340 method/path combinations across operator, public,
+catalog currently covers 348 method/path combinations across operator, public,
 and internal service domains. A parity test compares it to the Go route
 composition and fails when the server changes without regenerating the catalog.
 
@@ -105,6 +143,7 @@ nopsai api routes
 nopsai api routes --domain monitoring --method GET
 nopsai api routes --audience public --output json
 nopsai api describe GET '/v1/pipelines/{pipelineName...}'
+nopsai api describe POST /v1/run --output text
 
 # Search the compiled catalog, select a route, fill parameters, and call it
 nopsai api call
@@ -117,17 +156,33 @@ nopsai api call GET '/v1/pipelines/{pipelineName...}' \
 ```
 
 `api call` rejects unregistered templates, unknown or missing path parameters,
-and slashes in single-segment parameters. Catch-all parameters such as
-`pipelineName...` preserve path segments. Repeated `--query NAME=VALUE` flags
-preserve repeated query keys.
+missing catalogued required query parameters, missing required request bodies,
+and slashes in single-segment parameters. Errors name the exact `--path`,
+`--query`, `--data`, or `--data-raw` shape to provide and point to
+`nopsai api describe METHOD ROUTE_TEMPLATE` for samples. Catch-all parameters
+such as `pipelineName...` preserve path segments. Repeated
+`--query NAME=VALUE` flags preserve repeated query keys.
 
-Interactive `api call` searches the compiled catalog locally with the shared
-10-row live selector, then prompts for required path parameters, optional query
-values, request body source for POST/PUT/PATCH routes, response `Accept` header,
-and whether to attach configured credentials. Public routes default to no bearer
-token; private routes default to using the current context or `NOPSAI_TOKEN`.
-The selected route still goes through the same path expansion, compatibility,
-AAA, audit, and MCP/API middleware as the noninteractive command.
+`api describe --output text` shows the route audience, required path parameters,
+catalogued query parameters, body content type, example payloads when known, and
+a noninteractive `api call` command. JSON/YAML output exposes the same metadata
+for generated tooling.
+
+Interactive `api call` searches the compiled catalog locally, shows the selected
+route guidance in the detail pane, then opens a step-by-step request wizard.
+Only relevant steps are shown: required path parameters, required query
+parameters, additional query assignments when the route exposes them, payload
+file or literal content when the route expects a body, bearer-token attachment,
+and a final send gate. The advanced response-format step is labeled as
+`Response format (HTTP Accept)` so it is clear that it controls response media
+negotiation rather than approving the next action. Public routes default to no
+bearer token; private routes default to using the current context or
+`NOPSAI_TOKEN`. Additional query assignments and payload editor steps support
+multiline input: Enter adds a new line, Tab advances to the next step, and
+Ctrl+S sends from anywhere. JSON response bodies are pretty-printed in a
+scrollable result panel with separate request/result sections. The selected
+route still goes through the same path expansion, compatibility, AAA, audit,
+and MCP/API middleware as the noninteractive command.
 
 Regenerate the catalog after route-composition changes:
 
@@ -215,42 +270,47 @@ nopsai install docker-compose --run
 nopsai install kubernetes \
   --output-dir ./nopsai-prod \
   --values-file values.yaml \
-  --existing-secret nopsai-secrets
+  --existing-secret nopsai-secrets \
+  --nopsai-api-url http://nopsai-api.prod.svc:8080 \
+  --dispatcher-address dispatcher.prod.svc:9090
 
 # Deploy later from the stored, edited files
 cd ./nopsai-prod
 nopsai install kubernetes --output-dir . --values-file values.yaml --deploy --wait
 ```
 
-Run `nopsai install` for the first-time wizard. The wizard asks for the install
-target and required runtime choices, then generates the files itself. It does
-not ask for release-manifest files in the normal path; released CLI archives
-embed the digest-pinned manifest for their own release version.
+Run `nopsai install` for the first-time wizard. The wizard uses a full-screen
+target picker and editable form for required runtime choices and internal
+service topology, then generates the files itself from the selected NopsAI
+version. It does not ask for release-manifest files in the normal path. Esc from
+an install form returns to the target picker; exact noninteractive subcommands
+remain available for GitOps and CI.
 
-`install docker-compose` is the noninteractive shortcut. It resolves and
-verifies the release manifest, generates a deployment-only Compose file, `.env`
-with generated local secrets, embedded `db/init.sql`, the resolved
-`release-manifest.json`, and a non-secret `.nopsai/install.lock`. With `--run`
-it executes `docker compose --env-file .env -f docker-compose.yaml up -d`.
-Re-run with `--force` only when replacing generated files is intentional.
+`install docker-compose` is the noninteractive shortcut. It generates a
+deployment-only Compose file, `.env` with generated local secrets, embedded
+`db/init.sql`, and a non-secret `.nopsai/install.lock` from `--version`. With
+`--run` it executes `docker compose --env-file .env -f docker-compose.yaml up
+-d`. Re-run with `--force` only when replacing generated files is intentional.
+Service addresses are written to `.env` and can be set noninteractively with
+`--nopsai-api-url`, `--dispatcher-address`, `--aaa-api-url`,
+`--git-bot-api-url`, `--gotenberg-url`, and `--docker-network`.
 
-`install kubernetes` generates editable Helm values and stores the same release
-manifest and non-secret install lock. The generated values reference
-`secrets.existingSecret`; create that Secret through External Secrets, SOPS,
-Sealed Secrets, or `kubectl` before deploying. Add `--deploy --wait` on the
-first command to deploy immediately, or run `nopsai install kubernetes --deploy`
-later from the stored output directory after editing values. Stored-file deploys
-reuse `release-manifest.json` and `values.yaml` without overwriting them, then
-write the GitOps release lock after success.
+`install kubernetes` generates editable Helm values and a non-secret install
+lock. The generated values reference `secrets.existingSecret`; create that
+Secret through External Secrets, SOPS, Sealed Secrets, or `kubectl` before
+deploying. Add `--deploy --wait` on the first command to deploy immediately, or
+run `nopsai install kubernetes --deploy` later from the stored output directory
+after editing values. Stored-file deploys reuse `values.yaml` without
+overwriting it, then write a GitOps-readable release lock after success.
+Kubernetes service topology is stored under `topology.nopsaiAPIURL`,
+`topology.dispatcherGRPCAddress`, `topology.aaaAPIURL`,
+`topology.gitBotAPIURL`, and `topology.gotenbergURL` so multi-cluster,
+split-service, or custom-DNS environments can keep those changes reviewable in
+Git.
 
-Both install targets support advanced `--manifest` and
-`--manifest-digest sha256:...` flags for local/offline automation. Operators
-can set `NOPSAI_RELEASE_MANIFEST_URL_TEMPLATE` for an explicit trusted HTTPS
-registry override; `GITHUB_TOKEN`, `GH_TOKEN`, or
-`NOPSAI_RELEASE_MANIFEST_TOKEN` can authenticate that override when required.
-Without `--version`, a released CLI defaults to its embedded release version;
-development builds prompt for a version in the wizard and require an explicit
-manifest source or URL template.
+Without `--version`, a released CLI defaults to its own semantic build version.
+Development builds prompt for a version in the wizard and require `--version`
+for exact noninteractive install commands.
 
 ## Advanced Platform Bundles
 
@@ -275,13 +335,14 @@ Without `--deploy` it runs a plan and prints the rendered manifests. With
 `--deploy` it runs the same verified plan and then performs
 `helm upgrade --install`, waiting when `--wait` is set.
 
-The platform release command resolves an exact semantic version; released CLIs
-default to their own build version and embedded release manifest, while
-development builds require `--version` plus an explicit manifest source or URL
-template. It validates the manifest and CLI compatibility, verifies the
-downloaded OCI Helm chart package digest, and renders digest-pinned values for
-every platform image. Plan mode runs `helm template` and can emit text, JSON, or
-YAML. Deploy mode runs `helm upgrade --install` and writes
+The platform release command resolves an exact semantic version and requires an
+explicit `--manifest` or trusted `NOPSAI_RELEASE_MANIFEST_URL_TEMPLATE`. It
+exists for advanced CI/GitOps workflows that already publish digest-pinned
+manifests outside the default release pipeline. It validates the manifest and
+CLI compatibility, verifies the downloaded OCI Helm chart package digest, and
+renders digest-pinned values for every platform image. Plan mode runs
+`helm template` and can emit text, JSON, or YAML. Deploy mode runs
+`helm upgrade --install` and writes
 `.nopsai/release.lock` atomically only after success.
 Before deployment, an existing lock is checked for release identity, migration
 regressions, and forward-only downgrade restrictions. Keep the lock with the
@@ -335,11 +396,11 @@ ingestion.
 - `cmd/nopsai-cli`: process composition and exit status only
 - `internal/cli/config`: context model, validation, atomic persistence, tokens
 - `internal/cli/client`: authenticated HTTP transport and origin controls
-- `internal/cli/apicatalog`: generated route model and path-template rules
+- `internal/cli/apicatalog`: generated route model, path/query/body guidance, samples, and path-template rules
 - `internal/cli/apicatalog/internal/discovery`: generator-only Go AST discovery
-- `internal/cli/interactive`: live 10-row selectors, stdin/stdout fallback prompts, confirmations, and defaults
-- `internal/cli/platform`: platform diagnostics, release resolution, compatibility, Helm execution, and release lock models
-- `internal/cli/command`: Cobra routing, hook orchestration, and rendering
+- `internal/cli/interactive`: alternate-screen selectors, editable forms, scrollable result panels, stdin/stdout fallback prompts, confirmations, and defaults
+- `internal/cli/platform`: platform diagnostics, install topology, release resolution, compatibility, Helm execution, and release lock models
+- `internal/cli/command`: Cobra routing, interactive home/menu orchestration, guide rendering, hook orchestration, and command rendering
 
 The CLI sends ordinary bearer credentials and does not bypass API middleware.
 AAA decisions, audit behavior, MCP route rules, and resource visibility remain

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -16,26 +17,23 @@ import (
 )
 
 func TestDockerComposeInstallPlanWritesVersionedArtifacts(t *testing.T) {
-	manifestPath, manifest := writeInstallManifestFixture(t, []string{
-		compatibility.CapabilityAPIV1,
-		compatibility.CapabilityPlatformCompose,
-		compatibility.CapabilityPlatformHelm,
-		compatibility.CapabilityRunnerDocker,
-		compatibility.CapabilityRunnerK8s,
-	})
 	outputDir := filepath.Join(t.TempDir(), "install")
 	installer := Installer{
-		Resolver:     ManifestResolver{},
 		CLI:          installCLIInfo("2.7.0"),
 		RandomReader: bytes.NewReader(bytes.Repeat([]byte{7}, 256)),
 		Now:          func() time.Time { return time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC) },
 	}
 	plan, err := installer.PlanDockerCompose(context.Background(), DockerComposeInstallOptions{
-		Version:        "2.7.0",
-		ManifestSource: manifestPath,
-		OutputDir:      outputDir,
-		APIPort:        "18080",
-		UIPort:         "18000",
+		Version:           "2.7.0",
+		OutputDir:         outputDir,
+		APIPort:           "18080",
+		UIPort:            "18000",
+		NopsaiAPIURL:      "http://nopsai-api.internal:8080",
+		DispatcherAddress: "dispatcher.internal:9090",
+		AAAAPIURL:         "http://aaa.internal:8082",
+		GitBotAPIURL:      "http://git-bot.internal:8081",
+		GotenbergURL:      "http://gotenberg.internal:3000",
+		DockerNetworkName: "nopsai-prod-net",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -56,6 +54,7 @@ func TestDockerComposeInstallPlanWritesVersionedArtifacts(t *testing.T) {
 		"NOPSAI_SERVICE_NAME: nopsai",
 		"SYSTEM_LOGS_PROVIDER: docker",
 		"nopsai-docker-socket-proxy",
+		"${DISPATCHER_GRPC_ADDRESS:-dispatcher:9090}",
 	} {
 		if !strings.Contains(composeText, required) {
 			t.Fatalf("compose is missing %q in:\n%s", required, composeText)
@@ -69,7 +68,22 @@ func TestDockerComposeInstallPlanWritesVersionedArtifacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	envText := string(env)
-	if !strings.Contains(envText, "NOPSAI_VERSION=2.7.0") || !strings.Contains(envText, "NOPSAI_API_PORT=18080") || !strings.Contains(envText, manifest.Images["dockerSocketProxy"]) {
+	for _, required := range []string{
+		"NOPSAI_VERSION=2.7.0",
+		"NOPSAI_API_PORT=18080",
+		"NOPSAI_INTERNAL_API_URL=http://nopsai-api.internal:8080",
+		"DISPATCHER_GRPC_ADDRESS=dispatcher.internal:9090",
+		"AAA_API_URL=http://aaa.internal:8082",
+		"GIT_BOT_API_URL=http://git-bot.internal:8081",
+		"FINAL_OUTPUT_PDF_RENDERER_URL=http://gotenberg.internal:3000",
+		"DOCKER_NETWORK_NAME=nopsai-prod-net",
+		"NOPSAI_DOCKER_SOCKET_PROXY_IMAGE=ghcr.io/hosein-yousefii/nopsai-docker-socket-proxy:2.7.0",
+	} {
+		if !strings.Contains(envText, required) {
+			t.Fatalf(".env missing %q in:\n%s", required, envText)
+		}
+	}
+	if !strings.Contains(envText, "NOPSAI_UI_PORT=18000") {
 		t.Fatalf(".env = %s", envText)
 	}
 	if runtime.GOOS != "windows" {
@@ -89,7 +103,7 @@ func TestDockerComposeInstallPlanWritesVersionedArtifacts(t *testing.T) {
 	if err := json.Unmarshal(rawLock, &lock); err != nil {
 		t.Fatal(err)
 	}
-	if lock.Target != "docker-compose" || lock.Version != "2.7.0" || lock.Images["api"] != manifest.Images["api"] || lock.FileHashes[".env"] != "" {
+	if lock.Target != "docker-compose" || lock.Version != "2.7.0" || lock.Images["api"] != "ghcr.io/hosein-yousefii/nopsai-api:2.7.0" || lock.FileHashes[".env"] != "" || strings.Contains(string(rawLock), "manifestDigest") {
 		t.Fatalf("lock = %#v", lock)
 	}
 	if _, err := os.Stat(filepath.Join(outputDir, "db", "init.sql")); err != nil {
@@ -97,38 +111,32 @@ func TestDockerComposeInstallPlanWritesVersionedArtifacts(t *testing.T) {
 	}
 }
 
-func TestDockerComposeInstallRequiresComposeCapabilityAndSocketProxyImage(t *testing.T) {
-	manifestPath, _ := writeInstallManifestFixture(t, []string{
-		compatibility.CapabilityAPIV1,
-		compatibility.CapabilityPlatformHelm,
-		compatibility.CapabilityRunnerDocker,
-	})
-	installer := Installer{Resolver: ManifestResolver{}, CLI: installCLIInfo("2.7.0"), RandomReader: bytes.NewReader(bytes.Repeat([]byte{1}, 256))}
-	_, err := installer.PlanDockerCompose(context.Background(), DockerComposeInstallOptions{Version: "2.7.0", ManifestSource: manifestPath})
+func TestDockerComposeInstallRequiresComposeCapability(t *testing.T) {
+	cli := installCLIInfo("2.7.0")
+	cli.Capabilities = []string{compatibility.CapabilityAPIV1, compatibility.CapabilityPlatformHelm, compatibility.CapabilityRunnerDocker}
+	installer := Installer{CLI: cli, RandomReader: bytes.NewReader(bytes.Repeat([]byte{1}, 256))}
+	_, err := installer.PlanDockerCompose(context.Background(), DockerComposeInstallOptions{Version: "2.7.0"})
 	if err == nil || !strings.Contains(err.Error(), compatibility.CapabilityPlatformCompose) {
 		t.Fatalf("capability error = %v", err)
 	}
 }
 
 func TestKubernetesValuesInstallPlanRendersEditableValues(t *testing.T) {
-	manifestPath, manifest := writeInstallManifestFixture(t, []string{
-		compatibility.CapabilityAPIV1,
-		compatibility.CapabilityPlatformCompose,
-		compatibility.CapabilityPlatformHelm,
-		compatibility.CapabilityRunnerDocker,
-		compatibility.CapabilityRunnerK8s,
-	})
 	outputDir := filepath.Join(t.TempDir(), "k8s")
-	installer := Installer{Resolver: ManifestResolver{}, CLI: installCLIInfo("2.7.0")}
+	installer := Installer{CLI: installCLIInfo("2.7.0")}
 	plan, err := installer.PlanKubernetesValues(context.Background(), KubernetesValuesOptions{
-		Version:        "2.7.0",
-		ManifestSource: manifestPath,
-		OutputDir:      outputDir,
-		ValuesFile:     "prod/values.yaml",
-		ReleaseName:    "nopsai-prod",
-		Namespace:      "nopsai-system",
-		ExistingSecret: "nopsai-prod-secrets",
-		IngressHost:    "nopsai.example.com",
+		Version:           "2.7.0",
+		OutputDir:         outputDir,
+		ValuesFile:        "prod/values.yaml",
+		ReleaseName:       "nopsai-prod",
+		Namespace:         "nopsai-system",
+		ExistingSecret:    "nopsai-prod-secrets",
+		IngressHost:       "nopsai.example.com",
+		NopsaiAPIURL:      "http://nopsai-api.prod.svc:8080",
+		DispatcherAddress: "dispatcher.prod.svc:9090",
+		AAAAPIURL:         "http://aaa.prod.svc:8082",
+		GitBotAPIURL:      "http://git-bot.prod.svc:8081",
+		GotenbergURL:      "http://gotenberg.prod.svc:3000",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -142,10 +150,6 @@ func TestKubernetesValuesInstallPlanRendersEditableValues(t *testing.T) {
 	if err := WriteInstallPlan(plan, false); err != nil {
 		t.Fatal(err)
 	}
-	k8sRunnerRepository, k8sRunnerDigest, err := compatibility.SplitImageReference(manifest.Images["k8sRunner"])
-	if err != nil {
-		t.Fatal(err)
-	}
 	values, err := os.ReadFile(filepath.Join(outputDir, "prod", "values.yaml"))
 	if err != nil {
 		t.Fatal(err)
@@ -154,13 +158,69 @@ func TestKubernetesValuesInstallPlanRendersEditableValues(t *testing.T) {
 	for _, required := range []string{
 		`existingSecret: "nopsai-prod-secrets"`,
 		`host: "nopsai.example.com"`,
+		`nopsaiAPIURL: "http://nopsai-api.prod.svc:8080"`,
+		`dispatcherGRPCAddress: "dispatcher.prod.svc:9090"`,
+		`aaaAPIURL: "http://aaa.prod.svc:8082"`,
+		`gitBotAPIURL: "http://git-bot.prod.svc:8081"`,
+		`gotenbergURL: "http://gotenberg.prod.svc:3000"`,
 		`provider: kubernetes`,
-		`repository: "` + k8sRunnerRepository + `"`,
-		`digest: "` + k8sRunnerDigest + `"`,
+		`repository: "ghcr.io/hosein-yousefii/nopsai-k8s-runner"`,
+		`tag: "2.7.0"`,
+		`digest: ""`,
 	} {
 		if !strings.Contains(valuesText, required) {
 			t.Fatalf("values missing %q in:\n%s", required, valuesText)
 		}
+	}
+}
+
+func TestKubernetesInstallDeploysVersionedOCIChartAndWritesLock(t *testing.T) {
+	valuesPath := filepath.Join(t.TempDir(), "values.yaml")
+	if err := os.WriteFile(valuesPath, []byte("global:\n  releaseVersion: \"2.7.0\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lockPath := filepath.Join(t.TempDir(), ".nopsai", "release.lock")
+	var sawUpgrade bool
+	installer := Installer{
+		CLI: installCLIInfo("2.7.0"),
+		Runner: func(_ context.Context, name string, args []string, _, _ io.Writer) error {
+			if name != "helm" {
+				t.Fatalf("process = %s", name)
+			}
+			sawUpgrade = true
+			for _, required := range []string{"upgrade", "--install", "nopsai-prod", DefaultInstallChartReference, "--version", "2.7.0", "--namespace", "nopsai-system", "--values", valuesPath, "--create-namespace", "--wait"} {
+				if !containsInstallArgument(args, required) {
+					t.Fatalf("helm args missing %q in %#v", required, args)
+				}
+			}
+			return nil
+		},
+		Now: func() time.Time { return time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC) },
+	}
+	plan, err := installer.DeployKubernetesValues(context.Background(), KubernetesInstallDeployOptions{
+		Version:     "2.7.0",
+		ValuesFiles: []string{valuesPath},
+		ReleaseName: "nopsai-prod",
+		Namespace:   "nopsai-system",
+		Wait:        true,
+		LockFile:    lockPath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sawUpgrade || plan.ChartReference != DefaultInstallChartReference || plan.ChartVersion != "2.7.0" || !strings.HasPrefix(plan.ValuesHash, "sha256:") {
+		t.Fatalf("plan = %#v, sawUpgrade=%v", plan, sawUpgrade)
+	}
+	rawLock, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lock InstallDeploymentLock
+	if err := json.Unmarshal(rawLock, &lock); err != nil {
+		t.Fatal(err)
+	}
+	if lock.Target != "kubernetes" || lock.ChartReference != DefaultInstallChartReference || lock.Images["api"] != "ghcr.io/hosein-yousefii/nopsai-api:2.7.0" {
+		t.Fatalf("lock = %#v", lock)
 	}
 }
 
@@ -193,49 +253,21 @@ func TestWriteInstallPlanRefusesOverwriteWithoutForce(t *testing.T) {
 	}
 }
 
-func writeInstallManifestFixture(t *testing.T, capabilities []string) (string, compatibility.Manifest) {
-	t.Helper()
-	images := make(map[string]string, len(compatibility.RequiredPlatformImages))
-	for _, name := range compatibility.RequiredPlatformImages {
-		images[name] = "ghcr.io/example/nopsai-" + strings.ToLower(name) + "@" + testInstallSHA("a")
-	}
-	manifest := compatibility.Manifest{
-		SchemaVersion: "v1",
-		Version:       "2.7.0",
-		Chart: compatibility.ChartArtifact{
-			Reference: "oci://ghcr.io/example/charts/nopsai",
-			Version:   "2.7.0",
-			Digest:    testInstallSHA("b"),
-		},
-		Images:        images,
-		Compatibility: compatibility.ManifestCompatibility{CLI: ">=2.0.0 <3.0.0", API: "v1", RunnerProtocol: 1},
-		Database:      compatibility.DatabaseContract{MigrationVersion: 1, RollbackSafe: false, RollbackPolicy: "forward-only"},
-		Capabilities:  capabilities,
-	}
-	contents, err := compatibility.CanonicalJSON(manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(t.TempDir(), "release-manifest.json")
-	if err := os.WriteFile(path, contents, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	decoded, err := compatibility.DecodeManifest(bytes.NewReader(contents))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return path, decoded
-}
-
-func testInstallSHA(character string) string {
-	return "sha256:" + strings.Repeat(character, 64)
-}
-
 func installCLIInfo(version string) buildinfo.Info {
 	return buildinfo.Info{
 		Version:               version,
 		APIVersion:            "v1",
 		RunnerProtocolVersion: 1,
 		PlatformCompatibility: ">=2.0.0 <3.0.0",
+		Capabilities:          buildinfo.Current().Capabilities,
 	}
+}
+
+func containsInstallArgument(args []string, want string) bool {
+	for _, arg := range args {
+		if arg == want {
+			return true
+		}
+	}
+	return false
 }
