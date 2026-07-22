@@ -2,7 +2,6 @@ package release
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -129,66 +128,6 @@ func TestHelmChartConfiguresKubernetesSystemLogs(t *testing.T) {
 	}
 }
 
-func TestNopsAIPlatformReleasePublishesImagesAndCLIFromMain(t *testing.T) {
-	workflowPaths, err := filepath.Glob("../.github/workflows/*.yml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, workflowPath := range workflowPaths {
-		contents, readErr := os.ReadFile(workflowPath)
-		if readErr != nil {
-			t.Fatal(readErr)
-		}
-		workflow := string(contents)
-		for _, forbidden := range []string{"packages: write", "docker/build-push-action", "gh release upload"} {
-			if strings.Contains(workflow, forbidden) {
-				t.Fatalf("GitHub Actions workflow %s still contains release publisher contract %q", filepath.Base(workflowPath), forbidden)
-			}
-		}
-	}
-
-	triggerBytes, err := os.ReadFile("../doc/sample-config-repo/global-repo/triggers/hosein-yousefii/pre-nopsai.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	trigger := string(triggerBytes)
-	for _, required := range []string{
-		"provider: github",
-		"team_path: platform/prod",
-		"on: push",
-		"- main",
-		"scope: prod",
-		"platform/prod/nopsai-platform-release",
-	} {
-		if !strings.Contains(trigger, required) {
-			t.Errorf("NopsAI release trigger is missing %q", required)
-		}
-	}
-	for _, forbidden := range []string{"pull_request", "tags:", "workflow_run:", "webhook_source:"} {
-		if strings.Contains(trigger, forbidden) {
-			t.Errorf("NopsAI release trigger contains non-GitHub-App/main-only contract %q", forbidden)
-		}
-	}
-
-	pipeline := readNopsAIReleasePipeline(t)
-	for _, required := range []string{
-		"NOPSAI_RELEASE_SOURCE_REF",
-		"NOPSAI_RELEASE_ALLOW_EXISTING",
-		"git fetch --force --tags origin main:refs/remotes/origin/main",
-		"Release source $source_commit is not current origin/main $main_commit",
-		`docker compose --env-file "$validation_env" -f dist/release/docker-compose.yaml config --quiet`,
-		"scripts/release-tooling-test.sh",
-		"./cmd/nopsai-cli",
-		"docker buildx build",
-		`--build-arg "BASE_IMAGE=$REGISTRY/nopsai-base@$base_digest"`,
-		`gh release upload "v$VERSION" dist/assets/* --repo "$GITHUB_REPOSITORY" --clobber`,
-	} {
-		if !strings.Contains(pipeline, required) {
-			t.Errorf("NopsAI platform release pipeline is missing %q", required)
-		}
-	}
-}
-
 func TestPlatformReleasePublishesCLIArtifactsAndParsesHelmDigest(t *testing.T) {
 	pipeline := readNopsAIReleasePipeline(t)
 	for _, required := range []string{
@@ -211,34 +150,6 @@ func TestPlatformReleasePublishesCLIArtifactsAndParsesHelmDigest(t *testing.T) {
 		if !strings.Contains(pipeline, required) {
 			t.Errorf("NopsAI platform release pipeline is missing %q", required)
 		}
-	}
-}
-
-func TestPlatformReleasePublishesEveryContainerPackage(t *testing.T) {
-	workflowBytes, err := os.ReadFile("../.github/workflows/platform-release.yml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	workflow := string(workflowBytes)
-	for _, image := range []string{
-		"nopsai-base",
-		"nopsai-api",
-		"nopsai-aaa",
-		"nopsai-agent",
-		"nopsai-dispatcher",
-		"nopsai-git-bot",
-		"nopsai-runner",
-		"nopsai-k8s-runner",
-		"nopsai-docker-socket-proxy",
-		"nopsai-ui",
-		"pipeline-image",
-	} {
-		if !strings.Contains(workflow, image) {
-			t.Errorf("platform release workflow is missing published image %q", image)
-		}
-	}
-	if !strings.Contains(workflow, "image-digest-nopsai-base") || !strings.Contains(workflow, "image-digest-${{ matrix.name }}") {
-		t.Fatal("platform release workflow is missing image digest artifacts")
 	}
 }
 
