@@ -9,6 +9,7 @@ import (
 
 	"nopsai/pkg/proto"
 	"nopsai/pkg/serviceauth"
+	"nopsai/pkg/servicelog"
 	"nopsai/pkg/servicetls"
 
 	"google.golang.org/grpc"
@@ -111,6 +112,8 @@ func NewDispatcherClientFromEnv(lookup EnvLookup) (*grpc.ClientConn, proto.Dispa
 		cfg.Address,
 		grpc.WithTransportCredentials(transportCreds),
 		grpc.WithPerRPCCredentials(dispatcherCreds),
+		grpc.WithChainUnaryInterceptor(servicelog.GRPCUnaryClientInterceptor()),
+		grpc.WithChainStreamInterceptor(servicelog.GRPCStreamClientInterceptor()),
 	)
 	if err != nil {
 		return nil, nil, err

@@ -2,6 +2,8 @@ global:
   releaseVersion: dev
   sourceCommit: unknown
   environment: production
+  logLevel: info
+  logFormat: json
   imagePullSecrets: []
   podAnnotations: {}
   podLabels: {}

@@ -20,11 +20,10 @@ tools. Linux and macOS archives contain `nopsai`; Windows archives contain
 `nopsai.exe`. Asset names include the exact platform version, operating system,
 and architecture, and `SHA256SUMS` covers every published archive.
 
-macOS CLI binaries are built on a macOS runner, signed with a Developer ID
-Application certificate, and accepted by Apple's notarization service before
-publication. Gatekeeper assessment is part of the release job. This applies to
-new releases; an older unsigned archive is not retroactively notarized and
-should be replaced with a current release.
+macOS CLI binaries are built on a macOS runner and published as standalone
+archives. The repository includes `scripts/sign-notarize-macos-cli.sh` for a
+future signed/notarized publication path, but the default release workflow does
+not currently require Apple Developer credentials.
 
 ## Shell Completion
 
@@ -203,7 +202,53 @@ or version-range bump; released CLIs continue to rely on `/version`
 compatibility checks before mutating trigger, config-repository, or
 knowledge-context routes.
 
-## Platform Bundles
+## Install
+
+```bash
+# First-time wizard; choose Docker Compose or Kubernetes
+nopsai install
+
+# Automation shortcut for Docker Compose
+nopsai install docker-compose --run
+
+# Kubernetes values generation, then edit values and create the referenced Secret
+nopsai install kubernetes \
+  --output-dir ./nopsai-prod \
+  --values-file values.yaml \
+  --existing-secret nopsai-secrets
+
+# Deploy later from the stored, edited files
+cd ./nopsai-prod
+nopsai install kubernetes --output-dir . --values-file values.yaml --deploy --wait
+```
+
+Run `nopsai install` for the first-time wizard. The wizard asks for the install
+target and required runtime choices, then generates the files itself. It does
+not ask for release-manifest files in the normal path; those are resolved from
+the CLI release version.
+
+`install docker-compose` is the noninteractive shortcut. It resolves and
+verifies the release manifest, generates a deployment-only Compose file, `.env`
+with generated local secrets, embedded `db/init.sql`, the resolved
+`release-manifest.json`, and a non-secret `.nopsai/install.lock`. With `--run`
+it executes `docker compose --env-file .env -f docker-compose.yaml up -d`.
+Re-run with `--force` only when replacing generated files is intentional.
+
+`install kubernetes` generates editable Helm values and stores the same release
+manifest and non-secret install lock. The generated values reference
+`secrets.existingSecret`; create that Secret through External Secrets, SOPS,
+Sealed Secrets, or `kubectl` before deploying. Add `--deploy --wait` on the
+first command to deploy immediately, or run `nopsai install kubernetes --deploy`
+later from the stored output directory after editing values. Stored-file deploys
+reuse `release-manifest.json` and `values.yaml` without overwriting them, then
+write the GitOps release lock after success.
+
+Both install targets support advanced `--manifest` and
+`--manifest-digest sha256:...` flags for local/offline automation. Without
+`--version`, a released CLI defaults to its embedded release version;
+development builds prompt for a version in the wizard.
+
+## Advanced Platform Bundles
 
 ```bash
 # Plan only; renders digest-pinned Kubernetes YAML
@@ -219,20 +264,20 @@ nopsai platform release kubernetes --version 2.7.0 \
 nopsai platform release --interactive
 ```
 
-`platform release` is the deployment entry point. It always resolves and
-verifies the selected version before deployment. Without `--deploy` it runs a
-plan and prints the rendered manifests. With `--deploy` it runs the same
-verified plan and then performs `helm upgrade --install`, waiting when `--wait`
-is set. Interactive mode uses the shared 10-row live selector for deployment
-targets, prompts every Kubernetes option, shows the plan, and asks for
-deployment confirmation.
+`install` is the first-install entry point. `platform release` is the lower-level
+enterprise/GitOps primitive for CI jobs and advanced operators who already have
+release manifests and values files and want direct plan/render/deploy control.
+Without `--deploy` it runs a plan and prints the rendered manifests. With
+`--deploy` it runs the same verified plan and then performs
+`helm upgrade --install`, waiting when `--wait` is set.
 
-The platform release command requires an exact semantic version. It validates
-the manifest and CLI compatibility, verifies the downloaded OCI Helm chart
-package digest, and renders digest-pinned values for every platform image. Plan
-mode runs `helm template` and can emit text, JSON, or YAML. Deploy mode runs
-`helm upgrade --install` and writes `.nopsai/release.lock` atomically only after
-success.
+The platform release command resolves an exact semantic version; released CLIs
+default to their own build version, while development builds require
+`--version`. It validates the manifest and CLI compatibility, verifies the
+downloaded OCI Helm chart package digest, and renders digest-pinned values for
+every platform image. Plan mode runs `helm template` and can emit text, JSON, or
+YAML. Deploy mode runs `helm upgrade --install` and writes
+`.nopsai/release.lock` atomically only after success.
 Before deployment, an existing lock is checked for release identity, migration
 regressions, and forward-only downgrade restrictions. Keep the lock with the
 environment's GitOps state; older locks without rollback metadata are treated as

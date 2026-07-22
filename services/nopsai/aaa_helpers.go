@@ -9,6 +9,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"nopsai/pkg/correlation"
 	"nopsai/services/aaa/pkg/model"
 	"nopsai/services/nopsai/pkg/auth"
 )
@@ -123,12 +124,15 @@ func (a *App) currentAAASubject(r *http.Request) (model.Subject, bool) {
 }
 
 func (a *App) aaaRequestContext(r *http.Request) map[string]any {
-	requestID, _ := r.Context().Value(ctxKeyRequestID).(string)
-	return map[string]any{
-		"request_id": requestID,
+	values := map[string]any{
+		"request_id": requestIDFromContext(r.Context()),
 		"path":       r.URL.Path,
 		"method":     r.Method,
 	}
+	if traceparent := correlation.TraceparentFromContext(r.Context()); traceparent != "" {
+		values["traceparent"] = traceparent
+	}
+	return values
 }
 
 func (a *App) aaaAvailable() bool {

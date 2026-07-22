@@ -11,7 +11,20 @@ var runDispatchSchemaStatements = []string{
 	`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS parent_runner_id TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS parent_history TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS runtime_variable_overrides JSONB NOT NULL DEFAULT '{}'::jsonb`,
+	`ALTER TABLE pipeline_run_logs ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE pipeline_run_logs ADD COLUMN IF NOT EXISTS stream TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE pipeline_run_logs ADD COLUMN IF NOT EXISTS level TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE pipeline_run_logs ADD COLUMN IF NOT EXISTS step_name TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE pipeline_run_logs ADD COLUMN IF NOT EXISTS task_name TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE pipeline_run_logs ADD COLUMN IF NOT EXISTS runner_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE pipeline_run_logs ADD COLUMN IF NOT EXISTS request_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE pipeline_run_logs ADD COLUMN IF NOT EXISTS traceparent TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE pipeline_run_logs ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb`,
 	`CREATE INDEX IF NOT EXISTS idx_pipeline_runs_pending_recovery ON pipeline_runs(created_at) WHERE status = 'pending'`,
+	`CREATE INDEX IF NOT EXISTS idx_pipeline_run_logs_run_id_id ON pipeline_run_logs(run_id, id)`,
+	`CREATE INDEX IF NOT EXISTS idx_pipeline_run_logs_request_id ON pipeline_run_logs(request_id) WHERE request_id <> ''`,
+	`CREATE INDEX IF NOT EXISTS idx_pipeline_run_logs_source ON pipeline_run_logs(source) WHERE source <> ''`,
+	`CREATE INDEX IF NOT EXISTS idx_pipeline_run_logs_level ON pipeline_run_logs(level) WHERE level <> ''`,
 }
 
 func ensureRunDispatchSchema(ctx context.Context, db *pgxpool.Pool) error {

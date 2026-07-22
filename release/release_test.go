@@ -19,7 +19,7 @@ func TestCompatibilityContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if contract.CLIVersion != "2.7.0" || contract.RunnerProtocolVersion != 1 || !compatibility.HasCapability(contract.Capabilities, compatibility.CapabilityPlatformHelm) {
+	if contract.CLIVersion != "2.7.0" || contract.RunnerProtocolVersion != 1 || !compatibility.HasCapability(contract.Capabilities, compatibility.CapabilityPlatformHelm) || !compatibility.HasCapability(contract.Capabilities, compatibility.CapabilityPlatformCompose) {
 		t.Fatalf("contract = %#v", contract)
 	}
 }
@@ -49,7 +49,7 @@ func TestDeploymentTemplatesOwnEveryReleasedImage(t *testing.T) {
 			t.Errorf("release Compose template is missing %s image", required)
 		}
 	}
-	for _, required := range []string{"API", "AAA", "AGENT", "DISPATCHER", "GIT_BOT", "RUNNER", "K8S_RUNNER", "UI"} {
+	for _, required := range []string{"API", "AAA", "AGENT", "DISPATCHER", "GIT_BOT", "RUNNER", "K8S_RUNNER", "DOCKER_SOCKET_PROXY", "UI"} {
 		if !strings.Contains(values, "{{"+required+"_DIGEST}}") {
 			t.Errorf("Helm release values template is missing %s digest", required)
 		}
@@ -158,16 +158,21 @@ func TestOnlyPlatformReleasePublishesImagesAndCLIFromMain(t *testing.T) {
 	}
 	for _, required := range []string{
 		"branches: [main]",
+		"source_ref:",
+		"allow_existing_release:",
+		"release-validation:",
+		"scripts/release-tooling-test.sh",
 		"./cmd/nopsai-cli",
 		"docker/build-push-action",
 		"needs: [metadata, publish-base]",
 		"BASE_IMAGE=${{ needs.metadata.outputs.registry }}/nopsai-base@${{ needs.publish-base.outputs.digest }}",
+		`gh release upload "v$VERSION" dist/assets/* --clobber`,
 	} {
 		if !strings.Contains(platformWorkflow, required) {
 			t.Errorf("platform release workflow is missing %q", required)
 		}
 	}
-	for _, forbidden := range []string{"\n  pull_request:", "\n    tags:"} {
+	for _, forbidden := range []string{"\n  pull_request:", "\n    tags:", "workflow_run:"} {
 		if strings.Contains(platformWorkflow, forbidden) {
 			t.Errorf("platform release workflow contains non-main trigger %q", forbidden)
 		}
@@ -187,12 +192,46 @@ func TestPlatformReleasePublishesCLIArtifactsAndParsesHelmDigest(t *testing.T) {
 		"shopt -s nullglob",
 		"cli_assets=(dist/cli/*)",
 		"No CLI release artifacts were downloaded into dist/cli",
+		`helm push "dist/release/nopsai-$VERSION.tgz" "$chart_repository" 2>&1`,
 		`grep -Eo 'sha256:[a-f0-9]{64}'`,
+		`tail -1 || true`,
+		"checksum_files=(.env db/init.sql docker-compose.yaml",
+		"checksum_files+=(release-manifest.json)",
+		"release_manifest=missing packaging release assets without release-manifest.json",
 		`cp "${cli_assets[@]}" dist/assets/`,
+		"if [[ -f dist/release/release-manifest.json ]]",
 	} {
 		if !strings.Contains(workflow, required) {
 			t.Errorf("platform release workflow is missing %q", required)
 		}
+	}
+}
+
+func TestPlatformReleasePublishesEveryContainerPackage(t *testing.T) {
+	workflowBytes, err := os.ReadFile("../.github/workflows/platform-release.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := string(workflowBytes)
+	for _, image := range []string{
+		"nopsai-base",
+		"nopsai-api",
+		"nopsai-aaa",
+		"nopsai-agent",
+		"nopsai-dispatcher",
+		"nopsai-git-bot",
+		"nopsai-runner",
+		"nopsai-k8s-runner",
+		"nopsai-docker-socket-proxy",
+		"nopsai-ui",
+		"pipeline-image",
+	} {
+		if !strings.Contains(workflow, image) {
+			t.Errorf("platform release workflow is missing published image %q", image)
+		}
+	}
+	if !strings.Contains(workflow, "image-digest-nopsai-base") || !strings.Contains(workflow, "image-digest-${{ matrix.name }}") {
+		t.Fatal("platform release workflow is missing image digest artifacts")
 	}
 }
 

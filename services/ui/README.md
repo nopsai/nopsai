@@ -62,6 +62,6 @@ npm run test:e2e:live
 - `npm run test:e2e:live`: Deployed-stack Playwright smoke coverage without API mocks. Set `NOPS_UI_LIVE_BASE_URL`, `NOPS_UI_LIVE_USERNAME`, and `NOPS_UI_LIVE_PASSWORD`. Pipeline mutation additionally requires `NOPS_UI_LIVE_MUTATION=true` and a dedicated `NOPS_UI_LIVE_PIPELINE_ID`.
 - `npm run test:e2e:live:auth` and `npm run test:e2e:live:mutation`: focused commands used by the deployment workflow. CI fails closed when required credentials or the requested mutation fixture are missing.
 
-From the repository root, use `docker compose run --rm ui-test sh -c "npm ci && npm run lint && npm run test && npm run build"`, `docker compose run --rm ui-e2e`, and `docker compose run --rm ui-test sh -c "npm ci && npm run test:e2e:live"` for the containerized enterprise gates.
+Run UI gates directly from `services/ui`; Docker Compose is reserved for the install/runtime stack and build-only service images.
 
 `.github/workflows/ui-live-smoke.yml` is the GitOps-compatible deployed-stack gate. Configure the selected GitHub environment with `NOPS_UI_LIVE_BASE_URL` as an environment variable, `NOPS_UI_LIVE_USERNAME` and `NOPS_UI_LIVE_PASSWORD` as environment secrets, and `NOPS_UI_LIVE_PIPELINE_ID` as an environment secret when mutation smoke is enabled. The workflow can be dispatched manually or called by a deployment workflow after rollout; environment protection rules and concurrency prevent unreviewed or overlapping mutation runs.

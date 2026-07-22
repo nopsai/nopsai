@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"io"
 	"net/http"
@@ -27,6 +28,7 @@ type Dependencies struct {
 	RunCommand func(context.Context, string, ...string) error
 	RunProcess func(context.Context, string, []string, io.Writer, io.Writer) error
 	Getenv     func(string) string
+	Random     io.Reader
 	Version    string
 	BuildInfo  buildinfo.Info
 }
@@ -74,6 +76,7 @@ func NewRootCommand(dependencies Dependencies) *cobra.Command {
 	root.AddCommand(newLoginCommand(options))
 	root.AddCommand(newLogoutCommand(options))
 	root.AddCommand(newAPICommand(options))
+	root.AddCommand(newInstallCommand(options))
 	root.AddCommand(newPlatformCommand(options))
 	root.AddCommand(newCompletionCommand(root))
 	return root
@@ -188,6 +191,9 @@ func withDependencyDefaults(dependencies Dependencies) Dependencies {
 	}
 	if dependencies.Getenv == nil {
 		dependencies.Getenv = os.Getenv
+	}
+	if dependencies.Random == nil {
+		dependencies.Random = rand.Reader
 	}
 	if strings.TrimSpace(dependencies.BuildInfo.Version) == "" {
 		dependencies.BuildInfo = buildinfo.Current()

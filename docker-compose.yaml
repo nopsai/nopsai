@@ -6,10 +6,6 @@ networks:
 volumes:
   db:
     name: db
-  go-mod-cache:
-  go-build-cache:
-  ui-node-modules:
-  ui-dist:
 
 x-service-auth-env: &service-auth-env
   SERVICE_JWT_SIGNING_KEY: ${SERVICE_JWT_SIGNING_KEY:-local-dev-service-jwt-key-change-me-please-rotate}
@@ -18,6 +14,9 @@ x-local-topology-env: &local-topology-env
   NOPSAI_API_URL: http://nopsai:8080
   DISPATCHER_GRPC_ADDRESS: dispatcher:9090
   DOCKER_NETWORK_NAME: nopsai-net
+
+x-observability-env: &observability-env
+  NOPSAI_ENV: ${NOPSAI_ENV:-local}
 
 x-release-build-args: &release-build-args
   VERSION: ${NOPSAI_VERSION:-dev}
@@ -35,31 +34,6 @@ services:
       args:
         <<: *release-build-args
     entrypoint: 'true'
-
-  backend-test:
-    image: golang:1.26.5
-    working_dir: /workspace
-    command: ./scripts/test-backend.sh
-    volumes:
-      - .:/workspace
-      - go-mod-cache:/go/pkg/mod
-      - go-build-cache:/root/.cache/go-build
-
-  ui-test:
-    image: node:22-alpine
-    working_dir: /workspace/services/ui
-    command: sh -c "npm ci && npm run build"
-    volumes:
-      - .:/workspace
-      - ui-node-modules:/workspace/services/ui/node_modules
-      - ui-dist:/workspace/services/ui/dist
-
-  ui-e2e:
-    image: mcr.microsoft.com/playwright:v1.60.0-noble
-    working_dir: /workspace/services/ui
-    command: sh -c "npm ci && npm run test:e2e"
-    volumes:
-      - .:/workspace
 
   db:
     container_name: nopsai-db
@@ -108,7 +82,8 @@ services:
       base:
         condition: service_completed_successfully
     environment:
-      <<: [*service-auth-env, *local-topology-env]
+      <<: [*service-auth-env, *local-topology-env, *observability-env]
+      NOPSAI_SERVICE_NAME: nopsai
       DATABASE_URL: ${DATABASE_URL:-postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_db}
       GIT_BOT_API_URL: http://nopsai-git-bot:8081
       NOPSAI_MASTER_KEY: ${NOPSAI_MASTER_KEY:-4Ns627gVMolptxqC1tePPpOR3FFr04zi3Lk3iHuEV/g=}
@@ -131,7 +106,9 @@ services:
         <<: *release-build-args
     restart: always
     environment:
-      ALLOWED_CONTAINERS: nopsai,nopsai-aaa,nopsai-dispatcher,nopsai-git-bot,nopsai-ui,nopsai-docker-runner,nopsai-k8s-runner
+      <<: *observability-env
+      NOPSAI_SERVICE_NAME: docker-socket-proxy
+      ALLOWED_CONTAINERS: nopsai,nopsai-aaa,nopsai-dispatcher,nopsai-git-bot,nopsai-ui,nopsai-docker-runner,nopsai-k8s-runner,nopsai-docker-socket-proxy,nopsai-gotenberg,nopsai-db
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     read_only: true
@@ -181,6 +158,8 @@ services:
       db:
         condition: service_healthy
     environment:
+      <<: *observability-env
+      NOPSAI_SERVICE_NAME: aaa
       DATABASE_URL: ${DATABASE_URL:-postgres://nopsai_user:yoursecurepassword@nopsai-db:5432/nopsai_db}
       AAA_SHARED_INTERNAL_TOKEN: ${AAA_SHARED_INTERNAL_TOKEN:-local-dev-aaa-token-change-me-please-rotate}
     networks:
@@ -203,7 +182,8 @@ services:
     depends_on:
       - base
     environment:
-      <<: *service-auth-env
+      <<: [*service-auth-env, *observability-env]
+      NOPSAI_SERVICE_NAME: dispatcher
       NOPSAI_API_URL: http://nopsai:8080
     networks:
       - nopsai-net
@@ -226,7 +206,8 @@ services:
       - db
       - nopsai
     environment:
-      <<: *service-auth-env
+      <<: [*service-auth-env, *observability-env]
+      NOPSAI_SERVICE_NAME: git-bot
       GIT_BOT_LISTEN_ADDRESS: 0.0.0.0:8081
       NOPSAI_API_URL: http://nopsai:8080
     networks:
@@ -288,7 +269,8 @@ services:
     depends_on:
       - dispatcher
     environment:
-      <<: *service-auth-env
+      <<: [*service-auth-env, *observability-env]
+      NOPSAI_SERVICE_NAME: docker-runner
       DISPATCHER_GRPC_ADDRESS: dispatcher:9090
       DOCKER_NETWORK_NAME: nopsai-net
     networks:

@@ -87,7 +87,10 @@ spec:
           image: {{ include "nopsai.image" .Values.k8sRunner.image | quote }}
           imagePullPolicy: {{ .Values.k8sRunner.imagePullPolicy }}
           env:
+            - {name: NOPSAI_SERVICE_NAME, value: k8s-runner}
             - {name: NOPSAI_ENVIRONMENT, value: {{ .Values.global.environment | quote }}}
+            - {name: LOG_LEVEL, value: {{ .Values.global.logLevel | quote }}}
+            - {name: LOG_FORMAT, value: {{ .Values.global.logFormat | quote }}}
             - {name: RUNTIME, value: kubernetes}
             - {name: RUNNER_ID, value: {{ .Values.k8sRunner.runnerID | quote }}}
             - {name: RUNNER_SCOPES, value: {{ .Values.k8sRunner.scopes | quote }}}

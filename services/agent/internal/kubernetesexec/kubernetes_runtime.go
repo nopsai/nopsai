@@ -1,7 +1,6 @@
 package kubernetesexec
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -251,7 +250,7 @@ func (r *Runtime) CreateStepPod(ctx context.Context, req StepPodRequest) (string
 	return podName, nil
 }
 
-func (r *Runtime) ExecuteAction(ctx context.Context, podName string, action *proto.Action, runtimeVars []string, workingDirectory string) (string, string, int) {
+func (r *Runtime) ExecuteAction(ctx context.Context, podName string, action *proto.Action, runtimeVars []string, workingDirectory string, onLine executor.OutputLineHandler) (string, string, int) {
 	workingDirectory, err := normalizeKubernetesWorkingDirectory(workingDirectory)
 	if err != nil {
 		return "", err.Error(), 1
@@ -279,21 +278,24 @@ func (r *Runtime) ExecuteAction(ctx context.Context, podName string, action *pro
 			Stderr:    true,
 		}, scheme.ParameterCodec)
 
-	executor, err := remotecommand.NewSPDYExecutor(r.restConfig, "POST", execReq.URL())
+	spdyExecutor, err := remotecommand.NewSPDYExecutor(r.restConfig, "POST", execReq.URL())
 	if err != nil {
 		return "", fmt.Sprintf("failed to create kubernetes exec: %v", err), 1
 	}
 
-	var stdout, stderr bytes.Buffer
+	stdout := executor.NewOutputCapture(executor.OutputStreamStdout, onLine)
+	stderr := executor.NewOutputCapture(executor.OutputStreamStderr, onLine)
 	streamCtx := ctx
 	if streamCtx == nil {
 		streamCtx = context.Background()
 	}
-	err = executor.StreamWithContext(streamCtx, remotecommand.StreamOptions{
-		Stdout: &stdout,
-		Stderr: &stderr,
+	err = spdyExecutor.StreamWithContext(streamCtx, remotecommand.StreamOptions{
+		Stdout: stdout,
+		Stderr: stderr,
 		Tty:    false,
 	})
+	stdout.Flush()
+	stderr.Flush()
 	if err == nil {
 		return strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()), 0
 	}
@@ -304,7 +306,8 @@ func (r *Runtime) ExecuteAction(ctx context.Context, podName string, action *pro
 		exitCode = exitErr.ExitStatus()
 	}
 	if strings.TrimSpace(stderr.String()) == "" {
-		stderr.WriteString(err.Error())
+		_, _ = stderr.Write([]byte(err.Error()))
+		stderr.Flush()
 	}
 	return strings.TrimSpace(stdout.String()), strings.TrimSpace(stderr.String()), exitCode
 }

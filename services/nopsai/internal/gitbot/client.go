@@ -2,6 +2,7 @@ package gitbot
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"nopsai/pkg/correlation"
 	"nopsai/pkg/models"
 	"nopsai/pkg/serviceauth"
 )
@@ -432,7 +434,8 @@ func (c Client) postJSON(path string, payload interface{}) (*http.Response, erro
 	if client == nil {
 		client = http.DefaultClient
 	}
-	req, err := http.NewRequest(http.MethodPost, c.url(path), bytes.NewBuffer(body))
+	ctx, _ := correlation.EnsureRequestID(context.Background())
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(path), bytes.NewBuffer(body))
 	if err != nil {
 		return nil, err
 	}
@@ -445,6 +448,7 @@ func (c Client) postJSON(path string, payload interface{}) (*http.Response, erro
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
+	correlation.SetHTTPHeaders(ctx, req.Header)
 	return client.Do(req)
 }
 

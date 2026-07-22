@@ -9,12 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/yaml.v3"
 	appconfig "nopsai/config"
 	"nopsai/pkg/models"
 	"nopsai/pkg/servicelog"
-
-	"github.com/rs/zerolog"
-	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -83,8 +81,8 @@ func (e LoadError) Unwrap() error {
 	return e.Err
 }
 
-func ConfigureLogging(logFormat string) {
-	servicelog.ConfigureLevel(zerolog.TraceLevel, logFormat)
+func ConfigureLogging(logLevel, logFormat string) error {
+	return servicelog.Configure(logLevel, logFormat)
 }
 
 func LoadRuntimeConfig(lookup EnvLookup) (RuntimeConfig, []Warning, error) {

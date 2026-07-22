@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"nopsai/pkg/correlation"
 	"nopsai/pkg/serviceauth"
 	agentapp "nopsai/services/agent/internal/app"
 	"nopsai/services/agent/internal/approval"
@@ -19,6 +20,7 @@ import (
 )
 
 func nopsaiAgentRequest(ctx context.Context, method, endpoint string, payload any, out any) error {
+	ctx, _ = correlation.EnsureRequestID(ctx)
 	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("NOPSAI_API_URL")), "/")
 	if baseURL == "" {
 		return fmt.Errorf("NOPSAI_API_URL is not configured")
@@ -52,6 +54,7 @@ func nopsaiAgentRequest(ctx context.Context, method, endpoint string, payload an
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
+	correlation.SetHTTPHeaders(ctx, req.Header)
 	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

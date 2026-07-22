@@ -363,6 +363,7 @@ func buildAgentEnvironment(cfg config.Config, input agentEnvironmentInput) []str
 		fmt.Sprintf("%s=%s", mcpRegistryRuntimeEnv, base64.StdEncoding.EncodeToString(input.MCPRegistryJSON)),
 		fmt.Sprintf("NOPSAI_KNOWLEDGE_CONTEXTS=%s", input.KnowledgeContextsBase64),
 		fmt.Sprintf("NOPSAI_API_URL=%s", cfg.EffectiveNopsaiAPIURL()),
+		"NOPSAI_SERVICE_NAME=agent",
 		fmt.Sprintf("LOG_LEVEL=%s", cfg.LogLevel),
 		fmt.Sprintf("LOG_FORMAT=%s", cfg.LogFormat),
 		fmt.Sprintf("PIPELINE_DEFINITION=%s", base64.StdEncoding.EncodeToString(input.PipelineDefinition)),
@@ -420,7 +421,7 @@ func (a *App) appendRunLogs(ctx context.Context, runID string, lines ...string) 
 
 	dbBatch := &pgx.Batch{}
 	for _, line := range lines {
-		dbBatch.Queue("INSERT INTO pipeline_run_logs (run_id, line) VALUES ($1, $2)", runID, line)
+		dbBatch.Queue("INSERT INTO pipeline_run_logs (run_id, line, source, level) VALUES ($1, $2, $3, $4)", runID, line, "nopsai", "info")
 	}
 	if br := a.db.SendBatch(ctx, dbBatch); br != nil {
 		if err := br.Close(); err != nil {

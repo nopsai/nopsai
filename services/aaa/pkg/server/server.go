@@ -7,11 +7,11 @@ import (
 	"net/http"
 	"strings"
 
+	"nopsai/pkg/correlation"
+	"nopsai/pkg/servicelog"
 	"nopsai/services/aaa/pkg/authz"
 	"nopsai/services/aaa/pkg/model"
 	"nopsai/services/aaa/pkg/store"
-
-	"github.com/google/uuid"
 )
 
 const internalTokenHeader = "X-Internal-Token"
@@ -36,17 +36,17 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/v1/authz/batch-check", s.requireInternalToken(http.HandlerFunc(s.handleBatchCheck)))
 	mux.Handle("/v1/authz/filter", s.requireInternalToken(http.HandlerFunc(s.handleFilter)))
 	mux.Handle("/v1/audit/record", s.requireInternalToken(http.HandlerFunc(s.handleRecordAudit)))
-	return s.requestIDMiddleware(mux)
+	return servicelog.HTTPMiddleware(s.requestIDMiddleware(mux))
 }
 
 func (s *Server) requestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestID := strings.TrimSpace(r.Header.Get("X-Request-ID"))
-		if requestID == "" {
-			requestID = uuid.NewString()
+		ctx, requestID, traceparent := correlation.FromHTTPHeaders(r.Context(), r.Header)
+		w.Header().Set(correlation.RequestIDHeader, requestID)
+		if traceparent != "" {
+			w.Header().Set(correlation.TraceparentHeader, traceparent)
 		}
-		w.Header().Set("X-Request-ID", requestID)
-		ctx := context.WithValue(r.Context(), requestIDContextKey{}, requestID)
+		ctx = context.WithValue(ctx, requestIDContextKey{}, requestID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -190,7 +190,10 @@ func requestIDFromRequest(r *http.Request) string {
 	if requestID, _ := r.Context().Value(requestIDContextKey{}).(string); requestID != "" {
 		return requestID
 	}
-	return strings.TrimSpace(r.Header.Get("X-Request-ID"))
+	if requestID := correlation.RequestIDFromContext(r.Context()); requestID != "" {
+		return requestID
+	}
+	return strings.TrimSpace(r.Header.Get(correlation.RequestIDHeader))
 }
 
 func requestContext(r *http.Request, values map[string]any) map[string]any {
@@ -199,6 +202,9 @@ func requestContext(r *http.Request, values map[string]any) map[string]any {
 	}
 	if values["request_id"] == nil {
 		values["request_id"] = requestIDFromRequest(r)
+	}
+	if values["traceparent"] == nil {
+		values["traceparent"] = correlation.TraceparentFromContext(r.Context())
 	}
 	if values["path"] == nil {
 		values["path"] = r.URL.Path

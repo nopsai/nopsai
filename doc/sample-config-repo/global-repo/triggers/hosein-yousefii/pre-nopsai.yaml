@@ -1,0 +1,10 @@
+provider: github
+team_path: platform/prod
+management: nopsai
+triggers:
+  - on: push
+    branches:
+      - main
+    scope: prod
+    pipelines:
+      - platform/prod/nopsai-platform-release

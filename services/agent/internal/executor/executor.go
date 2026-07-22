@@ -15,10 +15,61 @@ import (
 	"nopsai/pkg/proto"
 )
 
+type OutputStream string
+
+const (
+	OutputStreamStdout OutputStream = "stdout"
+	OutputStreamStderr OutputStream = "stderr"
+)
+
+type OutputLineHandler func(OutputStream, string)
+
 type PreparedAction struct {
 	Command    string
 	Stdout     string
 	ReturnOnly bool
+}
+
+type OutputCapture struct {
+	stream  OutputStream
+	onLine  OutputLineHandler
+	full    bytes.Buffer
+	pending []byte
+}
+
+func NewOutputCapture(stream OutputStream, onLine OutputLineHandler) *OutputCapture {
+	return &OutputCapture{stream: stream, onLine: onLine}
+}
+
+func (w *OutputCapture) Write(payload []byte) (int, error) {
+	w.full.Write(payload)
+	if w.onLine != nil {
+		w.pending = append(w.pending, payload...)
+		for {
+			index := bytes.IndexByte(w.pending, '\n')
+			if index == -1 {
+				break
+			}
+			line := bytes.TrimSuffix(w.pending[:index], []byte{'\r'})
+			w.onLine(w.stream, string(line))
+			w.pending = w.pending[index+1:]
+		}
+	}
+	return len(payload), nil
+}
+
+func (w *OutputCapture) Flush() {
+	if w.onLine == nil || len(w.pending) == 0 {
+		w.pending = nil
+		return
+	}
+	line := bytes.TrimSuffix(w.pending, []byte{'\r'})
+	w.onLine(w.stream, string(line))
+	w.pending = nil
+}
+
+func (w *OutputCapture) String() string {
+	return w.full.String()
 }
 
 func ShellQuote(value string) string {
@@ -73,7 +124,7 @@ func PrepareAction(action *proto.Action, workingDirectory string) (PreparedActio
 	}
 }
 
-func ExecuteDockerAction(ctx context.Context, cli *client.Client, containerID string, action *proto.Action, runtimeVars []string, workingDirectory string) (string, string, int) {
+func ExecuteDockerAction(ctx context.Context, cli *client.Client, containerID string, action *proto.Action, runtimeVars []string, workingDirectory string, onLine OutputLineHandler) (string, string, int) {
 	resolvedWorkingDirectory, err := models.NormalizePipelineWorkingDirectory(workingDirectory)
 	if err != nil {
 		return "", err.Error(), 1
@@ -107,8 +158,11 @@ func ExecuteDockerAction(ctx context.Context, cli *client.Client, containerID st
 	}
 	defer resp.Close()
 
-	var stdout, stderr bytes.Buffer
-	_, err = stdcopy.StdCopy(&stdout, &stderr, resp.Reader)
+	stdout := NewOutputCapture(OutputStreamStdout, onLine)
+	stderr := NewOutputCapture(OutputStreamStderr, onLine)
+	_, err = stdcopy.StdCopy(stdout, stderr, resp.Reader)
+	stdout.Flush()
+	stderr.Flush()
 	if err != nil {
 		return "", fmt.Sprintf("failed to read output: %v", err), 1
 	}

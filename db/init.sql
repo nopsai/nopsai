@@ -602,10 +602,23 @@ CREATE TABLE pipeline_run_logs (
     id SERIAL PRIMARY KEY,
     run_id UUID NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
     timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    line TEXT NOT NULL
+    line TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT '',
+    stream TEXT NOT NULL DEFAULT '',
+    level TEXT NOT NULL DEFAULT '',
+    step_name TEXT NOT NULL DEFAULT '',
+    task_name TEXT NOT NULL DEFAULT '',
+    runner_id TEXT NOT NULL DEFAULT '',
+    request_id TEXT NOT NULL DEFAULT '',
+    traceparent TEXT NOT NULL DEFAULT '',
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
 CREATE INDEX idx_pipeline_run_logs_run_id ON pipeline_run_logs(run_id);
+CREATE INDEX idx_pipeline_run_logs_run_id_id ON pipeline_run_logs(run_id, id);
+CREATE INDEX idx_pipeline_run_logs_request_id ON pipeline_run_logs(request_id) WHERE request_id <> '';
+CREATE INDEX idx_pipeline_run_logs_source ON pipeline_run_logs(source) WHERE source <> '';
+CREATE INDEX idx_pipeline_run_logs_level ON pipeline_run_logs(level) WHERE level <> '';
 
 CREATE TABLE pipeline_run_knowledge_contexts (
     id BIGSERIAL PRIMARY KEY,

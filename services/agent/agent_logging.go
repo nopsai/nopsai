@@ -10,7 +10,7 @@ import (
 
 func agentLog(runID, pipeline string) *zerolog.Logger {
 	logger := log.With().
-		Str("runid", runID).
+		Str("run_id", runID).
 		Str("pipeline", pipeline).
 		Str("component", "agent").
 		Logger()
@@ -43,7 +43,7 @@ func splitPipelineIdentifier(identifier string) (string, string) {
 
 func stepLog(runID, pipeline, step, task string) *zerolog.Logger {
 	logger := log.With().
-		Str("runid", runID).
+		Str("run_id", runID).
 		Str("pipeline", pipeline).
 		Str("step", step)
 	if task != "" {

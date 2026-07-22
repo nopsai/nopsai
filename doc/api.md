@@ -1970,7 +1970,9 @@ curl -H "Authorization: Bearer $NOPSAI_TOKEN" \
 ```
 
 - The current UI refreshes run lists and details with REST polling.
-- The log modal polls the run logs endpoint with `since_line` to append new lines incrementally.
+- The log modal polls the run logs endpoint with `since_line` to append new lines incrementally; visible tabs poll on a live cadence and hidden tabs back off.
+- Run log entries always include `id`, `timestamp`, and `line`. Entries may also include structured `source`, `stream`, `level`, `step_name`, `task_name`, `runner_id`, `request_id`, `traceparent`, and `metadata` fields. Hosted MCP `nopsai.get_pipeline_run_logs` returns the same metadata when present.
+- The ingest path derives missing `level`, `step_name`, and `task_name` from structured log fields such as `output_level`, `level`, `step`, and `task`. Levels are normalized to `info`, `warn`, `error`, or `debug` for UI filtering.
 
 ---
 

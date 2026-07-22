@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"nopsai/config"
+	"nopsai/services/nopsai/internal/systemlogs"
 )
 
 func TestNewSystemLogBrokerRejectsDirectUnixSocket(t *testing.T) {
@@ -27,7 +28,7 @@ func TestNewSystemLogBrokerUsesUnavailableProviderWhenDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSources() error = %v", err)
 	}
-	if len(sources) != 7 || sources[0].Available || sources[0].State != "unavailable" {
+	if len(sources) != len(systemlogs.DefaultRegistry().Sources()) || sources[0].Available || sources[0].State != "unavailable" {
 		t.Fatalf("ListSources() = %#v", sources)
 	}
 }
@@ -42,7 +43,7 @@ func TestNewSystemLogBrokerUsesUnavailableProviderWhenEnabledWithoutProvider(t *
 	if err != nil {
 		t.Fatalf("ListSources() error = %v", err)
 	}
-	if len(sources) != 7 || sources[0].Available || sources[0].Status == "" {
+	if len(sources) != len(systemlogs.DefaultRegistry().Sources()) || sources[0].Available || sources[0].Status == "" {
 		t.Fatalf("ListSources() = %#v", sources)
 	}
 }

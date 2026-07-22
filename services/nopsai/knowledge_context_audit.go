@@ -38,7 +38,7 @@ func (a *App) auditKnowledgeContextSync(ctx context.Context, r *http.Request, de
 			entry.ActorEmail = claims.Email
 			entry.Provider = claims.Provider
 		}
-		if requestID, _ := r.Context().Value(ctxKeyRequestID).(string); strings.TrimSpace(requestID) != "" {
+		if requestID := requestIDFromContext(r.Context()); requestID != "" {
 			entry.Metadata["request_id"] = requestID
 		}
 	}
@@ -72,7 +72,7 @@ func (a *App) auditKnowledgeConnectionAction(ctx context.Context, r *http.Reques
 			entry.ActorEmail = claims.Email
 			entry.Provider = claims.Provider
 		}
-		if requestID, _ := r.Context().Value(ctxKeyRequestID).(string); strings.TrimSpace(requestID) != "" {
+		if requestID := requestIDFromContext(r.Context()); requestID != "" {
 			entry.Metadata["request_id"] = requestID
 		}
 	}
