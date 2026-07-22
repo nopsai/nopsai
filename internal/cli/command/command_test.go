@@ -299,6 +299,27 @@ func TestAPIInteractiveFieldsOnlyShowRelevantSteps(t *testing.T) {
 	}
 }
 
+func TestAPIRequestParameterMapFollowsWizardOrder(t *testing.T) {
+	route, ok := apicatalog.Find(http.MethodGet, "/internal/v1/runtime-config/{service}/watch")
+	if !ok {
+		t.Fatal("runtime-config watch route not found")
+	}
+	fields := apiRequestFields(route, apiRequestOptions{})
+	parameters := requestFieldParameterMap(fields)
+	want := []string{
+		"path: service",
+		"query: version",
+		"query: since_version",
+		"additional query values",
+		"response format",
+		"attach bearer token",
+		"send request",
+	}
+	if strings.Join(parameters, ",") != strings.Join(want, ",") {
+		t.Fatalf("parameter map = %#v; want %#v", parameters, want)
+	}
+}
+
 func TestAPIResponseScreenPrettyPrintsJSON(t *testing.T) {
 	route, ok := apicatalog.Find(http.MethodGet, "/v1/access/teams")
 	if !ok {
@@ -619,6 +640,81 @@ func TestRootInteractiveHomeShowsContextSessionAndHealth(t *testing.T) {
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("interactive home missing %q in:\n%s", want, output)
+		}
+	}
+}
+
+func TestRootInteractiveHomeExposesCurrentCLISurface(t *testing.T) {
+	labels := make([]string, 0, len(homeChoices()))
+	for _, choice := range homeChoices() {
+		labels = append(labels, choice.Label)
+	}
+	want := []string{"api", "contexts", "authentication", "install", "platform", "completion", "guide", "help", "exit"}
+	if strings.Join(labels, ",") != strings.Join(want, ",") {
+		t.Fatalf("home choices = %#v", labels)
+	}
+}
+
+func TestRootInteractiveRawAPIRequestUsesTransportOptions(t *testing.T) {
+	var gotAuthorization, gotTrace, gotContentType, gotAccept, gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/echo" {
+			switch r.URL.Path {
+			case "/healthz":
+				_, _ = w.Write([]byte("ok"))
+			case "/version":
+				_ = json.NewEncoder(w).Encode(map[string]string{"product_version": "2.7.0", "api_version": "v1"})
+			case "/v1/setup/preflight":
+				_, _ = w.Write([]byte(`{"ready":true,"mode":"ready"}`))
+			case "/v1/auth/me":
+				_, _ = w.Write([]byte(`{"email":"operator@example.com"}`))
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+			return
+		}
+		gotAuthorization = r.Header.Get("Authorization")
+		gotTrace = r.Header.Get("X-Trace")
+		gotContentType = r.Header.Get("Content-Type")
+		gotAccept = r.Header.Get("Accept")
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		if r.Method != http.MethodGet {
+			t.Errorf("request = %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("X-Result", "ok")
+		_, _ = w.Write([]byte("pong"))
+	}))
+	defer server.Close()
+
+	dependencies := testDependencies(server.Client(), map[string]string{"NOPSAI_TOKEN": "should-not-send"})
+	dependencies.In = strings.NewReader(strings.Join([]string{
+		"payload", "1", // home -> api
+		"header", "1", // api -> raw request
+		"", // method default GET
+		"/echo",
+		"", // body file
+		"hello",
+		"X-Trace: request-1",
+		"text/plain",
+		"text/plain",
+		"",  // output file
+		"n", // do not attach bearer token
+		"y", // show headers
+		"y", // send
+		"back", "1",
+		"exit", "1",
+	}, "\n") + "\n")
+	output, err := executeCommand(dependencies, "--api", server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuthorization != "" || gotTrace != "request-1" || gotContentType != "text/plain" || gotAccept != "text/plain" || gotBody != "hello" {
+		t.Fatalf("transport = auth %q trace %q content-type %q accept %q body %q", gotAuthorization, gotTrace, gotContentType, gotAccept, gotBody)
+	}
+	for _, want := range []string{"Status: ok", "HTTP/1.1 200 OK", "X-Result: ok", "pong"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("interactive raw request missing %q in:\n%s", want, output)
 		}
 	}
 }

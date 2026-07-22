@@ -3292,13 +3292,13 @@ const baseWikiSections: WikiSectionInput[] = [
           'The CLI rejects credential files with broader permissions.',
           'platform doctor checks local tools, API readiness, setup preflight, metrics, token acceptance, dispatcher monitoring, and runner count.',
           'The generated route catalog grants discovery only. api call and api request still traverse bearer authentication, route authorization, resource filtering, and compatibility checks.',
-          'Interactive form screens keep the ordered steps and parameters on the left, show selected values, details, guidance, examples, and validation on the right, and keep route, session, progress, completed count, and missing input visible in the top status area.',
+          'Interactive screens use the Contextual Zen terminal layout across the full CLI surface: fixed home-style header/footer chrome, centered control, breadcrumb above nested menus, fixed 20-row menu viewport for large lists, pinned guide/details section beneath the menu, inline Parameters progress lists on parameter-entry screens in wizard order, cursor-style empty active values, API catalog calls, raw API requests, route discovery, context management, token login/logout, install, platform doctor/release, completion, guides, and help.',
           'Released CLIs check GET /version before mutating API requests. Development builds keep a deliberate bypass until release metadata is injected.',
         ],
         details: [
           'Optional missing local tools and missing dispatcher-read permission are warnings. API readiness, connectivity, malformed responses, metrics failures, and rejected tokens are errors.',
           'The CLI preserves binary downloads, streaming responses, YAML, JSON, and raw response bytes without implementing a separate API behavior layer.',
-          'Interactive api call shows only relevant request steps, labels response media negotiation as Response format (HTTP Accept), supports multiline query assignments and payload editing, and pretty-prints JSON responses in request/result sections.',
+          'Interactive API workflows cover catalog calls, raw concrete-path requests, route filters, and route descriptions while reusing the same transport, AAA, compatibility, and output-file behavior as noninteractive commands.',
           'Shell completion is generated explicitly and does not silently modify shell startup files.',
         ],
         configRows: [
@@ -3336,7 +3336,7 @@ const baseWikiSections: WikiSectionInput[] = [
             title: 'Completion and release operations',
             language: 'bash',
             code:
-              'nopsai completion zsh --output-dir ./completion\n\nnopsai install kubernetes --version 2.10.648 \\\n  --output-dir ./nopsai-prod \\\n  --values-file values.yaml',
+              'nopsai completion zsh --output-dir ./completion\nnopsai platform release --interactive\n\nnopsai install kubernetes --version 2.10.648 \\\n  --output-dir ./nopsai-prod \\\n  --values-file values.yaml',
             complete: false,
             testedIn: DEFAULT_VERIFIED_DATE,
           },
