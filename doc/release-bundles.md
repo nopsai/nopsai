@@ -82,7 +82,7 @@ manifest contains:
 The parser rejects unknown fields, floating image tags, absent services,
 invalid compatibility ranges, mismatched chart versions, and undeclared
 migration policy. The optional manifest digest supplied to the CLI is checked
-against the downloaded bytes before parsing.
+against the resolved bytes before parsing.
 
 The container workflow also creates `release-index.json`. This is the image,
 CLI, and Helm artifact lock for one commit-count release. It records the chart
@@ -90,20 +90,12 @@ package checksum plus the OCI chart reference, version, and registry digest.
 
 ## Automated Publication
 
-<<<<<<< Updated upstream
-`.github/workflows/platform-release.yml` runs on every push to `main` and can
-also be dispatched manually for a specific `source_ref`. The workflow validates
-the release package contracts before publication, calculates the commit-count
-version from `release/version.txt`, and skips an existing version tag unless the
-manual `allow_existing_release` recovery input is enabled.
-=======
 `doc/sample-config-repo/global-repo/triggers/hosein-yousefii/pre-nopsai.yaml`
 starts the GitOps-managed `platform/prod/nopsai-platform-release` NopsAI
 pipeline on GitHub App `push` events to `main`. The pipeline validates the
 release package contracts before publication, calculates the commit-count
 version from `release/version.txt`, and skips an existing version tag unless
 `NOPSAI_RELEASE_ALLOW_EXISTING=true` enables recovery mode.
->>>>>>> Stashed changes
 
 Each successful release publishes:
 
@@ -119,19 +111,17 @@ Each successful release publishes:
 - the same Helm chart published to `oci://ghcr.io/<owner>/charts/nopsai`
 - one deployment bundle whose `.env`, Compose file, Helm package, and image
   index all identify the same version and source commit
-- a standalone CLI that embeds install templates and defaults to the same
-  version when resolving manifests
+- standalone CLI archives that embed install templates, the exact
+  `release-manifest.json`, and the manifest digest for their own version
 
-<<<<<<< Updated upstream
-Darwin CLI matrix entries run on `macos-14`. The release imports an Apple
-Developer ID Application certificate into an ephemeral keychain, applies a
-hardened-runtime timestamped signature, notarizes the ZIP with an App Store
-Connect API key, and runs a Gatekeeper assessment before uploading the asset.
-The keychain and decoded credentials are deleted before the job ends.
+The release pipeline renders the digest-pinned manifest before compiling the
+standalone CLI archives. The CLI build links the manifest bytes into the binary
+and injects the same digest into build metadata. Default `nopsai install` and
+`nopsai platform release` flows therefore generate Compose, env, values,
+manifest, and lock files without downloading the manifest from GitHub. Explicit
+`--manifest` values and `NOPSAI_RELEASE_MANIFEST_URL_TEMPLATE` remain available
+for controlled internal registries and recovery workflows.
 
-Configure these encrypted GitHub Actions secrets before enabling main-branch
-publication:
-=======
 The current publication pipeline cross-compiles standalone Darwin binaries as
 release assets; macOS signing and notarization are available through
 `scripts/sign-notarize-macos-cli.sh` but are not wired into the default package
@@ -150,18 +140,6 @@ Release asset upload, rerun `platform/prod/nopsai-platform-release` for the same
 pipeline verifies that the existing version tag points to the same source
 commit, republishes the OCI images and Helm chart, and replaces GitHub Release
 assets with `--clobber`.
->>>>>>> Stashed changes
-
-- `APPLE_DEVELOPER_ID_P12_BASE64`: base64-encoded Developer ID Application P12
-- `APPLE_DEVELOPER_ID_P12_PASSWORD`: password protecting the P12
-- `APPLE_DEVELOPER_ID_IDENTITY`: full signing identity, including Team ID
-- `APPLE_NOTARY_KEY_P8_BASE64`: base64-encoded App Store Connect API private key
-- `APPLE_NOTARY_KEY_ID`: App Store Connect API key ID
-- `APPLE_NOTARY_ISSUER_ID`: App Store Connect API issuer ID
-
-Missing or rejected Apple credentials fail the Darwin matrix jobs and prevent
-the unified release from being published. They never fall back to an unsigned
-CLI artifact.
 
 `scripts/generate-changelog.sh` teams commits since the most recent semantic
 version tag into breaking, added, fixed, and changed sections. The generated
@@ -204,9 +182,11 @@ nopsai platform release kubernetes \
   --deploy --wait
 ```
 
-Without `--manifest`, released CLIs resolve `release-manifest.json` from the
-configured release URL template. `NOPSAI_RELEASE_MANIFEST_URL_TEMPLATE` can
-point GitOps automation at an internal HTTPS artifact repository.
+Without `--manifest`, standalone released CLIs use their embedded
+`release-manifest.json` for the same release version. Set
+`NOPSAI_RELEASE_MANIFEST_URL_TEMPLATE` only when GitOps automation should
+intentionally resolve manifests from a trusted internal HTTPS artifact
+repository.
 
 `nopsai install` is the shortest first-install path. It opens a wizard, lets the
 operator choose Docker Compose or Kubernetes, resolves the same manifest from

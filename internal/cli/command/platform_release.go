@@ -227,13 +227,10 @@ func kubernetesDeployer(root *rootOptions, command *cobra.Command) platform.Kube
 		httpClient = &http.Client{Timeout: root.timeout}
 	}
 	return platform.KubernetesDeployer{
-		Resolver: platform.ManifestResolver{
-			HTTPClient:  httpClient,
-			URLTemplate: strings.TrimSpace(root.dependencies.Getenv("NOPSAI_RELEASE_MANIFEST_URL_TEMPLATE")),
-		},
-		Runner: root.dependencies.RunProcess,
-		CLI:    root.dependencies.BuildInfo,
-		Stderr: command.ErrOrStderr(),
+		Resolver: releaseManifestResolver(root, httpClient),
+		Runner:   root.dependencies.RunProcess,
+		CLI:      root.dependencies.BuildInfo,
+		Stderr:   command.ErrOrStderr(),
 	}
 }
 

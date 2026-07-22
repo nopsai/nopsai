@@ -481,10 +481,7 @@ func installPlanner(root *rootOptions, command *cobra.Command) platform.Installe
 		httpClient = &http.Client{Timeout: root.timeout}
 	}
 	return platform.Installer{
-		Resolver: platform.ManifestResolver{
-			HTTPClient:  httpClient,
-			URLTemplate: strings.TrimSpace(root.dependencies.Getenv("NOPSAI_RELEASE_MANIFEST_URL_TEMPLATE")),
-		},
+		Resolver:     releaseManifestResolver(root, httpClient),
 		Runner:       root.dependencies.RunProcess,
 		CLI:          root.dependencies.BuildInfo,
 		RandomReader: root.dependencies.Random,

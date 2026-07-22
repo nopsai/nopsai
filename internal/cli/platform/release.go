@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -22,20 +23,27 @@ import (
 )
 
 const (
-	DefaultManifestURLTemplate = "https://github.com/hosein-yousefii/pre-nopsai/releases/download/v%s/release-manifest.json"
-	DefaultReleaseName         = "nopsai"
-	DefaultNamespace           = "nopsai"
-	DefaultLockFile            = ".nopsai/release.lock"
-	maxManifestBytes           = 2 << 20
-	maxValuesFileBytes         = 10 << 20
-	maxReleaseLockBytes        = 1 << 20
+	EmbeddedManifestSource = "embedded:release-manifest.json"
+	DefaultReleaseName     = "nopsai"
+	DefaultNamespace       = "nopsai"
+	DefaultLockFile        = ".nopsai/release.lock"
+	maxManifestBytes       = 2 << 20
+	maxValuesFileBytes     = 10 << 20
+	maxReleaseLockBytes    = 1 << 20
 )
 
 type ProcessRunner = func(ctx context.Context, name string, args []string, stdout, stderr io.Writer) error
 
+// EmbeddedReleaseManifestBase64 is a release-linker input for standalone CLI
+// archives. It carries the digest-pinned manifest that matches the CLI version.
+var EmbeddedReleaseManifestBase64 = ""
+
 type ManifestResolver struct {
-	HTTPClient  *http.Client
-	URLTemplate string
+	HTTPClient            *http.Client
+	URLTemplate           string
+	AuthToken             string
+	AuthTokenHostSuffixes []string
+	EmbeddedManifest      []byte
 }
 
 type ResolvedManifest struct {
@@ -43,6 +51,19 @@ type ResolvedManifest struct {
 	Source   string
 	Digest   string
 	Raw      []byte
+}
+
+type ManifestHTTPError struct {
+	Source     string
+	StatusCode int
+}
+
+func (e *ManifestHTTPError) Error() string {
+	status := http.StatusText(e.StatusCode)
+	if status == "" {
+		return fmt.Sprintf("download release manifest from %s: HTTP %d", e.Source, e.StatusCode)
+	}
+	return fmt.Sprintf("download release manifest from %s: HTTP %d %s", e.Source, e.StatusCode, status)
 }
 
 type KubernetesOptions struct {
@@ -111,19 +132,32 @@ func (r ManifestResolver) Resolve(ctx context.Context, version, source, expected
 	}
 	version = parsedVersion.String()
 	source = strings.TrimSpace(source)
+	var raw []byte
 	if source == "" {
 		template := strings.TrimSpace(r.URLTemplate)
-		if template == "" {
-			template = DefaultManifestURLTemplate
+		if template != "" {
+			if strings.Count(template, "%s") != 1 {
+				return ResolvedManifest{}, errors.New("release manifest URL template must contain exactly one %s placeholder")
+			}
+			source = fmt.Sprintf(template, version)
+		} else {
+			embedded, ok, err := r.embeddedManifest()
+			if err != nil {
+				return ResolvedManifest{}, err
+			}
+			if !ok {
+				return ResolvedManifest{}, errors.New("release manifest is required when no embedded manifest or URL template is configured")
+			}
+			source = EmbeddedManifestSource
+			raw = embedded
 		}
-		if strings.Count(template, "%s") != 1 {
-			return ResolvedManifest{}, errors.New("release manifest URL template must contain exactly one %s placeholder")
-		}
-		source = fmt.Sprintf(template, version)
 	}
-	raw, err := r.read(ctx, source)
-	if err != nil {
-		return ResolvedManifest{}, err
+	if raw == nil {
+		var err error
+		raw, err = r.read(ctx, source)
+		if err != nil {
+			return ResolvedManifest{}, err
+		}
 	}
 	digest := compatibility.DigestBytes(raw)
 	if expected := strings.TrimSpace(expectedDigest); expected != "" {
@@ -142,6 +176,30 @@ func (r ManifestResolver) Resolve(ctx context.Context, version, source, expected
 		return ResolvedManifest{}, fmt.Errorf("manifest version %s does not match requested version %s", manifest.Version, version)
 	}
 	return ResolvedManifest{Manifest: manifest, Source: source, Digest: digest, Raw: raw}, nil
+}
+
+func (r ManifestResolver) embeddedManifest() ([]byte, bool, error) {
+	if len(bytes.TrimSpace(r.EmbeddedManifest)) > 0 {
+		if len(r.EmbeddedManifest) > maxManifestBytes {
+			return nil, false, errors.New("embedded release manifest exceeds 2 MiB")
+		}
+		return append([]byte(nil), r.EmbeddedManifest...), true, nil
+	}
+	encoded := strings.TrimSpace(EmbeddedReleaseManifestBase64)
+	if encoded == "" {
+		return nil, false, nil
+	}
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, false, fmt.Errorf("decode embedded release manifest: %w", err)
+	}
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil, false, nil
+	}
+	if len(raw) > maxManifestBytes {
+		return nil, false, errors.New("embedded release manifest exceeds 2 MiB")
+	}
+	return raw, true, nil
 }
 
 func (r ManifestResolver) read(ctx context.Context, source string) ([]byte, error) {
@@ -167,6 +225,9 @@ func (r ManifestResolver) read(ctx context.Context, source string) ([]byte, erro
 		return nil, fmt.Errorf("build release manifest request: %w", err)
 	}
 	request.Header.Set("Accept", "application/json")
+	if token := r.authTokenForHost(parsed.Hostname()); token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
 	client := r.HTTPClient
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
@@ -178,7 +239,7 @@ func (r ManifestResolver) read(ctx context.Context, source string) ([]byte, erro
 	}
 	defer response.Body.Close()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("download release manifest: HTTP %d", response.StatusCode)
+		return nil, &ManifestHTTPError{Source: parsed.String(), StatusCode: response.StatusCode}
 	}
 	contents, err := io.ReadAll(io.LimitReader(response.Body, maxManifestBytes+1))
 	if err != nil {
@@ -188,6 +249,30 @@ func (r ManifestResolver) read(ctx context.Context, source string) ([]byte, erro
 		return nil, errors.New("release manifest exceeds 2 MiB")
 	}
 	return contents, nil
+}
+
+func (r ManifestResolver) authTokenForHost(host string) string {
+	token := strings.TrimSpace(r.AuthToken)
+	if token == "" {
+		return ""
+	}
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" {
+		return ""
+	}
+	if len(r.AuthTokenHostSuffixes) == 0 {
+		return token
+	}
+	for _, suffix := range r.AuthTokenHostSuffixes {
+		suffix = strings.ToLower(strings.TrimSpace(suffix))
+		if suffix == "" {
+			continue
+		}
+		if host == suffix || strings.HasSuffix(host, "."+suffix) {
+			return token
+		}
+	}
+	return ""
 }
 
 func httpsOnlyClient(client *http.Client) *http.Client {
@@ -362,13 +447,13 @@ func validateDeploymentTransition(lockPath string, next DeploymentPlan) error {
 }
 
 func (d KubernetesDeployer) prepare(ctx context.Context, options KubernetesOptions) (*preparedRelease, error) {
-	resolved, err := d.Resolver.Resolve(ctx, options.Version, options.ManifestSource, options.ExpectedManifestDigest)
-	if err != nil {
-		return nil, err
-	}
 	cli := d.CLI
 	if strings.TrimSpace(cli.Version) == "" {
 		cli = buildinfo.Current()
+	}
+	resolved, err := d.Resolver.Resolve(ctx, options.Version, options.ManifestSource, defaultReleaseManifestDigest(options.ManifestSource, options.ExpectedManifestDigest, cli))
+	if err != nil {
+		return nil, err
 	}
 	if err := compatibility.ValidateManifestForCLI(resolved.Manifest, cli); err != nil {
 		return nil, fmt.Errorf("release compatibility check failed: %w", err)

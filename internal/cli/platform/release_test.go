@@ -1,12 +1,15 @@
 package platform
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -36,6 +39,99 @@ func TestManifestResolverLoadsAndVerifiesLocalManifest(t *testing.T) {
 	}
 	if _, err := resolver.Resolve(context.Background(), "2.7.0", "http://example.com/manifest.json", ""); err == nil {
 		t.Fatal("insecure remote manifest succeeded")
+	}
+}
+
+func TestManifestResolverLoadsEmbeddedManifestByDefault(t *testing.T) {
+	_, raw, _ := writeReleaseFixture(t, []byte("chart"))
+	resolver := ManifestResolver{EmbeddedManifest: raw}
+	resolved, err := resolver.Resolve(context.Background(), "2.7.0", "", compatibility.DigestBytes(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Source != EmbeddedManifestSource || !bytes.Equal(resolved.Raw, raw) || resolved.Digest != compatibility.DigestBytes(raw) {
+		t.Fatalf("resolved embedded manifest = %#v", resolved)
+	}
+}
+
+func TestManifestResolverLoadsReleaseLinkedEmbeddedManifest(t *testing.T) {
+	_, raw, _ := writeReleaseFixture(t, []byte("chart"))
+	previous := EmbeddedReleaseManifestBase64
+	EmbeddedReleaseManifestBase64 = base64.StdEncoding.EncodeToString(raw)
+	defer func() { EmbeddedReleaseManifestBase64 = previous }()
+
+	resolved, err := (ManifestResolver{}).Resolve(context.Background(), "2.7.0", "", compatibility.DigestBytes(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Source != EmbeddedManifestSource || !bytes.Equal(resolved.Raw, raw) {
+		t.Fatalf("resolved linked manifest = %#v", resolved)
+	}
+}
+
+func TestManifestResolverRequiresExplicitManifestWhenNoDefaultExists(t *testing.T) {
+	_, err := (ManifestResolver{}).Resolve(context.Background(), "2.7.0", "", "")
+	if err == nil || !strings.Contains(err.Error(), "release manifest is required") {
+		t.Fatalf("missing manifest error = %v", err)
+	}
+}
+
+func TestManifestResolverUsesConfiguredURLTemplate(t *testing.T) {
+	_, raw, _ := writeReleaseFixture(t, []byte("chart"))
+	secure := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v2.7.0/release-manifest.json" {
+			t.Fatalf("request path = %s", request.URL.Path)
+		}
+		_, _ = writer.Write(raw)
+	}))
+	defer secure.Close()
+
+	resolver := ManifestResolver{HTTPClient: secure.Client(), URLTemplate: secure.URL + "/v%s/release-manifest.json"}
+	resolved, err := resolver.Resolve(context.Background(), "2.7.0", "", compatibility.DigestBytes(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Source != secure.URL+"/v2.7.0/release-manifest.json" {
+		t.Fatalf("source = %q", resolved.Source)
+	}
+}
+
+func TestManifestResolverSendsScopedManifestToken(t *testing.T) {
+	_, raw, _ := writeReleaseFixture(t, []byte("chart"))
+	var sawToken bool
+	secure := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") == "Bearer manifest-token" {
+			sawToken = true
+		}
+		_, _ = writer.Write(raw)
+	}))
+	defer secure.Close()
+	parsedURL, err := url.Parse(secure.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resolver := ManifestResolver{
+		HTTPClient:            secure.Client(),
+		AuthToken:             "manifest-token",
+		AuthTokenHostSuffixes: []string{parsedURL.Hostname()},
+	}
+	if _, err := resolver.Resolve(context.Background(), "2.7.0", secure.URL, compatibility.DigestBytes(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if !sawToken {
+		t.Fatal("remote manifest request did not include scoped token")
+	}
+}
+
+func TestManifestResolverReportsRemoteHTTPStatus(t *testing.T) {
+	secure := httptest.NewTLSServer(http.NotFoundHandler())
+	defer secure.Close()
+
+	_, err := (ManifestResolver{HTTPClient: secure.Client()}).Resolve(context.Background(), "2.7.0", secure.URL, "")
+	var httpErr *ManifestHTTPError
+	if !errors.As(err, &httpErr) || httpErr.StatusCode != http.StatusNotFound || httpErr.Source != secure.URL {
+		t.Fatalf("HTTP status error = %#v, %v", httpErr, err)
 	}
 }
 
